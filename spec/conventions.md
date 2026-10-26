@@ -8,7 +8,10 @@ convention per source format, each specified in `zarrify/<format>.md` next to
 its JSON Schema `zarrify/<format>/schema.json`. (Changed 2026-10-25: the property is
 `refkv_zarrified`, in place of `refkv_virtualized`, [§2](#2-attributes). Changed 2026-10-26,
 with no change to any output: the shared types are defined in type tables, and each format's
-document tabulates its layout, as [§11.5](#115-layout-tables) says.)
+document tabulates its layout, as [§11.5](#115-layout-tables) says; the mirror's
+`ir/shared/data` is said to be absent when the shared sources total no byte, as refkv already
+wrote it ([§8.2](#82-the-table)); and each convention's JSON Schema requires every member of its
+CMO ([§1](#1-conventions)).)
 
 <!-- profiles:conventions-table -->
 | format | convention | UUID |
@@ -721,8 +724,8 @@ The store conventions say when they have the last two members, and their content
 | `refkv_source/ir/tables/zarr.json` | array | [`TableArray`](#type-tablearray): `int64`, `[k, 7]`, chunks `[min(k, 18724), 7]`, dimensions `index`, `part` | the tables |
 | `refkv_source/ir/shared/zarr.json` | group | [`GroupDocument`](#type-groupdocument), attributes `{}` | when the IR has shared data sources |
 | `refkv_source/ir/shared/offsets/zarr.json` | array | [`TableArray`](#type-tablearray): `int64`, `[s + 1]`, chunks of at most 131072 values, dimension `index` | where each shared data source starts in `data`, then the total |
-| `refkv_source/ir/shared/data/zarr.json` | array | [`TableArray`](#type-tablearray): `uint8`, chunks of at most 1048576 values, dimension `index` | the shared data sources, one after another |
-| `refkv_source/ir/held/**` | group, arrays | as `ir/shared/**` | a store IR's held objects, one byte string each ([§8.9](#89-stores)) |
+| `refkv_source/ir/shared/data/zarr.json` | array | [`TableArray`](#type-tablearray): `uint8`, chunks of at most 1048576 values, dimension `index` | the shared data sources, one after another; present only when they total at least one byte |
+| `refkv_source/ir/held/**` | group, arrays | as `ir/shared/**`, but `data` is present whatever the total | a store IR's held objects, one byte string each ([§8.9](#89-stores)) |
 | `refkv_source/ir/*/c/**` | chunk | the array's values, little-endian, edge chunks padded with zeros | copied bytes |
 | `refkv_source/tree/zarr.json` | group | [`GroupDocument`](#type-groupdocument), attributes a [`Declaration`](#type-declaration) whose source metadata is the root's [`ViewDocument`](#type-viewdocument) ([§8.7](#87-the-view)), or `{}` when the document has no member | the view of the IR's root |
 | `refkv_source/tree/**/zarr.json` | group | [`GroupDocument`](#type-groupdocument), attributes as `tree`'s, or `{}` for a group that only leads to a group | the view of a struct whose document is stored on its own group ([§8.7](#87-the-view)) |
@@ -767,8 +770,9 @@ none; edge chunks padded with zeros; no attributes):
 When the IR has shared data sources (bytes several recipes name, 8.5),
 `refkv_source/ir/shared` is a group of two arrays holding them, in order:
 `offsets`, `int64` `[s + 1]` (where each starts in `data`, then the total),
-and `data`, `uint8`, the sources one after another (chunks of at most
-131072 and 1048576 values, encoded as the table's). **The rows are
+and `data`, `uint8`, the sources one after another, present only when they
+total at least one byte (chunks of at most 131072 and 1048576 values, encoded
+as the table's). **The rows are
 in depth-first order**: every element's subtree is contiguous, its id after
 its parent's and before its next sibling's; ids are the order of the
 expanded table (the canonical order of 8.8). Derived content is not needed to

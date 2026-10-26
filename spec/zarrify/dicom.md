@@ -13,7 +13,8 @@ Schema: [schema.json](dicom/schema.json) · Changed 2026-10-26, with no change t
 layout is tabulated, its entries in [Layout](#layout) and its types in type tables
 ([conventions §11.5](../conventions.md#115-layout-tables)), among them the datasets as JSON
 ([`DicomDataset`](#type-dicomdataset), [`DicomAttribute`](#type-dicomattribute)) and a
-chunk's ranges ([`DicomChunk`](#type-dicomchunk))
+chunk's ranges ([`DicomChunk`](#type-dicomchunk)); and the text says, as refkv already wrote it,
+that `S` always has `meta` and `dataset` ([§5.1](#51-the-root))
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
@@ -325,8 +326,8 @@ are left out, in this order:
    equal size, the first by name (in code-unit order, so `duplicates` after
    the tags), and `meta`'s before `dataset`'s.
 
-The root records nothing of the members it leaves out. `S` is present only
-when one of its members is.
+The root records nothing of the members it leaves out. `S` always has `meta` and `dataset`,
+so the root always has its source metadata member.
 
 ### 5.2 The datasets as JSON
 

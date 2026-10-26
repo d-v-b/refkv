@@ -10,7 +10,9 @@ Convention version: 0 (until release, [conventions §1](../conventions.md#1-conv
 Schema: [schema.json](lif/schema.json) · Changed 2026-10-26, with no change to any output: the
 layout is tabulated, its entries in [Layout](#layout) and its types in type tables
 ([conventions §11.5](../conventions.md#115-layout-tables)), and the blocks' fields, the
-dimensions' and channels' attributes, the data types and the channels' colors are tables
+dimensions' and channels' attributes, the data types and the channels' colors are tables;
+the prose also gives an image's source metadata members in the order refkv already wrote
+them, `tile_scan` before `field` and `tile` ([§5.2](#52-the-images))
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
@@ -393,9 +395,9 @@ The `S` of series `s`, field `f` of image `k`, has these members, in this order:
 | `memory` | [`LifAttributes`](#type-lifattributes) | required | its `Memory` element's attributes (`Size`, `MemoryBlockID`) |
 | `dimensions` | array of [`LifAttributes`](#type-lifattributes) | required | each dimension's attributes, in document order |
 | `channels` | array of [`LifAttributes`](#type-lifattributes) | required | each channel's attributes, in document order (not the channel order of [§3.2](#32-channels)) |
-| `field` | [`LifField`](#type-liffield) | optional | when the image has field dimensions |
 | `tile_scan` | [`LifAttributes`](#type-lifattributes) | optional | when the image's only field dimension is of `DimID` 10 and its `TileScanInfo` attachment ([§4.4](#44-mosaics)) has a child `Tile`, the attachment's attributes |
-| `tile` | [`LifAttributes`](#type-lifattributes) | optional | then, when it has an `f`-th child `Tile` (from 0), that child's attributes |
+| `field` | [`LifField`](#type-liffield) | optional | when the image has field dimensions |
+| `tile` | [`LifAttributes`](#type-lifattributes) | optional | when `tile_scan` is present and the attachment has an `f`-th child `Tile` (from 0), that child's attributes |
 
 <a id="type-lifattributes"></a>**`LifAttributes`**, an element's **attributes**: a JSON object of
 its attributes' values as strings, references decoded, in document order (of a repeated name,
@@ -499,8 +501,8 @@ metadata:
     {"DimID": "10", "NumberOfElements": "4", "Origin": "0.000000e+000", "Length": "0.000000e+00", "Unit": "", "BitInc": "0", "BytesInc": "192"}
   ],
   "channels": ["(two ChannelDescriptions, BytesInc 0 and 96)"],
-  "field": {"10": 1},
   "tile_scan": {"Name": "TileScanInfo", "Application": "LAS AF", "FlipX": "0", "FlipY": "0", "SwapXY": "0"},
+  "field": {"10": 1},
   "tile": {"FieldX": "1", "FieldY": "0", "PosX": "0.000106500", "PosY": "0.000200000", "PosZ": "0"}
 }
 ```

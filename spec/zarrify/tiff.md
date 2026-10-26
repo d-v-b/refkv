@@ -10,7 +10,10 @@ Convention version: 0 (until release, [conventions §1](../conventions.md#1-conv
 Schema: [schema.json](tiff/schema.json) · Changed 2026-10-26, with no change to any output:
 the layout is tabulated, its entries in [Layout](#layout) and its types in type tables
 ([conventions §11.5](../conventions.md#115-layout-tables)); the QPTIFF convention shares
-[`TiffRoot`](#type-tiffroot) and [`TiffChunk`](#type-tiffchunk) · Changed 2026-10-23: each `omero` channel's window
+[`TiffRoot`](#type-tiffroot) and [`TiffChunk`](#type-tiffchunk); and a tile's or strip's
+recipe frames it with the IFD's JPEG prefix whenever that prefix is not empty (the Adobe marker
+of 3 samples included, with or without JPEGTables) and the tile is more than 2 bytes, as
+refkv already wrote ([§5.1](#51-elements)) · Changed 2026-10-23: each `omero` channel's window
 is sampled from the coarsest level's data when refkv decodes its compression and the samples are
 not RGB, and an image of a float type has an `omero` when every channel's window is sampled
 ([§4.4](#44-arrays)); the profile reads the sampled chunks
@@ -489,7 +492,7 @@ for BigTIFF) and `C` the entry-count type (`u2`, or `u8`).
 | `…/tags/<tag>/value` | value | by field type | the value: in the entry's field (the bytes it uses; the rest of the field is a gap), or at its offset when it lies within the file. Its type is `ascii[n]` (ASCII), `Eu1[n]`, `Eu2[n]`, `Eu4[n]`, `Eu8[n]`, `Ei1[n]` … (integers), `Eu4[n,2]`, `Ei4[n,2]` (rationals), `Ef4[n]`, `Ef8[n]`, or `bytes[n]` (UNDEFINED) |
 | `…/next_ifd` | value | `EW` | the next-IFD offset |
 | `…/tiles`, `…/strips` | struct | | an IFD's tiles or strips (by its TileOffsets and TileByteCounts, or StripOffsets and StripByteCounts), when it has both tables |
-| `…/tiles/<j>`, `…/strips/<j>` | data | | tile or strip `j`, when its byte count is not 0 and it lies within the file; its form's geometry is `{"shape": [rows, columns], "samples": s, "bits": b}`, its codec `{"compression": c}`, and its recipe the bytes, or, for JPEG (7) with JPEGTables, the first 2 bytes, the tables without their SOI and EOI (a shared data source), and the rest |
+| `…/tiles/<j>`, `…/strips/<j>` | data | | tile or strip `j`, when its byte count is not 0 and it lies within the file; its form's geometry is `{"shape": [rows, columns], "samples": s, "bits": b}`, its codec `{"compression": c}`, and its recipe the bytes (`[["src", 0, null]]`), or, when the IFD's JPEG prefix `P` (a [`TiffJpegPrefix`](#type-tiffjpegprefix): for JPEG (7), the Adobe marker for 3 samples, then the JPEGTables, when the IFD has them, without their SOI and EOI; empty for every other compression) is not empty and the tile or strip is more than 2 bytes, the first 2 bytes, `P` (shared data source `x`, [conventions §8.2](../conventions.md#82-the-table)), and the rest: `[["src", 0, 2], ["shared", x], ["src", 2, null]]` |
 | `…/subifds/<j>` | struct | | SubIFD `j` of the IFD (to depth 4), as an IFD |
 | `…/exif`, `…/gps`, `…/interoperability`, `…/ifd_<tag>` | struct | | the IFD a pointer tag ([§5.2](#52-which-ifds)) leads to (`…/<name>/<j>` when the tag has several values), as an IFD |
 | `ome/planes/<p>` | alias | | plane `p` of the OME-XML ([§4.1](#41-planes)): the main-chain IFD its `TiffData` names |

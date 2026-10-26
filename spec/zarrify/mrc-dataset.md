@@ -13,7 +13,8 @@ cited here as "conventions §n"; "the MRC convention §n" is a section of
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `f139bf4e-7bab-4c3c-9b2d-66ba747f9b93` ·
 Schema: [schema.json](mrc-dataset/schema.json) · Changed 2026-10-26, with no change to any
 output: the layout is tabulated, its entries in [Layout](#layout) and its types in type tables
-([conventions §11.5](../conventions.md#115-layout-tables))
+([conventions §11.5](../conventions.md#115-layout-tables)), and the stack example gives its
+fixture's `cella` ([§5](#5-example))
 
 ## Layout
 
@@ -173,6 +174,6 @@ Data variables:
     data     (z, y, x) float32 ...
 ```
 
-An image stack of 20 sections with no `cella` along z (the fixture
-`mrc_chunk_sections.mrc`) has `data` with the dimensions `section`, `y`,
-`x`, coordinates `y` and `x`, and no coordinate for `section`.
+An image stack of 20 sections (the fixture `mrc_chunk_sections.mrc`, whose `cella` along z is
+1, its one section's) has `data` with the dimensions `section`, `y`, `x`, coordinates `y` and
+`x`, and no coordinate for `section`, a stack's index ([conventions §9](../conventions.md#9-dataset-layouts)).

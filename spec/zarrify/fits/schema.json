@@ -81,7 +81,11 @@
         }
       },
       "required": [
-        "uuid"
+        "uuid",
+        "schema_url",
+        "spec_url",
+        "name",
+        "description"
       ],
       "additionalProperties": false
     },
@@ -536,6 +540,7 @@
                   },
                   "null": {
                     "type": [
+                      "string",
                       "number",
                       "null"
                     ]

@@ -163,7 +163,7 @@ def schema(profile: str) -> dict:
             "type": "object",
             "description": f"The {title} convention's metadata object in zarr_conventions",
             "properties": {k: {"type": "string", "const": v} for k, v in cmo.items()},
-            "required": ["uuid"],
+            "required": list(cmo),
             "additionalProperties": False,
         },
         "rootProperty": root,

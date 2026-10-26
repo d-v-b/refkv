@@ -81,7 +81,11 @@
         }
       },
       "required": [
-        "uuid"
+        "uuid",
+        "schema_url",
+        "spec_url",
+        "name",
+        "description"
       ],
       "additionalProperties": false
     },
@@ -174,6 +178,10 @@
               "description": "refkv_source/trailing: the IR's element holding the bytes after the last element"
             }
           },
+          "required": [
+            "meta",
+            "dataset"
+          ],
           "additionalProperties": false
         },
         {

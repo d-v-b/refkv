@@ -270,7 +270,7 @@ translates it: <a id="type-ndpiroot"></a>**`NdpiRoot`**,
 | member | type | presence | value |
 |---|---|---|---|
 | `Fluorescence` | [`Text`](../conventions.md#type-text) | optional | tag 65434: its text value |
-| `Wavelength` | [`Float`](../conventions.md#type-float) | optional | tag 65451: its first value, a float |
+| `Wavelength` | [`Float`](../conventions.md#type-float) or `{"bits": H}` | optional | tag 65451: its first value, a float; `{"bits": H}`, its IEEE 754 bits as 8 (FLOAT) or 16 (DOUBLE) lowercase hexadecimal digits, most significant first, for a negative zero or a NaN other than the canonical one, whose bits a JSON number or `"NaN"` does not keep (as [NIfTI's `NiftiBits`](nifti.md#type-niftibits)) |
 | `ExposureTime` | [`Integer`](../conventions.md#type-integer) | optional | tag 65454: its first value, an integer (of an in-line LONG, with its high word, [§7](#7-ndpi-profile)) |
 
 A tag that [§2](#2-the-source) treats as absent, or that has no value, is left out. With none of these, `S` is empty, and the root has no source

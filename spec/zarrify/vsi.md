@@ -12,7 +12,9 @@ Schema: [schema.json](vsi/schema.json) · Added 2026-10-21, after
 [revision 29](../history/virtualize/REVISIONS.md#revision-29-no-recorded-revision-the-profile-registry)
 (a profile's changes are recorded here, dated, from then on) · Changed 2026-10-26, with no
 change to any output: the layout is tabulated, its entries in [Layout](#layout) and its types
-in type tables ([conventions §11.5](../conventions.md#115-layout-tables))
+in type tables ([conventions §11.5](../conventions.md#115-layout-tables)), which also state what
+refkv already wrote: a value field's empty data is opaque, `""` ([§6.1](#61-the-root)), and an
+IFD image's summary has no `sizes`, `grids` or `tilesOutside` ([§9.5](#95-summary))
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
@@ -568,8 +570,8 @@ translated, one of:
 | string | a Unicode text type (13, 8192, 8194): the string its 16-bit little-endian units encode, up to the first 0 unit, an unpaired surrogate decoded as U+FFFD (the field's data, when its length is odd, is opaque) |
 | boolean | `BOOLEAN` (12): `true` or `false` when it is one byte (of another length, it is opaque) |
 | a number, an [`Integer`](../conventions.md#type-integer) or a [`Float`](../conventions.md#type-float) | a type of width `w` bytes (the table's `type`): its one number when `d` is `w` bytes |
-| array of number, [`Integer`](../conventions.md#type-integer) or [`Float`](../conventions.md#type-float) | a type of width `w`: an array of its `d / w` numbers when `d / w` is a whole number and `d` is at most 1024 bytes (the array of 3-byte `RGB` and `BGR` entries is an array of bytes) |
-| [`Base64`](../conventions.md#type-base64) | **opaque** data, at most 1024 bytes: a type the table lacks, or a length that is not a multiple of `w`; the string of its base64 encoding |
+| array of number, [`Integer`](../conventions.md#type-integer) or [`Float`](../conventions.md#type-float) | a type of width `w`: an array of its `d / w` numbers when `d` is not empty, `d / w` is a whole number and `d` is at most 1024 bytes (the array of 3-byte `RGB` and `BGR` entries is an array of bytes) |
+| [`Base64`](../conventions.md#type-base64) | **opaque** data, at most 1024 bytes: a type the table lacks, or of a type of width `w` empty data or a length that is not a multiple of `w`; the string of its base64 encoding (`""` for empty data) |
 | [`VsiBytes`](#type-vsibytes) | data longer than 1024 bytes that would be an array or opaque |
 
 An integer past 2^53 − 1 in magnitude, and a float that is not finite, are JSON as
@@ -1048,20 +1050,22 @@ summary, with these members:
 | `batches` | the read batches, the probe batch included |
 | `listingRequests` | the objects opened beyond the `.vsi` file |
 
-Each image's object:
+Each image's object, by whether the image is a pyramid ([the convention §4.1](#41-the-pyramid)) or an
+IFD image ([the convention §4.3](#43-the-macro-image)); an IFD image's has no `sizes`, `grids` or
+`tilesOutside`:
 
-| member | value |
-|---|---|
-| `name` | its name |
-| `kind` | `"stack"` or `"macro"` |
-| `source` | `"tiles"` or `"ifd"` |
-| `id` | its stack's id |
-| `dataType` | its data type |
-| `samples` | its samples per pixel |
-| `codec` | its codec |
-| `axes` | its axes |
-| `sizes` | `t`, `c`, `z`; a pyramid's |
-| `levels` | `[w, h]` per level |
-| `grids` | `[columns, rows]` per level; a pyramid's |
-| `chunks` | the number of its chunks |
-| `tilesOutside` | its tiles outside their levels |
+| member | a pyramid's | an IFD image's |
+|---|---|---|
+| `name` | its name | its name |
+| `kind` | `"stack"` | `"stack"`, or `"macro"` for the macro image |
+| `source` | `"tiles"` | `"ifd"` |
+| `id` | its stack's id | its stack's id; `null` for the macro image |
+| `dataType` | its data type | its data type |
+| `samples` | its samples per pixel | its samples per pixel |
+| `codec` | its codec | `"jpeg"` for `Compression` 7, else `"raw"` |
+| `axes` | its axes | its axes |
+| `sizes` | `t`, `c`, `z` | absent |
+| `levels` | `[w, h]` per level | `[[w, h]]`, its one array's |
+| `grids` | `[columns, rows]` per level | absent |
+| `chunks` | the number of its chunks | 1 |
+| `tilesOutside` | its tiles outside their levels | absent |

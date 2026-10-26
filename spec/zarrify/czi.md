@@ -11,7 +11,15 @@ Convention version: 0 (until release, [conventions §1](../conventions.md#1-conv
 Schema: [schema.json](czi/schema.json) · Changed 2026-10-26, with no change to any output: the
 layout is tabulated, its entries in [Layout](#layout) and its types in type tables
 ([conventions §11.5](../conventions.md#115-layout-tables)), and the source's structures, the
-values read from the metadata XML, the codecs and the cases of a coded size are tables
+values read from the metadata XML, the codecs and the cases of a coded size are tables;
+the prose also states what refkv already wrote and it left unsaid: when the largest divisor
+band of a large uncompressed tile holds less than 2^20 bytes, its bands are short bands of the
+most rows within 2^24 bytes, and the level's or tile array's grid is rectilinear ([§4.3](#43-image-arrays),
+[§4.4](#44-tiles)); and it drops the per-element arrays under `refkv_source` that the IR
+mirror replaced in
+[revision 21](../history/virtualize/REVISIONS.md#revision-21-the-ir-mirror-is-the-source-metadata-of-tiff-nd2-and-czi)
+([§7.5](#75-chunk-references)), and names the subblock segment `ZISRAWSUBBLOCK`
+([§5.3](#53-elements))
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
@@ -564,7 +572,7 @@ The array of a level, at `<k>/<d>` ([conventions §3](../conventions.md#3-arrays
 |---|---|---|---|
 | `shape` | array of integer | required | `hi_t − lo_t + 1`, `(hi_c − lo_c + 1) × p`, `hi_z − lo_z + 1` (each for its axis), then the stored extent `(r − 1) × H + H'` and `(m − 1) × W + W'` |
 | `data_type` | string | required | the image's pixel type's ([§3.1](#31-pixel-types-and-codecs)) |
-| `chunk_grid` | object or [`CziRectilinearGrid`](#type-czirectilineargrid) | required | from the chunk lengths (**Chunk grid**, below): when every length is an integer, the regular grid of those lengths, `{"name": "regular", "configuration": {"chunk_shape": [...]}}`; otherwise the level is **clipped** and its chunk grid is a `CziRectilinearGrid` |
+| `chunk_grid` | object or [`CziRectilinearGrid`](#type-czirectilineargrid) | required | from the chunk lengths (**Chunk grid**, below): when every length is an integer, the regular grid of those lengths, `{"name": "regular", "configuration": {"chunk_shape": [...]}}`; otherwise (the level is **clipped**, or has short row bands) its chunk grid is a `CziRectilinearGrid` |
 | `fill_value` | number or array of number | required | 0 (`[0.0, 0.0]` for `complex64`) |
 | `codecs` | array of object | required | [§3.1](#31-pixel-types-and-codecs)'s, of the level's codec form, with `transpose` ([conventions §3](../conventions.md#3-arrays)) first when `p > 1` |
 | `dimension_names` | array of string | required | the image's axes ([§4.2](#42-images)) |
@@ -572,16 +580,19 @@ The array of a level, at `<k>/<d>` ([conventions §3](../conventions.md#3-arrays
 
 **Chunk grid.** The chunk lengths are 1 for `t` and `z`, `p` for `c`;
 for `y` the integer `H` when `H' = H`, else the list `[[H, r − 1], H']`
-(`r − 1` chunks of `H` rows, then one of `H'`), or the integer `b` with
-row bands (below); for `x` the integer `W` when `W' = W`, else
-`[[W, m − 1], W']`. (`r = 1` gives `H' = H`, and `m = 1` gives `W' = W`,
-since `H` and `W` are the largest stored sizes, so the lists always have
-their run.) A clipped level's chunk grid is the zarr-extensions `rectilinear` grid
+(`r − 1` chunks of `H` rows, then one of `H'`), or with row bands (below)
+the integer `b` of divisor bands or the list of short bands; for `x` the
+integer `W` when `W' = W`, else `[[W, m − 1], W']`. (`r = 1` gives
+`H' = H`, and `m = 1` gives `W' = W`, since `H` and `W` are the largest
+stored sizes, so the lists of a clipped axis always have their run.) The
+chunk grid of a level with a list among its lengths, clipped or of short
+bands, is the zarr-extensions `rectilinear` grid
 ([chunk-grids/rectilinear](https://github.com/zarr-developers/zarr-extensions/tree/main/chunk-grids/rectilinear)),
 exactly
 `{"name": "rectilinear", "configuration": {"kind": "inline", "chunk_shapes": [L_0, ..., L_{d−1}]}}`:
 
-<a id="type-czirectilineargrid"></a>**`CziRectilinearGrid`**, a clipped level's chunk grid:
+<a id="type-czirectilineargrid"></a>**`CziRectilinearGrid`**, the chunk grid of a clipped level, or of a level or
+tile array ([§4.4](#44-tiles)) of short row bands:
 
 | member | type | presence | value |
 |---|---|---|---|
@@ -593,7 +604,7 @@ exactly
 | member | type | presence | value |
 |---|---|---|---|
 | `kind` | string | required | `"inline"` |
-| `chunk_shapes` | array of (integer or array of (integer or array of integer)) | required | `[L_0, ..., L_{d−1}]`, `L_j` the length of axis `j`, in array order: an integer for a regular axis, and for a clipped one the list whose run-length element `[H, r − 1]` stands for `r − 1` chunks of `H`. The chunk lengths of a clipped axis sum to its shape exactly |
+| `chunk_shapes` | array of (integer or array of (integer or array of integer)) | required | `[L_0, ..., L_{d−1}]`, `L_j` the length of axis `j`, in array order: an integer for a regular axis, and otherwise the list of its chunk lengths, in which an element `[v, n]` stands for `n` chunks of `v` and an integer for one chunk: for a clipped axis `[[H, r − 1], H']` (or `[[W, m − 1], W']`), and for `y` with short row bands the list of **Row bands** (below). The chunk lengths of a listed axis sum to its shape exactly |
 
 For example, 16 columns of 1024 pixels whose last
 is 959 wide, and 10 full rows, give `"chunk_shapes": [1024, [[1024, 15], 959]]`
@@ -602,11 +613,29 @@ shows) once `zarr.config.set({"array.rectilinear_chunks": True})` is set;
 without it, it refuses the array's metadata.
 
 **Row bands.** When the codec form is uncompressed and `W × H × q`
-exceeds 2^24 bytes, chunks are bands of `b` rows, `b` the largest divisor
-of `gcd(H, H')` with `b × W × q ≤ 2^24` (at least 1). The `y` chunk length
-is then `b` (a regular grid of `b`, or in a rectilinear grid the integer
-`b`), and a tile of row `j` is the chunks `j × H / b` to
-`j × H / b + h / b − 1`, `h` being its stored height.
+exceeds 2^24 bytes, chunks are bands of `b` rows. Let `b'` be the largest
+divisor of `gcd(H, H')` with `b' × W × q ≤ 2^24` (at least 1):
+
+- When `b' × W × q` is at least 2^20 bytes, the bands are **divisor
+  bands** of `b = b'` rows. The `y` chunk length is then `b` (a regular
+  grid of `b`, or in a rectilinear grid the integer `b`), and a tile of row
+  `j` is the chunks `j × H / b` to `j × H / b + h / b − 1`, `h` being its
+  stored height.
+- Otherwise (as when `H` is prime, whose divisor bands would be one row
+  each) the bands are **short bands** of `b = max(1, ⌊2^24 / (W × q)⌋)`
+  rows, the most within 2^24 bytes, and the last band of each tile row is
+  shorter: a tile row of height `h` (`H`, or `H'` for row `r − 1`) is
+  `⌊h / b⌋` bands of `b` rows, then one of `h mod b` rows when `b` does
+  not divide `h`. The `y` chunk length is the list of these bands'
+  heights, tile row by tile row, in which consecutive equal heights are one
+  element `[v, n]` (`n ≥ 2`) and a height alone is its integer, so the
+  level's chunk grid is a [`CziRectilinearGrid`](#type-czirectilineargrid),
+  whether or not it is clipped. A tile of row `j` is the chunks
+  `j × ⌈H / b⌉` to `j × ⌈H / b⌉ + ⌈h / b⌉ − 1`, its band `k` rows `k × b`
+  to `min(k × b + b, h) − 1`. For example, uncompressed tiles 4096 pixels
+  wide and 4099 high of `q = 4`, in 3 full rows, have `b' = 1` (4099 is
+  prime) and `b = 1024`, and the `y` length
+  `[[1024, 4], 3, [1024, 4], 3, [1024, 4], 3]`.
 
 **Scale and translation.** Every level has both; those of a level of factor `F` and origin
 `(x0, y0)` ([§3.5](#35-regular-levels)) are:
@@ -689,7 +718,7 @@ own tiles:
 |---|---|---|---|
 | `shape` | array of integer | required | `lo` and `hi` of `t`, `c` and `z` over its tiles' planes give the extents of `t`, `c` (times `p`) and `z`, each for its axis; then its coded height and width |
 | `data_type` | string | required | that of an image of its pixel type ([§4.3](#43-image-arrays)) |
-| `chunk_grid` | object | required | regular: 1 for `t` and `z`, `p` for `c`, the coded height (or, for a large uncompressed tile, the row band `b` of [§4.3](#43-image-arrays) with `H = H'` the coded height) and the coded width |
+| `chunk_grid` | object or [`CziRectilinearGrid`](#type-czirectilineargrid) | required | 1 for `t` and `z`, `p` for `c`, the coded height and the coded width, a regular grid; or, for a large uncompressed tile, the row bands of [§4.3](#43-image-arrays) in place of the coded height, with `W` the coded width, `H = H'` the coded height and `r = 1`: divisor bands give the regular grid of `b`, and short bands a `CziRectilinearGrid` whose `y` length is the list of the tile's bands (`[[b, n], H mod b]`, `n = ⌊H / b⌋`, or `[b, H mod b]` when `n` is 1) |
 | `fill_value` | number or array of number | required | that of an image of its pixel type ([§4.3](#43-image-arrays)) |
 | `codecs` | array of object | required | those of an image of its pixel type and codec form ([§4.3](#43-image-arrays)), `transpose` first when `p > 1` |
 | `dimension_names` | array of string | required | its axes: `lo` and `hi` of `t`, `c` and `z` over its tiles' planes give them, as an image's ([§4.2](#42-images)) |
@@ -733,7 +762,7 @@ A tile array's document has these members only ([`CziTileArray`](#type-czitilear
 whatever the number of planes; the number of tile arrays is at most the
 number of subblocks. Which subblock each chunk holds follows from the
 directory entries ([§5.3](#53-elements)): subblock `i`, of series key, position and plane
-as its columns give, is the chunk of its plane in the array of its position
+as its entry's dimension entries give, is the chunk of its plane in the array of its position
 and copy. Tiles carry no OME-NGFF metadata: their place in an image's frame
 is `x`, `y`, `size`, and their pixel size the image's scaled by `size` over
 the coded size. (With 1000 positions of 4 channels and 50 planes, a tile
@@ -781,7 +810,7 @@ file), and holds `header`, a value of type
 | `directory/entry_count` | value | `<i4` | `N` |
 | `directory/entries/<i>` | value | record | entry `i`'s 32 bytes (schema, pixel type, FilePosition, FilePart, compression, pyramid type, spare, dimension count) |
 | `directory/dimensions/<i>` | value | `{dimension:ascii[4],start:<i4,size:<i4,start_coordinate:<f4,stored_size:<i4}[d]` | entry `i`'s dimension entries |
-| `subblocks/<i>` | struct | | the `ZISRAWSUBBLK` segment entry `i` names; an alias when an earlier entry names the same segment |
+| `subblocks/<i>` | struct | | the `ZISRAWSUBBLOCK` segment entry `i` names; an alias when an earlier entry names the same segment |
 | `subblocks/<i>/sizes` | value | `{metadata_size:<i4,attachment_size:<i4,data_size:<i8}` | its sizes |
 | `subblocks/<i>/entry`, `subblocks/<i>/dimensions` | value | as the directory's | its own copy of its entry |
 | `subblocks/<i>/metadata` | value | `ascii[m]` | its metadata |
@@ -1026,7 +1055,7 @@ and is `n` bytes, of stored width `W` and height `H`: one range, by its codec fo
 | part | range | presence | value |
 |---|---|---|---|
 | the pixels, uncompressed | source range `(0, P, W × H × q)` | optional | when uncompressed without row bands: the single range |
-| a band, uncompressed | source range `(0, P + k × b × W × q, b × W × q)` | optional | with row bands: band `k` of its rows |
+| a band, uncompressed | source range `(0, P + k × b × W × q, min(b, H − k × b) × W × q)` | optional | with row bands of `b` rows ([the convention §4.3](#43-image-arrays)): band `k` of its rows, `b` rows but for the last band of short bands, which has `H − k × b` |
 | the zstd frame, Zstd0 | source range `(0, P, n)` | optional | for a Zstd0 subblock |
 | the zstd frame, Zstd1 | source range `(0, P + l, n − l)` | optional | for a Zstd1 subblock, `l` its header length |
 | the JPEG stream or JPEG XR file | source range `(0, P, n)` | optional | for a JPEG or JPEG XR subblock |
@@ -1036,18 +1065,10 @@ The references by kind:
 - **Image chunks and tiles** ([the convention §4.3](#43-image-arrays), [§4.4](#44-tiles)): each
   is a [`CziChunk`](#type-czichunk) (above), one range of the subblock's data by its codec
   form. Pixels are never copied.
-- **Directory columns** ([the convention §5.3](#53-elements)) and `segments/id` are copied:
-  their elements are scattered over the entries. The event list's `time`
-  and `type` are copied likewise.
-- **Families** (`subblocks/...`, `segments/data`, an event list's
-  `description`): each member is the range of its bytes in the file, and the
-  family's chunks are made as [conventions §7](../conventions.md#7-source-values-as-arrays) says: referenced, with adjacent
-  members merged into one range, and a `data` chunk copied when its ranges
-  exceed the 65519-byte payload ([spec/zarrify.md §1.2](../zarrify.md#12-input)), as when many small
-  metadata fragments share a chunk.
-- **Bytes** (`metadata/xml`, `metadata/attachment`, an attachment's data,
-  `tail`) and **contiguous values** (TimeStamps, FocusPositions): referenced
-  in place, cut as [conventions §7](../conventions.md#7-source-values-as-arrays) says.
+- **`refkv_source`** is the IR mirror ([the convention §5.2](#52-the-ir-mirror)), with
+  [the mirror's entries](../conventions.md#table-mirror) only: the elements of
+  [the convention §5.3](#53-elements) are in its table, and the profile writes no
+  arrays of its own under it.
 - **Documents** of `tiles/<n>` are stored, like those of `refkv_source`, so
   that a reader fetches them only when it opens the node ([conventions §2](../conventions.md#2-attributes)):
   there is one per tile position and copy.
@@ -1065,14 +1086,16 @@ fails when a reader decodes it; a writer of such files is not known.
 
 The layout uses two things that are not in every Zarr reader:
 
-- **Clipped levels** use the zarr-extensions `rectilinear` chunk grid (the
-  convention [§4.3](#43-image-arrays)). zarr-python 3.4 reads them after
+- **Clipped levels**, and the levels and tile arrays of short row bands,
+  use the zarr-extensions `rectilinear` chunk grid (the
+  convention [§4.3](#43-image-arrays), [§4.4](#44-tiles)). zarr-python 3.4 reads them after
   `zarr.config.set({"array.rectilinear_chunks": True})`. Where a reader has
-  no rectilinear support, a clipped level can still be read chunk by chunk:
-  the chunk at `y` index `j` and `x` index `i` holds the tile of that row
-  and column, of the stored size `(W, H)`, or `W'` wide in the last column
-  and `H'` high in the last row (refkv's verifier,
-  `js/test/czi/verify.py`, checks both ways).
+  no rectilinear support, such an array can still be read chunk by chunk.
+  Without row bands, the chunk at `y` index `j` and `x` index `i` holds the
+  tile of that row and column, of the stored size `(W, H)`, or `W'` wide in
+  the last column and `H'` high in the last row; with row bands, it holds the
+  band of column `i` that [§4.3](#43-image-arrays) numbers `j`, of the band's height
+  (refkv's verifier, `js/test/czi/verify.py`, checks both ways).
 - **Codecs.** `imagecodecs_jpegxr` (JPEG XR subblocks) and
   `numcodecs.shuffle` (Zstd1 with hi-lo packing) are not in the
   zarr-extensions registry, nor in the Neuroglancer fork refkv's viewer uses.

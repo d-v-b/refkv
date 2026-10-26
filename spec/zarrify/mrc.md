@@ -14,7 +14,9 @@ chunks are copied · Changed 2026-10-25: a zarrifier may leave the dataset
 layout out ([§1](#1-declaration), [spec/zarrify.md §1.7](../zarrify.md#17-named-inputs-and-layouts)) ·
 Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
 [Layout](#layout) and its types in type tables
-([conventions §11.5](../conventions.md#115-layout-tables)).
+([conventions §11.5](../conventions.md#115-layout-tables)), and the text says, as refkv already
+wrote it, that any one-byte data type, IMOD's `uint8` too, has the codec `bytes` without a byte
+order ([§4.1](#41-the-array)).
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
@@ -184,7 +186,7 @@ the volume's index in the stack, of type `time`; it is not the acquisition time.
 | `data_type` | string | required | from [§3](#3-data-types) |
 | `chunk_grid` | object | required | regular, the chunk shape that [conventions §7](../conventions.md#7-source-values-as-arrays) gives (**Chunks**, below) |
 | `fill_value` | number or array of number | required | 0, or `[0, 0]` for `complex64` |
-| `codecs` | array of object | required | `[{"name": "bytes", "configuration": {"endian": E}}]`, `E` the file's byte order, or `[{"name": "bytes"}]` for `int8`. There is no transpose: the stored order is the array's |
+| `codecs` | array of object | required | `[{"name": "bytes", "configuration": {"endian": E}}]`, `E` the file's byte order, or `[{"name": "bytes"}]` for a one-byte data type (`int8`, and IMOD's `uint8`). There is no transpose: the stored order is the array's |
 | `dimension_names` | array of string | required | the axes |
 | `attributes` | object | required | `{}` ([§1](#1-declaration)) |
 
