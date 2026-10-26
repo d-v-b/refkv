@@ -1,0 +1,488 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/nrrd/schema.json",
+  "title": "refkv NRRD convention, version 0",
+  "description": "The zarr.json of a node that declares the refkv NRRD convention (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md)",
+  "type": "object",
+  "properties": {
+    "zarr_format": {
+      "type": "integer",
+      "const": 3
+    },
+    "node_type": {
+      "type": "string",
+      "enum": [
+        "group",
+        "array"
+      ]
+    },
+    "attributes": {
+      "type": "object",
+      "properties": {
+        "ome": {
+          "type": "object",
+          "description": "OME-NGFF 0.5 metadata"
+        },
+        "zarr_conventions": {
+          "type": "array",
+          "contains": {
+            "$ref": "#/$defs/conventionMetadata"
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        "refkv_zarrified": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/rootProperty"
+            },
+            {
+              "$ref": "#/$defs/nodeProperty"
+            }
+          ]
+        }
+      },
+      "required": [
+        "zarr_conventions",
+        "refkv_zarrified"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "zarr_format",
+    "node_type",
+    "attributes"
+  ],
+  "$defs": {
+    "conventionMetadata": {
+      "type": "object",
+      "description": "The NRRD convention's metadata object in zarr_conventions",
+      "properties": {
+        "uuid": {
+          "type": "string",
+          "const": "23e0c600-8da6-40f1-81e7-ab246e948e88"
+        },
+        "schema_url": {
+          "type": "string",
+          "const": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/nrrd/schema.json"
+        },
+        "spec_url": {
+          "type": "string",
+          "const": "https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md"
+        },
+        "name": {
+          "type": "string",
+          "const": "refkv_zarrified"
+        },
+        "description": {
+          "type": "string",
+          "const": "The Zarr layout of a NRRD source zarrified by refkv, and the source's metadata"
+        }
+      },
+      "required": [
+        "uuid"
+      ],
+      "additionalProperties": false
+    },
+    "rootProperty": {
+      "type": "object",
+      "description": "The root's property: the profile and version that produced the hierarchy, its source, and the root's source metadata",
+      "properties": {
+        "profile": {
+          "type": "string",
+          "const": "nrrd"
+        },
+        "version": {
+          "type": "integer",
+          "const": 0
+        },
+        "source": {
+          "type": "object",
+          "properties": {
+            "url": {
+              "type": "string",
+              "description": "The URL of the source file"
+            }
+          },
+          "required": [
+            "url"
+          ],
+          "additionalProperties": false
+        },
+        "layouts": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[^/]+(/[^/]+)*$"
+          },
+          "description": "The other layouts of the source in this hierarchy, by name, each the path of its node below the root (spec/conventions.md §9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>)"
+        },
+        "nrrd": {
+          "$ref": "#/$defs/sourceMetadata"
+        }
+      },
+      "required": [
+        "profile",
+        "version",
+        "source"
+      ],
+      "additionalProperties": false
+    },
+    "sourceMetadata": {
+      "anyOf": [
+        {
+          "type": "object",
+          "description": "The root's: the header's magic, fields, key/value pairs and comments, and what the layout derives from them (spec/zarrify/nrrd.md §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#51-the-root>)",
+          "properties": {
+            "magic": {
+              "enum": [
+                "NRRD0001",
+                "NRRD0002",
+                "NRRD0003",
+                "NRRD0004",
+                "NRRD0005"
+              ]
+            },
+            "fields": {
+              "type": "object",
+              "description": "Every field of the header, by the name the NRRD format gives it (an alternate identifier, such as `datafile`, named as its field), its descriptor as text",
+              "propertyNames": {
+                "enum": [
+                  "dimension",
+                  "type",
+                  "block size",
+                  "encoding",
+                  "endian",
+                  "content",
+                  "min",
+                  "max",
+                  "old min",
+                  "old max",
+                  "data file",
+                  "line skip",
+                  "byte skip",
+                  "number",
+                  "sample units",
+                  "sizes",
+                  "spacings",
+                  "thicknesses",
+                  "axis mins",
+                  "axis maxs",
+                  "centers",
+                  "labels",
+                  "units",
+                  "kinds",
+                  "space",
+                  "space dimension",
+                  "space units",
+                  "space origin",
+                  "space directions",
+                  "measurement frame"
+                ]
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/text"
+              },
+              "required": [
+                "dimension",
+                "type",
+                "encoding",
+                "sizes"
+              ]
+            },
+            "key_values": {
+              "type": "object",
+              "description": "The key/value pairs, unescaped: each key's last value",
+              "additionalProperties": {
+                "$ref": "#/$defs/text"
+              }
+            },
+            "comments": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/text"
+              },
+              "description": "The comments, in order, each without its leading # and spaces"
+            },
+            "data_type": {
+              "enum": [
+                "int8",
+                "uint8",
+                "int16",
+                "uint16",
+                "int32",
+                "uint32",
+                "int64",
+                "uint64",
+                "float32",
+                "float64"
+              ]
+            },
+            "encoding": {
+              "enum": [
+                "raw",
+                "gzip"
+              ]
+            },
+            "byte_order": {
+              "enum": [
+                "little",
+                "big"
+              ]
+            },
+            "axes": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "t",
+                  "c",
+                  "z",
+                  "y",
+                  "x"
+                ]
+              },
+              "minItems": 2,
+              "maxItems": 5,
+              "description": "Each header axis's image axis, in the header's order (the fastest first)"
+            },
+            "data_file": {
+              "type": "string",
+              "description": "A detached header's data file: its key, below the header's directory"
+            },
+            "orientation": {
+              "type": "object",
+              "description": "Present when the header has space directions: whether they place the image",
+              "properties": {
+                "applied": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "applied"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "magic",
+            "fields",
+            "key_values",
+            "comments",
+            "data_type",
+            "encoding",
+            "axes"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "$ref": "#/$defs/mirror"
+        },
+        {
+          "$ref": "#/$defs/mirrorView"
+        }
+      ]
+    },
+    "headerValue": {
+      "description": "A translated header value (spec/conventions.md §6 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>)",
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "$ref": "#/$defs/text"
+        },
+        {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "text": {
+      "description": "A text value: a string (UTF-8), or its ISO 8859-1 reading when it is not UTF-8",
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "latin1": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "latin1"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "mirror": {
+      "type": "object",
+      "description": "refkv_source's: the IR mirror's description (spec/conventions.md §8.2 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#82-the-table>)",
+      "properties": {
+        "ir": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "const": 2
+            },
+            "size": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "The source's size in bytes (a store IR's: its objects' sizes, summed)"
+            },
+            "objects": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "A store IR's objects (spec/conventions.md §8.9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>); a file IR has none"
+            },
+            "elements": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "The elements, column runs expanded"
+            },
+            "rows": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "The rows the table stores"
+            },
+            "names": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "const": ""
+                }
+              ],
+              "description": "The interned names, sorted; the first, \"\", is the root's (conventions §8.1 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>)"
+            },
+            "types": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "const": ""
+                }
+              ],
+              "description": "The interned types (§8.6 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#86-types>)"
+            },
+            "forms": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "The interned forms, each a JSON text (§8.5 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#85-forms-and-recipes>)"
+            }
+          },
+          "required": [
+            "version",
+            "size",
+            "elements",
+            "rows",
+            "names",
+            "types",
+            "forms"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "ir"
+      ],
+      "additionalProperties": false
+    },
+    "mirrorView": {
+      "type": "object",
+      "description": "A view group's (refkv_source/tree/...): a struct's view document (spec/conventions.md §8.7 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#87-the-view>)",
+      "properties": {
+        "$vz": {
+          "const": "derived",
+          "description": "A derived element's document"
+        },
+        "$form": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "A derived element's form (§8.5 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#85-forms-and-recipes>)"
+        },
+        "$partial": {
+          "const": true,
+          "description": "The document stops short of the struct's children"
+        }
+      },
+      "minProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/viewValue"
+      }
+    },
+    "viewValue": {
+      "description": "A child's view: a JSON value, a nested document, or a $vz form",
+      "anyOf": [
+        {
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "null",
+            "array"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "$vz": {
+              "enum": [
+                "alias",
+                "group",
+                "element",
+                "derived",
+                "int",
+                "float",
+                "bytes",
+                "utf16"
+              ]
+            }
+          },
+          "required": [
+            "$vz"
+          ]
+        },
+        {
+          "type": "object"
+        }
+      ]
+    },
+    "nodeProperty": {
+      "type": "object",
+      "description": "Any other node's property: its source metadata only",
+      "properties": {
+        "nrrd": {
+          "$ref": "#/$defs/sourceMetadata"
+        }
+      },
+      "required": [
+        "nrrd"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

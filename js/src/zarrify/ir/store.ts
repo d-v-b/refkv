@@ -16,8 +16,8 @@ import { bytesEntry, decodeRaw, type RawOutput } from "./run.ts";
 import { ir, type IrExports, out, put } from "./wasm.ts";
 
 /** The core's store formats: a Zarr v2 store, a SAFE product's directory, an N5 container, and
- * the files of a VSI input (vsi.ts), which the run probes for rather than lists. */
-export type StoreFormat = "zarr2" | "safe" | "n5" | "vsi";
+ * the files of a VSI or NRRD input (vsi.ts), which the run probes for rather than lists. */
+export type StoreFormat = "zarr2" | "safe" | "n5" | "vsi" | "nrrd";
 /** The profiles a store format's run decides between (its rejections name them): a Zarr v2
  * store is OME-Zarr's when its root declares OME-NGFF 0.4. */
 export type StoreProfile = StoreFormat | "ome-zarr";
@@ -66,7 +66,8 @@ export async function zarrifyStoreIr(
       const reqs = decodeRequests(out(w, n - 1));
       if (reqs.length === 0) {
         // a batch of probes (a VSI input's tile files, spec/zarrify/vsi.md §9.2
-        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#92-the-tile-files>): each
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#92-the-tile-files>, a
+        // detached NRRD header's data file): each
         // key answered with its size, or -1 when it does not exist; a found one joins the listing
         const keys = JSON.parse(text(out(w, Number(w.vz_store_probes(p))))) as string[];
         for (const key of keys) {

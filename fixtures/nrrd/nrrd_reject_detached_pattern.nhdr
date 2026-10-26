@@ -1,0 +1,7 @@
+NRRD0004
+type: uchar
+dimension: 3
+sizes: 3 2 2
+encoding: raw
+data file: slice%03d.raw 1 2 1 2
+

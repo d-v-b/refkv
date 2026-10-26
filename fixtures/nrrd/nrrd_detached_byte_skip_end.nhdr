@@ -1,0 +1,9 @@
+NRRD0004
+type: float
+dimension: 2
+sizes: 5 4
+endian: little
+encoding: raw
+byte skip: -1
+data file:  nrrd_detached_byte_skip_end.dat
+
