@@ -2258,6 +2258,17 @@ struct NdpiTiles {
     added: Vec<u16>,
 }
 
+/// A level's McuStarts (`derive_ndpi`): its values plus McuStartsHighBytes × 2^32, whether the
+/// high table has as many values, whether, for one in-line LONG, whose value has its entry's
+/// high word already, the high table holds that word (and is not added), and whether the high
+/// table was added.
+struct McuStarts {
+    starts: Vec<u64>,
+    same_length: bool,
+    high_word: bool,
+    added: bool,
+}
+
 impl Tiff {
     /// The values of IFD `k`'s tags of NDPI's table (those of `only`, or all): a scalar's
     /// first, an array's every value. The bytes not read yet are added to `need` (and the
@@ -2466,20 +2477,22 @@ impl Tiff {
         if !need.is_empty() {
             return Err(Stop::Need(need));
         }
-        // McuStarts plus McuStartsHighBytes × 2^32 (spec/zarrify/ndpi.md §7
-        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>), whether
-        // the high table has as many values, whether, for one in-line LONG, whose value has its
-        // entry's high word already, the high table holds that word (and is not added), and
-        // whether the high table was added
-        let starts_of = |k: usize, m: &NVals| -> Option<(Vec<u64>, bool, bool, bool)> {
+        // McuStarts with McuStartsHighBytes (spec/zarrify/ndpi.md §7
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>)
+        let starts_of = |k: usize, m: &NVals| -> Option<McuStarts> {
             let starts = m.get(&65426).and_then(|v| v.ints())?.to_vec();
             let high = m.get(&65432).and_then(|v| v.ints());
             let word = self.ifds[k].field(65426).filter(|e| ndpi_high_word(e)).map(|e| e.high);
-            Some(match (high, word) {
-                (Some(h), _) if h.len() != starts.len() => (starts, false, true, false),
-                (Some(h), Some(w)) => (starts, true, h[0] == w, false),
-                (h, _) => (ndpi::combine(starts, h), true, true, h.is_some()),
-            })
+            let mut x = McuStarts { starts, same_length: true, high_word: true, added: false };
+            match (high, word) {
+                (Some(h), _) if h.len() != x.starts.len() => x.same_length = false,
+                (Some(h), Some(w)) => x.high_word = h[0] == w,
+                (h, _) => {
+                    x.added = h.is_some();
+                    x.starts = ndpi::combine(x.starts, h);
+                }
+            }
+            Some(x)
         };
         let tiled_of = |k: usize, m: &NVals| {
             let f = &self.ifds[k];
@@ -2508,7 +2521,7 @@ impl Tiff {
                 continue;
             }
             match starts_of(k, &m) {
-                Some((starts, true, true, _)) => {
+                Some(McuStarts { starts, same_length: true, high_word: true, .. }) => {
                     let first = starts.first().is_some_and(|&f| f >= 2 && f <= n);
                     if fits && first && !self.heads.contains_key(&(s0, starts[0])) {
                         need.push((s0, starts[0]));
@@ -2676,14 +2689,14 @@ impl Tiff {
             self.rules.check("strip", rules::env([("within", flag(within)), ("length", num(n as f64))]))?;
             let head = starts_of(k, m);
             // the projection adds McuStartsHighBytes as the layout does
-            let added = head.as_ref().is_some_and(|x| x.3);
-            if let Some((starts, same_length, high_word, _)) = &head {
+            let added = head.as_ref().is_some_and(|x| x.added);
+            if let Some(x) = &head {
                 self.rules.check(
                     "mcu_starts",
                     rules::env([
-                        ("same_length", flag(*same_length)),
-                        ("high_word", flag(*high_word)),
-                        ("first", starts.first().map(|&f| num(f as f64)).unwrap_or(V::Absent)),
+                        ("same_length", flag(x.same_length)),
+                        ("high_word", flag(x.high_word)),
+                        ("first", x.starts.first().map(|&f| num(f as f64)).unwrap_or(V::Absent)),
                         ("length", num(n as f64)),
                     ]),
                 )?;
@@ -2719,7 +2732,7 @@ impl Tiff {
             }
             let grid = match head {
                 None => J::Null,
-                Some((starts, ..)) => {
+                Some(McuStarts { starts, .. }) => {
                     let Some(hb) = self.heads.get(&(s0, starts[0])).cloned() else {
                         // a header the batch above did not foresee: ask for it, when it is in the file
                         if !self.within(s0, starts[0]) {
