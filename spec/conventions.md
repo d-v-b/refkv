@@ -252,12 +252,21 @@ value).
 | `node_type` | string | required | `"array"` |
 | `shape` | array of integer | required | the array's size along each axis |
 | `data_type` | string | required | a Zarr v3 data type, which the format's convention gives |
-| `chunk_grid` | object | required | `{"name": "regular", "configuration": {"chunk_shape": [...]}}`, one chunk size per axis |
+| `chunk_grid` | object | required | `{"name": "regular", "configuration": {"chunk_shape": [...]}}`, one chunk size per axis (or, where the table above says so, the `rectilinear` grid the format's document gives) |
 | `chunk_key_encoding` | object | required | `{"name": "default", "configuration": {"separator": "/"}}` |
 | `fill_value` | number | required | `0` |
 | `codecs` | array of object | required | the codecs below, in their order |
 | `dimension_names` | array of string | required | the axes' names, in order (**Axes**, below) |
 | `attributes` | object | required | `{}`, unless the format's convention gives the array attributes: a [`Declaration`](#type-declaration) when the array has source metadata ([§2](#2-attributes), [§7](#7-source-values-as-arrays)), CF attributes ([§9](#9-dataset-layouts)) |
+
+<a id="type-groupdocument"></a>**`GroupDocument`**, a group's `zarr.json` (an image's is an
+[`ImageGroup`](#type-imagegroup), [§4](#4-images)):
+
+| member | type | presence | value |
+|---|---|---|---|
+| `zarr_format` | integer | required | `3` |
+| `node_type` | string | required | `"group"` |
+| `attributes` | object | required | `{}`, or the members the format's convention gives: a [`Declaration`](#type-declaration) when the group declares the convention ([§2](#2-attributes)) |
 
 A format's document names its arrays' types after this one, by the members it gives
 (`shape`, `data_type`, `chunk_grid`'s chunk shape, `codecs`, `dimension_names` and
@@ -374,7 +383,9 @@ Its types, from the group's document down:
 | `window` | [`Window`](#type-window) | optional | present when the format's convention gives the channel a window |
 
 A format's convention may give a channel members of its own after these (DICOM's
-`inverted`); OME-Zarr's copies a store's own `omero`.
+`inverted`); OME-Zarr's copies a store's own `omero`. The store conventions' images (N5's
+multiscales, OME-Zarr's migrated groups) carry the store's own axes and level paths, so their
+documents define their OME metadata themselves.
 
 <a id="type-window"></a>**`Window`**:
 
@@ -391,8 +402,8 @@ A format's convention may give a channel members of its own after these (DICOM's
 
 | prefix | type | structure | description |
 |---|---|---|---|
-| `zarr.json` | group | [`CollectionRoot`](#type-collectionroot) | the root, which declares the convention ([§2](#2-attributes)) |
-| `OME/zarr.json` | group | [`SeriesGroup`](#type-seriesgroup) | the list of the images |
+| `zarr.json` | group | [`GroupDocument`](#type-groupdocument), attributes a [`CollectionRoot`](#type-collectionroot) | the root, which declares the convention ([§2](#2-attributes)) |
+| `OME/zarr.json` | group | [`GroupDocument`](#type-groupdocument), attributes a [`SeriesGroup`](#type-seriesgroup) | the list of the images |
 | `<k>/zarr.json` | group | [`ImageGroup`](#type-imagegroup) | image `k`, numbered from 0 |
 
 `<k>` is an image's index in decimal. Where the format's convention lays out no image (a
@@ -702,17 +713,17 @@ The store conventions say when they have the last two members, and their content
 | prefix | type | structure | description |
 |---|---|---|---|
 | `refkv_source/zarr.json` | group | a [`Declaration`](#type-declaration) whose source metadata is a [`Mirror`](#type-mirror) | the source metadata node ([§2](#2-attributes)) |
-| `refkv_source/ir/zarr.json` | group | `{}` attributes | leads to the table |
+| `refkv_source/ir/zarr.json` | group | [`GroupDocument`](#type-groupdocument), attributes `{}` | leads to the table |
 | `refkv_source/ir/rows/zarr.json` | array | [`TableArray`](#type-tablearray): `int64`, `[8, m]`, chunks `[8, min(m, 16384)]`, dimensions `column`, `index` | the stored rows |
 | `refkv_source/ir/tables/zarr.json` | array | [`TableArray`](#type-tablearray): `int64`, `[k, 7]`, chunks `[min(k, 18724), 7]`, dimensions `index`, `part` | the tables |
-| `refkv_source/ir/shared/zarr.json` | group | `{}` attributes | when the IR has shared data sources |
+| `refkv_source/ir/shared/zarr.json` | group | [`GroupDocument`](#type-groupdocument), attributes `{}` | when the IR has shared data sources |
 | `refkv_source/ir/shared/offsets/zarr.json` | array | [`TableArray`](#type-tablearray): `int64`, `[s + 1]`, chunks of at most 131072 values, dimension `index` | where each shared data source starts in `data`, then the total |
 | `refkv_source/ir/shared/data/zarr.json` | array | [`TableArray`](#type-tablearray): `uint8`, chunks of at most 1048576 values, dimension `index` | the shared data sources, one after another |
 | `refkv_source/ir/held/**` | group, arrays | as `ir/shared/**` | a store IR's held objects, one byte string each ([§8.9](#89-stores)) |
 | `refkv_source/ir/*/c/**` | chunk | the array's values, little-endian, edge chunks padded with zeros | copied bytes |
 | `refkv_source/tree/zarr.json` | group | a view document ([§8.7](#87-the-view)): a [`Declaration`](#type-declaration) whose source metadata is the root's [`ViewDocument`](#type-viewdocument), or `{}` attributes when it has no member | the view of the IR's root |
 | `refkv_source/tree/**/zarr.json` | group | as `tree`'s, or `{}` attributes for a group that only leads to a group | the view of a struct whose document is stored on its own group ([§8.7](#87-the-view)) |
-| `refkv_source/<path>` | | as the format's convention gives | the format's own arrays of the node ([§7](#7-source-values-as-arrays)), and a store convention's `objects/**` ([§2](#2-attributes)) |
+| `refkv_source/<path>` | group, array, chunk or object | as the format's convention gives | the format's own nodes under `refkv_source` ([§7](#7-source-values-as-arrays)), and a store convention's `objects/**` ([§2](#2-attributes)), which its document lists in rows of their own |
 
 <a id="type-tablearray"></a>**`TableArray`**: an [`ArrayDocument`](#type-arraydocument) with the
 data type, shape, chunk shape and dimension names above, `fill_value` 0, `codecs`
@@ -1514,19 +1525,21 @@ reader can model every node and attribute the convention writes as a record type
 tables alone. The prose stays the definition of what a table cannot hold: an algorithm, a
 rationale, an example.
 
-**The entries table.** Part 1 starts with the section **Layout** (unnumbered, before its
-section 1; its anchor is `#layout`), whose table has one row per entry, or family of entries,
+**The entries table.** Part 1 has, before its section 1 (after any paragraphs that introduce
+it), the section **Layout**, unnumbered, whose anchor is `#layout` and whose table has one row per entry, or family of entries,
 of the hierarchy, root first, with these columns:
 
 | column | holds |
 |---|---|
 | prefix | the entry's key below the hierarchy's root. `<name>` is a placeholder, defined in a table of placeholders after the entries table, for one key segment unless its definition says it stands for several; `*` is any one segment and `**` any number of segments. An attribute's prefix is its document's key followed by `#` and the JSON Pointer (RFC 6901) of the member in the document, `zarr.json#/attributes/ome` |
-| type | `group` or `array` (a node's `zarr.json`), `attribute` (a member of a node's attributes, or a member of one), `chunk` (a chunk's key, or a shard's), `object` (a store's object, held whole under `refkv_source/objects/`) or `subtree` (a family of entries another table lists) |
+| type | `group` or `array` (a node's `zarr.json`), `attribute` (a member of a node's attributes, or a member of one), `chunk` (a chunk's key, or a shard's), `object` (an entry that is a store's object, held whole: under `refkv_source/objects/`, or at a key the format's convention gives) or `subtree` (a family of entries another table lists) |
 | structure | a link to what defines the entry: for a node, its document's type; for an attribute, the member's type; for a chunk, its bytes' composition; for a subtree, its table. A constant is written as it is |
 | description | what the entry is, when it is present, and the section of the prose that defines it |
 
 Every entry the format writes matches one row of type `group`, `array`, `chunk`, `object` or
-`subtree`. The mirror is one row, `refkv_source/**`, a subtree, which links
+`subtree`, but for the rows a subtree's own entries may also match: the format's own entries
+under `refkv_source` match the subtree `refkv_source/**` and their own rows, which say what
+they are. The mirror is one row, `refkv_source/**`, a subtree, which links
 [the mirror's entries](#table-mirror) ([§8.2](#82-the-table)); a collection's entries are
 [§4](#4-images)'s [table](#table-collection); a format that writes arrays of its own under `refkv_source`
 ([§7](#7-source-values-as-arrays)) lists them in rows of their own.
@@ -1558,12 +1571,21 @@ ranges of the reference, in order, with these columns:
 | column | holds |
 |---|---|
 | part | what the range holds |
-| range | a source range `(i, offset, length)` of source `i` (0 the input, for a file), a literal range, a range of a data source, or `bytes`, when the chunk is a bytes entry |
+| range | a source range `(i, offset, length)` of source `i` (0 the input, for a file; for a store, the `url` source of an object, [spec/zarrify.md §1.4](zarrify.md#14-store-inputs)), a literal range, a range of a data source, or `bytes`, when the chunk is a bytes entry |
 | presence | `required` or `optional`: an optional range's condition is in its value |
 | value | its offset and length, or its bytes, and their constraints |
 
 A shard's composition is [spec/zarrify.md §2.1](zarrify.md#21-virtual-shards)'s
 [`Shard`](zarrify.md#type-shard), of the inner chunks a format's chunk type gives.
+
+**Unions and tuples.** A type that is one of several forms is a table with the columns
+`form` and `when`, one row per form, as [§8.7](#87-the-view)'s
+[`ViewValue`](#type-viewvalue). A JSON array whose elements differ by position is a table
+with the columns `element`, `type` and `value`, one row per position.
+
+**Binary layouts.** Bytes whose structure a type gives (a chunk's header, a record of the
+source) are a table with the columns `part`, `encoding` and `value`, its rows in the order of
+the bytes, as [§10](#10-coded-streams)'s [`StreamChunk`](#type-streamchunk).
 
 **Placeholders and other lists.** A table of placeholders has the columns `placeholder` and
 `value`. A list whose items share the same parts (a code's meanings, the members of an

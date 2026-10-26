@@ -90,7 +90,7 @@ a reference entry, is one of:
 
 | range | written | its bytes |
 |---|---|---|
-| a source range | `(i, offset, length)` | `length` bytes of source `i`, from `offset`: of the input (source 0, for a file input), or of a data source ([§1.2](#12-input)), whole, or a zero data source's first `length` bytes |
+| a source range | `(i, offset, length)` | `length` bytes of source `i`, from `offset`: of a `url` source (the input, source 0, for a file input; an object of a store input, [§1.4](#14-store-inputs), whose profile gives the order of its sources), or of a data source ([§1.2](#12-input)), whole, or a zero data source's first `length` bytes |
 | a literal range | a literal of `d` | the bytes `d`, which the entry carries ([spec/refkv.md §4.2](refkv.md#42-range)) |
 
 A format's chunk tables ([conventions §11.5](conventions.md#115-layout-tables)) give each
