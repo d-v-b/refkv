@@ -595,7 +595,7 @@ summary, with these members:
 | `duration` | in seconds |
 | `bitrate` | in kbps, or `"variable"` |
 | `chunkFrames` | `F` |
-| `chunks` | the array's chunks |
+| `chunks` | the number of the array's chunks |
 | `info` | the info frame's tag, or `null` |
 | `tags` | those of `"id3v2"`, `"id3v1"` and `"ape"` the file has, in that order |
 | `strayBytes` | the stray bytes |

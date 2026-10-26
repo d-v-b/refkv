@@ -1040,7 +1040,7 @@ summary, with these members:
 | member | value |
 |---|---|
 | `images` | one object per image (below) |
-| `chunks` | all images' |
+| `chunks` | the number of all images' chunks |
 | `dataSources` | the data sources |
 | `ifds` | every IFD read, EXIF included |
 | `tileFiles` | the tile files |
@@ -1063,5 +1063,5 @@ Each image's object:
 | `sizes` | `t`, `c`, `z`; a pyramid's |
 | `levels` | `[w, h]` per level |
 | `grids` | `[columns, rows]` per level; a pyramid's |
-| `chunks` | its chunks |
+| `chunks` | the number of its chunks |
 | `tilesOutside` | its tiles outside their levels |

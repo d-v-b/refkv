@@ -1215,7 +1215,7 @@ summary, with these members:
 | `form` | `"store"` or `"zip"` |
 | `groups` | the resolution groups |
 | `bands` | the band arrays |
-| `chunks` | the chunks |
+| `chunks` | the number of chunks |
 | `edgeChunks` | the chunks with empty tiles |
 | `dataSources` | the data sources |
 | `objects` | the product's objects, folder markers included |

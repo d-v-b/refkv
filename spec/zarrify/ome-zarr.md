@@ -655,7 +655,7 @@ summary, with these members:
 |---|---|
 | `groups` | the groups, explicit and implicit |
 | `arrays` | the arrays |
-| `chunks` | the chunk entries |
+| `chunks` | the number of chunk entries |
 | `emptyChunks` | the chunk objects of size 0 |
 | `objects` | the store's objects |
 | `images` | the images |
