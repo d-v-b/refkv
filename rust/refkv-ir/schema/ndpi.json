@@ -194,9 +194,10 @@
     },
     "mcu_starts": {
       "about": "a level's McuStarts (and McuStartsHighBytes), before its header is read",
-      "given": {"same_length": "McuStartsHighBytes is absent or has as many values", "first": "M[0] (absent when McuStarts has no value)", "length": "len(S)"},
+      "given": {"same_length": "McuStartsHighBytes is absent or has as many values", "high_word": "McuStarts is not one in-line LONG, or McuStartsHighBytes is absent or holds its entry's high word", "first": "M[0] (absent when McuStarts has no value)", "length": "len(S)"},
       "constraints": [
         {"require": "same_length", "message": "McuStartsHighBytes and McuStarts differ in length"},
+        {"require": "high_word", "message": "McuStartsHighBytes is not the high word of McuStarts' in-line value"},
         {"require": "present(first) && first >= 2 && first <= length", "message": "McuStarts[0] is outside the strip"}
       ]
     },

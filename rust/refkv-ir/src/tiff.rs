@@ -122,11 +122,11 @@ fn unsigned(t: u16) -> bool {
 }
 
 /// An NDPI entry whose value is its 4 bytes plus its high word: an in-line LONG or IFD of
-/// count 1, but for the tile tables' high bytes (OffsetHighBytes and ByteCountHighBytes), whose
-/// values are the 32-bit values they store (spec/zarrify/ndpi.md §7
+/// count 1, but for the high tables (OffsetHighBytes, ByteCountHighBytes and
+/// McuStartsHighBytes), whose values are the 32-bit values they store (spec/zarrify/ndpi.md §7
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>).
 fn ndpi_high_word(e: &Ent) -> bool {
-    e.inline && e.count == 1 && matches!(e.typ, 4 | 13) && !matches!(e.tag, 65324 | 65325)
+    e.inline && e.count == 1 && matches!(e.typ, 4 | 13) && !matches!(e.tag, 65324 | 65325 | 65432)
 }
 
 
@@ -929,7 +929,9 @@ impl Tiff {
             let n = self.word(raw, 4);
             let field = raw[4 + fs..4 + 2 * fs].to_vec();
             let nbytes = type_size(typ).and_then(|z| z.checked_mul(n));
-            let inline = nbytes.is_some_and(|b| b <= fs as u64);
+            // NDPI never stores ASCII in line (spec/zarrify/ndpi.md §7
+            // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>)
+            let inline = nbytes.is_some_and(|b| b <= fs as u64 && !(self.ndpi && typ == 2 && b > 0));
             // NDPI: the entry's high word, after the next-IFD offset
             let hat = self.next_of(count) + 8 + 4 * i;
             let high = if self.ndpi { u32::at(body, hat, true) as u64 } else { 0 };
@@ -2320,10 +2322,11 @@ impl Tiff {
         m.get(&tag).and_then(|v| v.ints()).and_then(|v| v.first().copied())
     }
 
-    /// An entry's elements for the projection: its value, field type and high word.
+    /// An entry's elements for the projection: its value, field type, and its high word when
+    /// its value has it (`ndpi_high_word`).
     fn ent_facts(&self, k: usize, tag: u16) -> J {
         match self.ifds[k].field(tag) {
-            Some(e) => json!({"value": e.val, "type": e.typ, "high": if e.inline { e.hi } else { None }}),
+            Some(e) => json!({"value": e.val, "type": e.typ, "high": if ndpi_high_word(e) { e.hi } else { None }}),
             None => J::Null,
         }
     }
@@ -2463,11 +2466,19 @@ impl Tiff {
         if !need.is_empty() {
             return Err(Stop::Need(need));
         }
-        let starts_of = |m: &NVals| -> Option<(Vec<u64>, bool)> {
-            let starts = m.get(&65426).and_then(|v| v.ints())?;
+        // McuStarts plus McuStartsHighBytes × 2^32 (spec/zarrify/ndpi.md §7
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>), whether
+        // the high table has as many values, and whether, for one in-line LONG, whose value has
+        // its entry's high word already, the high table holds that word (and is not added)
+        let starts_of = |k: usize, m: &NVals| -> Option<(Vec<u64>, bool, bool)> {
+            let starts = m.get(&65426).and_then(|v| v.ints())?.to_vec();
             let high = m.get(&65432).and_then(|v| v.ints());
-            let same_length = high.is_none_or(|h| h.len() == starts.len());
-            Some((if same_length { ndpi::combine(starts.to_vec(), high) } else { starts.to_vec() }, same_length))
+            let word = self.ifds[k].field(65426).filter(|e| ndpi_high_word(e)).map(|e| e.high);
+            Some(match (high, word) {
+                (Some(h), _) if h.len() != starts.len() => (starts, false, true),
+                (Some(h), Some(w)) => (starts, true, h[0] == w),
+                (h, _) => (ndpi::combine(starts, h), true, true),
+            })
         };
         let tiled_of = |k: usize, m: &NVals| {
             let f = &self.ifds[k];
@@ -2495,8 +2506,8 @@ impl Tiff {
                 }
                 continue;
             }
-            match starts_of(&m) {
-                Some((starts, true)) => {
+            match starts_of(k, &m) {
+                Some((starts, true, true)) => {
                     let first = starts.first().is_some_and(|&f| f >= 2 && f <= n);
                     if fits && first && !self.heads.contains_key(&(s0, starts[0])) {
                         need.push((s0, starts[0]));
@@ -2662,12 +2673,13 @@ impl Tiff {
             }
             let within = (s0 as u128 + n as u128) <= self.size as u128;
             self.rules.check("strip", rules::env([("within", flag(within)), ("length", num(n as f64))]))?;
-            let head = starts_of(m);
-            if let Some((starts, same_length)) = &head {
+            let head = starts_of(k, m);
+            if let Some((starts, same_length, high_word)) = &head {
                 self.rules.check(
                     "mcu_starts",
                     rules::env([
                         ("same_length", flag(*same_length)),
+                        ("high_word", flag(*high_word)),
                         ("first", starts.first().map(|&f| num(f as f64)).unwrap_or(V::Absent)),
                         ("length", num(n as f64)),
                     ]),
@@ -2704,7 +2716,7 @@ impl Tiff {
             }
             let grid = match head {
                 None => J::Null,
-                Some((starts, _)) => {
+                Some((starts, ..)) => {
                     let Some(hb) = self.heads.get(&(s0, starts[0])).cloned() else {
                         // a header the batch above did not foresee: ask for it, when it is in the file
                         if !self.within(s0, starts[0]) {
@@ -2717,9 +2729,13 @@ impl Tiff {
                     ndpi::Grid::new(s0, n, w, h, hb, hd, starts, &before, &after, self.rules)?.facts()
                 }
             };
+            // McuStartsHighBytes, when added: not to McuStarts of one in-line LONG, which holds its
+            // entry's high word instead
+            let one_word = self.ifds[k].field(65426).is_some_and(ndpi_high_word);
+            let high = if one_word { J::Null } else { self.ent_facts(k, 65432) };
             out.push(json!({
                 "w": w, "h": h, "strip": s0, "length": n,
-                "starts": self.ent_facts(k, 65426), "high": self.ent_facts(k, 65432), "grid": grid, "frame": frame,
+                "starts": self.ent_facts(k, 65426), "high": high, "grid": grid, "frame": frame,
             }));
             scales.push(json!([1, py.unwrap_or(1.0) * (bh as f64 / h as f64), px.unwrap_or(1.0) * (bw as f64 / w as f64)]));
         }
