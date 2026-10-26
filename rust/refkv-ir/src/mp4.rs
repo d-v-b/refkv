@@ -891,8 +891,9 @@ pub fn h264_sps(avcc: &[u8]) -> Option<Sps> {
         zeros = if c == 0 { zeros + 1 } else { 0 };
         rbsp.push(c);
     }
-    let (profile, level) = (rbsp[0], rbsp[2]);
-    let mut r = Bits { b: &rbsp[3..], at: 0 };
+    // dropping emulation prevention bytes can leave too few bytes for the profile and level
+    let (&profile, &level) = (rbsp.first()?, rbsp.get(2)?);
+    let mut r = Bits { b: rbsp.get(3..)?, at: 0 };
     r.ue()?;
     let (mut chroma, mut luma, mut chroma_depth) = (1, 8, 8);
     if HIGH_PROFILES.contains(&profile) {
@@ -1109,5 +1110,13 @@ mod tests {
                    0x00, 0x01, 0x00, 0x00, 0x03, 0x00, 0x14, 0x0F, 0x12, 0x25, 0x96, 0x01, 0x00, 0x06, 0x68, 0xEB, 0xE3, 0xCB, 0x22, 0xC0];
         assert_eq!(h264_sps(&ten), Some(Sps { profile: 110, level: 10, chroma: 1, luma: 10, chroma_depth: 10 }));
         assert_eq!(aac_config(&[0x14, 0x08]), Some(Asc { aot: 2, rate: 16000, channels: 1, short: false }));
+    }
+
+    /// An SPS NAL unit of 4 bytes whose emulation prevention byte leaves a 2-byte RBSP, too short
+    /// for the profile, constraint flags and level.
+    #[test]
+    fn h264_sps_rejects_a_short_rbsp() {
+        let avcc = [0x01, 0x64, 0x00, 0x0A, 0xFF, 0xE1, 0x00, 0x04, 0x67, 0x00, 0x00, 0x03];
+        assert_eq!(h264_sps(&avcc), None);
     }
 }
