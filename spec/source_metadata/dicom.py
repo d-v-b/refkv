@@ -74,6 +74,7 @@ SCHEMA = {"anyOf": [{
         "trailing": {"type": "string",
                      "description": "refkv_source/trailing: the IR's element holding the bytes after the last element"},
     },
+    "required": ["meta", "dataset"],
     "additionalProperties": False,
 },
     {"$ref": "#/$defs/mirror"},

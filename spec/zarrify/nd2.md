@@ -7,7 +7,9 @@ conventions share is in [spec/conventions.md](../conventions.md), cited here as
 ND2 profile, [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `59612f14-e314-4207-ba00-8f422ba71490` ·
-Schema: [schema.json](nd2/schema.json)
+Schema: [schema.json](nd2/schema.json) · Changed 2026-10-26, with no change to any output: the
+layout is tabulated, its entries in [Layout](#layout) and its types in type tables
+([conventions §11.5](../conventions.md#115-layout-tables))
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
@@ -17,6 +19,31 @@ This convention gives a layout only to the files that meet its
 requirements. Where it says that "the input is rejected", or that
 something MUST hold, a file that fails has no layout under this
 convention, and the profile rejects it.
+
+## Layout
+
+The hierarchy's entries ([conventions §11.5](../conventions.md#115-layout-tables)), a
+bioformats2raw collection ([conventions §4](../conventions.md#table-collection)) of one image
+per position ([§4.3](#43-output)):
+
+| prefix | type | structure | description |
+|---|---|---|---|
+| `zarr.json` | group | [`GroupDocument`](../conventions.md#type-groupdocument), attributes a [`CollectionRoot`](../conventions.md#type-collectionroot) | the root, which declares the convention ([§1](#1-declaration)) |
+| `zarr.json#/attributes/ome` | attribute | object | `{"version": "0.5", "bioformats2raw.layout": 3}`: there is always at least one position |
+| `zarr.json#/attributes/zarr_conventions` | attribute | array of [`ConventionMetadata`](../conventions.md#type-conventionmetadata) | the CMO of [§1](#1-declaration) |
+| `zarr.json#/attributes/refkv_zarrified` | attribute | [`RootProperty`](../conventions.md#type-rootproperty) | `profile` `"nd2"`, `version` `0`, `source.url` the file's URL |
+| `zarr.json#/attributes/refkv_zarrified/nd2` | attribute | [`Nd2Root`](#type-nd2root) | the root's source metadata ([§5](#5-source-metadata)) |
+| `OME/zarr.json` | group | [`GroupDocument`](../conventions.md#type-groupdocument), attributes a [`SeriesGroup`](../conventions.md#type-seriesgroup) | one series per position (one if there is no position loop) |
+| `<p>/zarr.json` | group | [`ImageGroup`](../conventions.md#type-imagegroup) | position `p`'s image; it does not declare the convention |
+| `<p>/zarr.json#/attributes/ome` | attribute | [`OmeImage`](../conventions.md#type-omeimage) | `M`: the name `"position <p>"`, one level, the array `0`, with the scales, units and translation of [§4.3](#43-output), and `omero` |
+| `<p>/0/zarr.json` | array | [`Nd2Array`](#type-nd2array) | the frames at position `p` ([§4.3](#43-output)) |
+| `<p>/0/c/<coords>` | chunk | [`Nd2FrameChunk`](#type-nd2framechunk) | a frame, or one row block of it ([§4.3](#43-output), [§7.4](#74-chunk-references)); absent for a missing frame |
+| `refkv_source/**` | subtree | [the mirror's entries](../conventions.md#table-mirror) | the IR mirror ([§5.2](#52-the-ir-mirror)): its elements are [§5.3](#53-elements)'s; the convention has no arrays of its own there |
+
+| placeholder | value |
+|---|---|
+| `<p>` | a position's index in decimal, from 0 to `P − 1`, `P` the position loop's count (1 without one) |
+| `<coords>` | the chunk's coordinates, one key segment per axis present: `<t>/<c>/<z>/<y>/<x>`, its `t` index, 0 for `c`, its `z` index (flipped for a negative `dZStep`), the row block `j` (0 without row blocks), and 0 for `x` (two to five segments) |
 
 ## 1. Declaration
 
@@ -97,16 +124,16 @@ names a member like `a0` (`i` in decimal, without leading zeros). Each step
 of a path looks up a name in an object; a step from a value that is not an
 object (a list, a byte array, a scalar) rejects the input. A missing member
 takes the default given, and a missing member without one rejects the
-input. A member read as:
+input. A member read as each **kind**:
 
-- a **number** MUST have type 2–6; its value is converted to binary64
-  (rounding to nearest) and MUST be finite;
-- an **integer** MUST be a number with an integral value from 0 to
-  2^53 − 1 (a **color** is an integer from −2^31 to 2^32 − 1, taken modulo
-  2^32);
-- a **flag** MUST have type 1–5 (true if nonzero);
-- a **string** MUST have type 8;
-- an **object** or a **list** MUST be one (a byte array is a list).
+| kind | the member MUST | its value |
+|---|---|---|
+| **number** | have type 2–6 | converted to binary64 (rounding to nearest), which MUST be finite |
+| **integer** | be a number with an integral value from 0 to 2^53 − 1 | the number |
+| **color** | be an integer, but from −2^31 to 2^32 − 1 | the number, taken modulo 2^32 |
+| **flag** | have type 1–5 | true if nonzero |
+| **string** | have type 8 | the string |
+| **object**, **list** | be one (a byte array is a list) | the object or list |
 
 Any other value rejects the input.
 
@@ -116,98 +143,112 @@ Every member listed in this section is read and checked (with the kind
 given, [§2.2](#22-lite-variant)) wherever it is present in the places described, whether or not
 its value ends up in the output.
 
-- **Attributes** (chunk `ImageAttributesLV!`, member `SLxImageAttributes`;
-  required):
-  - integers `uiWidth`, `uiHeight`, `uiWidthBytes`, `uiComp` (components per
-    pixel), `uiBpcInMemory` (all required; `uiWidth`, `uiHeight` and
-    `uiComp` at least 1, and `uiComp` at most 1024);
-  - number `uiBpcSignificant` (required);
-  - integers `eCompression` (default 2), `uiTileWidth` and `uiTileHeight`
-    (default 0).
+**Attributes** (chunk `ImageAttributesLV!`, member `SLxImageAttributes`;
+required):
 
-  Other members, such as `uiSequenceCount` and `ePixelType`, are not read.
-  - `uiBpcInMemory` 8, 16, 32 gives `uint8`, `uint16`, `float32`; other values
-    are rejected.
-  - `eCompression` 2 is uncompressed and 0 is lossless (zlib); any other
-    value (1 is lossy) is rejected.
-  - A tile width or height that is positive and differs from the image's is
-    rejected.
-- **Experiment** (chunk `ImageMetadataLV!`, member `SLxExperiment`; if the
-  chunk or the member is absent there are no loops) is a tree of objects
-  (any other value rejects). **Every node of the tree** (the root, and the
-  children of every node) is checked, whether or not the flattening below
-  visits it: its `eType` MUST be one of those in the table, and its members
-  are read as the table says.
-  - A **node** has:
-    - `eType` (integer, required);
-    - `uLoopPars` (object, default absent);
-    - `pItemValid` (a list of flags, default absent), a member of the node
-      itself, checked on every node;
-    - children, the members of `ppNextLevelEx` (object or list, default
-      none), each of which MUST be an object.
-  - Each node's loop has a **kind** and a count. Its members are in
-    `uLoopPars`:
+| member | kind | default | value |
+|---|---|---|---|
+| `uiWidth` | integer | required | at least 1 |
+| `uiHeight` | integer | required | at least 1 |
+| `uiWidthBytes` | integer | required | |
+| `uiComp` | integer | required | the components per pixel: at least 1 and at most 1024 |
+| `uiBpcInMemory` | integer | required | 8, 16, 32, which give `uint8`, `uint16`, `float32`; other values are rejected |
+| `uiBpcSignificant` | number | required | |
+| `eCompression` | integer | 2 | 2 is uncompressed and 0 is lossless (zlib); any other value (1 is lossy) is rejected |
+| `uiTileWidth`, `uiTileHeight` | integer | 0 | a tile width or height that is positive and differs from the image's is rejected |
 
-    | `eType` | kind | count, and period or step |
-    |---|---|---|
-    | 1 | time | integer `uiCount` (default 0); period: number `dPeriod` (ms, default 0) |
-    | 8 | time | the members `p` of `pPeriod` (object or list, default none) MUST be objects. The count is the sum of integer `p/uiCount` (required) over the valid `p`. The period is number `p/dPeriod` (default 0) of the valid `p` when they all have the same one, and 0 (no time step) when they differ or none is valid. |
-    | 2 | position | the number of valid members of `Points` (object or list, default none). Each valid member `q` MUST be an object; its **stage position** is numbers `q/dPosX` and `q/dPosY` (µm, default absent). |
-    | 4 | z | integer `uiCount` (default 0); numbers `dZStep`, `dZLow`, `dZHigh` (default 0); step `abs(dZStep)`, or if that is 0 and the count is more than 1, `abs(dZHigh − dZLow) / (count − 1)` |
-    | 6 | (spectral) | integer `uiCount`; if it is absent, integer `pPlanes/uiCount` (`pPlanes` is read only then); if that is absent, 0 |
+Other members, such as `uiSequenceCount` and `ePixelType`, are not read.
 
-    For eType 8, `uiCount` and `dPeriod` are read from every valid member,
-    and only from those; the sum MUST be at most 2^53 − 1.
-  - **Validity:** the `i`-th member of `pPeriod` (of `Points`) is
-    **valid** if the list `uLoopPars/pPeriodValid` (for `Points`: the node's
-    `pItemValid`, not a member of `uLoopPars`) is absent, or if its `i`-th
-    member exists and is true. Every member of a validity list is a flag.
+**Experiment** (chunk `ImageMetadataLV!`, member `SLxExperiment`; if the
+chunk or the member is absent there are no loops) is a tree of objects
+(any other value rejects). **Every node of the tree** (the root, and the
+children of every node) is checked, whether or not the flattening below
+visits it: its `eType` MUST be one of those in the table, and its members
+are read as the table says. A **node** has:
 
-  The tree is flattened into a list of loops
-  by visiting nodes depth first, each node before its children. The root has
-  depth 0 and children are one deeper than their node, except that the
-  children of a spectral node have the spectral node's depth. A loop is its
-  kind, depth, count, and period or step. For each node visited, in this
-  order:
-  1. without `uLoopPars`, or with a count of 0 (spectral nodes included): the
-     node and its children are skipped (not visited, though still checked);
-  2. spectral: the node is skipped and its children are visited (its planes
-     are pixel components, not a loop of the output);
-  3. otherwise: if the list is empty or the last loop's depth is less than
-     the node's, the node's loop is appended. If the last loop has the same
-     depth and kind, and its count is less than the node's count, the node's
-     loop (with its period or step) replaces it. Otherwise the node's loop is
-     dropped. Either way its children are visited.
+| member | kind | default | value |
+|---|---|---|---|
+| `eType` | integer | required | one of those in the table below |
+| `uLoopPars` | object | absent | the loop's members (below) |
+| `pItemValid` | a list of flags | absent | a member of the node itself, checked on every node |
+| `ppNextLevelEx` | object or list | none | its members are the node's children, each of which MUST be an object |
 
-  Rule 3 merges sibling branches that repeat one loop. A time loop with two
-  position-loop children of 25 and 25 points gives [time, position]; the
-  second position loop is dropped, and its children are still visited one
-  level deeper. Rule 3 compares only with the last loop: if the first
-  position loop had a z-loop child, the last loop is that z loop when the
-  second position loop is visited, so the second is dropped whatever its
-  count.
+Each node's loop has a **kind** and a count. Its members are in
+`uLoopPars`:
 
-  Two loops of the same kind (two time loops, for example) in the final list
-  are rejected.
-- **Picture metadata** (chunk `ImageMetadataSeqLV|0!`, member
-  `SLxPictureMetadata`; if the chunk or the member is absent there are no
-  planes and the image is not calibrated):
-  - flag `bCalibrated` (default false), number `dCalibration` (default
-    absent), number `dAspect` (default 1), numbers `dXPos` and `dYPos` (the
-    stage position, default absent);
-  - planes: object `sPicturePlanes` (default absent: no planes), with
-    integer `uiCount` (default 0) and object `sPlaneNew` (default absent).
-    Plane `i` is the member `sPlaneNew/a<i>`, for `i < uiCount`. Each one
-    present MUST be an object, with string `sDescription` (default empty),
-    color `uiColor` (default `0xFFFFFF`) and integer `uiCompCount`
-    (default 1).
-  - calibration: the image is **calibrated** if `bCalibrated` is true and
-    `dCalibration` is present and positive. A `dAspect` that is not positive
-    counts as 1.
-  - camera matrix: numbers `dStgLgCT11`, `dStgLgCT12`, `dStgLgCT21`,
-    `dStgLgCT22` (defaults 1, 0, 0, 1), the matrix
-    `C = [[dStgLgCT11, dStgLgCT12], [dStgLgCT21, dStgLgCT22]]` that maps
-    image x and y offsets to stage x and y offsets.
+| `eType` | kind | count, and period or step |
+|---|---|---|
+| 1 | time | integer `uiCount` (default 0); period: number `dPeriod` (ms, default 0) |
+| 8 | time | the members `p` of `pPeriod` (object or list, default none) MUST be objects. The count is the sum of integer `p/uiCount` (required) over the valid `p`. The period is number `p/dPeriod` (default 0) of the valid `p` when they all have the same one, and 0 (no time step) when they differ or none is valid. |
+| 2 | position | the number of valid members of `Points` (object or list, default none). Each valid member `q` MUST be an object; its **stage position** is numbers `q/dPosX` and `q/dPosY` (µm, default absent). |
+| 4 | z | integer `uiCount` (default 0); numbers `dZStep`, `dZLow`, `dZHigh` (default 0); step `abs(dZStep)`, or if that is 0 and the count is more than 1, `abs(dZHigh − dZLow) / (count − 1)` |
+| 6 | (spectral) | integer `uiCount`; if it is absent, integer `pPlanes/uiCount` (`pPlanes` is read only then); if that is absent, 0 |
+
+For eType 8, `uiCount` and `dPeriod` are read from every valid member,
+and only from those; the sum MUST be at most 2^53 − 1.
+
+**Validity:** the `i`-th member of `pPeriod` (of `Points`) is
+**valid** if the list `uLoopPars/pPeriodValid` (for `Points`: the node's
+`pItemValid`, not a member of `uLoopPars`) is absent, or if its `i`-th
+member exists and is true. Every member of a validity list is a flag.
+
+**Flattening.** The tree is flattened into a list of loops
+by visiting nodes depth first, each node before its children. The root has
+depth 0 and children are one deeper than their node, except that the
+children of a spectral node have the spectral node's depth. A loop is its
+kind, depth, count, and period or step. For each node visited, in this
+order:
+
+1. without `uLoopPars`, or with a count of 0 (spectral nodes included): the
+   node and its children are skipped (not visited, though still checked);
+2. spectral: the node is skipped and its children are visited (its planes
+   are pixel components, not a loop of the output);
+3. otherwise: if the list is empty or the last loop's depth is less than
+   the node's, the node's loop is appended. If the last loop has the same
+   depth and kind, and its count is less than the node's count, the node's
+   loop (with its period or step) replaces it. Otherwise the node's loop is
+   dropped. Either way its children are visited.
+
+Rule 3 merges sibling branches that repeat one loop. A time loop with two
+position-loop children of 25 and 25 points gives [time, position]; the
+second position loop is dropped, and its children are still visited one
+level deeper. Rule 3 compares only with the last loop: if the first
+position loop had a z-loop child, the last loop is that z loop when the
+second position loop is visited, so the second is dropped whatever its
+count.
+
+Two loops of the same kind (two time loops, for example) in the final list
+are rejected.
+
+**Picture metadata** (chunk `ImageMetadataSeqLV|0!`, member
+`SLxPictureMetadata`; if the chunk or the member is absent there are no
+planes and the image is not calibrated):
+
+| member | kind | default | value |
+|---|---|---|---|
+| `bCalibrated` | flag | false | |
+| `dCalibration` | number | absent | |
+| `dAspect` | number | 1 | a `dAspect` that is not positive counts as 1 |
+| `dXPos`, `dYPos` | number | absent | the stage position |
+| `sPicturePlanes` | object | absent: no planes | the planes, with the two members below |
+| `sPicturePlanes/uiCount` | integer | 0 | |
+| `sPicturePlanes/sPlaneNew` | object | absent | plane `i` is its member `a<i>` (`sPlaneNew/a<i>`), for `i < uiCount`; each one present MUST be an object, with the members below |
+| `dStgLgCT11`, `dStgLgCT12`, `dStgLgCT21`, `dStgLgCT22` | number | 1, 0, 0, 1 | the camera matrix |
+
+A plane has:
+
+| member | kind | default |
+|---|---|---|
+| `sDescription` | string | empty |
+| `uiColor` | color | `0xFFFFFF` |
+| `uiCompCount` | integer | 1 |
+
+**Calibration:** the image is **calibrated** if `bCalibrated` is true and
+`dCalibration` is present and positive.
+
+**Camera matrix:** the matrix
+`C = [[dStgLgCT11, dStgLgCT12], [dStgLgCT21, dStgLgCT22]]` maps
+image x and y offsets to stage x and y offsets.
 
 ## 4. The image
 
@@ -227,11 +268,10 @@ Channels are the components. If `uiCount` is at least 1, every plane
 `i < uiCount` exists, every plane's `uiCompCount` is 1 or 3, and they add up to `uiComp`,
 the components are labeled plane by plane:
 
-- a plane with one component gives one channel labeled `sDescription`,
-  colored by `uiColor`;
-- a plane with three components gives three channels labeled
-  `<sDescription> R`, `<sDescription> G`, `<sDescription> B`, colored
-  `FF0000`, `00FF00`, `0000FF`.
+| a plane with | gives | labeled | colored |
+|---|---|---|---|
+| one component | one channel | `sDescription` | by `uiColor` |
+| three components | three channels | `<sDescription> R`, `<sDescription> G`, `<sDescription> B` | `FF0000`, `00FF00`, `0000FF` |
 
 Otherwise channel `k` is labeled `C<k>` and colored `FFFFFF`. A `uiColor` is
 `0xAABBGGRR`; its color is the six uppercase hexadecimal digits of red,
@@ -239,86 +279,94 @@ green and blue.
 
 ### 4.3 Output
 
-The output is a bioformats2raw layout:
+The output is a bioformats2raw layout ([conventions §4](../conventions.md#table-collection);
+its entries are in [Layout](#layout)):
 
-- `zarr.json`: the root, a group with attributes
-  `{"ome": {"version": "0.5", "bioformats2raw.layout": 3}}`, with the
-  convention declared ([§1](#1-declaration)). The images below it do not declare it.
-- `OME/zarr.json`: a group with attributes
-  `{"ome": {"version": "0.5", "series": ["0", "1", ...]}}`, one series per
-  position (one if there is no position loop).
-- For each position `p`, `"<p>/zarr.json"`: an image ([conventions §4](../conventions.md#4-images)) with
-  `"name": "position <p>"` and one level, the array `"<p>/0"`.
+| entry | what |
+|---|---|
+| `zarr.json` | the root, a group ([`CollectionRoot`](../conventions.md#type-collectionroot)) with attributes `{"ome": {"version": "0.5", "bioformats2raw.layout": 3}}`, with the convention declared ([§1](#1-declaration)). The images below it do not declare it. |
+| `OME/zarr.json` | a group ([`SeriesGroup`](../conventions.md#type-seriesgroup)) with attributes `{"ome": {"version": "0.5", "series": ["0", "1", ...]}}`, one series per position (one if there is no position loop) |
+| `"<p>/zarr.json"` | for each position `p`: an image ([conventions §4](../conventions.md#4-images)) with `"name": "position <p>"` and one level, the array `"<p>/0"` |
 
-Each array:
+<a id="type-nd2array"></a>**`Nd2Array`**, each array's `zarr.json` (`<p>/0/zarr.json`): an
+[`ArrayDocument`](../conventions.md#type-arraydocument) with these members:
 
-- **Axes:** `t` if there is a time loop (even of count 1), `c` if
-  `uiComp > 1`, `z` if there is a z loop, then `y`, `x`. Shape: the loops'
-  counts, `uiComp`, then `uiHeight`, `uiWidth` (each only for the axes
-  present).
-- **Chunk shape:** 1 for `t` and `z`, `uiComp` for `c`, then `h` and
-  `uiWidth`: one frame, or one row block, per chunk. `h` is `uiHeight`,
-  except for uncompressed frames with padded rows (`uiWidthBytes` more than
-  a row), which the profile splits into blocks of `h` rows, a divisor of
-  `uiHeight` that it chooses to keep each chunk's reference within refkv's
-  limits ([§7.3](#73-frames)).
-- **Codecs** ([conventions §3](../conventions.md#3-arrays)): transpose when `c` is present (frames are interleaved),
-  bytes (with `"endian": "little"` when the data type is larger than 1 byte),
-  and zlib if compressed.
-- **Units and scales:**
-  - `x`: `micrometer` with scale `dCalibration` when calibrated, else no unit
-    and scale 1;
-  - `y`: `micrometer` with scale `dCalibration × dAspect` when calibrated,
-    else no unit and scale 1;
-  - `z`: `micrometer` with its step as scale when the step is positive, else
-    no unit and scale 1;
-  - `t`: `second` with scale `period / 1000` when the period is positive,
-    else no unit and scale 1;
-  - `c`: scale 1.
-- **Stage positions:** each image also has a translation ([conventions §4](../conventions.md#4-images)) placing it
-  where the stage was, when all of these hold: the image is calibrated;
-  every position's stage position is present (with a position loop,
-  `dPosX` and `dPosY` of the position loop's `p`-th valid member of
-  `Points`, for position `p`; without one, the picture metadata's numbers
-  `dXPos` and `dYPos`, default absent); and `d = dStgLgCT11 × dStgLgCT22 −
-  dStgLgCT12 × dStgLgCT21` is not 0. Otherwise no image has one. The
-  stage position `(sx, sy)` is the centre of the field of view; in image
-  coordinates it is
-  - `u = (dStgLgCT22 × sx − dStgLgCT12 × sy) / d`,
-  - `v = (dStgLgCT11 × sy − dStgLgCT21 × sx) / d`
+| member | type | presence | value |
+|---|---|---|---|
+| `shape` | array of integer | required | the loops' counts, `uiComp`, then `uiHeight`, `uiWidth` (each only for the axes present) |
+| `data_type` | string | required | `uint8`, `uint16` or `float32`, by `uiBpcInMemory` ([§3](#3-metadata)) |
+| `chunk_grid` | object | required | regular, its chunk shape 1 for `t` and `z`, `uiComp` for `c`, then `h` and `uiWidth`: one frame, or one row block, per chunk. `h` is `uiHeight`, except for uncompressed frames with padded rows (`uiWidthBytes` more than a row), which the profile splits into blocks of `h` rows, a divisor of `uiHeight` that it chooses to keep each chunk's reference within refkv's limits ([§7.3](#73-frames)) |
+| `codecs` | array of object | required | ([conventions §3](../conventions.md#3-arrays)) transpose when `c` is present (frames are interleaved), bytes (with `"endian": "little"` when the data type is larger than 1 byte), and zlib if compressed |
+| `dimension_names` | array of string | required | the **axes**: `t` if there is a time loop (even of count 1), `c` if `uiComp > 1`, `z` if there is a z loop, then `y`, `x` |
 
-  (that is, `C⁻¹ (sx, sy)`), and the translation is
-  `x = u − uiWidth × sx_scale / 2` and `y = v − uiHeight × sy_scale / 2`,
-  where `sx_scale` and `sy_scale` are the x and y scales, and 0 for the other
-  axes. (Each expression is computed left to right, products before
-  differences.) The position loop is the one in the flattened list ([§3](#3-metadata)):
-  when rule 3 replaces a loop, the replacing node's `Points` are used.
-- **omero:** every image's `M` has
-  `"omero": {"channels": [...]}`, one object per channel (even when there is
-  no `c` axis):
-  `{"label": ..., "color": ..., "active": true, "window": {"min": 0, "max": V, "start": 0, "end": V}}`
-  with `V = 2^b − 1`, where `b` is `uiBpcSignificant` if it is an integer
-  from 1 to `uiBpcInMemory`, else `uiBpcInMemory`; for `float32` there is no
-  `window`.
-- **Chunks:** frame `f` at position `p` (0 without a position loop) is the
-  chunk with coords its `t`, 0 for `c`, its `z` (each only when its axis is
-  present), then 0, 0. When the z loop's `dZStep` is negative (the stage
-  moves down), the z index is flipped: index `k` of the loop is `z = Z − 1 −
-  k`, so that z increases with the stage position, as its positive scale
-  says; with row blocks, block `j` (rows `j × h` to
-  `j × h + h − 1`) has coords ..., `j`, 0. A chunk holds the frame's pixels:
-  `uiHeight` rows of `uiWidth × uiComp` samples, interleaved by component,
-  of `uiBpcInMemory / 8` little-endian bytes, without the row padding (and
-  compressed by zlib when `eCompression` is 0). A frame that the chunk map
-  does not list is missing: its chunks are absent (the fill value).
+**Units and scales** of each image's axes:
+
+| axis | scale | unit |
+|---|---|---|
+| `x` | `dCalibration` when calibrated, else 1 | `micrometer` when calibrated, else none |
+| `y` | `dCalibration × dAspect` when calibrated, else 1 | `micrometer` when calibrated, else none |
+| `z` | its step when the step is positive, else 1 | `micrometer` when the step is positive, else none |
+| `t` | `period / 1000` when the period is positive, else 1 | `second` when the period is positive, else none |
+| `c` | 1 | none |
+
+**Stage positions:** each image also has a translation ([conventions §4](../conventions.md#4-images), a
+[`Translation`](../conventions.md#type-translation)) placing it
+where the stage was, when all of these hold: the image is calibrated;
+every position's stage position is present (with a position loop,
+`dPosX` and `dPosY` of the position loop's `p`-th valid member of
+`Points`, for position `p`; without one, the picture metadata's numbers
+`dXPos` and `dYPos`, default absent); and `d = dStgLgCT11 × dStgLgCT22 −
+dStgLgCT12 × dStgLgCT21` is not 0. Otherwise no image has one. The
+stage position `(sx, sy)` is the center of the field of view; in image
+coordinates it is
+
+- `u = (dStgLgCT22 × sx − dStgLgCT12 × sy) / d`,
+- `v = (dStgLgCT11 × sy − dStgLgCT21 × sx) / d`
+
+(that is, `C⁻¹ (sx, sy)`), and the translation is
+`x = u − uiWidth × sx_scale / 2` and `y = v − uiHeight × sy_scale / 2`,
+where `sx_scale` and `sy_scale` are the x and y scales, and 0 for the other
+axes. (Each expression is computed left to right, products before
+differences.) The position loop is the one in the flattened list ([§3](#3-metadata)):
+when rule 3 replaces a loop, the replacing node's `Points` are used.
+
+**omero:** every image's `M` has
+`"omero": {"channels": [...]}` (an [`Omero`](../conventions.md#type-omero)), one
+[`OmeroChannel`](../conventions.md#type-omerochannel) per channel (even when there is
+no `c` axis):
+
+| member | value |
+|---|---|
+| `label` | the channel's label ([§4.2](#42-channels)) |
+| `color` | the channel's color ([§4.2](#42-channels)) |
+| `active` | `true` |
+| `window` | `{"min": 0, "max": V, "start": 0, "end": V}` with `V = 2^b − 1`, where `b` is `uiBpcSignificant` if it is an integer from 1 to `uiBpcInMemory`, else `uiBpcInMemory`; for `float32` there is no `window` |
+
+**Chunks:** frame `f` at position `p` (0 without a position loop) is the
+chunk with coords its `t`, 0 for `c`, its `z` (each only when its axis is
+present), then 0, 0. When the z loop's `dZStep` is negative (the stage
+moves down), the z index is flipped: index `k` of the loop is `z = Z − 1 −
+k`, so that z increases with the stage position, as its positive scale
+says; with row blocks, block `j` (rows `j × h` to
+`j × h + h − 1`) has coords ..., `j`, 0. A chunk holds the frame's pixels:
+`uiHeight` rows of `uiWidth × uiComp` samples, interleaved by component,
+of `uiBpcInMemory / 8` little-endian bytes, without the row padding (and
+compressed by zlib when `eCompression` is 0); its ranges are an
+[`Nd2FrameChunk`](#type-nd2framechunk). A frame that the chunk map
+does not list is missing: its chunks are absent (the fill value).
 
 ## 5. Source metadata
 
-The root's source metadata `S` is `{"signature": T, "chunks": {...}}`, `T`
-being the signature chunk's 64 bytes of data up to the first NUL, as a text
-value, and `chunks` the decoded chunks of [§5.1](#51-decoded-chunks) that the root keeps. Everything
-the file holds is on `refkv_source`, the file's **IR mirror** ([§5.2](#52-the-ir-mirror)), from
-which it is rebuilt byte for byte.
+The root's source metadata `S` is `{"signature": T, "chunks": {...}}`.
+Everything the file holds is on `refkv_source`, the file's **IR mirror**
+([§5.2](#52-the-ir-mirror)), from which it is rebuilt byte for byte.
+
+<a id="type-nd2root"></a>**`Nd2Root`**, the root's `S`:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `signature` | [`Text`](../conventions.md#type-text) | required | `T`, the signature chunk's 64 bytes of data up to the first NUL, as a text value |
+| `chunks` | [`Nd2Chunks`](#type-nd2chunks) | required | the decoded chunks of [§5.1](#51-decoded-chunks) that the root keeps |
 
 The chunks are taken in the order of each name's first record in the map
 (**map order**), from the offset its last record gives. A chunk takes part
@@ -332,14 +380,12 @@ names read alike, the first in map order is the one `chunks` names.
 ### 5.1 Decoded chunks
 
 These chunks are decoded, unless the budget below is spent:
-- a chunk whose name ends in `LV!` or contains `LV|`, as a lite variant
-  ([§2.2](#22-lite-variant));
-- any other chunk whose name starts with `CustomData|` and that is not a
-  **stream's** chunk, as a lite variant, when it passes the **lossless
-  test** (below): such a chunk holds a lite variant only by guess, so it is
-  decoded only when its JSON keeps every byte of it, up to layout;
-- a chunk whose name starts with `CustomDataVar|`, as an **XML variant**
-  (below).
+
+| chunk | decoded as |
+|---|---|
+| a chunk whose name ends in `LV!` or contains `LV\|` | a lite variant ([§2.2](#22-lite-variant)) |
+| any other chunk whose name starts with `CustomData\|` and that is not a **stream's** chunk | a lite variant, when it passes the **lossless test** (below): such a chunk holds a lite variant only by guess, so it is decoded only when its JSON keeps every byte of it, up to layout |
+| a chunk whose name starts with `CustomDataVar\|` | an **XML variant** (below) |
 
 A stream's chunk is `CustomData|<ID>!` (its ID in UTF-8) for the IDs every
 writer uses without declaring them, `AcqTimesCache`, `AcqTimes2Cache`, `X`,
@@ -359,6 +405,12 @@ A chunk that decodes is a member, named by its name, of the root's
 the first (`ImageMetadataSeqLV|<n>!`, where `<n>` is decimal digits whose
 value as an integer is at least 1, leading zeros allowed), and every chunk
 whose JSON is larger than 16384 bytes, which are in the mirror only.
+
+<a id="type-nd2chunks"></a>**`Nd2Chunks`**, the root's `chunks`:
+
+| member | type | presence | value |
+|---|---|---|---|
+| each kept chunk's name, read as a [`Name`](../conventions.md#type-name) ([§5](#5-source-metadata)) | [`Nd2Document`](#type-nd2document) | optional | a chunk that decodes and that the root keeps (above, and **The root's budget**), in map order |
 
 **The root's budget.** While the root's `chunks` object (its JSON, with the
 size below) is larger than 65536 bytes, the chunk of the root with the
@@ -397,19 +449,13 @@ reader rebuilds from the JSON by the canonical choices below. A compressed
 record is layout (its first 12 bytes and its zlib stream, as for every
 chunk), so a compressed chunk is tested on the LV structure it
 inflates to. Every record, at every depth, MUST then be canonical:
-- its name: when the name is empty, the name length `k` is 0 (no units, no
-  NUL), and otherwise the name's units followed by one NUL unit, its first
-  (`k` is the units plus 1). An empty name of `k ≥ 1` does not pass;
-- a bool (type 1): its byte is 0 or 1;
-- a binary64 (type 6) that is a NaN: its bits are `0x7FF8000000000000`, the
-  NaN that `{"float": "NaN"}` stands for;
-- a level (type 11) of `c` records: the `8c` bytes it skips are all zero, or
-  are an **offset table**: `c` little-endian `u64`s that are the offsets of
-  its records from the start of the level record (its type byte), each
-  record's exactly once, in any order. The table is an index of the
-  records' positions: layout, and its order is not kept. (Nikon's writer
-  orders it by the records' names compared by their UTF-16 code units, and
-  records of equal names in no order a reader can tell.)
+
+| of a record | canonical when |
+|---|---|
+| its name | when the name is empty, the name length `k` is 0 (no units, no NUL), and otherwise the name's units followed by one NUL unit, its first (`k` is the units plus 1). An empty name of `k ≥ 1` does not pass |
+| a bool (type 1) | its byte is 0 or 1 |
+| a binary64 (type 6) that is a NaN | its bits are `0x7FF8000000000000`, the NaN that `{"float": "NaN"}` stands for |
+| a level (type 11) of `c` records | the `8c` bytes it skips are all zero, or are an **offset table**: `c` little-endian `u64`s that are the offsets of its records from the start of the level record (its type byte), each record's exactly once, in any order. The table is an index of the records' positions: layout, and its order is not kept. (Nikon's writer orders it by the records' names compared by their UTF-16 code units, and records of equal names in no order a reader can tell.) |
 
 A reader rebuilds such a chunk's bytes from its JSON, up to layout, given
 the record type of each scalar (which the JSON does not keep; the mirror does): it writes each
@@ -417,78 +463,83 @@ level's skipped bytes as zero or as an offset table in any valid order (in
 name order to match Nikon's writer for distinct names), and compresses the
 chunk or not.
 
-**LV values as JSON.**
-- **Names.** A well-formed name ([§2.2](#22-lite-variant)) is its text. Any other name is
-  U+0000 followed by the base64 (RFC 4648 §4, with padding) of its UTF-16LE
-  code units, up to its first NUL unit. Since a name ends at its first NUL,
-  no well-formed name holds U+0000, and the form reads back.
-- **Objects.** An object (a level that is not a list, or a chunk's
-  top-level records) whose records all have different names (as written
-  above) is a JSON object, with a member per record, in order, except that
-  it is pairs (below) when it is one record named `utf16`, `int` or
-  `float`, which would read as a tag (below), and when a record's name is
-  an **array index**: `0`, or a digit 1–9 followed by digits (`1`, `10`,
-  but not `01`), which an ECMAScript object would move before the other
-  members. An object in which two records have the same name is a JSON
-  array of **pairs**, one per record, in order: each pair is the array
-  `[name, value]`.
-- **Lists.** A list is a JSON array of its members' values, unless every
-  member's value is a JSON array of two elements whose first is a string:
-  such a list is written as pairs with empty names, `[["", v0], ["", v1],
-  ...]`.
-- **Reading back.** A chunk's top level is always an object (pairs there
-  are an object, even when their names are all empty). Elsewhere, a
-  non-empty JSON array whose every element is an array of two elements, the
-  first a string, is pairs. Pairs whose names are all empty are a list (an
-  object with a repeated name has a name that is not empty); other pairs
-  are an object. Any other array is a list or a byte array. A JSON object
-  with one member, named `utf16`, `int` or `float`, is a **tag** (below);
-  any other JSON object is an object.
-- A byte array is a JSON array of its bytes (decoded as one value, however
-  long).
-- A bool (type 1) is `true` or `false`. A string (type 8) is a JSON string
-  when it is well-formed, and otherwise the tag `{"utf16": B}`, where `B`
-  is the base64 of its UTF-16LE code units (without the NUL).
-- An integer (types 2–5, and 7) from −(2^53 − 1) to 2^53 − 1 is a JSON
-  number; any other is the tag `{"int": D}`, where `D` is its value in
-  decimal (a `-` sign when negative, no leading zeros), so that it reads
-  apart from a string of digits.
-- A binary64 (type 6) is a JSON number with its exact value when it is
-  finite and not −0, and otherwise the tag `{"float": "NaN"}`,
-  `{"float": "Infinity"}`, `{"float": "-Infinity"}` or `{"float": "-0"}`,
-  so that it reads apart from a string, and −0 apart from 0 (which
-  ECMAScript's `JSON.stringify` writes for both; this replaces the latitude
-  of [conventions §6](../conventions.md#6-source-metadata-as-json)).
+**LV values as JSON.** A record's **name** is written as:
+
+| name | as JSON |
+|---|---|
+| a well-formed name ([§2.2](#22-lite-variant)) | its text |
+| any other name | U+0000 followed by the base64 (RFC 4648 §4, with padding) of its UTF-16LE code units, up to its first NUL unit |
+
+Since a name ends at its first NUL, no well-formed name holds U+0000, and the form reads back.
+
+<a id="type-nd2document"></a>**`Nd2Document`**, a decoded chunk's JSON: its top-level records
+(a lite variant's) or its `variant` element (an XML variant's, below), always an object:
+a JSON object of [`Nd2Value`](#type-nd2value)s, or [`Nd2Pairs`](#type-nd2pairs), as an
+object is written below.
+
+<a id="type-nd2value"></a>**`Nd2Value`**, an LV value as JSON, one of:
+
+| form | when |
+|---|---|
+| a JSON object, with a member per record, in order, named by its name (above), its value an `Nd2Value` | an **object** (a level that is not a list, or a chunk's top-level records) whose records all have different names (as written above), except that it is pairs (next row) when it is one record named `utf16`, `int` or `float`, which would read as a tag ([`Nd2Tag`](#type-nd2tag)), and when a record's name is an **array index**: `0`, or a digit 1–9 followed by digits (`1`, `10`, but not `01`), which an ECMAScript object would move before the other members |
+| [`Nd2Pairs`](#type-nd2pairs) | an object in which two records have the same name, or one of the two exceptions above: one pair per record, in order; and a **list** every member's value of which is a JSON array of two elements whose first is a string: such a list is written as pairs with empty names, `[["", v0], ["", v1], ...]` |
+| array of `Nd2Value` | any other **list**: its members' values |
+| array of integer | a byte array: its bytes (decoded as one value, however long) |
+| boolean | a bool (type 1): `true` or `false` |
+| string | a string (type 8) that is well-formed |
+| number | an integer (types 2–5, and 7) from −(2^53 − 1) to 2^53 − 1; a binary64 (type 6), with its exact value, when it is finite and not −0 |
+| [`Nd2Tag`](#type-nd2tag) | any other string, integer or binary64 |
+
+<a id="type-nd2pairs"></a>**`Nd2Pairs`**, a JSON array of **pairs**, one per record (or list
+member), in order: each pair is the array `[name, value]`:
+
+| element | type | value |
+|---|---|---|
+| 0 | string | the record's name, as written above (`""` for a list's member) |
+| 1 | [`Nd2Value`](#type-nd2value) | the record's value |
+
+<a id="type-nd2tag"></a>**`Nd2Tag`**, a **tag**, one of:
+
+| form | when |
+|---|---|
+| `{"utf16": B}` | a string (type 8) that is not well-formed: `B` is the base64 of its UTF-16LE code units (without the NUL) |
+| `{"int": D}` | an integer (types 2–5, and 7) outside −(2^53 − 1) to 2^53 − 1: `D` is its value in decimal (a `-` sign when negative, no leading zeros), so that it reads apart from a string of digits |
+| `{"float": "NaN"}`, `{"float": "Infinity"}`, `{"float": "-Infinity"}`, `{"float": "-0"}` | a binary64 (type 6) that is not finite or is −0, so that it reads apart from a string, and −0 apart from 0 (which ECMAScript's `JSON.stringify` writes for both; this replaces the latitude of [conventions §6](../conventions.md#6-source-metadata-as-json)) |
+
+**Reading back.** A chunk's top level is always an object (pairs there
+are an object, even when their names are all empty). Elsewhere, a
+non-empty JSON array whose every element is an array of two elements, the
+first a string, is pairs. Pairs whose names are all empty are a list (an
+object with a repeated name has a name that is not empty); other pairs
+are an object. Any other array is a list or a byte array. A JSON object
+with one member, named `utf16`, `int` or `float`, is a **tag** (above);
+any other JSON object is an object.
 
 **XML variants.** A `CustomDataVar` chunk is a UTF-8 XML document whose
 element `variant` holds elements, each with a `runtype` attribute and
-either a `value` attribute or child elements.
-- Its tags are read as the TIFF convention reads OME-XML
-  ([TIFF §3](tiff.md#3-ome-xml), tag scan and attribute values).
-- The document is its `variant` element as JSON:
-  - an element with a `value` attribute is that value;
-  - any other element is the object of its child elements, a member per
-    child by name, in order; or, when two of its children have the same
-    name, a child's name is an array index (as for LV), or it has one child
-    named `utf16`, `int` or `float`, the array of pairs `[name, value]`, one
-    per child, in order. (A document has no lists, so any array in it is
-    pairs.)
-- A value is:
-  - an integer, if the runtype is `lx_int8` … `lx_int64` or `lx_uint8` …
-    `lx_uint64` and the value matches `[+-]?[0-9]+`: its value as a JSON
-    number when it is from −(2^53 − 1) to 2^53 − 1, and otherwise the tag
-    `{"int": D}` (as for LV, above);
-  - a number, if the runtype is `double` or `float` and the value is a
-    decimal ([TIFF §3](tiff.md#3-ome-xml)): its binary64 value (rounding to nearest), or, when
-    that is not finite or is −0, the tag `{"float": "Infinity"}`,
-    `{"float": "-Infinity"}` or `{"float": "-0"}`;
-  - `true` or `false`, if the runtype is `bool` and the value is that word;
-  - otherwise the value as a string.
-- A chunk that is not valid UTF-8 does not decode. Neither does one with a
-  mismatched or missing end tag, a tag after the `variant` element's end,
-  a document element other than `variant`, a `variant` element with a
-  `value` attribute, or an element nested more than 100 deep (the `variant`
-  element is at depth 0, its children at depth 1).
+either a `value` attribute or child elements. Its tags are read as the TIFF convention reads OME-XML
+([TIFF §3](tiff.md#3-ome-xml), tag scan and attribute values). The document (an
+[`Nd2Document`](#type-nd2document)) is its `variant` element as JSON:
+
+| element | as JSON |
+|---|---|
+| an element with a `value` attribute | that value (below) |
+| any other element | the object of its child elements, a member per child by name, in order; or, when two of its children have the same name, a child's name is an array index (as for LV), or it has one child named `utf16`, `int` or `float`, the array of pairs `[name, value]`, one per child, in order ([`Nd2Pairs`](#type-nd2pairs)). (A document has no lists, so any array in it is pairs.) |
+
+A value is:
+
+| runtype | and the value | as JSON |
+|---|---|---|
+| `lx_int8` … `lx_int64` or `lx_uint8` … `lx_uint64` | matches `[+-]?[0-9]+` | an integer: its value as a JSON number when it is from −(2^53 − 1) to 2^53 − 1, and otherwise the tag `{"int": D}` (as for LV, above) |
+| `double` or `float` | is a decimal ([TIFF §3](tiff.md#3-ome-xml)) | a number: its binary64 value (rounding to nearest), or, when that is not finite or is −0, the tag `{"float": "Infinity"}`, `{"float": "-Infinity"}` or `{"float": "-0"}` |
+| `bool` | is `true` or `false` | `true` or `false`, that word |
+| otherwise | | the value as a string |
+
+A chunk that is not valid UTF-8 does not decode. Neither does one with a
+mismatched or missing end tag, a tag after the `variant` element's end,
+a document element other than `variant`, a `variant` element with a
+`value` attribute, or an element nested more than 100 deep (the `variant`
+element is at depth 0, its children at depth 1).
 
 ### 5.2 The IR mirror
 
@@ -517,7 +568,7 @@ indexes. Every chunk struct holds `header`
 | an LV scalar | value | `{lv:u1,k:u1,name:bytes[2k],v:T}` | named (below) by the record's name as JSON ([§5.1](#51-decoded-chunks)); `T` its value's type (`u1` bool, `<i4`, `<u4`, `<u8`, `<f8`, `utf16[n]` string, `{n:<u8,v:bytes[n]}` byte array) |
 | an LV level | struct | | named as a scalar is; `header` (`{lv:u1,k:u1,name:bytes[2k],count:<u4,length:<u8}`), its records, and `table` (`bytes[8c]`, the bytes it skips) |
 | an XML element | struct or value | `xml:<runtype>` or `xml` | under `chunks/<name>/xml`, named (below) by its tag: an element with a `value` attribute is a value (its attribute's text), any other a struct of its child elements |
-| `frames/<f>` | struct | | each chunk `ImageDataSeq|<f>!`: `header`, `name`, and for a placed frame ([§4.1](#41-frames)) `timestamp` (`<f8`), `pixels` (data: the frame's pixels; its form's recipe the range, or the rows of padded rows) and `trailing` (`bytes`, data after the pixels), else `data` (`bytes[d]`) |
+| `frames/<f>` | struct | | each chunk `ImageDataSeq\|<f>!`: `header`, `name`, and for a placed frame ([§4.1](#41-frames)) `timestamp` (`<f8`), `pixels` (data: the frame's pixels; its form's recipe the range, or the rows of padded rows) and `trailing` (`bytes`, data after the pixels), else `data` (`bytes[d]`) |
 | `gaps/<offset>` | gap | | name padding, replaced map records, row padding and any other bytes no element claims |
 
 A chunk whose bytes an earlier element claims is an alias of it.
@@ -723,6 +774,17 @@ then padding. Let `R = uiWidth × uiComp × uiBpcInMemory / 8`;
 
 Let `h` be `uiHeight` except for padded rows, where it is the block height.
 
+<a id="type-nd2framechunk"></a>**`Nd2FrameChunk`**, the ranges of a frame's chunk, or of one of
+its row blocks, in order; exactly one of these cases applies:
+
+| part | range | presence | value |
+|---|---|---|---|
+| the frame's pixels | source range `(0, start, uiHeight × R)` | optional | uncompressed, when `uiWidthBytes = R`: the frame, one chunk |
+| row `r` of the frame, for `r` from `j × h` to `j × h + h − 1` | source range `(0, start + r × uiWidthBytes, R)` | optional | uncompressed with padded rows: row block `j`, one range per row, in order |
+| the zlib stream | source range `(0, o + 16 + n + 8, d − 8)` | optional | compressed: the frame, one chunk |
+
+The output's source table is source 0 alone: the profile defines no data sources.
+
 **Positions.** Each position is an image of two documents
 ([the convention §4.3](#43-output)), whether or not
 any frame is placed at it, and its `omero` lists every component. The number
@@ -732,6 +794,7 @@ of positions `P` (the position loop's count, 1 without one) MUST be at most
 ### 7.4 Chunk references
 
 Frame `f` at position `p` (0 without a position loop) is the
-entry `<p>/0/c/<coords>` with its ranges ([§7.3](#73-frames)); coords are its `t`, 0 for
+entry `<p>/0/c/<coords>` with its ranges ([§7.3](#73-frames), an
+[`Nd2FrameChunk`](#type-nd2framechunk)); coords are its `t`, 0 for
 `c`, its `z` (each only when its axis is present), then 0, 0. With row
 blocks, block `j` is the entry with coords ..., `j`, 0.

@@ -10,7 +10,7 @@ use crate::fed::Word;
 use crate::fits::{card, parse_cards, Card, Value};
 use crate::fits_tiles::{prefix, TileRecord};
 use crate::ir::Ir;
-use crate::out::{array_json, blob_chunks, bytes_codec, declare_array, declared_group, grid_chunks, item_size, json_size, Chunk, Out, Part};
+use crate::out::{array_json, blob_chunks, bytes_codec, declare_array, declared_group, grid_chunks, int_json, item_size, json_size, Chunk, Out, Part};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 
@@ -21,7 +21,6 @@ const CHUNK_BYTES: u64 = 1 << 20;
 /// The most bytes of JSON a node's cards may take (§5.3
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#53-cards>).
 const CARDS_BUDGET: usize = 65536;
-const MAX_SAFE: i128 = (1 << 53) - 1;
 
 /// A card's value as JSON (§5.3
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#53-cards>): an integer exactly, as a string past 2^53 − 1; a real as
@@ -30,8 +29,7 @@ fn value_json(v: &Value) -> J {
     match v {
         Value::None => J::Null,
         Value::Logical(b) => json!(b),
-        Value::Int(n) if (-MAX_SAFE..=MAX_SAFE).contains(n) => json!(*n as i64),
-        Value::Int(n) => json!(n.to_string()),
+        Value::Int(n) => int_json(*n),
         Value::Real(x, t) => if x.is_finite() { json!(x) } else { json!({"text": t}) },
         Value::Str(s) => json!(s),
         Value::Complex(r, i) => json!([r, i]),
@@ -46,7 +44,7 @@ fn cards_json(cards: &[Card]) -> J {
 /// A card's numeric value, when it has one.
 fn number(cards: &[Card], keyword: &str) -> J {
     match card(cards, keyword).map(|c| &c.value) {
-        Some(Value::Int(n)) if (-MAX_SAFE..=MAX_SAFE).contains(n) => json!(*n as i64),
+        Some(Value::Int(n)) => int_json(*n),
         Some(Value::Real(x, _)) if x.is_finite() => json!(x),
         _ => J::Null,
     }
@@ -56,6 +54,15 @@ fn string(cards: &[Card], keyword: &str) -> J {
     match card(cards, keyword).map(|c| &c.value) {
         Some(Value::Str(s)) => json!(s),
         _ => J::Null,
+    }
+}
+
+/// A card that is a string in one kind of table and a number in the other (TNULLn: an ASCII
+/// table's null string, a binary table's null integer): whichever it holds.
+fn string_or_number(cards: &[Card], keyword: &str) -> J {
+    match string(cards, keyword) {
+        J::Null => number(cards, keyword),
+        s => s,
     }
 }
 
@@ -92,7 +99,7 @@ fn own_json(h: &J, cards: &[Card]) -> J {
                         "name": string(cards, &format!("TTYPE{n}")), "form": form,
                         "unit": string(cards, &format!("TUNIT{n}")), "dim": string(cards, &format!("TDIM{n}")),
                         "scale": number(cards, &format!("TSCAL{n}")), "zero": number(cards, &format!("TZERO{n}")),
-                        "null": number(cards, &format!("TNULL{n}")), "disp": string(cards, &format!("TDISP{n}")),
+                        "null": string_or_number(cards, &format!("TNULL{n}")), "disp": string(cards, &format!("TDISP{n}")),
                         "bcol": number(cards, &format!("TBCOL{n}")),
                     })
                 })
@@ -328,4 +335,35 @@ fn tile_records(c: &J, table: &[u8]) -> Result<Vec<TileRecord>, String> {
         });
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 80-byte cards from `KEYWORD= value` texts.
+    fn records(cards: &[&str]) -> Vec<u8> {
+        cards.iter().flat_map(|c| format!("{c:<80}").into_bytes()).collect()
+    }
+
+    /// A table's `null` member is TNULLn as the card holds it: an ASCII table's string, a
+    /// binary table's integer, the string of its digits past 2^53 − 1 (spec/zarrify/fits.md §5.2
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#52-an-hdus-node>).
+    #[test]
+    fn a_column_s_null_is_tnull_as_the_card_holds_it() {
+        let raw = records(&[
+            "TNULL1  = 'N/A     '",
+            "TNULL2  =                  -99",
+            "TNULL3  = -9223372036854775808",
+            "TNULL4  = -170141183460469231731687303715884105728",
+        ]);
+        let h = json!({"index": 1, "kind": "table", "table": {"tform": ["I8", "J", "K", "K"]}});
+        let own = own_json(&h, &parse_cards(&raw, 4));
+        let columns = own["columns"].as_array().unwrap();
+        assert_eq!(columns[0]["null"], json!("N/A"));
+        assert_eq!(columns[1]["null"], json!(-99));
+        assert_eq!(columns[2]["null"], json!("-9223372036854775808"));
+        // i128::MIN, whose magnitude no i128 holds
+        assert_eq!(columns[3]["null"], json!("-170141183460469231731687303715884105728"));
+    }
 }

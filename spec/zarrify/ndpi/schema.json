@@ -81,7 +81,11 @@
         }
       },
       "required": [
-        "uuid"
+        "uuid",
+        "schema_url",
+        "spec_url",
+        "name",
+        "description"
       ],
       "additionalProperties": false
     },
@@ -134,14 +138,13 @@
       "anyOf": [
         {
           "type": "object",
-          "description": "The root's: level 0's acquisition tags (spec/zarrify/ndpi.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#5-source-metadata>), those it has",
+          "description": "The root's: level 0's acquisition tags (spec/zarrify/ndpi.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#5-source-metadata>)",
           "properties": {
             "Fluorescence": {
               "$ref": "#/$defs/text",
-              "description": "tag 65434, the fluorescence filter set's name"
+              "description": "Tag 65434, the fluorescence filter set's name"
             },
             "Wavelength": {
-              "description": "tag 65451's first value, the emission wavelength in nanometres",
               "anyOf": [
                 {
                   "type": "number"
@@ -164,13 +167,12 @@
                   "required": [
                     "bits"
                   ],
-                  "additionalProperties": false,
-                  "description": "A float's IEEE 754 bits, most significant first: a negative zero, or a NaN other than the canonical one"
+                  "additionalProperties": false
                 }
-              ]
+              ],
+              "description": "Tag 65451, the emission wavelength, in nanometers"
             },
             "ExposureTime": {
-              "description": "tag 65454's first value, the exposure time in microseconds",
               "anyOf": [
                 {
                   "type": "integer",
@@ -178,9 +180,10 @@
                 },
                 {
                   "type": "string",
-                  "pattern": "^[0-9]+$"
+                  "pattern": "^[1-9][0-9]{15,19}$"
                 }
-              ]
+              ],
+              "description": "Tag 65454, the exposure time, in microseconds"
             }
           },
           "minProperties": 1,

@@ -11,7 +11,11 @@ How refkv produces this layout as a reference store is the QPTIFF profile,
 [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `329ea136-2f55-4c27-b6f4-8e60ca2109b8` ·
-Schema: [schema.json](qptiff/schema.json) · Changed 2026-10-23: each `omero` channel's
+Schema: [schema.json](qptiff/schema.json) · Changed 2026-10-26, with no change to any output:
+the layout is tabulated, its entries in [Layout](#layout) and its types in type tables
+([conventions §11.5](../conventions.md#115-layout-tables)), the root's source metadata and a
+JPEG tile's reference those of the TIFF convention ([`TiffRoot`](tiff.md#type-tiffroot),
+[`TiffChunk`](tiff.md#type-tiffchunk)) · Changed 2026-10-23: each `omero` channel's
 window is sampled from the coarsest level's data, as in the TIFF convention, when refkv decodes
 its compression (none, LZW, Deflate) and the image is not RGB, so that a `float32` channel has a
 window too, and an integer channel without a sampled window has the type's range
@@ -32,6 +36,26 @@ This convention gives a layout only to the files that meet its
 requirements. Where it says that "the input is rejected", or that
 something MUST hold, a file that fails has no layout under this
 convention, and the profile rejects it.
+
+## Layout
+
+The hierarchy's entries ([conventions §11.5](../conventions.md#115-layout-tables)):
+
+| prefix | type | structure | description |
+|---|---|---|---|
+| `zarr.json` | group | [`ImageGroup`](../conventions.md#type-imagegroup) | the root: the image ([§4.3](#43-arrays)) |
+| `zarr.json#/attributes/ome` | attribute | [`OmeImage`](../conventions.md#type-omeimage) | `M`: one multiscale, with the name, axes, scales and translation of [§4.3](#43-arrays), one level per array; `omero` with one [`QptiffOmeroChannel`](#type-qptiffomerochannel) per channel ([§4.3](#43-arrays)) |
+| `zarr.json#/attributes/zarr_conventions` | attribute | array of [`ConventionMetadata`](../conventions.md#type-conventionmetadata) | the CMO of [§1](#1-declaration) |
+| `zarr.json#/attributes/refkv_zarrified` | attribute | [`RootProperty`](../conventions.md#type-rootproperty) | `profile` `"qptiff"`, `version` `0`, `source.url` the file's URL |
+| `zarr.json#/attributes/refkv_zarrified/qptiff` | attribute | [`TiffRoot`](tiff.md#type-tiffroot) | the root's source metadata ([§5](#5-source-metadata)) |
+| `<L>/zarr.json` | array | [`QptiffArray`](#type-qptiffarray) | level `L` ([§3](#3-images-and-channels), [§4.3](#43-arrays)) |
+| `<L>/c/<coords>` | chunk | [`QptiffChunk`](#type-qptiffchunk) | a tile or strip of an image of level `L`, present when its byte count is more than 0 ([§4.3](#43-arrays), **Chunks**; [§7](#7-qptiff-profile)) |
+| `refkv_source/**` | subtree | [the mirror's entries](../conventions.md#table-mirror) | the IR mirror ([§5](#5-source-metadata)): its elements are the [TIFF source model's](tiff.md#51-elements) |
+
+| placeholder | value |
+|---|---|
+| `<L>` | the level's index, from 0, in decimal |
+| `<coords>` | the chunk's coordinates, in decimal, one key segment each: `<c>/<row>/<column>`, `c` only when the axis is present, then the tile row and column, or the strip index and 0 (so it stands for two or three segments) |
 
 ## 1. Declaration
 
@@ -172,38 +196,46 @@ last strip is **short** (the level has more than one strip and ImageLength
 is not a multiple of `R`), the last strip's chunk is **padded** to `R` rows
 so that every chunk decodes to the chunk shape (a Zarr reader then needs no
 irregular chunk grid): the strip's bytes are followed by the bytes that
-make the rows missing zero, which depend on the compression:
+make the rows missing zero, which depend on the compression (`rows` being the strip's rows
+and `B` the bytes of one row of the strip: ImageWidth × BitsPerSample / 8, times
+SamplesPerPixel when the samples are interleaved):
 
-- **1 (uncompressed):** `(R − rows) × B` zero bytes, `rows` being the
-  strip's rows and `B` the bytes of one row of the strip (ImageWidth ×
-  BitsPerSample / 8, times SamplesPerPixel when the samples are
-  interleaved);
-- **5 (LZW):** the strip's stream is read until its output reaches the
-  strip's size (`rows × B` bytes; a stream that does not reach it, or
-  whose code crosses it, rejects the input), and what follows (its
-  end-of-information code, or the malformed final code of
-  [§4.1](#41-data-types-and-codecs)) is replaced by a **tail** that
-  continues the stream: a Clear code at the width the decoder has there,
-  then the `(R − rows) × B` zeros as the codes 0, 258, 259, ... (each code
-  one zero longer than the last, the entry the decoder defines on reading
-  the previous one) and one more code for the remainder shorter than the
-  next entry, then the end-of-information code, every code at the width
-  the decoder has when it reads it. The chunk's bytes are the strip's
-  bytes before the byte holding the cut, then the tail, which starts with
-  that byte's bits before the cut;
-- **another compression** (JPEG, Deflate, zstd, JPEG 2000) cannot be
-  padded: the level is not a level, and its images stay in the source
-  metadata. If level 0 would be left out, the input is rejected.
+| Compression | padding |
+|---|---|
+| **1 (uncompressed)** | `(R − rows) × B` zero bytes |
+| **5 (LZW)** | the strip's stream is read until its output reaches the strip's size (`rows × B` bytes; a stream that does not reach it, or whose code crosses it, rejects the input), and what follows (its end-of-information code, or the malformed final code of [§4.1](#41-data-types-and-codecs)) is replaced by a **tail** that continues the stream: a Clear code at the width the decoder has there, then the `(R − rows) × B` zeros as the codes 0, 258, 259, ... (each code one zero longer than the last, the entry the decoder defines on reading the previous one) and one more code for the remainder shorter than the next entry, then the end-of-information code, every code at the width the decoder has when it reads it. The chunk's bytes are the strip's bytes before the byte holding the cut, then the tail, which starts with that byte's bits before the cut |
+| **another compression** (JPEG, Deflate, zstd, JPEG 2000) | cannot be padded: the level is not a level, and its images stay in the source metadata. If level 0 would be left out, the input is rejected |
 
 ### 4.3 Arrays
 
 The hierarchy is one image at the root ([conventions §4](../conventions.md#4-images)),
 with one array per level at path `"<level>"`. Let `spp` be IFD 0's
-SamplesPerPixel.
+SamplesPerPixel. The channel count is `N` when `spp` is 1, else `spp` (one RGB channel,
+whose samples are the channel axis). The axes, in this order, and along each, a level's
+shape and chunk shape and the image's scale (level `L` has width `WL` and length `HL`,
+level 0 width `W0` and length `H0`):
 
-- **Axes:** `c` if `N > 1` or `spp > 1`; then `y`, `x`. The channel count
-  is `N` when `spp` is 1, else `spp` (one RGB channel, whose samples are the
-  channel axis).
+| axis | present when | shape | chunk shape | scale of level `L` | unit |
+|---|---|---|---|---|---|
+| `c` | `N > 1` or `spp > 1` | the channel count | `spp` if interleaved (`spp > 1` and PlanarConfiguration 1), else 1 | 1 | none |
+| `y` | always | the level's ImageLength `HL` | for a tiled level, its TileLength; for a level in strips, `R` | `PY × (H0 / HL)` | `y`'s (**Pixel size**) |
+| `x` | always | the level's ImageWidth `WL` | for a tiled level, its TileWidth; for a level in strips, the level's ImageWidth | `PX × (W0 / WL)` | `x`'s (**Pixel size**) |
+
+The chunk grid is always the regular grid of that chunk shape: a short last strip is
+padded ([§4.2](#42-tiles-and-strips)). (In a scale, the division is computed first.)
+
+<a id="type-qptiffarray"></a>**`QptiffArray`**, level `L`'s `zarr.json`: an
+[`ArrayDocument`](../conventions.md#type-arraydocument) with these members:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `shape` | array of integer | required | each present axis's shape, above |
+| `data_type` | string | required | from [§4.1](#41-data-types-and-codecs) |
+| `chunk_grid` | object | required | regular, its chunk shape each present axis's chunk shape, above |
+| `codecs` | array of object | required | from [§4.1](#41-data-types-and-codecs) |
+| `dimension_names` | array of string | required | the axes present, above |
+| `attributes` | object | required | `{}` |
+
 - **Pixel size.** `PX`, `PY` and the units of `x`, `y` are those of the
   [TIFF convention §4.4](tiff.md#44-arrays)'s resolution-tag rule (its third
   rule, from IFD 0's XResolution, YResolution and ResolutionUnit, 2 or 3,
@@ -217,16 +249,6 @@ SamplesPerPixel.
   25400 for ResolutionUnit 2 and 10000 for 3 (the positions are in
   ResolutionUnits, and name the image's upper-left corner), and 0 for `c`.
   The translation MUST be finite.
-- **Shape:** the channel count (when `c` is present), then the level's
-  ImageLength and ImageWidth.
-- **Chunk shape:** for `c`, `spp` if interleaved (`spp > 1` and
-  PlanarConfiguration 1), else 1; then, for a tiled level, its TileLength
-  and TileWidth; for a level in strips, `R` and the level's ImageWidth. The
-  chunk grid is always the regular grid of that shape: a short last strip
-  is padded ([§4.2](#42-tiles-and-strips)).
-- **Scale** of level `L` (level 0 has width `W0`, length `H0`):
-  `y = PY × (H0 / HL)`, `x = PX × (W0 / WL)`, `c = 1`. (The division is
-  computed first.)
 - **Name:** IFD 0's `SlideID` text, if present and not empty.
 - **Chunks:** for channel `c` of a level, its IFD's tiles (or strips) are
   numbered `k = s × T + j`, where `T` is the number of tiles (strips) per
@@ -242,41 +264,52 @@ SamplesPerPixel.
   its padding, [§4.2](#42-tiles-and-strips)); for JPEG, as
   [the TIFF convention §4.4](tiff.md#44-arrays) says of a tile: a complete
   stream with the IFD's JPEGTables and an explicit color transform, with
-  the same requirements on JPEGTables and on the tile's length.
-- **omero.** `M` has `"omero": {"channels": [...]}` next to `multiscales`,
-  one object per channel of the `c` axis (one object when there is no `c`
-  axis):
-  - with `spp = 1`, channel `c`'s **label** is its name when present, not
-    empty and at most 256 bytes, else `C<c>`; its **color** is its `Color`
-    text when that is three decimal integers from 0 to 255 separated by
-    commas (whitespace around each allowed), as six uppercase hex digits
-    `RRGGBB`, else `FFFFFF`;
-  - with `spp = 3`, three channels: the label is channel 0's name (as
-    above, when it qualifies) followed by a space and `R`, `G` or `B`, or
-    that letter alone, with colors `FF0000`, `00FF00`, `0000FF`; with any
-    other `spp > 1`, `spp` channels labeled likewise with `S<s>` and
-    colored `FFFFFF`;
-  - every channel has `"active": true` and, but for a `float32` channel
-    without a sampled window, a **window**, as in [the TIFF convention
-    §4.4](tiff.md#44-arrays): a QPTIFF records no display range
-    (SMinSampleValue and SMaxSampleValue, when present, are the data's
-    extremes, not a display setting), so the window is sampled from the
-    middle chunk of each channel of the last level, there in steps 1 to 3,
-    when `spp` is not 3 (an RGB image, whose samples keep the type's range)
-    and Compression is 1, 5 (LZW, decoded as [§4.1](#41-data-types-and-codecs)
-    says, into the chunk's size) or 8 or 32946 (Deflate); a level in strips
-    has the chunk shape above, and a padded last strip's rows past the image
-    are not values. A channel without a sampled window has, with an integer
-    data type, the window of the type's whole range (0 to 255 for `uint8`),
-    and with `float32` none, which has no such range.
+  the same requirements on JPEGTables and on the tile's length. Its
+  reference is a [`QptiffChunk`](#type-qptiffchunk) ([§7](#7-qptiff-profile)).
 
-  The members are written in the order label, color, active, window, and
-  the window's in the order min, max, start, end.
+**omero.** `M` has `"omero"`, an [`Omero`](../conventions.md#type-omero), next to
+`multiscales`, with one [`QptiffOmeroChannel`](#type-qptiffomerochannel) per channel of the
+`c` axis (one when there is no `c` axis). Channel `c`'s name qualifies when it is present,
+not empty and at most 256 bytes.
+
+<a id="type-qptiffomerochannel"></a>**`QptiffOmeroChannel`**, an
+[`OmeroChannel`](../conventions.md#type-omerochannel):
+
+| member | type | presence | value |
+|---|---|---|---|
+| `label` | string | required | with `spp = 1`, channel `c`'s name when it qualifies, else `C<c>`; with `spp > 1`, channel 0's name (when it qualifies) followed by a space and the sample's letter (below), or that letter alone |
+| `color` | string | required | with `spp = 1`, its `Color` text when that is three decimal integers from 0 to 255 separated by commas (whitespace around each allowed), as six uppercase hex digits `RRGGBB`, else `FFFFFF`; with `spp > 1`, the sample's color (below) |
+| `active` | boolean | required | `true` |
+| `window` | [`Window`](../conventions.md#type-window) | optional | the channel's **window** (below); absent for a `float32` channel without a sampled window |
+
+With `spp > 1`, the samples' letters and colors:
+
+| `spp` | channels | letter of sample `s` | color |
+|---|---|---|---|
+| 3 | three | `R`, `G` or `B` | `FF0000`, `00FF00`, `0000FF` |
+| any other | `spp` | `S<s>` | `FFFFFF` |
+
+Every channel has `"active": true` and, but for a `float32` channel
+without a sampled window, a **window**, as in [the TIFF convention
+§4.4](tiff.md#44-arrays): a QPTIFF records no display range
+(SMinSampleValue and SMaxSampleValue, when present, are the data's
+extremes, not a display setting), so the window is sampled from the
+middle chunk of each channel of the last level, there in steps 1 to 3,
+when `spp` is not 3 (an RGB image, whose samples keep the type's range)
+and Compression is 1, 5 (LZW, decoded as [§4.1](#41-data-types-and-codecs)
+says, into the chunk's size) or 8 or 32946 (Deflate); a level in strips
+has the chunk shape above, and a padded last strip's rows past the image
+are not values. A channel without a sampled window has, with an integer
+data type, the window of the type's whole range (0 to 255 for `uint8`),
+and with `float32` none, which has no such range.
+
+The members are written in the order label, color, active, window, and
+the window's in the order min, max, start, end.
 
 ## 5. Source metadata
 
-The root's source metadata `S` is `{"byte_order": "little" | "big",
-"bigtiff": true | false}`, as the TIFF convention's. Everything else the
+The root's source metadata `S` is a [`TiffRoot`](tiff.md#type-tiffroot)
+(`{"byte_order": "little" | "big", "bigtiff": true | false}`), as the TIFF convention's. Everything else the
 file holds is on `refkv_source`, which is the file's **IR mirror**
 ([conventions §11.3](../conventions.md#113-the-ir-mirror)).
 The QPTIFF **source model** is the [TIFF source model](tiff.md#5-source-metadata)
@@ -379,18 +412,12 @@ RowsPerStrip, StripOffsets and StripByteCounts being integer tags and
 XPosition and YPosition RATIONAL ones). These values are read
 ([tiff.md §7.1](tiff.md#71-reading), **Values read**):
 
-- of every main-chain IFD: every tag of the table but the tile and strip
-  tables (TileOffsets, TileByteCounts, StripOffsets, StripByteCounts), and
-  its ImageDescription when its field type is ASCII (2), for the QPI
-  description ([the convention §2](#2-the-source));
-- of every IFD of every level: its tile tables, or its strip tables;
-- of every IFD of a level in LZW strips whose last strip is short: the
-  bytes of its last strip (of each sample plane), for the tail of
-  [the convention §4.2](#42-tiles-and-strips);
-- after them, the bytes of each sampled chunk of the `omero` windows
-  ([the convention §4.3](#43-arrays)), the source ranges its reference
-  names. These reads and their decoding never reject the input: a chunk
-  that does not decode is not sampled.
+| of | values read |
+|---|---|
+| every main-chain IFD | every tag of the table but the tile and strip tables (TileOffsets, TileByteCounts, StripOffsets, StripByteCounts), and its ImageDescription when its field type is ASCII (2), for the QPI description ([the convention §2](#2-the-source)) |
+| every IFD of every level | its tile tables, or its strip tables |
+| every IFD of a level in LZW strips whose last strip is short | the bytes of its last strip (of each sample plane), for the tail of [the convention §4.2](#42-tiles-and-strips) |
+| after them, each sampled chunk of the `omero` windows ([the convention §4.3](#43-arrays)) | its bytes, the source ranges its reference names. These reads and their decoding never reject the input: a chunk that does not decode is not sampled |
 
 Each value read of an integer type MUST be at most 2^53 − 1. Nothing else
 is read for the layout.
@@ -410,18 +437,24 @@ level in strips (a last strip that does not decode to its size; level 0 of
 a compression that cannot be padded), then the translation.
 
 **Chunks.** Every chunk that the convention says is present ([the
-convention §4.3](#43-arrays)) is the entry `<level>/c/<coords>`. Tile (or
-strip) `k`, with byte count `n > 0`, has the single range
-`(0, offset[k], n)`, where `offset` is TileOffsets (StripOffsets) and `n`
-TileByteCounts`[k]` (StripByteCounts`[k]`); a JPEG tile or strip has the
-ranges of [tiff.md §7.3](tiff.md#73-chunks) (its first 2 bytes, the shared prefix
-`P` of its IFD, the rest), with the same requirements. A short last strip
-([the convention §4.2](#42-tiles-and-strips)) has, when uncompressed, the
-ranges `[(0, offset[k], n), Z]`, `Z` a range of the data source
-([§1.2](../zarrify.md#12-input)) that holds the `(R − rows) × B` zero
-bytes (one data source per distinct count, in order of first use); when
-LZW, the ranges `[(0, offset[k], p), T]`, `p` the bytes before the cut's
-byte and `T` the literal tail. The references are
+convention §4.3](#43-arrays)) is the entry `<level>/c/<coords>`, whose reference is a
+[`QptiffChunk`](#type-qptiffchunk):
+
+<a id="type-qptiffchunk"></a>**`QptiffChunk`**, the reference of tile (or strip) `k`, with
+byte count `n > 0`, `offset` TileOffsets (StripOffsets) and `n`
+TileByteCounts`[k]` (StripByteCounts`[k]`):
+
+| part | range | presence | value |
+|---|---|---|---|
+| the tile or strip | source range `(0, offset[k], n)` | optional | but for JPEG and an LZW short last strip: the tile's or strip's bytes |
+| the zero rows | `Z`, source range `(i, 0, (R − rows) × B)` | optional | for an uncompressed short last strip ([the convention §4.2](#42-tiles-and-strips)), after the strip: the data source `i` ([§1.2](../zarrify.md#12-input)) that holds the `(R − rows) × B` zero bytes (one data source per distinct count, in order of first use) |
+| the strip before the cut | source range `(0, offset[k], p)` | optional | for an LZW short last strip: `p` the bytes before the cut's byte |
+| the tail | `T`, a literal range | optional | for an LZW short last strip: the literal tail |
+| a JPEG tile or strip | the ranges of a [`TiffChunk`](tiff.md#type-tiffchunk) | optional | for JPEG, in place of the others: the ranges of [tiff.md §7.3](tiff.md#73-chunks) (its first 2 bytes, the shared prefix `P` of its IFD, the rest), with the same requirements |
+
+A short last strip thus has, when uncompressed, the ranges `[(0, offset[k], n), Z]`, and
+when LZW, the ranges `[(0, offset[k], p), T]`; any other tile or strip but a JPEG one has the
+single range `(0, offset[k], n)`. The references are
 listed (for [§1.2](../zarrify.md#12-input)'s order of first use) level
 by level, within a level by channel, and within an image by `k`. Besides
 these and the root's and the arrays' `zarr.json`, the archive's entries are

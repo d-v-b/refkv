@@ -81,7 +81,11 @@
         }
       },
       "required": [
-        "uuid"
+        "uuid",
+        "schema_url",
+        "spec_url",
+        "name",
+        "description"
       ],
       "additionalProperties": false
     },
@@ -473,21 +477,45 @@
               ]
             },
             "bscale": {
-              "type": [
-                "number",
-                "null"
+              "anyOf": [
+                {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                {
+                  "type": "string",
+                  "pattern": "^-?[1-9][0-9]{15,}$"
+                }
               ]
             },
             "bzero": {
-              "type": [
-                "number",
-                "null"
+              "anyOf": [
+                {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                {
+                  "type": "string",
+                  "pattern": "^-?[1-9][0-9]{15,}$"
+                }
               ]
             },
             "blank": {
-              "type": [
-                "number",
-                "null"
+              "anyOf": [
+                {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                {
+                  "type": "string",
+                  "pattern": "^-?[1-9][0-9]{15,}$"
+                }
               ]
             },
             "bunit": {
@@ -523,19 +551,36 @@
                     ]
                   },
                   "scale": {
-                    "type": [
-                      "number",
-                      "null"
+                    "anyOf": [
+                      {
+                        "type": [
+                          "number",
+                          "null"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "^-?[1-9][0-9]{15,}$"
+                      }
                     ]
                   },
                   "zero": {
-                    "type": [
-                      "number",
-                      "null"
+                    "anyOf": [
+                      {
+                        "type": [
+                          "number",
+                          "null"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "^-?[1-9][0-9]{15,}$"
+                      }
                     ]
                   },
                   "null": {
                     "type": [
+                      "string",
                       "number",
                       "null"
                     ]
@@ -547,9 +592,17 @@
                     ]
                   },
                   "bcol": {
-                    "type": [
-                      "number",
-                      "null"
+                    "anyOf": [
+                      {
+                        "type": [
+                          "number",
+                          "null"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "^-?[1-9][0-9]{15,}$"
+                      }
                     ]
                   }
                 },

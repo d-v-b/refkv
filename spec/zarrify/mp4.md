@@ -15,6 +15,16 @@ Added 2026-10-23, after
 [revision 29](../history/virtualize/REVISIONS.md#revision-29-no-recorded-revision-the-profile-registry)
 (a profile's changes are recorded here, dated, from then on).
 
+**2026-10-26.** A duration or an edit's `media_time` past 2^53 − 1 in magnitude is the string
+of its digits, as [conventions §6](../conventions.md#6-source-metadata-as-json) writes an
+integer, where it was a JSON number ([§5](#5-source-metadata)); a track whose ID an earlier
+zarrified track has is not zarrified, its reason saying so, where both were written to one
+group ([§8.2](#82-tracks)). The layout is tabulated, its entries in [Layout](#layout) and its
+types in type tables ([conventions §11.5](../conventions.md#115-layout-tables)); the summary is
+a table too. And the text says what refkv already wrote: a four-character code is a plain
+string of its bytes' code points ([§5](#5-source-metadata)), and a chunk of `time` is not a
+`refkv.stream` chunk ([§8.3](#83-chunks)).
+
 **2026-10-25.** A track whose sync samples are followed in decode order by pictures presented
 before them (leading pictures: a camera's B-frames after each IDR picture, or an open group's)
 is zarrified, not refused, while each leading picture is presented after the sync sample
@@ -37,6 +47,36 @@ pictures and samples stay in the file as coded frames; the arrays' codec,
 decodes them when a chunk is read.
 
 # Part 1. The convention
+
+## Layout
+
+The hierarchy's entries ([conventions §11.5](../conventions.md#115-layout-tables)):
+
+| prefix | type | structure | description |
+|---|---|---|---|
+| `zarr.json` | group | [`GroupDocument`](../conventions.md#type-groupdocument), its attributes a [`Declaration`](../conventions.md#type-declaration) and nothing else | the root ([§4](#4-the-layout)): no `ome` member |
+| `zarr.json#/attributes/zarr_conventions` | attribute | array of [`ConventionMetadata`](../conventions.md#type-conventionmetadata) | the CMO of [§1](#1-declaration) |
+| `zarr.json#/attributes/refkv_zarrified` | attribute | [`RootProperty`](../conventions.md#type-rootproperty) | `profile` `"mp4"`, `version` `0`, `source.url` the file's URL |
+| `zarr.json#/attributes/refkv_zarrified/mp4` | attribute | [`Mp4Root`](#type-mp4root) | the root's source metadata ([§5.1](#51-the-root)) |
+| `tracks/zarr.json` | group | [`GroupDocument`](../conventions.md#type-groupdocument), attributes `{}` | the group of the tracks ([§4](#4-the-layout)) |
+| `tracks/<id>/zarr.json` | group | [`GroupDocument`](../conventions.md#type-groupdocument), its attributes a [`Declaration`](../conventions.md#type-declaration) and nothing else | a track the profile zarrifies ([§4](#4-the-layout), [§8.2](#82-tracks)) |
+| `tracks/<id>/zarr.json#/attributes/zarr_conventions` | attribute | array of [`ConventionMetadata`](../conventions.md#type-conventionmetadata) | the CMO of [§1](#1-declaration) |
+| `tracks/<id>/zarr.json#/attributes/refkv_zarrified` | attribute | [`NodeProperty`](../conventions.md#type-nodeproperty) | the track's property |
+| `tracks/<id>/zarr.json#/attributes/refkv_zarrified/mp4` | attribute | [`Mp4VideoTrack`](#type-mp4videotrack) or [`Mp4AudioTrack`](#type-mp4audiotrack) | the track's source metadata ([§5.2](#52-the-tracks)) |
+| `tracks/<id>/<plane>/zarr.json` | array | [`Mp4PlaneArray`](#type-mp4planearray) | a video track's plane ([§4.1](#41-video-tracks)) |
+| `tracks/<id>/<plane>/c/<q>/0/0` | chunk | [`Mp4VideoChunk`](#type-mp4videochunk) | every chunk of a plane ([§8.3](#83-chunks)) |
+| `tracks/<id>/time/zarr.json` | array | [`Mp4TimeArray`](#type-mp4timearray) | a video track's presentation times ([§4.1](#41-video-tracks)) |
+| `tracks/<id>/time/c/<k>` | chunk | [`Mp4TimeChunk`](#type-mp4timechunk) | every chunk of `time`, a bytes entry ([§8.3](#83-chunks)) |
+| `tracks/<id>/samples/zarr.json` | array | [`Mp4AudioArray`](#type-mp4audioarray) | an audio track's samples ([§4.2](#42-audio-tracks)) |
+| `tracks/<id>/samples/c/<q>/0` | chunk | [`Mp4AudioChunk`](#type-mp4audiochunk) | every chunk of the samples ([§8.3](#83-chunks)) |
+| `refkv_source/**` | subtree | [the mirror's entries](../conventions.md#table-mirror) | the IR mirror ([conventions §11.3](../conventions.md#113-the-ir-mirror)): its elements are [§5.3](#53-elements)'s |
+
+| placeholder | value |
+|---|---|
+| `<id>` | the track's ID, its `tkhd` box's `track_id`, in decimal |
+| `<plane>` | `y`, `u` or `v` |
+| `<q>` | the chunk's index along `time`, in decimal, from 0 |
+| `<k>` | the chunk's index along `time`, in decimal, from 0 to `ceil(N / 2^17) − 1` |
 
 ## 1. Declaration
 
@@ -136,45 +176,56 @@ metadata, and its arrays below. Every array's `zarr.json` is
 
 An H.264 track of `N` samples, `W × H` pixels (its sample entry's `width`
 and `height`), holds its pictures in **presentation order**: picture `p` is
-the sample with the `p`-th smallest presentation time.
+the sample with the `p`-th smallest presentation time. Its arrays are `y`, `u` and `v`, the
+planes of the pictures, and `time`, the pictures' presentation times.
 
-- `y`, `u` and `v`: the planes of the pictures, `uint8`, of shape
-  `[N, H, W]` for `y` and `[N, ceil(H / 2), ceil(W / 2)]` for `u` and `v`,
-  the dimension names `["time", "y", "x"]`; the codecs
-  `[{"name": "refkv.stream", "configuration": {"format": "h264", "setup":
-  S, "plane": P}}]`, `S` the base64 of the sample entry's `avcC` box's
-  payload and `P` the array's name. A chunk holds at most
-  `F = min(256, max(1, floor(2^25 / (W × H))))` pictures: at most 32 MiB of
-  luma (16 pictures at 1920 × 1080), since a chunk decodes whole. The
-  chunks are cut at the sync samples' presentation indexes: chunk `q` holds
-  the pictures `a_q` to `a_{q+1} − 1`, from `a_0 = 0`, where `a_{q+1}` is
-  `N` when `N − a_q ≤ F`; else the greatest presentation index of a sync
-  sample that is greater than `a_q` and at most `a_q + F`; else `a_q + F`.
-  So a chunk holds whole groups of pictures and the next starts with a
-  sync sample, but where a group longer than `F` is split. A sync sample's
-  leading pictures (those after it in decode order and presented before
-  it) are in the chunk before it. Its key is `<plane>/c/<q>/0/0`.
-- The chunk grid of `y`, `u` and `v`, `L_q` the length of chunk `q`: when
-  every `L_q` but the last is `L_0` and the last at most `L_0`, the regular
-  grid of chunk shape `[L_0, H, W]` (or the chroma planes' sizes);
-  otherwise the zarr-extensions `rectilinear` grid
-  ([chunk-grids/rectilinear](https://github.com/zarr-developers/zarr-extensions/tree/main/chunk-grids/rectilinear)),
-  exactly `{"name": "rectilinear", "configuration": {"kind": "inline",
-  "chunk_shapes": [T, H, W]}}` (or the chroma planes' sizes), `T` the
-  lengths in order, each run of `r > 1` equal lengths `L` written `[L, r]`,
-  as the CZI convention writes a clipped axis
-  ([zarrify/czi.md §4.3](czi.md#43-image-arrays)). For example, groups
-  starting at pictures 0, 7, 9, 23 and 40 of 60, with `F = 7`, give
-  `T = [7, 2, [7, 4], 3, [7, 2], 6]`. zarr-python 3.4 reads such an array
-  once `zarr.config.set({"array.rectilinear_chunks": True})` is set.
-- `time`: the pictures' presentation times, in the media timescale, `int64`
-  of shape `[N]`, the dimension names `["time"]`, the codecs
-  `[{"name": "bytes", "configuration": {"endian": "little"}}, {"name":
-  "gzip", "configuration": {"level": 6}}]`, the chunk shape
-  `[min(N, 2^17)]`, its chunks bytes entries (the last padded with zeros to
-  the chunk shape). These are the media timeline's times, as the tables give
-  them; the edit list, which may shift or cut them on the movie's timeline,
-  is recorded ([§5.2](#52-the-tracks)) and not applied.
+**Chunks.** A chunk holds at most
+`F = min(256, max(1, floor(2^25 / (W × H))))` pictures: at most 32 MiB of
+luma (16 pictures at 1920 × 1080), since a chunk decodes whole. The
+chunks are cut at the sync samples' presentation indexes: chunk `q` holds
+the pictures `a_q` to `a_{q+1} − 1`, from `a_0 = 0`, where `a_{q+1}` is
+`N` when `N − a_q ≤ F`; else the greatest presentation index of a sync
+sample that is greater than `a_q` and at most `a_q + F`; else `a_q + F`.
+So a chunk holds whole groups of pictures and the next starts with a
+sync sample, but where a group longer than `F` is split. A sync sample's
+leading pictures (those after it in decode order and presented before
+it) are in the chunk before it. Its key is `<plane>/c/<q>/0/0`.
+
+<a id="type-mp4planearray"></a>**`Mp4PlaneArray`**, the `zarr.json` of `y`, `u` and `v`: an
+[`ArrayDocument`](../conventions.md#type-arraydocument) with these members, `L_q` the length
+of chunk `q`:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `shape` | array of integer | required | `[N, H, W]` for `y` and `[N, ceil(H / 2), ceil(W / 2)]` for `u` and `v` |
+| `data_type` | string | required | `"uint8"` |
+| `chunk_grid` | object | required | when every `L_q` but the last is `L_0` and the last at most `L_0`, the regular grid of chunk shape `[L_0, H, W]` (or the chroma planes' sizes); otherwise the zarr-extensions `rectilinear` grid ([chunk-grids/rectilinear](https://github.com/zarr-developers/zarr-extensions/tree/main/chunk-grids/rectilinear)), exactly `{"name": "rectilinear", "configuration": {"kind": "inline", "chunk_shapes": [T, H, W]}}` (or the chroma planes' sizes), `T` the lengths in order, each run of `r > 1` equal lengths `L` written `[L, r]`, as the CZI convention writes a clipped axis ([zarrify/czi.md §4.3](czi.md#43-image-arrays)) |
+| `codecs` | array of object | required | `[{"name": "refkv.stream", "configuration": {"format": "h264", "setup": S, "plane": P}}]`, a [`StreamConfiguration`](../conventions.md#type-streamconfiguration), `S` the base64 of the sample entry's `avcC` box's payload and `P` the array's name |
+| `dimension_names` | array of string | required | `["time", "y", "x"]` |
+| `attributes` | object | required | `{}` ([§1](#1-declaration)) |
+
+For example, groups
+starting at pictures 0, 7, 9, 23 and 40 of 60, with `F = 7`, give
+`T = [7, 2, [7, 4], 3, [7, 2], 6]`. zarr-python 3.4 reads such an array
+once `zarr.config.set({"array.rectilinear_chunks": True})` is set.
+
+<a id="type-mp4timearray"></a>**`Mp4TimeArray`**, the `zarr.json` of `time`, the pictures'
+presentation times, in the media timescale: an
+[`ArrayDocument`](../conventions.md#type-arraydocument) with these members:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `shape` | array of integer | required | `[N]` |
+| `data_type` | string | required | `"int64"` |
+| `chunk_grid` | object | required | regular, its chunk shape `[min(N, 2^17)]` |
+| `codecs` | array of object | required | `[{"name": "bytes", "configuration": {"endian": "little"}}, {"name": "gzip", "configuration": {"level": 6}}]` |
+| `dimension_names` | array of string | required | `["time"]` |
+| `attributes` | object | required | `{}` ([§1](#1-declaration)) |
+
+Its chunks are bytes entries (the last padded with zeros to
+the chunk shape). These are the media timeline's times, as the tables give
+them; the edit list, which may shift or cut them on the movie's timeline,
+is recorded ([§5.2](#52-the-tracks)) and not applied.
 
 The three planes of a chunk are the same `refkv.stream` chunk: each
 decodes the same pictures and keeps its plane.
@@ -183,13 +234,19 @@ decodes the same pictures and keeps its plane.
 
 An AAC or MP3 track of `N` samples (coded frames), each decoding to `S`
 samples of each of its `C` channels (`S` is 1024 for AAC, 1152 for MP3 at
-32 kHz and more and 576 below), holds its samples in one array:
+32 kHz and more and 576 below), holds its samples in one array, `samples`:
 
-- `samples`: `float32`, of shape `[N × S, C]`, the dimension names
-  `["time", "channel"]`, the codecs `[{"name": "refkv.stream",
-  "configuration": {"format": F, "setup": A}}]`, `F` `"aac"` or `"mp3"`, and
-  for AAC `A` the base64 of the AudioSpecificConfig of the sample entry's
-  `esds` box. The chunk shape is `[256 × S, C]`: 256 frames a chunk.
+<a id="type-mp4audioarray"></a>**`Mp4AudioArray`**, the `zarr.json` of `samples`: an
+[`ArrayDocument`](../conventions.md#type-arraydocument) with these members:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `shape` | array of integer | required | `[N × S, C]` |
+| `data_type` | string | required | `"float32"` |
+| `chunk_grid` | object | required | regular, its chunk shape `[256 × S, C]`: 256 frames a chunk |
+| `codecs` | array of object | required | `[{"name": "refkv.stream", "configuration": {"format": F, "setup": A}}]`, a [`StreamConfiguration`](../conventions.md#type-streamconfiguration), `F` `"aac"` or `"mp3"`, and for AAC `A` the base64 of the AudioSpecificConfig of the sample entry's `esds` box (an MP3 track's configuration has no `setup`) |
+| `dimension_names` | array of string | required | `["time", "channel"]` |
+| `attributes` | object | required | `{}` ([§1](#1-declaration)) |
 
 Every decoded sample is in the array, the encoder's priming and padding
 included: AAC encoders start a stream with 1024 or 2112 samples of priming,
@@ -201,35 +258,95 @@ noise bands, a chunk's noise is its own.
 ## 5. Source metadata
 
 The root's and each track group's source metadata are objects with the
-members below, in that order, translated by
+members below ([`Mp4Root`](#type-mp4root), [`Mp4VideoTrack`](#type-mp4videotrack),
+[`Mp4AudioTrack`](#type-mp4audiotrack)), in that order, translated by
 [conventions §6](../conventions.md#6-source-metadata-as-json). Everything
 the file holds is on `refkv_source`, the file's **IR mirror**
-([§5.3](#53-elements)), from which the file is rebuilt byte for byte.
+([§5.3](#53-elements)), from which the file is rebuilt byte for byte. A **four-character
+code** (a brand, a handler, a sample entry's type) is written as text: a string of its 4 bytes,
+each the character whose code point is its value (ISO 8859-1), whatever the bytes are, rather
+than a text value of [conventions §6](../conventions.md#6-source-metadata-as-json), which would tag bytes that are not UTF-8.
 
 ### 5.1 The root
 
-- `brand`: when the file has an `ftyp` box of at most 4096 bytes (the
-  first, [§8.1](#81-boxes)), `{"major": B, "minor": n,
-  "compatible": [B, ...]}`, its major brand, minor version and compatible
-  brands, each brand its 4 bytes as text. Absent otherwise.
-- `timescale` and `duration`: the `mvhd` box's.
-- `tracks`: one object per track, in the order of the `trak` boxes,
-  `{"id": n, "handler": H, "codec": E, "path": P, "reason": R}`: its ID, its
-  handler, its sample entry's type (`""` without one), and `P` its group's
-  path and `R` null when the profile zarrifies it, else `P` null and `R`
-  why not ([spec/zarrify.md §8.2](#82-tracks)).
+<a id="type-mp4root"></a>**`Mp4Root`**, the root's source metadata:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `brand` | [`Mp4Brand`](#type-mp4brand) | optional | when the file has an `ftyp` box of at most 4096 bytes (the first, [§8.1](#81-boxes)); absent otherwise |
+| `timescale` | integer | required | the `mvhd` box's |
+| `duration` | [`Integer`](../conventions.md#type-integer) | required | the `mvhd` box's |
+| `tracks` | array of [`Mp4TrackListing`](#type-mp4tracklisting) | required | one object per track, in the order of the `trak` boxes |
+
+<a id="type-mp4brand"></a>**`Mp4Brand`**, the `ftyp` box's brands, each brand a
+four-character code:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `major` | string | required | `B`, its major brand |
+| `minor` | integer | required | its minor version |
+| `compatible` | array of string | required | its compatible brands, in order |
+
+<a id="type-mp4tracklisting"></a>**`Mp4TrackListing`**, a track:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `id` | integer | required | its ID |
+| `handler` | string | required | `H`, its handler |
+| `codec` | string | required | `E`, its sample entry's type (`""` without one) |
+| `path` | string or null | required | `P`, its group's path when the profile zarrifies it; else null |
+| `reason` | string or null | required | `R`, null when the profile zarrifies it; else why not ([spec/zarrify.md §8.2](#82-tracks)) |
 
 ### 5.2 The tracks
 
-A track's group has: `id`, `handler`, `codec` and `format` (`"h264"`,
-`"aac"` or `"mp3"`); `timescale` and `duration`, the media's; `edits`, an
-array of `{"duration": n, "media_time": n, "rate": x}`, its `elst` box's
-entries (`rate` the media rate and fraction as one number); `frames`, its
-sample count `N`; then, for a video track, `width`, `height`, `profile` and
-`level` (the SPS's `profile_idc` and `level_idc`) and `sync_samples` (their
-count), and for an audio track `sample_rate`, `channels`,
-`samples_per_frame` (`S`) and `samples` (`N × S`); and last `chunk_frames`,
-the most frames a chunk holds (a video track's `F`, an audio track's 256).
+A track's group has, as its source metadata, an [`Mp4VideoTrack`](#type-mp4videotrack) for a
+video track and an [`Mp4AudioTrack`](#type-mp4audiotrack) for an audio track. Their members
+are the same up to `frames` and at the end, `chunk_frames`.
+
+<a id="type-mp4videotrack"></a>**`Mp4VideoTrack`**:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `id` | integer | required | its ID |
+| `handler` | string | required | its handler |
+| `codec` | string | required | its sample entry's type |
+| `format` | string | required | `"h264"` |
+| `timescale` | integer | required | the media's timescale |
+| `duration` | [`Integer`](../conventions.md#type-integer) | required | the media's duration |
+| `edits` | array of [`Mp4Edit`](#type-mp4edit) | required | its `elst` box's entries |
+| `frames` | integer | required | its sample count `N` |
+| `width` | integer | required | `W` ([§4.1](#41-video-tracks)) |
+| `height` | integer | required | `H` |
+| `profile` | integer | required | the SPS's `profile_idc` |
+| `level` | integer | required | the SPS's `level_idc` |
+| `sync_samples` | integer | required | the count of its sync samples |
+| `chunk_frames` | integer | required | the most frames a chunk holds: `F` |
+
+<a id="type-mp4audiotrack"></a>**`Mp4AudioTrack`**:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `id` | integer | required | its ID |
+| `handler` | string | required | its handler |
+| `codec` | string | required | its sample entry's type |
+| `format` | string | required | `"aac"` or `"mp3"` |
+| `timescale` | integer | required | the media's timescale |
+| `duration` | [`Integer`](../conventions.md#type-integer) | required | the media's duration |
+| `edits` | array of [`Mp4Edit`](#type-mp4edit) | required | its `elst` box's entries |
+| `frames` | integer | required | its sample count `N` |
+| `sample_rate` | integer | required | its sample rate ([§8.2](#82-tracks)) |
+| `channels` | integer | required | its channel count `C` |
+| `samples_per_frame` | integer | required | `S` |
+| `samples` | integer | required | `N × S` |
+| `chunk_frames` | integer | required | the most frames a chunk holds: 256 |
+
+<a id="type-mp4edit"></a>**`Mp4Edit`**, an `elst` box's entry:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `duration` | [`Integer`](../conventions.md#type-integer) | required | its segment duration |
+| `media_time` | [`Integer`](../conventions.md#type-integer) | required | its media time |
+| `rate` | number | required | the media rate and fraction as one number |
 
 ### 5.3 Elements
 
@@ -414,7 +531,10 @@ and the track is kept in the mirror but has no group:
   indication is neither AAC (0x40, 0x66 to 0x68) nor MPEG audio (0x69, 0x6B);
   or, for AAC, its AudioSpecificConfig cannot be read, or its object type is
   not AAC-LC (2), or its frames are 960 samples; or its sample rate or
-  channel count is 0.
+  channel count is 0;
+- its track ID is an earlier zarrified track's (`its track ID n is an earlier zarrified
+  track's`): a zarrified track's group is named by its ID, so of the tracks that share one,
+  only the first that no other reason keeps from being zarrified is zarrified.
 
 The channel count and sample rate of an AAC track are its
 AudioSpecificConfig's (the sample entry's channel count when its channel
@@ -433,8 +553,8 @@ its first picture in decode order, so its reference fits in a payload
 
 ### 8.3 Chunks
 
-Every chunk of every array of a zarrified track is present, and is the
-`refkv.stream` chunk ([conventions §10](../conventions.md#10-coded-streams))
+Every chunk of every array of a zarrified track is present. A chunk of a plane or of
+`samples` is the `refkv.stream` chunk ([conventions §10](../conventions.md#10-coded-streams))
 of these samples, in decode order, a range per run of samples that follow
 each other in the file:
 
@@ -463,6 +583,28 @@ each other in the file:
   a bound in place of each frame's side information, which a zarrifier
   does not read.
 
+<a id="type-mp4videochunk"></a>**`Mp4VideoChunk`**, chunk `q` of `y`, `u` and `v`, of the
+pictures `a` to `b − 1`:
+
+| part | range | presence | value |
+|---|---|---|---|
+| the header | literal | required | the [`StreamChunk`](../conventions.md#type-streamchunk) header of the samples from `s` to the last of the pictures in decode order: their count, then each one's size and its position, its presentation index less `a` when that is from 0 to `b − a − 1`, else −1 |
+| the samples | source ranges `(0, offset, length)` | required | those samples, in decode order, a range per run of samples that follow each other in the file |
+
+<a id="type-mp4audiochunk"></a>**`Mp4AudioChunk`**, chunk `q` of `samples`, of the frames
+`a = q × 256` to `b − 1`:
+
+| part | range | presence | value |
+|---|---|---|---|
+| the header | literal | required | the [`StreamChunk`](../conventions.md#type-streamchunk) header of the frames `l` to `b − 1`: their count, then each one's size and its position, −1 when `j < a` and `(j − a) × S` otherwise |
+| the frames | source ranges `(0, offset, length)` | required | frames `l` to `b − 1`, in order, a range per run of frames that follow each other in the file |
+
+<a id="type-mp4timechunk"></a>**`Mp4TimeChunk`**, chunk `k` of `time`:
+
+| part | range | presence | value |
+|---|---|---|---|
+| the times | `bytes` | required | the presentation times of the pictures `k × c` to `min(N, (k + 1) × c) − 1`, `c` the chunk shape's, as the array's codecs encode them: `int64` little-endian, the last chunk padded with zeros to the chunk shape, then gzip |
+
 The `time` array's chunks are bytes entries. The output has no data
 sources: its source table is source 0 alone. `refkv_source` is the IR mirror
 ([the convention §5.3](#53-elements)). The archive has no other entries than
@@ -472,6 +614,10 @@ their chunks, and the mirror's.
 ### 8.4 Summary
 
 This section is informative. Both implementations print a one-line JSON
-summary: `brand` (the major brand, or `null`), `tracks` (for each track
-zarrified, its `id`, `format`, `path`, `frames`, `chunkFrames` and
-`chunks`) and `skipped` (for each other, its `id`, `codec` and `reason`).
+summary, with these members:
+
+| member | value |
+|---|---|
+| `brand` | the major brand, or `null` |
+| `tracks` | for each track zarrified, its `id`, `format`, `path`, `frames`, `chunkFrames` and `chunks` |
+| `skipped` | for each other, its `id`, `codec` and `reason` |

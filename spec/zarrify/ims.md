@@ -7,7 +7,10 @@ refkv produces this layout as a reference store, and the subset of HDF5 that
 it reads, is the IMS profile, [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `5067a535-8261-4b25-a93c-1985ed333bde` ·
-Schema: [schema.json](ims/schema.json)
+Schema: [schema.json](ims/schema.json) · Changed 2026-10-26, with no change to any output: the
+layout is tabulated, its entries in [Layout](#layout) and its types in type tables
+([conventions §11.5](../conventions.md#115-layout-tables)), and the HDF5 structures' fields
+and cases in tables
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
@@ -17,6 +20,25 @@ This convention gives a layout only to the files that meet its
 requirements. Where it says that "the input is rejected", or that
 something MUST hold, a file that fails has no layout under this
 convention, and the profile rejects it.
+
+## Layout
+
+The hierarchy's entries ([conventions §11.5](../conventions.md#115-layout-tables)):
+
+| prefix | type | structure | description |
+|---|---|---|---|
+| `zarr.json` | group | [`ImageGroup`](../conventions.md#type-imagegroup) | the root: the image ([§4](#4-output)) |
+| `zarr.json#/attributes/ome` | attribute | [`OmeImage`](../conventions.md#type-omeimage) | `M`: one level per resolution level `r`, the array `<r>`, with the name, scales and translation of [§4](#4-output), and `omero` as [§4](#4-output) says |
+| `zarr.json#/attributes/zarr_conventions` | attribute | array of [`ConventionMetadata`](../conventions.md#type-conventionmetadata) | the CMO of [§1](#1-declaration) |
+| `zarr.json#/attributes/refkv_zarrified` | attribute | [`RootProperty`](../conventions.md#type-rootproperty) | `profile` `"ims"`, `version` `0`, `source.url` the file's URL; no member `"ims"`: the root has no source metadata of its own ([§1](#1-declaration)) |
+| `<r>/zarr.json` | array | [`ImsArray`](#type-imsarray) | the pixels of level `r` ([§4](#4-output)) |
+| `<r>/c/<coords>` | chunk | [`ImsChunk`](#type-imschunk) | an allocated chunk of a dataset `(r, t, c)` that is not wholly outside the image ([§4](#4-output), [§7.8](#78-chunk-references)); the others have no entry |
+| `refkv_source/**` | subtree | [the mirror's entries](../conventions.md#table-mirror) | the IR mirror ([§5.1](#51-the-ir-mirror)): its elements are [§5.2](#52-elements)'s |
+
+| placeholder | value |
+|---|---|
+| `<r>` | the resolution level `r`, from 0 to `R − 1`, in decimal |
+| `<coords>` | the chunk's coordinates along the array's axes, in decimal, one key segment each: `<t>/<c>/<i>/<j>/<k>`, each of `<t>`, `<c>` and `<i>` only for the axes present (so it stands for two to five segments): `t` the time point, `c` the channel, and `(i, j, k)` the chunk's grid coordinates in the dataset `(r, t, c)` |
 
 ## 1. Declaration
 
@@ -69,15 +91,14 @@ datatype (class 3), of any size, padding and character set; any other
 datatype rejects the input. Its text is its data up to the first NUL byte
 (all of it if there is none), decoded as UTF-8 if it is valid UTF-8, and
 otherwise byte by byte as the code points U+0000 to U+00FF (ISO 8859-1).
+The kinds of text, each with leading and trailing whitespace
+([spec/zarrify.md §1.3](../zarrify.md#13-arithmetic)) removed first:
 
-- A **decimal** is a text that, with leading and trailing whitespace ([spec/zarrify.md §1.3](../zarrify.md#13-arithmetic))
-  removed, matches `[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?` and
-  whose value ([spec/zarrify.md §1.3](../zarrify.md#13-arithmetic)) is finite. Any other text is not a decimal.
-- A **list of `n` decimals** is a text that, with leading and trailing
-  whitespace removed and split at each run of whitespace, has exactly `n`
-  parts, each a decimal.
-- An **integer** is a text that, with leading and trailing whitespace
-  removed, is one or more digits.
+| kind | the text |
+|---|---|
+| a **decimal** | matches `[+-]?([0-9]+(\.[0-9]*)?\|\.[0-9]+)([eE][+-]?[0-9]+)?` and its value ([spec/zarrify.md §1.3](../zarrify.md#13-arithmetic)) is finite. Any other text is not a decimal |
+| a **list of `n` decimals** | split at each run of whitespace, has exactly `n` parts, each a decimal |
+| an **integer** | is one or more digits |
 
 ### 2.2 The Imaris layout
 
@@ -111,17 +132,15 @@ to reach them:
     least `Z`, `Y` and `X`, and its filters MUST be none, or exactly one
     with identifier 1 (deflate, whose chunks are zlib streams). Other filters
     (shuffle 2, Fletcher32 3, LZ4 32004, ...) reject the input.
-  - Its **data type:** a datatype of class 0 (fixed-point) and size 1, 2 or 4
-    whose bit offset (2 bytes at property byte 0) is 0 and precision (2 bytes
-    at 2) is 8 × the size is `uint8`, `uint16` or `uint32`, or `int8`,
-    `int16` or `int32` if bit 3 (signed) of the bit fields is set. A
-    datatype of class 1 (floating-point) and size 4 is `float32` if its bit
-    fields have bit 6 clear, bits 4–5 (mantissa normalization) equal to 2 and
-    bits 8–15 (sign location) equal to 31, and its properties are the bit
-    offset 0 and precision 32 (2 bytes each), exponent location 23, exponent
-    size 8, mantissa location 0 and mantissa size 23 (1 byte each), and
-    exponent bias 127 (4 bytes). Any other datatype rejects the input. Bit 0
-    of the bit fields is the **byte order**: big-endian if set, else
+  - Its **data type**, by its datatype. Any other datatype rejects the input.
+
+    | class | size | its fields | data type |
+    |---|---|---|---|
+    | 0 (fixed-point) | 1, 2 or 4 | bit offset (2 bytes at property byte 0) 0 and precision (2 bytes at 2) 8 × the size; bit 3 (signed) of the bit fields clear | `uint8`, `uint16` or `uint32` |
+    | 0 (fixed-point) | 1, 2 or 4 | as above, with bit 3 (signed) set | `int8`, `int16` or `int32` |
+    | 1 (floating-point) | 4 | bit fields with bit 6 clear, bits 4–5 (mantissa normalization) equal to 2 and bits 8–15 (sign location) equal to 31; properties the bit offset 0 and precision 32 (2 bytes each), exponent location 23, exponent size 8, mantissa location 0 and mantissa size 23 (1 byte each), and exponent bias 127 (4 bytes) | `float32` |
+
+    Bit 0 of the bit fields is the **byte order**: big-endian if set, else
     little-endian.
 
 All datasets MUST have the same data type and, for data types of 2 or 4
@@ -138,15 +157,15 @@ when `C` is at most 64) and `TimeInfo` that exists is followed, the group opened
 attributes read; a missing group has no attributes. These attributes are
 read as text ([§7.6](#76-attributes)) where present:
 
-- of `Image`: `ExtMin0`, `ExtMin1`, `ExtMin2`, `ExtMax0`,
-  `ExtMax1`, `ExtMax2` (each a decimal, else absent), `Unit` and
-  `Name`;
-- of `Channel c`: `Name`, `Color` (a list of 3 decimals, else absent)
-  and `ColorRange` (a list of 2 decimals, else absent); and `ColorMode`
-  and `ColorTableLength`, which never reject the input: each is absent if
-  its value cannot be read ([§7.6](#76-attributes)) or its datatype is not a
-  string;
-- of `TimeInfo`, only if `T > 1`: `TimePoint1` and `TimePoint<T>`.
+| group | attribute | read as |
+|---|---|---|
+| `Image` | `ExtMin0`, `ExtMin1`, `ExtMin2`, `ExtMax0`, `ExtMax1`, `ExtMax2` | each a decimal, else absent |
+| `Image` | `Unit`, `Name` | text |
+| `Channel c` | `Name` | text |
+| `Channel c` | `Color` | a list of 3 decimals, else absent |
+| `Channel c` | `ColorRange` | a list of 2 decimals, else absent |
+| `Channel c` | `ColorMode`, `ColorTableLength` | text, which never rejects the input: each is absent if its value cannot be read ([§7.6](#76-attributes)) or its datatype is not a string |
+| `TimeInfo`, only if `T > 1` | `TimePoint1`, `TimePoint<T>` | text |
 
 Other attributes, and the other groups (`Thumbnail`, `Scene`,
 `DataSetTimes`, ...), are not read, except a channel's **color table**,
@@ -203,70 +222,102 @@ never rejects the input. It is text, or absent:
 One image at the archive root ([conventions §4](../conventions.md#4-images)), with one array per level `r` at path
 `"<r>"`.
 
-- **Axes:** `t` if `T > 1`; `c` if `C > 1`; `z` if level 0's `Z` is
-  more than 1 or some level's `cz` is more than 1 (a chunk of several z
-  planes keeps them, so that its bytes decode to its Zarr chunk); then `y`,
-  `x`. When level 0's `Z` is 1, every level's `Z` MUST be 1.
-- **Array** of level `r` ([conventions §3](../conventions.md#3-arrays)): shape `T`, `C`, `Zr`, `Yr`, `Xr`
-  and chunk shape 1, 1, `cz`, `cy`, `cx` (each only for the axes
-  present); the data type of [§2.2](#22-the-imaris-layout); codecs `bytes` (with the byte order as
-  its `endian` for data types of 2 or 4 bytes), followed by `zlib` for
-  deflate.
-- **Scale** of level `r`: a spatial axis with an extent `e` has the scale
-  `e / Nr`, where `Nr` is the level's size along it (`Xr`, `Yr` or
-  `Zr`), and the unit; one without has the scale 1 and no unit. (Imaris's
-  extents span the image at every level, so a level's voxel size is the extent
-  over its size.) `t` has the scale of the time step and the unit
-  `second` if there is a time step, else the scale 1 and no unit. `c` has
-  the scale 1.
-- **Translation:** when every spatial axis present has an extent, every level
-  has the translation ([conventions §4](../conventions.md#4-images)) `ExtMin0` for `x`, `ExtMin1` for
-  `y`, `ExtMin2` for `z` and 0 for `t` and `c`: Imaris's extents are
-  the outer corners of the image. Otherwise there is none.
-- **Name:** `Name` of `Image`, if present, not empty and at most 256 bytes
-  long in UTF-8.
-- **omero:** when `C` is at most 64, `M` has `"omero": {"channels": [...]}`,
-  one object per channel `c` (even when there is no `c` axis):
-  `{"label": ..., "color": ..., "active": true, "window": {...}}`. With more
-  channels `M` has no `"omero"` member, so that the root does not grow with
-  `C` (the channels' metadata is kept in the source metadata, [§5](#5-source-metadata)).
-  - The label is the channel's `Name` if present, not empty and at most 256
-    bytes long in UTF-8, else `Channel <c>`.
-  - The color: Imaris colors a channel either by a base color, `Color`, or
-    by a lookup table, `ColorTable`, which maps the bottom of the channel's
-    display range to its first entry and the top to its last; `ColorMode`
-    says which (`BaseColor` or `TableColor`). Three decimals `v` (red,
-    green, blue), each from 0 to 1, give the six uppercase hexadecimal
-    digits of `floor(v × 255 + 0.5)` for each in turn.
-    - The **base color** is `Color`'s three values, if `Color` is present
-      and they are each from 0 to 1.
-    - The **table color** is the last three values of the color table
-      ([§3](#3-metadata); the table's top entry), if `ColorTableLength` is an integer `L`
-      from 1 to 2^53 − 1, the color table is a list of `3 × L` decimals, and
-      those three values are each from 0 to 1.
-    - If `ColorMode`, with leading and trailing whitespace removed, is
-      `TableColor`, the color is the table color, else the base color, else
-      `FFFFFF`. Otherwise it is the base color, else the table color, else
-      `FFFFFF`. A table that is malformed in any way (a missing or
-      non-integer length, a different number of values, a value that is not
-      a decimal or out of range) has no table color; it never rejects the
-      input. (The color table need not be read when the base color is
-      chosen first and exists, or when `ColorTableLength` is not such an
-      integer: the color is the same.)
-  - The window: for an integer data type, `{"min": lo, "max": hi,
-    "start": s, "end": e}`, where `lo` and `hi` are the smallest and
-    largest values of the data type (0 and 2^n − 1 unsigned, −2^(n−1) and
-    2^(n−1) − 1 signed, for `n` bits), and `s`, `e` are the two values of
-    `ColorRange` if it is present, else `lo` and `hi`. For `float32`,
-    `{"min": s, "max": e, "start": s, "end": e}` if `ColorRange` is
-    present, else no window.
-- **Chunks:** the chunk of level `r` with coords `t`, `c`, `i` (each only
-  when its axis is present), `j`, `k` is the chunk at grid coordinates
-  `(i, j, k)` of dataset `(r, t, c)`, as HDF5 stores it (zlib-compressed
-  for deflate). It is present when that chunk is allocated and not wholly
-  outside the image (`i × cz < Zr`, `j × cy < Yr` and `k × cx < Xr`);
-  otherwise it is absent (the fill value, 0). HDF5 stores edge chunks
-  whole, like Zarr, so a chunk's bytes decode to its Zarr chunk.
+**Axes:** `t` if `T > 1`; `c` if `C > 1`; `z` if level 0's `Z` is
+more than 1 or some level's `cz` is more than 1 (a chunk of several z
+planes keeps them, so that its bytes decode to its Zarr chunk); then `y`,
+`x`. When level 0's `Z` is 1, every level's `Z` MUST be 1.
+
+<a id="type-imsarray"></a>**`ImsArray`**, the **array** of level `r`'s `zarr.json`
+([conventions §3](../conventions.md#3-arrays)): an
+[`ArrayDocument`](../conventions.md#type-arraydocument) with these members:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `dimension_names` | array of string | required | the axes (above) |
+| `shape` | array of integer | required | `T`, `C`, `Zr`, `Yr`, `Xr`, each only for the axes present |
+| `data_type` | string | required | the data type of [§2.2](#22-the-imaris-layout) |
+| `chunk_grid` | object | required | regular, its chunk shape 1, 1, `cz`, `cy`, `cx`, each only for the axes present |
+| `codecs` | array of object | required | `bytes` (with the byte order as its `endian` for data types of 2 or 4 bytes), followed by `zlib` for deflate |
+| `attributes` | object | required | `{}` |
+
+**Scale** of level `r`, for each axis:
+
+| axis | scale | unit |
+|---|---|---|
+| a spatial axis with an extent `e` | `e / Nr`, where `Nr` is the level's size along it (`Xr`, `Yr` or `Zr`) | the unit ([§3](#3-metadata)) |
+| a spatial axis without an extent | 1 | none |
+| `t` | the time step, if there is one; else 1 | `second` with a time step; else none |
+| `c` | 1 | none |
+
+(Imaris's extents span the image at every level, so a level's voxel size is the extent
+over its size.)
+
+**Translation:** when every spatial axis present has an extent, every level
+has the translation ([conventions §4](../conventions.md#4-images)) `ExtMin0` for `x`, `ExtMin1` for
+`y`, `ExtMin2` for `z` and 0 for `t` and `c`: Imaris's extents are
+the outer corners of the image. Otherwise there is none.
+
+**Name:** `Name` of `Image`, if present, not empty and at most 256 bytes
+long in UTF-8.
+
+**omero:** when `C` is at most 64, `M` has `"omero"`, an
+[`Omero`](../conventions.md#type-omero) with one
+[`OmeroChannel`](../conventions.md#type-omerochannel) per channel `c` (even when there is no
+`c` axis). With more channels `M` has no `"omero"` member, so that the root does not grow
+with `C` (the channels' metadata is kept in the source metadata, [§5](#5-source-metadata)).
+Channel `c`'s members:
+
+| member | value |
+|---|---|
+| `label` | the channel's `Name` if present, not empty and at most 256 bytes long in UTF-8, else `Channel <c>` |
+| `color` | the color (below) |
+| `active` | `true` |
+| `window` | the window (below); absent when the window table gives none |
+
+The color: Imaris colors a channel either by a base color, `Color`, or
+by a lookup table, `ColorTable`, which maps the bottom of the channel's
+display range to its first entry and the top to its last; `ColorMode`
+says which (`BaseColor` or `TableColor`). Three decimals `v` (red,
+green, blue), each from 0 to 1, give the six uppercase hexadecimal
+digits of `floor(v × 255 + 0.5)` for each in turn.
+
+| color | its three values | when |
+|---|---|---|
+| the **base color** | `Color`'s three values | `Color` is present and they are each from 0 to 1 |
+| the **table color** | the last three values of the color table ([§3](#3-metadata); the table's top entry) | `ColorTableLength` is an integer `L` from 1 to 2^53 − 1, the color table is a list of `3 × L` decimals, and those three values are each from 0 to 1 |
+
+The channel's color is the first that exists, in this order:
+
+| `ColorMode`, with leading and trailing whitespace removed | color |
+|---|---|
+| `TableColor` | the table color, else the base color, else `FFFFFF` |
+| anything else, or absent | the base color, else the table color, else `FFFFFF` |
+
+A table that is malformed in any way (a missing or
+non-integer length, a different number of values, a value that is not
+a decimal or out of range) has no table color; it never rejects the
+input. (The color table need not be read when the base color is
+chosen first and exists, or when `ColorTableLength` is not such an
+integer: the color is the same.)
+
+The window, a [`Window`](../conventions.md#type-window), where `lo` and `hi` are the smallest
+and largest values of the data type (0 and 2^n − 1 unsigned, −2^(n−1) and 2^(n−1) − 1
+signed, for `n` bits), and `s`, `e` the two values of `ColorRange`:
+
+| data type | `ColorRange` | window |
+|---|---|---|
+| an integer data type | present | `{"min": lo, "max": hi, "start": s, "end": e}` |
+| an integer data type | absent | `{"min": lo, "max": hi, "start": lo, "end": hi}` |
+| `float32` | present | `{"min": s, "max": e, "start": s, "end": e}` |
+| `float32` | absent | none |
+
+**Chunks:** the chunk of level `r` with coords `t`, `c`, `i` (each only
+when its axis is present), `j`, `k` is the chunk at grid coordinates
+`(i, j, k)` of dataset `(r, t, c)`, as HDF5 stores it (zlib-compressed
+for deflate): an [`ImsChunk`](#type-imschunk). It is present when that chunk is allocated
+and not wholly outside the image (`i × cz < Zr`, `j × cy < Yr` and `k × cx < Xr`);
+otherwise it is absent (the fill value, 0). HDF5 stores edge chunks
+whole, like Zarr, so a chunk's bytes decode to its Zarr chunk.
 
 ## 5. Source metadata
 
@@ -318,18 +369,34 @@ whose type is not given is `bytes[n]`.
 | `gaps/<offset>` | gap | | any byte no element claims |
 
 An **attribute** (a message's `data`, or a dense attribute's item) is the
-struct of its `prelude` (`{version:u1,flags:u1,name_size:<u2,datatype_size:<u2,dataspace_size:<u2}`, with `encoding:u1` in version 3), `name`
-(`cstr[n]`), `datatype`, `dataspace` and `value`, the data: `ascii[n]` for
-a string datatype; `<uN[c]`, `<iN[c]`, `<fN[c]` (or `>` for big-endian) for
-an integer of 1, 2, 4 or 8 bytes with no padding bits or an IEEE binary32
-or binary64 float, `c` the element count (no dimension for a scalar);
-otherwise `bytes[n]`. An attribute message whose parts do not lie within it
-is one value. A **link** is the struct of its `fields` (`{version:u1,flags:u1}`
-with `type:u1`, `order:<u8` and `charset:u1` when its flags hold them, then
-`name_size`), `name` (`cstr[n]`) and `target`: a hard link's object header
-address (`<u8`), a soft link's `{size:<u2,path:ascii[m]}`, another type's
-`{size:<u2,value:bytes[m]}`. A link message that does not parse is one
-value.
+struct of these elements. An attribute message whose parts do not lie within it
+is one value.
+
+| element | type | what |
+|---|---|---|
+| `prelude` | `{version:u1,flags:u1,name_size:<u2,datatype_size:<u2,dataspace_size:<u2}`, with `encoding:u1` in version 3 | the attribute message's fields |
+| `name` | `cstr[n]` | its name |
+| `datatype` | | its datatype |
+| `dataspace` | | its dataspace |
+| `value` | by the datatype (below) | the data |
+
+| datatype | `value`'s type |
+|---|---|
+| a string | `ascii[n]` |
+| an integer of 1, 2, 4 or 8 bytes with no padding bits | `<uN[c]` or `<iN[c]` (or `>` for big-endian), `c` the element count (no dimension for a scalar) |
+| an IEEE binary32 or binary64 float | `<fN[c]` (or `>` for big-endian), `c` as above |
+| any other | `bytes[n]` |
+
+A **link** is the struct of these elements. A link message that does not parse is
+one value.
+
+| element | type | what |
+|---|---|---|
+| `fields` | `{version:u1,flags:u1}` with `type:u1`, `order:<u8` and `charset:u1` when its flags hold them, then `name_size` | the link message's fields |
+| `name` | `cstr[n]` | its name |
+| `target` | `<u8` | a hard link's object header address |
+| `target` | `{size:<u2,path:ascii[m]}` | a soft link's path |
+| `target` | `{size:<u2,value:bytes[m]}` | another type's value |
 
 A structure two elements claim (bytes two objects share, or that a
 structure overlaps) is described once; the other is an alias
@@ -481,17 +548,16 @@ decodes those, so such files are rejected.
   where this section says so.
 
 **Superblock.** The file starts with the HDF5 signature `89 48 44 46 0D 0A
-1A 0A`; byte 8 is the superblock version.
+1A 0A`; byte 8 is the superblock version. By the version, the bytes read and the fields'
+offsets in them:
 
-- Version 0 or 1: the first 72 bytes (version 0) or 76 bytes (version 1) are
-  read. Byte 13 is the size of addresses and byte 14 the size of lengths. The
-  base address is the 8 bytes at 24 (version 0) or 28 (version 1), and the
-  root group's object header address is the 8 bytes at 64 (version 0) or 68
-  (version 1), in the root group's symbol table entry.
-- Version 2 or 3: the first 48 bytes are read: sizes at 9 and 10, base
-  address at 12, root group object header address at 36. The superblock
-  extension is not read.
-- Any other version rejects the input.
+| version | bytes read | size of addresses, of lengths | base address (8 bytes) | root group's object header address (8 bytes) |
+|---|---|---|---|---|
+| 0 | the first 72 | bytes 13 and 14 | at 24 | at 64, in the root group's symbol table entry |
+| 1 | the first 76 | bytes 13 and 14 | at 28 | at 68, in the root group's symbol table entry |
+| 2 or 3 | the first 48 | bytes 9 and 10 | at 12 | at 36; the superblock extension is not read |
+
+Any other version rejects the input.
 
 Both sizes MUST be 8, the base address MUST be 0, and the root group's
 address MUST be defined.
@@ -609,10 +675,16 @@ objects of a fractal heap, indexed by a version 2 B-tree; datasets of
 several unlimited dimensions index their chunks by one ([§7.5](#75-datasets-and-chunks)).
 
 **Version 2 B-trees.** A tree of type `T` at `a`: the 38 bytes at `a`
-start with `BTHD`, then version 0 and type `T` (byte 5). Its node size `N`
-is the 4 bytes at 6, its record size `R` the 2 bytes at 10, its depth `D`
-the 2 bytes at 12, the root node's address the 8 bytes at 16 (if undefined,
-the tree has no records) and the root's number of records the 2 bytes at 24.
+start with `BTHD`, then version 0 and type `T` (byte 5). Its fields:
+
+| field | bytes | at |
+|---|---|---|
+| node size `N` | 4 | 6 |
+| record size `R` | 2 | 10 |
+| depth `D` | 2 | 12 |
+| the root node's address (if undefined, the tree has no records) | 8 | 16 |
+| the root's number of records | 2 | 24 |
+
 `R` MUST be 24, 11 or 17 for type 1, 5 or 8 ([§7.5](#75-datasets-and-chunks) gives the record sizes
 of types 10 and 11), `N` MUST be at least `10 + R`, and `D` at most 16.
 
@@ -636,14 +708,22 @@ of types 10 and 11), `N` MUST be at least `10 + R`, and `D` at most 16.
   its nodes. A node read twice (at the same address) rejects the input.
 
 **Fractal heaps.** A fractal heap at `a`: the 146 bytes at `a` start with
-`FRHP` and version 0. Its fields are the heap ID length (2 bytes at 5), the
-size of the I/O filters' information (2 bytes at 7), the maximum size of a
-managed object `Q` (4 bytes at 10), the address of the huge objects'
-B-tree (8 bytes at 22), the table width `W` (2 bytes at 110), the starting
-block size `S` (a length at 112), the maximum direct block size `X` (a
-length at 120), the maximum heap size `H`, in bits (2 bytes at 128), the
-root block's address (8 bytes at 132) and the root indirect block's number of
-rows `Rr` (2 bytes at 140). The I/O filters' size MUST be 0 (filtered heaps
+`FRHP` and version 0. Its fields:
+
+| field | bytes | at |
+|---|---|---|
+| the heap ID length | 2 | 5 |
+| the size of the I/O filters' information | 2 | 7 |
+| the maximum size of a managed object `Q` | 4 | 10 |
+| the address of the huge objects' B-tree | 8 | 22 |
+| the table width `W` | 2 | 110 |
+| the starting block size `S` | a length | 112 |
+| the maximum direct block size `X` | a length | 120 |
+| the maximum heap size `H`, in bits | 2 | 128 |
+| the root block's address | 8 | 132 |
+| the root indirect block's number of rows `Rr` | 2 | 140 |
+
+The I/O filters' size MUST be 0 (filtered heaps
 are rejected); `W`, `S` and `X` MUST be powers of 2, with `X ≥ S`;
 `H` MUST be from 1 to 64 and `Q` at least 1. Let `O = ceil(H / 8)`,
 `Ln = min(ceil(log2(X) / 8), floor(log2(Q) / 8) + 1)` and
@@ -727,15 +807,14 @@ message (type 0x0B) ([§7.2](#72-object-headers)).
     the size `e` of each dimension (from 1 to 8), then come `m` dimensions
     of `e` bytes, the index type (1 byte), the index's fields, and the index
     address (8 bytes). The index types are:
-    - 1, a **single chunk**: if flag bit 1 is set, the chunk's size (8 bytes,
-      a length) and filter mask (4 bytes, which MUST be 0, [§7.9](#79-source-metadata-structures));
-    - 2, **implicit**: no fields;
-    - 3, a **fixed array**: 1 byte, not read (the page bits of the fixed
-      array header are used);
-    - 4, an **extensible array**: 5 bytes, not read (the extensible array
-      header's parameters are used);
-    - 5, a **version 2 B-tree**: 6 bytes (node size, split and merge
-      percents), not read (the B-tree header's are used).
+
+    | index type | index | its fields |
+    |---|---|---|
+    | 1 | a **single chunk** | if flag bit 1 is set, the chunk's size (8 bytes, a length) and filter mask (4 bytes, which MUST be 0, [§7.9](#79-source-metadata-structures)) |
+    | 2 | **implicit** | none |
+    | 3 | a **fixed array** | 1 byte, not read (the page bits of the fixed array header are used) |
+    | 4 | an **extensible array** | 5 bytes, not read (the extensible array header's parameters are used) |
+    | 5 | a **version 2 B-tree** | 6 bytes (node size, split and merge percents), not read (the B-tree header's are used) |
 
     Other index types reject the input. With filters, flag bit 0 (partial
     edge chunks not filtered, which `H5Pset_chunk_opts` sets) means that
@@ -785,13 +864,17 @@ without filters, the size MUST equal the byte count; the size MUST be at least
   maximum grid (which MUST have no unlimited dimension). The grid's last chunk
   MUST lie within the file.
 - **Fixed array:** the maximum grid MUST have no unlimited dimension. The
-  28 bytes at the index address start with `FAHD` and version 0;
-  byte 5 is the client ID, which MUST be 1 with filters and 0 without; byte 6
-  is the entry size `E`, which MUST be 8 without filters and from 13 to 20
-  with; byte 7 is the page bits `g`; the 8 bytes at 8 are the number of
-  entries `n`, which MUST equal the number of chunks of the maximum grid;
-  and the 8 bytes at 16 are the data block's address `d` (if undefined, no
-  chunk is allocated). The 14 bytes at `d` start with `FADB`, version 0,
+  28 bytes at the index address start with `FAHD` and version 0; its fields:
+
+  | field | at |
+  |---|---|
+  | the client ID, which MUST be 1 with filters and 0 without | byte 5 |
+  | the entry size `E`, which MUST be 8 without filters and from 13 to 20 with | byte 6 |
+  | the page bits `g` | byte 7 |
+  | the number of entries `n`, which MUST equal the number of chunks of the maximum grid | the 8 bytes at 8 |
+  | the data block's address `d` (if undefined, no chunk is allocated) | the 8 bytes at 16 |
+
+  The 14 bytes at `d` start with `FADB`, version 0,
   and the client ID. Entry `i` is the chunk whose row-major index over the
   maximum grid is `i`; an entry whose coordinates lie outside the grid (data
   beyond the dataspace) is not a chunk of the dataset.
@@ -815,13 +898,20 @@ without filters, the size MUST equal the byte count; the size MUST be at least
   coordinates lie outside the grid is not a chunk of the dataset. An element
   is an entry as for a fixed array.
   - **Header:** the 68 bytes at the index address start with `EAHD` and
-    version 0; byte 5 is the client ID (1 with filters, 0 without), byte 6
-    the element size `E` (8 without filters, 13 to 20 with), byte 7 the
-    maximum index bits `b`, byte 8 the index block's element count `I`,
-    byte 9 the data blocks' minimum element count `M`, byte 10 the super
-    blocks' minimum data block count `P`, byte 11 the page bits `g`, and
-    the 8 bytes at 60 the index block's address (if undefined, no chunk is
-    allocated). `M` and `P` MUST be powers of 2, `b` from `log2(M)` to 64,
+    version 0; its fields:
+
+    | field | at |
+    |---|---|
+    | the client ID (1 with filters, 0 without) | byte 5 |
+    | the element size `E` (8 without filters, 13 to 20 with) | byte 6 |
+    | the maximum index bits `b` | byte 7 |
+    | the index block's element count `I` | byte 8 |
+    | the data blocks' minimum element count `M` | byte 9 |
+    | the super blocks' minimum data block count `P` | byte 10 |
+    | the page bits `g` | byte 11 |
+    | the index block's address (if undefined, no chunk is allocated) | the 8 bytes at 60 |
+
+    `M` and `P` MUST be powers of 2, `b` from `log2(M)` to 64,
     `g` at most 64, and `2 log2(P)` at most `S = 1 + b − log2(M)`, the
     number of super blocks. Super block `s` (from 0) has `2^floor(s / 2)`
     data blocks of `N(s) = 2^floor((s + 1) / 2) × M` elements each; its
@@ -904,51 +994,43 @@ HDF5 stores edge chunks whole, like Zarr, so a chunk's bytes decode to its
 Zarr chunk. (A single range's payload is at most 21 bytes, within the limit
 of [§1.2](../zarrify.md#12-input).)
 
+<a id="type-imschunk"></a>**`ImsChunk`**, the reference of the allocated chunk at `(i, j, k)`
+of dataset `(r, t, c)` ([§7.5](#75-datasets-and-chunks) gives its address and size):
+
+| part | range | presence | value |
+|---|---|---|---|
+| the chunk | source range `(0, address, size)` | required | the chunk's bytes as HDF5 stores them, zlib streams for deflate |
+
 ### 7.9 Source metadata structures
 
 The walk of the source metadata ([the convention §5.3](#53-the-walk)) reads, besides [§7.1](#71-hdf5-structures)–[§7.6](#76-attributes):
 
-- **Datasets of every layout.** A layout message of version 3, 4 or 5 of
-  class 0 (compact: the data's size in 2 bytes at byte 2, the data from
-  byte 4), class 1 (contiguous: the address at byte 2, undefined when the
-  storage is not allocated, and the size at byte 10) or class 2 (chunked,
-  as [§7.5](#75-datasets-and-chunks)). Class 3 is a **virtual dataset**, whose data is
-  elsewhere and not read. The fill value message's value is its data (none
-  when the message says it has none), which MUST be empty or of the
-  datatype's size.
-- **Datatype messages** of versions 1 to 5 ([§7.5](#75-datasets-and-chunks) reads versions 1 to 3 for
-  the image; later versions keep the same fields).
-- **The global heap.** A collection at address `a` starts with `GCOL`,
-  version 1, three reserved bytes and the collection's size (8 bytes),
-  which MUST be at least 16 and lie within the file. Its objects follow
-  from byte 16, each with its index (2 bytes), a reference count (2), 4
-  reserved bytes, its size (8) and its data, padded to a multiple of 8
-  bytes; an index of 0 (the free space) ends them. Each element of a
-  variable-length datatype is 16 bytes: its length (4 bytes), the
-  collection's address (8) and the object's index (4); a region reference
-  (class 7, kind 1, of 12 bytes) is a collection's address (8 bytes) and an
-  object's index (4). The address 0 or the undefined address names no
-  collection.
-- **Filter masks.** A chunk's filter mask ([§7.5](#75-datasets-and-chunks): in a version 1 B-tree's
-  key, a single chunk's layout message, an array index's entry or a version
-  2 B-tree's record) may be any value: bit `i` set means that the pipeline's
-  filter `i` (from 0, in pipeline order) was not applied to the chunk. A
-  partial edge chunk of a dataset with layout flag bit 0 ([§7.5](#75-datasets-and-chunks)) has every
-  filter's bit set. Any filter pipeline is read; the chunks are not decoded.
-- **Attribute data.** An attribute message lies in the file in one run:
-  in the block of the object header that holds it ([§7.2](#72-object-headers)), or as a fractal
-  heap object ([§7.4](#74-version-2-b-trees-and-fractal-heaps): a managed object within its direct block, a huge object
-  at the address its record gives). Its data is the run's bytes from where
-  [§7.6](#76-attributes) places it.
-- **Null dataspaces.** A dataset's or an attribute's null dataspace ([§7.5](#75-datasets-and-chunks))
-  is read as such: it has no data.
-- **Shared datatypes.** A dataset's datatype message with flag bit 1
-  (shared) set holds a shared message instead of a datatype: byte 0 is its
-  version; in version 1 the address is the 8 bytes at byte 8, in version 2,
-  and in version 3 when byte 1 (the type) is 2, the 8 bytes at byte 2; any
-  other shared message leaves the datatype unread. The address MUST be
-  defined; it is a committed datatype's object header ([§7.2](#72-object-headers)), whose datatype
-  message (which MUST NOT be shared) is the datatype.
-- **Links of other types.** A link message of a type other than 0 and 1
-  ([§7.3](#73-groups-and-links)) has, after its name, a 2-byte length `m` and its value, `m`
-  bytes; when they do not lie within the message the link has no value.
+| structure | how the walk reads it |
+|---|---|
+| **Datasets of every layout** | A layout message of version 3, 4 or 5 of class 0 (compact: the data's size in 2 bytes at byte 2, the data from byte 4), class 1 (contiguous: the address at byte 2, undefined when the storage is not allocated, and the size at byte 10) or class 2 (chunked, as [§7.5](#75-datasets-and-chunks)). Class 3 is a **virtual dataset**, whose data is elsewhere and not read. The fill value message's value is its data (none when the message says it has none), which MUST be empty or of the datatype's size |
+| **Datatype messages** | Versions 1 to 5 ([§7.5](#75-datasets-and-chunks) reads versions 1 to 3 for the image; later versions keep the same fields) |
+| **The global heap** | The collections that an attribute's variable-length or region reference elements name, and their objects (below) |
+| **Filter masks** | A chunk's filter mask ([§7.5](#75-datasets-and-chunks): in a version 1 B-tree's key, a single chunk's layout message, an array index's entry or a version 2 B-tree's record) may be any value: bit `i` set means that the pipeline's filter `i` (from 0, in pipeline order) was not applied to the chunk. A partial edge chunk of a dataset with layout flag bit 0 ([§7.5](#75-datasets-and-chunks)) has every filter's bit set. Any filter pipeline is read; the chunks are not decoded |
+| **Attribute data** | An attribute message lies in the file in one run: in the block of the object header that holds it ([§7.2](#72-object-headers)), or as a fractal heap object ([§7.4](#74-version-2-b-trees-and-fractal-heaps): a managed object within its direct block, a huge object at the address its record gives). Its data is the run's bytes from where [§7.6](#76-attributes) places it |
+| **Null dataspaces** | A dataset's or an attribute's null dataspace ([§7.5](#75-datasets-and-chunks)) is read as such: it has no data |
+| **Shared datatypes** | A dataset's datatype message with flag bit 1 (shared) set holds a shared message instead of a datatype: byte 0 is its version; in version 1 the address is the 8 bytes at byte 8, in version 2, and in version 3 when byte 1 (the type) is 2, the 8 bytes at byte 2; any other shared message leaves the datatype unread. The address MUST be defined; it is a committed datatype's object header ([§7.2](#72-object-headers)), whose datatype message (which MUST NOT be shared) is the datatype |
+| **Links of other types** | A link message of a type other than 0 and 1 ([§7.3](#73-groups-and-links)) has, after its name, a 2-byte length `m` and its value, `m` bytes; when they do not lie within the message the link has no value |
+
+**The global heap.** A collection at address `a`:
+
+| field | bytes | value |
+|---|---|---|
+| signature | 4 | `GCOL` |
+| version | 1 | 1 |
+| reserved | 3 | |
+| the collection's size | 8 | MUST be at least 16 and lie within the file |
+| its objects | | from byte 16, each with its index (2 bytes), a reference count (2), 4 reserved bytes, its size (8) and its data, padded to a multiple of 8 bytes; an index of 0 (the free space) ends them |
+
+The elements that name a collection's object:
+
+| element | bytes | fields |
+|---|---|---|
+| an element of a variable-length datatype | 16 | its length (4 bytes), the collection's address (8) and the object's index (4) |
+| a region reference (class 7, kind 1) | 12 | a collection's address (8 bytes) and an object's index (4) |
+
+The address 0 or the undefined address names no collection.

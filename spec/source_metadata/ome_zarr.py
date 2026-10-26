@@ -8,11 +8,11 @@ SCHEMA = {"anyOf": [
         "properties": {
             "attributes": {"type": "object", "minProperties": 1,
                            "description": "The node's .zattrs, without the OME members the ome object gives back"},
+            "metadata": {"type": "object", "minProperties": 1,
+                         "description": "The members of .zarray or .zgroup the Zarr metadata does not reproduce"},
             "unversioned": {"type": "array", "minItems": 1, "uniqueItems": True,
                             "items": {"enum": ["multiscales", "omero", "image-label", "plate", "well"]},
                             "description": "The OME members that had no version, which ome gives back as they are"},
-            "metadata": {"type": "object", "minProperties": 1,
-                         "description": "The members of .zarray or .zgroup the Zarr metadata does not reproduce"},
         },
         "minProperties": 1,
         "additionalProperties": False,

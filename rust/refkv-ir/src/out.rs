@@ -404,6 +404,14 @@ pub fn rectilinear_array_json(shape: &[u64], data_type: &str, lengths: &J, codec
     doc
 }
 
+/// An integer of the source as JSON (conventions §6
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>):
+/// a number when its magnitude is at most 2^53 − 1, else the string of its decimal digits.
+pub fn int_json(v: i128) -> J {
+    const MAX_SAFE: i128 = (1 << 53) - 1;
+    if (-MAX_SAFE..=MAX_SAFE).contains(&v) { json!(v as i64) } else { J::String(v.to_string()) }
+}
+
 /// The `bytes` codec of elements of `item` bytes: with the byte order `endian` ("little" or
 /// "big") for more than one byte, and without one for a single byte (Zarr v3).
 pub fn bytes_codec(item: u64, endian: &str) -> J {
@@ -842,6 +850,25 @@ pub fn json_size(v: &J) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An integer is a JSON number up to 2^53 − 1 in magnitude, and the string of its digits
+    /// past it (conventions §6
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>).
+    #[test]
+    fn an_integer_past_two_to_the_53_is_its_digits() {
+        let max = (1i128 << 53) - 1;
+        for (v, want) in [
+            (0, json!(0)),
+            (max, json!(9007199254740991u64)),
+            (-max, json!(-9007199254740991i64)),
+            (max + 1, json!("9007199254740992")),
+            (-(max + 1), json!("-9007199254740992")),
+            (u64::MAX as i128, json!("18446744073709551615")),
+            (i128::MIN, json!("-170141183460469231731687303715884105728")),
+        ] {
+            assert_eq!(int_json(v), want, "{v}");
+        }
+    }
 
     /// Three 1-byte elements, at most 2 a chunk: the edge chunk is its byte and one byte
     /// of padding, a reference of 11 bytes, copied past a payload of 4.

@@ -8,7 +8,9 @@ How refkv produces this layout as a reference store is the NDPI profile,
 [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `6cac71ef-dbb2-4acd-b60c-00389aa4238a` ·
-Schema: [schema.json](ndpi/schema.json) · Changed 2026-10-25: a level may be JPEG XR
+Schema: [schema.json](ndpi/schema.json) · Changed 2026-10-26, with no change to any output:
+the layout is tabulated, its entries in [Layout](#layout) and its types in type tables
+([conventions §11.5](../conventions.md#115-layout-tables)) · Changed 2026-10-25: a level may be JPEG XR
 (Compression 22610), tiled or in one strip, each tile or strip a chunk, its data type and
 samples from the JPEG XR stream header and not the tags ([§3](#3-levels),
 [§4](#4-the-image)); the tile tables' high bytes (65324, 65325) extend them
@@ -31,6 +33,26 @@ This convention gives a layout only to the files that meet its
 requirements. Where it says that "the input is rejected", or that
 something MUST hold, a file that fails has no layout under this
 convention, and the profile rejects it.
+
+## Layout
+
+The hierarchy's entries ([conventions §11.5](../conventions.md#115-layout-tables)):
+
+| prefix | type | structure | description |
+|---|---|---|---|
+| `zarr.json` | group | [`ImageGroup`](../conventions.md#type-imagegroup) | the root: the image ([§4](#4-the-image)) |
+| `zarr.json#/attributes/ome` | attribute | [`OmeImage`](../conventions.md#type-omeimage) | `M`: one multiscale, without a name, with the axes `c`, `y`, `x` ([§3](#3-levels)), one level per array with the scale and translation of [§4](#4-the-image); `omero` one [`OmeroChannel`](../conventions.md#type-omerochannel) per sample, as [§4](#4-the-image) says |
+| `zarr.json#/attributes/zarr_conventions` | attribute | array of [`ConventionMetadata`](../conventions.md#type-conventionmetadata) | the CMO of [§1](#1-declaration) |
+| `zarr.json#/attributes/refkv_zarrified` | attribute | [`RootProperty`](../conventions.md#type-rootproperty) | `profile` `"ndpi"`, `version` `0`, `source.url` the file's URL |
+| `zarr.json#/attributes/refkv_zarrified/ndpi` | attribute | [`NdpiRoot`](#type-ndpiroot) | the root's source metadata ([§5](#5-source-metadata)), when `S` is not empty: level 0 has one of the acquisition tags, with a value |
+| `<L>/zarr.json` | array | [`NdpiArray`](#type-ndpiarray) | level `L` ([§3](#3-levels), [§4](#4-the-image)) |
+| `<L>/c/0/<u>/<v>` | chunk | [`NdpiStripChunk`](#type-ndpistripchunk), [`NdpiMcuChunk`](#type-ndpimcuchunk) or [`NdpiJpegXrChunk`](#type-ndpijpegxrchunk) | the chunks of level `L` ([§4](#4-the-image)): of a JPEG level without McuStarts, its one chunk (`u` and `v` 0), an `NdpiStripChunk`; of a JPEG level with McuStarts, chunk `(u, v)`, an `NdpiMcuChunk`; of a JPEG XR level, each tile whose byte count is above 0, or its one strip, an `NdpiJpegXrChunk` ([§7](#7-ndpi-profile)) |
+| `refkv_source/**` | subtree | [the mirror's entries](../conventions.md#table-mirror) | the IR mirror ([§5](#5-source-metadata)): its elements are [§5.1](#51-elements)'s |
+
+| placeholder | value |
+|---|---|
+| `<L>` | the level's index, from 0, in decimal |
+| `<u>`, `<v>` | the chunk's row and column, in decimal |
 
 ## 1. Declaration
 
@@ -149,6 +171,18 @@ here: what its chunk decodes to is then the decoder's.
 The hierarchy is one image at the root ([conventions §4](../conventions.md#4-images)),
 without a name, with one array per level at path `"<level>"`.
 
+<a id="type-ndpiarray"></a>**`NdpiArray`**, a level's `zarr.json`: an
+[`ArrayDocument`](../conventions.md#type-arraydocument) with these members:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `shape` | array of integer | required | `[s, H, W]`: `s` the level's samples (3 for a JPEG level, the pixel format's for a JPEG XR level), the level's ImageLength `H` and ImageWidth `W` |
+| `data_type` | string | required | `"uint8"` for a JPEG level; the pixel format's, `"uint8"` or `"uint16"`, for a JPEG XR level ([§3](#3-levels)) |
+| `chunk_grid` | object | required | regular, its chunk shape, for a JPEG level, `[3, H, W]` without McuStarts and `[3, b × mh, a × R × mw]` with McuStarts (**Chunks of a JPEG level**, below); for a JPEG XR level, `[s, TileLength, TileWidth]` when tiled and `[s, H, W]` in one strip (**Chunks of a JPEG XR level**, below) |
+| `codecs` | array of object | required | `transpose` with `order` `[1, 2, 0]` (with 3 samples only, for a JPEG XR level), then `imagecodecs_jpeg` for a JPEG level or `imagecodecs_jpegxr` for a JPEG XR level ([§3](#3-levels)) |
+| `dimension_names` | array of string | required | `["c", "y", "x"]` ([§3](#3-levels)) |
+| `attributes` | object | required | `{}` |
+
 **Scale.** With XResolution `rx` and a ResolutionUnit tag of 3
 (centimeter), let `p = 10000 / rx`; of 2 (inch), `p = 25400 / rx`. If `p`
 is less than 25.4, `x` has unit `micrometer` and level 0 scale `p`;
@@ -231,13 +265,15 @@ own size, its intervals, and restart markers and an EOI of its own, so:
 The root's source metadata `S` ([conventions §2](../conventions.md#2-attributes))
 has, of level 0's IFD, the acquisition tags of [§2](#2-the-source) it has, in
 this order, each as [conventions §6](../conventions.md#6-source-metadata-as-json)
-translates it:
+translates it.
 
-| member | tag | value |
-|---|---|---|
-| `Fluorescence` | 65434 | its text value |
-| `Wavelength` | 65451 | its first value, a float |
-| `ExposureTime` | 65454 | its first value, an integer (of an in-line LONG, with its high word, [§7](#7-ndpi-profile)) |
+<a id="type-ndpiroot"></a>**`NdpiRoot`**, the root's source metadata `S`:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `Fluorescence` | [`Text`](../conventions.md#type-text) | optional | tag 65434: its text value |
+| `Wavelength` | [`Float`](../conventions.md#type-float) or `{"bits": H}` | optional | tag 65451: its first value, a float; `{"bits": H}`, its IEEE 754 bits as 8 (FLOAT) or 16 (DOUBLE) lowercase hexadecimal digits, most significant first, for a negative zero or a NaN other than the canonical one, whose bits a JSON number or `"NaN"` does not keep (as [NIfTI's `NiftiBits`](nifti.md#type-niftibits)) |
+| `ExposureTime` | [`Integer`](../conventions.md#type-integer) | optional | tag 65454: its first value, an integer (of an in-line LONG, with its high word, [§7](#7-ndpi-profile)) |
 
 A tag that [§2](#2-the-source) treats as absent, or that has no value, is left out. With none of these, `S` is empty, and the root has no source
 metadata member (as for a brightfield slide). They are also in the source model, the
@@ -475,6 +511,17 @@ markers of the shortest JPEG stream.
   2)` for the last), dropping the 2-byte restart marker or EOI after it; each
   MUST be non-empty.
 
+<a id="type-ndpistripchunk"></a>**`NdpiStripChunk`**, the chunk `<level>/c/0/0/0` of a level
+without McuStarts, with `o` its StripOffsets, `m` its StripByteCounts and `f` the offset in
+`S` of its frame's height field:
+
+| part | range | presence | value |
+|---|---|---|---|
+| the strip | source range `(0, o, m)` | optional | with no frame header to read, or one of the level's size: all of `S`, the chunk's one range |
+| the strip up to the height | source range `(0, o, f)` | optional | with a frame header of another size whose MCU rows and columns the level's size needs: `S` up to the frame's height field (its SOF0 segment's bytes 5 and 6) |
+| the level's size | literal range | optional | likewise: 4 bytes, `H` and `W` as big-endian `u16` |
+| the rest of the strip | source range `(0, o + f + 4, m − f − 4)` | optional | likewise: `S` after the frame's width field |
+
 **Chunks of a strip with McuStarts.** A chunk is `a × b` intervals: `a` =
 `min(q, max(1, floor(1024 / (R × mw))))` intervals across and `b` intervals
 down, so the chunk shape is `[3, b × mh, a × R × mw]`. `a × R × mw` MUST be
@@ -486,20 +533,19 @@ mirror keeps the strip's ([the convention §5](#5-source-metadata)).
 number from 1 to `min(r, floor(1024 / mh))` (at least 1) for which every
 chunk's payload is at most 65519 bytes ([§1.2](../zarrify.md#12-input)); `b × mh` MUST be at most
 65535 (it always is, since `mh ≤ 120`). Chunk `(u, v)` (row `u`,
-column `v`) is the JPEG stream:
+column `v`) is the JPEG stream [`NdpiMcuChunk`](#type-ndpimcuchunk), whose pieces its table
+numbers.
 
-1. the header up to its SOF0 segment, a shared byte string ([§1.2](../zarrify.md#12-input)): a range
-   of the data source that holds it;
-2. a literal SOF0 segment: the header's, with its height set to `b × mh` and
-   its width to `a × R × mw`;
-3. the rest of the header after the SOF0 segment, a shared byte string: a
-   range of the data source that holds it;
-4. for `y` from 0 to `b − 1` and, within it, `x` from 0 to `a − 1`: the
-   interval at row `min(u × b + y, r − 1)` and column `min(v × a + x, q − 1)`
-   (a range of the file), followed, except after the last, by the literal
-   restart marker `FF D0 + (t mod 8)`, where `t` counts the intervals placed
-   so far from 0;
-5. the literal EOI `FF D9`.
+<a id="type-ndpimcuchunk"></a>**`NdpiMcuChunk`**, chunk `(u, v)` of a level with McuStarts, `o`
+its StripOffsets:
+
+| part | range | presence | value |
+|---|---|---|---|
+| 1. the header up to its SOF0 segment | source range `(d1, 0, n1)`, the whole data source `d1` holding piece 1, of `n1` bytes | required | a shared byte string ([§1.2](../zarrify.md#12-input)): a range of the data source that holds it, the whole source (**Data sources** below) |
+| 2. the SOF0 segment | literal range | required | the header's, with its height set to `b × mh` and its width to `a × R × mw` |
+| 3. the rest of the header after the SOF0 segment | source range `(d3, 0, n3)`, the whole data source `d3` holding piece 3, of `n3` bytes | required | a shared byte string: a range of the data source that holds it, the whole source |
+| 4. the intervals | source ranges `(0, o + M[i], l)` and literal ranges | required | for `y` from 0 to `b − 1` and, within it, `x` from 0 to `a − 1`: the interval at row `min(u × b + y, r − 1)` and column `min(v × a + x, q − 1)` (a range of the file: interval `i`'s `l` bytes), followed, except after the last, by the literal restart marker `FF D0 + (t mod 8)`, where `t` counts the intervals placed so far from 0 |
+| 5. the EOI | literal range | required | `FF D9` |
 
 Clamping repeats the last row or column of intervals in the chunks at the
 image's bottom and right edges; those pixels lie outside the array and are
@@ -557,3 +603,10 @@ single range of tile `j = row × ceil(W / TileWidth) + column`, or, for a level
 in one strip, `<level>/c/0/0/0` the single range of `S`. A tile of byte count
 0 has no reference. The references are listed level by level, and
 within a level by `j`.
+
+<a id="type-ndpijpegxrchunk"></a>**`NdpiJpegXrChunk`**, a chunk of a JPEG XR level, its stream
+as it is:
+
+| part | range | presence | value |
+|---|---|---|---|
+| the stream | source range `(0, t, n)` | required | of a tiled level, tile `j`: `t` and `n` its offset and length (**Tiles**, above), `n` above 0; of a level in one strip, the strip: `S`, `t` its offset and `n` its length |
