@@ -264,7 +264,7 @@ the file holds is on `refkv_source`, the file's **IR mirror**
 
 | member | type | presence | value |
 |---|---|---|---|
-| `brand` | [`Mp4Brand`](#type-mp4brand) | optional | when the file has an `ftyp` box; absent otherwise |
+| `brand` | [`Mp4Brand`](#type-mp4brand) | optional | when the file has an `ftyp` box of at most 4096 bytes (the first, [§8.1](#81-boxes)); absent otherwise |
 | `timescale` | integer | required | the `mvhd` box's |
 | `duration` | [`Integer`](../conventions.md#type-integer) | required | the `mvhd` box's |
 | `tracks` | array of [`Mp4TrackListing`](#type-mp4tracklisting) | required | one object per track, in the order of the `trak` boxes |
@@ -464,14 +464,19 @@ that fails.
   top-level box). Bytes after the last box of a container or a sample entry
   that are too few for a box header (fewer than 8) are its `rest`; at the
   top level they are a gap.
+- **Brands:** every top-level `ftyp` box's payload, after its header of 8
+  or 16 bytes, holds its 8 bytes of fields ([§2](#2-boxes)): a 20-byte
+  `ftyp` box with a 64-bit size is rejected with `the ftyp box at 0 has 4
+  bytes, too few for its 8 bytes of fields`. The first `ftyp` box of at
+  most 4096 bytes is read, for its fields, its brands and `brand`
+  ([§5.1](#51-the-root)); any other is opaque.
 - **Not fragmented:** the file has no `moof` box at its top level and no
   `mvex` box in its `moov` box.
 - **One movie:** the file has exactly one `moov` box, of at most 64 MiB.
 - **Tables:** in every `stsd`, `stsz`, `elst`, `stts`, `ctts`, `stsc`,
   `stco`, `co64` and `stss` box, the fields fit in the payload, and the
   table's `n` entries in the bytes after them. (An `mvhd`, `tkhd`, `mdhd` or
-  `hdlr` box too short for its fields is opaque instead, and an `ftyp` box
-  of more than 4096 bytes is not read.)
+  `hdlr` box too short for its fields is opaque instead.)
 - **Samples:** for every track with an `stsz` box: at most 2^24 samples; its
   `stts` box, its `ctts` box (when it has one) and its sample-to-chunk
   layout count as many samples as its `stsz` box; its `stsc` table is not

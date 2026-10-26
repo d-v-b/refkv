@@ -10,7 +10,13 @@ How refkv produces this layout as a reference store is the NDPI profile,
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `6cac71ef-dbb2-4acd-b60c-00389aa4238a` ·
 Schema: [schema.json](ndpi/schema.json) · Changed 2026-10-26, with no change to any output:
 the layout is tabulated, its entries in [Layout](#layout) and its types in type tables
-([conventions §11.5](../conventions.md#115-layout-tables)) · Changed 2026-10-24: a level without McuStarts whose
+([conventions §11.5](../conventions.md#115-layout-tables)) · Changed 2026-10-25: a level may be JPEG XR
+(Compression 22610), tiled or in one strip, each tile or strip a chunk, its data type and
+samples from the JPEG XR stream header and not the tags ([§3](#3-levels),
+[§4](#4-the-image)); the tile tables' high bytes (65324, 65325) extend them
+([§7](#7-ndpi-profile)); the root has the source metadata of
+[§5](#5-source-metadata), the fluorescence filter, wavelength and exposure time, and a
+single channel's `omero` label is its filter's name (d-v-b/refkv#123) · Changed 2026-10-24: a level without McuStarts whose
 strip's frame header is not the level's size has the level's size spliced into the frame header
 when it needs the same MCU rows and columns, and is otherwise not a level (rejected when it is
 level 0) ([§3](#3-levels), [§4](#4-the-image)); the profile reads such a strip's header
@@ -35,11 +41,12 @@ The hierarchy's entries ([conventions §11.5](../conventions.md#115-layout-table
 | prefix | type | structure | description |
 |---|---|---|---|
 | `zarr.json` | group | [`ImageGroup`](../conventions.md#type-imagegroup) | the root: the image ([§4](#4-the-image)) |
-| `zarr.json#/attributes/ome` | attribute | [`OmeImage`](../conventions.md#type-omeimage) | `M`: one multiscale, without a name, with the axes `c`, `y`, `x` ([§3](#3-levels)), one level per array with the scale and translation of [§4](#4-the-image); `omero` the three samples of [§4](#4-the-image), each an [`OmeroChannel`](../conventions.md#type-omerochannel) |
+| `zarr.json#/attributes/ome` | attribute | [`OmeImage`](../conventions.md#type-omeimage) | `M`: one multiscale, without a name, with the axes `c`, `y`, `x` ([§3](#3-levels)), one level per array with the scale and translation of [§4](#4-the-image); `omero` one [`OmeroChannel`](../conventions.md#type-omerochannel) per sample, as [§4](#4-the-image) says |
 | `zarr.json#/attributes/zarr_conventions` | attribute | array of [`ConventionMetadata`](../conventions.md#type-conventionmetadata) | the CMO of [§1](#1-declaration) |
-| `zarr.json#/attributes/refkv_zarrified` | attribute | [`RootProperty`](../conventions.md#type-rootproperty) | `profile` `"ndpi"`, `version` `0`, `source.url` the file's URL; no `"ndpi"` member ([§5](#5-source-metadata)) |
+| `zarr.json#/attributes/refkv_zarrified` | attribute | [`RootProperty`](../conventions.md#type-rootproperty) | `profile` `"ndpi"`, `version` `0`, `source.url` the file's URL |
+| `zarr.json#/attributes/refkv_zarrified/ndpi` | attribute | [`NdpiRoot`](#type-ndpiroot) | the root's source metadata ([§5](#5-source-metadata)), when level 0 has one of the acquisition tags |
 | `<L>/zarr.json` | array | [`NdpiArray`](#type-ndpiarray) | level `L` ([§3](#3-levels), [§4](#4-the-image)) |
-| `<L>/c/0/<u>/<v>` | chunk | [`NdpiStripChunk`](#type-ndpistripchunk) or [`NdpiMcuChunk`](#type-ndpimcuchunk) | every chunk of level `L` ([§4](#4-the-image), **Chunks**): of a level without McuStarts, its one chunk (`u` and `v` 0), an `NdpiStripChunk`; of a level with McuStarts, chunk `(u, v)`, an `NdpiMcuChunk` ([§7](#7-ndpi-profile)) |
+| `<L>/c/0/<u>/<v>` | chunk | [`NdpiStripChunk`](#type-ndpistripchunk), [`NdpiMcuChunk`](#type-ndpimcuchunk) or [`NdpiJpegXrChunk`](#type-ndpijpegxrchunk) | the chunks of level `L` ([§4](#4-the-image)): of a JPEG level without McuStarts, its one chunk (`u` and `v` 0), an `NdpiStripChunk`; of a JPEG level with McuStarts, chunk `(u, v)`, an `NdpiMcuChunk`; of a JPEG XR level, each tile whose byte count is above 0, or its one strip, an `NdpiJpegXrChunk` ([§7](#7-ndpi-profile)) |
 | `refkv_source/**` | subtree | [the mirror's entries](../conventions.md#table-mirror) | the IR mirror ([§5](#5-source-metadata)): its elements are [§5.1](#51-elements)'s |
 
 | placeholder | value |
@@ -50,8 +57,9 @@ The hierarchy's entries ([conventions §11.5](../conventions.md#115-layout-table
 ## 1. Declaration
 
 The root and `refkv_source` declare the convention
-([conventions §11.2](../conventions.md#112-declaration)); the root has no source
-metadata member ([§5](#5-source-metadata)). Its CMO is:
+([conventions §11.2](../conventions.md#112-declaration)); the root has a source
+metadata member when level 0 has one of the acquisition tags of
+[§5](#5-source-metadata). Its CMO is:
 
 ```json
 {
@@ -74,7 +82,9 @@ The layout uses these tags, besides ImageWidth (256), ImageLength (257), BitsPer
 
 | tag | name | kind | type | default |
 |---|---|---|---|---|
-| 273, 279 | StripOffsets, StripByteCounts | scalar | integer | required |
+| 273, 279 | StripOffsets, StripByteCounts | scalar | integer | absent |
+| 322, 323 | TileWidth, TileLength | scalar | integer | absent |
+| 324, 325 | TileOffsets, TileByteCounts | array | integer | absent |
 | 282, 283 | XResolution, YResolution | scalar | RATIONAL (5) | absent |
 | 296 | ResolutionUnit | scalar | integer | none |
 | 65420 | NDPI format flag | scalar | integer | required |
@@ -82,24 +92,78 @@ The layout uses these tags, besides ImageWidth (256), ImageLength (257), BitsPer
 | 65422, 65423 | X, YOffsetFromSlideCenter | scalar | SHORT, LONG, SSHORT, SLONG (3, 4, 8, 9) | absent |
 | 65426 | McuStarts | array | integer | absent |
 | 65432 | McuStartsHighBytes | array | integer | absent |
+| 65324, 65325 | OffsetHighBytes, ByteCountHighBytes | array | integer | absent |
+
+The **acquisition tags** are read too, but are not checked like the table's: each is read
+only when its field type is the one given, its value lies within the file, and (for
+Fluorescence) its count is at most 1024. Otherwise it is treated as absent. They never
+reject the input. The names are tifffile's; the meanings are Bio-Formats'.
+
+| tag | name | field type | what |
+|---|---|---|---|
+| 65434 | Fluorescence | ASCII (2) | the fluorescence filter set's name (`TxRed`) |
+| 65451 | Wavelength | FLOAT (11) or DOUBLE (12) | the emission wavelength, in nanometres |
+| 65454 | ExposureTime | SHORT or LONG (3, 4) | the exposure time, in microseconds |
+
+(Tag 65433 is in fluorescence and brightfield files alike, with no known meaning. It is kept
+in the source model, like every other tag.)
 
 
 ## 3. Levels
 
 **Levels.** The levels are the main-chain IFDs whose Magnification is
-positive, in chain order. Each MUST have Compression 7,
-PhotometricInterpretation 6, SamplesPerPixel 3, BitsPerSample 8 and one
-strip (StripOffsets and StripByteCounts of one value each), which MUST lie
-within the file and be at least 4 bytes long (a JPEG stream's SOI and EOI),
-and each MUST be strictly smaller in both width and length than the
+positive, in chain order. Each MUST be one of two kinds, and every level
+MUST have the Compression of the first:
+- a **JPEG level**: Compression 7, PhotometricInterpretation 6,
+  SamplesPerPixel 3, BitsPerSample 8 and one strip (StripOffsets and
+  StripByteCounts of one value each), which MUST lie within the file and be
+  at least 4 bytes long (a JPEG stream's SOI and EOI). This is the
+  brightfield slide.
+- a **JPEG XR level**: Compression 22610, which Hamamatsu uses for JPEG XR
+  (ITU-T T.832 with its container) and tifffile names `JPEGXR_NDPI`. Its
+  image is **tiled** (TileWidth and TileLength of at least 1, and
+  TileOffsets and TileByteCounts) or in **one strip**, as a JPEG level's,
+  and every tile or the strip is one JPEG XR stream.
+
+Each level MUST be strictly smaller in both width and length than the
 one before. If two levels have the same Magnification (focal planes), the
 input is rejected. Other IFDs (the macro image, the slide map) are ignored.
-A level without McuStarts whose strip's frame cannot be given the level's
-size ([§4](#4-the-image), **Chunks**) is not a level after all: it is left
-out, and its IFD stays in the source metadata like the ignored ones; when
-it is the first level, the input is rejected.
-The array has axes `c`, `y`, `x`, data type `uint8`, and codecs
-`transpose` and `imagecodecs_jpeg` ([conventions §3](../conventions.md#3-arrays)).
+A JPEG level without McuStarts whose strip's frame cannot be given the
+level's size ([§4](#4-the-image), **Chunks of a JPEG level**) is not a level after all: it
+is left out, and its IFD stays in the source metadata like the ignored
+ones; when it is the first level, the input is rejected.
+
+**Pixels.** The array has axes `c`, `y`, `x`.
+- A JPEG level has data type `uint8`, 3 samples, and codecs `transpose`
+  and `imagecodecs_jpeg` ([conventions §3](../conventions.md#3-arrays)).
+- A JPEG XR level's data type and samples are its streams', which the
+  stream header's **pixel format** gives (the GUID of its `PixelFormat`
+  entry, [§7](#7-ndpi-profile)): Gray8 (`…08`) is `uint8` with 1 sample,
+  Gray16 (`…0B`) `uint16` with 1, 24bppBGR (`…0C`) and 24bppRGB (`…0D`)
+  `uint8` with 3, and 48bppRGB (`…15`) `uint16` with 3. Any other pixel
+  format is rejected. Its codecs are `transpose` (with 3 samples only) and
+  `imagecodecs_jpegxr` (as the
+  [CZI convention §3.1](czi.md#31-pixel-types-and-codecs) defines it),
+  which decodes the samples in R, G, B order.
+
+**The tags are not the pixels.** A JPEG XR level's PhotometricInterpretation,
+SamplesPerPixel and BitsPerSample are not read for the layout. Hamamatsu
+writes 6, 3 and 8, 8, 8 whatever the streams hold: in a fluorescence slide,
+every level says 8-bit YCbCr with 3 samples, and every stream is 16-bit
+grayscale. Where the stream header and these tags disagree, the stream
+header decides, because a decoder gives what the stream holds. The tags are
+kept, as they are, in the source model ([§5](#5-source-metadata)), and their
+disagreement never rejects the input. (tifffile and Bio-Formats take a CaptureMode,
+tag 65441, above 6 to mean 16-bit grayscale. The stream header says that
+too, and it also says what every other pixel format is.)
+
+The pixel format is read from one stream of each level, its **first
+stream**: the strip, or the first tile whose byte count is above 0. Every
+level MUST have one, every level's MUST have the pixel format of level 0's,
+and its width and height MUST be the level's chunk's
+([§4](#4-the-image)). Otherwise the input is rejected. The level's other
+streams are not read, so a stream that differs from the first is not found
+here: what its chunk decodes to is then the decoder's.
 
 
 ## 4. The image
@@ -112,10 +176,10 @@ without a name, with one array per level at path `"<level>"`.
 
 | member | type | presence | value |
 |---|---|---|---|
-| `shape` | array of integer | required | `[3, H, W]`, the level's ImageLength `H` and ImageWidth `W` |
-| `data_type` | string | required | `"uint8"` ([§3](#3-levels)) |
-| `chunk_grid` | object | required | regular, its chunk shape `[3, H, W]` without McuStarts, and `[3, b × mh, a × R × mw]` with McuStarts (**Chunks**, below) |
-| `codecs` | array of object | required | `transpose` with `order` `[1, 2, 0]`, then `imagecodecs_jpeg` ([§3](#3-levels)) |
+| `shape` | array of integer | required | `[s, H, W]`: `s` the level's samples (3 for a JPEG level, the pixel format's for a JPEG XR level), the level's ImageLength `H` and ImageWidth `W` |
+| `data_type` | string | required | `"uint8"` for a JPEG level; the pixel format's, `"uint8"` or `"uint16"`, for a JPEG XR level ([§3](#3-levels)) |
+| `chunk_grid` | object | required | regular, its chunk shape, for a JPEG level, `[3, H, W]` without McuStarts and `[3, b × mh, a × R × mw]` with McuStarts (**Chunks of a JPEG level**, below); for a JPEG XR level, `[s, TileLength, TileWidth]` when tiled and `[s, H, W]` in one strip (**Chunks of a JPEG XR level**, below) |
+| `codecs` | array of object | required | `transpose` with `order` `[1, 2, 0]` (with 3 samples only, for a JPEG XR level), then `imagecodecs_jpeg` for a JPEG level or `imagecodecs_jpegxr` for a JPEG XR level ([§3](#3-levels)) |
 | `dimension_names` | array of string | required | `["c", "y", "x"]` ([§3](#3-levels)) |
 | `attributes` | object | required | `{}` |
 
@@ -132,14 +196,31 @@ XOffsetFromSlideCenter (65422) and YOffsetFromSlideCenter (65423), in
 nanometres, the image's centre is at `(X / 1000, Y / 1000)` micrometres,
 which gives its translation ([conventions §5](../conventions.md#5-units)).
 
-**omero.** The strips are JPEG streams, which decode to RGB, so `M` has
-`"omero": {"channels": [...]}` next to `multiscales`, the three samples
-labeled `R`, `G` and `B`, with colors `FF0000`, `00FF00` and `0000FF`, each
-`"active": true` with the window of `uint8`'s whole range,
-`{"min": 0, "max": 255, "start": 0, "end": 255}`, as in [the TIFF
-convention §4.4](tiff.md#44-arrays), whose member order this follows.
+**omero.** `M` has `"omero": {"channels": [...]}` next to `multiscales`,
+one object per sample, as in [the TIFF convention §4.4](tiff.md#44-arrays),
+whose member order this follows. Each is `"active": true` with the window of
+its data type's whole range (`{"min": 0, "max": 255, "start": 0, "end": 255}`
+for `uint8`, 65535 for `uint16`): refkv does not decode JPEG or JPEG XR to
+sample one.
+- With 3 samples (JPEG streams, and JPEG XR streams of an RGB pixel format,
+  which decode to RGB), the samples are labeled `R`, `G` and `B`, with
+  colors `FF0000`, `00FF00` and `0000FF`.
+- With 1 sample, the channel is labeled with level 0's Fluorescence
+  ([§2](#2-the-source)) when it is UTF-8, not empty and at most 256 bytes
+  (up to its first NUL), and `C0` otherwise, with color `FFFFFF`.
 
-**Chunks.** A level's strip is a JPEG stream. Without McuStarts, the
+**Chunks of a JPEG XR level.** Each tile is a chunk, of chunk shape
+`[s, TileLength, TileWidth]` (`s` the samples), and the strip of a level in
+one strip is the one chunk, the whole image (chunk shape `[s, H, W]`). The
+chunk holds the stream as it is. Tile `j`, in row-major order with
+`ceil(W / TileWidth)` tiles a row, is chunk `<level>/c/0/<row>/<column>`.
+TileOffsets and TileByteCounts MUST each have `ceil(H / TileLength) ×
+ceil(W / TileWidth)` values, and a tile whose byte count is 0 has no chunk
+(its pixels are the fill value 0). Every other tile MUST lie within the
+file. As in TIFF, the tiles at the bottom and right edges are whole tiles,
+whose pixels outside the array are not read.
+
+**Chunks of a JPEG level.** A level's strip is a JPEG stream. Without McuStarts, the
 level is one chunk, the whole image (chunk shape `[3, H, W]`), which holds
 the strip. Its frame header (its first SOF0 segment) should give the size
 `W × H`, but some scanners write a frame a row short of the level's
@@ -181,7 +262,22 @@ own size, its intervals, and restart markers and an EOI of its own, so:
 
 ## 5. Source metadata
 
-The root has no source metadata member. Everything else the file holds is on
+The root's source metadata `S` ([conventions §2](../conventions.md#2-attributes))
+has, of level 0's IFD, the acquisition tags of [§2](#2-the-source) it has, in
+this order, each as [conventions §6](../conventions.md#6-source-metadata-as-json)
+translates it: <a id="type-ndpiroot"></a>**`NdpiRoot`**,
+
+| member | type | presence | value |
+|---|---|---|---|
+| `Fluorescence` | [`Text`](../conventions.md#type-text) | optional | tag 65434: its text value |
+| `Wavelength` | [`Float`](../conventions.md#type-float) | optional | tag 65451: its first value, a float |
+| `ExposureTime` | [`Integer`](../conventions.md#type-integer) | optional | tag 65454: its first value, an integer (of an in-line LONG, with its high word, [§7](#7-ndpi-profile)) |
+
+A tag that [§2](#2-the-source) treats as absent, or that has no value, is left out. With none of these, `S` is empty, and the root has no source
+metadata member (as for a brightfield slide). They are also in the source model, the
+values of their tags.
+
+Everything else the file holds is on
 `refkv_source`, which is the file's **IR mirror**
 ([conventions §11.3](../conventions.md#113-the-ir-mirror)).
 This section is the NDPI **source model**: the elements of an NDPI's IR. It is the
@@ -211,12 +307,15 @@ an NDPI is little-endian.
 | `…/tags/<tag>/high` | value | `<u4` | the entry's **high word**, after the next-IFD offset: the high 32 bits of an out-of-line value's offset, and of an in-line LONG or IFD of count 1 |
 | `…/next_ifd` | value | `<u8` | the next-IFD offset |
 | `…/strips` | struct | | an IFD's strips (by StripOffsets, with high words, and StripByteCounts), when it has both tables |
-| `…/strips/<j>` | data | | strip `j`, when its byte count is not 0 and it lies within the file; its form's geometry is `{"shape": [rows, columns], "samples": s, "bits": b}`, its codec `{"compression": c}`, and its recipe its bytes: a level's strip is a whole JPEG stream |
+| `…/strips/<j>` | data | | strip `j`, when its byte count is not 0 and it lies within the file; its form's geometry is `{"shape": [rows, columns], "samples": s, "bits": b}`, its codec `{"compression": c}`, and its recipe its bytes: a level's strip is a whole JPEG or JPEG XR stream |
+| `…/tiles` | struct | | an IFD's tiles (by TileOffsets and TileByteCounts, with OffsetHighBytes and ByteCountHighBytes, [§7](#7-ndpi-profile)), when it has both tables |
+| `…/tiles/<j>` | data | | tile `j`, when its byte count is not 0 and it lies within the file; its form as a strip's, the shape `[TileLength, TileWidth]`; `s` and `b` are the tags', which a JPEG XR stream need not hold ([§3](#3-levels)) |
 | `…/subifds/<j>`, `…/exif`, `…/gps`, `…/interoperability`, `…/ifd_<tag>` | struct | | the IFD a pointer tag ([§5.2](#52-which-ifds)) leads to (`…/<name>/<j>` when the tag has several values), as an IFD |
 | `gaps/<offset>` | gap | | bytes no other element claims (padding, unused space, bytes 12 to 16 when no element claims them) |
 
-An IFD whose strip tables are at the offsets of an earlier IFD's, with the
-same counts and codec, names that IFD's `strips` by an alias. An element
+An IFD whose strip (tile) tables, and their high bytes, are at the offsets
+of an earlier IFD's, with the same counts and codec, names that IFD's
+`strips` (`tiles`) by an alias. An element
 whose bytes an earlier element claims (an IFD read twice through a pointer,
 a strip at another's offset) is an alias of that element.
 
@@ -326,7 +425,8 @@ The NDPI profile of [spec/zarrify.md](../zarrify.md) (revision 16) is [§7](#7-n
 detection test below.
 
 Hamamatsu NDPI files are little-endian classic TIFFs (magic 42) with a 64-bit
-extension and pyramids stored as single JPEG strips. They are read by [tiff.md §7.1](tiff.md#71-reading)
+extension and pyramids stored as single JPEG strips (brightfield) or as JPEG XR
+tiles or strips (fluorescence, and some brightfield scanners). They are read by [tiff.md §7.1](tiff.md#71-reading)
 ([tiff.md](tiff.md#71-reading)) with the changes below, with the tags of
 [the convention §2](#2-the-source) as the
 checked tags.
@@ -343,7 +443,8 @@ not NDPI). Otherwise it is a TIFF ([tiff.md §7](tiff.md#7-tiff-profile)). This 
 `n` `u32` **high words**, one per entry. An entry's value field is its 4
 bytes plus its high word `h`: an out-of-line value is at offset
 `low + h × 2^32`, and an inline value of count 1 and type LONG (4) or IFD
-(13) is `low + h × 2^32`. Other inline values ignore `h`. Only the main
+(13) is `low + h × 2^32`, but for OffsetHighBytes and ByteCountHighBytes
+(**Tiles** below). Other inline values ignore `h`. Only the main
 chain is read for the layout: an NDPI's SubIFDs, like the IFDs of its other
 pointer tags, are read in this layout for the IR only, and
 never reject the input ([the convention
@@ -351,10 +452,13 @@ never reject the input ([the convention
 of [tiff.md §7.1](tiff.md#71-reading) apply, with these values read ([tiff.md §7.1](tiff.md#71-reading), **Values read**): the
 Magnification of every main-chain IFD, and every tag of the table of each
 level ([the convention §3](#3-levels)); of a
-scalar tag, its first value, of McuStarts, McuStartsHighBytes and
-BitsPerSample, every value. (A LONG or IFD value of count 1, with its high
-word, can exceed 2^53 − 1 too.) The strip header of each level is read
-too, as **Strips** says. No other value is read for the layout, so
+scalar tag, its first value, of McuStarts, McuStartsHighBytes,
+BitsPerSample, TileOffsets, TileByteCounts, OffsetHighBytes and
+ByteCountHighBytes, every value. (A LONG or IFD value of count 1, with its high
+word, can exceed 2^53 − 1 too.) The strip header of each JPEG level, and the
+first stream's header of each JPEG XR level, are read too, as **Strips** and
+**JPEG XR streams** say; so are level 0's acquisition tags ([the convention
+§2](#2-the-source)), when of their field types. No other value is read for the layout, so
 the other IFDs' tags have only their field types, counts and places
 checked.
 
@@ -362,7 +466,7 @@ checked.
 convention gives it no layout: wherever the convention says that the input
 is rejected, or that something MUST hold and it does not.
 
-**Strips.** A level's strip is the JPEG stream `S` = bytes
+**Strips.** A JPEG level's strip is the JPEG stream `S` = bytes
 `[StripOffsets, StripOffsets + StripByteCounts)` of the file, which MUST
 lie within the file. StripByteCounts MUST be at least 4, the SOI and EOI
 markers of the shortest JPEG stream.
@@ -383,7 +487,7 @@ markers of the shortest JPEG stream.
   malformed segment) the strip has no frame header to read, and the chunk
   is the single range of `S`: this reading never rejects the input. With a frame header of the level's
   size, the chunk is the single range of `S` too. With one of another size
-  ([the convention §4](#4-the-image), **Chunks**), when the level's size
+  ([the convention §4](#4-the-image), **Chunks of a JPEG level**), when the level's size
   needs the same MCU rows and columns, the chunk is three parts: the range
   of `S` up to the frame's height field (its SOF0 segment's bytes 5 and
   6), a literal of 4 bytes, `H` and `W` as big-endian `u16`, and the range
@@ -458,3 +562,50 @@ piece whose bytes differ from every earlier one. (In CMU-1.ndpi every level
 shares piece 1, its quantization and Huffman tables, and piece 3, DRI and
 SOS, differs by its restart interval.) Both are JPEG markers and tables, not
 pixel data ([§1.2](../zarrify.md#12-input), **Structure only**).
+
+**Tiles.** A JPEG XR level's tile `j` is at offset `TileOffsets[j] +
+OffsetHighBytes[j] × 2^32` and is `TileByteCounts[j] + ByteCountHighBytes[j]
+× 2^32` bytes long, each high table counting as 0s when absent. A high table's values are the
+32-bit values it stores: one value in line is its 4 bytes, without its entry's high word.
+A high table that is present MUST have as many values as TileOffsets. A table of one value
+in line, of type LONG, already has its high bits from its entry's high word
+(**IFDs** above): its high table, when present, MUST hold that word, and is
+not added to it. (TileOffsets, a LONG
+array, holds only offsets below 2^32, so Hamamatsu writes the high tables
+with it; in a file of less than 4 GiB they are 0s.) The sums are
+what the layout and the source model's `tiles` use ([the convention
+§5.1](#51-elements)), for every IFD whose tile tables and high tables are
+read.
+
+**JPEG XR streams.** A JPEG XR level's first stream ([the convention
+§3](#3-levels)) is the bytes `S` of its strip, or of its first tile whose
+byte count is above 0. Its **header** is read from the first bytes of `S`:
+`min(len(S), 1024)` of them, then, while the header continues past the `n`
+bytes read and the `k` bytes it needs are at most `c = min(len(S), 2^16)`,
+`min(c, max(k, 2 × n))` of them. The header is the container of
+[the CZI profile §7.4](czi.md#74-codec-headers), **JPEG XR**: `S` starts
+with `49 49 BC 01`, the `u32` at byte 4 is the offset of the image
+directory, and of its first entries with tags `BC01` (PixelFormat),
+`BC80` (ImageWidth) and `BC81` (ImageHeight) all are present, PixelFormat
+of type 1 and count 16 (its offset giving the 16-byte GUID), and the sizes
+of type 3 or 4, count 1 and at least 1. The pixel format is the GUID: the
+common prefix `24 C3 DD 6F 03 4E FE 4B B1 85 3D 77 76 8D C9` and the last
+byte of [the convention §3](#3-levels). The input is rejected when a level
+has no first stream, when the header is not there to read (another start, a
+missing or malformed entry, or bytes past `c`), when its pixel format is
+another, or is not level 0's, and when its ImageWidth and ImageHeight are not
+TileWidth and TileLength (tiled) or `W` and `H` (one strip).
+
+**Chunks of a JPEG XR level.** Chunk `<level>/c/0/<row>/<column>` is the
+single range of tile `j = row × ceil(W / TileWidth) + column`, or, for a level
+in one strip, `<level>/c/0/0/0` the single range of `S`. A tile of byte count
+0 has no reference. The references are listed level by level, and
+within a level by `j`.
+
+<a id="type-ndpijpegxrchunk"></a>**`NdpiJpegXrChunk`**, a chunk of a JPEG XR level, its stream
+as it is:
+
+| part | range | presence | value |
+|---|---|---|---|
+| tile `j` | source range `(0, t, n)` | optional | of a tiled level: `t` and `n` the tile's offset and length (**Tiles**, above), `n` above 0 |
+| the strip | source range `(0, o, m)` | optional | of a level in one strip: all of `S`, `o` its offset and `m` its length |

@@ -220,6 +220,7 @@ below. The conventions that say otherwise:
 |---|---|
 | N5, Zarr v2, OME-Zarr (the store conventions) | are defined by the convention itself |
 | CZI | have, for clipped levels, the zarr-extensions `rectilinear` chunk grid, and may have the codecs `imagecodecs_jpegxr` and `numcodecs.shuffle` |
+| NDPI | have, for JPEG XR levels, the codec `imagecodecs_jpegxr` |
 | MP3, MP4, FLAC | have the codec `refkv.stream` of [§10](#10-coded-streams), and dimension names of their own |
 | MP4 | have, for video planes whose chunks differ in length, the `rectilinear` chunk grid |
 | FLAC | is sharded, as [spec/zarrify.md §2.1](zarrify.md#21-virtual-shards) says |

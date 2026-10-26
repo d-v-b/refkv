@@ -83,7 +83,9 @@ def expected_levels(path: Path) -> list[tuple[np.ndarray, str]]:
         if path.name.startswith("svs_like"):
             return [(tf.pages[i].asarray(), "YX") for i in (0, 2)]
         if path.suffix == ".ndpi":  # the levels: pages with a positive magnification (65421)
-            return [(p.asarray(), "YXS") for p in map(tiff_page, tf.pages) if p.tags[65421].value > 0]
+            levels = [p.asarray() for p in map(tiff_page, tf.pages) if p.tags[65421].value > 0]
+            # a single channel (JPEG XR's grayscale) is the c axis of length 1
+            return [(a if a.ndim == 3 else a[..., None], "YXS") for a in levels]
         return [(level.asarray(), series.axes) for level in series.levels]
 
 

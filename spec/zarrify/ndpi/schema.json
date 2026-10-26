@@ -133,6 +133,60 @@
     "sourceMetadata": {
       "anyOf": [
         {
+          "type": "object",
+          "description": "The root's: level 0's acquisition tags (spec/zarrify/ndpi.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#5-source-metadata>), those it has",
+          "properties": {
+            "Fluorescence": {
+              "$ref": "#/$defs/text",
+              "description": "tag 65434, the fluorescence filter set's name"
+            },
+            "Wavelength": {
+              "description": "tag 65451's first value, the emission wavelength in nanometres",
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "enum": [
+                    "NaN",
+                    "Infinity",
+                    "-Infinity"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "bits": {
+                      "type": "string",
+                      "pattern": "^([0-9a-f]{8}|[0-9a-f]{16})$"
+                    }
+                  },
+                  "required": [
+                    "bits"
+                  ],
+                  "additionalProperties": false,
+                  "description": "A float's IEEE 754 bits, most significant first: a negative zero, or a NaN other than the canonical one"
+                }
+              ]
+            },
+            "ExposureTime": {
+              "description": "tag 65454's first value, the exposure time in microseconds",
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                }
+              ]
+            }
+          },
+          "minProperties": 1,
+          "additionalProperties": false
+        },
+        {
           "$ref": "#/$defs/mirror"
         },
         {
