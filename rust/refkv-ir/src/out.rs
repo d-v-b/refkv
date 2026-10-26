@@ -409,7 +409,7 @@ pub fn rectilinear_array_json(shape: &[u64], data_type: &str, lengths: &J, codec
 /// a number when its magnitude is at most 2^53 − 1, else the string of its decimal digits.
 pub fn int_json(v: i128) -> J {
     const MAX_SAFE: i128 = (1 << 53) - 1;
-    if v.abs() <= MAX_SAFE { json!(v as i64) } else { J::String(v.to_string()) }
+    if (-MAX_SAFE..=MAX_SAFE).contains(&v) { json!(v as i64) } else { J::String(v.to_string()) }
 }
 
 /// The `bytes` codec of elements of `item` bytes: with the byte order `endian` ("little" or
@@ -864,6 +864,7 @@ mod tests {
             (max + 1, json!("9007199254740992")),
             (-(max + 1), json!("-9007199254740992")),
             (u64::MAX as i128, json!("18446744073709551615")),
+            (i128::MIN, json!("-170141183460469231731687303715884105728")),
         ] {
             assert_eq!(int_json(v), want, "{v}");
         }

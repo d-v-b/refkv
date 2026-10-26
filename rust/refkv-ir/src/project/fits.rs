@@ -351,12 +351,19 @@ mod tests {
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#52-an-hdus-node>).
     #[test]
     fn a_column_s_null_is_tnull_as_the_card_holds_it() {
-        let raw = records(&["TNULL1  = 'N/A     '", "TNULL2  =                  -99", "TNULL3  = -9223372036854775808"]);
-        let h = json!({"index": 1, "kind": "table", "table": {"tform": ["I8", "J", "K"]}});
-        let own = own_json(&h, &parse_cards(&raw, 3));
+        let raw = records(&[
+            "TNULL1  = 'N/A     '",
+            "TNULL2  =                  -99",
+            "TNULL3  = -9223372036854775808",
+            "TNULL4  = -170141183460469231731687303715884105728",
+        ]);
+        let h = json!({"index": 1, "kind": "table", "table": {"tform": ["I8", "J", "K", "K"]}});
+        let own = own_json(&h, &parse_cards(&raw, 4));
         let columns = own["columns"].as_array().unwrap();
         assert_eq!(columns[0]["null"], json!("N/A"));
         assert_eq!(columns[1]["null"], json!(-99));
         assert_eq!(columns[2]["null"], json!("-9223372036854775808"));
+        // i128::MIN, whose magnitude no i128 holds
+        assert_eq!(columns[3]["null"], json!("-170141183460469231731687303715884105728"));
     }
 }

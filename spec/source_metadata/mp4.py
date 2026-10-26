@@ -1,10 +1,10 @@
 """The MP4 convention's source metadata (spec/zarrify/mp4.md), for
 spec/generate_schemas.py."""
 
-from source_metadata import BIG_INTEGER
+from source_metadata import BIG_INTEGER, BIG_UNSIGNED
 
 # 64-bit integers: a number, or past 2^53 - 1 the string of its digits
-_U64 = {"anyOf": [{"type": "integer", "minimum": 0}, BIG_INTEGER]}
+_U64 = {"anyOf": [{"type": "integer", "minimum": 0}, BIG_UNSIGNED]}
 _I64 = {"anyOf": [{"type": "integer"}, BIG_INTEGER]}
 
 _MP4_EDITS = {"type": "array",

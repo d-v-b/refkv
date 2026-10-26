@@ -1,6 +1,8 @@
 """The NDPI convention's source metadata (spec/zarrify/ndpi.md), for
 spec/generate_schemas.py."""
 
+from source_metadata import BIG_UNSIGNED
+
 SCHEMA = {"anyOf": [
     {
         "type": "object",
@@ -13,8 +15,7 @@ SCHEMA = {"anyOf": [
                                                                                 "pattern": "^([0-9a-f]{8}|[0-9a-f]{16})$"}},
                                       "required": ["bits"], "additionalProperties": False}],
                            "description": "Tag 65451, the emission wavelength, in nanometers"},
-            "ExposureTime": {"anyOf": [{"type": "integer", "minimum": 0},
-                                       {"type": "string", "pattern": "^[1-9][0-9]{15,19}$"}],
+            "ExposureTime": {"anyOf": [{"type": "integer", "minimum": 0}, BIG_UNSIGNED],
                              "description": "Tag 65454, the exposure time, in microseconds"},
         },
         "minProperties": 1,
