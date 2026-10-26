@@ -267,7 +267,8 @@ each format's metadata is:
   metadata chunks (attributes, experiment, picture metadata, text info) that
   fit its budget, and a CZI file's header.
 - **NDPI:** the IR mirror on `refkv_source`, as for TIFF: every IFD, tag,
-  high word and strip.
+  high word, strip and tile. The root keeps a fluorescence slide's filter,
+  wavelength and exposure time.
 - **DICOM:** the IR mirror on `refkv_source`, as for TIFF: the file's data
   elements themselves, layout, padding and dead space included. The root
   keeps the File Meta Information and the dataset in the DICOM JSON Model,

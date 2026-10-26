@@ -16,6 +16,7 @@ mod audio;
 mod contiguous;
 pub mod store;
 mod tiled;
+pub(crate) use tiled::MAX_NAME;
 mod window;
 
 // Every profile's projection (src/project/<profile>.rs), by the registry (profiles/; build.rs)
@@ -69,7 +70,7 @@ fn base64(b: &[u8]) -> String {
 /// a number, "NaN", "Infinity" or "-Infinity", or {"bits": hex} (its IEEE 754 bits, most
 /// significant first, as 2 * `width` lowercase hexadecimal digits) for a negative zero or
 /// a NaN other than the canonical one, whose bits a JSON number or "NaN" does not keep.
-fn float_json(bits: u64, width: usize, v: f64) -> J {
+pub(crate) fn float_json(bits: u64, width: usize, v: f64) -> J {
     let canonical = if width == 4 { 0x7fc0_0000 } else { 0x7ff8_0000_0000_0000 };
     if (v == 0.0 && v.is_sign_negative()) || (v.is_nan() && bits != canonical) {
         serde_json::json!({"bits": format!("{bits:0w$x}", w = 2 * width)})
