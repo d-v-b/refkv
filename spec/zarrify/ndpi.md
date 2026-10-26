@@ -427,17 +427,17 @@ mirror keeps the strip's ([the convention §5](#5-source-metadata)).
 number from 1 to `min(r, floor(1024 / mh))` (at least 1) for which every
 chunk's payload is at most 65519 bytes ([§1.2](../zarrify.md#12-input)); `b × mh` MUST be at most
 65535 (it always is, since `mh ≤ 120`). Chunk `(u, v)` (row `u`,
-column `v`) is the JPEG stream [`NdpiMcuChunk`](#type-ndpimcuchunk), whose pieces are
-numbered:
+column `v`) is the JPEG stream [`NdpiMcuChunk`](#type-ndpimcuchunk), whose pieces its table
+numbers.
 
 <a id="type-ndpimcuchunk"></a>**`NdpiMcuChunk`**, chunk `(u, v)` of a level with McuStarts, `o`
 its StripOffsets:
 
 | part | range | presence | value |
 |---|---|---|---|
-| 1. the header up to its SOF0 segment | source range `(d, 0, len)` of a data source `d` | required | a shared byte string ([§1.2](../zarrify.md#12-input)): a range of the data source that holds it, the whole source (**Data sources** below) |
+| 1. the header up to its SOF0 segment | source range `(d1, 0, n1)`, the whole data source `d1` holding piece 1, of `n1` bytes | required | a shared byte string ([§1.2](../zarrify.md#12-input)): a range of the data source that holds it, the whole source (**Data sources** below) |
 | 2. the SOF0 segment | literal range | required | the header's, with its height set to `b × mh` and its width to `a × R × mw` |
-| 3. the rest of the header after the SOF0 segment | source range `(d, 0, len)` of a data source `d` | required | a shared byte string: a range of the data source that holds it, the whole source |
+| 3. the rest of the header after the SOF0 segment | source range `(d3, 0, n3)`, the whole data source `d3` holding piece 3, of `n3` bytes | required | a shared byte string: a range of the data source that holds it, the whole source |
 | 4. the intervals | source ranges `(0, o + M[i], l)` and literal ranges | required | for `y` from 0 to `b − 1` and, within it, `x` from 0 to `a − 1`: the interval at row `min(u × b + y, r − 1)` and column `min(v × a + x, q − 1)` (a range of the file: interval `i`'s `l` bytes), followed, except after the last, by the literal restart marker `FF D0 + (t mod 8)`, where `t` counts the intervals placed so far from 0 |
 | 5. the EOI | literal range | required | `FF D9` |
 

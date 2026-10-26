@@ -261,7 +261,8 @@ Everything the file holds is on `refkv_source`, the file's **IR mirror**
 | `voxel_size` | [`MrcVoxelSize`](#type-mrcvoxelsize) | optional | the voxel size in angstroms ([§4.2](#42-scales-units-and-position)), present when every axis has one |
 
 <a id="type-mrcheader"></a>**`MrcHeader`**: an object with one member per field of
-[§2](#2-the-header), in its order and named as there, whose type is the field's:
+[§2](#2-the-header), in its order and named as there, whose type is the field's (the first row
+that matches it applies):
 
 | field's type | member's type | value |
 |---|---|---|
@@ -270,7 +271,7 @@ Everything the file holds is on `refkv_source`, the file's **IR mirror**
 | `u8[4]` (`machst`) | array of integer | 4 integers |
 | `i32` | [`Integer`](../conventions.md#type-integer) | the field's value |
 | `f32` | [`Float`](../conventions.md#type-float) or [`MrcBits`](#type-mrcbits) | the field's value, or its bits when a JSON number or `"NaN"` does not keep them (below) |
-| `T[k]` | array of `T`'s type | `k` values |
+| `T[k]` (`cella`, `cellb`, `origin`: the `f32[3]` fields) | array of `T`'s type | `k` values |
 
 <a id="type-mrcbits"></a>**`MrcBits`**, a float (`f32`) value whose bits a JSON number or
 `"NaN"` does not keep:

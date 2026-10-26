@@ -508,7 +508,7 @@ the IFDs that these pointer tags lead to, each named in [§5.1](#51-elements) as
 | tag | name | followed when | element |
 |---|---|---|---|
 | 330 | SubIFDs | its field type is an unsigned integer type | `…/subifds/<j>` |
-| 34665 | ExifIFD | its field type is an unsigned integer type | `…/exif` |
+| 34665 | ExifIFD | its field type is an unsigned integer type | `…/exif` (`…/exif/<j>` when the tag has several values, as for every name of this column) |
 | 34853 | GPSIFD | its field type is an unsigned integer type | `…/gps` |
 | 40965 | InteroperabilityIFD | its field type is an unsigned integer type | `…/interoperability` |
 | 400 | GlobalParametersIFD | its field type is LONG | `…/ifd_400` |
@@ -723,10 +723,10 @@ tile's first 2 bytes (its SOI marker), the shared byte string `P`, a
 <a id="type-tiffjpegprefix"></a>**`TiffJpegPrefix`**, `P`, the bytes of a data source
 ([§1.2](../zarrify.md#12-input)), in this order (empty but for JPEG):
 
-| part | range | presence | value |
-|---|---|---|---|
-| the Adobe marker | bytes | optional | for 3 samples: the 16 bytes `FF EE 00 0E 41 64 6F 62 65 00 64 00 00 00 00 T`, with transform `T` = 0 for PhotometricInterpretation 2 (the samples are RGB as stored) and 1 for 6 (YCbCr) |
-| the tables | bytes | optional | if the IFD has JPEGTables: its bytes without the first 2 and the last 2. JPEGTables MUST then be at least 4 bytes long, start with `FF D8` and end with `FF D9` |
+| part | encoding | value |
+|---|---|---|
+| the Adobe marker | bytes | present for 3 samples: the 16 bytes `FF EE 00 0E 41 64 6F 62 65 00 64 00 00 00 00 T`, with transform `T` = 0 for PhotometricInterpretation 2 (the samples are RGB as stored) and 1 for 6 (YCbCr) |
+| the tables | bytes | present if the IFD has JPEGTables: its bytes without the first 2 and the last 2. JPEGTables MUST then be at least 4 bytes long, start with `FF D8` and end with `FF D9` |
 
 `n` MUST be more than 2. When `P` is empty (one sample, no JPEGTables) the
 tile has the single range above; otherwise it has three ranges, the middle one `R`, a

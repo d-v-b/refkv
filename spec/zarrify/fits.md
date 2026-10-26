@@ -13,7 +13,10 @@ is a range of the output's one zero data source, not a literal range of each ref
 the archive holds the zeros once ([§9.4](#94-chunks)); no chunk's values change, nor which
 chunks are copied · Changed 2026-10-26, with no change to any output: the layout is tabulated,
 its entries in [Layout](#layout) and its types in type tables
-([conventions §11.5](../conventions.md#115-layout-tables))
+([conventions §11.5](../conventions.md#115-layout-tables)), which also state what refkv already
+wrote and the prose left unsaid: a real card value that is not finite in binary64 is
+`{"text": t}` ([§5.3](#53-cards)), and a tile-compressed image's summary carries its
+`compression` ([§9.5](#95-summary))
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
@@ -391,7 +394,7 @@ string or number, or `null` when absent:
 | `dim` | string or null | required | `TDIMn` |
 | `scale` | number or null | required | `TSCALn` |
 | `zero` | number or null | required | `TZEROn` |
-| `null` | number or null | required | `TNULLn` |
+| `null` | string, number or null | required | `TNULLn`: a number in a binary table, a string in an ASCII table |
 | `disp` | string or null | required | `TDISPn` |
 | `bcol` | number or null | required | `TBCOLn` |
 

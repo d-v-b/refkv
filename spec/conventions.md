@@ -714,7 +714,7 @@ The store conventions say when they have the last two members, and their content
 
 | prefix | type | structure | description |
 |---|---|---|---|
-| `refkv_source/zarr.json` | group | a [`Declaration`](#type-declaration) whose source metadata is a [`Mirror`](#type-mirror) | the source metadata node ([§2](#2-attributes)) |
+| `refkv_source/zarr.json` | group | [`GroupDocument`](#type-groupdocument), attributes a [`Declaration`](#type-declaration) whose source metadata is a [`Mirror`](#type-mirror) | the source metadata node ([§2](#2-attributes)) |
 | `refkv_source/ir/zarr.json` | group | [`GroupDocument`](#type-groupdocument), attributes `{}` | leads to the table |
 | `refkv_source/ir/rows/zarr.json` | array | [`TableArray`](#type-tablearray): `int64`, `[8, m]`, chunks `[8, min(m, 16384)]`, dimensions `column`, `index` | the stored rows |
 | `refkv_source/ir/tables/zarr.json` | array | [`TableArray`](#type-tablearray): `int64`, `[k, 7]`, chunks `[min(k, 18724), 7]`, dimensions `index`, `part` | the tables |
@@ -723,8 +723,8 @@ The store conventions say when they have the last two members, and their content
 | `refkv_source/ir/shared/data/zarr.json` | array | [`TableArray`](#type-tablearray): `uint8`, chunks of at most 1048576 values, dimension `index` | the shared data sources, one after another |
 | `refkv_source/ir/held/**` | group, arrays | as `ir/shared/**` | a store IR's held objects, one byte string each ([§8.9](#89-stores)) |
 | `refkv_source/ir/*/c/**` | chunk | the array's values, little-endian, edge chunks padded with zeros | copied bytes |
-| `refkv_source/tree/zarr.json` | group | a view document ([§8.7](#87-the-view)): a [`Declaration`](#type-declaration) whose source metadata is the root's [`ViewDocument`](#type-viewdocument), or `{}` attributes when it has no member | the view of the IR's root |
-| `refkv_source/tree/**/zarr.json` | group | as `tree`'s, or `{}` attributes for a group that only leads to a group | the view of a struct whose document is stored on its own group ([§8.7](#87-the-view)) |
+| `refkv_source/tree/zarr.json` | group | [`GroupDocument`](#type-groupdocument), attributes a [`Declaration`](#type-declaration) whose source metadata is the root's [`ViewDocument`](#type-viewdocument) ([§8.7](#87-the-view)), or `{}` when the document has no member | the view of the IR's root |
+| `refkv_source/tree/**/zarr.json` | group | [`GroupDocument`](#type-groupdocument), attributes as `tree`'s, or `{}` for a group that only leads to a group | the view of a struct whose document is stored on its own group ([§8.7](#87-the-view)) |
 | `refkv_source/<path>` | group, array, chunk or object | as the format's convention gives | the format's own nodes under `refkv_source` ([§7](#7-source-values-as-arrays)), and a store convention's `objects/**` ([§2](#2-attributes)), which its document lists in rows of their own |
 
 <a id="type-tablearray"></a>**`TableArray`**: an [`ArrayDocument`](#type-arraydocument) with the
@@ -1538,13 +1538,13 @@ of the hierarchy, root first, with these columns:
 | structure | a link to what defines the entry: for a node, its document's type; for an attribute, the member's type; for a chunk, its bytes' composition; for a subtree, its table. A constant is written as it is |
 | description | what the entry is, when it is present, and the section of the prose that defines it |
 
-Every entry the format writes matches one row of type `group`, `array`, `chunk`, `object` or
-`subtree`, but for the rows a subtree's own entries may also match: the format's own entries
-under `refkv_source` match the subtree `refkv_source/**` and their own rows, which say what
-they are. The mirror is one row, `refkv_source/**`, a subtree, which links
-[the mirror's entries](#table-mirror) ([§8.2](#82-the-table)); a collection's entries are
-[§4](#4-images)'s [table](#table-collection); a format that writes arrays of its own under `refkv_source`
-([§7](#7-source-values-as-arrays)) lists them in rows of their own.
+Every entry the format writes matches exactly one row of type `group`, `array`, `chunk`,
+`object` or `subtree`, except that the format's own entries under `refkv_source` (its arrays,
+[§7](#7-source-values-as-arrays), and a store convention's kept objects) match both the
+subtree `refkv_source/**` and rows of their own, which say what they are. The mirror is one
+row, `refkv_source/**`, a subtree, which links [the mirror's entries](#table-mirror)
+([§8.2](#82-the-table)); a collection's entries are [§4](#4-images)'s
+[table](#table-collection).
 
 **Type tables.** A structured value (a node's document, an attribute, an object of the
 source metadata) is defined once, by a **type table**: a line naming the type in bold,
@@ -1573,7 +1573,7 @@ ranges of the reference, in order, with these columns:
 | column | holds |
 |---|---|
 | part | what the range holds |
-| range | a source range `(i, offset, length)` of source `i` (0 the input, for a file; for a store, the `url` source of an object, [spec/zarrify.md §1.4](zarrify.md#14-store-inputs)), a literal range, a range of a data source, or `bytes`, when the chunk is a bytes entry |
+| range | a source range `(i, offset, length)` of source `i` as [spec/zarrify.md](zarrify.md)'s [`Range`](zarrify.md#type-range) numbers it, a literal range, a range of a data source, or `bytes`, when the chunk is a bytes entry |
 | presence | `required` or `optional`: an optional range's condition is in its value |
 | value | its offset and length, or its bytes, and their constraints |
 

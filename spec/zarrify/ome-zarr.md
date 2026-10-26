@@ -49,7 +49,7 @@ whose keys are exactly Zarr v2's for either separator, and its `transpose`,
 ## Layout
 
 The hierarchy's entries ([conventions §11.5](../conventions.md#115-layout-tables)), those of
-the [Zarr v2 convention's layout](zarr2.md#layout) with this convention's types:
+the [Zarr v2 convention's layout](zarr2.md#layout) with this convention's types, and its OME entries:
 
 | prefix | type | structure | description |
 |---|---|---|---|
@@ -389,8 +389,9 @@ the hierarchy as plain arrays, converted by [the Zarr v2 convention](zarr2.md) a
 an array that is not a level carry dimension names). The array's attributes are
 its source metadata ([§8](#8-source-metadata)).
 
-<a id="type-omezarrarray"></a>**`OmeZarrArray`**, an array's `zarr.json`: a
-[`Zarr2Array`](zarr2.md#type-zarr2array) with these members:
+<a id="type-omezarrarray"></a>**`OmeZarrArray`**, an array's `zarr.json`: the members of a
+[`Zarr2Array`](zarr2.md#type-zarr2array), and these, which replace its own (a level of a
+multiscale has `dimension_names`, which a `Zarr2Array` does not):
 
 | member | type | presence | value |
 |---|---|---|---|

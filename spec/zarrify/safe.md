@@ -460,7 +460,7 @@ The root's attributes are the declaration of [§1](#1-declaration) and the GeoZa
 | `zarr_conventions` | array of [`ConventionMetadata`](../conventions.md#type-conventionmetadata) or [`SafeGeoCmo`](#type-safegeocmo) | required | this convention's CMO, then, for a Level-2A product, the multiscales CMO, then the CMOs of `proj` and `spatial` ([§1](#1-declaration)) |
 | `refkv_zarrified` | [`RootProperty`](../conventions.md#type-rootproperty) | required | the declaration's property ([§1](#1-declaration)), its `"safe"` member a [`SafeRoot`](#type-saferoot) |
 | `proj:code` | string | required | the CRS code |
-| `proj:wkt2` | string | optional | as [§5.2](#52-resolution-groups) gives it |
+| `proj:wkt2` | string | optional | present, right after `proj:code`, when the CRS code is one of the WGS 84 / UTM zones; as [§5.2](#52-resolution-groups) gives it |
 | `spatial:bbox` | array of number | required | the bounding box of the first resolution group ([§5.1](#51-the-grid-of-a-resolution)), so that a reader finds where the product is without opening a group |
 | `spatial:dimensions` | array of string | optional | for a Level-2A product: `["y", "x"]` |
 | `spatial:registration` | string | optional | for a Level-2A product: `"pixel"` |

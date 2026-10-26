@@ -41,7 +41,7 @@ The hierarchy's entries ([conventions §11.5](../conventions.md#115-layout-table
 
 | placeholder | value |
 |---|---|
-| `<coords>` | the chunk's coordinates along the array's axes, in decimal, one key segment each: `<c>/<f>/<row>/<column>`, each of `<c>` and `<f>` only for the axes present (so it stands for two to four segments): `<c>` the sample `s` when planar, else 0; `<f>` the frame `f` along the frame axis; `<row>` and `<column>` the frame's tile row and column for a whole-slide image, else 0 and 0 |
+| `<coords>` | the chunk's coordinates along the array's axes, in decimal, one key segment each: `<c>/<f>/<row>/<column>`, each of `<c>` and `<f>` only for the axes present (so it stands for two to four segments), as [§4](#4-output) gives them |
 
 ## 1. Declaration
 
@@ -359,7 +359,7 @@ An attribute is `{"vr": VR}` with, when it has a value, `"Value"`,
 | member | type | presence | value |
 |---|---|---|---|
 | `vr` | string | required | `VR`, two uppercase letters, by the next list |
-| `Value` | array of [`Text`](../conventions.md#type-text), `null`, number, [`Integer`](../conventions.md#type-integer), [`Float`](../conventions.md#type-float), string, [`DicomPersonName`](#type-dicompersonname) or [`DicomDataset`](#type-dicomdataset) | optional | the value, when it has one translated so: its items by its VR (**Explicit VR**, below); for a sequence, its items' datasets (`[]` when it has none, a gathered sequence without items included) |
+| `Value` | array of [`Text`](../conventions.md#type-text), `null`, number (a `DS` value that is one exactly), [`Integer`](../conventions.md#type-integer) (an `IS` value, and `SL SS UL US SV UV`), [`Float`](../conventions.md#type-float) (`FL FD`), string (an `AT` tag, eight uppercase hexadecimal digits), [`DicomPersonName`](#type-dicompersonname) or [`DicomDataset`](#type-dicomdataset) | optional | the value, when it has one translated so: its items by its VR (**Explicit VR**, below); for a sequence, its items' datasets (`[]` when it has none, a gathered sequence without items included) |
 | `InlineBinary` | [`Base64`](../conventions.md#type-base64) | optional | the value's bytes, by its VR (**Explicit VR**, **Character sets**) or because it is a binary value of at most 64 bytes (**Large values**) |
 | `BulkDataURI` | string | optional | a large value (**Large values**), a sequence's bytes (**Sequences that the profile does not walk**) or nested Pixel Data (**Pixel Data**): `refkv_source/<p>`, the IR's element at `<p>` |
 | `Gathered` | boolean | optional | `true`: a value in the items of a gathered sequence, the IR's element `s/<i>/<p>` (**Gathered sequences**) |
@@ -1156,15 +1156,16 @@ else 0; for the frame axis, `f`; then the frame's tile row and column for a
 whole-slide image, else 0 and 0.
 
 <a id="type-dicomchunk"></a>**`DicomChunk`**, the reference of frame `f` (or of sample `s` of
-it), with `v`, `F`, `q`, `EOT` and `EOTL` as in [§7.5](#75-frames). Its ranges are those of
-one of the rows below, but for the Adobe prefix, which precedes the fragments' data:
+it), with `v`, `F`, `q`, `EOT` and `EOTL` as in [§7.5](#75-frames). Its ranges are exactly
+one of: the frame; sample `s` of the frame; or the fragments' data, preceded by the Adobe
+prefix when the prefix is present:
 
 | part | range | presence | value |
 |---|---|---|---|
-| the frame | source range `(0, v + f × F, F)` | optional | native pixel data, unless `S` is 3 and Planar Configuration is 1 |
-| sample `s` of the frame | source range `(0, v + f × F + s × F / 3, F / 3)` | optional | native pixel data with `S` 3 and Planar Configuration 1 |
-| the Adobe prefix | literal range `P` | optional | `jpeg` with `S` = 3: the 18 bytes `FF D8 FF EE 00 0E 41 64 6F 62 65 00 64 00 00 00 00 T`, SOI and an Adobe APP14 marker with transform `T` = 0 for `RGB` and 1 for `YBR_FULL` and `YBR_FULL_422` (**JPEG color**, [§7.5](#75-frames)) |
-| the fragments' data | source ranges `(0, start of data, length of data)` | optional | encapsulated pixel data: one range for each of the frame's fragments whose data is not empty, in order, at least one; with an Extended Offset Table, the one range `(0, q + EOT[f] + 8, EOTL[f])`. After the Adobe prefix, the first range `(0, o, m)` is instead `(0, o + 2, m − 2)`, without its SOI |
+| the frame | source range `(0, v + f × F, F)` | optional | present for native pixel data, unless `S` is 3 and Planar Configuration is 1 |
+| sample `s` of the frame | source range `(0, v + f × F + s × F / 3, F / 3)` | optional | present for native pixel data with `S` 3 and Planar Configuration 1 |
+| the Adobe prefix | literal range `P` | optional | present for `jpeg` with `S` = 3, before the fragments' data: the 18 bytes `FF D8 FF EE 00 0E 41 64 6F 62 65 00 64 00 00 00 00 T`, SOI and an Adobe APP14 marker with transform `T` = 0 for `RGB` and 1 for `YBR_FULL` and `YBR_FULL_422` (**JPEG color**, [§7.5](#75-frames)) |
+| the fragments' data | source ranges `(0, start of data, length of data)` | optional | present for encapsulated pixel data: one range for each of the frame's fragments whose data is not empty, in order, at least one; with an Extended Offset Table, the one range `(0, q + EOT[f] + 8, EOTL[f])`. After the Adobe prefix, the first range `(0, o, m)` is instead `(0, o + 2, m − 2)`, without its SOI |
 
 No chunk is copied: every chunk is a reference.
 

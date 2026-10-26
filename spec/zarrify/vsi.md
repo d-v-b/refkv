@@ -283,7 +283,7 @@ pixels, with these tags; a tag that is absent has its TIFF default:
 | `PlanarConfiguration` | 284 | 1 | 1 |
 | `SampleFormat` | 339 | 1 | 1 |
 | `StripOffsets`/`StripByteCounts` (else `TileOffsets`/`TileByteCounts`) | 273, 279 (324, 325) | one strip when JPEG, at least one otherwise | |
-| `PhotometricInterpretation` | | | 2 for three samples, else 1 |
+| `PhotometricInterpretation` | 262 | read: it gives the macro image's JPEG transform byte ([§4.3](#43-the-macro-image)) | 2 for three samples, else 1 |
 
 A JPEG strip is an
 abbreviated stream whose tables are in `JPEGTables` (347); the layout
@@ -568,7 +568,7 @@ translated, one of:
 | string | a Unicode text type (13, 8192, 8194): the string its 16-bit little-endian units encode, up to the first 0 unit, an unpaired surrogate decoded as U+FFFD (the field's data, when its length is odd, is opaque) |
 | boolean | `BOOLEAN` (12): `true` or `false` when it is one byte (of another length, it is opaque) |
 | a number, an [`Integer`](../conventions.md#type-integer) or a [`Float`](../conventions.md#type-float) | a type of width `w` bytes (the table's `type`): its one number when `d` is `w` bytes |
-| array of number | a type of width `w`: an array of its `d / w` numbers when `d / w` is a whole number and `d` is at most 1024 bytes (the array of 3-byte `RGB` and `BGR` entries is an array of bytes) |
+| array of number, [`Integer`](../conventions.md#type-integer) or [`Float`](../conventions.md#type-float) | a type of width `w`: an array of its `d / w` numbers when `d / w` is a whole number and `d` is at most 1024 bytes (the array of 3-byte `RGB` and `BGR` entries is an array of bytes) |
 | [`Base64`](../conventions.md#type-base64) | **opaque** data, at most 1024 bytes: a type the table lacks, or a length that is not a multiple of `w`; the string of its base64 encoding |
 | [`VsiBytes`](#type-vsibytes) | data longer than 1024 bytes that would be an array or opaque |
 
