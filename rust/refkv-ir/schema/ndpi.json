@@ -1,7 +1,7 @@
 {
   "source_model": "ndpi",
   "version": 1,
-  "about": "The source model of a Hamamatsu NDPI slide (spec/zarrify/ndpi.md <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md>): a little-endian classic TIFF with 64-bit offsets (an 8-byte first-IFD offset, 8-byte next-IFD offsets, a high word per entry after each IFD) whose levels are single JPEG strips with restart markers. The TIFF parser reads it in its NDPI variant (rust/refkv-ir/src/tiff.rs) and checks this schema where the profile meets each role; the strip's JPEG header and its restart intervals are read by rust/refkv-ir/src/ndpi.rs. Projections read a valid IR and check nothing.",
+  "about": "The source model of a Hamamatsu NDPI slide (spec/zarrify/ndpi.md <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md>): a little-endian classic TIFF with 64-bit offsets (an 8-byte first-IFD offset, 8-byte next-IFD offsets, a high word per entry after each IFD) whose levels are single JPEG strips with restart markers, or JPEG XR tiles or strips. The TIFF parser reads it in its NDPI variant (rust/refkv-ir/src/tiff.rs) and checks this schema where the profile meets each role; the strip's JPEG header and its restart intervals are read by rust/refkv-ir/src/ndpi.rs. Projections read a valid IR and check nothing.",
   "limits": {
     "max_safe": 9007199254740991,
     "max_ifds": 100000,
@@ -30,9 +30,15 @@
       "273": {"name": "StripOffsets", "kind": "integer", "scalar": true},
       "277": {"name": "SamplesPerPixel", "kind": "integer", "scalar": true},
       "279": {"name": "StripByteCounts", "kind": "integer", "scalar": true},
+      "322": {"name": "TileWidth", "kind": "integer", "scalar": true},
+      "323": {"name": "TileLength", "kind": "integer", "scalar": true},
+      "324": {"name": "TileOffsets", "kind": "integer", "scalar": false},
+      "325": {"name": "TileByteCounts", "kind": "integer", "scalar": false},
       "282": {"name": "XResolution", "kind": "rational", "scalar": true},
       "283": {"name": "YResolution", "kind": "rational", "scalar": true},
       "296": {"name": "ResolutionUnit", "kind": "integer", "scalar": true},
+      "65324": {"name": "OffsetHighBytes", "kind": "integer", "scalar": false},
+      "65325": {"name": "ByteCountHighBytes", "kind": "integer", "scalar": false},
       "65420": {"name": "NDPI format flag", "kind": "integer", "scalar": true},
       "65421": {"name": "Magnification", "kind": "float", "scalar": true},
       "65422": {"name": "XOffsetFromSlideCenter", "kind": "offset", "scalar": true},
@@ -40,7 +46,7 @@
       "65426": {"name": "McuStarts", "kind": "integer", "scalar": false},
       "65432": {"name": "McuStartsHighBytes", "kind": "integer", "scalar": false}
     },
-    "layout_tags": [273, 279, 288, 289, 324, 325, 513, 514, 519, 520, 521, 65426, 65432],
+    "layout_tags": [273, 279, 288, 289, 324, 325, 513, 514, 519, 520, 521, 65324, 65325, 65426, 65432],
     "pointers": {"330": "subifds", "34665": "exif", "34853": "gps", "40965": "interoperability"},
     "resolution_units": {"2": 25400.0, "3": 10000.0}
   },
@@ -92,7 +98,7 @@
       ]
     },
     "values": {
-      "about": "an integer tag's values as the profile reads them (a scalar's first value, an array's every value; an inline LONG or IFD of count 1 with its high word)",
+      "about": "an integer tag's values as the profile reads them (a scalar's first value, an array's every value; an inline LONG or IFD of count 1 with its high word, but OffsetHighBytes's and ByteCountHighBytes's)",
       "given": {"tag": "", "safe": "every value read is at most 2^53 - 1"},
       "constraints": [{"require": "safe", "message": "tag {tag} has a value above 2^53 - 1"}]
     },
@@ -110,21 +116,26 @@
       "about": "a main-chain IFD whose Magnification is positive (spec/zarrify/ndpi.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#3-levels>)",
       "given": {
         "compression": "(default 1)",
-        "photometric": "",
+        "first_compression": "the first level's (its own for the first)",
+        "photometric": "(read for JPEG only)",
         "spp": "(default 1)",
         "bits": "BitsPerSample's values (empty when absent)",
         "one_strip": "StripOffsets and StripByteCounts have one value each",
+        "tiled": "TileWidth and TileLength are at least 1, and TileOffsets and TileByteCounts are present",
         "smaller": "strictly smaller than the level before in both sizes (true for the first)",
         "new_magnification": "no earlier level has its Magnification",
         "width": "",
         "height": ""
       },
       "constraints": [
+        {"require": "compression == 7 || compression == 22610", "message": "an NDPI level is neither JPEG nor JPEG XR (Compression {compression})"},
         {
-          "require": "compression == 7 && photometric == 6 && spp == 3 && len(bits) >= 1 && distinct(bits) == 1 && first(bits) == 8",
+          "require": "compression != 7 || (photometric == 6 && spp == 3 && len(bits) >= 1 && distinct(bits) == 1 && first(bits) == 8)",
           "message": "an NDPI level is not 8-bit YCbCr JPEG with 3 samples"
         },
-        {"require": "one_strip", "message": "an NDPI level does not have exactly one strip"},
+        {"require": "compression == first_compression", "message": "NDPI levels differ in compression ({compression}, the first's {first_compression})"},
+        {"require": "compression != 7 || one_strip", "message": "an NDPI level does not have exactly one strip"},
+        {"require": "compression != 22610 || tiled || one_strip", "message": "an NDPI JPEG XR level has neither tiles nor exactly one strip"},
         {"require": "smaller", "message": "NDPI levels do not decrease in size"},
         {"require": "new_magnification", "message": "NDPI focal planes (two levels with one magnification) are not supported"},
         {"require": "width >= 1 && height >= 1", "message": "an NDPI level is empty"}
@@ -136,6 +147,42 @@
       "constraints": [
         {"require": "within", "message": "an NDPI strip is outside the file"},
         {"require": "length >= 4", "message": "an NDPI strip of {length} bytes is shorter than 4"}
+      ]
+    },
+    "tiles": {
+      "about": "a tiled JPEG XR level's tile tables (spec/zarrify/ndpi.md §7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>)",
+      "given": {
+        "tiles": "ceil(H / TileLength) × ceil(W / TileWidth)",
+        "offsets": "TileOffsets' values",
+        "counts": "TileByteCounts' values",
+        "high": "OffsetHighBytes and ByteCountHighBytes are absent or have as many values as TileOffsets, and that of a table of one in-line LONG is its entry's high word",
+        "within": "every tile of a byte count above 0 ends within the file"
+      },
+      "constraints": [
+        {"require": "offsets == tiles && counts == tiles", "message": "an NDPI level has {offsets} tile offsets and {counts} byte counts, not its {tiles} tiles"},
+        {"require": "high", "message": "an NDPI level's tile high bytes do not match its tiles"},
+        {"require": "within", "message": "an NDPI tile is outside the file"}
+      ]
+    },
+    "jpegxr": {
+      "about": "a JPEG XR level's first stream's header (spec/zarrify/ndpi.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#3-levels>, §7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>)",
+      "given": {
+        "stream": "the level has a first stream: its strip, or a tile of a byte count above 0",
+        "header": "the stream has a JPEG XR container header with a pixel format and a size",
+        "format": "the pixel format's GUID, in hex as stored",
+        "supported": "the pixel format is one the profile reads",
+        "same": "it is level 0's",
+        "width": "the header's ImageWidth",
+        "height": "the header's ImageHeight",
+        "chunk_width": "TileWidth (tiled), or W",
+        "chunk_height": "TileLength (tiled), or H"
+      },
+      "constraints": [
+        {"require": "stream", "message": "an NDPI JPEG XR level has no stream"},
+        {"require": "header", "message": "an NDPI level's JPEG XR stream has no container header with a pixel format and size"},
+        {"require": "supported", "message": "an NDPI level's JPEG XR pixel format {format} is not supported"},
+        {"require": "same", "message": "NDPI levels' JPEG XR pixel formats differ"},
+        {"require": "width == chunk_width && height == chunk_height", "message": "an NDPI JPEG XR stream of {width} × {height} pixels is not its chunk's {chunk_width} × {chunk_height}"}
       ]
     },
     "frame": {
@@ -217,5 +264,5 @@
       "constraints": [{"require": "finite(x) && finite(y)", "message": "a translation is not finite"}]
     }
   },
-  "about_builtins": "What the parser's code computes and the roles above check: detection (spec/zarrify/ndpi.md §7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>: a little-endian magic-42 TIFF whose IFD at the u64 at bytes 4-11 has tag 65420 among its entries; it never rejects); the main chain in NDPI's IFD layout (each next offset, a u64, until 0); each value with its high word; the levels (main-chain IFDs whose Magnification is positive, every IFD's Magnification read); the strip's JPEG header (its marker segments, SOF0's sampling factors, DRI's restart interval); the intervals and the chunk size a × b (b the largest within the payload limit)."
+  "about_builtins": "What the parser's code computes and the roles above check: the JPEG XR first stream's container header (its PixelFormat GUID, ImageWidth and ImageHeight) and the tiles' extents with their high bytes; detection (spec/zarrify/ndpi.md §7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>: a little-endian magic-42 TIFF whose IFD at the u64 at bytes 4-11 has tag 65420 among its entries; it never rejects); the main chain in NDPI's IFD layout (each next offset, a u64, until 0); each value with its high word; the levels (main-chain IFDs whose Magnification is positive, every IFD's Magnification read); the strip's JPEG header (its marker segments, SOF0's sampling factors, DRI's restart interval); the intervals and the chunk size a × b (b the largest within the payload limit)."
 }

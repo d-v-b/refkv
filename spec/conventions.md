@@ -184,7 +184,8 @@ nests its own record.
 Unless the format's convention says otherwise (the store conventions, N5,
 Zarr v2 and OME-Zarr, define their arrays themselves; the CZI convention
 gives clipped levels the zarr-extensions `rectilinear` chunk grid and adds
-the codecs `imagecodecs_jpegxr` and `numcodecs.shuffle`; the MP3, MP4 and FLAC
+the codecs `imagecodecs_jpegxr` (which the NDPI convention's JPEG XR levels use too)
+and `numcodecs.shuffle`; the MP3, MP4 and FLAC
 conventions give their arrays the codec `refkv.stream` of [§10](#10-coded-streams) and dimension
 names of their own, the MP4 convention gives video planes whose chunks differ in length the
 `rectilinear` chunk grid, the FLAC convention shards its array, as

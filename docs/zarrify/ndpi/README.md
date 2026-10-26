@@ -21,11 +21,18 @@ JPEG stream out of byte ranges of the file and the strip's shared header. The
 198 MB CMU-1.ndpi became a 5.5 MB archive in about 15 s (at spec/zarrify.md
 revision 16, before the archive kept every tag on `refkv_source`).
 
+Newer NanoZoomers (such as the C13210) write JPEG XR instead, in tiles or
+single strips. Fluorescence slides hold 16-bit grayscale in those streams, though their tags
+say 8-bit YCbCr. refkv makes each tile or strip a chunk as it is, and takes
+the data type from the JPEG XR stream header.
+
 ## What you get
 
 One OME-Zarr 0.5 image at the archive root, with one array per level.
 
-- **Axes:** `c`, `y`, `x`; `uint8` RGB.
+- **Axes:** `c`, `y`, `x`: `uint8` RGB for JPEG levels. For JPEG XR levels,
+  what the streams hold: `uint16` with one channel for a fluorescence slide,
+  or `uint8` or `uint16`, gray or RGB.
 - **Levels:** every image of the file with a positive magnification, full
   resolution first; the macro image and slide map are left out.
 - **Chunks:** with restart offsets (`McuStarts`), a level is cut into chunks
@@ -36,9 +43,12 @@ One OME-Zarr 0.5 image at the archive root, with one array per level.
   tagged size in the JPEG's frame header, which the stream's last row of
   8 × 8 or 16 × 16 blocks already covers, so it decodes at the level's
   size. A level whose JPEG would need more blocks is left out (the file is
-  rejected when that is the full-resolution level).
+  rejected when that is the full-resolution level). A JPEG XR level's
+  chunks are its tiles (896 × 896 at a C13210's full resolution), or its
+  single strip.
 - **Codecs:** `transpose`, then `imagecodecs_jpeg`. Each chunk is decoded as
-  one JPEG stream.
+  one JPEG stream. JPEG XR levels have `imagecodecs_jpegxr`, after
+  `transpose` when RGB.
 - **Data sources:** the parts of each level's JPEG header (quantization and
   Huffman tables; restart interval and scan header) are stored once in the
   archive as `data` sources, and each chunk's height and width are a
@@ -47,10 +57,15 @@ One OME-Zarr 0.5 image at the archive root, with one array per level.
   pixel under 25.4 µm.
 - **Translation:** from the slide-center offsets the scanner records.
 - **Channels:** `omero.channels` labels the samples `R`, `G`, `B`, in red,
-  green and blue, each with the window 0 to 255.
+  green and blue, each with the window 0 to 255. A single channel is labeled
+  with the slide's fluorescence filter (`TxRed`), with its type's whole range
+  as its window.
 - **Metadata:** the file's IR mirror on `refkv_source` (since revision 26):
-  every IFD, tag, high word and strip, from which the file is rebuilt byte
-  for byte, shown as JSON under `refkv_source/tree`; the root holds none.
+  every IFD, tag, high word, strip and tile, from which the file is rebuilt
+  byte for byte, shown as JSON under `refkv_source/tree`. The root holds a
+  fluorescence slide's filter, emission wavelength and exposure time
+  (`Fluorescence`, `Wavelength`, `ExposureTime`), and nothing for a
+  brightfield one.
 
 ## Try it
 
@@ -112,7 +127,8 @@ It was ready in about 2 s, with 3 levels.
 
 The Neuroglancer fork (<https://github.com/d-v-b/neuroglancer>, branch `vzip`)
 displays NDPI archives: it decodes `imagecodecs_jpeg` for `uint8`, and reads
-`data` sources. The Zenodo slide above renders through the live demo. Expect
+`data` sources. Its `imagecodecs_jpegxr` decodes the gray and RGB JPEG XR
+streams of `uint8` and `uint16` that JPEG XR levels hold. The Zenodo slide above renders through the live demo. Expect
 slow panning at full resolution on hosts without HTTP/2 or multi-range
 support (below).
 
@@ -123,13 +139,21 @@ Supported:
 - NDPI files of any size, including over 4 GB (64-bit offsets).
 - Every level with a positive magnification, each a single JPEG strip, with
   or without restart offsets.
+- JPEG XR levels, tiled or in a single strip, of 8- or 16-bit gray or RGB, with tile offsets
+  above 4 GiB (their high bytes). For example, the two NanoZoomer C13210 slides of
+  [OME's sample images](https://downloads.openmicroscopy.org/images/Hamamatsu-NDPI/hamamatsu/)
+  (in [corpus_tiff.txt](../../../conformance/zarrify/corpus_tiff.txt)) zarrify in about 3 s over
+  HTTPS.
 
 Rejected:
 
 - Slides with several focal planes (two levels of the same
   magnification).
-- Levels that are not one baseline JPEG strip of 8-bit YCbCr, or that do not
-  get strictly smaller.
+- Levels that are neither one baseline JPEG strip of 8-bit YCbCr nor JPEG
+  XR, levels of both kinds in one slide, or levels that do not get strictly
+  smaller.
+- JPEG XR streams of another pixel format (such as 32-bit float), or of
+  another format in different levels.
 - A strip header without exactly one SOF0 segment and a restart interval, or
   restart offsets that do not match the strip.
 
@@ -141,6 +165,7 @@ The browser code ([js/](../../../js/README.md)) reads Hamamatsu NDPI:
   strip is cut at its restart markers into chunks of about 1024 × 1024 pixels, each a JPEG stream rebuilt
   from byte ranges of the file and the strip's header, held once in the
   archive as `data` sources.
+- Pyramids of JPEG XR tiles or strips, each a chunk.
 
 Not supported, and refused with HTTP 422: NDPI focal planes.
 
