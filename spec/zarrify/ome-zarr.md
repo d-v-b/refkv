@@ -390,8 +390,8 @@ an array that is not a level carry dimension names). The array's attributes are
 its source metadata ([§8](#8-source-metadata)).
 
 <a id="type-omezarrarray"></a>**`OmeZarrArray`**, an array's `zarr.json`: the members of a
-[`Zarr2Array`](zarr2.md#type-zarr2array), and these, which replace its own (a level of a
-multiscale has `dimension_names`, which a `Zarr2Array` does not):
+[`Zarr2Array`](zarr2.md#type-zarr2array), with `attributes` replaced and `dimension_names`
+added (a level of a multiscale has `dimension_names`, which a `Zarr2Array` does not):
 
 | member | type | presence | value |
 |---|---|---|---|

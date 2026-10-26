@@ -503,12 +503,13 @@ pointer, a tile at another's offset) is an alias of that element.
 ### 5.2 Which IFDs
 
 The IFDs of [§2](#2-the-source), at depth 0 (`ifds/<i>`) and their SubIFDs (to depth 4); then
-the IFDs that these pointer tags lead to, each named in [§5.1](#51-elements) as shown:
+the IFDs that these pointer tags lead to, each named in [§5.1](#51-elements) as shown (a name
+without `<j>` becomes `…/<name>/<j>` when the tag has several values):
 
 | tag | name | followed when | element |
 |---|---|---|---|
 | 330 | SubIFDs | its field type is an unsigned integer type | `…/subifds/<j>` |
-| 34665 | ExifIFD | its field type is an unsigned integer type | `…/exif` (`…/exif/<j>` when the tag has several values, as for every name of this column) |
+| 34665 | ExifIFD | its field type is an unsigned integer type | `…/exif` |
 | 34853 | GPSIFD | its field type is an unsigned integer type | `…/gps` |
 | 40965 | InteroperabilityIFD | its field type is an unsigned integer type | `…/interoperability` |
 | 400 | GlobalParametersIFD | its field type is LONG | `…/ifd_400` |
