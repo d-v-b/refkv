@@ -1,0 +1,13 @@
+# url|name|no-ref of the public NRRD inputs in the corpus (the frozen reference has no NRRD profile, so
+# each compares py with web alone): pynrrd's test data (MIT), raw and gzip, attached and detached
+# (whose data file, BallBinary30x30x30.raw, lies beside the header), and a 4-D volume with a `none`
+# space direction; and inputs the profile rejects (ascii, bzip2, a byte skip of -5)
+https://raw.githubusercontent.com/mhe/pynrrd/96bf87b78bde03987c09346ceffe0bb85a8f4214/nrrd/tests/data/BallBinary30x30x30.nrrd|pynrrd_ball_raw|no-ref
+https://raw.githubusercontent.com/mhe/pynrrd/96bf87b78bde03987c09346ceffe0bb85a8f4214/nrrd/tests/data/BallBinary30x30x30_gz.nrrd|pynrrd_ball_gz|no-ref
+https://raw.githubusercontent.com/mhe/pynrrd/96bf87b78bde03987c09346ceffe0bb85a8f4214/nrrd/tests/data/BallBinary30x30x30_gz_lineskip.nrrd|pynrrd_ball_gz_lineskip|no-ref
+https://raw.githubusercontent.com/mhe/pynrrd/96bf87b78bde03987c09346ceffe0bb85a8f4214/nrrd/tests/data/BallBinary30x30x30.nhdr|pynrrd_ball_detached|no-ref
+https://raw.githubusercontent.com/mhe/pynrrd/96bf87b78bde03987c09346ceffe0bb85a8f4214/nrrd/tests/data/BallBinary30x30x30_byteskip_minus_one.nhdr|pynrrd_ball_byteskip_minus_one|no-ref
+https://raw.githubusercontent.com/mhe/pynrrd/96bf87b78bde03987c09346ceffe0bb85a8f4214/nrrd/tests/data/test_simple4d_raw.nrrd|pynrrd_simple4d|no-ref
+https://raw.githubusercontent.com/mhe/pynrrd/96bf87b78bde03987c09346ceffe0bb85a8f4214/nrrd/tests/data/test_customFields.nrrd|pynrrd_reject_ascii|no-ref
+https://raw.githubusercontent.com/mhe/pynrrd/96bf87b78bde03987c09346ceffe0bb85a8f4214/nrrd/tests/data/BallBinary30x30x30_bz2.nrrd|pynrrd_reject_bzip2|no-ref
+https://raw.githubusercontent.com/mhe/pynrrd/96bf87b78bde03987c09346ceffe0bb85a8f4214/nrrd/tests/data/BallBinary30x30x30_byteskip_minus_five.nhdr|pynrrd_reject_byteskip_minus_five|no-ref

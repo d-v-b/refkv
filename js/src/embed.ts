@@ -22,8 +22,8 @@ export interface FileInput {
   size: number;
   /** Exactly `length` bytes at `offset`. */
   read(offset: number, length: number): Promise<Uint8Array>;
-  /** For a VSI input: the file `key` beside it (relative to its directory), or undefined when
-   * there is none. */
+  /** For a VSI or NRRD input: the file `key` beside it (relative to its directory), or undefined
+   * when there is none. */
   open?(key: string): Promise<Omit<FileInput, "url" | "open"> | undefined>;
 }
 
