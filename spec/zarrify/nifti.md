@@ -10,11 +10,32 @@ Convention version: 0 (until release, [conventions §1](../conventions.md#1-conv
 Schema: [schema.json](nifti/schema.json) · Changed 2026-10-25: an edge chunk's zero padding
 is a range of the output's one zero data source, not a literal range of each reference, so that
 the archive holds the zeros once ([§7.2](#72-chunks)); no chunk's values change, nor which
-chunks are copied
+chunks are copied · Changed 2026-10-26, with no change to any output: the layout is tabulated,
+its entries in [Layout](#layout) and its types in type tables
+([conventions §11.5](../conventions.md#115-layout-tables))
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
 # Part 1. The convention
+
+## Layout
+
+The hierarchy's entries ([conventions §11.5](../conventions.md#115-layout-tables)):
+
+| prefix | type | structure | description |
+|---|---|---|---|
+| `zarr.json` | group | [`ImageGroup`](../conventions.md#type-imagegroup) | the root: the image ([§4](#4-the-image)) |
+| `zarr.json#/attributes/ome` | attribute | [`OmeImage`](../conventions.md#type-omeimage) | `M`: one level, the array `0`, with the scales and translation of [§4.3](#43-scales-units-and-position), and `omero` as [§4.4](#44-channels) says |
+| `zarr.json#/attributes/zarr_conventions` | attribute | array of [`ConventionMetadata`](../conventions.md#type-conventionmetadata) | the CMO of [§1](#1-declaration) |
+| `zarr.json#/attributes/refkv_zarrified` | attribute | [`RootProperty`](../conventions.md#type-rootproperty) | `profile` `"nifti"`, `version` `0`, `source.url` the file's URL |
+| `zarr.json#/attributes/refkv_zarrified/nifti` | attribute | [`NiftiRoot`](#type-niftiroot) | the root's source metadata ([§5.1](#51-the-root)) |
+| `0/zarr.json` | array | [`NiftiArray`](#type-niftiarray) | the voxels ([§4.1](#41-the-array)) |
+| `0/c/<coords>` | chunk | [`NiftiChunk`](#type-niftichunk) | every chunk of the array ([§7.2](#72-chunks)) |
+| `refkv_source/**` | subtree | [the mirror's entries](../conventions.md#table-mirror) | the IR mirror ([§5.2](#52-the-ir-mirror)): its elements are [§5.3](#53-elements)'s |
+
+| placeholder | value |
+|---|---|
+| `<coords>` | the chunk's coordinates along the array's axes, in decimal, one key segment each: `<t>/<c>/<z>/<y>/<x>`, each only for the axes present (so it stands for two to five segments) |
 
 ## 1. Declaration
 
@@ -40,10 +61,15 @@ The file's **header** is its first `L` bytes, `L = 348` for NIfTI-1 and
 `L = 540` for NIfTI-2, in the file's byte order (the one in which
 `sizeof_hdr` reads as `L`). Its fields, in the order of the file, are those
 of the NIfTI-1 and NIfTI-2 standards (`nifti1.h`, `nifti2.h`), at these byte
-offsets. `i16`, `i32` and `i64` are two's complement integers, `u8` an
-unsigned byte, `f32` and `f64` IEEE 754 binary32 and binary64 numbers (an
-`f32` value is converted to binary64 exactly), and `char[k]` `k` bytes of
-text. A field `T[k]` is `k` consecutive values, indexed from 0.
+offsets. Their types:
+
+| type | value |
+|---|---|
+| `i16`, `i32`, `i64` | a two's complement integer |
+| `u8` | an unsigned byte |
+| `f32`, `f64` | an IEEE 754 binary32 or binary64 number (an `f32` value is converted to binary64 exactly) |
+| `char[k]` | `k` bytes of text |
+| `T[k]` | `k` consecutive values of type `T`, indexed from 0 |
 
 NIfTI-1:
 
@@ -168,39 +194,33 @@ without a name, with one array at path `"0"`: the root `zarr.json` is
 
 ### 4.1 The array
 
-- **Axes:** `t` if `n ≥ 4`; `c` if `n ≥ 5` or the data type is a color
-  type; `z` if `n ≥ 3`; then `y` and `x`. (The axes follow `n`, so a
-  dimension of size 1 up to `n` still has its axis.)
-- **Shape:** `T`, `C` (the samples per voxel for a color type), `Z`, `Y`
-  and `X`, each only for the axes present.
-- **Data type:** from [§3](#3-data-types).
-- **Stored order.** The file holds the voxels as a row-major array `V`
-  whose axes are, outermost first: `c` (dimension 5) if `n ≥ 5`; `t` if
-  `n ≥ 4`; `z` if `n ≥ 3`; `y`; `x`; and, for a color type, `c` (the
-  samples). Its sizes are those of the array's axes, and its elements are
-  `b` bytes, or 1 byte (a sample) for a color type. The axes of `V` are the
-  array's, in another order when `n ≥ 5` (dimension 5 is stored outside
-  dimension 4) or the data type is a color type (the samples are stored
-  innermost).
-- **Chunk shape.** `V` is cut as
-  [conventions §7](../conventions.md#7-source-values-as-arrays) cuts contiguous
-  values, with the chunk limit `L = 131072` (2^17) bytes, which gives a
-  chunk shape for `V` (1 along its axes before the cut axis, whole along
-  those after) and the bytes of each chunk. The array's chunk shape is that
-  chunk shape, each axis's size in the array's axis order.
-- **Codecs** ([conventions §3](../conventions.md#3-arrays)): when the axes of
-  `V` are in another order than the array's, `transpose`, with `order` the
-  index in the array's axes of each axis of `V`, in the order of `V` (for
-  example `[1, 0, 2, 3, 4]` for `n ≥ 5`, and `[0, 2, 3, 4, 1]` for a color
-  type with `t`, `c`, `z`, `y` and `x`); then `bytes`, with `"endian"`
-  (`"little"` or `"big"`: the file's byte order) when the data type is
-  larger than 1 byte. There is no compressor.
-- **Chunks:** every chunk is present. The array's chunk with coords `q_a`
-  along each axis `a` is the chunk of `V` with the same coords along the
-  same axes: the bytes that [conventions §7](../conventions.md#7-source-values-as-arrays) gives it, in the order of `V`,
-  which the transpose codec puts in the array's order. An edge chunk along
-  the cut axis is followed by zero bytes up to the whole chunk (Zarr stores
-  edge chunks whole).
+**Stored order.** The file holds the voxels as a row-major array `V` whose axes are,
+outermost first: `c` (dimension 5) if `n ≥ 5`; `t` if `n ≥ 4`; `z` if `n ≥ 3`; `y`; `x`;
+and, for a color type, `c` (the samples). Its sizes are those of the array's axes, and its
+elements are `b` bytes, or 1 byte (a sample) for a color type. The axes of `V` are the
+array's, in another order when `n ≥ 5` (dimension 5 is stored outside dimension 4) or the
+data type is a color type (the samples are stored innermost). `V` is cut as
+[conventions §7](../conventions.md#7-source-values-as-arrays) cuts contiguous values, with
+the chunk limit `L = 131072` (2^17) bytes, which gives a chunk shape for `V` (1 along its
+axes before the cut axis, whole along those after) and the bytes of each chunk.
+
+<a id="type-niftiarray"></a>**`NiftiArray`**, the array's `zarr.json`: an
+[`ArrayDocument`](../conventions.md#type-arraydocument) with these members:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `dimension_names` | array of string | required | the axes: `t` if `n ≥ 4`; `c` if `n ≥ 5` or the data type is a color type; `z` if `n ≥ 3`; then `y` and `x`. (The axes follow `n`, so a dimension of size 1 up to `n` still has its axis.) |
+| `shape` | array of integer | required | `T`, `C` (the samples per voxel for a color type), `Z`, `Y` and `X`, each only for the axes present |
+| `data_type` | string | required | from [§3](#3-data-types) |
+| `chunk_grid` | object | required | regular, its chunk shape `V`'s chunk shape, each axis's size in the array's axis order |
+| `codecs` | array of object | required | when the axes of `V` are in another order than the array's, `transpose` ([conventions §3](../conventions.md#3-arrays)), with `order` the index in the array's axes of each axis of `V`, in the order of `V` (for example `[1, 0, 2, 3, 4]` for `n ≥ 5`, and `[0, 2, 3, 4, 1]` for a color type with `t`, `c`, `z`, `y` and `x`); then `bytes`, with `"endian"` (`"little"` or `"big"`: the file's byte order) when the data type is larger than 1 byte. There is no compressor |
+| `attributes` | object | required | `{}` |
+
+**Chunks:** every chunk is present. The array's chunk with coords `q_a` along each axis `a`
+is the chunk of `V` with the same coords along the same axes: the bytes that
+[conventions §7](../conventions.md#7-source-values-as-arrays) gives it, in the order of `V`,
+which the transpose codec puts in the array's order. An edge chunk along the cut axis is
+followed by zero bytes up to the whole chunk (Zarr stores edge chunks whole).
 
   For example, a `64 × 64 × 33 × 200` int16 series (`n = 4`) has slices of
   8192 bytes and volumes of 270336, over `L`, so the cut axis is `z`: `k =
@@ -223,11 +243,19 @@ a `scl_slope` of 0, ±∞ or NaN, has no scaling.) The scaling is
 ### 4.3 Scales, units and position
 
 **Units.** The spatial unit is given by `xyzt_units` modulo 8 (its bits
-0–2): 1 `meter`, 2 `millimeter`, 3 `micrometer`; any other value gives no
-unit. The time unit is given by `xyzt_units` bitwise-and 56 (its bits 3–5):
-8 `second`, 16 `millisecond`, 24 `microsecond`; any other value (including
-Hz, ppm and rad/s) gives no unit. For NIfTI-2 the bits are those of the
-`i32` in two's complement.
+0–2), and the time unit by `xyzt_units` bitwise-and 56 (its bits 3–5):
+
+| unit | bits | value | OME-NGFF unit |
+|---|---|---|---|
+| spatial | 0–2 | 1 | `meter` |
+| spatial | 0–2 | 2 | `millimeter` |
+| spatial | 0–2 | 3 | `micrometer` |
+| time | 3–5 | 8 | `second` |
+| time | 3–5 | 16 | `millisecond` |
+| time | 3–5 | 24 | `microsecond` |
+
+Any other value gives no unit (for time, including Hz, ppm and rad/s). For NIfTI-2 the bits
+are those of the `i32` in two's complement.
 
 **Affine.** The image's **affine** is the sform if `sform_code > 0`, else
 the qform if `qform_code > 0`, else there is none. (A code of 0 or less is
@@ -253,16 +281,13 @@ sform with a negative `srow_x[0]`, is not representable: the image then has
 no translation, and its scales come from `pixdim`. The affine itself is
 always in the source metadata ([§5](#5-source-metadata)).
 
-**Scales.** A number is **valid** if it is finite and positive.
+**Scales.** A number is **valid** if it is finite and positive. Each axis's scale and unit:
 
-- `x`, `y`, `z`: with a representable affine, the first, second and third
-  values of its diagonal; otherwise `pixdim[1]`, `pixdim[2]` and
-  `pixdim[3]` where valid, and 1 where not. The spatial unit, if any, is
-  the unit of each of these axes whose scale is a value of the diagonal or
-  a valid `pixdim`; an axis with scale 1 for an invalid `pixdim` has no
-  unit.
-- `t`: `pixdim[4]` with the time unit, if it is valid; else 1 with no unit.
-- `c`: 1, with no unit.
+| axis | scale | unit |
+|---|---|---|
+| `x`, `y`, `z` | with a representable affine, the first, second and third values of its diagonal; otherwise `pixdim[1]`, `pixdim[2]` and `pixdim[3]` where valid, and 1 where not | the spatial unit, if any, when the scale is a value of the diagonal or a valid `pixdim`; none for scale 1 from an invalid `pixdim` |
+| `t` | `pixdim[4]` if it is valid; else 1 | the time unit with a valid `pixdim[4]`; else none |
+| `c` | 1 | none |
 
 **Translation.** With a representable affine, the image has a translation
 ([conventions §5](../conventions.md#5-units)): the first, second and third values
@@ -271,25 +296,21 @@ axes present). Otherwise it has none.
 
 ### 4.4 Channels
 
-`M` has an `"omero"` member in these two cases, and in no other:
+`M` has an `"omero"` member, an [`Omero`](../conventions.md#type-omero), in these two
+cases, and in no other. Its `channels` are
+[`OmeroChannel`](../conventions.md#type-omerochannel)s:
 
-- **Color:** `{"channels": [...]}` with one object per sample,
-  `{"label": l, "color": k, "active": true, "window": {"min": 0, "max": 255,
-  "start": 0, "end": 255}}`, where `(l, k)` are `("R", "FF0000")`,
-  `("G", "00FF00")`, `("B", "0000FF")` and, for RGBA32, `("A", "FFFFFF")`.
-- **Display range:** another data type, with `cal_min` and `cal_max`
-  finite and `cal_max > cal_min`. The window in raw values is
-  `lo = cal_min` and `hi = cal_max`; when the scaling applies ([§4.2](#42-value-scaling)), `lo`
-  and `hi` are instead the smaller and the larger of `(cal_min − i) / s`
-  and `(cal_max − i) / s`, and when either of these is not finite (the
-  arithmetic overflows binary64, which only NIfTI-2's binary64 fields can
-  make it do), `M` has no `"omero"` member. Otherwise `M` has
-  `{"channels": [...]}` with one object per index `k < C` of dimension 5
-  (one object when `n < 5`), provided `C` is at most 64; with more channels
-  `M` has no `"omero"` member (the window is the header's `cal_min` and
-  `cal_max`, and a window per channel would make the root grow with `C`):
-  `{"label": "C<k>", "color": "FFFFFF", "active": true, "window": {"min":
-  lo, "max": hi, "start": lo, "end": hi}}`, with `k` in decimal.
+| case | when | channels | `label` and `color` | `window` |
+|---|---|---|---|---|
+| **color** | a color data type | one per sample | `("R", "FF0000")`, `("G", "00FF00")`, `("B", "0000FF")` and, for RGBA32, `("A", "FFFFFF")` | `{"min": 0, "max": 255, "start": 0, "end": 255}` |
+| **display range** | another data type, with `cal_min` and `cal_max` finite, `cal_max > cal_min`, `lo` and `hi` (below) finite, and `C` at most 64 | one per index `k < C` of dimension 5 (one when `n < 5`) | `("C<k>", "FFFFFF")`, `k` in decimal | `{"min": lo, "max": hi, "start": lo, "end": hi}` |
+
+The window in raw values is `lo = cal_min` and `hi = cal_max`; when the scaling applies
+([§4.2](#42-value-scaling)), `lo` and `hi` are instead the smaller and the larger of
+`(cal_min − i) / s` and `(cal_max − i) / s`. One of these is not finite only when the
+arithmetic overflows binary64, which only NIfTI-2's binary64 fields can make it do. With
+more than 64 channels `M` has no `"omero"` member: the window is the header's `cal_min` and
+`cal_max`, and a window per channel would make the root grow with `C`.
 
 ## 5. Source metadata
 
@@ -301,28 +322,53 @@ Everything the file holds is on `refkv_source`, the file's **IR mirror**
 
 ### 5.1 The root
 
-- `nifti_version`: 1 or 2.
-- `byte_order`: `"little"` or `"big"`.
-- `header`: an object with one member per field of [§2](#2-the-header) for the file's
-  version, in the order of [§2](#2-the-header) and named as there. A `char[k]` field is
-  text: its bytes up to the first NUL, as a text value. Every other field is a number,
-  or an array of `k` numbers for `T[k]`. (For example, `magic` is `"n+1"` or `"n+2"`,
-  the bytes before the first NUL.) A float (`f32` or `f64`) value whose bits a JSON
-  number or `"NaN"` does not keep is instead the object `{"bits": H}`, `H` its
-  IEEE 754 bits as 8 (`f32`) or 16 (`f64`) lowercase hexadecimal digits, most
-  significant first, whatever the file's byte order. These values are a negative
-  zero (bits `80000000` or `8000000000000000`), which some JSON writers write as
-  `0`, and every NaN but the canonical one (`7fc00000` or `7ff8000000000000`),
-  which `"NaN"` stands for: one with a payload, a negative one or a signaling one.
-  (The header's bytes, those after a character field's first NUL included, are
-  also the mirror's `header` element.)
-- `scaling`: `{"slope": s, "inter": i}`, present when the scaling is
-  nontrivial ([§4.2](#42-value-scaling)).
-- `affine`: present when the image has an affine ([§4.3](#43-scales-units-and-position)):
-  `{"form": "sform" | "qform", "applied": A}`, where `A` is whether the
-  affine is representable, and so gives the scales and translation. When
-  it is not, it is still in `header`, and the image is placed by `pixdim`
-  alone: flips and rotations are not applied.
+<a id="type-niftiroot"></a>**`NiftiRoot`**, the root's `S`:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `nifti_version` | integer | required | 1 or 2 |
+| `byte_order` | string | required | `"little"` or `"big"` |
+| `header` | [`NiftiHeader`](#type-niftiheader) | required | every field of the header |
+| `scaling` | [`NiftiScaling`](#type-niftiscaling) | optional | present when the scaling is nontrivial ([§4.2](#42-value-scaling)) |
+| `affine` | [`NiftiAffine`](#type-niftiaffine) | optional | present when the image has an affine ([§4.3](#43-scales-units-and-position)) |
+
+<a id="type-niftiheader"></a>**`NiftiHeader`**: an object with one member per field of
+[§2](#2-the-header) for the file's version, in the order of [§2](#2-the-header) and named as
+there, whose type is the field's:
+
+| field's type | member's type | value |
+|---|---|---|
+| `char[k]` | [`Text`](../conventions.md#type-text) | its bytes up to the first NUL, as a text value (for example, `magic` is `"n+1"` or `"n+2"`, the bytes before the first NUL) |
+| `i16`, `i32`, `i64`, `u8` | [`Integer`](../conventions.md#type-integer) | the field's value |
+| `f32`, `f64` | [`Float`](../conventions.md#type-float) or [`NiftiBits`](#type-niftibits) | the field's value, or its bits when a JSON number or `"NaN"` does not keep them (below) |
+| `T[k]` | array of `T`'s type | `k` values |
+
+<a id="type-niftibits"></a>**`NiftiBits`**, a float (`f32` or `f64`) value whose bits a JSON
+number or `"NaN"` does not keep:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `bits` | string | required | `H`, its IEEE 754 bits as 8 (`f32`) or 16 (`f64`) lowercase hexadecimal digits, most significant first, whatever the file's byte order |
+
+These values are a negative zero (bits `80000000` or `8000000000000000`), which some JSON
+writers write as `0`, and every NaN but the canonical one (`7fc00000` or
+`7ff8000000000000`), which `"NaN"` stands for: one with a payload, a negative one or a
+signaling one. (The header's bytes, those after a character field's first NUL included, are
+also the mirror's `header` element.)
+
+<a id="type-niftiscaling"></a>**`NiftiScaling`**:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `slope` | number | required | `s` ([§4.2](#42-value-scaling)) |
+| `inter` | number | required | `i` |
+
+<a id="type-niftiaffine"></a>**`NiftiAffine`**:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `form` | string | required | `"sform"` or `"qform"`: which affine the image has |
+| `applied` | boolean | required | whether the affine is representable, and so gives the scales and translation. When it is not, it is still in `header`, and the image is placed by `pixdim` alone: flips and rotations are not applied |
 
 `header` holds every field as stored, including those the layout does not
 use, so that a reader who needs, say, the slice timing (`slice_code`,
@@ -520,6 +566,19 @@ copied, with its padding. The ranges lie within the file (by the data size
 check). The output's source table is source 0, followed by the zero data
 source when a reference is padded; it has no other data source.
 
+<a id="type-niftichunk"></a>**`NiftiChunk`**, the chunk of `V` that starts `o` bytes into the
+voxel data and holds `m` of its bytes, padded with `p` zero bytes
+([conventions §7](../conventions.md#7-source-values-as-arrays) gives `o`, `m` and `p`; `p` is
+0 but for an edge chunk along the cut axis):
+
+| part | range | presence | value |
+|---|---|---|---|
+| the voxels | source range `(0, v + o, m)` | required | the chunk's bytes in the file |
+| the padding | source range `(1, 0, p)` | optional | when `p > 0`: the first `p` bytes of the zero data source |
+
+Where [conventions §7](../conventions.md#7-source-values-as-arrays) copies the chunk, it is
+instead `bytes`: the `m` bytes and the `p` zero bytes.
+
 `refkv_source` is the IR mirror ([the convention §5.2](#52-the-ir-mirror)). The
 archive has no other entries than the root's and the array's `zarr.json`, the
 array's chunks, and the mirror's.
@@ -527,9 +586,18 @@ array's chunks, and the mirror's.
 ### 7.3 Summary
 
 This section is informative. Both implementations print a one-line JSON
-summary: `version` (1 or 2), `byteOrder` (`"little"` or `"big"`), `sizes`
-(each axis's size), `dataType`, `color`, `chunkShape` (the array's
-chunk shape, in its axis order), `chunks` (the array's),
-`scaling` (`{"slope": s, "inter": i}` when the scaling is nontrivial, else
-`null`), `affine` (`"sform"`, `"qform"` or `null`), `translation` and
-`extensions` (whether the extender's first byte is nonzero).
+summary, with these members:
+
+| member | value |
+|---|---|
+| `version` | 1 or 2 |
+| `byteOrder` | `"little"` or `"big"` |
+| `sizes` | each axis's size |
+| `dataType` | the array's data type |
+| `color` | whether the data type is a color type |
+| `chunkShape` | the array's chunk shape, in its axis order |
+| `chunks` | the array's chunks |
+| `scaling` | `{"slope": s, "inter": i}` when the scaling is nontrivial, else `null` |
+| `affine` | `"sform"`, `"qform"` or `null` |
+| `translation` | whether the image has a translation |
+| `extensions` | whether the extender's first byte is nonzero |
