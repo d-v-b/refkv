@@ -238,13 +238,13 @@ CASES = {
     "mrc_extended_large": ({"extendedHeader": 5000, "extendedType": "SERI"}, None, None, None, None, None, None),
     # chunks (spec/zarrify/mrc.md §4.1
     # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#41-the-array>): blocks of sections,
-    # blocks of rows, and an edge chunk padded with a literal zero byte
+    # blocks of rows, and an edge chunk padded with a zero byte, of the zero data source
     "mrc_chunk_sections": ({"chunkShape": [10, 128, 256], "chunks": 2}, None, None, None, None, None,
                            ("0/c/1/0/0", [(1024 + 655360, 655360)])),
     "mrc_chunk_rows": ({"chunkShape": [550, 1000], "chunks": 2}, None, None, None, None, None,
                        ("0/c/1/0", [(1024 + 550000, 550000)])),
     "mrc_chunk_edge_literal": ({"chunkShape": [1, 524289], "chunks": 2}, None, None, None, None, None,
-                               ("0/c/0/1", [(1024 + 524289, 524288), b"\0"])),
+                               ("0/c/0/1", [(1024 + 524289, 524288), (1, 0, 1)])),
     "mrc_mrcfile_volume": ({"kind": "volume", "voxelSize": [1.25, 1.25, 1.25], "translation": True}, None,
                            [1.25, 1.25, 1.25], [10, 2.5, -3], None, ..., None),
     "mrc_mrcfile_stack": ({"kind": "image_stack", "voxelSize": [0.5, 0.5, 1]}, None, [1, 0.5, 0.5], None, None, ...,
@@ -278,7 +278,7 @@ def test_zarrifies_the_synthetic_files(tmp_path):
             assert len(omero["channels"]) == 1, name
         if chunk is not None:
             assert out.refs[chunk[0]] == chunk[1], name
-        assert out.data == {}, name  # no data sources
+        assert out.data == ({b"\0": 1} if name == "mrc_chunk_edge_literal" else {}), name  # the zero data source
         codecs = json.loads(out.bytes_entries["0/zarr.json"])["codecs"]
         assert [c["name"] for c in codecs] == ["bytes"], name
 

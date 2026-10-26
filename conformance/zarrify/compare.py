@@ -43,7 +43,9 @@ code records the current one, and writes the names those revisions used (`vzip_s
 compared with it, the reference's output is read with the current names, at the current
 revision, and without the members of its source metadata that the mirror holds instead
 (NIfTI's extensions and raw bytes; `at_revision`), and the shipped code's without the members
-of its root image added since (TIFF's and NDPI's `omero`; `without_added`). Each mirror is also checked on its own
+of its root image added since (TIFF's and NDPI's `omero`; `without_added`) and with NIfTI's
+zero padding, a range of its zero data source since the freeze, as the literal ranges the
+reference writes (`literal_padding`). Each mirror is also checked on its own
 (`mirror_problem`): it reads, it rebuilds a source of source 0's size (a store's: its listing,
 the sizes its sources pin, and every held object byte for byte, read from the store), it is
 canonical, and its view is the one its table and the source give.
@@ -135,6 +137,11 @@ ADDED = {"tiff": ("omero",), "ndpi": ("omero",)}
 # (spec/zarrify/ndpi.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#3-levels>).
 REVISED = {"edge_ndpi_frames.ndpi", "edge_reject_ndpi_frame.ndpi", "ndpi_jpegxr_gray16.ndpi",
            "ndpi_jpegxr_rgb.ndpi", "ndpi_jpegxr_bgr.ndpi"}
+# The profiles whose edge chunks' zero padding is a range of the output's zero data source since
+# the freeze, where the frozen reference pads with a literal range (spec/zarrify/nifti.md §7.2
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#72-chunks>): compared with it,
+# the shipped code's padding reads as literal ranges (`literal_padding`).
+ZERO_PADDED = ("nifti",)
 
 
 class UnreadableError(Exception):
@@ -408,9 +415,11 @@ def store_mirror_problem(path: Path, view: dict, fetch=None) -> str | None:
     url = prop.get("source", {}).get("url") if isinstance(prop, dict) else None
     if not isinstance(prop, dict) or not isinstance(url, str):
         return "no store URL on the root"
-    if prop.get("profile") == "vsi":
-        # a VSI root names the .vsi file; the store's URL is its directory (spec/zarrify/vsi.md
-        # §9 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#9-vsi-profile>)
+    if prop.get("profile") in ("vsi", "nrrd"):
+        # a VSI root names the .vsi file, and a NRRD root the header file; the store's URL is its
+        # directory (spec/zarrify/vsi.md §9
+        # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#9-vsi-profile>,
+        # spec/zarrify/nrrd.md §8 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#8-nrrd-profile>)
         url = url[:url.rfind("/") + 1]
     pins = {s.url: s.size for s in decode_source_table(zipfile.ZipFile(path).read("__vz__/sources"))
             if s.url is not None}
@@ -487,7 +496,7 @@ def check(item: tuple, impls: dict, out_dir: Path) -> dict:
             # against the frozen reference, outside the mirror and without what it does not write;
             # without it (no-ref), py and web entry for entry
             a, b = mapping(ref[1]), mapping(value)  # both ok: views
-            diffs = differences(without_source(at_revision(a)), without_source(without_added(b))) \
+            diffs = differences(without_source(at_revision(a)), without_source(literal_padding(without_added(b)))) \
                 if mirror and ref_name == "ref" and n != ref_name else differences(a, b)
             verdicts[n] = ("DIVERGES", diffs) if diffs else ("equivalent", [])
     # one core, two hosts: py and web give the same archive contents, the mirror included
@@ -546,6 +555,24 @@ def without_added(output: Mapping[str, Any]) -> Mapping[str, Any]:
     ome = {k: v for k, v in attrs["ome"].items() if k not in drop}
     root = (root[0], {**root[1], "attributes": {**attrs, "ome": ome}})
     return {**output, "entries": {**output["entries"], "zarr.json": root}}
+
+
+def literal_padding(output: Mapping[str, Any]) -> Mapping[str, Any]:
+    """An output of the shipped code with each range of a data source of zero bytes read as the
+    literal range of its bytes, when its profile is ZERO_PADDED, for comparing it with the frozen
+    reference, which pads with literal ranges: the padding then compares by its bytes, and the
+    zero data source, which no entry uses any more, drops out of `without_source`. Any other
+    output is unchanged."""
+    if profile(output) not in ZERO_PADDED:
+        return output
+    zeros = {i for i, s in enumerate(output["sources"])
+             if isinstance(s, dict) and "data" in s and not any(base64.b64decode(s["data"]))}
+
+    def literal(r: list) -> list:
+        return ["data", _b64(bytes(r[2]))] if r[0] in zeros else r
+
+    return {**output, "entries": {k: (kind, [literal(r) for r in v]) if kind == "ranges" else (kind, v)
+                                  for k, (kind, v) in output["entries"].items()}}
 
 
 def without_source(output: Mapping[str, Any]) -> dict:

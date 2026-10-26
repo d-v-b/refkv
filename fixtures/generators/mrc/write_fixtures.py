@@ -185,7 +185,7 @@ def main() -> None:
     # Chunks (spec/zarrify/mrc.md §4.1
     # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#41-the-array>): 20 sections of
     # 64 KiB, cut into 2 chunks of 10; a section of 1.1 MB, cut into 2 blocks of 550 rows; a row
-    # of 2^20 + 1 bytes, cut into 2 chunks, the second padded with a literal zero byte.
+    # of 2^20 + 1 bytes, cut into 2 chunks, the second padded with a zero byte (a range of the zero data source).
     mrc("mrc_chunk_sections", (256, 128, 20), 1, ispg=0)
     mrc("mrc_chunk_rows", (1000, 1100, 1), 0, ispg=0)
     mrc("mrc_chunk_edge_literal", (2**20 + 1, 1, 1), 0, ispg=0)

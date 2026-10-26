@@ -1,0 +1,9 @@
+NRRD0004
+type: int
+dimension: 3
+sizes: 5 4 3
+endian: little
+encoding: gzip
+line skip: 1
+data file: ./nrrd_detached_gzip_files/data.raw.gz
+

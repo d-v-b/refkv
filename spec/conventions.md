@@ -16,6 +16,7 @@ its JSON Schema `zarrify/<format>/schema.json`. (Changed 2026-10-25: the propert
 | FITS | [fits](zarrify/fits.md) | `4b0d3a7e-1c52-4f6a-9b8e-2d7f0c6a1e93` |
 | FLAC (Free Lossless Audio Codec) | [flac](zarrify/flac.md) | `e9108d07-b24b-432f-a8ce-09d80c8073b4` |
 | Imaris IMS | [ims](zarrify/ims.md) | `5067a535-8261-4b25-a93c-1985ed333bde` |
+| Leica LIF | [lif](zarrify/lif.md) | `b099ab1f-f9d4-4276-9006-9ff1193a34b2` |
 | MP3 (MPEG Layer III audio) | [mp3](zarrify/mp3.md) | `b6cb0047-9448-4fdc-b03e-10dd3d6aa829` |
 | MP4 and QuickTime (H.264 video, AAC and MP3 audio) | [mp4](zarrify/mp4.md) | `bbe3f6b9-488d-4d8d-85ce-60a1649dd27e` |
 | MRC2014 | [mrc](zarrify/mrc.md) | `2aacd010-2ed1-4748-bc3c-5dd5e840bbce` |
@@ -24,6 +25,7 @@ its JSON Schema `zarrify/<format>/schema.json`. (Changed 2026-10-25: the propert
 | Nikon ND2 | [nd2](zarrify/nd2.md) | `59612f14-e314-4207-ba00-8f422ba71490` |
 | Hamamatsu NDPI | [ndpi](zarrify/ndpi.md) | `6cac71ef-dbb2-4acd-b60c-00389aa4238a` |
 | NIfTI-1 and NIfTI-2 | [nifti](zarrify/nifti.md) | `06e5809d-4d54-4b72-afd0-6bf61a7b4c85` |
+| NRRD (Teem) | [nrrd](zarrify/nrrd.md) | `23e0c600-8da6-40f1-81e7-ab246e948e88` |
 | OME-Zarr 0.4 | [ome-zarr](zarrify/ome-zarr.md) | `b74ea302-65bb-49ae-b81f-f9bb52cd4eed` |
 | Akoya QPTIFF | [qptiff](zarrify/qptiff.md) | `329ea136-2f55-4c27-b6f4-8e60ca2109b8` |
 | Sentinel-2 SAFE (Level-1C, Level-2A) | [safe](zarrify/safe.md) | `ef81346c-19e8-42ad-93b0-a279ccaf44c1` |
@@ -186,8 +188,9 @@ the codecs `imagecodecs_jpegxr` (which the NDPI convention's JPEG XR levels use 
 and `numcodecs.shuffle`; the MP3, MP4 and FLAC
 conventions give their arrays the codec `refkv.stream` of [§10](#10-coded-streams) and dimension
 names of their own, the MP4 convention gives video planes whose chunks differ in length the
-`rectilinear` chunk grid, and the FLAC convention shards its array, as
-[spec/zarrify.md §2.1](zarrify.md#21-virtual-shards) says), every array's
+`rectilinear` chunk grid, the FLAC convention shards its array, as
+[spec/zarrify.md §2.1](zarrify.md#21-virtual-shards) says, and the NRRD convention compresses a
+gzip-encoded array with the `gzip` codec), every array's
 `zarr.json` is the JSON object:
 
 ```json
@@ -391,8 +394,11 @@ declaration of the convention with the array's own source metadata.
   × s_a + q × c × s_a` bytes into the values; when `m < c` it is padded with
   `(c − m) × s_a` zero bytes, a literal of the reference when the reference
   fits in a payload ([spec/zarrify.md §1.2](zarrify.md#12-input)), and otherwise the chunk is copied with
-  its padding. An array of rank 0 is one chunk; an array with a size of 0
-  has no chunks, and the chunk shape `max(1, S[j])`.
+  its padding. (A profile may name that literal's bytes as a range of its zero
+  data source instead, as [spec/zarrify.md §1.2](zarrify.md#12-input) allows: the
+  chunk is copied all the same when the reference, with the literal, would not
+  fit.) An array of rank 0 is one chunk; an array with a size of 0 has no
+  chunks, and the chunk shape `max(1, S[j])`.
 - **A family of byte values** (one value per index `i`, such as a per-frame
   blob) is:
   - when every member has the same length `L`, a 2-D `uint8` array of shape

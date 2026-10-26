@@ -9,7 +9,8 @@
 //                            worker is installed first and then replaced by
 //                            the retired one, as on the live site
 //   /vzip-demo/image-to-zarr/ the current demo (js/dist)
-//   /data/fixture.tif        a TIFF fixture
+//   /data/fixture.tif        a TIFF fixture, read from another origin,
+//                            http://fixture.test:<port> (see below)
 //
 // Usage (after `node js/build.mjs`):
 //   node demo/e2e_stale_worker.mjs [old|retired|upgrade]
@@ -30,6 +31,13 @@ const TYPES = { ".html": "text/html", ".js": "text/javascript", ".tif": "image/t
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, "http://x");
+  // The fixture is read cross-origin, as the demo reads a real one.
+  const cors = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers": "Range",
+    "Access-Control-Expose-Headers": "Content-Range, Content-Length, ETag, Last-Modified",
+  };
+  if (req.method === "OPTIONS") return res.writeHead(204, cors).end();
   let file;
   if (url.pathname === "/data/fixture.tif") {
     file = path.join(here, "../fixtures/tiff/rgb_planar_jpeg2000_bigtiff_be.ome.tif");
@@ -43,7 +51,11 @@ const server = http.createServer((req, res) => {
   if (!file || !fs.existsSync(file)) return res.writeHead(404).end("not found");
   const body = fs.readFileSync(file);
   const range = req.headers.range?.match(/^bytes=(\d+)-(\d+)$/);
-  const headers = { "Content-Type": TYPES[path.extname(file)] ?? "application/octet-stream", "Accept-Ranges": "bytes" };
+  const headers = {
+    ...cors,
+    "Content-Type": TYPES[path.extname(file)] ?? "application/octet-stream",
+    "Accept-Ranges": "bytes",
+  };
   if (!range) headers["Content-Length"] = String(body.length);
   if (range) {
     const [a, b] = [Number(range[1]), Math.min(Number(range[2]), body.length - 1)];
@@ -55,7 +67,12 @@ const server = http.createServer((req, res) => {
 await new Promise((r) => server.listen(0, "127.0.0.1", r));
 const base = `http://127.0.0.1:${server.address().port}`;
 
-const browser = await chromium.launch();
+// The reader policy refuses loopback hosts such as 127.0.0.1
+// (https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy), so
+// the fixture is read from a name that Chromium alone resolves to this
+// server. The page stays on 127.0.0.1, a secure context, which a service
+// worker needs.
+const browser = await chromium.launch({ args: ["--host-resolver-rules=MAP fixture.test 127.0.0.1"] });
 const context = await browser.newContext();
 const page = await context.newPage();
 
@@ -94,7 +111,7 @@ if (mode === "upgrade") {
 }
 
 // 2. The current demo, opened in the same browser.
-const tiff = `${base}/data/fixture.tif`;
+const tiff = `http://fixture.test:${server.address().port}/data/fixture.tif`;
 await page.goto(`${base}/vzip-demo/image-to-zarr/?url=${encodeURIComponent(tiff)}`);
 await page.waitForFunction(
   () => /Ready|error|\d{3}:|not answered/i.test(document.querySelector("#status")?.textContent ?? ""),

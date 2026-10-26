@@ -31,6 +31,7 @@ const STORE_FORMATS: Record<StoreProfile, string | undefined> = {
   "ome-zarr": "OME-Zarr",
   safe: undefined,
   vsi: "VSI",
+  nrrd: "NRRD",
 };
 
 export const ARCHIVE_KEY = "__vz__/archive.vzip";

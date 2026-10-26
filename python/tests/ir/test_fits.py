@@ -192,7 +192,7 @@ CHUNKS = {
 def test_chunks(name, tmp_path):
     """Images and table rows are cut as contiguous values with the 2^20 limit (conventions §7
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays>);
-    an edge chunk is one range and a literal padding."""
+    an edge chunk is one range and its padding, a range of the zero data source."""
     path, shape, count, (key, parts) = CHUNKS[name]
     out, root = zarrified(FIXTURES / "fits" / f"{name}.fits", tmp_path)
     assert list(root.get_array(path).chunks) == shape

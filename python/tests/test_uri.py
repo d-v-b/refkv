@@ -9,7 +9,7 @@ import re
 
 import pytest
 
-from refkv.uri import file_path, file_uri, is_url, path_reference
+from refkv.uri import file_path, file_uri, is_uri_reference, is_url, path_reference, resolve
 
 P, W = posixpath, ntpath
 
@@ -64,19 +64,36 @@ def test_file_uri_and_file_path_round_trip():
 
 
 def test_path_reference():
-    """A local source's default name: the POSIX path as it is; on Windows an absolute
-    path's file: URI, and a relative path's `/`-separated reference."""
+    """A local source's default name: the path's `/`-separated segments, percent-encoded
+    (a space, `%`, `#`, `?`, non-ASCII), `./` first when a relative path's first segment
+    holds `:`; on Windows an absolute path's file: URI."""
     table = [
-        (P, "/data/a b.nii", "/data/a b.nii"),
+        (P, "/data/a b.nii", "/data/a%20b.nii"),
         (P, "x/y.nii", "x/y.nii"),
+        (P, "/d d/100%#1?.nii", "/d%20d/100%25%231%3F.nii"),
+        (P, "/é/ü.nii", "/%C3%A9/%C3%BC.nii"),
+        (P, "a b/c[1].nii", "a%20b/c%5B1%5D.nii"),
+        (P, "/a:b@c/x;y=z.nii", "/a:b@c/x;y=z.nii"),
+        (P, "a:b/c.nii", "./a:b/c.nii"),
+        (P, "//srv/a.nii", "/srv/a.nii"),
+        (P, "a\\b.nii", "a%5Cb.nii"),
         (W, "C:\\data\\a b.nii", "file:///C:/data/a%20b.nii"),
         (W, "\\\\server\\share\\a.nii", "file://server/share/a.nii"),
         (W, "x\\a b.nii", "x/a%20b.nii"),
         (W, "x\\a:b.nii", "x/a:b.nii"),
         (W, "ab:c.nii", "./ab:c.nii"),
+        (W, "d d\\100%#é.nii", "d%20d/100%25%23%C3%A9.nii"),
     ]
     for flavor, path, ref in table:
-        assert path_reference(path, pathmod=flavor) == ref, (flavor.__name__, path)
+        got = path_reference(path, pathmod=flavor)
+        assert got == ref, (flavor.__name__, path)
+        assert is_uri_reference(got), (flavor.__name__, path)
+        # resolved against an archive in `cwd`, the reference names the path's file again
+        cwd = "/w" if flavor is P else "C:\\w"
+        want = flavor.normpath(flavor.join(cwd, path))
+        want = "/" + want.lstrip("/") if flavor is P else want
+        base = file_uri(cwd, pathmod=flavor, cwd=cwd) + "/"
+        assert file_path(resolve(base, got), pathmod=flavor, allow_host=True) == want, (flavor.__name__, path)
 
 
 def test_is_url():
@@ -184,3 +201,11 @@ def test_file_uri_refuses_a_unc_path_without_a_plain_host_or_a_share():
     for path in ("\\\\ser ver\\share\\x", "\\\\server"):
         with pytest.raises(ValueError, match="a UNC path is"):
             file_uri(path, pathmod=W, cwd="C:\\w")
+
+
+# ------------------------------------------------------------- path_reference refusals
+
+
+def test_path_reference_on_windows_refuses_a_device_path():
+    with pytest.raises(ValueError, match="device path"):
+        path_reference("\\\\.\\COM1", pathmod=W)

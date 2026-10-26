@@ -24,6 +24,7 @@ who each one is for, what you get, and how to run it.
 | FITS | FITS images and tables (`.fits`, `.fz`) | [fits](fits/README.md) | [fits.md §9](../../spec/zarrify/fits.md#9-fits-profile) |
 | FLAC | FLAC audio files, as a sharded array of samples (`.flac`) | [flac](flac/README.md) | [flac.md §8](../../spec/zarrify/flac.md#8-flac-profile) |
 | IMS | Imaris `.ims` files | [ims](ims/README.md) | [ims.md §7](../../spec/zarrify/ims.md#7-ims-profile) |
+| LIF | Leica LIF files (`.lif`) | [lif](lif/README.md) | [lif.md §7](../../spec/zarrify/lif.md#7-lif-profile) |
 | MP3 | MP3 audio files, as an array of samples (`.mp3`) | [mp3](mp3/README.md) | [mp3.md §8](../../spec/zarrify/mp3.md#8-mp3-profile) |
 | MP4 | MP4 and QuickTime video and audio, as arrays of planes and samples (`.mp4`, `.mov`) | [mp4](mp4/README.md) | [mp4.md §8](../../spec/zarrify/mp4.md#8-mp4-profile) |
 | MRC | MRC2014 maps, image stacks, volumes and volume stacks (`.mrc`, `.map`) | [mrc](mrc/README.md) | [mrc.md §8](../../spec/zarrify/mrc.md#8-mrc-profile) |
@@ -31,6 +32,7 @@ who each one is for, what you get, and how to run it.
 | ND2 | Nikon NIS-Elements ND2 files | [nd2](nd2/README.md) | [nd2.md §7](../../spec/zarrify/nd2.md#7-nd2-profile) |
 | NDPI | Hamamatsu NDPI whole-slide images | [ndpi](ndpi/README.md) | [ndpi.md §7](../../spec/zarrify/ndpi.md#7-ndpi-profile) |
 | NIfTI | NIfTI-1 and NIfTI-2 volumes (`.nii`) | [nifti](nifti/README.md) | [nifti.md §7](../../spec/zarrify/nifti.md#7-nifti-profile) |
+| NRRD | NRRD volumes, attached or detached, raw or gzip (`.nrrd`, `.nhdr`) | [nrrd](nrrd/README.md) | [nrrd.md §8](../../spec/zarrify/nrrd.md#8-nrrd-profile) |
 | OME-Zarr | OME-Zarr 0.4 hierarchies, migrated to OME-Zarr 0.5 in place | [ome-zarr](ome-zarr/README.md) | [ome-zarr.md §11](../../spec/zarrify/ome-zarr.md#11-ome-zarr-profile) |
 | QPTIFF | Akoya (PerkinElmer) Vectra multiplex scans and inForm component data | [qptiff](qptiff/README.md) | [qptiff.md §7](../../spec/zarrify/qptiff.md#7-qptiff-profile) |
 | Sentinel-2 SAFE | Sentinel-2 Level-1C and Level-2A products, as a `.SAFE` directory or a `.SAFE.zip` | [safe](safe/README.md) | [safe.md §8](../../spec/zarrify/safe.md#8-safe-profile) |
@@ -44,9 +46,10 @@ store takes a URL ending in `/` that answers the S3 `ListObjectsV2` operation
 anonymously, such as a public S3 bucket. SAFE reads either: a product's
 `.SAFE` directory as a store, or its `.SAFE.zip` as a file. VSI is named by
 its `.vsi` file and reads the tile files beside it by name, without listing
-the directory. MP3 and FLAC are not images: their archives hold a plain Zarr
-array of audio samples, decoded from the file's frames when a chunk is read
-([mp3](mp3/README.md), [flac](flac/README.md)).
+the directory, and NRRD by its header file, a detached header's data file
+read beside it by name. MP3 and FLAC are not images: their archives hold a
+plain Zarr array of audio samples, decoded from the file's frames when a
+chunk is read ([mp3](mp3/README.md), [flac](flac/README.md)).
 
 SAFE and CZI have no user-story page yet; their conventions describe the
 output. A Sentinel-2 product becomes a GeoZarr hierarchy (one group per
@@ -96,7 +99,7 @@ store by the objects at its root. Options:
 - `--url <url>`: the URL to record as the source, for a local file or
   directory that will be served from that URL (a local directory needs it;
   for a VSI slide, the `.vsi` file's URL, whose directory the tile files are
-  named under);
+  named under, and for a NRRD input the header file's);
 - `--checksums`: also record the CRC-32C of every referenced range
   ([spec/refkv.md §4.2](../../spec/refkv.md#42-range)), which reads every byte the
   archive references (off by default);
@@ -269,6 +272,18 @@ each format's metadata is:
   the data type, the axis map and the voxel size. The archive also holds the
   file as a dataset for xarray under `dataset/`, declared by its own
   convention ([conventions §9](../../spec/conventions.md#9-dataset-layouts)).
+- **LIF:** the IR mirror on `refkv_source`: the XML header, every memory
+  block (an image's or not) and any bytes after them. The root keeps the
+  file's version; each image keeps its element of the XML (its name, its path
+  in the file's tree), its memory block, and every attribute of its dimensions
+  and channels, as text, and a tile of a tile scan its stage position.
+- **NRRD:** the IR mirror on `refkv_source`: the header file, line by line,
+  and the data (in the header file, or in a detached header's data file): the
+  files the chunks reference described in place, and a detached header's file
+  held, its bytes in the archive. The root keeps every field as written, every
+  key/value pair and comment, and what the layout derives from them (the data
+  type, the encoding, each axis's image axis, whether the orientation is
+  applied).
 - **VSI:** the IR mirror on `refkv_source`: the `.vsi` file (its metadata
   tree field by field, and the IFDs inside it) and every tile file (its
   headers, tile directory and tiles), each described in place, so that the

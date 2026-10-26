@@ -175,16 +175,21 @@ def _windows_file_uri(abs_path: str) -> str:
 
 def path_reference(path: str, *, pathmod: ModuleType = os.path) -> str:
     """The URI reference a source read from the local path `path` is named by, when no
-    URL is given: on POSIX the path as it is (an absolute path is a path-absolute
-    reference, a relative one is relative to the archive). On Windows, where `\\` and a
-    drive letter are not URI syntax, an absolute path is its `file_uri`, and a relative
-    one its `/`-separated, percent-encoded segments."""
-    if not _windows(pathmod):
-        return path
-    drive, rest = ntpath.splitdrive(path)
-    if drive or rest.startswith(("\\", "/")):
-        return file_uri(path, pathmod=pathmod)
-    ref = quote(path.replace("\\", "/").encode("utf-8"), safe=_PATH_SAFE)
+    URL is given: the path's `/`-separated segments, percent-encoded as spec §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table> requires (so
+    `/data/a b.nii` is `/data/a%20b.nii`). An absolute POSIX path is a path-absolute
+    reference, a relative one is relative to the archive, and a relative one whose first
+    segment holds `:` is written `./` first, so that the segment is not read as a scheme.
+    On Windows, where a drive letter is not URI syntax, an absolute path is its
+    `file_uri`."""
+    if _windows(pathmod):
+        drive, rest = ntpath.splitdrive(path)
+        if drive or rest.startswith(("\\", "/")):
+            return file_uri(path, pathmod=pathmod)
+        path = path.replace("\\", "/")
+    elif path.startswith("//"):  # `//x` is `/x` on Linux and macOS, not an authority
+        path = "/" + path.lstrip("/")
+    ref = quote(path.encode("utf-8"), safe=_PATH_SAFE)
     return "./" + ref if ":" in ref.split("/", 1)[0] else ref
 
 

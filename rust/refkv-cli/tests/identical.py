@@ -7,7 +7,9 @@ the suffix of a profile of the registry (spec/zarrify/profiles/), and every stor
 under a store profile's fixtures/<p> (the rejected inputs included: both must reject them). Each
 input is converted:
 
-- `local`: from its path (a store with `--url`, the URL it would be served from);
+- `local`: from its path (a store with `--url`, the URL it would be served from); and a file and
+  a VSI slide, beside its tile files, copied to a directory whose names a URI reference must
+  percent-encode (a space, `%`, `#`, non-ASCII);
 - `http`: from a server on 127.0.0.1 (with `--allow-private-hosts`), which serves the files with a
   strong ETag, ranges and multipart/byteranges, and the stores with an S3 ListObjectsV2 listing of
   7 keys a page (so that listings take several pages; conformance/zarrify/proxy.py's); one input
@@ -33,6 +35,7 @@ import argparse
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -111,9 +114,24 @@ def server(cache: Path):
     return srv, f"http://127.0.0.1:{srv.server_address[1]}/"
 
 
-def cases(files: list[str], stores: list[str], base: str, modes: set[str]) -> list[tuple[str, list[str], bool, dict]]:
-    """(name, arguments but the output, remote, environment) of each conversion."""
+def encoded_inputs(tmp: Path) -> list[str]:
+    """A file and a VSI slide (with its tile files), copied under names a URI reference must
+    percent-encode: their paths."""
+    d = tmp / "a b %#é"
+    d.mkdir()
+    shutil.copy(FIXTURES / "nifti" / "nifti_block_x_split.nii", d / "x y#1%é.nii")
+    shutil.copy(FIXTURES / "vsi" / "vsi_raw_bgr.vsi", d)
+    shutil.copytree(FIXTURES / "vsi" / "_vsi_raw_bgr_", d / "_vsi_raw_bgr_")
+    return [str(d / "x y#1%é.nii"), str(d / "vsi_raw_bgr.vsi")]
+
+
+def cases(files: list[str], stores: list[str], base: str, modes: set[str],
+          encoded: list[str]) -> list[tuple[str, list[str], bool, dict]]:
+    """(name, arguments but the output, remote, environment) of each conversion; `encoded` are
+    the paths of `encoded_inputs`."""
     out = []
+    if "local" in modes:
+        out += [(f"local {p}", [p], False, {}) for p in encoded]
     for i, f in enumerate(files):
         if "local" in modes:
             out.append((f"local {f}", [f"fixtures/{f}"], False, {}))
@@ -133,7 +151,7 @@ def cases(files: list[str], stores: list[str], base: str, modes: set[str]) -> li
                         True, {}))
     if "checksums" in modes:
         out += [(f"checksums {n}", [*args, "--checksums"], remote, env)
-                for n, args, remote, env in cases(files, stores, base, {"local", "http"})]
+                for n, args, remote, env in cases(files, stores, base, {"local", "http"}, encoded)]
     if "errors" in modes:
         f, s = f"fixtures/{files[0]}", f"fixtures/{stores[0]}"
         out += [(f"errors {n}", args, False, {}) for n, args in [
@@ -196,7 +214,8 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp = Path(tmp_dir)
         srv, base = server(tmp / "cache")
-        todo = [c for c in cases(files, stores, base, set(opts.modes.split(","))) if opts.only in c[0]]
+        encoded = encoded_inputs(tmp)
+        todo = [c for c in cases(files, stores, base, set(opts.modes.split(",")), encoded) if opts.only in c[0]]
 
         def one(k_case):
             k, (name, args, remote, env) = k_case

@@ -37,7 +37,8 @@ for (const [path, url] of inputs) {
       virtual = await zarrifyStore(directoryStore(path, url));
     } else {
       const bytes = new Uint8Array(fs.readFileSync(path));
-      // a VSI file's tile files lie beside it: opened from the directory as the run asks
+      // a VSI file's tile files, and a NRRD header's data file, lie beside it: opened from the
+      // directory as the run asks
       const open = async (key: string) => {
         const p = nodePath.join(nodePath.dirname(path), ...key.split("/"));  // a key's segments, as the platform joins them
         if (!fs.existsSync(p)) return undefined;

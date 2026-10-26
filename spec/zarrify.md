@@ -2,6 +2,11 @@
 
 Profiles version: 0 (**draft**)
 
+Changed 2026-10-25: the NIfTI, MRC, FITS and NRRD profiles pad an edge chunk's reference with a range
+of the output's one **zero data source**, a data source a reference names a prefix of, in place
+of a literal range per reference ([§1.2](#12-input)); an output that still pads with literal
+ranges is not equivalent to theirs ([§1.1](#11-output-and-equivalence)).
+
 Changed 2026-10-25: this document, its profiles and the conventions say **zarrify** for what
 they called virtualize, and the conventions' property is `refkv_zarrified`, in place of
 `refkv_virtualized` ([conventions §2](conventions.md#2-attributes)); nothing else in any output
@@ -42,6 +47,7 @@ The table, generated from the registry, lists them:
 | [FITS](zarrify/fits.md#part-2-the-profile) | file | FITS files: images, multi-extension files, binary and ASCII tables |
 | [FLAC](zarrify/flac.md#part-2-the-profile) | file | FLAC files (`.flac`) of a fixed block size, with their metadata blocks and ID3v2 and ID3v1 tags; one sharded array of integer samples, not an image |
 | [IMS](zarrify/ims.md#part-2-the-profile) | file | Imaris IMS files (HDF5) |
+| [LIF](zarrify/lif.md#part-2-the-profile) | file | Leica LIF files (LAS X and LAS AF, versions 1 and 2): every image of the file's element tree, with interleaved or planar channels, z-stacks, time series and mosaics, uncompressed |
 | [MP3](zarrify/mp3.md#part-2-the-profile) | file | MPEG-1, MPEG-2 and MPEG-2.5 Layer III audio files (`.mp3`), with their ID3v2, ID3v1 and APE tags; one array of samples, not an image |
 | [MP4](zarrify/mp4.md#part-2-the-profile) | file | MP4 and QuickTime files (`.mp4`, `.m4a`, `.mov`) with H.264 video and AAC or MP3 audio tracks; a group per track, not an image |
 | [MRC](zarrify/mrc.md#part-2-the-profile) | file | MRC2014 files (CCP4 maps, image stacks, volumes and volume stacks) |
@@ -49,6 +55,7 @@ The table, generated from the registry, lists them:
 | [ND2](zarrify/nd2.md#part-2-the-profile) | file | Nikon ND2, format version 3 and later |
 | [NDPI](zarrify/ndpi.md#part-2-the-profile) | file | Hamamatsu NDPI slides, a TIFF variant with 64-bit offsets |
 | [NIfTI](zarrify/nifti.md#part-2-the-profile) | file | NIfTI-1 and NIfTI-2 single files (`.nii`) |
+| [NRRD](zarrify/nrrd.md#part-2-the-profile) | file | NRRD files (`.nrrd`) and detached headers with one data file (`.nhdr`), raw or gzip-encoded |
 | [OME-Zarr](zarrify/ome-zarr.md#part-2-the-profile) | store | OME-Zarr 0.4 hierarchies on Zarr v2, migrated to OME-Zarr 0.5 |
 | [QPTIFF](zarrify/qptiff.md#part-2-the-profile) | file | Akoya (PerkinElmer) Vectra QPTIFF slides and inForm component data, a TIFF with an XML description per image, in LZW, JPEG or uncompressed tiles or strips |
 | [Sentinel-2 SAFE](zarrify/safe.md#part-2-the-profile) | file or store | Sentinel-2 Level-1C and Level-2A products: a `.SAFE` directory (a store) or a `.SAFE.zip` file |
@@ -161,11 +168,18 @@ shared byte strings of the output, numbered from 1 **in order of first
 use**: in the order in which the profile lists the references, and within a
 reference in order of its ranges, the first range that uses a byte string
 not yet in the table adds it as the next source. A range that uses a shared
-byte string `d` in data source `i` is `(i, 0, len(d))`, the whole source.
-Every other range of a reference is a range of source 0 or a literal range.
-A profile that defines shared byte strings says so, as the TIFF
-([tiff.md §7](zarrify/tiff.md#7-tiff-profile), JPEG tiles) and SAFE ([safe.md §8](zarrify/safe.md#8-safe-profile), JPEG 2000 main headers) profiles do; for a
-profile that defines none, the table is source 0 alone.
+byte string `d` in data source `i` is `(i, 0, len(d))`, the whole source,
+but for a **zero data source**: `n` zero bytes, `n` the most zero padding
+any reference of the output holds, of which a reference padded with `p`
+zero bytes names the first `p`, `(i, 0, p)`. Every other range of a
+reference is a range of source 0 or a literal range. A profile that defines
+shared byte strings says so, as the TIFF
+([tiff.md §7](zarrify/tiff.md#7-tiff-profile), JPEG tiles) and SAFE ([safe.md §8](zarrify/safe.md#8-safe-profile), JPEG 2000 main headers) profiles do, and as the
+NIfTI ([nifti.md §7.2](zarrify/nifti.md#72-chunks)), MRC
+([mrc.md §8.2](zarrify/mrc.md#82-chunks)), FITS
+([fits.md §9.4](zarrify/fits.md#94-chunks)) and NRRD
+([nrrd.md §8.5](zarrify/nrrd.md#85-chunks)) profiles do for a zero data
+source; for a profile that defines none, the table is source 0 alone.
 
 **Choosing the profile.** The file's first bytes decide. `H` is the file's first
 `min(552, size)` bytes; a test that needs a byte beyond `H` does not match. Each file profile's
@@ -185,11 +199,13 @@ profile name:
 | FITS ([fits.md §9](zarrify/fits.md#9-fits-profile)) | 110 |
 | FLAC ([flac.md §8](zarrify/flac.md#8-flac-profile)) | 95 |
 | IMS ([ims.md §7](zarrify/ims.md#7-ims-profile)) | 70 |
+| LIF ([lif.md §7](zarrify/lif.md#7-lif-profile)) | 55 |
 | MP3 ([mp3.md §8](zarrify/mp3.md#8-mp3-profile)) | 100 |
 | MP4 ([mp4.md §8](zarrify/mp4.md#8-mp4-profile)) | 85 |
 | MRC ([mrc.md §8](zarrify/mrc.md#8-mrc-profile)) | 90 |
 | ND2 ([nd2.md §7](zarrify/nd2.md#7-nd2-profile)) | 20 |
 | NIfTI ([nifti.md §7](zarrify/nifti.md#7-nifti-profile)) | 60 |
+| NRRD ([nrrd.md §8](zarrify/nrrd.md#8-nrrd-profile)) | 95 |
 | Sentinel-2 SAFE ([safe.md §8](zarrify/safe.md#8-safe-profile)) | 80 |
 | TIFF ([tiff.md §7](zarrify/tiff.md#7-tiff-profile)) | 40 |
 | VSI ([vsi.md §9](zarrify/vsi.md#9-vsi-profile)) | 30 |
@@ -637,6 +653,7 @@ else. The profiles, generated from the registry:
 - the FITS profile: [spec/zarrify/fits.md §9](zarrify/fits.md#9-fits-profile);
 - the FLAC profile: [spec/zarrify/flac.md §8](zarrify/flac.md#8-flac-profile);
 - the IMS profile: [spec/zarrify/ims.md §7](zarrify/ims.md#7-ims-profile);
+- the LIF profile: [spec/zarrify/lif.md §7](zarrify/lif.md#7-lif-profile);
 - the MP3 profile: [spec/zarrify/mp3.md §8](zarrify/mp3.md#8-mp3-profile);
 - the MP4 profile: [spec/zarrify/mp4.md §8](zarrify/mp4.md#8-mp4-profile);
 - the MRC profile: [spec/zarrify/mrc.md §8](zarrify/mrc.md#8-mrc-profile);
@@ -644,6 +661,7 @@ else. The profiles, generated from the registry:
 - the ND2 profile: [spec/zarrify/nd2.md §7](zarrify/nd2.md#7-nd2-profile);
 - the NDPI profile: [spec/zarrify/ndpi.md §7](zarrify/ndpi.md#7-ndpi-profile);
 - the NIfTI profile: [spec/zarrify/nifti.md §7](zarrify/nifti.md#7-nifti-profile);
+- the NRRD profile: [spec/zarrify/nrrd.md §8](zarrify/nrrd.md#8-nrrd-profile);
 - the OME-Zarr profile: [spec/zarrify/ome-zarr.md §11](zarrify/ome-zarr.md#11-ome-zarr-profile);
 - the QPTIFF profile: [spec/zarrify/qptiff.md §7](zarrify/qptiff.md#7-qptiff-profile);
 - the SAFE profile: [spec/zarrify/safe.md §8](zarrify/safe.md#8-safe-profile);

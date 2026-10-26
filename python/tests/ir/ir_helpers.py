@@ -96,6 +96,21 @@ ADDED = {"tiff": ("omero",), "ndpi": ("omero",)}
 # levels (spec/zarrify/ndpi.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#3-levels>).
 REVISED = {"edge_ndpi_frames.ndpi", "edge_reject_ndpi_frame.ndpi", "ndpi_jpegxr_gray16.ndpi",
            "ndpi_jpegxr_rgb.ndpi", "ndpi_jpegxr_bgr.ndpi"}
+# The profiles whose edge chunks' zero padding is a range of the output's zero data source since
+# the freeze, where the frozen reference pads with a literal range (conformance/zarrify/compare.py's
+# ZERO_PADDED; spec/zarrify/nifti.md §7.2
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#72-chunks>).
+ZERO_PADDED = {"nifti"}
+
+
+def literal_padding(out) -> tuple[dict, list[bytes]]:
+    """The references and data sources of `out` with each range of a zero data source read as
+    the literal range of its bytes, and those sources left out: the padding as the frozen
+    reference writes it. (A ZERO_PADDED profile has no other data source to renumber.)"""
+    zeros = {i for d, i in out.data.items() if not any(d)}
+    refs = {k: [bytes(p[2]) if isinstance(p, tuple) and len(p) == 3 and p[0] in zeros else p for p in v]
+            for k, v in out.refs.items()}
+    return refs, [d for d, i in out.data.items() if i not in zeros]
 
 
 def same_hierarchy(a, b) -> None:
@@ -104,7 +119,8 @@ def same_hierarchy(a, b) -> None:
     writes the names of the revision it implements (refkv_reference.legacy), read as the
     current ones, and its root records that revision (refkv_reference.revision: 20, or 25
     for DICOM, NIfTI, IMS and NDPI), which is dropped: the shipped code records none.
-    The members of `b`'s root image the reference does not write (ADDED) are dropped."""
+    The members of `b`'s root image the reference does not write (ADDED) are dropped, and
+    the padding of a ZERO_PADDED profile's `b` is read as literal ranges (`literal_padding`)."""
     def node(o):
         # the source metadata node; under its old name only in the frozen reference's output
         return ("refkv_source", LEGACY_NODE) if o is a else ("refkv_source",)
@@ -127,12 +143,15 @@ def same_hierarchy(a, b) -> None:
                 d["zarr.json"]["attributes"].get("ome", {}).pop(k, None)
         return d
 
+    profile = docs(b).get("zarr.json", {}).get("attributes", {}).get("refkv_zarrified", {}).get("profile")
+    b_refs, b_data = literal_padding(b) if profile in ZERO_PADDED else (b.refs, list(b.data))
+
     def refs(o):
-        return {k: v for k, v in o.refs.items() if not k.startswith(node(o))}
+        return {k: v for k, v in (b_refs if o is b else o.refs).items() if not k.startswith(node(o))}
 
     assert docs(a) == docs(b)
     assert refs(a) == refs(b)
-    assert list(a.data) == list(b.data)
+    assert list(a.data) == b_data
 
 
 # The frozen twins' source metadata node, of their revision, and a key of theirs as the
