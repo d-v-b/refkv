@@ -7,7 +7,10 @@ cited here as "conventions §n". How refkv produces this layout as a reference
 store is the TIFF profile, [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `48e9ac4e-1156-4a62-955e-20467d9c2700` ·
-Schema: [schema.json](tiff/schema.json) · Changed 2026-10-23: each `omero` channel's window
+Schema: [schema.json](tiff/schema.json) · Changed 2026-10-26, with no change to any output:
+the layout is tabulated, its entries in [Layout](#layout) and its types in type tables
+([conventions §11.5](../conventions.md#115-layout-tables)); the QPTIFF convention shares
+[`TiffRoot`](#type-tiffroot) and [`TiffChunk`](#type-tiffchunk) · Changed 2026-10-23: each `omero` channel's window
 is sampled from the coarsest level's data when refkv decodes its compression and the samples are
 not RGB, and an image of a float type has an `omero` when every channel's window is sampled
 ([§4.4](#44-arrays)); the profile reads the sampled chunks
@@ -25,6 +28,26 @@ This convention gives a layout only to the files that meet its
 requirements. Where it says that "the input is rejected", or that
 something MUST hold, a file that fails has no layout under this
 convention, and the profile rejects it.
+
+## Layout
+
+The hierarchy's entries ([conventions §11.5](../conventions.md#115-layout-tables)):
+
+| prefix | type | structure | description |
+|---|---|---|---|
+| `zarr.json` | group | [`ImageGroup`](../conventions.md#type-imagegroup) | the root: the image ([§4.4](#44-arrays)) |
+| `zarr.json#/attributes/ome` | attribute | [`OmeImage`](../conventions.md#type-omeimage) | `M`: one multiscale, with the name, axes, scales and translation of [§4.4](#44-arrays), one level per array; `omero` as [§4.4](#44-arrays) says, its channels [`TiffOmeroChannel`](#type-tiffomerochannel)s |
+| `zarr.json#/attributes/zarr_conventions` | attribute | array of [`ConventionMetadata`](../conventions.md#type-conventionmetadata) | the CMO of [§1](#1-declaration) |
+| `zarr.json#/attributes/refkv_zarrified` | attribute | [`RootProperty`](../conventions.md#type-rootproperty) | `profile` `"tiff"`, `version` `0`, `source.url` the file's URL |
+| `zarr.json#/attributes/refkv_zarrified/tiff` | attribute | [`TiffRoot`](#type-tiffroot) | the root's source metadata ([§5](#5-source-metadata)) |
+| `<L>/zarr.json` | array | [`TiffArray`](#type-tiffarray) | level `L` ([§4.2](#42-pyramid-levels), [§4.4](#44-arrays)) |
+| `<L>/c/<coords>` | chunk | [`TiffChunk`](#type-tiffchunk) | a tile of a plane of level `L`, present when its byte count is more than 0 ([§4.4](#44-arrays), **Chunks**; [§7.3](#73-chunks)) |
+| `refkv_source/**` | subtree | [the mirror's entries](../conventions.md#table-mirror) | the IR mirror ([§5](#5-source-metadata)): its elements are [§5.1](#51-elements)'s |
+
+| placeholder | value |
+|---|---|
+| `<L>` | the level's index, from 0, in decimal |
+| `<coords>` | the chunk's coordinates, in decimal, one key segment each: `<t>/<c>/<z>/<row>/<column>`, `t`, `c` and `z` each only for the axes present, then the tile row and column (so it stands for two to five segments) |
 
 ## 1. Declaration
 
@@ -116,10 +139,13 @@ attribute value is part of the value, not a comment.
 
 1. **Skipped sections:** scanning from the start, the first of these to
    begin at each point is skipped, up to and including its end:
-   - comments, `<!--` to the next `-->`;
-   - CDATA sections, `<![CDATA[` to the next `]]>`;
-   - processing instructions, `<?` to the next `?>`;
-   - other declarations, `<!` to the next `>`.
+
+   | section | from | to |
+   |---|---|---|
+   | comment | `<!--` | the next `-->` |
+   | CDATA section | `<![CDATA[` | the next `]]>` |
+   | processing instruction | `<?` | the next `?>` |
+   | other declaration | `<!` | the next `>` |
 
    The search for the end starts after the whole start marker (so `<!-->`
    does not end itself). A section without an end runs to the end of `X`.
@@ -151,52 +177,27 @@ attribute value is part of the value, not a comment.
 
 From `X` the zarrifier uses:
 
-- the `Name` attribute of the first `Image` start tag (the image name);
-- the attributes of the first `Pixels` start tag:
-  - `SizeZ`, `SizeC`, `SizeT` and `DimensionOrder`;
-  - `PhysicalSizeX/Y/Z` and `PhysicalSizeX/Y/ZUnit`;
-- the first `Plane` start tag after that `Pixels` start tag and before the
-  first `Pixels` end tag after it whose `TheZ`, `TheC` and `TheT` are each
-  absent or `0` (as integer attributes): its `PositionX`, `PositionY`,
-  `PositionXUnit` and `PositionYUnit` (the stage position of the plane);
-- the `Channel` start tags after that `Pixels` start tag and before the
-  first `Pixels` end tag after it (or the end of `X`), in order: the
-  `Name` and `Color` attributes of the first 64 (the channel names and
-  colors of `omero`, [§4.4](#44-arrays));
-- the `TiffData` start tags after that `Pixels` start tag and before the
-  first `Pixels` end tag after it (or the end of `X`), in order:
-  - with attributes `IFD`, `FirstZ`, `FirstC`, `FirstT` and `PlaneCount`;
-  - if the `Pixels` start tag is self-closing, there are none;
-- for each `TiffData` that is not self-closing, the first `UUID` start tag
-  after it and before the next `TiffData` end tag, `TiffData` start tag or
-  `Pixels` end tag:
-  - its `FileName` attribute;
-  - its **text**: empty if it is self-closing; otherwise the characters of `X` from the
-    end of the `UUID` tag to the start of the next tag, with skipped
-    sections (including the content of CDATA sections) removed,
-    references decoded as in attribute values, and
-    leading and trailing whitespace removed.
+| tag | which | what it gives |
+|---|---|---|
+| `Image` | the first start tag | its `Name` attribute (the image name) |
+| `Pixels` | the first start tag | its attributes `SizeZ`, `SizeC`, `SizeT` and `DimensionOrder`; `PhysicalSizeX/Y/Z` and `PhysicalSizeX/Y/ZUnit` |
+| `Plane` | the first start tag after that `Pixels` start tag and before the first `Pixels` end tag after it whose `TheZ`, `TheC` and `TheT` are each absent or `0` (as integer attributes) | its `PositionX`, `PositionY`, `PositionXUnit` and `PositionYUnit` (the stage position of the plane) |
+| `Channel` | the start tags after that `Pixels` start tag and before the first `Pixels` end tag after it (or the end of `X`), in order | the `Name` and `Color` attributes of the first 64 (the channel names and colors of `omero`, [§4.4](#44-arrays)) |
+| `TiffData` | the start tags after that `Pixels` start tag and before the first `Pixels` end tag after it (or the end of `X`), in order; if the `Pixels` start tag is self-closing, there are none | its attributes `IFD`, `FirstZ`, `FirstC`, `FirstT` and `PlaneCount` |
+| `UUID` | for each `TiffData` that is not self-closing, the first `UUID` start tag after it and before the next `TiffData` end tag, `TiffData` start tag or `Pixels` end tag | its `FileName` attribute, and its **text**: empty if it is self-closing; otherwise the characters of `X` from the end of the `UUID` tag to the start of the next tag, with skipped sections (including the content of CDATA sections) removed, references decoded as in attribute values, and leading and trailing whitespace removed |
 
 Without a `Pixels` start tag, every `Pixels` attribute is absent and there
 are no `TiffData` tags.
 
 **Values.**
 
-- **Integer attributes** (`SizeZ`, `SizeC`, `SizeT`, `First*`, `IFD`,
-  `PlaneCount`; `SizeX` and `SizeY` are not used): the whole
-  value MUST be one or more digits, optionally preceded and followed by
-  whitespace, and at most 2^53 − 1. `SizeZ`, `SizeC`, `SizeT` and
-  `PlaneCount` MUST be at least 1. Otherwise the input is rejected.
-- **`PositionX`, `PositionY`:** like `PhysicalSize*` below, but any finite
-  value counts (zero and negative too); the unit has no default (OME's
-  default, "reference frame", is not a length).
-- **`PhysicalSize*`:** a value counts as present only if the whole value
-  (with no whitespace) matches
-  `[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?` and its value is
-  finite and positive. Otherwise it is treated as absent.
-- **`DimensionOrder`:** MUST be `XY` followed by a permutation of `ZCT`, or
-  the input is rejected.
-- **Unit attributes:** matched exactly (by code points) against [conventions §5](../conventions.md#5-units).
+| attributes | value |
+|---|---|
+| **Integer attributes** (`SizeZ`, `SizeC`, `SizeT`, `First*`, `IFD`, `PlaneCount`; `SizeX` and `SizeY` are not used) | the whole value MUST be one or more digits, optionally preceded and followed by whitespace, and at most 2^53 − 1. `SizeZ`, `SizeC`, `SizeT` and `PlaneCount` MUST be at least 1. Otherwise the input is rejected |
+| **`PositionX`, `PositionY`** | like `PhysicalSize*` below, but any finite value counts (zero and negative too); the unit has no default (OME's default, "reference frame", is not a length) |
+| **`PhysicalSize*`** | a value counts as present only if the whole value (with no whitespace) matches `[+-]?([0-9]+(\.[0-9]*)?\|\.[0-9]+)([eE][+-]?[0-9]+)?` and its value is finite and positive. Otherwise it is treated as absent |
+| **`DimensionOrder`** | MUST be `XY` followed by a permutation of `ZCT`, or the input is rejected |
+| **Unit attributes** | matched exactly (by code points) against [conventions §5](../conventions.md#5-units) |
 
 The OME-XML's other content (for example `Interleaved`) is not used: the
 TIFF tags decide.
@@ -304,11 +305,33 @@ compression including JPEG 2000.
 ### 4.4 Arrays
 
 The hierarchy is one image at the root ([conventions §4](../conventions.md#4-images)), with one array per level at
-path `"<level>"`.
+path `"<level>"`. The **channel count** is `SizeC` after [§4.1](#41-planes), or `spp`
+without OME-XML. The axes, in this order, and along each, a level's shape and chunk shape and
+the image's scale (level `L` has width `WL` and length `HL`, level 0 width `W0` and length
+`H0`):
 
-- **Axes:** `t` if `SizeT > 1`; `c` if the channel count (`SizeC` after
-  [§4.1](#41-planes), or `spp` without OME-XML) is more than 1; `z` if `SizeZ > 1`; then
-  `y`, `x`.
+| axis | present when | shape | chunk shape | scale of level `L` | unit |
+|---|---|---|---|---|---|
+| `t` | `SizeT > 1` | `SizeT` | 1 | 1 | none |
+| `c` | the channel count is more than 1 | the channel count | `spp` if interleaved, else 1 | 1 | none |
+| `z` | `SizeZ > 1` | `SizeZ` | 1 | `PZ` | `z`'s (**Pixel size**) |
+| `y` | always | the level's length `HL` | the level's TileLength | `PY × (H0 / HL)` | `y`'s (**Pixel size**) |
+| `x` | always | the level's width `WL` | the level's TileWidth | `PX × (W0 / WL)` | `x`'s (**Pixel size**) |
+
+Levels may differ in tile size. (In a scale, the division is computed first.)
+
+<a id="type-tiffarray"></a>**`TiffArray`**, level `L`'s `zarr.json`: an
+[`ArrayDocument`](../conventions.md#type-arraydocument) with these members:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `shape` | array of integer | required | each present axis's shape, above |
+| `data_type` | string | required | from [§4.3](#43-data-types-and-codecs) |
+| `chunk_grid` | object | required | regular, its chunk shape each present axis's chunk shape, above |
+| `codecs` | array of object | required | from [§4.3](#43-data-types-and-codecs): `transpose` first when `spp > 1` and PlanarConfiguration is 1, then the codecs of the Compression's row |
+| `dimension_names` | array of string | required | the axes present, above |
+| `attributes` | object | required | `{}` |
+
 - **Pixel size.** `PX`, `PY`, `PZ` and the units of `x`, `y`, `z` come from
   the first of these that applies:
   1. **OME-XML:** `PX`, `PY`, `PZ` are `PhysicalSizeX/Y/Z`, and `x`, `y`, `z`
@@ -333,101 +356,111 @@ path `"<level>"`.
 
   Otherwise `PX`, `PY`, `PZ` are 1 with no unit. `t` and `c` have no unit.
 - **Position.** The image has a translation ([conventions §5](../conventions.md#5-units)), the same at every level,
-  when `x` and `y` have units and either
-  - the OME-XML's `Plane` has `PositionX` and `PositionY` with units that
-    are lengths ([conventions §5](../conventions.md#5-units)): their values converted to the units of `x` and `y`
-    are the centre of the image; or, without OME-XML,
-  - the Aperio description has fields `Left` and `Top` (millimetres, the
-    scanned area's top-left on the slide) whose values are present decimals
-    or zero: the translation is `x = Left × 1000`, `y = Top × 1000`
-    (micrometres).
-- **Shape:** the counts of `t`, `c`, `z`, then the level's length and width.
-- **Chunk shape:** 1 for `t` and `z`; for `c`, `spp` if interleaved, else 1;
-  then the level's TileLength and TileWidth (levels may differ).
-- **Scale** of level `L` (level 0 has width `W0`, length `H0`):
-  `y = PY × (H0 / HL)`, `x = PX × (W0 / WL)`, `z = PZ`, `t = c = 1`. (The
-  division is computed first.)
+  when `x` and `y` have units and either of these gives one:
+
+  | from | when | translation |
+  |---|---|---|
+  | the OME-XML's `Plane` | it has `PositionX` and `PositionY` with units that are lengths ([conventions §5](../conventions.md#5-units)) | their values converted to the units of `x` and `y` are the center of the image |
+  | the Aperio description, without OME-XML | it has fields `Left` and `Top` (millimeters, the scanned area's top-left on the slide) whose values are present decimals or zero | `x = Left × 1000`, `y = Top × 1000` (micrometers) |
 - **Name:** the OME `Image` name, if present and not empty.
-- **omero.** When the channel count (`SizeC` after [§4.1](#41-planes), or
-  `spp` without OME-XML) is at most 64 and every channel has a window
-  (below), `M` has `"omero": {"channels": [...]}` next to `multiscales`, one
-  object per channel (one object when there is no `c` axis). Otherwise `M`
-  has no `"omero"` member: with more channels, so that the root does not
-  grow with the channel count; with a channel of a `float` data type
-  ([§4.3](#43-data-types-and-codecs)) whose window is not sampled, because a
-  channel's `window` is required and a float type has no range to give it. Let channel `c`'s **name** be the `Name` of
-  the `c`-th `Channel` ([§3](#3-ome-xml)) when present, not empty and at most
-  256 bytes.
-  - With `spp > 1` (the channels are the samples), `spp` channels: when the
-    samples decode to RGB (PhotometricInterpretation 2, or 6 with
-    Compression 7, whose stream the codec decodes to RGB), samples 0, 1 and
-    2 are labeled `R`, `G` and `B`, with colors `FF0000`, `00FF00`,
-    `0000FF`; every other sample `s` is labeled `S<s>`, with color `FFFFFF`.
-    Each label follows channel 0's name and a space, when it has one.
-  - With `spp = 1`, channel `c`'s **label** is its name, else `C<c>`; its
-    **color** is the `c`-th `Channel`'s `Color` when that is an integer
-    from −2^31 to 2^31 − 1 (an optional `+` or `-` sign and digits,
-    whitespace around allowed), OME's signed 32-bit `RRGGBBAA`: its top 24
-    bits as six uppercase hex digits `RRGGBB`. Otherwise `FFFFFF`.
-  - Every channel has `"active": true` and a **window**. A TIFF records
-    no display range (SMinSampleValue and SMaxSampleValue, when present,
-    are the data's extremes, not a display setting), so the window is
-    sampled from the data, as refkv's demo samples a contrast range, when
-    the samples do not decode to RGB (above) and Compression is 1, 8 or
-    32946, whose chunks refkv decodes (it does not decode JPEG, JPEG 2000 or
-    zstd):
-    1. Channel `c`'s **sampled chunk** is the chunk of the last level (the
-       coarsest) with coords: along `t`, 0; along `c`, the chunk holding
-       channel `c` (`c`, or 0 when interleaved); along `z`, `y` and `x`, the
-       chunk holding index `floor(n / 2)`, `n` the axis' length. A chunk
-       that is absent, or whose bytes, encoded or decoded, are more than
-       2^26, is not sampled.
-    2. Its **values** are the chunk's bytes decoded by the codecs, which
-       MUST give exactly the chunk's size (else the chunk is not sampled),
-       as values of the data type: channel `c`'s (of each pixel's `spp`
-       values, the `c`-th, when interleaved), at the rows and columns inside
-       the array (an edge tile's padding past the image is left out),
-       leaving out those equal to the fill value 0 (in a coarse level they
-       are mostly the area outside the acquired region) and, of a float
-       type, those that are not finite.
-    3. Of the `m` values in ascending order, `start` is the one at index
-       `floor(m × 5 / 100)` and `end` the one at
-       `min(m − 1, floor(m × 999 / 1000))`, the 5th and 99.9th percentiles;
-       `min` and `max` are the type's least and greatest values for `uint`
-       and `int`, and the least and greatest of the values for `float`.
-       When `m` is 0 or `start` equals `end`, there is no sampled window.
 
-    A channel without a sampled window (RGB samples, which a window per
-    sample would tint; another compression; no sampled chunk or window)
-    has, for `uint` and `int`, the window of the type's whole range,
-    `{"min": lo, "max": hi, "start": lo, "end": hi}` with `lo` and `hi` the
-    type's least and greatest values (0 and 255 for `uint8`, −32768 and
-    32767 for `int16`), and for `float` none. An integer type's values are
-    JSON integers; a float type's are JSON numbers, a `float32` value
-    converted exactly to a double.
+**omero.** When the channel count is at most 64 and every channel has a window
+(below), `M` has `"omero"`, an [`Omero`](../conventions.md#type-omero), next to
+`multiscales`, with one [`TiffOmeroChannel`](#type-tiffomerochannel) per channel (one when
+there is no `c` axis). Otherwise `M` has no `"omero"` member: with more channels, so that
+the root does not grow with the channel count; with a channel of a `float` data type
+([§4.3](#43-data-types-and-codecs)) whose window is not sampled, because a channel's
+`window` is required and a float type has no range to give it. Let channel `c`'s **name**
+be the `Name` of the `c`-th `Channel` ([§3](#3-ome-xml)) when present, not empty and at
+most 256 bytes.
 
-  The members are written in the order label, color, active, window, and
-  the window's in the order min, max, start, end.
-- **Chunks:** for each plane (t, c, z) of a level, its IFD's tiles are numbered
-  `k = s × T + j`, where `T` is the number of tiles per sample plane
-  (`ceil(H/TileLength) × ceil(W/TileWidth)`), `j` runs row-major over the
-  tile grid, and `s` is the sample when `spp > 1` and planar (else 0). Both
-  TileOffsets and TileByteCounts MUST have `T` times the number of sample
-  planes values. The chunk with coords `t`, `c` (the plane's channel, or the
-  sample `s`, or 0 when interleaved), `z` (each only when present), then the
-  tile row and column, is tile `k`. It is present when TileByteCounts`[k]` is
-  more than 0, and absent (the fill value) otherwise. Its bytes are the
-  tile's, encoded as the codecs say; for JPEG, a JPEG tile is made a complete
-  stream with the IFD's JPEGTables and an explicit color transform for its
-  PhotometricInterpretation (2: RGB as stored; 6: YCbCr). For JPEG,
-  JPEGTables, when present, MUST be at least 4 bytes long, start with
-  `FF D8` and end with `FF D9`, and every present tile MUST be more than 2
-  bytes long.
+<a id="type-tiffomerochannel"></a>**`TiffOmeroChannel`**, an
+[`OmeroChannel`](../conventions.md#type-omerochannel):
+
+| member | type | presence | value |
+|---|---|---|---|
+| `label` | string | required | with `spp > 1` (the channels are the samples, `spp` of them), sample `s`'s label (below), following channel 0's name and a space, when it has one; with `spp = 1`, channel `c`'s name, else `C<c>` |
+| `color` | string | required | with `spp > 1`, sample `s`'s color (below); with `spp = 1`, the `c`-th `Channel`'s `Color` when that is an integer from −2^31 to 2^31 − 1 (an optional `+` or `-` sign and digits, whitespace around allowed), OME's signed 32-bit `RRGGBBAA`: its top 24 bits as six uppercase hex digits `RRGGBB`. Otherwise `FFFFFF` |
+| `active` | boolean | required | `true` |
+| `window` | [`Window`](../conventions.md#type-window) | required | the channel's **window** (below) |
+
+With `spp > 1`, the samples' labels and colors:
+
+| samples | sample `s` | label | color |
+|---|---|---|---|
+| decode to RGB (PhotometricInterpretation 2, or 6 with Compression 7, whose stream the codec decodes to RGB) | 0, 1 and 2 | `R`, `G` and `B` | `FF0000`, `00FF00`, `0000FF` |
+| decode to RGB | every other | `S<s>` | `FFFFFF` |
+| do not decode to RGB | every | `S<s>` | `FFFFFF` |
+
+Every channel has `"active": true` and a **window**. A TIFF records
+no display range (SMinSampleValue and SMaxSampleValue, when present,
+are the data's extremes, not a display setting), so the window is
+sampled from the data, as refkv's demo samples a contrast range, when
+the samples do not decode to RGB (above) and Compression is 1, 8 or
+32946, whose chunks refkv decodes (it does not decode JPEG, JPEG 2000 or
+zstd):
+1. Channel `c`'s **sampled chunk** is the chunk of the last level (the
+   coarsest) with coords: along `t`, 0; along `c`, the chunk holding
+   channel `c` (`c`, or 0 when interleaved); along `z`, `y` and `x`, the
+   chunk holding index `floor(n / 2)`, `n` the axis' length. A chunk
+   that is absent, or whose bytes, encoded or decoded, are more than
+   2^26, is not sampled.
+2. Its **values** are the chunk's bytes decoded by the codecs, which
+   MUST give exactly the chunk's size (else the chunk is not sampled),
+   as values of the data type: channel `c`'s (of each pixel's `spp`
+   values, the `c`-th, when interleaved), at the rows and columns inside
+   the array (an edge tile's padding past the image is left out),
+   leaving out those equal to the fill value 0 (in a coarse level they
+   are mostly the area outside the acquired region) and, of a float
+   type, those that are not finite.
+3. Of the `m` values in ascending order, `start` is the one at index
+   `floor(m × 5 / 100)` and `end` the one at
+   `min(m − 1, floor(m × 999 / 1000))`, the 5th and 99.9th percentiles;
+   `min` and `max` are the type's least and greatest values for `uint`
+   and `int`, and the least and greatest of the values for `float`.
+   When `m` is 0 or `start` equals `end`, there is no sampled window.
+
+A channel without a sampled window (RGB samples, which a window per
+sample would tint; another compression; no sampled chunk or window)
+has, for `uint` and `int`, the window of the type's whole range,
+`{"min": lo, "max": hi, "start": lo, "end": hi}` with `lo` and `hi` the
+type's least and greatest values (0 and 255 for `uint8`, −32768 and
+32767 for `int16`), and for `float` none. An integer type's values are
+JSON integers; a float type's are JSON numbers, a `float32` value
+converted exactly to a double.
+
+The members are written in the order label, color, active, window, and
+the window's in the order min, max, start, end.
+
+**Chunks:** for each plane (t, c, z) of a level, its IFD's tiles are numbered
+`k = s × T + j`, where `T` is the number of tiles per sample plane
+(`ceil(H/TileLength) × ceil(W/TileWidth)`), `j` runs row-major over the
+tile grid, and `s` is the sample when `spp > 1` and planar (else 0). Both
+TileOffsets and TileByteCounts MUST have `T` times the number of sample
+planes values. The chunk with coords `t`, `c` (the plane's channel, or the
+sample `s`, or 0 when interleaved), `z` (each only when present), then the
+tile row and column, is tile `k`. It is present when TileByteCounts`[k]` is
+more than 0, and absent (the fill value) otherwise. Its bytes are the
+tile's, encoded as the codecs say; for JPEG, a JPEG tile is made a complete
+stream with the IFD's JPEGTables and an explicit color transform for its
+PhotometricInterpretation (2: RGB as stored; 6: YCbCr). For JPEG,
+JPEGTables, when present, MUST be at least 4 bytes long, start with
+`FF D8` and end with `FF D9`, and every present tile MUST be more than 2
+bytes long. Its reference is a [`TiffChunk`](#type-tiffchunk) ([§7.3](#73-chunks)).
 
 ## 5. Source metadata
 
-The root's source metadata `S` is `{"byte_order": "little" | "big",
-"bigtiff": true | false}`. Everything else the file holds is on
+The root's source metadata `S` is a [`TiffRoot`](#type-tiffroot):
+
+<a id="type-tiffroot"></a>**`TiffRoot`**, the root's `S` (a QPTIFF's too,
+[qptiff.md §5](qptiff.md#5-source-metadata)):
+
+| member | type | presence | value |
+|---|---|---|---|
+| `byte_order` | string | required | `"little"` or `"big"`: the file's byte order |
+| `bigtiff` | boolean | required | `true` for a BigTIFF (magic 43), `false` for a TIFF (magic 42) |
+
+Everything else the file holds is on
 `refkv_source`, which is the file's **IR mirror**
 ([conventions §11.3](../conventions.md#113-the-ir-mirror)).
 This section is the TIFF **source model**: the elements of a TIFF's IR. Nothing is
@@ -470,11 +503,18 @@ pointer, a tile at another's offset) is an alias of that element.
 ### 5.2 Which IFDs
 
 The IFDs of [§2](#2-the-source), at depth 0 (`ifds/<i>`) and their SubIFDs (to depth 4); then
-the IFDs that pointer tags lead to: SubIFDs (330), ExifIFD (34665),
-GPSIFD (34853), InteroperabilityIFD (40965) when their field type is an
-unsigned integer type, GlobalParametersIFD (400) when it is LONG, and any
-other tag of field type IFD (13) or IFD8 (18) that is neither a tag the
-layout uses nor a layout table. The IFDs of [§2](#2-the-source) are visited in order (each
+the IFDs that these pointer tags lead to, each named in [§5.1](#51-elements) as shown:
+
+| tag | name | followed when | element |
+|---|---|---|---|
+| 330 | SubIFDs | its field type is an unsigned integer type | `…/subifds/<j>` |
+| 34665 | ExifIFD | its field type is an unsigned integer type | `…/exif` |
+| 34853 | GPSIFD | its field type is an unsigned integer type | `…/gps` |
+| 40965 | InteroperabilityIFD | its field type is an unsigned integer type | `…/interoperability` |
+| 400 | GlobalParametersIFD | its field type is LONG | `…/ifd_400` |
+| any other | | its field type is IFD (13) or IFD8 (18), and it is neither a tag the layout uses nor a layout table | `…/ifd_<tag>` |
+
+The IFDs of [§2](#2-the-source) are visited in order (each
 IFD, then its SubIFDs, depth first), and each pointer value in order; an IFD
 that a value leads to is read when it lies within the file, has at least one
 entry and does not overlap an IFD already read, at depth at most 4, while at
@@ -614,12 +654,14 @@ reserved word 0), in either byte order. An NDPI file is read with the changes gi
 present in an IFD read (whether or not that IFD is used), without reading
 its value:
 
-- **Field type:** ImageDescription may have any field type that TIFF 6.0 or
-  BigTIFF defines (1–12, 16–18), or 13 (IFD). JPEGTables MUST have type
-  BYTE (1) or UNDEFINED (7); its value is its bytes. XResolution and
-  YResolution MUST have type RATIONAL (5). Every other tag MUST
-  have an unsigned integer type: BYTE (1), SHORT (3), LONG (4), IFD (13), LONG8
-  (16) or IFD8 (18), in either TIFF variant. Any other type rejects.
+- **Field type:** each tag's field type is one of these. Any other type rejects.
+
+  | tag | field types |
+  |---|---|
+  | ImageDescription | may be any field type that TIFF 6.0 or BigTIFF defines (1–12, 16–18), or 13 (IFD) |
+  | JPEGTables | MUST be BYTE (1) or UNDEFINED (7); its value is its bytes |
+  | XResolution, YResolution | MUST be RATIONAL (5) |
+  | every other tag | MUST be an unsigned integer type: BYTE (1), SHORT (3), LONG (4), IFD (13), LONG8 (16) or IFD8 (18), in either TIFF variant |
 - **Count:** a scalar tag MUST have at least one value. An array tag may
   have any count; BitsPerSample and SampleFormat with no values reject
   when they are used.
@@ -633,13 +675,11 @@ used): of a scalar tag, its first value (the only one used); of an array
 tag, every value; of ImageDescription and JPEGTables, their bytes. They are
 read for:
 
-- the SubIFDs tag of each IFD whose SubIFDs are read (above);
-- IFD 0's ImageDescription, when its field type is ASCII (2);
-- IFD 0 and every IFD that becomes a plane or a level, or is a candidate
-  of the level scan ([the convention §4.1,
-  §4.2](#41-planes)): every other tag of the
-  table but TileOffsets and TileByteCounts, which are read only for planes
-  and levels.
+| IFDs | values read |
+|---|---|
+| each IFD whose SubIFDs are read (above) | its SubIFDs tag |
+| IFD 0 | its ImageDescription, when its field type is ASCII (2) |
+| IFD 0 and every IFD that becomes a plane or a level, or is a candidate of the level scan ([the convention §4.1, §4.2](#41-planes)) | every other tag of the table but TileOffsets and TileByteCounts, which are read only for planes and levels |
 
 Each value read of an integer type MUST be at most 2^53 − 1 (only a LONG8
 or IFD8 value can exceed it). The values of the other IFDs are not read:
@@ -677,19 +717,33 @@ arrays, whose chunks hold copied bytes, and its view's groups.
 tables (which are in the IFD's JPEGTables) and the color transform (which
 is given by PhotometricInterpretation). Each tile's reference makes it the
 complete stream that the convention's chunk holds by inserting, after the
-tile's first 2 bytes (its SOI marker), the shared byte string `P`:
+tile's first 2 bytes (its SOI marker), the shared byte string `P`, a
+[`TiffJpegPrefix`](#type-tiffjpegprefix):
 
-- for 3 samples, the Adobe marker `FF EE 00 0E 41 64 6F 62 65 00 64 00 00
-  00 00 T`, with transform `T` = 0 for PhotometricInterpretation 2 (the
-  samples are RGB as stored) and 1 for 6 (YCbCr);
-- if the IFD has JPEGTables: its bytes without the first 2 and the last 2.
-  JPEGTables MUST then be at least 4 bytes long, start with `FF D8` and
-  end with `FF D9`.
+<a id="type-tiffjpegprefix"></a>**`TiffJpegPrefix`**, `P`, the bytes of a data source
+([§1.2](../zarrify.md#12-input)), in this order (empty but for JPEG):
+
+| part | range | presence | value |
+|---|---|---|---|
+| the Adobe marker | bytes | optional | for 3 samples: the 16 bytes `FF EE 00 0E 41 64 6F 62 65 00 64 00 00 00 00 T`, with transform `T` = 0 for PhotometricInterpretation 2 (the samples are RGB as stored) and 1 for 6 (YCbCr) |
+| the tables | bytes | optional | if the IFD has JPEGTables: its bytes without the first 2 and the last 2. JPEGTables MUST then be at least 4 bytes long, start with `FF D8` and end with `FF D9` |
 
 `n` MUST be more than 2. When `P` is empty (one sample, no JPEGTables) the
-tile has the single range above; otherwise it has the ranges
-`[(0, TileOffsets[k], 2), R, (0, TileOffsets[k] + 2, n − 2)]`, where `R` is
-a range of the data source ([§1.2](../zarrify.md#12-input)) that holds `P`. Every byte of the tile is
+tile has the single range above; otherwise it has three ranges, the middle one `R`, a
+range of the data source ([§1.2](../zarrify.md#12-input)) that holds `P`:
+
+<a id="type-tiffchunk"></a>**`TiffChunk`**, the reference of tile `k`, with `o =
+TileOffsets[k]` and `n = TileByteCounts[k] > 0` (a QPTIFF's tile or strip too,
+[qptiff.md §7](qptiff.md#7-qptiff-profile)):
+
+| part | range | presence | value |
+|---|---|---|---|
+| the tile | source range `(0, o, n)` | optional | when `P` is empty (every compression but JPEG, and JPEG with one sample and no JPEGTables): the whole tile, the chunk's one range |
+| the tile's SOI | source range `(0, o, 2)` | optional | when `P` is not empty: the tile's first 2 bytes |
+| `P` | `R`, source range `(i, 0, len(P))` | optional | when `P` is not empty: the whole data source `i` that holds `P`, a [`TiffJpegPrefix`](#type-tiffjpegprefix) |
+| the rest of the tile | source range `(0, o + 2, n − 2)` | optional | when `P` is not empty: the tile's bytes after its first 2 |
+
+Every byte of the tile is
 referenced, none replaced, so the chunk holds the tile whatever its first 2
 bytes are. `P` depends only on the IFD, so every tile of an IFD has the
 same `P`, and IFDs with the same bytes (as several levels of a slide often
