@@ -2,6 +2,11 @@
   "about": "The inputs the mp4 profile rejects, each with the start of its message (the Rust tests' prefix, or what each store test's message contains), and, where the Python host rejects it earlier, the host's message. rust/refkv-ir/build.rs writes a Rust test per case into tests/mp4.rs; python/tests/ir/test_rejects.py checks each through the host and that every rejected fixture is listed here.",
   "cases": [
     {
+      "test": "edge_reject_mp4_ftyp_short",
+      "input": "edge_reject_mp4_ftyp_short.mp4",
+      "message": "the ftyp box at 0 has 4 bytes, too few for its 8 bytes of fields"
+    },
+    {
       "test": "mp4_reject_box_outside",
       "input": "mp4_reject_box_outside.mp4",
       "message": "the 7481-byte moov box at 32 is outside its parent, which ends at 6388"

@@ -5,7 +5,8 @@ with and without B-frames, intra-only, odd sizes, a variable frame rate, long en
 several chunks, groups of pictures of unequal lengths, open groups, two video tracks; AAC and MP3 audio,
 alone and beside video; the moov box before and after the media data, a 64-bit mdat size and an
 mdat that runs to the end of the file; tracks the profile does not zarrify (HEVC, 10-bit
-H.264) beside ones it does; and the inputs it rejects (`mp4_reject_*`).
+H.264) beside ones it does; and the inputs it rejects (`mp4_reject_*`). The byte-crafted edge
+cases are write_edge_fixtures.py's.
 
 The media are ffmpeg's test sources encoded by ffmpeg (libx264, libx265, its AAC encoder and
 libmp3lame), with the bit-exact flags so that a build writes no version strings; some files
@@ -90,8 +91,10 @@ def main() -> None:
     if shutil.which("ffmpeg") is None:
         sys.exit("ffmpeg is not on PATH")
     OUT.mkdir(exist_ok=True)
+    # the byte-crafted edge_*.mp4 files are write_edge_fixtures.py's
     for old in list(OUT.glob("*.mp4")) + list(OUT.glob("*.mov")):
-        old.unlink()
+        if not old.name.startswith("edge_"):
+            old.unlink()
 
     # H.264: B-frames in groups of 10 with the moov box first; the baseline profile (no
     # B-frames) with the moov box last; every frame a keyframe; a size that is not a multiple
