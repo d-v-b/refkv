@@ -28,6 +28,8 @@ FITS_CARDS = {
 }
 
 FITS_NUMBER = {"anyOf": [{"type": ["number", "null"]}, BIG_INTEGER]}
+# TNULLn: a string in an ASCII table, an integer in a binary one
+FITS_STRING_OR_NUMBER = {"type": ["string", "number", "null"]}
 
 FITS_STRING = {"type": ["string", "null"]}
 
@@ -90,8 +92,8 @@ SCHEMA = {"anyOf": [
             "columns": {"type": "array", "items": {
                 "type": "object",
                 "properties": {"name": FITS_STRING, "form": {"type": "string"}, "unit": FITS_STRING, "dim": FITS_STRING,
-                               "scale": FITS_NUMBER, "zero": FITS_NUMBER, "null": {"type": ["string", "number", "null"]}, "disp": FITS_STRING,
-                               "bcol": FITS_NUMBER},
+                               "scale": FITS_NUMBER, "zero": FITS_NUMBER, "null": FITS_STRING_OR_NUMBER,
+                               "disp": FITS_STRING, "bcol": FITS_NUMBER},
                 "required": ["name", "form", "unit", "dim", "scale", "zero", "null", "disp", "bcol"],
                 "additionalProperties": False,
             }},
