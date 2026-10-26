@@ -10,7 +10,7 @@ use crate::fed::Word;
 use crate::fits::{card, parse_cards, Card, Value};
 use crate::fits_tiles::{prefix, TileRecord};
 use crate::ir::Ir;
-use crate::out::{array_json, blob_chunks, bytes_codec, declare_array, declared_group, grid_chunks, item_size, json_size, Chunk, Out, Part};
+use crate::out::{array_json, blob_chunks, bytes_codec, declare_array, declared_group, grid_chunks, int_json, item_size, json_size, Chunk, Out, Part};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 
@@ -21,7 +21,6 @@ const CHUNK_BYTES: u64 = 1 << 20;
 /// The most bytes of JSON a node's cards may take (§5.3
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#53-cards>).
 const CARDS_BUDGET: usize = 65536;
-const MAX_SAFE: i128 = (1 << 53) - 1;
 
 /// A card's value as JSON (§5.3
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#53-cards>): an integer exactly, as a string past 2^53 − 1; a real as
@@ -30,8 +29,7 @@ fn value_json(v: &Value) -> J {
     match v {
         Value::None => J::Null,
         Value::Logical(b) => json!(b),
-        Value::Int(n) if (-MAX_SAFE..=MAX_SAFE).contains(n) => json!(*n as i64),
-        Value::Int(n) => json!(n.to_string()),
+        Value::Int(n) => int_json(*n),
         Value::Real(x, t) => if x.is_finite() { json!(x) } else { json!({"text": t}) },
         Value::Str(s) => json!(s),
         Value::Complex(r, i) => json!([r, i]),
@@ -46,7 +44,7 @@ fn cards_json(cards: &[Card]) -> J {
 /// A card's numeric value, when it has one.
 fn number(cards: &[Card], keyword: &str) -> J {
     match card(cards, keyword).map(|c| &c.value) {
-        Some(Value::Int(n)) if (-MAX_SAFE..=MAX_SAFE).contains(n) => json!(*n as i64),
+        Some(Value::Int(n)) => int_json(*n),
         Some(Value::Real(x, _)) if x.is_finite() => json!(x),
         _ => J::Null,
     }
@@ -349,15 +347,16 @@ mod tests {
     }
 
     /// A table's `null` member is TNULLn as the card holds it: an ASCII table's string, a
-    /// binary table's integer (spec/zarrify/fits.md §5.2
+    /// binary table's integer, the string of its digits past 2^53 − 1 (spec/zarrify/fits.md §5.2
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#52-an-hdus-node>).
     #[test]
     fn a_column_s_null_is_tnull_as_the_card_holds_it() {
-        let h = json!({"index": 1, "kind": "table", "table": {"tform": ["I8", "J"]}});
-        let raw = records(&["TNULL1  = 'N/A     '", "TNULL2  =                  -99"]);
-        let own = own_json(&h, &parse_cards(&raw, 2));
+        let raw = records(&["TNULL1  = 'N/A     '", "TNULL2  =                  -99", "TNULL3  = -9223372036854775808"]);
+        let h = json!({"index": 1, "kind": "table", "table": {"tform": ["I8", "J", "K"]}});
+        let own = own_json(&h, &parse_cards(&raw, 3));
         let columns = own["columns"].as_array().unwrap();
         assert_eq!(columns[0]["null"], json!("N/A"));
         assert_eq!(columns[1]["null"], json!(-99));
+        assert_eq!(columns[2]["null"], json!("-9223372036854775808"));
     }
 }

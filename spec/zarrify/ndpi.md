@@ -44,7 +44,7 @@ The hierarchy's entries ([conventions §11.5](../conventions.md#115-layout-table
 | `zarr.json#/attributes/ome` | attribute | [`OmeImage`](../conventions.md#type-omeimage) | `M`: one multiscale, without a name, with the axes `c`, `y`, `x` ([§3](#3-levels)), one level per array with the scale and translation of [§4](#4-the-image); `omero` one [`OmeroChannel`](../conventions.md#type-omerochannel) per sample, as [§4](#4-the-image) says |
 | `zarr.json#/attributes/zarr_conventions` | attribute | array of [`ConventionMetadata`](../conventions.md#type-conventionmetadata) | the CMO of [§1](#1-declaration) |
 | `zarr.json#/attributes/refkv_zarrified` | attribute | [`RootProperty`](../conventions.md#type-rootproperty) | `profile` `"ndpi"`, `version` `0`, `source.url` the file's URL |
-| `zarr.json#/attributes/refkv_zarrified/ndpi` | attribute | [`NdpiRoot`](#type-ndpiroot) | the root's source metadata ([§5](#5-source-metadata)), when level 0 has one of the acquisition tags |
+| `zarr.json#/attributes/refkv_zarrified/ndpi` | attribute | [`NdpiRoot`](#type-ndpiroot) | the root's source metadata ([§5](#5-source-metadata)), when `S` is not empty: level 0 has one of the acquisition tags, with a value |
 | `<L>/zarr.json` | array | [`NdpiArray`](#type-ndpiarray) | level `L` ([§3](#3-levels), [§4](#4-the-image)) |
 | `<L>/c/0/<u>/<v>` | chunk | [`NdpiStripChunk`](#type-ndpistripchunk), [`NdpiMcuChunk`](#type-ndpimcuchunk) or [`NdpiJpegXrChunk`](#type-ndpijpegxrchunk) | the chunks of level `L` ([§4](#4-the-image)): of a JPEG level without McuStarts, its one chunk (`u` and `v` 0), an `NdpiStripChunk`; of a JPEG level with McuStarts, chunk `(u, v)`, an `NdpiMcuChunk`; of a JPEG XR level, each tile whose byte count is above 0, or its one strip, an `NdpiJpegXrChunk` ([§7](#7-ndpi-profile)) |
 | `refkv_source/**` | subtree | [the mirror's entries](../conventions.md#table-mirror) | the IR mirror ([§5](#5-source-metadata)): its elements are [§5.1](#51-elements)'s |
@@ -265,7 +265,9 @@ own size, its intervals, and restart markers and an EOI of its own, so:
 The root's source metadata `S` ([conventions §2](../conventions.md#2-attributes))
 has, of level 0's IFD, the acquisition tags of [§2](#2-the-source) it has, in
 this order, each as [conventions §6](../conventions.md#6-source-metadata-as-json)
-translates it: <a id="type-ndpiroot"></a>**`NdpiRoot`**,
+translates it.
+
+<a id="type-ndpiroot"></a>**`NdpiRoot`**, the root's source metadata `S`:
 
 | member | type | presence | value |
 |---|---|---|---|
@@ -607,5 +609,4 @@ as it is:
 
 | part | range | presence | value |
 |---|---|---|---|
-| tile `j` | source range `(0, t, n)` | optional | of a tiled level: `t` and `n` the tile's offset and length (**Tiles**, above), `n` above 0 |
-| the strip | source range `(0, o, m)` | optional | of a level in one strip: all of `S`, `o` its offset and `m` its length |
+| the stream | source range `(0, t, n)` | required | of a tiled level, tile `j`: `t` and `n` its offset and length (**Tiles**, above), `n` above 0; of a level in one strip, the strip: `S`, `t` its offset and `n` its length |

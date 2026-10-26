@@ -1,13 +1,12 @@
 """The FLAC convention's source metadata (spec/zarrify/flac.md), for
 spec/generate_schemas.py."""
 
+from source_metadata import BIG_INTEGER
 from source_metadata.mp3 import ID3V1, ID3V2
 
 _COUNT = {"type": "integer", "minimum": 0}
-# A 64-bit integer of the source, as spec/conventions.md §6
-# <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json> writes it: a
-# number up to 2^53 - 1 in magnitude, else the string of its decimal digits.
-_U64 = {"anyOf": [_COUNT, {"type": "string", "pattern": "^[1-9][0-9]{15,19}$"}]}
+# A 64-bit count: a number, or past 2^53 - 1 the string of its digits
+_U64 = {"anyOf": [_COUNT, BIG_INTEGER]}
 
 SCHEMA = {"anyOf": [
     {

@@ -1,6 +1,8 @@
 """The FITS convention's source metadata (spec/zarrify/fits.md), for
 spec/generate_schemas.py."""
 
+from source_metadata import BIG_INTEGER
+
 # The FITS convention's cards (spec/zarrify/fits.md §5.3
 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#53-cards>): [keyword, value,
 # comment] triples in header order, duplicates kept; null past the 65536-byte budget of a node's document.
@@ -25,7 +27,7 @@ FITS_CARDS = {
     ],
 }
 
-FITS_NUMBER = {"type": ["number", "null"]}
+FITS_NUMBER = {"anyOf": [{"type": ["number", "null"]}, BIG_INTEGER]}
 
 FITS_STRING = {"type": ["string", "null"]}
 

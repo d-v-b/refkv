@@ -175,7 +175,7 @@
                 },
                 {
                   "type": "string",
-                  "pattern": "^[1-9][0-9]{15,19}$"
+                  "pattern": "^-?[1-9][0-9]{15,19}$"
                 }
               ]
             },
@@ -256,7 +256,7 @@
                 },
                 {
                   "type": "string",
-                  "pattern": "^[1-9][0-9]{15,19}$"
+                  "pattern": "^-?[1-9][0-9]{15,19}$"
                 }
               ],
               "description": "The media duration, in the timescale"
@@ -275,7 +275,7 @@
                       },
                       {
                         "type": "string",
-                        "pattern": "^[1-9][0-9]{15,19}$"
+                        "pattern": "^-?[1-9][0-9]{15,19}$"
                       }
                     ]
                   },
@@ -286,7 +286,7 @@
                       },
                       {
                         "type": "string",
-                        "pattern": "^-?[1-9][0-9]{15,18}$"
+                        "pattern": "^-?[1-9][0-9]{15,19}$"
                       }
                     ]
                   },
@@ -385,7 +385,7 @@
                 },
                 {
                   "type": "string",
-                  "pattern": "^[1-9][0-9]{15,19}$"
+                  "pattern": "^-?[1-9][0-9]{15,19}$"
                 }
               ],
               "description": "The media duration, in the timescale"
@@ -404,7 +404,7 @@
                       },
                       {
                         "type": "string",
-                        "pattern": "^[1-9][0-9]{15,19}$"
+                        "pattern": "^-?[1-9][0-9]{15,19}$"
                       }
                     ]
                   },
@@ -415,7 +415,7 @@
                       },
                       {
                         "type": "string",
-                        "pattern": "^-?[1-9][0-9]{15,18}$"
+                        "pattern": "^-?[1-9][0-9]{15,19}$"
                       }
                     ]
                   },

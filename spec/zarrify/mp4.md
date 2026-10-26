@@ -533,8 +533,8 @@ and the track is kept in the mirror but has no group:
   not AAC-LC (2), or its frames are 960 samples; or its sample rate or
   channel count is 0;
 - its track ID is an earlier zarrified track's (`its track ID n is an earlier zarrified
-  track's`): a zarrified track's group is named by its ID, so of two tracks that share one,
-  the first is zarrified.
+  track's`): a zarrified track's group is named by its ID, so of the tracks that share one,
+  only the first that no other reason keeps from being zarrified is zarrified.
 
 The channel count and sample rate of an AAC track are its
 AudioSpecificConfig's (the sample entry's channel count when its channel

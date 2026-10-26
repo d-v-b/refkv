@@ -12,7 +12,9 @@ Schema: [schema.json](fits/schema.json) · Changed 2026-10-25: an edge chunk's z
 is a range of the output's one zero data source, not a literal range of each reference, so that
 the archive holds the zeros once ([§9.4](#94-chunks)); no chunk's values change, nor which
 chunks are copied · Changed 2026-10-26: an ASCII table's `TNULLn` is its column's `null`, a
-string, where it was `null` ([§5.2](#52-an-hdus-node)); the layout is tabulated, its entries in
+string, where it was `null`, and an integer card of an HDU's or a column's member past
+2^53 − 1 is the string of its digits, as in the cards, where it was `null`
+([§5.2](#52-an-hdus-node)); the layout is tabulated, its entries in
 [Layout](#layout) and its types in type tables
 ([conventions §11.5](../conventions.md#115-layout-tables)), and the text says what refkv
 already wrote: a table's `rows` array is present, without chunks, when `NAXIS1 × NAXIS2` is 0
@@ -380,9 +382,9 @@ members in this order:
 |---|---|---|---|
 | `index` | integer | required | the HDU's number |
 | `cards` | [`FitsCards`](#type-fitscards) | required | the HDU's header's cards ([§5.3](#53-cards)) |
-| `bscale` | number or null | optional | for an image: `BSCALE`, the card's number, or `null` when absent or not a number |
-| `bzero` | number or null | optional | for an image: `BZERO`, likewise |
-| `blank` | number or null | optional | for an image: `BLANK`, likewise |
+| `bscale` | number, [`Integer`](../conventions.md#type-integer) or null | optional | for an image: `BSCALE`, the card's number (an integer card past 2^53 − 1 the string of its digits), or `null` when absent or not a number |
+| `bzero` | number, [`Integer`](../conventions.md#type-integer) or null | optional | for an image: `BZERO`, likewise |
+| `blank` | number, [`Integer`](../conventions.md#type-integer) or null | optional | for an image: `BLANK`, likewise |
 | `bunit` | string or null | optional | for an image: `BUNIT`, the card's string, or `null` |
 | `columns` | array of [`FitsColumn`](#type-fitscolumn) | optional | for a table: one object per column `n` of `1 … TFIELDS` |
 
@@ -396,11 +398,11 @@ either: a string in an ASCII table, an integer in a binary one):
 | `form` | string | required | `TFORMn`, trailing spaces trimmed |
 | `unit` | string or null | required | `TUNITn` |
 | `dim` | string or null | required | `TDIMn` |
-| `scale` | number or null | required | `TSCALn` |
-| `zero` | number or null | required | `TZEROn` |
-| `null` | string, number or null | required | `TNULLn`: a number in a binary table, a string in an ASCII table |
+| `scale` | number, [`Integer`](../conventions.md#type-integer) or null | required | `TSCALn` |
+| `zero` | number, [`Integer`](../conventions.md#type-integer) or null | required | `TZEROn` |
+| `null` | string, number, [`Integer`](../conventions.md#type-integer) or null | required | `TNULLn`: an integer in a binary table, a string in an ASCII table |
 | `disp` | string or null | required | `TDISPn` |
-| `bcol` | number or null | required | `TBCOLn` |
+| `bcol` | number, [`Integer`](../conventions.md#type-integer) or null | required | `TBCOLn` |
 
 ### 5.3 Cards
 
