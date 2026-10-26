@@ -108,15 +108,14 @@ def crop(strip: bytes, starts: list[int], per_row: int, x0: int, y0: int, across
 
 class Ndpi:
     """An NDPI file: little-endian, an 8-byte first-IFD offset, and IFDs
-    followed by an 8-byte next offset and a high word per entry. With
-    `ascii_in_line` false, an ASCII value is out of line whatever its size, as
-    Hamamatsu writes it (spec/zarrify/ndpi.md §7
+    followed by an 8-byte next offset and a high word per entry. An ASCII
+    value is out of line whatever its size, as Hamamatsu writes it
+    (spec/zarrify/ndpi.md §7
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>)."""
 
-    def __init__(self, *, ascii_in_line: bool = True) -> None:
+    def __init__(self) -> None:
         self.buf = bytearray(b"II*\x00" + b"\x00" * 8)
         self.ifds: list[int] = []
-        self.ascii_in_line = ascii_in_line
 
     def blob(self, data: bytes) -> int:
         offset = len(self.buf)
@@ -152,7 +151,7 @@ class Ndpi:
             else:
                 raw = struct.pack(f"<{len(values)}{ {3: 'H', 4: 'I', 9: 'i', 11: 'f', 13: 'I', 16: 'Q'}[typ] }",
                                   *values)
-            in_line = len(raw) <= 4 and (typ != 2 or self.ascii_in_line or not raw)
+            in_line = len(raw) <= 4 and (typ != 2 or not raw)
             field = raw.ljust(4, b"\x00") if in_line else struct.pack("<I", self.blob(raw))
             entries.append(struct.pack("<HHI", tag, typ, len(values)) + field)
         n = len(entries)

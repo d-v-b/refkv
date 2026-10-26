@@ -2468,16 +2468,17 @@ impl Tiff {
         }
         // McuStarts plus McuStartsHighBytes × 2^32 (spec/zarrify/ndpi.md §7
         // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>), whether
-        // the high table has as many values, and whether, for one in-line LONG, whose value has
-        // its entry's high word already, the high table holds that word (and is not added)
-        let starts_of = |k: usize, m: &NVals| -> Option<(Vec<u64>, bool, bool)> {
+        // the high table has as many values, whether, for one in-line LONG, whose value has its
+        // entry's high word already, the high table holds that word (and is not added), and
+        // whether the high table was added
+        let starts_of = |k: usize, m: &NVals| -> Option<(Vec<u64>, bool, bool, bool)> {
             let starts = m.get(&65426).and_then(|v| v.ints())?.to_vec();
             let high = m.get(&65432).and_then(|v| v.ints());
             let word = self.ifds[k].field(65426).filter(|e| ndpi_high_word(e)).map(|e| e.high);
             Some(match (high, word) {
-                (Some(h), _) if h.len() != starts.len() => (starts, false, true),
-                (Some(h), Some(w)) => (starts, true, h[0] == w),
-                (h, _) => (ndpi::combine(starts, h), true, true),
+                (Some(h), _) if h.len() != starts.len() => (starts, false, true, false),
+                (Some(h), Some(w)) => (starts, true, h[0] == w, false),
+                (h, _) => (ndpi::combine(starts, h), true, true, h.is_some()),
             })
         };
         let tiled_of = |k: usize, m: &NVals| {
@@ -2507,7 +2508,7 @@ impl Tiff {
                 continue;
             }
             match starts_of(k, &m) {
-                Some((starts, true, true)) => {
+                Some((starts, true, true, _)) => {
                     let first = starts.first().is_some_and(|&f| f >= 2 && f <= n);
                     if fits && first && !self.heads.contains_key(&(s0, starts[0])) {
                         need.push((s0, starts[0]));
@@ -2674,7 +2675,9 @@ impl Tiff {
             let within = (s0 as u128 + n as u128) <= self.size as u128;
             self.rules.check("strip", rules::env([("within", flag(within)), ("length", num(n as f64))]))?;
             let head = starts_of(k, m);
-            if let Some((starts, same_length, high_word)) = &head {
+            // the projection adds McuStartsHighBytes as the layout does
+            let added = head.as_ref().is_some_and(|x| x.3);
+            if let Some((starts, same_length, high_word, _)) = &head {
                 self.rules.check(
                     "mcu_starts",
                     rules::env([
@@ -2729,10 +2732,7 @@ impl Tiff {
                     ndpi::Grid::new(s0, n, w, h, hb, hd, starts, &before, &after, self.rules)?.facts()
                 }
             };
-            // McuStartsHighBytes, when added: not to McuStarts of one in-line LONG, which holds its
-            // entry's high word instead
-            let one_word = self.ifds[k].field(65426).is_some_and(ndpi_high_word);
-            let high = if one_word { J::Null } else { self.ent_facts(k, 65432) };
+            let high = if added { self.ent_facts(k, 65432) } else { J::Null };
             out.push(json!({
                 "w": w, "h": h, "strip": s0, "length": n,
                 "starts": self.ent_facts(k, 65426), "high": high, "grid": grid, "frame": frame,

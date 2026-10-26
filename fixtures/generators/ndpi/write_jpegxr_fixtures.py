@@ -204,7 +204,7 @@ def main() -> None:
     strip(f, jpeg, 40, 25, 10.0, compression=7)
     f.write("edge_reject_ndpi_compressions.ndpi")
     # after the others, which the generator's draws would otherwise change
-    f = Ndpi(ascii_in_line=False)
+    f = Ndpi()
     strip(f, jxr(image("uint16", 16, 24)), 24, 16, 20.0, extra={65434: (ASCII, b"Cy5\0"), 65451: (FLOAT, [670.0])})
     f.write("ndpi_jpegxr_cy5.ndpi")
     for p in [*sorted(OUT.glob("*jpegxr*")), OUT / "edge_reject_ndpi_compressions.ndpi"]:
