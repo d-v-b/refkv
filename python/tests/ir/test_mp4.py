@@ -248,6 +248,7 @@ TRACKS = [
     ("mp4_h264_aac.mp4", ["tracks/1", "tracks/2"], {}),
     ("mov_h264_aac.mov", ["tracks/1", "tracks/2"], {}),
     ("mp4_h264_two_tracks.mp4", ["tracks/1", "tracks/2"], {}),
+    ("edge_mp4_duplicate_track_id.mp4", ["tracks/1"], {1: "its track ID 1 is an earlier zarrified track's"}),
 ]
 
 

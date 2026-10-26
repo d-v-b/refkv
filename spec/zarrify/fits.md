@@ -11,12 +11,15 @@ Convention version: 0 (until release, [conventions §1](../conventions.md#1-conv
 Schema: [schema.json](fits/schema.json) · Changed 2026-10-25: an edge chunk's zero padding
 is a range of the output's one zero data source, not a literal range of each reference, so that
 the archive holds the zeros once ([§9.4](#94-chunks)); no chunk's values change, nor which
-chunks are copied · Changed 2026-10-26, with no change to any output: the layout is tabulated,
-its entries in [Layout](#layout) and its types in type tables
-([conventions §11.5](../conventions.md#115-layout-tables)), which also state what refkv already
-wrote and the prose left unsaid: a real card value that is not finite in binary64 is
-`{"text": t}` ([§5.3](#53-cards)), and a tile-compressed image's summary carries its
-`compression` ([§9.5](#95-summary))
+chunks are copied · Changed 2026-10-26: an ASCII table's `TNULLn` is its column's `null`, a
+string, where it was `null` ([§5.2](#52-an-hdus-node)); the layout is tabulated, its entries in
+[Layout](#layout) and its types in type tables
+([conventions §11.5](../conventions.md#115-layout-tables)), and the text says what refkv
+already wrote: a table's `rows` array is present, without chunks, when `NAXIS1 × NAXIS2` is 0
+([§4](#4-tables)); a compression's `dither_seed` is `null` without `ZDITHER0`
+([§5.1](#51-the-root)); a real card value that is not finite in binary64 is `{"text": t}`
+([§5.3](#53-cards)); and a tile-compressed image's summary carries its `compression`
+([§9.5](#95-summary))
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
@@ -62,7 +65,7 @@ The hierarchy's entries ([conventions §11.5](../conventions.md#115-layout-table
 | `<i>/zarr.json#/attributes/refkv_zarrified/fits` | attribute | [`FitsNode`](#type-fitsnode) | the HDU's source metadata ([§5.2](#52-an-hdus-node)) |
 | `<i>/c/<coords>` | chunk | [`FitsChunk`](#type-fitschunk) | every chunk of an image's array ([§9.4](#94-chunks)) |
 | `<i>/c/<coords>` | chunk | [`FitsTiledChunk`](#type-fitstiledchunk) | a chunk of a tile-compressed image's array with at least one tile ([§3.3](#33-tile-compressed-images), [§9.4](#94-chunks)) |
-| `<i>/rows/zarr.json` | array | [`FitsRowsArray`](#type-fitsrowsarray) | a table's rows, absent when `NAXIS1 × NAXIS2` is 0 ([§4](#4-tables)) |
+| `<i>/rows/zarr.json` | array | [`FitsRowsArray`](#type-fitsrowsarray) | a table's rows, with no chunk when `NAXIS1 × NAXIS2` is 0 ([§4](#4-tables)) |
 | `<i>/rows/c/<coords>` | chunk | [`FitsChunk`](#type-fitschunk) | every chunk of a table's rows ([§9.4](#94-chunks)) |
 | `<i>/heap/zarr.json` | array | [`FitsHeapArray`](#type-fitsheaparray) | a table's heap, when it is not empty ([§4](#4-tables)) |
 | `<i>/heap/c/<k>` | chunk | [`FitsHeapChunk`](#type-fitsheapchunk) | every chunk of a table's heap ([§9.4](#94-chunks)) |
@@ -271,8 +274,8 @@ tile's coords less the first tile's, times the tile shape); an edge tile is smal
 tile shape; the chunk's other pixels are 0.
 
 The main table (the descriptors) is in the mirror ([§6.1](#61-elements)) and
-is not an array; the columns are in the root's table of HDUs
-([§5.1](#51-the-root)).
+is not an array; its columns are its header's cards (`TTYPEn`, `TFORMn`, ...), in its
+node's source metadata ([§5.2](#52-an-hdus-node)).
 
 ## 4. Tables
 
@@ -286,9 +289,9 @@ big-endian fields, so this version keeps a table as bytes that any FITS
 table reader decodes: the arrays `<i>/rows` and `<i>/heap`, and the column definitions in
 the group's source metadata ([§5.2](#52-an-hdus-node)).
 
-<a id="type-fitsrowsarray"></a>**`FitsRowsArray`**, `<i>/rows/zarr.json`, absent when
-`NAXIS1 × NAXIS2` is 0: an [`ArrayDocument`](../conventions.md#type-arraydocument) with these
-members:
+<a id="type-fitsrowsarray"></a>**`FitsRowsArray`**, `<i>/rows/zarr.json`, present for every
+table, with no chunk when `NAXIS1 × NAXIS2` is 0: an
+[`ArrayDocument`](../conventions.md#type-arraydocument) with these members:
 
 | member | type | presence | value |
 |---|---|---|---|
@@ -361,7 +364,7 @@ with its members in this order:
 | `zbitpix` | integer | required | the codec's `zbitpix` |
 | `tile` | array of integer | required | the codec's `tile_shape`, in the array's order |
 | `quantize` | string | required | the codec's `quantize` |
-| `dither_seed` | integer | required | the codec's `dither_seed` |
+| `dither_seed` | integer or null | required | `ZDITHER0`, or `null` when the header has none (the codec's `dither_seed` is then 0) |
 | `zblank` | integer or null | required | the header's `ZBLANK`, or `null` |
 | `tiles` | integer | required | the tile count |
 
@@ -384,7 +387,8 @@ members in this order:
 | `columns` | array of [`FitsColumn`](#type-fitscolumn) | optional | for a table: one object per column `n` of `1 … TFIELDS` |
 
 <a id="type-fitscolumn"></a>**`FitsColumn`**, column `n` of a table, each member the card's
-string or number, or `null` when absent:
+string or number, or `null` when absent or not of the member's type (`null`, `TNULLn`, takes
+either: a string in an ASCII table, an integer in a binary one):
 
 | member | type | presence | value |
 |---|---|---|---|
@@ -485,9 +489,11 @@ root group, whose `refkv_zarrified.fits.hdus` begins
 
 ```json
 [{"index": 0, "type": "primary", "kind": "empty", "name": null, "version": null, "bitpix": 8, "naxis": [],
-  "pcount": 0, "gcount": 1, "offset": 0, "header_bytes": 2880, "data_offset": 2880, "data_bytes": 0},
+  "pcount": 0, "gcount": 1, "offset": 0, "header_bytes": 2880, "data_offset": 2880, "data_bytes": 0,
+  "compression": null},
  {"index": 1, "type": "image", "kind": "image", "name": "SCI", "version": 1, "bitpix": -32, "naxis": [6, 5],
-  "pcount": 0, "gcount": 1, "offset": 2880, "header_bytes": 2880, "data_offset": 5760, "data_bytes": 120}, ...]
+  "pcount": 0, "gcount": 1, "offset": 2880, "header_bytes": 2880, "data_offset": 5760, "data_bytes": 120,
+  "compression": null}, ...]
 ```
 
 and whose `cards` are the primary's seven; the group `0` (empty, with those

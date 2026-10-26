@@ -59,6 +59,15 @@ fn string(cards: &[Card], keyword: &str) -> J {
     }
 }
 
+/// A card that is a string in one kind of table and a number in the other (TNULLn: an ASCII
+/// table's null string, a binary table's null integer): whichever it holds.
+fn string_or_number(cards: &[Card], keyword: &str) -> J {
+    match string(cards, keyword) {
+        J::Null => number(cards, keyword),
+        s => s,
+    }
+}
+
 /// The cards of HDU `h`, from its header element.
 fn cards_of(ir: &Ir, h: &J) -> Result<Vec<Card>, String> {
     let id = h["elements"]["header"].as_u64().ok_or("internal: an HDU without a header")? as u32;
@@ -92,7 +101,7 @@ fn own_json(h: &J, cards: &[Card]) -> J {
                         "name": string(cards, &format!("TTYPE{n}")), "form": form,
                         "unit": string(cards, &format!("TUNIT{n}")), "dim": string(cards, &format!("TDIM{n}")),
                         "scale": number(cards, &format!("TSCAL{n}")), "zero": number(cards, &format!("TZERO{n}")),
-                        "null": number(cards, &format!("TNULL{n}")), "disp": string(cards, &format!("TDISP{n}")),
+                        "null": string_or_number(cards, &format!("TNULL{n}")), "disp": string(cards, &format!("TDISP{n}")),
                         "bcol": number(cards, &format!("TBCOL{n}")),
                     })
                 })
@@ -328,4 +337,27 @@ fn tile_records(c: &J, table: &[u8]) -> Result<Vec<TileRecord>, String> {
         });
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 80-byte cards from `KEYWORD= value` texts.
+    fn records(cards: &[&str]) -> Vec<u8> {
+        cards.iter().flat_map(|c| format!("{c:<80}").into_bytes()).collect()
+    }
+
+    /// A table's `null` member is TNULLn as the card holds it: an ASCII table's string, a
+    /// binary table's integer (spec/zarrify/fits.md §5.2
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#52-an-hdus-node>).
+    #[test]
+    fn a_column_s_null_is_tnull_as_the_card_holds_it() {
+        let h = json!({"index": 1, "kind": "table", "table": {"tform": ["I8", "J"]}});
+        let raw = records(&["TNULL1  = 'N/A     '", "TNULL2  =                  -99"]);
+        let own = own_json(&h, &parse_cards(&raw, 2));
+        let columns = own["columns"].as_array().unwrap();
+        assert_eq!(columns[0]["null"], json!("N/A"));
+        assert_eq!(columns[1]["null"], json!(-99));
+    }
 }

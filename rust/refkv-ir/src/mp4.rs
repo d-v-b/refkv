@@ -14,6 +14,7 @@ use crate::expr::V;
 use crate::fed::{Fed, Word, uint};
 use crate::ir::*;
 use crate::nd2::Step;
+use crate::out::int_json;
 use crate::rules::{self, Rules, flag, num, text};
 use crate::sans;
 use crate::text::latin1;
@@ -467,7 +468,7 @@ impl Mp4 {
                 let d = if version == 1 { 8 } else { 4 };
                 tr.edits = (0..k).map(|i| {
                     let r = &e[i * w..];
-                    json!({"duration": uint(r, 0, d, false), "media_time": signed(uint(r, d, d, false), 8 * d as u32), "rate": signed(uint(r, 2 * d, 2, false), 16) as f64 + uint(r, 2 * d + 2, 2, false) as f64 / 65536.0})
+                    json!({"duration": int_json(uint(r, 0, d, false) as i128), "media_time": int_json(signed(uint(r, d, d, false), 8 * d as u32) as i128), "rate": signed(uint(r, 2 * d, 2, false), 16) as f64 + uint(r, 2 * d + 2, 2, false) as f64 / 65536.0})
                 }).collect();
             }
             b"stts" => tr.stts = (0..k).map(|i| (uint(e, i * 8, 4, false), uint(e, i * 8 + 4, 4, false))).collect(),
@@ -543,9 +544,15 @@ impl Mp4 {
         let mut facts = Vec::new();
         let mut reasons = Vec::new();
         let mut projected = 0;
+        let mut ids = std::collections::HashSet::new();
         for (k, t) in tracks.iter().enumerate() {
             let (offsets, sizes) = self.layout(t)?;
             let mut f = self.classify(t, &offsets);
+            // the last reason: a zarrified track's group is named by its ID
+            if f["reason"].is_null() && !ids.insert(t.id) {
+                f["reason"] = json!(format!("its track ID {} is an earlier zarrified track's", t.id));
+                f["format"] = J::Null;
+            }
             f["index"] = json!(k);
             if !offsets.is_empty() {
                 let ss = match samples_struct {
@@ -589,7 +596,7 @@ impl Mp4 {
             })
         });
         self.facts = json!({
-            "brand": brand, "timescale": self.movie.0, "duration": self.movie.1, "tracks": facts,
+            "brand": brand, "timescale": self.movie.0, "duration": int_json(self.movie.1 as i128), "tracks": facts,
             "chunk_frames": crate::mp3::chunk_frames(),
         });
         Ok(())
@@ -662,7 +669,7 @@ impl Mp4 {
         let entry = t.entries.first();
         let codec = entry.map(|e| latin1(&e.typ)).unwrap_or_default();
         let mut f = json!({
-            "id": t.id, "handler": latin1(&t.handler), "codec": codec, "timescale": t.timescale, "duration": t.duration,
+            "id": t.id, "handler": latin1(&t.handler), "codec": codec, "timescale": t.timescale, "duration": int_json(t.duration as i128),
             "edits": t.edits, "count": offsets.len(), "format": null, "geometry": null, "reason": null,
         });
         let reason = (|| -> Result<(), String> {

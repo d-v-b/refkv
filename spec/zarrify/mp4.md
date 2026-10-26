@@ -15,9 +15,15 @@ Added 2026-10-23, after
 [revision 29](../history/virtualize/REVISIONS.md#revision-29-no-recorded-revision-the-profile-registry)
 (a profile's changes are recorded here, dated, from then on).
 
-**2026-10-26.** Changed with no change to any output: the layout is tabulated, its entries in
-[Layout](#layout) and its types in type tables
-([conventions §11.5](../conventions.md#115-layout-tables)); the summary is a table too.
+**2026-10-26.** A duration or an edit's `media_time` past 2^53 − 1 in magnitude is the string
+of its digits, as [conventions §6](../conventions.md#6-source-metadata-as-json) writes an
+integer, where it was a JSON number ([§5](#5-source-metadata)); a track whose ID an earlier
+zarrified track has is not zarrified, its reason saying so, where both were written to one
+group ([§8.2](#82-tracks)). The layout is tabulated, its entries in [Layout](#layout) and its
+types in type tables ([conventions §11.5](../conventions.md#115-layout-tables)); the summary is
+a table too. And the text says what refkv already wrote: a four-character code is a plain
+string of its bytes' code points ([§5](#5-source-metadata)), and a chunk of `time` is not a
+`refkv.stream` chunk ([§8.3](#83-chunks)).
 
 **2026-10-25.** A track whose sync samples are followed in decode order by pictures presented
 before them (leading pictures: a camera's B-frames after each IDR picture, or an open group's)
@@ -256,7 +262,10 @@ members below ([`Mp4Root`](#type-mp4root), [`Mp4VideoTrack`](#type-mp4videotrack
 [`Mp4AudioTrack`](#type-mp4audiotrack)), in that order, translated by
 [conventions §6](../conventions.md#6-source-metadata-as-json). Everything
 the file holds is on `refkv_source`, the file's **IR mirror**
-([§5.3](#53-elements)), from which the file is rebuilt byte for byte.
+([§5.3](#53-elements)), from which the file is rebuilt byte for byte. A **four-character
+code** (a brand, a handler, a sample entry's type) is written as text: a string of its 4 bytes,
+each the character whose code point is its value (ISO 8859-1), whatever the bytes are, rather
+than a text value of [conventions §6](../conventions.md#6-source-metadata-as-json), which would tag bytes that are not UTF-8.
 
 ### 5.1 The root
 
@@ -269,8 +278,8 @@ the file holds is on `refkv_source`, the file's **IR mirror**
 | `duration` | [`Integer`](../conventions.md#type-integer) | required | the `mvhd` box's |
 | `tracks` | array of [`Mp4TrackListing`](#type-mp4tracklisting) | required | one object per track, in the order of the `trak` boxes |
 
-<a id="type-mp4brand"></a>**`Mp4Brand`**, the `ftyp` box's brands, each brand its 4 bytes as
-text:
+<a id="type-mp4brand"></a>**`Mp4Brand`**, the `ftyp` box's brands, each brand a
+four-character code:
 
 | member | type | presence | value |
 |---|---|---|---|
@@ -522,7 +531,10 @@ and the track is kept in the mirror but has no group:
   indication is neither AAC (0x40, 0x66 to 0x68) nor MPEG audio (0x69, 0x6B);
   or, for AAC, its AudioSpecificConfig cannot be read, or its object type is
   not AAC-LC (2), or its frames are 960 samples; or its sample rate or
-  channel count is 0.
+  channel count is 0;
+- its track ID is an earlier zarrified track's (`its track ID n is an earlier zarrified
+  track's`): a zarrified track's group is named by its ID, so of two tracks that share one,
+  the first is zarrified.
 
 The channel count and sample rate of an AAC track are its
 AudioSpecificConfig's (the sample entry's channel count when its channel
@@ -541,8 +553,8 @@ its first picture in decode order, so its reference fits in a payload
 
 ### 8.3 Chunks
 
-Every chunk of every array of a zarrified track is present, and is the
-`refkv.stream` chunk ([conventions §10](../conventions.md#10-coded-streams))
+Every chunk of every array of a zarrified track is present. A chunk of a plane or of
+`samples` is the `refkv.stream` chunk ([conventions §10](../conventions.md#10-coded-streams))
 of these samples, in decode order, a range per run of samples that follow
 each other in the file:
 

@@ -14,6 +14,7 @@ use crate::expr::V;
 use crate::fed::{Fed, Overlap, Word};
 use crate::ir::*;
 use crate::nd2::Step;
+use crate::out::int_json;
 use crate::rules::{self, Rules, flag, num, text};
 use crate::sans::{self, Asked};
 use crate::text::text_json;
@@ -308,17 +309,17 @@ fn cuesheet_json(b: &[u8]) -> Result<J, ()> {
             let o = c.u64_be()?;
             let n = c.u8()?;
             c.take(3)?;
-            indexes.push(json!({"offset": o, "number": n}));
+            indexes.push(json!({"offset": int_json(o as i128), "number": n}));
         }
         tracks.push(json!({
-            "offset": offset, "number": number, "isrc": isrc, "audio": flags & 0x80 == 0,
+            "offset": int_json(offset as i128), "number": number, "isrc": isrc, "audio": flags & 0x80 == 0,
             "pre_emphasis": flags & 0x40 != 0, "indexes": indexes,
         }));
     }
     if c.at != b.len() {
         return Err(());
     }
-    Ok(json!({"catalog": catalog, "lead_in": lead_in, "cd": cd, "tracks": tracks}))
+    Ok(json!({"catalog": catalog, "lead_in": int_json(lead_in as i128), "cd": cd, "tracks": tracks}))
 }
 
 /// A picture block's fields before its data (RFC 9639 §8.8), from the first bytes of its body:

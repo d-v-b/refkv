@@ -1,17 +1,23 @@
 """The MP4 convention's source metadata (spec/zarrify/mp4.md), for
 spec/generate_schemas.py."""
 
+# A 64-bit integer of the source, as spec/conventions.md §6
+# <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json> writes it: a
+# number up to 2^53 - 1 in magnitude, else the string of its decimal digits.
+_U64 = {"anyOf": [{"type": "integer", "minimum": 0}, {"type": "string", "pattern": "^[1-9][0-9]{15,19}$"}]}
+_I64 = {"anyOf": [{"type": "integer"}, {"type": "string", "pattern": "^-?[1-9][0-9]{15,18}$"}]}
+
 _MP4_EDITS = {"type": "array",
               "description": "The track's edit list (its elst box's entries), recorded and not applied",
-              "items": {"type": "object", "properties": {"duration": {"type": "integer", "minimum": 0},
-                                                         "media_time": {"type": "integer"}, "rate": {"type": "number"}},
+              "items": {"type": "object", "properties": {"duration": _U64,
+                                                         "media_time": _I64, "rate": {"type": "number"}},
                         "required": ["duration", "media_time", "rate"], "additionalProperties": False}}
 _MP4_TRACK_COMMON = {
     "id": {"type": "integer", "minimum": 0, "description": "The track's ID (its tkhd box's)"},
     "handler": {"type": "string", "description": "The handler type of its mdia box's hdlr box: vide or soun"},
     "codec": {"type": "string", "description": "Its sample entry's type: avc1, mp4a or .mp3"},
     "timescale": {"type": "integer", "minimum": 1, "description": "The media timescale: time units a second"},
-    "duration": {"type": "integer", "minimum": 0, "description": "The media duration, in the timescale"},
+    "duration": {**_U64, "description": "The media duration, in the timescale"},
     "edits": _MP4_EDITS,
     "frames": {"type": "integer", "minimum": 1,
                "description": "The track's samples: coded pictures, or coded audio frames"},
@@ -27,7 +33,7 @@ SCHEMA = {"anyOf": [
                                                        "compatible": {"type": "array", "items": {"type": "string"}}},
                       "required": ["major", "minor", "compatible"], "additionalProperties": False},
             "timescale": {"type": "integer", "minimum": 0},
-            "duration": {"type": "integer", "minimum": 0},
+            "duration": _U64,
             "tracks": {"type": "array", "items": {
                 "type": "object",
                 "properties": {"id": {"type": "integer"}, "handler": {"type": "string"}, "codec": {"type": "string"},

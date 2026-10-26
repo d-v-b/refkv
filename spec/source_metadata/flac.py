@@ -4,6 +4,10 @@ spec/generate_schemas.py."""
 from source_metadata.mp3 import ID3V1, ID3V2
 
 _COUNT = {"type": "integer", "minimum": 0}
+# A 64-bit integer of the source, as spec/conventions.md §6
+# <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json> writes it: a
+# number up to 2^53 - 1 in magnitude, else the string of its decimal digits.
+_U64 = {"anyOf": [_COUNT, {"type": "string", "pattern": "^[1-9][0-9]{15,19}$"}]}
 
 SCHEMA = {"anyOf": [
     {
@@ -75,16 +79,16 @@ SCHEMA = {"anyOf": [
                     "description": "The CUESHEET block's fields",
                     "properties": {
                         "catalog": {"$ref": "#/$defs/text"},
-                        "lead_in": _COUNT,
+                        "lead_in": _U64,
                         "cd": {"type": "boolean"},
                         "tracks": {"type": "array", "items": {
                             "type": "object",
                             "properties": {
-                                "offset": _COUNT, "number": _COUNT, "isrc": {"$ref": "#/$defs/text"},
+                                "offset": _U64, "number": _COUNT, "isrc": {"$ref": "#/$defs/text"},
                                 "audio": {"type": "boolean"}, "pre_emphasis": {"type": "boolean"},
                                 "indexes": {"type": "array", "items": {
                                     "type": "object",
-                                    "properties": {"offset": _COUNT, "number": _COUNT},
+                                    "properties": {"offset": _U64, "number": _COUNT},
                                     "required": ["offset", "number"],
                                     "additionalProperties": False,
                                 }},

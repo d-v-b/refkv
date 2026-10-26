@@ -88,7 +88,7 @@ SCHEMA = {"anyOf": [
             "columns": {"type": "array", "items": {
                 "type": "object",
                 "properties": {"name": FITS_STRING, "form": {"type": "string"}, "unit": FITS_STRING, "dim": FITS_STRING,
-                               "scale": FITS_NUMBER, "zero": FITS_NUMBER, "null": FITS_NUMBER, "disp": FITS_STRING,
+                               "scale": FITS_NUMBER, "zero": FITS_NUMBER, "null": {"type": ["string", "number", "null"]}, "disp": FITS_STRING,
                                "bcol": FITS_NUMBER},
                 "required": ["name", "form", "unit", "dim", "scale", "zero", "null", "disp", "bcol"],
                 "additionalProperties": False,
