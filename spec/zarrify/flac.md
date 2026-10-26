@@ -12,6 +12,11 @@ Schema: [schema.json](flac/schema.json)
 
 Added 2026-10-25 (a profile's changes are recorded here, dated, from then on).
 
+**2026-10-26.** Changed with no change to any output: the layout is tabulated, its entries in
+[Layout](#layout) and its types in type tables
+([conventions §11.5](../conventions.md#115-layout-tables)); the metadata blocks' and the frame
+header's fields and the summary are tables too.
+
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
 Like MP3's, the hierarchy holds decoded audio, with no OME-NGFF metadata.
@@ -20,6 +25,29 @@ when a chunk is read. FLAC is lossless: the array holds the recording's own
 integer samples, exactly.
 
 # Part 1. The convention
+
+## Layout
+
+The hierarchy's entries ([conventions §11.5](../conventions.md#115-layout-tables)):
+
+| prefix | type | structure | description |
+|---|---|---|---|
+| `zarr.json` | group | [`GroupDocument`](../conventions.md#type-groupdocument), its attributes a [`Declaration`](../conventions.md#type-declaration) and nothing else | the root ([§4](#4-the-layout)) |
+| `zarr.json#/attributes/zarr_conventions` | attribute | array of [`ConventionMetadata`](../conventions.md#type-conventionmetadata) | the CMO of [§1](#1-declaration) |
+| `zarr.json#/attributes/refkv_zarrified` | attribute | [`RootProperty`](../conventions.md#type-rootproperty) | `profile` `"flac"`, `version` `0`, `source.url` the file's URL |
+| `zarr.json#/attributes/refkv_zarrified/flac` | attribute | [`FlacRoot`](#type-flacroot) | the root's source metadata ([§5.1](#51-the-root)) |
+| `samples/zarr.json` | array | [`FlacArray`](#type-flacarray) | the decoded samples, a sharded array ([§4.1](#41-the-array)) |
+| `samples/c/<q>/0` | chunk | a [`Shard`](../zarrify.md#type-shard) of [`FlacInnerChunk`](#type-flacinnerchunk)s | every shard of the array, a run of `F` frames ([§8.2](#82-shards)) |
+| `pictures/zarr.json` | group | [`GroupDocument`](../conventions.md#type-groupdocument), attributes `{}` | present only when some PICTURE block's data is not empty ([§4.2](#42-the-pictures)) |
+| `pictures/<i>/zarr.json` | array | [`SourceArray`](../conventions.md#type-sourcearray), of the [bytes](../conventions.md#type-bytes) form | the data of the `i`-th PICTURE block, when not empty ([§4.2](#42-the-pictures)) |
+| `pictures/<i>/c/<k>` | chunk | [`FlacPictureChunk`](#type-flacpicturechunk) | every chunk of a picture's array ([§8.2](#82-shards)) |
+| `refkv_source/**` | subtree | [the mirror's entries](../conventions.md#table-mirror) | the IR mirror ([§5.2](#52-the-ir-mirror)): its elements are [§5.3](#53-elements)'s |
+
+| placeholder | value |
+|---|---|
+| `<q>` | the shard's index along `time`, in decimal, from 0 to `ceil(N / F) − 1` |
+| `<i>` | the index of a PICTURE block among the file's PICTURE blocks, counted from 0, in decimal |
+| `<k>` | the chunk's index along `byte`, in decimal |
 
 ## 1. Declaration
 
@@ -50,46 +78,113 @@ are little-endian.
 **Metadata blocks** ([RFC 9639 §8](https://www.rfc-editor.org/rfc/rfc9639#section-8)).
 Each is a 4-byte header, then its **body**: bit 7 of the header's first byte is
 set on the last block, its other 7 bits are the block's **type**, and the next
-3 bytes are the body's length `n`. The types are 0 STREAMINFO, 1 PADDING,
-2 APPLICATION, 3 SEEKTABLE, 4 VORBIS_COMMENT, 5 CUESHEET and 6 PICTURE; 7 to
-126 are reserved and 127 is forbidden. The first block is STREAMINFO, whose
-34-byte body is the minimum and maximum block size (16 bits each), the minimum
-and maximum frame size (24 bits each, 0: unknown), the sample rate (20 bits),
-the channel count less 1 (3 bits), the bits per sample less 1 (5 bits), the
-total samples per channel (36 bits, 0: unknown) and the MD5 of the samples
-(16 bytes, all 0: unknown). A SEEKTABLE body is seek points of 18 bytes: a
-sample number (`FFFFFFFFFFFFFFFF` for a placeholder), the offset of the frame
-holding it from the first frame, and that frame's sample count. A
-VORBIS_COMMENT body is a vendor string and a list of fields (`NAME=value`),
-each preceded by its 32-bit length, the list by its count. A CUESHEET body
-is a media catalog number (128 bytes), the lead-in samples (64 bits), a flags
-byte (bit 7: a CD), 258 reserved bytes, the track count, and the tracks: each
-an offset (64 bits), a number, an ISRC (12 bytes), a flags byte (bit 7: not
-audio; bit 6: pre-emphasis), 13 reserved bytes, the index point count and the
-index points (an offset of 64 bits, a number, 3 reserved bytes each). A
-PICTURE body is the picture type (32 bits), the media type and the
-description, each preceded by its 32-bit length, the width, height, color
-depth and indexed colors (32 bits each), then the picture data, preceded by
-its 32-bit length. An APPLICATION body is a 4-byte ID and its data.
+3 bytes are the body's length `n`. The types:
+
+| type | block |
+|---|---|
+| 0 | STREAMINFO |
+| 1 | PADDING |
+| 2 | APPLICATION |
+| 3 | SEEKTABLE |
+| 4 | VORBIS_COMMENT |
+| 5 | CUESHEET |
+| 6 | PICTURE |
+| 7 to 126 | reserved |
+| 127 | forbidden |
+
+The first block is STREAMINFO, whose body is 34 bytes, these fields in order:
+
+| field | size | value |
+|---|---|---|
+| the minimum block size | 16 bits | |
+| the maximum block size | 16 bits | |
+| the minimum frame size | 24 bits | 0: unknown |
+| the maximum frame size | 24 bits | 0: unknown |
+| the sample rate | 20 bits | |
+| the channel count less 1 | 3 bits | |
+| the bits per sample less 1 | 5 bits | |
+| the total samples per channel | 36 bits | 0: unknown |
+| the MD5 of the samples | 16 bytes | all 0: unknown |
+
+A SEEKTABLE body is seek points of 18 bytes, each these fields:
+
+| field | size | value |
+|---|---|---|
+| a sample number | 64 bits | `FFFFFFFFFFFFFFFF` for a placeholder |
+| an offset | 64 bits | the offset of the frame holding it from the first frame |
+| a sample count | 16 bits | that frame's sample count |
+
+A VORBIS_COMMENT body is a vendor string and a list of fields (`NAME=value`),
+each preceded by its 32-bit length, the list by its count. A CUESHEET body, a track and an
+index point are these fields, in order:
+
+| part | field | size | value |
+|---|---|---|---|
+| the body | a media catalog number | 128 bytes | |
+| the body | the lead-in samples | 64 bits | |
+| the body | a flags byte | 1 byte | bit 7: a CD |
+| the body | reserved | 258 bytes | |
+| the body | the track count | 1 byte | |
+| the body | the tracks | | each a track |
+| a track | an offset | 64 bits | |
+| a track | a number | 1 byte | |
+| a track | an ISRC | 12 bytes | |
+| a track | a flags byte | 1 byte | bit 7: not audio; bit 6: pre-emphasis |
+| a track | reserved | 13 bytes | |
+| a track | the index point count | 1 byte | |
+| a track | the index points | | each an index point |
+| an index point | an offset | 64 bits | |
+| an index point | a number | 1 byte | |
+| an index point | reserved | 3 bytes | |
+
+A PICTURE body is these fields, in order:
+
+| field | size |
+|---|---|
+| the picture type | 32 bits |
+| the media type's length, then the media type | 32 bits, then that many bytes |
+| the description's length, then the description | 32 bits, then that many bytes |
+| the width | 32 bits |
+| the height | 32 bits |
+| the color depth | 32 bits |
+| the indexed colors | 32 bits |
+| the picture data's length, then the picture data | 32 bits, then that many bytes |
+
+An APPLICATION body is a 4-byte ID and its data.
 
 **Frames** ([RFC 9639 §9](https://www.rfc-editor.org/rfc/rfc9639#section-9)).
 A frame is a header, one subframe per channel, zero bits up to a byte
-boundary, and a 16-bit CRC. The header is the sync code `FF F8` with the
-**blocking strategy** in bit 0 of its second byte (`F9`: a variable block
-size), then the block size code and the sample rate code (4 bits each), the
-channel assignment (4 bits: 0 to 7 for 1 to 8 independent channels, 8 to 10
-for two coded as left-side, side-right or mid-side; 11 to 15 reserved), the
-bit depth code (3 bits; 3 reserved) and a reserved bit (0); then the **coded
-number**, a frame number in a fixed block size stream (the frames before it)
-and a sample number in a variable one, coded as UTF-8 is but up to 7 bytes;
-then an 8-bit or 16-bit block size and an 8-bit or 16-bit sample rate when
-their codes say so; then the **CRC-8** of the header's bytes before it
-(polynomial `x^8 + x^2 + x + 1`, initial 0). A block size code gives 192,
-`144 × 2^v` (2 to 5), `2^v` (8 to 15), or the 8-bit (6) or 16-bit (7) value
-after the number plus 1 (code 0 is reserved). A sample rate code gives one of
-eleven rates, the value after the number (12: kHz, 13: Hz, 14: tens of Hz), or
-STREAMINFO's (0); a bit depth code gives 8, 12, 16, 20, 24 or 32, or
-STREAMINFO's (0). The footer's **CRC-16** (polynomial
+boundary, and a 16-bit CRC. The header's fields, in order:
+
+| field | size | value |
+|---|---|---|
+| the sync code and the **blocking strategy** | 16 bits | `FF F8`, with the blocking strategy in bit 0 of its second byte (`F9`: a variable block size) |
+| the block size code | 4 bits | below |
+| the sample rate code | 4 bits | below |
+| the channel assignment | 4 bits | 0 to 7 for 1 to 8 independent channels, 8 to 10 for two coded as left-side, side-right or mid-side; 11 to 15 reserved |
+| the bit depth code | 3 bits | below; 3 reserved |
+| a reserved bit | 1 bit | 0 |
+| the **coded number** | up to 7 bytes | a frame number in a fixed block size stream (the frames before it) and a sample number in a variable one, coded as UTF-8 is but up to 7 bytes |
+| the block size | 8 or 16 bits | when its code says so |
+| the sample rate | 8 or 16 bits | when its code says so |
+| the **CRC-8** | 8 bits | of the header's bytes before it (polynomial `x^8 + x^2 + x + 1`, initial 0) |
+
+The codes give:
+
+| code | gives |
+|---|---|
+| block size 0 | reserved |
+| block size 1 | 192 |
+| block size `v`, 2 to 5 | `144 × 2^v` |
+| block size 6 or 7 | the 8-bit (6) or 16-bit (7) value after the number, plus 1 |
+| block size `v`, 8 to 15 | `2^v` |
+| sample rate 0 | STREAMINFO's |
+| sample rate 12, 13 or 14 | the value after the number, in kHz (12), Hz (13) or tens of Hz (14) |
+| another sample rate code | one of eleven rates |
+| bit depth 0 | STREAMINFO's |
+| another bit depth code | 8, 12, 16, 20, 24 or 32 |
+
+The footer's **CRC-16** (polynomial
 `x^16 + x^15 + x^2 + 1`, initial 0) covers the frame's bytes before it, so
 that the CRC-16 of the whole frame is 0. A frame's header gives no length:
 its subframes end where their bits do.
@@ -122,40 +217,42 @@ The stream's frames are numbered from 0 in file order; `N` is their count,
 sample and `T` the samples per channel, the frames' block sizes summed. The
 array is a **sharded** array ([spec/zarrify.md §2.1](../zarrify.md#21-virtual-shards)):
 each frame is an **inner chunk**, and each run of `F` frames a **shard**,
-one key of the store.
+one key of the store. The **inner chunk shape** is `[B, C]`: inner chunk `j` is frame `j`.
+The **shard shape** is `[F, 1]` inner chunks, with **`F = min(512, N)` frames per shard**:
+shard `q`, at `samples/c/<q>/0`, holds the frames `q × F` to `min(N, (q + 1) × F) − 1`. The
+**inner codecs** are `[{"name": "refkv.stream", "configuration": {"format": "flac", "setup":
+S}}]` (a [`StreamConfiguration`](../conventions.md#type-streamconfiguration)), where `S` is
+the base64 of the **setup**: `fLaC`, then the 4-byte header `80 00 00 22` (the last block,
+STREAMINFO, 34 bytes), then the file's STREAMINFO body
+([conventions §10](../conventions.md#10-coded-streams)).
 
-- **Shape:** `[T, C]`.
-- **Data type:** `int8` when `b ≤ 8`, `int16` when `b ≤ 16`, else `int32`:
-  the smallest signed integer that holds a sample.
-- **Dimension names:** `["time", "channel"]`.
-- **Inner chunk shape:** `[B, C]`: inner chunk `j` is frame `j`.
-- **Shard shape:** `[F, 1]` inner chunks, with **`F = min(512, N)` frames
-  per shard**: the chunk grid's chunk shape is `[F × B, C]`, and shard `q`,
-  at `samples/c/<q>/0`, holds the frames `q × F` to
-  `min(N, (q + 1) × F) − 1`.
-- **Inner codecs:** `[{"name": "refkv.stream", "configuration": {"format":
-  "flac", "setup": S}}]`, where `S` is the base64 of the **setup**: `fLaC`,
-  then the 4-byte header `80 00 00 22` (the last block, STREAMINFO, 34
-  bytes), then the file's STREAMINFO body
-  ([conventions §10](../conventions.md#10-coded-streams)).
-- **Fill value:** 0.
+<a id="type-flacarray"></a>**`FlacArray`**, the array's `zarr.json`: a
+[`ShardedArray`](../zarrify.md#type-shardedarray), sharded as
+[spec/zarrify.md §2.1](../zarrify.md#21-virtual-shards) says, of an unsharded array that is
+otherwise [conventions §3](../conventions.md#3-arrays)'s
+([`ArrayDocument`](../conventions.md#type-arraydocument), its fill value 0); these are its
+members that differ from an `ArrayDocument`'s:
 
-The array's `zarr.json` is otherwise [conventions §3](../conventions.md#3-arrays)'s,
-sharded as [spec/zarrify.md §2.1](../zarrify.md#21-virtual-shards) says: its
-codecs are `[{"name": "sharding_indexed", "configuration": {"chunk_shape":
-[B, C], "codecs": [the inner codecs], "index_codecs": [{"name": "bytes",
-"configuration": {"endian": "little"}}, {"name": "crc32c"}],
-"index_location": "end"}}]`.
+| member | type | presence | value |
+|---|---|---|---|
+| `shape` | array of integer | required | `[T, C]` |
+| `data_type` | string | required | `"int8"` when `b ≤ 8`, `"int16"` when `b ≤ 16`, else `"int32"`: the smallest signed integer that holds a sample |
+| `chunk_grid` | object | required | regular, its chunk shape the shard's, `[F × B, C]` |
+| `codecs` | array of object | required | `[{"name": "sharding_indexed", "configuration": {"chunk_shape": [B, C], "codecs": [the inner codecs], "index_codecs": [{"name": "bytes", "configuration": {"endian": "little"}}, {"name": "crc32c"}], "index_location": "end"}}]`, its configuration a [`ShardingConfiguration`](../zarrify.md#type-shardingconfiguration) |
+| `dimension_names` | array of string | required | `["time", "channel"]` |
+| `attributes` | object | required | `{}` ([§1](#1-declaration)) |
 
 Inner chunk `j` of the array, `[j × B, (j + 1) × B)` along `time`, is
 frame `j` as a `refkv.stream` chunk of one frame
-([conventions §10](../conventions.md#10-coded-streams)): the header `01`,
+([conventions §10](../conventions.md#10-coded-streams), a
+[`FlacInnerChunk`](#type-flacinnerchunk)): the header `01`,
 the frame's length as a varint and `02` (its position 0, less −1, as a
 zigzag varint), then the frame's bytes. Its samples fill its first rows: the
 last frame's, when it holds fewer than `B`, are followed by the fill value,
 past the array's end. A shard is its frames' inner chunks, one after the
 other, then the shard index, whose entries past the last frame (in the last
-shard only) are empty ([spec/zarrify.md §2.1](../zarrify.md#21-virtual-shards)).
+shard only) are empty ([spec/zarrify.md §2.1](../zarrify.md#21-virtual-shards), a
+[`Shard`](../zarrify.md#type-shard)).
 
 So a reader that reads a few samples reads the shard index and the frames
 that hold them, and nothing else; the store holds one key per `F` frames.
@@ -168,7 +265,8 @@ The `pictures` group, `{"zarr_format": 3, "node_type": "group",
 empty, holds for the `i`-th PICTURE block of the file, counted from 0, whose
 picture data is not empty, the array `pictures/<i>`: the data, as **bytes**
 ([conventions §7](../conventions.md#7-source-values-as-arrays): `uint8`,
-dimension `byte`). Its fields are in `pictures` of [§5.1](#51-the-root). A
+dimension `byte`; a [`SourceArray`](../conventions.md#type-sourcearray) of the
+[bytes](../conventions.md#type-bytes) form). Its fields are in `pictures` of [§5.1](#51-the-root). A
 picture whose media type is `-->` holds a URI, as text, in place of an image;
 its array holds the URI's bytes.
 
@@ -191,59 +289,120 @@ The sample rate is `sample_rate` of [§5.1](#51-the-root); sample `i` is at
 ## 5. Source metadata
 
 The root's source metadata `S` ([conventions §2](../conventions.md#2-attributes))
-is an object with the members of [§5.1](#51-the-root), in that order,
+is a [`FlacRoot`](#type-flacroot), an object with the members of [§5.1](#51-the-root), in that order,
 translated by [conventions §6](../conventions.md#6-source-metadata-as-json).
 Everything the file holds is on `refkv_source`, the file's **IR mirror**
 ([§5.2](#52-the-ir-mirror)), from which the file is rebuilt byte for byte.
 
 ### 5.1 The root
 
-- `sample_rate`, `channels` and `bits_per_sample`: STREAMINFO's, which
-  every frame has ([§8.1](#81-the-stream)).
-- `block_size`: `B`.
-- `frames`: `N`.
-- `samples`: `T`, the samples per channel.
-- `duration`: `T / sample_rate`, in seconds, as a number; `null` when the
-  sample rate is 0 (allowed for data that is not audio).
-- `streaminfo`: the STREAMINFO block's fields, `{"min_block_size": n,
-  "max_block_size": n, "min_frame_size": n, "max_frame_size": n,
-  "sample_rate": n, "channels": n, "bits_per_sample": n, "total_samples": n,
-  "md5": h}`, `h` the MD5 as 32 lowercase hexadecimal digits, as `md5sum`
-  and `metaflac --show-md5sum` print it (not base64:
-  [conventions §6](../conventions.md#6-source-metadata-as-json) allows a
-  convention its own form).
-- `blocks`: one object per metadata block, in file order, `{"type": t,
-  "size": n}`: its type's name (`"STREAMINFO"`, `"PADDING"`,
-  `"APPLICATION"`, `"SEEKTABLE"`, `"VORBIS_COMMENT"`, `"CUESHEET"`,
-  `"PICTURE"`), or its number for a reserved type, and its body's length.
-- `seek_table`: when the file has a SEEKTABLE block, `{"points": n,
-  "placeholders": n}`, its seek points and its placeholders. The points
-  themselves are where the frames are, which the array's shard indexes
-  hold too: they are in the mirror (conventions, Reconstruction: the
-  layout may be left out).
-- `vorbis_comment`: when the file has a VORBIS_COMMENT block,
-  `{"vendor": V, "comments": [F, ...]}`: the vendor string and each field,
-  in order and whole (`"TITLE=A tone"`), as text values (UTF-8, or
-  `{"latin1": ...}`). Names repeat, and their case differs from file to
-  file, so the fields stay a list.
-- `cuesheets`: when the file has CUESHEET blocks, one object per block, in
-  file order (RFC 9639 does not limit them to one), `{"catalog": t,
-  "lead_in": n, "cd": b, "tracks": [{"offset": n, "number": n, "isrc": t,
-  "audio": b, "pre_emphasis": b, "indexes": [{"offset": n, "number": n},
-  ...]}, ...]}`, the catalog number and each ISRC up to the first NUL as
-  text values.
-- `pictures`: when the file has PICTURE blocks, one object per block, in
-  file order, `{"type": n, "media_type": t, "description": t, "width": n,
-  "height": n, "depth": n, "colors": n, "size": n}`, `size` the data's
-  length; the data is the array `pictures/<i>` ([§4.2](#42-the-pictures)),
-  which a picture of size 0 does not have.
-- `applications`: when the file has APPLICATION blocks, one object per
-  block, `{"id": t, "size": n}`, its ID as text and the length of its data,
-  which the mirror holds.
-- `id3v2`: an array with one object per ID3v2 tag at the start, as
-  [mp3.md §5.1](mp3.md#51-the-root) writes it. Absent when there is none.
-- `id3v1`: the ID3v1 tag's fields, as [mp3.md §5.1](mp3.md#51-the-root)
-  writes them. Absent when there is none.
+<a id="type-flacroot"></a>**`FlacRoot`**, the root's `S`:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `sample_rate` | integer | required | STREAMINFO's, which every frame has ([§8.1](#81-the-stream)) |
+| `channels` | integer | required | STREAMINFO's, likewise |
+| `bits_per_sample` | integer | required | STREAMINFO's, likewise |
+| `block_size` | integer | required | `B` |
+| `frames` | integer | required | `N` |
+| `samples` | integer | required | `T`, the samples per channel |
+| `duration` | number or null | required | `T / sample_rate`, in seconds, as a number; `null` when the sample rate is 0 (allowed for data that is not audio) |
+| `streaminfo` | [`FlacStreaminfo`](#type-flacstreaminfo) | required | the STREAMINFO block's fields |
+| `blocks` | array of [`FlacBlock`](#type-flacblock) | required | one object per metadata block, in file order |
+| `seek_table` | [`FlacSeekTable`](#type-flacseektable) | optional | when the file has a SEEKTABLE block |
+| `vorbis_comment` | [`FlacVorbisComment`](#type-flacvorbiscomment) | optional | when the file has a VORBIS_COMMENT block |
+| `cuesheets` | array of [`FlacCuesheet`](#type-flaccuesheet) | optional | when the file has CUESHEET blocks: one object per block, in file order (RFC 9639 does not limit them to one) |
+| `pictures` | array of [`FlacPicture`](#type-flacpicture) | optional | when the file has PICTURE blocks: one object per block, in file order |
+| `applications` | array of [`FlacApplication`](#type-flacapplication) | optional | when the file has APPLICATION blocks: one object per block |
+| `id3v2` | array of [`Mp3Id3v2`](mp3.md#type-mp3id3v2) | optional | one object per ID3v2 tag at the start, as [mp3.md §5.1](mp3.md#51-the-root) writes it; absent when there is none |
+| `id3v1` | [`Mp3Id3v1`](mp3.md#type-mp3id3v1) | optional | the ID3v1 tag's fields, as [mp3.md §5.1](mp3.md#51-the-root) writes them; absent when there is none |
+
+<a id="type-flacstreaminfo"></a>**`FlacStreaminfo`**, the STREAMINFO block's fields
+([§2](#2-the-stream)):
+
+| member | type | presence | value |
+|---|---|---|---|
+| `min_block_size` | integer | required | the minimum block size |
+| `max_block_size` | integer | required | the maximum block size |
+| `min_frame_size` | integer | required | the minimum frame size |
+| `max_frame_size` | integer | required | the maximum frame size |
+| `sample_rate` | integer | required | the sample rate |
+| `channels` | integer | required | the channel count |
+| `bits_per_sample` | integer | required | the bits per sample |
+| `total_samples` | integer | required | the total samples per channel |
+| `md5` | string | required | `h`, the MD5 as 32 lowercase hexadecimal digits, as `md5sum` and `metaflac --show-md5sum` print it (not base64: [conventions §6](../conventions.md#6-source-metadata-as-json) allows a convention its own form) |
+
+<a id="type-flacblock"></a>**`FlacBlock`**, a metadata block:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `type` | string or integer | required | its type's name (`"STREAMINFO"`, `"PADDING"`, `"APPLICATION"`, `"SEEKTABLE"`, `"VORBIS_COMMENT"`, `"CUESHEET"`, `"PICTURE"`), or its number for a reserved type |
+| `size` | integer | required | its body's length |
+
+<a id="type-flacseektable"></a>**`FlacSeekTable`**, the SEEKTABLE block's:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `points` | integer | required | its seek points, the placeholders not counted |
+| `placeholders` | integer | required | its placeholders |
+
+The points themselves are where the frames are, which the array's shard indexes
+hold too: they are in the mirror (conventions, Reconstruction: the
+layout may be left out).
+
+<a id="type-flacvorbiscomment"></a>**`FlacVorbisComment`**, the VORBIS_COMMENT block's:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `vendor` | [`Text`](../conventions.md#type-text) | required | `V`, the vendor string, as a text value (UTF-8, or `{"latin1": ...}`) |
+| `comments` | array of [`Text`](../conventions.md#type-text) | required | each field, in order and whole (`"TITLE=A tone"`), as text values. Names repeat, and their case differs from file to file, so the fields stay a list |
+
+<a id="type-flaccuesheet"></a>**`FlacCuesheet`**, a CUESHEET block's:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `catalog` | [`Text`](../conventions.md#type-text) | required | the catalog number up to the first NUL, as a text value |
+| `lead_in` | [`Integer`](../conventions.md#type-integer) | required | the lead-in samples |
+| `cd` | boolean | required | the flags' bit 7: a CD |
+| `tracks` | array of [`FlacCuesheetTrack`](#type-flaccuesheettrack) | required | the tracks, in order |
+
+<a id="type-flaccuesheettrack"></a>**`FlacCuesheetTrack`**:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `offset` | [`Integer`](../conventions.md#type-integer) | required | its offset |
+| `number` | integer | required | its number |
+| `isrc` | [`Text`](../conventions.md#type-text) | required | its ISRC up to the first NUL, as a text value |
+| `audio` | boolean | required | whether it is audio: its flags' bit 7 clear |
+| `pre_emphasis` | boolean | required | its flags' bit 6 |
+| `indexes` | array of [`FlacCuesheetIndex`](#type-flaccuesheetindex) | required | its index points, in order |
+
+<a id="type-flaccuesheetindex"></a>**`FlacCuesheetIndex`**, an index point:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `offset` | [`Integer`](../conventions.md#type-integer) | required | its offset |
+| `number` | integer | required | its number |
+
+<a id="type-flacpicture"></a>**`FlacPicture`**, a PICTURE block's fields:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `type` | integer | required | the picture type |
+| `media_type` | [`Text`](../conventions.md#type-text) | required | the media type |
+| `description` | [`Text`](../conventions.md#type-text) | required | the description |
+| `width` | integer | required | the width |
+| `height` | integer | required | the height |
+| `depth` | integer | required | the color depth |
+| `colors` | integer | required | the indexed colors |
+| `size` | integer | required | the data's length; the data is the array `pictures/<i>` ([§4.2](#42-the-pictures)), which a picture of size 0 does not have |
+
+<a id="type-flacapplication"></a>**`FlacApplication`**, an APPLICATION block's:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `id` | [`Text`](../conventions.md#type-text) | required | its ID as text |
+| `size` | integer | required | the length of its data, which the mirror holds |
 
 `sample_rate` to `duration` describe the array, so that a reader need not
 read STREAMINFO; the blocks' fields are there so that a reader finds the
@@ -484,10 +643,21 @@ rejected by name rather than given another layout.
 Inner chunk `j` ([the convention §4.1](#41-the-array)), frame `j` of length
 `L` at `o`, is the reference of two ranges: a literal range of its
 `refkv.stream` header (`01`, `varint(L)`, `02`) and the frame's range of
-source 0, `(o, L)`. The array is sharded as
+source 0, `(o, L)`:
+
+<a id="type-flacinnerchunk"></a>**`FlacInnerChunk`**, inner chunk `j`, frame `j` of length `L`
+at `o`:
+
+| part | range | presence | value |
+|---|---|---|---|
+| the header | literal | required | the [`StreamChunk`](../conventions.md#type-streamchunk) header of one frame: `01`, `varint(L)`, `02` (its position 0, less −1, as a zigzag varint) |
+| the frame | source range `(0, o, L)` | required | the frame's bytes |
+
+The array is sharded as
 [spec/zarrify.md §2.1](../zarrify.md#21-virtual-shards) says, `F = min(512, N)`
 inner chunks a shard: the array has `ceil(N / F)` shards, each present, and
-shard `q`'s reference is the headers and ranges of its frames in order, then
+shard `q`'s reference, a [`Shard`](../zarrify.md#type-shard) of the shard shape `[F, 1]`, is
+the headers and ranges of its frames in order, then
 the literal index, `16 × F + 4` bytes. No ranges are joined, with or
 without checksums: a header lies between each two frames.
 
@@ -502,7 +672,15 @@ reader of a few frames reads the shard's index, 8 KiB, and those frames.
 
 The pictures' arrays ([the convention §4.2](#42-the-pictures)) are cut as
 bytes are ([conventions §7](../conventions.md#7-source-values-as-arrays)), each
-chunk a range of source 0 (the last chunk's zero padding a literal range).
+chunk a range of source 0 (the last chunk's zero padding a literal range):
+
+<a id="type-flacpicturechunk"></a>**`FlacPictureChunk`**, chunk `k` of the array of a picture
+whose data, `d` bytes, starts at `s`, in chunks of `c` bytes, with `m = min(c, d − k × c)`:
+
+| part | range | presence | value |
+|---|---|---|---|
+| the data | source range `(0, s + k × c, m)` | required | the chunk's bytes of the picture's data |
+| the padding | literal | optional | when `m < c` (the last chunk): `c − m` zero bytes |
 
 The ranges lie within the file. The output has no data sources: its source
 table is source 0 alone. `refkv_source` is the IR mirror
@@ -513,9 +691,19 @@ pictures' chunks, and the mirror's.
 ### 8.3 Summary
 
 This section is informative. Both implementations print a one-line JSON
-summary: `sampleRate`, `channels`, `bitsPerSample`, `blockSize`, `frames`,
-`samples`, `duration` (seconds), `shardFrames` (`F`), `shards`, `pictures`
-(the PICTURE blocks), `tags` (those of `"id3v2"` and `"id3v1"` the file
-has, in that order) and `joinRanges` (whether ranges adjacent across inner
-chunks would be joined: not when the zarrifier records checksums,
-[spec/zarrify.md §2.1](../zarrify.md#21-virtual-shards)).
+summary, with these members:
+
+| member | value |
+|---|---|
+| `sampleRate` | the sample rate |
+| `channels` | the channel count |
+| `bitsPerSample` | the bits per sample |
+| `blockSize` | `B` |
+| `frames` | `N` |
+| `samples` | `T` |
+| `duration` | in seconds |
+| `shardFrames` | `F` |
+| `shards` | the array's shards |
+| `pictures` | the PICTURE blocks |
+| `tags` | those of `"id3v2"` and `"id3v1"` the file has, in that order |
+| `joinRanges` | whether ranges adjacent across inner chunks would be joined: not when the zarrifier records checksums, [spec/zarrify.md §2.1](../zarrify.md#21-virtual-shards) |
