@@ -2258,14 +2258,17 @@ struct NdpiTiles {
     added: Vec<u16>,
 }
 
-/// A level's McuStarts (`derive_ndpi`): its values plus McuStartsHighBytes × 2^32, whether the
-/// high table has as many values, whether, for one in-line LONG, whose value has its entry's
-/// high word already, the high table holds that word (and is not added), and whether the high
-/// table was added.
+/// A level's McuStarts with its McuStartsHighBytes (`derive_ndpi`).
 struct McuStarts {
+    /// McuStarts, plus McuStartsHighBytes × 2^32 when `added`.
     starts: Vec<u64>,
+    /// McuStartsHighBytes is absent or has as many values as McuStarts.
     same_length: bool,
+    /// Checked only when `same_length` (true otherwise): McuStarts is not one in-line LONG, or
+    /// McuStartsHighBytes is absent or holds its entry's high word, which its value has already.
     high_word: bool,
+    /// McuStartsHighBytes is in `starts`: present, of the same length, and McuStarts not one
+    /// in-line LONG.
     added: bool,
 }
 
