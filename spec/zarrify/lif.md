@@ -7,7 +7,10 @@ conventions share is in [spec/conventions.md](../conventions.md), cited here as 
 [Part 2](#part-2-the-profile) below, cited as "the profile §n".
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `b099ab1f-f9d4-4276-9006-9ff1193a34b2` ·
-Schema: [schema.json](lif/schema.json)
+Schema: [schema.json](lif/schema.json) · Changed 2026-10-26, with no change to any output: the
+layout is tabulated, its entries in [Layout](#layout) and its types in type tables
+([conventions §11.5](../conventions.md#115-layout-tables)), and the blocks' fields, the
+dimensions' and channels' attributes, the data types and the channels' colors are tables
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
@@ -24,6 +27,35 @@ hierarchy, byte for byte (its IR mirror, [§5.3](#53-the-ir-mirror)); each image
 the XML, its dimensions and channels, are on its group as JSON; and no document grows with the
 number of planes: an image's documents grow with its dimensions and channels only, which the
 profile bounds ([the profile §7.3](#73-rejection)).
+
+## Layout
+
+The hierarchy's entries ([conventions §11.5](../conventions.md#115-layout-tables)), a
+bioformats2raw collection ([conventions §4](../conventions.md#4-images), whose
+[entries](../conventions.md#table-collection) these rows refine) of the images' fields, one
+series each:
+
+| prefix | type | structure | description |
+|---|---|---|---|
+| `zarr.json` | group | [`GroupDocument`](../conventions.md#type-groupdocument), attributes a [`CollectionRoot`](../conventions.md#type-collectionroot) | the root ([§4.1](#41-the-hierarchy)) |
+| `zarr.json#/attributes/ome` | attribute | `{"version": "0.5", "bioformats2raw.layout": 3}` | when the file has a series; absent for a file without images (only folders, or FLIM data), which then has no `OME` group |
+| `zarr.json#/attributes/zarr_conventions` | attribute | array of [`ConventionMetadata`](../conventions.md#type-conventionmetadata) | the CMO of [§1](#1-declaration) |
+| `zarr.json#/attributes/refkv_zarrified` | attribute | [`RootProperty`](../conventions.md#type-rootproperty) | `profile` `"lif"`, `version` `0`, `source.url` the file's URL |
+| `zarr.json#/attributes/refkv_zarrified/lif` | attribute | [`LifRoot`](#type-lifroot) | the root's source metadata ([§5.1](#51-the-root)) |
+| `OME/zarr.json` | group | [`GroupDocument`](../conventions.md#type-groupdocument), attributes a [`SeriesGroup`](../conventions.md#type-seriesgroup) | when the file has a series: `series` `"0"`, `"1"`, ..., one per series |
+| `<s>/zarr.json` | group | [`ImageGroup`](../conventions.md#type-imagegroup) | series `s` ([§4.2](#42-images)) |
+| `<s>/zarr.json#/attributes/ome` | attribute | [`OmeImage`](../conventions.md#type-omeimage) | `M`: one level, the array `0`, with `name`, scales and `omero` as [§4.2](#42-images) says, and no translation |
+| `<s>/zarr.json#/attributes/zarr_conventions` | attribute | array of [`ConventionMetadata`](../conventions.md#type-conventionmetadata) | the CMO of [§1](#1-declaration): every image group declares the convention |
+| `<s>/zarr.json#/attributes/refkv_zarrified` | attribute | [`NodeProperty`](../conventions.md#type-nodeproperty) | |
+| `<s>/zarr.json#/attributes/refkv_zarrified/lif` | attribute | [`LifImage`](#type-lifimage) | the series' source metadata ([§5.2](#52-the-images)) |
+| `<s>/0/zarr.json` | array | [`LifArray`](#type-lifarray) | the series' array ([§4.3](#43-image-arrays)); attributes `{}` |
+| `<s>/0/c/<coords>` | chunk | [`LifChunk`](#type-lifchunk) | a band of a plane ([§4.3](#43-image-arrays)); every chunk is present |
+| `refkv_source/**` | subtree | [the mirror's entries](../conventions.md#table-mirror) | the IR mirror ([§5.3](#53-the-ir-mirror)): its elements are [§5.4](#54-elements)'s; the convention writes no arrays of its own under it |
+
+| placeholder | value |
+|---|---|
+| `<s>` | a series' index, in decimal, from 0: image 0's fields in order, then image 1's, and so on ([§4.1](#41-the-hierarchy)) |
+| `<coords>` | the chunk's coordinates along the array's axes, in decimal, one key segment each: `<t>/<c>/<z>/<j>/0`, each of `t`, `c` and `z` only for the axes present (so it stands for two to five segments); `j` the band |
 
 ## 1. Declaration
 
@@ -42,7 +74,8 @@ The root and `refkv_source` declare the convention
 ```
 
 Every image group ([§4.2](#42-images)) declares it too, with `{"lif": S}`, `S` its source
-metadata ([§5.2](#52-the-images)).
+metadata ([§5.2](#52-the-images)), a [`LifImage`](#type-lifimage). No other node declares it:
+not the image arrays, nor `OME`.
 
 ## 2. The source
 
@@ -51,17 +84,34 @@ the file.
 
 ### 2.1 Blocks
 
-A LIF file is a sequence of **blocks**. The first, at offset 0, is the **header block**: `u32`
-test value `0x70`, `u32` length (not read; writers set it to `2c + 5`), `u8` magic byte `0x2A`,
-`u32` `c`, the XML header's characters, then the XML header ([§2.2](#22-the-xml-header)), `2c`
-bytes of UTF-16LE. The test value and the magic byte MUST be these, and the XML header MUST lie
-within the file.
+A LIF file is a sequence of **blocks**. The first, at offset 0, is the **header block**:
+
+| bytes | field |
+|---|---|
+| 0–3 | `u32` test value `0x70` |
+| 4–7 | `u32` length (not read; writers set it to `2c + 5`) |
+| 8 | `u8` magic byte `0x2A` |
+| 9–12 | `u32` `c`, the XML header's characters |
+| `2c` bytes from 13 | the XML header ([§2.2](#22-the-xml-header)), UTF-16LE |
+
+The test value and the magic byte MUST be these, and the XML header MUST lie within the file.
 
 After it come the **memory blocks**, from offset `13 + 2c`. A memory block is its **fixed
-part** of `H` bytes: `u32` test value `0x70`, `u32` length (not read), `u8` magic byte `0x2A`,
-the data size `D` (`u32` in a file of version 1, `u64` in one of version 2, [§2.2](#22-the-xml-header);
-`H` is 18 or 22), `u8` magic byte `0x2A`, `u32` `m`, the ID's characters; then its **ID**, `2m`
-bytes of UTF-16LE, and its **data**, `D` bytes. Memory block `i` is the `i`-th the **walk**
+part** of `H` bytes, then its **ID** and its **data**. The data size `D` is a `u32` in a file of
+version 1 and a `u64` in one of version 2 ([§2.2](#22-the-xml-header)), so `H` is 18 or 22:
+
+| bytes, version 1 | bytes, version 2 | field |
+|---|---|---|
+| 0–3 | 0–3 | `u32` test value `0x70` |
+| 4–7 | 4–7 | `u32` length (not read) |
+| 8 | 8 | `u8` magic byte `0x2A` |
+| 9–12 | 9–16 | the data size `D` |
+| 13 | 17 | `u8` magic byte `0x2A` |
+| 14–17 | 18–21 | `u32` `m`, the ID's characters |
+| `2m` bytes from 18 | `2m` bytes from 22 | the **ID**, UTF-16LE |
+| `D` bytes from `18 + 2m` | `D` bytes from `22 + 2m` | the **data** |
+
+Memory block `i` is the `i`-th the **walk**
 finds ([the profile §7.2](#72-reading)), from 0, in file order. Bytes after the last block are
 the **tail**.
 
@@ -106,16 +156,33 @@ An image's **dimensions** are the children `DimensionDescription` of its
 `Data/Image/ImageDescription/Dimensions`, 1 to 16 of them, in document order; its **channels**
 the children `ChannelDescription` of `Data/Image/ImageDescription/Channels`, 1 to 1024.
 
-- A dimension's attributes `DimID`, `NumberOfElements` (at least 1) and `BytesInc` (the bytes
-  from one element to the next) MUST be integers, and `BitInc`, when present, MUST be the
-  integer 0 (bit-packed data cannot be referenced as bytes). `Origin`, `Length` and `Unit` are
-  its first element's position, the distance from it to the last, and their unit. A dimension
-  of one element is **unused**; the others are **used**, and no two used dimensions MUST have
-  one `DimID`.
-- A channel's attributes `DataType` (0: unsigned integer, 1: floating point), `Resolution`
-  (bits, 1 to 64; more than 8 for a float) and `BytesInc` (where its samples start) MUST be
-  integers, and `BitInc`, when present, MUST be 0. `ChannelTag` (0 gray, 1 red, 2 green, 3
-  blue) and `LUTName` name its color.
+A dimension's attributes:
+
+| attribute | value |
+|---|---|
+| `DimID` | MUST be an integer (below) |
+| `NumberOfElements` | MUST be an integer, at least 1 |
+| `BytesInc` | MUST be an integer: the bytes from one element to the next |
+| `BitInc` | when present, MUST be the integer 0 (bit-packed data cannot be referenced as bytes) |
+| `Origin` | its first element's position |
+| `Length` | the distance from its first element to the last |
+| `Unit` | their unit |
+
+A dimension of one element is **unused**; the others are **used**, and no two used dimensions
+MUST have one `DimID`.
+
+A channel's attributes:
+
+| attribute | value |
+|---|---|
+| `DataType` | MUST be an integer: 0, unsigned integer; 1, floating point |
+| `Resolution` | MUST be an integer: bits, 1 to 64; more than 8 for a float |
+| `BytesInc` | MUST be an integer: where its samples start |
+| `BitInc` | when present, MUST be 0 |
+| `ChannelTag` | names its color: 0 gray, 1 red, 2 green, 3 blue |
+| `LUTName` | names its color |
+
+A dimension's `DimID` gives its axis:
 
 | `DimID` | dimension | axis |
 |---|---|---|
@@ -132,11 +199,17 @@ the children `ChannelDescription` of `Data/Image/ImageDescription/Channels`, 1 t
 
 ### 3.1 Data types
 
-A channel's **item size** `e` is 1, 2, 4 or 8 bytes for a `Resolution` of 1–8, 9–16, 17–32 or
-33–64 bits. Its data type is `uint8`, `uint16`, `uint32` or `uint64` for `DataType` 0, and
-`float16`, `float32` or `float64` for 1 (so 12 bits are `uint16`, and a float of 8 bits is
-rejected). Every channel of an image MUST have one data type, the image's. Samples are
-little-endian.
+A channel's **item size** `e` and data type, by its `Resolution` and `DataType`:
+
+| `Resolution` | item size `e` | data type, `DataType` 0 | data type, `DataType` 1 |
+|---|---|---|---|
+| 1–8 bits | 1 byte | `uint8` | rejected |
+| 9–16 bits | 2 bytes | `uint16` | `float16` |
+| 17–32 bits | 4 bytes | `uint32` | `float32` |
+| 33–64 bits | 8 bytes | `uint64` | `float64` |
+
+(So 12 bits are `uint16`, and a float of 8 bits is rejected.) Every channel of an image MUST
+have one data type, the image's. Samples are little-endian.
 
 ### 3.2 Channels
 
@@ -145,10 +218,11 @@ An image's channels are taken in ascending order of their `BytesInc` (two channe
 dimension of `DimID` 1: its **X** is the used one, else the first, of `BytesInc` `s_x`, and its
 channels are:
 
-- **planar** when `s_x = e`: each channel's samples are an image of their own, from `o_c`;
-- **interleaved** when there are `n > 1` channels, `s_x = n × e` and `o_c = c × e`: a pixel holds
-  one sample of each channel, in order (RGB data, as LAS X writes it);
-- otherwise the input is rejected.
+| channels | when | samples |
+|---|---|---|
+| **planar** | `s_x = e` | each channel's samples are an image of their own, from `o_c` |
+| **interleaved** | there are `n > 1` channels, `s_x = n × e` and `o_c = c × e` | a pixel holds one sample of each channel, in order (RGB data, as LAS X writes it) |
+| (none) | otherwise | the input is rejected |
 
 The sample of channel `c` at the index `i_d` along each dimension `d` is at `o_c + Σ i_d × s_d`
 bytes into the data of the image's memory block, `s_d` the dimension's `BytesInc`. The image's
@@ -190,13 +264,14 @@ range of its block, or for padded rows the ranges of its rows, and holds at most
 
 ### 4.1 The hierarchy
 
-- `zarr.json`: the root group, declaring the convention ([§1](#1-declaration)). When the file
-  has a series (below), its attributes have `"ome": {"version": "0.5", "bioformats2raw.layout": 3}`.
-- `OME/zarr.json`, when the file has a series: a group with
-  `{"ome": {"version": "0.5", "series": ["0", "1", ...]}}`, one per series.
-- `<s>/zarr.json` and its array `<s>/0`: series `s`, an image ([§4.2](#42-images),
-  [§4.3](#43-image-arrays)).
-- `refkv_source`: the source metadata ([§5](#5-source-metadata)).
+The nodes, whose entries are listed in [Layout](#layout):
+
+| node | when | what |
+|---|---|---|
+| `zarr.json` | always | the root group, declaring the convention ([§1](#1-declaration)). When the file has a series (below), its attributes have `"ome": {"version": "0.5", "bioformats2raw.layout": 3}` |
+| `OME/zarr.json` | the file has a series | a group with `{"ome": {"version": "0.5", "series": ["0", "1", ...]}}`, one per series |
+| `<s>/zarr.json` and its array `<s>/0` | for each series | series `s`, an image ([§4.2](#42-images), [§4.3](#43-image-arrays)) |
+| `refkv_source` | always | the source metadata ([§5](#5-source-metadata)) |
 
 The **series** are the fields of the images, numbered from 0: image 0's fields in order, then
 image 1's, and so on. A file without images (only folders, or FLIM data) is accepted: its
@@ -205,11 +280,19 @@ output is the root and `refkv_source`.
 ### 4.2 Images
 
 Series `s`, field `f` of image `k`, is an image ([conventions §4](../conventions.md#4-images))
-of one dataset, `"0"`, and no translation. Its source metadata is [§5.2](#52-the-images)'s. Its
-`name` is the image's `Name` when present, not empty and at most 256 bytes in UTF-8, followed,
-when the image has field dimensions, by ` (tile <f>)` when its only field dimension is of
-`DimID` 10 and ` (field <f>)` otherwise; without such a `Name`, an image with fields is named
-`tile <f>` or `field <f>`, and one without has no `name`.
+of one dataset, `"0"`, and no translation. Its source metadata is [§5.2](#52-the-images)'s, a
+[`LifImage`](#type-lifimage). Its `name`, by whether the image's `Name` is present, not empty
+and at most 256 bytes in UTF-8 (a **valid** `Name`), and by its field dimensions, `<f>` in
+decimal:
+
+| the image's `Name` | field dimensions | `name` |
+|---|---|---|
+| valid | none | the `Name` |
+| valid | its only field dimension is of `DimID` 10 | the `Name` followed by ` (tile <f>)` |
+| valid | some, other than a single one of `DimID` 10 | the `Name` followed by ` (field <f>)` |
+| not valid | its only field dimension is of `DimID` 10 | `tile <f>` |
+| not valid | some, other than a single one of `DimID` 10 | `field <f>` |
+| not valid | none | no `name` |
 
 **Scale.** `c` is 1. Along `x`, `y`, `z` and `t`, the dimension of its `DimID` (1, 2, 3, 4)
 that is used gives the step `|L / (N − 1)|` (binary64: the division, then the magnitude), `L`
@@ -217,40 +300,59 @@ its `Length` (a decimal) and `N` its `NumberOfElements`; the scale is 1, without
 the dimension is unused, `Length` is not a decimal, or the step is not finite and positive.
 Otherwise:
 
-- along `x`, `y` and `z`, when `Unit` is a length symbol of
-  [conventions §5](../conventions.md#5-units): the step converted to micrometers,
-  `step × (size(Unit) / 1e-6)` (`m`, as LAS X writes, gives `step × (1 / 1e-6)`), in
-  `micrometer`, when finite and positive (else 1 without a unit);
-- along `t`, when `Unit` is a time symbol of [conventions §5](../conventions.md#5-units) (`s`, `ms`, `min`, `h`): the step in
-  that unit;
-- otherwise the step, without a unit.
+| axis | `Unit` | scale | unit |
+|---|---|---|---|
+| `x`, `y`, `z` | a length symbol of [conventions §5](../conventions.md#5-units) | the step converted to micrometers, `step × (size(Unit) / 1e-6)` (`m`, as LAS X writes, gives `step × (1 / 1e-6)`), when finite and positive; else 1 | `micrometer`; none when the converted step is not finite and positive (scale 1) |
+| `t` | a time symbol of [conventions §5](../conventions.md#5-units) (`s`, `ms`, `min`, `h`) | the step | that unit |
+| any | otherwise | the step | none |
 
 Origins are not translations: each image keeps its own (its dimensions'), and a mosaic's tiles
 their stage positions, in its source metadata ([§4.4](#44-mosaics)).
 
 **omero.** When the image has at most 64 channels, `M` has `"omero": {"channels": [...]}`, one
-per channel `c`: label `C<c>`; color `FF0000`, `00FF00` or `0000FF` for a `ChannelTag` of 1, 2
-or 3, else by its `LUTName`, compared in ASCII lower case: `red` `FF0000`, `green` `00FF00`,
-`blue` `0000FF`, `cyan` `00FFFF`, `magenta` `FF00FF`, `yellow` `FFFF00`, anything else
-`FFFFFF`; `"active": true`; and for an unsigned type the window
-`{"min": 0, "max": V, "start": 0, "end": V}`, `V = 2^b − 1`, `b` the channel's `Resolution`
-(4095 for 12-bit data in `uint16`); no window for a float.
+[`OmeroChannel`](../conventions.md#type-omerochannel) per channel `c`:
+
+| member | value |
+|---|---|
+| `label` | `C<c>` |
+| `color` | by its `ChannelTag`, else by its `LUTName` (below) |
+| `active` | `true` |
+| `window` | for an unsigned type, `{"min": 0, "max": V, "start": 0, "end": V}`, `V = 2^b − 1`, `b` the channel's `Resolution` (4095 for 12-bit data in `uint16`); no window for a float |
+
+The color is `FF0000`, `00FF00` or `0000FF` for a `ChannelTag` of 1, 2 or 3, else by its
+`LUTName`, compared in ASCII lower case:
+
+| `LUTName` | color |
+|---|---|
+| `red` | `FF0000` |
+| `green` | `00FF00` |
+| `blue` | `0000FF` |
+| `cyan` | `00FFFF` |
+| `magenta` | `FF00FF` |
+| `yellow` | `FFFF00` |
+| anything else | `FFFFFF` |
 
 ### 4.3 Image arrays
 
 The array of series `s`, at `<s>/0` ([conventions §3](../conventions.md#3-arrays)):
 
-- **Shape:** the image's ([§3.3](#33-axes-and-fields)).
-- **Data type:** the image's ([§3.1](#31-data-types)); `fill_value` 0.
-- **Chunk shape:** 1 for `t` and `z`, the number of channels for `c` when they are interleaved
-  and 1 when they are planar, the band `b` for `y` ([§3.4](#34-rows-and-bands)) and `N_X` for
-  `x`.
-- **Codecs:** `transpose` when the channels are interleaved (a chunk holds `[y, x, c]`), then
-  `bytes`, little-endian for an item of more than one byte.
-- **Chunks:** the chunk at `t`, `c`, `z` (each for its axis present), `j`, 0 holds band `j` (rows
-  `j × b` to `j × b + b − 1`) of the plane of that time, channel (all channels when they are
-  interleaved, at `c` = 0), depth and the series' field, as [the profile §7.4](#74-chunk-references)
-  references it. Every chunk is present.
+<a id="type-lifarray"></a>**`LifArray`**, the array's `zarr.json`: an
+[`ArrayDocument`](../conventions.md#type-arraydocument) with these members:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `shape` | array of integer | required | the image's ([§3.3](#33-axes-and-fields)) |
+| `data_type` | string | required | the image's ([§3.1](#31-data-types)) |
+| `chunk_grid` | object | required | regular, its chunk shape 1 for `t` and `z`, the number of channels for `c` when they are interleaved and 1 when they are planar, the band `b` for `y` ([§3.4](#34-rows-and-bands)) and `N_X` for `x` |
+| `fill_value` | number | required | 0 |
+| `codecs` | array of object | required | `transpose` ([conventions §3](../conventions.md#3-arrays)) when the channels are interleaved (a chunk holds `[y, x, c]`), then `bytes`, little-endian for an item of more than one byte |
+| `dimension_names` | array of string | required | the image's axes ([§3.3](#33-axes-and-fields)) |
+| `attributes` | object | required | `{}` |
+
+**Chunks:** the chunk at `t`, `c`, `z` (each for its axis present), `j`, 0 holds band `j` (rows
+`j × b` to `j × b + b − 1`) of the plane of that time, channel (all channels when they are
+interleaved, at `c` = 0), depth and the series' field, a [`LifChunk`](#type-lifchunk), as
+[the profile §7.4](#74-chunk-references) references it. Every chunk is present.
 
 ### 4.4 Mosaics
 
@@ -269,27 +371,47 @@ or shows the merged image.
 
 ### 5.1 The root
 
-The root's `S` is `{"version": V}`, `V` the file's version ([§2.2](#22-the-xml-header)).
+<a id="type-lifroot"></a>**`LifRoot`**, the root's `S`:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `version` | integer | required | `V`, the file's version ([§2.2](#22-the-xml-header)): 1 or 2 |
+
 Everything else is on the images and on `refkv_source`.
 
 ### 5.2 The images
 
-The `S` of series `s`, field `f` of image `k`, has these members, in this order. An element's
-**attributes** are a JSON object of its attributes' values as strings, references decoded, in
-document order (of a repeated name, the first).
+The `S` of series `s`, field `f` of image `k`, has these members, in this order:
 
-- `image`: `k`;
-- `path`: the image's path ([§2.3](#23-images)), an array of strings and `null`s;
-- `attributes`: the image element's attributes (`Name`, `UniqueID`, ...);
-- `memory`: its `Memory` element's attributes (`Size`, `MemoryBlockID`);
-- `dimensions`: an array of each dimension's attributes, in document order;
-- `channels`: an array of each channel's attributes, in document order (not the channel order of
-  [§3.2](#32-channels));
-- `field`: when the image has field dimensions, an object whose members are their `DimID`s, as
-  text, and the field's index along each;
-- `tile_scan`: when the image's only field dimension is of `DimID` 10 and its `TileScanInfo`
-  attachment ([§4.4](#44-mosaics)) has a child `Tile`, the attachment's attributes;
-- `tile`: then, when it has an `f`-th child `Tile` (from 0), that child's attributes.
+<a id="type-lifimage"></a>**`LifImage`**, an image group's `S`:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `image` | integer | required | `k` |
+| `path` | array of (string or `null`) | required | the image's path ([§2.3](#23-images)), an array of strings and `null`s |
+| `attributes` | [`LifAttributes`](#type-lifattributes) | required | the image element's attributes (`Name`, `UniqueID`, ...) |
+| `memory` | [`LifAttributes`](#type-lifattributes) | required | its `Memory` element's attributes (`Size`, `MemoryBlockID`) |
+| `dimensions` | array of [`LifAttributes`](#type-lifattributes) | required | each dimension's attributes, in document order |
+| `channels` | array of [`LifAttributes`](#type-lifattributes) | required | each channel's attributes, in document order (not the channel order of [§3.2](#32-channels)) |
+| `field` | [`LifField`](#type-liffield) | optional | when the image has field dimensions |
+| `tile_scan` | [`LifAttributes`](#type-lifattributes) | optional | when the image's only field dimension is of `DimID` 10 and its `TileScanInfo` attachment ([§4.4](#44-mosaics)) has a child `Tile`, the attachment's attributes |
+| `tile` | [`LifAttributes`](#type-lifattributes) | optional | then, when it has an `f`-th child `Tile` (from 0), that child's attributes |
+
+<a id="type-lifattributes"></a>**`LifAttributes`**, an element's **attributes**: a JSON object of
+its attributes' values as strings, references decoded, in document order (of a repeated name,
+the first):
+
+| member | type | presence | value |
+|---|---|---|---|
+| each attribute of the element, by its name | string | optional | the attribute's value, when the element has it |
+
+<a id="type-liffield"></a>**`LifField`**: an object whose members are the image's field
+dimensions' `DimID`s, as text, in the order of the field dimensions `d_1, …, d_q`
+([§3.3](#33-axes-and-fields)), and the field's index along each:
+
+| member | type | presence | value |
+|---|---|---|---|
+| each field dimension's `DimID`, in decimal | integer | required | the field's index along that dimension, from 0 |
 
 The rest of the XML header (the experiment, the hardware settings, time stamps, LUTs and every
 other attachment) is in the IR mirror, with every byte of the file.
@@ -465,19 +587,23 @@ image, has, for each plane of time `t`, channel `c` (only `c` = 0 when interleav
 
 where `o` is `o_c`, or 0 when the channels are interleaved, and `s_T`, `s_Z` the `BytesInc` of
 the T and Z dimensions ([§3.3](#33-axes-and-fields)). Band `j` of the plane is the chunk of
-[§4.3](#43-image-arrays): for packed rows the single range `(0, P + j × b × R, b × R)`, and for
-padded rows the `b` ranges `(0, P + (j × b + r) × s_y, R)`, `r` = 0 to `b − 1`, in order
-([§3.4](#34-rows-and-bands)). Pixels are never copied.
+[§4.3](#43-image-arrays), by its rows ([§3.4](#34-rows-and-bands)). Pixels are never copied.
+
+<a id="type-lifchunk"></a>**`LifChunk`**, band `j` of the plane at `P`:
+
+| part | range | presence | value |
+|---|---|---|---|
+| the band, packed rows | source range `(0, P + j × b × R, b × R)` | optional | for packed rows: the single range |
+| row `r` of the band, padded rows | source range `(0, P + (j × b + r) × s_y, R)` | optional | for padded rows: `b` ranges, `r` = 0 to `b − 1`, in order |
 
 ### 7.5 What the profile does not read
 
-- **LOF** (a Leica object file: one image, an `LMS_Object_File` header block) is rejected
-  ([§2.2](#22-the-xml-header)), and **LIFEXT** (`LMSDataContainerEnhancedHeader`) too.
-- **XLIF, XLEF, XLCF and XLLF** (XML that names image files beside it: TIFF, JPEG, PNG, BMP or
-  LOF) match no signature. A profile of them would read a store of the files a document names, as
-  VSI reads its tile files.
-- **FLIM** raw data (`SingleMoleculeDetection` elements, photon arrival histograms) has no image:
-  its blocks are kept as bytes in the mirror.
+| input | what it is | outcome |
+|---|---|---|
+| **LOF** | a Leica object file: one image, an `LMS_Object_File` header block | rejected ([§2.2](#22-the-xml-header)) |
+| **LIFEXT** | `LMSDataContainerEnhancedHeader` | rejected too |
+| **XLIF, XLEF, XLCF and XLLF** | XML that names image files beside it: TIFF, JPEG, PNG, BMP or LOF | match no signature. A profile of them would read a store of the files a document names, as VSI reads its tile files |
+| **FLIM** raw data | `SingleMoleculeDetection` elements, photon arrival histograms | has no image: its blocks are kept as bytes in the mirror |
 
 LIF stores pixels uncompressed and unpacked, so every image the convention gives a layout is
 referenced, not decoded.
