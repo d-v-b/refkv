@@ -663,7 +663,7 @@ unsharded array's ([conventions §3](conventions.md#3-arrays),
 
 | part | range | presence | value |
 |---|---|---|---|
-| inner chunk `s × K + i`, for each `i` of the `K` grid in row-major order | the inner chunk's ranges | optional | present for each inner chunk the unsharded array has; its ranges as the unsharded array's reference has them (an inner chunk the profile copies is one literal range of its bytes); a source range that starts where the range before it ends, in the same source, is joined to it (**Joined ranges**) |
+| inner chunk `s × K + i`, for each `i` of the `K` grid in row-major order | the inner chunk's ranges | optional | present for each inner chunk the unsharded array has; its ranges as the unsharded array's reference has them (an inner chunk the profile copies is one literal range of its bytes); a source range that starts where the range before it ends, in the same source, is joined to it, unless the zarrifier records checksums (**Joined ranges**) |
 | the index | literal | required | for each `i` in that order, the offset in the shard of the inner chunk's first byte and its length, two 8-byte little-endian integers, or `(2^64 − 1, 2^64 − 1)` for an inner chunk the shard does not hold; then the CRC-32C of those entries, 4 bytes little-endian |
 
 The offsets and lengths in the index are those of the inner chunks'

@@ -935,8 +935,8 @@ document, the source metadata of its group:
 
 | member | type | presence | value |
 |---|---|---|---|
-| `$vz` | string | optional | `"derived"`, first, in a derived element's document |
-| `$form` | string or null | optional | a derived element's form, after `$vz` (`null`: none) |
+| `$vz` | string | optional | `"derived"`: present, first, in a derived element's document, and only there |
+| `$form` | string or null | optional | present, after `$vz`, in a derived element's document, and only there: its form (`null`: none) |
 | `$partial` | boolean | optional | `true` when the document stops short of the struct's children (**Budgets**) |
 | each shown child's full name (a leading `$` doubled) | [`ViewValue`](#type-viewvalue) | optional | the child's member, in canonical order |
 
