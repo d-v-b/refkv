@@ -97,7 +97,8 @@ def _current_codecs(chain):
     out = []
     for c in chain:
         if isinstance(c, dict):
-            c = {**c, "name": CODEC_NAMES.get(c.get("name"), c.get("name"))}
+            if c.get("name") in CODEC_NAMES:
+                c = {**c, "name": CODEC_NAMES[c["name"]]}
             config = c.get("configuration")
             if isinstance(config, dict) and "codecs" in config:
                 c["configuration"] = {**config, "codecs": _current_codecs(config["codecs"])}

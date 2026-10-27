@@ -94,11 +94,11 @@ function currentCodecs(chain: unknown): unknown {
   if (!Array.isArray(chain)) return chain;
   return chain.map((c) => {
     if (c === null || typeof c !== "object") return c;
-    const name = typeof c.name === "string" && Object.hasOwn(CODEC_NAMES, c.name) ? CODEC_NAMES[c.name] : c.name;
-    const config = c.configuration;
+    const renamed = typeof c.name === "string" && Object.hasOwn(CODEC_NAMES, c.name) ? { ...c, name: CODEC_NAMES[c.name] } : c;
+    const config = renamed.configuration;
     return config !== null && typeof config === "object" && "codecs" in config
-      ? { ...c, name, configuration: { ...config, codecs: currentCodecs(config.codecs) } }
-      : { ...c, name };
+      ? { ...renamed, configuration: { ...config, codecs: currentCodecs(config.codecs) } }
+      : renamed;
   });
 }
 
@@ -117,11 +117,8 @@ export function currentNames(v: unknown, inside = false): unknown {
   const out: Record<string, unknown> = {};
   const doc = v as Record<string, unknown>;
   const array = doc.node_type === "array" && "codecs" in doc;
-  for (const [k, x] of Object.entries(v)) {
-    if (array && k === "codecs") {
-      out[k] = currentCodecs(x);
-      continue;
-    }
+  for (let [k, x] of Object.entries(v)) {
+    if (array && k === "codecs") x = currentCodecs(x);
     const legacy = (m: { uuid?: string; name?: string }) => m?.name === CONVENTION_KEY && PROFILE_OF_UUID.has(m.uuid!);
     out[k === CONVENTION_KEY ? CURRENT_KEY : k] = k === "zarr_conventions" && Array.isArray(x)
       ? x.map((m) => legacy(m) ? currentConvention(PROFILE_OF_UUID.get(m.uuid)!) : currentNames(m, inside))
