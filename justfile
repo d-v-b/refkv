@@ -39,7 +39,7 @@ ir-wasm:
 ir-test *args: ir-rust-test ir-build
     uv run pytest -q python/tests/ir {{args}}
 
-# Test the IR core's Rust crate, and build its Python bindings' crate (python/Cargo.toml) alone
+# Test the IR core's Rust crate, and build its Python bindings' crate (rust/refkv-python) alone
 ir-rust-test:
     cargo test --release --manifest-path rust/refkv-ir/Cargo.toml
     just python::cargo-test

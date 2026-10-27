@@ -64,7 +64,7 @@ jobs:
         with:
           workspaces: |
             rust/refkv-ir
-            python
+            rust/refkv-python
       # binaryen's wasm-opt shrinks the wasm32 module (rust/refkv-ir/wasm/build.sh; optional)
       - if: runner.os == 'Linux'
         run: sudo apt-get install -y --no-install-recommends binaryen
@@ -142,7 +142,7 @@ jobs:
         with:
           workspaces: |
             rust/refkv-ir
-            python
+            rust/refkv-python
       # binaryen's wasm-opt shrinks the wasm32 module (rust/refkv-ir/wasm/build.sh; optional)
       - if: runner.os == 'Linux'
         run: sudo apt-get install -y --no-install-recommends binaryen
@@ -150,9 +150,9 @@ jobs:
         with:
           repo: casey/just
       - run: uv sync --all-groups --locked
-      # the core's Rust tests, and a cargo build of its Python bindings' crate (python/); the
-      # Python host's tests (python/tests/ir), the other half of `just ir-test`, run in the
-      # pytest job, with the rest
+      # the core's Rust tests, and a cargo build of its Python bindings' crate
+      # (rust/refkv-python); the Python host's tests (python/tests/ir), the other half of
+      # `just ir-test`, run in the pytest job, with the rest
       - run: just ir-rust-test
       - run: just ir-wasm
 
@@ -184,7 +184,7 @@ jobs:
             rust/refkv-phkv
             rust/refkv-cli
             conformance/impls/rust
-            python
+            rust/refkv-python
       - uses: extractions/setup-crate@v2
         with:
           repo: casey/just
@@ -219,7 +219,7 @@ jobs:
         with:
           workspaces: |
             rust/refkv-ir
-            python
+            rust/refkv-python
       # binaryen's wasm-opt shrinks the wasm32 module (rust/refkv-ir/wasm/build.sh; optional)
       - run: sudo apt-get install -y --no-install-recommends binaryen
       - run: uv sync --all-groups --locked
@@ -257,7 +257,7 @@ jobs:
         with:
           workspaces: |
             rust/refkv-ir
-            python
+            rust/refkv-python
       # the two venvs, and their Pythons: bin/python, or Scripts/python.exe on Windows (with
       # RUNNER_TEMP's `\` written as `/`, for Git Bash)
       - run: |
@@ -311,6 +311,6 @@ jobs:
         with:
           workspaces: |
             rust/refkv-ir
-            python
+            rust/refkv-python
       - run: uv sync --all-groups --locked
       - run: just fixtures-check

@@ -2,7 +2,7 @@
 # archive, the archive python -m refkv.zarrify writes, byte for byte. The host of the Rust core
 # (rust/refkv-ir, sans-IO), ported from refkv's Python host: the reads (a local file or directory,
 # or http(s) under the reader policy), the store listings, and the archive (rust/refkv-vzip). A
-# crate of its own, not a member of a Cargo workspace (python/Cargo.toml says why).
+# crate of its own, not a member of a Cargo workspace (rust/refkv-python/Cargo.toml says why).
 [package]
 name = "refkv-cli"
 version = "0.1.0"

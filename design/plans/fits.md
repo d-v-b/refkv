@@ -503,7 +503,7 @@ detection and the codec.
 
 - **Python** (`python/src/refkv`): `ir/__init__.py` names the format;
   `_core` gains `fits_tiles_decode(chunk: bytes, config: str) -> bytes` in
-  `python/src/lib.rs` (the first decoder the core exposes to a host;
+  `rust/refkv-python/src/lib.rs` (the first decoder the core exposes to a host;
   `python/src/refkv/zarr/codecs.py` registers `refkv.fits_tiles` as an
   `ArrayBytesCodec` that calls it and reshapes). No astropy in the package.
 - **Browser** (`js/src/zarrify`): `index.ts` detects `SIMPLE  =`,

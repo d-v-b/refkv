@@ -1,5 +1,6 @@
-# The stub of `refkv._core`, the Rust core's Python bindings (python/src/lib.rs): the parsers
-# as step/feed/finish objects, the runs, and the IR's columns, tables and per-element reads.
+# The stub of `refkv._core`, the Rust core's Python bindings (rust/refkv-python/src/lib.rs):
+# the parsers as step/feed/finish objects, the runs, and the IR's columns, tables and
+# per-element reads.
 
 from collections.abc import Callable, Sequence
 from typing import Literal

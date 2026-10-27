@@ -1,16 +1,16 @@
-# The refkv distribution: the Python package src/refkv, with its bindings to the Rust core
-# (src/lib.rs, over ../rust/refkv-ir) compiled into it as the module refkv._core, so refkv
-# always runs the core of its own commit. Building it needs a Rust toolchain. The repository's
-# root pyproject.toml is a uv workspace over this package, with the environment of the
-# conformance harnesses, the fixture generators and the benchmarks.
+# The refkv distribution: the Python package src/refkv, with its bindings to the Rust core (the
+# crate ../rust/refkv-python, over ../rust/refkv-ir) compiled into it as the module
+# refkv._core, so refkv always runs the core of its own commit. Building it needs a Rust
+# toolchain. The repository's root pyproject.toml is a uv workspace over this package, with the
+# environment of the conformance harnesses, the fixture generators and the benchmarks.
 [build-system]
 requires = ["maturin>=1.9.2,<2"]
 build-backend = "maturin"
 
 [project]
 name = "refkv"
-# from Cargo.toml, whose committed version is a placeholder: tools/version.py writes the
-# one `git describe` gives, for a build (RELEASING.md)
+# from the bindings' Cargo.toml, whose committed version is a placeholder: tools/version.py
+# writes the one `git describe` gives, for a build (RELEASING.md)
 dynamic = ["version"]
 description = "refkv: a reference value type for key-value stores, its ZIP binding (vzip archives), and zarrifying image files and stores without copying them"
 # the PyPI page; it links to the repository's files by URL
@@ -93,24 +93,26 @@ virtualizarr = [
 ]
 
 [tool.maturin]
+# the bindings, a Rust crate beside the core's; this directory holds only Python
+manifest-path = "../rust/refkv-python/Cargo.toml"
 module-name = "refkv._core"
 python-source = "src"
 # the module's earlier name, which a checkout built before it moved may still hold
 exclude = ["src/refkv/_ir*"]
 # The sdist keeps maturin's default generator, which takes `cargo package`'s file lists of
-# this crate and of the core (../rust/refkv-ir, a path dependency outside this directory),
-# so the sdist builds on its own. The "git" generator archives this directory alone, and
-# leaves the core out.
+# the bindings' crate and of the core (its path dependency), both outside this directory, so
+# the sdist builds on its own. The "git" generator archives this directory alone, and leaves
+# both out.
 
 [tool.uv]
 # rebuild the bindings when they, the core's Rust sources or its source models change
 # (`uv sync`, `uv run`)
 cache-keys = [
     { file = "pyproject.toml" },
-    { file = "Cargo.toml" },
-    { file = "Cargo.lock" },
-    { file = "build.rs" },
-    { file = "src/**/*.rs" },
+    { file = "../rust/refkv-python/Cargo.toml" },
+    { file = "../rust/refkv-python/Cargo.lock" },
+    { file = "../rust/refkv-python/build.rs" },
+    { file = "../rust/refkv-python/src/**/*.rs" },
     { file = "../rust/refkv-ir/Cargo.toml" },
     { file = "../rust/refkv-ir/src/**/*.rs" },
     { file = "../rust/refkv-ir/schema/*.json" },

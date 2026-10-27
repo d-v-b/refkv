@@ -1,8 +1,8 @@
 # The vzip archive (spec/bindings/vzip.md): the protobuf messages of spec/proto/refkv.proto,
 # hand-written as python/src/refkv/pb.py is, and the archive writer, ported byte for byte from
 # python/src/refkv/vzip/archive.py's VZipWriter. A crate of its own, not a member of a Cargo
-# workspace (python/Cargo.toml says why): the CLI (rust/refkv-cli) and the conformance harness
-# (conformance/impls/rust) depend on it by path.
+# workspace (rust/refkv-python/Cargo.toml says why): the CLI (rust/refkv-cli) and the
+# conformance harness (conformance/impls/rust) depend on it by path.
 [package]
 name = "refkv-vzip"
 version = "0.1.0"

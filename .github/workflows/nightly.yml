@@ -32,7 +32,7 @@ jobs:
         with:
           workspaces: |
             rust/refkv-ir
-            python
+            rust/refkv-python
       - run: uv sync --all-groups --locked
       - uses: actions/cache@v4
         with:
@@ -92,7 +92,7 @@ jobs:
         with:
           workspaces: |
             rust/refkv-ir
-            python
+            rust/refkv-python
       # binaryen's wasm-opt shrinks the wasm32 module (rust/refkv-ir/wasm/build.sh; optional)
       - run: sudo apt-get install -y --no-install-recommends binaryen
       - run: uv sync --all-groups --locked
@@ -130,7 +130,7 @@ jobs:
         with:
           workspaces: |
             rust/refkv-ir
-            python
+            rust/refkv-python
       # binaryen's wasm-opt shrinks the wasm32 module (rust/refkv-ir/wasm/build.sh; optional)
       - run: sudo apt-get install -y --no-install-recommends binaryen
       - run: uv sync --all-groups --locked
