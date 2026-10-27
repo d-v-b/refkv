@@ -467,6 +467,7 @@ class ReferenceStore(ReferenceReader):
         page_size: int = 4096,
         relative_to: str | None = None,
         policy: Policy | None = None,
+        mirror_refs: None = None,
     ) -> Summary:
         """Write the store as a standalone phkv store (spec/bindings/phkv.md
         <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md>) at the local `path`, and
@@ -481,7 +482,11 @@ class ReferenceStore(ReferenceReader):
           so that the lookup that finds the key reads it too.
         - `page_size`: about how many bytes of records each page of the page index holds.
         - `relative_to`, `policy`: as for `save`.
+        - `mirror_refs`: `save`'s option has no meaning here, since a reference's record is its
+          payload: any value other than None is a ValueError.
         """
+        if mirror_refs is not None:
+            raise ValueError("a phkv store has no mirror_refs: a reference's record is its payload")
         path = os.fspath(path)
         sources = self._sources_to_save(path, relative_to, policy)
         from refkv.phkv.writer import PhkvWriter  # noqa: PLC0415 (`import refkv` imports no phkv code)

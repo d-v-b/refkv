@@ -16,6 +16,7 @@ from refkv import OffsetRequest, RangeRequest, SuffixRequest
 from refkv.errors import ArchiveError, RefkvError, RequestError, ResolutionError
 from refkv.pb import Concat, Range, Source
 from refkv.phkv import PhkvStore, PhkvWriter
+from refkv.policy import crc32c
 
 N = 300  # enough keys for several pages and slot blocks
 DATA = BLOB * 4  # the object the references read: 16 KiB
@@ -144,6 +145,40 @@ def test_writer(tmp_path):
     payload = s.raw("r")
     assert payload is not None
     assert len(Concat.decode(payload).parts) == 3  # three ranges: a Concat payload
+
+
+def test_checksum_hook(tmp_path):
+    """`checksum` records the CRC-32C of each range of a url source that has none, and the reader
+    checks it: a source that changed after the store was written is a resolution error."""
+    blob = tmp_path / "blob.bin"
+    blob.write_bytes(DATA)
+    url = blob.as_uri()
+    seen = []
+
+    def checksum(u, offset, length):
+        seen.append((u, offset, length))
+        return crc32c(DATA[offset : offset + length])
+
+    path = tmp_path / "s.phkv"
+    with open(path, "wb") as f, PhkvWriter(f, checksum=checksum) as w:
+        w.add_ranges("a", [Range(source=w.url(url), offset=10, length=20)])
+        w.add_ranges("b", [Range(source=0, offset=0, length=5, crc32c=crc32c(DATA[:5])), Range(data=b"!")])
+    assert seen == [(url, 10, 20)]  # not the range that has a checksum, nor the literal
+    s = refkv.phkv.open(path, policy=SERVED)
+    assert s.get("a") == DATA[10:30]
+    blob.write_bytes(bytes(len(DATA)))
+    with pytest.raises(ResolutionError, match="crc32c"):
+        s.get("a")
+
+
+def test_there_is_no_mirror_refs(tmp_path):
+    """vzip's `mirror_refs` has no meaning for phkv, and is refused, whatever its value."""
+    for value in (True, False):
+        with pytest.raises(ValueError, match="mirror_refs"):
+            PhkvWriter(io.BytesIO(), mirror_refs=value)  # type: ignore[arg-type]
+        with pytest.raises(ValueError, match="mirror_refs"):
+            _store().save_phkv(tmp_path / "m.phkv", mirror_refs=value)  # type: ignore[arg-type]
+    assert not (tmp_path / "m.phkv").exists()
 
 
 def test_the_writer_refuses_what_a_writer_must_refuse():
