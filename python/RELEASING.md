@@ -14,7 +14,8 @@ the tag's version, and publishes them to PyPI through trusted publishing.
 ## Where the version comes from
 
 refkv's version is git's, not a number in a file. [pyproject.toml](pyproject.toml) declares
-`dynamic = ["version"]`, so maturin takes the version from [Cargo.toml](Cargo.toml), whose
+`dynamic = ["version"]`, so maturin takes the version from the bindings' crate,
+[rust/refkv-python/Cargo.toml](../rust/refkv-python/Cargo.toml), whose
 committed version is a placeholder, `0.0.0`. Before each build, the release workflow runs
 `tools/version.py write` ([tools/version.py](tools/version.py); `just python::version-write`
 does the same), which writes the version `git describe --tags --match 'v*'` gives into

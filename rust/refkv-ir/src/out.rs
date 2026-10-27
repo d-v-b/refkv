@@ -1,9 +1,9 @@
 //! A projection's output (spec/zarrify.md §1.1
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#11-output-and-equivalence>, §1.2
-//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>): the entries of a refkv
-//! archive before it is written. The archive writer stays per host (Python's `Output.write`,
-//! the browser's `writeVzip`); an `Out` crosses to it as Python objects (python/src/lib.rs) or
-//! as one binary buffer (`encode`, for wasm hosts).
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>): the entries of a
+//! refkv archive before it is written. The archive writer stays per host (Python's
+//! `Output.write`, the browser's `writeVzip`); an `Out` crosses to it as Python objects
+//! (rust/refkv-python/src/lib.rs) or as one binary buffer (`encode`, for wasm hosts).
 //!
 //! Also the shared parts of the conventions every projection uses (conventions §2
 //! <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>–§5

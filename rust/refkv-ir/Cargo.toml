@@ -7,7 +7,8 @@ license = "MIT OR Apache-2.0"
 
 [lib]
 name = "refkv_ir"
-# cdylib: the wasm32 module (wasm/build.sh); rlib: the Python bindings (python/Cargo.toml) and the tests
+# cdylib: the wasm32 module (wasm/build.sh); rlib: the Python bindings (rust/refkv-python) and
+# the tests
 crate-type = ["cdylib", "rlib"]
 
 [features]
