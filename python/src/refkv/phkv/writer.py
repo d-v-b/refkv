@@ -49,7 +49,8 @@ class PhkvWriter:
       value other than None is a ValueError.
 
     The writer checks what spec/refkv.md §7
-    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#7-writing> and §23.1 of the binding
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#7-writing> and §23.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#231-requirements> of the binding
     require, when a key is added and at `close`: a violation is a ValueError, and no store is
     written. Use it as a context manager to close it.
     """

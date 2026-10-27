@@ -182,9 +182,10 @@ def test_there_is_no_mirror_refs(tmp_path):
 
 
 def test_the_writer_refuses_what_a_writer_must_refuse():
-    """A violation of spec §7 or of the binding's requirements is a ValueError, and no store is
-    written: a duplicate or empty key, a range of a missing source, a key source that is not a bytes
-    key or is short, and a reference that names a reference."""
+    """A violation of what a writer must do (spec/refkv.md §7
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#7-writing>, and the binding's) is a
+    ValueError, and no store is written: a duplicate or empty key, a range of a missing source,
+    a key source that is not a bytes key or is short, and a reference that names a reference."""
     def write(add):
         with PhkvWriter(io.BytesIO()) as w:
             add(w)

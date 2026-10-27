@@ -76,8 +76,10 @@ pub struct PyPhkvStore {
 #[pymethods]
 impl PyPhkvStore {
     /// Opens the store `read(offset, length)` reads, of `size()` bytes (spec/bindings/phkv.md
-    /// §22.1): every failure is an archive error. `sources` and `open_bytes` are the reader
-    /// policy's limits of spec/refkv.md §6.7 rules 4 and 6.
+    /// §22.1 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#221-opening>): every
+    /// failure is an archive error. `sources` and `open_bytes` are the reader policy's limits of
+    /// spec/refkv.md §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>
+    /// rules 4 and 6.
     #[new]
     #[pyo3(signature = (size, read, sources=None, open_bytes=None))]
     fn new(py: Python<'_>, size: Py<PyAny>, read: Py<PyAny>, sources: Option<usize>, open_bytes: Option<u64>) -> PyResult<Self> {
