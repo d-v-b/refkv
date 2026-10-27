@@ -27,7 +27,7 @@ A Zarr v3 hierarchy with a node at the path of every N5 group and dataset.
   `int8` to `int64`, `float32`, `float64`.
 - **Codec:** `n5_default` from the zarr-extensions registry, wrapping
   `transpose`, big-endian `bytes` and the block's compression (`gzip`,
-  `zlib`, `zstd` or `blosc`). The codec parses each block's header, so the
+  `numcodecs.zlib`, `zstd` or `blosc`). The codec parses each block's header, so the
   truncated edge blocks Java N5 writes read correctly.
 - **Chunk keys:** the `v2` encoding with `/`, so chunk keys are the N5 block
   keys and every chunk entry is the block object at the same key.
@@ -125,7 +125,7 @@ Neuroglancer view stays empty (next section). A store that lists more than
 
 The Neuroglancer fork (<https://github.com/d-v-b/neuroglancer>, branch `vzip`)
 cannot display N5 archives yet: it has no `n5_default` codec, so the layer
-loads no data. zarr-python, with `refkv.zarr` imported (which registers `n5_default`), reads them.
+loads no data. zarr-python reads them, with refkv installed (whose entry points give zarr `n5_default`).
 Neuroglancer's own N5 data source (`<url>|n5:`), which the fork keeps,
 reads the original store directly, and is the way to view N5 data today.
 

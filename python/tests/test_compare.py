@@ -155,7 +155,7 @@ def test_mirror_problem_finds_a_table_that_is_not_canonical(tmp_path):
     def deflate(out):
         key = "refkv_source/ir/rows/zarr.json"
         doc = json.loads(out.bytes_entries[key])
-        doc["codecs"].append({"name": "zlib", "configuration": {"level": 6}})
+        doc["codecs"].append({"name": "numcodecs.zlib", "configuration": {"level": 6}})
         out.bytes_entries[key] = json.dumps(doc).encode()
         for k in [k for k in out.bytes_entries if k.startswith("refkv_source/ir/rows/c/")]:
             out.bytes_entries[k] = zlib.compress(out.bytes_entries[k], 6)

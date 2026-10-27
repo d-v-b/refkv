@@ -13,7 +13,8 @@ through their globals). A store twin also rejects a node at `refkv_source`, wher
 shipped code keeps a store's other objects since revision 27, so that the corpus's
 collision stores are rejected by every implementation. `current_names` reads
 the old names as the current ones, for compare.py and the tests that compare the frozen
-profiles with the Rust core (conformance/zarrify/HARNESS.md)."""
+profiles with the Rust core (conformance/zarrify/HARNESS.md), and the codecs they name as the
+shipped code names them (CODEC_NAMES)."""
 
 from __future__ import annotations
 
@@ -35,6 +36,9 @@ SOURCE_GROUP = SOURCE_NODE
 OBJECTS = SOURCE_NODE + "/objects/"
 EMPTY_KEY = SOURCE_NODE + "/empty.json"
 _PROFILE_OF_UUID = {uuid: p for p, (uuid, _, _) in PROFILES.items()}
+# The codecs the frozen profiles name that the shipped code names otherwise: a zlib stream
+# is zarr-python's `numcodecs.zlib`, and refkv's own TIFF LZW codec `refkv.tiff_lzw`.
+CODEC_NAMES = {"zlib": "numcodecs.zlib", "imagecodecs_lzw": "refkv.tiff_lzw"}
 
 
 @dataclass
@@ -88,13 +92,17 @@ def emit_plans(out: Output, plans: list, node_attributes: dict | None) -> None:
 def current_names(value, _inside: bool = False):
     """A JSON value of a frozen profile's output with the names the shipped code writes:
     the convention's property `refkv_zarrified`, its convention metadata the current
-    one, and, within the property (where the profiles name them), its paths into the
-    source metadata node under `refkv_source`. The source's own values, outside the
-    property, are left as they are; within it, a value copied from the source that
-    starts with `vzip_source/` would read as such a path too, which no fixture has."""
+    one, the codecs of CODEC_NAMES, and, within the property (where the profiles name
+    them), its paths into the source metadata node under `refkv_source`. The source's own
+    values, outside the property, are left as they are; within it, a value copied from the
+    source that starts with `vzip_source/` would read as such a path too, which no fixture
+    has."""
     if isinstance(value, dict):
         out = {}
         for k, v in value.items():
+            if k == "codecs" and isinstance(v, list):
+                v = [{**c, "name": CODEC_NAMES[c["name"]]} if isinstance(c, dict)
+                     and c.get("name") in CODEC_NAMES else c for c in v]
             if k == "zarr_conventions" and isinstance(v, list):
                 v = [current.convention(_PROFILE_OF_UUID[c["uuid"]]) if isinstance(c, dict)
                      and c.get("name") == CONVENTION_KEY and c.get("uuid") in _PROFILE_OF_UUID

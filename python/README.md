@@ -34,7 +34,7 @@ store that xarray opens ([example](https://github.com/d-v-b/refkv/blob/main/docs
 ```bash
 pip install refkv                  # read (local or over http(s)), write, zarrify
 pip install "refkv[zarr]"          # refkv.zarr: open a store with zarr-python and xarray
-pip install "refkv[images]"        # and the JPEG, JPEG 2000 and JPEG XR codecs
+pip install "refkv[images]"        # and the JPEG, JPEG 2000, JPEG XR and LZW codecs
 pip install "refkv[virtualizarr]"  # virtual datasets from VirtualiZarr (with obstore)
 pip install "refkv[obstore]"       # obstore's S3Store and others, for registry= (s3://, gs://, az://)
 ```

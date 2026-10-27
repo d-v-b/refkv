@@ -11,7 +11,9 @@ with no change to any output: the shared types are defined in type tables, and e
 document tabulates its layout, as [§11.5](#115-layout-tables) says; the mirror's
 `ir/shared/data` is said to be absent when the shared sources total no byte, as refkv already
 wrote it ([§8.2](#82-the-table)); and each convention's JSON Schema requires every member of its
-CMO ([§1](#1-conventions)).)
+CMO ([§1](#1-conventions)). Changed 2026-10-27: a zlib stream's codec is `numcodecs.zlib`, in
+place of `zlib`, and every codec's name is zarr-python's, imagecodecs-zarr's, the zarr-extensions
+registry's or refkv's own `refkv.<codec>`, [§3](#3-arrays) (d-v-b/refkv#90).)
 
 <!-- profiles:conventions-table -->
 | format | convention | UUID |
@@ -224,6 +226,7 @@ below. The conventions that say otherwise:
 | N5, Zarr v2, OME-Zarr (the store conventions) | are defined by the convention itself |
 | CZI | have, for clipped levels, the zarr-extensions `rectilinear` chunk grid, and may have the codecs `imagecodecs_jpegxr` and `numcodecs.shuffle` |
 | NDPI | have, for JPEG XR levels, the codec `imagecodecs_jpegxr` |
+| QPTIFF | have, for LZW tiles and strips, the codec `refkv.tiff_lzw` ([qptiff §4.1](zarrify/qptiff.md#41-data-types-and-codecs)) |
 | MP3, MP4, FLAC | have the codec `refkv.stream` of [§10](#10-coded-streams), and dimension names of their own |
 | MP4 | have, for video planes whose chunks differ in length, the `rectilinear` chunk grid |
 | FLAC | is sharded, as [spec/zarrify.md §2.1](zarrify.md#21-virtual-shards) says |
@@ -292,8 +295,21 @@ of each step, and always one of step 2.
 | 2 | `{"name": "bytes", "configuration": {"endian": "little"}}`, or `"big"` | a larger data type |
 | 2 | `{"name": "imagecodecs_jpeg2k"}` | JPEG 2000: one codestream per chunk, decoding to the chunk's `[y, x]`, or, when interleaved, to `[y, x, c]`, after which `transpose` applies |
 | 2 | `{"name": "imagecodecs_jpeg"}` | JPEG: one complete JPEG stream per chunk, ISO/IEC 10918-1 with the JFIF/Adobe color conventions, decoding to the chunk's `[y, x]` or `[y, x, c]` like JPEG 2000 |
-| 3 | `{"name": "zlib", "configuration": {"level": 1}}` | the bytes are zlib streams |
+| 3 | `{"name": "numcodecs.zlib", "configuration": {"level": 1}}` | the bytes are zlib streams (RFC 1950) |
 | 3 | `{"name": "zstd", "configuration": {"level": 0, "checksum": false}}` | the bytes are Zstandard frames |
+
+**Codec names.** Every codec a convention names is one that a reader of Zarr v3 finds by its
+name: zarr-python's own (`bytes`, `transpose`, `gzip`, `zstd`, `blosc`, `sharding_indexed`, and
+`numcodecs.zlib`, `numcodecs.shuffle` and `numcodecs.delta`, its names for numcodecs' codecs),
+imagecodecs-zarr's (`imagecodecs_jpeg`, `imagecodecs_jpeg2k`, `imagecodecs_jpegxr`), the
+zarr-extensions registry's (`n5_default`), or refkv's own, which are named `refkv.<codec>`
+(`refkv.stream`, [§10](#10-coded-streams); `refkv.fits_tiles`,
+[fits §3.3](zarrify/fits.md#33-tile-compressed-images); `refkv.tiff_lzw`,
+[qptiff §4.1](zarrify/qptiff.md#41-data-types-and-codecs)). refkv names a
+codec of its own only where none of the others decodes the chunks as the convention says (QPTIFF's
+LZW streams can run past their tile, which `imagecodecs_lzw` does not allow). refkv's Python
+package provides its own codecs to zarr-python through the `zarr.codecs` entry points, and the
+`images` extra installs imagecodecs-zarr.
 
 JPEG 2000 decoding follows OpenJPEG, as imagecodecs does: a 3-component codestream whose
 first component is at full resolution and whose other two are subsampled holds YCbCr, and
@@ -514,8 +530,8 @@ opaque is an array of the source metadata node ([§2](#2-attributes)). Each such
 `zarr.json` is as in [§3](#3-arrays), with `fill_value` 0 unless the convention says
 otherwise, `codecs` `[{"name": "bytes", "configuration": {"endian": E}}]`
 (`[{"name": "bytes"}]` for one-byte data types), where `E` is `"little"`
-unless the convention gives the source's byte order, followed by `zlib`
-(`{"name": "zlib", "configuration": {"level": 1}}`) when the convention
+unless the convention gives the source's byte order, followed by `numcodecs.zlib`
+(`{"name": "numcodecs.zlib", "configuration": {"level": 1}}`) when the convention
 keeps the source's deflate-compressed chunks, and the `dimension_names` the
 convention gives (none when it gives none). Its attributes are empty, or the
 declaration of the convention with the array's own source metadata.
@@ -526,7 +542,7 @@ declaration of the convention with the array's own source metadata.
 | member | type | presence | value |
 |---|---|---|---|
 | `fill_value` | number | required | `0`, unless the convention says otherwise |
-| `codecs` | array of object | required | `[{"name": "bytes", "configuration": {"endian": E}}]`, or `[{"name": "bytes"}]` for a one-byte data type, followed by `{"name": "zlib", "configuration": {"level": 1}}` when the convention keeps the source's deflate-compressed chunks |
+| `codecs` | array of object | required | `[{"name": "bytes", "configuration": {"endian": E}}]`, or `[{"name": "bytes"}]` for a one-byte data type, followed by `{"name": "numcodecs.zlib", "configuration": {"level": 1}}` when the convention keeps the source's deflate-compressed chunks |
 | `dimension_names` | array of string | optional | the names the convention gives; absent when it gives none |
 | `attributes` | object | required | `{}`, or a [`Declaration`](#type-declaration) with the array's own source metadata |
 
@@ -734,11 +750,11 @@ The store conventions say when they have the last two members, and their content
 <a id="type-tablearray"></a>**`TableArray`**: an [`ArrayDocument`](#type-arraydocument) with the
 data type, shape, chunk shape and dimension names above, `fill_value` 0, `codecs`
 `[{"name": "bytes", "configuration": {"endian": "little"}}]` (`[{"name": "bytes"}]` for
-`uint8`), which a reader also accepts followed by `zlib` at any level, and attributes `{}`.
+`uint8`), which a reader also accepts followed by `numcodecs.zlib` at any level, and attributes `{}`.
 
 The table is two arrays under `refkv_source/ir/` ([§3](#3-arrays) documents, data type
 `int64`, `fill_value` 0, codecs `bytes` little-endian, which a reader also
-accepts followed by `zlib` at any level, though the canonical table, 8.8, has
+accepts followed by `numcodecs.zlib` at any level, though the canonical table, 8.8, has
 none; edge chunks padded with zeros; no attributes):
 
 - **`rows`**, shape `[8, m]`, dimension names `column` and `index`, chunk
@@ -1098,7 +1114,7 @@ compares mirrors entry for entry. In order:
    columns (code 4) as above; and `column_values` (code 5), padded with
    zeros to a multiple of six.
 8. **Arrays.** The chunk shapes are those of 8.2, and the codecs `bytes`
-   (little-endian) alone: no `zlib`. The archive's own entry compression
+   (little-endian) alone: no `numcodecs.zlib`. The archive's own entry compression
    (spec/bindings/vzip.md) does the work, and is not part of the output.
 9. **Description and view.** `S` is `{"ir": I}` of 8.2 with `version` 2,
    and the view is 8.7's, from the elements in this order.

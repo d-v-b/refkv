@@ -25,7 +25,8 @@ compiles into the same package (this needs a Rust toolchain, such as
 [rustup](https://rustup.rs)'s). Extras add the rest:
 `refkv[virtualizarr]` for virtual datasets from VirtualiZarr (below; refkv
 itself does not import xarray), `refkv[images]` for the JPEG, JPEG 2000 and JPEG XR codecs that
-archives of image files use, `refkv[zarr]` for `refkv.zarr`, and
+archives of image files use (imagecodecs-zarr's) and the LZW one (refkv's), `refkv[zarr]` for
+`refkv.zarr` and refkv's other codecs, and
 `refkv[obstore]` for obstore's `S3Store` and the other cloud stores, to pass
 as `registry=` for `s3://`, `gs://` or `az://` sources (`refkv[virtualizarr]`
 includes it). In a clone, `uv sync` installs them all, and the

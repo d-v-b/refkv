@@ -8,7 +8,9 @@ refkv produces this layout as a reference store from a listed store is the
 OME-Zarr profile, [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `b74ea302-65bb-49ae-b81f-f9bb52cd4eed` ·
-Schema: [schema.json](ome-zarr/schema.json) · Changed 2026-10-26, with no change to any
+Schema: [schema.json](ome-zarr/schema.json) ·
+Changed 2026-10-27: a zlib stream's codec is `numcodecs.zlib`, zarr-python's name for it, in place of `zlib` ([conventions §3](../conventions.md#3-arrays), d-v-b/refkv#90) ·
+Changed 2026-10-26, with no change to any
 output: the layout is tabulated, its entries in [Layout](#layout) and its types in type
 tables ([conventions §11.5](../conventions.md#115-layout-tables))
 
@@ -43,8 +45,8 @@ and storage transformers", unless it disallows one (OME-NGFF 0.5, §1
 defines the `v2` chunk key encoding
 ([Zarr v3 core specification, chunk key encodings](https://zarr-specs.readthedocs.io/en/latest/v3/chunk-key-encodings/v2/index.html)),
 whose keys are exactly Zarr v2's for either separator, and its `transpose`,
-`bytes`, `zlib`, `gzip`, `zstd` and `blosc` codecs decode every chunk that
-[the Zarr v2 convention §3](zarr2.md#3-arrays) accepts.
+`bytes`, `gzip`, `zstd` and `blosc` codecs, with zarr-python's `numcodecs.zlib`, decode every
+chunk that [the Zarr v2 convention §3](zarr2.md#3-arrays) accepts.
 
 ## Layout
 

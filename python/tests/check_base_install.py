@@ -12,11 +12,13 @@ interface, with its source served beside it), run the conformance CLI on it, and
 NIfTI file and a TIFF, both through the Rust core (refkv._core), which the install
 must have built, and a Zarr v2 store. Each optional part names the extra it needs.
 
-With `zarr`: refkv.zarr reads the same archive through zarr, and the image
-codecs and the VirtualiZarr conversion name their extras."""
+With `zarr`: zarr finds refkv's codecs through refkv's `zarr.codecs` entry points, before
+refkv.zarr is imported, refkv.zarr reads the same archive through zarr, a FITS file's tiles
+decode, and the codecs whose decoders need another extra (refkv.tiff_lzw, refkv.stream) and
+the VirtualiZarr conversion name their extras."""
 
-import asyncio
 import importlib
+import importlib.metadata
 import importlib.util
 import json
 import os
@@ -36,7 +38,7 @@ from refkv.uri import file_uri
 FIXTURES = Path(__file__).resolve().parents[2] / "fixtures"
 mode = sys.argv[1] if len(sys.argv) > 1 else "base"
 assert mode in ("base", "zarr"), f"usage: check_base_install.py [base|zarr], not {mode!r}"
-absent = ["xarray", "virtualizarr", "imagecodecs", "pytest", "obstore"] + (["zarr"] if mode == "base" else [])
+absent = ["xarray", "virtualizarr", "imagecodecs", "av", "pytest", "obstore"] + (["zarr"] if mode == "base" else [])
 for name in absent:
     assert importlib.util.find_spec(name) is None, f"{name} is installed: not a {mode} install"
 assert "xarray" not in sys.modules, "importing refkv imported xarray"
@@ -160,24 +162,33 @@ with tempfile.TemporaryDirectory() as d:
 
     if mode == "zarr":
         import zarr
+        import zarr.registry
+
+        # each codec of refkv's entry points, by name, as zarr resolves it when an array names it
+        assert "refkv.zarr" not in sys.modules
+        points = {e.name: e for e in importlib.metadata.distribution("refkv").entry_points
+                  if e.group == "zarr.codecs"}
+        assert set(points) == {"n5_default", "refkv.fits_tiles", "refkv.stream", "refkv.tiff_lzw"}, points
+        for name, point in points.items():
+            assert zarr.registry.get_codec_class(name) is point.load(), name
+        print(f"zarr resolves refkv's codecs: {', '.join(sorted(points))}")
 
         import refkv.zarr
 
         for s in (refkv.zarr.store(store), refkv.zarr.open("m.vzip")):
             assert list(ndarray(zarr.open_array(s, path="x", mode="r")[:])) == [4, 5, 6, 7]
+        fits = refkv.zarr.store(zarrify(str(FIXTURES / "fits" / "fits_comp_gzip1.fits")))
+        assert ndarray(zarr.open_array(fits, path="1", mode="r")[...]).size > 0
+        lzw = refkv.zarr.store(zarrify(str(FIXTURES / "qptiff" / "qptiff_fl_lzw_narrow_eoi.qptiff")))
+        expect_import_error("images", lambda: zarr.open_array(lzw, path="0", mode="r")[...])
+        mp3 = refkv.zarr.store(zarrify(str(FIXTURES / "mp3" / "mp3_single_frame.mp3")))
+        expect_import_error("media", lambda: zarr.open_array(mp3, path="samples", mode="r")[...])
     os.chdir("/")
 
 if mode == "base":
     assert "zarr" not in sys.modules, "the base operations imported zarr"
     expect_import_error("zarr", lambda: refkv.zarr)
     expect_import_error("zarr", lambda: importlib.import_module("refkv.zarr"))
-else:
-    import refkv.zarr.codecs.imagecodecs_jpeg
-
-    # the ImportError comes before the arguments are read: None stands for them
-    expect_import_error("images", lambda: asyncio.run(
-        refkv.zarr.codecs.imagecodecs_jpeg.JpegCodec()._decode_single(
-            None, None)))  # pyrefly: ignore[bad-argument-type]
 expect_import_error(
     "virtualizarr", lambda: refkv.ReferenceStore.from_virtualizarr(None))  # pyrefly: ignore[bad-argument-type]
 expect_import_error("virtualizarr", lambda: importlib.import_module("refkv.shards"))

@@ -37,7 +37,7 @@ each stage position `p` is an image at `<p>/` with one array, `<p>/0`.
 - **Chunks:** one frame per chunk, all channels together (behind a
   `transpose` codec, since ND2 interleaves them). Frames with padded rows are
   split into row blocks, one range per row, so the padding is skipped.
-- **Codecs:** `bytes`, or `bytes` then `zlib` for losslessly compressed
+- **Codecs:** `bytes`, or `bytes` then `numcodecs.zlib` for losslessly compressed
   files.
 - **Scale:** the pixel size (with its aspect ratio), the z step and the time
   step, in micrometers and seconds.
@@ -120,8 +120,10 @@ corpus is on ftp.ebi.ac.uk or Zenodo, which both allow cross-origin reads.
 ## Viewing
 
 The Neuroglancer fork (<https://github.com/d-v-b/neuroglancer>, branch `vzip`)
-displays ND2 archives: all three data types and both codecs are among those
-it reads. The z-stack above renders through the live demo. A multi-position
+displays ND2 archives: all three data types and the `bytes` codec are among those
+it reads, and losslessly compressed files' `numcodecs.zlib` is not yet (the fork decodes
+`zlib`, which archives named before d-v-b/refkv#90). The z-stack above renders through the
+live demo. A multi-position
 file is shown as one layer per position, placed at its stage coordinates.
 
 ## Supported and not supported
