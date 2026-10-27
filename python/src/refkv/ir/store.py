@@ -27,7 +27,7 @@ spec/zarrify/safe.md), a SAFE product's directory form, `n5`, and `vsi`
 (rust/refkv-ir/src/vsi/, spec/zarrify/vsi.md), whose run starts from the `.vsi` file alone
 and **probes** for its tile files: a `poll()` that gives an empty list is a batch of probes,
 each key of `run.probes()` answered by `run.found(size)` with the key's size, or None when it
-does not exist (`Store.probe`; `refkv.zarrify.vsi.VsiFiles` opens the files beside the
+does not exist (`Store.probe`; `refkv.zarrify.store.beside.VsiFiles` opens the files beside the
 `.vsi`).
 """
 

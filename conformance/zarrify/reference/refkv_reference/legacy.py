@@ -25,7 +25,7 @@ from refkv.zarrify import common as current
 from refkv.zarrify import store as _store
 from refkv.zarrify.common import *  # noqa: F403
 from refkv.zarrify.store import *  # noqa: F403
-from refkv.zarrify.store import _NODE_NAME
+from refkv.zarrify.store.output import _NODE_NAME
 from refkv.zarrify.common import PROFILES, metadata_array, metadata_group
 from refkv.zarrify.common import Output as _Output
 from refkv.zarrify.common import root_property

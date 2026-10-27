@@ -2,7 +2,7 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>, §1.5
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>): the host's side
 //! of a store run (rust/refkv-ir/src/store.rs), as python/src/refkv/ir/store.py and
-//! python/src/refkv/zarrify/store.py have it. The core is sans-IO: the host lists the store
+//! python/src/refkv/zarrify/store/stores.py have it. The core is sans-IO: the host lists the store
 //! (`DirStore`: a local directory; `HttpStore`: S3 `ListObjectsV2`, every request under the reader
 //! policy), gives the listing to a run, and performs the object reads the run asks for, at most
 //! the store's workers at a time.
