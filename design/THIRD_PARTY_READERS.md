@@ -39,87 +39,64 @@ server in front of public files from refkv's corpus. The server answers `HEAD` a
 counts the requests and the bytes of the ranges it answers. Each reader then finds every chunk:
 
 - **core**: `refkv.zarrify.zarrify(url)`, the whole archive in memory, mirror included;
-- **tifffile** 2026.9.20: `TiffFile` over an fsspec HTTP file, every series and level's
-  chunk offsets and byte counts from its IFDs, then `write_fsspec` per level (kerchunk's path);
-- **nd2** 0.12.0: `ND2File(url)` (fsspec inside), every frame's offset;
-- **czifile** 2026.8.16: `CziFile` over fsspec, every subblock's data offset and size;
-- **h5py** 3.16.0 (IMS): `h5py.File` over fsspec, `get_chunk_info` of every chunk.
+- **tifffile** 2026.9.20: `TiffFile`, every series and level's chunk offsets and byte counts
+  from its IFDs, then `write_fsspec` per level (kerchunk's path);
+- **nd2** 0.12.0: `ND2File`, every frame's offset;
+- **czifile** 2026.8.16: `CziFile`, every subblock's data offset and size;
+- **h5py** 3.16.0 (IMS): `h5py.File`, `get_chunk_info` of every chunk.
 
-fsspec 2026.9.0's HTTP file runs with its default cache (5 MiB blocks, read ahead) and with
-64 KiB blocks. Requests and bytes are deterministic; wall times are end to end (the core's
-includes building the archive and its mirror, which the packages do not do), measured on one
-laptop while other jobs ran, so they only show orders of magnitude. The tables come from a
-second run, on a warm cache: on a first run, the reader that goes first also waits for the
-upstream servers.
+The packages read a file object, and how that object fetches bytes decides their I/O, so each
+package ran through seven: fsspec 2026.9.0's HTTP file with no cache, read-ahead, or an LRU
+block cache, at 64 KiB and 1 MiB blocks; and obstore 0.11.1's buffered reader
+(`obstore.open_reader`) with 64 KiB and 1 MiB buffers. The table gives, for each file, the
+core, the package's fastest fsspec setting, and its fastest obstore setting;
+[the full sweep](experiments/third_party/results.md) has every setting. Requests and bytes
+are deterministic. Wall times are end to end on one laptop, on a warm cache: the core's include
+building the archive and its mirror, which the packages do not do (most of the core's 10 s
+for the QPTIFF is building 268,860 references, not reading).
 
-| file | size | reader | requests | bytes read | wall time | chunks |
-|---|---:|---|---:|---:|---:|---:|
-| IDR idr0096 OME-TIFF | 487 MB | core | 9 | 457 kB | 1.3 s | 5,037 |
-| | | tifffile, fsspec default | 4 | 5,616 kB | 1.8 s | 5,037 |
-| | | tifffile, fsspec 64 KiB | 7 | 650 kB | 1.2 s | 5,037 |
-| TCGA SVS | 538 MB | core | 16 | 720 kB | 3.5 s | 78,312 |
-| | | tifffile, fsspec default | 10 | 36,099 kB | 2.9 s | 78,426 ¹ |
-| | | tifffile, fsspec 64 KiB | 20 | 1,769 kB | 4.5 s | 78,426 ¹ |
-| NDPI (ki67) | 221 MB | core | 19 | 428 kB | 2.0 s | 588 ² |
-| | | tifffile, fsspec default | 30 | 107,573 kB | 5.6 s | 85,682 ² |
-| | | tifffile, fsspec 64 KiB | 36 | 2,556 kB | 6.0 s | 85,682 ² |
-| QPTIFF | 362 MB | core | 32 | 4,559 kB | 5.5 s | 268,860 |
-| | | tifffile, fsspec default | 6 | 29,299 kB | 3.2 s | 268,291 |
-| | | tifffile, fsspec 64 KiB | 60 | 7,908 kB | 11.6 s | 268,291 |
-| ND2 (S-BIAD2077) | 263 MB | core | 26 | 192 kB | 1.5 s | 25 |
-| | | nd2, its own fsspec file ³ | 5 | 532 kB | 1.1 s | 25 |
-| | | nd2, fsspec default | 4 | 5,251 kB | 2.4 s | 25 |
-| | | nd2, fsspec 64 KiB | 4 | 74 kB | 0.6 s | 25 |
-| ND2 (pollen) | 138 MB | core | 24 | 127 kB | 1.6 s | 57 |
-| | | nd2, its own fsspec file ³ | 5 | 532 kB | 0.8 s | 57 |
-| | | nd2, fsspec default | 4 | 5,251 kB | 3.4 s | 57 |
-| | | nd2, fsspec 64 KiB | 4 | 74 kB | 0.6 s | 57 |
-| CZI (Axioscan) | 505 MB | core | 19 | 1,602 kB | 1.2 s | 481 |
-| | | czifile, fsspec default | 131 | 660,224 kB ⁴ | 22.6 s | 481 |
-| | | czifile, fsspec 64 KiB | 485 | 31,808 kB | 76.1 s | 481 |
-| CZI (IDR idr0011) | 44 MB | core | 13 | 315 kB | 1.0 s | 63 |
-| | | czifile, fsspec default | 11 | 52,125 kB ⁴ | 1.8 s | 63 |
-| | | czifile, fsspec 64 KiB | 65 | 4,197 kB | 10.5 s | 63 |
-| IMS (Convallaria) | 64 MB | core | 46 | 180 kB | 2.0 s | 240 |
-| | | h5py, fsspec default | 164 | 558,115 kB ⁴ | 26.9 s | 240 |
-| | | h5py, fsspec 64 KiB | 173 | 11,205 kB | 27.8 s | 240 |
+| file | size | core | package, fastest fsspec setting | package, fastest obstore setting |
+|---|---:|---|---|---|
+| IDR idr0096 OME-TIFF | 487 MB | 9 req · 457 kB · 1.3 s | tifffile, block cache 1 MiB: 3 · 1.8 MB · 0.5 s | tifffile, 1 MiB: 42 · 14.6 MB · 6.5 s |
+| TCGA SVS | 538 MB | 16 · 720 kB · 2.4 s | tifffile, block cache 1 MiB: 7 · 5.9 MB · 1.6 s ¹ | tifffile, 64 KiB: 49 · 3.1 MB · 8.8 s |
+| NDPI (ki67) | 221 MB | 19 · 428 kB · 2.1 s | tifffile, block cache 1 MiB: 5 · 3.7 MB · 1.6 s ² | tifffile, 64 KiB: 44 · 2.9 MB · 7.7 s |
+| QPTIFF | 362 MB | 32 · 4.6 MB · 10.1 s | tifffile, block cache 1 MiB: 12 · 11.2 MB · 4.0 s | tifffile, 64 KiB: 186 · 10.4 MB · 31.1 s |
+| ND2 (S-BIAD2077) | 263 MB | 26 · 192 kB · 1.4 s | nd2, block cache 1 MiB: 3 · 1.5 MB · 0.5 s ³ | nd2, 64 KiB: 4 · 74 kB · 0.6 s |
+| ND2 (pollen) | 138 MB | 24 · 127 kB · 1.8 s | nd2, block cache 64 KiB: 3 · 86 kB · 0.5 s ³ | nd2, 1 MiB: 4 · 1.1 MB · 0.6 s |
+| CZI (Axioscan) | 505 MB | 19 · 1.6 MB · 1.2 s | czifile, read-ahead 1 MiB: 288 · 301 MB · 45.4 s | czifile, 64 KiB: 487 · 31.9 MB · 73.9 s |
+| CZI (IDR idr0011) | 44 MB | 13 · 315 kB · 1.0 s | czifile, read-ahead 1 MiB: 33 · 33.2 MB · 5.1 s | czifile, 64 KiB: 69 · 4.5 MB · 10.5 s |
+| IMS (Convallaria) | 64 MB | 46 · 180 kB · 2.0 s | h5py, block cache 1 MiB: 33 · 33.6 MB · 5.0 s | h5py, 1 MiB: 278 · 290 MB · 43.4 s |
 
 1. tifffile also lists the SVS's stripped thumbnail, label and macro images, which the TIFF
    profile skips ([tiff.md §4.2](../spec/zarrify/tiff.md#42-pyramid-levels)); `write_fsspec`
    fails on those three levels ("incomplete chunks are not supported").
 2. The two chunk an NDPI JPEG level differently: tifffile one chunk per MCU row of its
    McuStarts, the profile blocks of them ([ndpi.md §7](../spec/zarrify/ndpi.md#7-ndpi-profile)).
-3. Given a URL, nd2 opens it with fsspec itself, in 512 KB blocks (and fetches a file of at
-   most 32 MB whole); the other two rows pass it an fsspec file opened with each cache. Its
-   frame offsets are private (`ND2File._rdr._frame_offsets`).
-4. More than the file: fsspec's read-ahead cache holds one block, so readers that seek back
-   and forth (czifile from the directory to each subblock's header, h5py through B-tree
-   nodes) fetch the same 5 MiB blocks again and again.
+3. nd2's frame offsets are private (`ND2File._rdr._frame_offsets`). Given a URL rather than a
+   file, nd2 opens it with fsspec itself, in 512 KB blocks: 5 requests, 532 kB, 0.8 s.
 
 What the numbers say:
 
-- **Bytes.** With fsspec's defaults, tifffile reads 6 to 250 times the core's bytes (5.6 to
-  108 MB for files the core opens with 0.4 to 4.6 MB), because each 5 MiB block is read
-  whole; czifile and h5py read more than the whole file (660 MB of a 505 MB CZI, 558 MB of a
-  64 MB IMS). Tuned to 64 KiB blocks, tifffile comes within 1.4 to 6 times the core's bytes,
-  czifile within 13 to 20 times and h5py 62 times. nd2 is the exception: with 64 KiB
-  blocks it reads 74 kB, less than the core's 127 to 192 kB, because it reads less. It skips
-  the frame headers the ND2 profile requires the core to check (below), and it reads only the
-  metadata it decodes, while the core reads all of the file's metadata for the mirror. With
-  its own 512 KB blocks it reads 532 kB.
-- **Requests.** The packages read through a file-like object, one request at a time, while
-  the core's planner batches the reads a parser asks for, coalesces near ranges and sends
-  each batch over up to 8 connections. For TIFF the counts are similar, but tifffile
-  tuned for bytes needs 60 sequential requests for the QPTIFF. czifile reads each
-  subblock's header on its own (485 requests for 481 subblocks, against the core's 19), and
-  h5py walks B-tree nodes one by one (173 against 46). The core's 24 to 26 requests for an
-  ND2 file are the frame headers the profile requires it to check (below); nd2 does not read
-  them.
-
-So on I/O, only nd2 beats the core, by not doing work the profile requires, and only when the
-caller tunes fsspec. A tuned tifffile comes close; czifile and h5py are an order of magnitude
-or more behind in bytes, requests or both. For TIFF and ND2, I/O alone would not rule a
-package out; the next sections do.
+- **TIFF and ND2: tuned, the packages are as fast as the core.** With fsspec's block cache,
+  tifffile finds every chunk of each TIFF in 0.5 to 4 s (the core: 1.3 to 10 s, building the
+  archive included), reading 2 to 8 times the core's bytes in fewer requests; with 64 KiB
+  blocks it reads the core's bytes (456 kB for the OME-TIFF, against 457 kB) in about as many
+  requests. nd2 needs 3 or 4 requests and 74 to 135 kB, fewer than the core's 24 to 26
+  requests and 127 to 192 kB, because it does less: it skips the frame headers the ND2 profile
+  requires the core to check (below), and reads only the metadata it decodes, while the core
+  reads all of it for the mirror. So for these formats, I/O is no argument either way.
+- **CZI and IMS: no setting closes the gap.** czifile reads each subblock's header with a read
+  of its own, and h5py each B-tree node, one request after another: 33 to 288 requests at
+  best, against the core's 13 to 46, and 5 to 45 s against 1 to 2 s. A larger block buys
+  fewer requests with many more bytes (301 MB of a 505 MB CZI). No cache helps when the
+  reads are scattered and the reader asks for them one at a time; the core's planner batches
+  the reads a parser asks for, coalesces near ranges and sends them concurrently.
+- **obstore's file reader is the slowest transport for every package.** `ReadableFile` drops
+  its buffer on every seek, so a parser that seeks between small reads (tifffile from tag to
+  tag, h5py from node to node) makes about one request per seek: 42 to 278 requests where a
+  block cache needs 3 to 33. obstore's strength is elsewhere: `get_ranges` (vectored reads)
+  and async concurrency, which only a caller that knows its next reads in advance can use.
+  That caller is a planner like the core's; none of these packages has one.
 
 ## What the packages accept
 
@@ -219,7 +196,8 @@ verifiers (`js/test/<format>/verify.py`), now with the measurements above to com
   malformed TIFFs into wrong references without an error, and nd2 assumes a frame layout the
   ND2 profile checks.
 - **(b), package-backed extras for the variants the core rejects, is not clearly
-  worthwhile.** The variants it would add for TIFF (strips, LZW, predictor 2, other JPEG
+  worthwhile.** I/O does not decide it for TIFF: tuned, tifffile reads as fast as the core
+  (for CZI and IMS it would, against czifile and h5py). The variants it would add for TIFF (strips, LZW, predictor 2, other JPEG
   layouts) and ND2 (legacy JPEG 2000) are gaps in the profiles, not parsing problems. The
   QPTIFF profile already reads strips and LZW in Rust
   ([qptiff.md §4.1](../spec/zarrify/qptiff.md#41-data-types-and-codecs)), with a spec'd codec

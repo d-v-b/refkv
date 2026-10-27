@@ -3,25 +3,26 @@ remote file (design/THIRD_PARTY_READERS.md).
 
 A local HTTP server sits in front of the remote files: it answers `HEAD` and ranged `GET`s (one
 range, or several as multipart/byteranges, which the core asks for) from 64 KiB blocks it
-fetched once and cached on disk, waits `--rtt-ms` before each answer (a
-wide-area round trip, so that sequential and concurrent readers differ as they would over the
-network), and counts each request and the bytes of the ranges it answers. Each reader runs against it in turn:
+fetched once and cached on disk, waits `--rtt-ms` before each answer (a wide-area round trip,
+so that sequential and concurrent readers differ as they would over the network), and counts
+each request and the bytes of the ranges it answers. Each reader runs against it in turn:
 
 - `core`: `refkv.zarrify.zarrify` (the Rust core, driven by its read planner), every chunk's
   byte range in the archive it builds;
-- `tifffile`: `tifffile.TiffFile` over an fsspec HTTP file, the byte ranges of every series and
-  level from their IFDs, each level then written as references with `ZarrTiffStore.write_fsspec`
-  (what kerchunk's TIFF reader does);
+- `tifffile`: `tifffile.TiffFile`, the byte ranges of every series and level from their IFDs,
+  each level then written as references with `ZarrTiffStore.write_fsspec` (what kerchunk's TIFF
+  reader does);
 - `nd2`: `nd2.ND2File`, every frame's offset (its private `_frame_offsets`: nd2 has no public
-  API for byte ranges), opening the URL itself (fsspec with its own 512 KB blocks, or the whole
-  file when it is at most 32 MB) and reading an fsspec file opened here;
-- `czifile`: `czifile.CziFile` over fsspec, every subblock's data offset and size;
-- `h5py` (IMS): `h5py.File` over fsspec, every chunk of every chunked dataset (`get_chunk_info`).
+  API for byte ranges), also opening the URL itself (fsspec with its own 512 KB blocks, or the
+  whole file when it is at most 32 MB);
+- `czifile`: `czifile.CziFile`, every subblock's data offset and size;
+- `h5py` (IMS): `h5py.File`, every chunk of every chunked dataset (`get_chunk_info`).
 
-fsspec's HTTP file runs with its default cache (5 MiB blocks, read ahead) and with 64 KiB
-blocks. Usage: `uv run python design/experiments/third_party/measure.py [--rtt-ms 20] [--only
-tiff]`; prints one Markdown table row per (file, reader). Run it twice and keep the second
-run's times: on a cold cache, the first reader of each file also waits for the upstream
+Each package reads a binary file through each of `TRANSPORTS`: fsspec's HTTP file with no cache,
+read-ahead or an LRU block cache, at 64 KiB and 1 MiB blocks, and obstore's buffered reader at
+the same sizes. Usage: `uv run python design/experiments/third_party/measure.py [--rtt-ms 20]
+[--only tiff]`; prints one Markdown table row per (file, reader). Run it twice and keep the
+second run's times: on a cold cache, the first reader of each file also waits for the upstream
 server (requests and bytes are the same either way).
 """
 
@@ -34,17 +35,19 @@ import sys
 import threading
 import time
 import urllib.request
-from collections.abc import Callable
-from contextlib import nullcontext
+from collections.abc import Buffer, Callable
+from contextlib import AbstractContextManager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import override
+from typing import IO, cast, override
 
 import czifile
 import fsspec
 import h5py
 import nd2
+import obstore
 import tifffile
+from obstore.store import HTTPStore
 
 from refkv.policy import Policy
 from refkv.zarrify import zarrify
@@ -207,13 +210,79 @@ def run_core(url: str) -> str:
     return str(sum(1 for k in refs if not k.startswith("refkv_source/")))
 
 
-def run_tifffile(url: str, cache: dict[str, object]) -> str:
+class ObstoreFile(io.RawIOBase):
+    """obstore's buffered reader (`obstore.open_reader`) as a Python binary file, with the
+    `readinto` h5py calls; it reads nothing of its own."""
+
+    def __init__(self, url: str, buffer_size: int) -> None:
+        base, _, path = url.rpartition("/")
+        store = HTTPStore.from_url(base + "/", client_options={"allow_http": True})
+        self.f = obstore.open_reader(store, path, buffer_size=buffer_size)
+
+    @override
+    def readable(self) -> bool:
+        return True
+
+    @override
+    def seekable(self) -> bool:
+        return True
+
+    @override
+    def seek(self, offset: int, whence: int = 0) -> int:
+        return self.f.seek(offset, whence)
+
+    @override
+    def tell(self) -> int:
+        return self.f.tell()
+
+    @override
+    def read(self, size: int = -1) -> bytes:
+        return bytes(self.f.read(None if size < 0 else size))
+
+    @override
+    def readinto(self, buffer: Buffer) -> int:
+        view = memoryview(buffer).cast("B")
+        data = self.read(len(view))
+        view[:len(data)] = data
+        return len(data)
+
+
+type File = IO[bytes]
+"""A binary file a package reads: fsspec's, or obstore's (`ObstoreFile`, which has its methods)."""
+
+type Opener = Callable[[str], AbstractContextManager[File]]
+"""Opens a URL as a binary file: one of the transports a package reads through."""
+
+
+def fsspec_file(cache_type: str, block_size: int) -> Opener:
+    return lambda url: fsspec.filesystem("http").open(url, "rb", cache_type=cache_type, block_size=block_size)
+
+
+def obstore_file(buffer_size: int) -> Opener:
+    return lambda url: cast("AbstractContextManager[File]", ObstoreFile(url, buffer_size))
+
+
+# The transports each package reads through: fsspec's HTTP file with each of its caches for
+# random access (`none`: every read a request; `readahead`: one block after the last read;
+# `blockcache`: an LRU of blocks, which keeps blocks a reader seeks back to), at 64 KiB and
+# 1 MiB blocks, and obstore's buffered reader, whose buffer is dropped on every seek.
+TRANSPORTS: list[tuple[str, Opener]] = [
+    ("fsspec none", fsspec_file("none", BLOCK)),
+    ("fsspec readahead 64 KiB", fsspec_file("readahead", BLOCK)),
+    ("fsspec readahead 1 MiB", fsspec_file("readahead", 1 << 20)),
+    ("fsspec blockcache 64 KiB", fsspec_file("blockcache", BLOCK)),
+    ("fsspec blockcache 1 MiB", fsspec_file("blockcache", 1 << 20)),
+    ("obstore 64 KiB", obstore_file(BLOCK)),
+    ("obstore 1 MiB", obstore_file(1 << 20)),
+]
+
+
+def run_tifffile(fh: File, url: str) -> str:
     """The byte ranges of every chunk of every series and level, from their pages' (IFDs')
     offsets and byte counts; then each level written as references by `write_fsspec`, as kerchunk
-    does, which some levels fail (counted after the `+`)."""
-    fs = fsspec.filesystem("http")
+    does, which some levels fail (counted)."""
     n = failed = 0
-    with fs.open(url, "rb", **cache) as fh, tifffile.TiffFile(fh) as tif:
+    with tifffile.TiffFile(fh) as tif:
         for series in tif.series:
             for level in series.levels:
                 n += sum(len(page.dataoffsets) for page in level.pages if page is not None)
@@ -225,28 +294,24 @@ def run_tifffile(url: str, cache: dict[str, object]) -> str:
     return f"{n}" + (f" ({failed} levels fail write_fsspec)" if failed else "")
 
 
-def run_nd2(url: str, cache: dict[str, object] | None) -> str:
-    """Every frame's offset: nd2 opening the URL itself (`cache` None: its own 512 KB blocks, or
-    the whole file when it is at most 32 MB), or reading an fsspec file opened with `cache`."""
-    fs = fsspec.filesystem("http")
-    with (fs.open(url, "rb", **cache) if cache is not None else nullcontext(url)) as source, \
-            nd2.ND2File(source) as f:
+def run_nd2(fh: File | str, _url: str) -> str:
+    """Every frame's offset (given a URL, nd2 opens it with fsspec itself: 512 KB blocks, or the
+    whole file when it is at most 32 MB)."""
+    with nd2.ND2File(fh) as f:  # pyrefly: ignore[bad-argument-type] (a file it reads and seeks)
         # the modern reader's; the legacy (JPEG 2000) reader has none
         return str(len(f._rdr._frame_offsets))  # pyrefly: ignore[missing-attribute]
 
 
-def run_czifile(url: str, cache: dict[str, object]) -> str:
+def run_czifile(fh: File, _url: str) -> str:
     """Every subblock's data offset and size, which czifile reads from each subblock's header."""
-    fs = fsspec.filesystem("http")
-    with fs.open(url, "rb", **cache) as fh, czifile.CziFile(fh) as czi:
+    with czifile.CziFile(fh) as czi:
         return str(sum(1 for sb in czi.subblocks() if sb.data_size >= 0))
 
 
-def run_h5py(url: str, cache: dict[str, object]) -> str:
+def run_h5py(fh: File, _url: str) -> str:
     """Every chunk's byte offset and size (`get_chunk_info`) of every chunked dataset."""
-    fs = fsspec.filesystem("http")
     datasets: list[h5py.Dataset] = []
-    with fs.open(url, "rb", **cache) as fh, h5py.File(fh, "r") as f:
+    with h5py.File(fh, "r") as f:
         f.visititems(lambda _name, obj: datasets.append(obj) if isinstance(obj, h5py.Dataset) else None)
         n = 0
         for ds in datasets:
@@ -256,6 +321,32 @@ def run_h5py(url: str, cache: dict[str, object]) -> str:
                 ds.id.get_chunk_info(i)
                 n += 1
         return str(n)
+
+
+PACKAGES: dict[str, tuple[str, Callable[[File, str], str]]] = {
+    "tiff": ("tifffile", run_tifffile),
+    "nd2": ("nd2", run_nd2),
+    "czi": ("czifile", run_czifile),
+    "ims": ("h5py", run_h5py),
+}
+
+
+def readers(kind: str) -> list[tuple[str, Callable[[str], str]]]:
+    """The core, then the format's package through each transport (nd2 also opening the URL
+    itself)."""
+    package, run = PACKAGES[kind]
+
+    def through(opener: Opener) -> Callable[[str], str]:
+        def go(url: str) -> str:
+            with opener(url) as fh:
+                return run(fh, url)
+        return go
+
+    out: list[tuple[str, Callable[[str], str]]] = [("core", run_core)]
+    if kind == "nd2":
+        out.append(("nd2, its own fsspec file", lambda u: run_nd2(u, u)))
+    out += [(f"{package}, {label}", through(opener)) for label, opener in TRANSPORTS]
+    return out
 
 
 def main() -> None:
@@ -268,27 +359,12 @@ def main() -> None:
     counter = Counter()
     server = serve(upstreams, counter, args.rtt_ms / 1000)
     base = f"http://127.0.0.1:{server.server_port}"
-    readers: dict[str, list[tuple[str, Callable[[str], str]]]] = {
-        "tiff": [("core", run_core),
-                 ("tifffile, fsspec default", lambda u: run_tifffile(u, {})),
-                 ("tifffile, fsspec 64 KiB", lambda u: run_tifffile(u, {"block_size": BLOCK}))],
-        "nd2": [("core", run_core),
-                ("nd2, its own fsspec file", lambda u: run_nd2(u, None)),
-                ("nd2, fsspec default", lambda u: run_nd2(u, {})),
-                ("nd2, fsspec 64 KiB", lambda u: run_nd2(u, {"block_size": BLOCK}))],
-        "czi": [("core", run_core),
-                ("czifile, fsspec default", lambda u: run_czifile(u, {})),
-                ("czifile, fsspec 64 KiB", lambda u: run_czifile(u, {"block_size": BLOCK}))],
-        "ims": [("core", run_core),
-                ("h5py, fsspec default", lambda u: run_h5py(u, {})),
-                ("h5py, fsspec 64 KiB", lambda u: run_h5py(u, {"block_size": BLOCK}))],
-    }
     print(f"| file | size | reader | requests | bytes read | wall time at {args.rtt_ms:g} ms RTT | chunks |")
     print("|---|---:|---|---:|---:|---:|---:|")
     for name in names:
         kind = FILES[name][0]
         url = f"{base}/{name}/file"
-        for label, run in readers[kind]:
+        for label, run in readers(kind):
             counter.requests = counter.bytes = 0
             t = time.perf_counter()
             try:
