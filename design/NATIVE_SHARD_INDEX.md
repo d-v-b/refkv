@@ -98,9 +98,14 @@ Archives of the 30 shards and `zarr.json`, in bytes (`design/experiments/native_
 ## Reproducing
 
 ```
-uv run python design/experiments/native_shard_index/compare.py OUT_DIR --verify
+uv run --script --locked design/experiments/native_shard_index/compare.py OUT_DIR --verify
 ```
 
-[results.md](experiments/native_shard_index/results.md) has the output. The script needs refkv with PR 141
-(`refkv.phkv`) and the `zarr` extra, and the network. On macOS 27, the Rust extension built by `uv sync`
-did not load (dyld: "mis-aligned LINKEDIT string pool") until rebuilt with `CARGO_PROFILE_RELEASE_STRIP=none`.
+The script carries its environment as inline metadata (PEP 723), locked in `compare.py.lock`: refkv at PR
+141's head `63288330` (for `refkv.phkv`), built from its git source, with the `zarr` extra; zarr-python
+3.4.2, numpy 2.5.4. `exclude-newer` bounds a re-lock. Building refkv needs a Rust toolchain, and the network
+serves the shards. [results.md](experiments/native_shard_index/results.md) has the output.
+
+On macOS 27, the Rust extension did not load (dyld: "mis-aligned LINKEDIT string pool") until built with
+`CARGO_PROFILE_RELEASE_STRIP=none`; the run above sets it. When PR 141 has merged, the `rev` can name a
+commit of `main`, and the lock file be regenerated with `uv lock --script`.

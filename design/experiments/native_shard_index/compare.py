@@ -1,3 +1,15 @@
+# /// script
+# requires-python = ">=3.12"
+# dependencies = ["refkv[zarr]"]
+#
+# [tool.uv]
+# # what the lock file resolved, and nothing published after it
+# exclude-newer = "2026-10-28T00:00:00Z"
+#
+# [tool.uv.sources]
+# # PR 141's head (refkv.phkv); building refkv needs a Rust toolchain (cargo)
+# refkv = { git = "https://github.com/d-v-b/refkv", subdirectory = "python", rev = "632883306ff30ab0c420db15888b0cbc77591ebd" }
+# ///
 """Virtual shards of an HDF5-and-Zarr array, with the shard index stored three ways, in vzip and phkv
 archives, and the archives' sizes (design/NATIVE_SHARD_INDEX.md).
 
@@ -15,9 +27,10 @@ A shard's value is `[file bytes 0..end] ++ [index]`, and the index is, per varia
   native    no index bytes stored: a range of the HDF5 file's own Fixed Array data block, whose entries
             are the Zarr index's, and the 4 CRC-32C bytes inline
 
-Usage (phkv needs refkv with PR 141, refkv.phkv):
+Usage (the script's dependencies are its inline metadata, locked in compare.py.lock; phkv needs
+refkv with PR 141, refkv.phkv, which the metadata pins; building refkv needs a Rust toolchain):
 
-    uv run python design/experiments/native_shard_index/compare.py OUT_DIR [--verify]
+    uv run --script design/experiments/native_shard_index/compare.py OUT_DIR [--verify]
 
 It reads the first 16 KiB and the last 8196 bytes of every shard, over HTTP, and writes nine archives
 into OUT_DIR. `--verify` decodes four regions through zarr-python from every archive and compares them.

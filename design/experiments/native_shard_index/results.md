@@ -1,11 +1,11 @@
 # Results: the shard index stored three ways
 
-Run on 2026-10-27, refkv at `63288330` (PR 141's head, which adds `refkv.phkv`), zarr-python 3.4.0, against
+Run on 2026-10-27, refkv at `63288330` (PR 141's head, which adds `refkv.phkv`), zarr-python 3.4.2 and numpy 2.5.4 (the script's lock file), against
 `https://s3.janelia.org/shroff-lab/s0_hdf5/` (30 shards, 24 + 6 along the last two axes of a
 6368 x 1600 x 12000 uint8 array). The command, and its output, which `--verify` ends:
 
 ```
-uv run python design/experiments/native_shard_index/compare.py OUT_DIR --verify
+uv run --script --locked design/experiments/native_shard_index/compare.py OUT_DIR --verify
 ```
 
 ```
