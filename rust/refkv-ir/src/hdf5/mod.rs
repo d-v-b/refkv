@@ -18,6 +18,8 @@
 //! bytes ([`Fail::Bad`]) is final; with misses before it, the round is retried (the outcome
 //! is the one a sequential reading would give).
 
+pub mod walk;
+
 use crate::fed::{Fed, Overlap, uint};
 use crate::text::latin1;
 use std::collections::{BTreeMap, HashMap, HashSet};
