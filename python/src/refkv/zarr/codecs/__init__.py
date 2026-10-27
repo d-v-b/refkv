@@ -6,7 +6,8 @@ holds what codecs share.
 
 zarr also finds each one by name, without this package being imported first, through the
 `zarr.codecs` entry points of python/pyproject.toml, which name every module here: a codec
-added here is added there too (tests/test_codec_entry_points.py checks they agree).
+added here is added there too (tests/test_codec_entry_points.py checks they agree). Loading
+one imports `refkv.zarr`, whose import turns on zarr's `array.rectilinear_chunks`.
 """
 
 from __future__ import annotations

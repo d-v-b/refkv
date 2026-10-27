@@ -134,11 +134,15 @@ Read the archive in Python with `refkv.zarr` and zarr-python
 JPEG XR and LZW decoders). zarr-python finds the codecs that some formats need by
 the names the archive gives: refkv's own (`refkv.stream`, `refkv.fits_tiles`,
 `refkv.tiff_lzw`, and `n5_default`) through refkv's `zarr.codecs` entry points,
-without an import of `refkv.zarr`, imagecodecs-zarr's (`imagecodecs_jpeg`,
+with no `import refkv.zarr` in your code (zarr imports the codec modules, which are
+under `refkv.zarr`, itself), imagecodecs-zarr's (`imagecodecs_jpeg`,
 `imagecodecs_jpeg2k`, `imagecodecs_jpegxr`), which `refkv[images]` installs, and
-zarr-python's own (`numcodecs.zlib`, `numcodecs.shuffle`, `numcodecs.delta`). A
+zarr-python's own (`numcodecs.zlib`, `numcodecs.shuffle`, `numcodecs.delta`). So a
 copy of an archive's arrays (in a directory, or in another store) reads with zarr
-alone; `refkv.zarr` opens the archive itself:
+alone, but for an array on the zarr-extensions `rectilinear` chunk grid (a clipped
+CZI level, an MP4 video plane whose chunks differ in length), which zarr reads only
+with `zarr.config.set({"array.rectilinear_chunks": True})` (importing `refkv.zarr`
+sets it). `refkv.zarr` opens the archive itself:
 
 ```python
 import zarr
