@@ -59,6 +59,7 @@ own with a standard codec. The same few techniques recur:
 | units carry a per-unit header | a codec that parses it, rather than layout tricks | N5 (`n5_default`) |
 | units carry a few header bytes before a standard stream | a range that starts after them; the header's one meaningful bit becomes a codec | CZI (the Zstd1 header, whose hi-lo flag is `numcodecs.shuffle`) |
 | the unit's bytes are a transform of the pixels a standard codec undoes (16-bit values split into low and high bytes) | that codec in the chain, before the compressor | CZI (`bytes`, `numcodecs.shuffle`, `zstd`) |
+| the unit's values are differences along a row (a horizontal predictor) | an array-to-array codec before `bytes` that sums them back along that axis | TIFF Predictor 2 (`imagecodecs_delta`, `bytes`, `refkv.tiff_lzw`) |
 | the last column or row of units is narrower (a region clipped by the scan) | the zarr-extensions `rectilinear` chunk grid, a run of full chunks and one short one per axis | CZI pyramid levels |
 | the last strip of an image is short | pad it to the chunk: a zero data source after an uncompressed strip, or a literal tail (a Clear code, a run of zeros, an end code) spliced into an LZW stream where its output reaches the strip's size, so the grid stays regular | QPTIFF levels in strips |
 | a unit's stream runs past the unit (an encoder's malformed end code) | a codec that decodes into the chunk's size and stops there, as the format's own readers do | QPTIFF LZW tiles (`refkv.tiff_lzw`) |
@@ -69,10 +70,12 @@ own with a standard codec. The same few techniques recur:
 | units are missing | no entry: the chunk reads as the fill value | ND2 missing frames, HDF5 unallocated chunks, sparse Zarr |
 | the source's key scheme | a chunk key encoding that reproduces it | Zarr v2 and N5 via the `v2` encoding |
 
-A format whose units can't be made to decode independently (predictors,
-multi-file series, TILED_SPARSE) is rejected rather than approximated. (LZW
-tiles and strips do decode independently, each its own stream: QPTIFF reads
-them with refkv's `refkv.tiff_lzw` codec.)
+A format whose units can't be made to decode independently (multi-file
+series, TILED_SPARSE) is rejected rather than approximated. (LZW tiles and
+strips do decode independently, each its own stream: TIFF and QPTIFF read
+them with refkv's `refkv.tiff_lzw` codec; so do a TIFF's horizontally
+differenced ones, whose differences restart at each row: `imagecodecs_delta`
+sums them back.)
 
 ## 3. Axes, grids and coordinates
 

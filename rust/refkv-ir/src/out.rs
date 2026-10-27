@@ -429,18 +429,23 @@ pub fn item_size(data_type: &str) -> u64 {
     bits.parse::<u64>().map_or(0, |b| b.div_ceil(8))
 }
 
-/// The codecs after `transpose` of a TIFF `compression` (the tag's value: JPEG 2000 and JPEG
-/// as their imagecodecs codecs; else `bytes`, with the byte order for samples of more than 8
-/// bits, then `refkv.tiff_lzw` for LZW (spec/zarrify/tiff.md §4.3
+/// The codecs after `transpose` of a TIFF `compression` and `predictor` (the tags' values: JPEG
+/// 2000 and JPEG as their imagecodecs codecs; else `imagecodecs_delta` along the stored axis `x`
+/// for Predictor 2, then `bytes`, with the byte order for samples of more than 8 bits, then
+/// `refkv.tiff_lzw` for LZW (spec/zarrify/tiff.md §4.3
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>),
 /// `numcodecs.zlib` for Deflate or `zstd` for Zstandard).
-pub fn tiff_codecs(compression: u64, bits: u64, little: bool) -> Vec<J> {
+pub fn tiff_codecs(compression: u64, predictor: u64, bits: u64, little: bool, x: usize) -> Vec<J> {
     match compression {
         33003 | 33004 | 33005 | 34712 => return vec![json!({"name": "imagecodecs_jpeg2k"})],
         7 => return vec![json!({"name": "imagecodecs_jpeg"})],
         _ => {}
     }
-    let mut out = vec![bytes_codec(bits.div_ceil(8), if little { "little" } else { "big" })];
+    let mut out = Vec::new();
+    if predictor == 2 {
+        out.push(json!({"name": "imagecodecs_delta", "configuration": {"axis": x, "dist": 1}}));
+    }
+    out.push(bytes_codec(bits.div_ceil(8), if little { "little" } else { "big" }));
     match compression {
         5 => out.push(json!({"name": "refkv.tiff_lzw"})),
         8 | 32946 => out.push(json!({"name": "numcodecs.zlib", "configuration": {"level": 1}})),

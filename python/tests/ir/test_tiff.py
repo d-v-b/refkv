@@ -273,11 +273,69 @@ def test_a_short_last_strip_of_deflate_is_rejected():
         via_ir(str(FIXTURES / "tiff" / "edge_reject_strips_deflate_short.tif"), "u")
 
 
-def test_a_horizontal_predictor_is_rejected():
+def delta(axis):
+    return {"name": "imagecodecs_delta", "configuration": {"axis": axis, "dist": 1}}
+
+
+LZW, ZLIB, ZSTD = {"name": "refkv.tiff_lzw"}, {"name": "numcodecs.zlib", "configuration": {"level": 1}}, \
+    {"name": "zstd", "configuration": {"level": 0, "checksum": False}}
+LE, BE, U8 = {"name": "bytes", "configuration": {"endian": "little"}}, \
+    {"name": "bytes", "configuration": {"endian": "big"}}, {"name": "bytes"}
+INTERLEAVED = {"name": "transpose", "configuration": {"order": [1, 2, 0]}}
+PREDICTOR = {
+    # name: the codecs: imagecodecs_delta along `x` in stored order, before `bytes`
+    "predictor_deflate_uint8.tif": [delta(1), U8, ZLIB],
+    "predictor_lzw_uint16.tif": [delta(1), LE, LZW],
+    "predictor_deflate_uint16_be.tif": [delta(1), BE, ZLIB],
+    "predictor_zstd_int16.tif": [delta(1), LE, ZSTD],
+    "predictor_rgb_contig_lzw.tif": [INTERLEAVED, delta(1), U8, LZW],  # x before the samples
+    "predictor_rgb_contig_uint16_deflate.tif": [INTERLEAVED, delta(1), LE, ZLIB],  # in strips
+    "predictor_strips_uint16_lzw_short.tif": [delta(1), LE, LZW],  # its short last strip padded
+    "predictor_tcyx_uint16_lzw.ome.tif": [delta(3), LE, LZW],  # and a SubIFD level
+}
+
+
+def test_predictor_2_is_summed_back_by_imagecodecs_delta(tmp_path):
     """§4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>:
-    no codec undoes Predictor 2."""
-    with pytest.raises(Rejected, match="unsupported predictor 2"):
-        via_ir(str(FIXTURES / "tiff" / "unsupported_predictor.tif"), "u")
+    Predictor 2 of an integer type, with LZW, Deflate or zstd, puts `imagecodecs_delta` along the
+    stored axis `x` before `bytes`; uint8, uint16 and int16, either byte order, interleaved samples,
+    tiles and strips (a short last one padded) alike. Every level reads as tifffile reads it
+    (the windows: test_omero_windows_sample_the_coarsest_level)."""
+    for name, codecs in PREDICTOR.items():
+        path = FIXTURES / "tiff" / name
+        out, g, _ = zarrified(path, tmp_path, "tiff")
+        ms = mapping(at(g.attrs, "ome", "multiscales", 0))
+        names = [string(at(a, "name")) for a in sequence(ms["axes"])]
+        with tifffile.TiffFile(path) as tf:
+            series = tf.series[0]
+            want = [(level.asarray(), series.axes) for level in series.levels]
+        assert len(want) == len(sequence(ms["datasets"])), name
+        for li, (data, axes) in enumerate(want):
+            assert json.loads(out.bytes_entries[f"{li}/zarr.json"])["codecs"] == codecs, (name, li)
+            letters = [AXIS[a] for a in axes]
+            want_level = np.transpose(data, [letters.index(a) for a in names])
+            assert np.array_equal(ndarray(g.get_array(str(li))[...]), want_level), (name, li)
+
+
+def test_predictor_3_is_rejected():
+    """§4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>:
+    no codec undoes the floating-point predictor."""
+    with pytest.raises(Rejected, match="unsupported predictor 3"):
+        via_ir(str(FIXTURES / "tiff" / "unsupported_predictor_float.tif"), "u")
+
+
+def test_predictor_2_of_a_float_type_is_rejected():
+    """§4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>:
+    a float's differences are taken on its bits, which imagecodecs_delta does not sum back."""
+    with pytest.raises(Rejected, match="predictor 2 with SampleFormat 3"):
+        via_ir(str(FIXTURES / "tiff" / "unsupported_predictor_2_float.tif"), "u")
+
+
+def test_predictor_2_without_compression_is_rejected():
+    """§4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>:
+    readers disagree on whether uncompressed bytes hold differences."""
+    with pytest.raises(Rejected, match="predictor 2 with compression 1"):
+        via_ir(str(FIXTURES / "tiff" / "edge_reject_predictor_uncompressed.tif"), "u")
 
 
 def test_rows_per_strip_0_is_rejected(tmp_path):

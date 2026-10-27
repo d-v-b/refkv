@@ -65,8 +65,9 @@ n5_default = "refkv.zarr.codecs.n5_default:N5DefaultCodec"
 zarr = [
     "zarr>=3.4.0",
 ]
-# the image codecs: imagecodecs-zarr's JPEG, JPEG 2000 and JPEG XR codecs, which refkv's archives
-# name, and imagecodecs' LZW decoder, which refkv.tiff_lzw calls
+# the image codecs: imagecodecs-zarr's JPEG, JPEG 2000 and JPEG XR codecs and its delta codec
+# (a TIFF's horizontal predictor), which refkv's archives name, and imagecodecs' LZW decoder,
+# which refkv.tiff_lzw calls
 images = [
     "refkv[zarr]",
     "imagecodecs>=2026.8.16",

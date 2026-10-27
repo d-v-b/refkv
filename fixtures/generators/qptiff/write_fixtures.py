@@ -20,7 +20,10 @@ Every IFD has Software `PerkinElmer-QPI` and a `PerkinElmer-QPI-ImageDescription
   some Vectra scanners write it, with the end code one bit too narrow (read at the right
   width it is code 514, one more table entry), so the stream decodes past the tile; the
   codecs read it into the tile's size, as tifffile does.
-- `edge_reject_qptiff_*.qptiff`: inputs the profile rejects.
+- `qptiff_fl_lzw_predictor.qptiff`: one LZW channel with Predictor 2 (horizontal
+  differencing), whose codecs sum the differences back with `imagecodecs_delta`.
+- `edge_reject_qptiff_*.qptiff`: inputs the profile rejects (among them the floating-point
+  predictor, 3).
 
 Pixels are checked against tifffile by js/test/qptiff/verify.py.
 
@@ -263,7 +266,7 @@ def main() -> None:
             page(tif, small[c], "FullResolution", tile=(32, 32), name=f"C{c}")
         page(tif, small[0][::2, ::2], "ReducedResolution", tile=(32, 32), reduced=True, name="C0")
         page(tif, small[1][::4, ::4], "ReducedResolution", tile=(32, 32), reduced=True, name="C1")
-    with tifffile.TiffWriter(OUT / "edge_reject_qptiff_predictor.qptiff") as tif:
+    with tifffile.TiffWriter(OUT / "qptiff_fl_lzw_predictor.qptiff") as tif:
         tif.write(small[0], photometric="minisblack", compression="lzw", predictor=True, tile=(32, 32),
                   software=SOFTWARE, metadata=None, description=description("FullResolution", name="DAPI"),
                   resolution=RESOLUTION, resolutionunit="CENTIMETER")
@@ -271,6 +274,10 @@ def main() -> None:
     with tifffile.TiffWriter(strips) as tif:
         page(tif, comp[0], "FullResolution", rps=16, name="Eosin", unmixed=True)
     patch_long(strips, 0, 278, 8)  # RowsPerStrip 8: 5 strips expected, 3 present
+    with tifffile.TiffWriter(OUT / "edge_reject_qptiff_predictor_float.qptiff") as tif:
+        tif.write(comp[0], photometric="minisblack", compression="lzw", predictor=True, tile=(32, 32),  # 3, of floats
+                  software=SOFTWARE, metadata=None, resolution=RESOLUTION, resolutionunit="CENTIMETER",
+                  description=description("FullResolution", name="Eosin", unmixed=True))
 
     for p in sorted(OUT.glob("*.qptiff")):
         print(p.name, p.stat().st_size)

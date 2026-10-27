@@ -13,7 +13,9 @@ document tabulates its layout, as [§11.5](#115-layout-tables) says; the mirror'
 wrote it ([§8.2](#82-the-table)); and each convention's JSON Schema requires every member of its
 CMO ([§1](#1-conventions)). Changed 2026-10-27: a zlib stream's codec is `numcodecs.zlib`, in
 place of `zlib`, and every codec's name is zarr-python's, imagecodecs-zarr's, the zarr-extensions
-registry's or refkv's own `refkv.<codec>`, [§3](#3-arrays) (d-v-b/refkv#90).)
+registry's or refkv's own `refkv.<codec>`, [§3](#3-arrays) (d-v-b/refkv#90). Changed
+2026-10-27: imagecodecs-zarr's `imagecodecs_delta` sums back differences along `x`, a step of its
+own between `transpose` and `bytes`, [§3](#3-arrays).)
 
 <!-- profiles:conventions-table -->
 | format | convention | UUID |
@@ -286,22 +288,24 @@ order: `t` (time), `c` (channel), `z`, `y`, `x` (space). `y` and `x` are
 always present; the format's convention says when the others are.
 
 **Codecs.** `codecs` is built from these, in the order of their step: at most one codec
-of each step, and always one of step 2.
+of each step, and always one of step 3.
 
 | step | codec | when |
 |---|---|---|
 | 1 | `{"name": "transpose", "configuration": {"order": [...]}}` | a chunk's bytes hold the channel axis last ("interleaved"). `order` lists the array's axis indices in stored order: every axis except `c` in array order, then `c` |
-| 2 | `{"name": "bytes"}` (no `configuration`) | a 1-byte data type |
-| 2 | `{"name": "bytes", "configuration": {"endian": "little"}}`, or `"big"` | a larger data type |
-| 2 | `{"name": "imagecodecs_jpeg2k"}` | JPEG 2000: one codestream per chunk, decoding to the chunk's `[y, x]`, or, when interleaved, to `[y, x, c]`, after which `transpose` applies |
-| 2 | `{"name": "imagecodecs_jpeg"}` | JPEG: one complete JPEG stream per chunk, ISO/IEC 10918-1 with the JFIF/Adobe color conventions, decoding to the chunk's `[y, x]` or `[y, x, c]` like JPEG 2000 |
-| 3 | `{"name": "numcodecs.zlib", "configuration": {"level": 1}}` | the bytes are zlib streams (RFC 1950) |
-| 3 | `{"name": "zstd", "configuration": {"level": 0, "checksum": false}}` | the bytes are Zstandard frames |
+| 2 | `{"name": "imagecodecs_delta", "configuration": {"axis": a, "dist": 1}}` | the chunk's bytes hold an integer data type's values as differences along `x` (**Delta**, below). `a` is the index of `x` in stored order: the last axis, or the one before last when `codecs` has `transpose` |
+| 3 | `{"name": "bytes"}` (no `configuration`) | a 1-byte data type |
+| 3 | `{"name": "bytes", "configuration": {"endian": "little"}}`, or `"big"` | a larger data type |
+| 3 | `{"name": "imagecodecs_jpeg2k"}` | JPEG 2000: one codestream per chunk, decoding to the chunk's `[y, x]`, or, when interleaved, to `[y, x, c]`, after which `transpose` applies |
+| 3 | `{"name": "imagecodecs_jpeg"}` | JPEG: one complete JPEG stream per chunk, ISO/IEC 10918-1 with the JFIF/Adobe color conventions, decoding to the chunk's `[y, x]` or `[y, x, c]` like JPEG 2000 |
+| 4 | `{"name": "numcodecs.zlib", "configuration": {"level": 1}}` | the bytes are zlib streams (RFC 1950) |
+| 4 | `{"name": "zstd", "configuration": {"level": 0, "checksum": false}}` | the bytes are Zstandard frames |
 
 **Codec names.** Every codec a convention names is one that a reader of Zarr v3 finds by its
 name: zarr-python's own (`bytes`, `transpose`, `gzip`, `zstd`, `blosc`, `sharding_indexed`, and
 `numcodecs.zlib`, `numcodecs.shuffle` and `numcodecs.delta`, its names for numcodecs' codecs),
-imagecodecs-zarr's (`imagecodecs_jpeg`, `imagecodecs_jpeg2k`, `imagecodecs_jpegxr`), the
+imagecodecs-zarr's (`imagecodecs_jpeg`, `imagecodecs_jpeg2k`, `imagecodecs_jpegxr`,
+`imagecodecs_delta`), the
 zarr-extensions registry's (`n5_default`), or refkv's own, which are named `refkv.<codec>`
 (`refkv.stream`, [§10](#10-coded-streams); `refkv.fits_tiles`,
 [fits §3.3](zarrify/fits.md#33-tile-compressed-images); `refkv.tiff_lzw`,
@@ -310,6 +314,18 @@ codec of its own only where none of the others decodes the chunks as the convent
 LZW streams can run past their tile, which `imagecodecs_lzw` does not allow). refkv's Python
 package provides its own codecs to zarr-python through the `zarr.codecs` entry points, and the
 `images` extra installs imagecodecs-zarr.
+
+**Delta.** `imagecodecs_delta` is an array-to-array codec, so in decoding it applies to the
+array `bytes` gives, in stored order, before `transpose` reorders it. It replaces each value by
+the sum of it and every value before it along axis `axis`, the other indices fixed (with `dist`
+1, a cumulative sum), in the data type's integer arithmetic: modulo 2^bits, as two's complement
+for `int`. It undoes TIFF's horizontal differencing (Predictor 2, [tiff
+§4.3](zarrify/tiff.md#43-data-types-and-codecs)), which starts again at each row of a tile or
+strip, and differences each of a pixel's interleaved samples with the same sample of the pixel
+before: the samples are an axis of their own, so a sum along `x` runs over each apart. It
+decodes as `imagecodecs.delta_decode(chunk, axis=axis, dist=1)` does. (zarr-python's
+`numcodecs.delta`, numcodecs' `Delta`, differences the chunk flattened, across its rows and
+samples, so it does not undo a horizontal predictor.)
 
 JPEG 2000 decoding follows OpenJPEG, as imagecodecs does: a 3-component codestream whose
 first component is at full resolution and whose other two are subsampled holds YCbCr, and

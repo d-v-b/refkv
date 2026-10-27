@@ -37,9 +37,9 @@
       "message": "the images of QPTIFF level 1 differ in size, tiling or format"
     },
     {
-      "test": "qptiff_edge_reject_predictor",
-      "input": "edge_reject_qptiff_predictor.qptiff",
-      "message": "unsupported predictor 2"
+      "test": "qptiff_edge_reject_predictor_float",
+      "input": "edge_reject_qptiff_predictor_float.qptiff",
+      "message": "unsupported predictor 3"
     },
     {
       "test": "qptiff_edge_reject_strip_count",
