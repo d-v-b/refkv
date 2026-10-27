@@ -2,6 +2,8 @@
 //! as the module `refkv._core`: the parsers as step/feed/finish objects, and the IR's
 //! columns, tables and per-element reads.
 
+mod phkv;
+
 use refkv_ir::check;
 use refkv_ir::czi::Czi;
 use refkv_ir::ir::*;
@@ -890,5 +892,6 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(czi_bands, m)?)?;
     m.add("Rejected", m.py().get_type::<Rejected>())?;
     m.add("Violation", m.py().get_type::<Violation>())?;
+    phkv::register(m)?;
     Ok(())
 }

@@ -155,6 +155,15 @@ What each step does:
   directory passes a few MB, tens of thousands of keys, save with
   `store.save("oisst.vzip", page_size=65536)`
   ([spec §12, Page index](../spec/bindings/vzip.md#12-page-index-optional)).
+- **The perfect-hash binding.** For a store of hundreds of thousands of keys,
+  `store.save_phkv("oisst.phkv")` writes the draft phkv binding instead
+  ([spec](../spec/bindings/phkv.md)): a perfect hash of the keys, so that opening
+  the file and reading the first key takes 3 requests of about 516 KiB at 10^5
+  and 10^6 keys, and each later key one or two, fewer than a paged archive takes
+  ([benchmarks](../rust/refkv-phkv/bench/RESULTS.md)).
+  `refkv.open("oisst.phkv", binding="phkv")` and
+  `refkv.zarr.open("oisst.phkv", binding="phkv")` read it with the same options
+  as an archive. It is not a ZIP file, so ZIP tools cannot open it.
 - **Requests.** `refkv.zarr.open(..., max_concurrency=16)` allows more requests in
   flight, and `max_concurrency=None` removes the cap. Respect the host's
   limits.

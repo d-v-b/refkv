@@ -24,6 +24,8 @@ doctest = false
 [dependencies]
 pyo3 = { version = "0.29", features = ["extension-module", "abi3-py312"] }
 refkv-ir = { path = "../refkv-ir" }
+refkv-phkv = { path = "../refkv-phkv" }
+refkv-vzip = { path = "../refkv-vzip" }
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
 
 [build-dependencies]
