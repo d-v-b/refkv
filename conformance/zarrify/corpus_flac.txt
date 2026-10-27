@@ -2,5 +2,5 @@
 # compares py with web alone): files of the IETF CELLAR working group's FLAC decoder testbench (CC0), on
 # GitHub: 16-bit stereo music with a 960 x 540 PNG front cover, and 24-bit stereo at 96 kHz with a
 # seek table
-https://raw.githubusercontent.com/ietf-wg-cellar/flac-test-files/main/subset/57%20-%20PNG%20PICTURE.flac|ietf_57_png_picture|no-ref
-https://raw.githubusercontent.com/ietf-wg-cellar/flac-test-files/main/subset/28%20-%20high%20resolution%20audio%2C%20default%20settings.flac|ietf_28_high_resolution|no-ref
+https://raw.githubusercontent.com/ietf-wg-cellar/flac-test-files/main/subset/57%20-%20PNG%20PICTURE.flac|ietf_57_png_picture|no-ref|ends-sha256=6d5f5348d26536dfa3f534f6070e27c838f19b76976e3a708fa841b9d6ee126a
+https://raw.githubusercontent.com/ietf-wg-cellar/flac-test-files/main/subset/28%20-%20high%20resolution%20audio%2C%20default%20settings.flac|ietf_28_high_resolution|no-ref|ends-sha256=189662e9e1320debc3ca225b7956a00e63db34ed290f6caabf0c0adeb9497d9f

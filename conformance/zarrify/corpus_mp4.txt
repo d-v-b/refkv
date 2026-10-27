@@ -2,4 +2,4 @@
 # compares py with web alone): "About Bananas" (1935), from the Prelinger Archives on the Internet
 # Archive (public domain): H.264 320 x 240 and AAC stereo, 46 MB (archive.org redirects downloads to a
 # mirror)
-https://archive.org/download/AboutBan1935/AboutBan1935_512kb.mp4|prelinger_about_bananas|no-ref
+https://archive.org/download/AboutBan1935/AboutBan1935_512kb.mp4|prelinger_about_bananas|no-ref|ends-sha256=4b2a202ad6f21c9c65fa87eeb449292e55053dde2d1e375d25258fb8e739a2e0
