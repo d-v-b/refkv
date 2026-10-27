@@ -3017,6 +3017,9 @@ impl Tiff {
             (lv.strips && down > 1 && short != lv.th).then_some(short)
         };
         let mut need = Vec::new();
+        // the distinct ranges of the strips read for their tails, whose bytes together are at most
+        // the file's (as strips that do not overlap hold)
+        let mut tails: HashSet<(u64, u64)> = HashSet::new();
         if compression == 5 {
             for (li, lv) in levels.iter().enumerate() {
                 let Some(short) = short_of(lv) else { continue };
@@ -3043,13 +3046,15 @@ impl Tiff {
                 for &k in &lv.ifds {
                     for (_, o, c) in last_strips(lv, k, &vals[&k])? {
                         let r = read(c, target);
-                        if c > 0 && !self.heads.contains_key(&(o, r)) {
+                        if c > 0 && tails.insert((o, r)) && !self.heads.contains_key(&(o, r)) {
                             need.push((o, r));
                         }
                     }
                 }
             }
         }
+        let total: u128 = tails.iter().map(|&(_, r)| r as u128).sum();
+        self.rules.check("tails", rules::env([("read", num(total as f64)), ("size", num(self.size as f64))]))?;
         if !need.is_empty() {
             return Err(Stop::Need(need));
         }

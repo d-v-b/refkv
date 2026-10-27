@@ -329,6 +329,18 @@ mod tests {
     }
 
     #[test]
+    fn the_profiles_padding_limit_is_within_one_code_table() {
+        // tiff.json's and qptiff.json's max_padding: a tail of that many zeros is one the
+        // padding role allows, so tail's own error is never what rejects an input
+        let d = sample(300);
+        let e = encode(&d);
+        for profile in ["tiff", "qptiff"] {
+            let most = crate::rules::of(profile).json["limits"]["max_padding"].as_u64().unwrap();
+            assert!(tail(&e, scan(&e, 300).unwrap(), most).is_ok(), "{profile}");
+        }
+    }
+
+    #[test]
     fn a_tail_of_no_zeros_only_ends_the_stream() {
         let d = sample(300);
         let e = encode(&d);

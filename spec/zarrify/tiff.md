@@ -517,7 +517,9 @@ again, and a JPEG or JPEG 2000 stream holds its own height, so these have no pad
 references the strip's bytes.) A strip padded with more than 2^22 (4194304) zero bytes
 rejects the input, so that no archive holds more zeros than that, and an LZW tail stays within
 one code table; so does a short last LZW strip whose tail would read more than 2^24
-(16777216) of its bytes (its byte count, read up to the bound of [§7.1](#71-reading)).
+(16777216) of its bytes (its byte count, read up to the bound of [§7.1](#71-reading)), and so do
+short last LZW strips whose distinct ranges read for their tails hold more bytes, together, than
+the file (which strips that do not overlap never do).
 
 ## 5. Source metadata
 

@@ -438,3 +438,26 @@ def test_a_later_page_whose_values_do_not_load_is_not_a_page(tmp_path):
     path.write_bytes(b)
     _, g, _ = zarrified(path, tmp_path, "tiff")
     assert np.array_equal(ndarray(g.get_array("0")[...]), data)
+
+
+def test_lzw_tails_that_would_read_more_than_the_file_are_rejected(tmp_path):
+    """§4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>: the short
+    last LZW strips of two planes, made to overlap over almost all of the file, would be read
+    for their tails, together, past the file's size, which strips that do not overlap never are."""
+    path = tmp_path / "overlap.ome.tif"
+    tifffile.imwrite(path, np.zeros((2, 40, 4096), np.uint8), rowsperstrip=16, compression="lzw", ome=True,
+                     metadata={"axes": "ZYX"})
+    b = bytearray(path.read_bytes())
+    for page, start in [(0, 8), (1, 9)]:  # each last strip from near the file's start to its end
+        with tifffile.TiffFile(path) as tf:
+            p = tf.pages[page]
+            assert isinstance(p, tifffile.TiffPage)
+            offsets, counts = p.tags["StripOffsets"], p.tags["StripByteCounts"]
+            last = offsets.count - 1
+            o_size, c_size = offsets.valuebytecount // offsets.count, counts.valuebytecount // counts.count
+            at_offset, at_count = offsets.valueoffset + last * o_size, counts.valueoffset + last * c_size
+        b[at_offset:at_offset + o_size] = start.to_bytes(o_size, "little")
+        b[at_count:at_count + c_size] = (len(b) - start).to_bytes(c_size, "little")
+    path.write_bytes(b)
+    with pytest.raises(Rejected, match=f"would be read for their tails {2 * len(b) - 17} bytes, more than the file's"):
+        via_ir(str(path), "u")

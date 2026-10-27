@@ -87,8 +87,8 @@ pub fn plane(refs: &mut Refs, prefix: &str, e: Option<u64>, per: u64, across: u6
 }
 
 /// The output's one zero data source (spec/zarrify.md §1.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>) of a TIFF's padded
-/// strips: as many zero bytes as the most any strip of the facts' levels is padded with.
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>) of a TIFF's or QPTIFF's
+/// padded strips: as many zero bytes as the most any strip of the facts' levels is padded with.
 pub fn zero_source(facts: &J) -> Zeros {
     let most = arr(&facts["levels"]).iter().flat_map(|lv| arr(&lv["pad"]["zeros"])).map(|p| n(&p["zeros"])).max();
     Zeros::sized(most.unwrap_or(0))
@@ -106,22 +106,14 @@ pub struct Padding {
 
 impl Padding {
     /// The padding of level `lv` (none unless it is in strips and has a `pad`): its zero bytes a
-    /// prefix of the output's zero data source `zeros` (TIFF), or, without one, a data source per
-    /// distinct count (QPTIFF, spec/zarrify/qptiff.md §7
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#7-qptiff-profile>).
-    pub fn of(refs: &mut Refs, lv: &J, mut zeros: Option<&mut Zeros>) -> Result<Self, String> {
+    /// prefix of the output's zero data source `zeros` (`zero_source`).
+    pub fn of(refs: &mut Refs, lv: &J, zeros: &mut Zeros) -> Result<Self, String> {
         let strips = lv["strips"].as_bool().unwrap_or(false);
         let pad = &lv["pad"];
         let at = |p: &J| (n(&p["c"]), n(&p["k"]));
-        let mut counts: HashMap<u64, Part> = HashMap::new();
         let mut by_strip = HashMap::new();
         for p in arr(&pad["zeros"]) {
-            let z = n(&p["zeros"]);
-            let part = match zeros.as_deref_mut() {
-                Some(source) => source.range(&mut refs.out, z)?,
-                None => counts.entry(z).or_insert_with(|| refs.out.shared(&vec![0u8; z as usize])).clone(),
-            };
-            by_strip.insert(at(p), part);
+            by_strip.insert(at(p), zeros.range(&mut refs.out, n(&p["zeros"]))?);
         }
         Ok(Padding {
             last: strips.then(|| n(&lv["h"]).div_ceil(n(&lv["th"])) - 1),

@@ -350,6 +350,11 @@
       "given": {"offset": "the IFD's", "strip": "the strip's index", "decodes": "the stream reaches the strip's size", "problem": "why not"},
       "constraints": [{"require": "decodes", "message": "strip {strip} of the IFD at {offset} does not decode to its size: {problem}"}]
     },
+    "tails": {
+      "about": "the short last LZW strips of every level, as they are read for their tails: their distinct ranges together",
+      "given": {"read": "their bytes", "size": "the file's"},
+      "constraints": [{"require": "read <= size", "message": "the short last LZW strips would be read for their tails {read} bytes, more than the file's {size}"}]
+    },
     "padding": {
       "about": "a level in strips whose last strip is short, after it is padded (uncompressed, LZW) or found unpaddable (another compression): level 0 must be a level",
       "given": {"level": "", "compression": "", "kept": "the level is padded, and kept", "zeros": "the most zero bytes a strip of the level is padded with", "read": "(LZW) the most bytes of a last strip read for its tail: its byte count, at most 3 × its decoded size + 64"},

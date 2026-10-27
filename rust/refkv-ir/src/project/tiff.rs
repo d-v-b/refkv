@@ -104,7 +104,7 @@ fn arrays(ir: &Ir, facts: &J, url: &str, only: Option<usize>) -> Result<(Out, Ve
         // (spec/zarrify/tiff.md §4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>)
         let across = if lv["strips"].as_bool().unwrap_or(false) { 1 } else { w.div_ceil(tw) };
         let per = across * h.div_ceil(th);
-        let padding = tiled::Padding::of(refs, lv, Some(&mut zeros))?;
+        let padding = tiled::Padding::of(refs, lv, &mut zeros)?;
         let planes = arr(&lv["planes"]);
         let prefix = format!("{li}/c/");
         for t in 0..size_t {

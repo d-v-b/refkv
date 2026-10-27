@@ -92,6 +92,8 @@ pub fn reads(ir: &Ir, facts: &J) -> Result<Vec<(u64, u64)>, String> {
 /// level's chunks are the tiles, or the strips, of each channel's IFD.
 fn arrays(ir: &Ir, facts: &J, url: &str, only: Option<usize>) -> Result<(Out, Vec<Vec<u64>>), String> {
     let has_c = strs(&facts["axes"]).first() == Some(&"c");
+    // a short last strip's zero padding: a prefix of the output's zero data source
+    let mut zeros = tiled::zero_source(facts);
     tiled::arrays(ir, facts, url, only, |lv| level_shape(facts, lv), |refs, li, lv| {
         let (w, h, tw, th) = (n(&lv["w"]), n(&lv["h"]), n(&lv["tw"]), n(&lv["th"]));
         let strips = lv["strips"].as_bool().unwrap_or(false);
@@ -99,7 +101,7 @@ fn arrays(ir: &Ir, facts: &J, url: &str, only: Option<usize>) -> Result<(Out, Ve
         let across = if strips { 1 } else { w.div_ceil(tw) };
         // a short last strip, padded to the chunk (spec/zarrify/qptiff.md §4.2
         // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#42-tiles-and-strips>)
-        let padding = tiled::Padding::of(refs, lv, None)?;
+        let padding = tiled::Padding::of(refs, lv, &mut zeros)?;
         let prefix = format!("{li}/c/");
         for (c, p) in arr(&lv["planes"]).iter().enumerate() {
             let Some(e) = p.as_u64() else { continue };
