@@ -1,28 +1,33 @@
-# Offline checks on every push and pull request: the Python package's tests and its
+# Offline checks on every push to main and every pull request: the Python package's tests and its
 # install without extras, the browser code's type check and Node tests, the IR core's
 # tests, the fixture
-# comparison of the virtualizers against the frozen reference (spec/virtualize.md §1.1
-# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#11-output-and-equivalence>, with
+# comparison of the zarrifiers against the frozen reference (spec/zarrify.md §1.1
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#11-output-and-equivalence>, with
 # spec/bindings/vzip.md's strict reading of every archive), the reproducibility of the fixture
-# generators, and the section references, each a link to a heading that exists. Every format (docs/virtualize/README.md) goes through the Rust core (rust/refkv-ir), built natively
+# generators, and the section references, each a link to a heading that exists. Every format (docs/zarrify/README.md) goes through the Rust core (rust/refkv-ir), built natively
 # for Python (`uv sync`, which builds python/, refkv, with its bindings as the module refkv._core) and for wasm32 for the browser code (`just js::wasm`).
-# The vzip CLI (rust/refkv-cli) is checked against the Python virtualizer, archive for archive.
+# The vzip CLI (rust/refkv-cli) is checked against the Python zarrifier, archive for archive.
 # The Python tests, the install without extras, the IR core's tests, the CLI's and the Node tests
 # run on Linux, macOS and Windows; the fixture comparison, the fixtures' reproducibility and the
 # section references, which do not depend on the system, on Linux only.
 name: ci
 
+# pushes to main; a pull request's branch runs as the pull request alone, not twice
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# a newer push to a pull request supersedes its run in progress; on main each commit has a group of
+# its own (a group holds one pending run, and cancels it for the next) and nothing is cancelled, so
+# every commit has a result
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
   NODE_VERSION: "24"
@@ -54,7 +59,9 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: js/package-lock.json
-      - uses: extractions/setup-just@v2
+      - uses: extractions/setup-crate@v2
+        with:
+          repo: casey/just
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
@@ -62,7 +69,7 @@ jobs:
         with:
           workspaces: |
             rust/refkv-ir
-            python
+            rust/refkv-python
       # binaryen's wasm-opt shrinks the wasm32 module (rust/refkv-ir/wasm/build.sh; optional)
       - if: runner.os == 'Linux'
         run: sudo apt-get install -y --no-install-recommends binaryen
@@ -97,7 +104,9 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: npm
           cache-dependency-path: js/package-lock.json
-      - uses: extractions/setup-just@v2
+      - uses: extractions/setup-crate@v2
+        with:
+          repo: casey/just
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
@@ -138,20 +147,22 @@ jobs:
         with:
           workspaces: |
             rust/refkv-ir
-            python
+            rust/refkv-python
       # binaryen's wasm-opt shrinks the wasm32 module (rust/refkv-ir/wasm/build.sh; optional)
       - if: runner.os == 'Linux'
         run: sudo apt-get install -y --no-install-recommends binaryen
-      - uses: extractions/setup-just@v2
+      - uses: extractions/setup-crate@v2
+        with:
+          repo: casey/just
       - run: uv sync --all-groups --locked
-      # the core's Rust tests, and a cargo build of its Python bindings' crate (python/); the
-      # Python host's tests (python/tests/ir), the other half of `just ir-test`, run in the
-      # pytest job, with the rest
+      # the core's Rust tests, and a cargo build of its Python bindings' crate
+      # (rust/refkv-python); the Python host's tests (python/tests/ir), the other half of
+      # `just ir-test`, run in the pytest job, with the rest
       - run: just ir-rust-test
       - run: just ir-wasm
 
   # The vzip archive writer (rust/refkv-vzip) and the `vzip convert` CLI (rust/refkv-cli): their
-  # tests, and the CLI against `python -m refkv.virtualize` on the fixture corpus, whose archives
+  # tests, and the CLI against `python -m refkv.zarrify` on the fixture corpus, whose archives
   # must be the same, byte for byte (`just cli-identical`); and, but on Windows, where it does not
   # build, the conformance harness built on the writer (conformance/impls/rust)
   cli:
@@ -178,8 +189,10 @@ jobs:
             rust/refkv-phkv
             rust/refkv-cli
             conformance/impls/rust
-            python
-      - uses: extractions/setup-just@v2
+            rust/refkv-python
+      - uses: extractions/setup-crate@v2
+        with:
+          repo: casey/just
       - run: uv sync --all-groups --locked
       - run: just cli-test
       - run: just cli-identical
@@ -201,7 +214,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-      - uses: extractions/setup-just@v2
+      - uses: extractions/setup-crate@v2
+        with:
+          repo: casey/just
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
@@ -209,13 +224,13 @@ jobs:
         with:
           workspaces: |
             rust/refkv-ir
-            python
+            rust/refkv-python
       # binaryen's wasm-opt shrinks the wasm32 module (rust/refkv-ir/wasm/build.sh; optional)
       - run: sudo apt-get install -y --no-install-recommends binaryen
       - run: uv sync --all-groups --locked
       - run: just js::wasm
       - run: >-
-          uv run python conformance/virtualize/compare.py conformance/results/fixtures
+          uv run python conformance/zarrify/compare.py conformance/results/fixtures
           --fixtures fixtures --shard ${{ matrix.shard }}/4
       - if: failure()
         uses: actions/upload-artifact@v4
@@ -223,7 +238,7 @@ jobs:
           name: fixture-compare-${{ matrix.shard }}
           path: conformance/results/fixtures/results.json
 
-  # The package without its extras (python/pyproject.toml): it reads, writes and virtualizes
+  # The package without its extras (python/pyproject.toml): it reads, writes and zarrifies
   # archives without zarr, and each optional part's ImportError names the extra that
   # installs it; then with only the zarr extra, which reads them through zarr
   base-install:
@@ -239,13 +254,15 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-      - uses: extractions/setup-just@v2
+      - uses: extractions/setup-crate@v2
+        with:
+          repo: casey/just
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
             rust/refkv-ir
-            python
+            rust/refkv-python
       # the two venvs, and their Pythons: bin/python, or Scripts/python.exe on Windows (with
       # RUNNER_TEMP's `\` written as `/`, for Git Bash)
       - run: |
@@ -272,10 +289,16 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-      - uses: extractions/setup-just@v2
+      - uses: extractions/setup-crate@v2
+        with:
+          repo: casey/just
       - run: uv sync --all-groups --locked --no-install-package refkv
       # every "§n" is a link to its heading, and every such link resolves (spec/tools/sections.py)
       - run: just sections
+      # every Python file passes ruff (pyproject.toml's [tool.ruff])
+      - run: just lint
+      # every Python file type-checks (pyproject.toml's [tool.pyrefly]; refkv._core through its stub)
+      - run: just typecheck
 
   fixtures-reproducible:
     runs-on: ubuntu-latest
@@ -285,12 +308,14 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-      - uses: extractions/setup-just@v2
+      - uses: extractions/setup-crate@v2
+        with:
+          repo: casey/just
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
             rust/refkv-ir
-            python
+            rust/refkv-python
       - run: uv sync --all-groups --locked
       - run: just fixtures-check

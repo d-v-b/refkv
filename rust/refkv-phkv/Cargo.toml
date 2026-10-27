@@ -1,7 +1,7 @@
 # phkv, refkv's perfect-hash binding (spec/bindings/phkv.md): the container's reader and writer,
 # standalone or composed with a vzip archive (the hybrid profile). It reuses rust/refkv-vzip for
 # the protobuf messages, DEFLATE and the ZIP writer. A crate of its own, not a member of a Cargo
-# workspace (python/Cargo.toml says why).
+# workspace (rust/refkv-python/Cargo.toml says why).
 [package]
 name = "refkv-phkv"
 version = "0.1.0"

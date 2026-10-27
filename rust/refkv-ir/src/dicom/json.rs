@@ -1,5 +1,5 @@
-//! The root's source metadata of a DICOM file (spec/virtualize/dicom.md §5
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#5-source-metadata>): its File
+//! The root's source metadata of a DICOM file (spec/zarrify/dicom.md §5
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#5-source-metadata>): its File
 //! Meta Information and dataset in the DICOM JSON Model (PS3.18 §F.2), without the members
 //! that would make the root large, and the paths the root names. Revision 25 wrote the moved
 //! members and the arrays the paths name under `vzip_source` (now `refkv_source`); the IR mirror holds all of it
@@ -75,8 +75,8 @@ pub fn value_size(vr: &str) -> Option<u64> {
     if vr == "AT" { Some(4) } else { numeric(vr).map(|x| x.1) }
 }
 
-// ---- the data dictionary (spec/virtualize/dicom.md §5
-// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#5-source-metadata>)
+// ---- the data dictionary (spec/zarrify/dicom.md §5
+// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#5-source-metadata>)
 
 pub static DICTIONARY: &str = include_str!("../../schema/dicom_dictionary.json");
 

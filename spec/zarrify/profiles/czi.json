@@ -1,0 +1,16 @@
+{
+  "name": "czi",
+  "title": "CZI",
+  "uuid": "7a0733c7-d4be-4482-a64f-6904d9354ea5",
+  "version": 0,
+  "kind": "file",
+  "sniff": 50,
+  "chosen_by": null,
+  "suffixes": [
+    ".czi"
+  ],
+  "reference": 20,
+  "source": "Zeiss CZI",
+  "inputs": "Zeiss CZI files (ZISRAW, file version 1), with uncompressed, JPEG, JPEG XR and Zstd subblocks, mosaics and pyramids",
+  "for": "Zeiss CZI files"
+}

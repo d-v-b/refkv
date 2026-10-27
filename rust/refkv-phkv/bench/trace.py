@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Prints the requests that paged vzip and phkv make to open a store and look up two keys, and what
 each request reads. `trace.py FILE_DIR N [WORKLOAD]` uses FILE_DIR/WORKLOAD/N.paged.vzip and N.phkv,
 which bench.py wrote (WORKLOAD is `bytes` or `refs`, `bytes` by default).
@@ -12,6 +11,7 @@ import sys
 from pathlib import Path
 
 from bench import BENCH, Server, key
+
 from refkv.policy import Policy
 from refkv.reader import Stats
 from refkv.vzip.store import VZipStore
@@ -37,7 +37,8 @@ def phkv_regions(path: Path):
 def vzip_regions(path: Path):
     b = path.read_bytes()
     size = len(b)
-    at = size - 60 if b[size - 60:size - 56] == b"PK\x05\x06" and struct.unpack_from("<H", b, size - 40)[0] == 38 else size - 44
+    at = size - 60 if b[size - 60:size - 56] == b"PK\x05\x06" and struct.unpack_from("<H", b,
+                                                                                     size - 40)[0] == 38 else size - 44
     comment = b[at + 22:]
     so, ss = struct.unpack_from("<QQ", comment, 6)
     regions = [(so, so + ss, "__vz__/sources")]
@@ -78,13 +79,15 @@ def main():
     f = d / workload / f"{n}.phkv"
     size, regions = phkv_regions(f)
     url = f"http://127.0.0.1:{server.port}/{workload}/{n}.phkv"
-    t = json.loads(subprocess.run([str(BENCH), "trace", url, workload, *keys], check=True, capture_output=True, text=True).stdout)
+    t = json.loads(subprocess.run([str(BENCH), "trace", url, workload, *keys], check=True, capture_output=True,
+                                  text=True).stdout)
     out["phkv"] = (size, regions, [(name, [tuple(r) for r in reads]) for name, reads in t["steps"]])
 
     f = d / workload / f"{n}.paged.vzip"
     size, regions = vzip_regions(f)
     stats = Stats()
-    s = VZipStore(f"http://127.0.0.1:{server.port}/{workload}/{n}.paged.vzip", resolve=False, stats=stats, policy=Policy(allow_private_hosts=True))
+    s = VZipStore(f"http://127.0.0.1:{server.port}/{workload}/{n}.paged.vzip", resolve=False, stats=stats,
+                  policy=Policy(allow_private_hosts=True))
     steps, seen = [], 0
     for k in keys:
         (s.raw if workload == "refs" else s.get)(k)

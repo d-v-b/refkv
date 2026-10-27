@@ -3,6 +3,7 @@
 
 import os
 import re
+from pathlib import Path
 
 _UNRES = r"A-Za-z0-9\-._~"
 _SUB = r"!$&'()*+,;="
@@ -56,7 +57,7 @@ _REL = rf"{_REL_PART}(?:\?{_QUERY})?(?:#{_QUERY})?"
 
 URI_REFERENCE_RE = re.compile(rf"(?:{_URI}|{_REL})", re.ASCII)
 _AUTHORITY_RE = re.compile(_AUTHORITY, re.ASCII)
-_SPLIT_RE = re.compile(r"^(([^:/?#]+):)?(//([^/?#]*))?([^?#]*)(\?([^#]*))?(#(.*))?$", re.S)
+_SPLIT_RE = re.compile(r"^(([^:/?#]+):)?(//([^/?#]*))?([^?#]*)(\?([^#]*))?(#(.*))?$", re.DOTALL)
 
 
 def is_uri_reference(s):
@@ -64,7 +65,7 @@ def is_uri_reference(s):
 
 
 class URI:
-    __slots__ = ("scheme", "authority", "path", "query", "fragment")
+    __slots__ = ("authority", "fragment", "path", "query", "scheme")
 
     def __init__(self, scheme, authority, path, query, fragment):
         self.scheme = scheme
@@ -87,11 +88,13 @@ class URI:
         return s
 
     def __repr__(self):
-        return "URI(%r)" % str(self)
+        return f"URI({str(self)!r})"
 
 
 def split(s):
     m = _SPLIT_RE.match(s)
+    if m is None:  # never: every part of the pattern is optional
+        raise ValueError(f"not a URI reference: {s!r}")
     return URI(m.group(2), m.group(4), m.group(5), m.group(7), m.group(9))
 
 
@@ -101,9 +104,7 @@ def remove_dot_segments(path):
     while inp:
         if inp.startswith("../"):
             inp = inp[3:]
-        elif inp.startswith("./"):
-            inp = inp[2:]
-        elif inp.startswith("/./"):
+        elif inp.startswith(("./", "/./")):
             inp = inp[2:]
         elif inp == "/.":
             inp = "/"
@@ -168,7 +169,7 @@ def path_to_file_uri(path):
     <https://github.com/d-v-b/refkv/blob/main/spec/history/archive/SPEC.r7.md#6-source-table>)."""
     p = os.fsencode(path)
     if not p.startswith(b"/"):
-        p = os.fsencode(os.getcwd()) + b"/" + p
+        p = os.fsencode(Path.cwd()) + b"/" + p
     segs = []
     for s in p.split(b"/"):
         if s in (b"", b"."):
@@ -179,7 +180,7 @@ def path_to_file_uri(path):
             continue
         segs.append(s)
     raw = b"/" + b"/".join(segs)
-    enc = "".join(chr(c) if c in _PATH_SAFE else "%%%02X" % c for c in raw)
+    enc = "".join(chr(c) if c in _PATH_SAFE else f"%{c:02X}" for c in raw)
     return "file://" + enc
 
 
@@ -207,7 +208,7 @@ def file_uri_to_path(u):
     <https://github.com/d-v-b/refkv/blob/main/spec/history/archive/SPEC.r7.md#6-source-table>."""
     a = u.authority
     if a is not None and a != "" and a.lower() != "localhost":
-        raise FileMappingError("file: URI authority must be absent, empty or localhost: %r" % a)
+        raise FileMappingError(f"file: URI authority must be absent, empty or localhost: {a!r}")
     if not u.path.startswith("/"):
         raise FileMappingError("file: URI path must be absolute")
     if u.query is not None:
@@ -241,17 +242,14 @@ def http_host_port(u):
     else:
         i = a.find(":")
         host, rest = (a, "") if i == -1 else (a[:i], a[i:])
-    if rest.startswith(":"):
-        port_s = rest[1:]
-    else:
-        port_s = ""
+    port_s = rest[1:] if rest.startswith(":") else ""
     if host == "":
         raise HttpUrlError("http URL with empty host")
     if not host.startswith("["):
         try:
             host = _pct_decode(host).decode("utf-8")
         except UnicodeDecodeError:
-            raise HttpUrlError("http URL host is not valid UTF-8")
+            raise HttpUrlError("http URL host is not valid UTF-8") from None
     if port_s == "":
         port = 443 if u.scheme.lower() == "https" else 80
     else:

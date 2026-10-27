@@ -1,7 +1,7 @@
 """compare.py on the NDPI corpus, with the caching proxy's upstream fetches limited to
 6 at a time (the brief: at most 6 connections to a real host)."""
 import hashlib, sys, threading
-sys.path.insert(0, "conformance/virtualize")
+sys.path.insert(0, "conformance/zarrify")
 import proxy
 _sem = threading.BoundedSemaphore(6)
 _block = proxy.Upstream.block

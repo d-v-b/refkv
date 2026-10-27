@@ -19,14 +19,14 @@ The store and the writer are imported on first use: `import refkv`, whose
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Unpack
 
 if TYPE_CHECKING:
     from refkv.vzip.archive import VZipWriter
-    from refkv.vzip.store import VZipStore
+    from refkv.vzip.store import VZipOptions, VZipStore
 
 
-def open(url: str, **kwargs) -> VZipStore:  # noqa: A001 - like gzip.open, zarr.open
+def open(url: str, **kwargs: Unpack[VZipOptions]) -> VZipStore:  # noqa: A001 (vzip.open, the public name)
     """Open the vzip archive at `url` (a local path or an `http(s)` URL) as a read-only
     store: `refkv.vzip.open("data.vzip").get("zarr.json")`.
 
@@ -34,18 +34,18 @@ def open(url: str, **kwargs) -> VZipStore:  # noqa: A001 - like gzip.open, zarr.
     sources with, such as an `obspec_utils` `ObjectStoreRegistry` or a mapping
     `{"s3://bucket": S3Store(...)}`), `stats`, `max_concurrency` (8 by default; None for
     no cap), and `resolve`."""
-    from refkv.vzip.store import VZipStore
+    from refkv.vzip.store import VZipStore  # noqa: PLC0415 (import refkv imports no ZIP code)
 
     return VZipStore(str(url), **kwargs)
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> type[VZipStore | VZipWriter]:
     if name == "VZipStore":
-        from refkv.vzip.store import VZipStore
+        from refkv.vzip.store import VZipStore  # noqa: PLC0415 (import refkv imports no ZIP code)
 
         return VZipStore
     if name == "VZipWriter":
-        from refkv.vzip.archive import VZipWriter
+        from refkv.vzip.archive import VZipWriter  # noqa: PLC0415 (`import refkv` imports no ZIP code)
 
         return VZipWriter
     raise AttributeError(f"module 'refkv.vzip' has no attribute {name!r}")

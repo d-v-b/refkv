@@ -1,6 +1,0 @@
-# url|name|no-ref of the public MRC files in the corpus (the frozen reference has no MRC profile, so each
-# compares py with web alone): mrcfile's test data (BSD-3-Clause): EMD-3197 (EMDB, CC0), an EPU image
-# with an FEI1 extended header, and an FEI2 one
-https://raw.githubusercontent.com/ccpem/mrcfile/64b0fb9ce0d921b902a06fe94d43e8d642b33d7d/tests/test_data/EMD-3197.map|mrcfile_emd_3197|no-ref
-https://raw.githubusercontent.com/ccpem/mrcfile/64b0fb9ce0d921b902a06fe94d43e8d642b33d7d/tests/test_data/epu2.9_example.mrc|mrcfile_epu_fei1|no-ref
-https://raw.githubusercontent.com/ccpem/mrcfile/64b0fb9ce0d921b902a06fe94d43e8d642b33d7d/tests/test_data/fei-extended.mrc|mrcfile_fei2|no-ref

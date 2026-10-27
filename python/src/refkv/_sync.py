@@ -12,16 +12,14 @@ from __future__ import annotations
 import asyncio
 import threading
 from collections.abc import Coroutine
-from typing import Any, TypeVar
-
-T = TypeVar("T")
+from typing import Any
 
 _loop: asyncio.AbstractEventLoop | None = None
 _lock = threading.Lock()
 
 
 def _the_loop() -> asyncio.AbstractEventLoop:
-    global _loop
+    global _loop  # noqa: PLW0603 (one loop per process, made once under the lock)
     with _lock:
         if _loop is None:
             loop = asyncio.new_event_loop()
@@ -30,7 +28,7 @@ def _the_loop() -> asyncio.AbstractEventLoop:
         return _loop
 
 
-def run(coro: Coroutine[Any, Any, T]) -> T:
+def run[T](coro: Coroutine[Any, Any, T]) -> T:
     """The result of `coro`, run on refkv's loop; the caller's thread waits for it."""
     loop = _the_loop()
     try:

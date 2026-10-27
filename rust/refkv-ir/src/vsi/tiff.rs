@@ -1,5 +1,5 @@
-//! The TIFF side of a `.vsi` file (spec/virtualize/vsi.md §2.3
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#23-the-tiff-images>): a
+//! The TIFF side of a `.vsi` file (spec/zarrify/vsi.md §2.3
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#23-the-tiff-images>): a
 //! little-endian classic TIFF whose IFDs (the macro image, each stack's coarse thumbnail, a
 //! focus map) lie inside the metadata tree's TIFF regions. The chain is read from the whole
 //! file; each IFD's elements (its entries, out-of-line values, strips and EXIF IFD) are
@@ -135,7 +135,7 @@ pub fn chain(rules: &Rules, b: &[u8], first: u64) -> Res<Vec<Ifd>> {
 }
 
 /// What the projection reads of an IFD image (§4.3
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#43-the-macro-image>): its
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#43-the-macro-image>): its
 /// size, samples, bits, compression, and its strips (offset, length) with the JPEG prefix.
 #[derive(Clone, Debug)]
 pub struct Image {

@@ -11,17 +11,17 @@ archive, one ZIP file (Part 2
 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#part-2-the-zip-binding>), which
 `refkv.open` reads back as a store with the same values.
 
-`refkv.virtualize.virtualize` returns one too, for an image file or a store:
+`refkv.zarrify.zarrify` returns one too, for an image file or a store:
 
     import refkv
-    from refkv.virtualize import virtualize
+    from refkv.zarrify import zarrify
 
-    store = virtualize("https://example.org/image.ome.tiff")
+    store = zarrify("https://example.org/image.ome.tiff")
     store.info["format"]                # "tiff", and what the profile found
     store.get("zarr.json")              # readable now, in memory
     store.save("image.vzip")            # the archive: one serialization of the store
 
-The workflow for virtual datasets, such as many netCDF files virtualized with
+The workflow for virtual datasets, such as many netCDF files zarrified with
 VirtualiZarr and concatenated with xarray:
 
     import xarray as xr
@@ -44,17 +44,35 @@ import os
 import re
 import types
 from collections import Counter
-from collections.abc import AsyncIterator, Callable, Iterable, Mapping, Sequence
+from collections.abc import AsyncIterator, Callable, Generator, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING, TypedDict, Unpack, override
 
 from refkv.errors import ResolutionError
 from refkv.pb import Concat, Range, Reference, Source, parts
 from refkv.policy import Policy
-from refkv.reader import DEFAULT_CONCURRENCY, Kind, ReferenceReader, Request, Stats, _abs_range
+from refkv.reader import DEFAULT_CONCURRENCY, Kind, ReferenceReader, Registry, Request, Stats, _abs_range
 from refkv.uri import file_uri, is_uri_reference
 from refkv.uri import resolve as resolve_reference
 from refkv.vzip.names import INDEX_KEY, RESERVED_PREFIX, SOURCES_KEY
+
+if TYPE_CHECKING:
+    import xarray as xr
+
+    # closed (PEP 728), which typing.TypedDict takes only from Python 3.15
+    class ReferenceStoreOptions(TypedDict, total=False, closed=True):
+        """`ReferenceStore`'s keyword arguments, which `ReferenceStore.from_virtualizarr` passes on."""
+
+        url: str | None
+        read_at_open: Iterable[str] | None
+        compressed: Iterable[str]
+        page_size: int | None
+        info: Mapping[str, object] | None
+        registry: Registry | None
+        stats: Stats | None
+        policy: Policy | None
+        max_concurrency: int | None
 
 
 @dataclass(frozen=True)
@@ -69,7 +87,7 @@ class Summary:
     - `bytes`: the size of the archive.
     """
 
-    path: str
+    path: str | os.PathLike[str]
     keys: int
     references: int
     sources: int
@@ -80,14 +98,14 @@ class Summary:
                 f"to {self.sources:,} sources; {self.bytes:,} bytes")
 
 
-def _page_size(page_size):
+def _page_size(page_size: int | None) -> int | None:
     if page_size is not None and (type(page_size) is not int or page_size <= 0):
         raise ValueError(f"page_size is a positive number of bytes or None, not {page_size!r}")
     return page_size
 
 
 @contextlib.contextmanager
-def bulk():
+def bulk() -> Generator[None]:
     """Pauses the cyclic garbage collector, for the whole process, while
     millions of acyclic objects (a store's ranges and sources, a writer's
     records) are built: each collection would scan them all again, which made
@@ -108,7 +126,7 @@ def bulk():
 _ORIGIN = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://[^/?#]*")
 
 
-def _rewrite(rewrite_urls: Mapping[str, str] | Callable[[str], str | None] | None):
+def _rewrite(rewrite_urls: Mapping[str, str] | Callable[[str], str | None] | None) -> Callable[[str], str]:
     """`rewrite_urls` as a function of a URL."""
     if rewrite_urls is None:
         return lambda url: url
@@ -136,7 +154,7 @@ class ReferenceStore(ReferenceReader):
 
     Build one with a constructor:
 
-    - `refkv.virtualize.virtualize(location)`, from an image file or an N5, Zarr v2,
+    - `refkv.zarrify.zarrify(location)`, from an image file or an N5, Zarr v2,
       OME-Zarr or SAFE store;
     - `ReferenceStore.from_virtualizarr(vds)`, from a VirtualiZarr virtual dataset;
     - `ReferenceStore(mapping, sources)`, from a mapping of keys to `bytes`, `Range`
@@ -163,7 +181,7 @@ class ReferenceStore(ReferenceReader):
     - `page_size`: the page index `save` writes when it is not given one (see
       `save`; the default, None, writes none).
     - `info`: what the store's builder says about it, as JSON-like values, read
-      back as `store.info`; `save` does not write it. `refkv.virtualize` records
+      back as `store.info`; `save` does not write it. `refkv.zarrify` records
       the format and the profile's summary here.
 
     `save` writes the values in the order of `mapping`, but for those of
@@ -187,18 +205,20 @@ class ReferenceStore(ReferenceReader):
         read_at_open: Iterable[str] | None = None,
         compressed: Iterable[str] = (),
         page_size: int | None = None,
-        info: Mapping | None = None,
-        registry=None,
+        info: Mapping[str, object] | None = None,
+        registry: Registry | None = None,
         stats: Stats | None = None,
         policy: Policy | None = None,
         max_concurrency: int | None = DEFAULT_CONCURRENCY,
     ) -> None:
-        super().__init__(url if url is not None else file_uri(os.getcwd()) + "/",
+        super().__init__(url if url is not None else file_uri(Path.cwd()) + "/",
                          registry=registry, stats=stats, policy=policy,
                          max_concurrency=max_concurrency)
         values: dict[str, bytes | Reference] = {}
         for key, v in mapping.items():
-            if not isinstance(key, str) or not key:
+            if not isinstance(key, str):
+                raise TypeError(f"keys are non-empty strings, not {key!r}")
+            if not key:
                 raise ValueError(f"keys are non-empty strings, not {key!r}")
             if key in (SOURCES_KEY, INDEX_KEY):
                 raise ValueError(f"{key!r} is a format entry, written by `save` itself")
@@ -228,7 +248,8 @@ class ReferenceStore(ReferenceReader):
         self._compressed = frozenset(compressed)
         for key in self._compressed:
             if not isinstance(values.get(key), bytes):
-                raise ValueError(f"compressed names {key!r}, which is not a key of a bytes value")
+                raise ValueError(  # noqa: TRY004 (the key's value is wrong, not its type)
+                    f"compressed names {key!r}, which is not a key of a bytes value")
         self._page_size = _page_size(page_size)
         self._info = copy.deepcopy(dict(info or {}))
 
@@ -237,10 +258,10 @@ class ReferenceStore(ReferenceReader):
     @classmethod
     def from_virtualizarr(
         cls,
-        vds,
+        vds: xr.Dataset,
         *,
         rewrite_urls: Mapping[str, str] | Callable[[str], str | None] | None = None,
-        **kwargs,
+        **kwargs: Unpack[ReferenceStoreOptions],
     ) -> ReferenceStore:
         """The store of a VirtualiZarr virtual dataset: its Zarr v3 metadata
         (consolidated in the root `zarr.json`) and its loadable variables as
@@ -271,7 +292,7 @@ class ReferenceStore(ReferenceReader):
         - Other keyword arguments go to the `ReferenceStore` constructor
           (`policy`, `stats`, `max_concurrency`, `url`).
         """
-        from refkv.convert import read_at_open, split_virtual_dataset
+        from refkv.convert import read_at_open, split_virtual_dataset  # noqa: PLC0415 (the virtualizarr extra)
 
         concrete, refs = split_virtual_dataset(vds)
         rewrite = _rewrite(rewrite_urls)
@@ -307,12 +328,12 @@ class ReferenceStore(ReferenceReader):
         return self._page_size
 
     @property
-    def info(self) -> dict:
+    def info(self) -> dict[str, object]:
         """What the store's builder says about it, as a copy: changing it leaves the
         store's own unchanged. For a store from
-        `refkv.virtualize.virtualize`: `format`, the profile that virtualized the
+        `refkv.zarrify.zarrify`: `format`, the profile that zarrified the
         input (such as "tiff" or "zarr2"), and the profile's summary of what it
-        found, as `python -m refkv.virtualize` prints it. Empty otherwise."""
+        found, as `python -m refkv.zarrify` prints it. Empty otherwise."""
         return copy.deepcopy(self._info)
 
     def __eq__(self, other: object) -> bool:
@@ -329,9 +350,9 @@ class ReferenceStore(ReferenceReader):
 
     def save(
         self,
-        path: str | os.PathLike,
+        path: str | os.PathLike[str],
         *,
-        page_size: int | None | types.EllipsisType = ...,
+        page_size: int | types.EllipsisType | None = ...,
         mirror_refs: bool = True,
         relative_to: str | None = None,
         policy: Policy | None = None,
@@ -411,7 +432,7 @@ class ReferenceStore(ReferenceReader):
                                   f"{len(sources)} sources, so a reader could not read them. "
                                   f"The first: {refused[0]}")
         page_size = self._page_size if page_size is ... else _page_size(page_size)
-        from refkv.vzip.archive import VZipWriter
+        from refkv.vzip.archive import VZipWriter  # noqa: PLC0415 (`import refkv` imports no ZIP code)
 
         refs = 0
         with bulk(), open(path, "wb") as f, VZipWriter(f, mirror_refs=mirror_refs,
@@ -429,11 +450,12 @@ class ReferenceStore(ReferenceReader):
                                      dataclasses.replace(r, source=index[r.source])
                                      for r in parts(v)])
                     refs += 1
-            n_sources = len(w._source_list)
+            n_sources = w.n_sources
         return Summary(path, len(self._keys), refs, n_sources, Path(path).stat().st_size)
 
     # ------------------------------------------------------------ reading
 
+    @override
     async def _key_bytes(self, key: str, start: int, end: int) -> bytes:
         v = self._values.get(key)
         if v is None:
@@ -447,6 +469,7 @@ class ReferenceStore(ReferenceReader):
     def _visible(self, key: str) -> bytes | Reference | None:
         return None if key.startswith(RESERVED_PREFIX) else self._values.get(key)
 
+    @override
     async def get_async(self, key: str, request: Request | None = None) -> bytes | None:
         _abs_range(0, request)  # request errors, even for missing keys
         v = self._visible(key)
@@ -458,10 +481,12 @@ class ReferenceStore(ReferenceReader):
         start, end = _abs_range(v.size, request)
         return await self._ref_bytes(v, start, end)
 
+    @override
     async def classify_async(self, key: str) -> Kind:
         v = self._visible(key)
         return "missing" if v is None else "bytes" if isinstance(v, bytes) else "reference"
 
+    @override
     async def raw_async(self, key: str) -> bytes | None:
         """A bytes value, a hidden key's included; a reference's payload, as `save`
         writes it (spec §4.4
@@ -474,12 +499,14 @@ class ReferenceStore(ReferenceReader):
         ranges = parts(v)
         return ranges[0].encode() if len(ranges) == 1 else Concat(ranges).encode()
 
+    @override
     async def list_async(self, prefix: str = "") -> AsyncIterator[str]:
         i = bisect.bisect_left(self._keys, prefix)
         while i < len(self._keys) and self._keys[i].startswith(prefix):
             yield self._keys[i]
             i += 1
 
+    @override
     async def list_dir_async(self, prefix: str = "") -> AsyncIterator[str]:
         prefix = prefix.rstrip("/")
         prefix = prefix + "/" if prefix else ""

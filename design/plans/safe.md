@@ -1,7 +1,7 @@
 # SAFE: implementation plan
 
-The plan for implementing [the SAFE convention](../../spec/virtualize/safe.md) and
-[profile](../../spec/virtualize/safe.md#part-2-the-profile). The design is settled in those two
+The plan for implementing [the SAFE convention](../../spec/zarrify/safe.md) and
+[profile](../../spec/zarrify/safe.md#part-2-the-profile). The design is settled in those two
 documents; this one says how to build, test and verify it, what the
 research behind the design found, and what is still open.
 
@@ -112,7 +112,7 @@ tasks.
 
 ## 2. Modules
 
-Python, `python/src/refkv/virtualize/safe/`:
+Python, `python/src/refkv/zarrify/safe/`:
 
 | module | holds |
 |---|---|
@@ -163,7 +163,7 @@ concurrency limit of about 16 in TypeScript, keep a product at about
 
 **Dispatch.**
 
-- `refkv/virtualize/__init__.py`: in `virtualize_store`, after `choose_profile`
+- `refkv/zarrify/__init__.py`: in `virtualize_store`, after `choose_profile`
   returns `"safe"` (`store.choose_profile` gains the `manifest.safe` row);
   in `virtualize`, `head[:4] == b"PK\x03\x04"` → `virtualize_safe_zip`
   (before the final rejection).
@@ -172,7 +172,7 @@ concurrency limit of about 16 in TypeScript, keep a product at about
 - The CMOs of `proj`, `spatial` and `multiscales` are constants in
   `metadata.py`, copied from the convention §5.
 
-TypeScript, `js/src/virtualize/safe/`: the same modules (`xml.ts`,
+TypeScript, `js/src/zarrify/safe/`: the same modules (`xml.ts`,
 `zipdir.ts`, `jp2.ts`, `product.ts`, `metadata.ts`, `virtualize.ts`), with
 `index.ts` dispatching as above and `store.ts`'s `chooseProfile` gaining the
 row.
@@ -183,12 +183,12 @@ row.
   check (correctly rounded in V8).
 - Integers beyond 2^53 − 1 are strings (§6), detected by digit count and
   comparison before conversion.
-- `js/conformance/virtualize.ts` needs no change beyond `index.ts`: it
+- `js/conformance/zarrify.ts` needs no change beyond `index.ts`: it
   already runs file and store inputs.
 
 Shared documents to change when this lands (the design does not edit them):
 
-- `spec/virtualize.md`:
+- `spec/zarrify.md`:
   - the profiles table gains §12 (and Conformance becomes §13);
   - §1.2's table gains the ZIP row;
   - §1.4's table gains the `manifest.safe` row;
@@ -205,7 +205,7 @@ Shared documents to change when this lands (the design does not edit them):
 - `spec/generate_schemas.py` gains the `safe` schema: the root,
   band and `vzip_source` source metadata. It should also validate the
   `proj`, `spatial` and `multiscales` members against their own v0.1
-  schemas in `python/tests/test_virtualize_conventions.py`.
+  schemas in `python/tests/test_zarrify_conventions.py`.
 - `python/src/refkv/codecs.py`: no change. `imagecodecs_jpeg2k` already decodes
   each chunk, and every chunk decodes to the full chunk shape.
 - `spec/TECHNIQUES.md` §2's table gains the technique "the unit is
@@ -217,17 +217,17 @@ Shared documents to change when this lands (the design does not edit them):
 Following the user's rule (one test of the expected outputs over
 reasonable inputs, and one test per error case).
 
-**Python** (`python/tests/test_virtualize_safe.py`):
+**Python** (`python/tests/test_zarrify_safe.py`):
 
 - `test_outputs`: for every accepting fixture, the shapes, data types,
   chunk shapes, codecs, group names, GeoZarr attributes and summary, as a
-  table like `test_virtualize_zarr2.CASES`;
+  table like `test_zarrify_zarr2.CASES`;
 - `test_chunk_bytes`: for one fixture, the exact bytes of an interior chunk
   and an edge chunk (SIZ', SOT, empty tiles, EOC). These are golden values,
   checked once by hand against the profile;
 - one `test_reject_<rule>` per rejection fixture, each asserting `Rejected`
   with the rule's message;
-- `python/tests/test_virtualize_conventions.py` picks the fixtures up through its
+- `python/tests/test_zarrify_conventions.py` picks the fixtures up through its
   fixture list (schemas, declarations).
 
 **Unit tests** of `jp2.empty_packets` against the PLT counts of the
@@ -315,7 +315,7 @@ breaks it):
 `js/test/safe/verify.py`, like the other profiles' verifiers. It
 virtualizes each fixture (served by the harness proxy with its S3 listing,
 and the zips as files) with the browser code
-(`js/conformance/virtualize.ts`) and the Python one, opens each archive
+(`js/conformance/zarrify.ts`) and the Python one, opens each archive
 through VZipStore and zarr-python (with `refkv.codecs` registered), and
 checks:
 
@@ -350,13 +350,13 @@ checks:
 listed bands (default: the 60 m bands, about 1–3 MB each), so a corpus run
 does not download gigabytes.
 
-`conformance/virtualize/compare.py` gains `corpus_safe.txt` (prefix
+`conformance/zarrify/compare.py` gains `corpus_safe.txt` (prefix
 `safe-`) and the zip fixtures. The proxy needs no change for the directory
 form: it already serves fixtures with the S3 listing.
 
 ## 6. Corpus
 
-`conformance/virtualize/corpus_safe.txt`. Every directory URL below was
+`conformance/zarrify/corpus_safe.txt`. Every directory URL below was
 listed with `ListObjectsV2` through vzip's own `store.py` (1 request each),
 had all its image files present, served range requests, and had every tile
 of its B01 (60 m) band rebuilt as a standalone codestream and compared with
@@ -413,13 +413,13 @@ Notes:
    with its unit tests; the Python fixture writer for band files, checked
    with `pltcheck`-style assertions.
 2. `product.py`, `metadata.py` and `virtualize.py`, together with the output
-   class and the dispatch. Then the fixtures and `test_virtualize_safe.py`.
+   class and the dispatch. Then the fixtures and `test_zarrify_safe.py`.
 3. The verifier on the fixtures, then on the corpus with `--remote`.
 4. The TypeScript twin, module by module, compared with Python by
    `compare.py` on fixtures and corpus.
 5. The shared documents (§2), the schema, `REVISIONS.md` (revision 17), and
    an independent implementation round from the documents alone
-   (`conformance/impls/virtualize/`), as the other profiles had.
+   (`conformance/impls/zarrify/`), as the other profiles had.
 
 ## 8. Open questions, and their decisions
 

@@ -1,6 +1,6 @@
-# The browser implementation: a service worker serving vzip archives, and virtualized files and
-# stores of every format of the registry (spec/virtualize/profiles/), as plain HTTP Zarr. Every
-# format is virtualized by the Rust core (rust/refkv-ir) built for wasm32, which `wasm` builds
+# The browser implementation: a service worker serving vzip archives, and zarrified files and
+# stores of every format of the registry (spec/zarrify/profiles/), as plain HTTP Zarr. Every
+# format is zarrified by the Rust core (rust/refkv-ir) built for wasm32, which `wasm` builds
 # (not committed).
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
@@ -37,6 +37,6 @@ test: wasm wasm-test typecheck
 serve port="8000":
     node ../demo/serve.mjs {{port}}
 
-# Virtualize an image file or store URL with the browser code into a .vzip archive
-virtualize url out:
-    node conformance/virtualize.ts {{quote(url)}} {{quote(out)}}
+# Zarrify an image file or store URL with the browser code into a .vzip archive
+zarrify url out:
+    node conformance/zarrify.ts {{quote(url)}} {{quote(out)}}

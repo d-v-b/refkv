@@ -1,23 +1,30 @@
-"""conformance/virtualize/compare.py: §1.1
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#11-output-and-equivalence> equivalence
+"""conformance/zarrify/compare.py: §1.1
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#11-output-and-equivalence> equivalence
 with exact integers, and the strict
 reading of every archive (spec/bindings/vzip.md, through the independent reader and the writer checks)."""
 
 import io
+import json
+import re
 import sys
+import tempfile
 import urllib.parse
 import zipfile
+import zlib
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).parents[2]
-sys.path.insert(0, str(ROOT / "conformance" / "virtualize"))
+sys.path.insert(0, str(ROOT / "conformance" / "zarrify"))
 import compare  # noqa: E402
 
-from refkv.vzip.archive import VZipWriter  # noqa: E402
+from refkv._narrow import string  # noqa: E402
 from refkv.pb import Range, Source  # noqa: E402
-from refkv.virtualize.common import convention  # noqa: E402
+from refkv.vzip.archive import VZipWriter  # noqa: E402
+from refkv.zarrify import _zarrify as zarrify  # the profile output, not the store  # noqa: E402
+from refkv.zarrify.common import convention  # noqa: E402
 
 URL = "https://data.test/image.tif"
 
@@ -30,10 +37,10 @@ def test_differences():
     big = 2**53 + 1
     cases = [
         ({"shape": [1]}, {"shape": [1]}, True),
-        ({"scale": [1]}, {"scale": [1.0]}, True),  # a computed number written either way (§1.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#13-arithmetic>)
+        ({"scale": [1]}, {"scale": [1.0]}, True),  # a computed number written either way (§1.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#13-arithmetic>)
         ({"fill_value": big}, {"fill_value": big - 1}, False),  # integers exactly: binary64 would equal them
         # an integer against a float: equal only if the float is exactly that integer (§1.1
-        # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#11-output-and-equivalence>)
+        # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#11-output-and-equivalence>)
         ({"fill_value": big}, {"fill_value": float(big)}, False),
         ({"fill_value": big - 1}, {"fill_value": float(big)}, True),
         ({"flag": True}, {"flag": 1}, False),
@@ -47,7 +54,7 @@ def test_differences():
 
 
 def archive(path: Path, build=None, *, doc: bytes = b'{"zarr_format":3,"node_type":"group"}') -> Path:
-    """A virtualizer-like archive at `path`: a document and a reference; `build(w)` adds to it."""
+    """A zarrifier-like archive at `path`: a document and a reference; `build(w)` adds to it."""
     with open(path, "wb") as fh:
         w = VZipWriter(fh, page_size=1 << 16)
         src = w.source(Source(url=URL))
@@ -66,7 +73,7 @@ def test_from_vzip(tmp_path):
 
 
 def test_from_vzip_rejects_a_duplicate_json_member(tmp_path):
-    with pytest.raises(compare.Unreadable, match="duplicate member"):
+    with pytest.raises(compare.UnreadableError, match="duplicate member"):
         compare.from_vzip(archive(tmp_path / "a.vzip", doc=b'{"zarr_format":3,"zarr_format":3}'))
 
 
@@ -75,12 +82,12 @@ def test_from_vzip_rejects_a_changed_reference_body(tmp_path):
         payload = Range(source=0, offset=0, length=4).encode()
         w._entry("1/c/0", b"not the payload", b"\x76\x7a" + len(payload).to_bytes(2, "little") + payload)
 
-    with pytest.raises(compare.Unreadable, match="writer requirement: 1/c/0: body"):
+    with pytest.raises(compare.UnreadableError, match="writer requirement: 1/c/0: body"):
         compare.from_vzip(archive(tmp_path / "a.vzip", build))
 
 
 def test_from_vzip_rejects_an_extra_hidden_entry(tmp_path):
-    with pytest.raises(compare.Unreadable, match=r"writer requirement: entry set differs: extra \['__vz__/x'\]"):
+    with pytest.raises(compare.UnreadableError, match=r"writer requirement: entry set differs: extra \['__vz__/x'\]"):
         compare.from_vzip(archive(tmp_path / "a.vzip", lambda w: w.add_hidden("x", b"hidden")))
 
 
@@ -89,7 +96,7 @@ def test_from_vzip_rejects_a_duplicate_name(tmp_path):
         w._names.discard("zarr.json")
         w._entry("zarr.json", b'{"zarr_format":3,"node_type":"array"}')
 
-    with pytest.raises(compare.Unreadable, match="duplicate record 'zarr.json'"):
+    with pytest.raises(compare.UnreadableError, match=re.escape("duplicate record 'zarr.json'")):
         compare.from_vzip(archive(tmp_path / "a.vzip", build))
 
 
@@ -98,7 +105,7 @@ def test_from_vzip_rejects_what_the_strict_reader_refuses(tmp_path):
     with zipfile.ZipFile(buf, "w") as z:  # a ZIP file, but not a vzip archive
         z.writestr("zarr.json", "{}")
     (tmp_path / "a.vzip").write_bytes(buf.getvalue())
-    with pytest.raises(compare.Unreadable, match="strict reader: archive error: not a vzip archive"):
+    with pytest.raises(compare.UnreadableError, match="strict reader: archive error: not a vzip archive"):
         compare.from_vzip(tmp_path / "a.vzip")
 
 
@@ -107,9 +114,7 @@ def _jpeg_gray(o: int, n: int) -> bytes:
 
 
 def _mirror_archive(tmp_path, edit=None) -> Path:
-    from refkv.virtualize import _virtualize as virtualize  # the profile output, not the store
-
-    _, out = virtualize(str(ROOT / "fixtures/tiff/jpeg_gray.tif"), "https://data.test/jpeg_gray.tif")
+    _, out = zarrify(str(ROOT / "fixtures/tiff/jpeg_gray.tif"), "https://data.test/jpeg_gray.tif")
     if edit:
         edit(out)
     path = tmp_path / "m.vzip"
@@ -121,8 +126,6 @@ def test_mirror_problem():
     """A TIFF archive's IR mirror (conventions §8
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#8-the-ir-mirror>) that reads and
     checks: no problem; an archive without a mirror: not checked."""
-    import tempfile
-
     with tempfile.TemporaryDirectory() as d:
         path = _mirror_archive(Path(d))
         assert compare.mirror_problem(path, compare._zip_view(path), _jpeg_gray) is None
@@ -134,7 +137,8 @@ def test_mirror_problem_finds_a_table_that_does_not_read(tmp_path):
         out.bytes_entries["refkv_source/ir/rows/c/0/0"] = b"not zlib"
 
     path = _mirror_archive(tmp_path, corrupt)
-    assert compare.mirror_problem(path, compare._zip_view(path), _jpeg_gray).startswith("Violation: refkv_source/ir/rows/c/0/0")
+    problem = compare.mirror_problem(path, compare._zip_view(path), _jpeg_gray)
+    assert string(problem).startswith("Violation: refkv_source/ir/rows/c/0/0")
 
 
 def test_mirror_problem_finds_a_size_other_than_the_pin(tmp_path):
@@ -142,19 +146,16 @@ def test_mirror_problem_finds_a_size_other_than_the_pin(tmp_path):
         out.size += 1
 
     path = _mirror_archive(tmp_path, resize)
-    assert "source 0 pins 5320" in compare.mirror_problem(path, compare._zip_view(path), _jpeg_gray)
+    assert "source 0 pins 5320" in string(compare.mirror_problem(path, compare._zip_view(path), _jpeg_gray))
 
 
 def test_mirror_problem_finds_a_table_that_is_not_canonical(tmp_path):
     """A valid table whose chunks are deflated: the validator flags it (conventions §8.8
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#88-canonical-form>)."""
-    import json
-    import zlib
-
     def deflate(out):
         key = "refkv_source/ir/rows/zarr.json"
         doc = json.loads(out.bytes_entries[key])
-        doc["codecs"].append({"name": "zlib", "configuration": {"level": 6}})
+        doc["codecs"].append({"name": "numcodecs.zlib", "configuration": {"level": 6}})
         out.bytes_entries[key] = json.dumps(doc).encode()
         for k in [k for k in out.bytes_entries if k.startswith("refkv_source/ir/rows/c/")]:
             out.bytes_entries[k] = zlib.compress(out.bytes_entries[k], 6)
@@ -177,16 +178,16 @@ def test_at_revision():
             del prop["revision"]
         if own is not None:
             prop[profile] = own
-        return {"sources": [], "entries": {"zarr.json": ("json", {"attributes": {"refkv_virtualized": prop}}),
+        return {"sources": [], "entries": {"zarr.json": ("json", {"attributes": {"refkv_zarrified": prop}}),
                                            "a": ("bytes", b"x")}}
 
     def named(revision, profile, legacy, mirrored=()):
-        key, node = ("vzip_virtualized", "vzip_source") if legacy else ("refkv_virtualized", "refkv_source")
+        key, node = ("vzip_virtualized", "vzip_source") if legacy else ("refkv_zarrified", "refkv_source")
         cmo = convention(profile)
         if legacy:
-            cmo = {**cmo, "name": key, "schema_url": cmo["schema_url"].replace("/refkv/", "/vzip/"),
-                   "spec_url": cmo["spec_url"].replace("/refkv/", "/vzip/"),
-                   "description": cmo["description"].replace("by refkv", "by vzip")}
+            cmo = {**cmo, "name": key, "schema_url": string(cmo["schema_url"]).replace("/refkv/", "/vzip/"),
+                   "spec_url": string(cmo["spec_url"]).replace("/refkv/", "/vzip/"),
+                   "description": string(cmo["description"]).replace("by refkv", "by vzip")}
         prop = {"profile": profile, "version": 0, **({} if revision is None else {"revision": revision}),
                 "source": {"url": "u"},
                 profile: {"at": f"{node}/x", "list": [f"{node}/y", "z"], **{m: f"{node}/{m}" for m in mirrored}}}
@@ -199,7 +200,7 @@ def test_at_revision():
     for profile, frozen in compare.REFERENCE_REVISIONS.items():
         assert compare.at_revision(root(frozen, profile)) == root(None, profile), profile
         # the old names read as the current ones, and the members the mirror holds dropped
-        legacy = compare.at_revision(named(frozen, profile, True, compare.MIRRORED.get(profile, ())))
+        legacy = compare.at_revision(named(frozen, profile, True, compare.MIRRORED.get(string(profile), ())))
         assert compare.without_source(legacy) == compare.without_source(named(None, profile, False))
     kept = {"nifti_version": 1, "header": {}, "scaling": {"slope": 2, "inter": 0}}
     frozen = {**kept, "extender": "AQAAAA==", "extensions": [], "unparsed": "refkv_source/unparsed"}
@@ -227,27 +228,44 @@ def test_without_source():
     assert compare.without_source(a) == want == compare.without_source(b)
 
 
+def test_literal_padding():
+    """A NIfTI output's ranges of its zero data source read as literal ranges of their bytes,
+    and the source then drops out of `without_source`, as the frozen reference writes it; a data
+    source of other bytes, and another profile's output, are unchanged."""
+    def out(profile, sources, ranges):
+        root = ("json", {"attributes": {"refkv_zarrified": {"profile": profile}}})
+        return {"sources": sources, "entries": {"zarr.json": root, "0/c/0": ("ranges", ranges)}}
+
+    zeros, other = {"data": "AAAA"}, {"data": "AAE="}
+    padded = out("nifti", ["u", zeros], [[0, 8, 16], [1, 0, 2]])
+    literal = out("nifti", ["u", zeros], [[0, 8, 16], ["data", "AAA="]])
+    assert compare.literal_padding(padded) == literal
+    frozen = out("nifti", ["u"], [[0, 8, 16], ["data", "AAA="]])
+    assert compare.without_source(literal) == compare.without_source(frozen)
+    for kept in (out("nifti", ["u", other], [[0, 8, 16], [1, 0, 2]]),
+                 out("mrc", ["u", zeros], [[0, 8, 16], [1, 0, 2]])):
+        assert compare.literal_padding(kept) == kept
+
+
 def test_mirror_problem_finds_a_view_that_is_not_the_tables(tmp_path):
     """A view whose root document lost a member: the validator's view check flags it."""
-    import json
-
     def drop(out):
         key = "refkv_source/tree/zarr.json"
         doc = json.loads(out.bytes_entries[key])
-        del doc["attributes"]["refkv_virtualized"]["tiff"]["header"]["magic"]
+        del doc["attributes"]["refkv_zarrified"]["tiff"]["header"]["magic"]
         out.bytes_entries[key] = json.dumps(doc).encode()
 
     path = _mirror_archive(tmp_path, drop)
-    assert compare.mirror_problem(path, compare._zip_view(path), _jpeg_gray) == 'view tree: member ["header"]["magic"] is missing'
+    problem = compare.mirror_problem(path, compare._zip_view(path), _jpeg_gray)
+    assert problem == 'view tree: member ["header"]["magic"] is missing'
 
 
-def _store_archive(tmp_path, name="zarr2_hierarchy", edit=None, kind="zarr2") -> tuple[Path, callable]:
+def _store_archive(tmp_path, name="zarr2_hierarchy", edit=None,
+                   kind="zarr2") -> tuple[Path, Callable[[str, int, int], bytes]]:
     """A fixture store's archive (a Zarr v2 store's or a SAFE directory's: its mirror a store
     IR's), and a fetch of ranges of its objects by URL."""
-    from refkv.virtualize import _virtualize as virtualize  # the profile output, not the store
-
     url = f"https://data.test/{name}/"
-    _, out = virtualize(str(ROOT / "fixtures" / kind / name), url)
+    _, out = zarrify(str(ROOT / "fixtures" / kind / name), url)
     if edit:
         edit(out)
     path = tmp_path / "s.vzip"
@@ -280,7 +298,7 @@ def test_store_mirror_problem_finds_a_table_that_does_not_read(tmp_path):
         out.entries["refkv_source/ir/rows/c/0/0"] = b"not raw int64"
 
     path, fetch = _store_archive(tmp_path, edit=corrupt)
-    assert compare.store_mirror_problem(path, compare._zip_view(path), fetch).startswith("Violation")
+    assert string(compare.store_mirror_problem(path, compare._zip_view(path), fetch)).startswith("Violation")
 
 
 def test_store_mirror_problem_finds_a_size_other_than_the_pin(tmp_path):
@@ -311,7 +329,7 @@ def test_store_mirror_problem_finds_a_value_described_in_place_other_than_the_st
         b = fetch(u, o, n)
         return bytes(x ^ 0xFF for x in b) if u.endswith(".jp2") else b
 
-    assert compare.store_mirror_problem(path, compare._zip_view(path), other).startswith("view ")
+    assert string(compare.store_mirror_problem(path, compare._zip_view(path), other)).startswith("view ")
 
 
 def test_store_mirror_problem_finds_an_object_no_source_names(tmp_path):
@@ -333,7 +351,7 @@ def test_store_mirror_problem_finds_a_root_without_a_store_url(tmp_path):
 def test_store_mirror_problem_finds_an_object_the_store_does_not_serve(tmp_path):
     path, _ = _store_archive(tmp_path)
 
-    def refuse(u, o, n):
+    def refuse(_url, _offset, _length):
         raise OSError("refused")
 
     assert compare.store_mirror_problem(path, compare._zip_view(path), refuse) == ".zattrs: OSError: refused"

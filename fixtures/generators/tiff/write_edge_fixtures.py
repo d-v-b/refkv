@@ -1,9 +1,9 @@
 """Writes TIFFs to fixtures/tiff/ that exercise the edges of the TIFF
-profile (spec/virtualize/tiff.md §7
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#7-tiff-profile>) which tifffile
+profile (spec/zarrify/tiff.md §7
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#7-tiff-profile>) which tifffile
 does not write: odd OME-XML, duplicate tags, SubIFD mismatches, tiles outside the file, and so on.
 
-They are compared between implementations (conformance/virtualize/
+They are compared between implementations (conformance/zarrify/
 compare.py). `edge_reject_*` files must be rejected; the other `edge_*`
 files must be accepted.
 
@@ -12,7 +12,9 @@ Usage: uv run python fixtures/generators/tiff/write_edge_fixtures.py
 
 from __future__ import annotations
 
+import itertools
 import struct
+from collections.abc import Sequence
 from pathlib import Path
 
 OUT = Path(__file__).parents[2] / "tiff"
@@ -20,6 +22,8 @@ OUT = Path(__file__).parents[2] / "tiff"
 SHORT, LONG, ASCII, UNDEFINED = 3, 4, 2, 7
 SIZE = {1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 7: 1, 8: 2, 12: 8, 13: 4, 16: 8, 99: 1}
 PACK = {1: "B", 2: "B", 3: "H", 4: "I", 7: "B", 8: "h", 12: "d", 13: "I", 16: "Q", 99: "B"}
+# an entry's value: numbers, bytes (ASCII/UNDEFINED), or ("at", count, offset), stored anywhere
+type Value = Sequence[float] | bytes | bytearray | tuple[str, int, int]
 
 
 class Tiff:
@@ -35,7 +39,7 @@ class Tiff:
         self.buf += data
         return offset
 
-    def ifd(self, entries: list[tuple[int, int, object]]) -> int:
+    def ifd(self, entries: Sequence[tuple[int, int, Value]]) -> int:
         """Writes an IFD (entries in the order given) and returns its offset.
         A value is a list of ints, or bytes for ASCII/UNDEFINED."""
         packed = []
@@ -55,7 +59,7 @@ class Tiff:
     def chain(self, offsets: list[int]) -> None:
         """Links IFDs into the main chain."""
         struct.pack_into("<I", self.buf, 4, offsets[0])
-        for a, b in zip(offsets, offsets[1:]):
+        for a, b in itertools.pairwise(offsets):
             n = struct.unpack_from("<H", self.buf, a)[0]
             struct.pack_into("<I", self.buf, a + 2 + 12 * n, b)
 
@@ -89,7 +93,7 @@ def ome(pixels: str, inner: str = "", *, image_attrs: str = 'Name="edge"', root:
     return (f'<?xml version="1.0" encoding="UTF-8"?>\n'
             f'<{root} xmlns="http://www.openmicroscopy.org/Schemas/OME/2016-06">'
             f'<Image ID="Image:0" {image_attrs}><Pixels ID="Pixels:0" Type="uint8" SizeX="64" SizeY="64" '
-            f'{pixels}>{inner}</Pixels></Image></{root.split()[0]}>').encode() + b"\0"
+            f'{pixels}>{inner}</Pixels></Image></{root.split(maxsplit=1)[0]}>').encode() + b"\0"
 
 
 def single(name: str, **kw) -> None:
@@ -117,8 +121,10 @@ def main() -> None:
         '<ome:Image ID="Image:0" Name=""><![CDATA[<Pixels SizeZ="7">]]>'
         '<ome:Pixels ID="Pixels:0" SizeZ=" 2 " SizeC="1" SizeT="1" DimensionOrder="XYZCT" Type="uint8" '
         'PhysicalSizeX="1,5" PhysicalSizeY="0" PhysicalSizeZ="2.5e-1" PhysicalSizeZUnit="Å">'
-        '<ome:TiffData IFD="0" PlaneCount="2"><ome:UUID FileName="edge_ome_prefixed.tif">urn:uuid:1</ome:UUID></ome:TiffData>'
-        '<ome:TiffData IFD="1" FirstZ="1"><ome:UUID FileName="edge_ome_prefixed.tif">urn:uuid:1</ome:UUID></ome:TiffData>'
+        '<ome:TiffData IFD="0" PlaneCount="2">'
+        '<ome:UUID FileName="edge_ome_prefixed.tif">urn:uuid:1</ome:UUID></ome:TiffData>'
+        '<ome:TiffData IFD="1" FirstZ="1">'
+        '<ome:UUID FileName="edge_ome_prefixed.tif">urn:uuid:1</ome:UUID></ome:TiffData>'
         '</ome:Pixels></ome:Image></ome:OME>').encode() + b"\0", 2)
     # Later mappings win; entities in the name; excess PlaneCount ignored.
     planes("edge_ome_remap.tif", ome(tz, '<TiffData PlaneCount="9"/><TiffData FirstZ="1" IFD="2"/>',
@@ -150,15 +156,16 @@ def main() -> None:
     # value is text; the first of duplicate attributes wins; references to
     # U+0000 and surrogates stay as written.
     planes("edge_xml_scan.tif", (
-        '<OME><Image Name="a <!-- b &#0; &#xD800; &#x1F600;" Name="second">'
-        '<Pixels\tSizeZ="2" SizeZ="5" DimensionOrder="XYZCT"><TiffData/></Pixels></Image></OME>').encode() + b"\0", 2)
+        b'<OME><Image Name="a <!-- b &#0; &#xD800; &#x1F600;" Name="second">'
+        b'<Pixels\tSizeZ="2" SizeZ="5" DimensionOrder="XYZCT"><TiffData/></Pixels></Image></OME>') + b"\0", 2)
     # A self-closing Pixels has no TiffData (the second image's are not its).
     planes("edge_ome_self_closing_pixels.tif", (
-        '<OME><Image Name="one"><Pixels SizeZ="1"/></Image>'
-        '<Image Name="two"><Pixels SizeZ="2"><TiffData IFD="5"/></Pixels></Image></OME>').encode() + b"\0", 1)
+        b'<OME><Image Name="one"><Pixels SizeZ="1"/></Image>'
+        b'<Image Name="two"><Pixels SizeZ="2"><TiffData IFD="5"/></Pixels></Image></OME>') + b"\0", 1)
     # UUID texts are compared after removing comments and surrounding whitespace.
-    planes("edge_ome_uuid_text.tif", ome(tz, '<TiffData><UUID> urn:uuid:1 </UUID></TiffData>'
-                                             '<TiffData FirstZ="1" IFD="1"><UUID>urn:<!-- x -->uuid:1</UUID></TiffData>'), 2)
+    planes("edge_ome_uuid_text.tif",
+           ome(tz, '<TiffData><UUID> urn:uuid:1 </UUID></TiffData>'
+                   '<TiffData FirstZ="1" IFD="1"><UUID>urn:<!-- x -->uuid:1</UUID></TiffData>'), 2)
     # LONG8 and IFD field types in a classic TIFF; a tag outside the table
     # with an unknown field type is ignored.
     t = Tiff()
@@ -170,8 +177,9 @@ def main() -> None:
     t.write("edge_field_types.tif")
 
     # Rejected.
-    planes("edge_reject_multifile.tif", ome(tz, '<TiffData><UUID FileName="a.tif">urn:uuid:1</UUID></TiffData>'
-                                                '<TiffData FirstZ="1"><UUID FileName="b.tif">urn:uuid:2</UUID></TiffData>'), 2)
+    planes("edge_reject_multifile.tif",
+           ome(tz, '<TiffData><UUID FileName="a.tif">urn:uuid:1</UUID></TiffData>'
+                   '<TiffData FirstZ="1"><UUID FileName="b.tif">urn:uuid:2</UUID></TiffData>'), 2)
     planes("edge_reject_multifile_uuid.tif", ome(tz, '<TiffData><UUID>urn:uuid:1</UUID></TiffData>'
                                                      '<TiffData FirstZ="1"><UUID>urn:uuid:2</UUID></TiffData>'), 2)
     planes("edge_reject_dimension_order.tif", ome('SizeZ="2" DimensionOrder="XYZZT"'), 2)
@@ -210,7 +218,8 @@ def main() -> None:
     t.chain([image(t, description=(ASCII, ome('SizeZ="1"'))), image(t, skip={259}, extra=[(259, 99, b"\0\0")])])
     t.write("edge_reject_unused_ifd_type.tif")
     t = Tiff()
-    t.chain([image(t, description=(ASCII, ome('SizeZ="1"'))), image(t, skip={324}, extra=[(324, LONG, ("at", 4, 10**6))])])
+    t.chain([image(t, description=(ASCII, ome('SizeZ="1"'))),
+             image(t, skip={324}, extra=[(324, LONG, ("at", 4, 10**6))])])
     t.write("edge_reject_unused_value_outside.tif")
     # Two IFDs share a SubIFD.
     t = Tiff()
@@ -226,11 +235,13 @@ def main() -> None:
     # Revision 4.
     # "<!-->" does not end the comment it starts; SizeX is not validated.
     planes("edge_xml_comment_marker.tif", (
-        '<OME><!--><Image Name="hidden"/>--><Image Name="shown"><Pixels SizeX="abc" SizeZ="1"/></Image></OME>'
-    ).encode() + b"\0", 1)
+        b'<OME><!--><Image Name="hidden"/>--><Image Name="shown"><Pixels SizeX="abc" SizeZ="1"/></Image></OME>'
+        b"\0"
+    ), 1)
     # A self-closing UUID names the file "" (here, besides x.tif).
-    planes("edge_reject_uuid_self_closing.tif", ome(tz, '<TiffData><UUID/></TiffData>'
-                                                        '<TiffData FirstZ="1" IFD="1"><UUID FileName="x.tif"/></TiffData>'), 2)
+    planes("edge_reject_uuid_self_closing.tif",
+           ome(tz, '<TiffData><UUID/></TiffData>'
+                   '<TiffData FirstZ="1" IFD="1"><UUID FileName="x.tif"/></TiffData>'), 2)
     # A LONG8 value above 2^53 - 1 rejects, even for a tile with no bytes.
     t = Tiff()
     offsets = [t.blob(bytes([i]) * 1024) for i in range(3)] + [2**60]
@@ -248,9 +259,11 @@ def main() -> None:
     aperio = (b"Aperio Image Library v1 \r\n64x64 (32x32) RAW|AppMag = 20| MPP = 0.5 |MPP = 9"
               b"|Left = 1.5|Top = 2.25|Date = 01/01/26\0")
     single("edge_aperio_position.tif", description=(ASCII, aperio))
-    single("edge_resolution_cm.tif", extra=[(282, 5, rational(20000, 1)), (283, 5, rational(40000, 2)), (296, SHORT, [3])])
+    single("edge_resolution_cm.tif",
+           extra=[(282, 5, rational(20000, 1)), (283, 5, rational(40000, 2)), (296, SHORT, [3])])
     single("edge_resolution_inch.tif", extra=[(282, 5, rational(50800, 1)), (283, 5, rational(50800, 1))])
-    single("edge_resolution_unitless.tif", extra=[(282, 5, rational(72, 1)), (283, 5, rational(72, 1)), (296, SHORT, [1])])
+    single("edge_resolution_unitless.tif",
+           extra=[(282, 5, rational(72, 1)), (283, 5, rational(72, 1)), (296, SHORT, [1])])
     planes("edge_ome_plane_position.tif", ome(
         tz + ' PhysicalSizeX="0.5" PhysicalSizeY="0.25"',
         '<Plane TheZ="1" PositionX="9" PositionXUnit="mm" PositionY="9" PositionYUnit="mm"/>'
@@ -300,7 +313,7 @@ def main() -> None:
     thumb = t.ifd([(256, SHORT, [8]), (257, SHORT, [8]), (258, SHORT, [8]), (259, SHORT, [6]), (262, SHORT, [1]),
                    (273, LONG, [t.blob(bytes(64))]), (279, LONG, [64]), (519, LONG, [q0, q1, 10**6]),
                    (520, LONG, [dc]), (521, LONG, [ac])])
-    values = targets + [empty, targets[1] + 2, targets[0], 10**6, thumb]
+    values = [*targets, empty, targets[1] + 2, targets[0], 10 ** 6, thumb]
     level0 = image(t, extra=[(400, LONG, [gp]), (50001, 13, values)])
     t.chain([level0, thumb])
     t.write("edge_pointer_list.tif")
@@ -356,10 +369,11 @@ def main() -> None:
     values = [empties] * 100 + [empties + 2 * i for i in range(1, 9999)] + [valid[0], empties + 2 * 9999, valid[1]]
     t.chain([image(t, extra=[(50001, 13, values)])])
     t.write("edge_pointer_tries.tif")
-    # omero (spec/virtualize/tiff.md §4.4
-    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#44-arrays>): the Pixels' Channels name and color the channels in
-    # order (one commented out); an empty or over-long name gives C<c>, a Color outside a signed
-    # 32-bit integer white, and the channel without a Channel C4 and white.
+    # omero (spec/zarrify/tiff.md §4.4
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#44-arrays>): the Pixels'
+    # Channels name and color the channels in order (one commented out); an empty or over-long
+    # name gives C<c>, a Color outside a signed 32-bit integer white, and the channel without a
+    # Channel C4 and white.
     planes("edge_ome_channels.tif", ome(
         'SizeZ="1" SizeC="5" SizeT="1" DimensionOrder="XYCZT"',
         '<!-- <Channel Name="no"/> --><Channel ID="Channel:0:0" Name="DAPI" Color="65535"/>'

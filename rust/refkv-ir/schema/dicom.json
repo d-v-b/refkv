@@ -1,7 +1,7 @@
 {
   "source_model": "dicom",
   "version": 1,
-  "about": "The source model of a DICOM Part 10 file (spec/virtualize/dicom.md): the elements a parser emits, the transfer syntaxes and photometric interpretations the convention admits, and the roles the file, an attribute, the image, its pixel data and each frame play, each with the constraints a file must meet to have the DICOM convention's layout. A parser checks this schema while it parses, at the point the profile meets each role; the projection reads a valid IR and checks nothing. The structure of the data elements (spec/virtualize/dicom.md §7.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#71-elements>–§7.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#73-datasets-and-sequences>: headers, VRs, lengths, items, delimiters, depth) is the binary layer, which the parser's code checks.",
+  "about": "The source model of a DICOM Part 10 file (spec/zarrify/dicom.md): the elements a parser emits, the transfer syntaxes and photometric interpretations the convention admits, and the roles the file, an attribute, the image, its pixel data and each frame play, each with the constraints a file must meet to have the DICOM convention's layout. A parser checks this schema while it parses, at the point the profile meets each role; the projection reads a valid IR and checks nothing. The structure of the data elements (spec/zarrify/dicom.md §7.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#71-elements>–§7.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#73-datasets-and-sequences>: headers, VRs, lengths, items, delimiters, depth) is the binary layer, which the parser's code checks.",
   "limits": {
     "max_safe": 9007199254740991,
     "max_depth": 64,
@@ -30,7 +30,7 @@
     "whole_slide": "1.2.840.10008.5.1.4.1.1.77.1.6"
   },
   "elements": {
-    "about": "The IR of a DICOM file (spec/virtualize/dicom.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#5-source-metadata>). <tag> is a tag as 8 uppercase hexadecimal digits; E the dataset's byte order. An element of defined length that is not a sequence is one value, a record of its header and `v`, its value typed by its VR. `run` marks where a parser folds consecutive identically shaped siblings into one run.",
+    "about": "The IR of a DICOM file (spec/zarrify/dicom.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#5-source-metadata>). <tag> is a tag as 8 uppercase hexadecimal digits; E the dataset's byte order. An element of defined length that is not a sequence is one value, a record of its header and `v`, its value typed by its VR. `run` marks where a parser folds consecutive identically shaped siblings into one run.",
     "preamble": {"kind": "value", "type": "bytes[128]"},
     "magic": {"kind": "value", "type": "ascii[4]"},
     "meta": {"kind": "struct", "about": "the File Meta Information: its elements, as a dataset's"},
@@ -64,7 +64,7 @@
       ]
     },
     "attribute": {
-      "about": "an attribute of spec/virtualize/dicom.md §2.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#22-attributes> present where it is read (length not 0)",
+      "about": "an attribute of spec/zarrify/dicom.md §2.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#22-attributes> present where it is read (length not 0)",
       "given": {"tag": "", "vr": "its VR, absent in implicit VR", "expected": "", "undefined": ""},
       "constraints": [
         {"require": "!present(vr) || vr == expected", "message": "{tag} has VR {vr}, not {expected}"},
@@ -88,7 +88,7 @@
       "constraints": [{"require": "!present(vr) || in(vr, ['OB', 'OW'])", "message": "Pixel Data has VR {vr}"}]
     },
     "image": {
-      "about": "spec/virtualize/dicom.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#3-the-image>",
+      "about": "spec/zarrify/dicom.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#3-the-image>",
       "given": {
         "spp": "", "photometric": "", "rows": "", "columns": "", "bits_allocated": "", "bits_stored": "",
         "representation": "", "planar": "", "n": "Number of Frames, or 1", "high_bit": "", "codec": "", "key": "codec/spp, as the table photometrics names it"
@@ -187,5 +187,5 @@
       "constraints": [{"require": "finite", "message": "the VOI window is not finite"}]
     }
   },
-  "about_builtins": "What the parser's code computes and the roles above check: the walk of the data elements (spec/virtualize/dicom.md §7.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#71-elements>–§7.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#73-datasets-and-sequences>), which rejects the structures it walks that break a rule; attribute values by kind (spec/virtualize/dicom.md §2.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#22-attributes>: strings split at 5C and trimmed, decimals, integer strings); the frames of native and encapsulated pixel data (spec/virtualize/dicom.md §7.5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#75-frames>: the fragments by the Extended or Basic Offset Table); the VOI window; and the root's source metadata (spec/virtualize/dicom.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#5-source-metadata>), which never rejects."
+  "about_builtins": "What the parser's code computes and the roles above check: the walk of the data elements (spec/zarrify/dicom.md §7.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#71-elements>–§7.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#73-datasets-and-sequences>), which rejects the structures it walks that break a rule; attribute values by kind (spec/zarrify/dicom.md §2.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#22-attributes>: strings split at 5C and trimmed, decimals, integer strings); the frames of native and encapsulated pixel data (spec/zarrify/dicom.md §7.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#75-frames>: the fragments by the Extended or Basic Offset Table); the VOI window; and the root's source metadata (spec/zarrify/dicom.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#5-source-metadata>), which never rejects."
 }

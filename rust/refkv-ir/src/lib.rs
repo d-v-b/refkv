@@ -2,7 +2,7 @@
 //! <https://github.com/d-v-b/refkv/blob/main/design/ARCHITECTURE.md#3-proposal-an-intermediate-representation>),
 //! in Rust: a compact columnar IR with runs, its invariants, sans-IO parsers, and the checker of a
 //! source model schema. The core has no I/O and builds for wasm32; the Python
-//! bindings are a crate of their own (python/src/lib.rs, the module `refkv._core`).
+//! bindings are a crate of their own (rust/refkv-python/src/lib.rs, the module `refkv._core`).
 
 pub mod canon;
 pub mod transform;
@@ -27,6 +27,7 @@ pub mod rules;
 pub mod run;
 pub mod sans;
 pub mod schema;
+pub mod shard;
 pub mod store;
 pub mod text;
 pub mod types;

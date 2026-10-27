@@ -28,7 +28,9 @@ rust/refkv-ir/target/
 rust/refkv-vzip/target/
 rust/refkv-phkv/target/
 rust/refkv-cli/target/
-# the Python bindings' build output
+# the Python bindings' build output, and its place in a checkout built before the crate moved
+# from python/
+rust/refkv-python/target/
 python/target/
 
 # the Python bindings to the Rust core, compiled into the package by `uv sync` (python/pyproject.toml)
@@ -37,3 +39,7 @@ python/src/refkv/_core*.pyd
 # and its earlier name, in checkouts built before the bindings moved to python/
 python/src/refkv/_ir*.so
 python/src/refkv/_ir*.pyd
+examples-out/
+
+# measure.py's cache of remote files (design/experiments/third_party)
+design/experiments/third_party/.cache/

@@ -1,7 +1,7 @@
-//! The MRC image projection (spec/virtualize/mrc.md §4
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#4-the-image>, and the root's
+//! The MRC image projection (spec/zarrify/mrc.md §4
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#4-the-image>, and the root's
 //! source metadata of §5
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#5-source-metadata>) from a valid
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#5-source-metadata>) from a valid
 //! IR: the header is the IR's `header` value, and the array's chunks are cut from its
 //! `data` element.
 
@@ -13,20 +13,20 @@ use crate::out::{array_json, bytes_codec, declared_group, full_window, grid_chun
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 
-/// The most bytes of a chunk of the image (spec/virtualize/mrc.md §4.1
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#41-the-array>).
+/// The most bytes of a chunk of the image (spec/zarrify/mrc.md §4.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#41-the-array>).
 const CHUNK_BYTES: u64 = 1 << 20;
 /// The space group from which a file is a volume stack (MRC2014).
 const VOLUME_STACK: i64 = 401;
-/// The dataset layout's node (spec/virtualize/mrc-dataset.md §1
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc-dataset.md#1-declaration>), and
+/// The dataset layout's node (spec/zarrify/mrc-dataset.md §1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc-dataset.md#1-declaration>), and
 /// the most values of a chunk of its coordinate variables (conventions §9
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>).
 const DATASET: &str = "dataset";
 const COORD_CHUNK: u64 = 1 << 17;
 
 /// The kind of file the space group and the section count make it (§4.1
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#41-the-array>).
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#41-the-array>).
 fn kind(ispg: i64, nz: i64) -> &'static str {
     if ispg >= VOLUME_STACK {
         "volume_stack"
@@ -41,7 +41,7 @@ fn kind(ispg: i64, nz: i64) -> &'static str {
 
 /// The array's axes, the name of each of the file's dimensions (sections, rows, columns)
 /// in the stored order, whether the axis map gave them, its shape and its cut (§4.1
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#41-the-array>).
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#41-the-array>).
 struct Cut {
     kind: &'static str,
     axes: Vec<&'static str>,
@@ -88,7 +88,7 @@ fn parts<'a>(ir: &'a Ir, facts: &J) -> Result<(Header<'a>, u32), String> {
 }
 
 /// The source's ranges of the edge chunks the projection copies (§8.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#82-chunks>).
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#82-chunks>).
 pub fn reads(ir: &Ir, facts: &J) -> Result<Vec<(u64, u64)>, String> {
     let (h, data) = parts(ir, facts)?;
     let c = cut(&h, ir.start[data as usize], facts)?;
@@ -107,7 +107,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     let data_type = facts["data_type"].as_str().unwrap_or("int8");
     let f = |name: &str| h.get(name).f();
 
-    // voxel size and origin (§4.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#42-scales-units-and-position>)
+    // voxel size and origin (§4.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#42-scales-units-and-position>)
     let cella: Vec<f64> = h.values("cella").iter().map(|v| v.f()).collect();
     let m = [h.get("mx").i(), h.get("my").i(), h.get("mz").i()];
     let voxel: Vec<Option<f64>> = (0..3)
@@ -128,7 +128,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
         _ => 2,
     };
 
-    // the array (§4.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#41-the-array>)
+    // the array (§4.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#41-the-array>)
     let Cut { kind, axes, names, mapped, shape, item, grid, chunks } = cut(&h, offset, facts)?;
     let mut units: Map<String, J> = Map::new();
     let scales: Vec<J> = axes
@@ -148,7 +148,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     let trs = translation.clone().map(|t| vec![t]);
     let mut ome = image_ome(&axes, &units, &[J::Array(scales)], None, trs.as_deref())?;
 
-    // the display window (§4.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#43-channels>)
+    // the display window (§4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#43-channels>)
     let (lo, hi) = (f("dmin"), f("dmax"));
     let window = mode != 4 && lo.is_finite() && hi.is_finite() && hi > lo;
     if window {
@@ -167,11 +167,16 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     if voxel.iter().all(|v| v.is_some()) {
         own.insert("voxel_size".into(), json!({"x": voxel[0], "y": voxel[1], "z": voxel[2]}));
     }
+    // the dataset layout, unless the run's layouts leave it out (spec/zarrify/mrc.md §8
+    // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#8-mrc-profile>)
+    let dataset = facts["layouts"].as_array().is_none_or(|l| l.iter().any(|v| v == DATASET));
     let mut out = Out::new(url);
     let mut root = root_json(ome, "mrc", url, Some(J::Object(own.clone())));
-    // the root names the dataset layout (conventions §2
-    // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>), after `source`
-    root["attributes"]["refkv_virtualized"] = insert_after(&root["attributes"]["refkv_virtualized"], "source", "layouts", json!({DATASET: DATASET}));
+    if dataset {
+        // the root names the dataset layout (conventions §2
+        // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>), after `source`
+        root["attributes"]["refkv_zarrified"] = insert_after(&root["attributes"]["refkv_zarrified"], "source", "layouts", json!({DATASET: DATASET}));
+    }
     out.json("zarr.json", &root);
     let codecs = vec![bytes_codec(item, endian)];
     let mut array = array_json(&shape, data_type, json!(grid), J::Array(codecs), &axes);
@@ -181,8 +186,8 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     }
     out.json("0/zarr.json", &array);
     // the dataset layout's data variable: the same array under the dataset's dimension names
-    // (spec/virtualize/mrc-dataset.md §2
-    // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc-dataset.md#2-the-data-variable>)
+    // (spec/zarrify/mrc-dataset.md §2
+    // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc-dataset.md#2-the-data-variable>)
     let dims: Vec<&str> = match kind {
         "image" => names[1..].to_vec(),
         "image_stack" => std::iter::once("section").chain(names[1..].iter().copied()).collect(),
@@ -194,19 +199,24 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     if window {
         data["attributes"]["actual_range"] = json!([lo, hi]);
     }
-    out.json(&format!("{DATASET}/zarr.json"), &declared_group(Map::new(), "mrc-dataset", Some(url), Some(J::Object(own))));
-    out.json(&format!("{DATASET}/data/zarr.json"), &data);
+    if dataset {
+        out.json(&format!("{DATASET}/zarr.json"), &declared_group(Map::new(), "mrc-dataset", Some(url), Some(J::Object(own))));
+        out.json(&format!("{DATASET}/data/zarr.json"), &data);
+    }
     let count = chunks.len();
     let mut refs = Refs::new(ir, out);
     // the data variable's chunks are the image's, not charged again
-    contiguous::emit(&mut refs, chunks, (offset, length, form), copied, &["0/c/", &format!("{DATASET}/data/c/")], |c| c)?;
+    let data_chunks = format!("{DATASET}/data/c/");
+    let prefixes: Vec<&str> = if dataset { vec!["0/c/", &data_chunks] } else { vec!["0/c/"] };
+    let mut zeros = contiguous::Zeros::of(&chunks);
+    contiguous::emit(&mut refs, chunks, (offset, length, form), copied, &prefixes, |c| c, &mut zeros)?;
     let mut out = refs.out;
-    // the coordinates (spec/virtualize/mrc-dataset.md §3
-    // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc-dataset.md#3-coordinates>): the
+    // the coordinates (spec/zarrify/mrc-dataset.md §3
+    // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc-dataset.md#3-coordinates>): the
     // index along each spatial dimension with a voxel size, which CF's scale_factor and
     // add_offset make o + i * s; delta-coded and deflated (conventions §9
     // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>)
-    for (k, a) in dims.iter().enumerate() {
+    for (k, a) in dims.iter().enumerate().filter(|_| dataset) {
         let Some(s) = ["x", "y", "z"].contains(a).then(|| voxel[index(a)]).flatten() else { continue };
         let o = if placed { origin[index(a)] } else { 0.0 };
         let filters = vec![json!({"name": "numcodecs.delta", "configuration": {"dtype": "<u4"}})];
@@ -219,7 +229,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
         "chunkShape": grid, "chunks": count,
         "voxelSize": if voxel.iter().all(|v| v.is_some()) { json!(voxel) } else { J::Null },
         "translation": placed, "axisMap": mapped, "extendedHeader": nsymbt,
-        "extendedType": json_text(h.bytes("exttyp")), "layouts": [DATASET],
+        "extendedType": json_text(h.bytes("exttyp")), "layouts": if dataset { json!([DATASET]) } else { json!([]) },
     });
     Ok(out)
 }

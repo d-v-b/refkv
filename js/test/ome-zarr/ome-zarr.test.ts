@@ -3,16 +3,16 @@ import fs from "node:fs";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { directoryStore } from "../../conformance/directory_store.ts";
-import { virtualizeStore } from "../../src/virtualize/index.ts";
-import { StoreError } from "../../src/virtualize/store.ts";
+import { zarrifyStore } from "../../src/zarrify/index.ts";
+import { StoreError } from "../../src/zarrify/store.ts";
 
 const FIXTURES = fileURLToPath(new URL("../../../fixtures/ome-zarr/", import.meta.url));
 
-async function virtualize(name: string) {
-  return virtualizeStore(directoryStore(FIXTURES + name, `https://data.test/ome-zarr/${name}/`));
+async function zarrify(name: string) {
+  return zarrifyStore(directoryStore(FIXTURES + name, `https://data.test/ome-zarr/${name}/`));
 }
 
-function doc(v: Awaited<ReturnType<typeof virtualize>>, key: string) {
+function doc(v: Awaited<ReturnType<typeof zarrify>>, key: string) {
   const e = v.entries.find((x) => x.key === key);
   assert.ok(e && "bytes" in e, key);
   return JSON.parse(new TextDecoder().decode(e.bytes as Uint8Array));
@@ -50,17 +50,17 @@ const CASES: [string, object, { [p: string]: [string[], string[] | null] }, { [p
 ];
 
 // The OME members without a version, which `ome` gives back as they are
-// (spec/virtualize/ome-zarr.md §5
-// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#5-group-attributes>, §8
-// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#8-source-metadata>).
+// (spec/zarrify/ome-zarr.md §5
+// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ome-zarr.md#5-group-attributes>, §8
+// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ome-zarr.md#8-source-metadata>).
 const UNVERSIONED: { [storePath: string]: string[] } = {
   "ome_zarr_custom_axes nested": ["multiscales"], "ome_zarr_bioformats2raw_plate ": ["plate"],
   "ome_zarr_bioformats2raw_plate A/1": ["well"], "ome_zarr_source_metadata 0": ["omero"],
 };
 
-test("virtualizes the synthetic OME-Zarr 0.4 stores as 0.5", async () => {
+test("zarrifies the synthetic OME-Zarr 0.4 stores as 0.5", async () => {
   for (const [name, summary, groups, arrays] of CASES) {
-    const v = await virtualize(name);
+    const v = await zarrify(name);
     assert.equal(v.format, "ome-zarr", name);
     assert.deepEqual({ ...v.summary, ...summary }, v.summary, name);
     for (const [path, [own, ome]] of Object.entries(groups)) {
@@ -68,10 +68,10 @@ test("virtualizes the synthetic OME-Zarr 0.4 stores as 0.5", async () => {
       // The attributes A that `ome` does not give back are copied under the convention, which the
       // root and any node with source metadata declare (conventions §2
       // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>).
-      const s = attrs.refkv_virtualized?.["ome-zarr"] ?? {};
+      const s = attrs.refkv_zarrified?.["ome-zarr"] ?? {};
       assert.deepEqual(Object.keys(s.attributes ?? {}).sort(), [...own].sort(), `${name} ${path}`);
       assert.deepEqual(s.unversioned ?? [], UNVERSIONED[`${name} ${path}`] ?? [], `${name} ${path}`);
-      const outer = path === "" || Object.keys(s).length > 0 ? ["zarr_conventions", "refkv_virtualized"] : [];
+      const outer = path === "" || Object.keys(s).length > 0 ? ["zarr_conventions", "refkv_zarrified"] : [];
       if (ome === null) {
         assert.deepEqual(Object.keys(attrs).sort(), outer.sort(), `${name} ${path}`);
         continue;
@@ -86,41 +86,41 @@ test("virtualizes the synthetic OME-Zarr 0.4 stores as 0.5", async () => {
       assert.deepEqual(doc(v, key(path)).dimension_names ?? null, names, `${name} ${path}`);
     }
   }
-  const i = await virtualize("ome_zarr_image_2d");
+  const i = await zarrify("ome_zarr_image_2d");
   assert.deepEqual(i.entries.filter((e) => "ranges" in e).map((e) => e.key), ["0/0.0", "1/0.0", "refkv_source/objects/notes.txt"]);
   // refkv_source is the store's IR mirror (conventions §8.9
   // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>), whose listing holds
   // the empty chunk object: its key is not listed again.
-  assert.deepEqual(Object.keys(doc(i, "refkv_source/zarr.json").attributes.refkv_virtualized["ome-zarr"]), ["ir"]);
-  const l = await virtualize("ome_zarr_labels");
+  assert.deepEqual(Object.keys(doc(i, "refkv_source/zarr.json").attributes.refkv_zarrified["ome-zarr"]), ["ir"]);
+  const l = await zarrify("ome_zarr_labels");
   // Every OME member is given back by the inverse of §5
-  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#5-group-attributes>: no
+  // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ome-zarr.md#5-group-attributes>: no
   // source metadata.
   assert.deepEqual(doc(l, "labels/zarr.json").attributes, { ome: { version: "0.5", labels: ["cells"] } });
   assert.deepEqual(doc(l, "labels/cells/zarr.json").attributes.ome["image-label"].source, { image: "../../" });
-  const x = await virtualize("ome_zarr_labels_extra_level");
+  const x = await zarrify("ome_zarr_labels_extra_level");
   const lm = doc(x, "labels/cells/zarr.json").attributes.ome.multiscales[0];
   assert.deepEqual(lm.datasets.map((d: { path: string }) => d.path), ["0", "1"]);
-  const b = await virtualize("ome_zarr_bioformats2raw");
+  const b = await zarrify("ome_zarr_bioformats2raw");
   assert.deepEqual(doc(b, "OME/zarr.json").attributes.ome, { version: "0.5", series: ["0", "1"] });
   assert.equal(b.sources.at(-1)!.url, "https://data.test/ome-zarr/ome_zarr_bioformats2raw/OME/METADATA.ome.xml");
-  const s = await virtualize("ome_zarr_source_metadata");
-  assert.deepEqual(doc(s, "zarr.json").attributes.refkv_virtualized["ome-zarr"], { metadata: { creator: "a writer" } });
-  assert.deepEqual(doc(s, "1/0/zarr.json").attributes.refkv_virtualized, { "ome-zarr": { metadata: { fill_value: null } } });
+  const s = await zarrify("ome_zarr_source_metadata");
+  assert.deepEqual(doc(s, "zarr.json").attributes.refkv_zarrified["ome-zarr"], { metadata: { creator: "a writer" } });
+  assert.deepEqual(doc(s, "1/0/zarr.json").attributes.refkv_zarrified, { "ome-zarr": { metadata: { fill_value: null } } });
   const zero = s.entries.find((e) => e.key === "0/zarr.json") as { bytes: Uint8Array };
   assert.ok(new TextDecoder().decode(zero.bytes).includes('"note":{"big":18446744073709551615}'));
   assert.deepEqual(s.entries.filter((e) => e.key.startsWith("refkv_source/objects/")).map((e) => e.key).sort(),
     ["refkv_source/objects/OME/METADATA.ome.xml", "refkv_source/objects/README.md"]);
   // An empty OME-XML object is an empty object: no entry, an object of the mirror's listing
-  // (spec/virtualize/ome-zarr.md §7
-  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#7-chunks-and-ome-xml>).
-  const e = await virtualize("ome_zarr_empty_xml");
+  // (spec/zarrify/ome-zarr.md §7
+  // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ome-zarr.md#7-chunks-and-ome-xml>).
+  const e = await zarrify("ome_zarr_empty_xml");
   assert.equal((e.summary as { omeXml: number }).omeXml, 0);
   assert.ok(!e.entries.some((x) => x.key.endsWith("METADATA.ome.xml")));
   // Wells and images without a version name their members rather than copy them.
-  const p = await virtualize("ome_zarr_plate_unversioned");
-  assert.deepEqual(doc(p, "A/1/zarr.json").attributes.refkv_virtualized, { "ome-zarr": { unversioned: ["well"] } });
-  assert.deepEqual(doc(p, "B/3/0/zarr.json").attributes.refkv_virtualized, { "ome-zarr": { unversioned: ["multiscales", "omero"] } });
+  const p = await zarrify("ome_zarr_plate_unversioned");
+  assert.deepEqual(doc(p, "A/1/zarr.json").attributes.refkv_zarrified, { "ome-zarr": { unversioned: ["well"] } });
+  assert.deepEqual(doc(p, "B/3/0/zarr.json").attributes.refkv_zarrified, { "ome-zarr": { unversioned: ["multiscales", "omero"] } });
 });
 
 const REJECTIONS: [string, RegExp][] = [
@@ -179,7 +179,7 @@ const REJECTIONS: [string, RegExp][] = [
 
 for (const [name, message] of REJECTIONS) {
   test(`rejects ome_zarr_reject_${name}`, async () => {
-    await assert.rejects(virtualize(`ome_zarr_reject_${name}`), (e) => e instanceof StoreError && e.format === "ome-zarr" && message.test(e.message));
+    await assert.rejects(zarrify(`ome_zarr_reject_${name}`), (e) => e instanceof StoreError && e.format === "ome-zarr" && message.test(e.message));
   });
 }
 

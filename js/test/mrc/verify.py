@@ -1,13 +1,13 @@
-"""Checks the browser MRC virtualizer's output against mrcfile.
+"""Checks the browser MRC zarrifier's output against mrcfile.
 
-Each fixtures/mrc/*.mrc is served over local HTTP and virtualized by
-js/conformance/virtualize.ts (the browser code, run under Node). The array is read
+Each fixtures/mrc/*.mrc is served over local HTTP and zarrified by
+js/conformance/zarrify.ts (the browser code, run under Node). The array is read
 through the reference reader and zarr-python and must equal mrcfile's data, in its
 shape (an image, a stack of images, a volume, or a stack of volumes) and type, and
-every header field must be mrcfile's reading of the header (spec/virtualize/mrc.md §5
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#5-source-metadata>). The
+every header field must be mrcfile's reading of the header (spec/zarrify/mrc.md §5
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#5-source-metadata>). The
 file must be rebuilt byte for byte from the archive's IR mirror (refkv_source, §5.2
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#52-the-ir-mirror>).
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#52-the-ir-mirror>).
 `mrc_reject_*` files must be rejected.
 
 Usage: uv run python js/test/mrc/verify.py [<dir of .mrc files>]
@@ -16,6 +16,7 @@ Usage: uv run python js/test/mrc/verify.py [<dir of .mrc files>]
 from __future__ import annotations
 
 import base64
+import math
 import struct
 import sys
 import warnings
@@ -31,20 +32,22 @@ ROOT = HERE.parents[2]
 sys.path.insert(0, str(ROOT / "conformance" / "vzip"))
 
 import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store)
+from refkv._narrow import at, mapping, ndarray  # noqa: E402
 
 sys.path.insert(0, str(HERE.parent))
 from ir_mirror import mirror_problems  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # js/test, for verify_common
 from verify_common import LOOPBACK_SOURCES, run, serve  # noqa: E402
+
 CANONICAL_NAN = 0x7FC00000
 
 
 def as_json(v):
     """A header value as spec/conventions.md §6
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json> and
-    spec/virtualize/mrc.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#5-source-metadata> write it,
+    spec/zarrify/mrc.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#5-source-metadata> write it,
     from mrcfile's numpy value."""
     if isinstance(v, np.ndarray) and v.ndim == 0:
         return as_json(v[()])
@@ -56,7 +59,7 @@ def as_json(v):
         return [as_json(x) for x in v]
     if isinstance(v, np.floating):
         bits = int(np.asarray(v).astype(v.dtype.newbyteorder("=")).view("=u4"))
-        if bits == 1 << 31 or (v != v and bits != CANONICAL_NAN):
+        if bits == 1 << 31 or (np.isnan(v) and bits != CANONICAL_NAN):
             return {"bits": f"{bits:08x}"}
     if isinstance(v, (bytes, np.bytes_)):
         b = bytes(v).split(b"\0", 1)[0]
@@ -66,7 +69,7 @@ def as_json(v):
             return {"latin1": b.decode("latin-1")}
     v = v.item() if hasattr(v, "item") else v
     if isinstance(v, float):
-        return "NaN" if v != v else "Infinity" if v == float("inf") else "-Infinity" if v == float("-inf") else v
+        return "NaN" if math.isnan(v) else "Infinity" if v == float("inf") else "-Infinity" if v == float("-inf") else v
     return v
 
 
@@ -75,12 +78,13 @@ IMOD = 1146047817
 
 def load(path: Path):
     """mrcfile's header and data (its warnings, such as a zero grid size, are not failures).
-    mrcfile does not read IMOD's unsigned-byte flag (spec/virtualize/mrc.md §3
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#3-data-types>): a mode 0
+    mrcfile does not read IMOD's unsigned-byte flag (spec/zarrify/mrc.md §3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#3-data-types>): a mode 0
     file with IMOD's stamp and bit 0 of its flags is its bytes as uint8."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         with mrcfile.open(path, permissive=False) as f:
+            assert f.header is not None, path  # (None only before a header is read or created)
             header, data = f.header.copy(), np.array(f.data)
     raw = path.read_bytes()
     order = "<" if header.mode.dtype.byteorder in "<=" else ">"
@@ -93,30 +97,30 @@ def load(path: Path):
 def problems_of(path: Path, out: Path) -> list[str]:
     header, want = load(path)
     root = zarr.open_group(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
-    arr = root["0"]
-    got = arr[...]
+    got = ndarray(root.get_array("0")[...])
     problems = []
     if got.dtype != want.dtype.newbyteorder("="):
         problems.append(f"dtype {got.dtype} != {want.dtype}")
     if got.shape != want.shape or not np.array_equal(got, want, equal_nan=got.dtype.kind in "fc"):
         problems.append(f"values differ ({got.shape} vs {want.shape})")
-    meta = root.attrs["refkv_virtualized"]["mrc"]
+    zarrified = mapping(at(root.attrs, "refkv_zarrified"))
+    meta = mapping(zarrified["mrc"])
+    fields = mapping(meta["header"], "header")
     if meta["data_type"] != str(want.dtype.newbyteorder("=")):
         problems.append(f"data_type {meta['data_type']} != {want.dtype}")
-    if list(meta["header"]) != list(header.dtype.names):
-        problems.append(f"header fields {list(meta['header'])} != mrcfile's {list(header.dtype.names)}")
-    for name in header.dtype.names:
-        if meta["header"].get(name) != as_json(header[name]):
-            problems.append(f"header {name} {meta['header'].get(name)!r} != mrcfile's {as_json(header[name])!r}")
+    if list(fields) != list(header.dtype.names):
+        problems.append(f"header fields {list(fields)} != mrcfile's {list(header.dtype.names)}")
+    problems += [f"header {name} {fields.get(name)!r} != mrcfile's {as_json(header[name])!r}"
+                 for name in header.dtype.names if fields.get(name) != as_json(header[name])]
     kind = {2: "image", 4: "volume_stack"}.get(want.ndim, "image_stack" if header.ispg == 0 else "volume")
     if meta["kind"] != kind:
         problems.append(f"kind {meta['kind']} != {kind}")
-    # the dataset layout (spec/virtualize/mrc-dataset.md): xarray opens it with the file's values
+    # the dataset layout (spec/zarrify/mrc-dataset.md): xarray opens it with the file's values
     # and coordinates in angstroms
-    if root.attrs["refkv_virtualized"].get("layouts") != {"dataset": "dataset"}:
+    if zarrified.get("layouts") != {"dataset": "dataset"}:
         problems.append("the root does not name the dataset layout")
     ds = xr.open_zarr(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), group="dataset", consolidated=False)
-    if ds.attrs["refkv_virtualized"]["mrc-dataset"] != meta:
+    if ds.attrs["refkv_zarrified"]["mrc-dataset"] != meta:
         problems.append("the dataset's source metadata is not the root's")
     if not np.array_equal(ds["data"].values, want, equal_nan=want.dtype.kind in "fc"):
         problems.append("the dataset's values differ")
@@ -130,7 +134,8 @@ def problems_of(path: Path, out: Path) -> list[str]:
         expected = o + np.arange(ds.sizes[axis], dtype=np.float64) * (cella / grid)
         if not np.array_equal(ds[axis].values, expected) or ds[axis].attrs != {"units": "angstrom"}:
             problems.append(f"coordinate {axis} is not {expected[:3]}...")
-        if ds[axis].encoding.get("dtype") != np.dtype("uint32") or ds[axis].encoding.get("scale_factor") != cella / grid:
+        if (ds[axis].encoding.get("dtype") != np.dtype("uint32")
+                or ds[axis].encoding.get("scale_factor") != cella / grid):
             problems.append(f"coordinate {axis} is not the index with a scale factor: {ds[axis].encoding}")
     return problems + mirror_problems(out, path)
 

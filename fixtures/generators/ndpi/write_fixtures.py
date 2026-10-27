@@ -1,5 +1,5 @@
-"""Writes NDPI files to fixtures/ndpi/ for spec/virtualize/ndpi.md §7
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>, cut from
+"""Writes NDPI files to fixtures/ndpi/ for spec/zarrify/ndpi.md §7
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>, cut from
 the restart intervals of level 2 of OpenSlide's CMU-1.ndpi (CC0 1.0), which
 is downloaded once into a cache.
 
@@ -12,7 +12,7 @@ is downloaded once into a cache.
   level's size (as some older scanners write, d-v-b/refkv#100): one row short, wider, and,
   for the last, short by a whole MCU row, which is not a level.
 - `edge_reject_ndpi_*.ndpi`: inputs §7
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile> rejects.
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile> rejects.
 
 Pixels are checked against tifffile by verify.py.
 
@@ -25,19 +25,22 @@ from __future__ import annotations
 
 import struct
 import urllib.request
+from collections.abc import Sequence
+from itertools import pairwise
 from pathlib import Path
+from typing import cast
 
 import imagecodecs
 import numpy as np
 
 OUT = Path(__file__).parents[2] / "ndpi"
 SOURCE = "https://openslide.cs.cmu.edu/download/openslide-testdata/Hamamatsu/CMU-1.ndpi"
-CACHE = Path("/tmp/vzip-fixture-cache/CMU-1-level2.bin")
+CACHE = Path("/tmp/vzip-fixture-cache/CMU-1-level2.bin")  # noqa: S108 (a download cache, kept between runs)
 
 
 def fetch(offset: int, length: int) -> bytes:
     req = urllib.request.Request(SOURCE, headers={"Range": f"bytes={offset}-{offset + length - 1}"})
-    with urllib.request.urlopen(req, timeout=120) as r:
+    with urllib.request.urlopen(req, timeout=120) as r:  # noqa: S310 (SOURCE is a fixed https URL)
         return r.read()
 
 
@@ -58,6 +61,7 @@ def level2() -> tuple[bytes, list[int], int]:
                 mcu_offset = struct.unpack("<I", entries[65426][8:12])[0]
                 break
             offset = struct.unpack("<Q", body[12 * n : 12 * n + 8])[0]
+        assert mcu_offset is not None
         starts = fetch(mcu_offset, 4 * mcu_count)
         CACHE.parent.mkdir(parents=True, exist_ok=True)
         CACHE.write_bytes(struct.pack("<I", len(starts)) + starts + fetch(strip_offset, strip_count))
@@ -104,7 +108,10 @@ def crop(strip: bytes, starts: list[int], per_row: int, x0: int, y0: int, across
 
 class Ndpi:
     """An NDPI file: little-endian, an 8-byte first-IFD offset, and IFDs
-    followed by an 8-byte next offset and a high word per entry."""
+    followed by an 8-byte next offset and a high word per entry. An ASCII
+    value is out of line whatever its size, as Hamamatsu writes it
+    (spec/zarrify/ndpi.md §7
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>)."""
 
     def __init__(self) -> None:
         self.buf = bytearray(b"II*\x00" + b"\x00" * 8)
@@ -118,7 +125,7 @@ class Ndpi:
         return offset
 
     def image(self, strip: bytes, width: int, height: int, mag: float, starts: list[int] | None = None,
-              extra: dict | None = None, duplicates: tuple = ()) -> None:
+              extra: dict | None = None, duplicates: Sequence[tuple[int, int, object]] = ()) -> None:
         so = self.blob(strip)
         tags = {
             256: (4, [width]), 257: (4, [height]), 258: (3, [8, 8, 8]), 259: (3, [7]), 262: (3, [6]),
@@ -142,15 +149,17 @@ class Ndpi:
             elif typ == 5:
                 raw = b"".join(struct.pack("<II", *v) for v in values)
             else:
-                raw = struct.pack(f"<{len(values)}{ {3: 'H', 4: 'I', 9: 'i', 11: 'f', 13: 'I', 16: 'Q'}[typ] }", *values)
-            field = raw.ljust(4, b"\x00") if len(raw) <= 4 else struct.pack("<I", self.blob(raw))
+                raw = struct.pack(f"<{len(values)}{ {3: 'H', 4: 'I', 9: 'i', 11: 'f', 13: 'I', 16: 'Q'}[typ] }",
+                                  *values)
+            in_line = len(raw) <= 4 and (typ != 2 or not raw)
+            field = raw.ljust(4, b"\x00") if in_line else struct.pack("<I", self.blob(raw))
             entries.append(struct.pack("<HHI", tag, typ, len(values)) + field)
         n = len(entries)
         return self.blob(struct.pack("<H", n) + b"".join(entries) + b"\x00" * 8 + b"\x00" * 4 * n)
 
     def write(self, name: str) -> None:
         struct.pack_into("<Q", self.buf, 4, self.ifds[0])
-        for a, b in zip(self.ifds, self.ifds[1:]):
+        for a, b in pairwise(self.ifds):
             n = struct.unpack_from("<H", self.buf, a)[0]
             struct.pack_into("<Q", self.buf, a + 2 + 12 * n, b)
         (OUT / name).write_bytes(bytes(self.buf))
@@ -162,8 +171,9 @@ def main() -> None:
     level0 = crop(strip, starts, per_row, 8, 60, 10, 150)
     level1 = crop(strip, starts, per_row, 10, 100, 3, 20)
     rng = np.random.default_rng(3)
-    small = imagecodecs.jpeg8_encode(rng.integers(0, 256, (48, 64, 3), dtype=np.uint8), level=85)
-    macro = imagecodecs.jpeg8_encode(rng.integers(0, 256, (16, 48, 3), dtype=np.uint8), level=85)
+    # imagecodecs' stubs: an encoder gives bytes, without out=
+    small = cast("bytes", imagecodecs.jpeg8_encode(rng.integers(0, 256, (48, 64, 3), dtype=np.uint8), level=85))
+    macro = cast("bytes", imagecodecs.jpeg8_encode(rng.integers(0, 256, (16, 48, 3), dtype=np.uint8), level=85))
 
     f = Ndpi()
     f.image(level0[0], level0[2], level0[3], 20.0, level0[1])
@@ -184,6 +194,11 @@ def main() -> None:
     f = Ndpi()  # McuStarts with one value too few
     f.image(level1[0], level1[2], level1[3], 20.0, level1[1][:-1])
     f.write("edge_reject_ndpi_mcustarts.ndpi")
+    # McuStarts of one in-line LONG, whose value has its entry's high word (0), and
+    # McuStartsHighBytes of 1, which is not that word
+    f = Ndpi()
+    f.image(level1[0], level1[2], level1[3], 20.0, level1[1][:1], extra={65432: (4, [1])})
+    f.write("edge_reject_ndpi_mcustarts_high_word.ndpi")
     header = strip[: starts[0]]
     pos = header.index(b"\xff\xdd")  # remove the DRI segment
     no_dri = crop(strip, starts, per_row, 10, 100, 3, 20, header[:pos] + header[pos + 6 :])
@@ -233,8 +248,9 @@ def frames() -> None:
     rng = np.random.default_rng(100)
 
     def jpeg(height: int, width: int, subsampling: str = "420") -> bytes:
-        return imagecodecs.jpeg8_encode(rng.integers(0, 256, (height, width, 3), dtype=np.uint8), level=90,
-                                        subsampling=subsampling)
+        pixels = rng.integers(0, 256, (height, width, 3), dtype=np.uint8)
+        # imagecodecs' stubs: an encoder gives bytes, without out=
+        return cast("bytes", imagecodecs.jpeg8_encode(pixels, level=90, subsampling=subsampling))
 
     f = Ndpi()
     f.image(jpeg(48, 64), 64, 48, 1.25)  # the frame is the level's size

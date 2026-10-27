@@ -1,8 +1,8 @@
-//! Store inputs (spec/virtualize.md §1.4
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>, §1.5
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#15-listing-a-store>): the host's side
+//! Store inputs (spec/zarrify.md §1.4
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>, §1.5
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>): the host's side
 //! of a store run (rust/refkv-ir/src/store.rs), as python/src/refkv/ir/store.py and
-//! python/src/refkv/virtualize/store.py have it. The core is sans-IO: the host lists the store
+//! python/src/refkv/zarrify/store/stores.py have it. The core is sans-IO: the host lists the store
 //! (`DirStore`: a local directory; `HttpStore`: S3 `ListObjectsV2`, every request under the reader
 //! policy), gives the listing to a run, and performs the object reads the run asks for, at most
 //! the store's workers at a time.
@@ -38,17 +38,17 @@ fn unreserved(b: u8) -> bool {
     b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~')
 }
 
-/// The URL of the object with relative key `key` (spec/virtualize.md §1.4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>).
+/// The URL of the object with relative key `key` (spec/zarrify.md §1.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>).
 pub fn object_url(store_url: &str, key: &str) -> String {
     store_url.to_string() + &pct(key.as_bytes(), |b| unreserved(b) || b"!$&'()*+,;=:@/".contains(&b))
 }
 
-/// `enc` of spec/virtualize.md §1.5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#15-listing-a-store>: every byte but the unreserved ones percent-encoded.
+/// `enc` of spec/zarrify.md §1.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>: every byte but the unreserved ones percent-encoded.
 pub fn query_encode(s: &str) -> String {
     pct(s.as_bytes(), unreserved)
 }
 
-/// (scheme, authority, path) of a valid store URL (spec/virtualize.md §1.4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>), or a rejection.
+/// (scheme, authority, path) of a valid store URL (spec/zarrify.md §1.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>), or a rejection.
 pub fn check_store_url(url: &str) -> Result<(String, String, String), Fail> {
     if !refkv_vzip::uri::is_uri_reference(url) {
         return rejected(format!("{url:?} is not a valid URI"));
@@ -86,7 +86,7 @@ pub fn percent_decode(s: &str) -> Vec<u8> {
     out
 }
 
-/// (endpoint, prefix) of a store URL (spec/virtualize.md §1.5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#15-listing-a-store>): virtual-hosted style for an S3
+/// (endpoint, prefix) of a store URL (spec/zarrify.md §1.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>): virtual-hosted style for an S3
 /// host, path style (the first segment the bucket) for any other.
 pub fn listing_endpoint(url: &str) -> Result<(String, String), Fail> {
     let (scheme, authority, path) = check_store_url(url)?;
@@ -114,7 +114,7 @@ pub fn listing_endpoint(url: &str) -> Result<(String, String), Fail> {
     Ok((endpoint, prefix))
 }
 
-/// An ignored key (spec/virtualize.md §1.4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>): empty, ending in `/`, or with an empty, `.` or `..`
+/// An ignored key (spec/zarrify.md §1.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>): empty, ending in `/`, or with an empty, `.` or `..`
 /// segment.
 fn ignored(rel: &str) -> bool {
     rel.is_empty() || rel.ends_with('/') || rel.split('/').any(|s| s.is_empty() || s == "." || s == "..")
@@ -243,7 +243,7 @@ impl DirStore {
     }
 }
 
-/// A store listed by S3 ListObjectsV2 (spec/virtualize.md §1.5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#15-listing-a-store>), every request under the reader
+/// A store listed by S3 ListObjectsV2 (spec/zarrify.md §1.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>), every request under the reader
 /// policy: the listing's and each object read's, and each redirect target's, which is checked
 /// before it is requested.
 pub struct HttpStore {
@@ -253,7 +253,7 @@ pub struct HttpStore {
     pub listing: Listing,
 }
 
-/// A request's failure, for the retries of python/src/refkv/virtualize/common.py's `_retry`.
+/// A request's failure, for the retries of python/src/refkv/zarrify/common.py's `_retry`.
 enum Failure {
     Status(u16),
     Network(String),
@@ -278,7 +278,7 @@ impl HttpStore {
                 return Err(Fail::Other(format!("the store lists more than {} objects", max_objects.unwrap())));
             }
             let Some(t) = next else { break };
-            // the listing would repeat itself (spec/virtualize.md §1.5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#15-listing-a-store>)
+            // the listing would repeat itself (spec/zarrify.md §1.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>)
             if !tokens.insert(t.clone()) {
                 return rejected(format!("the listing gives the continuation token {:?} again", t.chars().take(80).collect::<String>()));
             }
@@ -422,7 +422,7 @@ impl Store {
         }
     }
 
-    /// The store profile the root keys select (spec/virtualize.md §1.4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>).
+    /// The store profile the root keys select (spec/zarrify.md §1.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>).
     pub fn choose_profile(&self) -> Result<&'static str, Fail> {
         let o = &self.listing().objects;
         if o.contains_key(".zarray") || o.contains_key(".zgroup") {
@@ -475,7 +475,7 @@ pub fn run_store(store: &Store, fmt: &str) -> Result<refkv_ir::out::Out, Fail> {
 }
 
 /// (format, output) of the store at `location`: the profile its root keys select, run by the core.
-pub fn virtualize_store(store: &Store) -> Result<(String, refkv_ir::out::Out), Fail> {
+pub fn zarrify_store(store: &Store) -> Result<(String, refkv_ir::out::Out), Fail> {
     let fmt = store.choose_profile()?;
     let out = run_store(store, match fmt {
         "n5" => "n5",

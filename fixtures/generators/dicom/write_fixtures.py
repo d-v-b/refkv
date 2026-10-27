@@ -1,6 +1,6 @@
 """Writes synthetic DICOM files to fixtures/dicom/, covering the
-rules of the DICOM profile (spec/virtualize/dicom.md §7
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#7-dicom-profile>): the native
+rules of the DICOM profile (spec/zarrify/dicom.md §7
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#7-dicom-profile>): the native
 transfer syntaxes in both byte orders, signed and 8/16/32-bit data, RGB planar and
 interleaved, multi-frame images, JPEG and JPEG 2000 frames with and without
 offset tables and split into fragments, whole-slide images, sequences of
@@ -8,7 +8,7 @@ undefined length before the pixel data, and the inputs the profile rejects
 (`dicom_reject_*`).
 
 The files are written with pydicom; JPEG and JPEG 2000 frames are encoded
-with imagecodecs. js/test/dicom/verify.py checks the virtualized pixels
+with imagecodecs. js/test/dicom/verify.py checks the zarrified pixels
 against pydicom (and imagecodecs, for the encapsulated frames).
 
 Usage: uv run python fixtures/generators/dicom/write_fixtures.py
@@ -18,15 +18,26 @@ from __future__ import annotations
 
 import struct
 from pathlib import Path
+from typing import cast
 
 import imagecodecs
 import numpy as np
 from pydicom.dataset import Dataset, FileMetaDataset
 from pydicom.encaps import encapsulate, encapsulate_extended
+from pydicom.filebase import DicomBytesIO
+from pydicom.filewriter import write_dataset, write_file_meta_info
 from pydicom.sequence import Sequence
 from pydicom.uid import (
-    UID, ExplicitVRBigEndian, ExplicitVRLittleEndian, ImplicitVRLittleEndian, JPEG2000, JPEG2000Lossless,
-    JPEGBaseline8Bit, JPEGLSLossless, RLELossless, generate_uid,
+    JPEG2000,
+    UID,
+    ExplicitVRBigEndian,
+    ExplicitVRLittleEndian,
+    ImplicitVRLittleEndian,
+    JPEG2000Lossless,
+    JPEGBaseline8Bit,
+    JPEGLSLossless,
+    RLELossless,
+    generate_uid,
 )
 
 OUT = Path(__file__).parents[2] / "dicom"
@@ -96,17 +107,19 @@ def smooth(frames: int, rows: int, columns: int, spp: int) -> np.ndarray:
 
 
 def jpeg(pixels: np.ndarray, photometric: str) -> bytes:
+    # imagecodecs' stubs: an encoder gives bytes, without out=
     if photometric == "RGB":
         # Stored as RGB, then made silent about it (no APP14, component ids
         # 1, 2, 3): a decoder that guesses would take it for YCbCr, so the
-        # profile's Adobe marker decides (spec/virtualize/dicom.md §7.5
-        # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#75-frames>).
-        return _strip_adobe(imagecodecs.jpeg8_encode(pixels, level=95, colorspace="RGB", outcolorspace="RGB"))
+        # profile's Adobe marker decides (spec/zarrify/dicom.md §7.5
+        # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#75-frames>).
+        rgb = imagecodecs.jpeg8_encode(pixels, level=95, colorspace="RGB", outcolorspace="RGB")
+        return _strip_adobe(cast("bytes", rgb))
     if photometric == "YBR_FULL_422":
-        return imagecodecs.jpeg8_encode(pixels, level=95, subsampling="422")
+        return cast("bytes", imagecodecs.jpeg8_encode(pixels, level=95, subsampling="422"))
     if photometric == "YBR_FULL":
-        return imagecodecs.jpeg8_encode(pixels, level=95, subsampling="444")
-    return imagecodecs.jpeg8_encode(pixels, level=95)
+        return cast("bytes", imagecodecs.jpeg8_encode(pixels, level=95, subsampling="444"))
+    return cast("bytes", imagecodecs.jpeg8_encode(pixels, level=95))
 
 
 def _strip_adobe(stream: bytes) -> bytes:
@@ -131,10 +144,11 @@ def _strip_adobe(stream: bytes) -> bytes:
 
 
 def j2k(pixels: np.ndarray, mct: bool = True) -> bytes:
-    return imagecodecs.jpeg2k_encode(pixels, level=0, codecformat="J2K", reversible=True, mct=mct)
+    j = imagecodecs.jpeg2k_encode(pixels, level=0, codecformat="J2K", reversible=True, mct=mct)
+    return cast("bytes", j)  # imagecodecs' stubs: bytes, without out=
 
 
-def sequences(ds: Dataset, implicit: bool = False) -> None:
+def sequences(ds: Dataset) -> None:
     """Nested sequences of undefined length (and one of defined length, and
     an empty one) before the pixel data."""
     inner = Dataset()
@@ -186,7 +200,7 @@ def main() -> None:
     ds.RescaleIntercept, ds.RescaleSlope = "-1024", "1"
     save("dicom_implicit_mono16", native(ds, ramp((12, 10), np.uint16) & 0x0FFF), ImplicitVRLittleEndian)
     # The same file with a TIFF header in its preamble, as some toolkits write
-    # it: §1.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input> tests for DICM
+    # it: §1.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input> tests for DICM
     # first, so it is still DICOM.
     (OUT / "dicom_tiff_preamble.dcm").write_bytes(
         b"II*\0" + (OUT / "dicom_implicit_mono16.dcm").read_bytes()[4:])
@@ -290,8 +304,7 @@ def main() -> None:
 
 def rejects() -> None:
     def mono(frames: int | None = None, bits: int = 8) -> Dataset:
-        ds = image(MULTIFRAME_GRAYSCALE if frames else SECONDARY_CAPTURE, 4, 4, bits=bits, frames=frames)
-        return ds
+        return image(MULTIFRAME_GRAYSCALE if frames else SECONDARY_CAPTURE, 4, 4, bits=bits, frames=frames)
 
     def pixels(ds: Dataset, n: int = 1) -> Dataset:
         return native(ds, ramp((n, 4, 4), np.uint8 if ds.BitsAllocated == 8 else np.uint16), vr="OB")
@@ -397,8 +410,8 @@ def later() -> None:
     """Fixtures added after the others, last so that the seeded UIDs of the
     others do not change."""
     # Cine frames: the Frame Increment Pointer names Frame Time, so the frames
-    # are along t, 33.3 ms apart (spec/virtualize/dicom.md §4
-    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#4-output>).
+    # are along t, 33.3 ms apart (spec/zarrify/dicom.md §4
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#4-output>).
     ds = image(MULTIFRAME_GRAYSCALE, 4, 6, bits=8, frames=5)
     ds.FrameIncrementPointer = 0x00181063
     ds.FrameTime = "33.3"
@@ -414,11 +427,8 @@ def later() -> None:
 
 def reconstruction() -> None:
     """Values the source metadata keeps as arrays, on refkv_source, and elements
-    after Pixel Data (spec/virtualize/dicom.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#5-source-metadata>)."""
-    from pydicom.dataelem import DataElement
-    from pydicom.sequence import Sequence
-
+    after Pixel Data (spec/zarrify/dicom.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#5-source-metadata>)."""
     ds = image(MULTIFRAME_GRAYSCALE, 4, 4, bits=8, frames=2)
     ds.add_new(0x00091010, "OB", bytes(range(200)))  # a large private binary value: an array
     ds.add_new(0x00090010, "LO", "VZIP TEST")
@@ -453,13 +463,10 @@ def _patch(name: str, f) -> None:
 
 
 def review() -> None:
-    """What else the source metadata keeps (spec/virtualize/dicom.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#5-source-metadata>):
+    """What else the source metadata keeps (spec/zarrify/dicom.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#5-source-metadata>):
     duplicate elements, values under a multibyte character set, large values,
     per-frame values, a preamble, and the pixel data that no frame holds."""
-    from pydicom.filebase import DicomBytesIO
-    from pydicom.filewriter import write_dataset, write_file_meta_info
-
     def encode(ds: Dataset) -> bytes:
         fp = DicomBytesIO()
         fp.is_little_endian, fp.is_implicit_VR = True, False
@@ -604,14 +611,11 @@ def review() -> None:
 
 
 def review2() -> None:
-    """More of what the source metadata keeps (spec/virtualize/dicom.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#5-source-metadata>):
+    """More of what the source metadata keeps (spec/zarrify/dicom.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#5-source-metadata>):
     per-frame values whose paths nest, numbers too long to convert, a root
     kept small, and Extended Offset Table frames without their item headers;
     and a JPEG frame that is not a JPEG stream, which the profile rejects."""
-    from pydicom.filebase import DicomBytesIO
-    from pydicom.filewriter import write_dataset
-
     def encode(ds: Dataset) -> bytes:
         fp = DicomBytesIO()
         fp.is_little_endian, fp.is_implicit_VR = True, False
@@ -708,17 +712,14 @@ def review2() -> None:
 
 
 def review3() -> None:
-    """Round three (spec/virtualize/dicom.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#5-source-metadata>,
-    spec/virtualize/dicom.md §7.5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#75-frames>):
+    """Round three (spec/zarrify/dicom.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#5-source-metadata>,
+    spec/zarrify/dicom.md §7.5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#75-frames>):
     native pixel data that runs past the file and overlapping Extended Offset
     Table frames, which the profile rejects; group lengths and offset tables
     that are not layout; explicit UN values in big endian; per-frame values
     as columns; and a frame of several fragments, one of them empty."""
-    from pydicom.filebase import DicomBytesIO
-    from pydicom.filewriter import write_dataset
-
     def encode(ds: Dataset, little: bool = True) -> bytes:
         fp = DicomBytesIO()
         fp.is_little_endian, fp.is_implicit_VR = little, False
@@ -837,7 +838,8 @@ def review3() -> None:
                    + (element(0x00209057, "UL", struct.pack("<I", f + 1)) if f != 3 else b"")
                    + element(0x00209128, "IS", text(b"%d" % (10 * f))))
         position = element(0x00200032, "DS", text(b"-125.5\\130.25\\%d.5" % f))
-        voi = (element(0x00281050, "DS", text(b"40.00000000000000000%d" % (f == 2)))  # 40.000000000000000001: no binary64
+        # 40.000000000000000001: no binary64
+        voi = (element(0x00281050, "DS", text(b"40.00000000000000000%d" % (f == 2)))
                + element(0x00281051, "DS", text(b"400" + b"0" * f) if f != 4 else text(b"0.10000000000000001")))
         group = element(0x00289145, "SQ", item(voi))
         length = element(0x00280000, "UL", struct.pack("<I", len(group) if f else 1))  # layout but in item 0
@@ -864,8 +866,8 @@ def review3() -> None:
 
 
 def review4() -> None:
-    """Round four (spec/virtualize/dicom.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#5-source-metadata>, Gathered
+    """Round four (spec/zarrify/dicom.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#5-source-metadata>, Gathered
     sequences): any sequence of more than 64 items gathered, at any depth, of defined and
     undefined length; sparse columns; the bounds past which a sequence keeps
     its bytes; and explicit UN values gathered in explicit VR big endian."""
@@ -897,8 +899,6 @@ def review4() -> None:
                 + element(0x00020003, "UI", uid(ds.SOPInstanceUID.encode()))
                 + element(0x00020010, "UI", uid(syntax.encode())))
         group = element(0x00020000, "UL", struct.pack("<I", len(meta)))
-        from pydicom.filebase import DicomBytesIO
-        from pydicom.filewriter import write_dataset
         fp = DicomBytesIO()
         fp.is_little_endian, fp.is_implicit_VR = little, False
         write_dataset(fp, ds)

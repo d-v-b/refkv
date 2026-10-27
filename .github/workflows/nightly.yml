@@ -1,4 +1,4 @@
-# Nightly, and on demand: the virtualizers and the frozen reference on the public corpus (network) and on
+# Nightly, and on demand: the zarrifiers and the frozen reference on the public corpus (network) and on
 # corrupted copies of the fixtures, and the corpus inputs' fingerprints. The caching
 # proxy's blocks are kept between runs, so upstream servers see each block once.
 name: nightly
@@ -15,6 +15,12 @@ on:
 permissions:
   contents: read
 
+# one run at a time, none cancelled: a run prunes the proxy caches of its ref that its own
+# supersedes, so a run that overlaps another could prune the newer one's
+concurrency:
+  group: nightly-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   NODE_VERSION: "24"
 
@@ -22,6 +28,9 @@ jobs:
   corpus-fingerprints:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: write  # to delete the proxy cache this run supersedes
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -32,18 +41,77 @@ jobs:
         with:
           workspaces: |
             rust/refkv-ir
-            python
+            rust/refkv-python
       - run: uv sync --all-groups --locked
-      - uses: actions/cache@v4
+      # restored and saved in two steps: actions/cache saves only after a job that passed, and a
+      # night that fails must still keep the blocks it fetched, or the next one fetches them again
+      - id: restore
+        uses: actions/cache/restore@v4
         with:
           path: /tmp/vzip-proxy-cache
-          key: proxy-fingerprints-${{ github.run_id }}
+          key: proxy-fingerprints-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: proxy-fingerprints-
-      - run: uv run python conformance/virtualize/corpus_hash.py check
+      # well below the job's timeout (setup takes some of it), so that the cache is saved after a
+      # check that ran out of time
+      - run: uv run python conformance/zarrify/corpus_hash.py check
+        timeout-minutes: 40
+      # once the cache was restored (or missed): a job that failed before has nothing to save
+      - if: always() && steps.restore.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: /tmp/vzip-proxy-cache
+          key: proxy-fingerprints-${{ github.run_id }}-${{ github.run_attempt }}
+      # one entry per job and ref: the repository's caches share 10 GB with CI's Rust caches, and
+      # a corpus shard's is 1.6 GB. Once this run's is saved, the ones of this ref it supersedes
+      # go (not another ref's: a run dispatched on a branch leaves main's alone). Saved before the
+      # old one goes, so the four shards briefly hold twice theirs, and GitHub may evict others
+      # meanwhile; deleting first would lose the cache whenever the save fails. Best effort
+      - if: always() && steps.restore.outcome == 'success'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEY: proxy-fingerprints-${{ github.run_id }}-${{ github.run_attempt }}
+          PREFIX: proxy-fingerprints-
+        run: |
+          keys="$(gh cache list -R "$GITHUB_REPOSITORY" --ref "$GITHUB_REF" --key "$PREFIX" -L 100 --json key -q '.[].key')"
+          grep -qx "$KEY" <<< "$keys" || exit 0
+          ref="$(jq -rn --arg r "$GITHUB_REF" '$r | @uri')"
+          for k in $(grep -vx "$KEY" <<< "$keys"); do
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/caches?key=$k&ref=$ref" > /dev/null
+          done
+
+  examples:
+    # each format's example as a user runs it, its PEP 723 header building refkv from main, so
+    # that a change on main that breaks one shows here (docs/zarrify/<format>/example.py)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run the examples
+        run: |
+          mkdir -p examples-out && cd examples-out
+          failed=()
+          for f in ../docs/zarrify/*/example.py; do
+            echo "== $f"
+            MPLBACKEND=Agg uv run --script "$f" || failed+=("$f")
+          done
+          if [ ${#failed[@]} -gt 0 ]; then printf "failed: %s\n" "${failed[@]}"; exit 1; fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: examples
+          path: examples-out/*.png
 
   corpus:
     runs-on: ubuntu-latest
     timeout-minutes: 360
+    permissions:
+      contents: read
+      actions: write  # to delete the proxy cache this run supersedes
     strategy:
       fail-fast: false
       matrix:
@@ -56,7 +124,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-      - uses: extractions/setup-just@v2
+      - uses: extractions/setup-crate@v2
+        with:
+          repo: casey/just
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
@@ -64,22 +134,52 @@ jobs:
         with:
           workspaces: |
             rust/refkv-ir
-            python
+            rust/refkv-python
       # binaryen's wasm-opt shrinks the wasm32 module (rust/refkv-ir/wasm/build.sh; optional)
       - run: sudo apt-get install -y --no-install-recommends binaryen
       - run: uv sync --all-groups --locked
       - run: just js::wasm
-      - uses: actions/cache@v4
+      # restored and saved in two steps: actions/cache saves only after a job that passed, and a
+      # night that fails must still keep the blocks it fetched, or the next one fetches them again
+      - id: restore
+        uses: actions/cache/restore@v4
         with:
           path: /tmp/vzip-proxy-cache
-          key: proxy-corpus-${{ matrix.shard }}-${{ github.run_id }}
+          key: proxy-corpus-${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: proxy-corpus-${{ matrix.shard }}-
+      # well below the job's timeout (setup takes some of it), so that the cache is saved after a
+      # comparison that ran out of time
       - run: just compare --shard ${{ matrix.shard }}/4
+        timeout-minutes: 300
+      # once the cache was restored (or missed): a job that failed before has nothing to save
+      - if: always() && steps.restore.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: /tmp/vzip-proxy-cache
+          key: proxy-corpus-${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
+      # one entry per job and ref: the repository's caches share 10 GB with CI's Rust caches, and
+      # a corpus shard's is 1.6 GB. Once this run's is saved, the ones of this ref it supersedes
+      # go (not another ref's: a run dispatched on a branch leaves main's alone). Saved before the
+      # old one goes, so the four shards briefly hold twice theirs, and GitHub may evict others
+      # meanwhile; deleting first would lose the cache whenever the save fails. Best effort
+      - if: always() && steps.restore.outcome == 'success'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEY: proxy-corpus-${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
+          PREFIX: proxy-corpus-${{ matrix.shard }}-
+        run: |
+          keys="$(gh cache list -R "$GITHUB_REPOSITORY" --ref "$GITHUB_REF" --key "$PREFIX" -L 100 --json key -q '.[].key')"
+          grep -qx "$KEY" <<< "$keys" || exit 0
+          ref="$(jq -rn --arg r "$GITHUB_REF" '$r | @uri')"
+          for k in $(grep -vx "$KEY" <<< "$keys"); do
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/caches?key=$k&ref=$ref" > /dev/null
+          done
       - if: always()
         uses: actions/upload-artifact@v4
         with:
           name: corpus-${{ matrix.shard }}
-          path: conformance/results/virtualize/results.json
+          path: conformance/results/zarrify/results.json
 
   mutants:
     runs-on: ubuntu-latest
@@ -92,7 +192,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-      - uses: extractions/setup-just@v2
+      - uses: extractions/setup-crate@v2
+        with:
+          repo: casey/just
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
@@ -100,7 +202,7 @@ jobs:
         with:
           workspaces: |
             rust/refkv-ir
-            python
+            rust/refkv-python
       # binaryen's wasm-opt shrinks the wasm32 module (rust/refkv-ir/wasm/build.sh; optional)
       - run: sudo apt-get install -y --no-install-recommends binaryen
       - run: uv sync --all-groups --locked

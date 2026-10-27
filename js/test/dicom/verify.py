@@ -1,13 +1,13 @@
-"""Checks the browser DICOM virtualizer's output against pydicom.
+"""Checks the browser DICOM zarrifier's output against pydicom.
 
-The browser virtualizes DICOM with the Rust core (wasm32), whose archives hold the IR's
+The browser zarrifies DICOM with the Rust core (wasm32), whose archives hold the IR's
 mirror under `refkv_source`: their source check is the mirror's, the file rebuilt from
 the archive alone, byte for byte (js/test/ir_mirror.py); an archive with revision 25's
 source metadata is checked against pydicom's DICOM JSON as before.
 
 Each fixtures/dicom/*.dcm (or, given as arguments, other DICOM files
-or http(s) URLs) is served over local HTTP and virtualized by
-js/conformance/virtualize.ts (the browser code, run under Node). The whole
+or http(s) URLs) is served over local HTTP and zarrified by
+js/conformance/zarrify.ts (the browser code, run under Node). The whole
 array is then read through the reference reader (python/src/refkv) and zarr-python,
 and must equal what pydicom reads from the file: its pixel_array for native
 pixel data, and for encapsulated pixel data its frames (pydicom's
@@ -33,6 +33,7 @@ from pathlib import Path
 import imagecodecs
 import numpy as np
 import pydicom
+import pydicom.config
 import zarr
 from pydicom.charset import convert_encodings
 from pydicom.dataelem import RawDataElement, convert_raw_data_element
@@ -42,16 +43,18 @@ from pydicom.tag import BaseTag
 from zarr.core.buffer import default_buffer_prototype
 from zarr.core.sync import sync
 
-import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store; registers imagecodecs_jpeg and imagecodecs_jpeg2k)
+import refkv.zarr
+from refkv._narrow import ndarray
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # js/test, for verify_common
-from verify_common import LOOPBACK_SOURCES  # noqa: E402
+from verify_common import LOOPBACK_SOURCES, metadata_v3
+
 HERE = Path(__file__).parent
 ROOT = HERE.parents[2]
 sys.path.insert(0, str(ROOT / "conformance" / "vzip"))
 sys.path.insert(0, str(HERE.parent))
 # the frozen reference's data dictionary (the archives of revision 25 and before)
-sys.path.insert(0, str(ROOT / "conformance" / "virtualize" / "reference"))
+sys.path.insert(0, str(ROOT / "conformance" / "zarrify" / "reference"))
 from http_server import Server  # noqa: E402
 from ir_mirror import is_mirror, mirror_problems  # noqa: E402
 from refkv_reference.dicom.source import dictionary_vr  # noqa: E402
@@ -78,7 +81,8 @@ def expected(ds: pydicom.Dataset) -> np.ndarray:
                 colorspace = None
                 if spp == 3:
                     colorspace = "RGB" if ds.PhotometricInterpretation == "RGB" else "YCBCR"
-                decoded.append(imagecodecs.jpeg8_decode(frame, colorspace=colorspace, outcolorspace="RGB" if spp == 3 else None))
+                decoded.append(imagecodecs.jpeg8_decode(frame, colorspace=colorspace,
+                                                        outcolorspace="RGB" if spp == 3 else None))
             else:
                 decoded.append(imagecodecs.jpeg2k_decode(frame))
         frames = np.stack(decoded).astype(dtype)
@@ -98,7 +102,7 @@ def expected(ds: pydicom.Dataset) -> np.ndarray:
 
 
 LAYOUT = {"7FE00001", "7FE00002", "FFFCFFFC"}  # offset tables and padding: recorded only where they are not layout
-ADOBE = 18  # the bytes of the SOI and Adobe marker that replace an RGB JPEG frame's SOI (spec/virtualize/dicom.md §7.5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#75-frames>)
+ADOBE = 18  # the bytes of the SOI and Adobe marker that replace an RGB JPEG frame's SOI (spec/zarrify/dicom.md §7.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#75-frames>)
 BINARY = {"OB", "OD", "OF", "OL", "OV", "OW", "UN"}
 SIZES = {"AT": 4, "FL": 4, "FD": 8, "SL": 4, "SS": 2, "UL": 4, "US": 2, "SV": 8, "UV": 8}
 pydicom.config.convert_wrong_length_to_UN = True  # numeric values whose length is not a multiple of the size
@@ -121,7 +125,7 @@ def pydicom_json(ds: pydicom.Dataset, little: bool = True) -> dict:
                 out[f"{tag:08X}"] = {"vr": "SQ", "Value": [pydicom_json(x, little) for x in ds[tag].value]}
                 continue
             out[f"{tag:08X}"] = ds[tag].to_json_dict(None, 1 << 30)
-        except Exception:
+        except Exception:  # noqa: BLE001 (whatever pydicom cannot convert is compared as its bytes)
             out[f"{tag:08X}"] = {"vr": raw.VR, "InlineBinary": base64.b64encode(raw.value).decode()}
     return out
 
@@ -132,8 +136,8 @@ def array_bytes(root, uri: str) -> bytes:
     path, _, index = uri.partition("#")
     node = root[path]
     if isinstance(node, zarr.Group):  # a family: offsets and data
-        offsets = node["offsets"][...]
-        data = node["data"][...].tobytes() if "data" in node else b""
+        offsets = ndarray(node.get_array("offsets")[...])
+        data = ndarray(node.get_array("data")[...]).tobytes() if "data" in node else b""
         i = int(index)
         return data[offsets[i]:offsets[i + 1]]
     endian = getattr(node.metadata.codecs[0], "endian", None)
@@ -153,8 +157,8 @@ def collapse(d: dict, path: str) -> dict:
 
 def gathered_uri(path: str, sequence: str) -> str:
     """Where a value in an item of the gathered sequence at `sequence` is
-    gathered (spec/virtualize/dicom.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#5-source-metadata>): `path` is
+    gathered (spec/zarrify/dicom.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#5-source-metadata>): `path` is
     <sequence>/<i>/<p>."""
     i, rest = path[len(sequence) + 1:].split("/", 1)
     return f"refkv_source/{sequence}/items/{rest}/value#{i}"
@@ -168,8 +172,8 @@ def chunk_bytes(root, key: str) -> bytes:
 def fragment_problems(root, source: dict, ds: pydicom.Dataset) -> list[str]:
     """Encapsulated pixel data without an Extended Offset Table, rebuilt from
     the frames' chunks, `pixel_fragments` and `pixel_offset_table`
-    (spec/virtualize/dicom.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#5-source-metadata>): the Basic
+    (spec/zarrify/dicom.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#5-source-metadata>): the Basic
     Offset Table, then each fragment's item."""
     n = int(ds.get("NumberOfFrames", 1) or 1)
     axes = list(root["0"].metadata.dimension_names)
@@ -205,8 +209,8 @@ def array_values(root, uri: str) -> np.ndarray:
 
 
 def header_problems(root, data: bytes) -> list[str]:
-    """Reconstruction (spec/virtualize/dicom.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#5-source-metadata>): the
+    """Reconstruction (spec/zarrify/dicom.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#5-source-metadata>): the
     source metadata, its
     node's meta and dataset and the arrays its BulkDataURIs name, against pydicom's DICOM
     JSON Model, without group lengths, layout and Pixel Data; then the preamble,
@@ -214,7 +218,7 @@ def header_problems(root, data: bytes) -> list[str]:
     Offset Table skips, and every top-level element, duplicates included. An
     element that the dictionary leaves ambiguous (US or SS, OB or OW) is UN in
     ours, where pydicom resolves it."""
-    source = root.attrs["refkv_virtualized"]["dicom"]
+    source = root.attrs["refkv_zarrified"]["dicom"]
     problems = []
     if "trailing" in source:  # not elements: pydicom reads the file without them
         tail = array_bytes(root, source["trailing"])
@@ -226,35 +230,39 @@ def header_problems(root, data: bytes) -> list[str]:
     preamble = base64.b64decode(source["preamble"]) if "preamble" in source else bytes(128)
     if preamble != data[:128]:
         problems.append("preamble")
-    node = root["refkv_source"] if "refkv_source" in root else None
+    node = root.get("refkv_source", None)
     meta, dataset = dict(source["meta"]), dict(source["dataset"])
-    if node is not None and "refkv_virtualized" in node.attrs:
-        meta.update(node.attrs["refkv_virtualized"]["dicom"].get("meta", {}))
-        dataset.update(node.attrs["refkv_virtualized"]["dicom"].get("dataset", {}))
+    if node is not None and "refkv_zarrified" in node.attrs:
+        meta.update(node.attrs["refkv_zarrified"]["dicom"].get("meta", {}))
+        dataset.update(node.attrs["refkv_zarrified"]["dicom"].get("dataset", {}))
 
     def strip(d: dict) -> dict:
         return {k: v for k, v in d.items() if k not in ("7FE00010", "FFFCFFFC")}
 
     def layout(k: str) -> bool:
         """Group lengths and the Extended Offset Table, which ours omits where
-        they are layout (spec/virtualize/dicom.md §5
-        <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#5-source-metadata>)."""
+        they are layout (spec/zarrify/dicom.md §5
+        <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#5-source-metadata>)."""
         return k.endswith("0000") or k in LAYOUT
 
     def resolve(k: str, a: dict, charsets, path: str, sequence: str | None) -> dict:
         """Our attribute as pydicom gives it from the bytes we keep: those of an
         array, or of a value we keep unsplit (a multibyte character set, or not
         whole values); a gathered DS or IS value's typed values as its numbers."""
-        uri = gathered_uri(path, sequence) if a.get("Gathered") else a.get("BulkDataURI")
+        if a.get("Gathered"):
+            assert sequence is not None, f"{path}: gathered outside a sequence"
+            uri = gathered_uri(path, sequence)
+        else:
+            uri = a.get("BulkDataURI")
         node = root[uri.partition("#")[0]] if uri is not None else None
-        if isinstance(node, zarr.Array) and a["vr"] in ("DS", "IS") and node.dtype != np.uint8:
+        if uri is not None and isinstance(node, zarr.Array) and a["vr"] in ("DS", "IS") and node.dtype != np.uint8:
             return {"vr": a["vr"], "Value": array_values(root, uri).tolist()}
         # The byte order of the bytes we keep: an array's own, else the
         # dataset's, unless they are an explicit UN value's (LittleEndian).
         order = little or bool(a.get("LittleEndian"))
         if uri is not None:
             raw = array_bytes(root, uri)
-            endian = getattr(node.metadata.codecs[0], "endian", None) if isinstance(node, zarr.Array) else None
+            endian = getattr(metadata_v3(node).codecs[0], "endian", None) if isinstance(node, zarr.Array) else None
             order = order if endian is None else getattr(endian, "value", endian) == "little"
         elif "InlineBinary" in a and a["vr"] not in BINARY:
             raw = base64.b64decode(a["InlineBinary"])
@@ -291,7 +299,7 @@ def header_problems(root, data: bytes) -> list[str]:
         values = a.get("Value", [])
         if len(values) != len(parts):
             return False
-        for x, p in zip(values, parts):
+        for x, p in zip(values, parts, strict=True):
             if isinstance(x, str):
                 digits = p.lstrip("+-").lstrip("0")
                 if x not in (p, ("-" if p.startswith("-") else "") + digits):
@@ -327,7 +335,7 @@ def header_problems(root, data: bytes) -> list[str]:
                 continue
             if a.get("vr") == "SQ" and b.get("vr") == "SQ" and len(a.get("Value", [])) == len(b.get("Value", [])):
                 inner = at if "Structures" in ours[k][0] else sequence
-                for i, (x, y) in enumerate(zip(a.get("Value", []), b.get("Value", []))):
+                for i, (x, y) in enumerate(zip(a.get("Value", []), b.get("Value", []), strict=True)):
                     out += compare(strip(x), strip(y), f"{where}{k}[{i}]/", charsets, f"{at}/{i}", inner)
             elif not same(a, b):
                 out.append(f"{where}{k}: {str(a)[:60]} vs {str(b)[:60]}")
@@ -341,7 +349,8 @@ def header_problems(root, data: bytes) -> list[str]:
     fp = io.BytesIO(data)
     read_preamble(fp, False)
     _read_file_meta_info(fp)
-    walked = Counter(f"{e.tag:08X}" for e in data_element_generator(fp, ds.file_meta.TransferSyntaxUID == "1.2.840.10008.1.2", little))
+    implicit = ds.file_meta.TransferSyntaxUID == "1.2.840.10008.1.2"
+    walked = Counter(f"{e.tag:08X}" for e in data_element_generator(fp, implicit, little))
     ours = Counter(k for k in dataset if k != "duplicates")
     ours.update(k for d in dataset.get("duplicates", []) for k in d)
     walked = Counter({k: n for k, n in walked.items() if k in strip({k: 0})})
@@ -363,10 +372,11 @@ def header_problems(root, data: bytes) -> list[str]:
         offsets = struct.unpack(f"<{n}Q", ds.ExtendedOffsetTable)
         lengths = struct.unpack(f"<{n}Q", ds.ExtendedOffsetTableLengths)
         fragments = ds.PixelData[8:]  # after the empty Basic Offset Table
-        headers = all(fragments[o:o + 8] == struct.pack("<HHI", 0xFFFE, 0xE000, m) for o, m in zip(offsets, lengths))
+        headers = all(fragments[o:o + 8] == struct.pack("<HHI", 0xFFFE, 0xE000, m)
+                      for o, m in zip(offsets, lengths, strict=True))
         if source.get("pixel_unreferenced_headers", False) == headers:
             problems.append(f"pixel_unreferenced_headers: {source.get('pixel_unreferenced_headers')}")
-        items = [(o, 8 + m) if headers else (o + 8, m) for o, m in zip(offsets, lengths)]
+        items = [(o, 8 + m) if headers else (o + 8, m) for o, m in zip(offsets, lengths, strict=True)]
         cursor, gaps = 0, []
         for o, length in sorted(items):
             gaps.append(fragments[cursor:o])
@@ -384,8 +394,8 @@ def header_problems(root, data: bytes) -> list[str]:
 def check(name: str, url: str, data: bytes, tmp: Path) -> tuple[bool, str]:
     out = tmp / "out.vzip"
     out.unlink(missing_ok=True)
-    p = subprocess.run(["node", str(ROOT / "js" / "conformance" / "virtualize.ts"), "--allow-private-hosts", url, str(out)],
-                       capture_output=True, text=True)
+    p = subprocess.run(["node", str(ROOT / "js" / "conformance" / "zarrify.ts"), "--allow-private-hosts", url,
+                        str(out)], capture_output=True, text=True, check=False)
     if name.startswith("dicom_reject"):
         ok = p.returncode == 3 and not out.exists()
         return ok, ("rejected: " + p.stderr.strip()[-90:]) if ok else "NOT REJECTED " + p.stderr[-200:]
@@ -400,14 +410,16 @@ def check(name: str, url: str, data: bytes, tmp: Path) -> tuple[bool, str]:
         header = header_problems(root, data)
     if header:
         return False, f"HEADER: {header[:3]}"
-    arr = root["0"]
-    got = arr[...]
+    arr = root.get_array("0")
+    got = ndarray(arr[...])
     want = expected(pydicom.dcmread(io.BytesIO(data)))
     if got.dtype != want.dtype or got.shape != want.shape:
         return False, f"{got.dtype} {got.shape} != {want.dtype} {want.shape}"
     if not np.array_equal(got, want):
         return False, f"pixels differ in {np.count_nonzero(got != want)} of {got.size} values"
-    return True, f"ok {list(arr.metadata.dimension_names)} {got.shape} {got.dtype}"
+    names = metadata_v3(arr).dimension_names
+    assert names is not None
+    return True, f"ok {list(names)} {got.shape} {got.dtype}"
 
 
 def main(argv: list[str]) -> int:
@@ -416,8 +428,9 @@ def main(argv: list[str]) -> int:
         if argv:
             for target in argv:
                 if target.startswith(("http://", "https://")):
-                    req = urllib.request.Request(target, headers={"User-Agent": "refkv-verify"})
-                    data = urllib.request.urlopen(req, timeout=600).read()
+                    # an http(s) URL, as checked above
+                    req = urllib.request.Request(target, headers={"User-Agent": "refkv-verify"})  # noqa: S310
+                    data = urllib.request.urlopen(req, timeout=600).read()  # noqa: S310
                     url = target
                 else:
                     data = Path(target).read_bytes()

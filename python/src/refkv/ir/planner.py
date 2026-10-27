@@ -33,14 +33,20 @@ import mmap
 import os
 import random
 import re
-import threading
+import socket
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from email.message import Message
+from typing import Protocol, cast
 from urllib.parse import urljoin, urlparse
 
+from refkv import _core
 from refkv.errors import ResolutionError
 from refkv.policy import Policy
-from refkv.virtualize.common import UA, EtagLog, Rejected
+from refkv.reader import _POOL, Check, _check_http_url, _connect, _proxy
+from refkv.reader import _send as reader_send
+from refkv.zarrify.common import UA, EtagLog, Rejected
 
 RETRY = (429, 500, 502, 503, 504)
 REDIRECTS = (301, 302, 303, 307, 308)
@@ -57,7 +63,7 @@ class FileTransport:
             self.size = os.fstat(fh.fileno()).st_size
             self.data = mmap.mmap(fh.fileno(), 0, access=mmap.ACCESS_READ) if self.size else b""
         self.head = (0, b"", 0.0)
-        self.etag = lambda: None
+        self.etag: Callable[[], str | None] = lambda: None
 
     def get(self, start: int, end: int) -> bytes:
         return bytes(self.data[start:end])
@@ -73,8 +79,6 @@ class HttpTransport:
     remote = True
 
     def __init__(self, url: str, policy: Policy | None = None, attempts: int = 6, base_delay: float = 0.5) -> None:
-        from refkv.reader import _check_http_url
-
         self.url, self.attempts, self.base_delay = url, attempts, base_delay
         self.policy = policy or Policy()
         self.retries = 0
@@ -92,23 +96,21 @@ class HttpTransport:
         elif status == 416:  # an empty object
             self.size, body = 0, b""
         else:  # a 200 (whose body is not read): the server does not serve ranges; or an error
-            raise _Fatal(f"{self.url}: HTTP {status} for a range of its first bytes")
+            raise _FatalError(f"{self.url}: HTTP {status} for a range of its first bytes")
         self.head = (0, body[:OPEN], dt)
         self.etag = self.etags.pin
 
     # ---- one request
 
-    def _check(self, url: str):
+    def _check(self, url: str) -> Check | None:
         if self.policy.allow_private_hosts:
             return None
         return lambda ip: self.policy.check_address(url, ip)
 
-    def _get(self, headers: dict[str, str], multipart: bool = False):
+    def _get(self, headers: dict[str, str], multipart: bool = False) -> tuple[int, Message, bytes]:
         """One GET of the object (redirects followed and checked): (status, headers, body).
         With `multipart`, a body that is not multipart/byteranges (a 200 is the whole
         object) is not read: the body is b"" and the connection closed."""
-        from refkv.reader import _check_http_url
-
         url = self.url
         headers = {**headers, "User-Agent": UA, "Accept-Encoding": "identity"}
         for hop in range(6):
@@ -128,13 +130,13 @@ class HttpTransport:
             url = new
         self.url = url  # later requests go where the redirects led
         if status in RETRY:
-            raise _Retry(status, msg.get("Retry-After"))
+            raise _RetryError(status, msg.get("Retry-After"))
         if status in (200, 206):
             self.etags.saw(msg.get("ETag"))
         return status, msg, body
 
     def _wait(self, attempt: int, retry_after: str | None) -> None:
-        delay = self.base_delay * (2 ** attempt) * (0.5 + random.random())
+        delay = self.base_delay * (2 ** attempt) * (0.5 + random.random())  # noqa: S311 (backoff jitter)
         if retry_after:
             try:
                 delay = max(delay, float(retry_after))
@@ -144,13 +146,13 @@ class HttpTransport:
         self.retries += 1
         time.sleep(min(delay, 120))
 
-    def _retry(self, f):
+    def _retry[T](self, f: Callable[[], T]) -> T:
         for attempt in range(self.attempts):
             try:
                 return f()
-            except (ResolutionError, _Fatal):
+            except (ResolutionError, _FatalError):
                 raise
-            except _Retry as e:
+            except _RetryError as e:
                 if attempt == self.attempts - 1:
                     raise OSError(f"{self.url}: HTTP {e.status} after {self.attempts} attempts") from None
                 self._wait(attempt, e.retry_after)
@@ -158,12 +160,13 @@ class HttpTransport:
                 if attempt == self.attempts - 1:
                     raise
                 self._wait(attempt, None)
+        raise AssertionError("unreachable")
 
     def get(self, start: int, end: int) -> bytes:
-        def once():
-            status, msg, body = self._get({"Range": f"bytes={start}-{end - 1}"})
+        def once() -> bytes:
+            status, _msg, body = self._get({"Range": f"bytes={start}-{end - 1}"})
             if status != 206 or len(body) != end - start:
-                raise _Fatal(f"{self.url}: HTTP {status}, {len(body)} bytes for [{start}, {end})")
+                raise _FatalError(f"{self.url}: HTTP {status}, {len(body)} bytes for [{start}, {end})")
             return body
 
         return self._retry(once)
@@ -173,7 +176,7 @@ class HttpTransport:
         does not answer with them, or fails on the request."""
         header = "bytes=" + ",".join(f"{a}-{b - 1}" for a, b in spans)
 
-        def once():
+        def once() -> dict[tuple[int, int], bytes] | None:
             status, msg, body = self._get({"Range": header}, multipart=True)
             ctype = msg.get("Content-Type") or ""
             if status != 206 or "multipart/byteranges" not in ctype:
@@ -186,7 +189,7 @@ class HttpTransport:
             got = once()
         except ResolutionError:
             raise
-        except (OSError, http.client.HTTPException, _Retry):
+        except (OSError, http.client.HTTPException, _RetryError):
             return None
         if got is None:
             return None
@@ -204,29 +207,30 @@ class HttpTransport:
         return got, time.perf_counter() - t
 
 
-def _send(url: str, headers: dict[str, str], check, unchecked_proxy: bool, multipart: bool):
+def _send(url: str, headers: dict[str, str], check: Check | None, unchecked_proxy: bool,
+          multipart: bool) -> tuple[int, Message, bytes]:
     """`refkv.reader._send` (one GET, not following redirects, its connection's address
     checked by `check`), except that a response other than a 206 (or, with
     `multipart`, other than multipart/byteranges) is closed before its body is
     read: a 200 is the whole object."""
-    from refkv import reader
-
-    if reader._proxy(url) is not None:
-        return reader._send(url, headers, check, unchecked_proxy)
+    if _proxy(url) is not None:
+        return reader_send(url, headers, check, unchecked_proxy)
     pu = urlparse(url)
     rest = url.split("://", 1)[1]
-    target = rest[re.match(r"[^/?#]*", rest).end():].split("#", 1)[0]
+    origin = cast("re.Match[str]", re.match(r"[^/?#]*", rest))  # which every string matches
+    target = rest[origin.end():].split("#", 1)[0]
     target = target if target.startswith("/") else "/" + target
+    host = cast("str", pu.hostname)  # a checked http(s) URL has one (_check_http_url)
     for attempt in (0, 1):
-        conn, reused = reader._POOL.get(pu.scheme, pu.hostname, pu.port)
+        conn, reused = _POOL.get(pu.scheme, host, pu.port)
         try:
             if conn.sock is None:
-                reader._connect(conn, check)
+                _connect(conn, check)
             if check is not None:
-                check(conn.sock.getpeername()[0])
+                check(cast("socket.socket", conn.sock).getpeername()[0])  # connected
             conn.request("GET", target, headers=headers)
             r = conn.getresponse()
-            if r.status != 206 or multipart and "multipart/byteranges" not in (r.getheader("Content-Type") or ""):
+            if r.status != 206 or (multipart and "multipart/byteranges" not in (r.getheader("Content-Type") or "")):
                 conn.close()  # never read a body that is not the ranges (a 200 is the whole object)
                 return r.status, r.msg, b""
             body = r.read()
@@ -241,7 +245,7 @@ def _send(url: str, headers: dict[str, str], check, unchecked_proxy: bool, multi
         if r.will_close:
             conn.close()
         else:
-            reader._POOL.put(pu.scheme, pu.hostname, pu.port, conn)
+            _POOL.put(pu.scheme, host, pu.port, conn)
         return r.status, r.msg, body
     raise AssertionError("unreachable")
 
@@ -249,7 +253,8 @@ def _send(url: str, headers: dict[str, str], check, unchecked_proxy: bool, multi
 def _parts(body: bytes, ctype: str) -> dict[tuple[int, int], bytes]:
     """The parts of a multipart/byteranges body, by (start, end)."""
     boundary = ctype.split("boundary=", 1)[1].strip().strip('"').encode()
-    out, pos, sep = {}, 0, b"--" + boundary
+    out: dict[tuple[int, int], bytes] = {}
+    pos, sep = 0, b"--" + boundary
     while True:
         k = body.find(sep, pos)
         if k < 0 or body[k + len(sep):k + len(sep) + 2] == b"--":
@@ -264,22 +269,40 @@ def _parts(body: bytes, ctype: str) -> dict[tuple[int, int], bytes]:
                 rng = value.strip().split()[1].split(b"/")[0]
                 a, b = rng.split(b"-")
                 start, end = int(a), int(b) + 1
-        if start is None:
+        if start is None or end is None:  # set together
             return out
         out[(start, end)] = body[head_end + 4:head_end + 4 + end - start]
         pos = head_end + 4 + end - start
 
 
-class _Fatal(OSError):
+class _FatalError(OSError):
     """A response no retry mends (a status other than 206 and those of RETRY)."""
 
 
-class _Retry(Exception):
+class _RetryError(Exception):
     def __init__(self, status: int, retry_after: str | None) -> None:
         self.status, self.retry_after = status, retry_after
 
 
-def open_transport(location: str, policy: Policy | None = None):
+class Transport(Protocol):
+    """What the planner reads a source through: `FileTransport`, `HttpTransport`, or a
+    test's stand-in."""
+
+    remote: bool
+    size: int
+    head: tuple[int, bytes, float]  # the bytes that opened the source: (offset, bytes, seconds)
+    etag: Callable[[], str | None]
+
+    def get(self, start: int, end: int) -> bytes:
+        """Bytes [start, end) of the source."""
+        ...
+
+    def fetch(self, spans: list[tuple[int, int]]) -> tuple[list[bytes] | None, float]:
+        """The bytes of `spans`, and the seconds the read took."""
+        ...
+
+
+def open_transport(location: str, policy: Policy | None = None) -> FileTransport | HttpTransport:
     if location.startswith(("http://", "https://")):
         return HttpTransport(location, policy)
     return FileTransport(location)
@@ -288,7 +311,7 @@ def open_transport(location: str, policy: Policy | None = None):
 CONNECTIONS = 8  # requests at a time to a remote host, by default (a browser has 6)
 
 
-def concurrency(transport, connections: int | None = None) -> int:
+def concurrency(transport: Transport, connections: int | None = None) -> int:
     """Requests at a time: `connections` (default CONNECTIONS) for a remote source, 4
     for a local file; REFKV_CONCURRENCY overrides the default, for experiments."""
     if not transport.remote:
@@ -299,12 +322,10 @@ def concurrency(transport, connections: int | None = None) -> int:
     return int(env) if env else CONNECTIONS
 
 
-def new_run(fmt: str, transport, conc: int | None = None, byte_cost: float | None = None):
+def new_run(fmt: str, transport: Transport, conc: int | None = None, byte_cost: float | None = None) -> _core.Run:
     """A Rust run of format `fmt` over the transport, seeded with the bytes that opened
     it. `byte_cost`: seconds of wall time a byte fetched costs the planner (default:
     the core's, 0.1 s per MB); REFKV_BYTE_COST (seconds per MB) sets it for experiments."""
-    from refkv import _core
-
     amp = os.environ.get("REFKV_AMPLIFICATION")  # for experiments
     env_cost = os.environ.get("REFKV_BYTE_COST")
     if byte_cost is None and env_cost:
@@ -321,10 +342,8 @@ def new_run(fmt: str, transport, conc: int | None = None, byte_cost: float | Non
     return run
 
 
-def drive(run, transport, conc: int | None = None) -> None:
+def drive(run: _core.Run, transport: Transport, conc: int | None = None) -> None:
     """Performs the requests a run asks for until it is done, at most `conc` at a time."""
-    from refkv import _core
-
     conc = concurrency(transport, conc)
     pool = ThreadPoolExecutor(conc) if transport.remote else None
     try:

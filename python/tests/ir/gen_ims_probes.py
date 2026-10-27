@@ -1,5 +1,5 @@
-"""Hostile IMS probes for the IR (spec/virtualize/ims.md §5.3
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#53-the-walk>): amplification
+"""Hostile IMS probes for the IR (spec/zarrify/ims.md §5.3
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#53-the-walk>): amplification
 through hard links, loops in B-trees and object headers, deep and wide groups. Each is a
 synthetic Imaris file (fixtures/generators/ims/write_fixtures.py), some patched after h5py
 wrote them.
@@ -13,9 +13,12 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "fixtures" / "generators" / "ims"))
-sys.path.insert(0, str(ROOT / "conformance" / "virtualize" / "reference"))
+sys.path.insert(0, str(ROOT / "conformance" / "zarrify" / "reference"))
+# pyrefly: ignore[missing-import]  # on sys.path above; the config's search-path lacks fixtures/generators
 import write_fixtures as wf  # noqa: E402
 from refkv_reference.ims.hdf5 import Hdf5, le  # noqa: E402
+
+from refkv._narrow import integer  # noqa: E402
 
 out = Path(sys.argv[1])
 out.mkdir(parents=True, exist_ok=True)
@@ -42,11 +45,13 @@ def patch(path: Path, at: int, value: bytes) -> None:
 def symtab_btree(f: Hdf5, at: int) -> int:
     """The address of the version 1 B-tree of the old-style group at `at`."""
     m = f.message(f.header(at), 0x11)
+    assert m is not None  # required: message raises when it is missing
     return le(m, 0, 8)
 
 
 # Time points that are one group by hard links: every chunk referenced once per time point.
-for name, n, size in (("ims_amp_times", 4, (2, 64, 64)), *(() if small else (("ims_amp_times_big", 128, (16, 512, 512)),))):
+for name, n, size in (("ims_amp_times", 4, (2, 64, 64)),
+                      *(() if small else (("ims_amp_times_big", 128, (16, 512, 512)),))):
     with wf.open_file(name, "latest") as f:
         wf.imaris(f, [{"size": size, "dims": size, "chunks": (1, 16, 16)}], dtype="u1")
         tp = f["DataSet/ResolutionLevel 0"]
@@ -63,7 +68,7 @@ for name, where in (("ims_btree_loop_extra", "Extra"), ("ims_btree_loop_root", "
             f.create_group(f"Extra/g{k}")
     p = out / f"{name}.ims"
     f = h5(p)
-    at = f.root if where == "/" else f.links(f.root)[b"Extra"]
+    at = f.root if where == "/" else integer(f.links(f.root)[b"Extra"])
     tree = symtab_btree(f, at)
     patch(p, tree + 24 + 8, struct.pack("<Q", tree))  # child 0 is the node itself
 with wf.open_file("ims_btree_cycle_extra", small_k=True) as f:
@@ -72,7 +77,7 @@ with wf.open_file("ims_btree_cycle_extra", small_k=True) as f:
         f.create_group(f"Extra/g{k:02d}")
 p = out / "ims_btree_cycle_extra.ims"
 f = h5(p)
-tree = symtab_btree(f, f.links(f.root)[b"Extra"])
+tree = symtab_btree(f, integer(f.links(f.root)[b"Extra"]))
 data = p.read_bytes()
 if data[tree + 5] == 0:
     raise SystemExit("ims_btree_cycle_extra: the tree has one level")
@@ -101,7 +106,7 @@ for name, where in (("ims_continuation_loop_extra", "Extra"), ("ims_continuation
             f.attrs[f"r{k:02d}"] = wf.text("y" * 40)
     p = out / f"{name}.ims"
     f = h5(p)
-    at = f.root if where == "/" else f.links(f.root)[b"Extra"]
+    at = f.root if where == "/" else integer(f.links(f.root)[b"Extra"])
     data = p.read_bytes()
     pos, n = at + 16, le(data, at + 8, 4)
     end = pos + n
@@ -134,7 +139,9 @@ with wf.open_file("ims_fill_size_image") as f:
 p = out / "ims_fill_size_image.ims"
 f = h5(p)
 links = f.links(f.root)
-at = f.links(f.links(f.links(f.links(links[b"DataSet"])[b"ResolutionLevel 0"])[b"TimePoint 0"])[b"Channel 0"])[b"Data"]
+at = integer(links[b"DataSet"])
+for step in (b"ResolutionLevel 0", b"TimePoint 0", b"Channel 0", b"Data"):
+    at = integer(f.links(at)[step])
 msgs = {m.type: m for m in f.header(at)}
 dt, layout = msgs[0x03], msgs[0x08]
 patch(p, dt.offset + 4, struct.pack("<I", 1))  # the datatype's size
@@ -143,4 +150,5 @@ assert layout.data[0] == 3, "layout version"
 ndims = layout.data[2]
 patch(p, layout.offset + 11 + 4 * (ndims - 1), struct.pack("<I", 1))  # the chunk's last dimension
 fill = msgs[0x05]
-assert len(fill_value_bytes := fill.data[8:8 + struct.unpack_from("<I", fill.data, 4)[0]]) == 2 and not any(fill_value_bytes)
+assert len(fill_value_bytes := fill.data[8:8 + struct.unpack_from("<I", fill.data, 4)[0]]) == 2
+assert not any(fill_value_bytes)

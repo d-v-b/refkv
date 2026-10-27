@@ -1,0 +1,16 @@
+{
+  "name": "dicom",
+  "title": "DICOM",
+  "uuid": "acf17198-e5a5-48d3-8187-22ec4bb40ea5",
+  "version": 0,
+  "kind": "file",
+  "sniff": 10,
+  "chosen_by": null,
+  "suffixes": [
+    ".dcm"
+  ],
+  "reference": 25,
+  "source": "DICOM",
+  "inputs": "DICOM Part 10 files with native or JPEG-encapsulated pixel data, including whole-slide images",
+  "for": "DICOM files, including whole-slide images"
+}

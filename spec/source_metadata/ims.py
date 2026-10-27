@@ -1,4 +1,4 @@
-"""The IMS convention's source metadata (spec/virtualize/ims.md), for
+"""The IMS convention's source metadata (spec/zarrify/ims.md), for
 spec/generate_schemas.py."""
 
 SCHEMA = {"anyOf": [

@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { RawOutput } from "../../src/virtualize/ir/run.ts";
-import { storeDesc } from "../../src/virtualize/ir/store.ts";
+import type { RawOutput } from "../../src/zarrify/ir/run.ts";
+import { storeDesc } from "../../src/zarrify/ir/store.ts";
 
-// The browser's store output (src/virtualize/ir/store.ts): one url source per object a
+// The browser's store output (src/zarrify/ir/store.ts): one url source per object a
 // reference uses, in order of first use (references by key, ranges in order), each pinning
 // its listed size; then the data sources, by first use too; literals stay.
 test("a store output numbers its sources by first use", () => {

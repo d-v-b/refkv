@@ -1,5 +1,5 @@
 """Writes synthetic Akoya/PerkinElmer QPTIFF files to fixtures/qptiff/ for
-spec/virtualize/qptiff.md <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md>,
+spec/zarrify/qptiff.md <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md>,
 with tifffile, in the arrangement of the format's specification and of Akoya's public samples:
 the channels as FullResolution images first, a stripped RGB Thumbnail, the ReducedResolution
 images of each level (tiled, or stripped for the smallest), then the Overview and Label images.
@@ -20,7 +20,10 @@ Every IFD has Software `PerkinElmer-QPI` and a `PerkinElmer-QPI-ImageDescription
   some Vectra scanners write it, with the end code one bit too narrow (read at the right
   width it is code 514, one more table entry), so the stream decodes past the tile; the
   codecs read it into the tile's size, as tifffile does.
-- `edge_reject_qptiff_*.qptiff`: inputs the profile rejects.
+- `qptiff_fl_lzw_predictor.qptiff`: one LZW channel with Predictor 2 (horizontal
+  differencing), whose codecs sum the differences back with `imagecodecs_delta`.
+- `edge_reject_qptiff_*.qptiff`: inputs the profile rejects (among them the floating-point
+  predictor, 3).
 
 Pixels are checked against tifffile by js/test/qptiff/verify.py.
 
@@ -30,6 +33,7 @@ Usage: uv run python fixtures/generators/qptiff/write_fixtures.py
 from __future__ import annotations
 
 import struct
+from collections.abc import Iterator
 from pathlib import Path
 
 import numpy as np
@@ -86,9 +90,9 @@ def description(image_type, *, name=None, color=None, slide_id="Fixture-Slide", 
 def page(tif, data, image_type, *, tile=None, rps=None, compression="lzw", photometric="minisblack",
          reduced=False, position=True, resolution=RESOLUTION, unit="CENTIMETER", desc=None, **kw) -> None:
     """One IFD: tiled (`tile`) or stripped (`rps` rows per strip)."""
-    args = dict(photometric=photometric, compression=compression, software=SOFTWARE, metadata=None,
-                resolution=resolution, resolutionunit=unit, subfiletype=1 if reduced else 0,
-                extratags=POSITION if position else [])
+    args = {"photometric": photometric, "compression": compression, "software": SOFTWARE, "metadata": None,
+                "resolution": resolution, "resolutionunit": unit, "subfiletype": 1 if reduced else 0,
+                "extratags": POSITION if position else []}
     if desc is not False:
         args["description"] = desc if desc is not None else description(image_type, **kw)
     if tile is not None:
@@ -103,12 +107,13 @@ def rgb(h, w, seed=0):
     return np.stack([g, (g // 2).astype(np.uint8), (255 - g).astype(np.uint8)], axis=-1)
 
 
-def pyramid(tif, channels, names, colors, *, tile, levels, rps=None, stripped_last=True, reduced_rps=16, slide_id="Fixture-Slide",
-            compression="lzw", photometric="minisblack", unmixed=False, position=True, resolution=RESOLUTION, unit="CENTIMETER",
-            thumbnail=True, extras=True, reduced_names=True):
+def pyramid(tif, channels, names, colors, *, tile, levels, rps=None, stripped_last=True, reduced_rps=16,
+            slide_id="Fixture-Slide", compression="lzw", photometric="minisblack", unmixed=False, position=True,
+            resolution=RESOLUTION, unit="CENTIMETER", thumbnail=True, extras=True, reduced_names=True):
     """The QPTIFF arrangement: channels (tiled, or in strips of `rps` rows), thumbnail, levels (each
     channel again), overview, label."""
-    kw = dict(compression=compression, photometric=photometric, position=position, resolution=resolution, unit=unit)
+    kw = {"compression": compression, "photometric": photometric, "position": position, "resolution": resolution,
+          "unit": unit}
     for c, data in enumerate(channels):
         page(tif, data, "FullResolution", tile=tile, rps=rps, name=names[c], color=colors[c], slide_id=slide_id,
              unmixed=unmixed, scan_profile=(c == 0), **kw)
@@ -131,7 +136,7 @@ def pyramid(tif, channels, names, colors, *, tile, levels, rps=None, stripped_la
              position=position, resolution=(1500, 1500), unit=unit)
 
 
-def lzw_codes(stream: bytes):
+def lzw_codes(stream: bytes | bytearray) -> Iterator[tuple[int, int, int]]:
     """The codes of a TIFF LZW stream with the bit position and width each was read at,
     following the decoder's table growth (TIFF 6.0 §13 with libtiff's early change)."""
     bit, width, nxt, prev = 0, 9, 258, None
@@ -167,8 +172,10 @@ def narrow_eoi(path: Path, page_index: int, tile: int = 0) -> None:
         last = None
         for code, bit, width in lzw_codes(stream):
             last = (code, bit, width)
+        assert last is not None
         code, bit, width = last
-        assert code == 257 and width >= 10, (code, width)
+        assert code == 257, (code, width)
+        assert width >= 10, (code, width)
         # clear the bits from the end code on, then write 257 in width - 1 bits
         for b in range(bit, len(stream) * 8):
             stream[b // 8] &= ~(1 << (7 - b % 8)) & 0xFF
@@ -184,7 +191,9 @@ def narrow_eoi(path: Path, page_index: int, tile: int = 0) -> None:
 def patch_long(path: Path, page_index: int, tag: int, value: int) -> None:
     """Overwrites the in-line LONG value of `tag` in IFD `page_index`."""
     with tifffile.TiffFile(path) as tf:
-        t = tf.pages[page_index].tags[tag]
+        page = tf.pages[page_index]
+        assert isinstance(page, tifffile.TiffPage)
+        t = page.tags[tag]
         offset, order = t.valueoffset, tf.byteorder
     with open(path, "r+b") as f:
         f.seek(offset)
@@ -257,7 +266,7 @@ def main() -> None:
             page(tif, small[c], "FullResolution", tile=(32, 32), name=f"C{c}")
         page(tif, small[0][::2, ::2], "ReducedResolution", tile=(32, 32), reduced=True, name="C0")
         page(tif, small[1][::4, ::4], "ReducedResolution", tile=(32, 32), reduced=True, name="C1")
-    with tifffile.TiffWriter(OUT / "edge_reject_qptiff_predictor.qptiff") as tif:
+    with tifffile.TiffWriter(OUT / "qptiff_fl_lzw_predictor.qptiff") as tif:
         tif.write(small[0], photometric="minisblack", compression="lzw", predictor=True, tile=(32, 32),
                   software=SOFTWARE, metadata=None, description=description("FullResolution", name="DAPI"),
                   resolution=RESOLUTION, resolutionunit="CENTIMETER")
@@ -265,6 +274,10 @@ def main() -> None:
     with tifffile.TiffWriter(strips) as tif:
         page(tif, comp[0], "FullResolution", rps=16, name="Eosin", unmixed=True)
     patch_long(strips, 0, 278, 8)  # RowsPerStrip 8: 5 strips expected, 3 present
+    with tifffile.TiffWriter(OUT / "edge_reject_qptiff_predictor_float.qptiff") as tif:
+        tif.write(comp[0], photometric="minisblack", compression="lzw", predictor=True, tile=(32, 32),  # 3, of floats
+                  software=SOFTWARE, metadata=None, resolution=RESOLUTION, resolutionunit="CENTIMETER",
+                  description=description("FullResolution", name="Eosin", unmixed=True))
 
     for p in sorted(OUT.glob("*.qptiff")):
         print(p.name, p.stat().st_size)

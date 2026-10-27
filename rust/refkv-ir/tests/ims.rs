@@ -1,4 +1,4 @@
-//! The IMS parser (src/ims.rs; spec/virtualize/ims.md): one test per rejected fixture, and the
+//! The IMS parser (src/ims.rs; spec/zarrify/ims.md): one test per rejected fixture, and the
 //! walk's room.
 
 mod common;
@@ -8,7 +8,7 @@ use refkv_ir::check;
 use refkv_ir::ims::Ims;
 
 // one test per rejected fixture, each the message its check gives
-// one test per case of conformance/virtualize/rejects/ims.json (build.rs), each the message its check gives
+// one test per case of conformance/zarrify/rejects/ims.json (build.rs), each the message its check gives
 macro_rules! reject {
     ($name:ident, $input:literal, $msg:literal) => {
         common::reject!($name, Ims, concat!("ims/", $input), $msg);

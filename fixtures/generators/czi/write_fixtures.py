@@ -1,4 +1,4 @@
-"""Writes the synthetic CZI fixtures in fixtures/czi/ (spec/virtualize/czi.md).
+"""Writes the synthetic CZI fixtures in fixtures/czi/ (spec/zarrify/czi.md).
 
 A small struct-based CZI writer (`Czi`): no library writes pyramids, JPEG XR,
 attachments, deleted segments or broken files. Each accepted fixture is
@@ -18,9 +18,12 @@ import gzip
 import struct
 import sys
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import cast
 
+import czifile
 import imagecodecs
 import numpy as np
 
@@ -60,34 +63,35 @@ def raw(a: np.ndarray) -> bytes:
     return np.ascontiguousarray(a).tobytes()
 
 
+# the casts: imagecodecs' stubs widen an encoder's bytes (without out=) to bytes | bytearray | memoryview
 def zstd0(a: np.ndarray) -> bytes:
-    return imagecodecs.zstd_encode(raw(a))
+    return cast("bytes", imagecodecs.zstd_encode(raw(a)))
 
 
 def zstd1(a: np.ndarray, hilo: bool = False) -> bytes:
     b = raw(a)
     if hilo:
         b = np.frombuffer(b, "u1").reshape(-1, 2).T.tobytes()  # low bytes, then high bytes
-        return b"\x03\x01\x01" + imagecodecs.zstd_encode(b)
-    return b"\x01" + imagecodecs.zstd_encode(b)
+        return b"\x03\x01\x01" + cast("bytes", imagecodecs.zstd_encode(b))
+    return b"\x01" + cast("bytes", imagecodecs.zstd_encode(b))
 
 
 def jpeg(a: np.ndarray) -> bytes:
-    return imagecodecs.jpeg8_encode(a, level=95)
+    return cast("bytes", imagecodecs.jpeg8_encode(a, level=95))
 
 
 def set_jxr_format(b: bytes, guid: bytes) -> bytes:
-    b = bytearray(b)
-    ifd = struct.unpack_from("<I", b, 4)[0]
-    for k in range(struct.unpack_from("<H", b, ifd)[0]):
-        tag, _, _, value = struct.unpack_from("<HHII", b, ifd + 2 + 12 * k)
+    out = bytearray(b)
+    ifd = struct.unpack_from("<I", out, 4)[0]
+    for k in range(struct.unpack_from("<H", out, ifd)[0]):
+        tag, _, _, value = struct.unpack_from("<HHII", out, ifd + 2 + 12 * k)
         if tag == 0xBC01:
-            b[value : value + 16] = guid
-    return bytes(b)
+            out[value : value + 16] = guid
+    return bytes(out)
 
 
 def jxr(a: np.ndarray, guid: bytes | None = None) -> bytes:
-    b = imagecodecs.jpegxr_encode(a, level=1.0)
+    b = cast("bytes", imagecodecs.jpegxr_encode(a, level=1.0))
     return set_jxr_format(b, guid) if guid else b
 
 
@@ -108,7 +112,8 @@ def segment(ident: str | bytes, data: bytes, allocated: int | None = None, used:
     ident = ident.encode() if isinstance(ident, str) else ident
     allocated = (len(data) + 31) // 32 * 32 if allocated is None else allocated
     used = len(data) if used is None else used
-    return ident.ljust(16, b"\0") + struct.pack("<qq", allocated, used) + data.ljust(allocated, b"\0")[:max(allocated, 0)]
+    return (ident.ljust(16, b"\0") + struct.pack("<qq", allocated, used)
+            + data.ljust(allocated, b"\0")[:max(allocated, 0)])
 
 
 @dataclass
@@ -121,8 +126,8 @@ class Sb:
     attachment: bytes = b""
     pyramid: int = 0
     spare: bytes = bytes(5)
-    copy: object = None  # bytes -> bytes: changes the subblock's own copy of its entry
-    entry: object = None  # bytes -> bytes: changes the directory's entry
+    copy: Callable[[bytes], bytes] | None = None  # changes the subblock's own copy of its entry
+    entry: Callable[[bytes], bytes] | None = None  # changes the directory's entry
     segment_id: str = "ZISRAWSUBBLOCK"
     sizes: tuple | None = None  # (MetadataSize, AttachmentSize, DataSize) as written
 
@@ -134,7 +139,7 @@ class Att:
     data: bytes
     schema: bytes = b"A1"
     file_part: int = 0
-    segment_entry: object = None  # bytes -> bytes: changes the segment's copy of the entry
+    segment_entry: Callable[[bytes], bytes] | None = None  # changes the segment's copy of the entry
     segment_id: str = "ZISRAWATTACH"
     guid: bytes = b""
 
@@ -227,29 +232,29 @@ def plane(pixel_type: int, compression: int, x: int, y: int, w: int, h: int, *, 
     if coded is None:
         coded = {0: raw, 5: zstd0, 1: jpeg, 4: jxr}[compression](a) if compression != 6 else zstd1(a, hilo)
     letters = [("X", x, wl or w, w), ("Y", y, hl or h, h)]
-    for letter, v in dims.items():
-        letters.append((letter, v, 1, 1) if letter != "M" else (letter, v, 1, 1))
+    letters += [(letter, v, 1, 1) for letter, v in dims.items()]
     return Sb(pixel_type, compression, letters, coded)
 
 
 def xml(*, px=None, py=None, pz=None, increment=None, bits=None, channels=(), display=(), scenes=(), bom=False,
         raw_text: str | None = None) -> bytes:
-    """A metadata XML with the values spec/virtualize/czi.md §2.7
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#27-the-metadata-xml> reads."""
+    """A metadata XML with the values spec/zarrify/czi.md §2.7
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#27-the-metadata-xml> reads."""
     if raw_text is not None:
         return raw_text.encode("utf-8")
     items = "".join(f'<Distance Id="{a}"><Value>{v}</Value><DefaultUnitFormat>µm</DefaultUnitFormat></Distance>'
                     for a, v in (("X", px), ("Y", py), ("Z", pz)) if v is not None)
-    chans = "".join(f'<Channel Id="Channel:{k}"{f" Name=\"{n}\"" if n is not None else ""}>'
-                    + (f"<Color>{c}</Color>" if c else "") + (f"<ComponentBitCount>{b}</ComponentBitCount>" if b else "")
+    chans = "".join(f'<Channel Id="Channel:{k}"{f' Name="{n}"' if n is not None else ""}>'
+                    + (f"<Color>{c}</Color>" if c else "")
+                    + (f"<ComponentBitCount>{b}</ComponentBitCount>" if b else "")
                     + "</Channel>" for k, (n, c, b) in enumerate(channels))
-    disp = "".join(f'<Channel Id="Channel:{k}"{f" Name=\"{n}\"" if n is not None else ""}>'
+    disp = "".join(f'<Channel Id="Channel:{k}"{f' Name="{n}"' if n is not None else ""}>'
                    + (f"<Low>{lo}</Low>" if lo is not None else "") + (f"<High>{hi}</High>" if hi is not None else "")
                    + (f"<Color>{c}</Color>" if c else "") + "</Channel>" for k, (n, c, lo, hi) in enumerate(display))
     sc = "".join(f'<Scene Index="{i}" Name="{n}"/>' for i, n in scenes)
     t = (f"<T><Positions><Interval><Increment>{increment}</Increment></Interval></Positions></T>"
          if increment is not None else "")
-    text = ("<?xml version=\"1.0\"?>\n<ImageDocument><Metadata><Information><Image>"
+    text = ('<?xml version="1.0"?>\n<ImageDocument><Metadata><Information><Image>'
             + (f"<ComponentBitCount>{bits}</ComponentBitCount>" if bits is not None else "")
             + f"<Dimensions>{t}<Channels>{chans}</Channels><S><Scenes>{sc}</Scenes></S></Dimensions></Image>"
             + f"</Information><Scaling><Items>{items}</Items></Scaling>"
@@ -291,7 +296,8 @@ def grid(pixel_type, compression, cols, rows, w, h, *, x0=0, y0=0, edge=None, fa
 
 def accepted() -> dict[str, Czi]:
     f: dict[str, Czi] = {}
-    f["czi_gray8_single"] = Czi([plane(0, 0, 0, 0, 13, 7, C=0)], xml(px=2.5e-7, py=2.5e-7, channels=[("DAPI", "#FF0000FF", 8)]))
+    f["czi_gray8_single"] = Czi([plane(0, 0, 0, 0, 13, 7, C=0)],
+                                xml(px=2.5e-7, py=2.5e-7, channels=[("DAPI", "#FF0000FF", 8)]))
     sbs = []
     k = 0
     for t in range(2):
@@ -306,7 +312,8 @@ def accepted() -> dict[str, Czi]:
                                          display=[(None, "#FFFF0000", 0.01, 0.25), ("disp1", "#00FF00", None, 0.5),
                                                   ("disp2", "not a color", "x", None)]),
                                 attachments=[Att("TimeStamps", "CZTIMS", time_stamps([0.0, 0.5])),
-                                             Att("EventList", "CZEVL", event_list([(0.25, 1, b"start"), (0.75, 2, b"")])),
+                                             Att("EventList", "CZEVL",
+                                                 event_list([(0.25, 1, b"start"), (0.75, 2, b"")])),
                                              Att("Thumbnail", "JPG", jpeg(pixels(3, 8, 8)))])
     f["czi_bgr24_raw"] = Czi([plane(3, 0, 0, 0, 10, 6, C=0)], xml(channels=[("Brightfield", None, None)]))
     f["czi_bgra32_raw"] = Czi([plane(9, 0, 0, 0, 10, 6)])
@@ -324,14 +331,16 @@ def accepted() -> dict[str, Czi]:
                         plane(9, 4, 0, 0, 10, 8, S=6, coded=jxr(pixels(9, 10, 8), WIC + b"\x0f")),
                         plane(8, 4, 0, 0, 10, 8, S=7)])
     # A slide scan: overlapping layer-0 tiles, then layers 1 and 2 on a lattice, clipped.
-    layer0 = [plane(1, 4, x, y, 20, 16, C=0, M=k) for k, (x, y) in enumerate([(-100, 50), (-82, 50), (-100, 64), (-82, 66)])]
+    layer0 = [plane(1, 4, x, y, 20, 16, C=0, M=k)
+              for k, (x, y) in enumerate([(-100, 50), (-82, 50), (-100, 64), (-82, 66)])]
     layer1 = grid(1, 4, 2, 2, 10, 8, x0=-100, y0=50, edge=(9, 5), factor=2, C=0)
     layer2 = grid(1, 4, 1, 1, 10, 8, x0=-100, y0=50, edge=(10, 8), factor=4, C=0)
     for sb in layer1 + layer2:
         sb.pyramid = 2
     f["czi_jxr_pyramid"] = Czi(layer0 + layer1 + layer2, xml(px=3.444225755520869e-07, py=3.444225755520869e-07,
-                                                              display=[("EGFP", "#FF00FF5B", None, 0.25)],
-                                                              channels=[("EGFP", None, 14)], scenes=[(0, "ScanRegion0")]))
+                                                             display=[("EGFP", "#FF00FF5B", None, 0.25)],
+                                                             channels=[("EGFP", None, 14)],
+                                                             scenes=[(0, "ScanRegion0")]))
     for sb in f["czi_jxr_pyramid"].subblocks:
         sb.dims.append(("S", 0, 1, 1))
     f["czi_regular_holes"] = Czi(grid(1, 0, 3, 2, 8, 6, skip={(1, 0), (2, 1)}, C=0)
@@ -349,7 +358,7 @@ def accepted() -> dict[str, Czi]:
                               plane(0, 0, 3, 3, 10, 10, C=1, M=1),
                               plane(0, 5, 3, 3, 10, 10, C=2, M=1)])  # the same position, another codec form
     multi = []
-    for s, name in enumerate(("A1", "B2", "C3")):
+    for s, _name in enumerate(("A1", "B2", "C3")):
         multi.append(plane(0, 0, 100 * s, 0, 6, 4, S=s, C=0))
     multi += [plane(0, 0, 0, 0, 6, 4, H=h, B=1, I=2, R=0, V=3, C=0) for h in range(2)]
     f["czi_multiscene"] = Czi(multi, xml(scenes=[(0, "A1"), (1, "B2"), (2, "C3"), (1, "dup")]))
@@ -362,7 +371,8 @@ def accepted() -> dict[str, Czi]:
                            late=[segment("DELETED", b"x" * 40, used=0), segment("UNKNOWN_ID", b"?")],
                            tail=b"\x01garbage that is not a segment")
     f["czi_entry_mismatch"] = Czi([plane(0, 0, 0, 0, 4, 4, C=0),
-                                   _patched(plane(0, 0, 4, 0, 4, 4, C=0), lambda e: e[:6] + struct.pack("<q", 1) + e[14:])])
+                                   _patched(plane(0, 0, 4, 0, 4, 4, C=0),
+                                            lambda e: e[:6] + struct.pack("<q", 1) + e[14:])])
     short = plane(0, 1, 0, 0, 16, 9, wl=32, hl=18, C=0)
     short.data = jpeg(pixels(0, 16, 8))  # coded one row short of its stored height
     full = plane(0, 1, 0, 0, 32, 18, C=0)
@@ -403,7 +413,9 @@ def accepted() -> dict[str, Czi]:
         Att("Events0", "CZEVL", event_list([])),
         Att("Times0", "CZTIMS", time_stamps([])),
     ])
-    f["czi_attachments"].attachments[9].name = "Caf\xe9"
+    atts = f["czi_attachments"].attachments
+    assert atts is not None
+    atts[9].name = "Caf\xe9"
     f["czi_metadata_attachment"] = Czi([plane(0, 0, 0, 0, 4, 4, C=0)],
                                        xml(px=1e-6, channels=[("BOM channel", None, None)], bom=True),
                                        metadata_attachment=b"\x00\x01binary part")
@@ -437,7 +449,11 @@ def _pyramid(sb: Sb, kind: int) -> Sb:
     return sb
 
 
-def rejected() -> dict[str, tuple[Czi, object]]:
+# a patch of a fixture's bytes: (the offset's key in Czi.offsets, (bytes, offset) -> bytes)
+type Patch = tuple[str, Callable[[bytes, int], bytes]]
+
+
+def rejected() -> dict[str, tuple[Czi, Patch | None]]:
     """name -> (fixture, a patch of its bytes or None)."""
     def base(**kw) -> Czi:
         return Czi([plane(0, 0, 0, 0, 4, 4, C=0)], xml(), attachments=[Att("Thumbnail", "JPG", b"jpeg")], **kw)
@@ -460,11 +476,12 @@ def rejected() -> dict[str, tuple[Czi, object]]:
 
     def att(**kw):
         c = base()
+        assert c.attachments is not None
         for k, v in kw.items():
             setattr(c.attachments[0], k, v)
         return c
 
-    r: dict[str, tuple[Czi, object]] = {
+    r: dict[str, tuple[Czi, Patch | None]] = {
         "major_2": (base(major=2), None),
         "file_part": (base(file_part=1), None),
         "entry_file_part": (entry(lambda e: e[:14] + struct.pack("<i", 1) + e[18:]), None),
@@ -477,13 +494,13 @@ def rejected() -> dict[str, tuple[Czi, object]]:
         "directory_used": (base(directory_used=128 + 40), None),
         "de_schema": (entry(lambda e: b"DE" + e[2:]), None),
         "unknown_schema": (entry(lambda e: b"XX" + e[2:]), None),
-        "dimension_letter": (dims(lambda d: d + [("Q", 0, 1, 1)]), None),
-        "dimension_lowercase": (dims(lambda d: d + [("z", 0, 1, 1)]), None),
-        "dimension_padding": (dims(lambda d: d + [(b"Z\0\0\x01", 0, 1, 1)]), None),
-        "duplicate_dimension": (dims(lambda d: d + [("C", 1, 1, 1)]), None),
+        "dimension_letter": (dims(lambda d: [*d, ("Q", 0, 1, 1)]), None),
+        "dimension_lowercase": (dims(lambda d: [*d, ("z", 0, 1, 1)]), None),
+        "dimension_padding": (dims(lambda d: [*d, (b"Z\x00\x00\x01", 0, 1, 1)]), None),
+        "duplicate_dimension": (dims(lambda d: [*d, ("C", 1, 1, 1)]), None),
         "missing_x": (dims(lambda d: [x for x in d if x[0] != "X"] + [("Z", 0, 1, 1)]), None),
-        "zero_size": (dims(lambda d: [("X", 0, 4, 0)] + d[1:]), None),
-        "plane_size_not_1": (dims(lambda d: d[:2] + [("C", 0, 2, 2)]), None),
+        "zero_size": (dims(lambda d: [("X", 0, 4, 0), *d[1:]]), None),
+        "plane_size_not_1": (dims(lambda d: [*d[:2], ("C", 0, 2, 2)]), None),
         "dimension_count_13": (entry(lambda e: e[:28] + struct.pack("<i", 13) + e[32:] + bytes(20 * 11)), None),
         "subblock_id": (sub(segment_id="ZISRAWSUBBLOCX"), None),
         "subblock_outside_file": (sub(sizes=(0, 0, 1 << 30)), None),
@@ -494,7 +511,8 @@ def rejected() -> dict[str, tuple[Czi, object]]:
         "compression_lzw": (entry(lambda e: e[:18] + struct.pack("<i", 2) + e[22:]), None),
         "compression_chunked": (entry(lambda e: e[:18] + struct.pack("<i", 7) + e[22:]), None),
         "compression_raw_camera": (entry(lambda e: e[:18] + struct.pack("<i", 100) + e[22:]), None),
-        "jpeg_gray16": (entry(lambda e: e[:2] + struct.pack("<ii", 1, 0) + e[10:18] + struct.pack("<i", 1) + e[22:]), None),
+        "jpeg_gray16": (entry(lambda e: e[:2] + struct.pack("<ii", 1, 0) + e[10:18] + struct.pack("<i", 1) + e[22:]),
+                        None),
         "metadata_id": (base(metadata_id="ZISRAWMETADATX"), None),
         "metadata_outside_file": (base(metadata_sizes=(1 << 30, 0)), None),
         "metadata_negative": (base(metadata_sizes=(-5, 0)), None),
@@ -514,21 +532,19 @@ def too_many_series() -> Czi:
 
 
 def big() -> Czi:
-    """Row bands (spec/virtualize/czi.md §4.3
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#43-image-arrays>): a level of
+    """Row bands (spec/zarrify/czi.md §4.3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#43-image-arrays>): a level of
     4100 x 2048 Gray16 tiles
     (over 16 MiB each), its last row 1024 high, and a tile of 4100 x 2050."""
     rows = [plane(1, 0, 0, 0, 4100, 2048, S=0), plane(1, 0, 0, 2048, 4100, 1024, S=0)]
     tile = plane(1, 0, 7, 3, 4100, 2050, wl=20500, hl=10250, S=1)  # minified 5x: no layer, a tile
-    return Czi(rows + [tile])
+    return Czi([*rows, tile])
 
 
 # ---- cross-checks
 
 def czifile_check(path: Path) -> list[str]:
     """czifile parses the file and decodes every subblock it can; returns what failed."""
-    import czifile
-
     failed = []
     with czifile.CziFile(path) as c:
         for i, sb in enumerate(c.subblocks()):
@@ -550,7 +566,7 @@ def czifile_check(path: Path) -> list[str]:
 
 def libczi_check(path: Path) -> str:
     try:
-        from pylibCZIrw import czi as pyczi
+        from pylibCZIrw import czi as pyczi  # noqa: PLC0415 (pylibCZIrw is optional; the check is skipped without it)
     except ImportError:
         return "pylibCZIrw not installed"
     try:
@@ -562,9 +578,10 @@ def libczi_check(path: Path) -> str:
                                   min(64, box["Y"][1] - box["Y"][0])))
                 except Exception as e:  # noqa: BLE001
                     return f"opened; its composite read fails: {e}"[:160]
-        return "ok"
     except Exception as e:  # noqa: BLE001
         return f"{type(e).__name__}: {e}"[:160]
+    else:
+        return "ok"
 
 
 def main(argv: list[str]) -> int:

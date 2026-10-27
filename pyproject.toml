@@ -21,6 +21,7 @@ dev = [
     "h5netcdf>=1.8.1",
     "h5py>=3.16.0",
     "jsonschema>=4.26.0",
+    "liffile>=2026.10.14",
     "mrcfile>=1.5.0",
     "nd2>=0.12.0",
     "nibabel>=5.4.2",
@@ -28,6 +29,7 @@ dev = [
     "protobuf>=7.36.2",
     "pydicom>=3.0.2",
     "pylibczirw>=6.1.0",
+    "pynrrd>=1.1.3",
     "pyproj>=3.8.0",
     "pytest>=9.1.1",
     "rasterio>=1.5.2",
@@ -36,6 +38,12 @@ dev = [
     "zarr-n5>=0.3.1",
     "bioio-bioformats>=1.3.0",
     "astropy>=8.0",
+    "ruff>=0.17.2",
+    "pyrefly>=1.4.0",
+    "types-protobuf>=7.35.1.20260906",
+    "types-jsonschema>=4.26.0.20261006",
+    "matplotlib>=3.10",
+    "soundfile>=0.14.0",
 ]
 # the comparison with kerchunk and Icechunk (design/comparison, design/experiments)
 bench = [
@@ -56,3 +64,184 @@ members = ["python"]
 
 [tool.uv.sources]
 refkv = { workspace = true }
+
+# ruff (`just lint`): every rule, less the ones below, each with its reason
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+# the frozen reference implementation, kept as it was written (conformance/zarrify/reference/README.md),
+# and the experiments' records, kept as they ran
+extend-exclude = ["conformance/zarrify/reference", "design/experiments"]
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    # docstrings are the project's prose: a summary that runs on into its paragraph, closing
+    # on its last line, in the indicative ("The archive's ...", "Reads ...")
+    "D",
+    # the license files cover every file; there are no per-file notices
+    "CPY001",
+    # a message is written where it is raised, with the values it names
+    "TRY003", "EM101", "EM102",
+    # the constants of a binary format are its specification's numbers, named where they are read
+    "PLR2004",
+    # a parser follows its format's structure, and a function its spec section's steps
+    "C901", "PLR0911", "PLR0912", "PLR0913", "PLR0915", "PLR0917",
+    # options such as mirror=True are positional parameters of internal functions
+    "FBT001", "FBT002", "FBT003",
+    # the prose and the formats use ×, –, µ and the like
+    "RUF001", "RUF002", "RUF003",
+    # open() is used beside pathlib, for a path either form gives
+    "PTH123",
+    # annotations are strings (`from __future__ import annotations`), and the imports they name
+    # stay ordinary imports
+    "TC001", "TC002", "TC003",
+    # a format's names (NX, MODE, the spec's symbols) keep their case
+    "N803", "N806",
+    # conflict with `ruff format`, should the project adopt it
+    "COM812", "ISC001",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# the tests and the scripts (harnesses, generators, verifiers, tools, examples): assert is how
+# they check, print how they report, and they may reach into the package's internals; only the
+# package's code must be annotated; their randomness is seeded data, not secrets
+"!python/src/**" = ["ANN", "S101", "T201", "INP001", "SLF001", "S603", "S607", "S311"]
+# the command lines: printing is what they do
+"python/src/refkv/{__main__,ir/__main__,zarrify/__main__,vzip/cli}.py" = ["T201"]
+# the conformance harness's CLI reports every invalid input, of any type, as one ValueError
+"python/src/refkv/vzip/cli.py" = ["TRY004"]
+# one function per format, each importing its format's libraries (the bench group), which main
+# imports before any timing
+"design/comparison/compare.py" = ["PLC0415"]
+# the independent implementation's tests: the standard library's unittest, without pytest
+"conformance/impls/python/tests/**" = ["PT"]
+
+[tool.ruff.lint.isort]
+# the package (python/src), wherever the file importing it is
+known-first-party = ["refkv"]
+
+# pyrefly (`just typecheck`): its strict preset over the repository's Python
+[tool.pyrefly]
+preset = "strict"
+# as ruff's (above): the frozen reference and the experiments' records
+project-excludes = ["conformance/zarrify/reference/**", "design/experiments/**"]
+# the directories the tests and scripts put on sys.path to import their neighbors
+search-path = [
+    "python/src",
+    "python/tests",
+    "python/tests/ir",
+    "python/tests/reference",
+    "js/test",
+    "conformance/zarrify",
+    "conformance/zarrify/reference",
+    "conformance/vzip",
+    "conformance/impls/python",
+    "conformance/impls/python/tests",
+    "rust/refkv-phkv/bench",
+    "spec",
+    "spec/tools",
+]
+
+[tool.pyrefly.errors]
+# warnings by default, errors here
+implicit-import = "error"
+untyped-import = "error"
+deprecated = "error"
+unreachable-except-clause = "error"
+division-by-zero = "error"
+# a conversion such as bytes(data) copies a buffer, or str(url) takes a PathLike: the annotation
+# states the value more narrowly than what callers pass
+unnecessary-type-conversion = false
+
+# the tests and the scripts are not annotated (ruff's ANN, above, is the package's alone): what
+# they leave unannotated is Any (the values they index are narrowed: refkv._narrow)
+[[tool.pyrefly.sub-config]]
+matches = "python/tests/**"
+
+[tool.pyrefly.sub-config.errors]
+implicit-any-parameter = false
+implicit-any-lambda = false
+implicit-any-type-argument = false
+implicit-any-empty-container = false
+implicit-any-attribute = false
+
+[[tool.pyrefly.sub-config]]
+matches = "python/tools/**"
+
+[tool.pyrefly.sub-config.errors]
+implicit-any-parameter = false
+implicit-any-lambda = false
+implicit-any-type-argument = false
+implicit-any-empty-container = false
+implicit-any-attribute = false
+
+[[tool.pyrefly.sub-config]]
+matches = "conformance/**"
+
+[tool.pyrefly.sub-config.errors]
+implicit-any-parameter = false
+implicit-any-lambda = false
+implicit-any-type-argument = false
+implicit-any-empty-container = false
+implicit-any-attribute = false
+
+[[tool.pyrefly.sub-config]]
+matches = "fixtures/**"
+
+[tool.pyrefly.sub-config.errors]
+implicit-any-parameter = false
+implicit-any-lambda = false
+implicit-any-type-argument = false
+implicit-any-empty-container = false
+implicit-any-attribute = false
+
+[[tool.pyrefly.sub-config]]
+matches = "js/**"
+
+[tool.pyrefly.sub-config.errors]
+implicit-any-parameter = false
+implicit-any-lambda = false
+implicit-any-type-argument = false
+implicit-any-empty-container = false
+implicit-any-attribute = false
+
+[[tool.pyrefly.sub-config]]
+matches = "spec/**"
+
+[tool.pyrefly.sub-config.errors]
+implicit-any-parameter = false
+implicit-any-lambda = false
+implicit-any-type-argument = false
+implicit-any-empty-container = false
+implicit-any-attribute = false
+
+[[tool.pyrefly.sub-config]]
+matches = "rust/**"
+
+[tool.pyrefly.sub-config.errors]
+implicit-any-parameter = false
+implicit-any-lambda = false
+implicit-any-type-argument = false
+implicit-any-empty-container = false
+implicit-any-attribute = false
+
+[[tool.pyrefly.sub-config]]
+matches = "design/**"
+
+[tool.pyrefly.sub-config.errors]
+implicit-any-parameter = false
+implicit-any-lambda = false
+implicit-any-type-argument = false
+implicit-any-empty-container = false
+implicit-any-attribute = false
+
+[[tool.pyrefly.sub-config]]
+matches = "docs/**"
+
+[tool.pyrefly.sub-config.errors]
+implicit-any-parameter = false
+implicit-any-lambda = false
+implicit-any-type-argument = false
+implicit-any-empty-container = false
+implicit-any-attribute = false

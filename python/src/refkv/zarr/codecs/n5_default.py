@@ -1,20 +1,36 @@
 """`n5_default`: an N5 default-mode block, header included (zarr-extensions `codecs/n5_default`;
-spec/virtualize/n5.md).
+spec/zarrify/n5.md).
+
+zarr-n5 registers an `n5_default` too, which decodes refkv's N5 archives as this one does. With
+both installed, zarr-python picks one, and warns, unless its config names one:
+`zarr.config.set({"codecs.n5_default": "refkv.zarr.codecs.n5_default.N5DefaultCodec"})` for
+this one. refkv does not set it: zarr loads this module through refkv's entry points whenever
+an array names `n5_default`, and so would override the choice for every N5 array, refkv's or
+not.
 """
 
 from __future__ import annotations
 
 import struct
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Self
+from typing import TYPE_CHECKING, Self, cast, override
 
 import numpy as np
-import zarr
-from zarr.abc.codec import ArrayBytesCodec, BytesBytesCodec, Codec
+from zarr.abc.codec import ArrayBytesCodec, BytesBytesCodec, Codec, CodecPipeline
 from zarr.codecs import BytesCodec, TransposeCodec
 from zarr.core.array_spec import ArraySpec
 from zarr.core.buffer import Buffer, NDBuffer
+from zarr.core.buffer.core import NDArrayLike
+from zarr.core.common import JSON
+from zarr.core.metadata.v3 import parse_codecs
 from zarr.registry import get_pipeline_class, register_codec
+
+from refkv._narrow import at, sequence
+
+if TYPE_CHECKING:
+    from zarr.core.dtype.wrapper import TBaseDType, TBaseScalar, ZDType
+    from zarr.core.metadata.v3 import ChunkGridMetadata
 
 
 class N5BlockError(ValueError):
@@ -37,9 +53,7 @@ class N5DefaultCodec(ArrayBytesCodec):
     is_fixed_size = False
     codecs: tuple[Codec, ...] = ()
 
-    def __init__(self, *, codecs) -> None:
-        from zarr.core.metadata.v3 import parse_codecs
-
+    def __init__(self, *, codecs: Iterable[Codec | JSON]) -> None:
         cs = parse_codecs(codecs)
         if not 2 <= len(cs) <= 3:
             raise ValueError(f"n5_default needs 2 or 3 inner codecs, got {len(cs)}")
@@ -47,36 +61,49 @@ class N5DefaultCodec(ArrayBytesCodec):
         if not isinstance(t, TransposeCodec) or tuple(t.order) != tuple(range(len(t.order) - 1, -1, -1)):
             raise ValueError("n5_default's first codec must be a full-reversal transpose")
         if not isinstance(b, BytesCodec):
-            raise ValueError("n5_default's second codec must be a bytes codec")
+            raise ValueError("n5_default's second codec must be a bytes codec")  # noqa: TRY004 (a bad configuration, like the checks around it)
         if len(cs) == 3 and not isinstance(cs[2], BytesBytesCodec):
             raise ValueError("n5_default's third codec must be bytes-to-bytes")
         object.__setattr__(self, "codecs", tuple(cs))
 
     @classmethod
-    def from_dict(cls, data: dict) -> Self:
-        return cls(codecs=data["configuration"]["codecs"])
+    @override
+    def from_dict(cls, data: dict[str, JSON]) -> Self:
+        return cls(codecs=sequence(at(data, "configuration", "codecs"), "configuration.codecs"))
 
-    def to_dict(self) -> dict:
+    @override
+    def to_dict(self) -> dict[str, JSON]:
         return {"name": "n5_default", "configuration": {"codecs": [c.to_dict() for c in self.codecs]}}
 
+    @override
     def evolve_from_array_spec(self, array_spec: ArraySpec) -> Self:
         return self
 
-    def validate(self, *, shape, dtype, chunk_grid) -> None:
-        if len(shape) != len(self.codecs[0].order):
+    @override
+    def validate(
+        self,
+        *,
+        shape: tuple[int, ...],
+        dtype: ZDType[TBaseDType, TBaseScalar],
+        chunk_grid: ChunkGridMetadata,
+    ) -> None:
+        # a transpose and a bytes codec, as __init__ checked
+        transpose, bytes_codec = cast("TransposeCodec", self.codecs[0]), cast("BytesCodec", self.codecs[1])
+        if len(shape) != len(transpose.order):
             raise ValueError(f"n5_default: the array has {len(shape)} dimensions, the codec "
-                             f"{len(self.codecs[0].order)}")
+                             f"{len(transpose.order)}")
         # zarr-python gives a bytes codec without configuration the native endianness;
         # it only matters, and must be big, for types of more than one byte.
-        endian = getattr(self.codecs[1].endian, "value", self.codecs[1].endian)
+        endian = getattr(bytes_codec.endian, "value", bytes_codec.endian)
         if dtype.to_native_dtype().itemsize > 1 and endian != "big":
             raise ValueError("n5_default's bytes codec must be big-endian")
 
-    def _pipeline(self):
+    def _pipeline(self) -> CodecPipeline:
         return get_pipeline_class().from_codecs(self.codecs)
 
-    async def _decode_single(self, chunk_bytes: Buffer, chunk_spec: ArraySpec) -> NDBuffer:
-        raw = chunk_bytes.to_bytes()
+    @override
+    async def _decode_single(self, chunk_data: Buffer, chunk_spec: ArraySpec) -> NDBuffer:
+        raw = chunk_data.to_bytes()
         if len(raw) < 4:
             raise N5BlockError("N5 block shorter than its header")
         mode, ndim = struct.unpack_from(">HH", raw)
@@ -91,16 +118,22 @@ class N5DefaultCodec(ArrayBytesCodec):
         spec = ArraySpec(tuple(shape), chunk_spec.dtype, chunk_spec.fill_value, chunk_spec.config,
                          chunk_spec.prototype)
         (decoded,) = await self._pipeline().decode([(body, spec)])
+        if decoded is None:
+            raise AssertionError("the inner codecs decoded a block's body to nothing")
         block = decoded.as_numpy_array()
         if tuple(shape) == tuple(chunk_spec.shape):
             return decoded
         out = np.full(chunk_spec.shape, chunk_spec.fill_value, dtype=block.dtype)
-        common = tuple(slice(0, min(a, b)) for a, b in zip(shape, chunk_spec.shape))
+        common = tuple(slice(0, min(a, b)) for a, b in zip(shape, chunk_spec.shape, strict=True))
         out[common] = block[common]
-        return chunk_spec.prototype.nd_buffer.from_ndarray_like(out)
+        # an ndarray is NDArrayLike, though numpy's stubs do not match zarr's protocol
+        return chunk_spec.prototype.nd_buffer.from_ndarray_like(cast("NDArrayLike", out))
 
-    async def _encode_single(self, chunk_array: NDBuffer, chunk_spec: ArraySpec) -> Buffer:
-        (body,) = await self._pipeline().encode([(chunk_array, chunk_spec)])
+    @override
+    async def _encode_single(self, chunk_data: NDBuffer, chunk_spec: ArraySpec) -> Buffer:
+        (body,) = await self._pipeline().encode([(chunk_data, chunk_spec)])
+        if body is None:
+            raise AssertionError("the inner codecs encoded a chunk to nothing")
         header = struct.pack(f">HH{len(chunk_spec.shape)}I", 0, len(chunk_spec.shape), *chunk_spec.shape)
         return chunk_spec.prototype.buffer.from_bytes(header + body.to_bytes())
 
@@ -109,9 +142,3 @@ class N5DefaultCodec(ArrayBytesCodec):
 
 
 register_codec("n5_default", N5DefaultCodec)
-
-# Other packages (zarr-n5) register an `n5_default` too; zarr-python then picks
-# one arbitrarily unless the config names it. Name this one, unless the caller
-# already chose.
-if zarr.config.get("codecs.n5_default", None) is None:
-    zarr.config.set({"codecs.n5_default": "refkv.zarr.codecs.n5_default.N5DefaultCodec"})

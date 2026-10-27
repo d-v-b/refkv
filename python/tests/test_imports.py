@@ -15,6 +15,7 @@ import ast
 import shutil
 import subprocess
 import sys
+from collections.abc import Collection
 from pathlib import Path
 
 SRC = Path(__file__).resolve().parents[1] / "src" / "refkv"
@@ -54,7 +55,7 @@ def imports_of(module: str, source: str) -> list[int]:
     return lines
 
 
-def importers(src: Path, module: str, allowed: set[str] = frozenset()) -> dict[str, list[int]]:
+def importers(src: Path, module: str, allowed: Collection[str] = frozenset()) -> dict[str, list[int]]:
     """The modules of the package at `src`, other than `allowed`, that import
     `module`, with the lines that do."""
     return {
@@ -124,10 +125,10 @@ def test_the_zarr_guard_finds_a_planted_import(tmp_path):
     reader = pkg / "reader.py"
     n = reader.read_text().count("\n")
     reader.write_text(reader.read_text() + "\n\ndef planted():\n    from zarr.abc.store import Store\n")
-    (pkg / "virtualize" / "planted.py").write_text("import zarr.storage\n")
+    (pkg / "zarrify" / "planted.py").write_text("import zarr.storage\n")
     cli = pkg / "vzip" / "cli.py"
     cli.write_text("import refkv.zarr\n" + cli.read_text())
-    assert zarr_importers(pkg) == {"vzip/cli.py": [1], "reader.py": [n + 4], "virtualize/planted.py": [1]}
+    assert zarr_importers(pkg) == {"vzip/cli.py": [1], "reader.py": [n + 4], "zarrify/planted.py": [1]}
 
 
 def test_importing_the_core_imports_no_zarr():
@@ -141,12 +142,13 @@ def test_importing_the_core_imports_no_zarr():
 import importlib, sys
 for name in {names!r}:
     importlib.import_module(name)
-loaded = sorted(n for n in sys.modules if n == "zarr" or n.startswith(("zarr.", "refkv.zarr")))
+loaded = sorted(n for n in sys.modules if n in ("zarr", "refkv.zarr") or n.startswith(("zarr.", "refkv.zarr.")))
 print(len([n for n in sys.modules if n.startswith("refkv.")]), loaded)
 """
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
     count, loaded = out.stdout.split(" ", 1)
-    assert int(count) > 15 and loaded.strip() == "[]", out.stdout
+    assert int(count) > 15, out.stdout
+    assert loaded.strip() == "[]", out.stdout
 
 
 def test_importing_refkv_imports_no_zip_code():

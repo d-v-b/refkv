@@ -1,22 +1,27 @@
-"""The frozen Python DICOM virtualizer (spec/virtualize/dicom.md) on the synthetic fixtures.
+"""The frozen Python DICOM virtualizer (spec/zarrify/dicom.md) on the synthetic fixtures.
 
 Equivalence with the browser virtualizer is checked by
-conformance/virtualize/compare.py, and pixel correctness against pydicom by
+conformance/zarrify/compare.py, and pixel correctness against pydicom by
 js/test/dicom/verify.py.
 """
 
 import sys
 from pathlib import Path
 
-# the frozen reference twins (conformance/virtualize/reference/refkv_reference)
-sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "virtualize" / "reference"))
+# the frozen reference twins (conformance/zarrify/reference/refkv_reference)
+sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "zarrify" / "reference"))
 
 import json
+import struct
 
 import pytest
-
-from refkv.virtualize import Rejected
+from reference_helpers import ranges_of
 from refkv_reference import virtualize
+from refkv_reference.dicom.dataset import EXPLICIT_LE, IMPLICIT_LE
+from refkv_reference.dicom.source import Translator, dictionary_vr, json_size, value_json
+from refkv_reference.legacy import Output
+
+from refkv.zarrify import Rejected
 
 FIXTURES = Path(__file__).parents[3] / "fixtures" / "dicom"
 
@@ -65,6 +70,7 @@ def test_virtualizes_the_synthetic_files():
     # first window where given.
     for name, summary, codecs, scale, window in CASES:
         fmt, out = virtualize(str(FIXTURES / name), url=f"https://data.test/{name}")
+        assert isinstance(out, Output)
         assert fmt == "dicom", name
         assert out.url == f"https://data.test/{name}"
         assert {**out.summary, **summary} == out.summary, name
@@ -76,7 +82,7 @@ def test_virtualizes_the_synthetic_files():
             assert ome["omero"]["channels"][0]["window"] == window, name
 
 
-@pytest.mark.parametrize("name,message", [
+@pytest.mark.parametrize(("name", "message"), [
     ("dicom_reject_increment_length.dcm", "multiple of 4"),
     ("dicom_reject_rle.dcm", r"transfer syntax 1\.2\.840\.10008\.1\.2\.5"),
     ("dicom_reject_jpegls.dcm", "transfer syntax"),
@@ -109,12 +115,8 @@ def test_rejects(name, message):
 
 
 def test_value_json():
-    """Each VR's translation (spec/virtualize/dicom.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#5-source-metadata>)."""
-    import struct
-
-    from refkv_reference.dicom.source import value_json
-
+    """Each VR's translation (spec/zarrify/dicom.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#5-source-metadata>)."""
     cases = [
         ("CS", b"ORIGINAL\\PRIMARY ", True, {"vr": "CS", "Value": ["ORIGINAL", "PRIMARY"]}),
         ("UI", b"1.2.3\0", True, {"vr": "UI", "Value": ["1.2.3"]}),
@@ -134,7 +136,8 @@ def test_value_json():
         ("DS", b"1e" + b"0" * 5000 + b"1\\-2.5E+" + b"0" * 4999 + b"1\\1e-111111\\0.0e999999999\\1e99999", True,
          {"vr": "DS", "Value": [10, -25, "1e-111111", 0, "1e99999"]}),
         ("SH", b"caf\xe9", True, {"vr": "SH", "Value": [{"latin1": "café"}]}),  # not UTF-8: ISO 8859-1, tagged
-        ("AT", struct.pack("<4H", 0x0028, 0x0010, 0x7FE0, 0x0010), True, {"vr": "AT", "Value": ["00280010", "7FE00010"]}),
+        ("AT", struct.pack("<4H", 0x0028, 0x0010, 0x7FE0, 0x0010), True,
+         {"vr": "AT", "Value": ["00280010", "7FE00010"]}),
         ("US", struct.pack(">2H", 1, 65535), False, {"vr": "US", "Value": [1, 65535]}),
         ("US", b"\x00\x01\x02", False, {"vr": "US", "InlineBinary": "AAEC"}),  # not whole values: as stored
         ("AT", b"\x28\x00\x10\x00\x28\x00", True, {"vr": "AT", "InlineBinary": "KAAQACgA"}),
@@ -154,23 +157,17 @@ def test_value_json():
 
 def test_json_size():
     """The size of an attribute as JSON.stringify writes it, which decides
-    whether it stays on the root (spec/virtualize/dicom.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#5-source-metadata>)."""
-    from refkv_reference.dicom.source import json_size
-
+    whether it stays on the root (spec/zarrify/dicom.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#5-source-metadata>)."""
     numbers = [1e21, 1e-7, 0.1, 9.0, -0.0, 123456789012345680000.0, 1.5e-6, -2.5e-300, 5e-324, 2**53]
     # As JSON.stringify writes them: 1e+21, 1e-7, 0.1, 9, 0, 123456789012345680000, 0.0000015, -2.5e-300, 5e-324,
     # 9007199254740992.
     assert json_size(numbers) == 2 + 9 + 5 + 4 + 3 + 1 + 1 + 21 + 9 + 9 + 6 + 16
-    assert json_size({"a\u00e9\n\u0001": ["x\"", None, True]}) == len('{"a\u00e9\\n\\u0001":["x\\"",null,true]}'.encode())
+    assert json_size({"a\u00e9\n\u0001": ['x"', None, True]}) == len(
+        '{"a\u00e9\\n\\u0001":["x\\"",null,true]}'.encode())
 
 
 def test_a_malformed_sequence_that_the_profile_does_not_walk_keeps_its_bytes():
-    import struct
-
-    from refkv_reference.dicom.dataset import EXPLICIT_LE
-    from refkv_reference.dicom.source import Translator
-
     def el(group, element, vr, value):
         if vr in ("SQ", "OB", "UN", "UT"):
             return struct.pack("<HH2sHI", group, element, vr.encode(), 0, len(value)) + value
@@ -194,10 +191,11 @@ def _bounds(tag: str) -> tuple[dict, list]:
     """In dicom_gathered_bounds.dcm, the attribute of tag `tag` of the
     dataset, and the references of the array of its bytes."""
     _, out = virtualize(str(FIXTURES / "dicom_gathered_bounds.dcm"), url="https://data.test/x.dcm")
+    assert isinstance(out, Output)
     root, node, docs = _source("dicom_gathered_bounds.dcm")
     attribute = {**root["dataset"], **node.get("dataset", {})}[tag]
-    assert docs[f"vzip_source/dataset/{tag}/zarr.json"]["shape"] == [sum(n for _, n in out.refs[
-        f"vzip_source/dataset/{tag}/c/0"])]
+    assert docs[f"vzip_source/dataset/{tag}/zarr.json"]["shape"] == [sum(n for _, n in ranges_of(
+        out, f"vzip_source/dataset/{tag}/c/0"))]
     assert not [k for k in docs if k.startswith(f"vzip_source/dataset/{tag}/items/")]  # nothing gathered
     return attribute, out.refs[f"vzip_source/dataset/{tag}/c/0"]
 
@@ -221,10 +219,8 @@ def test_a_gathered_sequence_whose_arrays_cost_over_16_times_its_bytes_keeps_its
 
 
 def test_dictionary_vr():
-    """The VR of an element whose file does not state it (spec/virtualize/dicom.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#5-source-metadata>)."""
-    from refkv_reference.dicom.source import dictionary_vr
-
+    """The VR of an element whose file does not state it (spec/zarrify/dicom.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#5-source-metadata>)."""
     cases = {
         0x00280010: "US",  # Rows
         0x00081140: "SQ",  # Referenced Image Sequence
@@ -241,11 +237,6 @@ def test_dictionary_vr():
 
 
 def test_elements_without_a_stated_vr_take_the_dictionarys():
-    import struct
-
-    from refkv_reference.dicom.dataset import EXPLICIT_LE, IMPLICIT_LE
-    from refkv_reference.dicom.source import Translator
-
     def implicit(group, element, value):
         return struct.pack("<HHI", group, element, len(value)) + value
 
@@ -272,11 +263,12 @@ def test_elements_without_a_stated_vr_take_the_dictionarys():
 
 
 def test_large_values_are_arrays_and_nothing_after_pixel_data_is_lost():
-    """spec/virtualize/dicom.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#5-source-metadata>: arrays
+    """spec/zarrify/dicom.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#5-source-metadata>: arrays
     named by BulkDataURI, per-frame groups on
     vzip_source, elements after Pixel Data, and no layout or padding."""
     _, out = virtualize(str(FIXTURES / "dicom_reconstruction.dcm"), url="https://data.test/r.dcm")
+    assert isinstance(out, Output)
     dataset = json.loads(out.bytes_entries["zarr.json"])["attributes"]["vzip_virtualized"]["dicom"]["dataset"]
     node = json.loads(out.bytes_entries["vzip_source/zarr.json"])["attributes"]["vzip_virtualized"]["dicom"]
     bulk = {k: v["BulkDataURI"] for k, v in dataset.items() if "BulkDataURI" in v}
@@ -286,7 +278,8 @@ def test_large_values_are_arrays_and_nothing_after_pixel_data_is_lost():
     assert "InlineBinary" in icons[0]["7FE00010"]  # 64 bytes
     assert icons[1]["7FE00010"] == {"vr": "OB", "BulkDataURI": "vzip_source/dataset/00880200/1/7FE00010"}
     assert dataset["7FE10010"] == {"vr": "LO", "Value": ["VZIP AFTER"]}  # after Pixel Data
-    assert "FFFCFFFC" not in dataset and "52009230" not in dataset
+    assert "FFFCFFFC" not in dataset
+    assert "52009230" not in dataset
     assert list(node["dataset"]) == ["52009230"]
     lut = json.loads(out.bytes_entries["vzip_source/dataset/00283006/zarr.json"])
     assert (lut["data_type"], lut["shape"]) == ("uint16", [100])
@@ -294,6 +287,7 @@ def test_large_values_are_arrays_and_nothing_after_pixel_data_is_lost():
 
 def _source(name: str):
     _, out = virtualize(str(FIXTURES / name), url=f"https://data.test/{name}")
+    assert isinstance(out, Output)
     docs = {k: json.loads(v) for k, v in out.bytes_entries.items() if k.endswith("zarr.json")}
     root = docs["zarr.json"]["attributes"]["vzip_virtualized"]["dicom"]
     node = docs.get("vzip_source/zarr.json", {}).get("attributes", {}).get("vzip_virtualized", {}).get("dicom", {})
@@ -303,9 +297,8 @@ def _source(name: str):
 def _items(name: str, sequence: str = "dataset/52009230") -> tuple[list[dict], list[int]]:
     """The distinct structures of the items of a file's gathered sequence at
     path `sequence`, and each item's."""
-    import struct
-
     _, out = virtualize(str(FIXTURES / name), url=f"https://data.test/{name}")
+    assert isinstance(out, Output)
     root, node, _ = _source(name)
     first, *names = sequence.split("/")
     attribute = {**root[first], **node.get(first, {})}
@@ -321,8 +314,8 @@ def _items(name: str, sequence: str = "dataset/52009230") -> tuple[list[dict], l
 
 
 def test_the_source_metadata_keeps_what_the_file_holds():
-    """spec/virtualize/dicom.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#5-source-metadata>:
+    """spec/zarrify/dicom.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#5-source-metadata>:
     duplicates, values under a multibyte
     character set, the preamble, large values as arrays (or on vzip_source),
     per-frame values gathered by frame, and the bytes of the pixel data that no
@@ -361,14 +354,17 @@ def test_the_source_metadata_keeps_what_the_file_holds():
     assert dataset["00091001"] == {"vr": "US", "InlineBinary": "AQID"}
     assert dataset["00181050"]["Value"] == ["9007199254740993"]
     # 300 items: gathered, so small enough for the root.
-    assert set(dataset["00081115"]) == {"vr", "Structures"} and "00081115" not in node.get("dataset", {})
+    assert set(dataset["00081115"]) == {"vr", "Structures"}
+    assert "00081115" not in node.get("dataset", {})
     assert len(_items("dicom_large_values.dcm", "dataset/00081115")[1]) == 300
 
     # Per-frame values: every value gathered by its path within the item,
     # the items keeping only their structure.
     _, node, docs = _source("dicom_per_frame_values.dcm")
     structures, frames = _items("dicom_per_frame_values.dcm")  # items that differ only in their values
-    assert frames == [0, 0, 0, 0] and len(structures) == 1 and set(node["dataset"]["52009230"]) == {"vr", "Structures"}
+    assert frames == [0, 0, 0, 0]
+    assert len(structures) == 1
+    assert set(node["dataset"]["52009230"]) == {"vr", "Structures"}
     base = "vzip_source/dataset/52009230/items"
     assert structures[0]["00091002"] == {"vr": "US", "Gathered": True}
     for k, (data_type, shape, dims) in {"00091001/value": ("uint8", [4, 100], ["index", "byte"]),
@@ -384,7 +380,8 @@ def test_the_source_metadata_keeps_what_the_file_holds():
     assert frames == [0, 1, 2, 3, 2]  # a group length kept in item 0, a private creator in 1, no UL in 3
     second = structures[frames[1]]
     assert second["00209113"]["Value"][0]["00200032"] == {"vr": "DS", "Gathered": True}
-    assert second["00189114"] == {"vr": "SQ", "Value": []} and "00280000" not in second
+    assert second["00189114"] == {"vr": "SQ", "Value": []}
+    assert "00280000" not in second
     assert structures[frames[0]]["00280000"] == {"vr": "UL", "Gathered": True}
     assert "00209057" not in structures[frames[3]]["00209111"]["Value"][0]
     for k, (data_type, shape, chunks) in {
@@ -406,8 +403,10 @@ def test_the_source_metadata_keeps_what_the_file_holds():
     first, second = (structures[k] for k in frames)
     assert first["00209111"] == {"vr": "SQ", "Gathered": True}  # breaks a rule: its bytes
     assert second["00209111"]["Value"][0]["00091001"] == {"vr": "OB", "Gathered": True}
-    assert f"{base}/00209111/value/zarr.json" in docs and f"{base}/00209111/0/00091001/value/zarr.json" in docs
-    assert f"{base}/00091001/value/zarr.json" in docs and f"{base}/00091001/0/00091002/value/zarr.json" in docs
+    assert f"{base}/00209111/value/zarr.json" in docs
+    assert f"{base}/00209111/0/00091001/value/zarr.json" in docs
+    assert f"{base}/00091001/value/zarr.json" in docs
+    assert f"{base}/00091001/0/00091002/value/zarr.json" in docs
     arrays = [k[:-len("/zarr.json")] for k, d in docs.items() if d["node_type"] == "array"]
     assert not [(a, b) for a in arrays for b in arrays if b.startswith(a + "/")]  # no array has children
 
@@ -418,7 +417,10 @@ def test_the_source_metadata_keeps_what_the_file_holds():
     root, node, docs = _source("dicom_gathered_sequences.dcm")
     dataset = root["dataset"]
     structures, each = _items("dicom_gathered_sequences.dcm", "dataset/00081115/0/0008114A")
-    assert len(each) == 100 and each[0] == 0 and set(each[1:]) == {1} and len(structures) == 2
+    assert len(each) == 100
+    assert each[0] == 0
+    assert set(each[1:]) == {1}
+    assert len(structures) == 2
     assert structures[1] == {"00081150": {"vr": "UI", "Gathered": True}, "00081155": {"vr": "UI", "Gathered": True}}
     assert len(structures[0]["0040A170"]["Value"]) == 66  # in a gathered item: its values gathered with the item's
     base = "vzip_source/dataset/00081115/0/0008114A/items"
@@ -430,17 +432,20 @@ def test_the_source_metadata_keeps_what_the_file_holds():
         assert (doc["data_type"], doc["shape"], doc["chunk_grid"]["configuration"]["chunk_shape"]) == (
             data_type, shape, chunks), k
     structures, each = _items("dicom_gathered_sequences.dcm", "dataset/00082112")
-    assert len(each) == 70 and len(structures) == 2  # with the private value (in every 7th item), and without
+    assert len(each) == 70
+    assert len(structures) == 2  # with the private value (in every 7th item), and without
     assert docs["vzip_source/dataset/00082112/items/00091001/value/zarr.json"]["chunk_grid"]["configuration"][
         "chunk_shape"] == [1, 2]
     assert len(dataset["0040A730"]["Value"]) == 64  # not gathered
     structures, each = _items("dicom_gathered_sequences.dcm")
-    assert len(each) == 80 and len(structures) == 2
+    assert len(each) == 80
+    assert len(structures) == 2
     for k, (data_type, chunks) in {"00209111/0/00209057": ("uint32", [80, 1]),
                                    "00291001": ("float64", [1, 1])}.items():  # in 3 of 80 items: sparse
         doc = docs[f"vzip_source/dataset/52009230/items/{k}/value/zarr.json"]
         assert (doc["data_type"], doc["chunk_grid"]["configuration"]["chunk_shape"]) == (data_type, chunks), k
     _, out = virtualize(str(FIXTURES / "dicom_gathered_sequences.dcm"), url="https://data.test/x.dcm")
+    assert isinstance(out, Output)
     sparse = sorted(k for k in out.refs if k.startswith("vzip_source/dataset/52009230/items/00291001/value/c/"))
     assert sparse == [f"vzip_source/dataset/52009230/items/00291001/value/c/{f}/0" for f in (3, 40, 79)]
     # An explicit UN value in big endian keeps its bytes in little endian, and says so.
@@ -457,16 +462,21 @@ def test_the_source_metadata_keeps_what_the_file_holds():
     # read the frames from are kept, and so is a later table of a tag it did.
     root, _, _ = _source("dicom_layout_tags.dcm")
     dataset = root["dataset"]
-    assert "00020000" not in root["meta"] and "00080000" not in dataset
+    assert "00020000" not in root["meta"]
+    assert "00080000" not in dataset
     assert "00080000" not in dataset["00081140"]["Value"][0]
     assert dataset["00081140"]["Value"][0]["7FE00001"] == {"vr": "OV", "InlineBinary": "BwAAAAAAAAA="}
-    assert dataset["00090000"]["Value"] == [12] and dataset["00100000"]["Value"] == [99]
-    assert dataset["00180000"]["Value"] == [12] and dataset["duplicates"] == [{"00180000": {"vr": "UL", "Value": [0]}}]
+    assert dataset["00090000"]["Value"] == [12]
+    assert dataset["00100000"]["Value"] == [99]
+    assert dataset["00180000"]["Value"] == [12]
+    assert dataset["duplicates"] == [{"00180000": {"vr": "UL", "Value": [0]}}]
     assert dataset["7FE00001"] == {"vr": "OV", "InlineBinary": "Fc1bBwAAAAA="}  # after Pixel Data
     assert dataset["00209222"] == {"vr": "SQ", "InlineBinary": "EAAQAFBOAgBBQg=="}  # breaks a rule: inline
     root, _, _ = _source("dicom_eot_duplicate.dcm")
     dataset = root["dataset"]
-    assert "7FE00000" not in dataset and "7FE00001" not in dataset and "7FE00002" not in dataset
+    assert "7FE00000" not in dataset
+    assert "7FE00001" not in dataset
+    assert "7FE00002" not in dataset
     assert [list(d) for d in dataset["duplicates"]] == [["7FE00001"], ["7FE00002"]]
     # UN values in explicit VR big endian are in little endian.
     root, _, docs = _source("dicom_un_bigendian.dcm")
@@ -493,7 +503,8 @@ def test_the_source_metadata_keeps_what_the_file_holds():
     root, _, docs = _source("dicom_eot_item_headers.dcm")
     assert root["pixel_unreferenced_headers"] is True
     _, out = virtualize(str(FIXTURES / "dicom_eot_item_headers.dcm"), url="https://data.test/x.dcm")
-    assert [n for _, n in out.refs["vzip_source/pixel_unreferenced/data/c/0"]] == [8, 8, 10]  # 2 bytes of padding
+    assert isinstance(out, Output)
+    assert [n for _, n in ranges_of(out, "vzip_source/pixel_unreferenced/data/c/0")] == [8, 8, 10]  # 2 bytes of padding
 
     # Numbers too long to convert.
     root, _, _ = _source("dicom_long_numbers.dcm")
@@ -504,10 +515,13 @@ def test_the_source_metadata_keeps_what_the_file_holds():
     # and dataset are over 64 KiB together, the largest left, the first by tag.
     root, node, _ = _source("dicom_root_budget.dcm")
     assert list(node) == ["meta", "dataset"]
-    assert list(node["meta"]) == ["duplicates"] and len(node["meta"]["duplicates"]) == 20
+    assert list(node["meta"]) == ["duplicates"]
+    assert len(node["meta"]["duplicates"]) == 20
     assert list(node["dataset"]) == ["00111001"]  # of 15002 bytes, as 00111003 is
-    assert "00111003" in root["dataset"] and "00020013" in root["meta"]
+    assert "00111003" in root["dataset"]
+    assert "00020013" in root["meta"]
     assert len(json.dumps([root["meta"], root["dataset"]], separators=(",", ":"))) - 3 <= 1 << 16
     # Nothing else keeps these.
     root, node, _ = _source("dicom_explicit_signed16_frames.dcm")
-    assert set(root) == {"meta", "dataset"} and node == {}
+    assert set(root) == {"meta", "dataset"}
+    assert node == {}

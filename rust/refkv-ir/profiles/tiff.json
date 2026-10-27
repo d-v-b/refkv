@@ -5,11 +5,12 @@
   "version": 0,
   "kind": "file",
   "sniff": 40,
+  "chosen_by": null,
   "suffixes": [
     ".tif"
   ],
   "reference": 20,
   "source": "TIFF, OME-TIFF, Aperio SVS",
   "inputs": "TIFF and BigTIFF, including OME-TIFF and JPEG-tiled slides such as Aperio SVS",
-  "for": "OME-TIFF, plain tiled TIFF, and JPEG-tiled slides such as Aperio SVS"
+  "for": "OME-TIFF, plain TIFF (tiled or in strips), and JPEG-tiled slides such as Aperio SVS"
 }

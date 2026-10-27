@@ -1,6 +1,6 @@
 """Writes synthetic Zarr v2 hierarchies to fixtures/zarr2/<name>/,
-covering the rules of the Zarr v2 profile (spec/virtualize/zarr2.md §7
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#7-zarr-v2-profile>): C and F
+covering the rules of the Zarr v2 profile (spec/zarrify/zarr2.md §7
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#7-zarr-v2-profile>): C and F
 order, both dimension separators, every supported data type and byte order,
 each compressor (none, zlib, gzip, zstd, blosc with each shuffle), fill
 values (numbers, "NaN", "Infinity", "-Infinity", null), 0-d arrays, missing
@@ -29,6 +29,7 @@ import gzip
 import json
 import shutil
 from pathlib import Path
+from typing import Literal
 
 import numcodecs
 import numpy as np
@@ -75,9 +76,9 @@ def codec(compressor: dict | None):
     return numcodecs.get_codec(c)
 
 
-def array(root: Path, path: str, data: np.ndarray, chunks: list[int], *, compressor=None, order="C", sep=None,
-          fill=0, skip=frozenset(), attrs=None, dtype: str | None = None, zarray_extra=None,
-          write_chunks: bool = True) -> None:
+def array(root: Path, path: str, data: np.ndarray, chunks: list[int], *, compressor=None,
+          order: Literal["C", "F"] = "C", sep=None, fill=0, skip=frozenset(), attrs=None, dtype: str | None = None,
+          zarray_extra=None, write_chunks: bool = True) -> None:
     d = root / path if path else root
     doc = {"zarr_format": 2, "shape": list(data.shape), "chunks": chunks, "dtype": dtype or data.dtype.str,
            "compressor": compressor, "fill_value": fill, "order": order, "filters": None}
@@ -93,14 +94,14 @@ def array(root: Path, path: str, data: np.ndarray, chunks: list[int], *, compres
     if data.ndim == 0:
         put(d / "0", c.encode(data.tobytes()) if c else data.tobytes())
         return
-    grid = [-(-s // n) for s, n in zip(data.shape, chunks)]
+    grid = [-(-s // n) for s, n in zip(data.shape, chunks, strict=True)]
     padding = 0 if fill is None or isinstance(fill, str) else fill
     if isinstance(fill, str):
         padding = float(fill.replace("Infinity", "inf"))
     for idx in np.ndindex(*grid):
         if idx in skip:
             continue
-        sl = tuple(slice(i * n, min((i + 1) * n, s)) for i, n, s in zip(idx, chunks, data.shape))
+        sl = tuple(slice(i * n, min((i + 1) * n, s)) for i, n, s in zip(idx, chunks, data.shape, strict=True))
         block = np.full(chunks, padding, dtype=data.dtype)
         block[tuple(slice(0, e.stop - e.start) for e in sl)] = data[sl]
         raw = block.tobytes(order=order)
@@ -213,12 +214,12 @@ def main() -> None:
         ".zgroup": {"zarr_format": 2}, "ghost/.zarray": {"shape": [1]}}})
 
     # OME-NGFF 0.4 attributes below a root that does not declare OME-NGFF 0.4
-    # (spec/virtualize.md §1.4
-    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>): the store is
+    # (spec/zarrify.md §1.4
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>): the store is
     # read by §7
-    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#7-zarr-v2-profile>, and
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#7-zarr-v2-profile>, and
     # every attribute is
-    # copied unchanged (OME-Zarr 0.4 stores are read by spec/virtualize/ome-zarr.md).
+    # copied unchanged (OME-Zarr 0.4 stores are read by spec/zarrify/ome-zarr.md).
     d = store("zarr2_ome_attrs")
     img = arr((2, 8, 10), "<u2")
     axes = [{"name": "c", "type": "channel"}, {"name": "y", "type": "space", "unit": "micrometer"},
@@ -305,21 +306,21 @@ def main() -> None:
     d = store("zarr2_reject_no_root_metadata")
     array(d, "x", arr((2, 2), "|u1"), [2, 2], write_chunks=False)
 
-    # The virtualization convention (spec/virtualize.md conventions §2
+    # The zarrification convention (spec/zarrify.md conventions §2
     # <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>): every copied
-    # attribute, another convention's included, goes under refkv_virtualized.zarr2 on its node.
-    # `v` was itself virtualized (it carries a refkv declaration and the key), and
+    # attribute, another convention's included, goes under refkv_zarrified.zarr2 on its node.
+    # `v` was itself zarrified (it carries a refkv declaration and the key), and
     # `bad` a zarr_conventions that is not an array: both are copied as they are.
     proj = {"uuid": "f17cb550-5864-4468-aeb7-f3180cfb622f", "name": "proj:"}
     d = store("zarr2_conventions")
     group(d, "", {"zarr_conventions": [proj], "proj:code": "EPSG:4326"})
     array(d, "x", arr((2, 2), "|u1"), [2, 2], attrs={"zarr_conventions": [proj], "proj:code": "EPSG:4326"})
     group(d, "v", {"zarr_conventions": [{"uuid": "48e9ac4e-1156-4a62-955e-20467d9c2700"}],
-                   "refkv_virtualized": {"profile": "tiff", "version": 1}})
+                   "refkv_zarrified": {"profile": "tiff", "version": 1}})
     group(d, "bad", {"zarr_conventions": proj})
 
-    # Source metadata (spec/virtualize/zarr2.md §4
-    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#4-source-metadata>): the
+    # Source metadata (spec/zarrify/zarr2.md §4
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#4-source-metadata>): the
     # members of .zarray and .zgroup that
     # the Zarr v3 metadata does not reproduce (an unread member, a null fill value, a compressor's
     # members its codec does not carry), the compressors' levels, which the codecs carry,
@@ -341,8 +342,8 @@ def main() -> None:
           zarray_extra={"compressor": {**blosc(), "nthreads": 2}, "custom": {"x": 1}},
           attrs={"_ARRAY_DIMENSIONS": ["x"]})
 
-    # Objects that are neither documents of a node nor chunks (spec/virtualize/zarr2.md §5
-    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>):
+    # Objects that are neither documents of a node nor chunks (spec/zarrify/zarr2.md §5
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#5-other-objects>):
     # each is kept whole under refkv_source/objects/, except .zmetadata and empty objects.
     d = store("zarr2_objects")
     group(d, "")
@@ -371,10 +372,10 @@ def main() -> None:
 def exact_objects() -> None:
     """Objects whose last segment a Zarr reader takes for a node's document, escaped with
     `~` under refkv_source/objects/; empty objects, whose keys are refkv_source's source
-    metadata, or refkv_source/empty.json under a root array (spec/virtualize/zarr2.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>);
+    metadata, or refkv_source/empty.json under a root array (spec/zarrify/zarr2.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#5-other-objects>);
     and float fill values written as integers beyond 2^53 - 1 (§4
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#4-source-metadata>). Fixed
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#4-source-metadata>). Fixed
     data, no RNG."""
     d = store("zarr2_node_names")
     group(d, "")
@@ -404,9 +405,9 @@ def exact_objects() -> None:
 
 def empty_chunks() -> None:
     """A root array with an empty chunk object, whose key is listed in
-    refkv_source/empty.json (spec/virtualize/zarr2.md §3.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#32-chunks>, §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>). Fixed data,
+    refkv_source/empty.json (spec/zarrify/zarr2.md §3.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#32-chunks>, §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#5-other-objects>). Fixed data,
     no RNG."""
     d = store("zarr2_root_array_empty_chunk")
     array(d, "", np.array([1, 2, 3, 4], dtype="|u1"), [2], fill=7)
@@ -415,8 +416,8 @@ def empty_chunks() -> None:
 
 def root_objects() -> None:
     """A root array with other objects beside its chunk (a README, and `7`, outside the
-    chunk grid), which the root keeps without a refkv_source group (spec/virtualize/zarr2.md
-    §5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>). Written
+    chunk grid), which the root keeps without a refkv_source group (spec/zarrify/zarr2.md
+    §5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#5-other-objects>). Written
     byte for byte as the first, hand-made copy was: compact JSON with a newline, no RNG."""
     d = store("zarr2_root_array_objects")
     put(d / ".zarray", b'{"zarr_format":2,"shape":[4],"chunks":[4],"dtype":"<u2","order":"C",'

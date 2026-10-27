@@ -1,10 +1,43 @@
-"""The MP3 convention's source metadata (spec/virtualize/mp3.md), for
+"""The MP3 convention's source metadata (spec/zarrify/mp3.md), for
 spec/generate_schemas.py."""
+
+# the ID3v2 and ID3v1 tags' fields, which the FLAC convention writes too
+ID3V2 = {
+    "type": "array", "minItems": 1,
+    "description": "The ID3v2 tags at the start, in order: each header's version, flags and size, and "
+                   "whether it has a footer",
+    "items": {
+        "type": "object",
+        "properties": {
+            "version": {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 255},
+                        "minItems": 2, "maxItems": 2},
+            "flags": {"type": "integer", "minimum": 0, "maximum": 255},
+            "size": {"type": "integer", "minimum": 0},
+            "footer": {"type": "boolean"},
+        },
+        "required": ["version", "flags", "size", "footer"],
+        "additionalProperties": False,
+    },
+}
+ID3V1 = {
+    "type": "object",
+    "description": "The ID3v1 tag's fields: each text up to its first NUL",
+    "properties": {
+        "title": {"$ref": "#/$defs/text"}, "artist": {"$ref": "#/$defs/text"},
+        "album": {"$ref": "#/$defs/text"},
+        "year": {"$ref": "#/$defs/text"}, "comment": {"$ref": "#/$defs/text"},
+        "track": {"type": ["integer", "null"], "description": "An ID3v1.1 tag's track number"},
+        "genre": {"type": "integer", "minimum": 0, "maximum": 255},
+    },
+    "required": ["title", "artist", "album", "year", "comment", "track", "genre"],
+    "additionalProperties": False,
+}
 
 SCHEMA = {"anyOf": [
     {
         "type": "object",
-        "description": "The root's: the stream's parameters, derived from its frames, and the fields of its info frame and tags (spec/virtualize/mp3.md §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#51-the-root>)",
+        "description": "The root's: the stream's parameters, derived from its frames, and the fields of its info frame "
+                       "and tags (spec/zarrify/mp3.md §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#51-the-root>)",
         "properties": {
             "version": {"enum": ["MPEG-1", "MPEG-2", "MPEG-2.5"]},
             "layer": {"const": 3},
@@ -17,50 +50,30 @@ SCHEMA = {"anyOf": [
             "samples": {"type": "integer", "minimum": 1, "description": "frames * samples_per_frame"},
             "duration": {"type": "number", "exclusiveMinimum": 0, "description": "samples / sample_rate, in seconds"},
             "bitrate_mode": {"enum": ["constant", "variable"]},
-            "bitrate_kbps": {"type": ["integer", "null"], "description": "The bitrate of every audio frame, or null when they differ"},
+            "bitrate_kbps": {"type": ["integer", "null"],
+                             "description": "The bitrate of every audio frame, or null when they differ"},
             "crc_frames": {"type": "integer", "minimum": 0, "description": "The audio frames with a CRC"},
             "info": {
                 "type": "object",
-                "description": "The info frame's fields: a Xing, Info or VBRI tag, and a LAME tag after a Xing or Info one",
+                "description": "The info frame's fields: a Xing, Info or VBRI tag, and a LAME tag after a Xing or Info "
+                               "one",
                 "properties": {
                     "tag": {"enum": ["Xing", "Info", "VBRI"]},
                     "frames": {"type": ["integer", "null"]},
                     "bytes": {"type": ["integer", "null"]},
                     "quality": {"type": ["integer", "null"]},
-                    "encoder": {"type": ["string", "null"], "description": "The LAME tag's 9-byte encoder version, when printable"},
-                    "delay": {"type": ["integer", "null"], "description": "The encoder delay in samples (a LAME tag's, or a VBRI tag's)"},
-                    "padding": {"type": ["integer", "null"], "description": "The encoder padding in samples (a LAME tag's)"},
+                    "encoder": {"type": ["string", "null"],
+                                "description": "The LAME tag's 9-byte encoder version, when printable"},
+                    "delay": {"type": ["integer", "null"],
+                              "description": "The encoder delay in samples (a LAME tag's, or a VBRI tag's)"},
+                    "padding": {"type": ["integer", "null"],
+                                "description": "The encoder padding in samples (a LAME tag's)"},
                 },
                 "required": ["tag", "frames", "bytes", "quality", "encoder", "delay", "padding"],
                 "additionalProperties": False,
             },
-            "id3v2": {
-                "type": "array", "minItems": 1,
-                "description": "The ID3v2 tags at the start, in order: each header's version, flags and size, and whether it has a footer",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "version": {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 255}, "minItems": 2, "maxItems": 2},
-                        "flags": {"type": "integer", "minimum": 0, "maximum": 255},
-                        "size": {"type": "integer", "minimum": 0},
-                        "footer": {"type": "boolean"},
-                    },
-                    "required": ["version", "flags", "size", "footer"],
-                    "additionalProperties": False,
-                },
-            },
-            "id3v1": {
-                "type": "object",
-                "description": "The ID3v1 tag's fields: each text up to its first NUL",
-                "properties": {
-                    "title": {"$ref": "#/$defs/text"}, "artist": {"$ref": "#/$defs/text"}, "album": {"$ref": "#/$defs/text"},
-                    "year": {"$ref": "#/$defs/text"}, "comment": {"$ref": "#/$defs/text"},
-                    "track": {"type": ["integer", "null"], "description": "An ID3v1.1 tag's track number"},
-                    "genre": {"type": "integer", "minimum": 0, "maximum": 255},
-                },
-                "required": ["title", "artist", "album", "year", "comment", "track", "genre"],
-                "additionalProperties": False,
-            },
+            "id3v2": ID3V2,
+            "id3v1": ID3V1,
             "ape": {
                 "type": "object",
                 "description": "The APE tag's footer fields, and the tag's whole size",

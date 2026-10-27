@@ -1,4 +1,4 @@
-//! The file parsers (every file profile of the registry, spec/virtualize/profiles/): every
+//! The file parsers (every file profile of the registry, spec/zarrify/profiles/): every
 //! fixture they accept is a valid IR that rebuilds its source, and the fixtures named as rejected
 //! are. Each format's own tests, one per rejected fixture among them, are tests/<format>.rs.
 
@@ -25,7 +25,7 @@ fn files(dir: &Path, suffixes: &[&str]) -> Vec<std::path::PathBuf> {
 }
 
 /// Every file profile's fixtures (fixtures/<p>, the files of the registry's suffixes): one
-/// named as rejected (`unsupported_*`, `*_reject_*`; conformance/virtualize/HARNESS.md) is
+/// named as rejected (`unsupported_*`, `*_reject_*`; conformance/zarrify/HARNESS.md) is
 /// rejected, and every other is accepted as a valid IR that rebuilds its source.
 #[test]
 fn accepted_fixtures_are_valid_irs_that_rebuild() {

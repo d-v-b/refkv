@@ -4,21 +4,26 @@ and a bounded number of reads in flight. The browser implementation has the
 same tests in js/test/store.test.ts.
 """
 
+import io
 import json
 import threading
 import time
 import urllib.error
 import urllib.parse
+from email.message import Message
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import override
 from xml.sax.saxutils import escape
 
 import pytest
 
-import refkv.virtualize
+import refkv.zarrify
 from refkv.policy import Policy
-from refkv.virtualize import Rejected, _virtualize_store as virtualize_store  # the profile output, not the store
-from refkv.virtualize.store import _Prefetch, object_url, open_store
+from refkv.zarrify import Rejected
+from refkv.zarrify import _zarrify_store as zarrify_store  # the profile output, not the store
+from refkv.zarrify.store import object_url, open_store
+from refkv.zarrify.store.stores import _Prefetch
 
 FIXTURES = Path(__file__).parents[2] / "fixtures"
 STORES = sorted(p for f in ("n5", "zarr2", "ome-zarr") for p in (FIXTURES / f).iterdir() if p.is_dir())
@@ -45,16 +50,16 @@ class FakeS3:
         return (f'<?xml version="1.0"?><ListBucketResult><IsTruncated>false</IsTruncated>{contents}'
                 "</ListBucketResult>").encode()
 
-    def __call__(self, req, timeout=None):
-        import io
-
+    def __call__(self, req, timeout=None):  # noqa: ARG002 (urlopen's signature)
         class R(io.BytesIO):
             status = 200
 
+            @override
             def __enter__(self):
                 return self
 
-            def __exit__(self, *a):
+            @override
+            def __exit__(self, exc_type, exc_val, exc_tb):
                 pass
 
         if req.full_url == LISTING:
@@ -68,7 +73,7 @@ class FakeS3:
             time.sleep(self.delay)
             v = self.objects[key]
             if isinstance(v, int):
-                raise urllib.error.HTTPError(req.full_url, v, "refused", {}, None)
+                raise urllib.error.HTTPError(req.full_url, v, "refused", Message(), None)
             return R(v[:-1] if key in self.short else v)
         finally:
             with self.lock:
@@ -82,10 +87,10 @@ def directory(root: Path) -> dict[str, bytes]:
 def outcome(monkeypatch, s3: FakeS3, workers: int):
     """("ok", format, docs, chunks), ("rejected", message) or ("failed", type, message)."""
     # The store reads through `s3` as a test's opener, so without kept-alive connections.
-    monkeypatch.setattr(refkv.virtualize, "open_store",
+    monkeypatch.setattr(refkv.zarrify, "open_store",
                         lambda location, url=None, **kw: open_store(location, url, opener=s3, **kw))
     try:
-        fmt, out = virtualize_store(URL, workers=workers)
+        fmt, out = zarrify_store(URL, workers=workers)
     except Rejected as e:
         return ("rejected", str(e))
     except OSError as e:
@@ -114,7 +119,8 @@ def test_reads_in_flight_are_bounded(monkeypatch):
     s3 = FakeS3(objects, delay=0.01)
     assert outcome(monkeypatch, s3, 4)[0] == "ok"
     assert s3.most == 4
-    assert set(s3.reads.values()) == {1} and len(s3.reads) == 81
+    assert set(s3.reads.values()) == {1}
+    assert len(s3.reads) == 81
 
 
 def test_bytes_held_ahead_are_bounded():
@@ -129,11 +135,11 @@ def test_bytes_held_ahead_are_bounded():
         return b"x" * sizes[key]
 
     p = _Prefetch(read, list(sizes.items()), workers=8, budget=35, wanted=None)
-    for key in sizes:
+    for key, size in sizes.items():
         time.sleep(0.005)
         assert p.take(key) == (True, b"x" * 10)
         with lock:
-            held[0] -= sizes[key]
+            held[0] -= size
     assert most[0] <= 35
 
 
@@ -152,7 +158,9 @@ def test_a_short_read_is_the_same_failure(monkeypatch):
     objects = {".zgroup": b'{"zarr_format": 2}', "a/.zarray": ZARRAY, "b/.zarray": ZARRAY}
     failed = outcome(monkeypatch, FakeS3(objects, short=frozenset({"b/.zarray"})), 8)
     assert failed == outcome(monkeypatch, FakeS3(objects, short=frozenset({"b/.zarray"})), 1)
-    assert failed[:2] == ("failed", "OSError") and "the listing says" in failed[2]
+    assert failed[:2] == ("failed", "OSError")
+    assert len(failed) == 3
+    assert "the listing says" in failed[2]
 
 
 def test_a_failed_read_of_a_document_fails_the_run_whatever_the_others_say(monkeypatch):
@@ -175,7 +183,8 @@ def s3_server():
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
-        def log_message(self, *a):
+        @override
+        def log_message(self, format, *args):
             pass
 
         def do_GET(self):
@@ -211,7 +220,7 @@ def test_concurrent_reads_over_kept_alive_connections(s3_server):
         state["reads"].clear()
         # the server is on 127.0.0.1, which the reader policy refuses by default (spec/refkv.md
         # §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)
-        fmt, out = virtualize_store(url, workers=workers, policy=Policy(allow_private_hosts=True))
+        fmt, out = zarrify_store(url, workers=workers, policy=Policy(allow_private_hosts=True))
         results.append((fmt, json.dumps(out.docs, sort_keys=True), out.chunks))
         assert set(state["reads"].values()) == {1}
     assert results[0] == results[1]

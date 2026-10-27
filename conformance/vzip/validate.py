@@ -7,6 +7,7 @@ valid).
 
 from __future__ import annotations
 
+import contextlib
 import os
 import struct
 import subprocess
@@ -78,7 +79,7 @@ def parse(buf: bytes, problems: list) -> dict:
         problems.append("central directory does not end where the zip64 record begins")
     recs, pos, any_zip64_extra = [], cd_off, False
     for _ in range(n):
-        (sig, made, need, flags, method, _, _, crc, csize, size, nlen, xlen, cmlen, _, _, _, off) = (
+        (sig, _made, need, flags, method, _, _, crc, csize, size, nlen, xlen, cmlen, _, _, _, off) = (
             struct.unpack_from("<IHHHHHHIIIHHHHHII", buf, pos)
         )
         if sig != 0x02014B50:
@@ -126,7 +127,7 @@ def check_spans(buf: bytes, spans: list[tuple[int, int]], cd_off: int) -> list[s
     if spans and min(spans)[0] != 0:
         problems.append(f"bytes [0, {min(spans)[0]}) before the first entry belong to no entry")
     end = 0
-    for a, b in sorted(spans) + [(cd_off, cd_off)]:
+    for a, b in [*sorted(spans), (cd_off, cd_off)]:
         if a < end:
             problems.append(f"bytes [{a}, {end}) belong to two entries, or to an entry and the "
                             "central directory")
@@ -237,11 +238,9 @@ def validate(path: Path, desc: dict) -> list[str]:
         # so the description may leave it to the table; the encoding must still be canonical
         revision = desc.get("revision")
         if revision is None and SOURCES in bodies:
-            try:
+            with contextlib.suppress(Exception):  # the comparison below reports the body
                 table = pbref.SourceTable.FromString(bodies[SOURCES])
                 revision = table.revision if table.HasField("revision") else None
-            except Exception:  # noqa: BLE001 - the comparison below reports the body
-                pass
         want = pbref.source_table(desc.get("sources", []), revision)
         if bodies.get(SOURCES) != want:
             problems.append(f"source table body {bodies.get(SOURCES, b'').hex()} != {want.hex()}")
@@ -292,7 +291,7 @@ def validate(path: Path, desc: dict) -> list[str]:
     cmd, env = ["unzip", "-tq", str(path)], None
     if sys.platform.startswith("linux"):
         cmd, env = ["unzip", "-O", "UTF-8", "-tq", str(path)], {**os.environ, "LC_ALL": "C.UTF-8"}
-    res = subprocess.run(cmd, capture_output=True, text=True, env=env)
+    res = subprocess.run(cmd, capture_output=True, text=True, env=env, check=False)
     if res.returncode != 0:
         problems.append(f"unzip -t failed: {(res.stdout + res.stderr).strip()[:200]}")
     return problems
@@ -312,7 +311,7 @@ def _check_index(z, by_name, bodies, c, desc) -> list[str]:
     try:
         idx.ParseFromString(bodies[INDEX])
     except Exception as e:  # noqa: BLE001
-        return p + [f"index does not decode: {e}"]
+        return [*p, f"index does not decode: {e}"]
     if idx.SerializeToString(deterministic=True) != bodies[INDEX]:
         p.append("index encoding is not canonical")
     recs = z["recs"]
@@ -327,7 +326,7 @@ def _check_index(z, by_name, bodies, c, desc) -> list[str]:
         p.append("record comments present (pages must hold whole records)")
     starts = {r["rec_off"]: k for k, r in enumerate(body)}
     end = body[-1]["rec_off"] + body[-1]["rec_len"] if body else 0
-    pos, k = 0, 0
+    pos = 0
     if not body and len(idx.pages):
         p.append("pages present but no body records")
     for pg in idx.pages:
@@ -343,7 +342,6 @@ def _check_index(z, by_name, bodies, c, desc) -> list[str]:
         if pg.length == 0:
             p.append("empty page")
         pos = pg.offset + pg.length
-        k += 1
     if body and pos != end:
         p.append(f"pages end at {pos}, body records end at {end}")
     if pos not in starts and pos != end:

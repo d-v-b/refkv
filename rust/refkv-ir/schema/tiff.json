@@ -1,7 +1,7 @@
 {
   "source_model": "tiff",
   "version": 1,
-  "about": "The source model of a TIFF, BigTIFF or OME-TIFF file (TIFF 6.0, spec/virtualize/tiff.md §7 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#7-tiff-profile>): the elements a parser emits, the tags of the table it reads, and the roles an IFD, a value, an image or a tile plays, each with the constraints a file must meet to have the TIFF convention's layout. A parser checks this schema while it parses, at the point the profile meets each role; projections read a valid IR and check nothing.",
+  "about": "The source model of a TIFF, BigTIFF or OME-TIFF file (TIFF 6.0, spec/zarrify/tiff.md §7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#7-tiff-profile>): the elements a parser emits, the tags of the table it reads, and the roles an IFD, a value, an image or a tile plays, each with the constraints a file must meet to have the TIFF convention's layout. A parser checks this schema while it parses, at the point the profile meets each role; projections read a valid IR and check nothing.",
   "limits": {
     "max_safe": 9007199254740991,
     "max_ifds": 100000,
@@ -9,7 +9,8 @@
     "max_planes": 100000,
     "max_tries": 10000,
     "max_decode": 65536,
-    "eager_decode": 16777216
+    "eager_decode": 16777216,
+    "max_padding": 4194304
   },
   "tables": {
     "kinds": {
@@ -38,7 +39,7 @@
       "18": 8
     },
     "tags": {
-      "about": "The tags of the table (spec/virtualize/tiff.md §7.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#71-reading>): kind (the field types allowed), scalar (the first value is read, and there must be one), used (read for every IFD an image uses; ImageDescription only for IFD 0, SubIFDs where followed).",
+      "about": "The tags of the table (spec/zarrify/tiff.md §7.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#71-reading>): kind (the field types allowed), scalar (the first value is read, and there must be one), used (read for every IFD an image uses; ImageDescription only for IFD 0, SubIFDs where followed).",
       "256": {"name": "ImageWidth", "kind": "integer", "scalar": true, "used": true},
       "257": {"name": "ImageLength", "kind": "integer", "scalar": true, "used": true},
       "258": {"name": "BitsPerSample", "kind": "integer", "scalar": false, "used": true},
@@ -46,7 +47,10 @@
       "262": {"name": "PhotometricInterpretation", "kind": "integer", "scalar": true, "used": true},
       "266": {"name": "FillOrder", "kind": "integer", "scalar": true, "used": true},
       "270": {"name": "ImageDescription", "kind": "any", "scalar": false, "used": false},
+      "273": {"name": "StripOffsets", "kind": "integer", "scalar": false, "used": true, "tiles": true},
       "277": {"name": "SamplesPerPixel", "kind": "integer", "scalar": true, "used": true},
+      "278": {"name": "RowsPerStrip", "kind": "integer", "scalar": true, "used": true},
+      "279": {"name": "StripByteCounts", "kind": "integer", "scalar": false, "used": true, "tiles": true},
       "282": {"name": "XResolution", "kind": "rational", "scalar": true, "used": true},
       "283": {"name": "YResolution", "kind": "rational", "scalar": true, "used": true},
       "284": {"name": "PlanarConfiguration", "kind": "integer", "scalar": true, "used": true},
@@ -64,7 +68,7 @@
     "layout_tags": [273, 279, 288, 289, 324, 325, 513, 514, 519, 520, 521],
     "pointers": {"330": "subifds", "34665": "exif", "34853": "gps", "40965": "interoperability"},
     "jpeg2000": [33003, 33004, 33005, 34712],
-    "compressions": [1, 7, 8, 32946, 50000, 33003, 33004, 33005, 34712],
+    "compressions": [1, 5, 7, 8, 32946, 50000, 33003, 33004, 33005, 34712],
     "zlib": [8, 32946],
     "sample_kinds": {"1": "uint", "2": "int", "3": "float"},
     "units": {
@@ -193,7 +197,7 @@
       "constraints": [{"require": "present", "message": "IFD at {offset} has no tag {tag}"}]
     },
     "format": {
-      "about": "an IFD's sample format (spec/virtualize/tiff.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#2-the-source>): BitsPerSample, SampleFormat, SamplesPerPixel, PlanarConfiguration",
+      "about": "an IFD's sample format (spec/zarrify/tiff.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#2-the-source>): BitsPerSample, SampleFormat, SamplesPerPixel, PlanarConfiguration",
       "given": {
         "bits": "BitsPerSample's values",
         "formats": "SampleFormat's values (default [1])",
@@ -214,17 +218,25 @@
       ]
     },
     "predictor": {
-      "about": "IFD 0's Predictor",
-      "given": {"compression": "", "predictor": ""},
+      "about": "IFD 0's Predictor (spec/zarrify/tiff.md §4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>): none (1), or, with an integer type and LZW, Deflate or zstd, horizontal differencing (2), which imagecodecs_delta sums back; JPEG 2000 streams do not use it",
+      "given": {"compression": "", "predictor": "", "sample_format": "IFD 0's SampleFormat"},
       "constraints": [
         {
-          "require": "in(compression, jpeg2000) || predictor == 1",
+          "require": "in(compression, jpeg2000) || in(predictor, [1, 2])",
           "message": "unsupported predictor {predictor}"
+        },
+        {
+          "require": "in(compression, jpeg2000) || predictor == 1 || in(sample_format, [1, 2])",
+          "message": "predictor {predictor} with SampleFormat {sample_format}"
+        },
+        {
+          "require": "in(compression, jpeg2000) || predictor == 1 || in(compression, [5, 8, 32946, 50000])",
+          "message": "predictor {predictor} with compression {compression}"
         }
       ]
     },
     "integer_attribute": {
-      "about": "an OME-XML attribute read as an integer (spec/virtualize/tiff.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#3-ome-xml>): digits, after stripping white space, at most 2^53 - 1",
+      "about": "an OME-XML attribute read as an integer (spec/zarrify/tiff.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#3-ome-xml>): digits, after stripping white space, at most 2^53 - 1",
       "given": {
         "key": "",
         "text": "its value as written",
@@ -238,7 +250,7 @@
       ]
     },
     "ome_pixels": {
-      "about": "the first image's Pixels (spec/virtualize/tiff.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#3-ome-xml>, §4.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#41-planes>)",
+      "about": "the first image's Pixels (spec/zarrify/tiff.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#3-ome-xml>, §4.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#41-planes>)",
       "given": {
         "order": "DimensionOrder (default XYZCT)",
         "spp": "IFD 0's SamplesPerPixel",
@@ -286,7 +298,7 @@
       "constraints": [{"require": "subs >= levels", "message": "the IFD at {offset} has fewer SubIFDs than IFD 0"}]
     },
     "size": {
-      "about": "an IFD a level uses, or a candidate level (spec/virtualize/tiff.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#2-the-source>)",
+      "about": "an IFD a level uses, or a candidate level (spec/zarrify/tiff.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#2-the-source>)",
       "given": {
         "offset": "",
         "width": "",
@@ -306,7 +318,7 @@
       ]
     },
     "samples": {
-      "about": "how an image's bytes hold its samples (spec/virtualize/tiff.md §4.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#43-data-types-and-codecs>)",
+      "about": "how an image's bytes hold its samples (spec/zarrify/tiff.md §4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>)",
       "given": {
         "offset": "",
         "compression": "",
@@ -316,7 +328,7 @@
       },
       "constraints": [
         {
-          "require": "!in(compression, [1, 8, 32946, 50000]) || fill_order == 1",
+          "require": "!in(compression, [1, 5, 8, 32946, 50000]) || fill_order == 1",
           "message": "the image at {offset} has FillOrder {fill_order}"
         },
         {
@@ -325,16 +337,31 @@
         }
       ]
     },
+    "strips": {
+      "about": "an IFD a level uses that is not tiled: its strips (spec/zarrify/tiff.md §4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>)",
+      "given": {
+        "offset": "",
+        "has_offsets": "StripOffsets present",
+        "has_counts": "StripByteCounts present",
+        "rows": "RowsPerStrip (default 2^32 - 1)"
+      },
+      "constraints": [
+        {"require": "has_offsets", "message": "the image at {offset} has neither tiles nor strips"},
+        {"require": "has_counts", "message": "IFD at {offset} has no tag 279"},
+        {"require": "rows >= 1", "message": "the image at {offset} has RowsPerStrip 0"}
+      ]
+    },
     "level_ifd": {
       "about": "an IFD a level uses, after its size and samples",
-      "given": {"offset": "", "tiled": "", "same": "its size, tiling and format are the level's first IFD's"},
+      "given": {"offset": "", "same": "its size, tiling (tile size, or rows per strip) and format are the level's first IFD's"},
       "constraints": [
-        {
-          "require": "tiled",
-          "message": "only tiled TIFFs are supported; the image at {offset} is stored in strips"
-        },
         {"require": "same", "message": "planes of one pyramid level differ in size, tiling or format"}
       ]
+    },
+    "pages": {
+      "about": "a later main-chain IFD that is not a level, of a file without OME-XML whose level 0 is in strips (spec/zarrify/tiff.md §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#42-pyramid-levels>)",
+      "given": {"offset": "", "page": "it has IFD 0's width, length and format"},
+      "constraints": [{"require": "!page", "message": "the image at {offset} is another page of IFD 0's size and format: a stack of pages without OME-XML, whose planes the TIFF convention does not map"}]
     },
     "pyramid": {
       "about": "every IFD of every level",
@@ -342,7 +369,7 @@
       "constraints": [{"require": "same", "message": "pyramid levels differ in sample format or compression"}]
     },
     "image": {
-      "about": "the image's sample type and codecs (spec/virtualize/tiff.md §4.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#43-data-types-and-codecs>)",
+      "about": "the image's sample type and codecs (spec/zarrify/tiff.md §4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>)",
       "given": {
         "bits": "",
         "sample_format": "",
@@ -365,15 +392,15 @@
       ]
     },
     "plane": {
-      "about": "a plane's IFD of a level, as its tiles are referenced",
+      "about": "a plane's IFD of a level, as its tiles or strips are referenced",
       "given": {
         "offset": "",
         "jpeg": "",
         "has_tables": "JPEGTables present",
         "tables_ok": "JPEGTables start with SOI and end with EOI, at least 4 bytes",
-        "tiles": "TileOffsets' count",
-        "counts": "TileByteCounts' count",
-        "expected": "samples × tiles across × tiles down"
+        "tiles": "TileOffsets' (StripOffsets') count",
+        "counts": "TileByteCounts' (StripByteCounts') count",
+        "expected": "samples × tiles across × tiles down, or samples × strips"
       },
       "constraints": [
         {
@@ -382,16 +409,35 @@
         },
         {
           "require": "tiles == expected && counts == expected",
-          "message": "IFD at {offset} has {tiles} tiles, expected {expected}"
+          "message": "IFD at {offset} has {tiles} tiles or strips, expected {expected}"
         }
       ]
     },
     "tile": {
-      "about": "a tile with a byte count above 0",
+      "about": "a tile or strip with a byte count above 0",
       "given": {"k": "", "offset": "the IFD's", "within": "its bytes end within the file", "count": "", "jpeg": ""},
       "constraints": [
-        {"require": "within", "message": "tile {k} of the IFD at {offset} is outside the file"},
-        {"require": "!jpeg || count > 2", "message": "JPEG tile {k} of the IFD at {offset} is too short"}
+        {"require": "within", "message": "tile or strip {k} of the IFD at {offset} is outside the file"},
+        {"require": "!jpeg || count > 2", "message": "JPEG tile or strip {k} of the IFD at {offset} is too short"}
+      ]
+    },
+    "strip_tail": {
+      "about": "the last strip of a level in LZW strips, when it is short (spec/zarrify/tiff.md §4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>): its stream, read to where its output reaches the strip's size, so that a tail of zeros can continue it",
+      "given": {"offset": "the IFD's", "strip": "the strip's index", "decodes": "the stream reaches the strip's size", "problem": "why not"},
+      "constraints": [{"require": "decodes", "message": "strip {strip} of the IFD at {offset} does not decode to its size: {problem}"}]
+    },
+    "tails": {
+      "about": "the short last LZW strips of every level, as they are read for their tails: their distinct ranges together",
+      "given": {"read": "their bytes", "size": "the file's"},
+      "constraints": [{"require": "read <= size", "message": "the short last LZW strips would be read for their tails {read} bytes, more than the file's {size}"}]
+    },
+    "padding": {
+      "about": "a level in strips whose last strip is short, after it is padded (uncompressed, LZW) or found unpaddable (another compression)",
+      "given": {"level": "", "compression": "", "kept": "the level is padded", "zeros": "the most zero bytes a strip of the level is padded with", "read": "(LZW) the most bytes of a last strip read for its tail: its byte count, at most 3 × its decoded size + 64"},
+      "constraints": [
+        {"require": "kept", "message": "level {level} is in strips of compression {compression} whose last strip is short, which cannot be padded"},
+        {"require": "zeros <= max_padding", "message": "level {level} pads its last strip with {zeros} zero bytes, more than {max_padding}"},
+        {"require": "!present(read) || read <= eager_decode", "message": "level {level}'s last LZW strip would be read up to {read} bytes for its tail, more than {eager_decode}"}
       ]
     },
     "images": {
@@ -400,10 +446,10 @@
       "constraints": [{"require": "ifds >= 1", "message": "no images"}]
     },
     "translation": {
-      "about": "the image's translation (spec/virtualize/tiff.md §4.4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#44-arrays>: an OME-XML stage position, centred, or an Aperio corner), when it has one",
+      "about": "the image's translation (spec/zarrify/tiff.md §4.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#44-arrays>: an OME-XML stage position, centred, or an Aperio corner), when it has one",
       "given": {"x": "", "y": ""},
       "constraints": [{"require": "finite(x) && finite(y)", "message": "a translation is not finite"}]
     }
   },
-  "about_builtins": "What the parser's code computes and the roles above check: the main chain (each next offset until 0) and the SubIFDs depth first to max_depth; the OME-XML of IFD 0's ImageDescription (ASCII, up to its first NUL, valid UTF-8, with an OME start tag) and its planes by TiffData (spec/virtualize/tiff.md §4.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#41-planes>: the stepping of DimensionOrder); the levels (IFD 0's SubIFDs per plane; else, without OME-XML, each later main-chain IFD that is tiled, has BitsPerSample, the format of IFD 0, and is smaller than the last level in both sizes); the format tuple (bits, samples, sample format, planar, compression, predictor, and photometric for JPEG); the JPEG prefix (an Adobe APP14 marker for 3 samples, then JPEGTables without its SOI and EOI)."
+  "about_builtins": "What the parser's code computes and the roles above check: the main chain (each next offset until 0) and the SubIFDs depth first to max_depth; the OME-XML of IFD 0's ImageDescription (ASCII, up to its first NUL, valid UTF-8, with an OME start tag) and its planes by TiffData (spec/zarrify/tiff.md §4.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#41-planes>: the stepping of DimensionOrder); the levels (IFD 0's SubIFDs per plane; else, without OME-XML, each later main-chain IFD that is tiled, has BitsPerSample, the format of IFD 0, and is smaller than the last level in both sizes); the format tuple (bits, samples, sample format, planar, compression, predictor, and photometric for JPEG); the JPEG prefix (an Adobe APP14 marker for 3 samples, then JPEGTables without its SOI and EOI)."
 }

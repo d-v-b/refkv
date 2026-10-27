@@ -1,5 +1,5 @@
-//! What NDPI adds to TIFF (spec/virtualize/ndpi.md §7
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>), beyond its
+//! What NDPI adds to TIFF (spec/zarrify/ndpi.md §7
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>), beyond its
 //! IFD layout (which `tiff.rs` reads in its NDPI variant): a level's strip is one JPEG stream
 //! whose restart intervals McuStarts locates, and each chunk is a JPEG stream rebuilt from the
 //! strip's header (its parts around SOF0 shared, a literal SOF0 of the chunk's size), `a × b`
@@ -132,8 +132,8 @@ pub enum Scan {
     None,
 }
 
-/// Scans the first bytes `b` of a strip without McuStarts (spec/virtualize/ndpi.md §7
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>): SOI, then
+/// Scans the first bytes `b` of a strip without McuStarts (spec/zarrify/ndpi.md §7
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>): SOI, then
 /// marker segments (each an `FF`, the marker and a length of at least 2, after any `FF` fill
 /// bytes) up to the first SOF0 segment. Unlike a McuStarts header (`header`), it never rejects.
 pub fn frame(b: &[u8]) -> Scan {
@@ -175,6 +175,48 @@ pub fn frame(b: &[u8]) -> Scan {
             0xC4 | 0xC8 | 0xCC | 0xDB..=0xDF | 0xE0..=0xEF | 0xF0..=0xFD | 0xFE => pos = end,
             _ => return Scan::None,
         }
+    }
+}
+
+/// Hamamatsu's Compression for JPEG XR (tifffile's `JPEGXR_NDPI`).
+pub const JPEGXR: u64 = 22610;
+/// The first bytes of a JPEG XR level's first stream read for its header, and the most read.
+pub const STREAM_READ: u64 = 1024;
+pub const MAX_STREAM_READ: u64 = 1 << 16;
+
+/// The data type and samples of a JPEG XR pixel format the NDPI profile reads, by its GUID
+/// (spec/zarrify/ndpi.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#3-levels>):
+/// Gray8, Gray16, 24bppBGR, 24bppRGB and 48bppRGB.
+pub fn pixel_format(guid: &[u8; 16]) -> Option<(&'static str, u64)> {
+    if guid[..15] != crate::coding::WIC {
+        return None;
+    }
+    Some(match guid[15] {
+        0x08 => ("uint8", 1),
+        0x0B => ("uint16", 1),
+        0x0C | 0x0D => ("uint8", 3),
+        0x15 => ("uint16", 3),
+        _ => return None,
+    })
+}
+
+/// A GUID as its bytes in hex, as stored.
+pub fn hex(guid: &[u8; 16]) -> String {
+    guid.iter().map(|b| format!("{b:02X}")).collect()
+}
+
+/// A JPEG XR stream's header: its pixel format's GUID, its width and its height.
+pub type Stream = ([u8; 16], u64, u64);
+
+/// What the first bytes `b` of a JPEG XR stream of `n` bytes say of its header (spec/zarrify/ndpi.md
+/// §7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>): its pixel
+/// format, width and height; None when there is none to read within `MAX_STREAM_READ` bytes;
+/// Err the bytes from the start to read next.
+pub fn stream(b: &[u8], n: u64) -> Result<Option<Stream>, u64> {
+    let cap = n.min(MAX_STREAM_READ);
+    match crate::coding::jpegxr_header(&crate::coding::Head { have: b, bound: cap }) {
+        Ok(h) => Ok(h),
+        Err(k) => Err(cap.min(k.max(2 * b.len() as u64))),
     }
 }
 
@@ -370,8 +412,8 @@ pub fn combine(starts: Vec<u64>, high: Option<&[u64]>) -> Vec<u64> {
     }
 }
 
-/// The NDPI profile's file run: a TIFF the TIFF parser found to be NDPI (spec/virtualize/ndpi.md §7
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>), so hosts
+/// The NDPI profile's file run: a TIFF the TIFF parser found to be NDPI (spec/zarrify/ndpi.md §7
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>), so hosts
 /// never test for NDPI themselves. Its files are not sniffed: they are TIFFs.
 pub struct Profile;
 
@@ -520,6 +562,42 @@ mod tests {
     #[test]
     fn a_sampling_factor_of_0_is_rejected() {
         rejects(&jpeg(&[0x10], 4), "an NDPI strip has a sampling factor of 0");
+    }
+
+    /// A JPEG XR container of a `w` × `h` image of pixel format GUID `last` (after the common
+    /// prefix): the header, an image directory of 3 entries, then the GUID.
+    fn jxr(last: u8, w: u32, h: u16) -> Vec<u8> {
+        let mut b = vec![0x49, 0x49, 0xBC, 0x01, 8, 0, 0, 0, 3, 0];
+        let guid_at = 10 + 3 * 12 + 4;
+        for (tag, typ, value) in [(0xBC01u16, 1u16, guid_at as u32), (0xBC80, 4, w), (0xBC81, 3, h as u32)] {
+            b.extend(tag.to_le_bytes());
+            b.extend(typ.to_le_bytes());
+            b.extend((if typ == 1 { 16u32 } else { 1 }).to_le_bytes());
+            b.extend(value.to_le_bytes());
+        }
+        b.extend([0; 4]); // the next directory's offset
+        b.extend(crate::coding::WIC);
+        b.push(last);
+        b
+    }
+
+    #[test]
+    fn a_jpegxr_stream_header_gives_the_pixels() {
+        for (last, want) in [(0x08, Some(("uint8", 1))), (0x0B, Some(("uint16", 1))), (0x0C, Some(("uint8", 3))),
+                             (0x0D, Some(("uint8", 3))), (0x15, Some(("uint16", 3))), (0x11, None)] {
+            let b = jxr(last, 896, 448);
+            let (guid, w, h) = stream(&b, 1 << 20).unwrap().unwrap();
+            assert_eq!((w, h, pixel_format(&guid)), (896, 448, want));
+            assert!(hex(&guid).ends_with(&format!("{last:02X}")));
+        }
+        // the header continues past the bytes read: at least twice as many next, up to the stream
+        let b = jxr(0x0B, 8, 8);
+        assert_eq!(stream(&b[..16], 1 << 20), Err(32));
+        assert_eq!(stream(&b[..16], 30), Err(30));
+        // not a JPEG XR container, a size of 0, or a header past the stream's end: none
+        assert_eq!(stream(&[0xFF, 0xD8, 0xFF, 0xE0, 0, 0, 0, 0], 8), Ok(None));
+        assert_eq!(stream(&jxr(0x0B, 0, 8), 1 << 20), Ok(None));
+        assert_eq!(stream(&b[..20], 20), Ok(None));
     }
 
     /// A strip of a 16 × 8 image of MCUs 8 × 8 and restart interval 1: two intervals.

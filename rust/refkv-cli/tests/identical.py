@@ -1,16 +1,18 @@
-"""The Rust CLI (`vzip convert`, rust/refkv-cli) against `python -m refkv.virtualize`: both convert
+"""The Rust CLI (`vzip convert`, rust/refkv-cli) against `python -m refkv.zarrify`: both convert
 every input of the fixture corpus, and must give the same exit status and, on success, the same
 archive, byte for byte, and the same summary.
 
-The corpus is conformance/virtualize/compare.py's synthetic one: every file under fixtures/ with
-the suffix of a profile of the registry (spec/virtualize/profiles/), and every store directory
+The corpus is conformance/zarrify/compare.py's synthetic one: every file under fixtures/ with
+the suffix of a profile of the registry (spec/zarrify/profiles/), and every store directory
 under a store profile's fixtures/<p> (the rejected inputs included: both must reject them). Each
 input is converted:
 
-- `local`: from its path (a store with `--url`, the URL it would be served from);
+- `local`: from its path (a store with `--url`, the URL it would be served from); and a file and
+  a VSI slide, beside its tile files, copied to a directory whose names a URI reference must
+  percent-encode (a space, `%`, `#`, non-ASCII);
 - `http`: from a server on 127.0.0.1 (with `--allow-private-hosts`), which serves the files with a
   strong ETag, ranges and multipart/byteranges, and the stores with an S3 ListObjectsV2 listing of
-  7 keys a page (so that listings take several pages; conformance/virtualize/proxy.py's); one input
+  7 keys a page (so that listings take several pages; conformance/zarrify/proxy.py's); one input
   in four through a redirect, and one in four named by another `--url`;
 - `ranges`: the files of `http` again, with REFKV_WHOLE_BELOW=0: the read planner then reads
   them by ranges, several in one request, where it would read a file of the corpus (each under 1
@@ -33,6 +35,7 @@ import argparse
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -41,16 +44,19 @@ import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from http.server import ThreadingHTTPServer
 from pathlib import Path
+from typing import override
 
 ROOT = Path(__file__).resolve().parents[3]
 FIXTURES = ROOT / "fixtures"
-sys.path.insert(0, str(ROOT / "conformance" / "virtualize"))
+sys.path.insert(0, str(ROOT / "conformance" / "zarrify"))
 
 from proxy import Upstream, make_handler  # noqa: E402
-from refkv.virtualize.profiles import REGISTRY  # noqa: E402
 
-STORE_FORMATS = tuple(e["name"] for e in REGISTRY if e["kind"] in ("store", "both"))
-SUFFIXES = tuple(s for e in REGISTRY for s in e["suffixes"])
+from refkv._narrow import sequence, string  # noqa: E402
+from refkv.zarrify.profiles import REGISTRY  # noqa: E402
+
+STORE_FORMATS = tuple(string(e["name"]) for e in REGISTRY if e["kind"] in ("store", "both"))
+SUFFIXES = tuple(string(s) for e in REGISTRY for s in sequence(e["suffixes"]))
 PAGE = 7  # keys a listing page holds
 
 
@@ -69,11 +75,12 @@ def server(cache: Path):
     base = make_handler(FIXTURES, Upstream(cache), page_size=PAGE)
 
     class Handler(base):
+        @override
         def do_GET(self):
             if self.path.startswith("/r/"):
                 return self._send(302, {"Location": self.path[2:]})
             if self._listing():
-                return
+                return None
             t = self._target()
             rng = self.headers.get("Range", "")
             if t is None or not rng.startswith("bytes=") or "," not in rng:
@@ -90,13 +97,16 @@ def server(cache: Path):
                          f"Content-Range: bytes {a}-{b - 1}/{size}\r\n\r\n").encode() + read(a, b) + b"\r\n"
             body += f"--{boundary}--\r\n".encode()
             self._send(206, {"Content-Type": f"multipart/byteranges; boundary={boundary}"}, body)
+            return None
 
+        @override
         def _send(self, status, headers, body=b""):
             parts = self.path.split("?")[0].split("/")
             if status in (200, 206) and len(parts) >= 3 and parts[1] == "f" and not self.path.endswith("/"):
                 path = FIXTURES / urllib.parse.unquote("/".join(parts[2:]))
                 if path.is_file():
-                    headers = {**headers, "ETag": '"' + hashlib.sha1(path.read_bytes()).hexdigest()[:16] + '"'}
+                    etag = hashlib.sha1(path.read_bytes(), usedforsecurity=False).hexdigest()[:16]
+                    headers = {**headers, "ETag": f'"{etag}"'}
             super()._send(status, headers, body)
 
     srv = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
@@ -104,9 +114,24 @@ def server(cache: Path):
     return srv, f"http://127.0.0.1:{srv.server_address[1]}/"
 
 
-def cases(files: list[str], stores: list[str], base: str, modes: set[str]) -> list[tuple[str, list[str], bool, dict]]:
-    """(name, arguments but the output, remote, environment) of each conversion."""
+def encoded_inputs(tmp: Path) -> list[str]:
+    """A file and a VSI slide (with its tile files), copied under names a URI reference must
+    percent-encode: their paths."""
+    d = tmp / "a b %#é"
+    d.mkdir()
+    shutil.copy(FIXTURES / "nifti" / "nifti_block_x_split.nii", d / "x y#1%é.nii")
+    shutil.copy(FIXTURES / "vsi" / "vsi_raw_bgr.vsi", d)
+    shutil.copytree(FIXTURES / "vsi" / "_vsi_raw_bgr_", d / "_vsi_raw_bgr_")
+    return [str(d / "x y#1%é.nii"), str(d / "vsi_raw_bgr.vsi")]
+
+
+def cases(files: list[str], stores: list[str], base: str, modes: set[str],
+          encoded: list[str]) -> list[tuple[str, list[str], bool, dict]]:
+    """(name, arguments but the output, remote, environment) of each conversion; `encoded` are
+    the paths of `encoded_inputs`."""
     out = []
+    if "local" in modes:
+        out += [(f"local {p}", [p], False, {}) for p in encoded]
     for i, f in enumerate(files):
         if "local" in modes:
             out.append((f"local {f}", [f"fixtures/{f}"], False, {}))
@@ -122,10 +147,11 @@ def cases(files: list[str], stores: list[str], base: str, modes: set[str]) -> li
             out.append((f"local {s}/", [f"fixtures/{s}", "--url", url], False, {}))
         if "http" in modes:
             extra = ["--url", url] if i % 4 == 2 else []
-            out.append((f"http {s}/", [base + "f/" + urllib.parse.quote(s) + "/", "--allow-private-hosts", *extra], True, {}))
+            out.append((f"http {s}/", [base + "f/" + urllib.parse.quote(s) + "/", "--allow-private-hosts", *extra],
+                        True, {}))
     if "checksums" in modes:
         out += [(f"checksums {n}", [*args, "--checksums"], remote, env)
-                for n, args, remote, env in cases(files, stores, base, {"local", "http"})]
+                for n, args, remote, env in cases(files, stores, base, {"local", "http"}, encoded)]
     if "errors" in modes:
         f, s = f"fixtures/{files[0]}", f"fixtures/{stores[0]}"
         out += [(f"errors {n}", args, False, {}) for n, args in [
@@ -168,7 +194,7 @@ def summary(stdout: str, remote: bool):
 def convert(cmd: list[str], args: list[str], out: Path, env: dict) -> tuple[int, bytes | None, str, str]:
     argv = args[1:] if args[0] == NO_OUTPUT else [args[0], str(out), *args[1:]]
     p = subprocess.run([*cmd, *argv], cwd=ROOT, capture_output=True, text=True, timeout=900,
-                       env={**os.environ, **env})
+                       env={**os.environ, **env}, check=False)
     data = out.read_bytes() if out.exists() else None
     return p.returncode, data, p.stdout, p.stderr
 
@@ -185,18 +211,20 @@ def main() -> int:
         vzip = vzip.with_suffix(".exe")
     files, stores = corpus()
     EMPTY.write_bytes(b"")
-    with tempfile.TemporaryDirectory() as tmp:
-        tmp = Path(tmp)
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp = Path(tmp_dir)
         srv, base = server(tmp / "cache")
-        todo = [c for c in cases(files, stores, base, set(opts.modes.split(","))) if opts.only in c[0]]
+        encoded = encoded_inputs(tmp)
+        todo = [c for c in cases(files, stores, base, set(opts.modes.split(",")), encoded) if opts.only in c[0]]
 
         def one(k_case):
             k, (name, args, remote, env) = k_case
-            py = convert([sys.executable, "-m", "refkv.virtualize"], args, tmp / f"{k}.py.vzip", env)
+            py = convert([sys.executable, "-m", "refkv.zarrify"], args, tmp / f"{k}.py.vzip", env)
             rs = convert([str(vzip), "convert"], args, tmp / f"{k}.rs.vzip", env)
             problems = []
             if py[0] != rs[0]:
-                problems.append(f"exit {py[0]} (python) != {rs[0]} (rust)\n  python: {py[3].strip()[-400:]}\n  rust: {rs[3].strip()[-400:]}")
+                problems.append(f"exit {py[0]} (python) != {rs[0]} (rust)\n  python: {py[3].strip()[-400:]}"
+                                f"\n  rust: {rs[3].strip()[-400:]}")
             elif py[0] == 0:
                 if py[1] != rs[1]:
                     problems.append(f"the archives differ ({len(py[1] or b'')} and {len(rs[1] or b'')} bytes)")
@@ -205,7 +233,8 @@ def main() -> int:
             for p in (tmp / f"{k}.py.vzip", tmp / f"{k}.rs.vzip"):
                 p.unlink(missing_ok=True)
             if py[0] not in (0, 3) and not problems:  # both failed alike: shown, not a difference
-                print(f"both exit {py[0]}: {name}\n  python: {py[3].strip()[-300:]}\n  rust: {rs[3].strip()[-300:]}", flush=True)
+                print(f"both exit {py[0]}: {name}\n  python: {py[3].strip()[-300:]}\n  rust: {rs[3].strip()[-300:]}",
+                      flush=True)
             return name, py[0], problems
 
         counts: dict[int, int] = {}

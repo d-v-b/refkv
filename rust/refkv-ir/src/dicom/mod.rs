@@ -1,12 +1,12 @@
-//! A sans-IO parser of DICOM Part 10 files into the IR (spec/virtualize/dicom.md): it never
+//! A sans-IO parser of DICOM Part 10 files into the IR (spec/zarrify/dicom.md): it never
 //! reads; it asks for batches of ranges (`step`), is given their bytes (`feed`), and holds
 //! them until it is done.
 //!
 //! Rounds: (1) the first 64 KiB; (2) the **scan** of the File Meta Information and the
 //! dataset to Pixel Data, in windows that double from 64 KiB to 16 MiB while the walk keeps
 //! to the bytes after the last one, skipping values of more than 64 KiB that are not
-//! sequences; (3) the profile (spec/virtualize/dicom.md §7
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#7-dicom-profile>), which
+//! sequences; (3) the profile (spec/zarrify/dicom.md §7
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#7-dicom-profile>), which
 //! checks the schema (`schema/dicom.json`) and reads the pixel data's structure: the Basic
 //! Offset Table, then the frames' item headers an Extended Offset Table names (one batch), or
 //! the fragments' item headers, those the Basic Offset Table predicts in one batch; then the
@@ -32,7 +32,7 @@ use std::collections::{HashMap, HashSet};
 const FIRST: u64 = 1 << 16;
 const MAX_WINDOW: u64 = 1 << 24;
 /// SOI and the Adobe APP14 marker, without its last byte, the color transform
-/// (spec/virtualize/dicom.md §7.5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#75-frames>).
+/// (spec/zarrify/dicom.md §7.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#75-frames>).
 pub const ADOBE: [u8; 17] = [0xFF, 0xD8, 0xFF, 0xEE, 0x00, 0x0E, 0x41, 0x64, 0x6F, 0x62, 0x65, 0x00, 0x64, 0x00, 0x00, 0x00, 0x00];
 /// The most bytes of an element the IR holds (the view shows at most 1024).
 const HOLD: u64 = 1 << 10;
@@ -78,8 +78,8 @@ enum Act {
 }
 
 /// Whether an element of defined length may be a sequence that the walks enter, and in which
-/// encoding (spec/virtualize/dicom.md §5
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#5-source-metadata>).
+/// encoding (spec/zarrify/dicom.md §5
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#5-source-metadata>).
 fn sequence_encoding(el: &El, enc: Enc) -> Option<Enc> {
     if !enc.explicit || el.vr_is("UN") {
         (dictionary_vr(el.tag) == Some("SQ")).then_some(if enc.explicit { IMPLICIT_LE } else { enc })
@@ -113,8 +113,8 @@ fn syntax(rules: &Rules, uid: &[u8]) -> Option<(Enc, &'static str)> {
     Some((Enc { explicit: s["explicit"].as_bool()?, little: s["little"].as_bool()? }, codec))
 }
 
-// ---- the profile's attributes (spec/virtualize/dicom.md §2.2
-// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#22-attributes>)
+// ---- the profile's attributes (spec/zarrify/dicom.md §2.2
+// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#22-attributes>)
 
 struct Vals<'a> {
     b: &'a Bytes,
@@ -616,8 +616,8 @@ impl Dicom {
         }
     }
 
-    // ---- the profile (spec/virtualize/dicom.md §7
-    // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#7-dicom-profile>)
+    // ---- the profile (spec/zarrify/dicom.md §7
+    // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#7-dicom-profile>)
 
     fn profile(&mut self) -> R<()> {
         if self.image.is_none() {
@@ -684,7 +684,7 @@ impl Dicom {
             fg.push(in_item.or(at_top));
         }
 
-        // spec/virtualize/dicom.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#3-the-image>
+        // spec/zarrify/dicom.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#3-the-image>
         let n = frames.unwrap_or(1.0);
         let key = format!("{codec}/{}", spp.map(|s| s.to_string()).unwrap_or_default());
         let mut env = rules::env([
@@ -728,7 +728,7 @@ impl Dicom {
             (columns, rows, 1)
         };
 
-        // spec/virtualize/dicom.md §4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#4-output>
+        // spec/zarrify/dicom.md §4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#4-output>
         let fa = if matches!(increment, Some(0x0018_1063 | 0x0018_1065)) { "t" } else { "z" };
         let mut axes = Vec::new();
         if spp == 3 {
@@ -816,8 +816,8 @@ impl Dicom {
         })
     }
 
-    /// The pixel data's layout (spec/virtualize/dicom.md §7.5
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#75-frames>).
+    /// The pixel data's layout (spec/zarrify/dicom.md §7.5
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#75-frames>).
     fn pixel_layout(&mut self, img: &Image) -> R<Layout> {
         let r = self.rules;
         let size = self.size;
@@ -1103,8 +1103,8 @@ fn facts(img: &Image, lay: &Layout, root: Map<String, J>, pixel: u32) -> J {
     })
 }
 
-// ---- the IR (spec/virtualize/dicom.md §5
-// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#5-source-metadata>)
+// ---- the IR (spec/zarrify/dicom.md §5
+// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#5-source-metadata>)
 
 fn order(little: bool) -> &'static str {
     if little { "<" } else { ">" }
@@ -1471,7 +1471,7 @@ struct Names {
 
 crate::parser!(Dicom);
 
-/// The DICOM profile's file run (spec/virtualize/dicom.md).
+/// The DICOM profile's file run (spec/zarrify/dicom.md).
 pub struct Profile;
 
 impl crate::run::FileProfile for Profile {

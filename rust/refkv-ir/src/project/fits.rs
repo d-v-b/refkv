@@ -1,5 +1,5 @@
-//! The FITS projection (spec/virtualize/fits.md §2
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#2-hdus-and-nodes>) from a
+//! The FITS projection (spec/zarrify/fits.md §2
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#2-hdus-and-nodes>) from a
 //! valid IR: the root group with the table of HDUs and the primary header's cards, and one
 //! node per HDU at the path of its index: an array for an image (its chunks cut from the
 //! `data` element), a group with the arrays `rows` and `heap` for a table, and an empty
@@ -10,28 +10,26 @@ use crate::fed::Word;
 use crate::fits::{card, parse_cards, Card, Value};
 use crate::fits_tiles::{prefix, TileRecord};
 use crate::ir::Ir;
-use crate::out::{array_json, blob_chunks, bytes_codec, declare_array, declared_group, grid_chunks, item_size, json_size, Chunk, Out, Part};
+use crate::out::{array_json, blob_chunks, bytes_codec, declare_array, declared_group, grid_chunks, int_json, item_size, json_size, Chunk, Out, Part};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 
 const PROFILE: &str = "fits";
 /// The most bytes of a chunk of an image or of a table's rows (§3.1
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#31-the-array>).
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#31-the-array>).
 const CHUNK_BYTES: u64 = 1 << 20;
 /// The most bytes of JSON a node's cards may take (§5.3
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#53-cards>).
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#53-cards>).
 const CARDS_BUDGET: usize = 65536;
-const MAX_SAFE: i128 = (1 << 53) - 1;
 
 /// A card's value as JSON (§5.3
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#53-cards>): an integer exactly, as a string past 2^53 − 1; a real as
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#53-cards>): an integer exactly, as a string past 2^53 − 1; a real as
 /// its binary64 value; a complex as `[re, im]`; no value as null.
 fn value_json(v: &Value) -> J {
     match v {
         Value::None => J::Null,
         Value::Logical(b) => json!(b),
-        Value::Int(n) if (-MAX_SAFE..=MAX_SAFE).contains(n) => json!(*n as i64),
-        Value::Int(n) => json!(n.to_string()),
+        Value::Int(n) => int_json(*n),
         Value::Real(x, t) => if x.is_finite() { json!(x) } else { json!({"text": t}) },
         Value::Str(s) => json!(s),
         Value::Complex(r, i) => json!([r, i]),
@@ -46,7 +44,7 @@ fn cards_json(cards: &[Card]) -> J {
 /// A card's numeric value, when it has one.
 fn number(cards: &[Card], keyword: &str) -> J {
     match card(cards, keyword).map(|c| &c.value) {
-        Some(Value::Int(n)) if (-MAX_SAFE..=MAX_SAFE).contains(n) => json!(*n as i64),
+        Some(Value::Int(n)) => int_json(*n),
         Some(Value::Real(x, _)) if x.is_finite() => json!(x),
         _ => J::Null,
     }
@@ -59,6 +57,15 @@ fn string(cards: &[Card], keyword: &str) -> J {
     }
 }
 
+/// A card that is a string in one kind of table and a number in the other (TNULLn: an ASCII
+/// table's null string, a binary table's null integer): whichever it holds.
+fn string_or_number(cards: &[Card], keyword: &str) -> J {
+    match string(cards, keyword) {
+        J::Null => number(cards, keyword),
+        s => s,
+    }
+}
+
 /// The cards of HDU `h`, from its header element.
 fn cards_of(ir: &Ir, h: &J) -> Result<Vec<Card>, String> {
     let id = h["elements"]["header"].as_u64().ok_or("internal: an HDU without a header")? as u32;
@@ -67,7 +74,7 @@ fn cards_of(ir: &Ir, h: &J) -> Result<Vec<Card>, String> {
 }
 
 /// An HDU node's source metadata (§5.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#52-an-hdus-node>): its index, its cards (null past the budget), an
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#52-an-hdus-node>): its index, its cards (null past the budget), an
 /// image's scaling members, a table's columns.
 fn own_json(h: &J, cards: &[Card]) -> J {
     let mut own = Map::new();
@@ -92,7 +99,7 @@ fn own_json(h: &J, cards: &[Card]) -> J {
                         "name": string(cards, &format!("TTYPE{n}")), "form": form,
                         "unit": string(cards, &format!("TUNIT{n}")), "dim": string(cards, &format!("TDIM{n}")),
                         "scale": number(cards, &format!("TSCAL{n}")), "zero": number(cards, &format!("TZERO{n}")),
-                        "null": number(cards, &format!("TNULL{n}")), "disp": string(cards, &format!("TDISP{n}")),
+                        "null": string_or_number(cards, &format!("TNULL{n}")), "disp": string(cards, &format!("TDISP{n}")),
                         "bcol": number(cards, &format!("TBCOL{n}")),
                     })
                 })
@@ -157,7 +164,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     let hdus = facts["hdus"].as_array().cloned().unwrap_or_default();
     let mut out = Out::new(url);
     // the root: the table of HDUs and the primary header's cards (§5.1
-    // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#51-the-root>)
+    // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#51-the-root>)
     let mut table = Vec::with_capacity(hdus.len());
     let mut kinds: Map<String, J> = Map::new();
     let (mut cards_total, mut tables) = (0u64, 0u64);
@@ -205,6 +212,8 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     }
     let mut summary_arrays = Vec::new();
     let mut count = 0usize;
+    // one zero data source for every array's padding
+    let mut zeros = contiguous::Zeros::of(all_arrays.iter().flat_map(|(_, _, arrays)| arrays.iter().flat_map(|a| &a.6)));
     let mut refs = Refs::new(ir, out);
     for (is_image, own, node_arrays) in all_arrays {
         for (path, data_type, shape, dims, element, grid, chunks) in node_arrays {
@@ -221,11 +230,11 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
                 None => (0, 0, 0),
             };
             count += chunks.len();
-            contiguous::emit(&mut refs, chunks, (start, length, form), copied, &[&format!("{path}/c/")], |c| c)?;
+            contiguous::emit(&mut refs, chunks, (start, length, form), copied, &[&format!("{path}/c/")], |c| c, &mut zeros)?;
         }
     }
     // the tile-compressed images (§3.3
-    // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#33-tile-compressed-images>):
+    // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#33-tile-compressed-images>):
     // the array's chunks are a literal prefix of the tiles' records, then the heap element's
     // ranges; the `refkv.fits_tiles` codec decodes them
     for (h, own) in tiled {
@@ -265,7 +274,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
 }
 
 /// The root table's `compression` member of a tile-compressed image (§5.1
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#51-the-root>): null for
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#51-the-root>): null for
 /// any other HDU.
 fn compression_json(c: &J) -> J {
     if c.is_null() {
@@ -276,7 +285,7 @@ fn compression_json(c: &J) -> J {
 }
 
 /// Every tile's record for the chunks' prefixes (§3.3
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#33-tile-compressed-images>),
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#33-tile-compressed-images>),
 /// from the main table's rows: its
 /// stream's length and column, its quantization.
 fn tile_records(c: &J, table: &[u8]) -> Result<Vec<TileRecord>, String> {
@@ -326,4 +335,35 @@ fn tile_records(c: &J, table: &[u8]) -> Result<Vec<TileRecord>, String> {
         });
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 80-byte cards from `KEYWORD= value` texts.
+    fn records(cards: &[&str]) -> Vec<u8> {
+        cards.iter().flat_map(|c| format!("{c:<80}").into_bytes()).collect()
+    }
+
+    /// A table's `null` member is TNULLn as the card holds it: an ASCII table's string, a
+    /// binary table's integer, the string of its digits past 2^53 − 1 (spec/zarrify/fits.md §5.2
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#52-an-hdus-node>).
+    #[test]
+    fn a_column_s_null_is_tnull_as_the_card_holds_it() {
+        let raw = records(&[
+            "TNULL1  = 'N/A     '",
+            "TNULL2  =                  -99",
+            "TNULL3  = -9223372036854775808",
+            "TNULL4  = -170141183460469231731687303715884105728",
+        ]);
+        let h = json!({"index": 1, "kind": "table", "table": {"tform": ["I8", "J", "K", "K"]}});
+        let own = own_json(&h, &parse_cards(&raw, 4));
+        let columns = own["columns"].as_array().unwrap();
+        assert_eq!(columns[0]["null"], json!("N/A"));
+        assert_eq!(columns[1]["null"], json!(-99));
+        assert_eq!(columns[2]["null"], json!("-9223372036854775808"));
+        // i128::MIN, whose magnitude no i128 holds
+        assert_eq!(columns[3]["null"], json!("-170141183460469231731687303715884105728"));
+    }
 }

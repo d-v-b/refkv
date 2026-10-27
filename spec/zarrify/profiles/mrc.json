@@ -1,0 +1,16 @@
+{
+  "name": "mrc",
+  "title": "MRC",
+  "uuid": "2aacd010-2ed1-4748-bc3c-5dd5e840bbce",
+  "version": 0,
+  "kind": "file",
+  "sniff": 90,
+  "chosen_by": null,
+  "suffixes": [
+    ".mrc"
+  ],
+  "reference": null,
+  "source": "MRC2014",
+  "inputs": "MRC2014 files (CCP4 maps, image stacks, volumes and volume stacks)",
+  "for": "MRC2014 maps, image stacks, volumes and volume stacks (`.mrc`, `.map`)"
+}

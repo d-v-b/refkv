@@ -1,0 +1,14 @@
+{
+  "name": "ome-zarr",
+  "title": "OME-Zarr",
+  "uuid": "b74ea302-65bb-49ae-b81f-f9bb52cd4eed",
+  "version": 0,
+  "kind": "store",
+  "sniff": null,
+  "chosen_by": null,
+  "suffixes": [],
+  "reference": 25,
+  "source": "OME-Zarr 0.4",
+  "inputs": "OME-Zarr 0.4 hierarchies on Zarr v2, migrated to OME-Zarr 0.5",
+  "for": "OME-Zarr 0.4 hierarchies, migrated to OME-Zarr 0.5 in place"
+}

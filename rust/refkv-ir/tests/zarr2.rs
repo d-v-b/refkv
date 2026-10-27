@@ -1,4 +1,4 @@
-//! The Zarr v2 store format (src/zarr2.rs, src/project/zarr2.rs; spec/virtualize/zarr2.md): one
+//! The Zarr v2 store format (src/zarr2.rs, src/project/zarr2.rs; spec/zarrify/zarr2.md): one
 //! test over the fixture stores it accepts (their hierarchies' counts, and the mirror rebuilding
 //! every document read), one of the JSON documents it reads, and one test per rejected fixture
 //! store, each with the reason (the schema's message where a role rejects it).
@@ -58,7 +58,7 @@ fn the_fixture_stores_have_their_hierarchies_and_mirrors() {
     assert_eq!(doc(&c, "zlib_f/zarr.json")["codecs"], serde_json::json!([
         {"name": "transpose", "configuration": {"order": [2, 1, 0]}},
         {"name": "bytes", "configuration": {"endian": "little"}},
-        {"name": "zlib", "configuration": {"level": 1}},
+        {"name": "numcodecs.zlib", "configuration": {"level": 1}},
     ]));
     assert_eq!(doc(&c, "blosc_autoshuffle_i2/zarr.json")["codecs"][1],
                serde_json::json!({"name": "blosc", "configuration": {"cname": "lz4hc", "clevel": 2, "shuffle": "shuffle", "typesize": 2, "blocksize": 0}}));
@@ -169,7 +169,7 @@ fn the_ignored_keys_are_refkv_source_s_member_ignored_in_byte_order() {
         r.ignore(ignored.clone(), Vec::new()).unwrap();
         drive(&mut r, &bytes).unwrap();
         let out = r.into_output("https://data.test/h/", true).unwrap();
-        let own = &doc(&out, "refkv_source/zarr.json")["attributes"]["refkv_virtualized"]["zarr2"];
+        let own = &doc(&out, "refkv_source/zarr.json")["attributes"]["refkv_zarrified"]["zarr2"];
         let mut sorted = ignored.clone();
         sorted.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
         let want = if ignored.is_empty() { serde_json::Value::Null } else { serde_json::json!(sorted) };
@@ -182,7 +182,7 @@ fn the_ignored_keys_are_refkv_source_s_member_ignored_in_byte_order() {
         assert_eq!(refkv_ir::mirror::canonical_problem(&get, &mut never), None);
         // any other member beside `ir` is a difference
         let mut d = doc(&out, "refkv_source/zarr.json");
-        d["attributes"]["refkv_virtualized"]["zarr2"]["junk"] = serde_json::json!(1);
+        d["attributes"]["refkv_zarrified"]["zarr2"]["junk"] = serde_json::json!(1);
         let junk = serde_json::to_vec(&d).unwrap();
         let get = |k: &str| if k == "refkv_source/zarr.json" { Some(junk.clone()) } else { out.entries.iter().find(|e| e.0 == k).map(|e| e.1.clone()) };
         assert_eq!(refkv_ir::mirror::canonical_problem(&get, &mut never).as_deref(), Some("refkv_source/zarr.json differs from the canonical table's"));
@@ -242,5 +242,5 @@ macro_rules! reject {
     };
 }
 
-// one test per case of conformance/virtualize/rejects/zarr2.json (build.rs)
+// one test per case of conformance/zarrify/rejects/zarr2.json (build.rs)
 include!(concat!(env!("OUT_DIR"), "/rejects_zarr2.rs"));

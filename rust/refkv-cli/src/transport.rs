@@ -25,8 +25,8 @@ use std::time::Instant;
 const OPEN: u64 = 1 << 16;
 const RETRY: [u16; 5] = [429, 500, 502, 503, 504];
 
-/// The ETag of every response for one object, for its `etag` pin (spec/virtualize.md §1.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>).
+/// The ETag of every response for one object, for its `etag` pin (spec/zarrify.md §1.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>).
 #[derive(Default)]
 pub struct EtagLog {
     seen: Mutex<BTreeSet<Option<String>>>,

@@ -7,13 +7,17 @@ acceptable results; {"ok": False} accepts any error.
 
 from __future__ import annotations
 
+import builtins
 import math
 import os
 import re
+import zipfile
+from collections.abc import Sequence
 from pathlib import Path
 from urllib.parse import quote, unquote, urljoin, urlparse
 
 import pbref
+from http_server import QUIRKS, etag_for
 
 RESERVED = "__vz__/"
 ERROR = {"ok": False}
@@ -33,8 +37,6 @@ def _utf8_key(k: str) -> bytes:
 
 def _recorded_revision(archive_path) -> int | None:
     """The spec revision the archive's writer recorded in its source table, if any."""
-    import zipfile
-
     try:
         with zipfile.ZipFile(archive_path) as z:
             t = pbref.SourceTable.FromString(z.read(RESERVED + "sources"))
@@ -44,14 +46,13 @@ def _recorded_revision(archive_path) -> int | None:
 
 
 class Model:
-    def __init__(self, desc: dict, archive_path: Path, index_body: bytes | None = None,
-                 http: tuple[str, Path] | None = None):
+    def __init__(self, desc: dict, archive_path: Path, http: tuple[str, Path] | None = None):
         self.http = http  # (server base URL, directory it serves)
         self.desc = desc
         # spec §5 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>:
-        # absolute, lexically normalised, symlinks not resolved, and
+        # absolute, lexically normalized, symlinks not resolved, and
         # every byte other than unreserved / sub-delims / ":" "@" "/" percent-encoded
-        abs_path = os.path.normpath(os.path.join(os.getcwd(), str(archive_path)))
+        abs_path = os.path.normpath(Path.cwd() / archive_path)
         self.base = "file://" + quote(abs_path.encode(), safe="/:@!$&'()*+,;=")
         self.entries = {e["key"]: e for e in desc["entries"]}
         self.sources = desc.get("sources", [])
@@ -108,9 +109,8 @@ class Model:
         """What a §5.2
         <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#52-reading-over-http> reader gets
         from conformance/vzip/http_server.py for this source."""
-        from http_server import QUIRKS, etag_for
-
-        rel = unquote(url[len(self.http[0]):].split("?")[0])
+        assert self.http is not None  # only called for a URL under the server's base
+        rel = unquote(url[len(self.http[0]):].split("?", maxsplit=1)[0])
         quirk, _, rest = rel.partition("/")
         if quirk not in QUIRKS:
             quirk, rest = None, rel
@@ -143,9 +143,9 @@ class Model:
             raise ModelError("size pin")
         return data
 
-    def _parts(self, ranges: list[dict]):
+    def _parts(self, ranges: list[dict]) -> list[tuple[int, bytes | None, str | None]]:
         """[(size, bytes or None, hard_error, source_len)] per range."""
-        out = []
+        out: list[tuple[int, bytes | None, str | None]] = []
         for r in ranges:
             if "data" in r:
                 out.append((len(bytes.fromhex(r["data"])), bytes.fromhex(r["data"]), None))
@@ -188,7 +188,7 @@ class Model:
         for n, data, problem in parts:
             lo, hi = max(a, pos), min(b, pos + n)
             if lo < hi:
-                if problem not in (None, "oob") or hi - pos > len(data):
+                if problem not in (None, "oob") or data is None or hi - pos > len(data):
                     return [err("resolution")]
                 value += data[lo - pos : hi - pos]
             pos += n
@@ -208,14 +208,15 @@ class Model:
             return [{"ok": True, "value": body.hex()}]
         return [{"ok": True, "value": e["bytes"]}]
 
-    def list(self, prefix: str) -> list[dict]:
+    # builtins.list: in the class body below this def, `list` is the method
+    def list(self, prefix: str) -> builtins.list[dict]:
         keys = sorted(
             (k for k in self.entries if not k.startswith(RESERVED) and k.startswith(prefix)),
             key=_utf8_key,
         )
         return [{"ok": True, "keys": keys}]
 
-    def expect(self, q: dict) -> list[dict]:
+    def expect(self, q: dict) -> builtins.list[dict]:
         op = q["op"]
         if op == "classify":
             return [{"ok": True, "kind": self.kind(q["key"])}]
@@ -245,7 +246,7 @@ def _window(n: int, rng: dict | None) -> tuple[int, int]:
     return min(rng["start"], n), min(rng["end"], n)
 
 
-def standard_queries(desc: dict, extra_keys: list[str] = ()) -> list[dict]:
+def standard_queries(desc: dict, extra_keys: Sequence[str] = ()) -> list[dict]:
     """Queries exercising every key of a description plus some edge cases."""
     keys = [e["key"] for e in desc["entries"]] + list(extra_keys)
     keys += ["nope", "r/single/x", "__vz__/sources", ""]
@@ -254,11 +255,10 @@ def standard_queries(desc: dict, extra_keys: list[str] = ()) -> list[dict]:
         qs.append({"op": "classify", "key": k})
         qs.append({"op": "get", "key": k})
         qs.append({"op": "get_raw", "key": k})
-        for r in ({"start": 1, "end": 3}, {"start": 0, "end": 10**9}, {"offset": 2},
-                  {"suffix": 3}, {"suffix": 10**9}, {"start": 4, "end": 4}):
-            qs.append({"op": "get", "key": k, "range": r})
+        qs.extend({"op": "get", "key": k, "range": r}
+                  for r in ({"start": 1, "end": 3}, {"start": 0, "end": 10**9}, {"offset": 2},
+                            {"suffix": 3}, {"suffix": 10**9}, {"start": 4, "end": 4}))
     qs.append({"op": "get", "key": keys[0] if keys else "x", "range": {"start": 5, "end": 2}})
     qs.append({"op": "get", "key": "nope", "range": {"start": 5, "end": 2}})
-    for p in ["", "r/", "unicode/", "__vz__/", "zz"]:
-        qs.append({"op": "list", "prefix": p})
+    qs.extend({"op": "list", "prefix": p} for p in ["", "r/", "unicode/", "__vz__/", "zz"])
     return qs

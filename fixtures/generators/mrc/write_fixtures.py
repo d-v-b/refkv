@@ -1,13 +1,13 @@
 """Writes synthetic MRC2014 files to fixtures/mrc/, covering the rules of the MRC profile
-(spec/virtualize/mrc.md §8
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#8-mrc-profile>): both byte
+(spec/zarrify/mrc.md §8
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#8-mrc-profile>): both byte
 orders, every mode, images, image stacks, volumes and volume stacks, the axis map, voxel
 sizes, origins, display windows, extended headers, chunking, and the inputs the profile
 rejects (`mrc_reject_*`).
 
 Most files are packed field by field here, so that every header value is exactly what the
 case needs; a few are written by mrcfile, as real files are. js/test/mrc/verify.py
-compares each accepted file's virtualization with mrcfile's reading of it.
+compares each accepted file's zarrification with mrcfile's reading of it.
 
 Usage: uv run python fixtures/generators/mrc/write_fixtures.py
 """
@@ -23,8 +23,8 @@ import numpy as np
 
 OUT = Path(__file__).parents[2] / "mrc"
 
-# Offset and struct format of the header fields (spec/virtualize/mrc.md §2
-# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#2-the-header>).
+# Offset and struct format of the header fields (spec/zarrify/mrc.md §2
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#2-the-header>).
 LAYOUT = {
     "nx": (0, "i"), "ny": (4, "i"), "nz": (8, "i"), "mode": (12, "i"),
     "nxstart": (16, "i"), "nystart": (20, "i"), "nzstart": (24, "i"),
@@ -97,9 +97,11 @@ def by_mrcfile() -> None:
             if stack:
                 f.set_image_stack()
             f.voxel_size = voxel_size
+            header = f.header
+            assert header is not None  # set_data's
             if origin is not None:
-                f.header.origin.x, f.header.origin.y, f.header.origin.z = origin
-            f.header.label[0] = "written by write_fixtures.py".ljust(80)
+                header.origin.x, header.origin.y, header.origin.z = origin
+            header.label[0] = "written by write_fixtures.py".ljust(80)
             f.update_header_stats()
 
     write("mrc_mrcfile_volume", rng.standard_normal((4, 5, 6)).astype(np.float32), 1.25, origin=(-3.0, 2.5, 10.0))
@@ -151,7 +153,8 @@ def main() -> None:
     mrc("mrc_edge_origin_image_stack", (3, 3, 2), 2, ispg=0, origin=[1.0, 2.0, 0.0])
     mrc("mrc_edge_origin_image", (3, 3, 1), 2, ispg=0, origin=[1.0, 2.0, 0.0])
     # IMOD's stamp and flags at bytes 152 and 156: bit 0 makes mode 0 unsigned.
-    imod = lambda flags: bytes(40) + struct.pack("<ii", 1146047817, flags) + bytes(36)
+    def imod(flags):
+        return bytes(40) + struct.pack("<ii", 1146047817, flags) + bytes(36)
     mrc("mrc_imod_uint8", (4, 3, 2), 0, extra2=imod(1), dmin=0.0, dmax=255.0)
     mrc("mrc_imod_uint8_other_flags", (4, 3, 2), 0, extra2=imod(7))
     mrc("mrc_imod_int8", (4, 3, 2), 0, extra2=imod(2))
@@ -179,16 +182,16 @@ def main() -> None:
     # Bytes after the data: a gap.
     mrc("mrc_region_trailer", (3, 2, 2), 2, trailer=b"TRAILER!")
 
-    # Chunks (spec/virtualize/mrc.md §4.1
-    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#41-the-array>): 20 sections of
+    # Chunks (spec/zarrify/mrc.md §4.1
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#41-the-array>): 20 sections of
     # 64 KiB, cut into 2 chunks of 10; a section of 1.1 MB, cut into 2 blocks of 550 rows; a row
-    # of 2^20 + 1 bytes, cut into 2 chunks, the second padded with a literal zero byte.
+    # of 2^20 + 1 bytes, cut into 2 chunks, the second padded with a zero byte (a range of the zero data source).
     mrc("mrc_chunk_sections", (256, 128, 20), 1, ispg=0)
     mrc("mrc_chunk_rows", (1000, 1100, 1), 0, ispg=0)
     mrc("mrc_chunk_edge_literal", (2**20 + 1, 1, 1), 0, ispg=0)
 
-    # Rejected, one per rule of spec/virtualize/mrc.md §8.1
-    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#81-header>.
+    # Rejected, one per rule of spec/zarrify/mrc.md §8.1
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#81-header>.
     mrc("mrc_reject_short_header", (3, 2, 2), 2, data=b"", truncate=1024 - 500)
     mrc("mrc_reject_machst", (3, 2, 2), 2, machst=b"\0\0\0\0")
     mrc("mrc_reject_machst_swapped", (3, 2, 2), 2, machst=b"\x41\x44\0\0")

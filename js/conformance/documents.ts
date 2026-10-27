@@ -1,18 +1,18 @@
-// Virtualizes local image files and directories (as stores) with the browser
+// Zarrifies local image files and directories (as stores) with the browser
 // code, under Node, and prints every output's zarr.json documents:
 //   node js/conformance/documents.ts < inputs.json
 // The input is a JSON array of [file or directory, source url] pairs (for a
 // directory, the url is the store URL it is served from, ending in "/"). The
 // output is a JSON array with, for each input in order, {"format", "docs"}
 // (docs maps each zarr.json key to its document) or {"rejected": message}.
-// Used by python/tests/test_virtualize_conventions.py.
+// Used by python/tests/test_zarrify_conventions.py.
 
 import fs from "node:fs";
 import nodePath from "node:path";
-import { blockReader } from "../src/virtualize/common.ts";
-import { virtualizeImage, virtualizeStore } from "../src/virtualize/index.ts";
-import { readerSource } from "../src/virtualize/ir/source.ts";
-import { keepIntegers } from "../src/virtualize/store.ts";
+import { blockReader } from "../src/zarrify/common.ts";
+import { zarrifyImage, zarrifyStore } from "../src/zarrify/index.ts";
+import { readerSource } from "../src/zarrify/ir/source.ts";
+import { keepIntegers } from "../src/zarrify/store.ts";
 import { directoryStore } from "./directory_store.ts";
 
 const REJECTIONS = /^(TiffError|Nd2Error|LVError|DicomError|NiftiError|ImsError|ImageError|StoreError|N5Error|Zarr2Error|OmeZarrError|SafeError|CziError)$/;
@@ -34,17 +34,18 @@ for (const [path, url] of inputs) {
   try {
     let virtual;
     if (fs.statSync(path).isDirectory()) {
-      virtual = await virtualizeStore(directoryStore(path, url));
+      virtual = await zarrifyStore(directoryStore(path, url));
     } else {
       const bytes = new Uint8Array(fs.readFileSync(path));
-      // a VSI file's tile files lie beside it: opened from the directory as the run asks
+      // a VSI file's tile files, and a NRRD header's data file, lie beside it: opened from the
+      // directory as the run asks
       const open = async (key: string) => {
         const p = nodePath.join(nodePath.dirname(path), ...key.split("/"));  // a key's segments, as the platform joins them
         if (!fs.existsSync(p)) return undefined;
         const b = new Uint8Array(fs.readFileSync(p));
         return readerSource(async (o, n) => b.subarray(o, o + n), b.length);
       };
-      virtual = await virtualizeImage(url, blockReader(async (o, n) => bytes.subarray(o, o + n), bytes.length), bytes.length, undefined, { open });
+      virtual = await zarrifyImage(url, blockReader(async (o, n) => bytes.subarray(o, o + n), bytes.length), bytes.length, undefined, { open });
     }
     const docs: { [k: string]: unknown } = {};
     for (const e of virtual.entries) {

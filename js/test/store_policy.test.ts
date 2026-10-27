@@ -13,8 +13,8 @@ import { pathToFileURL } from "node:url";
 import { after, before, test } from "node:test";
 import { checkAddress, type Policy, RefkvError } from "../src/archive.ts";
 import { resolver } from "../src/net_node.ts";
-import { virtualizeStore } from "../src/virtualize/index.ts";
-import { openHttpStore, storeFetch } from "../src/virtualize/store.ts";
+import { zarrifyStore } from "../src/zarrify/index.ts";
+import { openHttpStore, storeFetch } from "../src/zarrify/store.ts";
 
 const STORE = path.join(import.meta.dirname, "..", "..", "fixtures", "zarr2", "zarr2_hierarchy");
 const OBJECTS = new Map<string, Uint8Array>();
@@ -90,16 +90,16 @@ function show(desc: object, url: string): string {
     .replaceAll(url, "<store>");
 }
 
-/** Virtualizes the store at `url` under `policy` in a new Node process, whose environment
+/** Zarrifies the store at `url` under `policy` in a new Node process, whose environment
  * has `env` (Node's `fetch` reads the proxy settings when it starts) and whose resolver
  * gives `address` for every name. */
 function inChild(url: string, policy: Policy, env: Record<string, string>, address: string): Promise<string> {
   const src = (f: string) => pathToFileURL(path.join(import.meta.dirname, "..", "src", f)).href;
   const code = `
     import { resolver } from ${JSON.stringify(src("net_node.ts"))};
-    import { virtualizeStore } from ${JSON.stringify(src("virtualize/index.ts"))};
+    import { zarrifyStore } from ${JSON.stringify(src("zarrify/index.ts"))};
     resolver.lookup = async () => [{ address: ${JSON.stringify(address)}, family: 4 }];
-    const v = await virtualizeStore(${JSON.stringify(url)}, { policy: ${JSON.stringify(policy)} });
+    const v = await zarrifyStore(${JSON.stringify(url)}, { policy: ${JSON.stringify(policy)} });
     process.stdout.write(JSON.stringify(v, (_k, v) => (typeof v === "bigint" ? String(v) : v instanceof Uint8Array ? Buffer.from(v).toString("latin1") : v)));
   `;
   return new Promise((resolve, reject) => {
@@ -130,7 +130,7 @@ test("reads a store the policy allows", async () => {
         state.paths = [];
         const fetch = check ? storeFetch(url, policy, {}, check) : undefined;
         const store = await openHttpStore(url, { policy, concurrency, ...(fetch ? { fetch } : {}) });
-        outputs.add(show(await virtualizeStore(store), url));
+        outputs.add(show(await zarrifyStore(store), url));
         assert.ok(state.paths.some((p) => p.startsWith("/b/r/"))); // the reads went where they were redirected
       }
     }
@@ -160,7 +160,7 @@ test("bypasses the HTTP cache for a store's range reads, as for a file's", async
     return real(u, init);
   };
   try {
-    await virtualizeStore(`http://127.0.0.1:${port}/b/s/`, { policy: { allowPrivateHosts: true } });
+    await zarrifyStore(`http://127.0.0.1:${port}/b/s/`, { policy: { allowPrivateHosts: true } });
   } finally {
     globalThis.fetch = real;
   }
@@ -170,7 +170,7 @@ test("bypasses the HTTP cache for a store's range reads, as for a file's", async
 
 test("refuses a private host", async () => {
   state.paths = [];
-  await assert.rejects(virtualizeStore(`http://127.0.0.1:${port}/b/s/`), resolution(/is a loopback address.*allowPrivateHosts/));
+  await assert.rejects(zarrifyStore(`http://127.0.0.1:${port}/b/s/`), resolution(/is a loopback address.*allowPrivateHosts/));
   assert.deepEqual(state.paths, []);
 });
 
@@ -178,7 +178,7 @@ test("refuses a name that resolves to a private address", async () => {
   const restore = mockResolver({ "private.test": "127.0.0.1" });
   state.paths = [];
   try {
-    await assert.rejects(virtualizeStore(`http://private.test:${port}/b/s/`), resolution(/at 127\.0\.0\.1.*is a loopback address/));
+    await assert.rejects(zarrifyStore(`http://private.test:${port}/b/s/`), resolution(/at 127\.0\.0\.1.*is a loopback address/));
   } finally {
     restore();
   }
@@ -194,7 +194,7 @@ test("refuses a redirect to a private host before requesting it", async () => {
   state.paths = [];
   try {
     const store = await openHttpStore(url, { concurrency: 16, fetch: storeFetch(url, {}, {}, serverIsPublic) });
-    await assert.rejects(virtualizeStore(store), resolution(/http:\/\/localhost.*is a loopback address/));
+    await assert.rejects(zarrifyStore(store), resolution(/http:\/\/localhost.*is a loopback address/));
   } finally {
     state.redirect = undefined;
     restore();
@@ -210,7 +210,7 @@ test("refuses a request through a proxy", async () => {
   delete process.env.no_proxy;
   state.paths = [];
   try {
-    await assert.rejects(virtualizeStore("http://proxied.test/b/s/"), resolution(/through the proxy.*allowUncheckedProxy: true/));
+    await assert.rejects(zarrifyStore("http://proxied.test/b/s/"), resolution(/through the proxy.*allowUncheckedProxy: true/));
   } finally {
     for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
     Object.assign(process.env, saved);
@@ -227,7 +227,7 @@ test("refuses a redirect to a file URL whatever the policy", async () => {
   state.redirect = "file:///etc/";
   try {
     const store = await openHttpStore(url, { concurrency: 1, policy, fetch: storeFetch(url, policy, {}, serverIsPublic) });
-    await assert.rejects(virtualizeStore(store), resolution(/redirect to a non-http URL/));
+    await assert.rejects(zarrifyStore(store), resolution(/redirect to a non-http URL/));
   } finally {
     state.redirect = undefined;
     restore();

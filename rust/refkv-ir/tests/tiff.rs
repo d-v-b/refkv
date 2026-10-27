@@ -1,4 +1,4 @@
-//! The TIFF parser (src/tiff.rs; spec/virtualize/tiff.md): one test per rejected fixture; NDPI
+//! The TIFF parser (src/tiff.rs; spec/zarrify/tiff.md): one test per rejected fixture; NDPI
 //! found as NDPI; and the round-3 probes built here (IFD loops, huge counts, too many IFDs).
 
 mod common;
@@ -9,7 +9,7 @@ use refkv_ir::parse_bytes;
 use refkv_ir::tiff::Tiff;
 
 // one test per rejected fixture, each the message its check gives
-// one test per case of conformance/virtualize/rejects/tiff.json (build.rs), each the message its check gives
+// one test per case of conformance/zarrify/rejects/tiff.json (build.rs), each the message its check gives
 macro_rules! reject {
     ($name:ident, $input:literal, $msg:literal) => {
         common::reject!($name, Tiff, concat!("tiff/", $input), $msg);
@@ -17,8 +17,8 @@ macro_rules! reject {
 }
 include!(concat!(env!("OUT_DIR"), "/rejects_tiff.rs"));
 
-/// The TIFF parser reads an NDPI as NDPI (spec/virtualize/ndpi.md §7
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>): each
+/// The TIFF parser reads an NDPI as NDPI (spec/zarrify/ndpi.md §7
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>): each
 /// accepted NDPI fixture's facts name the profile, and a TIFF's do not.
 #[test]
 fn the_tiff_parser_finds_ndpi() {

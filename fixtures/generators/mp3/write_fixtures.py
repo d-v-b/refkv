@@ -1,6 +1,6 @@
 """Writes synthetic MP3 files to fixtures/mp3/, covering the rules of the MP3 profile
-(spec/virtualize/mp3.md §8
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#8-mp3-profile>): MPEG-1, MPEG-2
+(spec/zarrify/mp3.md §8
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#8-mp3-profile>): MPEG-1, MPEG-2
 and MPEG-2.5 streams, mono and stereo, constant and variable bitrates, CRC protection, the bit
 reservoir on and off, Xing, Info and LAME tags, ID3v2, ID3v1 and APE tags, junk between and
 around frames, a truncated last frame, and the inputs the profile rejects (`mp3_reject_*`).
@@ -11,7 +11,7 @@ Layer II encoder for a rejected one): both must be on PATH. Some files are then 
 byte (tags added, frames cut, junk inserted). For each accepted file without junk, the
 expected samples are ffmpeg's decoding of its audio frames (an independent decoder) in
 `fixtures/mp3/expected/<name>.npy`, int16 of shape [samples, channels]; the tests compare
-the virtualized array with them within a small tolerance, and with miniaudio's sequential
+the zarrified array with them within a small tolerance, and with miniaudio's sequential
 decoding (the codec's own decoder) exactly. The files with junk have no expected samples:
 decoders differ on what they do after junk.
 
@@ -35,8 +35,8 @@ import numpy as np
 OUT = Path(__file__).parents[2] / "mp3"
 EXPECTED = OUT / "expected"
 
-# MPEG audio frame headers (spec/virtualize/mp3.md §2
-# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#2-frames>): version bits ->
+# MPEG audio frame headers (spec/zarrify/mp3.md §2
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#2-frames>): version bits ->
 # name; sample rates by version then index; Layer III bitrates (kbps) by version then index.
 VERSIONS = {0: "MPEG-2.5", 2: "MPEG-2", 3: "MPEG-1"}
 RATES = {3: (44100, 48000, 32000), 2: (22050, 24000, 16000), 0: (11025, 12000, 8000)}
@@ -92,8 +92,8 @@ def frames_of(data: bytes) -> list[tuple[int, int, dict]]:
 
 
 def is_info(data: bytes, offset: int, h: dict) -> bool:
-    """Whether the frame at `offset` is a Xing, Info or VBRI frame (spec/virtualize/mp3.md §2
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#2-frames>)."""
+    """Whether the frame at `offset` is a Xing, Info or VBRI frame (spec/zarrify/mp3.md §2
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#2-frames>)."""
     tag = offset + 4 + (2 if h["crc"] else 0) + h["side"]
     return data[tag:tag + 4] in (b"Xing", b"Info") or data[offset + 36:offset + 40] == b"VBRI"
 
@@ -264,7 +264,8 @@ def main() -> None:
     with_crc = lame(signal(22050, 0.6, 2, 3), 22050, "-b", "48", "-p", "--nores", "-t")
     without = lame(signal(22050, 0.6, 2, 3), 22050, "-b", "48", "--nores", "-t")
     crc_frames, plain_frames = frames_of(with_crc), frames_of(without)
-    mixed = b"".join(with_crc[o:o + n] for o, n, _ in crc_frames[:5]) + b"".join(without[o:o + n] for o, n, _ in plain_frames[5:])
+    mixed = (b"".join(with_crc[o:o + n] for o, n, _ in crc_frames[:5])
+             + b"".join(without[o:o + n] for o, n, _ in plain_frames[5:]))
     write("mp3_crc_mixed", mixed)
     # junk: between frames, after the last frame, and a false sync (a header-like byte pair
     # followed by garbage) between frames; a truncated last frame

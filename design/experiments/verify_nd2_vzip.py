@@ -1,4 +1,4 @@
-"""Check a vzip made from an ND2 file (python -m refkv.virtualize) against the nd2 package reading the ND2.
+"""Check a vzip made from an ND2 file (python -m refkv.zarrify) against the nd2 package reading the ND2.
 
 Reads a sample of frames (first, last, and random ones) through the archive
 (vzip reference reader + zarr-python) and with `nd2` from the remote file, and

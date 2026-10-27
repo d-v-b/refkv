@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """The cost of reading a store's SLOTS section in blocks of B slots, and the block size that minimises it.
 
 A lookup reads the 12-byte slot of its key. The hash scatters keys, so which slot a lookup wants is
@@ -35,17 +34,21 @@ def human(slots):
     return f"{b} B" if b < 1024 else f"{b / 1024:.0f} KiB" if b < 1 << 20 else f"{b / (1 << 20):.1f} MiB"
 
 
-sizes = sorted({max(1, round(2 ** (e / 4))) for e in range(0, 4 * math.ceil(math.log2(N)) + 1)} | {N})
+sizes = sorted({max(1, round(2 ** (e / 4))) for e in range(4 * math.ceil(math.log2(N)) + 1)} | {N})
 print(f"N = {N:,} slots ({human(N)}), round trip {R * 1e3:g} ms\n")
 for name, W in WS.items():
     print(f"### bandwidth {name}\n")
-    print("| lookups k | one slot at a time (B = 1) | the whole section at open | the best block | its size | time vs B = 1 | vs whole |")
+    print("| lookups k | one slot at a time (B = 1) | the whole section at open | the best block | its size "
+          "| time vs B = 1 | vs whole |")
     print("|---|---|---|---|---|---|---|")
     for k in KS:
         best = min(sizes, key=lambda B: cost(k, B, W))
         one, whole, b = cost(k, 1, W), cost(k, N, W), cost(k, best, W)
-        print(f"| {k:,} | {one * 1e3:,.0f} ms | {whole * 1e3:,.0f} ms | {b * 1e3:,.0f} ms | {human(best)} | {b / one:.2f}× | {b / whole:.2f}× |")
+        print(f"| {k:,} | {one * 1e3:,.0f} ms | {whole * 1e3:,.0f} ms | {b * 1e3:,.0f} ms | {human(best)} "
+              f"| {b / one:.2f}× | {b / whole:.2f}× |")
     # one block size for every k: the one whose time is within the smallest factor of the best for each k
-    worst = lambda B: max(cost(k, B, W) / min(cost(k, c, W) for c in sizes) for k in KS)
+    def worst(B, W=W):
+        return max(cost(k, B, W) / min(cost(k, c, W) for c in sizes) for k in KS)
     B = min(sizes, key=worst)
-    print(f"\nOne size for all k in {KS[0]}..{KS[-1]:,}: {human(B)} ({B:,} slots), never more than {worst(B):.2f}× the best for that k.\n")
+    print(f"\nOne size for all k in {KS[0]}..{KS[-1]:,}: {human(B)} ({B:,} slots), "
+          f"never more than {worst(B):.2f}× the best for that k.\n")

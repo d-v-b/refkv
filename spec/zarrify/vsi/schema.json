@@ -1,0 +1,1067 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/vsi/schema.json",
+  "title": "refkv VSI convention, version 0",
+  "description": "The zarr.json of a node that declares the refkv VSI convention (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md)",
+  "type": "object",
+  "properties": {
+    "zarr_format": {
+      "type": "integer",
+      "const": 3
+    },
+    "node_type": {
+      "type": "string",
+      "enum": [
+        "group",
+        "array"
+      ]
+    },
+    "attributes": {
+      "type": "object",
+      "properties": {
+        "ome": {
+          "type": "object",
+          "description": "OME-NGFF 0.5 metadata"
+        },
+        "zarr_conventions": {
+          "type": "array",
+          "contains": {
+            "$ref": "#/$defs/conventionMetadata"
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        "refkv_zarrified": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/rootProperty"
+            },
+            {
+              "$ref": "#/$defs/nodeProperty"
+            }
+          ]
+        }
+      },
+      "required": [
+        "zarr_conventions",
+        "refkv_zarrified"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "zarr_format",
+    "node_type",
+    "attributes"
+  ],
+  "$defs": {
+    "conventionMetadata": {
+      "type": "object",
+      "description": "The VSI convention's metadata object in zarr_conventions",
+      "properties": {
+        "uuid": {
+          "type": "string",
+          "const": "c0a1d4e6-5b7f-4f3a-9c2d-8e1f6a7b3c45"
+        },
+        "schema_url": {
+          "type": "string",
+          "const": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/vsi/schema.json"
+        },
+        "spec_url": {
+          "type": "string",
+          "const": "https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md"
+        },
+        "name": {
+          "type": "string",
+          "const": "refkv_zarrified"
+        },
+        "description": {
+          "type": "string",
+          "const": "The Zarr layout of a VSI source zarrified by refkv, and the source's metadata"
+        }
+      },
+      "required": [
+        "uuid",
+        "schema_url",
+        "spec_url",
+        "name",
+        "description"
+      ],
+      "additionalProperties": false
+    },
+    "rootProperty": {
+      "type": "object",
+      "description": "The root's property: the profile and version that produced the hierarchy, its source, and the root's source metadata",
+      "properties": {
+        "profile": {
+          "type": "string",
+          "const": "vsi"
+        },
+        "version": {
+          "type": "integer",
+          "const": 0
+        },
+        "source": {
+          "type": "object",
+          "properties": {
+            "url": {
+              "type": "string",
+              "description": "The URL of the source file"
+            }
+          },
+          "required": [
+            "url"
+          ],
+          "additionalProperties": false
+        },
+        "layouts": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[^/]+(/[^/]+)*$"
+          },
+          "description": "The other layouts of the source in this hierarchy, by name, each the path of its node below the root (spec/conventions.md §9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>)"
+        },
+        "vsi": {
+          "$ref": "#/$defs/sourceMetadata"
+        }
+      },
+      "required": [
+        "profile",
+        "version",
+        "source"
+      ],
+      "additionalProperties": false
+    },
+    "sourceMetadata": {
+      "anyOf": [
+        {
+          "type": "object",
+          "description": "The root's: the .vsi file, the stacks and the metadata tree (spec/zarrify/vsi.md §6.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#61-the-root>)",
+          "properties": {
+            "file": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "integer",
+                  "minimum": 32
+                },
+                "ifds": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "key",
+                "size",
+                "ifds"
+              ],
+              "additionalProperties": false
+            },
+            "stacks": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "anyOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "external": {
+                    "type": "boolean"
+                  },
+                  "width": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "height": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "tile_file": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "type",
+                  "external",
+                  "width",
+                  "height",
+                  "tile_file"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "tree": {
+              "type": "object",
+              "properties": {
+                "fields": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/vsiField"
+                  }
+                }
+              },
+              "required": [
+                "fields"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "file",
+            "stacks",
+            "tree"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "description": "A stack's image's: its properties from the tree, then its tile file's headers and levels, or its IFD (spec/zarrify/vsi.md §6.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#61-the-root>)",
+          "properties": {
+            "id": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "type": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type_name": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "width": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "height": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "dimension_sizes": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              }
+            },
+            "dimensions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "coordinate": {
+                    "type": "integer",
+                    "minimum": 2
+                  },
+                  "meaning": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "coordinate",
+                  "meaning"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "scale": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  },
+                  "minItems": 2,
+                  "maxItems": 2
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "unit": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "origin": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  },
+                  "minItems": 2,
+                  "maxItems": 2
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "z_step": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "z_unit": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "display": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  },
+                  "minItems": 2,
+                  "maxItems": 2
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "channels": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "channel_name": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "color": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[0-9A-F]{6}$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "display": {
+                    "anyOf": [
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "number"
+                        },
+                        "minItems": 2,
+                        "maxItems": 2
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "wavelength": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "name",
+                  "channel_name",
+                  "color",
+                  "display",
+                  "wavelength"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "creation_time": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "magnification": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "default_ifd": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "coarse_ifd": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "name": {
+              "type": "string"
+            },
+            "tile_file": {
+              "type": "string"
+            },
+            "ets": {
+              "type": "object",
+              "description": "The tile file's SIS and ETS headers (spec/zarrify/vsi.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#3-the-tile-files>)",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "integer",
+                  "minimum": 64
+                },
+                "version": {
+                  "type": "integer"
+                },
+                "coordinates": {
+                  "type": "integer",
+                  "minimum": 2,
+                  "maximum": 16
+                },
+                "tiles": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "ets_version": {
+                  "type": "integer"
+                },
+                "pixel_type": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 10
+                },
+                "data_type": {
+                  "enum": [
+                    "int8",
+                    "uint8",
+                    "int16",
+                    "uint16",
+                    "int32",
+                    "uint32",
+                    "int64",
+                    "uint64",
+                    "float32",
+                    "float64"
+                  ]
+                },
+                "samples": {
+                  "enum": [
+                    1,
+                    3,
+                    4
+                  ]
+                },
+                "colorspace": {
+                  "type": "integer"
+                },
+                "compression": {
+                  "enum": [
+                    0,
+                    2,
+                    3
+                  ]
+                },
+                "codec": {
+                  "enum": [
+                    "raw",
+                    "jpeg",
+                    "jpeg2000"
+                  ]
+                },
+                "quality": {
+                  "type": "integer"
+                },
+                "tile_width": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 65535
+                },
+                "tile_height": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 65535
+                },
+                "tile_depth": {
+                  "const": 1
+                },
+                "background": {
+                  "type": "string",
+                  "contentEncoding": "base64"
+                },
+                "component_order": {
+                  "type": "integer"
+                },
+                "use_pyramid": {
+                  "type": "boolean"
+                },
+                "dimensions": {
+                  "type": "integer",
+                  "minimum": 2,
+                  "maximum": 10
+                },
+                "dimension_sizes": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer"
+                  },
+                  "minItems": 2,
+                  "maxItems": 10
+                }
+              },
+              "required": [
+                "key",
+                "size",
+                "version",
+                "coordinates",
+                "tiles",
+                "ets_version",
+                "pixel_type",
+                "data_type",
+                "samples",
+                "colorspace",
+                "compression",
+                "codec",
+                "quality",
+                "tile_width",
+                "tile_height",
+                "tile_depth",
+                "background",
+                "component_order",
+                "use_pyramid",
+                "dimensions",
+                "dimension_sizes"
+              ],
+              "additionalProperties": false
+            },
+            "levels": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 2,
+                "maxItems": 2
+              },
+              "minItems": 1
+            },
+            "tiles_outside": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "ifd": {
+              "type": "object",
+              "description": "An IFD image's IFD (spec/zarrify/vsi.md §4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#43-the-macro-image>)",
+              "properties": {
+                "index": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "width": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "height": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "samples": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "bits": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "compression": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "photometric": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "index",
+                "width",
+                "height",
+                "samples",
+                "bits",
+                "compression",
+                "photometric"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "type_name",
+            "width",
+            "height",
+            "dimension_sizes",
+            "dimensions",
+            "scale",
+            "unit",
+            "origin",
+            "z_step",
+            "z_unit",
+            "display",
+            "channels",
+            "creation_time",
+            "magnification",
+            "default_ifd",
+            "coarse_ifd",
+            "name"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "description": "The macro image's: its name and IFD (spec/zarrify/vsi.md §4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#43-the-macro-image>)",
+          "properties": {
+            "name": {
+              "const": "macro image"
+            },
+            "ifd": {
+              "type": "object",
+              "description": "An IFD image's IFD (spec/zarrify/vsi.md §4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#43-the-macro-image>)",
+              "properties": {
+                "index": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "width": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "height": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "samples": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "bits": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "compression": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "photometric": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "index",
+                "width",
+                "height",
+                "samples",
+                "bits",
+                "compression",
+                "photometric"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "name",
+            "ifd"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "$ref": "#/$defs/mirror"
+        },
+        {
+          "$ref": "#/$defs/mirrorView"
+        }
+      ]
+    },
+    "headerValue": {
+      "description": "A translated header value (spec/conventions.md §6 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>)",
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "$ref": "#/$defs/text"
+        },
+        {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "text": {
+      "description": "A text value: a string (UTF-8), or its ISO 8859-1 reading when it is not UTF-8",
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "latin1": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "latin1"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "mirror": {
+      "type": "object",
+      "description": "refkv_source's: the IR mirror's description (spec/conventions.md §8.2 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#82-the-table>)",
+      "properties": {
+        "ir": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "const": 2
+            },
+            "size": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "The source's size in bytes (a store IR's: its objects' sizes, summed)"
+            },
+            "objects": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "A store IR's objects (spec/conventions.md §8.9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>); a file IR has none"
+            },
+            "elements": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "The elements, column runs expanded"
+            },
+            "rows": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "The rows the table stores"
+            },
+            "names": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "const": ""
+                }
+              ],
+              "description": "The interned names, sorted; the first, \"\", is the root's (conventions §8.1 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>)"
+            },
+            "types": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "const": ""
+                }
+              ],
+              "description": "The interned types (§8.6 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#86-types>)"
+            },
+            "forms": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "The interned forms, each a JSON text (§8.5 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#85-forms-and-recipes>)"
+            }
+          },
+          "required": [
+            "version",
+            "size",
+            "elements",
+            "rows",
+            "names",
+            "types",
+            "forms"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "ir"
+      ],
+      "additionalProperties": false
+    },
+    "mirrorView": {
+      "type": "object",
+      "description": "A view group's (refkv_source/tree/...): a struct's view document (spec/conventions.md §8.7 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#87-the-view>)",
+      "properties": {
+        "$vz": {
+          "const": "derived",
+          "description": "A derived element's document"
+        },
+        "$form": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "A derived element's form (§8.5 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#85-forms-and-recipes>)"
+        },
+        "$partial": {
+          "const": true,
+          "description": "The document stops short of the struct's children"
+        }
+      },
+      "minProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/viewValue"
+      }
+    },
+    "viewValue": {
+      "description": "A child's view: a JSON value, a nested document, or a $vz form",
+      "anyOf": [
+        {
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "null",
+            "array"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "$vz": {
+              "enum": [
+                "alias",
+                "group",
+                "element",
+                "derived",
+                "int",
+                "float",
+                "bytes",
+                "utf16"
+              ]
+            }
+          },
+          "required": [
+            "$vz"
+          ]
+        },
+        {
+          "type": "object"
+        }
+      ]
+    },
+    "vsiField": {
+      "type": "object",
+      "description": "A field of the metadata tree (spec/zarrify/vsi.md §6.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#61-the-root>)",
+      "properties": {
+        "tag": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tag2": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "type": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "name": {
+          "type": "string"
+        },
+        "inline": {
+          "const": true
+        },
+        "value": {},
+        "fields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/vsiField"
+          }
+        },
+        "ifd": {
+          "type": "object",
+          "properties": {
+            "index": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "bytes": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "bytes"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "tag",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "nodeProperty": {
+      "type": "object",
+      "description": "Any other node's property: its source metadata only",
+      "properties": {
+        "vsi": {
+          "$ref": "#/$defs/sourceMetadata"
+        }
+      },
+      "required": [
+        "vsi"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

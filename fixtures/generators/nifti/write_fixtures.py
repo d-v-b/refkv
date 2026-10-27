@@ -1,13 +1,13 @@
 """Writes synthetic NIfTI files to fixtures/nifti/, covering the rules of
-the NIfTI profile (spec/virtualize/nifti.md §7
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#7-nifti-profile>): NIfTI-1 and
+the NIfTI profile (spec/zarrify/nifti.md §7
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#7-nifti-profile>): NIfTI-1 and
 NIfTI-2 in both byte orders, 1 to 7 dimensions, every data type, color, units, value scaling,
 representable and oblique affines, extensions, chunking, and the inputs the
 profile rejects (`nifti_reject_*`).
 
 Most files are packed field by field here, so that every header value is
 exactly what the case needs; a few are written by nibabel, as real files are.
-js/test/nifti/verify.py compares each accepted file's virtualization with
+js/test/nifti/verify.py compares each accepted file's zarrification with
 nibabel's reading of it.
 
 Usage: uv run python fixtures/generators/nifti/write_fixtures.py
@@ -24,22 +24,23 @@ import numpy as np
 
 OUT = Path(__file__).parents[2] / "nifti"
 
-# Offset and struct format of the header fields (spec/virtualize/nifti.md §2
-# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#2-the-header>).
+# Offset and struct format of the header fields (spec/zarrify/nifti.md §2
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#2-the-header>).
 LAYOUTS = {
     1: {
-        "length": 348, "magic": (344, "4s"), "dim": (40, "8h"), "datatype": (70, "h"), "bitpix": (72, "h"),
+        "magic": (344, "4s"), "dim": (40, "8h"), "datatype": (70, "h"), "bitpix": (72, "h"),
         "pixdim": (76, "8f"), "vox_offset": (108, "f"), "scl_slope": (112, "f"), "scl_inter": (116, "f"),
         "xyzt_units": (123, "B"), "cal_max": (124, "f"), "cal_min": (128, "f"), "qform_code": (252, "h"),
         "sform_code": (254, "h"), "quatern": (256, "3f"), "qoffset": (268, "3f"), "srow": (280, "12f"),
     },
     2: {
-        "length": 540, "magic": (4, "8s"), "dim": (16, "8q"), "datatype": (12, "h"), "bitpix": (14, "h"),
+        "magic": (4, "8s"), "dim": (16, "8q"), "datatype": (12, "h"), "bitpix": (14, "h"),
         "pixdim": (104, "8d"), "vox_offset": (168, "q"), "scl_slope": (176, "d"), "scl_inter": (184, "d"),
         "xyzt_units": (500, "i"), "cal_max": (192, "d"), "cal_min": (200, "d"), "qform_code": (344, "i"),
         "sform_code": (348, "i"), "quatern": (352, "3d"), "qoffset": (376, "3d"), "srow": (400, "12d"),
     },
 }
+LENGTHS = {1: 348, 2: 540}  # the header's bytes, by version
 MAGIC = {1: b"n+1\0", 2: b"n+2\0\r\n\x1a\n"}
 # datatype: (numpy type, bitpix)
 TYPES = {
@@ -63,7 +64,7 @@ def nifti(name: str, dims, datatype: int = 2, *, version: int = 1, order: str = 
           seed: int = 0, **fields) -> None:
     """Packs a single-file NIfTI: header, extender (and extensions), then the voxels."""
     layout = LAYOUTS[version]
-    length = layout["length"]
+    length = LENGTHS[version]
     header = bytearray(length)
     values = {
         "magic": MAGIC[version], "dim": list(dims) + [1] * (8 - len(dims)), "datatype": datatype,
@@ -115,7 +116,7 @@ def by_nibabel() -> None:
     img.to_filename(OUT / "nifti_nibabel_n2_vector_ext.nii")
     # RGB24, which nibabel stores from a structured array.
     rgb = np.zeros((4, 3, 2), dtype=[("R", "u1"), ("G", "u1"), ("B", "u1")])
-    for k, c in enumerate("RGB"):
+    for c in "RGB":
         rgb[c] = rng.integers(0, 255, rgb.shape)
     nib.Nifti1Image(rgb, np.eye(4)).to_filename(OUT / "nifti_nibabel_rgb24.nii")
 
@@ -182,9 +183,9 @@ def main() -> None:
     # Row blocks: slices of 140000 bytes split into 2 blocks of 350 rows.
     nifti("nifti_rowblock_split", [3, 200, 700, 1], 2)
 
-    # Rejected, one per rule of spec/virtualize/nifti.md §7.1
-    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#71-header> (and the profile
-    # choice of §1.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>).
+    # Rejected, one per rule of spec/zarrify/nifti.md §7.1
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#71-header> (and the profile
+    # choice of §1.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>).
     nifti("nifti_reject_dim0", [0, 3, 2, 2], 2)
     nifti("nifti_reject_dim0_8", [8, 3, 2, 2, 1, 1, 1, 1], 2, data=b"\0" * 12)
     nifti("nifti_reject_dim_zero", [3, 3, 0, 2], 2, data=b"\0" * 12)
@@ -211,8 +212,8 @@ def main() -> None:
 
 def reconstruction() -> None:
     """A comment (text), a 100-byte DICOM extension (an array), a chain cut short
-    (the rest as bytes) and bytes after the voxels (spec/virtualize/nifti.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#5-source-metadata>)."""
+    (the rest as bytes) and bytes after the voxels (spec/zarrify/nifti.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#5-source-metadata>)."""
     nifti("nifti_reconstruction", [3, 4, 3, 2], 2, extension=b"hello", vox_offset=496.0)
     path = OUT / "nifti_reconstruction.nii"
     content = bytearray(path.read_bytes())
@@ -244,10 +245,10 @@ def ext(ecode: int, data: bytes, esize: int | None = None) -> bytes:
 def blocks_and_regions() -> None:
     """Slices split into rows, rows split along x, the bytes between the header and the voxels,
     the extensions' budget, char fields with bytes after their NUL, and a window that
-    overflows (spec/virtualize/nifti.md §4.1
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#41-the-array>, §4.4
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#44-channels>, §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#5-source-metadata>)."""
+    overflows (spec/zarrify/nifti.md §4.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#41-the-array>, §4.4
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#44-channels>, §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#5-source-metadata>)."""
     # A row of 160000 bytes: 2 chunks of 1 row and 10000 voxels.
     nifti("nifti_block_x_split", [2, 20000, 1], 64, order=">")
     # RGBA32, slices of 132000 bytes: 2 chunks of 110 rows.
@@ -280,16 +281,17 @@ def blocks_and_regions() -> None:
 def chunks_and_extensions() -> None:
     """Chunks that hold many slices, a fifth dimension stored before the fourth, more
     channels than get display windows, and extensions over the root's budget
-    (spec/virtualize/nifti.md §4.1
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#41-the-array>, §4.4
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#44-channels>, §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#5-source-metadata>)."""
+    (spec/zarrify/nifti.md §4.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#41-the-array>, §4.4
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#44-channels>, §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#5-source-metadata>)."""
     # 40000 float32 values of one voxel: 2 chunks of 20000 values along t.
     nifti("nifti_chunk_time_series", [4, 1, 1, 1, 40000], 16, version=2)
     # 100 channels of 3 time points of a 2 x 2 slice: one chunk across c and t, transposed,
     # and, with over 64 channels, no display windows.
     nifti("nifti_chunk_many_channels", [5, 2, 2, 1, 3, 100], 4, version=2, order=">", cal_min=0.0, cal_max=100.0)
-    # A row of 131073 bytes: 2 chunks of 65537 voxels, the second padded with a literal zero byte.
+    # A row of 131073 bytes: 2 chunks of 65537 voxels, the second padded with a zero byte (a range of the
+    # zero data source).
     nifti("nifti_chunk_edge_literal", [1, 131073], 2, version=2)
     # Over the budget: a binary extension, a long comment and 900 short ones. The long comment
     # and the first short ones fit on the root as text; the others' data is a family.
@@ -303,8 +305,8 @@ def exact_bytes() -> None:
     """Text extensions whose esize is not the fewest NULs' (one shorter than that, one
     longer), on the root and over its budget, and float header fields whose bits a JSON
     number or "NaN" does not keep: negative zeros and NaNs other than the canonical one
-    (spec/virtualize/nifti.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#5-source-metadata>)."""
+    (spec/zarrify/nifti.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#5-source-metadata>)."""
     patched("nifti_region_text_esize", b"\1\0\0\0" + ext(6, b"abc", 32) + ext(6, b"hello", 13) + ext(4, b"<x/>")
             + ext(6, b"12345678") + bytes(3))
     patched("nifti_region_extensions_compact_esize",
@@ -330,8 +332,8 @@ def exact_bytes() -> None:
 
 
 def packed_extensions() -> None:
-    """Chains kept as packed columns (spec/virtualize/nifti.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#5-source-metadata>): over the
+    """Chains kept as packed columns (spec/zarrify/nifti.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#5-source-metadata>): over the
     budget once
     built (760 empty comments), over it by their count alone (2500, of which the first that
     fit are on the root as text), and a family whose data is cut in 2 chunks, the second

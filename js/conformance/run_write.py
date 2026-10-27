@@ -42,7 +42,7 @@ def main(out: Path) -> int:
         dpath = out / f"{name}.json"
         dpath.write_text(json.dumps(desc))
         arc = out / f"{name}.vzip"
-        p = subprocess.run(CLI + ["write", str(dpath), str(arc)], capture_output=True, text=True)
+        p = subprocess.run([*CLI, "write", str(dpath), str(arc)], capture_output=True, text=True, check=False)
         if p.returncode or not arc.exists():
             print(f"write  {name:40s} FAILED: {p.stderr.strip()[-300:]}")
             failures += 1
@@ -62,7 +62,7 @@ def main(out: Path) -> int:
                         for i in range(70000)]}
     dpath, arc = out / "zip64_entries.json", out / "zip64_entries.vzip"
     dpath.write_text(json.dumps(many))
-    p = subprocess.run(CLI + ["write", str(dpath), str(arc)], capture_output=True, text=True)
+    p = subprocess.run([*CLI, "write", str(dpath), str(arc)], capture_output=True, text=True, check=False)
     problems = validate(arc, many) if p.returncode == 0 else [p.stderr.strip()[-300:]]
     failures += bool(problems)
     print(f"write  {'zip64_entries (70000)':40s} {'valid' if not problems else problems[:3]}")
@@ -71,7 +71,7 @@ def main(out: Path) -> int:
         dpath = out / f"invalid_{name}.json"
         dpath.write_text(json.dumps(desc))
         arc = out / f"invalid_{name}.vzip"
-        p = subprocess.run(CLI + ["write", str(dpath), str(arc)], capture_output=True, text=True)
+        p = subprocess.run([*CLI, "write", str(dpath), str(arc)], capture_output=True, text=True, check=False)
         ok = p.returncode != 0 and not arc.exists()
         failures += not ok
         print(f"reject {name:40s} {'ok' if ok else 'NOT REJECTED ' + p.stderr.strip()[-200:]}")

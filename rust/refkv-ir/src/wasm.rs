@@ -3,7 +3,7 @@
 //! for, writes their bytes into buffers it allocates here, and feeds them.
 //!
 //! `vz_new(format, n, size)` makes a parser of the format named by the UTF-8 `format` (a name of
-//! `Format::from_name`: the profile's in spec/virtualize/profiles/); `vz_step`, `vz_feed`
+//! `Format::from_name`: the profile's in spec/zarrify/profiles/); `vz_step`, `vz_feed`
 //! and `vz_finish` drive it. The `nd2_*` names are round 2's, kept.
 
 use crate::nd2::{Nd2, Step};
@@ -40,8 +40,8 @@ pub extern "C" fn vz_out() -> *const u8 {
     OUT.with(|o| o.borrow().as_ptr())
 }
 
-/// The `refkv.fits_tiles` codec (spec/virtualize/fits.md §3.3
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#33-tile-compressed-images>):
+/// The `refkv.fits_tiles` codec (spec/zarrify/fits.md §3.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#33-tile-compressed-images>):
 /// decodes the chunk at `chunk` (`n` bytes) with the configuration JSON at `config` (`nc`
 /// bytes) into the pixels of the chunk shape at `shape` (`rank` little-endian u64), in
 /// `vz_out`: the pixels' length, or minus a message's.
@@ -327,17 +327,18 @@ pub unsafe extern "C" fn vz_run_stats(p: *mut Run) -> i64 {
     set_out(unsafe { &*p }.planner.stats_json().to_string().into_bytes()) as i64
 }
 
-/// Finishes the run (consumed), projects it and, with `mirror`, mirrors it: the
-/// output (`Out::encode`) at `vz_out()`, its length, or minus the length of a
-/// rejection's message. `url` (UTF-8, from `vz_alloc`, consumed) is the source's.
+/// Finishes the run (consumed), projects it and, with `flags` bit 0, mirrors it, for a host
+/// that records the ranges' checksums with bit 1 (`Run::into_output`): the output
+/// (`Out::encode`) at `vz_out()`, its length, or minus the length of a rejection's message.
+/// `url` (UTF-8, from `vz_alloc`, consumed) is the source's.
 ///
 /// # Safety
 /// `p` from `vz_run_new`; `url`, `n` from `vz_alloc(n)`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn vz_run_output(p: *mut Run, url: *mut u8, n: usize, mirror: u32) -> i64 {
+pub unsafe extern "C" fn vz_run_output(p: *mut Run, url: *mut u8, n: usize, flags: u32) -> i64 {
     let r = *unsafe { Box::from_raw(p) };
     let url = String::from_utf8(unsafe { Vec::from_raw_parts(url, n, n) }).unwrap_or_default();
-    match r.into_output(&url, mirror != 0) {
+    match r.into_output(&url, flags & 1 != 0, flags & 2 != 0) {
         Ok(o) => set_out(o.encode()) as i64,
         Err(e) => err_out(e),
     }

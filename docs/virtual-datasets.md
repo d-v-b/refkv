@@ -29,11 +29,11 @@ built from a mapping, without Zarr or obstore; `refkv[zarr]` alone adds
 ## An example: five years of sea surface temperature
 
 [NOAA OISST v2.1](https://www.ncei.noaa.gov/products/optimum-interpolation-sst) is one
-netCDF file per day on a public S3 bucket. The example virtualizes the 1st of
+netCDF file per day on a public S3 bucket. The example zarrifies the 1st of
 each month from 2015 to 2019, 60 files, and saves them as `oisst.vzip`. It
 then reopens the archive with xarray, computes the yearly mean temperature
 over the Niño 3.4 region, and checks one day against the netCDF file. It
-runs in 1 to 1.5 minutes, about 40 s of it to virtualize the files, and reads
+runs in 1 to 1.5 minutes, about 40 s of it to zarrify the files, and reads
 about 7 MB of metadata and 40 MB of data. The file is
 [examples/oisst.py](examples/oisst.py):
 
@@ -43,7 +43,7 @@ about 7 MB of metadata and 40 MB of data. The file is
 
 The daily netCDF files stay on AWS: the archive records where each chunk lives,
 and xarray reads the chunks from those files. This takes the 1st of each month,
-60 files: 1 to 1.5 minutes in all, about 40 s of it to virtualize them.
+60 files: 1 to 1.5 minutes in all, about 40 s of it to zarrify them.
 """
 
 from concurrent.futures import ThreadPoolExecutor
@@ -60,6 +60,7 @@ from obstore.store import S3Store  # refkv[obstore], which refkv[virtualizarr] i
 from virtualizarr.parsers import HDFParser
 
 import refkv
+import refkv.zarr
 
 bucket = "noaa-cdr-sea-surface-temp-optimum-interpolation-pds"
 days = pd.date_range("2015-01-01", "2019-12-31", freq="MS")  # freq="D" for every day
@@ -71,7 +72,7 @@ class EightThreads(ThreadPoolExecutor):  # parallel= takes a class, which Virtua
         super().__init__(max_workers=8)
 
 
-# 1. Virtualize the files, 8 at a time, reading only their metadata, and concatenate along time.
+# 1. Zarrify the files, 8 at a time, reading only their metadata, and concatenate along time.
 registry = ObjectStoreRegistry({f"s3://{bucket}": S3Store(bucket, region="us-east-1", skip_signature=True)})
 parser = HDFParser(reader_factory=partial(BlockStoreReader, block_size=2**16))
 vds = vz.open_virtual_mfdataset(
@@ -91,7 +92,7 @@ print(mean.groupby("time.year").mean().to_series().round(2))
 print(f"read {stats.external_bytes / 1e6:.0f} MB in {stats.external_requests} requests to the netCDF files")
 
 # 4. Check the last day against the netCDF file itself (float32: see troubleshooting).
-with fsspec.open(refkv.public_s3_url(urls[-1])) as f:
+with fsspec.filesystem("https").open(refkv.public_s3_url(urls[-1])) as f:
     direct = xr.open_dataset(f, engine="h5netcdf").sst.sel(lat=slice(-5, 5), lon=slice(190, 240))
     np.testing.assert_array_equal(nino34.sel(time=direct.time).astype("float32"), direct)
 print("the archive's values equal the netCDF file's on", days[-1].date())
@@ -114,7 +115,7 @@ the archive's values equal the netCDF file's on 2019-12-01
 
 What each step does:
 
-1. **Virtualize.** `open_virtual_mfdataset` reads each file's HDF5 metadata,
+1. **Zarrify.** `open_virtual_mfdataset` reads each file's HDF5 metadata,
    records each chunk as a byte range, and concatenates the files along
    time. The `S3Store` reads the public bucket without credentials, the
    `HDFParser` reads in 64 kB blocks rather than whole files
@@ -139,12 +140,12 @@ What each step does:
 ## Scaling up
 
 - **Every day.** `freq="D"` takes every day. A year of daily files took
-  156 s to virtualize with 8 threads, about 0.4 s per file, against about
+  156 s to zarrify with 8 threads, about 0.4 s per file, against about
   1.2 s per file one at a time. `parallel=` takes an executor class and
   instantiates it with no arguments, hence the `EightThreads` subclass,
   which keeps the host to 8 connections.
 - **Reuse the archive.** That is the point of saving it: steps 3 and 4 rerun
-  from `refkv.zarr.open("oisst.vzip")` without virtualizing again, so guard steps
+  from `refkv.zarr.open("oisst.vzip")` without zarrifying again, so guard steps
   1 and 2 with `if not Path("oisst.vzip").exists():` while you iterate.
 - **The page index.** Without one, a reader loads the whole central
   directory at open, about 125 bytes per key. A year of daily OISST is
@@ -199,11 +200,11 @@ register its store, as above; that allows its URLs. The rules are in
   Cast with `ds["sst"].astype("float32")`; for OISST this is exact, since
   an int16 times a float32 scale factor is exact in float64. Or compare
   packed values with `xr.open_zarr(..., mask_and_scale=False)`.
-- **Virtualizing downloads whole files.** `HDFParser()` reads in 1 MiB
+- **Zarrifying downloads whole files.** `HDFParser()` reads in 1 MiB
   blocks by default, the whole of a 1.7 MB OISST file. Give it smaller
   blocks, as the example does, with `BlockStoreReader` from
   `obspec_utils.readers`.
-- **Virtualizing is slow, or opens too many connections.** Pass
+- **Zarrifying is slow, or opens too many connections.** Pass
   `parallel=` a capped executor class ([scaling up](#scaling-up)).
 - **The attributes describe only the first file** (its `id`,
   `time_coverage_start`). Pass `combine_attrs="drop_conflicts"`.

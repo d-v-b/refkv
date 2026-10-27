@@ -102,21 +102,25 @@ pub fn drive(run: &mut Run, t: &Transport, conc: usize) -> Result<(), Fail> {
     Ok(())
 }
 
-/// Whether the file `t` opened is a VSI file (spec/virtualize/vsi.md §9.1
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#91-the-vsi-file>), which is
-/// virtualized with its tile files (vsi.rs) rather than as a file run.
-pub fn is_vsi(t: &Transport) -> Result<bool, Fail> {
+/// The store format of the file `t` opened, when its profile reads it with the files beside it
+/// (`Format::store_run`): a VSI file (spec/zarrify/vsi.md §9.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#91-the-vsi-file>) with its
+/// tile files, a NRRD header (spec/zarrify/nrrd.md §8.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#83-the-data-file>) with its
+/// data file (vsi.rs), rather than as a file run.
+pub fn beside_format(t: &Transport) -> Result<Option<refkv_ir::store::StoreFormat>, Fail> {
     let want = t.size().min(552);
     let (held, _) = t.head();
     let head = if held.len() as u64 >= want { held[..want as usize].to_vec() } else { t.get(0, want)? };
-    Ok(Format::sniff(&head) == Some(Format::Vsi))
+    Ok(Format::sniff(&head).filter(|f| f.store_run()).and_then(|f| refkv_ir::store::StoreFormat::from_name(f.name())))
 }
 
 /// (format, output) of the file at `location`, read through `t`: the format its first bytes give
 /// ("tiff" becomes "ndpi" once the parser finds the file is NDPI), its output naming the source
-/// `url` (default: `location`, or for a local file the path's URI reference).
-pub fn virtualize_file(location: &str, url: Option<&str>, t: &Transport, connections: Option<usize>, byte_cost: Option<f64>)
-    -> Result<(Format, refkv_ir::out::Out), Fail> {
+/// `url` (default: `location`, or for a local file the path's URI reference), for ranges that
+/// will carry checksums when `checksums`.
+pub fn zarrify_file(location: &str, url: Option<&str>, t: &Transport, connections: Option<usize>, byte_cost: Option<f64>,
+                    checksums: bool) -> Result<(Format, refkv_ir::out::Out), Fail> {
     let want = t.size().min(552);
     let (held, _) = t.head();
     let head = if held.len() as u64 >= want { held[..want as usize].to_vec() } else { t.get(0, want)? };
@@ -129,7 +133,7 @@ pub fn virtualize_file(location: &str, url: Option<&str>, t: &Transport, connect
         None if t.remote() => location.to_string(),
         None => refkv_vzip::uri::path_reference(location).map_err(Fail::Other)?,
     };
-    let out = run.into_output(&name, true).map_err(Fail::Rejected)?;
+    let out = run.into_output(&name, true, checksums).map_err(Fail::Rejected)?;
     Ok((fmt, out))
 }
 
@@ -144,5 +148,18 @@ mod tests {
             assert_eq!(map(&items, workers, |x| x * 2), items.iter().map(|x| x * 2).collect::<Vec<_>>());
         }
         assert!(map(&[] as &[u8], 4, |x| *x).is_empty());
+    }
+
+    /// `--checksums` reaches the core: a sharded array's ranges are joined only without it
+    /// (spec/zarrify.md §2.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#21-virtual-shards>).
+    #[test]
+    fn passes_checksums_to_the_core() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/flac/flac_blocks.flac");
+        let client = crate::http::Client::new(crate::policy::Policy::default(), std::time::Duration::from_secs(5));
+        for checksums in [false, true] {
+            let t = Transport::open(path, &client).unwrap();
+            let (_, out) = zarrify_file(path, Some("https://data.test/a.flac"), &t, None, None, checksums).unwrap();
+            assert_eq!(out.summary["joinRanges"], serde_json::json!(!checksums));
+        }
     }
 }

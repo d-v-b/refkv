@@ -7,29 +7,33 @@ import sys
 import tempfile
 import unittest
 import zipfile
+from pathlib import Path
+from typing import override
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(HERE)
-sys.path.insert(0, ROOT)
-sys.path.insert(0, HERE)
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parent
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(HERE))
 
 import craft  # noqa: E402
-from craft import E, ref_extra, range_payload  # noqa: E402
+from craft import E, range_payload, ref_extra  # noqa: E402
 from vzip_impl import pb, reader, writer  # noqa: E402
 from vzip_impl.errors import VzError  # noqa: E402
 
-VZIP = os.path.join(ROOT, "vzip")
+VZIP = ROOT / "vzip"
 
 
 class Base(unittest.TestCase):
+    @override
     def setUp(self):
         self.dir = tempfile.mkdtemp(prefix="vzt")
 
+    @override
     def tearDown(self):
         shutil.rmtree(self.dir, ignore_errors=True)
 
     def path(self, name):
-        return os.path.join(self.dir, name)
+        return str(Path(self.dir) / name)
 
     def put(self, name, data):
         p = self.path(name)
@@ -38,7 +42,7 @@ class Base(unittest.TestCase):
         return p
 
     def cli(self, *args):
-        return subprocess.run([VZIP, *args], capture_output=True, cwd=self.dir)
+        return subprocess.run([VZIP, *args], capture_output=True, cwd=self.dir, check=False)
 
     def write_desc(self, desc, out="out.vzip"):
         dp = self.put("desc.json", json.dumps(desc).encode())
@@ -54,7 +58,7 @@ class Base(unittest.TestCase):
     def open(self, data):
         return reader.Archive(self.put("t.vzip", data))
 
-    def assertErr(self, cls, fn, *a):
+    def assertErr(self, cls, fn, *a):  # noqa: N802 (named like unittest's assert methods)
         with self.assertRaises(VzError) as cm:
             fn(*a)
         self.assertEqual(cm.exception.cls, cls, str(cm.exception))
@@ -86,15 +90,15 @@ class TestRoundTrip(Base):
         }
 
     def test_round_trip(self):
-        os.makedirs(self.path("data"))
+        (Path(self.dir) / "data").mkdir()
         self.put("data/a b.bin", b"abcdefghijklmnopqrstuvwxyz")
         for page_size in (None, 1, 100, 300, 100000):
             for mirror in (True, False):
                 with self.subTest(page_size=page_size, mirror=mirror):
-                    out = "o_%s_%s.vzip" % (page_size, mirror)
+                    out = f"o_{page_size}_{mirror}.vzip"
                     r, p = self.write_desc(self.desc(page_size, mirror), out)
                     self.assertEqual(r.returncode, 0, r.stderr)
-                    t = subprocess.run(["unzip", "-t", p], capture_output=True)
+                    t = subprocess.run(["unzip", "-t", p], capture_output=True, check=False)
                     self.assertEqual(t.returncode, 0, t.stdout + t.stderr)
                     with zipfile.ZipFile(p) as zf:
                         self.assertEqual(zf.read("x/zarr.json"), b"{}")
@@ -181,7 +185,7 @@ class TestRoundTrip(Base):
             self.assertEqual(infos["b"].extra, bytes.fromhex("777a06000a000a022a00"))
             self.assertEqual(infos["c"].extra, bytes.fromhex("767a02001801"))
             self.assertEqual(infos["a"].flag_bits & 0x800, 0x800)
-        data = open(p, "rb").read()
+        data = Path(p).read_bytes()
         self.assertEqual(data[-22:-16], b"vzip/0")
 
     def test_file_pins(self):
@@ -191,7 +195,7 @@ class TestRoundTrip(Base):
             {"url": "d.bin", "size": 10, "modified_not_after": 1000},
             {"url": "d.bin", "size": 11},
             {"url": "d.bin", "modified_not_after": 999},
-            {"url": "d.bin", "etag": "\"x\""},
+            {"url": "d.bin", "etag": '"x"'},
             {"url": "./sub/../d.bin"},
             {"url": "file://" + self.dir + "/d.bin"},
             {"url": "file://otherhost" + self.dir + "/d.bin"},
@@ -199,9 +203,9 @@ class TestRoundTrip(Base):
             {"url": "%2E%2E/d.bin"},
             {"url": "ftp://x/y"},
             {"url": "#frag"},
-        ], "entries": [{"key": "k%d" % i, "ranges": [{"source": i, "offset": 1, "length": 2}]} for i in range(11)]})
+        ], "entries": [{"key": f"k{i}", "ranges": [{"source": i, "offset": 1, "length": 2}]} for i in range(11)]})
         self.assertEqual(r.returncode, 0, r.stderr)
-        res = self.read_q(p, [{"op": "get", "key": "k%d" % i} for i in range(11)])
+        res = self.read_q(p, [{"op": "get", "key": f"k{i}"} for i in range(11)])
         R = res["results"]
         self.assertEqual(R[0]["value"], "3132")
         for i in (1, 2, 3, 6, 7, 9):
@@ -209,11 +213,11 @@ class TestRoundTrip(Base):
         self.assertEqual(R[4]["value"], "3132")
         self.assertEqual(R[5]["value"], "3132")
         self.assertEqual(R[8]["class"], "resolution")  # path_dir/%2E%2E/d.bin -> encoded dot segment
-        self.assertEqual(R[10]["value"], open(p, "rb").read()[1:3].hex())  # the archive itself
+        self.assertEqual(R[10]["value"], Path(p).read_bytes()[1:3].hex())  # the archive itself
 
     def test_many_entries_zip64(self):
         n = 70000
-        entries = [writer.WEntry("k%06d" % i, data=b"") for i in range(n)]
+        entries = [writer.WEntry(f"k{i:06d}", data=b"") for i in range(n)]
         data = writer.build(entries, [])
         self.assertEqual(struct.unpack_from("<H", data, len(data) - 44 + 8)[0], 0xFFFF)
         p = self.put("big.vzip", data)
@@ -221,11 +225,11 @@ class TestRoundTrip(Base):
         self.assertEqual(len(ar.list("")), n)
         self.assertEqual(ar.get("k069999"), b"")
         ar.close()
-        t = subprocess.run(["unzip", "-tq", p], capture_output=True)
+        t = subprocess.run(["unzip", "-tq", p], capture_output=True, check=False)
         self.assertEqual(t.returncode, 0, t.stdout[-500:])
         data = writer.build(entries[:10], [], page_size=50)
         ar = self.open(data)
-        self.assertEqual(ar.list("k00000"), ["k%06d" % i for i in range(10)])
+        self.assertEqual(ar.list("k00000"), [f"k{i:06d}" for i in range(10)])
 
     def test_list_page_selection(self):
         entries = [writer.WEntry(k, data=b"x") for k in ["a/0", "a/1", "a/5", "a/6", "b/0", "b/1"]]
@@ -255,7 +259,7 @@ class TestWriterRejects(Base):
         else:
             r, _ = self.write_desc(desc)
         self.assertNotEqual(r.returncode, 0, desc)
-        self.assertFalse(os.path.exists(self.path("out.vzip")))
+        self.assertFalse(Path(self.path("out.vzip")).exists())
         self.assertTrue(r.stderr)
 
     def test_accepts(self):
@@ -299,10 +303,10 @@ class TestWriterRejects(Base):
 
     def test_pins(self):
         self.reject({"sources": [{"data": "", "size": 1}]})
-        self.reject({"sources": [{"key": "a", "etag": "\"x\""}], "entries": [{"key": "a", "bytes": ""}]})
-        self.reject({"sources": [{"url": "x", "etag": "W/\"x\""}]})
+        self.reject({"sources": [{"key": "a", "etag": '"x"'}], "entries": [{"key": "a", "bytes": ""}]})
+        self.reject({"sources": [{"url": "x", "etag": 'W/"x"'}]})
         self.reject({"sources": [{"url": "x", "etag": "x"}]})
-        self.reject({"sources": [{"url": "x", "etag": "\"a\"b\""}]})
+        self.reject({"sources": [{"url": "x", "etag": '"a"b"'}]})
         self.reject({"sources": [{"url": "x", "size": -1}]})
 
     def test_payload_too_large(self):
@@ -422,7 +426,7 @@ class TestReaderErrors(Base):
             pb.encode_source_table([pb.encode_source("key", "")]),
             pb.encode_source_table([pb.encode_source("data", b"", size=1)]),
             pb.encode_source_table([pb.encode_source("key", "a", mnf=0)]),
-            pb.encode_source_table([pb.encode_source("url", "a", etag="W/\"x\"")]),
+            pb.encode_source_table([pb.encode_source("url", "a", etag='W/"x"')]),
             pb.encode_source_table([pb.encode_source("url", "a", etag="x")]),
         ]
         for s in bad:
@@ -434,7 +438,7 @@ class TestReaderErrors(Base):
     def test_page_index_malformed(self):
         recs = [E("a", b"1"), E("b", b"2")]
         reclen = 46 + 1
-        P = lambda k, o, l: pb.encode_page(k.encode(), o, l)  # noqa: E731
+        P = lambda k, o, n: pb.encode_page(k.encode(), o, n)  # noqa: E731
         good_idx = pb.encode_cd_index([P("a", 0, reclen), P("b", reclen, reclen)], [])
         ar = self.open(self.good(recs, index_pb=good_idx, cd_sort=True))
         self.assertEqual(ar.list(""), ["a", "b"])
@@ -564,14 +568,14 @@ class TestReaderErrors(Base):
             pb.encode_source("url", "a b"),
             pb.encode_source("url", "gopher://x/y"),
         ])
-        refs = [E("r%d" % i, b"", extra=ref_extra(range_payload(i, 0, 2))) for i in range(7)]
+        refs = [E(f"r{i}", b"", extra=ref_extra(range_payload(i, 0, 2))) for i in range(7)]
         lazy = pb.encode_concat([pb.encode_range(data=b"ok"), pb.encode_range(0, 0, 5), pb.encode_range(2, 0, 0)])
         refs.append(E("lazy", b"", extra=ref_extra(lazy, 0x7A77)))
         short = range_payload(4, 2, 5)
         refs.append(E("short", b"", extra=ref_extra(short)))
         ar = self.open(self.good(refs, sources_pb=src))
         for i in (0, 1, 2, 3, 5, 6):
-            self.assertErr("resolution", ar.get, "r%d" % i)
+            self.assertErr("resolution", ar.get, f"r{i}")
         self.assertEqual(ar.get("r4"), b"ab")
         self.assertEqual(ar.get("lazy", ("range", 0, 2)), b"ok")
         self.assertErr("resolution", ar.get, "lazy")

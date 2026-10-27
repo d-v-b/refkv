@@ -5,8 +5,8 @@
 // Usage: REFKV_IR_WASM=<module> node design/experiments/ir_adopt/wasm_bench.ts [<file>...]
 import fs from "node:fs";
 import zlib from "node:zlib";
-import { blockReader } from "../../../js/src/virtualize/common.ts";
-import { virtualizeImage } from "../../../js/src/virtualize/index.ts";
+import { blockReader } from "../../../js/src/zarrify/common.ts";
+import { virtualizeImage } from "../../../js/src/zarrify/index.ts";
 
 const path = process.env.REFKV_IR_WASM!;
 const bytes = fs.readFileSync(path);

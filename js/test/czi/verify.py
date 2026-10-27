@@ -1,7 +1,7 @@
-"""Checks the CZI virtualizers' output (spec/virtualize/czi.md) against czifile and libCZI.
+"""Checks the CZI zarrifiers' output (spec/zarrify/czi.md) against czifile and libCZI.
 
-Each fixtures/czi/*.czi is served over local HTTP and virtualized by
-the browser code under Node (js/conformance/virtualize.ts; `--impl py` uses
+Each fixtures/czi/*.czi is served over local HTTP and zarrified by
+the browser code under Node (js/conformance/zarrify.ts; `--impl py` uses
 the Python reference). Then, reading only the archive, and the file through
 czifile (Christoph Gohlke's independent reader) and pylibCZIrw (ZEISS libCZI)
 where installed:
@@ -51,14 +51,16 @@ HERE = Path(__file__).parent
 ROOT = HERE.parents[2]
 FIXTURES = ROOT / "fixtures" / "czi"
 sys.path.insert(0, str(ROOT / "conformance" / "vzip"))
-sys.path.insert(0, str(ROOT / "conformance" / "virtualize"))
+sys.path.insert(0, str(ROOT / "conformance" / "zarrify"))
 from http_server import Server  # noqa: E402
 
+import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store)
+from refkv._narrow import at, integer, mapping, ndarray, sequence  # noqa: E402
 from refkv.pb import Concat, Range  # noqa: E402
-import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store; registers imagecodecs_jpeg, imagecodecs_jpegxr)
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # js/test, for verify_common
 from verify_common import LOOPBACK_SOURCES  # noqa: E402
+
 sys.path.insert(0, str(HERE.parent))
 from ir_mirror import is_mirror, mirror_problems  # noqa: E402
 
@@ -71,11 +73,11 @@ LIBCZI_TYPES = {0, 1, 2, 3, 4}  # pixel types libCZI composites
 
 
 def run(impl: str, url: str, out: Path) -> subprocess.CompletedProcess:
-    """`impl`: py, web, or ref (the frozen TypeScript twin, conformance/virtualize/reference/ts)."""
-    cmd = {"py": ["uv", "run", "python", "-m", "refkv.virtualize", "--allow-private-hosts"],
-           "web": ["node", str(ROOT / "js" / "conformance" / "virtualize.ts"), "--allow-private-hosts"],
-           "ref": ["node", str(ROOT / "conformance" / "virtualize" / "reference" / "ts" / "virtualize.ts")]}[impl]
-    return subprocess.run(cmd + [url, str(out)], capture_output=True, text=True, cwd=ROOT)
+    """`impl`: py, web, or ref (the frozen TypeScript twin, conformance/zarrify/reference/ts)."""
+    cmd = {"py": ["uv", "run", "python", "-m", "refkv.zarrify", "--allow-private-hosts"],
+           "web": ["node", str(ROOT / "js" / "conformance" / "zarrify.ts"), "--allow-private-hosts"],
+           "ref": ["node", str(ROOT / "conformance" / "zarrify" / "reference" / "ts" / "virtualize.ts")]}[impl]
+    return subprocess.run([*cmd, url, str(out)], capture_output=True, text=True, cwd=ROOT, check=False)
 
 
 def mirror_check(path: Path, url: str, out: Path) -> list[str]:
@@ -85,8 +87,9 @@ def mirror_check(path: Path, url: str, out: Path) -> list[str]:
     one outside the source metadata node (the reference read with the current names, at
     the current revision: compare.py's `at_revision`), and the mirror must rebuild the
     source byte for byte."""
-    sys.path.insert(0, str(ROOT / "conformance" / "virtualize"))
-    from compare import at_revision, differences, from_vzip, without_source
+    sys.path.insert(0, str(ROOT / "conformance" / "zarrify"))
+    # compare puts the frozen reference's paths on sys.path: imported only for a mirror
+    from compare import at_revision, differences, from_vzip, without_source  # noqa: PLC0415 (it edits sys.path)
 
     ref = out.with_suffix(".ref.vzip")
     p = run("ref", url, ref)
@@ -140,11 +143,18 @@ class Archive:
             return None if b is None else b.to_bytes()
         return asyncio.run(go())
 
+    def chunk(self, key: str) -> bytes:
+        """A chunk the archive references."""
+        b = self.get(key)
+        if b is None:
+            raise KeyError(key)
+        return b
+
     def array_bytes(self, path: str) -> bytes:
         """A 1-D uint8 array's bytes (conventions §7
         <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays>)."""
         a = zarr.open_array(self.store, path=path, mode="r", zarr_format=3)
-        return bytes(a[...])
+        return bytes(ndarray(a[...]))
 
     def family(self, path: str, i: int) -> bytes | None:
         """Member i of a family of byte values, or None (conventions §7
@@ -152,16 +162,16 @@ class Archive:
         full = f"vzip_source/{path}"
         if self.docs.get(f"{full}/zarr.json", {}).get("node_type") == "array":
             a = zarr.open_array(self.store, path=full, mode="r", zarr_format=3)
-            if i >= a.shape[0] or self.get(f"{full}/c/{i}/0") is None and a.chunks[0] == 1:
+            if i >= a.shape[0] or (self.get(f"{full}/c/{i}/0") is None and a.chunks[0] == 1):
                 return None
-            return bytes(a[i])
+            return bytes(ndarray(a[i]))
         if f"{full}/offsets/zarr.json" not in self.docs:
             return None
-        offsets = zarr.open_array(self.store, path=f"{full}/offsets", mode="r", zarr_format=3)[...]
+        offsets = ndarray(zarr.open_array(self.store, path=f"{full}/offsets", mode="r", zarr_format=3)[...])
         if i + 1 >= len(offsets) or offsets[i + 1] == offsets[i]:
             return None
         data = zarr.open_array(self.store, path=f"{full}/data", mode="r", zarr_format=3)
-        return bytes(data[int(offsets[i]) : int(offsets[i + 1])])
+        return bytes(ndarray(data[int(offsets[i]) : int(offsets[i + 1])]))
 
 
 def chunk_index(arr_doc: dict, index: list[int]) -> tuple[list[int], list[int]]:
@@ -170,9 +180,10 @@ def chunk_index(arr_doc: dict, index: list[int]) -> tuple[list[int], list[int]]:
     shape = arr_doc["shape"]
     if g["name"] == "regular":
         cs = g["configuration"]["chunk_shape"]
-        return [i * c for i, c in zip(index, cs)], [min(c, s - i * c) for i, c, s in zip(index, cs, shape)]
+        return ([i * c for i, c in zip(index, cs, strict=True)],
+                [min(c, s - i * c) for i, c, s in zip(index, cs, shape, strict=True)])
     starts, sizes = [], []
-    for i, lengths, s in zip(index, g["configuration"]["chunk_shapes"], shape):
+    for i, lengths, s in zip(index, g["configuration"]["chunk_shapes"], shape, strict=True):
         if isinstance(lengths, int):
             starts.append(i * lengths)
             sizes.append(min(lengths, s - i * lengths))
@@ -214,7 +225,7 @@ def xml_scale(xml: bytes) -> tuple[float, float] | None:
     if not xml:
         return 1.0, 1.0
     try:
-        root = ET.fromstring(xml[3:] if xml.startswith(b"\xef\xbb\xbf") else xml)
+        root = ET.fromstring(xml[3:] if xml.startswith(b"\xef\xbb\xbf") else xml)  # noqa: S314 (the fixtures' own XML)
     except ET.ParseError:
         return None
     out = []
@@ -241,8 +252,8 @@ def czi_pixels(sb_data: np.ndarray, pixel_type: int) -> np.ndarray:
 
 
 def walk(data: bytes) -> tuple[list[tuple[int, bytes, int, int]], int]:
-    """The segments in file order (spec/virtualize/czi.md §7.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#72-structures-and-the-walk>
+    """The segments in file order (spec/zarrify/czi.md §7.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#72-structures-and-the-walk>
     step 6), as the verifier reads them."""
     out, o = [], 0
     while o < len(data) and len(out) < 1 << 23:
@@ -250,7 +261,8 @@ def walk(data: bytes) -> tuple[list[tuple[int, bytes, int, int]], int]:
             break
         ident = data[o : o + 16]
         name = ident.rstrip(b"\0")
-        if not (1 <= len(name) <= 16 and re.fullmatch(rb"[A-Z0-9_]+", name) and ident[len(name):] == bytes(16 - len(name))):
+        if not (1 <= len(name) <= 16 and re.fullmatch(rb"[A-Z0-9_]+", name)
+                and ident[len(name):] == bytes(16 - len(name))):
             break
         a, u = struct.unpack_from("<qq", data, o + 16)
         if a < 0 or u < 0 or o + 32 + a > len(data):
@@ -265,7 +277,8 @@ def check_file(path: Path, ar: Archive) -> list[str]:
     file = path.read_bytes()
     c = czifile.CziFile(path)
     entries = c.subblock_directory
-    xml_bytes = ar.array_bytes("vzip_source/metadata/xml")[: c.metadata_segment.xml_size] if c.metadata_segment and c.metadata_segment.xml_size else b""
+    xml_bytes = (ar.array_bytes("vzip_source/metadata/xml")[: c.metadata_segment.xml_size]
+                 if c.metadata_segment and c.metadata_segment.xml_size else b"")
     scale = xml_scale(xml_bytes)
     # Where each chunk's first range starts in the file: -> (array path, chunk index, band).
     by_offset: dict[int, list[tuple[str, list[int]]]] = {}
@@ -279,19 +292,21 @@ def check_file(path: Path, ar: Archive) -> list[str]:
     cols = {}
     for name in ("pixel_type", "compression", "pyramid_type"):
         if n:
-            cols[name] = zarr.open_array(ar.store, path=f"vzip_source/directory/{name}", mode="r")[...]
-    spare = (zarr.open_array(ar.store, path="vzip_source/directory/spare", mode="r")[...]
+            cols[name] = ndarray(zarr.open_array(ar.store, path=f"vzip_source/directory/{name}", mode="r")[...])
+    spare = (ndarray(zarr.open_array(ar.store, path="vzip_source/directory/spare", mode="r")[...])
              if "vzip_source/directory/spare/zarr.json" in ar.docs else np.zeros((n, 5), "u1"))
     dims = {}
     for letter in LETTERS:
         if f"vzip_source/directory/{letter}/start/zarr.json" in ar.docs:
-            dims[letter] = {f: zarr.open_array(ar.store, path=f"vzip_source/directory/{letter}/{f}", mode="r")[...]
+            base = f"vzip_source/directory/{letter}"
+            dims[letter] = {f: ndarray(zarr.open_array(ar.store, path=f"{base}/{f}", mode="r")[...])
                             for f in ("start", "size", "stored_size", "start_coordinate", "position")}
     images: dict[str, dict] = {}  # image path -> lo planes seen, for consistency
     for i, e in enumerate(entries):
         # The entry, rebuilt from the columns (FilePosition from czifile: layout).
         placed = sorted((int(d["position"][i]), letter) for letter, d in dims.items() if d["position"][i] >= 0)
-        rebuilt = b"DV" + struct.pack("<iqii", int(cols["pixel_type"][i]), e.file_position, 0, int(cols["compression"][i]))
+        rebuilt = b"DV" + struct.pack("<iqii", int(cols["pixel_type"][i]), e.file_position, 0,
+                                      int(cols["compression"][i]))
         rebuilt += bytes([int(cols["pyramid_type"][i])]) + bytes(spare[i]) + struct.pack("<i", len(placed))
         for _, letter in placed:
             d = dims[letter]
@@ -300,6 +315,7 @@ def check_file(path: Path, ar: Archive) -> list[str]:
         if rebuilt != file[e.offset : e.offset + len(rebuilt)]:
             problems.append(f"subblock {i}: directory entry differs when rebuilt from the columns")
         sb = e.read_segment_data(c)
+        assert isinstance(sb, czifile.CziSubBlockSegmentData), f"subblock {i}: a deleted segment"
         # 3. Metadata and attachment.
         meta = file[sb.metadata_offset : sb.metadata_offset + sb.metadata_size]
         if (ar.family("subblocks/metadata", i) or b"") != meta:
@@ -328,7 +344,7 @@ def check_file(path: Path, ar: Archive) -> list[str]:
         for _, idx in keys:
             key = f"{array}/c/" + "/".join(map(str, idx))
             used_keys.add(key)
-            rebuilt_data += ar.get(key)
+            rebuilt_data += ar.chunk(key)
         trailing = ar.family("subblocks/trailing", i) or b""
         comp = int(cols["compression"][i])
         if comp == 6:
@@ -340,16 +356,16 @@ def check_file(path: Path, ar: Archive) -> list[str]:
         # 1. Pixels: through zarr, and decoded by hand.
         idx0 = keys[0][1]
         start, _ = chunk_index(doc, idx0)
-        _, last_size = chunk_index(doc, keys[-1][1])
+        _, _last_size = chunk_index(doc, keys[-1][1])
         h = sum(chunk_index(doc, k[1])[1][axes.index("y")] for k in keys)
         w = chunk_index(doc, idx0)[1][axes.index("x")]
         sel = []
-        for a, s in zip(axes, start):
+        for a, s in zip(axes, start, strict=True):
             sel.append(slice(s, s + (h if a == "y" else w if a == "x" else chunk_index(doc, idx0)[1][axes.index(a)])))
         arr = zarr.open_array(ar.store, path=array, mode="r", zarr_format=3)
         got = np.asarray(arr[tuple(sel)])
         order = next((c["configuration"]["order"] for c in doc["codecs"] if c["name"] == "transpose"), None)
-        direct = np.concatenate([decode_direct(ar.get(f"{array}/c/" + "/".join(map(str, k[1]))), doc["codecs"],
+        direct = np.concatenate([decode_direct(ar.chunk(f"{array}/c/" + "/".join(map(str, k[1]))), doc["codecs"],
                                                doc["data_type"], chunk_index(doc, k[1])[1], order) for k in keys],
                                 axis=axes.index("y"))
         if not np.array_equal(got, direct, equal_nan=True):
@@ -362,7 +378,8 @@ def check_file(path: Path, ar: Archive) -> list[str]:
             got = got[..., 0]
         try:
             want = czi_pixels(sb.data(), pt)
-        except ValueError:  # czifile cannot reshape data with trailing bytes: its first pixels' bytes, as czifile reads them
+        except ValueError:
+            # czifile cannot reshape data with trailing bytes: its first pixels' bytes, as czifile reads them
             dt, p = TYPES[pt]
             hw = got.shape[:2]
             want = np.frombuffer(data, dt, count=hw[0] * hw[1] * p).reshape(*hw, p)
@@ -370,7 +387,8 @@ def check_file(path: Path, ar: Archive) -> list[str]:
         if comp in (0, 5, 6) and TYPES[pt][1] > 1:
             got = got[..., [2, 1, 0, 3][: TYPES[pt][1]]]  # czifile returns R, G, B; the archive holds B, G, R
             if pt == 9:  # czifile sets alpha to 255: compare the stored alpha with the raw bytes
-                raw_alpha = np.frombuffer(data, "u1")[3::4][: got[..., 3].size].reshape(got.shape[:2]) if comp == 0 else None
+                raw_alpha = (np.frombuffer(data, "u1")[3::4][: got[..., 3].size].reshape(got.shape[:2])
+                             if comp == 0 else None)
                 if raw_alpha is not None and not np.array_equal(got[..., 3], raw_alpha):
                     problems.append(f"subblock {i}: alpha differs from the stored bytes")
                 got, want = got[..., :3], want[..., :3]
@@ -380,12 +398,14 @@ def check_file(path: Path, ar: Archive) -> list[str]:
         letter_start = {letter: int(d["start"][i]) for letter, d in dims.items() if d["position"][i] >= 0}
         plane = [letter_start.get(x, 0) for x in "TCZ"]
         p = TYPES[pt][1]
-        pos = {a: s for a, s in zip(axes, start)}
+        pos = dict(zip(axes, start, strict=True))
         if array.startswith("tiles/"):
             s = doc["attributes"]["vzip_virtualized"]["czi"]
-            if [s["x"], s["y"]] != [letter_start["X"], letter_start["Y"]] or s["size"] != [int(e.shape[e.dims.index("X")]), int(e.shape[e.dims.index("Y")])]:
+            if ([s["x"], s["y"]] != [letter_start["X"], letter_start["Y"]]
+                    or s["size"] != [int(e.shape[e.dims.index("X")]), int(e.shape[e.dims.index("Y")])]):
                 problems.append(f"subblock {i}: tile array {array} records another position")
-            got_plane = [s["planes"]["t"] + pos.get("t", 0), s["planes"]["c"] + pos.get("c", 0) // p, s["planes"]["z"] + pos.get("z", 0)]
+            got_plane = [s["planes"]["t"] + pos.get("t", 0), s["planes"]["c"] + pos.get("c", 0) // p,
+                         s["planes"]["z"] + pos.get("z", 0)]
             if got_plane != plane:
                 problems.append(f"subblock {i}: in {array} at plane {got_plane}, not {plane}")
             if s.get("dimensions", {}) != {x: letter_start[x] for x in SERIES if x in letter_start}:
@@ -405,18 +425,20 @@ def check_file(path: Path, ar: Archive) -> list[str]:
         f = sx / px
         x_start = tx / px - (f - 1) / 2 + pos["x"] * f
         y_start = ty / py - (f - 1) / 2 + pos["y"] * f
-        if abs(x_start - letter_start["X"]) > 1e-3 * max(1, abs(x_start)) or abs(y_start - letter_start["Y"]) > 1e-3 * max(1, abs(y_start)):
-            problems.append(f"subblock {i}: in {array} at ({x_start}, {y_start}), not ({letter_start['X']}, {letter_start['Y']})")
+        if (abs(x_start - letter_start["X"]) > 1e-3 * max(1, abs(x_start))
+                or abs(y_start - letter_start["Y"]) > 1e-3 * max(1, abs(y_start))):
+            problems.append(f"subblock {i}: in {array} at ({x_start}, {y_start}), "
+                            f"not ({letter_start['X']}, {letter_start['Y']})")
         if abs(sy / py - f) > 1e-9 * f:
             problems.append(f"subblock {i}: {array} has unequal x and y factors")
         lo = images.setdefault(k, {})
         ar.lo[k] = lo
-        for a, v, j in (("t", plane[0], pos.get("t", 0)), ("c", plane[1], pos.get("c", 0) // p), ("z", plane[2], pos.get("z", 0))):
+        for a, v, j in (("t", plane[0], pos.get("t", 0)), ("c", plane[1], pos.get("c", 0) // p),
+                        ("z", plane[2], pos.get("z", 0))):
             if lo.setdefault(a, v - j) != v - j:
                 problems.append(f"subblock {i}: image {k}'s {a} index is not its plane less a constant")
-    for key in ar.refs:
-        if re.fullmatch(r"(?:[0-9]+/[0-9]+|tiles/[0-9]+)/c/[0-9/]+", key) and key not in used_keys:
-            problems.append(f"{key}: a chunk that is no subblock's")
+    problems += [f"{key}: a chunk that is no subblock's" for key in ar.refs
+                 if re.fullmatch(r"(?:[0-9]+/[0-9]+|tiles/[0-9]+)/c/[0-9/]+", key) and key not in used_keys]
     problems += check_source(file, c, ar)
     return problems
 
@@ -434,12 +456,12 @@ def check_source(file: bytes, c, ar: Archive) -> list[str]:
     m = c.metadata_segment
     if h.metadata_position:
         referenced.add(h.metadata_position)
-        at = h.metadata_position + 32 + 256
-        xml = file[at : at + m.xml_size]
+        xml_at = h.metadata_position + 32 + 256
+        xml = file[xml_at : xml_at + m.xml_size]
         got = ar.array_bytes("vzip_source/metadata/xml")[: m.xml_size] if m.xml_size else b""
         if got != xml:
             problems.append("the metadata XML differs")
-        att = file[at + m.xml_size : at + m.xml_size + m.attachment_size]
+        att = file[xml_at + m.xml_size : xml_at + m.xml_size + m.attachment_size]
         got = ar.array_bytes("vzip_source/metadata/attachment")[: len(att)] if att else b""
         if got != att:
             problems.append("the metadata attachment differs")
@@ -449,13 +471,14 @@ def check_source(file: bytes, c, ar: Archive) -> list[str]:
         referenced.add(h.attachment_directory_position)
         o = h.attachment_directory_position
         count = struct.unpack_from("<i", file, o + 32)[0]
-        s = ar.root["vzip_source"].attrs["vzip_virtualized"]["czi"]["attachments"]
-        listed = json.loads(ar.array_bytes("vzip_source/attachments/index").rstrip(b"\0")) if isinstance(s, str) else s
+        s = at(ar.root["vzip_source"].attrs, "vzip_virtualized", "czi", "attachments")
+        listed = sequence(json.loads(ar.array_bytes("vzip_source/attachments/index").rstrip(b"\0"))
+                          if isinstance(s, str) else s)
         if len(listed) != count:
             problems.append(f"{len(listed)} attachments listed, the directory has {count}")
         for k in range(count):
             entry = file[o + 288 + 128 * k : o + 288 + 128 * (k + 1)]
-            item = listed[k]
+            item = mapping(listed[k], f"attachment {k}")
             if entry[:2] != b"A1":
                 if item != {"entry": __import__("base64").b64encode(entry).decode()}:
                     problems.append(f"attachment {k}: its entry is not kept")
@@ -471,16 +494,17 @@ def check_source(file: bytes, c, ar: Archive) -> list[str]:
             form = item["form"]
             if form in ("time_stamps", "focus_positions"):
                 a = zarr.open_array(ar.store, path=base, mode="r")
-                got = struct.pack("<ii", a.attrs["vzip_virtualized"]["czi"]["size"], a.shape[0]) + a[...].astype("<f8").tobytes()
+                got = struct.pack("<ii", integer(at(a.attrs, "vzip_virtualized", "czi", "size")),
+                                  a.shape[0]) + ndarray(a[...]).astype("<f8").tobytes()
             elif form == "event_list":
                 g = ar.root[base]
-                times = zarr.open_array(ar.store, path=f"{base}/time", mode="r")[...]
-                types = zarr.open_array(ar.store, path=f"{base}/type", mode="r")[...]
+                times = ndarray(zarr.open_array(ar.store, path=f"{base}/time", mode="r")[...])
+                types = ndarray(zarr.open_array(ar.store, path=f"{base}/type", mode="r")[...])
                 body = b""
                 for j in range(len(times)):
                     d = ar.family(f"attachments/{k}/description", j) or b""
                     body += struct.pack("<idii", 20 + len(d), times[j], types[j], len(d)) + d
-                got = struct.pack("<ii", g.attrs["vzip_virtualized"]["czi"]["size"], len(times)) + body
+                got = struct.pack("<ii", integer(at(g.attrs, "vzip_virtualized", "czi", "size")), len(times)) + body
             elif form == "bytes":
                 got = ar.array_bytes(base)[:size]
             else:
@@ -493,7 +517,7 @@ def check_source(file: bytes, c, ar: Archive) -> list[str]:
     segments, tail = walk(file)
     others = [s for s in segments if s[0] not in referenced]
     if others:
-        ids = zarr.open_array(ar.store, path="vzip_source/segments/id", mode="r")[...]
+        ids = ndarray(zarr.open_array(ar.store, path="vzip_source/segments/id", mode="r")[...])
         for j, (o, ident, a, u) in enumerate(others):
             if bytes(ids[j]) != ident:
                 problems.append(f"segment {j} at {o}: id differs")
@@ -513,9 +537,9 @@ def check_source(file: bytes, c, ar: Archive) -> list[str]:
 def is_utf8(b: bytes) -> bool:
     try:
         b.decode("utf-8")
-        return True
     except UnicodeDecodeError:
         return False
+    return True
 
 
 LIBCZI = {("uint8", 1): "Gray8", ("uint16", 1): "Gray16", ("float32", 1): "Gray32Float", ("uint8", 3): "Bgr24",
@@ -526,7 +550,7 @@ def check_libczi(path: Path, ar: Archive) -> tuple[list[str], int]:
     """2. Each full-resolution level of a type libCZI composites against libCZI's composite
     of its scene and plane (where it has a subblock: libCZI fills the rest with 0)."""
     try:
-        from pylibCZIrw import czi as pyczi
+        from pylibCZIrw import czi as pyczi  # noqa: PLC0415 (optional reader: pylibCZIrw)
     except ImportError:
         return [], 0
     problems, checked = [], 0
@@ -536,7 +560,6 @@ def check_libczi(path: Path, ar: Archive) -> tuple[list[str], int]:
     if scale is None or any(f"vzip_source/directory/{x}/start/zarr.json" in ar.docs for x in "BHIRV"):
         return [], 0
     px, py = scale
-    planes_of = {}  # image -> {(t, c, z) index: the plane's T, C, Z}, from the chunks the verifier has placed
     with pyczi.open_czi(str(path)) as doc:
         for key, d in sorted(ar.docs.items()):
             m = re.fullmatch(r"([0-9]+)/([0-9]+)/zarr\.json", key)
@@ -565,7 +588,8 @@ def check_libczi(path: Path, ar: Archive) -> tuple[list[str], int]:
             lo = ar.lo.get(k, {"t": 0, "c": 0, "z": 0})
             extent = {a: (d["shape"][axes.index(a)] // (p if a == "c" else 1)) if a in axes else 1 for a in "tcz"}
             for t, c, z in list(np.ndindex(extent["t"], extent["c"], extent["z"]))[:12]:
-                sel = tuple({"t": t, "c": slice(c * p, c * p + p) if p > 1 else c, "z": z}.get(a, slice(None)) for a in axes)
+                sel = tuple({"t": t, "c": slice(c * p, c * p + p) if p > 1 else c,
+                             "z": z}.get(a, slice(None)) for a in axes)
                 ours = np.asarray(arr[sel])
                 plane = {"T": t + lo["t"], "C": c + lo["c"], "Z": z + lo["z"]}
                 kw = {"scene": dims["S"]} if "S" in dims else {}
@@ -595,7 +619,8 @@ def main(argv: list[str]) -> int:
     paths = sorted(p for p in FIXTURES.glob("czi_*.czi") if only in p.name)
     tmp = Path(tempfile.mkdtemp())
     if "--big" in argv:
-        subprocess.run([sys.executable, str(ROOT / "fixtures" / "generators" / "czi" / "write_fixtures.py"), "--big", str(tmp / "big")], check=True)
+        subprocess.run([sys.executable, str(ROOT / "fixtures" / "generators" / "czi" / "write_fixtures.py"), "--big",
+                        str(tmp / "big")], check=True)
         paths.append(tmp / "big" / "czi_big_bands.czi")
     failures = 0
     for path in paths:
@@ -620,8 +645,8 @@ def main(argv: list[str]) -> int:
         libczi, checked = check_libczi(path, ar)
         problems += libczi
         failures += bool(problems)
-        print(f"{path.name:44s} {'ok' if not problems else 'PROBLEMS'} ({len(czifile.CziFile(path).subblock_directory)} "
-              f"subblocks, {checked} libCZI planes)")
+        print(f"{path.name:44s} {'ok' if not problems else 'PROBLEMS'} "
+              f"({len(czifile.CziFile(path).subblock_directory)} subblocks, {checked} libCZI planes)")
         for x in problems[:6]:
             print(f"      {x}")
     print(f"\n{len(paths)} files, {failures} failed")

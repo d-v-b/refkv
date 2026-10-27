@@ -1,30 +1,31 @@
-"""The Python SAFE virtualizer (spec/virtualize/safe.md) on the synthetic products.
+"""The Python SAFE virtualizer (spec/zarrify/safe.md) on the synthetic products.
 
 Equivalence with the browser virtualizer is checked by
-conformance/virtualize/compare.py, and pixel correctness, georeferencing and
+conformance/zarrify/compare.py, and pixel correctness, georeferencing and
 the rebuilding of every file against GDAL by js/test/safe/verify.py.
 """
 
 import io
 import json
 import struct
+import sys
 import zipfile
 from pathlib import Path
 
 import pytest
 
-import sys
+# the frozen reference twins (conformance/zarrify/reference/refkv_reference)
+sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "zarrify" / "reference"))
 
-# the frozen reference twins (conformance/virtualize/reference/refkv_reference)
-sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "virtualize" / "reference"))
-
-from refkv.virtualize import Rejected
-from refkv_reference.legacy import text_json
 from refkv_reference import virtualize
-from refkv_reference.safe import jp2, zipdir
+from refkv_reference.legacy import text_json
+from refkv_reference.safe import SafeOutput, jp2, zipdir
 from refkv_reference.safe.metadata import BUDGET, MULTISCALES, PROJ, SPATIAL, choose_texts, json_size, typed, wkt2
 from refkv_reference.safe.product import folders
 from refkv_reference.safe.virtualize import Shared
+
+from refkv._narrow import mapping
+from refkv.zarrify import Rejected
 
 FIXTURES = Path(__file__).parents[3] / "fixtures" / "safe"
 URL = "https://data.test/safe/{}"
@@ -32,9 +33,11 @@ J2K = [{"name": "imagecodecs_jpeg2k"}]
 RGB = [{"name": "transpose", "configuration": {"order": [1, 2, 0]}}, {"name": "imagecodecs_jpeg2k"}]
 
 
-def run(name: str):
+def run(name: str) -> tuple[str, SafeOutput]:
     p = FIXTURES / name
-    return virtualize(str(p), url=URL.format(name) + ("/" if p.is_dir() else ""))
+    fmt, out = virtualize(str(p), url=URL.format(name) + ("/" if p.is_dir() else ""))
+    assert isinstance(out, SafeOutput)
+    return fmt, out
 
 
 # product: (summary members, {array: (shape, data type, chunk shape, codecs)})
@@ -94,7 +97,8 @@ def test_virtualizes_the_synthetic_products():
         # Every chunk of every band, and every reference within the payload limit.
         for key, d in out.docs.items():
             if d.get("node_type") == "array" and key.startswith("r"):
-                grid = [-(-s // c) for s, c in zip(d["shape"], d["chunk_grid"]["configuration"]["chunk_shape"])]
+                chunk = d["chunk_grid"]["configuration"]["chunk_shape"]
+                grid = [-(-s // c) for s, c in zip(d["shape"], chunk, strict=True)]
                 n = sum(1 for k in out.refs if k.startswith(key[: -len("zarr.json")] + "c/"))
                 assert n == grid[-1] * grid[-2], (name, key)
 
@@ -103,19 +107,22 @@ def test_georeferencing():
     _, out = run("safe_l2a")
     g = out.docs["r20m/zarr.json"]["attributes"]
     assert g["zarr_conventions"] == [PROJ, SPATIAL]
-    assert g["proj:code"] == "EPSG:32632" and g["proj:wkt2"] == wkt2("EPSG:32632")
+    assert g["proj:code"] == "EPSG:32632"
+    assert g["proj:wkt2"] == wkt2("EPSG:32632")
     assert g["spatial:transform"] == [20.0, 0.0, 499980.0, 0.0, -20.0, 5200020.0]
     assert g["spatial:shape"] == [55, 55]
     assert g["spatial:bbox"] == [499980.0, 5200020.0 - 20 * 55, 499980.0 + 20 * 55, 5200020.0]
-    assert g["spatial:registration"] == "pixel" and g["spatial:dimensions"] == ["y", "x"]
+    assert g["spatial:registration"] == "pixel"
+    assert g["spatial:dimensions"] == ["y", "x"]
     root = out.docs["zarr.json"]["attributes"]
     assert root["zarr_conventions"][1] == MULTISCALES
     assert root["spatial:bbox"] == out.docs["r10m/zarr.json"]["attributes"]["spatial:bbox"]
     assert root["multiscales"] == {"layout": [
-        {"asset": f"r{r}m", "spatial:shape": [n, n], "spatial:transform": [float(r), 0.0, 499980.0, 0.0, -float(r), 5200020.0]}
+        {"asset": f"r{r}m", "spatial:shape": [n, n],
+         "spatial:transform": [float(r), 0.0, 499980.0, 0.0, -float(r), 5200020.0]}
         for r, n in ((10, 110), (20, 55), (60, 19))]}
-    # The band arrays carry neither proj nor spatial (spec/virtualize/safe.md §5.2
-    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#52-resolution-groups>).
+    # The band arrays carry neither proj nor spatial (spec/zarrify/safe.md §5.2
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#52-resolution-groups>).
     assert set(out.docs["r20m/B05/zarr.json"]["attributes"]) == {"zarr_conventions", "vzip_virtualized"}
     _, out = run("safe_l1c")
     assert "multiscales" not in out.docs["zarr.json"]["attributes"]
@@ -126,7 +133,8 @@ def test_wkt2_is_pyproj_s_definition():
     for c in [*range(32601, 32661), *range(32701, 32761)]:
         w = wkt2(f"EPSG:{c}")
         crs, epsg = pyproj.CRS.from_wkt(w), pyproj.CRS.from_epsg(c)
-        assert crs.equals(epsg) and crs.to_epsg(min_confidence=100) == c, c
+        assert crs.equals(epsg), c
+        assert crs.to_epsg(min_confidence=100) == c, c
         assert w == epsg.to_wkt().split(",USAGE[")[0] + f',ID["EPSG",{c}]]', c
     for code in ("EPSG:32600", "EPSG:32661", "EPSG:4326", "EPSG:032632", "EPSG:327010"):
         assert wkt2(code) is None, code
@@ -159,7 +167,8 @@ def test_source_metadata():
     assert scl["Scene_Classification_List"][9] == {"SCENE_CLASSIFICATION_TEXT": "SC_CLOUD_HIGH_PROBA",
                                                    "SCENE_CLASSIFICATION_INDEX": 9}
     wvp = out.docs["r20m/WVP/zarr.json"]["attributes"]["vzip_virtualized"]["safe"]
-    assert wvp["WVP_QUANTIFICATION_VALUE"] == {"value": 1000.0, "unit": "cm"} and "bandId" not in wvp
+    assert wvp["WVP_QUANTIFICATION_VALUE"] == {"value": 1000.0, "unit": "cm"}
+    assert "bandId" not in wvp
     # Level-1C names; before PB 04.00 there are no offsets.
     _, out = run("safe_l1c")
     b8a = out.docs["r20m/B8A/zarr.json"]["attributes"]["vzip_virtualized"]["safe"]
@@ -168,10 +177,11 @@ def test_source_metadata():
     _, out = run("safe_l1c_pb0207")
     assert "RADIO_ADD_OFFSET" not in out.docs["r10m/B02/zarr.json"]["attributes"]["vzip_virtualized"]["safe"]
     # Missing, non-numeric and repeated values are absent, not rejected (§6.1
-    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#61-values>).
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#61-values>).
     _, out = run("safe_metadata_gaps")
     s = {b: out.docs[f"r10m/{b}/zarr.json"]["attributes"]["vzip_virtualized"]["safe"] for b in ("B02", "B03", "B04")}
-    assert "SOLAR_IRRADIANCE" not in s["B02"] and "SOLAR_IRRADIANCE" in s["B04"]
+    assert "SOLAR_IRRADIANCE" not in s["B02"]
+    assert "SOLAR_IRRADIANCE" in s["B04"]
     assert set(s["B03"]) == {"IMAGE_FILE", "siz"}
     assert s["B04"]["RADIO_ADD_OFFSET"] == "n/a"
     # More than 64 records: the list is absent.
@@ -186,7 +196,8 @@ def test_source_metadata():
     b = new.docs["zarr.json"]["attributes"]["vzip_virtualized"]["safe"]
     assert {**a, "PRODUCT_URI": 0, "PROCESSING_BASELINE": 0, "TILE_ID": 0} == \
         {**b, "PRODUCT_URI": 0, "PROCESSING_BASELINE": 0, "TILE_ID": 0}
-    assert a["PRODUCT_URI"].endswith("_N0206_R022_T32TNS_20240103T113848.SAFE") and a["TILE_ID"].endswith("N02.06")
+    assert a["PRODUCT_URI"].endswith("_N0206_R022_T32TNS_20240103T113848.SAFE")
+    assert a["TILE_ID"].endswith("N02.06")
     assert len(a["Special_Values"]) == 2
     assert old.docs["r20m/SCL/zarr.json"]["attributes"]["vzip_virtualized"]["safe"]["Scene_Classification_List"][9] == \
         {"SCENE_CLASSIFICATION_TEXT": "SC_CLOUD_HIGH_PROBA", "SCENE_CLASSIFICATION_INDEX": 9}
@@ -201,8 +212,8 @@ def test_vzip_source():
     assert s["empty"] == ["GRANULE/L1C_T32TNS_A035655_20240103T101328/AUX_DATA/AUX_EMPTY"]
     assert "GRANULE/L1C_T32TNS_A035655_20240103T101328/MTD_TL.xml" in s["xml_arrays"]
     assert json_size(s) <= BUDGET
-    # The budget (spec/virtualize/safe.md §6.3
-    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>),
+    # The budget (spec/zarrify/safe.md §6.3
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#63-the-source-metadata-node>),
     # restated: from every XML document an array,
     # the candidates, smallest first, become text while S stays within 65536 bytes of JSON.
     base = FIXTURES / "safe_l1c"
@@ -210,11 +221,12 @@ def test_vzip_source():
     xml = sorted(k for k in files if k in s["xml"] or k in s["xml_arrays"])
     want = {"xml": {}, "xml_arrays": list(xml), "empty": s["empty"]}
     for k in sorted((k for k in xml if len(files[k]) <= 65536), key=lambda k: (len(files[k]), k)):
-        trial = {"xml": {**want["xml"], k: text_json(files[k])}, "xml_arrays": [x for x in want["xml_arrays"] if x != k],
-                 "empty": s["empty"]}
+        trial = {"xml": {**mapping(want["xml"]), k: text_json(files[k])},
+                 "xml_arrays": [x for x in want["xml_arrays"] if x != k], "empty": s["empty"]}
         if json_size({m: v for m, v in trial.items() if v}) <= BUDGET:
             want = trial
-    assert s["xml"] == want["xml"] and s["xml_arrays"] == want["xml_arrays"]
+    assert s["xml"] == want["xml"]
+    assert s["xml_arrays"] == want["xml_arrays"]
     assert any(len(files[k]) <= 65536 for k in s["xml_arrays"])  # the budget moved some
     for i, k in enumerate(s["xml_arrays"]):
         assert out.docs[f"vzip_source/xml/{i}/zarr.json"]["shape"] == [len(files[k])]
@@ -256,7 +268,8 @@ def test_the_two_forms_agree():
         assert docs_a.pop("zarr.json")["attributes"]["vzip_virtualized"].pop("source") != \
             docs_b.pop("zarr.json")["attributes"]["vzip_virtualized"].pop("source")
         assert docs_a == docs_b, d
-        files = {p.relative_to(FIXTURES / d).as_posix(): p.read_bytes() for p in (FIXTURES / d).rglob("*") if p.is_file()}
+        files = {p.relative_to(FIXTURES / d).as_posix(): p.read_bytes()
+                 for p in (FIXTURES / d).rglob("*") if p.is_file()}
         zbytes = (FIXTURES / z).read_bytes()
         bytes_a, bytes_b = _bytes(a, files), _bytes(b, {0: zbytes})
         bytes_b.update(b.bytes_entries)
@@ -265,16 +278,18 @@ def test_the_two_forms_agree():
         # The source tables: one url source per referenced object, or the zip file; then the data sources.
         urls_a, data_a, _ = a.table()
         urls_b, data_b, _ = b.table()
-        assert urls_b == [URL.format(z)] and data_a == data_b
-        assert urls_a == sorted(urls_a) and all(u.startswith(URL.format(d) + "/") for u in urls_a)
+        assert urls_b == [URL.format(z)]
+        assert data_a == data_b
+        assert urls_a == sorted(urls_a)
+        assert all(u.startswith(URL.format(d) + "/") for u in urls_a)
     # The empty directory: a folder marker, and a zip directory entry.
     assert a.docs["vzip_source/zarr.json"]["attributes"]["vzip_virtualized"]["safe"]["empty_dirs"] == ["AUX_DATA"]
 
 
 def test_folders():
     """Folder markers and directory keys, and the empty directories they name
-    (spec/virtualize/safe.md §2.1
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#21-objects>)."""
+    (spec/zarrify/safe.md §2.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#21-objects>)."""
     cases = [
         (["a/x", "a_$folder$"], [], {"a_$folder$"}, []),
         (["a/x", "a_$folder$", "b_$folder$", "c/d_$folder$", "c_$folder$"], [],
@@ -288,8 +303,8 @@ def test_folders():
 
 
 def test_texts_are_read_only_while_they_can_fit():
-    """The candidates are read in order, and no longer once one cannot fit (spec/virtualize/safe.md §8.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#82-objects-and-reading>)."""
+    """The candidates are read in order, and no longer once one cannot fit (spec/zarrify/safe.md §8.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#82-objects-and-reading>)."""
     sizes = {f"d{i:02d}.xml": 30000 for i in range(40)} | {"small.xml": 10, "big.xml": 70000}
     read = []
 
@@ -298,8 +313,10 @@ def test_texts_are_read_only_while_they_can_fit():
         return ["x" * sizes[k] for k in keys]
 
     got = choose_texts(sizes, texts, {"empty": [], "empty_dirs": ["e"], "ignored": []})
-    assert list(got) == ["small.xml", "d00.xml", "d01.xml"][: len(got)] and "d00.xml" in got
-    assert len(read) <= 16 + 1 and "big.xml" not in read
+    assert list(got) == ["small.xml", "d00.xml", "d01.xml"][: len(got)]
+    assert "d00.xml" in got
+    assert len(read) <= 16 + 1
+    assert "big.xml" not in read
 
 
 def test_chunks():
@@ -309,22 +326,28 @@ def test_chunks():
     band = "GRANULE/L1C_T32TNS_A035655_20240103T101328/IMG_DATA/T32TNS_20240103T101329_B01.jp2"
     interior, corner = out.refs["r60m/B01/c/0/0"], out.refs["r60m/B01/c/3/3"]
     head, rest, sot, body, tail = interior
-    assert isinstance(rest, Shared) and body[0] == band and tail == b"\xff\xd9"
+    assert isinstance(rest, Shared)
+    assert body[0] == band
+    assert tail == b"\xff\xd9"
     # SOC, then SIZ with Rsiz 0, the image [0, 6)², tiles of 6 at 0.
-    assert head[:4] == b"\xff\x4f\xff\x51" and struct.unpack(">HIIIIIIIIH", head[6:42]) == (0, 6, 6, 0, 0, 6, 6, 0, 0, 1)
-    assert sot[:6] == b"\xff\x90\x00\x0a\x00\x00" and sot[10:] == b"\x00\x01"
+    assert head[:4] == b"\xff\x4f\xff\x51"
+    assert struct.unpack(">HIIIIIIIIH", head[6:42]) == (0, 6, 6, 0, 0, 6, 6, 0, 0, 1)
+    assert sot[:6] == b"\xff\x90\x00\x0a\x00\x00"
+    assert sot[10:] == b"\x00\x01"
     data = files[band]
     assert data[body[1] - 12 : body[1] - 6] == b"\xff\x90\x00\x0a\x00\x00"  # tile 0's own SOT
     # The corner tile [18, 19)²: the image [18, 24)², tiles of 1 × 1 at 18, and 35 empty tiles.
     head, rest, sot, body, shared = corner
-    assert isinstance(shared, Shared) and out.refs["r60m/B01/c/3/2"][4] != shared
+    assert isinstance(shared, Shared)
+    assert out.refs["r60m/B01/c/3/2"][4] != shared
     tail = shared.value
     assert struct.unpack(">HIIIIIIIIH", head[6:42]) == (0, 24, 24, 18, 18, 1, 1, 18, 18, 1)
     assert data[body[1] - 12 : body[1] - 6] == b"\xff\x90\x00\x0a\x00\x0f"  # tile 15
     tiles, o = [], 0
     while tail[o : o + 2] == b"\xff\x90":
         isot, psot = struct.unpack_from(">HI", tail, o + 4)
-        assert tail[o + 12 : o + 14] == b"\xff\x93" and set(tail[o + 14 : o + psot]) <= {0}
+        assert tail[o + 12 : o + 14] == b"\xff\x93"
+        assert set(tail[o + 14 : o + psot]) <= {0}
         tiles.append((isot, psot - 14))
         o += psot
     assert tail[o:] == b"\xff\xd9"
@@ -351,8 +374,8 @@ def _plt_counts(data: bytes, cs: jp2.Codestream) -> list[int]:
 
 
 def test_empty_packets_match_the_plt_markers():
-    """The packet count of spec/virtualize/safe.md §8.6
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#86-chunks> against the PLT
+    """The packet count of spec/zarrify/safe.md §8.6
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#86-chunks> against the PLT
     markers' packet lengths of every tile of every fixture band file, edge tiles included."""
     checked = 0
     for name in ("safe_l1c", "safe_l2a", "safe_big_header"):
@@ -360,7 +383,7 @@ def test_empty_packets_match_the_plt_markers():
             if "IMG_DATA" not in p.as_posix():
                 continue
             data = p.read_bytes()
-            cs, _ = jp2.read_band(lambda o, n: data[o : o + n], 0, len(data))
+            cs, _ = jp2.read_band(lambda o, n, data=data: data[o : o + n], 0, len(data))
             nx, _ = cs.grid
             for t, plt in enumerate(_plt_counts(data, cs)):
                 x0, y0 = (t % nx) * cs.tile_w, (t // nx) * cs.tile_h
@@ -379,21 +402,24 @@ def test_values():
         assert typed(text) == value, text
 
 
-def test_zip_directories(tmp_path):
+def test_zip_directories():
     """Zip files written by Python's zipfile: stored and deflated entries, and ZIP64 extra fields."""
     payload = {"P.SAFE/manifest.safe": b"<a/>", "P.SAFE/MTD_MSIL1C.xml": b"<b>" * 1000, "P.SAFE/x/": b""}
-    for compression, zip64 in ((zipfile.ZIP_STORED, False), (zipfile.ZIP_DEFLATED, False), (zipfile.ZIP_DEFLATED, True)):
+    for compression, zip64 in ((zipfile.ZIP_STORED, False), (zipfile.ZIP_DEFLATED, False),
+                               (zipfile.ZIP_DEFLATED, True)):
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", compression) as z:
             for name, data in payload.items():
                 with z.open(name, "w", force_zip64=zip64) as f:
                     f.write(data)
         data = buf.getvalue()
-        read = lambda o, n: data[o : o + n]  # noqa: E731
+        read = lambda o, n, data=data: data[o : o + n]  # noqa: E731
         d = zipdir.central_directory(read, len(data))
         root, objects, ignored, dirs = zipdir.product_entries(d)
         zipdir.locate(read, d, objects)
-        assert root == "P.SAFE" and set(objects) == {"manifest.safe", "MTD_MSIL1C.xml"} and ignored == []
+        assert root == "P.SAFE"
+        assert set(objects) == {"manifest.safe", "MTD_MSIL1C.xml"}
+        assert ignored == []
         assert dirs == ["x/"]
         for key, e in objects.items():
             raw = data[e.ds : e.ds + e.cs]
@@ -468,7 +494,7 @@ def test_every_rejection_fixture_is_listed():
     assert {n for n, _ in REJECTIONS} == {p.name for p in FIXTURES.iterdir() if p.name.startswith("safe_reject")}
 
 
-@pytest.mark.parametrize("name,message", REJECTIONS)
+@pytest.mark.parametrize(("name", "message"), REJECTIONS)
 def test_rejects(name, message):
     with pytest.raises(Rejected, match=message):
         run(name)

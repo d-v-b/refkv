@@ -42,14 +42,14 @@ def entries(w: VZipWriter) -> None:
 
 
 def main() -> None:
-    cases = {
-        "basic": dict(mirror_refs=True, page_size=None),
-        "paged": dict(mirror_refs=False, page_size=200),
-        "checksums": dict(mirror_refs=True, page_size=65536, checksum=crc),
+    cases = {  # mirror_refs, page_size, checksum
+        "basic": (True, None, None),
+        "paged": (False, 200, None),
+        "checksums": (True, 65536, crc),
     }
-    for name, kw in cases.items():
+    for name, (mirror_refs, page_size, checksum) in cases.items():
         with open(HERE / f"{name}.vzip", "wb") as f:
-            w = VZipWriter(f, **kw)
+            w = VZipWriter(f, mirror_refs=mirror_refs, page_size=page_size, checksum=checksum)
             entries(w)
             w.close()
     for name, page_size in (("empty", None), ("empty_paged", 1)):
@@ -58,7 +58,7 @@ def main() -> None:
     with open(HERE / "bulk.vzip", "wb") as f:
         w = VZipWriter(f, page_size=100, checksum=crc)
         w.add_url_refs(((f"a/{i}", f"http://h/s/a/{i}", i * 3) for i in range(30)), pin_size=True)
-        w.add_url_refs(((f"b/{i}", f"http://h/s/b/{i}", 5) for i in range(3)))
+        w.add_url_refs((f"b/{i}", f"http://h/s/b/{i}", 5) for i in range(3))
         w.add_bytes("a/zarr.json", b"{}", late=True)
         w.close()
     with tempfile.TemporaryDirectory() as d:

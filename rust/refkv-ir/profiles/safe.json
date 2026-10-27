@@ -5,6 +5,7 @@
   "version": 0,
   "kind": "both",
   "sniff": 80,
+  "chosen_by": null,
   "suffixes": [
     ".zip"
   ],

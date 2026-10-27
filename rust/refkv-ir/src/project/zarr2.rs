@@ -1,8 +1,8 @@
-//! The Zarr v2 projection (spec/virtualize/zarr2.md
-//! §2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#2-nodes>,
-//! §3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#3-arrays>,
-//! §5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>,
-//! §7.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#72-chunks-and-other-objects>):
+//! The Zarr v2 projection (spec/zarrify/zarr2.md
+//! §2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#2-nodes>,
+//! §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#3-arrays>,
+//! §5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#5-other-objects>,
+//! §7.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#72-chunks-and-other-objects>):
 //! a valid store IR and the facts of `zarr2.rs` into the hierarchy. A `zarr.json` per node (the
 //! convention declared on the root and on every node with source metadata), an entry per
 //! present chunk referencing its whole object, and every other object of a length referenced
@@ -25,8 +25,8 @@ fn doc_key(path: &str) -> String {
     if path.is_empty() { "zarr.json".into() } else { format!("{path}/zarr.json") }
 }
 
-/// Is `rest` (a key below an array) one of the array's chunk keys (spec/virtualize/zarr2.md
-/// §3.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#32-chunks>)?
+/// Is `rest` (a key below an array) one of the array's chunk keys (spec/zarrify/zarr2.md
+/// §3.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#32-chunks>)?
 pub fn is_chunk(rest: &str, grid: &[u64], sep: &str) -> bool {
     if grid.is_empty() {
         return rest == "0";
@@ -39,9 +39,9 @@ pub fn is_chunk(rest: &str, grid: &[u64], sep: &str) -> bool {
 }
 
 /// The hierarchy of a Zarr v2 store, or, when the facts say the root declares OME-NGFF 0.4
-/// (`profile` "ome-zarr"), of an OME-Zarr one (spec/virtualize/ome-zarr.md
-/// §5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#5-group-attributes>–§8
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#8-source-metadata>): its
+/// (`profile` "ome-zarr"), of an OME-Zarr one (spec/zarrify/ome-zarr.md
+/// §5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ome-zarr.md#5-group-attributes>–§8
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ome-zarr.md#8-source-metadata>): its
 /// groups' `ome`, its levels' `dimension_names` and its OME-XML at its own key, and the
 /// OME-Zarr convention declared in place of the Zarr v2 one.
 pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
@@ -111,8 +111,8 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
         }
         let chunk = owner.is_some_and(|(rest, g, sep)| is_chunk(rest, g, sep));
         if xml.contains(key.as_str()) && !chunk {
-            // an OME-XML object of a collection, at its own key (spec/virtualize/ome-zarr.md
-            // §7 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#7-chunks-and-ome-xml>)
+            // an OME-XML object of a collection, at its own key (spec/zarrify/ome-zarr.md
+            // §7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ome-zarr.md#7-chunks-and-ome-xml>)
             if n > 0 {
                 check_key(&key)?;
                 out.refs(&key, vec![Part::Obj(key.clone(), 0, n)]);

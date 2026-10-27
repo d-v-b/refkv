@@ -15,35 +15,36 @@ from __future__ import annotations
 import asyncio
 import bisect
 from collections.abc import AsyncIterator, Iterable
+from typing import TYPE_CHECKING, ClassVar, TypedDict, cast, override
 
 from refkv.errors import (
     ArchiveError,
     BodyError,
     EntryError,
     PayloadError,
-    ResolutionError,
     RefkvError,
+    ResolutionError,
 )
-from refkv.pb import decode_cd_index
+from refkv.pb import Page, Pinned, Reference, decode_cd_index
 from refkv.policy import Policy
-from refkv.reader import Stats, Request, Kind, _abs_range, DEFAULT_CONCURRENCY, ReferenceReader
+from refkv.reader import DEFAULT_CONCURRENCY, Kind, ReferenceReader, Registry, Request, Stats, _abs_range
 from refkv.vzip.archive import (
+    INDEX_KEY,
     LFH_SIZE,
     RESERVED_PREFIX,
-    TAIL_GUESS,
-    INDEX_KEY,
     SOURCES_KEY,
+    TAIL_GUESS,
     Entry,
-    parse_central_directory,
-    parse_local_header,
     InflateLimitError,
     inflate_clean,
+    parse_central_directory,
+    parse_local_header,
     parse_tail,
     read_table,
 )
 
 
-def _check_index(pages, pinned, cd_size: int, file_size: int) -> None:
+def _check_index(pages: Iterable[Page], pinned: Iterable[Pinned], cd_size: int, file_size: int) -> None:
     """Spec §12.2 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#122-lookup>: a malformed
     page index is an archive error."""
     pos, prev = 0, None
@@ -64,10 +65,23 @@ def _check_index(pages, pinned, cd_size: int, file_size: int) -> None:
         if e.method not in (0, 8):
             raise ArchiveError(f"pinned {e.key!r} has method {e.method}")
         if e.method != 0 and (e.size >= 0xFFFFFFFF or e.csize >= 0xFFFFFFFF):
-            raise ArchiveError(f"pinned {e.key!r} is large and not STORED (spec §12.2 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#122-lookup>)")
+            raise ArchiveError(f"pinned {e.key!r} is large and not STORED ("
+                               f"spec §12.2 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#122-lookup>)")
         if e.data_offset + e.csize > file_size:
             raise ArchiveError(f"pinned {e.key!r} lies outside the file")
         seen.add(e.key)
+
+
+if TYPE_CHECKING:
+    # closed (PEP 728), which typing.TypedDict takes only from Python 3.15
+    class VZipOptions(TypedDict, total=False, closed=True):
+        """`VZipStore`'s keyword arguments, which `refkv.vzip.open` and `refkv.open` pass on."""
+
+        resolve: bool
+        registry: Registry | None
+        stats: Stats | None
+        policy: Policy | None
+        max_concurrency: int | None
 
 
 class VZipStore(ReferenceReader):
@@ -116,7 +130,7 @@ class VZipStore(ReferenceReader):
         url: str,
         *,
         resolve: bool = True,
-        registry=None,
+        registry: Registry | None = None,
         stats: Stats | None = None,
         policy: Policy | None = None,
         max_concurrency: int | None = DEFAULT_CONCURRENCY,
@@ -131,21 +145,24 @@ class VZipStore(ReferenceReader):
         self._buf, self._buf_start = b"", 0  # bytes fetched while opening
         self._key_cache: dict[str, bytes] = {}  # values of hidden entries used by key ranges
         self._cd_offset = 0
-        self._pages: list = []  # CdIndex pages, when the archive has one
+        self._pages: list[Page] = []  # CdIndex pages, when the archive has one
         self._page_keys: list[str] = []
         self._loaded: set[int] = set()
-        self._fetching: dict[int, asyncio.Future] = {}  # page -> the task reading it
+        self._fetching: dict[int, asyncio.Future[None]] = {}  # page -> the task reading it
         self._bad_pages: dict[int, str] = {}
         self._file_size = 0
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, VZipStore) and other.url == self.url
 
+    __hash__: ClassVar[None] = None  # unhashable, as a class that defines __eq__ alone is
+
     def __repr__(self) -> str:
         return f"VZipStore({self.url!r}, resolve={self.resolve})"
 
     # ------------------------------------------------------------ raw IO
 
+    @override
     async def _open(self) -> None:
         if self._is_open:
             return
@@ -207,7 +224,7 @@ class VZipStore(ReferenceReader):
         else:
             # Unpaged: the vzip comment locates the URL table, so one more read (at
             # most) gets both it and the whole central directory.
-            want = d.cd_offset if d.sources_offset is None else min(d.cd_offset, d.sources_offset)
+            want = min(d.cd_offset, d.sources_offset)
             if want < tail_start:
                 head = await self._read(self.url, want, tail_start, external=False)
                 tail, tail_start = head + tail, want
@@ -216,13 +233,9 @@ class VZipStore(ReferenceReader):
             self._entries = parse_central_directory(cd, trust_offsets=True)
             if INDEX_KEY in self._entries:
                 raise ValueError("__vz__/index entry in an archive without a page index")
-            if d.sources_offset is not None:
-                self._sources, self.revision = read_table(
-                    self._slice(d.sources_offset, d.sources_size, 8))
-            elif SOURCES_KEY in self._entries:
-                e = self._entries[SOURCES_KEY]
-                self._sources, self.revision = read_table(await self._entry_bytes(e, 0, e.size))
-        if len(self._sources) > self.policy.max_sources:  # spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 4
+            self._sources, self.revision = read_table(self._slice(d.sources_offset, d.sources_size, 8))
+        # spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 4
+        if len(self._sources) > self.policy.max_sources:
             raise ArchiveError(f"the source table has {len(self._sources)} sources; this reader "
                                f"allows {self.policy.max_sources}")
         if any(src.url == "" or src.key == "" for src in self._sources):
@@ -238,8 +251,9 @@ class VZipStore(ReferenceReader):
         try:
             return inflate_clean(raw, self.policy.max_format_entry)
         except InflateLimitError as e:
-            raise ArchiveError(f"a format entry {e}; this reader allows "
-                               f"{self.policy.max_format_entry} (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)") from None
+            raise ArchiveError(
+                f"a format entry {e}; this reader allows {self.policy.max_format_entry} "
+                f"(spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)") from None
 
     def _refresh_keys(self) -> None:
         self._keys = sorted(
@@ -264,12 +278,12 @@ class VZipStore(ReferenceReader):
                            external=False)
                 for i in idxs
             ))
-            for i, data in zip(idxs, datas):
+            for i, data in zip(idxs, datas, strict=True):
                 try:
                     parsed = parse_central_directory(data, trust_offsets=True)
                 except ValueError as e:
                     self._bad_pages[i] = str(e)
-                    parsed = {}
+                    parsed: dict[str, Entry] = {}
                 for k, e in parsed.items():
                     if bisect.bisect_right(self._page_keys, k) - 1 == i:  # spec §12.2 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#122-lookup>
                         self._entries.setdefault(k, e)
@@ -319,13 +333,15 @@ class VZipStore(ReferenceReader):
         if e.method == 8:  # deflated: inflate the whole entry
             if e.data_offset is None:
                 await self._locate(e)
-            raw = await self._read(self.url, e.data_offset, e.data_offset + e.csize, external=False)
+            off = cast("int", e.data_offset)  # _locate set it
+            raw = await self._read(self.url, off, off + e.csize, external=False)
             return self._inflate(e, raw)[start:end]
         if e.method != 0:
             raise NotImplementedError(f"zip compression method {e.method}")
         if e.data_offset is None:
             await self._locate(e)
-        return await self._read(self.url, e.data_offset + start, e.data_offset + end, external=False)
+        off = cast("int", e.data_offset)  # _locate set it
+        return await self._read(self.url, off + start, off + end, external=False)
 
     def _inflate(self, e: Entry, raw: bytes) -> bytes:
         """An entry's DEFLATE body, inflated no further than its record's size allows
@@ -345,19 +361,23 @@ class VZipStore(ReferenceReader):
         """A bytes entry's (inflated) body slice; failures are body errors (spec §6.4
         <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#64-errors>)."""
         try:
-            if e.method == 0 and e.csize != e.size:
-                raise ValueError(f"STORED entry with sizes {e.csize} != {e.size}")
-            if e.method == 8:
-                data = await self._entry_bytes(e, 0, 1 << 64)  # whole inflated body
-                if len(data) != e.size:
-                    raise ValueError(f"inflates to {len(data)} bytes, record says {e.size}")
-                return data[start:end]
-            return await self._entry_bytes(e, start, end)
+            return await self._body_bytes(e, start, end)
         except RefkvError:
             raise
         except Exception as exc:  # noqa: BLE001
             raise BodyError(f"{e.name!r}: {type(exc).__name__}: {exc}") from None
 
+    async def _body_bytes(self, e: Entry, start: int, end: int) -> bytes:
+        if e.method == 0 and e.csize != e.size:
+            raise ValueError(f"STORED entry with sizes {e.csize} != {e.size}")
+        if e.method == 8:
+            data = await self._entry_bytes(e, 0, 1 << 64)  # whole inflated body
+            if len(data) != e.size:
+                raise ValueError(f"inflates to {len(data)} bytes, record says {e.size}")
+            return data[start:end]
+        return await self._entry_bytes(e, start, end)
+
+    @override
     async def _key_bytes(self, key: str, start: int, end: int) -> bytes:
         """Bytes [start, end) of another entry's value (a `key` source, spec §5
         <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>).
@@ -401,6 +421,7 @@ class VZipStore(ReferenceReader):
             raise EntryError(f"{key!r}: {e.error}")
         return "reference" if (self.resolve and e.is_ref) else "bytes"
 
+    @override
     async def classify_async(self, key: str) -> Kind:
         """`classify`, with the lookup, in the order of spec §6.4
         <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#64-errors>."""
@@ -410,6 +431,7 @@ class VZipStore(ReferenceReader):
         await self._lookup(key)
         return self._classify(key)
 
+    @override
     async def get_async(self, key: str, request: Request | None = None) -> bytes | None:
         await self._ensure_open()
         _abs_range(0, request)  # 1. request errors, even for missing keys
@@ -419,7 +441,7 @@ class VZipStore(ReferenceReader):
         e = self._entries[key]
         if kind == "reference":
             try:
-                ref = e.ref
+                ref = cast("Reference", e.ref)  # a reference entry's
             except ValueError as exc:
                 raise PayloadError(f"{key!r}: {exc}") from None
             start, end = _abs_range(ref.size, request)
@@ -427,6 +449,7 @@ class VZipStore(ReferenceReader):
         start, end = _abs_range(e.size, request)
         return await self._body(e, start, end)
 
+    @override
     async def raw_async(self, key: str) -> bytes | None:
         """The inflated body of `key`'s entry, whatever it is: a reference
         entry's body (its payload, or empty if the writer did not mirror it), a
@@ -441,6 +464,7 @@ class VZipStore(ReferenceReader):
             raise EntryError(f"{key!r}: {e.error}")
         return await self._body(e, 0, e.size)
 
+    @override
     async def list_async(self, prefix: str = "") -> AsyncIterator[str]:
         await self._ensure_open()
         await self._load_prefix(prefix)
@@ -449,6 +473,7 @@ class VZipStore(ReferenceReader):
             yield self._keys[i]
             i += 1
 
+    @override
     async def list_dir_async(self, prefix: str = "") -> AsyncIterator[str]:
         """The distinct next path segments of the keys under `prefix`.
 

@@ -1,10 +1,10 @@
-//! The MP3 projection (spec/virtualize/mp3.md §4
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#4-the-layout>, and the root's
+//! The MP3 projection (spec/zarrify/mp3.md §4
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#4-the-layout>, and the root's
 //! source metadata of §5
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#5-source-metadata>) from a valid
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#5-source-metadata>) from a valid
 //! IR: one array of samples whose chunks are runs of frames, each referenced with the frames
 //! before it that a decoder needs (the lead-in, §8.2
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#82-chunks>).
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#82-chunks>).
 
 use super::{arr, audio, json_text, n, Copied};
 use crate::ir::Ir;
@@ -17,8 +17,8 @@ use serde_json::{json, Map, Value as J};
 pub const ARRAY: &str = "samples";
 
 /// The ID3v1 tag's fields as the root's source metadata writes them (§5.1
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#51-the-root>).
-fn id3v1_json(b: &[u8]) -> J {
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#51-the-root>).
+pub(super) fn id3v1_json(b: &[u8]) -> J {
     let mut m = Map::new();
     m.insert("title".into(), json_text(&b[3..33]));
     m.insert("artist".into(), json_text(&b[33..63]));
@@ -43,7 +43,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
     }
     let samples = count as u64 * spf;
 
-    // the root (§5.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#51-the-root>)
+    // the root (§5.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#51-the-root>)
     let mut own = Map::new();
     own.insert("version".into(), json!(VERSIONS[version]));
     own.insert("layer".into(), json!(3));
@@ -75,7 +75,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
     let mut out = Out::new(url);
     out.json("zarr.json", &declared_group(Map::new(), "mp3", Some(url), Some(J::Object(own))));
 
-    // the array (§4.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#41-the-array>)
+    // the array (§4.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#41-the-array>)
     let shape = [samples, channels];
     let array = array_json(&shape, "float32", json!([per_chunk as u64 * spf, channels]), json!([{"name": "refkv.stream", "configuration": {"format": "mp3"}}]), &["time", "channel"]);
     out.json(&format!("{ARRAY}/zarr.json"), &array);
@@ -83,7 +83,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
     let mut refs = Refs::new(ir, out);
     let chunks = audio::chunks(&mut refs, ir, ARRAY, first, count, per_chunk, spf, form, |a| {
         // the lead-in holds the version's reservoir of main data (§8.2
-        // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#82-chunks>), by exact sizes
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#82-chunks>), by exact sizes
         audio::reservoir_lead(a, RESERVOIR[version], |l| main[l])
     })?;
     let mut out = refs.out;

@@ -1,5 +1,5 @@
 """What the js/test/<format>/verify.py scripts share: the reader policy their archives are opened
-under, and the loop that virtualizes each fixture with the browser code under Node and checks it.
+under, and the loop that zarrifies each fixture with the browser code under Node and checks it.
 
 A script imports it once `js/test` is on `sys.path` (as it is for `ir_mirror`):
 
@@ -20,6 +20,10 @@ import tempfile
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
+import tifffile
+import zarr
+from zarr.core.metadata import ArrayV3Metadata
+
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "conformance" / "vzip"))
 from http_server import Server  # noqa: E402
@@ -30,8 +34,8 @@ from refkv.policy import Policy  # noqa: E402
 # <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 3 refuses by
 # default.
 LOOPBACK_SOURCES = Policy(allow_private_hosts=True)
-# The browser code under Node (js/conformance/virtualize.ts), allowed to read 127.0.0.1.
-WEB = ["node", str(ROOT / "js" / "conformance" / "virtualize.ts"), "--allow-private-hosts"]
+# The browser code under Node (js/conformance/zarrify.ts), allowed to read 127.0.0.1.
+WEB = ["node", str(ROOT / "js" / "conformance" / "zarrify.ts"), "--allow-private-hosts"]
 
 # What a check gives: the problems of an accepted input (none: it passed), or the problems and a
 # note to print beside the verdict.
@@ -53,16 +57,32 @@ def serve(paths: Iterable[Path]) -> Callable[[Path], str]:
     return url
 
 
+def metadata_v3(arr: zarr.Array) -> ArrayV3Metadata:
+    """The metadata of an array of an archive, which the verifiers open as Zarr v3 (its
+    dimension names, its codecs)."""
+    if not isinstance(arr.metadata, ArrayV3Metadata):
+        raise TypeError(f"{arr.path}: expected Zarr v3 metadata, got {type(arr.metadata).__name__}")
+    return arr.metadata
+
+
+def tiff_page(page: object) -> tifffile.TiffPage:
+    """A page of tifffile's `pages`, which it types as a TiffFrame too (it gives frames only under
+    `useframes`)."""
+    if not isinstance(page, tifffile.TiffPage):
+        raise TypeError(f"expected a TiffPage, got {type(page).__name__}")
+    return page
+
+
 def rejected_by_name(name: str) -> bool:
     """Whether a fixture is one the profile must reject: its name says so (`<format>_reject_*`,
-    conformance/virtualize/HARNESS.md)."""
+    conformance/zarrify/HARNESS.md)."""
     return "reject" in name
 
 
 def run(inputs: Iterable[Path], check: Check, *, url: Callable[[Path], str],
         rejected: Callable[[str], bool] = rejected_by_name, command: list[str] | None = None,
         width: int = 44, failure_tail: int = 300) -> int:
-    """Virtualizes each input (a file, or a store's directory) at `url(input)` with `command`
+    """Zarrifies each input (a file, or a store's directory) at `url(input)` with `command`
     (the browser code under Node, by default) into an archive in a temporary directory of its
     own; an input `rejected` by its name must be rejected (exit status 3, no archive), any other
     accepted, and then `check(input, archive, process)` must give no problems. Prints a line
@@ -71,7 +91,7 @@ def run(inputs: Iterable[Path], check: Check, *, url: Callable[[Path], str],
     for item in inputs:
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / f"{item.stem if item.is_file() else item.name}.vzip"
-            p = subprocess.run([*(command or WEB), url(item), str(out)], capture_output=True, text=True)
+            p = subprocess.run([*(command or WEB), url(item), str(out)], capture_output=True, text=True, check=False)
             label = f"{item.name:{width}s}"
             if rejected(item.name):
                 ok = p.returncode == 3 and not out.exists()
@@ -85,6 +105,6 @@ def run(inputs: Iterable[Path], check: Check, *, url: Callable[[Path], str],
             result = check(item, out, p)
             problems, note = result if isinstance(result, tuple) else (result, "")
             failures += bool(problems)
-            print(f"{label} {'ok' if not problems else problems}{' ' + note if note else ''}")
+            print(f"{label} {problems or 'ok'}{' ' + note if note else ''}")
     print(f"\n{failures} failures")
     return 1 if failures else 0

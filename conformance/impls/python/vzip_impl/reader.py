@@ -11,8 +11,9 @@ import stat
 import struct
 import zlib
 
-from . import pb
+from . import httpfetch, pb
 from . import uri as urimod
+from ._narrow import integer, mapping, sequence, string
 from .errors import VzError
 
 HIDDEN = b"__vz__/"
@@ -73,28 +74,28 @@ def inflate_clean(data, expected, limit, errcls):
     """
     cap = expected if expected is not None else limit
     if cap > limit:
-        raise VzError("request", "inflated size %d exceeds the resource limit" % cap)
+        raise VzError("request", f"inflated size {cap} exceeds the resource limit")
     d = zlib.decompressobj(-15)
     try:
         out = d.decompress(data, cap + 1)
     except zlib.error as e:
-        raise VzError(errcls, "DEFLATE body is corrupt: %s" % e)
+        raise VzError(errcls, f"DEFLATE body is corrupt: {e}") from e
     if len(out) > cap:
         if expected is None:
             raise VzError("request", "inflated size exceeds the resource limit")
-        raise VzError(errcls, "DEFLATE body inflates to more than %d bytes" % expected)
+        raise VzError(errcls, f"DEFLATE body inflates to more than {expected} bytes")
     if not d.eof:
         raise VzError(errcls, "DEFLATE body is truncated (stream does not end)")
     if d.unused_data or d.unconsumed_tail:
         raise VzError(errcls, "DEFLATE body has trailing bytes after the stream")
     if expected is not None and len(out) != expected:
-        raise VzError(errcls, "DEFLATE body inflates to %d bytes, expected %d" % (len(out), expected))
+        raise VzError(errcls, f"DEFLATE body inflates to {len(out)} bytes, expected {expected}")
     return out
 
 
 class Rec:
     """A central directory record, structurally parsed."""
-    __slots__ = ("name", "flags", "method", "crc", "csize", "usize", "offset", "extra")
+    __slots__ = ("crc", "csize", "extra", "flags", "method", "name", "offset", "usize")
 
     def __init__(self, name, flags, method, crc, csize, usize, offset, extra):
         self.name = name
@@ -114,14 +115,14 @@ def parse_records(buf):
     recs = []
     while pos < n:
         if n - pos < 46:
-            raise ValueError("truncated central directory record at %d" % pos)
+            raise ValueError(f"truncated central directory record at {pos}")
         (sig, _vm, _vn, flags, method, _t, _d, crc, csize, usize, nl, el, cl,
          _disk, _ia, _ea, off) = struct.unpack_from("<IHHHHHHIIIHHHHHII", buf, pos)
         if sig != CD_SIG:
-            raise ValueError("bad central directory record signature at %d" % pos)
+            raise ValueError(f"bad central directory record signature at {pos}")
         total = 46 + nl + el + cl
         if pos + total > n:
-            raise ValueError("central directory record at %d overruns" % pos)
+            raise ValueError(f"central directory record at {pos} overruns")
         name = bytes(buf[pos + 46:pos + 46 + nl])
         extra = bytes(buf[pos + 46 + nl:pos + 46 + nl + el])
         recs.append(Rec(name, flags, method, crc, csize, usize, off, extra))
@@ -134,13 +135,13 @@ def valid_key_bytes(name):
         return False
     try:
         name.decode("utf-8", "strict")
-        return True
     except UnicodeDecodeError:
         return False
+    return True
 
 
 class Entry:
-    __slots__ = ("kind", "method", "body_off", "csize", "usize", "ref_id", "payload")
+    __slots__ = ("body_off", "csize", "kind", "method", "payload", "ref_id", "usize")
 
     def __init__(self, kind, method, body_off, csize, usize, ref_id=None, payload=None):
         self.kind = kind
@@ -170,7 +171,7 @@ def analyze(rec):
         pos += 4 + sz
     refs = [b for b in blocks if b[0] in (ID_RANGE, ID_CONCAT)]
     if len(refs) > 1:
-        raise _entry("record has %d reference blocks" % len(refs))
+        raise _entry(f"record has {len(refs)} reference blocks")
     z64 = [b for b in blocks if b[0] == 0x0001]
     if len(z64) > 1:
         raise _entry("record has more than one ZIP64 extra block")
@@ -184,17 +185,17 @@ def analyze(rec):
     if rec.flags & 1:
         raise _entry("entry is encrypted")
     if rec.method not in (0, 8):
-        raise _entry("unsupported compression method %d" % rec.method)
+        raise _entry(f"unsupported compression method {rec.method}")
     if refs:
         if rec.method != 0:
-            raise _entry("reference entry uses method %d" % rec.method)
+            raise _entry(f"reference entry uses method {rec.method}")
         return Entry("reference", 0, off + 30 + len(rec.name), rec.csize, rec.usize,
                      refs[0][0], refs[0][1])
     return Entry("bytes", rec.method, off + 30 + len(rec.name), rec.csize, rec.usize)
 
 
 class Part:
-    __slots__ = ("source", "offset", "length", "data", "size")
+    __slots__ = ("data", "length", "offset", "size", "source")
 
     def __init__(self, source, offset, length, data):
         self.source = source
@@ -211,24 +212,25 @@ def decode_payload(ref_id, payload, nsources):
     <https://github.com/d-v-b/refkv/blob/main/spec/history/archive/SPEC.r7.md#53-concat>). Raises
     payload errors."""
     if len(payload) > MAX_PAYLOAD:
-        raise _payload("reference payload is %d bytes, more than %d" % (len(payload), MAX_PAYLOAD))
+        raise _payload(f"reference payload is {len(payload)} bytes, more than {MAX_PAYLOAD}")
     try:
         if ref_id == ID_RANGE:
             ranges = [pb.decode(payload, pb.RANGE)]
         else:
-            ranges = pb.decode(payload, pb.CONCAT).get("parts", [])
-    except pb.Malformed as e:
-        raise _payload("malformed reference payload: %s" % e)
+            ranges = sequence(pb.decode(payload, pb.CONCAT).get("parts", []), "parts")
+    except pb.MalformedError as e:
+        raise _payload(f"malformed reference payload: {e}") from e
     parts = []
     total = 0
-    for r in ranges:
-        src, off, ln, data = r.get("source", 0), r.get("offset", 0), r.get("length", 0), r.get("data")
+    for r in map(mapping, ranges):
+        src, off, ln = integer(r.get("source", 0)), integer(r.get("offset", 0)), integer(r.get("length", 0))
+        data = r.get("data")
         if data is not None:
             if src or off or ln:
                 raise _payload("literal range has non-zero source/offset/length")
         else:
             if src >= nsources:
-                raise _payload("range source %d out of bounds (%d sources)" % (src, nsources))
+                raise _payload(f"range source {src} out of bounds ({nsources} sources)")
             if off + ln > MAX64:
                 raise _payload("range offset + length exceeds 2^64-1")
         p = Part(src, off, ln, data)
@@ -253,7 +255,7 @@ def window(n, req):
 
 
 class Source:
-    __slots__ = ("kind", "value", "size", "etag", "mnf")
+    __slots__ = ("etag", "kind", "mnf", "size", "value")
 
     def __init__(self, kind, value, size, etag, mnf):
         self.kind = kind
@@ -275,7 +277,7 @@ class Archive:
             self.file_size = st.st_size
         except OSError as e:
             self.close()
-            raise _arch("cannot open archive: %s" % e)
+            raise _arch(f"cannot open archive: {e}") from e
         self.base_uri = base_uri if base_uri is not None else urimod.path_to_file_uri(path)
         self._value_cache = {}
         self._page_cache = {}
@@ -284,11 +286,11 @@ class Archive:
         except VzError as e:
             self.close()
             if e.cls != "archive":
-                raise VzError("archive", str(e))
+                raise VzError("archive", str(e)) from e
             raise
         except OSError as e:
             self.close()
-            raise _arch("I/O error while opening: %s" % e)
+            raise _arch(f"I/O error while opening: {e}") from e
 
     def close(self):
         if self._fd is not None:
@@ -319,7 +321,7 @@ class Archive:
     def _open(self):
         fs = self.file_size
         eocd = None
-        clen = None
+        clen = 0
         if fs >= 60:
             b = self._pread(fs - 60, 22)
             if struct.unpack_from("<I", b)[0] == EOCD_SIG and struct.unpack_from("<H", b, 20)[0] == 38:
@@ -336,7 +338,7 @@ class Archive:
         if comment[:5] != b"vzip/":
             raise _arch("not a vzip archive: comment does not start with vzip/")
         if comment[5:6] != b"0":
-            raise _arch("unsupported vzip format version %r" % comment[5:6])
+            raise _arch(f"unsupported vzip format version {comment[5:6]!r}")
         self.sources_offset, self.sources_size = struct.unpack_from("<QQ", comment, 6)
         self.paged = clen == 38
         if self.paged:
@@ -356,7 +358,7 @@ class Archive:
             if zsig != Z64_EOCD_SIG:
                 raise _arch("bad zip64 end of central directory record signature")
             if zsize != 44:
-                raise _arch("zip64 end of central directory record size is %d, not 44" % zsize)
+                raise _arch(f"zip64 end of central directory record size is {zsize}, not 44")
         if not self._within(cd_off, cd_size):
             raise _arch("central directory lies outside the file")
         self.cd_off, self.cd_size = cd_off, cd_size
@@ -378,7 +380,7 @@ class Archive:
             try:
                 recs = parse_records(self._pread(cd_off, cd_size))
             except ValueError as e:
-                raise _arch("central directory does not parse: %s" % e)
+                raise _arch(f"central directory does not parse: {e}") from e
             self.records = {}
             for r in recs:
                 if r.name == INDEX_KEY:
@@ -389,41 +391,41 @@ class Archive:
     def _parse_sources(self, raw):
         try:
             t = pb.decode(raw, pb.SOURCE_TABLE)
-        except pb.Malformed as e:
-            raise _arch("source table is malformed: %s" % e)
+        except pb.MalformedError as e:
+            raise _arch(f"source table is malformed: {e}") from e
         out = []
-        for i, s in enumerate(t.get("sources", [])):
+        for i, s in enumerate(map(mapping, sequence(t.get("sources", []), "sources"))):
             kind = s.get("kind")
             if kind is None:
-                raise _arch("source %d has no kind" % i)
-            k, v = kind
+                raise _arch(f"source {i} has no kind")
+            k, v = sequence(kind)
             if k in ("url", "key") and v == "":
-                raise _arch("source %d has an empty %s" % (i, k))
+                raise _arch(f"source {i} has an empty {k}")
             size, etag, mnf = s.get("size"), s.get("etag"), s.get("modified_not_after")
             if k != "url" and (size is not None or etag is not None or mnf is not None):
-                raise _arch("source %d: pin on a %s source" % (i, k))
-            if etag is not None and not ETAG_RE.fullmatch(etag.encode("utf-8")):
-                raise _arch("source %d: etag pin is not a strong entity tag" % i)
+                raise _arch(f"source {i}: pin on a {k} source")
+            if etag is not None and not ETAG_RE.fullmatch(string(etag).encode("utf-8")):
+                raise _arch(f"source {i}: etag pin is not a strong entity tag")
             out.append(Source(k, v, size, etag, mnf))
         return out
 
     def _parse_index(self, raw):
         try:
             idx = pb.decode(raw, pb.CD_INDEX)
-        except pb.Malformed as e:
-            raise _arch("page index is malformed: %s" % e)
+        except pb.MalformedError as e:
+            raise _arch(f"page index is malformed: {e}") from e
         self.pages = []
         expect = 0
         prev = None
-        for i, p in enumerate(idx.get("pages", [])):
-            fk = p.get("first_key", "").encode("utf-8")
-            off, ln = p.get("offset", 0), p.get("length", 0)
+        for i, p in enumerate(map(mapping, sequence(idx.get("pages", []), "pages"))):
+            fk = string(p.get("first_key", "")).encode("utf-8")
+            off, ln = integer(p.get("offset", 0)), integer(p.get("length", 0))
             if not fk:
-                raise _arch("page index is malformed: page %d has an empty first_key" % i)
+                raise _arch(f"page index is malformed: page {i} has an empty first_key")
             if ln == 0:
-                raise _arch("page index is malformed: page %d has length 0" % i)
+                raise _arch(f"page index is malformed: page {i} has length 0")
             if off + ln > self.cd_size:
-                raise _arch("page index is malformed: page %d lies outside the central directory" % i)
+                raise _arch(f"page index is malformed: page {i} lies outside the central directory")
             if off != expect:
                 raise _arch("page index is malformed: pages are not contiguous from offset 0")
             if prev is not None and not prev < fk:
@@ -433,17 +435,17 @@ class Archive:
             self.pages.append((fk, off, ln))
         self.first_keys = [p[0] for p in self.pages]
         self.pinned = {}
-        for i, p in enumerate(idx.get("pinned", [])):
-            k = p.get("key", "").encode("utf-8")
+        for i, p in enumerate(map(mapping, sequence(idx.get("pinned", []), "pinned"))):
+            k = string(p.get("key", "")).encode("utf-8")
             if not k:
-                raise _arch("page index is malformed: pinned entry %d has an empty key" % i)
+                raise _arch(f"page index is malformed: pinned entry {i} has an empty key")
             if k in self.pinned:
                 raise _arch("page index is malformed: pinned key listed twice")
             if k in FORMAT_KEYS:
                 raise _arch("page index is malformed: pinned key is a format entry")
             m = p.get("method", 0)
             if m not in (0, 8):
-                raise _arch("page index is malformed: pinned method %d" % m)
+                raise _arch(f"page index is malformed: pinned method {m}")
             doff, csize = p.get("data_offset", 0), p.get("csize", 0)
             if not self._within(doff, csize):
                 raise _arch("page index is malformed: pinned body lies outside the file")
@@ -463,7 +465,7 @@ class Archive:
                     d.setdefault(r.name, r)
                 c = d
             except (ValueError, OSError) as e:
-                c = VzError("entry", "central directory page %d cannot be parsed: %s" % (i, e))
+                c = VzError("entry", f"central directory page {i} cannot be parsed: {e}")
             self._page_cache[i] = c
         if isinstance(c, VzError):
             raise c
@@ -491,7 +493,7 @@ class Archive:
         if not self._within(e.body_off, e.csize):
             raise _body("entry body lies outside the file")
         if e.method == 0 and e.csize != e.usize:
-            raise _body("STORED entry has compressed size %d != uncompressed size %d" % (e.csize, e.usize))
+            raise _body(f"STORED entry has compressed size {e.csize} != uncompressed size {e.usize}")
 
     def _bytes_value(self, e, a, b):
         """Bytes [a, b) of a bytes entry's value (a <= b <= usize). Raises body/request errors."""
@@ -521,7 +523,7 @@ class Archive:
     @staticmethod
     def _check_request(req):
         if req[0] == "range" and req[1] > req[2]:
-            raise VzError("request", "range start %d > end %d" % (req[1], req[2]))
+            raise VzError("request", f"range start {req[1]} > end {req[2]}")
 
     def classify(self, key):
         k = self._key_bytes(key)
@@ -589,7 +591,7 @@ class Archive:
         parts, n = decode_payload(e.ref_id, e.payload, len(self.sources))
         a, b = window(n, req)
         if b - a > self.limit:
-            raise VzError("request", "request of %d bytes exceeds the resource limit" % (b - a))
+            raise VzError("request", f"request of {b - a} bytes exceeds the resource limit")
         out = bytearray()
         pos = 0
         for part in parts:
@@ -607,75 +609,74 @@ class Archive:
         src = self.sources[idx]
         if src.kind == "data":
             if end > len(src.value):
-                raise _res("data source %d has %d bytes, range needs %d" % (idx, len(src.value), end))
+                raise _res(f"data source {idx} has {len(src.value)} bytes, range needs {end}")
             return src.value[start:end]
         if src.kind == "key":
             kb = src.value.encode("utf-8")
             if kb in FORMAT_KEYS:
-                raise _res("key source %d names a format entry" % idx)
+                raise _res(f"key source {idx} names a format entry")
             try:
                 e = self._lookup(kb)
             except VzError as err:
-                raise _res("key source %d: %s" % (idx, err))
+                raise _res(f"key source {idx}: {err}") from err
             if e is None:
-                raise _res("key source %d names a missing key" % idx)
+                raise _res(f"key source {idx} names a missing key")
             if e.kind != "bytes":
-                raise _res("key source %d names a reference entry" % idx)
+                raise _res(f"key source {idx} names a reference entry")
             try:
                 self._check_body(e)
             except VzError as err:
-                raise _res("key source %d: %s" % (idx, err))
+                raise _res(f"key source {idx}: {err}") from err
             if e.usize < end:
-                raise _res("key source %d value has %d bytes, range needs %d" % (idx, e.usize, end))
+                raise _res(f"key source {idx} value has {e.usize} bytes, range needs {end}")
             try:
                 return self._bytes_value(e, start, end)
             except VzError as err:
                 if err.cls == "body":
-                    raise _res("key source %d: %s" % (idx, err))
+                    raise _res(f"key source {idx}: {err}") from err
                 raise
         return self._read_url(idx, src, start, end)
 
     def _read_url(self, idx, src, start, end):
         if not urimod.is_uri_reference(src.value):
-            raise _res("source %d url is not a valid URI reference" % idx)
+            raise _res(f"source {idx} url is not a valid URI reference")
         t = urimod.resolve(self.base_uri, src.value)
         scheme = (t.scheme or "").lower()
         if scheme == "file":
             return self._read_file(idx, src, t, start, end)
         if scheme in ("http", "https"):
-            from . import httpfetch
             return httpfetch.http_read(t, start, end, src.size, src.etag, src.mnf, self.limit)
-        raise _res("source %d: unsupported URL scheme %r" % (idx, t.scheme))
+        raise _res(f"source {idx}: unsupported URL scheme {t.scheme!r}")
 
     def _read_file(self, idx, src, t, start, end):
         try:
             path = urimod.file_uri_to_path(t)
         except urimod.FileMappingError as e:
-            raise _res("source %d: %s" % (idx, e))
+            raise _res(f"source {idx}: {e}") from e
         if src.etag is not None:
-            raise _res("source %d: etag pin cannot be checked for a file: URL" % idx)
+            raise _res(f"source {idx}: etag pin cannot be checked for a file: URL")
         try:
             fd = os.open(path, os.O_RDONLY | getattr(os, "O_BINARY", 0))
         except OSError as e:
-            raise _res("source %d: cannot open %r: %s" % (idx, path, e))
+            raise _res(f"source {idx}: cannot open {path!r}: {e}") from e
         try:
             st = os.fstat(fd)
             if stat.S_ISDIR(st.st_mode):
-                raise _res("source %d: %r is a directory" % (idx, path))
+                raise _res(f"source {idx}: {path!r} is a directory")
             if src.size is not None and st.st_size != src.size:
-                raise _res("source %d: size pin failed (%d != %d)" % (idx, st.st_size, src.size))
+                raise _res(f"source {idx}: size pin failed ({st.st_size} != {src.size})")
             if src.mnf is not None and st.st_mtime_ns // 1_000_000_000 > src.mnf:
-                raise _res("source %d: modified_not_after pin failed" % idx)
+                raise _res(f"source {idx}: modified_not_after pin failed")
             if stat.S_ISREG(st.st_mode) and st.st_size < end:
-                raise _res("source %d: file has %d bytes, range needs %d" % (idx, st.st_size, end))
+                raise _res(f"source {idx}: file has {st.st_size} bytes, range needs {end}")
             out = bytearray()
             while len(out) < end - start:
                 chunk = _pread_at(fd, end - start - len(out), start + len(out))
                 if not chunk:
-                    raise _res("source %d: file is shorter than the range" % idx)
+                    raise _res(f"source {idx}: file is shorter than the range")
                 out += chunk
             return bytes(out)
         except OSError as e:
-            raise _res("source %d: read failed: %s" % (idx, e))
+            raise _res(f"source {idx}: read failed: {e}") from e
         finally:
             os.close(fd)

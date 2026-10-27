@@ -1,0 +1,9 @@
+NRRD0004
+type: short
+dimension: 3
+sizes: 6 5 2
+endian: big
+encoding: raw
+data file: nrrd_detached_raw.raw
+
+ignored after the blank line

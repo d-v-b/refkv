@@ -1,31 +1,37 @@
-"""The frozen Python IMS virtualizer (spec/virtualize/ims.md, revision 25) on the synthetic fixtures.
+"""The frozen Python IMS virtualizer (spec/zarrify/ims.md, revision 25) on the synthetic fixtures.
 
 Equivalence with the browser virtualizer is checked by
-conformance/virtualize/compare.py, and pixel correctness by
+conformance/zarrify/compare.py, and pixel correctness by
 js/test/ims/verify.py.
 """
 
+import itertools
 import json
 import struct
 import sys
+import zlib
 from pathlib import Path
 
+import numpy as np
 import pytest
 
-import numpy as np
+# the frozen reference twins (conformance/zarrify/reference/refkv_reference)
+sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "zarrify" / "reference"))
 
-# the frozen reference twins (conformance/virtualize/reference/refkv_reference)
-sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "virtualize" / "reference"))
+from reference_helpers import ranges_of
+from refkv_reference import virtualize
+from refkv_reference.ims import source
+from refkv_reference.ims.hdf5 import UNDEFINED, Dataset, Datatype, _max_grid, parse_selection
+from refkv_reference.ims.source import canonical, describe_type, size
+from refkv_reference.legacy import Output
 
-from refkv.virtualize import Rejected  # noqa: E402
-from refkv_reference import virtualize  # noqa: E402
-from refkv_reference.ims.source import canonical  # noqa: E402
+from refkv.zarrify import Rejected
 
 FIXTURES = Path(__file__).parents[3] / "fixtures" / "ims"
 
 
 def paths(out) -> list[str]:
-    """The paths of the object table (spec/virtualize/ims.md §5.7
+    """The paths of the object table (spec/zarrify/ims.md §5.7
     <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/ims.r25.md#57-the-object-table>) of a
     virtualized file."""
     e = out.bytes_entries
@@ -56,7 +62,7 @@ def family(out, path: str, source: bytes = b"") -> list[bytes]:
     keys = sorted((k for k in [*e, *out.refs] if k.startswith(f"vzip_source/{path}/data/c/")),
                   key=lambda k: int(k.rsplit("/", 1)[1]))
     data = b"".join(chunk(k) for k in keys)
-    return [data[a:b] for a, b in zip(starts, starts[1:])]
+    return [data[a:b] for a, b in itertools.pairwise(starts)]
 
 
 def test_virtualizes_the_synthetic_files():
@@ -74,7 +80,8 @@ def test_virtualizes_the_synthetic_files():
              "channels": ["red", "Channel 1", "far red"]},
             [("c", None), ("z", "micrometer"), ("y", "micrometer"), ("x", "micrometer")],
             [1, 2.0, 0.5, 0.5], [0, 0.0, 0.0, 0.0],
-            {"label": "red", "color": "FF0000", "active": True, "window": {"min": 0, "max": 255, "start": 0, "end": 255}}),
+            {"label": "red", "color": "FF0000", "active": True,
+             "window": {"min": 0, "max": 255, "start": 0, "end": 255}}),
         "ims_latest_float32_be.ims": (
             {"sizes": {"t": 3, "c": 1, "z": 1, "y": 7, "x": 9}, "dataType": "float32", "compressed": [True]},
             [("t", "second"), ("y", "micrometer"), ("x", "micrometer")],
@@ -91,15 +98,18 @@ def test_virtualizes_the_synthetic_files():
             {"levels": 2, "sizes": {"t": 1, "c": 2, "z": 2, "y": 6, "x": 6}, "channels": ["Kanal α", "Kanal β"]},
             [("c", None), ("z", "nanometer"), ("y", "nanometer"), ("x", "nanometer")],
             [1, 1.0, 0.25, 0.25], [0, 0.0, 0.0, 0.0],
-            {"label": "Kanal α", "color": "FFFFFF", "active": True, "window": {"min": 0, "max": 255, "start": 0, "end": 255}}),
+            {"label": "Kanal α", "color": "FFFFFF", "active": True,
+             "window": {"min": 0, "max": 255, "start": 0, "end": 255}}),
         "ims_latest_paged.ims": (
             {"sizes": {"t": 1, "c": 1, "z": 1, "y": 80, "x": 63}, "chunkShape": [1, 1, 2], "chunks": 64},
             [("y", None), ("x", None)], [1, 1], None,
-            {"label": "Channel 0", "color": "FFFFFF", "active": True, "window": {"min": 0, "max": 255, "start": 0, "end": 255}}),
+            {"label": "Channel 0", "color": "FFFFFF", "active": True,
+             "window": {"min": 0, "max": 255, "start": 0, "end": 255}}),
         "ims_latest_soft_links.ims": (
             {"sizes": {"t": 1, "c": 2, "z": 1, "y": 5, "x": 6}, "channels": ["first", "second"]},
             [("c", None), ("y", "micrometer"), ("x", "micrometer")], [1, 0.25, 0.25], [0, 0.0, 0.0],
-            {"label": "first", "color": "FFFFFF", "active": True, "window": {"min": 0, "max": 255, "start": 0, "end": 255}}),
+            {"label": "first", "color": "FFFFFF", "active": True,
+             "window": {"min": 0, "max": 255, "start": 0, "end": 255}}),
         "ims_small_k.ims": (
             {"sizes": {"t": 1, "c": 5, "z": 3, "y": 5, "x": 6}, "chunkShape": [1, 2, 2], "chunks": 5 * 27 - 2},
             [("c", None), ("z", "micrometer"), ("y", "micrometer"), ("x", "micrometer")],
@@ -115,7 +125,8 @@ def test_virtualizes_the_synthetic_files():
         "ims_2d_deep_chunks.ims": (
             {"sizes": {"t": 1, "c": 1, "z": 1, "y": 5, "x": 6}, "chunkShape": [4, 8, 8], "chunks": 1},
             [("z", None), ("y", None), ("x", None)], [1, 1, 1], None,
-            {"label": "Channel 0", "color": "FFFFFF", "active": True, "window": {"min": 0, "max": 255, "start": 0, "end": 255}}),
+            {"label": "Channel 0", "color": "FFFFFF", "active": True,
+             "window": {"min": 0, "max": 255, "start": 0, "end": 255}}),
         # Chunks indexed by an extensible array (one unlimited dimension) and by a
         # version 2 B-tree (several), with a chunk never written.
         "ims_latest_extensible.ims": (
@@ -127,12 +138,14 @@ def test_virtualizes_the_synthetic_files():
             {"sizes": {"t": 1, "c": 1, "z": 2, "y": 6, "x": 7}, "chunkShape": [1, 2, 2], "compressed": [True],
              "chunks": 2 * 3 * 4 - 1},
             [("z", None), ("y", None), ("x", None)], [1, 1, 1], None,
-            {"label": "Channel 0", "color": "FFFFFF", "active": True, "window": {"min": 0, "max": 255, "start": 0, "end": 255}}),
+            {"label": "Channel 0", "color": "FFFFFF", "active": True,
+             "window": {"min": 0, "max": 255, "start": 0, "end": 255}}),
         # Channels colored by a lookup table, and every way a table can fail to give a color.
         "ims_latest_table_color.ims": (
             {"sizes": {"t": 1, "c": 15, "z": 1, "y": 3, "x": 4}, "dataType": "uint8"},
             [("c", None), ("y", "micrometer"), ("x", "micrometer")], [1, 0.25, 0.25], [0, 0.0, 0.0],
-            {"label": "c0", "color": "00FF00", "active": True, "window": {"min": 0, "max": 255, "start": 0, "end": 255}}),
+            {"label": "c0", "color": "00FF00", "active": True,
+             "window": {"min": 0, "max": 255, "start": 0, "end": 255}}),
     }
     # Every channel's color, where it is not channel 0's alone.
     colors = {
@@ -148,6 +161,7 @@ def test_virtualizes_the_synthetic_files():
     }
     for name, (summary, axes, scale, translation, channel) in cases.items():
         fmt, out = virtualize(str(FIXTURES / name), url=f"https://data.test/{name}")
+        assert isinstance(out, Output)
         assert fmt == "ims", name
         assert out.url == f"https://data.test/{name}"
         assert {**out.summary, **summary} == out.summary, name
@@ -165,7 +179,7 @@ def test_virtualizes_the_synthetic_files():
         assert all(len(ranges) == 1 for ranges in image.values())
 
 
-@pytest.mark.parametrize("name,message", [
+@pytest.mark.parametrize(("name", "message"), [
     ("ims_reject_not_imaris.ims", "not an Imaris file"),
     ("ims_reject_shuffle.ims", r"filters \[2, 1\]"),
     ("ims_reject_fletcher32.ims", r"filters \[3\]"),
@@ -195,11 +209,9 @@ I32 = {"class": "integer", "size": 4, "order": "little", "signed": True}
 
 
 def test_describe_type():
-    """Each datatype class's description (spec/virtualize/ims.md §5.2
+    """Each datatype class's description (spec/zarrify/ims.md §5.2
     <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/ims.r25.md#52-datatypes>);
     js/test/ims/source.test.ts has the same cases."""
-    from refkv_reference.ims.source import describe_type
-
     cases = [
         ([0x10, 0, 0, 0, 2, 0, 0, 0, 0, 0, 16, 0], {"class": "integer", "size": 2, "order": "little", "signed": False}),
         ([0x10, 0x09, 0, 0, 4, 0, 0, 0, 0, 0, 32, 0], {"class": "integer", "size": 4, "order": "big", "signed": True}),
@@ -225,34 +237,29 @@ def test_describe_type():
 
 
 def test_describe_type_rejects_an_unknown_version():
-    from refkv_reference.ims.source import describe_type
-
     with pytest.raises(Rejected, match="unsupported datatype message version 6"):
         describe_type(bytes([0x60, 0, 0, 0, 1, 0, 0, 0]))
 
 
 def test_describe_type_rejects_an_unknown_class():
-    from refkv_reference.ims.source import describe_type
-
     with pytest.raises(Rejected, match="unknown datatype class 11"):
         describe_type(bytes([0x1B, 0, 0, 0, 1, 0, 0, 0]))
 
 
 def test_describe_type_rejects_a_truncated_datatype():
-    from refkv_reference.ims.source import describe_type
-
     with pytest.raises(Rejected, match="truncated HDF5 structure"):
         describe_type(bytes([0x10, 0, 0, 0, 2, 0, 0, 0, 0]))
 
 
 def test_source_node_holds_the_hdf5_tree():
     """Groups, datasets, links and named datatypes of the HDF5 file under vzip_source/hdf5
-    (spec/virtualize/ims.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#5-source-metadata>);
+    (spec/zarrify/ims.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#5-source-metadata>);
     js/test/ims/verify.py checks every value against h5py."""
     for libver in ("earliest", "latest"):
         _, out = virtualize(str(FIXTURES / f"ims_{libver}_reconstruction.ims"), url="https://data.test/x")
-        doc = lambda p: json.loads(out.bytes_entries[f"vzip_source/hdf5/{p}zarr.json"])  # noqa: E731
+        assert isinstance(out, Output)
+        doc = lambda p, out=out: json.loads(out.bytes_entries[f"vzip_source/hdf5/{p}zarr.json"])  # noqa: E731
         assert "ims" not in json.loads(out.bytes_entries["zarr.json"])["attributes"]["vzip_virtualized"]
         channel = doc("DataSet/ResolutionLevel 0/TimePoint 0/Channel 1/")["attributes"]["vzip_virtualized"]["ims"]
         assert channel["images"] == {"Data": {"level": 0, "t": 0, "c": 1, "shape": [2, 8, 8]}}
@@ -283,7 +290,8 @@ def test_source_node_holds_the_hdf5_tree():
             "scalar": ("array", "uint32", []), "table": ("array", "uint8", [4, 16]),
             "unallocated": ("array", "int32", [3]),
         }, libver
-        assert arrays["unallocated"]["fill_value"] == -1 and arrays["deflate"]["fill_value"] == 9
+        assert arrays["unallocated"]["fill_value"] == -1
+        assert arrays["deflate"]["fill_value"] == 9
         assert arrays["deflate"]["codecs"][-1] == {"name": "zlib", "configuration": {"level": 1}}
 
 
@@ -298,19 +306,21 @@ def test_source_node_holds_the_hdf5_tree():
 def test_source_node_keeps_what_the_review_found():
     """Datatypes and shapes of attributes, named datatypes, references, external
     storage and links, null dataspaces, fill values, names and the attribute
-    budget (spec/virtualize/ims.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#5-source-metadata>);
+    budget (spec/zarrify/ims.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#5-source-metadata>);
     js/test/ims/verify.py rebuilds them all."""
     for libver in ("earliest", "latest"):
         _, out = virtualize(str(FIXTURES / f"ims_{libver}_review.ims"), url="https://data.test/x")
-        doc = lambda p: json.loads(out.bytes_entries[f"vzip_source/hdf5/{p}zarr.json"])  # noqa: E731
-        source = lambda p: doc(p)["attributes"]["vzip_virtualized"]["ims"]  # noqa: E731
+        assert isinstance(out, Output)
+        doc = lambda p, out=out: json.loads(out.bytes_entries[f"vzip_source/hdf5/{p}zarr.json"])  # noqa: E731
+        source = lambda p, doc=doc: doc(p)["attributes"]["vzip_virtualized"]["ims"]  # noqa: E731
         x = source("X/")
         a = x["attributes"]
         i16 = {"class": "integer", "size": 2, "order": "little", "signed": True}
         assert a["imaris"] == "2.5 micrometer"
         assert a["imaris_nul"]["value"] == ["a", "", "b"]
-        assert a["s1_trail"]["value"] == ["a", "b", "", ""] and a["s1_2d"]["shape"] == [2, 2]
+        assert a["s1_trail"]["value"] == ["a", "b", "", ""]
+        assert a["s1_2d"]["shape"] == [2, 2]
         assert "data" in a["s3_nul"]
         assert a["u8s"] == {"datatype": {"class": "integer", "size": 1, "order": "little", "signed": False}, "value": 3}
         assert a["u64"]["value"] == ["18446744073709551615", "9007199254740992", 3]
@@ -319,7 +329,8 @@ def test_source_node_keeps_what_the_review_found():
         table = paths(out)
         assert a["refs"]["value"] == [table.index("/DataSet"), table.index("/X"), None]
         assert a["typed"] == {"named": table.index("/X/zT"), "value": [0, 1]}
-        assert a["n\u00c3A"]["name"] == {"latin1": "n\u00c3A"} and a["n\u00e9"]["value"] == 2
+        assert a["n\u00c3A"]["name"] == {"latin1": "n\u00c3A"}
+        assert a["n\u00e9"]["value"] == 2
         assert [c["name"] for c in x["attribute_collisions"]] == ["n\u00c3A", {"latin1": "n\u00e9"}]
         assert source("")["attributes"]["forward"]["value"] == table.index("/Z")
         assert x["names"] == {"lat\u00e9n": {"latin1": "lat\u00e9n"}}
@@ -331,12 +342,14 @@ def test_source_node_keeps_what_the_review_found():
         u = x["unsupported"]
         assert set(u) == {"__reserved", "external", "zarr.json"}
         assert u["external"]["external"] == [{"file": "external.bin", "offset": 0, "size": 16}]
-        assert u["external"]["attributes"]["kept"]["value"] == 1 and u["zarr.json"]["attributes"]["kept"]["value"] == 1
+        assert u["external"]["attributes"]["kept"]["value"] == 1
+        assert u["zarr.json"]["attributes"]["kept"]["value"] == 1
         assert source("X/c/")["unsupported"]["zarr.json"]["shape"] == [3]
         assert source("X/a_typed/") == {"named": table.index("/X/zT")}
         assert source("X/null/") == {"datatype": {"class": "float", "size": 4, "order": "little"}, "shape": None}
         # References are indexes into the object table, which lists each object once, in the walk's order.
-        assert doc("X/refs/")["data_type"] == "int32" and doc("X/refs/")["shape"] == [4]
+        assert doc("X/refs/")["data_type"] == "int32"
+        assert doc("X/refs/")["shape"] == [4]
         refs = struct.unpack("<4i", out.bytes_entries["vzip_source/hdf5/X/refs/c/0"])
         table = paths(out)
         assert [table[i] if i >= 0 else None for i in refs] == ["/DataSet", "/X", "/Z", None]
@@ -345,30 +358,37 @@ def test_source_node_keeps_what_the_review_found():
                                          "base": {"class": "integer", "size": 1, "order": "little", "signed": False},
                                          "string": True, "padding": "null-terminated", "charset": "utf-8"},
                                                                  "value": "yes"}}}
-        assert doc("X/cvlen/")["node_type"] == "group" and source("X/regions/")["shape"] == [1]
+        assert doc("X/cvlen/")["node_type"] == "group"
+        assert source("X/regions/")["shape"] == [1]
         for name in ("allempty", "noelements"):
-            assert doc(f"X/{name}/")["node_type"] == "group" and source(f"X/{name}/")["shape"] in ([2], [0])
+            assert doc(f"X/{name}/")["node_type"] == "group"
+            assert source(f"X/{name}/")["shape"] in ([2], [0])
         strfill, negzero = doc("X/strfill/"), doc("X/negzero/")
-        assert strfill["fill_value"] == 0 and source("X/strfill/")["fill"] == "Ti9BAA=="
-        assert negzero["fill_value"] == 0 and source("X/negzero/")["fill"] == "gAAAAAAAAAA="
-        assert doc("X/nanfill/")["fill_value"] == "NaN" and doc("X/f32fill/")["fill_value"] == 0.10000000149011612
+        assert strfill["fill_value"] == 0
+        assert source("X/strfill/")["fill"] == "Ti9BAA=="
+        assert negzero["fill_value"] == 0
+        assert source("X/negzero/")["fill"] == "gAAAAAAAAAA="
+        assert doc("X/nanfill/")["fill_value"] == "NaN"
+        assert doc("X/f32fill/")["fill_value"] == 0.10000000149011612
         # The protocol texts over the document's budget are arrays; the small attribute after them is not.
         custom = out.bytes_entries["vzip_source/hdf5/DataSetInfo/CustomData/zarr.json"]
         held = source("DataSetInfo/CustomData/")["attributes"]
         assert [k for k, v in held.items() if isinstance(v, dict) and "array" in v] == [
             f"Protocol {i:02d}" for i in range(8, 12)]
-        assert held["Small"]["value"] == 1 and len(custom) < (1 << 16) + 4096
+        assert held["Small"]["value"] == 1
+        assert len(custom) < (1 << 16) + 4096
 
 
 def test_source_node_keeps_integer_fill_values_beyond_2_53():
     _, out = virtualize(str(FIXTURES / "exact" / "ims_big_fill.ims"), url="https://data.test/x")
+    assert isinstance(out, Output)
     fills = {n: json.loads(out.bytes_entries[f"vzip_source/hdf5/{n}/zarr.json"])["fill_value"]
              for n in ("bigfill", "u64fill", "negfill")}
     assert fills == {"bigfill": 2**60 + 1, "u64fill": 2**64 - 1, "negfill": -2**63}
     assert b'"fill_value":18446744073709551615' in out.bytes_entries["vzip_source/hdf5/u64fill/zarr.json"]
 
 
-@pytest.mark.parametrize("max_objects,per_image,overflow", [
+@pytest.mark.parametrize(("max_objects", "per_image", "overflow"), [
     (100000, 5, {}),
     (5, 5, {}),  # 5 + 5 x 12 = 65: every object
     (4, 5, {"Thumbnail": 1}),  # the last object met, Thumbnail/Data, is beyond
@@ -377,16 +397,15 @@ def test_source_node_keeps_integer_fill_values_beyond_2_53():
             "DataSetInfo": 4, "Thumbnail": 1}),
 ])
 def test_source_node_counts_the_members_beyond_the_object_limit(monkeypatch, max_objects, per_image, overflow):
-    """The walk meets at most MAX_OBJECTS + PER_IMAGE x (Data datasets) objects (spec/virtualize/ims.md
+    """The walk meets at most MAX_OBJECTS + PER_IMAGE x (Data datasets) objects (spec/zarrify/ims.md
     §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/ims.r25.md#51-the-tree>), so that the
     image's tree leaves DataSetInfo and Thumbnail room; the members beyond are counted.
     The time-lapse has 12 Data datasets (2 levels, 3 time points, 2 channels), each with Histogram and
     Histogram1024: 57 objects of the image's tree and 8 others, the root included."""
-    from refkv_reference.ims import source
-
     monkeypatch.setattr(source, "MAX_OBJECTS", max_objects)
     monkeypatch.setattr(source, "PER_IMAGE", per_image)
     _, out = virtualize(str(FIXTURES / "ims_latest_timelapse.ims"), url="https://data.test/x")
+    assert isinstance(out, Output)
     found = {}
     for k, v in out.bytes_entries.items():
         if k.startswith("vzip_source/hdf5") and k.endswith("zarr.json"):
@@ -400,14 +419,15 @@ def test_source_node_counts_the_members_beyond_the_object_limit(monkeypatch, max
 def test_source_node_keeps_what_the_second_review_found():
     """Documents over their budget, shared datatypes, references at any depth, compound
     datasets with variable-length members, filters, region references, virtual datasets
-    and NaNs (spec/virtualize/ims.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#5-source-metadata>);
+    and NaNs (spec/zarrify/ims.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#5-source-metadata>);
     js/test/ims/verify.py rebuilds them all."""
     for libver in ("earliest", "latest"):
         _, out = virtualize(str(FIXTURES / f"ims_{libver}_review2.ims"), url="https://data.test/x")
+        assert isinstance(out, Output)
         e = out.bytes_entries
-        doc = lambda p: json.loads(e[f"vzip_source/hdf5/{p}zarr.json"])  # noqa: E731
-        source = lambda p: doc(p)["attributes"]["vzip_virtualized"]["ims"]  # noqa: E731
+        doc = lambda p, e=e: json.loads(e[f"vzip_source/hdf5/{p}zarr.json"])  # noqa: E731
+        source = lambda p, doc=doc: doc(p)["attributes"]["vzip_virtualized"]["ims"]  # noqa: E731
         table = paths(out)
         deep = "/Deep" + "".join(f"/{'n' * 200}{i}" for i in range(4))
         # A shared datatype is described once, in its entry of datatypes; its users name it.
@@ -420,19 +440,24 @@ def test_source_node_keeps_what_the_second_review_found():
         assert refs["few"]["value"] == [table.index(deep), None]
         assert refs["many"] == {"datatype": {"class": "reference", "size": 8, "kind": 0}, "array": "attributes/1"}
         assert set(struct.unpack("<300i", e["vzip_source/attributes/1/c/0"])) == {table.index(deep)}
-        assert doc("Refs/refs/")["data_type"] == "int32" and len(e["vzip_source/hdf5/Refs/refs/c/0"]) == 600
+        assert doc("Refs/refs/")["data_type"] == "int32"
+        assert len(e["vzip_source/hdf5/Refs/refs/c/0"]) == 600
         # Hard links are indexes into the object table, so long paths do not repeat.
         assert source("Hard/") == {"links": {f"l{i:03d}": {"hard": table.index(deep)} for i in range(100)}}
         # Entries over the budget are spilled, in order, to a family of JSON texts.
         many = source("Many/")
-        assert len(e["vzip_source/hdf5/Many/zarr.json"]) < (1 << 16) + 4096 and many["spilled"] == "spilled/0"
+        assert len(e["vzip_source/hdf5/Many/zarr.json"]) < (1 << 16) + 4096
+        assert many["spilled"] == "spilled/0"
         spilled = [json.loads(m) for m in family(out, "spilled/0")]
         held = {**many["attributes"], **{k: v for m in spilled for k, v in m["attributes"].items()}}
-        assert list(held) == [f"{'k' * 250}{i:03d}" for i in range(300)] and len(many["attributes"]) + len(spilled) == 300
+        assert list(held) == [f"{'k' * 250}{i:03d}" for i in range(300)]
+        assert len(many["attributes"]) + len(spilled) == 300
         # Each held as JSON, but for the one whose entry first did not fit, which is in the array form.
         i8 = {"class": "integer", "size": 1, "order": "little", "signed": True}
-        assert [i for i, v in enumerate(held.values()) if v != {"datatype": i8, "value": i % 100}] == [len(many["attributes"])]
-        assert spilled[0]["attributes"][f"{'k' * 250}{len(many['attributes']):03d}"] == {"datatype": i8, "array": "attributes/0", "shape": []}
+        assert [i for i, v in enumerate(held.values())
+                if v != {"datatype": i8, "value": i % 100}] == [len(many["attributes"])]
+        assert spilled[0]["attributes"][f"{'k' * 250}{len(many['attributes']):03d}"] == {
+            "datatype": i8, "array": "attributes/0", "shape": []}
         # A string datatype of no bytes holds empty texts.
         if libver == "earliest":
             assert source("Empty/")["attributes"]["zz"] == {
@@ -450,14 +475,19 @@ def test_source_node_keeps_what_the_second_review_found():
                                                  if libver == "latest" else {"blocks": [[[0, 5], [1, 5]]]})}}
         assert a["points"]["value"]["selection"]["points"] == [[0, 1], [5, 9], [2, 2]]
         # NaNs: only the canonical one, and no negative zero, as JSON numbers.
-        assert a["nan"]["value"] == ["NaN", 1.5] and "data" in a["nan_payload"] and "data" in a["negzero"]
+        assert a["nan"]["value"] == ["NaN", 1.5]
+        assert "data" in a["nan_payload"]
+        assert "data" in a["negzero"]
         # A compound with variable-length and reference members: its bytes, and a column per such member.
-        assert doc("X/cvlen/")["node_type"] == "group" and doc("X/cvlen/data/")["shape"] == [3, 44]
-        assert family(out, "hdf5/X/cvlen/1", (FIXTURES / f"ims_{libver}_review2.ims").read_bytes()) == [b"x", b"yy", b""]
+        assert doc("X/cvlen/")["node_type"] == "group"
+        assert doc("X/cvlen/data/")["shape"] == [3, 44]
+        assert family(out, "hdf5/X/cvlen/1",
+                      (FIXTURES / f"ims_{libver}_review2.ims").read_bytes()) == [b"x", b"yy", b""]
         assert doc("X/cvlen/3/")["data_type"] == "int32"
         assert family(out, "hdf5/X/regions")[1] == b'{"object":%d,"selection":{"select":"all"}}' % index("/X/target")
         # Filters: Fletcher32's checksum left out of each chunk, shuffled chunks decoded and copied.
-        assert [r[0][1] for k, r in sorted(out.refs.items()) if k.startswith("vzip_source/hdf5/X/fletcher/c/")] == [120] * 4
+        assert [r[0][1] for k, r in sorted(out.refs.items())
+                if k.startswith("vzip_source/hdf5/X/fletcher/c/")] == [120] * 4
         assert doc("X/fletcher_deflate/")["codecs"][-1]["name"] == "zlib"
         assert struct.unpack(">30d", e["vzip_source/hdf5/X/shuffle_all/c/0"]) == tuple(range(30))
         u = source("X/")["unsupported"]
@@ -474,13 +504,14 @@ def test_source_node_keeps_what_the_third_review_found():
     indexes in a spilled document; variable-length data that HDF5 left unshuffled
     (filter mask bit 0); tiny chunks indexed implicitly; attribute data referenced
     where the file holds it; the image datasets' shapes; and the names and channels
-    the root lists (spec/virtualize/ims.md §4
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#4-output>, §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#5-source-metadata>);
+    the root lists (spec/zarrify/ims.md §4
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#4-output>, §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#5-source-metadata>);
     js/test/ims/verify.py rebuilds them all, and js/test/ims/review.test.ts has the same cases."""
     path = FIXTURES / "ims_latest_review3.ims"
     raw = path.read_bytes()
     _, out = virtualize(str(path), url="https://data.test/x")
+    assert isinstance(out, Output)
     e = out.bytes_entries
     doc = lambda p: json.loads(e[f"vzip_source/hdf5/{p}zarr.json"])  # noqa: E731
     source = lambda p: doc(p)["attributes"]["vzip_virtualized"]["ims"]  # noqa: E731
@@ -495,7 +526,8 @@ def test_source_node_keeps_what_the_third_review_found():
     spill = source("Spill/")
     spilled = [json.loads(m) for m in family(out, spill["spilled"])]
     held = {k: v for m in [spill, *spilled] for k, v in m.get("attributes", {}).items()}
-    assert "zz" not in spill["attributes"] and held["zz"]["value"] == [d, None, table.index("/Deep" + "".join(f"/{'n' * 200}{i}" for i in range(4)))]
+    assert "zz" not in spill["attributes"]
+    assert held["zz"]["value"] == [d, None, table.index("/Deep" + "".join(f"/{'n' * 200}{i}" for i in range(4)))]
     # Shuffled variable-length data: its chunks skip the shuffle, and are decoded without it.
     assert family(out, "hdf5/R/names", raw) == [b"a", b"bb", b"", b"dddd"]
     # Tiny chunks indexed implicitly: contiguous values, a chunk per row, or the chunks themselves.
@@ -509,29 +541,32 @@ def test_source_node_keeps_what_the_third_review_found():
               "managed": (held["managed"]["array"], np.arange(200, dtype="<f8")),
               "huge": (held["huge"]["array"], np.arange(20000, dtype="<u4"))}
     for name, (array, values) in arrays.items():
-        ranges = out.refs[f"vzip_source/{array}/c/0"]
+        ranges = ranges_of(out, f"vzip_source/{array}/c/0")
         assert b"".join(raw[o : o + n] for o, n in ranges) == values.tobytes(), name
     channel = source("DataSet/ResolutionLevel 0/TimePoint 0/Channel 0/")
     assert channel["images"]["Data"] == {"level": 0, "t": 0, "c": 0, "shape": [2, 8, 8]}
     # The root: a name or label over 256 bytes is left out; more than 64 channels, no omero.
-    roots = {n: json.loads(virtualize(str(FIXTURES / f"ims_latest_{n}.ims"), url="https://data.test/x")[1]
-                           .bytes_entries["zarr.json"])["attributes"]["ome"] for n in ("long_names", "many_channels")}
+    roots = {}
+    for n in ("long_names", "many_channels"):
+        _, root = virtualize(str(FIXTURES / f"ims_latest_{n}.ims"), url="https://data.test/x")
+        assert isinstance(root, Output)
+        roots[n] = json.loads(root.bytes_entries["zarr.json"])["attributes"]["ome"]
     assert "name" not in roots["long_names"]["multiscales"][0]
     assert [c["label"] for c in roots["long_names"]["omero"]["channels"]] == ["Channel 0", "\u00e9" * 128]
-    assert "omero" not in roots["many_channels"] and roots["many_channels"]["multiscales"][0]["name"] == "y" * 256
+    assert "omero" not in roots["many_channels"]
+    assert roots["many_channels"]["multiscales"][0]["name"] == "y" * 256
 
 
 def array(out, path: str, source: bytes) -> np.ndarray:
     """A numeric array under vzip_source, its chunks copied or referenced in `source` (zlib or raw)."""
-    import zlib
-
     e = out.bytes_entries
     doc = json.loads(e[f"vzip_source/{path}/zarr.json"])
     shape, chunk = doc["shape"], doc["chunk_grid"]["configuration"]["chunk_shape"]
-    dtype = np.dtype(doc["data_type"]).newbyteorder("<" if doc["codecs"][0].get("configuration", {}).get("endian") != "big" else ">")
+    big = doc["codecs"][0].get("configuration", {}).get("endian") == "big"
+    dtype = np.dtype(doc["data_type"]).newbyteorder(">" if big else "<")
     zipped = any(c["name"] == "zlib" for c in doc["codecs"])
-    grid = [-(-n // c) for n, c in zip(shape, chunk)]
-    full = np.zeros([g * c for g, c in zip(grid, chunk)], dtype)
+    grid = [-(-n // c) for n, c in zip(shape, chunk, strict=True)]
+    full = np.zeros([g * c for g, c in zip(grid, chunk, strict=True)], dtype)
     for index in np.ndindex(*grid):
         key = f"vzip_source/{path}/c/" + "/".join(map(str, index))
         if key in e:
@@ -539,18 +574,20 @@ def array(out, path: str, source: bytes) -> np.ndarray:
         else:
             b = b"".join(source[o : o + n] for o, n in out.refs[key])
             b = zlib.decompress(b) if zipped else b
-        full[tuple(slice(i * c, (i + 1) * c) for i, c in zip(index, chunk))] = np.frombuffer(b, dtype).reshape(chunk)
+        full[tuple(slice(i * c, (i + 1) * c) for i, c in zip(index, chunk, strict=True))] = (
+            np.frombuffer(b, dtype).reshape(chunk))
     return full[tuple(slice(0, n) for n in shape)]
 
 
 def test_source_node_copies_partial_edge_chunks_stored_unfiltered():
     """Datasets whose partial edge chunks HDF5 stores unfiltered (H5Pset_chunk_opts): those chunks
     are copied raw and the others decoded, under every chunk index and with shuffle and
-    Fletcher32; without a partial chunk, the chunks are referenced (spec/virtualize/ims.md §5.4
+    Fletcher32; without a partial chunk, the chunks are referenced (spec/zarrify/ims.md §5.4
     <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/ims.r25.md#54-datasets>)."""
     path = FIXTURES / "ims_latest_raw_edges.ims"
     raw = path.read_bytes()
     _, out = virtualize(str(path), url="https://data.test/x")
+    assert isinstance(out, Output)
     group = json.loads(out.bytes_entries["vzip_source/hdf5/E/zarr.json"])
     assert "vzip_virtualized" not in group["attributes"]  # nothing unsupported
     expected = {"fixed": np.arange(10), "extensible": np.arange(10), "btree": np.arange(70).reshape(10, 7),
@@ -566,9 +603,10 @@ def test_source_node_copies_partial_edge_chunks_stored_unfiltered():
 
 def test_source_node_lists_region_references_over_the_budget_of_selections():
     """400 references to a selection of about 20 KB: the dataset is unsupported, and what
-    it read does not count against the references after it (spec/virtualize/ims.md §5.4
+    it read does not count against the references after it (spec/zarrify/ims.md §5.4
     <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/ims.r25.md#54-datasets>)."""
     _, out = virtualize(str(FIXTURES / "ims_latest_review3.ims"), url="https://data.test/x")
+    assert isinstance(out, Output)
     r = json.loads(out.bytes_entries["vzip_source/hdf5/R/zarr.json"])["attributes"]["vzip_virtualized"]["ims"]
     assert r["unsupported"]["over"]["reason"] == "over the budget of region selections"
     assert r["attributes"]["region"]["value"]["selection"]["select"] == "hyperslab"
@@ -576,37 +614,39 @@ def test_source_node_lists_region_references_over_the_budget_of_selections():
 
 def test_source_node_lists_references_in_a_chunk_too_large_to_decode():
     _, out = virtualize(str(FIXTURES / "ims_latest_review3.ims"), url="https://data.test/x")
+    assert isinstance(out, Output)
     r = json.loads(out.bytes_entries["vzip_source/hdf5/R/zarr.json"])["attributes"]["vzip_virtualized"]["ims"]
     assert r["unsupported"]["bigchunk"]["reason"] == "a chunk of more than 2^24 bytes to decode"
 
 
 def test_source_node_reads_every_chunk_index():
     """Extensible arrays, version 2 B-trees, implicit and fixed array indexes at maximum
-    dimensions (spec/virtualize/ims.md §7.5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#75-datasets-and-chunks>);
+    dimensions (spec/zarrify/ims.md §7.5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#75-datasets-and-chunks>);
     js/test/ims/verify.py compares the data with h5py."""
     _, out = virtualize(str(FIXTURES / "ims_latest_indexes.ims"), url="https://data.test/x")
+    assert isinstance(out, Output)
     group = json.loads(out.bytes_entries["vzip_source/hdf5/Indexes/zarr.json"])
     assert "vzip_virtualized" not in group["attributes"]  # nothing unsupported
-    chunks = {name: sum(1 for k in [*out.refs, *out.bytes_entries] if k.startswith(f"vzip_source/hdf5/Indexes/{name}/c/"))
-              for name in ("ea", "ea_last", "ea_deflate", "bt2", "bt2_deflate", "implicit", "implicit_max", "farray_max")}
+    chunks = {name: sum(1 for k in [*out.refs, *out.bytes_entries]
+                        if k.startswith(f"vzip_source/hdf5/Indexes/{name}/c/"))
+              for name in ("ea", "ea_last", "ea_deflate", "bt2", "bt2_deflate", "implicit", "implicit_max",
+                           "farray_max")}
     # The implicit index's chunks of 10 elements hold its 95 in row-major order: one array chunk.
     assert chunks == {"ea": 600, "ea_last": 2 * 14, "ea_deflate": 72, "bt2": 15 * 17, "bt2_deflate": 4, "implicit": 1,
                       "implicit_max": 4, "farray_max": 9}
 
 
 def test_json_text():
-    """The JSON text whose size a document's budget counts (spec/virtualize/ims.md §5.6
+    """The JSON text whose size a document's budget counts (spec/zarrify/ims.md §5.6
     <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/ims.r25.md#56-documents>);
     js/test/ims/source.test.ts has the same cases."""
-    from refkv_reference.ims.source import canonical, size
-
     cases = [
         (None, "null"), (True, "true"), (0, "0"), (-0.0, "0"), (2.0, "2"), (1.5, "1.5"), (1e-7, "1e-7"),
         (0.000001, "0.000001"), (1e20, "100000000000000000000"), (1e21, "1e+21"), (-1.25e-300, "-1.25e-300"),
         (0.1, "0.1"), (123456.789, "123456.789"), (2**53 + 0.0, "9007199254740992"), (5e-324, "5e-324"),
         (1.2345678901234567e19, "12345678901234567000"), (-(2.0**60), "-1152921504606847000"),
-        ("a\"\\\n\x01é", '"a\\"\\\\\\n\\u0001é"'), ([1, "x"], '[1,"x"]'),
+        ('a"\\\n\x01é', '"a\\"\\\\\\n\\u0001é"'), ([1, "x"], '[1,"x"]'),
         ({"b": 1, "a": {"é": [], "z": None}, "B": 2}, '{"B":2,"a":{"z":null,"é":[]},"b":1}'),
     ]
     for value, text in cases:
@@ -615,11 +655,9 @@ def test_json_text():
 
 
 def test_parse_selection():
-    """Serialized selections of each type and version (spec/virtualize/ims.md §7.9
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#79-source-metadata-structures>);
+    """Serialized selections of each type and version (spec/zarrify/ims.md §7.9
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#79-source-metadata-structures>);
     js/test/ims/source.test.ts has the same cases."""
-    from refkv_reference.ims.hdf5 import parse_selection
-
     u32 = lambda *v: b"".join(x.to_bytes(4, "little") for x in v)  # noqa: E731
     u64 = lambda *v: b"".join(x.to_bytes(8, "little") for x in v)  # noqa: E731
     cases = [
@@ -638,37 +676,27 @@ def test_parse_selection():
 
 
 def test_parse_selection_rejects_an_unknown_type():
-    from refkv_reference.ims.hdf5 import parse_selection
-
     with pytest.raises(Rejected, match="unknown selection type 4"):
         parse_selection(bytes([4, 0, 0, 0, 1, 0, 0, 0]), 0)
 
 
 def test_parse_selection_rejects_an_unknown_version():
-    from refkv_reference.ims.hdf5 import parse_selection
-
     with pytest.raises(Rejected, match="unsupported selection version 4"):
         parse_selection(bytes([2, 0, 0, 0, 4, 0, 0, 0]), 0)
 
 
 def test_parse_selection_rejects_an_unknown_encoding_size():
-    from refkv_reference.ims.hdf5 import parse_selection
-
     with pytest.raises(Rejected, match="invalid selection encoding size 3"):
         parse_selection(bytes([2, 0, 0, 0, 3, 0, 0, 0, 0, 3, 1, 0, 0, 0]), 0)
 
 
 def test_parse_selection_rejects_unknown_flags():
-    from refkv_reference.ims.hdf5 import parse_selection
-
     with pytest.raises(Rejected, match="unknown selection flags"):
         parse_selection(bytes([2, 0, 0, 0, 3, 0, 0, 0, 2, 8, 1, 0, 0, 0]), 0)
 
 
 def test_parse_selection_rejects_rank_0():
     """Points and irregular hyperslabs of rank 0, whose count no bytes bound."""
-    from refkv_reference.ims.hdf5 import parse_selection
-
     for data in (bytes([1, 0, 0, 0, 1, 0, 0, 0, *[0] * 8, 0, 0, 0, 0, 255, 255, 255, 255]),
                  bytes([2, 0, 0, 0, 3, 0, 0, 0, 0, 8, 0, 0, 0, 0, *[0, 0, 0, 0, 4, 0, 0, 0]])):
         with pytest.raises(Rejected, match="a selection of rank 0"):
@@ -676,38 +704,28 @@ def test_parse_selection_rejects_rank_0():
 
 
 def test_parse_selection_rejects_a_truncated_selection():
-    from refkv_reference.ims.hdf5 import parse_selection
-
     with pytest.raises(Rejected, match="truncated selection"):
         parse_selection(bytes([1, 0, 0, 0, 2, 0, 0, 0, 4, 1, 0, 0, 0, 9, 0, 0, 0]), 0)
 
 
 def _dataset(dims, maxdims, chunk):
-    from refkv_reference.ims.hdf5 import Dataset, Datatype
-
-    grid = [-(-n // c) for n, c in zip(dims, chunk)]
+    grid = [-(-n // c) for n, c in zip(dims, chunk, strict=True)]
     return Dataset(dims, maxdims, Datatype(0, 1, 0, b""), chunk, grid, [], "farray", None, None)
 
 
 def test_max_grid():
-    """The chunk counts at the maximum dimensions (spec/virtualize/ims.md §7.5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#75-datasets-and-chunks>)."""
-    from refkv_reference.ims.hdf5 import UNDEFINED, _max_grid
-
+    """The chunk counts at the maximum dimensions (spec/zarrify/ims.md §7.5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#75-datasets-and-chunks>)."""
     assert _max_grid(_dataset([5, 6], None, [2, 4]), False) == [3, 2]
     assert _max_grid(_dataset([5, 6], [9, 6], [2, 4]), False) == [5, 2]
     assert _max_grid(_dataset([5, 6], [UNDEFINED, 6], [2, 4]), True) == [None, 2]
 
 
 def test_max_grid_rejects_a_maximum_below_the_size():
-    from refkv_reference.ims.hdf5 import _max_grid
-
     with pytest.raises(Rejected, match="maximum dimension"):
         _max_grid(_dataset([5, 6], [4, 6], [2, 4]), False)
 
 
 def test_max_grid_rejects_an_unlimited_dimension_the_index_does_not_allow():
-    from refkv_reference.ims.hdf5 import UNDEFINED, _max_grid
-
     with pytest.raises(Rejected, match="maximum dimension"):
         _max_grid(_dataset([5, 6], [UNDEFINED, 6], [2, 4]), False)

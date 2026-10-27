@@ -38,6 +38,22 @@ import {
 
 export class HttpResolutionError extends Error {}
 
+/** Whether this runs in a browser (a page or a worker), where fetch reports a cross-origin read
+ * the server does not allow as it reports a network error. */
+export function inBrowser(): boolean {
+  const g = globalThis as { document?: unknown; WorkerGlobalScope?: unknown };
+  return g.document !== undefined || g.WorkerGlobalScope !== undefined;
+}
+
+/** The message for a request to `url` that got no response (`e`, fetch's error): in a browser,
+ * with the likeliest cause besides the network, a server that does not allow the read (CORS). */
+export function fetchFailed(url: string, e: unknown, browser = inBrowser()): string {
+  const message = `${url}: ${(e as Error).message}`;
+  if (!browser || !(e instanceof TypeError)) return message;
+  return `${message}. A browser reports this for a server that does not allow cross-origin reads ` +
+    "(no Access-Control-Allow-Origin header for this page) as well as for one it cannot reach";
+}
+
 /**
  * A `fetch` that applies rule 3 of spec §6.7
  * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> to the addresses it
@@ -115,7 +131,7 @@ export async function readHttpRange(
       : await fetch(url, { headers, signal, redirect: "follow", cache: "no-store" });
   } catch (e) {
     signal?.throwIfAborted();
-    throw new HttpResolutionError(`${url}: ${(e as Error).message}`);
+    throw new HttpResolutionError(fetchFailed(url, e));
   }
   const fail = (message: string): never => {
     throw new HttpResolutionError(`${url}: ${message}`);
@@ -283,8 +299,8 @@ export async function openHttpFile(
 const STRONG_ETAG = /^"[\x21\x23-\x7e]*"$/;
 
 /**
- * The ETag of every response for one object, for its `etag` pin (spec/virtualize.md §1.2
- * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>).
+ * The ETag of every response for one object, for its `etag` pin (spec/zarrify.md §1.2
+ * <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>).
  */
 export class EtagLog {
   private seen = new Set<string | null>();

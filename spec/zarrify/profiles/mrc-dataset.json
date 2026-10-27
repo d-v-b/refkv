@@ -1,0 +1,14 @@
+{
+  "name": "mrc-dataset",
+  "title": "MRC dataset",
+  "uuid": "f139bf4e-7bab-4c3c-9b2d-66ba747f9b93",
+  "version": 0,
+  "kind": "layout",
+  "sniff": null,
+  "chosen_by": null,
+  "suffixes": [],
+  "reference": null,
+  "source": "MRC2014, as a dataset",
+  "inputs": "",
+  "for": ""
+}

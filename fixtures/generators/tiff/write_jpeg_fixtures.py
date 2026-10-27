@@ -1,13 +1,13 @@
 """Writes JPEG-in-TIFF files to fixtures/tiff/ for the JPEG rule of
-spec/virtualize/tiff.md §4.3
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#43-data-types-and-codecs> and
-spec/virtualize/tiff.md §7.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#73-chunks>.
+spec/zarrify/tiff.md §4.3
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs> and
+spec/zarrify/tiff.md §7.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#73-chunks>.
 
 - `jpeg_aperio_rgb.tif`: like Aperio SVS. The IFD's JPEGTables holds the
   quantization and Huffman tables, and each tile is an abbreviated stream
   (no tables, no color marker) of RGB samples with component IDs 0, 1, 2,
   which a JPEG decoder would take for YCbCr without the Adobe marker the
-  virtualizer adds. PhotometricInterpretation is RGB.
+  zarrifier adds. PhotometricInterpretation is RGB.
 - `jpeg_ycbcr.tif`, `jpeg_gray.tif`: written by tifffile.
 - `edge_reject_jpeg_*.tif`: inputs the rule rejects.
 
@@ -20,12 +20,15 @@ from __future__ import annotations
 
 import struct
 from pathlib import Path
+from typing import cast
 
 import imagecodecs
 import numpy as np
 import tifffile
 
-from write_edge_fixtures import LONG, SHORT, UNDEFINED, Tiff
+# the script's directory, on sys.path when it runs; not on pyrefly's search-path, since every
+# generator directory has a write_fixtures module
+from write_edge_fixtures import LONG, SHORT, UNDEFINED, Tiff  # pyrefly: ignore[missing-import]
 
 OUT = Path(__file__).parents[2] / "tiff"
 rng = np.random.default_rng(7)
@@ -72,7 +75,8 @@ def aperio(name: str, rgb: np.ndarray, tile: int) -> None:
             block = np.zeros((tile, tile, 3), np.uint8)
             part = rgb[y : y + tile, x : x + tile]
             block[: part.shape[0], : part.shape[1]] = part
-            full = imagecodecs.jpeg8_encode(block, level=90, colorspace="RGB", outcolorspace="RGB")
+            # imagecodecs' stubs: an encoder gives bytes, without out=
+            full = cast("bytes", imagecodecs.jpeg8_encode(block, level=90, colorspace="RGB", outcolorspace="RGB"))
             segs = segments(full)
             t_segs = b"".join(s for m, s in segs if m in (0xDB, 0xC4))
             tables = b"\xff\xd8" + t_segs + b"\xff\xd9"
@@ -100,7 +104,8 @@ def main() -> None:
     # a tile of 2 bytes; 16-bit samples.
     small = rgb[:32, :32]
     planar = tifffile.TiffWriter(OUT / "edge_reject_jpeg_planar.tif")
-    planar.write(np.moveaxis(small, -1, 0), tile=(32, 32), compression="jpeg", photometric="rgb", planarconfig="separate")
+    planar.write(np.moveaxis(small, -1, 0), tile=(32, 32), compression="jpeg", photometric="rgb",
+                 planarconfig="separate")
     planar.close()
 
     def one_tile(name: str, entries_change, tile_bytes: bytes | None = None) -> None:
@@ -116,7 +121,7 @@ def main() -> None:
 
     one_tile("edge_reject_jpeg_no_photometric.tif", lambda e: e.pop(262))
     one_tile("edge_reject_jpeg_tables.tif", lambda e: e.update({347: (UNDEFINED, b"\x00\x01\x02\x03\x04\x05")}))
-    one_tile("edge_reject_jpeg_short_tile.tif", lambda e: None, tile_bytes=b"\xff\xd8")
+    one_tile("edge_reject_jpeg_short_tile.tif", lambda _e: None, tile_bytes=b"\xff\xd8")
     one_tile("edge_reject_jpeg_16bit.tif", lambda e: e.update({258: (SHORT, [16, 16, 16])}))
     for p in sorted(OUT.glob("*jpeg*.tif")):
         print(p.name, p.stat().st_size)

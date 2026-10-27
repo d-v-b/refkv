@@ -8,15 +8,17 @@ installed, nor obstore, which no install without the virtualizarr or obstore
 extra has, and the operations work without them: build a ReferenceStore from a
 mapping, read a bytes value and a reference, save it, reopen the archive with
 refkv.open and read it again, open it over HTTP (from a server on the loopback
-interface, with its source served beside it), run the conformance CLI on it, and virtualize a
+interface, with its source served beside it), run the conformance CLI on it, and zarrify a
 NIfTI file and a TIFF, both through the Rust core (refkv._core), which the install
 must have built, and a Zarr v2 store. Each optional part names the extra it needs.
 
-With `zarr`: refkv.zarr reads the same archive through zarr, and the image
-codecs and the VirtualiZarr conversion name their extras."""
+With `zarr`: zarr finds refkv's codecs through refkv's `zarr.codecs` entry points, before
+refkv.zarr is imported, refkv.zarr reads the same archive through zarr, a FITS file's tiles
+decode, and the codecs whose decoders need another extra (refkv.tiff_lzw, refkv.stream) and
+the VirtualiZarr conversion name their extras."""
 
-import asyncio
 import importlib
+import importlib.metadata
 import importlib.util
 import json
 import os
@@ -25,8 +27,10 @@ import tempfile
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import override
 
 import refkv
+from refkv._narrow import at, ndarray, sequence
 from refkv.errors import ArchiveError
 from refkv.pb import Concat, Range, Source
 from refkv.uri import file_uri
@@ -34,10 +38,11 @@ from refkv.uri import file_uri
 FIXTURES = Path(__file__).resolve().parents[2] / "fixtures"
 mode = sys.argv[1] if len(sys.argv) > 1 else "base"
 assert mode in ("base", "zarr"), f"usage: check_base_install.py [base|zarr], not {mode!r}"
-absent = ["xarray", "virtualizarr", "imagecodecs", "pytest", "obstore"] + (["zarr"] if mode == "base" else [])
+absent = ["xarray", "virtualizarr", "imagecodecs", "av", "pytest", "obstore"] + (["zarr"] if mode == "base" else [])
 for name in absent:
     assert importlib.util.find_spec(name) is None, f"{name} is installed: not a {mode} install"
-assert "xarray" not in sys.modules and "zarr" not in sys.modules, "importing refkv imported zarr"
+assert "xarray" not in sys.modules, "importing refkv imported xarray"
+assert "zarr" not in sys.modules, "importing refkv imported zarr"
 assert not {"refkv.vzip.archive", "refkv.vzip.store"} & set(sys.modules), "importing refkv imported the ZIP code"
 
 
@@ -45,7 +50,7 @@ def expect_import_error(extra: str, attempt) -> None:
     try:
         attempt()
     except ImportError as e:
-        assert f"refkv[{extra}]" in str(e), e
+        assert f"refkv[{extra}]" in str(e), e  # noqa: PT017 (pytest is not installed here)
         print(f"ImportError naming refkv[{extra}]: {e}")
     else:
         sys.exit(f"expected an ImportError naming refkv[{extra}]")
@@ -71,7 +76,8 @@ with tempfile.TemporaryDirectory() as d:
         assert s.get("y") == b"<\x00\x01"
         assert [s.classify(k) for k in ("x/zarr.json", "x/c/0", "nope")] == [
             "bytes", "reference", "missing"]
-        assert s.list() == ["x/c/0", "x/zarr.json", "y"] and s.list_dir("") == ["x", "y"]
+        assert s.list() == ["x/c/0", "x/zarr.json", "y"]
+        assert s.list_dir("") == ["x", "y"]
         assert s.raw("x/c/0") == Range(source=0, offset=4, length=4).encode()
     assert reopened.max_concurrency == 8
 
@@ -80,7 +86,8 @@ with tempfile.TemporaryDirectory() as d:
 
         protocol_version = "HTTP/1.1"
 
-        def log_message(self, *a):
+        @override
+        def log_message(self, format, *args):
             pass
 
         def do_GET(self):
@@ -104,13 +111,14 @@ with tempfile.TemporaryDirectory() as d:
     try:
         refkv.open(f"{base}/h.vzip").list()
     except ArchiveError as e:
-        assert "loopback address" in str(e), e
+        assert "loopback address" in str(e), e  # noqa: PT017 (pytest is not installed here)
     else:
         sys.exit("an archive on the loopback interface was opened without allow_private_hosts")
     over_http = refkv.open(f"{base}/h.vzip", policy=refkv.Policy(allow_private_hosts=True))
     assert over_http.list() == store.list()
     assert {k: over_http.get(k) for k in store.list()} == {k: store.get(k) for k in store.list()}
-    assert over_http.stats.archive_requests >= 2 and over_http.stats.external_requests >= 1
+    assert over_http.stats.archive_requests >= 2
+    assert over_http.stats.external_requests >= 1
     server.shutdown()
     server.server_close()
     assert "obstore" not in sys.modules, "reading over http imported obstore"
@@ -122,50 +130,68 @@ with tempfile.TemporaryDirectory() as d:
                    {"op": "classify", "key": "y"}, {"op": "get_raw", "key": "__vz__/sources"},
                    {"op": "list", "prefix": "x/"}], f)
     out = cli.read("m.vzip", "q.json")
-    assert out["open"]["ok"] and [r["ok"] for r in out["results"]] == [True] * 4, out
-    assert out["results"][0]["value"] == "0607" and out["results"][1]["kind"] == "reference"
-    assert out["results"][3]["keys"] == ["x/c/0", "x/zarr.json"]
+    assert at(out, "open", "ok"), out
+    assert [at(r, "ok") for r in sequence(out["results"])] == [True] * 4, out
+    assert at(out, "results", 0, "value") == "0607"
+    assert at(out, "results", 1, "kind") == "reference"
+    assert at(out, "results", 3, "keys") == ["x/c/0", "x/zarr.json"]
 
-    from refkv.virtualize import virtualize, virtualize_store
+    from refkv.zarrify import zarrify, zarrify_store
 
-    n = virtualize(str(FIXTURES / "nifti" / "nifti_block_x_split.nii"))
+    n = zarrify(str(FIXTURES / "nifti" / "nifti_block_x_split.nii"))
     n.save("n.vzip")
-    z = virtualize_store(str(FIXTURES / "zarr2" / "zarr2_hierarchy"), "https://example.test/z/")
+    z = zarrify_store(str(FIXTURES / "zarr2" / "zarr2_hierarchy"), "https://example.test/z/")
     z.save("z.vzip")
     assert (n.info["format"], z.info["format"]) == ("nifti", "zarr2")
     saved = refkv.open("n.vzip")
     for key in ("zarr.json", "0/c/0/0"):  # in memory as saved
-        assert n.get(key) is not None and n.get(key) == saved.get(key)
+        assert n.get(key) is not None
+        assert n.get(key) == saved.get(key)
     from refkv import _core  # noqa: F401  (a dependency: installing refkv built it)
 
     # the install holds the bindings as refkv._core (refkv/_core.abi3.so, or .pyd), and no
     # module of the earlier name, refkv._ir
     package = Path(refkv.__file__).parent
-    assert list(package.glob("_core.*")) and not list(package.glob("_ir*")), sorted(p.name for p in package.iterdir())
+    assert list(package.glob("_core.*")), sorted(p.name for p in package.iterdir())
+    assert not list(package.glob("_ir*")), sorted(p.name for p in package.iterdir())
 
-    t = virtualize(str(FIXTURES / "tiff" / "jpeg_gray.tif"))
+    t = zarrify(str(FIXTURES / "tiff" / "jpeg_gray.tif"))
     t.save("t.vzip")
-    assert t.info["format"] == "tiff" and refkv.open("t.vzip").get("zarr.json") == t.get("zarr.json")
+    assert t.info["format"] == "tiff"
+    assert refkv.open("t.vzip").get("zarr.json") == t.get("zarr.json")
 
     if mode == "zarr":
         import zarr
+        import zarr.registry
+
+        # each codec of refkv's entry points, by name, as zarr resolves it when an array names it
+        assert "refkv.zarr" not in sys.modules
+        points = {e.name: e for e in importlib.metadata.distribution("refkv").entry_points
+                  if e.group == "zarr.codecs"}
+        assert set(points) == {"n5_default", "refkv.fits_tiles", "refkv.stream", "refkv.tiff_lzw"}, points
+        for name, point in points.items():
+            assert zarr.registry.get_codec_class(name) is point.load(), name
+        assert zarr.config.get("codecs.n5_default", None) is None  # zarr-n5's, if installed, is not overridden
+        print(f"zarr resolves refkv's codecs: {', '.join(sorted(points))}")
 
         import refkv.zarr
 
         for s in (refkv.zarr.store(store), refkv.zarr.open("m.vzip")):
-            assert list(zarr.open_array(s, path="x", mode="r")[:]) == [4, 5, 6, 7]
+            assert list(ndarray(zarr.open_array(s, path="x", mode="r")[:])) == [4, 5, 6, 7]
+        fits = refkv.zarr.store(zarrify(str(FIXTURES / "fits" / "fits_comp_gzip1.fits")))
+        assert ndarray(zarr.open_array(fits, path="1", mode="r")[...]).size > 0
+        lzw = refkv.zarr.store(zarrify(str(FIXTURES / "qptiff" / "qptiff_fl_lzw_narrow_eoi.qptiff")))
+        expect_import_error("images", lambda: zarr.open_array(lzw, path="0", mode="r")[...])
+        mp3 = refkv.zarr.store(zarrify(str(FIXTURES / "mp3" / "mp3_single_frame.mp3")))
+        expect_import_error("media", lambda: zarr.open_array(mp3, path="samples", mode="r")[...])
     os.chdir("/")
 
 if mode == "base":
     assert "zarr" not in sys.modules, "the base operations imported zarr"
     expect_import_error("zarr", lambda: refkv.zarr)
     expect_import_error("zarr", lambda: importlib.import_module("refkv.zarr"))
-else:
-    import refkv.zarr.codecs
-
-    expect_import_error("images", lambda: asyncio.run(
-        refkv.zarr.codecs.imagecodecs_jpeg.JpegCodec()._decode_single(None, None)))
-expect_import_error("virtualizarr", lambda: refkv.ReferenceStore.from_virtualizarr(None))
+expect_import_error(
+    "virtualizarr", lambda: refkv.ReferenceStore.from_virtualizarr(None))  # pyrefly: ignore[bad-argument-type]
 expect_import_error("virtualizarr", lambda: importlib.import_module("refkv.shards"))
 expect_import_error("virtualizarr", lambda: importlib.import_module("refkv.convert"))
 assert "xarray" not in sys.modules, "refkv imported xarray"

@@ -1,9 +1,9 @@
 """refkv's version, from git tags (RELEASING.md).
 
-python/Cargo.toml's committed version is a placeholder, 0.0.0; maturin takes the package's
-version from it (python/pyproject.toml's `dynamic = ["version"]`), and turns its semver
-pre-release into PEP 440's (1.2.4-dev.3 is 1.2.4.dev3, 1.2.3-rc.1 is 1.2.3rc1). This script
-derives the version from `git describe --tags --match 'v*'`:
+rust/refkv-python/Cargo.toml's committed version is a placeholder, 0.0.0; maturin takes the
+package's version from it (python/pyproject.toml's `dynamic = ["version"]`), and turns its
+semver pre-release into PEP 440's (1.2.4-dev.3 is 1.2.4.dev3, 1.2.3-rc.1 is 1.2.3rc1). This
+script derives the version from `git describe --tags --match 'v*'`:
 
 - at a tag vX.Y.Z, or vX.Y.Z-rc.K: that version;
 - N commits past vX.Y.Z: X.Y.(Z+1)-dev.N, before the next patch release;
@@ -14,9 +14,10 @@ Usage, from anywhere (`just python::version` and the build recipes call it):
 
     version.py show           print the version
     version.py pep440 [V]     print V (default: the version), as PEP 440 spells it
-    version.py write [TAG]    write the version into python/Cargo.toml and Cargo.lock: TAG's,
-                              when given (a tag push, which may share its commit with
-                              another tag, such as a release candidate's), else git's
+    version.py write [TAG]    write the version into rust/refkv-python/Cargo.toml and
+                              Cargo.lock: TAG's, when given (a tag push, which may share
+                              its commit with another tag, such as a release candidate's),
+                              else git's
     version.py run -- CMD...  write it, run CMD, and restore both files as they were
 
 `write` changes two tracked files, for a checkout that is thrown away (CI's release
@@ -30,8 +31,9 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parents[1]
-CARGO_TOML = HERE / "Cargo.toml"
-CARGO_LOCK = HERE / "Cargo.lock"
+CRATE_DIR = HERE.parent / "rust" / "refkv-python"
+CARGO_TOML = CRATE_DIR / "Cargo.toml"
+CARGO_LOCK = CRATE_DIR / "Cargo.lock"
 CRATE = "refkv-python"
 
 TAG = re.compile(r"v(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)(?:-rc\.(?P<rc>\d+))?")
@@ -78,7 +80,7 @@ def pep440(version: str) -> str:
 
 
 def git(*args: str) -> subprocess.CompletedProcess:
-    return subprocess.run(["git", *args], cwd=HERE, capture_output=True, text=True)
+    return subprocess.run(["git", *args], cwd=HERE, capture_output=True, text=True, check=False)
 
 
 def describe() -> tuple[str | None, int]:
@@ -119,7 +121,8 @@ def main(argv: list[str]) -> int:
     elif cmd == "write":
         v = version_for(argv[1], 0) if len(argv) > 1 and argv[1] else current()
         write(v)
-        print(f"version.py: refkv {v} ({pep440(v)}) written to {CARGO_TOML.name} and {CARGO_LOCK.name}", file=sys.stderr)
+        print(f"version.py: refkv {v} ({pep440(v)}) written to {CARGO_TOML.name} and {CARGO_LOCK.name}",
+              file=sys.stderr)
     elif cmd == "run":
         rest = argv[1:]
         if rest[:1] == ["--"]:
@@ -131,7 +134,7 @@ def main(argv: list[str]) -> int:
             v = current()
             write(v)
             print(f"version.py: building refkv {v} ({pep440(v)})", file=sys.stderr)
-            return subprocess.run(rest).returncode
+            return subprocess.run(rest, check=False).returncode
         finally:
             for p, b in saved.items():
                 p.write_bytes(b)

@@ -5,6 +5,7 @@
   "version": 0,
   "kind": "file",
   "sniff": null,
+  "chosen_by": "tiff",
   "suffixes": [
     ".ndpi"
   ],

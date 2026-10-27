@@ -36,9 +36,12 @@ virtual-dataset workflow; `help(refkv.refstore)` has its details.
 
 from __future__ import annotations
 
+import importlib
 from importlib.metadata import PackageNotFoundError, version
-from typing import TYPE_CHECKING
+from types import ModuleType
+from typing import TYPE_CHECKING, TypedDict, Unpack
 
+from refkv import vzip
 from refkv.pb import Concat, Range, Source
 from refkv.policy import Policy, public_s3_url
 from refkv.reader import OffsetRequest, RangeRequest, Stats, SuffixRequest
@@ -51,13 +54,25 @@ except PackageNotFoundError:  # a source tree on sys.path, not installed
     __version__ = "0.0.0+unknown"
 
 if TYPE_CHECKING:
-    from refkv.vzip.store import VZipStore
+    from refkv.reader import Registry
+    from refkv.vzip.store import VZipOptions, VZipStore
+
+    # closed (PEP 728), which typing.TypedDict takes only from Python 3.15
+    class OpenOptions(TypedDict, total=False, closed=True):
+        """`open`'s keyword arguments, which `refkv.zarr.open` passes on."""
+
+        binding: str
+        resolve: bool
+        registry: Registry | None
+        stats: Stats | None
+        policy: Policy | None
+        max_concurrency: int | None
 
 BINDINGS = ("vzip",)
 """The bindings `open` can read a store with: the ZIP binding, `"vzip"`."""
 
 
-def open(url: str, *, binding: str = "vzip", **kwargs) -> VZipStore:  # noqa: A001 - like gzip.open
+def open(url: str, *, binding: str = "vzip", **kwargs: Unpack[VZipOptions]) -> VZipStore:  # noqa: A001 (refkv.open, the public name)
     """Open the store saved at `url` (a local path or an `http(s)` URL, presigned or with
     a query string, of any name) as a read-only store, with the binding `binding`. The
     ZIP binding, `"vzip"` (the default, and today the only one), opens a vzip archive as a
@@ -69,20 +84,15 @@ def open(url: str, *, binding: str = "vzip", **kwargs) -> VZipStore:  # noqa: A0
     `{"s3://bucket": S3Store(...)}`), `stats`, `max_concurrency` (8 by default; None for
     no cap), and `resolve`. A binding not in `BINDINGS` is a ValueError."""
     if binding == "vzip":
-        from refkv import vzip
-
         return vzip.open(str(url), **kwargs)
     raise ValueError(f"no binding {binding!r}: refkv reads stores with {', '.join(map(repr, BINDINGS))}")
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> ModuleType:
     # `import refkv` then `refkv.zarr.open(...)`: the adapter is imported on first use,
-    # so that `import refkv` imports no zarr. `refkv.vzip` is bound already (refstore
-    # imports refkv.vzip.names); this keeps it reachable should that change
-    if name in ("zarr", "vzip"):
-        import importlib
-
-        return importlib.import_module(f"refkv.{name}")
+    # so that `import refkv` imports no zarr
+    if name == "zarr":
+        return importlib.import_module("refkv.zarr")
     raise AttributeError(f"module 'refkv' has no attribute {name!r}")
 
 

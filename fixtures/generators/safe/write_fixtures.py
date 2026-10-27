@@ -1,9 +1,9 @@
 """Writes synthetic Sentinel-2 SAFE products to fixtures/safe/: each a
 directory `<name>/` (the directory form, a store input), and some also as a
 zip file `<name>.SAFE.zip` (the zip form), covering the SAFE profile
-(spec/virtualize/safe.md §8
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#8-safe-profile>) and its
-convention (spec/virtualize/safe.md).
+(spec/zarrify/safe.md §8
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#8-safe-profile>) and its
+convention (spec/zarrify/safe.md).
 
 The products mimic real ones, scaled down. Band files are JPEG 2000 files
 written by rasterio's JP2OpenJPEG driver (OpenJPEG), tiled, with PLT markers
@@ -37,12 +37,14 @@ Usage: uv run python fixtures/generators/safe/write_fixtures.py
 
 from __future__ import annotations
 
+import bz2
 import hashlib
 import io
 import shutil
 import struct
 import tempfile
 import zlib
+from collections.abc import Container, Sequence
 from pathlib import Path
 
 import numpy as np
@@ -156,16 +158,15 @@ def segments(cs: bytes) -> tuple[list[tuple[int, bytes]], bytes]:
         o += 2 + length
 
 
-def kakadu(cs: bytes, coms=KAKADU_COMS, extra: list[bytes] = ()) -> bytes:
+def kakadu(cs: bytes, coms=KAKADU_COMS, extra: Sequence[bytes] = ()) -> bytes:
     """The codestream with Kakadu's main header: Rsiz 0, its two COM markers instead of
     OpenJPEG's, and the `extra` segments before them."""
     segs, tail = segments(cs)
     out = bytearray(b"\xff\x4f")
     for m, seg in segs:
         if m == 0xFF51:
-            seg = bytearray(seg)
-            seg[4:6] = b"\0\0"
-        if m != 0xFF64:
+            out += seg[:4] + b"\0\0" + seg[6:]
+        elif m != 0xFF64:
             out += seg
     for seg in extra:
         out += seg
@@ -193,24 +194,22 @@ def band_file(data: np.ndarray, r: int, tile: int, bits: int, *, precincts: str 
     for tbox, b in boxes:
         if tbox == b"rreq":
             continue  # Kakadu's files have none
-        if tbox == b"asoc" and xl_asoc:
-            b = box(b"asoc", b[8:], xl=True)
-        head += b
+        head += box(b"asoc", b[8:], xl=True) if tbox == b"asoc" and xl_asoc else b
     if extra_box:
-        head += box(b"xml ", b"<?xml version=\"1.0\"?><Kakadu_metadata/>")
+        head += box(b"xml ", b'<?xml version="1.0"?><Kakadu_metadata/>')
     return head + (struct.pack(">I4s", 0, b"jp2c") if to_end else struct.pack(">I4s", 8 + len(cs), b"jp2c")) + cs
 
 
 # ---------------------------------------------------------------- XML documents
 
 
-def spectral_xml(response: bool = True, skip: set = frozenset()) -> str:
+def spectral_xml(response: bool = True, skip: Container[str] = frozenset()) -> str:
     out = []
     for i, pb, r, lo, hi, mid, _, _ in SPECTRAL:
         if pb in skip:
             continue
-        resp = ("\n          <Spectral_Response>\n            <STEP unit=\"nm\">1</STEP>\n"
-                f"            <VALUES>0.0062 0.01042 0.01615 0.02308 0.0277 0.03234</VALUES>\n"
+        resp = ('\n          <Spectral_Response>\n            <STEP unit="nm">1</STEP>\n'
+                "            <VALUES>0.0062 0.01042 0.01615 0.02308 0.0277 0.03234</VALUES>\n"
                 "          </Spectral_Response>") if response else ""
         out.append(f"""        <Spectral_Information bandId="{i}" physicalBand="{pb}">
           <RESOLUTION>{r}</RESOLUTION>
@@ -236,12 +235,14 @@ def product_xml(level: str, uri: str, baseline: str, granule: str, files: list[s
                 <WVP_QUANTIFICATION_VALUE unit="cm">1000.0</WVP_QUANTIFICATION_VALUE>
             </QUANTIFICATION_VALUES_LIST>"""
         offs = ("            <BOA_ADD_OFFSET_VALUES_LIST>\n" + "\n".join(
-            f'        <BOA_ADD_OFFSET band_id="{i}">{"-1000" if not (gaps and i == 3) else "minus one thousand"}</BOA_ADD_OFFSET>'
+            f'        <BOA_ADD_OFFSET band_id="{i}">'
+            f'{"-1000" if not (gaps and i == 3) else "minus one thousand"}</BOA_ADD_OFFSET>'
             for i in range(13)) + "\n      </BOA_ADD_OFFSET_VALUES_LIST>") if offsets else ""
     else:
         quant = '            <QUANTIFICATION_VALUE unit="none">10000</QUANTIFICATION_VALUE>'
         offs = ("            <Radiometric_Offset_List>\n" + "\n".join(
-            f'        <RADIO_ADD_OFFSET band_id="{i}">{"-1000" if not (gaps and i == 3) else "n/a"}</RADIO_ADD_OFFSET>'
+            f'        <RADIO_ADD_OFFSET band_id="{i}">'
+            f'{"-1000" if not (gaps and i == 3) else "n/a"}</RADIO_ADD_OFFSET>'
             for i in range(13)) + "\n      </Radiometric_Offset_List>") if offsets else ""
     irr = "\n".join(f'          <SOLAR_IRRADIANCE bandId="{i}" unit="W/m²/µm">{s}</SOLAR_IRRADIANCE>'
                     for i, *_, s in SPECTRAL)
@@ -250,11 +251,12 @@ def product_xml(level: str, uri: str, baseline: str, granule: str, files: list[s
     gains = "\n".join(f'            <PHYSICAL_GAINS bandId="{i}">{g}</PHYSICAL_GAINS>' for i, *_, g, _ in SPECTRAL)
     scene = ""
     if l2a:
-        scene = "            <Scene_Classification_List>\n" + "\n".join(
+        scene = ("            <Scene_Classification_List>\n" + "\n".join(
             f"""                <Scene_Classification_ID>
                     <SCENE_CLASSIFICATION_TEXT>{t}</SCENE_CLASSIFICATION_TEXT>
                     <SCENE_CLASSIFICATION_INDEX>{i}</SCENE_CLASSIFICATION_INDEX>
-                </Scene_Classification_ID>""" for i, t in enumerate(SCENE)) + "\n            </Scene_Classification_List>"
+                </Scene_Classification_ID>""" for i, t in enumerate(SCENE))
+                 + "\n            </Scene_Classification_List>")
     return f"""<?xml version="1.0" encoding="UTF-8" standalone="no"?>
 {prolog}<n1:{root} xmlns:n1="https://psd-14.sentinel2.eo.esa.int/PSD/{xsd}" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="https://psd-14.sentinel2.eo.esa.int/PSD/{xsd}">
     <n1:General_Info>
@@ -322,17 +324,18 @@ def product_xml(level: str, uri: str, baseline: str, granule: str, files: list[s
         </Coordinate_Reference_System>
     </n1:Geometric_Info>
 </n1:{root}>
-"""
+"""  # noqa: E501 (the real ESA document's lines)
 
 
 def geocoding_xml(sizes: dict[int, int], *, code: str = "EPSG:32632", geo: dict | None = None,
                   extra: str = "") -> str:
     """The Tile_Geocoding element: a Size and a Geoposition per resolution."""
-    out = [f'    <Tile_Geocoding metadataLevel="Brief">',
-           f"      <HORIZONTAL_CS_NAME>WGS84 / UTM zone 32N</HORIZONTAL_CS_NAME>",
+    out = ['    <Tile_Geocoding metadataLevel="Brief">',
+           "      <HORIZONTAL_CS_NAME>WGS84 / UTM zone 32N</HORIZONTAL_CS_NAME>",
            f"      <HORIZONTAL_CS_CODE>{code}</HORIZONTAL_CS_CODE>"]
     for r, n in sizes.items():
-        out.append(f'      <Size resolution="{r}">\n        <NROWS>{n}</NROWS>\n        <NCOLS>{n}</NCOLS>\n      </Size>')
+        out.append(f'      <Size resolution="{r}">\n        <NROWS>{n}</NROWS>\n'
+                   f'        <NCOLS>{n}</NCOLS>\n      </Size>')
     for r in sizes:
         ulx, uly, xd, yd = (geo or {}).get(r, (ULX, ULY, r, -r))
         if xd is None:
@@ -377,7 +380,7 @@ def tile_xml(level: str, baseline: str, sizes: dict[int, int], *, pad: int = 700
     </Tile_Angles>
   </n1:Geometric_Info>
 </n1:{root}>
-"""
+"""  # noqa: E501 (the real ESA document's lines)
 
 
 def manifest_xml(level: str, files: dict[str, bytes]) -> str:
@@ -387,7 +390,7 @@ def manifest_xml(level: str, files: dict[str, bytes]) -> str:
         objs.append(f"""		<dataObject ID="obj_{i}">
 			<byteStream mimeType="application/octet-stream" size="{len(data)}">
 				<fileLocation href="./{key}" locatorType="URL"/>
-				<checksum checksumName="MD5">{hashlib.md5(data).hexdigest()}</checksum>
+				<checksum checksumName="MD5">{hashlib.md5(data, usedforsecurity=False).hexdigest()}</checksum>
 			</byteStream>
 		</dataObject>""")
     body = "\n".join(objs)
@@ -398,7 +401,7 @@ def manifest_xml(level: str, files: dict[str, bytes]) -> str:
 {body}
 	</dataObjectSection>
 </xfdu:XFDU>
-"""
+"""  # noqa: E501 (the real ESA document's lines)
 
 
 def report_xml(name: str, size: int, seed: int) -> str:
@@ -434,7 +437,7 @@ INSPIRE = """<?xml version="1.0" encoding="UTF-8"?>
   <gmd:fileIdentifier><gco:CharacterString>{0}</gco:CharacterString></gmd:fileIdentifier>
   <gmd:language><gmd:LanguageCode codeList="http://www.loc.gov/standards/iso639-2/" codeListValue="eng">eng</gmd:LanguageCode></gmd:language>
 </gmd:MD_Metadata>
-"""
+"""  # noqa: E501 (the real ESA document's lines)
 
 
 # ---------------------------------------------------------------- products
@@ -555,7 +558,7 @@ def dos_time() -> tuple[int, int]:
     return (10 << 11) | (13 << 5) | 14, ((2024 - 1980) << 9) | (1 << 5) | 3
 
 
-def write_zip(path: Path, root: str, files: dict[str, bytes], *, deflate=lambda k: False, dirs: bool = True,
+def write_zip(path: Path, root: str, files: dict[str, bytes], *, deflate=lambda _k: False, dirs: bool = True,
               zip64: bool = False, method_of=None, flags_of=None, crc_of=None, names=None, cut: int = 0,
               count_extra: int = 0, trailing_comment: bytes = b"", aliases=(), us_of=None) -> None:
     """A zip file of `files` under `root/`, written as ESA writes SAFE zips (stored, a
@@ -564,8 +567,8 @@ def write_zip(path: Path, root: str, files: dict[str, bytes], *, deflate=lambda 
     central entries for the local entry of `key`; `us_of(key, us)` gives a central entry's size."""
     entries = []
     if dirs:
-        for d in sorted({k[: i + 1] for k in files for i in range(len(k)) if k[i] == "/"}):
-            entries.append((f"{root}/{d}", b"", True))
+        entries += [(f"{root}/{d}", b"", True)
+                    for d in sorted({k[: i + 1] for k in files for i in range(len(k)) if k[i] == "/"})]
         entries.insert(0, (f"{root}/", b"", True))
     entries += [(f"{root}/{k}", v, False) for k, v in sorted(files.items())]
     if names is not None:
@@ -580,12 +583,12 @@ def write_zip(path: Path, root: str, files: dict[str, bytes], *, deflate=lambda 
             method = method_of(key, method)
         body = zlib.compress(data, 9)[2:-4] if method == 8 else data
         if method == 12:
-            import bz2
             body = bz2.compress(data)
         crc = zlib.crc32(data) if crc_of is None else crc_of(key, zlib.crc32(data))
         flags = 0 if flags_of is None else flags_of(key)
         lho = buf.tell()
-        local_extra = struct.pack("<HHBI", 0x5455, 5, 1, 1704280409) + struct.pack("<HHBHBI", 0x7875, 11, 1, 4, 0, 0)[:15]
+        local_extra = (struct.pack("<HHBI", 0x5455, 5, 1, 1704280409)
+                       + struct.pack("<HHBHBI", 0x7875, 11, 1, 4, 0, 0)[:15])
         raw_name = name.encode()
         buf.write(struct.pack("<4sHHHHHIIIHH", b"PK\x03\x04", 20, flags, method, t, dt, crc,
                               0xFFFFFFFF if zip64 else len(body), 0xFFFFFFFF if zip64 else len(data),
@@ -652,7 +655,7 @@ def _insert(seg: bytes):
     def m(cs: bytes) -> bytes:
         segs, tail = segments(cs)
         out = bytearray(b"\xff\x4f")
-        for marker, s in segs:
+        for _marker, s in segs:
             out += s
         return bytes(out + seg + tail)
     return m
@@ -744,7 +747,8 @@ def with_tile(**kw) -> dict[str, bytes]:
 def rejections() -> dict[str, dict[str, bytes]]:
     r: dict[str, dict[str, bytes]] = {}
     old = mini()
-    old["S2A_OPER_MTD_SAFL1C_PDMC_20160607T154053_R062_V20150627T102531_20150627T102531.xml"] = old.pop("MTD_MSIL1C.xml")
+    old["S2A_OPER_MTD_SAFL1C_PDMC_20160607T154053_R062_V20150627T102531_20150627T102531.xml"] = (
+        old.pop("MTD_MSIL1C.xml"))
     r["old_format"] = old
     two = mini()
     two["MTD_MSIL2A.xml"] = two["MTD_MSIL1C.xml"].replace(b"Level-1C_User_Product", b"Level-2A_User_Product")
@@ -815,7 +819,7 @@ def rejections() -> dict[str, dict[str, bytes]]:
     r["precision_17"] = with_band(mutate=_mutate_siz(_set(40, ">B", 16)))
     r["two_components"] = with_band(mutate=_mutate_siz(_two_components))
     rgb = mini(bands=[("TCI", 60, 3, 8, 6)])
-    key = [k for k in rgb if k.endswith("TCI.jp2")][0]
+    key = next(k for k in rgb if k.endswith("TCI.jp2"))
     rgb[key] = band_file(pixels(3, 3, 19, 8), 60, 6, 8, mutate=_mutate_siz(_set(43, ">B", 6)))
     r["mixed_precision"] = rgb
     r["xml_doctype"] = with_mtd(prolog="<!DOCTYPE n1:Level-1C_User_Product>\n")
@@ -830,7 +834,7 @@ def rejections() -> dict[str, dict[str, bytes]]:
 
 def zip_rejections() -> dict[str, dict]:
     """Zip files that the profile rejects (§8.4
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#84-the-zip-form>): name ->
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#84-the-zip-form>): name ->
     write_zip keywords."""
     base = mini()
     root = PRODUCT_L1C + ".SAFE"
@@ -838,19 +842,19 @@ def zip_rejections() -> dict[str, dict]:
     masked = dict(base)
     masked[mask] = mask_jp2(500, 3)
     return {
-        "zip_encrypted": dict(files=base, flags_of=lambda k: 1 if k == "manifest.safe" else 0),
-        "zip_deflated_band": dict(files=base, deflate=lambda k: k.endswith(".jp2")),
-        "zip_deflated_mask": dict(files=masked, deflate=lambda k: k == mask),
-        "zip_bzip2": dict(files=base, method_of=lambda k, m: 12 if k == "MTD_MSIL1C.xml" else m),
-        "zip_bad_crc": dict(files=base, deflate=lambda k: k.endswith(".xml"),
-                            crc_of=lambda k, c: c ^ 1 if k == "MTD_MSIL1C.xml" else c),
-        "zip_two_roots": dict(files=base, names=lambda es: es + [("OTHER.SAFE/extra.txt", b"x", False)]),
-        "zip_not_safe_root": dict(files=base, root="S2B_MSIL1C_product"),
-        "zip_duplicate_name": dict(files=base, names=lambda es: es + [es[-1]]),
-        "zip_dotdot": dict(files=base, names=lambda es: es + [(f"{root}/GRANULE/../x.txt", b"x", False)]),
-        "zip_truncated_cd": dict(files=base, count_extra=1),
-        "zip_no_eocd": dict(files=base, cut=22),
-        "zip_comment_misaligned": dict(files=base, trailing_comment=b"comment", cut=1),
+        "zip_encrypted": {"files": base, "flags_of": lambda k: 1 if k == "manifest.safe" else 0},
+        "zip_deflated_band": {"files": base, "deflate": lambda k: k.endswith(".jp2")},
+        "zip_deflated_mask": {"files": masked, "deflate": lambda k: k == mask},
+        "zip_bzip2": {"files": base, "method_of": lambda k, m: 12 if k == "MTD_MSIL1C.xml" else m},
+        "zip_bad_crc": {"files": base, "deflate": lambda k: k.endswith(".xml"),
+                            "crc_of": lambda k, c: c ^ 1 if k == "MTD_MSIL1C.xml" else c},
+        "zip_two_roots": {"files": base, "names": lambda es: [*es, ("OTHER.SAFE/extra.txt", b"x", False)]},
+        "zip_not_safe_root": {"files": base, "root": "S2B_MSIL1C_product"},
+        "zip_duplicate_name": {"files": base, "names": lambda es: [*es, es[-1]]},
+        "zip_dotdot": {"files": base, "names": lambda es: [*es, (f"{root}/GRANULE/../x.txt", b"x", False)]},
+        "zip_truncated_cd": {"files": base, "count_extra": 1},
+        "zip_no_eocd": {"files": base, "cut": 22},
+        "zip_comment_misaligned": {"files": base, "trailing_comment": b"comment", "cut": 1},
     }
 
 
@@ -870,7 +874,7 @@ PSD142 = [("Product_Info", "L2A_Product_Info"), ("Product_Organisation", "L2A_Pr
           ("SCENE_CLASSIFICATION_INDEX", "L2A_SCENE_CLASSIFICATION_INDEX")]
 
 
-def split_granules(xml: str, extra: list[str] = ()) -> str:
+def split_granules(xml: str, extra: Sequence[str] = ()) -> str:
     """The product metadata of processing baselines 02.04–02.07: a Granule_List per
     resolution, each with the one granule and that resolution's image files (and `extra`,
     image files outside IMG_DATA, in the first)."""
@@ -892,7 +896,8 @@ def psd142(xml: str) -> str:
     """The names of PSD 14.2 (Level-2A, processing baselines 02.04–02.06)."""
     for new, old in PSD142:
         xml = xml.replace(f"<{new}>", f"<{old}>").replace(f"</{new}>", f"</{old}>").replace(f"<{new} ", f"<{old} ")
-    return xml.replace("<L2A_Product_Info>", "<L2A_Product_Info>\n            <PRODUCT_URI_1C>S2B_MSIL1C.SAFE</PRODUCT_URI_1C>")
+    return xml.replace("<L2A_Product_Info>",
+                       "<L2A_Product_Info>\n            <PRODUCT_URI_1C>S2B_MSIL1C.SAFE</PRODUCT_URI_1C>")
 
 
 def with_markers(files: dict[str, bytes], empty_dirs: list[str]) -> dict[str, bytes]:
@@ -922,8 +927,8 @@ def old_l2a(baseline: str, *, psd: bool) -> dict[str, bytes]:
 
 def many_records() -> dict[str, bytes]:
     """65 Special_Values and 65 scene classes: more than the records copied (the convention §6.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#62-band-arrays>, §6.3
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#62-band-arrays>, §6.3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#63-the-source-metadata-node>)."""
     files = mini("L2A", bands=[("B01", 60, 1, 15, 6), ("SCL", 60, 1, 8, 6)])
     xml = files["MTD_MSIL2A.xml"].decode()
     sv = xml.index("            <Special_Values>")
@@ -960,10 +965,10 @@ def appended_zip_rejections() -> dict[str, dict]:
     xml = lambda k: k.endswith(".xml") or k == "manifest.safe"  # noqa: E731
     return {
         # Two central entries for one local entry: their bytes overlap.
-        "zip_overlapping_entries": dict(files=base, aliases=[("copy_of_MTD.xml", "MTD_MSIL1C.xml")]),
-        "zip_deflated_too_large": dict(files=base, deflate=xml,
-                                       us_of=lambda k, us: (1 << 26) + 1 if k == "MTD_MSIL1C.xml" else us),
-        "zip_inflated_total": dict(files=base, deflate=xml, us_of=lambda k, us: 1 << 26 if xml(k) else us),
+        "zip_overlapping_entries": {"files": base, "aliases": [("copy_of_MTD.xml", "MTD_MSIL1C.xml")]},
+        "zip_deflated_too_large": {"files": base, "deflate": xml,
+                                       "us_of": lambda k, us: (1 << 26) + 1 if k == "MTD_MSIL1C.xml" else us},
+        "zip_inflated_total": {"files": base, "deflate": xml, "us_of": lambda k, us: 1 << 26 if xml(k) else us},
     }
 
 
@@ -972,7 +977,7 @@ def write_appended() -> None:
     write_dir("safe_l2a_pb0207", p0207)
     root = PRODUCT_L2A.replace("N0510", "N0207") + ".SAFE"
     write_zip(OUT / "safe_l2a_pb0207.SAFE.zip", root, {k: v for k, v in p0207.items() if not k.endswith("$")},
-              names=lambda es: es[:1] + [(f"{root}/AUX_DATA/", b"", True)] + es[1:])
+              names=lambda es: [*es[:1], (f"{root}/AUX_DATA/", b"", True), *es[1:]])
     write_dir("safe_l2a_pb0206", old_l2a("02.06", psd=True))
     write_dir("safe_metadata_many_records", many_records())
     for name, files in appended_rejections().items():

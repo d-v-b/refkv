@@ -1,0 +1,324 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/mrc-dataset/schema.json",
+  "title": "refkv MRC dataset convention, version 0",
+  "description": "The zarr.json of a node that declares the refkv MRC dataset convention (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc-dataset.md)",
+  "type": "object",
+  "properties": {
+    "zarr_format": {
+      "type": "integer",
+      "const": 3
+    },
+    "node_type": {
+      "type": "string",
+      "enum": [
+        "group",
+        "array"
+      ]
+    },
+    "attributes": {
+      "type": "object",
+      "properties": {
+        "ome": {
+          "type": "object",
+          "description": "OME-NGFF 0.5 metadata"
+        },
+        "zarr_conventions": {
+          "type": "array",
+          "contains": {
+            "$ref": "#/$defs/conventionMetadata"
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        "refkv_zarrified": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/rootProperty"
+            },
+            {
+              "$ref": "#/$defs/nodeProperty"
+            }
+          ]
+        }
+      },
+      "required": [
+        "zarr_conventions",
+        "refkv_zarrified"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "zarr_format",
+    "node_type",
+    "attributes"
+  ],
+  "$defs": {
+    "conventionMetadata": {
+      "type": "object",
+      "description": "The MRC dataset convention's metadata object in zarr_conventions",
+      "properties": {
+        "uuid": {
+          "type": "string",
+          "const": "f139bf4e-7bab-4c3c-9b2d-66ba747f9b93"
+        },
+        "schema_url": {
+          "type": "string",
+          "const": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/mrc-dataset/schema.json"
+        },
+        "spec_url": {
+          "type": "string",
+          "const": "https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc-dataset.md"
+        },
+        "name": {
+          "type": "string",
+          "const": "refkv_zarrified"
+        },
+        "description": {
+          "type": "string",
+          "const": "The Zarr layout of a MRC dataset source zarrified by refkv, and the source's metadata"
+        }
+      },
+      "required": [
+        "uuid",
+        "schema_url",
+        "spec_url",
+        "name",
+        "description"
+      ],
+      "additionalProperties": false
+    },
+    "rootProperty": {
+      "type": "object",
+      "description": "The root's property: the profile and version that produced the hierarchy, its source, and the root's source metadata",
+      "properties": {
+        "profile": {
+          "type": "string",
+          "const": "mrc-dataset"
+        },
+        "version": {
+          "type": "integer",
+          "const": 0
+        },
+        "source": {
+          "type": "object",
+          "properties": {
+            "url": {
+              "type": "string",
+              "description": "The URL of the source file"
+            }
+          },
+          "required": [
+            "url"
+          ],
+          "additionalProperties": false
+        },
+        "layouts": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[^/]+(/[^/]+)*$"
+          },
+          "description": "The other layouts of the source in this hierarchy, by name, each the path of its node below the root (spec/conventions.md §9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>)"
+        },
+        "mrc-dataset": {
+          "$ref": "#/$defs/sourceMetadata"
+        }
+      },
+      "required": [
+        "profile",
+        "version",
+        "source"
+      ],
+      "additionalProperties": false
+    },
+    "sourceMetadata": {
+      "anyOf": [
+        {
+          "type": "object",
+          "description": "The dataset group's: the MRC convention's root source metadata, member for member (spec/zarrify/mrc-dataset.md §4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc-dataset.md#4-source-metadata>)",
+          "properties": {
+            "byte_order": {
+              "enum": [
+                "little",
+                "big"
+              ]
+            },
+            "kind": {
+              "enum": [
+                "image",
+                "image_stack",
+                "volume",
+                "volume_stack"
+              ]
+            },
+            "data_type": {
+              "enum": [
+                "int8",
+                "uint8",
+                "int16",
+                "float32",
+                "complex64",
+                "uint16",
+                "float16"
+              ]
+            },
+            "header": {
+              "type": "object",
+              "description": "Every header field, by its MRC2014 name, in the standard's order; the extra space as base64, the labels as an array of ten texts",
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/headerValue"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "bits": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{8}$"
+                      }
+                    },
+                    "required": [
+                      "bits"
+                    ],
+                    "additionalProperties": false,
+                    "description": "A float's IEEE 754 bits, most significant first: a negative zero, or a NaN other than the canonical one"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "$ref": "#/$defs/text"
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "bits": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{8}$"
+                            }
+                          },
+                          "required": [
+                            "bits"
+                          ],
+                          "additionalProperties": false,
+                          "description": "A float's IEEE 754 bits, most significant first: a negative zero, or a NaN other than the canonical one"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            "axis_map": {
+              "type": "object",
+              "description": "Whether mapc, mapr and maps named the axes",
+              "properties": {
+                "applied": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "applied"
+              ],
+              "additionalProperties": false
+            },
+            "voxel_size": {
+              "type": "object",
+              "description": "The voxel size in angstroms, when the cell and grid give one along every axis",
+              "properties": {
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                },
+                "z": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "x",
+                "y",
+                "z"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "byte_order",
+            "kind",
+            "data_type",
+            "header",
+            "axis_map"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "headerValue": {
+      "description": "A translated header value (spec/conventions.md §6 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>)",
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "$ref": "#/$defs/text"
+        },
+        {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "text": {
+      "description": "A text value: a string (UTF-8), or its ISO 8859-1 reading when it is not UTF-8",
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "latin1": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "latin1"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "nodeProperty": {
+      "type": "object",
+      "description": "Any other node's property: its source metadata only",
+      "properties": {
+        "mrc-dataset": {
+          "$ref": "#/$defs/sourceMetadata"
+        }
+      },
+      "required": [
+        "mrc-dataset"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

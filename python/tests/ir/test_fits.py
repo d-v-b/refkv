@@ -1,19 +1,22 @@
-"""The FITS IR: the Rust parser and its schema, the projection (spec/virtualize/fits.md) against
+"""The FITS IR: the Rust parser and its schema, the projection (spec/zarrify/fits.md) against
 astropy's reading of every synthetic file, the mirror's rebuild, and the inputs the profile
 rejects. FITS has no frozen Python reference: astropy is the independent reader."""
 
 import json
 import warnings
+from typing import cast
 
 import numpy as np
 import pytest
 import zarr
 from astropy.io import fits
-
 from ir_helpers import FIXTURES
-from ir_helpers import virtualized as shared_virtualized
-from refkv.ir import virtualize as via_ir
-from refkv.virtualize import Rejected
+from ir_helpers import zarrified as shared_zarrified
+
+from refkv._narrow import at, integer, mapping, ndarray, sequence
+from refkv.ir import zarrify as via_ir
+from refkv.zarrify import Rejected
+from refkv.zarrify.common import Output
 
 FILES = sorted(p for p in (FIXTURES / "fits").iterdir() if p.name.endswith((".fits", ".fz")))
 ACCEPTED = [p for p in FILES if "reject" not in p.name]
@@ -21,19 +24,20 @@ REJECTED = [p for p in FILES if "reject" in p.name]
 MAX_SAFE = (1 << 53) - 1
 # hand-built fixtures astropy cannot read (an absent tile; no ZTILEn cards): the fixture whose
 # image theirs is, read by astropy, with the rows an absent tile leaves at 0
-SAME_IMAGE = {"fits_comp_hand_absent_tile": ("fits_comp_hand_one_column", slice(3, 6)), "fits_comp_hand_no_ztile": ("fits_comp_hand_one_column", None)}
+SAME_IMAGE = {"fits_comp_hand_absent_tile": ("fits_comp_hand_one_column", slice(3, 6)),
+              "fits_comp_hand_no_ztile": ("fits_comp_hand_one_column", None)}
 COMMENTARY = ("COMMENT", "HISTORY", "")
 
 
-def virtualized(path, tmp_path):
+def zarrified(path, tmp_path) -> tuple[Output, zarr.Group]:
     """(the output, the hierarchy's root group); the archive rebuilds the file
-    (ir_helpers.virtualized)."""
-    out, root, _ = shared_virtualized(path, tmp_path, "fits")
+    (ir_helpers.zarrified)."""
+    out, root, _ = shared_zarrified(path, tmp_path, "fits")
     return out, root
 
 def card_value(v):
-    """astropy's card value as the convention writes it (spec/virtualize/fits.md §5.3
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#53-cards>)."""
+    """astropy's card value as the convention writes it (spec/zarrify/fits.md §5.3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#53-cards>)."""
     if isinstance(v, fits.card.Undefined):
         return None
     if isinstance(v, bool):
@@ -50,10 +54,11 @@ def same_cards(ours, theirs):
     text is its comment here and its value in astropy; a joined long string's comments are
     compared loosely, since astropy joins them its own way)."""
     assert len(ours) == len(theirs), (len(ours), len(theirs))
-    for (keyword, value, comment), card in zip(ours, theirs):
+    for (keyword, value, comment), card in zip(ours, theirs, strict=True):
         assert keyword == card.keyword, (keyword, card.keyword)
         if card.keyword in COMMENTARY:
-            assert value is None and comment == card.value.rstrip(), (comment, card.value)
+            assert value is None, (comment, card.value)
+            assert comment == card.value.rstrip(), (comment, card.value)
             continue
         want = card_value(card.value)
         if isinstance(want, float) and isinstance(value, (int, float)):
@@ -67,8 +72,8 @@ def same_cards(ours, theirs):
 def same_pixels(ours, theirs, what, table=None):
     """Integers equal, and unquantized floats; quantized floats equal within the rounding of
     `(I - R + 0.5) * scale + zero`, NaNs in the same places: the convention computes it in
-    binary64 with each operation rounded (spec/virtualize.md §1.3
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#13-arithmetic>), while astropy's
+    binary64 with each operation rounded (spec/zarrify.md §1.3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#13-arithmetic>), while astropy's
     build may fuse the multiply and the add; the two differ by a few units in the last place of
     the intermediate `I * scale`, which SUBTRACTIVE_DITHER_2 (integers near -2^31, a zero of
     the same size) makes about 1e-6 absolute after the cancellation, and the cast to the
@@ -85,25 +90,31 @@ def test_matches_astropy_and_rebuilds(path, tmp_path):
     """Every HDU is a node of its index: an image's array is astropy's data (stored values),
     a table's rows and heap are the file's bytes, every node's cards are astropy's, the root
     lists the HDUs with their offsets, and the file is rebuilt from the mirror."""
-    out, root = virtualized(path, tmp_path)
+    out, root = zarrified(path, tmp_path)
     raw = path.read_bytes()
-    meta = root.attrs["refkv_virtualized"]["fits"]
+    meta = mapping(at(root.attrs, "refkv_zarrified", "fits"))
     same = SAME_IMAGE.get(path.stem)
-    with warnings.catch_warnings(), fits.open(path, do_not_scale_image_data=True, disable_image_compression=True) as hdul, \
-            fits.open(path, do_not_scale_image_data=True) as decoded:
+    with (warnings.catch_warnings(),
+          fits.open(path, do_not_scale_image_data=True, disable_image_compression=True) as hdul,
+          fits.open(path, do_not_scale_image_data=True) as decoded):
         warnings.simplefilter("ignore")  # astropy's warnings about the odd fixtures (truncated, trailing bytes)
-        assert len(meta["hdus"]) == len(hdul)
+        assert len(sequence(meta["hdus"])) == len(hdul)
+        # astropy is unannotated: pyrefly takes an index of an HDUList for a slice of it
+        primary = cast("fits.PrimaryHDU", hdul[0])
         if meta["cards"] is None:
-            assert len(hdul[0].header) > 700  # past the cards budget
+            assert len(primary.header) > 700  # past the cards budget
         else:
-            same_cards(meta["cards"], hdul[0].header.cards)
+            same_cards(meta["cards"], primary.header.cards)
         for i, hdu in enumerate(hdul):
-            entry = meta["hdus"][i]
+            entry = mapping(at(meta, "hdus", i))
             info = hdu.fileinfo()
-            assert entry["index"] == i and entry["offset"] == info["hdrLoc"] and entry["data_offset"] == info["datLoc"]
-            assert entry["name"] == (hdu.name if hdu.name and hdu.name != "PRIMARY" else None) or (i == 0 and entry["name"] is None)
+            assert entry["index"] == i
+            assert entry["offset"] == info["hdrLoc"]
+            assert entry["data_offset"] == info["datLoc"]
+            assert entry["name"] == (hdu.name if hdu.name and hdu.name != "PRIMARY" else None) or (
+                i == 0 and entry["name"] is None)
             node = root[str(i)]
-            own = node.attrs["refkv_virtualized"]["fits"]
+            own = mapping(at(node.attrs, "refkv_zarrified", "fits"))
             assert own["index"] == i
             if own["cards"] is not None:
                 same_cards(own["cards"], hdu.header.cards)
@@ -111,43 +122,55 @@ def test_matches_astropy_and_rebuilds(path, tmp_path):
                 assert len(hdu.header) > 700
             if hdu.header.get("ZIMAGE"):
                 # a tile-compressed image: the table's cards above, astropy's decoded pixels here
-                assert entry["kind"] == "image" and entry["compression"]["type"] == hdu.header["ZCMPTYPE"].replace("RICE_ONE", "RICE_1")
+                assert entry["kind"] == "image"
+                assert at(entry, "compression", "type") == hdu.header["ZCMPTYPE"].replace("RICE_ONE", "RICE_1")
                 if same is not None:
                     ref, absent = same
                     with fits.open(FIXTURES / "fits" / f"{ref}.fits", do_not_scale_image_data=True) as other:
-                        want = other[1].data.copy()
+                        # astropy is unannotated (as above)
+                        want = cast("fits.CompImageHDU", other[1]).data.copy()
                     if absent is not None:
                         want[absent] = 0
                 else:
-                    want = decoded[i].data
-                assert node.shape == want.shape and node.dtype == want.dtype.newbyteorder("=")
-                same_pixels(node[...], want, path.stem, hdu.data if same is None else None)
-                codec = json.loads(out.bytes_entries[f"{i}/zarr.json"])["codecs"][0]
-                assert codec["name"] == "refkv.fits_tiles" and codec["configuration"]["compression"] == entry["compression"]["type"]
+                    want = cast("fits.CompImageHDU", decoded[i]).data  # astropy is unannotated (as above)
+                image = root.get_array(str(i))
+                assert image.shape == want.shape
+                assert image.dtype == want.dtype.newbyteorder("=")
+                same_pixels(image[...], want, path.stem, hdu.data if same is None else None)
+                codec = mapping(at(json.loads(out.bytes_entries[f"{i}/zarr.json"]), "codecs", 0))
+                assert codec["name"] == "refkv.fits_tiles"
+                assert at(codec, "configuration", "compression") == at(entry, "compression", "type")
                 continue
             if isinstance(hdu, (fits.BinTableHDU, fits.TableHDU)):
                 assert entry["kind"] == "table"
                 n1, n2 = hdu.header["NAXIS1"], hdu.header["NAXIS2"]
-                assert [c["form"] for c in own["columns"]] == [hdu.header[f"TFORM{k}"] for k in range(1, hdu.header["TFIELDS"] + 1)]
+                forms = [hdu.header[f"TFORM{k}"] for k in range(1, hdu.header["TFIELDS"] + 1)]
+                assert [mapping(c)["form"] for c in sequence(own["columns"])] == forms
+                table = root.get_group(str(i))
                 if n1 * n2:
-                    assert node["rows"][...].tobytes() == raw[info["datLoc"]:info["datLoc"] + n1 * n2]
-                    assert node["rows"].shape == (n2, n1)
+                    rows = table.get_array("rows")
+                    assert ndarray(rows[...]).tobytes() == raw[info["datLoc"]:info["datLoc"] + n1 * n2]
+                    assert rows.shape == (n2, n1)
                 theap = hdu.header.get("THEAP", n1 * n2)
                 heap = hdu.header["PCOUNT"] - (theap - n1 * n2)
                 if heap:
-                    assert node["heap"][...].tobytes() == raw[info["datLoc"] + theap:info["datLoc"] + theap + heap]
+                    stored = ndarray(table.get_array("heap")[...])
+                    assert stored.tobytes() == raw[info["datLoc"] + theap:info["datLoc"] + theap + heap]
                 else:
-                    assert "heap" not in node
+                    assert "heap" not in table
             elif hdu.header["NAXIS"] == 0:
-                assert entry["kind"] == "empty" and isinstance(node, zarr.Group) and list(node) == []
+                assert entry["kind"] == "empty"
+                assert isinstance(node, zarr.Group)
+                assert list(node) == []
             else:
                 assert entry["kind"] == "image"
                 want = hdu.data
-                assert node.shape == tuple(hdu.header[f"NAXIS{k}"] for k in range(hdu.header["NAXIS"], 0, -1))
-                assert node.dtype == want.dtype.newbyteorder("=")
-                assert node.attrs["refkv_virtualized"]["fits"]["bzero"] == hdu.header.get("BZERO")
+                image = root.get_array(str(i))
+                assert image.shape == tuple(hdu.header[f"NAXIS{k}"] for k in range(hdu.header["NAXIS"], 0, -1))
+                assert image.dtype == want.dtype.newbyteorder("=")
+                assert at(image.attrs, "refkv_zarrified", "fits", "bzero") == hdu.header.get("BZERO")
                 if want.size:
-                    assert np.array_equal(node[...], want, equal_nan=want.dtype.kind == "f")
+                    assert np.array_equal(ndarray(image[...]), want, equal_nan=want.dtype.kind == "f")
 
 
 # fixture: (chunk shape of the array at `path`, the number of its chunks, the parts of one chunk key)
@@ -169,19 +192,22 @@ CHUNKS = {
 def test_chunks(name, tmp_path):
     """Images and table rows are cut as contiguous values with the 2^20 limit (conventions §7
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays>);
-    an edge chunk is one range and a literal padding."""
+    an edge chunk is one range and its padding, a range of the zero data source."""
     path, shape, count, (key, parts) = CHUNKS[name]
-    out, root = virtualized(FIXTURES / "fits" / f"{name}.fits", tmp_path)
-    assert list(root[path].chunks) == shape
+    out, root = zarrified(FIXTURES / "fits" / f"{name}.fits", tmp_path)
+    assert list(root.get_array(path).chunks) == shape
     assert sum(1 for k in out.refs if k.startswith(f"{path}/c/")) == count
     assert len(out.refs[key]) == parts
 
 
 def test_summary(tmp_path):
-    out, _ = virtualized(FIXTURES / "fits" / "fits_mef_sci_err_dq.fits", tmp_path)
+    out, _ = zarrified(FIXTURES / "fits" / "fits_mef_sci_err_dq.fits", tmp_path)
     s = out.summary
-    assert s["hdus"] == 7 and s["kinds"] == {"empty": 1, "image": 6} and s["tables"] == 0
-    assert s["planner"]["bytes"] <= (FIXTURES / "fits" / "fits_mef_sci_err_dq.fits").stat().st_size  # one window holds the file
+    assert s["hdus"] == 7
+    assert s["kinds"] == {"empty": 1, "image": 6}
+    assert s["tables"] == 0
+    # one window holds the file
+    assert integer(at(s, "planner", "bytes")) <= (FIXTURES / "fits" / "fits_mef_sci_err_dq.fits").stat().st_size
 
 
 @pytest.mark.parametrize("path", REJECTED, ids=lambda p: p.name)

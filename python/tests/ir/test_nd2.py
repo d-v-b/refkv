@@ -3,13 +3,15 @@ against today's profile, the compact mirror, and the read planner."""
 
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import ClassVar, override
 
 import pytest
-
 from ir_helpers import FIXTURES, as_the_reference
-from refkv.ir import virtualize as via_ir
+
+from refkv._narrow import integer
 from refkv.errors import ResolutionError
 from refkv.ir import parse
+from refkv.ir import zarrify as via_ir
 from refkv.ir.planner import FileTransport, HttpTransport
 from refkv.policy import Policy
 
@@ -24,8 +26,11 @@ def test_projects_as_today_and_rebuilds(path, tmp_path):
 
 def test_frames_fold_into_one_run():
     _, _, ir = via_ir(str(FIXTURES / "nd2" / "nd2_tz_uint16.nd2"), "u", mirror=False)
-    frames = ir.children(ir.child(0, "frames"))
-    assert len(frames) == 1 and ir.run(frames[0])[0] == 12
+    frames = ir.children(integer(ir.child(0, "frames")))
+    assert len(frames) == 1
+    run = ir.run(frames[0])
+    assert run is not None
+    assert run[0] == 12
     assert [ir.name(c) for c in ir.children(frames[0])] == ["header", "name", "timestamp", "pixels"]
 
 
@@ -34,8 +39,8 @@ class _Ranges(BaseHTTPRequestHandler):
 
     data = bytes(range(256)) * 4096
     fail = 0
-    multipart = True
-    seen: list = []
+    multipart: bool | str = True  # or "crash"
+    seen: ClassVar[list] = []
 
     def do_GET(self):
         cls = type(self)
@@ -72,7 +77,8 @@ class _Ranges(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(cls.data[a:b])
 
-    def log_message(self, *args):
+    @override
+    def log_message(self, format, *args):
         pass
 
 
@@ -88,7 +94,8 @@ def server():
 def test_transport_retries_honoring_retry_after(server):
     _Ranges.fail = 2
     t = HttpTransport(server, LOOPBACK, base_delay=0.01)
-    assert t.size == len(_Ranges.data) and t.head[1] == _Ranges.data[:1 << 16]
+    assert t.size == len(_Ranges.data)
+    assert t.head[1] == _Ranges.data[:1 << 16]
     assert t.fetch([(10, 15)])[0] == [_Ranges.data[10:15]]
     assert t.retries == 2
 
@@ -113,7 +120,8 @@ def test_transport_does_not_retry_a_missing_object():
             self.send_header("Content-Length", "0")
             self.end_headers()
 
-        def log_message(self, *args):
+        @override
+        def log_message(self, format, *args):
             pass
 
     srv = ThreadingHTTPServer(("127.0.0.1", 0), Missing)
@@ -131,7 +139,7 @@ def test_transport_refuses_a_private_host_by_default(server):
         HttpTransport(server)
 
 
-def test_drive_reads_through_the_planner(server, tmp_path):
+def test_drive_reads_through_the_planner(server):
     """A run over the server: each batch's bytes as asked, the planner's counts."""
     nd2 = (FIXTURES / "nd2" / "nd2_tz_uint16.nd2").read_bytes()
     _Ranges.data = nd2
@@ -139,8 +147,10 @@ def test_drive_reads_through_the_planner(server, tmp_path):
         t = HttpTransport(server, LOOPBACK)
         ir, facts, stats = parse("nd2", t, 4)
         local = parse("nd2", FileTransport(str(FIXTURES / "nd2" / "nd2_tz_uint16.nd2")), 4)
-        assert ir.digest() == local[0].digest() and facts == local[1]
+        assert ir.digest() == local[0].digest()
+        assert facts == local[1]
         # the file is smaller than the request that opened it: every range is served from it
-        assert stats["requests"] == 0 and stats["served_ahead"] == stats["ranges"]
+        assert stats["requests"] == 0
+        assert stats["served_ahead"] == stats["ranges"]
     finally:
         _Ranges.data = bytes(range(256)) * 4096

@@ -7,7 +7,9 @@ official protobuf runtime in python/tests/test_pb.py.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, TypedDict, cast
 
 _VARINT = 0
 _LEN = 2
@@ -54,7 +56,7 @@ def _put_uint(out: bytearray, field_no: int, n: int) -> None:
         _put_varint(out, n)
 
 
-def _fields(buf: bytes | memoryview):
+def _fields(buf: bytes | memoryview) -> Iterator[tuple[int, int, int | memoryview | bytes]]:
     """Yield (field_no, wire type, value); value is int for varints, memoryview for LEN."""
     buf = memoryview(buf)
     pos, end = 0, len(buf)
@@ -80,7 +82,7 @@ def _fields(buf: bytes | memoryview):
         yield field_no, wire, val
 
 
-def _known(buf, schema: dict[int, int]):
+def _known(buf: bytes | memoryview, schema: dict[int, int]) -> Iterator[tuple[int, int | memoryview | bytes]]:
     """Yield (field_no, value) for fields in `schema` ({field_no: wire type}).
 
     Unknown field numbers are skipped; a known field with the wrong wire type
@@ -93,6 +95,28 @@ def _known(buf, schema: dict[int, int]):
             yield f, val
 
 
+def _int(v: int | memoryview | bytes) -> int:
+    """A varint field's value (`_known` checked its wire type)."""
+    if not isinstance(v, int):
+        raise TypeError("a varint field's value is an int")
+    return v
+
+
+def _len(v: int | memoryview | bytes) -> memoryview | bytes:
+    """A length-delimited field's value (`_known` checked its wire type)."""
+    if isinstance(v, int):
+        raise TypeError("a length-delimited field's value is bytes")
+    return v
+
+
+if TYPE_CHECKING:
+    # closed (PEP 728), which typing.TypedDict takes only from Python 3.15
+    class _Pins(TypedDict, total=False, closed=True):
+        size: int
+        etag: str
+        modified_not_after: int
+
+
 @dataclass(frozen=True, slots=True)
 class Range:
     """Bytes [offset, offset+length) of source table entry `source`, or literal `data`."""
@@ -101,7 +125,9 @@ class Range:
     offset: int = 0
     length: int = 0
     data: bytes | None = None
-    crc32c: int | None = None  # CRC-32C of the range's bytes (spec §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>), source ranges only
+    # CRC-32C of the range's bytes (spec §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>),
+    # source ranges only
+    crc32c: int | None = None
 
     def encode(self) -> bytes:
         out = bytearray()
@@ -116,20 +142,20 @@ class Range:
         return bytes(out)
 
     @classmethod
-    def decode(cls, buf) -> Range:
+    def decode(cls, buf: bytes | memoryview) -> Range:
         source = offset = length = 0
         data = crc = None
         for f, v in _known(buf, {1: _VARINT, 3: _VARINT, 4: _VARINT, 5: _LEN, 6: _VARINT}):
             if f == 1:
-                source = _u32(v)
+                source = _u32(_int(v))
             elif f == 3:
-                offset = v
+                offset = _int(v)
             elif f == 4:
-                length = v
+                length = _int(v)
             elif f == 5:
-                data = bytes(v)
+                data = bytes(_len(v))
             elif f == 6:
-                crc = _u32(v)
+                crc = _u32(_int(v))
         if data is not None and (source or offset or length):
             raise ValueError("literal range with non-zero source/offset/length")
         if data is not None and crc is not None:
@@ -156,8 +182,8 @@ class Concat:
         return bytes(out)
 
     @classmethod
-    def decode(cls, buf) -> Concat:
-        c = cls(tuple(Range.decode(v) for _, v in _known(buf, {1: _LEN})))
+    def decode(cls, buf: bytes | memoryview) -> Concat:
+        c = cls(tuple(Range.decode(_len(v)) for _, v in _known(buf, {1: _LEN})))
         if c.size > 0xFFFFFFFFFFFFFFFF:
             raise ValueError("concat size exceeds 2^64 - 1")
         return c
@@ -205,7 +231,7 @@ class Source:
         elif self.key is not None:
             _put_bytes(out, 2, self.key.encode())
         else:
-            _put_bytes(out, 3, self.data)
+            _put_bytes(out, 3, cast("bytes", self.data))  # the one kind set (__post_init__)
         # optional (explicit presence) fields are emitted whenever set, even if 0
         if self.size is not None:
             _put_tag(out, 4, _VARINT)
@@ -218,20 +244,24 @@ class Source:
         return bytes(out)
 
     @classmethod
-    def decode(cls, buf) -> Source:
-        kind, pins = None, {}
+    def decode(cls, buf: bytes | memoryview) -> Source:
+        kind: tuple[int, memoryview | bytes] | None = None
+        pins: _Pins = {}
         schema = {1: _LEN, 2: _LEN, 3: _LEN, 4: _VARINT, 5: _LEN, 6: _VARINT}
         for f, v in _known(buf, schema):
             if f in (1, 2, 3):
                 if f in (1, 2):
-                    _utf8(v)  # every occurrence must be valid, even if overridden (§4.1 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#41-encoding>)
-                kind = (f, v)  # oneof: the last member on the wire wins
+                    # every occurrence must be valid, even if overridden
+                    # (§4.1 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#41-encoding>)
+                    _utf8(_len(v))
+                kind = (f, _len(v))  # oneof: the last member on the wire wins
             elif f == 4:
-                pins["size"] = v
+                pins["size"] = _int(v)
             elif f == 5:
-                pins["etag"] = _utf8(v)
+                pins["etag"] = _utf8(_len(v))
             else:
-                pins["modified_not_after"] = v - (1 << 64) if v >= 1 << 63 else v
+                n = _int(v)
+                pins["modified_not_after"] = n - (1 << 64) if n >= 1 << 63 else n
         if kind is None:
             raise ValueError("Source has no kind set")
         f, v = kind
@@ -252,7 +282,7 @@ def _u32(v: int) -> int:
     return v
 
 
-def _utf8(v) -> str:
+def _utf8(v: bytes | memoryview) -> str:
     try:
         return bytes(v).decode("utf-8")
     except UnicodeDecodeError as e:
@@ -263,25 +293,28 @@ def encode_source_table(sources: list[Source], revision: int | None = None) -> b
     out = bytearray()
     for src in sources:
         _put_bytes(out, 1, src.encode())
-    if revision is not None:  # optional: emitted whenever set (spec §5 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>, §1.3 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#13-versioning>)
+    # optional: emitted whenever set (spec §5 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>,
+    # §1.3 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#13-versioning>)
+    if revision is not None:
         _put_tag(out, 2, _VARINT)
         _put_varint(out, revision)
     return bytes(out)
 
 
-def decode_source_table(buf) -> list[Source]:
+def decode_source_table(buf: bytes | memoryview) -> list[Source]:
     return decode_table(buf)[0]
 
 
-def decode_table(buf) -> tuple[list[Source], int | None]:
+def decode_table(buf: bytes | memoryview) -> tuple[list[Source], int | None]:
     """The sources of a SourceTable, and the spec revision it records, if any (spec §5
     <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>)."""
-    sources, revision = [], None
+    sources: list[Source] = []
+    revision: int | None = None
     for f, v in _known(buf, {1: _LEN, 2: _VARINT}):
         if f == 1:
-            sources.append(Source.decode(v))
+            sources.append(Source.decode(_len(v)))
         else:
-            revision = _u32(v)
+            revision = _u32(_int(v))
     return sources, revision
 
 
@@ -324,15 +357,16 @@ def encode_cd_index(pages: list[Page], pinned: list[Pinned]) -> bytes:
     return bytes(out)
 
 
-def decode_cd_index(buf) -> tuple[list[Page], list[Pinned]]:
-    pages, pinned = [], []
+def decode_cd_index(buf: bytes | memoryview) -> tuple[list[Page], list[Pinned]]:
+    pages: list[Page] = []
+    pinned: list[Pinned] = []
     sub = {1: _LEN, 2: _VARINT, 3: _VARINT, 4: _VARINT, 5: _VARINT}
     for f, v in _known(buf, {1: _LEN, 2: _LEN}):
-        vals = dict(_known(v, sub if f == 2 else {1: _LEN, 2: _VARINT, 3: _VARINT}))
-        name = _utf8(vals.get(1, b""))
+        vals = dict(_known(_len(v), sub if f == 2 else {1: _LEN, 2: _VARINT, 3: _VARINT}))
+        name = _utf8(_len(vals.get(1, b"")))
         if f == 1:
-            pages.append(Page(name, vals.get(2, 0), vals.get(3, 0)))
+            pages.append(Page(name, _int(vals.get(2, 0)), _int(vals.get(3, 0))))
         elif f == 2:
-            pinned.append(Pinned(name, vals.get(2, 0), vals.get(3, 0), vals.get(4, 0),
-                                 _u32(vals.get(5, 0))))
+            pinned.append(Pinned(name, _int(vals.get(2, 0)), _int(vals.get(3, 0)), _int(vals.get(4, 0)),
+                                 _u32(_int(vals.get(5, 0)))))
     return pages, pinned

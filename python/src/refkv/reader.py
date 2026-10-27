@@ -17,8 +17,10 @@ store as a read-only zarr store.
 from __future__ import annotations
 
 import asyncio
+import builtins
 import contextlib
-import datetime
+import datetime as dt
+import email.utils
 import functools
 import http.client
 import math
@@ -26,11 +28,15 @@ import os
 import re
 import socket
 import threading
-from collections.abc import AsyncIterator, Callable, Mapping
-from concurrent.futures import ThreadPoolExecutor
+import urllib.error
+import urllib.request
+from collections.abc import AsyncIterator, Buffer, Callable, Coroutine, Mapping
+from concurrent.futures import Executor, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from email.message import Message
-from typing import Literal
+from http.client import HTTPMessage
+from pathlib import Path
+from typing import IO, Literal, NoReturn, Protocol, TypedDict, cast, override
 from urllib.parse import unquote, urljoin, urlparse, urlsplit
 
 from refkv._extras import OBSTORE_HINT
@@ -38,7 +44,7 @@ from refkv._sync import run
 from refkv.errors import PayloadError, RequestError, ResolutionError
 from refkv.pb import Reference, Source, parts
 from refkv.policy import Policy, crc32c, public_s3_url
-from refkv.uri import file_path, file_uri, is_url
+from refkv.uri import file_path, file_uri, is_uri_reference, is_url
 from refkv.uri import resolve as resolve_reference
 
 
@@ -137,12 +143,13 @@ class Resolver:
 
     _OWN = ("file", "http", "https")  # the schemes refkv makes stores for itself
 
-    def __init__(self, registry=None) -> None:
-        self._registry = None  # an ObjectStoreRegistry-like object, with .resolve(url)
+    def __init__(self, registry: Registry | None = None) -> None:
+        self._registry: ObjectStoreRegistryLike | None = None
         self._prefixes: list[tuple[str, str, tuple[str, ...], object]] = []
-        self._made: dict[str, object] = {}  # LocalFiles, made once
+        self._made: dict[str, LocalFiles] = {}  # made once
         if isinstance(registry, Resolver):
-            self._registry, self._prefixes = registry._registry, list(registry._prefixes)
+            self._registry = registry._registry  # noqa: SLF001 (another Resolver's)
+            self._prefixes = list(registry._prefixes)  # noqa: SLF001 (another Resolver's)
         elif isinstance(registry, Mapping):
             for prefix, store in registry.items():
                 p = urlsplit(str(prefix))
@@ -157,7 +164,7 @@ class Resolver:
                                 f"{type(registry).__name__}")
             self._registry = registry
 
-    def registered(self, url: str) -> tuple[object, str] | None:
+    def registered(self, url: str) -> tuple[ObjectStore, str] | None:
         """The store the application registered for `url`, and the object's path
         in it; None if there is none."""
         if self._registry is not None:
@@ -165,7 +172,7 @@ class Resolver:
                 store, path = self._registry.resolve(url)
             except ValueError:
                 return None
-            return store, unquote(path)
+            return cast("ObjectStore", store), unquote(path)  # an obspec store, as the registry's are
         p = urlsplit(url)
         segs = _segments(p.path)
         best = None
@@ -178,16 +185,16 @@ class Resolver:
             return None
         store = best[1]
         # as obspec_utils does: the path is relative to the store's own root
-        root = getattr(store, "prefix", None) or (
-            urlsplit(store.url).path if isinstance(getattr(store, "url", None), str) else "")
+        store_url = getattr(store, "url", None)
+        root = getattr(store, "prefix", None) or (urlsplit(store_url).path if isinstance(store_url, str) else "")
         path = unquote(p.path).lstrip("/")
         root = unquote(str(root)).strip("/")
         if root and (path == root or path.startswith(root + "/")):
             path = path[len(root):].lstrip("/")
-        return store, path
+        return cast("ObjectStore", store), path  # an obspec store, as the registry's are
 
     def resolve(self, url: str, *, allow_file_host: bool = False, policy: Policy | None = None,
-                executor=None) -> tuple[object, str]:
+                executor: Executor | None = None) -> tuple[ObjectStore, str]:
         """The store that reads `url`, and the object's path in it. `allow_file_host`:
         a `file:` URL may name a host, a UNC path on Windows (spec §5
         <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>).
@@ -223,11 +230,70 @@ class Resolver:
         return HttpObjects(origin, policy, executor), url[len(origin):]
 
 
+class ObjectMeta(TypedDict):
+    """The part of an obspec object's metadata the reader reads."""
+
+    size: int
+
+
+class GetResult(Protocol):
+    """What an obspec store's `get_async` gives, as the reader reads it."""
+
+    @property
+    def meta(self) -> ObjectMeta:
+        """The object's metadata."""
+        ...
+
+    async def buffer_async(self) -> Buffer:
+        """The bytes read."""
+        ...
+
+
+class SuffixRange(TypedDict):
+    """A range of an object's last `suffix` bytes."""
+
+    suffix: int
+
+
+class GetOptions(TypedDict, total=False):
+    """The options of an obspec store's `get_async` the reader passes."""
+
+    range: tuple[int, int] | SuffixRange
+    if_match: str
+    if_unmodified_since: dt.datetime
+
+
+class ObjectStore(Protocol):
+    """The methods of an obspec store the reader calls."""
+
+    async def get_range_async(self, path: str, *, start: int, end: int) -> Buffer:
+        """Bytes [start, end) of the object at `path`."""
+        ...
+
+    async def get_async(self, path: str, *, options: GetOptions) -> GetResult:
+        """The object at `path`, as `options` say."""
+        ...
+
+
+class ObjectStoreRegistryLike(Protocol):
+    """An `obspec_utils.registry.ObjectStoreRegistry`, or another object with its `resolve`."""
+
+    def resolve(self, url: str) -> tuple[object, str]:
+        """The store registered for `url`, and the object's path in it; ValueError if none is."""
+        ...
+
+
+Registry = Resolver | Mapping[str, object] | ObjectStoreRegistryLike
+"""What `registry=` takes: a `Resolver`, a mapping of URL prefixes to stores, or an
+`ObjectStoreRegistry`."""
+
+
 class _Got:
     """What `LocalFiles.get_async` returns: the bytes read, and the file's size."""
 
     def __init__(self, data: bytes, size: int) -> None:
-        self._data, self.meta = data, {"size": size}
+        self._data = data
+        self.meta: ObjectMeta = {"size": size}
 
     async def buffer_async(self) -> bytes:
         return self._data
@@ -260,10 +326,10 @@ class LocalFiles:
     async def get_range_async(self, path: str, *, start: int, end: int) -> bytes:
         return await asyncio.to_thread(self._range, path, start, end)
 
-    async def get_async(self, path: str, *, options: dict) -> _Got:
-        if set(options) != {"range"} or set(options["range"]) != {"suffix"}:
+    async def get_async(self, path: str, *, options: GetOptions) -> _Got:
+        if set(options) != {"range"} or isinstance(r := options["range"], tuple) or set(r) != {"suffix"}:
             raise NotImplementedError(f"LocalFiles.get_async reads a suffix, not {options!r}")
-        return await asyncio.to_thread(self._suffix, path, options["range"]["suffix"])
+        return await asyncio.to_thread(self._suffix, path, r["suffix"])
 
 
 def _segments(path: str) -> tuple[str, ...]:
@@ -271,7 +337,7 @@ def _segments(path: str) -> tuple[str, ...]:
     return tuple(unquote(s) for s in path.split("/") if s)
 
 
-def _resolver(registry) -> Resolver:
+def _resolver(registry: Registry | None) -> Resolver:
     return registry if isinstance(registry, Resolver) else Resolver(registry)
 
 
@@ -342,11 +408,11 @@ class _Pool:
     connections is most of what makes reading many chunks fast."""
 
     def __init__(self, max_idle: int = 32) -> None:
-        self._idle: dict[tuple[str, str, int | None], list] = {}
+        self._idle: dict[tuple[str, str, int | None], list[http.client.HTTPConnection]] = {}
         self._lock = threading.Lock()
         self._max_idle = max_idle
 
-    def get(self, scheme: str, host: str, port: int | None):
+    def get(self, scheme: str, host: str, port: int | None) -> tuple[http.client.HTTPConnection, bool]:
         """A connection, and whether it was used before."""
         with self._lock:
             idle = self._idle.get((scheme, host, port))
@@ -354,7 +420,7 @@ class _Pool:
                 return idle.pop(), True
         return new_connection(scheme, host, port), False
 
-    def put(self, scheme: str, host: str, port: int | None, conn) -> None:
+    def put(self, scheme: str, host: str, port: int | None, conn: http.client.HTTPConnection) -> None:
         with self._lock:
             idle = self._idle.setdefault((scheme, host, port), [])
             if len(idle) < self._max_idle:
@@ -363,14 +429,27 @@ class _Pool:
         conn.close()
 
 
+class Connections(Protocol):
+    """Kept-alive connections, with `_Pool`'s `get` and `put`."""
+
+    def get(self, scheme: str, host: str, port: int | None) -> tuple[http.client.HTTPConnection, bool]:
+        """A connection, and whether it was used before."""
+        ...
+
+    def put(self, scheme: str, host: str, port: int | None, conn: http.client.HTTPConnection) -> None:
+        """Keeps `conn` for a later `get`, or closes it."""
+        ...
+
+
 _POOL = _Pool()
 
 
-def new_connection(scheme: str, host: str, port: int | None, timeout: float = 60):
+def new_connection(scheme: str, host: str, port: int | None, timeout: float = 60) -> http.client.HTTPConnection:
     """An unopened connection to `host`, which only `_connect` (checking the address) opens."""
     cls = http.client.HTTPSConnection if scheme == "https" else http.client.HTTPConnection
     conn = cls(host, port, timeout=timeout)
-    conn._create_connection = _refuse_unchecked  # connect() must go through _connect
+    # connect() must go through _connect (typeshed omits http.client's private hook)
+    conn._create_connection = _refuse_unchecked  # pyrefly: ignore[missing-attribute]
     return conn
 
 
@@ -383,7 +462,7 @@ Check = Callable[[str], None]
 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 3)."""
 
 
-def _refuse_unchecked(*args, **kwargs):
+def _refuse_unchecked(*_args: object, **_kwargs: object) -> NoReturn:
     raise AssertionError("a pooled connection was opened without an address check")
 
 
@@ -397,13 +476,14 @@ def _connect(conn: http.client.HTTPConnection, check: Check | None) -> None:
     address. The request keeps the host name: `Host`, and for https the TLS
     server name and certificate check, come from `conn.host`."""
 
-    def create(address, timeout, source_address=None):
+    def create(address: tuple[str, int], timeout: float | None,
+               source_address: tuple[str, int] | None = None) -> socket.socket:
         host, port = address
         refused, error = None, None
         for family, type_, proto, _, sockaddr in _getaddrinfo(host, port, 0, socket.SOCK_STREAM):
             if check is not None:
                 try:
-                    check(sockaddr[0])
+                    check(cast("str", sockaddr[0]))  # an IP address (AF_INET or AF_INET6)
                 except ResolutionError as e:
                     refused = refused or e
                     continue
@@ -413,21 +493,22 @@ def _connect(conn: http.client.HTTPConnection, check: Check | None) -> None:
                 if source_address:
                     sock.bind(source_address)
                 sock.connect(sockaddr)
-                return sock
             except OSError as e:
                 sock.close()
                 error = e
+            else:
+                return sock
         if error is not None:
             raise error
         if refused is not None:
             raise refused
         raise OSError(f"{host}: no address")
 
-    conn._create_connection = create
+    conn._create_connection = create  # noqa: SLF001 (http.client's hook)  # pyrefly: ignore[missing-attribute]
     try:
         conn.connect()
     finally:
-        conn._create_connection = _refuse_unchecked
+        conn._create_connection = _refuse_unchecked  # noqa: SLF001 (http.client's hook)  # pyrefly: ignore[missing-attribute]
 
 
 def _proxy(url: str) -> str | None:
@@ -435,23 +516,23 @@ def _proxy(url: str) -> str | None:
     environment (`http_proxy`, `https_proxy`, in either case) or, where urllib reads
     them, the system's settings, unless `no_proxy` (or the system) exempts the host.
     `all_proxy` is not used."""
-    import urllib.request
-
     pu = urlparse(url)
     proxy = urllib.request.getproxies().get(pu.scheme)
-    if not proxy or urllib.request.proxy_bypass(pu.hostname):
+    # a checked http(s) URL has a host (_check_http_url)
+    if not proxy or urllib.request.proxy_bypass(cast("str", pu.hostname)):
         return None
     return proxy
 
 
 # The User-Agent every request of the reader carries unless `headers` gives one (the
-# virtualizer's say `refkv-virtualize`): some hosts, Wikimedia Commons among them, refuse a
+# zarrifier's say `refkv-zarrify`): some hosts, Wikimedia Commons among them, refuse a
 # client that sends none or urllib's default.
 USER_AGENT = "refkv"
 
 
 def _send(url: str, headers: dict[str, str], check: Check | None = None,
-          unchecked_proxy: bool = False, pool=None, method: str = "GET") -> tuple[int, Message, bytes]:
+          unchecked_proxy: bool = False, pool: Connections | None = None,
+          method: str = "GET") -> tuple[int, Message, bytes]:
     """One request of `url` (a GET, or `method`), without following redirects:
     (status, headers, body), with `USER_AGENT` unless `headers` names one.
 
@@ -471,26 +552,29 @@ def _send(url: str, headers: dict[str, str], check: Check | None = None,
             if not unchecked_proxy:
                 raise ResolutionError(
                     f"{url}: the request would go through the proxy {proxy}, and the reader "
-                    f"cannot check the address the proxy connects to (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>); set "
+                    f"cannot check the address the proxy connects to ("
+                    f"spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>); set "
                     f"allow_unchecked_proxy=True to send it anyway, or exempt the host with "
                     f"no_proxy")
             # Check what the name resolves to here: this catches literal addresses and
             # honest names, not DNS rebinding.
             port = pu.port or (443 if pu.scheme == "https" else 80)
             for *_, sockaddr in _getaddrinfo(pu.hostname, port, 0, socket.SOCK_STREAM):
-                check(sockaddr[0])
+                check(cast("str", sockaddr[0]))  # an IP address (AF_INET or AF_INET6)
         return _send_urllib(url, headers, method)
     # the request target exactly as written in the URL: path and query, without the fragment
     rest = url.split("://", 1)[1]
-    target = rest[re.match(r"[^/?#]*", rest).end():].split("#", 1)[0]
+    origin = cast("re.Match[str]", re.match(r"[^/?#]*", rest))  # which every string matches
+    target = rest[origin.end():].split("#", 1)[0]
     target = target if target.startswith("/") else "/" + target
+    host = cast("str", pu.hostname)  # a checked http(s) URL has one (_check_http_url)
     for attempt in (0, 1):
-        conn, reused = pool.get(pu.scheme, pu.hostname, pu.port)
+        conn, reused = pool.get(pu.scheme, host, pu.port)
         try:
             if conn.sock is None:
                 _connect(conn, check)
             if check is not None:  # also a reused connection, opened for another archive
-                check(conn.sock.getpeername()[0])
+                check(cast("socket.socket", conn.sock).getpeername()[0])  # connected
             conn.request(method, target, headers=headers)
             r = conn.getresponse()
             body = r.read()
@@ -505,21 +589,21 @@ def _send(url: str, headers: dict[str, str], check: Check | None = None,
         if r.will_close:
             conn.close()
         else:
-            pool.put(pu.scheme, pu.hostname, pu.port, conn)
+            pool.put(pu.scheme, host, pu.port, conn)
         return r.status, r.msg, body
     raise AssertionError("unreachable")
 
 
 def _send_urllib(url: str, headers: dict[str, str], method: str = "GET") -> tuple[int, Message, bytes]:
     """`_send` through urllib, which honors the proxy settings in the environment."""
-    import urllib.error
-    import urllib.request
 
     class NoRedirects(urllib.request.HTTPRedirectHandler):
-        def redirect_request(self, *args):
+        @override
+        def redirect_request(self, req: urllib.request.Request, fp: IO[bytes], code: int, msg: str,
+                             headers: HTTPMessage, newurl: str) -> None:
             return None  # http_range follows redirects itself
 
-    req = urllib.request.Request(url, headers=headers, method=method)
+    req = urllib.request.Request(url, headers=headers, method=method)  # noqa: S310 (an http(s) URL)
     try:
         with urllib.request.build_opener(NoRedirects).open(req, timeout=60) as r:
             return r.status, r.headers, r.read()
@@ -539,10 +623,6 @@ def _http_get(url: str, range_: str, src: Source | None,
     <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#52-reading-over-http>):
     (final URL, status, headers, body) of a 200 or a 206. `src`'s pins, if any,
     are sent and checked. `allow` and `address` are `http_range`'s."""
-    import email.utils
-
-    from refkv.uri import is_uri_reference
-
     _check_http_url(url)
     headers = {"Range": f"bytes={range_}", "Accept-Encoding": "identity"}
     if src is not None and src.etag is not None:
@@ -551,12 +631,12 @@ def _http_get(url: str, range_: str, src: Source | None,
         t = src.modified_not_after
         if not -62135596800 <= t <= 253402300799:  # years 1..9999
             raise ResolutionError("modified_not_after cannot be written as an HTTP-date")
-        when = datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc) + datetime.timedelta(
-            seconds=t)
+        when = dt.datetime(1970, 1, 1, tzinfo=dt.UTC) + dt.timedelta(seconds=t)
         headers["If-Unmodified-Since"] = email.utils.format_datetime(when, usegmt=True)
     first = url
-    for redirects in range(6):  # spec §5.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#52-reading-over-http>: at most 5 redirects
-        check = None if address is None else (lambda ip, u=url: address(u, ip))
+    # spec §5.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#52-reading-over-http>: at most 5 redirects
+    for redirects in range(6):
+        check = None if address is None else functools.partial(address, url)
         try:
             status, msg, body = _send(url, headers, check, unchecked_proxy)
         except ResolutionError:
@@ -689,7 +769,7 @@ class HttpObjects:
     reader sets to its own threads, so they count towards its
     `max_concurrency`."""
 
-    def __init__(self, origin: str, policy: Policy | None = None, executor=None) -> None:
+    def __init__(self, origin: str, policy: Policy | None = None, executor: Executor | None = None) -> None:
         self.origin = origin
         self.policy = policy or Policy()
         self.executor = executor
@@ -697,7 +777,7 @@ class HttpObjects:
     def __repr__(self) -> str:
         return f"HttpObjects({self.origin!r})"
 
-    async def _call(self, f, path: str, *args, **kwargs):
+    async def _call[T](self, f: Callable[..., T], path: str, *args: object, **kwargs: object) -> T:
         url = self.origin + path
         p = self.policy
         p.check_host(url)  # as written, before resolving it; each address is checked as well
@@ -714,11 +794,11 @@ class HttpObjects:
         data, _ = await self._call(http_range, path, start, end, None, clip=True)
         return data
 
-    async def get_async(self, path: str, *, options: dict) -> _Got:
+    async def get_async(self, path: str, *, options: GetOptions) -> _Got:
         """The last `options["range"]["suffix"]` bytes of the object, and its size."""
-        if set(options) != {"range"} or set(options["range"]) != {"suffix"}:
+        if set(options) != {"range"} or isinstance(r := options["range"], tuple) or set(r) != {"suffix"}:
             raise NotImplementedError(f"HttpObjects.get_async reads a suffix, not {options!r}")
-        return _Got(*await self._call(http_suffix, path, options["range"]["suffix"]))
+        return _Got(*await self._call(http_suffix, path, r["suffix"]))
 
 
 def _size_mismatch(url: str, pin: int, size: int | None) -> str:
@@ -750,17 +830,19 @@ def imf_fixdate(v: str | None) -> int | None:
     m = re.fullmatch(r"(\w{3}), (\d{2}) (\w{3}) (\d{4}) (\d{2}):(\d{2}):(\d{2}) GMT", v or "")
     if not m or m[1] not in _DAYS or m[3] not in _MONTHS:
         return None
-    leap = int(m[7]) == 60  # a leap second counts as the following second (§5.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#52-reading-over-http>)
+    # a leap second counts as the following second
+    # (§5.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#52-reading-over-http>)
+    leap = int(m[7]) == 60
     try:
-        t = datetime.datetime(int(m[4]), _MONTHS.index(m[3]) + 1, int(m[2]), int(m[5]),
-                              int(m[6]), 59 if leap else int(m[7]), tzinfo=datetime.timezone.utc)
+        t = dt.datetime(int(m[4]), _MONTHS.index(m[3]) + 1, int(m[2]), int(m[5]),
+                        int(m[6]), 59 if leap else int(m[7]), tzinfo=dt.UTC)
     except ValueError:
         return None
     if _DAYS[t.weekday()] != m[1]:
         return None
     if leap:
-        t += datetime.timedelta(seconds=1)
-    return int((t - datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc)).total_seconds())
+        t += dt.timedelta(seconds=1)
+    return int((t - dt.datetime(1970, 1, 1, tzinfo=dt.UTC)).total_seconds())
 
 
 DEFAULT_CONCURRENCY = 8
@@ -818,7 +900,7 @@ class ReferenceReader:
     - `policy`: what may be resolved (`Policy`; the default is `Policy()`).
     - `max_concurrency`: the most requests this store has in flight at once,
       to its sources and to the archive itself: 8 by default, as many
-      connections as the virtualizer opens to one host, and polite to the
+      connections as the zarrifier opens to one host, and polite to the
       hosts of public data. None for no cap. Zarr's `async.concurrency` setting
       (default 10) caps something else: the chunks one zarr operation reads at
       once, per operation. One chunk can need several requests (a reference
@@ -836,7 +918,7 @@ class ReferenceReader:
         self,
         url: str,
         *,
-        registry=None,
+        registry: Registry | None = None,
         stats: Stats | None = None,
         policy: Policy | None = None,
         max_concurrency: int | None = DEFAULT_CONCURRENCY,
@@ -903,7 +985,7 @@ class ReferenceReader:
         """Every key that starts with `prefix`, sorted (hidden keys are not listed)."""
         return run(_collect(self.list_async(prefix)))
 
-    def list_dir(self, prefix: str = "") -> list[str]:
+    def list_dir(self, prefix: str = "") -> builtins.list[str]:  # the method `list` shadows the type
         """The distinct next path segments of the keys under `prefix`, a
         "directory" whose trailing "/" may be left out."""
         return run(_collect(self.list_dir_async(prefix)))
@@ -932,7 +1014,7 @@ class ReferenceReader:
                     thread_name_prefix="refkv-read")
             return self._threads
 
-    def _limit(self) -> contextlib.AbstractAsyncContextManager:
+    def _limit(self) -> contextlib.AbstractAsyncContextManager[None]:
         """Held around each request: the `max_concurrency` cap. A semaphore belongs
         to one event loop, so a store used from another loop gets a new one."""
         if self.max_concurrency is None:
@@ -961,7 +1043,7 @@ class ReferenceReader:
         try:
             async with self._limit():
                 data = bytes(await store.get_range_async(path, start=start, end=end))
-        except Exception as e:  # e.g. the range starts past the end of the object
+        except Exception as e:  # noqa: BLE001 - e.g. the range starts past the end of the object
             raise ValueError(f"cannot read [{start}, {end}) of {url}: {e}") from None
         self.stats.record(url, start, len(data), external=external)
         if exact and len(data) != end - start:
@@ -971,14 +1053,15 @@ class ReferenceReader:
     async def _url_bytes(self, src: Source, start: int, end: int) -> bytes:
         """Bytes [start, end) of a url source, checking its pins (spec §5.1
         <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#51-pins>)."""
-        url = resolve_reference(self.url, src.url)
+        url = resolve_reference(self.url, cast("str", src.url))  # a url source's
         registered = self.resolver.registered(url) is not None
-        allow = lambda u: self.policy.check(self.url, u, registered=registered)  # noqa: E731
+        allow: Callable[[str], None] = lambda u: self.policy.check(self.url, u, registered=registered)  # noqa: E731
         # spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule
         # 3: check every address, unless the application allows them all
         address = None if self.policy.allow_private_hosts else self.policy.check_address
         allow(url)  # spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>
-        if urlparse(url).scheme.lower() in ("http", "https") and not registered:  # spec §5.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#52-reading-over-http>, pinned or not
+        # spec §5.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#52-reading-over-http>, pinned or not
+        if urlparse(url).scheme.lower() in ("http", "https") and not registered:
             async with self._limit():
                 data, size = await asyncio.get_running_loop().run_in_executor(
                     self._executor(), functools.partial(
@@ -995,7 +1078,7 @@ class ReferenceReader:
                 path = file_path(url, allow_host=self.policy.allow_file_hosts)
             except ValueError as e:
                 raise ResolutionError(f"{url}: {e}") from None
-            st = os.stat(path)
+            st = await asyncio.get_running_loop().run_in_executor(self._executor(), Path(path).stat)
             if src.etag is not None:
                 raise ResolutionError("an etag pin cannot be checked for a file: URL")
             if src.size is not None and st.st_size != src.size:
@@ -1005,12 +1088,11 @@ class ReferenceReader:
                 raise ResolutionError("modified_not_after pin failed: the file changed")
             return await self._read(url, start, end, external=True)
         store, path = self.resolver.resolve(url)
-        options: dict = {"range": (start, end)}
+        options: GetOptions = {"range": (start, end)}
         if src.etag is not None:
             options["if_match"] = src.etag
         if src.modified_not_after is not None:
-            options["if_unmodified_since"] = datetime.datetime.fromtimestamp(
-                src.modified_not_after, datetime.timezone.utc)
+            options["if_unmodified_since"] = dt.datetime.fromtimestamp(src.modified_not_after, dt.UTC)
         try:
             async with self._limit():
                 res = await store.get_async(path, options=options)
@@ -1043,7 +1125,7 @@ class ReferenceReader:
         # with a crc32c is read whole and checked (spec §6.3
         # <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#63-resolving-a-reference>);
         # `cuts` says which part of each piece the window takes, and which checksum it must have.
-        pieces: list = []
+        pieces: list[bytes | tuple[int, int, int] | Coroutine[object, object, bytes]] = []
         cuts: list[tuple[int, int, int | None]] = []
         pos = 0
         for r in parts(ref):
@@ -1072,18 +1154,20 @@ class ReferenceReader:
             pos += r.size
         # Combine nearby reads of each url source, then slice them apart.
         reads = sorted({p for p in pieces if isinstance(p, tuple)}, key=lambda t: (t[0], t[1]))
-        runs: list[list] = []  # [source, a, b]
+        runs: list[list[int]] = []  # [source, a, b]
         for source, a, b in reads:
             if runs and runs[-1][0] == source and a - runs[-1][2] <= self.MERGE_GAP:
                 runs[-1][2] = max(runs[-1][2], b)
             else:
                 runs.append([source, a, b])
         coros = [p for p in pieces if not isinstance(p, (bytes, tuple))]
-        if len(runs) > self.policy.max_reads:  # spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 5, before any read
+        # spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 5, before any read
+        if len(runs) > self.policy.max_reads:
             for c in coros:
                 c.close()
             raise RequestError(f"the value needs {len(runs)} reads; this reader allows "
-                               f"{self.policy.max_reads} (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)")
+                               f"{self.policy.max_reads} ("
+                               f"spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)")
         coros += [self._url_bytes(self._sources[s], a, b) for s, a, b in runs]
         try:
             done = await asyncio.gather(*coros)
@@ -1092,7 +1176,7 @@ class ReferenceReader:
         except Exception as exc:  # noqa: BLE001 - spec §6.4 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#64-errors>: failures resolving a range
             raise ResolutionError(f"{type(exc).__name__}: {exc}") from None
         other = iter(done[: len(done) - len(runs)])
-        fetched = list(zip(runs, done[len(done) - len(runs):]))
+        fetched = list(zip(runs, done[len(done) - len(runs):], strict=True))
 
         def from_runs(source: int, a: int, b: int) -> bytes:
             for (s, ra, rb), data in fetched:
@@ -1101,14 +1185,15 @@ class ReferenceReader:
             raise AssertionError("read not covered by a run")
 
         out = []
-        for p, (lo, hi, crc) in zip(pieces, cuts):
+        for p, (lo, hi, crc) in zip(pieces, cuts, strict=True):
             if isinstance(p, bytes):
                 data = p
             elif isinstance(p, tuple):
                 data = from_runs(*p)
             else:
                 data = next(other)
-            if crc is not None and crc32c(data) != crc:  # spec §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>: the source changed
+            # spec §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>: the source changed
+            if crc is not None and crc32c(data) != crc:
                 raise ResolutionError(f"the bytes read do not match the range's crc32c "
                                       f"{crc:#010x} (got {crc32c(data):#010x}): the source "
                                       f"changed since the archive was written")

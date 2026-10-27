@@ -1,7 +1,7 @@
-"""The Python CZI virtualizer (spec/virtualize/czi.md) on the synthetic fixtures.
+"""The Python CZI virtualizer (spec/zarrify/czi.md) on the synthetic fixtures.
 
 Equivalence with the browser virtualizer is checked by
-conformance/virtualize/compare.py, and pixels and reconstruction against
+conformance/zarrify/compare.py, and pixels and reconstruction against
 czifile and libCZI by js/test/czi/verify.py.
 """
 
@@ -10,8 +10,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-# the frozen reference twins (conformance/virtualize/reference/refkv_reference)
-sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "virtualize" / "reference"))
+# the frozen reference twins (conformance/zarrify/reference/refkv_reference)
+sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "zarrify" / "reference"))
 
 
 import json
@@ -21,20 +21,24 @@ import sys
 from pathlib import Path
 
 import pytest
-
-from refkv.virtualize import Rejected
+from reference_helpers import ranges_of
 from refkv_reference import virtualize
 from refkv_reference.czi.coding import jpeg_frame, jpegxr_size, zstd1_header, zstd_content_size
 from refkv_reference.czi.layout import layer, row_band
 from refkv_reference.czi.segments import guid
+from refkv_reference.legacy import Output
+
+from refkv.zarrify import Rejected
 
 ROOT = Path(__file__).parents[3]
 FIXTURES = ROOT / "fixtures" / "czi"
 WIC = bytes.fromhex("24C3DD6F034EFE4BB1853D77768DC9")
 
 
-def run(name: str):
-    return virtualize(str(FIXTURES / f"{name}.czi"), url=f"https://data.test/{name}.czi")[1]
+def run(name: str) -> Output:
+    out = virtualize(str(FIXTURES / f"{name}.czi"), url=f"https://data.test/{name}.czi")[1]
+    assert isinstance(out, Output)
+    return out
 
 
 def doc(out, key: str) -> dict:
@@ -86,7 +90,8 @@ def check_gray16_tczyx(out):
     ome = doc(out, "0/zarr.json")["attributes"]["ome"]
     ms = ome["multiscales"][0]
     assert [a["name"] for a in ms["axes"]] == ["t", "c", "z", "y", "x"]
-    assert ms["datasets"][0]["coordinateTransformations"][0]["scale"] == [0.5, 1, 0.5, 1.2 * (1 / 1e-6) * 1e-7 / 1.2 * 1.2, 0.1 * (1 / 1e-6) * 1e-6]
+    assert ms["datasets"][0]["coordinateTransformations"][0]["scale"] == [
+        0.5, 1, 0.5, 1.2 * (1 / 1e-6) * 1e-7 / 1.2 * 1.2, 0.1 * (1 / 1e-6) * 1e-6]
     channels = ome["omero"]["channels"]
     assert [c["label"] for c in channels] == ["DAPI", "disp1", "disp2"]
     assert [c["color"] for c in channels] == ["FF0000", "00FF00", "FFFFFF"]
@@ -94,7 +99,8 @@ def check_gray16_tczyx(out):
     assert channels[1]["window"] == {"min": 0, "max": 2**12 - 1, "start": 0, "end": 0.5 * 65535}
     assert channels[2]["window"]["end"] == 2**12 - 1
     a = doc(out, "0/0/zarr.json")
-    assert a["shape"] == [2, 3, 4, 9, 11] and a["chunk_grid"]["configuration"]["chunk_shape"] == [1, 1, 1, 9, 11]
+    assert a["shape"] == [2, 3, 4, 9, 11]
+    assert a["chunk_grid"]["configuration"]["chunk_shape"] == [1, 1, 1, 9, 11]
     assert "0/0/c/1/2/3/0/0" in out.refs
     assert doc(out, "vzip_source/attachments/0/zarr.json")["shape"] == [2]
     assert "vzip_source/attachments/1/time/zarr.json" in out.bytes_entries
@@ -112,7 +118,8 @@ def check_jxr_pyramid(out):
     assert ms["name"] == "ScanRegion0"
     px = 3.444225755520869e-07 * (1 / 1e-6)
     t = ms["datasets"][0]["coordinateTransformations"]
-    assert t[0]["scale"] == [px * 2, px * 2] and t[1]["translation"] == [(50 + 0.5) * px, (-100 + 0.5) * px]
+    assert t[0]["scale"] == [px * 2, px * 2]
+    assert t[1]["translation"] == [(50 + 0.5) * px, (-100 + 0.5) * px]
     assert doc(out, "0/1/zarr.json")["chunk_grid"]["name"] == "regular"
     tile = czi_attrs(doc(out, "tiles/0/zarr.json"))
     assert tile == {"dimensions": {"S": 0}, "x": -100, "y": 50, "size": [20, 16], "stored_size": [20, 16],
@@ -124,7 +131,8 @@ def check_zstd(out):
         {"name": "bytes", "configuration": {"endian": "little"}},
         {"name": "numcodecs.shuffle", "configuration": {"elementsize": 2}},
         {"name": "zstd", "configuration": {"level": 0, "checksum": False}}]
-    assert doc(out, "1/0/zarr.json")["codecs"][1:] == [{"name": "zstd", "configuration": {"level": 0, "checksum": False}}]
+    assert doc(out, "1/0/zarr.json")["codecs"][1:] == [
+        {"name": "zstd", "configuration": {"level": 0, "checksum": False}}]
     assert doc(out, "3/0/zarr.json")["codecs"][0]["name"] == "transpose"
     assert doc(out, "0/zarr.json")["attributes"]["vzip_virtualized"]["czi"] == {"dimensions": {"S": 0}}
 
@@ -160,7 +168,8 @@ def check_jpeg(out):
 
 def check_deleted(out):
     ids = out.bytes_entries["vzip_source/segments/id/c/0/0"]
-    assert ids[:16] == b"DELETED".ljust(16, b"\0") and ids[48:64] == b"UNKNOWN_ID".ljust(16, b"\0")
+    assert ids[:16] == b"DELETED".ljust(16, b"\0")
+    assert ids[48:64] == b"UNKNOWN_ID".ljust(16, b"\0")
     assert "vzip_source/tail/c/0" in out.refs
 
 
@@ -178,8 +187,10 @@ def check_attachments(out):
     s = czi_attrs(doc(out, "vzip_source/zarr.json"))["attachments"]
     assert [a.get("form") for a in s] == ["focus_positions", "bytes", "bytes", "bytes", None, "bytes", "empty",
                                           "bytes", "bytes", "bytes", "event_list", "time_stamps"]
-    assert s[4] == {"entry": s[4]["entry"]} and s[5]["segment_entry"]
-    assert s[9]["name"] == "Caf\xe9" and s[9]["content_guid"] == "03020100-0504-0706-0809-0a0b0c0d0e0f"
+    assert s[4] == {"entry": s[4]["entry"]}
+    assert s[5]["segment_entry"]
+    assert s[9]["name"] == "Caf\xe9"
+    assert s[9]["content_guid"] == "03020100-0504-0706-0809-0a0b0c0d0e0f"
     assert czi_attrs(doc(out, "vzip_source/attachments/0/zarr.json")) == {"size": 12}
     assert "vzip_source/attachments/6/zarr.json" not in out.bytes_entries
 
@@ -209,7 +220,8 @@ def check_xml_odd(out):
 
 
 def check_empty(out):
-    assert "ome" not in doc(out, "zarr.json")["attributes"] and "OME/zarr.json" not in out.bytes_entries
+    assert "ome" not in doc(out, "zarr.json")["attributes"]
+    assert "OME/zarr.json" not in out.bytes_entries
 
 
 def check_root(out):
@@ -293,21 +305,25 @@ def test_every_reject_fixture_has_a_test():
 @pytest.fixture(scope="module")
 def big(tmp_path_factory):
     d = tmp_path_factory.mktemp("czi_big")
-    subprocess.run([sys.executable, str(ROOT / "fixtures" / "generators" / "czi" / "write_fixtures.py"), "--big", str(d)],
-                   check=True)
+    subprocess.run([sys.executable, str(ROOT / "fixtures" / "generators" / "czi" / "write_fixtures.py"), "--big",
+                    str(d)], check=True)
     return d
 
 
 def test_large_uncompressed_tiles_are_cut_in_row_bands(big):
     out = virtualize(str(big / "czi_big_bands.czi"), url="https://data.test/big.czi")[1]
+    assert isinstance(out, Output)
     a = doc(out, "0/0/zarr.json")
-    assert a["shape"] == [3072, 4100] and a["chunk_grid"] == {"name": "regular",
+    assert a["shape"] == [3072, 4100]
+    assert a["chunk_grid"] == {"name": "regular",
                                                                "configuration": {"chunk_shape": [1024, 4100]}}
     assert sorted(k for k in out.refs if k.startswith("0/0/c/")) == ["0/0/c/0/0", "0/0/c/1/0", "0/0/c/2/0"]
-    (start, n), = out.refs["0/0/c/1/0"]
-    assert n == 1024 * 4100 * 2 and start == out.refs["0/0/c/0/0"][0][0] + n
+    (start, n), = ranges_of(out, "0/0/c/1/0")
+    assert n == 1024 * 4100 * 2
+    assert start == out.refs["0/0/c/0/0"][0][0] + n
     t = doc(out, "tiles/0/zarr.json")
-    assert t["shape"] == [2050, 4100] and t["chunk_grid"]["configuration"]["chunk_shape"] == [1025, 4100]
+    assert t["shape"] == [2050, 4100]
+    assert t["chunk_grid"]["configuration"]["chunk_shape"] == [1025, 4100]
     assert len([k for k in out.refs if k.startswith("tiles/0/c/")]) == 2
 
 
@@ -320,8 +336,8 @@ def test_more_than_2_16_series_with_an_image_are_rejected(big):
 
 def test_layer():
     cases = {(4, 4, 4, 4): (1, 0), (8, 4, 4, 2): (2, 1), (21, 4, 10, 2): (2, 1), (22, 4, 10, 2): None,
-             (4, 8, 3, 4): (2, 1), (4, 9, 2, 4): None, (16, 8, 4, 2): (2, 2), (30, 30, 10, 10): (3, 1), (2048, 1, 2, 1): (2, 10),
-             (3, 3, 4, 4): None, (6561, 1, 3, 1): (3, 7), (999, 1, 1, 1): None}
+             (4, 8, 3, 4): (2, 1), (4, 9, 2, 4): None, (16, 8, 4, 2): (2, 2), (30, 30, 10, 10): (3, 1),
+             (2048, 1, 2, 1): (2, 10), (3, 3, 4, 4): None, (6561, 1, 3, 1): (3, 7), (999, 1, 1, 1): None}
     for args, want in cases.items():
         assert layer(*args) == want, args
 
@@ -334,7 +350,7 @@ def test_row_band():
 
 
 def head_of(b: bytes):
-    return lambda o, n: b[o:o + n] if 0 <= o and o + n <= len(b) else None
+    return lambda o, n: b[o:o + n] if o >= 0 and o + n <= len(b) else None
 
 
 def test_codec_headers():
@@ -361,7 +377,8 @@ def test_codec_headers():
     assert jpegxr_size(head_of(jxr), 1) == (12, 7)
     assert jpegxr_size(head_of(jxr), 0) is None  # 16bppGray is not Gray8's
     assert jpegxr_size(head_of(jxr[:-1] + b"\x08"), 0) == (12, 7)
-    assert jpegxr_size(head_of(jxr.replace(struct.pack("<HHII", 0xBC80, 3, 1, 12), struct.pack("<HHII", 0xBC80, 3, 2, 12))), 1) is None
+    two_channels = jxr.replace(struct.pack("<HHII", 0xBC80, 3, 1, 12), struct.pack("<HHII", 0xBC80, 3, 2, 12))
+    assert jpegxr_size(head_of(two_channels), 1) is None
     assert jpegxr_size(head_of(b"II*\0" + jxr[4:]), 1) is None
 
 

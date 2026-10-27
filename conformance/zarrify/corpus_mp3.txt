@@ -1,0 +1,5 @@
+# url|name|no-ref of the public MP3 files in the corpus (the frozen reference has no MP3 profile, so each
+# compares py with web alone): a LibriVox recording on the Internet Archive (public domain): chapter 20
+# of "Public Opinion" by Walter Lippmann, MPEG-2 mono at 22.05 kHz, 64 kbps, with an Info frame and tags
+# (archive.org redirects downloads to a mirror)
+https://archive.org/download/public_opinion_1312_librivox/publicopinion_20_lippmann_64kb.mp3|librivox_lippmann_20|no-ref|ends-sha256=646e308997872b3758ac48b2fef4fada1fc78cb84483251b86bff0ac5d42f9a2

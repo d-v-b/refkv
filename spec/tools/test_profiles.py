@@ -1,12 +1,11 @@
-"""The profile registry (spec/virtualize/profiles/<name>.json) and what derives from it (profiles.py)."""
+"""The profile registry (spec/zarrify/profiles/<name>.json) and what derives from it (profiles.py)."""
 
 import json
 import re
 from pathlib import Path
 
-import pytest
-
 import profiles
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -20,26 +19,30 @@ def test_every_profile_has_its_documents():
     UUID, with its schema and (a profile's) its Part 2, whose profile heading is numbered after
     Part 1; a profile has its rules schema and fixtures."""
     for e in profiles.load():
-        doc = ROOT / "spec" / "virtualize" / f"{e['name']}.md"
+        doc = ROOT / "spec" / "zarrify" / f"{e['name']}.md"
         text = doc.read_text(encoding="utf-8")
-        assert re.search(rf"^Convention version: {e['version']} .*UUID: `{e['uuid']}`", text, re.M), doc
-        assert (ROOT / "spec" / "virtualize" / e["name"] / "schema.json").is_file(), doc
+        assert re.search(rf"^Convention version: {e['version']} .*UUID: `{e['uuid']}`", text, re.MULTILINE), doc
+        assert (ROOT / "spec" / "zarrify" / e["name"] / "schema.json").is_file(), doc
         if e["kind"] == "layout":
             assert "# Part 2" not in text, doc
             continue
         part1 = text[: text.index("\n# Part 2")]
-        last = max(int(n) for n in re.findall(r"^## (\d+)\. ", part1, re.M))
+        last = max(int(n) for n in re.findall(r"^## (\d+)\. ", part1, re.MULTILINE))
         assert profiles.profile_heading(e)[0] == str(last + 1), doc
         assert (ROOT / "rust" / "refkv-ir" / "schema" / f"{e['name']}.json").is_file(), doc
         assert (ROOT / "fixtures" / e["name"]).is_dir(), doc
 
 
 def test_the_registry_is_validated():
-    for bad in ({"kind": "image"}, {"sniff": "10"}, {"kind": "store", "suffixes": []}, {"suffixes": []}, {"uuid": "x"},
-                {"name": "Tiff"}):
+    for bad, message in (({"kind": "image"}, "is not one of"), ({"sniff": "10"}, "signature"),
+                         ({"kind": "store", "suffixes": []}, "signature"), ({"suffixes": []}, "suffixes"),
+                         ({"uuid": "x"}, "not a UUID"), ({"name": "Tiff"}, "not a profile name"),
+                         ({"chosen_by": "tiff"}, "names the profile that chooses it"),
+                         ({"sniff": None}, "names the profile that chooses it"),
+                         ({"sniff": None, "chosen_by": "ndpi"}, "not a profile with a signature")):
         entries = profiles.load()
         entries[0].update(bad)
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=message):
             profiles.validate(entries)
 
 
@@ -52,12 +55,12 @@ def test_the_documents_cmos_are_the_registrys():
 def tiff() -> tuple[dict, dict[str, str]]:
     """The TIFF entry, and a set of documents of which its own is the only one."""
     e = next(e for e in profiles.load() if e["name"] == "tiff")
-    return e, {"spec/virtualize/tiff.md": (ROOT / "spec" / "virtualize" / "tiff.md").read_text(encoding="utf-8")}
+    return e, {"spec/zarrify/tiff.md": (ROOT / "spec" / "zarrify" / "tiff.md").read_text(encoding="utf-8")}
 
 
 def test_a_drifted_copy_is_an_error():
     e, texts = tiff()
-    drifted = json.dumps({**profiles.cmo(e), "spec_url": "https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tif.md"})
+    drifted = json.dumps({**profiles.cmo(e), "spec_url": "https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tif.md"})
     assert profiles.cmo_errors([e], texts | {"docs/x.md": f"\n\n{drifted}"}) == [
         f"docs/x.md:3: not the CMO of tiff, which is {json.dumps(profiles.cmo(e))}"]
 
@@ -77,6 +80,6 @@ def test_a_copy_of_no_entry_is_an_error():
 
 def test_a_declaration_without_its_cmo_is_an_error():
     e, texts = tiff()
-    moved = texts["spec/virtualize/tiff.md"].replace("## 1. Declaration\n", "## 1. Declaration\n\n## 2. Moved\n", 1)
-    assert profiles.cmo_errors([e], {"spec/virtualize/tiff.md": moved}) == [
-        "spec/virtualize/tiff.md: its declaration (section 1) does not show its CMO"]
+    moved = texts["spec/zarrify/tiff.md"].replace("## 1. Declaration\n", "## 1. Declaration\n\n## 2. Moved\n", 1)
+    assert profiles.cmo_errors([e], {"spec/zarrify/tiff.md": moved}) == [
+        "spec/zarrify/tiff.md: its declaration (section 1) does not show its CMO"]

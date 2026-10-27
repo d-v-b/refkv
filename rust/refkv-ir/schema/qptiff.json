@@ -1,14 +1,15 @@
 {
   "source_model": "qptiff",
   "version": 1,
-  "about": "The source model of an Akoya (PerkinElmer) QPTIFF file (spec/virtualize/qptiff.md <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md>, spec/virtualize/qptiff.md §7 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#7-qptiff-profile>): a TIFF or BigTIFF whose main chain holds the channels as FullResolution images, a Thumbnail, the ReducedResolution images of each pyramid level, and an Overview and a Label, each IFD described by a PerkinElmer-QPI-ImageDescription XML in its ImageDescription. The TIFF parser reads it in its QPTIFF variant (rust/refkv-ir/src/tiff.rs) and checks this schema where the profile meets each role; projections read a valid IR and check nothing. The TIFF source model's elements (schema/tiff.json) are this one's.",
+  "about": "The source model of an Akoya (PerkinElmer) QPTIFF file (spec/zarrify/qptiff.md <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md>, spec/zarrify/qptiff.md §7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#7-qptiff-profile>): a TIFF or BigTIFF whose main chain holds the channels as FullResolution images, a Thumbnail, the ReducedResolution images of each pyramid level, and an Overview and a Label, each IFD described by a PerkinElmer-QPI-ImageDescription XML in its ImageDescription. The TIFF parser reads it in its QPTIFF variant (rust/refkv-ir/src/tiff.rs) and checks this schema where the profile meets each role; projections read a valid IR and check nothing. The TIFF source model's elements (schema/tiff.json) are this one's.",
   "limits": {
     "max_safe": 9007199254740991,
     "max_ifds": 100000,
     "max_depth": 4,
     "max_tries": 10000,
     "max_decode": 65536,
-    "eager_decode": 16777216
+    "eager_decode": 16777216,
+    "max_padding": 4194304
   },
   "tables": {
     "kinds": {
@@ -37,7 +38,7 @@
       "18": 8
     },
     "tags": {
-      "about": "The tags of the table (spec/virtualize/qptiff.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#2-the-source>): kind (the field types allowed), scalar (the first value is read, and there must be one), used (read for every main-chain IFD; ImageDescription for every main-chain IFD, SubIFDs where followed).",
+      "about": "The tags of the table (spec/zarrify/qptiff.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#2-the-source>): kind (the field types allowed), scalar (the first value is read, and there must be one), used (read for every main-chain IFD; ImageDescription for every main-chain IFD, SubIFDs where followed).",
       "256": {"name": "ImageWidth", "kind": "integer", "scalar": true, "used": true},
       "257": {"name": "ImageLength", "kind": "integer", "scalar": true, "used": true},
       "258": {"name": "BitsPerSample", "kind": "integer", "scalar": false, "used": true},
@@ -165,7 +166,7 @@
       "constraints": [{"require": "present", "message": "IFD at {offset} has no tag {tag}"}]
     },
     "format": {
-      "about": "an IFD's sample format (spec/virtualize/tiff.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#2-the-source>): BitsPerSample, SampleFormat, SamplesPerPixel, PlanarConfiguration",
+      "about": "an IFD's sample format (spec/zarrify/tiff.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#2-the-source>): BitsPerSample, SampleFormat, SamplesPerPixel, PlanarConfiguration",
       "given": {
         "bits": "BitsPerSample's values",
         "formats": "SampleFormat's values (default [1])",
@@ -186,17 +187,25 @@
       ]
     },
     "predictor": {
-      "about": "IFD 0's Predictor",
-      "given": {"compression": "", "predictor": ""},
+      "about": "IFD 0's Predictor (spec/zarrify/tiff.md §4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>): none (1), or, with an integer type and LZW, Deflate or zstd, horizontal differencing (2), which imagecodecs_delta sums back; JPEG 2000 streams do not use it",
+      "given": {"compression": "", "predictor": "", "sample_format": "IFD 0's SampleFormat"},
       "constraints": [
         {
-          "require": "in(compression, jpeg2000) || predictor == 1",
+          "require": "in(compression, jpeg2000) || in(predictor, [1, 2])",
           "message": "unsupported predictor {predictor}"
+        },
+        {
+          "require": "in(compression, jpeg2000) || predictor == 1 || in(sample_format, [1, 2])",
+          "message": "predictor {predictor} with SampleFormat {sample_format}"
+        },
+        {
+          "require": "in(compression, jpeg2000) || predictor == 1 || in(compression, [5, 8, 32946, 50000])",
+          "message": "predictor {predictor} with compression {compression}"
         }
       ]
     },
     "baseline": {
-      "about": "the main chain's images by their ImageType (spec/virtualize/qptiff.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#3-images-and-channels>): the channels are the FullResolution images at its start",
+      "about": "the main chain's images by their ImageType (spec/zarrify/qptiff.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#3-images-and-channels>): the channels are the FullResolution images at its start",
       "given": {
         "described": "IFD 0 has a PerkinElmer-QPI-ImageDescription",
         "baseline": "IFD 0's ImageType is FullResolution",
@@ -212,7 +221,7 @@
       ]
     },
     "reduced": {
-      "about": "the ReducedResolution images of the main chain, in order: each run of as many as there are channels is a level (spec/virtualize/qptiff.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#3-images-and-channels>)",
+      "about": "the ReducedResolution images of the main chain, in order: each run of as many as there are channels is a level (spec/zarrify/qptiff.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#3-images-and-channels>)",
       "given": {"channels": "", "reduced": "ReducedResolution images", "remainder": "reduced mod channels"},
       "constraints": [
         {
@@ -222,7 +231,7 @@
       ]
     },
     "size": {
-      "about": "an IFD a level uses (spec/virtualize/tiff.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#2-the-source>)",
+      "about": "an IFD a level uses (spec/zarrify/tiff.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#2-the-source>)",
       "given": {
         "offset": "",
         "width": "",
@@ -242,7 +251,7 @@
       ]
     },
     "strips": {
-      "about": "an IFD a level uses that is not tiled: its strips (spec/virtualize/qptiff.md §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#42-tiles-and-strips>)",
+      "about": "an IFD a level uses that is not tiled: its strips (spec/zarrify/qptiff.md §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#42-tiles-and-strips>)",
       "given": {
         "offset": "",
         "has_offsets": "StripOffsets present",
@@ -256,7 +265,7 @@
       ]
     },
     "samples": {
-      "about": "how an image's bytes hold its samples (spec/virtualize/tiff.md §4.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#43-data-types-and-codecs>)",
+      "about": "how an image's bytes hold its samples (spec/zarrify/tiff.md §4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>)",
       "given": {
         "offset": "",
         "compression": "",
@@ -276,7 +285,7 @@
       ]
     },
     "level": {
-      "about": "an IFD of a level, after its size and samples (spec/virtualize/qptiff.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#3-images-and-channels>)",
+      "about": "an IFD of a level, after its size and samples (spec/zarrify/qptiff.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#3-images-and-channels>)",
       "given": {
         "offset": "",
         "level": "the level's index",
@@ -292,7 +301,7 @@
       ]
     },
     "image": {
-      "about": "the image's sample type and codecs (spec/virtualize/qptiff.md §4.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#41-data-types-and-codecs>: the TIFF convention's, and LZW)",
+      "about": "the image's sample type and codecs (spec/zarrify/qptiff.md §4.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#41-data-types-and-codecs>: the TIFF convention's, and LZW)",
       "given": {
         "bits": "",
         "sample_format": "",
@@ -345,14 +354,23 @@
       ]
     },
     "strip_tail": {
-      "about": "the last strip of a level in LZW strips, when it is short (spec/virtualize/qptiff.md §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#42-tiles-and-strips>): its stream, read to where its output reaches the strip's size, so that a tail of zeros can continue it",
+      "about": "the last strip of a level in LZW strips, when it is short (spec/zarrify/qptiff.md §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#42-tiles-and-strips>): its stream, read to where its output reaches the strip's size, so that a tail of zeros can continue it",
       "given": {"offset": "the IFD's", "strip": "the strip's index", "decodes": "the stream reaches the strip's size", "problem": "why not"},
       "constraints": [{"require": "decodes", "message": "strip {strip} of the IFD at {offset} does not decode to its size: {problem}"}]
     },
+    "tails": {
+      "about": "the short last LZW strips of every level, as they are read for their tails: their distinct ranges together",
+      "given": {"read": "their bytes", "size": "the file's"},
+      "constraints": [{"require": "read <= size", "message": "the short last LZW strips would be read for their tails {read} bytes, more than the file's {size}"}]
+    },
     "padding": {
       "about": "a level in strips whose last strip is short, after it is padded (uncompressed, LZW) or found unpaddable (another compression): level 0 must be a level",
-      "given": {"level": "", "compression": "", "kept": "the level is padded, and kept"},
-      "constraints": [{"require": "kept || level > 0", "message": "the channels are strips of compression {compression} whose last strip is short, which cannot be padded"}]
+      "given": {"level": "", "compression": "", "kept": "the level is padded, and kept", "zeros": "the most zero bytes a strip of the level is padded with", "read": "(LZW) the most bytes of a last strip read for its tail: its byte count, at most 3 × its decoded size + 64"},
+      "constraints": [
+        {"require": "kept || level > 0", "message": "the channels are strips of compression {compression} whose last strip is short, which cannot be padded"},
+        {"require": "zeros <= max_padding", "message": "level {level} pads its last strip with {zeros} zero bytes, more than {max_padding}"},
+        {"require": "!present(read) || read <= eager_decode", "message": "level {level}'s last LZW strip would be read up to {read} bytes for its tail, more than {eager_decode}"}
+      ]
     },
     "images": {
       "about": "the file",
@@ -360,10 +378,10 @@
       "constraints": [{"require": "ifds >= 1", "message": "no images"}]
     },
     "translation": {
-      "about": "the image's translation (spec/virtualize/qptiff.md §4.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#43-arrays>: XPosition and YPosition), when it has one",
+      "about": "the image's translation (spec/zarrify/qptiff.md §4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#43-arrays>: XPosition and YPosition), when it has one",
       "given": {"x": "", "y": ""},
       "constraints": [{"require": "finite(x) && finite(y)", "message": "a translation is not finite"}]
     }
   },
-  "about_builtins": "What the parser's code computes and the roles above check: detection (spec/virtualize/qptiff.md §7 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#7-qptiff-profile>: the first IFD's Software tag, ASCII, starting with `PerkinElmer-QPI`; it never rejects); the main chain (each next offset until 0) and the SubIFDs depth first to max_depth; each main-chain IFD's PerkinElmer-QPI-ImageDescription (ASCII, up to its first NUL, valid UTF-8, the root element's direct children ImageType, Name, Color and SlideID); the channels (the FullResolution images at the start of the chain) and the levels (runs of as many ReducedResolution images, in chain order); the format tuple (bits, samples, sample format, planar, compression, predictor, and photometric for JPEG); each level's tiling (tiled, or strips of RowsPerStrip rows); the JPEG prefix (an Adobe APP14 marker for 3 samples, then JPEGTables without its SOI and EOI)."
+  "about_builtins": "What the parser's code computes and the roles above check: detection (spec/zarrify/qptiff.md §7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#7-qptiff-profile>: the first IFD's Software tag, ASCII, starting with `PerkinElmer-QPI`; it never rejects); the main chain (each next offset until 0) and the SubIFDs depth first to max_depth; each main-chain IFD's PerkinElmer-QPI-ImageDescription (ASCII, up to its first NUL, valid UTF-8, the root element's direct children ImageType, Name, Color and SlideID); the channels (the FullResolution images at the start of the chain) and the levels (runs of as many ReducedResolution images, in chain order); the format tuple (bits, samples, sample format, planar, compression, predictor, and photometric for JPEG); each level's tiling (tiled, or strips of RowsPerStrip rows); the JPEG prefix (an Adobe APP14 marker for 3 samples, then JPEGTables without its SOI and EOI)."
 }

@@ -1,15 +1,15 @@
-//! A projection's output (spec/virtualize.md §1.1
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#11-output-and-equivalence>, §1.2
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>): the entries of a refkv
-//! archive before it is written. The archive writer stays per host (Python's `Output.write`,
-//! the browser's `writeVzip`); an `Out` crosses to it as Python objects (python/src/lib.rs) or
-//! as one binary buffer (`encode`, for wasm hosts).
+//! A projection's output (spec/zarrify.md §1.1
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#11-output-and-equivalence>, §1.2
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>): the entries of a
+//! refkv archive before it is written. The archive writer stays per host (Python's
+//! `Output.write`, the browser's `writeVzip`); an `Out` crosses to it as Python objects
+//! (rust/refkv-python/src/lib.rs) or as one binary buffer (`encode`, for wasm hosts).
 //!
 //! Also the shared parts of the conventions every projection uses (conventions §2
 //! <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>–§5
 //! <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#5-units>,
 //! §7 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays>;
-//! `refkv/virtualize/common.py` in Python): arrays' and groups' documents,
+//! `refkv/zarrify/common.py` in Python): arrays' and groups' documents,
 //! OME-NGFF multiscales, the convention's declaration, reference sizes, and the
 //! cuts of metadata arrays.
 
@@ -25,8 +25,8 @@ pub enum Part {
     Lit(Vec<u8>),
     /// (key, offset, length): bytes of a store's object (conventions §8.9
     /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>), whose url source
-    /// the host makes (spec/virtualize.md §1.4
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>: one per
+    /// the host makes (spec/zarrify.md §1.4
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>: one per
     /// object referenced, its size pinned, in order of the entries' keys).
     Obj(String, u64, u64),
 }
@@ -66,6 +66,9 @@ pub struct Out {
     /// documents under these prefixes are read only when asked for, like chunks
     pub lazy: Vec<String>,
     pub summary: J,
+    /// the arrays the run shards after the projection, each with the inner chunks a shard
+    /// holds along each axis (`shard::apply_all`)
+    pub shards: Vec<(String, Vec<u64>)>,
 }
 
 /// JSON text as the hosts write documents: compact, UTF-8 (no \u escapes but
@@ -115,6 +118,29 @@ impl Out {
                 self.refs.push((key.to_string(), parts));
             }
         }
+    }
+
+    /// Asks that the array at `path`, written unsharded, be sharded, `shard[i]` inner chunks a
+    /// shard along axis i (spec/zarrify.md §2.1
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#21-virtual-shards>).
+    pub fn shard(&mut self, path: &str, shard: &[u64]) {
+        self.shards.push((path.to_string(), shard.to_vec()));
+    }
+
+    /// The bytes entries whose keys start with `prefix`, taken out, in order.
+    pub fn take_entries(&mut self, prefix: &str) -> Vec<(String, Vec<u8>)> {
+        let (taken, kept) = std::mem::take(&mut self.entries).into_iter().partition(|e| e.0.starts_with(prefix));
+        self.entries = kept;
+        self.entry_at = self.entries.iter().enumerate().map(|(i, e)| (e.0.clone(), i)).collect();
+        taken
+    }
+
+    /// The references whose keys start with `prefix`, taken out, in order.
+    pub fn take_refs(&mut self, prefix: &str) -> Vec<(String, Vec<Part>)> {
+        let (taken, kept) = std::mem::take(&mut self.refs).into_iter().partition(|e| e.0.starts_with(prefix));
+        self.refs = kept;
+        self.ref_at = self.refs.iter().enumerate().map(|(i, e)| (e.0.clone(), i)).collect();
+        taken
     }
 
     /// A range of all of `value`, as a data source: added the first time it is used.
@@ -203,7 +229,7 @@ impl Out {
     }
 }
 
-// ---- reference sizes (§1.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>)
+// ---- reference sizes (§1.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>)
 
 fn varint_size(v: u64) -> usize {
     let bits = 64 - v.leading_zeros() as usize;
@@ -235,12 +261,12 @@ pub fn payload_size(ranges: &[Part]) -> usize {
 // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>–§5
 // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#5-units>)
 
-pub const CONVENTION_KEY: &str = "refkv_virtualized";
+pub const CONVENTION_KEY: &str = "refkv_zarrified";
 
 // The registry's entries, by name (build.rs)
 include!(concat!(env!("OUT_DIR"), "/registry.rs"));
 
-/// The profile registry, spec/virtualize/profiles/<name>.json (the crate's profiles/ holds its
+/// The profile registry, spec/zarrify/profiles/<name>.json (the crate's profiles/ holds its
 /// copies, which spec/tools/profiles.py writes and checks): one entry per profile and dataset
 /// layout, with its `name`, convention `title`, `uuid` and `version`, `kind` ("file", "store",
 /// "both" or "layout"), `sniff` precedence, fixture `suffixes` and the rest the registry
@@ -261,15 +287,15 @@ pub fn convention(p: &str) -> J {
     let (r, blob) = if version == 0 {
         ("heads/main".to_string(), "main".to_string())
     } else {
-        let t = format!("tags/virtualize-{p}-v{version}");
+        let t = format!("tags/zarrify-{p}-v{version}");
         (t.clone(), t)
     };
     json!({
         "uuid": uuid,
-        "schema_url": format!("https://raw.githubusercontent.com/d-v-b/refkv/refs/{r}/spec/virtualize/{p}/schema.json"),
-        "spec_url": format!("https://github.com/d-v-b/refkv/blob/{blob}/spec/virtualize/{p}.md"),
+        "schema_url": format!("https://raw.githubusercontent.com/d-v-b/refkv/refs/{r}/spec/zarrify/{p}/schema.json"),
+        "spec_url": format!("https://github.com/d-v-b/refkv/blob/{blob}/spec/zarrify/{p}.md"),
         "name": CONVENTION_KEY,
-        "description": format!("The Zarr layout of a {title} source virtualized by refkv, and the source's metadata"),
+        "description": format!("The Zarr layout of a {title} source zarrified by refkv, and the source's metadata"),
     })
 }
 
@@ -378,6 +404,14 @@ pub fn rectilinear_array_json(shape: &[u64], data_type: &str, lengths: &J, codec
     doc
 }
 
+/// An integer of the source as JSON (conventions §6
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>):
+/// a number when its magnitude is at most 2^53 − 1, else the string of its decimal digits.
+pub fn int_json(v: i128) -> J {
+    const MAX_SAFE: i128 = (1 << 53) - 1;
+    if (-MAX_SAFE..=MAX_SAFE).contains(&v) { json!(v as i64) } else { J::String(v.to_string()) }
+}
+
 /// The `bytes` codec of elements of `item` bytes: with the byte order `endian` ("little" or
 /// "big") for more than one byte, and without one for a single byte (Zarr v3).
 pub fn bytes_codec(item: u64, endian: &str) -> J {
@@ -395,22 +429,26 @@ pub fn item_size(data_type: &str) -> u64 {
     bits.parse::<u64>().map_or(0, |b| b.div_ceil(8))
 }
 
-/// The codecs after `transpose` of a TIFF `compression` (the tag's value: JPEG 2000 and JPEG
-/// as their imagecodecs codecs; else `bytes`, with the byte order for samples of more than 8
-/// bits, then `imagecodecs_lzw` for LZW (which the QPTIFF convention reads,
-/// spec/virtualize/qptiff.md §4.1
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#41-data-types-and-codecs>),
-/// `zlib` for Deflate or `zstd` for Zstandard).
-pub fn tiff_codecs(compression: u64, bits: u64, little: bool) -> Vec<J> {
+/// The codecs after `transpose` of a TIFF `compression` and `predictor` (the tags' values: JPEG
+/// 2000 and JPEG as their imagecodecs codecs; else `imagecodecs_delta` along the stored axis `x`
+/// for Predictor 2, then `bytes`, with the byte order for samples of more than 8 bits, then
+/// `refkv.tiff_lzw` for LZW (spec/zarrify/tiff.md §4.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>),
+/// `numcodecs.zlib` for Deflate or `zstd` for Zstandard).
+pub fn tiff_codecs(compression: u64, predictor: u64, bits: u64, little: bool, x: usize) -> Vec<J> {
     match compression {
         33003 | 33004 | 33005 | 34712 => return vec![json!({"name": "imagecodecs_jpeg2k"})],
         7 => return vec![json!({"name": "imagecodecs_jpeg"})],
         _ => {}
     }
-    let mut out = vec![bytes_codec(bits.div_ceil(8), if little { "little" } else { "big" })];
+    let mut out = Vec::new();
+    if predictor == 2 {
+        out.push(json!({"name": "imagecodecs_delta", "configuration": {"axis": x, "dist": 1}}));
+    }
+    out.push(bytes_codec(bits.div_ceil(8), if little { "little" } else { "big" }));
     match compression {
-        5 => out.push(json!({"name": "imagecodecs_lzw"})),
-        8 | 32946 => out.push(json!({"name": "zlib", "configuration": {"level": 1}})),
+        5 => out.push(json!({"name": "refkv.tiff_lzw"})),
+        8 | 32946 => out.push(json!({"name": "numcodecs.zlib", "configuration": {"level": 1}})),
         50000 => out.push(json!({"name": "zstd", "configuration": {"level": 0, "checksum": false}})),
         _ => {}
     }
@@ -758,8 +796,8 @@ pub fn grid_chunks(offset: u64, shape: &[u64], item: u64, limit: u64, max_payloa
     Some((cs, chunks))
 }
 
-// ---- JSON sizes, as ECMAScript's JSON.stringify writes values (spec/virtualize/nd2.md §5.1
-// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#51-decoded-chunks>,
+// ---- JSON sizes, as ECMAScript's JSON.stringify writes values (spec/zarrify/nd2.md §5.1
+// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#51-decoded-chunks>,
 // conventions §8.7 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#87-the-view>)
 
 /// The length of ECMAScript's Number::toString of a finite binary64.
@@ -816,6 +854,25 @@ pub fn json_size(v: &J) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An integer is a JSON number up to 2^53 − 1 in magnitude, and the string of its digits
+    /// past it (conventions §6
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>).
+    #[test]
+    fn an_integer_past_two_to_the_53_is_its_digits() {
+        let max = (1i128 << 53) - 1;
+        for (v, want) in [
+            (0, json!(0)),
+            (max, json!(9007199254740991u64)),
+            (-max, json!(-9007199254740991i64)),
+            (max + 1, json!("9007199254740992")),
+            (-(max + 1), json!("-9007199254740992")),
+            (u64::MAX as i128, json!("18446744073709551615")),
+            (i128::MIN, json!("-170141183460469231731687303715884105728")),
+        ] {
+            assert_eq!(int_json(v), want, "{v}");
+        }
+    }
 
     /// Three 1-byte elements, at most 2 a chunk: the edge chunk is its byte and one byte
     /// of padding, a reference of 11 bytes, copied past a payload of 4.

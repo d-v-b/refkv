@@ -4,9 +4,9 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { setMember } from "../../conformance/virtualize/reference/ts/legacy.ts";
-import { decodeLV } from "../../conformance/virtualize/reference/ts/nd2/lv.ts";
-import { Translator } from "../../conformance/virtualize/reference/ts/tiff/tags.ts";
+import { setMember } from "../../conformance/zarrify/reference/ts/legacy.ts";
+import { decodeLV } from "../../conformance/zarrify/reference/ts/nd2/lv.ts";
+import { Translator } from "../../conformance/zarrify/reference/ts/tiff/tags.ts";
 
 test("an ND2 name or string keeps a leading byte order mark", async () => {
   const name = new Uint8Array([0xff, 0xfe, 0x61, 0x00, 0x00, 0x00]); // U+FEFF "a" NUL
@@ -29,7 +29,7 @@ test("a member named __proto__ is a member", () => {
 });
 
 test("an ND2 XML variant document as JSON", async () => {
-  const { variantJson } = await import("../../conformance/virtualize/reference/ts/nd2/source.ts");
+  const { variantJson } = await import("../../conformance/zarrify/reference/ts/nd2/source.ts");
   const enc = (s: string) => new TextEncoder().encode(s);
   const doc = enc('<?xml version="1.0"?><variant version="1.0"><a runtype="CLxListVariant">'
     + '<i runtype="lx_int32" value="-7"/><u runtype="lx_uint64" value="18446744073709551615"/>'

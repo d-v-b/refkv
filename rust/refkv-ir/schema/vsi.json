@@ -1,7 +1,7 @@
 {
   "source_model": "vsi",
   "version": 1,
-  "about": "The source model of an Olympus VSI slide (spec/virtualize/vsi.md §6 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#6-source-metadata>): the elements the parser emits for the .vsi file (a little-endian classic TIFF whose byte 8 starts the metadata tree) and for each .ets tile file beside it, the tables of the formats' codes, and the roles each structure plays, with the constraints an input must meet to have the VSI convention's layout (spec/virtualize/vsi.md §9 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#9-vsi-profile>). The parser checks them in this order; the projection reads a valid IR and checks nothing.",
+  "about": "The source model of an Olympus VSI slide (spec/zarrify/vsi.md §6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#6-source-metadata>): the elements the parser emits for the .vsi file (a little-endian classic TIFF whose byte 8 starts the metadata tree) and for each .ets tile file beside it, the tables of the formats' codes, and the roles each structure plays, with the constraints an input must meet to have the VSI convention's layout (spec/zarrify/vsi.md §9 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#9-vsi-profile>). The parser checks them in this order; the projection reads a valid IR and checks nothing.",
   "limits": {
     "max_safe": 9007199254740991,
     "max_fields": 1048576,
@@ -194,7 +194,7 @@
     }
   },
   "elements": {
-    "about": "The store IR of a VSI input (conventions §8.9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>): the .vsi file and each tile file read are objects described in place, under the directories of their keys (spec/virtualize/vsi.md §6.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#62-the-ir-mirror>).",
+    "about": "The store IR of a VSI input (conventions §8.9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>): the .vsi file and each tile file read are objects described in place, under the directories of their keys (spec/zarrify/vsi.md §6.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#62-the-ir-mirror>).",
     "<name>.vsi": {
       "kind": "object",
       "about": "the .vsi file, described in place",

@@ -1,8 +1,8 @@
 //! A sans-IO parser of FITS files (images, multi-extension files, binary and ASCII tables,
-//! tile-compressed images) into the IR (spec/virtualize/fits.md §9
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#9-fits-profile>, and the
+//! tile-compressed images) into the IR (spec/zarrify/fits.md §9
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#9-fits-profile>, and the
 //! source model of §6.1
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#61-elements>).
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#61-elements>).
 //!
 //! Rounds: a window of up to 64 KiB at each HDU's first byte, extended by windows until the
 //! header's END card is found, and for a tile-compressed image its main table (the tile
@@ -28,13 +28,13 @@ const CARDS_PER_BLOCK: u64 = 36;
 /// The bytes read at a time while looking for a header's END card.
 pub const WINDOW: u64 = 1 << 16;
 /// The most bytes of a chunk of a tile-compressed image, decoded (§3.3
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#33-tile-compressed-images>).
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#33-tile-compressed-images>).
 pub const TILE_CHUNK_BYTES: u64 = 1 << 20;
 
 type Res<T> = Result<T, String>;
 
-/// Whether a file's first bytes are a FITS file's (spec/virtualize.md §1.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>): `SIMPLE  =` and a
+/// Whether a file's first bytes are a FITS file's (spec/zarrify.md §1.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>): `SIMPLE  =` and a
 /// fixed-format `T` in column 30.
 pub fn detect(head: &[u8]) -> bool {
     head.len() >= 30 && &head[..9] == b"SIMPLE  =" && head[29] == b'T'
@@ -253,7 +253,7 @@ pub struct TileChunk {
 }
 
 /// The chunk grid of a tile-compressed image (§3.3
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#33-tile-compressed-images>):
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#33-tile-compressed-images>):
 /// for the image shape and tile shape (both in the array's order, the slowest axis first) and
 /// the bytes of a decoded pixel, the chunk shape, the chunk grid's shape, and the chunks.
 pub fn tile_cut(shape: &[u64], tile: &[u64], item: u64) -> (Vec<u64>, Vec<u64>, Vec<TileChunk>) {
@@ -487,7 +487,7 @@ impl Fits {
 
     /// The records of the header fed from the HDU up to and including END, when END is there; each
     /// scanned record is checked to be printable ASCII (§9.3
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#93-checks>).
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#93-checks>).
     fn scan(&self) -> Res<Option<usize>> {
         let mut k = 0;
         let buf = self.fed.from(self.offset);
@@ -555,9 +555,9 @@ impl Fits {
     }
 
     /// The HDU whose header is the first `records` records fed from the HDU (END included), with its
-    /// checks (§9.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#93-checks>),
+    /// checks (§9.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#93-checks>),
     /// then its elements (§6.1
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#61-elements>).
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#61-elements>).
     fn hdu(&mut self, records: usize, header_bytes: u64) -> Res<()> {
         let hdu = self.index as f64;
         let cards = parse_cards(self.fed.from(self.offset), records - 1);
@@ -617,7 +617,7 @@ impl Fits {
             ]),
         )?;
         let total = total as u64;
-        // tables (§9.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#93-checks>):
+        // tables (§9.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#93-checks>):
         // BITPIX 8, NAXIS 2, TFIELDS and a TFORMn per column, the heap's place
         let mut table = J::Null;
         let mut comp: Option<Comp> = None;
@@ -734,7 +734,7 @@ impl Fits {
     }
 
     /// A tile-compressed image's cards and columns, checked (§9.3
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#93-checks>).
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#93-checks>).
     fn compressed(&self, cards: &[Card], forms: &[String], rows: u64) -> Res<Comp> {
         let hdu = self.index as f64;
         let name = card(cards, "ZCMPTYPE").map(str_of).unwrap_or_default();
@@ -974,7 +974,7 @@ impl Fits {
 
 crate::parser!(Fits);
 
-/// The FITS profile's file run (spec/virtualize/fits.md).
+/// The FITS profile's file run (spec/zarrify/fits.md).
 pub struct Profile;
 
 impl crate::run::FileProfile for Profile {
@@ -1046,7 +1046,7 @@ mod tests {
         assert!(!detect(b"SIMPLE  ="));
     }
 
-    /// The tile grid cut (§3.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#33-tile-compressed-images>).
+    /// The tile grid cut (§3.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#33-tile-compressed-images>).
     #[test]
     fn tile_cut_rows_squares_and_planes() {
         // DECam: 4094 row tiles of 2046 float32 (8184 bytes): 128 rows per chunk, 32 chunks

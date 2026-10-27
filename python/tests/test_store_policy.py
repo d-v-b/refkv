@@ -13,6 +13,7 @@ import threading
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import override
 from xml.sax.saxutils import escape
 
 import pytest
@@ -20,7 +21,7 @@ import pytest
 import refkv.reader
 from refkv.errors import ResolutionError
 from refkv.policy import Policy
-from refkv.virtualize import _virtualize_store as virtualize_store  # the profile output, not the store
+from refkv.zarrify import _zarrify_store as zarrify_store  # the profile output, not the store
 
 ROOT = Path(__file__).parents[2]
 STORE = ROOT / "fixtures" / "zarr2" / "zarr2_hierarchy"
@@ -30,6 +31,7 @@ OBJECTS = {p.relative_to(STORE).as_posix(): p.read_bytes() for p in STORE.rglob(
 class ServerIsPublic(Policy):
     """`Policy()`, except that the test server's address (127.0.0.1) counts as a public one."""
 
+    @override
     def check_address(self, url: str, address: str) -> None:
         if address != "127.0.0.1":
             super().check_address(url, address)
@@ -46,7 +48,8 @@ def server():
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
-        def log_message(self, *a):
+        @override
+        def log_message(self, format, *args):
             pass
 
         def do_GET(self):
@@ -59,7 +62,8 @@ def server():
                     f'<?xml version="1.0"?><ListBucketResult><IsTruncated>false</IsTruncated>{contents}'
                     "</ListBucketResult>").encode(), {}
             elif path.startswith("/b/s/") and state["redirect"] is not None:
-                status, body, headers = 307, b"", {"Location": state["redirect"] + urllib.parse.quote(path[len("/b/s/"):])}
+                location = state["redirect"] + urllib.parse.quote(path[len("/b/s/"):])
+                status, body, headers = 307, b"", {"Location": location}
             else:
                 a, b = (int(x) for x in self.headers["Range"][6:].split("-"))
                 status, body, headers = 206, OBJECTS[path[len("/b/s/"):]][a:b + 1], {}
@@ -82,7 +86,7 @@ def names(monkeypatch):
     """Host names the reader resolves (name → address); others are refused here."""
     table: dict[str, str] = {}
 
-    def fake(host, port, *args, **kwargs):
+    def fake(host, port, *_args, **_kwargs):
         if host == "127.0.0.1":
             return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", port))]
         return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (table[host], port))]
@@ -101,7 +105,7 @@ def env(monkeypatch):
 
 
 def _docs(url: str, policy: Policy, workers: int) -> str:
-    fmt, out = virtualize_store(url, workers=workers, policy=policy)
+    fmt, out = zarrify_store(url, workers=workers, policy=policy)
     assert fmt == "zarr2"
     return json.dumps(out.docs, sort_keys=True).replace(url, "<store>")
 
@@ -142,60 +146,67 @@ def test_reads_a_store_the_policy_allows(server, names, env):
     assert len(outputs) == 1
 
 
-def test_refuses_a_private_host(server, env):
+@pytest.mark.usefixtures("env")
+def test_refuses_a_private_host(server):
     port, state = server
-    with pytest.raises(ResolutionError, match="is a loopback address.*allow_private_hosts"):
-        virtualize_store(f"http://127.0.0.1:{port}/b/s/")
+    with pytest.raises(ResolutionError, match=r"is a loopback address.*allow_private_hosts"):
+        zarrify_store(f"http://127.0.0.1:{port}/b/s/")
     assert state["paths"] == []
 
 
-def test_refuses_a_name_that_resolves_to_a_private_address(server, names, env):
+@pytest.mark.usefixtures("env")
+def test_refuses_a_name_that_resolves_to_a_private_address(server, names):
     port, state = server
     names["private.test"] = "127.0.0.1"
-    with pytest.raises(ResolutionError, match="at 127.0.0.1.*is a loopback address"):
-        virtualize_store(f"http://private.test:{port}/b/s/")
+    with pytest.raises(ResolutionError, match=r"at 127.0.0.1.*is a loopback address"):
+        zarrify_store(f"http://private.test:{port}/b/s/")
     assert state["paths"] == []
 
 
-def test_refuses_a_redirect_to_a_private_host_before_requesting_it(server, names, env):
+@pytest.mark.usefixtures("env")
+def test_refuses_a_redirect_to_a_private_host_before_requesting_it(server, names):
     """A prefetch thread's read is redirected to `localhost`, refused as written
     before it is requested (were it requested, the server would see it: under
     ServerIsPublic its address is allowed)."""
     port, state = server
     names["public.test"] = "127.0.0.1"
     state["redirect"] = f"http://localhost:{port}/b/r/"
-    with pytest.raises(ResolutionError, match="http://localhost.*is a loopback address"):
-        virtualize_store(f"http://public.test:{port}/b/s/", workers=8, policy=ServerIsPublic())
-    assert state["paths"] and not any(p.startswith("/b/r/") for p in state["paths"])
+    with pytest.raises(ResolutionError, match=r"http://localhost.*is a loopback address"):
+        zarrify_store(f"http://public.test:{port}/b/s/", workers=8, policy=ServerIsPublic())
+    assert state["paths"]
+    assert not any(p.startswith("/b/r/") for p in state["paths"])
 
 
 def test_refuses_a_request_through_a_proxy(server, names, env):
     port, state = server
     names["proxied.test"] = "93.184.215.14"
     env.setenv("http_proxy", f"http://127.0.0.1:{port}")
-    with pytest.raises(ResolutionError, match="through the proxy.*allow_unchecked_proxy=True"):
-        virtualize_store("http://proxied.test/b/s/")
+    with pytest.raises(ResolutionError, match=r"through the proxy.*allow_unchecked_proxy=True"):
+        zarrify_store("http://proxied.test/b/s/")
     assert state["paths"] == []
 
 
-def test_refuses_a_redirect_to_a_file_url_whatever_the_policy(server, names, env):
+@pytest.mark.usefixtures("env")
+def test_refuses_a_redirect_to_a_file_url_whatever_the_policy(server, names):
     """allow_files_from_remote_archives does not apply to stores: a store is read over http(s) only."""
     port, state = server
     names["public.test"] = "127.0.0.1"
     state["redirect"] = "file:///etc/"
     with pytest.raises(ResolutionError, match="redirect to a non-http URL"):
-        virtualize_store(f"http://public.test:{port}/b/s/", workers=1,
+        zarrify_store(f"http://public.test:{port}/b/s/", workers=1,
                          policy=ServerIsPublic(allow_files_from_remote_archives=True))
 
 
-def test_the_cli_passes_allow_private_hosts_to_a_store(server, tmp_path, env):
+@pytest.mark.usefixtures("env")
+def test_the_cli_passes_allow_private_hosts_to_a_store(server, tmp_path):
     port, _ = server
     url = f"http://127.0.0.1:{port}/b/s/"
 
     def run(*flags):
-        return subprocess.run([sys.executable, "-m", "refkv.virtualize", *flags, url, str(tmp_path / "o.vzip")],
-                              capture_output=True, text=True, cwd=ROOT)
+        return subprocess.run([sys.executable, "-m", "refkv.zarrify", *flags, url, str(tmp_path / "o.vzip")],
+                              capture_output=True, text=True, cwd=ROOT, check=False)
 
     refused = run()
-    assert refused.returncode == 1 and "allow_private_hosts" in refused.stderr
+    assert refused.returncode == 1
+    assert "allow_private_hosts" in refused.stderr
     assert run("--allow-private-hosts").returncode == 0

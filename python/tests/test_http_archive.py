@@ -9,6 +9,7 @@ import socket
 import threading
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import override
 
 import pytest
 
@@ -18,7 +19,7 @@ from refkv._sync import run
 from refkv.errors import ArchiveError, ResolutionError
 from refkv.pb import Concat, Range, Source
 from refkv.policy import Policy
-from refkv.reader import HttpObjects, Resolver
+from refkv.reader import USER_AGENT, HttpObjects, Resolver
 
 BLOB = bytes(range(256)) * 16  # 4 KiB
 # The test server is on 127.0.0.1, which rule 3 refuses by default.
@@ -30,6 +31,7 @@ class ServerOnly(Policy):
     """The default policy, but for the test server's address: rule 3 still refuses
     every other non-public address."""
 
+    @override
     def check_address(self, url: str, address: str) -> None:
         if address != "127.0.0.1":
             super().check_address(url, address)
@@ -58,7 +60,7 @@ def names(monkeypatch):
 
 
 @pytest.fixture
-def server(no_proxy):
+def server(no_proxy):  # noqa: ARG001 (requested for its side effect: no proxy settings)
     """Serves `state["files"]` (path -> bytes) with range requests (`a-b` and `-n`) and
     `state["etag"]`. A first path segment changes that: `/norange/...` ignores Range
     (200, the whole object), `/status/<code>/...` answers that status, and `/moved/...`
@@ -69,7 +71,8 @@ def server(no_proxy):
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
-        def log_message(self, *a):
+        @override
+        def log_message(self, format, *args):
             pass
 
         def _send(self, status, body=b"", headers=()):
@@ -106,6 +109,7 @@ def server(no_proxy):
                 return self._send(416, headers=[("Content-Range", f"bytes */{len(data)}")])
             self._send(206, data[a:b + 1],
                        [("Content-Range", f"bytes {a}-{b}/{len(data)}"), *etag])
+            return None
 
     srv = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=srv.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True).start()
@@ -119,7 +123,7 @@ def _serve_archive(base, state, tmp_path, *, page_size=None, sources=None) -> st
     tmp_path/a.vzip and served at /a.vzip: its local path."""
     state["files"]["/blob.bin"] = BLOB
     sources = sources or [Source(url=f"{base}/blob.bin")]
-    mapping = {f"b/{i:03}": bytes([i]) * (i + 1) for i in range(40)}
+    mapping: dict[str, bytes | Range | Concat] = {f"b/{i:03}": bytes([i]) * (i + 1) for i in range(40)}
     mapping.update({f"r/{i:03}": Range(source=0, offset=37 * i, length=50) for i in range(40)})
     mapping["c"] = Concat((Range(data=b"<"), Range(source=0, offset=4000, length=96)))
     path = tmp_path / "a.vzip"
@@ -159,13 +163,12 @@ def test_reads_an_archive_over_http(server, tmp_path, page_size, route):
 def test_sends_a_user_agent_with_every_request(server, tmp_path):
     """Every request of the reader, for the archive and for a source, carries refkv's
     User-Agent (some hosts refuse a client without one), through a redirect too."""
-    from refkv.reader import USER_AGENT
-
     base, state = server
     _serve_archive(base, state, tmp_path)
     state["location"] = "/a.vzip"
     _everything(refkv.open(base + "/moved/a.vzip", policy=SERVED))
-    assert len(state["agents"]) >= 3 and set(state["agents"]) == {USER_AGENT}
+    assert len(state["agents"]) >= 3
+    assert set(state["agents"]) == {USER_AGENT}
 
 
 def test_http_objects_reads_ranges_and_suffixes(server):
@@ -184,6 +187,7 @@ def test_http_objects_reads_ranges_and_suffixes(server):
             got = run(objects.get_async(path, options={"range": {"suffix": n}}))
             assert (run(got.buffer_async()), got.meta["size"]) == (want, 10), (path, n)
     store, path = Resolver().resolve(f"{base}/d/f%20g.bin?x=1#frag", policy=SERVED)
+    assert isinstance(store, HttpObjects)
     assert (type(store), store.origin, path) == (HttpObjects, base, "/d/f%20g.bin?x=1")
 
 
@@ -200,7 +204,7 @@ def test_refuses_an_archive_on_a_private_host(server, tmp_path, names):
     names["archive.test"] = "127.0.0.1"
     for url in [f"{base}/a.vzip", f"http://localhost:{port}/a.vzip",
                 f"http://archive.test:{port}/a.vzip"]:
-        with pytest.raises(ArchiveError, match="is a loopback address.*allow_private_hosts=True"):
+        with pytest.raises(ArchiveError, match=r"is a loopback address.*allow_private_hosts=True"):
             refkv.open(url).list()
         assert state["paths"] == []
         assert _everything(refkv.open(url, policy=SERVED)) == _everything(local)
@@ -235,7 +239,7 @@ def test_refuses_an_archive_through_a_proxy(server, tmp_path, names, monkeypatch
     names["public.test"] = "93.184.215.14"
     monkeypatch.setenv("http_proxy", base)
     state["files"]["http://public.test/a.vzip"] = state["files"]["/a.vzip"]
-    with pytest.raises(ArchiveError, match="through the proxy.*allow_unchecked_proxy=True"):
+    with pytest.raises(ArchiveError, match=r"through the proxy.*allow_unchecked_proxy=True"):
         refkv.open("http://public.test/a.vzip").list()
     assert state["paths"] == []
     store = refkv.open("http://public.test/a.vzip", policy=Policy(allow_unchecked_proxy=True))
@@ -263,7 +267,7 @@ def test_detects_a_pin_mismatch_of_a_source_of_an_http_archive(server, tmp_path,
 
 @pytest.mark.parametrize("status", [403, 404, 500])
 def test_reports_an_http_error_status_of_the_archive(server, status):
-    base, state = server
+    base, _state = server
     with pytest.raises(ArchiveError, match=f"/status/{status}/a.vzip: HTTP {status}"):
         refkv.open(f"{base}/status/{status}/a.vzip", policy=SERVED).list()
 
@@ -278,4 +282,6 @@ def test_http_objects_refuses_a_range_past_the_end(server):
 def test_http_objects_reads_only_a_suffix_with_get(server):
     base, _ = server
     with pytest.raises(NotImplementedError, match="reads a suffix"):
-        run(HttpObjects(base, SERVED).get_async("/f.bin", options={"range": {"offset": 1}}))
+        # an offset range, which the options' type leaves out
+        run(HttpObjects(base, SERVED).get_async(
+            "/f.bin", options={"range": {"offset": 1}}))  # pyrefly: ignore[bad-assignment]

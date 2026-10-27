@@ -1,7 +1,7 @@
 //! A sans-IO parser of MP3 files (MPEG-1, MPEG-2 and MPEG-2.5 Layer III audio) into the IR
-//! (spec/virtualize/mp3.md §8
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#8-mp3-profile>, and the
-//! source model of §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#53-elements>).
+//! (spec/zarrify/mp3.md §8
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#8-mp3-profile>, and the
+//! source model of §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#53-elements>).
 //!
 //! One round: the whole file (an MP3 has no index; each frame's header gives the next). The
 //! schema (`schema/mp3.json`) holds every check, in the profile's order. The IR is the ID3v2
@@ -40,12 +40,12 @@ const BITRATES: [[[u32; 15]; 3]; 2] = [
 ];
 /// The most bytes of earlier frames a frame's main data may begin in (`main_data_begin`, 9
 /// bits in MPEG-1 and 8 in MPEG-2 and 2.5), by version: the bit reservoir a decoder must hold
-/// before a frame to decode it as the stream does (spec/virtualize/mp3.md §8.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#82-chunks>).
+/// before a frame to decode it as the stream does (spec/zarrify/mp3.md §8.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#82-chunks>).
 pub const RESERVOIR: [u64; 4] = [255, 0, 255, 511];
 
-/// The frames of a chunk (spec/virtualize/mp3.md §4.1
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#41-the-array>), but in tests
+/// The frames of a chunk (spec/zarrify/mp3.md §4.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#41-the-array>), but in tests
 /// (`set_chunk_frames`). Each run reads it once, into its facts.
 pub const DEFAULT_CHUNK_FRAMES: usize = 256;
 static CHUNK_FRAMES: AtomicUsize = AtomicUsize::new(DEFAULT_CHUNK_FRAMES);
@@ -60,8 +60,8 @@ pub fn chunk_frames() -> usize {
     CHUNK_FRAMES.load(Ordering::Relaxed)
 }
 
-/// A frame header's fields (spec/virtualize/mp3.md §2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#2-frames>).
+/// A frame header's fields (spec/zarrify/mp3.md §2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#2-frames>).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Head {
     /// the version bits: 0 MPEG-2.5, 2 MPEG-2, 3 MPEG-1
@@ -149,8 +149,8 @@ impl Head {
     }
 }
 
-/// Whether a file's first bytes are an MP3 file's (spec/virtualize.md §1.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>): `ID3` at 0, or a
+/// Whether a file's first bytes are an MP3 file's (spec/zarrify.md §1.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>): `ID3` at 0, or a
 /// frame header of any layer whose sync, version, layer and sample rate index are valid, whatever
 /// its bitrate index (the profile then rejects a layer other than III, or a free-format
 /// bitrate, by name).
@@ -172,8 +172,8 @@ fn is_info(f: &[u8], h: &Head) -> bool {
     xing_at(f, h).is_some() || f.get(36..40) == Some(b"VBRI")
 }
 
-/// The fields of an info frame (spec/virtualize/mp3.md §5.1
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#51-the-root>): the tag, the
+/// The fields of an info frame (spec/zarrify/mp3.md §5.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#51-the-root>): the tag, the
 /// frame and byte counts and the quality it holds (null when it does not), and the encoder,
 /// delay and padding of a LAME tag after a Xing or Info tag.
 fn info_json(f: &[u8], h: &Head) -> J {
@@ -282,8 +282,8 @@ impl Mp3 {
         }
     }
 
-    /// The whole file (spec/virtualize/mp3.md §8.1
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#81-the-stream>): the ID3v2
+    /// The whole file (spec/zarrify/mp3.md §8.1
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#81-the-stream>): the ID3v2
     /// tags, the trailing tags, then the frames between them, and the elements of each.
     fn scan(&mut self) -> Res<()> {
         let n = self.size;
@@ -459,7 +459,7 @@ impl Mp3 {
 
 crate::parser!(Mp3);
 
-/// The MP3 profile's file run (spec/virtualize/mp3.md): the file read whole.
+/// The MP3 profile's file run (spec/zarrify/mp3.md): the file read whole.
 pub struct Profile;
 
 impl crate::run::FileProfile for Profile {

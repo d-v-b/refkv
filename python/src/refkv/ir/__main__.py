@@ -1,5 +1,5 @@
 """python -m refkv.ir <url or path> <out.vzip> [--url <source url>] [--no-mirror]
-[--allow-private-hosts]: as python -m refkv.virtualize, through the IR (exit status 3
+[--allow-private-hosts]: as python -m refkv.zarrify, through the IR (exit status 3
 when rejected). Every format reads through the read planner, under the reader
 policy (spec/refkv.md §6.7
 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>): a source on a loopback
@@ -10,9 +10,9 @@ import json
 import sys
 
 from refkv.errors import ResolutionError
-from refkv.ir import virtualize
+from refkv.ir import zarrify
 from refkv.policy import Policy
-from refkv.virtualize.common import Rejected
+from refkv.zarrify.common import Rejected
 
 
 def main(argv: list[str]) -> int:
@@ -25,7 +25,7 @@ def main(argv: list[str]) -> int:
         url = args[i + 1]
         del args[i:i + 2]
     try:
-        fmt, out, ir = virtualize(args[0], url, mirror, policy)
+        fmt, out, ir = zarrify(args[0], url, mirror, policy)
     except Rejected as e:
         print(f"rejected: {e}", file=sys.stderr)
         return 3

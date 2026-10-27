@@ -1,8 +1,8 @@
-//! CZI codec headers (spec/virtualize/czi.md §3.1
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#31-pixel-types-and-codecs>–§3.2
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#32-conforming-and-unplaced-subblocks>,
-//! spec/virtualize/czi.md §7.4
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#74-codec-headers>): a
+//! CZI codec headers (spec/zarrify/czi.md §3.1
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#31-pixel-types-and-codecs>–§3.2
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#32-conforming-and-unplaced-subblocks>,
+//! spec/zarrify/czi.md §7.4
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#74-codec-headers>): a
 //! subblock's coded size from the first 2^16 bytes of its data at most. The
 //! readers are given the bytes read so far; one that needs more says how many
 //! (`Err(n)`), and is run again with them.
@@ -56,7 +56,7 @@ pub fn pixel_type(pt: i32) -> Option<(&'static str, u64, u64)> {
     })
 }
 
-const WIC: [u8; 15] = [0x24, 0xC3, 0xDD, 0x6F, 0x03, 0x4E, 0xFE, 0x4B, 0xB1, 0x85, 0x3D, 0x77, 0x76, 0x8D, 0xC9];
+pub const WIC: [u8; 15] = [0x24, 0xC3, 0xDD, 0x6F, 0x03, 0x4E, 0xFE, 0x4B, 0xB1, 0x85, 0x3D, 0x77, 0x76, 0x8D, 0xC9];
 const BGR96: [u8; 16] = [0x8F, 0xD7, 0xFE, 0xE3, 0xDB, 0xE8, 0xCF, 0x4A, 0x84, 0xC1, 0xE9, 0x7F, 0x61, 0x36, 0xB3, 0x27];
 
 fn jxr_format(pt: i32, guid: &[u8]) -> bool {
@@ -161,8 +161,12 @@ fn jpeg_frame(h: &Head, p: u64) -> Result<Option<(u64, u64)>, Need> {
     }
 }
 
-/// (ImageWidth, ImageHeight) of a JPEG XR file whose pixel format the pixel type admits.
-fn jpegxr_size(h: &Head, pt: i32) -> Result<Option<(u64, u64)>, Need> {
+/// A JPEG XR container's pixel format (the GUID of its PixelFormat entry), ImageWidth and
+/// ImageHeight (spec/zarrify/czi.md §7.4
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#74-codec-headers>, which the NDPI
+/// profile reads too): None when the data does not start with one, or an entry is missing or
+/// malformed.
+pub fn jpegxr_header(h: &Head) -> Result<Option<([u8; 16], u64, u64)>, Need> {
     let Some(b) = h.get(0, 8)? else { return Ok(None) };
     if b[..4] != [0x49, 0x49, 0xbc, 0x01] {
         return Ok(None);
@@ -173,7 +177,7 @@ fn jpegxr_size(h: &Head, pt: i32) -> Result<Option<(u64, u64)>, Need> {
     let mut found: Vec<(u16, [u8; 12])> = Vec::new();
     for k in 0..count {
         let Some(e) = h.get(ifd + 2 + 12 * k, 12)? else { return Ok(None) };
-        let tag = u16::le_at(&e, 0);
+        let tag = u16::le_at(e, 0);
         if matches!(tag, 0xBC01 | 0xBC80 | 0xBC81) && !found.iter().any(|f| f.0 == tag) {
             found.push((tag, e.try_into().unwrap()));
             if found.len() == 3 {
@@ -193,9 +197,7 @@ fn jpegxr_size(h: &Head, pt: i32) -> Result<Option<(u64, u64)>, Need> {
     }
     let at = u32::le_at(&fmt, 8) as u64;
     let Some(guid) = h.get(at, 16)? else { return Ok(None) };
-    if !jxr_format(pt, guid) {
-        return Ok(None);
-    }
+    let guid: [u8; 16] = guid.try_into().unwrap();
     let mut size = [0u64; 2];
     for (i, t) in [0xBC80u16, 0xBC81].into_iter().enumerate() {
         let e = entry(t);
@@ -214,7 +216,12 @@ fn jpegxr_size(h: &Head, pt: i32) -> Result<Option<(u64, u64)>, Need> {
         }
         size[i] = v;
     }
-    Ok(Some((size[0], size[1])))
+    Ok(Some((guid, size[0], size[1])))
+}
+
+/// (ImageWidth, ImageHeight) of a JPEG XR file whose pixel format the pixel type admits.
+fn jpegxr_size(h: &Head, pt: i32) -> Result<Option<(u64, u64)>, Need> {
+    Ok(jpegxr_header(h)?.filter(|(guid, _, _)| jxr_format(pt, guid)).map(|(_, w, h)| (w, h)))
 }
 
 /// (coded width, coded height, hi-lo flag, header length) of a subblock whose
@@ -239,8 +246,8 @@ pub fn coded_size(pt: i32, comp: i32, w: u64, h: u64, n: u64, head: &Head) -> Re
     }
 }
 
-/// The codecs after `transpose` (spec/virtualize/czi.md §3.1
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#31-pixel-types-and-codecs>), as
+/// The codecs after `transpose` (spec/zarrify/czi.md §3.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#31-pixel-types-and-codecs>), as
 /// JSON.
 pub fn codec_chain(pt: i32, comp: i32, hilo: bool) -> serde_json::Value {
     use serde_json::json;

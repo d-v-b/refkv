@@ -43,7 +43,11 @@ interface OmeroChannel {
   window?: { min?: number; max?: number; start: number; end: number };
 }
 
-/** One image to show: its Zarr URL, a name, and its translation (one number per axis, in the axes' units). */
+/**
+ * One image to show: its URL (in a {@link View}, its Zarr URL under the worker's prefix; given to
+ * {@link imageState}, its Neuroglancer data source), a name, and its translation (one number per
+ * axis, in the axes' units).
+ */
 interface ShownImage {
   url: string;
   name: string;
@@ -123,7 +127,7 @@ function imageState(
     return {
       layers: images.map((img) => ({
         type: "image",
-        source: { url: `${img.url}|zarr3:`, transform: { outputDimensions } },
+        source: { url: img.url, transform: { outputDimensions } },
         name: many ? img.name : rgb ? "image" : "channels",
         opacity: 1,
         shader,
@@ -132,7 +136,7 @@ function imageState(
     };
   }
   return {
-    layers: images.map((img) => ({ type: "image", source: `${img.url}|zarr3:`, name: many ? img.name : "image" })),
+    layers: images.map((img) => ({ type: "image", source: img.url, name: many ? img.name : "image" })),
     ...view,
   };
 }
@@ -149,7 +153,7 @@ function neuroglancerState(...args: Parameters<typeof imageState>) {
   const state = imageState(...args);
   const labels = args[6] ?? [];
   state.layers.push(...labels.map((l) => ({
-    type: "segmentation", source: `${l.url}|zarr3:`, name: `labels ${l.name}`,
+    type: "segmentation", source: l.url, name: `labels ${l.name}`,
   })) as never[]);
   return state;
 }
@@ -350,7 +354,29 @@ async function listArrays(zarrUrl: string): Promise<{ path: string; meta: ArrayM
 }
 
 let prefix: Promise<string> | undefined;
-let views: View[] = [];
+/** An input: its URL, its Zarr URL under the worker's prefix, and whether it is a .vzip archive. */
+interface Input {
+  url: string;
+  zarrUrl: string;
+  isArchive: boolean;
+}
+
+/** The views of the input shown, each with that input. */
+let views: (View & { input: Input })[] = [];
+
+/**
+ * The Neuroglancer data source of the node at `url`, a Zarr URL under `shown.zarrUrl`. For a
+ * .vzip input it names the archive itself, `<archive url>|vzip:<path>|zarr3:`, which any
+ * deployment of the Neuroglancer fork opens, wherever the link is shared. Otherwise it is the
+ * worker's URL, `<url>|zarr3:`, which opens only on this site, in a browser where the page has
+ * zarrified the input: a link to share names an archive of it, downloaded and hosted.
+ */
+function neuroglancerSource(shown: Input, url: string): string {
+  if (!shown.isArchive) return `${url}|zarr3:`;
+  if (!url.startsWith(shown.zarrUrl)) throw new Error(`${url} is not under ${shown.zarrUrl}`);
+  const path = url.slice(shown.zarrUrl.length).split("/").map(encodeURIComponent).join("/");
+  return `${shown.url}|vzip:${path}|zarr3:`;
+}
 
 function showLevels(rows: Omit<Level, "url">[]) {
   $("levels").replaceChildren(
@@ -375,10 +401,13 @@ function showLevels(rows: Omit<Level, "url">[]) {
 let shown: View | undefined;
 
 /** Shows `view`: its levels, and a Neuroglancer link. */
-async function showView(view: View) {
+async function showView(view: View & { input: Input }) {
   shown = view;
+  const source = (url: string) => neuroglancerSource(view.input, url);
+  $("share-local").hidden = view.input.isArchive;
+  $("share-archive").hidden = !view.input.isArchive;
   $("name").textContent = view.name;
-  $("zarr-url").textContent = view.url;
+  $("zarr-url").textContent = source(view.url);
   $("view-note").textContent = view.note ?? "";
   showLevels(view.levels);
   const level0 = view.levels[0].meta;
@@ -405,7 +434,8 @@ async function showView(view: View) {
     });
   }
   const state = neuroglancerState(
-    view.images, view.axes, view.scale, level0.shape, dataType, omero, view.labels,
+    view.images.map((img) => ({ ...img, url: source(img.url) })), view.axes, view.scale, level0.shape, dataType, omero,
+    view.labels.map((l) => ({ ...l, url: source(l.url) })),
   );
   // An image shown with Neuroglancer's default shader gets a sampled range too.
   const plain = state.layers.filter((l) => l.type === "image" && !("shader" in l));
@@ -423,7 +453,7 @@ async function showView(view: View) {
   ng.href = new URL(`neuroglancer/#!${encodeURIComponent(JSON.stringify(state))}`, location.href).href;
 }
 
-async function virtualize(url: string) {
+async function zarrify(url: string) {
   $("result").hidden = true;
   // Record the URL in the address bar, so the page can be shared or reloaded.
   const here = new URL(location.href);
@@ -434,6 +464,7 @@ async function virtualize(url: string) {
   const p = await prefix;
   const isArchive = /\.vzip(?:[?#]|$)/i.test(url);
   const zarrUrl = isArchive ? archiveZarrUrl(p, url) : imageZarrUrl(p, url);
+  const opened: Input = { url, zarrUrl, isArchive };
   setStatus(isArchive ? "Opening the archive…" : "Reading the file's structure…");
   const t0 = performance.now();
   const root = await getJson(`${zarrUrl}zarr.json`);
@@ -443,34 +474,38 @@ async function virtualize(url: string) {
   const picker = $<HTMLSelectElement>("view");
   map.hidden = true;
   $("view-row").hidden = true;
-  if (attrs.refkv_virtualized?.profile === "safe") {
+  if (attrs.refkv_zarrified?.profile === "safe") {
     // A Sentinel-2 product: GeoZarr groups of JPEG 2000 bands, for a map
     // viewer (map.html) rather than Neuroglancer.
-    const safe = attrs.refkv_virtualized.safe ?? {};
+    const safe = attrs.refkv_zarrified.safe ?? {};
     views = [];
     $("name").textContent = `${safe.PRODUCT_URI ?? url.split("/").pop()} (${safe.PROCESSING_LEVEL ?? "Sentinel-2"})`;
-    $("zarr-url").textContent = zarrUrl;
+    $("zarr-url").textContent = neuroglancerSource(opened, zarrUrl);
     $("view-note").textContent = `${safe.SENSING_TIME ?? ""} ${attrs["proj:code"] ?? ""}`;
     showLevels(await listArrays(zarrUrl));
     $("open-ng").hidden = true;
+    $("share-local").hidden = true;
+    $("share-archive").hidden = true;
     map.hidden = false;
     map.href = new URL(`map.html?url=${encodeURIComponent(url)}`, location.href).href;
   } else {
     const ms0 = attrs.ome?.multiscales?.[0];
+    let found: View[];
     if (root.node_type === "array") {
-      views = [arrayView(zarrUrl, "", root)];
-    } else if (attrs.refkv_virtualized?.profile === "mp4") {
-      views = await videoViews(zarrUrl, attrs.refkv_virtualized.mp4 ?? {});
-      if (views.length === 0) throw new Error("no video track to show (audio is not displayed)");
+      found = [arrayView(zarrUrl, "", root)];
+    } else if (attrs.refkv_zarrified?.profile === "mp4") {
+      found = await videoViews(zarrUrl, attrs.refkv_zarrified.mp4 ?? {});
+      if (found.length === 0) throw new Error("no video track to show (audio is not displayed)");
     } else if (ms0 !== undefined) {
-      views = [await omeView(zarrUrl, ms0, ms0.name ?? "image", attrs.refkv_virtualized?.profile === "ome-zarr")];
+      found = [await omeView(zarrUrl, ms0, ms0.name ?? "image", attrs.refkv_zarrified?.profile === "ome-zarr")];
     } else if (attrs.ome?.["bioformats2raw.layout"] !== undefined) {
-      views = await seriesViews(zarrUrl);
+      found = await seriesViews(zarrUrl);
     } else {
       // No OME-Zarr image (a Zarr v2 or N5 hierarchy without one): its arrays.
-      views = (await listArrays(zarrUrl)).map(({ path, meta }) => arrayView(`${zarrUrl}${path}/`, path, meta));
-      if (views.length === 0) throw new Error("no arrays to show");
+      found = (await listArrays(zarrUrl)).map(({ path, meta }) => arrayView(`${zarrUrl}${path}/`, path, meta));
+      if (found.length === 0) throw new Error("no arrays to show");
     }
+    views = found.map((v) => ({ ...v, input: opened }));
     if (views.length > 1) {
       picker.replaceChildren(...views.map((v, i) => new Option(v.label, String(i))));
       $("view-row").hidden = false;
@@ -487,7 +522,7 @@ $("view").addEventListener("change", () => {
 });
 $("form").addEventListener("submit", (event) => {
   event.preventDefault();
-  virtualize(input.value.trim()).catch((e) => setStatus(String(e.message ?? e), true));
+  zarrify(input.value.trim()).catch((e) => setStatus(String(e.message ?? e), true));
 });
 for (const link of document.querySelectorAll<HTMLAnchorElement>("a[data-url]")) {
   link.addEventListener("click", (event) => {

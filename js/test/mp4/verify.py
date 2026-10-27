@@ -1,15 +1,15 @@
-"""Checks the browser MP4 virtualizer's output against ffmpeg's decoding of each file.
+"""Checks the browser MP4 zarrifier's output against ffmpeg's decoding of each file.
 
-Each fixtures/mp4/*.mp4 and *.mov is served over local HTTP and virtualized by
-js/conformance/virtualize.ts (the browser code, run under Node). Every virtualized track is read
+Each fixtures/mp4/*.mp4 and *.mov is served over local HTTP and zarrified by
+js/conformance/zarrify.ts (the browser code, run under Node). Every zarrified track is read
 through the reference reader, zarr-python and the `refkv.stream` codec, and must equal ffmpeg's
 decoding of the track (through PyAV, whose demuxer reads the file's tables itself), value for
 value: a video track's Y, U and V planes and its presentation times on the media timeline, an
-audio track's samples (spec/virtualize/mp4.md §4
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#4-the-layout>; AAC with noise
+audio track's samples (spec/zarrify/mp4.md §4
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#4-the-layout>; AAC with noise
 substitution only in its level, since a chunk decodes its noise from a generator of its own).
 The file must be rebuilt byte for byte from the archive's IR mirror (refkv_source, §5.3
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#53-elements>). `mp4_reject_*`
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#53-elements>). `mp4_reject_*`
 files must be rejected.
 
 Usage: uv run python js/test/mp4/verify.py [<dir of .mp4 and .mov files>]
@@ -29,12 +29,14 @@ ROOT = HERE.parents[2]
 sys.path.insert(0, str(ROOT / "conformance" / "vzip"))
 
 import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store)
+from refkv._narrow import at, integer, mapping, ndarray, sequence, string  # noqa: E402
 
 sys.path.insert(0, str(HERE.parent))
 from ir_mirror import mirror_problems  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # js/test, for verify_common
 from verify_common import LOOPBACK_SOURCES, run, serve  # noqa: E402
+
 NOISE = {"mp4_aac_pns.mp4"}
 
 
@@ -44,6 +46,7 @@ def decoded(path: Path, index: int):
     c = av.open(str(path))
     s = c.streams[index]
     ctx = av.CodecContext.create(s.codec_context.name, "r")
+    assert isinstance(ctx, (av.AudioCodecContext, av.VideoCodecContext)), s.type
     ctx.extradata = s.codec_context.extradata
     packets = [p for p in c.demux(s) if p.size]
     frames = []
@@ -52,32 +55,35 @@ def decoded(path: Path, index: int):
         q.pts = k
         frames += ctx.decode(q)
     frames += ctx.decode(None)
-    return s.type, frames, sorted(p.pts for p in packets)
+    return s.type, frames, sorted(integer(p.pts, "pts") for p in packets)
 
 
 def problems_of(path: Path, out: Path) -> list[str]:
     root = zarr.open_group(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
     problems = []
-    for track in root.attrs["refkv_virtualized"]["mp4"]["tracks"]:
+    for entry in sequence(at(root.attrs, "refkv_zarrified", "mp4", "tracks")):
+        track = mapping(entry, "tracks[]")
         if track["path"] is None:
             continue
-        g = root[track["path"]]
-        tm = g.attrs["refkv_virtualized"]["mp4"]
-        kind, frames, pts = decoded(path, track["id"] - 1)
+        g = root.get_group(string(track["path"]))
+        tm = mapping(at(g.attrs, "refkv_zarrified", "mp4"))
+        kind, frames, pts = decoded(path, integer(track["id"]) - 1)
         if kind == "video":
             for k, name in enumerate("yuv"):
                 want = np.stack([np.frombuffer(f.planes[k], np.uint8).reshape(f.planes[k].height, f.planes[k].line_size)
                                  [:, :f.planes[k].width] for f in frames])
-                got = g[name][...]
+                got = ndarray(g.get_array(name)[...])
                 if got.shape != want.shape or not np.array_equal(got, want):
-                    problems.append(f"track {track['id']}'s {name} plane differs from ffmpeg's ({got.shape} vs {want.shape})")
-            shift = next((e["media_time"] for e in tm["edits"] if e["media_time"] >= 0), 0)
-            if g["time"][...].tolist() != [t + shift for t in pts]:
+                    problems.append(f"track {track['id']}'s {name} plane differs from ffmpeg's "
+                                    f"({got.shape} vs {want.shape})")
+            media_times = (integer(at(e, "media_time")) for e in sequence(tm["edits"]))
+            shift = next((m for m in media_times if m >= 0), 0)
+            if ndarray(g.get_array("time")[...]).tolist() != [t + shift for t in pts]:
                 problems.append(f"track {track['id']}'s times differ from ffmpeg's")
         else:
             want = np.concatenate([f.to_ndarray().T if f.format.is_planar else f.to_ndarray().reshape(f.samples, -1)
                                    for f in frames]).astype(np.float32)
-            got = g["samples"][...]
+            got = ndarray(g.get_array("samples")[...])
             if got.shape != want.shape:
                 problems.append(f"track {track['id']}'s samples are {got.shape}, ffmpeg's {want.shape}")
             elif path.name in NOISE:

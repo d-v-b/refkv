@@ -5,6 +5,7 @@ without a request, `classify`, `list`, `list_dir`, `raw` and the source table, o
 
 import asyncio
 import itertools
+import re
 
 import pytest
 
@@ -14,6 +15,7 @@ from refkv._sync import run
 from refkv.errors import RequestError, ResolutionError
 from refkv.pb import Concat, Range, Source
 from refkv.uri import file_uri
+from refkv.vzip.store import VZipStore
 
 SRC = bytes(range(64))
 HIDDEN = b"xyz"
@@ -36,7 +38,7 @@ def _stores(tmp_path):
     (tmp_path / "src.bin").write_bytes(SRC)
     sources = [Source(url=file_uri(tmp_path / "src.bin")), Source(key="__vz__/shared")]
     store = refkv.ReferenceStore(_mapping(), sources)
-    out = {"memory": store}
+    out: dict[str, refkv.ReferenceStore | VZipStore] = {"memory": store}
     for page_size in [None, 64]:
         path = tmp_path / f"{page_size}.vzip"
         store.save(path, page_size=page_size)
@@ -97,7 +99,7 @@ def test_operations(tmp_path):
         assert store.sources == (Source(url=file_uri(tmp_path / "src.bin")),
                                  Source(key="__vz__/shared")), name
 
-        async def listed():
+        async def listed(store=store):
             return ([k async for k in store.list_async("d")],
                     [k async for k in store.list_dir_async("d")],
                     await store.classify_async("b"), await store.raw_async("a"))
@@ -107,23 +109,23 @@ def test_operations(tmp_path):
 
 
 def test_get_refuses_start_after_end(tmp_path):
-    for name, store in _stores(tmp_path).items():
+    for store in _stores(tmp_path).values():
         for key in ["a", "b", "nope"]:
             with pytest.raises(RequestError, match="start 3 > end 2"):
                 store.get(key, RangeRequest(3, 2))
 
 
 def test_get_refuses_a_negative_request(tmp_path):
-    for name, store in _stores(tmp_path).items():
+    for store in _stores(tmp_path).values():
         for request in [RangeRequest(-1, 2), OffsetRequest(-1), SuffixRequest(-1)]:
             with pytest.raises(RequestError, match="non-negative integers"):
                 store.get("a", request)
 
 
 def test_get_refuses_a_request_of_another_type(tmp_path):
-    for name, store in _stores(tmp_path).items():
+    for store in _stores(tmp_path).values():
         with pytest.raises(TypeError, match="a request is a RangeRequest"):
-            store.get("a", (0, 2))
+            store.get("a", (0, 2))  # pyrefly: ignore[bad-argument-type] (the type refused)
 
 
 def test_get_of_a_refused_source_raises(tmp_path):
@@ -135,7 +137,7 @@ def test_get_of_a_refused_source_raises(tmp_path):
                                 [Source(url="http://127.0.0.1:9/x.bin")])
     store.save(tmp_path / "r.vzip", policy=refkv.Policy(allow_private_hosts=True))
     for s in [store, refkv.open(tmp_path / "r.vzip")]:
-        with pytest.raises(ResolutionError, match="127.0.0.1"):
+        with pytest.raises(ResolutionError, match=re.escape("127.0.0.1")):
             s.get("r")
         assert s.classify("r") == "reference"
         assert s.stats.external_requests == 0

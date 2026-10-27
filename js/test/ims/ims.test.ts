@@ -1,17 +1,17 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { test } from "node:test";
-import { virtualizeImage } from "../../src/virtualize/index.ts";
-import { ImageError } from "../../src/virtualize/common.ts";
+import { zarrifyImage } from "../../src/zarrify/index.ts";
+import { ImageError } from "../../src/zarrify/common.ts";
 
 const FIXTURES = new URL("../../../fixtures/ims/", import.meta.url);
 
-async function virtualize(name: string) {
+async function zarrify(name: string) {
   const bytes = new Uint8Array(fs.readFileSync(new URL(name, FIXTURES)));
-  return virtualizeImage(`https://data.test/${name}`, async (o, n) => bytes.subarray(o, o + n), bytes.length);
+  return zarrifyImage(`https://data.test/${name}`, async (o, n) => bytes.subarray(o, o + n), bytes.length);
 }
 
-test("virtualizes the synthetic IMS files", async () => {
+test("zarrifies the synthetic IMS files", async () => {
   const cases: [string, object][] = [
     ["ims_earliest_uint16_deflate.ims", { levels: 2, sizes: { t: 2, c: 2, z: 5, y: 12, x: 14 }, dataType: "uint16", compressed: [true, true], channels: ["DAPI", "GFP"] }],
     ["ims_latest_uint8.ims", { levels: 3, sizes: { t: 1, c: 3, z: 4, y: 9, x: 11 }, dataType: "uint8", channels: ["red", "Channel 1", "far red"] }],
@@ -28,26 +28,26 @@ test("virtualizes the synthetic IMS files", async () => {
     ["ims_latest_btree2.ims", { sizes: { t: 1, c: 1, z: 2, y: 6, x: 7 }, chunkShape: [1, 2, 2], compressed: [true], chunks: 23 }],
   ];
   for (const [name, expected] of cases) {
-    const v = await virtualize(name);
+    const v = await zarrify(name);
     assert.equal(v.format, "ims");
     assert.deepEqual({ ...v.summary, ...expected }, v.summary, name);
   }
   // Every channel's color: in TableColor mode the top of the lookup table, else the base
-  // color, else the table, else white (spec/virtualize/ims.md §4
-  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#4-output>).
+  // color, else the table, else white (spec/zarrify/ims.md §4
+  // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#4-output>).
   const colors: [string, string[]][] = [
     ["ims_latest_uint8.ims", ["FF0000", "808080", "FFFFFF"]],
     ["ims_latest_table_color.ims", ["00FF00", "0000FF", "FF00FF", "FF0000", "808080", "FFFFFF", "FFFFFF", "FFFFFF",
       "FFFFFF", "FFFFFF", "00FFFF", "FFFF00", "FFFFFF", "FFFFFF", "FFFFFF"]],
   ];
   for (const [name, expected] of colors) {
-    const root = (await virtualize(name)).entries.find((e) => e.key === "zarr.json");
+    const root = (await zarrify(name)).entries.find((e) => e.key === "zarr.json");
     assert.ok(root && "bytes" in root);
     const omero = JSON.parse(new TextDecoder().decode(root.bytes)).attributes.ome.omero;
     assert.deepEqual(omero.channels.map((c: { color: string }) => c.color), expected, name);
   }
   // The time step is the mean interval between the first and last time points.
-  const v = await virtualize("ims_latest_float32_be.ims");
+  const v = await zarrify("ims_latest_float32_be.ims");
   const root = v.entries.find((e) => e.key === "zarr.json");
   assert.ok(root && "bytes" in root);
   const ms = JSON.parse(new TextDecoder().decode(root.bytes)).attributes.ome.multiscales[0];
@@ -67,6 +67,6 @@ for (const [name, message] of [
   ["ims_reject_raw_edges_image.ims", /a chunk's filter mask is not 0/],
 ] as const) {
   test(`rejects ${name}`, async () => {
-    await assert.rejects(virtualize(name), (e) => e instanceof ImageError && message.test(e.message));
+    await assert.rejects(zarrify(name), (e) => e instanceof ImageError && message.test(e.message));
   });
 }

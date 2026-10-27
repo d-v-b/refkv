@@ -1,6 +1,6 @@
-//! The TIFF image projection (spec/virtualize/tiff.md §4
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#4-the-image>) from a valid IR:
-//! each level's planes name the IR's tiles; the facts hold the format, sizes, scales,
+//! The TIFF image projection (spec/zarrify/tiff.md §4
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#4-the-image>) from a valid IR:
+//! each level's planes name the IR's tiles or strips (a short last strip padded to the chunk); the facts hold the format, sizes, scales,
 //! translation, and the OME-XML's channel names and colors (its `omero`); the windows of its
 //! `omero` are sampled from the coarsest level's chunks, which the run reads (`reads`).
 
@@ -26,8 +26,8 @@ fn rgb(facts: &J) -> bool {
     n(&facts["spp"]) > 1 && (interpretation == 2 || (interpretation == 6 && compression == 7))
 }
 
-/// The `omero` member (spec/virtualize/tiff.md §4.4
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#44-arrays>), when there are
+/// The `omero` member (spec/zarrify/tiff.md §4.4
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#44-arrays>), when there are
 /// at most 64 channels and each has a window: the samples, `R`, `G`, `B` when they decode to
 /// RGB; else one per channel, named and colored by the OME-XML's Channels. Channel `c`'s window
 /// is `sampled[c]`, sampled from the data, else the type's whole range (an integer type's).
@@ -65,8 +65,8 @@ fn level_shape<'a>(facts: &'a J, lv: &J) -> (Vec<&'a str>, Vec<u64>, Vec<u64>) {
     (axes, shape, chunk)
 }
 
-/// The chunks the `omero` windows sample (spec/virtualize/tiff.md §4.4
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#44-arrays>): one per
+/// The chunks the `omero` windows sample (spec/zarrify/tiff.md §4.4
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#44-arrays>): one per
 /// channel of the coarsest level, when the image has at most 64 channels, its samples do not
 /// decode to RGB, and the core decodes its compression; else none.
 fn samples(facts: &J) -> Vec<window::Sample> {
@@ -96,16 +96,22 @@ fn arrays(ir: &Ir, facts: &J, url: &str, only: Option<usize>) -> Result<(Out, Ve
         let (_, shape, chunk) = level_shape(facts, lv);
         (shape, chunk)
     };
+    // a short last strip's zero padding: a prefix of the output's zero data source
+    let mut zeros = tiled::zero_source(facts);
     tiled::arrays(ir, facts, url, only, shape, |refs, li, lv| {
         let (w, h, tw, th) = (n(&lv["w"]), n(&lv["h"]), n(&lv["tw"]), n(&lv["th"]));
-        let across = w.div_ceil(tw);
+        // a level in strips has one chunk a row; its short last strip is padded to the chunk
+        // (spec/zarrify/tiff.md §4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>)
+        let across = if lv["strips"].as_bool().unwrap_or(false) { 1 } else { w.div_ceil(tw) };
         let per = across * h.div_ceil(th);
+        let padding = tiled::Padding::of(refs, lv, &mut zeros)?;
         let planes = arr(&lv["planes"]);
         let prefix = format!("{li}/c/");
         for t in 0..size_t {
             for c in 0..plane_c {
                 for z in 0..size_z {
-                    let tiles = planes.get(((t * plane_c + c) * size_z + z) as usize).and_then(|v| v.as_u64());
+                    let p = (t * plane_c + c) * size_z + z;
+                    let tiles = planes.get(p as usize).and_then(|v| v.as_u64());
                     let coords = |s, row, col| {
                         let mut coords = Vec::with_capacity(5);
                         if size_t > 1 {
@@ -120,7 +126,7 @@ fn arrays(ir: &Ir, facts: &J, url: &str, only: Option<usize>) -> Result<(Out, Ve
                         coords.extend([row, col]);
                         coords
                     };
-                    tiled::plane(refs, &prefix, tiles, per, across, coords, |_, _, _, _| None)?;
+                    tiled::plane(refs, &prefix, tiles, per, across, coords, |k, row, start, length| padding.parts(p, k, row, start, length))?;
                 }
             }
         }

@@ -1,9 +1,9 @@
-//! The metadata tree of a `.vsi` file (spec/virtualize/vsi.md §2
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#2-the-vsi-file>): containers
+//! The metadata tree of a `.vsi` file (spec/zarrify/vsi.md §2
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#2-the-vsi-file>): containers
 //! of fields, parsed from the whole file held in memory, with every byte of every region
 //! accounted for; its IR elements (§6.2
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#62-the-ir-mirror>) and its
-//! translation to JSON (§6.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#61-the-root>).
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#62-the-ir-mirror>) and its
+//! translation to JSON (§6.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#61-the-root>).
 //!
 //! **Layout** (as read from Olympus's files; Bio-Formats' CellSensReader reads the same bytes
 //! more loosely). A **container** is a 24-byte header (`header_size` 24, `version` 21321,
@@ -115,7 +115,7 @@ impl Container {
 }
 
 /// Parses the container at `fp` with the region end `end`, checking each container and field
-/// against the schema (§9.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#91-the-vsi-file>).
+/// against the schema (§9.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#91-the-vsi-file>).
 pub fn parse(rules: &Rules, b: &[u8], fp: u64, end: u64, depth: u32) -> Res<Container> {
     let fits = fp.checked_add(CONTAINER_HEADER).is_some_and(|e| e <= end && end <= b.len() as u64);
     let (header_size, version, volume_version, data_offset, flags) = if fits {
@@ -155,7 +155,7 @@ pub fn parse(rules: &Rules, b: &[u8], fp: u64, end: u64, depth: u32) -> Res<Cont
         let q = p + header;
         let tag2 = (extra && q <= end).then(|| u32::le_at(b, p as usize + 16));
         let region_end = if next == 0 { end } else { fp.saturating_add(next as u64) };
-        // where the data ends (§2.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#21-containers-and-fields>)
+        // where the data ends (§2.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#21-containers-and-fields>)
         let data_end = if inline {
             q
         } else if extra && size > 0 {
@@ -196,7 +196,7 @@ pub fn parse(rules: &Rules, b: &[u8], fp: u64, end: u64, depth: u32) -> Res<Cont
         let mut f = Field { offset: p, header, ftype, real, tag, tag2, next, size, kind, data: (q, data_end), end: region_end, container: None };
         match kind {
             Kind::Volume => {
-                // one container fills the volume's data (§2.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#21-containers-and-fields>)
+                // one container fills the volume's data (§2.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#21-containers-and-fields>)
                 f.container = Some(Box::new(parse(rules, b, q, data_end, depth + 1)?));
             }
             Kind::PropertySet | Kind::MdimVolume => {
@@ -252,7 +252,7 @@ fn int_json(v: i128) -> J {
 }
 
 /// A value field's data as JSON (§6.1
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#61-the-root>): numbers by the
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#61-the-root>): numbers by the
 /// field type (an array when the data holds several), text decoded from UTF-16LE, a boolean,
 /// and opaque bytes as base64 up to 1024 bytes, else `{"bytes": n}`.
 pub fn value_json(rules: &Rules, real: u32, d: &[u8]) -> J {
@@ -311,7 +311,7 @@ fn opaque(d: &[u8]) -> J {
     if d.len() > MAX_JSON_BYTES { json!({"bytes": d.len()}) } else { J::String(crate::mirror::base64(d)) }
 }
 
-/// The tree as JSON (§6.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#61-the-root>):
+/// The tree as JSON (§6.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#61-the-root>):
 /// a container is `{"fields": [...]}`; a field has `tag`, `tag2` when it has one, `type`,
 /// `name` when the table names its tag, and then `value` (a value field's data, or an inline
 /// field's number, with `"inline": true`), `fields` (a volume's, property set's or mdim

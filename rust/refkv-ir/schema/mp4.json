@@ -1,7 +1,7 @@
 {
   "source_model": "mp4",
   "version": 1,
-  "about": "The source model of an MP4 or QuickTime file (spec/virtualize/mp4.md §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#53-elements>): the elements a parser emits, and the roles the file, each box, the movie, each table and each track play, with the constraints a file must meet to have the MP4 convention's layout (spec/virtualize/mp4.md §8.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#81-boxes>). The parser checks them in this order; whether a track is virtualized is no constraint (a track the profile does not virtualize is recorded with the reason), and projections read a valid IR and check nothing.",
+  "about": "The source model of an MP4 or QuickTime file (spec/zarrify/mp4.md §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#53-elements>): the elements a parser emits, and the roles the file, each box, the movie, each table and each track play, with the constraints a file must meet to have the MP4 convention's layout (spec/zarrify/mp4.md §8.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#81-boxes>). The parser checks them in this order; whether a track is zarrified is no constraint (a track the profile does not zarrify is recorded with the reason), and projections read a valid IR and check nothing.",
   "limits": {
     "max_moov": 67108864,
     "max_samples": 16777216,
@@ -9,9 +9,9 @@
   },
   "tables": {},
   "elements": {
-    "about": "The IR of an MP4 file. Every box is a struct named by its type (spec/virtualize/mp4.md §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#53-elements> says how a repeated or unusual type is named), whose extent is the box; T is a track's index among the moov box's trak boxes, j a sample's index in decode order.",
+    "about": "The IR of an MP4 file. Every box is a struct named by its type (spec/zarrify/mp4.md §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#53-elements> says how a repeated or unusual type is named), whose extent is the box; T is a track's index among the moov box's trak boxes, j a sample's index in decode order.",
     "<box>/header": {"kind": "value", "type": "{size:>u4,type:ascii[4]} or {size:>u4,type:ascii[4],largesize:>u8}", "extent": "the box's header"},
-    "<box>/fields": {"kind": "value", "type": "a record of the box's fixed fields (spec/virtualize/mp4.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#2-boxes>)", "extent": "after the header"},
+    "<box>/fields": {"kind": "value", "type": "a record of the box's fixed fields (spec/zarrify/mp4.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#2-boxes>)", "extent": "after the header"},
     "<box>/entries": {"kind": "value", "type": "the box's table, an array of numbers or records", "extent": "after the fields"},
     "<box>/name": {"kind": "value", "type": "cstr[n]: an hdlr box's name"},
     "<box>/data": {"kind": "value", "type": "bytes[n]: the payload of a box the convention does not parse, opaque"},
@@ -84,9 +84,9 @@
       ]
     },
     "tracks": {
-      "given": {"projected": "the tracks the profile virtualizes", "reasons": "each other track's reason"},
+      "given": {"projected": "the tracks the profile zarrifies", "reasons": "each other track's reason"},
       "constraints": [
-        {"require": "projected >= 1", "message": "no track can be virtualized: {reasons}"}
+        {"require": "projected >= 1", "message": "no track can be zarrified: {reasons}"}
       ]
     }
   }

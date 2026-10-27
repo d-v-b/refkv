@@ -1,6 +1,6 @@
 """refkv's intermediate representation (design/ARCHITECTURE.md §3
 <https://github.com/d-v-b/refkv/blob/main/design/ARCHITECTURE.md#3-proposal-an-intermediate-representation>),
-the path `refkv.virtualize`
+the path `refkv.zarrify`
 takes for every format (a file here, a `.SAFE.zip` included; a store, a `.SAFE` directory
 included, through `store.py`): the Rust core (rust/refkv-ir, the `refkv._core` module)
 parses, checking each format's source model schema, plans the reads, projects the
@@ -12,24 +12,30 @@ from __future__ import annotations
 
 import json
 
-from refkv.virtualize.common import Rejected
+from refkv import _core
+from refkv.ir.output import from_rust
+from refkv.ir.planner import Transport, drive, new_run, open_transport
+from refkv.policy import Policy
+from refkv.uri import path_reference
+from refkv.zarrify.common import Output, Rejected
+from refkv.zarrify.profiles import REGISTRY
+
+# the TIFF variants, by name and title: the profiles the TIFF profile's reading chooses (their
+# registry entries' `chosen_by`; spec/zarrify.md §1.2
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>)
+TIFF_VARIANTS = {e["name"]: e["title"] for e in REGISTRY if e["chosen_by"] == "tiff"}
 
 
 def sniff(head: bytes) -> str | None:
     """The IR format a file's first bytes (up to 552 of them) give, if any: the Rust core's
     `Format::sniff`, which tests each file profile's signature in the registry's `sniff` order
-    (spec/virtualize.md §1.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>)."""
-    from refkv import _core
-
+    (spec/zarrify.md §1.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>)."""
     return _core.sniff(head)
 
 
-def parse(fmt: str, transport, conc: int | None = None):
+def parse(fmt: str, transport: Transport,
+          conc: int | None = None) -> tuple[_core.Ir, dict[str, object], dict[str, object]]:
     """(IR, facts, planner counts) of the source the transport reads, or Rejected."""
-    from refkv import _core
-
-    from refkv.ir.planner import drive, new_run
-
     run = new_run(fmt, transport, conc)
     drive(run, transport, conc)
     try:
@@ -39,33 +45,37 @@ def parse(fmt: str, transport, conc: int | None = None):
     return ir, json.loads(facts), json.loads(stats)
 
 
-def virtualize(location: str, url: str | None = None, mirror: bool = True, policy=None, transport=None,
-               connections: int | None = None, byte_cost: float | None = None):
+def zarrify(location: str, url: str | None = None, mirror: bool = True, policy: Policy | None = None,
+            transport: Transport | None = None, connections: int | None = None,
+            byte_cost: float | None = None, fmt: str | None = None,
+            layouts: list[str] | None = None, checksums: bool = False) -> tuple[str, Output, _core.Ir]:
     """(format, output, IR): the source read through the read planner, parsed by the
-    Rust parser of its format, projected and mirrored under refkv_source by the Rust
-    core. The output pins source 0's size, and its ETag when every response gave the
-    same strong one. `connections`: requests at a time to a remote source (default 8);
-    `byte_cost`: seconds of wall time the planner charges a byte fetched (default 0.1 s
-    per MB)."""
-    from refkv import _core
-
-    from refkv.ir.output import from_rust
-    from refkv.ir.planner import drive, new_run, open_transport
-    from refkv.uri import path_reference
-
+    Rust parser of its format (`fmt`, else the one its first bytes give; a TIFF variant's
+    file, rejected unless the TIFF parser finds that variant), projected and
+    mirrored under refkv_source by the Rust core. The output pins source 0's size, and its
+    ETag when every response gave the same strong one. `connections`: requests at a time to
+    a remote source (default 8); `byte_cost`: seconds of wall time the planner charges a
+    byte fetched (default 0.1 s per MB); `layouts`: the layouts the projection writes beside
+    the image ("dataset"; default: every one the format has); `checksums`: the host will record
+    the ranges' checksums, so that a sharded array's ranges are not joined across inner chunks
+    (spec/zarrify.md §2.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#21-virtual-shards>)."""
     transport = transport or open_transport(location, policy)
-    want = min(552, transport.size)
-    held = transport.head[1] or b""
-    head = held[:want] if len(held) >= want else transport.get(0, want)
-    fmt = sniff(head)
     if fmt is None:
-        raise Rejected("not a file of any supported format")
-    run = new_run(fmt, transport, connections, byte_cost)
+        want = min(552, transport.size)
+        held = transport.head[1] or b""
+        head = held[:want] if len(held) >= want else transport.get(0, want)
+        fmt = sniff(head)
+        if fmt is None:
+            raise Rejected("not a file of any supported format")
+    named = fmt
+    run = new_run("tiff" if fmt in TIFF_VARIANTS else fmt, transport, connections, byte_cost)
     drive(run, transport, connections)
     fmt = run.format  # a TIFF the core found to be NDPI is "ndpi"
+    if named in TIFF_VARIANTS and fmt != named:  # before the projection reads more
+        raise Rejected(f"not {TIFF_VARIANTS[named]}: the TIFF parser read it as {fmt}")
     try:
         t, ir = run.output(url or (location if transport.remote else path_reference(location)),
-                           mirror)
+                           mirror, layouts, checksums)
     except _core.Rejected as e:
         raise Rejected(str(e)) from None
     out = from_rust(t)

@@ -1,19 +1,20 @@
 //! A sans-IO parser of MP4 and QuickTime files (ISO/IEC 14496-12 and 14496-14, and Apple's
-//! QuickTime file format) into the IR (spec/virtualize/mp4.md §8
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#8-mp4-profile>, and the source
-//! model of §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#53-elements>).
+//! QuickTime file format) into the IR (spec/zarrify/mp4.md §8
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#8-mp4-profile>, and the source
+//! model of §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#53-elements>).
 //!
 //! The rounds: the file's first 64 KiB, then each top-level box header the first read does not
 //! hold, then the whole moov box (the sample tables index every sample, so the media data is
 //! never read). Every box is a struct with its header, fields, table and children; each
 //! track's samples are `data` elements under `samples/<T>`; the media data no sample claims
 //! is gaps. The schema (`schema/mp4.json`) holds the checks that reject a file; whether a
-//! track is virtualized is decided here, and recorded with the reason when it is not.
+//! track is zarrified is decided here, and recorded with the reason when it is not.
 
 use crate::expr::V;
 use crate::fed::{Fed, Word, uint};
 use crate::ir::*;
 use crate::nd2::Step;
+use crate::out::int_json;
 use crate::rules::{self, Rules, flag, num, text};
 use crate::sans;
 use crate::text::latin1;
@@ -30,8 +31,8 @@ const AAC_RATES: [u32; 13] = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 2
 /// The H.264 profiles whose SPS carries the chroma format and bit depths (ITU-T H.264 §7.3.2.1.1).
 const HIGH_PROFILES: [u8; 13] = [100, 110, 122, 244, 44, 83, 86, 118, 128, 138, 139, 134, 135];
 
-/// Whether a file's first bytes are an MP4 or QuickTime file's (spec/virtualize.md §1.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>): a box of at least 8
+/// Whether a file's first bytes are an MP4 or QuickTime file's (spec/zarrify.md §1.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>): a box of at least 8
 /// bytes whose type is `ftyp`, `moov`, `mdat`, `wide`, `free` or `skip`.
 pub fn detect(head: &[u8]) -> bool {
     head.len() >= 8
@@ -139,7 +140,8 @@ pub struct Mp4 {
     p: u64,
     tops: Vec<BoxRef>,
     moov: Option<Vec<u8>>,
-    ftyp: Option<Vec<u8>>,
+    /// the ftyp box read: its offset and bytes
+    ftyp: Option<(u64, Vec<u8>)>,
     /// the trak box being read, and those read
     cur: Option<Track>,
     tracks: Vec<Track>,
@@ -185,8 +187,8 @@ impl Mp4 {
         }
     }
 
-    /// The top-level boxes (spec/virtualize/mp4.md §8.1
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#81-boxes>): the range to read
+    /// The top-level boxes (spec/zarrify/mp4.md §8.1
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#81-boxes>): the range to read
     /// next, or None when every one is known and the moov box (and the ftyp box) read.
     fn walk(&mut self) -> Res<Option<(u64, u64)>> {
         while self.p + 8 <= self.size {
@@ -194,6 +196,9 @@ impl Mp4 {
             let Some(h) = self.fed.get(self.p, n) else { return Ok(Some((self.p, n))) };
             let b = header(h, self.p, self.size).ok_or("internal: no box header")?;
             self.check_box(&b, self.size)?;
+            if &b.typ == b"ftyp" {
+                self.rules.check("fields", rules::env([("type", text("ftyp")), ("at", num(b.at as f64)), ("need", num(8.0)), ("have", num((b.size - b.head) as f64))]))?;
+            }
             if &b.typ == b"moof" {
                 self.rules.check("fragment", rules::env([("type", text("moof")), ("at", num(b.at as f64)), ("seen", flag(false))]))?;
             }
@@ -210,7 +215,7 @@ impl Mp4 {
             }
             if &b.typ == b"ftyp" && b.size <= 4096 && self.ftyp.is_none() {
                 match self.fed.get(b.at, b.size) {
-                    Some(m) => self.ftyp = Some(m.to_vec()),
+                    Some(m) => self.ftyp = Some((b.at, m.to_vec())),
                     None => return Ok(Some((b.at, b.size))),
                 }
             }
@@ -259,20 +264,17 @@ impl Mp4 {
                     self.container(s, &m, b.at, b.body(), b.end())?;
                     self.moov = Some(m);
                 }
-                b"ftyp" if self.ftyp.is_some() => {
-                    let f = self.ftyp.clone().unwrap();
-                    let n = b.size - b.head;
-                    if n >= 8 {
-                        self.ir.value(s, "fields", NO_INDEX, "{major_brand:ascii[4],minor_version:>u4}", 0, (b.body(), 8), Some(&f[b.head as usize..b.head as usize + 8]))?;
-                        let k = (n - 8) / 4;
-                        if k > 0 {
-                            let at = b.head as usize + 8;
-                            self.ir.value(s, "entries", NO_INDEX, &format!("{{brand:ascii[4]}}[{k}]"), 0, (b.body() + 8, 4 * k), Some(&f[at..at + 4 * k as usize]))?;
-                        }
-                        self.rest(s, b.body() + 8 + 4 * k, b.end(), Some(&f[..]), b.at)?;
-                    } else {
-                        self.rest(s, b.body(), b.end(), Some(&f[..]), b.at)?;
+                // the ftyp box read, whose payload holds its fields (any other is opaque):
+                // spec/zarrify/mp4.md §8.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#81-boxes>
+                b"ftyp" if self.ftyp.as_ref().is_some_and(|f| f.0 == b.at) => {
+                    let f = self.ftyp.clone().unwrap().1;
+                    let k = (b.size - b.head - 8) / 4;
+                    self.ir.value(s, "fields", NO_INDEX, "{major_brand:ascii[4],minor_version:>u4}", 0, (b.body(), 8), Some(&f[b.head as usize..b.head as usize + 8]))?;
+                    if k > 0 {
+                        let at = b.head as usize + 8;
+                        self.ir.value(s, "entries", NO_INDEX, &format!("{{brand:ascii[4]}}[{k}]"), 0, (b.body() + 8, 4 * k), Some(&f[at..at + 4 * k as usize]))?;
                     }
+                    self.rest(s, b.body() + 8 + 4 * k, b.end(), Some(&f[..]), b.at)?;
                 }
                 b"mdat" => {}
                 _ => {
@@ -466,7 +468,7 @@ impl Mp4 {
                 let d = if version == 1 { 8 } else { 4 };
                 tr.edits = (0..k).map(|i| {
                     let r = &e[i * w..];
-                    json!({"duration": uint(r, 0, d, false), "media_time": signed(uint(r, d, d, false), 8 * d as u32), "rate": signed(uint(r, 2 * d, 2, false), 16) as f64 + uint(r, 2 * d + 2, 2, false) as f64 / 65536.0})
+                    json!({"duration": int_json(uint(r, 0, d, false) as i128), "media_time": int_json(signed(uint(r, d, d, false), 8 * d as u32) as i128), "rate": signed(uint(r, 2 * d, 2, false), 16) as f64 + uint(r, 2 * d + 2, 2, false) as f64 / 65536.0})
                 }).collect();
             }
             b"stts" => tr.stts = (0..k).map(|i| (uint(e, i * 8, 4, false), uint(e, i * 8 + 4, 4, false))).collect(),
@@ -533,18 +535,24 @@ impl Mp4 {
         Ok(())
     }
 
-    /// Each track's samples, from its tables (spec/virtualize/mp4.md §8.2
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#82-tracks>), as `data`
-    /// elements; whether the profile virtualizes it, and the facts its projection reads.
+    /// Each track's samples, from its tables (spec/zarrify/mp4.md §8.2
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#82-tracks>), as `data`
+    /// elements; whether the profile zarrifies it, and the facts its projection reads.
     fn samples(&mut self) -> Res<()> {
         let tracks = std::mem::take(&mut self.tracks);
         let mut samples_struct = None;
         let mut facts = Vec::new();
         let mut reasons = Vec::new();
         let mut projected = 0;
+        let mut ids = std::collections::HashSet::new();
         for (k, t) in tracks.iter().enumerate() {
             let (offsets, sizes) = self.layout(t)?;
             let mut f = self.classify(t, &offsets);
+            // the last reason: a zarrified track's group is named by its ID
+            if f["reason"].is_null() && !ids.insert(t.id) {
+                f["reason"] = json!(format!("its track ID {} is an earlier zarrified track's", t.id));
+                f["format"] = J::Null;
+            }
             f["index"] = json!(k);
             if !offsets.is_empty() {
                 let ss = match samples_struct {
@@ -579,7 +587,7 @@ impl Mp4 {
             facts.push(f);
         }
         self.rules.check("tracks", rules::env([("projected", num(projected as f64)), ("reasons", text(&reasons.join("; ")))]))?;
-        let brand = self.ftyp.as_ref().filter(|f| f.len() >= 16).map(|f| {
+        let brand = self.ftyp.as_ref().map(|(_, f)| {
             let head = if uint(f, 0, 4, false) == 1 { 16 } else { 8 };
             let body = &f[head..];
             json!({
@@ -588,7 +596,7 @@ impl Mp4 {
             })
         });
         self.facts = json!({
-            "brand": brand, "timescale": self.movie.0, "duration": self.movie.1, "tracks": facts,
+            "brand": brand, "timescale": self.movie.0, "duration": int_json(self.movie.1 as i128), "tracks": facts,
             "chunk_frames": crate::mp3::chunk_frames(),
         });
         Ok(())
@@ -653,15 +661,15 @@ impl Mp4 {
         Ok((offsets, sizes))
     }
 
-    /// Whether the profile virtualizes the track, and the facts its projection reads
-    /// (spec/virtualize/mp4.md §8.2
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#82-tracks>): `reason` is
-    /// null for a track it virtualizes, else why it does not.
+    /// Whether the profile zarrifies the track, and the facts its projection reads
+    /// (spec/zarrify/mp4.md §8.2
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#82-tracks>): `reason` is
+    /// null for a track it zarrifies, else why it does not.
     fn classify(&self, t: &Track, offsets: &[u64]) -> J {
         let entry = t.entries.first();
         let codec = entry.map(|e| latin1(&e.typ)).unwrap_or_default();
         let mut f = json!({
-            "id": t.id, "handler": latin1(&t.handler), "codec": codec, "timescale": t.timescale, "duration": t.duration,
+            "id": t.id, "handler": latin1(&t.handler), "codec": codec, "timescale": t.timescale, "duration": int_json(t.duration as i128),
             "edits": t.edits, "count": offsets.len(), "format": null, "geometry": null, "reason": null,
         });
         let reason = (|| -> Result<(), String> {
@@ -801,15 +809,23 @@ fn presentation(t: &Track) -> Vec<i64> {
     out
 }
 
-/// Whether the groups of pictures are closed (spec/virtualize/mp4.md §8.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#82-tracks>): the first sample
-/// is a sync sample, no two samples share a presentation time, no group is longer than
-/// `max_group` samples, and every sample before a sync sample in decode order is presented
-/// before it and every sample after it is presented after it.
+/// Whether the groups of pictures are ones the profile zarrifies (spec/zarrify/mp4.md §8.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#82-tracks>): the first sample
+/// is a sync sample, the sync samples increase and are samples of the track, no two samples
+/// share a presentation time, no group is longer than `max_group` samples, every sample before
+/// a sync sample in decode order is presented before it, and every sample after it is
+/// presented after the sync sample before it. So a sample after a sync sample in decode order
+/// may be presented before it (a leading picture: a camera's B-frames after an IDR picture, or
+/// an open group's, which may reference the group before) but not before the sync sample
+/// before; a chunk that holds one decodes from that sync sample (project/mp4.rs,
+/// `video_units`), and never from one further back.
 pub fn gops(pts: &[i64], sync: &[u64]) -> Result<(), String> {
     let n = pts.len();
     if sync.first() != Some(&0) {
         return Err("the first sample is not a sync sample".into());
+    }
+    if sync.windows(2).any(|w| w[0] >= w[1]) || sync.last().is_some_and(|&s| s as usize >= n) {
+        return Err("the sync samples do not increase, or one is past the last sample".into());
     }
     let mut sorted = pts.to_vec();
     sorted.sort_unstable();
@@ -824,21 +840,28 @@ pub fn gops(pts: &[i64], sync: &[u64]) -> Result<(), String> {
         }
         prev = s;
     }
-    let mut suffix_min = vec![i64::MAX; n + 1];
-    for d in (0..n).rev() {
-        suffix_min[d] = suffix_min[d + 1].min(pts[d]);
-    }
-    let mut prefix_max = i64::MIN;
-    let mut next = 0usize;
+    // the most presentation time before each decode index, and the least from it on
+    let mut before = vec![i64::MIN; n + 1];
     for d in 0..n {
-        if next < sync.len() && sync[next] as usize == d {
-            next += 1;
-            if pts[d] < prefix_max || suffix_min[d] < pts[d] {
-                let lead = (d..n).find(|&x| pts[x] < pts[d]).unwrap_or(d);
-                return Err(format!("an open group of pictures: sample {lead}, after the sync sample {d} in decode order, is presented before it"));
+        before[d + 1] = before[d].max(pts[d]);
+    }
+    let mut after = vec![i64::MAX; n + 1];
+    for d in (0..n).rev() {
+        after[d] = after[d + 1].min(pts[d]);
+    }
+    for (k, &s) in sync.iter().enumerate() {
+        let s = s as usize;
+        if before[s] > pts[s] {
+            let late = (0..s).find(|&d| pts[d] > pts[s]).unwrap_or(s);
+            return Err(format!("sample {late}, before the sync sample {s} in decode order, is presented after it"));
+        }
+        if k > 0 {
+            let p = sync[k - 1] as usize;
+            if after[s + 1] < pts[p] {
+                let early = (s + 1..n).find(|&d| pts[d] < pts[p]).unwrap_or(s);
+                return Err(format!("sample {early}, after the sync sample {s} in decode order, is presented before the sync sample {p}"));
             }
         }
-        prefix_max = prefix_max.max(pts[d]);
     }
     Ok(())
 }
@@ -875,8 +898,9 @@ pub fn h264_sps(avcc: &[u8]) -> Option<Sps> {
         zeros = if c == 0 { zeros + 1 } else { 0 };
         rbsp.push(c);
     }
-    let (profile, level) = (rbsp[0], rbsp[2]);
-    let mut r = Bits { b: &rbsp[3..], at: 0 };
+    // dropping emulation prevention bytes can leave too few bytes for the profile and level
+    let (&profile, &level) = (rbsp.first()?, rbsp.get(2)?);
+    let mut r = Bits { b: rbsp.get(3..)?, at: 0 };
     r.ue()?;
     let (mut chroma, mut luma, mut chroma_depth) = (1, 8, 8);
     if HIGH_PROFILES.contains(&profile) {
@@ -986,7 +1010,7 @@ pub fn aac_config(asc: &[u8]) -> Option<Asc> {
 
 crate::parser!(Mp4);
 
-/// The MP4 profile's file run (spec/virtualize/mp4.md): the top-level box headers, then the moov
+/// The MP4 profile's file run (spec/zarrify/mp4.md): the top-level box headers, then the moov
 /// box.
 pub struct Profile;
 
@@ -1011,16 +1035,74 @@ impl crate::run::FileProfile for Profile {
 mod tests {
     use super::*;
 
-    /// Closed groups pass; a sample after a sync sample presented before it, a first sample
-    /// that is not a sync sample, and two samples of one time fail.
+    /// Closed groups, and groups with leading pictures presented after the sync sample before,
+    /// pass.
     #[test]
-    fn groups_of_pictures_are_closed() {
+    fn groups_of_pictures_are_checked() {
         // I0 P3 B1 B2 | I4 P7 B5 B6, in decode order
         assert_eq!(gops(&[0, 3, 1, 2, 4, 7, 5, 6], &[0, 4]), Ok(()));
-        // I4 is followed in decode order by B3, presented before it: open
-        assert!(gops(&[0, 2, 1, 4, 3, 5], &[0, 3]).unwrap_err().starts_with("an open group of pictures: sample 4"));
+        // I4 is followed in decode order by B3, presented before it: a leading picture
+        assert_eq!(gops(&[0, 2, 1, 4, 3, 5], &[0, 3]), Ok(()));
+        // I0 P3 B1 B2 | I6 B4 B5 P9 B7 B8: an open group, B4 and B5 leading pictures of I6
+        assert_eq!(gops(&[0, 3, 1, 2, 6, 4, 5, 9, 7, 8], &[0, 4]), Ok(()));
+        // every sample a sync sample, and one group up to the limit
+        assert_eq!(gops(&[0, 1, 2], &[0, 1, 2]), Ok(()));
+        let limit = rules::of("mp4").limit("max_group") as i64;
+        assert_eq!(gops(&(0..limit).collect::<Vec<_>>(), &[0]), Ok(()));
+    }
+
+    #[test]
+    fn a_group_longer_than_the_limit_fails() {
+        let limit = rules::of("mp4").limit("max_group") as i64;
+        let long: Vec<i64> = (0..limit + 2).collect();
+        assert!(gops(&long, &[0]).unwrap_err().starts_with("a group of pictures of"));
+    }
+
+    #[test]
+    fn a_first_sample_that_is_not_a_sync_sample_fails() {
         assert_eq!(gops(&[0, 1], &[1]), Err("the first sample is not a sync sample".into()));
+    }
+
+    #[test]
+    fn sync_samples_out_of_order_or_past_the_end_fail() {
+        let msg = Err("the sync samples do not increase, or one is past the last sample".into());
+        assert_eq!(gops(&[0, 1, 2], &[0, 2, 1]), msg);
+        assert_eq!(gops(&[0, 1, 2], &[0, 1, 1]), msg);
+        assert_eq!(gops(&[0, 1, 2], &[0, 3]), msg);
+    }
+
+    #[test]
+    fn two_samples_of_one_time_fail() {
         assert_eq!(gops(&[0, 0], &[0]), Err("two samples share a presentation time".into()));
+    }
+
+    /// I0 P4 B1 | I3 P5: P4, decoded before I3, is presented after it.
+    #[test]
+    fn a_sample_before_a_sync_sample_presented_after_it_fails() {
+        assert_eq!(
+            gops(&[0, 4, 1, 3, 5], &[0, 3]),
+            Err("sample 1, before the sync sample 3 in decode order, is presented after it".into())
+        );
+    }
+
+    /// I2 B3 | I5 B1 B4: B1, a leading picture of I5, is presented before I2.
+    #[test]
+    fn a_leading_picture_presented_before_the_sync_sample_before_fails() {
+        assert_eq!(
+            gops(&[2, 3, 5, 1, 4], &[0, 2]),
+            Err("sample 3, after the sync sample 2 in decode order, is presented before the sync sample 0".into())
+        );
+    }
+
+    /// Samples presented in reverse decode order (a crafted `ctts` box), a sync sample every 4:
+    /// sample 0 is presented after every sync sample, so every chunk would decode from it.
+    #[test]
+    fn presentation_in_reverse_decode_order_fails() {
+        let pts: Vec<i64> = (0..16).rev().collect();
+        assert_eq!(
+            gops(&pts, &[0, 4, 8, 12]),
+            Err("sample 0, before the sync sample 4 in decode order, is presented after it".into())
+        );
     }
 
     /// x264's avcC boxes for a High profile 8-bit and a High 10 profile 10-bit 4:2:0 stream
@@ -1035,5 +1117,13 @@ mod tests {
                    0x00, 0x01, 0x00, 0x00, 0x03, 0x00, 0x14, 0x0F, 0x12, 0x25, 0x96, 0x01, 0x00, 0x06, 0x68, 0xEB, 0xE3, 0xCB, 0x22, 0xC0];
         assert_eq!(h264_sps(&ten), Some(Sps { profile: 110, level: 10, chroma: 1, luma: 10, chroma_depth: 10 }));
         assert_eq!(aac_config(&[0x14, 0x08]), Some(Asc { aot: 2, rate: 16000, channels: 1, short: false }));
+    }
+
+    /// An SPS NAL unit of 4 bytes whose emulation prevention byte leaves a 2-byte RBSP, too short
+    /// for the profile, constraint flags and level.
+    #[test]
+    fn h264_sps_rejects_a_short_rbsp() {
+        let avcc = [0x01, 0x64, 0x00, 0x0A, 0xFF, 0xE1, 0x00, 0x04, 0x67, 0x00, 0x00, 0x03];
+        assert_eq!(h264_sps(&avcc), None);
     }
 }

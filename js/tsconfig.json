@@ -18,5 +18,5 @@
       "zarrita": ["./node_modules/zarrita"]
     }
   },
-  "include": ["src", "test", "conformance", "../demo", "../conformance/virtualize/reference/ts"]
+  "include": ["src", "test", "conformance", "../demo", "../conformance/zarrify/reference/ts"]
 }

@@ -1,0 +1,16 @@
+{
+  "name": "nifti",
+  "title": "NIfTI",
+  "uuid": "06e5809d-4d54-4b72-afd0-6bf61a7b4c85",
+  "version": 0,
+  "kind": "file",
+  "sniff": 60,
+  "chosen_by": null,
+  "suffixes": [
+    ".nii"
+  ],
+  "reference": 25,
+  "source": "NIfTI-1 and NIfTI-2",
+  "inputs": "NIfTI-1 and NIfTI-2 single files (`.nii`)",
+  "for": "NIfTI-1 and NIfTI-2 volumes (`.nii`)"
+}

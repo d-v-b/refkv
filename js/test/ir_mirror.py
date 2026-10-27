@@ -1,5 +1,5 @@
-"""For the verify scripts: TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, IMS and SAFE archives the IR wrote hold its mirror
-under `refkv_source` (rust/refkv-ir/src/mirror.rs), not the source metadata of
+"""For the verify scripts: TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, IMS and SAFE archives the IR wrote
+hold its mirror under `refkv_source` (rust/refkv-ir/src/mirror.rs), not the source metadata of
 conventions §6
 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>. Their
 source checks are then the mirror's: the source rebuilt from
@@ -12,6 +12,8 @@ import json
 import zipfile
 from pathlib import Path
 
+from refkv.ir.cmirror import rebuild_from_archive
+
 
 def is_mirror(archive: Path) -> bool:
     """Whether the archive's refkv_source is the IR's mirror."""
@@ -20,14 +22,12 @@ def is_mirror(archive: Path) -> bool:
             doc = json.loads(z.read("refkv_source/zarr.json"))
         except KeyError:
             return False
-    own = doc.get("attributes", {}).get("refkv_virtualized", {})
+    own = doc.get("attributes", {}).get("refkv_zarrified", {})
     return any(isinstance(v, dict) and "ir" in v for v in own.values())
 
 
 def mirror_problems(archive: Path, source: Path) -> list[str]:
     """[] when the mirror rebuilds `source` byte for byte, else what went wrong."""
-    from refkv.ir.cmirror import rebuild_from_archive
-
     h = hashlib.sha256()
     with open(source, "rb") as f:
         def read(o: int, n: int) -> bytes:

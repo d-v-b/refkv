@@ -1,6 +1,6 @@
 """Writes small synthetic Imaris (IMS) files to fixtures/ims/ with
-h5py, covering the rules of the IMS profile (spec/virtualize/ims.md §7
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#7-ims-profile>): both HDF5
+h5py, covering the rules of the IMS profile (spec/zarrify/ims.md §7
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#7-ims-profile>): both HDF5
 file formats (h5py's default, the earliest, and libver="latest": old and new
 object headers, symbol-table and compact or dense groups, compact and dense
 attributes, version 1 B-tree, single chunk and fixed array chunk indexes,
@@ -10,7 +10,7 @@ pyramids, time points and channels, dimensions padded to whole chunks,
 unallocated chunks, and absolute soft links (Imaris 10); and the inputs it
 rejects (`ims_reject_*`).
 
-js/test/ims/verify.py checks the virtualized files against h5py.
+js/test/ims/verify.py checks the zarrified files against h5py.
 
 Usage: uv run python fixtures/generators/ims/write_fixtures.py
 """
@@ -88,10 +88,10 @@ def write_data(group, dims, chunks, dtype, *, compression=None, skip=(), maxshap
     d = group.create_dataset("Data", shape=dims, chunks=chunks, dtype=dtype, compression=compression,
                              maxshape=maxshape, **kw)
     values = data_array(dims, dtype)
-    for index in np.ndindex(*[-(-n // c) for n, c in zip(dims, chunks)]):
+    for index in np.ndindex(*[-(-n // c) for n, c in zip(dims, chunks, strict=True)]):
         if index in skip:
             continue
-        sl = tuple(slice(i * c, min((i + 1) * c, n)) for i, c, n in zip(index, chunks, dims))
+        sl = tuple(slice(i * c, min((i + 1) * c, n)) for i, c, n in zip(index, chunks, dims, strict=True))
         d[sl] = values[sl]
     return d
 
@@ -285,7 +285,7 @@ def rejected() -> None:
         imaris(f, level, extras=False)
         f["DataSet/ResolutionLevel 0/TimePoint 0/Channel 0"].attrs["ImageSizeX"] = 7
     with open_file("ims_reject_missing_channel", "latest") as f:
-        imaris(f, level + [{"size": (1, 3, 4), "dims": (1, 4, 4), "chunks": (1, 4, 4)}], channels=2, extras=False)
+        imaris(f, [*level, {"size": (1, 3, 4), "dims": (1, 4, 4), "chunks": (1, 4, 4)}], channels=2, extras=False)
         del f["DataSet/ResolutionLevel 1/TimePoint 0/Channel 1"]
     with open_file("ims_reject_contiguous", "latest") as f:
         imaris(f, level, extras=False)
@@ -309,8 +309,8 @@ def rejected() -> None:
 
 def reconstruction() -> None:
     """Files with the HDF5 objects of every kind that the source metadata
-    node maps (spec/virtualize/ims.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#5-source-metadata>), in both
+    node maps (spec/zarrify/ims.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#5-source-metadata>), in both
     file formats."""
     for libver in ("earliest", "latest"):
         with open_file(f"ims_{libver}_reconstruction", libver) as f:
@@ -327,8 +327,7 @@ def reconstruction() -> None:
             x.attrs["sequence"] = np.array([np.arange(3, dtype="i2"), np.arange(1, dtype="i2")],
                                            dtype=h5py.vlen_dtype(np.dtype("i2")))
             x.create_dataset("contiguous", data=np.arange(24, dtype=">f8").reshape(2, 3, 4))
-            x.create_dataset("compact", data=np.arange(5, dtype="i1"),
-                             dcpl=_compact(np.arange(5, dtype="i1")))
+            x.create_dataset("compact", data=np.arange(5, dtype="i1"), dcpl=_compact())
             x.create_dataset("scalar", data=np.uint32(7))
             x.create_dataset("empty", shape=(0, 4), dtype="u2")
             x.create_dataset("unallocated", shape=(3,), dtype="i4", fillvalue=-1)
@@ -366,8 +365,8 @@ def imaris_text(obj, name: str | bytes, value: bytes) -> None:
 
 def review() -> None:
     """Files with the HDF5 objects that an adversarial review found the source
-    metadata node to lose (spec/virtualize/ims.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#5-source-metadata>): datatypes
+    metadata node to lose (spec/zarrify/ims.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#5-source-metadata>): datatypes
     and shapes of attributes, named datatypes, references, external storage and links,
     null dataspaces, fill values, names that are not UTF-8 or collide, names
     that are not Zarr node names, and documents over the attribute budget."""
@@ -457,7 +456,7 @@ def review() -> None:
                 imaris_text(custom, f"Protocol {i:02d}", (b"%02d " % i) * 2600)
             custom.attrs["Small"] = np.int8(1)
     # Integer fill values beyond 2^53, in a directory of their own: the documents of
-    # python/tests/test_virtualize_conventions.py pass through JavaScript's JSON.parse, which
+    # python/tests/test_zarrify_conventions.py pass through JavaScript's JSON.parse, which
     # rounds them (compare.py and verify.py read them exactly).
     (OUT / "exact").mkdir(exist_ok=True)
     with open_file("exact/ims_big_fill", "latest") as f:
@@ -468,8 +467,8 @@ def review() -> None:
 
 
 def indexes() -> None:
-    """The chunk indexes of HDF5's newer format (spec/virtualize/ims.md §7.5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#75-datasets-and-chunks>): an
+    """The chunk indexes of HDF5's newer format (spec/zarrify/ims.md §7.5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#75-datasets-and-chunks>): an
     extensible array (one unlimited dimension), a version 2 B-tree (several),
     implicit (allocated early) and fixed arrays at maximum dimensions, with and
     without filters, for the image and for other datasets."""
@@ -516,8 +515,8 @@ def indexes() -> None:
 
 
 def review2() -> None:
-    """Files with what the second adversarial review found (spec/virtualize/ims.md
-    §5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#5-source-metadata>):
+    """Files with what the second adversarial review found (spec/zarrify/ims.md
+    §5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#5-source-metadata>):
     documents over their budget (shared datatypes, references, hard links),
     a string datatype of no bytes, dimension scales, references inside other
     datatypes, compound datasets with variable-length members, filters,
@@ -615,9 +614,9 @@ def _implicit(group, name: str, shape, chunks, maxshape=None) -> None:
 
 
 def review3() -> None:
-    """Files with what the third adversarial review found (spec/virtualize/ims.md
-    §4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#4-output>, §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#5-source-metadata>): region
+    """Files with what the third adversarial review found (spec/zarrify/ims.md
+    §4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#4-output>, §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#5-source-metadata>): region
     references sharing a global heap object, and over the budget
     of selections; object references in a spilled document; shuffled
     variable-length data, which HDF5 leaves unshuffled (filter mask bit 0); a
@@ -644,7 +643,8 @@ def review3() -> None:
         for i in range(400):
             over[i] = many
         # Variable-length data with shuffle, which HDF5 skips (filter mask bit 0).
-        names = r.create_dataset("names", (4,), dtype=h5py.string_dtype(), chunks=(4,), shuffle=True, compression="gzip")
+        names = r.create_dataset("names", (4,), dtype=h5py.string_dtype(), chunks=(4,), shuffle=True,
+                                 compression="gzip")
         names[...] = ["a", "bb", "", "dddd"]
         # References in a chunk of more than 2^24 bytes.
         big = r.create_dataset("bigchunk", (1,), maxshape=(None,), chunks=((1 << 21) + 1,), dtype=h5py.ref_dtype,
@@ -672,7 +672,7 @@ def review3() -> None:
                image={"Name": "y" * 256}, channel_meta=[{"Name": "first"}])
 
 
-def _compact(data: np.ndarray):
+def _compact():
     dcpl = h5py.h5p.create(h5py.h5p.DATASET_CREATE)
     dcpl.set_layout(h5py.h5d.COMPACT)
     return dcpl
@@ -712,7 +712,8 @@ def _raw_edges(group, name: str, shape, chunks, dtype, data, maxshape=None, shuf
     dcpl.set_deflate(6)
     if fletcher32:
         dcpl.set_fletcher32()
-    if _hdf5_library().H5Pset_chunk_opts(ctypes.c_int64(dcpl.id), ctypes.c_uint(2)) < 0:  # H5D_CHUNK_DONT_FILTER_PARTIAL_CHUNKS
+    # H5D_CHUNK_DONT_FILTER_PARTIAL_CHUNKS
+    if _hdf5_library().H5Pset_chunk_opts(ctypes.c_int64(dcpl.id), ctypes.c_uint(2)) < 0:
         raise RuntimeError("H5Pset_chunk_opts failed")
     space = h5py.h5s.create_simple(shape, maxshape or shape)
     h5py.h5d.create(group.id, name.encode(), dtype, space, dcpl=dcpl)
@@ -720,7 +721,7 @@ def _raw_edges(group, name: str, shape, chunks, dtype, data, maxshape=None, shuf
 
 
 def review4() -> None:
-    """Files with what the fourth adversarial review found (spec/virtualize/ims.md
+    """Files with what the fourth adversarial review found (spec/zarrify/ims.md
     §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/ims.r25.md#51-the-tree>, §5.4
     <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/ims.r25.md#54-datasets>): a time-lapse
     whose image tree would use up a walk of a fixed
@@ -752,7 +753,7 @@ def review4() -> None:
     with open_file("ims_reject_raw_edges_image", "latest") as f:
         f.attrs["ImarisDataSet"] = text("ImarisDataSet")
         g = f.create_group("DataSet/ResolutionLevel 0/TimePoint 0/Channel 0")
-        for axis, n in zip("ZYX", (2, 5, 6)):
+        for axis, n in zip("ZYX", (2, 5, 6), strict=True):
             g.attrs[f"ImageSize{axis}"] = text(str(n))
         _raw_edges(g, "Data", (2, 5, 6), (2, 4, 4), h5py.h5t.STD_U8LE, data_array((2, 5, 6), "u1"))
 
@@ -764,13 +765,14 @@ def color_table(top, n: int = 4) -> str:
 
 
 def table_color() -> None:
-    """Channels colored by a lookup table (spec/virtualize/ims.md §4
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#4-output>, the color), as in
+    """Channels colored by a lookup table (spec/zarrify/ims.md §4
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#4-output>, the color), as in
     Imaris's TableColor mode, and every way a table can fail to give a color."""
     with open_file("ims_latest_table_color", "latest") as f:
         meta = [
             {"ColorMode": "TableColor", "ColorTableLength": "4", "ColorTable": color_table((0, 1, 0))},
-            {"ColorMode": "TableColor", "Color": "1 1 0", "ColorTableLength": "4", "ColorTable": color_table((0, 0, 1))},
+            {"ColorMode": "TableColor", "Color": "1 1 0", "ColorTableLength": "4",
+             "ColorTable": color_table((0, 0, 1))},
             {"ColorMode": "BaseColor", "Color": "1 0 1", "ColorTableLength": "4", "ColorTable": color_table((0, 1, 1))},
             {"ColorTableLength": " 0003 ", "ColorTable": color_table((1, 0, 0), 3)},
             {"ColorMode": "TableColor", "Color": "0.5 0.5 0.5", "ColorTableLength": "4",
@@ -785,7 +787,7 @@ def table_color() -> None:
         # strings, n × 1: contiguous, compact, and the ones that give no table color.
         datasets = [
             lambda g: g.create_dataset("ColorTable", data=text(color_table((0, 1, 1))).reshape(-1, 1)),
-            lambda g: g.create_dataset("ColorTable", data=text(color_table((1, 1, 0))), dcpl=_compact(None)),
+            lambda g: g.create_dataset("ColorTable", data=text(color_table((1, 1, 0))), dcpl=_compact()),
             lambda g: g.create_dataset("ColorTable", data=text(color_table((0, 1, 0))), chunks=(8,)),
             lambda g: g.create_dataset("ColorTable", data=np.zeros(12, dtype="<f4")),
             lambda g: g.create_group("ColorTable"),
@@ -801,8 +803,8 @@ def table_color() -> None:
 def global_heaps() -> None:
     """Variable-length string attributes in more than one global heap collection (written
     in three sessions of the file, each of which starts a collection), on a group the
-    layout does not read: the IR describes each collection (spec/virtualize/ims.md §5.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#52-elements>)."""
+    layout does not read: the IR describes each collection (spec/zarrify/ims.md §5.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#52-elements>)."""
     with open_file("ims_latest_global_heaps", "latest") as f:
         imaris(f, [{"size": (1, 5, 6), "dims": (1, 8, 8), "chunks": (1, 4, 4)}], dtype="u1")
         f.create_group("Notes")

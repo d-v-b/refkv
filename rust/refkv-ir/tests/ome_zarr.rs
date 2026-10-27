@@ -83,7 +83,7 @@ macro_rules! reject {
     };
 }
 
-// one test per case of conformance/virtualize/rejects/ome-zarr.json (build.rs)
+// one test per case of conformance/zarrify/rejects/ome-zarr.json (build.rs)
 include!(concat!(env!("OUT_DIR"), "/rejects_ome_zarr.rs"));
 
 #[test]
@@ -242,7 +242,7 @@ fn ignored_keys_are_refkv_source_metadata() {
     let out = r.into_output("https://example.org/s/", true).unwrap();
     assert!(!out.entries.iter().any(|e| e.0 == "refkv_source/ignored.json"));
     let doc: serde_json::Value = serde_json::from_slice(&out.entries.iter().find(|e| e.0 == "refkv_source/zarr.json").unwrap().1).unwrap();
-    let own = &doc["attributes"]["refkv_virtualized"]["ome-zarr"];
+    let own = &doc["attributes"]["refkv_zarrified"]["ome-zarr"];
     assert_eq!(own["ignored"], serde_json::json!(["donn\u{e9}es/./x", "z/./a"]));
     assert!(own["ir"].is_object());
     // the mirror is canonical with its ignored keys beside it

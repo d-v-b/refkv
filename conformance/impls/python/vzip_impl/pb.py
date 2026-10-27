@@ -2,12 +2,14 @@
 <https://github.com/d-v-b/refkv/blob/main/spec/history/archive/SPEC.r7.md#5-messages>, Appendix
 A)."""
 
+from ._narrow import integer
+
 MAX64 = (1 << 64) - 1
 MAX32 = (1 << 32) - 1
 MAX_FIELD = (1 << 29) - 1
 
 
-class Malformed(Exception):
+class MalformedError(Exception):
     pass
 
 
@@ -18,16 +20,16 @@ def _varint(buf, pos, end):
     shift = 0
     for _ in range(10):
         if pos >= end:
-            raise Malformed("truncated varint")
+            raise MalformedError("truncated varint")
         b = buf[pos]
         pos += 1
         result |= (b & 0x7F) << shift
         if not b & 0x80:
             if result > MAX64:
-                raise Malformed("varint exceeds 2^64-1")
+                raise MalformedError("varint exceeds 2^64-1")
             return result, pos
         shift += 7
-    raise Malformed("varint longer than 10 bytes")
+    raise MalformedError("varint longer than 10 bytes")
 
 
 def parse_fields(buf):
@@ -43,60 +45,72 @@ def parse_fields(buf):
         wt = tag & 7
         fn = tag >> 3
         if wt in (3, 4, 6, 7):
-            raise Malformed("invalid wire type %d" % wt)
+            raise MalformedError(f"invalid wire type {wt}")
         if fn == 0 or fn > MAX_FIELD:
-            raise Malformed("invalid field number %d" % fn)
+            raise MalformedError(f"invalid field number {fn}")
         if wt == 0:
             v, pos = _varint(buf, pos, end)
         elif wt == 1:
             if end - pos < 8:
-                raise Malformed("truncated I64")
+                raise MalformedError("truncated I64")
             v = int.from_bytes(buf[pos:pos + 8], "little")
             pos += 8
         elif wt == 5:
             if end - pos < 4:
-                raise Malformed("truncated I32")
+                raise MalformedError("truncated I32")
             v = int.from_bytes(buf[pos:pos + 4], "little")
             pos += 4
         else:  # wt == 2
             ln, pos = _varint(buf, pos, end)
             if ln > end - pos:
-                raise Malformed("LEN field extends past end of message")
+                raise MalformedError("LEN field extends past end of message")
             v = bytes(buf[pos:pos + ln])
             pos += ln
         out.append((fn, wt, v))
     return out
 
 
-# Schema: {field_number: (name, type, label)}
-#   type: 'uint32' | 'uint64' | 'int64' | 'string' | 'bytes' | dict (message schema)
-#   label: 'single' | 'optional' | 'repeated' | 'oneof:<group>'
+def _bytes(v: object) -> bytes:
+    if not isinstance(v, bytes):
+        raise TypeError(f"expected bytes, got {type(v).__name__}")
+    return v
 
-def decode(buf, schema):
-    result = {}
-    for fn, wt, v in parse_fields(buf):
+
+# A schema maps each field number to (name, type, label). The type is one of 'uint32',
+# 'uint64', 'int64', 'string' and 'bytes', or a dict (a message schema); the label is one
+# of 'single', 'optional', 'repeated' and 'oneof:<group>'.
+
+def decode(buf, schema) -> dict[str, object]:
+    """The message in `buf`: each value as its schema types it (narrowed where it is read)."""
+    result: dict[str, object] = {}
+    repeated: dict[str, list[object]] = {}
+    for fn, wt, raw in parse_fields(buf):
         spec = schema.get(fn)
         if spec is None:
             continue  # unknown (or reserved) field: skipped
         name, typ, label = spec
         is_len = isinstance(typ, dict) or typ in ("string", "bytes")
         if wt != (2 if is_len else 0):
-            raise Malformed("field %d has wrong wire type %d" % (fn, wt))
+            raise MalformedError(f"field {fn} has wrong wire type {wt}")
+        # the wire type (checked above) gives raw's type: int for VARINT, bytes for LEN
+        v: object = raw
         if typ == "uint32":
-            if v > MAX32:
-                raise Malformed("uint32 field %d overflows" % fn)
+            if integer(raw) > MAX32:
+                raise MalformedError(f"uint32 field {fn} overflows")
         elif typ == "int64":
-            if v >= 1 << 63:
-                v -= 1 << 64
+            if integer(raw) >= 1 << 63:
+                v = integer(raw) - (1 << 64)
         elif typ == "string":
             try:
-                v = v.decode("utf-8", "strict")
+                v = _bytes(raw).decode("utf-8", "strict")
             except UnicodeDecodeError:
-                raise Malformed("string field %d is not valid UTF-8" % fn)
+                raise MalformedError(f"string field {fn} is not valid UTF-8") from None
         elif isinstance(typ, dict):
-            v = decode(v, typ)
+            v = decode(_bytes(raw), typ)
         if label == "repeated":
-            result.setdefault(name, []).append(v)
+            if name not in repeated:
+                repeated[name] = result[name] = []
+            repeated[name].append(v)
         elif label.startswith("oneof:"):
             result[label[6:]] = (name, v)
         else:

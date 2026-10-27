@@ -4,19 +4,21 @@ review findings, each closed and probed."""
 
 import json
 import threading
-from http.server import ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import override
 
 import pytest
-from refkv import _core
-
 from ir_helpers import FIXTURES, as_the_reference, same_hierarchy
-from refkv.ir import virtualize as via_ir
-from refkv.ir import parse
-from refkv.ir.planner import HttpTransport
-from refkv.policy import Policy
-from refkv.virtualize import Rejected
 from refkv_reference import virtualize  # the frozen reference (ir_helpers)
 from refkv_reference.czi.xml import read_xml_values
+
+from refkv import _core
+from refkv._narrow import integer, mapping, number
+from refkv.ir import parse
+from refkv.ir import zarrify as via_ir
+from refkv.ir.planner import HttpTransport
+from refkv.policy import Policy
+from refkv.zarrify import Rejected
 
 CZIS = sorted((FIXTURES / "czi").iterdir())
 
@@ -27,7 +29,7 @@ def test_projects_as_today_and_rebuilds(path, tmp_path):
 
 
 XMLS = [
-    "<ImageDocument><Metadata><Scaling><Items><Distance Id='Y'><Value>2e-7</Value></Distance>"
+    ("<ImageDocument><Metadata><Scaling><Items><Distance Id='Y'><Value>2e-7</Value></Distance>"
     "<Distance Id='X'><Value>1e-7</Value><Value>9</Value></Distance><Distance Id='X'><Value>5</Value></Distance>"
     "</Items></Scaling><Information><Image><ComponentBitCount>12</ComponentBitCount><Dimensions>"
     "<Channels><Channel Name='a'><Color>#FF00FF00</Color><ComponentBitCount>10</ComponentBitCount></Channel>"
@@ -35,16 +37,16 @@ XMLS = [
     "<T><Positions><Interval><Increment> 0.5 </Increment></Interval></Positions></T>"
     "<S><Scenes><Scene Index='1' Name='one'/><Scene Index='1' Name='two'/><Scene Index='0'/></Scenes></S>"
     "</Dimensions></Image></Information><DisplaySetting><Channels><Channel Name='d'><Low>0.1</Low>"
-    "<High>0.9</High><Color>#123456</Color></Channel></Channels></DisplaySetting></Metadata></ImageDocument>",
-    "<ImageDocument><Metadata></Scaling><Scaling><Items><Distance Id='X'><Value>3</Value></Items>"
-    "</Metadata><Metadata><Scaling/></Metadata></ImageDocument>",
+    "<High>0.9</High><Color>#123456</Color></Channel></Channels></DisplaySetting></Metadata></ImageDocument>"),
+    ("<ImageDocument><Metadata></Scaling><Scaling><Items><Distance Id='X'><Value>3</Value></Items>"
+    "</Metadata><Metadata><Scaling/></Metadata></ImageDocument>"),
     "<Other><Metadata/></Other>",
-    "﻿<ImageDocument><Metadata><Information><Image><ComponentBitCount>0000000000000000008</ComponentBitCount>"
-    "</Image></Information></Metadata></ImageDocument>",
+    ("﻿<ImageDocument><Metadata><Information><Image><ComponentBitCount>0000000000000000008</ComponentBitCount>"
+    "</Image></Information></Metadata></ImageDocument>"),
     "<ImageDocument>" + "<a>" * 50 + "</b>" * 50 + "<Metadata><Information><Image><ComponentBitCount>8"
     "</ComponentBitCount></Image></Information></Metadata></ImageDocument>",
-    "<ImageDocument><Metadata><Information><Image><Dimensions><Channels><Channel Name='a &amp; b'>"
-    "<Color>#gg0000</Color></Channel></Channels></Dimensions></Image></Information></Metadata></ImageDocument>",
+    ("<ImageDocument><Metadata><Information><Image><Dimensions><Channels><Channel Name='a &amp; b'>"
+    "<Color>#gg0000</Color></Channel></Channels></Dimensions></Image></Information></Metadata></ImageDocument>"),
 ]
 
 
@@ -65,8 +67,8 @@ def test_streaming_xml_values_are_the_tree_s():
 
 
 def test_bands_have_a_floor():
-    """Divisor bands (spec/virtualize/czi.md §4.3
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#43-image-arrays>) when they hold
+    """Divisor bands (spec/zarrify/czi.md §4.3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#43-image-arrays>) when they hold
     at least 1 MiB; else bands of the
     most rows within 2^24 bytes, the last of each tile row shorter."""
     cases = [
@@ -85,9 +87,11 @@ def test_bands_have_a_floor():
 
 def test_entries_that_share_a_subblock_are_aliases_and_place_it_once(probes):
     _, out, ir = via_ir(str(probes / "czi_dup.czi"), "u", mirror=False)
-    subs = [ir.child(0, f"subblocks/{i}") for i in range(1000)]
-    assert ir.kind(subs[0]) == 0 and all(ir.kind(s) == 4 and ir.target(s) == subs[0] for s in subs[1:])
-    assert list(out.refs) == ["0/0/c/0/0"] and "tiles/zarr.json" not in out.bytes_entries  # today: 1,000 tile arrays
+    subs = [integer(ir.child(0, f"subblocks/{i}")) for i in range(1000)]
+    assert ir.kind(subs[0]) == 0
+    assert all(ir.kind(s) == 4 and ir.target(s) == subs[0] for s in subs[1:])
+    assert list(out.refs) == ["0/0/c/0/0"]
+    assert "tiles/zarr.json" not in out.bytes_entries  # today: 1,000 tile arrays
 
 
 def test_rejects_a_tile_array_past_2_to_the_31(probes):
@@ -104,20 +108,23 @@ def test_unmatched_end_tags_and_flat_xml_stream(probes):
 
 def test_attachment_names_keep_their_bytes_after_the_nul(probes):
     _, _, ir = via_ir(str(probes / "czi_attname.czi"), "u", mirror=False)
-    d = ir.child(0, "attachment_directory")
-    e = ir.value(ir.child(d, "entries/0"))
+    d = integer(ir.child(0, "attachment_directory"))
+    e = mapping(ir.value(integer(ir.child(d, "entries/0"))))
     assert e["name"] == {"text": "Label", "after": b"\0hidden name" + bytes(80 - 17)}
     assert e["content_file_type"] == {"text": "CZTIMS", "after": b"\0x"}
-    e = ir.value(ir.child(d, "entries/1"))
+    e = mapping(ir.value(integer(ir.child(d, "entries/1"))))
     assert e["name"] == {"text": "Thumb", "after": b"\0" * 6 + b"x" + bytes(80 - 12)}
-    a = ir.child(0, "attachments/0")
-    assert ir.child(ir.child(a, "data"), "values") is not None  # read as CZTIMS, by its bytes up to the NUL
+    a = integer(ir.child(0, "attachments/0"))
+    assert ir.child(integer(ir.child(a, "data")), "values") is not None  # read as CZTIMS, by its bytes up to the NUL
 
 
 def test_empty_segments_fold_into_one_run(probes):
     _, _, ir = via_ir(str(probes / "czi_walk0.czi"), "u", mirror=False)
     segs = [i for i in ir.children(0) if ir.name(i).startswith("segments/")]
-    assert len(segs) == 1 and ir.run(segs[0])[0] == 10000
+    assert len(segs) == 1
+    run = ir.run(segs[0])
+    assert run is not None
+    assert run[0] == 10000
     assert len(ir) < 100
 
 
@@ -125,8 +132,6 @@ class _Ranges:
     """A local server of single ranges (no multipart) over a file."""
 
     def __init__(self, path):
-        from http.server import BaseHTTPRequestHandler
-
         data = path.read_bytes()
         self.bytes = 0
 
@@ -135,7 +140,8 @@ class _Ranges:
         class H(BaseHTTPRequestHandler):
             protocol_version = "HTTP/1.1"
 
-            def log_message(self, *a):
+            @override
+            def log_message(self, format, *args):
                 pass
 
             def do_GET(self):
@@ -170,11 +176,13 @@ def test_the_planner_reads_headers_not_the_whole_file(probes):
     path = probes / "czi_xt.czi"
     server = _Ranges(path)
     try:
-        ir, facts, st = parse("czi", HttpTransport(server.url, Policy(allow_private_hosts=True)), 4)
+        _ir, facts, st = parse("czi", HttpTransport(server.url, Policy(allow_private_hosts=True)), 4)
         # requests cost the batch less than half a second here, so the cap is 4; on a
         # loaded machine they may cost more, and the ceiling of 16 applies
-        assert st["packs"] is False and st["cap"] in (4, 16)
-        assert st["bytes"] <= st["cap"] * st["asked"] + (1 << 16) * st["batches"]
-        assert facts["subblocks"] == 2000 and facts["rounds"] < 12
+        assert st["packs"] is False
+        assert st["cap"] in (4, 16)
+        assert number(st["bytes"]) <= number(st["cap"]) * number(st["asked"]) + (1 << 16) * number(st["batches"])
+        assert facts["subblocks"] == 2000
+        assert number(facts["rounds"]) < 12
     finally:
         server.close()

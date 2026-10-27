@@ -1,0 +1,38 @@
+// Zarrifies a local image file, or a local directory as a store (§1.4
+// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>,
+// §1.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>), with the
+// browser code (every format by the Rust core), under Node:
+//   node js/conformance/zarrify_file.ts <file or directory> <out.vzip> <source url>
+// For a directory, <source url> is the store URL it is served from (ending in
+// "/"). Prints the summary as JSON; exits 1 if the input is rejected, 2 on a
+// crash.
+
+import fs from "node:fs";
+import { blockReader, ImageError } from "../src/zarrify/common.ts";
+import { zarrifyImage, zarrifyStore } from "../src/zarrify/index.ts";
+import { StoreError } from "../src/zarrify/store.ts";
+import { writeVzip } from "../src/writer.ts";
+import { directoryStore } from "./directory_store.ts";
+
+const [inPath, outPath, url] = process.argv.slice(2);
+
+try {
+  let virtual;
+  if (fs.statSync(inPath).isDirectory()) {
+    virtual = await zarrifyStore(directoryStore(inPath, url));
+  } else {
+    const bytes = new Uint8Array(fs.readFileSync(inPath));
+    const read = blockReader(async (o, n) => bytes.subarray(o, o + n), bytes.length);
+    virtual = await zarrifyImage(url, read, bytes.length);
+  }
+  fs.writeFileSync(outPath, await writeVzip(virtual));
+  console.log(JSON.stringify(virtual.summary));
+} catch (e) {
+  if (!(
+    e instanceof ImageError || e instanceof StoreError)) {
+    console.error(e);
+    process.exit(2); // a crash, not a refusal
+  }
+  console.error(`unsupported: ${e.message}`);
+  process.exitCode = 1;
+}

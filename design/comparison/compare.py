@@ -29,9 +29,11 @@ from __future__ import annotations
 
 import argparse
 import glob
+import gzip
 import heapq
 import json
 import multiprocessing
+import os
 import shutil
 import sys
 import threading
@@ -41,12 +43,17 @@ import warnings
 from collections.abc import Callable
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from importlib.metadata import version as installed_version
 from pathlib import Path
+from typing import Any, NotRequired, TypedDict, override
 
 import numpy as np
 import pandas as pd
 import xarray as xr
 import zarr
+import zarr.storage
+
+from refkv._narrow import string
 
 warnings.filterwarnings("ignore")
 
@@ -73,7 +80,7 @@ class Server:
 
     def take(self) -> dict:
         """Requests since the last call: index (format files) and data (sources)."""
-        with urllib.request.urlopen(f"{self.base}{_LOG_PATH}") as r:
+        with urllib.request.urlopen(f"{self.base}{_LOG_PATH}") as r:  # noqa: S310 (the local server's URL)
             entries = json.loads(r.read())
         index = [e for e in entries if not e[1].startswith("/sources/")]
         data = [e for e in entries if e[1].startswith("/sources/")]
@@ -128,7 +135,8 @@ def _serve(root: Path, latency: float, bandwidth: float, conn) -> None:
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
-        def log_message(self, *a):
+        @override
+        def log_message(self, format, *args):
             pass
 
         def _send(self, status: int, headers: dict, data: bytes, logged: int | None) -> None:
@@ -171,6 +179,7 @@ def _serve(root: Path, latency: float, bandwidth: float, conn) -> None:
                     data = f.read(end - start)
             delay.wait(latency + (len(data) / bandwidth if bandwidth else 0))
             self._send(status, headers, data, len(data))
+            return None
 
         def do_GET(self):
             self._serve(True)
@@ -240,7 +249,7 @@ def virtualize(paths: list[Path], url_prefix: str, concat_dim: str, src_root: Pa
     vdss = []
     for p in paths:
         with xr.open_dataset(p, engine="h5netcdf") as ds:
-            loadable = [c for c in ds.coords if c in ds.dims or ds[c].ndim <= 1]
+            loadable = [string(c) for c in ds.coords if c in ds.dims or ds[c].ndim <= 1]
         vds = open_virtual_dataset(url=file_uri(p.resolve()), registry=registry,
                                    parser=HDFParser(), loadable_variables=loadable)
         vdss.append(vds)
@@ -266,28 +275,25 @@ def virtualize(paths: list[Path], url_prefix: str, concat_dim: str, src_root: Pa
 # gzip, as kerchunk's documentation suggests for large reference sets.
 
 
-def write_kerchunk_json(vds, out, ctx, cfg) -> None:
+def write_kerchunk_json(vds, out, _ctx, cfg) -> None:
     if cfg == "default":
         vds.vz.to_kerchunk(str(out), format="json")
         return
-    import gzip
-    import os
-
     refs = vds.vz.to_kerchunk(format="dict")
     urls = [v[0] for v in refs["refs"].values() if isinstance(v, list)]
-    prefix = os.path.commonprefix(urls)
+    prefix = os.path.commonprefix(urls)  # noqa: RUF071 (URLs: the common string, not a common path)
     refs["templates"] = {"u": prefix}
     refs["refs"] = {k: ["{{u}}" + v[0][len(prefix):], *v[1:]] if isinstance(v, list) else v
                     for k, v in refs["refs"].items()}
     out.write_bytes(gzip.compress(json.dumps(refs, separators=(",", ":")).encode(), 6))
 
 
-def write_kerchunk_parquet(vds, out, ctx, cfg) -> None:
+def write_kerchunk_parquet(vds, out, _ctx, cfg) -> None:
     vds.vz.to_kerchunk(str(out), format="parquet",
                        record_size=100_000 if cfg == "default" else 10_000)
 
 
-def open_kerchunk(url, ctx, cfg):
+def open_kerchunk(url, _ctx, _cfg):
     import fsspec
 
     target = {"compression": "gzip"} if url.endswith(".gz") else {}
@@ -330,10 +336,11 @@ def open_icechunk(url, ctx, cfg):
 def _icechunk_access(ctx):
     import icechunk
 
-    return {ctx["sources_url"]: icechunk.Credentials.HttpAccess()}
+    access: dict[str, icechunk.AnyCredential | None] = {ctx["sources_url"]: icechunk.Credentials.HttpAccess()}
+    return access
 
 
-def write_vzip(vds, out, ctx, cfg) -> None:
+def write_vzip(vds, out, _ctx, cfg) -> None:
     from refkv import Policy, ReferenceStore
 
     # the sources are served on 127.0.0.1, which the default policy refuses (see open_vzip)
@@ -342,7 +349,7 @@ def write_vzip(vds, out, ctx, cfg) -> None:
         policy=Policy(allow_private_hosts=True))
 
 
-def open_vzip(url, ctx, cfg):
+def open_vzip(url, _ctx, _cfg):
     import refkv.zarr
     from refkv.policy import Policy
 
@@ -351,6 +358,15 @@ def open_vzip(url, ctx, cfg):
     # <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 3)
     # no request cap, as when design/COMPARISON.md was measured (the default is 8)
     return refkv.zarr.open(url, policy=Policy(allow_private_hosts=True), max_concurrency=None), 3
+
+
+class Context(TypedDict):
+    """What the writers and readers are given: the sources' URL, then a file's days and the
+    values each pattern must read."""
+
+    sources_url: str
+    days_per_file: NotRequired[int]
+    expected: NotRequired[dict[str, object]]
 
 
 @dataclass
@@ -407,23 +423,23 @@ def patterns(ds_expected: xr.Dataset, var: str, full: bool) -> dict[str, Callabl
     point = dict(mid)
     series = {d: i for d, i in mid.items() if d != "time"}
     out = {
-        "point": lambda ds: ds[var].isel(point).values,
-        "time series": lambda ds: ds[var].isel(series).values,
-        "map": lambda ds: ds[var].isel(time=mid["time"]).values,
+        "point": lambda ds: ds[var].isel(point).to_numpy(),
+        "time series": lambda ds: ds[var].isel(series).to_numpy(),
+        "map": lambda ds: ds[var].isel(time=mid["time"]).to_numpy(),
     }
     if full:
-        out["everything"] = lambda ds: {n: ds[n].values for n in ds.variables}
+        out["everything"] = lambda ds: {n: ds[n].to_numpy() for n in ds.variables}
     return out
 
 
 def same(got, want) -> bool:
     if isinstance(want, dict):
-        return all(n in got and np.array_equal(got[n], want[n], equal_nan=n not in ("time",))
+        return all(n in got and np.array_equal(got[n], want[n], equal_nan=n != "time")
                    for n in want)
     return np.array_equal(got, want, equal_nan=True)
 
 
-def measure(fmt: Format, url: str, ctx: dict, server: Server, pats: dict, repeats: int) -> dict:
+def measure(fmt: Format, url: str, ctx: Context, server: Server, pats: dict, repeats: int) -> dict:
     """For each pattern, `repeats` cold opens, each followed by the pattern."""
 
     def open_ds():
@@ -490,7 +506,7 @@ def main() -> int:
     shutil.rmtree(work / "formats", ignore_errors=True)
     src_root = work / "sources"
     if args.input:
-        paths = [Path(p) for p in sorted(glob.glob(args.input))]
+        paths = [Path(p) for p in sorted(glob.glob(args.input))]  # noqa: PTH207 (Path.glob refuses absolute patterns, and --input may be one)
         if not paths:
             sys.exit(f"no files match {args.input}")
         shutil.rmtree(src_root, ignore_errors=True)
@@ -510,7 +526,7 @@ def main() -> int:
 
     server = Server(work, args.latency, args.bandwidth * 1e6)
     print(f"{len(paths)} source files, {sum(p.stat().st_size for p in paths) / 1e6:.1f} MB", flush=True)
-    ctx = {"sources_url": f"{server.base}/sources/"}
+    ctx: Context = {"sources_url": f"{server.base}/sources/"}
     vds = virtualize(paths, ctx["sources_url"], args.concat_dim, src_root)
     n_refs = sum(int(np.prod(v.data.manifest.shape_chunk_grid)) for v in vds.data_vars.values()
                  if hasattr(v.data, "manifest"))
@@ -518,7 +534,7 @@ def main() -> int:
     with xr.open_dataset(paths[0], engine="h5netcdf") as first:
         ctx["days_per_file"] = first.sizes.get(args.concat_dim, 1)
     source = xr.open_mfdataset(paths, engine="h5netcdf", combine="nested", concat_dim=args.concat_dim)
-    var = next(n for n, v in source.data_vars.items() if v.ndim == 3)
+    var = next(string(n) for n, v in source.data_vars.items() if v.ndim == 3)
     pats = patterns(source, var, full)
     ctx["expected"] = {n: fn(source) for n, fn in pats.items()}
 
@@ -533,7 +549,7 @@ def main() -> int:
         fmt.write(vds, out, ctx, fmt.config)
         write_s = time.perf_counter() - t0
         size, objects = disk_usage(out)
-        row = {"format": fmt.name, "config": fmt.config, "setting": fmt.setting,
+        row: dict[str, Any] = {"format": fmt.name, "config": fmt.config, "setting": fmt.setting,
                "n_refs": n_refs, "bytes": size, "history_bytes": history_bytes(out),
                "objects": objects, "write_seconds": write_s,
                **measure(fmt, f"{server.base}/formats/{fmt.path}", ctx, server, pats, args.repeats)}
@@ -561,9 +577,7 @@ def main() -> int:
 
 
 def version(module: str) -> str:
-    from importlib.metadata import version as v
-
-    return v(module)
+    return installed_version(module)
 
 
 def _med(samples: list[dict], key: str) -> float:

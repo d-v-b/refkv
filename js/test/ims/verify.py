@@ -1,7 +1,7 @@
-"""Checks the browser IMS virtualizer against h5py.
+"""Checks the browser IMS zarrifier against h5py.
 
 Each fixtures/ims/*.ims (or each .ims file given as an argument) is
-served over local HTTP and virtualized by js/conformance/virtualize.ts (the
+served over local HTTP and zarrified by js/conformance/zarrify.ts (the
 browser code, run under Node). Every level of the archive is read through the
 reference reader and zarr-python, and must equal, for every time point and
 channel, what h5py reads from `/DataSet/ResolutionLevel r/TimePoint t/Channel
@@ -17,60 +17,37 @@ Usage: uv run python js/test/ims/verify.py [<file.ims> ...]
 from __future__ import annotations
 
 import base64
+import importlib
+import itertools
 import json
 import math
 import os
 import struct
 import subprocess
 import sys
-import zlib
-from dataclasses import dataclass
+from collections.abc import Sequence
 from pathlib import Path
 
 import h5py
 import numpy as np
 import zarr
-from zarr.abc.codec import BytesBytesCodec
 from zarr.core.sync import sync
-from zarr.registry import register_codec
 
 HERE = Path(__file__).parent
 ROOT = HERE.parents[2]
 sys.path.insert(0, str(ROOT / "conformance" / "vzip"))
 
 import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store)
+from refkv._narrow import at, ndarray, sequence, string  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # js/test, for verify_common
-from verify_common import LOOPBACK_SOURCES, run, serve  # noqa: E402
+from verify_common import LOOPBACK_SOURCES, metadata_v3, run, serve  # noqa: E402
+
 sys.path.insert(0, str(HERE.parent))
 from ir_mirror import is_mirror, mirror_problems  # noqa: E402
 
-
-@dataclass(frozen=True)
-class ZlibCodec(BytesBytesCodec):
-    """'zlib' (as Neuroglancer names it), which zarr-python lacks."""
-
-    is_fixed_size = False
-    level: int = 1
-
-    @classmethod
-    def from_dict(cls, data):
-        return cls(**data.get("configuration", {}))
-
-    def to_dict(self):
-        return {"name": "zlib", "configuration": {"level": self.level}}
-
-    async def _decode_single(self, chunk_bytes, chunk_spec):
-        return chunk_spec.prototype.buffer.from_bytes(zlib.decompress(chunk_bytes.to_bytes()))
-
-    async def _encode_single(self, chunk_bytes, chunk_spec):
-        return chunk_spec.prototype.buffer.from_bytes(zlib.compress(chunk_bytes.to_bytes()))
-
-    def compute_encoded_size(self, input_byte_length, chunk_spec):
-        raise NotImplementedError
-
-
-register_codec("zlib", ZlibCodec)
+# compiled modules that h5py loads but does not import in its __init__: no stub names them
+h5i, h5l, h5o = (importlib.import_module(f"h5py.{m}") for m in ("h5i", "h5l", "h5o"))
 
 
 def image_size(group) -> tuple[int, ...]:
@@ -101,7 +78,7 @@ def shaped(dims: tuple, values: list):
 
 def plain(dt: np.dtype) -> bool:
     """Whether h5py reads a datatype as the numbers that §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#5-source-metadata> writes as
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#5-source-metadata> writes as
     JSON."""
     return dt.kind in "iuf" and dt.names is None and dt.subdtype is None and h5py.check_enum_dtype(dt) is None
 
@@ -125,13 +102,13 @@ CLASSES = {H5T.INTEGER: "integer", H5T.FLOAT: "float", H5T.TIME: "time", H5T.STR
            H5T.BITFIELD: "bitfield", H5T.OPAQUE: "opaque", H5T.COMPOUND: "compound", H5T.REFERENCE: "reference",
            H5T.ENUM: "enum", H5T.VLEN: "variable-length", H5T.ARRAY: "array"}
 IMARIS_TEXT = {"class": "string", "size": 1, "padding": "null-terminated", "charset": "ascii"}
-# The reasons of datasets over the limits of spec/virtualize/ims.md §5.4
+# The reasons of datasets over the limits of spec/zarrify/ims.md §5.4
 # <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/ims.r25.md#54-datasets>.
 LIMITS = ("a chunk of more than 2^24 bytes to decode", "over the budget of region selections")
 
 
 def type_ok(d: dict, tid) -> bool:
-    """Whether the description `d` (spec/virtualize/ims.md §5.2
+    """Whether the description `d` (spec/zarrify/ims.md §5.2
     <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/ims.r25.md#52-datatypes>) is the datatype
     `tid`."""
     cls = tid.get_class()
@@ -176,23 +153,23 @@ def holds_addresses(d: dict) -> bool:
 
 
 def numeric(d: dict) -> bool:
-    return (d["class"] == "integer" and "offset" not in d and d["size"] in (1, 2, 4, 8)
-            or d["class"] == "float" and "layout" not in d and d["size"] in (2, 4, 8)) and d["order"] != "vax"
+    return ((d["class"] == "integer" and "offset" not in d and d["size"] in (1, 2, 4, 8))
+            or (d["class"] == "float" and "layout" not in d and d["size"] in (2, 4, 8))) and d["order"] != "vax"
 
 
 def supported_column(d: dict) -> bool:
     """Whether §5.4 <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/ims.r25.md#54-datasets>
     maps a dataset of datatype `d`, which holds addresses."""
     def column(t: dict) -> bool:
-        return (t["class"] == "variable-length" and not holds_addresses(t["base"])
-                or t["class"] == "reference" and (t["kind"], t["size"]) in ((0, 8), (1, 12)))
+        return ((t["class"] == "variable-length" and not holds_addresses(t["base"]))
+                or (t["class"] == "reference" and (t["kind"], t["size"]) in ((0, 8), (1, 12))))
     if d["class"] == "compound":
         return all(column(m["type"]) or not holds_addresses(m["type"]) for m in d["members"])
     return column(d)
 
 
 def same_selection(sel: dict, space) -> bool:
-    """A selection's description (spec/virtualize/ims.md §5.3
+    """A selection's description (spec/zarrify/ims.md §5.3
     <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/ims.r25.md#53-attributes>) against an h5py
     dataspace's."""
     kind = space.get_select_type()
@@ -209,16 +186,16 @@ def same_selection(sel: dict, space) -> bool:
         return want == sel["blocks"]
     blocks = []
     for index in np.ndindex(*sel["count"]):
-        start = [s + i * t for s, i, t in zip(sel["start"], index, sel["stride"])]
-        blocks.append([start, [a + b - 1 for a, b in zip(start, sel["block"])]])
+        start = [s + i * t for s, i, t in zip(sel["start"], index, sel["stride"], strict=True)]
+        blocks.append([start, [a + b - 1 for a, b in zip(start, sel["block"], strict=True)]])
     return sorted(want) == sorted(blocks)
 
 
 def address_of(obj) -> int:
-    return h5py.h5o.get_info(obj).addr
+    return h5o.get_info(obj).addr
 
 
-def number_bytes(d: dict, values: list) -> bytes:
+def number_bytes(d: dict, values: Sequence) -> bytes:
     """Numbers of the description `d` as the file holds them (NaN by its canonical bits)."""
     order = ">" if d["order"] == "big" else "<"
     if d["class"] == "integer":
@@ -244,11 +221,11 @@ def aid_value(aid):
 
 
 class Checker:
-    """Rebuilds every HDF5 object from the source metadata node (spec/virtualize/ims.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#5-source-metadata>)
+    """Rebuilds every HDF5 object from the source metadata node (spec/zarrify/ims.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#5-source-metadata>)
     and compares it with h5py."""
 
-    def __init__(self, f, source, key: str = "refkv_virtualized") -> None:
+    def __init__(self, f, source, key: str = "refkv_zarrified") -> None:
         self.f, self.source, self.key = f, source, key
         self.paths: dict[int, str] = {}  # object header address -> the path where the walk met it
         self.problems: list[str] = []
@@ -258,7 +235,7 @@ class Checker:
         # each object's path, from its parent's and its key.
         parents, names = np.asarray(source["objects/parent"][...]), self.family(source["objects/name"])
         self.table: list[str] = []
-        for parent, name in zip(parents, names):
+        for parent, name in zip(parents, names, strict=True):
             self.table.append("/" if parent < 0 else self.table[parent].rstrip("/") + "/" + name.decode())
 
     @staticmethod
@@ -267,9 +244,9 @@ class Checker:
         <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays>): a
         2-D array, or a group of offsets and data."""
         if isinstance(node, zarr.Group):
-            starts = node["offsets"][...]
-            data = bytes(node["data"][...]) if "data" in node else b""
-            return [data[a:b] for a, b in zip(starts[:-1], starts[1:])]
+            starts = ndarray(node.get_array("offsets")[...])
+            data = bytes(ndarray(node.get_array("data")[...])) if "data" in node else b""
+            return [data[a:b] for a, b in itertools.pairwise(starts)]
         return [bytes(r) for r in node[...]]
 
     def load(self, node) -> dict:
@@ -282,7 +259,7 @@ class Checker:
                     if k in ("attributes", "names", "links", "images", "datatypes", "unsupported") and v is not None:
                         s[k] = {**s.get(k, {}), **v}
                     elif k in ("attribute_collisions", "collisions"):
-                        s[k] = [*s.get(k, []), *v]
+                        s[k] = [*s.get(k, []), *sequence(v, k)]
                     else:
                         s[k] = v
         return s
@@ -329,7 +306,8 @@ class Checker:
             names = sorted(h5py.h5a.open(obj.id, index=i).name for i in range(h5py.h5a.get_num_attrs(obj.id)))
         except OSError as e:
             if "invalid datatype size" in str(e):
-                return  # a string of no bytes, which h5py cannot open (python/tests/reference/test_virtualize_ims.py checks it)
+                # a string of no bytes, which h5py cannot open (python/tests/reference/test_zarrify_ims.py checks it)
+                return
             raise
         keys: set[str] = set()
         for name in names:
@@ -387,21 +365,22 @@ class Checker:
             flat = np.asarray(aid_value(aid), dtype=object).reshape(-1)
             # Object references are indexes into the object table, as arrays and as JSON.
             got = (self.array_bytes(value, d) if "array" in value
-                   else [self.ref_path(v) for v in values] if d["class"] == "reference" else values)
+                   else [self.ref_path(v) for v in sequence(values)] if d["class"] == "reference" else values)
             self.addressed(where, d, flat, got)
             return
         if holds_addresses(d):
             flat = np.asarray(aid_value(aid)).reshape(-1)
+            values = sequence(values)
             if len(values) != len(flat):
                 self.problems.append(f"{where}: {len(values)} values, not {len(flat)}")
-            for v, want in zip(values, flat):
+            for v, want in zip(values, flat, strict=False):
                 self.structured(where, d, v, want, aid.get_type())
             return
         buf = np.empty(dims, dtype=np.dtype(f"V{d['size']}"))
         aid.read(buf, mtype=tid)
         raw = buf.tobytes()
         if "data" in value:
-            ok = base64.b64decode(value["data"]) == raw
+            ok = base64.b64decode(string(value["data"])) == raw
         elif "array" in value:
             ok = self.array_bytes(value, d) == raw
         elif d["class"] == "string":
@@ -409,9 +388,10 @@ class Checker:
                 want = text_bytes(values)
             else:
                 pad = b" " if d["padding"] == "space-padded" else b"\0"
-                want = b"".join(text_bytes(v).ljust(d["size"], pad) for v in values)
+                want = b"".join(text_bytes(v).ljust(d["size"], pad) for v in sequence(values))
             ok = want == raw
         else:
+            values = sequence(values)
             ok = len(values) == count and same_numbers(d, raw, number_bytes(d, values))
         if not ok:
             self.problems.append(f"{where}: value {str(value)[:80]} differs")
@@ -421,7 +401,7 @@ class Checker:
         if len(got) != len(flat):
             self.problems.append(f"{where}: {len(got)} values, not {len(flat)}")
             return
-        for v, want in zip(got, flat):
+        for v, want in zip(got, flat, strict=True):
             if d["class"] == "reference":
                 at = address_of(self.f[want].id) if want else None
                 self.pending.append((where, v, at))
@@ -476,14 +456,14 @@ class Checker:
                 return
             if len(v) != len(items):
                 self.problems.append(f"{where}: {len(v)} elements, not {len(items)}")
-            for x, w in zip(v, items):
+            for x, w in zip(v, items, strict=False):
                 self.structured(where, d["base"], x, w, tid.get_super())
         elif cls == "compound":
             for i, m in enumerate(d["members"]):
                 self.structured(f"{where}.{m['name']}", m["type"], v[m["name"]], want[i], tid.get_member_type(i))
         else:
             flat = np.asarray(want).reshape(-1)
-            for x, w in zip(v, flat):
+            for x, w in zip(v, flat, strict=False):
                 self.structured(where, d["base"], x, w, tid.get_super())
 
     def named(self, where: str, entry: dict, tid) -> None:
@@ -538,11 +518,11 @@ class Checker:
         if "fill" in s:
             # A reader fills the chunks that are absent with the fill value's bytes.
             got = got.copy()
-            grid = [-(-n // c) for n, c in zip(node.shape, node.chunks)]
+            grid = [-(-n // c) for n, c in zip(node.shape, node.chunks, strict=True)]
             for index in np.ndindex(*grid):
                 key = f"{node.path}/c/" + "/".join(map(str, index))
                 if not sync(node.store.exists(key)):
-                    sl = tuple(slice(i * c, (i + 1) * c) for i, c in zip(index, node.chunks))
+                    sl = tuple(slice(i * c, (i + 1) * c) for i, c in zip(index, node.chunks, strict=True))
                     region = got[sl]
                     endian = node.metadata.codecs[0].to_dict().get("configuration", {}).get("endian")
                     pattern = np.frombuffer(base64.b64decode(s["fill"]), dtype=got.dtype.newbyteorder(
@@ -582,7 +562,7 @@ class Checker:
             values = [json.loads(r) for r in rows]
             if len(values) != len(flat):
                 self.problems.append(f"{where}: {len(values)} regions, not {len(flat)}")
-            for v, w in zip(values, flat):
+            for v, w in zip(values, flat, strict=False):
                 self.structured(where, d, v, w, None)
             return
         self.addressed(where, d, flat, rows)
@@ -631,25 +611,25 @@ class Checker:
                     self.problems.append(f"{p}: name {name!r} not spelled")
                 child = (p if p != "/" else "") + "/" + key
                 info = g.id.links.get_info(name)
-                if info.type == h5py.h5l.TYPE_SOFT:
+                if info.type == h5l.TYPE_SOFT:
                     if links.get(key) != {"soft": text(g.id.links.get_val(name))}:
                         self.problems.append(f"{child}: soft link {links.get(key)}")
                     continue
-                if info.type == h5py.h5l.TYPE_EXTERNAL:
+                if info.type == h5l.TYPE_EXTERNAL:
                     file, path = g.id.links.get_val(name)
                     if links.get(key) != {"external": {"file": text(file), "path": text(path)}}:
                         self.problems.append(f"{child}: external link {links.get(key)}")
                     continue
-                at = address_of(h5py.h5o.open(g.id, name))
+                at = address_of(h5o.open(g.id, name))
                 if at in self.paths:
                     hard = links.get(key, {}).get("hard")
                     if not isinstance(hard, int) or self.ref_path(hard) != self.paths[at]:
                         self.problems.append(f"{child}: hard link {links.get(key)} != {self.paths[at]}")
                     continue
                 self.paths[at] = child
-                oid = h5py.h5o.open(g.id, name)
-                obj = {h5py.h5i.GROUP: h5py.Group, h5py.h5i.DATASET: h5py.Dataset,
-                       h5py.h5i.DATATYPE: h5py.Datatype}[h5py.h5i.get_type(oid)](oid)
+                oid = h5o.open(g.id, name)
+                obj = {h5i.GROUP: h5py.Group, h5i.DATASET: h5py.Dataset,
+                       h5i.DATATYPE: h5py.Datatype}[h5i.get_type(oid)](oid)
                 if key in unsupported:
                     self.unsupported(child, obj, unsupported[key])
                     # What §5.4
@@ -657,12 +637,13 @@ class Checker:
                     # does not map: other filters, external or virtual data,
                     # addresses inside other datatypes than its columns, and what is
                     # over its limits.
-                    if not (key in ("zarr.json",) or key.startswith("__")
+                    if not (key == "zarr.json" or key.startswith("__")
                             or unsupported[key]["reason"] in LIMITS
-                            or isinstance(obj, h5py.Dataset) and (
-                                obj.external or obj.is_virtual or obj.compression in ("lzf",) or obj.scaleoffset is not None
-                                or holds_addresses(self.described(unsupported[key]))
-                                and not supported_column(self.described(unsupported[key])))):
+                            or (isinstance(obj, h5py.Dataset) and (
+                                obj.external or obj.is_virtual or obj.compression == "lzf"
+                                or obj.scaleoffset is not None
+                                or (holds_addresses(self.described(unsupported[key]))
+                                and not supported_column(self.described(unsupported[key])))))):
                         self.problems.append(f"{child}: unsupported: {unsupported[key]['reason']}")
                 elif isinstance(obj, h5py.Datatype):
                     entry = datatypes.get(key)
@@ -692,9 +673,9 @@ class Checker:
         return self.problems
 
 
-def tree_problems(root, path: Path, node: str = "refkv_source", key: str = "refkv_virtualized") -> list[str]:
-    """Rebuilds every HDF5 object from the source metadata node (spec/virtualize/ims.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#5-source-metadata>)
+def tree_problems(root, path: Path, node: str = "refkv_source", key: str = "refkv_zarrified") -> list[str]:
+    """Rebuilds every HDF5 object from the source metadata node (spec/zarrify/ims.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#5-source-metadata>)
     and compares it with h5py; `node` and `key` are the names the archive's writer used."""
     with h5py.File(path, "r") as f:
         return Checker(f, root[node], key).tree()
@@ -706,12 +687,13 @@ def mirror_check(path: Path, url: str, out: Path) -> list[str]:
     refkv_source (its root read at the current revision, compare.py's `at_revision`),
     its source metadata node must rebuild every HDF5 object (`tree_problems`), and the
     IR's mirror must rebuild the source byte for byte."""
-    sys.path.insert(0, str(ROOT / "conformance" / "virtualize"))
-    from compare import at_revision, differences, from_vzip, without_source
+    sys.path.insert(0, str(ROOT / "conformance" / "zarrify"))
+    # compare puts the frozen reference's paths on sys.path: imported only for a mirror
+    from compare import at_revision, differences, from_vzip, without_source  # noqa: PLC0415 (it edits sys.path)
 
     ref = out.with_suffix(".ref.vzip")
-    p = subprocess.run(["node", str(ROOT / "conformance" / "virtualize" / "reference" / "ts" / "virtualize.ts"), url, str(ref)],
-                       capture_output=True, text=True, cwd=ROOT)
+    p = subprocess.run(["node", str(ROOT / "conformance" / "zarrify" / "reference" / "ts" / "virtualize.ts"), url,
+                        str(ref)], capture_output=True, text=True, cwd=ROOT, check=False)
     if p.returncode:
         return [f"the reference failed: {(p.stderr or p.stdout)[-200:]}"]
     problems = [f"differs from the reference: {d}" for d in
@@ -727,13 +709,15 @@ def check(path: Path, out: Path, url: str) -> list[str]:
     """The differences between the archive at 'out' and h5py's reading of 'path'."""
     problems = []
     root = zarr.open_group(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
-    levels = root.attrs["ome"]["multiscales"][0]["datasets"]
+    levels = sequence(at(root.attrs, "ome", "multiscales", 0, "datasets"))
     problems += mirror_check(path, url, out) if is_mirror(out) else tree_problems(root, path)
     with h5py.File(path, "r") as f:
         for r in range(len(levels)):
-            arr = root[str(r)]
-            axes = list(arr.metadata.dimension_names)
-            sizes = dict(zip(axes, arr.shape))
+            arr = root.get_array(str(r))
+            names = metadata_v3(arr).dimension_names
+            assert names is not None, r
+            axes = list(names)
+            sizes = dict(zip(axes, arr.shape, strict=True))
             for t in range(sizes.get("t", 1)):
                 for c in range(sizes.get("c", 1)):
                     group = f[f"DataSet/ResolutionLevel {r}/TimePoint {t}/Channel {c}"]
@@ -743,7 +727,7 @@ def check(path: Path, out: Path, url: str) -> list[str]:
                     if "z" not in axes:
                         want = want[0]
                     index = tuple(t if a == "t" else c if a == "c" else slice(None) for a in axes)
-                    got = arr[index]
+                    got = ndarray(arr[index])
                     if got.dtype != want.dtype or not np.array_equal(got, want):
                         problems.append(f"level {r} t {t} c {c}: {got.dtype} {got.shape} != {want.dtype} {want.shape}")
     return problems
@@ -753,7 +737,7 @@ def main(paths: list[str]) -> int:
     files = [Path(p) for p in paths] or sorted((ROOT / "fixtures" / "ims").rglob("ims_*.ims"))
     url = serve(files)
     # VERIFY_PY=1 runs the reference implementation instead of the browser code.
-    command = [sys.executable, "-m", "refkv.virtualize", "--allow-private-hosts"] if os.environ.get("VERIFY_PY") else None
+    command = [sys.executable, "-m", "refkv.zarrify", "--allow-private-hosts"] if os.environ.get("VERIFY_PY") else None
     return run(files, lambda path, out, p: (check(path, out, url(path))[:3], p.stdout.strip()[:160]), url=url,
                command=command, width=36)
 

@@ -1,13 +1,13 @@
 //! TIFF LZW streams (TIFF 6.0 §13, as libtiff writes them: codes of 9 to 12 bits packed most
 //! significant bit first, Clear 256, end-of-information 257, new entries from 258, and the
-//! "early change" of the code width), as far as the QPTIFF profile needs them
-//! (spec/virtualize/qptiff.md §4.2
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#42-tiles-and-strips>): a
+//! "early change" of the code width), as far as the TIFF and QPTIFF profiles need them
+//! (spec/zarrify/tiff.md §4.5
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>): a
 //! scan that decodes a strip's stream only to find where its output reaches the strip's size,
 //! and the tail that continues such a stream with zero bytes, so that a short last strip
 //! decodes to a whole chunk; and a decoder of a chunk's stream, for the `omero` windows sampled
-//! from the data (spec/virtualize/qptiff.md §4.3
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#43-arrays>).
+//! from the data (spec/zarrify/tiff.md §4.4
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#44-arrays>).
 
 const CLEAR: u32 = 256;
 const EOI: u32 = 257;
@@ -184,8 +184,9 @@ fn put(bits: &mut Vec<u8>, nbits: &mut usize, code: u32, width: u32) {
 /// cut's byte before the cut. The literal is a Clear code (at the cut's width), then the run
 /// of zeros as the chain 0, 258, 259, ... (each code one zero longer than the last, the
 /// decoder's own KwKwK rule), with a final code for the remainder, then the end code; every
-/// code at the width the decoder has when it reads it.
-pub fn tail(data: &[u8], cut: Cut, zeros: u64) -> (u64, Vec<u8>) {
+/// code at the width the decoder has when it reads it. Err when the chain of one code table
+/// (about 7.4 million zeros) cannot hold `zeros`.
+pub fn tail(data: &[u8], cut: Cut, zeros: u64) -> Result<(u64, Vec<u8>), String> {
     let prefix = (cut.bit / 8) as u64;
     let mut bits: Vec<u8> = Vec::new();
     let mut nbits = 0usize;
@@ -221,8 +222,11 @@ pub fn tail(data: &[u8], cut: Cut, zeros: u64) -> (u64, Vec<u8>) {
             n += 1;
         }
         if code >= MAX_CODE - 1 {
-            break; // never for a strip: 4094 codes are more than 8 million zeros
+            break; // the table is full: what is left needs an entry it does not have
         }
+    }
+    if left >= n as u64 {
+        return Err(format!("{zeros} zero bytes are more than the codes of one LZW table hold"));
     }
     if left > 0 {
         // a remainder shorter than the next entry: an entry of that length, which exists
@@ -231,7 +235,7 @@ pub fn tail(data: &[u8], cut: Cut, zeros: u64) -> (u64, Vec<u8>) {
         emit(&mut bits, &mut nbits, &mut s, code);
     }
     put(&mut bits, &mut nbits, EOI, s.width);
-    (prefix, bits)
+    Ok((prefix, bits))
 }
 
 #[cfg(test)]
@@ -301,7 +305,7 @@ mod tests {
             let e = encode(&d);
             let cut = scan(&e, n as u64).unwrap();
             assert!(cut.bit <= e.len() * 8 - 9, "{n}: the end code follows the cut");
-            let (prefix, lit) = tail(&e, cut, zeros);
+            let (prefix, lit) = tail(&e, cut, zeros).unwrap();
             let mut padded = e[..prefix as usize].to_vec();
             padded.extend_from_slice(&lit);
             let mut want = d.clone();
@@ -311,10 +315,36 @@ mod tests {
     }
 
     #[test]
+    fn a_tail_holds_one_code_table_of_zeros_and_no_more() {
+        let d = sample(300);
+        let e = encode(&d);
+        let cut = scan(&e, 300).unwrap();
+        let (prefix, lit) = tail(&e, cut, 7_000_000).unwrap();
+        let mut padded = e[..prefix as usize].to_vec();
+        padded.extend_from_slice(&lit);
+        let got = decode(&padded, 7_000_300).unwrap();
+        assert_eq!(&got[..300], &d[..]);
+        assert!(got[300..].iter().all(|&b| b == 0));
+        assert!(tail(&e, scan(&e, 300).unwrap(), 8_000_000).is_err());
+    }
+
+    #[test]
+    fn the_profiles_padding_limit_is_within_one_code_table() {
+        // tiff.json's and qptiff.json's max_padding: a tail of that many zeros is one the
+        // padding role allows, so tail's own error is never what rejects an input
+        let d = sample(300);
+        let e = encode(&d);
+        for profile in ["tiff", "qptiff"] {
+            let most = crate::rules::of(profile).json["limits"]["max_padding"].as_u64().unwrap();
+            assert!(tail(&e, scan(&e, 300).unwrap(), most).is_ok(), "{profile}");
+        }
+    }
+
+    #[test]
     fn a_tail_of_no_zeros_only_ends_the_stream() {
         let d = sample(300);
         let e = encode(&d);
-        let (prefix, lit) = tail(&e, scan(&e, 300).unwrap(), 0);
+        let (prefix, lit) = tail(&e, scan(&e, 300).unwrap(), 0).unwrap();
         let mut padded = e[..prefix as usize].to_vec();
         padded.extend_from_slice(&lit);
         assert_eq!(decode(&padded, 300).unwrap(), d);
@@ -330,7 +360,7 @@ mod tests {
         e.truncate(cut.bit.div_ceil(8));
         e.extend_from_slice(&[0xff, 0xff, 0xff]);
         let cut = scan(&e, 300).unwrap();
-        let (prefix, lit) = tail(&e, cut, 10);
+        let (prefix, lit) = tail(&e, cut, 10).unwrap();
         let mut padded = e[..prefix as usize].to_vec();
         padded.extend_from_slice(&lit);
         let mut want = d.clone();

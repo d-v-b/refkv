@@ -1,7 +1,7 @@
-"""Checks the browser N5 virtualizer's output against an independent N5 reader.
+"""Checks the browser N5 zarrifier's output against an independent N5 reader.
 
 Each store in fixtures/n5/ is served by the harness proxy (with its
-S3 listing) and virtualized by js/conformance/virtualize.ts (the browser
+S3 listing) and zarrified by js/conformance/zarrify.ts (the browser
 code, run under Node). Every array of the archive is read through refkv.zarr
 and zarr-python (with refkv.zarr.codecs' n5_default codec) and must equal:
 
@@ -14,14 +14,14 @@ and zarr-python (with refkv.zarr.codecs' n5_default codec) and must equal:
 
 `n5_reject_*` stores must be rejected; reading `n5_edge_varlength_block`'s
 array must fail (its varlength block is refused by the codec). The archive's
-`refkv_source` is the store's IR mirror (spec/virtualize/n5.md §5.1
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#51-the-ir-mirror>): rebuilt from
+`refkv_source` is the store's IR mirror (spec/zarrify/n5.md §5.1
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#51-the-ir-mirror>): rebuilt from
 the archive alone, its listing must be the store's (every object's key and size, the empty ones
 included) and every node's attributes.json must be the store's, byte for byte.
 
-With `--remote <store URL> <array path>`, a public store is virtualized
+With `--remote <store URL> <array path>`, a public store is zarrified
 directly and that array is compared with `read_n5` reading the blocks over
-HTTP (the pixel check of conformance/virtualize/corpus_n5.txt).
+HTTP (the pixel check of conformance/zarrify/corpus_n5.txt).
 
 Usage: uv run python js/test/n5/verify.py [<store dir> ...]
        uv run python js/test/n5/verify.py --remote <store URL> <array path>
@@ -38,29 +38,36 @@ import sys
 import tempfile
 import urllib.error
 import urllib.request
+import zipfile
 import zlib
 from pathlib import Path
 
 import numcodecs
 import numpy as np
 import zarr
+from zarr.storage import LocalStore
 
 HERE = Path(__file__).parent
 ROOT = HERE.parents[2]
 FIXTURES = ROOT / "fixtures"
-sys.path.insert(0, str(ROOT / "conformance" / "virtualize"))
+sys.path.insert(0, str(ROOT / "conformance" / "zarrify"))
 from proxy import Proxy  # noqa: E402
 
 import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store; registers n5_default and zlib)
+from refkv import _core  # noqa: E402
+from refkv._narrow import ndarray  # noqa: E402
+from refkv.ir.cmirror import Archive  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # js/test, for verify_common
 from verify_common import LOOPBACK_SOURCES, run  # noqa: E402
 
-# The other objects' check is the Zarr v2 verifier's (spec/virtualize/n5.md §6
-# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#6-other-objects> is
-# spec/virtualize/zarr2.md §5
-# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>).
+# The other objects' check is the Zarr v2 verifier's (spec/zarrify/n5.md §6
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#6-other-objects> is
+# spec/zarrify/zarr2.md §5
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#5-other-objects>).
 _spec = importlib.util.spec_from_file_location("zarr2_verify", HERE.parent / "zarr2" / "verify.py")
+assert _spec is not None
+assert _spec.loader is not None
 zarr2_verify = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(zarr2_verify)
 
@@ -85,7 +92,7 @@ def read_n5(attrs: dict, get) -> np.ndarray:
     compression = attrs.get("compression") or {"type": attrs["compressionType"]}
     dtype = np.dtype(attrs["dataType"]).newbyteorder(">")
     out = np.zeros(dims, dtype=dtype.newbyteorder("="))
-    for idx in np.ndindex(*[-(-d // b) for d, b in zip(dims, block)]):
+    for idx in np.ndindex(*[-(-d // b) for d, b in zip(dims, block, strict=True)]):
         raw = get("/".join(map(str, idx)))
         if not raw:
             continue
@@ -97,9 +104,9 @@ def read_n5(attrs: dict, get) -> np.ndarray:
         n = int(np.prod(shape))
         # Column-major: the first dimension varies fastest.
         values = np.frombuffer(body, dtype=dtype, count=n).reshape(shape[::-1]).T
-        dest = tuple(slice(i * b, min((i + 1) * b, d)) for i, b, d in zip(idx, block, dims))
-        take = tuple(slice(0, min(s.stop - s.start, m)) for s, m in zip(dest, shape))
-        dest = tuple(slice(s.start, s.start + t.stop) for s, t in zip(dest, take))
+        dest = tuple(slice(i * b, min((i + 1) * b, d)) for i, b, d in zip(idx, block, dims, strict=True))
+        take = tuple(slice(0, min(s.stop - s.start, m)) for s, m in zip(dest, shape, strict=True))
+        dest = tuple(slice(s.start, s.start + t.stop) for s, t in zip(dest, take, strict=True))
         out[dest] = values[take]
     return out
 
@@ -107,23 +114,20 @@ def read_n5(attrs: dict, get) -> np.ndarray:
 def zarr_n5_read(store_dir: Path, path: str) -> np.ndarray | None:
     """The dataset as zarr-n5 reads it, or None if it cannot."""
     try:
-        from zarr.storage import LocalStore
-        from zarr_n5 import N5WrapperStore
+        from zarr_n5 import N5WrapperStore  # noqa: PLC0415 (optional: the check is skipped without it)
     except ImportError:
         return None
     with zarr.config.set({"codecs.n5_default": "zarr_n5.codec.default.N5DefaultCodec"}):
         try:
             a = zarr.open_array(N5WrapperStore(LocalStore(store_dir, read_only=True)), path=path, mode="r",
                                 zarr_format=3)
-            return a[...]
+            return ndarray(a[...])
         except Exception:  # noqa: BLE001  (unsupported by zarr-n5: legacy compressionType, ...)
             return None
 
 
 def arrays_of(out: Path) -> list[str]:
     """The arrays of the hierarchy (the mirror's, under refkv_source/, are not datasets)."""
-    import zipfile
-
     z = zipfile.ZipFile(out)
     paths = []
     for name in z.namelist():
@@ -134,9 +138,9 @@ def arrays_of(out: Path) -> list[str]:
     return sorted(paths)
 
 
-def virtualize(url: str, out: Path) -> subprocess.CompletedProcess:
-    return subprocess.run(["node", str(ROOT / "js" / "conformance" / "virtualize.ts"), "--allow-private-hosts", url, str(out)],
-                          capture_output=True, text=True)
+def zarrify(url: str, out: Path) -> subprocess.CompletedProcess:
+    return subprocess.run(["node", str(ROOT / "js" / "conformance" / "zarrify.ts"), "--allow-private-hosts", url,
+                           str(out)], capture_output=True, text=True, check=False)
 
 
 def check_store(store_dir: Path, out: Path) -> list[str]:
@@ -148,11 +152,11 @@ def check_store(store_dir: Path, out: Path) -> list[str]:
         if store_dir.name == "n5_edge_varlength_block":
             try:
                 arr[...]
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001, S112 - the read must fail, by any error
                 continue
             problems.append(f"{path}: the varlength block was read")
             continue
-        got = arr[...]
+        got = ndarray(arr[...])
 
         def get(key, base=store_dir / path):
             f = base / key
@@ -170,13 +174,7 @@ def check_store(store_dir: Path, out: Path) -> list[str]:
 def mirror_problems(store_dir: Path, out: Path) -> list[str]:
     """The store IR's mirror against the store: its listing is the store's objects and sizes, and
     each object it holds (a node's attributes.json) is the store's, byte for byte."""
-    import zipfile
-
-    from refkv import _core
-
-    from refkv.ir.cmirror import Archive
-
-    def never(o: int, n: int) -> bytes:
+    def never(_o: int, _n: int) -> bytes:
         raise AssertionError("a store's mirror reads no source")
 
     stored = {f.relative_to(store_dir).as_posix(): f for f in store_dir.rglob("*") if f.is_file()}
@@ -200,24 +198,26 @@ def mirror_problems(store_dir: Path, out: Path) -> list[str]:
 def remote(store_url: str, path: str) -> int:
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "remote.vzip"
-        p = virtualize(store_url, out)
+        p = zarrify(store_url, out)
         if p.returncode:
             print(f"FAILED: {p.stderr[-300:]}")
             return 1
         print(p.stdout.strip()[:300])
         base = store_url + path + "/"
-        attrs = json.loads(urllib.request.urlopen(base + "attributes.json", timeout=60).read())
+        # the store URL given on the command line
+        attrs = json.loads(urllib.request.urlopen(base + "attributes.json", timeout=60).read())  # noqa: S310
 
         def get(key):
             try:
-                return urllib.request.urlopen(base + key, timeout=120).read()
+                return urllib.request.urlopen(base + key, timeout=120).read()  # noqa: S310
             except urllib.error.HTTPError as e:
                 if e.code in (403, 404):
                     return None
                 raise
 
         want = read_n5(attrs, get)
-        got = zarr.open_group(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)[path][...]
+        root = zarr.open_group(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
+        got = ndarray(root.get_array(path)[...])
         ok = got.shape == want.shape and np.array_equal(got, want)
         print(f"{path}: {got.dtype}{got.shape}, {'equal to read_n5' if ok else 'DIFFERS from read_n5'}, "
               f"{int(np.count_nonzero(want))} nonzero values")

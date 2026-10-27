@@ -1,8 +1,8 @@
-"""The DICOM convention's source metadata (spec/virtualize/dicom.md), for
+"""The DICOM convention's source metadata (spec/zarrify/dicom.md), for
 spec/generate_schemas.py."""
 
-# A dataset in the DICOM JSON Model (PS3.18 §F.2), as spec/virtualize/dicom.md §5
-# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#5-source-metadata> writes it.
+# A dataset in the DICOM JSON Model (PS3.18 §F.2), as spec/zarrify/dicom.md §5
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#5-source-metadata> writes it.
 DEFS = {
     "dataset": {
         "type": "object",
@@ -48,18 +48,22 @@ DEFS = {
 
 SCHEMA = {"anyOf": [{
     "type": "object",
-    "description": "The root's (spec/virtualize/dicom.md §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#51-the-root>); a path refkv_source/<p> names the IR's element at <p>",
+    "description": "The root's (spec/zarrify/dicom.md §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#51-the-root>);"
+                   " a path refkv_source/<p> names the IR's element at <p>",
     "properties": {
         "preamble": {"type": "string", "contentEncoding": "base64",
                      "description": "The 128-byte preamble, unless all zero"},
         "meta": {"$ref": "#/$defs/dataset",
                  "description": "The File Meta Information, without its large attributes (in the mirror only)"},
         "dataset": {"$ref": "#/$defs/dataset",
-                    "description": "The dataset, without the per-frame groups and the large attributes (in the mirror only)"},
+                    "description": "The dataset, without the per-frame groups and the large attributes (in the mirror "
+                                   "only)"},
         "pixel_extra": {"type": "string",
-                        "description": "refkv_source/pixel_extra: the IR's element holding the native pixel data after the frames"},
+                        "description": "refkv_source/pixel_extra: the IR's element holding the native pixel data after "
+                                       "the frames"},
         "pixel_unreferenced": {"type": "string",
-                               "description": "refkv_source/pixel_unreferenced: the IR's struct holding the pixel data the Extended Offset Table skips"},
+                               "description": "refkv_source/pixel_unreferenced: the IR's struct holding the pixel data "
+                                              "the Extended Offset Table skips"},
         "pixel_unreferenced_headers": {"const": True,
                                        "description": "Whether pixel_unreferenced also holds the frames' item "
                                                       "headers"},
@@ -67,8 +71,10 @@ SCHEMA = {"anyOf": [{
                             "description": "refkv_source/pixel_fragments, when a frame has more than one fragment "
                                            "(the fragments are the IR's dataset/7FE00010/fragments/<j>)"},
         "pixel_offset_table": {"const": True, "description": "Whether the Basic Offset Table is not empty"},
-        "trailing": {"type": "string", "description": "refkv_source/trailing: the IR's element holding the bytes after the last element"},
+        "trailing": {"type": "string",
+                     "description": "refkv_source/trailing: the IR's element holding the bytes after the last element"},
     },
+    "required": ["meta", "dataset"],
     "additionalProperties": False,
 },
     {"$ref": "#/$defs/mirror"},

@@ -1,6 +1,6 @@
-//! A DICOM file's data elements (spec/virtualize/dicom.md §7.1
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#71-elements>–§7.3
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#73-datasets-and-sequences>):
+//! A DICOM file's data elements (spec/zarrify/dicom.md §7.1
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#71-elements>–§7.3
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#73-datasets-and-sequences>):
 //! the bytes a parser was fed, element headers, and the profile's walk, which rejects.
 
 use crate::fed::{Fed, Overlap, Word};
@@ -12,8 +12,8 @@ pub const ITEM_END: u32 = 0xFFFE_E00D;
 pub const SEQUENCE_END: u32 = 0xFFFE_E0DD;
 pub const PIXEL_DATA: u32 = 0x7FE0_0010;
 /// The sequences of defined length the profile walks: Shared Functional Groups and
-/// Pixel Measures (spec/virtualize/dicom.md §7.3
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#73-datasets-and-sequences>, rule 3).
+/// Pixel Measures (spec/zarrify/dicom.md §7.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#73-datasets-and-sequences>, rule 3).
 pub const WALKED: [u32; 2] = [0x5200_9229, 0x0028_9110];
 pub const MAX_DEPTH: u32 = 64;
 
@@ -130,8 +130,8 @@ impl Bytes {
         Ok(u32::at(self.get(o, 4)?, 0, little))
     }
 
-    /// The element at `pos`, whose header must end by `end` (spec/virtualize/dicom.md §7.1
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#71-elements>).
+    /// The element at `pos`, whose header must end by `end` (spec/zarrify/dicom.md §7.1
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#71-elements>).
     pub fn header(&self, pos: u64, end: u64, enc: Enc) -> R<El> {
         if pos + 8 > end {
             return reject(format!("the element at {pos} runs past its container"));
@@ -175,9 +175,9 @@ pub struct Walked {
 /// A dataset as the profile reads it: the first element of each tag.
 pub type Dataset = HashMap<u32, Walked>;
 
-/// The profile's walk (spec/virtualize/dicom.md §7.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#72-file>, §7.3
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#73-datasets-and-sequences>):
+/// The profile's walk (spec/zarrify/dicom.md §7.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#72-file>, §7.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#73-datasets-and-sequences>):
 /// every element it walks is checked, and a structure that breaks a rule rejects.
 pub struct Walker<'a> {
     pub b: &'a Bytes,
@@ -296,8 +296,8 @@ impl Walker<'_> {
     }
 
     /// The items of a fragment sequence at `pos`, as (item offset, data offset, data
-    /// length), and where the sequence ends (spec/virtualize/dicom.md §7.5
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#75-frames>).
+    /// length), and where the sequence ends (spec/zarrify/dicom.md §7.5
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#75-frames>).
     pub fn fragments(&self, mut pos: u64, limit: u64, little: bool) -> R<(Vec<(u64, u64, u32)>, u64)> {
         let mut items = Vec::new();
         loop {

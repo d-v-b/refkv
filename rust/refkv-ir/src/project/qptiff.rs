@@ -1,5 +1,5 @@
-//! The QPTIFF image projection (spec/virtualize/qptiff.md §4
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#4-the-image>) from a valid IR:
+//! The QPTIFF image projection (spec/zarrify/qptiff.md §4
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#4-the-image>) from a valid IR:
 //! one array per level, whose chunks are the tiles, or the strips, of each channel's IFD (a
 //! short last strip padded to the chunk by the facts' `pad`: a zero data source, or a literal
 //! tail spliced into its LZW stream); the facts hold the format, the channels' names and
@@ -9,9 +9,8 @@
 use super::tiled::{self, MAX_NAME};
 use super::{arr, n, strs, window, Copied};
 use crate::ir::Ir;
-use crate::out::{omero_channel, omero_json, root_json, sample_channels, type_window, Out, Part};
+use crate::out::{omero_channel, omero_json, root_json, sample_channels, type_window, Out};
 use serde_json::{json, Value as J};
-use std::collections::HashMap;
 
 /// A channel's omero color from its QPI `Color` (three decimal bytes, `r,g,b`), else white.
 fn color(v: &J) -> String {
@@ -30,8 +29,8 @@ fn label(v: &J) -> Option<&str> {
     v.as_str().filter(|s| !s.is_empty() && s.len() <= MAX_NAME)
 }
 
-/// The `omero` member (spec/virtualize/qptiff.md §4.3
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#43-arrays>): one channel per
+/// The `omero` member (spec/zarrify/qptiff.md §4.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#43-arrays>): one channel per
 /// channel image, or, for an RGB image, one per sample; channel `c`'s window `windows[c]` (sampled
 /// from the data, else an integer type's whole range), and none when it has neither.
 fn omero(channels: &[J], spp: u64, windows: &[Option<J>]) -> J {
@@ -67,8 +66,8 @@ fn level_shape(facts: &J, lv: &J) -> (Vec<u64>, Vec<u64>) {
     (shape, chunk)
 }
 
-/// The chunks the `omero` windows sample (spec/virtualize/qptiff.md §4.3
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#43-arrays>): one per
+/// The chunks the `omero` windows sample (spec/zarrify/qptiff.md §4.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#43-arrays>): one per
 /// channel of the coarsest level, unless the image is RGB (three samples) or the core does not
 /// decode its compression.
 fn samples(facts: &J) -> Vec<window::Sample> {
@@ -93,19 +92,16 @@ pub fn reads(ir: &Ir, facts: &J) -> Result<Vec<(u64, u64)>, String> {
 /// level's chunks are the tiles, or the strips, of each channel's IFD.
 fn arrays(ir: &Ir, facts: &J, url: &str, only: Option<usize>) -> Result<(Out, Vec<Vec<u64>>), String> {
     let has_c = strs(&facts["axes"]).first() == Some(&"c");
+    // a short last strip's zero padding: a prefix of the output's zero data source
+    let mut zeros = tiled::zero_source(facts);
     tiled::arrays(ir, facts, url, only, |lv| level_shape(facts, lv), |refs, li, lv| {
         let (w, h, tw, th) = (n(&lv["w"]), n(&lv["h"]), n(&lv["tw"]), n(&lv["th"]));
         let strips = lv["strips"].as_bool().unwrap_or(false);
         let down = h.div_ceil(th);
         let across = if strips { 1 } else { w.div_ceil(tw) };
-        // a short last strip, padded to the chunk (spec/virtualize/qptiff.md §4.2
-        // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#42-tiles-and-strips>)
-        let pad = &lv["pad"];
-        let zeros = pad["zeros"].as_u64().map(|z| refs.out.shared(&vec![0u8; z as usize]));
-        let lzw: HashMap<(u64, u64), (u64, Vec<u8>)> = arr(&pad["lzw"])
-            .iter()
-            .map(|p| ((n(&p["c"]), n(&p["k"])), (n(&p["prefix"]), arr(&p["tail"]).iter().map(|b| n(b) as u8).collect())))
-            .collect();
+        // a short last strip, padded to the chunk (spec/zarrify/qptiff.md §4.2
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#42-tiles-and-strips>)
+        let padding = tiled::Padding::of(refs, lv, &mut zeros)?;
         let prefix = format!("{li}/c/");
         for (c, p) in arr(&lv["planes"]).iter().enumerate() {
             let Some(e) = p.as_u64() else { continue };
@@ -118,15 +114,7 @@ fn arrays(ir: &Ir, facts: &J, url: &str, only: Option<usize>) -> Result<(Out, Ve
                 coords.extend([row, col]);
                 coords
             };
-            let parts = |k, row, start, length| {
-                if !(strips && row == down - 1) {
-                    return None;
-                }
-                match &zeros {
-                    Some(z) => Some(vec![Part::Src(start, length), z.clone()]),
-                    None => lzw.get(&(c, k)).map(|(p, tail)| vec![Part::Src(start, *p), Part::Lit(tail.clone())]),
-                }
-            };
+            let parts = |k, row, start, length| padding.parts(c, k, row, start, length);
             tiled::plane(refs, &prefix, Some(e), across * down, across, coords, parts)?;
         }
         Ok(())

@@ -5,6 +5,7 @@ import subprocess
 import sys
 
 import pytest
+from test_store_operations import VALUES, _stores
 from zarr.abc.store import OffsetByteRequest, RangeByteRequest, SuffixByteRequest
 from zarr.core.buffer import default_buffer_prototype
 from zarr.core.sync import sync
@@ -12,8 +13,6 @@ from zarr.core.sync import sync
 import refkv
 import refkv.zarr
 from refkv import OffsetRequest, RangeRequest, SuffixRequest
-
-from test_store_operations import VALUES, _stores
 
 PROTO = default_buffer_prototype()
 
@@ -39,7 +38,9 @@ def test_zarr_reads_what_the_store_reads(tmp_path):
                 [k async for k in zs.list_dir("d")])
 
     for name, zs in stores.items():
-        assert zs.read_only and not zs.supports_writes and zs.supports_listing, name
+        assert zs.read_only, name
+        assert not zs.supports_writes, name
+        assert zs.supports_listing, name
         s = zs.reader
         want = {(k, r): s.get(k, r) for k in [*VALUES, "nope", "__vz__/shared"]
                 for r in requests.values()}
@@ -50,7 +51,7 @@ def test_zarr_reads_what_the_store_reads(tmp_path):
 
 def test_store_refuses_another_type():
     with pytest.raises(TypeError, match="wraps a reference store"):
-        refkv.zarr.store({"a": b""})
+        refkv.zarr.store({"a": b""})  # pyrefly: ignore[bad-argument-type] (the type refused)
 
 
 def test_without_zarr_the_adapter_names_its_extra():

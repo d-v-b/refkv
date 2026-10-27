@@ -6,6 +6,9 @@ from __future__ import annotations
 import ntpath
 import os
 import re
+from pathlib import Path
+from types import ModuleType
+from typing import cast
 from urllib.parse import quote, unquote, urlsplit
 
 _PCT = r"%[0-9A-Fa-f]{2}"
@@ -50,9 +53,7 @@ def _remove_dot_segments(path: str) -> str:
     while path:
         if path.startswith("../"):
             path = path[3:]
-        elif path.startswith("./"):
-            path = path[2:]
-        elif path.startswith("/./"):
+        elif path.startswith(("./", "/./")):
             path = path[2:]
         elif path == "/.":
             path = "/"
@@ -73,7 +74,7 @@ def _remove_dot_segments(path: str) -> str:
     return "".join(out)
 
 
-def _compose(scheme, authority, path, query, fragment) -> str:
+def _compose(scheme: str | None, authority: str | None, path: str, query: str | None, fragment: str | None) -> str:
     """RFC 3986 §5.3; a defined-but-empty component keeps its delimiter."""
     s = f"{scheme}:" if scheme is not None else ""
     if authority is not None:
@@ -90,8 +91,8 @@ def resolve(base: str, ref: str) -> str:
     """Strict RFC 3986 §5.2.2 resolution (urllib's urljoin drops empty queries)."""
     if not is_uri_reference(ref):
         raise ValueError(f"not a valid URI reference: {ref!r}")
-    bs, ba, bp, bq, _ = _SPLIT.match(base).groups()
-    rs, ra, rp, rq, rf = _SPLIT.match(ref).groups()
+    bs, ba, bp, bq, _ = cast("re.Match[str]", _SPLIT.match(base)).groups()  # which every string matches
+    rs, ra, rp, rq, rf = cast("re.Match[str]", _SPLIT.match(ref)).groups()
     if rs is not None:
         return _compose(rs, ra, _remove_dot_segments(rp), rq, rf)
     if ra is not None:
@@ -114,12 +115,12 @@ _HOST = re.compile(rf"[{_UNRESERVED}{_SUB}]+\Z")  # a reg-name with no percent-e
 _DRIVE = re.compile(r"[A-Za-z][:|]\Z")  # RFC 8089 Appendix E.2: `C:`, or the older `C|`
 
 
-def _windows(pathmod) -> bool:
+def _windows(pathmod: ModuleType) -> bool:
     """Do `pathmod`'s paths follow Windows' rules (ntpath), not POSIX's?"""
     return pathmod.sep == "\\"
 
 
-def is_url(location: str, *, pathmod=os.path) -> bool:
+def is_url(location: str, *, pathmod: ModuleType = os.path) -> bool:
     """Is `location` a URL (it has a scheme), not a local path? On Windows a path
     with a drive letter (`C:\\data`, `C:data`) is a path, though RFC 3986 would read
     its drive as a scheme."""
@@ -128,7 +129,7 @@ def is_url(location: str, *, pathmod=os.path) -> bool:
     return bool(urlsplit(location).scheme)
 
 
-def file_uri(path: str | os.PathLike, *, pathmod=os.path, cwd: str | None = None) -> str:
+def file_uri(path: str | os.PathLike[str], *, pathmod: ModuleType = os.path, cwd: str | None = None) -> str:
     """Base URI of a local path (spec §5
     <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>): absolute, lexical,
     percent-encoded. `pathmod` is the path flavor, `os.path` by default (posixpath or
@@ -139,7 +140,7 @@ def file_uri(path: str | os.PathLike, *, pathmod=os.path, cwd: str | None = None
     as `/`: a drive-letter path `C:\\data\\x.vzip` gives `file:///C:/data/x.vzip`, and a
     UNC path `\\\\server\\share\\x` gives `file://server/share/x`, the server as the
     authority (which `file_path` maps back only when the reader allows file hosts)."""
-    cwd = os.getcwd() if cwd is None else cwd
+    cwd = str(Path.cwd()) if cwd is None else cwd
     abs_path = pathmod.normpath(pathmod.join(cwd, os.fspath(path)))
     if not _windows(pathmod):
         if abs_path.startswith("//"):
@@ -172,22 +173,27 @@ def _windows_file_uri(abs_path: str) -> str:
     return "file://" + server + quote(("/" + share + path).encode("utf-8"), safe=_PATH_SAFE)
 
 
-def path_reference(path: str, *, pathmod=os.path) -> str:
+def path_reference(path: str, *, pathmod: ModuleType = os.path) -> str:
     """The URI reference a source read from the local path `path` is named by, when no
-    URL is given: on POSIX the path as it is (an absolute path is a path-absolute
-    reference, a relative one is relative to the archive). On Windows, where `\\` and a
-    drive letter are not URI syntax, an absolute path is its `file_uri`, and a relative
-    one its `/`-separated, percent-encoded segments."""
-    if not _windows(pathmod):
-        return path
-    drive, rest = ntpath.splitdrive(path)
-    if drive or rest.startswith(("\\", "/")):
-        return file_uri(path, pathmod=pathmod)
-    ref = quote(path.replace("\\", "/").encode("utf-8"), safe=_PATH_SAFE)
+    URL is given: the path's `/`-separated segments, percent-encoded as spec §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table> requires (so
+    `/data/a b.nii` is `/data/a%20b.nii`). An absolute POSIX path is a path-absolute
+    reference, a relative one is relative to the archive, and a relative one whose first
+    segment holds `:` is written `./` first, so that the segment is not read as a scheme.
+    On Windows, where a drive letter is not URI syntax, an absolute path is its
+    `file_uri`."""
+    if _windows(pathmod):
+        drive, rest = ntpath.splitdrive(path)
+        if drive or rest.startswith(("\\", "/")):
+            return file_uri(path, pathmod=pathmod)
+        path = path.replace("\\", "/")
+    elif path.startswith("//"):  # `//x` is `/x` on Linux and macOS, not an authority
+        path = "/" + path.lstrip("/")
+    ref = quote(path.encode("utf-8"), safe=_PATH_SAFE)
     return "./" + ref if ":" in ref.split("/", 1)[0] else ref
 
 
-def file_path(url: str, *, pathmod=os.path, allow_host: bool = False) -> str:
+def file_path(url: str, *, pathmod: ModuleType = os.path, allow_host: bool = False) -> str:
     """Local path of a file: URI, or ValueError per the rules of spec §5
     <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>.
 
@@ -199,7 +205,7 @@ def file_path(url: str, *, pathmod=os.path, allow_host: bool = False) -> str:
     policy's `allow_file_hosts`), and then `file://server/share/x` maps to
     `\\\\server\\share\\x`. A POSIX reader has no such mapping and refuses it always."""
     windows = _windows(pathmod)
-    m = _SPLIT.match(url)
+    m = cast("re.Match[str]", _SPLIT.match(url))  # which every string matches
     scheme, authority, path, query, _ = m.groups()
     if (scheme or "").lower() != "file":
         raise ValueError(f"not a file: URI: {url!r}")

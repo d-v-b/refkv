@@ -1,21 +1,21 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { test } from "node:test";
-import { virtualizeImage } from "../../../conformance/virtualize/reference/ts/index.ts";
-import { Nd2Error } from "../../../conformance/virtualize/reference/ts/nd2/virtualize.ts";
-import { gridCut } from "../../../conformance/virtualize/reference/ts/nd2/source.ts";
-import { blockReader, planGrid } from "../../../conformance/virtualize/reference/ts/legacy.ts";
-import { decodeLV, LVError, TooLargeError } from "../../../conformance/virtualize/reference/ts/nd2/lv.ts";
+import { virtualizeImage } from "../../../conformance/zarrify/reference/ts/index.ts";
+import { Nd2Error } from "../../../conformance/zarrify/reference/ts/nd2/virtualize.ts";
+import { gridCut } from "../../../conformance/zarrify/reference/ts/nd2/source.ts";
+import { blockReader, planGrid } from "../../../conformance/zarrify/reference/ts/legacy.ts";
+import { decodeLV, LVError, TooLargeError } from "../../../conformance/zarrify/reference/ts/nd2/lv.ts";
 import { deflateSync } from "node:zlib";
 
 const FIXTURES = new URL("../../../fixtures/nd2/", import.meta.url);
 
-async function virtualize(name: string) {
+async function zarrify(name: string) {
   const bytes = new Uint8Array(fs.readFileSync(new URL(name, FIXTURES)));
   return virtualizeImage(`https://data.test/${name}`, async (o, n) => bytes.subarray(o, o + n), bytes.length);
 }
 
-test("virtualizes the synthetic ND2 files", async () => {
+test("zarrifies the synthetic ND2 files", async () => {
   const cases: [string, object][] = [
     ["nd2_tz_uint16.nd2", { sizes: { t: 3, z: 4, c: 2, y: 6, x: 5 }, compressed: false, paddedRows: false, frames: 12, missing: 0, channels: ["DAPI", "GFP"] }],
     ["nd2_padded_rgb.nd2", { sizes: { z: 2, c: 3, y: 4, x: 13 }, paddedRows: true, channels: ["Brightfield R", "Brightfield G", "Brightfield B"] }],
@@ -23,12 +23,12 @@ test("virtualizes the synthetic ND2 files", async () => {
     ["nd2_float_uncalibrated.nd2", { sizes: { c: 1, y: 3, x: 4 }, dataType: "float32", channels: ["C0"] }],
   ];
   for (const [name, expected] of cases) {
-    const v = await virtualize(name);
+    const v = await zarrify(name);
     assert.equal(v.format, "nd2");
     assert.deepEqual({ ...v.summary, ...expected }, v.summary, name);
   }
   // Padded rows: one range per row of 39 bytes, 40 bytes apart.
-  const rows = (await virtualize("nd2_padded_rgb.nd2")).entries.find((e) => e.key === "0/0/c/0/1/0/0");
+  const rows = (await zarrify("nd2_padded_rgb.nd2")).entries.find((e) => e.key === "0/0/c/0/1/0/0");
   assert.ok(rows && "ranges" in rows && rows.ranges.length === 4);
   const [r0, r1] = rows.ranges as { offset: bigint; length: bigint }[];
   assert.equal(r0.length, 39n);
@@ -42,7 +42,7 @@ test("reads the frame headers ahead, at once, through an exact reader", async ()
     const read = blockReader(async (o, n) => bytes.subarray(o, o + n), bytes.length, 64);
     const ahead = await virtualizeImage(`https://data.test/${name}`, read, bytes.length,
       async (o, n) => (exact.push([o, n]), bytes.subarray(o, o + n)));
-    assert.deepEqual(ahead, await virtualize(name), name);
+    assert.deepEqual(ahead, await zarrify(name), name);
     // one exact read per placed frame, of its header and a name padded to 4 KiB
     assert.equal(exact.length, frames, name);
     assert.ok(exact.every(([o, n]) => n === Math.min(16 + 4096, bytes.length - o)), name);
@@ -63,12 +63,12 @@ for (const [name, message] of [
   ["nd2_reject_profile_records.nd2", /more than 1048576 LV records/],
 ] as const) {
   test(`rejects ${name}`, async () => {
-    await assert.rejects(virtualize(name), (e) => e instanceof Nd2Error && message.test(e.message));
+    await assert.rejects(zarrify(name), (e) => e instanceof Nd2Error && message.test(e.message));
   });
 }
 
 test("rejects a profile chunk that inflates past 64 MiB", async () => {
-  await assert.rejects(virtualize("nd2_reject_inflate_limit.nd2"),
+  await assert.rejects(zarrify("nd2_reject_inflate_limit.nd2"),
     (e) => e instanceof LVError && /inflates to more than 67108864 bytes/.test(e.message));
 });
 
@@ -85,7 +85,7 @@ test("other and empty past vzip_source's budget are arrays", async () => {
 
 /** The root's and vzip_source's source metadata of a fixture, and vzip_source's array paths. */
 async function source(name: string) {
-  const v = await virtualize(name);
+  const v = await zarrify(name);
   const doc = (key: string) => {
     const e = v.entries.find((x) => x.key === key);
     return e && "bytes" in e ? JSON.parse(new TextDecoder().decode(e.bytes as Uint8Array)) : undefined;

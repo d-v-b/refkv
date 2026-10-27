@@ -1,7 +1,7 @@
 {
   "source_model": "mrc",
   "version": 1,
-  "about": "The source model of an MRC2014 file (spec/virtualize/mrc.md §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#53-elements>): the elements a parser emits, the table of modes, and the roles the file, its byte order, its dimensions, its mode, its extended header, a volume stack and its data play, each with the constraints a file must meet to have the MRC convention's layout (spec/virtualize/mrc.md §8.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#81-header>). The parser checks them in this order; projections read a valid IR and check nothing.",
+  "about": "The source model of an MRC2014 file (spec/zarrify/mrc.md §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#53-elements>): the elements a parser emits, the table of modes, and the roles the file, its byte order, its dimensions, its mode, its extended header, a volume stack and its data play, each with the constraints a file must meet to have the MRC convention's layout (spec/zarrify/mrc.md §8.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#81-header>). The parser checks them in this order; projections read a valid IR and check nothing.",
   "limits": {
     "max_safe": 9007199254740991,
     "header": 1024
@@ -24,7 +24,7 @@
   },
   "elements": {
     "about": "The IR of an MRC file. E is the file's byte order (< or >), n the extended header's length (nsymbt), B the data's size.",
-    "header": {"kind": "value", "type": "the 1024-byte header as one record, a field per field of spec/virtualize/mrc.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#2-the-header> in its order: numbers Ei4, Ef4 (arrays for T[k]), u1[4] for machst, bytes[k] for the extra space, cstr[k] for text, and {text:cstr[80]}[10] for the labels", "extent": "(0, 1024)"},
+    "header": {"kind": "value", "type": "the 1024-byte header as one record, a field per field of spec/zarrify/mrc.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#2-the-header> in its order: numbers Ei4, Ef4 (arrays for T[k]), u1[4] for machst, bytes[k] for the extra space, cstr[k] for text, and {text:cstr[80]}[10] for the labels", "extent": "(0, 1024)"},
     "extended": {"kind": "value", "type": "bytes[n]", "extent": "(1024, n), when n > 0: the extended header, opaque"},
     "data": {"kind": "data", "form": "{geometry: {data_type, samples: 1}, codec: {endian}, recipe: [[src, 0, null]]}", "extent": "(1024 + n, B)"},
     "gaps/<offset>": {"kind": "gap", "about": "bytes after the data"}

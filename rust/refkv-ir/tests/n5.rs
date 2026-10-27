@@ -19,7 +19,7 @@ fn fixtures() -> PathBuf {
 }
 
 /// The output of the N5 format over a store in memory, with the recorded ignored keys.
-fn virtualize(files: &BTreeMap<String, Vec<u8>>, ignored: &[&str]) -> Result<(Out, refkv_ir::ir::Ir), String> {
+fn zarrify(files: &BTreeMap<String, Vec<u8>>, ignored: &[&str]) -> Result<(Out, refkv_ir::ir::Ir), String> {
     let keys = listing(&files);
     let bytes: Vec<&Vec<u8>> = files.values().collect();
     let mut r = refkv_ir::store::StoreRun::new(StoreFormat::N5, keys, 4)?;
@@ -50,7 +50,7 @@ fn accepted_fixtures_mirror_their_documents_and_listing() {
             continue;
         }
         let files = walk(&p);
-        let (out, ir) = virtualize(&files, &[]).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let (out, ir) = zarrify(&files, &[]).unwrap_or_else(|e| panic!("{name}: {e}"));
         check(&ir).unwrap_or_else(|e| panic!("{name}: {e}"));
         // the rebuild: the listing, and every node's document byte for byte
         let back = rebuild_store(&entry(&out)).unwrap_or_else(|e| panic!("{name}: {e}"));
@@ -70,8 +70,8 @@ fn accepted_fixtures_mirror_their_documents_and_listing() {
         assert_eq!(view_problem(&keys, &entry(&out), &mut no_source), None, "{name}");
         // refkv_source is the mirror; the root records no revision
         let root = doc(&out, "zarr.json");
-        assert!(root["attributes"]["refkv_virtualized"].get("revision").is_none(), "{name}");
-        let own = &doc(&out, "refkv_source/zarr.json")["attributes"]["refkv_virtualized"]["n5"];
+        assert!(root["attributes"]["refkv_zarrified"].get("revision").is_none(), "{name}");
+        let own = &doc(&out, "refkv_source/zarr.json")["attributes"]["refkv_zarrified"]["n5"];
         assert!(own["ir"]["objects"].as_u64() == Some(files.len() as u64), "{name}");
         // chunks at their keys, other objects under refkv_source/objects/, each whole
         for (k, parts) in &out.refs {
@@ -87,13 +87,13 @@ fn accepted_fixtures_mirror_their_documents_and_listing() {
 #[test]
 fn the_view_shows_each_member_and_ignored_keys_are_recorded() {
     let files = walk(&fixtures().join("n5_cosem"));
-    let (out, _) = virtualize(&files, &["x/", "a//b"]).unwrap();
-    let own = &doc(&out, "refkv_source/zarr.json")["attributes"]["refkv_virtualized"]["n5"];
+    let (out, _) = zarrify(&files, &["x/", "a//b"]).unwrap();
+    let own = &doc(&out, "refkv_source/zarr.json")["attributes"]["refkv_zarrified"]["n5"];
     assert_eq!(own["ignored"], serde_json::json!(["a//b", "x/"]));
     assert_eq!(canonical_problem(&entry(&out), &mut no_source), None);
     assert_eq!(rebuild_store(&entry(&out)).unwrap().len(), files.len());
     let tree = doc(&out, "refkv_source/tree/zarr.json");
-    let view = &tree["attributes"]["refkv_virtualized"]["n5"];
+    let view = &tree["attributes"]["refkv_zarrified"]["n5"];
     let s0 = &view["em"]["fibsem-uint8"]["s0"]["attributes.json"];
     assert_eq!(s0["dataType"], "\"uint8\"");
     assert!(s0["dimensions"].as_str().unwrap().starts_with('['));
@@ -101,7 +101,7 @@ fn the_view_shows_each_member_and_ignored_keys_are_recorded() {
 
 fn rejected(store: &str) -> String {
     let files = walk(&fixtures().join(store));
-    match virtualize(&files, &[]) {
+    match zarrify(&files, &[]) {
         Ok(_) => panic!("{store} accepted"),
         Err(e) => e,
     }
@@ -117,14 +117,14 @@ macro_rules! reject {
     };
 }
 
-// one test per case of conformance/virtualize/rejects/n5.json (build.rs)
+// one test per case of conformance/zarrify/rejects/n5.json (build.rs)
 include!(concat!(env!("OUT_DIR"), "/rejects_n5.rs"));
 
 #[test]
 fn a_document_over_16_mib_is_refused_before_it_is_read() {
     let mut files = walk(&fixtures().join("n5_hierarchy"));
     files.insert("big/attributes.json".into(), vec![b' '; (1 << 24) + 1]);
-    let e = virtualize(&files, &[]).err().unwrap();
+    let e = zarrify(&files, &[]).err().unwrap();
     assert!(e.contains("big/attributes.json: JSON document of 16777217 bytes exceeds 16777216"), "{e}");
 }
 
@@ -132,7 +132,7 @@ fn a_document_over_16_mib_is_refused_before_it_is_read() {
 fn a_scale_that_is_not_finite_is_refused() {
     let mut files = walk(&fixtures().join("n5_viewer_downsampling"));
     files.insert("g/attributes.json".into(), br#"{"pixelResolution": [1e300, 1e300], "scales": [[1, 1], [1e300, 2]]}"#.to_vec());
-    let e = virtualize(&files, &[]).err().unwrap();
+    let e = zarrify(&files, &[]).err().unwrap();
     assert!(e.contains("g: a scale is not finite"), "{e}");
 }
 
@@ -140,7 +140,7 @@ fn a_scale_that_is_not_finite_is_refused() {
 fn a_candidate_inside_a_dataset_is_never_read() {
     let mut files = walk(&fixtures().join("n5_root_dataset"));
     files.insert("x/attributes.json".into(), b"not JSON".to_vec());
-    let (out, _) = virtualize(&files, &[]).unwrap();
+    let (out, _) = zarrify(&files, &[]).unwrap();
     assert!(out.refs.iter().any(|r| r.0 == "refkv_source/objects/x/attributes.json"));
 }
 
@@ -148,7 +148,7 @@ fn a_candidate_inside_a_dataset_is_never_read() {
 fn compressed(c: &str) -> String {
     let doc = format!(r#"{{"dimensions": [4], "blockSize": [2], "dataType": "uint16", "compression": {c}}}"#);
     let files = BTreeMap::from([("attributes.json".to_string(), doc.into_bytes())]);
-    virtualize(&files, &[]).err().unwrap_or_default()
+    zarrify(&files, &[]).err().unwrap_or_default()
 }
 
 #[test]
@@ -175,21 +175,21 @@ fn a_blosc_blocksize_that_is_a_list_is_refused() {
 
 #[test]
 fn a_node_at_refkv_source_is_refused_even_with_nothing_else_to_keep() {
-    // the mirror is always refkv_source (spec/virtualize/n5.md §6
-    // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#6-other-objects>)
+    // the mirror is always refkv_source (spec/zarrify/n5.md §6
+    // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#6-other-objects>)
     let files = BTreeMap::from([
         ("attributes.json".to_string(), b"{}".to_vec()),
         ("refkv_source/attributes.json".to_string(), b"{}".to_vec()),
     ]);
-    let e = virtualize(&files, &[]).err().unwrap();
+    let e = zarrify(&files, &[]).err().unwrap();
     assert!(e.contains("the node refkv_source is where"), "{e}");
 }
 
 #[test]
 fn ignored_keys_under_a_root_dataset_are_recorded_beside_its_mirror() {
     let files = walk(&fixtures().join("n5_root_dataset"));
-    let (out, _) = virtualize(&files, &["b/", "a//c"]).unwrap();
-    let own = &doc(&out, "refkv_source/zarr.json")["attributes"]["refkv_virtualized"]["n5"];
+    let (out, _) = zarrify(&files, &["b/", "a//c"]).unwrap();
+    let own = &doc(&out, "refkv_source/zarr.json")["attributes"]["refkv_zarrified"]["n5"];
     assert_eq!(own["ignored"], serde_json::json!(["a//c", "b/"]));
     assert!(own["ir"].is_object());
     assert_eq!(canonical_problem(&entry(&out), &mut no_source), None);
@@ -204,7 +204,7 @@ fn a_document_of_more_than_4096_members_is_one_value() {
         let doc = format!("{{\"json\":0,{}}}", (1..members).map(|k| format!("\"m{k}\":{k}")).collect::<Vec<_>>().join(","));
         let n = doc.len() as u64;
         let files = BTreeMap::from([("attributes.json".to_string(), doc.into_bytes())]);
-        let (out, ir) = virtualize(&files, &[]).unwrap();
+        let (out, ir) = zarrify(&files, &[]).unwrap();
         let kids: Vec<u32> = (0..ir.len() as u32).filter(|&i| ir.parent[i as usize] == 1).collect();
         let named = |i: u32| (ir.names.get(ir.name[i as usize]).to_string(), ir.nidx[i as usize]);
         if members > 4096 {

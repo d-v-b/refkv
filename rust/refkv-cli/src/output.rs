@@ -1,5 +1,5 @@
-//! A virtualizer's output as an archive, as Python writes it: the output's source table and
-//! references (python/src/refkv/virtualize/common.py `Output.to_store`, and
+//! A zarrifier's output as an archive, as Python writes it: the output's source table and
+//! references (python/src/refkv/zarrify/common.py `Output.to_store`, and
 //! python/src/refkv/ir/store.py `StoreIrOutput.to_store` for a store), laid out by
 //! `reference_store` (the references first, in order of their keys, then the bytes entries, a
 //! late one, read when the archive opens, the others compressed, 64 KiB pages), and saved by
@@ -14,7 +14,7 @@ use std::fs::File;
 use std::collections::HashMap;
 use std::io::BufWriter;
 
-/// The page index of a virtualized archive (spec/bindings/vzip.md §12
+/// The page index of a zarrified archive (spec/bindings/vzip.md §12
 /// <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#12-page-index-optional>).
 const PAGE_SIZE: u64 = 1 << 16;
 
@@ -67,7 +67,7 @@ pub fn file_archive(mut out: Out, size: u64, etag: Option<String>) -> Result<Arc
 /// The archive of a store's output, and the object key of each url source: one url source per
 /// object some reference uses, its size pinned, in order of first use (the references in order of
 /// their keys, each one's ranges in order), then the data sources, also in order of first use
-/// (spec/virtualize.md §1.4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>).
+/// (spec/zarrify.md §1.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>).
 pub fn store_archive(mut out: Out, sizes: &HashMap<String, u64>) -> Result<(Archive, Vec<String>), Fail> {
     let mut refs = std::mem::take(&mut out.refs);
     refs.sort_unstable_by(|a, b| a.0.as_bytes().cmp(b.0.as_bytes()));

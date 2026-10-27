@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Image files to Zarr in the browser</title>
-<meta name="description" content="Paste the URL of a remote image file or store, such as an OME-TIFF, a Zeiss CZI, a DICOM, an N5 or a Sentinel-2 SAFE product: a service worker virtualizes it into a vzip archive in the browser and serves it as plain Zarr, opened here in Neuroglancer or on a map.">
+<meta name="description" content="Paste the URL of a remote image file or store, such as an OME-TIFF, a Zeiss CZI, a DICOM, an N5 or a Sentinel-2 SAFE product: a service worker zarrifies it into a vzip archive in the browser and serves it as plain Zarr, opened here in Neuroglancer or on a map. Host the archive, and its Neuroglancer link opens anywhere.">
 <style>
   :root {
     --bg: #fafaf8; --fg: #1d1d1b; --muted: #6b6b66; --line: #deddd8;
@@ -49,6 +49,7 @@
   .table { overflow-x: auto; }
   #view-row { margin: 4px 0; }
   #view-note { color: var(--muted); }
+  p.share { color: var(--muted); font-size: 0.9rem; margin: 12px 0 0; }
   footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line); font-size: 0.9rem; color: var(--muted); }
   footer a { color: var(--accent); }
 </style>
@@ -60,15 +61,17 @@
     <!-- profiles:demo-lede --> <!-- /profiles -->
     the format is detected from the file's
     first bytes, or the store's metadata. A service worker reads the input's structure with a few range
-    requests, writes a vzip archive in memory (by <a href="https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md">spec/virtualize.md</a>),
+    requests, writes a vzip archive in memory (by <a href="https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md">spec/zarrify.md</a>),
     and serves it as plain Zarr at a local URL that any Zarr viewer on this site can open: Neuroglancer, or
-    for Sentinel-2 a map. Pixel data is read from the original only when a viewer asks for it.</p>
+    for Sentinel-2 a map. Pixel data is read from the original only when a viewer asks for it.
+    That link works only here; download the archive and host it, and the Neuroglancer link to its URL
+    opens in any deployment of the viewer, with no service worker.</p>
   <form id="form">
     <input id="url" type="url" required aria-label="image file or refkv URL">
-    <button type="submit">Virtualize</button>
+    <button type="submit">Zarrify</button>
   </form>
   <!-- The blocks between `profiles:` markers are filled by js/build.mjs from the profile registry
-       (spec/virtualize/profiles/) and each format's demo/examples/<format>.html, with its
+       (spec/zarrify/profiles/) and each format's demo/examples/<format>.html, with its
        examples' sources and licenses. -->
   <dl class="examples" aria-label="examples, by format">
     <!-- profiles:demo-examples --> <!-- /profiles -->
@@ -78,7 +81,7 @@
     <div><strong id="name"></strong></div>
     <div id="view-row" hidden><label>Show <select id="view" aria-label="what to show"></select></label></div>
     <div id="view-note"></div>
-    <div>Zarr URL: <code id="zarr-url"></code></div>
+    <div>Neuroglancer source: <code id="zarr-url"></code></div>
     <div class="table"><table><thead><tr><th>array</th><th>shape</th><th>chunk</th><th>data type</th><th>codecs</th></tr></thead>
       <tbody id="levels"></tbody></table></div>
     <div class="actions">
@@ -86,6 +89,14 @@
       <a class="button" id="open-map" target="_blank" rel="noopener" hidden>View on a map</a>
       <a class="button secondary" id="download">Download .vzip</a>
     </div>
+    <p class="share" id="share-local">This Neuroglancer link opens only on this site, in a browser where this page
+      has zarrified the file: the page's service worker answers its reads. To share a link, download the .vzip,
+      put it on a server that allows cross-origin reads (CORS), and open its URL here. The link then names the
+      archive (<code>&lt;archive url&gt;|vzip:&lt;path&gt;|zarr3:</code>), which any deployment of the Neuroglancer fork opens.
+      The archive refers to the original's bytes by URL, so it stays small, and pins each source's size.</p>
+    <p class="share" id="share-archive" hidden>This Neuroglancer link names the archive itself
+      (<code>&lt;archive url&gt;|vzip:&lt;path&gt;|zarr3:</code>): share it, and any deployment of the Neuroglancer
+      fork opens it, with no service worker.</p>
   </section>
   <footer>Part of <a href="https://github.com/d-v-b/refkv">refkv</a>, reference semantics for key-value storage: specification, implementations and the source of this demo.
     Viewers: a fork of <a href="https://github.com/google/neuroglancer">Neuroglancer</a> (Apache-2.0) with

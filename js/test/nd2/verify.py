@@ -1,7 +1,7 @@
-"""Checks the browser ND2 virtualizer's output on the synthetic ND2 files.
+"""Checks the browser ND2 zarrifier's output on the synthetic ND2 files.
 
-Each fixtures/nd2/*.nd2 is served over local HTTP and virtualized by
-js/conformance/virtualize.ts (the browser code, run under Node). Every chunk
+Each fixtures/nd2/*.nd2 is served over local HTTP and zarrified by
+js/conformance/zarrify.ts (the browser code, run under Node). Every chunk
 of the archive is read through the reference reader and zarr-python and must
 equal the pixels write_fixtures.py wrote (<name>.npz); chunks absent from the
 npz (missing frames) must read as the fill value. `nd2_reject_*` files must be
@@ -18,56 +18,35 @@ import re
 import struct
 import sys
 import zlib
-from dataclasses import dataclass
 from pathlib import Path
 
+import nd2 as nd2lib
 import numpy as np
 import zarr
-from zarr.abc.codec import BytesBytesCodec
-from zarr.registry import register_codec
+from nd2._readers import ModernReader
 
 HERE = Path(__file__).parent
 ROOT = HERE.parents[2]
 sys.path.insert(0, str(ROOT / "conformance" / "vzip"))
 
 import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store)
+from refkv._narrow import at, ndarray, sequence, string  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # js/test, for verify_common
-from verify_common import LOOPBACK_SOURCES, run, serve  # noqa: E402
+from verify_common import LOOPBACK_SOURCES, metadata_v3, run, serve  # noqa: E402
+
 sys.path.insert(0, str(HERE.parent))
 from ir_mirror import is_mirror, mirror_problems  # noqa: E402
 
-
-@dataclass(frozen=True)
-class ZlibCodec(BytesBytesCodec):
-    """`zlib` (as Neuroglancer names it), which zarr-python lacks."""
-
-    is_fixed_size = False
-    level: int = 1
-
-    @classmethod
-    def from_dict(cls, data):
-        return cls(**data.get("configuration", {}))
-
-    def to_dict(self):
-        return {"name": "zlib", "configuration": {"level": self.level}}
-
-    async def _decode_single(self, chunk_bytes, chunk_spec):
-        return chunk_spec.prototype.buffer.from_bytes(zlib.decompress(chunk_bytes.to_bytes()))
-
-    async def _encode_single(self, chunk_bytes, chunk_spec):
-        return chunk_spec.prototype.buffer.from_bytes(zlib.compress(chunk_bytes.to_bytes()))
-
-    def compute_encoded_size(self, input_byte_length, chunk_spec):
-        raise NotImplementedError
-
-
-register_codec("zlib", ZlibCodec)
+# the frozen reference twin of the ND2 profile (conformance/zarrify/reference)
+sys.path.insert(0, str(ROOT / "conformance" / "zarrify" / "reference"))
+from refkv_reference.nd2.lv import decode_lv  # noqa: E402
+from refkv_reference.nd2.virtualize import flatten_experiment  # noqa: E402
 
 
 def lv_norm(v):
-    """The nd2 package's decoding of an LV value, as spec/virtualize/nd2.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#5-source-metadata> writes it."""
+    """The nd2 package's decoding of an LV value, as spec/zarrify/nd2.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#5-source-metadata> writes it."""
     if isinstance(v, dict):
         if v and all(re.fullmatch(r"i[0-9]{10}", k) for k in v):
             return [lv_norm(x) for x in v.values()]
@@ -85,8 +64,8 @@ TAGS = ("utf16", "int", "float")
 
 
 def ours_norm(v):
-    """Our JSON (spec/virtualize/nd2.md §5.1
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#51-decoded-chunks>) as the nd2
+    """Our JSON (spec/zarrify/nd2.md §5.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#51-decoded-chunks>) as the nd2
     package reads it: pairs
     as an object (first position, last value), or as a list when their names are empty;
     an int tag as its integer and a float tag as lv_norm writes the value (-0 as -0.0)."""
@@ -135,21 +114,32 @@ def family_member(node, i: int) -> bytes | None:
     return bytes(node["data"][offsets[i]:offsets[i + 1]]) if offsets[i + 1] > offsets[i] else b""
 
 
+def modern_reader(f: nd2lib.ND2File) -> ModernReader:
+    """`f`'s reader, whose chunk map, loader and decoder the checks read: the modern one (the
+    fixtures are not legacy JPEG 2000 files)."""
+    r = f._rdr
+    if not isinstance(r, ModernReader):
+        raise TypeError(f"expected a ModernReader, got {type(r).__name__}")
+    return r
+
+
 def frame_problems(root, loops: list[dict], frames: dict[int, bytes], attrs: dict) -> list[str]:
     """Each placed frame's pixels in the image, and its timestamp in ImageDataSeq,
-    against its chunk's data (spec/virtualize/nd2.md §4.3
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#43-output>, §5.3
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#53-elements>)."""
+    against its chunk's data (spec/zarrify/nd2.md §4.3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#43-output>, §5.3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#53-elements>)."""
     h, w, comp = attrs["uiHeight"], attrs["uiWidth"], attrs["uiComp"]
     row, width_bytes = w * comp * attrs["uiBpcInMemory"] // 8, attrs["uiWidthBytes"]
-    times = root["refkv_source/ImageDataSeq"] if frames else None
+    if not frames:
+        return []
+    times = root["refkv_source/ImageDataSeq"]
     problems = []
     for f, raw in sorted(frames.items()):
         coords, rest = {}, f
-        for l in reversed(loops):
-            c = rest % l["count"]
-            coords[l["kind"]] = l["count"] - 1 - c if l.get("flip") else c
-            rest //= l["count"]
+        for loop in reversed(loops):
+            c = rest % loop["count"]
+            coords[loop["kind"]] = loop["count"] - 1 - c if loop.get("flip") else c
+            rest //= loop["count"]
         arr = root[f"{coords.get('p', 0)}/0"]
         axes = arr.metadata.dimension_names
         got = arr[tuple(coords.get(a, 0) if a in ("t", "z") else slice(None) for a in axes)]
@@ -161,23 +151,21 @@ def frame_problems(root, loops: list[dict], frames: dict[int, bytes], attrs: dic
         want = np.moveaxis(want, -1, 0) if "c" in axes else want[:, :, 0]
         if not np.array_equal(got, want):
             problems.append(f"frame {f}: pixels differ from its chunk")
-        grid = tuple(coords[l["kind"]] for l in loops) or (0,)
+        grid = tuple(coords[loop["kind"]] for loop in loops) or (0,)
         if struct.pack("<d", times[grid]) != raw[:8]:
             problems.append(f"frame {f}: timestamp differs from its chunk")
     return problems
 
 
 def mirror_chunk_problems(path: Path, root, out: Path) -> list[str]:
-    """An archive of the IR: the root's decoded chunks (spec/virtualize/nd2.md §5.1
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#51-decoded-chunks>)
+    """An archive of the IR: the root's decoded chunks (spec/zarrify/nd2.md §5.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#51-decoded-chunks>)
     against the nd2 package's decoder, and the source rebuilt from the mirror byte for
     byte (the frames' pixels are checked against the expected arrays)."""
-    import nd2 as nd2lib
-
     problems = mirror_problems(out, path)
-    decoded = root.attrs["refkv_virtualized"]["nd2"]["chunks"]
+    decoded = root.attrs["refkv_zarrified"]["nd2"]["chunks"]
     with nd2lib.ND2File(path) as f:
-        r = f._rdr
+        r = modern_reader(f)
         for k in r.chunkmap:
             name = read_text(k)
             if name in decoded and (k.endswith(b"LV!") or b"LV|" in k):
@@ -191,15 +179,13 @@ def mirror_chunk_problems(path: Path, root, out: Path) -> list[str]:
 
 
 def chunk_problems(path: Path, root) -> list[str]:
-    """Reconstruction (spec/virtualize/nd2.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#5-source-metadata>): every chunk
+    """Reconstruction (spec/zarrify/nd2.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#5-source-metadata>): every chunk
     of the map but the placed frames' pixels can be recovered from the hierarchy, against the nd2
     package's chunk map, loader and decoder."""
-    import nd2 as nd2lib
-
-    meta = root.attrs["refkv_virtualized"]["nd2"]
-    src = root["refkv_source"] if "refkv_source" in root else None
-    s = src.attrs["refkv_virtualized"]["nd2"] if src is not None and "refkv_virtualized" in src.attrs else {}
+    meta = root.attrs["refkv_zarrified"]["nd2"]
+    src = root.get("refkv_source", None)
+    s = src.attrs["refkv_zarrified"]["nd2"] if src is not None and "refkv_zarrified" in src.attrs else {}
     decoded = {**meta["chunks"], **s.get("chunks", {})}
 
     def names(key: str) -> list:
@@ -216,7 +202,7 @@ def chunk_problems(path: Path, root) -> list[str]:
     problems = []
     placed_frames: dict[int, bytes] = {}
     with nd2lib.ND2File(path) as f:
-        r = f._rdr
+        r = modern_reader(f)
         for k in r.chunkmap:
             name = read_text(k)
             raw = r._load_chunk(k)
@@ -233,9 +219,9 @@ def chunk_problems(path: Path, root) -> list[str]:
                 continue
             if placed:
                 placed_frames[int(frame[1])] = raw
-                if not compressed and len(raw) > pixels:
-                    if family_member(src["ImageDataSeq.trailing"], int(frame[1])) != raw[pixels:]:
-                        problems.append(f"{name}: trailing bytes differ")
+                if (not compressed and len(raw) > pixels
+                        and family_member(src["ImageDataSeq.trailing"], int(frame[1])) != raw[pixels:]):
+                    problems.append(f"{name}: trailing bytes differ")
                 continue
             if frame is not None:
                 if family_member(src["ImageDataSeq.beyond"], int(frame[1]) - frames) != raw:
@@ -250,7 +236,7 @@ def chunk_problems(path: Path, root) -> list[str]:
                     if ours_norm(decoded[name]) != theirs:
                         problems.append(f"{name}: {str(decoded[name])[:60]} vs {str(theirs)[:60]}")
                 continue
-            m = re.fullmatch(r"CustomDataSeq\|(.+)\|([0-9]+)!", name, re.S)
+            m = re.fullmatch(r"CustomDataSeq\|(.+)\|([0-9]+)!", name, re.DOTALL)
             p = f"CustomDataSeq/{node_path(m[1])}" if m else node_path(name)
             if src is None or p not in src:
                 problems.append(f"{name}: not in the hierarchy")
@@ -272,34 +258,31 @@ def chunk_problems(path: Path, root) -> list[str]:
             if got != raw:
                 problems.append(f"{name}: bytes differ")
         exp = r._load_chunk(b"ImageMetadataLV!") if b"ImageMetadataLV!" in r.chunkmap else None
-    # the frozen reference twin of the ND2 profile (conformance/virtualize/reference)
-    sys.path.insert(0, str(ROOT / "conformance" / "virtualize" / "reference"))
-    from refkv_reference.nd2.lv import decode_lv
-    from refkv_reference.nd2.virtualize import flatten_experiment
-
     loops = flatten_experiment(decode_lv(exp).get("SLxExperiment") if exp is not None else None)
     return problems + frame_problems(root, loops, placed_frames, attrs)
 
 
 def check(nd2: Path, out: Path, _) -> tuple[list, str]:
-    """A virtualized file's problems: its chunks' metadata, then every chunk against the values the generator
+    """A zarrified file's problems: its chunks' metadata, then every chunk against the values the generator
     wrote; and its chunk count and axes."""
     root = zarr.open_group(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
     meta = mirror_chunk_problems(nd2, root, out) if is_mirror(out) else chunk_problems(nd2, root)
     expected = {k.replace("|", "/"): v for k, v in np.load(nd2.with_suffix(".npz")).items()}
     root = zarr.open_group(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
     problems, chunks = [], 0
-    for series in root["OME"].attrs["ome"]["series"]:
-        arr = root[f"{series}/0"]
-        grid = [s // c for s, c in zip(arr.shape, arr.chunks)]
+    series_paths = [string(x) for x in sequence(at(root["OME"].attrs, "ome", "series"))]
+    for series in series_paths:
+        arr = root.get_array(f"{series}/0")
+        grid = [s // c for s, c in zip(arr.shape, arr.chunks, strict=True)]
         # Every chunk, or for a large grid the chunks with data and the first ones.
         indices = list(np.ndindex(*grid)) if math.prod(grid) <= 100_000 else sorted(
             {tuple(map(int, k.split("/")[3:])) for k in expected if k.startswith(f"{series}/")}
-            | {i for i, _ in zip(np.ndindex(*grid), range(10))})
+            | {i for i, _ in zip(np.ndindex(*grid), range(10), strict=False)})
         for index in indices:
             key = f"{series}/0/c/" + "/".join(map(str, index))
-            sel = tuple(slice(i * c, (i + 1) * c) for i, c in zip(index, arr.chunks))
-            got = np.squeeze(arr[sel], axis=tuple(d for d, c in enumerate(arr.chunks) if c == 1 and d < arr.ndim - 2))
+            sel = tuple(slice(i * c, (i + 1) * c) for i, c in zip(index, arr.chunks, strict=True))
+            got = np.squeeze(ndarray(arr[sel]),
+                             axis=tuple(d for d, c in enumerate(arr.chunks) if c == 1 and d < arr.ndim - 2))
             want = expected.get(key)
             chunks += 1
             if want is None:
@@ -307,8 +290,9 @@ def check(nd2: Path, out: Path, _) -> tuple[list, str]:
                     problems.append(f"{key}: expected the fill value")
             elif got.dtype != want.dtype or not np.array_equal(got, want):
                 problems.append(f"{key}: differs ({got.dtype} {got.shape} vs {want.dtype} {want.shape})")
-    axes = root[root["OME"].attrs["ome"]["series"][0] + "/0"].metadata.dimension_names
-    return [f"CHUNKS: {x}" for x in meta[:3]] + problems[:3], f"({chunks} chunks, {len(expected)} with data, axes {axes})"
+    axes = metadata_v3(root.get_array(series_paths[0] + "/0")).dimension_names
+    return ([f"CHUNKS: {x}" for x in meta[:3]] + problems[:3],
+            f"({chunks} chunks, {len(expected)} with data, axes {axes})")
 
 
 def main() -> int:

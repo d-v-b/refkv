@@ -12,15 +12,18 @@ import threading
 import time
 import urllib.error
 import zipfile
+from email.message import Message
 from pathlib import Path
+from typing import override
 from xml.sax.saxutils import escape
 
 import pytest
 
 from refkv import _core
-from refkv.ir.store import virtualize_store
-from refkv.virtualize.common import Rejected
-from refkv.virtualize.store import object_url
+from refkv.ir.store import StoreIrOutput, zarrify_store
+from refkv.pb import decode_source_table
+from refkv.zarrify.common import Rejected
+from refkv.zarrify.store import object_url
 
 FIXTURES = Path(__file__).parents[3] / "fixtures"
 STORES = sorted(p for f in ("zarr2", "ome-zarr") for p in (FIXTURES / f).iterdir() if p.is_dir())
@@ -40,14 +43,16 @@ class FakeS3:
         self.inflight = self.most = 0
         self.lock = threading.Lock()
 
-    def __call__(self, req, timeout=None):
+    def __call__(self, req, timeout=None):  # noqa: ARG002 (urlopen's signature)
         class R(io.BytesIO):
             status = 200
 
+            @override
             def __enter__(self):
                 return self
 
-            def __exit__(self, *a):
+            @override
+            def __exit__(self, exc_type, exc_val, exc_tb):
                 pass
 
         if req.full_url == LISTING:
@@ -63,7 +68,7 @@ class FakeS3:
             time.sleep(0.002)
             v = self.objects[key]
             if isinstance(v, int):
-                raise urllib.error.HTTPError(req.full_url, v, "refused", {}, None)
+                raise urllib.error.HTTPError(req.full_url, v, "refused", Message(), None)
             return R(v[:-1] if key in self.short else v)
         finally:
             with self.lock:
@@ -87,15 +92,17 @@ def test_a_store_run_reads_each_document_once_and_its_mirror_rebuilds_them(root,
         # listing, or after reading documents only (an OME-Zarr store is a Zarr v2 store to the
         # core's format, which decides it is OME-Zarr's from its documents)
         with pytest.raises(Rejected):
-            virtualize_store(URL, opener=s3, workers=4)
+            zarrify_store(URL, opener=s3, workers=4)
         assert all(is_doc(k, objects[k]) and n == 1 for k, n in s3.reads.items()), s3.reads
         return
-    out, ir, stats = virtualize_store(URL, opener=s3, workers=4)
+    out, _ir, stats = zarrify_store(URL, opener=s3, workers=4)
     # each document read once, in one batch, at most 4 at a time; no chunk object read
     docs = set(s3.reads)
-    assert s3.reads == {k: 1 for k in docs} and all(is_doc(k, objects[k]) for k in docs)
+    assert s3.reads == dict.fromkeys(docs, 1)
+    assert all(is_doc(k, objects[k]) for k in docs)
     assert s3.most <= 4
-    assert stats["batches"] == 1 and stats["objects"] == len(docs)
+    assert stats["batches"] == 1
+    assert stats["objects"] == len(docs)
     # the referenced objects: one url source each, in order of the entries' keys
     assert sorted(set(out.sources)) == sorted(object_url(URL, k) for k, v in objects.items() if v and k not in docs)
     assert len(out.sources) == len(set(out.sources))
@@ -114,20 +121,20 @@ def test_a_store_run_reads_each_document_once_and_its_mirror_rebuilds_them(root,
     assert sorted((k, n) for k, n, _ in rebuilt) == sorted((k, len(v)) for k, v in objects.items())
     assert {k: b for k, _, b in rebuilt if b is not None} == {k: objects[k] for k in docs}
     # a local directory gives the same output
-    local, _, _ = virtualize_store(str(root), URL)
+    local, _, _ = zarrify_store(str(root), URL)
     assert (local.entries, local.refs) == (out.entries, out.refs)
 
 
 def test_a_document_the_store_refuses_fails_the_run():
     s3 = FakeS3({".zgroup": 404, "a/0": b"x"})
     with pytest.raises(urllib.error.HTTPError):
-        virtualize_store(URL, opener=s3, workers=2)
+        zarrify_store(URL, opener=s3, workers=2)
 
 
 def test_a_document_shorter_than_listed_fails_the_run():
     s3 = FakeS3({".zgroup": b'{"zarr_format": 2}', "a/.zarray": b"{}"}, short=frozenset({".zgroup"}))
     with pytest.raises(OSError, match="the listing says"):
-        virtualize_store(URL, opener=s3, workers=2)
+        zarrify_store(URL, opener=s3, workers=2)
 
 
 def test_an_unknown_store_format_is_refused():
@@ -136,13 +143,13 @@ def test_an_unknown_store_format_is_refused():
 
 
 def test_the_ignored_keys_are_refkv_source_s_member_ignored():
-    """The listed keys the store reader ignores and records (spec/virtualize.md §1.4
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>) are the member
+    """The listed keys the store reader ignores and records (spec/zarrify.md §1.4
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>) are the member
     `ignored` of refkv_source's source metadata, beside `ir`, in the order of their UTF-8 bytes."""
     root = FIXTURES / "zarr2" / "zarr2_hierarchy"
     s3 = FakeS3({**directory(root), "z//y": b"1", "./x": b"2", "é/../w": b"3"})
-    out, _, _ = virtualize_store(URL, opener=s3, workers=2)
-    own = json.loads(out.entries["refkv_source/zarr.json"])["attributes"]["refkv_virtualized"]["zarr2"]
+    out, _, _ = zarrify_store(URL, opener=s3, workers=2)
+    own = json.loads(out.entries["refkv_source/zarr.json"])["attributes"]["refkv_zarrified"]["zarr2"]
     assert set(own) == {"ir", "ignored"}
     assert own["ignored"] == sorted(["z//y", "./x", "é/../w"], key=str.encode)
 
@@ -150,7 +157,7 @@ def test_the_ignored_keys_are_refkv_source_s_member_ignored():
 def test_a_rejection_names_the_store_format():
     s3 = FakeS3({".zgroup": b'{"zarr_format": 2}', "a/.zarray": b'{"zarr_format": 3}'})
     with pytest.raises(Rejected, match="zarr_format is not 2") as e:
-        virtualize_store(URL, opener=s3, workers=2)
+        zarrify_store(URL, opener=s3, workers=2)
     assert e.value.format == "zarr2"
 
 
@@ -158,8 +165,6 @@ def test_a_store_output_numbers_its_sources_by_first_use():
     """One url source per object a reference uses, in order of first use (references by
     key, ranges in order), each pinning its listed size; then the data sources, by first
     use too; literals stay."""
-    from refkv.ir.store import StoreIrOutput
-
     out = StoreIrOutput(URL, refs={
         "b/c/0": [b"\x01", ("object", "x.jp2", 10, 4), (2, 0, 3)],
         "a/c/0": [("object", "y.jp2", 0, 8), (2, 0, 3), (1, 0, 2)],
@@ -174,9 +179,6 @@ def test_a_store_output_numbers_its_sources_by_first_use():
 
 def test_a_store_output_pins_its_objects_listed_sizes(tmp_path):
     """Each url source pins its object's listed size, and an object the listing lacks pins none."""
-    from refkv.ir.store import StoreIrOutput
-    from refkv.pb import decode_source_table
-
     out = StoreIrOutput(URL, refs={"a": [("object", "x.jp2", 0, 4)], "b": [("object", "y.jp2", 0, 2)]},
                         sizes={"x.jp2": 20})
     out.write(str(tmp_path / "o.vzip"))
@@ -185,7 +187,6 @@ def test_a_store_output_pins_its_objects_listed_sizes(tmp_path):
 
 
 def test_a_store_output_refuses_a_reference_to_source_0():
-    from refkv.ir.store import StoreIrOutput
-
     with pytest.raises(AssertionError, match="source 0"):
-        StoreIrOutput(URL, refs={"a": [(0, 4)]}).table()
+        # a range of source 0, which a store's output has no type for
+        StoreIrOutput(URL, refs={"a": [(0, 4)]}).table()  # pyrefly: ignore[bad-assignment]
