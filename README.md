@@ -5,22 +5,19 @@
 > and as a proof of concept. If you need virtual Zarr datasets, use
 > [Icechunk](https://icechunk.io/) or [kerchunk](https://github.com/fsspec/kerchunk).
 
-This repository is an experiment. It defines a value type, and two bindings of it, at different levels of abstraction
+This repository is an experiment. It defines a value type, and two implementations of it, at different levels of abstraction:
 
-**refkv** A reference value type for key-value storage:
+**refkv** is a __reference value type__ for key-value storage:
 a value is either bytes or a reference to byte ranges of other objects, such
 as the chunks inside HDF5, netCDF or TIFF files. The model is specified
 without a backend ([spec/refkv.md](spec/refkv.md)), so any key-value store
 that can tell bytes from references can hold such a store.
 
-**vzip** One binding of the model the
-specification makes normative ([spec/bindings/vzip.md](spec/bindings/vzip.md)):
-a refkv store kept in one ordinary ZIP file, a `.vzip` archive. The
-[pitch](design/PITCH.md) explains the model, the binding, why ZIP, and what
-the experiment has found; [COMPARISON.md](design/COMPARISON.md) measures vzip
-against kerchunk and Icechunk.
+**vzip** is an implementation of `refkv` that stores bytes and references in a plain zip archive. 
+A `vzip` archive contains regular files or `refkv` references, which can point to byte ranges in external objects.
+A `vzip` reader resolves those references before returning bytes to the consumer.
 
-**phkv** A second binding, in draft ([spec/bindings/phkv.md](spec/bindings/phkv.md)):
+**phkv** is a second implementation of `refkv`, in draft ([spec/bindings/phkv.md](spec/bindings/phkv.md)):
 a refkv store kept in one file with a perfect hash of its keys, so that a lookup
 reads a few ranges of it however many keys it holds. It can also sit inside a vzip
 archive, which keeps the archive readable by ZIP tools.
@@ -94,17 +91,6 @@ code is organized by language.
 `just ir-test` (Rust), `just compare` and `just compare-mutants` (the
 zarrifiers against the frozen reference), `just conformance` (the vzip
 binding's independent implementations).
-
-## How this was made
-
-I prompted Claude to explore serialization formats for the kind of virtual
-zarr stores created by
-[VirtualiZarr](https://virtualizarr.readthedocs.io/en/stable/index.html). Key
-to the prompt was the goal of re-using "boring" technology like Zip archives.
-Once Claude had cooked up a rough spec, I instructed Claude to have subagents
-write Python, Typescript, and Rust implementations, and to take notes along
-the way. This ran in a loop, refining the spec each time. After 7 revs, we got
-something convergent.
 
 ## License
 
