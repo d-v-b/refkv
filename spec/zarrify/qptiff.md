@@ -12,6 +12,17 @@ How refkv produces this layout as a reference store is the QPTIFF profile,
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `329ea136-2f55-4c27-b6f4-8e60ca2109b8` ·
 Schema: [schema.json](qptiff/schema.json) ·
+Changed 2026-10-27, with no change to the output of the inputs accepted before but the unusual ones below:
+the strip tags, LZW and the padding of a short last strip are now the TIFF convention's
+([tiff.md §4.3](tiff.md#43-data-types-and-codecs), [tiff.md §4.5](tiff.md#45-strips)), which
+[§2](#2-the-source), [§4.1](#41-data-types-and-codecs) and [§4.2](#42-tiles-and-strips) cite;
+a level whose short last strip cannot be padded is still left out here; a strip padded
+with more than 2^22 zero bytes now rejects the input ([§4.2](#42-tiles-and-strips)), and a
+short last LZW strip is read up to `3 × rows × B + 64` bytes, as [tiff.md §7.1](tiff.md#71-reading)
+says, where the whole strip was read (a stream that spends more than a Clear code and a literal
+on each byte it decodes no longer reaches its size); the zero padding is a prefix of the output's
+one zero data source, the same bytes and range as before when every padded strip lacks the same
+count ·
 Changed 2026-10-27: an LZW tile's or strip's codec is `refkv.tiff_lzw`, refkv's own, in place of `imagecodecs_lzw` (imagecodecs-zarr's codec of that name reads the whole stream), and a Deflate one's `numcodecs.zlib`, in place of `zlib` ([conventions §3](../conventions.md#3-arrays), d-v-b/refkv#90) ·
 Changed 2026-10-26, with no change to any output:
 the layout is tabulated, its entries in [Layout](#layout) and its types in type tables
@@ -89,13 +100,11 @@ only: the layout uses the main chain alone. Of duplicate tags in an IFD,
 the first is used.
 
 The layout uses the tags of the [TIFF convention's table](tiff.md#2-the-source)
-(with their defaults; field types and counts as the profile checks them),
-and these:
+(with their defaults, the strip tags included; field types and counts as the profile checks
+them), and these:
 
 | tag | name | kind | default |
 |---|---|---|---|
-| 273, 279 | StripOffsets, StripByteCounts | array | required for images in strips |
-| 278 | RowsPerStrip | scalar | 2^32 − 1 |
 | 286, 287 | XPosition, YPosition | scalar (RATIONAL) | none |
 
 An IFD's **format** is the tuple of [the TIFF convention §2](tiff.md#2-the-source)
@@ -161,52 +170,21 @@ are kept in the source metadata and otherwise ignored.
 ### 4.1 Data types and codecs
 
 The data type and codecs are those of [the TIFF convention §4.3](tiff.md#43-data-types-and-codecs),
-including its requirements on JPEG, FillOrder and YCbCr subsampling, with
-one more row in its table:
-
-| Compression | Predictor | codecs ([conventions §3](../conventions.md#3-arrays)) |
-|---|---|---|
-| 5 (LZW) | 1 | bytes, `refkv.tiff_lzw` |
-
-`{"name": "refkv.tiff_lzw"}` has no configuration: each chunk is one TIFF
-LZW stream (TIFF 6.0 §13: codes packed most significant bit first, with the
-"early change" every TIFF writer uses), which decodes to the chunk's bytes
-as `bytes` reads them. A decoder reads the stream until its output reaches
-the chunk's size and no further, as TIFF readers decode a tile into a buffer
-of its size: some scanners write a tile's end-of-information code one bit
-too narrow (a reader at the right width sees code 514, one more table entry,
-or an invalid code), so a decoder that reads the whole stream overruns the
-tile by a few bytes or fails; a chunk whose stream ends before the chunk's
-size is malformed. Like the TIFF convention's uncompressed, Deflate and
-zstd rows, LZW requires FillOrder 1 and Predictor 1: a horizontal
-predictor (2) or a floating-point predictor (3) rejects the input.
+including its requirements on JPEG, FillOrder and YCbCr subsampling, its LZW row
+(`bytes`, `refkv.tiff_lzw`: the scanners' default) and its rejection of a predictor.
 
 ### 4.2 Tiles and strips
 
-An IFD is **tiled** if it has TileWidth and TileOffsets; a tiled IFD MUST
-have TileLength and TileByteCounts, with TileWidth and TileLength at least
-1. An IFD that is not tiled is **in strips**: it MUST have StripOffsets
-and StripByteCounts, and RowsPerStrip (default 2^32 − 1) MUST be at least 1.
-Its **rows per strip** `R` is `min(RowsPerStrip, ImageLength)`, and it has
-`ceil(ImageLength / R)` strips per sample plane, the last holding the
-remaining rows. (The scanners write 512 × 512 tiles for images larger than
-about 2K × 2K, and strips of 16 rows for smaller ones, so the smallest
-levels of a pyramid, and inForm's component data, are in strips.)
-
-A level in strips has chunks of `R` rows ([§4.3](#43-arrays)). When its
-last strip is **short** (the level has more than one strip and ImageLength
-is not a multiple of `R`), the last strip's chunk is **padded** to `R` rows
-so that every chunk decodes to the chunk shape (a Zarr reader then needs no
-irregular chunk grid): the strip's bytes are followed by the bytes that
-make the rows missing zero, which depend on the compression (`rows` being the strip's rows
-and `B` the bytes of one row of the strip: ImageWidth × BitsPerSample / 8, times
-SamplesPerPixel when the samples are interleaved):
-
-| Compression | padding |
-|---|---|
-| **1 (uncompressed)** | `(R − rows) × B` zero bytes |
-| **5 (LZW)** | the strip's stream is read until its output reaches the strip's size (`rows × B` bytes; a stream that does not reach it, or whose code crosses it, rejects the input), and what follows (its end-of-information code, or the malformed final code of [§4.1](#41-data-types-and-codecs)) is replaced by a **tail** that continues the stream: a Clear code at the width the decoder has there, then the `(R − rows) × B` zeros as the codes 0, 258, 259, ... (each code one zero longer than the last, the entry the decoder defines on reading the previous one) and one more code for the remainder shorter than the next entry, then the end-of-information code, every code at the width the decoder has when it reads it. The chunk's bytes are the strip's bytes before the byte holding the cut, then the tail, which starts with that byte's bits before the cut |
-| **another compression** (JPEG, Deflate, zstd, JPEG 2000) | cannot be padded: the level is not a level, and its images stay in the source metadata. If level 0 would be left out, the input is rejected |
+An IFD is tiled or in strips as [the TIFF convention §2](tiff.md#2-the-source) says (a tiled
+IFD MUST have TileLength and TileByteCounts, with TileWidth and TileLength at least 1), and
+a level in strips has the rows per strip `R`, the chunks of `R` rows and the padding of a
+short last strip of [the TIFF convention §4.5](tiff.md#45-strips) (its limits on the
+padding and on the bytes an LZW tail reads included, which reject the input whatever the
+level), with one difference: a level whose short last strip cannot be padded (a
+compression other than uncompressed and LZW) is not a level, and its images stay in the
+source metadata. If level 0 would be left out, the input is rejected. (The scanners write 512 × 512 tiles for images larger than
+about 2K × 2K, and strips of 16 rows for smaller ones, so the smallest levels of a pyramid,
+and inForm's component data, are in strips.)
 
 ### 4.3 Arrays
 
@@ -394,7 +372,7 @@ detection test below.
 Akoya QPTIFF files are TIFFs or BigTIFFs, in either byte order, whose
 images each carry a QPI description. They are read by [tiff.md §7.1](tiff.md#71-reading)
 ([tiff.md](tiff.md#71-reading)) with the changes below, with the tags of
-[the convention §2](#2-the-source) (the TIFF table and the five it adds) as
+[the convention §2](#2-the-source) (the TIFF table and the two it adds) as
 the checked tags.
 
 **Detection.** After the header is read (and the NDPI test,
@@ -410,8 +388,7 @@ the main chain, with every check of [tiff.md §7.1](tiff.md#71-reading).
 **Reading.** The IFDs, limits and checks of [tiff.md §7.1](tiff.md#71-reading)
 apply (the main chain, its SubIFDs to depth 4, at most 100000 IFDs; the
 field type, count and place of every tag of the table in every IFD read,
-RowsPerStrip, StripOffsets and StripByteCounts being integer tags and
-XPosition and YPosition RATIONAL ones). These values are read
+XPosition and YPosition being RATIONAL tags). These values are read
 ([tiff.md §7.1](tiff.md#71-reading), **Values read**):
 
 | of | values read |
@@ -449,7 +426,7 @@ TileByteCounts`[k]` (StripByteCounts`[k]`):
 | part | range | presence | value |
 |---|---|---|---|
 | the tile or strip | source range `(0, offset[k], n)` | optional | but for JPEG and an LZW short last strip: the tile's or strip's bytes |
-| the zero rows | `Z`, source range `(i, 0, (R − rows) × B)` | optional | for an uncompressed short last strip ([the convention §4.2](#42-tiles-and-strips)), after the strip: the data source `i` ([§1.2](../zarrify.md#12-input)) that holds the `(R − rows) × B` zero bytes (one data source per distinct count, in order of first use) |
+| the zero rows | `Z`, source range `(i, 0, z)` | optional | for an uncompressed short last strip that lacks `z > 0` bytes of the chunk's size ([the convention §4.2](#42-tiles-and-strips)), after the strip: the first `z` bytes of the output's zero data source `i` ([§1.2](../zarrify.md#12-input)), as in a [`TiffChunk`](tiff.md#type-tiffchunk) |
 | the strip before the cut | source range `(0, offset[k], p)` | optional | for an LZW short last strip: `p` the bytes before the cut's byte |
 | the tail | `T`, a literal range | optional | for an LZW short last strip: the literal tail |
 | a JPEG tile or strip | the ranges of a [`TiffChunk`](tiff.md#type-tiffchunk) | optional | for JPEG, in place of the others: the ranges of [tiff.md §7.3](tiff.md#73-chunks) (its first 2 bytes, the shared prefix `P` of its IFD, the rest), with the same requirements |

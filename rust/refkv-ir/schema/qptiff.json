@@ -8,7 +8,8 @@
     "max_depth": 4,
     "max_tries": 10000,
     "max_decode": 65536,
-    "eager_decode": 16777216
+    "eager_decode": 16777216,
+    "max_padding": 4194304
   },
   "tables": {
     "kinds": {
@@ -349,10 +350,19 @@
       "given": {"offset": "the IFD's", "strip": "the strip's index", "decodes": "the stream reaches the strip's size", "problem": "why not"},
       "constraints": [{"require": "decodes", "message": "strip {strip} of the IFD at {offset} does not decode to its size: {problem}"}]
     },
+    "tails": {
+      "about": "the short last LZW strips of every level, as they are read for their tails: their distinct ranges together",
+      "given": {"read": "their bytes", "size": "the file's"},
+      "constraints": [{"require": "read <= size", "message": "the short last LZW strips would be read for their tails {read} bytes, more than the file's {size}"}]
+    },
     "padding": {
       "about": "a level in strips whose last strip is short, after it is padded (uncompressed, LZW) or found unpaddable (another compression): level 0 must be a level",
-      "given": {"level": "", "compression": "", "kept": "the level is padded, and kept"},
-      "constraints": [{"require": "kept || level > 0", "message": "the channels are strips of compression {compression} whose last strip is short, which cannot be padded"}]
+      "given": {"level": "", "compression": "", "kept": "the level is padded, and kept", "zeros": "the most zero bytes a strip of the level is padded with", "read": "(LZW) the most bytes of a last strip read for its tail: its byte count, at most 3 × its decoded size + 64"},
+      "constraints": [
+        {"require": "kept || level > 0", "message": "the channels are strips of compression {compression} whose last strip is short, which cannot be padded"},
+        {"require": "zeros <= max_padding", "message": "level {level} pads its last strip with {zeros} zero bytes, more than {max_padding}"},
+        {"require": "!present(read) || read <= eager_decode", "message": "level {level}'s last LZW strip would be read up to {read} bytes for its tail, more than {eager_decode}"}
+      ]
     },
     "images": {
       "about": "the file",

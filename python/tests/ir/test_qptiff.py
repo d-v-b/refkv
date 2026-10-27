@@ -284,3 +284,55 @@ def test_a_tiff_and_an_ndpi_are_not_qptiff():
     for file in ("tiff/jpeg_gray.tif", "ndpi/ndpi_levels.ndpi"):
         fmt, _, _ = via_ir(str(FIXTURES / file), "u")
         assert fmt != "qptiff"
+
+
+def test_padding_of_more_than_2_22_bytes_is_rejected(tmp_path):
+    """§4.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#42-tiles-and-strips>:
+    the TIFF convention's limit on the padding of a short last strip applies to QPTIFF too."""
+    path = tmp_path / "big.qptiff"
+    desc = "<PerkinElmer-QPI-ImageDescription><ImageType>FullResolution</ImageType></PerkinElmer-QPI-ImageDescription>"
+    tifffile.imwrite(path, np.zeros((1101, 4096), np.uint8), rowsperstrip=1100, compression="lzw", metadata=None,
+                     software="PerkinElmer-QPI", description=desc)
+    with pytest.raises(Rejected, match="level 0 pads its last strip with 4501504 zero bytes, more than 4194304"):
+        via_ir(str(path), "u")
+
+
+def test_a_level_that_cannot_be_padded_is_left_out_whatever_it_lacks(tmp_path):
+    """§4.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#42-tiles-and-strips>:
+    a reduced level in Deflate strips whose last strip is short is left out, however many bytes
+    it lacks of its chunk (the limit on the padding is on strips that are padded)."""
+    path = tmp_path / "dropped.qptiff"
+
+    def desc(kind):
+        return f"<PerkinElmer-QPI-ImageDescription><ImageType>{kind}</ImageType></PerkinElmer-QPI-ImageDescription>"
+
+    with tifffile.TiffWriter(path, bigtiff=True) as tif:
+        tif.write(np.zeros((2304, 8192), np.uint8), tile=(512, 512), compression="zlib", metadata=None,
+                  software="PerkinElmer-QPI", description=desc("FullResolution"))
+        tif.write(np.zeros((1101, 4096), np.uint8), rowsperstrip=1100, compression="zlib", metadata=None,
+                  software="PerkinElmer-QPI", description=desc("ReducedResolution"))
+    _, out, _ = via_ir(str(path), "u")
+    assert json.loads(out.bytes_entries["zarr.json"])["attributes"]["ome"]["multiscales"][0]["datasets"] == [
+        {"path": "0", "coordinateTransformations": [{"type": "scale", "scale": [1.0, 1.0]}]}]
+
+
+def test_an_lzw_tail_that_would_read_more_than_2_24_bytes_is_rejected(tmp_path):
+    """§4.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#42-tiles-and-strips>:
+    the TIFF convention's limit on the bytes of a short last LZW strip read for its tail applies to
+    QPTIFF too."""
+    path = tmp_path / "long.qptiff"
+    desc = "<PerkinElmer-QPI-ImageDescription><ImageType>FullResolution</ImageType></PerkinElmer-QPI-ImageDescription>"
+    tifffile.imwrite(path, np.zeros((1900, 8192), np.uint8), rowsperstrip=1200, compression="lzw", metadata=None,
+                     software="PerkinElmer-QPI", description=desc)
+    with tifffile.TiffFile(path) as tf:
+        counts = tf.pages.first.tags["StripByteCounts"]
+        size = counts.valuebytecount // counts.count
+        at_last = counts.valueoffset + (counts.count - 1) * size
+        last_offset, last_count = tf.pages.first.dataoffsets[-1], tf.pages.first.databytecounts[-1]
+    b = bytearray(path.read_bytes())
+    assert last_offset + last_count == len(b)  # the last strip ends the file
+    b += bytes(2**24)  # after its stream, so that its byte count can claim them
+    b[at_last:at_last + size] = (last_count + 2**24).to_bytes(size, "little")
+    path.write_bytes(b)
+    with pytest.raises(Rejected, match=f"level 0's last LZW strip would be read up to {last_count + 2**24} bytes"):
+        via_ir(str(path), "u")

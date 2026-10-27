@@ -6,17 +6,17 @@ import json
 import numpy as np
 import pytest
 import tifffile
-from ir_helpers import FIXTURES, as_the_reference, omero_and_expected_windows, same_hierarchy
+from ir_helpers import FIXTURES, REVISED, as_the_reference, omero_and_expected_windows, same_hierarchy, zarrified
 from refkv_reference import virtualize  # the frozen reference (ir_helpers)
 
-from refkv._narrow import at, integer, sequence
+from refkv._narrow import at, integer, mapping, ndarray, sequence, string
 from refkv.ir import zarrify as via_ir
 from refkv.zarrify import Rejected
 
 TIFFS = sorted((FIXTURES / "tiff").iterdir())
 
 
-@pytest.mark.parametrize("path", TIFFS, ids=lambda p: p.name)
+@pytest.mark.parametrize("path", [p for p in TIFFS if p.name not in REVISED], ids=lambda p: p.name)
 def test_projects_as_today_and_rebuilds(path, tmp_path):
     as_the_reference(path, tmp_path, "tiff")
 
@@ -179,3 +179,285 @@ def test_ifds_that_share_a_tile_table_name_it_by_alias(probes):
     assert ir.kind(tiles[0]) == 0
     assert all(ir.kind(t) == 4 and ir.target(t) == tiles[0] for t in tiles[1:])
     assert len(ir) < 50000  # about 40 per IFD (entries and values), none per tile: not 1000 x 1024
+
+
+AXIS = {"T": "t", "C": "c", "S": "c", "Z": "z", "Y": "y", "X": "x"}
+STRIPS = {
+    # name: each level's shape and chunk shape, the codecs, and the padding of each level's
+    # short last strip: None (no short strip), "zeros" (a zero data source) or "lzw" (a tail)
+    "lzw_uint8.tif": ([([64, 64], [32, 32])], ["bytes", "refkv.tiff_lzw"], [None]),
+    "strips_uint8.tif": ([([64, 64], [64, 64])], ["bytes"], [None]),  # one strip, the whole image
+    "strips_uint16_short.tif": ([([70, 50], [16, 50])], ["bytes"], ["zeros"]),
+    "strips_uint16_lzw_short.tif": ([([70, 50], [16, 50])], ["bytes", "refkv.tiff_lzw"], ["lzw"]),
+    "strips_rgb_contig_short.tif": ([([3, 70, 50], [3, 16, 50])], ["transpose", "bytes"], ["zeros"]),
+    "strips_rgb_planar_lzw.ome.tif": ([([3, 70, 50], [1, 16, 50]), ([3, 35, 25], [1, 16, 25])],
+                                      ["bytes", "refkv.tiff_lzw"], ["lzw", "lzw"]),
+    "strips_tcyx_uint16_lzw.ome.tif": ([([2, 3, 70, 50], [1, 1, 16, 50]), ([2, 3, 35, 25], [1, 1, 16, 25])],
+                                       ["bytes", "refkv.tiff_lzw"], ["lzw", "lzw"]),
+    # two levels whose last strips lack 1000 and 650 bytes: prefixes of one zero data source
+    "strips_uint16_pyramid_short.ome.tif": ([([70, 50], [16, 50]), ([35, 25], [16, 25])], ["bytes"],
+                                            ["zeros", "zeros"]),
+}
+
+
+def test_strips_and_lzw_are_the_images_pixels(tmp_path):
+    """§4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>,
+    §4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>: LZW tiles and
+    strips are `refkv.tiff_lzw` chunks; a level in strips has chunks of RowsPerStrip rows by the
+    image's width, one strip each, and a short last strip is padded to the chunk with a prefix of
+    the output's one zero data source (uncompressed) or a literal tail of its LZW stream;
+    interleaved or planar samples, the planes of an OME-TIFF and a SubIFD level alike. Each level
+    reads as tifffile reads it, and the mirror rebuilds the file."""
+    for name, (levels, codecs, padding) in STRIPS.items():
+        zero_sources = set()
+        path = FIXTURES / "tiff" / name
+        out, g, _ = zarrified(path, tmp_path, "tiff")
+        ms = mapping(at(g.attrs, "ome", "multiscales", 0))
+        names = [string(at(a, "name")) for a in sequence(ms["axes"])]
+        with tifffile.TiffFile(path) as tf:
+            series = tf.series[0]
+            want = [(level.asarray(), series.axes) for level in series.levels]
+        assert len(want) == len(levels) == len(sequence(ms["datasets"])), name
+        for li, ((shape, chunk), pad, (data, axes)) in enumerate(zip(levels, padding, want, strict=True)):
+            meta = json.loads(out.bytes_entries[f"{li}/zarr.json"])
+            assert meta["shape"] == shape, (name, li)
+            assert meta["chunk_grid"]["configuration"]["chunk_shape"] == chunk, (name, li)
+            assert [c["name"] for c in meta["codecs"]] == codecs, name
+            letters = [AXIS[a] for a in axes]
+            want_level = np.transpose(data, [letters.index(a) for a in names])
+            assert np.array_equal(ndarray(g.get_array(str(li))[...]), want_level), (name, li)
+            # the last strip's references: the strip, then its padding
+            down = -(-shape[-2] // chunk[-2])
+            last = [k for k in out.refs if k.startswith(f"{li}/c/") and int(k.split("/")[-2]) == down - 1]
+            planes, across = int(np.prod(shape[:-2])) // int(np.prod(chunk[:-2])), -(-shape[-1] // chunk[-1])
+            assert len(last) == planes * across, (name, li)  # the last row's chunks of every plane
+            for key in last:
+                parts = out.refs[key]
+                assert len(parts) == (1 if pad is None else 2), key
+                if pad == "zeros":  # (source, 0, length) of the zero data source
+                    assert isinstance(parts[1], tuple), key
+                    assert len(parts[1]) == 3, key
+                    assert parts[1][1] == 0, key
+                    zero_sources.add(parts[1][0])
+                elif pad == "lzw":  # the literal tail
+                    assert isinstance(parts[1], bytes), key
+        assert len(zero_sources) == ("zeros" in padding), name
+
+
+def strips_tiff(path, data, **kw):
+    """`data` written by tifffile at `path`, in strips of 16 rows, without metadata."""
+    tifffile.imwrite(path, data, rowsperstrip=16, metadata=None, photometric="minisblack", **kw)
+    return path
+
+
+def patch_tag(path, tag: str, *, value: int | None = None, code: int | None = None, page: int = 0):
+    """Page `page`'s `tag`: its in-line value set to `value`, or its tag number to `code`."""
+    with tifffile.TiffFile(path) as tf:
+        p = tf.pages[page]
+        assert isinstance(p, tifffile.TiffPage)
+        t = p.tags[tag]
+        at_value, at_entry, size = t.valueoffset, t.offset, t.valuebytecount // t.count
+    b = bytearray(path.read_bytes())
+    if value is not None:
+        b[at_value:at_value + size] = value.to_bytes(size, "little")
+    if code is not None:
+        b[at_entry:at_entry + 2] = code.to_bytes(2, "little")
+    path.write_bytes(b)
+    return path
+
+
+def test_a_short_last_strip_of_deflate_is_rejected():
+    """§4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>: a level
+    in Deflate strips whose last strip is short cannot be padded, and rejects the input."""
+    with pytest.raises(Rejected, match="level 0 is in strips of compression 8 whose last strip is short"):
+        via_ir(str(FIXTURES / "tiff" / "edge_reject_strips_deflate_short.tif"), "u")
+
+
+def test_a_horizontal_predictor_is_rejected():
+    """§4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>:
+    no codec undoes Predictor 2."""
+    with pytest.raises(Rejected, match="unsupported predictor 2"):
+        via_ir(str(FIXTURES / "tiff" / "unsupported_predictor.tif"), "u")
+
+
+def test_rows_per_strip_0_is_rejected(tmp_path):
+    path = patch_tag(strips_tiff(tmp_path / "r.tif", ramp("uint8", (40, 16))), "RowsPerStrip", value=0)
+    with pytest.raises(Rejected, match="has RowsPerStrip 0"):
+        via_ir(str(path), "u")
+
+
+def test_strips_without_byte_counts_are_rejected(tmp_path):
+    path = patch_tag(strips_tiff(tmp_path / "c.tif", ramp("uint8", (40, 16))), "StripByteCounts", code=65000)
+    with pytest.raises(Rejected, match="has no tag 279"):
+        via_ir(str(path), "u")
+
+
+def test_an_image_with_neither_tiles_nor_strips_is_rejected(tmp_path):
+    path = patch_tag(strips_tiff(tmp_path / "o.tif", ramp("uint8", (40, 16))), "StripOffsets", code=65000)
+    with pytest.raises(Rejected, match="has neither tiles nor strips"):
+        via_ir(str(path), "u")
+
+
+def test_an_lzw_last_strip_that_does_not_reach_its_size_is_rejected(tmp_path):
+    """§4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>: a short
+    last LZW strip whose stream ends before the strip's size cannot be continued by a tail."""
+    path = strips_tiff(tmp_path / "l.tif", ramp("uint8", (40, 16)), compression="lzw")
+    with tifffile.TiffFile(path) as tf:
+        counts = tf.pages.first.tags["StripByteCounts"]
+        at_last = counts.valueoffset + (counts.count - 1) * (counts.valuebytecount // counts.count)
+        size = counts.valuebytecount // counts.count
+    b = bytearray(path.read_bytes())
+    b[at_last:at_last + size] = (2).to_bytes(size, "little")
+    path.write_bytes(b)
+    with pytest.raises(Rejected, match=r"strip 2 of the IFD at \d+ does not decode to its size"):
+        via_ir(str(path), "u")
+
+
+def test_planes_in_strips_of_other_rows_are_rejected(tmp_path):
+    """§4.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#42-pyramid-levels>:
+    a level's planes have the same rows per strip."""
+    path = tmp_path / "p.ome.tif"
+    tifffile.imwrite(path, np.stack([ramp("uint8", (40, 16))] * 2), rowsperstrip=16, ome=True, metadata={"axes": "ZYX"})
+    patch_tag(path, "RowsPerStrip", value=8, page=1)
+    with pytest.raises(Rejected, match="planes of one pyramid level differ in size, tiling or format"):
+        via_ir(str(path), "u")
+
+
+def test_an_uncompressed_last_strip_written_whole_is_not_padded(tmp_path):
+    """§4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>: an
+    uncompressed short last strip is padded with the zeros its byte count lacks of the chunk's
+    size, so one written with all the chunk's rows has none, and the image reads as tifffile
+    reads it."""
+    data = ramp("uint8", (40, 16))
+    path = strips_tiff(tmp_path / "w.tif", data)
+    with tifffile.TiffFile(path) as tf:
+        counts = tf.pages.first.tags["StripByteCounts"]
+        size = counts.valuebytecount // counts.count
+        at_last = counts.valueoffset + (counts.count - 1) * size
+        last_offset = tf.pages.first.dataoffsets[-1]
+    b = bytearray(path.read_bytes())
+    assert last_offset + 8 * 16 == len(b)  # the last strip, of 8 rows, ends the file
+    b += bytes([7]) * (8 * 16)  # its 16 rows, whole
+    b[at_last:at_last + size] = (16 * 16).to_bytes(size, "little")
+    path.write_bytes(b)
+    out, g, _ = zarrified(path, tmp_path, "tiff")
+    assert out.refs["0/c/2/0"] == [(last_offset, 16 * 16)]
+    assert np.array_equal(ndarray(g.get_array("0")[...]), data)
+
+
+def test_padding_of_more_than_2_22_bytes_is_rejected(tmp_path):
+    """§4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>: a short
+    last strip that lacks more than 2^22 bytes of its chunk is not padded."""
+    path = tmp_path / "big.tif"
+    tifffile.imwrite(path, np.zeros((1101, 4096), np.uint8), rowsperstrip=1100, compression="lzw", metadata=None)
+    with pytest.raises(Rejected, match="level 0 pads its last strip with 4501504 zero bytes, more than 4194304"):
+        via_ir(str(path), "u")
+
+
+def test_an_uncompressed_strip_that_lacks_more_than_2_22_bytes_is_rejected(tmp_path):
+    """§4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>: the limit
+    is on the zeros a strip is padded with, `R × B − n`: a short last strip within it by its
+    rows, but whose byte count is short of them, is not padded."""
+    path = tmp_path / "shrunk.tif"
+    tifffile.imwrite(path, np.zeros((1176, 4096), np.uint8), rowsperstrip=1100, metadata=None)  # last strip: 76 rows
+    with tifffile.TiffFile(path) as tf:
+        counts = tf.pages.first.tags["StripByteCounts"]
+        size = counts.valuebytecount // counts.count
+        at_last = counts.valueoffset + (counts.count - 1) * size
+    b = bytearray(path.read_bytes())
+    b[at_last:at_last + size] = (1).to_bytes(size, "little")
+    path.write_bytes(b)
+    with pytest.raises(Rejected, match="level 0 pads its last strip with 4505599 zero bytes, more than 4194304"):
+        via_ir(str(path), "u")
+
+
+def test_a_stack_of_pages_in_strips_without_ome_xml_is_rejected(tmp_path):
+    """§4.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#42-pyramid-levels>: a
+    plain TIFF of several pages of one size in strips (ImageJ's or tifffile's stack) has no
+    mapping of its pages to planes, and is rejected rather than shown as its first page."""
+    path = tmp_path / "stack.tif"
+    tifffile.imwrite(path, np.stack([ramp("uint8", (40, 16))] * 3), rowsperstrip=16, metadata=None,
+                     photometric="minisblack")
+    with pytest.raises(Rejected, match="is another page of IFD 0's size and format"):
+        via_ir(str(path), "u")
+
+
+def test_later_pages_of_another_size_or_format_are_left_out(tmp_path):
+    """§4.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#42-pyramid-levels>: an
+    image in strips without OME-XML, followed by a smaller page (a thumbnail) and a page of its
+    size in another format, is the one image of IFD 0: the later pages are not its planes."""
+    data = ramp("uint8", (40, 16))
+    path = tmp_path / "thumb.tif"
+    with tifffile.TiffWriter(path) as tif:
+        tif.write(data, rowsperstrip=16, metadata=None, photometric="minisblack")
+        tif.write(data[::4, ::4], metadata=None, photometric="minisblack")
+        tif.write(data.astype(np.uint16), rowsperstrip=16, metadata=None, photometric="minisblack")
+    _, g, _ = zarrified(path, tmp_path, "tiff")
+    assert len(sequence(at(g.attrs, "ome", "multiscales", 0, "datasets"))) == 1
+    assert np.array_equal(ndarray(g.get_array("0")[...]), data)
+
+
+def test_an_lzw_tail_that_would_read_more_than_2_24_bytes_is_rejected(tmp_path):
+    """§4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>: a short
+    last LZW strip whose tail would read more than 2^24 of its bytes (its byte count, within
+    3 × its 700 rows of 8192 bytes + 64) is not padded, though it lacks fewer zeros than the
+    padding's limit; one of a few bytes is."""
+    path = tmp_path / "long.tif"
+    tifffile.imwrite(path, np.zeros((1900, 8192), np.uint8), rowsperstrip=1200, compression="lzw", metadata=None)
+    via_ir(str(path), "u")  # the zeros' last strip is a few bytes: read whole
+    with tifffile.TiffFile(path) as tf:
+        counts = tf.pages.first.tags["StripByteCounts"]
+        size = counts.valuebytecount // counts.count
+        at_last = counts.valueoffset + (counts.count - 1) * size
+        last_offset, last_count = tf.pages.first.dataoffsets[-1], tf.pages.first.databytecounts[-1]
+    b = bytearray(path.read_bytes())
+    assert last_offset + last_count == len(b)  # the last strip ends the file
+    b += bytes(2**24)  # after its stream, so that its byte count can claim them
+    b[at_last:at_last + size] = (last_count + 2**24).to_bytes(size, "little")
+    path.write_bytes(b)
+    with pytest.raises(Rejected, match=f"level 0's last LZW strip would be read up to {last_count + 2**24} bytes"):
+        via_ir(str(path), "u")
+
+
+def test_a_later_page_whose_values_do_not_load_is_not_a_page(tmp_path):
+    """§4.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#42-pyramid-levels>: a
+    later page whose ImageWidth is past 2^53 − 1 (a LONG8 in a BigTIFF) is not a page of IFD 0's
+    size: the image in strips is accepted."""
+    data = ramp("uint8", (40, 16))
+    path = tmp_path / "bad.tif"
+    with tifffile.TiffWriter(path, bigtiff=True) as tif:
+        tif.write(data, rowsperstrip=16, metadata=None, photometric="minisblack")
+        tif.write(data[::4, ::4], metadata=None, photometric="minisblack")
+    with tifffile.TiffFile(path) as tf:
+        page = tf.pages[1]
+        assert isinstance(page, tifffile.TiffPage)
+        entry = page.tags["ImageWidth"].offset
+    b = bytearray(path.read_bytes())
+    b[entry + 2:entry + 4] = (16).to_bytes(2, "little")  # LONG8
+    b[entry + 12:entry + 20] = (2**60).to_bytes(8, "little")
+    path.write_bytes(b)
+    _, g, _ = zarrified(path, tmp_path, "tiff")
+    assert np.array_equal(ndarray(g.get_array("0")[...]), data)
+
+
+def test_lzw_tails_that_would_read_more_than_the_file_are_rejected(tmp_path):
+    """§4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>: the short
+    last LZW strips of two planes, made to overlap over almost all of the file, would be read
+    for their tails, together, past the file's size, which strips that do not overlap never are."""
+    path = tmp_path / "overlap.ome.tif"
+    tifffile.imwrite(path, np.zeros((2, 40, 4096), np.uint8), rowsperstrip=16, compression="lzw", ome=True,
+                     metadata={"axes": "ZYX"})
+    b = bytearray(path.read_bytes())
+    for page, start in [(0, 8), (1, 9)]:  # each last strip from near the file's start to its end
+        with tifffile.TiffFile(path) as tf:
+            p = tf.pages[page]
+            assert isinstance(p, tifffile.TiffPage)
+            offsets, counts = p.tags["StripOffsets"], p.tags["StripByteCounts"]
+            last = offsets.count - 1
+            o_size, c_size = offsets.valuebytecount // offsets.count, counts.valuebytecount // counts.count
+            at_offset, at_count = offsets.valueoffset + last * o_size, counts.valueoffset + last * c_size
+        b[at_offset:at_offset + o_size] = start.to_bytes(o_size, "little")
+        b[at_count:at_count + c_size] = (len(b) - start).to_bytes(c_size, "little")
+    path.write_bytes(b)
+    with pytest.raises(Rejected, match=f"would be read for their tails {2 * len(b) - 17} bytes, more than the file's"):
+        via_ir(str(path), "u")

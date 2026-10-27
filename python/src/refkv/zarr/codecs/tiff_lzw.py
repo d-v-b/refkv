@@ -1,6 +1,6 @@
-"""`refkv.tiff_lzw`: a TIFF LZW stream (TIFF 6.0 §13, MSB-first with early change), as QPTIFF
-tiles and strips are (spec/zarrify/qptiff.md §4.1
-<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#41-data-types-and-codecs>),
+"""`refkv.tiff_lzw`: a TIFF LZW stream (TIFF 6.0 §13, MSB-first with early change), as TIFF
+and QPTIFF tiles and strips are (spec/zarrify/tiff.md §4.3
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>),
 decoded into the chunk's size, as TIFF readers decode a tile: a stream that runs on past it
 (some scanners write the final code one bit too narrow) still gives the chunk. That is what
 sets it apart from imagecodecs-zarr's `imagecodecs_lzw`, which decodes the whole stream, and so

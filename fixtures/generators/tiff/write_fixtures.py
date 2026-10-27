@@ -64,12 +64,33 @@ def main() -> None:
         tif.write(data[::8, ::8], photometric="minisblack")  # thumbnail, not tiled
         tif.write(data[::2, ::2], tile=(32, 32), compression="zlib", photometric="minisblack")
 
-    # Unsupported.
+    # LZW tiles, and images in strips (spec/zarrify/tiff.md §4.5
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>): one strip; strips whose
+    # last is short, padded with zeros (uncompressed) or an LZW tail; interleaved and planar
+    # RGB; an OME-TIFF of several planes and a SubIFD level in strips.
     small = image((64, 64), np.uint8)
-    tifffile.imwrite(OUT / "unsupported_lzw.tif", small, tile=(32, 32), compression="lzw")
+    tifffile.imwrite(OUT / "lzw_uint8.tif", small, tile=(32, 32), compression="lzw")
+    tifffile.imwrite(OUT / "strips_uint8.tif", small)
+    tall = image((70, 50), np.uint16)
+    tifffile.imwrite(OUT / "strips_uint16_short.tif", tall, rowsperstrip=16, photometric="minisblack")
+    tifffile.imwrite(OUT / "strips_uint16_lzw_short.tif", tall, rowsperstrip=16, compression="lzw",
+                     photometric="minisblack")
+    tifffile.imwrite(OUT / "strips_rgb_contig_short.tif", np.moveaxis(image((3, 70, 50), np.uint8), 0, -1).copy(),
+                     rowsperstrip=16, photometric="rgb", planarconfig="contig")
+    pyramid(OUT / "strips_rgb_planar_lzw.ome.tif", image((3, 70, 50), np.uint8), 1, axes="CYX",
+            rowsperstrip=16, compression="lzw", photometric="rgb", planarconfig="separate")
+    pyramid(OUT / "strips_tcyx_uint16_lzw.ome.tif", image((2, 3, 70, 50), np.uint16), 1, axes="TCYX",
+            rowsperstrip=16, compression="lzw", photometric="minisblack")
+    # two uncompressed levels whose last strips lack different rows: one zero data source
+    pyramid(OUT / "strips_uint16_pyramid_short.ome.tif", image((70, 50), np.uint16), 1, axes="YX",
+            rowsperstrip=16, photometric="minisblack")
+
+    # Unsupported, and rejected: a horizontal predictor; Deflate strips whose last is short,
+    # which cannot be padded.
     tifffile.imwrite(OUT / "unsupported_predictor.tif", small, tile=(32, 32),
                      compression="zlib", predictor=True)
-    tifffile.imwrite(OUT / "unsupported_strips.tif", small)
+    tifffile.imwrite(OUT / "edge_reject_strips_deflate_short.tif", tall, rowsperstrip=16, compression="zlib",
+                     photometric="minisblack")
     for p in sorted(OUT.glob("*.tif")):
         print(p.name, p.stat().st_size)
 
