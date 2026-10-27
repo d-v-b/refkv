@@ -424,7 +424,7 @@ TileByteCounts`[k]` (StripByteCounts`[k]`):
 | part | range | presence | value |
 |---|---|---|---|
 | the tile or strip | source range `(0, offset[k], n)` | optional | but for JPEG and an LZW short last strip: the tile's or strip's bytes |
-| the zero rows | `Z`, source range `(i, 0, (R − rows) × B)` | optional | for an uncompressed short last strip ([the convention §4.2](#42-tiles-and-strips)), after the strip: the data source `i` ([§1.2](../zarrify.md#12-input)) that holds the `(R − rows) × B` zero bytes (one data source per distinct count, in order of first use) |
+| the zero rows | `Z`, source range `(i, 0, z)` | optional | for an uncompressed short last strip that lacks `z > 0` bytes of the chunk's size ([the convention §4.2](#42-tiles-and-strips)), after the strip: the data source `i` ([§1.2](../zarrify.md#12-input)) that holds those `z` zero bytes (one data source per distinct count, in order of first use: `(R − rows) × B` when every such strip holds its rows) |
 | the strip before the cut | source range `(0, offset[k], p)` | optional | for an LZW short last strip: `p` the bytes before the cut's byte |
 | the tail | `T`, a literal range | optional | for an LZW short last strip: the literal tail |
 | a JPEG tile or strip | the ranges of a [`TiffChunk`](tiff.md#type-tiffchunk) | optional | for JPEG, in place of the others: the ranges of [tiff.md §7.3](tiff.md#73-chunks) (its first 2 bytes, the shared prefix `P` of its IFD, the rest), with the same requirements |

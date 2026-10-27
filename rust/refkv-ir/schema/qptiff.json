@@ -352,10 +352,11 @@
     },
     "padding": {
       "about": "a level in strips whose last strip is short, after it is padded (uncompressed, LZW) or found unpaddable (another compression): level 0 must be a level",
-      "given": {"level": "", "compression": "", "kept": "the level is padded, and kept", "zeros": "the most zero bytes a strip of the level is padded with"},
+      "given": {"level": "", "compression": "", "kept": "the level is padded, and kept", "zeros": "the most zero bytes a strip of the level is padded with", "read": "(LZW) the most bytes of a last strip read for its tail: its byte count, at most 3 × its decoded size + 64"},
       "constraints": [
         {"require": "kept || level > 0", "message": "the channels are strips of compression {compression} whose last strip is short, which cannot be padded"},
-        {"require": "zeros <= max_padding", "message": "level {level} pads its last strip with {zeros} zero bytes, more than {max_padding}"}
+        {"require": "zeros <= max_padding", "message": "level {level} pads its last strip with {zeros} zero bytes, more than {max_padding}"},
+        {"require": "!present(read) || read <= eager_decode", "message": "level {level}'s last LZW strip would be read up to {read} bytes for its tail, more than {eager_decode}"}
       ]
     },
     "images": {

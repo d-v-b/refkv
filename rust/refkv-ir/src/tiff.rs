@@ -1750,34 +1750,27 @@ impl Tiff {
                 if levels[0].strips {
                     let used: HashSet<usize> = levels.iter().flat_map(|l| l.ifds.iter().copied()).collect();
                     let (w0, h0) = (levels[0].w, levels[0].h);
-                    let pages: Vec<usize> = self.chain[1..]
-                        .iter()
-                        .copied()
-                        .filter(|&k| !used.contains(&k) && [256u16, 257, 258].iter().all(|&t| self.ifds[k].has(t)))
-                        .collect();
-                    // their values, in one batch; one whose values do not load (a malformed tag) is not
-                    // a page of IFD 0's format
-                    let loaded: Vec<Option<Vals>> = match self.load(&pages, false, false) {
-                        Ok(all) => all.into_iter().map(Some).collect(),
-                        Err(Stop::Reject(_)) => pages
-                            .iter()
-                            .map(|&k| match self.load(&[k], false, false) {
-                                Ok(mut m) => Ok(m.pop()),
-                                Err(Stop::Reject(_)) => Ok(None),
-                                Err(e) => Err(e),
-                            })
-                            .collect::<Got<Vec<_>>>()?,
-                        Err(e) => return Err(e),
+                    // a page's width and length are in line: only a page of IFD 0's size has its values
+                    // loaded, one at a time, so that a stack is rejected at its first such page; one
+                    // whose values do not load (a malformed tag) is not a page of IFD 0's format
+                    let one = |k: usize, t: u16| {
+                        self.ifds[k].field(t).filter(|e| unsigned(e.typ)).and_then(|e| self.ints(e, true)).and_then(|v| v.first().copied())
                     };
-                    for (&k, m) in pages.iter().zip(loaded) {
-                        let Some(m) = m else { continue };
-                        let size = (first_int(&m, 256), first_int(&m, 257));
+                    for &k in &self.chain[1..] {
+                        if used.contains(&k) || !self.ifds[k].has(258) || (one(k, 256), one(k, 257)) != (Some(w0), Some(h0)) {
+                            continue;
+                        }
+                        let m = match self.load(&[k], false, false) {
+                            Ok(mut m) => m.pop().unwrap(),
+                            Err(Stop::Reject(_)) => continue,
+                            Err(e) => return Err(e),
+                        };
                         let format = match self.fmt(k, &m) {
                             Ok(f) => Some(f),
                             Err(Stop::Reject(_)) => None, // not of IFD 0's format, whatever it is
                             Err(e) => return Err(e),
                         };
-                        let page = size == (Some(w0), Some(h0)) && format == Some(f0);
+                        let page = format == Some(f0);
                         self.rules.check("pages", rules::env([("offset", num(self.ifds[k].offset as f64)), ("page", flag(page))]))?;
                     }
                 }

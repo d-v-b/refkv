@@ -752,7 +752,7 @@ read for:
 | each IFD whose SubIFDs are read (above) | its SubIFDs tag |
 | IFD 0 | its ImageDescription, when its field type is ASCII (2) |
 | IFD 0 and every IFD that becomes a plane or a level, or is a candidate of the level scan ([the convention §4.1, §4.2](#41-planes)) | every other tag of the table but the tile and strip tables (TileOffsets, TileByteCounts, StripOffsets, StripByteCounts), which are read only for planes and levels |
-| without OME-XML and SubIFDs, when IFD 0 is in strips, every later main-chain IFD that is not a level and has ImageWidth, ImageLength and BitsPerSample ([the convention §4.2](#42-pyramid-levels)) | every tag of the table but the tile and strip tables, for its size and format |
+| without OME-XML and SubIFDs, when IFD 0 is in strips, each later main-chain IFD that is not a level, has BitsPerSample, and whose ImageWidth and ImageLength (in their value fields) are IFD 0's ([the convention §4.2](#42-pyramid-levels)), in chain order, until one has IFD 0's format | every tag of the table but the tile and strip tables, for its format |
 | every IFD of a level in LZW strips whose last strip is short | the bytes of its last strip (of each sample plane), for the tail of [the convention §4.5](#45-strips): at most `3 × rows × B + 64` of them, which hold the strip's output for any stream that does not spend more than a Clear code and a literal on each byte it decodes; a stream that does not reach the strip's size within them is read as one that ends before it |
 
 Each value read of an integer type MUST be at most 2^53 − 1 (only a LONG8
