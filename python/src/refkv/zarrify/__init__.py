@@ -66,7 +66,7 @@ from refkv.zarrify.common import Output, Rejected
 from refkv.zarrify.profile_classes import *  # noqa: F403 (one class per profile: profile_classes.__all__)
 from refkv.zarrify.sources import Dataset, Image, Source, Store, layout_names
 from refkv.zarrify.store import WORKERS, choose_profile, object_url, open_store
-from refkv.zarrify.vsi import VsiFiles
+from refkv.zarrify.store.beside import VsiFiles
 
 NOT_SUPPORTED = "not a file of any supported format"
 
@@ -134,7 +134,7 @@ def _zarrify_beside(fmt: str, location: str, url: str | None, transport: Transpo
     header file, whose data file a detached header names (spec/zarrify/nrrd.md §8.3
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#83-the-data-file>): a store
     run of the core's `fmt` format over the files, probed as the run asks for them
-    (`refkv.zarrify.vsi.VsiFiles`). `url`, when given, is the URL of the named file's
+    (`refkv.zarrify.store.beside.VsiFiles`). `url`, when given, is the URL of the named file's
     directory (ending in `/`), the store URL the output's object URLs are made from."""
     title, noun = BESIDE[fmt]
     store = VsiFiles(location, url, policy=policy, workers=connections, transport=transport, title=title, noun=noun)

@@ -30,7 +30,7 @@ resolution level.
   `float32`.
 - **Chunks:** the HDF5 chunks as stored (Imaris pads the dataset to whole
   chunks; chunks wholly in the padding are left out).
-- **Codecs:** `bytes`, or `bytes` then `zlib` for deflate-compressed files.
+- **Codecs:** `bytes`, or `bytes` then `numcodecs.zlib` for deflate-compressed files.
 - **Scale and translation:** from the image extents (`ExtMin`, `ExtMax`),
   so each level's voxel size is the extent over its size, and the
   translation is the extents' corner; the unit from `Unit` (micrometers by
@@ -111,7 +111,9 @@ points, 3 channels) in about 5 s and showed it in Neuroglancer.
 ## Viewing
 
 The Neuroglancer fork (<https://github.com/d-v-b/neuroglancer>, branch `vzip`)
-reads every data type and codec this profile writes; the HeLa time-lapse
+reads every data type and codec this profile writes but `numcodecs.zlib` (the fork decodes
+`zlib`, which archives named before d-v-b/refkv#90), so a deflate-compressed file's archive
+does not render there until the fork registers that name too; the HeLa time-lapse
 above renders through a local build of the demo, as one layer with a color
 and a contrast control per channel (the fork assembles each of its chunks
 from the file's chunks of every channel, as Imaris stores one channel per
@@ -147,7 +149,7 @@ The browser code ([js/](../../../js/README.md)) reads Imaris IMS (HDF5):
 - Files from Imaris 5.5 to 10 and its converters: every resolution level,
   time point and channel, with extents, units, time step, channel names,
   colors and contrast ranges.
-- Chunks as stored, uncompressed or deflate (`zlib`).
+- Chunks as stored, uncompressed or deflate (`numcodecs.zlib`).
 
 Not supported, and refused with HTTP 422: LZ4 or shuffle compression (as
 Imaris 10 can write), and HDF5 features Imaris files do not use.

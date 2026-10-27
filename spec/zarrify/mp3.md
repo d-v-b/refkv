@@ -14,6 +14,11 @@ Added 2026-10-21, after
 [revision 29](../history/virtualize/REVISIONS.md#revision-29-no-recorded-revision-the-profile-registry)
 (a profile's changes are recorded here, dated, from then on).
 
+**2026-10-26.** Changed with no change to any output: the layout is tabulated, its entries in
+[Layout](#layout) and its types in type tables
+([conventions §11.5](../conventions.md#115-layout-tables)); the header's values, the tags'
+fields and the summary are tables too.
+
 **2026-10-23.** The array's codec is `refkv.stream`
 ([conventions §10](../conventions.md#10-coded-streams)), which MP4 tracks share, in place
 of this convention's own `mp3`; its data type is `float32`, the decoder's own samples, in
@@ -28,6 +33,24 @@ OME-NGFF metadata. The samples stay in the file as MPEG frames; the array's
 codec decodes them when a chunk is read.
 
 # Part 1. The convention
+
+## Layout
+
+The hierarchy's entries ([conventions §11.5](../conventions.md#115-layout-tables)):
+
+| prefix | type | structure | description |
+|---|---|---|---|
+| `zarr.json` | group | [`GroupDocument`](../conventions.md#type-groupdocument), its attributes a [`Declaration`](../conventions.md#type-declaration) and nothing else | the root ([§4](#4-the-layout)): no `ome` member, since the hierarchy is not an image |
+| `zarr.json#/attributes/zarr_conventions` | attribute | array of [`ConventionMetadata`](../conventions.md#type-conventionmetadata) | the CMO of [§1](#1-declaration) |
+| `zarr.json#/attributes/refkv_zarrified` | attribute | [`RootProperty`](../conventions.md#type-rootproperty) | `profile` `"mp3"`, `version` `0`, `source.url` the file's URL |
+| `zarr.json#/attributes/refkv_zarrified/mp3` | attribute | [`Mp3Root`](#type-mp3root) | the root's source metadata ([§5.1](#51-the-root)) |
+| `samples/zarr.json` | array | [`Mp3Array`](#type-mp3array) | the decoded samples ([§4.1](#41-the-array)) |
+| `samples/c/<q>/0` | chunk | [`Mp3Chunk`](#type-mp3chunk) | every chunk of the array, a run of audio frames ([§8.2](#82-chunks)) |
+| `refkv_source/**` | subtree | [the mirror's entries](../conventions.md#table-mirror) | the IR mirror ([§5.2](#52-the-ir-mirror)): its elements are [§5.3](#53-elements)'s |
+
+| placeholder | value |
+|---|---|
+| `<q>` | the chunk's index along `time`, in decimal, from 0 to `ceil(N / F) − 1` ([§4.1](#41-the-array)) |
 
 ## 1. Declaration
 
@@ -74,26 +97,21 @@ the last. The header's bits, most significant first (byte 0 first):
 A header is **valid** when its sync is all ones, its version and layer are
 not reserved, its bitrate index is from 1 to 14 and its sample rate index is
 from 0 to 2. (A free-format header is one that is valid but for a bitrate
-index of 0.) The header gives:
+index of 0.) The header gives the **channel count** `C`, 1 for mono and 2 otherwise, and,
+by version, these values; the frame's length is in integer division, with `b` the bitrate
+in bits per second, `r` the sample rate and `p` the padding bit. Layer I and II frames,
+which the profile rejects, have their own bitrate tables and lengths:
 
-- the **sample rate**, by version and index: MPEG-1 44100, 48000, 32000;
-  MPEG-2 22050, 24000, 16000; MPEG-2.5 11025, 12000, 8000;
-- the **bitrate** in kbps, by version, layer and index 1 to 14: for Layer
-  III, MPEG-1 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320,
-  and MPEG-2 and 2.5 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144,
-  160 (Layer I and II frames, which the profile rejects, have their own
-  tables: Layer I 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384,
-  416, 448 for MPEG-1 and 32, 48, 56, 64, 80, 96, 112, 128, 144, 160, 176,
-  192, 224, 256 for MPEG-2 and 2.5; Layer II 32, 48, 56, 64, 80, 96, 112,
-  128, 160, 192, 224, 256, 320, 384 for MPEG-1, and Layer III's for MPEG-2
-  and 2.5);
-- the **channel count** `C`: 1 for mono, 2 otherwise;
-- the frame's **length** `L` in bytes, header included, with `b` the bitrate
-  in bits per second, `r` the sample rate and `p` the padding bit, integer
-  division: Layer III `144 × b / r + p` for MPEG-1 and `72 × b / r + p` for
-  MPEG-2 and 2.5 (Layer II `144 × b / r + p`; Layer I `(12 × b / r + p) × 4`);
-- the **samples per channel** `S` a Layer III frame decodes to: 1152 for
-  MPEG-1, 576 for MPEG-2 and 2.5.
+| value | MPEG-1 | MPEG-2 | MPEG-2.5 |
+|---|---|---|---|
+| the **sample rate**, by sample rate index 0, 1, 2 | 44100, 48000, 32000 | 22050, 24000, 16000 | 11025, 12000, 8000 |
+| the Layer III **bitrate** in kbps, by bitrate index 1 to 14 | 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320 | 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160 | MPEG-2's |
+| the Layer II bitrate | 32, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384 | Layer III's | Layer III's |
+| the Layer I bitrate | 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448 | 32, 48, 56, 64, 80, 96, 112, 128, 144, 160, 176, 192, 224, 256 | MPEG-2's |
+| the Layer III frame's **length** `L` in bytes, header included | `144 × b / r + p` | `72 × b / r + p` | `72 × b / r + p` |
+| the Layer II frame's length | `144 × b / r + p` | `144 × b / r + p` | `144 × b / r + p` |
+| the Layer I frame's length | `(12 × b / r + p) × 4` | `(12 × b / r + p) × 4` | `(12 × b / r + p) × 4` |
+| the **samples per channel** `S` a Layer III frame decodes to | 1152 | 576 | 576 |
 
 A Layer III frame is its header, the 2-byte CRC when the protection bit is
 0, the **side information** (MPEG-1: 17 bytes for mono, 32 otherwise;
@@ -114,37 +132,71 @@ bitrate stream; joint stereo).
 no audio but a tag describing the stream: a **Xing** or **Info** tag (the
 ASCII `Xing` or `Info` right after the side information, that is at offset
 `4 + 2 × crc + side` of the frame), followed by a 32-bit big-endian flags
-word and, for each flag bit set, the frame count (bit 0), the byte count (bit
-1), a 100-byte seek table (bit 2) and a quality indicator (bit 3), each
-32-bit big-endian; a **LAME tag** may follow: a 9-byte encoder version
+word and, for each flag bit set, in this order:
+
+| flag bit | field |
+|---|---|
+| 0 | the frame count, 32-bit big-endian |
+| 1 | the byte count, 32-bit big-endian |
+| 2 | a 100-byte seek table |
+| 3 | a quality indicator, 32-bit big-endian |
+
+A **LAME tag** may follow: a 9-byte encoder version
 (`LAME3.100`, `Lavc61.19`), then its fields, among them at offset 21 from
 the version's start the encoder **delay** (12 bits) and **padding** (12
 bits) in samples. A **VBRI** tag is the ASCII `VBRI` at offset 36 of the
-frame, followed by a 16-bit version, a 16-bit delay, a 16-bit quality, the
-byte count and the frame count (32-bit, all big-endian). The convention does
+frame, followed by these fields, all big-endian:
+
+| field | size |
+|---|---|
+| the version | 16-bit |
+| the delay | 16-bit |
+| the quality | 16-bit |
+| the byte count | 32-bit |
+| the frame count | 32-bit |
+
+The convention does
 not count an info frame as audio ([§4.1](#41-the-array)) and records its
 fields ([§5.1](#51-the-root)).
 
 ## 3. Tags
 
-An **ID3v2 tag** at the start of the file: `ID3`, a version (2 bytes: the
-major version and the revision), a flags byte, and a 4-byte **syncsafe**
-size (each byte below `80`; the size is their 7-bit values, most significant
-first), the 10-byte header; then `size` bytes of frames and padding; then,
-when bit 4 (`10`) of the flags is set, a 10-byte footer. A file may hold
-several, one after the other. The convention does not decode the tag's
-frames.
+An **ID3v2 tag** at the start of the file is its 10-byte header; then `size` bytes of frames
+and padding; then, when bit 4 (`10`) of the flags is set, a 10-byte footer. A file may hold
+several, one after the other. The convention does not decode the tag's frames. The header:
+
+| bytes | field |
+|---|---|
+| 3 | `ID3` |
+| 2 | the version: the major version and the revision |
+| 1 | the flags |
+| 4 | the **syncsafe** size: each byte below `80`; the size is their 7-bit values, most significant first |
 
 An **ID3v1 tag** is the last 128 bytes of the file when they start with
-`TAG`: the title, artist and album (30 bytes each), the year (4), the
-comment (30; in ID3v1.1, when its byte 28 is NUL, byte 29 is the track
-number) and the genre (1 byte).
+`TAG`, followed by these fields:
+
+| field | bytes |
+|---|---|
+| the title | 30 |
+| the artist | 30 |
+| the album | 30 |
+| the year | 4 |
+| the comment | 30; in ID3v1.1, when its byte 28 is NUL, byte 29 is the track number |
+| the genre | 1 |
 
 An **APE tag** ends with a 32-byte footer, right before the ID3v1 tag or at
-the end of the file: `APETAGEX`, the version, the size (the items and the
-footer, not the header), the item count and the flags (32-bit little-endian
-each; bit 31 of the flags: the tag also has a 32-byte header before its
-items), then 8 reserved bytes. The tag is `size` bytes, plus 32 when it has
+the end of the file:
+
+| bytes | field |
+|---|---|
+| 8 | `APETAGEX` |
+| 4 | the version, 32-bit little-endian |
+| 4 | the size (the items and the footer, not the header), 32-bit little-endian |
+| 4 | the item count, 32-bit little-endian |
+| 4 | the flags, 32-bit little-endian; bit 31: the tag also has a 32-byte header before its items |
+| 8 | reserved |
+
+The tag is `size` bytes, plus 32 when it has
 a header, ending at the footer's end; a footer whose tag would start before
 the first byte after the ID3v2 tags, or whose size is below 32, is not an
 APE tag. The convention does not decode the items.
@@ -161,23 +213,25 @@ nothing else.
 The **audio frames** are the stream's frames in file order, numbered from 0,
 without the info frame ([§2](#2-frames)); `N` is their count ([§8.1](#81-the-stream)
 says which frames those are). Every audio frame has the stream's `S`
-and `C`.
+and `C`. With **`F = 256` frames per chunk**, chunk `q` holds the audio frames `q × F` to
+`min(N, (q + 1) × F) − 1`, which are **its frames**; the last chunk may hold fewer than `F`,
+and is padded to the chunk shape by the codec. The chunk grid is regular; the chunk keys are
+`samples/c/<q>/0`.
 
-- **Shape:** `[N × S, C]`: the samples per channel, then the channels.
-- **Data type:** `float32`.
-- **Dimension names:** `["time", "channel"]`.
-- **Chunk shape:** `[F × S, C]` with **`F = 256` frames per chunk**: chunk `q`
-  holds the audio frames `q × F` to `min(N, (q + 1) × F) − 1`, which are
-  **its frames**; the last chunk may hold fewer than `F`, and is padded
-  to the chunk shape by the codec. The chunk grid is regular; the chunk
-  keys are `samples/c/<q>/0`.
-- **Codecs:** `[{"name": "refkv.stream", "configuration": {"format": "mp3"}}]`
-  ([conventions §10](../conventions.md#10-coded-streams)).
-- **Fill value:** 0.
+<a id="type-mp3array"></a>**`Mp3Array`**, the array's `zarr.json`: an
+[`ArrayDocument`](../conventions.md#type-arraydocument)
+([conventions §3](../conventions.md#3-arrays)'s, its fill value 0) with these members:
 
-The array's `zarr.json` is otherwise [conventions §3](../conventions.md#3-arrays)'s.
+| member | type | presence | value |
+|---|---|---|---|
+| `shape` | array of integer | required | `[N × S, C]`: the samples per channel, then the channels |
+| `data_type` | string | required | `"float32"` |
+| `chunk_grid` | object | required | regular, its chunk shape `[F × S, C]` |
+| `codecs` | array of object | required | `[{"name": "refkv.stream", "configuration": {"format": "mp3"}}]` ([conventions §10](../conventions.md#10-coded-streams)): a [`StreamConfiguration`](../conventions.md#type-streamconfiguration) with no `setup` |
+| `dimension_names` | array of string | required | `["time", "channel"]` |
+| `attributes` | object | required | `{}` ([§1](#1-declaration)) |
 
-A chunk is a `refkv.stream` chunk of MP3 frames: its own frames, each
+A chunk is a [`StreamChunk`](../conventions.md#type-streamchunk), a `refkv.stream` chunk of MP3 frames: its own frames, each
 placed at its `S` samples from the chunk's start, after its **lead-in**,
 the frames before its first frame that a decoder needs to have decoded so
 that it decodes the chunk's frames as a decoder of the whole stream does
@@ -209,54 +263,75 @@ The sample rate is `sample_rate` of [§5.1](#51-the-root); sample `i` is at
 ## 5. Source metadata
 
 The root's source metadata `S` ([conventions §2](../conventions.md#2-attributes))
-is an object with the members of [§5.1](#51-the-root), in that order,
+is an [`Mp3Root`](#type-mp3root), an object with the members of [§5.1](#51-the-root), in that order,
 translated by [conventions §6](../conventions.md#6-source-metadata-as-json).
 Everything the file holds is on `refkv_source`, the file's **IR mirror**
 ([§5.2](#52-the-ir-mirror)), from which the file is rebuilt byte for byte.
 
 ### 5.1 The root
 
-- `version`: `"MPEG-1"`, `"MPEG-2"` or `"MPEG-2.5"`, the stream's.
-- `layer`: 3.
-- `sample_rate`: the stream's, in Hz.
-- `channels`: `C`.
-- `channel_mode`: the first audio frame's: `"stereo"`, `"joint_stereo"`,
-  `"dual_channel"` or `"mono"`.
-- `samples_per_frame`: `S`.
-- `frames`: `N`, the audio frames.
-- `samples`: `N × S`.
-- `duration`: `N × S / sample_rate`, in seconds, as a number.
-- `bitrate_mode`: `"constant"` when every audio frame has the same bitrate
-  index, else `"variable"`.
-- `bitrate_kbps`: that bitrate in kbps, or `null` when variable.
-- `crc_frames`: how many audio frames have the protection bit 0 (a CRC).
-- `info`: when the stream starts with an info frame ([§2](#2-frames)), an
-  object `{"tag": T, "frames": n, "bytes": n, "quality": n, "encoder": e,
-  "delay": n, "padding": n}`: `T` is `"Xing"`, `"Info"` or `"VBRI"`; the
-  counts and the quality are those the tag holds, `null` for each it does
-  not (a Xing or Info flag bit clear; a value past the frame's end);
-  `encoder` is the LAME tag's 9-byte version as text: its bytes up to the
-  first NUL, when there is at least one, they are printable ASCII (`20` to
-  `7E`) and the first is not a space, trailing spaces removed (`LAME3.99r`,
-  `LAME4.0`, `Lavc63.1.`), else `null`; `delay` and `padding` are its
-  encoder delay and padding, `null` without an encoder or when the frame
-  ends before them; for a VBRI tag, `delay` is the tag's and `encoder` and
-  `padding` are `null`. Absent when there is no info frame.
-- `id3v2`: an array with one object per ID3v2 tag at the start, in order,
-  `{"version": [major, revision], "flags": f, "size": n, "footer": b}`
-  (the header's bytes 3 and 4, its flags byte, its size field, and whether
-  it has a footer). Absent when there is none.
-- `id3v1`: when the file ends with an ID3v1 tag, `{"title", "artist",
-  "album", "year", "comment"}`, each field's bytes up to its first NUL as a
-  text value, `"track"`, the track number of an ID3v1.1 tag (byte 28 of the
-  comment NUL and byte 29 not) or `null`, and `"genre"`, the genre byte.
-  Absent otherwise.
-- `ape`: when the file has an APE tag, `{"version": v, "size": n, "items":
-  n}`: the footer's version and item count, and the tag's whole size
-  (header included). Absent otherwise.
-- `stray_bytes`: the bytes between the ID3v2 tags and the trailing tags
-  that are in no frame (junk between frames, a truncated last frame,
-  bytes after the last frame).
+<a id="type-mp3root"></a>**`Mp3Root`**, the root's `S`:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `version` | string | required | `"MPEG-1"`, `"MPEG-2"` or `"MPEG-2.5"`, the stream's |
+| `layer` | integer | required | 3 |
+| `sample_rate` | integer | required | the stream's, in Hz |
+| `channels` | integer | required | `C` |
+| `channel_mode` | string | required | the first audio frame's: `"stereo"`, `"joint_stereo"`, `"dual_channel"` or `"mono"` |
+| `samples_per_frame` | integer | required | `S` |
+| `frames` | integer | required | `N`, the audio frames |
+| `samples` | integer | required | `N × S` |
+| `duration` | number | required | `N × S / sample_rate`, in seconds, as a number |
+| `bitrate_mode` | string | required | `"constant"` when every audio frame has the same bitrate index, else `"variable"` |
+| `bitrate_kbps` | integer or null | required | that bitrate in kbps, or `null` when variable |
+| `crc_frames` | integer | required | how many audio frames have the protection bit 0 (a CRC) |
+| `info` | [`Mp3Info`](#type-mp3info) | optional | when the stream starts with an info frame ([§2](#2-frames)); absent when there is none |
+| `id3v2` | array of [`Mp3Id3v2`](#type-mp3id3v2) | optional | one object per ID3v2 tag at the start, in order; absent when there is none |
+| `id3v1` | [`Mp3Id3v1`](#type-mp3id3v1) | optional | when the file ends with an ID3v1 tag; absent otherwise |
+| `ape` | [`Mp3Ape`](#type-mp3ape) | optional | when the file has an APE tag; absent otherwise |
+| `stray_bytes` | integer | required | the bytes between the ID3v2 tags and the trailing tags that are in no frame (junk between frames, a truncated last frame, bytes after the last frame) |
+
+<a id="type-mp3info"></a>**`Mp3Info`**, the info frame's fields:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `tag` | string | required | `T`: `"Xing"`, `"Info"` or `"VBRI"` |
+| `frames` | integer or null | required | the frame count the tag holds, `null` when it does not (a Xing or Info flag bit clear; a value past the frame's end) |
+| `bytes` | integer or null | required | the byte count, likewise |
+| `quality` | integer or null | required | the quality, likewise |
+| `encoder` | string or null | required | the LAME tag's 9-byte version as text: its bytes up to the first NUL, when there is at least one, they are printable ASCII (`20` to `7E`) and the first is not a space, trailing spaces removed (`LAME3.99r`, `LAME4.0`, `Lavc63.1.`), else `null`; `null` for a VBRI tag |
+| `delay` | integer or null | required | the LAME tag's encoder delay, `null` without an encoder or when the frame ends before it; for a VBRI tag, the tag's |
+| `padding` | integer or null | required | the LAME tag's encoder padding, `null` without an encoder or when the frame ends before it; `null` for a VBRI tag |
+
+<a id="type-mp3id3v2"></a>**`Mp3Id3v2`**, an ID3v2 tag's header:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `version` | array of integer | required | `[major, revision]`, the header's bytes 3 and 4 |
+| `flags` | integer | required | its flags byte |
+| `size` | integer | required | its size field |
+| `footer` | boolean | required | whether it has a footer |
+
+<a id="type-mp3id3v1"></a>**`Mp3Id3v1`**, the ID3v1 tag's fields:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `title` | [`Text`](../conventions.md#type-text) | required | the field's bytes up to its first NUL, as a text value |
+| `artist` | [`Text`](../conventions.md#type-text) | required | likewise |
+| `album` | [`Text`](../conventions.md#type-text) | required | likewise |
+| `year` | [`Text`](../conventions.md#type-text) | required | likewise |
+| `comment` | [`Text`](../conventions.md#type-text) | required | likewise |
+| `track` | integer or null | required | the track number of an ID3v1.1 tag (byte 28 of the comment NUL and byte 29 not), or `null` |
+| `genre` | integer | required | the genre byte |
+
+<a id="type-mp3ape"></a>**`Mp3Ape`**, the APE tag's:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `version` | integer | required | `v`, the footer's version |
+| `size` | integer | required | the tag's whole size (header included) |
+| `items` | integer | required | the footer's item count |
 
 `version` to `crc_frames` are derived from the frames, so that a reader
 need not read a header; the tags' fields are there so that a reader finds
@@ -470,7 +545,7 @@ convention does not know are bytes between or after frames, kept as gaps
 The array has `ceil(N / F)` chunks, `F = 256`, chunk `q` holding the audio
 frames `a = q × F` to `b − 1`, `b = min(N, a + F)`
 ([the convention §4.1](#41-the-array)). Every chunk is present. Chunk `q`, at
-`samples/c/<q>/0`, is the `refkv.stream` chunk
+`samples/c/<q>/0`, is the `refkv.stream` chunk, an [`Mp3Chunk`](#type-mp3chunk)
 ([conventions §10](../conventions.md#10-coded-streams)) of the audio frames `l` to
 `b − 1`, as a literal range for its header and ranges of source 0 for the
 frames: frame `j`'s position is −1 when `j < a`, and `(j − a) × S`
@@ -480,6 +555,13 @@ otherwise. `l` is the first frame of the **lead-in**:
    ([the convention §2](#2-frames), `M` of each) sums to at least `R`,
    where `R = 511` for MPEG-1 and `255` for MPEG-2 and 2.5, or `l = 0` when
    no index does.
+
+<a id="type-mp3chunk"></a>**`Mp3Chunk`**, chunk `q`, of the audio frames `l` to `b − 1`:
+
+| part | range | presence | value |
+|---|---|---|---|
+| the header | literal | required | the [`StreamChunk`](../conventions.md#type-streamchunk) header: the frames' count `b − l`, then, for each frame `j` from `l`, its length and its position, −1 when `j < a` and `(j − a) × S` otherwise |
+| the frames | source ranges `(0, offset, length)` | required | frames `l` to `b − 1`, in order, each its offset and length `L` in the file; a frame that starts where the one before it ends extends that one's range ([conventions §10](../conventions.md#10-coded-streams)) |
 
 So the lead-in is the two frames before the chunk, and before them the
 fewest frames whose main data holds the largest bit reservoir the version
@@ -501,8 +583,19 @@ array's chunks, and the mirror's.
 ### 8.3 Summary
 
 This section is informative. Both implementations print a one-line JSON
-summary: `version`, `sampleRate`, `channels`, `frames` (the audio frames),
-`samples`, `duration` (seconds), `bitrate` (kbps, or `"variable"`),
-`chunkFrames` (`F`), `chunks`, `info` (the info frame's tag, or `null`),
-`tags` (those of `"id3v2"`, `"id3v1"` and `"ape"` the file has, in that
-order) and `strayBytes`.
+summary, with these members:
+
+| member | value |
+|---|---|
+| `version` | the stream's version |
+| `sampleRate` | the sample rate |
+| `channels` | the channel count |
+| `frames` | the audio frames |
+| `samples` | the samples per channel |
+| `duration` | in seconds |
+| `bitrate` | in kbps, or `"variable"` |
+| `chunkFrames` | `F` |
+| `chunks` | the number of the array's chunks |
+| `info` | the info frame's tag, or `null` |
+| `tags` | those of `"id3v2"`, `"id3v1"` and `"ape"` the file has, in that order |
+| `strayBytes` | the stray bytes |

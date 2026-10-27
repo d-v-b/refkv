@@ -10,11 +10,49 @@ store, which files it reads and which inputs it rejects, is the VSI profile,
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `c0a1d4e6-5b7f-4f3a-9c2d-8e1f6a7b3c45` ·
 Schema: [schema.json](vsi/schema.json) · Added 2026-10-21, after
 [revision 29](../history/virtualize/REVISIONS.md#revision-29-no-recorded-revision-the-profile-registry)
-(a profile's changes are recorded here, dated, from then on)
+(a profile's changes are recorded here, dated, from then on) · Changed 2026-10-26, with no
+change to any output: the layout is tabulated, its entries in [Layout](#layout) and its types
+in type tables ([conventions §11.5](../conventions.md#115-layout-tables)), which also state what
+refkv already wrote: a value field's empty data is opaque, `""` ([§6.1](#61-the-root)), and an
+IFD image's summary has no `sizes`, `grids` or `tilesOutside` ([§9.5](#95-summary))
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
 # Part 1. The convention
+
+## Layout
+
+The hierarchy's entries ([conventions §11.5](../conventions.md#115-layout-tables)), a
+bioformats2raw collection ([conventions §4](../conventions.md#table-collection)) of the
+images of [§4](#4-the-images):
+
+| prefix | type | structure | description |
+|---|---|---|---|
+| `zarr.json` | group | [`GroupDocument`](../conventions.md#type-groupdocument), attributes a [`CollectionRoot`](../conventions.md#type-collectionroot) | the root, which declares the convention ([§1](#1-declaration)) |
+| `zarr.json#/attributes/ome` | attribute | object | `{"version": "0.5", "bioformats2raw.layout": 3}`, present when there is at least one image |
+| `zarr.json#/attributes/zarr_conventions` | attribute | array of [`ConventionMetadata`](../conventions.md#type-conventionmetadata) | the CMO of [§1](#1-declaration) |
+| `zarr.json#/attributes/refkv_zarrified` | attribute | [`RootProperty`](../conventions.md#type-rootproperty) | `profile` `"vsi"`, `version` `0`, `source.url` the `.vsi` file's object URL ([§1](#1-declaration)) |
+| `zarr.json#/attributes/refkv_zarrified/vsi` | attribute | [`VsiRoot`](#type-vsiroot) | the root's source metadata ([§6.1](#61-the-root)) |
+| `OME/zarr.json` | group | [`GroupDocument`](../conventions.md#type-groupdocument), attributes a [`SeriesGroup`](../conventions.md#type-seriesgroup) | the images' paths, `"0"`, `"1"`, ...; present when there is at least one image |
+| `<k>/zarr.json` | group | [`ImageGroup`](../conventions.md#type-imagegroup) | image `k` ([§4](#4-the-images)), which declares the convention ([§1](#1-declaration)) |
+| `<k>/zarr.json#/attributes/ome` | attribute | [`OmeImage`](../conventions.md#type-omeimage) | `M`: named by its stack (`macro image` for the macro image), a level per array, with the scales, units and translations of [§5](#5-scales-units-and-position), and `omero` ([§4.2](#42-channels)) |
+| `<k>/zarr.json#/attributes/zarr_conventions` | attribute | array of [`ConventionMetadata`](../conventions.md#type-conventionmetadata) | the CMO of [§1](#1-declaration) |
+| `<k>/zarr.json#/attributes/refkv_zarrified` | attribute | [`NodeProperty`](../conventions.md#type-nodeproperty) | `{"vsi": ...}`, with no `profile`, `version` or `source` |
+| `<k>/zarr.json#/attributes/refkv_zarrified/vsi` | attribute | [`VsiImage`](#type-vsiimage) or [`VsiMacro`](#type-vsimacro) | the image's source metadata ([§6.1](#61-the-root)): a stack's, or the macro image's |
+| `<s>/<l>/zarr.json` | array | [`VsiLevelArray`](#type-vsilevelarray) | level `l` of a stack's pyramid ([§4.1](#41-the-pyramid)) |
+| `<s>/<l>/c/<coords>` | chunk | [`VsiTileChunk`](#type-vsitilechunk) | each tile inside its level ([§4.1](#41-the-pyramid)); a tile the directory lacks, or outside its level, has none |
+| `<f>/0/zarr.json` | array | [`VsiIfdArray`](#type-vsiifdarray) | an IFD image's one array ([§4.3](#43-the-macro-image)) |
+| `<f>/0/c/<origin>` | chunk | [`VsiIfdChunk`](#type-vsiifdchunk) | its one chunk ([§4.3](#43-the-macro-image)) |
+| `refkv_source/**` | subtree | [the mirror's entries](../conventions.md#table-mirror) | the store IR mirror ([§6.2](#62-the-ir-mirror)): its objects are the `.vsi` file and the tile files read, its elements [§6.3](#63-elements)'s; the convention has no arrays of its own there |
+
+| placeholder | value |
+|---|---|
+| `<k>` | an image's index in decimal, from 0, in the order of [§4](#4-the-images) |
+| `<s>` | the index `<k>` of an image that is a stack's pyramid (a stack with a tile file) |
+| `<f>` | the index `<k>` of an IFD image: a stack's default sample IFD, or the macro image |
+| `<l>` | a level, from 0 to `L − 1`, in decimal |
+| `<coords>` | `<t>/<c>/<z>/<row>/<column>`, the tile's coordinates for the axes present, one key segment each (`c` is the channel's index, or 0 when `S > 1`; two to five segments) |
+| `<origin>` | `0/0/0` for three samples (`c`, `y`, `x`), `0/0` for one |
 
 ## 1. Declaration
 
@@ -36,7 +74,8 @@ of [§6.1](#61-the-root) as the member `"vsi"`. Its CMO is:
 
 Each image's group ([§4](#4-the-images)) declares it too, with the image's
 source metadata ([§6.1](#61-the-root)) as `"vsi"` and no `profile`, `version`
-or `source` (a node property, [conventions §2](../conventions.md#2-attributes)).
+or `source` (a node property, [conventions §2](../conventions.md#2-attributes),
+a [`NodeProperty`](../conventions.md#type-nodeproperty)).
 The arrays and the `OME` group have no attributes.
 
 ## 2. The .vsi file
@@ -47,8 +86,13 @@ A slide is a `.vsi` file and a directory beside it, `_<name>_` for the file
 (`II`, 42, the first IFD's offset) whose byte 8 starts the **metadata tree**:
 a container of fields that fills the rest of the file, and inside whose
 regions the TIFF IFDs lie ([§2.3](#23-the-tiff-images)). All integers are
-little-endian; `i32`, `u32`, `i64` are two's complement or unsigned integers
-of that width, `f64` an IEEE 754 binary64 number.
+little-endian. The types:
+
+| type | value |
+|---|---|
+| `i32`, `i64` | a two's complement integer of that width |
+| `u32` | an unsigned integer of that width |
+| `f64` | an IEEE 754 binary64 number |
 
 ### 2.1 Containers and fields
 
@@ -67,30 +111,60 @@ header followed by its fields, which tile the region in order:
 The tree's root container is at offset 8, with the region `[8, size)`,
 `size` the file's size. A **field** at offset `p` has a 16-byte header, `type`,
 `tag`, `next` and `size` (four `u32`), followed by a fifth `u32`, the
-**second tag** `tag2`, when bit 27 of `type` is set. Bit 28 of `type` marks an
-**extended** field, bit 30 an **inline** field, and its low 24 bits are the
-**field type**: for a plain field, the type of its value (the table
-`field_types` of the schema: `CHAR` 1, `UCHAR` 2, `SHORT` 3, `USHORT` 4, `INT` 5,
-`UINT` 6, `LONG` 7, `ULONG` 8, `FLOAT` 9, `DOUBLE` 10, `BOOLEAN` 12, `TCHAR` 13,
-`DWORD` 14, `TIMESTAMP` 17, `DATE` 18, the vector, rectangle, interval, matrix
-and array types 256 to 280 (`INT_2`, `DOUBLE_2`, `INT_RECT`, `DOUBLE_INTERVAL`,
-`RGB` 269, `BGR` 270, ...), the Unicode texts 8192 and 8194, `DIM_INDEX_1` 8195,
-`DIM_INDEX_2` 8199, `VOLUME_INDEX` 8200, `PIXEL_INFO_TYPE` 8470); for an
-extended field, what its data holds (the table `extended_types`): a **volume**
-(0), a **property set** (1), an **mdim volume** (2) or a **TIFF IFD** (10). The
-other bits of `type` are not interpreted.
+**second tag** `tag2`, when bit 27 of `type` is set. The bits of `type`:
+
+| bits | meaning |
+|---|---|
+| 27 | the field has a second tag |
+| 28 | an **extended** field |
+| 30 | an **inline** field |
+| 0–23 (the low 24) | the **field type**: for a plain field, the type of its value (the table `field_types`, below); for an extended field, what its data holds (the table `extended_types`, below) |
+
+The other bits of `type` are not interpreted. The table `field_types` of the schema:
+
+| field type | name |
+|---|---|
+| 1 | `CHAR` |
+| 2 | `UCHAR` |
+| 3 | `SHORT` |
+| 4 | `USHORT` |
+| 5 | `INT` |
+| 6 | `UINT` |
+| 7 | `LONG` |
+| 8 | `ULONG` |
+| 9 | `FLOAT` |
+| 10 | `DOUBLE` |
+| 12 | `BOOLEAN` |
+| 13 | `TCHAR` |
+| 14 | `DWORD` |
+| 17 | `TIMESTAMP` |
+| 18 | `DATE` |
+| 256 to 280 | the vector, rectangle, interval, matrix and array types (`INT_2`, `DOUBLE_2`, `INT_RECT`, `DOUBLE_INTERVAL`, `RGB` 269, `BGR` 270, ...) |
+| 8192, 8194 | the Unicode texts |
+| 8195 | `DIM_INDEX_1` |
+| 8199 | `DIM_INDEX_2` |
+| 8200 | `VOLUME_INDEX` |
+| 8470 | `PIXEL_INFO_TYPE` |
+
+The table `extended_types`:
+
+| field type | an extended field's data holds |
+|---|---|
+| 0 | a **volume** |
+| 1 | a **property set** |
+| 2 | an **mdim volume** |
+| 10 | a **TIFF IFD** |
 
 The field's **region** runs from `p` to `fp + next`, or to the container's
 `end` for the last field, whose `next` is 0 (and only the last field's is).
 Its **data** starts at `q`, the end of its header (`p + 16`, or `p + 20` with a
 second tag), and ends:
 
-- for an inline field, at `q`: it has no data, and `size` is its value (an
-  integer);
-- for a field with a second tag whose `size` is not 0, at `fp + 20 + size`
-  (the writer counts those bytes from its container's start, not from the
-  field's);
-- otherwise at `q + size`.
+| field | its data ends at |
+|---|---|
+| an inline field | `q`: it has no data, and `size` is its value (an integer) |
+| a field with a second tag whose `size` is not 0 | `fp + 20 + size` (the writer counts those bytes from its container's start, not from the field's) |
+| any other | `q + size` |
 
 A **plain** (not extended, not inline) field is a **value**: its data is one
 value, or an array of values, of its field type. A volume's data is one
@@ -115,49 +189,72 @@ CellSensReader does; a tag it does not name is still a field.
 The root container's **collection volume** is its first volume field of tag
 2000. Each volume field of tag 2001 (`Multidimensional image volume`) in
 it is a **stack**, whose **id** is the field's second tag (the `N` of its
-directory `stack<N>`, [§3](#3-the-tile-files)). In the stack's container:
+directory `stack<N>`, [§3](#3-the-tile-files)). In the stack's container, and the containers
+within it:
 
-- `Dimension size` (2003, a value): the stack's **dimension sizes**, an array
-  of integers (empty for a plain image), recorded as they are.
-- The **frame volume** (2002, a volume), holding:
-  - the **external file properties** (2018, a property set): `Image
-    boundary` (2053, four numbers `[x, y, w, h]`), whose third and fourth
-    values are the stack's **width** `W` and **height** `H` in pixels; and
-    `Has external file` (20005): the stack **has a tile file** when it is
-    present and not 0;
-  - `Default sample IFD` (2016, a TIFF IFD field) and `Coarse frame IFD`
-    (2019, a TIFF IFD field), whose second tags are the indexes in the TIFF
-    chain ([§2.3](#23-the-tiff-images)) of the stack's full image (a focus
-    map or a sample mask stored in the `.vsi` file itself) and of its coarse
-    thumbnail.
-- The **stack properties** (2005, a property set): `Stack name` (2030, a
-  text), `Stack type` (2074, an integer; the table `stack_types`: 0 `Default
-  image`, 1 `Overview image`, 2 `Sample mask`, 4 `Focus image`, 8, 16, 32 and
-  64 the EFI maps and stack, 256 `Macro image`), `RWC frame scale` (2019, two
-  numbers `[sx, sy]`, the pixel size), `RWC frame origin` (2018, two numbers
-  `[ox, oy]`, the position of the image's first pixel in the slide's stage
-  coordinates), `RWC frame unit` (2020, a text: `10^-6m^1` for micrometers;
-  the table `units`), `Display limits` (2003, two numbers `[lo, hi]`),
-  `Creation time` (2015, an integer) and, anywhere under it (depth first),
-  `Objective magnification` (120060, a number).
-- The **dimension descriptions** (2007, volumes), one per dimension of the
-  stack beyond x and y, whose second tag `d` is the dimension's index: its
-  **coordinate** in a tile record is `2 + d` ([§3](#3-the-tile-files)). Each
-  holds property sets of tag 2008, the **channel properties**; the
-  dimension's **meaning** is the first `Dimension meaning` (2023) among
-  them, by the table `dimension_meanings` (1 `z`, 2 `t`, 3 `lambda`, 4 `c`,
-  9 `phase`; another code is the text `meaning <code>`), or, when none has
-  one, `z` when one has `Z start` (2012), else `t` when one has `Time start`
-  (2100) or `Dimension value ID` (2027), else `c` when one has `Channel name`
-  (2419) or `Stack display LUT` (2004), else `unknown`. For the `z` dimension,
-  the last `Z increment` (2013, an mdim volume) among the sets gives the
-  **z step** and its unit. For the `c` dimension, each set is a **channel**:
-  its name, `Dimension name` (2021, the dye) or else `Channel name` (2419,
-  the optical path), both recorded; its display limits (2003); its
-  **color**, the last entry of its `Stack display LUT` (2004, an mdim
-  volume whose `Value` is an array of 3-byte entries, `RGB` or `BGR` by its
-  field type), as `RRGGBB`; and its wavelength (`Channel wavelength`, 2417,
-  an mdim volume).
+| in | field | tag | kind | value |
+|---|---|---|---|---|
+| the stack's container | `Dimension size` | 2003 | a value | the stack's **dimension sizes**, an array of integers (empty for a plain image), recorded as they are |
+| the stack's container | the **frame volume** | 2002 | a volume | |
+| the frame volume | the **external file properties** | 2018 | a property set | |
+| the external file properties | `Image boundary` | 2053 | four numbers `[x, y, w, h]` | whose third and fourth values are the stack's **width** `W` and **height** `H` in pixels |
+| the external file properties | `Has external file` | 20005 | | the stack **has a tile file** when it is present and not 0 |
+| the frame volume | `Default sample IFD` | 2016 | a TIFF IFD field | its second tag is the index in the TIFF chain ([§2.3](#23-the-tiff-images)) of the stack's full image (a focus map or a sample mask stored in the `.vsi` file itself) |
+| the frame volume | `Coarse frame IFD` | 2019 | a TIFF IFD field | its second tag is the index in the TIFF chain of the stack's coarse thumbnail |
+| the stack's container | the **stack properties** | 2005 | a property set | |
+| the stack properties | `Stack name` | 2030 | a text | |
+| the stack properties | `Stack type` | 2074 | an integer | the table `stack_types` (below) |
+| the stack properties | `RWC frame scale` | 2019 | two numbers `[sx, sy]` | the pixel size |
+| the stack properties | `RWC frame origin` | 2018 | two numbers `[ox, oy]` | the position of the image's first pixel in the slide's stage coordinates |
+| the stack properties | `RWC frame unit` | 2020 | a text | `10^-6m^1` for micrometers; the table `units` |
+| the stack properties | `Display limits` | 2003 | two numbers `[lo, hi]` | |
+| the stack properties | `Creation time` | 2015 | an integer | |
+| anywhere under the stack properties (depth first) | `Objective magnification` | 120060 | a number | |
+| the stack's container | the **dimension descriptions** | 2007 | volumes | below |
+
+The table `stack_types`:
+
+| code | stack type |
+|---|---|
+| 0 | `Default image` |
+| 1 | `Overview image` |
+| 2 | `Sample mask` |
+| 4 | `Focus image` |
+| 8, 16, 32 and 64 | the EFI maps and stack |
+| 256 | `Macro image` |
+
+The **dimension descriptions** (2007, volumes) are one per dimension of the
+stack beyond x and y, whose second tag `d` is the dimension's index: its
+**coordinate** in a tile record is `2 + d` ([§3](#3-the-tile-files)). Each
+holds property sets of tag 2008, the **channel properties**; the
+dimension's **meaning** is the first `Dimension meaning` (2023) among
+them, by the table `dimension_meanings` (below), or, when none has
+one, `z` when one has `Z start` (2012), else `t` when one has `Time start`
+(2100) or `Dimension value ID` (2027), else `c` when one has `Channel name`
+(2419) or `Stack display LUT` (2004), else `unknown`. For the `z` dimension,
+the last `Z increment` (2013, an mdim volume) among the sets gives the
+**z step** and its unit. For the `c` dimension, each set is a **channel**
+(below).
+
+The table `dimension_meanings`:
+
+| code | meaning |
+|---|---|
+| 1 | `z` |
+| 2 | `t` |
+| 3 | `lambda` |
+| 4 | `c` |
+| 9 | `phase` |
+| another code | the text `meaning <code>` |
+
+A **channel**'s fields, in its set:
+
+| of the channel | field | tag | value |
+|---|---|---|---|
+| its name | `Dimension name`, or else `Channel name` | 2021, 2419 | the dye, or else the optical path; both are recorded |
+| its display limits | `Display limits` | 2003 | |
+| its **color** | `Stack display LUT` | 2004 | an mdim volume whose `Value` is an array of 3-byte entries, `RGB` or `BGR` by its field type: the last entry, as `RRGGBB` |
+| its wavelength | `Channel wavelength` | 2417 | an mdim volume |
 
 An **mdim volume**'s value is the `Value` field (tag 268435458) of its
 container, its unit the text of the `Units` field (268435456). A value field
@@ -178,13 +275,19 @@ in the chain. Every IFD, main or EXIF, lies inside a TIFF region of the tree
 
 An IFD used as an **image** (the macro image, [§4.3](#43-the-macro-image), or a
 stack's default sample IFD) is one of `ImageWidth` (256) × `ImageLength` (257)
-pixels, with `SamplesPerPixel` (277) 1 or 3, `BitsPerSample` (258) 8, or 16
-when uncompressed, `Compression` (259) 1 (none) or 7 (JPEG), `PlanarConfiguration`
-(284) 1, `SampleFormat` (339) 1, and `StripOffsets`/`StripByteCounts` (273, 279;
-else `TileOffsets`/`TileByteCounts`, 324, 325): one strip when JPEG, at least
-one otherwise. A tag that is absent has its TIFF default (`Compression` 1,
-`SamplesPerPixel` 1, `BitsPerSample` 1, `PlanarConfiguration` 1, `SampleFormat` 1;
-`PhotometricInterpretation` 2 for three samples, else 1). A JPEG strip is an
+pixels, with these tags; a tag that is absent has its TIFF default:
+
+| tag | code | value | TIFF default |
+|---|---|---|---|
+| `SamplesPerPixel` | 277 | 1 or 3 | 1 |
+| `BitsPerSample` | 258 | 8, or 16 when uncompressed | 1 |
+| `Compression` | 259 | 1 (none) or 7 (JPEG) | 1 |
+| `PlanarConfiguration` | 284 | 1 | 1 |
+| `SampleFormat` | 339 | 1 | 1 |
+| `StripOffsets`/`StripByteCounts` (else `TileOffsets`/`TileByteCounts`) | 273, 279 (324, 325) | one strip when JPEG, at least one otherwise | |
+| `PhotometricInterpretation` | 262 | read: it gives the macro image's JPEG transform byte ([§4.3](#43-the-macro-image)) | 2 for three samples, else 1 |
+
+A JPEG strip is an
 abbreviated stream whose tables are in `JPEGTables` (347); the layout
 supplies them ([§4.3](#43-the-macro-image)).
 
@@ -234,9 +337,17 @@ The ETS header, `ets_size` bytes at `ets_offset`, whose first 228 are:
 | 184 | `i32` | `dimensions`: the sizes listed, at most 10 |
 | 188 | `i32[10]` | `dimension_sizes`: the size of each coordinate, the first two the image's width and height |
 
-The tile directory, `tiles` records of `20 + 4n` bytes at `tiles_offset`:
-`coordinates` (`i32`, `n`), `coordinate` (`i32[n]`), `offset` (`i64`),
-`size` (`i32`) and `index` (`i32`). A tile's coordinates are its column
+The tile directory, `tiles` records of `20 + 4n` bytes at `tiles_offset`, each:
+
+| offset | type | field |
+|---|---|---|
+| 0 | `i32` | `coordinates`: `n` |
+| 4 | `i32[n]` | `coordinate` |
+| 4 + 4n | `i64` | `offset` |
+| 12 + 4n | `i32` | `size` |
+| 16 + 4n | `i32` | `index` |
+
+A tile's coordinates are its column
 (`coordinate[0]`) and row (`coordinate[1]`) in the level's grid of `tw × th`
 tiles, then the stack's dimensions in coordinate order ([§2.2](#22-stacks)),
 and, when `use_pyramid` is set, the **level** last (`coordinate[n − 1]`).
@@ -249,8 +360,9 @@ the writer), or one JPEG or JPEG 2000 codestream of such a tile.
 
 ## 4. The images
 
-The hierarchy is a **bioformats2raw layout** of images ([conventions §4](../conventions.md#4-images)):
-the root `zarr.json` has `"ome": {"version": "0.5", "bioformats2raw.layout": 3}`
+The hierarchy is a **bioformats2raw layout** of images ([conventions §4](../conventions.md#4-images),
+its [entries](../conventions.md#table-collection); this convention's are in [Layout](#layout)):
+the root `zarr.json` ([`CollectionRoot`](../conventions.md#type-collectionroot)) has `"ome": {"version": "0.5", "bioformats2raw.layout": 3}`
 beside `zarr_conventions` and `refkv_zarrified` ([§1](#1-declaration)), the
 group `OME` has `{"version": "0.5", "series": ["0", "1", ...]}`, and image `k`
 is the group `k`, one OME-Zarr 0.5 image named by its stack. The images are,
@@ -274,42 +386,41 @@ that quotient is less than `mx`, else capped at `mx` when it is greater;
 or more, or whose row is `ceil(h_l / th)` or more, is **outside** its level
 and is no chunk (the count is recorded, [§6.1](#61-the-root)).
 
-- **Axes:** `t` when the `t` dimension's size `T` is over 1; `c` when the `c`
-  dimension's size `C` is over 1 or the samples per pixel `S` are over 1;
-  `z` when the `z` dimension's size `Z` is over 1; then `y`, `x`. (A
-  dimension is the stack's dimension of that meaning whose coordinate is a
-  tile record's and not the level's; without one, its size is 1. A
-  dimension of another meaning has the size 1, [§9.3](#93-tiles-and-levels).)
-  `t` is `time`, `c` `channel`, `z`, `y` and `x` `space`.
-- **Arrays:** one per level, at the path `l`, with the shape `[T, C or S, Z, h_l, w_l]`
-  in the axes present (the `c` axis has `S` when `S > 1`, else `C`), the chunk
-  shape `[1, S or 1, 1, th, tw]` (`S` on the `c` axis when `S > 1`, else 1), the
-  data type of the pixel type, and the axes as dimension names.
-- **Codecs:** for `S > 1`, `transpose` with the order that puts `c` last of
-  the axes (`{"name": "transpose", "configuration": {"order": [1, 2, 0]}}` for
-  `c`, `y`, `x`), since the samples are interleaved; then `imagecodecs_jpeg`
-  for JPEG, `imagecodecs_jpeg2k` for JPEG 2000, or `bytes` with
-  `{"endian": "little"}` (plain `bytes` for a one-byte type). A JPEG tile of
-  three samples is a plain codestream; no transform marker is added.
-- **Fill value:** the background's first sample (`background`'s first
-  `bytes` bytes as the pixel type; 0 for a float that is not finite). A tile
-  the directory lacks reads as the background.
-- **Chunks:** each tile inside its level is the chunk at `l/c/<t>/<c>/<z>/<row>/<column>`
-  (the keys of the axes present; `c` is 0 when `S > 1`), its bytes the tile's
-  bytes ([§9.4](#94-chunks)).
+**Axes:** `t` when the `t` dimension's size `T` is over 1; `c` when the `c`
+dimension's size `C` is over 1 or the samples per pixel `S` are over 1;
+`z` when the `z` dimension's size `Z` is over 1; then `y`, `x`. (A
+dimension is the stack's dimension of that meaning whose coordinate is a
+tile record's and not the level's; without one, its size is 1. A
+dimension of another meaning has the size 1, [§9.3](#93-tiles-and-levels).)
+`t` is `time`, `c` `channel`, `z`, `y` and `x` `space`.
+
+**Arrays:** one per level, at the path `l`.
+
+<a id="type-vsilevelarray"></a>**`VsiLevelArray`**, level `l`'s `zarr.json`: an
+[`ArrayDocument`](../conventions.md#type-arraydocument) with these members:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `shape` | array of integer | required | `[T, C or S, Z, h_l, w_l]` in the axes present (the `c` axis has `S` when `S > 1`, else `C`) |
+| `data_type` | string | required | the data type of the pixel type ([§3](#3-the-tile-files)) |
+| `chunk_grid` | object | required | regular, its chunk shape `[1, S or 1, 1, th, tw]` in the axes present (`S` on the `c` axis when `S > 1`, else 1) |
+| `fill_value` | number | required | the background's first sample (`background`'s first `bytes` bytes as the pixel type; 0 for a float that is not finite). A tile the directory lacks reads as the background |
+| `codecs` | array of object | required | for `S > 1`, `transpose` with the order that puts `c` last of the axes (`{"name": "transpose", "configuration": {"order": [1, 2, 0]}}` for `c`, `y`, `x`), since the samples are interleaved; then `imagecodecs_jpeg` for JPEG, `imagecodecs_jpeg2k` for JPEG 2000, or `bytes` with `{"endian": "little"}` (plain `bytes` for a one-byte type). A JPEG tile of three samples is a plain codestream; no transform marker is added |
+| `dimension_names` | array of string | required | the axes |
+
+**Chunks:** each tile inside its level is the chunk at `l/c/<t>/<c>/<z>/<row>/<column>`
+(the keys of the axes present; `c` is 0 when `S > 1`), its bytes the tile's
+bytes ([§9.4](#94-chunks), a [`VsiTileChunk`](#type-vsitilechunk)).
 
 ### 4.2 Channels
 
-`M`, the image's `ome` member, has `"omero": {"channels": [...]}`:
+`M`, the image's `ome` member, has `"omero": {"channels": [...]}` (an
+[`Omero`](../conventions.md#type-omero) of [`OmeroChannel`](../conventions.md#type-omerochannel)s):
 
-- for `S > 1`, one channel per sample: labels `R`, `G`, `B`, `A` with the
-  colors `FF0000`, `00FF00`, `0000FF`, `FFFFFF`, or `B`, `G`, `R`, `A` with
-  `0000FF`, `00FF00`, `FF0000`, `FFFFFF` for an uncompressed file whose
-  `component_order` is 1 (its samples are stored blue first; the array keeps
-  the stored order, and the labels say which is which);
-- else one per channel `c` of the `c` dimension: the label is the channel's
-  name ([§2.2](#22-stacks)), or `C<c>` when the stack has no channel `c` or it
-  has no name; the color the channel's, or `FFFFFF`.
+| case | channels | `label` and `color` |
+|---|---|---|
+| `S > 1` | one per sample | labels `R`, `G`, `B`, `A` with the colors `FF0000`, `00FF00`, `0000FF`, `FFFFFF`, or `B`, `G`, `R`, `A` with `0000FF`, `00FF00`, `FF0000`, `FFFFFF` for an uncompressed file whose `component_order` is 1 (its samples are stored blue first; the array keeps the stored order, and the labels say which is which) |
+| else | one per channel `c` of the `c` dimension | the label is the channel's name ([§2.2](#22-stacks)), or `C<c>` when the stack has no channel `c` or it has no name; the color the channel's, or `FFFFFF` |
 
 Each channel has `"active": true` and, for a data type of at most 32 bits, a
 `window`: `min` 0 and `max` the type's largest value (for a signed type, its
@@ -324,27 +435,32 @@ The **macro image** is the IFD the collection volume's `Default sample IFD`
 names (its second tag, [§2.2](#22-stacks)): the slide's overview photograph,
 a JPEG. A stack without a tile file but with a `Default sample IFD` (a focus
 map, a sample mask) is likewise an **IFD image**. Such an image is one array
-at the path `0`, the whole IFD:
+at the path `0`, the whole IFD.
 
-- **Axes:** `c`, `y`, `x` for three samples; `y`, `x` for one.
-- **Shape:** `[3, height, width]` or `[height, width]`; the chunk shape is
-  the shape: one chunk, `0/c/0/0/0` or `0/c/0/0`.
-- **Data type:** `uint16` for 16 bits per sample, else `uint8`. The fill
-  value is 0.
-- **Codecs:** `transpose` putting `c` last for three samples; then
-  `imagecodecs_jpeg` for compression 7, else `bytes` (`{"endian": "little"}`
-  for `uint16`).
-- **Chunk:** for JPEG, the strip's first two bytes (SOI), then a **prefix**,
-  then the rest of the strip: the prefix is, for three samples, the Adobe
-  APP14 marker `FF EE 00 0E 'Adobe' 00 64 00 00 00 00` followed by the
-  transform byte, 0 for `PhotometricInterpretation` 2 (RGB) and 1 otherwise,
-  and then the body of `JPEGTables` (its bytes between its SOI and its EOI)
-  when the tag is present and well formed. When the prefix is empty, or the
-  strip is 2 bytes or fewer, the chunk is the strip. For an uncompressed
-  image, the chunk is the strips in order, one range per run of contiguous
-  strips ([§9.4](#94-chunks)).
-- **Channels:** as [§4.2](#42-channels), with the stack's display limits (the
-  macro image has none, so its windows are the type's range).
+<a id="type-vsiifdarray"></a>**`VsiIfdArray`**, an IFD image's `0/zarr.json`: an
+[`ArrayDocument`](../conventions.md#type-arraydocument) with these members:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `shape` | array of integer | required | `[3, height, width]` for three samples, or `[height, width]` for one |
+| `data_type` | string | required | `uint16` for 16 bits per sample, else `uint8` |
+| `chunk_grid` | object | required | regular, its chunk shape the shape: one chunk, `0/c/0/0/0` or `0/c/0/0` |
+| `fill_value` | number | required | 0 |
+| `codecs` | array of object | required | `transpose` putting `c` last for three samples; then `imagecodecs_jpeg` for compression 7, else `bytes` (`{"endian": "little"}` for `uint16`) |
+| `dimension_names` | array of string | required | **axes** `c`, `y`, `x` for three samples; `y`, `x` for one |
+
+**Chunk:** for JPEG, the strip's first two bytes (SOI), then a **prefix**,
+then the rest of the strip: the prefix is, for three samples, the Adobe
+APP14 marker `FF EE 00 0E 'Adobe' 00 64 00 00 00 00` followed by the
+transform byte, 0 for `PhotometricInterpretation` 2 (RGB) and 1 otherwise,
+and then the body of `JPEGTables` (its bytes between its SOI and its EOI)
+when the tag is present and well formed. When the prefix is empty, or the
+strip is 2 bytes or fewer, the chunk is the strip. For an uncompressed
+image, the chunk is the strips in order, one range per run of contiguous
+strips ([§9.4](#94-chunks), a [`VsiIfdChunk`](#type-vsiifdchunk)).
+
+**Channels:** as [§4.2](#42-channels), with the stack's display limits (the
+macro image has none, so its windows are the type's range).
 
 The macro image is named `macro image`, as Bio-Formats names it, has no
 scale unit and no translation ([§5](#5-scales-units-and-position)); an IFD
@@ -352,16 +468,24 @@ image of a stack is named by its stack and placed by its properties.
 
 ## 5. Scales, units and position
 
-A stack's **unit** is its `RWC frame unit` text's entry in the table `units`
-(`10^-9m^1` nanometer, `10^-6m^1` micrometer, `10^-3m^1` millimeter,
-`10^-2m^1` centimeter, `10^0m^1` and `m` meter); a text the table lacks is no
-unit. With a unit and a `RWC frame scale` `[sx, sy]`, `x` and `y` have that
-unit, and level `l` has the scales `sx × W / w_l` and `sy × H / h_l` (so
-level 0 has `sx`, `sy`, and each coarser level the pixel size its subsampling
-gives; an IFD image has `sx`, `sy`); otherwise `x` and `y` have no unit and
-the scale 1. With the `z` axis present, a finite positive z step and a z unit
-the table names, `z` has that unit and the step as scale, else no unit and
-1. `t` and `c` have the scale 1 and no unit.
+A stack's **unit** is its `RWC frame unit` text's entry in the table `units`;
+a text the table lacks is no unit:
+
+| text | unit |
+|---|---|
+| `10^-9m^1` | nanometer |
+| `10^-6m^1` | micrometer |
+| `10^-3m^1` | millimeter |
+| `10^-2m^1` | centimeter |
+| `10^0m^1`, `m` | meter |
+
+Each axis's scale and unit:
+
+| axis | scale | unit |
+|---|---|---|
+| `x`, `y` | with a unit and a `RWC frame scale` `[sx, sy]`: at level `l`, `sx × W / w_l` and `sy × H / h_l` (so level 0 has `sx`, `sy`, and each coarser level the pixel size its subsampling gives; an IFD image has `sx`, `sy`); otherwise 1 | with a unit and a `RWC frame scale`, that unit; otherwise none |
+| `z` | with the `z` axis present, a finite positive z step and a z unit the table names, the step; else 1 | that z unit; else none |
+| `t`, `c` | 1 | none |
 
 Each level's dataset has a `translation` when the stack has a unit and a
 `RWC frame origin` `[ox, oy]` with both finite: `ox` for `x`, `oy` for `y`,
@@ -381,54 +505,185 @@ which every file read is described byte for byte.
 
 ### 6.1 The root
 
-- `file`: `{"key": k, "size": s, "ifds": n}`: the `.vsi` file's key (its
-  name), its size, and the IFDs of its chain (EXIF IFDs not counted).
-- `stacks`: an array with one object per stack of the tree, in its order:
-  `id`, `name`, `type` (the stack type, or `null`), `external` (whether it
-  has a tile file), `width`, `height` (`null` without an image boundary),
-  and `tile_file` (the key of its tile file, or `null`).
-- `tree`: the metadata tree as JSON: a container is `{"fields": [...]}` and
-  a field an object with `tag`, `tag2` when it has a second tag, `type`
-  (the field type), `name` when the table `tag_names` names the tag, and
-  then one of: `"inline": true` and `value` (the inline integer); `value`,
-  a value field's data translated as below; `fields`, a volume's, property
-  set's or mdim volume's container; or `ifd`, `{"index": i, "bytes": b}` for
-  a TIFF IFD field (its second tag, when it has one, and its data region's
-  length).
+<a id="type-vsiroot"></a>**`VsiRoot`**, the root's `S`:
 
-  A value field's data `d` of field type `T` is translated as: for a Unicode
-  text type (13, 8192, 8194), the string its 16-bit little-endian units
-  encode, up to the first 0 unit (the field's data, when its length is odd,
-  is opaque); for `BOOLEAN` (12), `true` or `false` when it is one byte;
-  for a type of width `w` bytes (the table's `type`), its one number when
-  `d` is `w` bytes, else an array of its `d / w` numbers when `d / w` is a
-  whole number and `d` is at most 1024 bytes (the array of 3-byte `RGB` and
-  `BGR` entries is an array of bytes); a type the table lacks, or a length
-  that is not a multiple of `w`, is **opaque**: the string of its base64
-  encoding. An integer past 2^53 − 1 in magnitude, and a float that is not
-  finite, are JSON as [conventions §6](../conventions.md#6-source-metadata-as-json)
-  writes them (`"NaN"`, `"Infinity"`, `"-Infinity"`). Data longer than 1024
-  bytes that would be an array or opaque is `{"bytes": n}`, its length: the
-  bytes are in the mirror.
+| member | type | presence | value |
+|---|---|---|---|
+| `file` | [`VsiFile`](#type-vsifile) | required | the `.vsi` file |
+| `stacks` | array of [`VsiStack`](#type-vsistack) | required | one object per stack of the tree, in its order |
+| `tree` | [`VsiContainer`](#type-vsicontainer) | required | the metadata tree as JSON: its root container |
 
-An **image's** source metadata is, for a stack (a pyramid or an IFD image):
-`id`, `type`, `type_name` (the table's name, or `null`), `width`, `height`,
-`dimension_sizes`, `dimensions` (an array of `{"coordinate": c, "meaning": m}`
-in coordinate order), `scale` (`[sx, sy]` or `null`), `unit` (the text or
-`null`), `origin`, `z_step`, `z_unit`, `display` (`[lo, hi]` or `null`),
-`channels` (an array of `{"name", "channel_name", "color", "display",
-"wavelength"}`, each `null` when absent), `creation_time`, `magnification`,
-`default_ifd`, `coarse_ifd` (IFD indexes or `null`), then `name`; and then,
-for a pyramid, `tile_file` (its key), `ets` (the tile file's headers: `key`,
-`size`, the SIS `version`, `coordinates` and `tiles`, and the ETS header's
-`ets_version`, `pixel_type`, `data_type`, `samples`, `colorspace`,
-`compression`, `codec` (`raw`, `jpeg` or `jpeg2000`), `quality`, `tile_width`,
-`tile_height`, `tile_depth`, `background` (base64 of the 40 bytes),
-`component_order`, `use_pyramid` (a boolean), `dimensions` and
-`dimension_sizes` (the sizes listed)), `levels` (`[[w_l, h_l], ...]`) and
-`tiles_outside` (the tiles that are no chunk, [§4.1](#41-the-pyramid)); or,
-for an IFD image, `ifd`: `{"index", "width", "height", "samples", "bits",
-"compression", "photometric"}`. The macro image's is `name` and `ifd` alone.
+<a id="type-vsifile"></a>**`VsiFile`**, `{"key": k, "size": s, "ifds": n}`:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `key` | string | required | `k`, the `.vsi` file's key (its name) |
+| `size` | integer | required | `s`, its size |
+| `ifds` | integer | required | `n`, the IFDs of its chain (EXIF IFDs not counted) |
+
+<a id="type-vsistack"></a>**`VsiStack`**, a stack of the tree:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `id` | integer | required | its id ([§2.2](#22-stacks)) |
+| `name` | string | required | its name (`Stack name`) |
+| `type` | integer or null | required | the stack type, or `null` |
+| `external` | boolean | required | whether it has a tile file |
+| `width` | integer or null | required | `W`; `null` without an image boundary |
+| `height` | integer or null | required | `H`; `null` without an image boundary |
+| `tile_file` | string or null | required | the key of its tile file, or `null` |
+
+<a id="type-vsicontainer"></a>**`VsiContainer`**, a container, `{"fields": [...]}`:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `fields` | array of [`VsiField`](#type-vsifield) | required | its fields, in order |
+
+<a id="type-vsifield"></a>**`VsiField`**, a field: `tag`, `tag2` when it has a second tag,
+`type`, `name` when the table `tag_names` names the tag, and then one of: `"inline": true` and
+`value` (the inline integer); `value`, a value field's data translated as below; `fields`, a
+volume's, property set's or mdim volume's container; or `ifd`, for a TIFF IFD field:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `tag` | integer | required | its tag |
+| `tag2` | integer | optional | its second tag, when it has one |
+| `type` | integer | required | the field type |
+| `name` | string | optional | the tag's name, when the table `tag_names` names the tag |
+| `inline` | boolean | optional | `true`, for an inline field |
+| `value` | integer or [`VsiValue`](#type-vsivalue) | optional | an inline field's: the inline integer; a value field's: its data translated as below |
+| `fields` | array of [`VsiField`](#type-vsifield) | optional | a volume's, property set's or mdim volume's: its container's fields (as a [`VsiContainer`](#type-vsicontainer)'s) |
+| `ifd` | [`VsiFieldIfd`](#type-vsifieldifd) | optional | a TIFF IFD field's |
+
+<a id="type-vsifieldifd"></a>**`VsiFieldIfd`**, `{"index": i, "bytes": b}`:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `index` | integer | optional | `i`, its second tag, when it has one: the IFD's index in the chain |
+| `bytes` | integer | required | `b`, its data region's length |
+
+<a id="type-vsivalue"></a>**`VsiValue`**, a value field's data `d` of field type `T`
+translated, one of:
+
+| form | when |
+|---|---|
+| string | a Unicode text type (13, 8192, 8194): the string its 16-bit little-endian units encode, up to the first 0 unit, an unpaired surrogate decoded as U+FFFD (the field's data, when its length is odd, is opaque) |
+| boolean | `BOOLEAN` (12): `true` or `false` when it is one byte (of another length, it is opaque) |
+| a number, an [`Integer`](../conventions.md#type-integer) or a [`Float`](../conventions.md#type-float) | a type of width `w` bytes (the table's `type`): its one number when `d` is `w` bytes |
+| array of number, [`Integer`](../conventions.md#type-integer) or [`Float`](../conventions.md#type-float) | a type of width `w`: an array of its `d / w` numbers when `d` is not empty, `d / w` is a whole number and `d` is at most 1024 bytes (the array of 3-byte `RGB` and `BGR` entries is an array of bytes) |
+| [`Base64`](../conventions.md#type-base64) | **opaque** data, at most 1024 bytes: a type the table lacks, or of a type of width `w` empty data or a length that is not a multiple of `w`; the string of its base64 encoding (`""` for empty data) |
+| [`VsiBytes`](#type-vsibytes) | data longer than 1024 bytes that would be an array or opaque |
+
+An integer past 2^53 − 1 in magnitude, and a float that is not finite, are JSON as
+[conventions §6](../conventions.md#6-source-metadata-as-json) writes them (`"NaN"`,
+`"Infinity"`, `"-Infinity"`).
+
+<a id="type-vsibytes"></a>**`VsiBytes`**, `{"bytes": n}`:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `bytes` | integer | required | `n`, the data's length: the bytes are in the mirror |
+
+An **image's** source metadata is a [`VsiImage`](#type-vsiimage) for a stack (a pyramid or an
+IFD image), and a [`VsiMacro`](#type-vsimacro) for the macro image.
+
+<a id="type-vsiimage"></a>**`VsiImage`**, a stack's image's `S`: the members to `name`, and
+then, for a pyramid, `tile_file`, `ets`, `levels` and `tiles_outside`, or, for an IFD image,
+`ifd`:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `id` | integer | required | the stack's id |
+| `type` | integer or null | required | the stack type, or `null` |
+| `type_name` | string or null | required | the table's name (`stack_types`), or `null` |
+| `width` | integer or null | required | `W`, or `null` without an image boundary |
+| `height` | integer or null | required | `H`, or `null` without an image boundary |
+| `dimension_sizes` | array of integer | required | the stack's dimension sizes, as recorded |
+| `dimensions` | array of [`VsiDimension`](#type-vsidimension) | required | in coordinate order |
+| `scale` | array of number or null | required | `[sx, sy]` or `null` |
+| `unit` | string or null | required | the `RWC frame unit` text or `null` |
+| `origin` | array of number or null | required | `[ox, oy]`, the `RWC frame origin`, or `null` |
+| `z_step` | number or null | required | the z step, or `null` |
+| `z_unit` | string or null | required | the z step's unit text, or `null` |
+| `display` | array of number or null | required | `[lo, hi]` or `null` |
+| `channels` | array of [`VsiChannel`](#type-vsichannel) | required | the channels of the `c` dimension |
+| `creation_time` | integer or null | required | `Creation time`, or `null` |
+| `magnification` | number or null | required | `Objective magnification`, or `null` |
+| `default_ifd` | integer or null | required | the `Default sample IFD`'s index, or `null` |
+| `coarse_ifd` | integer or null | required | the `Coarse frame IFD`'s index, or `null` |
+| `name` | string | required | the stack's name |
+| `tile_file` | string | optional | a pyramid's: its tile file's key |
+| `ets` | [`VsiEts`](#type-vsiets) | optional | a pyramid's: the tile file's headers |
+| `levels` | array of array of integer | optional | a pyramid's: `[[w_l, h_l], ...]`, one per level |
+| `tiles_outside` | integer | optional | a pyramid's: the tiles that are no chunk ([§4.1](#41-the-pyramid)) |
+| `ifd` | [`VsiIfd`](#type-vsiifd) | optional | an IFD image's |
+
+<a id="type-vsidimension"></a>**`VsiDimension`**, `{"coordinate": c, "meaning": m}`:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `coordinate` | integer | required | `c`, its coordinate in a tile record ([§2.2](#22-stacks)) |
+| `meaning` | string | required | `m`, its meaning ([§2.2](#22-stacks)) |
+
+<a id="type-vsichannel"></a>**`VsiChannel`**, `{"name", "channel_name", "color", "display",
+"wavelength"}`, each `null` when absent:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `name` | string or null | required | the channel's name ([§2.2](#22-stacks)) |
+| `channel_name` | string or null | required | its `Channel name` |
+| `color` | string or null | required | its color, `RRGGBB` |
+| `display` | array of number or null | required | its display limits, `[lo, hi]` |
+| `wavelength` | number or null | required | its wavelength |
+
+<a id="type-vsiets"></a>**`VsiEts`**, the tile file's headers ([§3](#3-the-tile-files)):
+
+| member | type | presence | value |
+|---|---|---|---|
+| `key` | string | required | the tile file's key |
+| `size` | integer | required | its size |
+| `version` | integer | required | the SIS `version` |
+| `coordinates` | integer | required | the SIS `coordinates` |
+| `tiles` | integer | required | the SIS `tiles` |
+| `ets_version` | integer | required | the ETS header's `version` |
+| `pixel_type` | integer | required | the ETS `pixel_type` |
+| `data_type` | string | required | its data type (the table `pixel_types`) |
+| `samples` | integer | required | the samples per pixel, the ETS `channels` |
+| `colorspace` | integer | required | the ETS `colorspace` |
+| `compression` | integer | required | the ETS `compression` |
+| `codec` | string | required | `raw`, `jpeg` or `jpeg2000` |
+| `quality` | integer | required | the ETS `quality` |
+| `tile_width` | integer | required | `tw` |
+| `tile_height` | integer | required | `th` |
+| `tile_depth` | integer | required | the ETS `tile_depth` |
+| `background` | [`Base64`](../conventions.md#type-base64) | required | base64 of the 40 bytes |
+| `component_order` | integer | required | the ETS `component_order` |
+| `use_pyramid` | boolean | required | whether `use_pyramid` is set |
+| `dimensions` | integer | required | the ETS `dimensions` |
+| `dimension_sizes` | array of integer | required | the sizes listed |
+
+<a id="type-vsiifd"></a>**`VsiIfd`**, an IFD image's IFD, `{"index", "width", "height",
+"samples", "bits", "compression", "photometric"}`:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `index` | integer | required | its index in the chain |
+| `width` | integer | required | `ImageWidth` |
+| `height` | integer | required | `ImageLength` |
+| `samples` | integer | required | `SamplesPerPixel` |
+| `bits` | integer | required | `BitsPerSample` |
+| `compression` | integer | required | `Compression` |
+| `photometric` | integer | required | `PhotometricInterpretation` |
+
+The tags' values are those of [§2.3](#23-the-tiff-images), absent tags having their TIFF
+defaults.
+
+<a id="type-vsimacro"></a>**`VsiMacro`**, the macro image's `S`: `name` and `ifd` alone:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `name` | string | required | `"macro image"` |
+| `ifd` | [`VsiIfd`](#type-vsiifd) | required | its IFD |
 
 ### 6.2 The IR mirror
 
@@ -753,7 +1008,27 @@ range per run of contiguous strips, of the `.vsi` file's object. A
 reference that does not fit in a payload ([§1.2](../zarrify.md#12-input))
 rejects the input (an uncompressed IFD image of thousands of strips). The
 output's data sources are the distinct JPEG prefixes (one per IFD image
-with a prefix, shared when equal).
+with a prefix, shared when equal). The output's source table is one `url` source per object a
+reference uses (its object URL, with a `size` pin), in order of first use, then the data sources
+in order of first use (the references taken in the order of their keys).
+
+<a id="type-vsitilechunk"></a>**`VsiTileChunk`**, a pyramid's chunk, `i` the `url` source of its
+tile file's object:
+
+| part | range | presence | value |
+|---|---|---|---|
+| the tile | source range `(i, offset, size)` | required | the tile's `size` bytes at its `offset` in the tile file |
+
+<a id="type-vsiifdchunk"></a>**`VsiIfdChunk`**, an IFD image's chunk, `i` the `url` source of the
+`.vsi` file's object, a strip being `n` bytes at `o` in it; exactly one case applies:
+
+| part | range | presence | value |
+|---|---|---|---|
+| the strip's first 2 bytes (SOI) | source range `(i, o, 2)` | optional | JPEG, with a prefix and a strip of more than 2 bytes |
+| the prefix | data source `j`, whole: source range `(j, 0, p)` | optional | likewise: the prefix ([the convention §4.3](#43-the-macro-image)), `p` bytes, a data source shared by the IFD images whose prefixes are equal |
+| the rest of the strip | source range `(i, o + 2, n − 2)` | optional | likewise |
+| the strip | source range `(i, o, n)` | optional | JPEG, when the prefix is empty or the strip is 2 bytes or fewer |
+| a run of contiguous strips | source range `(i, o, m)`, `o` the run's first strip's offset and `m` the run's length | optional | uncompressed: one range per run, in order |
 
 `refkv_source` is the IR mirror ([the convention §6.2](#62-the-ir-mirror)).
 The archive has no other entries than the root's, the `OME` group's, each
@@ -762,11 +1037,35 @@ image's and each level's `zarr.json`, the chunks, and the mirror's.
 ### 9.5 Summary
 
 This section is informative. Both implementations print a one-line JSON
-summary: `images` (one object per image: `name`, `kind` (`"stack"` or
-`"macro"`), `source` (`"tiles"` or `"ifd"`), `id`, `dataType`, `samples`,
-`codec`, `axes`, `sizes` (`t`, `c`, `z`; a pyramid's), `levels` (`[w, h]`
-per level), `grids` (`[columns, rows]` per level; a pyramid's), `chunks` and
-`tilesOutside`), `chunks` (all images'), `dataSources`, `ifds` (every IFD
-read, EXIF included), `tileFiles`, `tiles` (every record), `batches` (the
-read batches, the probe batch included) and `listingRequests` (the objects
-opened beyond the `.vsi` file).
+summary, with these members:
+
+| member | value |
+|---|---|
+| `images` | one object per image (below) |
+| `chunks` | the number of all images' chunks |
+| `dataSources` | the data sources |
+| `ifds` | every IFD read, EXIF included |
+| `tileFiles` | the tile files |
+| `tiles` | every record |
+| `batches` | the read batches, the probe batch included |
+| `listingRequests` | the objects opened beyond the `.vsi` file |
+
+Each image's object, by whether the image is a pyramid ([the convention §4.1](#41-the-pyramid)) or an
+IFD image ([the convention §4.3](#43-the-macro-image)); an IFD image's has no `sizes`, `grids` or
+`tilesOutside`:
+
+| member | a pyramid's | an IFD image's |
+|---|---|---|
+| `name` | its name | its name |
+| `kind` | `"stack"` | `"stack"`, or `"macro"` for the macro image |
+| `source` | `"tiles"` | `"ifd"` |
+| `id` | its stack's id | its stack's id; `null` for the macro image |
+| `dataType` | its data type | its data type |
+| `samples` | its samples per pixel | its samples per pixel |
+| `codec` | its codec | `"jpeg"` for `Compression` 7, else `"raw"` |
+| `axes` | its axes | its axes |
+| `sizes` | `t`, `c`, `z` | absent |
+| `levels` | `[w, h]` per level | `[[w, h]]`, its one array's |
+| `grids` | `[columns, rows]` per level | absent |
+| `chunks` | the number of its chunks | 1 |
+| `tilesOutside` | its tiles outside their levels | absent |

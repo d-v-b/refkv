@@ -58,7 +58,7 @@ fn the_fixture_stores_have_their_hierarchies_and_mirrors() {
     assert_eq!(doc(&c, "zlib_f/zarr.json")["codecs"], serde_json::json!([
         {"name": "transpose", "configuration": {"order": [2, 1, 0]}},
         {"name": "bytes", "configuration": {"endian": "little"}},
-        {"name": "zlib", "configuration": {"level": 1}},
+        {"name": "numcodecs.zlib", "configuration": {"level": 1}},
     ]));
     assert_eq!(doc(&c, "blosc_autoshuffle_i2/zarr.json")["codecs"][1],
                serde_json::json!({"name": "blosc", "configuration": {"cname": "lz4hc", "clevel": 2, "shuffle": "shuffle", "typesize": 2, "blocksize": 0}}));

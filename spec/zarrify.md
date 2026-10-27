@@ -2,6 +2,11 @@
 
 Profiles version: 0 (**draft**)
 
+Changed 2026-10-26, with no change to any output: a reference's ranges ([§1.1](#11-output-and-equivalence))
+and a virtual shard's document and reference ([§2.1](#21-virtual-shards)) are defined in type
+tables, which each profile's chunk tables use
+([conventions §11.5](conventions.md#115-layout-tables)).
+
 Changed 2026-10-25: the NIfTI, MRC, FITS and NRRD profiles pad an edge chunk's reference with a range
 of the output's one **zero data source**, a data source a reference names a prefix of, in place
 of a literal range per reference ([§1.2](#12-input)); an output that still pads with literal
@@ -79,6 +84,18 @@ A zarrifier's **output** is an archive description:
   [§5](refkv.md#5-source-table)), and
 - a set of **entries**: keys, each with either bytes or a list of ranges
   ([spec/refkv.md §2](refkv.md#2-data-model), [§4](refkv.md#4-messages)).
+
+An entry with bytes is a **bytes entry**; one with a list of ranges, a **reference entry**,
+whose bytes are its ranges' bytes, in order. <a id="type-range"></a>**`Range`**, a range of
+a reference entry, is one of:
+
+| range | written | its bytes |
+|---|---|---|
+| a source range | `(i, offset, length)` | `length` bytes of source `i`, from `offset`: of a `url` source: the input, source 0, for a file input; for a store input, an object, in the order [§1.4](#14-store-inputs) gives (the SAFE, VSI and NRRD documents give their own order: VSI's and NRRD's for a file input they read as a store, whose source 0 need not be the input), or of a data source ([§1.2](#12-input)), whole, or a zero data source's first `length` bytes |
+| a literal range | a literal of `d` | the bytes `d`, which the entry carries ([spec/refkv.md §4.2](refkv.md#42-range)) |
+
+A format's chunk tables ([conventions §11.5](conventions.md#115-layout-tables)) give each
+chunk's ranges in these terms.
 
 Two outputs are **equivalent** when they have the same source table (the
 same sources in the same order: `url` sources with the same URLs, `data`
@@ -626,6 +643,31 @@ array's shape and `G = ceil(S / c)` the inner grid (each per axis):
   A zarrifier that records checksums ([§1.2](#12-input)) does not join them:
   a range with a checksum is read whole, and a joined range would make a
   reader of one inner chunk read its neighbors.
+
+<a id="type-shardedarray"></a>**`ShardedArray`**, a sharded array's `zarr.json`: the
+unsharded array's ([conventions §3](conventions.md#3-arrays),
+[`ArrayDocument`](conventions.md#type-arraydocument)) but for these members:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `chunk_grid` | object | required | `{"name": "regular", "configuration": {"chunk_shape": c × K}}`, the shard's shape |
+| `codecs` | array of object | required | `[{"name": "sharding_indexed", "configuration": X}]`, `X` a [`ShardingConfiguration`](#type-shardingconfiguration) |
+
+<a id="type-shardingconfiguration"></a>**`ShardingConfiguration`**:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `chunk_shape` | array of integer | required | `c`, the inner chunk shape |
+| `codecs` | array of object | required | `D`, the inner chunks' codecs |
+| `index_codecs` | array of object | required | `[{"name": "bytes", "configuration": {"endian": "little"}}, {"name": "crc32c"}]` |
+| `index_location` | string | required | `"end"` |
+
+<a id="type-shard"></a>**`Shard`**, a shard's reference, at `<path>/c/<s0>/<s1>/...`:
+
+| part | range | presence | value |
+|---|---|---|---|
+| inner chunk `s × K + i`, for each `i` of the `K` grid in row-major order | the inner chunk's ranges | optional | present for each inner chunk the unsharded array has; its ranges as the unsharded array's reference has them (an inner chunk the profile copies is one literal range of its bytes); a source range that starts where the range before it ends, in the same source, is joined to it, unless the zarrifier records checksums (**Joined ranges**) |
+| the index | literal | required | for each `i` in that order, the offset in the shard of the inner chunk's first byte and its length, two 8-byte little-endian integers, or `(2^64 − 1, 2^64 − 1)` for an inner chunk the shard does not hold; then the CRC-32C of those entries, 4 bytes little-endian |
 
 The offsets and lengths in the index are those of the inner chunks'
 bytes, whichever ranges they are in. A profile chooses `K` so that a

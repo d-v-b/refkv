@@ -1,9 +1,12 @@
 """The FLAC convention's source metadata (spec/zarrify/flac.md), for
 spec/generate_schemas.py."""
 
+from source_metadata import BIG_UNSIGNED
 from source_metadata.mp3 import ID3V1, ID3V2
 
 _COUNT = {"type": "integer", "minimum": 0}
+# A 64-bit count: a number, or past 2^53 - 1 the string of its digits
+_U64 = {"anyOf": [_COUNT, BIG_UNSIGNED]}
 
 SCHEMA = {"anyOf": [
     {
@@ -75,16 +78,16 @@ SCHEMA = {"anyOf": [
                     "description": "The CUESHEET block's fields",
                     "properties": {
                         "catalog": {"$ref": "#/$defs/text"},
-                        "lead_in": _COUNT,
+                        "lead_in": _U64,
                         "cd": {"type": "boolean"},
                         "tracks": {"type": "array", "items": {
                             "type": "object",
                             "properties": {
-                                "offset": _COUNT, "number": _COUNT, "isrc": {"$ref": "#/$defs/text"},
+                                "offset": _U64, "number": _COUNT, "isrc": {"$ref": "#/$defs/text"},
                                 "audio": {"type": "boolean"}, "pre_emphasis": {"type": "boolean"},
                                 "indexes": {"type": "array", "items": {
                                     "type": "object",
-                                    "properties": {"offset": _COUNT, "number": _COUNT},
+                                    "properties": {"offset": _U64, "number": _COUNT},
                                     "required": ["offset", "number"],
                                     "additionalProperties": False,
                                 }},

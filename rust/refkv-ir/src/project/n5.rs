@@ -102,7 +102,7 @@ fn compressor(c: &Jv, b: i64) -> (Option<Jv>, Vec<(Js, Jv)>) {
         "raw" => (None, &["type"]),
         "gzip" => {
             let z = matches!(c.get("useZlib"), Some(Jv::Bool(true)));
-            let name = if z { "zlib" } else { "gzip" };
+            let name = if z { "numcodecs.zlib" } else { "gzip" };
             (Some(Jv::obj(vec![("name", Jv::str(name)), ("configuration", Jv::obj(vec![("level", Jv::integer(level(t, c)))]))])),
              &["type", "useZlib", "level"])
         }

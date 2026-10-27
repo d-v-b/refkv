@@ -77,6 +77,11 @@
       "message": "McuStarts does not match the strip's intervals"
     },
     {
+      "test": "ndpi_edge_reject_mcustarts_high_word",
+      "input": "edge_reject_ndpi_mcustarts_high_word.ndpi",
+      "message": "McuStartsHighBytes is not the high word of McuStarts' in-line value"
+    },
+    {
       "test": "ndpi_edge_reject_no_restart_interval",
       "input": "edge_reject_ndpi_no_restart_interval.ndpi",
       "message": "an NDPI strip has no SOF0 or no restart interval"

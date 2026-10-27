@@ -105,7 +105,8 @@ objects, is one).
 
 The Neuroglancer fork (<https://github.com/d-v-b/neuroglancer>, branch `vzip`)
 reads OME-Zarr 0.5 multiscales, the `v2` chunk key encoding and the `blosc`,
-`zlib`, `gzip` and `zstd` codecs; the image above renders through a local
+`gzip` and `zstd` codecs (and `zlib`, which archives named before d-v-b/refkv#90, but not yet
+`numcodecs.zlib`); the image above renders through a local
 build of the demo. It has no `bool`, `float16`, `int64` or `float64` data
 type: images or label images of those types cannot be shown there.
 

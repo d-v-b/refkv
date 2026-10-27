@@ -6,7 +6,14 @@ it describe itself: which source it presents, which format that source is
 in, and everything the source's own header or metadata says. There is one
 convention per source format, each specified in `zarrify/<format>.md` next to
 its JSON Schema `zarrify/<format>/schema.json`. (Changed 2026-10-25: the property is
-`refkv_zarrified`, in place of `refkv_virtualized`, [§2](#2-attributes).)
+`refkv_zarrified`, in place of `refkv_virtualized`, [§2](#2-attributes). Changed 2026-10-26,
+with no change to any output: the shared types are defined in type tables, and each format's
+document tabulates its layout, as [§11.5](#115-layout-tables) says; the mirror's
+`ir/shared/data` is said to be absent when the shared sources total no byte, as refkv already
+wrote it ([§8.2](#82-the-table)); and each convention's JSON Schema requires every member of its
+CMO ([§1](#1-conventions)). Changed 2026-10-27: a zlib stream's codec is `numcodecs.zlib`, in
+place of `zlib`, and every codec's name is zarr-python's, imagecodecs-zarr's, the zarr-extensions
+registry's or refkv's own `refkv.<codec>`, [§3](#3-arrays) (d-v-b/refkv#90).)
 
 <!-- profiles:conventions-table -->
 | format | convention | UUID |
@@ -115,15 +122,28 @@ the URLs. All conventions nest their property under one key, `refkv_zarrified`, 
 also their `name`: the framework asks a nesting convention's `name` to be
 its key, and a key without a colon is not mistaken for a namespace prefix.
 
+<a id="type-conventionmetadata"></a>**`ConventionMetadata`**, the CMO ([§11.5](#115-layout-tables) says how to read this and the
+other type tables):
+
+| member | type | presence | value |
+|---|---|---|---|
+| `uuid` | string | required | the convention's UUID, from the table above |
+| `schema_url` | string | required | the URL of `zarrify/<p>/schema.json` at the tag `zarrify-<p>-v<N>` (at version 0, at `main`) |
+| `spec_url` | string | required | the URL of `zarrify/<p>.md` at the same tag (at version 0, at `main`) |
+| `name` | string | required | `"refkv_zarrified"` |
+| `description` | string | required | `"The Zarr layout of a <T> source zarrified by refkv, and the source's metadata"`, `T` the format's title |
+
 ## 2. Attributes
 
 **Which nodes.** The root node of the hierarchy (the document `zarr.json`)
 always declares its format's convention. Any other node declares it when,
 and only when, the node has source metadata (below). A node that declares
-it has, in its attributes, the member `zarr_conventions`, whose value is
-`[C]` with `C` the format's CMO (for the SAFE convention, `C` followed by
-the CMOs of the GeoZarr conventions the node uses), and the member
-`refkv_zarrified`.
+it has, in its attributes, the members of a <a id="type-declaration"></a>**`Declaration`**:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `zarr_conventions` | array of [`ConventionMetadata`](#type-conventionmetadata) | required | `[C]`, `C` the format's CMO; for the SAFE convention, `C` followed by the CMOs of the GeoZarr conventions the node uses |
+| `refkv_zarrified` | [`RootProperty`](#type-rootproperty) or [`NodeProperty`](#type-nodeproperty) | required | the property (below): a `RootProperty` on the root, a `NodeProperty` on any other node |
 
 **The property.** On the root, `refkv_zarrified` is the object
 
@@ -131,21 +151,34 @@ the CMOs of the GeoZarr conventions the node uses), and the member
 {"profile": "<p>", "version": N, "source": {"url": "<U>"}, "<p>": S}
 ```
 
-and on any other node `{"<p>": S}`, where:
+and on any other node `{"<p>": S}`. `p` and `N` are the format and its convention's version,
+and `S` is the node's **source metadata**, an object whose content the format's convention
+specifies (its "Source metadata" section): what the source's header or metadata holds for that
+node, translated by [§6](#6-source-metadata-as-json).
 
-- `p` and `N` are the format and its convention's version;
-- `U` is the URL of the source: of the file for a file, and of the store,
-  ending in `/`, for a store;
-- `S` is the node's **source metadata**, an object whose content the
-  format's convention specifies (its "Source metadata" section): what the
-  source's header or metadata holds for that node, translated by [§6](#6-source-metadata-as-json). The
-  member `"<p>"` is present only when `S` has at least one member.
+<a id="type-rootproperty"></a>**`RootProperty`**, the root's `refkv_zarrified`:
 
-A root whose archive also holds the source under another layout
-([§9](#9-dataset-layouts)) has, after `source`, the member `layouts`: an object
-whose keys name the layouts (`"dataset"`) and whose values are the paths of
-their nodes below the root, without a trailing `/`. There are no other
-members. The property holds no time and nothing about the program that
+| member | type | presence | value |
+|---|---|---|---|
+| `profile` | string | required | `p`, the format |
+| `version` | integer | required | `N`, the version of the format's convention |
+| `source` | [`Source`](#type-source) | required | the source |
+| `layouts` | object of string | optional | present only when the archive also holds the source under another layout ([§9](#9-dataset-layouts)), after `source`: its keys name the layouts (`"dataset"`) and its values are the paths of their nodes below the root, without a trailing `/` |
+| `"<p>"` | object | optional | `S`, the root's source metadata; present only when `S` has at least one member |
+
+<a id="type-nodeproperty"></a>**`NodeProperty`**, any other node's `refkv_zarrified`:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `"<p>"` | object | required | `S`, the node's source metadata, which has at least one member |
+
+<a id="type-source"></a>**`Source`**:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `url` | string | required | `U`, the URL of the source: of the file for a file, and of the store, ending in `/`, for a store |
+
+There are no other members. The property holds no time and nothing about the program that
 made the hierarchy, so that two conforming producers make equivalent
 hierarchies from the same source.
 
@@ -167,12 +200,16 @@ present (under a root array, as plain keys of the archive).
 
 **Nothing else.** Outside `refkv_zarrified`, a node's attributes hold only
 members that the hierarchy's target formats define, where the format's
-convention places them: `ome` (OME-NGFF 0.5, §4), the GeoZarr members of
-the zarr-conventions `proj`, `spatial` and `multiscales` conventions
-(`proj:code`, `proj:wkt2`, `spatial:*` and `multiscales`, for the SAFE
-convention, which lists their CMOs in `zarr_conventions` after its own),
-the CF attributes of a dataset layout's variables ([§9](#9-dataset-layouts)),
-and `zarr_conventions`. Everything
+convention places them:
+
+| member | defined by | on |
+|---|---|---|
+| `ome` | OME-NGFF 0.5 ([§4](#4-images)) | images, and a collection's root and `OME` group |
+| `proj:code`, `proj:wkt2`, `spatial:*`, `multiscales` | the GeoZarr members of the zarr-conventions `proj`, `spatial` and `multiscales` conventions | nodes of the SAFE convention, which lists their CMOs in `zarr_conventions` after its own |
+| the CF attributes | [§9](#9-dataset-layouts) | a dataset layout's variables |
+| `zarr_conventions` | [`Declaration`](#type-declaration) | nodes that declare the convention |
+
+Everything
 taken from the source goes under the key, on the node it belongs to,
 including attributes a source store had (and the conventions they
 declare), so it can neither collide with nor masquerade as the target
@@ -181,17 +218,21 @@ nests its own record.
 
 ## 3. Arrays
 
-Unless the format's convention says otherwise (the store conventions, N5,
-Zarr v2 and OME-Zarr, define their arrays themselves; the CZI convention
-gives clipped levels the zarr-extensions `rectilinear` chunk grid and adds
-the codecs `imagecodecs_jpegxr` (which the NDPI convention's JPEG XR levels use too)
-and `numcodecs.shuffle`; the MP3, MP4 and FLAC
-conventions give their arrays the codec `refkv.stream` of [§10](#10-coded-streams) and dimension
-names of their own, the MP4 convention gives video planes whose chunks differ in length the
-`rectilinear` chunk grid, the FLAC convention shards its array, as
-[spec/zarrify.md §2.1](zarrify.md#21-virtual-shards) says, and the NRRD convention compresses a
-gzip-encoded array with the `gzip` codec), every array's
-`zarr.json` is the JSON object:
+Unless the format's convention says otherwise, every array's `zarr.json` is the JSON object
+below. The conventions that say otherwise:
+
+| convention | its arrays |
+|---|---|
+| N5, Zarr v2, OME-Zarr (the store conventions) | are defined by the convention itself |
+| CZI | have, for clipped levels, the zarr-extensions `rectilinear` chunk grid, and may have the codecs `imagecodecs_jpegxr` and `numcodecs.shuffle` |
+| NDPI | have, for JPEG XR levels, the codec `imagecodecs_jpegxr` |
+| QPTIFF | have, for LZW tiles and strips, the codec `refkv.tiff_lzw` ([qptiff §4.1](zarrify/qptiff.md#41-data-types-and-codecs)) |
+| MP3, MP4, FLAC | have the codec `refkv.stream` of [§10](#10-coded-streams), and dimension names of their own |
+| MP4 | have, for video planes whose chunks differ in length, the `rectilinear` chunk grid |
+| FLAC | is sharded, as [spec/zarrify.md §2.1](zarrify.md#21-virtual-shards) says |
+| NRRD | has, when gzip-encoded, the `gzip` codec, which compresses it |
+
+The object:
 
 ```json
 {
@@ -212,32 +253,67 @@ with no other members. Chunk keys are `<array path>/c/<i0>/<i1>/...`. A chunk
 whose data the file does not contain has no entry (it reads as the fill
 value).
 
+<a id="type-arraydocument"></a>**`ArrayDocument`**, an array's `zarr.json`:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `zarr_format` | integer | required | `3` |
+| `node_type` | string | required | `"array"` |
+| `shape` | array of integer | required | the array's size along each axis |
+| `data_type` | string | required | a Zarr v3 data type, which the format's convention gives |
+| `chunk_grid` | object | required | `{"name": "regular", "configuration": {"chunk_shape": [...]}}`, one chunk size per axis (or, where the table above says so, the `rectilinear` grid the format's document gives) |
+| `chunk_key_encoding` | object | required | `{"name": "default", "configuration": {"separator": "/"}}` |
+| `fill_value` | number | required | `0` |
+| `codecs` | array of object | required | the codecs below, in their order |
+| `dimension_names` | array of string | required | the axes' names, in order (**Axes**, below) |
+| `attributes` | object | required | `{}`, unless the format's convention gives the array attributes: a [`Declaration`](#type-declaration) when the array has source metadata ([§2](#2-attributes), [§7](#7-source-values-as-arrays)), CF attributes ([§9](#9-dataset-layouts)) |
+
+<a id="type-groupdocument"></a>**`GroupDocument`**, a group's `zarr.json` (an image's is an
+[`ImageGroup`](#type-imagegroup), [§4](#4-images)):
+
+| member | type | presence | value |
+|---|---|---|---|
+| `zarr_format` | integer | required | `3` |
+| `node_type` | string | required | `"group"` |
+| `attributes` | object | required | `{}`, or the members the format's convention gives: a [`Declaration`](#type-declaration) when the group declares the convention ([§2](#2-attributes)) |
+
+A format's document names its arrays' types after this one, by the members it gives
+(`shape`, `data_type`, `chunk_grid`'s chunk shape, `codecs`, `dimension_names` and
+`attributes`); the members it does not name are as here.
+
 **Axes.** An image's axes are a subsequence of `t, c, z, y, x`, in that
 order: `t` (time), `c` (channel), `z`, `y`, `x` (space). `y` and `x` are
 always present; the format's convention says when the others are.
 
-**Codecs.** `codecs` is built from these, in this order:
+**Codecs.** `codecs` is built from these, in the order of their step: at most one codec
+of each step, and always one of step 2.
 
-1. `{"name": "transpose", "configuration": {"order": [...]}}` when a chunk's
-   bytes hold the channel axis last ("interleaved"). `order` lists the array's
-   axis indices in stored order: every axis except `c` in array order, then
-   `c`.
-2. The array-to-bytes codec, one of:
-   - `{"name": "bytes"}` (no `configuration`) for 1-byte data types;
-   - `{"name": "bytes", "configuration": {"endian": "little"}}` or
-     `"big"` for larger ones;
-   - `{"name": "imagecodecs_jpeg2k"}` for JPEG 2000 (one codestream per
-     chunk, decoding to the chunk's `[y, x]`, or, when interleaved, to
-     `[y, x, c]`, after which `transpose` applies). Decoding follows OpenJPEG,
-     as imagecodecs does: a 3-component codestream whose first component is
-     at full resolution and whose other two are subsampled holds YCbCr, and
-     decodes to RGB (as in Aperio's compression 33003);
-   - `{"name": "imagecodecs_jpeg"}` for JPEG (one complete JPEG stream, ISO/IEC
-     10918-1 with the JFIF/Adobe color conventions, per chunk, decoding to
-     the chunk's `[y, x]` or `[y, x, c]` like JPEG 2000).
-3. A compressor, when the bytes are compressed:
-   - `{"name": "zlib", "configuration": {"level": 1}}` (zlib streams);
-   - `{"name": "zstd", "configuration": {"level": 0, "checksum": false}}`.
+| step | codec | when |
+|---|---|---|
+| 1 | `{"name": "transpose", "configuration": {"order": [...]}}` | a chunk's bytes hold the channel axis last ("interleaved"). `order` lists the array's axis indices in stored order: every axis except `c` in array order, then `c` |
+| 2 | `{"name": "bytes"}` (no `configuration`) | a 1-byte data type |
+| 2 | `{"name": "bytes", "configuration": {"endian": "little"}}`, or `"big"` | a larger data type |
+| 2 | `{"name": "imagecodecs_jpeg2k"}` | JPEG 2000: one codestream per chunk, decoding to the chunk's `[y, x]`, or, when interleaved, to `[y, x, c]`, after which `transpose` applies |
+| 2 | `{"name": "imagecodecs_jpeg"}` | JPEG: one complete JPEG stream per chunk, ISO/IEC 10918-1 with the JFIF/Adobe color conventions, decoding to the chunk's `[y, x]` or `[y, x, c]` like JPEG 2000 |
+| 3 | `{"name": "numcodecs.zlib", "configuration": {"level": 1}}` | the bytes are zlib streams (RFC 1950) |
+| 3 | `{"name": "zstd", "configuration": {"level": 0, "checksum": false}}` | the bytes are Zstandard frames |
+
+**Codec names.** Every codec a convention names is one that a reader of Zarr v3 finds by its
+name: zarr-python's own (`bytes`, `transpose`, `gzip`, `zstd`, `blosc`, `sharding_indexed`, and
+`numcodecs.zlib`, `numcodecs.shuffle` and `numcodecs.delta`, its names for numcodecs' codecs),
+imagecodecs-zarr's (`imagecodecs_jpeg`, `imagecodecs_jpeg2k`, `imagecodecs_jpegxr`), the
+zarr-extensions registry's (`n5_default`), or refkv's own, which are named `refkv.<codec>`
+(`refkv.stream`, [§10](#10-coded-streams); `refkv.fits_tiles`,
+[fits §3.3](zarrify/fits.md#33-tile-compressed-images); `refkv.tiff_lzw`,
+[qptiff §4.1](zarrify/qptiff.md#41-data-types-and-codecs)). refkv names a
+codec of its own only where none of the others decodes the chunks as the convention says (QPTIFF's
+LZW streams can run past their tile, which `imagecodecs_lzw` does not allow). refkv's Python
+package provides its own codecs to zarr-python through the `zarr.codecs` entry points, and the
+`images` extra installs imagecodecs-zarr.
+
+JPEG 2000 decoding follows OpenJPEG, as imagecodecs does: a 3-component codestream whose
+first component is at full resolution and whose other two are subsampled holds YCbCr, and
+decodes to RGB (as in Aperio's compression 33003).
 
 ## 4. Images
 
@@ -258,15 +334,116 @@ no other member is allowed. `M` is:
 }
 ```
 
-- `name` is present only when the format's convention gives one.
-- Each axis has `name` and `type` (`"time"`, `"channel"` or `"space"`), and
-  `unit` only when the format's convention gives one.
-- `datasets` lists the pyramid levels, full resolution first, with paths
-  `"0"`, `"1"`, ...; each has a `scale` transformation, one number per axis,
-  followed by a `{"type": "translation", "translation": [...]}`
-  transformation (one number per axis) only where the format's convention gives one.
-- `M` has an `"omero"` member, next to `multiscales`, only where the format's
-  convention says so.
+Its types, from the group's document down:
+
+<a id="type-imagegroup"></a>**`ImageGroup`**, an image's `zarr.json`:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `zarr_format` | integer | required | `3` |
+| `node_type` | string | required | `"group"` |
+| `attributes` | object | required | `ome`, an [`OmeImage`](#type-omeimage), and, when the image declares the convention, the members of a [`Declaration`](#type-declaration) |
+
+<a id="type-omeimage"></a>**`OmeImage`**, `M`:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `version` | string | required | `"0.5"` |
+| `multiscales` | array of [`Multiscale`](#type-multiscale) | required | one multiscale |
+| `omero` | [`Omero`](#type-omero) | optional | next to `multiscales`, only where the format's convention says so |
+
+<a id="type-multiscale"></a>**`Multiscale`**:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `name` | string | optional | present only when the format's convention gives one |
+| `axes` | array of [`Axis`](#type-axis) | required | one per axis of the image's arrays, in their order |
+| `datasets` | array of [`Dataset`](#type-dataset) | required | the pyramid levels, full resolution first |
+
+<a id="type-axis"></a>**`Axis`**:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `name` | string | required | `"t"`, `"c"`, `"z"`, `"y"` or `"x"` (**Axes**, [§3](#3-arrays)) |
+| `type` | string | required | `"time"` for `t`, `"channel"` for `c`, `"space"` for the others |
+| `unit` | string | optional | an OME-NGFF unit ([§5](#5-units)), only when the format's convention gives one |
+
+<a id="type-dataset"></a>**`Dataset`**, a level:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `path` | string | required | the level's array, `"0"`, `"1"`, ... in order |
+| `coordinateTransformations` | array of object | required | a [`Scale`](#type-scale), followed by a [`Translation`](#type-translation) only where the format's convention gives one |
+
+<a id="type-scale"></a>**`Scale`**:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `type` | string | required | `"scale"` |
+| `scale` | array of number | required | one number per axis |
+
+<a id="type-translation"></a>**`Translation`**:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `type` | string | required | `"translation"` |
+| `translation` | array of number | required | one number per axis ([§5](#5-units), **Translations**) |
+
+<a id="type-omero"></a>**`Omero`**:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `channels` | array of [`OmeroChannel`](#type-omerochannel) | required | one per channel, as the format's convention gives them |
+
+<a id="type-omerochannel"></a>**`OmeroChannel`**:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `label` | string | required | the channel's name |
+| `color` | string | required | its color, six hexadecimal digits `RRGGBB` |
+| `active` | boolean | required | `true` |
+| `window` | [`Window`](#type-window) | optional | present when the format's convention gives the channel a window |
+
+A format's convention may give a channel members of its own after these (DICOM's
+`inverted`); OME-Zarr's copies a store's own `omero`. The store conventions' images (N5's
+multiscales, OME-Zarr's migrated groups) carry the store's own axes and level paths, so their
+documents define their OME metadata themselves.
+
+<a id="type-window"></a>**`Window`**:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `min` | number | required | the least value of the data's range |
+| `max` | number | required | the greatest value of the data's range |
+| `start` | number | required | the value shown as black |
+| `end` | number | required | the value shown at full intensity |
+
+**A collection.** A convention whose source holds several images may lay them out as a
+**bioformats2raw collection** (the OME-NGFF 0.5 `bioformats2raw.layout`), whose
+<a id="table-collection"></a>entries are:
+
+| prefix | type | structure | description |
+|---|---|---|---|
+| `zarr.json` | group | [`GroupDocument`](#type-groupdocument), attributes a [`CollectionRoot`](#type-collectionroot) | the root, which declares the convention ([§2](#2-attributes)) |
+| `OME/zarr.json` | group | [`GroupDocument`](#type-groupdocument), attributes a [`SeriesGroup`](#type-seriesgroup) | the list of the images |
+| `<k>/zarr.json` | group | [`ImageGroup`](#type-imagegroup) | image `k`, numbered from 0 |
+
+`<k>` is an image's index in decimal. Where the format's convention lays out no image (a
+source that has none), the root has no `ome` member and there is no `OME` group; the
+convention says when.
+
+<a id="type-collectionroot"></a>**`CollectionRoot`**, the root's attributes:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `ome` | object | optional | `{"version": "0.5", "bioformats2raw.layout": 3}`, present when the collection has an image |
+| `zarr_conventions`, `refkv_zarrified` | | required | a [`Declaration`](#type-declaration) |
+
+<a id="type-seriesgroup"></a>**`SeriesGroup`**, `OME/zarr.json`'s attributes; it declares no convention:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `ome` | object | required | `{"version": "0.5", "series": [...]}`, `series` the images' paths, `"0"`, `"1"`, ..., in order |
 
 ## 5. Units
 
@@ -313,30 +490,26 @@ fields and how each becomes a member of `S`. Unless it says otherwise:
   object's members is not significant: producers compare JSON values
   ([spec/zarrify.md §1.1](zarrify.md#11-output-and-equivalence)), and a
   JavaScript producer cannot keep integer-like names in place.
-- **Integers** become JSON numbers when their magnitude is at most
-  2^53 − 1, and otherwise the string of their decimal digits (with a
-  leading `-` if negative).
-- **Floating-point numbers** become JSON numbers, the source's value
-  converted to binary64 exactly (a binary32 value included). NaN, +∞ and
-  −∞ become the strings `"NaN"`, `"Infinity"` and `"-Infinity"`, as Zarr
-  fill values do. −0 may be written as `0` or `-0.0`; the two are equal.
-- **Text** fields become **text values**: for a fixed-size character
-  field, its bytes up to the first NUL (all of them if there is none). If
-  the bytes are valid UTF-8, the text value is the JSON string they
-  encode. Otherwise it is the object `{"latin1": T}`, where `T` is the
-  string in which each byte `b` is the code point U+00`bb` (ISO 8859-1, not
-  windows-1252, which some decoders give for that label). The tag keeps two
-  byte strings that would read alike apart (`C3 A9` is `"é"`, `E9` is
-  `{"latin1": "é"}`), so the bytes can always be recovered.
-- **Names** taken from the source (an attribute's or a chunk's name)
-  become JSON strings by the same reading, without the tag: UTF-8 if
-  valid, else ISO 8859-1. When two names of one object read alike, the
-  first, in the order the convention gives, is kept and the others are
-  left out (their values are not read).
-- **Arrays** of values become JSON arrays, in order.
-- **Opaque bytes** (binary fields and payloads a convention does not
-  decode) become the string of their base64 encoding (RFC 4648 §4, with
-  padding).
+- **Values** become JSON by their kind, as the table says; a format's document names these
+  types in its own tables:
+
+  | kind of value | type | JSON |
+  |---|---|---|
+  | an integer | <a id="type-integer"></a>`Integer` | a number when its magnitude is at most 2^53 − 1, and otherwise the string of its decimal digits (with a leading `-` if negative) |
+  | a floating-point number | <a id="type-float"></a>`Float` | a number, the source's value converted to binary64 exactly (a binary32 value included); NaN, +∞ and −∞ are the strings `"NaN"`, `"Infinity"` and `"-Infinity"`, as Zarr fill values are. −0 may be written as `0` or `-0.0`; the two are equal |
+  | a text field | <a id="type-text"></a>`Text` | a **text value**: a string, or the object `{"latin1": T}` (below) |
+  | a name taken from the source (an attribute's or a chunk's name) | <a id="type-name"></a>`Name` | a string, read as a text value is but without the tag: UTF-8 if valid, else ISO 8859-1 |
+  | an array of values | `array of T` | an array, in order |
+  | opaque bytes (binary fields and payloads a convention does not decode) | <a id="type-base64"></a>`Base64` | the string of their base64 encoding (RFC 4648 §4, with padding) |
+
+- **Text values.** A fixed-size character field's text is its bytes up to the first NUL (all
+  of them if there is none). If the bytes are valid UTF-8, the text value is the JSON string
+  they encode. Otherwise it is the object `{"latin1": T}`, where `T` is the string in which
+  each byte `b` is the code point U+00`bb` (ISO 8859-1, not windows-1252, which some decoders
+  give for that label). The tag keeps two byte strings that would read alike apart (`C3 A9`
+  is `"é"`, `E9` is `{"latin1": "é"}`), so the bytes can always be recovered.
+- **Names from the source.** When two names of one object read alike, the first, in the order the convention
+  gives, is kept and the others are left out (their values are not read).
 
 Producers compare these as JSON values: numbers by their binary64 values,
 strings by their characters ([spec/zarrify.md §1.1](zarrify.md#11-output-and-equivalence)).
@@ -357,11 +530,31 @@ opaque is an array of the source metadata node ([§2](#2-attributes)). Each such
 `zarr.json` is as in [§3](#3-arrays), with `fill_value` 0 unless the convention says
 otherwise, `codecs` `[{"name": "bytes", "configuration": {"endian": E}}]`
 (`[{"name": "bytes"}]` for one-byte data types), where `E` is `"little"`
-unless the convention gives the source's byte order, followed by `zlib`
-(`{"name": "zlib", "configuration": {"level": 1}}`) when the convention
+unless the convention gives the source's byte order, followed by `numcodecs.zlib`
+(`{"name": "numcodecs.zlib", "configuration": {"level": 1}}`) when the convention
 keeps the source's deflate-compressed chunks, and the `dimension_names` the
 convention gives (none when it gives none). Its attributes are empty, or the
 declaration of the convention with the array's own source metadata.
+
+<a id="type-sourcearray"></a>**`SourceArray`**, such an array's `zarr.json`: an
+[`ArrayDocument`](#type-arraydocument) but for these members:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `fill_value` | number | required | `0`, unless the convention says otherwise |
+| `codecs` | array of object | required | `[{"name": "bytes", "configuration": {"endian": E}}]`, or `[{"name": "bytes"}]` for a one-byte data type, followed by `{"name": "numcodecs.zlib", "configuration": {"level": 1}}` when the convention keeps the source's deflate-compressed chunks |
+| `dimension_names` | array of string | optional | the names the convention gives; absent when it gives none |
+| `attributes` | object | required | `{}`, or a [`Declaration`](#type-declaration) with the array's own source metadata |
+
+Its forms, each detailed below:
+
+| form | node | data type | shape | dimension names | chunk shape |
+|---|---|---|---|---|---|
+| <a id="type-stream"></a>a stream | array | its values' | the image's frame grid | the convention's | the convention's |
+| <a id="type-bytes"></a>bytes | array | `uint8` | `[n]`, `n ≥ 1` | `["byte"]` | `[ceil(n / k)]`, `k = ceil(n / 2^24)` |
+| <a id="type-contiguous"></a>contiguous values | array | its values' | `S` | the convention's | cut as below |
+| <a id="type-family"></a>a family of byte values of one length `L` | array | `uint8` | `[count, L]` | `["index", "byte"]` | as contiguous values, or `[1, L]` |
+| a family of byte values, otherwise | group of the arrays `offsets` and `data` | `int64` and `uint8` | `[count + 1]` and `[total]` | the convention's | as contiguous values, and `[ceil(total / k)]`, `k = ceil(total / 2^20)` |
 
 - **A stream** (one typed value per frame, or per plane) has the data type
   of its values. It is shaped to the image's frame grid, as the convention
@@ -514,15 +707,54 @@ into runs; the canonical table (8.8) expands them, and a reader accepts them.
 {"version": 2, "size": Z, "elements": n, "rows": m, "names": [...], "types": [...], "forms": [...]}
 ```
 
-- `Z`: the source's size in bytes; `n`: the elements, with every column
-  run expanded (8.3); `m`: the rows the table stores;
-- `names`, `types`, `forms`: the interned strings, whose indexes the rows
-  and tables use; `names[0]` and `types[0]` are `""` (`names[0]` is the
-  root's name, 8.1).
+<a id="type-mirror"></a>**`Mirror`**, `refkv_source`'s source metadata `S`:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `ir` | [`IrDescription`](#type-irdescription) | required | `I`, the table's description |
+| `empty_dirs` | array of string | optional | a store convention's: what the convention keeps beside the IR (the SAFE convention's empty directories) |
+| `ignored` | array of string | optional | a store convention's: the recorded keys of the objects [spec/zarrify.md §1.4](zarrify.md#14-store-inputs) ignores |
+
+The store conventions say when they have the last two members, and their content.
+
+<a id="type-irdescription"></a>**`IrDescription`**, `I`:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `version` | integer | required | `2` |
+| `size` | integer | required | `Z`, the source's size in bytes (a store IR's, [§8.9](#89-stores)) |
+| `objects` | integer | optional | `o`, a store IR's objects, after `size` ([§8.9](#89-stores)); a file IR has none |
+| `elements` | integer | required | `n`, the elements, with every column run expanded (8.3) |
+| `rows` | integer | required | `m`, the rows the table stores |
+| `names` | array of string | required | the interned names, whose indexes the rows and tables use; `names[0]` is `""`, the root's name (8.1) |
+| `types` | array of string | required | the interned types (8.6), likewise; `types[0]` is `""` |
+| `forms` | array of string | required | the interned forms (8.5), likewise, each a JSON text |
+
+<a id="table-mirror"></a>**The mirror's entries**, under `refkv_source` ([§11.5](#115-layout-tables)):
+
+| prefix | type | structure | description |
+|---|---|---|---|
+| `refkv_source/zarr.json` | group | [`GroupDocument`](#type-groupdocument), attributes a [`Declaration`](#type-declaration) whose source metadata is a [`Mirror`](#type-mirror) | the source metadata node ([§2](#2-attributes)) |
+| `refkv_source/ir/zarr.json` | group | [`GroupDocument`](#type-groupdocument), attributes `{}` | leads to the table |
+| `refkv_source/ir/rows/zarr.json` | array | [`TableArray`](#type-tablearray): `int64`, `[8, m]`, chunks `[8, min(m, 16384)]`, dimensions `column`, `index` | the stored rows |
+| `refkv_source/ir/tables/zarr.json` | array | [`TableArray`](#type-tablearray): `int64`, `[k, 7]`, chunks `[min(k, 18724), 7]`, dimensions `index`, `part` | the tables |
+| `refkv_source/ir/shared/zarr.json` | group | [`GroupDocument`](#type-groupdocument), attributes `{}` | when the IR has shared data sources |
+| `refkv_source/ir/shared/offsets/zarr.json` | array | [`TableArray`](#type-tablearray): `int64`, `[s + 1]`, chunks of at most 131072 values, dimension `index` | where each shared data source starts in `data`, then the total |
+| `refkv_source/ir/shared/data/zarr.json` | array | [`TableArray`](#type-tablearray): `uint8`, chunks of at most 1048576 values, dimension `index` | the shared data sources, one after another; present only when they total at least one byte |
+| `refkv_source/ir/held/**` | group, arrays | as `ir/shared/**`, but `data` is present whatever the total | a store IR's held objects, one byte string each ([§8.9](#89-stores)) |
+| `refkv_source/ir/*/c/**` | chunk | the array's values, little-endian, edge chunks padded with zeros | copied bytes |
+| `refkv_source/tree/zarr.json` | group | [`GroupDocument`](#type-groupdocument), attributes a [`Declaration`](#type-declaration) whose source metadata is the root's [`ViewDocument`](#type-viewdocument) ([§8.7](#87-the-view)), or `{}` when the document has no member | the view of the IR's root |
+| `refkv_source/tree/**/zarr.json` | group | [`GroupDocument`](#type-groupdocument), attributes as `tree`'s, or `{}` for a group that only leads to a group | the view of a struct whose document is stored on its own group ([§8.7](#87-the-view)) |
+| `refkv_source/<path>` | group, array, chunk or object | as the format's convention gives | the format's own nodes under `refkv_source` ([§7](#7-source-values-as-arrays)), and a store convention's `objects/**` ([§2](#2-attributes)), which its document lists in rows of their own |
+
+<a id="type-tablearray"></a>**`TableArray`**: an [`ArrayDocument`](#type-arraydocument) with the
+data type, shape, chunk shape and dimension names above, `fill_value` 0, `codecs`
+`[{"name": "bytes", "configuration": {"endian": "little"}}]` (`[{"name": "bytes"}]` for
+`uint8`), which a reader also accepts followed by `numcodecs.zlib` at any level, and attributes `{}`.
 
 The table is two arrays under `refkv_source/ir/` ([§3](#3-arrays) documents, data type
 `int64`, `fill_value` 0, codecs `bytes` little-endian, which a reader also
-accepts followed by `zlib` at any level, though the canonical table, 8.8, has
+accepts followed by `numcodecs.zlib` at any level, though the canonical table, 8.8, has
 none; edge chunks padded with zeros; no attributes):
 
 - **`rows`**, shape `[8, m]`, dimension names `column` and `index`, chunk
@@ -554,8 +786,9 @@ none; edge chunks padded with zeros; no attributes):
 When the IR has shared data sources (bytes several recipes name, 8.5),
 `refkv_source/ir/shared` is a group of two arrays holding them, in order:
 `offsets`, `int64` `[s + 1]` (where each starts in `data`, then the total),
-and `data`, `uint8`, the sources one after another (chunks of at most
-131072 and 1048576 values, encoded as the table's). **The rows are
+and `data`, `uint8`, the sources one after another, present only when they
+total at least one byte (chunks of at most 131072 and 1048576 values, encoded
+as the table's). **The rows are
 in depth-first order**: every element's subtree is contiguous, its id after
 its parent's and before its next sibling's; ids are the order of the
 expanded table (the canonical order of 8.8). Derived content is not needed to
@@ -731,6 +964,30 @@ Values JSON cannot hold are tagged: `{"$vz": "int", "v": digits}` past
 2^53 − 1, `{"$vz": "float", "v": "NaN" | "Infinity" | "-Infinity"}`,
 `{"$vz": "bytes", "b64": ...}` and `{"$vz": "utf16", "b64": ...}`.
 
+<a id="type-viewdocument"></a>**`ViewDocument`**, a struct's or a derived element's
+document, the source metadata of its group:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `$vz` | string | optional | `"derived"`: present, first, in a derived element's document, and only there |
+| `$form` | string or null | optional | present, after `$vz`, in a derived element's document, and only there: its form (`null`: none) |
+| `$partial` | boolean | optional | `true` when the document stops short of the struct's children (**Budgets**) |
+| each shown child's full name (a leading `$` doubled) | [`ViewValue`](#type-viewvalue) | optional | the child's member, in canonical order |
+
+<a id="type-viewvalue"></a>**`ViewValue`**, a child's member, one of:
+
+| form | when |
+|---|---|
+| a JSON value | a shown value: its text value or its decoded value, as above |
+| a [`ViewDocument`](#type-viewdocument) | a struct or a derived element whose document is inline |
+| `{"$vz": "group", "path": p}` | a struct or a derived element whose document is the group `refkv_source/p` |
+| `{"$vz": "element", "id": i}` | the spill form: row `i` of the expanded table |
+| `{"$vz": "alias", "path": p}` | an alias whose target is neither data nor a gap |
+| `{"$vz": "int", "v": digits}` | an integer past 2^53 − 1 |
+| `{"$vz": "float", "v": "NaN" \| "Infinity" \| "-Infinity"}` | a float JSON cannot hold |
+| `{"$vz": "bytes", "b64": B}` | bytes |
+| `{"$vz": "utf16", "b64": B}` | UTF-16 that is not text |
+
 **Budgets.** A document holds at most 65536 bytes, and at most 2^20
 elements are visited in all. Each document starts with 65536 bytes left;
 for each child in order: the child is visited (counted); if fewer than 1024
@@ -857,7 +1114,7 @@ compares mirrors entry for entry. In order:
    columns (code 4) as above; and `column_values` (code 5), padded with
    zeros to a multiple of six.
 8. **Arrays.** The chunk shapes are those of 8.2, and the codecs `bytes`
-   (little-endian) alone: no `zlib`. The archive's own entry compression
+   (little-endian) alone: no `numcodecs.zlib`. The archive's own entry compression
    (spec/bindings/vzip.md) does the work, and is not part of the output.
 9. **Description and view.** `S` is `{"ir": I}` of 8.2 with `version` 2,
    and the view is 8.7's, from the elements in this order.
@@ -1111,6 +1368,30 @@ node of its own: the source's mirror ([§8](#8-the-ir-mirror)) is the root's
 Variables have no other attributes, and the group's attributes are
 `zarr_conventions` and `refkv_zarrified` alone.
 
+<a id="type-datasetgroup"></a>**`DatasetGroup`**, the dataset's attributes: a
+[`Declaration`](#type-declaration) whose `refkv_zarrified` is a
+[`RootProperty`](#type-rootproperty) of the profile `<p>-dataset`, with no `layouts`, and the
+source metadata member `"<p>-dataset"` the dataset convention gives.
+
+<a id="type-datavariable"></a>**`DataVariable`**: the [`ArrayDocument`](#type-arraydocument)
+of the image layout's array for the same values, but for:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `dimension_names` | array of string | required | as the dataset convention names them |
+| `attributes` | object | required | the CF attributes the convention gives: `long_name` (string) and `actual_range` (`[min, max]`, two numbers), each optional; else `{}` |
+
+<a id="type-coordinatevariable"></a>**`CoordinateVariable`**, named as its dimension `d`: an
+[`ArrayDocument`](#type-arraydocument) of one dimension, of its length `n`, with the chunk
+shape `[min(n, 2^17)]` and the `dimension_names` `[d]`, and, by its form:
+
+| member | regular steps (the index) | irregular positions |
+|---|---|---|
+| `data_type` | `"uint32"` | `"float64"` |
+| `codecs` | `[{"name": "numcodecs.delta", "configuration": {"dtype": "<u4"}}, {"name": "bytes", "configuration": {"endian": "little"}}, {"name": "gzip", "configuration": {"level": 6}}]` | `[{"name": "bytes", "configuration": {"endian": "little"}}]` |
+| `attributes` | `units` (string), `scale_factor` (`s`, number), `add_offset` (`o`, number) | `units` (string) |
+| a chunk's bytes | its indexes, delta-coded, as little-endian `uint32`, in one gzip member | its positions, little-endian `float64`, the last chunk padded with zero bytes |
+
 **Equivalence.** A dataset layout is compared entry for entry with the rest
 of the hierarchy ([spec/zarrify.md §1.1](zarrify.md#11-output-and-equivalence)):
 its coordinate values are the numbers its convention computes, in binary64,
@@ -1131,33 +1412,25 @@ such a stream's samples therefore holds the frames it decodes to and the
 frames before them that a decoder must decode first, its **lead-in**. The
 array-to-bytes codec `refkv.stream` decodes such a chunk.
 
-**The codec.** `{"name": "refkv.stream", "configuration": C}`, where `C` has:
+**The codec.** `{"name": "refkv.stream", "configuration": C}`, where `C` is a
+<a id="type-streamconfiguration"></a>**`StreamConfiguration`**:
 
-- `format`: the coding of the frames: `"mp3"` (MPEG-1, 2 or 2.5 Layer III
-  frames), `"aac"` (raw AAC frames, without ADTS headers), `"flac"` (FLAC
-  frames, [RFC 9639 §9](https://www.rfc-editor.org/rfc/rfc9639#section-9)) or
-  `"h264"` (H.264 access units as an MP4 file holds them: each NAL unit
-  preceded by its length, in the length's size the setup gives);
-- `setup`, when the format has one: the decoder's configuration, base64
-  ([RFC 4648 §4](https://www.rfc-editor.org/rfc/rfc4648#section-4)): for
-  `"aac"` the AudioSpecificConfig (ISO/IEC 14496-3 §1.6.2.1), for `"flac"`
-  `fLaC` and the stream's STREAMINFO block, header included (42 bytes: the
-  form ffmpeg's decoder and WebCodecs' `description` take), for `"h264"`
-  the AVCDecoderConfigurationRecord (an MP4 file's avcC box, ISO/IEC
-  14496-15 §5.3.3.1), which holds the parameter sets;
-- `plane`, for `"h264"`: the plane of a decoded picture the array holds,
-  `"y"`, `"u"` or `"v"`.
+| member | type | presence | value |
+|---|---|---|---|
+| `format` | string | required | the coding of the frames: `"mp3"` (MPEG-1, 2 or 2.5 Layer III frames), `"aac"` (raw AAC frames, without ADTS headers), `"flac"` (FLAC frames, [RFC 9639 §9](https://www.rfc-editor.org/rfc/rfc9639#section-9)) or `"h264"` (H.264 access units as an MP4 file holds them: each NAL unit preceded by its length, in the length's size the setup gives) |
+| `setup` | string | optional | when the format has one: the decoder's configuration, base64 ([RFC 4648 §4](https://www.rfc-editor.org/rfc/rfc4648#section-4)): for `"aac"` the AudioSpecificConfig (ISO/IEC 14496-3 §1.6.2.1), for `"flac"` `fLaC` and the stream's STREAMINFO block, header included (42 bytes: the form ffmpeg's decoder and WebCodecs' `description` take), for `"h264"` the AVCDecoderConfigurationRecord (an MP4 file's avcC box, ISO/IEC 14496-15 §5.3.3.1), which holds the parameter sets |
+| `plane` | string | optional | for `"h264"` only: the plane of a decoded picture the array holds, `"y"`, `"u"` or `"v"` |
 
 There are no other members.
 
-**A chunk's bytes** are a header, then the frames:
+<a id="type-streamchunk"></a>**A chunk's bytes** (a **`StreamChunk`**) are a header, then the
+frames, in this order:
 
-1. `n`, the frames' count, as a varint;
-2. for each frame, in the order of the frames, its `size` as a varint,
-   then its `position` less the previous frame's (the first frame's less
-   −1) as a zigzag varint;
-3. the `n` frames, each `size` bytes, one after the other, in decode
-   order.
+| part | encoding | value |
+|---|---|---|
+| count | varint | `n`, the frames' count |
+| for each frame, in the order of the frames | varint, then zigzag varint | its `size`, then its `position` less the previous frame's (the first frame's less −1) |
+| the frames | bytes | the `n` frames, each `size` bytes, one after the other, in decode order |
 
 A **varint** is an unsigned integer as protobuf encodes it, 7 bits a byte,
 the least significant first, the high bit set on every byte but the last;
@@ -1267,3 +1540,76 @@ the documents the profile reads), and the mirror by its elements
 hierarchies of one source are compared entry for entry, `refkv_source`
 included ([spec/zarrify.md §1.1](zarrify.md#11-output-and-equivalence)).
 
+
+### 11.5 Layout tables
+
+A format's document describes the hierarchy its convention specifies in tables, so that a
+reader can model every node and attribute the convention writes as a record type from the
+tables alone. The prose stays the definition of what a table cannot hold: an algorithm, a
+rationale, an example.
+
+**The entries table.** Part 1 has, before its section 1 (after any paragraphs that introduce
+it), the section **Layout**, unnumbered, whose anchor is `#layout` and whose table has one row per entry, or family of entries,
+of the hierarchy, root first, with these columns:
+
+| column | holds |
+|---|---|
+| prefix | the entry's key below the hierarchy's root. `<name>` is a placeholder, defined in a table of placeholders after the entries table, for one key segment unless its definition says it stands for several; `*` is any one segment and `**` any number of segments. An attribute's prefix is its document's key followed by `#` and the JSON Pointer (RFC 6901) of the member in the document, `zarr.json#/attributes/ome` |
+| type | `group` or `array` (a node's `zarr.json`), `attribute` (a member of a node's attributes, or a member of one), `chunk` (a chunk's key, or a shard's), `object` (an entry that is a store's object, held whole: under `refkv_source/objects/`, or at a key the format's convention gives) or `subtree` (a family of entries another table lists) |
+| structure | a link to what defines the entry: for a node, its document's type; for an attribute, the member's type; for a chunk, its bytes' composition; for a subtree, its table. A constant is written as it is |
+| description | what the entry is, when it is present, and the section of the prose that defines it |
+
+Every entry the format writes matches exactly one row of type `group`, `array`, `chunk`,
+`object` or `subtree`, except that the format's own entries under `refkv_source` (its arrays,
+[§7](#7-source-values-as-arrays), and a store convention's kept objects) match both the
+subtree `refkv_source/**` and rows of their own, which say what they are. The mirror is one
+row, `refkv_source/**`, a subtree, which links [the mirror's entries](#table-mirror)
+([§8.2](#82-the-table)); a collection's entries are [§4](#4-images)'s
+[table](#table-collection).
+
+**Type tables.** A structured value (a node's document, an attribute, an object of the
+source metadata) is defined once, by a **type table**: a line naming the type in bold,
+`**`Name`**`, preceded by the anchor `<a id="type-<name>"></a>` (`<name>` the name in lower
+case), then a table of its members:
+
+| column | holds |
+|---|---|
+| member | the member's name; `"<p>"` and other placeholders for a name the value column gives; a description in words for a family of members (one per field of the header) |
+| type | a JSON type (`string`, `integer`, `number`, `boolean`, `null`, `object`, `array of T`, `object of T` for an object whose members are all `T`), a type of [§6](#6-source-metadata-as-json) (`Integer`, `Float`, `Text`, `Name`, `Base64`), or a link to another type table; `A or B` for either |
+| presence | `required` or `optional`: an optional member's condition is in its value |
+| value | the member's meaning and constraints: a constant, the values it may take, its order |
+
+The members are in the order the producer writes them, which the reader need not keep
+([§6](#6-source-metadata-as-json)). A format's types are named with its own prefix
+(`Nifti…`); the types of this document and of [spec/zarrify.md](zarrify.md) are shared, and
+each format's document links them rather than repeating them. A type that is a shared one
+but for some members (an array's [`ArrayDocument`](#type-arraydocument)) lists those
+members only, and says so. A type table stands where the prose defines the type, in place of
+a list of its members.
+
+**Chunk tables.** A chunk is a reference to the source's bytes, or bytes that the archive
+holds ([spec/zarrify.md §1.1](zarrify.md#11-output-and-equivalence)). A chunk type lists the
+ranges of the reference, in order, with these columns:
+
+| column | holds |
+|---|---|
+| part | what the range holds |
+| range | a source range `(i, offset, length)` of source `i` as [spec/zarrify.md](zarrify.md)'s [`Range`](zarrify.md#type-range) numbers it, a literal range, a range of a data source, or `bytes`, when the chunk is a bytes entry |
+| presence | `required` or `optional`: an optional range's condition is in its value |
+| value | its offset and length, or its bytes, and their constraints |
+
+A shard's composition is [spec/zarrify.md §2.1](zarrify.md#21-virtual-shards)'s
+[`Shard`](zarrify.md#type-shard), of the inner chunks a format's chunk type gives.
+
+**Unions and tuples.** A type that is one of several forms is a table with the columns
+`form` and `when`, one row per form, as [§8.7](#87-the-view)'s
+[`ViewValue`](#type-viewvalue). A JSON array whose elements differ by position is a table
+with the columns `element`, `type` and `value`, one row per position.
+
+**Binary layouts.** Bytes whose structure a type gives (a chunk's header, a record of the
+source) are a table with the columns `part`, `encoding` and `value`, its rows in the order of
+the bytes, as [§10](#10-coded-streams)'s [`StreamChunk`](#type-streamchunk).
+
+**Placeholders and other lists.** A table of placeholders has the columns `placeholder` and
+`value`. A list whose items share the same parts (a code's meanings, the members of an
+object) is a table, one row per item and one column per part.

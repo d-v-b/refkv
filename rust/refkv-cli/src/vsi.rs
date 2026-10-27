@@ -7,7 +7,7 @@
 //! than from a listing. The files are the objects of a store whose URL is the named file's
 //! directory, each read through a transport of its own (`transport.rs`); a probe opens the file,
 //! and one that does not exist (a missing local file, an HTTP 404) is absent. The twin of
-//! python/src/refkv/zarrify/vsi.py.
+//! python/src/refkv/zarrify/store/beside.py.
 
 use crate::http::Client;
 use crate::run::{concurrency, map};

@@ -11,11 +11,36 @@ Schema: [schema.json](mrc/schema.json) · Changed 2026-10-25: an edge chunk's ze
 a range of the output's one zero data source, not a literal range of each reference, so that
 the archive holds the zeros once ([§8.2](#82-chunks)); no chunk's values change, nor which
 chunks are copied · Changed 2026-10-25: a zarrifier may leave the dataset
-layout out ([§1](#1-declaration), [spec/zarrify.md §1.7](../zarrify.md#17-named-inputs-and-layouts)).
+layout out ([§1](#1-declaration), [spec/zarrify.md §1.7](../zarrify.md#17-named-inputs-and-layouts)) ·
+Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
+[Layout](#layout) and its types in type tables
+([conventions §11.5](../conventions.md#115-layout-tables)), and the text says, as refkv already
+wrote it, that any one-byte data type, IMOD's `uint8` too, has the codec `bytes` without a byte
+order ([§4.1](#41-the-array)).
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
 # Part 1. The convention
+
+## Layout
+
+The hierarchy's entries ([conventions §11.5](../conventions.md#115-layout-tables)):
+
+| prefix | type | structure | description |
+|---|---|---|---|
+| `zarr.json` | group | [`ImageGroup`](../conventions.md#type-imagegroup) | the root: the image ([§4](#4-the-image)) |
+| `zarr.json#/attributes/ome` | attribute | [`OmeImage`](../conventions.md#type-omeimage) | `M`: one level, the array `0`, with the scales and translation of [§4.2](#42-scales-units-and-position), and `omero` as [§4.3](#43-channels) says |
+| `zarr.json#/attributes/zarr_conventions` | attribute | array of [`ConventionMetadata`](../conventions.md#type-conventionmetadata) | the CMO of [§1](#1-declaration) |
+| `zarr.json#/attributes/refkv_zarrified` | attribute | [`RootProperty`](../conventions.md#type-rootproperty) | `profile` `"mrc"`, `version` `0`, `source.url` the file's URL, and `layouts` `{"dataset": "dataset"}` unless the dataset layout is left out ([§1](#1-declaration)) |
+| `zarr.json#/attributes/refkv_zarrified/mrc` | attribute | [`MrcRoot`](#type-mrcroot) | the root's source metadata ([§5.1](#51-the-root)) |
+| `0/zarr.json` | array | [`MrcArray`](#type-mrcarray) | the values ([§4.1](#41-the-array)) |
+| `0/c/<coords>` | chunk | [`MrcChunk`](#type-mrcchunk) | every chunk of the array ([§8.2](#82-chunks)) |
+| `dataset/**` | subtree | [the dataset's entries](mrc-dataset.md#layout) | the dataset layout ([§1](#1-declaration), [mrc-dataset.md](mrc-dataset.md)), unless a zarrifier leaves it out |
+| `refkv_source/**` | subtree | [the mirror's entries](../conventions.md#table-mirror) | the IR mirror ([§5.2](#52-the-ir-mirror)): its elements are [§5.3](#53-elements)'s |
+
+| placeholder | value |
+|---|---|
+| `<coords>` | the chunk's coordinates along the array's axes, in decimal, one key segment each, in the axes' order ([§4.1](#41-the-array)): two segments for an image, three for an image stack or a volume, four for a volume stack |
 
 ## 1. Declaration
 
@@ -49,10 +74,16 @@ the root's property has no `layouts`.
 The file's **header** is its first 1024 bytes, in the file's byte order
 ([§8.1](#81-header)). Its fields, in the order of the file, are those of
 the MRC2014 standard (Cheng et al., 2015, and the CCP4 map format), at these
-byte offsets. `i32` is a two's complement integer, `f32` an IEEE 754 binary32
-number (converted to binary64 exactly), `u8` an unsigned byte, `char[k]` `k`
-bytes of text, and `bytes[k]` `k` opaque bytes. A field `T[k]` is `k`
-consecutive values, indexed from 0.
+byte offsets. Their types:
+
+| type | value |
+|---|---|
+| `i32` | a two's complement integer |
+| `f32` | an IEEE 754 binary32 number (converted to binary64 exactly) |
+| `u8` | an unsigned byte |
+| `char[k]` | `k` bytes of text |
+| `bytes[k]` | `k` opaque bytes |
+| `T[k]` | `k` consecutive values of type `T`, indexed from 0 |
 
 | field | offset | type | meaning |
 |---|---|---|---|
@@ -125,11 +156,12 @@ without a name, with one array at path `"0"`: the root `zarr.json` is
 
 **Kind.** The file is, by `ispg` and `nz`:
 
-- a **volume stack** when `ispg ≥ 401` (the profile has checked that `mz`
-  divides `nz`, [§8.1](#81-header)): `nz / mz` volumes of `mz` sections;
-- an **image** when `ispg = 0` and `nz = 1`;
-- an **image stack** when `ispg = 0` and `nz > 1`;
-- a **volume** otherwise (any other `ispg`, negative or over 230 included).
+| kind | when |
+|---|---|
+| **volume stack** | `ispg ≥ 401` (the profile has checked that `mz` divides `nz`, [§8.1](#81-header)): `nz / mz` volumes of `mz` sections |
+| **image** | `ispg = 0` and `nz = 1` |
+| **image stack** | `ispg = 0` and `nz > 1` |
+| **volume** | otherwise (any other `ispg`, negative or over 230 included) |
 
 **The axis map.** The sections, rows and columns run along the axes `maps`,
 `mapr` and `mapc` name: 1 is `x`, 2 is `y` and 3 is `z`. The map is
@@ -141,27 +173,30 @@ never reordered: the array's axes are the file's dimensions in stored order,
 however they are named. (With the standard map `mapc = 1`, `mapr = 2`,
 `maps = 3`, the array is `z`, `y`, `x`.)
 
-- **Axes:** for an image, the rows' axis then the columns'; for an image
-  stack or a volume, the sections' axis, the rows' and the columns'; for a
-  volume stack, `t`, then those three. (`t` is the volume's index in the
-  stack, of type `time`; it is not the acquisition time.)
-- **Shape:** `[ny, nx]`, `[nz, ny, nx]` or `[nz / mz, mz, ny, nx]`, in the
-  axes' order.
-- **Data type:** from [§3](#3-data-types).
-- **Chunks** ([conventions §7](../conventions.md#7-source-values-as-arrays),
-  contiguous values): the data is the row-major array `V` of the array's
-  shape, with elements of `b` bytes, at offset `1024 + nsymbt`. It is cut as
-  contiguous values with the **chunk limit `L = 2^20` bytes** (1 MiB):
-  blocks of whole volumes or sections when they are small, else blocks of
-  rows of a section, else runs of a row. The chunk grid, the chunk shape and
-  each chunk's bytes are those [conventions §7](../conventions.md#7-source-values-as-arrays)
-  gives; an edge chunk along the cut axis is followed by zero bytes up to the
-  whole chunk.
-- **Codecs:** `[{"name": "bytes", "configuration": {"endian": E}}]`, `E`
-  the file's byte order, or `[{"name": "bytes"}]` for `int8`. There is no
-  transpose: the stored order is the array's.
-- **Fill value:** 0, or `[0, 0]` for `complex64`.
-- **Dimension names:** the axes.
+**Axes.** For an image, the rows' axis then the columns'; for an image stack or a volume, the
+sections' axis, the rows' and the columns'; for a volume stack, `t`, then those three. (`t` is
+the volume's index in the stack, of type `time`; it is not the acquisition time.)
+
+<a id="type-mrcarray"></a>**`MrcArray`**, the array's `zarr.json`: an
+[`ArrayDocument`](../conventions.md#type-arraydocument) with these members:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `shape` | array of integer | required | `[ny, nx]`, `[nz, ny, nx]` or `[nz / mz, mz, ny, nx]`, in the axes' order |
+| `data_type` | string | required | from [§3](#3-data-types) |
+| `chunk_grid` | object | required | regular, the chunk shape that [conventions §7](../conventions.md#7-source-values-as-arrays) gives (**Chunks**, below) |
+| `fill_value` | number or array of number | required | 0, or `[0, 0]` for `complex64` |
+| `codecs` | array of object | required | `[{"name": "bytes", "configuration": {"endian": E}}]`, `E` the file's byte order, or `[{"name": "bytes"}]` for a one-byte data type (`int8`, and IMOD's `uint8`). There is no transpose: the stored order is the array's |
+| `dimension_names` | array of string | required | the axes |
+| `attributes` | object | required | `{}` ([§1](#1-declaration)) |
+
+**Chunks** ([conventions §7](../conventions.md#7-source-values-as-arrays), contiguous values):
+the data is the row-major array `V` of the array's shape, with elements of `b` bytes, at offset
+`1024 + nsymbt`. It is cut as contiguous values with the **chunk limit `L = 2^20` bytes**
+(1 MiB): blocks of whole volumes or sections when they are small, else blocks of rows of a
+section, else runs of a row. The chunk grid, the chunk shape and each chunk's bytes are those
+[conventions §7](../conventions.md#7-source-values-as-arrays) gives; an edge chunk along the
+cut axis is followed by zero bytes up to the whole chunk.
 
 For example, a `256 × 128` int16 stack of 20 sections (the fixture
 `mrc_chunk_sections.mrc`) has sections of 65536 bytes, so `k = ceil(20 /
@@ -172,14 +207,22 @@ cut along its rows into 2 chunks of 550 rows, `[550, 1000]`.
 ### 4.2 Scales, units and position
 
 **Voxel size.** A number is **valid** if it is finite and positive. The
-voxel size along `x` is `cella[0] / mx` when `mx ≥ 1`, `cella[0]` is valid
-and the quotient is valid; likewise along `y` with `cella[1]` and `my`, and
-along `z` with `cella[2]` and `mz`. An axis without a valid voxel size has
-no voxel size.
+voxel size along each axis is:
 
-**Scales.** Each spatial axis (`x`, `y` or `z`, wherever the axis map put
-it) has its voxel size as its scale, with the unit `angstrom`, or 1 with no
-unit when it has none. `t` has the scale 1 and no unit.
+| axis | voxel size | when |
+|---|---|---|
+| `x` | `cella[0] / mx` | `mx ≥ 1`, `cella[0]` is valid and the quotient is valid |
+| `y` | `cella[1] / my` | likewise, with `cella[1]` and `my` |
+| `z` | `cella[2] / mz` | likewise, with `cella[2]` and `mz` |
+
+An axis without a valid voxel size has no voxel size.
+
+**Scales.** Each axis's scale and unit:
+
+| axis | scale | unit |
+|---|---|---|
+| `x`, `y`, `z` (each a spatial axis, wherever the axis map put it) | its voxel size, or 1 when it has none | `angstrom` with a voxel size; none without |
+| `t` | 1 | none |
 
 **Translation.** For a volume or a volume stack (`ispg` not 0), when the
 three `origin` values are finite and at least one is not 0, the image has a
@@ -192,11 +235,11 @@ in its unit cell, are not applied ([§7](#7-what-the-layout-does-not-express)); 
 
 ### 4.3 Channels
 
-`M` has an `"omero"` member when the data type is not `complex64`, and
-`dmin` and `dmax` are finite with `dmax > dmin`, and in no other case:
+`M` has an `"omero"` member, an [`Omero`](../conventions.md#type-omero), when the data type is
+not `complex64`, and `dmin` and `dmax` are finite with `dmax > dmin`, and in no other case:
 `{"channels": [{"label": "C0", "color": "FFFFFF", "active": true, "window":
 {"min": dmin, "max": dmax, "start": dmin, "end": dmax}}]}`, one channel
-whatever the kind of file.
+(an [`OmeroChannel`](../conventions.md#type-omerochannel)) whatever the kind of file.
 
 ## 5. Source metadata
 
@@ -208,24 +251,55 @@ Everything the file holds is on `refkv_source`, the file's **IR mirror**
 
 ### 5.1 The root
 
-- `byte_order`: `"little"` or `"big"`.
-- `kind`: `"image"`, `"image_stack"`, `"volume"` or `"volume_stack"` ([§4.1](#41-the-array)).
-- `data_type`: the Zarr data type of [§3](#3-data-types) (`uint8` for a mode 0 file IMOD marks as unsigned).
-- `header`: an object with one member per field of [§2](#2-the-header), in
-  its order and named as there. A `char[k]` field is text: its bytes up to
-  the first NUL, as a text value; `label` is an array of ten such values. A
-  `bytes[k]` field is the string of its base64 encoding. `machst` is an
-  array of 4 integers. Every other field is a number, or an array of `k`
-  numbers for `T[k]`. A float (`f32`) value whose bits a JSON number or
-  `"NaN"` does not keep is instead the object `{"bits": H}`, `H` its IEEE
-  754 bits as 8 lowercase hexadecimal digits, most significant first,
-  whatever the file's byte order: a negative zero (`80000000`), and every
-  NaN but the canonical one (`7fc00000`), which `"NaN"` stands for. (The
-  header's bytes, those after a text field's first NUL included, are also
-  the mirror's `header` element.)
-- `axis_map`: `{"applied": A}`, whether the axis map named the axes ([§4.1](#41-the-array)).
-- `voxel_size`: `{"x": sx, "y": sy, "z": sz}`, the voxel size in angstroms
-  ([§4.2](#42-scales-units-and-position)), present when every axis has one.
+<a id="type-mrcroot"></a>**`MrcRoot`**, the root's `S`:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `byte_order` | string | required | `"little"` or `"big"` |
+| `kind` | string | required | `"image"`, `"image_stack"`, `"volume"` or `"volume_stack"` ([§4.1](#41-the-array)) |
+| `data_type` | string | required | the Zarr data type of [§3](#3-data-types) (`uint8` for a mode 0 file IMOD marks as unsigned) |
+| `header` | [`MrcHeader`](#type-mrcheader) | required | every field of the header |
+| `axis_map` | [`MrcAxisMap`](#type-mrcaxismap) | required | whether the axis map named the axes ([§4.1](#41-the-array)) |
+| `voxel_size` | [`MrcVoxelSize`](#type-mrcvoxelsize) | optional | the voxel size in angstroms ([§4.2](#42-scales-units-and-position)), present when every axis has one |
+
+<a id="type-mrcheader"></a>**`MrcHeader`**: an object with one member per field of
+[§2](#2-the-header), in its order and named as there, whose type is the field's (the first row
+that matches it applies):
+
+| field's type | member's type | value |
+|---|---|---|
+| `char[k]` | [`Text`](../conventions.md#type-text) | its bytes up to the first NUL, as a text value; `label` (`char[80][10]`) is an array of ten such values |
+| `bytes[k]` | [`Base64`](../conventions.md#type-base64) | the string of its base64 encoding |
+| `u8[4]` (`machst`) | array of integer | 4 integers |
+| `i32` | [`Integer`](../conventions.md#type-integer) | the field's value |
+| `f32` | [`Float`](../conventions.md#type-float) or [`MrcBits`](#type-mrcbits) | the field's value, or its bits when a JSON number or `"NaN"` does not keep them (below) |
+| `T[k]` (`cella`, `cellb`, `origin`: the `f32[3]` fields) | array of `T`'s type | `k` values |
+
+<a id="type-mrcbits"></a>**`MrcBits`**, a float (`f32`) value whose bits a JSON number or
+`"NaN"` does not keep:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `bits` | string | required | `H`, its IEEE 754 bits as 8 lowercase hexadecimal digits, most significant first, whatever the file's byte order |
+
+These values are a negative zero (`80000000`), and every NaN but the canonical one
+(`7fc00000`), which `"NaN"` stands for. (The header's bytes, those after a text field's first
+NUL included, are also the mirror's `header` element.)
+
+<a id="type-mrcaxismap"></a>**`MrcAxisMap`**:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `applied` | boolean | required | `A`, whether the axis map named the axes ([§4.1](#41-the-array)) |
+
+<a id="type-mrcvoxelsize"></a>**`MrcVoxelSize`**, the voxel size in angstroms
+([§4.2](#42-scales-units-and-position)):
+
+| member | type | presence | value |
+|---|---|---|---|
+| `x` | number | required | `sx`, along `x` |
+| `y` | number | required | `sy`, along `y` |
+| `z` | number | required | `sz`, along `z` |
 
 `header` holds every field as stored, including those the layout does not
 use (`nxstart`, `cellb`, `ispg`, `nversion`, the statistics, the labels), so
@@ -442,6 +516,20 @@ copied, with its padding. The ranges lie within the file (by the data size
 check). The output's source table is source 0, followed by the zero data
 source when a reference is padded; it has no other data source.
 
+<a id="type-mrcchunk"></a>**`MrcChunk`**, the chunk of `V` that starts `o` bytes into the
+data and holds `l` of its bytes, padded with `p` zero bytes
+(by [conventions §7](../conventions.md#7-source-values-as-arrays), for the chunk at
+`(i_0, …, i_{a−1}, q, 0, …, 0)`, `o` is the offset it gives the chunk's bytes, `l = m × s_a`
+and `p = (c − m) × s_a`, which is 0 but for an edge chunk along the cut axis):
+
+| part | range | presence | value |
+|---|---|---|---|
+| the values | source range `(0, v + o, l)` | required | the chunk's bytes in the file |
+| the padding | source range `(1, 0, p)` | optional | when `p > 0`: the first `p` bytes of the zero data source |
+
+Where [conventions §7](../conventions.md#7-source-values-as-arrays) copies the chunk, it is
+instead `bytes`: the `l` bytes and the `p` zero bytes.
+
 `refkv_source` is the IR mirror ([the convention §5.2](#52-the-ir-mirror)). The
 dataset layout ([mrc-dataset.md](mrc-dataset.md)) is written from the same
 read: its data variable's chunks are these chunks again, entry for entry,
@@ -452,10 +540,20 @@ documents and chunks, and the mirror's.
 ### 8.3 Summary
 
 This section is informative. Both implementations print a one-line JSON
-summary: `kind` (`"image"`, `"image_stack"`, `"volume"` or `"volume_stack"`),
-`byteOrder` (`"little"` or `"big"`), `mode`, `dataType`, `sizes` (each
-axis's size), `chunkShape` (the array's chunk shape, in its axis order),
-`chunks` (the array's), `voxelSize` (`[sx, sy, sz]` when every axis has
-one, else `null`), `translation` (whether the image has one), `axisMap`
-(whether the map was applied), `extendedHeader` (`nsymbt`), `extendedType`
-(`exttyp` as text) and `layouts` (`["dataset"]`, or `[]` without the dataset layout).
+summary, with these members:
+
+| member | value |
+|---|---|
+| `kind` | `"image"`, `"image_stack"`, `"volume"` or `"volume_stack"` |
+| `byteOrder` | `"little"` or `"big"` |
+| `mode` | the header's `mode` |
+| `dataType` | the array's data type |
+| `sizes` | each axis's size |
+| `chunkShape` | the array's chunk shape, in its axis order |
+| `chunks` | the number of the array's chunks |
+| `voxelSize` | `[sx, sy, sz]` when every axis has one, else `null` |
+| `translation` | whether the image has one |
+| `axisMap` | whether the map was applied |
+| `extendedHeader` | `nsymbt` |
+| `extendedType` | `exttyp` as text |
+| `layouts` | `["dataset"]`, or `[]` without the dataset layout |

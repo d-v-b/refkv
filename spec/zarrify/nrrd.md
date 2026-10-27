@@ -11,11 +11,34 @@ profile, [Part 2](#part-2-the-profile) below. The format is Teem's
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `23e0c600-8da6-40f1-81e7-ab246e948e88` ·
 Schema: [schema.json](nrrd/schema.json) · Added 2026-10-25 (a profile's changes are recorded
-here, dated, from then on)
+here, dated, from then on) · Changed 2026-10-26, with no change to any output: the layout is
+tabulated, its entries in [Layout](#layout) and its types in type tables
+([conventions §11.5](../conventions.md#115-layout-tables)), each chunk's composition in
+[`NrrdChunk`](#type-nrrdchunk) and [`NrrdGzipChunk`](#type-nrrdgzipchunk), and the output's
+sources in [§8.5](#85-chunks)'s table.
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
 # Part 1. The convention
+
+## Layout
+
+The hierarchy's entries ([conventions §11.5](../conventions.md#115-layout-tables)):
+
+| prefix | type | structure | description |
+|---|---|---|---|
+| `zarr.json` | group | [`ImageGroup`](../conventions.md#type-imagegroup) | the root: the image ([§4](#4-the-image)) |
+| `zarr.json#/attributes/ome` | attribute | [`OmeImage`](../conventions.md#type-omeimage) | `M`: one level, the array `0`, with the scales and translation of [§4.3](#43-scales-units-and-position), and `omero` as [§4.4](#44-channels) says |
+| `zarr.json#/attributes/zarr_conventions` | attribute | array of [`ConventionMetadata`](../conventions.md#type-conventionmetadata) | the CMO of [§1](#1-declaration) |
+| `zarr.json#/attributes/refkv_zarrified` | attribute | [`RootProperty`](../conventions.md#type-rootproperty) | `profile` `"nrrd"`, `version` `0`, `source.url` the header file's URL (the object URL of its key in the store, [spec/zarrify.md §1.4](../zarrify.md#14-store-inputs)), for an attached or a detached header ([§1](#1-declaration)) |
+| `zarr.json#/attributes/refkv_zarrified/nrrd` | attribute | [`NrrdRoot`](#type-nrrdroot) | the root's source metadata ([§5.1](#51-the-root)) |
+| `0/zarr.json` | array | [`NrrdArray`](#type-nrrdarray) | the data's values ([§4.1](#41-the-array)) |
+| `0/c/<coords>` | chunk | [`NrrdChunk`](#type-nrrdchunk) or [`NrrdGzipChunk`](#type-nrrdgzipchunk) | every chunk of the array ([§8.5](#85-chunks)): an `NrrdChunk` for the raw encoding, the one `NrrdGzipChunk` for the gzip encoding |
+| `refkv_source/**` | subtree | [the mirror's entries](../conventions.md#table-mirror) | the IR mirror, a store IR ([§5.2](#52-the-ir-mirror)): its elements are [§5.3](#53-elements)'s; a detached header's file, held, is under `refkv_source/ir/held/**` |
+
+| placeholder | value |
+|---|---|
+| `<coords>` | the chunk's coordinates along the array's axes, in decimal, one key segment each: `<t>/<c>/<z>/<y>/<x>`, each only for the axes present (so it stands for two to five segments); all 0 for the gzip encoding's one chunk |
 
 ## 1. Declaration
 
@@ -43,17 +66,13 @@ A NRRD input is one array. Its **header** is text: lines, each ended by a LF (`0
 (`0D`) before the LF being part of the line end. A line's **text** is its bytes without its line
 end; the last line of a file may end at the file's end, without a LF, its text all of it. The
 first line is the **magic**, `NRRD0001` to `NRRD0005`. Each later line is, in this order of
-tests:
+tests (the first row that matches it applies):
 
-- a **comment** when its text starts with `#`: the comment is the text from its first byte that
-  is neither `#` nor a space (a comment of no bytes is not kept);
-- a **key/value pair** when its text holds `:=`: the key is the text before the first `:=`, the
-  value the text after it, each unescaped (`\n` is a LF and `\\` a backslash; any other
-  backslash is itself). A key given twice keeps its last value, at its first place;
-- otherwise a **field**: its **identifier** is the text before the first `:`, in any case, and
-  its **descriptor** the text after the `:` (which a space follows, [§8.1](#81-the-header)),
-  without the spaces and tabs that start it and the whitespace (space, tab, CR, LF, VT, FF) that
-  ends it.
+| line | when its text | what it holds |
+|---|---|---|
+| a **comment** | starts with `#` | the comment: the text from its first byte that is neither `#` nor a space (a comment of no bytes is not kept) |
+| a **key/value pair** | holds `:=` | the key, the text before the first `:=`, and the value, the text after it, each unescaped (`\n` is a LF and `\\` a backslash; any other backslash is itself). A key given twice keeps its last value, at its first place |
+| a **field** | otherwise | its **identifier**, the text before the first `:`, in any case, and its **descriptor**, the text after the `:` (which a space follows, [§8.1](#81-the-header)), without the spaces and tabs that start it and the whitespace (space, tab, CR, LF, VT, FF) that ends it |
 
 The header of an **attached** input ends with a **blank line**, a line of no text after the
 magic, and the data follows it in the same file. A **detached** header (one with a `data file`
@@ -92,16 +111,14 @@ alternate identifier, which names the same field:
 The axes are numbered from 0, the **fastest** first: the data holds the array in the order in
 which axis 0 varies fastest and axis `n − 1` slowest. These conventions read the descriptors:
 
-- an **integer** is an optional sign and decimal digits; a **number** is read as the NRRD
-  definition (its section 2) reads floating-point text: one that holds `nan` (in any case) is
-  NaN, else one that holds `-inf` is −∞, else one that holds `inf` is +∞, and any other is a
-  decimal number (an optional sign, digits with an optional fraction, and an optional exponent),
-  correctly rounded to binary64;
-- per-axis numbers and kinds are separated by spaces and tabs;
-- **quoted strings** are `"`, any bytes (`\"` standing for a `"`), `"`, separated by spaces and
-  tabs;
-- a **vector** is `(`, numbers separated by `,` (spaces and tabs allowed around them), `)`, and a
-  list of vectors is vectors and `none` (in any case) separated by spaces and tabs.
+| value | read as |
+|---|---|
+| an **integer** | an optional sign and decimal digits |
+| a **number** | as the NRRD definition (its section 2) reads floating-point text: one that holds `nan` (in any case) is NaN, else one that holds `-inf` is −∞, else one that holds `inf` is +∞, and any other is a decimal number (an optional sign, digits with an optional fraction, and an optional exponent), correctly rounded to binary64 |
+| per-axis numbers and kinds | separated by spaces and tabs |
+| **quoted strings** | `"`, any bytes (`\"` standing for a `"`), `"`, separated by spaces and tabs |
+| a **vector** | `(`, numbers separated by `,` (spaces and tabs allowed around them), `)` |
+| a list of vectors | vectors and `none` (in any case) separated by spaces and tabs |
 
 ## 3. Data types and encodings
 
@@ -120,28 +137,37 @@ The `type` field's descriptor, in lower case, gives the data type:
 | `float` | `float32` | 4 |
 | `double` | `float64` | 8 |
 
-The layout has two **encodings**, from the `encoding` field's descriptor in lower case: `raw`,
-whose data is the array's `B = b × s_0 × … × s_{n−1}` bytes (`s_i` the sizes) as they are in
-memory, in the byte order of the `endian` field; and `gzip` (or `gz`), whose data is those bytes
-compressed into a gzip stream (RFC 1952), which runs to the end of its file. The profile rejects
-the others ([§8.2](#82-the-fields)).
+The layout has two **encodings**, from the `encoding` field's descriptor in lower case (`B = b
+× s_0 × … × s_{n−1}`, `s_i` the sizes):
+
+| `encoding` | encoding | the data |
+|---|---|---|
+| `raw` | raw | the array's `B` bytes as they are in memory, in the byte order of the `endian` field |
+| `gzip`, `gz` | gzip | those bytes compressed into a gzip stream (RFC 1952), which runs to the end of its file |
+
+The profile rejects the others ([§8.2](#82-the-fields)).
 
 ## 4. The image
 
 The hierarchy is one image at the root ([conventions §4](../conventions.md#4-images)), without
 a name, with one array at path `"0"`: the root `zarr.json` is `{"zarr_format": 3, "node_type":
-"group", "attributes": A}`, where `A` has `ome` (`M`, below), `zarr_conventions` and
-`refkv_zarrified` ([§1](#1-declaration)).
+"group", "attributes": A}` (an [`ImageGroup`](../conventions.md#type-imagegroup)), where `A`
+has `ome` (`M`, below, an [`OmeImage`](../conventions.md#type-omeimage)), `zarr_conventions`
+and `refkv_zarrified` ([§1](#1-declaration)).
 
 ### 4.1 The array
 
-**Axes.** Each header axis `i` has a **role**:
+**Axes.** Each header axis `i` has a **role**, by its kind when the header has `kinds` and the
+kind is neither `???` nor `none`, and otherwise by `space directions` (the first row that
+matches it applies):
 
-- its kind, when the header has `kinds` and the kind is neither `???` nor `none`: `domain` and
-  `space` are **space**, `time` is **time**, and every other kind (`list`, `vector`, `RGB-color`,
-  `3D-symmetric-matrix`, ..., `stub`, `scalar`) is **channel**;
-- otherwise, **channel** when the header has `space directions` and axis `i`'s is `none`, and
-  **space** when it does not.
+| axis `i` | role |
+|---|---|
+| its kind is `domain` or `space` | **space** |
+| its kind is `time` | **time** |
+| its kind is any other (`list`, `vector`, `RGB-color`, `3D-symmetric-matrix`, ..., `stub`, `scalar`) | **channel** |
+| it has no kind (no `kinds`, or `???` or `none`), and the header has `space directions` and axis `i`'s is `none` | **channel** |
+| it has no kind, otherwise | **space** |
 
 The profile accepts 2 or 3 axes of the role space, at most one of time and at most one of
 channel ([§8.2](#82-the-fields)). The axes of the role space are, in the header's order, `x`,
@@ -149,28 +175,38 @@ channel ([§8.2](#82-the-fields)). The axes of the role space are, in the header
 axes are `t`, `c`, `z`, `y`, `x`, each only when present, in that order ([conventions §4](../conventions.md#4-images)), and
 the root's source metadata records each header axis's image axis ([§5.1](#51-the-root)).
 
-- **Shape:** each axis's size, in the array's order.
-- **Data type:** from [§3](#3-data-types-and-encodings).
-- **Stored order.** The data is a row-major array `V` whose axes are the header's, slowest
-  first (axis `n − 1` outermost, axis 0 innermost), each of its size; its elements are `b`
-  bytes. Its axes are the array's, in another order when the header's axes are not in the order
-  `x`, `y`, `z`, `c`, `t` (a color axis stored fastest, a time axis inside the volumes).
-- **Chunk shape.** For the raw encoding, `V` is cut as
-  [conventions §7](../conventions.md#7-source-values-as-arrays) cuts contiguous values, with
-  the chunk limit `L = 131072` (2^17) bytes, as the NIfTI convention cuts its voxels; the
-  array's chunk shape is that chunk shape, each axis's size in the array's axis order. For the
-  gzip encoding, it is the array's shape: one chunk ([§4.2](#42-the-gzip-encoding)).
-- **Codecs** ([conventions §3](../conventions.md#3-arrays)): when the axes of `V` are in another
-  order than the array's, `transpose`, with `order` the index in the array's axes of each axis
-  of `V`, in the order of `V` (`[1, 2, 0]` for an image whose axis 0 is a color axis, `c`, `y`,
-  `x`); then `bytes`, with `"endian"` the `endian` field's (`"little"` or `"big"`) when the data
-  type is larger than 1 byte; then, for the gzip encoding, `{"name": "gzip", "configuration":
-  {"level": 1}}`, whose level, which decoding ignores, is written as the `zlib` codec's is.
-- **Chunks:** every chunk is present. The chunk with coords `q_a` along each axis `a` is the
-  chunk of `V` with the same coords along the same axes: for the raw encoding, the bytes that
-  [conventions §7](../conventions.md#7-source-values-as-arrays) gives it, in the order of `V`, which the transpose codec puts in the array's
-  order, an edge chunk along the cut axis followed by zero bytes up to the whole chunk; for the
-  gzip encoding, the gzip stream.
+**Stored order.** The data is a row-major array `V` whose axes are the header's, slowest first
+(axis `n − 1` outermost, axis 0 innermost), each of its size; its elements are `b` bytes. Its
+axes are the array's, in another order when the header's axes are not in the order `x`, `y`,
+`z`, `c`, `t` (a color axis stored fastest, a time axis inside the volumes).
+
+<a id="type-nrrdarray"></a>**`NrrdArray`**, the array's `zarr.json`: an
+[`ArrayDocument`](../conventions.md#type-arraydocument) with these members:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `shape` | array of integer | required | each axis's size, in the array's order |
+| `data_type` | string | required | from [§3](#3-data-types-and-encodings) |
+| `chunk_grid` | object | required | regular. **Chunk shape:** for the raw encoding, `V` is cut as [conventions §7](../conventions.md#7-source-values-as-arrays) cuts contiguous values, with the chunk limit `L = 131072` (2^17) bytes, as the NIfTI convention cuts its voxels; the array's chunk shape is that chunk shape, each axis's size in the array's axis order. For the gzip encoding, it is the array's shape: one chunk ([§4.2](#42-the-gzip-encoding)) |
+| `codecs` | array of object | required | the codecs below ([conventions §3](../conventions.md#3-arrays)), in their order: `transpose` and `gzip` when their rows say, and always one `bytes` codec |
+| `dimension_names` | array of string | required | the axes: `t`, `c`, `z`, `y`, `x`, each only when present (**Axes**, above) |
+| `attributes` | object | required | `{}` ([§1](#1-declaration)) |
+
+Its codecs, in this order:
+
+| codec | when |
+|---|---|
+| `{"name": "transpose", "configuration": {"order": [...]}}` | the axes of `V` are in another order than the array's: `order` is the index in the array's axes of each axis of `V`, in the order of `V` (`[1, 2, 0]` for an image whose axis 0 is a color axis, `c`, `y`, `x`) |
+| `{"name": "bytes", "configuration": {"endian": E}}` | the data type is larger than 1 byte: `E` is the `endian` field's (`"little"` or `"big"`) |
+| `{"name": "bytes"}` | the data type is 1 byte |
+| `{"name": "gzip", "configuration": {"level": 1}}` | the gzip encoding: its level, which decoding ignores, is written as the `numcodecs.zlib` codec's is |
+
+**Chunks:** every chunk is present. The chunk with coords `q_a` along each axis `a` is the
+chunk of `V` with the same coords along the same axes: for the raw encoding, the bytes that
+[conventions §7](../conventions.md#7-source-values-as-arrays) gives it, in the order of `V`,
+which the transpose codec puts in the array's order, an edge chunk along the cut axis followed
+by zero bytes up to the whole chunk ([`NrrdChunk`](#type-nrrdchunk)); for the gzip encoding,
+the gzip stream ([`NrrdGzipChunk`](#type-nrrdgzipchunk)).
 
 The array holds the data's values; nothing the header says about them (`min`, `max`, `old min`,
 `old max`, `sample units`) is applied. They are in the source metadata ([§5](#5-source-metadata)).
@@ -215,13 +251,11 @@ those components are 0.)
 
 **Scales.**
 
-- `x`, `y`, `z`: with an applied orientation, component `j` of the axis's vector. Otherwise, for
-  an axis that has a vector, the vector's length, `sqrt(v_0² + … + v_{d−1}²)` (squares summed in
-  order, each operation in binary64, [spec/zarrify.md §1.3](../zarrify.md#13-arithmetic)), when
-  every component is finite and the length is valid; and for an axis without one, its `spacings`
-  value when the header has `spacings` and the value is valid. Otherwise 1.
-- `t`: its `spacings` value when valid, else 1.
-- `c`: 1.
+| axis | scale |
+|---|---|
+| `x`, `y`, `z` | with an applied orientation, component `j` of the axis's vector. Otherwise, for an axis that has a vector, the vector's length, `sqrt(v_0² + … + v_{d−1}²)` (squares summed in order, each operation in binary64, [spec/zarrify.md §1.3](../zarrify.md#13-arithmetic)), when every component is finite and the length is valid; and for an axis without one, its `spacings` value when the header has `spacings` and the value is valid. Otherwise 1 |
+| `t` | its `spacings` value when valid, else 1 |
+| `c` | 1 |
 
 So an oblique or flipped orientation, such as the common left-posterior-superior one whose `x`
 step is negative, places the image by the directions' lengths alone: it is not rotated or
@@ -229,12 +263,11 @@ flipped, and has no translation. The directions themselves are always in the sou
 
 **Units.** An axis whose scale is not 1 for a lack of a valid value has a unit when:
 
-- with an applied orientation, axis `x`, `y` or `z` (the `j`-th): `space units` value `j` is a
-  length symbol of [conventions §5](../conventions.md#5-units) (`mm`, `um`, `µm`, `nm`, ...);
-- with an orientation that is not applied, an axis with a vector: every `space units` value is
-  the same length symbol;
-- an axis without a vector, or `t`: its `units` value is a length symbol (`x`, `y`, `z`) or a
-  time symbol (`s`, `ms`, `min`, `h`; `t`).
+| axis | it has a unit when |
+|---|---|
+| with an applied orientation, axis `x`, `y` or `z` (the `j`-th) | `space units` value `j` is a length symbol of [conventions §5](../conventions.md#5-units) (`mm`, `um`, `µm`, `nm`, ...) |
+| with an orientation that is not applied, an axis with a vector | every `space units` value is the same length symbol |
+| an axis without a vector, or `t` | its `units` value is a length symbol (`x`, `y`, `z`) or a time symbol (`s`, `ms`, `min`, `h`; `t`) |
 
 The unit is the symbol's, as [conventions §5](../conventions.md#5-units) maps it; any other symbol gives no unit.
 
@@ -245,18 +278,15 @@ none.
 
 ### 4.4 Channels
 
-`M` has an `"omero"` member in these two cases, and in no other:
+`M` has an `"omero"` member, an [`Omero`](../conventions.md#type-omero), `{"channels":
+[...]}`, in these two cases, and in no other. Its `channels` are
+[`OmeroChannel`](../conventions.md#type-omerochannel)s, each `{"label": l, "color": k,
+"active": true, "window": W}`, `W` a [`Window`](../conventions.md#type-window):
 
-- **Color:** the image has a `c` axis whose kind is `RGB-color` of size 3 or `RGBA-color` of
-  size 4, and its data type is `uint8`: `{"channels": [...]}` with one object per sample,
-  `{"label": l, "color": k, "active": true, "window": {"min": 0, "max": 255, "start": 0, "end":
-  255}}`, where `(l, k)` are `("R", "FF0000")`, `("G", "00FF00")`, `("B", "0000FF")` and, for
-  `RGBA-color`, `("A", "FFFFFF")`.
-- **Display range:** otherwise, when the `min` and `max` fields are numbers ([§2](#2-the-header))
-  that are finite and `max > min`, and the image's `c` axis has at most 64 samples (1 when it has
-  none): `{"channels": [...]}` with one object per index `k` along `c`, `{"label": "C<k>",
-  "color": "FFFFFF", "active": true, "window": {"min": lo, "max": hi, "start": lo, "end": hi}}`,
-  `lo` and `hi` the two numbers, `k` in decimal.
+| case | when | channels | `label` and `color`, `(l, k)` | `window` |
+|---|---|---|---|---|
+| **color** | the image has a `c` axis whose kind is `RGB-color` of size 3 or `RGBA-color` of size 4, and its data type is `uint8` | one per sample | `("R", "FF0000")`, `("G", "00FF00")`, `("B", "0000FF")` and, for `RGBA-color`, `("A", "FFFFFF")` | `{"min": 0, "max": 255, "start": 0, "end": 255}` |
+| **display range** | otherwise, when the `min` and `max` fields are numbers ([§2](#2-the-header)) that are finite and `max > min`, and the image's `c` axis has at most 64 samples (1 when it has none) | one per index `k` along `c` | `("C<k>", "FFFFFF")`, `k` in decimal | `{"min": lo, "max": hi, "start": lo, "end": hi}`, `lo` and `hi` the two numbers |
 
 ## 5. Source metadata
 
@@ -267,24 +297,26 @@ with the members of [§5.1](#51-the-root), in that order, translated by
 
 ### 5.1 The root
 
-- `magic`: the magic, `"NRRD0001"` to `"NRRD0005"`.
-- `fields`: an object with one member per field of the header, in the header's order, named by
-  the field's name of [§2](#2-the-header) (a field given by its alternate identifier is named as
-  its field: `datafile` is `"data file"`), whose value is its descriptor as a text value. Every
-  field is here, those the layout does not read included (`content`, `labels`, `centers`,
-  `thicknesses`, `measurement frame`, ...), and as written: `"space directions": "(0.5,0,0)
-  (0,0.75,0) (0,0,1.25)"`.
-- `key_values`: an object with one member per key/value pair, named by its key (unescaped, a
-  name as [conventions §6](../conventions.md#6-source-metadata-as-json) reads one), whose value is the pair's last value, unescaped, as a text
-  value. Spaces around `:=` belong to the key and the value, as the NRRD definition says.
-- `comments`: the comments, in order, as text values.
-- `data_type`: the Zarr data type; `encoding`: `"raw"` or `"gzip"`; `byte_order`: `"little"` or
-  `"big"`, present when the header has an `endian` field.
-- `axes`: each header axis's image axis (`"x"`, `"y"`, `"z"`, `"t"` or `"c"`), in the header's
-  order, the fastest first.
-- `data_file`: a detached header's data file, its key ([§8.3](#83-the-data-file)).
-- `orientation`: `{"applied": A}`, present when the header has `space directions`: whether the
-  orientation is applied ([§4.3](#43-scales-units-and-position)).
+<a id="type-nrrdroot"></a>**`NrrdRoot`**, the root's `S`:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `magic` | string | required | the magic, `"NRRD0001"` to `"NRRD0005"` |
+| `fields` | object of [`Text`](../conventions.md#type-text) | required | one member per field of the header, in the header's order, named by the field's name of [§2](#2-the-header) (a field given by its alternate identifier is named as its field: `datafile` is `"data file"`), whose value is its descriptor as a text value. Every field is here, those the layout does not read included (`content`, `labels`, `centers`, `thicknesses`, `measurement frame`, ...), and as written: `"space directions": "(0.5,0,0) (0,0.75,0) (0,0,1.25)"`. Its names are those of the first column of [§2](#2-the-header)'s table, and `dimension`, `type`, `encoding` and `sizes`, which the profile requires ([§8.2](#82-the-fields)), are always among them |
+| `key_values` | object of [`Text`](../conventions.md#type-text) | required | one member per key/value pair, named by its key (unescaped, a [`Name`](../conventions.md#type-name), as [conventions §6](../conventions.md#6-source-metadata-as-json) reads one), whose value is the pair's last value, unescaped, as a text value. Spaces around `:=` belong to the key and the value, as the NRRD definition says |
+| `comments` | array of [`Text`](../conventions.md#type-text) | required | the comments, in order, as text values |
+| `data_type` | string | required | the Zarr data type ([§3](#3-data-types-and-encodings)) |
+| `encoding` | string | required | `"raw"` or `"gzip"` |
+| `byte_order` | string | optional | `"little"` or `"big"`, present when the header has an `endian` field |
+| `axes` | array of string | required | each header axis's image axis (`"x"`, `"y"`, `"z"`, `"t"` or `"c"`), in the header's order, the fastest first |
+| `data_file` | string | optional | a detached header's data file, its key ([§8.3](#83-the-data-file)); present for a detached header only |
+| `orientation` | [`NrrdOrientation`](#type-nrrdorientation) | optional | present when the header has `space directions` |
+
+<a id="type-nrrdorientation"></a>**`NrrdOrientation`**:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `applied` | boolean | required | `A`, whether the orientation is applied ([§4.3](#43-scales-units-and-position)) |
 
 `fields`, `key_values` and `comments` hold the whole header but its line ends, so that a reader
 who needs, say, a diffusion scan's gradients (key/value pairs such as `DWMRI_gradient_0001`), its
@@ -296,14 +328,19 @@ wrote it. The other members are derived from them, so that a reader need not rep
 
 `refkv_source` is the input's **IR mirror** ([conventions §8](../conventions.md#8-the-ir-mirror)),
 a **store IR** ([conventions §8.9](../conventions.md#89-stores)) whose objects are the files the
-profile read: the header file, at its key, and a detached header's data file, at its key below
-the header's directory. Its leaves partition each object. A file the chunks reference (an attached
-header's, which holds the data, and a detached header's data file) is **described in place**: its
-bytes stay in the file, which is a source of the archive ([§8.5](#85-chunks)), and the table holds
-none of them. A detached header's file, which no chunk references and so no source names, is
-**held**: the table holds its bytes (`refkv_source/ir/held`), as a store's documents are held
-([conventions §8.9](../conventions.md#89-stores)), so that the mirror alone rebuilds it. The view,
-`refkv_source/tree`, shows the header's lines; the data and the gaps are not shown.
+profile read. Its leaves partition each object. A file the chunks reference is **described in
+place**: its bytes stay in the file, which is a source of the archive ([§8.5](#85-chunks)), and
+the table holds none of them. A file no chunk references, and so no source names, is **held**:
+the table holds its bytes (`refkv_source/ir/held`), as a store's documents are held
+([conventions §8.9](../conventions.md#89-stores)), so that the mirror alone rebuilds it.
+
+| object | key | in the mirror |
+|---|---|---|
+| an attached header's file, which holds the data | its key | described in place |
+| a detached header's file | its key | held |
+| a detached header's data file | its key below the header's directory ([§8.3](#83-the-data-file)) | described in place |
+
+The view, `refkv_source/tree`, shows the header's lines; the data and the gaps are not shown.
 
 ### 5.3 Elements
 
@@ -556,20 +593,60 @@ and references the data's file; the output copies no data, but an edge chunk bel
   payload), the chunk is copied, with its padding (its bytes are read in the run's last batch).
 - **Gzip:** the one chunk, `0/c/0/.../0`, is one range of the data's file: `(D, size − D)`.
 
+<a id="type-nrrdchunk"></a>**`NrrdChunk`**, a chunk of the raw encoding: the chunk of `V`
+that starts `o` bytes into the data and holds `l` of its bytes, padded with `p` zero bytes
+(by [conventions §7](../conventions.md#7-source-values-as-arrays), for the chunk at
+`(i_0, …, i_{a−1}, q, 0, …, 0)`, `o` is the offset it gives the chunk's bytes, `l = m × s_a`
+and `p = (c − m) × s_a`, which is 0 but for an edge chunk along the cut axis):
+
+| part | range | presence | value |
+|---|---|---|---|
+| the values | source range `(0, D + o, l)` | required | the chunk's bytes in the data's file |
+| the padding | source range `(1, 0, p)` | optional | when `p > 0`: the first `p` bytes of the zero data source |
+
+Where [conventions §7](../conventions.md#7-source-values-as-arrays) copies the chunk, it is
+instead `bytes`: the `l` bytes and the `p` zero bytes.
+
+<a id="type-nrrdgzipchunk"></a>**`NrrdGzipChunk`**, the gzip encoding's one chunk,
+`0/c/0/.../0`:
+
+| part | range | presence | value |
+|---|---|---|---|
+| the stream | source range `(0, D, size − D)` | required | the gzip stream, from `D` to the end of the data's file (`size` its size), which the `gzip` codec decodes ([§4.2](#42-the-gzip-encoding)) |
+
 The source table is one url source per file some reference uses, its size pinned
 ([spec/zarrify.md §1.4](../zarrify.md#14-store-inputs)): the data's file, which is the header
 file for an attached header. A detached header's file is no source: the mirror holds it
 ([the convention §5.2](#52-the-ir-mirror)). The url source, source 0, is followed by the zero data
-source, source 1, when a reference is padded; the output has no other data source.
+source, source 1, when a reference is padded; the output has no other data source:
+
+| source | what | when |
+|---|---|---|
+| 0 | a url source: the data's file's object URL, its size pinned: the header file for an attached header, the data file for a detached one | always |
+| 1 | the zero data source ([spec/zarrify.md §1.2](../zarrify.md#12-input)): as many zero bytes as the most padding any reference holds | when a reference is padded (the raw encoding only) |
+
 `refkv_source` is the IR mirror ([the convention §5.2](#52-the-ir-mirror)). The archive
 has no other entries than the root's and the array's `zarr.json`, the array's chunks, and the
 mirror's.
 
 ### 8.6 Summary
 
-This section is informative. Both implementations print a one-line JSON summary: `sizes` (each
-axis's size), `dataType`, `encoding`, `detached` (whether the data is in a data file),
-`dataFile` (the data's file's key), `chunkShape`, `chunks`, `orientation` (whether it is applied,
-or `null` without space directions), `translation`, `batches` (the read batches, the probe
-included), `elements`, `objects`, `listingRequests` (the files opened beyond the header file),
-and the run's counts.
+This section is informative. Both implementations print a one-line JSON summary, with these
+members:
+
+| member | value |
+|---|---|
+| `sizes` | each axis's size, by the axis's name |
+| `dataType` | the array's data type |
+| `encoding` | `"raw"` or `"gzip"` |
+| `detached` | whether the data is in a data file |
+| `dataFile` | the data's file's key |
+| `chunkShape` | the array's chunk shape |
+| `chunks` | the number of the array's chunks |
+| `orientation` | whether it is applied, or `null` without space directions |
+| `translation` | whether the image has one |
+| `batches` | the read batches, the probe included |
+| `elements` | the IR's elements |
+| `objects` | the IR's objects |
+| `listingRequests` | the files opened beyond the header file |
+| the run's counts | the other members the run gives (`reads`, `folded`, ...) |

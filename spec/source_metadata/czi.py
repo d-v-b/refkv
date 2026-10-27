@@ -7,30 +7,6 @@ _DIMENSIONS = {"type": "object", "description": "The Start of each of S, B, H, I
                "properties": {k: {"type": "integer"} for k in "SBHIRV"}, "minProperties": 1,
                "additionalProperties": False}
 
-_ATTACHMENT = {"oneOf": [
-    {
-        "type": "object",
-        "description": "An A1 attachment entry, and the form of its data at attachments/<k> (spec/zarrify/czi.md §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#53-elements>)",
-        "properties": {
-            "name": {"$ref": "#/$defs/text"},
-            "content_file_type": {"$ref": "#/$defs/text"},
-            "content_guid": _GUID,
-            "form": {"enum": ["time_stamps", "focus_positions", "event_list", "bytes", "empty"]},
-            "segment_entry": {"type": "string", "contentEncoding": "base64",
-                              "description": "The attachment segment's copy of the entry, when it differs"},
-        },
-        "required": ["name", "content_file_type", "content_guid", "form"],
-        "additionalProperties": False,
-    },
-    {
-        "type": "object",
-        "description": "An entry of another schema: its 128 bytes",
-        "properties": {"entry": {"type": "string", "contentEncoding": "base64"}},
-        "required": ["entry"],
-        "additionalProperties": False,
-    },
-]}
-
 SCHEMA = {"anyOf": [
     {
         "type": "object",

@@ -146,6 +146,9 @@ JPEGXR_SLIDES = {
     # 24bppBGR, decoding in R, G, B order too; level 0 a single tile, in line, whose high tables
     # hold its entries' high words
     "ndpi_jpegxr_bgr.ndpi": ("uint8", 3, [([3, 32, 48], [3, 32, 48]), ([3, 8, 12], [3, 8, 12])], None, None, set()),
+    # a Fluorescence of 4 bytes, out of line, as NDPI stores every ASCII value
+    "ndpi_jpegxr_cy5.ndpi": ("uint16", 1, [([1, 16, 24], [1, 16, 24])], "Cy5",
+                             {"Fluorescence": "Cy5", "Wavelength": 670.0}, set()),
 }
 
 

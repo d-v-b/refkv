@@ -8,7 +8,10 @@ How refkv produces this layout as a reference store is the SAFE profile,
 [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `ef81346c-19e8-42ad-93b0-a279ccaf44c1` ·
-Schema: [schema.json](safe/schema.json)
+Schema: [schema.json](safe/schema.json) · Changed 2026-10-26, with no change to any output: the
+layout is tabulated, its entries in [Layout](#layout) and its types in type tables
+([conventions §11.5](../conventions.md#115-layout-tables)), the GeoZarr attributes of the root
+and the resolution groups among them
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
@@ -44,6 +47,48 @@ and `refkv_zarrified`, the members that [§5](#5-georeferencing-geozarr) gives t
 `proj:wkt2`, `spatial:*` and `multiscales`), and only on the groups that [§5](#5-georeferencing-geozarr)
 names.
 
+## Layout
+
+The hierarchy's entries ([conventions §11.5](../conventions.md#115-layout-tables)):
+
+| prefix | type | structure | description |
+|---|---|---|---|
+| `zarr.json` | group | [`SafeGroup`](#type-safegroup) | the root ([§3](#3-the-hierarchy)); its attributes are a [`SafeRootAttributes`](#type-saferootattributes) ([§5.3](#53-the-root)) |
+| `zarr.json#/attributes/zarr_conventions` | attribute | array of [`ConventionMetadata`](../conventions.md#type-conventionmetadata) or [`SafeGeoCmo`](#type-safegeocmo) | this convention's CMO ([§1](#1-declaration)), then, for Level-2A, the multiscales CMO, then the proj and spatial CMOs ([§5](#5-georeferencing-geozarr)) |
+| `zarr.json#/attributes/refkv_zarrified` | attribute | [`RootProperty`](../conventions.md#type-rootproperty) | `profile` `"safe"`, `version` `0`, `source.url` the input's URL: a `.SAFE` directory's store URL, ending in `/`, or a `.SAFE.zip` file's URL ([§1](#1-declaration)) |
+| `zarr.json#/attributes/refkv_zarrified/safe` | attribute | [`SafeRoot`](#type-saferoot) | the root's source metadata: the product's identity ([§6.3](#63-the-source-metadata-node)) |
+| `zarr.json#/attributes/proj:code` | attribute | string | the CRS code ([§5.3](#53-the-root)) |
+| `zarr.json#/attributes/proj:wkt2` | attribute | string | the CRS's WKT2, for a WGS 84 / UTM CRS code ([§5.2](#52-resolution-groups)) |
+| `zarr.json#/attributes/spatial:bbox` | attribute | array of number | the bounding box of the first resolution group ([§5.3](#53-the-root)) |
+| `zarr.json#/attributes/spatial:dimensions` | attribute | `["y", "x"]` | Level-2A only ([§5.3](#53-the-root)) |
+| `zarr.json#/attributes/spatial:registration` | attribute | `"pixel"` | Level-2A only ([§5.3](#53-the-root)) |
+| `zarr.json#/attributes/multiscales` | attribute | [`SafeMultiscales`](#type-safemultiscales) | Level-2A only: one layout item per resolution group ([§5.3](#53-the-root)) |
+| `r<r>m/zarr.json` | group | [`SafeGroup`](#type-safegroup) | a resolution group, one per resolution of a band file ([§3](#3-the-hierarchy)); its attributes are a [`SafeResolutionAttributes`](#type-saferesolutionattributes) ([§5.2](#52-resolution-groups)) |
+| `r<r>m/zarr.json#/attributes/zarr_conventions` | attribute | array of [`SafeGeoCmo`](#type-safegeocmo) | the proj and spatial CMOs ([§5.2](#52-resolution-groups)) |
+| `r<r>m/zarr.json#/attributes/proj:code` | attribute | string | the CRS code ([§5.2](#52-resolution-groups)) |
+| `r<r>m/zarr.json#/attributes/proj:wkt2` | attribute | string | the CRS's WKT2, for a WGS 84 / UTM CRS code ([§5.2](#52-resolution-groups)) |
+| `r<r>m/zarr.json#/attributes/spatial:dimensions` | attribute | `["y", "x"]` | [§5.2](#52-resolution-groups) |
+| `r<r>m/zarr.json#/attributes/spatial:transform` | attribute | array of number | the transform of resolution `r` ([§5.1](#51-the-grid-of-a-resolution)) |
+| `r<r>m/zarr.json#/attributes/spatial:shape` | attribute | array of integer | the shape of resolution `r` ([§5.1](#51-the-grid-of-a-resolution)) |
+| `r<r>m/zarr.json#/attributes/spatial:bbox` | attribute | array of number | the bounding box of resolution `r` ([§5.1](#51-the-grid-of-a-resolution)) |
+| `r<r>m/zarr.json#/attributes/spatial:registration` | attribute | `"pixel"` | [§5.2](#52-resolution-groups) |
+| `r<r>m/<band>/zarr.json` | array | [`SafeArray`](#type-safearray) | a band array, one per band file of resolution `r` ([§4](#4-arrays)) |
+| `r<r>m/<band>/zarr.json#/attributes/zarr_conventions` | attribute | array of [`ConventionMetadata`](../conventions.md#type-conventionmetadata) | `[C]`, `C` this convention's CMO ([§1](#1-declaration)) |
+| `r<r>m/<band>/zarr.json#/attributes/refkv_zarrified` | attribute | [`NodeProperty`](../conventions.md#type-nodeproperty) | the band's property ([§1](#1-declaration)) |
+| `r<r>m/<band>/zarr.json#/attributes/refkv_zarrified/safe` | attribute | [`SafeBand`](#type-safeband) | the band's source metadata ([§6.2](#62-band-arrays)) |
+| `r<r>m/<band>/c/<v>/<u>` | chunk | [`SafeChunk`](#type-safechunk) | the tile `t = v × nx + u` of a band file of one component; every chunk is present ([§4](#4-arrays), [§8.6](#86-chunks)) |
+| `r<r>m/<band>/c/0/<v>/<u>` | chunk | [`SafeChunk`](#type-safechunk) | the tile `t = v × nx + u` of a band file of three components; every chunk is present ([§4](#4-arrays), [§8.6](#86-chunks)) |
+| `refkv_source/**` | subtree | [the mirror's entries](../conventions.md#table-mirror) | the IR mirror of the product, a store IR in the directory form and a file IR in the zip form ([§6.3](#63-the-source-metadata-node)); its elements are [§6.3](#63-the-source-metadata-node)'s |
+| `refkv_source/zarr.json#/attributes/refkv_zarrified/safe` | attribute | [`SafeMirror`](#type-safemirror) | `refkv_source`'s source metadata ([§6.3](#63-the-source-metadata-node)) |
+| `refkv_source/objects/<k>` | object | the source range `(i, 0, size)` of the object's url source `i` | directory form only: an object the IR references, whole ([§6.3](#63-the-source-metadata-node), [§8.7](#87-other-objects)); the mirror's entries list it as a store convention's `objects/**` |
+
+| placeholder | value |
+|---|---|
+| `<r>` | a resolution `r` of a band file, in metres, in decimal ([§2.5](#25-band-files)); the groups are in ascending order of `r` |
+| `<band>` | a band file's band name ([§2.5](#25-band-files)) |
+| `<v>`, `<u>` | the tile's row `v` (`0 ≤ v < ny`) and column `u` (`0 ≤ u < nx`) in the band file's grid of tiles, in decimal ([§4](#4-arrays)) |
+| `<k>` | an object's key, escaped as [Zarr v2 convention §5](zarr2.md#5-other-objects) says; it stands for one or more segments |
+
 ## 1. Declaration
 
 The root declares the convention
@@ -77,19 +122,14 @@ it finds them: by listing a store, or from the central directory of a zip
 file. Keys compare as UTF-8 byte strings. The objects are classified as
 follows:
 
-- the **band files**: the objects that the product metadata lists as
-  images in `IMG_DATA` ([§2.3](#23-image-files));
-- the **XML documents**: every other object whose key is `manifest.safe`,
-  or ends in `.xml` or `.xsd`;
-- the **other objects**: every other object. Among them are the quality
-  masks (GML files before processing baseline 04.00, JP2 files from 04.00),
-  the preview image (`QI_DATA/*_PVI.jp2`), the L2A cloud and snow
-  probabilities (`QI_DATA/MSK_CLDPRB_*.jp2`, `MSK_SNWPRB_*.jp2`, and before
-  processing baseline 02.07 `QI_DATA/*_CLD_*.jp2`, `*_SNW_*.jp2`), the
-  auxiliary data (`AUX_DATA/*`), the `HTML` folder and the quicklook images
-  that some mirrors add (the Google Cloud mirror's `<product>-ql.jpg`). In
-  this version the masks, the probabilities and the preview image are kept
-  whole ([§6.3](#63-the-source-metadata-node)), not presented as arrays.
+| kind | objects |
+|---|---|
+| the **band files** | the objects that the product metadata lists as images in `IMG_DATA` ([§2.3](#23-image-files)) |
+| the **XML documents** | every other object whose key is `manifest.safe`, or ends in `.xml` or `.xsd` |
+| the **other objects** | every other object. Among them are the quality masks (GML files before processing baseline 04.00, JP2 files from 04.00), the preview image (`QI_DATA/*_PVI.jp2`), the L2A cloud and snow probabilities (`QI_DATA/MSK_CLDPRB_*.jp2`, `MSK_SNWPRB_*.jp2`, and before processing baseline 02.07 `QI_DATA/*_CLD_*.jp2`, `*_SNW_*.jp2`), the auxiliary data (`AUX_DATA/*`), the `HTML` folder and the quicklook images that some mirrors add (the Google Cloud mirror's `<product>-ql.jpg`) |
+
+In this version the masks, the probabilities and the preview image are kept
+whole ([§6.3](#63-the-source-metadata-node)), not presented as arrays.
 
 An object of size 0 is an **empty object**. It is none of the three kinds,
 and only its key is kept ([§6.3](#63-the-source-metadata-node)).
@@ -127,8 +167,9 @@ the Level-2A products of processing baselines 02.04–02.06 use:
 | `IMAGE_FILE`, `PRODUCT_URI`, `TILE_ID` | the name followed by `_2A` |
 | `QUANTIFICATION_VALUES_LIST` | `L1C_L2A_Quantification_Values_List` |
 | `BOA_QUANTIFICATION_VALUE`, `AOT_QUANTIFICATION_VALUE`, `WVP_QUANTIFICATION_VALUE` | `L2A_` followed by the name |
-| `Scene_Classification_List`, `Scene_Classification_ID`, `SCENE_CLASSIFICATION_TEXT`, `SCENE_CLASSIFICATION_INDEX` | `L2A_` followed by the name | A **path**
-`A/B/C` names the elements `C` that are children of a `B` that is a child of
+| `Scene_Classification_List`, `Scene_Classification_ID`, `SCENE_CLASSIFICATION_TEXT`, `SCENE_CLASSIFICATION_INDEX` | `L2A_` followed by the name |
+
+A **path** `A/B/C` names the elements `C` that are children of a `B` that is a child of
 an `A`. An element's **text** is
 [§1.5's](../zarrify.md#15-listing-a-store), with leading and trailing
 whitespace ([§1.3](../zarrify.md#13-arithmetic)) removed. XML documents that this convention does not read
@@ -173,22 +214,13 @@ named `Level-1C_Tile_ID` or `Level-2A_Tile_ID`, as the level requires.
 ### 2.4 The tile geocoding
 
 The element `Geometric_Info/Tile_Geocoding` under the tile metadata's root
-MUST be present once. It MUST have:
+MUST be present once. It MUST have these children:
 
-- one child `HORIZONTAL_CS_CODE`, whose text is `EPSG:` followed by one or
-  more digits: the **CRS code**;
-- one or more children `Size`, each with an attribute `resolution` whose
-  value is one or more digits without a leading zero, at most 2^32 − 1,
-  the resolution `r` in metres, and with one child `NROWS` and one child `NCOLS`, each of whose
-  texts is a positive decimal integer (digits, without a leading zero), at
-  most 2^32 − 1. No two have the same `r`;
-- for each `Size` of resolution `r`, exactly one child `Geoposition` whose
-  attribute `resolution` is the same text, with one child each of `ULX`,
-  `ULY`, `XDIM` and `YDIM`, whose texts are decimal numbers ([§6.1](#61-values)), finite
-  as binary64 values ([spec/zarrify.md §1.3](../zarrify.md#13-arithmetic)), with `XDIM` and `YDIM` not zero.
-  (`ULX` and `ULY` are the coordinates of the outer corner of the top-left
-  pixel; `XDIM` and `YDIM` are the pixel's width and height, `YDIM`
-  negative for a north-up grid.)
+| child | how many | content |
+|---|---|---|
+| `HORIZONTAL_CS_CODE` | one | its text is `EPSG:` followed by one or more digits: the **CRS code** |
+| `Size` | one or more; no two have the same `r` | an attribute `resolution` whose value is one or more digits without a leading zero, at most 2^32 − 1, the resolution `r` in metres, and one child `NROWS` and one child `NCOLS`, each of whose texts is a positive decimal integer (digits, without a leading zero), at most 2^32 − 1 |
+| `Geoposition` | for each `Size` of resolution `r`, exactly one whose attribute `resolution` is the same text | one child each of `ULX`, `ULY`, `XDIM` and `YDIM`, whose texts are decimal numbers ([§6.1](#61-values)), finite as binary64 values ([spec/zarrify.md §1.3](../zarrify.md#13-arithmetic)), with `XDIM` and `YDIM` not zero. (`ULX` and `ULY` are the coordinates of the outer corner of the top-left pixel; `XDIM` and `YDIM` are the pixel's width and height, `YDIM` negative for a north-up grid.) |
 
 Other children of `Tile_Geocoding` (`HORIZONTAL_CS_NAME`) are not checked.
 
@@ -197,13 +229,14 @@ Other children of `Tile_Geocoding` (`HORIZONTAL_CS_NAME`) are not checked.
 Each band file is a JP2 file whose codestream the profile reads and checks
 ([§8.3](#83-band-files)). It gives:
 
-- its **image size** `W × H` (the SIZ marker's `Xsiz` and `Ysiz`), its
-  **tile size** `T × U` (`XTsiz` and `YTsiz`), and its number of tiles,
-  `nx = ceil(W / T)` across and `ny = ceil(H / U)` down;
-- its number of **components** `C`, which MUST be 1 (a band) or 3 (a
-  true-color image), and their **precision** `p`, the same for every
-  component, from 1 to 16, unsigned and not subsampled;
-- one **tile-part** per tile, in raster order.
+| of the band file | value |
+|---|---|
+| its **image size** `W × H` | the SIZ marker's `Xsiz` and `Ysiz` |
+| its **tile size** `T × U` | `XTsiz` and `YTsiz` |
+| its number of tiles | `nx = ceil(W / T)` across and `ny = ceil(H / U)` down |
+| its number of **components** `C` | MUST be 1 (a band) or 3 (a true-color image) |
+| their **precision** `p` | the same for every component, from 1 to 16, unsigned and not subsampled |
+| its **tile-parts** | one per tile, in raster order |
 
 The band file's **resolution** is the `r` of the one `Size` ([§2.4](#24-the-tile-geocoding)) whose
 `NCOLS` is `W` and whose `NROWS` is `H`; if none or several match, the input
@@ -219,14 +252,14 @@ So in a Level-1C product `T32TNS_20240103T101329_B02` is the band `B02` at
 
 ## 3. The hierarchy
 
-The hierarchy is:
+The hierarchy is (its entries are in [Layout](#layout)):
 
-- the root, a group ([§5.3](#53-the-root));
-- for each resolution `r` of a band file, in ascending order, the group
-  `r<r>m` (for example `r10m`), a child of the root ([§5.2](#52-resolution-groups)), and in it one
-  array per band file of that resolution, named by its band name ([§4](#4-arrays));
-- the group `refkv_source`, a child of the root, holding the source's other
-  metadata ([§6.3](#63-the-source-metadata-node)).
+| node | path | what |
+|---|---|---|
+| the root | `""` | a group ([§5.3](#53-the-root)) |
+| a resolution group | `r<r>m` (for example `r10m`) | for each resolution `r` of a band file, in ascending order, a group, a child of the root ([§5.2](#52-resolution-groups)) |
+| a band array | `r<r>m/<band>` | in the group `r<r>m`, one array per band file of that resolution, named by its band name ([§4](#4-arrays)) |
+| `refkv_source` | `refkv_source` | a group, a child of the root, holding the source's other metadata ([§6.3](#63-the-source-metadata-node)) |
 
 A product whose bands have the resolutions 10, 20 and 60 m, as every
 product does, has the groups `r10m`, `r20m` and `r60m`. A Level-1C product
@@ -236,27 +269,32 @@ has `B01`, `B09` and `B10`). A Level-2A product has most bands at several
 resolutions, and adds `AOT`, `WVP` and `SCL`.
 
 Every group's `zarr.json` is
-`{"zarr_format": 3, "node_type": "group", "attributes": A}`, with `A` as
-this document gives it, or `{}` for a group it gives no attributes.
+`{"zarr_format": 3, "node_type": "group", "attributes": A}`, a
+<a id="type-safegroup"></a>**`SafeGroup`**:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `zarr_format` | integer | required | `3` |
+| `node_type` | string | required | `"group"` |
+| `attributes` | [`SafeRootAttributes`](#type-saferootattributes), [`SafeResolutionAttributes`](#type-saferesolutionattributes) or object | required | `A` as this document gives it: a `SafeRootAttributes` on the root ([§5.3](#53-the-root)), a `SafeResolutionAttributes` on a resolution group ([§5.2](#52-resolution-groups)), `refkv_source`'s as [conventions §8.2](../conventions.md#82-the-table) gives them, or `{}` for a group it gives no attributes |
 
 ## 4. Arrays
 
 A band file of `C` components, precision `p`, image size `W × H` and tile
 size `T × U` is an array whose `zarr.json` is as in
-[conventions §3](../conventions.md#3-arrays), with:
+[conventions §3](../conventions.md#3-arrays), a
+<a id="type-safearray"></a>**`SafeArray`**: an
+[`ArrayDocument`](../conventions.md#type-arraydocument) (its `fill_value` 0, as there) with
+these members:
 
-- `shape` `[H, W]` and `chunk_shape` `[U, T]` when `C = 1`, and `[3, H, W]`
-  and `[3, U, T]` when `C = 3`;
-- `data_type` `uint8` when `p ≤ 8`, and `uint16` otherwise. (A Sentinel-2
-  reflectance band has `p = 15`: its values fill 15 bits of a `uint16`. The
-  true-color image `TCI` and the scene classification `SCL` have `p = 8`.)
-- `dimension_names` `["y", "x"]`, or `["c", "y", "x"]`;
-- `codecs` `[{"name": "imagecodecs_jpeg2k"}]` when `C = 1`, and
-  `[{"name": "transpose", "configuration": {"order": [1, 2, 0]}}, {"name": "imagecodecs_jpeg2k"}]`
-  when `C = 3` (the codestream decodes to `[y, x, c]`);
-- `fill_value` 0;
-- `attributes`: the declaration of [§1](#1-declaration) with the band's source metadata
-  ([§6.2](#62-band-arrays)).
+| member | type | presence | value |
+|---|---|---|---|
+| `shape` | array of integer | required | `[H, W]` when `C = 1`, and `[3, H, W]` when `C = 3` |
+| `data_type` | string | required | `uint8` when `p ≤ 8`, and `uint16` otherwise. (A Sentinel-2 reflectance band has `p = 15`: its values fill 15 bits of a `uint16`. The true-color image `TCI` and the scene classification `SCL` have `p = 8`.) |
+| `chunk_grid` | object | required | regular, its `chunk_shape` `[U, T]` when `C = 1`, and `[3, U, T]` when `C = 3` |
+| `codecs` | array of object | required | `[{"name": "imagecodecs_jpeg2k"}]` when `C = 1`, and `[{"name": "transpose", "configuration": {"order": [1, 2, 0]}}, {"name": "imagecodecs_jpeg2k"}]` when `C = 3` (the codestream decodes to `[y, x, c]`) |
+| `dimension_names` | array of string | required | `["y", "x"]` when `C = 1`, or `["c", "y", "x"]` when `C = 3` |
+| `attributes` | [`Declaration`](../conventions.md#type-declaration) | required | the declaration of [§1](#1-declaration) with the band's source metadata, a [`SafeBand`](#type-safeband) ([§6.2](#62-band-arrays)) |
 
 **Chunks.** The chunk at `<group>/<band>/c/<v>/<u>` (`<group>/<band>/c/0/<v>/<u>`
 when `C = 3`), for `0 ≤ u < nx` and `0 ≤ v < ny`, is the tile `t = v × nx + u`
@@ -270,18 +308,14 @@ The codestream is the band file's tile, coded as the file codes it, placed
 on the JPEG 2000 reference grid where the file places it, and it is the
 only tile with data:
 
-- its main header is the band file's, with its own SIZ marker. The image
-  area is `[x0, x0 + T) × [y0, y0 + U)`, where `x0 = u × T` and
-  `y0 = v × U`. The tiles are `w × h`, with their origin at `(x0, y0)`.
-- its tile 0 is the band file's tile `t`. Its area, `[x0, x0 + w) × [y0, y0 + h)`,
-  is the area that tile has in the file, so the wavelet decomposition, the
-  precincts and the code-blocks are the file's, and so are its packets.
-- each of its other tiles (when `w < T` or `h < U`) lies outside the array,
-  and holds only empty packets. They decode to the value `2^(p − 1)` (the DC
-  level shift) and are never read.
+| of the codestream | what it is |
+|---|---|
+| its main header | the band file's, with its own SIZ marker. The image area is `[x0, x0 + T) × [y0, y0 + U)`, where `x0 = u × T` and `y0 = v × U`. The tiles are `w × h`, with their origin at `(x0, y0)` |
+| its tile 0 | the band file's tile `t`. Its area, `[x0, x0 + w) × [y0, y0 + h)`, is the area that tile has in the file, so the wavelet decomposition, the precincts and the code-blocks are the file's, and so are its packets |
+| each of its other tiles (when `w < T` or `h < U`) | lies outside the array, and holds only empty packets. They decode to the value `2^(p − 1)` (the DC level shift) and are never read |
 
 The profile says how these codestreams are made of byte ranges of the band
-file and a few bytes of their own
+file and a few bytes of their own: a chunk is a [`SafeChunk`](#type-safechunk)
 ([§8.6](#86-chunks)).
 
 The band file's other bytes are kept in the source metadata: its JP2 boxes,
@@ -297,38 +331,29 @@ two conventions of the [zarr-conventions](https://github.com/zarr-conventions)
 organization, which the GeoZarr specification builds on. Both are at their
 tag `v0.1`, whose members are prefixed keys at the top level of
 `attributes`:
-
-- [`proj`](https://github.com/zarr-conventions/proj/blob/v0.1/README.md), with
-  the CMO
-  ```json
-  {"uuid": "f17cb550-5864-4468-aeb7-f3180cfb622f",
-   "schema_url": "https://raw.githubusercontent.com/zarr-conventions/proj/refs/tags/v0.1/schema.json",
-   "spec_url": "https://github.com/zarr-conventions/proj/blob/v0.1/README.md",
-   "name": "proj",
-   "description": "Coordinate reference system information for geospatial data"}
-  ```
-- [`spatial`](https://github.com/zarr-conventions/spatial/blob/v0.1/README.md),
-  with the CMO
-  ```json
-  {"uuid": "689b58e2-cf7b-45e0-9fff-9cfc0883d6b4",
-   "schema_url": "https://raw.githubusercontent.com/zarr-conventions/spatial/refs/tags/v0.1/schema.json",
-   "spec_url": "https://github.com/zarr-conventions/spatial/blob/v0.1/README.md",
-   "name": "spatial",
-   "description": "Spatial coordinate information"}
-  ```
-
-A Level-2A root also uses
+[`proj`](https://github.com/zarr-conventions/proj/blob/v0.1/README.md) and
+[`spatial`](https://github.com/zarr-conventions/spatial/blob/v0.1/README.md). A Level-2A root
+also uses
 [`multiscales`](https://github.com/zarr-conventions/multiscales/blob/v0.1/README.md)
-([§5.3](#53-the-root)), with the CMO
-```json
-{"uuid": "d35379db-88df-4056-af3a-620245f8e347",
- "schema_url": "https://raw.githubusercontent.com/zarr-conventions/multiscales/refs/tags/v0.1/schema.json",
- "spec_url": "https://github.com/zarr-conventions/multiscales/blob/v0.1/README.md",
- "name": "multiscales",
- "description": "Multiscale layout of zarr datasets"}
-```
+([§5.3](#53-the-root)). Each has a CMO, a <a id="type-safegeocmo"></a>**`SafeGeoCmo`**:
 
-Each CMO is written exactly as above, with these five members.
+| member | type | presence | value |
+|---|---|---|---|
+| `uuid` | string | required | the convention's, below |
+| `schema_url` | string | required | the convention's, below |
+| `spec_url` | string | required | the convention's, below |
+| `name` | string | required | the convention's, below |
+| `description` | string | required | the convention's, below |
+
+| member | [`proj`](https://github.com/zarr-conventions/proj/blob/v0.1/README.md) | [`spatial`](https://github.com/zarr-conventions/spatial/blob/v0.1/README.md) | [`multiscales`](https://github.com/zarr-conventions/multiscales/blob/v0.1/README.md) |
+|---|---|---|---|
+| `uuid` | `"f17cb550-5864-4468-aeb7-f3180cfb622f"` | `"689b58e2-cf7b-45e0-9fff-9cfc0883d6b4"` | `"d35379db-88df-4056-af3a-620245f8e347"` |
+| `schema_url` | `"https://raw.githubusercontent.com/zarr-conventions/proj/refs/tags/v0.1/schema.json"` | `"https://raw.githubusercontent.com/zarr-conventions/spatial/refs/tags/v0.1/schema.json"` | `"https://raw.githubusercontent.com/zarr-conventions/multiscales/refs/tags/v0.1/schema.json"` |
+| `spec_url` | `"https://github.com/zarr-conventions/proj/blob/v0.1/README.md"` | `"https://github.com/zarr-conventions/spatial/blob/v0.1/README.md"` | `"https://github.com/zarr-conventions/multiscales/blob/v0.1/README.md"` |
+| `name` | `"proj"` | `"spatial"` | `"multiscales"` |
+| `description` | `"Coordinate reference system information for geospatial data"` | `"Spatial coordinate information"` | `"Multiscale layout of zarr datasets"` |
+
+Each CMO is written exactly as above, with these five members, in this order.
 
 ### 5.1 The grid of a resolution
 
@@ -336,15 +361,11 @@ For the resolution `r`, with the `Size` `NROWS`, `NCOLS` and the
 `Geoposition` `ULX`, `ULY`, `XDIM`, `YDIM` of [§2.4](#24-the-tile-geocoding) (as binary64 values,
 [spec/zarrify.md §1.3](../zarrify.md#13-arithmetic)):
 
-- the **transform** is `[XDIM, 0, ULX, 0, YDIM, ULY]`: the affine
-  coefficients `[a, b, c, d, e, f]` of the spatial convention, which maps the
-  index `(col, row)` of a pixel's top-left corner to `(a × col + b × row + c,
-  d × col + e × row + f)`. (This is GDAL's geotransform `[ULX, XDIM, 0, ULY,
-  0, YDIM]` in the spatial convention's order.)
-- the **shape** is `[NROWS, NCOLS]`.
-- the **bounding box** is `[min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1)]`,
-  where `x0 = ULX`, `x1 = ULX + XDIM × NCOLS`, `y0 = ULY` and
-  `y1 = ULY + YDIM × NROWS` (the product first).
+| of the grid | value |
+|---|---|
+| the **transform** | `[XDIM, 0, ULX, 0, YDIM, ULY]`: the affine coefficients `[a, b, c, d, e, f]` of the spatial convention, which maps the index `(col, row)` of a pixel's top-left corner to `(a × col + b × row + c, d × col + e × row + f)`. (This is GDAL's geotransform `[ULX, XDIM, 0, ULY, 0, YDIM]` in the spatial convention's order.) |
+| the **shape** | `[NROWS, NCOLS]` |
+| the **bounding box** | `[min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1)]`, where `x0 = ULX`, `x1 = ULX + XDIM × NCOLS`, `y0 = ULY` and `y1 = ULY + YDIM × NROWS` (the product first) |
 
 The grid's position is pixel registration: `ULX` and `ULY` are a corner, not
 a pixel center (the GML in each band file gives the center of the top-left
@@ -367,10 +388,21 @@ The attributes of the group `r<r>m` are:
 }
 ```
 
-where `P` and `Q` are the CMOs of `proj` and `spatial`, `proj:code` is the
-CRS code ([§2.4](#24-the-tile-geocoding)) as written, `proj:wkt2` is as below (shortened here), and
-the transform, shape and bounding box are
-those of resolution `r` ([§5.1](#51-the-grid-of-a-resolution)). The proj convention applies a group's CRS
+(with `proj:wkt2` shortened here), a
+<a id="type-saferesolutionattributes"></a>**`SafeResolutionAttributes`**:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `zarr_conventions` | array of [`SafeGeoCmo`](#type-safegeocmo) | required | `[P, Q]`, where `P` and `Q` are the CMOs of `proj` and `spatial` ([§5](#5-georeferencing-geozarr)) |
+| `proj:code` | string | required | the CRS code ([§2.4](#24-the-tile-geocoding)) as written |
+| `proj:wkt2` | string | optional | as below: present, right after `proj:code`, when the CRS code is one of the WGS 84 / UTM zones |
+| `spatial:dimensions` | array of string | required | `["y", "x"]` |
+| `spatial:transform` | array of number | required | the transform of resolution `r` ([§5.1](#51-the-grid-of-a-resolution)) |
+| `spatial:shape` | array of integer | required | the shape of resolution `r` ([§5.1](#51-the-grid-of-a-resolution)) |
+| `spatial:bbox` | array of number | required | the bounding box of resolution `r` ([§5.1](#51-the-grid-of-a-resolution)) |
+| `spatial:registration` | string | required | `"pixel"` |
+
+The proj convention applies a group's CRS
 to its direct child arrays, and the spatial convention its properties, so
 the band arrays carry neither. Every band array's `shape` ends with the
 group's `spatial:shape` ([§2.5](#25-band-files)), and its dimension names include `y` and
@@ -380,12 +412,17 @@ group's `spatial:shape` ([§2.5](#25-band-files)), and its dimension names inclu
 numbers 32601 to 32660 or 32701 to 32760, written without a leading zero
 (the 120 WGS 84 / UTM zones, which are every CRS Sentinel-2 products use),
 the group also has the member `proj:wkt2`, right after `proj:code`. Its
-value is the template below, with `<c>` the number, `<z>` the zone
-(`c − 32600` or `c − 32700`, without a leading zero), `<h>` `N` for
-32601–32660 and `S` for 32701–32760, `<lon>` the decimal integer
-`6 × z − 183` (with a `-` when negative), and `<fn>` `0` for `N` and
-`10000000` for `S`, all on one line, with no whitespace but the spaces
-shown inside the quoted names:
+value is the template below, with these placeholders:
+
+| placeholder | value |
+|---|---|
+| `<c>` | the number |
+| `<z>` | the zone: `c − 32600` or `c − 32700`, without a leading zero |
+| `<h>` | `N` for 32601–32660 and `S` for 32701–32760 |
+| `<lon>` | the decimal integer `6 × z − 183` (with a `-` when negative) |
+| `<fn>` | `0` for `N` and `10000000` for `S` |
+
+all on one line, with no whitespace but the spaces shown inside the quoted names:
 
 ```
 PROJCRS["WGS 84 / UTM zone <z><h>",BASEGEOGCRS["WGS 84",ENSEMBLE["World Geodetic System 1984 ensemble",
@@ -415,25 +452,43 @@ EPSG code is what the product gives.
 
 ### 5.3 The root
 
-The root's attributes are the declaration of [§1](#1-declaration) and:
+The root's attributes are the declaration of [§1](#1-declaration) and the GeoZarr members, a
+<a id="type-saferootattributes"></a>**`SafeRootAttributes`**:
 
-- `proj:code`, the CRS code, `proj:wkt2` as [§5.2](#52-resolution-groups) gives it, and
-  `spatial:bbox`, the bounding box of the first resolution group ([§5.1](#51-the-grid-of-a-resolution)), so
-  that a reader finds where the product is without opening a group. The
-  root's `zarr_conventions` then lists the CMOs of `proj` and `spatial`.
-- for a Level-2A product, `multiscales`, with `spatial:dimensions`
-  `["y", "x"]` and `spatial:registration` `"pixel"`, and the multiscales CMO
-  in `zarr_conventions`. `multiscales` is
-  ```json
-  {"layout": [
-    {"asset": "r10m", "spatial:shape": [10980, 10980], "spatial:transform": [10.0, 0.0, 499980.0, 0.0, -10.0, 5200020.0]},
-    {"asset": "r20m", "spatial:shape": [5490, 5490], "spatial:transform": [20.0, 0.0, 499980.0, 0.0, -20.0, 5200020.0]},
-    {"asset": "r60m", "spatial:shape": [1830, 1830], "spatial:transform": [60.0, 0.0, 499980.0, 0.0, -60.0, 5200020.0]}
-  ]}
-  ```
-  with one layout item per resolution group, in the order of [§3](#3-the-hierarchy), whose
-  `asset` is the group's name and whose `spatial:shape` and
-  `spatial:transform` are the group's.
+| member | type | presence | value |
+|---|---|---|---|
+| `zarr_conventions` | array of [`ConventionMetadata`](../conventions.md#type-conventionmetadata) or [`SafeGeoCmo`](#type-safegeocmo) | required | this convention's CMO, then, for a Level-2A product, the multiscales CMO, then the CMOs of `proj` and `spatial` ([§1](#1-declaration)) |
+| `refkv_zarrified` | [`RootProperty`](../conventions.md#type-rootproperty) | required | the declaration's property ([§1](#1-declaration)), its `"safe"` member a [`SafeRoot`](#type-saferoot) |
+| `proj:code` | string | required | the CRS code |
+| `proj:wkt2` | string | optional | present, right after `proj:code`, when the CRS code is one of the WGS 84 / UTM zones; as [§5.2](#52-resolution-groups) gives it |
+| `spatial:bbox` | array of number | required | the bounding box of the first resolution group ([§5.1](#51-the-grid-of-a-resolution)), so that a reader finds where the product is without opening a group |
+| `spatial:dimensions` | array of string | optional | for a Level-2A product: `["y", "x"]` |
+| `spatial:registration` | string | optional | for a Level-2A product: `"pixel"` |
+| `multiscales` | [`SafeMultiscales`](#type-safemultiscales) | optional | for a Level-2A product |
+
+<a id="type-safemultiscales"></a>**`SafeMultiscales`**, the root's `multiscales`:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `layout` | array of [`SafeLayoutItem`](#type-safelayoutitem) | required | one layout item per resolution group, in the order of [§3](#3-the-hierarchy) |
+
+<a id="type-safelayoutitem"></a>**`SafeLayoutItem`**:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `asset` | string | required | the group's name |
+| `spatial:shape` | array of integer | required | the group's `spatial:shape` |
+| `spatial:transform` | array of number | required | the group's `spatial:transform` |
+
+For example, `multiscales` is
+
+```json
+{"layout": [
+  {"asset": "r10m", "spatial:shape": [10980, 10980], "spatial:transform": [10.0, 0.0, 499980.0, 0.0, -10.0, 5200020.0]},
+  {"asset": "r20m", "spatial:shape": [5490, 5490], "spatial:transform": [20.0, 0.0, 499980.0, 0.0, -20.0, 5200020.0]},
+  {"asset": "r60m", "spatial:shape": [1830, 1830], "spatial:transform": [60.0, 0.0, 499980.0, 0.0, -60.0, 5200020.0]}
+]}
+```
 
 A Level-2A product presents most of its bands at 10, 20 and 60 m. Its
 coarser groups are resampled versions of the finer ones, made by the
@@ -458,19 +513,22 @@ The values this section copies from the XML are translated as follows (in
 place of [conventions §6](../conventions.md#6-source-metadata-as-json)'s rules for
 binary fields, which do not apply):
 
-- An element's **value** is its text ([§2.1](#21-objects)). If it is a **decimal number**
-  (an optional `-` or `+`, one or more digits, optionally `.` and one or more
-  digits, and optionally `e` or `E`, an optional sign and one or more
-  digits), it is a JSON number: an integer when it has neither a fraction
-  nor an exponent ([conventions §6](../conventions.md#6-source-metadata-as-json): the string of its digits beyond
-  2^53 − 1), and otherwise its binary64 value. A `+` and leading zeros are
-  not kept. Otherwise the value is the JSON string of the text.
-- A **measure** is an element with an attribute `unit`: the object
-  `{"value": V, "unit": T}`, where `V` is its value and `T` the attribute's
-  value as a string. Without the attribute, it is its value alone.
-- A field that is missing, or found more than once where one is named, is
-  absent. **Source metadata never rejects**: only what [§2](#2-the-source) reads for the
-  layout is checked.
+| of the XML | in JSON |
+|---|---|
+| an element's **value** | its text ([§2.1](#21-objects)). If it is a **decimal number** (an optional `-` or `+`, one or more digits, optionally `.` and one or more digits, and optionally `e` or `E`, an optional sign and one or more digits), it is a JSON number: an integer when it has neither a fraction nor an exponent ([conventions §6](../conventions.md#6-source-metadata-as-json): the string of its digits beyond 2^53 − 1), and otherwise its binary64 value (a [`Float`](../conventions.md#type-float), so one that overflows binary64 is `"Infinity"` or `"-Infinity"`). A `+` and leading zeros are not kept. Otherwise the value is the JSON string of the text. Its type is number or string |
+| a **measure**, an element with an attribute `unit` | the object `{"value": V, "unit": T}`, a [`SafeMeasure`](#type-safemeasure) |
+| a measure without the attribute `unit` | its value alone |
+| a field that is missing, or found more than once where one is named | absent |
+
+**Source metadata never rejects**: only what [§2](#2-the-source) reads for the
+layout is checked.
+
+<a id="type-safemeasure"></a>**`SafeMeasure`**:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `value` | number or string | required | `V`, the element's value |
+| `unit` | string | required | `T`, the attribute's value as a string |
 
 The XML documents themselves are kept whole ([§6.3](#63-the-source-metadata-node)), and they are the
 record of the product's metadata. What follows is a **derived
@@ -501,38 +559,42 @@ such element has a `bandId` of one to nine digits. Below, an element "whose
 to nine digits of the value `i`.
 
 A band's source metadata `S` is an object with these members, in this
-order, each present only when its value is:
+order, each present only when its value is, a
+<a id="type-safeband"></a>**`SafeBand`** (a value and a measure are [§6.1](#61-values)'s):
 
-- `IMAGE_FILE`: the image file's text ([§2.3](#23-image-files));
-- for a spectral band with band id `i`:
-  - `bandId`: `i`; `physicalBand`: `PB`;
-  - `RESOLUTION`: the value of `RESOLUTION` under its `Spectral_Information`;
-  - `Wavelength`: an object of the measures `MIN`, `MAX` and `CENTRAL` under
-    its `Spectral_Information/Wavelength`, those present;
-  - `PHYSICAL_GAINS`: the value of the element `X/PHYSICAL_GAINS` whose
-    `bandId` is `i`;
-  - `SOLAR_IRRADIANCE`: the measure
-    `X/Reflectance_Conversion/Solar_Irradiance_List/SOLAR_IRRADIANCE` whose
-    `bandId` is `i`;
-  - Level-1C: `QUANTIFICATION_VALUE`, the measure `X/QUANTIFICATION_VALUE`;
-    and `RADIO_ADD_OFFSET`, the value of
-    `X/Radiometric_Offset_List/RADIO_ADD_OFFSET` whose `band_id` is `i`;
-  - Level-2A: `BOA_QUANTIFICATION_VALUE`, the measure
-    `X/QUANTIFICATION_VALUES_LIST/BOA_QUANTIFICATION_VALUE`; and
-    `BOA_ADD_OFFSET`, the value of `X/BOA_ADD_OFFSET_VALUES_LIST/BOA_ADD_OFFSET`
-    whose `band_id` is `i`;
-- for the band `AOT` (Level-2A): `AOT_QUANTIFICATION_VALUE`, the measure
-  `X/QUANTIFICATION_VALUES_LIST/AOT_QUANTIFICATION_VALUE`;
-- for the band `WVP` (Level-2A): `WVP_QUANTIFICATION_VALUE`, the measure
-  `X/QUANTIFICATION_VALUES_LIST/WVP_QUANTIFICATION_VALUE`;
-- for the band `SCL` (Level-2A): `Scene_Classification_List`, an array with
-  one object per element `X/Scene_Classification_List/Scene_Classification_ID`,
-  in order, with the values of its children `SCENE_CLASSIFICATION_TEXT` and
-  `SCENE_CLASSIFICATION_INDEX`, those present (and absent when there are more
-  than 64 such elements; a product has 12);
-- `siz`: the base64 ([conventions §6](../conventions.md#6-source-metadata-as-json)) of the band file's SIZ marker segment,
-  from its `FF 51` marker to its end, which the chunks replace with their
-  own.
+| member | type | presence | value |
+|---|---|---|---|
+| `IMAGE_FILE` | string | required | the image file's text ([§2.3](#23-image-files)) |
+| `bandId` | integer | optional | for a spectral band with band id `i`: `i` |
+| `physicalBand` | string | optional | for a spectral band with band id `i`: `PB` |
+| `RESOLUTION` | number or string | optional | for a spectral band with band id `i`: the value of `RESOLUTION` under its `Spectral_Information` |
+| `Wavelength` | [`SafeWavelength`](#type-safewavelength) | optional | for a spectral band with band id `i`: an object of the measures `MIN`, `MAX` and `CENTRAL` under its `Spectral_Information/Wavelength`, those present |
+| `PHYSICAL_GAINS` | number or string | optional | for a spectral band with band id `i`: the value of the element `X/PHYSICAL_GAINS` whose `bandId` is `i` |
+| `SOLAR_IRRADIANCE` | [`SafeMeasure`](#type-safemeasure), number or string | optional | for a spectral band with band id `i`: the measure `X/Reflectance_Conversion/Solar_Irradiance_List/SOLAR_IRRADIANCE` whose `bandId` is `i` |
+| `QUANTIFICATION_VALUE` | [`SafeMeasure`](#type-safemeasure), number or string | optional | Level-1C, for a spectral band with band id `i`: the measure `X/QUANTIFICATION_VALUE` |
+| `RADIO_ADD_OFFSET` | number or string | optional | Level-1C, for a spectral band with band id `i`: the value of `X/Radiometric_Offset_List/RADIO_ADD_OFFSET` whose `band_id` is `i` |
+| `BOA_QUANTIFICATION_VALUE` | [`SafeMeasure`](#type-safemeasure), number or string | optional | Level-2A, for a spectral band with band id `i`: the measure `X/QUANTIFICATION_VALUES_LIST/BOA_QUANTIFICATION_VALUE` |
+| `BOA_ADD_OFFSET` | number or string | optional | Level-2A, for a spectral band with band id `i`: the value of `X/BOA_ADD_OFFSET_VALUES_LIST/BOA_ADD_OFFSET` whose `band_id` is `i` |
+| `AOT_QUANTIFICATION_VALUE` | [`SafeMeasure`](#type-safemeasure), number or string | optional | for the band `AOT` (Level-2A): the measure `X/QUANTIFICATION_VALUES_LIST/AOT_QUANTIFICATION_VALUE` |
+| `WVP_QUANTIFICATION_VALUE` | [`SafeMeasure`](#type-safemeasure), number or string | optional | for the band `WVP` (Level-2A): the measure `X/QUANTIFICATION_VALUES_LIST/WVP_QUANTIFICATION_VALUE` |
+| `Scene_Classification_List` | array of [`SafeSceneClassification`](#type-safesceneclassification) | optional | for the band `SCL` (Level-2A): one object per element `X/Scene_Classification_List/Scene_Classification_ID`, in order (and absent when there are more than 64 such elements, or none; a product has 12) |
+| `siz` | [`Base64`](../conventions.md#type-base64) | required | the base64 ([conventions §6](../conventions.md#6-source-metadata-as-json)) of the band file's SIZ marker segment, from its `FF 51` marker to its end, which the chunks replace with their own |
+
+<a id="type-safewavelength"></a>**`SafeWavelength`**, present when it has a member:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `MIN` | [`SafeMeasure`](#type-safemeasure), number or string | optional | the measure `MIN` under `Spectral_Information/Wavelength` |
+| `MAX` | [`SafeMeasure`](#type-safemeasure), number or string | optional | the measure `MAX` under `Spectral_Information/Wavelength` |
+| `CENTRAL` | [`SafeMeasure`](#type-safemeasure), number or string | optional | the measure `CENTRAL` under `Spectral_Information/Wavelength` |
+
+<a id="type-safesceneclassification"></a>**`SafeSceneClassification`**, an element
+`Scene_Classification_ID`, with the values of its children, those present:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `SCENE_CLASSIFICATION_TEXT` | number or string | optional | the value of its child `SCENE_CLASSIFICATION_TEXT` |
+| `SCENE_CLASSIFICATION_INDEX` | number or string | optional | the value of its child `SCENE_CLASSIFICATION_INDEX` |
 
 So the band `B04` of a Level-2A product of processing baseline 05.10 has:
 
@@ -578,23 +640,33 @@ The root's source metadata `S` is the object
 }
 ```
 
-with the members, in this order, each present only when its value is:
+a <a id="type-saferoot"></a>**`SafeRoot`**, with the members, in this order, each present only
+when its value is (`X` is [§6.2](#62-band-arrays)'s):
 
-- `PRODUCT_URI`, `PROCESSING_LEVEL`, `PRODUCT_TYPE`, `PROCESSING_BASELINE`:
-  the values of those children of `General_Info/Product_Info` in the product
-  metadata. (`PROCESSING_BASELINE` is the string `"05.10"`, not a number:
-  it is a version, but by [§6.1](#61-values) its text is a decimal number. As an
-  exception, these four are always strings.)
-- `Special_Values`: an array with one object per element
-  `X/Special_Values`, in order, with the values of its children
-  `SPECIAL_VALUE_TEXT` and `SPECIAL_VALUE_INDEX`, those present (and absent
-  when there are more than 64 such elements; a product has 2);
-- `U`: the value of `X/Reflectance_Conversion/U`, the Earth–Sun distance
-  correction;
-- `TILE_ID` and `SENSING_TIME`: the texts of those children of
-  `General_Info` in the tile metadata, as strings;
-- `HORIZONTAL_CS_NAME` and `HORIZONTAL_CS_CODE`: the texts of those
-  children of `Tile_Geocoding`, as strings.
+| member | type | presence | value |
+|---|---|---|---|
+| `PRODUCT_URI` | string | optional | the value of that child of `General_Info/Product_Info` in the product metadata, as a string (below) |
+| `PROCESSING_LEVEL` | string | optional | the value of that child of `General_Info/Product_Info` in the product metadata, as a string |
+| `PRODUCT_TYPE` | string | optional | the value of that child of `General_Info/Product_Info` in the product metadata, as a string |
+| `PROCESSING_BASELINE` | string | optional | the value of that child of `General_Info/Product_Info` in the product metadata, as a string |
+| `Special_Values` | array of [`SafeSpecialValue`](#type-safespecialvalue) | optional | one object per element `X/Special_Values`, in order (and absent when there are more than 64 such elements, or none; a product has 2) |
+| `U` | number or string | optional | the value of `X/Reflectance_Conversion/U`, the Earth–Sun distance correction |
+| `TILE_ID` | string | optional | the text of that child of `General_Info` in the tile metadata, as a string |
+| `SENSING_TIME` | string | optional | the text of that child of `General_Info` in the tile metadata, as a string |
+| `HORIZONTAL_CS_NAME` | string | optional | the text of that child of `Tile_Geocoding`, as a string |
+| `HORIZONTAL_CS_CODE` | string | required | the text of that child of `Tile_Geocoding`, as a string: the CRS code, which [§2.4](#24-the-tile-geocoding) requires |
+
+(`PROCESSING_BASELINE` is the string `"05.10"`, not a number: it is a version, but by
+[§6.1](#61-values) its text is a decimal number. As an exception, the first four are always
+strings.)
+
+<a id="type-safespecialvalue"></a>**`SafeSpecialValue`**, an element `Special_Values`, with
+the values of its children, those present:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `SPECIAL_VALUE_TEXT` | number or string | optional | the value of its child `SPECIAL_VALUE_TEXT` |
+| `SPECIAL_VALUE_INDEX` | number or string | optional | the value of its child `SPECIAL_VALUE_INDEX` |
 
 **`refkv_source`.** The group `refkv_source` (the source metadata node of
 [conventions §2](../conventions.md#2-attributes)) is always present. It is the
@@ -606,15 +678,15 @@ table, from which the product is rebuilt ([§6.4](#64-reconstruction)), and its 
 {"ir": I, "empty_dirs": [...], "ignored": [...]}
 ```
 
-where `I` is the mirror's description ([conventions §8.2](../conventions.md#82-the-table)),
-and each other member is present only when it is not empty:
+a <a id="type-safemirror"></a>**`SafeMirror`**: a
+[`Mirror`](../conventions.md#type-mirror) with these members, each but `ir` present only
+when it is not empty:
 
-- `empty_dirs`: the empty directories ([§2.1](#21-objects)), ascending, each without a
-  final `/`;
-- `ignored`: the keys of the objects that the listing recorded but did
-  not use ([spec/zarrify.md §1.4](../zarrify.md#14-store-inputs), and for a zip file its directory entries
-  that are recorded likewise, [§8.4](#84-the-zip-form)),
-  ascending.
+| member | type | presence | value |
+|---|---|---|---|
+| `ir` | [`IrDescription`](../conventions.md#type-irdescription) | required | `I`, the mirror's description ([conventions §8.2](../conventions.md#82-the-table)) |
+| `empty_dirs` | array of string | optional | the empty directories ([§2.1](#21-objects)), ascending, each without a final `/` |
+| `ignored` | array of string | optional | the keys of the objects that the listing recorded but did not use ([spec/zarrify.md §1.4](../zarrify.md#14-store-inputs), and for a zip file its directory entries that are recorded likewise, [§8.4](#84-the-zip-form)), ascending |
 
 (Neither is an object of the product, so the IR has neither: a listing's
 empty `d/` keys and ignored keys are not objects of a store IR,
@@ -626,22 +698,15 @@ The IR is the product's in each form:
   ([conventions §8.9](../conventions.md#89-stores)): every listed object is an
   object of the IR, its key its path, folder markers and empty objects
   included. Of these objects:
-  - the **XML documents read whole** ([§8.2](#82-objects-and-reading)): the product
-    metadata, the tile metadata, and every other XML document of at most
-    65536 bytes, are **held**: each has one child, a value `xml` of type
-    `ascii[n]` spanning it, and the table holds its bytes;
-  - the **band files** are **described in place**: each has the band file's
-    elements below, its leaves partitioning it, and its bytes are its own
-    (it is the url source its chunks reference, [§8.8](#88-the-source-table));
-  - every **other object** (the other XML documents, such as the datastrip
-    metadata, 15–25 MB, and the other objects of [§2.1](#21-objects)) is **referenced**:
-    it has no children, and the hierarchy references it whole at the
-    archive's key `refkv_source/objects/<k>`, with `k` the object's key escaped
-    as [Zarr v2 convention §5](zarr2.md#5-other-objects) says (the directories
-    between `refkv_source` and the objects are not nodes);
-  - a **folder marker** has no children and is not referenced: its bytes
-    are the mirror's layout ([§2.1](#21-objects)), and its key is in the listing;
-  - an **empty object** has no children; its key is in the listing.
+
+  | object | in the IR | its bytes |
+  |---|---|---|
+  | the **XML documents read whole** ([§8.2](#82-objects-and-reading)): the product metadata, the tile metadata, and every other XML document of at most 65536 bytes | **held**: each has one child, a value `xml` of type `ascii[n]` spanning it | the table holds them |
+  | the **band files** | **described in place**: each has the band file's elements below, its leaves partitioning it | its own (it is the url source its chunks reference, [§8.8](#88-the-source-table)) |
+  | every **other object** (the other XML documents, such as the datastrip metadata, 15–25 MB, and the other objects of [§2.1](#21-objects)) | **referenced**: it has no children | the hierarchy references it whole at the archive's key `refkv_source/objects/<k>`, with `k` the object's key escaped as [Zarr v2 convention §5](zarr2.md#5-other-objects) says (the directories between `refkv_source` and the objects are not nodes) |
+  | a **folder marker** | it has no children and is not referenced | the mirror's layout ([§2.1](#21-objects)); its key is in the listing |
+  | an **empty object** | it has no children | none; its key is in the listing |
+
 - **The zip form** is a file input, and its IR a **file IR** of the
   `.SAFE.zip` file ([conventions §8.1](../conventions.md#81-elements)): its leaves
   partition the zip file, which the mirror rebuilds byte for byte from
@@ -710,16 +775,10 @@ entry, `refkv_source` included ([conventions §11.4](../conventions.md#114-equiv
 
 The product can be rebuilt from the hierarchy:
 
-- **the zip form**: the zip file, byte for byte, from the mirror's leaves
-  and source 0 ([conventions §8.4](../conventions.md#84-reading-the-source-back));
-  each object is an entry of it (a deflated XML document inflated);
-- **the directory form**: the listing (every object's key and size) and
-  every held object, byte for byte, from the mirror alone
-  ([conventions §8.9](../conventions.md#89-stores)); each band file, described in
-  place, from its own source (the url source its chunks reference, whose
-  size the archive pins), its structure from its elements; each other
-  object from `refkv_source/objects/<k>`; each empty directory from
-  `empty_dirs` (every other directory is one of an object's).
+| form | rebuilt |
+|---|---|
+| **the zip form** | the zip file, byte for byte, from the mirror's leaves and source 0 ([conventions §8.4](../conventions.md#84-reading-the-source-back)); each object is an entry of it (a deflated XML document inflated) |
+| **the directory form** | the listing (every object's key and size) and every held object, byte for byte, from the mirror alone ([conventions §8.9](../conventions.md#89-stores)); each band file, described in place, from its own source (the url source its chunks reference, whose size the archive pins), its structure from its elements; each other object from `refkv_source/objects/<k>`; each empty directory from `empty_dirs` (every other directory is one of an object's) |
 
 What is not kept is the directory form's layout: the order of the listing,
 the mirror's own metadata (generations and storage class), and the bytes of
@@ -798,11 +857,10 @@ states to its [§1](../zarrify.md#1-introduction) and [§2](../zarrify.md#2-the-
 A Sentinel-2 Level-1C or Level-2A product in the SAFE format is read in one
 of two forms:
 
-- **the directory form**, a store input ([§1.4](../zarrify.md#14-store-inputs)): `U` is the URL of the
-  `.SAFE` directory, ending in `/`. It is listed as [§1.5](../zarrify.md#15-listing-a-store) says, and the
-  profile is chosen there ([§8.1](#81-choosing-the-profile));
-- **the zip form**, a file input ([§1.2](../zarrify.md#12-input)): `U` is the URL of a `.SAFE.zip`
-  file, and its entries are the product's objects ([§8.4](#84-the-zip-form)).
+| form | input | `U` | read |
+|---|---|---|---|
+| **the directory form** | a store input ([§1.4](../zarrify.md#14-store-inputs)) | the URL of the `.SAFE` directory, ending in `/` | it is listed as [§1.5](../zarrify.md#15-listing-a-store) says, and the profile is chosen there ([§8.1](#81-choosing-the-profile)) |
+| **the zip form** | a file input ([§1.2](../zarrify.md#12-input)) | the URL of a `.SAFE.zip` file | its entries are the product's objects ([§8.4](#84-the-zip-form)) |
 
 The two forms give the same hierarchy for the same product, but for
 `source.url`, the source table and `refkv_source` (the IR mirror of a store
@@ -1035,27 +1093,36 @@ The chunk of band array `<group>/<band>` at tile `t = v × nx + u`
 ([the convention §4](#4-arrays)), with
 `T = XTsiz`, `U = YTsiz`, `x0 = u × T`, `y0 = v × U`,
 `w = min(T, Xsiz − x0)`, `h = min(U, Ysiz − y0)`, `a = ceil(T / w)` and
-`b = ceil(U / h)`, is the concatenation of these ranges:
+`b = ceil(U / h)`, is the concatenation of these ranges, a
+<a id="type-safechunk"></a>**`SafeChunk`** (its parts are numbered as pieces 1 to 5; its
+ranges are [`Range`](../zarrify.md#type-range)s):
 
-1. a literal: `FF 4F` (SOC), then the SIZ segment with `Rsiz = 0`,
-   `Xsiz = x0 + T`, `Ysiz = y0 + U`, `XOsiz = x0`, `YOsiz = y0`,
-   `XTsiz = w`, `YTsiz = h`, `XTOsiz = x0`, `YTOsiz = y0`, and its `Csiz`
-   and component triples unchanged. (`x0 + T` and `y0 + U` MUST be at most
-   2^32 − 1. `Rsiz` is 0 because a profile's restrictions on the tile size
-   may not hold for the new tiles. The file's own is kept in the segment
-   `siz` of the source metadata.)
-2. the main header rest `R`, a shared byte string ([§1.2](../zarrify.md#12-input)): the whole of the
-   data source that holds it;
-3. a literal: the SOT segment `FF 90 00 0A`, `Isot = 0`, the tile-part's
-   `Psot`, `00 01`;
-4. the tile-part's body `[s_t + 12, s_t + Psot)`, a range of the band file
-   (in the zip form, offset by its data start `ds`);
-5. the **tail**: for `k = 1, …, a × b − 1`, an empty tile-part for the tile
-   `k` (`i = k mod a` across, `j = k div a` down): `FF 90 00 0A`,
-   `Isot = k`, `Psot = 14 + e_k`, `00 01`, then SOD `FF 93`, then `e_k`
-   bytes `00`; then EOC `FF D9`. An interior chunk's tail is `FF D9`, a
-   literal. An edge chunk's (`a × b > 1`) is a shared byte string ([§1.2](../zarrify.md#12-input)),
-   like piece 2.
+| part | range | presence | value |
+|---|---|---|---|
+| 1. the main header's start | a literal range | required | `FF 4F` (SOC), then the SIZ segment with the fields below |
+| 2. the main header rest `R` | the source range `(d, 0, n_R)` of a data source `d`, `n_R` the length of `R` | required | a shared byte string ([§1.2](../zarrify.md#12-input)): the whole of the data source that holds it |
+| 3. the tile-part's SOT | a literal range | required | the SOT segment `FF 90 00 0A`, `Isot = 0`, the tile-part's `Psot`, `00 01` |
+| 4. the tile-part's body | in the zip form, the source range `(0, ds + s_t + 12, Psot − 12)`; in the directory form, `(f, s_t + 12, Psot − 12)`, `f` the band file's url source ([§8.8](#88-the-source-table)) | required | the tile-part's body `[s_t + 12, s_t + Psot)`, a range of the band file (in the zip form, offset by its data start `ds`) |
+| 5. the **tail** | a literal range, or the source range `(d, 0, l)` of a data source `d` of the tail's length `l` | required | for `k = 1, …, a × b − 1`, an empty tile-part for the tile `k` (`i = k mod a` across, `j = k div a` down): `FF 90 00 0A`, `Isot = k`, `Psot = 14 + e_k`, `00 01`, then SOD `FF 93`, then `e_k` bytes `00`; then EOC `FF D9`. An interior chunk's tail is `FF D9`, a literal. An edge chunk's (`a × b > 1`) is a shared byte string ([§1.2](../zarrify.md#12-input)), like piece 2 |
+
+The SIZ segment of piece 1 is the band file's with these fields:
+
+| field | value |
+|---|---|
+| `Rsiz` | `0` |
+| `Xsiz` | `x0 + T` |
+| `Ysiz` | `y0 + U` |
+| `XOsiz` | `x0` |
+| `YOsiz` | `y0` |
+| `XTsiz` | `w` |
+| `YTsiz` | `h` |
+| `XTOsiz` | `x0` |
+| `YTOsiz` | `y0` |
+| `Csiz` and the component triples | unchanged |
+
+(`x0 + T` and `y0 + U` MUST be at most 2^32 − 1. `Rsiz` is 0 because a profile's
+restrictions on the tile size may not hold for the new tiles. The file's own is kept in the
+segment `siz` of the source metadata.)
 
 **Bounds.** A tail is `2 + Σ_k (14 + e_k)` bytes. Before it is made, its
 length is computed (first `2 + 14 × (a × b − 1)`, then with each `e_k`),
@@ -1128,31 +1195,42 @@ References are listed in ascending order of their entries' keys (as UTF-8
 byte strings), and within a reference in order of its ranges. This order
 numbers the sources ([§1.2](../zarrify.md#12-input)'s order of first use).
 
-- **Zip form.** Source 0 is `U` ([§1.2](../zarrify.md#12-input)), and the data sources follow, from
-  1.
-- **Directory form.** The sources are first one `url` source per object
-  that some reference uses (every band file, and every object
-  [§8.7](#87-other-objects) references), with a `size` pin, the object's listed size,
-  and the object's URL ([§1.4](../zarrify.md#14-store-inputs)), in order of first use, numbered
-  from 0. The data sources follow, numbered from the count `m` of url sources
-  in order of first use ([§1.2](../zarrify.md#12-input)'s rule, starting at `m` rather than 1). This
-  replaces [§1.4](../zarrify.md#14-store-inputs)'s rule that a store input's sources are one per entry and
-  that it has no data sources: a band file is used by many chunks, and by
-  nothing else.
+| form | sources |
+|---|---|
+| **Zip form** | Source 0 is `U` ([§1.2](../zarrify.md#12-input)), and the data sources follow, from 1 |
+| **Directory form** | The sources are first one `url` source per object that some reference uses (every band file, and every object [§8.7](#87-other-objects) references), with a `size` pin, the object's listed size, and the object's URL ([§1.4](../zarrify.md#14-store-inputs)), in order of first use, numbered from 0. The data sources follow, numbered from the count `m` of url sources in order of first use ([§1.2](../zarrify.md#12-input)'s rule, starting at `m` rather than 1) |
+
+In the directory form, this replaces [§1.4](../zarrify.md#14-store-inputs)'s rule that a store
+input's sources are one per entry and that it has no data sources: a band file is used by many
+chunks, and by nothing else.
 
 ### 8.9 Summary
 
 This section is informative. Both implementations print a one-line JSON
-summary: `level` (`"L1C"` or `"L2A"`), `form` (`"store"` or `"zip"`),
-`groups` (resolution groups), `bands` (band arrays), `chunks`,
-`edgeChunks` (chunks with empty tiles), `dataSources`, `objects` (the
-product's objects, folder markers included), `folderMarkers`, `emptyDirs`,
-`heldXml` (the XML documents held, directory form), `otherObjects` (the
-objects referenced whole, directory form), `emptyObjects`, `tileParts`
-(SOT segments read), `bandReads` (the reads of band files), `batches` (the
-parser's rounds of reads), the run's or the read planner's counts, the IR's
-element count and what the mirror's table folded, and, in the directory
-form, `listingRequests`.
+summary, with these members:
+
+| member | value |
+|---|---|
+| `level` | `"L1C"` or `"L2A"` |
+| `form` | `"store"` or `"zip"` |
+| `groups` | the resolution groups |
+| `bands` | the band arrays |
+| `chunks` | the number of chunks |
+| `edgeChunks` | the chunks with empty tiles |
+| `dataSources` | the data sources |
+| `objects` | the product's objects, folder markers included |
+| `folderMarkers` | the folder markers |
+| `emptyDirs` | the empty directories |
+| `heldXml` | the XML documents held (directory form) |
+| `otherObjects` | the objects referenced whole (directory form) |
+| `emptyObjects` | the empty objects |
+| `tileParts` | the SOT segments read |
+| `bandReads` | the reads of band files |
+| `batches` | the parser's rounds of reads |
+| `listingRequests` | the listing's requests (directory form) |
+
+It also has the run's or the read planner's counts, the IR's element count and what the
+mirror's table folded.
 
 ### 8.10 Cost
 

@@ -14,6 +14,7 @@ use crate::expr::V;
 use crate::fed::{Fed, Word, uint};
 use crate::ir::*;
 use crate::nd2::Step;
+use crate::out::int_json;
 use crate::rules::{self, Rules, flag, num, text};
 use crate::sans;
 use crate::text::latin1;
@@ -139,7 +140,8 @@ pub struct Mp4 {
     p: u64,
     tops: Vec<BoxRef>,
     moov: Option<Vec<u8>>,
-    ftyp: Option<Vec<u8>>,
+    /// the ftyp box read: its offset and bytes
+    ftyp: Option<(u64, Vec<u8>)>,
     /// the trak box being read, and those read
     cur: Option<Track>,
     tracks: Vec<Track>,
@@ -194,6 +196,9 @@ impl Mp4 {
             let Some(h) = self.fed.get(self.p, n) else { return Ok(Some((self.p, n))) };
             let b = header(h, self.p, self.size).ok_or("internal: no box header")?;
             self.check_box(&b, self.size)?;
+            if &b.typ == b"ftyp" {
+                self.rules.check("fields", rules::env([("type", text("ftyp")), ("at", num(b.at as f64)), ("need", num(8.0)), ("have", num((b.size - b.head) as f64))]))?;
+            }
             if &b.typ == b"moof" {
                 self.rules.check("fragment", rules::env([("type", text("moof")), ("at", num(b.at as f64)), ("seen", flag(false))]))?;
             }
@@ -210,7 +215,7 @@ impl Mp4 {
             }
             if &b.typ == b"ftyp" && b.size <= 4096 && self.ftyp.is_none() {
                 match self.fed.get(b.at, b.size) {
-                    Some(m) => self.ftyp = Some(m.to_vec()),
+                    Some(m) => self.ftyp = Some((b.at, m.to_vec())),
                     None => return Ok(Some((b.at, b.size))),
                 }
             }
@@ -259,20 +264,17 @@ impl Mp4 {
                     self.container(s, &m, b.at, b.body(), b.end())?;
                     self.moov = Some(m);
                 }
-                b"ftyp" if self.ftyp.is_some() => {
-                    let f = self.ftyp.clone().unwrap();
-                    let n = b.size - b.head;
-                    if n >= 8 {
-                        self.ir.value(s, "fields", NO_INDEX, "{major_brand:ascii[4],minor_version:>u4}", 0, (b.body(), 8), Some(&f[b.head as usize..b.head as usize + 8]))?;
-                        let k = (n - 8) / 4;
-                        if k > 0 {
-                            let at = b.head as usize + 8;
-                            self.ir.value(s, "entries", NO_INDEX, &format!("{{brand:ascii[4]}}[{k}]"), 0, (b.body() + 8, 4 * k), Some(&f[at..at + 4 * k as usize]))?;
-                        }
-                        self.rest(s, b.body() + 8 + 4 * k, b.end(), Some(&f[..]), b.at)?;
-                    } else {
-                        self.rest(s, b.body(), b.end(), Some(&f[..]), b.at)?;
+                // the ftyp box read, whose payload holds its fields (any other is opaque):
+                // spec/zarrify/mp4.md §8.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#81-boxes>
+                b"ftyp" if self.ftyp.as_ref().is_some_and(|f| f.0 == b.at) => {
+                    let f = self.ftyp.clone().unwrap().1;
+                    let k = (b.size - b.head - 8) / 4;
+                    self.ir.value(s, "fields", NO_INDEX, "{major_brand:ascii[4],minor_version:>u4}", 0, (b.body(), 8), Some(&f[b.head as usize..b.head as usize + 8]))?;
+                    if k > 0 {
+                        let at = b.head as usize + 8;
+                        self.ir.value(s, "entries", NO_INDEX, &format!("{{brand:ascii[4]}}[{k}]"), 0, (b.body() + 8, 4 * k), Some(&f[at..at + 4 * k as usize]))?;
                     }
+                    self.rest(s, b.body() + 8 + 4 * k, b.end(), Some(&f[..]), b.at)?;
                 }
                 b"mdat" => {}
                 _ => {
@@ -466,7 +468,7 @@ impl Mp4 {
                 let d = if version == 1 { 8 } else { 4 };
                 tr.edits = (0..k).map(|i| {
                     let r = &e[i * w..];
-                    json!({"duration": uint(r, 0, d, false), "media_time": signed(uint(r, d, d, false), 8 * d as u32), "rate": signed(uint(r, 2 * d, 2, false), 16) as f64 + uint(r, 2 * d + 2, 2, false) as f64 / 65536.0})
+                    json!({"duration": int_json(uint(r, 0, d, false) as i128), "media_time": int_json(signed(uint(r, d, d, false), 8 * d as u32) as i128), "rate": signed(uint(r, 2 * d, 2, false), 16) as f64 + uint(r, 2 * d + 2, 2, false) as f64 / 65536.0})
                 }).collect();
             }
             b"stts" => tr.stts = (0..k).map(|i| (uint(e, i * 8, 4, false), uint(e, i * 8 + 4, 4, false))).collect(),
@@ -542,9 +544,15 @@ impl Mp4 {
         let mut facts = Vec::new();
         let mut reasons = Vec::new();
         let mut projected = 0;
+        let mut ids = std::collections::HashSet::new();
         for (k, t) in tracks.iter().enumerate() {
             let (offsets, sizes) = self.layout(t)?;
             let mut f = self.classify(t, &offsets);
+            // the last reason: a zarrified track's group is named by its ID
+            if f["reason"].is_null() && !ids.insert(t.id) {
+                f["reason"] = json!(format!("its track ID {} is an earlier zarrified track's", t.id));
+                f["format"] = J::Null;
+            }
             f["index"] = json!(k);
             if !offsets.is_empty() {
                 let ss = match samples_struct {
@@ -579,7 +587,7 @@ impl Mp4 {
             facts.push(f);
         }
         self.rules.check("tracks", rules::env([("projected", num(projected as f64)), ("reasons", text(&reasons.join("; ")))]))?;
-        let brand = self.ftyp.as_ref().filter(|f| f.len() >= 16).map(|f| {
+        let brand = self.ftyp.as_ref().map(|(_, f)| {
             let head = if uint(f, 0, 4, false) == 1 { 16 } else { 8 };
             let body = &f[head..];
             json!({
@@ -588,7 +596,7 @@ impl Mp4 {
             })
         });
         self.facts = json!({
-            "brand": brand, "timescale": self.movie.0, "duration": self.movie.1, "tracks": facts,
+            "brand": brand, "timescale": self.movie.0, "duration": int_json(self.movie.1 as i128), "tracks": facts,
             "chunk_frames": crate::mp3::chunk_frames(),
         });
         Ok(())
@@ -661,7 +669,7 @@ impl Mp4 {
         let entry = t.entries.first();
         let codec = entry.map(|e| latin1(&e.typ)).unwrap_or_default();
         let mut f = json!({
-            "id": t.id, "handler": latin1(&t.handler), "codec": codec, "timescale": t.timescale, "duration": t.duration,
+            "id": t.id, "handler": latin1(&t.handler), "codec": codec, "timescale": t.timescale, "duration": int_json(t.duration as i128),
             "edits": t.edits, "count": offsets.len(), "format": null, "geometry": null, "reason": null,
         });
         let reason = (|| -> Result<(), String> {
@@ -890,8 +898,9 @@ pub fn h264_sps(avcc: &[u8]) -> Option<Sps> {
         zeros = if c == 0 { zeros + 1 } else { 0 };
         rbsp.push(c);
     }
-    let (profile, level) = (rbsp[0], rbsp[2]);
-    let mut r = Bits { b: &rbsp[3..], at: 0 };
+    // dropping emulation prevention bytes can leave too few bytes for the profile and level
+    let (&profile, &level) = (rbsp.first()?, rbsp.get(2)?);
+    let mut r = Bits { b: rbsp.get(3..)?, at: 0 };
     r.ue()?;
     let (mut chroma, mut luma, mut chroma_depth) = (1, 8, 8);
     if HIGH_PROFILES.contains(&profile) {
@@ -1108,5 +1117,13 @@ mod tests {
                    0x00, 0x01, 0x00, 0x00, 0x03, 0x00, 0x14, 0x0F, 0x12, 0x25, 0x96, 0x01, 0x00, 0x06, 0x68, 0xEB, 0xE3, 0xCB, 0x22, 0xC0];
         assert_eq!(h264_sps(&ten), Some(Sps { profile: 110, level: 10, chroma: 1, luma: 10, chroma_depth: 10 }));
         assert_eq!(aac_config(&[0x14, 0x08]), Some(Asc { aot: 2, rate: 16000, channels: 1, short: false }));
+    }
+
+    /// An SPS NAL unit of 4 bytes whose emulation prevention byte leaves a 2-byte RBSP, too short
+    /// for the profile, constraint flags and level.
+    #[test]
+    fn h264_sps_rejects_a_short_rbsp() {
+        let avcc = [0x01, 0x64, 0x00, 0x0A, 0xFF, 0xE1, 0x00, 0x04, 0x67, 0x00, 0x00, 0x03];
+        assert_eq!(h264_sps(&avcc), None);
     }
 }

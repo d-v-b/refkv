@@ -49,18 +49,30 @@ Issues = "https://github.com/d-v-b/refkv/issues"
 # `refkv zarrify <file or store> <out.vzip>` (refkv/__main__.py)
 refkv = "refkv.__main__:main"
 
+# The codecs refkv's archives name that zarr-python and imagecodecs-zarr do not provide
+# (src/refkv/zarr/codecs/), which zarr loads by name when it opens an array that names one, without
+# `import refkv.zarr`. A base install, without zarr, never loads them; a codec whose decoder needs
+# another extra (refkv.tiff_lzw: images, refkv.stream: media) names it when a chunk is decoded.
+[project.entry-points."zarr.codecs"]
+"refkv.fits_tiles" = "refkv.zarr.codecs.fits_tiles:FitsTilesCodec"
+"refkv.stream" = "refkv.zarr.codecs.stream:StreamCodec"
+"refkv.tiff_lzw" = "refkv.zarr.codecs.tiff_lzw:LzwCodec"
+n5_default = "refkv.zarr.codecs.n5_default:N5DefaultCodec"
+
 [project.optional-dependencies]
 # refkv.zarr: a reference store as a read-only zarr store, for zarr and xarray, and the codecs
-# of archives of zarrified image files and stores
+# of archives of zarrified image files and stores (the entry points above)
 zarr = [
     "zarr>=3.4.0",
 ]
-# the JPEG, JPEG 2000 and JPEG XR decoders of refkv.zarr's image codecs
+# the image codecs: imagecodecs-zarr's JPEG, JPEG 2000 and JPEG XR codecs, which refkv's archives
+# name, and imagecodecs' LZW decoder, which refkv.tiff_lzw calls
 images = [
     "refkv[zarr]",
     "imagecodecs>=2026.8.16",
+    "imagecodecs-zarr>=2026.8.16",
 ]
-# the decoders of refkv.zarr's refkv.stream codec, which reads zarrified MP3, FLAC and MP4 files:
+# the decoders of the refkv.stream codec, which reads zarrified MP3, FLAC and MP4 files:
 # ffmpeg's, through PyAV
 media = [
     "refkv[zarr]",

@@ -8,7 +8,18 @@ is the CZI profile, [Part 2](#part-2-the-profile) below, cited as
 "the profile §n".
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `7a0733c7-d4be-4482-a64f-6904d9354ea5` ·
-Schema: [schema.json](czi/schema.json)
+Schema: [schema.json](czi/schema.json) · Changed 2026-10-26, with no change to any output: the
+layout is tabulated, its entries in [Layout](#layout) and its types in type tables
+([conventions §11.5](../conventions.md#115-layout-tables)), and the source's structures, the
+values read from the metadata XML, the codecs and the cases of a coded size are tables;
+the prose also states what refkv already wrote and it left unsaid: when the largest divisor
+band of a large uncompressed tile holds less than 2^20 bytes, its bands are short bands of the
+most rows within 2^24 bytes, and the level's or tile array's grid is rectilinear ([§4.3](#43-image-arrays),
+[§4.4](#44-tiles)); and it drops the per-element arrays under `refkv_source` that the IR
+mirror replaced in
+[revision 21](../history/virtualize/REVISIONS.md#revision-21-the-ir-mirror-is-the-source-metadata-of-tiff-nd2-and-czi)
+([§7.5](#75-chunk-references)), and names the subblock segment `ZISRAWSUBBLOCK`
+([§5.3](#53-elements))
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
@@ -29,6 +40,43 @@ beyond the stated limits: the documents that one subblock adds (a tile
 array's, [§4.4](#44-tiles)) are of a bounded size, and every value that grows with the
 file is in an array, referenced where the file holds it.
 
+## Layout
+
+The hierarchy's entries ([conventions §11.5](../conventions.md#115-layout-tables)), a
+bioformats2raw collection ([conventions §4](../conventions.md#4-images), whose
+[entries](../conventions.md#table-collection) these rows refine) of the series' images, with
+the tile arrays beside it:
+
+| prefix | type | structure | description |
+|---|---|---|---|
+| `zarr.json` | group | [`GroupDocument`](../conventions.md#type-groupdocument), attributes a [`CollectionRoot`](../conventions.md#type-collectionroot) | the root ([§4.1](#41-the-hierarchy)) |
+| `zarr.json#/attributes/ome` | attribute | `{"version": "0.5", "bioformats2raw.layout": 3}` | when some series has an image ([§3.5](#35-regular-levels)); absent when none has (no subblock, or every placed subblock a tile, or none placed), and then there is no `OME` group |
+| `zarr.json#/attributes/zarr_conventions` | attribute | array of [`ConventionMetadata`](../conventions.md#type-conventionmetadata) | the CMO of [§1](#1-declaration) |
+| `zarr.json#/attributes/refkv_zarrified` | attribute | [`RootProperty`](../conventions.md#type-rootproperty) | `profile` `"czi"`, `version` `0`, `source.url` the file's URL |
+| `zarr.json#/attributes/refkv_zarrified/czi` | attribute | [`CziRoot`](#type-cziroot) | the root's source metadata, the file header ([§5.1](#51-the-root)) |
+| `OME/zarr.json` | group | [`GroupDocument`](../conventions.md#type-groupdocument), attributes a [`SeriesGroup`](../conventions.md#type-seriesgroup) | when some series has an image: `series` `"0"`, `"1"`, ..., one per image |
+| `<k>/zarr.json` | group | [`ImageGroup`](../conventions.md#type-imagegroup) | image `k` ([§4.2](#42-images)) |
+| `<k>/zarr.json#/attributes/ome` | attribute | [`OmeImage`](../conventions.md#type-omeimage) | `M`: one dataset per level, with `name`, axes, scales, translations and `omero` as [§4.2](#42-images) and [§4.3](#43-image-arrays) say |
+| `<k>/zarr.json#/attributes/zarr_conventions` | attribute | array of [`ConventionMetadata`](../conventions.md#type-conventionmetadata) | the CMO of [§1](#1-declaration), when the image's series key has a dimension |
+| `<k>/zarr.json#/attributes/refkv_zarrified` | attribute | [`NodeProperty`](../conventions.md#type-nodeproperty) | when the image's series key has a dimension |
+| `<k>/zarr.json#/attributes/refkv_zarrified/czi` | attribute | [`CziImage`](#type-cziimage) | the image's source metadata ([§4.2](#42-images)) |
+| `<k>/<d>/zarr.json` | array | [`CziLevelArray`](#type-czilevelarray) | level `d` of image `k` ([§4.3](#43-image-arrays)); attributes `{}` |
+| `<k>/<d>/c/<coords>` | chunk | [`CziChunk`](#type-czichunk) | a placed subblock of the level, or a band of it ([§4.3](#43-image-arrays)); a cell without a subblock has no chunk |
+| `tiles/zarr.json` | group | [`GroupDocument`](../conventions.md#type-groupdocument), attributes `{}` | when there is a tile ([§4.4](#44-tiles)) |
+| `tiles/<n>/zarr.json` | array | [`CziTileArray`](#type-czitilearray) | tile array `n`: a copy of a tile position ([§4.4](#44-tiles)) |
+| `tiles/<n>/zarr.json#/attributes/zarr_conventions` | attribute | array of [`ConventionMetadata`](../conventions.md#type-conventionmetadata) | the CMO of [§1](#1-declaration); every tile array declares the convention |
+| `tiles/<n>/zarr.json#/attributes/refkv_zarrified` | attribute | [`NodeProperty`](../conventions.md#type-nodeproperty) | |
+| `tiles/<n>/zarr.json#/attributes/refkv_zarrified/czi` | attribute | [`CziTile`](#type-czitile) | the tile array's source metadata ([§4.4](#44-tiles)) |
+| `tiles/<n>/c/<coords>` | chunk | [`CziChunk`](#type-czichunk) | a tile, or a band of it ([§4.4](#44-tiles)); a plane without a tile has no chunk |
+| `refkv_source/**` | subtree | [the mirror's entries](../conventions.md#table-mirror) | the IR mirror ([§5.2](#52-the-ir-mirror)): its elements are [§5.3](#53-elements)'s; the convention writes no arrays of its own under it |
+
+| placeholder | value |
+|---|---|
+| `<k>` | an image's index, in decimal, from 0 in series order ([§3.3](#33-series)) |
+| `<d>` | a level's index in its image, in decimal, from 0 in the order of [§3.5](#35-regular-levels) |
+| `<n>` | a tile array's index, in decimal, from 0 in increasing order of the index of its first tile ([§4.4](#44-tiles)) |
+| `<coords>` | the chunk's coordinates along the array's axes, in decimal, one key segment each: `<t>/<c>/<z>/<y>/<x>`, each of `t`, `c` and `z` only for the axes present (so it stands for two to five segments) |
+
 ## 1. Declaration
 
 The root and `refkv_source` declare the convention
@@ -45,8 +93,15 @@ metadata of [§5.1](#51-the-root) as the member `"czi"`. Its CMO is:
 }
 ```
 
-These other nodes declare it, each with `{"czi": S}`: every image group
-whose series key has a dimension ([§4.2](#42-images)), and every tile array ([§4.4](#44-tiles)).
+These other nodes declare it, each with `{"czi": S}`:
+
+| node | `S` |
+|---|---|
+| every image group whose series key has a dimension ([§4.2](#42-images)) | [`CziImage`](#type-cziimage) |
+| every tile array ([§4.4](#44-tiles)) | [`CziTile`](#type-czitile) |
+
+No other node declares it: not an image group whose series key has no dimension, an image's
+arrays, `OME` or `tiles`.
 
 ## 2. The source
 
@@ -80,11 +135,22 @@ file are the **tail**.
 
 ### 2.2 The file header
 
-The `ZISRAWFILE` segment's data starts with: `i32` Major, `i32` Minor,
-`i32` × 2 reserved, 16 bytes PrimaryFileGuid, 16 bytes FileGuid, `i32`
-FilePart, `i64` SubBlockDirectoryPosition, `i64` MetadataPosition, `i32`
-UpdatePending, `i64` AttachmentDirectoryPosition (80 bytes; the rest of the
-512 is spare). Major MUST be 1. FilePart MUST be 0: a CZI whose image is
+The `ZISRAWFILE` segment's data starts with these 80 bytes (the rest of the 512 is spare):
+
+| bytes | field |
+|---|---|
+| 0–3 | `i32` Major |
+| 4–7 | `i32` Minor |
+| 8–15 | `i32` × 2 reserved |
+| 16–31 | 16 bytes PrimaryFileGuid |
+| 32–47 | 16 bytes FileGuid |
+| 48–51 | `i32` FilePart |
+| 52–59 | `i64` SubBlockDirectoryPosition |
+| 60–67 | `i64` MetadataPosition |
+| 68–71 | `i32` UpdatePending |
+| 72–79 | `i64` AttachmentDirectoryPosition |
+
+Major MUST be 1. FilePart MUST be 0: a CZI whose image is
 split over several files (`name.czi`, `name(1).czi`, ...) is rejected, both
 here and wherever a directory entry or attachment entry names a FilePart
 other than 0, since a reference reaches one file only.
@@ -113,19 +179,36 @@ or of any other schema, rejects the input):
 | 28–31 | `i32` DimensionCount `d` |
 | 32 ... | `d` **dimension entries** of 20 bytes |
 
-A dimension entry is 4 bytes of **dimension** id, `i32` Start, `i32` Size,
-`f32` StartCoordinate, `i32` StoredSize. The id MUST be one of the letters
+A dimension entry is 20 bytes:
+
+| bytes | field |
+|---|---|
+| 0–3 | **dimension** id |
+| 4–7 | `i32` Start |
+| 8–11 | `i32` Size |
+| 12–15 | `f32` StartCoordinate |
+| 16–19 | `i32` StoredSize |
+
+The id MUST be one of the letters
 `X Y Z C T R S I H V B M` followed by three NUL bytes, no letter twice in
-one entry, and `X` and `Y` MUST be present; `d` is therefore 2 to 12. `X`
-and `Y` give the subblock's **logical rectangle** (Start, Size: where it lies,
-in the pixels of the full-resolution image) and its **stored size**
-(StoredSize: the pixels it holds); Size and StoredSize MUST be at least 1.
-For every other letter except `M`, Size and StoredSize MUST be 1: the
-subblock lies at index Start of that dimension. `M` is the mosaic tile index
-(any Size, which some writers set wrongly on pyramid tiles). The other
-letters are `Z` (depth), `C` (channel), `T` (time), `R` (rotation), `S`
-(scene), `I` (illumination), `H` (phase), `V` (view) and `B` (block,
-deprecated).
+one entry, and `X` and `Y` MUST be present; `d` is therefore 2 to 12. The letters:
+
+| letter | dimension | Size and StoredSize |
+|---|---|---|
+| `X`, `Y` | the subblock's **logical rectangle** (Start, Size: where it lies, in the pixels of the full-resolution image) and its **stored size** (StoredSize: the pixels it holds) | MUST be at least 1 |
+| `Z` | depth | MUST be 1 |
+| `C` | channel | MUST be 1 |
+| `T` | time | MUST be 1 |
+| `R` | rotation | MUST be 1 |
+| `S` | scene | MUST be 1 |
+| `I` | illumination | MUST be 1 |
+| `H` | phase | MUST be 1 |
+| `V` | view | MUST be 1 |
+| `B` | block, deprecated | MUST be 1 |
+| `M` | the mosaic tile index | any Size, which some writers set wrongly on pyramid tiles |
+
+For every letter but `X`, `Y` and `M`, whose Size and StoredSize are 1, the subblock lies at
+index Start of that dimension.
 
 **Subblock `i`** is the subblock of the `i`-th entry (`0 ≤ i < N`), its
 **index**.
@@ -133,15 +216,19 @@ deprecated).
 ### 2.4 Subblocks
 
 At an entry's FilePosition, which MUST be the offset of a `ZISRAWSUBBLOCK`
-segment, the data is `i32` MetadataSize `m`, `i32` AttachmentSize `a`,
-`i64` DataSize `n` (each at least 0), then the subblock's own copy of its
-directory entry (schema `DV`, with its own DimensionCount `d'`, 0 ≤ `d'` ≤
-40), padded to the **header length** `L = max(256, 16 + 32 + 20 × d')`
-bytes from the start of the data. Then follow, from `o + 32 + L`, the `m`
-bytes of the subblock's **metadata** (an XML fragment, `<METADATA>...`), the
-`n` bytes of its **data** (its pixels, coded as Compression says), and the
-`a` bytes of its **attachment** (for example a valid-pixel mask, when the
-metadata says `CHUNKCONTAINER`). All of these MUST lie within the file.
+segment, the data is, by bytes from its start (the parts from `L` on start at `o + 32 + L`):
+
+| bytes | field |
+|---|---|
+| 0–3 | `i32` MetadataSize `m`, at least 0 |
+| 4–7 | `i32` AttachmentSize `a`, at least 0 |
+| 8–15 | `i64` DataSize `n`, at least 0 |
+| 16 to `L − 1` | the subblock's own copy of its directory entry (schema `DV`, with its own DimensionCount `d'`, 0 ≤ `d'` ≤ 40), padded to the **header length** `L = max(256, 16 + 32 + 20 × d')` bytes from the start of the data |
+| `m` bytes from `L` | the subblock's **metadata** (an XML fragment, `<METADATA>...`) |
+| `n` bytes from `L + m` | its **data** (its pixels, coded as Compression says) |
+| `a` bytes from `L + m + n` | its **attachment** (for example a valid-pixel mask, when the metadata says `CHUNKCONTAINER`) |
+
+All of these MUST lie within the file.
 
 The subblock's copy of its entry is the `32 + 20 × d'` bytes after its first
 16; it **agrees** with the directory when it has the same bytes as the
@@ -150,30 +237,66 @@ directory entry. A subblock whose copy does not agree is **unplaced** ([§3.2](#
 ### 2.5 The metadata segment
 
 When MetadataPosition is not 0, it MUST be the offset of a `ZISRAWMETADATA`
-segment, whose data is `i32` XmlSize `x`, `i32` AttachmentSize `b` (each at
-least 0), 248 spare bytes, then the `x` bytes of the **metadata XML** and the
-`b` bytes of the **metadata attachment** (unused by current writers), within
-the file.
+segment, whose data is, within the file:
+
+| bytes | field |
+|---|---|
+| 0–3 | `i32` XmlSize `x`, at least 0 |
+| 4–7 | `i32` AttachmentSize `b`, at least 0 |
+| 8–255 | 248 spare bytes |
+| `x` bytes from 256 | the **metadata XML** |
+| `b` bytes from `256 + x` | the **metadata attachment** (unused by current writers) |
 
 ### 2.6 Attachments
 
 When AttachmentDirectoryPosition is not 0, it MUST be the offset of a
-`ZISRAWATTDIR` segment, whose data is `i32` EntryCount `K` (0 ≤ `K` ≤
-2^16), 252 spare bytes, then `K` **attachment entries** of 128 bytes, within
-the file. An entry of schema `A1` (bytes 0–1) is: 10 spare bytes, `i64`
-FilePosition, `i32` FilePart (MUST be 0), 16 bytes ContentGuid, 8 bytes
-ContentFileType, 80 bytes Name. Its FilePosition MUST be the offset of a
-`ZISRAWATTACH` segment, whose data is `i64` DataSize `s` (at least 0), 8
-spare bytes, its own copy of the 128-byte entry, spare bytes to 256, then
-the `s` bytes of the **attachment data**, within the file. Attachment `k` is
-the `k`-th entry. An entry of another schema is kept as it is ([§5.3](#53-elements)) and
-not followed, as libCZI does.
+`ZISRAWATTDIR` segment, whose data is, within the file:
 
-Writers use these ContentFileTypes: `CZTIMS` (TimeStamps), `CZEVL`
-(EventList), `CZFOC` (FocusPositions), `CZLUT` (LookupTables), `JPG`
-(Thumbnail), `CZI` and `ZISRAW` (an embedded CZI file: Label, SlidePreview,
-Prescan), `Zip-Comp` and `ZIP` (gzip: Profile), `CZEXP`, `CZHWS`, `CZMVM`,
-`CZFBMX` (XML), `PNG`, `CZPML`, `BINARY`.
+| bytes | field |
+|---|---|
+| 0–3 | `i32` EntryCount `K` (0 ≤ `K` ≤ 2^16) |
+| 4–255 | 252 spare bytes |
+| `128 × K` bytes from 256 | `K` **attachment entries** of 128 bytes |
+
+An entry of schema `A1` (bytes 0–1) is:
+
+| bytes | field |
+|---|---|
+| 0–1 | `A1` |
+| 2–11 | 10 spare bytes |
+| 12–19 | `i64` FilePosition |
+| 20–23 | `i32` FilePart (MUST be 0) |
+| 24–39 | 16 bytes ContentGuid |
+| 40–47 | 8 bytes ContentFileType |
+| 48–127 | 80 bytes Name |
+
+Its FilePosition MUST be the offset of a `ZISRAWATTACH` segment, whose data is, within the
+file:
+
+| bytes | field |
+|---|---|
+| 0–7 | `i64` DataSize `s`, at least 0 |
+| 8–15 | 8 spare bytes |
+| 16–143 | its own copy of the 128-byte entry |
+| 144–255 | spare bytes to 256 |
+| `s` bytes from 256 | the **attachment data** |
+
+Attachment `k` is the `k`-th entry. An entry of another schema is kept as it is
+([§5.3](#53-elements)) and not followed, as libCZI does.
+
+Writers use these ContentFileTypes:
+
+| ContentFileType | content |
+|---|---|
+| `CZTIMS` | TimeStamps |
+| `CZEVL` | EventList |
+| `CZFOC` | FocusPositions |
+| `CZLUT` | LookupTables |
+| `JPG` | Thumbnail |
+| `CZI`, `ZISRAW` | an embedded CZI file: Label, SlidePreview, Prescan |
+| `Zip-Comp`, `ZIP` | gzip: Profile |
+| `CZEXP`, `CZHWS`, `CZMVM`, `CZFBMX` | XML |
+| `PNG`, `CZPML`, `BINARY` | |
 
 ### 2.7 The metadata XML
 
@@ -200,25 +323,14 @@ an **integer** is a text of one or more digits, at most 2^53 − 1.
 
 The values read, each absent when its element or attribute is:
 
-- `PX`, `PY`, `PZ` (meters): the text of `Value`, the first child of the
-  first child `Distance` of `Metadata/Scaling/Items` whose attribute `Id` is
-  `X`, `Y`, `Z`; a decimal that is positive, else absent.
-- `INC` (seconds): the text of
-  `Metadata/Information/Image/Dimensions/T/Positions/Interval/Increment`, a
-  positive decimal.
-- `BITS`: the text of `Metadata/Information/Image/ComponentBitCount`, an
-  integer.
-- For channel `k`: the info channel `Metadata/Information/Image/Dimensions/Channels/Channel[k]`
-  (its attribute `Name`, the text of its child `Color`, the integer text of
-  its child `ComponentBitCount`) and the display channel
-  `Metadata/DisplaySetting/Channels/Channel[k]` (its `Name`, the text of its
-  child `Color`, and the decimal texts of its children `Low` and `High`, the
-  display's black and white points as fractions of the pixel type's range,
-  as libCZI reads them).
-- For scene `s`: the attribute `Name` of the first child `Scene` of
-  `Metadata/Information/Image/Dimensions/S/Scenes` whose attribute `Index`
-  is an integer equal to `s` (absent when that `Scene` has no `Name`, even
-  if a later one has).
+| value | unit | read from | as |
+|---|---|---|---|
+| `PX`, `PY`, `PZ` | meters | the text of `Value`, the first child of the first child `Distance` of `Metadata/Scaling/Items` whose attribute `Id` is `X`, `Y`, `Z` | a decimal that is positive, else absent |
+| `INC` | seconds | the text of `Metadata/Information/Image/Dimensions/T/Positions/Interval/Increment` | a positive decimal |
+| `BITS` | | the text of `Metadata/Information/Image/ComponentBitCount` | an integer |
+| channel `k`'s info channel | | `Metadata/Information/Image/Dimensions/Channels/Channel[k]`: its attribute `Name`, the text of its child `Color`, and its child `ComponentBitCount` | `ComponentBitCount` an integer text |
+| channel `k`'s display channel | | `Metadata/DisplaySetting/Channels/Channel[k]`: its `Name`, the text of its child `Color`, and its children `Low` and `High` | `Low` and `High` decimal texts: the display's black and white points as fractions of the pixel type's range, as libCZI reads them |
+| scene `s`'s name | | the attribute `Name` of the first child `Scene` of `Metadata/Information/Image/Dimensions/S/Scenes` whose attribute `Index` is an integer equal to `s` | absent when that `Scene` has no `Name`, even if a later one has |
 
 A **color** is a text `#AARRGGBB` or `#RRGGBB` of hexadecimal digits (either
 case); its value is `RRGGBB` in uppercase.
@@ -259,39 +371,26 @@ Compression with a pixel type its row does not list, rejects the input.
 
 Each codec's JSON form, exactly:
 
-- `bytes` is `{"name": "bytes", "configuration": {"endian": "little"}}`,
-  and `{"name": "bytes"}` (no configuration) for the 1-byte types `uint8`
-  ([conventions §3](../conventions.md#3-arrays)).
-- `zstd` is `{"name": "zstd", "configuration": {"level": 0, "checksum": false}}`
-  (the zarr-extensions `zstd` codec; level 0 is the encoder's default and
-  does not affect decoding).
-- `imagecodecs_jpeg` is that of [conventions §3](../conventions.md#3-arrays): one complete JPEG stream.
-- `imagecodecs_jpegxr` is `{"name": "imagecodecs_jpegxr"}`, with no
-  configuration: an array-to-bytes codec, each chunk one JPEG XR file
-  (ITU-T T.832 with its TIFF-like container, as the subblock holds it),
-  decoding as `imagecodecs.jpegxr_decode` (jxrlib) does to `[y, x]`, or to
-  `[y, x, c]` with the samples in the order jxrlib gives them (R, G, B, and
-  A for `Bgra32`), after which `transpose` applies. Its encoded form is
-  jxrlib's, so it needs nothing beyond the chunk's shape and data type. It
-  is not in the zarr-extensions registry; refkv's Python reader registers it
-  (`refkv.zarr.codecs`), and its registration and a Neuroglancer decoder are a
-  follow-up ([design/plans/czi.md §7](../../design/plans/czi.md#7-decisions-on-the-open-questions)).
-- `numcodecs.shuffle` is
-  `{"name": "numcodecs.shuffle", "configuration": {"elementsize": 2}}`, a
-  bytes-to-bytes codec: numcodecs' `Shuffle` with element size 2, as
-  zarr-python 3 names it (`zarr.codecs.numcodecs.Shuffle`). Its encoded
-  bytes are byte 0 of every 2-byte element, then byte 1 of every element.
-  A Zstd1 subblock with hi-lo packing holds exactly this: its decompressed
-  bytes are the low bytes of all its 16-bit values, then their high bytes
-  (libCZI's `LoHiBytePackStrided`), over the whole subblock, color samples
-  included. So the chain of such a subblock is `bytes`, `numcodecs.shuffle`,
-  `zstd`: the zstd frame decompresses to shuffled bytes, which unshuffle to
-  the little-endian pixels. (A registry `shuffle` codec would replace the
-  `numcodecs.` name; that is a follow-up, [design/plans/czi.md §7](../../design/plans/czi.md#7-decisions-on-the-open-questions).)
-- **Sample order.** The `c` samples of a pixel are in the order the codec
-  gives them: as stored (B, G, R, A) for uncompressed and Zstd data, and R,
-  G, B (A) for JPEG and JPEG XR, which decode to RGB. Transpose reorders axes,
-  not indices, so the order is kept, and named in `omero` ([§4.3](#43-image-arrays)).
+| codec | JSON form | what it is |
+|---|---|---|
+| `bytes` | `{"name": "bytes", "configuration": {"endian": "little"}}`, and `{"name": "bytes"}` (no configuration) for the 1-byte types `uint8` ([conventions §3](../conventions.md#3-arrays)) | |
+| `zstd` | `{"name": "zstd", "configuration": {"level": 0, "checksum": false}}` | the zarr-extensions `zstd` codec; level 0 is the encoder's default and does not affect decoding |
+| `imagecodecs_jpeg` | that of [conventions §3](../conventions.md#3-arrays) | one complete JPEG stream |
+| `imagecodecs_jpegxr` | `{"name": "imagecodecs_jpegxr"}`, with no configuration | an array-to-bytes codec, each chunk one JPEG XR file (ITU-T T.832 with its TIFF-like container, as the subblock holds it), decoding as `imagecodecs.jpegxr_decode` (jxrlib) does to `[y, x]`, or to `[y, x, c]` with the samples in the order jxrlib gives them (R, G, B, and A for `Bgra32`), after which `transpose` applies. Its encoded form is jxrlib's, so it needs nothing beyond the chunk's shape and data type. It is not in the zarr-extensions registry; imagecodecs-zarr provides it to zarr-python (refkv's `images` extra installs it), and its registration and a Neuroglancer decoder are a follow-up ([design/plans/czi.md §7](../../design/plans/czi.md#7-decisions-on-the-open-questions)) |
+| `numcodecs.shuffle` | `{"name": "numcodecs.shuffle", "configuration": {"elementsize": 2}}` | a bytes-to-bytes codec: numcodecs' `Shuffle` with element size 2, as zarr-python 3 names it (`zarr.codecs.numcodecs.Shuffle`). Its encoded bytes are byte 0 of every 2-byte element, then byte 1 of every element |
+
+A Zstd1 subblock with hi-lo packing holds exactly what `numcodecs.shuffle` encodes: its
+decompressed bytes are the low bytes of all its 16-bit values, then their high bytes
+(libCZI's `LoHiBytePackStrided`), over the whole subblock, color samples included. So the
+chain of such a subblock is `bytes`, `numcodecs.shuffle`, `zstd`: the zstd frame decompresses
+to shuffled bytes, which unshuffle to the little-endian pixels. (A registry `shuffle` codec
+would replace the `numcodecs.` name; that is a follow-up,
+[design/plans/czi.md §7](../../design/plans/czi.md#7-decisions-on-the-open-questions).)
+
+**Sample order.** The `c` samples of a pixel are in the order the codec gives them: as
+stored (B, G, R, A) for uncompressed and Zstd data, and R, G, B (A) for JPEG and JPEG XR,
+which decode to RGB. Transpose reorders axes, not indices, so the order is kept, and named in
+`omero` ([§4.3](#43-image-arrays)).
 
 A Zstd1 subblock's data starts with a **Zstd1 header**: the byte 1 (header
 length 1, no packing), or the bytes 3, 1, `f` (header length 3, hi-lo
@@ -301,20 +400,15 @@ subblock's data is the zstd frame.
 ### 3.2 Conforming and unplaced subblocks
 
 A subblock's **coded size** is the width and height its data holds, and its
-**codec form** is its PixelType, Compression and, for Zstd1, its hi-lo flag:
+**codec form** is its PixelType, Compression and, for Zstd1, its hi-lo flag. Its coded size,
+by its Compression (`W`, `H` its stored width and height):
 
-- uncompressed: its stored size, when `n ≥ W × H × q` (`W`, `H` its stored
-  width and height); the first `W × H × q` bytes are its pixels and the rest,
-  if any, its **trailing bytes**;
-- Zstd0 and Zstd1: its stored size, when its Zstd1 header (for Zstd1) is one
-  of those of [§3.1](#31-pixel-types-and-codecs), hi-lo packing is only on Gray16 and Bgr48, and its zstd
-  frame header declares a content size of `W × H × q` bytes and no
-  dictionary ([the profile §7.4](#74-codec-headers));
-- JpgFile: the width and height of its JPEG frame header (SOF0, SOF1 or
-  SOF2, 8-bit samples, `p` components);
-- JpgXr: the `ImageWidth` and `ImageHeight` of its JPEG XR container, when
-  its `PixelFormat` is one this subblock's pixel type admits (the profile
-  [§7.4](#74-codec-headers)).
+| Compression | coded size | when |
+|---|---|---|
+| uncompressed | its stored size | `n ≥ W × H × q`; the first `W × H × q` bytes are its pixels and the rest, if any, its **trailing bytes** |
+| Zstd0, Zstd1 | its stored size | its Zstd1 header (for Zstd1) is one of those of [§3.1](#31-pixel-types-and-codecs), hi-lo packing is only on Gray16 and Bgr48, and its zstd frame header declares a content size of `W × H × q` bytes and no dictionary ([the profile §7.4](#74-codec-headers)) |
+| JpgFile | the width and height of its JPEG frame header | SOF0, SOF1 or SOF2, 8-bit samples, `p` components |
+| JpgXr | the `ImageWidth` and `ImageHeight` of its JPEG XR container | its `PixelFormat` is one this subblock's pixel type admits (the profile [§7.4](#74-codec-headers)) |
 
 A subblock is **unplaced** when its copy of its entry does not agree ([§2.4](#24-subblocks)),
 or when it has no coded size by these rules (its data is too short, or its
@@ -416,26 +510,48 @@ around an irregular scan region, gives tiles.)
 
 ### 4.1 The hierarchy
 
-- `zarr.json`: the root group, declaring the convention ([§1](#1-declaration)). When some
-  series has an image, its attributes have
-  `"ome": {"version": "0.5", "bioformats2raw.layout": 3}`.
-- `OME/zarr.json`, when some series has an image: a group with
-  `{"ome": {"version": "0.5", "series": ["0", "1", ...]}}`, one per image.
-- `<k>/zarr.json` and its arrays `<k>/<d>`: image `k` ([§4.2](#42-images), [§4.3](#43-image-arrays)), the
-  images numbered from 0 in series order.
-- `tiles/zarr.json`, when there is a tile: a group with empty attributes,
-  holding the tile arrays `tiles/<n>`, numbered from 0 ([§4.4](#44-tiles)).
-- `refkv_source`: the source metadata ([§5](#5-source-metadata)).
+The nodes, whose entries are listed in [Layout](#layout):
+
+| node | when | what |
+|---|---|---|
+| `zarr.json` | always | the root group, declaring the convention ([§1](#1-declaration)). When some series has an image, its attributes have `"ome": {"version": "0.5", "bioformats2raw.layout": 3}` |
+| `OME/zarr.json` | some series has an image | a group with `{"ome": {"version": "0.5", "series": ["0", "1", ...]}}`, one per image |
+| `<k>/zarr.json` and its arrays `<k>/<d>` | for each image | image `k` ([§4.2](#42-images), [§4.3](#43-image-arrays)), the images numbered from 0 in series order |
+| `tiles/zarr.json` | there is a tile | a group with empty attributes, holding the tile arrays `tiles/<n>`, numbered from 0 ([§4.4](#44-tiles)) |
+| `refkv_source` | always | the source metadata ([§5](#5-source-metadata)) |
+
+A file in which no series has an image (no subblock is placed, or every placed subblock is a
+tile) is accepted: its output is the root, without `ome`, the tiles if any, and
+`refkv_source`.
 
 ### 4.2 Images
 
 Image `k` is an image ([conventions §4](../conventions.md#4-images)) whose
 datasets are its series' levels in the order of [§3.5](#35-regular-levels), at paths
-`"0"`, `"1"`, .... Its source metadata is `{"dimensions": {D: Start, ...}}`,
-the Start of each of `S`, `B`, `H`, `I`, `R`, `V` its series key has, in
-that order; when the key has none, it has no source metadata. Its
-`name` is the scene name of its `S` Start ([§2.7](#27-the-metadata-xml)) when the series has `S`
-and the name is present, not empty and at most 256 bytes in UTF-8.
+`"0"`, `"1"`, .... Its `name` is the scene name of its `S` Start
+([§2.7](#27-the-metadata-xml)) when the series has `S` and the name is present, not empty and
+at most 256 bytes in UTF-8; otherwise its multiscale has no `name`.
+
+Its source metadata is a `CziImage` when its series key has a dimension; when the key has
+none, it has no source metadata (and does not declare the convention, [§1](#1-declaration)):
+
+<a id="type-cziimage"></a>**`CziImage`**, an image group's `S`:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `dimensions` | [`CziDimensions`](#type-czidimensions) | required | the dimensions of the series key |
+
+<a id="type-czidimensions"></a>**`CziDimensions`**: the Start of each of `S`, `B`, `H`, `I`,
+`R`, `V` the series key has, in that order (at least one):
+
+| member | type | presence | value |
+|---|---|---|---|
+| `S` | integer | optional | the scene's Start, when the key has `S` |
+| `B` | integer | optional | the block's Start, when the key has `B` |
+| `H` | integer | optional | the phase's Start, when the key has `H` |
+| `I` | integer | optional | the illumination's Start, when the key has `I` |
+| `R` | integer | optional | the rotation's Start, when the key has `R` |
+| `V` | integer | optional | the view's Start, when the key has `V` |
 
 **Axes.** Over the subblocks of all the image's levels, let `lo_t`, `hi_t`
 be the least and largest `t` of their planes, and likewise for `c` and `z`.
@@ -449,82 +565,126 @@ lacks some planes has those chunks absent.)
 
 The array of a level, at `<k>/<d>` ([conventions §3](../conventions.md#3-arrays)):
 
-- **Shape:** `hi_t − lo_t + 1`, `(hi_c − lo_c + 1) × p`, `hi_z − lo_z + 1`
-  (each for its axis), then the stored extent `(r − 1) × H + H'` and
-  `(m − 1) × W + W'`.
-- **Data type** and **codecs:** [§3.1](#31-pixel-types-and-codecs), with `transpose` first when `p > 1`;
-  `fill_value` 0 (`[0.0, 0.0]` for `complex64`).
-- **Chunk grid:** the chunk lengths are 1 for `t` and `z`, `p` for `c`;
-  for `y` the integer `H` when `H' = H`, else the list `[[H, r − 1], H']`
-  (`r − 1` chunks of `H` rows, then one of `H'`), or the integer `b` with
-  row bands (below); for `x` the integer `W` when `W' = W`, else
-  `[[W, m − 1], W']`. (`r = 1` gives `H' = H`, and `m = 1` gives `W' = W`,
-  since `H` and `W` are the largest stored sizes, so the lists always have
-  their run.) When every length is an integer, the chunk grid is the
-  regular grid of those lengths, `{"name": "regular", "configuration":
-  {"chunk_shape": [...]}}`. Otherwise the level is **clipped** and its chunk
-  grid is the zarr-extensions `rectilinear` grid
-  ([chunk-grids/rectilinear](https://github.com/zarr-developers/zarr-extensions/tree/main/chunk-grids/rectilinear)),
-  exactly
-  `{"name": "rectilinear", "configuration": {"kind": "inline", "chunk_shapes": [L_0, ..., L_{d−1}]}}`,
-  `L_j` the length of axis `j`, in array order: an integer for a regular
-  axis, and for a clipped one the list whose run-length element `[H, r − 1]`
-  stands for `r − 1` chunks of `H`. The chunk lengths of a clipped axis sum
-  to its shape exactly. For example, 16 columns of 1024 pixels whose last
-  is 959 wide, and 10 full rows, give `"chunk_shapes": [1024, [[1024, 15], 959]]`
-  for `[y, x]`. zarr-python 3.4 reads such an array (as `read_chunk_sizes`
-  shows) once `zarr.config.set({"array.rectilinear_chunks": True})` is set;
-  without it, it refuses the array's metadata.
-- **Row bands.** When the codec form is uncompressed and `W × H × q`
-  exceeds 2^24 bytes, chunks are bands of `b` rows, `b` the largest divisor
-  of `gcd(H, H')` with `b × W × q ≤ 2^24` (at least 1). The `y` chunk length
-  is then `b` (a regular grid of `b`, or in a rectilinear grid the integer
-  `b`), and a tile of row `j` is the chunks `j × H / b` to
-  `j × H / b + h / b − 1`, `h` being its stored height.
-- **Scale** of a level of factor `F`: `x` is `PX × F` and `y` is `PY × F`
-  in `micrometer`, the meters converted by [conventions §5](../conventions.md#5-units)
-  (`v × (1 / 1e-6)`), or `F` without a unit when `PX` (`PY`) is absent; `z`
-  is `PZ` in `micrometer`, or 1 without a unit; `t` is `INC` in `second`,
-  or 1 without a unit; `c` is 1. No time step is derived from a TimeStamps
-  attachment when `INC` is absent: its times are kept ([§5.3](#53-elements)), and need not
-  be evenly spaced.
-- **Translation** of every level: `x` is `(x0 + (F − 1) / 2) × PX'` and `y`
-  is `(y0 + (F − 1) / 2) × PY'`, where `PX'` is `PX` in micrometers or 1
-  without it (computed in that order: `F − 1`, the division, the sum, the
-  product); 0 for `t`, `c`, `z`. Translations are in CZI's **global pixel
-  frame**, scaled by the pixel size: subblock positions are pixels of one
-  frame for the whole file (X Start may be negative), so images of
-  different scenes, levels and tiles keep their places relative to each
-  other. The stage frame (a scene's `CenterPosition`, a subblock's
-  `StageXPosition`) is not used. The `(F − 1) / 2` puts a minified pixel's
-  center at the center of the full-resolution pixels it covers.
-- **omero:** when the image has at most 64 channel indexes, its `M` has
-  `"omero": {"channels": [...]}`, one per index: for channel `c` (its absolute
-  Start, not `c − lo_c`) and sample `s`:
-  - **label:** with `p = 1`, the info channel `c`'s `Name` if present, not
-    empty and at most 256 bytes, else the display channel's, else `C<c>`;
-    with `p > 1`, that label followed by a space and the sample's letter in
-    the sample order of [§3.1](#31-pixel-types-and-codecs) (`B`, `G`, `R`, `A` or `R`, `G`, `B`, `A`);
-  - **color:** with `p = 1`, the display channel's `Color`, else the info
-    channel's, else `FFFFFF`; with `p > 1`, `0000FF` for B, `00FF00` for G,
-    `FF0000` for R and `FFFFFF` for A;
-  - `"active": true`, and for `uint8` and `uint16` the window
-    `{"min": 0, "max": V, "start": S, "end": E}`, `V = 2^b − 1`, `b` the info
-    channel's `ComponentBitCount` when it is from 1 to the type's bits, else
-    `BITS` when it is, else the type's bits. `S` is the display channel's
-    `Low` times `T`, and `E` its `High` times `T` (each a product in
-    binary64), `T = 2^bits − 1` with the type's bits (255 or 65535: libCZI
-    scales the black and white points by the type's range, not by `b`);
-    without `Low`, `S` is 0, and without `High`, `E` is `V`. With `p > 1`,
-    every sample of channel `c` has channel `c`'s window. No window for
-    other types.
-- **Chunks:** subblock `i` of the level, of plane `(t, c, z)`, column `i'`
-  and row `j`, is the chunk at `t − lo_t`, `c − lo_c`, `z − lo_z` (each for
-  its axis), `j`, `i'` (or its bands). The chunk holds the subblock's pixels
-  as its codec form codes them: the first `W × H × q` bytes of its data for
-  uncompressed (or a band's rows of them), the zstd frame after its Zstd1
-  header, the JPEG stream, or the JPEG XR file, each being its whole data
-  otherwise. Cells without a subblock have no chunk.
+<a id="type-czilevelarray"></a>**`CziLevelArray`**, a level's `zarr.json`: an
+[`ArrayDocument`](../conventions.md#type-arraydocument) with these members:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `shape` | array of integer | required | `hi_t − lo_t + 1`, `(hi_c − lo_c + 1) × p`, `hi_z − lo_z + 1` (each for its axis), then the stored extent `(r − 1) × H + H'` and `(m − 1) × W + W'` |
+| `data_type` | string | required | the image's pixel type's ([§3.1](#31-pixel-types-and-codecs)) |
+| `chunk_grid` | object or [`CziRectilinearGrid`](#type-czirectilineargrid) | required | from the chunk lengths (**Chunk grid**, below): when every length is an integer, the regular grid of those lengths, `{"name": "regular", "configuration": {"chunk_shape": [...]}}`; otherwise (the level is **clipped**, or has short row bands) its chunk grid is a `CziRectilinearGrid` |
+| `fill_value` | number or array of number | required | 0 (`[0.0, 0.0]` for `complex64`) |
+| `codecs` | array of object | required | [§3.1](#31-pixel-types-and-codecs)'s, of the level's codec form, with `transpose` ([conventions §3](../conventions.md#3-arrays)) first when `p > 1` |
+| `dimension_names` | array of string | required | the image's axes ([§4.2](#42-images)) |
+| `attributes` | object | required | `{}` |
+
+**Chunk grid.** The chunk lengths are 1 for `t` and `z`, `p` for `c`;
+for `y` the integer `H` when `H' = H`, else the list `[[H, r − 1], H']`
+(`r − 1` chunks of `H` rows, then one of `H'`), or with row bands (below)
+the integer `b` of divisor bands or the list of short bands; for `x` the
+integer `W` when `W' = W`, else `[[W, m − 1], W']`. (`r = 1` gives
+`H' = H`, and `m = 1` gives `W' = W`, since `H` and `W` are the largest
+stored sizes, so the lists of a clipped axis always have their run.) The
+chunk grid of a level with a list among its lengths, clipped or of short
+bands, is the zarr-extensions `rectilinear` grid
+([chunk-grids/rectilinear](https://github.com/zarr-developers/zarr-extensions/tree/main/chunk-grids/rectilinear)),
+exactly
+`{"name": "rectilinear", "configuration": {"kind": "inline", "chunk_shapes": [L_0, ..., L_{d−1}]}}`:
+
+<a id="type-czirectilineargrid"></a>**`CziRectilinearGrid`**, the chunk grid of a clipped level, or of a level or
+tile array ([§4.4](#44-tiles)) of short row bands:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `name` | string | required | `"rectilinear"` |
+| `configuration` | [`CziRectilinearConfiguration`](#type-czirectilinearconfiguration) | required | the chunk lengths |
+
+<a id="type-czirectilinearconfiguration"></a>**`CziRectilinearConfiguration`**:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `kind` | string | required | `"inline"` |
+| `chunk_shapes` | array of (integer or array of (integer or array of integer)) | required | `[L_0, ..., L_{d−1}]`, `L_j` the length of axis `j`, in array order: an integer for a regular axis, and otherwise the list of its chunk lengths, in which an element `[v, n]` stands for `n` chunks of `v` and an integer for one chunk: for a clipped axis `[[H, r − 1], H']` (or `[[W, m − 1], W']`), and for `y` with short row bands the list of **Row bands** (below). The chunk lengths of a listed axis sum to its shape exactly |
+
+For example, 16 columns of 1024 pixels whose last
+is 959 wide, and 10 full rows, give `"chunk_shapes": [1024, [[1024, 15], 959]]`
+for `[y, x]`. zarr-python 3.4 reads such an array (as `read_chunk_sizes`
+shows) once `zarr.config.set({"array.rectilinear_chunks": True})` is set;
+without it, it refuses the array's metadata.
+
+**Row bands.** When the codec form is uncompressed and `W × H × q`
+exceeds 2^24 bytes, chunks are bands of `b` rows. Let `b'` be the largest
+divisor of `gcd(H, H')` with `b' × W × q ≤ 2^24` (at least 1):
+
+- When `b' × W × q` is at least 2^20 bytes, the bands are **divisor
+  bands** of `b = b'` rows. The `y` chunk length is then `b` (a regular
+  grid of `b`, or in a rectilinear grid the integer `b`), and a tile of row
+  `j` is the chunks `j × H / b` to `j × H / b + h / b − 1`, `h` being its
+  stored height.
+- Otherwise (as when `H` is prime, whose divisor bands would be one row
+  each) the bands are **short bands** of `b = max(1, ⌊2^24 / (W × q)⌋)`
+  rows, the most within 2^24 bytes, and the last band of each tile row is
+  shorter: a tile row of height `h` (`H`, or `H'` for row `r − 1`) is
+  `⌊h / b⌋` bands of `b` rows, then one of `h mod b` rows when `b` does
+  not divide `h`. The `y` chunk length is the list of these bands'
+  heights, tile row by tile row, in which consecutive equal heights are one
+  element `[v, n]` (`n ≥ 2`) and a height alone is its integer, so the
+  level's chunk grid is a [`CziRectilinearGrid`](#type-czirectilineargrid),
+  whether or not it is clipped. A tile of row `j` is the chunks
+  `j × ⌈H / b⌉` to `j × ⌈H / b⌉ + ⌈h / b⌉ − 1`, its band `k` rows `k × b`
+  to `min(k × b + b, h) − 1`. For example, uncompressed tiles 4096 pixels
+  wide and 4099 high of `q = 4`, in 3 full rows, have `b' = 1` (4099 is
+  prime) and `b = 1024`, and the `y` length
+  `[[1024, 4], 3, [1024, 4], 3, [1024, 4], 3]`.
+
+**Scale and translation.** Every level has both; those of a level of factor `F` and origin
+`(x0, y0)` ([§3.5](#35-regular-levels)) are:
+
+| axis | scale | unit | translation |
+|---|---|---|---|
+| `x` | `PX × F`, the meters converted by [conventions §5](../conventions.md#5-units) (`v × (1 / 1e-6)`); or `F` when `PX` is absent | `micrometer`; none when `PX` is absent | `(x0 + (F − 1) / 2) × PX'` |
+| `y` | `PY × F`, converted likewise; or `F` when `PY` is absent | `micrometer`; none when `PY` is absent | `(y0 + (F − 1) / 2) × PY'` |
+| `z` | `PZ`, converted likewise; or 1 | `micrometer`; none without `PZ` | 0 |
+| `t` | `INC`; or 1 | `second`; none without `INC` | 0 |
+| `c` | 1 | none | 0 |
+
+`PX'` is `PX` in micrometers or 1 without it, and `PY'` likewise (computed in that order:
+`F − 1`, the division, the sum, the product). No time step is derived from a TimeStamps
+attachment when `INC` is absent: its times are kept ([§5.3](#53-elements)), and need not
+be evenly spaced. Translations are in CZI's **global pixel
+frame**, scaled by the pixel size: subblock positions are pixels of one
+frame for the whole file (X Start may be negative), so images of
+different scenes, levels and tiles keep their places relative to each
+other. The stage frame (a scene's `CenterPosition`, a subblock's
+`StageXPosition`) is not used. The `(F − 1) / 2` puts a minified pixel's
+center at the center of the full-resolution pixels it covers.
+
+**omero.** When the image has at most 64 channel indexes, its `M` has
+`"omero": {"channels": [...]}`, one [`OmeroChannel`](../conventions.md#type-omerochannel) per
+index: for channel `c` (its absolute Start, not `c − lo_c`) and sample `s`:
+
+| member | with `p = 1` | with `p > 1` |
+|---|---|---|
+| `label` | the info channel `c`'s `Name` if present, not empty and at most 256 bytes, else the display channel's, else `C<c>` | that label followed by a space and the sample's letter in the sample order of [§3.1](#31-pixel-types-and-codecs) (`B`, `G`, `R`, `A` or `R`, `G`, `B`, `A`) |
+| `color` | the display channel's `Color`, else the info channel's, else `FFFFFF` | `0000FF` for B, `00FF00` for G, `FF0000` for R and `FFFFFF` for A |
+| `active` | `true` | `true` |
+| `window` | for `uint8` and `uint16`, `{"min": 0, "max": V, "start": S, "end": E}` (below); no window for other types | every sample of channel `c` has channel `c`'s window |
+
+In the window, `V = 2^b − 1`, `b` the info
+channel's `ComponentBitCount` when it is from 1 to the type's bits, else
+`BITS` when it is, else the type's bits. `S` is the display channel's
+`Low` times `T`, and `E` its `High` times `T` (each a product in
+binary64), `T = 2^bits − 1` with the type's bits (255 or 65535: libCZI
+scales the black and white points by the type's range, not by `b`);
+without `Low`, `S` is 0, and without `High`, `E` is `V`.
+
+**Chunks:** subblock `i` of the level, of plane `(t, c, z)`, column `i'`
+and row `j`, is the chunk at `t − lo_t`, `c − lo_c`, `z − lo_z` (each for
+its axis), `j`, `i'` (or its bands), a [`CziChunk`](#type-czichunk). The chunk holds the subblock's pixels
+as its codec form codes them: the first `W × H × q` bytes of its data for
+uncompressed (or a band's rows of them), the zstd frame after its Zstd1
+header, the JPEG stream, or the JPEG XR file, each being its whole data
+otherwise. Cells without a subblock have no chunk.
 
 ### 4.4 Tiles
 
@@ -549,36 +709,60 @@ Each copy of each position is a **tile array** `tiles/<n>`
 ([conventions §3](../conventions.md#3-arrays)), numbered from 0 in increasing
 order of the index of its first tile:
 
-- **Axes, shape, chunks:** as an image's level ([§4.2](#42-images), [§4.3](#43-image-arrays)) over the
-  array's own tiles: `lo` and `hi` of `t`, `c` and `z` over its tiles'
-  planes give its axes and the extents of `t`, `c` (times `p`) and `z`;
-  then its coded height and width. The chunk grid is regular: 1 for `t`
-  and `z`, `p` for `c`, the coded height (or, for a large uncompressed tile,
-  the row band `b` of [§4.3](#43-image-arrays) with `H = H'` the coded height) and the coded
-  width. Data type, codecs and `fill_value` are those of an image of its
-  pixel type and codec form ([§4.3](#43-image-arrays)), `transpose` first when `p > 1`.
-- **Chunks:** the tile of plane `(t, c, z)` is the chunk at `t − lo_t`,
-  `c − lo_c`, `z − lo_z` (each for its axis), `0`, `0` (or its bands),
-  holding its pixels as [§4.3](#43-image-arrays) says. Planes without a tile have no chunk.
-- **Source metadata:** where the array lies, and which planes it starts at:
+<a id="type-czitilearray"></a>**`CziTileArray`**, a tile array's `zarr.json`: an
+[`ArrayDocument`](../conventions.md#type-arraydocument) with these members, its axes, shape and
+chunks as an image's level's ([§4.2](#42-images), [§4.3](#43-image-arrays)) over the array's
+own tiles:
 
-  ```json
-  {"dimensions": {"S": 0}, "x": -104227, "y": 20275, "size": [1504, 2048],
-   "stored_size": [1504, 2048], "planes": {"t": 0, "c": 0, "z": 0}, "copy": 0}
-  ```
+| member | type | presence | value |
+|---|---|---|---|
+| `shape` | array of integer | required | `lo` and `hi` of `t`, `c` and `z` over its tiles' planes give the extents of `t`, `c` (times `p`) and `z`, each for its axis; then its coded height and width |
+| `data_type` | string | required | that of an image of its pixel type ([§4.3](#43-image-arrays)) |
+| `chunk_grid` | object or [`CziRectilinearGrid`](#type-czirectilineargrid) | required | 1 for `t` and `z`, `p` for `c`, the coded height and the coded width, a regular grid; or, for a large uncompressed tile, the row bands of [§4.3](#43-image-arrays) in place of the coded height, with `W` the coded width, `H = H'` the coded height and `r = 1`: divisor bands give the regular grid of `b`, and short bands a `CziRectilinearGrid` whose `y` length is the list of the tile's bands (`[[b, n], H mod b]`, `n = ⌊H / b⌋`, or `[b, H mod b]` when `n` is 1) |
+| `fill_value` | number or array of number | required | that of an image of its pixel type ([§4.3](#43-image-arrays)) |
+| `codecs` | array of object | required | those of an image of its pixel type and codec form ([§4.3](#43-image-arrays)), `transpose` first when `p > 1` |
+| `dimension_names` | array of string | required | its axes: `lo` and `hi` of `t`, `c` and `z` over its tiles' planes give them, as an image's ([§4.2](#42-images)) |
+| `attributes` | object | required | a [`Declaration`](../conventions.md#type-declaration) whose source metadata is a [`CziTile`](#type-czitile) |
 
-  `dimensions` as an image's ([§4.2](#42-images)), absent when the series key has none;
-  `x` and `y` the X and Y Start; `size` the logical width and height (the
-  region of the full-resolution frame it covers); `stored_size` the stored
-  width and height; `planes` the `T`, `C` and `Z` Start of index 0 along
-  each of `t`, `c` and `z` (for an axis the array lacks, the one plane all
-  its tiles have); `copy` its copy `k`.
+**Chunks:** the tile of plane `(t, c, z)` is the chunk at `t − lo_t`,
+`c − lo_c`, `z − lo_z` (each for its axis), `0`, `0` (or its bands), a
+[`CziChunk`](#type-czichunk), holding its pixels as [§4.3](#43-image-arrays) says. Planes
+without a tile have no chunk.
 
-A tile array's document has these members only, so its size is bounded
+**Source metadata:** where the array lies, and which planes it starts at; for example
+
+```json
+{"dimensions": {"S": 0}, "x": -104227, "y": 20275, "size": [1504, 2048],
+ "stored_size": [1504, 2048], "planes": {"t": 0, "c": 0, "z": 0}, "copy": 0}
+```
+
+<a id="type-czitile"></a>**`CziTile`**, a tile array's `S`:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `dimensions` | [`CziDimensions`](#type-czidimensions) | optional | as an image's ([§4.2](#42-images)), absent when the series key has none |
+| `x` | integer | required | the X Start |
+| `y` | integer | required | the Y Start |
+| `size` | array of integer | required | the logical width and height (the region of the full-resolution frame it covers), each at least 1 |
+| `stored_size` | array of integer | required | the stored width and height, each at least 1 |
+| `planes` | [`CziPlanes`](#type-cziplanes) | required | the planes at its index 0 |
+| `copy` | integer | required | its copy `k`, at least 0 |
+
+<a id="type-cziplanes"></a>**`CziPlanes`**: the `T`, `C` and `Z` Start of index 0 along each
+of `t`, `c` and `z` (for an axis the array lacks, the one plane all its tiles have):
+
+| member | type | presence | value |
+|---|---|---|---|
+| `t` | integer | required | the `T` Start of index 0 along `t` |
+| `c` | integer | required | the `C` Start of index 0 along `c` |
+| `z` | integer | required | the `Z` Start of index 0 along `z` |
+
+A tile array's document has these members only ([`CziTileArray`](#type-czitilearray),
+[`CziTile`](#type-czitile)), so its size is bounded
 whatever the number of planes; the number of tile arrays is at most the
 number of subblocks. Which subblock each chunk holds follows from the
 directory entries ([§5.3](#53-elements)): subblock `i`, of series key, position and plane
-as its columns give, is the chunk of its plane in the array of its position
+as its entry's dimension entries give, is the chunk of its plane in the array of its position
 and copy. Tiles carry no OME-NGFF metadata: their place in an image's frame
 is `x`, `y`, `size`, and their pixel size the image's scaled by `size` over
 the coded size. (With 1000 positions of 4 channels and 50 planes, a tile
@@ -588,10 +772,18 @@ scan has 1000 tile arrays, not 200000.)
 
 ### 5.1 The root
 
-The root's `S` is the file header:
-`{"version": [Major, Minor], "primary_file_guid": G, "file_guid": G,
-"file_part": 0, "update_pending": UpdatePending}`, GUIDs as [§2.2](#22-the-file-header) writes
-them. Everything else is on `refkv_source`.
+<a id="type-cziroot"></a>**`CziRoot`**, the root's `S`: the file header
+([§2.2](#22-the-file-header)):
+
+| member | type | presence | value |
+|---|---|---|---|
+| `version` | array of integer | required | `[Major, Minor]` |
+| `primary_file_guid` | string | required | PrimaryFileGuid, as [§2.2](#22-the-file-header) writes a GUID |
+| `file_guid` | string | required | FileGuid, likewise |
+| `file_part` | integer | required | `0` |
+| `update_pending` | integer | required | UpdatePending |
+
+Everything else is on `refkv_source`.
 
 ### 5.2 The IR mirror
 
@@ -618,7 +810,7 @@ file), and holds `header`, a value of type
 | `directory/entry_count` | value | `<i4` | `N` |
 | `directory/entries/<i>` | value | record | entry `i`'s 32 bytes (schema, pixel type, FilePosition, FilePart, compression, pyramid type, spare, dimension count) |
 | `directory/dimensions/<i>` | value | `{dimension:ascii[4],start:<i4,size:<i4,start_coordinate:<f4,stored_size:<i4}[d]` | entry `i`'s dimension entries |
-| `subblocks/<i>` | struct | | the `ZISRAWSUBBLK` segment entry `i` names; an alias when an earlier entry names the same segment |
+| `subblocks/<i>` | struct | | the `ZISRAWSUBBLOCK` segment entry `i` names; an alias when an earlier entry names the same segment |
 | `subblocks/<i>/sizes` | value | `{metadata_size:<i4,attachment_size:<i4,data_size:<i8}` | its sizes |
 | `subblocks/<i>/entry`, `subblocks/<i>/dimensions` | value | as the directory's | its own copy of its entry |
 | `subblocks/<i>/metadata` | value | `ascii[m]` | its metadata |
@@ -836,36 +1028,47 @@ output may depend on ([spec/zarrify.md §1.2](../zarrify.md#12-input), structure
   first entries with tags `BC01` (PixelFormat: type 1, count 16, its offset
   giving the 16-byte GUID), `BC80` (ImageWidth) and `BC81` (ImageHeight,
   each of type 3 or 4 and count 1, the value in the first 2 or 4 bytes of the
-  value field), all MUST be present. The pixel formats each pixel type
-  admits are, by the GUID's bytes as stored (the common prefix
-  `24 C3 DD 6F 03 4E FE 4B B1 85 3D 77 76 8D C9` and a last byte):
-  Gray8 `08`; Gray16 `0B`; Gray32Float `11`; Bgr24 `0C` (24bppBGR) or `0D`
-  (24bppRGB); Bgr48 `15`; Bgra32 `0F`; Bgr96Float the GUID
-  `8F D7 FE E3 DB E8 CF 4A 84 C1 E9 7F 61 36 B3 27`. The coded size is
-  (ImageWidth, ImageHeight), each at least 1.
+  value field), all MUST be present. The coded size is
+  (ImageWidth, ImageHeight), each at least 1, when the PixelFormat is one the subblock's
+  pixel type admits. The pixel formats each pixel type admits are, by the GUID's bytes as
+  stored (the common prefix `24 C3 DD 6F 03 4E FE 4B B1 85 3D 77 76 8D C9` and a last byte):
+
+  | pixel type | PixelFormat |
+  |---|---|
+  | Gray8 | `08` |
+  | Gray16 | `0B` |
+  | Gray32Float | `11` |
+  | Bgr24 | `0C` (24bppBGR) or `0D` (24bppRGB) |
+  | Bgr48 | `15` |
+  | Bgra32 | `0F` |
+  | Bgr96Float | the GUID `8F D7 FE E3 DB E8 CF 4A 84 C1 E9 7F 61 36 B3 27` |
 
 ### 7.5 Chunk references
 
 All references are ranges of source 0; this profile has no data sources.
 Let `P = o + 32 + L + m` be subblock `i`'s data offset ([the convention §2.4](#24-subblocks)).
 
-- **Image chunks and tiles** ([the convention §4.3](#43-image-arrays), [§4.4](#44-tiles)): an uncompressed
-  subblock is the single range `(0, P, W × H × q)`, or with row bands, band
-  `k` of its rows is `(0, P + k × b × W × q, b × W × q)`. A Zstd0 subblock
-  is `(0, P, n)`, a Zstd1 subblock `(0, P + l, n − l)` (`l` its header
-  length), a JPEG or JPEG XR subblock `(0, P, n)`. Pixels are never copied.
-- **Directory columns** ([the convention §5.3](#53-elements)) and `segments/id` are copied:
-  their elements are scattered over the entries. The event list's `time`
-  and `type` are copied likewise.
-- **Families** (`subblocks/...`, `segments/data`, an event list's
-  `description`): each member is the range of its bytes in the file, and the
-  family's chunks are made as [conventions §7](../conventions.md#7-source-values-as-arrays) says: referenced, with adjacent
-  members merged into one range, and a `data` chunk copied when its ranges
-  exceed the 65519-byte payload ([spec/zarrify.md §1.2](../zarrify.md#12-input)), as when many small
-  metadata fragments share a chunk.
-- **Bytes** (`metadata/xml`, `metadata/attachment`, an attachment's data,
-  `tail`) and **contiguous values** (TimeStamps, FocusPositions): referenced
-  in place, cut as [conventions §7](../conventions.md#7-source-values-as-arrays) says.
+<a id="type-czichunk"></a>**`CziChunk`**, the chunk of a subblock of an image's level or a tile
+array ([the convention §4.3](#43-image-arrays), [§4.4](#44-tiles)), whose data starts at `P`
+and is `n` bytes, of stored width `W` and height `H`: one range, by its codec form:
+
+| part | range | presence | value |
+|---|---|---|---|
+| the pixels, uncompressed | source range `(0, P, W × H × q)` | optional | when uncompressed without row bands: the single range |
+| a band, uncompressed | source range `(0, P + k × b × W × q, min(b, H − k × b) × W × q)` | optional | with row bands of `b` rows ([the convention §4.3](#43-image-arrays)): band `k` of its rows, `b` rows but for the last band of short bands, which has `H − k × b` |
+| the zstd frame, Zstd0 | source range `(0, P, n)` | optional | for a Zstd0 subblock |
+| the zstd frame, Zstd1 | source range `(0, P + l, n − l)` | optional | for a Zstd1 subblock, `l` its header length |
+| the JPEG stream or JPEG XR file | source range `(0, P, n)` | optional | for a JPEG or JPEG XR subblock |
+
+The references by kind:
+
+- **Image chunks and tiles** ([the convention §4.3](#43-image-arrays), [§4.4](#44-tiles)): each
+  is a [`CziChunk`](#type-czichunk) (above), one range of the subblock's data by its codec
+  form. Pixels are never copied.
+- **`refkv_source`** is the IR mirror ([the convention §5.2](#52-the-ir-mirror)), with
+  [the mirror's entries](../conventions.md#table-mirror) only: the elements of
+  [the convention §5.3](#53-elements) are in its table, and the profile writes no
+  arrays of its own under it.
 - **Documents** of `tiles/<n>` are stored, like those of `refkv_source`, so
   that a reader fetches them only when it opens the node ([conventions §2](../conventions.md#2-attributes)):
   there is one per tile position and copy.
@@ -883,19 +1086,21 @@ fails when a reader decodes it; a writer of such files is not known.
 
 The layout uses two things that are not in every Zarr reader:
 
-- **Clipped levels** use the zarr-extensions `rectilinear` chunk grid (the
-  convention [§4.3](#43-image-arrays)). zarr-python 3.4 reads them after
+- **Clipped levels**, and the levels and tile arrays of short row bands,
+  use the zarr-extensions `rectilinear` chunk grid (the
+  convention [§4.3](#43-image-arrays), [§4.4](#44-tiles)). zarr-python 3.4 reads them after
   `zarr.config.set({"array.rectilinear_chunks": True})`. Where a reader has
-  no rectilinear support, a clipped level can still be read chunk by chunk:
-  the chunk at `y` index `j` and `x` index `i` holds the tile of that row
-  and column, of the stored size `(W, H)`, or `W'` wide in the last column
-  and `H'` high in the last row (refkv's verifier,
-  `js/test/czi/verify.py`, checks both ways).
+  no rectilinear support, such an array can still be read chunk by chunk.
+  Without row bands, the chunk at `y` index `j` and `x` index `i` holds the
+  tile of that row and column, of the stored size `(W, H)`, or `W'` wide in
+  the last column and `H'` high in the last row; with row bands, it holds the
+  band of column `i` that [§4.3](#43-image-arrays) numbers `j`, of the band's height
+  (refkv's verifier, `js/test/czi/verify.py`, checks both ways).
 - **Codecs.** `imagecodecs_jpegxr` (JPEG XR subblocks) and
   `numcodecs.shuffle` (Zstd1 with hi-lo packing) are not in the
   zarr-extensions registry, nor in the Neuroglancer fork refkv's viewer uses.
-  zarr-python 3 has `numcodecs.shuffle`; `refkv.zarr.codecs` registers
-  `imagecodecs_jpegxr`. Files with these codecs are accepted, not
+  zarr-python 3 has `numcodecs.shuffle`; imagecodecs-zarr (refkv's `images`
+  extra) has `imagecodecs_jpegxr`. Files with these codecs are accepted, not
   rejected: their chunks are the subblocks' bytes, so the archive is
   complete whatever a reader supports. Their registration, and decoders in
   the Neuroglancer fork, are a follow-up.

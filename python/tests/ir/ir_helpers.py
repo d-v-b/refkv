@@ -95,7 +95,7 @@ ADDED = {"tiff": ("omero",), "ndpi": ("omero",)}
 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>), and its JPEG XR
 # levels (spec/zarrify/ndpi.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#3-levels>).
 REVISED = {"edge_ndpi_frames.ndpi", "edge_reject_ndpi_frame.ndpi", "ndpi_jpegxr_gray16.ndpi",
-           "ndpi_jpegxr_rgb.ndpi", "ndpi_jpegxr_bgr.ndpi"}
+           "ndpi_jpegxr_rgb.ndpi", "ndpi_jpegxr_bgr.ndpi", "ndpi_jpegxr_cy5.ndpi"}
 # The profiles whose edge chunks' zero padding is a range of the output's zero data source since
 # the freeze, where the frozen reference pads with a literal range (conformance/zarrify/compare.py's
 # ZERO_PADDED; spec/zarrify/nifti.md §7.2
@@ -165,7 +165,7 @@ def as_current(key: str) -> str:
 
 # The codecs whose chunks the TIFF and QPTIFF profiles decode to sample their `omero` windows:
 # uncompressed, Deflate and LZW tiles or strips, with or without interleaved samples.
-DECODED = {"transpose", "bytes", "zlib", "imagecodecs_lzw"}
+DECODED = {"transpose", "bytes", "numcodecs.zlib", "refkv.tiff_lzw"}
 
 
 def omero_and_expected_windows(path, profile: str) -> tuple[JSON, list[dict[str, float] | None]]:

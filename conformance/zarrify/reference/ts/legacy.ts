@@ -11,7 +11,8 @@
 // where the shipped code keeps a store's other objects since revision 27, so that the
 // corpus's collision stores are rejected by every implementation. `currentNames` reads
 // the old names as the current ones, for the tests that compare the frozen profiles with
-// the Rust core, as compare.py does (conformance/zarrify/HARNESS.md).
+// the Rust core, as compare.py does (conformance/zarrify/HARNESS.md), and the codecs they
+// name as the shipped code names them (`CODEC_NAMES`).
 
 import {
   convention as currentConvention, CONVENTION_KEY as CURRENT_KEY, planEntries, type Plan, PROFILES,
@@ -33,6 +34,9 @@ export const SOURCE_GROUP = SOURCE_NODE;
 export const OBJECTS = `${SOURCE_NODE}/objects/`;
 export const EMPTY_KEY = `${SOURCE_NODE}/empty.json`;
 const NODE_NAME = /^(?:zarr\.json|\.zarray|\.zgroup)~*$/;
+// The codecs the frozen profiles name that the shipped code names otherwise: a zlib stream
+// is zarr-python's `numcodecs.zlib`, and refkv's own TIFF LZW codec `refkv.tiff_lzw`.
+const CODEC_NAMES: Record<string, string> = { zlib: "numcodecs.zlib", imagecodecs_lzw: "refkv.tiff_lzw" };
 
 export function objectKey(key: string): string {
   return OBJECTS + key + (NODE_NAME.test(key.slice(key.lastIndexOf("/") + 1)) ? "~" : "");
@@ -84,11 +88,26 @@ export function emitPlans(plans: Plan[], nodeAttributes: Record<string, unknown>
 
 const PROFILE_OF_UUID = new Map(Object.entries(PROFILES).map(([p, [uuid]]) => [uuid, p as Profile]));
 
+/** An array document's codec chain with the codecs of `CODEC_NAMES` renamed, within the
+ * codecs that hold a chain of their own (`n5_default`'s) too. */
+function currentCodecs(chain: unknown): unknown {
+  if (!Array.isArray(chain)) return chain;
+  return chain.map((c) => {
+    if (c === null || typeof c !== "object") return c;
+    const renamed = typeof c.name === "string" && Object.hasOwn(CODEC_NAMES, c.name) ? { ...c, name: CODEC_NAMES[c.name] } : c;
+    const config = renamed.configuration;
+    return config !== null && typeof config === "object" && "codecs" in config
+      ? { ...renamed, configuration: { ...config, codecs: currentCodecs(config.codecs) } }
+      : renamed;
+  });
+}
+
 /** A JSON value of a frozen profile's output with the names the shipped code writes: the
- * convention's property, its convention metadata, and, within the property (where the
- * profiles name them), paths into the source metadata node. The source's own values,
- * outside the property, are left as they are; within it, a value copied from the source
- * that starts with `vzip_source/` would read as such a path too, which no fixture has. */
+ * convention's property, its convention metadata, an array document's codecs as `CODEC_NAMES`
+ * names them, and, within the property (where the profiles name them), paths into the source
+ * metadata node. The source's own values, outside the property and the array documents' codec
+ * chains, are left as they are; within the property, a value copied from the source that starts
+ * with `vzip_source/` would read as such a path too, which no fixture has. */
 export function currentNames(v: unknown, inside = false): unknown {
   if (Array.isArray(v)) return v.map((x) => currentNames(x, inside));
   if (typeof v === "string") {
@@ -96,7 +115,10 @@ export function currentNames(v: unknown, inside = false): unknown {
   }
   if (v === null || typeof v !== "object") return v;
   const out: Record<string, unknown> = {};
-  for (const [k, x] of Object.entries(v)) {
+  const doc = v as Record<string, unknown>;
+  const array = doc.node_type === "array" && "codecs" in doc;
+  for (let [k, x] of Object.entries(v)) {
+    if (array && k === "codecs") x = currentCodecs(x);
     const legacy = (m: { uuid?: string; name?: string }) => m?.name === CONVENTION_KEY && PROFILE_OF_UUID.has(m.uuid!);
     out[k === CONVENTION_KEY ? CURRENT_KEY : k] = k === "zarr_conventions" && Array.isArray(x)
       ? x.map((m) => legacy(m) ? currentConvention(PROFILE_OF_UUID.get(m.uuid)!) : currentNames(m, inside))

@@ -497,7 +497,7 @@ export async function zarrifyNd2(src: Source, out: Output): Promise<void> {
   const codecs: unknown[] = [];
   if (comp > 1) codecs.push(transposeCodec(dims));
   codecs.push(bytesCodec(itemSize, "little"));
-  if (compressed) codecs.push({ name: "zlib", configuration: { level: 1 } });
+  if (compressed) codecs.push({ name: "numcodecs.zlib", configuration: { level: 1 } });
   let bits = bpc;
   if (Number.isInteger(bpcSig) && bpcSig >= 1 && bpcSig <= bpc) bits = bpcSig;
   const omeroChannels = channels.map((c) => {

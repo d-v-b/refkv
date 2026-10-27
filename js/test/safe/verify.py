@@ -65,7 +65,7 @@ sys.path.insert(0, str(ROOT / "conformance" / "zarrify" / "reference"))
 from proxy import Proxy  # noqa: E402
 from refkv_reference.safe import zipdir  # noqa: E402
 
-import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store; registers imagecodecs_jpeg2k)
+import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store)
 from refkv import _core  # noqa: E402
 from refkv._narrow import ndarray  # noqa: E402
 from refkv.ir.cmirror import Archive, canonical_problem, rebuild_from_archive, view_problem  # noqa: E402
