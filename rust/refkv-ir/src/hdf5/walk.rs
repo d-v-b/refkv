@@ -107,6 +107,8 @@ pub struct Emit<'a> {
     pub h: &'a H5,
     /// dataset header -> the struct of its chunks
     pub chunks_of: HashMap<u64, u32>,
+    /// dataset header -> the element of its contiguous data
+    pub data_of: HashMap<u64, u32>,
     /// the elements the walk describes, at most (the IR's records and the mirror's rows
     /// leave room for the gaps between them): past it, structures are not described
     pub room: u64,
@@ -522,7 +524,8 @@ impl Emit<'_> {
                 if let (Some(a), n) = ds.contiguous {
                     if n > 0 && self.h.src.within(a, n) {
                         let form = json!({"geometry": {"shape": ds.dims, "size": ds.datatype.size}, "codec": {"filters": ds.filters}, "recipe": [["src", 0, null]]});
-                        self.ir.data(o, "data", NO_INDEX, 0, (a, n), &form.to_string())?;
+                        let id = self.ir.data(o, "data", NO_INDEX, 0, (a, n), &form.to_string())?;
+                        self.data_of.insert(at, id);
                     }
                 }
             }

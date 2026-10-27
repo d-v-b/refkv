@@ -44,6 +44,14 @@ class FlacSource(Source):
 
 
 @dataclass(frozen=True)
+class Hdf5Source(Source):
+    """HDF5, NWB: a file the `hdf5` profile reads, its first bytes untested (`Source` lists its
+    read options)."""
+
+    profile: ClassVar[str] = "hdf5"
+
+
+@dataclass(frozen=True)
 class ImsSource(Source):
     """Imaris IMS: a file the `ims` profile reads, its first bytes untested (`Source` lists its
     read options)."""
@@ -185,6 +193,7 @@ CLASSES: dict[str, type[Source | Store]] = {
     "DicomSource": DicomSource,
     "FitsSource": FitsSource,
     "FlacSource": FlacSource,
+    "Hdf5Source": Hdf5Source,
     "ImsSource": ImsSource,
     "LifSource": LifSource,
     "Mp3Source": Mp3Source,
@@ -209,6 +218,7 @@ __all__ = [
     "DicomSource",
     "FitsSource",
     "FlacSource",
+    "Hdf5Source",
     "ImsSource",
     "LifSource",
     "Mp3Source",

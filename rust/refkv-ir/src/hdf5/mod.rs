@@ -18,7 +18,11 @@
 //! bytes ([`Fail::Bad`]) is final; with misses before it, the round is retried (the outcome
 //! is the one a sequential reading would give).
 
+mod file;
+pub mod types;
 pub mod walk;
+
+pub use file::{hex, unhex, Hdf5, Profile};
 
 use crate::fed::{Fed, Overlap, uint};
 use crate::text::latin1;
@@ -732,6 +736,10 @@ pub struct H5 {
     chunks: Memo<u64, Chunks>,
     /// each fractal heap's blocks read: heap -> block -> (indirect, length)
     pub fh_blocks: HashMap<u64, BTreeMap<u64, (bool, u64)>>,
+    /// read a symbol table entry of cache type 2 as a soft link (the HDF5 profile; the IMS
+    /// profile's subset has none, spec/zarrify/ims.md §7.3
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#73-groups-and-links>)
+    pub symtab_soft: bool,
 }
 
 impl H5 {
@@ -752,6 +760,7 @@ impl H5 {
             collections: HashMap::new(),
             chunks: HashMap::new(),
             fh_blocks: HashMap::new(),
+            symtab_soft: false,
         }
     }
 
@@ -1005,10 +1014,21 @@ impl H5 {
                         None
                     };
                     let Some(end) = end else { return bad("link name outside the local heap") };
+                    let name = names.data[offset as usize..end].to_vec();
+                    // a soft link: cache type 2, its value in the local heap at the scratch pad's
+                    // first 4 bytes (read only where a profile reads soft links in symbol tables)
+                    if self.symtab_soft && le(&entries, 40 * k + 16, 4)? == 2 {
+                        let at = le(&entries, 40 * k + 24, 4)? as usize;
+                        let Some(e) = names.data.get(at..).and_then(|d| d.iter().position(|&c| c == 0)) else {
+                            return bad("soft link value outside the local heap");
+                        };
+                        add(name, Target::Soft(names.data[at..at + e].to_vec()), &mut list)?;
+                        continue;
+                    }
                     let Some(target) = address(le(&entries, 40 * k + 8, 8)?)? else {
                         return bad("symbol table entry with an undefined address");
                     };
-                    add(names.data[offset as usize..end].to_vec(), Target::Hard(target), &mut list)?;
+                    add(name, Target::Hard(target), &mut list)?;
                 }
             }
             storage = LinkStorage::Symtab { heap: (*names).clone(), nodes: tree.nodes.clone(), snods };

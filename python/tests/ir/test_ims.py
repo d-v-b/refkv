@@ -18,7 +18,7 @@ IMS = sorted((FIXTURES / "ims").rglob("*.ims"))
 def same_as_reference(path, tmp_path) -> bool:
     """The IR's output equals the reference's but refkv_source, and its archive rebuilds the
     file; or both reject it. True when accepted."""
-    return as_the_reference(path, tmp_path, "ims") is not None
+    return as_the_reference(path, tmp_path, "ims", named=True) is not None
 
 
 @pytest.mark.parametrize("path", IMS, ids=lambda p: p.name)

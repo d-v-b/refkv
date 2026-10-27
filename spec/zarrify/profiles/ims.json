@@ -4,8 +4,8 @@
   "uuid": "5067a535-8261-4b25-a93c-1985ed333bde",
   "version": 0,
   "kind": "file",
-  "sniff": 70,
-  "chosen_by": null,
+  "sniff": null,
+  "chosen_by": "hdf5",
   "suffixes": [
     ".ims"
   ],

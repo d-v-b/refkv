@@ -1,0 +1,45 @@
+{
+  "about": "The inputs the hdf5 profile rejects, each with the start of its message. rust/refkv-ir/build.rs writes a Rust test per case into tests/hdf5.rs; python/tests/ir/test_rejects.py checks each through the host and that every rejected fixture is listed here.",
+  "cases": [
+    {
+      "test": "hdf5_reject_chunk_outside",
+      "input": "hdf5_reject_chunk_outside.h5",
+      "message": "/plain: chunk [0, 0] lies outside the file"
+    },
+    {
+      "test": "hdf5_reject_offsets_4",
+      "input": "hdf5_reject_offsets_4.h5",
+      "message": "HDF5 offsets and lengths of 4 and 8 bytes are not supported"
+    },
+    {
+      "test": "hdf5_reject_superblock_version",
+      "input": "hdf5_reject_superblock_version.h5",
+      "message": "unsupported HDF5 superblock version 9"
+    },
+    {
+      "test": "hdf5_reject_too_deep",
+      "input": "hdf5_reject_too_deep.h5",
+      "message": "budget: objects more than 64 links deep"
+    },
+    {
+      "test": "hdf5_reject_truncated",
+      "input": "hdf5_reject_truncated.h5",
+      "message": "/: read of 144 bytes at 9944, outside the 4616-byte file"
+    },
+    {
+      "test": "hdf5_reject_vlen_collection",
+      "input": "hdf5_reject_vlen_collection.h5",
+      "message": "/ascii: element 0 names no global heap collection"
+    },
+    {
+      "test": "hdf5_reject_vlen_index",
+      "input": "hdf5_reject_vlen_index.h5",
+      "message": "/ascii: element 0 names no object of its collection"
+    },
+    {
+      "test": "hdf5_reject_vlen_length",
+      "input": "hdf5_reject_vlen_length.h5",
+      "message": "/ascii: element 0 is 2 bytes long, its heap object 3"
+    }
+  ]
+}

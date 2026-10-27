@@ -826,7 +826,7 @@ impl Ims {
         let size = self.h.size();
         let must: HashSet<u64> = self.image_sets.iter().map(|im| im.at).collect();
         let room = self.room.unwrap_or(self.rules.limit("walk_elements") as u64 + size / self.rules.limit("walk_bytes_per_element") as u64);
-        let mut e = Emit { ir: Ir::new(size), h: &self.h, chunks_of: HashMap::new(), room, must };
+        let mut e = Emit { ir: Ir::new(size), h: &self.h, chunks_of: HashMap::new(), data_of: HashMap::new(), room, must };
         let sb = self.h.sb.clone().ok_or("internal: no superblock")?;
         e.superblock(&sb)?;
         if let Some(ext) = self.extension.take() {

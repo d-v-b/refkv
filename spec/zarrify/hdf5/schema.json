@@ -1,0 +1,647 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/hdf5/schema.json",
+  "title": "refkv HDF5 convention, version 0",
+  "description": "The zarr.json of a node that declares the refkv HDF5 convention (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md)",
+  "type": "object",
+  "properties": {
+    "zarr_format": {
+      "type": "integer",
+      "const": 3
+    },
+    "node_type": {
+      "type": "string",
+      "enum": [
+        "group",
+        "array"
+      ]
+    },
+    "attributes": {
+      "type": "object",
+      "properties": {
+        "ome": {
+          "type": "object",
+          "description": "OME-NGFF 0.5 metadata"
+        },
+        "zarr_conventions": {
+          "type": "array",
+          "contains": {
+            "$ref": "#/$defs/conventionMetadata"
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        "refkv_zarrified": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/rootProperty"
+            },
+            {
+              "$ref": "#/$defs/nodeProperty"
+            }
+          ]
+        },
+        "_LINKS": {
+          "type": "array",
+          "description": "hdmf-zarr's links: a group's soft links and second hard links",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "source": {
+                "const": "."
+              },
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "source",
+              "path"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "_DTYPE": {
+          "const": "object_reference",
+          "description": "hdmf-zarr's mark of an array of object references"
+        },
+        "_REFERENCE_FIELDS": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "description": "hdmf-zarr's list of a struct's reference members"
+        },
+        ".specloc": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "_REFERENCE": {
+                  "type": "object",
+                  "properties": {
+                    "source": {
+                      "const": "."
+                    },
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "source",
+                    "path"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "_REFERENCE"
+              ]
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "description": "An NWB file's cached specifications"
+        }
+      },
+      "required": [
+        "zarr_conventions",
+        "refkv_zarrified"
+      ],
+      "additionalProperties": true
+    }
+  },
+  "required": [
+    "zarr_format",
+    "node_type",
+    "attributes"
+  ],
+  "$defs": {
+    "conventionMetadata": {
+      "type": "object",
+      "description": "The HDF5 convention's metadata object in zarr_conventions",
+      "properties": {
+        "uuid": {
+          "type": "string",
+          "const": "6c006834-424b-451b-b786-f8c502ec32af"
+        },
+        "schema_url": {
+          "type": "string",
+          "const": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/hdf5/schema.json"
+        },
+        "spec_url": {
+          "type": "string",
+          "const": "https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md"
+        },
+        "name": {
+          "type": "string",
+          "const": "refkv_zarrified"
+        },
+        "description": {
+          "type": "string",
+          "const": "The Zarr layout of a HDF5 source zarrified by refkv, and the source's metadata"
+        }
+      },
+      "required": [
+        "uuid",
+        "schema_url",
+        "spec_url",
+        "name",
+        "description"
+      ],
+      "additionalProperties": false
+    },
+    "rootProperty": {
+      "type": "object",
+      "description": "The root's property: the profile and version that produced the hierarchy, its source, and the root's source metadata",
+      "properties": {
+        "profile": {
+          "type": "string",
+          "const": "hdf5"
+        },
+        "version": {
+          "type": "integer",
+          "const": 0
+        },
+        "source": {
+          "type": "object",
+          "properties": {
+            "url": {
+              "type": "string",
+              "description": "The URL of the source file"
+            }
+          },
+          "required": [
+            "url"
+          ],
+          "additionalProperties": false
+        },
+        "layouts": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[^/]+(/[^/]+)*$"
+          },
+          "description": "The other layouts of the source in this hierarchy, by name, each the path of its node below the root (spec/conventions.md §9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>)"
+        },
+        "hdf5": {
+          "$ref": "#/$defs/sourceMetadata"
+        }
+      },
+      "required": [
+        "profile",
+        "version",
+        "source"
+      ],
+      "additionalProperties": false
+    },
+    "sourceMetadata": {
+      "anyOf": [
+        {
+          "type": "object",
+          "description": "A group's (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#71-groups)",
+          "properties": {
+            "address": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Its object header's address"
+            },
+            "superblock": {
+              "enum": [
+                0,
+                1,
+                2,
+                3
+              ],
+              "description": "The root's: the superblock's version"
+            },
+            "attributes": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/$defs/hdf5Datatype"
+              },
+              "description": "Each attribute's HDF5 datatype, by name"
+            },
+            "unpresented_attributes": {
+              "type": "object",
+              "additionalProperties": {
+                "enum": [
+                  "name",
+                  "reserved",
+                  "named_datatype",
+                  "object",
+                  "datatype",
+                  "filter",
+                  "filter_mask",
+                  "edge_chunks",
+                  "layout",
+                  "external_storage",
+                  "null_dataspace",
+                  "fill_value",
+                  "size",
+                  "shared",
+                  "budget"
+                ]
+              },
+              "description": "What the hierarchy does not present, by name, each with the reason"
+            },
+            "unpresented": {
+              "type": "object",
+              "additionalProperties": {
+                "enum": [
+                  "name",
+                  "reserved",
+                  "named_datatype",
+                  "object",
+                  "datatype",
+                  "filter",
+                  "filter_mask",
+                  "edge_chunks",
+                  "layout",
+                  "external_storage",
+                  "null_dataspace",
+                  "fill_value",
+                  "size",
+                  "shared",
+                  "budget"
+                ]
+              },
+              "description": "What the hierarchy does not present, by name, each with the reason"
+            },
+            "external_links": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "type": "integer"
+                  },
+                  "file": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/text"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "path": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/text"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "name",
+                  "type",
+                  "file",
+                  "path"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "address"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "description": "A dataset's (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#72-datasets)",
+          "properties": {
+            "address": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "datatype": {
+              "$ref": "#/$defs/hdf5Datatype"
+            },
+            "maxshape": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "description": "The dataspace's maximum sizes, null for unlimited"
+            },
+            "layout": {
+              "enum": [
+                "compact",
+                "contiguous",
+                "chunked"
+              ]
+            },
+            "chunks": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "index": {
+              "enum": [
+                "btree1",
+                "single",
+                "implicit",
+                "fixed_array",
+                "extensible_array",
+                "btree2",
+                "none"
+              ]
+            },
+            "filters": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "fill_value": {
+              "type": "string",
+              "description": "The fill value message's bytes, in base64"
+            },
+            "attributes": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/$defs/hdf5Datatype"
+              },
+              "description": "Each attribute's HDF5 datatype, by name"
+            },
+            "unpresented_attributes": {
+              "type": "object",
+              "additionalProperties": {
+                "enum": [
+                  "name",
+                  "reserved",
+                  "named_datatype",
+                  "object",
+                  "datatype",
+                  "filter",
+                  "filter_mask",
+                  "edge_chunks",
+                  "layout",
+                  "external_storage",
+                  "null_dataspace",
+                  "fill_value",
+                  "size",
+                  "shared",
+                  "budget"
+                ]
+              },
+              "description": "What the hierarchy does not present, by name, each with the reason"
+            }
+          },
+          "required": [
+            "address",
+            "datatype",
+            "layout"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "$ref": "#/$defs/mirror"
+        },
+        {
+          "$ref": "#/$defs/mirrorView"
+        }
+      ]
+    },
+    "headerValue": {
+      "description": "A translated header value (spec/conventions.md §6 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>)",
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "$ref": "#/$defs/text"
+        },
+        {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "text": {
+      "description": "A text value: a string (UTF-8), or its ISO 8859-1 reading when it is not UTF-8",
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "latin1": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "latin1"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "mirror": {
+      "type": "object",
+      "description": "refkv_source's: the IR mirror's description (spec/conventions.md §8.2 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#82-the-table>)",
+      "properties": {
+        "ir": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "const": 2
+            },
+            "size": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "The source's size in bytes (a store IR's: its objects' sizes, summed)"
+            },
+            "objects": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "A store IR's objects (spec/conventions.md §8.9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>); a file IR has none"
+            },
+            "elements": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "The elements, column runs expanded"
+            },
+            "rows": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "The rows the table stores"
+            },
+            "names": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "const": ""
+                }
+              ],
+              "description": "The interned names, sorted; the first, \"\", is the root's (conventions §8.1 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>)"
+            },
+            "types": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "const": ""
+                }
+              ],
+              "description": "The interned types (§8.6 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#86-types>)"
+            },
+            "forms": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "The interned forms, each a JSON text (§8.5 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#85-forms-and-recipes>)"
+            }
+          },
+          "required": [
+            "version",
+            "size",
+            "elements",
+            "rows",
+            "names",
+            "types",
+            "forms"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "ir"
+      ],
+      "additionalProperties": false
+    },
+    "mirrorView": {
+      "type": "object",
+      "description": "A view group's (refkv_source/tree/...): a struct's view document (spec/conventions.md §8.7 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#87-the-view>)",
+      "properties": {
+        "$vz": {
+          "const": "derived",
+          "description": "A derived element's document"
+        },
+        "$form": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "A derived element's form (§8.5 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#85-forms-and-recipes>)"
+        },
+        "$partial": {
+          "const": true,
+          "description": "The document stops short of the struct's children"
+        }
+      },
+      "minProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/viewValue"
+      }
+    },
+    "viewValue": {
+      "description": "A child's view: a JSON value, a nested document, or a $vz form",
+      "anyOf": [
+        {
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "null",
+            "array"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "$vz": {
+              "enum": [
+                "alias",
+                "group",
+                "element",
+                "derived",
+                "int",
+                "float",
+                "bytes",
+                "utf16"
+              ]
+            }
+          },
+          "required": [
+            "$vz"
+          ]
+        },
+        {
+          "type": "object"
+        }
+      ]
+    },
+    "hdf5Datatype": {
+      "type": "object",
+      "properties": {
+        "class": {
+          "type": "string"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "class",
+        "size"
+      ],
+      "description": "An HDF5 datatype, described (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#7-source-metadata)"
+    },
+    "nodeProperty": {
+      "type": "object",
+      "description": "Any other node's property: its source metadata only",
+      "properties": {
+        "hdf5": {
+          "$ref": "#/$defs/sourceMetadata"
+        }
+      },
+      "required": [
+        "hdf5"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

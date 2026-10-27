@@ -16,6 +16,27 @@ storage convention that hdmf-zarr 0.14 reads
 ([§1.3](#13-prior-art)). [§3](#3-the-profile-split) says why NWB is
 neither a separate profile nor a layout in version 0.
 
+**Status.** Implemented: [spec/zarrify/hdf5.md](../../spec/zarrify/hdf5.md)
+states what was decided. The implementation departs from this plan in
+three places, each a decision of
+[§11](#11-open-questions-and-their-decisions) revised by what the fixtures
+and DANDI files showed:
+
+- **Compounds with string or reference members are presented**, as
+  hdmf-zarr writes them (item 5). An NWB file with a trials table whose
+  `timeseries` column is such a compound did not open in `NWBZarrIO` while
+  the column was left out: its `VectorIndex` names it.
+- **Filter masks are honored for strings, references and records** (item
+  10): HDF5 skips deflate on a chunk it cannot shrink, which small chunks of
+  pointers often are, and the profile decodes those chunks itself.
+- **A file named as `hdf5` that is an Imaris file is still the IMS
+  profile's**, as a file named as `tiff` that is an NDPI file is NDPI's
+  ([§3](#3-the-profile-split)).
+
+The interop question of item 2 was settled first, as step 1 planned:
+`NWBZarrIO` reads a hierarchy whose nodes carry `zarr_conventions` and
+`refkv_zarrified` and whose root holds `refkv_source`.
+
 ## 1. Research summary
 
 Sources read: The HDF Group's *HDF5 File Format Specification* version 3;
@@ -284,8 +305,9 @@ Every other datatype makes the dataset unpresented in version 0:
 
 - time, opaque, array and variable-length sequences;
 - region references;
-- compounds with a gap, mixed byte orders, or a string or reference
-  member;
+- compounds with a gap or mixed byte orders (a compound with a string or
+  reference member is presented as records,
+  [§2.6](#26-compound-datatypes));
 - integers with padding bits, and non-IEEE floats.
 
 [§2.6](#26-compound-datatypes) gives the options for the compounds
@@ -311,9 +333,9 @@ In version 0, the filters are deflate (1) and shuffle (2). A chunked
 dataset is unpresented when any of these holds:
 
 - it has any other filter;
-- a chunk's filter mask is not 0;
-- partial edge chunks are left unfiltered (layout flag bit 0);
-- it is a string or reference dataset with filters.
+- a chunk's filter mask is not 0 (but strings, references and records,
+  whose chunks the profile decodes itself, each by its mask);
+- partial edge chunks are left unfiltered (layout flag bit 0).
 
 [§11](#11-open-questions-and-their-decisions) lists the filters to add
 from corpus evidence. A dataset with a size of 0 along some axis has no
@@ -438,14 +460,16 @@ Zarr v3 core has no record type. Three options:
    past the payload limit. So it would be a copy or a new
    strided-reference codec.
 
-Compounds with a reference or string member are not covered by version 0.
-NWB's `TimeSeriesReferenceVectorData` (`{idx_start: i4, count: i4,
-timeseries: object reference}`, in `intervals/*/timeseries`) is one.
-hdmf-zarr writes such members as fixed UTF-32 strings in a `struct`, which
-transforms the bytes, so no reference can produce that form. Version 0
-leaves them unpresented. Option 2 for them, and a later
-member-splitting layout, are in
-[§11](#11-open-questions-and-their-decisions).
+Compounds with a reference or string member are presented as
+**records**, as hdmf-zarr writes them: a `struct` whose strings and
+references (as canonical paths) are fixed-length UTF-32 of the longest
+text, listed in `_REFERENCE_FIELDS`, written into the archive as bytes
+entries. NWB's `TimeSeriesReferenceVectorData` (`{idx_start: i4, count:
+i4, timeseries: object reference}`, in `intervals/*/timeseries`) is one.
+No reference can produce that form, so this copies the records' values,
+the profile's one departure from "Structure only"; leaving them out made
+`NWBZarrIO` fail on any file with such a column
+([§11](#11-open-questions-and-their-decisions), item 5).
 
 ### 2.7 Attributes
 
@@ -633,7 +657,9 @@ An Imaris file then gets exactly today's output, and is still rejected
 where IMS rejects it (LZ4). A non-Imaris HDF5 file, which IMS rejects
 today, gets the generic hierarchy. A file named as `hdf5`
 ([spec/zarrify.md §1.7](../../spec/zarrify.md#17-named-inputs-and-layouts))
-gets the generic hierarchy even when it is an Imaris file.
+that is an Imaris file is the IMS profile's all the same, as a file named
+as `tiff` that is an NDPI file is NDPI's; a file named as `ims` is read by
+the IMS profile alone.
 
 ## 4. The profile (Part 2 of `spec/zarrify/hdf5.md`)
 
@@ -945,11 +971,11 @@ These are recommended answers; the convention states whatever is decided.
    (`_DTYPE: "object_reference"`, `{"_REFERENCE": …}`), by canonical path.
    Not VirtualiZarr's relative paths, LINDI's `object_id`s, or R-CF `ref`.
    The paths are the one form a released NWB reader consumes.
-5. **Compounds with string or reference members.** **Decision:**
-   unpresented in version 0. Then choose by corpus frequency of
-   `TimeSeriesReferenceVectorData` between bytes with a field table
-   ([§2.6](#26-compound-datatypes), option 2), which no reader decodes,
-   and a member-splitting layout that copies.
+5. **Compounds with string or reference members.** **Decision
+   (revised):** records, as hdmf-zarr writes them, copied into the archive
+   ([§2.6](#26-compound-datatypes)). The first decision, to leave them
+   out, made `NWBZarrIO` fail on a trials table with a `timeseries`
+   column, whose `VectorIndex` named the missing column.
 6. **Fixed-length strings.** **Decision:** `uint8` with a trailing byte
    axis. Neither `string` (it needs the length without padding, which is
    data) nor `fixed_length_utf32` (not HDF5's bytes) references them. They

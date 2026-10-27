@@ -8,6 +8,7 @@ it reads, is the IMS profile, [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `5067a535-8261-4b25-a93c-1985ed333bde` ·
 Schema: [schema.json](ims/schema.json) ·
+Changed 2026-10-28, with no change to any output: the HDF5 profile chooses this one ([§7](#7-ims-profile)) ·
 Changed 2026-10-27: a zlib stream's codec is `numcodecs.zlib`, zarr-python's name for it, in place of `zlib` ([conventions §3](../conventions.md#3-arrays), d-v-b/refkv#90) ·
 Changed 2026-10-26, with no change to any output: the
 layout is tabulated, its entries in [Layout](#layout) and its types in type tables
@@ -507,10 +508,12 @@ The IMS profile of [spec/zarrify.md](../zarrify.md) (revision 16) is [§7](#7-im
 
 ## 7. IMS profile
 
-**Signature** ([spec/zarrify.md §1.2](../zarrify.md#12-input), tested at the precedence of
-[profiles/ims.json](profiles/ims.json)): bytes 0–7 of `H` are the HDF5 signature
-`89 48 44 46 0D 0A 1A 0A`. An HDF5 file that is not an Imaris file is rejected by this
-profile.
+**Choosing the profile** ([spec/zarrify.md §1.2](../zarrify.md#12-input)): the profile has no
+signature of its own. A file with the HDF5 signature is the HDF5 profile's, which chooses this
+one for an Imaris file ([hdf5.md §8.1](hdf5.md#81-choosing-the-profile): a root link `DataSet`
+to a group with a link `ResolutionLevel 0`); this profile then reads the file from its first
+bytes. An HDF5 file named as this profile's input that is not an Imaris file is rejected by
+this profile.
 
 An Imaris file (`.ims`) is an HDF5 file holding a fixed layout of groups and
 datasets ([the convention §2.2](#22-the-imaris-layout)): one chunked 3-D dataset per resolution level, time point and
