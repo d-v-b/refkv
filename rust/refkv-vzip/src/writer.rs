@@ -344,8 +344,7 @@ impl<W: Write> Writer<W> {
         let body = if self.opts.mirror_refs { payload.clone() } else { Vec::new() };
         self.entry(&key, &body, Some((id, payload)), false)?;
         self.ref_names.insert(key);
-        self.sources.keep(taken);
-        Ok(())
+        self.sources.keep(taken)
     }
 
     /// The bulk path for many objects referenced whole: for each (key, url, size, CRC-32C), a new

@@ -369,7 +369,7 @@ impl<W: Write> Writer<W> {
             return invalid(format!("the payload of {key:?} exceeds 2^24 bytes"));
         }
         // only a reference the writer takes leaves ranges to check at close
-        self.sources.keep(taken);
+        self.sources.keep(taken)?;
         self.push(Entry { key: key.into(), hidden: false, value: Value::Reference { kind, payload } });
         Ok(())
     }

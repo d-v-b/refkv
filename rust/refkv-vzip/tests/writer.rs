@@ -188,6 +188,23 @@ fn refuses_a_range_past_a_reference_as_a_key_source_naming_one() {
 }
 
 #[test]
+fn a_bulk_reference_is_kept_only_where_it_was_prepared() {
+    use refkv_vzip::sources::SourceTable;
+    let mut t = SourceTable::default();
+    let a = t.url_reference("a", "http://h/a".into(), 1, None, false).unwrap();
+    let b = t.url_reference("b", "http://h/b".into(), 1, None, false).unwrap();
+    t.keep(a).unwrap();
+    // `b` names source 0, which is `a`'s
+    refused(t.keep(b));
+    assert_eq!(t.len(), 1);
+
+    let c = t.url_reference("c", "http://h/c".into(), 1, None, false).unwrap();
+    t.add(Source::url("http://h/other")).unwrap();
+    refused(t.keep(c));
+    assert_eq!(t.len(), 2);
+}
+
+#[test]
 fn refuses_a_range_past_2_64() {
     let mut w = writer();
     let s = w.url("a").unwrap();

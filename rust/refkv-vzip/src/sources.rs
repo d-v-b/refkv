@@ -25,7 +25,7 @@ impl Slot {
 }
 
 /// A reference [`SourceTable::reference`] has checked and encoded, for the writer to take and then
-/// give to [`SourceTable::keep`].
+/// give to [`SourceTable::keep`], before any other source is added.
 #[must_use = "give it to SourceTable::keep once the reference is taken"]
 pub struct Prepared {
     key: String,
@@ -33,7 +33,8 @@ pub struct Prepared {
     pub concat: bool,
     pub payload: Vec<u8>,
     ranges: Vec<Range>,
-    bulk: Option<(String, Option<u64>)>,
+    /// a bulk url source, with the index its payload names: the table's length when it was prepared
+    bulk: Option<(u32, String, Option<u64>)>,
 }
 
 /// What [`SourceTable::check`] needs to know of the store's keys.
@@ -116,15 +117,22 @@ impl SourceTable {
     /// `(source, 0, size)` to a new url source that is not interned, carrying `crc32c` when it is
     /// given, with `size` pinned if `pin_size`. The source is added by [`Self::keep`].
     pub fn url_reference(&self, key: &str, url: String, size: u64, crc32c: Option<u32>, pin_size: bool) -> Result<Prepared, Error> {
-        let r = Range { crc32c, ..Range::of(self.next_index()?, 0, size) };
-        Ok(Prepared { key: key.to_string(), concat: false, payload: r.encode(), ranges: Vec::new(), bulk: Some((url, pin_size.then_some(size))) })
+        let index = self.next_index()?;
+        let r = Range { crc32c, ..Range::of(index, 0, size) };
+        Ok(Prepared { key: key.to_string(), concat: false, payload: r.encode(), ranges: Vec::new(), bulk: Some((index, url, pin_size.then_some(size))) })
     }
 
     /// Keeps what a reference the writer has taken adds to the table: its bulk source, and its
     /// ranges for the bounds checks at close. url sources are not bounds-checked (spec/refkv.md §7
     /// <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#7-writing>): only the others are kept.
-    pub fn keep(&mut self, taken: Prepared) {
-        if let Some((url, size)) = taken.bulk {
+    ///
+    /// A bulk reference names the index its source was to have: if a source was added since it was
+    /// prepared, it is refused, and nothing is kept.
+    pub fn keep(&mut self, taken: Prepared) -> Result<(), Error> {
+        if let Some((index, url, size)) = taken.bulk {
+            if index as usize != self.slots.len() {
+                return invalid(format!("the source of {:?} was prepared as source {index}, but the table has {} sources", taken.key, self.slots.len()));
+            }
             self.slots.push(Slot::Bulk(url, size));
         }
         for r in taken.ranges {
@@ -132,6 +140,7 @@ impl SourceTable {
                 self.range_checks.push((taken.key.clone(), r));
             }
         }
+        Ok(())
     }
 
     /// The checks that need every key: url sources are valid URI references, `key` sources name
