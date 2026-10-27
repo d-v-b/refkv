@@ -305,9 +305,12 @@ BitsPerSample, which MUST be 8, 16, 32 or 64 (32 or 64 for `float`).
 | Compression | Predictor | codecs ([conventions §3](../conventions.md#3-arrays)) |
 |---|---|---|
 | 1 | 1 | bytes |
-| 5 (LZW) | 1 or 2 | bytes, `refkv.tiff_lzw` |
-| 8, 32946 (Deflate) | 1 or 2 | bytes, `numcodecs.zlib` |
-| 50000 (zstd) | 1 or 2 | bytes, zstd |
+| 5 (LZW) | 1 | bytes, `refkv.tiff_lzw` |
+| 5 (LZW) | 2 | `imagecodecs_delta`, bytes, `refkv.tiff_lzw` |
+| 8, 32946 (Deflate) | 1 | bytes, `numcodecs.zlib` |
+| 8, 32946 (Deflate) | 2 | `imagecodecs_delta`, bytes, `numcodecs.zlib` |
+| 50000 (zstd) | 1 | bytes, zstd |
+| 50000 (zstd) | 2 | `imagecodecs_delta`, bytes, zstd |
 | 33003, 33004, 33005, 34712 (JPEG 2000) | any | imagecodecs_jpeg2k |
 | 7 (JPEG) | 1 | imagecodecs_jpeg |
 
@@ -392,7 +395,7 @@ always the regular grid of that chunk shape: a short last strip is padded
 | `shape` | array of integer | required | each present axis's shape, above |
 | `data_type` | string | required | from [§4.3](#43-data-types-and-codecs) |
 | `chunk_grid` | object | required | regular, its chunk shape each present axis's chunk shape, above |
-| `codecs` | array of object | required | from [§4.3](#43-data-types-and-codecs): `transpose` first when `spp > 1` and PlanarConfiguration is 1, then `imagecodecs_delta` with Predictor 2, then the codecs of the Compression's row |
+| `codecs` | array of object | required | from [§4.3](#43-data-types-and-codecs): `transpose` first when `spp > 1` and PlanarConfiguration is 1, then the codecs of the Compression's and Predictor's row |
 | `dimension_names` | array of string | required | the axes present, above |
 | `attributes` | object | required | `{}` |
 

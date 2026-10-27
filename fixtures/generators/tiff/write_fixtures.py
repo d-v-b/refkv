@@ -110,7 +110,7 @@ def main() -> None:
     # whose differences wrap around, in LZW, Deflate and zstd, little- and big-endian; int16;
     # interleaved RGB of uint8 and uint16; LZW strips whose last is short, padded with a tail;
     # and an OME-TIFF of several planes and a SubIFD level. Rejected: the floating-point
-    # predictor 3; Predictor 2 with a float type, or with no compression.
+    # predictor 3; Predictor 2 with a float type, with no compression, or with JPEG.
     wide = image((64, 64), np.uint16) * 257
     tifffile.imwrite(OUT / "predictor_lzw_uint16.tif", wide, tile=(32, 32), compression="lzw",
                      predictor=True, photometric="minisblack")
@@ -136,6 +136,9 @@ def main() -> None:
     tifffile.imwrite(OUT / "edge_reject_predictor_uncompressed.tif", small, tile=(32, 32), compression="zlib",
                      predictor=True)
     patch_short(OUT / "edge_reject_predictor_uncompressed.tif", "Compression", 1)
+    tifffile.imwrite(OUT / "edge_reject_predictor_jpeg.tif", small, tile=(32, 32), compression="zlib",
+                     predictor=True)
+    patch_short(OUT / "edge_reject_predictor_jpeg.tif", "Compression", 7)
     for p in sorted(OUT.glob("*.tif")):
         print(p.name, p.stat().st_size)
 

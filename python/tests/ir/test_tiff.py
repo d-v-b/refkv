@@ -331,11 +331,14 @@ def test_predictor_2_of_a_float_type_is_rejected():
         via_ir(str(FIXTURES / "tiff" / "unsupported_predictor_2_float.tif"), "u")
 
 
-def test_predictor_2_without_compression_is_rejected():
+@pytest.mark.parametrize(("name", "compression"), [("edge_reject_predictor_uncompressed.tif", 1),
+                                                    ("edge_reject_predictor_jpeg.tif", 7)])
+def test_predictor_2_without_lzw_deflate_or_zstd_is_rejected(name, compression):
     """§4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>:
-    readers disagree on whether uncompressed bytes hold differences."""
-    with pytest.raises(Rejected, match="predictor 2 with compression 1"):
-        via_ir(str(FIXTURES / "tiff" / "edge_reject_predictor_uncompressed.tif"), "u")
+    readers disagree on whether uncompressed bytes hold differences, and a JPEG stream does not
+    use them."""
+    with pytest.raises(Rejected, match=f"predictor 2 with compression {compression}"):
+        via_ir(str(FIXTURES / "tiff" / name), "u")
 
 
 def test_rows_per_strip_0_is_rejected(tmp_path):

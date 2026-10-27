@@ -102,6 +102,11 @@
       "message": "planes of one pyramid level differ in size, tili"
     },
     {
+      "test": "tiff_edge_reject_predictor_jpeg",
+      "input": "edge_reject_predictor_jpeg.tif",
+      "message": "predictor 2 with compression 7"
+    },
+    {
       "test": "tiff_edge_reject_predictor_uncompressed",
       "input": "edge_reject_predictor_uncompressed.tif",
       "message": "predictor 2 with compression 1"
