@@ -97,10 +97,11 @@ What the numbers say:
   the reads a parser asks for, coalesces near ranges and sends them concurrently.
 - **obstore's file reader helps no package more than fsspec's caches do.** `ReadableFile`
   drops its buffer on every seek, so a parser that seeks between small reads makes about one
-  request per seek. For tifffile (42 to 186 requests) and h5py (278) it sits between fsspec
-  with no cache and fsspec's caches, which need 3 to 82 and 33 to 40. For czifile no
-  transport helps much: on the Axioscan CZI every setting but the 1 MiB ones takes about 485
-  requests and 74 s, one per subblock header, and on the IDR CZI obstore (69 requests) is
+  request per seek. For tifffile (42 to 186 requests) it sits between fsspec with no cache
+  (53 to 247) and fsspec's caches (3 to 82). For h5py it matches fsspec with no cache (278
+  requests, about 43 s), where fsspec's caches need 33 to 173. For czifile no transport helps
+  much: on the Axioscan CZI every setting but fsspec's two 1 MiB caches takes about 485
+  requests and 74 to 78 s, one per subblock header, and on the IDR CZI obstore (69 requests) is
   slower than any fsspec cache (33 to 65). For nd2, which reads a few large ranges, it matches
   fsspec's read-ahead (4 requests, 74 kB). obstore's strength is elsewhere: `get_ranges`
   (vectored reads) and async concurrency, which only a caller that knows its next reads in
