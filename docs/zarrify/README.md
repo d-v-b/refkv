@@ -139,10 +139,12 @@ under `refkv.zarr`, itself), imagecodecs-zarr's (`imagecodecs_jpeg`,
 `imagecodecs_jpeg2k`, `imagecodecs_jpegxr`), which `refkv[images]` installs, and
 zarr-python's own (`numcodecs.zlib`, `numcodecs.shuffle`, `numcodecs.delta`). So a
 copy of an archive's arrays (in a directory, or in another store) reads with zarr
-alone, but for an array on the zarr-extensions `rectilinear` chunk grid (a clipped
-CZI level, an MP4 video plane whose chunks differ in length), which zarr reads only
-with `zarr.config.set({"array.rectilinear_chunks": True})` (importing `refkv.zarr`
-sets it). `refkv.zarr` opens the archive itself:
+alone, except that an array on the zarr-extensions `rectilinear` chunk grid (a
+clipped CZI level, an MP4 video plane whose chunks differ in length) also needs
+`zarr.config.set({"array.rectilinear_chunks": True})`. Importing `refkv.zarr` sets
+it, and so does loading one of refkv's codecs, but zarr checks an array's chunk
+grid before it loads its codecs: set it yourself before opening such an array.
+`refkv.zarr` opens the archive itself:
 
 ```python
 import zarr

@@ -119,8 +119,8 @@ def test_entry_points_name_every_codec_and_resolve_to_it():
 
 
 def test_zarr_alone_decodes_every_codec_of_refkvs_archives(tmp_path):
-    """A plain directory copy of each archive's array, read by zarr in an interpreter that never
-    imports refkv itself, gives what refkv.zarr reads."""
+    """A plain directory copy of each archive's array, read by zarr in an interpreter that imports
+    refkv only through zarr's loading of its entry points, gives what refkv.zarr reads."""
     root, out = tmp_path / "store", tmp_path / "out"
     out.mkdir()
     paths, expected = [], []
@@ -151,7 +151,7 @@ def test_zarr_n5s_n5_default_reads_what_refkvs_does(tmp_path):
     """Every N5 fixture array refkv's `n5_default` reads, zarr-n5's reads the same, so that a reader
     with both installed may choose either (docs/zarrify/n5/README.md)."""
     pytest.importorskip("zarr_n5")
-    arrays = 0
+    arrays, refused = 0, set()
     for store in sorted(p for p in (FIXTURES / "n5").iterdir() if p.is_dir() and not p.name.startswith("n5_reject")):
         reader = _zarrified(f"n5/{store.name}", tmp_path)
         for key in reader.list():
@@ -161,12 +161,13 @@ def test_zarr_n5s_n5_default_reads_what_refkvs_does(tmp_path):
             path = key.removesuffix("zarr.json").rstrip("/")
             try:
                 ours = _read_with(SHARED["n5_default"], reader, path)
-            except N5BlockError:  # a block that is not default mode, which refkv's refuses
+            except N5BlockError:  # a block refkv's codec refuses
+                refused.add(f"{store.name}/{path}")
                 continue
             arrays += 1
             np.testing.assert_array_equal(_read_with("zarr_n5.codec.default.N5DefaultCodec", reader, path), ours,
                                           err_msg=f"{store.name}/{path}")
-    assert arrays == 51
+    assert (arrays, refused) == (51, {"n5_edge_varlength_block/v"})  # a varlength-mode block
 
 
 def test_loading_refkvs_n5_default_leaves_the_choice_to_zarrs_config():
