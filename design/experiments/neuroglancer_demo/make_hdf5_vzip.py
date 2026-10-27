@@ -51,7 +51,8 @@ def main(out: Path) -> None:
     with h5py.File(nc, "r") as f:
         ds = f["image"]
         assert ds.compression == "gzip" and not ds.shuffle, "need plain deflate chunks"
-        chunks = [ds.id.get_chunk_info(i) for i in range(ds.id.get_num_chunks())]
+        chunks: list = []
+        ds.id.chunk_iter(chunks.append)  # one pass over the index; get_chunk_info(i) is O(i)
 
     shape, chunk_shape = image.shape, (256, 256)
     metadata = {

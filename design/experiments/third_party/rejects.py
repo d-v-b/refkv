@@ -9,7 +9,7 @@ opens it and lists its chunks as a package-backed path would:
 - `nd2`: nd2, every frame's offset (`ND2File._rdr._frame_offsets`), and the sizes and data type
   the array needs;
 - `czi`: czifile, every subblock's data offset and size;
-- `ims`: h5py, `get_chunk_info` of every chunk of every chunked dataset.
+- `ims`: h5py, `chunk_iter` over every chunked dataset.
 
 Prints a Markdown table row per fixture (`OK` with what the package gave, or `FAIL` with its
 exception) and a count per format. Usage: `uv run python
@@ -75,9 +75,9 @@ def ims(path: Path) -> str:
         n = 0
         for ds in datasets:
             if ds.chunks is not None:
-                for i in range(ds.id.get_num_chunks()):
-                    ds.id.get_chunk_info(i)
-                    n += 1
+                chunks: list[object] = []
+                ds.id.chunk_iter(chunks.append)
+                n += len(chunks)
     return f"{n} chunks"
 
 
