@@ -1,4 +1,4 @@
-# Offline checks on every push and pull request: the Python package's tests and its
+# Offline checks on every push to main and every pull request: the Python package's tests and its
 # install without extras, the browser code's type check and Node tests, the IR core's
 # tests, the fixture
 # comparison of the zarrifiers against the frozen reference (spec/zarrify.md §1.1
@@ -12,17 +12,22 @@
 # section references, which do not depend on the system, on Linux only.
 name: ci
 
+# pushes to main; a pull request's branch runs as the pull request alone, not twice
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# a newer push to a pull request supersedes its run in progress; on main each commit has a group of
+# its own (a group holds one pending run, and cancels it for the next) and nothing is cancelled, so
+# every commit has a result
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
   NODE_VERSION: "24"

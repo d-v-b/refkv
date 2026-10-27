@@ -27,4 +27,4 @@ https://uk1s3.embassy.ebi.ac.uk/idr/zarr/v0.4/idr0079A/idr0079_images.zarr/|idr0
 # A plate of 96 wells with labels, 102114 objects: past the browser limit (spec/zarrify.md Appendix A
 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#appendix-a-conformance>), so
 # only the Python reference runs it, with --large.
-https://uk1s3.embassy.ebi.ac.uk/idr/zarr/v0.4/idr0001A/2551.zarr/|idr0001_2551_plate_labels|py-only
+https://uk1s3.embassy.ebi.ac.uk/idr/zarr/v0.4/idr0001A/2551.zarr/|idr0001_2551_plate_labels|py-only|listing-sha256=aaca8af20111e05dcee2c4b5acdf06a3ab9cb3a323216bb61384c5c6f4239632

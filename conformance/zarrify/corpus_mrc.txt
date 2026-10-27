@@ -1,6 +1,6 @@
 # url|name|no-ref of the public MRC files in the corpus (the frozen reference has no MRC profile, so each
 # compares py with web alone): mrcfile's test data (BSD-3-Clause): EMD-3197 (EMDB, CC0), an EPU image
 # with an FEI1 extended header, and an FEI2 one
-https://raw.githubusercontent.com/ccpem/mrcfile/64b0fb9ce0d921b902a06fe94d43e8d642b33d7d/tests/test_data/EMD-3197.map|mrcfile_emd_3197|no-ref
-https://raw.githubusercontent.com/ccpem/mrcfile/64b0fb9ce0d921b902a06fe94d43e8d642b33d7d/tests/test_data/epu2.9_example.mrc|mrcfile_epu_fei1|no-ref
-https://raw.githubusercontent.com/ccpem/mrcfile/64b0fb9ce0d921b902a06fe94d43e8d642b33d7d/tests/test_data/fei-extended.mrc|mrcfile_fei2|no-ref
+https://raw.githubusercontent.com/ccpem/mrcfile/64b0fb9ce0d921b902a06fe94d43e8d642b33d7d/tests/test_data/EMD-3197.map|mrcfile_emd_3197|no-ref|ends-sha256=7612708e05bb1aa6f501f858932ae74a219c686ca28080a5e553123c44cdea9b
+https://raw.githubusercontent.com/ccpem/mrcfile/64b0fb9ce0d921b902a06fe94d43e8d642b33d7d/tests/test_data/epu2.9_example.mrc|mrcfile_epu_fei1|no-ref|ends-sha256=4e0a83d14ca76b5edd2365183d46f667ec84d92909793ec0eb8ab859b81046c1
+https://raw.githubusercontent.com/ccpem/mrcfile/64b0fb9ce0d921b902a06fe94d43e8d642b33d7d/tests/test_data/fei-extended.mrc|mrcfile_fei2|no-ref|ends-sha256=3b7e674ebee7d14ceb22fd6ef299ae311d16348df9604c4d74a96b5b3ba7de94

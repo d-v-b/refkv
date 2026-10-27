@@ -2,12 +2,12 @@
 # each compares py with web alone): pynrrd's test data (MIT), raw and gzip, attached and detached
 # (whose data file, BallBinary30x30x30.raw, lies beside the header), and a 4-D volume with a `none`
 # space direction; and inputs the profile rejects (ascii, bzip2, a byte skip of -5)
-https://raw.githubusercontent.com/mhe/pynrrd/96bf87b78bde03987c09346ceffe0bb85a8f4214/nrrd/tests/data/BallBinary30x30x30.nrrd|pynrrd_ball_raw|no-ref
-https://raw.githubusercontent.com/mhe/pynrrd/96bf87b78bde03987c09346ceffe0bb85a8f4214/nrrd/tests/data/BallBinary30x30x30_gz.nrrd|pynrrd_ball_gz|no-ref
-https://raw.githubusercontent.com/mhe/pynrrd/96bf87b78bde03987c09346ceffe0bb85a8f4214/nrrd/tests/data/BallBinary30x30x30_gz_lineskip.nrrd|pynrrd_ball_gz_lineskip|no-ref
-https://raw.githubusercontent.com/mhe/pynrrd/96bf87b78bde03987c09346ceffe0bb85a8f4214/nrrd/tests/data/BallBinary30x30x30.nhdr|pynrrd_ball_detached|no-ref
-https://raw.githubusercontent.com/mhe/pynrrd/96bf87b78bde03987c09346ceffe0bb85a8f4214/nrrd/tests/data/BallBinary30x30x30_byteskip_minus_one.nhdr|pynrrd_ball_byteskip_minus_one|no-ref
-https://raw.githubusercontent.com/mhe/pynrrd/96bf87b78bde03987c09346ceffe0bb85a8f4214/nrrd/tests/data/test_simple4d_raw.nrrd|pynrrd_simple4d|no-ref
-https://raw.githubusercontent.com/mhe/pynrrd/96bf87b78bde03987c09346ceffe0bb85a8f4214/nrrd/tests/data/test_customFields.nrrd|pynrrd_reject_ascii|no-ref
-https://raw.githubusercontent.com/mhe/pynrrd/96bf87b78bde03987c09346ceffe0bb85a8f4214/nrrd/tests/data/BallBinary30x30x30_bz2.nrrd|pynrrd_reject_bzip2|no-ref
-https://raw.githubusercontent.com/mhe/pynrrd/96bf87b78bde03987c09346ceffe0bb85a8f4214/nrrd/tests/data/BallBinary30x30x30_byteskip_minus_five.nhdr|pynrrd_reject_byteskip_minus_five|no-ref
+https://raw.githubusercontent.com/mhe/pynrrd/96bf87b78bde03987c09346ceffe0bb85a8f4214/nrrd/tests/data/BallBinary30x30x30.nrrd|pynrrd_ball_raw|no-ref|ends-sha256=04b89bcb5445bfcda2f02205ee2ee21e055f8fb1aa6c68ba717d6a1728c5e29f
+https://raw.githubusercontent.com/mhe/pynrrd/96bf87b78bde03987c09346ceffe0bb85a8f4214/nrrd/tests/data/BallBinary30x30x30_gz.nrrd|pynrrd_ball_gz|no-ref|ends-sha256=739c7735c4f63db0adf41b72e13fc9cefdcb4124657fd7db2a029c46ef12ae74
+https://raw.githubusercontent.com/mhe/pynrrd/96bf87b78bde03987c09346ceffe0bb85a8f4214/nrrd/tests/data/BallBinary30x30x30_gz_lineskip.nrrd|pynrrd_ball_gz_lineskip|no-ref|ends-sha256=43b817299a34ce2ec83ae7755fe5847a3b8f00eedc698235c7312d5e2f3266cc
+https://raw.githubusercontent.com/mhe/pynrrd/96bf87b78bde03987c09346ceffe0bb85a8f4214/nrrd/tests/data/BallBinary30x30x30.nhdr|pynrrd_ball_detached|no-ref|ends-sha256=5281885b4b34b3362cdc10771a82f201384e68a87a502d97b6b94bb885b6026f
+https://raw.githubusercontent.com/mhe/pynrrd/96bf87b78bde03987c09346ceffe0bb85a8f4214/nrrd/tests/data/BallBinary30x30x30_byteskip_minus_one.nhdr|pynrrd_ball_byteskip_minus_one|no-ref|ends-sha256=55368dead1ebb1bda9416f581941f771aaa0f817756dd0a30d2cb8206d4cd6c3
+https://raw.githubusercontent.com/mhe/pynrrd/96bf87b78bde03987c09346ceffe0bb85a8f4214/nrrd/tests/data/test_simple4d_raw.nrrd|pynrrd_simple4d|no-ref|ends-sha256=690ad7bf7c88951618f1f5fecf0ab71efb0d70c1d02b10b47030383ce9950b4c
+https://raw.githubusercontent.com/mhe/pynrrd/96bf87b78bde03987c09346ceffe0bb85a8f4214/nrrd/tests/data/test_customFields.nrrd|pynrrd_reject_ascii|no-ref|ends-sha256=8f9f2d7286f7474546a1006140a6bc37489f089ba428e783fd6db65753bf6c63
+https://raw.githubusercontent.com/mhe/pynrrd/96bf87b78bde03987c09346ceffe0bb85a8f4214/nrrd/tests/data/BallBinary30x30x30_bz2.nrrd|pynrrd_reject_bzip2|no-ref|ends-sha256=0c5fc03815e845e0c45c724a3baa89ceddc0b80de41e7d462387998b7e057172
+https://raw.githubusercontent.com/mhe/pynrrd/96bf87b78bde03987c09346ceffe0bb85a8f4214/nrrd/tests/data/BallBinary30x30x30_byteskip_minus_five.nhdr|pynrrd_reject_byteskip_minus_five|no-ref|ends-sha256=7106d1149ccfca8040c53c8812b44f6eb87eaeeb1c7de284c03fe5fe6da27a2c

@@ -30,6 +30,7 @@ Usage: python conformance/zarrify/proxy.py <fixture dir> <cache dir> [port]
 from __future__ import annotations
 
 import base64
+import contextlib
 import hashlib
 import json
 import os
@@ -57,10 +58,24 @@ def decode_id(i: str) -> str:
     return base64.urlsafe_b64decode(i + "=" * (-len(i) % 4)).decode()
 
 
+def write_whole(f: Path, data: bytes) -> None:
+    """Write a cache file whole or not at all: the nightly saves the cache of a job killed
+    mid-write too, and a truncated file would be read as complete by every later run."""
+    tmp = f.with_name(f"{f.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    tmp.write_bytes(data)
+    tmp.replace(f)
+
+
 class Upstream:
     def __init__(self, cache: Path) -> None:
         self.cache = cache
         cache.mkdir(parents=True, exist_ok=True)
+        # write_whole's, of a run killed mid-write: an hour old, so not another process's in flight
+        # (the cache is shared)
+        for tmp in cache.glob("*.tmp"):
+            with contextlib.suppress(FileNotFoundError):  # swept by another process meanwhile
+                if time.time() - tmp.stat().st_mtime > 3600:
+                    tmp.unlink()
         self.lock = threading.Lock()
         self.sizes: dict[str, int] = {}
 
@@ -87,21 +102,21 @@ class Upstream:
                 with self._open(req) as r:
                     total = (r.headers.get("Content-Range") or "").rpartition("/")[2]
                     self.sizes[url] = int(total) if total.isdecimal() else int(r.headers["Content-Length"])
-                f.write_text(str(self.sizes[url]))
+                write_whole(f, str(self.sizes[url]).encode())
         return self.sizes[url]
 
     def block(self, url: str, i: int) -> bytes:
         f = self.cache / f"{hashlib.sha256(url.encode()).hexdigest()}.{i}"
-        if f.exists():
-            return f.read_bytes()
         start = i * BLOCK
         end = min(self.size(url), start + BLOCK)
+        if f.exists() and len(cached := f.read_bytes()) == end - start:
+            return cached
         req = urllib.request.Request(url, headers={"Range": f"bytes={start}-{end - 1}", "User-Agent": UA})  # noqa: S310 (an http(s) corpus URL)
         with self._open(req) as r:
             data = r.read()
         if len(data) != end - start:
             raise OSError(f"{url}: short block {i}")
-        f.write_bytes(data)
+        write_whole(f, data)
         return data
 
     def read(self, url: str, start: int, end: int) -> bytes:
@@ -177,7 +192,7 @@ class RemoteListings:
             if token is None:
                 break
         out.sort()
-        f.write_text(json.dumps(out))
+        write_whole(f, json.dumps(out).encode())
         return out
 
 
