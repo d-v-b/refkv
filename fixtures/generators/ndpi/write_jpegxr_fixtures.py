@@ -16,6 +16,10 @@ YCbCr with 3 samples, whatever its JPEG XR streams hold.
   order too. Level 0 is a single tile: its tile tables are one value in line, whose high bits
   are its entries' high words, which its high tables hold (0s). OffsetHighBytes's own entry has
   a high word of 1, which is no part of its value.
+- `ndpi_jpegxr_cy5.ndpi`: a fluorescence slide of one 16-bit grayscale strip whose Fluorescence,
+  `Cy5\0`, is 4 bytes out of line, as Hamamatsu writes every ASCII value (spec/zarrify/ndpi.md §7
+  <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>): its entry's
+  field is the value's offset, not its text.
 - `edge_reject_ndpi_jpegxr_*.ndpi`, `edge_reject_ndpi_compressions.ndpi`: inputs §3
   <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#3-levels> and §7
   <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile> reject.
@@ -199,6 +203,10 @@ def main() -> None:
     strip(f, jxr(level1), 80, 50, 20.0)
     strip(f, jpeg, 40, 25, 10.0, compression=7)
     f.write("edge_reject_ndpi_compressions.ndpi")
+    # after the others, which the generator's draws would otherwise change
+    f = Ndpi()
+    strip(f, jxr(image("uint16", 16, 24)), 24, 16, 20.0, extra={65434: (ASCII, b"Cy5\0"), 65451: (FLOAT, [670.0])})
+    f.write("ndpi_jpegxr_cy5.ndpi")
     for p in [*sorted(OUT.glob("*jpegxr*")), OUT / "edge_reject_ndpi_compressions.ndpi"]:
         print(p.name, p.stat().st_size)
 

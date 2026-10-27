@@ -136,7 +136,7 @@ ADDED = {"tiff": ("omero",), "ndpi": ("omero",)}
 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>), and its JPEG XR levels
 # (spec/zarrify/ndpi.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#3-levels>).
 REVISED = {"edge_ndpi_frames.ndpi", "edge_reject_ndpi_frame.ndpi", "ndpi_jpegxr_gray16.ndpi",
-           "ndpi_jpegxr_rgb.ndpi", "ndpi_jpegxr_bgr.ndpi"}
+           "ndpi_jpegxr_rgb.ndpi", "ndpi_jpegxr_bgr.ndpi", "ndpi_jpegxr_cy5.ndpi"}
 # The profiles whose edge chunks' zero padding is a range of the output's zero data source since
 # the freeze, where the frozen reference pads with a literal range (spec/zarrify/nifti.md §7.2
 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#72-chunks>): compared with it,
