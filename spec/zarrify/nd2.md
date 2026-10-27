@@ -7,7 +7,9 @@ conventions share is in [spec/conventions.md](../conventions.md), cited here as
 ND2 profile, [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `59612f14-e314-4207-ba00-8f422ba71490` ·
-Schema: [schema.json](nd2/schema.json) · Changed 2026-10-26, with no change to any output: the
+Schema: [schema.json](nd2/schema.json) ·
+Changed 2026-10-27: a zlib stream's codec is `numcodecs.zlib`, zarr-python's name for it, in place of `zlib` ([conventions §3](../conventions.md#3-arrays), d-v-b/refkv#90) ·
+Changed 2026-10-26, with no change to any output: the
 layout is tabulated, its entries in [Layout](#layout) and its types in type tables
 ([conventions §11.5](../conventions.md#115-layout-tables))
 
@@ -296,7 +298,7 @@ its entries are in [Layout](#layout)):
 | `shape` | array of integer | required | the loops' counts, `uiComp`, then `uiHeight`, `uiWidth` (each only for the axes present) |
 | `data_type` | string | required | `uint8`, `uint16` or `float32`, by `uiBpcInMemory` ([§3](#3-metadata)) |
 | `chunk_grid` | object | required | regular, its chunk shape 1 for `t` and `z`, `uiComp` for `c`, then `h` and `uiWidth`: one frame, or one row block, per chunk. `h` is `uiHeight`, except for uncompressed frames with padded rows (`uiWidthBytes` more than a row), which the profile splits into blocks of `h` rows, a divisor of `uiHeight` that it chooses to keep each chunk's reference within refkv's limits ([§7.3](#73-frames)) |
-| `codecs` | array of object | required | ([conventions §3](../conventions.md#3-arrays)) transpose when `c` is present (frames are interleaved), bytes (with `"endian": "little"` when the data type is larger than 1 byte), and zlib if compressed |
+| `codecs` | array of object | required | ([conventions §3](../conventions.md#3-arrays)) transpose when `c` is present (frames are interleaved), bytes (with `"endian": "little"` when the data type is larger than 1 byte), and `numcodecs.zlib` if compressed |
 | `dimension_names` | array of string | required | the **axes**: `t` if there is a time loop (even of count 1), `c` if `uiComp > 1`, `z` if there is a z loop, then `y`, `x` |
 
 **Units and scales** of each image's axes:

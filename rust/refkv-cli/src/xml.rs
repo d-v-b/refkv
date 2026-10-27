@@ -1,6 +1,6 @@
 //! The XML subset of a store listing (spec/zarrify.md §1.5
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>), and the
-//! listing it holds: python/src/refkv/zarrify/store.py's `_Xml` and `parse_listing`. A document
+//! listing it holds: python/src/refkv/zarrify/store/listing.py's `_Xml` and `parse_listing`. A document
 //! outside the subset is rejected.
 
 const MAX_DEPTH: usize = 256;

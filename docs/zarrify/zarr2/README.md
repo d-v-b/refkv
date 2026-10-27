@@ -28,7 +28,7 @@ array.
   `int64`, `uint8` to `uint64`, `float16`, `float32`, `float64`, either byte
   order); `fill_value` carried over (`null` becomes 0 or `false`).
 - **Codecs:** `transpose` for `order: "F"`, `bytes` with the byte order,
-  then the compressor: `zlib`, `gzip`, `zstd` or `blosc` (any of blosc's
+  then the compressor: `numcodecs.zlib` (for `zlib`), `gzip`, `zstd` or `blosc` (any of blosc's
   internal compressors, including `lz4`).
 - **Chunk keys:** the `v2` encoding with the array's own separator (`.` or
   `/`), so the keys are unchanged.
@@ -105,8 +105,9 @@ more than 100000 objects fails in the browser with HTTP 507.
 ## Viewing
 
 The Neuroglancer fork (<https://github.com/d-v-b/neuroglancer>, branch `vzip`)
-reads the `v2` chunk key encoding and the `transpose`, `bytes`, `zlib`,
-`gzip`, `zstd` and `blosc` codecs, and `uint8` to `uint32`, `int8` to
+reads the `v2` chunk key encoding and the `transpose`, `bytes`, `gzip`,
+`zstd` and `blosc` codecs (and `zlib`, which archives named before d-v-b/refkv#90, but not
+yet `numcodecs.zlib`), and `uint8` to `uint32`, `int8` to
 `int32`, `uint64` and `float32` data. It has no `bool`, `float16`, `int64`
 or `float64` data type, so arrays of those types cannot be shown there. The
 demo page needs an OME-Zarr image; groups with OME-NGFF 0.4 metadata below

@@ -108,7 +108,10 @@ def crop(strip: bytes, starts: list[int], per_row: int, x0: int, y0: int, across
 
 class Ndpi:
     """An NDPI file: little-endian, an 8-byte first-IFD offset, and IFDs
-    followed by an 8-byte next offset and a high word per entry."""
+    followed by an 8-byte next offset and a high word per entry. An ASCII
+    value is out of line whatever its size, as Hamamatsu writes it
+    (spec/zarrify/ndpi.md §7
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>)."""
 
     def __init__(self) -> None:
         self.buf = bytearray(b"II*\x00" + b"\x00" * 8)
@@ -148,7 +151,8 @@ class Ndpi:
             else:
                 raw = struct.pack(f"<{len(values)}{ {3: 'H', 4: 'I', 9: 'i', 11: 'f', 13: 'I', 16: 'Q'}[typ] }",
                                   *values)
-            field = raw.ljust(4, b"\x00") if len(raw) <= 4 else struct.pack("<I", self.blob(raw))
+            in_line = len(raw) <= 4 and (typ != 2 or not raw)
+            field = raw.ljust(4, b"\x00") if in_line else struct.pack("<I", self.blob(raw))
             entries.append(struct.pack("<HHI", tag, typ, len(values)) + field)
         n = len(entries)
         return self.blob(struct.pack("<H", n) + b"".join(entries) + b"\x00" * 8 + b"\x00" * 4 * n)
@@ -190,6 +194,11 @@ def main() -> None:
     f = Ndpi()  # McuStarts with one value too few
     f.image(level1[0], level1[2], level1[3], 20.0, level1[1][:-1])
     f.write("edge_reject_ndpi_mcustarts.ndpi")
+    # McuStarts of one in-line LONG, whose value has its entry's high word (0), and
+    # McuStartsHighBytes of 1, which is not that word
+    f = Ndpi()
+    f.image(level1[0], level1[2], level1[3], 20.0, level1[1][:1], extra={65432: (4, [1])})
+    f.write("edge_reject_ndpi_mcustarts_high_word.ndpi")
     header = strip[: starts[0]]
     pos = header.index(b"\xff\xdd")  # remove the DRI segment
     no_dri = crop(strip, starts, per_row, 10, 100, 3, 20, header[:pos] + header[pos + 6 :])

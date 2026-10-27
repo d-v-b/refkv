@@ -11,7 +11,8 @@ How refkv produces this layout as a reference store is the QPTIFF profile,
 [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `329ea136-2f55-4c27-b6f4-8e60ca2109b8` ·
-Schema: [schema.json](qptiff/schema.json) · Changed 2026-10-27, with no change to the output of the inputs accepted before but the unusual ones below:
+Schema: [schema.json](qptiff/schema.json) ·
+Changed 2026-10-27, with no change to the output of the inputs accepted before but the unusual ones below:
 the strip tags, LZW and the padding of a short last strip are now the TIFF convention's
 ([tiff.md §4.3](tiff.md#43-data-types-and-codecs), [tiff.md §4.5](tiff.md#45-strips)), which
 [§2](#2-the-source), [§4.1](#41-data-types-and-codecs) and [§4.2](#42-tiles-and-strips) cite;
@@ -19,7 +20,9 @@ a level whose short last strip cannot be padded is still left out here; a strip 
 with more than 2^22 zero bytes now rejects the input ([§4.2](#42-tiles-and-strips)), and a
 short last LZW strip is read up to `3 × rows × B + 64` bytes, as [tiff.md §7.1](tiff.md#71-reading)
 says, where the whole strip was read (a stream that spends more than a Clear code and a literal
-on each byte it decodes no longer reaches its size) · Changed 2026-10-26, with no change to any output:
+on each byte it decodes no longer reaches its size) ·
+Changed 2026-10-27: an LZW tile's or strip's codec is `refkv.tiff_lzw`, refkv's own, in place of `imagecodecs_lzw` (imagecodecs-zarr's codec of that name reads the whole stream), and a Deflate one's `numcodecs.zlib`, in place of `zlib` ([conventions §3](../conventions.md#3-arrays), d-v-b/refkv#90) ·
+Changed 2026-10-26, with no change to any output:
 the layout is tabulated, its entries in [Layout](#layout) and its types in type tables
 ([conventions §11.5](../conventions.md#115-layout-tables)), the root's source metadata and a
 JPEG tile's reference those of the TIFF convention ([`TiffRoot`](tiff.md#type-tiffroot),
@@ -166,7 +169,7 @@ are kept in the source metadata and otherwise ignored.
 
 The data type and codecs are those of [the TIFF convention §4.3](tiff.md#43-data-types-and-codecs),
 including its requirements on JPEG, FillOrder and YCbCr subsampling, its LZW row
-(`bytes`, `imagecodecs_lzw`: the scanners' default) and its rejection of a predictor.
+(`bytes`, `refkv.tiff_lzw`: the scanners' default) and its rejection of a predictor.
 
 ### 4.2 Tiles and strips
 
@@ -343,7 +346,7 @@ OME metadata:
 ```
 
 Level `0` is `uint8` of shape `[3, 96, 128]` with chunk shape `[1, 32, 32]`
-and codecs `[{"name": "bytes"}, {"name": "imagecodecs_lzw"}]`; its chunk
+and codecs `[{"name": "bytes"}, {"name": "refkv.tiff_lzw"}]`; its chunk
 `0/c/1/2/3` is tile 11 of IFD 1 (channel 1, tile row 2, column 3). Level
 `2`, in strips, has shape `[3, 24, 32]` and chunk shape `[1, 16, 32]`; its
 chunk `2/c/0/1/0` is the second strip of the level's DAPI image, 8 rows

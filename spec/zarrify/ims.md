@@ -7,7 +7,9 @@ refkv produces this layout as a reference store, and the subset of HDF5 that
 it reads, is the IMS profile, [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `5067a535-8261-4b25-a93c-1985ed333bde` ·
-Schema: [schema.json](ims/schema.json) · Changed 2026-10-26, with no change to any output: the
+Schema: [schema.json](ims/schema.json) ·
+Changed 2026-10-27: a zlib stream's codec is `numcodecs.zlib`, zarr-python's name for it, in place of `zlib` ([conventions §3](../conventions.md#3-arrays), d-v-b/refkv#90) ·
+Changed 2026-10-26, with no change to any output: the
 layout is tabulated, its entries in [Layout](#layout) and its types in type tables
 ([conventions §11.5](../conventions.md#115-layout-tables)), and the HDF5 structures' fields
 and cases in tables
@@ -237,7 +239,7 @@ planes keeps them, so that its bytes decode to its Zarr chunk); then `y`,
 | `shape` | array of integer | required | `T`, `C`, `Zr`, `Yr`, `Xr`, each only for the axes present |
 | `data_type` | string | required | the data type of [§2.2](#22-the-imaris-layout) |
 | `chunk_grid` | object | required | regular, its chunk shape 1, 1, `cz`, `cy`, `cx`, each only for the axes present |
-| `codecs` | array of object | required | `bytes` (with the byte order as its `endian` for data types of 2 or 4 bytes), followed by `zlib` for deflate |
+| `codecs` | array of object | required | `bytes` (with the byte order as its `endian` for data types of 2 or 4 bytes), followed by `numcodecs.zlib` for deflate |
 | `attributes` | object | required | `{}` |
 
 **Scale** of level `r`, for each axis:

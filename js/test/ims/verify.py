@@ -25,26 +25,20 @@ import os
 import struct
 import subprocess
 import sys
-import zlib
 from collections.abc import Sequence
-from dataclasses import dataclass
 from pathlib import Path
-from typing import override
 
 import h5py
 import numpy as np
 import zarr
-from zarr.abc.codec import BytesBytesCodec
-from zarr.core.common import JSON
 from zarr.core.sync import sync
-from zarr.registry import register_codec
 
 HERE = Path(__file__).parent
 ROOT = HERE.parents[2]
 sys.path.insert(0, str(ROOT / "conformance" / "vzip"))
 
 import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store)
-from refkv._narrow import at, integer, mapping, ndarray, sequence, string  # noqa: E402
+from refkv._narrow import at, ndarray, sequence, string  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # js/test, for verify_common
 from verify_common import LOOPBACK_SOURCES, metadata_v3, run, serve  # noqa: E402
@@ -52,36 +46,6 @@ from verify_common import LOOPBACK_SOURCES, metadata_v3, run, serve  # noqa: E40
 sys.path.insert(0, str(HERE.parent))
 from ir_mirror import is_mirror, mirror_problems  # noqa: E402
 
-
-@dataclass(frozen=True)
-class ZlibCodec(BytesBytesCodec):
-    """'zlib' (as Neuroglancer names it), which zarr-python lacks."""
-
-    is_fixed_size = False
-    level: int = 1
-
-    @classmethod
-    @override
-    def from_dict(cls, data):
-        return cls(**{k: integer(v, k) for k, v in mapping(data.get("configuration", {})).items()})
-
-    @override
-    def to_dict(self) -> dict[str, JSON]:
-        return {"name": "zlib", "configuration": {"level": self.level}}
-
-    @override
-    async def _decode_single(self, chunk_data, chunk_spec):
-        return chunk_spec.prototype.buffer.from_bytes(zlib.decompress(chunk_data.to_bytes()))
-
-    @override
-    async def _encode_single(self, chunk_data, chunk_spec):
-        return chunk_spec.prototype.buffer.from_bytes(zlib.compress(chunk_data.to_bytes()))
-
-    def compute_encoded_size(self, input_byte_length, chunk_spec):
-        raise NotImplementedError
-
-
-register_codec("zlib", ZlibCodec)
 # compiled modules that h5py loads but does not import in its __init__: no stub names them
 h5i, h5l, h5o = (importlib.import_module(f"h5py.{m}") for m in ("h5i", "h5l", "h5o"))
 

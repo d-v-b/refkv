@@ -185,15 +185,15 @@ AXIS = {"T": "t", "C": "c", "S": "c", "Z": "z", "Y": "y", "X": "x"}
 STRIPS = {
     # name: each level's shape and chunk shape, the codecs, and the padding of each level's
     # short last strip: None (no short strip), "zeros" (a zero data source) or "lzw" (a tail)
-    "lzw_uint8.tif": ([([64, 64], [32, 32])], ["bytes", "imagecodecs_lzw"], [None]),
+    "lzw_uint8.tif": ([([64, 64], [32, 32])], ["bytes", "refkv.tiff_lzw"], [None]),
     "strips_uint8.tif": ([([64, 64], [64, 64])], ["bytes"], [None]),  # one strip, the whole image
     "strips_uint16_short.tif": ([([70, 50], [16, 50])], ["bytes"], ["zeros"]),
-    "strips_uint16_lzw_short.tif": ([([70, 50], [16, 50])], ["bytes", "imagecodecs_lzw"], ["lzw"]),
+    "strips_uint16_lzw_short.tif": ([([70, 50], [16, 50])], ["bytes", "refkv.tiff_lzw"], ["lzw"]),
     "strips_rgb_contig_short.tif": ([([3, 70, 50], [3, 16, 50])], ["transpose", "bytes"], ["zeros"]),
     "strips_rgb_planar_lzw.ome.tif": ([([3, 70, 50], [1, 16, 50]), ([3, 35, 25], [1, 16, 25])],
-                                      ["bytes", "imagecodecs_lzw"], ["lzw", "lzw"]),
+                                      ["bytes", "refkv.tiff_lzw"], ["lzw", "lzw"]),
     "strips_tcyx_uint16_lzw.ome.tif": ([([2, 3, 70, 50], [1, 1, 16, 50]), ([2, 3, 35, 25], [1, 1, 16, 25])],
-                                       ["bytes", "imagecodecs_lzw"], ["lzw", "lzw"]),
+                                       ["bytes", "refkv.tiff_lzw"], ["lzw", "lzw"]),
     # two levels whose last strips lack 1000 and 650 bytes: prefixes of one zero data source
     "strips_uint16_pyramid_short.ome.tif": ([([70, 50], [16, 50]), ([35, 25], [16, 25])], ["bytes"],
                                             ["zeros", "zeros"]),
@@ -203,7 +203,7 @@ STRIPS = {
 def test_strips_and_lzw_are_the_images_pixels(tmp_path):
     """§4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>,
     §4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>: LZW tiles and
-    strips are `imagecodecs_lzw` chunks; a level in strips has chunks of RowsPerStrip rows by the
+    strips are `refkv.tiff_lzw` chunks; a level in strips has chunks of RowsPerStrip rows by the
     image's width, one strip each, and a short last strip is padded to the chunk with a prefix of
     the output's one zero data source (uncompressed) or a literal tail of its LZW stream;
     interleaved or planar samples, the planes of an OME-TIFF and a SubIFD level alike. Each level

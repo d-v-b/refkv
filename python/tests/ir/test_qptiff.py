@@ -128,7 +128,7 @@ def test_layout_of_the_fluorescence_scan():
     ]  # their windows sampled (test_omero_windows_sample_the_coarsest_level)
     assert d["0/zarr.json"]["shape"] == [3, 96, 128]
     assert d["0/zarr.json"]["chunk_grid"] == {"name": "regular", "configuration": {"chunk_shape": [1, 32, 32]}}
-    assert d["0/zarr.json"]["codecs"] == [{"name": "bytes"}, {"name": "imagecodecs_lzw"}]
+    assert d["0/zarr.json"]["codecs"] == [{"name": "bytes"}, {"name": "refkv.tiff_lzw"}]
     assert d["2/zarr.json"]["shape"] == [3, 24, 32]
     assert d["2/zarr.json"]["chunk_grid"] == {"name": "regular", "configuration": {"chunk_shape": [1, 16, 32]}}
     chunks = sorted(k for k in out.refs if not k.startswith("refkv_source/"))

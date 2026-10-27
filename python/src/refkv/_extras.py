@@ -4,10 +4,14 @@ The base install reads and writes vzip archives, holds a `ReferenceStore`, and
 zarrifies image files and stores, without Zarr. The extras add:
 
 - `zarr`: zarr-python, for `refkv.zarr`, which opens a reference store as a
-  read-only zarr store (for zarr and xarray), and registers the codecs that
-  archives of zarrified image files and stores use (`refkv.zarr.codecs`);
-- `images`: the JPEG, JPEG 2000 and JPEG XR decoders of those codecs
-  (imagecodecs), with the `zarr` extra;
+  read-only zarr store (for zarr and xarray), and the codecs that archives of
+  zarrified image files and stores use and zarr-python lacks
+  (`refkv.zarr.codecs`), which zarr finds through refkv's `zarr.codecs` entry
+  points;
+- `images`: imagecodecs-zarr, whose `imagecodecs_jpeg`, `imagecodecs_jpeg2k` and
+  `imagecodecs_jpegxr` codecs the archives of JPEG, JPEG 2000 and JPEG XR images
+  name, and imagecodecs, whose LZW decoder `refkv.tiff_lzw` calls, with the
+  `zarr` extra;
 - `media`: the decoders of the `refkv.stream` codec, which reads zarrified MP3,
   FLAC and MP4 files: ffmpeg's MP3, AAC, FLAC and H.264 decoders, through PyAV,
   with the `zarr` extra;

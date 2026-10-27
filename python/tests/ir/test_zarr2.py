@@ -26,7 +26,7 @@ BE = {"name": "bytes", "configuration": {"endian": "big"}}
 ONE = {"name": "bytes"}
 T2 = {"name": "transpose", "configuration": {"order": [1, 0]}}
 T3 = {"name": "transpose", "configuration": {"order": [2, 1, 0]}}
-ZLIB = {"name": "zlib", "configuration": {"level": 1}}
+ZLIB = {"name": "numcodecs.zlib", "configuration": {"level": 1}}
 
 
 def blosc(cname, clevel, shuffle, typesize, blocksize=0):
@@ -74,7 +74,7 @@ CASES = {
         "neg_zero_f4": ("float32", [LE], ".", "0x80000000"),
         "neg_zero_f8": ("float64", [LE], ".", "0x8000000000000000"),
         "big_fill_f8": ("float64", [LE], ".", 18446744073709551616.0),
-        "zlib_9": ("uint16", [LE, {"name": "zlib", "configuration": {"level": 9}}], ".", 0),
+        "zlib_9": ("uint16", [LE, {"name": "numcodecs.zlib", "configuration": {"level": 9}}], ".", 0),
         "zlib_no_level": ("uint16", [LE, ZLIB], ".", 0),
         "gzip_default": ("uint16", [LE, {"name": "gzip", "configuration": {"level": 6}}], ".", 0),
         "zstd_checksum": ("uint16", [LE, {"name": "zstd", "configuration": {"level": -3, "checksum": True}}], ".", 0),

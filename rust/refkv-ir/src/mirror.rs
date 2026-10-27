@@ -716,7 +716,7 @@ fn copied_as(out: &mut Out, path: &str, data_type: &str, item: u64, shape: &[u64
             chunks.push((coords, Chunk::Bytes(body)));
         }
     }
-    let codec = deflate.then(|| json!({"name": "zlib", "configuration": {"level": 6}}));
+    let codec = deflate.then(|| json!({"name": "numcodecs.zlib", "configuration": {"level": 6}}));
     metadata_array(out, &format!("{SOURCE_NODE}/{path}"), data_type, shape, &chunk_shape, Some(dims), chunks, "little", codec);
 }
 
@@ -1387,9 +1387,9 @@ pub fn table_from(get: &dyn Fn(&str) -> Option<Vec<u8>>) -> Result<Table, String
         let cs = nums(&meta["chunk_grid"]["configuration"]["chunk_shape"]);
         let item: u64 = if meta["data_type"] == "uint8" { 1 } else { 8 };
         let codecs = meta["codecs"].as_array().cloned().unwrap_or_default();
-        let deflated = codecs.iter().any(|c| c["name"] == "zlib");
-        if codecs.iter().any(|c| c["name"] != "zlib" && c["name"] != "bytes") {
-            return Err(format!("{p}: a codec other than bytes and zlib"));
+        let deflated = codecs.iter().any(|c| c["name"] == "numcodecs.zlib");
+        if codecs.iter().any(|c| c["name"] != "numcodecs.zlib" && c["name"] != "bytes") {
+            return Err(format!("{p}: a codec other than bytes and numcodecs.zlib"));
         }
         if shape.is_empty() || shape.len() > 2 || cs.len() != shape.len() || cs.contains(&0) {
             return Err(format!("{p}: a table array of shape {shape:?}"));

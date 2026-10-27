@@ -57,13 +57,13 @@ export function usableWindow(w: Window | undefined, dataType: string): boolean {
  * The decoded samples of a chunk, as bytes and their byte order, for the
  * codecs this page decodes: `bytes`, `imagecodecs_jpeg2k` and
  * `imagecodecs_jpegxr`, after any `transpose` (the order of the samples does
- * not matter for their percentiles), with `gzip` or `zlib` after them.
+ * not matter for their percentiles), with `gzip` or `numcodecs.zlib` after them.
  * Undefined for any other chain.
  */
 async function decodeChunk(meta: any, encoded: Uint8Array): Promise<[Uint8Array, boolean] | undefined> {
   const codecs: { name: string; configuration?: any }[] = meta.codecs.filter((c: { name: string }) => c.name !== "transpose");
   const [first, ...rest] = codecs;
-  if (rest.some((c) => c.name !== "gzip" && c.name !== "zlib")) return undefined;
+  if (rest.some((c) => c.name !== "gzip" && c.name !== "numcodecs.zlib")) return undefined;
   let bytes = encoded;
   for (const c of [...rest].reverse()) {
     const inflate = new DecompressionStream(c.name === "gzip" ? "gzip" : "deflate") as TransformStream<Uint8Array, Uint8Array>;

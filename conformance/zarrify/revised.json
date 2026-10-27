@@ -6,6 +6,7 @@
     "ndpi_jpegxr_gray16.ndpi",
     "ndpi_jpegxr_rgb.ndpi",
     "ndpi_jpegxr_bgr.ndpi",
+    "ndpi_jpegxr_cy5.ndpi",
     "lzw_uint8.tif",
     "strips_uint8.tif",
     "strips_uint16_short.tif",

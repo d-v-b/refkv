@@ -1,13 +1,16 @@
-"""`imagecodecs_lzw`: a TIFF LZW stream (TIFF 6.0 §13, MSB-first with early change), as TIFF
+"""`refkv.tiff_lzw`: a TIFF LZW stream (TIFF 6.0 §13, MSB-first with early change), as TIFF
 and QPTIFF tiles and strips are (spec/zarrify/tiff.md §4.3
 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>),
 decoded into the chunk's size, as TIFF readers decode a tile: a stream that runs on past it
-(some scanners write the final code one bit too narrow) still gives the chunk.
+(some scanners write the final code one bit too narrow) still gives the chunk. That is what
+sets it apart from imagecodecs-zarr's `imagecodecs_lzw`, which decodes the whole stream, and so
+gives such a chunk more bytes than it holds.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import ModuleType
 from typing import Self, cast, override
 
 import numpy as np
@@ -18,12 +21,22 @@ from zarr.core.common import JSON
 from zarr.core.dtype.common import HasItemSize
 from zarr.registry import register_codec
 
-from refkv.zarr.codecs._imagecodecs import imagecodecs
+from refkv._extras import missing
+
+
+def _imagecodecs() -> ModuleType:
+    """imagecodecs, whose LZW decoder the refkv.tiff_lzw codec calls, imported when a chunk is
+    first coded."""
+    try:
+        import imagecodecs  # noqa: PLC0415 (the images extra)
+    except ImportError as e:
+        raise missing("images", "Reading TIFF LZW chunks", e) from e
+    return imagecodecs
 
 
 @dataclass(frozen=True)
 class LzwCodec(BytesBytesCodec):
-    """`imagecodecs_lzw`: each chunk is one TIFF LZW stream (compression 5)."""
+    """`refkv.tiff_lzw`: each chunk is one TIFF LZW stream (compression 5)."""
 
     is_fixed_size = False
 
@@ -34,7 +47,7 @@ class LzwCodec(BytesBytesCodec):
 
     @override
     def to_dict(self) -> dict[str, JSON]:
-        return {"name": "imagecodecs_lzw"}
+        return {"name": "refkv.tiff_lzw"}
 
     @override
     async def _decode_single(self, chunk_data: Buffer, chunk_spec: ArraySpec) -> Buffer:
@@ -45,15 +58,15 @@ class LzwCodec(BytesBytesCodec):
         for d in chunk_spec.shape:
             size *= d
         out = np.empty(size, dtype=np.uint8)
-        decoded = imagecodecs().lzw_decode(chunk_data.to_bytes(), out=out)
+        decoded = _imagecodecs().lzw_decode(chunk_data.to_bytes(), out=out)
         return chunk_spec.prototype.buffer.from_bytes(np.ascontiguousarray(decoded).tobytes())
 
     @override
     async def _encode_single(self, chunk_data: Buffer, chunk_spec: ArraySpec) -> Buffer:
-        return chunk_spec.prototype.buffer.from_bytes(imagecodecs().lzw_encode(chunk_data.to_bytes()))
+        return chunk_spec.prototype.buffer.from_bytes(_imagecodecs().lzw_encode(chunk_data.to_bytes()))
 
     def compute_encoded_size(self, input_byte_length: int, chunk_spec: ArraySpec) -> int:
         raise NotImplementedError
 
 
-register_codec("imagecodecs_lzw", LzwCodec)
+register_codec("refkv.tiff_lzw", LzwCodec)

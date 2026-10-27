@@ -306,7 +306,9 @@ fn compressor(path: &str, c: Option<&Jv>, b: u64) -> Res<(Option<Jv>, Jv)> {
     };
     let int = |l: i64| Jv::Int(l.to_string());
     let codec = match id {
-        "zlib" | "gzip" => Jv::obj(vec![("name", Jv::str(id)), ("configuration", Jv::obj(vec![("level", int(level()))]))]),
+        // zarr-python's name for numcodecs' Zlib, which a Zarr v2 `zlib` compressor is
+        "zlib" => Jv::obj(vec![("name", Jv::str("numcodecs.zlib")), ("configuration", Jv::obj(vec![("level", int(level()))]))]),
+        "gzip" => Jv::obj(vec![("name", Jv::str("gzip")), ("configuration", Jv::obj(vec![("level", int(level()))]))]),
         "zstd" => {
             let checksum = c.get("checksum").cloned().unwrap_or(Jv::Bool(false));
             Jv::obj(vec![("name", Jv::str("zstd")), ("configuration", Jv::obj(vec![("level", int(level())), ("checksum", checksum)]))])

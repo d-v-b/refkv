@@ -7,13 +7,16 @@ cited here as "conventions §n". How refkv produces this layout as a reference
 store is the TIFF profile, [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `48e9ac4e-1156-4a62-955e-20467d9c2700` ·
-Schema: [schema.json](tiff/schema.json) · Changed 2026-10-27: images in strips and LZW
+Schema: [schema.json](tiff/schema.json) ·
+Changed 2026-10-27: images in strips and LZW
 (Compression 5) have a layout, which they had in the QPTIFF convention only: a level in strips
 has chunks of its rows per strip, a short last strip padded to them when uncompressed (with a
 range of the output's zero data source, [§7.3](#73-chunks)) or LZW ([§4.5](#45-strips)), and
-LZW is `imagecodecs_lzw` ([§4.3](#43-data-types-and-codecs)); the
+LZW is `refkv.tiff_lzw` ([§4.3](#43-data-types-and-codecs)); the
 table of [§2](#2-the-source) holds the strip tags, which the profile now checks in every IFD it
-reads ([§7.1](#71-reading)); no output of a file accepted before changed · Changed 2026-10-26, with no change to any output:
+reads ([§7.1](#71-reading)); no output of a file accepted before changed ·
+Changed 2026-10-27: a zlib stream's codec is `numcodecs.zlib`, zarr-python's name for it, in place of `zlib` ([conventions §3](../conventions.md#3-arrays), d-v-b/refkv#90) ·
+Changed 2026-10-26, with no change to any output:
 the layout is tabulated, its entries in [Layout](#layout) and its types in type tables
 ([conventions §11.5](../conventions.md#115-layout-tables)); the QPTIFF convention shares
 [`TiffRoot`](#type-tiffroot) and [`TiffChunk`](#type-tiffchunk); and a tile's or strip's
@@ -297,8 +300,8 @@ BitsPerSample, which MUST be 8, 16, 32 or 64 (32 or 64 for `float`).
 | Compression | Predictor | codecs ([conventions §3](../conventions.md#3-arrays)) |
 |---|---|---|
 | 1 | 1 | bytes |
-| 5 (LZW) | 1 | bytes, `imagecodecs_lzw` |
-| 8, 32946 (Deflate) | 1 | bytes, zlib |
+| 5 (LZW) | 1 | bytes, `refkv.tiff_lzw` |
+| 8, 32946 (Deflate) | 1 | bytes, `numcodecs.zlib` |
 | 50000 (zstd) | 1 | bytes, zstd |
 | 33003, 33004, 33005, 34712 (JPEG 2000) | any | imagecodecs_jpeg2k |
 | 7 (JPEG) | 1 | imagecodecs_jpeg |
@@ -309,7 +312,8 @@ SamplesPerPixel 3 with PlanarConfiguration 1 and PhotometricInterpretation
 2 (RGB) or 6 (YCbCr); otherwise the input is rejected. (Old-style JPEG,
 Compression 6, is rejected.)
 
-`{"name": "imagecodecs_lzw"}` has no configuration: each chunk is one TIFF
+`{"name": "refkv.tiff_lzw"}`, refkv's own codec (imagecodecs-zarr's `imagecodecs_lzw` reads the
+whole stream, which the next sentences rule out), has no configuration: each chunk is one TIFF
 LZW stream (TIFF 6.0 §13: codes packed most significant bit first, with the
 "early change" every TIFF writer uses), which decodes to the chunk's bytes
 as `bytes` reads them. A decoder reads the stream until its output reaches

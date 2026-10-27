@@ -292,7 +292,7 @@ pub fn bytes_codec(item_size: u64, little: bool) -> Json {
 
 pub fn zlib_codec() -> Json {
     Json::obj(vec![
-        ("name", Json::s("zlib")),
+        ("name", Json::s("numcodecs.zlib")),
         ("configuration", Json::obj(vec![("level", Json::i(1))])),
     ])
 }

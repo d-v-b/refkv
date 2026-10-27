@@ -8,7 +8,11 @@ How refkv produces this layout as a reference store is the NDPI profile,
 [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `6cac71ef-dbb2-4acd-b60c-00389aa4238a` ·
-Schema: [schema.json](ndpi/schema.json) · Changed 2026-10-26, with no change to any output:
+Schema: [schema.json](ndpi/schema.json) · Changed 2026-10-27: an ASCII value is never in
+line, whatever its size, and is at its 64-bit offset ([§5.1](#51-elements),
+[§7](#7-ndpi-profile)); McuStartsHighBytes, like the tile tables' high bytes, holds the 32-bit
+values it stores, and McuStarts of one in-line LONG, whose value has its entry's high word, MUST
+have that word in McuStartsHighBytes, which is not added to it ([§7](#7-ndpi-profile)) · Changed 2026-10-26, with no change to any output:
 the layout is tabulated, its entries in [Layout](#layout) and its types in type tables
 ([conventions §11.5](../conventions.md#115-layout-tables)) · Changed 2026-10-25: a level may be JPEG XR
 (Compression 22610), tiled or in one strip, each tile or strip a chunk, its data type and
@@ -305,8 +309,8 @@ an NDPI is little-endian.
 | `…/entry_count` | value | `<u2` | the entry count `n` |
 | `…/tags/<tag>` | struct | | the first entry of tag `<tag>` (12 bytes); a later one of the same tag is `…/tags/<tag>~<k>`, `k` = 1, 2, … |
 | `…/tags/<tag>/entry` | value | record | the entry's tag, field type and count (`{tag:<u2,type:<u2,count:<u4}`), with `offset:<u4` (the low 32 bits of the value's offset) when the value is out of line, or `field:bytes[4]` when the field type is unknown |
-| `…/tags/<tag>/value` | value | by field type | the value: in the entry's field (the bytes it uses; the rest of the field is a gap), or at its offset `low + high × 2^32` when it lies within the file; its type as in the [TIFF source model](tiff.md#51-elements) (`<u4[n]`, `<u4[n,2]`, `<f4[n]`, …) |
-| `…/tags/<tag>/high` | value | `<u4` | the entry's **high word**, after the next-IFD offset: the high 32 bits of an out-of-line value's offset, and of an in-line LONG or IFD of count 1 |
+| `…/tags/<tag>/value` | value | by field type | the value: in the entry's field (the bytes it uses; the rest of the field is a gap), or at its offset `low + high × 2^32` when it lies within the file, as an ASCII value always is ([§7](#7-ndpi-profile)); its type as in the [TIFF source model](tiff.md#51-elements) (`<u4[n]`, `<u4[n,2]`, `<f4[n]`, …) |
+| `…/tags/<tag>/high` | value | `<u4` | the entry's **high word**, after the next-IFD offset: the high 32 bits of an out-of-line value's offset, and of an in-line LONG or IFD of count 1 but for the high tables ([§7](#7-ndpi-profile)) |
 | `…/next_ifd` | value | `<u8` | the next-IFD offset |
 | `…/strips` | struct | | an IFD's strips (by StripOffsets, with high words, and StripByteCounts), when it has both tables |
 | `…/strips/<j>` | data | | strip `j`, when its byte count is not 0 and it lies within the file; its form's geometry is `{"shape": [rows, columns], "samples": s, "bits": b}`, its codec `{"compression": c}`, and its recipe its bytes: a level's strip is a whole JPEG or JPEG XR stream |
@@ -445,8 +449,15 @@ not NDPI). Otherwise it is a TIFF ([tiff.md §7](tiff.md#7-tiff-profile)). This 
 `n` `u32` **high words**, one per entry. An entry's value field is its 4
 bytes plus its high word `h`: an out-of-line value is at offset
 `low + h × 2^32`, and an inline value of count 1 and type LONG (4) or IFD
-(13) is `low + h × 2^32`, but for OffsetHighBytes and ByteCountHighBytes
-(**Tiles** below). Other inline values ignore `h`. Only the main
+(13) is `low + h × 2^32`, but for the **high tables** OffsetHighBytes,
+ByteCountHighBytes (**Tiles** below) and McuStartsHighBytes (**Strips**
+below), whose values are the 32-bit values they store. Other inline values
+ignore `h`. An ASCII value (type 2) of count 1 or more is never in line,
+whatever its size: its field is the low 32 bits of its offset, and it is at
+`low + h × 2^32`, as Hamamatsu writes it (in Hamamatsu-1.ndpi of the
+[OpenSlide test data](https://openslide.cs.cmu.edu/download/openslide-testdata/Hamamatsu/),
+tag 65459's `RGB\0` is 4 bytes out of line, past 4 GiB) and as
+[tifffile](https://github.com/cgohlke/tifffile) reads NDPI. Only the main
 chain is read for the layout: an NDPI's SubIFDs, like the IFDs of its other
 pointer tags, are read in this layout for the IR only, and
 never reject the input ([the convention
@@ -498,7 +509,10 @@ markers of the shortest JPEG stream.
   rejected.
 - **With McuStarts,** let `M[i]` be its values, plus `McuStartsHighBytes[i]
   × 2^32` when that tag is present (it MUST then have as many values); they
-  are offsets in `S`. `S`'s **header** is its first `M[0]` bytes: a JPEG SOI,
+  are offsets in `S`. McuStarts of one value in line, of type LONG, already
+  has its high bits from its entry's high word (**IFDs** above): its
+  McuStartsHighBytes, when present, MUST hold that word, and is not added to
+  it. `S`'s **header** is its first `M[0]` bytes: a JPEG SOI,
   then marker segments up to and including SOS, which MUST end exactly at
   `M[0]`. The header MUST have exactly one SOF0 (`FF C0`) segment and a DRI
   (`FF DD`) segment with restart interval `R > 0` (in MCUs). The SOF0

@@ -431,9 +431,9 @@ pub fn item_size(data_type: &str) -> u64 {
 
 /// The codecs after `transpose` of a TIFF `compression` (the tag's value: JPEG 2000 and JPEG
 /// as their imagecodecs codecs; else `bytes`, with the byte order for samples of more than 8
-/// bits, then `imagecodecs_lzw` for LZW (spec/zarrify/tiff.md §4.3
+/// bits, then `refkv.tiff_lzw` for LZW (spec/zarrify/tiff.md §4.3
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>),
-/// `zlib` for Deflate or `zstd` for Zstandard).
+/// `numcodecs.zlib` for Deflate or `zstd` for Zstandard).
 pub fn tiff_codecs(compression: u64, bits: u64, little: bool) -> Vec<J> {
     match compression {
         33003 | 33004 | 33005 | 34712 => return vec![json!({"name": "imagecodecs_jpeg2k"})],
@@ -442,8 +442,8 @@ pub fn tiff_codecs(compression: u64, bits: u64, little: bool) -> Vec<J> {
     }
     let mut out = vec![bytes_codec(bits.div_ceil(8), if little { "little" } else { "big" })];
     match compression {
-        5 => out.push(json!({"name": "imagecodecs_lzw"})),
-        8 | 32946 => out.push(json!({"name": "zlib", "configuration": {"level": 1}})),
+        5 => out.push(json!({"name": "refkv.tiff_lzw"})),
+        8 | 32946 => out.push(json!({"name": "numcodecs.zlib", "configuration": {"level": 1}})),
         50000 => out.push(json!({"name": "zstd", "configuration": {"level": 0, "checksum": false}})),
         _ => {}
     }

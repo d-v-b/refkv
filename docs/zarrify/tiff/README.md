@@ -45,7 +45,7 @@ level, `0` the full resolution.
   chunk grid stays regular: with zeros when uncompressed, and with a few
   literal bytes that continue its stream when LZW. Interleaved RGB keeps its
   samples in one chunk, behind a `transpose` codec.
-- **Codecs:** none, LZW (`imagecodecs_lzw`), DEFLATE (`zlib`), zstd, JPEG
+- **Codecs:** none, LZW (`refkv.tiff_lzw`), DEFLATE (`numcodecs.zlib`), zstd, JPEG
   2000 (`imagecodecs_jpeg2k`) and JPEG (`imagecodecs_jpeg`), the tiles and
   strips as stored.
 - **Scale:** from the OME-XML physical sizes, else Aperio's `MPP`, else the
@@ -200,8 +200,9 @@ a TCGA slide on Zenodo with JPEG 2000 tiles, does work.
 
 The Neuroglancer fork (<https://github.com/d-v-b/neuroglancer>, branch `vzip`)
 displays these archives: it decodes `imagecodecs_jpeg` (8-bit),
-`imagecodecs_jpeg2k` (8- and 16-bit integers), `zlib` and `zstd`, and the
-idr0096 OME-TIFF above renders through the live demo. It has no `int64` or
+`imagecodecs_jpeg2k` (8- and 16-bit integers) and `zstd`, and DEFLATE as `zlib`, which
+archives named before d-v-b/refkv#90, and not yet `numcodecs.zlib`; the
+idr0096 OME-TIFF above, whose tiles are JPEG 2000, renders through the live demo. It has no `int64` or
 `float64` data types, so a TIFF with 64-bit integer or float samples cannot
 be shown there (zarr-python reads it).
 
@@ -253,7 +254,7 @@ The browser code ([js/](../../../js/README.md)) reads TIFF:
   sizes and units.
 - Samples per pixel stored planar (one chunk per channel) or interleaved
   (through a `transpose` codec).
-- Compression: none, LZW (`imagecodecs_lzw`), DEFLATE (`zlib`), zstd, JPEG 2000
+- Compression: none, LZW (`refkv.tiff_lzw`), DEFLATE (`numcodecs.zlib`), zstd, JPEG 2000
   (`imagecodecs_jpeg2k`), and JPEG (`imagecodecs_jpeg`), without a predictor. JPEG tiles that keep
   their tables in `JPEGTables`, as in Aperio SVS, become complete JPEG streams
   through references that prepend the tables and a color marker, held once

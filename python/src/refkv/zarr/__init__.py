@@ -11,8 +11,11 @@ module wraps one as a `zarr.abc.store.Store`:
     ds = xr.open_zarr(refkv.zarr.store(store))      # a refkv.ReferenceStore
 
 Importing it also registers the codecs that archives of zarrified files and
-stores use (`refkv.zarr.codecs`, one module per codec; the image codecs' decoders
-need the `images` extra, the `refkv.stream` codec's the `media` extra), and turns on
+stores use and zarr-python lacks (`refkv.zarr.codecs`, one module per codec, which
+zarr also finds through refkv's `zarr.codecs` entry points, without this import;
+the `refkv.tiff_lzw` codec's decoder needs the `images` extra, which also installs
+imagecodecs-zarr's JPEG, JPEG 2000 and JPEG XR codecs, the `refkv.stream` codec's
+the `media` extra), and turns on
 zarr-python's `array.rectilinear_chunks`, which the zarr-extensions `rectilinear` chunk
 grid of some archives' arrays needs (an MP4 file's video planes, a clipped CZI level).
 """

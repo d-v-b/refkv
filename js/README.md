@@ -60,6 +60,15 @@ metadata has no usable contrast window gets one sampled from a chunk of its
 coarsest level (`demo/contrast.ts`), decoded in the page, JPEG 2000 and
 JPEG XR chunks with the fork's wasm modules.
 
+The demo's Neuroglancer link for a file or store reads through the service
+worker, so it opens only on the demo's origin. The link for a `.vzip` input
+names the archive instead, `<archive url>|vzip:<path>|zarr3:`: host an
+archive the demo downloaded (on a server that allows cross-origin reads) and
+open its URL in the demo, and the link opens in any deployment of the fork,
+with no service worker. The fork's `vzip:` adapter checks the archive's pins
+where the response shows their headers, and skips those a cross-origin
+server hides ([spec/refkv.md §6.7](../spec/refkv.md#67-reader-policy), rule 7).
+
 Live demo: https://d-v-b.github.io/vzip-demo/image-to-zarr/ (formerly `tiff-to-zarr/`, which now redirects). `demo/pages.sh`
 publishes it, with the Neuroglancer build, to its own directory of the demo
 site (the `gh-pages` branch of `d-v-b/vzip-demo`, which hosts each refkv demo
@@ -120,6 +129,7 @@ limit of this implementation, [spec/zarrify.md Appendix A](../spec/zarrify.md#ap
 
 - **Same origin only.** A service worker only controls pages from its own
   origin, so the viewer must be served from the same origin as the worker.
+  A link to share names a hosted archive instead (see the demo, above).
 - **Codecs are the viewer's job.** The chunks are the TIFF's tiles as they
   are. The Neuroglancer fork decodes `imagecodecs_jpeg2k`; other viewers
   need their own decoder for it.
@@ -140,7 +150,7 @@ uv run python js/conformance/run_write.py /tmp/vzip-write   # the kit's write ca
 just verify                                                 # every format's fixtures vs an independent reader
 uv run python js/test/<format>/verify.py                    # one format's (`just verify-of <format>`)
 uv run python conformance/zarrify/compare.py /tmp/vcmp    # reference vs Python vs browser zarrifier
-node demo/e2e.mjs <image file url> <out dir>             # demo + Neuroglancer in Chromium
+node demo/e2e.mjs <image file url> <out dir>             # demo + Neuroglancer, and a shared archive, in Chromium
 node demo/e2e_examples.mjs <out dir> [example id …]      # every demo example, with its viewer
 ```
 

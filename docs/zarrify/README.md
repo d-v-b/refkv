@@ -130,9 +130,21 @@ policy=Policy(allow_private_hosts=True))` (`from refkv.policy import
 Policy`). A local file or directory needs neither.
 
 Read the archive in Python with `refkv.zarr` and zarr-python
-(`pip install 'refkv[zarr]'`, or `refkv[images]` for the JPEG, JPEG 2000 and
-JPEG XR decoders). Importing `refkv.zarr` registers the codecs that some formats
-need (JPEG, JPEG 2000, JPEG XR, `zlib`, `n5_default`):
+(`pip install 'refkv[zarr]'`, or `refkv[images]` for the JPEG, JPEG 2000,
+JPEG XR and LZW decoders). zarr-python finds the codecs that some formats need by
+the names the archive gives: refkv's own (`refkv.stream`, `refkv.fits_tiles`,
+`refkv.tiff_lzw`, and `n5_default`) through refkv's `zarr.codecs` entry points,
+with no `import refkv.zarr` in your code (zarr imports the codec modules, which are
+under `refkv.zarr`, itself), imagecodecs-zarr's (`imagecodecs_jpeg`,
+`imagecodecs_jpeg2k`, `imagecodecs_jpegxr`), which `refkv[images]` installs, and
+zarr-python's own (`numcodecs.zlib`, `numcodecs.shuffle`, `numcodecs.delta`). So a
+copy of an archive's arrays (in a directory, or in another store) reads with zarr
+alone, except that an array on the zarr-extensions `rectilinear` chunk grid (a
+clipped CZI level, an MP4 video plane whose chunks differ in length) also needs
+`zarr.config.set({"array.rectilinear_chunks": True})`. Importing `refkv.zarr` sets
+it, and so does loading one of refkv's codecs, but zarr checks an array's chunk
+grid before it loads its codecs: set it yourself before opening such an array.
+`refkv.zarr` opens the archive itself:
 
 ```python
 import zarr
@@ -208,14 +220,24 @@ result to any Zarr reader on the page's origin as a plain HTTP Zarr store. The
 live demo, <https://d-v-b.github.io/vzip-demo/image-to-zarr/>, takes a URL
 (`?url=<url>`), shows the levels, opens them in a Neuroglancer fork
 (<https://github.com/d-v-b/neuroglancer>, branch `vzip`) and offers the
-archive for download. Two limits apply:
+archive for download. That Neuroglancer link reads through the service
+worker, so it opens only on the demo's site, in a browser where the demo has
+zarrified the file. To share a view, host the downloaded archive and open its
+URL in the demo: the link then names the archive,
+`<archive url>|vzip:<path>|zarr3:`, which any deployment of the fork opens
+with no service worker, reading the original's bytes by the archive's
+references. The archive pins each source's size; the fork checks a pin when
+the response shows its header, and skips it when a cross-origin server hides
+it ([spec/refkv.md §6.7](../../spec/refkv.md#67-reader-policy), rule 7).
+Two limits apply:
 
 - The live demo currently zarrifies TIFF, NDPI and ND2 files only. The
   other formats work in a local build of the
   demo (`just js::build && node demo/serve.mjs 8080`; the build compiles the
   Rust core to WebAssembly first, `dist/refkv_ir.wasm`, so it needs a Rust
   toolchain with the `wasm32` target), which is not yet deployed.
-- The host must allow cross-origin reads (CORS). zenodo.org, ftp.ebi.ac.uk,
+- The host must allow cross-origin reads (CORS), and so must the host of a
+  shared archive. zenodo.org, ftp.ebi.ac.uk,
   raw.githubusercontent.com, OpenOrganelle's S3 bucket and the IDR's Embassy
   S3 do; openslide.cs.cmu.edu, downloads.openmicroscopy.org and the NCI
   Imaging Data Commons bucket on storage.googleapis.com do not, so their

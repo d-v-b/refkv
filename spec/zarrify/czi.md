@@ -376,7 +376,7 @@ Each codec's JSON form, exactly:
 | `bytes` | `{"name": "bytes", "configuration": {"endian": "little"}}`, and `{"name": "bytes"}` (no configuration) for the 1-byte types `uint8` ([conventions §3](../conventions.md#3-arrays)) | |
 | `zstd` | `{"name": "zstd", "configuration": {"level": 0, "checksum": false}}` | the zarr-extensions `zstd` codec; level 0 is the encoder's default and does not affect decoding |
 | `imagecodecs_jpeg` | that of [conventions §3](../conventions.md#3-arrays) | one complete JPEG stream |
-| `imagecodecs_jpegxr` | `{"name": "imagecodecs_jpegxr"}`, with no configuration | an array-to-bytes codec, each chunk one JPEG XR file (ITU-T T.832 with its TIFF-like container, as the subblock holds it), decoding as `imagecodecs.jpegxr_decode` (jxrlib) does to `[y, x]`, or to `[y, x, c]` with the samples in the order jxrlib gives them (R, G, B, and A for `Bgra32`), after which `transpose` applies. Its encoded form is jxrlib's, so it needs nothing beyond the chunk's shape and data type. It is not in the zarr-extensions registry; refkv's Python reader registers it (`refkv.zarr.codecs`), and its registration and a Neuroglancer decoder are a follow-up ([design/plans/czi.md §7](../../design/plans/czi.md#7-decisions-on-the-open-questions)) |
+| `imagecodecs_jpegxr` | `{"name": "imagecodecs_jpegxr"}`, with no configuration | an array-to-bytes codec, each chunk one JPEG XR file (ITU-T T.832 with its TIFF-like container, as the subblock holds it), decoding as `imagecodecs.jpegxr_decode` (jxrlib) does to `[y, x]`, or to `[y, x, c]` with the samples in the order jxrlib gives them (R, G, B, and A for `Bgra32`), after which `transpose` applies. Its encoded form is jxrlib's, so it needs nothing beyond the chunk's shape and data type. It is not in the zarr-extensions registry; imagecodecs-zarr provides it to zarr-python (refkv's `images` extra installs it), and its registration and a Neuroglancer decoder are a follow-up ([design/plans/czi.md §7](../../design/plans/czi.md#7-decisions-on-the-open-questions)) |
 | `numcodecs.shuffle` | `{"name": "numcodecs.shuffle", "configuration": {"elementsize": 2}}` | a bytes-to-bytes codec: numcodecs' `Shuffle` with element size 2, as zarr-python 3 names it (`zarr.codecs.numcodecs.Shuffle`). Its encoded bytes are byte 0 of every 2-byte element, then byte 1 of every element |
 
 A Zstd1 subblock with hi-lo packing holds exactly what `numcodecs.shuffle` encodes: its
@@ -1099,8 +1099,8 @@ The layout uses two things that are not in every Zarr reader:
 - **Codecs.** `imagecodecs_jpegxr` (JPEG XR subblocks) and
   `numcodecs.shuffle` (Zstd1 with hi-lo packing) are not in the
   zarr-extensions registry, nor in the Neuroglancer fork refkv's viewer uses.
-  zarr-python 3 has `numcodecs.shuffle`; `refkv.zarr.codecs` registers
-  `imagecodecs_jpegxr`. Files with these codecs are accepted, not
+  zarr-python 3 has `numcodecs.shuffle`; imagecodecs-zarr (refkv's `images`
+  extra) has `imagecodecs_jpegxr`. Files with these codecs are accepted, not
   rejected: their chunks are the subblocks' bytes, so the archive is
   complete whatever a reader supports. Their registration, and decoders in
   the Neuroglancer fork, are a follow-up.

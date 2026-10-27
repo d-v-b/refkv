@@ -31,7 +31,7 @@ from refkv.uri import path_reference
 from refkv.zarrify import Rejected
 from refkv.zarrify import _zarrify as zarrify
 from refkv.zarrify.store import object_url
-from refkv.zarrify.vsi import VsiFiles, split_input
+from refkv.zarrify.store.beside import VsiFiles, split_input
 
 sys.path.insert(0, str(ROOT / "conformance" / "zarrify"))
 from proxy import Proxy

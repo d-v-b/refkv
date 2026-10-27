@@ -38,7 +38,7 @@ A group at the archive root, and a group per track refkv zarrifies, at
   the reader's to apply.
 - **Audio (AAC-LC, MP3):** `samples`, `float32`, `[time, channel]`, the
   decoder's output, in chunks of 256 frames.
-- **Codecs:** `refkv.stream` (refkv's `zarr` module registers it), which
+- **Codecs:** `refkv.stream` (zarr finds it through refkv's entry points), which
   decodes with ffmpeg's decoders through PyAV (the `media` extra).
 - **Metadata:** under `refkv_zarrified.mp4` on the root, the brands, the
   movie's timescale and duration, and every track: its codec, its path,
