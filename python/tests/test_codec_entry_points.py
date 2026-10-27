@@ -139,6 +139,31 @@ def test_zarr_alone_decodes_every_codec_of_refkvs_archives(tmp_path):
         np.testing.assert_array_equal(np.load(out / f"{i}.npy"), want, err_msg=name)
 
 
+def test_zarr_n5s_n5_default_reads_what_refkvs_does(tmp_path):
+    """Every N5 fixture array refkv's `n5_default` reads, zarr-n5's reads the same, so that a reader
+    with both installed may choose either (docs/zarrify/n5/README.md)."""
+    pytest.importorskip("zarr_n5")
+    arrays = 0
+    for store in sorted(p for p in (FIXTURES / "n5").iterdir() if p.is_dir() and not p.name.startswith("n5_reject")):
+        reader = _zarrified(f"n5/{store.name}", tmp_path)
+        for key in reader.list():
+            doc = json.loads(reader.get(key) or b"{}") if key.endswith("zarr.json") else {}
+            if doc.get("node_type") != "array" or doc["codecs"][0]["name"] != "n5_default":
+                continue
+            path = key.removesuffix("zarr.json").rstrip("/")
+            read = {}
+            for impl in (SHARED["n5_default"], "zarr_n5.codec.default.N5DefaultCodec"):
+                with zarr.config.set({"codecs.n5_default": impl}):
+                    try:
+                        read[impl] = ndarray(zarr.open_array(refkv.zarr.store(reader), path=path, mode="r")[...])
+                    except ValueError:  # refkv's refuses a block that is not default mode
+                        break
+            if len(read) == 2:
+                arrays += 1
+                np.testing.assert_array_equal(*read.values(), err_msg=f"{store.name}/{path}")
+    assert arrays > 40
+
+
 def test_loading_refkvs_n5_default_leaves_the_choice_to_zarrs_config():
     """refkv names no implementation of `n5_default` in zarr's config, so that having zarr load
     refkv's (as it does for any array that names `n5_default`) does not override zarr-n5's."""

@@ -101,7 +101,7 @@ def _current_codecs(chain):
                 c = {**c, "name": CODEC_NAMES[c["name"]]}
             config = c.get("configuration")
             if isinstance(config, dict) and "codecs" in config:
-                c["configuration"] = {**config, "codecs": _current_codecs(config["codecs"])}
+                c = {**c, "configuration": {**config, "codecs": _current_codecs(config["codecs"])}}
         out.append(c)
     return out
 
