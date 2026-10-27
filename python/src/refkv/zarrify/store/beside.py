@@ -23,7 +23,8 @@ from refkv.ir.planner import FileTransport, HttpTransport, Transport, _FatalErro
 from refkv.policy import Policy
 from refkv.uri import path_reference
 from refkv.zarrify.common import Rejected
-from refkv.zarrify.store import Store, check_store_url, object_url
+from refkv.zarrify.store.stores import Store
+from refkv.zarrify.store.urls import check_store_url, object_url
 
 
 def split_input(location: str, title: str = "VSI") -> tuple[str, str]:

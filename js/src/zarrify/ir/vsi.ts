@@ -7,7 +7,7 @@
 // than from a listing, since a plain web server cannot list a directory. The files are the
 // objects of a store whose URL is the named file's directory, each read through a range source
 // of its own (ir/source.ts); a probe opens the file, and an object the server answers 404 for is
-// absent. The twin of python/src/refkv/zarrify/vsi.py.
+// absent. The twin of python/src/refkv/zarrify/store/beside.py.
 
 import type { ArchiveDesc } from "../../writer.ts";
 import { HttpResolutionError } from "../../http.ts";
