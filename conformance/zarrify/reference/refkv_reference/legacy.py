@@ -89,20 +89,36 @@ def emit_plans(out: Output, plans: list, node_attributes: dict | None) -> None:
                        a.fill, a.attributes, a.endian, a.compressor)
 
 
+def _current_codecs(chain):
+    """An array document's codec chain with the codecs of CODEC_NAMES renamed, within the
+    codecs that hold a chain of their own (`n5_default`'s) too."""
+    if not isinstance(chain, list):
+        return chain
+    out = []
+    for c in chain:
+        if isinstance(c, dict):
+            c = {**c, "name": CODEC_NAMES.get(c.get("name"), c.get("name"))}
+            config = c.get("configuration")
+            if isinstance(config, dict) and "codecs" in config:
+                c["configuration"] = {**config, "codecs": _current_codecs(config["codecs"])}
+        out.append(c)
+    return out
+
+
 def current_names(value, _inside: bool = False):
     """A JSON value of a frozen profile's output with the names the shipped code writes:
     the convention's property `refkv_zarrified`, its convention metadata the current
-    one, the codecs of CODEC_NAMES, and, within the property (where the profiles name
-    them), its paths into the source metadata node under `refkv_source`. The source's own
-    values, outside the property, are left as they are; within it, a value copied from the
-    source that starts with `vzip_source/` would read as such a path too, which no fixture
-    has."""
+    one, an array document's codecs as CODEC_NAMES names them, and, within the property
+    (where the profiles name them), its paths into the source metadata node under
+    `refkv_source`. The source's own values, outside the property and the array
+    documents' codec chains, are left as they are; within the property, a value copied
+    from the source that starts with `vzip_source/` would read as such a path too, which
+    no fixture has."""
     if isinstance(value, dict):
+        if value.get("node_type") == "array" and "codecs" in value:
+            value = {**value, "codecs": _current_codecs(value["codecs"])}
         out = {}
         for k, v in value.items():
-            if k == "codecs" and isinstance(v, list):
-                v = [{**c, "name": CODEC_NAMES[c["name"]]} if isinstance(c, dict)
-                     and c.get("name") in CODEC_NAMES else c for c in v]
             if k == "zarr_conventions" and isinstance(v, list):
                 v = [current.convention(_PROFILE_OF_UUID[c["uuid"]]) if isinstance(c, dict)
                      and c.get("name") == CONVENTION_KEY and c.get("uuid") in _PROFILE_OF_UUID

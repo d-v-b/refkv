@@ -42,20 +42,39 @@ EVERY_CODEC = {
     "imagecodecs_jpegxr": ("ndpi/ndpi_jpegxr_bgr.ndpi", "0"),
 }
 
+# The zarr-extensions codec that another package (zarr-n5) also registers, and its implementation
+# in refkv, by the name zarr's config gives it: with both installed, the config chooses one.
+SHARED = {"n5_default": "refkv.zarr.codecs.n5_default.N5DefaultCodec"}
+
 # Run in a fresh interpreter, so that no earlier import registers a codec: opens each array of a
 # plain directory store with zarr alone, and saves what it reads. zarr's warnings are errors, so
-# that a name two installed packages register (zarr then picks one arbitrarily, and warns) fails.
-READ_WITH_ZARR_ALONE = """
+# that a name two installed packages register (zarr then picks one arbitrarily, and warns) fails,
+# but for SHARED's, which the config names as a reader with zarr-n5 installed would.
+READ_WITH_ZARR_ALONE = f"""
 import sys, warnings
 import numpy as np
 import zarr
 from zarr.errors import ZarrUserWarning
 from zarr.storage import LocalStore
 warnings.simplefilter("error", ZarrUserWarning)
+zarr.config.set({ {f"codecs.{name}": cls for name, cls in SHARED.items()}!r})
 assert not [m for m in sys.modules if m == "refkv" or m.startswith("refkv.")], "zarr imported refkv"
 root, out, *paths = sys.argv[1:]
 for i, path in enumerate(paths):
-    np.save(f"{out}/{i}.npy", zarr.open_array(LocalStore(root, read_only=True), path=path, mode="r")[...])
+    np.save(f"{{out}}/{{i}}.npy", zarr.open_array(LocalStore(root, read_only=True), path=path, mode="r")[...])
+"""
+
+# Run in a fresh interpreter: has zarr load refkv's `n5_default` through its entry point, and
+# prints the config's choice of implementation afterwards.
+LOAD_N5_DEFAULT = """
+import warnings
+import zarr
+import zarr.registry
+from zarr.errors import ZarrUserWarning
+warnings.simplefilter("ignore", ZarrUserWarning)  # zarr-n5's n5_default, when it is installed
+zarr.registry.get_codec_class("n5_default")
+import refkv.zarr.codecs.n5_default  # loaded already, by the entry point
+print(zarr.config.get("codecs.n5_default", None))
 """
 
 
@@ -92,7 +111,8 @@ def test_entry_points_name_every_codec_and_resolve_to_it():
     assert {e.value.partition(":")[0] for e in points.values()} == {f"refkv.zarr.codecs.{m}" for m in modules}
     assert set(points) == {"refkv.tiff_lzw", "refkv.stream", "refkv.fits_tiles", "n5_default"}
     for name, e in points.items():
-        assert zarr.registry.get_codec_class(name) is e.load(), name
+        with zarr.config.set({f"codecs.{name}": SHARED[name]} if name in SHARED else {}):
+            assert zarr.registry.get_codec_class(name) is e.load(), name
     # refkv's own codecs are named refkv.<codec>, but n5_default, a zarr-extensions codec
     assert {n for n in points if not n.startswith("refkv.")} == {"n5_default"}
 
@@ -117,6 +137,14 @@ def test_zarr_alone_decodes_every_codec_of_refkvs_archives(tmp_path):
                    check=True)
     for i, (name, want) in enumerate(zip(EVERY_CODEC, expected, strict=True)):
         np.testing.assert_array_equal(np.load(out / f"{i}.npy"), want, err_msg=name)
+
+
+def test_loading_refkvs_n5_default_leaves_the_choice_to_zarrs_config():
+    """refkv names no implementation of `n5_default` in zarr's config, so that having zarr load
+    refkv's (as it does for any array that names `n5_default`) does not override zarr-n5's."""
+    out = subprocess.run([sys.executable, "-I", "-c", LOAD_N5_DEFAULT], check=True, capture_output=True,
+                         text=True).stdout
+    assert out.strip() == "None"
 
 
 def _read_without(module: str, fixture: str, path: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

@@ -1,5 +1,12 @@
 """`n5_default`: an N5 default-mode block, header included (zarr-extensions `codecs/n5_default`;
 spec/zarrify/n5.md).
+
+zarr-n5 registers an `n5_default` too, which decodes refkv's N5 archives as this one does. With
+both installed, zarr-python picks one, and warns, unless its config names one:
+`zarr.config.set({"codecs.n5_default": "refkv.zarr.codecs.n5_default.N5DefaultCodec"})` for
+this one. refkv does not set it: zarr loads this module through refkv's entry points whenever
+an array names `n5_default`, and so would override the choice for every N5 array, refkv's or
+not.
 """
 
 from __future__ import annotations
@@ -10,7 +17,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, cast, override
 
 import numpy as np
-import zarr
 from zarr.abc.codec import ArrayBytesCodec, BytesBytesCodec, Codec, CodecPipeline
 from zarr.codecs import BytesCodec, TransposeCodec
 from zarr.core.array_spec import ArraySpec
@@ -136,9 +142,3 @@ class N5DefaultCodec(ArrayBytesCodec):
 
 
 register_codec("n5_default", N5DefaultCodec)
-
-# Other packages (zarr-n5) register an `n5_default` too; zarr-python then picks
-# one arbitrarily unless the config names it. Name this one, unless the caller
-# already chose.
-if zarr.config.get("codecs.n5_default", None) is None:
-    zarr.config.set({"codecs.n5_default": "refkv.zarr.codecs.n5_default.N5DefaultCodec"})

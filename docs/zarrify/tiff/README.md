@@ -198,7 +198,7 @@ The Neuroglancer fork (<https://github.com/d-v-b/neuroglancer>, branch `vzip`)
 displays these archives: it decodes `imagecodecs_jpeg` (8-bit),
 `imagecodecs_jpeg2k` (8- and 16-bit integers) and `zstd`, and DEFLATE as `zlib`, which
 archives named before d-v-b/refkv#90, and not yet `numcodecs.zlib`; the
-idr0096 OME-TIFF above renders through the live demo. It has no `int64` or
+idr0096 OME-TIFF above, whose tiles are JPEG 2000, renders through the live demo. It has no `int64` or
 `float64` data types, so a TIFF with 64-bit integer or float samples cannot
 be shown there (zarr-python reads it).
 

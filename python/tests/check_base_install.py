@@ -171,6 +171,7 @@ with tempfile.TemporaryDirectory() as d:
         assert set(points) == {"n5_default", "refkv.fits_tiles", "refkv.stream", "refkv.tiff_lzw"}, points
         for name, point in points.items():
             assert zarr.registry.get_codec_class(name) is point.load(), name
+        assert zarr.config.get("codecs.n5_default", None) is None  # zarr-n5's, if installed, is not overridden
         print(f"zarr resolves refkv's codecs: {', '.join(sorted(points))}")
 
         import refkv.zarr

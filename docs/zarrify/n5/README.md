@@ -125,7 +125,9 @@ Neuroglancer view stays empty (next section). A store that lists more than
 
 The Neuroglancer fork (<https://github.com/d-v-b/neuroglancer>, branch `vzip`)
 cannot display N5 archives yet: it has no `n5_default` codec, so the layer
-loads no data. zarr-python reads them, with refkv installed (whose entry points give zarr `n5_default`).
+loads no data. zarr-python reads them, with refkv installed (whose entry points give zarr `n5_default`;
+zarr-n5's `n5_default` reads them too, and with both installed, zarr's `codecs.n5_default` config
+chooses).
 Neuroglancer's own N5 data source (`<url>|n5:`), which the fork keeps,
 reads the original store directly, and is the way to view N5 data today.
 

@@ -88,11 +88,26 @@ export function emitPlans(plans: Plan[], nodeAttributes: Record<string, unknown>
 
 const PROFILE_OF_UUID = new Map(Object.entries(PROFILES).map(([p, [uuid]]) => [uuid, p as Profile]));
 
+/** An array document's codec chain with the codecs of `CODEC_NAMES` renamed, within the
+ * codecs that hold a chain of their own (`n5_default`'s) too. */
+function currentCodecs(chain: unknown): unknown {
+  if (!Array.isArray(chain)) return chain;
+  return chain.map((c) => {
+    if (c === null || typeof c !== "object") return c;
+    const name = typeof c.name === "string" && Object.hasOwn(CODEC_NAMES, c.name) ? CODEC_NAMES[c.name] : c.name;
+    const config = c.configuration;
+    return config !== null && typeof config === "object" && "codecs" in config
+      ? { ...c, name, configuration: { ...config, codecs: currentCodecs(config.codecs) } }
+      : { ...c, name };
+  });
+}
+
 /** A JSON value of a frozen profile's output with the names the shipped code writes: the
- * convention's property, its convention metadata, the codecs of `CODEC_NAMES`, and, within the property (where the
- * profiles name them), paths into the source metadata node. The source's own values,
- * outside the property, are left as they are; within it, a value copied from the source
- * that starts with `vzip_source/` would read as such a path too, which no fixture has. */
+ * convention's property, its convention metadata, an array document's codecs as `CODEC_NAMES`
+ * names them, and, within the property (where the profiles name them), paths into the source
+ * metadata node. The source's own values, outside the property and the array documents' codec
+ * chains, are left as they are; within the property, a value copied from the source that starts
+ * with `vzip_source/` would read as such a path too, which no fixture has. */
 export function currentNames(v: unknown, inside = false): unknown {
   if (Array.isArray(v)) return v.map((x) => currentNames(x, inside));
   if (typeof v === "string") {
@@ -100,9 +115,12 @@ export function currentNames(v: unknown, inside = false): unknown {
   }
   if (v === null || typeof v !== "object") return v;
   const out: Record<string, unknown> = {};
-  for (let [k, x] of Object.entries(v)) {
-    if (k === "codecs" && Array.isArray(x)) {
-      x = x.map((c) => typeof c?.name === "string" && Object.hasOwn(CODEC_NAMES, c.name) ? { ...c, name: CODEC_NAMES[c.name] } : c);
+  const doc = v as Record<string, unknown>;
+  const array = doc.node_type === "array" && "codecs" in doc;
+  for (const [k, x] of Object.entries(v)) {
+    if (array && k === "codecs") {
+      out[k] = currentCodecs(x);
+      continue;
     }
     const legacy = (m: { uuid?: string; name?: string }) => m?.name === CONVENTION_KEY && PROFILE_OF_UUID.has(m.uuid!);
     out[k === CONVENTION_KEY ? CURRENT_KEY : k] = k === "zarr_conventions" && Array.isArray(x)
