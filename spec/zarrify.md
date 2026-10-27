@@ -192,7 +192,7 @@ zero bytes names the first `p`, `(i, 0, p)`. Every other range of a
 reference is a range of source 0 or a literal range. A profile that defines
 shared byte strings says so, as the TIFF
 ([tiff.md §7](zarrify/tiff.md#7-tiff-profile), JPEG tiles) and SAFE ([safe.md §8](zarrify/safe.md#8-safe-profile), JPEG 2000 main headers) profiles do, and as the
-NIfTI ([nifti.md §7.2](zarrify/nifti.md#72-chunks)), MRC
+TIFF ([tiff.md §7.3](zarrify/tiff.md#73-chunks), short last strips), NIfTI ([nifti.md §7.2](zarrify/nifti.md#72-chunks)), MRC
 ([mrc.md §8.2](zarrify/mrc.md#82-chunks)), FITS
 ([fits.md §9.4](zarrify/fits.md#94-chunks)) and NRRD
 ([nrrd.md §8.5](zarrify/nrrd.md#85-chunks)) profiles do for a zero data

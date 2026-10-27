@@ -18,8 +18,8 @@
 //! the NDPI test), the first IFD's Software tag decides whether the file is an Akoya QPTIFF
 //! (`detect_qptiff`, spec/zarrify/qptiff.md §7
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#7-qptiff-profile>, which
-//! never rejects). A QPTIFF is read as a TIFF, with the table of `QPTIFF_TABLE` (the strip
-//! tables, RowsPerStrip and the position tags added), the schema `schema/qptiff.json`, and its
+//! never rejects). A QPTIFF is read as a TIFF, with the table of `QPTIFF_TABLE` (the position
+//! tags added), the schema `schema/qptiff.json`, and its
 //! own layout (`derive_qptiff`: the channels are the FullResolution images, the levels the runs
 //! of ReducedResolution images, tiled or in strips), whose facts the QPTIFF projection
 //! (`project/qptiff.rs`) reads; `self.qptiff` marks it.
@@ -55,10 +55,10 @@ use crate::xml::{self, Ev};
 use serde_json::{Value as J, json};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-const TABLE: [u16; 21] = [
-    256, 257, 258, 259, 262, 266, 270, 277, 282, 283, 284, 296, 317, 322, 323, 324, 325, 330, 339, 347, 530,
+const TABLE: [u16; 24] = [
+    256, 257, 258, 259, 262, 266, 270, 273, 277, 278, 279, 282, 283, 284, 296, 317, 322, 323, 324, 325, 330, 339, 347, 530,
 ];
-const SCALARS: [u16; 13] = [256, 257, 259, 262, 266, 277, 282, 283, 284, 296, 317, 322, 323];
+const SCALARS: [u16; 14] = [256, 257, 259, 262, 266, 277, 278, 282, 283, 284, 296, 317, 322, 323];
 const LAYOUT: [u16; 11] = [273, 279, 288, 289, 324, 325, 513, 514, 519, 520, 521];
 /// The Adobe APP14 marker that tells a decoder a 3-component stream is RGB (transform 0),
 /// written before a JPEG tile's tables.
@@ -88,7 +88,7 @@ const NDPI_ACQUISITION: [(u16, &str, &[u16]); 3] =
     [(65434, "Fluorescence", &[2]), (65451, "Wavelength", &[11, 12]), (65454, "ExposureTime", &[3, 4])];
 /// The tags of QPTIFF's table (spec/zarrify/qptiff.md §2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#2-the-source>): TIFF's, with
-/// the strip tables, RowsPerStrip and the position tags.
+/// the position tags.
 const QPTIFF_TABLE: [u16; 26] = [
     256, 257, 258, 259, 262, 266, 270, 273, 277, 278, 279, 282, 283, 284, 286, 287, 296, 317, 322, 323, 324, 325, 330, 339, 347,
     530,
@@ -303,16 +303,17 @@ pub struct Tiff {
 struct Level {
     w: u64,
     h: u64,
-    /// the chunk's width and height: the tile's, or, for a level in strips (QPTIFF), the
-    /// image's width and the rows per strip
+    /// the chunk's width and height: the tile's, or, for a level in strips, the image's width
+    /// and the rows per strip
     tw: u64,
     th: u64,
     ifds: Vec<usize>,
-    /// the level is in strips (QPTIFF)
+    /// the level is in strips
     strips: bool,
-    /// how a short last strip is padded to the chunk (QPTIFF, spec/zarrify/qptiff.md §4.2
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#42-tiles-and-strips>):
-    /// `{"zeros": n}` (uncompressed) or `{"lzw": [{c, k, prefix, tail}, ...]}`; null when none
+    /// how a short last strip is padded to the chunk (spec/zarrify/tiff.md §4.5
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>):
+    /// `{"zeros": [{c, k, zeros}, ...]}` (uncompressed) or `{"lzw": [{c, k, prefix, tail}, ...]}`,
+    /// each strip keyed by its IFD's index in the level and its own; null when none
     pad: J,
 }
 
@@ -1546,32 +1547,47 @@ impl Tiff {
             self.fmt(k, m)?;
             self.check_samples(k, m)?;
         }
+        // a plane in strips (spec/zarrify/tiff.md §4.5
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>): its strips and RowsPerStrip
         for &k in ks {
-            self.rules.check(
-                "level_ifd",
-                rules::env([("offset", num(self.ifds[k].offset as f64)), ("tiled", flag(self.tiled(k))), ("same", flag(true))]),
-            )?;
+            if !self.tiled(k) {
+                self.check_strips(k, &vals[&k])?;
+            }
         }
         let k0 = ks[0];
         let m0 = &vals[&k0];
-        let dims = |k: usize, m: &Vals| -> Got<(u64, u64, u64, u64)> {
-            Ok((
-                self.req(k, m, 256, None)?,
-                self.req(k, m, 257, None)?,
-                self.req(k, m, 322, None)?,
-                self.req(k, m, 323, None)?,
-            ))
+        // the size, and the chunk's: the tile's, or the image's width and the rows per strip
+        let dims = |k: usize, m: &Vals| -> Got<(u64, u64, bool, u64, u64)> {
+            let (w, h) = (self.req(k, m, 256, None)?, self.req(k, m, 257, None)?);
+            Ok(if self.tiled(k) {
+                (w, h, true, self.req(k, m, 322, None)?, self.req(k, m, 323, None)?)
+            } else {
+                (w, h, false, w, self.req(k, m, 278, Some(u32::MAX as u64))?.min(h))
+            })
         };
         let d0 = dims(k0, m0)?;
         let f0 = self.fmt(k0, m0)?;
         for &k in ks {
             let same = dims(k, &vals[&k])? == d0 && self.fmt(k, &vals[&k])? == f0;
-            self.rules.check(
-                "level_ifd",
-                rules::env([("offset", num(self.ifds[k].offset as f64)), ("tiled", flag(true)), ("same", flag(same))]),
-            )?;
+            self.rules.check("level_ifd", rules::env([("offset", num(self.ifds[k].offset as f64)), ("same", flag(same))]))?;
         }
-        Ok(Level { w: d0.0, h: d0.1, tw: d0.2, th: d0.3, ifds: ks.to_vec(), strips: false, pad: J::Null })
+        Ok(Level { w: d0.0, h: d0.1, tw: d0.3, th: d0.4, ifds: ks.to_vec(), strips: !d0.2, pad: J::Null })
+    }
+
+    /// The `strips` role of an IFD that is not tiled: StripOffsets, StripByteCounts and a
+    /// RowsPerStrip of at least 1.
+    fn check_strips(&self, k: usize, m: &Vals) -> Got<()> {
+        let rows = self.req(k, m, 278, Some(u32::MAX as u64))?;
+        self.rules.check(
+            "strips",
+            rules::env([
+                ("offset", num(self.ifds[k].offset as f64)),
+                ("has_offsets", flag(self.ifds[k].has(273))),
+                ("has_counts", flag(self.ifds[k].has(279))),
+                ("rows", num(rows as f64)),
+            ]),
+        )?;
+        Ok(())
     }
 
     fn derive(&self) -> Got<Layout> {
@@ -1725,6 +1741,44 @@ impl Tiff {
                         levels.push(self.level(&[k], &mut vals)?);
                     }
                 }
+                // a stack of pages in strips, as ImageJ and tifffile write them without OME-XML
+                // (spec/zarrify/tiff.md §4.2
+                // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#42-pyramid-levels>):
+                // a later page of IFD 0's size and format is a plane the layout cannot map
+                if levels[0].strips {
+                    let used: HashSet<usize> = levels.iter().flat_map(|l| l.ifds.iter().copied()).collect();
+                    let (w0, h0) = (levels[0].w, levels[0].h);
+                    let pages: Vec<usize> = self.chain[1..]
+                        .iter()
+                        .copied()
+                        .filter(|&k| !used.contains(&k) && [256u16, 257, 258].iter().all(|&t| self.ifds[k].has(t)))
+                        .collect();
+                    // their values, in one batch; one whose values do not load (a malformed tag) is not
+                    // a page of IFD 0's format
+                    let loaded: Vec<Option<Vals>> = match self.load(&pages, false, false) {
+                        Ok(all) => all.into_iter().map(Some).collect(),
+                        Err(Stop::Reject(_)) => pages
+                            .iter()
+                            .map(|&k| match self.load(&[k], false, false) {
+                                Ok(mut m) => Ok(m.pop()),
+                                Err(Stop::Reject(_)) => Ok(None),
+                                Err(e) => Err(e),
+                            })
+                            .collect::<Got<Vec<_>>>()?,
+                        Err(e) => return Err(e),
+                    };
+                    for (&k, m) in pages.iter().zip(loaded) {
+                        let Some(m) = m else { continue };
+                        let size = (first_int(&m, 256), first_int(&m, 257));
+                        let format = match self.fmt(k, &m) {
+                            Ok(f) => Some(f),
+                            Err(Stop::Reject(_)) => None, // not of IFD 0's format, whatever it is
+                            Err(e) => return Err(e),
+                        };
+                        let page = size == (Some(w0), Some(h0)) && format == Some(f0);
+                        self.rules.check("pages", rules::env([("offset", num(self.ifds[k].offset as f64)), ("page", flag(page))]))?;
+                    }
+                }
             }
         }
         for lv in &levels {
@@ -1744,19 +1798,20 @@ impl Tiff {
             ("photometric", photometric.map(|p| num(p as f64)).unwrap_or(V::Absent)),
         ]);
         self.rules.check("image", &mut env)?;
-        // the tiles of every plane of every level
+        // the tiles, or strips, of every plane of every level
         let contig = spp > 1 && planar == 1;
         let samples = if spp > 1 && !contig { spp } else { 1 };
         let jpeg = compression == 7;
         let mut prefixes = HashMap::new();
         for lv in &levels {
-            let across = lv.w.div_ceil(lv.tw);
+            let across = if lv.strips { 1 } else { lv.w.div_ceil(lv.tw) };
             let down = lv.h.div_ceil(lv.th);
             let per = across as u128 * down as u128;
+            let (ot, ct) = if lv.strips { (273, 279) } else { (324, 325) };
             for &k in &lv.ifds {
                 let m = &vals[&k];
-                let offsets = self.reqs(k, m, 324)?;
-                let counts = self.reqs(k, m, 325)?;
+                let offsets = self.reqs(k, m, ot)?;
+                let counts = self.reqs(k, m, ct)?;
                 let (prefix, has_tables, tables_ok) = jpeg_prefix(m, jpeg, spp, photometric);
                 self.rules.check(
                     "plane",
@@ -1796,6 +1851,10 @@ impl Tiff {
                 }
             }
         }
+        // a level in strips whose last strip is short, padded to the chunk (spec/zarrify/tiff.md §4.5
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>): one that
+        // cannot be padded rejects the input (the `padding` role)
+        self.pad_strips(&mut levels, &vals, bits, spp, planar, compression)?;
         // pixel size and position (spec/zarrify/tiff.md §4.4
         // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#44-arrays>)
         let unit_of = |u: &str| self.rules.table("units").get(u).and_then(|x| x.as_str()).map(|x| x.to_string());
@@ -2046,7 +2105,7 @@ impl Tiff {
             .levels
             .iter()
             .map(|lv| {
-                // a level's chunks are its IFDs' tiles, or (QPTIFF) strips
+                // a level's chunks are its IFDs' tiles, or strips
                 let of = |k: &usize| tiles_of.get(k).copied().and_then(|(t, s)| if lv.strips { s } else { t });
                 json!({"w": lv.w, "h": lv.h, "tw": lv.tw, "th": lv.th, "strips": lv.strips, "pad": lv.pad,
                        "planes": lv.ifds.iter().map(of).collect::<Vec<_>>()})
@@ -2872,17 +2931,8 @@ impl Tiff {
             let (tw, th) = if tiled {
                 (self.req(k, m, 322, None)?, self.req(k, m, 323, None)?)
             } else {
-                let rows = self.req(k, m, 278, Some(u32::MAX as u64))?;
-                self.rules.check(
-                    "strips",
-                    rules::env([
-                        ("offset", num(self.ifds[k].offset as f64)),
-                        ("has_offsets", flag(self.ifds[k].has(273))),
-                        ("has_counts", flag(self.ifds[k].has(279))),
-                        ("rows", num(rows as f64)),
-                    ]),
-                )?;
-                (w, rows.min(h))
+                self.check_strips(k, m)?;
+                (w, self.req(k, m, 278, Some(u32::MAX as u64))?.min(h))
             };
             let this = (w, h, tiled, tw, th);
             let same = first.is_none_or(|x| x == this);
@@ -2902,6 +2952,151 @@ impl Tiff {
         }
         let (w, h, tiled, tw, th) = first.ok_or_else(|| Stop::Reject("internal: an empty QPTIFF level".into()))?;
         Ok(Level { w, h, tw, th, ifds: ks.to_vec(), strips: !tiled, pad: J::Null })
+    }
+
+    /// Pads each level in strips whose last strip is short to the chunk (spec/zarrify/tiff.md §4.5
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>,
+    /// spec/zarrify/qptiff.md §4.2
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#42-tiles-and-strips>): with
+    /// zeros when uncompressed, or with a literal tail spliced into the strip's LZW stream, which is
+    /// read for that (asked for, when it was not yet); a level of another compression cannot be
+    /// padded, which the profile's `padding` role decides. Returns whether each level is kept: padded,
+    /// or without a short last strip. Each strip's pad is keyed by its IFD's index in the level and
+    /// the strip's.
+    fn pad_strips(&self, levels: &mut [Level], vals: &HashMap<usize, Vals>, bits: u64, spp: u64, planar: u64, compression: u64) -> Got<Vec<bool>> {
+        let contig = spp > 1 && planar == 1;
+        let samples = if spp > 1 && !contig { spp } else { 1 };
+        // the sizes in bytes, from the file's integers, in u128 (a product that does not fit in u64
+        // saturates, and is then more padding than the `padding` role allows)
+        let row_bytes = |lv: &Level| lv.w as u128 * (bits / 8) as u128 * if contig { spp as u128 } else { 1 };
+        let bytes = |x: u128| u64::try_from(x).unwrap_or(u64::MAX);
+        // the bytes of an LZW strip of `n` bytes the scan reads to find where its output reaches
+        // `target` bytes (spec/zarrify/tiff.md §7.1
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#71-reading>): at most
+        // 3 × target + 64, as a stream that puts a Clear code (12 bits at most) before each
+        // literal (9 bits) spends 21 bits on a byte it decodes
+        let read = |n: u64, target: u64| n.min(bytes(3 * target as u128 + 64));
+        let last_strips = |lv: &Level, k: usize, m: &Vals| -> Got<Vec<(usize, u64, u64)>> {
+            let down = lv.h.div_ceil(lv.th);
+            let (offsets, counts) = (self.reqs(k, m, 273)?, self.reqs(k, m, 279)?);
+            Ok((0..samples)
+                .map(|s| {
+                    let j = (s * down + down - 1) as usize;
+                    (j, offsets[j], counts[j])
+                })
+                .collect())
+        };
+        let short_of = |lv: &Level| -> Option<u64> {
+            let down = lv.h.div_ceil(lv.th);
+            let short = lv.h - lv.th * (down - 1);
+            (lv.strips && down > 1 && short != lv.th).then_some(short)
+        };
+        let mut need = Vec::new();
+        if compression == 5 {
+            for (li, lv) in levels.iter().enumerate() {
+                let Some(short) = short_of(lv) else { continue };
+                // the zeros an LZW tail would hold, and the bytes of a strip read for it, within the
+                // limits before its strips are read
+                let missing = bytes((lv.th - short) as u128 * row_bytes(lv));
+                let target = bytes(short as u128 * row_bytes(lv));
+                let mut most_read = 0;
+                for &k in &lv.ifds {
+                    for (_, _, c) in last_strips(lv, k, &vals[&k])? {
+                        most_read = most_read.max(read(c, target));
+                    }
+                }
+                self.rules.check(
+                    "padding",
+                    rules::env([
+                        ("level", num(li as f64)),
+                        ("compression", num(compression as f64)),
+                        ("kept", flag(true)),
+                        ("zeros", num(missing as f64)),
+                        ("read", num(most_read as f64)),
+                    ]),
+                )?;
+                for &k in &lv.ifds {
+                    for (_, o, c) in last_strips(lv, k, &vals[&k])? {
+                        let r = read(c, target);
+                        if c > 0 && !self.heads.contains_key(&(o, r)) {
+                            need.push((o, r));
+                        }
+                    }
+                }
+            }
+        }
+        if !need.is_empty() {
+            return Err(Stop::Need(need));
+        }
+        let mut keep = vec![true; levels.len()];
+        for (li, lv) in levels.iter_mut().enumerate() {
+            let Some(short) = short_of(lv) else { continue };
+            let rows = row_bytes(lv);
+            let missing = bytes((lv.th - short) as u128 * rows);
+            // the most zero bytes a strip of the level is padded with
+            let mut most = missing;
+            match compression {
+                1 => {
+                    // each strip with the zeros its byte count lacks of the chunk's size (none
+                    // when it holds the chunk, as a strip written whole does)
+                    let mut pads = Vec::new();
+                    most = 0;
+                    for (c, &k) in lv.ifds.iter().enumerate() {
+                        for (j, _, n) in last_strips(lv, k, &vals[&k])? {
+                            let z = bytes(lv.th as u128 * rows).saturating_sub(n);
+                            if n > 0 && z > 0 {
+                                most = most.max(z);
+                                pads.push(json!({"c": c, "k": j, "zeros": z}));
+                            }
+                        }
+                    }
+                    lv.pad = json!({"zeros": pads});
+                }
+                5 => {
+                    let mut pads = Vec::new();
+                    for (c, &k) in lv.ifds.iter().enumerate() {
+                        for (j, o, n) in last_strips(lv, k, &vals[&k])? {
+                            if n == 0 {
+                                continue; // an absent strip: an absent chunk
+                            }
+                            let b = self
+                                .heads
+                                .get(&(o, read(n, bytes(short as u128 * rows))))
+                                .ok_or_else(|| Stop::Reject("internal: a strip the layout asked for was not fed".into()))?;
+                            let (ok, problem, pad) = match lzw::scan(b, bytes(short as u128 * rows)).and_then(|cut| lzw::tail(b, cut, missing)) {
+                                Ok((prefix, tail)) => (true, String::new(), json!({"c": c, "k": j, "prefix": prefix, "tail": tail})),
+                                Err(e) => (false, e, J::Null),
+                            };
+                            self.rules.check(
+                                "strip_tail",
+                                rules::env([
+                                    ("offset", num(self.ifds[k].offset as f64)),
+                                    ("strip", num(j as f64)),
+                                    ("decodes", flag(ok)),
+                                    ("problem", text(&problem)),
+                                ]),
+                            )?;
+                            pads.push(pad);
+                        }
+                    }
+                    lv.pad = json!({"lzw": pads});
+                }
+                _ => {
+                    keep[li] = false; // not padded: no zeros
+                    most = 0;
+                }
+            }
+            self.rules.check(
+                "padding",
+                rules::env([
+                    ("level", num(li as f64)),
+                    ("compression", num(compression as f64)),
+                    ("kept", flag(keep[li])),
+                    ("zeros", num(most as f64)),
+                ]),
+            )?;
+        }
+        Ok(keep)
     }
 
     /// The QPTIFF layout: the channels (the FullResolution images at the start of the main
@@ -3024,76 +3219,7 @@ impl Tiff {
                 prefixes.insert(k, prefix);
             }
         }
-        // a level in strips whose last strip is short (spec/zarrify/qptiff.md §4.2
-        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#42-tiles-and-strips>):
-        // padded to the chunk, with zeros when uncompressed, or with a literal tail spliced into
-        // the strip's LZW stream, which is read for that; of another compression, not a level
-        let row_bytes = |lv: &Level| lv.w * (bits / 8) * if contig { spp } else { 1 };
-        let last_strips = |lv: &Level, k: usize, m: &Vals| -> Got<Vec<(usize, u64, u64)>> {
-            let down = lv.h.div_ceil(lv.th);
-            let (offsets, counts) = (self.reqs(k, m, 273)?, self.reqs(k, m, 279)?);
-            Ok((0..samples).map(|s| (s as usize * down as usize + down as usize - 1, 0, 0)).map(|(j, _, _)| (j, offsets[j], counts[j])).collect())
-        };
-        let short_of = |lv: &Level| -> Option<u64> {
-            let down = lv.h.div_ceil(lv.th);
-            let short = lv.h - lv.th * (down - 1);
-            (lv.strips && down > 1 && short != lv.th).then_some(short)
-        };
-        let mut need = Vec::new();
-        if compression == 5 {
-            for lv in &levels {
-                if short_of(lv).is_none() {
-                    continue;
-                }
-                for &k in &lv.ifds {
-                    for (_, o, c) in last_strips(lv, k, &vals[&k])? {
-                        if c > 0 && !self.heads.contains_key(&(o, c)) {
-                            need.push((o, c));
-                        }
-                    }
-                }
-            }
-        }
-        if !need.is_empty() {
-            return Err(Stop::Need(need));
-        }
-        let mut keep = vec![true; levels.len()];
-        for (li, lv) in levels.iter_mut().enumerate() {
-            let Some(short) = short_of(lv) else { continue };
-            let rows = row_bytes(lv);
-            let missing = (lv.th - short) * rows;
-            match compression {
-                1 => lv.pad = json!({"zeros": missing}),
-                5 => {
-                    let mut pads = Vec::new();
-                    for (c, &k) in lv.ifds.iter().enumerate() {
-                        for (j, o, n) in last_strips(lv, k, &vals[&k])? {
-                            if n == 0 {
-                                continue; // an absent strip: an absent chunk
-                            }
-                            let b = self.heads.get(&(o, n)).ok_or_else(|| Stop::Reject("internal: a strip the layout asked for was not fed".into()))?;
-                            let (ok, problem, pad) = match lzw::scan(b, short * rows).map(|cut| lzw::tail(b, cut, missing)) {
-                                Ok((prefix, tail)) => (true, String::new(), json!({"c": c, "k": j, "prefix": prefix, "tail": tail})),
-                                Err(e) => (false, e, J::Null),
-                            };
-                            self.rules.check(
-                                "strip_tail",
-                                rules::env([
-                                    ("offset", num(self.ifds[k].offset as f64)),
-                                    ("strip", num(j as f64)),
-                                    ("decodes", flag(ok)),
-                                    ("problem", text(&problem)),
-                                ]),
-                            )?;
-                            pads.push(pad);
-                        }
-                    }
-                    lv.pad = json!({"lzw": pads});
-                }
-                _ => keep[li] = false,
-            }
-            self.rules.check("padding", rules::env([("level", num(li as f64)), ("compression", num(compression as f64)), ("kept", flag(keep[li]))]))?;
-        }
+        let keep = self.pad_strips(&mut levels, &vals, bits, spp, planar, compression)?;
         let levels: Vec<Level> = levels.into_iter().zip(keep).filter(|(_, k)| *k).map(|(l, _)| l).collect();
         // pixel size (the TIFF convention's resolution tags) and position (spec/zarrify/qptiff.md §4.3
         // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#43-arrays>)

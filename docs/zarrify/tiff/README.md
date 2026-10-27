@@ -2,7 +2,7 @@
 
 refkv turns an image file into an OME-Zarr dataset by writing a small archive
 of references to the file's bytes, without copying the pixels
-([overview](../README.md)). This page is about tiled TIFF files.
+([overview](../README.md)). This page is about TIFF files, tiled or in strips.
 
 ## Who this is for
 
@@ -39,11 +39,15 @@ level, `0` the full resolution.
 - **Levels:** OME-TIFF SubIFDs; without OME-XML, the later tiled images of
   the same format that get strictly smaller (how SVS stores its pyramid, so
   its label, macro and thumbnail images are skipped).
-- **Chunks:** one TIFF tile per chunk, for each plane and sample plane.
-  Interleaved RGB keeps its samples in one chunk, behind a `transpose`
-  codec.
-- **Codecs:** none, DEFLATE (`zlib`), zstd, JPEG 2000
-  (`imagecodecs_jpeg2k`) and JPEG (`imagecodecs_jpeg`), the tiles as stored.
+- **Chunks:** one TIFF tile per chunk, for each plane and sample plane, or,
+  for an image in strips, one strip per chunk (its rows by the image's
+  width). A short last strip is padded to the other strips' rows, so that the
+  chunk grid stays regular: with zeros when uncompressed, and with a few
+  literal bytes that continue its stream when LZW. Interleaved RGB keeps its
+  samples in one chunk, behind a `transpose` codec.
+- **Codecs:** none, LZW (`imagecodecs_lzw`), DEFLATE (`zlib`), zstd, JPEG
+  2000 (`imagecodecs_jpeg2k`) and JPEG (`imagecodecs_jpeg`), the tiles and
+  strips as stored.
 - **Scale:** from the OME-XML physical sizes, else Aperio's `MPP`, else the
   TIFF resolution tags when they give a pixel under 25.4 µm (72, 96 or
   300 dpi is a document resolution, not a pixel size); each level's scale
@@ -56,8 +60,8 @@ level, `0` the full resolution.
   by their OME-XML `Channel` names and colors (else `C0`, `C1`, ..., in
   white). The file records no display range, so each channel's window is
   sampled from the middle chunk of the coarsest level: the 5th to 99.9th
-  percentile of its values, leaving out zeros, for uncompressed and Deflate
-  tiles. RGB samples, and tiles refkv does not decode (JPEG, JPEG 2000,
+  percentile of its values, leaving out zeros, for uncompressed, LZW and
+  Deflate data. RGB samples, and tiles refkv does not decode (JPEG, JPEG 2000,
   zstd), get the data type's whole range (0 to 255 for 8-bit data). A float
   image whose windows cannot be sampled, or one with more than 64 channels,
   has no `omero`.
@@ -205,20 +209,25 @@ be shown there (zarr-python reads it).
 
 Supported:
 
-- TIFF and BigTIFF, either byte order, with tiled images.
+- TIFF and BigTIFF, either byte order, with tiled images or images in
+  strips.
 - Pyramids as SubIFDs (OME-TIFF), or as a sequence of smaller tiled images
   (SVS).
 - OME-TIFF planes over Z, C and T in any `DimensionOrder`, single-file.
 - Unsigned and signed integers of 8 to 64 bits, `float32` and `float64`,
   planar or interleaved samples.
-- Compression: none, DEFLATE, zstd, JPEG 2000, and JPEG (8-bit, gray or RGB
-  or YCbCr) with or without `JPEGTables`.
+- Compression: none, LZW, DEFLATE, zstd, JPEG 2000, and JPEG (8-bit, gray
+  or RGB or YCbCr) with or without `JPEGTables`.
 
 Rejected:
 
-- Images in strips rather than tiles.
-- LZW (read for [QPTIFF](../qptiff/README.md) files only), old-style JPEG
-  (compression 6), and any predictor.
+- Images in strips whose last strip is shorter than the others, when
+  compressed with DEFLATE, zstd, JPEG or JPEG 2000: such a strip cannot be
+  padded to the chunk. Nor one that would need more than 4 MiB (2^22 bytes)
+  of zeros, or a short last LZW strip of more than 16 MiB (2^24 bytes), which
+  is read to pad it.
+- Old-style JPEG (compression 6), and any predictor: no codec of refkv's
+  conventions undoes the horizontal differencing of Predictor 2.
 - Multi-file OME-TIFF (`TiffData` naming other files).
 - An OME-TIFF with several RGB channels (`SizeC` other than 1 or the
   samples per pixel).
@@ -236,21 +245,22 @@ A file that is none of the formats refkv reads is rejected with
 
 The browser code ([js/](../../../js/README.md)) reads TIFF:
 
-- Tiled TIFF and BigTIFF, either byte order.
+- TIFF and BigTIFF, either byte order, tiled or in strips (the same layout as
+  above: the browser runs the same core).
 - Pyramids as SubIFDs (OME-TIFF), or, without OME-XML, as later tiled images of
   decreasing size (as in SVS).
 - OME-TIFF planes over Z, C and T in any `DimensionOrder`, with physical pixel
   sizes and units.
 - Samples per pixel stored planar (one chunk per channel) or interleaved
   (through a `transpose` codec).
-- Compression: none, DEFLATE (`zlib`), zstd, JPEG 2000 (`imagecodecs_jpeg2k`),
-  and JPEG (`imagecodecs_jpeg`), without a predictor. JPEG tiles that keep
+- Compression: none, LZW (`imagecodecs_lzw`), DEFLATE (`zlib`), zstd, JPEG 2000
+  (`imagecodecs_jpeg2k`), and JPEG (`imagecodecs_jpeg`), without a predictor. JPEG tiles that keep
   their tables in `JPEGTables`, as in Aperio SVS, become complete JPEG streams
   through references that prepend the tables and a color marker, held once
   in the archive as a `data` source.
 
-Not supported, and refused with HTTP 422: images in strips, LZW, old-style
-JPEG, predictors, and multi-file OME-TIFF.
+Not supported, and refused with HTTP 422: what the profile rejects (above),
+such as old-style JPEG, predictors, and multi-file OME-TIFF.
 
 ## Performance
 

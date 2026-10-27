@@ -54,7 +54,7 @@
     {
       "test": "tiff_edge_reject_jpeg_short_tile",
       "input": "edge_reject_jpeg_short_tile.tif",
-      "message": "JPEG tile 0 of the IFD at 16 is too short"
+      "message": "JPEG tile or strip 0 of the IFD at 16 is too short"
     },
     {
       "test": "tiff_edge_reject_jpeg_tables",
@@ -132,6 +132,11 @@
       "message": "SizeZ='0' is less than 1"
     },
     {
+      "test": "tiff_edge_reject_strips_deflate_short",
+      "input": "edge_reject_strips_deflate_short.tif",
+      "message": "level 0 is in strips of compression 8 whose last strip is short, which cannot be padded"
+    },
+    {
       "test": "tiff_edge_reject_subifd_count",
       "input": "edge_reject_subifd_count.tif",
       "message": "the IFD at 9832 has fewer SubIFDs than IFD 0"
@@ -144,12 +149,12 @@
     {
       "test": "tiff_edge_reject_tile_count",
       "input": "edge_reject_tile_count.tif",
-      "message": "IFD at 32 has 3 tiles, expected 4"
+      "message": "IFD at 32 has 3 tiles or strips, expected 4"
     },
     {
       "test": "tiff_edge_reject_tile_outside",
       "input": "edge_reject_tile_outside.tif",
-      "message": "tile 0 of the IFD at 40 is outside the file"
+      "message": "tile or strip 0 of the IFD at 40 is outside the file"
     },
     {
       "test": "tiff_edge_reject_unmapped",
@@ -187,19 +192,9 @@
       "message": "the image at 8 has an empty tile size"
     },
     {
-      "test": "tiff_unsupported_lzw",
-      "input": "unsupported_lzw.tif",
-      "message": "unsupported compression 5"
-    },
-    {
       "test": "tiff_unsupported_predictor",
       "input": "unsupported_predictor.tif",
       "message": "unsupported predictor 2"
-    },
-    {
-      "test": "tiff_unsupported_strips",
-      "input": "unsupported_strips.tif",
-      "message": "only tiled TIFFs are supported; the image at 8 i"
     }
   ]
 }

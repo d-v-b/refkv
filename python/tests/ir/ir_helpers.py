@@ -90,12 +90,8 @@ MIRRORED = {"nifti": ("header_rest", "extender", "extensions", "extensions_trunc
 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#4-the-image>).
 ADDED = {"tiff": ("omero",), "ndpi": ("omero",)}
 # The fixtures whose layout the profile changed after the freeze, which the frozen reference
-# does not give (conformance/zarrify/compare.py's REVISED): NDPI's frames that are not their
-# level's size (spec/zarrify/ndpi.md §7
-# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>), and its JPEG XR
-# levels (spec/zarrify/ndpi.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#3-levels>).
-REVISED = {"edge_ndpi_frames.ndpi", "edge_reject_ndpi_frame.ndpi", "ndpi_jpegxr_gray16.ndpi",
-           "ndpi_jpegxr_rgb.ndpi", "ndpi_jpegxr_bgr.ndpi"}
+# does not give (conformance/zarrify/revised.json, compare.py's REVISED).
+REVISED = set(json.loads((ROOT / "conformance" / "zarrify" / "revised.json").read_text())["fixtures"])
 # The profiles whose edge chunks' zero padding is a range of the output's zero data source since
 # the freeze, where the frozen reference pads with a literal range (conformance/zarrify/compare.py's
 # ZERO_PADDED; spec/zarrify/nifti.md §7.2

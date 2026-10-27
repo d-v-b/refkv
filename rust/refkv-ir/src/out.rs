@@ -431,9 +431,8 @@ pub fn item_size(data_type: &str) -> u64 {
 
 /// The codecs after `transpose` of a TIFF `compression` (the tag's value: JPEG 2000 and JPEG
 /// as their imagecodecs codecs; else `bytes`, with the byte order for samples of more than 8
-/// bits, then `imagecodecs_lzw` for LZW (which the QPTIFF convention reads,
-/// spec/zarrify/qptiff.md §4.1
-/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#41-data-types-and-codecs>),
+/// bits, then `imagecodecs_lzw` for LZW (spec/zarrify/tiff.md §4.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>),
 /// `zlib` for Deflate or `zstd` for Zstandard).
 pub fn tiff_codecs(compression: u64, bits: u64, little: bool) -> Vec<J> {
     match compression {

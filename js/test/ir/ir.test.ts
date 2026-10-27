@@ -86,8 +86,13 @@ after(() => {
   server.close();
 });
 
+// The fixtures whose layout the profile changed after the freeze, which the frozen reference does not
+// give (conformance/zarrify/revised.json, compare.py's REVISED).
+const REVISED = new Set<string>(JSON.parse(fs.readFileSync(new URL("../../../conformance/zarrify/revised.json",
+  import.meta.url), "utf8")).fixtures);
 const IR_FIXTURES = ["tiff", "nd2", "czi", "nifti", "ims"].flatMap((dir) =>
-  fs.readdirSync(new URL(dir, FIXTURES), { withFileTypes: true }).filter((e) => e.isFile() && !e.name.endsWith(".npz"))
+  fs.readdirSync(new URL(dir, FIXTURES), { withFileTypes: true })
+    .filter((e) => e.isFile() && !e.name.endsWith(".npz") && !REVISED.has(e.name))
     .map((e) => e.name).sort().map((n) => `${dir}/${n}`));
 
 test("the Rust core gives the frozen zarrifiers' hierarchy, and rejects the same files", async () => {

@@ -9,9 +9,8 @@
 use super::tiled::{self, MAX_NAME};
 use super::{arr, n, strs, window, Copied};
 use crate::ir::Ir;
-use crate::out::{omero_channel, omero_json, root_json, sample_channels, type_window, Out, Part};
+use crate::out::{omero_channel, omero_json, root_json, sample_channels, type_window, Out};
 use serde_json::{json, Value as J};
-use std::collections::HashMap;
 
 /// A channel's omero color from its QPI `Color` (three decimal bytes, `r,g,b`), else white.
 fn color(v: &J) -> String {
@@ -100,12 +99,7 @@ fn arrays(ir: &Ir, facts: &J, url: &str, only: Option<usize>) -> Result<(Out, Ve
         let across = if strips { 1 } else { w.div_ceil(tw) };
         // a short last strip, padded to the chunk (spec/zarrify/qptiff.md §4.2
         // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#42-tiles-and-strips>)
-        let pad = &lv["pad"];
-        let zeros = pad["zeros"].as_u64().map(|z| refs.out.shared(&vec![0u8; z as usize]));
-        let lzw: HashMap<(u64, u64), (u64, Vec<u8>)> = arr(&pad["lzw"])
-            .iter()
-            .map(|p| ((n(&p["c"]), n(&p["k"])), (n(&p["prefix"]), arr(&p["tail"]).iter().map(|b| n(b) as u8).collect())))
-            .collect();
+        let padding = tiled::Padding::of(refs, lv, None)?;
         let prefix = format!("{li}/c/");
         for (c, p) in arr(&lv["planes"]).iter().enumerate() {
             let Some(e) = p.as_u64() else { continue };
@@ -118,15 +112,7 @@ fn arrays(ir: &Ir, facts: &J, url: &str, only: Option<usize>) -> Result<(Out, Ve
                 coords.extend([row, col]);
                 coords
             };
-            let parts = |k, row, start, length| {
-                if !(strips && row == down - 1) {
-                    return None;
-                }
-                match &zeros {
-                    Some(z) => Some(vec![Part::Src(start, length), z.clone()]),
-                    None => lzw.get(&(c, k)).map(|(p, tail)| vec![Part::Src(start, *p), Part::Lit(tail.clone())]),
-                }
-            };
+            let parts = |k, row, start, length| padding.parts(c, k, row, start, length);
             tiled::plane(refs, &prefix, Some(e), across * down, across, coords, parts)?;
         }
         Ok(())

@@ -8,7 +8,8 @@
     "max_depth": 4,
     "max_tries": 10000,
     "max_decode": 65536,
-    "eager_decode": 16777216
+    "eager_decode": 16777216,
+    "max_padding": 4194304
   },
   "tables": {
     "kinds": {
@@ -351,8 +352,11 @@
     },
     "padding": {
       "about": "a level in strips whose last strip is short, after it is padded (uncompressed, LZW) or found unpaddable (another compression): level 0 must be a level",
-      "given": {"level": "", "compression": "", "kept": "the level is padded, and kept"},
-      "constraints": [{"require": "kept || level > 0", "message": "the channels are strips of compression {compression} whose last strip is short, which cannot be padded"}]
+      "given": {"level": "", "compression": "", "kept": "the level is padded, and kept", "zeros": "the most zero bytes a strip of the level is padded with"},
+      "constraints": [
+        {"require": "kept || level > 0", "message": "the channels are strips of compression {compression} whose last strip is short, which cannot be padded"},
+        {"require": "zeros <= max_padding", "message": "level {level} pads its last strip with {zeros} zero bytes, more than {max_padding}"}
+      ]
     },
     "images": {
       "about": "the file",

@@ -159,9 +159,9 @@ def test_no_document_grows_with_the_ifds(tmp_path):
 
 
 @pytest.mark.parametrize(("name", "message"), [
-    ("unsupported_lzw.tif", "compression 5"),
+    ("lzw_uint8.tif", "compression 5"),  # the frozen profile's revision rejects LZW and strips
     ("unsupported_predictor.tif", "predictor 2"),
-    ("unsupported_strips.tif", "strips"),
+    ("strips_uint8.tif", "strips"),
     ("edge_reject_fill_order.tif", "FillOrder 2"),
     ("edge_reject_ycbcr_subsampled.tif", r"YCbCr with subsampling \[2, 2\]"),
     ("edge_reject_ycbcr_default.tif", r"YCbCr with subsampling \[2, 2\]"),

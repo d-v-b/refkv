@@ -56,8 +56,13 @@ impl Zeros {
         Zeros { size: chunks.into_iter().filter_map(|(_, c)| padding_of(c)).max().unwrap_or(0), index: None }
     }
 
+    /// A zero data source of `size` bytes, the most padding of an output's references.
+    pub fn sized(size: u64) -> Zeros {
+        Zeros { size, index: None }
+    }
+
     /// The range of its first `n` bytes, the source added to `out` at its first use.
-    fn range(&mut self, out: &mut Out, n: u64) -> Result<Part, String> {
+    pub fn range(&mut self, out: &mut Out, n: u64) -> Result<Part, String> {
         if n > self.size {
             return Err("internal: a chunk's padding is past the zero data source".into());
         }

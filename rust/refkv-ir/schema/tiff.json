@@ -9,7 +9,8 @@
     "max_planes": 100000,
     "max_tries": 10000,
     "max_decode": 65536,
-    "eager_decode": 16777216
+    "eager_decode": 16777216,
+    "max_padding": 4194304
   },
   "tables": {
     "kinds": {
@@ -46,7 +47,10 @@
       "262": {"name": "PhotometricInterpretation", "kind": "integer", "scalar": true, "used": true},
       "266": {"name": "FillOrder", "kind": "integer", "scalar": true, "used": true},
       "270": {"name": "ImageDescription", "kind": "any", "scalar": false, "used": false},
+      "273": {"name": "StripOffsets", "kind": "integer", "scalar": false, "used": true, "tiles": true},
       "277": {"name": "SamplesPerPixel", "kind": "integer", "scalar": true, "used": true},
+      "278": {"name": "RowsPerStrip", "kind": "integer", "scalar": true, "used": true},
+      "279": {"name": "StripByteCounts", "kind": "integer", "scalar": false, "used": true, "tiles": true},
       "282": {"name": "XResolution", "kind": "rational", "scalar": true, "used": true},
       "283": {"name": "YResolution", "kind": "rational", "scalar": true, "used": true},
       "284": {"name": "PlanarConfiguration", "kind": "integer", "scalar": true, "used": true},
@@ -64,7 +68,7 @@
     "layout_tags": [273, 279, 288, 289, 324, 325, 513, 514, 519, 520, 521],
     "pointers": {"330": "subifds", "34665": "exif", "34853": "gps", "40965": "interoperability"},
     "jpeg2000": [33003, 33004, 33005, 34712],
-    "compressions": [1, 7, 8, 32946, 50000, 33003, 33004, 33005, 34712],
+    "compressions": [1, 5, 7, 8, 32946, 50000, 33003, 33004, 33005, 34712],
     "zlib": [8, 32946],
     "sample_kinds": {"1": "uint", "2": "int", "3": "float"},
     "units": {
@@ -316,7 +320,7 @@
       },
       "constraints": [
         {
-          "require": "!in(compression, [1, 8, 32946, 50000]) || fill_order == 1",
+          "require": "!in(compression, [1, 5, 8, 32946, 50000]) || fill_order == 1",
           "message": "the image at {offset} has FillOrder {fill_order}"
         },
         {
@@ -325,16 +329,31 @@
         }
       ]
     },
+    "strips": {
+      "about": "an IFD a level uses that is not tiled: its strips (spec/zarrify/tiff.md §4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>)",
+      "given": {
+        "offset": "",
+        "has_offsets": "StripOffsets present",
+        "has_counts": "StripByteCounts present",
+        "rows": "RowsPerStrip (default 2^32 - 1)"
+      },
+      "constraints": [
+        {"require": "has_offsets", "message": "the image at {offset} has neither tiles nor strips"},
+        {"require": "has_counts", "message": "IFD at {offset} has no tag 279"},
+        {"require": "rows >= 1", "message": "the image at {offset} has RowsPerStrip 0"}
+      ]
+    },
     "level_ifd": {
       "about": "an IFD a level uses, after its size and samples",
-      "given": {"offset": "", "tiled": "", "same": "its size, tiling and format are the level's first IFD's"},
+      "given": {"offset": "", "same": "its size, tiling (tile size, or rows per strip) and format are the level's first IFD's"},
       "constraints": [
-        {
-          "require": "tiled",
-          "message": "only tiled TIFFs are supported; the image at {offset} is stored in strips"
-        },
         {"require": "same", "message": "planes of one pyramid level differ in size, tiling or format"}
       ]
+    },
+    "pages": {
+      "about": "a later main-chain IFD that is not a level, of a file without OME-XML whose level 0 is in strips (spec/zarrify/tiff.md §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#42-pyramid-levels>)",
+      "given": {"offset": "", "page": "it has IFD 0's width, length and format"},
+      "constraints": [{"require": "!page", "message": "the image at {offset} is another page of IFD 0's size and format: a stack of pages without OME-XML, whose planes the TIFF convention does not map"}]
     },
     "pyramid": {
       "about": "every IFD of every level",
@@ -365,15 +384,15 @@
       ]
     },
     "plane": {
-      "about": "a plane's IFD of a level, as its tiles are referenced",
+      "about": "a plane's IFD of a level, as its tiles or strips are referenced",
       "given": {
         "offset": "",
         "jpeg": "",
         "has_tables": "JPEGTables present",
         "tables_ok": "JPEGTables start with SOI and end with EOI, at least 4 bytes",
-        "tiles": "TileOffsets' count",
-        "counts": "TileByteCounts' count",
-        "expected": "samples × tiles across × tiles down"
+        "tiles": "TileOffsets' (StripOffsets') count",
+        "counts": "TileByteCounts' (StripByteCounts') count",
+        "expected": "samples × tiles across × tiles down, or samples × strips"
       },
       "constraints": [
         {
@@ -382,16 +401,30 @@
         },
         {
           "require": "tiles == expected && counts == expected",
-          "message": "IFD at {offset} has {tiles} tiles, expected {expected}"
+          "message": "IFD at {offset} has {tiles} tiles or strips, expected {expected}"
         }
       ]
     },
     "tile": {
-      "about": "a tile with a byte count above 0",
+      "about": "a tile or strip with a byte count above 0",
       "given": {"k": "", "offset": "the IFD's", "within": "its bytes end within the file", "count": "", "jpeg": ""},
       "constraints": [
-        {"require": "within", "message": "tile {k} of the IFD at {offset} is outside the file"},
-        {"require": "!jpeg || count > 2", "message": "JPEG tile {k} of the IFD at {offset} is too short"}
+        {"require": "within", "message": "tile or strip {k} of the IFD at {offset} is outside the file"},
+        {"require": "!jpeg || count > 2", "message": "JPEG tile or strip {k} of the IFD at {offset} is too short"}
+      ]
+    },
+    "strip_tail": {
+      "about": "the last strip of a level in LZW strips, when it is short (spec/zarrify/tiff.md §4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>): its stream, read to where its output reaches the strip's size, so that a tail of zeros can continue it",
+      "given": {"offset": "the IFD's", "strip": "the strip's index", "decodes": "the stream reaches the strip's size", "problem": "why not"},
+      "constraints": [{"require": "decodes", "message": "strip {strip} of the IFD at {offset} does not decode to its size: {problem}"}]
+    },
+    "padding": {
+      "about": "a level in strips whose last strip is short, after it is padded (uncompressed, LZW) or found unpaddable (another compression)",
+      "given": {"level": "", "compression": "", "kept": "the level is padded", "zeros": "the most zero bytes a strip of the level is padded with", "read": "(LZW) the most bytes of a last strip read for its tail: its byte count, at most 3 × its decoded size + 64"},
+      "constraints": [
+        {"require": "kept", "message": "level {level} is in strips of compression {compression} whose last strip is short, which cannot be padded"},
+        {"require": "zeros <= max_padding", "message": "level {level} pads its last strip with {zeros} zero bytes, more than {max_padding}"},
+        {"require": "!present(read) || read <= eager_decode", "message": "level {level}'s last LZW strip would be read up to {read} bytes for its tail, more than {eager_decode}"}
       ]
     },
     "images": {
