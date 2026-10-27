@@ -236,8 +236,14 @@ class ObstoreFile(io.RawIOBase):
         return self.f.tell()
 
     @override
-    def read(self, size: int = -1) -> bytes:
-        return bytes(self.f.read(None if size < 0 else size))
+    def read(self, size: int | None = -1) -> bytes:
+        return bytes(self.f.read(None if size is None or size < 0 else size))
+
+    @override
+    def close(self) -> None:
+        if not self.closed:
+            self.f.close()
+        super().close()
 
     @override
     def readinto(self, buffer: Buffer) -> int:

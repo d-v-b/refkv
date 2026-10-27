@@ -49,7 +49,8 @@ The packages read a file object, and how that object fetches bytes decides their
 package ran through seven: fsspec 2026.9.0's HTTP file with no cache, read-ahead, or an LRU
 block cache, at 64 KiB and 1 MiB blocks; and obstore 0.11.1's buffered reader
 (`obstore.open_reader`) with 64 KiB and 1 MiB buffers. The table gives, for each file, the
-core, the package's fastest fsspec setting, and its fastest obstore setting;
+core, the package's fastest fsspec setting, and its fastest obstore setting (of two settings
+equally fast at the precision shown, the one that reads fewer bytes);
 [the full sweep](experiments/third_party/results.md) has every setting. Requests and bytes
 are deterministic. Wall times are end to end on one laptop, on a warm cache: the core's include
 building the archive and its mirror, which the packages do not do (most of the core's 10 s
@@ -62,10 +63,10 @@ for the QPTIFF is building 268,860 references, not reading).
 | NDPI (ki67) | 221 MB | 19 · 428 kB · 2.1 s | tifffile, block cache 1 MiB: 5 · 3.7 MB · 1.6 s ² | tifffile, 64 KiB: 44 · 2.9 MB · 7.7 s |
 | QPTIFF | 362 MB | 32 · 4.6 MB · 10.1 s | tifffile, block cache 1 MiB: 12 · 11.2 MB · 4.0 s | tifffile, 64 KiB: 186 · 10.4 MB · 31.1 s |
 | ND2 (S-BIAD2077) | 263 MB | 26 · 192 kB · 1.4 s | nd2, block cache 1 MiB: 3 · 1.5 MB · 0.5 s ³ | nd2, 64 KiB: 4 · 74 kB · 0.6 s |
-| ND2 (pollen) | 138 MB | 24 · 127 kB · 1.8 s | nd2, block cache 64 KiB: 3 · 86 kB · 0.5 s ³ | nd2, 1 MiB: 4 · 1.1 MB · 0.6 s |
+| ND2 (pollen) | 138 MB | 24 · 127 kB · 1.8 s | nd2, block cache 64 KiB: 3 · 86 kB · 0.5 s ³ | nd2, 64 KiB: 4 · 74 kB · 0.6 s |
 | CZI (Axioscan) | 505 MB | 19 · 1.6 MB · 1.2 s | czifile, read-ahead 1 MiB: 288 · 301 MB · 45.4 s | czifile, 64 KiB: 487 · 31.9 MB · 73.9 s |
 | CZI (IDR idr0011) | 44 MB | 13 · 315 kB · 1.0 s | czifile, read-ahead 1 MiB: 33 · 33.2 MB · 5.1 s | czifile, 64 KiB: 69 · 4.5 MB · 10.5 s |
-| IMS (Convallaria) | 64 MB | 46 · 180 kB · 2.0 s | h5py, block cache 1 MiB: 33 · 33.6 MB · 5.0 s | h5py, 1 MiB: 278 · 290 MB · 43.4 s |
+| IMS (Convallaria) | 64 MB | 46 · 180 kB · 2.0 s | h5py, block cache 1 MiB: 33 · 33.6 MB · 5.0 s | h5py, 1 MiB: 278 · 290 MB ⁴ · 43.4 s |
 
 1. tifffile also lists the SVS's stripped thumbnail, label and macro images, which the TIFF
    profile skips ([tiff.md §4.2](../spec/zarrify/tiff.md#42-pyramid-levels)); `write_fsspec`
@@ -74,29 +75,35 @@ for the QPTIFF is building 268,860 references, not reading).
    McuStarts, the profile blocks of them ([ndpi.md §7](../spec/zarrify/ndpi.md#7-ndpi-profile)).
 3. nd2's frame offsets are private (`ND2File._rdr._frame_offsets`). Given a URL rather than a
    file, nd2 opens it with fsspec itself, in 512 KB blocks: 5 requests, 532 kB, 0.8 s.
+4. More than the file: obstore's reader refills its whole buffer after every seek, so a reader
+   that seeks back and forth fetches the same bytes again and again.
 
 What the numbers say:
 
-- **TIFF and ND2: tuned, the packages are as fast as the core.** With fsspec's block cache,
-  tifffile finds every chunk of each TIFF in 0.5 to 4 s (the core: 1.3 to 10 s, building the
-  archive included), reading 2 to 8 times the core's bytes in fewer requests; with 64 KiB
-  blocks it reads the core's bytes (456 kB for the OME-TIFF, against 457 kB) in about as many
-  requests. nd2 needs 3 or 4 requests and 74 to 135 kB, fewer than the core's 24 to 26
-  requests and 127 to 192 kB, because it does less: it skips the frame headers the ND2 profile
-  requires the core to check (below), and reads only the metadata it decodes, while the core
-  reads all of it for the mirror. So for these formats, I/O is no argument either way.
+- **TIFF and ND2: tuned, the packages are as fast as the core.** With fsspec's 1 MiB block
+  cache, tifffile finds every chunk of each TIFF in 0.5 to 4 s (the core: 1.3 to 10 s, building
+  the archive included), reading 2.5 to 9 times the core's bytes in fewer requests. With
+  64 KiB blocks it reads 1.0 to 1.7 times the core's bytes, in 8 to 82 requests (the core: 9
+  to 32). With 64 KiB blocks, nd2 reads 74 to 135 kB of the S-BIAD2077 file (the core: 192 kB)
+  and 74 to 86 kB of the pollen file (the core: 127 kB), in 3 or 4 requests (the core: 24 to
+  26), because it does less: it skips the frame headers the ND2 profile requires the core to
+  check (below), and reads only the metadata it decodes, while the core reads all of it for
+  the mirror. So for these formats, I/O is no argument either way.
 - **CZI and IMS: no setting closes the gap.** czifile reads each subblock's header with a read
   of its own, and h5py each B-tree node, one request after another: 33 to 288 requests at
   best, against the core's 13 to 46, and 5 to 45 s against 1 to 2 s. A larger block buys
   fewer requests with many more bytes (301 MB of a 505 MB CZI). No cache helps when the
   reads are scattered and the reader asks for them one at a time; the core's planner batches
   the reads a parser asks for, coalesces near ranges and sends them concurrently.
-- **obstore's file reader is the slowest transport for every package.** `ReadableFile` drops
-  its buffer on every seek, so a parser that seeks between small reads (tifffile from tag to
-  tag, h5py from node to node) makes about one request per seek: 42 to 278 requests where a
-  block cache needs 3 to 33. obstore's strength is elsewhere: `get_ranges` (vectored reads)
-  and async concurrency, which only a caller that knows its next reads in advance can use.
-  That caller is a planner like the core's; none of these packages has one.
+- **obstore's file reader is slower than any fsspec cache for tifffile, czifile and h5py, and
+  close to fsspec with no cache.** `ReadableFile` drops its buffer on every seek, so a parser
+  that seeks between small reads (tifffile from tag to tag, czifile from header to header,
+  h5py from node to node) makes about one request per seek: 42 to 186 requests for tifffile,
+  69 to 487 for czifile and 278 for h5py, where fsspec's block cache needs 3 to 82, 42 to 485
+  and 33 to 40. For nd2, which reads a few large ranges, it matches fsspec's read-ahead (4
+  requests, 74 kB). obstore's strength is elsewhere: `get_ranges` (vectored reads) and async
+  concurrency, which only a caller that knows its next reads in advance can use. That caller
+  is a planner like the core's; none of these packages has one.
 
 ## What the packages accept
 
