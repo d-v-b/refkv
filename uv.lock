@@ -1209,6 +1209,18 @@ wheels = [
 ]
 
 [[package]]
+name = "imagecodecs-zarr"
+version = "2026.8.16"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "imagecodecs" },
+    { name = "zarr" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/90/02/761a6a4db29d7dae13f0301cd118bec7c44ed6d418775427c48367787349/imagecodecs_zarr-2026.8.16-py3-none-any.whl", hash = "sha256:8554c5df6818d41ba90040dbf909ba0f8c44d7a934e7107940053351606c87d3", size = 3200, upload-time = "2026-08-31T17:46:54.482Z" },
+]
+
+[[package]]
 name = "iniconfig"
 version = "2.3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3121,6 +3133,7 @@ dependencies = [
 [package.optional-dependencies]
 images = [
     { name = "imagecodecs" },
+    { name = "imagecodecs-zarr" },
     { name = "zarr" },
 ]
 media = [
@@ -3144,6 +3157,7 @@ requires-dist = [
     { name = "av", marker = "extra == 'media'", specifier = ">=15.0" },
     { name = "google-crc32c", specifier = ">=1.9.0" },
     { name = "imagecodecs", marker = "extra == 'images'", specifier = ">=2026.8.16" },
+    { name = "imagecodecs-zarr", marker = "extra == 'images'", specifier = ">=2026.8.16" },
     { name = "numpy", specifier = ">=2.5.3" },
     { name = "obstore", marker = "extra == 'obstore'", specifier = ">=0.11.1" },
     { name = "refkv", extras = ["zarr"], marker = "extra == 'images'", editable = "python" },

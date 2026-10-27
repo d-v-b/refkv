@@ -720,7 +720,7 @@ impl Ims {
                 None => json!({"name": "bytes"}),
             }];
             if *compressed {
-                codecs.push(json!({"name": "zlib", "configuration": {"level": 1}}));
+                codecs.push(json!({"name": "numcodecs.zlib", "configuration": {"level": 1}}));
             }
             arrays.push(json!({"shape": shape, "chunks": chunks, "codecs": codecs, "sizes": sizes, "chunk": chunk}));
         }

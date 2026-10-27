@@ -43,7 +43,7 @@ level, `0` the full resolution.
   bytes spliced into its stream; uncompressed: a zero data source), so
   that dask and napari read the level as they read any other. A JPEG level
   in strips whose last strip is short cannot be padded and is left out.
-- **Codecs:** `bytes` and `imagecodecs_lzw` for LZW (the scanners' default),
+- **Codecs:** `bytes` and `refkv.tiff_lzw` for LZW (the scanners' default),
   `imagecodecs_jpeg` for JPEG brightfield scans, `bytes` alone for
   uncompressed data; interleaved RGB behind a `transpose` codec. Integer and
   float32 samples (inForm's component data).
@@ -92,8 +92,8 @@ The brightfield H&E sample (`HandEcompressed_Scan1.qptiff`, 422 MB, JPEG) gave
 (`PKI_fields/HnE_3_1x1component_data.tif`, 24 MB) one `float32` level of two
 channels in strips.
 
-Reading it with zarr-python needs the LZW codec, which importing
-`refkv.zarr` registers (it uses `imagecodecs`, the `images` extra):
+Reading it with zarr-python needs the LZW codec `refkv.tiff_lzw`, which zarr finds
+through refkv's entry points (it uses `imagecodecs`, the `images` extra):
 
 ```python
 import zarr
@@ -127,9 +127,10 @@ fields, for example) zarrifies the same way.
 ## Viewing
 
 The Neuroglancer fork refkv's demo uses decodes `imagecodecs_jpeg`, so JPEG
-scans render there, and `imagecodecs_lzw` since
-[d-v-b/neuroglancer#6](https://github.com/d-v-b/neuroglancer/pull/6), so
-LZW scans do once the demo is rebuilt with it; zarr-python reads both
+scans render there. It decodes LZW under the name `imagecodecs_lzw`
+([d-v-b/neuroglancer#6](https://github.com/d-v-b/neuroglancer/pull/6)), which
+archives named before d-v-b/refkv#90, and not yet `refkv.tiff_lzw`, so LZW scans
+render there once the fork registers that name too; zarr-python reads both
 (above).
 
 ## Supported and not supported
@@ -175,7 +176,7 @@ The browser code ([js/](../../../js/README.md)) reads Akoya QPTIFF (Vectra scans
   images as levels, named and colored in `omero` from each image's XML
   description; tiles, or strips for the smallest levels and inForm fields
   (a rectilinear chunk grid when the last strip is short).
-- Compression: none, LZW (`imagecodecs_lzw`), JPEG, DEFLATE, zstd, JPEG 2000.
+- Compression: none, LZW (`refkv.tiff_lzw`), JPEG, DEFLATE, zstd, JPEG 2000.
 
 Not supported, and refused with HTTP 422: predictors, several RGB channels,
 and images that do not follow the format's arrangement.

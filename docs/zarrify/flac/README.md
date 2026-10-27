@@ -38,8 +38,8 @@ pictures, the group `pictures`.
 - **Chunks:** one frame each (4096 samples for most encoders), in shards of
   up to 512 frames (`sharding_indexed`, with a CRC-32C'd index), the last
   frame usually shorter.
-- **Codecs:** `refkv.stream` inside `sharding_indexed`; refkv's `zarr`
-  module registers it, and it decodes with ffmpeg's FLAC decoder through
+- **Codecs:** `refkv.stream` inside `sharding_indexed`; zarr finds it
+  through refkv's entry points, and it decodes with ffmpeg's FLAC decoder through
   PyAV (the `media` extra).
 - **Pictures:** `pictures/<i>`, the `i`-th PICTURE block's data as bytes
   (`uint8`): a cover art PNG or JPEG, referenced, not copied.

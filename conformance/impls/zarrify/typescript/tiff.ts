@@ -518,7 +518,7 @@ export async function zarrifyTiff(src: Source, out: Output): Promise<void> {
   const codecsTail: unknown[] = [];
   if (comp === 1 && pred === 1) codecsTail.push(bytesCodec(itemSize, le ? "little" : "big"));
   else if ((comp === 8 || comp === 32946) && pred === 1)
-    codecsTail.push(bytesCodec(itemSize, le ? "little" : "big"), { name: "zlib", configuration: { level: 1 } });
+    codecsTail.push(bytesCodec(itemSize, le ? "little" : "big"), { name: "numcodecs.zlib", configuration: { level: 1 } });
   else if (comp === 50000 && pred === 1)
     codecsTail.push(bytesCodec(itemSize, le ? "little" : "big"), { name: "zstd", configuration: { level: 0, checksum: false } });
   else if ([33003, 33004, 33005, 34712].includes(comp)) codecsTail.push({ name: "imagecodecs_jpeg2k" });

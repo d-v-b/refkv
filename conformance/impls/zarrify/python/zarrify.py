@@ -513,7 +513,7 @@ class Tiff:
             if comp == 1:
                 compressor = None
             elif comp in (8, 32946):
-                compressor = {"name": "zlib", "configuration": {"level": 1}}
+                compressor = {"name": "numcodecs.zlib", "configuration": {"level": 1}}
             elif comp == 50000:
                 compressor = {"name": "zstd", "configuration": {"level": 0, "checksum": False}}
             else:
@@ -1348,7 +1348,7 @@ class ND2:
             codecs.append(transpose_codec(dims))
         codecs.append(bytes_codec(bpc // 8, "little"))
         if compressed:
-            codecs.append({"name": "zlib", "configuration": {"level": 1}})
+            codecs.append({"name": "numcodecs.zlib", "configuration": {"level": 1}})
         units = {}
         scale: dict[str, float] = {"t": 1, "c": 1, "z": 1, "y": 1, "x": 1}
         if calibrated:

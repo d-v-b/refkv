@@ -392,7 +392,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     let mut codecs = if comp > 1 { vec![transpose_codec(&axes)] } else { vec![] };
     codecs.push(bytes_codec(bpc.div_ceil(8), "little"));
     if compressed {
-        codecs.push(json!({"name": "zlib", "configuration": {"level": 1}}));
+        codecs.push(json!({"name": "numcodecs.zlib", "configuration": {"level": 1}}));
     }
     let codecs = J::Array(codecs);
     let b = if significant == significant.trunc() && 1.0 <= significant && significant <= bpc as f64 { significant as u64 } else { bpc };

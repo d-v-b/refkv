@@ -13,7 +13,8 @@ through their globals). A store twin also rejects a node at `refkv_source`, wher
 shipped code keeps a store's other objects since revision 27, so that the corpus's
 collision stores are rejected by every implementation. `current_names` reads
 the old names as the current ones, for compare.py and the tests that compare the frozen
-profiles with the Rust core (conformance/zarrify/HARNESS.md)."""
+profiles with the Rust core (conformance/zarrify/HARNESS.md), and the codecs they name as the
+shipped code names them (CODEC_NAMES)."""
 
 from __future__ import annotations
 
@@ -35,6 +36,9 @@ SOURCE_GROUP = SOURCE_NODE
 OBJECTS = SOURCE_NODE + "/objects/"
 EMPTY_KEY = SOURCE_NODE + "/empty.json"
 _PROFILE_OF_UUID = {uuid: p for p, (uuid, _, _) in PROFILES.items()}
+# The codecs the frozen profiles name that the shipped code names otherwise: a zlib stream
+# is zarr-python's `numcodecs.zlib`, and refkv's own TIFF LZW codec `refkv.tiff_lzw`.
+CODEC_NAMES = {"zlib": "numcodecs.zlib", "imagecodecs_lzw": "refkv.tiff_lzw"}
 
 
 @dataclass
@@ -85,14 +89,35 @@ def emit_plans(out: Output, plans: list, node_attributes: dict | None) -> None:
                        a.fill, a.attributes, a.endian, a.compressor)
 
 
+def _current_codecs(chain):
+    """An array document's codec chain with the codecs of CODEC_NAMES renamed, within the
+    codecs that hold a chain of their own (`n5_default`'s) too."""
+    if not isinstance(chain, list):
+        return chain
+    out = []
+    for c in chain:
+        if isinstance(c, dict):
+            if c.get("name") in CODEC_NAMES:
+                c = {**c, "name": CODEC_NAMES[c["name"]]}
+            config = c.get("configuration")
+            if isinstance(config, dict) and "codecs" in config:
+                c = {**c, "configuration": {**config, "codecs": _current_codecs(config["codecs"])}}
+        out.append(c)
+    return out
+
+
 def current_names(value, _inside: bool = False):
     """A JSON value of a frozen profile's output with the names the shipped code writes:
     the convention's property `refkv_zarrified`, its convention metadata the current
-    one, and, within the property (where the profiles name them), its paths into the
-    source metadata node under `refkv_source`. The source's own values, outside the
-    property, are left as they are; within it, a value copied from the source that
-    starts with `vzip_source/` would read as such a path too, which no fixture has."""
+    one, an array document's codecs as CODEC_NAMES names them, and, within the property
+    (where the profiles name them), its paths into the source metadata node under
+    `refkv_source`. The source's own values, outside the property and the array
+    documents' codec chains, are left as they are; within the property, a value copied
+    from the source that starts with `vzip_source/` would read as such a path too, which
+    no fixture has."""
     if isinstance(value, dict):
+        if value.get("node_type") == "array" and "codecs" in value:
+            value = {**value, "codecs": _current_codecs(value["codecs"])}
         out = {}
         for k, v in value.items():
             if k == "zarr_conventions" and isinstance(v, list):

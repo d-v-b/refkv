@@ -199,7 +199,7 @@ Its codecs, in this order:
 | `{"name": "transpose", "configuration": {"order": [...]}}` | the axes of `V` are in another order than the array's: `order` is the index in the array's axes of each axis of `V`, in the order of `V` (`[1, 2, 0]` for an image whose axis 0 is a color axis, `c`, `y`, `x`) |
 | `{"name": "bytes", "configuration": {"endian": E}}` | the data type is larger than 1 byte: `E` is the `endian` field's (`"little"` or `"big"`) |
 | `{"name": "bytes"}` | the data type is 1 byte |
-| `{"name": "gzip", "configuration": {"level": 1}}` | the gzip encoding: its level, which decoding ignores, is written as the `zlib` codec's is |
+| `{"name": "gzip", "configuration": {"level": 1}}` | the gzip encoding: its level, which decoding ignores, is written as the `numcodecs.zlib` codec's is |
 
 **Chunks:** every chunk is present. The chunk with coords `q_a` along each axis `a` is the
 chunk of `V` with the same coords along the same axes: for the raw encoding, the bytes that

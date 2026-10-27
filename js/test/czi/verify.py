@@ -54,7 +54,7 @@ sys.path.insert(0, str(ROOT / "conformance" / "vzip"))
 sys.path.insert(0, str(ROOT / "conformance" / "zarrify"))
 from http_server import Server  # noqa: E402
 
-import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store; registers imagecodecs_jpeg, imagecodecs_jpegxr)
+import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store)
 from refkv._narrow import at, integer, mapping, ndarray, sequence  # noqa: E402
 from refkv.pb import Concat, Range  # noqa: E402
 

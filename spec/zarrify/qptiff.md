@@ -11,7 +11,9 @@ How refkv produces this layout as a reference store is the QPTIFF profile,
 [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `329ea136-2f55-4c27-b6f4-8e60ca2109b8` ·
-Schema: [schema.json](qptiff/schema.json) · Changed 2026-10-26, with no change to any output:
+Schema: [schema.json](qptiff/schema.json) ·
+Changed 2026-10-27: an LZW tile's or strip's codec is `refkv.tiff_lzw`, refkv's own, in place of `imagecodecs_lzw` (imagecodecs-zarr's codec of that name reads the whole stream), and a Deflate one's `numcodecs.zlib`, in place of `zlib` ([conventions §3](../conventions.md#3-arrays), d-v-b/refkv#90) ·
+Changed 2026-10-26, with no change to any output:
 the layout is tabulated, its entries in [Layout](#layout) and its types in type tables
 ([conventions §11.5](../conventions.md#115-layout-tables)), the root's source metadata and a
 JPEG tile's reference those of the TIFF convention ([`TiffRoot`](tiff.md#type-tiffroot),
@@ -164,9 +166,9 @@ one more row in its table:
 
 | Compression | Predictor | codecs ([conventions §3](../conventions.md#3-arrays)) |
 |---|---|---|
-| 5 (LZW) | 1 | bytes, `imagecodecs_lzw` |
+| 5 (LZW) | 1 | bytes, `refkv.tiff_lzw` |
 
-`{"name": "imagecodecs_lzw"}` has no configuration: each chunk is one TIFF
+`{"name": "refkv.tiff_lzw"}` has no configuration: each chunk is one TIFF
 LZW stream (TIFF 6.0 §13: codes packed most significant bit first, with the
 "early change" every TIFF writer uses), which decodes to the chunk's bytes
 as `bytes` reads them. A decoder reads the stream until its output reaches
@@ -368,7 +370,7 @@ OME metadata:
 ```
 
 Level `0` is `uint8` of shape `[3, 96, 128]` with chunk shape `[1, 32, 32]`
-and codecs `[{"name": "bytes"}, {"name": "imagecodecs_lzw"}]`; its chunk
+and codecs `[{"name": "bytes"}, {"name": "refkv.tiff_lzw"}]`; its chunk
 `0/c/1/2/3` is tile 11 of IFD 1 (channel 1, tile row 2, column 3). Level
 `2`, in strips, has shape `[3, 24, 32]` and chunk shape `[1, 16, 32]`; its
 chunk `2/c/0/1/0` is the second strip of the level's DAPI image, 8 rows

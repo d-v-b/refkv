@@ -37,7 +37,7 @@ A group at the archive root with one array, `samples`.
   MPEG-2 and 2.5; 6.7 seconds at 44.1 kHz, 6.7 at 22.05), the last one
   shorter. Reading a chunk reads its frames and a few before them (the
   bit reservoir) in one request, and decodes them in one pass.
-- **Codecs:** `refkv.stream`, which refkv's `zarr` module registers and
+- **Codecs:** `refkv.stream`, which zarr finds through refkv's entry points and
   which decodes with ffmpeg's float MP3 decoder through PyAV (the `media`
   extra); MP4 tracks use it too. No other codec.
 - **Metadata:** under `refkv_zarrified.mp3` on the root: the stream's

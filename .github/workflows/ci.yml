@@ -54,7 +54,9 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: js/package-lock.json
-      - uses: extractions/setup-just@v2
+      - uses: extractions/setup-crate@v2
+        with:
+          repo: casey/just
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
@@ -97,7 +99,9 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: npm
           cache-dependency-path: js/package-lock.json
-      - uses: extractions/setup-just@v2
+      - uses: extractions/setup-crate@v2
+        with:
+          repo: casey/just
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
@@ -142,7 +146,9 @@ jobs:
       # binaryen's wasm-opt shrinks the wasm32 module (rust/refkv-ir/wasm/build.sh; optional)
       - if: runner.os == 'Linux'
         run: sudo apt-get install -y --no-install-recommends binaryen
-      - uses: extractions/setup-just@v2
+      - uses: extractions/setup-crate@v2
+        with:
+          repo: casey/just
       - run: uv sync --all-groups --locked
       # the core's Rust tests, and a cargo build of its Python bindings' crate (python/); the
       # Python host's tests (python/tests/ir), the other half of `just ir-test`, run in the
@@ -179,7 +185,9 @@ jobs:
             rust/refkv-cli
             conformance/impls/rust
             python
-      - uses: extractions/setup-just@v2
+      - uses: extractions/setup-crate@v2
+        with:
+          repo: casey/just
       - run: uv sync --all-groups --locked
       - run: just cli-test
       - run: just cli-identical
@@ -201,7 +209,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-      - uses: extractions/setup-just@v2
+      - uses: extractions/setup-crate@v2
+        with:
+          repo: casey/just
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
@@ -239,7 +249,9 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-      - uses: extractions/setup-just@v2
+      - uses: extractions/setup-crate@v2
+        with:
+          repo: casey/just
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -272,7 +284,9 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-      - uses: extractions/setup-just@v2
+      - uses: extractions/setup-crate@v2
+        with:
+          repo: casey/just
       - run: uv sync --all-groups --locked --no-install-package refkv
       # every "§n" is a link to its heading, and every such link resolves (spec/tools/sections.py)
       - run: just sections
@@ -289,7 +303,9 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-      - uses: extractions/setup-just@v2
+      - uses: extractions/setup-crate@v2
+        with:
+          repo: casey/just
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:

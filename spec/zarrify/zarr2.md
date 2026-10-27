@@ -8,7 +8,9 @@ from a listed store is the Zarr v2 profile,
 [OME-Zarr convention](ome-zarr.md) builds on this one.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `8e792619-d671-4687-ab51-752885dd3ee6` ·
-Schema: [schema.json](zarr2/schema.json) · Changed 2026-10-26, with no change to any output: the
+Schema: [schema.json](zarr2/schema.json) ·
+Changed 2026-10-27: a zlib stream's codec is `numcodecs.zlib`, zarr-python's name for it, in place of `zlib` ([conventions §3](../conventions.md#3-arrays), d-v-b/refkv#90) ·
+Changed 2026-10-26, with no change to any output: the
 layout is tabulated, its entries in [Layout](#layout) and its types in type tables
 ([conventions §11.5](../conventions.md#115-layout-tables))
 
@@ -227,7 +229,7 @@ The compressor object's `id` selects the codec:
 
 | `id` | codec | members the codec carries |
 |---|---|---|
-| `zlib` | `{"name": "zlib", "configuration": {"level": L}}` | `id`, `level` |
+| `zlib` | `{"name": "numcodecs.zlib", "configuration": {"level": L}}` (zarr-python's name for numcodecs' `Zlib`, which writes Zarr v2's `zlib`) | `id`, `level` |
 | `gzip` | `{"name": "gzip", "configuration": {"level": L}}` | `id`, `level` |
 | `zstd` | `{"name": "zstd", "configuration": {"level": L, "checksum": x}}` | `id`, `level`, `checksum` |
 | `blosc` | `{"name": "blosc", "configuration": {"cname": c, "clevel": l, "shuffle": h, "typesize": b, "blocksize": k}}` | `id`, `cname`, `clevel`, `shuffle`, `blocksize` |
@@ -237,7 +239,7 @@ The values of the codecs' configurations, from the compressor's members:
 
 | value | member | MUST be | when the member is absent |
 |---|---|---|---|
-| `L`, for `zlib` and `gzip` | `level` | an integer from −1 to 9; `L` is that integer, except that −1 (zlib's default level) is 6, the level it stands for (the Zarr v3 `gzip` and `zlib` codecs take 0 to 9) | 1, numcodecs' default |
+| `L`, for `zlib` and `gzip` | `level` | an integer from −1 to 9; `L` is that integer, except that −1 (zlib's default level) is 6, the level it stands for (the Zarr v3 `gzip` and `numcodecs.zlib` codecs take 0 to 9) | 1, numcodecs' default |
 | `L`, for `zstd` | `level` | an integer from −131072 to 22 (zstd's levels, which the Zarr v3 `zstd` codec takes); `L` is that integer | 0, numcodecs' default |
 | `x`, for `zstd` | `checksum` | a boolean | `false` |
 | `c`, for `blosc` | `cname` | one of `blosclz`, `lz4`, `lz4hc`, `snappy`, `zlib` and `zstd` | rejected |
