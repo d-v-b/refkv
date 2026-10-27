@@ -43,6 +43,18 @@ def pyramid(path, data, levels, *, axes, downsample_axes=2, **kw):
             tif.write(data[sl], subfiletype=1, **kw)
 
 
+def patch_short(path: Path, tag: str, value: int) -> None:
+    """The first page's `tag`, a SHORT held in its entry, set to `value`."""
+    with tifffile.TiffFile(path) as tf:
+        page = tf.pages[0]
+        assert isinstance(page, tifffile.TiffPage)
+        t = page.tags[tag]
+        at, order = t.valueoffset, tf.byteorder
+    b = bytearray(path.read_bytes())
+    b[at:at + 2] = value.to_bytes(2, "little" if order == "<" else "big")
+    path.write_bytes(b)
+
+
 def main() -> None:
     OUT.mkdir(exist_ok=True)
     rgb = image((3, 96, 128), np.uint8)
@@ -85,12 +97,48 @@ def main() -> None:
     pyramid(OUT / "strips_uint16_pyramid_short.ome.tif", image((70, 50), np.uint16), 1, axes="YX",
             rowsperstrip=16, photometric="minisblack")
 
-    # Unsupported, and rejected: a horizontal predictor; Deflate strips whose last is short,
-    # which cannot be padded.
-    tifffile.imwrite(OUT / "unsupported_predictor.tif", small, tile=(32, 32),
+    # Predictor 2, horizontal differencing (spec/zarrify/tiff.md §4.3
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>),
+    # which imagecodecs_delta sums back.
+    tifffile.imwrite(OUT / "predictor_deflate_uint8.tif", small, tile=(32, 32),
                      compression="zlib", predictor=True)
+    # Rejected: Deflate strips whose last is short, which cannot be padded.
     tifffile.imwrite(OUT / "edge_reject_strips_deflate_short.tif", tall, rowsperstrip=16, compression="zlib",
                      photometric="minisblack")
+
+    # More of Predictor 2 (written last, so that the fixtures above keep their pixels): uint16
+    # whose differences wrap around, in LZW, Deflate and zstd, little- and big-endian; int16;
+    # interleaved RGB of uint8 and uint16; LZW strips whose last is short, padded with a tail;
+    # and an OME-TIFF of several planes and a SubIFD level. Rejected: the floating-point
+    # predictor 3; Predictor 2 with a float type, with no compression, or with JPEG.
+    wide = image((64, 64), np.uint16) * 257
+    tifffile.imwrite(OUT / "predictor_lzw_uint16.tif", wide, tile=(32, 32), compression="lzw",
+                     predictor=True, photometric="minisblack")
+    tifffile.imwrite(OUT / "predictor_deflate_uint16_be.tif", wide, byteorder=">", tile=(32, 32),
+                     compression="zlib", predictor=True, photometric="minisblack")
+    tifffile.imwrite(OUT / "predictor_zstd_int16.tif", (wide.astype(np.int32) - 32768).astype(np.int16),
+                     tile=(32, 48), compression="zstd", predictor=True, photometric="minisblack")
+    tifffile.imwrite(OUT / "predictor_rgb_contig_lzw.tif", np.moveaxis(image((3, 70, 50), np.uint8), 0, -1).copy(),
+                     tile=(32, 32), compression="lzw", predictor=True, photometric="rgb", planarconfig="contig")
+    tifffile.imwrite(OUT / "predictor_rgb_contig_uint16_deflate.tif",
+                     np.moveaxis(image((3, 64, 50), np.uint16) * 257, 0, -1).copy(), rowsperstrip=16,
+                     compression="zlib", predictor=True, photometric="rgb", planarconfig="contig")
+    tifffile.imwrite(OUT / "predictor_strips_uint16_lzw_short.tif", image((70, 50), np.uint16) * 257,
+                     rowsperstrip=16, compression="lzw", predictor=True, photometric="minisblack")
+    pyramid(OUT / "predictor_tcyx_uint16_lzw.ome.tif", image((2, 3, 64, 64), np.uint16) * 257, 1, axes="TCYX",
+            tile=(32, 32), compression="lzw", predictor=True, photometric="minisblack")
+    floats = image((64, 64), np.float32) / 7
+    tifffile.imwrite(OUT / "unsupported_predictor_float.tif", floats, tile=(32, 32), compression="zlib",
+                     predictor=True, photometric="minisblack")  # tifffile's predictor of floats is 3
+    tifffile.imwrite(OUT / "unsupported_predictor_2_float.tif", floats, tile=(32, 32), compression="zlib",
+                     predictor=True, photometric="minisblack")
+    patch_short(OUT / "unsupported_predictor_2_float.tif", "Predictor", 2)
+    tifffile.imwrite(OUT / "edge_reject_predictor_uncompressed.tif", small, tile=(32, 32), compression="zlib",
+                     predictor=True)
+    patch_short(OUT / "edge_reject_predictor_uncompressed.tif", "Compression", 1)
+    tifffile.imwrite(OUT / "edge_reject_predictor_jpeg.tif", small, tile=(32, 32), compression="zlib",
+                     predictor=True)
+    patch_short(OUT / "edge_reject_predictor_jpeg.tif", "Compression", 7)
     for p in sorted(OUT.glob("*.tif")):
         print(p.name, p.stat().st_size)
 

@@ -32,7 +32,7 @@ REJECTED = {
     "level_mismatch": "the images of QPTIFF level 1 differ in size, tiling or format",
     "no_description": "IFD 0 of a QPTIFF has no PerkinElmer-QPI image description",
     "not_baseline": "IFD 0 of a QPTIFF is not a FullResolution image",
-    "predictor": "unsupported predictor 2",
+    "predictor_float": "unsupported predictor 3",
     "rgb_channels": "QPTIFF channels have 3 samples per pixel",
     "strip_count": "IFD at 8 has 3 tiles or strips, expected 5",
 }

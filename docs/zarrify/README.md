@@ -131,12 +131,12 @@ Policy`). A local file or directory needs neither.
 
 Read the archive in Python with `refkv.zarr` and zarr-python
 (`pip install 'refkv[zarr]'`, or `refkv[images]` for the JPEG, JPEG 2000,
-JPEG XR and LZW decoders). zarr-python finds the codecs that some formats need by
+JPEG XR and LZW decoders and TIFF's horizontal predictor). zarr-python finds the codecs that some formats need by
 the names the archive gives: refkv's own (`refkv.stream`, `refkv.fits_tiles`,
 `refkv.tiff_lzw`, and `n5_default`) through refkv's `zarr.codecs` entry points,
 with no `import refkv.zarr` in your code (zarr imports the codec modules, which are
 under `refkv.zarr`, itself), imagecodecs-zarr's (`imagecodecs_jpeg`,
-`imagecodecs_jpeg2k`, `imagecodecs_jpegxr`), which `refkv[images]` installs, and
+`imagecodecs_jpeg2k`, `imagecodecs_jpegxr`, `imagecodecs_delta`), which `refkv[images]` installs, and
 zarr-python's own (`numcodecs.zlib`, `numcodecs.shuffle`, `numcodecs.delta`). So a
 copy of an archive's arrays (in a directory, or in another store) reads with zarr
 alone, except that an array on the zarr-extensions `rectilinear` chunk grid (a

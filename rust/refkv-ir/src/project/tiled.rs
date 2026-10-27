@@ -51,7 +51,10 @@ pub fn arrays(ir: &Ir, facts: &J, url: &str, only: Option<usize>, shape: impl Fn
               mut tiles: impl FnMut(&mut Refs, usize, &J) -> Result<(), String>) -> Result<(Out, Vec<Vec<u64>>), String> {
     let axes = strs(&facts["axes"]);
     let mut codecs = if contig(facts) { vec![transpose_codec(&axes)] } else { vec![] };
-    codecs.extend(tiff_codecs(n(&facts["compression"]), n(&facts["bits"]), facts["little"].as_bool().unwrap_or(false)));
+    // `x` in stored order: the last axis, or the one before the samples when they are interleaved
+    let x = axes.len() - if contig(facts) { 2 } else { 1 };
+    codecs.extend(tiff_codecs(n(&facts["compression"]), n(&facts["predictor"]), n(&facts["bits"]),
+                              facts["little"].as_bool().unwrap_or(false), x));
     let codecs = J::Array(codecs);
     let data_type = data_type(facts)?;
     let mut refs = Refs::new(ir, Out::new(url));
@@ -156,7 +159,7 @@ pub fn sampled(out: &Out, facts: &J, samples: &[window::Sample], chunk: impl Fn(
         Some(lv) if !samples.is_empty() => {
             let size = chunk(lv).iter().product::<u64>() * (n(&facts["bits"]) / 8);
             let little = facts["little"].as_bool().unwrap_or(false);
-            window::windows(out, samples, copied, n(&facts["compression"]), data_type, little, size)
+            window::windows(out, samples, copied, n(&facts["compression"]), n(&facts["predictor"]), data_type, little, size)
         }
         _ => Vec::new(),
     }

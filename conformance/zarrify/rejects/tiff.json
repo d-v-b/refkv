@@ -102,6 +102,16 @@
       "message": "planes of one pyramid level differ in size, tili"
     },
     {
+      "test": "tiff_edge_reject_predictor_jpeg",
+      "input": "edge_reject_predictor_jpeg.tif",
+      "message": "predictor 2 with compression 7"
+    },
+    {
+      "test": "tiff_edge_reject_predictor_uncompressed",
+      "input": "edge_reject_predictor_uncompressed.tif",
+      "message": "predictor 2 with compression 1"
+    },
+    {
       "test": "tiff_edge_reject_sample_format",
       "input": "edge_reject_sample_format.tif",
       "message": "SampleFormat values are missing or differ"
@@ -192,9 +202,14 @@
       "message": "the image at 8 has an empty tile size"
     },
     {
-      "test": "tiff_unsupported_predictor",
-      "input": "unsupported_predictor.tif",
-      "message": "unsupported predictor 2"
+      "test": "tiff_unsupported_predictor_2_float",
+      "input": "unsupported_predictor_2_float.tif",
+      "message": "predictor 2 with SampleFormat 3"
+    },
+    {
+      "test": "tiff_unsupported_predictor_float",
+      "input": "unsupported_predictor_float.tif",
+      "message": "unsupported predictor 3"
     }
   ]
 }

@@ -1612,7 +1612,14 @@ impl Tiff {
         }
         let f0 = self.fmt(i0, &m0)?;
         let (bits, spp, sample_format, planar, compression, predictor, photometric) = f0;
-        self.rules.check("predictor", rules::env([("compression", num(compression as f64)), ("predictor", num(predictor as f64))]))?;
+        self.rules.check(
+            "predictor",
+            rules::env([
+                ("compression", num(compression as f64)),
+                ("predictor", num(predictor as f64)),
+                ("sample_format", num(sample_format as f64)),
+            ]),
+        )?;
         // the planes (spec/zarrify/tiff.md §3
         // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#3-ome-xml>, §4.1
         // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#41-planes>), in (t, c,
@@ -1959,6 +1966,7 @@ impl Tiff {
             "sample_format": sample_format,
             "planar": planar,
             "compression": compression,
+            "predictor": predictor,
             "photometric": photometric,
             "sizes": {"t": size_t, "c": size_c, "z": size_z},
             "plane_c": plane_c,
@@ -3162,7 +3170,14 @@ impl Tiff {
                 ("spp", num(spp as f64)),
             ]),
         )?;
-        self.rules.check("predictor", rules::env([("compression", num(compression as f64)), ("predictor", num(predictor as f64))]))?;
+        self.rules.check(
+            "predictor",
+            rules::env([
+                ("compression", num(compression as f64)),
+                ("predictor", num(predictor as f64)),
+                ("sample_format", num(sample_format as f64)),
+            ]),
+        )?;
         let reduced: Vec<usize> =
             self.chain.iter().copied().zip(&kinds).filter(|(_, q)| is(q, "ReducedResolution")).map(|(k, _)| k).collect();
         self.rules.check(
@@ -3318,6 +3333,7 @@ impl Tiff {
             "sample_format": sample_format,
             "planar": planar,
             "compression": compression,
+            "predictor": predictor,
             "photometric": photometric,
             "channels": channels,
             "axes": axes,

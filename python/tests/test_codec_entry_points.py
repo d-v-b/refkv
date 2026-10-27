@@ -30,7 +30,7 @@ FIXTURES = Path(__file__).resolve().parents[2] / "fixtures"
 
 # For every codec an archive of refkv's names, a fixture whose zarrified array (at the path given)
 # names it: refkv's own (its entry points), zarr-python's `numcodecs.zlib` and imagecodecs-zarr's
-# image codecs. The LZW fixture's final code is one bit too narrow, which imagecodecs-zarr's
+# image codecs and `imagecodecs_delta`. The LZW fixture's final code is one bit too narrow, which imagecodecs-zarr's
 # `imagecodecs_lzw` would decode to too many bytes: it reads only through `refkv.tiff_lzw`.
 EVERY_CODEC = {
     "refkv.tiff_lzw": ("qptiff/qptiff_fl_lzw_narrow_eoi.qptiff", "0"),
@@ -41,6 +41,7 @@ EVERY_CODEC = {
     "imagecodecs_jpeg": ("dicom/dicom_jpeg_single_frame_fragments.dcm", "0"),
     "imagecodecs_jpeg2k": ("dicom/dicom_j2k_signed16.dcm", "0"),
     "imagecodecs_jpegxr": ("ndpi/ndpi_jpegxr_bgr.ndpi", "0"),
+    "imagecodecs_delta": ("tiff/predictor_lzw_uint16.tif", "0"),
 }
 
 # The zarr-extensions codec that another package (zarr-n5) also registers, and its implementation

@@ -149,6 +149,8 @@ Supported:
   the tile's size, as tifffile does.
 - Compression: none, LZW, DEFLATE, zstd, JPEG 2000, and JPEG (8-bit gray,
   RGB or YCbCr) with or without `JPEGTables`.
+- The horizontal predictor (Predictor 2) of integer samples with LZW,
+  DEFLATE or zstd, as in the TIFF profile (`imagecodecs_delta`).
 
 Rejected:
 
@@ -157,7 +159,8 @@ Rejected:
 - ReducedResolution images that do not come in groups of one per channel,
   levels whose images differ in size, tiling or format, or that do not get
   strictly smaller.
-- Predictors (horizontal differencing), as in the TIFF profile.
+- The floating-point predictor (Predictor 3), as in the TIFF profile, which
+  reads Predictor 2 (horizontal differencing) with `imagecodecs_delta`.
 - A level in JPEG (or Deflate, zstd, JPEG 2000) strips whose last strip is
   short is left out of the pyramid, since such a strip cannot be padded;
   the scanners' JPEG brightfield scans have one such level, the smallest.
@@ -176,9 +179,10 @@ The browser code ([js/](../../../js/README.md)) reads Akoya QPTIFF (Vectra scans
   images as levels, named and colored in `omero` from each image's XML
   description; tiles, or strips for the smallest levels and inForm fields
   (a rectilinear chunk grid when the last strip is short).
-- Compression: none, LZW (`refkv.tiff_lzw`), JPEG, DEFLATE, zstd, JPEG 2000.
+- Compression: none, LZW (`refkv.tiff_lzw`), JPEG, DEFLATE, zstd, JPEG 2000, and Predictor 2
+  (`imagecodecs_delta`).
 
-Not supported, and refused with HTTP 422: predictors, several RGB channels,
+Not supported, and refused with HTTP 422: the floating-point predictor, several RGB channels,
 and images that do not follow the format's arrangement.
 
 ## How it's verified

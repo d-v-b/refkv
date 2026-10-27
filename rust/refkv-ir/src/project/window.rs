@@ -3,7 +3,8 @@
 //! spec/zarrify/qptiff.md §4.3
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#43-arrays>): for the
 //! compressions the core decodes, one chunk per channel of the coarsest level, the middle one,
-//! whose values inside the array have 5th and 99.9th percentiles, leaving out the fill value,
+//! with a horizontal predictor's differences summed back, whose values inside the array have
+//! 5th and 99.9th percentiles, leaving out the fill value,
 //! that are the window's start and end. The run reads the chunks (`reads`) after the parser, as it reads the chunks NIfTI
 //! and MRC copy; the projection decodes them (`windows`).
 
@@ -118,6 +119,32 @@ fn decode(compression: u64, b: Vec<u8>, size: u64) -> Option<Vec<u8>> {
     (d.len() as u64 == size).then_some(d)
 }
 
+/// Sums back a horizontal predictor's differences (spec/zarrify/tiff.md §4.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>), as
+/// `imagecodecs_delta` along `x` does: in each row of `row` values of `item` bytes, in the byte
+/// order `little`, each value plus the one `stride` values before it (the same sample of the
+/// pixel before), modulo 2^(8 × `item`).
+fn undiff(b: &mut [u8], item: usize, little: bool, row: usize, stride: usize) {
+    let at = |r: &[u8], i: usize| -> u64 {
+        let v = &r[i * item..(i + 1) * item];
+        let fold = |a: u64, &x: &u8| (a << 8) | x as u64;
+        if little { v.iter().rev().fold(0, fold) } else { v.iter().fold(0, fold) }
+    };
+    if row * item == 0 {
+        return;
+    }
+    for r in b.chunks_exact_mut(row * item) {
+        for i in stride..row {
+            let sum = at(r, i).wrapping_add(at(r, i - stride)).to_le_bytes();
+            let v = &mut r[i * item..(i + 1) * item];
+            v.copy_from_slice(&sum[..item]);
+            if !little {
+                v.reverse();
+            }
+        }
+    }
+}
+
 /// A channel's values of a decoded chunk.
 enum Values {
     Int(Vec<i128>),
@@ -205,15 +232,23 @@ fn window(v: Values, data_type: &str) -> Option<J> {
 
 /// Each sample's window (`window`), None where its chunk is absent or not read, or does not
 /// decode to `size` bytes under `compression`, or its values give none. The chunks hold
-/// `data_type` in the byte order `little`; `copied` holds the bytes `reads` gave.
-pub fn windows(out: &Out, samples: &[Sample], copied: &Copied, compression: u64, data_type: &str, little: bool, size: u64) -> Vec<Option<J>> {
+/// `data_type` in the byte order `little`, as differences along `x` when `predictor` is 2;
+/// `copied` holds the bytes `reads` gave.
+#[allow(clippy::too_many_arguments)]
+pub fn windows(out: &Out, samples: &[Sample], copied: &Copied, compression: u64, predictor: u64, data_type: &str, little: bool,
+               size: u64) -> Vec<Option<J>> {
+    let item = type_size(data_type).unwrap_or(0) as usize;
     let mut decoded: HashMap<&str, Option<Vec<u8>>> = HashMap::new();
     samples
         .iter()
         .map(|s| {
-            let d = decoded
-                .entry(&s.key)
-                .or_insert_with(|| encoded(out, &s.key, copied).and_then(|b| decode(compression, b, size)));
+            let d = decoded.entry(&s.key).or_insert_with(|| {
+                let mut d = decode(compression, encoded(out, &s.key, copied)?, size)?;
+                if predictor == 2 {
+                    undiff(&mut d, item, little, (s.width * s.stride) as usize, s.stride as usize);
+                }
+                Some(d)
+            });
             window(values(d.as_ref()?, data_type, little, s)?, data_type)
         })
         .collect()
@@ -244,6 +279,21 @@ mod tests {
         assert_eq!(window(Values::Float(vec![0.0, f64::NAN]), "float64"), None);
         let w = window(Values::Int(vec![u64::MAX as i128, 1]), "uint64").unwrap();
         assert_eq!(w["end"], json!(u64::MAX));
+    }
+
+    #[test]
+    fn undiff_sums_each_sample_along_its_row() {
+        // two rows of 3 pixels of 2 interleaved uint8 samples, wrapping around 256
+        let mut b = [250, 1, 10, 1, 10, 1, 7, 0, 1, 2, 1, 2];
+        undiff(&mut b, 1, true, 6, 2);
+        assert_eq!(b, [250, 1, 4, 2, 14, 3, 7, 0, 8, 2, 9, 4]);
+        // one row of 3 big-endian uint16 values: 0xFFFF, then 2 and 3 more
+        let mut b = [0xFF, 0xFF, 0, 2, 0, 3];
+        undiff(&mut b, 2, false, 3, 1);
+        assert_eq!(b, [0xFF, 0xFF, 0, 1, 0, 4]);
+        let mut b = [0xFF, 0xFF, 2, 0, 3, 0];
+        undiff(&mut b, 2, true, 3, 1);
+        assert_eq!(b, [0xFF, 0xFF, 1, 0, 4, 0]);
     }
 
     #[test]

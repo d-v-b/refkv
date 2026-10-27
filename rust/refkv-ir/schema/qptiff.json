@@ -187,12 +187,20 @@
       ]
     },
     "predictor": {
-      "about": "IFD 0's Predictor",
-      "given": {"compression": "", "predictor": ""},
+      "about": "IFD 0's Predictor (spec/zarrify/tiff.md §4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>): none (1), or, with an integer type and LZW, Deflate or zstd, horizontal differencing (2), which imagecodecs_delta sums back; JPEG 2000 streams do not use it",
+      "given": {"compression": "", "predictor": "", "sample_format": "IFD 0's SampleFormat"},
       "constraints": [
         {
-          "require": "in(compression, jpeg2000) || predictor == 1",
+          "require": "in(compression, jpeg2000) || in(predictor, [1, 2])",
           "message": "unsupported predictor {predictor}"
+        },
+        {
+          "require": "in(compression, jpeg2000) || predictor == 1 || in(sample_format, [1, 2])",
+          "message": "predictor {predictor} with SampleFormat {sample_format}"
+        },
+        {
+          "require": "in(compression, jpeg2000) || predictor == 1 || in(compression, [5, 8, 32946, 50000])",
+          "message": "predictor {predictor} with compression {compression}"
         }
       ]
     },

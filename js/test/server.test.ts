@@ -100,9 +100,9 @@ test("rejects an unsatisfiable range", async () => {
 });
 
 test("reports an unsupported TIFF", async () => {
-  const r = await get(handler(), `${tiff("unsupported_predictor.tif")}zarr.json`);
+  const r = await get(handler(), `${tiff("unsupported_predictor_float.tif")}zarr.json`);
   assert.equal(r.status, 422);
-  assert.match(await r.text(), /unsupported predictor 2/);
+  assert.match(await r.text(), /unsupported predictor 3/);
 });
 
 test("reports a TIFF that cannot be opened", async () => {
