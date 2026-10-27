@@ -220,14 +220,24 @@ result to any Zarr reader on the page's origin as a plain HTTP Zarr store. The
 live demo, <https://d-v-b.github.io/vzip-demo/image-to-zarr/>, takes a URL
 (`?url=<url>`), shows the levels, opens them in a Neuroglancer fork
 (<https://github.com/d-v-b/neuroglancer>, branch `vzip`) and offers the
-archive for download. Two limits apply:
+archive for download. That Neuroglancer link reads through the service
+worker, so it opens only on the demo's site, in a browser where the demo has
+zarrified the file. To share a view, host the downloaded archive and open its
+URL in the demo: the link then names the archive,
+`<archive url>|vzip:<path>|zarr3:`, which any deployment of the fork opens
+with no service worker, reading the original's bytes by the archive's
+references. The archive pins each source's size; the fork checks a pin when
+the response shows its header, and skips it when a cross-origin server hides
+it ([spec/refkv.md §6.7](../../spec/refkv.md#67-reader-policy), rule 7).
+Two limits apply:
 
 - The live demo currently zarrifies TIFF, NDPI and ND2 files only. The
   other formats work in a local build of the
   demo (`just js::build && node demo/serve.mjs 8080`; the build compiles the
   Rust core to WebAssembly first, `dist/refkv_ir.wasm`, so it needs a Rust
   toolchain with the `wasm32` target), which is not yet deployed.
-- The host must allow cross-origin reads (CORS). zenodo.org, ftp.ebi.ac.uk,
+- The host must allow cross-origin reads (CORS), and so must the host of a
+  shared archive. zenodo.org, ftp.ebi.ac.uk,
   raw.githubusercontent.com, OpenOrganelle's S3 bucket and the IDR's Embassy
   S3 do; openslide.cs.cmu.edu, downloads.openmicroscopy.org and the NCI
   Imaging Data Commons bucket on storage.googleapis.com do not, so their
