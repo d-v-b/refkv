@@ -38,3 +38,6 @@ python/src/refkv/_core*.pyd
 python/src/refkv/_ir*.so
 python/src/refkv/_ir*.pyd
 examples-out/
+
+# measure.py's cache of remote files (design/experiments/third_party)
+design/experiments/third_party/.cache/
