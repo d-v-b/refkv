@@ -17,7 +17,7 @@
 
 use crate::format::{self, section, Codec, DirEntry, Page, Prop, Record, Stored, Superblock, Value};
 use crate::{ptrhash, Error};
-use refkv_vzip::pb::{self, Range, Source};
+use refkv_vzip::pb::{Range, Source};
 use refkv_vzip::sources::{Keys, SourceTable};
 use std::collections::{BTreeMap, HashMap};
 use std::io::{Read, Write};
@@ -362,13 +362,14 @@ impl<W: Write> Writer<W> {
     /// Adds a reference whose value is the concatenation of `ranges`.
     pub fn add_ranges(&mut self, key: &str, ranges: &[Range]) -> Result<(), Error> {
         self.check_key(key)?;
-        self.sources.check_ranges(key, ranges)?;
-        let (kind, payload) = if ranges.len() == 1 { (format::KIND_RANGE, ranges[0].encode()) } else { (format::KIND_CONCAT, pb::encode_concat(ranges)) };
+        let mut taken = self.sources.reference(key, ranges)?;
+        let kind = if taken.concat { format::KIND_CONCAT } else { format::KIND_RANGE };
+        let payload = std::mem::take(&mut taken.payload);
         if payload.len() as u64 > format::MAX_PAYLOAD {
             return invalid(format!("the payload of {key:?} exceeds 2^24 bytes"));
         }
         // only a reference the writer takes leaves ranges to check at close
-        self.sources.keep(key, ranges);
+        self.sources.keep(taken);
         self.push(Entry { key: key.into(), hidden: false, value: Value::Reference { kind, payload } });
         Ok(())
     }

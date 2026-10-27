@@ -154,6 +154,40 @@ fn a_refused_reference_leaves_no_range_to_check() {
 }
 
 #[test]
+fn a_refused_bulk_reference_leaves_no_source() {
+    let mut w = writer();
+    w.add_bytes("k", b"x", false, false).unwrap();
+    // were its url kept, close would find it invalid
+    refused(w.add_url_refs([("k".to_string(), "not a uri".to_string(), 1, None)], false));
+    w.close().unwrap();
+}
+
+#[test]
+fn a_reference_cannot_take_the_key_of_a_late_entry() {
+    let mut w = writer();
+    let blob = w.blob(b"abc").unwrap();
+    w.add_bytes("k", b"x", false, true).unwrap();
+    refused(w.add_ranges("k", vec![Range::of(blob, 0, 1)]));
+    refused(w.add_url_refs([("k".to_string(), "http://h/o".to_string(), 1, None)], false));
+    refused(w.add_bytes("k", b"y", false, false));
+    w.close().unwrap();
+}
+
+#[test]
+fn refuses_a_range_past_a_reference_as_a_key_source_naming_one() {
+    // as the phkv writer does, whatever the range
+    let mut w = writer();
+    let blob = w.blob(b"abc").unwrap();
+    w.add_ranges("r", vec![Range::of(blob, 0, 1)]).unwrap();
+    let r = w.internal("r").unwrap();
+    w.add_ranges("s", vec![Range::of(r, 0, 1000)]).unwrap();
+    match w.close() {
+        Err(Error::Invalid(m)) => assert!(m.contains("internal references to reference entries"), "{m:?}"),
+        r => panic!("{r:?}"),
+    }
+}
+
+#[test]
 fn refuses_a_range_past_2_64() {
     let mut w = writer();
     let s = w.url("a").unwrap();

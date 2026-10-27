@@ -6,6 +6,7 @@
 use crate::pb::{self, Range, Source, SourceKind};
 use crate::writer::{invalid, SPEC_REVISION};
 use crate::Error;
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 /// A source of the table: one interned, or one added in bulk (url, size pin).
@@ -21,6 +22,18 @@ impl Slot {
             Slot::Bulk(u, _) => Some(u),
         }
     }
+}
+
+/// A reference [`SourceTable::reference`] has checked and encoded, for the writer to take and then
+/// give to [`SourceTable::keep`].
+#[must_use = "give it to SourceTable::keep once the reference is taken"]
+pub struct Prepared {
+    key: String,
+    /// whether the payload is a Concat, not a Range
+    pub concat: bool,
+    pub payload: Vec<u8>,
+    ranges: Vec<Range>,
+    bulk: Option<(String, Option<u64>)>,
 }
 
 /// What [`SourceTable::check`] needs to know of the store's keys.
@@ -43,6 +56,12 @@ pub struct SourceTable {
     range_checks: Vec<(String, Range)>,
 }
 
+impl Prepared {
+    pub fn key(&self) -> &str {
+        &self.key
+    }
+}
+
 impl SourceTable {
     /// Interns `src`, and gives its index for `Range::source`: equal sources share one.
     pub fn add(&mut self, src: Source) -> Result<u32, Error> {
@@ -53,14 +72,6 @@ impl SourceTable {
         let i = self.next_index()?;
         self.interned.insert(src.clone(), i);
         self.slots.push(Slot::Source(src));
-        Ok(i)
-    }
-
-    /// Adds a url source without interning it, for the bulk path of many objects; `size` pins its
-    /// size. The url is checked at [`Self::check`].
-    pub fn add_bulk(&mut self, url: String, size: Option<u64>) -> Result<u32, Error> {
-        let i = self.next_index()?;
-        self.slots.push(Slot::Bulk(url, size));
         Ok(i)
     }
 
@@ -76,9 +87,11 @@ impl SourceTable {
         self.slots.is_empty()
     }
 
-    /// The checks of a reference's `ranges` that need no other key. The writer calls
-    /// [`Self::keep`] once it has taken the reference.
-    pub fn check_ranges(&self, key: &str, ranges: &[Range]) -> Result<(), Error> {
+    /// Checks a reference whose value is the concatenation of `ranges` (those that need no other
+    /// key) and encodes its payload: one range is a Range, several a Concat. The table is not
+    /// changed: the writer calls [`Self::keep`] once it has taken the reference, so that a refused
+    /// one leaves nothing behind.
+    pub fn reference(&self, key: &str, ranges: &[Range]) -> Result<Prepared, Error> {
         for r in ranges {
             if r.data.is_none() && r.source as usize >= self.slots.len() {
                 return invalid(format!("range of {key:?} uses unregistered source {}", r.source));
@@ -94,16 +107,29 @@ impl SourceTable {
         if ranges.iter().try_fold(0u64, |n, r| n.checked_add(r.size())).is_none() {
             return invalid(format!("the reference {key:?} exceeds 2^64 - 1 bytes"));
         }
-        Ok(())
+        let concat = ranges.len() != 1;
+        let payload = if concat { pb::encode_concat(ranges) } else { ranges[0].encode() };
+        Ok(Prepared { key: key.to_string(), concat, payload, ranges: ranges.to_vec(), bulk: None })
     }
 
-    /// Keeps the ranges of a reference the writer has taken, for the bounds checks at close. url
-    /// sources are not bounds-checked (spec/refkv.md §7
+    /// As [`Self::reference`], for the bulk path of many objects referenced whole: a reference
+    /// `(source, 0, size)` to a new url source that is not interned, carrying `crc32c` when it is
+    /// given, with `size` pinned if `pin_size`. The source is added by [`Self::keep`].
+    pub fn url_reference(&self, key: &str, url: String, size: u64, crc32c: Option<u32>, pin_size: bool) -> Result<Prepared, Error> {
+        let r = Range { crc32c, ..Range::of(self.next_index()?, 0, size) };
+        Ok(Prepared { key: key.to_string(), concat: false, payload: r.encode(), ranges: Vec::new(), bulk: Some((url, pin_size.then_some(size))) })
+    }
+
+    /// Keeps what a reference the writer has taken adds to the table: its bulk source, and its
+    /// ranges for the bounds checks at close. url sources are not bounds-checked (spec/refkv.md §7
     /// <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#7-writing>): only the others are kept.
-    pub fn keep(&mut self, key: &str, ranges: &[Range]) {
-        for r in ranges {
+    pub fn keep(&mut self, taken: Prepared) {
+        if let Some((url, size)) = taken.bulk {
+            self.slots.push(Slot::Bulk(url, size));
+        }
+        for r in taken.ranges {
             if r.data.is_none() && self.slots[r.source as usize].url().is_none() {
-                self.range_checks.push((key.to_string(), r.clone()));
+                self.range_checks.push((taken.key.clone(), r));
             }
         }
     }
@@ -134,7 +160,8 @@ impl SourceTable {
         for (key, r) in &self.range_checks {
             let n = match source(r.source as usize).map(|s| &s.kind) {
                 Some(SourceKind::Data(d)) => Some(d.len() as u64),
-                Some(SourceKind::Key(k)) => keys.size(k),
+                // a reference is refused below, whatever the range
+                Some(SourceKind::Key(k)) if !keys.is_ref(k) => keys.size(k),
                 _ => None,
             };
             if let Some(n) = n
@@ -183,20 +210,15 @@ impl SourceTable {
         Ok(())
     }
 
-    /// The sources, in index order.
-    pub fn sources(&self) -> Vec<Source> {
-        self.slots
-            .iter()
-            .map(|s| match s {
-                Slot::Source(s) => s.clone(),
-                Slot::Bulk(u, size) => Source { size: *size, ..Source::url(u.as_str()) },
-            })
-            .collect()
-    }
-
     /// The source table message (spec/refkv.md §5
     /// <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>), encoded.
     pub fn encode(&self) -> Vec<u8> {
-        pb::encode_source_table(&self.sources(), Some(SPEC_REVISION))
+        pb::encode_source_table(
+            self.slots.iter().map(|s| match s {
+                Slot::Source(s) => Cow::Borrowed(s),
+                Slot::Bulk(u, size) => Cow::Owned(Source { size: *size, ..Source::url(u.as_str()) }),
+            }),
+            Some(SPEC_REVISION),
+        )
     }
 }

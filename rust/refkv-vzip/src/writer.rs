@@ -19,7 +19,7 @@
 //! that the same input gives the same archive.
 
 use crate::pb::{self, CdIndex, Page, Pinned, Range, Source};
-use crate::sources::{Keys, SourceTable};
+use crate::sources::{Keys, Prepared, SourceTable};
 use crate::{Error, CONCAT_EXTRA_ID, INDEX_KEY, RANGE_EXTRA_ID, RESERVED_PREFIX, SOURCES_KEY};
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
@@ -195,7 +195,7 @@ impl<W: Write> Writer<W> {
         if name.len() > 0xffff {
             return invalid(format!("key of {} bytes: a ZIP file name has at most 65535", name.len()));
         }
-        if self.names.contains(name) {
+        if self.names.contains(name) || self.late_keys.contains(name) {
             return invalid(format!("duplicate key {name:?}"));
         }
         Ok(())
@@ -257,9 +257,6 @@ impl<W: Write> Writer<W> {
     pub fn add_file(&mut self, key: &str, path: &Path) -> Result<(), Error> {
         if key.starts_with(RESERVED_PREFIX) {
             return invalid(format!("{RESERVED_PREFIX:?} is reserved"));
-        }
-        if self.late_keys.contains(key) {
-            return invalid(format!("duplicate key {key:?}"));
         }
         self.check_new_key(key)?;
         let mut buf = vec![0u8; 1 << 24];
@@ -334,20 +331,20 @@ impl<W: Write> Writer<W> {
         if key.starts_with(RESERVED_PREFIX) {
             return invalid(format!("{RESERVED_PREFIX:?} is reserved"));
         }
-        self.sources.check_ranges(key, &ranges)?;
-        let (id, payload) = if ranges.len() == 1 { (RANGE_EXTRA_ID, ranges[0].encode()) } else { (CONCAT_EXTRA_ID, pb::encode_concat(&ranges)) };
-        self.reference(key, id, payload)?;
-        self.sources.keep(key, &ranges);
-        Ok(())
+        let taken = self.sources.reference(key, &ranges)?;
+        self.reference(taken)
     }
 
-    fn reference(&mut self, key: &str, id: u16, payload: Vec<u8>) -> Result<(), Error> {
+    /// Takes a reference the source table has checked; the table keeps it only if it is taken.
+    fn reference(&mut self, mut taken: Prepared) -> Result<(), Error> {
+        let (key, id, payload) = (taken.key().to_string(), if taken.concat { CONCAT_EXTRA_ID } else { RANGE_EXTRA_ID }, std::mem::take(&mut taken.payload));
         if payload.len() > MAX_PAYLOAD {
             return invalid("reference payload too large for a zip extra field (spec/bindings/vzip.md §11.3 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#113-reference-entries>)");
         }
         let body = if self.opts.mirror_refs { payload.clone() } else { Vec::new() };
-        self.entry(key, &body, Some((id, payload)), false)?;
-        self.ref_names.insert(key.to_string());
+        self.entry(&key, &body, Some((id, payload)), false)?;
+        self.ref_names.insert(key);
+        self.sources.keep(taken);
         Ok(())
     }
 
@@ -361,9 +358,8 @@ impl<W: Write> Writer<W> {
             if key.starts_with(RESERVED_PREFIX) {
                 return invalid(format!("{RESERVED_PREFIX:?} is reserved"));
             }
-            let i = self.sources.add_bulk(url, if pin_size { Some(size) } else { None })?;
-            let r = Range { crc32c: crc, ..Range::of(i, 0, size) };
-            self.reference(&key, RANGE_EXTRA_ID, r.encode())?;
+            let taken = self.sources.url_reference(&key, url, size, crc, pin_size)?;
+            self.reference(taken)?;
         }
         Ok(())
     }
@@ -483,6 +479,7 @@ impl<W: Write> Writer<W> {
         comment.extend_from_slice(&o.to_le_bytes());
         comment.extend_from_slice(&n.to_le_bytes());
         let mut pinned = Vec::new();
+        self.late_keys.clear(); // they are written now, and `names` has them
         for (key, data, compress) in std::mem::take(&mut self.late) {
             self.entry(&key, &data, None, compress)?;
             let r = self.cd.last().unwrap();
