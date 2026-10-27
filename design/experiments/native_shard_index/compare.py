@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["refkv[zarr]"]
+# dependencies = ["refkv[zarr]", "fsspec", "aiohttp"]
 #
 # [tool.uv]
 # # what the lock file resolved, and nothing published after it
@@ -10,7 +10,7 @@
 # # PR 141's head (refkv.phkv); building refkv needs a Rust toolchain (cargo)
 # refkv = { git = "https://github.com/d-v-b/refkv", subdirectory = "python", rev = "632883306ff30ab0c420db15888b0cbc77591ebd" }
 # ///
-"""Virtual shards of an HDF5-and-Zarr array, with the shard index stored three ways, in vzip and phkv
+"""Virtual shards of an HDF5-and-Zarr array, with the shard index stored four ways, in vzip and phkv
 archives, and the archives' sizes (design/NATIVE_SHARD_INDEX.md).
 
 Every shard of https://s3.janelia.org/shroff-lab/s0_hdf5/c/ is an HDF5 file that is also a Zarr v3
@@ -26,33 +26,45 @@ A shard's value is `[file bytes 0..end] ++ [index]`, and the index is, per varia
             (vzip: a hidden DEFLATE entry; phkv: an ordinary key, deflated)
   native    no index bytes stored: a range of the HDF5 file's own Fixed Array data block, whose entries
             are the Zarr index's, and the 4 CRC-32C bytes inline
+  spliced   native, but the empty slots (HDF5: address 2**64-1, size 0) are 0xff bytes, Zarr's own encoding
+            of an empty chunk (ranges of one 0xff source, shared by the archive), between ranges of the file for
+            the runs of present entries
 
 Usage (the script's dependencies are its inline metadata, locked in compare.py.lock; phkv needs
 refkv with PR 141, refkv.phkv, which the metadata pins; building refkv needs a Rust toolchain):
 
     uv run --script design/experiments/native_shard_index/compare.py OUT_DIR [--verify]
 
-It reads the first 16 KiB and the last 8196 bytes of every shard, over HTTP, and writes nine archives
-into OUT_DIR. `--verify` decodes four regions through zarr-python from every archive and compares them.
+It reads the first 16 KiB and the last 8196 bytes of every shard, over HTTP, and writes twelve archives
+into OUT_DIR. `--verify` checks every archive against the source array: four decoded regions, and the index bytes of every shard.
 """
 
 from __future__ import annotations
 
 import argparse
+import asyncio
 import concurrent.futures as cf
+import hashlib
 import json
 import os
 import re
 import struct
 import sys
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
+import refkv.zarr
+import zarr
 from refkv.phkv import PhkvWriter
 from refkv.pb import Range
 from refkv.policy import crc32c
 from refkv.vzip.archive import VZipWriter
+from zarr.abc.store import SuffixByteRequest
+from zarr.core.buffer import default_buffer_prototype
+from zarr.core.sync import sync
+from zarr.storage import FsspecStore
 
 BUCKET = "https://s3.janelia.org/shroff-lab"
 PREFIX = "s0_hdf5"
@@ -119,7 +131,18 @@ class Shard:
 
 
 def parse_fixed_array(head: bytes) -> tuple[int, bytes]:
-    """(file offset of the entries, the entries) of the one fixed array chunk index in `head`."""
+    """(file offset of the entries, the entries) of the one fixed array chunk index in `head`.
+
+    The file's addresses must be offsets from the start of the file, which the entries then are: a
+    superblock (version 2 or 3) with 8-byte offsets and lengths and base address 0 (a userblock, H5Pset_userblock,
+    moves the base address, and every address with it).
+    """
+    if head[:8] != b"\x89HDF\r\n\x1a\n" or head[8] not in (2, 3):
+        raise ValueError("not an HDF5 file with a version 2 or 3 superblock at its start")
+    if (head[9], head[10]) != (8, 8):
+        raise ValueError(f"offsets of {head[9]} bytes and lengths of {head[10]}: the entries need 8 and 8")
+    if (base := int.from_bytes(head[12:20], "little")) != 0:
+        raise ValueError(f"base address {base}: a userblock moves every address in the file")
     i = 0
     while (i := head.find(b"OHDR", i)) != -1:
         v, fl = head[i + 4], head[i + 5]
@@ -151,8 +174,12 @@ def parse_fixed_array(head: bytes) -> tuple[int, bytes]:
                 fadb = int.from_bytes(head[fahd + 16:fahd + 24], "little")
                 if struct.unpack("<I", head[fahd + 24:fahd + 28])[0] != jenkins(head[fahd:fahd + 24]):
                     raise ValueError("FAHD checksum")
-                if (cid, esz, nent) != (1, 16, 512) or nent > 1 << pb:
-                    raise ValueError(f"unexpected FA: client {cid} entry {esz} n {nent} page bits {pb}")
+                if esz != 16:  # 8 (address) + the chunk size field + 4 (mask): Zarr's entries are 16 bytes
+                    raise ValueError(f"entries of {esz} bytes, so a chunk size field of {esz - 12}: the field is "
+                                     "4 bytes for chunks of 64 KiB to under 16 MiB, uncompressed")
+                if cid != 1 or nent > 1 << pb:
+                    raise ValueError(f"unexpected FA: client {cid} (1 is filtered chunks), {nent} entries, "
+                                     f"page bits {pb} (the entries are paged above 2**page bits)")
                 if head[fadb:fadb + 4] != b"FADB":
                     raise ValueError("no FADB")
                 off = fadb + 14  # signature, version, client id, header address
@@ -190,9 +217,16 @@ def load_shard(key: str) -> Shard:
 
 
 def list_shards() -> list[str]:
-    body, _ = http(f"https://s3.janelia.org/shroff-lab/?list-type=2&prefix={PREFIX}/c/&max-keys=1000")
-    keys = re.findall(r"<Key>([^<]+)</Key>", body.decode())
-    return sorted(k[len(PREFIX) + 1:] for k in keys)
+    keys: list[str] = []
+    token = ""
+    while True:
+        url = f"{BUCKET}/?list-type=2&prefix={PREFIX}/c/&max-keys=1000"
+        body, _ = http(url + (f"&continuation-token={urllib.parse.quote(token)}" if token else ""))
+        text = body.decode()
+        keys += re.findall(r"<Key>([^<]+)</Key>", text)
+        if "<IsTruncated>true</IsTruncated>" not in text:
+            return sorted(k[len(PREFIX) + 1:] for k in keys)
+        token = re.search(r"<NextContinuationToken>([^<]+)</NextContinuationToken>", text).group(1)
 
 
 # --- the archives --------------------------------------------------------------------------
@@ -213,6 +247,19 @@ def _ranges(w, sh: Shard, variant: str, key: str) -> list[Range]:
     if variant == "native":
         crc = struct.pack("<I", crc32c(sh.entries))
         return [file_range, Range(source=src, offset=sh.entries_off, length=INDEX), Range(data=crc)]
+    if variant == "spliced":
+        # the entries as ranges of the file, but for the empty slots, which are Zarr's own 16 bytes of 0xff
+        runs: list[Range] = []
+        k = 0
+        while k < 512:
+            empty = sh.entries[16 * k:16 * k + 8] == b"\xff" * 8
+            n = 1
+            while k + n < 512 and (sh.entries[16 * (k + n):16 * (k + n) + 8] == b"\xff" * 8) == empty:
+                n += 1
+            runs.append(Range(source=w.blob(b"\xff" * INDEX), offset=0, length=16 * n) if empty else
+                        Range(source=src, offset=sh.entries_off + 16 * k, length=16 * n))
+            k += n
+        return [file_range, *runs, Range(data=sh.zindex[INDEX:])]  # Zarr's CRC: of the bytes the reader sees
     raise ValueError(variant)
 
 
@@ -234,29 +281,65 @@ REGIONS = {
 }
 
 
-def verify(out: Path) -> bool:
-    """Decode REGIONS through zarr-python from every archive of `out`; True if all agree."""
-    import hashlib  # noqa: PLC0415
+TAIL = 16 + INDEX + 4  # the last 16 bytes of the chunks, and the index with its CRC
 
-    import refkv.zarr  # noqa: PLC0415
-    import zarr  # noqa: PLC0415
 
-    seen: dict[str, dict[str, str]] = {}
-    for p in sorted(out.iterdir()):
-        arr = zarr.open_array(refkv.zarr.open(str(p), **({"binding": "phkv"} if p.suffix == ".phkv" else {})), mode="r")
-        seen[p.name] = {name: hashlib.md5(arr[sl].tobytes()).hexdigest()[:10] for name, sl in REGIONS.items()}  # noqa: S324
+def _digest(x) -> str:  # noqa: ANN001 (a numpy array)
+    return hashlib.md5(x.tobytes(), usedforsecurity=False).hexdigest()[:10]
+
+
+def expected_tail(sh: Shard, variant: str) -> bytes:
+    """The last TAIL bytes of a virtual shard, from the shard's own file and the index `variant` presents.
+
+    The virtual shard is as long as the file (the chunks end where zarrindex starts, and the index is as long), so
+    the bytes before the index are the file's, whatever `end` the writer used.
+    """
+    chunks, _ = http(sh.url, f"bytes={sh.end - 16}-{sh.end - 1}")
+    index = sh.entries + struct.pack("<I", crc32c(sh.entries)) if variant == "native" else sh.zindex
+    return chunks + index
+
+
+async def _tails(store: zarr.abc.store.Store, shards: list[Shard]) -> dict[str, bytes]:
+    proto = default_buffer_prototype()
+    got = {}
+    for sh in shards:
+        buf = await store.get(sh.key, proto, byte_range=SuffixByteRequest(TAIL))
+        got[sh.key] = b"" if buf is None else buf.to_bytes()
+    return got
+
+
+def verify(out: Path, shards: list[Shard]) -> bool:
+    """Check every archive of `out` against the source array, not only against each other.
+
+    - REGIONS decoded through zarr-python from the archive equal the same regions read from the source array
+      at BUCKET/PREFIX directly (the shards themselves, as a Zarr array over HTTP).
+    - The last TAIL bytes of every virtual shard, as the archive's store serves them, equal the bytes of the
+      shard's own file followed by the index the variant presents (the Zarr index, or for "native" the verbatim
+      entries and their CRC).
+    """
+    truth_arr = zarr.open_array(f"{BUCKET}/{PREFIX}", mode="r")
+    truth = {name: _digest(truth_arr[sl]) for name, sl in REGIONS.items()}
+    print("source array, read directly:", truth)
+    expected = {(sh.key, v): expected_tail(sh, v) for sh in shards for v in ("inline", "native")}
     ok = True
-    for name in REGIONS:
-        digests = {v[name] for v in seen.values()}
-        ok &= len(digests) == 1
-        print(f"{name:<24} identical across {len(seen)} archives: {len(digests) == 1}  {sorted(digests)}")
+    for p in sorted(out.iterdir()):
+        variant = p.stem.rsplit("-", 1)[1]
+        store = refkv.zarr.open(str(p), **({"binding": "phkv"} if p.suffix == ".phkv" else {}))
+        arr = zarr.open_array(store, mode="r")
+        bad = [name for name, sl in REGIONS.items() if _digest(arr[sl]) != truth[name]]
+        tails = sync(_tails(store, shards))
+        bad_tails = [sh.key for sh in shards
+                     if tails[sh.key] != expected[(sh.key, "native" if variant == "native" else "inline")]]
+        ok &= not bad and not bad_tails
+        print(f"{p.name:<28} regions equal the source: {not bad}  index bytes as expected: {not bad_tails}"
+              + (f"  differ: {bad} {bad_tails}" if bad or bad_tails else ""))
     return ok
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("out", type=Path, help="directory for the archives")
-    ap.add_argument("--verify", action="store_true", help="decode regions from every archive and compare them")
+    ap.add_argument("--verify", action="store_true", help="check every archive against the source array")
     args = ap.parse_args()
     out: Path = args.out
     out.mkdir(parents=True, exist_ok=True)
@@ -275,7 +358,7 @@ def main() -> None:
         ("phkv", ".phkv", {"": {}}),
     ):
         for note, opts in optsets.items():
-            for variant in ("inline", "internal", "native"):
+            for variant in ("inline", "internal", "native", "spliced"):
                 p = out / f"{binding}{'-nomirror' if note else ''}-{variant}{ext}"
                 rows.append((f"{binding}{note}", variant, write(p, binding, variant, shards, meta, **opts)))
     print()
@@ -287,7 +370,7 @@ def main() -> None:
         print(f"{b:<26}{v:<10}{n:>10,}{n / len(shards):>11,.0f}{n - i:>+12,}{n - t:>+13,}")
     if args.verify:
         print()
-        sys.exit(0 if verify(out) else 1)
+        sys.exit(0 if verify(out, shards) else 1)
 
 
 if __name__ == "__main__":
