@@ -241,8 +241,9 @@ class ObstoreFile(io.RawIOBase):
 
     @override
     def close(self) -> None:
-        if not self.closed:
-            self.f.close()
+        f = getattr(self, "f", None)  # absent when opening it failed
+        if not self.closed and f is not None:
+            f.close()
         super().close()
 
     @override

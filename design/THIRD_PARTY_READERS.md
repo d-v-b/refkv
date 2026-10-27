@@ -95,15 +95,16 @@ What the numbers say:
   fewer requests with many more bytes (301 MB of a 505 MB CZI). No cache helps when the
   reads are scattered and the reader asks for them one at a time; the core's planner batches
   the reads a parser asks for, coalesces near ranges and sends them concurrently.
-- **obstore's file reader is slower than any fsspec cache for tifffile, czifile and h5py, and
-  close to fsspec with no cache.** `ReadableFile` drops its buffer on every seek, so a parser
-  that seeks between small reads (tifffile from tag to tag, czifile from header to header,
-  h5py from node to node) makes about one request per seek: 42 to 186 requests for tifffile,
-  69 to 487 for czifile and 278 for h5py, where fsspec's block cache needs 3 to 82, 42 to 485
-  and 33 to 40. For nd2, which reads a few large ranges, it matches fsspec's read-ahead (4
-  requests, 74 kB). obstore's strength is elsewhere: `get_ranges` (vectored reads) and async
-  concurrency, which only a caller that knows its next reads in advance can use. That caller
-  is a planner like the core's; none of these packages has one.
+- **obstore's file reader helps no package more than fsspec's caches do.** `ReadableFile`
+  drops its buffer on every seek, so a parser that seeks between small reads makes about one
+  request per seek. For tifffile (42 to 186 requests) and h5py (278) it sits between fsspec
+  with no cache and fsspec's caches, which need 3 to 82 and 33 to 40. For czifile no
+  transport helps much: on the Axioscan CZI every setting but the 1 MiB ones takes about 485
+  requests and 74 s, one per subblock header, and on the IDR CZI obstore (69 requests) is
+  slower than any fsspec cache (33 to 65). For nd2, which reads a few large ranges, it matches
+  fsspec's read-ahead (4 requests, 74 kB). obstore's strength is elsewhere: `get_ranges`
+  (vectored reads) and async concurrency, which only a caller that knows its next reads in
+  advance can use. That caller is a planner like the core's; none of these packages has one.
 
 ## What the packages accept
 
