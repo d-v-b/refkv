@@ -10,7 +10,8 @@ references to the file's bytes, without copying its content
 H.264 in MP4 is how most video is recorded and shared, scientific video
 included: behavior recordings from lab cameras (the input of pose
 estimation), microscope and field recordings, the external video files an
-NWB file points to. Someone who wants to read a few seconds of a long
+NWB file points to. HEVC is what phones record: an iPhone's `.MOV` files are
+HEVC by default, 10-bit HDR on recent models. Someone who wants to read a few seconds of a long
 recording as a NumPy array, over HTTP, without decoding the whole file or
 converting it to images first, has to write that machinery today.
 
@@ -26,13 +27,14 @@ needs: back to the keyframe before it, for video. The archive's
 A group at the archive root, and a group per track refkv zarrifies, at
 `tracks/<id>`.
 
-- **Video (H.264, 8-bit 4:2:0):** three arrays, `y`, `u` and `v`, the
-  decoder's planes, `uint8`, `[time, y, x]` (the chroma planes half the
-  size along each axis), in presentation order; and `time`, each
+- **Video (H.264 8-bit 4:2:0, HEVC 8- or 10-bit 4:2:0):** three arrays,
+  `y`, `u` and `v`, the decoder's planes, `[time, y, x]` (the chroma planes
+  half the size along each axis), in presentation order: `uint8` for 8
+  bits, `uint16` for 10 (values from 0 to 1023); and `time`, each
   picture's presentation time in the track's timescale (`int64`). Each
   chunk is whole groups of pictures from a keyframe, up to 256 pictures
-  and at most 32 MiB of luma (16 pictures at 1080p); only a group longer
-  than that is split. Chunks of different lengths use the zarr-extensions
+  and at most 32 MiB of luma (16 pictures at 1080p, 8 of 10 bits); only a
+  group longer than that is split. Chunks of different lengths use the zarr-extensions
   `rectilinear` chunk grid, which `refkv.zarr` turns on in zarr-python.
   No color conversion: RGB depends on the stream's color matrix, which is
   the reader's to apply.
@@ -42,18 +44,21 @@ A group at the archive root, and a group per track refkv zarrifies, at
   decodes with ffmpeg's decoders through PyAV (the `media` extra).
 - **Metadata:** under `refkv_zarrified.mp4` on the root, the brands, the
   movie's timescale and duration, and every track: its codec, its path,
-  or why it is not zarrified (`hev1 video is not supported: only H.264
-  (avc1) is`). Each track's group holds its timescale, edit list,
-  dimensions or sample rate and channel count, and the H.264 profile and
-  level. The whole file (every box, field by field, every sample, and the
+  or why it is not zarrified (`av01 video is not supported: only H.264
+  (avc1) and HEVC (hvc1, hev1) are`). Each track's group holds its
+  timescale, edit list, dimensions, bit depth, profile and level, or its
+  sample rate and channel count. The whole file (every box, field by field, every sample, and the
   media data in no sample) is described on `refkv_source` by the Rust
   core's IR mirror, from which it is rebuilt byte for byte.
 
 **What is not expressed.** The edit list, which places each track on the
 movie's timeline (delaying it, or cutting the encoder's priming), is
 recorded, not applied: the arrays hold every decoded picture and sample.
-HEVC, AV1, 10-bit H.264 and other codecs' tracks are listed with the reason
-and kept in the mirror, as are `udta` and `meta` boxes (titles, tags).
+So is a phone's rotation (the track's matrix: a portrait video is coded
+sideways) and an HDR video's transfer function (an iPhone's is HLG, with
+Dolby Vision metadata the planes do not apply). AV1, 10-bit H.264 and other
+codecs' tracks are listed with the reason and kept in the mirror, as are
+`udta` and `meta` boxes (titles, tags, an iPhone's location).
 [spec/zarrify/mp4.md §7](../../../spec/zarrify/mp4.md#7-what-the-layout-does-not-express)
 lists them.
 
@@ -111,6 +116,19 @@ hierarchy like any other, and the demo page opens each H.264 track's luma
 decodes `refkv.stream` chunks with the browser's WebCodecs `VideoDecoder`.
 The demo's MP4 example is a SLEAP test video of two flies.
 
+The demo does not show HEVC tracks yet: the fork's codec decodes `"h264"`
+alone, so the page names an HEVC track in a note (in its error, when the
+file has no H.264 track, as an iPhone's has not) and opens none of its
+planes. Decoding one
+there would also depend on the browser: WebCodecs decodes HEVC only where
+the platform has a decoder for it, in practice Chrome and Edge on macOS,
+Windows and Android with a hardware decoder (not Linux), and Safari on
+Apple's platforms; Firefox's `VideoDecoder` reports HEVC as unsupported in
+current reports. 10-bit pictures need a decoder that gives them unconverted
+(as `I420P10`), which fewer do. `VideoDecoder.isConfigSupported` with the
+codec string of the `hvcC` box is the test. In Python, PyAV's software
+decoder decodes every HEVC track the profile zarrifies.
+
 ## Supported and not supported
 
 Supported:
@@ -121,12 +139,18 @@ Supported:
   B-frames, with open or closed groups of pictures (a camera's B-frames
   presented before each keyframe included), at a constant or variable
   frame rate, any number of tracks.
+- HEVC (`hvc1`, `hev1`) video in Main and Main 10 (4:2:0 of 8 or 10 bits),
+  with IDR, CRA and BLA pictures as keyframes and their RASL and RADL
+  leading pictures (x265's open groups included): an iPhone's video, its
+  HDR video's HLG base layer included (its Dolby Vision metadata is
+  recorded, not applied).
 - AAC-LC and MP3 audio tracks, mono or stereo, in either container.
 
-Not zarrified (listed with the reason, and kept in the mirror): HEVC,
-AV1 and other video codecs, `avc3` (parameter sets in the stream), 10-bit,
-4:2:2 and 4:4:4 H.264, groups of more than 1024 pictures, HE-AAC and other
-audio codecs, timecode and text tracks.
+Not zarrified (listed with the reason, and kept in the mirror): AV1 and
+other video codecs, Dolby Vision's own sample entries (`dvh1`, `dvhe`),
+`avc3` (parameter sets in the stream), 10-bit, 4:2:2 and 4:4:4 H.264, 4:2:2,
+4:4:4 and 12-bit HEVC, groups of more than 1024 pictures, HE-AAC and other
+audio codecs, timecode, text and metadata tracks.
 
 Rejected: fragmented MP4 (`moof` boxes), files without a `moov` box, files
 with none of the tracks above, and malformed boxes or sample tables.
@@ -156,7 +180,8 @@ with none of the tracks above, and malformed boxes or sample tables.
 through `python/src/refkv`, zarr-python and the `refkv.stream` codec, and
 compares it with ffmpeg's decoding of the file (through PyAV, whose demuxer
 reads the tables itself): every plane of every picture, the presentation
-times and every audio sample, exactly. `python/tests/ir/test_mp4.py` does
+times and every audio sample, exactly; the HEVC files, 8- and 10-bit, in
+MP4 and QuickTime, are x265's (`fixtures/generators/mp4/write_fixtures.py`). `python/tests/ir/test_mp4.py` does
 the same through Python, also with chunks of 7 frames, so that every track
 has several chunks and lead-ins. AAC coded with noise substitution is
 compared by its level, since a chunk decodes its noise bands from a

@@ -286,14 +286,21 @@ function arrayView(url: string, path: string, meta: ArrayMeta): View {
  * The views of an MP4 file: each H.264 track's luma (its Y plane), scrolled
  * over time. Neuroglancer shows one array per layer, and a picture's color
  * needs all three planes, the chroma at half size; the U and V planes are in
- * the archive beside Y.
+ * the archive beside Y. The fork's `refkv.stream` codec decodes H.264 alone,
+ * so an HEVC track (`hvc1`, `hev1`) is named in a note, not opened.
  */
-async function videoViews(zarrUrl: string, mp4: { tracks?: { path: string | null; handler: string }[] }): Promise<View[]> {
-  const tracks = (mp4.tracks ?? []).filter((t) => t.path !== null && t.handler === "vide");
+async function videoViews(zarrUrl: string, mp4: { tracks?: { path: string | null; handler: string; codec: string }[] }): Promise<View[]> {
+  const video = (mp4.tracks ?? []).filter((t) => t.path !== null && t.handler === "vide");
+  const tracks = video.filter((t) => t.codec === "avc1");
+  const others = video.filter((t) => t.codec !== "avc1").map((t) => `${t.path} (${t.codec})`);
+  if (tracks.length === 0 && others.length > 0) {
+    throw new Error(`no H.264 track to show: Neuroglancer does not decode ${others.join(", ")}, which the archive holds`);
+  }
   return Promise.all(tracks.map(async (t) => {
     const url = `${zarrUrl}${t.path}/y/`;
     const view = arrayView(url, `${t.path}/y`, await getJson(`${url}zarr.json`));
     view.label = `${t.path} (luma)`;
+    if (others.length > 0) view.note = `Not shown: ${others.join(", ")}, which Neuroglancer does not decode.`;
     return view;
   }));
 }

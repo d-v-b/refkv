@@ -2,10 +2,13 @@
 (spec/zarrify/mp4.md §8
 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#8-mp4-profile>): H.264 video
 with and without B-frames, intra-only, odd sizes, a variable frame rate, long enough for
-several chunks, groups of pictures of unequal lengths, open groups, two video tracks; AAC and MP3 audio,
-alone and beside video; the moov box before and after the media data, a 64-bit mdat size and an
-mdat that runs to the end of the file; tracks the profile does not zarrify (HEVC, 10-bit
-H.264) beside ones it does; and the inputs it rejects (`mp4_reject_*`). The byte-crafted edge
+several chunks, groups of pictures of unequal lengths, open groups, two video tracks; HEVC
+video, 8-bit and Main 10 (HLG, as an iPhone records it), in hvc1 and hev1 sample entries, with
+open groups (CRA pictures and their RASL pictures), RADL pictures, and in a QuickTime file;
+AAC and MP3 audio, alone and beside video; the moov box before and after the media data, a
+64-bit mdat size and an mdat that runs to the end of the file; tracks the profile does not
+zarrify (10-bit H.264, 4:2:2 HEVC) beside ones it does; and the inputs it rejects
+(`mp4_reject_*`). The byte-crafted edge
 cases are write_edge_fixtures.py's.
 
 The media are ffmpeg's test sources encoded by ffmpeg (libx264, libx265, its AAC encoder and
@@ -41,6 +44,21 @@ def audio(rate: int = 16000, seconds: float = 3, channels: int = 1) -> list[str]
 
 
 X264 = ["-c:v", "libx264", "-threads", "1", "-pix_fmt", "yuv420p"]
+
+
+def x265(params: str = "", pix_fmt: str = "yuv420p", tag: str = "hvc1") -> list[str]:
+    """libx265, single-threaded, quiet and without its version SEI (so that a build of another
+    version writes the same bytes), with x265's own `params`, in the sample entry `tag`
+    (Apple's hvc1, ffmpeg's default for MP4 being hev1)."""
+    return ["-c:v", "libx265", "-pix_fmt", pix_fmt, "-tag:v", tag,
+            "-x265-params", ":".join(p for p in ("log-level=error:pools=1:frame-threads=1:info=0", params) if p)]
+
+
+# x265's open groups, a CRA picture every 12 followed in decode order by RASL pictures presented
+# before it, which reference the group before
+OPEN_GOP = "keyint=12:min-keyint=12:scenecut=0:open-gop=1:bframes=3"
+# HLG and BT.2020, as an iPhone's HDR video signals them
+HLG = "colorprim=bt2020:transfer=arib-std-b67:colormatrix=bt2020nc"
 AAC = ["-c:a", "aac", "-b:a", "32k", "-aac_pns", "0"]
 EXACT = ["-fflags", "+bitexact", "-flags:v", "+bitexact", "-flags:a", "+bitexact", "-map_metadata", "-1"]
 
@@ -135,20 +153,32 @@ def main() -> None:
     assert o + n == len(fast), "faststart puts mdat last"
     write("mp4_mdat_to_end.mp4", fast[:o] + struct.pack(">I", 0) + fast[o + 4:])
     write("mp4_udta_title.mp4", subprocess_title(*video(), *X264, "-g", "10"))
+    # HEVC: x265's defaults (open groups, B-frames) in an hev1 sample entry beside AAC; open
+    # groups of 12 in hvc1; closed groups whose IDR pictures are followed by RADL pictures; a
+    # size that is not a multiple of 8 (a conformance window); long enough for two chunks; Main
+    # 10 with HLG; and an iPhone's .MOV: QuickTime's brand, hvc1, Main 10 HLG and AAC
+    write("mp4_hevc_aac.mp4", ffmpeg(*video(), *audio(), *x265(tag="hev1"), "-g", "10", *AAC))
+    write("mp4_hevc_open_gop.mp4", ffmpeg(*video(seconds=4), *x265(OPEN_GOP)))
+    radl = "keyint=10:min-keyint=10:scenecut=0:open-gop=0:radl=2:bframes=3"
+    write("mp4_hevc_radl.mp4", ffmpeg(*video(seconds=4), *x265(radl)))
+    write("mp4_hevc_odd_size.mp4", ffmpeg(*video("62x46"), *x265("keyint=8:bframes=3")))
+    write("mp4_hevc_long.mp4", ffmpeg(*video("32x32", 25, 16), *x265("keyint=50:min-keyint=50:scenecut=0:bframes=3")))
+    write("mp4_hevc_main10.mp4", ffmpeg(*video(), *x265(f"{OPEN_GOP}:{HLG}", "yuv420p10le")))
+    write("mov_hevc_main10_aac.mov",
+          ffmpeg(*video(), *audio(), *x265(f"{OPEN_GOP}:{HLG}", "yuv420p10le"), *AAC, fmt="mov"))
+    write("mov_hevc_aac.mov", ffmpeg(*video(), *audio(), *x265(OPEN_GOP), *AAC, fmt="mov"))
     # tracks the profile does not zarrify, beside one it does
-    write("mp4_hevc_aac.mp4", ffmpeg(*video(), *audio(), "-c:v", "libx265", "-x265-params", "log-level=error:pools=1",
-                                     "-g", "10", *AAC))
     write("mp4_h264_10bit_aac.mp4", ffmpeg(*video(), *audio(), "-c:v", "libx264", "-threads", "1",
                                            "-pix_fmt", "yuv420p10le", "-g", "10", *AAC))
+    write("mp4_hevc_422_aac.mp4", ffmpeg(*video(), *audio(), *x265("keyint=10", "yuv422p10le"), *AAC))
 
-    # rejected: fragmented, no moov box (cut before it), only tracks it does not zarrify,
+    # rejected: fragmented, no moov box (cut before it), only tracks it does not zarrify (4:2:2 HEVC),
     # a box past the end of the file, a box smaller than its header, a second moov box, a
     # sample past the end of the file, and tables that disagree on the sample count
     write("mp4_reject_fragmented.mp4", ffmpeg(*video(), *X264, "-g", "10", "-movflags", "frag_keyframe+empty_moov"))
     o, _, _ = find(plain, "/moov")
     write("mp4_reject_no_moov.mp4", plain[:o])
-    write("mp4_reject_hevc_only.mp4",
-          ffmpeg(*video(), "-c:v", "libx265", "-x265-params", "log-level=error:pools=1", "-g", "10"))
+    write("mp4_reject_hevc_422_only.mp4", ffmpeg(*video(), *x265("keyint=10", "yuv422p")))
     o, _, n = find(fast, "/moov")
     write("mp4_reject_box_outside.mp4", fast[:o] + struct.pack(">I", n + len(fast)) + fast[o + 4:])
     _f, _, fn = find(fast, "/ftyp")

@@ -1,8 +1,8 @@
 //! The MP4 projection (spec/zarrify/mp4.md §4
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#4-the-layout>, and the source
 //! metadata of §5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#5-source-metadata>)
-//! from a valid IR: a group per track the profile zarrifies, with the planes of an H.264
-//! track's pictures and their presentation times, or an audio track's samples, each chunk a
+//! from a valid IR: a group per track the profile zarrifies, with the planes of an H.264 or
+//! HEVC track's pictures and their presentation times, or an audio track's samples, each chunk a
 //! `refkv.stream` chunk of the track's samples (spec/zarrify/mp4.md §8.3
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#83-chunks>).
 
@@ -23,9 +23,9 @@ const MP3_OVERHEAD: u64 = 38;
 const MP3_RESERVOIR: u64 = 511;
 
 /// The most pictures of a video chunk: the profile's limit, and at most `CHUNK_LUMA` bytes of
-/// luma.
-pub fn video_chunk(limit: u64, width: u64, height: u64) -> u64 {
-    limit.min((CHUNK_LUMA / (width * height).max(1)).max(1))
+/// luma, `bytes` a sample.
+pub fn video_chunk(limit: u64, width: u64, height: u64, bytes: u64) -> u64 {
+    limit.min((CHUNK_LUMA / (width * height * bytes).max(1)).max(1))
 }
 
 /// The lengths of the video chunks of `count` presented pictures, at most `per` each, the
@@ -129,9 +129,10 @@ fn track_json(t: &J, chunk: u64) -> J {
         m.insert(if k == "count" { "frames".into() } else { k.into() }, t[k].clone());
     }
     match t["format"].as_str() {
-        Some("h264") => {
+        Some("h264" | "hevc") => {
             m.insert("width".into(), t["geometry"]["width"].clone());
             m.insert("height".into(), t["geometry"]["height"].clone());
+            m.insert("bit_depth".into(), t["bit_depth"].clone());
             m.insert("profile".into(), t["profile"].clone());
             m.insert("level".into(), t["level"].clone());
             m.insert("sync_samples".into(), json!(arr(&t["sync"]).len()));
@@ -178,11 +179,13 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
         let sample = |j: usize| (ir.start[first + j], ir.len[first + j]);
         let chunks;
         let chunk;
-        if format == "h264" {
+        if format == "h264" || format == "hevc" {
             // the planes of the pictures, in presentation order (§4.1
-            // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#41-video-tracks>)
+            // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#41-video-tracks>):
+            // uint8 for 8 bits a sample, uint16 for more
             let (w, h) = (n(&t["geometry"]["width"]), n(&t["geometry"]["height"]));
-            chunk = video_chunk(limit, w, h);
+            let data_type = t["geometry"]["data_type"].as_str().unwrap_or("uint8");
+            chunk = video_chunk(limit, w, h, if data_type == "uint16" { 2 } else { 1 });
             let pts: Vec<i64> = arr(&t["pts"]).iter().map(|v| v.as_i64().unwrap_or(0)).collect();
             let sync: Vec<u64> = arr(&t["sync"]).iter().map(n).collect();
             let mut order: Vec<usize> = (0..count).collect();
@@ -199,7 +202,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
             refs.out.json(&format!("{dir}/zarr.json"), &declared_group(Map::new(), "mp4", None, Some(track_json(t, chunk))));
             let planes = [("y", w, h), ("u", w.div_ceil(2), h.div_ceil(2)), ("v", w.div_ceil(2), h.div_ceil(2))];
             for (p, pw, ph) in planes {
-                let doc = rectilinear_array_json(&[count as u64, ph, pw], "uint8", &json!([along, ph, pw]), stream_codec("h264", &t["setup"], Some(p)), &["time", "y", "x"]);
+                let doc = rectilinear_array_json(&[count as u64, ph, pw], data_type, &json!([along, ph, pw]), stream_codec(format, &t["setup"], Some(p)), &["time", "y", "x"]);
                 refs.out.json(&format!("{dir}/{p}/zarr.json"), &doc);
             }
             chunks = lengths.len();
@@ -271,8 +274,9 @@ mod tests {
         let all: Vec<usize> = video_units(4, 6, &order, &rank, &sync).iter().map(|u| u.0).collect();
         assert_eq!(all, (0..=6).collect::<Vec<_>>());
         assert_eq!(video_units(6, 9, &order, &rank, &sync), vec![(4, 0), (5, -1), (6, -1), (7, -1), (8, 1), (9, 2)]);
-        assert_eq!(video_chunk(256, 1920, 1080), 16);
-        assert_eq!(video_chunk(256, 64, 48), 256);
+        assert_eq!(video_chunk(256, 1920, 1080, 1), 16);
+        assert_eq!(video_chunk(256, 1920, 1080, 2), 8);
+        assert_eq!(video_chunk(256, 64, 48, 1), 256);
     }
 
     /// Video chunks hold whole groups of pictures up to `per`, splitting a longer group, and the
