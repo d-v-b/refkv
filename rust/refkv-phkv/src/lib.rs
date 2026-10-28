@@ -7,6 +7,9 @@ pub mod format;
 mod hybrid;
 pub mod ptrhash;
 mod reader;
+pub mod sansio;
+#[cfg(target_arch = "wasm32")]
+mod wasm;
 mod writer;
 
 pub use format::{Codec, Prop};

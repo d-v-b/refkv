@@ -45,6 +45,8 @@ impl ReadAt for Vec<u8> {
     }
 }
 
+// not on wasm32, which has no files to read at an offset
+#[cfg(any(unix, windows))]
 impl ReadAt for std::fs::File {
     fn size(&self) -> io::Result<u64> {
         Ok(self.metadata()?.len())

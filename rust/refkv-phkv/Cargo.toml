@@ -10,14 +10,27 @@ description = "phkv stores: refkv's perfect-hash binding, standalone or embedded
 license = "MIT OR Apache-2.0"
 publish = false
 
+[lib]
+name = "refkv_phkv"
+# cdylib: the wasm32 module of the reader (wasm/build.sh); rlib: the Rust users and the tests
+crate-type = ["cdylib", "rlib"]
+
 [dependencies]
 refkv-vzip = { path = "../refkv-vzip" }
 crc32c = "0.6"
 xxhash-rust = { version = "0.8", features = ["xxh64"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 zstd = { version = "0.13", default-features = false }
 # the same zlib as rust/refkv-vzip, for inflating
 flate2 = { version = "1.1", default-features = false, features = ["zlib"] }
 libz-sys = { version = "1.1", default-features = false, features = ["libc", "static"] }
+
+# wasm32 (the reader in a browser, wasm/build.sh): pure Rust, no C toolchain. It decodes DEFLATE
+# and Zstandard; it does not write, so compression is unavailable there.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+ruzstd = { version = "0.8", default-features = false, features = ["std"] }
+flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
 
 [dev-dependencies]
 tempfile = "3"
@@ -27,3 +40,12 @@ ureq = { version = "3.4", default-features = false }
 [profile.release]
 opt-level = 3
 debug = false
+
+# The wasm32 module (wasm/build.sh): the profile of rust/refkv-ir's, whole-program optimization,
+# one codegen unit, no unwinding.
+[profile.wasm]
+inherits = "release"
+lto = true
+codegen-units = 1
+opt-level = 2
+panic = "abort"
