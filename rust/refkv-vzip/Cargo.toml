@@ -13,18 +13,11 @@ publish = false
 
 [dependencies]
 crc32fast = "1.5"
-
 # DEFLATE through zlib itself, built from its sources: the bytes Python's zlib.compressobj(9,
 # DEFLATED, -15) gives, so that an archive matches the Python writer's byte for byte (miniz_oxide
 # and zlib-rs compress differently, and a system's zlib may be zlib-ng's)
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 flate2 = { version = "1.1", default-features = false, features = ["zlib"] }
 libz-sys = { version = "1.1", default-features = false, features = ["libc", "static"] }
-
-# wasm32 has no C toolchain: pure Rust (miniz_oxide). A wasm32 build inflates, for the phkv
-# reader; its deflate does not give zlib's bytes, so it is not a writer to conform with the others.
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
 
 [dev-dependencies]
 tempfile = "3"

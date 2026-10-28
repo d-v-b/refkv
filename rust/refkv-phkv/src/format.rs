@@ -114,16 +114,12 @@ pub fn encode(codec: Codec, data: &[u8]) -> Vec<u8> {
     match codec {
         Codec::None => data.to_vec(),
         Codec::Deflate => refkv_vzip::deflate(data),
-        #[cfg(not(target_arch = "wasm32"))]
         Codec::Zstd => {
             let mut c = zstd::bulk::Compressor::new(ZSTD_LEVEL).expect("zstd");
             c.include_checksum(false).expect("zstd");
             c.include_contentsize(true).expect("zstd");
             c.compress(data).expect("zstd")
         }
-        // the wasm32 build is a reader: it has no Zstandard encoder, and no writer calls this
-        #[cfg(target_arch = "wasm32")]
-        Codec::Zstd => unreachable!("zstd compression is not available on wasm32"),
     }
 }
 
@@ -177,30 +173,6 @@ fn inflate(stored: &[u8], size: u64) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
-#[cfg(target_arch = "wasm32")]
-fn unzstd(stored: &[u8], size: u64) -> Result<Vec<u8>, String> {
-    use std::io::Read;
-    let cap = usize::try_from(size).map_err(|_| "value too large".to_string())?;
-    if stored.len() >= 4 && (u32::from_le_bytes(stored[..4].try_into().unwrap()) & 0xFFFF_FFF0) == 0x184D_2A50 {
-        return Err("a skippable zstd frame".into());
-    }
-    // one frame, nothing after it: the decoder reads exactly the frame from the front of `rest`
-    let mut rest = stored;
-    let mut d = ruzstd::decoding::StreamingDecoder::new(&mut rest).map_err(|e| format!("not a zstd frame: {e}"))?;
-    // read into a buffer one byte larger, to tell "more than size" from "exactly size"
-    let mut out = Vec::with_capacity(cap.checked_add(1).ok_or("value too large")?);
-    (&mut d).take(cap as u64 + 1).read_to_end(&mut out).map_err(|e| format!("does not decompress: {e}"))?;
-    drop(d);
-    if !rest.is_empty() {
-        return Err(format!("{} bytes after the zstd frame", rest.len()));
-    }
-    if out.len() != cap {
-        return Err(format!("decompresses to {} bytes, not {size}", out.len()));
-    }
-    Ok(out)
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 fn unzstd(stored: &[u8], size: u64) -> Result<Vec<u8>, String> {
     let cap = usize::try_from(size).map_err(|_| "value too large".to_string())?;
     // one frame, nothing after it, no skippable frame

@@ -19,18 +19,10 @@ crate-type = ["cdylib", "rlib"]
 refkv-vzip = { path = "../refkv-vzip" }
 crc32c = "0.6"
 xxhash-rust = { version = "0.8", features = ["xxh64"] }
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 zstd = { version = "0.13", default-features = false }
 # the same zlib as rust/refkv-vzip, for inflating
 flate2 = { version = "1.1", default-features = false, features = ["zlib"] }
 libz-sys = { version = "1.1", default-features = false, features = ["libc", "static"] }
-
-# wasm32 (the reader in a browser, wasm/build.sh): pure Rust, no C toolchain. It decodes DEFLATE
-# and Zstandard; it does not write, so compression is unavailable there.
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-ruzstd = { version = "0.8", default-features = false, features = ["std"] }
-flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
 
 [dev-dependencies]
 tempfile = "3"
