@@ -282,27 +282,38 @@ function arrayView(url: string, path: string, meta: ArrayMeta): View {
   };
 }
 
+/** The sample entries of the video tracks the fork's `refkv.stream` codec decodes. */
+const DECODED_VIDEO = ["avc1", "hvc1", "hev1"];
+
 /**
- * The views of an MP4 file: each H.264 track's luma (its Y plane), scrolled
- * over time. Neuroglancer shows one array per layer, and a picture's color
- * needs all three planes, the chroma at half size; the U and V planes are in
- * the archive beside Y. The fork's `refkv.stream` codec decodes H.264 alone,
- * so an HEVC track (`hvc1`, `hev1`) is named in a note, not opened.
+ * The views of an MP4 file: each 8-bit H.264 or HEVC track's luma (its Y
+ * plane), scrolled over time. Neuroglancer shows one array per layer, and a
+ * picture's color needs all three planes, the chroma at half size; the U and
+ * V planes are in the archive beside Y. The fork's `refkv.stream` codec
+ * decodes HEVC where the browser's WebCodecs has a decoder for it that gives
+ * the stream's own pictures, and says why in the layer's error where not. A
+ * 10-bit HEVC track (`uint16` planes) is named in a note, not opened: no
+ * browser measured gives its pictures unconverted (Chrome's cannot be copied,
+ * WebKit's are 8-bit).
  */
 async function videoViews(zarrUrl: string, mp4: { tracks?: { path: string | null; handler: string; codec: string }[] }): Promise<View[]> {
   const video = (mp4.tracks ?? []).filter((t) => t.path !== null && t.handler === "vide");
-  const tracks = video.filter((t) => t.codec === "avc1");
-  const others = video.filter((t) => t.codec !== "avc1").map((t) => `${t.path} (${t.codec})`);
-  if (tracks.length === 0 && others.length > 0) {
-    throw new Error(`no H.264 track to show: Neuroglancer does not decode ${others.join(", ")}, which the archive holds`);
-  }
-  return Promise.all(tracks.map(async (t) => {
+  const planes = await Promise.all(video.map(async (t) => {
     const url = `${zarrUrl}${t.path}/y/`;
-    const view = arrayView(url, `${t.path}/y`, await getJson(`${url}zarr.json`));
+    return { t, url, meta: DECODED_VIDEO.includes(t.codec) ? await getJson(`${url}zarr.json`) : undefined };
+  }));
+  const shown = planes.filter((p) => p.meta?.data_type === "uint8");
+  const others = planes.filter((p) => p.meta?.data_type !== "uint8")
+    .map(({ t, meta }) => `${t.path} (${t.codec}${meta === undefined ? "" : ", 10-bit"})`);
+  if (shown.length === 0 && others.length > 0) {
+    throw new Error(`no 8-bit H.264 or HEVC track to show: Neuroglancer does not decode ${others.join(", ")}, which the archive holds`);
+  }
+  return shown.map(({ t, url, meta }) => {
+    const view = arrayView(url, `${t.path}/y`, meta);
     view.label = `${t.path} (luma)`;
     if (others.length > 0) view.note = `Not shown: ${others.join(", ")}, which Neuroglancer does not decode.`;
     return view;
-  }));
+  });
 }
 
 /** The views of a bioformats2raw layout: each series, and all of them together when they can be. */
