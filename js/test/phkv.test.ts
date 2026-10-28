@@ -45,9 +45,9 @@ function fakeIo(file: Uint8Array) {
 
 test("the module needs nothing from its host", async () => {
   const [module] = await load();
-  // the C zlib and zstd are in it: with an archiver that cannot archive wasm objects (macOS's `ar`)
-  // they are not, and the build still succeeds, leaving their functions as imports
-  assert.deepEqual(WebAssembly.Module.imports(module).map((i) => `${i.module}.${i.name}`), [], "a C library was not linked in: build with llvm-ar (rust/refkv-phkv/wasm/build.sh)");
+  // pure Rust: a C dependency that was not linked in would be left as imports, and the build
+  // still succeeds
+  assert.deepEqual(WebAssembly.Module.imports(module).map((i) => `${i.module}.${i.name}`), [], "a dependency needs a C library (rust/refkv-phkv/wasm/build.sh)");
 });
 
 test("opens the store and counts its keys", async () => {
