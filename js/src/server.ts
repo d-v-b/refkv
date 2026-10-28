@@ -7,14 +7,19 @@
 //                                zarrified by spec/zarrify.md
 //   <prefix>tiff/<id>/<key>      the same, for TIFF files only
 //   <prefix>archive/<id>/<key>   the .vzip archive at decodeId(id)
+//   <prefix>phkv/<id>/<key>      the standalone phkv store at decodeId(id), read in place by range
+//                                requests (phkv.ts): only the keys asked for are read
 //   .../__vz__/archive.vzip      the archive itself (keys under __vz__/ are
 //                                hidden, so no key can collide with it)
 //
 // `id` is the base64url encoding of the URL. Used by the service worker
 // (sw.ts); kept free of service worker APIs so it can run under Node.
 
-import { Archive, type Policy, type RangeFetcher, RefkvError } from "./archive.ts";
+import { Archive, type Policy, type RangeFetcher, RefkvError, urlSourceReader } from "./archive.ts";
 import { HttpResolutionError, openHttpFile, readHttpRange } from "./http.ts";
+import { PhkvError, type PhkvIo, PhkvStore, type PhkvSource } from "./phkv.ts";
+import type { Source } from "./protobuf.ts";
+import { compilePhkv } from "#phkvwasm";
 import { ImageError } from "./zarrify/common.ts";
 import { isStoreUrl, zarrifySource, zarrifyStore } from "./zarrify/index.ts";
 import { zarrifyIr } from "./zarrify/ir/run.ts";
@@ -69,6 +74,10 @@ export interface HandlerOptions {
   fetchStore?: (url: string, init?: RequestInit) => Promise<Response>;
   fetchRange?: RangeFetcher;
   fetchArchive?: (url: string) => Promise<Uint8Array>;
+  /** Opens a phkv store's file for range reads; defaults to `openHttpFile`. */
+  openPhkvFile?: typeof openHttpFile;
+  /** The phkv reader's compiled wasm module; defaults to `#phkvwasm`'s. */
+  phkvModule?: () => Promise<WebAssembly.Module>;
   /**
    * The reader policy (spec §6.7
    * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>) for `.vzip`
@@ -116,10 +125,60 @@ function parseRange(header: string | null, size: number): { start: number; end: 
   return { start, end };
 }
 
+const contentType = (key: string) => (key.endsWith(".json") ? "application/json" : key.endsWith(".xml") ? "application/xml" : "application/octet-stream");
+
+/**
+ * The value of a phkv store's key as HTTP. A request for a window from a start (`bytes=a-b`,
+ * `bytes=a-`) reads only that window, from the store and the sources a reference names, and its
+ * `Content-Range` gives no total (`/*`), as the store gives the size only with the whole value. A
+ * request for a suffix, and `HEAD`, read the whole value.
+ */
+async function servePhkv(store: PhkvStore, key: string, rangeHeader: string | null, head: boolean): Promise<Response> {
+  if (key === "" || key.endsWith("/")) return response(404, `no key ${key}`);
+  const headers = { "Content-Type": contentType(key), "Accept-Ranges": "bytes" };
+  const m = rangeHeader?.match(/^bytes=(\d+)-(\d*)$/);
+  if (m !== null && m !== undefined && !head) {
+    const start = Number(m[1]);
+    if (m[2] !== "" && Number(m[2]) < start) return response(416, "range not satisfiable");
+    const body = await store.get(key, m[2] === "" ? { start } : { start, end: Number(m[2]) + 1 });
+    if (body === undefined) return response(404, `no key ${key}`);
+    if (body.length === 0) return response(416, "range not satisfiable");
+    return response(206, body, { ...headers, "Content-Length": String(body.length), "Content-Range": `bytes ${start}-${start + body.length - 1}/*` });
+  }
+  const value = await store.get(key);
+  if (value === undefined) return response(404, `no key ${key}`);
+  const size = value.length;
+  const range = parseRange(rangeHeader, size);
+  if (range === "unsatisfiable") return response(416, "range not satisfiable", { "Content-Range": `bytes */${size}` });
+  if (range === undefined) return response(200, head ? null : value, { ...headers, "Content-Length": String(size) });
+  return response(206, head ? null : value.subarray(range.start, range.end), {
+    ...headers,
+    "Content-Length": String(range.end - range.start),
+    "Content-Range": `bytes ${range.start}-${range.end - 1}/${size}`,
+  });
+}
+
+/** A source of a phkv store as the archive reader's: its pins as the protobuf's. */
+function archiveSource(s: PhkvSource): Source {
+  return {
+    ...(s.url !== undefined ? { url: s.url } : {}),
+    ...(s.size !== undefined ? { size: BigInt(s.size) } : {}),
+    ...(s.etag !== undefined ? { etag: s.etag } : {}),
+    ...(s.modified_not_after !== undefined ? { modifiedNotAfter: BigInt(s.modified_not_after) } : {}),
+  };
+}
+
+/** The status of a phkv failure: spec/refkv.md §6.4's classes as the archive route maps them. */
+function phkvStatus(e: PhkvError): number {
+  return e.errorClass === "request" ? 416 : e.errorClass === "resolution" || e.errorClass === "io" ? 502 : e.errorClass === "archive" ? 422 : 500;
+}
+
 export function makeHandler(options: HandlerOptions) {
   const {
     prefix,
     fetchStore,
+    openPhkvFile = openHttpFile,
+    phkvModule = compilePhkv,
     fetchRange = (url, start, end, pins, options) => readHttpRange(url, start, end, pins, undefined, options),
     policy = {},
     openSource = options.openFile
@@ -135,6 +194,31 @@ export function makeHandler(options: HandlerOptions) {
     },
   } = options;
   const opened = new Map<string, Promise<Opened>>();
+  const phkvStores = new Map<string, Promise<PhkvStore>>();
+  let phkvWasm: Promise<WebAssembly.Module> | undefined;
+
+  /** The phkv store at `url`, opened once: its reads are range requests, its sources are read under `policy`. */
+  function openPhkv(url: string): Promise<PhkvStore> {
+    let p = phkvStores.get(url);
+    if (p === undefined) {
+      p = (async () => {
+        const file = await openPhkvFile(url);
+        const readUrl = urlSourceReader(url, policy, fetchRange);
+        const io: PhkvIo = {
+          size: file.size,
+          read: file.read,
+          readSource: (source, offset, length) =>
+            readUrl(archiveSource(source), BigInt(offset), BigInt(offset + length), (m) => {
+              throw new PhkvError("resolution", `source ${source.index}: ${m}`);
+            }),
+        };
+        return PhkvStore.open(await (phkvWasm ??= phkvModule()), io);
+      })();
+      phkvStores.set(url, p);
+      p.catch(() => phkvStores.delete(url));
+    }
+    return p;
+  }
 
   function open(kind: string, url: string): Promise<Opened> {
     const name = `${kind}/${url}`;
@@ -180,7 +264,7 @@ export function makeHandler(options: HandlerOptions) {
       return response(405, "method not allowed", { Allow: "GET, HEAD" });
     }
     const path = new URL(request.url).pathname.slice(new URL(prefix).pathname.length);
-    const m = path.match(/^(image|tiff|archive)\/([^/]+)\/(.*)$/);
+    const m = path.match(/^(image|tiff|archive|phkv)\/([^/]+)\/(.*)$/);
     if (m === null) return response(404, "not found");
     const [, kind, id] = m;
     let key: string;
@@ -193,6 +277,7 @@ export function makeHandler(options: HandlerOptions) {
     }
     const head = request.method === "HEAD";
     try {
+      if (kind === "phkv") return await servePhkv(await openPhkv(url), key, request.headers.get("Range"), head);
       const { archive, filename } = await open(kind, url);
       if (key === ARCHIVE_KEY) {
         return response(200, head ? null : archive.bytes, {
@@ -226,6 +311,7 @@ export function makeHandler(options: HandlerOptions) {
         const status = e.errorClass === "request" ? 416 : e.errorClass === "resolution" ? 502 : 500;
         return response(status, message);
       }
+      if (e instanceof PhkvError) return response(phkvStatus(e), message);
       // a store profile the core refused names itself (SAFE's does not, as its zip form does not);
       // a rejection before one was chosen is the store's
       if (e instanceof StoreError && e.format !== undefined) {

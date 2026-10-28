@@ -17,8 +17,16 @@ install:
 wasm:
     ../rust/refkv-ir/wasm/build.sh
 
-# Bundle the service worker and demo, with the Rust core's module beside them (build.mjs)
-build: wasm
+# Build the phkv reader for wasm32 (rust/refkv-phkv/target/web/refkv_phkv.wasm; optimized by wasm-opt when installed)
+phkv-wasm:
+    ../rust/refkv-phkv/wasm/build.sh
+
+# Write the standalone phkv store that the phkv tests read (rust/refkv-phkv/target/web/fixture.phkv)
+phkv-fixture:
+    cargo run --quiet --example wasm_fixture --manifest-path ../rust/refkv-phkv/Cargo.toml -- ../rust/refkv-phkv/target/web/fixture.phkv
+
+# Bundle the service worker and demo, with the Rust core's and the phkv reader's modules beside them (build.mjs)
+build: wasm phkv-wasm
     node build.mjs
 
 # Type-check the sources
@@ -30,7 +38,7 @@ wasm-test:
     ../rust/refkv-ir/wasm/build.sh test
 
 # Type-check, then run the Node tests
-test: wasm wasm-test typecheck
+test: wasm wasm-test phkv-wasm phkv-fixture typecheck
     node --test "test/**/*.test.ts"
 
 # Serve the demo locally (default port 8000)

@@ -335,6 +335,74 @@ function parseExtra(extra: Uint8Array, view: DataView, base: number) {
   return blocks;
 }
 
+/**
+ * Bytes `[start, end)` of the `url` source `s` of a store at `baseUrl`, under `policy` (spec §6.7
+ * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>) and `s`'s pins (spec
+ * §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#51-pins>): what an archive and a
+ * phkv store read a reference's bytes with. `fail` throws the resolution error of a message.
+ */
+export async function readUrlSource(
+  s: Source,
+  baseUrl: string,
+  policy: typeof DEFAULT_POLICY,
+  fetchRange: RangeFetcher,
+  netFetch: CheckedFetch | undefined,
+  start: bigint,
+  end: bigint,
+  fail: (message: string) => never,
+): Promise<Uint8Array> {
+  let url: string;
+  try {
+    url = resolveReference(baseUrl, s.url!);
+  } catch (e) {
+    return fail((e as Error).message);
+  }
+  checkPolicy(policy, baseUrl, url); // spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>
+  const scheme = getScheme(url);
+  if (scheme !== "http" && scheme !== "https") fail(`unsupported scheme in ${url}`);
+  try {
+    const { data, size, hidden } = await fetchRange(
+      url,
+      safe(start, "offset"),
+      safe(end, "end"),
+      s,
+      {
+        allow: (u) => checkPolicy(policy, baseUrl, u),
+        unverifiablePins: policy.unverifiablePins,
+        ...(netFetch ? { fetch: netFetch } : {}),
+      },
+    );
+    const unseen = size === undefined && hidden === true && policy.unverifiablePins;
+    if (s.size !== undefined && !unseen && BigInt(size ?? -1) !== s.size) {
+      fail(
+        size === undefined
+          ? `${url}: the archive pins the size ${s.size}, which the response does not give`
+          : `${url}: the source is ${size} bytes, but the archive pins ${s.size}: the source ` +
+              "changed since the archive was written",
+      );
+    }
+    return data;
+  } catch (e) {
+    if (e instanceof HttpResolutionError) fail(e.message);
+    throw e;
+  }
+}
+
+/**
+ * A reader of the `url` sources of a store at `baseUrl`, under `policy`, with a fetch that checks
+ * the addresses it connects to (rule 3) where the platform allows: the policy is validated once.
+ */
+export function urlSourceReader(
+  baseUrl: string,
+  policy: Policy = {},
+  fetchRange: RangeFetcher = (url, start, end, pins, options) => readHttpRange(url, start, end, pins, undefined, options),
+): (s: Source, start: bigint, end: bigint, fail: (message: string) => never) => Promise<Uint8Array> {
+  validatePolicy(policy);
+  const rules = { ...DEFAULT_POLICY, ...policy };
+  const netFetch = rules.allowPrivateHosts ? undefined : checkedFetch((url, address) => checkAddress(rules, url, address), rules);
+  return (s, start, end, fail) => readUrlSource(s, baseUrl, rules, fetchRange, netFetch, start, end, fail);
+}
+
 export class Archive {
   bytes: Uint8Array;
   baseUrl: string;
@@ -615,41 +683,7 @@ export class Archive {
       if (end > BigInt(value.length)) fail("range past the end of the key's value");
       return value.subarray(Number(start), Number(end));
     }
-    let url: string;
-    try {
-      url = resolveReference(this.baseUrl, s.url!);
-    } catch (e) {
-      return fail((e as Error).message);
-    }
-    checkPolicy(this.policy, this.baseUrl, url); // spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>
-    const scheme = getScheme(url);
-    if (scheme !== "http" && scheme !== "https") fail(`unsupported scheme in ${url}`);
-    try {
-      const { data, size, hidden } = await this.fetchRange(
-        url,
-        safe(start, "offset"),
-        safe(end, "end"),
-        s,
-        {
-          allow: (u) => checkPolicy(this.policy, this.baseUrl, u),
-          unverifiablePins: this.policy.unverifiablePins,
-          ...(this.netFetch ? { fetch: this.netFetch } : {}),
-        },
-      );
-      const unseen = size === undefined && hidden === true && this.policy.unverifiablePins;
-      if (s.size !== undefined && !unseen && BigInt(size ?? -1) !== s.size) {
-        fail(
-          size === undefined
-            ? `${url}: the archive pins the size ${s.size}, which the response does not give`
-            : `${url}: the source is ${size} bytes, but the archive pins ${s.size}: the source ` +
-                "changed since the archive was written",
-        );
-      }
-      return data;
-    } catch (e) {
-      if (e instanceof HttpResolutionError) fail(e.message);
-      throw e;
-    }
+    return readUrlSource(s, this.baseUrl, this.policy, this.fetchRange, this.netFetch, start, end, fail);
   }
 
   /** Bytes `[start, end)` of a visible key's value, or undefined if absent. */

@@ -91,6 +91,19 @@ zarrifiers the core replaced are kept, frozen, in `conformance/zarrify/reference
 comparisons. The Python implementation (`python -m refkv.zarrify`)
 produces equivalent archives; `conformance/zarrify/compare.py` checks that.
 
+**phkv stores.** The service worker also serves a standalone phkv store
+([spec/bindings/phkv.md](../spec/bindings/phkv.md)) at an http(s) URL as plain HTTP, from
+`<scope>vz/phkv/<id>/<key>`, reading only what a key needs: the store's tail and perfect hash at
+open, then a block of slots and a record per key, and the bytes a reference names. The reader is
+`rust/refkv-phkv` built for wasm32 (`just js::phkv-wasm`, which `just js::build` copies to
+`dist/refkv_phkv.wasm` beside the worker; Node reads it from cargo's target directory, or
+`$REFKV_PHKV_WASM`). The module does no I/O: `src/phkv.ts` calls it, and when it has read what was not
+there, fetches the ranges it asks for, all at once, and calls it again. A reference's `url` sources are
+read under the reader policy and their pins, as an archive's are. `Range: bytes=a-b` reads just that
+window; a store gives a value's size only with the whole value, so such a response's `Content-Range` has
+no total, and a suffix range or `HEAD` reads the whole value. Only standalone stores are tested here; a
+hybrid store is also a valid vzip archive, which the `archive` route serves.
+
 A file or a store at an http(s) URL is read under the reader policy (spec/refkv.md
 [§6.7](../spec/refkv.md#67-reader-policy)), a store's listing, object reads and redirects included: loopback,
 private, link-local and other special hosts are refused unless the caller

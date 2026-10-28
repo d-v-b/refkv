@@ -25,6 +25,11 @@ if (!fs.existsSync(wasm)) {
   console.error(`${wasm} is missing: build it with \`just js::wasm\``);
   process.exit(1);
 }
+const phkvWasm = process.env.REFKV_PHKV_WASM || path.join(here, "../rust/refkv-phkv/target/web/refkv_phkv.wasm");
+if (!fs.existsSync(phkvWasm)) {
+  console.error(`${phkvWasm} is missing: build it with \`just js::phkv-wasm\``);
+  process.exit(1);
+}
 const neuroglancer = process.env.NEUROGLANCER ?? path.join(here, "../../neuroglancer");
 const decoders = [
   path.join(neuroglancer, "src/sliceview/jpeg2000/jpeg2000_decoder.wasm"),
@@ -90,6 +95,7 @@ for (const [name, text] of Object.entries(blocks)) {
 fs.writeFileSync(path.join(dist, "index.html"), page);
 fs.copyFileSync(path.join(here, "../demo/map/map.html"), path.join(dist, "map.html"));
 fs.copyFileSync(wasm, path.join(dist, "refkv_ir.wasm"));
+fs.copyFileSync(phkvWasm, path.join(dist, "refkv_phkv.wasm"));
 for (const decoder of decoders) {
   if (fs.existsSync(decoder)) {
     fs.copyFileSync(decoder, path.join(dist, path.basename(decoder)));

@@ -12,6 +12,10 @@
       "node": "./src/zarrify/ir/wasm_node.ts",
       "default": "./src/zarrify/ir/wasm_browser.ts"
     },
+    "#phkvwasm": {
+      "node": "./src/phkv_wasm_node.ts",
+      "default": "./src/phkv_wasm_browser.ts"
+    },
     "#profiles": {
       "node": "./src/zarrify/profiles_node.ts",
       "default": "./src/zarrify/profiles_bundled.ts"
