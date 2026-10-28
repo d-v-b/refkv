@@ -126,10 +126,11 @@ def test_attributes_and_links_are_hdmf_zarr_members():
     # the second hard link to /acquisition/data: its canonical path is /acquisition/alias
     assert root["acquisition"].attrs["_LINKS"] == [{"name": "data", "source": ".", "path": "/acquisition/alias"}]
     a = opened(FIXTURES / "hdf5" / "hdf5_attributes.h5")[0]["attrs"].attrs
-    names = ("int", "uint64_big", "float", "nan", "array", "text", "texts", "fixed", "latin1", "bool", "empty",
-             "compound")
+    names = ("int", "uint64_big", "float", "nan", "floats", "half_nan", "array", "text", "texts", "fixed", "latin1",
+             "bool", "empty", "compound")
     assert {k: a[k] for k in names} == {
-        "int": -3, "uint64_big": str(2**63 + 5), "float": 0.1, "nan": "NaN", "array": [[0, 1, 2], [3, 4, 5]],
+        "int": -3, "uint64_big": str(2**63 + 5), "float": 0.1, "nan": "NaN",
+        "floats": ["0x7fc00001", "-Infinity", "0x80000000", 1.0], "half_nan": "0xfe00", "array": [[0, 1, 2], [3, 4, 5]],
         "text": "vlen text", "texts": ["a", "é", ""], "fixed": "fixed", "latin1": {"latin1": "café"}, "bool": True,
         "empty": None, "compound": {"i": 1, "f": 2.5}}
     assert own(opened(FIXTURES / "hdf5" / "hdf5_attributes.h5")[0]["attrs"])["unpresented_attributes"] == {

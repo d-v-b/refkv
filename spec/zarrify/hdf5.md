@@ -120,9 +120,10 @@ is not presented, with the reason [§7.4](#74-what-is-not-presented) gives.
 
 - **Shape:** the dataspace's sizes (`[]` for a scalar), with a trailing axis of `n` for a
   fixed-length string of `n` bytes. A null dataspace is not presented (`null_dataspace`).
-- **Fill value:** the fill value message's value as the data type's JSON fill value, else the
+- **Fill value:** the fill value message's value as the data type's JSON fill value (a
+  float's as [§6](#6-attributes)'s float value, which is Zarr's encoding), else the
   data type's zero (`0`, `0.0`, `false`, `""`, a struct's object of its fields' zeros). This
-  departs from conventions §3's fill value 0: an unallocated chunk of an HDF5 dataset reads as
+  departs from [conventions §3](../conventions.md#3-arrays)'s fill value 0: an unallocated chunk of an HDF5 dataset reads as
   its fill value. A fill value the data type has no JSON form of is not presented
   (`fill_value`).
 - **Dimension names:** none.
@@ -241,13 +242,36 @@ order of the attributes' names, its value as JSON
 | datatype | JSON |
 |---|---|
 | an integer, a bitfield | a number (exact; past 2^53 − 1 in magnitude, the string of its digits) |
-| an IEEE float | its binary64 value; NaN and the infinities as `"NaN"`, `"Infinity"`, `"-Infinity"` |
+| an IEEE float | a **float value**: the Zarr v3 fill value of the value in the float data type of its size (below) |
 | h5py's `bool` | `true` or `false` |
 | another enumeration | its integer |
 | a fixed-length string | its text to its first NUL (and, space-padded, without trailing spaces) |
 | a variable-length string | its heap object's text; `""` for an empty one |
 | an object reference | [§5](#5-object-references) |
 | a compound | an object of its members' values, by name |
+
+A **float value** is the encoding Zarr v3 gives a fill value of the data type `float16`,
+`float32` or `float64` of the float's size
+([Zarr v3 data types, permitted fill values](https://zarr-specs.readthedocs.io/en/latest/v3/data-types/index.html#fill-value-list)),
+written so:
+
+- a finite value but −0 is a number, its value in binary64 (exact);
+- +∞ and −∞ are `"Infinity"` and `"-Infinity"`;
+- the NaN Zarr names `"NaN"` (sign 0, the mantissa's high bit alone set: `0x7e00`,
+  `0x7fc00000`, `0x7ff8000000000000`) is `"NaN"`;
+- −0 and every other NaN are `"0x"` and the value's bits as an unsigned integer, 2 × size
+  lowercase hexadecimal digits, most significant first (`"0x7fc00001"`, `"0x8000000000000000"`).
+
+This departs from [conventions §6](../conventions.md#6-source-metadata-as-json)'s `Float`,
+which keeps no NaN's bits: these are the source's own attributes, and the encoding is the one
+Zarr readers already decode for a fill value. **A reader decodes it so:** the value of an
+attribute whose described datatype ([§7.2](#72-datasets)) is of class `float`, and of each
+`float` member of a compound attribute, is a value of that data type, decoded as a Zarr v3
+fill value of it: `"NaN"` there is a NaN, never text. A string attribute is told apart by its
+described datatype (`string`, `vlen_string`), and reads as its text whatever it holds. A reader
+that hands such attributes to code expecting numbers (hdmf-zarr's, for pynwb) decodes them
+first; one that does not gives the strings, which pynwb refuses where its schema asks for a
+number.
 
 A scalar dataspace gives the value, a simple one nested arrays by its sizes, and a null
 dataspace `null`. Any other datatype, an attribute with a shared datatype or dataspace

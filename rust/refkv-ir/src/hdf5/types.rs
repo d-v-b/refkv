@@ -391,11 +391,21 @@ fn half(h: u16) -> f64 {
     if s == 1 { -v } else { v }
 }
 
-/// A binary64 value as JSON (conventions §6
-/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>):
-/// NaN and the infinities as strings.
-pub fn float_json(x: f64) -> J {
-    if x.is_nan() {
+/// A float of `b` (2, 4 or 8 bytes) as JSON: the Zarr v3 fill value encoding of the value
+/// in its own width (spec/zarrify/hdf5.md §6
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes>): a number,
+/// "Infinity" or "-Infinity", "NaN" for the canonical NaN, and for −0 or any other NaN the
+/// hex string of its bits, "0x" and 2 × width lowercase digits, most significant first.
+pub fn float_json(b: &[u8], big: bool) -> J {
+    let (bits, x) = (int_of(b, big, false) as u64, float_of(b, big));
+    let canonical = match b.len() {
+        2 => 0x7e00,
+        4 => 0x7fc0_0000,
+        _ => 0x7ff8_0000_0000_0000,
+    };
+    if (x == 0.0 && x.is_sign_negative()) || (x.is_nan() && bits != canonical) {
+        json!(format!("0x{bits:0w$x}", w = 2 * b.len()))
+    } else if x.is_nan() {
         json!("NaN")
     } else if x.is_infinite() {
         json!(if x > 0.0 { "Infinity" } else { "-Infinity" })
@@ -432,7 +442,7 @@ pub fn value_json(dt: &Dt, b: &[u8], look: &dyn Lookup) -> Option<J> {
     match &dt.kind {
         Kind::Int { big, signed, .. } if number(dt).is_some() => Some(int_json(int_of(b, *big, *signed))),
         Kind::Bitfield { big, .. } if number(dt).is_some() => Some(int_json(int_of(b, *big, false))),
-        Kind::Float { big, ieee: Some(_) } => Some(float_json(float_of(b, *big))),
+        Kind::Float { big, ieee: Some(_) } => Some(float_json(b, *big)),
         Kind::Enum { base, .. } => value_json(base, b, look),
         Kind::Str { pad, .. } => Some(fixed_text(b, *pad)),
         Kind::Vlen { string: true, base, .. } if base.size == 1 => {
@@ -640,7 +650,8 @@ mod tests {
         assert_eq!(present(&parse(&o).unwrap()), Err("datatype"));
     }
 
-    /// Values: integers of each width and order, a binary16, NaN, and nested arrays by shape.
+    /// Values: integers of each width and order, a binary16, floats as Zarr fill values, and
+    /// nested arrays by shape.
     #[test]
     fn values_decode() {
         assert_eq!(int_of(&[0xff, 0xfe], false, true), -257);
@@ -648,7 +659,13 @@ mod tests {
         assert_eq!(int_of(&[0xff; 8], false, true), -1);
         assert_eq!(half(0x3c00), 1.0);
         assert_eq!(half(0xc000), -2.0);
-        assert_eq!(float_json(f64::NAN), json!("NaN"));
+        assert_eq!(float_json(&f64::NAN.to_le_bytes(), false), json!("NaN"));
+        assert_eq!(float_json(&[0x7f, 0xc0, 0, 1], true), json!("0x7fc00001"));
+        assert_eq!(float_json(&[0, 0x7e], false), json!("NaN"));
+        assert_eq!(float_json(&[0, 0xfe], false), json!("0xfe00"));
+        assert_eq!(float_json(&(-0.0f64).to_le_bytes(), false), json!("0x8000000000000000"));
+        assert_eq!(float_json(&f32::NEG_INFINITY.to_be_bytes(), true), json!("-Infinity"));
+        assert_eq!(float_json(&0.5f32.to_le_bytes(), false), json!(0.5));
         let i2 = parse(&int(2, true)).unwrap();
         let data: Vec<u8> = (0..6i16).flat_map(|v| v.to_le_bytes()).collect();
         assert_eq!(values_json(&i2, &[2, 3], &data, &None_), Some(json!([[0, 1, 2], [3, 4, 5]])));

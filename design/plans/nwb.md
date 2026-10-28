@@ -18,7 +18,7 @@ neither a separate profile nor a layout in version 0.
 
 **Status.** Implemented: [spec/zarrify/hdf5.md](../../spec/zarrify/hdf5.md)
 states what was decided. The implementation departs from this plan in
-three places, each a decision of
+four places, the first three decisions of
 [§11](#11-open-questions-and-their-decisions) revised by what the fixtures
 and DANDI files showed:
 
@@ -32,6 +32,15 @@ and DANDI files showed:
 - **A file named as `hdf5` that is an Imaris file is still the IMS
   profile's**, as a file named as `tiff` that is an NDPI file is NDPI's
   ([§3](#3-the-profile-split)).
+- **A float attribute is a Zarr v3 fill value** of its float data type
+  ([§2.7](#27-attributes)): `"NaN"` and the infinities as strings, as
+  planned, and −0 or a NaN with other bits as its bits in hex
+  (`"0x7fc00001"`), where
+  [conventions §6](../../spec/conventions.md#6-source-metadata-as-json) keeps no NaN's bits. The
+  convention requires readers to decode a float attribute so, by its
+  recorded datatype; hdmf-zarr does not yet, which keeps the Allen Brain
+  Observatory files of dandiset 000728 (a `rate` of NaN) from opening in
+  `NWBZarrIO`.
 
 The interop question of item 2 was settled first, as step 1 planned:
 `NWBZarrIO` reads a hierarchy whose nodes carry `zarr_conventions` and

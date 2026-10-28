@@ -8,7 +8,7 @@ names the hierarchy cannot take, and attributes of every type; with pynwb, NWB f
 extracellular and optical physiology; and the inputs the profile rejects (`hdf5_reject_*`),
 patched byte by byte from accepted ones.
 
-python/tests/ir/test_hdf5.py and js/test/hdf5/verify.py check the zarrified files against h5py,
+python/tests/ir/test_hdf5.py checks the zarrified files against h5py,
 and the NWB files against pynwb's NWBHDF5IO through hdmf-zarr's NWBZarrIO.
 
 Usage: uv run python fixtures/generators/hdf5/write_fixtures.py
@@ -222,6 +222,9 @@ def names_and_attributes():
         a["uint64_big"] = np.uint64(2**63 + 5)
         a["float"] = 0.1
         a["nan"] = np.nan
+        # floats a JSON number or "NaN" cannot keep: Zarr's hex form, by their bits
+        a["floats"] = np.array([0x7FC00001, 0xFF800000, 0x80000000, 0x3F800000], "<u4").view("<f4")
+        a["half_nan"] = np.array(0xFE00, ">u2").view(">f2")
         a["array"] = np.arange(6, dtype="<i2").reshape(2, 3)
         a["text"] = "vlen text"
         a["texts"] = np.array(["a", "é", ""], dtype=h5py.string_dtype())
