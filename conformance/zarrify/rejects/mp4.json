@@ -22,9 +22,9 @@
       "message": "fragmented MP4 (the moof box at "
     },
     {
-      "test": "mp4_reject_hevc_only",
-      "input": "mp4_reject_hevc_only.mp4",
-      "message": "no track can be zarrified: track 1 (hev1): hev1 video is not supported: only H.264 (avc1) is"
+      "test": "mp4_reject_hevc_422_only",
+      "input": "mp4_reject_hevc_422_only.mp4",
+      "message": "no track can be zarrified: track 1 (hvc1): HEVC with chroma format 2 and bit depth 8 is not supported: only 4:2:0 of 8 or 10 bits is"
     },
     {
       "test": "mp4_reject_moov_twice",

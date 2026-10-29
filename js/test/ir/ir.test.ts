@@ -13,6 +13,7 @@ import { RefkvError } from "../../src/archive.ts";
 import { HttpResolutionError } from "../../src/http.ts";
 import { blockReader, ImageError } from "../../src/zarrify/common.ts";
 import { irFormat, zarrifyImage, zarrifySource } from "../../src/zarrify/index.ts";
+import { REGISTRY } from "../../src/zarrify/profiles.ts";
 import { zarrifyIr } from "../../src/zarrify/ir/run.ts";
 import { bytesSource, OPEN, openHttpSource } from "../../src/zarrify/ir/source.ts";
 import { IMS_REVISION, REVISION as FROZEN_REVISION } from "../../../conformance/zarrify/reference/ts/revision.ts";
@@ -105,7 +106,12 @@ test("the Rust core gives the frozen zarrifiers' hierarchy, and rejects the same
       referenceImage(url, blockReader(read, bytes.length), bytes.length),
       zarrifyImage(url, read, bytes.length),
     ]);
-    if (got.status === "fulfilled") assert.equal(got.value.format, await irFormat(bytes.subarray(0, 552)), path);
+    if (got.status === "fulfilled") {
+      // the sniffed profile, or the one its reading chose (an Imaris file is sniffed as HDF5)
+      const sniffed = await irFormat(bytes.subarray(0, 552));
+      const chosenBy = REGISTRY.find((e) => e.name === got.value.format)?.chosen_by;
+      assert.ok(got.value.format === sniffed || chosenBy === sniffed, `${path}: ${got.value.format}, sniffed ${sniffed}`);
+    }
     if (ref.status === "rejected" || got.status === "rejected") {
       if (got.status === "rejected" && !(got.reason instanceof ImageError)) problems.push(`${path}: ${got.reason}`);
       if (ref.status !== got.status) problems.push(`${path}: the reference ${ref.status === "rejected" ? "rejects" : "accepts"} it, the core does not`);

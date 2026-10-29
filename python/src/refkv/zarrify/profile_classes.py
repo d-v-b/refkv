@@ -77,8 +77,8 @@ class Mp3Source(Source):
 
 @dataclass(frozen=True)
 class Mp4Source(Source):
-    """MP4 and QuickTime (H.264 video, AAC and MP3 audio): a file the `mp4` profile reads, its
-    first bytes untested (`Source` lists its read options)."""
+    """MP4 and QuickTime (H.264 and HEVC video, AAC and MP3 audio): a file the `mp4` profile
+    reads, its first bytes untested (`Source` lists its read options)."""
 
     profile: ClassVar[str] = "mp4"
 

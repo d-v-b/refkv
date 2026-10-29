@@ -241,7 +241,7 @@
             },
             "codec": {
               "type": "string",
-              "description": "Its sample entry's type: avc1, mp4a or .mp3"
+              "description": "Its sample entry's type: avc1, hvc1, hev1, mp4a or .mp3"
             },
             "timescale": {
               "type": "integer",
@@ -313,7 +313,10 @@
               "description": "The frames of a chunk of the track's arrays"
             },
             "format": {
-              "const": "h264"
+              "enum": [
+                "h264",
+                "hevc"
+              ]
             },
             "width": {
               "type": "integer",
@@ -323,13 +326,20 @@
               "type": "integer",
               "minimum": 1
             },
+            "bit_depth": {
+              "enum": [
+                8,
+                10
+              ],
+              "description": "The bits of a sample: uint8 planes for 8, uint16 for 10"
+            },
             "profile": {
               "type": "integer",
-              "description": "The SPS's profile_idc"
+              "description": "The SPS's profile_idc (H.264) or general_profile_idc (HEVC)"
             },
             "level": {
               "type": "integer",
-              "description": "The SPS's level_idc"
+              "description": "The SPS's level_idc (H.264) or general_level_idc (HEVC)"
             },
             "sync_samples": {
               "type": "integer",
@@ -349,6 +359,7 @@
             "format",
             "width",
             "height",
+            "bit_depth",
             "profile",
             "level",
             "sync_samples"
@@ -370,7 +381,7 @@
             },
             "codec": {
               "type": "string",
-              "description": "Its sample entry's type: avc1, mp4a or .mp3"
+              "description": "Its sample entry's type: avc1, hvc1, hev1, mp4a or .mp3"
             },
             "timescale": {
               "type": "integer",

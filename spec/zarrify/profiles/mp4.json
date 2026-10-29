@@ -11,7 +11,7 @@
     ".mov"
   ],
   "reference": null,
-  "source": "MP4 and QuickTime (H.264 video, AAC and MP3 audio)",
-  "inputs": "MP4 and QuickTime files (`.mp4`, `.m4a`, `.mov`) with H.264 video and AAC or MP3 audio tracks; a group per track, not an image",
+  "source": "MP4 and QuickTime (H.264 and HEVC video, AAC and MP3 audio)",
+  "inputs": "MP4 and QuickTime files (`.mp4`, `.m4a`, `.mov`) with H.264 or HEVC video and AAC or MP3 audio tracks; a group per track, not an image",
   "for": "MP4 and QuickTime video and audio, as arrays of planes and samples (`.mp4`, `.mov`)"
 }
