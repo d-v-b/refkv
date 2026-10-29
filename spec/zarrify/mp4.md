@@ -15,6 +15,11 @@ Added 2026-10-23, after
 [revision 29](../history/virtualize/REVISIONS.md#revision-29-no-recorded-revision-the-profile-registry)
 (a profile's changes are recorded here, dated, from then on).
 
+**2026-10-29.** A version 0 `ctts` box's offsets are signed, as version 1's are, where they were
+unsigned: Apple's encoder writes negative ones, which made each picture they belong to seem
+presented after every later sync sample, and the track's video was not zarrified
+([§2](#2-boxes), [§3](#3-tracks-and-samples)).
+
 **2026-10-28.** HEVC video tracks (`hvc1` and `hev1` sample entries) are zarrified as H.264
 tracks are: 4:2:0 of 8 bits (Main) or 10 (Main 10, an iPhone's HDR video), the planes `uint8`
 or `uint16`, the `refkv.stream` format `"hevc"` with the `hvcC` box as its setup
@@ -132,7 +137,7 @@ count, from the box's fields.
 | `hdlr` | `{version:u1,flags:u1[3],pre_defined:>u4,handler_type:ascii[4],reserved:>u4[3]}`, then the name, `cstr` | |
 | `elst` | `{version:u1,flags:u1[3],entry_count:>u4}` | version 0: `{segment_duration:>u4,media_time:>i4,media_rate:>i2,media_rate_fraction:>i2}[n]`; version 1: the duration and time `>u8`, `>i8` |
 | `stts` | the same | `{sample_count:>u4,sample_delta:>u4}[n]` |
-| `ctts` | the same | `{sample_count:>u4,sample_offset:>u4}[n]` (version 1: `>i4`) |
+| `ctts` | the same | `{sample_count:>u4,sample_offset:>i4}[n]` |
 | `stsc` | the same | `{first_chunk:>u4,samples_per_chunk:>u4,sample_description_index:>u4}[n]` |
 | `stsz` | `{version:u1,flags:u1[3],sample_size:>u4,sample_count:>u4}` | `>u4[n]` when `sample_size` is 0, `n` the sample count |
 | `stco`, `co64`, `stss` | `{version:u1,flags:u1[3],entry_count:>u4}` | `>u4[n]`, `>u8[n]`, `>u4[n]` |
@@ -167,8 +172,11 @@ are in chunks: chunk `c` (from 1) starts at entry `c − 1` of `stco` or
 **decode time** is the sum of the `sample_delta`s of the samples before it
 (`stts` gives each run of samples its delta), and its **presentation time**
 its decode time plus its `ctts` offset (0 without a `ctts` box), both in the
-media timescale. The **sync samples** are the samples `stss` names (its
-entries, less 1), or every sample when the track has no `stss` box.
+media timescale. The offset is signed in either version of the box, as
+QuickTime's are and as Apple's encoder writes them, negative ones in a
+version 0 box, where ISO/IEC 14496-12 §8.6.1.3 has version 0's unsigned.
+The **sync samples** are the samples `stss` names (its entries, less 1), or
+every sample when the track has no `stss` box.
 
 ## 4. The layout
 

@@ -446,7 +446,6 @@ impl Mp4 {
             (b"elst", 1) => ("{segment_duration:>u8,media_time:>i8,media_rate:>i2,media_rate_fraction:>i2}", 20),
             (b"elst", _) => ("{segment_duration:>u4,media_time:>i4,media_rate:>i2,media_rate_fraction:>i2}", 12),
             (b"stts", _) => ("{sample_count:>u4,sample_delta:>u4}", 8),
-            (b"ctts", 0) => ("{sample_count:>u4,sample_offset:>u4}", 8),
             (b"ctts", _) => ("{sample_count:>u4,sample_offset:>i4}", 8),
             (b"stsc", _) => ("{first_chunk:>u4,samples_per_chunk:>u4,sample_description_index:>u4}", 12),
             (b"co64", _) => (">u8", 8),
@@ -475,7 +474,9 @@ impl Mp4 {
                 }).collect();
             }
             b"stts" => tr.stts = (0..k).map(|i| (uint(e, i * 8, 4, false), uint(e, i * 8 + 4, 4, false))).collect(),
-            b"ctts" => tr.ctts = (0..k).map(|i| (uint(e, i * 8, 4, false), if version == 0 { uint(e, i * 8 + 4, 4, false) as i64 } else { signed(uint(e, i * 8 + 4, 4, false), 32) })).collect(),
+            // Signed in either version, as QuickTime's are and as ffmpeg reads them: Apple's encoder
+            // writes negative offsets in a version 0 box.
+            b"ctts" => tr.ctts = (0..k).map(|i| (uint(e, i * 8, 4, false), signed(uint(e, i * 8 + 4, 4, false), 32))).collect(),
             b"stsc" => tr.stsc = (0..k).map(|i| (uint(e, i * 12, 4, false), uint(e, i * 12 + 4, 4, false), uint(e, i * 12 + 8, 4, false))).collect(),
             b"stco" => tr.offsets = (0..k).map(|i| uint(e, i * 4, 4, false)).collect(),
             b"co64" => tr.offsets = (0..k).map(|i| uint(e, i * 8, 8, false)).collect(),
