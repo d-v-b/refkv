@@ -140,6 +140,10 @@ def main() -> None:
           ffmpeg("-f", "lavfi", "-i", "anoisesrc=d=2:c=pink:r=16000:a=0.3", "-c:a", "aac", "-b:a", "24k"))
     write("mp4_h264_mp3.mp4", ffmpeg(*video(), *audio(), *X264, "-g", "10", "-c:a", "libmp3lame", "-b:a", "32k"))
     write("mov_h264_aac.mov", ffmpeg(*video(), *audio(), *X264, "-g", "10", "-bf", "2", *AAC, fmt="mov"))
+    # Apple's encoder's composition offsets: a version 0 ctts box with negative ones (QuickTime's
+    # are signed), the first picture's 0
+    write("mov_h264_negative_ctts_aac.mov",
+          negative_ctts(ffmpeg(*video(), *audio(), *X264, "-g", "10", "-bf", "2", *AAC, fmt="mov")))
     # boxes: a 64-bit mdat size (the 8-byte free box ffmpeg writes before mdat, so that the
     # header can grow, and the mdat header, rewritten as one 16-byte header), an mdat that runs
     # to the end of the file (size 0), and a title in udta
@@ -198,6 +202,28 @@ def irregular_groups() -> bytes:
     chunks of whole groups have unequal lengths (a rectilinear grid)."""
     return ffmpeg(*video(seconds=6), *X264, "-bf", "2", "-x264-params",
                   "keyint=200:min-keyint=1:scenecut=0:forced-idr=1", "-force_key_frames", "0,0.7,0.9,2.3,4.0")
+
+
+def negative_ctts(data: bytes) -> bytes:
+    """`data` with its ctts box's offsets less the first, and the media_time of the edit of the
+    track that holds it less the first too, so that each picture is presented when it was: the
+    version 0 box then has negative offsets, as Apple's encoder writes it."""
+    out = bytearray(data)
+    o, h, _ = find(data, "/ctts")
+    assert data[o + h] == 0, "a version 0 ctts box"
+    (count,) = struct.unpack_from(">I", data, o + h + 4)
+    (first,) = struct.unpack_from(">I", data, o + h + 12)
+    for i in range(count):
+        at = o + h + 12 + 8 * i
+        (offset,) = struct.unpack_from(">I", data, at)
+        struct.pack_into(">i", out, at, offset - first)
+    t, _, n = next((t, th, tn) for name, t, th, tn in boxes(data) if name.endswith("/trak") and t < o < t + tn)
+    e, eh, _ = next((e, eh, en) for name, e, eh, en in boxes(data) if name.endswith("/elst") and t < e < t + n)
+    assert data[e + eh] == 0, "a version 0 elst box"
+    at = e + eh + 12
+    (media_time,) = struct.unpack_from(">i", data, at)
+    struct.pack_into(">i", out, at, media_time - first)
+    return bytes(out)
 
 
 def subprocess_title(*args: str) -> bytes:
