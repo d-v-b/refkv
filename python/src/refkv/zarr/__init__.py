@@ -18,11 +18,24 @@ imagecodecs-zarr's JPEG, JPEG 2000 and JPEG XR codecs, the `refkv.stream` codec'
 the `media` extra), and turns on
 zarr-python's `array.rectilinear_chunks`, which the zarr-extensions `rectilinear` chunk
 grid of some archives' arrays needs (an MP4 file's video planes, a clipped CZI level).
+
+A zarrified HDF5 file's float attribute is a float value, Zarr v3's fill value encoding,
+which a reader decodes by the datatype the node's source metadata records
+(spec/zarrify/hdf5.md §6
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes>): a NaN, an
+infinity or −0 is a string in the archive, such as `"NaN"`. The store decodes them, and
+serves each as the float zarr-python and hdmf-zarr write (the literal `NaN`), so that pynwb's
+`NWBZarrIO` reads a `rate` of NaN as a number; a string attribute `"NaN"` stays a string.
+Every other value is the archive's, as it is; `reader` gives the archive's own bytes.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
+import math
+import string
+import struct
 from collections.abc import AsyncIterator, Iterable
 from typing import TYPE_CHECKING, Unpack, override
 
@@ -30,6 +43,7 @@ from refkv._extras import missing
 
 if TYPE_CHECKING:
     from refkv import OpenOptions
+    from refkv._narrow import JSON
 
 try:
     import zarr
@@ -55,6 +69,75 @@ from refkv.reader import (  # noqa: E402
     Request,
     SuffixRequest,
 )
+
+_NONFINITE = {"NaN": math.nan, "Infinity": math.inf, "-Infinity": -math.inf}
+_FORMATS = {2: ">e", 4: ">f", 8: ">d"}  # a float of each size, from its bits
+
+
+def _float_value(value: str, size: JSON) -> JSON:
+    """A float value of `size` bytes that is a string, decoded: `"NaN"`, `"Infinity"`,
+    `"-Infinity"`, or `"0x"` and the float's bits in hex (−0, or a NaN with other bits). Any
+    other string is returned as it is. A NaN's bits do not reach zarr-python: the JSON it
+    parses has the one literal `NaN`."""
+    if value in _NONFINITE:
+        return _NONFINITE[value]
+    digits = value[2:]
+    if (value.startswith("0x") and isinstance(size, int) and size in _FORMATS and len(digits) == 2 * size
+            and all(c in string.hexdigits for c in digits)):
+        return struct.unpack(_FORMATS[size], bytes.fromhex(digits))[0]
+    return value
+
+
+def _floats(value: JSON, datatype: JSON) -> JSON:
+    """An HDF5 attribute's JSON value with each float of `datatype` (its described datatype)
+    that is a string decoded, in nested arrays and compounds' members."""
+    if not isinstance(datatype, dict):
+        return value
+    if isinstance(value, list):
+        return [_floats(v, datatype) for v in value]
+    if datatype.get("class") == "float" and isinstance(value, str):
+        return _float_value(value, datatype.get("size"))
+    if datatype.get("class") == "compound" and isinstance(value, dict):
+        listed = datatype.get("members")
+        members = {name: m.get("datatype") for m in listed if isinstance(m, dict)
+                   and isinstance(name := m.get("name"), str)} if isinstance(listed, list) else {}
+        return {k: _floats(v, members.get(k)) for k, v in value.items()}
+    return value
+
+
+def _hdf5_floats(document: bytes) -> bytes:
+    """A node's zarr.json with the HDF5 profile's float attributes that are strings in the
+    archive (spec/zarrify/hdf5.md §6
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes>) decoded,
+    written as Python's `json` writes a float: `NaN`, `Infinity`, `-Infinity` and `-0.0`,
+    which zarr-python reads as floats. The node's `refkv_zarrified.hdf5.attributes`, each
+    attribute's datatype, tells a float's `"NaN"` from a string's. Any other document is
+    returned as it is."""
+    if b"refkv_zarrified" not in document or not any(s in document for s in (b'"NaN"', b'Infinity"', b'"0x')):
+        return document
+    try:
+        meta = json.loads(document)
+        attributes = meta["attributes"]
+        datatypes = attributes["refkv_zarrified"]["hdf5"]["attributes"]
+    except (ValueError, KeyError, TypeError):
+        return document
+    if not isinstance(attributes, dict) or not isinstance(datatypes, dict):
+        return document
+    meta["attributes"] = {k: _floats(v, datatypes.get(k)) for k, v in attributes.items()}
+    return json.dumps(meta, ensure_ascii=False, separators=(",", ":")).encode()
+
+
+def _slice(data: bytes, byte_range: ByteRequest | None) -> bytes:
+    """The bytes of `data` that `byte_range` asks for."""
+    if byte_range is None:
+        return data
+    if isinstance(byte_range, RangeByteRequest):
+        return data[byte_range.start:byte_range.end]
+    if isinstance(byte_range, OffsetByteRequest):
+        return data[byte_range.offset:]
+    if isinstance(byte_range, SuffixByteRequest):
+        return data[len(data) - min(byte_range.suffix, len(data)):]
+    raise TypeError(f"unexpected byte request {byte_range!r}")
 
 
 def _request(byte_range: ByteRequest | None) -> Request | None:
@@ -110,7 +193,12 @@ class ZarrStore(Store):
     async def get(
         self, key: str, prototype: BufferPrototype, byte_range: ByteRequest | None = None
     ) -> Buffer | None:
-        data = await self.reader.get_async(key, _request(byte_range))
+        if key == "zarr.json" or key.endswith("/zarr.json"):
+            # rewritten whole, then cut: a range of the rewritten document
+            data = await self.reader.get_async(key)
+            data = None if data is None else _slice(_hdf5_floats(bytes(data)), byte_range)
+        else:
+            data = await self.reader.get_async(key, _request(byte_range))
         return None if data is None else prototype.buffer.from_bytes(data)
 
     async def get_partial_values(
