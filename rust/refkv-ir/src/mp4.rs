@@ -30,6 +30,9 @@ const OWN: [&str; 8] = ["header", "fields", "fields_v1", "entries", "name", "dat
 const AAC_RATES: [u32; 13] = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350];
 /// The H.264 profiles whose SPS carries the chroma format and bit depths (ITU-T H.264 §7.3.2.1.1).
 const HIGH_PROFILES: [u8; 13] = [100, 110, 122, 244, 44, 83, 86, 118, 128, 138, 139, 134, 135];
+/// The bit depths of the HEVC tracks the profile zarrifies: Main and Main 10 (and Main Still
+/// Picture), as a camera records them.
+const HEVC_DEPTHS: [u64; 2] = [8, 10];
 
 /// Whether a file's first bytes are an MP4 or QuickTime file's (spec/zarrify.md §1.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>): a box of at least 8
@@ -692,25 +695,39 @@ impl Mp4 {
             }
             let e = entry.unwrap();
             if kind == "video" {
-                if &e.typ != b"avc1" {
-                    return Err(format!("{} video is not supported: only H.264 (avc1) is", codec.trim()));
-                }
-                let avcc = e.child(b"avcC").ok_or("an avc1 sample entry without an avcC box")?;
-                let sps = h264_sps(avcc).ok_or("an avcC box without a parameter set the profile reads")?;
-                if sps.chroma != 1 || sps.luma != 8 || sps.chroma_depth != 8 {
-                    return Err(format!("H.264 with chroma format {} and bit depth {} is not supported: only 8-bit 4:2:0 is", sps.chroma, sps.luma));
-                }
+                let (format, setup, sps) = match &e.typ {
+                    b"avc1" => {
+                        let avcc = e.child(b"avcC").ok_or("an avc1 sample entry without an avcC box")?;
+                        let sps = h264_sps(avcc).ok_or("an avcC box without a parameter set the profile reads")?;
+                        if sps.chroma != 1 || sps.luma != 8 || sps.chroma_depth != 8 {
+                            return Err(format!("H.264 with chroma format {} and bit depth {} is not supported: only 8-bit 4:2:0 is", sps.chroma, sps.luma));
+                        }
+                        ("h264", avcc, sps)
+                    }
+                    b"hvc1" | b"hev1" => {
+                        let hvcc = e.child(b"hvcC").ok_or_else(|| format!("an {} sample entry without an hvcC box", codec.trim()))?;
+                        let sps = hevc_sps(hvcc).ok_or("an hvcC box without a VPS, SPS and PPS the profile reads")?;
+                        if sps.chroma != 1 || sps.luma != sps.chroma_depth || !HEVC_DEPTHS.contains(&sps.luma) {
+                            let depth = if sps.luma == sps.chroma_depth { format!("bit depth {}", sps.luma) } else { format!("bit depths {} and {}", sps.luma, sps.chroma_depth) };
+                            return Err(format!("HEVC with chroma format {} and {depth} is not supported: only 4:2:0 of 8 or 10 bits is", sps.chroma));
+                        }
+                        ("hevc", hvcc, sps)
+                    }
+                    _ => return Err(format!("{} video is not supported: only H.264 (avc1) and HEVC (hvc1, hev1) are", codec.trim())),
+                };
                 if e.width == 0 || e.height == 0 {
                     return Err("a sample entry of width or height 0".into());
                 }
                 let pts = presentation(t);
                 let sync = t.sync.clone().map(|s| s.iter().map(|&x| x.saturating_sub(1)).collect::<Vec<u64>>()).unwrap_or_else(|| (0..offsets.len() as u64).collect());
                 gops(&pts, &sync)?;
-                f["format"] = json!("h264");
-                f["geometry"] = json!({"width": e.width, "height": e.height, "planes": 3, "data_type": "uint8"});
-                f["setup"] = json!(crate::mirror::base64(avcc));
+                f["format"] = json!(format);
+                let data_type = if sps.luma > 8 { "uint16" } else { "uint8" };
+                f["geometry"] = json!({"width": e.width, "height": e.height, "planes": 3, "data_type": data_type});
+                f["setup"] = json!(crate::mirror::base64(setup));
                 f["profile"] = json!(sps.profile);
                 f["level"] = json!(sps.level);
+                f["bit_depth"] = json!(sps.luma);
                 f["pts"] = json!(pts);
                 f["sync"] = json!(sync);
             } else {
@@ -887,17 +904,7 @@ pub fn h264_sps(avcc: &[u8]) -> Option<Sps> {
     if nal.len() < 4 || nal[0] & 0x1F != 7 {
         return None;
     }
-    // the RBSP: the NAL unit without its header and its emulation prevention bytes
-    let mut rbsp = Vec::with_capacity(nal.len());
-    let mut zeros = 0;
-    for &c in &nal[1..] {
-        if zeros >= 2 && c == 3 {
-            zeros = 0;
-            continue;
-        }
-        zeros = if c == 0 { zeros + 1 } else { 0 };
-        rbsp.push(c);
-    }
+    let rbsp = rbsp(&nal[1..]);
     // dropping emulation prevention bytes can leave too few bytes for the profile and level
     let (&profile, &level) = (rbsp.first()?, rbsp.get(2)?);
     let mut r = Bits { b: rbsp.get(3..)?, at: 0 };
@@ -911,6 +918,99 @@ pub fn h264_sps(avcc: &[u8]) -> Option<Sps> {
         luma = r.ue()? + 8;
         chroma_depth = r.ue()? + 8;
     }
+    Some(Sps { profile, level, chroma, luma, chroma_depth })
+}
+
+/// The RBSP of a NAL unit's payload (after its header): without its emulation prevention bytes
+/// (ITU-T H.264 §7.4.1, ITU-T H.265 §7.4.2).
+fn rbsp(payload: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(payload.len());
+    let mut zeros = 0;
+    for &c in payload {
+        if zeros >= 2 && c == 3 {
+            zeros = 0;
+            continue;
+        }
+        zeros = if c == 0 { zeros + 1 } else { 0 };
+        out.push(c);
+    }
+    out
+}
+
+/// The SPS of an hvcC box (an HEVCDecoderConfigurationRecord, ISO/IEC 14496-15 §8.3.3.1): its
+/// general profile and level, chroma format and bit depths (ITU-T H.265 §7.3.2.2), from the
+/// first SPS NAL unit of the box's arrays. None unless the box's arrays hold a VPS, an SPS and
+/// a PPS (a chunk's decoder starts with them), its NAL unit length size is 1, 2 or 4 bytes, and
+/// the SPS reads to its bit depths.
+pub fn hevc_sps(hvcc: &[u8]) -> Option<Sps> {
+    const VPS: u8 = 32;
+    const SPS: u8 = 33;
+    const PPS: u8 = 34;
+    if hvcc.len() < 23 || hvcc[21] & 3 == 2 {
+        return None;
+    }
+    let mut p = 23;
+    let mut seen = [false; 3];
+    let mut sps = None;
+    for _ in 0..hvcc[22] {
+        let count = uint(hvcc.get(p..p + 3)?, 1, 2, false);
+        p += 3;
+        for _ in 0..count {
+            let len = uint(hvcc.get(p..p + 2)?, 0, 2, false) as usize;
+            let nal = hvcc.get(p + 2..p + 2 + len)?;
+            p += 2 + len;
+            let typ = *nal.first()? >> 1 & 0x3F;
+            if (VPS..=PPS).contains(&typ) {
+                seen[(typ - VPS) as usize] = true;
+            }
+            if typ == SPS && sps.is_none() {
+                sps = Some(nal.get(2..)?);
+            }
+        }
+    }
+    if !seen.iter().all(|&s| s) {
+        return None;
+    }
+    let rbsp = rbsp(sps?);
+    let mut r = Bits { b: &rbsp, at: 0 };
+    r.bits(4)?; // sps_video_parameter_set_id
+    let sub_layers = r.bits(3)? as usize; // sps_max_sub_layers_minus1
+    r.bit()?; // sps_temporal_id_nesting_flag
+    // profile_tier_level(1, sub_layers) (ITU-T H.265 §7.3.3): the general profile space, tier and profile,
+    // its 32 compatibility flags and 48 bits of constraints, then the level
+    r.bits(3)?;
+    let profile = r.bits(5)? as u8;
+    r.skip(32 + 48)?;
+    let level = r.bits(8)? as u8;
+    let mut present = Vec::with_capacity(sub_layers);
+    for _ in 0..sub_layers {
+        present.push((r.bit()? == 1, r.bit()? == 1));
+    }
+    if sub_layers > 0 {
+        r.skip(2 * (8 - sub_layers))?;
+    }
+    for (profile_present, level_present) in present {
+        if profile_present {
+            r.skip(88)?;
+        }
+        if level_present {
+            r.bits(8)?;
+        }
+    }
+    r.ue()?; // sps_seq_parameter_set_id
+    let chroma = r.ue()?;
+    if chroma == 3 {
+        r.bit()?; // separate_colour_plane_flag
+    }
+    r.ue()?; // pic_width_in_luma_samples
+    r.ue()?; // pic_height_in_luma_samples
+    if r.bit()? == 1 {
+        for _ in 0..4 {
+            r.ue()?; // the conformance window's offsets
+        }
+    }
+    let luma = r.ue()? + 8;
+    let chroma_depth = r.ue()? + 8;
     Some(Sps { profile, level, chroma, luma, chroma_depth })
 }
 
@@ -928,6 +1028,9 @@ impl Bits<'_> {
     }
     fn bits(&mut self, n: u32) -> Option<u64> {
         (0..n).try_fold(0u64, |a, _| Some(a << 1 | self.bit()?))
+    }
+    fn skip(&mut self, n: usize) -> Option<()> {
+        (self.at + n <= 8 * self.b.len()).then(|| self.at += n)
     }
     /// An unsigned exp-Golomb code.
     fn ue(&mut self) -> Option<u64> {
@@ -1117,6 +1220,68 @@ mod tests {
                    0x00, 0x01, 0x00, 0x00, 0x03, 0x00, 0x14, 0x0F, 0x12, 0x25, 0x96, 0x01, 0x00, 0x06, 0x68, 0xEB, 0xE3, 0xCB, 0x22, 0xC0];
         assert_eq!(h264_sps(&ten), Some(Sps { profile: 110, level: 10, chroma: 1, luma: 10, chroma_depth: 10 }));
         assert_eq!(aac_config(&[0x14, 0x08]), Some(Asc { aot: 2, rate: 16000, channels: 1, short: false }));
+    }
+
+    /// x265's hvcC boxes: Main, 8-bit, with three temporal sub-layers (so that the SPS's
+    /// profile_tier_level has sub-layer flags); Main 10 (the fixture mp4_hevc_main10.mp4); and
+    /// 4:2:2 8-bit, a range extensions profile (mp4_reject_hevc_422_only.mp4).
+    const HVCC_SUB_LAYERS: [u8; 120] = [
+        0x01, 0x01, 0x60, 0x00, 0x00, 0x00, 0x90, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1E, 0xF0, 0x00, 0xFC, 0xFD, 0xF8, 0xF8, 0x00, 0x00, 0x1B,
+        0x03, 0xA0, 0x00, 0x01, 0x00, 0x1E, 0x40, 0x01, 0x0C, 0x04, 0xFF, 0xFF, 0x01, 0x60, 0x00, 0x00, 0x03, 0x00, 0x90, 0x00, 0x00, 0x03,
+        0x00, 0x00, 0x03, 0x00, 0x1E, 0x00, 0x00, 0x95, 0x94, 0xAC, 0xA5, 0x65, 0x02, 0x40, 0xA1, 0x00, 0x01, 0x00, 0x2E, 0x42, 0x01, 0x04,
+        0x01, 0x60, 0x00, 0x00, 0x03, 0x00, 0x90, 0x00, 0x00, 0x03, 0x00, 0x00, 0x03, 0x00, 0x1E, 0x00, 0x00, 0xA0, 0x20, 0x83, 0x16, 0x59,
+        0x59, 0x4A, 0xCA, 0x56, 0x5B, 0x93, 0x2B, 0xC0, 0x5A, 0x02, 0x00, 0x00, 0x03, 0x00, 0x02, 0x00, 0x00, 0x03, 0x00, 0x14, 0x10, 0xA2,
+        0x00, 0x01, 0x00, 0x06, 0x44, 0x01, 0xC1, 0x73, 0xD0, 0x89,
+    ];
+    const HVCC_MAIN10: [u8; 111] = [
+        0x01, 0x02, 0x20, 0x00, 0x00, 0x00, 0x90, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1E, 0xF0, 0x00, 0xFC, 0xFD, 0xFA, 0xFA, 0x00, 0x00, 0x0F,
+        0x03, 0xA0, 0x00, 0x01, 0x00, 0x18, 0x40, 0x01, 0x0C, 0x01, 0xFF, 0xFF, 0x02, 0x20, 0x00, 0x00, 0x03, 0x00, 0x90, 0x00, 0x00, 0x03,
+        0x00, 0x00, 0x03, 0x00, 0x1E, 0x95, 0x94, 0x09, 0xA1, 0x00, 0x01, 0x00, 0x2B, 0x42, 0x01, 0x01, 0x02, 0x20, 0x00, 0x00, 0x03, 0x00,
+        0x90, 0x00, 0x00, 0x03, 0x00, 0x00, 0x03, 0x00, 0x1E, 0xA0, 0x20, 0x83, 0x13, 0x65, 0x95, 0x96, 0xE4, 0xCA, 0xF0, 0x16, 0xA1, 0x22,
+        0x41, 0x20, 0x80, 0x00, 0x00, 0x03, 0x00, 0x80, 0x00, 0x00, 0x05, 0x04, 0xA2, 0x00, 0x01, 0x00, 0x06, 0x44, 0x01, 0xC1, 0x73, 0xD0,
+        0x89,
+    ];
+    const HVCC_422: [u8; 107] = [
+        0x01, 0x04, 0x08, 0x00, 0x00, 0x00, 0x9D, 0x08, 0x00, 0x00, 0x00, 0x00, 0x1E, 0xF0, 0x00, 0xFC, 0xFE, 0xF8, 0xF8, 0x00, 0x00, 0x0F,
+        0x03, 0xA0, 0x00, 0x01, 0x00, 0x17, 0x40, 0x01, 0x0C, 0x01, 0xFF, 0xFF, 0x04, 0x08, 0x00, 0x00, 0x03, 0x00, 0x9D, 0x08, 0x00, 0x00,
+        0x03, 0x00, 0x00, 0x1E, 0x95, 0x98, 0x09, 0xA1, 0x00, 0x01, 0x00, 0x28, 0x42, 0x01, 0x01, 0x04, 0x08, 0x00, 0x00, 0x03, 0x00, 0x9D,
+        0x08, 0x00, 0x00, 0x03, 0x00, 0x00, 0x1E, 0xB0, 0x20, 0x83, 0x16, 0x59, 0x59, 0xAE, 0x4C, 0xAF, 0x01, 0x68, 0x08, 0x00, 0x00, 0x03,
+        0x00, 0x08, 0x00, 0x00, 0x03, 0x00, 0x50, 0x40, 0xA2, 0x00, 0x01, 0x00, 0x06, 0x44, 0x01, 0xC1, 0x73, 0xD0, 0x89,
+    ];
+
+    #[test]
+    fn hevc_parameter_sets_give_the_format() {
+        assert_eq!(hevc_sps(&HVCC_SUB_LAYERS), Some(Sps { profile: 1, level: 30, chroma: 1, luma: 8, chroma_depth: 8 }));
+        assert_eq!(hevc_sps(&HVCC_MAIN10), Some(Sps { profile: 2, level: 30, chroma: 1, luma: 10, chroma_depth: 10 }));
+        assert_eq!(hevc_sps(&HVCC_422), Some(Sps { profile: 4, level: 30, chroma: 2, luma: 8, chroma_depth: 8 }));
+    }
+
+    /// The Main 10 box without its PPS array: a chunk's decoder would have no PPS.
+    #[test]
+    fn hevc_sps_rejects_a_box_without_a_pps() {
+        // the PPS array: its type, a count of 1, a length of 6 and the NAL unit
+        let mut hvcc = HVCC_MAIN10[..HVCC_MAIN10.len() - 11].to_vec();
+        hvcc[22] = 2;
+        assert!(hevc_sps(&HVCC_MAIN10).is_some());
+        assert_eq!(hevc_sps(&hvcc), None);
+    }
+
+    /// lengthSizeMinusOne 2 (3-byte NAL unit lengths), which ISO/IEC 14496-15 does not allow.
+    #[test]
+    fn hevc_sps_rejects_a_nal_length_size_of_3() {
+        let mut hvcc = HVCC_MAIN10.to_vec();
+        hvcc[21] = hvcc[21] & !3 | 2;
+        assert_eq!(hevc_sps(&hvcc), None);
+    }
+
+    /// The Main 10 box with its SPS (43 bytes at 57, its length at 55) cut to its header and 4
+    /// bytes, too few for its profile_tier_level, the PPS array after it.
+    #[test]
+    fn hevc_sps_rejects_a_short_sps() {
+        let mut hvcc = [&HVCC_MAIN10[..57 + 6], &HVCC_MAIN10[57 + 43..]].concat();
+        assert_eq!((hvcc[55], hvcc[56]), (0, 43));
+        hvcc[56] = 6;
+        assert_eq!(hevc_sps(&hvcc), None);
     }
 
     /// An SPS NAL unit of 4 bytes whose emulation prevention byte leaves a 2-byte RBSP, too short

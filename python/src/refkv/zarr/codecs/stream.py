@@ -39,7 +39,7 @@ def _av() -> ModuleType:
     try:
         import av  # noqa: PLC0415 (the media extra)
     except ImportError as e:
-        raise missing("media", "Reading MP3, AAC, FLAC and H.264 chunks", e) from e
+        raise missing("media", "Reading MP3, AAC, FLAC, H.264 and HEVC chunks", e) from e
     return av
 
 
@@ -49,13 +49,13 @@ class StreamCodec(ArrayBytesCodec):
     frames depend on earlier ones (conventions §10
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#10-coded-streams>): a header
     that gives each frame's size and output position, then the frames. The frames are decoded
-    in one pass by ffmpeg's decoder of `format` (through PyAV: MP3, AAC, FLAC or H.264), each
+    in one pass by ffmpeg's decoder of `format` (through PyAV: MP3, AAC, FLAC, H.264 or HEVC), each
     frame's output placed at its position in the chunk as the decoder gives it, a frame with
     position -1 (the chunk's lead-in) decoded and dropped at once, so that a chunk holds no
     more than its own values and the decoder's reference frames; what no frame fills is zero.
     `setup` is the decoder's configuration (AAC's AudioSpecificConfig, FLAC's STREAMINFO block,
-    H.264's avcC), `plane`
-    the plane of a video frame the array holds ("y", "u" or "v"). A video chunk's three planes
+    H.264's avcC, HEVC's hvcC), `plane` the plane of a video frame the array holds ("y", "u" or
+    "v"). A video chunk's three planes
     are one chunk's bytes: decoding one keeps the other two (`SHARED`), so that reading a
     picture's Y, U and V decodes it once."""
 
@@ -88,7 +88,7 @@ class StreamCodec(ArrayBytesCodec):
     async def _decode_single(self, chunk_data: Buffer, chunk_spec: ArraySpec) -> NDBuffer:
         data = chunk_data.to_bytes()
         shape, dtype = tuple(chunk_spec.shape), chunk_spec.dtype.to_native_dtype()
-        if self.format == "h264":
+        if self.format in VIDEO_FORMATS:
             plane = self.plane or "y"
             out = SHARED.take((self.setup, data, shape[0]), plane,
                               lambda: decode_chunk(self, data, plane, shape, dtype))
@@ -163,6 +163,8 @@ def decode_chunk(codec: StreamCodec, data: bytes, plane: str | None, shape: tupl
         if position < 0:
             continue
         for name, v in values.items():
+            if plane is not None and v.dtype != dtype:
+                raise ValueError(f"refkv.stream: a picture decodes to {v.dtype}, not the array's {dtype}")
             o = out.get(name)
             if o is None:
                 o = out[name] = np.zeros(shape if name == plane else (shape[0], *v.shape[1:]), dtype)
@@ -236,23 +238,38 @@ def _flac_frames(codec: StreamCodec, units: list[bytes], positions: list[int]) -
 
 
 PLANES = {"y": 0, "u": 1, "v": 2}
+# the 4:2:0 pixel formats of ffmpeg's video decoders, by the type of their samples: 8 bits in a
+# byte, 10 in the low bits of a little-endian 16-bit word
+PIXEL_FORMATS = {"yuv420p": np.dtype(np.uint8), "yuvj420p": np.dtype(np.uint8), "yuv420p10le": np.dtype("<u2")}
 
 
-def _h264_frames(codec: StreamCodec, units: list[bytes], positions: list[int]) -> Iterator[tuple[int | None, Planes]]:
-    """(frame index, {plane: [1, height, width] uint8}) per H.264 frame PyAV's decoder outputs:
-    the Y, U and V planes of the 8-bit 4:2:0 picture."""
-    for k, frame in _av_frames(codec, units, positions, "h264"):
-        if frame is None:
-            yield k, {}
-            continue
-        f = cast("VideoFrame", frame)  # a video decoder's
-        if f.format.name not in ("yuv420p", "yuvj420p"):
-            raise ValueError(f"refkv.stream: an H.264 frame decodes to {f.format.name}, not 8-bit 4:2:0")
-        planes: Planes = {}
-        for name, i in PLANES.items():
-            p = f.planes[i]
-            planes[name] = np.frombuffer(p, dtype=np.uint8).reshape(p.height, p.line_size)[None, :, :p.width]
-        yield k, planes
+def _video_frames(name: str, title: str) -> Decoder:
+    """The decoder of a video format: (frame index, {plane: [1, height, width]}) per picture
+    PyAV's decoder `name` outputs, the Y, U and V planes of the 4:2:0 picture, uint8 for 8 bits
+    and uint16 for 10."""
+
+    def decode(codec: StreamCodec, units: list[bytes], positions: list[int]) -> Iterator[tuple[int | None, Planes]]:
+        for k, frame in _av_frames(codec, units, positions, name):
+            if frame is None:
+                yield k, {}
+                continue
+            f = cast("VideoFrame", frame)  # a video decoder's
+            dtype = PIXEL_FORMATS.get(f.format.name)
+            if dtype is None:
+                raise ValueError(f"refkv.stream: an {title} frame decodes to {f.format.name}, "
+                                 "not 4:2:0 of 8 or 10 bits")
+            planes: Planes = {}
+            for plane, i in PLANES.items():
+                p = f.planes[i]
+                a = np.frombuffer(p, dtype=dtype).reshape(p.height, p.line_size // dtype.itemsize)[None, :, :p.width]
+                planes[plane] = a.astype(dtype.newbyteorder("="), copy=False)
+            yield k, planes
+
+    return decode
+
+
+_h264_frames = _video_frames("h264", "H.264")
+_hevc_frames = _video_frames("hevc", "HEVC")
 
 
 class Shared:
@@ -305,9 +322,10 @@ class Shared:
 SHARED = Shared(1 << 26)
 
 
+VIDEO_FORMATS: dict[str, Decoder] = {"h264": _h264_frames, "hevc": _hevc_frames}
 STREAM_FORMATS: dict[str, Decoder] = {
     "mp3": _audio_frames("mp3float", np.float32), "aac": _audio_frames("aac", np.float32), "flac": _flac_frames,
-    "h264": _h264_frames}
+    **VIDEO_FORMATS}
 
 
 register_codec("refkv.stream", StreamCodec)

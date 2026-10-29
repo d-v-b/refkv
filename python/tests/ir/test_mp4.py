@@ -52,8 +52,10 @@ def decoded(path, index):
 
 
 def plane(f, k):
+    """Plane `k` of a decoded picture: uint8 for 8 bits a sample, uint16 for 10."""
     p = f.planes[k]
-    return np.frombuffer(p, np.uint8).reshape(p.height, p.line_size)[:, :p.width]
+    dtype = np.dtype("<u2") if f.format.name.endswith("10le") else np.dtype(np.uint8)
+    return np.frombuffer(p, dtype).reshape(p.height, p.line_size // dtype.itemsize)[:, :p.width]
 
 
 def samples(frames):
@@ -81,7 +83,7 @@ def test_tracks_are_ffmpegs_decoding(path, chunk_frames, tmp_path):
         g = root.get_group(string(track["path"]))
         tm = mapping(at(g.attrs, "refkv_zarrified", "mp4"))
         assert tm["id"] == track["id"]
-        assert tm["format"] in ("h264", "aac", "mp3")
+        assert tm["format"] in ("h264", "hevc", "aac", "mp3")
         kind, frames, pts = decoded(path, integer(track["id"]) - 1)
         if kind == "video":
             assert tm["frames"] == len(frames)
@@ -89,7 +91,7 @@ def test_tracks_are_ffmpegs_decoding(path, chunk_frames, tmp_path):
             for k, p in enumerate("yuv"):
                 want = np.stack([plane(f, k) for f in frames])
                 got = ndarray(g.get_array(p)[...])
-                assert got.dtype == np.uint8, p
+                assert got.dtype == (np.uint8 if tm["bit_depth"] == 8 else np.uint16), p
                 assert got.shape == want.shape, p
                 assert np.array_equal(got, want), p
             # the media timeline's times: ffmpeg's demuxer applies the edit list, which the
@@ -187,6 +189,41 @@ def test_an_open_group_s_leading_pictures_decode_from_the_group_before(tmp_path)
         assert np.array_equal(ndarray(track.get_array(p)[...]), np.stack([plane(f, k) for f in frames])), p
 
 
+def test_hevc_leading_pictures_decode_from_the_irap_picture_before(tmp_path):
+    """mp4_hevc_open_gop.mp4 (40 pictures, x265's open groups of 12: each sync sample after the
+    first a CRA picture, followed in decode order by RASL pictures presented before it, which
+    reference the group before) in chunks of at most 11: chunk 3 is picture 23 alone, a RASL
+    picture of the CRA picture presented at 24, so it decodes from the CRA picture before, at
+    decode index 12 (spec/zarrify/mp4.md §8.3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#83-chunks>), and chunk 4 decodes
+    from the CRA picture at 24, whose RASL pictures the decoder skips; mp4_hevc_radl.mp4's RADL
+    pictures, which the profile cannot tell from RASL pictures without reading the samples, lead
+    in the same way. Every picture is ffmpeg's."""
+    path = FIXTURES / "mp4" / "mp4_hevc_open_gop.mp4"
+    out, root = zarrified(path, tmp_path, 11)
+    grid = json.loads(out.bytes_entries["tracks/1/y/zarr.json"])["chunk_grid"]
+    assert grid["configuration"]["chunk_shapes"][0] == [11, 1, 11, 1, 11, 5]
+    data = path.read_bytes()
+    units, positions = chunk_units(out, "tracks/1/y/c/3/0/0", data)
+    assert len(units) == 12  # decode indexes 12 to 23
+    assert positions == [-1] * 11 + [0]
+    _units, positions = chunk_units(out, "tracks/1/y/c/4/0/0", data)
+    assert positions[:3] == [0, -1, -1]  # the CRA picture, then its RASL pictures, dropped
+    path = FIXTURES / "mp4" / "mp4_hevc_radl.mp4"
+    out, root = zarrified(path, tmp_path, 9)
+    # picture 9, a RADL picture of the IDR picture presented at 10 (decode index 8), is in chunk 1
+    _units, positions = chunk_units(out, "tracks/1/y/c/1/0/0", path.read_bytes())
+    assert positions[0] == -1
+    assert len(positions) == 10  # from the IDR picture at decode index 0
+    for name in ("mp4_hevc_open_gop.mp4", "mp4_hevc_radl.mp4"):
+        path = FIXTURES / "mp4" / name
+        _out, root = zarrified(path, tmp_path, 11)
+        _kind, frames, _ = decoded(path, 0)
+        track = root.get_group("tracks/1")
+        for k, p in enumerate("yuv"):
+            assert np.array_equal(ndarray(track.get_array(p)[...]), np.stack([plane(f, k) for f in frames])), (name, p)
+
+
 def test_a_video_chunk_s_planes_decode_once(tmp_path, monkeypatch):
     """Reading a chunk's Y, U and V decodes it once: the codec keeps the planes not asked for
     (refkv.zarr.codecs.stream); and the lead-in's pictures are dropped as the decoder gives
@@ -243,7 +280,9 @@ def test_the_codec_keeps_each_plane_once_within_its_limit():
 
 # (file, the tracks it zarrifies, each other track's ID and the start of its reason)
 TRACKS = [
-    ("mp4_hevc_aac.mp4", ["tracks/2"], {1: "hev1 video is not supported"}),
+    ("mp4_hevc_aac.mp4", ["tracks/1", "tracks/2"], {}),
+    ("mov_hevc_main10_aac.mov", ["tracks/1", "tracks/2"], {}),
+    ("mp4_hevc_422_aac.mp4", ["tracks/2"], {1: "HEVC with chroma format 2 and bit depth 10 is not supported"}),
     ("mp4_h264_10bit_aac.mp4", ["tracks/2"], {1: "H.264 with chroma format 1 and bit depth 10 is not supported"}),
     ("mp4_h264_aac.mp4", ["tracks/1", "tracks/2"], {}),
     ("mov_h264_aac.mov", ["tracks/1", "tracks/2"], {}),
@@ -275,6 +314,16 @@ def test_reads_the_movie_and_track_metadata(tmp_path):
     assert integer(at(track, "edits", 0, "media_time")) > 0  # B-frames: the composition delay
     assert track["sync_samples"] == 3
     assert track["chunk_frames"] == 256
+    assert track["format"] == "h264"
+    assert (track["profile"], track["bit_depth"]) == (100, 8)
+    # an iPhone's HDR video, as x265 codes it: QuickTime's brand, hvc1, Main 10
+    out, root = zarrified(FIXTURES / "mp4" / "mov_hevc_main10_aac.mov", tmp_path)
+    assert at(root.attrs, "refkv_zarrified", "mp4", "brand", "major") == "qt  "
+    track = mapping(at(root["tracks/1"].attrs, "refkv_zarrified", "mp4"))
+    assert (track["codec"], track["format"], track["profile"], track["bit_depth"]) == ("hvc1", "hevc", 2, 10)
+    config = json.loads(out.bytes_entries["tracks/1/y/zarr.json"])
+    assert config["data_type"] == "uint16"
+    assert config["codecs"][0]["configuration"]["format"] == "hevc"
     _, root = zarrified(FIXTURES / "mp4" / "mp4_h264_vfr.mp4", tmp_path)
     times = ndarray(root.get_array("tracks/1/time")[...])
     assert at(root["tracks/1"].attrs, "refkv_zarrified", "mp4", "timescale") == 1000
