@@ -119,16 +119,15 @@ one 1 MiB chunk (1628 rows of 161 float32), one range request.
 Observatory file of 9,125 objects, of dandiset 000728, whose metadata h5py
 over HTTP did not finish reading in four minutes, in 28 rounds as well.
 
-**A known limit.** A float attribute is written as Zarr v3 writes a float
-fill value: NaN and the infinities as the strings `"NaN"`, `"Infinity"` and
-`"-Infinity"`, and a NaN with other bits as its bits in hex (`"0x7fc00001"`),
-since JSON has no such numbers. The convention requires a reader to decode a
-float attribute so, by the HDF5 datatype the node's source metadata records
-for it
-([spec/zarrify/hdf5.md §6](../../../spec/zarrify/hdf5.md#6-attributes)).
-hdmf-zarr does not yet, and pynwb refuses the string: the Allen Brain
-Observatory files of dandiset 000728, whose stimulus movies have a `rate` of
-NaN, zarrify but do not open in `NWBZarrIO`.
+**Float attributes.** A float attribute is a float value
+([spec/zarrify/hdf5.md §6](../../../spec/zarrify/hdf5.md#6-attributes)),
+Zarr v3's fill value encoding, so a NaN or an infinity is a string, such as
+`"NaN"`, which a reader decodes by the datatype the node's source metadata
+records. `refkv.zarr` does: it serves each float attribute as the float, the
+literal `NaN` that zarr-python and hdmf-zarr write, and a string attribute
+`"NaN"` as the string. The Allen Brain Observatory files of dandiset 000728,
+whose stimulus movies have a `rate` of NaN, open in `NWBZarrIO` so. A reader
+that does not decode them gives the strings, which pynwb refuses.
 
 ## Supported and not supported
 

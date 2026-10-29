@@ -5,6 +5,8 @@ the values h5py reads, or listed in its group's `unpresented` with the reason th
 each NWB fixture, opened by hdmf-zarr's NWBZarrIO through refkv.zarr, is the NWBFile pynwb's
 NWBHDF5IO reads from the source. The rejected fixtures are test_rejects.py's."""
 
+import json
+import math
 import warnings
 
 import h5py
@@ -16,6 +18,7 @@ from ir_helpers import FIXTURES
 from pynwb import NWBHDF5IO
 
 import refkv.zarr
+from refkv._narrow import mapping, number, sequence
 from refkv.zarrify import zarrify
 
 ACCEPTED = sorted(p for p in (FIXTURES / "hdf5").iterdir() if p.suffix in (".h5", ".nwb") and "reject" not in p.name)
@@ -126,19 +129,42 @@ def test_attributes_and_links_are_hdmf_zarr_members():
     # the second hard link to /acquisition/data: its canonical path is /acquisition/alias
     assert root["acquisition"].attrs["_LINKS"] == [{"name": "data", "source": ".", "path": "/acquisition/alias"}]
     a = opened(FIXTURES / "hdf5" / "hdf5_attributes.h5")[0]["attrs"].attrs
-    names = ("int", "uint64_big", "float", "nan", "floats", "half_nan", "array", "text", "texts", "fixed", "latin1",
-             "bool", "empty", "compound")
+    names = ("int", "uint64_big", "float", "array", "text", "texts", "fixed", "latin1", "bool", "empty",
+             "compound", "nan_text")
     assert {k: a[k] for k in names} == {
-        "int": -3, "uint64_big": str(2**63 + 5), "float": 0.1, "nan": "NaN",
-        "floats": ["0x7fc00001", "-Infinity", "0x80000000", 1.0], "half_nan": "0xfe00", "array": [[0, 1, 2], [3, 4, 5]],
+        "int": -3, "uint64_big": str(2**63 + 5), "float": 0.1, "array": [[0, 1, 2], [3, 4, 5]],
         "text": "vlen text", "texts": ["a", "é", ""], "fixed": "fixed", "latin1": {"latin1": "café"}, "bool": True,
-        "empty": None, "compound": {"i": 1, "f": 2.5}}
+        "empty": None, "compound": {"i": 1, "f": 2.5}, "nan_text": "NaN"}
     assert own(opened(FIXTURES / "hdf5" / "hdf5_attributes.h5")[0]["attrs"])["unpresented_attributes"] == {
         "_LINKS": "reserved", "refkv_zarrified": "reserved", "sequence": "datatype"}
     big = opened(FIXTURES / "hdf5" / "hdf5_attributes.h5")[0]
     assert "big" not in big["big"].attrs
     assert own(big["big_and_small"])["unpresented_attributes"] == {"big": "budget"}
     assert big["big_and_small"].attrs["small"] == 1
+
+
+def test_float_attributes_read_as_h5py_reads_them():
+    """The archive holds a float attribute that JSON has no number for as a string; refkv.zarr
+    decodes it where the node's datatypes record a float (a string "NaN" stays a string)."""
+    path = FIXTURES / "hdf5" / "hdf5_attributes.h5"
+    store = zarrify(str(path))
+    held = mapping(mapping(json.loads(store.get("attrs/zarr.json") or b"{}"))["attributes"])
+    assert [held[k] for k in ("nan", "floats", "half_nan", "compound_inf", "nan_text")] == [
+        "NaN", ["0x7fc00001", "-Infinity", "0x80000000", 1.0], "0xfe00", {"f": "Infinity", "s": "NaN"}, "NaN"]
+    a = zarr.open_group(refkv.zarr.store(store), mode="r")["attrs"].attrs
+
+    def same(got: float, want: float) -> bool:  # NaN as NaN, -0 as -0
+        if math.isnan(got) or math.isnan(want):
+            return math.isnan(got) and math.isnan(want)
+        return got == want and math.copysign(1, got) == math.copysign(1, want)
+
+    with h5py.File(path, "r") as f:
+        want = f["attrs"].attrs
+        for name in ("nan", "floats", "half_nan"):
+            got = [number(v) for v in sequence(a[name])] if name == "floats" else [number(a[name])]
+            assert all(same(g, w) for g, w in zip(got, np.ravel(want[name]).astype(float).tolist(), strict=True)), name
+        assert a["compound_inf"] == {"f": math.inf, "s": "NaN"} == {"f": float(want["compound_inf"]["f"]), "s": "NaN"}
+    assert a["nan_text"] == "NaN"
 
 
 @pytest.mark.parametrize("path", [p for p in ACCEPTED if p.suffix == ".nwb"], ids=lambda p: p.name)
@@ -151,6 +177,10 @@ def test_nwb_files_read_as_pynwb_reads_the_source(path):
             for name in ("identifier", "session_description", "session_start_time"):
                 assert getattr(a, name) == getattr(b, name), name
             assert sorted(a.acquisition) == sorted(b.acquisition)
+            assert sorted(a.stimulus_template) == sorted(b.stimulus_template)
+            for k, x in a.stimulus_template.items():
+                got, want = number(x.rate), number(b.stimulus_template[k].rate)
+                assert got == want or (math.isnan(got) and math.isnan(want)), k
             for k, x in a.acquisition.items():
                 assert np.array_equal(np.asarray(x.data[:]), np.asarray(b.acquisition[k].data[:])), k
             assert sorted(a.processing) == sorted(b.processing)

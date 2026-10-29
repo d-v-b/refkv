@@ -29,6 +29,7 @@ from hdmf.backends.hdf5 import H5DataIO
 from pynwb import NWBHDF5IO, NWBFile, TimeSeries
 from pynwb.ecephys import ElectricalSeries
 from pynwb.file import Subject
+from pynwb.image import ImageSeries
 from pynwb.ophys import Fluorescence, ImageSegmentation, OpticalChannel, RoiResponseSeries
 
 OUT = Path(__file__).parents[2] / "hdf5"
@@ -225,6 +226,7 @@ def names_and_attributes():
         # floats a JSON number or "NaN" cannot keep: Zarr's hex form, by their bits
         a["floats"] = np.array([0x7FC00001, 0xFF800000, 0x80000000, 0x3F800000], "<u4").view("<f4")
         a["half_nan"] = np.array(0xFE00, ">u2").view(">f2")
+        a["nan_text"] = "NaN"
         a["array"] = np.arange(6, dtype="<i2").reshape(2, 3)
         a["text"] = "vlen text"
         a["texts"] = np.array(["a", "é", ""], dtype=h5py.string_dtype())
@@ -233,6 +235,7 @@ def names_and_attributes():
         a["bool"] = np.bool_(True)
         a["empty"] = h5py.Empty("f4")
         a["compound"] = np.array((1, 2.5), dtype=[("i", "<i4"), ("f", "<f8")])
+        a["compound_inf"] = np.array((np.inf, "NaN"), dtype=[("f", "<f4"), ("s", "S3")])
         a["_LINKS"] = "taken"
         a["refkv_zarrified"] = "taken"
         sequences = np.array([np.array([1, 2], "i4"), np.array([3], "i4")], dtype=object)
@@ -314,6 +317,9 @@ def nwb_files():
     fl.add_roi_response_series(RoiResponseSeries(name="dff", data=ramp((50, 3), "<f4"), rois=rois, unit="1", rate=30.0))
     mod.add(fl)
     f.add_acquisition(TimeSeries(name="speed", data=ramp((20,), "<f8"), unit="m/s", rate=10.0))
+    # a stimulus movie without a frame rate, as the Allen Brain Observatory's: `rate` is NaN
+    f.add_stimulus_template(ImageSeries(name="movie", data=ramp((4, 3, 3), "<u1"), unit="n.a.", format="raw",
+                                        rate=np.nan))
     with NWBHDF5IO(OUT / "nwb_ophys.nwb", "w") as io:
         io.write(f)
 

@@ -38,9 +38,9 @@ and DANDI files showed:
   (`"0x7fc00001"`), where
   [conventions §6](../../spec/conventions.md#6-source-metadata-as-json) keeps no NaN's bits. The
   convention requires readers to decode a float attribute so, by its
-  recorded datatype; hdmf-zarr does not yet, which keeps the Allen Brain
-  Observatory files of dandiset 000728 (a `rate` of NaN) from opening in
-  `NWBZarrIO`.
+  recorded datatype; `refkv.zarr` does, before hdmf-zarr sees them, so the
+  Allen Brain Observatory files of dandiset 000728 (a `rate` of NaN) open
+  in `NWBZarrIO`.
 
 The interop question of item 2 was settled first, as step 1 planned:
 `NWBZarrIO` reads a hierarchy whose nodes carry `zarr_conventions` and
