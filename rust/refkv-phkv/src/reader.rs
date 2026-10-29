@@ -189,6 +189,14 @@ pub enum Kind {
     Reference,
 }
 
+/// What [`Store::fetch`] finds.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Fetched {
+    Bytes(Vec<u8>),
+    /// the kind (1 `Range`, 2 `Concat`) and payload of a reference
+    Reference { kind: u8, payload: Vec<u8> },
+}
+
 /// What [`Store::entry_info`] reports.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EntryInfo {
@@ -584,6 +592,12 @@ impl<R: ReadAt> Store<R> {
         }))
     }
 
+    /// Bytes `[start, end)` of the bytes value at `key`, hidden or not: what a `key` source of a
+    /// range reads. Every failure is a resolution error.
+    pub fn key_bytes(&self, key: &str, start: u64, end: u64) -> Result<Vec<u8>, ReadError> {
+        self.source_bytes(&Source::key(key), start, end.saturating_sub(start), &NoUrls)
+    }
+
     /// Bytes `[a, b)` of a bytes record's value: a codec-0 value is read only within the window, a
     /// compressed one is decoded whole; the CRC-32C is checked whenever the whole value is had.
     fn bytes_window(&self, rec: &Record, a: u64, b: u64) -> Result<Vec<u8>, ReadError> {
@@ -626,6 +640,16 @@ impl<R: ReadAt> Store<R> {
     /// `get` (spec/bindings/phkv.md §22.2
     /// <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#222-operations>).
     pub fn get(&self, key: &str, request: Request, resolver: &dyn Resolver) -> Result<Option<Vec<u8>>, ReadError> {
+        match self.fetch(key, request)? {
+            None => Ok(None),
+            Some(Fetched::Bytes(b)) => Ok(Some(b)),
+            Some(Fetched::Reference { kind, payload }) => self.resolve(kind, &payload, request, resolver).map(Some),
+        }
+    }
+
+    /// `get` up to resolving a reference: the requested window of a bytes value, or the kind and
+    /// payload of a reference, for a host that resolves references itself.
+    pub fn fetch(&self, key: &str, request: Request) -> Result<Option<Fetched>, ReadError> {
         if let Request::Range(s, e) = request
             && s > e
         {
@@ -640,9 +664,9 @@ impl<R: ReadAt> Store<R> {
                 if b - a > self.limits.request_bytes {
                     return err(Class::Request, "the window exceeds the request limit");
                 }
-                self.bytes_window(&rec, a, b).map(Some)
+                self.bytes_window(&rec, a, b).map(|v| Some(Fetched::Bytes(v)))
             }
-            Value::Reference { kind, payload } => self.resolve(*kind, payload, request, resolver).map(Some),
+            Value::Reference { kind, payload } => Ok(Some(Fetched::Reference { kind: *kind, payload: payload.clone() })),
         }
     }
 

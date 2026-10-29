@@ -6,13 +6,17 @@ of other objects (spec/refkv.md, Part 1
 backend that can tell a bytes value from a reference value can hold one; a binding says
 how. The ZIP binding keeps a store in one ZIP file, a vzip archive (Part 2
 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#part-2-the-zip-binding>), which
-`refkv.vzip` reads and writes.
+`refkv.vzip` reads and writes; the perfect-hash binding keeps it in one file with a perfect hash
+of its keys (spec/bindings/phkv.md
+<https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md>), which `refkv.phkv` reads and
+writes.
 
 - `ReferenceStore`: a store in memory. `ReferenceStore.from_virtualizarr(vds)` builds
   one from a VirtualiZarr virtual dataset, and `store.save(path)` writes it as a
   vzip archive.
 - `open(url)`: a saved store, as a store that reads the same values: with the ZIP
-  binding (the default, and today the only one), a `refkv.vzip.VZipStore`.
+  binding (the default), a `refkv.vzip.VZipStore`, and with the perfect-hash binding
+  (`binding="phkv"`, `store.save_phkv(path)` writes one), a `refkv.phkv.PhkvStore`.
 - Both have the operations of spec/refkv.md §6.2
   <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#62-operations>: `get(key)`,
   or `get(key, RangeRequest(start, end))` (also `OffsetRequest`, `SuffixRequest`),
@@ -39,9 +43,9 @@ from __future__ import annotations
 import importlib
 from importlib.metadata import PackageNotFoundError, version
 from types import ModuleType
-from typing import TYPE_CHECKING, TypedDict, Unpack
+from typing import TYPE_CHECKING, Any, Literal, TypedDict, Unpack, overload
 
-from refkv import vzip
+from refkv import phkv, vzip
 from refkv.pb import Concat, Range, Source
 from refkv.policy import Policy, public_s3_url
 from refkv.reader import OffsetRequest, RangeRequest, Stats, SuffixRequest
@@ -54,6 +58,7 @@ except PackageNotFoundError:  # a source tree on sys.path, not installed
     __version__ = "0.0.0+unknown"
 
 if TYPE_CHECKING:
+    from refkv.phkv.store import PhkvOptions, PhkvStore
     from refkv.reader import Registry
     from refkv.vzip.store import VZipOptions, VZipStore
 
@@ -68,15 +73,23 @@ if TYPE_CHECKING:
         policy: Policy | None
         max_concurrency: int | None
 
-BINDINGS = ("vzip",)
-"""The bindings `open` can read a store with: the ZIP binding, `"vzip"`."""
+BINDINGS = ("vzip", "phkv")
+"""The bindings `open` can read a store with: the ZIP binding, `"vzip"`, and the perfect-hash
+binding, `"phkv"`."""
 
 
-def open(url: str, *, binding: str = "vzip", **kwargs: Unpack[VZipOptions]) -> VZipStore:  # noqa: A001 (refkv.open, the public name)
+@overload
+def open(url: str, *, binding: Literal["vzip"] = "vzip", **kwargs: Unpack[VZipOptions]) -> VZipStore: ...  # noqa: A001 (refkv.open, the public name)
+@overload
+def open(url: str, *, binding: Literal["phkv"], **kwargs: Unpack[PhkvOptions]) -> PhkvStore: ...  # noqa: A001
+@overload
+def open(url: str, *, binding: str, **kwargs: Unpack[VZipOptions]) -> VZipStore | PhkvStore: ...  # noqa: A001
+def open(url: str, *, binding: str = "vzip", **kwargs: Any) -> VZipStore | PhkvStore:  # noqa: A001 (refkv.open, the public name)
     """Open the store saved at `url` (a local path or an `http(s)` URL, presigned or with
     a query string, of any name) as a read-only store, with the binding `binding`. The
-    ZIP binding, `"vzip"` (the default, and today the only one), opens a vzip archive as a
-    `refkv.vzip.VZipStore`: `refkv.open("data.vzip").get("zarr.json")`. For zarr and
+    ZIP binding, `"vzip"` (the default), opens a vzip archive as a `refkv.vzip.VZipStore`:
+    `refkv.open("data.vzip").get("zarr.json")`. The perfect-hash binding, `"phkv"`, opens a phkv
+    store as a `refkv.phkv.PhkvStore` (it has no `resolve` option). For zarr and
     xarray, `refkv.zarr.open(url)` takes the same arguments and wraps the store.
 
     Other keyword arguments go to the binding's store: `policy`, `registry` (the stores
@@ -85,6 +98,8 @@ def open(url: str, *, binding: str = "vzip", **kwargs: Unpack[VZipOptions]) -> V
     no cap), and `resolve`. A binding not in `BINDINGS` is a ValueError."""
     if binding == "vzip":
         return vzip.open(str(url), **kwargs)
+    if binding == "phkv":
+        return phkv.open(str(url), **kwargs)
     raise ValueError(f"no binding {binding!r}: refkv reads stores with {', '.join(map(repr, BINDINGS))}")
 
 
