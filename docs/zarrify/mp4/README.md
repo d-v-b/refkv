@@ -114,10 +114,12 @@ about 2 seconds over HTTP.
 hierarchy like any other, and the demo page opens each 8-bit H.264 and HEVC
 track's luma (its Y plane) in Neuroglancer, scrolled over time: the
 Neuroglancer fork decodes `refkv.stream` chunks with the browser's WebCodecs
-`VideoDecoder`. The demo's MP4 example is a behavior video from DANDI
-001195, a study of loneliness-like state in mice (CC BY 4.0): a mouse after
-24 hours alone, read from the DANDI archive's S3 bucket, which serves its
-files with CORS.
+`VideoDecoder`. The demo's MP4 examples are behavior videos, read from the
+DANDI archive's S3 bucket, which serves its files with CORS (both CC BY 4.0):
+from DANDI 001195, a study of loneliness-like state in mice, a mouse after 24
+hours alone; and from DANDI 001538, a study of levodopa-induced dyskinesia, a
+parkinsonian mouse 80 minutes after L-DOPA, a QuickTime `.mov` from Apple's
+encoder.
 
 HEVC decodes only where the browser's platform has a decoder for it: in
 practice Chrome and Edge on macOS, Windows and Android with a hardware
