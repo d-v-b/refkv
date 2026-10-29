@@ -208,7 +208,8 @@ def schema(profile: str) -> dict:
                     **getattr(module, "ATTRIBUTES", {}),
                 },
                 "required": ["zarr_conventions", CONVENTION_KEY],
-                "additionalProperties": False,
+                # a convention whose nodes hold the source's own attributes (HDF5's) leaves them open
+                "additionalProperties": bool(getattr(module, "OPEN_ATTRIBUTES", False)),
             },
         },
         "required": ["zarr_format", "node_type", "attributes"],

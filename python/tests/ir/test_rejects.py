@@ -12,6 +12,8 @@ from ir_helpers import FIXTURES, ROOT
 
 from refkv.zarrify import Rejected
 from refkv.zarrify import _zarrify as zarrify
+from refkv.zarrify import zarrify as zarrify_named
+from refkv.zarrify.profile_classes import CLASSES
 
 TABLES = sorted((ROOT / "conformance" / "zarrify" / "rejects").glob("*.json"))
 
@@ -34,8 +36,18 @@ CASES = [pytest.param(FIXTURES / t.stem, case, id=f"{t.stem}/{case['input']}") f
 def test_the_host_rejects(directory, case):
     path = directory / case["input"]
     url = f"https://data.test/{directory.name}/{case['input']}" + ("/" if path.is_dir() else "")
+    # a case with a profile is that profile's named input (spec/zarrify.md §1.7
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#17-named-inputs-and-layouts>)
+    named = [c for c in CLASSES.values() if c.profile == case.get("profile")]
+
+    def run() -> None:
+        if named:
+            zarrify_named(named[0](str(path), url))
+        else:
+            zarrify(str(path), url)
+
     with pytest.raises(Rejected) as e:
-        zarrify(str(path), url)
+        run()
     assert case.get("host", case["message"]) in str(e.value)
 
 

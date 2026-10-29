@@ -44,6 +44,8 @@ dev = [
     "types-jsonschema>=4.26.0.20261006",
     "matplotlib>=3.10",
     "soundfile>=0.14.0",
+    "pynwb>=4.2.0",
+    "hdmf-zarr>=0.14.0",
 ]
 # the comparison with kerchunk and Icechunk (design/comparison, design/experiments)
 bench = [
@@ -126,6 +128,9 @@ known-first-party = ["refkv"]
 preset = "strict"
 # as ruff's (above): the frozen reference and the experiments' records
 project-excludes = ["conformance/zarrify/reference/**", "design/experiments/**"]
+# pynwb's and hdmf's signatures are made at run time by their `docval` decorator, which a type
+# checker cannot read: their objects are Any (the HDF5 fixtures' generator and tests)
+replace-imports-with-any = ["pynwb", "pynwb.*", "hdmf", "hdmf.*", "hdmf_zarr", "hdmf_zarr.*"]
 # the directories the tests and scripts put on sys.path to import their neighbors
 search-path = [
     "python/src",
