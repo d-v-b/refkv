@@ -403,7 +403,7 @@ before the central directory and not overlapping. Every member's local header is
 whatever its size. Besides:
 
 - **Names:** no two members have the same file name.
-- **No product:** the members are not a SAFE product: none of safe.md §8.4's rules on names,
+- **No product:** the members are not a SAFE product: none of [safe.md §8.4](safe.md#84-the-zip-form)'s rules on names,
   directories and methods apply.
 - **Stored members:** a stored member (method 0) MUST have `cs = us`.
 - **Members:** a stored member whose file name ends with `.npy` has its preamble and header
