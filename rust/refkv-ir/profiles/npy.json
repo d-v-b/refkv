@@ -1,0 +1,17 @@
+{
+  "name": "npy",
+  "title": "NumPy",
+  "uuid": "62b1d1ba-8eb3-465c-a333-75e096fce519",
+  "version": 0,
+  "kind": "file",
+  "sniff": 75,
+  "chosen_by": null,
+  "suffixes": [
+    ".npy",
+    ".npz"
+  ],
+  "reference": null,
+  "source": "NumPy NPY and NPZ (NEP 1)",
+  "inputs": "NumPy `.npy` files, and `.npz` archives of them (`np.savez`), whose stored members it presents",
+  "for": "NumPy arrays: `.npy` files, and the stored arrays of `.npz` archives"
+}

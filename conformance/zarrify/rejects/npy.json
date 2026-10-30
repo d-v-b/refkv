@@ -1,0 +1,85 @@
+{
+  "about": "The inputs the npy profile rejects, each with the start of its message (the Rust tests' prefix). rust/refkv-ir/build.rs writes a Rust test per case into tests/npy.rs; python/tests/ir/test_rejects.py checks each through the host and that every rejected fixture is listed here.",
+  "cases": [
+    {
+      "test": "npy_reject_header_outside",
+      "input": "npy_reject_header_outside.npy",
+      "message": "the 32767-byte NPY header at 10 is outside the 26-byte file"
+    },
+    {
+      "test": "npy_reject_keys",
+      "input": "npy_reject_keys.npy",
+      "message": "the NPY header is not the literal NumPy writes: its keys are [\"descr\", \"shape\"], not descr, fortran_order and shape"
+    },
+    {
+      "test": "npy_reject_long_double",
+      "input": "npy_reject_long_double.npy",
+      "message": "the data type '<f16' is not presented: a long double has no Zarr data type"
+    },
+    {
+      "test": "npy_reject_not_a_dict",
+      "input": "npy_reject_not_a_dict.npy",
+      "message": "the NPY header is not the literal NumPy writes: '{' expected at character 0, not '('"
+    },
+    {
+      "test": "npy_reject_not_utf8",
+      "input": "npy_reject_not_utf8.npy",
+      "message": "the NPY header is not UTF-8"
+    },
+    {
+      "test": "npy_reject_object",
+      "input": "npy_reject_object.npy",
+      "message": "the data type '|O' is not presented: an object array holds a pickle"
+    },
+    {
+      "test": "npy_reject_padding",
+      "input": "npy_reject_padding.npy",
+      "message": "the data type [('a', '|u1'), ('', '|V3'), ('b', '<i4')] is not presented: a padding field"
+    },
+    {
+      "test": "npy_reject_shape",
+      "input": "npy_reject_shape.npy",
+      "message": "the NPY header is not the literal NumPy writes: shape is [1, 2], not a tuple"
+    },
+    {
+      "test": "npy_reject_short",
+      "input": "npy_reject_short.npy",
+      "message": "too short for an NPY preamble"
+    },
+    {
+      "test": "npy_reject_truncated",
+      "input": "npy_reject_truncated.npy",
+      "message": "the 80-byte data at 128 is outside the 200-byte file"
+    },
+    {
+      "test": "npy_reject_version4",
+      "input": "npy_reject_version4.npy",
+      "message": "NPY format version 4.0 is not 1.0, 2.0 or 3.0"
+    },
+    {
+      "test": "npy_reject_version_minor",
+      "input": "npy_reject_version_minor.npy",
+      "message": "NPY format version 1.1 is not 1.0, 2.0 or 3.0"
+    },
+    {
+      "test": "npz_reject_compressed",
+      "input": "npz_reject_compressed.npz",
+      "message": "no member can be presented: a.npy (method), b.npy (method)"
+    },
+    {
+      "test": "npz_reject_duplicate",
+      "input": "npz_reject_duplicate.npz",
+      "message": "a zip file has two members named a.npy"
+    },
+    {
+      "test": "npz_reject_stored_size",
+      "input": "npz_reject_stored_size.npz",
+      "message": "the stored member a.npy has a compressed size other than its size"
+    },
+    {
+      "test": "npz_reject_truncated",
+      "input": "npz_reject_truncated.npz",
+      "message": "not a zip file: no end of central directory record"
+    }
+  ]
+}

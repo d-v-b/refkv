@@ -1,0 +1,120 @@
+{
+  "source_model": "npy",
+  "version": 1,
+  "about": "The source model of a NumPy .npy file or .npz archive (spec/zarrify/npy.md §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#53-elements>): the elements a parser emits, the tables of data types, and the roles the file, an NPY preamble, header and data, and a .npz archive's ZIP structures and members play, each with the constraints the input must meet (spec/zarrify/npy.md §8 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#8-numpy-profile>). The parser checks them in this order. A .npz member's NPY roles do not reject the input: a member that fails one is not presented, with the role's reason. Projections read a valid IR and check nothing.",
+  "limits": {
+    "max_safe": 9007199254740991,
+    "max_rank": 64
+  },
+  "tables": {
+    "types": {
+      "about": "a type string's kind and size: its Zarr data type and element size (spec/zarrify/npy.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#3-data-types>); U<n>, S<n>, V<n>, M8[...] and m8[...] are read by their own rules",
+      "b1": {"dtype": "bool", "bytes": 1},
+      "i1": {"dtype": "int8", "bytes": 1},
+      "u1": {"dtype": "uint8", "bytes": 1},
+      "i2": {"dtype": "int16", "bytes": 2},
+      "u2": {"dtype": "uint16", "bytes": 2},
+      "i4": {"dtype": "int32", "bytes": 4},
+      "u4": {"dtype": "uint32", "bytes": 4},
+      "i8": {"dtype": "int64", "bytes": 8},
+      "u8": {"dtype": "uint64", "bytes": 8},
+      "f2": {"dtype": "float16", "bytes": 2},
+      "f4": {"dtype": "float32", "bytes": 4},
+      "f8": {"dtype": "float64", "bytes": 8},
+      "c8": {"dtype": "complex64", "bytes": 8},
+      "c16": {"dtype": "complex128", "bytes": 16}
+    },
+    "unsupported": {
+      "about": "type strings the profile names and does not present",
+      "O": "an object array holds a pickle",
+      "f12": "a long double has no Zarr data type",
+      "f16": "a long double has no Zarr data type",
+      "c24": "a long double has no Zarr data type",
+      "c32": "a long double has no Zarr data type"
+    },
+    "units": {
+      "about": "the units of a datetime64 or timedelta64",
+      "Y": true, "M": true, "W": true, "D": true, "h": true, "m": true, "s": true,
+      "ms": true, "us": true, "ns": true, "ps": true, "fs": true, "as": true
+    }
+  },
+  "elements": {
+    "about": "The IR of a NumPy file. In a .npy file the NPY elements are the root's; in a .npz archive, a stored member's, below entries/<i>/data. p is the preamble's length (10 or 12), n the header's, B the data's.",
+    "preamble": {"kind": "value", "type": "{magic:bytes[6],major:u1,minor:u1,header_length:<u2} (version 1), or <u4 for header_length", "extent": "(o, p)"},
+    "header": {"kind": "value", "type": "ascii[n]", "extent": "(o + p, n), when n > 0"},
+    "data": {"kind": "data", "form": "{geometry: {data_type, shape, order}, codec: {endian}, recipe: [[src, 0, null]]}", "extent": "(o + p + n, B), when presented and B > 0"},
+    "end, end_comment, zip64_locator, zip64_end, central_directory/**": {"kind": "value", "about": "a .npz archive's end records and central directory (spec/zarrify/safe.md §6.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#63-the-source-metadata-node>)"},
+    "entries/<i>": {"kind": "struct", "extent": "[lho, ds + cs): member i's local header (local_header, name, extra) and data"},
+    "entries/<i>/data": {"kind": "struct, derived or value", "about": "a stored member whose NPY preamble and header were read (struct); a deflated member (derived, form {transform: deflate}); any other member's bytes (value bytes[cs])"},
+    "gaps/<offset>": {"kind": "gap", "about": "bytes no other element claims: a stored member's bytes after its header when it is not presented, and after its data; data descriptors; bytes after a .npy file's data"}
+  },
+  "roles": {
+    "preamble": {
+      "given": {"size": "the bytes of the file (or member) the preamble starts", "magic": "its first six bytes are \\x93NUMPY", "major": "", "minor": ""},
+      "constraints": [
+        {"require": "magic", "message": "not an NPY array: no \\x93NUMPY preamble"},
+        {"require": "size >= 10", "message": "too short for an NPY preamble"},
+        {"require": "(major == 1 || major == 2 || major == 3) && minor == 0", "message": "NPY format version {major}.{minor} is not 1.0, 2.0 or 3.0"},
+        {"require": "major == 1 || size >= 12", "message": "too short for a version {major}.0 NPY preamble"}
+      ]
+    },
+    "header": {
+      "given": {"start": "the header's offset", "length": "n", "end": "the end of the file (or member)"},
+      "constraints": [
+        {"require": "start + length <= end", "message": "the {length}-byte NPY header at {start} is outside the {end}-byte file"}
+      ]
+    },
+    "text": {
+      "given": {"utf8": "a version 3 header is UTF-8 (true for versions 1 and 2, ISO 8859-1)"},
+      "constraints": [
+        {"require": "utf8", "message": "the NPY header is not UTF-8"}
+      ]
+    },
+    "literal": {
+      "given": {"problem": "what is wrong with the header's literal, or absent"},
+      "constraints": [
+        {"require": "!present(problem)", "message": "the NPY header is not the literal NumPy writes: {problem}"}
+      ]
+    },
+    "data_type": {
+      "given": {"shown": "the header's descr, as the header writes it", "problem": "why it is not presented, or absent"},
+      "constraints": [
+        {"require": "!present(problem)", "message": "the data type {shown} is not presented: {problem}"}
+      ]
+    },
+    "data_size": {
+      "given": {"total": "B = e * the product of the shape, exactly", "total_shown": "B in decimal", "offset": "p + n, the data's offset", "end": "the end of the file (or member)"},
+      "constraints": [
+        {"require": "total <= max_safe && offset + total <= end", "message": "the {total_shown}-byte data at {offset} is outside the {end}-byte file"}
+      ]
+    },
+    "zip_end": {
+      "given": {"disks": "its disk numbers are 0", "counts": "its two entry counts are equal"},
+      "constraints": [
+        {"require": "disks", "message": "a zip file that spans several disks"},
+        {"require": "counts", "message": "a zip file's entry counts differ"}
+      ]
+    },
+    "zip_entry": {
+      "given": {"disk": "", "encrypted": "flag bit 0 or 6", "utf8": "its name is UTF-8"},
+      "constraints": [
+        {"require": "disk == 0", "message": "a zip entry on another disk"},
+        {"require": "!encrypted", "message": "a zip entry is encrypted"},
+        {"require": "utf8", "message": "a zip entry's name is not UTF-8"}
+      ]
+    },
+    "member": {
+      "given": {"name": "its file name, shortened to 200 characters", "unique": "no earlier member has its name", "method": "", "same_size": "cs = us"},
+      "constraints": [
+        {"require": "unique", "message": "a zip file has two members named {name}"},
+        {"require": "method != 0 || same_size", "message": "the stored member {name} has a compressed size other than its size"}
+      ]
+    },
+    "arrays": {
+      "given": {"count": "the presented members", "reasons": "each member and its reason, comma-separated"},
+      "constraints": [
+        {"require": "count >= 1", "message": "no member can be presented: {reasons}"}
+      ]
+    }
+  }
+}
