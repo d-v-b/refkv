@@ -48,7 +48,7 @@ The table, generated from the registry, lists them:
 | profile | input | inputs |
 |---|---|---|
 | [CZI](zarrify/czi.md#part-2-the-profile) | file | Zeiss CZI files (ZISRAW, file version 1), with uncompressed, JPEG, JPEG XR and Zstd subblocks, mosaics and pyramids |
-| [DICOM](zarrify/dicom.md#part-2-the-profile) | file | DICOM Part 10 files with native or JPEG-encapsulated pixel data, including whole-slide images |
+| [DICOM](zarrify/dicom.md#part-2-the-profile) | file | DICOM Part 10 files with native, JPEG, lossless JPEG or JPEG 2000 pixel data, including whole-slide images |
 | [FITS](zarrify/fits.md#part-2-the-profile) | file | FITS files: images, multi-extension files, binary and ASCII tables |
 | [FLAC](zarrify/flac.md#part-2-the-profile) | file | FLAC files (`.flac`) of a fixed block size, with their metadata blocks and ID3v2 and ID3v1 tags; one sharded array of integer samples, not an image |
 | [HDF5](zarrify/hdf5.md#part-2-the-profile) | file | HDF5 files, NWB files first among them: every group, dataset, attribute, link and object reference the profile can present, in hdmf-zarr's Zarr v3 form |
