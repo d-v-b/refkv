@@ -282,6 +282,30 @@ function arrayView(url: string, path: string, meta: ArrayMeta): View {
   };
 }
 
+/** The data types Neuroglancer shows (its DataType): no int64, float64, bool or strings. */
+const SHOWN_TYPES = ["uint8", "int8", "uint16", "int16", "uint32", "int32", "uint64", "float32"];
+
+/** The codecs the Neuroglancer fork decodes (src/datasource/zarr/codec/ there). */
+const DECODED_CODECS = [
+  "bytes", "transpose", "crc32c", "blosc", "zstd", "gzip", "sharding_indexed", "numcodecs.shuffle", "n5_default",
+  "imagecodecs_jpeg", "imagecodecs_jpeg2k", "imagecodecs_jpegxr", "imagecodecs_lzw", "refkv.fits_tiles", "refkv.stream",
+];
+
+/** The names of the codecs of `codecs`, and of those a sharding codec among them holds. */
+const codecNames = (codecs: { name: string; configuration?: any }[]): string[] =>
+  codecs.flatMap((c) => [c.name, ...codecNames(c.configuration?.codecs ?? []), ...codecNames(c.configuration?.index_codecs ?? [])]);
+
+/**
+ * Whether Neuroglancer can show the array `meta` as an image: two or more axes, of a type it
+ * shows, with codecs it decodes (not, for example, an HDF5 dataset's `numcodecs.zlib`).
+ */
+const showable = (meta: ArrayMeta) =>
+  meta.shape.length >= 2 && SHOWN_TYPES.includes(meta.data_type) &&
+  codecNames(meta.codecs).every((n) => DECODED_CODECS.includes(n));
+
+/** The profiles whose archives hold audio samples, which the page lists but does not show. */
+const AUDIO = ["mp3", "flac"];
+
 /** The sample entries of the video tracks the fork's `refkv.stream` codec decodes. */
 const DECODED_VIDEO = ["avc1", "hvc1", "hev1"];
 
@@ -506,6 +530,26 @@ async function zarrify(url: string) {
     $("share-archive").hidden = true;
     map.hidden = false;
     map.href = new URL(`map.html?url=${encodeURIComponent(url)}`, location.href).href;
+  } else if (AUDIO.includes(attrs.refkv_zarrified?.profile)) {
+    // Audio: an array of samples, decoded from the file's frames when a chunk
+    // is read (the refkv.stream codec). Neuroglancer shows images, so the page
+    // lists the arrays and offers the archive.
+    const info = attrs.refkv_zarrified[attrs.refkv_zarrified.profile] ?? {};
+    views = [];
+    const file = url.split("?")[0].split("/").pop()!;
+    try {
+      $("name").textContent = decodeURIComponent(file);
+    } catch {
+      $("name").textContent = file;
+    }
+    $("zarr-url").textContent = neuroglancerSource(opened, zarrUrl);
+    const rate = info.sample_rate;
+    $("view-note").textContent = `Audio${rate ? ` at ${rate} Hz` : ""}: not shown here. ` +
+      "zarr-python reads the samples from the downloaded archive, with refkv's media extra.";
+    showLevels(await listArrays(zarrUrl));
+    $("open-ng").hidden = true;
+    $("share-local").hidden = true;
+    $("share-archive").hidden = true;
   } else {
     const ms0 = attrs.ome?.multiscales?.[0];
     let found: View[];
@@ -519,9 +563,27 @@ async function zarrify(url: string) {
     } else if (attrs.ome?.["bioformats2raw.layout"] !== undefined) {
       found = await seriesViews(zarrUrl);
     } else {
-      // No OME-Zarr image (a Zarr v2 or N5 hierarchy without one): its arrays.
-      found = (await listArrays(zarrUrl)).map(({ path, meta }) => arrayView(`${zarrUrl}${path}/`, path, meta));
-      if (found.length === 0) throw new Error("no arrays to show");
+      // No OME-Zarr image (a Zarr v2 or N5 hierarchy without one, or an
+      // HDF5 file's datasets): its arrays that Neuroglancer can show. An HDF5
+      // file has many, most of them small or long and narrow (an NWB file's
+      // traces, time by cell), so its images come first (the last two axes
+      // each 64 or more, neither 8 times the other), then the rest, each the
+      // largest first.
+      const arrays = (await listArrays(zarrUrl)).filter(({ meta }) => showable(meta));
+      if (attrs.refkv_zarrified?.profile === "hdf5") {
+        const size = (meta: ArrayMeta) => meta.shape.reduce((a: number, b: number) => a * b, 1);
+        const image = (meta: ArrayMeta) => {
+          const [h, w] = meta.shape.slice(-2);
+          return Math.min(h, w) >= 64 && Math.max(h, w) <= 8 * Math.min(h, w);
+        };
+        arrays.sort((a, b) => Number(image(b.meta)) - Number(image(a.meta)) || size(b.meta) - size(a.meta));
+      }
+      // at most 50 in the picker (an NWB file of stimulus frames has thousands)
+      found = arrays.slice(0, 50).map(({ path, meta }) => arrayView(`${zarrUrl}${path}/`, path, meta));
+      if (found.length === 0) throw new Error("no arrays to show (Neuroglancer shows arrays of two or more axes)");
+      if (arrays.length > found.length) {
+        for (const v of found) v.note = `${found.length} of the ${arrays.length} arrays Neuroglancer can show are listed.`;
+      }
     }
     views = found.map((v) => ({ ...v, input: opened }));
     if (views.length > 1) {
