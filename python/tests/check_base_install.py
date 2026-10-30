@@ -168,7 +168,7 @@ with tempfile.TemporaryDirectory() as d:
         assert "refkv.zarr" not in sys.modules
         points = {e.name: e for e in importlib.metadata.distribution("refkv").entry_points
                   if e.group == "zarr.codecs"}
-        assert set(points) == {"n5_default", "refkv.fits_tiles", "refkv.stream", "refkv.tiff_lzw"}, points
+        assert set(points) == {"n5_default", "refkv.fits_tiles", "refkv.skip", "refkv.stream", "refkv.tiff_lzw"}, points
         for name, point in points.items():
             assert zarr.registry.get_codec_class(name) is point.load(), name
         assert zarr.config.get("codecs.n5_default", None) is None  # zarr-n5's, if installed, is not overridden
