@@ -18,7 +18,12 @@ commit="$(git rev-parse --short HEAD)"
 
 site="$(mktemp -d)"
 trap 'rm -rf "$site"' EXIT
-git -C "$site" init --quiet --initial-branch gh-pages
+if git ls-remote --exit-code --heads "$remote_url" gh-pages > /dev/null; then
+  git clone --quiet --depth 1 --branch gh-pages "$remote_url" "$site"
+  git -C "$site" rm -r --quiet --ignore-unmatch .
+else
+  git -C "$site" init --quiet --initial-branch gh-pages
+fi
 cp demo/moved.html "$site/index.html"
 cp demo/moved.html "$site/404.html"
 for dir in . tiff-to-zarr image-to-zarr; do
@@ -36,7 +41,8 @@ redirects old links there. Its source is `demo/pages_moved.sh` in
 README
 
 git -C "$site" add -A
+git -C "$site" diff --cached --quiet && { echo "the redirect site is up to date"; exit 0; }
 git -C "$site" -c user.name="$(git config user.name)" -c user.email="$(git config user.email)" \
   commit --quiet -m "chore(pages): redirect to refkv-demo, from d-v-b/refkv@${commit}"
-git -C "$site" push --quiet --force "$remote_url" gh-pages
+git -C "$site" push --quiet "$remote_url" gh-pages
 echo "published the redirect site (from ${commit})"
