@@ -1,0 +1,15 @@
+# url|name|no-ref of the public GRIB2 inputs in the corpus (the frozen reference has no GRIB profile,
+# so each compares py with web alone), the 2026-10-29 00z runs of NOAA's and ECMWF's open data,
+# each with its index beside it (NOAA's .idx, ECMWF's .index): GFS 0.25 deg (complex packing with
+# spatial differencing, bitmaps, a repeated field), HRRR CONUS (Lambert conformal, south to north),
+# GEFS 0.5 deg (an ensemble member), NAM, NBM CONUS (rows in alternate directions, missing values in
+# complex packing, probabilities and percentiles), ECMWF IFS 0.25 deg on its Google Cloud mirror (CCSDS), and
+# RAP 13 km, whose fields are all JPEG 2000, which the profile rejects. NOAA's data are public
+# domain; ECMWF's open data are CC BY 4.0.
+https://noaa-gfs-bdp-pds.s3.amazonaws.com/gfs.20261029/00/atmos/gfs.t00z.pgrb2.0p25.f006|gfs_0p25_f006|no-ref|ends-sha256=1a8059588483cd9bd641adf85fd255a9e7221a40ae12f28fefeb0f01d1f1dec3
+https://noaa-hrrr-bdp-pds.s3.amazonaws.com/hrrr.20261029/conus/hrrr.t00z.wrfsfcf06.grib2|hrrr_conus_sfc_f06|no-ref|ends-sha256=2bc69440c8e4452bf0f92767b83b2d49ad1b2f1e8a2a0a16045fc1cd6b17eaa5
+https://noaa-gefs-pds.s3.amazonaws.com/gefs.20261029/00/atmos/pgrb2ap5/gep01.t00z.pgrb2a.0p50.f006|gefs_gep01_0p50_f006|no-ref|ends-sha256=e40b389bb6b67236a4c2601251223dbaf2437dc580e25ffd3d66c264d0af3a52
+https://noaa-nam-pds.s3.amazonaws.com/nam.20261029/nam.t00z.awphys06.tm00.grib2|nam_awphys_f06|no-ref|ends-sha256=1f797595afd2f1120eff5d84d47441443a6181b455aaf074c0d38ed64540c360
+https://noaa-nbm-grib2-pds.s3.amazonaws.com/blend.20261029/00/core/blend.t00z.core.f006.co.grib2|nbm_conus_f006|no-ref|ends-sha256=a5f139c220c398ea58cffb331c7852c7e034e71ee0a9e9b81233f8da01e69955
+https://storage.googleapis.com/ecmwf-open-data/20261029/00z/ifs/0p25/oper/20261029000000-6h-oper-fc.grib2|ecmwf_ifs_0p25_6h|no-ref|ends-sha256=5f5b326636dbf6f6a0c8e1e810422390cf6361b01b9585695d6bba610f8dcb55
+https://noaa-rap-pds.s3.amazonaws.com/rap.20261029/rap.t00z.awp130pgrbf06.grib2|rap_130_reject_jpeg2000|no-ref|ends-sha256=423f32e8e221b6a8ebfbb531f5af5f4b084dee5c3c885e25e1f757f81bb9eb58

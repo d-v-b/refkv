@@ -55,6 +55,7 @@ refkv = "refkv.__main__:main"
 # another extra (refkv.tiff_lzw: images, refkv.stream: media) names it when a chunk is decoded.
 [project.entry-points."zarr.codecs"]
 "refkv.fits_tiles" = "refkv.zarr.codecs.fits_tiles:FitsTilesCodec"
+"refkv.grib" = "refkv.zarr.codecs.grib:GribCodec"
 "refkv.skip" = "refkv.zarr.codecs.skip:SkipCodec"
 "refkv.stream" = "refkv.zarr.codecs.stream:StreamCodec"
 "refkv.tiff_lzw" = "refkv.zarr.codecs.tiff_lzw:LzwCodec"

@@ -1,0 +1,45 @@
+{
+  "about": "The inputs the grib profile rejects, each with the start of its message (the Rust tests' prefix, or what each store test's message contains). rust/refkv-ir/build.rs writes a Rust test per case into tests/grib.rs; python/tests/ir/test_rejects.py checks each through the host and that every rejected fixture is listed here.",
+  "cases": [
+    {
+      "test": "reject_edition1",
+      "input": "grib_reject_edition1.grib2",
+      "message": "a GRIB edition 1 message at byte 467: only edition 2 is read"
+    },
+    {
+      "test": "reject_end",
+      "input": "grib_reject_end.grib2",
+      "message": "the GRIB message at byte 0 does not end with 7777"
+    },
+    {
+      "test": "reject_jpeg2000",
+      "input": "grib_reject_jpeg2000.grib2",
+      "message": "none of the 1 GRIB fields can be presented: packing"
+    },
+    {
+      "test": "reject_order",
+      "input": "grib_reject_order.grib2",
+      "message": "the GRIB message at byte 0: its section 4 follows section 1"
+    },
+    {
+      "test": "reject_padding",
+      "input": "grib_reject_padding.grib2",
+      "message": "the bytes at byte 467 are not a GRIB message"
+    },
+    {
+      "test": "reject_section",
+      "input": "grib_reject_section.grib2",
+      "message": "the section 1 at byte 16 of the GRIB message at byte 0 has the length 4294967040, past the message's end"
+    },
+    {
+      "test": "reject_short",
+      "input": "grib_reject_short.grib2",
+      "message": "file too short for a GRIB message"
+    },
+    {
+      "test": "reject_truncated",
+      "input": "grib_reject_truncated.grib2",
+      "message": "the GRIB message at byte 0 has the length 467, past the 233-byte file"
+    }
+  ]
+}

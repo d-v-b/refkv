@@ -23,6 +23,7 @@ who each one is for, what you get, and how to run it.
 | DICOM | DICOM files, including whole-slide images | [dicom](dicom/README.md) | [dicom.md §7](../../spec/zarrify/dicom.md#7-dicom-profile) |
 | FITS | FITS images and tables (`.fits`, `.fz`) | [fits](fits/README.md) | [fits.md §9](../../spec/zarrify/fits.md#9-fits-profile) |
 | FLAC | FLAC audio files, as a sharded array of samples (`.flac`) | [flac](flac/README.md) | [flac.md §8](../../spec/zarrify/flac.md#8-flac-profile) |
+| GRIB | GRIB2 files of gridded weather and climate fields (`.grib2`), as labeled arrays with CF coordinates | [grib](grib/README.md) | [grib.md §8](../../spec/zarrify/grib.md#8-grib-profile) |
 | HDF5 | HDF5 files (`.h5`, `.hdf5`), and NWB files (`.nwb`), which pynwb's `NWBZarrIO` opens | [hdf5](hdf5/README.md) | [hdf5.md §8](../../spec/zarrify/hdf5.md#8-hdf5-profile) |
 | IMS | Imaris `.ims` files | [ims](ims/README.md) | [ims.md §7](../../spec/zarrify/ims.md#7-ims-profile) |
 | LIF | Leica LIF files (`.lif`) | [lif](lif/README.md) | [lif.md §7](../../spec/zarrify/lif.md#7-lif-profile) |

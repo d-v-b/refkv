@@ -1,6 +1,6 @@
 // Runs a store format of the core built for wasm32 (rust/refkv-ir, `just ir-wasm`) on local
 // directories from Node, as the browser's host would on a listed store: the listing in, then
-// each batch of object reads (one request per object, its spans) served from the files.
+// each batch of object reads (each request some spans of one object) served from the files.
 // Prints one JSON line per store: the output's entries (key and SHA-256 of the bytes) and
 // references, or the rejection, and the batches, requests and bytes read.
 // Exits 1 when a store is rejected (each rejection still printed).

@@ -44,6 +44,14 @@ class FlacSource(Source):
 
 
 @dataclass(frozen=True)
+class GribSource(Source):
+    """WMO FM 92 GRIB edition 2 (WMO-No. 306, Manual on Codes, Volume I.2): a file the `grib`
+    profile reads, its first bytes untested (`Source` lists its read options)."""
+
+    profile: ClassVar[str] = "grib"
+
+
+@dataclass(frozen=True)
 class Hdf5Source(Source):
     """HDF5, NWB: a file the `hdf5` profile reads, its first bytes untested (`Source` lists its
     read options)."""
@@ -201,6 +209,7 @@ CLASSES: dict[str, type[Source | Store]] = {
     "DicomSource": DicomSource,
     "FitsSource": FitsSource,
     "FlacSource": FlacSource,
+    "GribSource": GribSource,
     "Hdf5Source": Hdf5Source,
     "ImsSource": ImsSource,
     "LifSource": LifSource,
@@ -227,6 +236,7 @@ __all__ = [
     "DicomSource",
     "FitsSource",
     "FlacSource",
+    "GribSource",
     "Hdf5Source",
     "ImsSource",
     "LifSource",

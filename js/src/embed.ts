@@ -1,6 +1,6 @@
 // refkv's zarrifier for a host that reads the input itself, such as a viewer's worker (the
-// Neuroglancer fork's `refkv:` kvstore), and the decoder of the `refkv.fits_tiles` codec, both the
-// Rust core's: the input file, read through the host's own reads, or
+// Neuroglancer fork's `refkv:` kvstore), and the decoders of the `refkv.fits_tiles` and
+// `refkv.grib` codecs, all the Rust core's: the input file, read through the host's own reads, or
 // the store at an http(s) URL, zarrified by the Rust core (spec/zarrify.md
 // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md>) and written as a vzip archive
 // (spec/refkv.md <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md>), which the host reads
@@ -90,6 +90,39 @@ export async function decodeFitsTiles(chunk: Uint8Array, configuration: unknown,
     const n = Number(w.vz_fits_tiles_decode(pc, chunk.length, pg, config.length, ps, shape.length));
     if (n < 0) throw new Error(`refkv.fits_tiles: ${new TextDecoder().decode(out(w, -n))}`);
     return out(w, n);
+  } finally {
+    w.vz_free(pc, chunk.length);
+    w.vz_free(pg, config.length);
+    w.vz_free(ps, dims.length);
+  }
+}
+
+/** Decodes a chunk of the `refkv.grib` codec (spec/conventions.md §12
+ * <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#12-grib-messages>), a GRIB
+ * message, with the codec's `configuration` into the values of the chunk shape `shape` (its
+ * field's grid), NaN where missing, as the Rust core decodes it (refkv.zarr's codec too):
+ * binary64, rounded to nearest for a `float32` array. */
+export async function decodeGrib(
+  chunk: Uint8Array,
+  configuration: unknown,
+  shape: number[],
+  dataType: "float64" | "float32" = "float64",
+): Promise<Float64Array | Float32Array> {
+  const w = await ir();
+  const config = new TextEncoder().encode(JSON.stringify(configuration ?? {}));
+  const dims = new Uint8Array(shape.length * 8);
+  shape.forEach((n, i) => new DataView(dims.buffer).setBigUint64(i * 8, BigInt(n), true));
+  const pc = put(w, chunk);
+  const pg = put(w, config);
+  const ps = put(w, dims);
+  try {
+    const n = Number(w.vz_grib_decode(pc, chunk.length, pg, config.length, ps, shape.length));
+    // the core's messages start with "refkv.grib: "
+    if (n < 0) throw new Error(new TextDecoder().decode(out(w, -n)));
+    const bytes = out(w, n);
+    const values = new Float64Array(n / 8);
+    new Uint8Array(values.buffer).set(bytes);
+    return dataType === "float32" ? Float32Array.from(values) : values;
   } finally {
     w.vz_free(pc, chunk.length);
     w.vz_free(pg, config.length);

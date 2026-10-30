@@ -65,17 +65,19 @@ fn drive(r: &mut StoreRun) -> Res<Vec<Vec<ObjectRequest>>> {
 }
 
 #[test]
-fn a_store_run_reads_each_batch_as_one_request_per_object() {
-    // a batch of two whole documents, then ranges of one object: near ones merged, far ones apart
+fn a_store_run_divides_each_objects_spans_among_concurrent_requests() {
+    // a batch of two whole documents, then ranges of one object: near ones merged, far ones apart,
+    // and an object's spans divided among at most the run's 4 concurrent requests
     let mut r = run(vec![vec![(0, 0, 10), (2, 0, 3)], vec![(1, 0, 16), (1, 100, 16), (1, 90_000, 8)]], vec![0, 2]).unwrap();
     let seen = drive(&mut r).unwrap();
     assert_eq!(seen, vec![
         vec![ObjectRequest { object: 0, key: "a/.zarray".into(), spans: vec![(0, 10)] },
              ObjectRequest { object: 2, key: "b".into(), spans: vec![(0, 3)] }],
-        vec![ObjectRequest { object: 1, key: "a/0".into(), spans: vec![(0, 116), (90_000, 90_008)] }],
+        vec![ObjectRequest { object: 1, key: "a/0".into(), spans: vec![(0, 116)] },
+             ObjectRequest { object: 1, key: "a/0".into(), spans: vec![(90_000, 90_008)] }],
     ]);
     let (ir, facts, stats) = r.finish().unwrap();
-    assert_eq!(stats, json!({"objects": 3, "batches": 2, "ranges": 5, "asked": 53, "requests": 3, "spans": 4,
+    assert_eq!(stats, json!({"objects": 3, "batches": 2, "ranges": 5, "asked": 53, "requests": 4, "spans": 4,
                              "bytes": 137, "listed": 3}));
     let fed = facts["fed"].as_array().unwrap();
     assert_eq!(fed.len(), 5);
