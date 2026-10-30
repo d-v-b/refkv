@@ -24,6 +24,12 @@ cached), under `<rest>`, with keys rewritten to start with `<id>/`. Pages
 hold `page_size` keys (default 100, so that the small fixtures exercise
 pagination); the continuation token is opaque.
 
+An upstream request that fails, after `Upstream._open`'s retries, is answered as the
+upstream server answered it when it says the object is not there (404 or 410: a zarrifier's
+probe for a file beside the input expects that), and otherwise with 502; either way it is
+recorded (`Failures`) under the `<id>` it was made for, so that compare.py can tell an input
+its server did not serve from a zarrifier that crashed.
+
 Usage: python conformance/zarrify/proxy.py <fixture dir> <cache dir> [port]
 """
 
@@ -56,6 +62,43 @@ def encode_id(url: str) -> str:
 
 def decode_id(i: str) -> str:
     return base64.urlsafe_b64decode(i + "=" * (-len(i) % 4)).decode()
+
+
+def upstream_failure(e: BaseException) -> tuple[int, str] | None:
+    """(the status the proxy answers with, the kind of failure) for the error an upstream
+    request raised: 404 and "missing" for an object the server says is not there (404, 410),
+    502 and "outage" for any other HTTP status or a network failure (a timeout, a reset
+    connection, a short block); None for an error that is not the upstream server's."""
+    if isinstance(e, urllib.error.HTTPError):
+        return (404, "missing") if e.code in (404, 410) else (502, "outage")
+    if isinstance(e, OSError):  # URLError, ConnectionError, TimeoutError, Upstream.block's short block
+        return 502, "outage"
+    return None
+
+
+class Failures:
+    """The upstream requests that failed, by the `<id>` of the remote input they were made for
+    (`/u/<id>/...`, and a listing's `prefix=<id>/...`)."""
+
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.by_id: dict[str, list[tuple[str, str, str]]] = {}
+
+    def add(self, sid: str, url: str, kind: str, reason: str) -> None:
+        with self.lock:
+            self.by_id.setdefault(sid, []).append((url, kind, reason))
+
+    def unavailable(self, sid: str) -> str | None:
+        """Why the remote input `sid` names could not be read, or None: an outage of any request
+        made for it, or the input itself (a file, or a store's listing) missing upstream. Another
+        object missing (a file beside the input, a store's object) is a probe's answer, not this."""
+        root = decode_id(sid)
+        with self.lock:
+            failed = list(self.by_id.get(sid, ()))
+        for url, kind, reason in failed:
+            if kind == "outage" or url == root:
+                return f"{url}: {reason}"
+        return None
 
 
 def write_whole(f: Path, data: bytes) -> None:
@@ -196,8 +239,9 @@ class RemoteListings:
         return out
 
 
-def make_handler(fixtures: Path, upstream: Upstream, page_size: int = 100):
+def make_handler(fixtures: Path, upstream: Upstream, page_size: int = 100, failures: Failures | None = None):
     remote = RemoteListings(upstream)
+    failures = failures or Failures()
 
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -205,6 +249,24 @@ def make_handler(fixtures: Path, upstream: Upstream, page_size: int = 100):
         @override
         def log_message(self, format, *args):
             pass
+
+        def _remote(self) -> tuple[str, str] | None:
+            """(`<id>`, the upstream URL) of a request for a remote object, or None."""
+            parts = self.path.split("?")[0].split("/")
+            if len(parts) < 3 or parts[1] != "u" or not parts[2]:
+                return None
+            sid = parts[2]
+            url = decode_id(sid)
+            key = "/".join(parts[3:])
+            if url.endswith("/"):  # a remote store: the object under it
+                if not key:
+                    return None
+                url += key
+            elif key and key != url.split("?")[0].rsplit("/", 1)[-1]:
+                # a file beside the remote file (a VSI slide's tile files, a detached NRRD
+                # header's data file, probed by the zarrifiers at the file's directory)
+                url = url.rsplit("/", 1)[0] + "/" + key
+            return sid, url
 
         def _target(self):
             parts = self.path.split("?")[0].split("/")
@@ -214,19 +276,28 @@ def make_handler(fixtures: Path, upstream: Upstream, page_size: int = 100):
                     return None
                 data = path.read_bytes()
                 return len(data), lambda a, b: data[a:b]
-            if len(parts) >= 3 and parts[1] == "u":
-                url = decode_id(parts[2])
-                key = "/".join(parts[3:])
-                if url.endswith("/"):  # a remote store: the object under it
-                    if not key:
-                        return None
-                    url += key
-                elif key and key != url.split("?")[0].rsplit("/", 1)[-1]:
-                    # a file beside the remote file (a VSI slide's tile files, a detached NRRD
-                    # header's data file, probed by the zarrifiers at the file's directory)
-                    url = url.rsplit("/", 1)[0] + "/" + key
+            if (r := self._remote()) is not None:
+                url = r[1]
                 return upstream.size(url), lambda a, b: upstream.read(url, a, b)
             return None
+
+        def _failed(self, e: Exception, sid: str | None, url: str) -> None:
+            """Answers a request whose upstream request raised `e`, and records it under `sid`."""
+            failure = upstream_failure(e)
+            if failure is None:
+                return self._send(500, {}, f"{type(e).__name__}: {e}".encode())
+            if sid is not None:
+                failures.add(sid, url, failure[1], f"{type(e).__name__}: {e}")
+            return self._send(failure[0], {}, f"{type(e).__name__}: {e}".encode())
+
+        def _fetch(self):
+            """`_target()`, or None after answering the request when its upstream request failed."""
+            try:
+                return True, self._target()
+            except Exception as e:  # noqa: BLE001 (answered: a client sees the status, not a dropped connection)
+                r = self._remote()
+                self._failed(e, *(r or (None, "")))
+                return False, None
 
         def _send(self, status, headers, body=b""):
             self.send_response(status)
@@ -249,16 +320,18 @@ def make_handler(fixtures: Path, upstream: Upstream, page_size: int = 100):
                 self._send(400, {}, b"list-type=2 only")
                 return True
             prefix = q.get("prefix", [""])[0]
+            sid, _, rest = prefix.partition("/")
+            store_url = ""
             try:
                 if path == "/f/":
                     keys = local_listing(fixtures, prefix)
                 else:
-                    sid, _, rest = prefix.partition("/")
                     store_url = decode_id(sid)
                     keys = ([(f"{sid}/{k}", n) for k, n in remote.keys(store_url, rest)]
                             if store_url.endswith("/") else [])
             except Exception as e:  # noqa: BLE001
-                self._send(502, {}, str(e).encode())
+                # a store's listing failing is the store failing: recorded under the store's URL
+                self._failed(e, sid if store_url else None, store_url)
                 return True
             start = 0
             if "continuation-token" in q:
@@ -270,7 +343,9 @@ def make_handler(fixtures: Path, upstream: Upstream, page_size: int = 100):
             return True
 
         def do_HEAD(self):
-            t = self._target()
+            answered, t = self._fetch()
+            if not answered:
+                return None
             if t is None:
                 return self._send(404, {"Content-Length": "0"})
             self._send(200, {"Content-Length": str(t[0]), "Accept-Ranges": "bytes"})
@@ -279,7 +354,9 @@ def make_handler(fixtures: Path, upstream: Upstream, page_size: int = 100):
         def do_GET(self):
             if self._listing():
                 return None
-            t = self._target()
+            answered, t = self._fetch()
+            if not answered:
+                return None
             if t is None:
                 return self._send(404, {}, b"not found")
             size, read = t
@@ -296,7 +373,8 @@ def make_handler(fixtures: Path, upstream: Upstream, page_size: int = 100):
             try:
                 body = read(start, end)
             except Exception as e:  # noqa: BLE001
-                return self._send(502, {}, str(e).encode())
+                r = self._remote()
+                return self._failed(e, *(r or (None, "")))
             self._send(206, {"Content-Range": f"bytes {start}-{end - 1}/{size}", "Accept-Ranges": "bytes"}, body)
             return None
 
@@ -307,9 +385,18 @@ class Proxy:
     """Runs the server in a thread; `base` is its URL, ending in "/"."""
 
     def __init__(self, fixtures: Path, cache: Path, port: int = 0, page_size: int = 100) -> None:
-        self.server = ThreadingHTTPServer(("127.0.0.1", port), make_handler(fixtures, Upstream(cache), page_size))
+        self.failures = Failures()
+        self.server = ThreadingHTTPServer(("127.0.0.1", port),
+                                          make_handler(fixtures, Upstream(cache), page_size, self.failures))
         self.base = f"http://127.0.0.1:{self.server.server_address[1]}/"
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def unavailable(self, url: str) -> str | None:
+        """Why the remote input this proxy serves at `url` (from `remote` or `remote_store`)
+        could not be read (`Failures.unavailable`), or None, as for a fixture."""
+        if not url.startswith(f"{self.base}u/"):
+            return None
+        return self.failures.unavailable(url[len(self.base) + 2 :].split("/", 1)[0])
 
     def local(self, name: str) -> str:
         return f"{self.base}f/{name}"

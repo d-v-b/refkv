@@ -6,8 +6,9 @@
 //!
 //! **Batches.** The `.vsi` file, whole; then the tile files are **probed** (§9.2
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#92-the-tile-files>): for each
-//! stack the tree says has one, `_<name>_/stack<N>/frame_t.ets`, then `frame_t_0.ets`, and the
-//! first that exists is the stack's tile file; then every tile file's 64-byte SIS header, in
+//! stack the tree says has one, `_<name>_/stack<N>/frame_t.ets`, in one batch, then
+//! `frame_t_0.ets` of each stack whose `frame_t.ets` is absent, in a second, and the first
+//! that exists is the stack's tile file; then every tile file's 64-byte SIS header, in
 //! one batch; then every one's ETS header and tile directory, in one batch. The schema
 //! (`schema/vsi.json`) is checked as the profile meets each role. The IR is emitted at the end,
 //! from what was read.
@@ -72,7 +73,10 @@ pub fn detect(head: &[u8]) -> bool {
 enum Phase {
     Start,
     Vsi,
+    /// the first candidates probed: probe the second of the stacks whose first is absent
     Probed,
+    /// every candidate a stack needs probed: resolve the tile files
+    Fallback,
     Heads,
     Dirs,
     Done,
@@ -222,7 +226,10 @@ impl Vsi {
                 for (c, name) in ["frame_t.ets", "frame_t_0.ets"].iter().enumerate() {
                     let key = format!("{}/{name}", s.dir);
                     self.probes.push((k, c, key.clone()));
-                    keys.push(key);
+                    // the second candidate only if the first is absent (Phase::Probed)
+                    if c == 0 {
+                        keys.push(key);
+                    }
                 }
             }
         }
@@ -610,6 +617,23 @@ impl Vsi {
                     }
                 }
                 Phase::Probed => {
+                    // a stack's later candidates, probed only when every earlier one is absent,
+                    // so that a host is not asked for a file it does not have when the stack's
+                    // tile file is already found (a host whose 404 a browser cannot read, one
+                    // without CORS headers, would fail the run)
+                    let keys: Vec<String> = self
+                        .probes
+                        .iter()
+                        .filter(|(k, c, _)| *c > 0 && !self.probes.iter().any(|p| p.0 == *k && p.1 < *c && self.found.contains_key(&p.2)))
+                        .map(|p| p.2.clone())
+                        .collect();
+                    self.phase = Phase::Fallback;
+                    if !keys.is_empty() {
+                        self.batches += 1;
+                        return Ok(StoreStep::Probe(keys));
+                    }
+                }
+                Phase::Fallback => {
                     self.resolve()?;
                     self.phase = Phase::Heads;
                 }
