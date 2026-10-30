@@ -35,6 +35,7 @@ own between `transpose` and `bytes`, [§3](#3-arrays).)
 | Nikon ND2 | [nd2](zarrify/nd2.md) | `59612f14-e314-4207-ba00-8f422ba71490` |
 | Hamamatsu NDPI | [ndpi](zarrify/ndpi.md) | `6cac71ef-dbb2-4acd-b60c-00389aa4238a` |
 | NIfTI-1 and NIfTI-2 | [nifti](zarrify/nifti.md) | `06e5809d-4d54-4b72-afd0-6bf61a7b4c85` |
+| NumPy NPY and NPZ (NEP 1) | [npy](zarrify/npy.md) | `62b1d1ba-8eb3-465c-a333-75e096fce519` |
 | NRRD (Teem) | [nrrd](zarrify/nrrd.md) | `23e0c600-8da6-40f1-81e7-ab246e948e88` |
 | OME-Zarr 0.4 | [ome-zarr](zarrify/ome-zarr.md) | `b74ea302-65bb-49ae-b81f-f9bb52cd4eed` |
 | Akoya QPTIFF | [qptiff](zarrify/qptiff.md) | `329ea136-2f55-4c27-b6f4-8e60ca2109b8` |
@@ -310,9 +311,11 @@ imagecodecs-zarr's (`imagecodecs_jpeg`, `imagecodecs_jpeg2k`, `imagecodecs_jpegx
 zarr-extensions registry's (`n5_default`), or refkv's own, which are named `refkv.<codec>`
 (`refkv.stream`, [§10](#10-coded-streams); `refkv.fits_tiles`,
 [fits §3.3](zarrify/fits.md#33-tile-compressed-images); `refkv.tiff_lzw`,
-[qptiff §4.1](zarrify/qptiff.md#41-data-types-and-codecs)). refkv names a
+[qptiff §4.1](zarrify/qptiff.md#41-data-types-and-codecs); `refkv.skip`,
+[npy §4.4](zarrify/npy.md#44-the-refkvskip-codec)). refkv names a
 codec of its own only where none of the others decodes the chunks as the convention says (QPTIFF's
-LZW streams can run past their tile, which `imagecodecs_lzw` does not allow). refkv's Python
+LZW streams can run past their tile, which `imagecodecs_lzw` does not allow; no codec of the
+others drops the NPY header a deflated `.npz` member inflates to). refkv's Python
 package provides its own codecs to zarr-python through the `zarr.codecs` entry points, and the
 `images` extra installs imagecodecs-zarr.
 

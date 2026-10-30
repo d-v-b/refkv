@@ -124,6 +124,14 @@ class NiftiSource(Source):
 
 
 @dataclass(frozen=True)
+class NpySource(Source):
+    """NumPy NPY and NPZ (NEP 1): a file the `npy` profile reads, its first bytes untested
+    (`Source` lists its read options)."""
+
+    profile: ClassVar[str] = "npy"
+
+
+@dataclass(frozen=True)
 class NrrdSource(Source):
     """NRRD (Teem): a file the `nrrd` profile reads, its first bytes untested (`Source` lists
     its read options)."""
@@ -203,6 +211,7 @@ CLASSES: dict[str, type[Source | Store]] = {
     "Nd2Source": Nd2Source,
     "NdpiSource": NdpiSource,
     "NiftiSource": NiftiSource,
+    "NpySource": NpySource,
     "NrrdSource": NrrdSource,
     "OmeZarrStore": OmeZarrStore,
     "QptiffSource": QptiffSource,
@@ -228,6 +237,7 @@ __all__ = [
     "Nd2Source",
     "NdpiSource",
     "NiftiSource",
+    "NpySource",
     "NrrdSource",
     "OmeZarrStore",
     "QptiffSource",

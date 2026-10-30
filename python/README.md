@@ -45,7 +45,8 @@ which refuses loopback, private and link-local addresses unless
 connections it cannot check, unless `Policy(allow_unchecked_proxy=True)`: an
 archive's own URL included.
 
-Wheels are built for Linux, macOS and Windows (Python 3.12 and later).
+Wheels are built for Linux (glibc and musl), macOS and Windows, on x86_64 and arm64
+(Python 3.12 and later).
 
 Status: experimental, anything can change. Source, spec and issues:
 <https://github.com/d-v-b/refkv>.
