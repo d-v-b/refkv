@@ -1,10 +1,11 @@
 {
   "source_model": "npy",
   "version": 1,
-  "about": "The source model of a NumPy .npy file or .npz archive (spec/zarrify/npy.md §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#53-elements>): the elements a parser emits, the tables of data types, and the roles the file, an NPY preamble, header and data, and a .npz archive's ZIP structures and members play, each with the constraints the input must meet (spec/zarrify/npy.md §8 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#8-numpy-profile>). The parser checks them in this order. A .npz member's NPY roles do not reject the input: a member that fails one is not presented, with the role's reason. Projections read a valid IR and check nothing.",
+  "about": "The source model of a NumPy .npy file or .npz archive (spec/zarrify/npy.md §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#53-elements>): the elements a parser emits, the tables of data types, and the roles the file, an NPY preamble, header and data, and a .npz archive's ZIP structures and members play, each with the constraints the input must meet (spec/zarrify/npy.md §8 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#8-numpy-profile>). The parser checks them in this order. A .npz member's NPY roles (and inflated_size, a deflated member's) do not reject the input: a member that fails one is not presented, with the role's reason. Projections read a valid IR and check nothing.",
   "limits": {
     "max_safe": 9007199254740991,
-    "max_rank": 64
+    "max_rank": 64,
+    "max_inflated_header": 1048576
   },
   "tables": {
     "types": {
@@ -45,7 +46,7 @@
     "data": {"kind": "data", "form": "{geometry: {data_type, shape, order}, codec: {endian}, recipe: [[src, 0, null]]}", "extent": "(o + p + n, B), when presented and B > 0"},
     "end, end_comment, zip64_locator, zip64_end, central_directory/**": {"kind": "value", "about": "a .npz archive's end records and central directory (spec/zarrify/safe.md §6.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#63-the-source-metadata-node>)"},
     "entries/<i>": {"kind": "struct", "extent": "[lho, ds + cs): member i's local header (local_header, name, extra) and data"},
-    "entries/<i>/data": {"kind": "struct, derived or value", "about": "a stored member whose NPY preamble and header were read (struct); a deflated member (derived, form {transform: deflate}); any other member's bytes (value bytes[cs])"},
+    "entries/<i>/data": {"kind": "struct, derived or value", "about": "a stored member whose NPY preamble and header were read (struct); a deflated member (derived, form {transform: deflate}), whose preamble and header, when read, are in the source metadata; any other member's bytes (value bytes[cs])"},
     "gaps/<offset>": {"kind": "gap", "about": "bytes no other element claims: a stored member's bytes after its header when it is not presented, and after its data; data descriptors; bytes after a .npy file's data"}
   },
   "roles": {
@@ -86,6 +87,18 @@
       "given": {"total": "B = e * the product of the shape, exactly", "total_shown": "B in decimal", "offset": "p + n, the data's offset", "end": "the end of the file (or member)"},
       "constraints": [
         {"require": "total <= max_safe && offset + total <= end", "message": "the {total_shown}-byte data at {offset} is outside the {end}-byte file"}
+      ]
+    },
+    "inflated_header": {
+      "given": {"end": "p + n, where a deflated member's header ends in its stream (or the bytes of it read so far)"},
+      "constraints": [
+        {"require": "end <= max_inflated_header", "message": "a deflated member's NPY header ends past byte {end} of its stream"}
+      ]
+    },
+    "inflated_size": {
+      "given": {"offset": "p + n, the data's offset in a deflated member's stream", "total": "B", "size": "the member's size, uncompressed"},
+      "constraints": [
+        {"require": "offset + total == size", "message": "the {total}-byte data at {offset} does not end the deflated member's {size}-byte stream"}
       ]
     },
     "zip_end": {

@@ -61,7 +61,7 @@ The table, generated from the registry, lists them:
 | [ND2](zarrify/nd2.md#part-2-the-profile) | file | Nikon ND2, format version 3 and later |
 | [NDPI](zarrify/ndpi.md#part-2-the-profile) | file | Hamamatsu NDPI slides, a TIFF variant with 64-bit offsets |
 | [NIfTI](zarrify/nifti.md#part-2-the-profile) | file | NIfTI-1 and NIfTI-2 single files (`.nii`) |
-| [NumPy](zarrify/npy.md#part-2-the-profile) | file | NumPy `.npy` files, and `.npz` archives of them (`np.savez`), whose stored members it presents |
+| [NumPy](zarrify/npy.md#part-2-the-profile) | file | NumPy `.npy` files, and `.npz` archives of them (`np.savez`, `np.savez_compressed`), whose stored and deflated members it presents |
 | [NRRD](zarrify/nrrd.md#part-2-the-profile) | file | NRRD files (`.nrrd`) and detached headers with one data file (`.nhdr`), raw or gzip-encoded |
 | [OME-Zarr](zarrify/ome-zarr.md#part-2-the-profile) | store | OME-Zarr 0.4 hierarchies on Zarr v2, migrated to OME-Zarr 0.5 |
 | [QPTIFF](zarrify/qptiff.md#part-2-the-profile) | file | Akoya (PerkinElmer) Vectra QPTIFF slides and inForm component data, a TIFF with an XML description per image, in LZW, JPEG or uncompressed tiles or strips |

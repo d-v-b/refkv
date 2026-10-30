@@ -436,7 +436,7 @@
         "offset": {
           "type": "integer",
           "minimum": 10,
-          "description": "The data's offset in the file"
+          "description": "The data's offset in the file; a deflated member's, in its inflated stream"
         }
       },
       "required": [

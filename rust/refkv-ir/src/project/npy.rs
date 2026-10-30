@@ -4,11 +4,13 @@
 //! array (a `.npy` file's `array`, a `.npz` archive's members), its chunks cut from its `data`
 //! element as conventions §7
 //! <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays> cuts
-//! contiguous values of its stored shape.
+//! contiguous values of its stored shape; a deflated member's one chunk, its deflate stream as
+//! a gzip member (spec/zarrify/npy.md §8.4
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#84-chunks>).
 
 use super::{arr, contiguous, Copied};
 use crate::ir::Ir;
-use crate::out::{array_json, declared_group, grid_chunks, Chunk, Out};
+use crate::out::{array_json, declared_group, grid_chunks, Chunk, Out, Part, GZIP_HEADER, GZIP_LEVEL};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 use std::collections::BTreeMap;
@@ -46,6 +48,21 @@ fn cut(a: &J, threshold: usize) -> Result<Cut, String> {
         }
         None => n(&a["item"]),
     };
+    let d = &a["deflate"];
+    if d.is_object() {
+        // one chunk, the whole array: the deflate stream as a gzip member, the header and data
+        // it inflates to (spec/zarrify/npy.md §8.4
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#84-chunks>)
+        let chunk_shape = shape.iter().map(|&s| s.max(1)).collect();
+        let mut chunks = Vec::new();
+        if n(&a["length"]) > 0 {
+            let mut trailer = (n(&d["crc"]) as u32).to_le_bytes().to_vec();
+            trailer.extend_from_slice(&(n(&d["size"]) as u32).to_le_bytes());
+            let parts = vec![Part::Lit(GZIP_HEADER.to_vec()), Part::Src(n(&d["start"]), n(&d["length"])), Part::Lit(trailer)];
+            chunks.push((vec![0; shape.len()], Chunk::Ranges(parts)));
+        }
+        return Ok(Cut { shape, chunk_shape, chunks, reversed, trailing: trailing.is_some() });
+    }
     let (grid, chunks) = grid_chunks(n(&a["offset"]), &stored, item, CHUNK_BYTES, threshold).ok_or("internal: the data cannot be cut into chunks")?;
     // the stored order's coordinates in the array's: the first r reversed, a trailing axis last
     let order = |c: Vec<u64>| -> Vec<u64> {
@@ -85,6 +102,10 @@ fn array_doc(a: &J, c: &Cut) -> J {
         Some(l) => json!({"name": "bytes", "configuration": {"endian": if l { "little" } else { "big" }}}),
         None => json!({"name": "bytes"}),
     });
+    if a["deflate"].is_object() {
+        codecs.push(json!({"name": "refkv.skip", "configuration": {"length": a["deflate"]["skip"]}}));
+        codecs.push(json!({"name": "gzip", "configuration": {"level": GZIP_LEVEL}}));
+    }
     let mut dims: Vec<String> = (0..r).map(|k| format!("dim_{k}")).collect();
     if c.trailing {
         dims.push("byte".into());
@@ -120,7 +141,10 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
         // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#84-chunks>)
         let prefix = if c.shape.is_empty() { format!("{path}/c") } else { format!("{path}/c/") };
         let form = a["data"].as_u64().and_then(|d| ir.form_id(d as u32)).unwrap_or(0);
-        contiguous::emit(&mut refs, c.chunks, (n(&a["offset"]), n(&a["length"]), form), copied, &[&prefix], |k| k, &mut zeros)?;
+        // a deflated member's chunk is its stream, which its derived element is
+        let d = &a["deflate"];
+        let element = if d.is_object() { (n(&d["start"]), n(&d["length"])) } else { (n(&a["offset"]), n(&a["length"])) };
+        contiguous::emit(&mut refs, c.chunks, (element.0, element.1, form), copied, &[&prefix], |k| k, &mut zeros)?;
     }
     let mut out = refs.out;
     let mut unpresented: BTreeMap<String, u64> = BTreeMap::new();

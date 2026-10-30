@@ -62,9 +62,9 @@
       "message": "NPY format version 1.1 is not 1.0, 2.0 or 3.0"
     },
     {
-      "test": "npz_reject_compressed",
-      "input": "npz_reject_compressed.npz",
-      "message": "no member can be presented: a.npy (method), b.npy (method)"
+      "test": "npz_reject_bzip2",
+      "input": "npz_reject_bzip2.npz",
+      "message": "no member can be presented: a.npy (method)"
     },
     {
       "test": "npz_reject_duplicate",

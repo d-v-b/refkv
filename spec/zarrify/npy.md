@@ -1,7 +1,7 @@
 # NumPy
 
 The Zarr layout of a NumPy file: a `.npy` file, which holds one array, or a `.npz`
-archive, a ZIP file of `.npy` members such as `np.savez` writes. What all of refkv's
+archive, a ZIP file of `.npy` members such as `np.savez` and `np.savez_compressed` write. What all of refkv's
 conventions share is in [spec/conventions.md](../conventions.md), cited here as
 "conventions §n". How refkv produces this layout as a reference store, and which files it
 accepts, is the NumPy profile, [Part 2](#part-2-the-profile) below.
@@ -15,7 +15,8 @@ This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
 Like MP3 and HDF5, NumPy's arrays are not images: the hierarchy holds each array as a plain
 Zarr array, with no OME-NGFF metadata. The values stay in the file; each chunk is a range of
-it.
+it, or, for a member that `np.savez_compressed` deflated, the member's deflate stream as a gzip
+member.
 
 # Part 1. The convention
 
@@ -174,8 +175,10 @@ its **name**, when:
 - its file name ends with `.npy`, and `K` is the file name without it;
 - `K` is a Zarr node name: it is not empty, has no `/`, is not `.` or `..`, does not start
   with `__`, and is not `zarr.json`; and it is not `refkv_source`;
-- it is stored (method 0), its preamble and header are those of [§2](#2-the-npy-format), its
-  data type is one of [§3](#3-data-types)'s, and its data lies within its stored bytes.
+- it is stored (method 0) or deflated (method 8), its preamble and header are those of
+  [§2](#2-the-npy-format), its data type is one of [§3](#3-data-types)'s, and its data lies
+  within its stored bytes; a deflated member's preamble, header and data are its **stream**,
+  the bytes its deflate data inflates to, and its data ends the stream.
 
 A presented member's array is what `np.load` gives for the key `K`: NumPy's `NpzFile` names
 its arrays so. Every other member is **not presented**, with a reason
@@ -195,14 +198,24 @@ bytes are its last, fastest axis whatever the order.
 |---|---|---|---|
 | `shape` | array of integer | required | `shape`, then `n` for a trailing axis |
 | `data_type` | string or object | required | the Zarr data type of [§3](#3-data-types) |
-| `chunk_grid` | object | required | regular; its chunk shape is the cut of the stored shape ([§8.4](#84-chunks)), reversed back (but for the trailing axis) when the stored shape is reversed |
+| `chunk_grid` | object | required | regular; its chunk shape is the cut of the stored shape ([§8.4](#84-chunks)), reversed back (but for the trailing axis) when the stored shape is reversed; a deflated member's is its `shape` (each size at least 1): one chunk |
 | `fill_value` | as the data type | required | the data type's zero ([§3](#3-data-types)) |
-| `codecs` | array of object | required | `[{"name": "transpose", "configuration": {"order": O}}]` when the stored shape is reversed, `O` = `[r − 1, …, 1, 0]` (then `r` for a trailing axis); then `{"name": "bytes", "configuration": {"endian": E}}`, `E` the data type's byte order, `"little"` or `"big"`, or `{"name": "bytes"}` when it has none |
+| `codecs` | array of object | required | `[{"name": "transpose", "configuration": {"order": O}}]` when the stored shape is reversed, `O` = `[r − 1, …, 1, 0]` (then `r` for a trailing axis); then `{"name": "bytes", "configuration": {"endian": E}}`, `E` the data type's byte order, `"little"` or `"big"`, or `{"name": "bytes"}` when it has none; then, for a deflated member, `{"name": "refkv.skip", "configuration": {"length": p + n}}` and `{"name": "gzip", "configuration": {"level": 6}}` ([§4.4](#44-the-refkvskip-codec)) |
 | `dimension_names` | array of string | required | `dim_0`, `dim_1`, … `dim_{r−1}`, then `byte` for a trailing axis (xarray's names for a NumPy array's axes) |
 | `attributes` | object | required | `{}` ([§1](#1-declaration)) |
 
 A value of the array at index `i` is the element at index `i` of the NPY data, as NumPy reads
 it; a value of a trailing axis is a byte of its element.
+
+### 4.4 The `refkv.skip` codec
+
+<a id="codec-refkv-skip"></a>`refkv.skip` is a bytes-to-bytes codec, configuration
+`{"length": k}`, `k` a non-negative integer. Decoding drops the first `k` bytes of its input,
+which MUST have at least `k`; encoding puts `k` zero bytes before its input. A deflated
+member's chunk is its stream as a gzip member ([§8.4](#84-chunks)): `gzip` decodes it to the
+stream, the NPY preamble and header and then the data, and `refkv.skip`, with `k` the `p + n`
+bytes of the preamble and header, leaves the data, which `bytes` decodes. (No codec of
+zarr-python, numcodecs or imagecodecs drops a prefix of more than a checksum's 4 bytes.)
 
 ## 5. Source metadata
 
@@ -230,7 +243,7 @@ is rebuilt byte for byte.
 | `descr` | string or array | required | the header's `descr`: a type string as it is, or an array of fields, each `[name, descr]` (`[name, descr, shape]` for a field of shape, its shape an array of integers) |
 | `fortran_order` | boolean | required | the header's `fortran_order` |
 | `shape` | array of integer | required | the header's `shape` |
-| `offset` | integer | required | the data's offset in the file |
+| `offset` | integer | required | the data's offset in the file; a deflated member's, in its stream (`p + n`) |
 
 <a id="type-npymember"></a>**`NpyMember`**, a member of a `.npz` archive:
 
@@ -241,16 +254,17 @@ is rebuilt byte for byte.
 | `size` | integer | required | its size, uncompressed |
 | `compressed_size` | integer | required | its size as stored |
 | `path` | string | when presented | `K`, its array's path |
-| `reason` | string | when not presented | why ([§4.2](#42-an-npz-archive)): `not_npy` (its file name does not end with `.npy`), `name` (`K` is not a node name), `reserved` (`K` is `refkv_source`), `method` (it is not stored), `header` (its preamble or header is not [§2](#2-the-npy-format)'s), `datatype` (its data type is not [§3](#3-data-types)'s), `size` (its data does not lie within its stored bytes) |
-| `header` | [`NpyHeader`](#type-npyheader) | when it was read | its header: a stored `.npy` member whose header is [§2](#2-the-npy-format)'s, presented or not |
+| `reason` | string | when not presented | why ([§4.2](#42-an-npz-archive)): `not_npy` (its file name does not end with `.npy`), `name` (`K` is not a node name), `reserved` (`K` is `refkv_source`), `method` (it is neither stored nor deflated), `header` (its preamble or header is not [§2](#2-the-npy-format)'s, or its deflate data ends or is invalid before its header does), `datatype` (its data type is not [§3](#3-data-types)'s), `size` (its data does not lie within its stored bytes, or does not end its stream) |
+| `header` | [`NpyHeader`](#type-npyheader) | when it was read | its header: a stored or deflated `.npy` member whose header is [§2](#2-the-npy-format)'s, presented or not |
 
 ### 5.2 The IR mirror
 
 `refkv_source` is the file's **IR mirror**
 ([conventions §11.3](../conventions.md#113-the-ir-mirror)). The IR's elements (the NumPy
 **source model**) are below; nothing is left out: the preamble and header of every NPY
-array the profile read, every member, the ZIP structures, and every byte between or after
-them.
+array the profile read in a range of the file, every member (a deflated member's preamble and
+header are in its deflate data, and in the root's source metadata), the ZIP structures, and
+every byte between or after them.
 
 ### 5.3 Elements
 
@@ -333,18 +347,35 @@ Its one chunk, `array/c/0/0`, is the range `(128, 96)` of source 0. Written in F
 `[{"name": "transpose", "configuration": {"order": [1, 0]}}, {"name": "bytes", ...}]`: its
 chunk's bytes are the array's transpose in C order, which is the file's order.
 
-A `.npz` archive of `np.savez(f, image=a, labels=b)` has the arrays `image` and `labels`;
-`np.savez_compressed` deflates its members, which are then not presented
-([§7](#7-what-the-layout-does-not-express)).
+A `.npz` archive of `np.savez(f, image=a, labels=b)` has the arrays `image` and `labels`.
+`np.savez_compressed` deflates its members: then each array is one chunk, the member's deflate
+data between a gzip header and trailer, and its codecs end with `refkv.skip` and `gzip`
+([§4.4](#44-the-refkvskip-codec)). The member `fortran.npy` of `fixtures/npy/npz_compressed.npz`,
+a `3 × 4 × 5` big-endian `uint16` array in Fortran order, has the codecs
+
+```json
+[
+  {"name": "transpose", "configuration": {"order": [2, 1, 0]}},
+  {"name": "bytes", "configuration": {"endian": "big"}},
+  {"name": "refkv.skip", "configuration": {"length": 128}},
+  {"name": "gzip", "configuration": {"level": 6}}
+]
+```
+
+and its one chunk, `fortran/c/0/0/0`, is the literal `1F 8B 08 00 00 00 00 00 00 FF`, the
+member's 189 bytes of deflate data, and the member's CRC-32 and size (248) as two `u32`s.
 
 ## 7. What the layout does not express
 
 This section is informative.
 
 - **Compressed archives.** `np.savez_compressed` deflates each member, its NPY header and its
-  data together, so no range of the file holds the array's elements, and no Zarr codec
-  inflates a stream and then drops the header it begins with. Such members are not presented
-  (`method`); their bytes are in the mirror.
+  data together, so no range of the file holds the array's elements: a deflate stream can only
+  be read from its start. Such a member is one chunk, however large, and reading any of its
+  elements inflates all of it: a 1 GiB member is a 1 GiB chunk, which a reader holds in memory
+  whole, and fetches whole over HTTP. A viewer that reads an array in tiles (Neuroglancer)
+  reads it at most once at a time, but cannot show a part of it sooner. Members compressed
+  with another method (bzip2, LZMA) are not presented (`method`).
 - **Object arrays** hold Python objects as a pickle, which is code, not data: an object array
   is not presented, and `np.load` reads one only with `allow_pickle=True`.
 - **Long doubles** (`f16`, `c32`, and `f12` on some platforms) have no Zarr data type.
@@ -406,18 +437,22 @@ whatever its size. Besides:
 - **No product:** the members are not a SAFE product: none of [safe.md §8.4](safe.md#84-the-zip-form)'s rules on names,
   directories and methods apply.
 - **Stored members:** a stored member (method 0) MUST have `cs = us`.
-- **Members:** a stored member whose file name ends with `.npy` has its preamble and header
-  read from its data, at `ds`, by
+- **Members:** a stored or deflated member whose file name ends with `.npy` has its preamble
+  and header read from its data, at `ds` (a deflated member's from its stream, which is
+  inflated as far as its header ends), by
   [§8.2](#82-an-npy-file)'s checks, each of which makes the member not presented
   ([the convention §4.2](#42-an-npz-archive)) instead of rejecting the input: the preamble and
   header (`header`), the data type (`datatype`), and the data size, `p + n + B` at most `cs`
-  (`size`). A member that is not stored is not read (`method`).
+  (`size`); a deflated member's deflate data that ends, or is invalid, before its header does,
+  or a header that ends past byte 2^20 of its stream, `p + n > 2^20` (`header`: the profile
+  inflates no more of a member than that to read its header); and a deflated member's data
+  that does not end its stream, `p + n + B = us` (`size`). A member that is neither stored nor deflated is not read (`method`).
 - **Arrays:** at least one member is presented; otherwise the input is rejected, with each
   member's reason: `no member can be presented: a.npy (method), b.txt (not_npy)`.
 
 ### 8.4 Chunks
 
-An array's data is `B` contiguous bytes at offset `v`, its elements in the order of its
+A stored array's data is `B` contiguous bytes at offset `v`, its elements in the order of its
 stored shape ([the convention §4.3](#43-the-arrays)), C order. Every chunk of the array is
 present. The data is cut as [conventions §7](../conventions.md#7-source-values-as-arrays)
 cuts contiguous values of the stored shape (the trailing axis included, with the element its
@@ -439,6 +474,19 @@ Where [conventions §7](../conventions.md#7-source-values-as-arrays) copies the 
 reference, with the padding as a literal range, would not fit in a payload), it is instead
 `bytes`: the `l` bytes and the `p` zero bytes. The output's source table is source 0,
 followed by the zero data source when a reference is padded.
+
+A deflated member's array, of `B > 0` bytes, is one chunk, `<name>/c/0/…/0` (one `0` for each
+of its axes, a trailing axis included; `<name>/c` for rank 0): its deflate data, the `cs`
+bytes at `ds`, as a gzip member (RFC 1952), which inflates to its stream. Its reference is
+never copied: its literals are 18 bytes. With `B = 0` it has none.
+
+<a id="type-npydeflatedchunk"></a>**`NpyDeflatedChunk`**:
+
+| part | range | presence | value |
+|---|---|---|---|
+| the gzip header | literal | required | `1F 8B 08 00 00 00 00 00 00 FF`: deflate, no flags, no time, no extra flags, an unknown operating system |
+| the deflate data | source range `(0, ds, cs)` | required | the member's data in the file |
+| the gzip trailer | literal | required | the member's CRC-32 (the central directory's), then `us` modulo 2^32, each a `u32` |
 
 The archive has no other entries than the root's and the arrays' `zarr.json`, the arrays'
 chunks, and the mirror's.
