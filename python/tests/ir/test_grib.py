@@ -18,7 +18,7 @@ from ir_helpers import FIXTURES
 
 import refkv.zarr
 from refkv import _core
-from refkv._narrow import at, mapping, ndarray, sequence, string
+from refkv._narrow import at, integer, mapping, ndarray, sequence, string
 from refkv.ir.store import StoreIrOutput
 from refkv.zarrify import _zarrify as zarrify
 from refkv.zarrify.store import object_url
@@ -107,11 +107,11 @@ def test_fields_are_eccodes_at_their_coordinates_and_the_file_rebuilds(path):
     out, root = zarrified(path)
     meta = mapping(at(root.attrs, "refkv_zarrified", "grib"))
     unpresented = len(sequence(meta["unpresented"]))
-    assert len(out.refs) == int(meta["fields"]) - unpresented
+    assert len(out.refs) == integer(meta["fields"]) - unpresented
     for key, parts in sorted(out.refs.items()):
         group, variable, _, *coords = key.split("/")
         array = root.get_array(f"{group}/{variable}")
-        dims = [string(d) for d in sequence(array.metadata.dimension_names)]
+        dims = [string(d) for d in sequence(at(array.metadata.to_dict(), "dimension_names"))]
         index = tuple(int(c) for c in coords)
         got = ndarray(array[index[:-2]])
         message = chunk_bytes(parts, path.parent)

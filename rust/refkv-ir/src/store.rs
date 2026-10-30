@@ -13,9 +13,9 @@
 //! `.zattrs` in one, since the listing names them all), so the reads of a batch run
 //! concurrently, as #37's prefetch of documents does today. An object's ranges of a batch, merged
 //! when at most 4 KiB apart (amplification at most 4), are its spans, each a range request (a
-//! whole object is one), divided among at most `concurrency` requests of the batch, so that far
-//! apart ranges of one object (a GRIB file's message heads) are read at once. Objects are never
-//! merged: each is its own URL.
+//! whole object is one), in requests of at most 16 spans, which the host makes concurrently, so
+//! that far apart ranges of one object (a GRIB file's message heads) are read at once. Objects
+//! are never merged: each is its own URL.
 //!
 //! **Held objects.** The run keeps the bytes of every object it read whole; at the end, every
 //! object the parser gave children (a held object) takes them ([`Ir::hold_all`]), so the mirror
@@ -27,6 +27,10 @@
 use crate::ir::{Ir, Res};
 use serde_json::{json, Value as J};
 use std::collections::HashMap;
+
+/// The most spans of one object a request holds (the hosts read a request's spans in turn, and
+/// its requests concurrently).
+const SPANS_PER_REQUEST: usize = 16;
 
 /// A batch of reads a store parser asks for, or done.
 pub enum StoreStep {
@@ -349,10 +353,10 @@ impl StoreRun {
             }
             self.stats.spans += spans.len() as u64;
             self.stats.bytes += spans.iter().map(|s| s.1 - s.0).sum::<u64>();
-            // an object's spans divided among at most `concurrency` requests, which the host
-            // makes at once: a GRIB file's message heads, megabytes apart, are read concurrently
-            let per = spans.len().div_ceil(self.concurrency);
-            for group in spans.chunks(per) {
+            // an object's spans in requests of at most SPANS_PER_REQUEST, which the host makes
+            // concurrently: a GRIB file's message heads, megabytes apart, are read at once (a
+            // fixed count, not the host's concurrency, so that every host makes the same requests)
+            for group in spans.chunks(SPANS_PER_REQUEST) {
                 self.stats.requests += 1;
                 self.round.push(ObjectRequest { object: k, key: self.keys[k].0.clone(), spans: group.to_vec() });
             }
