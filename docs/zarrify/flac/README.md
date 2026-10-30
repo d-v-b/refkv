@@ -112,7 +112,9 @@ The last line reads six samples five seconds in: one request of the one
 frame that holds them (17 KB of the 3.4 MB file), decoded on the fly.
 
 **In the browser.** The service worker serves a zarrified FLAC as a Zarr
-hierarchy like any other; the demo page does not display audio.
+hierarchy like any other. The demo page's FLAC example, a file of the
+IETF CELLAR test set (`57 - PNG PICTURE`), lists the archive's arrays and
+offers the archive for download; the page does not display audio.
 
 ## Supported and not supported
 

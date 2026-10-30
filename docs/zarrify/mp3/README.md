@@ -116,7 +116,9 @@ frames (about 54 KB), decoded on the fly. The same samples, as
 its gapless trimming, start `delay + 529` samples later in its output.
 
 **In the browser.** The service worker serves a zarrified MP3 as a Zarr
-hierarchy like any other; the demo page does not display audio.
+hierarchy like any other. The demo page's MP3 example, this file,
+lists the archive's array and offers the archive for download; the page
+does not display audio.
 
 ## Supported and not supported
 

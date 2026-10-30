@@ -86,6 +86,13 @@ try {
       result.levels = await page.$$eval("#levels tr", (rows) => rows.map((r) => r.textContent));
       phase = "viewer";
       const mapLink = await page.$("#open-map:not([hidden])");
+      if (!mapLink && !(await page.$("#open-ng:not([hidden])"))) {
+        // audio: the page lists the archive's arrays and opens no viewer
+        result.viewer = "none";
+        result.note = await page.textContent("#view-note");
+        console.log(`  no viewer: ${result.note}`);
+        continue;
+      }
       const viewer = await context.newPage();
       if (mapLink) {
         result.viewer = "map";
