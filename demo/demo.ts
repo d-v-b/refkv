@@ -287,7 +287,7 @@ const SHOWN_TYPES = ["uint8", "int8", "uint16", "int16", "uint32", "int32", "uin
 
 /** The codecs the Neuroglancer fork decodes (src/datasource/zarr/codec/ there). */
 const DECODED_CODECS = [
-  "bytes", "transpose", "crc32c", "blosc", "zstd", "gzip", "sharding_indexed", "numcodecs.shuffle", "n5_default",
+  "bytes", "transpose", "crc32c", "blosc", "zstd", "gzip", "numcodecs.zlib", "sharding_indexed", "numcodecs.shuffle", "n5_default",
   "imagecodecs_jpeg", "imagecodecs_jpeg2k", "imagecodecs_jpegxr", "imagecodecs_lzw", "refkv.fits_tiles", "refkv.stream",
 ];
 
@@ -297,7 +297,7 @@ const codecNames = (codecs: { name: string; configuration?: any }[]): string[] =
 
 /**
  * Whether Neuroglancer can show the array `meta` as an image: two or more axes, of a type it
- * shows, with codecs it decodes (not, for example, an HDF5 dataset's `numcodecs.zlib`).
+ * shows, with codecs it decodes.
  */
 const showable = (meta: ArrayMeta) =>
   meta.shape.length >= 2 && SHOWN_TYPES.includes(meta.data_type) &&
