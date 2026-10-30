@@ -69,10 +69,10 @@ with no service worker. The fork's `vzip:` adapter checks the archive's pins
 where the response shows their headers, and skips those a cross-origin
 server hides ([spec/refkv.md §6.7](../spec/refkv.md#67-reader-policy), rule 7).
 
-Live demo: https://d-v-b.github.io/vzip-demo/image-to-zarr/ (formerly `tiff-to-zarr/`, which now redirects). `demo/pages.sh`
+Live demo: https://d-v-b.github.io/refkv-demo/image-to-zarr/ (formerly at https://d-v-b.github.io/vzip-demo/, whose links now redirect). `demo/pages.sh`
 publishes it, with the Neuroglancer build, to its own directory of the demo
-site (the `gh-pages` branch of `d-v-b/vzip-demo`, which hosts each refkv demo
-in a directory and lists them at https://d-v-b.github.io/vzip-demo/).
+site (the `gh-pages` branch of `d-v-b/refkv-demo`, which hosts each refkv demo
+in a directory and lists them at https://d-v-b.github.io/refkv-demo/).
 
 ## What is supported
 

@@ -64,11 +64,11 @@ fs.writeFileSync(
   path.join(site, "README.md"),
   `# refkv demos
 
-Live demos of [refkv](https://github.com/d-v-b/refkv), reference semantics for key-value storage: **https://d-v-b.github.io/vzip-demo/**
+Live demos of [refkv](https://github.com/d-v-b/refkv), reference semantics for key-value storage: **https://d-v-b.github.io/refkv-demo/**
 
 | demo | what it does |
 |---|---|
-${demos.map((d) => `| [${d.title}](https://d-v-b.github.io/vzip-demo/${d.dir}/) | ${d.description} |`).join("\n")}
+${demos.map((d) => `| [${d.title}](https://d-v-b.github.io/refkv-demo/${d.dir}/) | ${d.description} |`).join("\n")}
 
 This repository holds only the built sites, one directory per demo, published
 with GitHub Pages from the \`gh-pages\` branch. The source is in

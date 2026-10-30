@@ -119,7 +119,7 @@ the browser cannot read Akoya's samples there. The live demo's QPTIFF
 example is a Vectra Polaris fluorescence slide on Zenodo (record 16569043,
 CDLA-Sharing-1.0; 3 channels, 71472 × 61440 pixels, 9 levels of JPEG tiles,
 362 MB):
-<https://d-v-b.github.io/vzip-demo/image-to-zarr/?url=https%3A%2F%2Fzenodo.org%2Fapi%2Frecords%2F16569043%2Ffiles%2F2025-07-15_13_13_34.qptiff%2Fcontent>.
+<https://d-v-b.github.io/refkv-demo/image-to-zarr/?url=https%3A%2F%2Fzenodo.org%2Fapi%2Frecords%2F16569043%2Ffiles%2F2025-07-15_13_13_34.qptiff%2Fcontent>.
 It was ready in about 7 s, from 29 range requests. An LZW slide on a host
 that allows cross-origin reads (Zenodo record 5545864's inForm component
 fields, for example) zarrifies the same way.

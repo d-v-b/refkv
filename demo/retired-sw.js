@@ -5,10 +5,11 @@
 // visit within its scope), install it in place of the old one, and it then
 // unregisters itself. It handles no requests.
 //
-// The demo site (d-v-b/vzip-demo) serves it at /vzip-demo/vzip-sw.js: the
-// site's first deploy put the TIFF-to-Zarr demo, and its worker, at the root,
-// before the demo moved to tiff-to-zarr/. It is also served at tiff-to-zarr/vzip-sw.js,
-// for the workers installed there before the demo moved to image-to-zarr/.
+// The old demo site (d-v-b/vzip-demo, see demo/pages_moved.sh) serves it at
+// each place that site served a worker: /vzip-demo/vzip-sw.js (its first
+// deploy put the TIFF-to-Zarr demo, and its worker, at the root),
+// tiff-to-zarr/vzip-sw.js and image-to-zarr/vzip-sw.js, the demo's later homes
+// before the site moved to d-v-b/refkv-demo.
 
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => {

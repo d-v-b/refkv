@@ -1,6 +1,6 @@
 #!/bin/bash
 # Builds the image-to-Zarr demo and publishes it to the demo site
-# (https://d-v-b.github.io/vzip-demo/, the gh-pages branch of d-v-b/vzip-demo),
+# (https://d-v-b.github.io/refkv-demo/, the gh-pages branch of d-v-b/refkv-demo),
 # which hosts each demo in its own directory:
 #   <demo>/               the demo page (js/dist)
 #   <demo>/neuroglancer/  the Neuroglancer fork (d-v-b/neuroglancer, branch vzip)
@@ -12,17 +12,15 @@
 # repository (../neuroglancer) with its dependencies installed.
 #
 # Usage: demo/pages.sh [demo dir] [remote url]
-#   (defaults: image-to-zarr, https://github.com/d-v-b/vzip-demo.git)
+#   (defaults: image-to-zarr, https://github.com/d-v-b/refkv-demo.git)
 #
-# Retired demo directories (MOVED, below) keep a page that redirects to their
-# replacement, with the query and fragment, and a worker that unregisters
-# itself (demo/retired-sw.js), so old links and installed workers keep
-# working.
+# The site moved here from https://d-v-b.github.io/vzip-demo/, which now only
+# redirects (see demo/pages_moved.sh).
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
 demo="${1:-image-to-zarr}"
-remote_url="${2:-https://github.com/d-v-b/vzip-demo.git}"
+remote_url="${2:-https://github.com/d-v-b/refkv-demo.git}"
 commit="$(git rev-parse --short HEAD)"
 neuroglancer="${NEUROGLANCER:-$(cd .. && pwd)/neuroglancer}"
 ng_commit="$(git -C "$neuroglancer" rev-parse --short HEAD)"
@@ -43,18 +41,6 @@ cp -R js/dist/. "$site/$demo/"
 cp -R "$neuroglancer/dist/client/." "$site/$demo/neuroglancer/"
 find "$site/$demo" -name '*.map' -delete
 touch "$site/.nojekyll"
-# The first deploy served this demo's worker at the site root. Browsers that
-# installed it get this replacement, which unregisters it (see the file).
-cp demo/retired-sw.js "$site/vzip-sw.js"
-# tiff-to-zarr/ became image-to-zarr/ when the demo learned ND2.
-MOVED=("tiff-to-zarr:image-to-zarr")
-for move in "${MOVED[@]}"; do
-  old="${move%%:*}" new="${move##*:}"
-  rm -rf "${site:?}/$old"
-  mkdir -p "$site/$old"
-  cp demo/retired-sw.js "$site/$old/vzip-sw.js"
-  sed "s|@TARGET@|../$new/|g" demo/moved.html > "$site/$old/index.html"
-done
 node demo/pages_index.mjs "$site"
 
 git -C "$site" add -A

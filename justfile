@@ -254,6 +254,6 @@ archives-idr:
     uv run python design/experiments/tiff_to_vzip.py --no-pins {{quote(idr_tiff)}} \
         design/experiments/out/ng_idr/idr0096_4000_d11_m5_LT_2_unpinned.vzip
 
-# Build and publish a demo to https://d-v-b.github.io/vzip-demo/ (see demo/pages.sh)
+# Build and publish a demo to https://d-v-b.github.io/refkv-demo/ (see demo/pages.sh)
 deploy-demo *args: js::build
     demo/pages.sh {{args}}
