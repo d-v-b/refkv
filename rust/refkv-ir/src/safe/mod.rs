@@ -20,12 +20,12 @@
 pub mod jp2;
 pub mod product;
 pub mod xmltree;
-pub mod zip;
 
 use crate::ir::*;
 use crate::nd2::Step;
 use crate::rules::{self, Rules, flag, num, text};
 use crate::store::{StoreParser, StoreStep};
+use crate::zip::{self, DEFLATE_FORM};
 use jp2::{BandReader, Codestream};
 use product::{Geocoding, Image};
 use serde_json::{Value as J, json};
@@ -38,7 +38,6 @@ pub const MAX_HELD_XML: u64 = 1 << 16;
 /// A read of the zip file's own structures, not of an object.
 const FILE: usize = usize::MAX;
 pub const TILE_FORM: &str = r#"{"codec":"jpeg2000-tile-part","recipe":[["src",0,null]]}"#;
-pub const DEFLATE_FORM: &str = r#"{"transform":"deflate"}"#;
 const SOT_TYPE: &str = "{marker:>u2,lsot:>u2,isot:>u2,psot:>u4,tpsot:u1,tnsot:u1}";
 
 pub fn is_xml(key: &str) -> bool {
@@ -525,49 +524,20 @@ impl Safe {
     }
 
     fn emit_zip(&self, ir: &mut Ir) -> Result<(), String> {
-        let le = &self.end;
-        let tail = &self.raw["tail"];
-        let tail_at = self.size - tail.len() as u64;
-        let at = |o: u64, n: u64| -> &[u8] { &tail[(o - tail_at) as usize..(o - tail_at + n) as usize] };
-        if le.cd_size > 0 {
-            let cd = &self.raw["cd"];
-            let c = ir.struct_(0, "central_directory", NO_INDEX, 0, Some((le.cd_offset, le.cd_size)))?;
-            for (i, e) in self.entries.iter().enumerate() {
-                let p = (e.at - le.cd_offset) as usize;
-                let s = ir.struct_(c, "entries/", i as u64, 0, Some((e.at, 46 + e.nn + e.ne + e.nc)))?;
-                ir.value(s, "header", NO_INDEX, CD_TYPE, 0, (e.at, 46), Some(&cd[p..p + 46]))?;
-                let mut o = e.at + 46;
-                for (name, n, ty) in [("name", e.nn, "ascii"), ("extra", e.ne, "bytes"), ("comment", e.nc, "ascii")] {
-                    if n > 0 {
-                        let q = (o - le.cd_offset) as usize;
-                        ir.value(s, name, NO_INDEX, &format!("{ty}[{n}]"), 0, (o, n), Some(&cd[q..q + n as usize]))?;
-                    }
-                    o += n;
-                }
-            }
-        }
-        if let Some((loc, rec)) = le.zip64 {
-            ir.value(0, "zip64_end", NO_INDEX, ZIP64_END_TYPE, 0, (rec, 56), Some(&self.raw["record"]))?;
-            ir.value(0, "zip64_locator", NO_INDEX, ZIP64_LOCATOR_TYPE, 0, (loc, 20), Some(&self.raw["locator"]))?;
-        }
-        ir.value(0, "end", NO_INDEX, END_TYPE, 0, (le.eocd, 22), Some(at(le.eocd, 22)))?;
-        if le.comment > 0 {
-            ir.value(0, "end_comment", NO_INDEX, &format!("ascii[{}]", le.comment), 0, (le.eocd + 22, le.comment), Some(at(le.eocd + 22, le.comment)))?;
-        }
+        let raw = zip::Records {
+            tail: &self.raw["tail"],
+            cd: self.raw.get("cd").map_or(&[][..], |b| b.as_slice()),
+            record: self.raw.get("record").map(|b| b.as_slice()),
+            locator: self.raw.get("locator").map(|b| b.as_slice()),
+        };
+        zip::emit_records(ir, self.size, &self.end, &self.entries, &raw)?;
         let bands: HashMap<usize, &Band> = self.bands.iter().map(|b| (b.obj, b)).collect();
         for (o, obj) in self.objs.iter().enumerate() {
             let e = &self.entries[obj.entry];
             if e.us == 0 {
                 continue;
             }
-            let s = ir.struct_(0, "entries/", obj.entry as u64, 0, Some((e.lho, e.ds + e.cs - e.lho)))?;
-            ir.value(s, "local_header", NO_INDEX, LOCAL_TYPE, 0, (e.lho, 30), Some(&e.local))?;
-            if e.local_nn > 0 {
-                ir.value(s, "name", NO_INDEX, &format!("ascii[{}]", e.local_nn), 0, (e.lho + 30, e.local_nn), None)?;
-            }
-            if e.local_ne > 0 {
-                ir.value(s, "extra", NO_INDEX, &format!("bytes[{}]", e.local_ne), 0, (e.lho + 30 + e.local_nn, e.local_ne), None)?;
-            }
+            let s = zip::emit_local(ir, obj.entry as u64, e, None)?;
             if let Some(b) = bands.get(&o) {
                 let d = ir.struct_(s, "data", NO_INDEX, 0, Some((e.ds, e.us)))?;
                 emit_band(ir, d, e.ds, &b.cs)?;
@@ -630,12 +600,6 @@ impl Safe {
         })
     }
 }
-
-const CD_TYPE: &str = "{signature:<u4,version_made:<u2,version_needed:<u2,flags:<u2,method:<u2,time:<u2,date:<u2,crc32:<u4,compressed_size:<u4,size:<u4,name_length:<u2,extra_length:<u2,comment_length:<u2,disk:<u2,internal:<u2,external:<u4,local_header_offset:<u4}";
-const LOCAL_TYPE: &str = "{signature:<u4,version:<u2,flags:<u2,method:<u2,time:<u2,date:<u2,crc32:<u4,compressed_size:<u4,size:<u4,name_length:<u2,extra_length:<u2}";
-const ZIP64_END_TYPE: &str = "{signature:<u4,size:<u8,version_made:<u2,version_needed:<u2,disk:<u4,cd_disk:<u4,entries_here:<u8,entries:<u8,cd_size:<u8,cd_offset:<u8}";
-const ZIP64_LOCATOR_TYPE: &str = "{signature:<u4,cd_disk:<u4,record_offset:<u8,disks:<u4}";
-const END_TYPE: &str = "{signature:<u4,disk:<u2,cd_disk:<u2,entries_here:<u2,entries:<u2,cd_size:<u4,cd_offset:<u4,comment_length:<u2}";
 
 /// A band file's elements under `parent`, its offsets from `base` (spec/zarrify/safe.md §6.3
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#63-the-source-metadata-node>).

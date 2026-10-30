@@ -31,6 +31,7 @@ pub mod store;
 pub mod text;
 pub mod types;
 pub mod xml;
+pub mod zip;
 
 #[cfg(target_arch = "wasm32")]
 pub mod wasm;
