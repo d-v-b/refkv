@@ -12,6 +12,6 @@
   ],
   "reference": null,
   "source": "NumPy NPY and NPZ (NEP 1)",
-  "inputs": "NumPy `.npy` files, and `.npz` archives of them (`np.savez`), whose stored members it presents",
-  "for": "NumPy arrays: `.npy` files, and the stored arrays of `.npz` archives"
+  "inputs": "NumPy `.npy` files, and `.npz` archives of them (`np.savez`, `np.savez_compressed`), whose stored and deflated members it presents",
+  "for": "NumPy arrays: `.npy` files, and the arrays of `.npz` archives, stored or deflated"
 }

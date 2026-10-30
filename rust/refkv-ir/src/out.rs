@@ -624,10 +624,13 @@ pub fn metadata_array(out: &mut Out, path: &str, data_type: &str, shape: &[u64],
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>).
 pub const GZIP_LEVEL: u8 = 6;
 
-/// `raw` as a gzip member (RFC 1952): a header with no name, time or extra field, the
-/// deflate stream at `GZIP_LEVEL`, the CRC-32 and the length.
+/// A gzip member's header (RFC 1952): deflate, with no name, time or extra field.
+pub const GZIP_HEADER: [u8; 10] = [0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 255];
+
+/// `raw` as a gzip member (RFC 1952): `GZIP_HEADER`, the deflate stream at `GZIP_LEVEL`, the
+/// CRC-32 and the length.
 pub fn gzip(raw: &[u8]) -> Vec<u8> {
-    let mut out = vec![0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 255];
+    let mut out = GZIP_HEADER.to_vec();
     out.extend(miniz_oxide::deflate::compress_to_vec(raw, GZIP_LEVEL));
     out.extend_from_slice(&crate::zip::crc32(raw).to_le_bytes());
     out.extend_from_slice(&(raw.len() as u32).to_le_bytes());

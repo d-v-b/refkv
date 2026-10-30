@@ -311,9 +311,11 @@ imagecodecs-zarr's (`imagecodecs_jpeg`, `imagecodecs_jpeg2k`, `imagecodecs_jpegx
 zarr-extensions registry's (`n5_default`), or refkv's own, which are named `refkv.<codec>`
 (`refkv.stream`, [§10](#10-coded-streams); `refkv.fits_tiles`,
 [fits §3.3](zarrify/fits.md#33-tile-compressed-images); `refkv.tiff_lzw`,
-[qptiff §4.1](zarrify/qptiff.md#41-data-types-and-codecs)). refkv names a
+[qptiff §4.1](zarrify/qptiff.md#41-data-types-and-codecs); `refkv.skip`,
+[npy §4.4](zarrify/npy.md#44-the-refkvskip-codec)). refkv names a
 codec of its own only where none of the others decodes the chunks as the convention says (QPTIFF's
-LZW streams can run past their tile, which `imagecodecs_lzw` does not allow). refkv's Python
+LZW streams can run past their tile, which `imagecodecs_lzw` does not allow; no codec of the
+others drops the NPY header a deflated `.npz` member inflates to). refkv's Python
 package provides its own codecs to zarr-python through the `zarr.codecs` entry points, and the
 `images` extra installs imagecodecs-zarr.
 

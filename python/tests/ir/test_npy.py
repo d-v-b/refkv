@@ -4,6 +4,8 @@ the members an archive does not present, and the edge chunks it copies. NumPy ha
 Python reference: `np.load` is the independent reader."""
 
 import json
+import struct
+import zipfile
 
 import numpy as np
 import pytest
@@ -127,7 +129,11 @@ def test_records_the_members_it_does_not_present(tmp_path):
     got = {m["name"]: m.get("path", m.get("reason")) for m in members}
     assert got == {
         "kept.npy": "kept",
-        "deflated.npy": "method",
+        "deflated.npy": "deflated",
+        "bzip2.npy": "method",
+        "deflated_trailing.npy": "size",
+        "deflated_broken.npy": "header",
+        "deflated_long_header.npy": "header",
         "notes.txt": "not_npy",
         "dir/nested.npy": "name",
         "refkv_source.npy": "reserved",
@@ -139,16 +145,52 @@ def test_records_the_members_it_does_not_present(tmp_path):
         "empty.npy": "empty",
     }
     headed = {m["name"] for m in members if "header" in m}
-    assert headed == {"kept.npy", "objects.npy", "long_double.npy", "short.npy", "scalar.npy", "empty.npy"}
+    assert headed == {
+        "kept.npy",
+        "deflated.npy",
+        "deflated_trailing.npy",
+        "objects.npy",
+        "long_double.npy",
+        "short.npy",
+        "scalar.npy",
+        "empty.npy",
+    }
     assert out.summary["unpresented"] == {
         "datatype": 2,
-        "header": 1,
+        "header": 3,
         "method": 1,
         "name": 1,
         "not_npy": 1,
         "reserved": 1,
-        "size": 1,
+        "size": 2,
     }
+
+
+def test_writes_a_deflated_member_as_one_gzip_chunk(tmp_path):
+    """A deflated member is one chunk, its deflate stream between a gzip header and a trailer
+    of its CRC-32 and size, decoded by `gzip` and then `refkv.skip`, which drops the NPY
+    preamble and header (spec/zarrify/npy.md §8.4
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#84-chunks>)."""
+    path = FIXTURES / "npy" / "npz_compressed.npz"
+    out, _, _ = zarrified(path, tmp_path)
+    array = json.loads(out.bytes_entries["fortran/zarr.json"])
+    assert array["chunk_grid"]["configuration"]["chunk_shape"] == [3, 4, 5]
+    assert array["codecs"] == [
+        {"name": "transpose", "configuration": {"order": [2, 1, 0]}},
+        {"name": "bytes", "configuration": {"endian": "big"}},
+        {"name": "refkv.skip", "configuration": {"length": 128}},
+        {"name": "gzip", "configuration": {"level": 6}},
+    ]
+    with zipfile.ZipFile(path) as z:
+        info = z.getinfo("fortran.npy")
+    o = info.header_offset
+    nn, ne = struct.unpack("<HH", path.read_bytes()[o + 26 : o + 30])
+    stream = (o + 30 + nn + ne, info.compress_size)
+    trailer = struct.pack("<II", info.CRC, info.file_size)
+    assert out.refs["fortran/c/0/0/0"] == [bytes.fromhex("1f8b08000000000000ff"), stream, trailer]
+    assert [k for k in out.refs if k.startswith("fortran/")] == ["fortran/c/0/0/0"]
+    assert "scalar/c" in out.refs
+    assert not [k for k in out.refs if k.startswith("empty/")]
 
 
 def test_edge_chunks_past_the_payload_are_copied(tmp_path):

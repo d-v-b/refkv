@@ -2,9 +2,9 @@
 (spec/zarrify/npy.md §8 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#8-numpy-profile>):
 `.npy` files of every presented data type, in C and Fortran order, of rank 0, of size 0, in
 format versions 1.0, 2.0 and 3.0, large enough to be cut into chunks, with a header past the
-first read and bytes after the data; `.npz` archives as `np.savez` writes them, with ZIP64 end
-records, a comment, and members it does not present; and the inputs the profile rejects
-(`*_reject_*`).
+first read and bytes after the data; `.npz` archives as `np.savez` and `np.savez_compressed`
+write them, with ZIP64 end records, a comment, and members it does not present; and the inputs
+the profile rejects (`*_reject_*`).
 
 The arrays are written by NumPy (`np.lib.format.write_array`); the archives by `zipfile`, as
 `np.savez` writes them but with a fixed date, so that the files are the same on every run; the
@@ -80,6 +80,15 @@ def npz(name: str, members: list[tuple[str, bytes, int]], comment: bytes = b"") 
             info.compress_type = method
             with z.open(info, "w", force_zip64=True) as f:
                 f.write(data)
+
+
+def stream_start(name: str, member: str) -> int:
+    """Where the data of `member` of the archive `name` starts: after its local header."""
+    raw = (OUT / name).read_bytes()
+    with zipfile.ZipFile(OUT / name) as z:
+        o = z.getinfo(member).header_offset
+    nn, ne = struct.unpack("<HH", raw[o + 26 : o + 30])
+    return o + 30 + nn + ne
 
 
 def handmade(descr: str, shape: str = "(2,)", data: bytes = b"", version: int = 1, extra: str = "") -> bytes:
@@ -165,6 +174,16 @@ def accepted() -> None:
         [
             ("kept.npy", npy_bytes(values((3, 3), "<f4")), zipfile.ZIP_STORED),
             ("deflated.npy", npy_bytes(values((50,), "<f8")), zipfile.ZIP_DEFLATED),
+            ("bzip2.npy", npy_bytes(values((4,), "<f8")), zipfile.ZIP_BZIP2),
+            ("deflated_trailing.npy", npy_bytes(values((4,), "<f8")) + b"trailing", zipfile.ZIP_DEFLATED),
+            ("deflated_broken.npy", npy_bytes(values((4,), "<f8")), zipfile.ZIP_DEFLATED),
+            # a header that ends past byte 2^20 of its stream, which the profile does not inflate
+            (
+                "deflated_long_header.npy",
+                header_bytes("{'descr': '<f8', 'fortran_order': False, 'shape': (1,), }" + " " * (1 << 20), 2)
+                + bytes(8),
+                zipfile.ZIP_DEFLATED,
+            ),
             ("notes.txt", b"not an array\n", zipfile.ZIP_STORED),
             ("dir/nested.npy", npy_bytes(values((2,), "<i2")), zipfile.ZIP_STORED),
             ("refkv_source.npy", npy_bytes(values((2,), "<i2")), zipfile.ZIP_STORED),
@@ -174,6 +193,31 @@ def accepted() -> None:
             ("broken.npy", b"\x93NUMPY\x01\x00\x10\x00{'descr': '<f8'", zipfile.ZIP_STORED),
             ("scalar.npy", npy_bytes(np.array(2.5)), zipfile.ZIP_STORED),
             ("empty.npy", npy_bytes(np.zeros((0,), dtype="<i2")), zipfile.ZIP_STORED),
+        ],
+    )
+    # a deflate stream whose first block is of the reserved type 3, which no inflater reads
+    path = OUT / "npz_mixed.npz"
+    raw = bytearray(path.read_bytes())
+    raw[stream_start("npz_mixed.npz", "deflated_broken.npy")] = 0xFF
+    path.write_bytes(bytes(raw))
+    # every member deflated, as np.savez_compressed writes them: in Fortran order, of rank 0 and
+    # size 0, with a trailing axis, a structure, and a header whose stream runs past the first
+    # window (random field names, which deflate cannot shrink much; within np.load's 10000-byte
+    # limit on a header)
+    rng = np.random.default_rng(0)
+    letters = np.array(list("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"))
+    wide = np.dtype([("".join(rng.choice(letters, 28)), "<i2") for _ in range(240)])
+    npz(
+        "npz_compressed.npz",
+        [
+            ("a.npy", npy_bytes(values((4,), "<f8")), zipfile.ZIP_DEFLATED),
+            ("b.npy", npy_bytes(values((2,), "<i4")), zipfile.ZIP_DEFLATED),
+            ("fortran.npy", npy_bytes(values((3, 4, 5), ">u2"), fortran=True), zipfile.ZIP_DEFLATED),
+            ("scalar.npy", npy_bytes(np.array(2.5)), zipfile.ZIP_DEFLATED),
+            ("empty.npy", npy_bytes(np.zeros((0, 3), dtype="<i2")), zipfile.ZIP_DEFLATED),
+            ("bytes.npy", npy_bytes(values((3, 2), "|S4"), fortran=True), zipfile.ZIP_DEFLATED),
+            ("struct.npy", npy_bytes(values((5,), np.dtype([("x", "<f4"), ("y", "<i2")]))), zipfile.ZIP_DEFLATED),
+            ("wide.npy", npy_bytes(values((2,), wide)), zipfile.ZIP_DEFLATED),
         ],
     )
     # ZIP64 end records and extra fields in the central directory, and an archive comment
@@ -212,14 +256,8 @@ def rejected() -> None:
         npy_bytes(values((2,), np.dtype({"names": ["a", "b"], "formats": ["|u1", "<i4"], "offsets": [0, 4]}))),
     )
     write("npy_reject_truncated.npy", npy_bytes(values((10,), "<f8"))[:-8])
-    # every member deflated, as np.savez_compressed writes them: none can be presented
-    npz(
-        "npz_reject_compressed.npz",
-        [
-            ("a.npy", npy_bytes(values((4,), "<f8")), zipfile.ZIP_DEFLATED),
-            ("b.npy", npy_bytes(values((2,), "<i4")), zipfile.ZIP_DEFLATED),
-        ],
-    )
+    # every member compressed with a method other than deflate: none can be presented
+    npz("npz_reject_bzip2.npz", [("a.npy", npy_bytes(values((4,), "<f8")), zipfile.ZIP_BZIP2)])
     npz(
         "npz_reject_duplicate.npz",
         [

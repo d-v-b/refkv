@@ -6,8 +6,10 @@
 //! Rounds: the file's first 4096 bytes, which hold a `.npy` file's preamble and header (the
 //! rest of a longer header in a second round); or, for a `.npz` archive, its end records, its
 //! ZIP64 records, its central directory, each member's local header with a window after it,
-//! which holds a stored `.npy` member's preamble and header, and the rest of a longer one. The
-//! schema (`schema/npy.json`) holds every check, in the profile's order.
+//! which holds a stored `.npy` member's preamble and header, and the rest of a longer one; a
+//! deflated member's window is the start of its stream, which is inflated as far as its header
+//! (more of the stream in later rounds, when the header needs it). The schema
+//! (`schema/npy.json`) holds every check, in the profile's order.
 
 pub mod header;
 
@@ -71,6 +73,69 @@ enum Read {
     /// the bytes it needs next
     Need(u64, u64),
     Done(Array),
+}
+
+/// The start of a raw deflate stream, from its first bytes `data`: at most `cap` bytes of its
+/// output, and whether more of the stream could give more (the output stopped short of `cap`
+/// where `data` ran out, not where the stream ended or broke).
+fn inflate_prefix(data: &[u8], cap: u64) -> (Vec<u8>, bool) {
+    use miniz_oxide::inflate::stream::{InflateState, inflate};
+    use miniz_oxide::{DataFormat, MZFlush, MZStatus};
+    let mut st = InflateState::new_boxed(DataFormat::Raw);
+    let mut out = Vec::new();
+    let mut input = data;
+    let mut buf = vec![0u8; 1 << 16];
+    while (out.len() as u64) < cap {
+        let room = (cap - out.len() as u64).min(buf.len() as u64) as usize;
+        let r = inflate(&mut st, input, &mut buf[..room], MZFlush::None);
+        out.extend_from_slice(&buf[..r.bytes_written]);
+        input = &input[r.bytes_consumed..];
+        match r.status {
+            Ok(MZStatus::Ok) if r.bytes_written > 0 || r.bytes_consumed > 0 => {}
+            Ok(MZStatus::StreamEnd) | Err(miniz_oxide::MZError::Data) => return (out, false),
+            _ => {
+                let more = (out.len() as u64) < cap && input.is_empty();
+                return (out, more);
+            }
+        }
+    }
+    (out, false)
+}
+
+/// Reads the NPY array a deflated member `e` holds from the start of its stream, inflating its
+/// compressed bytes fed from `e.ds` (spec/zarrify/npy.md §8.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#83-the-archive>): the array,
+/// its offsets those of the inflated stream, whose data must end it; or the compressed bytes it
+/// needs next. A stream that ends or breaks before its header does, or whose header ends past
+/// `max_inflated_header`, is the reason `header`.
+fn read_deflated(rules: &Rules, fed: &Fed, e: &zip::Entry) -> Result<Read, String> {
+    let have = fed.reach(e.ds).min(e.ds + e.cs) - e.ds;
+    let compressed = fed.get(e.ds, have).unwrap_or(&[]);
+    let mut want = 12;
+    loop {
+        let (bytes, more) = inflate_prefix(compressed, want.min(e.us));
+        let got = bytes.len() as u64;
+        let mut inflated = Fed::new(Overlap::MergeKeep);
+        inflated.feed(0, bytes);
+        match read(rules, &inflated, 0, e.us, false)? {
+            Read::Need(o, len) if rules.check("inflated_header", rules::env([("end", num((o + len) as f64))])).is_err() => {
+                return Ok(Read::Done(Array { reason: Some("header"), ..Array::default() }));
+            }
+            Read::Need(o, len) if got >= want.min(e.us) && o + len > want => want = o + len,
+            Read::Need(..) if more && have < e.cs => return Ok(Read::Need(e.ds + have, (e.cs - have).min(have.max(WINDOW)))),
+            Read::Need(..) => return Ok(Read::Done(Array { reason: Some("header"), ..Array::default() })),
+            Read::Done(mut a) => {
+                if let (None, Some((offset, total))) = (a.reason, a.data) {
+                    let r = rules.check("inflated_size", rules::env([("offset", num(offset as f64)), ("total", num(total as f64)), ("size", num(e.us as f64))]));
+                    if r.is_err() {
+                        a.reason = Some("size");
+                        a.data = None;
+                    }
+                }
+                return Ok(Read::Done(a));
+            }
+        }
+    }
 }
 
 /// Reads the NPY array at `base` of a file or member ending at `limit` from `fed`, checking
@@ -181,15 +246,21 @@ impl Array {
         Ok(Some(ir.data(parent, "data", NO_INDEX, 0, (o, b), &form.to_string())?))
     }
 
-    /// The facts the projection reads of it, presented at `path`, its data element `data`.
-    fn facts(&self, path: &str, data: Option<u32>) -> J {
+    /// The facts the projection reads of it, presented at `path`, its data element `data`; a
+    /// deflated member's `deflate`, its stream's range, CRC-32 and size and the bytes before its
+    /// data.
+    fn facts(&self, path: &str, data: Option<u32>, deflated: Option<&zip::Entry>) -> J {
         let (h, t) = (self.header.as_ref().unwrap(), self.dtype.as_ref().unwrap());
         let (offset, length) = self.data.unwrap();
-        json!({
+        let mut f = json!({
             "path": path, "data": data, "offset": offset, "length": length,
             "data_type": t.zarr, "item": t.item, "little": t.little, "trailing": t.trailing, "fill": t.fill,
             "fortran_order": h.fortran_order, "shape": h.shape,
-        })
+        });
+        if let Some(e) = deflated {
+            f["deflate"] = json!({"start": e.ds, "length": e.cs, "crc": e.crc, "size": e.us, "skip": offset});
+        }
+        f
     }
 }
 
@@ -347,7 +418,8 @@ impl Npy {
                     if !m.pending {
                         continue;
                     }
-                    match read(self.rules, &self.fed, e.ds, e.ds + e.cs, false)? {
+                    let r = if e.method == 8 { read_deflated(self.rules, &self.fed, e)? } else { read(self.rules, &self.fed, e.ds, e.ds + e.cs, false)? };
+                    match r {
                         Read::Need(o, len) => need.push((o, len)),
                         Read::Done(a) => {
                             m.pending = false;
@@ -393,7 +465,7 @@ impl Npy {
                 Ok(p) => (Some(p), None),
                 Err(r) => (None, Some(r)),
             };
-            if reason.is_none() && e.method != 0 {
+            if reason.is_none() && e.method != 0 && e.method != 8 {
                 reason = Some("method");
             }
             if e.lho.checked_add(30).is_none_or(|x| x > cd_offset) {
@@ -415,7 +487,7 @@ impl Npy {
         let mut arrays = Vec::new();
         let own = if let Some(a) = self.array.take() {
             let data = a.emit(&mut self.ir, 0)?;
-            arrays.push(a.facts("array", data));
+            arrays.push(a.facts("array", data, None));
             json!({"kind": "npy", "array": a.header_json()})
         } else {
             let raw = zip::Records { tail: &self.tail, cd: &self.cd, record: self.record.as_deref(), locator: self.locator.as_deref() };
@@ -425,7 +497,7 @@ impl Npy {
             for (i, (m, e)) in self.members.iter().zip(&self.entries).enumerate() {
                 let name = self.fed.get(e.lho + 30, e.local_nn).map(<[u8]>::to_vec);
                 let s = zip::emit_local(&mut self.ir, i as u64, e, name.as_deref())?;
-                let read = m.array.as_ref().filter(|a| a.raw.is_some());
+                let read = m.array.as_ref().filter(|a| a.raw.is_some() && e.method == 0);
                 let mut data = None;
                 if e.cs > 0 {
                     match read {
@@ -433,6 +505,7 @@ impl Npy {
                             let d = self.ir.struct_(s, "data", NO_INDEX, 0, Some((e.ds, e.cs)))?;
                             data = a.emit(&mut self.ir, d)?;
                         }
+                        // its preamble and header, which the stream holds, are in the source metadata
                         None if e.method == 8 => {
                             self.ir.derived(s, "data", 0, (e.ds, e.cs), DEFLATE_FORM)?;
                         }
@@ -449,7 +522,7 @@ impl Npy {
                 match (&m.path, m.reason) {
                     (Some(p), None) => {
                         j.insert("path".into(), json!(p));
-                        arrays.push(m.array.as_ref().unwrap().facts(p, data));
+                        arrays.push(m.array.as_ref().unwrap().facts(p, data, (e.method == 8).then_some(e)));
                     }
                     (_, r) => {
                         let r = r.unwrap_or("header");

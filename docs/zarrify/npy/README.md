@@ -12,7 +12,8 @@ supplementary data. Reading one remotely means downloading it whole, and putting
 Zarr data means converting it. A `.npy` file is a short header and one block of values, and
 an `.npz` archive is a ZIP file of them, so refkv reads the headers and writes an archive in
 which every Zarr chunk is a run of at most 1 MiB of that block. A reader then fetches only the
-chunks it slices.
+chunks it slices. An archive `np.savez_compressed` wrote holds each array deflated, which can
+only be read from its start, so each of its arrays is one chunk.
 
 ## What you get
 
@@ -28,6 +29,10 @@ with one array per NumPy array:
   Fixed-length bytes and voids (`S<n>`, `V<n>`) are `uint8` with a trailing axis of their size.
 - **Order:** a Fortran-order array has the same shape, with a `transpose` codec: its chunks
   are the file's bytes in the file's order.
+- **Compressed archives:** a member that `np.savez_compressed` deflated is one chunk, the
+  whole array: its deflate data, wrapped as a gzip stream, decoded by `gzip` and then
+  `refkv.skip`, which drops the NPY header the stream begins with. Reading any part of the
+  array reads and inflates all of it.
 - **Chunks:** the values as the file stores them, cut into equal runs of at most 1 MiB along
   the outermost axis that allows it (the innermost, for Fortran order). An array of rank 0 is
   one chunk; an empty one has none.
@@ -40,7 +45,7 @@ with one array per NumPy array:
   IR mirror, from which it is rebuilt byte for byte.
 
 **Not presented.** An archive's member is left out, and listed with its reason, when it is
-deflated (`np.savez_compressed`: no range of the file holds its values; `method`), is not a
+compressed by a method other than deflate (bzip2, LZMA; `method`), is not a
 `.npy` member (`not_npy`), has a name that is not a Zarr node name (`name`, `reserved`), has a
 header refkv cannot read (`header`), has a data type Zarr cannot hold (object arrays, which
 are pickles, and long doubles; `datatype`), or is truncated (`size`). A `.npy` file of such an
