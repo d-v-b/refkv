@@ -16,7 +16,7 @@ otherwise have to decode and rewrite every frame.
 
 refkv reads the DICOM header and the frame table and writes an archive in which
 every Zarr chunk is one frame (or one tile of a slide) of the file, still
-JPEG, JPEG 2000 or raw as stored. A 60 MB whole-slide level from the IDC
+JPEG, lossless JPEG, JPEG 2000 or raw as stored. A 60 MB whole-slide level from the IDC
 became a 704 KB archive (at spec/zarrify.md revision 16, before the archive
 kept every element of the file).
 
@@ -36,8 +36,9 @@ gives its own archive.
 - **Data types:** `uint8`, `int8`, `uint16`, `int16`, `uint32`, `int32` (the
   stored cells, not rescaled).
 - **Codecs:** `bytes` (either byte order) for native pixel data,
-  `imagecodecs_jpeg` for JPEG Baseline, `imagecodecs_jpeg2k` for JPEG 2000;
-  `transpose` first for interleaved RGB. JPEG frames get a color marker
+  `imagecodecs_jpeg` for JPEG Baseline, `imagecodecs_ljpeg` for JPEG
+  Lossless, `imagecodecs_jpeg2k` for JPEG 2000; `transpose` first for
+  interleaved RGB. JPEG frames get a color marker
   prepended so they decode to RGB.
 - **Scale:** Pixel Spacing and Spacing Between Slices, in millimeters
   (including from the shared functional groups of enhanced and slide
@@ -139,7 +140,8 @@ use the command line.
 The Neuroglancer fork (<https://github.com/d-v-b/neuroglancer>, branch `vzip`)
 reads every data type and codec this profile writes: integers of up to 32
 bits, `imagecodecs_jpeg` for `uint8`, and `imagecodecs_jpeg2k` for 8- and
-16-bit data. `CT_small.dcm` renders through a local build of the demo. The
+16-bit data; `imagecodecs_ljpeg` (JPEG Lossless) needs its lossless JPEG
+decoder, [d-v-b/neuroglancer#15](https://github.com/d-v-b/neuroglancer/pull/15). `CT_small.dcm` renders through a local build of the demo. The
 default view uses the stored value range, so a CT looks flat until you adjust
 the contrast. For IDC slides the obstacle is the host, not the viewer: the
 chunks are read from a bucket without CORS.
@@ -149,8 +151,9 @@ chunks are read from a bucket without CORS.
 Supported:
 
 - DICOM Part 10 files in Implicit VR Little Endian, Explicit VR Little or
-  Big Endian, JPEG Baseline (`1.2.840.10008.1.2.4.50`) and JPEG 2000
-  (`.4.90`, `.4.91`).
+  Big Endian, JPEG Baseline (`1.2.840.10008.1.2.4.50`), JPEG Lossless
+  (`.4.57`, and `.4.70`, its first-order prediction, common in CT, MR and
+  CR) and JPEG 2000 (`.4.90`, `.4.91`).
 - Single- and multi-frame images; `MONOCHROME1`, `MONOCHROME2`, `RGB`, and
   the YBR forms that JPEG and JPEG 2000 decode to RGB.
 - Encapsulated frames over several fragments, with or without a Basic or
@@ -161,8 +164,13 @@ Rejected, with the message the command prints:
 
 - Other transfer syntaxes, among them JPEG-LS and RLE:
   `unsupported transfer syntax 1.2.840.10008.1.2.4.80` (JPEG-LS lossless),
-  `... 1.2.840.10008.1.2.5` (RLE). Lossless JPEG, deflate and HTJ2K are
-  rejected the same way.
+  `... 1.2.840.10008.1.2.5` (RLE). Deflate and HTJ2K are rejected the same
+  way.
+- JPEG Lossless frames with a point transform or restart intervals, which
+  the `imagecodecs_ljpeg` codec's decoder reads wrongly (`frame 0 has the
+  point transform 1`, `frame 0 has the restart interval 8`), and signed ones
+  whose precision is less than Bits Allocated. None of the public JPEG
+  Lossless files refkv was checked with has these.
 - `PALETTE COLOR` and native `YBR_*` images.
 - `TILED_SPARSE` slides, and slides with several focal planes or optical
   paths.
@@ -178,14 +186,14 @@ LUTs, palettes and overlays. The values are the stored ones.
 The browser code ([js/](../../../js/README.md)) reads DICOM (Part 10 files):
 
 - Native pixel data in implicit or explicit VR, little or big endian, and
-  JPEG Baseline or JPEG 2000 frames, including frames split over several
+  JPEG Baseline, JPEG Lossless or JPEG 2000 frames, including frames split over several
   fragments, with or without a Basic or Extended Offset Table.
 - Multi-frame images along `z`; whole-slide images (TILED_FULL) as one
   pyramid level per file, with frames as tiles.
 - Pixel spacing as scale; window center and width in `omero`.
 
 Not supported, and refused with HTTP 422: other transfer syntaxes (JPEG-LS,
-lossless JPEG, RLE, deflate, HTJ2K), palette color, TILED_SPARSE slides, and
+RLE, deflate, HTJ2K), palette color, TILED_SPARSE slides, and
 slides with several focal planes or optical paths.
 
 ## Performance
@@ -194,21 +202,24 @@ slides with several focal planes or optical paths.
   zarrify.** The frame boundaries are found by reading every fragment's
   8-byte item header, one small read per frame. The 4230-frame IDC level
   above took 5.4 minutes from storage.googleapis.com. With an Extended Offset
-  Table, or native pixel data, nothing past the header is read.
+  Table, or native pixel data, nothing past the header is read, but for
+  JPEG Lossless, whose frames' first 512 bytes are read for their markers.
 - Reading a chunk is one range request (one per fragment, merged when they
   are adjacent).
 - A pyramid needs one archive per level file; the archives are independent.
 
 ## How it's verified
 
-`js/test/dicom/verify.py` zarrifies 68 synthetic DICOM files (including
+`js/test/dicom/verify.py` zarrifies 81 synthetic DICOM files (including
 inputs to reject) with the browser code, reads them back through `python/src/refkv`
 and zarr-python, and compares the pixels with pydicom. `compare.py` checks
 that the Python and browser outputs are equivalent on those files and on the
-17 public files of
+21 public files of
 [corpus_dicom.txt](../../../conformance/zarrify/corpus_dicom.txt):
-pydicom's test files and six whole-slide levels from the IDC, with JPEG,
-JPEG 2000 and native tiles.
+pydicom's test files, four JPEG Lossless files from pydicom's pylibjpeg-data,
+and six whole-slide levels from the IDC, with JPEG, JPEG 2000 and native
+tiles. `python/tests/ir/test_dicom.py` compares the lossless JPEG fixtures'
+pixels, read through zarr-python, with their frames decoded by libjpeg-turbo.
 
 - Profile: [spec/zarrify/dicom.md](../../../spec/zarrify/dicom.md#part-2-the-profile)
 - Python: [python/src/refkv/zarrify/dicom/](../../../python/src/refkv/zarrify/dicom/)

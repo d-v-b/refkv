@@ -2,14 +2,15 @@
 rules of the DICOM profile (spec/zarrify/dicom.md §7
 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#7-dicom-profile>): the native
 transfer syntaxes in both byte orders, signed and 8/16/32-bit data, RGB planar and
-interleaved, multi-frame images, JPEG and JPEG 2000 frames with and without
-offset tables and split into fragments, whole-slide images, sequences of
+interleaved, multi-frame images, JPEG, lossless JPEG and JPEG 2000 frames with
+and without offset tables and split into fragments, whole-slide images, sequences of
 undefined length before the pixel data, and the inputs the profile rejects
 (`dicom_reject_*`).
 
-The files are written with pydicom; JPEG and JPEG 2000 frames are encoded
-with imagecodecs. js/test/dicom/verify.py checks the zarrified pixels
-against pydicom (and imagecodecs, for the encapsulated frames).
+The files are written with pydicom; JPEG, lossless JPEG and JPEG 2000 frames
+are encoded with imagecodecs (lossless JPEG with libjpeg-turbo's lossless
+mode). js/test/dicom/verify.py checks the zarrified pixels against pydicom
+(and imagecodecs, for the encapsulated frames).
 
 Usage: uv run python fixtures/generators/dicom/write_fixtures.py
 """
@@ -35,6 +36,8 @@ from pydicom.uid import (
     ImplicitVRLittleEndian,
     JPEG2000Lossless,
     JPEGBaseline8Bit,
+    JPEGLossless,
+    JPEGLosslessSV1,
     JPEGLSLossless,
     RLELossless,
     generate_uid,
@@ -146,6 +149,32 @@ def _strip_adobe(stream: bytes) -> bytes:
 def j2k(pixels: np.ndarray, mct: bool = True) -> bytes:
     j = imagecodecs.jpeg2k_encode(pixels, level=0, codecformat="J2K", reversible=True, mct=mct)
     return cast("bytes", j)  # imagecodecs' stubs: bytes, without out=
+
+
+def ljpeg(pixels: np.ndarray, precision: int, predictor: int = 1) -> bytes:
+    """A lossless JPEG (SOF3) stream of `pixels` ([rows, columns[, samples]]), its samples of
+    `precision` bits stored without a color transform; signed pixels as their bit patterns."""
+    data = pixels.view(np.uint16) if pixels.dtype == np.int16 else pixels
+    space = "RGB" if pixels.ndim == 3 else None
+    encoded = imagecodecs.jpeg8_encode(data, colorspace=space, outcolorspace=space, lossless=True, predictor=predictor,
+                                       bitspersample=precision)
+    return cast("bytes", encoded)
+
+
+def _segment_before_sos(stream: bytes, segment: bytes) -> bytes:
+    pos = 2
+    while stream[pos + 1] != 0xDA:
+        pos += 2 + struct.unpack(">H", stream[pos + 2 : pos + 4])[0]
+    return stream[:pos] + segment + stream[pos:]
+
+
+def _scan_header(stream: bytes, back: int, value: int) -> bytes:
+    """The stream with the byte `back` bytes before the end of its SOS segment set to `value`
+    (3: the predictor, Ss; 1: the point transform, Al): its header alone, which is all the
+    profile reads."""
+    pos = stream.index(b"\xff\xda")
+    end = pos + 2 + struct.unpack(">H", stream[pos + 2 : pos + 4])[0]
+    return stream[: end - back] + bytes([value]) + stream[end - back + 1 :]
 
 
 def sequences(ds: Dataset) -> None:
@@ -956,6 +985,58 @@ def review4() -> None:
         ExplicitVRBigEndian, little=False)
 
 
+def lossless() -> None:
+    """Lossless JPEG, Process 14 (1.2.840.10008.1.2.4.57) and its selection value 1
+    (1.2.840.10008.1.2.4.70): frames whose markers up to the first SOS the profile reads
+    (spec/zarrify/dicom.md §7.5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#75-frames>), and the
+    streams it rejects, those imagecodecs' lossless JPEG decoder reads wrongly among them."""
+    pixels = ramp((3, 12, 10), np.uint16) & 0x0FFF
+    ds = image(MULTIFRAME_GRAYSCALE, 12, 10, bits=16, stored=12, frames=3)
+    ds.PixelData = encapsulate([ljpeg(p, 12) for p in pixels], has_bot=True)
+    save("dicom_ljpeg_mono16_bot", ds, JPEGLosslessSV1)
+
+    pixels = ramp((2, 9, 11), np.int16)
+    ds = image(MULTIFRAME_GRAYSCALE, 9, 11, photometric="MONOCHROME1", bits=16, signed=True, frames=2)
+    ds.PixelData, ds.ExtendedOffsetTable, ds.ExtendedOffsetTableLengths = encapsulate_extended(
+        [ljpeg(p, 16, predictor=6) for p in pixels])
+    save("dicom_ljpeg_signed16_eot", ds, JPEGLossless)
+
+    pixels = ramp((2, 8, 12, 3), np.uint8)
+    ds = image(MULTIFRAME_GRAYSCALE, 8, 12, spp=3, photometric="RGB", frames=2)
+    ds.PixelData = encapsulate([ljpeg(p, 8) for p in pixels], fragments_per_frame=2, has_bot=True)
+    save("dicom_ljpeg_rgb_fragments_bot", ds, JPEGLosslessSV1)
+
+    # One frame in fragments of 8 bytes, so that its markers run over several
+    pixels = ramp((8, 8), np.uint8)
+    ds = image(SECONDARY_CAPTURE, 8, 8)
+    stream = ljpeg(pixels, 8, predictor=7)
+    ds.PixelData = encapsulate([stream], fragments_per_frame=-(-len(stream) // 8), has_bot=False)
+    save("dicom_ljpeg_mono8_split_header", ds, JPEGLossless)
+
+    def mono(stream: bytes, **kw) -> Dataset:
+        ds = image(SECONDARY_CAPTURE, 8, 8, **kw)
+        ds.PixelData = encapsulate([stream], has_bot=False)
+        return ds
+
+    pixels = ramp((8, 8), np.uint8)
+    save("dicom_reject_ljpeg_point_transform", mono(_scan_header(ljpeg(pixels, 8), 1, 1)), JPEGLossless)
+    restart = struct.pack(">HHH", 0xFFDD, 4, 8)  # DRI: a restart every 8 samples, a row
+    save("dicom_reject_ljpeg_restart", mono(_segment_before_sos(ljpeg(pixels, 8), restart)), JPEGLosslessSV1)
+    save("dicom_reject_ljpeg_baseline", mono(jpeg(smooth(1, 8, 8, 1)[0], "MONOCHROME2")), JPEGLosslessSV1)
+    signed = ramp((8, 8), np.int16) & 0x0FFF  # 12-bit patterns, which no decoder sign-extends
+    save("dicom_reject_ljpeg_signed_precision", mono(ljpeg(signed, 12), bits=16, stored=12, signed=True),
+         JPEGLosslessSV1)
+    ds = image(SECONDARY_CAPTURE, 8, 8, spp=3, photometric="YBR_FULL")
+    ds.PixelData = encapsulate([ljpeg(ramp((8, 8, 3), np.uint8), 8)], has_bot=False)
+    save("dicom_reject_ljpeg_ybr", ds, JPEGLosslessSV1)
+    save("dicom_reject_ljpeg_predictor", mono(_scan_header(ljpeg(pixels, 8), 3, 0)), JPEGLossless)
+    save("dicom_reject_ljpeg_components", mono(ljpeg(ramp((8, 8, 3), np.uint8), 8)), JPEGLosslessSV1)
+    save("dicom_reject_ljpeg_precision", mono(ljpeg(ramp((8, 8), np.uint16) & 0x0FFF, 12)), JPEGLosslessSV1)
+    stream = ljpeg(pixels, 8)
+    save("dicom_reject_ljpeg_no_scan", mono(stream[: stream.index(b"\xff\xda")] + b"\xff\xd9"), JPEGLosslessSV1)
+
+
 if __name__ == "__main__":
     main()
     later()
@@ -964,3 +1045,4 @@ if __name__ == "__main__":
     review2()
     review3()
     review4()
+    lossless()

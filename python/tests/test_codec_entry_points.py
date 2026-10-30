@@ -41,6 +41,7 @@ EVERY_CODEC = {
     "numcodecs.zlib": ("tiff/tczyx_uint16_deflate.ome.tif", "0"),
     "imagecodecs_jpeg": ("dicom/dicom_jpeg_single_frame_fragments.dcm", "0"),
     "imagecodecs_jpeg2k": ("dicom/dicom_j2k_signed16.dcm", "0"),
+    "imagecodecs_ljpeg": ("dicom/dicom_ljpeg_signed16_eot.dcm", "0"),
     "imagecodecs_jpegxr": ("ndpi/ndpi_jpegxr_bgr.ndpi", "0"),
     "imagecodecs_delta": ("tiff/predictor_lzw_uint16.tif", "0"),
 }

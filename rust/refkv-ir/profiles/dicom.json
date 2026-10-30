@@ -11,6 +11,6 @@
   ],
   "reference": 25,
   "source": "DICOM",
-  "inputs": "DICOM Part 10 files with native or JPEG-encapsulated pixel data, including whole-slide images",
+  "inputs": "DICOM Part 10 files with native, JPEG, lossless JPEG or JPEG 2000 pixel data, including whole-slide images",
   "for": "DICOM files, including whole-slide images"
 }

@@ -1,5 +1,5 @@
 {
-  "about": "The fixtures (by file or store name) whose layout or verdict their profile changed after the frozen reference (conformance/zarrify/reference) froze, which it does not give: compare.py compares their outputs, and those of their mutants (conformance/zarrify/mutate.py), py with web alone, and the tests that compare the frozen profiles with the Rust core (python/tests/ir/ir_helpers.py, js/test/ir/ir.test.ts) leave them out. NDPI's strips without McuStarts whose frame header is not their level's size (spec/zarrify/ndpi.md §7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>) and its JPEG XR levels (spec/zarrify/ndpi.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#3-levels>); TIFF's LZW images and images in strips (spec/zarrify/tiff.md §4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>), and its images with Predictor 2 (spec/zarrify/tiff.md §4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>); and an HDF5 file that is not an Imaris file, which the IMS profile rejected and the HDF5 profile, which chooses IMS, now zarrifies (spec/zarrify/ims.md §7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#7-ims-profile>). A store with a node at refkv_source, which the N5 and Zarr v2 profiles reject whether or not the store has other objects, since the IR's mirror is always there (spec/zarrify/n5.md §6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#6-other-objects>, spec/zarrify/zarr2.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#5-other-objects>), where the frozen reference rejected it only when there were other objects to keep.",
+  "about": "The fixtures (by file or store name) whose layout or verdict their profile changed after the frozen reference (conformance/zarrify/reference) froze, which it does not give: compare.py compares their outputs, and those of their mutants (conformance/zarrify/mutate.py), py with web alone, and the tests that compare the frozen profiles with the Rust core (python/tests/ir/ir_helpers.py, js/test/ir/ir.test.ts) leave them out. NDPI's strips without McuStarts whose frame header is not their level's size (spec/zarrify/ndpi.md §7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>) and its JPEG XR levels (spec/zarrify/ndpi.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#3-levels>); TIFF's LZW images and images in strips (spec/zarrify/tiff.md §4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>), and its images with Predictor 2 (spec/zarrify/tiff.md §4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>); and an HDF5 file that is not an Imaris file, which the IMS profile rejected and the HDF5 profile, which chooses IMS, now zarrifies (spec/zarrify/ims.md §7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#7-ims-profile>). DICOM's lossless JPEG files (transfer syntaxes 1.2.840.10008.1.2.4.57 and 1.2.840.10008.1.2.4.70), whose frames the profile reads since the freeze, and those it rejects for their headers (spec/zarrify/dicom.md §7.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#75-frames>), which the frozen reference rejects as an unsupported transfer syntax. A store with a node at refkv_source, which the N5 and Zarr v2 profiles reject whether or not the store has other objects, since the IR's mirror is always there (spec/zarrify/n5.md §6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#6-other-objects>, spec/zarrify/zarr2.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#5-other-objects>), where the frozen reference rejected it only when there were other objects to keep.",
   "fixtures": [
     "edge_ndpi_frames.ndpi",
     "edge_reject_ndpi_frame.ndpi",
@@ -25,6 +25,19 @@
     "predictor_zstd_int16.tif",
     "ims_reject_not_imaris.ims",
     "n5_reject_objects_collision",
-    "zarr2_reject_objects_collision"
+    "zarr2_reject_objects_collision",
+    "dicom_ljpeg_mono16_bot.dcm",
+    "dicom_ljpeg_mono8_split_header.dcm",
+    "dicom_ljpeg_rgb_fragments_bot.dcm",
+    "dicom_ljpeg_signed16_eot.dcm",
+    "dicom_reject_ljpeg_baseline.dcm",
+    "dicom_reject_ljpeg_point_transform.dcm",
+    "dicom_reject_ljpeg_restart.dcm",
+    "dicom_reject_ljpeg_signed_precision.dcm",
+    "dicom_reject_ljpeg_ybr.dcm",
+    "dicom_reject_ljpeg_components.dcm",
+    "dicom_reject_ljpeg_no_scan.dcm",
+    "dicom_reject_ljpeg_precision.dcm",
+    "dicom_reject_ljpeg_predictor.dcm"
   ]
 }
