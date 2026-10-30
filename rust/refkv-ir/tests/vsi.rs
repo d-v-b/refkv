@@ -218,6 +218,55 @@ fn the_root_holds_the_tree_as_json_and_the_stacks() {
     assert_eq!(ms["datasets"][0]["coordinateTransformations"].as_array().unwrap().len(), 1);
 }
 
+/// The probe batches of the run on the `.vsi` at `path`: each key asked for, and whether it is
+/// beside the file.
+fn probe_batches(path: &Path) -> Vec<Vec<(String, bool)>> {
+    let dir = path.parent().unwrap();
+    let key = path.file_name().unwrap().to_str().unwrap().to_string();
+    let data = std::fs::read(path).unwrap();
+    let mut files: BTreeMap<String, Vec<u8>> = BTreeMap::from([(key.clone(), data.clone())]);
+    let mut run = StoreRun::new(StoreFormat::Vsi, vec![(key, data.len() as u64)], 4).unwrap();
+    let mut batches = Vec::new();
+    while let Some(reqs) = run.poll().unwrap() {
+        if reqs.is_empty() {
+            let mut batch = Vec::new();
+            for k in run.probes().to_vec() {
+                let data = std::fs::read(dir.join(&k)).ok();
+                run.found(data.as_ref().map(|d| d.len() as u64)).unwrap();
+                batch.push((k.clone(), data.is_some()));
+                if let Some(d) = data {
+                    files.insert(k, d);
+                }
+            }
+            batches.push(batch);
+            continue;
+        }
+        for (k, q) in reqs.iter().enumerate() {
+            let data = &files[&q.key];
+            run.complete(k, q.spans.iter().map(|&(a, b)| data[a as usize..b as usize].to_vec()).collect()).unwrap();
+        }
+    }
+    batches
+}
+
+#[test]
+fn a_stacks_frame_t_0_ets_is_probed_only_when_its_frame_t_ets_is_absent() {
+    // every stack's frame_t.ets in one batch, then the frame_t_0.ets of each stack whose
+    // frame_t.ets is absent; a host is never asked for a file beside one found (spec/zarrify/vsi.md
+    // §9.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#92-the-tile-files>)
+    let asked = |name: &str| probe_batches(&fixtures().join(name));
+    let yes = |k: &str| (k.to_string(), true);
+    let no = |k: &str| (k.to_string(), false);
+    // each stack's frame_t.ets is there
+    let types = asked("vsi_raw_types.vsi");
+    assert_eq!(types.len(), 1);
+    assert_eq!(types[0], (0..8).map(|i| yes(&format!("_vsi_raw_types_/stack1000{i}/frame_t.ets"))).collect::<Vec<_>>());
+    // both names are there: frame_t_0.ets is not asked for
+    assert_eq!(asked("vsi_metadata_edges.vsi"), vec![vec![yes("_vsi_metadata_edges_/stack10002/frame_t.ets")]]);
+    // only frame_t_0.ets is there: it is asked for in a second batch
+    assert_eq!(asked("vsi_raw_tzc.vsi"), vec![vec![no("_vsi_raw_tzc_/stack1/frame_t.ets")], vec![yes("_vsi_raw_tzc_/stack1/frame_t_0.ets")]]);
+}
+
 #[test]
 fn sniff_finds_a_vsi_file_before_a_tiff() {
     let head = std::fs::read(fixtures().join("vsi_raw_tzc.vsi")).unwrap();
