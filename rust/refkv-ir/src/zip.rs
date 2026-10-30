@@ -1,7 +1,9 @@
 //! ZIP archives, as the zip form of a SAFE product (spec/zarrify/safe.md §8.4
-//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#84-the-zip-form>) reads them:
-//! the end records, the central directory, the local headers, and deflated entries, and their IR
-//! elements; and the SAFE product's own checks of its entries (`product_entries`, `methods`). The functions are pure:
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#84-the-zip-form>) and a NumPy
+//! `.npz` file (spec/zarrify/npy.md §8.3
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#83-the-archive>) read them: the
+//! end records, the central directory, the local headers, and deflated entries; and the SAFE
+//! product's own checks of its entries (`product_entries`, `methods`). The functions are pure:
 //! the parser reads the bytes they name, and checks the roles `zip_end` and `zip_entry` of its
 //! profile's rules.
 
