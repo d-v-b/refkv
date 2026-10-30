@@ -242,6 +242,7 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
     ("zarr2_reject_fill_bool_int", "fill_value 1 is not a bool"),
     ("zarr2_reject_fill_fraction_int", "fill_value 0.5"),
     ("zarr2_reject_fill_string_int", "fill_value NaN is not a uint16"),
+    ("zarr2_reject_fill_list_int", r"fill_value \[1\] is not a uint16"),
     ("zarr2_reject_fill_uint64_max", "is not a uint64"),
     ("zarr2_reject_fill_f4_overflow", "is not a float32"),
     ("zarr2_reject_fill_base64", "is not a float64"),
