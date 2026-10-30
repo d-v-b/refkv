@@ -695,7 +695,7 @@ stack's tile file, at its key under the directories `_<name>_` and
 and its bytes stay in the file (the table holds none of them). The view,
 `refkv_source/tree`, shows the headers, the tree's fields and values, the
 IFDs' entries and the tile directories; tiles, strips and gaps are not
-shown. A tile file the profile did not read (a `frame_t_0.ets` beside a
+shown. A tile file the profile did not probe (a `frame_t_0.ets` beside a
 `frame_t.ets`, [§9.2](#92-the-tile-files)) is not an object.
 
 ### 6.3 Elements
@@ -937,16 +937,19 @@ size 1, [§9.3](#93-tiles-and-levels)).
 For each stack that has a tile file, in the tree's order, the profile
 **probes** two keys, in this order: `_<base>_/stack<id>/frame_t.ets` and
 `_<base>_/stack<id>/frame_t_0.ets`, where `<base>` is the `.vsi` file's key
-without its last four characters and `<id>` the stack's id in decimal. All
-probes of all stacks are one batch. A probe asks the host whether the object
-exists and how large it is: a local file that is there, or an HTTP object
-whose response to the first request is not a 404 (a `HEAD` or a ranged `GET`
-under the reader policy; a 404 is **absent**; any other failure is a
-failure, not a rejection). The first candidate found, in the order above,
-is the stack's **tile file**, an object of the store at that key; a
-candidate found after one that was found is neither read nor an object (the
-mirror does not list it). A stack none of whose candidates exists is
-rejected: `stack <id> (<name>) has no tile file: neither
+without its last four characters and `<id>` the stack's id in decimal. The
+first keys of all stacks are one batch; the second keys of the stacks whose
+first key is absent are a second batch, left out when there are none. A key
+is not probed once an earlier key of its stack is found, so a host is never
+asked for a file beside a tile file it has: a host may answer for a missing
+file in a way a reader cannot tell from a failure, such as a 404 without
+CORS headers, which a browser reports as a network error. A probe asks the
+host whether the object exists and how large it is: a local file that is
+there, or an HTTP object whose response to the first request is not a 404
+(a `HEAD` or a ranged `GET` under the reader policy; a 404 is **absent**;
+any other failure is a failure, not a rejection). The first candidate
+found, in the order above, is the stack's **tile file**, an object of the
+store at that key. A stack none of whose candidates exists is rejected: `stack <id> (<name>) has no tile file: neither
 _<base>_/stack<id>/frame_t.ets nor _<base>_/stack<id>/frame_t_0.ets exists`.
 
 The hosts drive this through the core's store run: the run's `poll` returns
