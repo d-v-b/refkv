@@ -126,7 +126,7 @@ serves over HTTPS with CORS, its `_q1ip_` directory beside it: an overview
 of lossless JPEG tiles and a 40× scan of 200167 × 102643 pixels in JPEG
 tiles, in tile files whose ETS headers (version 0x30003) list no dimension
 sizes:
-<https://d-v-b.github.io/vzip-demo/image-to-zarr/?url=https%3A%2F%2Fftp.ebi.ac.uk%2Fbiostudies%2Ffire%2FS-BIAD%2F129%2FS-BIAD1129%2FFiles%2FAI_FeBx%2Ftest_wsis%2Fq1ip.vsi>.
+<https://d-v-b.github.io/refkv-demo/image-to-zarr/?url=https%3A%2F%2Fftp.ebi.ac.uk%2Fbiostudies%2Ffire%2FS-BIAD%2F129%2FS-BIAD1129%2FFiles%2FAI_FeBx%2Ftest_wsis%2Fq1ip.vsi>.
 
 ## Viewing
 

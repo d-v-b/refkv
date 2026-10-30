@@ -219,7 +219,7 @@ has is written, so `layouts=[Image()]` leaves the dataset layout out.
 ([js/](../../js/README.md)): the Rust core, built for WebAssembly. The
 service worker serves the
 result to any Zarr reader on the page's origin as a plain HTTP Zarr store. The
-live demo, <https://d-v-b.github.io/vzip-demo/image-to-zarr/>, takes a URL
+live demo, <https://d-v-b.github.io/refkv-demo/image-to-zarr/>, takes a URL
 (`?url=<url>`), shows the levels, opens them in a Neuroglancer fork
 (<https://github.com/d-v-b/neuroglancer>, branch `vzip`) and offers the
 archive for download. That Neuroglancer link reads through the service

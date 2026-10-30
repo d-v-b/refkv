@@ -3,14 +3,17 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Moved</title>
-<meta http-equiv="refresh" content="0; url=@TARGET@">
+<title>refkv demos moved</title>
 <script>
-  // Keep the query (e.g. ?url=...) and fragment when redirecting.
-  location.replace(new URL("@TARGET@", location.href).pathname + location.search + location.hash);
+  // The demos moved from /vzip-demo/ to /refkv-demo/; tiff-to-zarr/ had
+  // become image-to-zarr/ before that. Keep the rest of the path, the query
+  // (e.g. ?url=...) and the fragment.
+  const rest = location.pathname.replace(/^\/vzip-demo\/?/, "").replace(/^tiff-to-zarr(\/|$)/, "image-to-zarr/");
+  location.replace("https://d-v-b.github.io/refkv-demo/" + rest + location.search + location.hash);
 </script>
+<noscript><meta http-equiv="refresh" content="0; url=https://d-v-b.github.io/refkv-demo/"></noscript>
 </head>
 <body>
-<p>This demo moved to <a href="@TARGET@">@TARGET@</a>.</p>
+<p>The refkv demos moved to <a href="https://d-v-b.github.io/refkv-demo/">https://d-v-b.github.io/refkv-demo/</a>.</p>
 </body>
 </html>
