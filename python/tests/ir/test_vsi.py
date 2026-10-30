@@ -322,7 +322,7 @@ def bioformats():
     return Reader
 
 
-@pytest.mark.parametrize("name", ["vsi_rgb_jpeg", "vsi_raw_tzc", "vsi_jpeg2000_c", "vsi_raw_bgr",
+@pytest.mark.parametrize("name", ["vsi_rgb_jpeg", "vsi_raw_tzc", "vsi_jpeg2000_c", "vsi_lossless_jpeg", "vsi_raw_bgr",
                                   "vsi_raw_gray_pyramid"])
 def test_matches_bioformats(name):
     """Every level of every stack Bio-Formats reads from the synthetic slides is our array

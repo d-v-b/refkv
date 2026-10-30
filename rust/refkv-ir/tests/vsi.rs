@@ -125,7 +125,7 @@ fn accepted_slides_are_valid_store_irs_whose_mirrors_rebuild_their_files() {
         assert_eq!(out.summary["format"], "vsi");
         n += 1;
     }
-    assert_eq!(n, 8);
+    assert_eq!(n, 9);
 }
 
 /// The brightfield-like fixture: its images (two JPEG pyramids, a focus map from an IFD, the

@@ -21,8 +21,10 @@ Accepting fixtures: `vsi_rgb_jpeg` (an overview and a 20x stack of RGB JPEG tile
 a tile missing, a focus map stored as an IFD, a macro JPEG with JPEG tables and an EXIF IFD),
 `vsi_raw_tzc` (a raw uint16 stack with T, Z and C dimensions and an unused coordinate, one
 tile a plane, `frame_t_0.ets`, 12-bit background), `vsi_jpeg2000_c` (JPEG 2000 uint16 tiles
-with a channel dimension, in a pyramid), `vsi_raw_bgr` (raw RGB tiles in BGR order),
-`vsi_raw_gray_pyramid` (raw uint8 tiles, a sparse level), `vsi_raw_types` (one stack per raw
+with a channel dimension, in a pyramid), `vsi_lossless_jpeg` (lossless JPEG tiles: an RGB
+pyramid whose ETS header, version 0x30003, lists no dimension sizes, and uint16 with
+predictor 6), `vsi_raw_bgr` (raw RGB tiles in BGR order), `vsi_raw_gray_pyramid` (raw
+uint8 tiles, a sparse level), `vsi_raw_types` (one stack per raw
 pixel type the tables name), `vsi_no_stacks` (the macro image alone), `vsi_metadata_edges`
 (units other than micrometers, no origin, no display limits, an unknown dimension of size 1,
 an unknown stack type, a blob field with a second tag, an empty container, text that is not
@@ -299,14 +301,14 @@ class TiffImage:
 SIS_SIZE, ETS_SIZE = 64, 228
 PIXEL_TYPES = {"int8": 1, "uint8": 2, "int16": 3, "uint16": 4, "int32": 5, "uint32": 6, "int64": 7, "uint64": 8,
                "float32": 9, "float64": 10}
-RAW, JPEG, JPEG2000 = 0, 2, 3
+RAW, JPEG, JPEG2000, LJPEG = 0, 2, 3, 5
 
 
 def ets_file(tiles: list[tuple[tuple[int, ...], bytes]], *, coordinates: int, dtype: str, samples: int,
              compression: int, tile: tuple[int, int], dims: list[int], pyramid: bool, background: bytes = b"",
              component_order=-1, colorspace=None, quality=90, version=3, magic=b"SIS\0", header_size=64,
              ets_magic=b"ETS\0", ets_size=228, tile_depth=1, pixel_type=None, tiles_count=None, tiles_offset=None,
-             ets_offset=None, truncate=0, dimensions=None, tile_offset=None) -> bytes:
+             ets_offset=None, truncate=0, dimensions=None, tile_offset=None, ets_version=0x30006) -> bytes:
     """A tile file: the SIS header, the ETS header, the tiles' bytes in order, then the directory
     (`tile_offset`: (index, offset) of one record's offset written as given)."""
     data = bytearray()
@@ -328,7 +330,7 @@ def ets_file(tiles: list[tuple[tuple[int, ...], bytes]], *, coordinates: int, dt
     pt = PIXEL_TYPES[dtype] if pixel_type is None else pixel_type
     cs = (4 if samples == 3 else 1) if colorspace is None else colorspace
     sizes = (dims + [0] * 10)[:10]
-    ets = struct.pack("<4siiiiiiiii", ets_magic, 196614, pt, samples, cs, compression, quality, tile[0], tile[1],
+    ets = struct.pack("<4siiiiiiiii", ets_magic, ets_version, pt, samples, cs, compression, quality, tile[0], tile[1],
                       tile_depth)
     ets += b"\0" * 68 + bg + struct.pack("<ii", component_order, 1 if pyramid else 0) + b"\0" * 28
     ets += struct.pack("<i", len(dims) if dimensions is None else dimensions) + struct.pack("<10i", *sizes)
@@ -361,7 +363,7 @@ def downsample(a: np.ndarray) -> np.ndarray:
 
 
 def plane_tiles(plane: np.ndarray, tw: int, th: int, compression: int, samples: int, *, bgr=False, skip=(),
-                quality=90) -> list[tuple[tuple[int, int], bytes]]:
+                quality=90, predictor=1) -> list[tuple[tuple[int, int], bytes]]:
     """A plane cut into full tiles (padded with zeros), each encoded."""
     h, w = plane.shape[:2]
     out = []
@@ -378,6 +380,12 @@ def plane_tiles(plane: np.ndarray, tw: int, th: int, compression: int, samples: 
             elif compression == JPEG:
                 b = imagecodecs.jpeg8_encode(block, level=quality, colorspace="RGB" if samples == 3 else "GRAY",
                                              outcolorspace="YCBCR" if samples == 3 else "GRAY")
+            elif compression == LJPEG:
+                # lossless JPEG (SOF3), the samples as they are, as Olympus's encoder writes them
+                space = "RGB" if samples == 3 else "GRAY"
+                b = imagecodecs.jpeg8_encode(block, lossless=True, predictor=predictor, colorspace=space,
+                                             outcolorspace=space,
+                                             bitspersample=None if block.dtype.itemsize == 1 else 16)
             else:
                 b = imagecodecs.jpeg2k_encode(block, level=0, reversible=True, codecformat="J2K")
             out.append(((tx, ty), cast("bytes", b)))  # imagecodecs' stubs: bytes, without out=
@@ -394,6 +402,8 @@ def decoded(tiles, tw, th, h, w, compression, dtype, samples) -> np.ndarray:
                 (th, tw) + ((samples,) if samples > 1 else ()))
         elif compression == JPEG:
             block = imagecodecs.jpeg8_decode(b)
+        elif compression == LJPEG:
+            block = imagecodecs.ljpeg_decode(b)
         else:
             block = imagecodecs.jpeg2k_decode(b)
         y0, x0 = ty * th, tx * tw
@@ -412,7 +422,8 @@ class Stack:
                  t=1, z=1, c=1, stack_type=0, scale=(0.5, 0.5), unit="10^-6m^1", origin=(100.0, 200.0),
                  display=(0.0, 256.0), channels=None, z_step=None, bgr=False, skip=(), file_name="frame_t.ets",
                  unused_coord=False, dim_meanings=None, background=b"", magnification=20.0, seed=1, extra_fields=(),
-                 tree_only=False, ifd_pixels=None, quality=90, extra_coords=0, declared_dims=None):
+                 tree_only=False, ifd_pixels=None, quality=90, extra_coords=0, declared_dims=None, predictor=1,
+                 old_ets=False):
         self.id, self.name, self.width, self.height = id_, name, width, height
         self.dtype, self.samples, self.compression, self.tile, self.levels = dtype, samples, compression, tile, levels
         self.t, self.z, self.c, self.stack_type = t, z, c, stack_type
@@ -422,7 +433,8 @@ class Stack:
         self.dim_meanings, self.background = dim_meanings, background
         self.magnification, self.seed = magnification, seed
         self.extra_fields, self.tree_only, self.ifd_pixels, self.quality = extra_fields, tree_only, ifd_pixels, quality
-        self.extra_coords, self.declared_dims = extra_coords, declared_dims
+        self.extra_coords, self.declared_dims, self.predictor = extra_coords, declared_dims, predictor
+        self.old_ets = old_ets  # an ETS header of version 0x30003, which lists no dimension sizes
         self.planes = {}  # (t, c, z) -> level-0 plane (decoded)
         self.tiles = []   # ((x, y, ...coords), bytes)
 
@@ -450,7 +462,8 @@ class Stack:
                     k += 1
                     for level in range(self.levels):
                         tiles = plane_tiles(plane, tw, th, self.compression, self.samples, bgr=self.bgr,
-                                            skip=self.skip if level == 0 else (), quality=self.quality)
+                                            skip=self.skip if level == 0 else (), quality=self.quality,
+                                            predictor=self.predictor)
                         if level == 0:
                             got = decoded(tiles, tw, th, self.height, self.width, self.compression, self.dtype,
                                           self.samples)
@@ -480,8 +493,10 @@ class Stack:
         args = {"coordinates": coordinates, "dtype": self.dtype, "samples": self.samples,
                 "compression": self.compression, "tile": self.tile, "dims": sizes, "pyramid": self.levels > 1,
                 "background": self.background,
-                "component_order": 1 if (self.bgr or (self.samples == 3 and self.compression == JPEG)) else -1,
+                "component_order": 1 if (self.bgr or (self.samples == 3 and self.compression in (JPEG, LJPEG))) else -1,
                 "quality": self.quality}
+        if self.old_ets:
+            args.update(ets_version=0x30003, dims=[], dimensions=0)
         args.update(kw)
         return ets_file(self.tiles, **args)
 
@@ -685,6 +700,16 @@ def accepting() -> None:
               levels=2, c=3, scale=(0.345, 0.345), origin=(44720.0, 4540.0), display=None, channels=rgb_channels(),
               file_name="frame_t_0.ets", seed=6),
     ], macro=macro_image(seed=7)).write()
+    # like the BioImage Archive's S-BIAD1129 slides: an RGB overview of lossless JPEG tiles in a
+    # pyramid, its ETS header of version 0x30003 listing no dimension sizes and its records an
+    # unused coordinate, and a uint16 stack of lossless JPEG tiles with another predictor
+    Slide("vsi_lossless_jpeg", [
+        Stack(1, "Overview", width=150, height=100, samples=3, compression=LJPEG, tile=(64, 64), levels=2,
+              stack_type=1, scale=(2.7, 2.7), origin=(300.0, 600.0), seed=40, background=b"\xee\xee\xee",
+              unused_coord=True, old_ets=True),
+        Stack(10002, "20x lossless 16-bit", width=70, height=50, dtype="uint16", compression=LJPEG, tile=(32, 32),
+              levels=1, scale=(0.345, 0.345), display=None, predictor=6, seed=41),
+    ], macro=macro_image(seed=42)).write()
     # raw RGB in BGR order
     Slide("vsi_raw_bgr", [
         Stack(10000, "Overview", width=40, height=24, samples=3, tile=(16, 16), levels=2, stack_type=1, bgr=True,

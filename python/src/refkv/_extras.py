@@ -8,9 +8,9 @@ zarrifies image files and stores, without Zarr. The extras add:
   zarrified image files and stores use and zarr-python lacks
   (`refkv.zarr.codecs`), which zarr finds through refkv's `zarr.codecs` entry
   points;
-- `images`: imagecodecs-zarr, whose `imagecodecs_jpeg`, `imagecodecs_jpeg2k` and
-  `imagecodecs_jpegxr` codecs the archives of JPEG, JPEG 2000 and JPEG XR images
-  name, and whose `imagecodecs_delta` those of TIFFs with a horizontal
+- `images`: imagecodecs-zarr, whose `imagecodecs_jpeg`, `imagecodecs_jpeg2k`,
+  `imagecodecs_jpegxr` and `imagecodecs_ljpeg` codecs the archives of JPEG, JPEG 2000,
+  JPEG XR and lossless JPEG images name, and whose `imagecodecs_delta` those of TIFFs with a horizontal
   predictor, and imagecodecs, whose LZW decoder `refkv.tiff_lzw` calls, with the
   `zarr` extra;
 - `media`: the decoders of the `refkv.stream` codec, which reads zarrified MP3,

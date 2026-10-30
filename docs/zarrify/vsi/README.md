@@ -33,7 +33,8 @@ with `OME/zarr.json` listing the series.
   more than one time point or plane.
 - **Data types:** `uint8` and `uint16` in practice; every ETS pixel type
   from `int8` to `float64`.
-- **Codecs:** `imagecodecs_jpeg`, `imagecodecs_jpeg2k` or `bytes`, after the
+- **Codecs:** `imagecodecs_jpeg`, `imagecodecs_jpeg2k`, `imagecodecs_ljpeg`
+  (lossless JPEG) or `bytes`, after the
   `transpose` for interleaved samples. The chunks are the tiles' bytes.
 - **Scale:** the pixel size in micrometers (or whatever unit the slide
   names) at every level; the z step for a z stack.
@@ -116,25 +117,32 @@ in micrometers, and the values are what Bio-Formats reads for the same
 pixels (level 6 of series 2). Reading the chunk fetched one JPEG tile of
 the tile file.
 
-**In the browser.** Not on the live demo yet (it zarrifies TIFF, NDPI and
-ND2 only). A local build of the demo (see the [overview](../README.md))
-zarrifies a slide whose host allows cross-origin reads of the `.vsi`
-file and of the tile files beside it, and shows it in Neuroglancer;
-downloads.openmicroscopy.org does not allow them.
+**In the browser.** The demo zarrifies a slide whose host allows
+cross-origin reads of the `.vsi` file and of the tile files beside it,
+and shows it in Neuroglancer; downloads.openmicroscopy.org does not allow
+them. The demo's VSI example is a test slide of the BioImage Archive's
+S-BIAD1129 (feline intestinal biopsies, CC BY 4.0), which EMBL-EBI's FTP
+serves over HTTPS with CORS, its `_q1ip_` directory beside it: an overview
+of lossless JPEG tiles and a 40× scan of 200167 × 102643 pixels in JPEG
+tiles, in tile files whose ETS headers (version 0x30003) list no dimension
+sizes:
+<https://d-v-b.github.io/vzip-demo/image-to-zarr/?url=https%3A%2F%2Fftp.ebi.ac.uk%2Fbiostudies%2Ffire%2FS-BIAD%2F129%2FS-BIAD1129%2FFiles%2FAI_FeBx%2Ftest_wsis%2Fq1ip.vsi>.
 
 ## Viewing
 
 The Neuroglancer fork (<https://github.com/d-v-b/neuroglancer>, branch `vzip`)
-decodes the JPEG tiles and shows each scan with its micrometer scale; the
-stacks of one slide share the stage's coordinates.
+decodes the JPEG tiles, and lossless JPEG ones once it registers
+`imagecodecs_ljpeg` ([d-v-b/neuroglancer#15](https://github.com/d-v-b/neuroglancer/pull/15)),
+and shows each scan with its micrometer scale; the stacks of one slide
+share the stage's coordinates.
 
 ## Supported and not supported
 
 Supported:
 
 - cellSens slides whose tile files are `frame_t.ets` or `frame_t_0.ets`
-  (both names are tried, in that order), with uncompressed, JPEG or JPEG
-  2000 tiles, in pyramids or not, with time, channel and z dimensions.
+  (both names are tried, in that order), with uncompressed, JPEG, JPEG
+  2000 or lossless JPEG tiles, in pyramids or not, with time, channel and z dimensions.
 - The macro image and the focus maps stored inside the `.vsi` file (JPEG
   or uncompressed strips, 8 or 16 bits).
 - A `--url` naming the `.vsi` file's URL for a local copy that will be
@@ -142,8 +150,8 @@ Supported:
 
 Rejected:
 
-- Tile files with lossless JPEG, PNG or BMP tiles (the compression is named
-  in the message), or an unknown compression or pixel type.
+- Tile files with PNG or BMP tiles (the compression is named in the
+  message), or an unknown compression or pixel type.
 - A stack whose tile file is missing (`stack 10002 (20x_BF_01) has no tile
   file: neither _<name>_/stack10002/frame_t.ets nor ..._0.ets exists`): copy
   the `_<name>_` directory with the `.vsi` file.
@@ -161,13 +169,13 @@ The browser code ([js/](../../../js/README.md)) reads Olympus VSI (cellSens slid
   (`_<name>_/stack<N>/frame_t.ets`) are probed by URL, not listed, so a
   plain web server that allows cross-origin reads serves a slide as it is.
 - One OME-Zarr image per stack in a bioformats2raw layout: every pyramid
-  level, with time, channel and z dimensions; JPEG, JPEG 2000 and
-  uncompressed tiles as chunks; the macro image and focus maps from the
+  level, with time, channel and z dimensions; JPEG, JPEG 2000, lossless
+  JPEG and uncompressed tiles as chunks; the macro image and focus maps from the
   `.vsi` file; pixel sizes in micrometers, stage origins as translations,
   channel names and colors.
 - The whole metadata tree under `refkv_zarrified` on the root.
 
-Not supported, and refused with HTTP 422: lossless JPEG, PNG and BMP
+Not supported, and refused with HTTP 422: PNG and BMP
 tiles, dimensions other than t, c and z with more than one value, and a
 stack whose tile file is missing.
 
