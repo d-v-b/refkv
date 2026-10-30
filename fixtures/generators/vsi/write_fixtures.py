@@ -22,8 +22,9 @@ a tile missing, a focus map stored as an IFD, a macro JPEG with JPEG tables and 
 `vsi_raw_tzc` (a raw uint16 stack with T, Z and C dimensions and an unused coordinate, one
 tile a plane, `frame_t_0.ets`, 12-bit background), `vsi_jpeg2000_c` (JPEG 2000 uint16 tiles
 with a channel dimension, in a pyramid), `vsi_lossless_jpeg` (lossless JPEG tiles: an RGB
-pyramid whose ETS header, version 0x30003, lists no dimension sizes, and uint16 with predictor 6), `vsi_raw_bgr` (raw RGB tiles in BGR order),
-`vsi_raw_gray_pyramid` (raw uint8 tiles, a sparse level), `vsi_raw_types` (one stack per raw
+pyramid whose ETS header, version 0x30003, lists no dimension sizes, and uint16 with
+predictor 6), `vsi_raw_bgr` (raw RGB tiles in BGR order), `vsi_raw_gray_pyramid` (raw
+uint8 tiles, a sparse level), `vsi_raw_types` (one stack per raw
 pixel type the tables name), `vsi_no_stacks` (the macro image alone), `vsi_metadata_edges`
 (units other than micrometers, no origin, no display limits, an unknown dimension of size 1,
 an unknown stack type, a blob field with a second tag, an empty container, text that is not
