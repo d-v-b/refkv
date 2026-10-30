@@ -7,8 +7,8 @@ git tag v0.2.0 && git push origin v0.2.0
 ```
 
 That is all. The [release workflow](../.github/workflows/release.yml) builds the wheels
-(abi3, for Python 3.12 and later, on Linux x86_64 and aarch64, macOS Intel and arm, and
-Windows x64) and the sdist, checks that each installs and runs, checks that their names carry
+(abi3, for Python 3.12 and later, on Linux x86_64 and aarch64 with glibc and with musl,
+macOS Intel and arm, and Windows x64 and arm64) and the sdist, checks that each installs and runs, checks that their names carry
 the tag's version, and publishes them to PyPI through trusted publishing.
 
 ## Where the version comes from
