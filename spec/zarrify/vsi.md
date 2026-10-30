@@ -324,7 +324,7 @@ The ETS header, `ets_size` bytes at `ets_offset`, whose first 228 are:
 | 8 | `i32` | `pixel_type` (the table `pixel_types`: 1 `int8`, 2 `uint8`, 3 `int16`, 4 `uint16`, 5 `int32`, 6 `uint32`, 7 `int64`, 8 `uint64`, 9 `float32`, 10 `float64`) |
 | 12 | `i32` | `channels`: the **samples per pixel**, 1, 3 or 4 |
 | 16 | `i32` | `colorspace` |
-| 20 | `i32` | `compression` (the table `compressions`: 0 none, 2 JPEG, 3 JPEG 2000; 5 lossless JPEG, 8 PNG and 9 BMP are named and not supported) |
+| 20 | `i32` | `compression` (the table `compressions`: 0 none, 2 JPEG, 3 JPEG 2000, 5 lossless JPEG; 8 PNG and 9 BMP are named and not supported) |
 | 24 | `i32` | `quality` |
 | 28 | `i32` | `tile_width` `tw` |
 | 32 | `i32` | `tile_height` `th` |
@@ -334,7 +334,7 @@ The ETS header, `ets_size` bytes at `ets_offset`, whose first 228 are:
 | 148 | `i32` | `component_order`: 1 when uncompressed samples are stored blue, green, red |
 | 152 | `i32` | `use_pyramid`: not 0 when the last coordinate is the level |
 | 156 | `bytes[28]` | reserved |
-| 184 | `i32` | `dimensions`: the sizes listed, at most 10 |
+| 184 | `i32` | `dimensions`: the sizes listed, at most 10; 0 in a header of version 0x30003, which lists none |
 | 188 | `i32[10]` | `dimension_sizes`: the size of each coordinate, the first two the image's width and height |
 
 The tile directory, `tiles` records of `20 + 4n` bytes at `tiles_offset`, each:
@@ -405,7 +405,7 @@ dimension of another meaning has the size 1, [§9.3](#93-tiles-and-levels).)
 | `data_type` | string | required | the data type of the pixel type ([§3](#3-the-tile-files)) |
 | `chunk_grid` | object | required | regular, its chunk shape `[1, S or 1, 1, th, tw]` in the axes present (`S` on the `c` axis when `S > 1`, else 1) |
 | `fill_value` | number | required | the background's first sample (`background`'s first `bytes` bytes as the pixel type; 0 for a float that is not finite). A tile the directory lacks reads as the background |
-| `codecs` | array of object | required | for `S > 1`, `transpose` with the order that puts `c` last of the axes (`{"name": "transpose", "configuration": {"order": [1, 2, 0]}}` for `c`, `y`, `x`), since the samples are interleaved; then `imagecodecs_jpeg` for JPEG, `imagecodecs_jpeg2k` for JPEG 2000, or `bytes` with `{"endian": "little"}` (plain `bytes` for a one-byte type). A JPEG tile of three samples is a plain codestream; no transform marker is added |
+| `codecs` | array of object | required | for `S > 1`, `transpose` with the order that puts `c` last of the axes (`{"name": "transpose", "configuration": {"order": [1, 2, 0]}}` for `c`, `y`, `x`), since the samples are interleaved; then `imagecodecs_jpeg` for JPEG, `imagecodecs_jpeg2k` for JPEG 2000, `imagecodecs_ljpeg` for lossless JPEG, or `bytes` with `{"endian": "little"}` (plain `bytes` for a one-byte type). A JPEG tile of three samples is a plain codestream; no transform marker is added |
 | `dimension_names` | array of string | required | the axes |
 
 **Chunks:** each tile inside its level is the chunk at `l/c/<t>/<c>/<z>/<row>/<column>`
@@ -651,7 +651,7 @@ then, for a pyramid, `tile_file`, `ets`, `levels` and `tiles_outside`, or, for a
 | `samples` | integer | required | the samples per pixel, the ETS `channels` |
 | `colorspace` | integer | required | the ETS `colorspace` |
 | `compression` | integer | required | the ETS `compression` |
-| `codec` | string | required | `raw`, `jpeg` or `jpeg2000` |
+| `codec` | string | required | `raw`, `jpeg`, `jpeg2000` or `ljpeg` |
 | `quality` | integer | required | the ETS `quality` |
 | `tile_width` | integer | required | `tw` |
 | `tile_height` | integer | required | `th` |
@@ -732,7 +732,7 @@ In a tile file:
 | `ets` | value | `{magic:ascii[4],version:<i4,pixel_type:<i4,channels:<i4,colorspace:<i4,compression:<i4,quality:<i4,tile_width:<i4,tile_height:<i4,tile_depth:<i4,pixel_info_hints:<i4[17],background:bytes[40],component_order:<i4,use_pyramid:<i4,reserved:bytes[28],dimensions:<i4,dimension_sizes:<i4[10]}` | `(ets_offset, 228)`: the ETS header |
 | `ets_extra` | value | `bytes[ets_size − 228]` | the rest of the ETS header, when `ets_size > 228` |
 | `directory` | value | `{coordinates:<i4,coordinate:<i4[n],offset:<i8,size:<i4,index:<i4}[tiles]` | `(tiles_offset, tiles × (20 + 4n))`: the tile directory, when there are tiles |
-| `tiles/<k>` | data | | tile `k` of the directory, `(offset, size)`; its form `{"geometry": {"shape": [th, tw], "samples": S, "bits": 8 × bytes}, "codec": {"compression": "raw" \| "jpeg" \| "jpeg2000"}, "recipe": [["src", 0, null]]}` |
+| `tiles/<k>` | data | | tile `k` of the directory, `(offset, size)`; its form `{"geometry": {"shape": [th, tw], "samples": S, "bits": 8 × bytes}, "codec": {"compression": "raw" \| "jpeg" \| "jpeg2000" \| "ljpeg"}, "recipe": [["src", 0, null]]}` |
 | `gaps/<offset>` | gap | | bytes no other element claims |
 
 ### 6.4 Equivalence
@@ -965,11 +965,12 @@ is not 64, whose `coordinates` are fewer than 2 or more than 16, whose ETS
 header is outside the file or shorter than 228 bytes, whose tile count is
 negative or over 2^24, or whose directory is outside the file. Its ETS
 header is rejected when its magic is not `ETS`, its pixel type is not in
-`pixel_types`, its `channels` are not 1, 3 or 4, its compression is 5, 8 or 9
-(named in the rejection as lossless JPEG, PNG or BMP) or any other value
-than 0, 2 or 3, its tiles are not 1 to 65535 pixels on each side, its
-`tile_depth` is not 1, or its `dimensions` are fewer than 2 or more than
-`coordinates`.
+`pixel_types`, its `channels` are not 1, 3 or 4, its compression is 8 or 9
+(named in the rejection as PNG or BMP) or any other value
+than 0, 2, 3 or 5, its tiles are not 1 to 65535 pixels on each side, its
+`tile_depth` is not 1, or its `dimensions` are 1 or more than
+`coordinates` (0, as a version 0x30003 header has, lists no sizes: every
+coordinate but the column, the row and the level then has the size 1).
 
 ### 9.3 Tiles and levels
 

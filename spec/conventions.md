@@ -300,6 +300,7 @@ of each step, and always one of step 3.
 | 3 | `{"name": "bytes", "configuration": {"endian": "little"}}`, or `"big"` | a larger data type |
 | 3 | `{"name": "imagecodecs_jpeg2k"}` | JPEG 2000: one codestream per chunk, decoding to the chunk's `[y, x]`, or, when interleaved, to `[y, x, c]`, after which `transpose` applies |
 | 3 | `{"name": "imagecodecs_jpeg"}` | JPEG: one complete JPEG stream per chunk, ISO/IEC 10918-1 with the JFIF/Adobe color conventions, decoding to the chunk's `[y, x]` or `[y, x, c]` like JPEG 2000 |
+| 3 | `{"name": "imagecodecs_ljpeg"}` | lossless JPEG: one complete JPEG stream per chunk, ISO/IEC 10918-1's lossless process (SOF3, predictors 1 to 7), its samples stored without a color transform, decoding to the chunk's `[y, x]` or `[y, x, c]` like JPEG 2000 |
 | 4 | `{"name": "numcodecs.zlib", "configuration": {"level": 1}}` | the bytes are zlib streams (RFC 1950) |
 | 4 | `{"name": "zstd", "configuration": {"level": 0, "checksum": false}}` | the bytes are Zstandard frames |
 
@@ -307,7 +308,7 @@ of each step, and always one of step 3.
 name: zarr-python's own (`bytes`, `transpose`, `gzip`, `zstd`, `blosc`, `sharding_indexed`, and
 `numcodecs.zlib`, `numcodecs.shuffle` and `numcodecs.delta`, its names for numcodecs' codecs),
 imagecodecs-zarr's (`imagecodecs_jpeg`, `imagecodecs_jpeg2k`, `imagecodecs_jpegxr`,
-`imagecodecs_delta`), the
+`imagecodecs_ljpeg`, `imagecodecs_delta`), the
 zarr-extensions registry's (`n5_default`), or refkv's own, which are named `refkv.<codec>`
 (`refkv.stream`, [§10](#10-coded-streams); `refkv.fits_tiles`,
 [fits §3.3](zarrify/fits.md#33-tile-compressed-images); `refkv.tiff_lzw`,

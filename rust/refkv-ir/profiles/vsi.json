@@ -11,6 +11,6 @@
   ],
   "reference": null,
   "source": "Olympus VSI",
-  "inputs": "Olympus cellSens VSI slides: a `.vsi` file and the tile files beside it, probed by key (uncompressed, JPEG and JPEG 2000 tiles)",
+  "inputs": "Olympus cellSens VSI slides: a `.vsi` file and the tile files beside it, probed by key (uncompressed, JPEG, JPEG 2000 and lossless JPEG tiles)",
   "for": "Olympus cellSens whole-slide images (`.vsi` with its tile files)"
 }
