@@ -27,7 +27,9 @@ The rules themselves are in [spec/zarrify.md](../spec/zarrify.md) (what every
 profile does) and [spec/conventions.md](../spec/conventions.md) (what every
 hierarchy looks like). [spec/TECHNIQUES.md](../spec/TECHNIQUES.md) is the best
 single account of the techniques. This guide links to them rather than
-restating them.
+restating them. For agents, the project skill
+[.claude/skills/add-format](../.claude/skills/add-format/SKILL.md) gives the
+procedure and points into this guide.
 
 ## 1. Check that the format fits
 
