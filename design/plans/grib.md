@@ -43,9 +43,10 @@ implementation departs from this plan in these places:
   `field` member, though the codec still accepts one.
 - **Indexes.** NOAA's `n.k:offset` lines, for the fields of one message, are read too. NAM's
   index uses them.
-- **Reads.** The store run now divides one object's spans among the run's concurrent requests.
+- **Reads.** The store run now puts one object's spans in requests of at most 16, which the hosts
+  make concurrently.
   Before, the hosts read one request's spans in sequence, so GFS's 743 heads took 110 s; now
-  they take 15 s. This applies to every store format.
+  they take 17 s. This applies to every store format.
 - **Determinism.** The Lambert projection uses the pure-Rust `libm` crate, so the native and
   wasm builds compute the same bits: the core's first new dependency for a profile.
 - **CCSDS** is a port of gribberish's pure-Rust AEC decoder (item 7), with two fixes from libaec.

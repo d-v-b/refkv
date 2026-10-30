@@ -57,15 +57,15 @@ the archive is the same.
 
 ## Measured
 
-The 2026-10-29 00z runs, from this machine (in Europe) over HTTP, with each feed's index:
+The 2026-10-29 00z runs, read from a machine in Europe over HTTP, with each feed's index:
 
 | file | size | messages | arrays | requests | read | time |
 |---|---|---|---|---|---|---|
-| GFS 0.25° (`gfs.t00z.pgrb2.0p25.f006`) | 528 MB | 743 | 172 | 18 | 12.4 MB | 15 s |
-| HRRR CONUS (`hrrr.t00z.wrfsfcf06.grib2`) | 154 MB | 173 | 133 | 16 | 2.9 MB | 5 s |
-| GEFS 0.5° member (`gep01.t00z.pgrb2a.0p50.f006`) | 15 MB | 85 | 35 | 15 | 1.5 MB | 3 s |
-| NAM (`nam.t00z.awphys06.tm00.grib2`) | 61 MB | 404 (454 fields) | 109 | 19 | 7.0 MB | 9 s |
-| NBM CONUS (`blend.t00z.core.f006.co.grib2`) | 197 MB | 208 | 204 | 11 | 3.5 MB | 6 s |
+| GFS 0.25° (`gfs.t00z.pgrb2.0p25.f006`) | 528 MB | 743 | 172 | 50 | 12.4 MB | 17 s |
+| HRRR CONUS (`hrrr.t00z.wrfsfcf06.grib2`) | 154 MB | 173 | 133 | 13 | 2.9 MB | 7 s |
+| GEFS 0.5° member (`gep01.t00z.pgrb2a.0p50.f006`) | 15 MB | 85 | 35 | 9 | 1.5 MB | 4 s |
+| NAM (`nam.t00z.awphys06.tm00.grib2`) | 61 MB | 404 (454 fields) | 109 | 29 | 7.0 MB | 11 s |
+| NBM CONUS (`blend.t00z.core.f006.co.grib2`) | 197 MB | 208 | 204 | 15 | 3.5 MB | 6 s |
 | ECMWF IFS 0.25° (`20261029000000-6h-oper-fc.grib2`) | 98 MB | 191 | 53 | 15 | 3.3 MB | 7 s |
 
 ## Example
