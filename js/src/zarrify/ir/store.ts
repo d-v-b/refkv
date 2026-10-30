@@ -2,8 +2,8 @@
 // conventions §8.9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>): the
 // core parses the listing and the objects it reads, projects the convention's hierarchy and
 // mirrors the store IR; this host lists the store (store.ts), gives the core the keys the
-// listing ignores, performs its batches of object reads (each a request for some spans of one object, at
-// most the store's concurrency at a time), and turns its output (`Out::encode`) into the
+// listing ignores, performs its batches of object reads (each a request for at most 16 spans of one
+// object, at most the store's concurrency at a time), and turns its output (`Out::encode`) into the
 // writer's archive description: one url source per object some reference uses, its listed
 // size pinned, in order of first use, then the data sources (spec/zarrify.md §1.4
 // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>). The twin of
