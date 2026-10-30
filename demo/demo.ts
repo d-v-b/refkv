@@ -7,6 +7,11 @@ import {
 } from "../js/src/client.ts";
 import { WORKER_HEADER } from "../js/src/server.ts";
 import { sampleRanges, tooNarrow, usableWindow } from "./contrast.ts";
+import { pythonScript, stem } from "./python.ts";
+
+// The earliest refkv release the Python script needs: the latest release tag of the commit
+// the page was built from (js/build.mjs), or "" when the build found none.
+declare const __REFKV_RELEASE__: string;
 
 // The examples are the links with a data-url attribute in index.html, where
 // their sources and licenses are noted.
@@ -495,6 +500,21 @@ async function showView(view: View & { input: Input }) {
   ng.href = new URL(`neuroglancer/#!${encodeURIComponent(JSON.stringify(state))}`, location.href).href;
 }
 
+let pythonUrl: string | undefined;
+
+/** Shows the Python script that builds the same hierarchy as `input`, and links it as a file. */
+function showPython(input: Input, profile: string | undefined) {
+  const script = pythonScript(input.url, input.isArchive, profile, __REFKV_RELEASE__ || undefined);
+  const file = `${input.isArchive ? "open" : "zarrify"}_${stem(input.url)}.py`;
+  $("python-code").textContent = script;
+  $("python-run").textContent = `uv run ${file}`;
+  if (pythonUrl) URL.revokeObjectURL(pythonUrl);
+  pythonUrl = URL.createObjectURL(new Blob([script], { type: "text/x-python" }));
+  const save = $<HTMLAnchorElement>("python-save");
+  save.href = pythonUrl;
+  save.download = file;
+}
+
 async function zarrify(url: string) {
   $("result").hidden = true;
   // Record the URL in the address bar, so the page can be shared or reloaded.
@@ -593,10 +613,18 @@ async function zarrify(url: string) {
     await showView(views[0]);
   }
   $<HTMLAnchorElement>("download").href = archiveDownloadUrl(zarrUrl);
+  showPython(opened, attrs.refkv_zarrified?.profile);
   $("result").hidden = false;
   setStatus(`Ready in ${ms} ms.`);
 }
 
+$("python-copy").addEventListener("click", () => {
+  navigator.clipboard.writeText($("python-code").textContent ?? "").then(
+    () => ($("python-copy").textContent = "Copied"),
+    () => ($("python-copy").textContent = "Copy failed"),
+  );
+  setTimeout(() => ($("python-copy").textContent = "Copy"), 2000);
+});
 $("view").addEventListener("change", () => {
   showView(views[Number($<HTMLSelectElement>("view").value)]).catch((e) => setStatus(String(e.message ?? e), true));
 });
