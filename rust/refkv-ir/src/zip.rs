@@ -1,9 +1,12 @@
-//! The zip form of a SAFE product (spec/zarrify/safe.md §8.4
-//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#84-the-zip-form>): the ZIP
-//! archive's end records, its central directory, its local headers, and its deflated XML
-//! documents. The functions are pure: the parser reads the bytes they name.
+//! ZIP archives, as the zip form of a SAFE product (spec/zarrify/safe.md §8.4
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#84-the-zip-form>) reads them:
+//! the end records, the central directory, the local headers, and deflated entries, and their IR
+//! elements; and the SAFE product's own checks of its entries (`product_entries`, `methods`). The functions are pure:
+//! the parser reads the bytes they name, and checks the roles `zip_end` and `zip_entry` of its
+//! profile's rules.
 
 use crate::fed::{Word, uint};
+use crate::ir::{Ir, NO_INDEX};
 use crate::rules::{self, Rules, flag, num, text};
 
 pub const EOCD: &[u8; 4] = b"PK\x05\x06";
@@ -290,6 +293,75 @@ pub fn inflate(data: &[u8], e: &Entry) -> Result<Vec<u8>, String> {
         return Err("a zip entry's CRC-32 does not match its bytes".into());
     }
     Ok(out)
+}
+
+/// The types of the zip structures' IR values, and the form of a deflated entry's data
+/// (spec/zarrify/safe.md §6.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#63-the-source-metadata-node>).
+pub const CD_TYPE: &str = "{signature:<u4,version_made:<u2,version_needed:<u2,flags:<u2,method:<u2,time:<u2,date:<u2,crc32:<u4,compressed_size:<u4,size:<u4,name_length:<u2,extra_length:<u2,comment_length:<u2,disk:<u2,internal:<u2,external:<u4,local_header_offset:<u4}";
+pub const LOCAL_TYPE: &str = "{signature:<u4,version:<u2,flags:<u2,method:<u2,time:<u2,date:<u2,crc32:<u4,compressed_size:<u4,size:<u4,name_length:<u2,extra_length:<u2}";
+pub const ZIP64_END_TYPE: &str = "{signature:<u4,size:<u8,version_made:<u2,version_needed:<u2,disk:<u4,cd_disk:<u4,entries_here:<u8,entries:<u8,cd_size:<u8,cd_offset:<u8}";
+pub const ZIP64_LOCATOR_TYPE: &str = "{signature:<u4,cd_disk:<u4,record_offset:<u8,disks:<u4}";
+pub const END_TYPE: &str = "{signature:<u4,disk:<u2,cd_disk:<u2,entries_here:<u2,entries:<u2,cd_size:<u4,cd_offset:<u4,comment_length:<u2}";
+pub const DEFLATE_FORM: &str = r#"{"transform":"deflate"}"#;
+
+/// The bytes of a zip file's end records and central directory, as read: the file's last bytes
+/// (the EOCD record and its comment end them), the central directory, and for a ZIP64 file the
+/// ZIP64 record's 56 bytes and its locator's 20.
+pub struct Records<'a> {
+    pub tail: &'a [u8],
+    pub cd: &'a [u8],
+    pub record: Option<&'a [u8]>,
+    pub locator: Option<&'a [u8]>,
+}
+
+/// The IR elements of a zip file's central directory and end records, children of the root:
+/// `central_directory` (a file header per entry, when it is not empty), `zip64_end` and
+/// `zip64_locator` (ZIP64), `end` and `end_comment` (when not empty).
+pub fn emit_records(ir: &mut Ir, size: u64, end: &End, entries: &[Entry], raw: &Records) -> Result<(), String> {
+    let tail_at = size - raw.tail.len() as u64;
+    let at = |o: u64, n: u64| -> &[u8] { &raw.tail[(o - tail_at) as usize..(o - tail_at + n) as usize] };
+    if end.cd_size > 0 {
+        let cd = raw.cd;
+        let c = ir.struct_(0, "central_directory", NO_INDEX, 0, Some((end.cd_offset, end.cd_size)))?;
+        for (i, e) in entries.iter().enumerate() {
+            let p = (e.at - end.cd_offset) as usize;
+            let s = ir.struct_(c, "entries/", i as u64, 0, Some((e.at, 46 + e.nn + e.ne + e.nc)))?;
+            ir.value(s, "header", NO_INDEX, CD_TYPE, 0, (e.at, 46), Some(&cd[p..p + 46]))?;
+            let mut o = e.at + 46;
+            for (name, n, ty) in [("name", e.nn, "ascii"), ("extra", e.ne, "bytes"), ("comment", e.nc, "ascii")] {
+                if n > 0 {
+                    let q = (o - end.cd_offset) as usize;
+                    ir.value(s, name, NO_INDEX, &format!("{ty}[{n}]"), 0, (o, n), Some(&cd[q..q + n as usize]))?;
+                }
+                o += n;
+            }
+        }
+    }
+    if let (Some((loc, rec)), Some(record), Some(locator)) = (end.zip64, raw.record, raw.locator) {
+        ir.value(0, "zip64_end", NO_INDEX, ZIP64_END_TYPE, 0, (rec, 56), Some(record))?;
+        ir.value(0, "zip64_locator", NO_INDEX, ZIP64_LOCATOR_TYPE, 0, (loc, 20), Some(locator))?;
+    }
+    ir.value(0, "end", NO_INDEX, END_TYPE, 0, (end.eocd, 22), Some(at(end.eocd, 22)))?;
+    if end.comment > 0 {
+        ir.value(0, "end_comment", NO_INDEX, &format!("ascii[{}]", end.comment), 0, (end.eocd + 22, end.comment), Some(at(end.eocd + 22, end.comment)))?;
+    }
+    Ok(())
+}
+
+/// The IR struct `entries/<index>` of entry `e` (its local header read), a child of the root,
+/// `[lho, ds + cs)`: its local header, name (its bytes `name`, when the parser holds them) and
+/// extra field; its data is the caller's to add.
+pub fn emit_local(ir: &mut Ir, index: u64, e: &Entry, name: Option<&[u8]>) -> Result<u32, String> {
+    let s = ir.struct_(0, "entries/", index, 0, Some((e.lho, e.ds + e.cs - e.lho)))?;
+    ir.value(s, "local_header", NO_INDEX, LOCAL_TYPE, 0, (e.lho, 30), Some(&e.local))?;
+    if e.local_nn > 0 {
+        ir.value(s, "name", NO_INDEX, &format!("ascii[{}]", e.local_nn), 0, (e.lho + 30, e.local_nn), name)?;
+    }
+    if e.local_ne > 0 {
+        ir.value(s, "extra", NO_INDEX, &format!("bytes[{}]", e.local_ne), 0, (e.lho + 30 + e.local_nn, e.local_ne), None)?;
+    }
+    Ok(s)
 }
 
 /// CRC-32 (ISO 3309, as zip uses it).

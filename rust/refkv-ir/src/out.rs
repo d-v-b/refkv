@@ -629,7 +629,7 @@ pub const GZIP_LEVEL: u8 = 6;
 pub fn gzip(raw: &[u8]) -> Vec<u8> {
     let mut out = vec![0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 255];
     out.extend(miniz_oxide::deflate::compress_to_vec(raw, GZIP_LEVEL));
-    out.extend_from_slice(&crate::safe::zip::crc32(raw).to_le_bytes());
+    out.extend_from_slice(&crate::zip::crc32(raw).to_le_bytes());
     out.extend_from_slice(&(raw.len() as u32).to_le_bytes());
     out
 }
