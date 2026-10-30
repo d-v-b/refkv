@@ -9,6 +9,7 @@
 //! encoders write as the value itself. One implementation serves Python and the browser.
 
 mod aec;
+mod jpeg2000;
 mod png;
 
 use super::sections::{Field, Section, fields, indicator, sections, signed, uint};
@@ -374,6 +375,16 @@ fn ieee(s5: &[u8], data: &[u8], n: usize) -> Res<Vec<f64>> {
         .collect())
 }
 
+/// Template 5.40: a JPEG 2000 codestream whose samples are the integers.
+fn jpeg2000_values(s5: &[u8], data: &[u8], n: usize) -> Res<Vec<f64>> {
+    let scale = Scale::of(s5)?;
+    if s5[19] == 0 {
+        return Ok(vec![scale.r; n]);
+    }
+    let x = jpeg2000::decode(data, n).or_else(err)?;
+    Ok(x.into_iter().map(|v| scale.value(v as f64)).collect())
+}
+
 /// Template 5.41: a PNG image whose samples, each pixel's bits as one big-endian integer, are
 /// the integers (grayscale of 1, 2, 4, 8 or 16 bits, 8-bit RGB as 24 bits, 8-bit RGBA as 32).
 fn png_values(s5: &[u8], data: &[u8], n: usize) -> Res<Vec<f64>> {
@@ -411,7 +422,7 @@ fn unpack(s5: &[u8], data: &[u8], n: usize) -> Res<Vec<f64>> {
         2 => complex(s5, data, n, false),
         3 => complex(s5, data, n, true),
         4 => ieee(s5, data, n),
-        40 => err("JPEG 2000 packing (5.40) is not decoded"),
+        40 => jpeg2000_values(s5, data, n),
         41 => png_values(s5, data, n),
         42 => ccsds(s5, data, n),
         t => err(format!("data representation template 5.{t} is not decoded")),

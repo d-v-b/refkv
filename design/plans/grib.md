@@ -744,3 +744,9 @@ These are recommended answers. The convention states whatever is decided.
 
     **Recommendation:** leave 5.40 unpresented in version 0, and decide
     when a corpus feed other than RAP needs it.
+
+    **Decided** (after version 0): the first, hayro-jpeg2000, for the
+    reversible 5/3 codestreams of up to 20 bits that RAP, CFSv2, GFS-Wave,
+    GEFS-Wave and the NAM Puerto Rico and Hawaii nests write (JasPer, lossless,
+    at most 19 bits on 2026-10-29); [conventions §12](../../spec/conventions.md#12-grib-messages) says why 9/7 is not
+    decoded.

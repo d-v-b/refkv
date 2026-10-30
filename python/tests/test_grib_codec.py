@@ -25,7 +25,7 @@ except (ImportError, RuntimeError):  # no eccodes library for this platform
 FIXTURES = Path(__file__).resolve().parents[2] / "fixtures" / "grib"
 
 # the fixtures the codec rejects (the tests below)
-ERRORS = {"grib_jpeg2000", "grib_reject_truncated", "grib_reject_end"}
+ERRORS = {"grib_reject_truncated", "grib_reject_end"}
 # the fixtures eccodes 2.50 does not decode as the codec does, which are compared with the values
 # the generator wrote (from the 5.0 messages they were made from): PNG samples of 1, 2 and 4 bits
 # (its wheel's PNG decoder asserts whole-byte samples, and aborts), and a bitmap reused through
@@ -96,12 +96,19 @@ def test_every_field_decodes_to_eccodes_values(tmp_path):
             got32 = read(path, {"field": k}, want.shape, "float32", tmp_path / f"{name}.{k}.f4")
             np.testing.assert_array_equal(got32, want.astype(np.float32), err_msg=f"{name} field {k}", strict=True)
             checked += 1
-    assert checked == 47
+    assert checked == 57
 
 
 def test_rejects_a_packing_it_does_not_decode(tmp_path):
-    with pytest.raises(ValueError, match=r"^refkv\.grib: JPEG 2000 packing \(5\.40\) is not decoded$"):
-        read(FIXTURES / "grib_jpeg2000.grib2", {"field": 1}, (12, 16), "float64", tmp_path)
+    # grib_jpeg2000_lossy's codestream as if of the 9/7 wavelet transform (its COD's last
+    # parameter)
+    m = bytearray((FIXTURES / "grib_jpeg2000_lossy.grib2").read_bytes())
+    cod = m.index(b"\xff\x52", m.index(b"\xff\x4f\xff\x51"))
+    m[cod + 13] = 0
+    (tmp_path / "m.grib2").write_bytes(m)
+    nine_seven = r"^refkv\.grib: a JPEG 2000 codestream of the irreversible 9/7 wavelet transform is not decoded$"
+    with pytest.raises(ValueError, match=nine_seven):
+        read(tmp_path / "m.grib2", {}, (12, 16), "float64", tmp_path / "a")
 
 
 def test_rejects_a_chunk_shape_that_is_not_the_grids(tmp_path):
