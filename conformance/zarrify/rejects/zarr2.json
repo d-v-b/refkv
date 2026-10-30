@@ -102,6 +102,11 @@
       "message": "fill_value NaN is not a uint16"
     },
     {
+      "test": "zarr2_reject_fill_list_int",
+      "input": "zarr2_reject_fill_list_int",
+      "message": "fill_value [1] is not a uint16"
+    },
+    {
       "test": "zarr2_reject_fill_uint64_max",
       "input": "zarr2_reject_fill_uint64_max",
       "message": "is not a uint64"

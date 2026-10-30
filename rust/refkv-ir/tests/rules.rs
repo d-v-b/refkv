@@ -134,20 +134,24 @@ fn kind_and_int_read_json_values() {
     env.insert("none".into(), V::List(vec![]));
     env.insert("table".into(), V::from_json(&serde_json::json!({"x": 1})));
     env.insert("name".into(), V::Str("II".into()));
-    let cases: [(&str, V); 13] = [
+    let cases: [(&str, V); 17] = [
         ("kind(mixed)", V::Str("list".into())),
         ("kind(name)", V::Str("string".into())),
         ("kind(table)", V::Str("object".into())),
         ("kind(flag)", V::Str("bool".into())),
         ("kind(3)", V::Str("number".into())),
         ("kind(missing)", V::Str("absent".into())),
-        ("int(mixed, 8, 16)", V::Bool(true)),
-        ("int(mixed, 9, 16)", V::Bool(false)),
+        ("int(8, 8, 16)", V::Bool(true)),
+        ("int(mixed, 8, 16)", V::Bool(false)), // a list is not a number, whatever its items
         ("int(2.5, 0, 9)", V::Bool(false)),
         ("int(flag, 0, 9)", V::Bool(false)), // a boolean is not a number
-        ("int(none, 0, 9)", V::Bool(true)),  // no item to fail: a list's kind and length are checked apart
         ("int(missing, 0, 9)", V::Bool(false)),
         ("int(9007199254740992)", V::Bool(false)),
+        ("ints(mixed, 8, 16)", V::Bool(true)),
+        ("ints(mixed, 9, 16)", V::Bool(false)),
+        ("ints(none, 0, 9)", V::Bool(true)), // no item to fail: a list's kind and length are checked apart
+        ("ints(8, 8, 16)", V::Bool(false)),  // a number is not a list
+        ("ints(missing, 0, 9)", V::Bool(false)),
     ];
     for (s, want) in cases {
         assert_eq!(ev(s, &env), want, "{s}");

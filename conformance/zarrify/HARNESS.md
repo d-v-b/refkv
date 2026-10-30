@@ -136,7 +136,16 @@ include:
 
 `compare.py --fixtures <dir>` takes the store fixtures from `<dir>/n5/`,
 `<dir>/zarr2/` and `<dir>/ome-zarr/` (as `mutate.py` writes them), and `--large` adds the corpus
-inputs marked `py-only`, which every implementation but the browser's runs.
+inputs marked `py-only`, which every implementation but the browser's runs. A mutant of a
+fixture in `revised.json` compares as its fixture does: without the frozen reference.
+
+When a remote server does not serve an input (a timeout, a reset connection, an HTTP error
+after the proxy's retries, or a 404 for the input itself), the proxy answers the request
+with 404 or 502 instead of dropping the connection, and `compare.py` reports the input as
+`UNAVAILABLE` rather than comparing it, unless every implementation read it anyway. An
+unavailable input does not fail the run; the summary names how many there were and their
+hosts. A 404 for a file beside the input, or for an object of a store, is a probe's answer
+and is passed on as it is.
 
 ## The built-in implementations, and what a comparison proves
 
