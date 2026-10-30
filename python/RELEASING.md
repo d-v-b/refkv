@@ -1,15 +1,35 @@
 # Releasing refkv
 
-Push a tag `vX.Y.Z` (or a release candidate, `vX.Y.Z-rc.K`) on the commit to release:
+Merge the release PR. [release-please](https://github.com/googleapis/release-please) keeps
+one open on main (the [release-please workflow](../.github/workflows/release-please.yml)):
+it is titled `chore(main): release X.Y.Z`, and it updates as commits land. Its version
+follows the [conventional commits](https://www.conventionalcommits.org/) since the last
+release: before 1.0, a breaking change (`feat!:`) or a feature (`feat:`) bumps the minor
+version and a fix (`fix:`) the patch. It adds their subjects (the squash-merged PR titles) to
+[CHANGELOG.md](../CHANGELOG.md), under the sections
+[release-please-config.json](../release-please-config.json) lists, and records the version in
+[.release-please-manifest.json](../.release-please-manifest.json). Edit the PR's
+`CHANGELOG.md` before merging, if an entry needs rewording.
+
+Merging it tags `vX.Y.Z` on the merge commit, creates the GitHub release with the changelog
+entry, and runs the [release workflow](../.github/workflows/release.yml) at the tag. That
+workflow builds the wheels (abi3, for Python 3.12 and later, on Linux x86_64 and aarch64 with
+glibc and with musl, macOS Intel and arm, and Windows x64 and arm64) and the sdist, checks
+that each installs and runs, checks that their names carry the tag's version, and publishes
+them to PyPI through trusted publishing.
+
+To release a version other than the one the commits give, put a `Release-As: X.Y.Z` line in
+a commit message's footer on main; release-please then proposes that version.
+
+### Release candidates
+
+A release candidate is tagged by hand, on the commit to release, and is not in the changelog:
 
 ```bash
-git tag v0.2.0 && git push origin v0.2.0
+git tag v0.2.0-rc.1 && git push origin v0.2.0-rc.1
 ```
 
-That is all. The [release workflow](../.github/workflows/release.yml) builds the wheels
-(abi3, for Python 3.12 and later, on Linux x86_64 and aarch64 with glibc and with musl,
-macOS Intel and arm, and Windows x64 and arm64) and the sdist, checks that each installs and runs, checks that their names carry
-the tag's version, and publishes them to PyPI through trusted publishing.
+Pushing the tag runs the release workflow, which publishes the candidate to PyPI.
 
 ## Where the version comes from
 
