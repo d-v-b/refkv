@@ -80,6 +80,7 @@ import sys
 import urllib.parse
 import urllib.request
 import zipfile
+from collections import Counter
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -641,7 +642,15 @@ def corpus(proxy: Proxy, fixtures: Path, quick: bool, local_only: bool, large: b
              if not any(p.is_relative_to(s) for s in stores)]
     # a profile the frozen reference never had (its `reference` is null), and a fixture whose layout
     # changed after the freeze (REVISED), or a mutant of one: its files compare py with web alone
-    items = [(f"fixture-{p.stem}", proxy.local(p.relative_to(fixtures).as_posix()),
+    # an input's name names its output files (check), and inputs run three at a time: a stem
+    # that several files share (a generator's expected arrays, `.npy` like the NumPy profile's
+    # inputs, beside its fixtures) names each by its path instead
+    stems = Counter(p.stem for p in files)
+
+    def name(p: Path) -> str:
+        return p.stem if stems[p.stem] == 1 else p.relative_to(fixtures).as_posix().replace("/", "__")
+
+    items = [(f"fixture-{name(p)}", proxy.local(p.relative_to(fixtures).as_posix()),
               *(["no-ref"] if FILE_SUFFIXES[p.suffix]["reference"] is None
                 or unmutated(p.name) in REVISED else []))
              for p in files]
