@@ -83,6 +83,11 @@ function imageState(
   let xi = axes.findIndex((a) => a.name === "x");
   let yi = axes.findIndex((a) => a.name === "y");
   if (xi < 0 || yi < 0) [yi, xi] = [axes.length - 2, axes.length - 1];
+  // The axis two-finger scroll (the wheel) steps along: the first axis other
+  // than x, y and c with more than one element, when there is one (t or z,
+  // say). Neuroglancer's wheel moves along the third display dimension, and
+  // does nothing without one.
+  const scrolled = axes.find((a, i) => i !== xi && i !== yi && a.name !== "c" && shape[i] > 1);
   // The coordinate space, declared up front so that displayDimensions can
   // name x and y before the layers load (otherwise Neuroglancer may display a
   // non-spatial axis such as t).
@@ -113,7 +118,7 @@ function imageState(
   const view = {
     dimensions,
     position,
-    displayDimensions: [axes[xi].name, axes[yi].name],
+    displayDimensions: [axes[xi].name, axes[yi].name, ...(scrolled ? [scrolled.name] : [])],
     // With the coordinate space declared, this counts full-resolution voxels
     // per screen pixel.
     crossSectionScale: Math.max(shape[yi] / 600, shape[xi] / 850),

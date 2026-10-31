@@ -2,7 +2,9 @@
 # for Python >= 3.12, for Linux (glibc and musl), macOS and Windows, x86_64 and arm64) and its sdist, at the version git's tags
 # give (python/RELEASING.md), and check each installs and runs. A tag v<version> also
 # publishes them to PyPI through trusted publishing (no token: PyPI trusts this workflow in
-# the environment `pypi`). Every push to main builds them, so a break on
+# the environment `pypi`). The tag is pushed by hand (a release candidate) or created by
+# merging release-please's release PR, after which the release-please workflow dispatches
+# this one at the tag. Every push to main builds them, so a break on
 # another platform shows before a tag; so does a pull request that changes the build.
 
 name: release

@@ -1,0 +1,41 @@
+# Keeps a release PR open on main (release-please, https://github.com/googleapis/release-please):
+# it bumps the version in .release-please-manifest.json by the conventional commits since the
+# last release (before 1.0, a breaking change or a feature bumps the minor version, a fix the
+# patch) and adds their entries to CHANGELOG.md (release-please-config.json picks the
+# sections). Merging it tags v<version> and creates the GitHub release; this workflow then
+# runs the release workflow at the tag, which builds and publishes to PyPI (python/RELEASING.md).
+#
+# A tag pushed with this workflow's GITHUB_TOKEN starts no workflow, so the release workflow
+# is dispatched (a dispatch is the exception), and runs at the tag as a pushed tag's would.
+
+name: release-please
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+# each push to main updates the release PR in turn; a run that creates a release is never cancelled
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: googleapis/release-please-action@v5
+        id: release
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+      - if: ${{ steps.release.outputs.release_created }}
+        run: gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag_name }}
