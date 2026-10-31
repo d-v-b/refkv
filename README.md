@@ -24,6 +24,10 @@ as a Zarr hierarchy whose chunks are references to the original bytes,
 without copying them. It runs natively from Python and as WebAssembly in the
 browser.
 
+**[Try the live demo](https://d-v-b.github.io/refkv-demo/image-to-zarr/)**: paste the URL
+of a remote image file or store, and the browser zarrifies it and shows it in Neuroglancer
+(or, for a Sentinel-2 product, on a map).
+
 ```python
 from refkv.zarrify import zarrify
 
