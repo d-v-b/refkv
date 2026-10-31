@@ -36,7 +36,6 @@ classifiers = [
 # without Zarr (numpy: refkv.shards), through the Rust core this package builds and
 # ships as the module refkv._core (below); the extras add the rest (src/refkv/_extras.py).
 dependencies = [
-    "google-crc32c>=1.9.0",
     "numpy>=2.5.3",
 ]
 

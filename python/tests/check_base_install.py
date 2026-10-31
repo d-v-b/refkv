@@ -15,7 +15,10 @@ must have built, and a Zarr v2 store. Each optional part names the extra it need
 With `zarr`: zarr finds refkv's codecs through refkv's `zarr.codecs` entry points, before
 refkv.zarr is imported, refkv.zarr reads the same archive through zarr, a FITS file's tiles
 decode, and the codecs whose decoders need another extra (refkv.tiff_lzw, refkv.stream) and
-the VirtualiZarr conversion name their extras."""
+the VirtualiZarr conversion name their extras.
+
+On a free-threaded Python, the GIL is still disabled at the end: no module imported, refkv._core
+among them, re-enabled it."""
 
 import importlib
 import importlib.metadata
@@ -23,6 +26,7 @@ import importlib.util
 import json
 import os
 import sys
+import sysconfig
 import tempfile
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -196,4 +200,7 @@ expect_import_error(
 expect_import_error("virtualizarr", lambda: importlib.import_module("refkv.shards"))
 expect_import_error("virtualizarr", lambda: importlib.import_module("refkv.convert"))
 assert "xarray" not in sys.modules, "refkv imported xarray"
+if sys.version_info >= (3, 13) and sysconfig.get_config_var("Py_GIL_DISABLED"):
+    assert not sys._is_gil_enabled(), "an import re-enabled the GIL"
+    print("free-threaded: the GIL is still disabled")
 print(f"{mode} install: ok, without xarray" + (" or zarr" if mode == "base" else ""))

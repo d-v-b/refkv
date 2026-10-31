@@ -9,8 +9,7 @@ import re
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
-import google_crc32c
-
+from refkv import _core
 from refkv._extras import OBSTORE_HINT
 from refkv.errors import ResolutionError
 
@@ -25,7 +24,7 @@ _ENCODED = re.compile(r"%(2[eEfF]|5[cC])")
 
 def crc32c(data: bytes) -> int:
     """CRC-32C (Castagnoli, RFC 3720 §B.4) of `data`."""
-    return google_crc32c.value(bytes(data))
+    return _core.crc32c(bytes(data))
 
 
 def _scheme(url: str) -> str:
