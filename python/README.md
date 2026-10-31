@@ -26,6 +26,10 @@ class requires one format instead, and carries the input's read options
 `zarrify(NdpiSource(url))` reads an NDPI slide or raises `Rejected`, and
 `zarrify(Zarr2Store(url))` reads a store whose URL has no trailing `/`.
 
+From async code, `await zarrify_async(url)` (and `zarrify_store_async`) takes the
+same arguments and gives the same store, the event loop free while the reads
+are in flight, so that one process can zarrify several inputs at once.
+
 For netCDF, HDF5 and the other files
 [VirtualiZarr](https://virtualizarr.readthedocs.io/) reads,
 `refkv.ReferenceStore.from_virtualizarr(vds)` turns a virtual dataset into a

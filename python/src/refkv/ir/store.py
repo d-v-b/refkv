@@ -10,12 +10,13 @@ directory), and drives the run:
 
 - `listing(store)`: the store's objects as (key, size), keys in byte order: what
   `refkv._core.StoreRun` builds the IR's directories and objects from.
-- `drive_store(run, store)`: the loop. Each `poll()` is a batch of requests, each for at
-  most 16 spans of one object (a whole object being one span), made at most `store.workers` at a time (the
-  concurrency of #37's prefetch of documents), then `complete()`.
-- `run_store(store, fmt)`: a listed store run (its ignored keys given to the core), and its
-  output; `zarrify_store(location, url, fmt)`: the store listed under the policy, then
-  run. The output (`StoreIrOutput`) references objects through one url source per object
+- `drive_store_async(run, store)`: the loop, as a coroutine (`drive_store` waits for it). Each
+  `poll()` is a batch of requests, each for at most 16 spans of one object (a whole object being
+  one span), made at most `store.workers` at a time (the concurrency of #37's prefetch of
+  documents), then `complete()`.
+- `run_store_async(store, fmt)` (`run_store` waits for it): a listed store run (its ignored
+  keys given to the core), and its output; `zarrify_store(location, url, fmt)`: the store
+  listed under the policy, then run. The output (`StoreIrOutput`) references objects through one url source per object
   some reference uses, its size pinned, in order of first use, and its data sources follow
   (spec/zarrify.md §1.4
   <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>).
@@ -33,6 +34,7 @@ does not exist (`Store.probe`; `refkv.zarrify.store.beside.VsiFiles` opens the f
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import json
 import threading
@@ -41,7 +43,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Literal
 
-from refkv import _core
+from refkv import _core, _sync
 from refkv.pb import Range, Source
 from refkv.policy import Policy
 from refkv.refstore import ReferenceStore
@@ -83,58 +85,56 @@ def _whole(store: Store, key: str) -> bytes:
     return r[1]
 
 
-def drive_store(run: _core.StoreRun, store: Store, workers: int | None = None, fmt: str | None = None) -> None:
+async def drive_store_async(run: _core.StoreRun, store: Store, workers: int | None = None,
+                            fmt: str | None = None) -> None:
     """Performs the object reads a store run asks for until it is done, at most `workers`
-    (default `store.workers`) at a time; each reading thread closes its kept-alive
-    connections at the end. `fmt` is the run's store format, which a rejection names
-    (`Rejected.format`); pass it whenever it is known."""
+    (default `store.workers`) at a time, without blocking the event loop: the reads and probes,
+    which block, and the run's calls into the Rust core run on threads of the run's own, each of
+    which closes its kept-alive connections at the end. `fmt` is the run's store format, which a
+    rejection names (`Rejected.format`); pass it whenever it is known."""
     workers = max(1, workers or store.workers)
-    pool = ThreadPoolExecutor(workers) if workers > 1 else None
+    loop = asyncio.get_running_loop()
+    pool = ThreadPoolExecutor(workers, thread_name_prefix="refkv-read")
 
-    def fetch(q: tuple[int, str, list[tuple[int, int]]]) -> list[bytes]:
-        return _fetch(store, q[1], q[2])
+    def complete(results: list[list[bytes]]) -> list[tuple[int, str, list[tuple[int, int]]]] | None:
+        """The batch's results given to the run, then the next batch."""
+        for k, parts in enumerate(results):
+            run.complete(k, parts)
+        while (reqs := run.poll()) == []:
+            # a batch of probes (a VSI input's tile files, spec/zarrify/vsi.md §9.2
+            # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#92-the-tile-files>):
+            # each key answered with its size, or None when it does not exist
+            for key in run.probes():
+                run.found(store.probe(key))
+        return reqs
 
     try:
+        results: list[list[bytes]] = []
         while True:
             try:
-                reqs = run.poll()
+                reqs = await loop.run_in_executor(pool, complete, results)
             except _core.Rejected as e:
                 raise Rejected(str(e), format=fmt) from None
             if reqs is None:
                 return
-            if not reqs:
-                # a batch of probes (a VSI input's tile files, spec/zarrify/vsi.md §9.2
-                # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#92-the-tile-files>):
-                # each key answered with its size, or None when it does not exist
-                for key in run.probes():
-                    try:
-                        run.found(store.probe(key))
-                    except _core.Rejected as e:
-                        raise Rejected(str(e), format=fmt) from None
-                continue
-            if pool is None or len(reqs) == 1:
-                results = [_fetch(store, key, spans) for _, key, spans in reqs]
-            else:
-                results = list(pool.map(fetch, reqs))
-            for k, parts in enumerate(results):
-                try:
-                    run.complete(k, parts)
-                except _core.Rejected as e:
-                    raise Rejected(str(e), format=fmt) from None
+            results = list(await asyncio.gather(*(loop.run_in_executor(pool, _fetch, store, key, spans)
+                                                  for _, key, spans in reqs)))
     finally:
-        if pool is not None:
-            # one release per thread: each task waits until every thread holds one
-            barrier = threading.Barrier(workers)
+        # one release per thread: each task waits until every thread holds one
+        barrier = threading.Barrier(workers)
 
-            def release() -> None:
-                with contextlib.suppress(threading.BrokenBarrierError):
-                    barrier.wait(timeout=10)
-                store._release()  # noqa: SLF001 (this thread's connections)
+        def release() -> None:
+            with contextlib.suppress(threading.BrokenBarrierError):
+                barrier.wait(timeout=10)
+            store._release()  # noqa: SLF001 (this thread's connections)
 
-            for f in [pool.submit(release) for _ in range(workers)]:
-                f.result()
-            pool.shutdown()
-        store._release()  # noqa: SLF001 (this thread's connections)
+        await asyncio.gather(*(loop.run_in_executor(pool, release) for _ in range(workers)))
+        pool.shutdown(wait=False)
+
+
+def drive_store(run: _core.StoreRun, store: Store, workers: int | None = None, fmt: str | None = None) -> None:
+    """`drive_store_async`, the caller's thread waiting for it (`refkv._sync.run`)."""
+    _sync.run(drive_store_async(run, store, workers, fmt))
 
 
 @dataclass
@@ -285,35 +285,50 @@ def from_rust(t: tuple[str, list[tuple[str, bytes]], list[tuple[str, list[StoreP
     return out
 
 
-def run_store(store: Store, fmt: str = "zarr2",
-              mirror: bool = True) -> tuple[StoreIrOutput, _core.Ir, dict[str, object]]:
+async def run_store_async(store: Store, fmt: str = "zarr2",
+                          mirror: bool = True) -> tuple[StoreIrOutput, _core.Ir, dict[str, object]]:
     """(output, IR, run counts) of the listed `store`, parsed by the core's store format `fmt`:
     the keys its listing ignores given to the run (the recorded ignored keys, which the
     projection records, and the empty `d/` keys, a SAFE directory's directories), its objects
     read at most `store.workers` at a time, and the summary's `listingRequests` the store's
     requests. With `mirror` false the output has no `refkv_source` mirror, and so no record of
     the ignored keys either. A rejection names `fmt` (`Rejected.format`), or, for one of the
-    output's checks, the profile the run decided (`ome-zarr` once the 0.4 test passed)."""
-    if store._prefetch is not None:  # noqa: SLF001 (the store's reads)
-        # documents read ahead (choosing the profile does): the run takes those read, and reads
-        # the rest itself, so that at most `store.workers` reads are in flight
-        store._prefetch.drain()  # noqa: SLF001 (the store's reads)
-    try:
-        run = _core.StoreRun(fmt, listing(store), max(1, store.workers))
-        run.ignore(list(getattr(store, "ignored", [])), list(getattr(store, "folders", [])))
-    except _core.Rejected as e:
-        raise Rejected(str(e), format=fmt) from None
-    drive_store(run, store, fmt=fmt)
-    stats = json.loads(run.stats())
-    profile = run.profile()  # the output's checks are the decided profile's (OME-Zarr's, say)
-    try:
-        t, ir = run.output(store.url, mirror)
-    except _core.Rejected as e:
-        raise Rejected(str(e), format=profile) from None
-    # the objects' sizes, from the IR: the listing's, and a VSI input's files probed into it
-    out = from_rust(t, {k: n for k, _, n in ir.object_bases()})
-    out.summary["listingRequests"] = getattr(store, "requests", 0)
-    return out, ir, stats
+    output's checks, the profile the run decided (`ome-zarr` once the 0.4 test passed). The
+    calls that block (the core's, on a listing of millions of objects) run on a thread."""
+
+    def start() -> _core.StoreRun:
+        if store._prefetch is not None:  # noqa: SLF001 (the store's reads)
+            # documents read ahead (choosing the profile does): the run takes those read, and reads
+            # the rest itself, so that at most `store.workers` reads are in flight
+            store._prefetch.drain()  # noqa: SLF001 (the store's reads)
+        try:
+            run = _core.StoreRun(fmt, listing(store), max(1, store.workers))
+            run.ignore(list(getattr(store, "ignored", [])), list(getattr(store, "folders", [])))
+        except _core.Rejected as e:
+            raise Rejected(str(e), format=fmt) from None
+        return run
+
+    def finish(run: _core.StoreRun) -> tuple[StoreIrOutput, _core.Ir, dict[str, object]]:
+        stats = json.loads(run.stats())
+        profile = run.profile()  # the output's checks are the decided profile's (OME-Zarr's, say)
+        try:
+            t, ir = run.output(store.url, mirror)
+        except _core.Rejected as e:
+            raise Rejected(str(e), format=profile) from None
+        # the objects' sizes, from the IR: the listing's, and a VSI input's files probed into it
+        out = from_rust(t, {k: n for k, _, n in ir.object_bases()})
+        out.summary["listingRequests"] = getattr(store, "requests", 0)
+        return out, ir, stats
+
+    run = await asyncio.to_thread(start)
+    await drive_store_async(run, store, fmt=fmt)
+    return await asyncio.to_thread(finish, run)
+
+
+def run_store(store: Store, fmt: str = "zarr2",
+              mirror: bool = True) -> tuple[StoreIrOutput, _core.Ir, dict[str, object]]:
+    """`run_store_async`, the caller's thread waiting for it (`refkv._sync.run`)."""
+    return _sync.run(run_store_async(store, fmt, mirror))
 
 
 def zarrify_store(location: str, url: str | None = None, fmt: str = "zarr2", mirror: bool = True,

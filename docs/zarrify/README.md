@@ -216,6 +216,29 @@ next to the image (MRC's `dataset` group). By default every layout the format
 has is written, so `layouts=[Image()]` leaves the dataset layout out.
 `zarrify_store` and a string `location` take `layouts` too.
 
+**From async code.** `zarrify_async` and `zarrify_store_async` are coroutines that
+take the same arguments and give the same store, or raise the same errors, as
+`zarrify` and `zarrify_store`, which wait for them. While an input's reads are in
+flight the event loop is free, so one process can zarrify several inputs at once,
+or zarrify inside a notebook, a server or a VirtualiZarr pipeline. The reads still
+block, each on a thread of the run's own (`connections` of them), so the reader
+policy holds as it does for `zarrify`:
+
+```python
+import asyncio
+from refkv.zarrify import zarrify_async
+
+async def main(urls):
+    return await asyncio.gather(*(zarrify_async(u) for u in urls))
+
+stores = asyncio.run(main(["https://example.org/a.nd2", "https://example.org/b.czi"]))
+```
+
+In a notebook, `await zarrify_async(url)` in a cell. The blocking `zarrify` works
+there too, since it runs on refkv's own event loop, but called from a coroutine on
+that loop (a coroutine refkv runs) it raises `RuntimeError`: await `zarrify_async`
+there.
+
 **The browser.** The same zarrifiers run in a service worker
 ([js/](../../js/README.md)): the Rust core, built for WebAssembly. The
 service worker serves the
