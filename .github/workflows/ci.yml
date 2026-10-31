@@ -86,7 +86,9 @@ jobs:
   # (python/tests/check_base_install.py checks that). The test environment, but for the
   # packages without free-threaded wheels, which would be built from source or cannot be:
   # ecCodes' library (eccodeslib, eckitlib; the GRIB comparisons skip without it), astropy (the
-  # FITS tests that compare with it are left out), pylibCZIrw and JPype (bioio-bioformats').
+  # FITS tests that compare with it are left out), pylibCZIrw and JPype (bioio-bioformats'); and
+  # imagecodecs, whose locked release has no free-threaded wheel: its first that has, 2026.10.10,
+  # is installed instead (the lock keeps the release the fixture generators encode with).
   pytest-free-threaded:
     name: pytest (ubuntu-latest, 3.14t)
     runs-on: ubuntu-latest
@@ -121,7 +123,8 @@ jobs:
       - run: >-
           uv sync --all-groups --locked --python 3.14t
           --no-install-package eccodeslib --no-install-package eckitlib --no-install-package astropy
-          --no-install-package pylibczirw --no-install-package jpype1
+          --no-install-package pylibczirw --no-install-package jpype1 --no-install-package imagecodecs
+      - run: uv pip install "imagecodecs>=2026.10.10"
       - run: npm ci
         working-directory: js
       - run: just js::wasm

@@ -75,12 +75,15 @@ jobs:
             3.12
       # a tag push builds at its tag (its commit may carry another, such as an -rc tag)
       - run: python python/tools/version.py write ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+      # the abi3 wheel, from 3.12 alone: with the abi3t feature on too, the interpreters of a
+      # Linux container would each build a wheel of their own, and none of them abi3 (on macOS
+      # and Windows maturin takes the runner's `python`, 3.12)
       - uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
           manylinux: ${{ matrix.manylinux }}
           working-directory: python
-          args: --release --out ../dist
+          args: --release --out ../dist ${{ runner.os == 'Linux' && '--interpreter 3.12' || '' }}
       # the free-threaded wheels, beside the abi3 one: 3.14t's is version-specific (cp314t),
       # 3.15t's is abi3t (rust/refkv-python/Cargo.toml's pyo3 features)
       - uses: PyO3/maturin-action@v1
