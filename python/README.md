@@ -46,7 +46,13 @@ connections it cannot check, unless `Policy(allow_unchecked_proxy=True)`: an
 archive's own URL included.
 
 Wheels are built for Linux (glibc and musl), macOS and Windows, on x86_64 and arm64
-(Python 3.12 and later).
+(Python 3.12 and later), and for free-threaded CPython 3.14t and 3.15t and later, where
+refkv leaves the GIL disabled. There every extra installs from wheels on 3.14t; on 3.15t
+the base install and `refkv[obstore]` do, but numcodecs (which zarr needs, and so `zarr`,
+`images` and `virtualizarr`) and PyAV (`media`) have no 3.15t wheels yet, so pip builds
+numcodecs from source and cannot install PyAV. One parser or run is driven by one thread at
+a time: a second thread's call on it while one is under way raises `RuntimeError: Already
+borrowed`. Separate runs go on in parallel.
 
 Status: experimental, anything can change. Source, spec and issues:
 <https://github.com/d-v-b/refkv>.

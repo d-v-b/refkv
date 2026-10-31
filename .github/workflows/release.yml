@@ -1,5 +1,7 @@
-# Build refkv's wheels (python/: the Python package with its bindings to the Rust core, abi3
-# for Python >= 3.12, for Linux (glibc and musl), macOS and Windows, x86_64 and arm64) and its sdist, at the version git's tags
+# Build refkv's wheels (python/: the Python package with its bindings to the Rust core, for Linux
+# (glibc and musl), macOS and Windows, x86_64 and arm64: abi3 for Python >= 3.12; and, as abi3
+# does not cover free-threaded Pythons, cp314t for CPython 3.14t and abi3t (PEP 803) for 3.15t
+# and newer) and its sdist, at the version git's tags
 # give (python/RELEASING.md), and check each installs and runs. A tag v<version> also
 # publishes them to PyPI through trusted publishing (no token: PyPI trusts this workflow in
 # the environment `pypi`). The tag is pushed by hand (a release candidate) or created by
@@ -62,9 +64,15 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      # 3.12 runs the build and the abi3 wheel's check; 3.14t and 3.15t the free-threaded wheels'
+      # checks (on Linux maturin builds in a manylinux or musllinux container, with its own
+      # interpreters)
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: |
+            3.14t
+            3.15t
+            3.12
       # a tag push builds at its tag (its commit may carry another, such as an -rc tag)
       - run: python python/tools/version.py write ${{ github.ref_type == 'tag' && github.ref_name || '' }}
       - uses: PyO3/maturin-action@v1
@@ -73,19 +81,39 @@ jobs:
           manylinux: ${{ matrix.manylinux }}
           working-directory: python
           args: --release --out ../dist
-      # the wheel installs, with its dependencies, and runs: read and write an archive,
-      # zarrify through the core
+      # the free-threaded wheels, beside the abi3 one: 3.14t's is version-specific (cp314t),
+      # 3.15t's is abi3t (rust/refkv-python/Cargo.toml's pyo3 features)
+      - uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          manylinux: ${{ matrix.manylinux }}
+          working-directory: python
+          args: --release --out ../dist --interpreter 3.14t 3.15t
+      # each wheel installs, with its dependencies, and runs: read and write an archive,
+      # zarrify through the core; each in a venv of its own, on its Python (on a free-threaded
+      # one, the GIL stays disabled)
       - if: ${{ !matrix.musl }}
-        run: python -m pip install dist/*.whl
-      - if: ${{ !matrix.musl }}
-        run: python python/tests/check_base_install.py base
+        run: |
+          # a venv's Python: bin/python, or Scripts/python.exe on Windows (with RUNNER_TEMP's `\`
+          # written as `/`, for Git Bash)
+          tmp="${RUNNER_TEMP//\\//}"
+          bin=bin/python; [ "$RUNNER_OS" = Windows ] && bin=Scripts/python.exe
+          for check in "python dist/*-cp312-abi3-*.whl" "python3.14t dist/*-cp314-cp314t-*.whl" \
+                       "python3.15t dist/*-cp315-abi3.abi3t-*.whl"; do
+            set -- $check
+            echo "::group::$1: $2"
+            "$1" -m venv "$tmp/$1"
+            "$tmp/$1/$bin" -m pip install "$2"
+            "$tmp/$1/$bin" python/tests/check_base_install.py base
+            echo "::endgroup::"
+          done
       # a musllinux wheel does not install on the runner's glibc Python: the same check, in
-      # Alpine's (the runner's architecture). google-crc32c has no musllinux wheel, so pip
-      # builds it from its sdist, which falls back to pure Python without a C compiler.
+      # Alpine's (the runner's architecture), of the abi3 wheel. The free-threaded musllinux
+      # wheels are built, not run: no official Alpine image has a free-threaded Python.
       - if: ${{ matrix.musl }}
         run: >-
           docker run --rm -v "$PWD":/io -w /io python:3.12-alpine
-          sh -c 'python -m pip install dist/*.whl && python python/tests/check_base_install.py base'
+          sh -c 'python -m pip install dist/*-abi3-*.whl && python python/tests/check_base_install.py base'
       - uses: actions/upload-artifact@v4
         with:
           name: wheel-${{ matrix.os }}-${{ matrix.target }}${{ matrix.musl && '-musl' || '' }}
