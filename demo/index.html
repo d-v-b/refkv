@@ -50,6 +50,13 @@
   #view-row { margin: 4px 0; }
   #view-note { color: var(--muted); }
   p.share { color: var(--muted); font-size: 0.9rem; margin: 12px 0 0; }
+  #python h2 { font-size: 1rem; margin: 20px 0 4px; }
+  #python p { color: var(--muted); font-size: 0.9rem; margin: 0 0 8px; }
+  #python p a { color: var(--accent); }
+  #python pre { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 12px;
+    overflow-x: auto; margin: 0 0 8px; }
+  #python pre code { word-break: normal; white-space: pre; }
+  button.secondary { background: transparent; color: var(--accent); }
   footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line); font-size: 0.9rem; color: var(--muted); }
   footer a { color: var(--accent); }
 </style>
@@ -97,6 +104,17 @@
     <p class="share" id="share-archive" hidden>This Neuroglancer link names the archive itself
       (<code>&lt;archive url&gt;|vzip:&lt;path&gt;|zarr3:</code>): share it, and any deployment of the Neuroglancer
       fork opens it, with no service worker.</p>
+    <div id="python">
+      <h2>In Python</h2>
+      <p>This script builds the same Zarr hierarchy with refkv and opens it with zarr-python. Its header
+        declares its dependencies (<a href="https://peps.python.org/pep-0723/">PEP 723</a>), so
+        <code id="python-run"></code> runs it, with <a href="https://docs.astral.sh/uv/">uv</a>.</p>
+      <pre><code id="python-code"></code></pre>
+      <div class="actions">
+        <button type="button" class="secondary" id="python-copy">Copy</button>
+        <a class="button secondary" id="python-save">Download script</a>
+      </div>
+    </div>
   </section>
   <footer>Part of <a href="https://github.com/d-v-b/refkv">refkv</a>, reference semantics for key-value storage: specification, implementations and the source of this demo.
     Viewers: a fork of <a href="https://github.com/google/neuroglancer">Neuroglancer</a> (Apache-2.0) with
