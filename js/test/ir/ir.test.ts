@@ -214,7 +214,7 @@ async function withFetch(respond: (url: string, init: RequestInit) => Promise<Re
 
 const NO_RETRY_DELAY = { policy: { allowPrivateHosts: true }, attempts: 2, baseDelay: 0 };
 
-test("a request that gets no response fails with fetch's message, and names CORS as a cause in a browser", async () => {
+test("a request that gets no response fails with fetch's message, and says why in a browser", async () => {
   const url = "https://data.test/x.tif";
   let calls = 0;
   const failing = async (): Promise<Response> => {
@@ -224,9 +224,10 @@ test("a request that gets no response fails with fetch's message, and names CORS
   await withFetch(failing, false, () => assert.rejects(openHttpSource(url, NO_RETRY_DELAY),
     (e) => e instanceof HttpResolutionError && e.message === `${url}: Failed to fetch`));
   assert.equal(calls, 2);
+  // in a browser, asking again without CORS gets no response either: the server could not be reached
   await withFetch(failing, true, () => assert.rejects(openHttpSource(url, NO_RETRY_DELAY),
-    (e) => e instanceof HttpResolutionError &&
-      e.message.startsWith(`${url}: Failed to fetch. A browser reports this for a server that does not allow cross-origin reads`)));
+    (e) => e instanceof HttpResolutionError && e.noResponse === "unreachable" &&
+      e.message.startsWith(`${url}: Failed to fetch: the server could not be reached`)));
 });
 
 test("a body cut short after a response does not name CORS as a cause", async () => {

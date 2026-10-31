@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { test } from "node:test";
 import { HttpResolutionError } from "../src/http.ts";
-import { ARCHIVE_KEY, encodeId, makeHandler, type SavedArchives } from "../src/server.ts";
+import { ARCHIVE_KEY, encodeId, ERROR_HEADER, makeHandler, type SavedArchives } from "../src/server.ts";
 
 const PREFIX = "https://viewer.test/vz/";
 const FIXTURES = new URL("../../fixtures/tiff/", import.meta.url);
@@ -277,4 +277,18 @@ test("serves an archive that cannot be saved", async () => {
   assert.equal(saved.map.size, 0);
   assert.equal((await get(savingHandler(saved, state), `${x}zarr.json`)).status, 200);
   assert.equal(state.opens, 2, "nothing was saved, so a new handler zarrifies again");
+});
+
+test("a source that got no response answers 502 with its cause, where the browser could tell", async () => {
+  const h = makeHandler({
+    prefix: PREFIX,
+    openFile: async (url) => {
+      throw new HttpResolutionError(`${url}: Failed to fetch: the server answered, but its CORS headers ...`, false, "cors");
+    },
+  });
+  const r = await get(h, `${tiff("float32_uncompressed_be.ome.tif")}zarr.json`);
+  assert.equal(r.status, 502);
+  assert.equal(r.headers.get(ERROR_HEADER), "cors");
+  assert.match(r.headers.get("Access-Control-Expose-Headers")!, new RegExp(ERROR_HEADER));
+  assert.match(await r.text(), /CORS headers/);
 });

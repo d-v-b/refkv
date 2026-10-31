@@ -6,7 +6,7 @@
 // the twin of `HttpTransport` in python/src/refkv/ir/planner.py.
 
 import { checkAddress, checkPolicy, type Policy, RefkvError } from "../../archive.ts";
-import { EtagLog, fetchFailed, HttpResolutionError } from "../../http.ts";
+import { EtagLog, HttpResolutionError, noResponse } from "../../http.ts";
 import { checkHttpUrl } from "../../uri.ts";
 import { checkedFetch } from "#net";
 import type { ByteReader } from "../common.ts";
@@ -97,8 +97,8 @@ class Transient extends Error {
   }
 }
 
-/** A request that got no response (`error`, the transport's): the only failure whose
- * message may name a server that does not allow cross-origin reads (`fetchFailed`). */
+/** A request that got no response (`error`, the transport's): the only failure that may be a
+ * server that does not allow cross-origin reads (`noResponse`). */
 class NoResponse extends Error {
   readonly error: unknown;
   constructor(error: unknown) {
@@ -293,7 +293,11 @@ export class HttpSource implements RangeSource {
         } else {
           if (last) {
             // only a request that got no response may be a CORS refusal, not a body cut short
-            if (e instanceof NoResponse) throw new HttpResolutionError(`${fetchFailed(this.url, e.error)}${causeOf(e.error)}`);
+            if (e instanceof NoResponse) {
+              const failed = await noResponse(this.url, e.error);
+              failed.message += causeOf(e.error);
+              throw failed;
+            }
             throw new HttpResolutionError(`${this.url}: ${(e as Error).message}${causeOf(e)}`);
           }
           await this.wait(attempt, null);
