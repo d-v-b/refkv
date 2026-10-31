@@ -4,6 +4,7 @@ import { Archive } from "../js/src/archive.ts";
 import {
   archiveDownloadUrl,
   archiveZarrUrl,
+  fetchWorker,
   imageZarrUrl,
   registerVzipWorker,
 } from "../js/src/client.ts";
@@ -74,7 +75,7 @@ function showError(e: unknown) {
 }
 
 async function getJson(url: string) {
-  const r = await fetch(url);
+  const r = await fetchWorker(url);
   if (r.headers.get(WORKER_HEADER) === null) {
     throw new Error(
       `the refkv service worker did not answer this request (HTTP ${r.status} from the network); reload the page and try again`,
@@ -495,7 +496,7 @@ async function seriesViews(zarrUrl: string): Promise<View[]> {
 
 /** The keys of the archive of the hierarchy at `zarrUrl` (which the worker holds). */
 async function archiveKeys(zarrUrl: string): Promise<string[]> {
-  const r = await fetch(archiveDownloadUrl(zarrUrl));
+  const r = await fetchWorker(archiveDownloadUrl(zarrUrl));
   if (!r.ok) throw new Error(`${r.status}: ${await r.text()}`);
   const archive = await Archive.open(new Uint8Array(await r.arrayBuffer()), zarrUrl, () => {
     throw new Error("not read");
