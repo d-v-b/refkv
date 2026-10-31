@@ -18,6 +18,10 @@ test-hooks = []
 
 [dependencies]
 miniz_oxide = "0.8"
+# the transcendental functions of musl's libm, in Rust: the same results natively and in wasm32
+# (the GRIB profile's map projections, spec/zarrify/grib.md §4
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#4-georeferencing>)
+libm = "0.2"
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
 
 # build.rs reads the registry's copies (profiles/)

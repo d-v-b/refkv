@@ -11,10 +11,11 @@
 //! a whole document being `(object, 0, size)`. A store format reads its documents in as few
 //! batches as its structure allows (a Zarr v2 store's every `.zarray`, `.zgroup` and
 //! `.zattrs` in one, since the listing names them all), so the reads of a batch run
-//! concurrently, as #37's prefetch of documents does today. Each object of a batch is one
-//! request: its ranges, merged when at most 4 KiB apart (amplification at most 4), are its
-//! spans, each a range request (a whole object is one). Objects are never merged: each is
-//! its own URL.
+//! concurrently, as #37's prefetch of documents does today. An object's ranges of a batch, merged
+//! when at most 4 KiB apart (amplification at most 4), are its spans, each a range request (a
+//! whole object is one), in requests of at most 16 spans, which the host makes concurrently, so
+//! that far apart ranges of one object (a GRIB file's message heads) are read at once. Objects
+//! are never merged: each is its own URL.
 //!
 //! **Held objects.** The run keeps the bytes of every object it read whole; at the end, every
 //! object the parser gave children (a held object) takes them ([`Ir::hold_all`]), so the mirror
@@ -26,6 +27,10 @@
 use crate::ir::{Ir, Res};
 use serde_json::{json, Value as J};
 use std::collections::HashMap;
+
+/// The most spans of one object a request holds (the hosts read a request's spans in turn, and
+/// its requests concurrently).
+const SPANS_PER_REQUEST: usize = 16;
 
 /// A batch of reads a store parser asks for, or done.
 pub enum StoreStep {
@@ -87,6 +92,10 @@ pub enum StoreFormat {
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md>): the header file, listed
     /// alone, and a detached header's data file, which the run probes for.
     Nrrd,
+    /// A GRIB file (`grib/`; spec/zarrify/grib.md
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md>): the GRIB file, listed
+    /// alone, and its index, which the run probes for.
+    Grib,
 }
 
 impl StoreFormat {
@@ -97,6 +106,7 @@ impl StoreFormat {
             "n5" => Some(StoreFormat::N5),
             "vsi" => Some(StoreFormat::Vsi),
             "nrrd" => Some(StoreFormat::Nrrd),
+            "grib" => Some(StoreFormat::Grib),
             _ => None,
         }
     }
@@ -107,6 +117,7 @@ impl StoreFormat {
             StoreFormat::N5 => "n5",
             StoreFormat::Vsi => "vsi",
             StoreFormat::Nrrd => "nrrd",
+            StoreFormat::Grib => "grib",
         }
     }
     /// The convention the mirror declares.
@@ -117,6 +128,7 @@ impl StoreFormat {
             StoreFormat::N5 => "n5",
             StoreFormat::Vsi => "vsi",
             StoreFormat::Nrrd => "nrrd",
+            StoreFormat::Grib => "grib",
         }
     }
     fn parser(self, ir: Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> Res<Box<dyn StoreParser>> {
@@ -126,6 +138,7 @@ impl StoreFormat {
             StoreFormat::N5 => Ok(Box::new(crate::n5::N5::new(ir, objects, keys))),
             StoreFormat::Vsi => Ok(Box::new(crate::vsi::Vsi::new(ir, objects, keys)?)),
             StoreFormat::Nrrd => Ok(Box::new(crate::nrrd::Nrrd::new(ir, objects, keys)?)),
+            StoreFormat::Grib => Ok(Box::new(crate::grib::Grib::new(ir, objects, keys)?)),
         }
     }
 }
@@ -338,10 +351,15 @@ impl StoreRun {
                 self.read_any[k] = true;
                 self.stats.objects += 1;
             }
-            self.stats.requests += 1;
             self.stats.spans += spans.len() as u64;
             self.stats.bytes += spans.iter().map(|s| s.1 - s.0).sum::<u64>();
-            self.round.push(ObjectRequest { object: k, key: self.keys[k].0.clone(), spans });
+            // an object's spans in requests of at most SPANS_PER_REQUEST, which the host makes
+            // concurrently: a GRIB file's message heads, megabytes apart, are read at once (a
+            // fixed count, not the host's concurrency, so that every host makes the same requests)
+            for group in spans.chunks(SPANS_PER_REQUEST) {
+                self.stats.requests += 1;
+                self.round.push(ObjectRequest { object: k, key: self.keys[k].0.clone(), spans: group.to_vec() });
+            }
         }
         if self.stats.requests > self.reads_limit {
             return Err(format!("budget: more than {} object reads", self.reads_limit));
@@ -453,6 +471,7 @@ pub fn store_output(format: StoreFormat, ir: &Ir, facts: &J, stats: J, url: &str
         StoreFormat::N5 => crate::project::n5::project(ir, facts, url)?,
         StoreFormat::Vsi => crate::project::vsi::project(ir, facts, url, &Default::default())?,
         StoreFormat::Nrrd => crate::project::nrrd::project(ir, facts, url)?,
+        StoreFormat::Grib => crate::project::grib::project(ir, facts, url)?,
     };
     crate::shard::refuse(&out)?;
     let mut summary = std::mem::take(&mut out.summary);

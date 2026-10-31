@@ -122,7 +122,7 @@ def _zarrify_store(location: str, url: str | None = None, *, max_objects: int | 
 
 # The file profiles whose input is read with the files beside it, as a store run that probes for
 # them: (the format's title, the named file) as a rejection names them.
-BESIDE = {"vsi": ("VSI", ".vsi file"), "nrrd": ("NRRD", "header file")}
+BESIDE = {"vsi": ("VSI", ".vsi file"), "nrrd": ("NRRD", "header file"), "grib": ("GRIB", "GRIB file")}
 
 
 def _zarrify_beside(fmt: str, location: str, url: str | None, transport: Transport, *, checksums: bool = False,

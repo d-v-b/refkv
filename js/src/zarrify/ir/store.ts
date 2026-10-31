@@ -2,8 +2,8 @@
 // conventions §8.9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>): the
 // core parses the listing and the objects it reads, projects the convention's hierarchy and
 // mirrors the store IR; this host lists the store (store.ts), gives the core the keys the
-// listing ignores, performs its batches of object reads (one request per object, its spans, at
-// most the store's concurrency at a time), and turns its output (`Out::encode`) into the
+// listing ignores, performs its batches of object reads (each a request for at most 16 spans of one
+// object, at most the store's concurrency at a time), and turns its output (`Out::encode`) into the
 // writer's archive description: one url source per object some reference uses, its listed
 // size pinned, in order of first use, then the data sources (spec/zarrify.md §1.4
 // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>). The twin of
@@ -17,7 +17,7 @@ import { ir, type IrExports, out, put } from "./wasm.ts";
 
 /** The core's store formats: a Zarr v2 store, a SAFE product's directory, an N5 container, and
  * the files of a VSI or NRRD input (vsi.ts), which the run probes for rather than lists. */
-export type StoreFormat = "zarr2" | "safe" | "n5" | "vsi" | "nrrd";
+export type StoreFormat = "zarr2" | "safe" | "n5" | "vsi" | "nrrd" | "grib";
 /** The profiles a store format's run decides between (its rejections name them): a Zarr v2
  * store is OME-Zarr's when its root declares OME-NGFF 0.4. */
 export type StoreProfile = StoreFormat | "ome-zarr";

@@ -17,6 +17,11 @@ dev = [
     "refkv[zarr,images,media,virtualizarr,obstore]",
     "aiohttp>=3.14.3",
     "czifile>=2026.8.16",
+    # GRIB: eccodes' decoder, which the refkv.grib codec's tests compare with, and the GRIB fixture
+    # generator's encoder; its library comes in the eccodeslib wheel, but on Windows, where the
+    # eccodes wheel bundles it
+    "eccodes>=2.50.0",
+    "eccodeslib>=2.50.0.33; sys_platform != 'win32'",
     "fsspec>=2026.9.0",
     "h5netcdf>=1.8.1",
     "h5py>=3.16.0",

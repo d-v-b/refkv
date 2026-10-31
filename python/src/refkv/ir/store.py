@@ -10,8 +10,8 @@ directory), and drives the run:
 
 - `listing(store)`: the store's objects as (key, size), keys in byte order: what
   `refkv._core.StoreRun` builds the IR's directories and objects from.
-- `drive_store(run, store)`: the loop. Each `poll()` is a batch: one request per object (its
-  spans, a whole object being one span), made at most `store.workers` at a time (the
+- `drive_store(run, store)`: the loop. Each `poll()` is a batch of requests, each for at
+  most 16 spans of one object (a whole object being one span), made at most `store.workers` at a time (the
   concurrency of #37's prefetch of documents), then `complete()`.
 - `run_store(store, fmt)`: a listed store run (its ignored keys given to the core), and its
   output; `zarrify_store(location, url, fmt)`: the store listed under the policy, then

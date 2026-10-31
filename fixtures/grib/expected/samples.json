@@ -1,0 +1,82 @@
+{
+ "grib_gfs_hindex.grib2": [
+  {
+   "shape": [
+    721,
+    1440
+   ],
+   "nan": 606424,
+   "fnv1a64": "23afd9644572812d"
+  }
+ ],
+ "grib_gfs_icetmp.grib2": [
+  {
+   "shape": [
+    721,
+    1440
+   ],
+   "nan": 902891,
+   "fnv1a64": "2c25b4691e9f91f1"
+  }
+ ],
+ "grib_gfs_land.grib2": [
+  {
+   "shape": [
+    721,
+    1440
+   ],
+   "nan": 0,
+   "fnv1a64": "de71e4555dd27638"
+  }
+ ],
+ "grib_hrrr_land.grib2": [
+  {
+   "shape": [
+    1059,
+    1799
+   ],
+   "nan": 0,
+   "fnv1a64": "783407b26d866c85"
+  }
+ ],
+ "grib_hrrr_dswrf.grib2": [
+  {
+   "shape": [
+    1059,
+    1799
+   ],
+   "nan": 0,
+   "fnv1a64": "b293e6a4c2789245"
+  }
+ ],
+ "grib_ecmwf_2t.grib2": [
+  {
+   "shape": [
+    721,
+    1440
+   ],
+   "nan": 0,
+   "fnv1a64": "2b8a8daa8701c892"
+  }
+ ],
+ "grib_ecmwf_sithick.grib2": [
+  {
+   "shape": [
+    721,
+    1440
+   ],
+   "nan": 354162,
+   "fnv1a64": "0ba55ca62a25afe4"
+  }
+ ],
+ "grib_nbm_tmp.grib2": [
+  {
+   "shape": [
+    1597,
+    2345
+   ],
+   "nan": 2330691,
+   "fnv1a64": "3df2df614e742589"
+  }
+ ]
+}

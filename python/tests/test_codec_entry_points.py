@@ -37,6 +37,7 @@ EVERY_CODEC = {
     "refkv.stream": ("mp3/mp3_single_frame.mp3", "samples"),
     "refkv.fits_tiles": ("fits/fits_comp_gzip1.fits", "1"),
     "refkv.skip": ("npy/npz_compressed.npz", "fortran"),
+    "refkv.grib": ("grib/grib_simple.grib2", "grid0/t_surface"),
     "n5_default": ("n5/n5_compressions", "zlib_f64"),
     "numcodecs.zlib": ("tiff/tczyx_uint16_deflate.ome.tif", "0"),
     "imagecodecs_jpeg": ("dicom/dicom_jpeg_single_frame_fragments.dcm", "0"),
@@ -113,7 +114,8 @@ def test_entry_points_name_every_codec_and_resolve_to_it():
     modules = {m.name for m in pkgutil.iter_modules(refkv.zarr.codecs.__path__) if not m.name.startswith("_")}
     points = _refkv_entry_points()
     assert {e.value.partition(":")[0] for e in points.values()} == {f"refkv.zarr.codecs.{m}" for m in modules}
-    assert set(points) == {"refkv.tiff_lzw", "refkv.stream", "refkv.fits_tiles", "refkv.skip", "n5_default"}
+    assert set(points) == {"refkv.tiff_lzw", "refkv.stream", "refkv.fits_tiles", "refkv.grib", "refkv.skip",
+                           "n5_default"}
     for name, e in points.items():
         with zarr.config.set({f"codecs.{name}": SHARED[name]} if name in SHARED else {}):
             assert zarr.registry.get_codec_class(name) is e.load(), name
