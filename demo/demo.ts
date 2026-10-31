@@ -450,7 +450,7 @@ async function seriesViews(zarrUrl: string): Promise<View[]> {
   return [all, ...views];
 }
 
-/** The keys of the archive of the hierarchy at `zarrUrl` (which the worker holds in memory). */
+/** The keys of the archive of the hierarchy at `zarrUrl` (which the worker holds). */
 async function archiveKeys(zarrUrl: string): Promise<string[]> {
   const r = await fetchWorker(archiveDownloadUrl(zarrUrl));
   if (!r.ok) throw new Error(`${r.status}: ${await r.text()}`);

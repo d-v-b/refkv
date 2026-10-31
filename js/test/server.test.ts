@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { test } from "node:test";
 import { HttpResolutionError } from "../src/http.ts";
-import { ARCHIVE_KEY, encodeId, makeHandler, PENDING_HEADER, WORKER_HEADER } from "../src/server.ts";
+import { ARCHIVE_KEY, encodeId, makeHandler, PENDING_HEADER, type SavedArchives, WORKER_HEADER } from "../src/server.ts";
 
 const PREFIX = "https://viewer.test/vz/";
 const FIXTURES = new URL("../../fixtures/tiff/", import.meta.url);
@@ -239,4 +239,97 @@ test("a build that fails after a pending answer fails the next request, and the 
   assert.match(await failed.text(), /HTTP 503/);
   assert.equal((await settled(path)).status, 200);
   assert.equal(state.opens, 2);
+});
+
+/** Saved archives in a Map, as Cache Storage keeps them for the service worker. */
+function memoryStore(): SavedArchives & { map: Map<string, Uint8Array> } {
+  const map = new Map<string, Uint8Array>();
+  return {
+    map,
+    get: async (name) => map.get(name),
+    put: async (name, bytes) => void map.set(name, bytes),
+    delete: async (name) => void map.delete(name),
+  };
+}
+
+/** A handler that saves archives in `saved`, reading data.test/x.tif from the fixture `state.file`. */
+function savingHandler(saved: SavedArchives, state: { file: string; opens: number }) {
+  const bytes = () => local(remote(state.file));
+  return makeHandler({
+    prefix: PREFIX,
+    saved,
+    openFile: async () => {
+      state.opens++;
+      const b = bytes();
+      return { size: b.length, read: async (o, n) => b.subarray(o, o + n) };
+    },
+    fetchRange: async (_url, start, end) => {
+      const b = bytes();
+      return { data: b.subarray(start, end), size: b.length }; // the size pin is checked
+    },
+  });
+}
+
+const x = tiff("x.tif");
+const X_NAME = `tiff/${remote("x.tif")}`;
+
+test("serves a saved archive without zarrifying again", async () => {
+  const saved = memoryStore();
+  const state = { file: "float32_uncompressed_be.ome.tif", opens: 0 };
+  const first = savingHandler(saved, state);
+  const chunk = await (await get(first, `${x}0/c/1/2`)).arrayBuffer();
+  assert.equal(state.opens, 1);
+  assert.deepEqual([...saved.map.keys()], [X_NAME]);
+  assert.deepEqual(new Uint8Array(await (await get(first, `${x}${ARCHIVE_KEY}`)).arrayBuffer()), saved.map.get(X_NAME));
+  // a new handler, as a restarted worker has, serves the saved archive
+  const second = savingHandler(saved, state);
+  const again = await get(second, `${x}0/c/1/2`);
+  assert.equal(again.status, 200);
+  assert.deepEqual(await again.arrayBuffer(), chunk);
+  assert.equal((await (await get(second, `${x}zarr.json`)).json()).attributes.ome.version, "0.5");
+  assert.equal(state.opens, 1, "the input is not zarrified again");
+});
+
+test("drops a saved archive whose source changed, and zarrifies it again", async () => {
+  const saved = memoryStore();
+  const state = { file: "float32_uncompressed_be.ome.tif", opens: 0 };
+  assert.equal((await get(savingHandler(saved, state), `${x}zarr.json`)).status, 200);
+  state.file = "svs_like_int16.tif"; // a file of another size at the same URL
+  const h = savingHandler(saved, state);
+  const stale = await get(h, `${x}0/c/1/2`);
+  assert.equal(stale.status, 502);
+  assert.match(await stale.text(), /the archive pins \d+: the source changed/);
+  assert.equal(saved.map.has(X_NAME), false);
+  assert.equal(state.opens, 1);
+  const fresh = await get(h, `${x}zarr.json`);
+  assert.equal(fresh.status, 200);
+  assert.equal(state.opens, 2);
+  assert.equal(saved.map.has(X_NAME), true);
+});
+
+test("drops a saved archive that cannot be opened, and zarrifies it again", async () => {
+  const saved = memoryStore();
+  saved.map.set(X_NAME, new Uint8Array([1, 2, 3]));
+  const state = { file: "float32_uncompressed_be.ome.tif", opens: 0 };
+  assert.equal((await get(savingHandler(saved, state), `${x}zarr.json`)).status, 200);
+  assert.equal(state.opens, 1);
+  assert.ok(saved.map.get(X_NAME)!.length > 3, "the new archive replaces it");
+});
+
+test("zarrifies when the saved archives cannot be read", async () => {
+  const saved = { ...memoryStore(), get: () => { throw new Error("no cache"); } };
+  const state = { file: "float32_uncompressed_be.ome.tif", opens: 0 };
+  assert.equal((await get(savingHandler(saved, state), `${x}zarr.json`)).status, 200);
+  assert.equal(state.opens, 1);
+});
+
+test("serves an archive that cannot be saved", async () => {
+  const saved = { ...memoryStore(), put: async () => { throw new Error("quota exceeded"); } };
+  const state = { file: "float32_uncompressed_be.ome.tif", opens: 0 };
+  const h = savingHandler(saved, state);
+  assert.equal((await get(h, `${x}zarr.json`)).status, 200);
+  assert.equal((await get(h, `${x}0/c/1/2`)).status, 200);
+  assert.equal(saved.map.size, 0);
+  assert.equal((await get(savingHandler(saved, state), `${x}zarr.json`)).status, 200);
+  assert.equal(state.opens, 2, "nothing was saved, so a new handler zarrifies again");
 });

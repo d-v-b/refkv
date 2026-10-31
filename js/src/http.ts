@@ -36,7 +36,14 @@ import {
   parseImfFixdate,
 } from "./uri.ts";
 
-export class HttpResolutionError extends Error {}
+export class HttpResolutionError extends Error {
+  /** Whether the object is not the one the pins name: it changed since they were taken. */
+  sourceChanged: boolean;
+  constructor(message: string, sourceChanged = false) {
+    super(message);
+    this.sourceChanged = sourceChanged;
+  }
+}
 
 /** Whether this runs in a browser (a page or a worker), where fetch reports a cross-origin read
  * the server does not allow as it reports a network error. */
@@ -133,8 +140,8 @@ export async function readHttpRange(
     signal?.throwIfAborted();
     throw new HttpResolutionError(fetchFailed(url, e));
   }
-  const fail = (message: string): never => {
-    throw new HttpResolutionError(`${url}: ${message}`);
+  const fail = (message: string, sourceChanged = false): never => {
+    throw new HttpResolutionError(`${url}: ${message}`, sourceChanged);
   };
   if (response.redirected) {
     // The final URL must still satisfy the URL rules, and the policy (§6.7
@@ -147,9 +154,9 @@ export async function readHttpRange(
       fail((e as Error).message);
     }
   }
-  if (response.status === 412) fail("a pin failed (412)");
+  if (response.status === 412) fail("a pin failed (412)", true);
   if (response.status === 416)
-    fail("the object is shorter than the range (416)");
+    fail("the object is shorter than the range (416)", true);
   if (response.status !== 200 && response.status !== 206) {
     fail(`HTTP ${response.status}`);
   }
@@ -177,6 +184,7 @@ export async function readHttpRange(
     fail(
       `the ETag is ${JSON.stringify(etag)}, but the archive pins ${pins.etag}: the source ` +
         "changed since the archive was written, or its server does not send the ETag",
+      true,
     );
   }
   if (pins.modifiedNotAfter !== undefined && !skip(lastModified)) {
@@ -187,7 +195,7 @@ export async function readHttpRange(
       );
     }
     if (BigInt(t!) > pins.modifiedNotAfter)
-      fail("Last-Modified is after the pin");
+      fail("Last-Modified is after the pin", true);
   }
   const body = new Uint8Array(await response.arrayBuffer());
   if (response.status === 200) {

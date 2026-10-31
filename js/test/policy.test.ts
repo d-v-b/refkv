@@ -18,7 +18,7 @@ import {
   RefkvError,
 } from "../src/archive.ts";
 import { crc32c, inflateRaw } from "../src/deflate.ts";
-import { readHttpRange } from "../src/http.ts";
+import { HttpResolutionError, readHttpRange } from "../src/http.ts";
 import { decodeTable } from "../src/protobuf.ts";
 import { type ArchiveDesc, InvalidInputError, SPEC_REVISION, writeVzip } from "../src/writer.ts";
 
@@ -28,6 +28,8 @@ const BLOB_URL = "https://data.test/dir/blob.bin";
 
 const isError = (cls: string, re: RegExp) => (e: unknown) =>
   e instanceof RefkvError && e.errorClass === cls && re.test(e.message);
+/** A resolution error that says the source changed since the archive was written. */
+const isChanged = (re: RegExp) => (e: unknown) => isError("resolution", re)(e) && (e as RefkvError).sourceChanged;
 
 /** An archive at BASE whose url sources read `body`, counting requests and bytes. */
 async function open(desc: ArchiveDesc, policy: Policy = {}, body = BLOB, extra: Partial<Awaited<ReturnType<RangeFetcher>>> = {}) {
@@ -327,13 +329,16 @@ test("detects a size mismatch", async () => {
   const desc: ArchiveDesc = { sources: [{ url: "blob.bin", size: BigInt(BLOB.length) }], entries: [{ key: "r", ranges: [{ source: 0, offset: 0n, length: 4n }] }] };
   const longer = Uint8Array.from([...BLOB, 1, 2, 3]);
   const { archive } = await open(desc, {}, longer);
-  await assert.rejects(archive.read("r"), isError("resolution", /the source changed/));
+  await assert.rejects(archive.read("r"), isChanged(/the source changed/));
 });
 
 test("detects an ETag mismatch", async () => {
   await withFetch(
     () => response(206, BLOB.subarray(0, 4), { "Content-Range": `bytes 0-3/${BLOB.length}`, ETag: '"v2"' }),
-    () => assert.rejects(readHttpRange(BLOB_URL, 0, 4, { etag: '"v1"' }), /the source changed/),
+    () => assert.rejects(
+      readHttpRange(BLOB_URL, 0, 4, { etag: '"v1"' }),
+      (e) => e instanceof HttpResolutionError && e.sourceChanged && /the source changed/.test(e.message),
+    ),
   );
 });
 
@@ -345,7 +350,7 @@ test("detects a crc32c mismatch", async () => {
   const changed = Uint8Array.from(BLOB);
   changed[0] ^= 0xff; // same size, no ETag pin: only the checksum sees it
   const { archive } = await open(desc, {}, changed);
-  await assert.rejects(archive.read("r", 50, 60), isError("resolution", /crc32c/));
+  await assert.rejects(archive.read("r", 50, 60), isChanged(/crc32c/));
 });
 
 test("rejects an unknown format version", async () => {

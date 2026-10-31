@@ -47,10 +47,24 @@ try {
 } catch {
   console.warn("no release tag: the demo's Python script names no refkv version");
 }
+// The service worker's build, which names the cache of the archives it saves (src/sw.ts), so that
+// a deploy starts it clean: this commit, and the build's time if the checkout has uncommitted
+// changes or is not a checkout
+let workerBuild = `t${Date.now()}`;
+try {
+  const git = (...args) => execFileSync("git", args, { cwd: here, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  workerBuild = git("rev-parse", "HEAD") + (git("status", "--porcelain") === "" ? "" : `-${workerBuild}`);
+} catch {
+  console.warn("not a git checkout: the service worker's saved archives are named for the build's time");
+}
 // ../demo is outside this package: its imports resolve to this package's node_modules
 const common = {
   bundle: true, target: "es2022", sourcemap: true, logLevel: "info", nodePaths: [path.join(here, "node_modules")],
-  define: { __REFKV_PROFILES__: JSON.stringify(registry), __REFKV_RELEASE__: JSON.stringify(release) },
+  define: {
+    __REFKV_PROFILES__: JSON.stringify(registry),
+    __REFKV_RELEASE__: JSON.stringify(release),
+    __REFKV_BUILD__: JSON.stringify(workerBuild),
+  },
 };
 const build = (entry, outfile, options = {}) =>
   esbuild.build({ ...common, entryPoints: [path.join(here, entry)], outfile: path.join(dist, outfile), ...options });
