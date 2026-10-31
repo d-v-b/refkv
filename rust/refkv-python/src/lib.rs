@@ -214,12 +214,17 @@ impl PyIr {
             return Ok(None);
         };
         let tid = self.ir.ty[i as usize];
-        let mut cache = self.types.lock().unwrap();
-        let ty = cache
-            .entry(tid)
-            .or_insert_with(|| types::parse(self.ir.types.get(tid)).ok());
-        let Some(ty) = ty else { return Ok(None) };
-        let v = types::decode(ty, raw).map_err(PyValueError::new_err)?;
+        // the cache's lock is released before to_py makes Python objects: on a free-threaded
+        // build, a thread blocked on it while attached would hold up a stop-the-world pause
+        // (the garbage collector's) that the holder's allocation waits for
+        let v = {
+            let mut cache = self.types.lock().unwrap();
+            let ty = cache
+                .entry(tid)
+                .or_insert_with(|| types::parse(self.ir.types.get(tid)).ok());
+            let Some(ty) = ty else { return Ok(None) };
+            types::decode(ty, raw).map_err(PyValueError::new_err)?
+        };
         Ok(Some(to_py(py, &v)?))
     }
     fn children(&self, i: i64) -> PyResult<Vec<u32>> {
@@ -802,6 +807,14 @@ fn view_problem(keys: Vec<String>, get: Bound<'_, PyAny>, read: Bound<'_, PyAny>
     refkv_ir::mirror::view_problem(&keys, &g, &mut rd)
 }
 
+/// CRC-32C (Castagnoli, RFC 3720 §B.4) of `data`: a range's checksum (spec §4.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>).
+#[pyfunction]
+#[pyo3(name = "crc32c")]
+fn range_crc32c(py: Python<'_>, data: &[u8]) -> u32 {
+    py.detach(|| crc32c::crc32c(data))
+}
+
 /// The format a file's first bytes (up to 552 of them) give (`Format::sniff`), if any: its
 /// profile's name.
 #[pyfunction]
@@ -875,7 +888,12 @@ fn _set_chunk_frames(n: Option<usize>) {
     refkv_ir::mp3::set_chunk_frames(n);
 }
 
-#[pymodule]
+// Safe without the GIL (`gil_used = false`), so a free-threaded Python keeps it disabled on
+// import. The process-wide settings above are atomics, which each run reads once, into its
+// facts. A parser or run (`Nd2Parser`, `Run`, ...) takes `&mut self` and is driven by one
+// thread at a time: a second thread's call while one is under way raises RuntimeError
+// ("Already borrowed"), on any build, since a call detaches while the core works.
+#[pymodule(gil_used = false)]
 #[pyo3(name = "_core")]
 fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyIr>()?;
@@ -886,6 +904,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyStoreRun>()?;
     m.add_function(wrap_pyfunction!(rebuild_store, m)?)?;
     m.add_function(wrap_pyfunction!(plan_spans, m)?)?;
+    m.add_function(wrap_pyfunction!(range_crc32c, m)?)?;
     m.add_function(wrap_pyfunction!(sniff, m)?)?;
     m.add_function(wrap_pyfunction!(registry, m)?)?;
     m.add_function(wrap_pyfunction!(fits_tiles_decode, m)?)?;
