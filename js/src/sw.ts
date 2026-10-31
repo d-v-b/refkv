@@ -7,7 +7,10 @@ import { makeHandler } from "./server.ts";
 declare const self: ServiceWorkerGlobalScope;
 
 const prefix = new URL("vz/", self.registration.scope).href;
-const handle = makeHandler({ prefix });
+// Chrome fails a request its worker has not answered in 5 minutes, and zarrifying a large input
+// from a slow server can take longer: a request waits a minute at most, and the page asks again
+// (fetchWorker), each request keeping the worker alive while the build goes on.
+const handle = makeHandler({ prefix, pendingAfter: 60_000 });
 
 self.addEventListener("install", (event) => event.waitUntil(self.skipWaiting()));
 self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
