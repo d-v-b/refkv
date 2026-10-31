@@ -12,14 +12,14 @@
       "message": "the GRIB message at byte 0 does not end with 7777"
     },
     {
-      "test": "reject_jpeg2000",
-      "input": "grib_reject_jpeg2000.grib2",
-      "message": "none of the 1 GRIB fields can be presented: packing"
-    },
-    {
       "test": "reject_order",
       "input": "grib_reject_order.grib2",
       "message": "the GRIB message at byte 0: its section 4 follows section 1"
+    },
+    {
+      "test": "reject_packing",
+      "input": "grib_reject_packing.grib2",
+      "message": "none of the 1 GRIB fields can be presented: packing"
     },
     {
       "test": "reject_padding",

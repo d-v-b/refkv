@@ -145,7 +145,9 @@ whose projection must not be bipolar (octet 64, bit 2).
 A field's values are those `refkv.grib` decodes from its message
 ([conventions §12](../conventions.md#12-grib-messages)): binary64, NaN where its bitmap or its
 packing says a value is missing, in the grid's row order. Its packing (section 5's template)
-must be one the codec decodes: 5.0, 5.2, 5.3, 5.4, 5.41 or 5.42.
+must be one the codec decodes: 5.0, 5.2, 5.3, 5.4, 5.40, 5.41 or 5.42. The profile reads no
+more of section 7 than its header, so a 5.40 field whose codestream the codec does not decode
+(the 9/7 transform, more than 20 bits) is presented, and its chunk fails to decode.
 
 ### 2.6 What is not presented
 
@@ -163,7 +165,7 @@ mirror.
 | `product` | product template is not one of [§2.3](#23-dimensions)'s |
 | `statistic` | statistic has more than one time range |
 | `time` | step is not a whole number of seconds (a month, a year) |
-| `packing` | packing template is not one the codec decodes (such as 5.40, JPEG 2000, or the spectral 5.50 and 5.51) |
+| `packing` | packing template is not one the codec decodes (such as the spectral 5.50 and 5.51, or 5.61, simple packing of logarithms) |
 | `bitmap` | bitmap is predefined (indicator 1–253), or reuses a bitmap the message has not given (254) |
 | `values` | number of values is not its grid's number of points, with no bitmap |
 

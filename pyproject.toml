@@ -51,6 +51,8 @@ dev = [
     "soundfile>=0.14.0",
     "pynwb>=4.2.0",
     "hdmf-zarr>=0.14.0",
+    # the GRIB fixture generator's tiled JPEG 2000 codestream (OpenJPEG, through Pillow)
+    "pillow>=13.0.0",
 ]
 # the comparison with kerchunk and Icechunk (design/comparison, design/experiments)
 bench = [

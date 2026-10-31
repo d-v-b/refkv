@@ -111,12 +111,15 @@ function npyFloat64(path: string): Float64Array {
 
 test("decodes refkv.grib chunks to eccodes' values", async () => {
   // fields of 16 × 12 grids (fixtures/generators/grib/write_fixtures.py): alternate rows reversed,
-  // CCSDS across reference sample intervals, PNG with every filter, complex packing's primary and
-  // secondary missing values, and a bitmap reused through indicator 254
+  // CCSDS across reference sample intervals, PNG with every filter, JPEG 2000 in tiles and
+  // truncated at a rate, complex packing's primary and secondary missing values, and a bitmap
+  // reused through indicator 254
   for (const [name, field] of [
     ["grib_scan_50", 0],
     ["grib_ccsds_rsi", 0],
     ["grib_png", 0],
+    ["grib_jpeg2000_tiles", 0],
+    ["grib_jpeg2000_lossy", 0],
     ["grib_complex_missing2", 0],
     ["grib_bitmap_254", 2],
   ] as const) {
@@ -129,7 +132,11 @@ test("decodes refkv.grib chunks to eccodes' values", async () => {
 });
 
 test("rejects a refkv.grib chunk of a packing it does not decode", async () => {
-  // the message's second field (its first is grib_simple's)
-  await assert.rejects(decodeGrib(fixture("grib/grib_jpeg2000.grib2"), { field: 1 }, [12, 16]),
-    /^Error: refkv\.grib: JPEG 2000 packing \(5\.40\) is not decoded$/);
+  // grib_jpeg2000_lossy's codestream as if of the 9/7 wavelet transform (its COD's last parameter)
+  const m = fixture("grib/grib_jpeg2000_lossy.grib2");
+  const b = Buffer.from(m.buffer, m.byteOffset, m.length);
+  const cod = b.indexOf(Buffer.from([0xff, 0x52]), b.indexOf(Buffer.from([0xff, 0x4f, 0xff, 0x51])));
+  m[cod + 13] = 0;
+  await assert.rejects(decodeGrib(m, {}, [12, 16]),
+    /^Error: refkv\.grib: a JPEG 2000 codestream of the irreversible 9\/7 wavelet transform is not decoded$/);
 });
