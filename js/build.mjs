@@ -13,6 +13,7 @@
 // as serve.mjs and pages.sh read the fork. Without them the map page cannot
 // decode bands, and the demo cannot sample contrast from such chunks.
 
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import * as esbuild from "esbuild";
@@ -37,10 +38,19 @@ const registryDir = path.join(here, "../spec/zarrify/profiles");
 const registry = fs.readdirSync(registryDir).filter((f) => f.endsWith(".json"))
   .map((f) => JSON.parse(fs.readFileSync(path.join(registryDir, f), "utf8")))
   .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+// The earliest refkv release the demo's Python script needs: the latest release tag of this
+// commit (python/RELEASING.md), as a PEP 440 version, or none in a checkout without tags
+let release = "";
+try {
+  const tag = execFileSync("git", ["describe", "--tags", "--match", "v*", "--abbrev=0"], { cwd: here, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  release = tag.replace(/^v/, "").replace(/-rc\.(\d+)$/, "rc$1");
+} catch {
+  console.warn("no release tag: the demo's Python script names no refkv version");
+}
 // ../demo is outside this package: its imports resolve to this package's node_modules
 const common = {
   bundle: true, target: "es2022", sourcemap: true, logLevel: "info", nodePaths: [path.join(here, "node_modules")],
-  define: { __REFKV_PROFILES__: JSON.stringify(registry) },
+  define: { __REFKV_PROFILES__: JSON.stringify(registry), __REFKV_RELEASE__: JSON.stringify(release) },
 };
 const build = (entry, outfile, options = {}) =>
   esbuild.build({ ...common, entryPoints: [path.join(here, entry)], outfile: path.join(dist, outfile), ...options });
