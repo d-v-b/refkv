@@ -9,11 +9,13 @@
   :root {
     --bg: #fafaf8; --fg: #1d1d1b; --muted: #6b6b66; --line: #deddd8;
     --panel: #ffffff; --accent: #2d5bd7; --error: #b3261e;
+    --py-comment: #6b6b66; --py-string: #1a7f37; --py-keyword: #8250df; --py-builtin: #0550ae; --py-number: #953800;
     font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   }
   @media (prefers-color-scheme: dark) {
     :root { --bg: #141413; --fg: #ecebe6; --muted: #9b9a94; --line: #34332f;
-      --panel: #1d1d1b; --accent: #8aa8ff; --error: #f2b8b5; }
+      --panel: #1d1d1b; --accent: #8aa8ff; --error: #f2b8b5;
+      --py-comment: #9b9a94; --py-string: #7ee787; --py-keyword: #d2a8ff; --py-builtin: #79c0ff; --py-number: #ffa657; }
   }
   body { background: var(--bg); color: var(--fg); margin: 0; line-height: 1.5; }
   main { max-width: 860px; margin: 0 auto; padding: 32px 16px 64px; }
@@ -56,6 +58,12 @@
   #python pre { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 12px;
     overflow-x: auto; margin: 0 0 8px; }
   #python pre code { word-break: normal; white-space: pre; }
+  /* the Python script's colors, from highlight.js's classes */
+  .hljs-comment, .hljs-meta { color: var(--py-comment); font-style: italic; }
+  .hljs-string { color: var(--py-string); }
+  .hljs-keyword, .hljs-literal { color: var(--py-keyword); }
+  .hljs-built_in { color: var(--py-builtin); }
+  .hljs-number { color: var(--py-number); }
   button.secondary { background: transparent; color: var(--accent); }
   footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line); font-size: 0.9rem; color: var(--muted); }
   footer a { color: var(--accent); }
@@ -117,6 +125,7 @@
     </div>
   </section>
   <footer>Part of <a href="https://github.com/d-v-b/refkv">refkv</a>, reference semantics for key-value storage: specification, implementations and the source of this demo.
+    The Python script is highlighted by <a href="https://highlightjs.org/">highlight.js</a> (BSD-3-Clause).
     Viewers: a fork of <a href="https://github.com/google/neuroglancer">Neuroglancer</a> (Apache-2.0) with
     more Zarr codecs, and <a href="https://openlayers.org/">OpenLayers</a> (BSD-2-Clause); the page samples
     contrast with the fork's JPEG 2000 (hayro-jpeg2000, Apache-2.0 OR MIT) and JPEG XR (jxrlib, BSD-2-Clause) decoders.

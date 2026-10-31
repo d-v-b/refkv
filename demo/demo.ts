@@ -1,3 +1,5 @@
+import hljs from "highlight.js/lib/core";
+import python from "highlight.js/lib/languages/python";
 import { Archive } from "../js/src/archive.ts";
 import {
   archiveDownloadUrl,
@@ -8,6 +10,8 @@ import {
 import { WORKER_HEADER } from "../js/src/server.ts";
 import { sampleRanges, tooNarrow, usableWindow } from "./contrast.ts";
 import { pythonScript, stem } from "./python.ts";
+
+hljs.registerLanguage("python", python);
 
 // The earliest refkv release the Python script needs: the latest release tag of the commit
 // the page was built from (js/build.mjs), or "" when the build found none.
@@ -577,7 +581,7 @@ let pythonUrl: string | undefined;
 function showPython(input: Input, profile: string | undefined) {
   const script = pythonScript(input.url, input.isArchive, profile, __REFKV_RELEASE__ || undefined);
   const file = `${input.isArchive ? "open" : "zarrify"}_${stem(input.url)}.py`;
-  $("python-code").textContent = script;
+  $("python-code").innerHTML = hljs.highlight(script, { language: "python" }).value; // escaped by highlight.js
   $("python-run").textContent = `uv run ${file}`;
   if (pythonUrl) URL.revokeObjectURL(pythonUrl);
   pythonUrl = URL.createObjectURL(new Blob([script], { type: "text/x-python" }));
