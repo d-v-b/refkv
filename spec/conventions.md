@@ -1683,14 +1683,24 @@ chunk's length is the message's.
      over the values that are not missing, and the first values (octets 1–6 of section 7's
      start) are unsigned, the overall minimum signed.
    - **5.4**: IEEE floating point values, binary32 or binary64 (octet 12), as they are.
+   - **5.40**: section 7 is a JPEG 2000 codestream (ITU-T T.800 | ISO/IEC 15444-1, not a JP2
+     file) of `X`: one unsigned component, not subsampled, of at most 20 bits, whose image has
+     `n` samples (`Ni × Nj`, or `n × 1` with a bitmap, as NCEP's g2c writes it), of the
+     reversible 5/3 wavelet transform, lossless or truncated at a rate (ecCodes' lossy 5.40,
+     octet 22 = 1, keeps the 5/3 transform). `X` is the samples OpenJPEG decodes, which ecCodes
+     calls: the 5/3 transform in integers, a truncated coefficient at the midpoint of its
+     interval, the samples clamped to the precision's range. Then as 5.0. The irreversible 9/7
+     transform is an error (decoders compute it in floating point, each in its own order, and
+     their samples differ by 1 at some points), as are samples of more than 20 bits (within
+     which a decoder that computes the 5/3 transform in binary32 is exact).
    - **5.41**: section 7 is a PNG image of `X`, not interlaced and with no palette, a gray
      sample of 1 to 16 bits, or an RGB or RGBA sample of 24 or 32 bits as one integer; then as
      5.0.
    - **5.42**: section 7 is a CCSDS 121.0-B adaptive entropy coded stream of `X`, unsigned, of
      the flags, block size and reference sample interval of octets 22–25; then as 5.0.
 
-   Any other template (5.40, JPEG 2000; the spectral 5.50 and 5.51; 5.61; 5.200), or 5.4 of
-   another precision, is an error.
+   Any other template (the spectral 5.50 and 5.51; 5.61; 5.200), or 5.4 of another precision, is
+   an error.
 3. **Placing.** With a bitmap (section 6's indicator 0; or 254, the bitmap of the last earlier
    field of the message whose indicator is 0), the `n` values fill, in order, the points whose
    bit is 1, and the others are NaN; the number of bits that are 1 must be `n`. Without one

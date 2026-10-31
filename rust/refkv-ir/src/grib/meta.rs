@@ -436,7 +436,7 @@ pub struct Packing {
 
 /// The packing templates `refkv.grib` decodes (conventions §12
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#12-grib-messages>).
-pub const DECODED: [u64; 6] = [0, 2, 3, 4, 41, 42];
+pub const DECODED: [u64; 7] = [0, 2, 3, 4, 40, 41, 42];
 
 pub fn packing(s5: &[u8]) -> Result<Packing, String> {
     if s5.len() < 11 {

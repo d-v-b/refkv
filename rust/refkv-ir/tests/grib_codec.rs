@@ -45,7 +45,7 @@ enum Want {
 }
 
 /// The fixtures the codec rejects (the other tests' inputs).
-const ERRORS: &[&str] = &["grib_jpeg2000.grib2", "grib_reject_truncated.grib2", "grib_reject_end.grib2"];
+const ERRORS: &[&str] = &["grib_reject_truncated.grib2", "grib_reject_end.grib2"];
 
 #[test]
 fn every_field_of_every_fixture_decodes_to_eccodes_values() {
@@ -98,7 +98,7 @@ fn every_field_of_every_fixture_decodes_to_eccodes_values() {
         let past = decode(&message, &Config { field: want.len() }, &want[0].0).unwrap_err();
         assert!(past.contains("was asked for"), "{name}: {past}");
     }
-    assert_eq!(checked, 47);
+    assert_eq!(checked, 57);
 }
 
 /// The section of number `number` (the first) of a single-field fixture.
@@ -132,10 +132,95 @@ fn rejects_a_field_past_the_last() {
     );
 }
 
+/// A single-field 5.40 fixture, and where its codestream starts.
+fn codestream(name: &str) -> (Vec<u8>, usize) {
+    let m = fixture(name);
+    let at = section(&m, 7).offset as usize + 5;
+    assert_eq!(m[at..at + 4], [0xff, 0x4f, 0xff, 0x51]);
+    (m, at)
+}
+
+/// Where a marker segment of a codestream's main header starts.
+fn marker(m: &[u8], cs: usize, marker: [u8; 2]) -> usize {
+    cs + m[cs..].windows(2).position(|w| w == marker).unwrap()
+}
+
+// the SIZ marker segment's fields, from the codestream's start: Xsiz, Csiz, then the first
+// component's Ssiz and XRsiz
+const XSIZ: usize = 8;
+const CSIZ: usize = 40;
+const SSIZ: usize = 42;
+const XRSIZ: usize = 43;
+
 #[test]
-fn rejects_jpeg_2000_packing() {
-    // the message's second field (its first is grib_simple's)
-    assert_eq!(error(&fixture("grib_jpeg2000.grib2"), 1, &[12, 16]), "refkv.grib: JPEG 2000 packing (5.40) is not decoded");
+fn rejects_a_section_7_that_is_not_a_jpeg_2000_codestream() {
+    let (mut m, cs) = codestream("grib_jpeg2000_lossy.grib2");
+    m[cs + 1] = 0x50;
+    assert_eq!(error(&m, 0, &[12, 16]), "refkv.grib: section 7 is not a JPEG 2000 codestream");
+}
+
+#[test]
+fn rejects_a_jpeg_2000_codestream_whose_headers_end_early() {
+    let (mut m, cs) = codestream("grib_jpeg2000_lossy.grib2");
+    let cod = marker(&m, cs, [0xff, 0x52]);
+    m[cod + 2..cod + 4].copy_from_slice(&0xfff0u16.to_be_bytes());
+    assert_eq!(error(&m, 0, &[12, 16]), "refkv.grib: the JPEG 2000 codestream ends in its headers");
+}
+
+#[test]
+fn rejects_a_jpeg_2000_codestream_of_several_components() {
+    let (mut m, cs) = codestream("grib_jpeg2000_lossy.grib2");
+    m[cs + CSIZ..cs + CSIZ + 2].copy_from_slice(&3u16.to_be_bytes());
+    assert_eq!(error(&m, 0, &[12, 16]), "refkv.grib: a JPEG 2000 codestream of 3 components is not decoded");
+}
+
+#[test]
+fn rejects_a_jpeg_2000_codestream_of_signed_samples() {
+    let (mut m, cs) = codestream("grib_jpeg2000_lossy.grib2");
+    m[cs + SSIZ] |= 0x80;
+    assert_eq!(error(&m, 0, &[12, 16]), "refkv.grib: a JPEG 2000 codestream of signed samples is not decoded");
+}
+
+#[test]
+fn rejects_a_jpeg_2000_codestream_of_subsampled_samples() {
+    let (mut m, cs) = codestream("grib_jpeg2000_lossy.grib2");
+    m[cs + XRSIZ] = 2;
+    assert_eq!(error(&m, 0, &[12, 16]), "refkv.grib: a JPEG 2000 codestream of subsampled samples is not decoded");
+}
+
+#[test]
+fn rejects_a_jpeg_2000_codestream_of_more_than_20_bits() {
+    // grib_jpeg2000_20bit's samples as if of 21 bits
+    let (mut m, cs) = codestream("grib_jpeg2000_20bit.grib2");
+    assert_eq!(m[cs + SSIZ], 19);
+    m[cs + SSIZ] = 20;
+    assert_eq!(error(&m, 0, &[12, 16]), "refkv.grib: a JPEG 2000 codestream of 21-bit samples, more than 20, is not decoded");
+}
+
+#[test]
+fn rejects_a_jpeg_2000_codestream_of_the_9_7_transform() {
+    let (mut m, cs) = codestream("grib_jpeg2000_lossy.grib2");
+    let cod = marker(&m, cs, [0xff, 0x52]);
+    assert_eq!(m[cod + 13], 1);
+    m[cod + 13] = 0;
+    assert_eq!(error(&m, 0, &[12, 16]), "refkv.grib: a JPEG 2000 codestream of the irreversible 9/7 wavelet transform is not decoded");
+}
+
+#[test]
+fn rejects_a_jpeg_2000_codestream_that_does_not_decode() {
+    // a code-block width of 2^(15 + 2), past the most, 2^10
+    let (mut m, cs) = codestream("grib_jpeg2000_lossy.grib2");
+    let cod = marker(&m, cs, [0xff, 0x52]);
+    m[cod + 10] = 15;
+    assert_eq!(error(&m, 0, &[12, 16]), "refkv.grib: the JPEG 2000 codestream does not decode: failed to parse COD marker");
+}
+
+#[test]
+fn rejects_a_jpeg_2000_image_of_another_number_of_samples() {
+    // the image 15 points wide
+    let (mut m, cs) = codestream("grib_jpeg2000_lossy.grib2");
+    m[cs + XSIZ..cs + XSIZ + 4].copy_from_slice(&15u32.to_be_bytes());
+    assert_eq!(error(&m, 0, &[12, 16]), "refkv.grib: the JPEG 2000 image has 180 samples, and section 5 gives 192 values");
 }
 
 #[test]

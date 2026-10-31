@@ -23,7 +23,11 @@ encoder does not write:
   size 8, interval 3, over a field with constant runs: zero blocks, second extension, split
   samples and uncompressed blocks, across reference sample intervals), `grib_ccsds_3bit` and
   `grib_ccsds_24bit`; `grib_jpeg2000` (two fields, sections 4–7 repeated: `grib_simple`'s,
-  then one of 5.40, which the codec does not decode);
+  then one of 5.40, lossless), `grib_jpeg2000_bitmap` (5.40 with a bitmap), `grib_jpeg2000_lossy`
+  (eccodes' lossy 5.40, octet 22 = 1: the 5/3 transform truncated at a rate),
+  `grib_jpeg2000_20bit` (the codec's most bits), `grib_jpeg2000_constant` (a bit width of 0)
+  and `grib_jpeg2000_tiles` (an 8-bit 5.40 field's integers in a codestream of 4 tiles, written
+  by OpenJPEG through Pillow);
 - bitmaps: `grib_bitmap` (indicator 0), `grib_bitmap_254` (three fields, sections 4–7
   repeated: a bitmap, then none (255), then the first one again (254));
 - `grib_constant`: a bit width of 0 (eccodes keeps D = 2, and every decoder reads R);
@@ -38,13 +42,15 @@ encoder does not write:
   `grib_reject_edition1` (an edition 1 message after an edition 2 one), `grib_reject_section`
   (section 1's length past the message), `grib_reject_order` (section 3 numbered 4),
   `grib_reject_padding` (more than 4096 bytes after the last message) and
-  `grib_reject_jpeg2000` (one field, of 5.40, so none can be presented).
+  `grib_reject_packing` (one field, of 5.61, so none can be presented).
 
 Samples of public forecasts, one whole message each, read by HTTP range at the offsets their
 feed's index gives (fixtures/grib/README.md records them, with their licenses): GFS 0.25°
 (5.3 with a bitmap, 5.3 with missing-value management 1, and 5.3 without either), HRRR
 (3.30, scanning mode 0x40: a 5.3 field, and a 5.0 field of bit width 0), ECMWF IFS (5.42,
-with and without a bitmap) and NBM (3.30, scanning mode 0x50, missing-value management 1).
+with and without a bitmap), NBM (3.30, scanning mode 0x50, missing-value management 1), RAP
+(3.30, 5.40 of 17 bits) and CFSv2 (two fields of 5.40, the second reusing the first's bitmap
+through indicator 254, each image one row of the packed values).
 
 Expected values: eccodes' decoding of each field (with multi-field support), float64, NaN
 where eccodes reports a missing value, in the codec's order. eccodes' `values` are in the
@@ -70,6 +76,7 @@ Usage: uv run python fixtures/generators/grib/write_fixtures.py
 
 from __future__ import annotations
 
+import io
 import json
 import struct
 import tempfile
@@ -79,6 +86,7 @@ from pathlib import Path
 
 import eccodes as ec
 import numpy as np
+from PIL import Image
 
 OUT = Path(__file__).parents[2] / "grib"
 EXPECTED = OUT / "expected"
@@ -93,6 +101,8 @@ GFS = "https://noaa-gfs-bdp-pds.s3.amazonaws.com/gfs.20261029/00/atmos/gfs.t00z.
 HRRR = "https://noaa-hrrr-bdp-pds.s3.amazonaws.com/hrrr.20261029/conus/hrrr.t00z.wrfsfcf06.grib2"
 IFS = "20261029/00z/ifs/0p25/oper/20261029000000-6h-oper-fc"
 NBM = "https://noaa-nbm-grib2-pds.s3.amazonaws.com/blend.20261029/00/core/blend.t00z.core.f006.co.grib2"
+RAP = "https://noaa-rap-pds.s3.amazonaws.com/rap.20261029/rap.t00z.awp130pgrbf06.grib2"
+CFS = "https://noaa-cfs-pds.s3.amazonaws.com/cfs.20261029/00/6hrly_grib_01/pgbf2026103000.01.2026102900.grb2"
 SAMPLES = [
     # GFS 0.25°, f006: HINDEX (5.3 with a bitmap), ICETMP (5.3 with missing-value management
     # 1) and LAND (5.3 with neither)
@@ -111,6 +121,11 @@ SAMPLES = [
     # NBM CONUS core, f006: TMP at the surface (3.30, scanning mode 0x50, 5.3 with missing-value
     # management 1)
     ("grib_nbm_tmp", NBM, 161452866, 417462, NBM + ".idx", NOAA),
+    # RAP 13 km (AWIPS grid 130), f06: APCP 3–6 h (3.30, 5.40 of 17 bits, as JasPer writes it)
+    ("grib_rap_apcp", RAP, 18449662, 89016, RAP + ".idx", NOAA),
+    # CFSv2 6-hourly pressure levels, f024: UGRD and VGRD at 1829 m in one message (5.40, the
+    # first field's bitmap reused by the second, indicator 254)
+    ("grib_cfs_wind", CFS, 17421074, 134068, CFS + ".idx", NOAA),
 ]
 
 
@@ -470,13 +485,29 @@ def main() -> None:
     write("grib_ccsds_rsi", encode(handle("grid_ccsds", ccsdsBlockSize=8, ccsdsRsi=3), runs))
     write("grib_ccsds_3bit", encode(handle("grid_ccsds", bits=3), base))
     write("grib_ccsds_24bit", encode(handle("grid_ccsds", bits=24), base))
-    write("grib_jpeg2000", fields([simple, encode(handle("grid_jpeg"), base)], 4), decodes=False)
+    jpeg = encode(handle("grid_jpeg"), base)
+    write("grib_jpeg2000", fields([simple, jpeg], 4))
+    write("grib_jpeg2000_lossy", encode(handle("grid_jpeg", typeOfCompressionUsed=1, targetCompressionRatio=4), base))
+    write("grib_jpeg2000_20bit", encode(handle("grid_jpeg", bits=20), base))
+    constant = encode(handle("grid_jpeg", decimalScaleFactor=2), np.full(NI * NJ, 273.15))
+    assert next(s for s in sections(constant) if number(s) == 5)[19] == 0
+    write("grib_jpeg2000_constant", constant)
+    # Pillow writes 16-bit tiles narrower than the image wrongly, 8-bit ones right
+    jpeg8 = encode(handle("grid_jpeg", bits=8), base)
+    s7 = next(s for s in sections(jpeg8) if number(s) == 7)
+    out = io.BytesIO()
+    Image.open(io.BytesIO(s7[5:])).save(out, format="JPEG2000", tile_size=(8, 6), no_jp2=True, irreversible=False)
+    assert out.getvalue().count(b"\xff\x90") == 4
+    msg = with_s5(jpeg8, next(s for s in sections(jpeg8) if number(s) == 5), section(7, out.getvalue()))
+    assert np.array_equal(decoded(msg)[0][0], decoded(jpeg8)[0][0])
+    write("grib_jpeg2000_tiles", msg)
 
     # bitmaps
     masked = base.copy()
     masked[[1, 2, 17, 18, 19, 60, 61, 62, 63, 64, 120, 191]] = 9999
     mask = masked != 9999
     write("grib_bitmap", encode(handle(bitmapPresent=1, missingValue=9999), masked))
+    write("grib_jpeg2000_bitmap", encode(handle("grid_jpeg", bitmapPresent=1, missingValue=9999), masked))
     with_bitmap = encode(handle(bitmapPresent=1, missingValue=9999), masked)
     plain = encode(handle(), field(2))
     other = field(3)
@@ -530,7 +561,7 @@ def main() -> None:
     assert simple[16 + s1 + 4] == 3, "grib_simple has a section 2"
     write("grib_reject_order", simple[:16 + s1 + 4] + b"\x04" + simple[16 + s1 + 5:], decodes=False)
     write("grib_reject_padding", simple + bytes(5000), decodes=False)
-    write("grib_reject_jpeg2000", encode(handle("grid_jpeg"), base), decodes=False)
+    write("grib_reject_packing", encode(handle("grid_simple_log_preprocessing"), base), decodes=False)
 
     # samples of public forecasts
     for name, url, offset, length, _index, _license in SAMPLES:

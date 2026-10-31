@@ -29,7 +29,7 @@ except (ImportError, RuntimeError):  # no ecCodes library for this platform
     eccodes = None
 
 GRIB = FIXTURES / "grib"
-# every fixture a field of which is presented (grib_jpeg2000's first field is; its 5.40 field is not)
+# every fixture a field of which is presented
 INPUTS = sorted(p for p in GRIB.glob("*.grib2") if "reject" not in p.name)
 # the fixtures ecCodes 2.50 cannot decode (python/tests/test_grib_codec.py): their values are the
 # codec's, which that test compares with the generator's

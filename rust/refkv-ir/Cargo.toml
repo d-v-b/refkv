@@ -23,6 +23,9 @@ miniz_oxide = "0.8"
 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#4-georeferencing>)
 libm = "0.2"
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+# a pure-Rust JPEG 2000 decoder, for GRIB's template 5.40 (src/grib/codec/jpeg2000.rs): without
+# its `image` integration, or its SIMD, which leaves the wasm32 module no smaller or faster
+hayro-jpeg2000 = { version = "0.4.1", default-features = false, features = ["std"] }
 
 # build.rs reads the registry's copies (profiles/)
 [build-dependencies]
