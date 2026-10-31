@@ -3244,7 +3244,6 @@ wheels = [
 name = "refkv"
 source = { editable = "python" }
 dependencies = [
-    { name = "google-crc32c" },
     { name = "numpy" },
 ]
 
@@ -3273,7 +3272,6 @@ zarr = [
 [package.metadata]
 requires-dist = [
     { name = "av", marker = "extra == 'media'", specifier = ">=15.0" },
-    { name = "google-crc32c", specifier = ">=1.9.0" },
     { name = "imagecodecs", marker = "extra == 'images'", specifier = ">=2026.8.16" },
     { name = "imagecodecs-zarr", marker = "extra == 'images'", specifier = ">=2026.8.16" },
     { name = "numpy", specifier = ">=2.5.3" },

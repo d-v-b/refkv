@@ -13,10 +13,17 @@ version and a fix (`fix:`) the patch. It adds their subjects (the squash-merged 
 
 Merging it tags `vX.Y.Z` on the merge commit, creates the GitHub release with the changelog
 entry, and runs the [release workflow](../.github/workflows/release.yml) at the tag. That
-workflow builds the wheels (abi3, for Python 3.12 and later, on Linux x86_64 and aarch64 with
-glibc and with musl, macOS Intel and arm, and Windows x64 and arm64) and the sdist, checks
-that each installs and runs, checks that their names carry the tag's version, and publishes
-them to PyPI through trusted publishing.
+workflow builds the wheels and the sdist, checks that each installs and runs (but the
+free-threaded musllinux wheels, which no official Alpine image has a Python to run), checks
+that their names carry the tag's version, and publishes them to PyPI through trusted
+publishing. It builds three wheels for each of Linux x86_64 and aarch64 with glibc and with
+musl, macOS Intel and arm, and Windows x64 and arm64:
+
+| wheel | for |
+|---|---|
+| `cp312-abi3` | CPython 3.12 and later, with the GIL |
+| `cp314-cp314t` | free-threaded CPython 3.14 (abi3 does not cover free-threaded builds) |
+| `cp315-abi3.abi3t` | CPython 3.15 and later, free-threaded or not ([PEP 803](https://peps.python.org/pep-0803/)'s stable ABI) |
 
 To release a version other than the one the commits give, put a `Release-As: X.Y.Z` line in
 a commit message's footer on main; release-please then proposes that version.
