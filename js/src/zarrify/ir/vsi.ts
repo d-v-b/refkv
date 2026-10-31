@@ -18,7 +18,7 @@ import { zarrifyStoreIr } from "./store.ts";
 
 /** The formats whose input is read with the files beside it: each one's title, as a rejection
  * names it. */
-export const BESIDE = { vsi: "VSI", nrrd: "NRRD" } as const;
+export const BESIDE = { vsi: "VSI", nrrd: "NRRD", grib: "GRIB" } as const;
 export type BesideFormat = keyof typeof BESIDE;
 
 /** [the directory's URL (ending in `/`), the named file's key (its last segment,

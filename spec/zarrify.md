@@ -51,6 +51,7 @@ The table, generated from the registry, lists them:
 | [DICOM](zarrify/dicom.md#part-2-the-profile) | file | DICOM Part 10 files with native, JPEG, lossless JPEG or JPEG 2000 pixel data, including whole-slide images |
 | [FITS](zarrify/fits.md#part-2-the-profile) | file | FITS files: images, multi-extension files, binary and ASCII tables |
 | [FLAC](zarrify/flac.md#part-2-the-profile) | file | FLAC files (`.flac`) of a fixed block size, with their metadata blocks and ID3v2 and ID3v1 tags; one sharded array of integer samples, not an image |
+| [GRIB](zarrify/grib.md#part-2-the-profile) | file | GRIB edition 2 files of gridded fields, such as NOAA's and ECMWF's forecasts, whose regular latitude/longitude and Lambert conformal fields it presents |
 | [HDF5](zarrify/hdf5.md#part-2-the-profile) | file | HDF5 files, NWB files first among them: every group, dataset, attribute, link and object reference the profile can present, in hdmf-zarr's Zarr v3 form |
 | [IMS](zarrify/ims.md#part-2-the-profile) | file | Imaris IMS files (HDF5) |
 | [LIF](zarrify/lif.md#part-2-the-profile) | file | Leica LIF files (LAS X and LAS AF, versions 1 and 2): every image of the file's element tree, with interleaved or planar channels, z-stacks, time series and mosaics, uncompressed |
@@ -219,6 +220,7 @@ profile name:
 | DICOM ([dicom.md §7](zarrify/dicom.md#7-dicom-profile)) | 10 |
 | FITS ([fits.md §9](zarrify/fits.md#9-fits-profile)) | 110 |
 | FLAC ([flac.md §8](zarrify/flac.md#8-flac-profile)) | 95 |
+| GRIB ([grib.md §8](zarrify/grib.md#8-grib-profile)) | 65 |
 | HDF5 ([hdf5.md §8](zarrify/hdf5.md#8-hdf5-profile)) | 70 |
 | LIF ([lif.md §7](zarrify/lif.md#7-lif-profile)) | 55 |
 | MP3 ([mp3.md §8](zarrify/mp3.md#8-mp3-profile)) | 100 |
@@ -699,6 +701,7 @@ else. The profiles, generated from the registry:
 - the DICOM profile: [spec/zarrify/dicom.md §7](zarrify/dicom.md#7-dicom-profile);
 - the FITS profile: [spec/zarrify/fits.md §9](zarrify/fits.md#9-fits-profile);
 - the FLAC profile: [spec/zarrify/flac.md §8](zarrify/flac.md#8-flac-profile);
+- the GRIB profile: [spec/zarrify/grib.md §8](zarrify/grib.md#8-grib-profile);
 - the HDF5 profile: [spec/zarrify/hdf5.md §8](zarrify/hdf5.md#8-hdf5-profile);
 - the IMS profile: [spec/zarrify/ims.md §7](zarrify/ims.md#7-ims-profile);
 - the LIF profile: [spec/zarrify/lif.md §7](zarrify/lif.md#7-lif-profile);

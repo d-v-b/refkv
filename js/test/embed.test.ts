@@ -1,14 +1,14 @@
 // The embeddable zarrifier (src/embed.ts): a file the host reads itself is zarrified as
 // zarrifySource does, its VSI tile files opened through the host, with or without its
 // sources' size pins; a refkv.fits_tiles chunk decodes as refkv.zarr's codec decodes it (the
-// same Rust core); and one test per way either fails.
+// same Rust core), and a refkv.grib chunk to eccodes' values; and one test per way either fails.
 
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import { test } from "node:test";
 import { Archive } from "../src/archive.ts";
-import { decodeFitsTiles, type FileInput, zarrifyToArchive } from "../src/embed.ts";
+import { decodeFitsTiles, decodeGrib, type FileInput, zarrifyToArchive } from "../src/embed.ts";
 import { ImageError } from "../src/zarrify/common.ts";
 import { zarrifySource } from "../src/zarrify/index.ts";
 import { bytesSource } from "../src/zarrify/ir/source.ts";
@@ -99,4 +99,37 @@ test("decodes refkv.fits_tiles chunks as refkv.zarr's codec does", async () => {
 
 test("rejects a refkv.fits_tiles configuration it cannot read", async () => {
   await assert.rejects(decodeFitsTiles(new Uint8Array(8), { compression: "HCOMPRESS_1" }, [2, 2]), /^Error: refkv\.fits_tiles: /);
+});
+
+/** A little-endian float64 .npy array's values (fixtures/grib/expected). */
+function npyFloat64(path: string): Float64Array {
+  const b = fixture(path);
+  const len = new DataView(b.buffer, b.byteOffset).getUint16(8, true);
+  assert.match(new TextDecoder().decode(b.subarray(10, 10 + len)), /'descr': '<f8'/);
+  return new Float64Array(b.slice(10 + len).buffer);
+}
+
+test("decodes refkv.grib chunks to eccodes' values", async () => {
+  // fields of 16 × 12 grids (fixtures/generators/grib/write_fixtures.py): alternate rows reversed,
+  // CCSDS across reference sample intervals, PNG with every filter, complex packing's primary and
+  // secondary missing values, and a bitmap reused through indicator 254
+  for (const [name, field] of [
+    ["grib_scan_50", 0],
+    ["grib_ccsds_rsi", 0],
+    ["grib_png", 0],
+    ["grib_complex_missing2", 0],
+    ["grib_bitmap_254", 2],
+  ] as const) {
+    const want = npyFloat64(`grib/expected/${name}.${field}.npy`);
+    const got = await decodeGrib(fixture(`grib/${name}.grib2`), { field }, [1, 12, 16]);
+    assert.deepEqual(got, want, name);
+    assert.deepEqual(await decodeGrib(fixture(`grib/${name}.grib2`), { field }, [12, 16], "float32"),
+      Float32Array.from(want), name);
+  }
+});
+
+test("rejects a refkv.grib chunk of a packing it does not decode", async () => {
+  // the message's second field (its first is grib_simple's)
+  await assert.rejects(decodeGrib(fixture("grib/grib_jpeg2000.grib2"), { field: 1 }, [12, 16]),
+    /^Error: refkv\.grib: JPEG 2000 packing \(5\.40\) is not decoded$/);
 });

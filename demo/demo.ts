@@ -81,11 +81,18 @@ function imageState(
   dtype: string,
   omero: OmeroChannel[] = [],
   labels: { name: string; url: string }[] = [],
+  flipY = false,
+  start?: number[],
 ) {
   // The two displayed axes: x and y, or else the last two.
   let xi = axes.findIndex((a) => a.name === "x");
   let yi = axes.findIndex((a) => a.name === "y");
   if (xi < 0 || yi < 0) [yi, xi] = [axes.length - 2, axes.length - 1];
+  // The axis two-finger scroll (the wheel) steps along: the first axis other
+  // than x, y and c with more than one element, when there is one (t or z,
+  // say). Neuroglancer's wheel moves along the third display dimension, and
+  // does nothing without one.
+  const scrolled = axes.find((a, i) => i !== xi && i !== yi && a.name !== "c" && shape[i] > 1);
   // The coordinate space, declared up front so that displayDimensions can
   // name x and y before the layers load (otherwise Neuroglancer may display a
   // non-spatial axis such as t).
@@ -109,16 +116,19 @@ function imageState(
   const position = axes.flatMap((a, i) => {
     if (a.name === "c") return [];
     const at = offset(images[0], i);
+    if (start !== undefined && i !== xi && i !== yi) return [at + start[i]];
     if (a.name === "t" || a.name === "time") return [at];
     return [at + (a.name === "z" ? Math.floor(shape[i] / 2) : shape[i] / 2)];
   });
   const view = {
     dimensions,
     position,
-    displayDimensions: [axes[xi].name, axes[yi].name],
+    displayDimensions: [axes[xi].name, axes[yi].name, ...(scrolled ? [scrolled.name] : [])],
     // With the coordinate space declared, this counts full-resolution voxels
     // per screen pixel.
     crossSectionScale: Math.max(shape[yi] / 600, shape[xi] / 850),
+    // half a turn about x, which reverses y
+    ...(flipY ? { crossSectionOrientation: [1, 0, 0, 0] } : {}),
     layout: "xy",
   };
   const many = images.length > 1;
@@ -244,6 +254,13 @@ interface View {
   omero: OmeroChannel[];
   labels: { name: string; url: string }[];
   note?: string;
+  /** Whether its rows run south to north (a GRIB grid that scans so), drawn flipped so that
+   * north is up. */
+  flipY?: boolean;
+  /** The index along each axis but the displayed two that the view opens at (a GRIB variable's
+   * first field: its levels are the grid's, of which it may have few); otherwise the first time
+   * point and the middle elsewhere. */
+  start?: number[];
 }
 
 type Multiscale = any;
@@ -293,8 +310,15 @@ const SHOWN_TYPES = ["uint8", "int8", "uint16", "int16", "uint32", "int32", "uin
 /** The codecs the Neuroglancer fork decodes (src/datasource/zarr/codec/ there). */
 const DECODED_CODECS = [
   "bytes", "transpose", "crc32c", "blosc", "zstd", "gzip", "sharding_indexed", "numcodecs.shuffle", "n5_default",
-  "imagecodecs_jpeg", "imagecodecs_jpeg2k", "imagecodecs_jpegxr", "imagecodecs_lzw", "refkv.fits_tiles", "refkv.stream",
+  "imagecodecs_jpeg", "imagecodecs_jpeg2k", "imagecodecs_jpegxr", "imagecodecs_lzw", "refkv.fits_tiles", "refkv.grib",
+  "refkv.stream",
 ];
+
+/**
+ * The codecs whose float64 arrays the fork shows, as float32: they decode a
+ * chunk to float32 values (a GRIB field's are rounded to nearest).
+ */
+const FLOAT64_CODECS = ["refkv.grib"];
 
 /** The names of the codecs of `codecs`, and of those a sharding codec among them holds. */
 const codecNames = (codecs: { name: string; configuration?: any }[]): string[] =>
@@ -302,10 +326,13 @@ const codecNames = (codecs: { name: string; configuration?: any }[]): string[] =
 
 /**
  * Whether Neuroglancer can show the array `meta` as an image: two or more axes, of a type it
- * shows, with codecs it decodes (not, for example, an HDF5 dataset's `numcodecs.zlib`).
+ * shows (or float64, of a codec of {@link FLOAT64_CODECS}), with codecs it decodes (not, for
+ * example, an HDF5 dataset's `numcodecs.zlib`).
  */
 const showable = (meta: ArrayMeta) =>
-  meta.shape.length >= 2 && SHOWN_TYPES.includes(meta.data_type) &&
+  meta.shape.length >= 2 &&
+  (SHOWN_TYPES.includes(meta.data_type) ||
+    (meta.data_type === "float64" && meta.codecs.some((c: { name: string }) => FLOAT64_CODECS.includes(c.name)))) &&
   codecNames(meta.codecs).every((n) => DECODED_CODECS.includes(n));
 
 /** The profiles whose archives hold audio samples, which the page lists but does not show. */
@@ -345,6 +372,44 @@ async function videoViews(zarrUrl: string, mp4: { tracks?: { path: string | null
   });
 }
 
+/** Whether the index `a` comes before `b`, axis by axis. */
+const before = (a: number[], b: number[]) => {
+  const i = a.findIndex((x, k) => x !== b[k]);
+  return i >= 0 && a[i] < b[i];
+};
+
+/** The GRIB variables shown first, when a file has them: temperature 2 m above the ground (and
+ * at other heights), at the surface, then on pressure levels. */
+const GRIB_FIRST = ["t_heightAboveGround", "t_surface", "t_isobaric"];
+
+/**
+ * The views of a GRIB file: each variable of each grid (`grid<g>/<variable>`), a temperature
+ * first. A grid's rows run in the file's order, so one that scans south to north (its
+ * `spatial:transform`'s row step positive, as HRRR's) is flipped to put north up.
+ */
+async function gribViews(zarrUrl: string): Promise<View[]> {
+  const keys = await archiveKeys(zarrUrl);
+  const arrays = (await listArrays(zarrUrl, keys)).filter(({ path, meta }) => path.includes("/") && showable(meta));
+  const grids = new Map<string, Promise<any>>();
+  const views = await Promise.all(arrays.map(async ({ path, meta }) => {
+    const grid = path.slice(0, path.indexOf("/"));
+    if (!grids.has(grid)) grids.set(grid, getJson(`${zarrUrl}${grid}/zarr.json`));
+    const transform: number[] | undefined = (await grids.get(grid)).attributes?.["spatial:transform"];
+    const view = arrayView(`${zarrUrl}${path}/`, path, meta);
+    view.flipY = (transform?.[4] ?? 0) > 0;
+    // its first field, by its chunk keys (`c/<i>/<j>/…`, a chunk a field)
+    const fields = keys.filter((k) => k.startsWith(`${path}/c/`))
+      .map((k) => k.slice(path.length + 3).split("/").map(Number));
+    view.start = fields.reduce((a, b) => (before(b, a) ? b : a), fields[0]);
+    return view;
+  }));
+  const rank = (v: View) => {
+    const k = GRIB_FIRST.indexOf(v.label.slice(v.label.indexOf("/") + 1));
+    return k < 0 ? GRIB_FIRST.length : k;
+  };
+  return views.sort((a, b) => rank(a) - rank(b));
+}
+
 /** The views of a bioformats2raw layout: each series, and all of them together when they can be. */
 async function seriesViews(zarrUrl: string): Promise<View[]> {
   const series: string[] = (await getJson(`${zarrUrl}OME/zarr.json`)).attributes?.ome?.series ?? [];
@@ -380,18 +445,24 @@ async function seriesViews(zarrUrl: string): Promise<View[]> {
   return [all, ...views];
 }
 
-/**
- * The arrays of the hierarchy at `zarrUrl`, outside `refkv_source`, from the
- * keys of its archive (which the worker holds in memory): a Zarr hierarchy
- * cannot otherwise be listed.
- */
-async function listArrays(zarrUrl: string): Promise<{ path: string; meta: ArrayMeta }[]> {
+/** The keys of the archive of the hierarchy at `zarrUrl` (which the worker holds in memory). */
+async function archiveKeys(zarrUrl: string): Promise<string[]> {
   const r = await fetch(archiveDownloadUrl(zarrUrl));
   if (!r.ok) throw new Error(`${r.status}: ${await r.text()}`);
   const archive = await Archive.open(new Uint8Array(await r.arrayBuffer()), zarrUrl, () => {
     throw new Error("not read");
   });
-  const paths = archive.keys()
+  return archive.keys();
+}
+
+/**
+ * The arrays of the hierarchy at `zarrUrl`, outside `refkv_source`, from the
+ * keys of its archive (`keys`, else {@link archiveKeys}): a Zarr hierarchy
+ * cannot otherwise be listed.
+ */
+async function listArrays(zarrUrl: string, keys?: string[]): Promise<{ path: string; meta: ArrayMeta }[]> {
+  keys ??= await archiveKeys(zarrUrl);
+  const paths = keys
     .filter((k) => (k === "zarr.json" || k.endsWith("/zarr.json")) && !k.startsWith("refkv_source/"))
     .map((k) => k.slice(0, -"zarr.json".length).replace(/\/$/, ""));
   const nodes = await Promise.all(paths.map(async (path) => ({
@@ -461,7 +532,7 @@ async function showView(view: View & { input: Input }) {
   const dataType: string = level0.data_type;
   const coarsest = view.levels[view.levels.length - 1];
   const sample = (channels?: number[]) =>
-    sampleRanges(coarsest.url, coarsest.meta, view.axes, chunkShapeOf(coarsest.meta), channels);
+    sampleRanges(coarsest.url, coarsest.meta, view.axes, chunkShapeOf(coarsest.meta), channels, view.start);
   // Each channel's contrast: the file's window when it is usable, else one
   // sampled from the data (contrast.ts). 8-bit data keeps its full range.
   let omero = view.omero;
@@ -482,7 +553,7 @@ async function showView(view: View & { input: Input }) {
   }
   const state = neuroglancerState(
     view.images.map((img) => ({ ...img, url: source(img.url) })), view.axes, view.scale, level0.shape, dataType, omero,
-    view.labels.map((l) => ({ ...l, url: source(l.url) })),
+    view.labels.map((l) => ({ ...l, url: source(l.url) })), view.flipY, view.start,
   );
   // An image shown with Neuroglancer's default shader gets a sampled range too.
   const plain = state.layers.filter((l) => l.type === "image" && !("shader" in l));
@@ -582,6 +653,9 @@ async function zarrify(url: string) {
       found = [await omeView(zarrUrl, ms0, ms0.name ?? "image", attrs.refkv_zarrified?.profile === "ome-zarr")];
     } else if (attrs.ome?.["bioformats2raw.layout"] !== undefined) {
       found = await seriesViews(zarrUrl);
+    } else if (attrs.refkv_zarrified?.profile === "grib") {
+      found = await gribViews(zarrUrl);
+      if (found.length === 0) throw new Error("no GRIB variable to show");
     } else {
       // No OME-Zarr image (a Zarr v2 or N5 hierarchy without one, or an
       // HDF5 file's datasets): its arrays that Neuroglancer can show. An HDF5

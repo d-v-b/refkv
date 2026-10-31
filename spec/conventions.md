@@ -24,6 +24,7 @@ own between `transpose` and `bytes`, [§3](#3-arrays).)
 | DICOM | [dicom](zarrify/dicom.md) | `acf17198-e5a5-48d3-8187-22ec4bb40ea5` |
 | FITS | [fits](zarrify/fits.md) | `4b0d3a7e-1c52-4f6a-9b8e-2d7f0c6a1e93` |
 | FLAC (Free Lossless Audio Codec) | [flac](zarrify/flac.md) | `e9108d07-b24b-432f-a8ce-09d80c8073b4` |
+| WMO FM 92 GRIB edition 2 (WMO-No. 306, Manual on Codes, Volume I.2) | [grib](zarrify/grib.md) | `c9bbe039-8dfa-49f9-a655-756f822a42d6` |
 | HDF5, NWB | [hdf5](zarrify/hdf5.md) | `6c006834-424b-451b-b786-f8c502ec32af` |
 | Imaris IMS | [ims](zarrify/ims.md) | `5067a535-8261-4b25-a93c-1985ed333bde` |
 | Leica LIF | [lif](zarrify/lif.md) | `b099ab1f-f9d4-4276-9006-9ff1193a34b2` |
@@ -1638,3 +1639,70 @@ the bytes, as [§10](#10-coded-streams)'s [`StreamChunk`](#type-streamchunk).
 **Placeholders and other lists.** A table of placeholders has the columns `placeholder` and
 `value`. A list whose items share the same parts (a code's meanings, the members of an
 object) is a table, one row per item and one column per part.
+
+## 12. GRIB messages
+
+A GRIB edition 2 message (WMO-No. 306, *Manual on Codes*, Volume I.2, FM 92 GRIB edition 2,
+cited here as "FM 92") holds one or more fields, each a grid of values packed by one of FM 92's
+data representation templates, with the grid, the packing's parameters and the bitmap of missing
+points in the message's own sections. The array-to-bytes codec `refkv.grib` decodes a field of a
+message ([spec/zarrify/grib.md](zarrify/grib.md)).
+
+**The codec.** `{"name": "refkv.grib", "configuration": C}`, where `C`, which may be absent, is a
+<a id="type-gribconfiguration"></a>**`GribConfiguration`**:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `field` | integer | optional | the field to decode, from 0, in the order of the message's sections 7; 0 when absent |
+
+There are no other members. A chunk's number of values is the grid's `Nj × Ni`, at most 2^31,
+and section 3's number of points; its shape is 1 along every dimension but its last two, which
+are the grid's `Nj` and `Ni` (section 3's number of points along a meridian and along a parallel,
+octets 35–38 and 31–34 of templates 3.0, 3.1, 3.10, 3.20, 3.30 and 3.40); the array's data type is
+`float64` or `float32`.
+
+**A chunk's bytes** are one message, sections 0 to 8, as a GRIB file holds it, and no more: the
+chunk's length is the message's.
+
+**Decoding a chunk.**
+
+1. **The field.** The sections are walked from section 0; the field's sections 3, 5, 6 and 7 are
+   the last of each number at or before its section 7. A message that does not parse (a section
+   past the message's length, no `7777` at its end) or has too few fields is an error.
+2. **Unpacking.** Section 5's template gives the field's `n` values (octets 6–9):
+   - **5.0**, simple packing, **5.2**, complex packing, and **5.3**, complex packing with
+     spatial differencing of order 1 or 2: scaled integers `X`, each value
+     `(R + X × 2^E) × 10^−D`, where `R` is octets 12–15, an IEEE binary32, and `E` and `D`
+     octets 16–17 and 18–19, signed integers (sign and magnitude), computed in binary64:
+     `2^E` exactly, and `10^−D` as `D` successive divisions of 1 by 10 (for a negative `D`,
+     `−D` successive multiplications), which for `D` ≥ 6 is not always the binary64 nearest
+     `10^−D`, but is what ecCodes computes. A bit width of 0 (octet 20), or complex packing
+     with no groups, makes every value `R`, as ecCodes, NCEP's g2c and their encoders read it,
+     though FM 92's formula would scale it. Complex packing's missing values (missing value
+     management, octet 23, 1 or 2) are NaN; with spatial differencing, the differences run
+     over the values that are not missing, and the first values (octets 1–6 of section 7's
+     start) are unsigned, the overall minimum signed.
+   - **5.4**: IEEE floating point values, binary32 or binary64 (octet 12), as they are.
+   - **5.41**: section 7 is a PNG image of `X`, not interlaced and with no palette, a gray
+     sample of 1 to 16 bits, or an RGB or RGBA sample of 24 or 32 bits as one integer; then as
+     5.0.
+   - **5.42**: section 7 is a CCSDS 121.0-B adaptive entropy coded stream of `X`, unsigned, of
+     the flags, block size and reference sample interval of octets 22–25; then as 5.0.
+
+   Any other template (5.40, JPEG 2000; the spectral 5.50 and 5.51; 5.61; 5.200), or 5.4 of
+   another precision, is an error.
+3. **Placing.** With a bitmap (section 6's indicator 0; or 254, the bitmap of the last earlier
+   field of the message whose indicator is 0), the `n` values fill, in order, the points whose
+   bit is 1, and the others are NaN; the number of bits that are 1 must be `n`. Without one
+   (255), `n` must be the grid's number of points. An indicator from 1 to 253 is an error.
+4. **Ordering.** The points, in the file's order, are its lines: `Nj` lines of `Ni` points, or,
+   when bit 3 (`0x20`) of section 3's scanning mode is set, `Ni` lines of `Nj` points (the points
+   consecutive along `j`). When bit 4 (`0x10`) is set, so that every other line runs the
+   opposite way, those lines (the second, the fourth, …) are reversed. Then, with bit 3, the
+   lines are transposed, so that the result is `Nj` rows of `Ni` points. Bits 1 and 2, the
+   directions of `i` and `j`, are kept: the first row is the one the file gives first.
+   Scanning-mode bits 5 to 8 (`0x0F`) must be 0.
+5. **Type.** The values are converted to the array's data type: `float64` as they are, `float32`
+   to nearest.
+
+The codec has no encoder.

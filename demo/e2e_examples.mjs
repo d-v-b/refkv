@@ -138,6 +138,17 @@ try {
             ]),
           };
         });
+        // Two-finger scroll (the wheel) steps along the third display
+        // dimension; up is +1, since the view starts at the first time point.
+        const before = await viewer.evaluate(() => Array.from(window.viewer.navigationState.position.value));
+        await viewer.mouse.wheel(0, -100);
+        await viewer.waitForTimeout(500);
+        result.scrolled = await viewer.evaluate((before) => {
+          const v = window.viewer;
+          const after = v.navigationState.position.value;
+          return v.coordinateSpace.value.names.filter((_, i) => after[i] !== before[i]);
+        }, before);
+        console.log(`  scroll moves: ${result.scrolled.join(", ") || "nothing"}`);
         result.controlled = await viewer.evaluate(() => navigator.serviceWorker.controller !== null);
       }
       console.log(`  ${result.viewer}: ${JSON.stringify(result.value).slice(0, 400)}`);
