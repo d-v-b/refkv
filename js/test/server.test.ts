@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { test } from "node:test";
 import { HttpResolutionError } from "../src/http.ts";
-import { ARCHIVE_KEY, encodeId, makeHandler, type SavedArchives } from "../src/server.ts";
+import { ARCHIVE_KEY, encodeId, makeHandler, PENDING_HEADER, type SavedArchives, WORKER_HEADER } from "../src/server.ts";
 
 const PREFIX = "https://viewer.test/vz/";
 const FIXTURES = new URL("../../fixtures/tiff/", import.meta.url);
@@ -184,6 +184,61 @@ test("serves zarrified stores, and reports rejected ones", async () => {
   const missing = await get(h, `image/${encodeId("https://data.test/b/no_such_store/")}/zarr.json`);
   assert.equal(missing.status, 422);
   assert.match(await missing.text(), /^store: the store has no listing/);
+});
+
+/** A handler whose file opens wait for `gate` (and, on the first open, fail if `failFirst`). */
+function slowHandler(gate: Promise<void>, failFirst = false) {
+  const state = { opens: 0 };
+  const h = makeHandler({
+    prefix: PREFIX,
+    pendingAfter: 10,
+    openFile: async (url) => {
+      state.opens++;
+      const first = state.opens === 1;
+      if (first) await gate;
+      if (first && failFirst) throw new HttpResolutionError(`${url}: HTTP 503`);
+      const bytes = local(url);
+      return { size: bytes.length, read: async (o, n) => bytes.subarray(o, o + n) };
+    },
+  });
+  // asks until the answer is not pending, as the page does: a build can outlast pendingAfter
+  const settled = async (path: string) => {
+    for (;;) {
+      const r = await get(h, path);
+      if (r.headers.get(PENDING_HEADER) === null) return r;
+    }
+  };
+  return { h, state, settled };
+}
+
+test("a request answers 503 pending while its archive is built, and asking again serves it", async () => {
+  let release!: () => void;
+  const { h, state, settled } = slowHandler(new Promise<void>((r) => (release = r)));
+  const path = `${tiff("float32_uncompressed_be.ome.tif")}zarr.json`;
+  const pending = await get(h, path);
+  assert.equal(pending.status, 503);
+  assert.equal(pending.headers.get(PENDING_HEADER), "1");
+  assert.equal(pending.headers.get("Retry-After"), "0");
+  assert.equal(pending.headers.get(WORKER_HEADER), "1");
+  assert.match(pending.headers.get("Access-Control-Expose-Headers")!, new RegExp(PENDING_HEADER));
+  release();
+  const served = await settled(path);
+  assert.equal(served.status, 200);
+  assert.equal((await served.json()).attributes.ome.version, "0.5");
+  assert.equal(state.opens, 1, "asking again waits for the same build");
+});
+
+test("a build that fails after a pending answer fails the next request, and the one after builds again", async () => {
+  let fail!: () => void;
+  const { h, state, settled } = slowHandler(new Promise<void>((r) => (fail = r)), true);
+  const path = `${tiff("float32_uncompressed_be.ome.tif")}zarr.json`;
+  assert.equal((await get(h, path)).status, 503);
+  fail();
+  const failed = await settled(path);
+  assert.equal(failed.status, 502);
+  assert.match(await failed.text(), /HTTP 503/);
+  assert.equal((await settled(path)).status, 200);
+  assert.equal(state.opens, 2);
 });
 
 /** Saved archives in a Map, as Cache Storage keeps them for the service worker. */

@@ -1,6 +1,6 @@
 // Page-side helpers for the refkv service worker.
 
-import { ARCHIVE_KEY, encodeId } from "./server.ts";
+import { ARCHIVE_KEY, encodeId, PENDING_HEADER } from "./server.ts";
 
 /**
  * Registers the service worker and waits until it controls this page.
@@ -41,6 +41,18 @@ export async function registerVzipWorker(
     });
   }
   return new URL("vz/", registration.scope).href;
+}
+
+/**
+ * Fetches `url` from the service worker, asking again while it answers that the archive is still
+ * being built (PENDING_HEADER, see `pendingAfter` in server.ts).
+ */
+export async function fetchWorker(url: string, init?: RequestInit): Promise<Response> {
+  for (;;) {
+    const r = await fetch(url, init);
+    if (r.status !== 503 || r.headers.get(PENDING_HEADER) === null) return r;
+    await r.body?.cancel();
+  }
 }
 
 /** The Zarr URL of the zarrified TIFF or ND2 file at `url` (a directory URL, ending in "/"). */

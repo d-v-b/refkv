@@ -14,7 +14,7 @@ import { toLonLat } from "ol/proj.js";
 import GeoZarr from "ol/source/GeoZarr.js";
 import OSM from "ol/source/OSM.js";
 import proj4 from "proj4";
-import { archiveZarrUrl, imageZarrUrl, registerVzipWorker } from "../../js/src/client.ts";
+import { archiveZarrUrl, fetchWorker, imageZarrUrl, registerVzipWorker } from "../../js/src/client.ts";
 import { WORKER_HEADER } from "../../js/src/server.ts";
 import { registerJpeg2k } from "./jpeg2k.ts";
 
@@ -28,7 +28,7 @@ const setStatus = (text: string, error = false) => {
 };
 
 async function getJson(url: string) {
-  const r = await fetch(url);
+  const r = await fetchWorker(url);
   if (r.headers.get(WORKER_HEADER) === null) {
     throw new Error("the refkv service worker did not answer; reload the page and try again");
   }

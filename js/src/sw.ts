@@ -49,7 +49,10 @@ const saved: SavedArchives = {
 };
 
 const prefix = new URL("vz/", self.registration.scope).href;
-const handle = makeHandler({ prefix, saved });
+// Chrome fails a request its worker has not answered in 5 minutes, and zarrifying a large input
+// from a slow server can take longer: a request waits a minute at most, and the page asks again
+// (fetchWorker), each request keeping the worker alive while the build goes on.
+const handle = makeHandler({ prefix, saved, pendingAfter: 60_000 });
 
 async function dropOlderBuilds() {
   for (const name of await caches.keys()) {

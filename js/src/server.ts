@@ -40,6 +40,25 @@ export const ARCHIVE_KEY = "__vz__/archive.vzip";
 /** Marks every response of the handler, so pages can tell it from the network's. */
 export const WORKER_HEADER = "X-Vzip-Worker";
 
+/**
+ * Marks a 503 answered while the archive is still being built (`pendingAfter`): the build goes
+ * on, and the same request, made again, waits for it again.
+ */
+export const PENDING_HEADER = "X-Vzip-Pending";
+
+const PENDING = Symbol("pending");
+
+/** `p`'s value, or PENDING if it has not settled after `ms` (never, when `ms` is undefined). */
+async function within<T>(p: Promise<T>, ms: number | undefined): Promise<T | typeof PENDING> {
+  if (ms === undefined) return p;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([p, new Promise<typeof PENDING>((r) => (timer = setTimeout(() => r(PENDING), ms)))]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export function encodeId(url: string): string {
   let s = "";
   for (const b of new TextEncoder().encode(url)) s += String.fromCharCode(b);
@@ -95,6 +114,14 @@ export interface HandlerOptions {
    */
   policy?: Policy;
   /**
+   * Milliseconds a request waits for an archive still being built before it is answered 503,
+   * with PENDING_HEADER and `Retry-After: 0`; undefined (the default) waits until it is built.
+   * A browser fails a request its service worker has not answered in 5 minutes, and zarrifying
+   * a large input from a slow server can take longer, so the worker answers before then and the
+   * page asks again (`fetchWorker` in client.ts).
+   */
+  pendingAfter?: number;
+  /**
    * Where archives the handler zarrifies are saved, and looked up before zarrifying. A saved
    * archive is served as it is: its sources' pins (size, and ETag where the server showed one)
    * are checked as its values are read, and a read whose pin or range checksum fails (its
@@ -123,7 +150,7 @@ function response(status: number, body: string | Uint8Array | null, headers: Rec
     status,
     headers: {
       "Access-Control-Allow-Origin": "*",
-      "Access-Control-Expose-Headers": `Content-Range, Content-Length, ${WORKER_HEADER}`,
+      "Access-Control-Expose-Headers": `Content-Range, Content-Length, ${WORKER_HEADER}, ${PENDING_HEADER}`,
       [WORKER_HEADER]: "1",
       ...(typeof body === "string" ? { "Content-Type": "text/plain; charset=utf-8" } : {}),
       ...headers,
@@ -152,6 +179,7 @@ export function makeHandler(options: HandlerOptions) {
     fetchStore,
     fetchRange = (url, start, end, pins, options) => readHttpRange(url, start, end, pins, undefined, options),
     policy = {},
+    pendingAfter,
     saved,
     openSource = options.openFile
       ? async (url: string) => {
@@ -167,6 +195,8 @@ export function makeHandler(options: HandlerOptions) {
   } = options;
   const opened = new Map<string, Promise<Opened>>();
 
+  // A build that fails stays here until a request reports its failure (one asking again after a
+  // pending answer, say), which then forgets it, so the next request builds it again.
   function open(name: string, kind: string, url: string): Promise<Opened> {
     let p = opened.get(name);
     if (p === undefined) {
@@ -206,7 +236,7 @@ export function makeHandler(options: HandlerOptions) {
         return { archive, filename };
       })();
       opened.set(name, p);
-      p.catch(() => opened.delete(name));
+      p.catch(() => {}); // reported by the requests that wait for it
     }
     return p;
   }
@@ -232,7 +262,14 @@ export function makeHandler(options: HandlerOptions) {
     const name = `${kind}/${url}`;
     const opening = open(name, kind, url);
     try {
-      const { archive, filename } = await opening;
+      const built = await within(opening, pendingAfter).catch((e: unknown) => {
+        if (opened.get(name) === opening) opened.delete(name);
+        throw e;
+      });
+      if (built === PENDING) {
+        return response(503, "still zarrifying; ask again", { "Retry-After": "0", [PENDING_HEADER]: "1" });
+      }
+      const { archive, filename } = built;
       if (key === ARCHIVE_KEY) {
         return response(200, head ? null : archive.bytes, {
           "Content-Type": "application/zip",
