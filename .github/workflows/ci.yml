@@ -8,8 +8,9 @@
 # for Python (`uv sync`, which builds python/, refkv, with its bindings as the module refkv._core) and for wasm32 for the browser code (`just js::wasm`).
 # The vzip CLI (rust/refkv-cli) is checked against the Python zarrifier, archive for archive.
 # The Python tests, the install without extras, the IR core's tests, the CLI's and the Node tests
-# run on Linux, macOS and Windows; the fixture comparison, the fixtures' reproducibility and the
-# section references, which do not depend on the system, on Linux only.
+# run on Linux, macOS and Windows, and the Python tests on free-threaded CPython 3.14t on Linux
+# too; the fixture comparison, the fixtures' reproducibility and the section references, which do
+# not depend on the system, on Linux only.
 name: ci
 
 # pushes to main; a pull request's branch runs as the pull request alone, not twice
@@ -80,6 +81,57 @@ jobs:
       # builds the Rust core first, and runs python/tests/ir with the rest (the Python half
       # of `just ir-test`; the ir job runs its Rust half)
       - run: just test
+
+  # The Python tests on free-threaded CPython 3.14t, where refkv._core leaves the GIL disabled
+  # (python/tests/check_base_install.py checks that). The test environment, but for the
+  # packages without free-threaded wheels, which would be built from source or cannot be:
+  # ecCodes' library (eccodeslib, eckitlib; the GRIB comparisons skip without it), astropy (the
+  # FITS tests that compare with it are left out), pylibCZIrw and JPype (bioio-bioformats').
+  pytest-free-threaded:
+    name: pytest (ubuntu-latest, 3.14t)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    # `uv run` uses the environment `uv sync` made, without syncing it again (with every package)
+    env:
+      PYTHONUTF8: "1"
+      UV_NO_SYNC: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: js/package-lock.json
+      - uses: extractions/setup-crate@v2
+        with:
+          repo: casey/just
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            rust/refkv-ir
+            rust/refkv-python
+      # binaryen's wasm-opt shrinks the wasm32 module (rust/refkv-ir/wasm/build.sh; optional)
+      - run: sudo apt-get install -y --no-install-recommends binaryen
+      - run: >-
+          uv sync --all-groups --locked --python 3.14t
+          --no-install-package eccodeslib --no-install-package eckitlib --no-install-package astropy
+          --no-install-package pylibczirw --no-install-package jpype1
+      - run: npm ci
+        working-directory: js
+      - run: just js::wasm
+      # the GIL stays disabled with refkv and the extras imported
+      - run: >-
+          uv run python -c 'import sys, refkv._core, refkv.zarr, imagecodecs, av;
+          assert not sys._is_gil_enabled(), "an import re-enabled the GIL"'
+      - run: >-
+          uv run pytest -q python/tests
+          --ignore=python/tests/ir/test_fits.py --ignore=python/tests/ir/test_zero_padding.py
 
   # The JS library and its tests run on the oldest Node that js/package.json's engines
   # allows (the LTS most users have) and on the newest (what the project develops on);
