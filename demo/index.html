@@ -77,7 +77,7 @@
     the format is detected from the file's
     first bytes, or the store's metadata. A service worker reads the input's structure with a few range
     requests, writes a vzip archive in memory (by <a href="https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md">spec/zarrify.md</a>),
-    and serves it as plain Zarr at a local URL that any Zarr viewer on this site can open: Neuroglancer, or
+    keeps it in the browser's cache, and serves it as plain Zarr at a local URL that any Zarr viewer on this site can open: Neuroglancer, or
     for Sentinel-2 a map. Pixel data is read from the original only when a viewer asks for it.
     That link works only here; download the archive and host it, and the Neuroglancer link to its URL
     opens in any deployment of the viewer, with no service worker.</p>

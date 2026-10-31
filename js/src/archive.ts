@@ -28,9 +28,16 @@ export type ErrorClass =
 
 export class RefkvError extends Error {
   errorClass: ErrorClass;
-  constructor(errorClass: ErrorClass, message: string) {
+  /**
+   * Whether a source is not the one the archive pins (spec §5.1
+   * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#51-pins>): a pin or a range checksum
+   * failed, so the source changed since the archive was written.
+   */
+  sourceChanged: boolean;
+  constructor(errorClass: ErrorClass, message: string, sourceChanged = false) {
     super(`refkv ${errorClass} error: ${message}`);
     this.errorClass = errorClass;
+    this.sourceChanged = sourceChanged;
   }
 }
 
@@ -599,8 +606,8 @@ export class Archive {
     const s = this.sources[r.source];
     const start = r.offset;
     const end = r.offset + r.length;
-    const fail = (m: string): never => {
-      throw new RefkvError("resolution", `source ${r.source}: ${m}`);
+    const fail = (m: string, sourceChanged = false): never => {
+      throw new RefkvError("resolution", `source ${r.source}: ${m}`, sourceChanged);
     };
     if (s.data !== undefined) {
       if (end > BigInt(s.data.length)) fail("range past the end of the data");
@@ -643,11 +650,12 @@ export class Archive {
             ? `${url}: the archive pins the size ${s.size}, which the response does not give`
             : `${url}: the source is ${size} bytes, but the archive pins ${s.size}: the source ` +
                 "changed since the archive was written",
+          size !== undefined,
         );
       }
       return data;
     } catch (e) {
-      if (e instanceof HttpResolutionError) fail(e.message);
+      if (e instanceof HttpResolutionError) fail(e.message, e.sourceChanged);
       throw e;
     }
   }
@@ -739,6 +747,7 @@ export class Archive {
           "resolution",
           `the bytes read do not match the range's crc32c ${crc} (got ${crc32c(data)}): the ` +
             "source changed since the archive was written",
+          true,
         );
       }
       return data.subarray(lo, hi);

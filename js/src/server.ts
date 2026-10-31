@@ -54,6 +54,18 @@ export function decodeId(id: string): string {
   );
 }
 
+/**
+ * Where the handler keeps the archives it zarrifies, so that they outlast it, by name
+ * (`<kind>/<url>`, as `kind` and the URL appear in the route): the service worker's are in Cache
+ * Storage (sw.ts). Its methods may fail: the handler then zarrifies as if nothing were saved.
+ */
+export interface SavedArchives {
+  /** The archive's bytes (`writeVzip`'s output), if saved. */
+  get(name: string): Promise<Uint8Array | undefined>;
+  put(name: string, bytes: Uint8Array): Promise<void>;
+  delete(name: string): Promise<void>;
+}
+
 export interface HandlerOptions {
   /** Absolute URL that every served path starts with, ending in "/". */
   prefix: string;
@@ -82,6 +94,23 @@ export interface HandlerOptions {
    * check them again.
    */
   policy?: Policy;
+  /**
+   * Where archives the handler zarrifies are saved, and looked up before zarrifying. A saved
+   * archive is served as it is: its sources' pins (size, and ETag where the server showed one)
+   * are checked as its values are read, and a read whose pin or range checksum fails (its
+   * `RefkvError` has `sourceChanged`) answers 502 and drops the archive, here and from `saved`,
+   * so the next request zarrifies the input again.
+   */
+  saved?: SavedArchives;
+}
+
+/** `f()`'s value, or undefined if it throws or rejects. */
+async function attempt<T>(f: () => Promise<T>): Promise<T | undefined> {
+  try {
+    return await f();
+  } catch {
+    return undefined;
+  }
 }
 
 interface Opened {
@@ -123,6 +152,7 @@ export function makeHandler(options: HandlerOptions) {
     fetchStore,
     fetchRange = (url, start, end, pins, options) => readHttpRange(url, start, end, pins, undefined, options),
     policy = {},
+    saved,
     openSource = options.openFile
       ? async (url: string) => {
         const file = await options.openFile!(url);
@@ -137,8 +167,7 @@ export function makeHandler(options: HandlerOptions) {
   } = options;
   const opened = new Map<string, Promise<Opened>>();
 
-  function open(kind: string, url: string): Promise<Opened> {
-    const name = `${kind}/${url}`;
+  function open(name: string, kind: string, url: string): Promise<Opened> {
     let p = opened.get(name);
     if (p === undefined) {
       p = (async () => {
@@ -147,6 +176,14 @@ export function makeHandler(options: HandlerOptions) {
         const stem = decodeURIComponent(trimmed.slice(trimmed.lastIndexOf("/") + 1)) || "archive";
         if (kind === "archive") {
           return { archive: await Archive.open(await fetchArchive(url), url, fetchRange, policy), filename: stem };
+        }
+        const filename = `${stem.replace(/\.(ome\.tiff?|tiff?|nd2|n5|zarr)$/i, "")}.vzip`;
+        const read = (bytes: Uint8Array) => Archive.open(bytes, url, fetchRange, { ...policy, unverifiablePins: true });
+        const kept = saved && await attempt(() => saved.get(name));
+        if (kept !== undefined) {
+          const archive = await attempt(() => read(kept));
+          if (archive !== undefined) return { archive, filename };
+          await attempt(() => saved!.delete(name));
         }
         let virtual;
         if (kind === "image" && isStoreUrl(url)) {
@@ -164,10 +201,9 @@ export function makeHandler(options: HandlerOptions) {
           }
         }
         const bytes = await writeVzip(virtual);
-        return {
-          archive: await Archive.open(bytes, url, fetchRange, { ...policy, unverifiablePins: true }),
-          filename: `${stem.replace(/\.(ome\.tiff?|tiff?|nd2|n5|zarr)$/i, "")}.vzip`,
-        };
+        const archive = await read(bytes);
+        if (saved) await attempt(() => saved.put(name, bytes));
+        return { archive, filename };
       })();
       opened.set(name, p);
       p.catch(() => opened.delete(name));
@@ -193,8 +229,10 @@ export function makeHandler(options: HandlerOptions) {
       return response(400, "invalid URL");
     }
     const head = request.method === "HEAD";
+    const name = `${kind}/${url}`;
+    const opening = open(name, kind, url);
     try {
-      const { archive, filename } = await open(kind, url);
+      const { archive, filename } = await opening;
       if (key === ARCHIVE_KEY) {
         return response(200, head ? null : archive.bytes, {
           "Content-Type": "application/zip",
@@ -223,6 +261,10 @@ export function makeHandler(options: HandlerOptions) {
       });
     } catch (e) {
       const message = (e as Error).message;
+      if (e instanceof RefkvError && e.sourceChanged && opened.get(name) === opening) {
+        opened.delete(name);
+        if (saved) await attempt(() => saved.delete(name));
+      }
       if (e instanceof RefkvError) {
         const status = e.errorClass === "request" ? 416 : e.errorClass === "resolution" ? 502 : 500;
         return response(status, message);
