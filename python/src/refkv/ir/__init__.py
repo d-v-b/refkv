@@ -10,11 +10,12 @@ the rebuild from an archive (`cmirror.py`)."""
 
 from __future__ import annotations
 
+import asyncio
 import json
 
-from refkv import _core
+from refkv import _core, _sync
 from refkv.ir.output import from_rust
-from refkv.ir.planner import Transport, drive, new_run, open_transport
+from refkv.ir.planner import Transport, drive, drive_async, new_run, open_transport
 from refkv.policy import Policy
 from refkv.uri import path_reference
 from refkv.zarrify.common import Output, Rejected
@@ -45,10 +46,10 @@ def parse(fmt: str, transport: Transport,
     return ir, json.loads(facts), json.loads(stats)
 
 
-def zarrify(location: str, url: str | None = None, mirror: bool = True, policy: Policy | None = None,
-            transport: Transport | None = None, connections: int | None = None,
-            byte_cost: float | None = None, fmt: str | None = None,
-            layouts: list[str] | None = None, checksums: bool = False) -> tuple[str, Output, _core.Ir]:
+async def zarrify_async(location: str, url: str | None = None, mirror: bool = True, policy: Policy | None = None,
+                        transport: Transport | None = None, connections: int | None = None,
+                        byte_cost: float | None = None, fmt: str | None = None,
+                        layouts: list[str] | None = None, checksums: bool = False) -> tuple[str, Output, _core.Ir]:
     """(format, output, IR): the source read through the read planner, parsed by the
     Rust parser of its format (`fmt`, else the one its first bytes give; a TIFF variant's
     file, rejected unless the TIFF parser finds that variant), projected and
@@ -59,26 +60,40 @@ def zarrify(location: str, url: str | None = None, mirror: bool = True, policy: 
     the image ("dataset"; default: every one the format has); `checksums`: the host will record
     the ranges' checksums, so that a sharded array's ranges are not joined across inner chunks
     (spec/zarrify.md §2.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#21-virtual-shards>)."""
-    transport = transport or open_transport(location, policy)
+    transport = transport or await asyncio.to_thread(open_transport, location, policy)
     if fmt is None:
         want = min(552, transport.size)
         held = transport.head[1] or b""
-        head = held[:want] if len(held) >= want else transport.get(0, want)
+        head = held[:want] if len(held) >= want else await asyncio.to_thread(transport.get, 0, want)
         fmt = sniff(head)
         if fmt is None:
             raise Rejected("not a file of any supported format")
     named = fmt
     run = new_run("tiff" if fmt in TIFF_VARIANTS else fmt, transport, connections, byte_cost)
-    drive(run, transport, connections)
+    await drive_async(run, transport, connections)
     fmt = run.format  # a TIFF the core found to be NDPI is "ndpi"
     if named in TIFF_VARIANTS and fmt != named:  # before the projection reads more
         raise Rejected(f"not {TIFF_VARIANTS[named]}: the TIFF parser read it as {fmt}")
-    try:
-        t, ir = run.output(url or (location if transport.remote else path_reference(location)),
-                           mirror, layouts, checksums)
-    except _core.Rejected as e:
-        raise Rejected(str(e)) from None
-    out = from_rust(t)
+
+    def output() -> tuple[Output, _core.Ir]:
+        try:
+            t, ir = run.output(url or (location if transport.remote else path_reference(location)),
+                               mirror, layouts, checksums)
+        except _core.Rejected as e:
+            raise Rejected(str(e)) from None
+        return from_rust(t), ir
+
+    # the projection, and its output's conversion, on a thread: both grow with the chunks
+    out, ir = await asyncio.to_thread(output)
     out.size = transport.size
     out.etag = transport.etag() if url in (None, location) else None
     return fmt, out, ir
+
+
+def zarrify(location: str, url: str | None = None, mirror: bool = True, policy: Policy | None = None,
+            transport: Transport | None = None, connections: int | None = None,
+            byte_cost: float | None = None, fmt: str | None = None,
+            layouts: list[str] | None = None, checksums: bool = False) -> tuple[str, Output, _core.Ir]:
+    """`zarrify_async`, the caller's thread waiting for it (`refkv._sync.run`)."""
+    return _sync.run(zarrify_async(location, url, mirror, policy, transport, connections, byte_cost, fmt,
+                                   layouts, checksums))

@@ -22,11 +22,13 @@ performs the requests a run asks for and reports each one's bytes and time:
   (`multipart/byteranges`) when the run asks; a server that answers otherwise
   is closed before its body is read, and the run plans single ranges. It
   records every response's ETag, for the source's `etag` pin.
-- `drive(run, transport)`: the loop, at most `concurrency` requests at a time.
+- `drive_async(run, transport)`: the loop, at most `concurrency` requests at a time, as a
+  coroutine; `drive(run, transport)` waits for it.
 """
 
 from __future__ import annotations
 
+import asyncio
 import email.utils
 import http.client
 import mmap
@@ -41,7 +43,7 @@ from email.message import Message
 from typing import Protocol, cast
 from urllib.parse import urljoin, urlparse
 
-from refkv import _core
+from refkv import _core, _sync
 from refkv.errors import ResolutionError
 from refkv.policy import Policy
 from refkv.reader import _POOL, Check, _check_http_url, _connect, _proxy
@@ -342,27 +344,37 @@ def new_run(fmt: str, transport: Transport, conc: int | None = None, byte_cost: 
     return run
 
 
-def drive(run: _core.Run, transport: Transport, conc: int | None = None) -> None:
-    """Performs the requests a run asks for until it is done, at most `conc` at a time."""
+async def drive_async(run: _core.Run, transport: Transport, conc: int | None = None) -> None:
+    """Performs the requests a run asks for until it is done, at most `conc` at a time, without
+    blocking the event loop: the transport's reads, which block, and the run's calls into the
+    Rust core run on threads of the run's own (`conc` of them, so that the runs on one loop do
+    not wait on each other's threads). A batch's requests are completed once all have
+    answered, in order."""
     conc = concurrency(transport, conc)
-    pool = ThreadPoolExecutor(conc) if transport.remote else None
+    loop = asyncio.get_running_loop()
+    pool = ThreadPoolExecutor(conc, thread_name_prefix="refkv-read")
+
+    def complete(results: list[tuple[list[bytes] | None, float]]) -> list[list[tuple[int, int]]] | None:
+        """The batch's results given to the run, then the next batch."""
+        for k, (parts, dt) in enumerate(results):
+            run.complete(k, parts, dt)
+        return run.poll()
+
     try:
+        results: list[tuple[list[bytes] | None, float]] = []
         while True:
             try:
-                reqs = run.poll()
+                reqs = await loop.run_in_executor(pool, complete, results)
             except _core.Rejected as e:
                 raise Rejected(str(e)) from None
             if reqs is None:
                 return
-            if pool is None or len(reqs) == 1:
-                results = [transport.fetch(r) for r in reqs]
-            else:
-                results = list(pool.map(transport.fetch, reqs))
-            for k, (parts, dt) in enumerate(results):
-                try:
-                    run.complete(k, parts, dt)
-                except _core.Rejected as e:
-                    raise Rejected(str(e)) from None
+            results = list(await asyncio.gather(*(loop.run_in_executor(pool, transport.fetch, r) for r in reqs)))
     finally:
-        if pool is not None:
-            pool.shutdown()
+        # without waiting: a batch's other requests, after one failed, end on their threads
+        pool.shutdown(wait=False, cancel_futures=True)
+
+
+def drive(run: _core.Run, transport: Transport, conc: int | None = None) -> None:
+    """`drive_async`, the caller's thread waiting for it (`refkv._sync.run`)."""
+    _sync.run(drive_async(run, transport, conc))
