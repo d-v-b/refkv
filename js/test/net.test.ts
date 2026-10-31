@@ -7,7 +7,7 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { after, before, test } from "node:test";
 import { Archive, checkAddress, RefkvError } from "../src/archive.ts";
-import { fetchFailed, HttpResolutionError, readHttpRange } from "../src/http.ts";
+import { HttpResolutionError, noResponse, readHttpRange } from "../src/http.ts";
 import { checkedFetch, envProxy, resolver } from "../src/net_node.ts";
 import { writeVzip } from "../src/writer.ts";
 
@@ -181,16 +181,30 @@ test("refuses a request through a proxy", async () => {
   }
 });
 
-test("a request that gets no response names CORS as a cause in a browser", async () => {
+test("a request that gets no response says why, where a browser can tell", async () => {
   const url = "https://data.test/x";
   const network = new TypeError("Failed to fetch");
-  // a browser's network error: the CORS cause too; under Node, or another error, the message alone
-  assert.match(fetchFailed(url, network, true), /^https:\/\/data\.test\/x: Failed to fetch\. A browser reports this for a server that does not allow cross-origin reads \(no Access-Control-Allow-Origin header/);
-  assert.equal(fetchFailed(url, network, false), "https://data.test/x: Failed to fetch");
-  assert.equal(fetchFailed(url, new Error("refused"), true), "https://data.test/x: refused");
-  // readHttpRange reports it so (here under Node, without the CORS cause)
+  const answered = async () => true;
+  const silent = async () => false;
+  // url, fetch's error, in a browser, the probe without CORS, the page's scheme: the cause, the message
+  const cases: [string, unknown, boolean, () => Promise<boolean>, string, string | undefined, RegExp][] = [
+    [url, network, true, answered, "https:", "cors",
+      /^https:\/\/data\.test\/x: Failed to fetch: the server answered, but its CORS headers do not let this site read/],
+    [url, network, true, silent, "https:", "unreachable", /^https:\/\/data\.test\/x: Failed to fetch: the server could not be reached/],
+    ["http://data.test/x", network, true, answered, "https:", "mixed-content",
+      /^http:\/\/data\.test\/x: Failed to fetch: this https:\/\/ page cannot read an http:\/\/ URL \(mixed content\)$/],
+    ["http://data.test/x", network, true, answered, "http:", "cors", /CORS headers/], // an http:// page may read one
+    [url, network, false, answered, "https:", undefined, /^https:\/\/data\.test\/x: Failed to fetch$/], // under Node
+    [url, new Error("refused"), true, answered, "https:", undefined, /^https:\/\/data\.test\/x: refused$/],
+  ];
+  for (const [u, e, browser, probe, page, cause, message] of cases) {
+    const failed = await noResponse(u, e, browser, probe, page);
+    assert.equal(failed.noResponse, cause, `${u} ${page}`);
+    assert.match(failed.message, message);
+  }
+  // readHttpRange reports it so (here under Node, with no cause)
   await assert.rejects(
     readHttpRange(url, 0, 4, {}, undefined, { fetch: async () => { throw network; } }),
-    (e: Error) => e instanceof HttpResolutionError && e.message === "https://data.test/x: Failed to fetch",
+    (e: Error) => e instanceof HttpResolutionError && e.message === "https://data.test/x: Failed to fetch" && e.noResponse === undefined,
   );
 });

@@ -14,7 +14,7 @@
 // (sw.ts); kept free of service worker APIs so it can run under Node.
 
 import { Archive, type Policy, type RangeFetcher, RefkvError } from "./archive.ts";
-import { HttpResolutionError, openHttpFile, readHttpRange } from "./http.ts";
+import { HttpResolutionError, noResponse, openHttpFile, readHttpRange } from "./http.ts";
 import { ImageError } from "./zarrify/common.ts";
 import { isStoreUrl, zarrifySource, zarrifyStore } from "./zarrify/index.ts";
 import { zarrifyIr } from "./zarrify/ir/run.ts";
@@ -39,6 +39,10 @@ export const ARCHIVE_KEY = "__vz__/archive.vzip";
 
 /** Marks every response of the handler, so pages can tell it from the network's. */
 export const WORKER_HEADER = "X-Vzip-Worker";
+
+/** On a 502 for a request that got no response: why, where the browser could tell (a
+ * `NoResponseCause`: `cors`, `unreachable` or `mixed-content`). */
+export const ERROR_HEADER = "X-Vzip-Error";
 
 /**
  * Marks a 503 answered while the archive is still being built (`pendingAfter`): the build goes
@@ -150,7 +154,7 @@ function response(status: number, body: string | Uint8Array | null, headers: Rec
     status,
     headers: {
       "Access-Control-Allow-Origin": "*",
-      "Access-Control-Expose-Headers": `Content-Range, Content-Length, ${WORKER_HEADER}, ${PENDING_HEADER}`,
+      "Access-Control-Expose-Headers": `Content-Range, Content-Length, ${WORKER_HEADER}, ${ERROR_HEADER}, ${PENDING_HEADER}`,
       [WORKER_HEADER]: "1",
       ...(typeof body === "string" ? { "Content-Type": "text/plain; charset=utf-8" } : {}),
       ...headers,
@@ -188,7 +192,9 @@ export function makeHandler(options: HandlerOptions) {
       }
       : (url: string) => openHttpSource(url, { policy }),
     fetchArchive = async (url) => {
-      const r = await fetch(url);
+      const r = await fetch(url).catch(async (e: unknown) => {
+        throw await noResponse(url, e);
+      });
       if (!r.ok) throw new HttpResolutionError(`${url}: HTTP ${r.status}`);
       return new Uint8Array(await r.arrayBuffer());
     },
@@ -316,7 +322,9 @@ export function makeHandler(options: HandlerOptions) {
       if (e instanceof ImageError) return response(422, message);
       if (e instanceof StoreLimitError) return response(507, message);
       if (e instanceof StoreReadError) return response(502, message);
-      if (e instanceof HttpResolutionError) return response(502, message);
+      if (e instanceof HttpResolutionError) {
+        return response(502, message, e.noResponse ? { [ERROR_HEADER]: e.noResponse } : {});
+      }
       return response(500, message);
     }
   };

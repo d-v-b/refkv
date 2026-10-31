@@ -8,7 +8,7 @@ import {
   imageZarrUrl,
   registerVzipWorker,
 } from "../js/src/client.ts";
-import { WORKER_HEADER } from "../js/src/server.ts";
+import { ERROR_HEADER, WORKER_HEADER } from "../js/src/server.ts";
 import { sampleRanges, tooNarrow, usableWindow } from "./contrast.ts";
 import { pythonScript, stem } from "./python.ts";
 
@@ -25,10 +25,54 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 const input = $<HTMLInputElement>("url");
 const status = $("status");
 
-const setStatus = (text: string, error = false) => {
-  status.textContent = text;
-  status.classList.toggle("error", error);
+const setStatus = (text: string) => {
+  status.replaceChildren(text);
+  status.classList.remove("error");
 };
+
+/** A request to the service worker that failed: its status, its message, and, for a source that
+ * got no response, why (its X-Vzip-Error: `cors`, `unreachable` or `mixed-content`). */
+class WorkerError extends Error {
+  readonly status: number;
+  readonly reason: string | undefined;
+  constructor(status: number, message: string, reason: string | null) {
+    super(message);
+    this.status = status;
+    this.reason = reason ?? undefined;
+  }
+}
+
+/** What to do about an error, by its cause or status. */
+function helpFor(e: unknown): string {
+  if (!(e instanceof WorkerError)) return "";
+  switch (e.reason) {
+    case "cors":
+      return "The file's server does not let other sites read it from a browser. Its owner can allow it " +
+        "with CORS headers: Access-Control-Allow-Origin, and Access-Control-Expose-Headers for Content-Range, " +
+        "Content-Length and ETag. Python is not restricted by CORS: the script below zarrifies the file on your machine.";
+    case "unreachable":
+      return "Check the URL: the browser got no answer from its server.";
+    case "mixed-content":
+      return "Use the file's https:// URL, if its server has one.";
+  }
+  if (e.status === 422) return "The input was read, but it is not a format, or a form of one, that this page zarrifies.";
+  if (e.status === 507) return "The store is larger than this page lists in a browser; the Python package has no such limit.";
+  return "";
+}
+
+/** Shows `e` in the status area: a title, its message, and what to do about it. */
+function showError(e: unknown) {
+  const message = String((e as Error).message ?? e);
+  const title = document.createElement("strong");
+  title.textContent = "Could not zarrify this input";
+  const detail = document.createElement("p");
+  detail.textContent = message;
+  const help = document.createElement("p");
+  help.className = "help";
+  help.textContent = helpFor(e);
+  status.replaceChildren(title, detail, ...(help.textContent ? [help] : []));
+  status.classList.add("error");
+}
 
 async function getJson(url: string) {
   const r = await fetchWorker(url);
@@ -37,7 +81,7 @@ async function getJson(url: string) {
       `the refkv service worker did not answer this request (HTTP ${r.status} from the network); reload the page and try again`,
     );
   }
-  if (!r.ok) throw new Error(`${r.status}: ${await r.text()}`);
+  if (!r.ok) throw new WorkerError(r.status, await r.text(), r.headers.get(ERROR_HEADER));
   return r.json();
 }
 
@@ -578,6 +622,13 @@ async function showView(view: View & { input: Input }) {
 
 let pythonUrl: string | undefined;
 
+/** The media profile a URL's extension suggests (whose script needs refkv's media extra), for a
+ * script shown before the input was read. */
+function mediaProfile(url: string): string | undefined {
+  const ext = new URL(url).pathname.toLowerCase().match(/\.(\w+)$/)?.[1];
+  return ext === "mp3" ? "mp3" : ext === "flac" ? "flac" : ext && ["mp4", "mov", "m4a", "m4v"].includes(ext) ? "mp4" : undefined;
+}
+
 /** Shows the Python script that builds the same hierarchy as `input`, and links it as a file. */
 function showPython(input: Input, profile: string | undefined) {
   const script = pythonScript(input.url, input.isArchive, profile, __REFKV_RELEASE__ || undefined);
@@ -593,11 +644,14 @@ function showPython(input: Input, profile: string | undefined) {
 
 async function zarrify(url: string) {
   $("result").hidden = true;
+  $("python").hidden = true;
   // Record the URL in the address bar, so the page can be shared or reloaded.
   const here = new URL(location.href);
   here.searchParams.set("url", url);
   history.replaceState(null, "", here);
   setStatus("Starting the service worker…");
+  // the status and the result are above the examples: bring them into view
+  status.scrollIntoView({ block: "nearest", behavior: "smooth" });
   prefix ??= registerVzipWorker(new URL("vzip-sw.js", location.href));
   const p = await prefix;
   const isArchive = /\.vzip(?:[?#]|$)/i.test(url);
@@ -694,6 +748,7 @@ async function zarrify(url: string) {
   $<HTMLAnchorElement>("download").href = archiveDownloadUrl(zarrUrl);
   showPython(opened, attrs.refkv_zarrified?.profile);
   $("result").hidden = false;
+  $("python").hidden = false;
   setStatus(`Ready in ${ms} ms.`);
 }
 
@@ -705,11 +760,19 @@ $("python-copy").addEventListener("click", () => {
   setTimeout(() => ($("python-copy").textContent = "Copy"), 2000);
 });
 $("view").addEventListener("change", () => {
-  showView(views[Number($<HTMLSelectElement>("view").value)]).catch((e) => setStatus(String(e.message ?? e), true));
+  showView(views[Number($<HTMLSelectElement>("view").value)]).catch(showError);
 });
 $("form").addEventListener("submit", (event) => {
   event.preventDefault();
-  zarrify(input.value.trim()).catch((e) => setStatus(String(e.message ?? e), true));
+  const url = input.value.trim();
+  zarrify(url).catch((e) => {
+    showError(e);
+    // Python reads a file whatever its server's CORS headers say
+    if (e instanceof WorkerError && e.reason === "cors") {
+      showPython({ url, zarrUrl: "", isArchive: /\.vzip(?:[?#]|$)/i.test(url) }, mediaProfile(url));
+      $("python").hidden = false;
+    }
+  });
 });
 for (const link of document.querySelectorAll<HTMLAnchorElement>("a[data-url]")) {
   link.addEventListener("click", (event) => {
