@@ -57,6 +57,7 @@ EXCLUDED = (
     "conformance/zarrify/reference/**",
     "design/IR_NOTES.md",
     "design/plans/**",
+    "CHANGELOG.md",  # release-please writes it from the merged PRs' titles
 )
 # Records that migrate left as they are: frozen snapshots, the frozen reference
 # twins and their tests (revision 20, of which there is no snapshot), and dated notes.
@@ -67,6 +68,7 @@ LEFT_ALONE = (
     "conformance/zarrify/reference/**",
     "design/IR_NOTES.md",
     "design/plans/**",
+    "CHANGELOG.md",  # release-please writes it from the merged PRs' titles
 )
 # Written by spec/generate_schemas.py.
 GENERATED = ("spec/zarrify/*/schema.json",)
