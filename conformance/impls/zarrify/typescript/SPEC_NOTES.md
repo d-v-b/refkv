@@ -1,6 +1,6 @@
-# Notes on ZARRIFY.md (revision 4) from the TypeScript implementation
+# Notes on VIRTUALIZE.md (revision 4) from the TypeScript implementation
 
-This implementation was written from ZARRIFY.md and HARNESS.md alone. It
+This implementation was written from VIRTUALIZE.md and HARNESS.md alone. It
 accepts or rejects all 95 fixtures as their names require, and it succeeds on
 the three public inputs. Revision 4 is precise. The points below are the only
 places where two careful implementers could plausibly produce different

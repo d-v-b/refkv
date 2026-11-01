@@ -7,13 +7,26 @@ refkv produces this layout as a reference store, and the subset of HDF5 that
 it reads, is the IMS profile, [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `5067a535-8261-4b25-a93c-1985ed333bde` ·
-Schema: [schema.json](ims/schema.json) ·
-Changed 2026-10-28, with no change to any output: the HDF5 profile chooses this one ([§7](#7-ims-profile)) ·
-Changed 2026-10-27: a zlib stream's codec is `numcodecs.zlib`, zarr-python's name for it, in place of `zlib` ([conventions §3](../conventions.md#3-arrays), d-v-b/refkv#90) ·
-Changed 2026-10-26, with no change to any output: the
-layout is tabulated, its entries in [Layout](#layout) and its types in type tables
-([conventions §11.5](../conventions.md#115-layout-tables)), and the HDF5 structures' fields
-and cases in tables
+Schema: [schema.json](ims/schema.json)
+
+Changed 2026-11-01, with no change to any output: the rejections name the rounds of reads and
+the references' budget, which refkv already applied ([§7.7](#77-rejection)).
+
+Changed 2026-10-28, with no change to any output: the HDF5 profile chooses this one
+([§7](#7-ims-profile)).
+
+Changed 2026-10-27: a zlib stream's codec is `numcodecs.zlib`, zarr-python's name for it, in
+place of `zlib` ([conventions §3](../conventions.md#3-arrays), d-v-b/refkv#90).
+
+Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
+[Layout](#layout) and its types in type tables
+([conventions §11.5](../conventions.md#115-layout-tables)), and the HDF5 structures' fields and
+cases in tables.
+
+Changes before 2026-10-22 are recorded in
+[the revision log of VIRTUALIZE.md](../history/virtualize/REVISIONS.md), this document's earlier
+name, up to
+[revision 29](../history/virtualize/REVISIONS.md#revision-29-no-recorded-revision-the-profile-registry).
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
@@ -404,8 +417,8 @@ one value.
 A structure two elements claim (bytes two objects share, or that a
 structure overlaps) is described once; the other is an alias
 ([conventions §8.1](../conventions.md#81-elements)). An image chunk that is an
-alias is referenced all the same (spec/zarrify.md's budget of repeated
-references bounds the amplification).
+alias is referenced all the same (the repeats of
+[the references' budget](../zarrify.md#12-input) bound the amplification).
 
 ### 5.3 The walk
 
@@ -503,7 +516,7 @@ their row in the table):
 
 # Part 2. The profile
 
-The IMS profile of [spec/zarrify.md](../zarrify.md) (revision 16) is [§7](#7-ims-profile) of this document. What every profile's Part 2 shares is in
+The IMS profile of [spec/zarrify.md](../zarrify.md) is [§7](#7-ims-profile) of this document. What every profile's Part 2 shares is in
 [spec/zarrify.md, Profiles](../zarrify.md#profiles).
 
 ## 7. IMS profile
@@ -981,10 +994,13 @@ within the message.
 
 ### 7.7 Rejection
 
-The input is rejected when a rule of [§7.1](#71-hdf5-structures)–[§7.6](#76-attributes) fails for a structure that
+A zarrifier MUST reject the input when a rule of [§7.1](#71-hdf5-structures)–[§7.6](#76-attributes) fails for a structure that
 the convention's [§2](#2-the-source)–[§4](#4-output) read, and when the convention gives it no layout:
 wherever it says that the input is rejected, or that something MUST hold
-and it does not. The walk of the source metadata ([the convention §5.3](#53-the-walk)) never rejects the
+and it does not. It also rejects an input whose reads need more than 4096 rounds (each round
+the reads that what was read so far calls for, all at once: `more than 4096 rounds of
+dependent reads`), and one past the references' budget
+([spec/zarrify.md §1.2](../zarrify.md#12-input)). The walk of the source metadata ([the convention §5.3](#53-the-walk)) never rejects the
 input: what it cannot read is not described, and its bytes are gaps.
 
 ### 7.8 Chunk references

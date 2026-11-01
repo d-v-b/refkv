@@ -139,24 +139,35 @@ def test_fields_are_eccodes_at_their_coordinates_and_the_file_rebuilds(path):
 def test_an_index_changes_the_reads_not_the_output(tmp_path):
     """A NOAA index beside the file is read and held in the mirror, and named in the root's source
     metadata; the hierarchy is the one without it, and the run reads each listed message's head at
-    once rather than walking the file."""
+    once rather than walking the file. With two indexes, the first of which lists no offsets, both
+    are held and the second, whose offsets the run used, is named."""
     alone = tmp_path / "alone"
     indexed = tmp_path / "indexed"
-    for d in (alone, indexed):
+    both = tmp_path / "both"
+    for d in (alone, indexed, both):
         d.mkdir()
     # three messages: grib_simple's three times over, each a whole message
     one = (GRIB / "grib_simple.grib2").read_bytes()
-    for d in (alone, indexed):
+    for d in (alone, indexed, both):
         (d / "f.grib2").write_bytes(one * 3)
     lines = [f"{k + 1}:{k * len(one)}:d=2026102900:X:surface:anl:\n" for k in range(3)]
     (indexed / "f.grib2.idx").write_text("".join(lines))
+    (both / "f.grib2.idx").write_bytes(b"not an index\n")
+    ecmwf = "".join(f'{{"_offset": {k * len(one)}, "_length": {len(one)}}}\n' for k in range(3))
+    (both / "f.index").write_bytes(ecmwf.encode())
     out_a, root_a = zarrified(alone / "f.grib2")
     out_i, root_i = zarrified(indexed / "f.grib2")
+    out_b, root_b = zarrified(both / "f.grib2")
     assert at(root_a.attrs, "refkv_zarrified", "grib", "index") is None
     assert at(root_i.attrs, "refkv_zarrified", "grib", "index") == "f.grib2.idx"
+    assert at(root_b.attrs, "refkv_zarrified", "grib", "index") == "f.index"
     keep = lambda k: not k.startswith("refkv_source") and k != "zarr.json"  # noqa: E731
     assert {k: v for k, v in out_a.entries.items() if keep(k)} == {k: v for k, v in out_i.entries.items() if keep(k)}
-    assert out_a.refs == out_i.refs
+    assert {k: v for k, v in out_a.entries.items() if keep(k)} == {k: v for k, v in out_b.entries.items() if keep(k)}
+    assert out_a.refs == out_i.refs == out_b.refs
+    held = {k: h for k, _, h in _core.rebuild_store(out_b.entries.get)}
+    assert held["f.grib2.idx"] == b"not an index\n"
+    assert held["f.index"] == (both / "f.index").read_bytes()
     # the same field three times: the first in the variable, the others its copies
     assert sorted(k.split("/")[1] for k in out_a.refs) == ["t_surface", "t_surface_2", "t_surface_3"]
     rebuilt = {k: held for k, _, held in _core.rebuild_store(out_i.entries.get)}

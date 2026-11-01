@@ -15,7 +15,15 @@ CMO ([§1](#1-conventions)). Changed 2026-10-27: a zlib stream's codec is `numco
 place of `zlib`, and every codec's name is zarr-python's, imagecodecs-zarr's, the zarr-extensions
 registry's or refkv's own `refkv.<codec>`, [§3](#3-arrays) (d-v-b/refkv#90). Changed
 2026-10-27: imagecodecs-zarr's `imagecodecs_delta` sums back differences along `x`, a step of its
-own between `transpose` and `bytes`, [§3](#3-arrays).)
+own between `transpose` and `bytes`, [§3](#3-arrays). Changed 2026-10-28: the `refkv.stream`
+format `"hevc"` codes HEVC access units, its setup the HEVCDecoderConfigurationRecord
+([§10](#10-coded-streams)). Changed 2026-10-30: imagecodecs-zarr's `imagecodecs_ljpeg` decodes
+a lossless JPEG chunk ([§3](#3-arrays)); refkv's `refkv.skip` drops the NPY header a deflated
+`.npz` member inflates to ([§3](#3-arrays)). Changed 2026-10-30: the codec `refkv.grib`
+decodes a GRIB field's message ([§12](#12-grib-messages)). Changed 2026-10-31: `refkv.grib`
+decodes packing 5.40, JPEG 2000 of the reversible 5/3 transform, where it was an error
+([§12](#12-grib-messages)). Changed 2026-11-01, with no change to any output:
+the document cites its own sections as `§n` links.)
 
 <!-- profiles:conventions-table -->
 | format | convention | UUID |
@@ -1176,8 +1184,8 @@ revision of this section.
 
 A store input ([spec/zarrify.md §1.4](zarrify.md#14-store-inputs)) is
 a set of objects named by keys. Its IR, a **store IR**, has many sources: each
-object of the store is one. Sections [8.1](#81-elements) to
-[8.8](#88-canonical-form) hold for a store IR with the changes this section
+object of the store is one. Sections [§8.1](#81-elements) to
+[§8.8](#88-canonical-form) hold for a store IR with the changes this section
 gives. An IR without objects, a **file IR**, is the special case of one
 source, source 0: this section changes nothing in it, its table or its view.
 
@@ -1234,12 +1242,12 @@ object whose size is 0 is **empty**: no element in it has a length.
 which suits documents, read whole and small. An object that a format reads
 in ranges (a SAFE band file: its boxes, main header and tile-part headers,
 a few kilobytes of a file of up to 160 MB) can be described without being
-held: an object that has children and whose form ([8.5](#85-forms-and-recipes))
+held: an object that has children and whose form ([§8.5](#85-forms-and-recipes))
 is `{"bytes":"source"}` is **described in place**. Its leaves partition
 `[0, s)` of its bytes, as a held object's do, but the table does not hold its
 bytes: they are its own source's, which a reader reads at the object's URL
 ([spec/zarrify.md §1.4](zarrify.md#14-store-inputs)), as it reads a file
-IR's source 0 ([8.4](#84-reading-the-source-back)). A producer reads every value
+IR's source 0 ([§8.4](#84-reading-the-source-back)). A producer reads every value
 the view shows in such an object (its parser holds them). A held object is
 then an object with children that is not described in place.
 
@@ -1252,7 +1260,7 @@ at `b_j + x`, where `b_j` is the sum of the sizes of the objects before `j` in i
 order. The leaves then partition `[0, Z)`, as a file's do, once each leaf is
 checked to end within its object.
 
-**The table** (changes to [8.2](#82-the-table)). The description `I` has the
+**The table** (changes to [§8.2](#82-the-table)). The description `I` has the
 member `"objects": o` after `size`, `o` the number of objects; its presence is
 what makes the IR a store's. `Z` is the sum of the objects' sizes. An object
 row's start (column 6) is stored as it is (0, since its extent is `(0, s)`),
@@ -1261,12 +1269,12 @@ distance from 0), as if the object row were a row of length 0 ending there: an
 object's descendants' starts count from the start of their own source. The
 kinds of rows go to 6. When the IR has held objects, `refkv_source/ir/held` is a
 group of two arrays holding their bytes, `offsets` and `data`, as
-`refkv_source/ir/shared` holds the shared data sources ([8.2](#82-the-table)):
+`refkv_source/ir/shared` holds the shared data sources ([§8.2](#82-the-table)):
 one byte string per held object, in id order, each the object's `s` bytes. An object described in place has its form row (code 2) and no byte string
-in `ir/held`. A column of encoding 2 ([8.3](#83-column-runs)) is invalid in a store IR (no
+in `ir/held`. A column of encoding 2 ([§8.3](#83-column-runs)) is invalid in a store IR (no
 profile has a named array rule for stores).
 
-**Limits** (changes to [8.3](#83-column-runs)). A store IR has at most 2^24
+**Limits** (changes to [§8.3](#83-column-runs)). A store IR has at most 2^24
 objects, and its expanded table at most `N = 2^22 + floor(Z / 4) + 4 × o` rows;
 the distinct names (the description holds them) total at most 2^24 UTF-8 bytes.
 A producer rejects a store past one of these with the message
@@ -1278,7 +1286,7 @@ children and a length, not described in place) are not as many as `ir/held`'s
 byte strings, or one of
 whose byte strings is not as long as its object.
 
-**Reading the store back** (in place of [8.4](#84-reading-the-source-back)). A
+**Reading the store back** (in place of [§8.4](#84-reading-the-source-back)). A
 reader reads `rows`, `tables` and `held`, expands the column runs, checks the
 invariants above, and then has:
 
@@ -1296,7 +1304,7 @@ hierarchy references it (a chunk's bytes are the archive's references to the
 store), and an object described in place is its own source (the hierarchy
 references its ranges; reading it rebuilds it).
 
-**The view** (changes to [8.7](#87-the-view)). Referenced and empty objects are
+**The view** (changes to [§8.7](#87-the-view)). Referenced and empty objects are
 neither shown nor visited (a store's chunk objects would fill the view's budget
 of visits); a held object is shown as a struct is, by its own document; a
 directory whose document would be empty is not shown. A shown value of a held
@@ -1304,7 +1312,7 @@ object is read from that object's bytes in `ir/held`, so a validator rebuilds
 the view from the archive alone; one of an object described in place, from
 that object's source.
 
-**Canonical form** (changes to [8.8](#88-canonical-form)). An object's first
+**Canonical form** (changes to [§8.8](#88-canonical-form)). An object's first
 byte is 0, the start of its source, whether or not it has a length, so the
 first byte of a directory is 0 too: the objects and directories of one
 directory are ordered by name, then by name index, which is the order of the
@@ -1440,7 +1448,7 @@ array-to-bytes codec `refkv.stream` decodes such a chunk.
 
 | member | type | presence | value |
 |---|---|---|---|
-| `format` | string | required | the coding of the frames: `"mp3"` (MPEG-1, 2 or 2.5 Layer III frames), `"aac"` (raw AAC frames, without ADTS headers), `"flac"` (FLAC frames, [RFC 9639 §9](https://www.rfc-editor.org/rfc/rfc9639#section-9)) `"h264"` (H.264 access units as an MP4 file holds them: each NAL unit preceded by its length, in the length's size the setup gives) or `"hevc"` (HEVC access units, the same way) |
+| `format` | string | required | the coding of the frames: `"mp3"` (MPEG-1, 2 or 2.5 Layer III frames), `"aac"` (raw AAC frames, without ADTS headers), `"flac"` (FLAC frames, [RFC 9639 §9](https://www.rfc-editor.org/rfc/rfc9639#section-9)), `"h264"` (H.264 access units as an MP4 file holds them: each NAL unit preceded by its length, in the length's size the setup gives) or `"hevc"` (HEVC access units, the same way) |
 | `setup` | string | optional | when the format has one: the decoder's configuration, base64 ([RFC 4648 §4](https://www.rfc-editor.org/rfc/rfc4648#section-4)): for `"aac"` the AudioSpecificConfig (ISO/IEC 14496-3 §1.6.2.1), for `"flac"` `fLaC` and the stream's STREAMINFO block, header included (42 bytes: the form ffmpeg's decoder and WebCodecs' `description` take), for `"h264"` the AVCDecoderConfigurationRecord (an MP4 file's avcC box, ISO/IEC 14496-15 §5.3.3.1), which holds the parameter sets, for `"hevc"` the HEVCDecoderConfigurationRecord (an MP4 file's hvcC box, ISO/IEC 14496-15 §8.3.3.1), which holds the VPS, SPS and PPS and the NAL unit lengths' size (the form WebCodecs' `description` takes for both) |
 | `plane` | string | optional | for `"h264"` and `"hevc"` only: the plane of a decoded picture the array holds, `"y"`, `"u"` or `"v"` |
 

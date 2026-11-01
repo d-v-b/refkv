@@ -11,33 +11,42 @@ How refkv produces this layout as a reference store is the QPTIFF profile,
 [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `329ea136-2f55-4c27-b6f4-8e60ca2109b8` ·
-Schema: [schema.json](qptiff/schema.json) ·
+Schema: [schema.json](qptiff/schema.json)
+
 Changed 2026-10-27: an image of an integer type with Predictor 2 has a layout, as in the TIFF
 convention, which [§4.1](#41-data-types-and-codecs) cites (`imagecodecs_delta` before `bytes`);
-other predictors are still rejected; no output of a file accepted before changed ·
-Changed 2026-10-27, with no change to the output of the inputs accepted before but the unusual ones below:
-the strip tags, LZW and the padding of a short last strip are now the TIFF convention's
-([tiff.md §4.3](tiff.md#43-data-types-and-codecs), [tiff.md §4.5](tiff.md#45-strips)), which
-[§2](#2-the-source), [§4.1](#41-data-types-and-codecs) and [§4.2](#42-tiles-and-strips) cite;
-a level whose short last strip cannot be padded is still left out here; a strip padded
-with more than 2^22 zero bytes now rejects the input ([§4.2](#42-tiles-and-strips)), and a
-short last LZW strip is read up to `3 × rows × B + 64` bytes, as [tiff.md §7.1](tiff.md#71-reading)
-says, where the whole strip was read (a stream that spends more than a Clear code and a literal
-on each byte it decodes no longer reaches its size); the zero padding is a prefix of the output's
-one zero data source, the same bytes and range as before when every padded strip lacks the same
-count ·
-Changed 2026-10-27: an LZW tile's or strip's codec is `refkv.tiff_lzw`, refkv's own, in place of `imagecodecs_lzw` (imagecodecs-zarr's codec of that name reads the whole stream), and a Deflate one's `numcodecs.zlib`, in place of `zlib` ([conventions §3](../conventions.md#3-arrays), d-v-b/refkv#90) ·
-Changed 2026-10-26, with no change to any output:
-the layout is tabulated, its entries in [Layout](#layout) and its types in type tables
+other predictors are still rejected; no output of a file accepted before changed.
+
+Changed 2026-10-27, with no change to the output of the inputs accepted before but the unusual
+ones below: the strip tags, LZW and the padding of a short last strip are now the TIFF
+convention's ([tiff.md §4.3](tiff.md#43-data-types-and-codecs),
+[tiff.md §4.5](tiff.md#45-strips)), which [§2](#2-the-source), [§4.1](#41-data-types-and-codecs)
+and [§4.2](#42-tiles-and-strips) cite; a level whose short last strip cannot be padded is still
+left out here; a strip padded with more than 2^22 zero bytes now rejects the input
+([§4.2](#42-tiles-and-strips)), and a short last LZW strip is read up to `3 × rows × B + 64`
+bytes, as [tiff.md §7.1](tiff.md#71-reading) says, where the whole strip was read (a stream that
+spends more than a Clear code and a literal on each byte it decodes no longer reaches its size);
+the zero padding is a prefix of the output's one zero data source, the same bytes and range as
+before when every padded strip lacks the same count.
+
+Changed 2026-10-27: an LZW tile's or strip's codec is `refkv.tiff_lzw`, refkv's own, in place of
+`imagecodecs_lzw` (imagecodecs-zarr's codec of that name reads the whole stream), and a Deflate
+one's `numcodecs.zlib`, in place of `zlib` ([conventions §3](../conventions.md#3-arrays),
+d-v-b/refkv#90).
+
+Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
+[Layout](#layout) and its types in type tables
 ([conventions §11.5](../conventions.md#115-layout-tables)), the root's source metadata and a
 JPEG tile's reference those of the TIFF convention ([`TiffRoot`](tiff.md#type-tiffroot),
-[`TiffChunk`](tiff.md#type-tiffchunk)) · Changed 2026-10-23: each `omero` channel's
-window is sampled from the coarsest level's data, as in the TIFF convention, when refkv decodes
-its compression (none, LZW, Deflate) and the image is not RGB, so that a `float32` channel has a
-window too, and an integer channel without a sampled window has the type's range
-([§4.3](#43-arrays)); the profile reads the sampled chunks ([§7](#7-qptiff-profile)), after
-[revision 29](../history/virtualize/REVISIONS.md#revision-29-no-recorded-revision-the-profile-registry)
-(a profile's changes are recorded here, dated, from then on)
+[`TiffChunk`](tiff.md#type-tiffchunk)).
+
+Changed 2026-10-23: each `omero` channel's window is sampled from the coarsest level's data, as
+in the TIFF convention, when refkv decodes its compression (none, LZW, Deflate) and the image is
+not RGB, so that a `float32` channel has a window too, and an integer channel without a sampled
+window has the type's range ([§4.3](#43-arrays)); the profile reads the sampled chunks
+([§7](#7-qptiff-profile)).
+
+Added 2026-10-21.
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 

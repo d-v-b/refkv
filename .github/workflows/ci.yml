@@ -348,8 +348,15 @@ jobs:
         with:
           repo: casey/just
       - run: uv sync --all-groups --locked --no-install-package refkv
-      # every "§n" is a link to its heading, and every such link resolves (spec/tools/sections.py)
-      - run: just sections
+      # every "§n" is a link to its heading, and every such link resolves (spec/tools/sections.py);
+      # on a pull request, each format document it changes records the change in its changelog
+      # (spec/tools/changelog.py)
+      - if: github.event_name != 'pull_request'
+        run: just sections
+      - if: github.event_name == 'pull_request'
+        run: |
+          git fetch --no-tags --depth=1 origin "$GITHUB_BASE_REF"
+          just sections FETCH_HEAD
       # every Python file passes ruff (pyproject.toml's [tool.ruff])
       - run: just lint
       # every Python file type-checks (pyproject.toml's [tool.pyrefly]; refkv._core through its stub)

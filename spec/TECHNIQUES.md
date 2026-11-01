@@ -2,7 +2,8 @@
 
 refkv maps about two dozen source formats ([the formats table](../docs/zarrify/README.md#formats):
 image files, chunked array stores, and Sentinel-2 SAFE products, a directory or a zip file
-of JPEG 2000 bands and XML metadata) to Zarr v3 without copying their data.
+of JPEG 2000 bands and XML metadata, audio and video files, and HDF5, GRIB and NumPy files) to
+Zarr v3 without copying their data.
 
 Doing the same thing two dozen times shows which problems recur, and which
 techniques solve them for any format. This document collects those
@@ -205,22 +206,21 @@ From [§1](#1-three-kinds-of-information), [§4](#4-numeric-metadata-as-arrays) 
 | safetensors | the header's length and `__metadata__`, and every tensor's entry as written (name, `dtype`, shape, `data_offsets`, other members), with its path or the reason it is not presented | none | none; the header and each tensor's data by reference |
 | SAFE | the product's identity (a fixed set of fields, a derived convenience); per band, the values that interpret it (band id, wavelengths, gains, irradiance, quantification and offsets), recorded and not applied; GeoZarr `proj` and `spatial` on the resolution groups | the XML documents as text within a 64 KiB budget, and the keys of the rest | the XML documents past the budget, and each band file's JP2 header, as arrays of bytes; every other file kept whole |
 
-## 8. Open questions
+## 8. Questions the conventions settled
 
-1. **The metadata node's name and place.**
-   - Proposal: a child group `refkv_source` of the root.
-   - It declares the convention, with the collections as its `S`, and
-     holds the arrays.
-   - OME-NGFF readers ignore children they don't know.
-2. **Array naming:** names from the source (`AcqTimesCache`,
-   `ifd/3/320`), or from meaning (`time`, `stage_x`)? Source names are
-   repeatable without a dictionary; meaningful names need a table per
-   format.
-3. **Where an inline array is too large** (a gathered or derived array of
-   millions of frames), the same rules apply, but the archive grows. Is
-   there a limit?
-4. **N**, the count above which a numeric tag becomes an array (proposed:
-   64).
-5. **Index order vs physical order** (ND2's negative z step):
-   - option 1: flip the index so that z increases with position;
-   - option 2: record the sign and keep the source order.
+This note's proposal came before the conventions, and they settled the questions it left open:
+
+1. **The metadata node's name and place:** the group `refkv_source`, a child of the root,
+   which declares the convention ([conventions §2](conventions.md#2-attributes)); OME-NGFF
+   readers ignore it.
+2. **Array naming:** names from the source. The IR mirror names each structure as the source
+   does ([conventions §8.1](conventions.md#81-elements)), which needs no dictionary per format.
+3. **Where an inline array is too large:** the mirror's rows have a budget
+   ([conventions §8.3](conventions.md#83-column-runs)), and so do a profile's references
+   ([spec/zarrify.md §1.2](zarrify.md#12-input)); an input past either is rejected.
+4. **N**, the count above which a numeric tag becomes an array: there is none. The mirror holds
+   every value in typed columns ([conventions §8](conventions.md#8-the-ir-mirror)), so no
+   threshold picks the values that become arrays.
+5. **Index order vs physical order:** option 1. ND2's z index is flipped for a negative
+   `dZStep`, so that z increases with position
+   ([nd2.md §4.3](zarrify/nd2.md#43-output)).

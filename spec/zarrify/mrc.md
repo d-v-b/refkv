@@ -7,16 +7,25 @@ How refkv produces this layout as a reference store, and which files it
 accepts, is the MRC profile, [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `2aacd010-2ed1-4748-bc3c-5dd5e840bbce` ·
-Schema: [schema.json](mrc/schema.json) · Changed 2026-10-25: an edge chunk's zero padding is
-a range of the output's one zero data source, not a literal range of each reference, so that
-the archive holds the zeros once ([§8.2](#82-chunks)); no chunk's values change, nor which
-chunks are copied · Changed 2026-10-25: a zarrifier may leave the dataset
-layout out ([§1](#1-declaration), [spec/zarrify.md §1.7](../zarrify.md#17-named-inputs-and-layouts)) ·
+Schema: [schema.json](mrc/schema.json)
+
 Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
 [Layout](#layout) and its types in type tables
 ([conventions §11.5](../conventions.md#115-layout-tables)), and the text says, as refkv already
 wrote it, that any one-byte data type, IMOD's `uint8` too, has the codec `bytes` without a byte
 order ([§4.1](#41-the-array)).
+
+Changed 2026-10-25: an edge chunk's zero padding is a range of the output's one zero data
+source, not a literal range of each reference, so that the archive holds the zeros once
+([§8.2](#82-chunks)); no chunk's values change, nor which chunks are copied.
+
+Changed 2026-10-25: a zarrifier may leave the dataset layout out ([§1](#1-declaration),
+[spec/zarrify.md §1.7](../zarrify.md#17-named-inputs-and-layouts)).
+
+Changes before 2026-10-22 are recorded in
+[the revision log of VIRTUALIZE.md](../history/virtualize/REVISIONS.md), this document's earlier
+name, up to
+[revision 29](../history/virtualize/REVISIONS.md#revision-29-no-recorded-revision-the-profile-registry).
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
@@ -454,7 +463,7 @@ reader that needs them must read them there.
 
 # Part 2. The profile
 
-The MRC profile of [spec/zarrify.md](../zarrify.md) (revision 28) is [§8](#8-mrc-profile) of this document. What every profile's Part 2 shares is in
+The MRC profile of [spec/zarrify.md](../zarrify.md) is [§8](#8-mrc-profile) of this document. What every profile's Part 2 shares is in
 [spec/zarrify.md, Profiles](../zarrify.md#profiles).
 
 ## 8. MRC profile

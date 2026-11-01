@@ -1189,6 +1189,47 @@ address, or one redirected to such an address, is refused unless
 `Policy(allow_private_hosts=True)`. The browser reader is unchanged: it does
 not check the archive's location.
 
+## Revision 11.3: the perfect-hash binding's place (editorial)
+
+Format version 0, specification revision 11.3. **Status: provisional.** No
+result changes for any store, so the revision 11 conformance suite applies
+unchanged; stores still record revision 11.
+
+**What prompted it.** The perfect-hash binding was added on 2026-10-24
+(d-v-b/refkv#79) as Part 3, a draft, in
+[spec/bindings/phkv.md](../../bindings/phkv.md), under the unchanged revision
+11.2 and with no entry here. Part 1 still said in places that the
+specification has one binding and one format version, and Part 2 that its
+introduction covers "both parts". A documentation audit on 2026-11-01 found
+the gap.
+
+**The change.**
+- **This entry** records Part 3's addition, under revision 11.2, on
+  2026-10-24: the phkv container (a superblock, a section directory, a
+  perfect hash of the keys, records), standalone or inside a vzip archive
+  (the hybrid profile), its sections numbered from
+  [§16](../../bindings/phkv.md#16-what-the-phkv-binding-defines).
+- **[§1](../../refkv.md#1-introduction):** the parts share the introduction
+  and the revision; Parts 1 and 2 share the format version, and Part 3 is
+  outside its promise.
+- **[§1.2](../../refkv.md#12-conformance):** the specification defines two
+  bindings, ZIP, normative and tested, and the perfect-hash binding, a draft
+  no conformance suite tests yet.
+- **[§1.3](../../refkv.md#13-versioning):** what Part 3's provisional format
+  version 0 promises: nothing yet. Any revision may change what a phkv store of
+  version 0 is, without a new version, until Part 3 leaves draft; a change to
+  Part 3 is not a change to the format of Parts 1 and 2, nor to the format
+  version a vzip archive records.
+- **Part 2's introduction** says that it shares the format version with Part 1,
+  and that Part 3 shares only the revisions; **Part 3's** version line says
+  that its version is a draft's.
+
+**Relation to the split plan.** The plan in d-v-b/refkv#150
+(`design/plans/split-bindings.md`) makes phkv a specification of its own, with
+its own format version, revisions and numbering, and drops the hybrid profile.
+When it lands, its step 3 replaces the passages above: refkv.md then lists
+Parts 1 and 2 alone. Until then, this revision states Part 3's status as it is.
+
 ## Open feedback: browser readers (from the Neuroglancer driver)
 
 The Neuroglancer driver

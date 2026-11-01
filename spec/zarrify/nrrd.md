@@ -10,12 +10,19 @@ profile, [Part 2](#part-2-the-profile) below. The format is Teem's
 "the NRRD definition".
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `23e0c600-8da6-40f1-81e7-ab246e948e88` ·
-Schema: [schema.json](nrrd/schema.json) · Added 2026-10-25 (a profile's changes are recorded
-here, dated, from then on) · Changed 2026-10-26, with no change to any output: the layout is
-tabulated, its entries in [Layout](#layout) and its types in type tables
+Schema: [schema.json](nrrd/schema.json)
+
+Changed 2026-11-01, with no change to any output: the header file is read as a file read as a
+store, by the rules [spec/zarrify.md §1.8](../zarrify.md#18-files-read-as-stores) now states
+for the VSI, NRRD and GRIB profiles ([§8](#8-nrrd-profile)).
+
+Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
+[Layout](#layout) and its types in type tables
 ([conventions §11.5](../conventions.md#115-layout-tables)), each chunk's composition in
 [`NrrdChunk`](#type-nrrdchunk) and [`NrrdGzipChunk`](#type-nrrdgzipchunk), and the output's
 sources in [§8.5](#85-chunks)'s table.
+
+Added 2026-10-25.
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
@@ -458,16 +465,11 @@ The input is a **file input** that names the header file (a URL, or a local path
 **signature** ([spec/zarrify.md §1.2](../zarrify.md#12-input), tested at the precedence of
 [profiles/nrrd.json](profiles/nrrd.json)) chose: bytes 0–6 of `H` are `NRRD000` (`4E 52 52 44
 30 30 30`), byte 7 is a digit from `1` to `5`, and byte 8 is a LF or a CR. (The magic of 1998's
-files, `NRRD00.01`, does not match.) As the VSI profile reads its slide
-([vsi.md §9](vsi.md#9-vsi-profile)), the profile reads the input as a **store**
-([spec/zarrify.md §1.4](../zarrify.md#14-store-inputs)) whose URL is the header file's
-directory (the URL up to and including its last `/`; for a local path, the URI reference of its
-directory, ending in `/`, or `--url`'s directory when `--url` names the header file; a bare file
-name with no `--url` records the empty store URL), and whose objects are the header file, at its
-key (its name, percent-decoded from the URL), and a detached header's data file, which the
-profile finds by key. The store is not listed: the data file is **probed**
-([§8.3](#83-the-data-file)). The root's `source.url` is the header file's object URL. The header
-file's key holds no `/`; its URL has no query or fragment.
+files, `NRRD00.01`, does not match.) The profile reads the input as a **file read as a store**
+([spec/zarrify.md §1.8](../zarrify.md#18-files-read-as-stores)): the store URL is the header
+file's directory, its objects are the header file, at its key, and a detached header's data
+file, which the profile probes for ([§8.3](#83-the-data-file)), and the root's `source.url` is
+the header file's object URL.
 
 ### 8.1 The header
 

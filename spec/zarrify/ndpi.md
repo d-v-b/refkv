@@ -8,26 +8,36 @@ How refkv produces this layout as a reference store is the NDPI profile,
 [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `6cac71ef-dbb2-4acd-b60c-00389aa4238a` ·
-Schema: [schema.json](ndpi/schema.json) · Changed 2026-10-27: an ASCII value is never in
-line, whatever its size, and is at its 64-bit offset ([§5.1](#51-elements),
-[§7](#7-ndpi-profile)); McuStartsHighBytes, like the tile tables' high bytes, holds the 32-bit
-values it stores, and McuStarts of one in-line LONG, whose value has its entry's high word, MUST
-have that word in McuStartsHighBytes, which is not added to it ([§7](#7-ndpi-profile)) · Changed 2026-10-26, with no change to any output:
-the layout is tabulated, its entries in [Layout](#layout) and its types in type tables
-([conventions §11.5](../conventions.md#115-layout-tables)) · Changed 2026-10-25: a level may be JPEG XR
-(Compression 22610), tiled or in one strip, each tile or strip a chunk, its data type and
-samples from the JPEG XR stream header and not the tags ([§3](#3-levels),
-[§4](#4-the-image)); the tile tables' high bytes (65324, 65325) extend them
-([§7](#7-ndpi-profile)); the root has the source metadata of
-[§5](#5-source-metadata), the fluorescence filter, wavelength and exposure time, and a
-single channel's `omero` label is its filter's name (d-v-b/refkv#123) · Changed 2026-10-24: a level without McuStarts whose
-strip's frame header is not the level's size has the level's size spliced into the frame header
-when it needs the same MCU rows and columns, and is otherwise not a level (rejected when it is
-level 0) ([§3](#3-levels), [§4](#4-the-image)); the profile reads such a strip's header
-([§7](#7-ndpi-profile)) · Changed 2026-10-22: the image has an `omero` member
-([§4](#4-the-image)), after
-[revision 29](../history/virtualize/REVISIONS.md#revision-29-no-recorded-revision-the-profile-registry)
-(a profile's changes are recorded here, dated, from then on)
+Schema: [schema.json](ndpi/schema.json)
+
+Changed 2026-10-27: an ASCII value is never in line, whatever its size, and is at its 64-bit
+offset ([§5.1](#51-elements), [§7](#7-ndpi-profile)); McuStartsHighBytes, like the tile tables'
+high bytes, holds the 32-bit values it stores, and McuStarts of one in-line LONG, whose value
+has its entry's high word, MUST have that word in McuStartsHighBytes, which is not added to it
+([§7](#7-ndpi-profile)).
+
+Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
+[Layout](#layout) and its types in type tables
+([conventions §11.5](../conventions.md#115-layout-tables)).
+
+Changed 2026-10-25: a level may be JPEG XR (Compression 22610), tiled or in one strip, each tile
+or strip a chunk, its data type and samples from the JPEG XR stream header and not the tags
+([§3](#3-levels), [§4](#4-the-image)); the tile tables' high bytes (65324, 65325) extend them
+([§7](#7-ndpi-profile)); the root has the source metadata of [§5](#5-source-metadata), the
+fluorescence filter, wavelength and exposure time, and a single channel's `omero` label is its
+filter's name (d-v-b/refkv#123).
+
+Changed 2026-10-24: a level without McuStarts whose strip's frame header is not the level's size
+has the level's size spliced into the frame header when it needs the same MCU rows and columns,
+and is otherwise not a level (rejected when it is level 0) ([§3](#3-levels),
+[§4](#4-the-image)); the profile reads such a strip's header ([§7](#7-ndpi-profile)).
+
+Changed 2026-10-22: the image has an `omero` member ([§4](#4-the-image)).
+
+Changes before 2026-10-22 are recorded in
+[the revision log of VIRTUALIZE.md](../history/virtualize/REVISIONS.md), this document's earlier
+name, up to
+[revision 29](../history/virtualize/REVISIONS.md#revision-29-no-recorded-revision-the-profile-registry).
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
@@ -421,7 +431,7 @@ names the element by its row, and a reader reads them from the source.
 
 # Part 2. The profile
 
-The NDPI profile of [spec/zarrify.md](../zarrify.md) (revision 16) is [§7](#7-ndpi-profile) of this document. It builds on the TIFF profile ([tiff.md §7](tiff.md#7-tiff-profile), [tiff.md](tiff.md#part-2-the-profile)). What every profile's Part 2 shares is in
+The NDPI profile of [spec/zarrify.md](../zarrify.md) is [§7](#7-ndpi-profile) of this document. It builds on the TIFF profile ([tiff.md §7](tiff.md#7-tiff-profile), [tiff.md](tiff.md#part-2-the-profile)). What every profile's Part 2 shares is in
 [spec/zarrify.md, Profiles](../zarrify.md#profiles).
 
 ## 7. NDPI profile

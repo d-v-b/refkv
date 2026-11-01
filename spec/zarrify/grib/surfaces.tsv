@@ -1,0 +1,65 @@
+centre	type	name	units
+0	1	surface	
+0	2	cloudBase	
+0	3	cloudTop	
+0	4	isothermZero	
+0	5	adiabaticCondensation	
+0	6	maxWind	
+0	7	tropopause	
+0	8	nominalTop	
+0	9	seaBottom	
+0	10	entireAtmosphere	
+0	11	cumulonimbusBase	
+0	12	cumulonimbusTop	
+0	20	isothermal	K
+0	100	isobaric	Pa
+0	101	meanSea	
+0	102	heightAboveSea	m
+0	103	heightAboveGround	m
+0	104	sigma	1
+0	105	hybrid	1
+0	106	depthBelowLand	m
+0	107	theta	K
+0	108	pressureFromGround	Pa
+0	109	potentialVorticity	K m2 kg-1 s-1
+0	111	eta	1
+0	114	snow	1
+0	117	mixedLayerDepth	m
+0	118	hybridHeight	1
+0	119	hybridPressure	1
+0	150	generalVertical	1
+0	151	soil	1
+0	160	depthBelowSea	m
+0	161	depthBelowWaterSurface	m
+0	162	lakeBottom	
+0	163	sedimentBottom	
+7	200	atmosphereSingleLayer	
+7	204	highestTroposphericFreezing	
+7	206	gridScaleCloudBottom	
+7	207	gridScaleCloudTop	
+7	209	boundaryLayerCloudBottom	
+7	210	boundaryLayerCloudTop	
+7	211	boundaryLayerCloudLayer	
+7	212	lowCloudBottom	
+7	213	lowCloudTop	
+7	214	lowCloudLayer	
+7	215	cloudCeiling	
+7	220	planetaryBoundaryLayer	
+7	222	middleCloudBottom	
+7	223	middleCloudTop	
+7	224	middleCloudLayer	
+7	232	highCloudBottom	
+7	233	highCloudTop	
+7	234	highCloudLayer	
+7	242	convectiveCloudBottom	
+7	243	convectiveCloudTop	
+7	244	convectiveCloudLayer	
+7	245	lowestLevelWetBulbZero	
+7	246	maxEquivalentPotentialTemperature	
+7	247	equilibrium	
+7	248	shallowConvectiveCloudBottom	
+7	249	shallowConvectiveCloudTop	
+7	251	deepConvectiveCloudBottom	
+7	252	deepConvectiveCloudTop	
+7	253	supercooledLiquidWaterBottom	
+7	254	supercooledLiquidWaterTop	
