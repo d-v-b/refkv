@@ -91,10 +91,10 @@ framework](https://github.com/zarr-conventions/zarr-conventions-spec).
 **Versions.** Each convention has a **version**, an integer stated in its
 document's header.
 
-- **Until refkv's first release**, every convention is at version **0**.
-  Version 0 promises nothing: any change may change a layout; a convention's
-  document records its changes.
-- **At the release**, every convention becomes version 1, tagged
+- **Until refkv 1.0**, every convention is at version **0**, in the 0.x
+  releases too. Version 0 promises nothing: any change may change a layout; a
+  convention's document records its changes.
+- **At refkv 1.0**, every convention becomes version 1, tagged
   `zarrify-<p>-v1` in the refkv repository. From then on a convention's
   version increases by 1 whenever the layout it specifies, or the reference
   store that refkv's profile for that format specifies, changes for some

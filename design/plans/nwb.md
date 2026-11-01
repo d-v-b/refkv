@@ -222,7 +222,7 @@ Zarr file that `NWBZarrIO` opens, with no copy and no conversion.
 - **Metadata reads are the cost.** h5py over fsspec gave up on 000728 after
   240 s, reading pointer by pointer. refkv's reader asks for every sibling
   structure of a round at once, so its round count is the depth of the
-  pointer chains ([hdf5.rs](../../rust/refkv-ir/src/hdf5.rs), module
+  pointer chains ([hdf5/mod.rs](../../rust/refkv-ir/src/hdf5/mod.rs), module
   docs).
 - **DANDI's bucket serves what the profile needs.**
   `dandiarchive.s3.amazonaws.com/blobs/…` answers range requests with

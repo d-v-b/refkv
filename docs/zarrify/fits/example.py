@@ -1,9 +1,6 @@
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["refkv[zarr]", "matplotlib"]
-#
-# [tool.uv.sources]
-# refkv = { git = "https://github.com/d-v-b/refkv", subdirectory = "python" }
+# dependencies = ["refkv[zarr]>=0.2.0", "matplotlib"]
 # ///
 """A Legacy Surveys DR10 g-band brick, RICE tile-compressed (100 x 100 float32 tiles on 3600 x
 3600), zarrified without copying it: refkv reads the file's structure and presents it as Zarr, each

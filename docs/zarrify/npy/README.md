@@ -56,9 +56,7 @@ lists what the layout does not express.
 ## Try it
 
 [example.py](example.py) saves an archive with `np.savez`, zarrifies it, and plots one of its
-arrays with matplotlib, read through Zarr. Its dependencies are in its header (PEP 723), so it
-runs on its own (uv builds refkv from GitHub, which needs a Rust toolchain, until a release on
-PyPI has `refkv.zarrify`):
+arrays with matplotlib, read through Zarr. Its dependencies are in its header (PEP 723), so it runs on its own, with refkv from PyPI:
 
 ```bash
 uv run docs/zarrify/npy/example.py
@@ -106,6 +104,25 @@ print([(m["name"], m.get("path", m.get("reason"))) for m in g.attrs["refkv_zarri
 ```
 
 The archive is 5.5 KB, for a 965 KB `.npz`.
+
+## Supported and not supported
+
+Supported:
+
+- `.npy` files of format versions 1, 2 and 3, C or Fortran order, either byte order, and the
+  data types above.
+- `.npz` archives from `np.savez` (stored members) and `np.savez_compressed` (deflated
+  members), ZIP64 included.
+
+Not presented, each member listed with its reason: members compressed otherwise, members that
+are not `.npy`, names that are not Zarr node names, unreadable headers, object arrays and long
+doubles, and truncated members.
+
+Rejected:
+
+- A `.npy` file whose header does not read, of a data type Zarr cannot hold, or shorter than
+  its data ([spec §8.2](../../../spec/zarrify/npy.md#82-an-npy-file)).
+- An archive with no member to present.
 
 ## How it's verified
 

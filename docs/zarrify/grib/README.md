@@ -55,6 +55,27 @@ reads one when it is there and asks for every message's header at once, rather t
 file a message at a time. The index is a hint: every message is read and checked either way, and
 the archive is the same.
 
+## Supported and not supported
+
+Supported:
+
+- GRIB edition 2 files of one or more messages, a message holding one field or several, with
+  NOAA's `.idx` or ECMWF's `.index` beside the file or without one.
+- Regular latitude/longitude and Lambert conformal grids.
+- Simple, complex, complex with spatial differencing, IEEE, PNG and CCSDS packing, bitmaps in
+  the message or reused from an earlier field of the same message.
+
+Not presented, each field listed with its reason under `refkv_zarrified.grib`: other grids,
+JPEG 2000 and other packings, product templates with dimensions refkv does not name yet, and
+predefined bitmaps.
+
+Rejected:
+
+- GRIB edition 1, and files that do not parse as edition 2 messages: a truncated message, one
+  without its `7777` end, sections out of order or over 1 MiB
+  ([spec §8.4](../../../spec/zarrify/grib.md#84-checks-and-rejection)).
+- A file none of whose fields is presented, such as one of JPEG 2000 fields alone.
+
 ## Measured
 
 The 2026-10-29 00z runs, read from a machine in Europe over HTTP, with each feed's index:
