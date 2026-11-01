@@ -22,8 +22,10 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from types import ModuleType
 
 # only `eccodes` mode needs ecCodes: without it, the script still writes the Rust from the table
+eccodes: ModuleType | None
 try:
     import eccodes
 except ImportError:
@@ -45,68 +47,68 @@ STATISTICS = [1, 0, 2, 3]
 FALLBACK = [(c, n) for c in [*range(31), *range(192, 255)] for n in [*range(64), *range(192, 255)]]
 
 
-def names(centre: int) -> dict[tuple[int, int, int], tuple[str, str, str]]:
+def names(ec: ModuleType, centre: int) -> dict[tuple[int, int, int], tuple[str, str, str]]:
     """Every (discipline, category, number) ecCodes names for `centre`: its short name, name, units."""
-    h = eccodes.codes_grib_new_from_samples("GRIB2")
-    eccodes.codes_set(h, "centre", centre or 255)
-    eccodes.codes_set(h, "productDefinitionTemplateNumber", 0)
-    eccodes.codes_set(h, "typeOfFirstFixedSurface", 255)
-    eccodes.codes_set(h, "typeOfSecondFixedSurface", 255)
+    h = ec.codes_grib_new_from_samples("GRIB2")
+    ec.codes_set(h, "centre", centre or 255)
+    ec.codes_set(h, "productDefinitionTemplateNumber", 0)
+    ec.codes_set(h, "typeOfFirstFixedSurface", 255)
+    ec.codes_set(h, "typeOfSecondFixedSurface", 255)
     out = {}
     for d in DISCIPLINES:
-        eccodes.codes_set(h, "discipline", d)
+        ec.codes_set(h, "discipline", d)
         for c in range(255):
-            eccodes.codes_set(h, "parameterCategory", c)
+            ec.codes_set(h, "parameterCategory", c)
             for n in range(255):
-                eccodes.codes_set(h, "parameterNumber", n)
-                short = eccodes.codes_get_string(h, "shortName")
+                ec.codes_set(h, "parameterNumber", n)
+                short = ec.codes_get_string(h, "shortName")
                 if short in ("unknown", "~", ""):
                     continue
-                out[(d, c, n)] = (short, eccodes.codes_get_string(h, "name"), eccodes.codes_get_string(h, "units"))
-    eccodes.codes_release(h)
+                out[(d, c, n)] = (short, ec.codes_get_string(h, "name"), ec.codes_get_string(h, "units"))
+    ec.codes_release(h)
     tries = []
     combinations = [(0, s, None) for s in SURFACES] + [(8, s, p) for p in STATISTICS for s in SURFACES]
     for template, surface, process in combinations:
-        t = eccodes.codes_grib_new_from_samples("GRIB2")
-        eccodes.codes_set(t, "centre", centre or 255)
-        eccodes.codes_set(t, "productDefinitionTemplateNumber", template)
+        t = ec.codes_grib_new_from_samples("GRIB2")
+        ec.codes_set(t, "centre", centre or 255)
+        ec.codes_set(t, "productDefinitionTemplateNumber", template)
         if process is not None:
-            eccodes.codes_set(t, "typeOfStatisticalProcessing", process)
-        eccodes.codes_set(t, "typeOfFirstFixedSurface", surface)
-        eccodes.codes_set(t, "typeOfSecondFixedSurface", 255)
+            ec.codes_set(t, "typeOfStatisticalProcessing", process)
+        ec.codes_set(t, "typeOfFirstFixedSurface", surface)
+        ec.codes_set(t, "typeOfSecondFixedSurface", 255)
         tries.append(t)
     for d in DISCIPLINES:
         for c, n in FALLBACK:
-            if (d, c, n) not in out and (found := again(tries, d, c, n)):
+            if (d, c, n) not in out and (found := again(ec, tries, d, c, n)):
                 out[(d, c, n)] = found
     for t in tries:
-        eccodes.codes_release(t)
+        ec.codes_release(t)
     return out
 
 
-def again(tries: list[int], d: int, c: int, n: int) -> tuple[str, str, str] | None:
+def again(ec: ModuleType, tries: list[int], d: int, c: int, n: int) -> tuple[str, str, str] | None:
     """The name ecCodes gives the parameter at the first of SURFACES, or, with a statistic, the
     first of STATISTICS, that names it (`tries`, a message of each)."""
     for h in tries:
         for k, v in (("discipline", d), ("parameterCategory", c), ("parameterNumber", n)):
-            eccodes.codes_set(h, k, v)
-        short = eccodes.codes_get_string(h, "shortName")
+            ec.codes_set(h, k, v)
+        short = ec.codes_get_string(h, "shortName")
         if short not in ("unknown", "~", ""):
-            return short, eccodes.codes_get_string(h, "name"), eccodes.codes_get_string(h, "units")
+            return short, ec.codes_get_string(h, "name"), ec.codes_get_string(h, "units")
     return None
 
 
 Row = tuple[int, int, int, int, str, str, str]
 
 
-def parameters() -> list[Row]:
+def parameters(ec: ModuleType) -> list[Row]:
     """The parameters ecCodes names, sorted: WMO's, then each centre's that differ from them."""
-    if (version := eccodes.codes_get_api_version()) != ECCODES:
+    if (version := ec.codes_get_api_version()) != ECCODES:
         raise SystemExit(f"ecCodes {version}: the table is pinned with ecCodes {ECCODES}")
-    wmo = names(0)
+    wmo = names(ec, 0)
     rows = [(0, *k, *v) for k, v in wmo.items()]
     for centre in CENTRES[1:]:
-        rows += [(centre, *k, *v) for k, v in names(centre).items() if wmo.get(k) != v]
+        rows += [(centre, *k, *v) for k, v in names(ec, centre).items() if wmo.get(k) != v]
     return sorted(rows)
 
 
@@ -148,7 +150,7 @@ def main() -> None:
     if sys.argv[1:] == ["eccodes"]:
         if eccodes is None:
             raise SystemExit("ecCodes is not installed: see the command in this script's docstring")
-        write_table(parameters())
+        write_table(parameters(eccodes))
     elif sys.argv[1:]:
         raise SystemExit("usage: grib_names.py [eccodes]")
     rows = read_table()
