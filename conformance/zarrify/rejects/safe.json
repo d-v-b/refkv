@@ -90,7 +90,7 @@
       "test": "safe_reject_no_manifest",
       "input": "safe_reject_no_manifest",
       "message": "a SAFE product has no manifest.safe",
-      "host": "not an N5, Zarr v2 or SAFE store: the root has no .zarray, .zgroup, attributes.json or manifest.safe"
+      "host": "not an N5, Zarr v2, SAFE or safetensors store: the root has no .zarray, .zgroup, attributes.json or manifest.safe, and no key ends in .safetensors"
     },
     {
       "test": "safe_reject_no_tile_metadata",

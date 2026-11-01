@@ -17,7 +17,7 @@ import { ir, type IrExports, out, put } from "./wasm.ts";
 
 /** The core's store formats: a Zarr v2 store, a SAFE product's directory, an N5 container, and
  * the files of a VSI or NRRD input (vsi.ts), which the run probes for rather than lists. */
-export type StoreFormat = "zarr2" | "safe" | "n5" | "vsi" | "nrrd" | "grib";
+export type StoreFormat = "zarr2" | "safe" | "n5" | "vsi" | "nrrd" | "grib" | "safetensors";
 /** The profiles a store format's run decides between (its rejections name them): a Zarr v2
  * store is OME-Zarr's when its root declares OME-NGFF 0.4. */
 export type StoreProfile = StoreFormat | "ome-zarr";

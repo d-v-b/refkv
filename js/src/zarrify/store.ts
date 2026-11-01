@@ -937,12 +937,14 @@ export async function openHttpStore(
  * The store profile that the root keys select (§1.4
  * <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>).
  */
-export function chooseProfile(store: Store): "n5" | "zarr2" | "safe" {
+export function chooseProfile(store: Store): "n5" | "zarr2" | "safe" | "safetensors" {
   if (store.objects.has(".zarray") || store.objects.has(".zgroup")) return "zarr2";
   if (store.objects.has("attributes.json")) return "n5";
   if (store.objects.has("manifest.safe")) return "safe";
+  for (const k of store.objects.keys()) if (k.endsWith(".safetensors")) return "safetensors";
   return reject(
-    "not an N5, Zarr v2 or SAFE store: the root has no .zarray, .zgroup, attributes.json or manifest.safe",
+    "not an N5, Zarr v2, SAFE or safetensors store: the root has no .zarray, .zgroup, attributes.json or " +
+      "manifest.safe, and no key ends in .safetensors",
   );
 }
 

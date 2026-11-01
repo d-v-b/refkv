@@ -10,7 +10,9 @@ cited here as "the format"; where the README is silent, the library's reader
 (`safetensors/src/tensor.rs`, version 0.7) decides.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `15e7ce39-d4ca-4514-8144-6e19d2a0341b` ·
-Schema: [schema.json](safetensors/schema.json) · Added 2026-11-01.
+Schema: [schema.json](safetensors/schema.json) · Added 2026-11-01 · Changed 2026-11-01: the store
+form ([§9](#9-the-store-form)), a store of safetensors files as one group, with no change to the
+file form's outputs.
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
@@ -317,9 +319,10 @@ Its one chunk, `bias/c/0`, is the range `(184, 6)` of source 0: `8 + 152 + 24`.
 This section is informative.
 
 - **Sharded checkpoints.** A large model is several files, `model-00001-of-00004.safetensors`
-  and so on, with a `model.safetensors.index.json` that maps each tensor's name to its file. This
-  profile zarrifies one file; the index, and the hierarchy of a whole model, are left to a later
-  profile of the index as a store input, or to a combine step.
+  and so on, with a `model.safetensors.index.json` that maps each tensor's name to its file. The
+  file form zarrifies one of them; the store form ([§9](#9-the-store-form)) zarrifies a store of
+  them as one group, a group per shard. A model's tensors are not also gathered by name across
+  its shards: the index, which the store form checks and keeps, says which shard holds each.
 - **Readers of the data types.** zarr-python 3.4 has no `bfloat16`, `float8_*`, `float4_*` or
   `float6_*` data types, and no `packbits` codec: refkv's zarr extra registers them, through
   `ml_dtypes` (`refkv.zarr.dtypes`, `refkv.zarr.codecs.packbits`). TensorStore 0.1.86 reads
@@ -431,3 +434,82 @@ members:
 |---|---|
 | `tensors` | each presented tensor's `{"path", "dtype", "dataType", "shape", "chunkShape", "chunks"}`, in the header's order |
 | `unpresented` | the tensors not presented, a count by reason |
+
+## 9. The store form
+
+The store form zarrifies a store input ([spec/zarrify.md §1.4](../zarrify.md#14-store-inputs)) of
+safetensors files, such as a model's repository: its **shards** (the objects whose keys end in
+`.safetensors`, at any depth), the **indexes** of sharded checkpoints (keys ending in
+`.safetensors.index.json`), and the **configurations** beside them (an object `config.json` in a
+directory that holds a shard). The store chooses it when its root has none of the other store
+profiles' keys and some key ends in `.safetensors` ("Choosing the profile").
+
+### 9.1 The hierarchy
+
+The root is a group, which declares the convention ([§1](#1-declaration)) with the store's source
+metadata of [§9.2](#92-source-metadata) as `"safetensors"`, and `source.url` the store URL. Each
+**presented** shard is a group at its key: `model-00001-of-00048.safetensors`, or
+`unet/diffusion_pytorch_model.safetensors`, below a group per directory above it (attributes
+`{}`). A shard's group declares the convention with the shard's own source metadata, its
+[`SafetensorsRoot`](#type-safetensorsroot), and holds its tensors at their paths, as the file form
+lays them out at the root ([§4](#4-the-hierarchy)): the array of the tensor `layers.0.w` of the
+shard `model-00001-of-00048.safetensors` is `model-00001-of-00048.safetensors/layers.0.w`.
+
+A shard is presented unless:
+
+- its header fails one of [§8.2](#82-checks)'s checks: its reason is the check's message;
+- a segment of its key starts with `__` or is `zarr.json`, or its first segment is
+  `refkv_source`: its reason starts `name:` or `reserved:`;
+- its key is another shard's directory (a store may hold the keys `a` and `a/b`): its reason
+  starts `path:`.
+
+The store is not rejected for a shard that is not presented: the shard is listed with its reason,
+and referenced whole, as an other object ([§9.4](#94-chunks-and-sources)).
+
+### 9.2 Source metadata
+
+<a id="type-safetensorsstore"></a>**`SafetensorsStore`**, the root's `S`:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `files` | array of object | required | every shard, in key order: `{"key", "path"}` when presented, `{"key", "reason"}` when not |
+| `indexes` | array of object | when the store has an index | each index, in key order: `{"key", "agrees", "metadata"?, "problems"?, "problem_count"?}`, or `{"key", "problem"}` when it is not a JSON document of [spec/zarrify.md §1.6](../zarrify.md#16-json-documents) |
+| `configs` | array of object | when the store has a configuration | each configuration, in key order: `{"key", "config"}`, its value as written, or `{"key", "problem"}` |
+
+An index's `metadata` is its member of that name, as written. It **agrees** when its `weight_map`
+is an object that maps every tensor of the presented shards in its directory, and only those, to
+the file name of the shard that holds it; otherwise `problems` gives the first 20 disagreements and
+`problem_count` their number. The shards' headers decide the hierarchy; an index never does.
+
+### 9.3 Reading and checks
+
+The store form reads, in one batch, every shard's first `min(size, 65536)` bytes and every index
+and configuration whole (one longer than 16 MiB is not read, and has a `problem`); then, in a
+second batch, the rest of every header longer than the first read. Each shard's header is checked
+as [§8.2](#82-checks) checks a file's, each failure the shard's reason. A shard's tensors' data is
+never read.
+
+### 9.4 Chunks and sources
+
+A presented shard's tensors are cut into chunks as [§8.3](#83-chunks) cuts a file's, each chunk a
+range of the shard's object (its offsets the file form's), its padding a range of the output's zero
+data source; no chunk is copied. Every other object of the store that is not empty (an object the
+hierarchy does not hold: a shard not presented, a configuration or index that is not a JSON
+document, and every other file, such as a tokenizer, a README or code) is referenced whole at
+`refkv_source/objects/<k>`, as [spec/zarrify.md §1.4](../zarrify.md#14-store-inputs) says. As the
+SAFE profile's, the url sources are one per object that some reference uses, and the zero data
+source follows them.
+
+### 9.5 The IR mirror
+
+The store IR ([conventions §8.9](../conventions.md#89-stores)) lists every object. A presented
+shard is **described in place**: its elements are the file form's ([§5.3](#53-elements)), at its
+offsets, and its bytes stay at its URL. An index or configuration that is a JSON document is
+**held**: its members' values are its elements ([spec/zarrify.md §1.6](../zarrify.md#16-json-documents)),
+and the mirror rebuilds it. Every other object is referenced.
+
+### 9.6 Summary
+
+This section is informative. The summary has `shards` (each presented shard's `{"key",
+"tensors"}`), `unpresented` (the shards not presented), `chunks` and `others` (the objects
+referenced whole).

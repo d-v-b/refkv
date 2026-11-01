@@ -129,3 +129,75 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     out.summary = json!({"tensors": summary, "unpresented": unpresented});
     Ok(out)
 }
+
+/// The store form's projection (spec/zarrify/safetensors.md §9
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#9-the-store-form>): the
+/// root group, declaring the convention with the store's source metadata; a group per directory
+/// above a shard; a group per presented shard at its key, declaring the convention with the
+/// shard's own source metadata, holding its tensors as the file form lays them out, each chunk a
+/// range of the shard's object (padded from the zero data source); and every other object,
+/// referenced whole under `refkv_source/objects/`.
+pub fn project_store(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
+    use super::store::{check_key, object_key};
+    let shards = arr(&facts["shards"]);
+    let mut out = Out::new(url);
+    out.json("zarr.json", &declared_group(Map::new(), "safetensors", Some(url), Some(facts["own"].clone())));
+    for d in arr(&facts["dirs"]) {
+        metadata_group(&mut out, d.as_str().unwrap_or_default(), None);
+    }
+    // every shard's tensors, cut as the file form cuts them (no chunk is copied: a padding is a
+    // range of the zero data source)
+    let mut cuts = Vec::new();
+    for s in shards {
+        let f = &s["facts"];
+        cuts.push(arr(&f["arrays"]).iter().map(|a| cut(a, usize::MAX)).collect::<Result<Vec<Cut>, String>>()?);
+    }
+    let mut summary = Vec::new();
+    for (s, shard_cuts) in shards.iter().zip(&cuts) {
+        let (path, f) = (s["path"].as_str().unwrap_or_default(), &s["facts"]);
+        out.json(&format!("{path}/zarr.json"), &declared_group(Map::new(), "safetensors", None, Some(f["own"].clone())));
+        for g in arr(&f["groups"]) {
+            metadata_group(&mut out, &format!("{path}/{}", g.as_str().unwrap_or_default()), None);
+        }
+        let mut tensors = 0;
+        for (a, (grid, _)) in arr(&f["arrays"]).iter().zip(shard_cuts) {
+            let k = format!("{path}/{}/zarr.json", a["path"].as_str().unwrap_or_default());
+            check_key(&k)?;
+            out.json(&k, &array_doc(a, grid));
+            tensors += 1;
+        }
+        summary.push(json!({"key": s["key"], "tensors": tensors}));
+    }
+    let mut zeros = contiguous::Zeros::of(cuts.iter().flatten().flat_map(|c| c.1.iter()));
+    let mut refs = Refs::new(ir, out);
+    let mut chunks_total = 0u64;
+    for (s, shard_cuts) in shards.iter().zip(cuts) {
+        let (path, key, f) = (s["path"].as_str().unwrap_or_default(), s["key"].as_str().unwrap_or_default(), &s["facts"]);
+        for (a, (_, chunks)) in arr(&f["arrays"]).iter().zip(shard_cuts) {
+            let tensor = a["path"].as_str().unwrap_or_default();
+            let prefix = if arr(&a["shape"]).is_empty() { format!("{path}/{tensor}/c") } else { format!("{path}/{tensor}/c/") };
+            for (piece, (c, chunk)) in chunks.into_iter().enumerate() {
+                let Chunk::Ranges(parts) = chunk else { return Err("internal: a store chunk to copy".into()) };
+                let parts = contiguous::padded(parts, &mut zeros, &mut refs.out)?;
+                let parts: Vec<Part> = parts.into_iter().map(|p| match p {
+                    Part::Src(o, n) => Part::Obj(key.to_string(), o, n),
+                    p => p,
+                }).collect();
+                let k = super::key(&prefix, c.into_iter());
+                check_key(&k)?;
+                refs.chunk(k, n(&a["offset"]), n(&a["length"]), 0, Some(parts), piece as u64)?;
+                chunks_total += 1;
+            }
+        }
+    }
+    let mut out = refs.out;
+    for o in arr(&facts["others"]) {
+        let (key, size) = (o[0].as_str().unwrap_or_default(), n(&o[1]));
+        let k = object_key(key);
+        check_key(&k)?;
+        out.refs(&k, vec![Part::Obj(key.to_string(), 0, size)]);
+    }
+    let unpresented = arr(&facts["own"]["files"]).iter().filter(|f| f.get("reason").is_some()).count();
+    out.summary = json!({"shards": summary, "unpresented": unpresented, "chunks": chunks_total, "others": arr(&facts["others"]).len()});
+    Ok(out)
+}
