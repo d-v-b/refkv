@@ -114,3 +114,27 @@ def test_proxy_answers_and_records_an_upstream_failure(origin, tmp_path, monkeyp
     assert status(down) == 502
     assert p.unavailable(down) == f"{origin}/down.bin: HTTPError: HTTP Error 503: Service Unavailable"
     assert p.unavailable(p.local("tiff/a.tif")) is None  # a fixture has no upstream
+
+
+def test_proxy_serves_fixture_stores_as_a_hub_repository(tmp_path):
+    # the fixture repository f/fixtures (spec/zarrify.md §1.5
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>), its tree in
+    # pages linked by relative next links, and its files redirected to /f/
+    (tmp_path / "s" / "a").mkdir(parents=True)
+    for i in range(20):
+        (tmp_path / "s" / "a" / str(i)).write_bytes(DATA[:i])
+    p = proxy.Proxy(tmp_path, tmp_path / "cache")
+    sys.path.insert(0, str(ROOT / "python" / "src"))
+    from refkv.policy import Policy  # noqa: PLC0415 (the package, after the path above)
+    from refkv.zarrify.store import HubStore, open_store  # noqa: PLC0415 (as above)
+
+    store = open_store(p.hub_fixture_store("s"), policy=Policy(allow_private_hosts=True), hub=p.hub_endpoint)
+    assert isinstance(store, HubStore)
+    assert store.commit == proxy.FIXTURES_COMMIT
+    assert store.url == f"{p.hub_endpoint}/f/fixtures/resolve/{proxy.FIXTURES_COMMIT}/s/"
+    assert store.objects == {f"a/{i}": i for i in range(20)}
+    assert store.requests == 3  # the revision, and 21 entries in pages of 16
+    assert store.read("a/7") == DATA[:7]
+    assert p.unavailable(p.hub_fixture_store("s")) is None
+    assert status(f"{p.hub_endpoint}/api/models/f/fixtures/revision/v9", "GET") == 404
+    assert status(f"{p.hub_endpoint}/api/models/f/fixtures/tree/{proxy.FIXTURES_COMMIT}/t?recursive=true", "GET") == 404

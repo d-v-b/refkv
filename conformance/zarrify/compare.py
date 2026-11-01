@@ -93,7 +93,7 @@ sys.path.insert(0, str(HERE / "reference"))
 sys.path.insert(0, str(ROOT / "conformance" / "vzip"))
 sys.path.insert(0, str(ROOT / "conformance" / "impls" / "python"))
 from corpus_hash import entries as corpus_entries  # noqa: E402
-from proxy import Proxy  # noqa: E402
+from proxy import HUB, Proxy  # noqa: E402
 from refkv_reference import legacy  # noqa: E402
 from validate import validate  # noqa: E402
 from vzip_impl import reader as strict_reader  # noqa: E402
@@ -636,6 +636,19 @@ def store_fixtures(fixtures: Path) -> list[Path]:
     return sorted(d for f in STORE_FORMATS if (fixtures / f).is_dir() for d in (fixtures / f).iterdir() if d.is_dir())
 
 
+def hub_fixtures(stores: list[Path]) -> list[Path]:
+    """Of each store profile's synthetic stores, the one with the most files whose name does not
+    say that the profile rejects it."""
+    largest: dict[str, tuple[int, str, Path]] = {}
+    for s in stores:
+        if "reject" not in s.name:
+            n = sum(1 for f in s.rglob("*") if f.is_file())
+            best = largest.get(s.parent.name)
+            if best is None or (-n, s.name) < (-best[0], best[1]):
+                largest[s.parent.name] = (n, s.name, s)
+    return [largest[k][2] for k in sorted(largest)]
+
+
 def corpus(proxy: Proxy, fixtures: Path, quick: bool, local_only: bool, large: bool = False,
            idr_listing: str | None = None) -> list[tuple]:
     stores = store_fixtures(fixtures)
@@ -658,6 +671,11 @@ def corpus(proxy: Proxy, fixtures: Path, quick: bool, local_only: bool, large: b
     items += [(f"fixture-{s.name}", proxy.local_store(s.relative_to(fixtures).as_posix()),
                *(["no-ref"] if unmutated(s.name) in REVISED else []))
               for s in stores]
+    # each store profile's largest synthetic store that it does not reject, listed the Hub's way
+    # too (spec/zarrify.md §1.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>),
+    # which the frozen reference does not
+    items += [(f"fixture-hub-{s.name}", proxy.hub_fixture_store(s.relative_to(fixtures).as_posix()), "no-ref")
+              for s in hub_fixtures(stores)]
     if local_only:
         return items
     listing = (Path(idr_listing).read_text() if idr_listing else
@@ -673,7 +691,10 @@ def corpus(proxy: Proxy, fixtures: Path, quick: bool, local_only: bool, large: b
         listed = [(url, name, *flags) for url, name, flags, _ in corpus_entries(corpus_file)]
         listed = [x for x in listed if large or x[2:] != ("py-only",)]
         for url, name, *flags in (listed[:3] if quick else listed):
-            target = proxy.remote_store(url) if url.endswith("/") else proxy.remote(url)
+            if url.startswith(f"{HUB}/"):  # a Hub store, served by the proxy's Hub endpoint
+                target = proxy.hub(url)
+            else:
+                target = proxy.remote_store(url) if url.endswith("/") else proxy.remote(url)
             items.append((f"{prefix}{name}", target, *flags))
     return items
 
@@ -692,6 +713,7 @@ def main(argv: list[str]) -> int:
     only = opts[opts.index("--only") + 1] if "--only" in opts else None
     fixtures = Path(opts[opts.index("--fixtures") + 1]) if "--fixtures" in opts else ROOT / "fixtures"
     proxy = Proxy(fixtures, Path("/tmp/vzip-proxy-cache"))  # noqa: S108 (the cache the runs share, by design)
+    os.environ["HF_ENDPOINT"] = proxy.hub_endpoint  # the zarrifiers' Hub (spec/zarrify.md §1.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>)
     listing = opts[opts.index("--idr-listing") + 1] if "--idr-listing" in opts else None
     items = corpus(proxy, fixtures, "--quick" in opts, "--fixtures" in opts, "--large" in opts, listing)
     if only:

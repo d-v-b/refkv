@@ -61,6 +61,8 @@ const USAGE: &str = "usage: vzip convert <url or path> <out.vzip> [--url <source
 [--allow-private-hosts] [--connections N] [--byte-cost SECONDS_PER_MB] [--workers N] [--format vzip|phkv|hybrid]\n\
 (a URL ending in / or a directory is an N5, Zarr v2 or OME-Zarr 0.4 store, or a Sentinel-2 .SAFE directory; \
 a directory needs --url;\n\
+a Hugging Face Hub URL https://huggingface.co/<owner>/<repo>/tree/<rev>/ is listed at its commit,\n\
+at HF_ENDPOINT's Hub if set;\n\
 a store's objects are read by up to N requests at a time, default 16)";
 
 /// Whether the command line asks for the usage: `vzip -h`, `vzip --help`, or either flag anywhere
@@ -146,8 +148,9 @@ fn convert(a: &Args) -> Result<serde_json::Value, Fail> {
     }
     let policy = policy::Policy { allow_private_hosts: a.allow_private_hosts };
     let client = http::Client::new(policy, Duration::from_secs(60));
+    let hub = store::hub_endpoint(std::env::var("HF_ENDPOINT").ok().as_deref())?;
     let (fmt, summary, archive) = if store::is_store(&a.input) {
-        let s = store::Store::open(&a.input, a.url.as_deref(), &client, a.workers)?;
+        let s = store::Store::open(&a.input, a.url.as_deref(), &client, a.workers, &hub)?;
         let (fmt, out) = store::zarrify_store(&s)?;
         let summary = out.summary.clone();
         let (mut archive, objects) = output::store_archive(out, &s.listing().objects)?;
@@ -155,6 +158,9 @@ fn convert(a: &Args) -> Result<serde_json::Value, Fail> {
             output::checksums(&mut archive, s.listing().workers, |i, o, n| s.read_range(&objects[i], o, n))?;
         }
         (fmt, summary, archive)
+    } else if store::hub_page(&a.input, &hub) {
+        // a Hub tree's web page (spec/zarrify.md §1.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>)
+        return Err(Fail::Rejected(format!("{} is a Hub repository's page, not a file: end it in / to zarrify the repository", a.input)));
     } else if let Some(beside) = run::beside_format(&transport::Transport::open(&a.input, &client)?)? {
         // a VSI file is read with its tile files, and a NRRD header with its data file, as a store
         // (vsi.rs): its sources are the files some reference uses, their sizes pinned

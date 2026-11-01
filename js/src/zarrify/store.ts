@@ -11,7 +11,7 @@
 
 import { checkAddress, checkPolicy, type Policy, RefkvError } from "../archive.ts";
 import { checkedFetch } from "#net";
-import { checkHttpUrl, isUriReference } from "../uri.ts";
+import { checkHttpUrl, isUriReference, resolveReference } from "../uri.ts";
 import { CONVENTION_KEY, declare, type Profile, stringifyJson } from "./common.ts";
 import type { StoreProfile } from "./ir/store.ts";
 import type { ArchiveDesc, EntryDesc } from "../writer.ts";
@@ -150,6 +150,134 @@ export function listingEndpoint(url: string): [string, string] {
     reject(`the key prefix of ${url} is not UTF-8`);
   }
   return [endpoint, prefix];
+}
+
+// ---------------------------------------------------------------- Hub stores (§1.5
+// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>)
+
+/** The Hugging Face Hub's endpoint, unless the application gives another. */
+export const HUB = "https://huggingface.co";
+
+const HUB_NAME = /^[A-Za-z0-9._-]+$/;
+
+/**
+ * The Hub's endpoint `E` (§1.5
+ * <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>): `endpoint`, else
+ * `HUB`, without a trailing `/`. A TypeError if it is not an http(s) URL with an authority,
+ * without userinfo, a query or a fragment.
+ */
+export function hubEndpoint(endpoint?: string): string {
+  const e = (endpoint || HUB).replace(/\/+$/, "");
+  const m = e.match(SPLIT);
+  if (m === null || !isUriReference(e)) throw new TypeError(`the Hub endpoint ${JSON.stringify(e)} is not a valid URI`);
+  const [, scheme, authority, , query, fragment] = m;
+  if (scheme === undefined || !["http", "https"].includes(scheme.toLowerCase()) || !authority ||
+    authority.includes("@") || query !== undefined || fragment !== undefined) {
+    throw new TypeError(`the Hub endpoint ${JSON.stringify(e)} is not an http(s) URL without userinfo, query or fragment`);
+  }
+  return e;
+}
+
+/**
+ * A Hub store (§1.5
+ * <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>): its endpoint,
+ * kind, owner, name, revision `r` and directory `D` (empty, or ending in `/`), the last two
+ * percent-decoded.
+ */
+export interface HubRepo {
+  endpoint: string;
+  kind: "models" | "datasets";
+  owner: string;
+  name: string;
+  revision: string;
+  directory: string;
+}
+
+/** `A`: the repository's API URL. */
+function hubApi(repo: HubRepo): string {
+  return `${repo.endpoint}/api/${repo.kind}/${repo.owner}/${repo.name}`;
+}
+
+export function hubRevisionUrl(repo: HubRepo): string {
+  return `${hubApi(repo)}/revision/${queryEncode(repo.revision)}?expand%5B%5D=sha&expand%5B%5D=gated`;
+}
+
+export function hubTreeUrl(repo: HubRepo, commit: string): string {
+  const d = repo.directory ? "/" + pct(repo.directory.slice(0, -1), PATH_SAFE) : "";
+  return `${hubApi(repo)}/tree/${commit}${d}?recursive=true`;
+}
+
+/**
+ * The store's base (§1.4
+ * <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>) at `commit`.
+ */
+export function hubBase(repo: HubRepo, commit: string): string {
+  const kind = repo.kind === "datasets" ? "/datasets/" : "/";
+  return `${repo.endpoint}${kind}${repo.owner}/${repo.name}/resolve/${commit}/${objectUrl("", repo.directory)}`;
+}
+
+/** The rest of `url`'s path after `endpoint`'s and a `/`, when `url` has `endpoint`'s scheme
+ * and authority (in any case) and its path starts so; else undefined. */
+function under(url: string, endpoint: string): string | undefined {
+  const m = url.match(SPLIT);
+  const e = endpoint.match(SPLIT)!;
+  if (m === null || m[1] === undefined || m[2] === undefined) return undefined;
+  if (m[1].toLowerCase() !== e[1].toLowerCase() || m[2].toLowerCase() !== e[2].toLowerCase()) return undefined;
+  const base = e[3] + "/";
+  return m[3].startsWith(base) ? m[3].slice(base.length) : undefined;
+}
+
+const utf8Fatal = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+
+/**
+ * The Hub store that the store URL `url` names under `endpoint` (§1.5
+ * <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>), undefined if
+ * `url` is not under it, or a rejection if it is but does not name one.
+ */
+export function hubRepo(url: string, endpoint: string): HubRepo | undefined {
+  const rest = under(url, endpoint);
+  if (rest === undefined) return undefined;
+  checkStoreUrl(url);
+  let segments = rest.split("/");
+  let kind: HubRepo["kind"] = "models";
+  if (segments[0] === "datasets") {
+    kind = "datasets";
+    segments = segments.slice(1);
+  }
+  // owner, name, "tree", rev, dir segments..., "" (the trailing /)
+  if (segments.length < 5 || segments[2] !== "tree" || segments[segments.length - 1] !== "" ||
+    !segments.slice(0, 2).every((n) => HUB_NAME.test(n) && n !== "." && n !== "..") ||
+    segments.slice(3, -1).some((x) => !x)) {
+    reject(`Hub store URL ${JSON.stringify(url)} is not <owner>/<repo>/tree/<rev>/[<dir>/] (or that after datasets/)`);
+  }
+  let revision = "";
+  let directory = "";
+  try {
+    revision = utf8Fatal.decode(percentDecode(segments[3]));
+    directory = segments.slice(4, -1).map((x) => utf8Fatal.decode(percentDecode(x)) + "/").join("");
+  } catch {
+    reject(`the revision or directory of ${JSON.stringify(url)} is not UTF-8`);
+  }
+  if (directory.split("/").slice(0, -1).some((x) => x === "." || x === "..")) {
+    reject(`the directory of ${JSON.stringify(url)} has a segment . or ..`);
+  }
+  return { endpoint, kind, owner: segments[0], name: segments[1], revision, directory };
+}
+
+/**
+ * Whether the file input `url` would be a Hub store if it ended in `/` (§1.5
+ * <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>): a web page
+ * that is rejected without being read.
+ */
+export function hubPage(url: string, endpoint: string): boolean {
+  const m = url.match(SPLIT);
+  if (m === null || m[4] !== undefined || m[5] !== undefined || url.endsWith("/")) return false;
+  try {
+    return hubRepo(url + "/", endpoint) !== undefined;
+  } catch (e) {
+    if (e instanceof StoreError) return false;
+    throw e;
+  }
 }
 
 // ---------------------------------------------------------------- listing bodies (§1.5
@@ -473,6 +601,141 @@ export function nesting(s: string): number {
     }
   }
   return deepest;
+}
+
+const COMMIT = /^[0-9a-f]{40}$/;
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
+/**
+ * The commit `C` of a Hub revision's response (§1.5
+ * <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>), or a rejection:
+ * a gated repository's too.
+ */
+export function parseHubRevision(body: Uint8Array): string {
+  const doc = parseJson(body);
+  if (!isObject(doc)) return reject("the Hub revision is not a JSON object");
+  const sha = has(doc, "sha") ? doc.sha : undefined;
+  if (typeof sha !== "string" || !COMMIT.test(sha)) {
+    reject(`the Hub revision's sha ${show(sha).slice(0, 80)} is not 40 lowercase hex digits`);
+  }
+  if (has(doc, "gated") && doc.gated !== false) {
+    reject(`the Hub repository is gated (${show(doc.gated).slice(0, 40)}): its files are not read anonymously`);
+  }
+  return sha as string;
+}
+
+/**
+ * The objects [path, size] of one page of a Hub tree listing (§1.5
+ * <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>), its files under
+ * the directory `prefix` (its directories list nothing), and its number of entries.
+ */
+export function parseHubTree(body: Uint8Array, prefix: string): { objects: [string, number][]; entries: number } {
+  const doc = parseJson(body);
+  if (!Array.isArray(doc)) return reject("the Hub tree listing is not a JSON array");
+  const objects: [string, number][] = [];
+  for (const entry of doc) {
+    if (!isObject(entry)) reject("a Hub tree entry is not a JSON object");
+    const e = entry as { [k: string]: Json };
+    const kind = has(e, "type") ? e.type : undefined;
+    const path = has(e, "path") ? e.path : undefined;
+    if (kind !== "file" && kind !== "directory") {
+      reject(`a Hub tree entry's type ${show(kind).slice(0, 40)} is neither file nor directory`);
+    }
+    if (typeof path !== "string" || !path.startsWith(prefix) || path.length === prefix.length) {
+      reject(`the Hub tree entry ${show(path).slice(0, 200)} is not under ${JSON.stringify(prefix)}`);
+    }
+    if (LONE_SURROGATE.test(path as string)) reject(`the Hub tree entry ${show(path).slice(0, 200)} is not Unicode`);
+    if (kind === "file") {
+      const size = asInt(has(e, "size") ? e.size : undefined, 0, MAX_SAFE);
+      if (size === undefined) reject(`the Hub tree file ${show(path).slice(0, 200)} has no size from 0 to 2^53 - 1`);
+      objects.push([path as string, size!]);
+    }
+  }
+  return { objects, entries: doc.length };
+}
+
+const LINK_WS = new Set([" ", "\t", "\r", "\n"]);
+const PARAM_NAME = /[A-Za-z0-9-]+/y;
+const TOKEN = /[^ \t\r\n;,"]+/y;
+
+/** The links of a `Link` field value (§1.5
+ * <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>): [URI reference,
+ * parameters], or a rejection. */
+function links(value: string): [string, [string, string][]][] {
+  const out: [string, [string, string][]][] = [];
+  const bad = (why: string) => reject(`the Link header ${JSON.stringify(value.slice(0, 200))} ${why}`);
+  const n = value.length;
+  let i = 0;
+  const ws = () => {
+    while (i < n && LINK_WS.has(value[i])) i++;
+  };
+  const match = (re: RegExp): string | undefined => {
+    re.lastIndex = i;
+    const m = re.exec(value);
+    if (m === null) return undefined;
+    i = re.lastIndex;
+    return m[0];
+  };
+  for (;;) {
+    ws();
+    if (i >= n || value[i] !== "<") bad("is not a list of links");
+    const end = value.indexOf(">", i);
+    if (end < 0) bad("has an unterminated <");
+    const target = value.slice(i + 1, end);
+    if (!isUriReference(target)) reject(`the Link header's target ${JSON.stringify(target.slice(0, 200))} is not a URI reference`);
+    i = end + 1;
+    const params: [string, string][] = [];
+    for (;;) {
+      ws();
+      if (i >= n || value[i] !== ";") break;
+      i++;
+      ws();
+      const name = match(PARAM_NAME);
+      if (name === undefined) bad("has a bad parameter");
+      ws();
+      if (i >= n || value[i] !== "=") bad("has a parameter without =");
+      i++;
+      ws();
+      let param: string | undefined;
+      if (i < n && value[i] === '"') {
+        const close = value.indexOf('"', i + 1);
+        if (close < 0) bad("has an unterminated quote");
+        param = value.slice(i + 1, close);
+        i = close + 1;
+      } else {
+        param = match(TOKEN);
+        if (param === undefined) bad("has a parameter without a value");
+      }
+      params.push([name!, param!]);
+    }
+    out.push([target, params]);
+    if (i >= n) return out;
+    if (value[i] !== ",") bad("is not a list of links");
+    i++;
+  }
+}
+
+/**
+ * The next link of a Hub tree response whose `Link` field is `field` (several joined by `,`,
+ * as `fetch` joins them) and which `url` answered, resolved against `url` (§1.5
+ * <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>); undefined if
+ * it has none; a rejection if the field is not links, gives two next links, or one off
+ * `endpoint`'s origin.
+ */
+export function nextLink(field: string | null, url: string, endpoint: string): string | undefined {
+  if (field === null) return undefined;
+  const found = links(field)
+    .filter(([, params]) => params.some(([k, v]) => k.toLowerCase() === "rel" && v.toLowerCase().split(/[ \t\r\n]+/).includes("next")))
+    .map(([t]) => t);
+  if (found.length > 1) reject("the Hub tree response has more than one next link");
+  if (found.length === 0) return undefined;
+  const next = resolveReference(url, found[0]);
+  const a = next.match(SPLIT)!;
+  const b = endpoint.match(SPLIT)!;
+  if (a[1]?.toLowerCase() !== b[1].toLowerCase() || a[2]?.toLowerCase() !== b[2].toLowerCase()) {
+    reject(`the Hub tree's next link ${JSON.stringify(next.slice(0, 200))} is not on ${JSON.stringify(endpoint)}`);
+  }
+  return next;
 }
 
 /** A value for a message (`JSON.stringify` gives undefined for undefined). */
@@ -824,7 +1087,9 @@ export function storeFetch(
   };
 }
 
-/** A store listed by S3 ListObjectsV2 (§1.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>). Fails (StoreLimitError) past `maxObjects`.
+/** A store listed by S3 ListObjectsV2, or, under the Hub's endpoint (`hubEndpoint`, default
+ * `HUB`), a Hugging Face Hub repository at a revision, resolved once to a commit whose files the
+ * store reads at its base, `store.url` (§1.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>). Fails (StoreLimitError) past `maxObjects`.
  * Every request (the listing's, each object read's, and each redirect's) is made under
  * the reader policy `policy` (spec/refkv.md §6.7
  * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>; default: private and
@@ -834,7 +1099,7 @@ export function storeFetch(
  * (`RefkvError`). */
 export async function openHttpStore(
   url: string,
-  { fetch: given, policy = {}, headers = {}, maxObjects = MAX_OBJECTS, concurrency = CONCURRENCY }: {
+  { fetch: given, policy = {}, headers = {}, maxObjects = MAX_OBJECTS, concurrency = CONCURRENCY, hubEndpoint: hub }: {
     fetch?: Fetch;
     /**
      * The reader policy (spec/refkv.md §6.7
@@ -846,8 +1111,11 @@ export async function openHttpStore(
     maxObjects?: number;
     /** Documents read at a time (CONCURRENCY). */
     concurrency?: number;
+    /** The Hub's endpoint (`HUB` if absent): a store URL under it is a Hub store. */
+    hubEndpoint?: string;
   } = {},
 ): Promise<Store> {
+  const repo = hubRepo(url, hubEndpoint(hub));
   const allow = (u: string) => allowStoreUrl(policy, url, u);
   const send = given ?? storeFetch(url, policy, headers);
   const f: Fetch = async (u, init) => {
@@ -863,7 +1131,8 @@ export async function openHttpStore(
     }
     return r;
   };
-  const [endpoint, prefix] = listingEndpoint(url);
+  // where the objects are read: the store URL, or a Hub store's base once its commit is known
+  let base = url;
   const store: Store = {
     url,
     objects: new Map(),
@@ -873,7 +1142,7 @@ export async function openHttpStore(
     async read(key) {
       const size = this.objects.get(key)!;
       if (size === 0) return new Uint8Array(0);
-      const u = objectUrl(url, key);
+      const u = objectUrl(base, key);
       let r: Response;
       try {
         r = await f(u, { headers: { Range: `bytes=0-${size - 1}` } });
@@ -888,7 +1157,7 @@ export async function openHttpStore(
     },
     async readRange(key, offset, length) {
       if (length === 0) return new Uint8Array(0);
-      const u = objectUrl(url, key);
+      const u = objectUrl(base, key);
       let r: Response;
       try {
         r = await f(u, { headers: { Range: `bytes=${offset}-${offset + length - 1}` } });
@@ -902,24 +1171,60 @@ export async function openHttpStore(
       return data;
     },
   };
+  // A listing request's 200 response: 408, 429 and 5xx fail, any other status rejects.
+  const list = async (u: string): Promise<Response> => {
+    store.requests++;
+    let r: Response;
+    try {
+      r = await f(u);
+    } catch (e) {
+      if (e instanceof RefkvError) throw e;
+      throw new StoreReadError(`${u}: ${(e as Error).message}`);
+    }
+    if (r.status === 408 || r.status === 429 || r.status >= 500) {
+      await r.body?.cancel();
+      throw new StoreReadError(`${u}: HTTP ${r.status}`);
+    }
+    if (r.status !== 200) {
+      await r.body?.cancel();
+      if (repo === undefined) reject(`the store has no listing: ${u} answered HTTP ${r.status}`);
+      const why = r.status === 401
+        ? " (a repository that does not exist, or a private one)"
+        : r.status === 404 ? " (a revision or a directory the repository does not have)" : "";
+      reject(`the Hub answered HTTP ${r.status} for ${u}${why}`);
+    }
+    return r;
+  };
   const seen = new Set<string>();
+  if (repo !== undefined) {
+    const commit = parseHubRevision(new Uint8Array(await (await list(hubRevisionUrl(repo))).arrayBuffer()));
+    base = store.url = hubBase(repo, commit);
+    const requested = new Set<string>();
+    let link: string | undefined = hubTreeUrl(repo, commit);
+    while (link !== undefined) {
+      requested.add(link);
+      const r = await list(link);
+      // the URL that answered, after redirects (a stand-in fetch may give none)
+      const answered = r.url || link;
+      const page = parseHubTree(new Uint8Array(await r.arrayBuffer()), repo.directory);
+      addListed(store, page.objects, repo.directory, seen);
+      if (store.listed > maxObjects) throw new StoreLimitError(`the store lists more than ${maxObjects} objects`);
+      link = nextLink(r.headers.get("Link"), answered, repo.endpoint);
+      // a page that lists nothing could be followed forever
+      if (link !== undefined && page.entries === 0) reject("a Hub tree page with a next link lists nothing");
+      if (link !== undefined && requested.has(link)) {
+        reject(`the Hub tree's next link ${JSON.stringify(link.slice(0, 200))} was requested already`);
+      }
+    }
+    return store;
+  }
+  const [endpoint, prefix] = listingEndpoint(url);
   const tokens = new Set<string>();
   let token: string | undefined;
   for (;;) {
     let q = `?list-type=2&prefix=${queryEncode(prefix)}`;
     if (token !== undefined) q += `&continuation-token=${queryEncode(token)}`;
-    store.requests++;
-    let r: Response;
-    try {
-      r = await f(endpoint + q);
-    } catch (e) {
-      if (e instanceof RefkvError) throw e;
-      throw new StoreReadError(`${endpoint + q}: ${(e as Error).message}`);
-    }
-    if (r.status === 408 || r.status === 429 || r.status >= 500) {
-      throw new StoreReadError(`${endpoint + q}: HTTP ${r.status}`);
-    }
-    if (r.status !== 200) reject(`the store has no listing: ${endpoint + q} answered HTTP ${r.status}`);
+    const r = await list(endpoint + q);
     const listing = parseListing(new Uint8Array(await r.arrayBuffer()), prefix);
     addListed(store, listing.objects, prefix, seen);
     if (store.listed > maxObjects) throw new StoreLimitError(`the store lists more than ${maxObjects} objects`);

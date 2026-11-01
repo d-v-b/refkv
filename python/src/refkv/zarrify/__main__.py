@@ -12,6 +12,8 @@ STORES = "an N5, Zarr v2 or OME-Zarr 0.4 store, or a Sentinel-2 .SAFE directory"
 USAGE = ("usage: refkv zarrify <url or path> <out.vzip> [--url <source url>] [--checksums]"
          " [--allow-private-hosts] [--connections N] [--byte-cost SECONDS_PER_MB] [--workers N]\n"
          f"(a URL ending in / or a directory is {STORES}; a directory needs --url;\n"
+         "a Hugging Face Hub URL https://huggingface.co/<owner>/<repo>/tree/<rev>/ is listed at its commit,\n"
+         "at HF_ENDPOINT's Hub if set;\n"
          f"a store's documents are read by up to N requests at a time, default {WORKERS})")
 
 

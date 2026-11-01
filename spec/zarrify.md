@@ -386,12 +386,17 @@ reads its band files in ranges (their boxes, main headers and tile-part
 headers), with HTTP range requests, and a response that is not of the
 requested length is a failure ([safe.md §8.2](zarrify/safe.md#82-objects-and-reading)).
 
-**Object URLs.** The URL of the object with key `k` is `U` followed by
+**Object URLs.** The **base** of the store is `U`, but for a Hub store
+([§1.5](#15-listing-a-store)), whose base is the URL it gives its files at the
+pinned commit. The URL of the object with key `k` is the base followed by
 `k`'s UTF-8 bytes with every byte that is not an unreserved character
 (`A`–`Z`, `a`–`z`, `0`–`9`, `-`, `.`, `_`, `~`), a sub-delim
 (`!$&'()*+,;=`), `:`, `@` or `/` written as `%` and two uppercase hex
 digits (the encoding of [spec/refkv.md §5](refkv.md#5-source-table) for local paths). For example, the key
-`a b/0.0` of the store `https://h/x/` has the URL `https://h/x/a%20b/0.0`.
+`a b/0.0` of the store `https://h/x/` has the URL `https://h/x/a%20b/0.0`,
+and the key `config.json` of the Hub store
+`https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017/tree/main/` has the URL
+`https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017/resolve/1bae0e1088993b9b82de08f59de5be5a34e42170/config.json`.
 
 **Source table and chunk references.** A profile names the **chunk
 objects** of each array: objects whose keys are chunk keys of the array,
@@ -435,7 +440,106 @@ its regular files, at any depth, with keys the relative paths joined by `/`
 and sizes the file sizes. Symbolic links and files whose names are not
 valid UTF-8 are not objects. `P` is empty.
 
-**HTTP stores** are listed with the Amazon S3 `ListObjectsV2` operation,
+**Hub repositories.** A repository of the Hugging Face Hub, at a revision,
+is listed with the Hub's API, not with S3's. The Hub's **endpoint** `E` is
+`https://huggingface.co`, unless the application gives another, such as a
+mirror or a test server (as `huggingface_hub`'s `HF_ENDPOINT` does, which
+this repository's Python implementation and command lines read, without a
+trailing `/`; the browser code takes it as an option): an `http` or `https`
+URL with an authority without userinfo, no query or fragment, and a path
+that is empty or does not end in `/` (an endpoint given that is not one is
+the application's error: a failure, not a rejection). `U` is a **Hub store** when its scheme
+and authority are `E`'s, compared without regard to case, and its path
+starts with `E`'s path followed by `/`. The rest of the path, `R`, MUST be
+
+- `<owner>/<repo>/tree/<rev>/` or `<owner>/<repo>/tree/<rev>/<dir>/`, a
+  model repository, or
+- the same after `datasets/`, a dataset repository,
+
+where `<owner>` and `<repo>` are names (one or more of `A`–`Z`, `a`–`z`,
+`0`–`9`, `-`, `_` and `.`, but neither `.` nor `..`), `<rev>` is a nonempty
+segment and `<dir>` is one or more nonempty segments separated by `/`;
+otherwise the input is rejected. So `https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017/tree/main/`
+is a Hub store, and `https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017/`
+(no revision) and `https://huggingface.co/spaces/o/r/tree/main/` (a Space)
+are rejected. The **revision** `r` is `<rev>` percent-decoded, and the
+**directory** `D` is `<dir>` percent-decoded followed by `/` (or empty when
+there is no `<dir>`); both MUST be valid UTF-8, and `D` MUST NOT contain a
+segment `.` or `..`, or the input is rejected. A branch whose name holds a
+`/` is written with `%2F` (`tree/refs%2Fpr%2F1/` is the revision
+`refs/pr/1`). `P` is `D`. `A` is `E` followed by `/api/models/` or, for a
+dataset repository, `/api/datasets/`, then `<owner>/<repo>`.
+
+(The trailing `/` is not added: a zarrifier does not normalize `U`
+([§1.2](#12-input)), and the Hub's pages give their tree URLs without it. A
+URL that would be a Hub store if it ended in `/`, and that is therefore a
+file input, is rejected without being read, since it names a web page that no
+profile reads. A single file of a repository is a file input at its
+`resolve` URL, `E/<owner>/<repo>/resolve/<rev>/<path>`.)
+
+**Resolving the revision.** The first request is a `GET` of `A`, then
+`/revision/`, `enc(r)` and `?expand%5B%5D=sha&expand%5B%5D=gated`. Its body,
+read as a JSON document by [§1.6](#16-json-documents), MUST be an object whose member `sha` is
+a string of 40 lowercase hex digits, the **commit** `C`, and whose member
+`gated`, if present, is `false`; otherwise the input is rejected (a gated
+repository answers its files' reads only to an account that accepted its
+terms). Every later request names `C`, not `r`, so that the listing and
+every read see the same files however the branch moves, and two inputs that
+name the same commit, by a branch, a tag or the commit itself, give the
+same output. The store's base ([§1.4](#14-store-inputs)) is `E`, then `/datasets/` for a
+dataset repository or `/` for a model, then `<owner>/<repo>/resolve/`, `C`,
+`/`, and `D` encoded as [§1.4](#14-store-inputs) encodes a key: for example
+`https://huggingface.co/datasets/o/r/resolve/715e1970c7099cae22fe672020acb6b706121385/a.zarr/`.
+The Hub answers a file's URL with a redirect to a server that answers range
+requests; both send `Access-Control-Allow-Origin` (for a browser's reads), as
+the API does.
+
+**Listing a Hub store.** The next request is a `GET` of `A`, then `/tree/`,
+`C`, then `/` and `D` without its last `/` encoded as a key (when `D` is not
+empty), then `?recursive=true`. Each later request is a `GET` of the
+previous response's **next link**, and the listing is complete after a
+response with none. A response's `Link` headers (several are read as one,
+joined by `,`) MUST be a list of links separated by `,` and optional `S`,
+each `<`, a URI reference without `>`, `>`, then any number of parameters
+`;`, optional `S`, a name (letters, digits and `-`), `=` and a value (one or
+more characters other than `S`, `;`, `,` and `"`, or a quoted string: `"`, any
+characters other than `"`, `"`), with optional `S` around each `;` and `=`.
+A link is a next link when it has a parameter `rel` (in any case) whose value,
+split at `S`, holds `next` (in any case); a response has at most one, and its
+URI reference, resolved against the URL that answered (after redirects), MUST have `E`'s scheme
+and authority (compared without regard to case). A response with no `Link`
+header has no next link. A `Link` header that is not such a list, a second
+next link, and a next link elsewhere reject the input. Each response is
+then:
+
+- status 200: its body is parsed as below;
+- status 408 or 429, any 5xx status, or no response: a failure;
+- any other status: the input is rejected. The Hub answers 401 for a
+  repository that does not exist and for a private one (the reader does not
+  authenticate), and 404 for a revision or a directory it does not have.
+
+These statuses apply to the revision's request too. A body is read as a
+JSON document by [§1.6](#16-json-documents) and MUST be an array of objects, each with a
+member `type` that is the string `file` or `directory` and a member `path`
+that is a string (with no lone surrogate escape) starting with `D` and longer than `D`; a `file`'s member
+`size` MUST be an integer from 0 to 2^53 − 1. A `file` lists an object whose
+key is its `path` and whose size is its `size` (the file's own size, even
+when the repository stores it with LFS or Xet); a `directory` lists nothing,
+since the store's directories follow from its keys ([§1.4](#14-store-inputs)). Other members
+are not read. A key listed twice, in one response or two, rejects the input,
+and so do a next link that an earlier request of the same listing requested
+and a response with a next link whose body is an empty array.
+
+For example, `https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017/tree/main/`
+resolves `main` with
+`https://huggingface.co/api/models/deepseek-ai/DeepSeek-V4.1-Flash-1017/revision/main?expand%5B%5D=sha&expand%5B%5D=gated`
+and is listed from
+`https://huggingface.co/api/models/deepseek-ai/DeepSeek-V4.1-Flash-1017/tree/1bae0e1088993b9b82de08f59de5be5a34e42170?recursive=true`
+(83 files, 48 of them `.safetensors`). Its root has none of the keys that
+choose a profile ([§1.4](#14-store-inputs)), so it is rejected there.
+
+**HTTP stores** other than Hub stores are listed with the Amazon S3
+`ListObjectsV2` operation,
 which S3 and S3-compatible servers answer anonymously for public buckets.
 The listing endpoint and the key prefix `P` come from `U`:
 
@@ -605,7 +709,8 @@ specifies for the input, at the convention's version that the profile
 states, with:
 
 - `source.url` ([conventions §2](conventions.md#2-attributes)) the input URL `U` as given ([§1.2](#12-input)): for a
-  file input the URL of source 0, for a store input the store URL ([§1.4](#14-store-inputs));
+  file input the URL of source 0, for a store input the store URL ([§1.4](#14-store-inputs)), but
+  for a Hub store its base, which names the commit ([§1.5](#15-listing-a-store));
 - every chunk entry the convention says is present, with the reference the
   profile specifies, and no other chunk entry;
 - the documents as JSON (`zarr.json`, compared by [§1.1](#11-output-and-equivalence)), and no other
@@ -778,7 +883,10 @@ describes the command an implementation provides). The corpus has:
   file saying where its inputs come from.
 
 The harness's proxy (`conformance/zarrify/proxy.py`) serves the synthetic
-stores, and forwards remote ones, with the listing operation of [§1.5](#15-listing-a-store).
+stores, and forwards remote ones, with the listing operation of [§1.5](#15-listing-a-store). It
+is a Hub endpoint too, under `hub/` (`HF_ENDPOINT`, for the zarrifiers it
+runs): the synthetic stores as directories of the model repository
+`f/fixtures`, and remote Hub repositories forwarded from `https://huggingface.co`.
 
 Pixel correctness is checked separately, against an independent reader of
 the format, by `js/test/<profile>/verify.py`, whose docstring names the
