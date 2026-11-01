@@ -7,9 +7,22 @@ from refkv.policy import Policy
 from refkv.zarrify import Rejected, zarrify
 from refkv.zarrify.store import WORKERS
 
+# the store kinds, in the words of `vzip convert`'s usage (rust/refkv-cli/src/main.rs)
+STORES = "an N5, Zarr v2 or OME-Zarr 0.4 store, or a Sentinel-2 .SAFE directory"
+USAGE = ("usage: refkv zarrify <url or path> <out.vzip> [--url <source url>] [--checksums]"
+         " [--allow-private-hosts] [--connections N] [--byte-cost SECONDS_PER_MB] [--workers N]\n"
+         f"(a URL ending in / or a directory is {STORES}; a directory needs --url;\n"
+         f"a store's documents are read by up to N requests at a time, default {WORKERS})")
+
 
 def main(argv: list[str]) -> int:
+    """Zarrifies the input `argv` names into the archive it names; the exit status: 0, 1 for a
+    failure (such as a source the reader policy refuses), 2 for a usage error, 3 for an input
+    rejected. `-h` or `--help` prints the usage to stdout."""
     args = list(argv)
+    if "-h" in args or "--help" in args:
+        print(USAGE)
+        return 0
     url = None
     # spec/refkv.md §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>: reads every referenced byte
     checksums = "--checksums" in args
@@ -40,11 +53,7 @@ def main(argv: list[str]) -> int:
         workers = int(args[i + 1])
         del args[i : i + 2]
     if len(args) != 2:
-        print("usage: refkv zarrify <url or path> <out.vzip> [--url <source url>] [--checksums]"
-              " [--allow-private-hosts] [--connections N] [--byte-cost SECONDS_PER_MB] [--workers N]\n"
-              "(a URL ending in / or a directory is an N5 or Zarr v2 store; a directory needs --url;\n"
-              f"a store's documents are read by up to N requests at a time, default {WORKERS})",
-              file=sys.stderr)
+        print(USAGE, file=sys.stderr)
         return 2
     if url is None and Path(args[0]).is_dir():
         print("a local directory needs --url, the store URL (ending in /) it is served from",

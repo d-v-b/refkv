@@ -1,11 +1,11 @@
 // Serves the values of vzip archives as plain HTTP, so that any Zarr reader
-// can read them. Archives are either zarrified TIFFs or existing .vzip
-// files, named by URL:
+// can read them. Archives are either files and stores the handler zarrifies
+// (every format of docs/zarrify/README.md) or existing .vzip files, named by URL:
 //
-//   <prefix>image/<id>/<key>     the image file at decodeId(id), or the N5,
-//                                Zarr v2 or OME-Zarr 0.4 store if that URL ends in "/",
-//                                zarrified by spec/zarrify.md
-//   <prefix>tiff/<id>/<key>      the same, for TIFF files only
+//   <prefix>image/<id>/<key>     the file at decodeId(id), by its first bytes, or, if that
+//                                URL ends in "/", the N5, Zarr v2 or OME-Zarr 0.4 store or the
+//                                Sentinel-2 .SAFE directory there, zarrified by spec/zarrify.md
+//   <prefix>tiff/<id>/<key>      the file at decodeId(id) as a TIFF, its first bytes untested
 //   <prefix>archive/<id>/<key>   the .vzip archive at decodeId(id)
 //   .../__vz__/archive.vzip      the archive itself (keys under __vz__/ are
 //                                hidden, so no key can collide with it)
@@ -103,7 +103,17 @@ export interface HandlerOptions {
    * as written and on each response's final URL.
    */
   fetchStore?: (url: string, init?: RequestInit) => Promise<Response>;
+  /**
+   * Reads a range of a source of an archive the handler serves; defaults to `readHttpRange`.
+   * The archive checks each URL against its policy before calling it, and passes the check for
+   * redirect targets as `options.allow`.
+   */
   fetchRange?: RangeFetcher;
+  /**
+   * The whole of the `.vzip` archive at a URL of the `archive/` route; defaults to a `fetch` that
+   * throws an `HttpResolutionError` for no response or a status other than 2xx. The archive's
+   * URL is not checked against `policy`: a fetch given here decides what it reads.
+   */
   fetchArchive?: (url: string) => Promise<Uint8Array>;
   /**
    * The reader policy (spec §6.7
@@ -177,7 +187,17 @@ function parseRange(header: string | null, size: number): { start: number; end: 
   return { start, end };
 }
 
-export function makeHandler(options: HandlerOptions) {
+/**
+ * The request handler of the routes above, for the service worker (sw.ts) or a Node server: a
+ * GET or HEAD request under `options.prefix` is answered with a value of the archive its route
+ * names, opened or zarrified on its first request and kept for the next ones, honoring a single
+ * `Range`. It never throws: a failure is a response, 404 for a key the archive lacks or a path
+ * outside the routes, 416 for an unsatisfiable range, 422 for an input a profile rejects, 502 for
+ * a source that cannot be read (with ERROR_HEADER when there was no response), 503 with
+ * PENDING_HEADER for an archive still being built after `pendingAfter`, 507 for a store over a
+ * limit, and 500 otherwise. Every response carries WORKER_HEADER and CORS headers.
+ */
+export function makeHandler(options: HandlerOptions): (request: Request) => Promise<Response> {
   const {
     prefix,
     fetchStore,
