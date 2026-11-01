@@ -7,35 +7,46 @@ cited here as "conventions §n". How refkv produces this layout as a reference
 store is the TIFF profile, [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `48e9ac4e-1156-4a62-955e-20467d9c2700` ·
-Schema: [schema.json](tiff/schema.json) ·
+Schema: [schema.json](tiff/schema.json)
+
 Changed 2026-10-27: an image of an integer type with Predictor 2 (horizontal differencing) and
 LZW, Deflate or zstd has a layout, its codecs `imagecodecs_delta` before `bytes`
 ([§4.3](#43-data-types-and-codecs)), and its `omero` windows sampled through the predictor
 ([§4.4](#44-arrays)); any other predictor, and Predictor 2 with a `float` type, with no
-compression or with JPEG, is still rejected; no output of a file accepted before changed ·
-Changed 2026-10-27: images in strips and LZW
-(Compression 5) have a layout, which they had in the QPTIFF convention only: a level in strips
-has chunks of its rows per strip, a short last strip padded to them when uncompressed (with a
-range of the output's zero data source, [§7.3](#73-chunks)) or LZW ([§4.5](#45-strips)), and
-LZW is `refkv.tiff_lzw` ([§4.3](#43-data-types-and-codecs)); the
-table of [§2](#2-the-source) holds the strip tags, which the profile now checks in every IFD it
-reads ([§7.1](#71-reading)); no output of a file accepted before changed ·
-Changed 2026-10-27: a zlib stream's codec is `numcodecs.zlib`, zarr-python's name for it, in place of `zlib` ([conventions §3](../conventions.md#3-arrays), d-v-b/refkv#90) ·
-Changed 2026-10-26, with no change to any output:
-the layout is tabulated, its entries in [Layout](#layout) and its types in type tables
+compression or with JPEG, is still rejected; no output of a file accepted before changed.
+
+Changed 2026-10-27: images in strips and LZW (Compression 5) have a layout, which they had in
+the QPTIFF convention only: a level in strips has chunks of its rows per strip, a short last
+strip padded to them when uncompressed (with a range of the output's zero data source,
+[§7.3](#73-chunks)) or LZW ([§4.5](#45-strips)), and LZW is `refkv.tiff_lzw`
+([§4.3](#43-data-types-and-codecs)); the table of [§2](#2-the-source) holds the strip tags,
+which the profile now checks in every IFD it reads ([§7.1](#71-reading)); no output of a file
+accepted before changed.
+
+Changed 2026-10-27: a zlib stream's codec is `numcodecs.zlib`, zarr-python's name for it, in
+place of `zlib` ([conventions §3](../conventions.md#3-arrays), d-v-b/refkv#90).
+
+Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
+[Layout](#layout) and its types in type tables
 ([conventions §11.5](../conventions.md#115-layout-tables)); the QPTIFF convention shares
-[`TiffRoot`](#type-tiffroot) and [`TiffChunk`](#type-tiffchunk); and a tile's or strip's
-recipe frames it with the IFD's JPEG prefix whenever that prefix is not empty (the Adobe marker
-of 3 samples included, with or without JPEGTables) and the tile is more than 2 bytes, as
-refkv already wrote ([§5.1](#51-elements)) · Changed 2026-10-23: each `omero` channel's window
-is sampled from the coarsest level's data when refkv decodes its compression and the samples are
-not RGB, and an image of a float type has an `omero` when every channel's window is sampled
-([§4.4](#44-arrays)); the profile reads the sampled chunks
-([§7.1](#71-reading)) · Changed 2026-10-22: an image of an integer type has
-an `omero` member ([§4.4](#44-arrays)), with the OME-XML's channel names and colors
-([§3](#3-ome-xml)) and the type's range as each channel's window, after
-[revision 29](../history/virtualize/REVISIONS.md#revision-29-no-recorded-revision-the-profile-registry)
-(a profile's changes are recorded here, dated, from then on)
+[`TiffRoot`](#type-tiffroot) and [`TiffChunk`](#type-tiffchunk); and a tile's or strip's recipe
+frames it with the IFD's JPEG prefix whenever that prefix is not empty (the Adobe marker of 3
+samples included, with or without JPEGTables) and the tile is more than 2 bytes, as refkv
+already wrote ([§5.1](#51-elements)).
+
+Changed 2026-10-23: each `omero` channel's window is sampled from the coarsest level's data when
+refkv decodes its compression and the samples are not RGB, and an image of a float type has an
+`omero` when every channel's window is sampled ([§4.4](#44-arrays)); the profile reads the
+sampled chunks ([§7.1](#71-reading)).
+
+Changed 2026-10-22: an image of an integer type has an `omero` member ([§4.4](#44-arrays)), with
+the OME-XML's channel names and colors ([§3](#3-ome-xml)) and the type's range as each channel's
+window.
+
+Changes before 2026-10-22 are recorded in
+[the revision log of VIRTUALIZE.md](../history/virtualize/REVISIONS.md), this document's earlier
+name, up to
+[revision 29](../history/virtualize/REVISIONS.md#revision-29-no-recorded-revision-the-profile-registry).
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
@@ -706,7 +717,7 @@ NUL, so tag 305's 12 bytes are `tifffile.py`).
 
 # Part 2. The profile
 
-The TIFF profile of [spec/zarrify.md](../zarrify.md) (revision 16) is [§7](#7-tiff-profile) of this document. What every profile's Part 2 shares is in
+The TIFF profile of [spec/zarrify.md](../zarrify.md) is [§7](#7-tiff-profile) of this document. What every profile's Part 2 shares is in
 [spec/zarrify.md, Profiles](../zarrify.md#profiles).
 
 ## 7. TIFF profile

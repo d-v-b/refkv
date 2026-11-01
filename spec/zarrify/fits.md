@@ -8,20 +8,24 @@ which files it accepts, is the FITS profile, [Part 2](#part-2-the-profile)
 below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `4b0d3a7e-1c52-4f6a-9b8e-2d7f0c6a1e93` ·
-Schema: [schema.json](fits/schema.json) · Changed 2026-10-25: an edge chunk's zero padding
-is a range of the output's one zero data source, not a literal range of each reference, so that
-the archive holds the zeros once ([§9.4](#94-chunks)); no chunk's values change, nor which
-chunks are copied · Changed 2026-10-26: an ASCII table's `TNULLn` is its column's `null`, a
-string, where it was `null`, and an integer card of an HDU's or a column's member past
-2^53 − 1 is the string of its digits, as in the cards, where it was `null`
-([§5.2](#52-an-hdus-node)); the layout is tabulated, its entries in
-[Layout](#layout) and its types in type tables
-([conventions §11.5](../conventions.md#115-layout-tables)), and the text says what refkv
-already wrote: a table's `rows` array is present, without chunks, when `NAXIS1 × NAXIS2` is 0
+Schema: [schema.json](fits/schema.json)
+
+Changed 2026-10-26: an ASCII table's `TNULLn` is its column's `null`, a string, where it was
+`null`, and an integer card of an HDU's or a column's member past 2^53 − 1 is the string of its
+digits, as in the cards, where it was `null` ([§5.2](#52-an-hdus-node)); the layout is
+tabulated, its entries in [Layout](#layout) and its types in type tables
+([conventions §11.5](../conventions.md#115-layout-tables)), and the text says what refkv already
+wrote: a table's `rows` array is present, without chunks, when `NAXIS1 × NAXIS2` is 0
 ([§4](#4-tables)); a compression's `dither_seed` is `null` without `ZDITHER0`
 ([§5.1](#51-the-root)); a real card value that is not finite in binary64 is `{"text": t}`
 ([§5.3](#53-cards)); and a tile-compressed image's summary carries its `compression`
-([§9.5](#95-summary))
+([§9.5](#95-summary)).
+
+Changed 2026-10-25: an edge chunk's zero padding is a range of the output's one zero data
+source, not a literal range of each reference, so that the archive holds the zeros once
+([§9.4](#94-chunks)); no chunk's values change, nor which chunks are copied.
+
+Added 2026-10-24.
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 

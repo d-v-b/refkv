@@ -8,13 +8,26 @@ store, which files it reads and which inputs it rejects, is the VSI profile,
 [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `c0a1d4e6-5b7f-4f3a-9c2d-8e1f6a7b3c45` ·
-Schema: [schema.json](vsi/schema.json) · Added 2026-10-21, after
-[revision 29](../history/virtualize/REVISIONS.md#revision-29-no-recorded-revision-the-profile-registry)
-(a profile's changes are recorded here, dated, from then on) · Changed 2026-10-26, with no
-change to any output: the layout is tabulated, its entries in [Layout](#layout) and its types
-in type tables ([conventions §11.5](../conventions.md#115-layout-tables)), which also state what
-refkv already wrote: a value field's empty data is opaque, `""` ([§6.1](#61-the-root)), and an
-IFD image's summary has no `sizes`, `grids` or `tilesOutside` ([§9.5](#95-summary))
+Schema: [schema.json](vsi/schema.json)
+
+Changed 2026-11-01, with no change to any output: the slide is read as a file read as a store,
+by the rules [spec/zarrify.md §1.8](../zarrify.md#18-files-read-as-stores) now states for the
+VSI, NRRD and GRIB profiles ([§9](#9-vsi-profile)).
+
+Changed 2026-10-30: a tile file's tiles may be lossless JPEG (compression 5), each tile a chunk
+of the codec `imagecodecs_ljpeg`, where such a file was rejected; and an ETS header of version
+0x30003, whose `dimensions` is 0 and which lists no sizes, is read, every coordinate but the
+column, the row and the level of size 1 ([§3](#3-the-tile-files), [§4.1](#41-the-pyramid)); a stack's second tile
+file name, `frame_t_0.ets`, is probed only when its first, `frame_t.ets`, is absent, in a
+second batch ([§9.2](#92-the-tile-files)).
+
+Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
+[Layout](#layout) and its types in type tables
+([conventions §11.5](../conventions.md#115-layout-tables)), which also state what refkv already
+wrote: a value field's empty data is opaque, `""` ([§6.1](#61-the-root)), and an IFD image's
+summary has no `sizes`, `grids` or `tilesOutside` ([§9.5](#95-summary)).
+
+Added 2026-10-21.
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
@@ -880,18 +893,13 @@ path), which its **signature** ([spec/zarrify.md §1.2](../zarrify.md#12-input),
 [profiles/vsi.json](profiles/vsi.json)) chose: bytes 0–3 of `H`
 are `49 49 2A 00` (a little-endian classic TIFF) and bytes 8 to 11 `18 00 49 53` (a container
 header's size, 24, and version, 21321; [the convention §2.1](#21-containers-and-fields)),
-tested before the TIFF profile's. The profile reads it as a **store**
-([§1.4](../zarrify.md#14-store-inputs)) whose URL is the `.vsi` file's
-directory (the URL up to and including its last `/`; for a local path, the
-URI reference of its directory, ending in `/`, or `--url`'s directory when
-`--url` names the `.vsi` file; a bare file name with no `--url` records the
-empty store URL, so that the keys name the files relative to the archive),
-and whose objects are the `.vsi` file, at its key (its name, percent-decoded
-from the URL), and the tile files the profile finds. The store is not listed
-(a plain web server cannot list a directory): its objects are **probed** by
-key ([§9.2](#92-the-tile-files)). The root's `source.url` is the `.vsi`
-file's object URL. The `.vsi` file's key must end in `.vsi` (in any case)
-and hold no `/`; its URL must have no query or fragment.
+tested before the TIFF profile's. The profile reads it as a **file read as a
+store** ([spec/zarrify.md §1.8](../zarrify.md#18-files-read-as-stores)): the
+store URL is the `.vsi` file's directory, its objects are the `.vsi` file, at
+its key, and the tile files the profile probes for
+([§9.2](#92-the-tile-files)), and the root's `source.url` is the `.vsi` file's
+object URL. The `.vsi` file's key MUST end in `.vsi` (in any case), or the
+input is rejected.
 
 ### 9.1 The .vsi file
 

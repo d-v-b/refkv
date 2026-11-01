@@ -10,20 +10,21 @@ is the MP3 profile, [Part 2](#part-2-the-profile) below.
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `b6cb0047-9448-4fdc-b03e-10dd3d6aa829` ·
 Schema: [schema.json](mp3/schema.json)
 
-Added 2026-10-21, after
-[revision 29](../history/virtualize/REVISIONS.md#revision-29-no-recorded-revision-the-profile-registry)
-(a profile's changes are recorded here, dated, from then on).
+Changed 2026-11-01, with no change to any output: the checks say that a zarrifier MUST reject
+an input that fails one, in RFC 2119's words.
 
-**2026-10-26.** Changed with no change to any output: the layout is tabulated, its entries in
+Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
 [Layout](#layout) and its types in type tables
 ([conventions §11.5](../conventions.md#115-layout-tables)); the header's values, the tags'
 fields and the summary are tables too.
 
-**2026-10-23.** The array's codec is `refkv.stream`
-([conventions §10](../conventions.md#10-coded-streams)), which MP4 tracks share, in place
-of this convention's own `mp3`; its data type is `float32`, the decoder's own samples, in
-place of `int16`; a chunk's header gives each frame's size and output position, in place
-of the count of samples to keep ([§4.1](#41-the-array), [§8.2](#82-chunks)).
+Changed 2026-10-23: the array's codec is `refkv.stream`
+([conventions §10](../conventions.md#10-coded-streams)), which MP4 tracks share, in place of
+this convention's own `mp3`; its data type is `float32`, the decoder's own samples, in place of
+`int16`; a chunk's header gives each frame's size and output position, in place of the count of
+samples to keep ([§4.1](#41-the-array), [§8.2](#82-chunks)).
+
+Added 2026-10-21.
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
@@ -476,7 +477,7 @@ ones, bits 20–19 not `01`, bits 18–17 not `00`, bits 11–10 not `11` ([the 
 §2](#2-frames); any layer and bitrate index). The whole file is read: an MP3 file has
 no index, and each frame's header gives the next.
 
-**Checks.** The input is rejected unless all of these hold, checked in this
+**Checks.** A zarrifier MUST reject the input unless all of these hold, checked in this
 order:
 
 - **Size:** the file is at least 4 bytes.

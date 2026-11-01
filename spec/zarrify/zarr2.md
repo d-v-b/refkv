@@ -8,11 +8,19 @@ from a listed store is the Zarr v2 profile,
 [OME-Zarr convention](ome-zarr.md) builds on this one.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `8e792619-d671-4687-ab51-752885dd3ee6` ·
-Schema: [schema.json](zarr2/schema.json) ·
-Changed 2026-10-27: a zlib stream's codec is `numcodecs.zlib`, zarr-python's name for it, in place of `zlib` ([conventions §3](../conventions.md#3-arrays), d-v-b/refkv#90) ·
-Changed 2026-10-26, with no change to any output: the
-layout is tabulated, its entries in [Layout](#layout) and its types in type tables
-([conventions §11.5](../conventions.md#115-layout-tables))
+Schema: [schema.json](zarr2/schema.json)
+
+Changed 2026-10-27: a zlib stream's codec is `numcodecs.zlib`, zarr-python's name for it, in
+place of `zlib` ([conventions §3](../conventions.md#3-arrays), d-v-b/refkv#90).
+
+Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
+[Layout](#layout) and its types in type tables
+([conventions §11.5](../conventions.md#115-layout-tables)).
+
+Changes before 2026-10-22 are recorded in
+[the revision log of VIRTUALIZE.md](../history/virtualize/REVISIONS.md), this document's earlier
+name, up to
+[revision 29](../history/virtualize/REVISIONS.md#revision-29-no-recorded-revision-the-profile-registry).
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
@@ -536,7 +544,7 @@ and whose `.zattrs` is `{"_ARRAY_DIMENSIONS": ["x"]}`:
 
 # Part 2. The profile
 
-The Zarr v2 profile of [spec/zarrify.md](../zarrify.md) (revision 16) is [§7](#7-zarr-v2-profile) of this document. What every profile's Part 2 shares is in
+The Zarr v2 profile of [spec/zarrify.md](../zarrify.md) is [§7](#7-zarr-v2-profile) of this document. What every profile's Part 2 shares is in
 [spec/zarrify.md, Profiles](../zarrify.md#profiles).
 
 ## 7. Zarr v2 profile

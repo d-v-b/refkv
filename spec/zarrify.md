@@ -1,6 +1,19 @@
-# Zarrifying image files and stores as OME-Zarr in refkv
+# Zarrifying files and stores as Zarr in refkv
 
 Profiles version: 0 (**draft**)
+
+Changed 2026-11-01, with no change to any output: the text states what refkv already did: the
+references' budget ([§1.2](#12-input)), the rules of a file read as a store, which the VSI, NRRD
+and GRIB profiles cite ([§1.8](#18-files-read-as-stores)), and the profiles that define data
+sources ([§1.2](#12-input)); the introduction names the outputs that are not OME-Zarr
+([§1](#1-introduction)); and the format documents' changelogs have one form, which defines a
+profile revision ([Profiles](#profiles)).
+
+Changed 2026-10-29: the HDF5 profile has the signature that was the IMS profile's, at its
+precedence, 70, and its reading chooses the IMS profile for an Imaris file
+([§1.2](#12-input), [hdf5.md §8.1](zarrify/hdf5.md#81-choosing-the-profile)); an Imaris file's
+output does not change, and an HDF5 file that is not one is the HDF5 profile's, where the IMS
+profile rejected it.
 
 Changed 2026-10-26, with no change to any output: a reference's ranges ([§1.1](#11-output-and-equivalence))
 and a virtual shard's document and reference ([§2.1](#21-virtual-shards)) are defined in type
@@ -26,13 +39,17 @@ profile's signature is in its own document, tested in the registry's order
 
 To **zarrify** a file or store is to present it as Zarr without copying it:
 its chunks are references to the input's own bytes. A **zarrifier** reads
-the structure of an image file or of a chunked array store (the formats of the table below), and writes a
-vzip archive ([spec/bindings/vzip.md](bindings/vzip.md)) that presents the pixels as an OME-Zarr
-dataset, or for a store as a Zarr v3 hierarchy (for an OME-Zarr 0.4 store,
-an OME-Zarr 0.5 one; for a Sentinel-2 SAFE product, a GeoZarr one; for an
-MP3 file, the one format that is not an image, a plain array of audio
-samples). The
-pixels stay where they are: each Zarr chunk is a reference to byte ranges of
+the structure of a file or of a chunked array store (the formats of the table below), and writes a
+vzip archive ([spec/bindings/vzip.md](bindings/vzip.md)) that presents its data as a Zarr v3
+hierarchy, in the layout of the format's convention ([§2](#2-the-zarr-layout)):
+- an image as an OME-Zarr dataset (an OME-Zarr 0.4 store as an OME-Zarr 0.5 one; a Sentinel-2
+  SAFE product as a GeoZarr one);
+- a Zarr v2 or N5 store as a Zarr v3 hierarchy;
+- the formats that are not images as arrays with no OME-NGFF metadata: MP3's and FLAC's audio
+  samples, MP4's tracks, GRIB's fields (georeferenced with GeoZarr), HDF5's groups and datasets
+  (in hdmf-zarr's form) and NumPy's arrays.
+
+The data stays where it is: each Zarr chunk is a reference to byte ranges of
 the file, or to a whole object of the store. This document specifies, for
 each supported input format (a **profile**), exactly which archive a
 zarrifier produces, so that independent zarrifiers produce the same
@@ -56,7 +73,7 @@ The table, generated from the registry, lists them:
 | [IMS](zarrify/ims.md#part-2-the-profile) | file | Imaris IMS files (HDF5) |
 | [LIF](zarrify/lif.md#part-2-the-profile) | file | Leica LIF files (LAS X and LAS AF, versions 1 and 2): every image of the file's element tree, with interleaved or planar channels, z-stacks, time series and mosaics, uncompressed |
 | [MP3](zarrify/mp3.md#part-2-the-profile) | file | MPEG-1, MPEG-2 and MPEG-2.5 Layer III audio files (`.mp3`), with their ID3v2, ID3v1 and APE tags; one array of samples, not an image |
-| [MP4](zarrify/mp4.md#part-2-the-profile) | file | MP4 and QuickTime files (`.mp4`, `.m4a`, `.mov`) with H.264 or HEVC video and AAC or MP3 audio tracks; a group per track, not an image |
+| [MP4](zarrify/mp4.md#part-2-the-profile) | file | MP4 and QuickTime files (`.mp4`, `.m4a`, `.m4v`, `.mov`) with H.264 or HEVC video and AAC or MP3 audio tracks; a group per track, not an image |
 | [MRC](zarrify/mrc.md#part-2-the-profile) | file | MRC2014 files (CCP4 maps, image stacks, volumes and volume stacks) |
 | [N5](zarrify/n5.md#part-2-the-profile) | store | N5 containers, default-mode blocks |
 | [ND2](zarrify/nd2.md#part-2-the-profile) | file | Nikon ND2, format version 3 and later |
@@ -73,7 +90,9 @@ The table, generated from the registry, lists them:
 <!-- /profiles -->
 
 The table says which profiles read a single file (a **file input**), which a store of many
-objects (a **store input**, [§1.4](#14-store-inputs)), and which either; VSI ([vsi.md §9](zarrify/vsi.md#9-vsi-profile)) is named by a file, its `.vsi`, and reads it and the tile files beside it as a store it probes rather than lists. [Appendix A](#appendix-a-conformance) is informative:
+objects (a **store input**, [§1.4](#14-store-inputs)), and which either. The VSI, NRRD and GRIB
+profiles are named by a file and read it, with the files beside it, as a store they probe
+rather than list ([§1.8](#18-files-read-as-stores)). [Appendix A](#appendix-a-conformance) is informative:
 the implementations and how they are compared.
 
 The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are to be
@@ -94,7 +113,7 @@ a reference entry, is one of:
 
 | range | written | its bytes |
 |---|---|---|
-| a source range | `(i, offset, length)` | `length` bytes of source `i`, from `offset`: of a `url` source: the input, source 0, for a file input; for a store input, an object, in the order [§1.4](#14-store-inputs) gives (the SAFE, VSI and NRRD documents give their own order: VSI's and NRRD's for a file input they read as a store, whose source 0 need not be the input), or of a data source ([§1.2](#12-input)), whole, or a zero data source's first `length` bytes |
+| a source range | `(i, offset, length)` | `length` bytes of source `i`, from `offset`: of a `url` source: the input, source 0, for a file input; for a store input, an object, in the order [§1.4](#14-store-inputs) gives (the SAFE document gives its own order, and so does each profile that reads a file as a store, [§1.8](#18-files-read-as-stores), whose source 0 need not be the input), or of a data source ([§1.2](#12-input)), whole, or a zero data source's first `length` bytes |
 | a literal range | a literal of `d` | the bytes `d`, which the entry carries ([spec/refkv.md §4.2](refkv.md#42-range)) |
 
 A format's chunk tables ([conventions §11.5](conventions.md#115-layout-tables)) give each
@@ -149,7 +168,7 @@ pins and the ranges' checksums ([§1.2](#12-input)): an `etag` pin depends on wh
 server sent, and checksums are optional. A zarrifier that records checksums
 does not join a shard's ranges across its inner chunks ([§2.1](#21-virtual-shards)), so
 outputs are compared between zarrifiers that both record checksums or both do not. Two zarrifiers conform to
-the same profile revision if they produce equivalent outputs for every input
+the same profile revision ([Profiles](#profiles)) if they produce equivalent outputs for every input
 that the profile accepts, and both reject every input it rejects.
 
 ### 1.2 Input
@@ -164,7 +183,8 @@ the URL it will be served from: a directory is a store input, listed as
 
 For a file input, the output's source table is source 0, a `url` source
 whose value is `U` as given, followed by the output's **data sources**, if
-its profile defines any. Source 0 carries pins ([spec/refkv.md §5.1](refkv.md#51-pins)):
+its profile defines any (a file read as a store has the sources of
+[§1.8](#18-files-read-as-stores) instead). Source 0 carries pins ([spec/refkv.md §5.1](refkv.md#51-pins)):
 
 - a `size` pin, the file's size;
 - an `etag` pin when every response the zarrifier received for the file
@@ -193,14 +213,18 @@ but for a **zero data source**: `n` zero bytes, `n` the most zero padding
 any reference of the output holds, of which a reference padded with `p`
 zero bytes names the first `p`, `(i, 0, p)`. Every other range of a
 reference is a range of source 0 or a literal range. A profile that defines
-shared byte strings says so, as the TIFF
-([tiff.md §7](zarrify/tiff.md#7-tiff-profile), JPEG tiles) and SAFE ([safe.md §8](zarrify/safe.md#8-safe-profile), JPEG 2000 main headers) profiles do, and as the
-TIFF ([tiff.md §7.3](zarrify/tiff.md#73-chunks), short last strips), QPTIFF
-([qptiff.md §7](zarrify/qptiff.md#7-qptiff-profile), short last strips), NIfTI ([nifti.md §7.2](zarrify/nifti.md#72-chunks)), MRC
-([mrc.md §8.2](zarrify/mrc.md#82-chunks)), FITS
-([fits.md §9.4](zarrify/fits.md#94-chunks)) and NRRD
-([nrrd.md §8.5](zarrify/nrrd.md#85-chunks)) profiles do for a zero data
-source; for a profile that defines none, the table is source 0 alone.
+shared byte strings says so: the TIFF
+([tiff.md §7](zarrify/tiff.md#7-tiff-profile), JPEG tiles), NDPI
+([ndpi.md §7](zarrify/ndpi.md#7-ndpi-profile), JPEG headers), SAFE
+([safe.md §8](zarrify/safe.md#8-safe-profile), JPEG 2000 main headers) and VSI
+([vsi.md §9](zarrify/vsi.md#9-vsi-profile), JPEG prefixes) profiles do, and the TIFF
+([tiff.md §7.3](zarrify/tiff.md#73-chunks), short last strips), QPTIFF
+([qptiff.md §7](zarrify/qptiff.md#7-qptiff-profile), short last strips), NIfTI
+([nifti.md §7.2](zarrify/nifti.md#72-chunks)), MRC ([mrc.md §8.2](zarrify/mrc.md#82-chunks)),
+FITS ([fits.md §9.4](zarrify/fits.md#94-chunks)), NRRD
+([nrrd.md §8.5](zarrify/nrrd.md#85-chunks)), HDF5 ([hdf5.md §8.4](zarrify/hdf5.md#84-chunk-references))
+and NumPy ([npy.md §8](zarrify/npy.md#8-numpy-profile)) profiles do for a zero data source;
+for a profile that defines none, the table is source 0 alone.
 
 **Choosing the profile.** The file's first bytes decide. `H` is the file's first
 `min(552, size)` bytes; a test that needs a byte beyond `H` does not match. Each file profile's
@@ -249,11 +273,8 @@ not affect equivalence.
 ([spec/refkv.md §6.7](refkv.md#67-reader-policy)) that the application chooses,
 applied to every request it makes for the input: a file's, and a store's
 listing and object reads ([§1.4](#14-store-inputs), [§1.5](#15-listing-a-store)), each redirect target checked before it
-is requested. A request the policy refuses is a failure, not a rejection. The
-implementations in this repository default to the defaults of [spec/refkv.md §6.7](refkv.md#67-reader-policy), so they refuse
-loopback, private, link-local and special hosts, and requests through a
-proxy, unless the application allows private hosts or unchecked proxies (the
-same settings, and `--allow-private-hosts` on their command lines).
+is requested. A request the policy refuses is a failure, not a rejection
+([Appendix A](#appendix-a-conformance) gives the implementations' defaults).
 
 **Structure only.** The output MUST NOT depend on the file's pixel data.
 (Reading blocks that happen to include pixel bytes is fine.) Coding
@@ -282,6 +303,21 @@ literal range of bytes `d`, `0x2A varint(len(d)) d`. The payload of several
 ranges is a `Concat` message: for each range, `0x0A varint(len(r)) r`, where
 `r` is that range's `Range` message. `varint` is the protobuf base-128
 encoding (1 byte below 2^7, 2 below 2^14, and so on).
+
+**The references' budget.** A profile that references the elements of the source's IR
+([conventions §8](conventions.md#8-the-ir-mirror)) bounds how many references it writes,
+so that a small input cannot make a large output. Each chunk it references is one
+**reference** (for a sharded array, each inner chunk, counted before the chunks are put in
+shards, [§2.1](#21-virtual-shards)); a chunk that references the same bytes of the same element
+as an earlier one (the same extent of the IR, and the same piece of it, where a profile cuts an element into
+pieces) is also one **repeat**, as when two chunks name one element that two structures share
+(an alias, [conventions §8.1](conventions.md#81-elements)). A zarrifier MUST reject an input
+whose output would have more than `2^22 + 4 × Z` references, `Z` the source's size (for a
+store IR, its objects' total size), with the message `budget: more than N refs`, or more than
+2^20 repeats, with the message `budget: more than 1048576 repeats` (`N` in decimal). The
+budget applies to the CZI, DICOM, FITS, FLAC, HDF5, IMS, LIF, MP3, MP4, MRC, NDPI, NIfTI,
+NumPy, NRRD, QPTIFF, TIFF and VSI profiles; the GRIB, ND2 and SAFE profiles and the store
+profiles bound their outputs by their own rules.
 
 ### 1.3 Arithmetic
 
@@ -378,8 +414,9 @@ not declare 0.4 is read by [zarr2.md §7](zarrify/zarr2.md#7-zarr-v2-profile), w
 the local file. A response that does not have the listed size is a
 failure, not a rejection (the store changed while it was read). A profile
 reads only the metadata documents it names; it never reads a chunk object.
-(**Structure only**, §1.2, applies: the output never depends on a chunk's
-bytes, only on its key and size.) The SAFE profile is the exception: it
+(**Structure only**, [§1.2](#12-input), applies: the output never depends on a chunk's
+bytes, only on its key and size.) The SAFE profile and the files read as stores
+([§1.8](#18-files-read-as-stores)) are the exceptions: the SAFE profile
 reads its band files in ranges (their boxes, main headers and tile-part
 headers), with HTTP range requests, and a response that is not of the
 requested length is a failure ([safe.md §8.2](zarrify/safe.md#82-objects-and-reading)).
@@ -534,8 +571,7 @@ instead of being followed forever.)
 ### 1.6 JSON documents
 
 The metadata documents of a store (N5's `attributes.json`, Zarr's
-`.zarray`, `.zgroup` and `.zattrs`) are read as JSON, with these rules, in
-both implementations:
+`.zarray`, `.zgroup` and `.zattrs`) are read as JSON, with these rules:
 
 - The object MUST be at most 16777216 (2^24) bytes. Its bytes MUST be UTF-8
   and MUST NOT start with a byte order mark (`EF BB BF`).
@@ -584,6 +620,42 @@ holds. Neither changes what a profile accepts or what it writes for a layout.
 Two outputs of one input are equivalent ([§1.1](#11-output-and-equivalence)) when their
 zarrifiers wrote the same layouts.
 
+### 1.8 Files read as stores
+
+The VSI ([vsi.md §9](zarrify/vsi.md#9-vsi-profile)), NRRD
+([nrrd.md §8](zarrify/nrrd.md#8-nrrd-profile)) and GRIB
+([grib.md §8](zarrify/grib.md#8-grib-profile)) profiles are chosen by a file input's signature
+([§1.2](#12-input)), and read the file and the files beside it (a slide's tile files, a
+detached header's data file, a GRIB file's index files) as a store
+([§1.4](#14-store-inputs)). Such a **file read as a store** is read as follows; the profile's
+document says which keys it probes, how it reads each object, and the order of its sources.
+
+- **The store URL and the key.** `U` MUST have no query and no fragment component, or the
+  input is rejected (`<format> input <U> has a query or a fragment`). The **store URL** is `U`
+  up to and including its last `/`, and the **named file's key** is the rest, percent-decoded,
+  which MUST be nonempty and hold no `/`, or the input is rejected (`<format> input <U> names
+  no file`). An implementation that reads a local file uses the URL its directory will be
+  served from, which MUST be a store URL that [§1.4](#14-store-inputs) accepts; given a bare
+  file name and no URL, it records the empty store URL, so that the object URLs name the files
+  relative to the archive.
+- **Probing.** The store is not listed (a plain web server cannot list a directory). Its
+  objects are the named file and the objects the profile **probes** for, by key: an object
+  exists when its URL can be read (a local file that exists; an HTTP response that is not 404),
+  and is absent when it cannot (a missing file; HTTP 404). Any other error is a failure. An
+  object is read in ranges, with HTTP range requests, and a response that is not of the
+  requested length is a failure.
+- **Sources.** The output's `url` sources are the object URLs
+  ([§1.4](#14-store-inputs), **Object URLs**) of the objects its references use, each with a
+  `size` pin, in the order the profile's document gives, followed by its data sources
+  ([§1.2](#12-input)). Source 0 need not be the named file.
+- **`source.url`** ([§2](#2-the-zarr-layout)) is the named file's object URL, the store URL
+  followed by the key encoded as [§1.4](#14-store-inputs) says. It is not `U` as given when
+  `U` encodes the key otherwise (`%7E` for `~`, or lowercase hex digits).
+- **The mirror** is a store IR ([conventions §8.9](conventions.md#89-stores)), with its limits.
+- **Rejection.** [§1.4](#14-store-inputs)'s rejection and failure rules apply to every object
+  read, and [§1.2](#12-input)'s **References stay in the file** to every range, within its
+  object.
+
 ## 2. The Zarr layout
 
 A zarrifier's output presents its input as a Zarr hierarchy whose layout
@@ -603,7 +675,8 @@ specifies for the input, at the convention's version that the profile
 states, with:
 
 - `source.url` ([conventions §2](conventions.md#2-attributes)) the input URL `U` as given ([§1.2](#12-input)): for a
-  file input the URL of source 0, for a store input the store URL ([§1.4](#14-store-inputs));
+  file input the URL of source 0, for a store input the store URL ([§1.4](#14-store-inputs)),
+  and for a file read as a store the named file's object URL ([§1.8](#18-files-read-as-stores));
 - every chunk entry the convention says is present, with the reference the
   profile specifies, and no other chunk entry;
 - the documents as JSON (`zarr.json`, compared by [§1.1](#11-output-and-equivalence)), and no other
@@ -683,9 +756,7 @@ the input is rejected: an inner chunk costs its ranges and 16 bytes of index,
 an inner chunk a shard does not hold 16 bytes, and a shard 4 bytes of
 CRC-32C. An inner chunk the profile copies is a literal range of all its
 bytes, so a profile shards an array only where its copied inner chunks fit
-in their shards' payloads. Only file profiles shard: the hosts of a store
-input's zarrifier do not yet tell the pass that joins ranges whether they
-record checksums.
+in their shards' payloads. Only file profiles shard (store profiles' arrays are not sharded).
 
 ## Profiles
 
@@ -722,8 +793,20 @@ else. The profiles, generated from the registry:
 - the Zarr v2 profile: [spec/zarrify/zarr2.md §7](zarrify/zarr2.md#7-zarr-v2-profile).
 <!-- /profiles -->
 
-A profile's Part 2 starts by naming the revision of this document it follows, if any, its
-section, and the profiles it builds on. [§1](#1-introduction) and [§2](#2-the-zarr-layout)
+A profile's Part 2 starts by naming its section and the profiles it builds on.
+
+**Changelogs and profile revisions.** Each format's document records its own changes, in the
+paragraphs after its version line, its **changelog**: one paragraph per entry, newest first.
+An entry is `Changed <date>: ` and what changed, with links to the sections it changed, or
+`Changed <date>, with no change to any output: ` for a change that no output shows (a
+clarification, a table that states what refkv already wrote); the last entry is
+`Added <date>.`, or, for a document that predates its changelog, the pointer to the log of the
+revisions of VIRTUALIZE.md, this document's earlier name, which records its changes up to
+2026-10-21. A change to a document's text outside its changelog (but for the blocks
+generated from the registry) adds an entry, which `spec/tools/changelog.py` checks. A
+**profile revision** is a profile's document as of an entry's date: two zarrifiers conform to
+the same profile revision ([§1.1](#11-output-and-equivalence)) when they follow the document
+as of the same date. This document's own changes are recorded at its top, in the same form. [§1](#1-introduction) and [§2](#2-the-zarr-layout)
 apply to every profile, and to a store input's in particular the store input rules of
 [§1.4](#14-store-inputs)–[§1.6](#16-json-documents). The output has the convention's layout
 for the input ([§2](#2-the-zarr-layout)); the profile says how the input is read, which inputs
@@ -750,9 +833,12 @@ a store whose listing has more than 100000 objects (counting every listed
 250 bytes of archive held in memory, and the listing takes one request per
 1000 keys, so the limit bounds the archive at about 25 MB and the listing at
 100 sequential requests. The same limit applies to a SAFE zip file's
-entries. The Python reference has no limit; its run on a 470000-chunk
-OpenOrganelle level is recorded in `spec/history/virtualize/REVISIONS.md`
-(revision 12).
+entries. The Python reference has no limit of its own beyond the store IR's 2^24 objects
+([conventions §8.9](conventions.md#89-stores)), past which every zarrifier rejects the store;
+its run on a 470000-chunk OpenOrganelle level is recorded in
+`spec/history/virtualize/REVISIONS.md` (revision 12). Store profiles do not shard
+([§2.1](#21-virtual-shards)) because the hosts of a store input's zarrifier do not tell the pass
+that joins ranges whether they record checksums.
 
 Implementations written from this document alone, round by round, are in
 `conformance/impls/zarrify/`; `spec/history/virtualize/REVISIONS.md` records what each
@@ -760,7 +846,11 @@ round found and how this document changed, up to revision 29; since then each
 profile's document records its own changes.
 
 Both write the pins of [§1.2](#12-input) and [§1.4](#14-store-inputs), and record checksums when asked to
-(`--checksums`, after the two arguments, in either command).
+(`--checksums`, after the two arguments, in either command). Both read under the defaults of
+[spec/refkv.md §6.7](refkv.md#67-reader-policy)'s reader policy, so they refuse loopback,
+private, link-local and special hosts, and requests through a proxy, unless the application
+allows private hosts or unchecked proxies (the same settings, and `--allow-private-hosts` on
+their command lines).
 
 `conformance/zarrify/compare.py` runs implementations on a corpus and
 compares their outputs by [§1.1](#11-output-and-equivalence) (`conformance/zarrify/HARNESS.md`
