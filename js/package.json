@@ -2,7 +2,7 @@
   "name": "refkv",
   "private": true,
   "type": "module",
-  "description": "refkv in the browser: a service worker that serves vzip archives, and zarrified TIFFs, as plain HTTP Zarr",
+  "description": "refkv in the browser: a service worker that serves vzip archives, and the image files and stores it zarrifies, as plain HTTP Zarr",
   "imports": {
     "#net": {
       "node": "./src/net_node.ts",

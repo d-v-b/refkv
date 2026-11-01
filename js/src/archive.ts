@@ -18,6 +18,10 @@ import {
 import { getScheme, resolveReference } from "./uri.ts";
 import { CONCAT_ID, RANGE_ID, SOURCES_KEY } from "./writer.ts";
 
+/**
+ * The six classes of error (spec §6.4 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#64-errors>),
+ * by the names readers report them by.
+ */
 export type ErrorClass =
   | "archive"
   | "entry"
@@ -26,7 +30,16 @@ export type ErrorClass =
   | "resolution"
   | "request";
 
+/**
+ * An error of one of the six classes of spec §6.4
+ * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#64-errors>: `Archive.open` throws an
+ * "archive" error, and `Archive.read` the others: "entry" and "body" for a key's own entry,
+ * "payload" for a malformed reference, "resolution" for a range it cannot resolve (its source, a
+ * pin that fails, a URL the policy refuses, or a request that fails), and "request" for an invalid
+ * range or a resource limit. Its message starts `refkv <class> error: `.
+ */
 export class RefkvError extends Error {
+  /** The error's class, as spec §6.5 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#65-error-reporting> has readers report it. */
   errorClass: ErrorClass;
   /**
    * Whether a source is not the one the archive pins (spec §5.1
@@ -342,6 +355,11 @@ function parseExtra(extra: Uint8Array, view: DataView, base: number) {
   return blocks;
 }
 
+/**
+ * A vzip archive (spec/bindings/vzip.md), opened from the bytes of its tail by `Archive.open`:
+ * its source table and its entries, whose values `read` gives, resolving references under the
+ * archive's reader policy. An archive never changes once opened.
+ */
 export class Archive {
   bytes: Uint8Array;
   baseUrl: string;
@@ -384,8 +402,10 @@ export class Archive {
    * relative `url` sources.
    * `policy` (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)
    * defaults to `DEFAULT_POLICY`, which allows http(s)
-   * sources on public hosts, and for a local archive also `file` sources and
-   * loopback and private hosts.
+   * sources on public hosts, and for a local archive (a `file:` `baseUrl`) also `file`
+   * sources. Loopback and private hosts are refused for every archive, local or not,
+   * unless the policy has `allowPrivateHosts: true`. Throws a `RefkvError` of class
+   * "archive" for an archive opening refuses.
    */
   static async open(
     bytes: Uint8Array,

@@ -3,12 +3,14 @@
 import { ARCHIVE_KEY, encodeId, PENDING_HEADER } from "./server.ts";
 
 /**
- * Registers the service worker and waits until it controls this page.
- * Returns the URL prefix it serves (`<scope>vz/`).
+ * Registers the service worker at `scriptUrl` (relative to this page) and waits until it controls
+ * this page. Returns the URL prefix it serves (`<scope>vz/`).
  *
  * Another worker may control the page at first, for example one registered
  * with a broader scope. Until this worker takes over, requests under the
- * prefix would bypass it, so this waits for this worker specifically.
+ * prefix would bypass it, so this waits for this worker specifically, for at most
+ * `timeoutMs` milliseconds: past it, the promise rejects with an Error that says to reload
+ * the page. It also rejects when the registration fails.
  */
 export async function registerVzipWorker(
   scriptUrl: string | URL = "vzip-sw.js",
@@ -55,7 +57,11 @@ export async function fetchWorker(url: string, init?: RequestInit): Promise<Resp
   }
 }
 
-/** The Zarr URL of the zarrified TIFF or ND2 file at `url` (a directory URL, ending in "/"). */
+/**
+ * The Zarr URL (a directory URL, ending in "/") of the file at `url`, of any format of
+ * docs/zarrify/README.md, zarrified; or of the store at `url`, if it ends in "/" (an N5, Zarr v2
+ * or OME-Zarr 0.4 store, or a Sentinel-2 .SAFE directory).
+ */
 export function imageZarrUrl(prefix: string, url: string): string {
   return `${prefix}image/${encodeId(new URL(url).href)}/`;
 }

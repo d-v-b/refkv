@@ -305,6 +305,11 @@ class Transport(Protocol):
 
 
 def open_transport(location: str, policy: Policy | None = None) -> FileTransport | HttpTransport:
+    """The transport of the source at `location`: an `HttpTransport` for an http(s) URL, read
+    under the reader policy `policy` (default `Policy()`), which requests its first bytes now;
+    otherwise a `FileTransport`, the local file at that path mapped into memory. Raises
+    `refkv.errors.ResolutionError` when the policy refuses the URL, `FileNotFoundError` for a
+    path that does not exist, and `OSError` when the first bytes cannot be read."""
     if location.startswith(("http://", "https://")):
         return HttpTransport(location, policy)
     return FileTransport(location)
@@ -349,7 +354,11 @@ async def drive_async(run: _core.Run, transport: Transport, conc: int | None = N
     blocking the event loop: the transport's reads, which block, and the run's calls into the
     Rust core run on threads of the run's own (`conc` of them, so that the runs on one loop do
     not wait on each other's threads). A batch's requests are completed once all have
-    answered, in order."""
+    answered, in order. `conc` is as `concurrency` reads it: a local file is always read 4 at a
+    time, whatever `conc` is.
+
+    Raises `refkv.zarrify.Rejected` when the run rejects the input, and whatever the
+    transport's reads raise (`OSError`, `refkv.errors.ResolutionError`)."""
     conc = concurrency(transport, conc)
     loop = asyncio.get_running_loop()
     pool = ThreadPoolExecutor(conc, thread_name_prefix="refkv-read")
