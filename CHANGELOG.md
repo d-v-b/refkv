@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.3.0](https://github.com/d-v-b/refkv/compare/v0.2.0...v0.3.0) (2026-11-01)
+
+
+### Features
+
+* **demo:** highlight the Python script's syntax with highlight.js ([#176](https://github.com/d-v-b/refkv/issues/176)) ([7a7f8be](https://github.com/d-v-b/refkv/commit/7a7f8bee8e116678d5c0e204cc8e47459cde40f1))
+* **demo:** show the result above the examples, and say why a read failed ([#181](https://github.com/d-v-b/refkv/issues/181)) ([20f46c9](https://github.com/d-v-b/refkv/commit/20f46c9580c7515f5a81899f1b4c06855b5a27fc))
+* **js:** save the archives the demo's worker zarrifies in Cache Storage ([#180](https://github.com/d-v-b/refkv/issues/180)) ([ba8970e](https://github.com/d-v-b/refkv/commit/ba8970e1e59d4edd3f06bc45d056f954fa7beb67))
+* **safetensors:** zarrify safetensors files, each tensor a Zarr array ([#186](https://github.com/d-v-b/refkv/issues/186)) ([743764c](https://github.com/d-v-b/refkv/commit/743764ca74bc6554dc0e74f4f3805e372d07e5ee))
+
+
+### Bug fixes
+
+* **js:** answer a zarrify that outlasts a minute as pending, so the page asks again ([#178](https://github.com/d-v-b/refkv/issues/178)) ([d2fb777](https://github.com/d-v-b/refkv/commit/d2fb777fa3bccfa8c8fe931a73e29741d76468df))
+* **spec:** restore the npy schema's offset description in its source, and check schemas are current ([#187](https://github.com/d-v-b/refkv/issues/187)) ([54d72de](https://github.com/d-v-b/refkv/commit/54d72de6b61c2eadabe889f6590b881760b59514))
+* **vzip:** check the source table before VZipWriter.close writes, and fill the API docs' gaps ([#184](https://github.com/d-v-b/refkv/issues/184)) ([04cec13](https://github.com/d-v-b/refkv/commit/04cec13fbb5aade5ff2e1b2661bd1ce948b177ed))
+
+
+### Documentation
+
+* install refkv from PyPI, and bring the docs up to the release and the worker ([#182](https://github.com/d-v-b/refkv/issues/182)) ([640dcc2](https://github.com/d-v-b/refkv/commit/640dcc26755fb4603b4c729a933e26a06c20603e))
+* **readme:** lead with zarrifying a file, and read its result back ([#183](https://github.com/d-v-b/refkv/issues/183)) ([7fffa1c](https://github.com/d-v-b/refkv/commit/7fffa1c2ce4034dc86bc00bf3c6f8916aab647d7))
+* **readme:** link the live demo under the introduction ([#179](https://github.com/d-v-b/refkv/issues/179)) ([7fb7973](https://github.com/d-v-b/refkv/commit/7fb79736da870a6b0aad0c74754a444c67cdb27d))
+
 ## [0.2.0](https://github.com/d-v-b/refkv/compare/v0.1.0...v0.2.0) (2026-10-31)
 
 
