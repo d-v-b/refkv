@@ -380,10 +380,10 @@ impl Source {
 
 /// The source table and the revision of spec/refkv.md it records (spec/refkv.md §5
 /// <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>).
-pub fn encode_source_table(sources: &[Source], revision: Option<u32>) -> Vec<u8> {
+pub fn encode_source_table<S: std::borrow::Borrow<Source>>(sources: impl IntoIterator<Item = S>, revision: Option<u32>) -> Vec<u8> {
     let mut out = Vec::new();
     for s in sources {
-        put_bytes(&mut out, 1, &s.encode());
+        put_bytes(&mut out, 1, &s.borrow().encode());
     }
     if let Some(r) = revision {
         put_optional(&mut out, 2, r as u64);
