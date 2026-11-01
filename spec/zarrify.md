@@ -67,6 +67,7 @@ The table, generated from the registry, lists them:
 | [OME-Zarr](zarrify/ome-zarr.md#part-2-the-profile) | store | OME-Zarr 0.4 hierarchies on Zarr v2, migrated to OME-Zarr 0.5 |
 | [QPTIFF](zarrify/qptiff.md#part-2-the-profile) | file | Akoya (PerkinElmer) Vectra QPTIFF slides and inForm component data, a TIFF with an XML description per image, in LZW, JPEG or uncompressed tiles or strips |
 | [Sentinel-2 SAFE](zarrify/safe.md#part-2-the-profile) | file or store | Sentinel-2 Level-1C and Level-2A products: a `.SAFE` directory (a store) or a `.SAFE.zip` file |
+| [safetensors](zarrify/safetensors.md#part-2-the-profile) | file | safetensors files of a model's tensors (`model.safetensors`), in every data type the library defines, `BF16`, `F8_*`, `F4` and `F6_*` included |
 | [TIFF](zarrify/tiff.md#part-2-the-profile) | file | TIFF and BigTIFF, including OME-TIFF and JPEG-tiled slides such as Aperio SVS |
 | [VSI](zarrify/vsi.md#part-2-the-profile) | file | Olympus cellSens VSI slides: a `.vsi` file and the tile files beside it, probed by key (uncompressed, JPEG, JPEG 2000 and lossless JPEG tiles) |
 | [Zarr v2](zarrify/zarr2.md#part-2-the-profile) | store | Zarr v2 hierarchies |
@@ -231,6 +232,7 @@ profile name:
 | NumPy ([npy.md §8](zarrify/npy.md#8-numpy-profile)) | 75 |
 | NRRD ([nrrd.md §8](zarrify/nrrd.md#8-nrrd-profile)) | 95 |
 | Sentinel-2 SAFE ([safe.md §8](zarrify/safe.md#8-safe-profile)) | 80 |
+| safetensors ([safetensors.md §8](zarrify/safetensors.md#8-safetensors-profile)) | 35 |
 | TIFF ([tiff.md §7](zarrify/tiff.md#7-tiff-profile)) | 40 |
 | VSI ([vsi.md §9](zarrify/vsi.md#9-vsi-profile)) | 30 |
 <!-- /profiles -->
@@ -822,6 +824,7 @@ else. The profiles, generated from the registry:
 - the OME-Zarr profile: [spec/zarrify/ome-zarr.md §11](zarrify/ome-zarr.md#11-ome-zarr-profile);
 - the QPTIFF profile: [spec/zarrify/qptiff.md §7](zarrify/qptiff.md#7-qptiff-profile);
 - the SAFE profile: [spec/zarrify/safe.md §8](zarrify/safe.md#8-safe-profile);
+- the safetensors profile: [spec/zarrify/safetensors.md §8](zarrify/safetensors.md#8-safetensors-profile);
 - the TIFF profile: [spec/zarrify/tiff.md §7](zarrify/tiff.md#7-tiff-profile);
 - the VSI profile: [spec/zarrify/vsi.md §9](zarrify/vsi.md#9-vsi-profile);
 - the Zarr v2 profile: [spec/zarrify/zarr2.md §7](zarrify/zarr2.md#7-zarr-v2-profile).

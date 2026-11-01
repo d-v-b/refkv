@@ -88,6 +88,7 @@ dependencies = [
  "hayro-jpeg2000",
  "libm",
  "miniz_oxide",
+ "serde",
  "serde_json",
 ]
 

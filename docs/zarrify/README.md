@@ -39,6 +39,7 @@ who each one is for, what you get, and how to run it.
 | OME-Zarr | OME-Zarr 0.4 hierarchies, migrated to OME-Zarr 0.5 in place | [ome-zarr](ome-zarr/README.md) | [ome-zarr.md §11](../../spec/zarrify/ome-zarr.md#11-ome-zarr-profile) |
 | QPTIFF | Akoya (PerkinElmer) Vectra multiplex scans and inForm component data | [qptiff](qptiff/README.md) | [qptiff.md §7](../../spec/zarrify/qptiff.md#7-qptiff-profile) |
 | Sentinel-2 SAFE | Sentinel-2 Level-1C and Level-2A products, as a `.SAFE` directory or a `.SAFE.zip` | [safe](safe/README.md) | [safe.md §8](../../spec/zarrify/safe.md#8-safe-profile) |
+| safetensors | machine learning model weights in safetensors files (`.safetensors`), each tensor an array | [safetensors](safetensors/README.md) | [safetensors.md §8](../../spec/zarrify/safetensors.md#8-safetensors-profile) |
 | TIFF | OME-TIFF, plain TIFF (tiled or in strips), and JPEG-tiled slides such as Aperio SVS | [tiff](tiff/README.md) | [tiff.md §7](../../spec/zarrify/tiff.md#7-tiff-profile) |
 | VSI | Olympus cellSens whole-slide images (`.vsi` with its tile files) | [vsi](vsi/README.md) | [vsi.md §9](../../spec/zarrify/vsi.md#9-vsi-profile) |
 | Zarr v2 | Zarr v2 hierarchies on S3 | [zarr2](zarr2/README.md) | [zarr2.md §7](../../spec/zarrify/zarr2.md#7-zarr-v2-profile) |
@@ -372,6 +373,11 @@ each format's metadata is:
   the archive. The root keeps the stream's parameters, STREAMINFO (with its
   MD5), the Vorbis comments, the cue sheet, the pictures' fields and the tags'
   fields; each picture's data is an array of bytes under `pictures`.
+- **safetensors:** the IR mirror on `refkv_source`: the header length, the
+  header with its padding, and every tensor's data, so that the file is rebuilt
+  from the archive. The root keeps the header's length, its `__metadata__`
+  members, and every tensor (its name, `dtype`, shape, `data_offsets` and any
+  other member of its entry), with its path or the reason it is not presented.
 - **N5, Zarr v2 and OME-Zarr:** each node's own attributes and the layout
   members its `zarr.json` does not reproduce, on the node, as
   `{"attributes": ..., "metadata": ...}` (with `"unversioned"` for an
