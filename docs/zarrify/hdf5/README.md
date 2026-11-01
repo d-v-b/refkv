@@ -72,8 +72,7 @@ lists them.
 
 [example.py](example.py) zarrifies an NWB file of the DANDI Archive, opens it with
 `NWBZarrIO`, and plots eight ROIs' traces. Its dependencies are in its header
-(PEP 723), so it runs on its own (uv builds refkv from GitHub, which needs a
-Rust toolchain, until a release on PyPI has `refkv.zarrify`):
+(PEP 723), so it runs on its own, with refkv from PyPI:
 
 ```bash
 uv run docs/zarrify/hdf5/example.py

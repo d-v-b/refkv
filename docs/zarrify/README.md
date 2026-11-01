@@ -55,8 +55,8 @@ read beside it by name. MP3 and FLAC are not images: their archives hold a
 plain Zarr array of audio samples, decoded from the file's frames when a
 chunk is read ([mp3](mp3/README.md), [flac](flac/README.md)).
 
-SAFE and CZI have no user-story page yet; their conventions describe the
-output. A Sentinel-2 product becomes a GeoZarr hierarchy (one group per
+The SAFE and CZI pages are stubs so far, with what the browser reads and an
+example script but no account of the output; their conventions describe it. A Sentinel-2 product becomes a GeoZarr hierarchy (one group per
 resolution, one array per band, one chunk per JPEG 2000 tile, with the
 zarr-conventions `proj` and `spatial` metadata) rather than OME-Zarr, and
 keeps every file of the product. A CZI file becomes a bioformats2raw layout
@@ -78,19 +78,21 @@ be measured again.
 
 ## Two ways to run it
 
-**The Python command line.** From a clone of this repository, after
-`uv sync`:
+**The Python command line.** `pip install refkv` installs the `refkv` command
+([installing](../README.md#installing)):
 
 ```bash
-uv run refkv zarrify <url or path> out.vzip
-# or
-just zarrify <url or path> out.vzip
+refkv zarrify <url or path> out.vzip
 ```
+
+In a clone of this repository, after `uv sync`, `uv run refkv zarrify <url or
+path> out.vzip` or `just zarrify <url or path> out.vzip` runs the clone's code.
 
 Every format is zarrified by refkv's Rust core,
 [rust/refkv-ir](../../rust/refkv-ir/), part of the refkv
-distribution: installing refkv (`pip install`, or `uv sync` in a clone) builds
-it into the Python module `refkv._core`, which needs a Rust toolchain. The core parses the file into an intermediate representation (IR),
+distribution: the wheels on PyPI hold it as the Python module `refkv._core`
+(a build from source, `uv sync` in a clone included, compiles it, which needs
+a Rust toolchain). The core parses the file into an intermediate representation (IR),
 plans the range requests, projects the IR onto the format's convention, and
 writes the source's IR mirror ([below](#the-sources-metadata-and-where-it-came-from-refkv_zarrified)).
 
@@ -136,7 +138,7 @@ Policy`). A local file or directory needs neither.
 Read the archive in Python with `refkv.zarr` and zarr-python
 (`pip install 'refkv[zarr]'`, or `refkv[images]` for the JPEG, JPEG 2000,
 JPEG XR and LZW decoders and TIFF's horizontal predictor). zarr-python finds the codecs that some formats need by
-the names the archive gives: refkv's own (`refkv.stream`, `refkv.fits_tiles`,
+the names the archive gives: refkv's own (`refkv.stream`, `refkv.grib`, `refkv.fits_tiles`,
 `refkv.tiff_lzw`, `refkv.skip`, and `n5_default`) through refkv's `zarr.codecs` entry points,
 with no `import refkv.zarr` in your code (zarr imports the codec modules, which are
 under `refkv.zarr`, itself), imagecodecs-zarr's (`imagecodecs_jpeg`,
@@ -178,9 +180,13 @@ store.save("CMU-1-Small-Region.vzip")
 keyword arguments: `url` (the URL the archive names the source by),
 `checksums`, `policy`, `connections`, `byte_cost` (in seconds per byte, not
 per MB) and `workers`. It raises `refkv.zarrify.Rejected` when no profile
-accepts the input. The store reads its sources under the `policy` it was
+accepts the input, `refkv.errors.ResolutionError` when the reader policy
+refuses the input or a source (such as a URL on a private host), and `OSError`
+when the input cannot be read (`FileNotFoundError` for a missing local file,
+an HTTP error status, or a host that cannot be reached). The store reads its sources under the `policy` it was
 given. `save` checks the sources against the policy the archive's readers will
-use, `Policy()` unless it is given one, so for sources on a private host pass
+use, `Policy()` unless it is given one, and raises `ResolutionError` for a
+source a reader under it could not read, so for sources on a private host pass
 that one too: `store.save(path, policy=policy)`.
 
 **Naming the input's format.** Given a string, `zarrify` decides what the input
@@ -273,7 +279,12 @@ Two limits apply:
   raw.githubusercontent.com, OpenOrganelle's S3 bucket and the IDR's Embassy
   S3 do; openslide.cs.cmu.edu, downloads.openmicroscopy.org and the NCI
   Imaging Data Commons bucket on storage.googleapis.com do not, so their
-  files can be zarrified only with the command line.
+  files can be zarrified only from Python. When a read fails, the demo says
+  why, where the browser can tell: the host does not allow this site to read
+  it (CORS), it cannot be reached, or it is an `http://` URL read from the
+  `https://` page (mixed content). The page also shows, for every input, a
+  Python script (PEP 723, for `uv run`) that builds the same hierarchy with
+  refkv, which CORS does not restrict.
 
 The browser code also runs under Node:
 `node js/conformance/zarrify.ts <url> out.vzip [--checksums]
@@ -293,7 +304,7 @@ format has a [Zarr convention](https://github.com/zarr-conventions/zarr-conventi
 of its own, specified in [spec/conventions.md](../../spec/conventions.md): the
 hierarchy's whole Zarr layout, and the translation of the source's header
 into JSON. Every output's root records, under the key `refkv_zarrified`,
-the format, the convention's version and the source. The nodes also hold what the source says about
+the profile, the convention's version and the source. The nodes also hold what the source says about
 them, under the same key. Metadata that is large, or that grows with the
 data, is on the group `refkv_source`, a child of the root that OME-NGFF
 readers ignore and whose documents are fetched only when it is opened. Where
@@ -384,11 +395,11 @@ NIFTI-1 Image {'slope': 0.003921568859368563, 'inter': 0.0}
 ```
 
 The record stays with the hierarchy if it is copied out of the archive. The
-format and version name the rules that produced it, so it
-can be regenerated from the source and checked. Until refkv's first release,
+profile and version name the rules that produced it, so it
+can be regenerated from the source and checked. Until refkv 1.0,
 every convention is at version 0 and promises nothing: any change may
-change a layout. From the
-release, conventions start at version 1, and a convention's version increases
+change a layout, in a 0.x release too. From
+1.0, conventions start at version 1, and a convention's version increases
 only when its layout changes for some source
 ([conventions §1](../../spec/conventions.md#1-conventions)).
 The record names the source by its URL only; the archive's source table
