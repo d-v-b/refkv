@@ -432,7 +432,7 @@ class Ref:
     candidates: list[Heading] = field(default_factory=list)
 
 
-CODE_SPAN = re.compile(r"(`+)(?!`).+?(?<!`)\1(?!`)", re.S)
+CODE_SPAN = re.compile(r"(`+)(?!`).+?(?<!`)\1(?!`)", re.DOTALL)
 
 
 def blank_code_spans(text: str) -> str:

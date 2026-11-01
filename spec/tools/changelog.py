@@ -15,6 +15,7 @@ profile's normative text records itself.
 from __future__ import annotations
 
 import argparse
+import itertools
 import re
 import subprocess
 import sys
@@ -27,7 +28,7 @@ DOCS = ROOT / "spec" / "zarrify"
 CHANGED = re.compile(r"Changed (\d{4}-\d{2}-\d{2})(?:, [^:]+)?: \S")
 ADDED = re.compile(r"Added (\d{4}-\d{2}-\d{2})\.")
 HISTORY = "Changes before 2026-10-22 are recorded in"
-GENERATED = re.compile(r"<!-- profiles:[\w-]+ -->.*?<!-- /profiles -->", re.S)
+GENERATED = re.compile(r"<!-- profiles:[\w-]+ -->.*?<!-- /profiles -->", re.DOTALL)
 
 
 @dataclass
@@ -62,7 +63,7 @@ def changelog(text: str) -> Changelog | None:
     entries, start, end = [], paras[0][1], paras[0][1]
     for a, b in paras[1:]:
         p = " ".join(line.strip() for line in lines[a:b])
-        if not (p.startswith(("Changed ", "Added ")) or p.startswith(HISTORY)):
+        if not p.startswith(("Changed ", "Added ", HISTORY)):
             break
         entries.append(p)
         end = b
@@ -86,7 +87,7 @@ def problems_of(name: str, text: str) -> list[str]:
         if not e.endswith("."):
             out.append(f"{name}: the entry of {m.group(1)} does not end in a period")
         dates.append(m.group(1))
-    if any(a < b for a, b in zip(dates, dates[1:], strict=False)):
+    if any(a < b for a, b in itertools.pairwise(dates)):
         out.append(f"{name}: the entries are not newest first")
     m = ADDED.fullmatch(last)
     if m is None and not last.startswith(HISTORY):

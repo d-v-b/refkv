@@ -38,8 +38,8 @@ def test_changelogs_that_are_well_formed():
     ],
 )
 def test_a_malformed_changelog(text, problem):
-    found = changelog.problems_of("x.md", text)
-    assert len(found) == 1 and problem in found[0], found
+    (found,) = changelog.problems_of("x.md", text)
+    assert problem in found
 
 
 def test_a_change_its_changelog_does_not_record(tmp_path, monkeypatch):
