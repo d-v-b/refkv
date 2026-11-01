@@ -12,8 +12,9 @@ interface, with its source served beside it), run the conformance CLI on it, and
 NIfTI file and a TIFF, both through the Rust core (refkv._core), which the install
 must have built, and a Zarr v2 store. Each optional part names the extra it needs.
 
-With `zarr`: zarr finds refkv's codecs through refkv's `zarr.codecs` entry points, before
-refkv.zarr is imported, refkv.zarr reads the same archive through zarr, a FITS file's tiles
+With `zarr`: zarr finds refkv's codecs and data types through refkv's `zarr.codecs` and
+`zarr.data_type` entry points, before refkv.zarr is imported, refkv.zarr reads the same archive
+through zarr, a FITS file's tiles and a safetensors file's bfloat16, float8 and float4 tensors
 decode, and the codecs whose decoders need another extra (refkv.tiff_lzw, refkv.stream) and
 the VirtualiZarr conversion name their extras.
 
@@ -172,12 +173,21 @@ with tempfile.TemporaryDirectory() as d:
         assert "refkv.zarr" not in sys.modules
         points = {e.name: e for e in importlib.metadata.distribution("refkv").entry_points
                   if e.group == "zarr.codecs"}
-        assert set(points) == {"n5_default", "refkv.fits_tiles", "refkv.grib", "refkv.skip", "refkv.stream",
-                               "refkv.tiff_lzw"}, points
+        assert set(points) == {"n5_default", "packbits", "refkv.fits_tiles", "refkv.grib", "refkv.skip",
+                               "refkv.stream", "refkv.tiff_lzw"}, points
         for name, point in points.items():
             assert zarr.registry.get_codec_class(name) is point.load(), name
         assert zarr.config.get("codecs.n5_default", None) is None  # zarr-n5's, if installed, is not overridden
         print(f"zarr resolves refkv's codecs: {', '.join(sorted(points))}")
+        # each data type of refkv's entry points (ml_dtypes, which the zarr extra installs), by name
+        from zarr.core.dtype import data_type_registry
+
+        types = {e.name: e for e in importlib.metadata.distribution("refkv").entry_points
+                 if e.group == "zarr.data_type"}
+        data_type_registry._lazy_load()  # as zarr does when it parses a data type
+        for name, point in types.items():
+            assert data_type_registry.get(name) is point.load(), name
+        print(f"zarr resolves refkv's data types: {', '.join(sorted(types))}")
 
         import refkv.zarr
 
@@ -187,6 +197,9 @@ with tempfile.TemporaryDirectory() as d:
         assert ndarray(zarr.open_array(fits, path="1", mode="r")[...]).size > 0
         lzw = refkv.zarr.store(zarrify(str(FIXTURES / "qptiff" / "qptiff_fl_lzw_narrow_eoi.qptiff")))
         expect_import_error("images", lambda: zarr.open_array(lzw, path="0", mode="r")[...])
+        st = refkv.zarr.store(zarrify(str(FIXTURES / "safetensors" / "st_dtypes.safetensors")))
+        for path in ("bf16", "f8_e4m3", "f4"):  # bfloat16, refkv.float8_e4m3fn, and float4_e2m1fn with packbits
+            assert ndarray(zarr.open_array(st, path=path, mode="r")[...]).shape == (2, 4 if path == "f4" else 3)
         mp3 = refkv.zarr.store(zarrify(str(FIXTURES / "mp3" / "mp3_single_frame.mp3")))
         expect_import_error("media", lambda: zarr.open_array(mp3, path="samples", mode="r")[...])
     os.chdir("/")

@@ -180,6 +180,14 @@ class SafeStore(Store):
 
 
 @dataclass(frozen=True)
+class SafetensorsSource(Source):
+    """safetensors (Hugging Face): a file the `safetensors` profile reads, its first bytes
+    untested (`Source` lists its read options)."""
+
+    profile: ClassVar[str] = "safetensors"
+
+
+@dataclass(frozen=True)
 class TiffSource(Source):
     """TIFF, OME-TIFF, Aperio SVS: a file the `tiff` profile reads, its first bytes untested
     (`Source` lists its read options)."""
@@ -226,6 +234,7 @@ CLASSES: dict[str, type[Source | Store]] = {
     "QptiffSource": QptiffSource,
     "SafeSource": SafeSource,
     "SafeStore": SafeStore,
+    "SafetensorsSource": SafetensorsSource,
     "TiffSource": TiffSource,
     "VsiSource": VsiSource,
     "Zarr2Store": Zarr2Store,
@@ -253,6 +262,7 @@ __all__ = [
     "QptiffSource",
     "SafeSource",
     "SafeStore",
+    "SafetensorsSource",
     "TiffSource",
     "VsiSource",
     "Zarr2Store",

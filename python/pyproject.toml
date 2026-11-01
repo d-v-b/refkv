@@ -59,12 +59,31 @@ refkv = "refkv.__main__:main"
 "refkv.stream" = "refkv.zarr.codecs.stream:StreamCodec"
 "refkv.tiff_lzw" = "refkv.zarr.codecs.tiff_lzw:LzwCodec"
 n5_default = "refkv.zarr.codecs.n5_default:N5DefaultCodec"
+packbits = "refkv.zarr.codecs.packbits:PackBitsCodec"
+
+# The data types refkv's archives name that zarr-python does not provide (src/refkv/zarr/dtypes.py):
+# zarr-extensions' bfloat16, float8, float6 and float4 types, and refkv.float8_e4m3fn
+# (spec/zarrify/safetensors.md, its data types: https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#3-data-types),
+# each an ml_dtypes type
+[project.entry-points."zarr.data_type"]
+bfloat16 = "refkv.zarr.dtypes:BFloat16"
+float8_e5m2 = "refkv.zarr.dtypes:Float8E5M2"
+float8_e4m3fnuz = "refkv.zarr.dtypes:Float8E4M3FNUZ"
+float8_e5m2fnuz = "refkv.zarr.dtypes:Float8E5M2FNUZ"
+float8_e8m0fnu = "refkv.zarr.dtypes:Float8E8M0FNU"
+float4_e2m1fn = "refkv.zarr.dtypes:Float4E2M1FN"
+float6_e2m3fn = "refkv.zarr.dtypes:Float6E2M3FN"
+float6_e3m2fn = "refkv.zarr.dtypes:Float6E3M2FN"
+"refkv.float8_e4m3fn" = "refkv.zarr.dtypes:Float8E4M3FN"
 
 [project.optional-dependencies]
 # refkv.zarr: a reference store as a read-only zarr store, for zarr and xarray, and the codecs
-# of archives of zarrified image files and stores (the entry points above)
+# of archives of zarrified image files and stores (the entry points above), and the data types
+# zarr-python lacks that archives of safetensors files name (bfloat16, float8, float6 and float4),
+# through ml_dtypes (src/refkv/zarr/dtypes.py, the `zarr.data_type` entry points below)
 zarr = [
     "zarr>=3.4.0",
+    "ml-dtypes>=0.6.0",
 ]
 # the image codecs: imagecodecs-zarr's JPEG, JPEG 2000 and JPEG XR codecs and its delta codec
 # (a TIFF's horizontal predictor), which refkv's archives name, and imagecodecs' LZW decoder,
