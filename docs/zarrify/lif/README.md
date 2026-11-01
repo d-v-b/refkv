@@ -61,8 +61,7 @@ says so.
 
 [example.py](example.py) zarrifies a public file and plots it with matplotlib: a tile scan's
 four tiles, each drawn at its stage position, beside the image LAS X merged from them. Its
-dependencies are in its header (PEP 723), so it runs on its own (uv builds refkv from GitHub,
-which needs a Rust toolchain, until a release on PyPI has `refkv.zarrify`):
+dependencies are in its header (PEP 723), so it runs on its own, with refkv from PyPI:
 
 ```bash
 uv run docs/zarrify/lif/example.py
@@ -106,6 +105,24 @@ TileScan_001 (tile 1)
 
 These are liffile's values (`LifFile(path).images[0].asarray()[1, 1, 2, 0, 40,
 30:36]`, whose axes are T, M, Z, C, Y, X as the file stores them).
+
+## Supported and not supported
+
+Supported:
+
+- LIF files with their XML header and memory blocks, every image of the file's tree, tile
+  scans (each tile an image) and other field dimensions.
+- Every bit depth the XML describes in whole bytes, as `uint8` to `uint64`, and `float16` to
+  `float64`; planar and interleaved (RGB) channels.
+
+Rejected:
+
+- LOF and LIFEXT files; XLEF, XLIF and XLCF projects are not LIF files and match no format.
+- Bit-packed data, other data types, an image whose channels differ in type, and channels that
+  are neither planar nor interleaved
+  ([spec §7.6](../../../spec/zarrify/lif.md#76-decisions)).
+
+Kept but not presented: FLIM raw data, whose blocks are in the IR mirror.
 
 ## Checked against
 

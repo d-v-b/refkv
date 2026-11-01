@@ -1,9 +1,6 @@
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["refkv[zarr]", "matplotlib"]
-#
-# [tool.uv.sources]
-# refkv = { git = "https://github.com/d-v-b/refkv", subdirectory = "python" }
+# dependencies = ["refkv[zarr]>=0.2.0", "matplotlib"]
 # ///
 """An archive of two arrays, saved by `np.savez` and zarrified without copying it: refkv reads the
 archive's structure and presents each member as a Zarr array, each chunk a reference to the file's
