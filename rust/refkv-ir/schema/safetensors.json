@@ -1,0 +1,110 @@
+{
+  "source_model": "safetensors",
+  "version": 1,
+  "about": "The source model of a safetensors file (spec/zarrify/safetensors.md §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#53-elements>): the elements a parser emits, the table of data types, and the roles the file, its length, its header and its tensors play, each with the constraints the input must meet (spec/zarrify/safetensors.md §8.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#82-checks>). The parser checks them in this order. Projections read a valid IR and check nothing.",
+  "limits": {
+    "max_safe": 9007199254740991,
+    "max_header": 100000000,
+    "first_read": 65536
+  },
+  "tables": {
+    "types": {
+      "about": "a dtype's bits and Zarr data type (spec/zarrify/safetensors.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#3-data-types>): every Dtype of the safetensors library",
+      "BOOL": {"dtype": "bool", "bits": 8, "fill": false},
+      "U8": {"dtype": "uint8", "bits": 8, "fill": 0},
+      "I8": {"dtype": "int8", "bits": 8, "fill": 0},
+      "U16": {"dtype": "uint16", "bits": 16, "fill": 0},
+      "I16": {"dtype": "int16", "bits": 16, "fill": 0},
+      "U32": {"dtype": "uint32", "bits": 32, "fill": 0},
+      "I32": {"dtype": "int32", "bits": 32, "fill": 0},
+      "U64": {"dtype": "uint64", "bits": 64, "fill": 0},
+      "I64": {"dtype": "int64", "bits": 64, "fill": 0},
+      "F16": {"dtype": "float16", "bits": 16, "fill": 0},
+      "F32": {"dtype": "float32", "bits": 32, "fill": 0},
+      "F64": {"dtype": "float64", "bits": 64, "fill": 0},
+      "C64": {"dtype": "complex64", "bits": 64, "fill": [0, 0]},
+      "BF16": {"dtype": "bfloat16", "bits": 16, "fill": 0},
+      "F8_E5M2": {"dtype": "float8_e5m2", "bits": 8, "fill": 0},
+      "F8_E4M3": {"dtype": "refkv.float8_e4m3fn", "bits": 8, "fill": 0},
+      "F8_E4M3FNUZ": {"dtype": "float8_e4m3fnuz", "bits": 8, "fill": 0},
+      "F8_E5M2FNUZ": {"dtype": "float8_e5m2fnuz", "bits": 8, "fill": 0},
+      "F8_E8M0": {"dtype": "float8_e8m0fnu", "bits": 8, "fill": "NaN"},
+      "F4": {"dtype": "float4_e2m1fn", "bits": 4, "fill": 0},
+      "F6_E2M3": {"dtype": "float6_e2m3fn", "bits": 6, "fill": 0},
+      "F6_E3M2": {"dtype": "float6_e3m2fn", "bits": 6, "fill": 0}
+    }
+  },
+  "elements": {
+    "about": "The IR of a safetensors file. N is the header's length, B a tensor's data's.",
+    "length": {"kind": "value", "type": "<u8", "extent": "(0, 8)"},
+    "header": {"kind": "value", "type": "ascii[N]", "extent": "(8, N), when N > 0"},
+    "tensors/<i>": {"kind": "data", "form": "{geometry: {data_type, shape, bits}, codec: {endian}, recipe: [[src, 0, null]]}", "extent": "(8 + N + begin, B), the header's tensor i, when B > 0"}
+  },
+  "roles": {
+    "length": {
+      "given": {"size": "the file's bytes"},
+      "constraints": [
+        {"require": "size >= 8", "message": "too short for a safetensors file: {size} bytes, fewer than the 8 of its header's length"}
+      ]
+    },
+    "header": {
+      "given": {"length": "N", "size": "the file's bytes"},
+      "constraints": [
+        {"require": "length <= max_header", "message": "the safetensors header's length {length} is more than the {max_header} bytes the safetensors library reads"},
+        {"require": "8 + length <= size", "message": "the {length}-byte safetensors header is outside the {size}-byte file"}
+      ]
+    },
+    "text": {
+      "given": {"utf8": "the header is UTF-8", "brace": "its first byte is {"},
+      "constraints": [
+        {"require": "utf8", "message": "the safetensors header is not UTF-8"},
+        {"require": "brace", "message": "the safetensors header does not start with an opening brace"}
+      ]
+    },
+    "json": {
+      "given": {"problem": "why the header is not JSON without a repeated member, or absent (a header that starts with { and is JSON is an object)"},
+      "constraints": [
+        {"require": "!present(problem)", "message": "the safetensors header is not JSON: {problem}"}
+      ]
+    },
+    "metadata": {
+      "given": {"strings": "__metadata__ is an object of string values"},
+      "constraints": [
+        {"require": "strings", "message": "the safetensors header's __metadata__ is not an object of strings"}
+      ]
+    },
+    "entry": {
+      "given": {"name": "the tensor's name, shortened to 200 characters", "problem": "what is wrong with its entry, or absent"},
+      "constraints": [
+        {"require": "!present(problem)", "message": "the safetensors header's entry for the tensor {name} {problem}"}
+      ]
+    },
+    "data_type": {
+      "given": {"name": "the tensor's name, shortened", "dtype": "its entry's dtype", "known": "dtype is a row of the types table"},
+      "constraints": [
+        {"require": "known", "message": "the tensor {name} has the data type {dtype}, which safetensors does not define"}
+      ]
+    },
+    "offsets": {
+      "given": {"name": "the tensor's name, shortened", "begin": "", "end": "", "start": "the previous tensor's end, in data_offsets order (0 for the first)"},
+      "constraints": [
+        {"require": "end >= begin", "message": "the tensor {name}'s data_offsets [{begin}, {end}] end before they begin"},
+        {"require": "begin >= start", "message": "the tensor {name}'s data, at [{begin}, {end}) of the buffer, overlaps the data before it, which ends at {start}"},
+        {"require": "begin <= start", "message": "the tensor {name}'s data, at [{begin}, {end}) of the buffer, leaves the bytes [{start}, {begin}) to no tensor"}
+      ]
+    },
+    "size": {
+      "given": {"name": "the tensor's name, shortened", "dtype": "", "shape": "its shape, as [a, b, ...]", "whole": "e * k is a multiple of 8", "bits": "e * k in decimal", "same": "end - begin = e * k / 8, exactly", "bytes": "e * k / 8 in decimal", "length": "end - begin"},
+      "constraints": [
+        {"require": "whole", "message": "the tensor {name} of shape {shape} and data type {dtype} is {bits} bits, not a whole number of bytes"},
+        {"require": "same", "message": "the tensor {name} of shape {shape} and data type {dtype} is {bytes} bytes, not the {length} its data_offsets give"}
+      ]
+    },
+    "buffer": {
+      "given": {"end": "the last tensor's end in the buffer (0 for none)", "buffer": "size - 8 - N"},
+      "constraints": [
+        {"require": "end == buffer", "message": "the tensors' data ends at byte {end} of the {buffer}-byte buffer, not at its end"}
+      ]
+    }
+  }
+}

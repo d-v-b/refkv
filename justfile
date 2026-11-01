@@ -152,6 +152,18 @@ fixtures-check:
         exit 1
     fi
 
+# Regenerate the conventions' JSON schemas (spec/generate_schemas.py, from spec/source_metadata/)
+# and check that they are the committed ones
+schemas-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    uv run python spec/generate_schemas.py > /dev/null
+    if [ -n "$(git status --porcelain -- spec/zarrify)" ]; then
+        git status --short -- spec/zarrify >&2
+        echo "schemas-check: spec/generate_schemas.py's output differs from the committed schemas" >&2
+        exit 1
+    fi
+
 # Run every format's example, docs/zarrify/<format>/example.py, against this checkout's code and
 # environment (network), each figure saved as <dir>/<format>.png; the scripts' PEP 723 headers
 # are not used (examples-standalone runs the scripts as a user does)

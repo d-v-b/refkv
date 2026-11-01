@@ -1,0 +1,16 @@
+{
+  "name": "safetensors",
+  "title": "safetensors",
+  "uuid": "15e7ce39-d4ca-4514-8144-6e19d2a0341b",
+  "version": 0,
+  "kind": "file",
+  "sniff": 35,
+  "chosen_by": null,
+  "suffixes": [
+    ".safetensors"
+  ],
+  "reference": null,
+  "source": "safetensors (Hugging Face)",
+  "inputs": "safetensors files of a model's tensors (`model.safetensors`), in every data type the library defines, `BF16`, `F8_*`, `F4` and `F6_*` included",
+  "for": "machine learning model weights in safetensors files (`.safetensors`), each tensor an array"
+}
