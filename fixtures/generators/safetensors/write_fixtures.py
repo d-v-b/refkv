@@ -135,7 +135,8 @@ def write(name: str, b: bytes) -> None:
 def main() -> None:
     shutil.rmtree(OUT, ignore_errors=True)
     OUT.mkdir(parents=True)
-    # the spec's example (spec/zarrify/safetensors.md §6)
+    # the spec's example (spec/zarrify/safetensors.md §6
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#6-example>)
     two = {"weight": ("F32", values("F32", (2, 3))), "bias": ("BF16", values("BF16", (3,), 1))}
     write("st_two.safetensors", library(two, {"format": "pt"}))
     # a tensor of every data type the library writes
@@ -150,13 +151,15 @@ def main() -> None:
     write("st_scalar_empty.safetensors", library(small))
     write("st_no_tensors.safetensors", library({}, {"format": "pt"}))
     write("st_empty.safetensors", library({}))
-    # cut into two chunks of rows, the second padded (spec/zarrify/safetensors.md §8.3)
+    # cut into two chunks of rows, the second padded (spec/zarrify/safetensors.md §8.3
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#83-chunks>)
     write("st_chunks.safetensors", library({"w": ("F32", values("F32", (301, 1000)))}))
     # packed: two chunks of 550 rows, each starting on a byte; and 551 rows of 999 elements,
     # whose second chunk would start mid-byte, one chunk
     write("st_packed_chunks.safetensors", library({"w": ("F4", values("F4", (1100, 1000)))}))
     write("st_packed_one.safetensors", hand(*entries([("w", "F4", (1102, 999), None)])))
-    # names: groups, and names that are not paths (spec/zarrify/safetensors.md §4.1)
+    # names: groups, and names that are not paths (spec/zarrify/safetensors.md §4.1
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#41-paths>)
     names = ["a", "a/b", "enc/conv/kernel", "enc/conv/bias", "x//y", "__x", "refkv_source/w", "zarr.json",
              "model.layers.0.weight", "dir/.."]
     write("st_names.safetensors", library({n: ("U8", values("U8", (2,), i)) for i, n in enumerate(names)}))
