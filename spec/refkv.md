@@ -1,6 +1,6 @@
 # refkv: a reference value type for key-value stores
 
-Format version: 0 (**provisional**) · Specification revision: 11.2
+Format version: 0 (**provisional**) · Specification revision: 11.3
 
 ## 1. Introduction
 
@@ -25,10 +25,12 @@ The specification has three parts, in three documents:
   a **draft**: how a store is kept in a single file indexed by a perfect hash,
   a **phkv store**, on its own or inside a vzip archive.
 
-The documents share this introduction, one format version and one
-revision, and number their sections as one specification: Part 2 starts at
+The documents share this introduction and one revision, and number their
+sections as one specification: Part 2 starts at
 [§9](bindings/vzip.md#9-what-the-zip-binding-defines), and Part 3 at
-[§16](bindings/phkv.md#16-what-the-phkv-binding-defines).
+[§16](bindings/phkv.md#16-what-the-phkv-binding-defines). Parts 1 and 2 share
+one format version; Part 3, a draft, is outside its promise
+([§1.3](#13-versioning)).
 
 A binding defines only three things ([§3](#3-bindings)): how a value is
 marked as a reference, where the store's source table is kept, and how keys
@@ -70,8 +72,10 @@ that readers are not required to detect; for those, the results are
 unspecified.
 
 A reader or a writer follows Part 1 and a binding. The specification defines
-one binding, ZIP ([spec/bindings/vzip.md](bindings/vzip.md)), and its
-conformance suite tests vzip archives.
+two bindings: the ZIP binding ([spec/bindings/vzip.md](bindings/vzip.md)),
+which is normative and whose conformance suite tests vzip archives, and the
+perfect-hash binding ([spec/bindings/phkv.md](bindings/phkv.md)), a draft that
+no conformance suite tests yet.
 
 ### 1.3 Versioning
 
@@ -81,6 +85,14 @@ as the magic `vzip/<version>`
 ([§10.4](bindings/vzip.md#104-end-of-central-directory-record-and-archive-comment)). This
 document specifies format version **0**. A format version covers Part 1 and
 the ZIP binding together: a change to either is a change to the format.
+
+The perfect-hash binding (Part 3) is a draft, and its format version is
+outside this section's promise. A phkv store records format version 0 in its
+superblock ([§17.1](bindings/phkv.md#171-superblock)), and that provisional
+version promises nothing yet: any revision may change what a phkv store of
+version 0 is, without a new version, until Part 3 leaves draft. A change to
+Part 3 is not a change to the format of Parts 1 and 2, and does not change
+the format version that a vzip archive records.
 
 - **What a version is:** a format version fixes the meaning of every valid
   store. Readers implement a set of versions and MUST reject a store whose
