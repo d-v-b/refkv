@@ -1,9 +1,6 @@
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["refkv[zarr]", "pynwb>=4.2", "hdmf-zarr>=0.14", "matplotlib"]
-#
-# [tool.uv.sources]
-# refkv = { git = "https://github.com/d-v-b/refkv", subdirectory = "python" }
+# dependencies = ["refkv[zarr]>=0.2.0", "pynwb>=4.2", "hdmf-zarr>=0.14", "matplotlib"]
 # ///
 """An NWB file of the DANDI Archive (dandiset 000054, a two-photon session of 161 ROIs, 81 MB),
 zarrified without copying it: refkv reads the file's HDF5 structure and presents it as Zarr in

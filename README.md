@@ -19,7 +19,7 @@ A `vzip` reader resolves those references before returning bytes to the consumer
 
 The code in this repository exercises the model by writing vzip archives. A
 Rust core **zarrifies** image files and chunked array stores in
-[a dozen formats](docs/zarrify/README.md#formats): it presents each
+[about two dozen formats](docs/zarrify/README.md#formats): it presents each
 as a Zarr hierarchy whose chunks are references to the original bytes,
 without copying them. It runs natively from Python and as WebAssembly in the
 browser.
@@ -27,6 +27,10 @@ browser.
 **[Try the live demo](https://d-v-b.github.io/refkv-demo/image-to-zarr/)**: paste the URL
 of a remote image file or store, and the browser zarrifies it and shows it in Neuroglancer
 (or, for a Sentinel-2 product, on a map).
+
+```bash
+pip install "refkv[images]"   # or refkv[media] for MP3, FLAC and MP4
+```
 
 ```python
 from refkv.zarrify import zarrify
@@ -41,11 +45,13 @@ For netCDF, HDF5 and the other files
 store that xarray opens, through `refkv.zarr` with the `zarr` extra
 ([docs/virtual-datasets.md](docs/virtual-datasets.md) has a runnable example).
 [docs/](docs/README.md) is for users: installing, the live demos, and a page
-per format.
+per format; [python/README.md](python/README.md) lists the extras and the platforms
+with wheels.
 
-Status: experimental, proof of concept, anything can change. There are no
-production users, no release history and no support, and the specification
-can change without regard for existing archives.
+Status: experimental, proof of concept, anything can change. refkv is released
+on [PyPI](https://pypi.org/project/refkv/) as 0.x versions, with no support, and
+until 1.0 the specification and the zarrified layouts can change without regard
+for existing archives.
 
 ## Layout
 

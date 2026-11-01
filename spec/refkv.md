@@ -113,10 +113,10 @@ the ZIP binding together: a change to either is a change to the format.
   format version, which matters while that version is provisional and
   revisions may still change results.
 
-**Releases.** Until refkv's first release, every store is format version 0
-and records its revision as above. The release rule is:
+**Releases.** Until refkv 1.0, every store is format version 0, in the 0.x
+releases too, and records its revision as above. The release rule is:
 
-1. At the first release, the text of this document becomes format version
+1. At refkv 1.0, the text of this document becomes format version
    1, and the commit is tagged `refkv-format-v1` in the specification's
    repository.
 2. After that, every **breaking change** (any change that

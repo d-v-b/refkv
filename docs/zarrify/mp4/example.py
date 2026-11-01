@@ -1,9 +1,6 @@
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["refkv[zarr,media]", "matplotlib"]
-#
-# [tool.uv.sources]
-# refkv = { git = "https://github.com/d-v-b/refkv", subdirectory = "python" }
+# dependencies = ["refkv[zarr,media]>=0.2.0", "matplotlib"]
 # ///
 """SLEAP's test video of two flies (H.264): four pictures, in color from their Y, U and V planes,
 zarrified without copying it: refkv reads the file's structure and presents it as Zarr, each chunk a

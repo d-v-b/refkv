@@ -56,8 +56,7 @@ gives its own archive.
 ## Try it
 
 [example.py](example.py) zarrifies a public file and plots it with matplotlib. Its
-dependencies are in its header (PEP 723), so it runs on its own (uv builds refkv from GitHub,
-which needs a Rust toolchain, until a release on PyPI has `refkv.zarrify`):
+dependencies are in its header (PEP 723), so it runs on its own, with refkv from PyPI:
 
 ```bash
 uv run docs/zarrify/dicom/example.py
@@ -222,6 +221,11 @@ tiles. `python/tests/ir/test_dicom.py` compares the lossless JPEG fixtures'
 pixels, read through zarr-python, with their frames decoded by libjpeg-turbo.
 
 - Profile: [spec/zarrify/dicom.md](../../../spec/zarrify/dicom.md#part-2-the-profile)
-- Python: [python/src/refkv/zarrify/dicom/](../../../python/src/refkv/zarrify/dicom/)
-- Browser: [js/src/zarrify/dicom/](../../../js/src/zarrify/dicom/)
+- Rust core: [rust/refkv-ir/src/dicom/](../../../rust/refkv-ir/src/dicom/)
+  (the parser) and [rust/refkv-ir/src/project/dicom.rs](../../../rust/refkv-ir/src/project/dicom.rs)
+  (the projection)
+- Python host: [python/src/refkv/ir/](../../../python/src/refkv/ir/); browser host:
+  [js/src/zarrify/ir/](../../../js/src/zarrify/ir/)
+- Frozen reference: [conformance/zarrify/reference/refkv_reference/dicom/](../../../conformance/zarrify/reference/refkv_reference/dicom/)
+  and [conformance/zarrify/reference/ts/dicom/](../../../conformance/zarrify/reference/ts/dicom/)
 - Fixtures: [fixtures/dicom/](../../../fixtures/dicom/)

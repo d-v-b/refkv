@@ -1,9 +1,6 @@
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["refkv[zarr,media]", "matplotlib"]
-#
-# [tool.uv.sources]
-# refkv = { git = "https://github.com/d-v-b/refkv", subdirectory = "python" }
+# dependencies = ["refkv[zarr,media]>=0.2.0", "matplotlib"]
 # ///
 """A file of the IETF's FLAC decoder testbench (CC0): five seconds of stereo music and its front
 cover, zarrified without copying it: refkv reads the file's structure and presents it as Zarr, the

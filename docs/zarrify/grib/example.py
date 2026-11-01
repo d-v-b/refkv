@@ -1,9 +1,6 @@
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["refkv[zarr]", "xarray", "matplotlib"]
-#
-# [tool.uv.sources]
-# refkv = { git = "https://github.com/d-v-b/refkv", subdirectory = "python" }
+# dependencies = ["refkv[zarr]>=0.2.0", "xarray", "matplotlib"]
 # ///
 """An HRRR forecast (NOAA, public domain), zarrified from NOAA's bucket without copying it: refkv
 reads each message's header, through the file's index, and presents the fields as xarray
