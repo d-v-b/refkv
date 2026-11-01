@@ -89,6 +89,7 @@ OLD_NAMES = {
     "SPEC.md": "spec",
     "spec/archive.md": "spec",
     "ZARRIFY.md": "spec/zarrify.md",
+    "VIRTUALIZE.md": "spec/zarrify.md",
     "conventions/README.md": "spec/conventions.md",
     "TECHNIQUES.md": "spec/TECHNIQUES.md",
     "ARCHITECTURE.md": "design/ARCHITECTURE.md",
@@ -431,8 +432,18 @@ class Ref:
     candidates: list[Heading] = field(default_factory=list)
 
 
+CODE_SPAN = re.compile(r"(`+)(?!`).+?(?<!`)\1(?!`)", re.S)
+
+
+def blank_code_spans(text: str) -> str:
+    """`text` with each inline code span's characters (its backticks included) replaced by
+    spaces, so that a bracket in code (the interval `[0, size)`) is not read as a link's."""
+    return CODE_SPAN.sub(lambda m: " " * len(m.group(0)), text)
+
+
 def is_linked_md(text: str, start: int, end: int) -> bool:
-    """Whether text[start:end] is in a Markdown link's text."""
+    """Whether text[start:end] is in a Markdown link's text (brackets in code spans aside)."""
+    text = blank_code_spans(text)
     open_ = text.rfind("[", 0, start)
     if open_ < 0 or text.rfind("]", open_, start) >= 0:
         return False
@@ -480,7 +491,7 @@ def fmt_of_path(path: str) -> str | None:
 
 # The default document of a bare reference, by the file it is in: (glob, rule). A
 # rule is "self" (the file's own headings), "fmt" (the document of the file's format,
-# by fmt_of_path, then spec/zarrify.md), "history:<archive|zarrify>" (the
+# by fmt_of_path, then spec/zarrify.md), "history:<archive|virtualize>" (the
 # snapshot of the round, by the file's rN directory), "spec" (the specification's two
 # documents, spec/refkv.md and spec/bindings/vzip.md, numbered as one), or a document.
 CONTEXTS: list[tuple[str, str]] = [
@@ -491,7 +502,7 @@ CONTEXTS: list[tuple[str, str]] = [
     ("spec/zarrify/*.md", "self"),
     ("design/ARCHITECTURE.md", "self"),
     ("design/conformance/archive/**", "history:archive"),
-    ("design/conformance/zarrify/**", "history:zarrify"),
+    ("design/conformance/virtualize/**", "history:virtualize"),
     ("conformance/impls/zarrify/**", "spec/history/virtualize/VIRTUALIZE.r4.md"),
     ("conformance/impls/**", "spec/history/archive/SPEC.r7.md"),
     ("conformance/vzip/**", "spec"),
@@ -551,7 +562,7 @@ def history_doc(path: str, which: str) -> str | None:
     m = re.search(r"/r(\d+)/", path)
     if not m:
         return None
-    name = "SPEC" if which == "archive" else "ZARRIFY"
+    name = "SPEC" if which == "archive" else "VIRTUALIZE"
     doc = f"spec/history/{which}/{name}.r{m.group(1)}.md"
     return doc if (ROOT / doc).is_file() else None
 
@@ -563,17 +574,17 @@ def snapshots(path: str) -> dict[str, str] | None:
     if matches(path, "design/conformance/archive/**") and m:
         spec, harness = f"SPEC.r{m.group(1)}", f"HARNESS.r{m.group(1)}"
         which = "archive"
-    elif matches(path, "design/conformance/zarrify/**") and m:
-        spec, harness, which = f"ZARRIFY.r{m.group(1)}", None, "zarrify"
+    elif matches(path, "design/conformance/virtualize/**") and m:
+        spec, harness, which = f"VIRTUALIZE.r{m.group(1)}", None, "virtualize"
     elif matches(path, "conformance/impls/zarrify/**"):
-        spec, harness, which = "ZARRIFY.r4", None, "zarrify"
+        spec, harness, which = "VIRTUALIZE.r4", None, "virtualize"
     elif matches(path, "conformance/impls/**"):
         spec, harness, which = "SPEC.r7", "HARNESS.r7", "archive"
     else:
         return None
     out = {}
     if (ROOT / f"spec/history/{which}/{spec}.md").is_file():
-        out[f"spec/{which}.md"] = f"spec/history/{which}/{spec}.md"
+        out["spec/archive.md" if which == "archive" else "spec/zarrify.md"] = f"spec/history/{which}/{spec}.md"
         if which == "archive":
             out["spec"] = out["spec/archive.md"]
     if harness and (ROOT / f"spec/history/{which}/{harness}.md").is_file():
@@ -632,7 +643,7 @@ _FORMAT_NAMES: list[str] = sorted({e["title"] for e in REGISTRY}
                        | {e["name"].upper() for e in REGISTRY if re.search(rf"\b{e['name'].upper()}\b", e["title"])},
                        key=len, reverse=True)
 Q_PATH = re.compile(r"(?<![\w/.\-\[])(\[?((?:\.{1,2}/)*[\w.\-]+(?:/[\w.\-]+)*\.md)(?:\]\([^()\s]*\))?)(?:'s)?,?\s*$")
-Q_OLD = re.compile(r"(?<![\w/])(SPEC|ZARRIFY)(?:'s)?\s*$")
+Q_OLD = re.compile(r"(?<![\w/])(SPEC|ZARRIFY|VIRTUALIZE)(?:'s)?\s*$")
 Q_CONVENTIONS = re.compile(r"(?<![\w/\-])(conventions)(?:'s?)?\s*$", re.IGNORECASE)
 Q_CONVENTION = re.compile(r"(?<![\w/\-])(" + _FMT + r"convention)(?:'s)?\s*$", re.IGNORECASE)
 Q_PROFILE = re.compile(r"(?<![\w/\-])(" + _FMT + r"profile)(?:'s)?\s*$", re.IGNORECASE)

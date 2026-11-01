@@ -293,6 +293,13 @@ def test_check_bare_reference(repo):
     assert write(repo, {"python/src/refkv/y.py": "# see §1.1\n"}) == ["python/src/refkv/y.py:1: bare reference '§1.1'"]
 
 
+def test_check_bare_reference_after_code_bracket(repo):
+    """A bracket in a code span (the interval `[0, size)`) opens no link."""
+    assert write(repo, {"spec/new.md": "the bytes `[0, size)` (see §1.2](x.md)\n"}) == [
+        "spec/new.md:1: bare reference '§1.2'"
+    ]
+
+
 def test_check_missing_heading(repo):
     assert write(repo, {"spec/new.md": "[§9](refkv.md#9-nothing)\n"}) == [
         "spec/new.md:1: broken link refkv.md#9-nothing (no heading #9-nothing in spec/refkv.md)"

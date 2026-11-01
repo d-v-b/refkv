@@ -1,7 +1,7 @@
-# Notes on ZARRIFY.md (revision 4) from the Python stdlib implementation
+# Notes on VIRTUALIZE.md (revision 4) from the Python stdlib implementation
 
 Implementation: `impls/zarrify/python/zarrify.py` (wrapper `zarrify`).
-It was written from ZARRIFY.md and HARNESS.md alone. All 95 fixtures give the
+It was written from VIRTUALIZE.md and HARNESS.md alone. All 95 fixtures give the
 expected status (the 65 `unsupported_*`/`edge_reject_*`/`nd2_reject_*` files are
 rejected, the 30 others succeed), and the three public inputs succeed. About
 22,000 in-process mutations of the fixtures (truncation, random bytes, 8-byte
