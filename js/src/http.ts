@@ -43,10 +43,20 @@ import {
  */
 export type NoResponseCause = "cors" | "unreachable" | "mixed-content";
 
+/**
+ * A range read over HTTP failed (`readHttpRange`, `openHttpFile`): the URL is not one it reads, the
+ * request got no response or an error status, the response breaks spec §5.2
+ * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#52-reading-over-http>, or a pin failed.
+ * `Archive` throws it on as a "resolution" `RefkvError`, with its `sourceChanged`; the service
+ * worker answers it with a 502, naming `noResponse` in a header.
+ */
 export class HttpResolutionError extends Error {
   /** Whether the object is not the one the pins name: it changed since they were taken. */
   sourceChanged: boolean;
-  /** Why the request got no response, where a browser could tell. */
+  /**
+   * Why the request got no response, where a browser could tell (`noResponse`): undefined for a
+   * response that failed, or a request outside a browser.
+   */
   noResponse: NoResponseCause | undefined;
   constructor(message: string, sourceChanged = false, noResponse?: NoResponseCause) {
     super(message);
