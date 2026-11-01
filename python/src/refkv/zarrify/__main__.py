@@ -8,7 +8,7 @@ from refkv.zarrify import Rejected, zarrify
 from refkv.zarrify.store import WORKERS
 
 # the store kinds, in the words of `vzip convert`'s usage (rust/refkv-cli/src/main.rs)
-STORES = "an N5, Zarr v2 or OME-Zarr 0.4 store, or a Sentinel-2 .SAFE directory"
+STORES = "an N5, Zarr v2 or OME-Zarr 0.4 store, a Sentinel-2 .SAFE directory, or a store of safetensors files"
 USAGE = ("usage: refkv zarrify <url or path> <out.vzip> [--url <source url>] [--checksums]"
          " [--allow-private-hosts] [--connections N] [--byte-cost SECONDS_PER_MB] [--workers N]\n"
          f"(a URL ending in / or a directory is {STORES}; a directory needs --url;\n"

@@ -5,7 +5,7 @@
 import type { Policy } from "../../../../js/src/archive.ts";
 import { addChecksums, type PinOptions } from "../../../../js/src/zarrify/index.ts";
 import { declares04, virtualizeOmeZarr } from "./ome-zarr/virtualize.ts";
-import { chooseProfile, closeStore, objectUrl, openHttpStore, type Store, storeArchive } from "./legacy.ts";
+import { chooseProfile, closeStore, objectUrl, openHttpStore, type Store, StoreError, storeArchive } from "./legacy.ts";
 import type { ArchiveDesc } from "../../../../js/src/writer.ts";
 import { virtualizeSafeStore } from "./safe/virtualize.ts";
 import { virtualizeN5 } from "./n5/virtualize.ts";
@@ -37,6 +37,8 @@ async function virtualizeStoreProfile(
 ): Promise<ArchiveDesc & { format: "n5" | "zarr2" | "ome-zarr" | "safe"; summary: object }> {
   try {
     const chosen = chooseProfile(store);
+    // the frozen reference has no safetensors profile (the shipped chooser, which it uses, does)
+    if (chosen === "safetensors") throw new StoreError("the frozen reference reads no store of safetensors files");
     if (chosen === "safe") return { format: "safe", ...(await virtualizeSafeStore(store)) };
     let format: "n5" | "zarr2" | "ome-zarr" = chosen;
     if (format === "zarr2" && (await declares04(store))) format = "ome-zarr";

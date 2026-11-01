@@ -464,5 +464,7 @@ def choose_profile(store: Store) -> str:
         return "n5"
     if "manifest.safe" in store.objects:
         return "safe"
-    raise Rejected("not an N5, Zarr v2 or SAFE store: the root has no .zarray, .zgroup, attributes.json "
-                   "or manifest.safe")
+    if any(k.endswith(".safetensors") for k in store.objects):
+        return "safetensors"
+    raise Rejected("not an N5, Zarr v2, SAFE or safetensors store: the root has no .zarray, .zgroup, "
+                   "attributes.json or manifest.safe, and no key ends in .safetensors")

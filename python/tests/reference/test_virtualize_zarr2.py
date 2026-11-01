@@ -256,7 +256,7 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
     ("zarr2_reject_zarray_and_zgroup", "both .zarray and .zgroup"),
     ("zarr2_reject_zattrs_not_object", "x/.zattrs is not a JSON object"),
     ("zarr2_reject_zgroup_format", ".zgroup: zarr_format is not 2"),
-    ("zarr2_reject_no_root_metadata", "not an N5, Zarr v2 or SAFE store"),
+    ("zarr2_reject_no_root_metadata", "not an N5, Zarr v2, SAFE or safetensors store"),
     ("zarr2_reject_zlib_level", "zlib level 10"),
     ("zarr2_reject_gzip_level", "gzip level 1 is not an integer"),
     ("zarr2_reject_zstd_level", "zstd level 23"),

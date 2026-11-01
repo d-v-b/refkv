@@ -41,9 +41,17 @@ starting with `__`, or `zarr.json`; `name`), whose path starts with `refkv_sourc
 (`reserved`), or whose path is another tensor's group (`a` beside `a/b`; `path`) is left out,
 and listed with its reason. Its bytes stay in the mirror.
 
-**Not supported.** A sharded checkpoint (`model-00001-of-00004.safetensors` and a
-`model.safetensors.index.json`) is zarrified one file at a time; one hierarchy of the whole model
-is future work.
+**A model's shards as one group.** A store of safetensors files (a local directory, or an S3
+bucket or prefix) is zarrified as one group: each `.safetensors` file is a group at its key,
+holding its tensors as above, and the root's source metadata lists the shards, checks each
+`*.safetensors.index.json` against the shards' headers, and keeps each `config.json` beside them as
+written. Every other file (the tokenizer, a README, code) is referenced whole under
+`refkv_source/objects/`. A shard whose header refkv cannot read is listed with the reason, and the
+rest of the store is still zarrified. Reading a Hugging Face Hub repository this way needs the Hub
+listing, which is not in refkv yet; a downloaded copy of one works as a local directory.
+
+**Not supported.** A model's tensors are not also gathered by name across its shards: the index,
+which the store keeps, says which shard holds each.
 [spec/zarrify/safetensors.md §7](../../../spec/zarrify/safetensors.md#7-what-the-layout-does-not-express)
 lists what the layout does not express.
 
@@ -96,6 +104,16 @@ float8_e4m3fn (896, 4864) (128, 4864)
 ```
 
 The archive is 585 KB, for a 903 MB file.
+
+A directory of shards, such as a downloaded model, is zarrified as a store, served at the URL
+given (the URL each chunk's references name):
+
+```bash
+uv run refkv zarrify ./DeepSeek-V4.1-Flash deepseek.vzip --url https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017/resolve/1bae0e1088993b9b82de08f59de5be5a34e42170/
+```
+
+Its 48 shards (510 GB, 96,085 tensors, 93 reads of their headers) become 596,317 chunks; the
+archive is 218 MB, most of it the ZIP entries of that many chunks.
 
 ## How it's verified
 

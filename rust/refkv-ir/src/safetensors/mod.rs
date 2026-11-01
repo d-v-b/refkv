@@ -9,6 +9,8 @@
 //! header; then the rest of a longer header. No tensor's data is read. The schema
 //! (`schema/safetensors.json`) holds every check, in the profile's order.
 
+pub mod store;
+
 use crate::fed::{Fed, Overlap, uint};
 use crate::ir::*;
 use crate::nd2::Step;
@@ -140,6 +142,162 @@ fn groups_of(path: &str) -> impl Iterator<Item = &str> {
     path.match_indices('/').map(move |(i, _)| &path[..i])
 }
 
+/// The bytes of a file the first read takes: its length and, in every file surveyed, its header.
+pub fn first_read(rules: &Rules) -> u64 {
+    rules.limit("first_read") as u64
+}
+
+/// The header's length `N`, from the first 8 bytes `first` of a file of `size` bytes, checked
+/// against the library's limit and the file (spec/zarrify/safetensors.md §8.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#82-checks>).
+pub fn header_length(rules: &Rules, size: u64, first: &[u8]) -> Result<u64, String> {
+    rules.check("length", rules::env([("size", num(size as f64))]))?;
+    let n = uint(first, 0, 8, true);
+    rules.check("header", rules::env([("length", num(n as f64)), ("size", num(size as f64))]))?;
+    Ok(n)
+}
+
+/// A checked header: its length and bytes, its `__metadata__`, its tensors in the header's order
+/// (each with its path or its reason), and their order in the buffer.
+pub struct Header {
+    n: u64,
+    raw: Vec<u8>,
+    metadata: Option<J>,
+    tensors: Vec<Tensor>,
+    order: Vec<usize>,
+}
+
+/// The header `raw`, of `n` bytes, of a file of `size` bytes, read by the profile's checks in
+/// their order (spec/zarrify/safetensors.md §8.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#82-checks>), with each
+/// tensor's path (§4.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#41-paths>).
+pub fn check(r: &Rules, size: u64, n: u64, raw: Vec<u8>) -> Result<Header, String> {
+    let header = std::str::from_utf8(&raw).ok();
+    r.check("text", rules::env([("utf8", flag(header.is_some())), ("brace", flag(raw.first() == Some(&b'{')))]))?;
+    let parsed = serde_json::from_str::<Strict>(header.unwrap_or_default()).map(|s| s.0);
+    let problem = parsed.as_ref().err().map_or(crate::expr::V::Absent, |e| text(&e.to_string()));
+    r.check("json", rules::env([("problem", problem)]))?;
+    let Ok(J::Object(members)) = parsed else { return Err("internal: the header is not an object".into()) };
+    let metadata = members.get(METADATA).cloned();
+    if let Some(m) = &metadata {
+        let strings = m.as_object().is_some_and(|o| o.values().all(J::is_string));
+        r.check("metadata", rules::env([("strings", flag(strings))]))?;
+    }
+    let short = |s: &str| -> String { s.chars().take(200).collect() };
+    let mut tensors = Vec::new();
+    for (name, value) in members.iter().filter(|(k, _)| k.as_str() != METADATA) {
+        let t = entry(name, value);
+        let problem = t.as_ref().err().map_or(crate::expr::V::Absent, |e| text(e));
+        r.check("entry", rules::env([("name", text(&short(name))), ("problem", problem)]))?;
+        tensors.push(t.map_err(|e| e.to_string())?);
+    }
+    for t in &tensors {
+        let known = r.entry("types", &t.dtype).is_some();
+        r.check("data_type", rules::env([("name", text(&short(&t.name))), ("dtype", text(&t.dtype)), ("known", flag(known))]))?;
+    }
+    // the offsets and sizes in data_offsets order, ties in the header's (the sort is stable)
+    let mut order: Vec<usize> = (0..tensors.len()).collect();
+    order.sort_by_key(|&i| tensors[i].offsets);
+    let mut start = 0u64;
+    for &i in &order {
+        let t = &tensors[i];
+        let (begin, end) = t.offsets;
+        r.check("offsets", rules::env([("name", text(&short(&t.name))), ("begin", num(begin as f64)), ("end", num(end as f64)), ("start", num(start as f64))]))?;
+        start = end;
+        let k = r.entry("types", &t.dtype).and_then(|e| e["bits"].as_u64()).unwrap_or(8) as u128;
+        let bits = t.shape.iter().try_fold(k, |acc, &s| acc.checked_mul(s as u128));
+        let shape = format!("[{}]", t.shape.iter().map(u64::to_string).collect::<Vec<_>>().join(", "));
+        let length = end - begin;
+        r.check("size", rules::env([
+            ("name", text(&short(&t.name))), ("dtype", text(&t.dtype)), ("shape", text(&shape)),
+            ("whole", flag(bits.is_none_or(|b| b % 8 == 0))),
+            ("bits", text(&bits.map_or("more than 2^128".into(), |b| b.to_string()))),
+            ("same", flag(bits == Some(length as u128 * 8))),
+            ("bytes", text(&bits.map_or("more than 2^125".into(), |b| (b / 8).to_string()))),
+            ("length", num(length as f64)),
+        ]))?;
+    }
+    r.check("buffer", rules::env([("end", num(start as f64)), ("buffer", num((size - 8 - n) as f64))]))?;
+    for t in tensors.iter_mut() {
+        match tensor_path(&t.name) {
+            Ok(p) => t.path = Some(p),
+            Err(why) => t.reason = Some(why),
+        }
+    }
+    let held: BTreeSet<String> = tensors.iter().filter_map(|t| t.path.as_deref()).flat_map(groups_of).map(str::to_string).collect();
+    for t in tensors.iter_mut() {
+        if t.path.as_ref().is_some_and(|p| held.contains(p)) {
+            t.path = None;
+            t.reason = Some("path");
+        }
+    }
+    Ok(Header { n, raw, metadata, tensors, order })
+}
+
+impl Header {
+    /// Its elements under `parent` (the IR's root, or a store's object described in place),
+    /// at offsets from the file's start: the length, the header, and every tensor's data, in the
+    /// buffer's order; and the facts the projection reads: the source metadata (`own`), each
+    /// presented tensor (`arrays`), and the groups their paths make (`groups`).
+    pub fn emit(&self, r: &Rules, ir: &mut Ir, parent: u32) -> Result<J, String> {
+        let (n, tensors) = (self.n, &self.tensors);
+        ir.value(parent, "length", NO_INDEX, "<u8", 0, (0, 8), Some(&n.to_le_bytes()))?;
+        if n > 0 {
+            ir.value(parent, "header", NO_INDEX, &format!("ascii[{n}]"), 0, (8, n), Some(&self.raw))?;
+        }
+        let mut data = vec![None; tensors.len()];
+        for &i in &self.order {
+            let t = &tensors[i];
+            let (begin, end) = t.offsets;
+            if end == begin {
+                continue;
+            }
+            let ty = r.entry("types", &t.dtype).ok_or("internal: an unknown data type")?;
+            let bits = ty["bits"].as_u64().unwrap_or(8);
+            let form = json!({
+                "geometry": {"data_type": ty["dtype"], "shape": t.shape, "bits": bits},
+                "codec": {"endian": if bits > 8 { J::from("little") } else { J::Null }},
+                "recipe": [["src", 0, null]],
+            });
+            data[i] = Some(ir.data(parent, "tensors/", i as u64, 0, (8 + n + begin, end - begin), &form.to_string())?);
+        }
+        let groups: BTreeSet<&str> = tensors.iter().filter_map(|t| t.path.as_deref()).flat_map(groups_of).collect();
+        let mut arrays = Vec::new();
+        let mut listed = Vec::new();
+        for (t, d) in tensors.iter().zip(&data) {
+            let mut j = Map::new();
+            j.insert("name".into(), json!(t.name));
+            j.insert("dtype".into(), json!(t.dtype));
+            j.insert("shape".into(), json!(t.shape));
+            j.insert("data_offsets".into(), json!([t.offsets.0, t.offsets.1]));
+            if !t.extra.is_empty() {
+                j.insert("extra".into(), J::Object(t.extra.clone()));
+            }
+            match (&t.path, t.reason) {
+                (Some(p), _) => {
+                    j.insert("path".into(), json!(p));
+                    let ty = r.entry("types", &t.dtype).ok_or("internal: an unknown data type")?;
+                    arrays.push(json!({
+                        "path": p, "data": d, "offset": 8 + n + t.offsets.0, "length": t.offsets.1 - t.offsets.0,
+                        "dtype": t.dtype, "data_type": ty["dtype"], "bits": ty["bits"], "fill": ty["fill"], "shape": t.shape,
+                    }));
+                }
+                (None, why) => {
+                    j.insert("reason".into(), json!(why.unwrap_or("name")));
+                }
+            }
+            listed.push(J::Object(j));
+        }
+        let mut own = Map::new();
+        own.insert("header_length".into(), json!(n));
+        if let Some(m) = &self.metadata {
+            own.insert("metadata".into(), m.clone());
+        }
+        own.insert("tensors".into(), J::Array(listed));
+        Ok(json!({"own": own, "arrays": arrays, "groups": groups}))
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Phase {
     Start,
@@ -174,151 +332,29 @@ impl Safetensors {
         let reads = match self.phase {
             Phase::Start => {
                 self.phase = Phase::Head;
-                vec![(0, size.min(self.rules.limit("first_read") as u64))]
+                vec![(0, size.min(first_read(self.rules)))]
             }
             Phase::Head => {
-                self.rules.check("length", rules::env([("size", num(size as f64))]))?;
-                let first = self.fed.get(0, 8).ok_or("internal: the header's length was not fed")?;
-                let n = uint(first, 0, 8, true);
-                self.rules.check("header", rules::env([("length", num(n as f64)), ("size", num(size as f64))]))?;
-                if !self.fed.has(8, n) {
-                    let have = self.fed.reach(8).max(8);
-                    vec![(have, 8 + n - have)]
-                } else {
-                    return self.done(n);
+                let n = header_length(self.rules, size, self.fed.get(0, 8.min(size)).unwrap_or(&[]))?;
+                match self.fed.get(8, n) {
+                    Some(raw) => {
+                        let header = check(self.rules, size, n, raw.to_vec())?;
+                        self.phase = Phase::Done;
+                        let mut facts = header.emit(self.rules, &mut self.ir, 0)?;
+                        facts["copy_threshold"] = json!(crate::out::copy_threshold());
+                        self.asked.put(&mut facts);
+                        self.facts = facts;
+                        return Ok(Step::Done);
+                    }
+                    None => {
+                        let have = self.fed.reach(8).max(8);
+                        vec![(have, 8 + n - have)]
+                    }
                 }
             }
             Phase::Done => return Ok(Step::Done),
         };
         Ok(self.asked.ask(reads))
-    }
-
-    /// The header's checks, in the profile's order (spec/zarrify/safetensors.md §8.2
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#82-checks>), the
-    /// elements, and the facts.
-    fn done(&mut self, n: u64) -> Result<Step, String> {
-        self.phase = Phase::Done;
-        let r = self.rules;
-        let raw = self.fed.get(8, n).ok_or("internal: the header was not fed")?.to_vec();
-        let header = std::str::from_utf8(&raw).ok();
-        r.check("text", rules::env([("utf8", flag(header.is_some())), ("brace", flag(raw.first() == Some(&b'{')))]))?;
-        let parsed = serde_json::from_str::<Strict>(header.unwrap_or_default()).map(|s| s.0);
-        let problem = parsed.as_ref().err().map_or(crate::expr::V::Absent, |e| text(&e.to_string()));
-        r.check("json", rules::env([("problem", problem)]))?;
-        let Ok(J::Object(members)) = parsed else { return Err("internal: the header is not an object".into()) };
-        let metadata = members.get(METADATA);
-        if let Some(m) = metadata {
-            let strings = m.as_object().is_some_and(|o| o.values().all(J::is_string));
-            r.check("metadata", rules::env([("strings", flag(strings))]))?;
-        }
-        let short = |s: &str| -> String { s.chars().take(200).collect() };
-        let mut tensors = Vec::new();
-        for (name, value) in members.iter().filter(|(k, _)| k.as_str() != METADATA) {
-            let t = entry(name, value);
-            let problem = t.as_ref().err().map_or(crate::expr::V::Absent, |e| text(e));
-            r.check("entry", rules::env([("name", text(&short(name))), ("problem", problem)]))?;
-            tensors.push(t.map_err(|e| e.to_string())?);
-        }
-        for t in &tensors {
-            let known = r.entry("types", &t.dtype).is_some();
-            r.check("data_type", rules::env([("name", text(&short(&t.name))), ("dtype", text(&t.dtype)), ("known", flag(known))]))?;
-        }
-        // the offsets and sizes in data_offsets order, ties in the header's (the sort is stable)
-        let mut order: Vec<usize> = (0..tensors.len()).collect();
-        order.sort_by_key(|&i| tensors[i].offsets);
-        let mut start = 0u64;
-        for &i in &order {
-            let t = &tensors[i];
-            let (begin, end) = t.offsets;
-            r.check("offsets", rules::env([("name", text(&short(&t.name))), ("begin", num(begin as f64)), ("end", num(end as f64)), ("start", num(start as f64))]))?;
-            start = end;
-            let k = r.entry("types", &t.dtype).and_then(|e| e["bits"].as_u64()).unwrap_or(8) as u128;
-            let bits = t.shape.iter().try_fold(k, |acc, &s| acc.checked_mul(s as u128));
-            let shape = format!("[{}]", t.shape.iter().map(u64::to_string).collect::<Vec<_>>().join(", "));
-            let length = end - begin;
-            r.check("size", rules::env([
-                ("name", text(&short(&t.name))), ("dtype", text(&t.dtype)), ("shape", text(&shape)),
-                ("whole", flag(bits.is_none_or(|b| b % 8 == 0))),
-                ("bits", text(&bits.map_or("more than 2^128".into(), |b| b.to_string()))),
-                ("same", flag(bits == Some(length as u128 * 8))),
-                ("bytes", text(&bits.map_or("more than 2^125".into(), |b| (b / 8).to_string()))),
-                ("length", num(length as f64)),
-            ]))?;
-        }
-        r.check("buffer", rules::env([("end", num(start as f64)), ("buffer", num((self.size - 8 - n) as f64))]))?;
-        // the paths (spec/zarrify/safetensors.md §4.1
-        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#41-paths>)
-        for t in tensors.iter_mut() {
-            match tensor_path(&t.name) {
-                Ok(p) => t.path = Some(p),
-                Err(why) => t.reason = Some(why),
-            }
-        }
-        let held: BTreeSet<String> = tensors.iter().filter_map(|t| t.path.as_deref()).flat_map(groups_of).map(str::to_string).collect();
-        for t in tensors.iter_mut() {
-            if t.path.as_ref().is_some_and(|p| held.contains(p)) {
-                t.path = None;
-                t.reason = Some("path");
-            }
-        }
-        let groups: BTreeSet<&str> = tensors.iter().filter_map(|t| t.path.as_deref()).flat_map(groups_of).collect();
-        // the elements: the length, the header, and every tensor's data, in the buffer's order
-        self.ir.value(0, "length", NO_INDEX, "<u8", 0, (0, 8), Some(&n.to_le_bytes()))?;
-        if n > 0 {
-            self.ir.value(0, "header", NO_INDEX, &format!("ascii[{n}]"), 0, (8, n), Some(&raw))?;
-        }
-        let mut data = vec![None; tensors.len()];
-        for &i in &order {
-            let t = &tensors[i];
-            let (begin, end) = t.offsets;
-            if end == begin {
-                continue;
-            }
-            let ty = r.entry("types", &t.dtype).ok_or("internal: an unknown data type")?;
-            let bits = ty["bits"].as_u64().unwrap_or(8);
-            let form = json!({
-                "geometry": {"data_type": ty["dtype"], "shape": t.shape, "bits": bits},
-                "codec": {"endian": if bits > 8 { J::from("little") } else { J::Null }},
-                "recipe": [["src", 0, null]],
-            });
-            data[i] = Some(self.ir.data(0, "tensors/", i as u64, 0, (8 + n + begin, end - begin), &form.to_string())?);
-        }
-        let mut arrays = Vec::new();
-        let mut listed = Vec::new();
-        for (t, d) in tensors.iter().zip(&data) {
-            let mut j = Map::new();
-            j.insert("name".into(), json!(t.name));
-            j.insert("dtype".into(), json!(t.dtype));
-            j.insert("shape".into(), json!(t.shape));
-            j.insert("data_offsets".into(), json!([t.offsets.0, t.offsets.1]));
-            if !t.extra.is_empty() {
-                j.insert("extra".into(), J::Object(t.extra.clone()));
-            }
-            match (&t.path, t.reason) {
-                (Some(p), _) => {
-                    j.insert("path".into(), json!(p));
-                    let ty = r.entry("types", &t.dtype).ok_or("internal: an unknown data type")?;
-                    arrays.push(json!({
-                        "path": p, "data": d, "offset": 8 + n + t.offsets.0, "length": t.offsets.1 - t.offsets.0,
-                        "dtype": t.dtype, "data_type": ty["dtype"], "bits": ty["bits"], "fill": ty["fill"], "shape": t.shape,
-                    }));
-                }
-                (None, why) => {
-                    j.insert("reason".into(), json!(why.unwrap_or("name")));
-                }
-            }
-            listed.push(J::Object(j));
-        }
-        let mut own = Map::new();
-        own.insert("header_length".into(), json!(n));
-        if let Some(m) = metadata {
-            own.insert("metadata".into(), m.clone());
-        }
-        own.insert("tensors".into(), J::Array(listed));
-        let mut facts = json!({"own": own, "arrays": arrays, "groups": groups, "copy_threshold": crate::out::copy_threshold()});
-        self.asked.put(&mut facts);
-        self.facts = facts;
-        Ok(Step::Done)
     }
 
     pub fn finish(self) -> Result<(Ir, J), String> {
