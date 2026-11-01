@@ -14,9 +14,10 @@ machinery (§1.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-st
 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#16-json-documents>).
 
     python -m refkv.zarrify <url or path> <out.vzip> [--url <source url>] [--checksums]
-        [--allow-private-hosts] [--connections N] [--byte-cost SECONDS_PER_MB]
+        [--allow-private-hosts] [--connections N] [--byte-cost SECONDS_PER_MB] [--workers N]
 
-Exits with status 3 if the input is rejected, and with status 1 if the reader policy
+Exits with status 3 if the input is rejected, with status 2 on a usage error (such as a
+local directory without `--url`), and with status 1 if the reader policy
 refuses the input, or a source the archive would name (such as a `--url` on a private
 host without `--allow-private-hosts`): the archive is checked against the policy the
 input is read under, and is not written.
@@ -67,14 +68,14 @@ from refkv.zarrify import profile_classes
 from refkv.zarrify.common import Output, Rejected
 from refkv.zarrify.profile_classes import *  # noqa: F403 (one class per profile: profile_classes.__all__)
 from refkv.zarrify.sources import Dataset, Image, Source, Store, layout_names
-from refkv.zarrify.store import WORKERS, choose_profile, object_url, open_store
+from refkv.zarrify.store import WORKERS, ListingFailed, StoreLimit, choose_profile, object_url, open_store
 from refkv.zarrify.store import Store as Listed
 from refkv.zarrify.store.beside import VsiFiles
 
 NOT_SUPPORTED = "not a file of any supported format"
 
-__all__ = ["Dataset", "Image", "Rejected", "Source", "Store", "zarrify", "zarrify_async", "zarrify_store",
-           "zarrify_store_async"]
+__all__ = ["Dataset", "Image", "ListingFailed", "Rejected", "Source", "Store", "StoreLimit", "zarrify",
+           "zarrify_async", "zarrify_store", "zarrify_store_async"]
 __all__ += profile_classes.__all__  # the source and store classes, one per profile
 
 
@@ -255,7 +256,7 @@ async def zarrify_async(location: str | Source | Store, url: str | None = None, 
     under `policy`, and `store.save(path)` writes it as a vzip archive. `store.info`
     is `{"format": ..., **summary}`: the profile that zarrified the input (such as
     "tiff", "nifti" or "zarr2") and its summary of what it found, as `python -m
-    refkv.zarrify` prints it. An input no profile accepts raises `Rejected`. While the
+    refkv.zarrify` prints it. While the
     input's reads are in flight the event loop is free: the reads block, each on a thread of
     the run's own, and the calls into the Rust core run on those threads too.
 
@@ -275,7 +276,8 @@ async def zarrify_async(location: str | Source | Store, url: str | None = None, 
       requests at a time to a remote source (default 8), and the seconds of wall
       time the read planner charges a byte fetched beyond those asked (default
       0.1 s per MB).
-    - `workers`: how many of a store's documents are read at a time (default 16).
+    - `workers`: how many of a store's documents are read at a time (default 16), for a
+      store at an http(s) URL; a local directory is read one document at a time.
     - `layouts`: the layouts the hierarchy holds, `[Image()]` or `[Image(), Dataset()]`
       (`refkv.zarrify.sources`); by default, the image and every dataset layout the format
       has (conventions §9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>).
@@ -284,7 +286,24 @@ async def zarrify_async(location: str | Source | Store, url: str | None = None, 
     `TiffSource(url)` or `Zarr2Store(url)` (`refkv.zarrify.sources`), which names the profile,
     so that the input is not tested for one, and holds the read options: `url`,
     `checksums`, `policy`, `connections`, `byte_cost` and `workers` are then its own, and
-    passing one beside it, even its default, raises `TypeError`."""
+    passing one beside it with any value but None raises `TypeError`.
+
+    Errors:
+
+    - `Rejected` (`refkv.zarrify.Rejected`): no profile accepts the input, or the profile
+      that reads it finds what its specification rejects (spec/zarrify.md §1.2
+      <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>).
+    - `refkv.errors.ResolutionError`: the reader policy refuses the input, or a request for it
+      (a host, an address it resolves to, a redirect target).
+    - `FileNotFoundError`: a local path that does not exist.
+    - `OSError`: the input could not be read, such as an HTTP status no retry mends, a
+      response of the wrong length, or a local file that changed while it was read.
+      `ListingFailed` and `StoreLimit` (`refkv.zarrify`) are the two of a store: its listing
+      could not be read (a network error, or a 408, 429 or 5xx status), or it lists more than
+      `max_objects` objects.
+    - `ValueError`: a local directory without `url`, or an argument out of range.
+    - `TypeError`: a read option passed beside a source or store instance.
+    - `NotImplementedError`: a layout the profile cannot write."""
     if isinstance(location, (Source, Store)):
         given = {"url": url, "checksums": checksums, "policy": policy, "connections": connections,
                  "byte_cost": byte_cost, "workers": workers}
@@ -324,8 +343,10 @@ async def zarrify_store_async(location: str, url: str | None = None, *, max_obje
     """The store at `location` (§1.4
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>), zarrified: what
     `zarrify_async` does for a store, with the same `url` (needed for a local directory),
-    `checksums`, `policy`, `workers` and `layouts`; `max_objects` caps how many objects the
-    store may list."""
+    `checksums`, `policy`, `workers` and `layouts`, and the same errors; `max_objects` caps how
+    many objects the store may list (beyond it, `StoreLimit`). `workers`, `max_objects` and
+    `policy` apply to a store at an http(s) URL: a local directory is read one document at a
+    time, without them."""
     fmt, out = await _zarrify_store_async(location, url, max_objects=max_objects, checksums=checksums,
                                           workers=workers, policy=policy, layouts=layouts)
     return await asyncio.to_thread(out.to_store, policy=policy, info={"format": fmt, **out.summary})

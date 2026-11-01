@@ -118,6 +118,8 @@ ignore = [
 "!python/src/**" = ["ANN", "S101", "T201", "INP001", "SLF001", "S603", "S607", "S311"]
 # the command lines: printing is what they do
 "python/src/refkv/{__main__,ir/__main__,zarrify/__main__,vzip/cli}.py" = ["T201"]
+# the stub of the Rust core's bindings carries their docs, for editors, which read the stub
+"python/src/refkv/_core.pyi" = ["PYI021"]
 # the conformance harness's CLI reports every invalid input, of any type, as one ValueError
 "python/src/refkv/vzip/cli.py" = ["TRY004"]
 # one function per format, each importing its format's libraries (the bench group), which main
