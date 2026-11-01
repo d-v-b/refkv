@@ -152,8 +152,9 @@ def test_an_index_changes_the_reads_not_the_output(tmp_path):
         (d / "f.grib2").write_bytes(one * 3)
     lines = [f"{k + 1}:{k * len(one)}:d=2026102900:X:surface:anl:\n" for k in range(3)]
     (indexed / "f.grib2.idx").write_text("".join(lines))
-    (both / "f.grib2.idx").write_text("not an index\n")
-    (both / "f.index").write_text("".join(f'{{"_offset": {k * len(one)}, "_length": {len(one)}}}\n' for k in range(3)))
+    (both / "f.grib2.idx").write_bytes(b"not an index\n")
+    ecmwf = "".join(f'{{"_offset": {k * len(one)}, "_length": {len(one)}}}\n' for k in range(3))
+    (both / "f.index").write_bytes(ecmwf.encode())
     out_a, root_a = zarrified(alone / "f.grib2")
     out_i, root_i = zarrified(indexed / "f.grib2")
     out_b, root_b = zarrified(both / "f.grib2")

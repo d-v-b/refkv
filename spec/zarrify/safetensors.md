@@ -10,7 +10,9 @@ cited here as "the format"; where the README is silent, the library's reader
 (`safetensors/src/tensor.rs`, version 0.7) decides.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `15e7ce39-d4ca-4514-8144-6e19d2a0341b` ·
-Schema: [schema.json](safetensors/schema.json) · Added 2026-11-01.
+Schema: [schema.json](safetensors/schema.json)
+
+Added 2026-11-01.
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
