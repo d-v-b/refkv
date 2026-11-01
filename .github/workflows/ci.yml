@@ -4,7 +4,7 @@
 # comparison of the zarrifiers against the frozen reference (spec/zarrify.md §1.1
 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#11-output-and-equivalence>, with
 # spec/bindings/vzip.md's strict reading of every archive), the reproducibility of the fixture
-# generators, and the section references, each a link to a heading that exists. Every format (docs/zarrify/README.md) goes through the Rust core (rust/refkv-ir), built natively
+# generators and of the conventions' schemas, and the section references, each a link to a heading that exists. Every format (docs/zarrify/README.md) goes through the Rust core (rust/refkv-ir), built natively
 # for Python (`uv sync`, which builds python/, refkv, with its bindings as the module refkv._core) and for wasm32 for the browser code (`just js::wasm`).
 # The vzip CLI (rust/refkv-cli) is checked against the Python zarrifier, archive for archive.
 # The Python tests, the install without extras, the IR core's tests, the CLI's and the Node tests
@@ -374,3 +374,5 @@ jobs:
             rust/refkv-python
       - run: uv sync --all-groups --locked
       - run: just fixtures-check
+      # spec/zarrify/<p>/schema.json is what spec/generate_schemas.py writes from spec/source_metadata/
+      - run: just schemas-check
