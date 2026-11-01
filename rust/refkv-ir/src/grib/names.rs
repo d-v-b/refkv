@@ -1,8 +1,9 @@
 //! The names the GRIB convention gives arrays and dimensions (spec/zarrify/grib.md §3.2
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#32-names>): a parameter's
 //! short name, name and units, from the table spec/tools/grib_names.py generates from ecCodes'
-//! definitions (`names_table.rs`); a fixed surface type's name and units (code table 4.5); a
-//! statistical process's (code table 4.10).
+//! definitions (spec/zarrify/grib/parameters.tsv, as `names_table.rs`); a fixed surface type's name
+//! and units (code table 4.5, spec/zarrify/grib/surfaces.tsv); a statistical process's (code table
+//! 4.10, spec/zarrify/grib/statistics.tsv). The tests hold the code to the spec's tables.
 
 /// (centre, discipline, category, number, short name, name, units): a parameter of WMO's code
 /// table 4.2 (centre 0), or of a centre's local table (its categories or numbers 192–254).
@@ -110,5 +111,70 @@ pub fn statistic(p: u8) -> String {
         10 => "anomaly".into(),
         11 => "sum".into(),
         _ => format!("stat{p}"),
+    }
+}
+
+// The spec's tables are read only here: the crate's sdist (python/pyproject.toml) holds no spec/.
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The rows of a spec table, without its header, split at tabs.
+    fn rows(tsv: &'static str, header: &str) -> Vec<Vec<&'static str>> {
+        let mut lines = tsv.lines();
+        assert_eq!(lines.next(), Some(header));
+        lines.map(|l| l.split('\t').collect()).collect()
+    }
+
+    #[test]
+    fn parameters_are_the_spec_table() {
+        let tsv = include_str!("../../../../spec/zarrify/grib/parameters.tsv");
+        let spec: Vec<Parameter> = rows(tsv, "centre\tdiscipline\tcategory\tnumber\tshort_name\tname\tunits")
+            .into_iter()
+            .map(|r| match r[..] {
+                [c, d, k, n, s, name, u] => (c.parse().unwrap(), d.parse().unwrap(), k.parse().unwrap(), n.parse().unwrap(), s, name, u),
+                _ => panic!("a row of parameters.tsv has {} columns", r.len()),
+            })
+            .collect();
+        // a difference: names_table.rs is out of date with the table (run spec/tools/grib_names.py)
+        for (k, (ours, theirs)) in PARAMETERS.iter().zip(&spec).enumerate() {
+            assert_eq!(ours, theirs, "line {} of parameters.tsv", k + 2);
+        }
+        assert_eq!(PARAMETERS.len(), spec.len());
+    }
+
+    #[test]
+    fn surfaces_are_the_spec_table() {
+        let tsv = include_str!("../../../../spec/zarrify/grib/surfaces.tsv");
+        let spec: Vec<(u64, u8, &str, Option<&str>)> = rows(tsv, "centre\ttype\tname\tunits")
+            .into_iter()
+            .map(|r| match r[..] {
+                [c, t, name, u] => (c.parse().unwrap(), t.parse().unwrap(), name, (!u.is_empty()).then_some(u)),
+                _ => panic!("a row of surfaces.tsv has {} columns", r.len()),
+            })
+            .collect();
+        for centre in [0, 7, 98] {
+            for kind in 0..=255u8 {
+                // centre 0's rows are every centre's; another centre's, its own
+                let want = spec.iter().find(|r| r.1 == kind && (r.0 == 0 || r.0 == centre)).map(|r| (r.2, r.3));
+                assert_eq!(surface(centre, kind), want, "centre {centre}, type {kind}");
+            }
+        }
+    }
+
+    #[test]
+    fn statistics_are_the_spec_table() {
+        let tsv = include_str!("../../../../spec/zarrify/grib/statistics.tsv");
+        let spec: Vec<(u8, &str)> = rows(tsv, "process\tname")
+            .into_iter()
+            .map(|r| match r[..] {
+                [p, name] => (p.parse().unwrap(), name),
+                _ => panic!("a row of statistics.tsv has {} columns", r.len()),
+            })
+            .collect();
+        for p in 0..=255u8 {
+            let want = spec.iter().find(|r| r.0 == p).map_or(format!("stat{p}"), |r| r.1.to_string());
+            assert_eq!(statistic(p), want, "process {p}");
+        }
     }
 }

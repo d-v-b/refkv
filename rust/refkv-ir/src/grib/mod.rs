@@ -251,6 +251,8 @@ pub struct Grib {
     indexes: Vec<(usize, Option<Vec<u8>>)>,
     /// the offsets the index lists, while the file agrees with it
     listed: Option<Vec<u64>>,
+    /// the object of the index whose offsets `listed` holds
+    used: Option<usize>,
     /// the messages read, by offset, and the gaps between them
     messages: BTreeMap<u64, Message>,
     gaps: Vec<(u64, u64)>,
@@ -267,7 +269,7 @@ impl Grib {
         }
         Ok(Grib {
             rules: rules::of("grib"), phase: Phase::Probe, ir: Some(ir), keys: keys.to_vec(), elems: objects,
-            fed: Fed::new(Overlap::MergeKeep), indexes: Vec::new(), listed: None, messages: BTreeMap::new(),
+            fed: Fed::new(Overlap::MergeKeep), indexes: Vec::new(), listed: None, used: None, messages: BTreeMap::new(),
             gaps: Vec::new(), pos: 0, asked: Vec::new(), batches: 0,
         })
     }
@@ -388,15 +390,16 @@ impl Grib {
             ir.add(GAP, file, "gaps/", o, "", 0, Some((o, n)))?;
         }
         claimed.sort_unstable();
-        // an index is held: the archive's mirror keeps its bytes
-        let mut index = J::Null;
+        // every index read is held: the archive's mirror keeps its bytes
         for (k, b) in &self.indexes {
             let Some(b) = b else { continue };
             ir.value(self.elems[*k], "text", NO_INDEX, &format!("ascii[{}]", b.len()), 0, (0, b.len() as u64), Some(b))?;
-            if index.is_null() && self.listed.is_some() {
-                index = json!(self.keys[*k].0);
-            }
         }
+        // the index whose offsets the run read the messages at, when the file agreed with it
+        let index = match (&self.listed, self.used) {
+            (Some(_), Some(k)) => json!(self.keys[k].0),
+            _ => J::Null,
+        };
         let presented = fields.iter().filter(|f| f.reason.is_none()).count();
         let reasons: Vec<String> = fields.iter().filter_map(|f| f.reason).collect::<std::collections::BTreeSet<_>>().into_iter().map(str::to_string).collect();
         self.rules.check("fields", rules::env([("count", num(presented as f64)), ("fields", num(fields.len() as f64)), ("reasons", text(&reasons.join(", ")))]))?;
@@ -494,9 +497,13 @@ impl StoreParser for Grib {
                 }
                 Phase::Messages => {
                     if self.listed.is_none() && self.messages.is_empty() && self.pos == 0 {
-                        // the first index that lists offsets, read whole
-                        self.listed = self.indexes.iter().filter_map(|(_, b)| b.as_deref().and_then(index_offsets)).next()
-                            .filter(|l| l.first() == Some(&0) && l.iter().all(|&o| o < self.size()));
+                        // the first index, in probe order, whose offsets start at 0 and lie within the file
+                        let size = self.size();
+                        let found = self.indexes.iter().find_map(|(k, b)| {
+                            let l = b.as_deref().and_then(index_offsets)?;
+                            (l.first() == Some(&0) && l.iter().all(|&o| o < size)).then_some((*k, l))
+                        });
+                        (self.used, self.listed) = found.map_or((None, None), |(k, l)| (Some(k), Some(l)));
                     }
                     let need = self.advance_messages()?;
                     if need.is_empty() {

@@ -1,0 +1,13 @@
+process	name
+0	avg
+1	accum
+2	max
+3	min
+4	diff
+5	rms
+6	sd
+7	cov
+8	diffStartEnd
+9	ratio
+10	anomaly
+11	sum
