@@ -162,7 +162,7 @@ export async function readHttpRange(
   }
   const headers: Record<string, string> = {
     Range: `bytes=${start}-${end - 1}`,
-    // Ignored by browsers (forbidden header); honoured elsewhere.
+    // Ignored by browsers (forbidden header); honored elsewhere.
     "Accept-Encoding": "identity",
   };
   if (pins.etag !== undefined) headers["If-Match"] = pins.etag;

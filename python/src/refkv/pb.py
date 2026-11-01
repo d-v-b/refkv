@@ -119,17 +119,25 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class Range:
-    """Bytes [offset, offset+length) of source table entry `source`, or literal `data`."""
+    """Bytes [offset, offset+length) of source table entry `source`, or literal `data` (spec §4.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>).
+
+    - `source`: the index of the range's entry in the source table.
+    - `offset`, `length`: where the range starts in that source, and how many bytes it has.
+    - `data`: literal bytes, which the range is instead of a source's; `source`, `offset`
+      and `length` are then 0.
+    - `crc32c`: the CRC-32C of the range's bytes, for a source range only; None for none.
+    """
 
     source: int = 0
     offset: int = 0
     length: int = 0
     data: bytes | None = None
-    # CRC-32C of the range's bytes (spec §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>),
-    # source ranges only
     crc32c: int | None = None
 
     def encode(self) -> bytes:
+        """The range's protobuf encoding (spec §4.1
+        <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#41-encoding>)."""
         out = bytearray()
         _put_uint(out, 1, self.source)
         _put_uint(out, 3, self.offset)
@@ -143,6 +151,9 @@ class Range:
 
     @classmethod
     def decode(cls, buf: bytes | memoryview) -> Range:
+        """The range `buf` encodes. Raises ValueError for a malformed message (spec §4.1
+        <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#41-encoding>), a literal range with a
+        source, offset, length or crc32c, or a range ending past 2^64 - 1."""
         source = offset = length = 0
         data = crc = None
         for f, v in _known(buf, {1: _VARINT, 3: _VARINT, 4: _VARINT, 5: _LEN, 6: _VARINT}):
@@ -166,16 +177,21 @@ class Range:
 
     @property
     def size(self) -> int:
+        """The number of bytes the range resolves to: `len(data)`, or `length`."""
         return len(self.data) if self.data is not None else self.length
 
 
 @dataclass(frozen=True, slots=True)
 class Concat:
-    """A value made of several ranges, e.g. `[header bytes] ++ [chunk bytes]`."""
+    """A value made of several ranges, e.g. `[header bytes] ++ [chunk bytes]`.
+
+    - `parts`: the ranges, in the order their bytes are concatenated.
+    """
 
     parts: tuple[Range, ...] = field(default_factory=tuple)
 
     def encode(self) -> bytes:
+        """The concat's protobuf encoding."""
         out = bytearray()
         for r in self.parts:
             _put_bytes(out, 1, r.encode())
@@ -183,6 +199,8 @@ class Concat:
 
     @classmethod
     def decode(cls, buf: bytes | memoryview) -> Concat:
+        """The concat `buf` encodes. Raises ValueError for a malformed message or range, or a
+        size past 2^64 - 1."""
         c = cls(tuple(Range.decode(_len(v)) for _, v in _known(buf, {1: _LEN})))
         if c.size > 0xFFFFFFFFFFFFFFFF:
             raise ValueError("concat size exceeds 2^64 - 1")
@@ -190,6 +208,7 @@ class Concat:
 
     @property
     def size(self) -> int:
+        """The number of bytes the concat resolves to: the sum of its parts' sizes."""
         return sum(r.size for r in self.parts)
 
 
@@ -197,20 +216,39 @@ Reference = Range | Concat
 
 
 def parts(ref: Reference) -> tuple[Range, ...]:
+    """The ranges of a reference: a concat's parts, or a range alone."""
     return ref.parts if isinstance(ref, Concat) else (ref,)
 
 
 @dataclass(frozen=True, slots=True)
 class Source:
-    """One entry of the archive's source table: exactly one kind, plus pins (spec §5.1
-    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#51-pins>)."""
+    """One entry of the archive's source table: exactly one kind, plus pins (spec §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>, §5.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#51-pins>).
 
-    url: str | None = None  # external object; may be relative to the archive
-    key: str | None = None  # another entry of this archive (internal reference)
-    data: bytes | None = None  # literal bytes, e.g. a shared decoding header
-    size: int | None = None  # pin: total object size
-    etag: str | None = None  # pin: strong entity tag, with its quotes
-    modified_not_after: int | None = None  # pin: seconds since the Unix epoch
+    The kind, one of:
+
+    - `url`: an external object, by a URI reference that may be relative to the archive;
+    - `key`: another entry of this archive (an internal reference);
+    - `data`: literal bytes, such as a decoding header that many values share.
+
+    Pins, on a url source only:
+
+    - `size`: the object's total size in bytes;
+    - `etag`: its strong entity tag, with its quotes, such as `'"abc"'`;
+    - `modified_not_after`: seconds since the Unix epoch that its last modification is not
+      after.
+
+    Raises ValueError when not exactly one kind is set, when a key or data source has a pin,
+    or when `etag` is not a strong entity tag in quotes.
+    """
+
+    url: str | None = None
+    key: str | None = None
+    data: bytes | None = None
+    size: int | None = None
+    etag: str | None = None
+    modified_not_after: int | None = None
 
     def __post_init__(self) -> None:
         if sum(x is not None for x in (self.url, self.key, self.data)) != 1:
@@ -222,9 +260,11 @@ class Source:
 
     @property
     def pinned(self) -> bool:
+        """Whether the source has a pin: `size`, `etag` or `modified_not_after`."""
         return any(x is not None for x in (self.size, self.etag, self.modified_not_after))
 
     def encode(self) -> bytes:
+        """The source's protobuf encoding."""
         out = bytearray()
         if self.url is not None:
             _put_bytes(out, 1, self.url.encode())
@@ -245,6 +285,8 @@ class Source:
 
     @classmethod
     def decode(cls, buf: bytes | memoryview) -> Source:
+        """The source `buf` encodes. Raises ValueError for a malformed message, one with no kind,
+        or a source `__post_init__` refuses."""
         kind: tuple[int, memoryview | bytes] | None = None
         pins: _Pins = {}
         schema = {1: _LEN, 2: _LEN, 3: _LEN, 4: _VARINT, 5: _LEN, 6: _VARINT}

@@ -171,14 +171,16 @@ class Policy:
     Rule 7 (unverifiable pins) has no option here: this reader always sees a
     response's headers, so every pin it is given can be checked.
 
-    For example, to read only sources under one prefix, or to save an
-    archive whose references name an S3 bucket, which its readers will read
-    with a store registered for the bucket (`help(refkv.reader.Resolver)`):
+    For example, to read only sources under one prefix, or to save a
+    `refkv.ReferenceStore` whose references name an S3 bucket, which the
+    archive's readers will read with a store registered for the bucket
+    (`help(refkv.reader.Resolver)`):
 
         policy = refkv.Policy(prefixes=("https://data.example/archive/",))
         store = refkv.open("data.vzip", policy=policy)
 
-        store.save("data.vzip", policy=refkv.Policy(schemes={"s3"}))
+        refs = refkv.ReferenceStore.from_virtualizarr(vds, registry=registry)
+        refs.save("data.vzip", policy=refkv.Policy(schemes={"s3"}))
 
     `ReferenceStore.save` checks the references it writes against a policy
     too, `Policy()` by default, so an archive that the default reader cannot

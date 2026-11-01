@@ -451,7 +451,7 @@ def open_store(location: str, url: str | None = None, *, max_objects: int | None
             store.url = url
         return store
     if url is None:
-        raise ValueError("a local directory needs --url, the URL it is served from")
+        raise ValueError("a local directory needs url, the URL it is served from")
     return DirStore(location, url)
 
 
