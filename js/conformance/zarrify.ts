@@ -27,6 +27,10 @@ const checksums = args.includes("--checksums");
 const allowPrivateHosts = args.includes("--allow-private-hosts");
 const [url, out] = args.filter((a) => !a.startsWith("--"));
 const UA = "refkv-zarrify (https://github.com/d-v-b/refkv)";
+// The Hub's endpoint (spec/zarrify.md §1.5
+// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>), as
+// huggingface_hub reads it: the harness's proxy is one.
+const hubEndpoint = process.env.HF_ENDPOINT || undefined;
 // Some servers (Zenodo) refuse Node's default User-Agent ("node"); browsers
 // send their own.
 const nodeFetch = globalThis.fetch;
@@ -64,6 +68,7 @@ try {
     const send = storeFetch(url, policy, { "User-Agent": UA });
     const store = await openHttpStore(url, {
       policy,
+      ...(hubEndpoint ? { hubEndpoint } : {}),
       fetch: (u, i) => {
         requests++;
         return retryingFetch(send, u, i);
@@ -72,7 +77,11 @@ try {
     virtual = await zarrifyStore(store, { checksums });
   } else {
     // retries (429, 5xx, network errors) are the source's
-    const source = await openHttpSource(url, { policy: { allowPrivateHosts }, headers: { "User-Agent": UA } });
+    const source = await openHttpSource(url, {
+      policy: { allowPrivateHosts },
+      headers: { "User-Agent": UA },
+      ...(hubEndpoint ? { hubEndpoint } : {}),
+    });
     virtual = await zarrifySource(url, source, { checksums });
     requests = source.requests;
   }

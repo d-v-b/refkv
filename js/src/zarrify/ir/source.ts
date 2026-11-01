@@ -9,7 +9,8 @@ import { checkAddress, checkPolicy, type Policy, RefkvError } from "../../archiv
 import { EtagLog, HttpResolutionError, noResponse } from "../../http.ts";
 import { checkHttpUrl } from "../../uri.ts";
 import { checkedFetch } from "#net";
-import type { ByteReader } from "../common.ts";
+import { type ByteReader, ImageError } from "../common.ts";
+import { hubEndpoint, hubPage } from "../store.ts";
 
 /** A span [start, end) of a source. */
 export type Span = [start: number, end: number];
@@ -81,6 +82,8 @@ export interface HttpSourceOptions {
   signal?: AbortSignal;
   /** The read planner's settings (`RangeSource.planner`). */
   planner?: { byteCost?: number; wholeBelow?: number };
+  /** The Hub's endpoint (`HUB` if absent), whose repository pages are rejected unread. */
+  hubEndpoint?: string;
 }
 
 /** The bytes the request that opens a remote source reads. */
@@ -379,7 +382,10 @@ function causeOf(e: unknown): string {
   return cause ? ` (${cause.code ?? cause.message ?? String(cause)})` : "";
 }
 
-/** Opens an http(s) object for a run: checks the URL by the policy, then reads its first bytes. */
+/** Opens an http(s) object for a run: checks the URL by the policy, then reads its first bytes.
+ * A Hub repository's page (a tree URL without its trailing `/`, spec/zarrify.md §1.5
+ * <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>) is rejected
+ * (an ImageError) before any request. */
 export function openHttpSource(url: string, options: HttpSourceOptions = {}): Promise<HttpSource> {
   try {
     checkHttpUrl(url);
@@ -387,6 +393,13 @@ export function openHttpSource(url: string, options: HttpSourceOptions = {}): Pr
     return Promise.reject(new RefkvError("resolution", (e as Error).message));
   }
   if (!/^https?:/i.test(url)) return Promise.reject(new RefkvError("resolution", `${url}: not an http(s) URL`));
+  try {
+    if (hubPage(url, hubEndpoint(options.hubEndpoint))) {
+      return Promise.reject(new ImageError(`${url} is a Hub repository's page, not a file: end it in / to zarrify the repository`));
+    }
+  } catch (e) {
+    return Promise.reject(e);
+  }
   try {
     checkPolicy(options.policy ?? {}, url, url); // spec/refkv.md §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>, before any request
   } catch (e) {

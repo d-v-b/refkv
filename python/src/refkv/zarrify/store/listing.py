@@ -1,16 +1,20 @@
 """A store's listing (spec/zarrify.md §1.5
 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>): the XML subset
 an S3 ListObjectsV2 response is read in, and the objects and continuation token of one
-response.
+response; and a Hub store's commit, the objects of one page of its tree, and the page's next
+link.
 """
 
 from __future__ import annotations
 
+import re
+import urllib.parse
 from dataclasses import dataclass, field
 from typing import NoReturn
 
+from refkv.uri import is_uri_reference
 from refkv.zarrify.common import Rejected
-from refkv.zarrify.store.documents import MAX_DEPTH, MAX_SAFE
+from refkv.zarrify.store.documents import MAX_DEPTH, MAX_SAFE, as_int, parse_json
 
 
 def _is_char(c: int) -> bool:
@@ -254,3 +258,133 @@ def parse_listing(body: bytes, prefix: str) -> tuple[list[tuple[str, int]], str 
             raise Rejected("truncated listing without a Contents")
         return objects, token
     return objects, None
+
+
+_COMMIT = re.compile(r"[0-9a-f]{40}\Z")
+
+
+def parse_hub_revision(body: bytes) -> str:
+    """The commit `C` of a Hub revision's response (§1.5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>), or Rejected:
+    a gated repository's too."""
+    doc = parse_json(body)
+    if not isinstance(doc, dict):
+        raise Rejected("the Hub revision is not a JSON object")
+    sha = doc.get("sha")
+    if not isinstance(sha, str) or not _COMMIT.match(sha):
+        raise Rejected(f"the Hub revision's sha {str(sha)[:80]!r} is not 40 lowercase hex digits")
+    if "gated" in doc and doc["gated"] is not False:
+        raise Rejected(f"the Hub repository is gated ({str(doc['gated'])[:40]}): its files are not read anonymously")
+    return sha
+
+
+def parse_hub_tree(body: bytes, prefix: str) -> tuple[list[tuple[str, int]], int]:
+    """The objects (path, size) of one page of a Hub tree listing (§1.5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>), its files
+    under the directory `prefix` (its directories list nothing), and its number of entries."""
+    doc = parse_json(body)
+    if not isinstance(doc, list):
+        raise Rejected("the Hub tree listing is not a JSON array")
+    out = []
+    for entry in doc:
+        if not isinstance(entry, dict):
+            raise Rejected("a Hub tree entry is not a JSON object")
+        kind, path = entry.get("type"), entry.get("path")
+        if kind not in ("file", "directory"):
+            raise Rejected(f"a Hub tree entry's type {str(kind)[:40]!r} is neither file nor directory")
+        if not isinstance(path, str) or not path.startswith(prefix) or len(path) == len(prefix):
+            raise Rejected(f"the Hub tree entry {str(path)[:200]!r} is not under {prefix!r}")
+        try:
+            path.encode("utf-8")
+        except UnicodeEncodeError:  # a lone surrogate
+            raise Rejected(f"the Hub tree entry {path[:200]!r} is not Unicode") from None
+        if kind == "file":
+            size = as_int(entry.get("size"), 0, MAX_SAFE)
+            if size is None:
+                raise Rejected(f"the Hub tree file {path[:200]!r} has no size from 0 to 2^53 - 1")
+            out.append((path, size))
+    return out, len(doc)
+
+
+_LINK_WS = " \t\r\n"
+_PARAM_NAME = re.compile(r"[A-Za-z0-9-]+")
+_TOKEN = re.compile(r'[^ \t\r\n;,"]+')
+_S = re.compile(r"[ \t\r\n]+")
+
+
+def _links(value: str) -> list[tuple[str, list[tuple[str, str]]]]:
+    """The links of a `Link` field value (§1.5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>): (URI
+    reference, parameters), or Rejected."""
+    out: list[tuple[str, list[tuple[str, str]]]] = []
+    i, n = 0, len(value)
+
+    def ws() -> None:
+        nonlocal i
+        while i < n and value[i] in _LINK_WS:
+            i += 1
+
+    while True:
+        ws()
+        if i >= n or value[i] != "<":
+            raise Rejected(f"the Link header {value[:200]!r} is not a list of links")
+        end = value.find(">", i)
+        if end < 0:
+            raise Rejected(f"the Link header {value[:200]!r} has an unterminated <")
+        target, i = value[i + 1 : end], end + 1
+        params: list[tuple[str, str]] = []
+        if not is_uri_reference(target):
+            raise Rejected(f"the Link header's target {target[:200]!r} is not a URI reference")
+        while True:
+            ws()
+            if i >= n or value[i] != ";":
+                break
+            i += 1
+            ws()
+            m = _PARAM_NAME.match(value, i)
+            if m is None:
+                raise Rejected(f"the Link header {value[:200]!r} has a bad parameter")
+            name, i = m.group(), m.end()
+            ws()
+            if i >= n or value[i] != "=":
+                raise Rejected(f"the Link header {value[:200]!r} has a parameter without =")
+            i += 1
+            ws()
+            if i < n and value[i] == '"':
+                close = value.find('"', i + 1)
+                if close < 0:
+                    raise Rejected(f"the Link header {value[:200]!r} has an unterminated quote")
+                param, i = value[i + 1 : close], close + 1
+            else:
+                m = _TOKEN.match(value, i)
+                if m is None:
+                    raise Rejected(f"the Link header {value[:200]!r} has a parameter without a value")
+                param, i = m.group(), m.end()
+            params.append((name, param))
+        out.append((target, params))
+        if i >= n:
+            return out
+        if value[i] != ",":
+            raise Rejected(f"the Link header {value[:200]!r} is not a list of links")
+        i += 1
+
+
+def next_link(fields: list[str], url: str, endpoint: str) -> str | None:
+    """The next link of a Hub tree response whose `Link` fields are `fields` and which `url`
+    answered, resolved against `url` (§1.5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>); None if it has
+    none; Rejected if the fields are not links, give two next links, or one off `endpoint`'s
+    origin."""
+    if not fields:
+        return None
+    found = [t for t, params in _links(",".join(fields))
+             if any(k.lower() == "rel" and "next" in _S.split(v.lower()) for k, v in params)]
+    if len(found) > 1:
+        raise Rejected("the Hub tree response has more than one next link")
+    if not found:
+        return None
+    new = urllib.parse.urljoin(url, found[0])
+    a, b = urllib.parse.urlsplit(new), urllib.parse.urlsplit(endpoint)
+    if (a.scheme.lower(), a.netloc.lower()) != (b.scheme.lower(), b.netloc.lower()):
+        raise Rejected(f"the Hub tree's next link {new[:200]!r} is not on {endpoint!r}")
+    return new

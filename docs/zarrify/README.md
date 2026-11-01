@@ -46,7 +46,14 @@ who each one is for, what you get, and how to run it.
 
 A format that reads a file takes a URL, or a local path. One that reads a
 store takes a URL ending in `/` that answers the S3 `ListObjectsV2` operation
-anonymously, such as a public S3 bucket. SAFE reads either: a product's
+anonymously, such as a public S3 bucket, or a Hugging Face Hub repository's
+tree at a revision, `https://huggingface.co/<owner>/<repo>/tree/<rev>/` (or
+under `datasets/`, and optionally a directory after `<rev>/`), which is listed
+with the Hub's API at the commit `<rev>` names, so that every read sees that
+commit's files
+([§1.5](../../spec/zarrify.md#15-listing-a-store)). The Hub's pages give tree
+URLs without the trailing `/`; add it. `HF_ENDPOINT` names another Hub, as for
+`huggingface_hub`. SAFE reads either: a product's
 `.SAFE` directory as a store, or its `.SAFE.zip` as a file. VSI is named by
 its `.vsi` file and reads the tile files beside it by name, without listing
 the directory, and NRRD by its header file, a detached header's data file
