@@ -4,7 +4,7 @@
   and xarray is a dependency only of the documentation's examples and the tests.
 - refkv does not import obstore, which the base install does not have: the
   application's stores come in through `registry=`.
-- Only the zarr adapter (`refkv.zarr`) and the VirtualiZarr conversion
+- Only the zarr adapter (`refkv.zarr`, its data types and codecs) and the VirtualiZarr conversion
   (`refkv.convert`, `refkv.shards`) import zarr, which the base install does not
   have: the other modules neither import it nor import the adapter.
 - `import refkv` imports none of the ZIP binding's code but the names it reserves
@@ -20,10 +20,10 @@ from pathlib import Path
 
 SRC = Path(__file__).resolve().parents[1] / "src" / "refkv"
 
-ZARR_MODULES = {"zarr/__init__.py", "convert.py", "shards.py"} | {
+ZARR_MODULES = {"zarr/__init__.py", "zarr/dtypes.py", "convert.py", "shards.py"} | {
     p.relative_to(SRC).as_posix() for p in (SRC / "zarr" / "codecs").glob("*.py")}
-"""The modules that may import zarr, relative to the package: the adapter, its codecs and the
-VirtualiZarr conversion."""
+"""The modules that may import zarr, relative to the package: the adapter, its data types and
+codecs, and the VirtualiZarr conversion."""
 
 
 def imports_of(module: str, source: str) -> list[int]:

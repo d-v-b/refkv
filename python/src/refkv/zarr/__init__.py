@@ -10,7 +10,10 @@ module wraps one as a `zarr.abc.store.Store`:
     ds = xr.open_zarr(refkv.zarr.open("data.vzip"))  # a saved archive
     ds = xr.open_zarr(refkv.zarr.store(store))      # a refkv.ReferenceStore
 
-Importing it also registers the codecs that archives of zarrified files and
+Importing it also registers the data types that archives of zarrified safetensors files use and
+zarr-python lacks (`refkv.zarr.dtypes`: bfloat16, the float8, float6 and float4 types, and
+`refkv.float8_e4m3fn`, each an `ml_dtypes` type, which zarr also finds through refkv's
+`zarr.data_type` entry points), and the codecs that archives of zarrified files and
 stores use and zarr-python lacks (`refkv.zarr.codecs`, one module per codec, which
 zarr also finds through refkv's `zarr.codecs` entry points, without this import;
 the `refkv.tiff_lzw` codec's decoder needs the `images` extra, which also installs
@@ -60,6 +63,7 @@ except ImportError as e:
 
 import refkv
 import refkv.zarr.codecs  # registers the codecs vzip archives use
+import refkv.zarr.dtypes  # and the data types (bfloat16, float8, ...) zarr-python lacks
 
 zarr.config.set({"array.rectilinear_chunks": True})
 from refkv.reader import (  # noqa: E402

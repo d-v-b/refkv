@@ -38,6 +38,8 @@ dev = [
     "pyproj>=3.8.0",
     "pytest>=9.1.1",
     "rasterio>=1.5.2",
+    # safetensors: the reference reader the safetensors tests compare with, and the fixtures' writer
+    "safetensors>=0.8.0",
     "tifffile>=2026.9.20",
     "xarray>=2026.9.0",
     "zarr-n5>=0.3.1",

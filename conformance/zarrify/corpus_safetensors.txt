@@ -1,0 +1,10 @@
+# url|name|no-ref of the public safetensors files in the corpus (the frozen reference has no
+# safetensors profile, so each compares py with web alone), on the Hugging Face Hub, pinned to a
+# commit (a `resolve` URL redirects, with CORS, to a CDN that serves ranges): GPT-2 (MIT; its
+# header unpadded, its tensors in no order of their data), a timm ResNet (Apache-2.0; scalar
+# tensors), Qwen2.5-0.5B (Apache-2.0; BF16), and an FP8 checkpoint of Qwen2.5-0.5B-Instruct
+# (RedHatAI; BF16 and F8_E4M3, whose largest weights are 448)
+https://huggingface.co/openai-community/gpt2/resolve/607a30d783dfa663caf39e06633721c8d4cfcd7e/model.safetensors|hf_gpt2|no-ref|ends-sha256=6fb578b697069ac4f597cfbe01b694573d5fcfdae5835e199412342d0b922c4d
+https://huggingface.co/timm/resnet18.a1_in1k/resolve/491b427b45c94c7fb0e78b5474cc919aff584bbf/model.safetensors|hf_timm_resnet18|no-ref|ends-sha256=d1cfb5999c40ef3ff44b87e404e9f32404a575bdddc14cf366cfbcf72881fc70
+https://huggingface.co/Qwen/Qwen2.5-0.5B/resolve/060db6499f32faf8b98477b0a26969ef7d8b9987/model.safetensors|hf_qwen2_5_0_5b|no-ref|ends-sha256=c0cd3fc8ceb75e5ca60030eddb62641efb9263e7d67cd94021c0ccf12cf82427
+https://huggingface.co/RedHatAI/Qwen2.5-0.5B-Instruct-FP8-dynamic/resolve/67c5c3a4f39629d3653b715527f363d86929841e/model.safetensors|hf_qwen2_5_0_5b_fp8|no-ref|ends-sha256=70af9e0d4ce199224a22482b0c9e3932141b28fc56fcb3e80413e445dc5d58dd
