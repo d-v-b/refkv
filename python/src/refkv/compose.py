@@ -329,7 +329,10 @@ def _form(key: str, value: Value, identity: Callable[[int], object], *, document
         return value
     if isinstance(doc, dict):
         doc.pop("consolidated_metadata", None)
-    return ("json", _tagged(doc))
+    try:
+        return ("json", _tagged(doc))
+    except RecursionError:  # nested deeper than Python recurses: compare the bytes
+        return value
 
 
 def _digest(value: bytes) -> str:

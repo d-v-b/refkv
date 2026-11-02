@@ -518,6 +518,13 @@ def test_operators_keep_bounds_hidden_flags_and_meaning_through_every_step(tmp_p
     assert ChunkBox("a", (np.int64(0),), (np.int32(2),)).stop == (2,)  # pyrefly: ignore[bad-argument-type]
 
 
+def test_union_compares_a_deeply_nested_document_by_its_bytes():
+    deep = b'{"zarr_format":3,"node_type":"group","attributes":{"x":' + b"[" * 1400 + b"]" * 1400 + b"}}"
+    assert union(ReferenceStore({"zarr.json": deep}), ReferenceStore({"zarr.json": deep})).mapping["zarr.json"] == deep
+    with pytest.raises(ValueError, match="hold different values"):
+        union(ReferenceStore({"zarr.json": deep}), ReferenceStore({"zarr.json": deep.replace(b"[]", b"[1]")}))
+
+
 def test_union_refuses_a_number_against_an_object_that_spells_it():
     docs = [json.dumps({"zarr_format": 3, "node_type": "group", "attributes": {"x": x}}).encode()
             for x in (1.5, {"$number": "1.5"})]
