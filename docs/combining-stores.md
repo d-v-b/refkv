@@ -44,20 +44,27 @@ All of them return a new store.
 
 - **`overlay(*stores)`.** Each key comes from the last store whose bounds contain
   it, with its value or its absence. As in TensorStore's `stack` and `kvstack`,
-  later stores win. `overlay(a, overlay(b, c))` is the same as
+  later stores win. `overlay(a, overlay(b, c))` reads the same as
   `overlay(overlay(a, b), c)`.
 - **`union(*stores)`.** `overlay`, except that stores whose bounds share a key
   must answer it the same: equal values, or both absent. Otherwise it raises,
   naming the key. On stores with disjoint bounds the order doesn't matter.
 - **`shift_chunks(store, array, offset, new_axes=0)`.** Takes the chunks of one
-  array alone, with no metadata. It adds `new_axes` new leading axes, moves every
-  chunk by `offset`, and bounds the result by the box the moved chunks fill.
+  array alone, with no metadata. It adds `new_axes` new leading axes and moves
+  every chunk by `offset`. Only chunks inside the store's bounds move, and the
+  bounds move with them: a bound over the whole array becomes the box the moved
+  chunks fill.
 - **`mount(store, path)`.** Puts the store under `path/`, with its bounds moved
   along.
 - **`map_keys(store, f)`.** Renames each key to `f(key)`, or drops it where `f`
-  returns None. The result's bounds are derived again, unless `bounds=` is given.
-- **`normalize(store)`.** Drops the keys no valid Zarr node owns, such as a chunk
-  left under a group, and adds a group wherever a node's parent is missing.
+  returns None. Derived bounds are derived again, and stated `Key` bounds are
+  renamed. A function on keys can't move a range, prefix or box, so a store that
+  states one needs `bounds=`.
+- **`normalize(store)`.** Makes the store a valid hierarchy:
+  - an array owns everything below it;
+  - a key under a group, such as a chunk left behind by an overlay, is dropped;
+  - a group is added wherever a node's parent is missing, in that node's Zarr
+    version.
 
 A combination merges its stores' source tables. It resolves each store's relative
 URLs against that store's own base and keeps one entry for equal sources.
@@ -68,7 +75,10 @@ A combination never lets a store read what its own options refuse:
 - **Base URL.** It decides whether `file:` sources may be read: a store opened
   from a URL may not read local files. When some stores are local and some
   remote, the result takes a base under which no store reads more than before.
-  It raises when none exists, unless you pass `url=`.
+  It raises when none exists, unless you pass `url=`. An explicit `url=` is your
+  choice, and a local one lets every store read local files. Any operator given
+  `url=` first resolves relative source URLs against the store's old base, so
+  every reference still reads the same object.
 
 Combine many stores in one call, not a fold of pairwise calls: each call copies
 its stores.

@@ -26,10 +26,11 @@ design/proposals/store-operators.md
 from __future__ import annotations
 
 import json
+import operator
 import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, SupportsIndex, cast
 
 from refkv.vzip.names import RESERVED_PREFIX
 
@@ -110,8 +111,8 @@ class ChunkBox:
 
     def __post_init__(self) -> None:
         _check_path(self.array, "ChunkBox array")
-        object.__setattr__(self, "start", tuple(self.start))
-        object.__setattr__(self, "stop", tuple(self.stop))
+        object.__setattr__(self, "start", _indexes(self.start, "start"))
+        object.__setattr__(self, "stop", _indexes(self.stop, "stop"))
         if self.encoding not in ("default", "v2"):
             raise ValueError(f"ChunkBox encoding is 'default' or 'v2', not {self.encoding!r}")
         if self.separator not in ("/", "."):
@@ -119,8 +120,6 @@ class ChunkBox:
         if len(self.start) != len(self.stop):
             raise ValueError(f"ChunkBox start {self.start} and stop {self.stop} have different lengths")
         for a, b in zip(self.start, self.stop, strict=True):
-            if isinstance(a, bool) or isinstance(b, bool) or not isinstance(a, int) or not isinstance(b, int):
-                raise TypeError(f"ChunkBox coordinates are integers, not {self.start}, {self.stop}")
             if not 0 <= a <= b:
                 raise ValueError(f"ChunkBox needs 0 <= start <= stop on every axis, not {self.start}, {self.stop}")
 
@@ -135,6 +134,24 @@ class ChunkBox:
 
 
 Bound = Key | KeyRange | Prefix | ChunkBox
+
+
+def _indexes(values: Iterable[object], what: str) -> tuple[int, ...]:
+    """`values` as a tuple of Python ints: integers of any integer type, not bools."""
+    out = []
+    for v in values:
+        if isinstance(v, bool):
+            raise TypeError(f"ChunkBox {what} coordinates are integers, not {v!r}")
+        try:
+            out.append(operator.index(cast("SupportsIndex", v)))
+        except TypeError:
+            raise TypeError(f"ChunkBox {what} coordinates are integers, not {v!r}") from None
+    return tuple(out)
+
+
+def valid_path(path: str) -> bool:
+    """Whether `path` is a node path: "" (the root), or segments joined by `/`, none empty."""
+    return not path or all(path.split("/"))
 
 
 def chunk_key(array: str, coords: tuple[int, ...], encoding: str = "default", separator: str = "/") -> str:
@@ -187,8 +204,10 @@ def nodes(mapping: Mapping[str, object]) -> dict[str, str]:
         if key.startswith(RESERVED_PREFIX):
             continue
         path, _, name = key.rpartition("/")
+        if not valid_path(path) or key.startswith("/"):
+            continue  # `a//zarr.json` and `/zarr.json` mark no node
         if name == "zarr.json":
-            kind = _node_type(value)
+            kind = node_type(value)
             if kind is not None:
                 v3[path] = kind
         elif name == ".zarray":
@@ -199,12 +218,14 @@ def nodes(mapping: Mapping[str, object]) -> dict[str, str]:
     return {**v2, **v3}
 
 
-def _node_type(value: object) -> str | None:
+def node_type(value: object) -> str | None:
+    """The `node_type` of a v3 `zarr.json` value, "array" or "group"; None for a value that
+    is no such document."""
     if not isinstance(value, bytes):
         return None
     try:
         doc = json.loads(value)
-    except ValueError:
+    except (ValueError, RecursionError):
         return None
     kind = doc.get("node_type") if isinstance(doc, dict) else None
     return kind if kind in ("array", "group") else None

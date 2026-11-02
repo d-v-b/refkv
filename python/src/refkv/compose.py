@@ -6,25 +6,24 @@ operators build new stores and change none:
 
 - `overlay(*stores)`: each key from the last store whose bounds contain it, a value or
   absence, as a later layer wins in TensorStore's `stack` and `kvstack`. Associative and
-  idempotent, with the empty store as identity; not commutative.
+  idempotent in what it reads, with the empty store as identity; not commutative.
 - `union(*stores)`: `overlay`, where stores whose bounds share a key must answer it the
   same (equal values, or both absent). On disjoint bounds it is also commutative: the
   operator for a stack or a mosaic.
 - `map_keys(store, f)`: each key renamed to `f(key)`, or dropped where it gives None.
 - `mount(store, path)`: the store under `path/`, its bounds moved with it.
 - `shift_chunks(store, array, offset)`: the chunks of one array alone, moved by `offset`
-  (after `new_axes` new leading axes), bounded by the box they fill.
+  (after `new_axes` new leading axes), with their bounds.
 - `normalize(store)`: keys no valid Zarr node owns dropped, missing ancestor groups added.
 
 A combination's sources are each store's, relative URLs resolved against that store's
 base URL, equal ones merged, and the unused dropped; references are renumbered to match,
 the most used source first. A store's keys outside its own bounds are never carried into
 a combination. Its hidden keys (under the binding's reserved prefix) are carried only when
-a carried value reads one through a key source, renamed by its content if another
-store's differs.
-Consolidated metadata (a `zarr.json`'s `consolidated_metadata`, a v2 `.zmetadata`) lists
-the nodes of one store, so `overlay`, `union`, `map_keys` and `normalize` drop it. Every
-result's `info` is empty unless `info=` is given.
+a carried value reads one through a key source, renamed by its content if another carried
+one of that name differs. Consolidated metadata (a `zarr.json`'s `consolidated_metadata`,
+a v2 `.zmetadata`) lists the nodes of one store, so `overlay`, `union`, `map_keys` and
+`normalize` drop it. Every result's `info` is empty unless `info=` is given.
 
 A stack of same-layout arrays along a new axis, say the planes of a z-stack, is a header
 holding the stack's metadata, bounded to its own keys, and the planes' chunks:
@@ -41,27 +40,25 @@ design, with its reasons.
 
 from __future__ import annotations
 
-import bisect
 import dataclasses
 import hashlib
-import heapq
 import itertools
 import json
 import math
+import operator
 from collections import Counter
 from collections.abc import Callable, Iterable, Sequence
-from typing import TYPE_CHECKING, TypedDict, Unpack
+from typing import TYPE_CHECKING, SupportsIndex, TypedDict, Unpack
 
 from refkv.bounds import (
-    MARKERS,
     Bound,
     ChunkBox,
     Key,
     KeyRange,
     Prefix,
-    _node_type,
     ancestors,
     chunk_key,
+    node_type,
     nodes,
     parse_chunk_key,
 )
@@ -81,11 +78,15 @@ __all__ = [
 
 Value = bytes | Reference
 
-# Boxes of at most this many chunks are indexed chunk by chunk. A larger one is indexed
-# by the coordinate of its shallowest axis when that is at most _BOX_DEPTH chunks deep (a
-# stack's plane is one chunk deep); else it is checked against every chunk key of its array.
-_BOX_CELLS = 4096
-_BOX_DEPTH = 64
+# A chunk box is indexed in a grid of bins, each at most _BIN chunks wide on an axis (less
+# where the array's boxes are thinner, as a stack's planes are one chunk deep), when it
+# covers at most _MAX_BINS of them; else by the bins of its thinnest axis alone; else it
+# is checked against every chunk key of its array.
+_BIN = 64
+_MAX_BINS = 4096
+
+GROUP_V3 = b'{"zarr_format":3,"node_type":"group","attributes":{}}'
+GROUP_V2 = b'{"zarr_format":2}'
 
 
 class Options(TypedDict, total=False):
@@ -100,13 +101,101 @@ class Options(TypedDict, total=False):
     max_concurrency: int | None
 
 
+# ---------------------------------------------------------------- the bounds index
+
+
+_Interval = tuple[str, str | None, int]
+
+
+@dataclasses.dataclass(slots=True)
+class _Node:
+    """A node of an interval tree: its center, the intervals holding it by start and by
+    stop, and the subtrees of those wholly below and wholly above it."""
+
+    center: str
+    by_start: list[_Interval]
+    by_stop: list[_Interval]
+    left: _Node | None
+    right: _Node | None
+
+
+class _Intervals:
+    """Key ranges `[start, stop)` (`stop` None: unbounded), each with a number; `which(key)`
+    gives the numbers of those containing `key`. A centered interval tree: O(n) memory,
+    O(log n + found) a query."""
+
+    def __init__(self, items: list[tuple[str, str | None, int]]) -> None:
+        self.root = self._build(items)
+
+    @classmethod
+    def _build(cls, items: list[tuple[str, str | None, int]]) -> _Node | None:
+        if not items:
+            return None
+        starts = sorted(s for s, _, _ in items)
+        center = starts[len(starts) // 2]  # a start: its interval is held here, so each level shrinks
+        here = [it for it in items if it[0] <= center and (it[1] is None or center < it[1])]
+        left = [it for it in items if it[1] is not None and it[1] <= center]
+        right = [it for it in items if it[0] > center]
+        by_start = sorted(here, key=lambda it: it[0])
+        by_stop = sorted(here, key=lambda it: (it[1] is None, it[1] or ""), reverse=True)  # unbounded first
+        return _Node(center, by_start, by_stop, cls._build(left), cls._build(right))
+
+    def which(self, key: str) -> set[int]:
+        out: set[int] = set()
+        node = self.root
+        while node is not None:
+            if key < node.center:
+                for s, _, i in node.by_start:  # all contain center > key: those starting by key contain it
+                    if s > key:
+                        break
+                    out.add(i)
+                node = node.left
+            else:
+                for _, e, i in node.by_stop:  # all start by center <= key: those ending after it contain it
+                    if e is not None and e <= key:
+                        break
+                    out.add(i)
+                node = node.right if key > node.center else None
+        return out
+
+
 @dataclasses.dataclass
 class _Boxes:
-    """The chunk boxes of one array and encoding, indexed (see `_BOX_CELLS`)."""
+    """The chunk boxes of one array and chunk key encoding, indexed by bins."""
 
-    cells: dict[tuple[int, ...], set[int]] = dataclasses.field(default_factory=dict)
+    bins: tuple[int, ...] = ()
+    grid: dict[tuple[int, ...], list[tuple[ChunkBox, int]]] = dataclasses.field(default_factory=dict)
     slabs: dict[tuple[int, int], list[tuple[ChunkBox, int]]] = dataclasses.field(default_factory=dict)
     wide: list[tuple[ChunkBox, int]] = dataclasses.field(default_factory=list)
+
+    @classmethod
+    def of(cls, boxes: list[tuple[ChunkBox, int]], rank: int) -> _Boxes:
+        boxes = [(b, i) for b, i in boxes if all(a < z for a, z in zip(b.start, b.stop, strict=True))]
+        # bins as thin as the array's typical box on each axis, so that one small box does
+        # not make every large one span thousands of bins
+        bins = tuple(max(1, min(_BIN, sorted(b.stop[d] - b.start[d] for b, _ in boxes)[len(boxes) // 2]))
+                     if boxes else 1 for d in range(rank))
+        out = cls(bins)
+        for b, i in boxes:
+            spans = [range(a // n, (z - 1) // n + 1) for a, z, n in zip(b.start, b.stop, bins, strict=True)]
+            if math.prod(len(s) for s in spans) <= _MAX_BINS:
+                for cell in itertools.product(*spans):
+                    out.grid.setdefault(cell, []).append((b, i))
+            elif min(len(s) for s in spans) <= _MAX_BINS:
+                axis = min(range(rank), key=lambda d: len(spans[d]))
+                for x in spans[axis]:
+                    out.slabs.setdefault((axis, x), []).append((b, i))
+            else:
+                out.wide.append((b, i))
+        return out
+
+    def which(self, c: tuple[int, ...], out: set[int]) -> None:
+        cell = tuple(x // n for x, n in zip(c, self.bins, strict=True))
+        candidates = [self.grid.get(cell, ()), self.wide,
+                      *(self.slabs.get((d, x), ()) for d, x in enumerate(cell))]
+        for b, i in itertools.chain.from_iterable(candidates):
+            if i not in out and all(a <= x < z for x, a, z in zip(c, b.start, b.stop, strict=True)):
+                out.add(i)
 
 
 class _Cover:
@@ -115,9 +204,7 @@ class _Cover:
     def __init__(self, sets: Iterable[tuple[int, Iterable[Bound]]]) -> None:
         self.keys: dict[str, set[int]] = {}
         ranges: list[tuple[str, str | None, int]] = []
-        # by array path, then by (rank, encoding, separator): the small boxes' chunks; the
-        # large boxes by (axis, coordinate) on their shallowest axis; and the rest
-        self.boxes: dict[str, dict[tuple[int, str, str], _Boxes]] = {}
+        boxes: dict[str, dict[tuple[int, str, str], list[tuple[ChunkBox, int]]]] = {}
         for i, bounds in sets:
             for b in bounds:
                 if isinstance(b, Key):
@@ -127,62 +214,32 @@ class _Cover:
                     if r.stop is None or r.start < r.stop:
                         ranges.append((r.start, r.stop, i))
                 else:
-                    groups = self.boxes.setdefault(b.array, {})
-                    group = groups.setdefault((len(b.start), b.encoding, b.separator), _Boxes())
-                    extents = [z - a for a, z in zip(b.start, b.stop, strict=True)]
-                    if math.prod(extents) <= _BOX_CELLS:
-                        for c in itertools.product(*(range(a, z) for a, z in zip(b.start, b.stop, strict=True))):
-                            group.cells.setdefault(c, set()).add(i)
-                    elif min(extents) <= _BOX_DEPTH:
-                        axis = extents.index(min(extents))
-                        for x in range(b.start[axis], b.stop[axis]):
-                            group.slabs.setdefault((axis, x), []).append((b, i))
-                    else:
-                        group.wide.append((b, i))
-        self._sweep(ranges)
-
-    def _sweep(self, ranges: list[tuple[str, str | None, int]]) -> None:
-        """Split the key line at every range's ends; record, for each piece, the sets
-        whose ranges cover it."""
-        points = sorted({s for s, _, _ in ranges} | {e for _, e, _ in ranges if e is not None})
-        starts: dict[str, list[tuple[str | None, int]]] = {}
-        for s, e, i in ranges:
-            starts.setdefault(s, []).append((e, i))
-        self.points = points
-        self.pieces: list[frozenset[int]] = []
-        active: Counter[int] = Counter()
-        ends: list[tuple[str, int]] = []  # (end, set), a heap
-        for p in points:
-            while ends and ends[0][0] <= p:
-                _, i = heapq.heappop(ends)
-                active[i] -= 1
-                if not active[i]:
-                    del active[i]
-            for e, i in starts.get(p, ()):
-                active[i] += 1
-                if e is not None:
-                    heapq.heappush(ends, (e, i))
-            self.pieces.append(frozenset(active))
+                    group = (len(b.start), b.encoding, b.separator)
+                    boxes.setdefault(b.array, {}).setdefault(group, []).append((b, i))
+        self.ranges = _Intervals(ranges)
+        self.boxes = {array: {g: _Boxes.of(items, g[0]) for g, items in groups.items()}
+                      for array, groups in boxes.items()}
 
     def which(self, key: str) -> set[int]:
         out = set(self.keys.get(key, ()))
-        k = bisect.bisect_right(self.points, key) - 1
-        if k >= 0:
-            out |= self.pieces[k]
-        for array in ancestors(key):
+        if self.ranges.root is not None:
+            out |= self.ranges.which(key)
+        if len(self.boxes) <= 8:  # a few arrays: test each, rather than walk the key's ancestors
+            arrays: Iterable[str] = [a for a in self.boxes if not a or key.startswith(a + "/")]
+        else:
+            arrays = ancestors(key)
+        for array in arrays:
             for (rank, encoding, sep), group in self.boxes.get(array, {}).items():
                 c = parse_chunk_key(key, array, rank, encoding, sep)
-                if c is None:
-                    continue
-                out |= group.cells.get(c, set())
-                candidates = [group.wide, *(group.slabs.get((axis, x), ()) for axis, x in enumerate(c))]
-                for b, i in itertools.chain.from_iterable(candidates):
-                    if i not in out and all(a <= x < z for x, a, z in zip(c, b.start, b.stop, strict=True)):
-                        out.add(i)
+                if c is not None:
+                    group.which(c, out)
         return out
 
     def contains(self, key: str) -> bool:
         return bool(self.which(key))
+
+
+# ---------------------------------------------------------------- values and sources
 
 
 def _absolute(store: ReferenceStore) -> list[Source]:
@@ -209,6 +266,15 @@ def _used(value: Value) -> list[int]:
     return [r.source for r in parts if r.data is None]
 
 
+def _load(value: bytes) -> object:
+    """A JSON document, its numbers kept as written (so `1e400` and `2e400` differ); None
+    if `value` is not JSON."""
+    try:
+        return json.loads(value, parse_float=lambda s: {"$number": s}, parse_constant=lambda s: {"$number": s})
+    except (ValueError, RecursionError):
+        return None
+
+
 def _unconsolidated(key: str, value: Value) -> Value | None:
     """`value` without the consolidated metadata a combination makes stale: None for a v2
     `.zmetadata` document, and a v3 `zarr.json` without its `consolidated_metadata`."""
@@ -219,64 +285,33 @@ def _unconsolidated(key: str, value: Value) -> Value | None:
         return value
     try:
         doc = json.loads(value)
-    except ValueError:
+    except (ValueError, RecursionError):
         return value
     if not isinstance(doc, dict) or doc.get("consolidated_metadata") is None:
         return value
     del doc["consolidated_metadata"]
-    return json.dumps(doc, separators=(",", ":")).encode()
+    return json.dumps(doc, separators=(",", ":"), ensure_ascii=False).encode()
 
 
-def _agreement_form(key: str, value: Value) -> object:
-    """What `union` compares of `value`: a `zarr.json` document as parsed JSON without its
-    `consolidated_metadata`, so that formatting and listings don't count; else the value."""
-    if key.rpartition("/")[2] != "zarr.json" or not isinstance(value, bytes):
+def _form(key: str, value: Value, identity: Callable[[int], object]) -> object:
+    """What `union` compares of a store's `value` at `key`: a reference with each source
+    given by `identity` (its absolute URL and pins, or the bytes of a hidden key it names),
+    so that two stores' references compare whatever their tables; a `zarr.json` document
+    as canonical JSON without its `consolidated_metadata`; else the bytes."""
+    if isinstance(value, Concat):
+        return ("concat", tuple(_form(key, r, identity) for r in value.parts))
+    if isinstance(value, Range):
+        if value.data is not None:
+            return ("data", value.data)
+        return ("range", identity(value.source), value.offset, value.length, value.crc32c)
+    if key.rpartition("/")[2] != "zarr.json":
         return value
-    try:
-        doc = json.loads(value)
-    except ValueError:
+    doc = _load(value)
+    if doc is None:
         return value
     if isinstance(doc, dict):
         doc.pop("consolidated_metadata", None)
-    # as canonical text, not as Python values, which would equate true, 1 and 1.0
     return ("json", json.dumps(doc, sort_keys=True, separators=(",", ":"), ensure_ascii=False))
-
-
-def _hidden_names(stores: Sequence[ReferenceStore]) -> tuple[list[dict[str, str]], dict[str, bytes]]:
-    """The names, in a combination of `stores`, of the hidden keys their key sources name:
-    for each store, {hidden key: name}, and the values by name. A key every store that
-    has it holds the same value under keeps its name; otherwise each distinct value is
-    named `key~` and the start of its SHA-256 digest, so no name depends on the order of
-    `stores`.
-
-    Raises ValueError for such a hidden key whose value is a reference, not bytes."""
-    found: list[dict[str, bytes]] = []
-    distinct: dict[str, set[bytes]] = {}  # by base name: a name a combination gave stays one
-    for store in stores:
-        named: dict[str, bytes] = {}
-        for s in store.sources:
-            k = s.key
-            if k is None or not k.startswith(RESERVED_PREFIX) or k in named or k not in store.mapping:
-                continue
-            value = store.mapping[k]
-            if not isinstance(value, bytes):
-                raise ValueError(  # noqa: TRY004 (a store the operation cannot combine, not a wrong argument)
-                    f"a key source names the hidden key {k!r}, whose value is a reference; "
-                    "a combination carries only bytes hidden values")
-            named[k] = value
-            distinct.setdefault(_hidden_base(k, value), set()).add(value)
-        found.append(named)
-    names: list[dict[str, str]] = []
-    values: dict[str, bytes] = {}
-    for named in found:
-        out = {}
-        for k, value in named.items():
-            base = _hidden_base(k, value)
-            name = base if len(distinct[base]) == 1 else f"{base}~{_digest(value)}"
-            out[k] = name
-            values[name] = value
-        names.append(out)
-    return names, values
 
 
 def _digest(value: bytes) -> str:
@@ -287,6 +322,47 @@ def _hidden_base(key: str, value: bytes) -> str:
     """The name a hidden key had before a combination named it by its value's digest."""
     base, sep, digest = key.rpartition("~")
     return base if sep and digest == _digest(value) else key
+
+
+def _hidden_value(store: ReferenceStore, i: int, k: str) -> bytes:
+    """The bytes of hidden key `k` of `store` (the `i`th), which a key source names."""
+    value = store.mapping.get(k)
+    if value is None:
+        raise ValueError(f"store {i} has a reference to its hidden key {k!r}, which it does not hold")
+    if not isinstance(value, bytes):
+        raise ValueError(  # noqa: TRY004 (a store the operation cannot combine, not a wrong argument)
+            f"a key source names the hidden key {k!r}, whose value is a reference; "
+            "a combination carries only bytes hidden values")
+    return value
+
+
+def _hidden_names(named: list[dict[str, bytes]]) -> tuple[list[dict[str, str]], dict[str, bytes]]:
+    """The names, in a combination, of the hidden keys its carried values read: for each
+    store, {hidden key: name}, and the values by name. A name all the stores that carry it
+    give one value stays; otherwise each value is named `key~` and the start of its SHA-256
+    digest, so no name depends on the order of the stores.
+
+    Raises ValueError when two different values come to one name (a hidden key named like
+    the digest name of another value)."""
+    distinct: dict[str, set[bytes]] = {}
+    for found in named:
+        for k, value in found.items():
+            distinct.setdefault(_hidden_base(k, value), set()).add(value)
+    names: list[dict[str, str]] = []
+    values: dict[str, bytes] = {}
+    for found in named:
+        out = {}
+        for k, value in found.items():
+            base = _hidden_base(k, value)
+            name = base if len(distinct[base]) == 1 else f"{base}~{_digest(value)}"
+            if values.setdefault(name, value) != value:
+                raise ValueError(f"two different hidden values come to the name {name!r}")
+            out[k] = name
+        names.append(out)
+    return names, values
+
+
+# ---------------------------------------------------------------- the result's options
 
 
 def _registry_key(resolver: Resolver) -> tuple[object, ...]:
@@ -301,12 +377,15 @@ def _has_files(store: ReferenceStore) -> bool:
 
 
 def _reach(stores: Sequence[ReferenceStore], options: Options) -> None:
-    """Fill in `options`' policy, registry and base URL for a combination of `stores`, so
-    that no store's sources become readable that its own options refuse.
+    """Fill in `options`' policy, registry, base URL, page size and request cap for a
+    combination of `stores`, so that no store's sources become readable that its own
+    options refuse. Stores with no keys and no sources (tombstones) read nothing and take
+    no part.
 
     Raises ValueError when the stores' policies, or registries, differ and `options` sets
     none, and when no base URL serves them all: a remote store's `file:` sources, which a
     remote base refuses, beside a local store's, which need a local one."""
+    stores = [s for s in stores if s.mapping or s.sources] or list(stores)
     if not stores:
         return
     first = stores[0]
@@ -320,6 +399,8 @@ def _reach(stores: Sequence[ReferenceStore], options: Options) -> None:
             raise ValueError("the stores have different registries; pass registry= to say "
                              "which the result has")
         options["registry"] = first.resolver
+    options.setdefault("page_size", first.page_size)
+    options.setdefault("max_concurrency", first.max_concurrency)
     if "url" in options:
         return
     local = [s for s in stores if _scheme(s.url) == "file"]
@@ -359,137 +440,206 @@ def _build(mapping: dict[str, Value], sources: list[Source], *, read_at_open: It
                           bounds=bounds, **kwargs)  # type: ignore[arg-type]
 
 
+# ---------------------------------------------------------------- overlay and union
+
+
 def _combine(stores: Sequence[ReferenceStore], agree: bool, options: Options) -> ReferenceStore:
     for s in stores:
         if not isinstance(s, ReferenceStore):
             raise TypeError(f"the operands are ReferenceStores, not {type(s).__name__}")
     _reach(stores, options)
     cover = _Cover(enumerate(s.bounds for s in stores))
+    absolute = [_absolute(s) for s in stores]
+
+    # Each store's keys inside its own bounds, as (key, held, kept): `kept` the value the
+    # result would keep (None for a `.zmetadata` it drops), and whether this store answers.
+    answers: list[list[tuple[str, Value, Value | None]]] = []
+    carried: list[set[str]] = []
+    covering: dict[str, set[int]] = {}  # each key's stores, found once
+    for i, store in enumerate(stores):
+        own = _Cover([(0, store.bounds)]) if store.bounds_stated else None  # derived bounds hold every key
+        mine: list[tuple[str, Value, Value | None]] = []
+        wins: set[str] = set()
+        for key, held in store.mapping.items():
+            if key.startswith(RESERVED_PREFIX) or (own is not None and not own.contains(key)):
+                continue
+            kept = _unconsolidated(key, held)
+            mine.append((key, held, kept))
+            which = covering.get(key)
+            if which is None:
+                which = covering[key] = cover.which(key)
+            if kept is not None and max(which) == i:
+                wins.add(key)
+        answers.append(mine)
+        carried.append(wins)
+
+    # The hidden keys the carried values read, named
+    named: list[dict[str, bytes]] = []
+    for i, store in enumerate(stores):
+        found: dict[str, bytes] = {}
+        for key, held, _ in answers[i]:
+            if key in carried[i]:
+                for s in _used(held):
+                    k = store.sources[s].key
+                    if k is not None and k.startswith(RESERVED_PREFIX) and k not in found:
+                        found[k] = _hidden_value(store, i, k)
+        named.append(found)
+    hidden_names, hidden = _hidden_names(named)
+
+    def identity(i: int) -> Callable[[int], object]:
+        def source(s: int) -> object:
+            src = absolute[i][s]
+            if src.key is not None and src.key.startswith(RESERVED_PREFIX):
+                held = stores[i].mapping.get(src.key)
+                return ("hidden", held if isinstance(held, bytes) else src.key)
+            return src
+        return source
+
+    if agree:
+        seen: dict[str, tuple[object, int, set[int]]] = {}
+        for i, mine in enumerate(answers):
+            for key, _, kept in mine:
+                if kept is None:
+                    continue  # a key the result drops is not compared
+                form = _form(key, kept, identity(i))
+                first = seen.setdefault(key, (form, i, set()))
+                if first[0] != form:
+                    raise ValueError(f"{key!r}: stores {first[1]} and {i} hold different values")
+                first[2].add(i)
+        for key, (_, _, holders) in seen.items():
+            missing = covering[key] - holders
+            if missing:
+                raise ValueError(f"{key!r}: store {min(holders)} holds it, but store {min(missing)}, "
+                                 "whose bounds contain it too, does not")
+
     sources: list[Source] = []
     index: dict[Source, int] = {}
     mapping: dict[str, Value] = {}
     origin: dict[str, int] = {}
-    answers: dict[str, tuple[object, set[int], int]] = {}  # for `agree`: compared form, holders, first holder
+    rewritten: set[str] = set()
     read_at_open: list[str] = []
     compressed: list[str] = []
-    internal: list[tuple[int, str]] = []  # (store, key) of each key source a carried value uses
-    hidden_names, hidden = _hidden_names(stores)
+    internal: list[tuple[int, str]] = []
     for i, store in enumerate(stores):
-        table = []
         names = hidden_names[i]
-        absolute = [dataclasses.replace(s, key=names[s.key]) if s.key in names else s for s in _absolute(store)]
-        for src in absolute:
+        table = []
+        for original in absolute[i]:
+            src = dataclasses.replace(original, key=names[original.key]) if original.key in names else original
             if src not in index:
                 index[src] = len(sources)
                 sources.append(src)
             table.append(index[src])
-        own = _Cover([(0, store.bounds)])
-        for key, held in store.mapping.items():
-            if key.startswith(RESERVED_PREFIX) or not own.contains(key):
+        for key, held, kept in answers[i]:
+            if key not in carried[i] or kept is None:
                 continue
-            value = _unconsolidated(key, _renumber(held, table))
-            if agree and value is not None:
-                seen = answers.get(key)
-                form = _agreement_form(key, value)
-                if seen is None:
-                    answers[key] = (form, {i}, i)
-                elif seen[0] != form:
-                    raise ValueError(f"{key!r}: stores {seen[2]} and {i} hold different values")
-                else:
-                    seen[1].add(i)
-            if max(cover.which(key)) != i or value is None:
-                continue
-            mapping[key] = value
+            mapping[key] = _renumber(kept, table)
             origin[key] = i
+            if kept is not held:
+                rewritten.add(key)
             for s in _used(held):
                 k = store.sources[s].key
-                if k is None:
-                    continue
-                if not k.startswith(RESERVED_PREFIX):
+                if k is not None and not k.startswith(RESERVED_PREFIX):
                     internal.append((i, k))
-                elif k not in names:
-                    raise ValueError(f"store {i} has a reference to its hidden key {k!r}, which it "
-                                     "does not hold")
         read_at_open += [k for k in store.read_at_open if origin.get(k) == i]
+        read_at_open += [names[k] for k in store.read_at_open if k in names]
         compressed += [k for k in store.compressed if origin.get(k) == i]
-    if agree:
-        for key, (_, holders, _) in answers.items():
-            missing = cover.which(key) - holders
-            if missing:
-                raise ValueError(f"{key!r}: store {min(holders)} holds it, but store {min(missing)}, "
-                                 "whose bounds contain it too, does not")
+        compressed += [names[k] for k in store.compressed if k in names]
     for i, target in internal:
-        if origin.get(target) != i:
+        j = origin.get(target)
+        if target in rewritten:
+            raise ValueError(f"store {i} has a reference to its own key {target!r}, whose value the "
+                             "result rewrites (dropping its consolidated metadata)")
+        if j != i and (j is None or _form(target, stores[i].mapping.get(target, b""), identity(i))
+                       != _form(target, stores[j].mapping[target], identity(j))):
             raise ValueError(f"store {i} has a reference to its own key {target!r}, which the result "
                              "takes from another store or leaves out")
-    used = {sources[s].key for v in mapping.values() for s in _used(v)}
-    mapping.update((k, v) for k, v in hidden.items() if k in used)
+    mapping.update(hidden)
     bounds = [b for s in stores for b in s.bounds]
     return _build(mapping, sources, read_at_open=read_at_open, compressed=compressed,
-                  bounds=bounds, template=stores[0] if stores else None, options=options)
+                  bounds=bounds, template=None, options=options)
 
 
 def overlay(*stores: ReferenceStore, **options: Unpack[Options]) -> ReferenceStore:
     """One store answering each key from the last of `stores` whose bounds contain it.
 
-    Combine many stores in one call: each call copies its stores, so a fold of pairwise
-    calls takes time quadratic in their number.
-
     The result holds the key's value from that store, or nothing if that store holds none
     (inside its bounds, a missing key is absent: a chunk's fill value). Its bounds are
-    every store's. A store's keys outside its own bounds are not carried.
+    every store's. A store's keys outside its own bounds are not carried. Combine many
+    stores in one call: each call copies its stores, so a fold of pairwise calls takes
+    time quadratic in their number.
 
     Keyword arguments set the result's options (`ReferenceStore`). By default its policy
     and registry are the stores' (which must agree), its base URL one that lets no store
     read what its own refuses (the reader policy tells only local `file:` bases from
-    remote ones), its `info` empty, and its request cap and page size the first store's.
+    remote ones), its `info` empty, and its request cap and page size the first store's;
+    stores with no keys and no sources take no part in these. An explicit `url=` is the
+    caller's choice, and a local one lets every store read local files.
 
-    Raises ValueError when a value carried into the result is a reference through a key
-    source (an internal reference) whose key the result takes from another store, or
-    leaves out, or names a hidden key its own store does not hold; when the stores'
-    policies or registries differ and none is given; and when no base URL serves them
-    all (see `url=`).
+    Raises ValueError when a value carried into the result reads through a key source (an
+    internal reference) whose key the result takes, with another value, from another
+    store, leaves out or rewrites, or names a hidden key its own store does not hold; when
+    the stores' policies or registries differ and none is given; and when no base URL
+    serves them all.
     """
-    return _combine(stores, False, dict(options))  # type: ignore[arg-type]
+    return _combine(stores, False, options)  # type: ignore[arg-type]
 
 
 def union(*stores: ReferenceStore, **options: Unpack[Options]) -> ReferenceStore:
     """`overlay`, where any two `stores` whose bounds share a key must answer it the same.
 
-    `zarr.json` documents are compared as JSON, without their consolidated metadata, which
-    the result drops; the result keeps the last store's bytes.
+    References are compared by what they read (each source's absolute URL and pins, or
+    the bytes of the hidden key it names), and `zarr.json` documents as canonical JSON,
+    without the consolidated metadata the result drops; the result keeps the last store's
+    bytes. Keys the result drops (`.zmetadata`) are not compared.
 
     Raises ValueError naming the key when two stores hold different values for it, or
-    when one holds it and another whose bounds contain it does not. On stores with
-    disjoint bounds, the order of `stores` changes only the order of the result's keys
-    and sources.
+    when one holds it and another whose bounds contain it does not, and as `overlay`
+    does. On stores with disjoint bounds, the order of `stores` changes only the order of
+    the result's keys and sources.
     """
-    return _combine(stores, True, dict(options))  # type: ignore[arg-type]
+    return _combine(stores, True, options)  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------- one store
 
 
 def map_keys(store: ReferenceStore, f: Callable[[str], str | None], *,
              bounds: Iterable[Bound] | None = None, **options: Unpack[Options]) -> ReferenceStore:
     """`store` with each key renamed to `f(key)`, or dropped where `f` returns None.
 
-    Key sources (internal references) are renamed with their keys. The result's bounds
-    are `bounds`, or derived from its keys: a function on keys says nothing about the
-    ranges and boxes of stated bounds. Consolidated metadata is dropped, as the renamed
-    keys may no longer match it.
+    Key sources (internal references) are renamed with their keys, and hidden keys (under
+    the reserved prefix) are kept as they are. Consolidated metadata is dropped, as the
+    renamed keys may no longer match it. The result's bounds are `bounds`; else, for a
+    store whose bounds are derived, derived again from its keys; else the store's stated
+    `Key` bounds renamed with `f`.
 
     Raises ValueError when two keys are renamed to one, when a key is renamed into, or out
-    of, the binding's reserved prefix, or when a value uses a key source whose key is
-    dropped. Hidden keys (under the reserved prefix) are kept as they are.
+    of, the reserved prefix, when a value uses a key source whose key is dropped or
+    rewritten, and when the store states a `KeyRange`, `Prefix` or `ChunkBox` bound and
+    `bounds` is not given, since a function on keys cannot move one.
     """
-    return _map_keys(store, f, bounds, {}, [], dict(options), unconsolidate=True)  # type: ignore[arg-type]
+    if bounds is None and store.bounds_stated:
+        moved: list[Bound] = []
+        for b in store.bounds:
+            if not isinstance(b, Key):
+                raise ValueError(  # noqa: TRY004 (a bound the operation cannot move, not a wrong argument)
+                    f"map_keys cannot move the bound {b!r}; pass bounds= for the result")
+            new = f(b.key)
+            if new is not None:
+                moved.append(Key(new))
+        bounds = moved
+    return _map_keys(store, f, bounds, {}, [], options, unconsolidate=True)  # type: ignore[arg-type]
 
 
 def _map_keys(store: ReferenceStore, f: Callable[[str], str | None], bounds: Iterable[Bound] | None,
               extra: dict[str, Value], read_at_open: list[str], options: Options, *,
               unconsolidate: bool) -> ReferenceStore:
     """`map_keys`, then the bytes values of `extra` added, read at open with `read_at_open`;
-    consolidated metadata dropped with `unconsolidate`, since renamed keys make it stale."""
+    consolidated metadata dropped with `unconsolidate`, since renamed keys make it stale.
+    Relative source URLs are made absolute when `options` gives the result another base."""
     mapping: dict[str, Value] = {}
     names: dict[str, str] = {}
+    rewritten: set[str] = set()
     for key, held in store.mapping.items():
         new = key if key.startswith(RESERVED_PREFIX) else f(key)
         if new is None:
@@ -505,15 +655,25 @@ def _map_keys(store: ReferenceStore, f: Callable[[str], str | None], bounds: Ite
         value = _unconsolidated(new, held) if unconsolidate else held
         if value is not None:
             mapping[new] = value
-    mapping.update(extra)
+            if value is not held:
+                rewritten.add(key)
+    for k, v in extra.items():
+        if k in names:
+            rewritten.add(names[k])
+        mapping[k] = v
     renamed = {old: new for new, old in names.items() if new in mapping}
     used = {s for v in mapping.values() for s in _used(v)}
+    base = options.get("url", store.url)
+    originals = store.sources if base == store.url else _absolute(store)
     sources = []
-    for i, s in enumerate(store.sources):
-        if s.key is not None and s.key not in renamed and i in used:
-            raise ValueError(f"a key source names {s.key!r}, which the result does not hold")
+    for i, s in enumerate(originals):
+        if s.key is not None and i in used:
+            if s.key not in renamed:
+                raise ValueError(f"a key source names {s.key!r}, which the result does not hold")
+            if s.key in rewritten:
+                raise ValueError(f"a key source names {s.key!r}, whose value the result rewrites")
         sources.append(dataclasses.replace(s, key=renamed[s.key]) if s.key in renamed else s)
-    options.setdefault("url", store.url)
+    options["url"] = base
     return _build(mapping, sources,
                   read_at_open=[*(renamed[k] for k in store.read_at_open if k in renamed), *read_at_open],
                   compressed=[renamed[k] for k in store.compressed if k in renamed],
@@ -540,7 +700,7 @@ def mount(store: ReferenceStore, path: str, **options: Unpack[Options]) -> Refer
     if not isinstance(path, str) or not path or path.startswith("/") or path.endswith("/") or "//" in path:
         raise ValueError(f"mount path {path!r}: a non-empty node path, with no leading, trailing or doubled '/'")
     return _map_keys(store, lambda k: f"{path}/{k}", [_mount_bound(b, path) for b in store.bounds], {}, [],
-                     dict(options), unconsolidate=False)  # type: ignore[arg-type]
+                     options, unconsolidate=False)  # type: ignore[arg-type]
 
 
 def _array(store: ReferenceStore, array: str) -> tuple[list[int], list[int], str, str]:
@@ -551,105 +711,159 @@ def _array(store: ReferenceStore, array: str) -> tuple[list[int], list[int], str
     if not isinstance(doc, bytes):
         raise ValueError(  # noqa: TRY004 (a missing array, not a wrong argument type)
             f"{array!r} is not an array of the store: no zarr.json or .zarray document")
-    meta = json.loads(doc)
-    if v3 is not None:
-        if meta.get("node_type") != "array":
-            raise ValueError(f"{array!r} is a {meta.get('node_type')}, not an array")
-        grid = meta["chunk_grid"]
-        if grid.get("name") != "regular":
-            raise ValueError(f"{array!r} has a {grid.get('name')!r} chunk grid; shift_chunks needs a regular one")
-        encoding = meta["chunk_key_encoding"]
-        name = encoding["name"]
-        sep = encoding.get("configuration", {}).get("separator", "/" if name == "default" else ".")
-        return list(meta["shape"]), list(grid["configuration"]["chunk_shape"]), name, sep
-    return list(meta["shape"]), list(meta["chunks"]), "v2", meta.get("dimension_separator") or "."
+    try:
+        meta = json.loads(doc)
+        if v3 is not None:
+            if meta.get("node_type") != "array":
+                raise ValueError(f"{array!r} is a {meta.get('node_type')}, not an array")
+            grid = meta["chunk_grid"]
+            if grid.get("name") != "regular":
+                raise ValueError(f"{array!r} has a {grid.get('name')!r} chunk grid; shift_chunks needs a regular one")
+            encoding = meta["chunk_key_encoding"]
+            name = encoding["name"]
+            sep = (encoding.get("configuration") or {}).get("separator") or ("/" if name == "default" else ".")
+            shape, chunks = list(meta["shape"]), list(grid["configuration"]["chunk_shape"])
+        else:
+            name, sep = "v2", meta.get("dimension_separator") or "."
+            shape, chunks = list(meta["shape"]), list(meta["chunks"])
+        if name not in ("default", "v2") or sep not in ("/", ".") or len(shape) != len(chunks):
+            raise ValueError(f"{array!r}: chunk key encoding {name!r} with separator {sep!r}, or a "
+                             "chunk shape of another rank than the shape")
+        return [operator.index(n) for n in shape], [operator.index(c) for c in chunks], name, sep
+    except (KeyError, TypeError, AttributeError, RecursionError) as e:
+        raise ValueError(f"{array!r}: malformed array metadata ({type(e).__name__}: {e})") from None
 
 
-def shift_chunks(store: ReferenceStore, array: str, offset: Sequence[int], *, new_axes: int = 0,
+def _shift_bounds(store: ReferenceStore, array: str, rank: int, encoding: str, sep: str, new_axes: int,
+                  offset: tuple[int, ...], grid: tuple[int, ...]) -> list[Bound]:
+    """The bounds of `shift_chunks`' result: the store's bounds on the array's chunks, moved."""
+    whole = ChunkBox(array, offset, tuple(o + g for o, g in zip(offset, grid, strict=True)),
+                     encoding, sep)  # type: ignore[arg-type]
+    chunks = Prefix(array).as_range() if array else KeyRange("")
+    out: list[Bound] = []
+    for b in store.bounds:
+        if isinstance(b, Prefix) and (not b.path or array == b.path or array.startswith(b.path + "/")):
+            out.append(whole)
+        elif isinstance(b, ChunkBox) and (b.array, len(b.start), b.encoding, b.separator) == (
+                array, rank, encoding, sep):
+            start = tuple(o + x for o, x in zip(offset, (0,) * new_axes + b.start, strict=True))
+            stop = tuple(o + x for o, x in zip(offset, (1,) * new_axes + b.stop, strict=True))
+            out.append(ChunkBox(array, start, stop, encoding, sep))  # type: ignore[arg-type]
+        elif isinstance(b, Key):
+            c = parse_chunk_key(b.key, array, rank, encoding, sep)
+            if c is not None:
+                moved = tuple(o + x for o, x in zip(offset, (0,) * new_axes + c, strict=True))
+                out.append(Key(chunk_key(array, moved, encoding, sep)))
+        elif isinstance(b, (KeyRange, Prefix)):
+            r = b.as_range() if isinstance(b, Prefix) else b
+            if (r.stop is None or chunks.start < r.stop) and (chunks.stop is None or r.start < chunks.stop):
+                raise ValueError(f"shift_chunks cannot move the bound {b!r}, which takes in some of "
+                                 f"{array!r}'s keys")
+        elif isinstance(b, ChunkBox) and b.array == array:
+            raise ValueError(f"shift_chunks cannot move the bound {b!r}, of another chunk key encoding or rank")
+    return out
+
+
+def shift_chunks(store: ReferenceStore, array: str, offset: Sequence[SupportsIndex], *, new_axes: int = 0,
                  **options: Unpack[Options]) -> ReferenceStore:
     """The chunks of the array at `array` alone, moved: `new_axes` new leading axes of one
     chunk each, then `offset` added to every coordinate.
 
     The result holds those chunks under the same array path, and no metadata: a header
-    store gives that. Its bounds are the `ChunkBox` the moved array's chunk grid fills,
-    so it answers for exactly those chunks, holding them or not. For the planes of a
-    stack, `shift_chunks(plane, "0", (i, 0, 0), new_axes=1)` puts plane `i`'s chunk
-    `(y, x)` at `(i, y, x)`. Hidden keys are kept, and key sources renamed with the
-    chunks they name.
+    store gives that. Only the chunks inside the store's bounds move, and its bounds on
+    them move too: a bound over the whole array (such as the derived one) becomes the
+    `ChunkBox` the moved chunk grid fills, a `ChunkBox` of the array moves with its
+    chunks, and a `Key` bound of a chunk moves with it. For the planes of a stack,
+    `shift_chunks(plane, "0", (i, 0, 0), new_axes=1)` puts plane `i`'s chunk `(y, x)` at
+    `(i, y, x)`. Hidden keys are kept, and key sources renamed with the chunks they name.
 
-    Raises ValueError when `array` is not an array of `store` with a regular chunk grid,
-    when `offset` has another length than the moved array's axes or a negative entry, or
-    when a chunk reads through a key source whose key is not a chunk of the array.
+    Raises ValueError when `array` is not an array of `store` with a regular chunk grid
+    and well-formed metadata, when `offset` has another length than the moved array's
+    axes or a negative entry, when a chunk reads through a key source whose key is not a
+    moved chunk, or when the store states a bound on part of the array that does not move
+    with it (a `KeyRange`, or a `Prefix` inside the array).
     """
     shape, chunks, encoding, sep = _array(store, array)
     rank = len(shape)
-    if isinstance(new_axes, bool) or not isinstance(new_axes, int) or new_axes < 0:
+    if isinstance(new_axes, bool) or any(isinstance(o, bool) for o in offset):
+        raise ValueError(f"offset {offset!r} and new_axes {new_axes!r} are integers, not bools")
+    try:
+        new_axes = operator.index(new_axes)
+        moves = tuple(operator.index(o) for o in offset)
+    except TypeError:
+        raise ValueError(f"offset {offset!r} and new_axes {new_axes!r} are integers, not bools") from None
+    if new_axes < 0:
         raise ValueError(f"new_axes is a count of axes, not {new_axes!r}")
-    offset = tuple(offset)
-    if len(offset) != rank + new_axes:
-        raise ValueError(f"offset {offset} has {len(offset)} entries; the moved array has {rank + new_axes} axes")
-    if any(isinstance(o, bool) or not isinstance(o, int) or o < 0 for o in offset):
-        raise ValueError(f"offset {offset}: entries are integers of 0 or more")
+    if len(moves) != rank + new_axes:
+        raise ValueError(f"offset {moves} has {len(moves)} entries; the moved array has {rank + new_axes} axes")
+    if any(o < 0 for o in moves):
+        raise ValueError(f"offset {moves}: entries are integers of 0 or more")
     grid = (1,) * new_axes + tuple(-(-n // c) if c else 0 for n, c in zip(shape, chunks, strict=True))
+    bounds = _shift_bounds(store, array, rank, encoding, sep, new_axes, moves, grid)
+    own = _Cover([(0, store.bounds)])
+
     def move(key: str) -> str | None:
         c = parse_chunk_key(key, array, rank, encoding, sep)
-        if c is None:
+        if c is None or not own.contains(key):
             return None
-        return chunk_key(array, tuple(o + x for o, x in zip(offset, (0,) * new_axes + c, strict=True)),
+        return chunk_key(array, tuple(o + x for o, x in zip(moves, (0,) * new_axes + c, strict=True)),
                          encoding, sep)
 
-    box = ChunkBox(array, offset, tuple(o + g for o, g in zip(offset, grid, strict=True)),
-                   encoding, sep)  # type: ignore[arg-type]
-    return _map_keys(store, move, [box], {}, [], dict(options), unconsolidate=False)  # type: ignore[arg-type]
+    return _map_keys(store, move, bounds, {}, [], options, unconsolidate=False)  # type: ignore[arg-type]
 
 
 def normalize(store: ReferenceStore, **options: Unpack[Options]) -> ReferenceStore:
     """`store` as a valid Zarr hierarchy: keys no valid node owns dropped, and a group added
     at each missing ancestor of a node.
 
-    A node's metadata is kept unless an array is above it. Any other key is kept when
-    the nearest node above it is a kept array (its chunks), or when no node is above it
-    at all (it is not part of the hierarchy); under a group, it is dropped, as a chunk an
-    `overlay` left under a group that replaced its array. A store with no Zarr nodes is
-    returned with the same keys. Where v2 and v3 documents mark one path, the v3 document
-    is kept. A missing group is v3 when the store has a v3 node, and replaces a document
-    there that marks no node. The result's bounds are the store's, plus the added groups'
-    keys when they were stated; derived otherwise.
+    An array owns every key below it: its chunks are kept, and a node document below it is
+    dropped. A group owns only its metadata: another key whose nearest node above it is a
+    group is dropped, as a chunk an `overlay` left under a group that replaced its array.
+    A key with no node above it is not part of the hierarchy and is kept. Where v2 and v3
+    documents mark one path, the v3 document is kept. Each missing ancestor of a v3 node
+    gets a v3 group, and of a v2 node a v2 group, replacing a document there that marks no
+    node. A store with no Zarr nodes is returned with the same keys. The result's bounds
+    are the store's, plus the added groups' keys when they were stated; derived otherwise.
+
+    Raises ValueError when a value reads through a key source whose key is dropped or
+    replaced.
     """
     found = nodes(store.mapping)
+    bounds_kept = store.bounds if store.bounds_stated else None
     if not found:
-        return map_keys(store, lambda k: k, bounds=store.bounds if store.bounds_stated else None, **options)
+        return _map_keys(store, lambda k: k, bounds_kept, {}, [], options,  # type: ignore[arg-type]
+                         unconsolidate=False)
     arrays = {p for p, kind in found.items() if kind == "array"}
-    v3 = {k.rpartition("/")[0] for k, v in store.mapping.items()
-          if k.rpartition("/")[2] == "zarr.json" and _node_type(v) is not None}
+    v3 = {p for p in found if node_type(store.mapping.get(f"{p}/zarr.json" if p else "zarr.json")) is not None}
 
-    def valid(path: str) -> bool:
-        return not any(a in arrays for a in ancestors(path)) if path else True
+    def array_above(path: str) -> str | None:
+        """The outermost array strictly above `path`, which owns it."""
+        return next((a for a in reversed(ancestors(path)) if a in arrays), None)
 
-    keep: dict[str, Value] = {}
-    for key, value in store.mapping.items():
+    keep: set[str] = set()
+    for key in store.mapping:
         if key.startswith(RESERVED_PREFIX):
-            keep[key] = value
+            keep.add(key)
             continue
         path, _, name = key.rpartition("/")
-        if (name in MARKERS or name == ".zattrs") and path in found:
-            if valid(path) and not (name != "zarr.json" and path in v3):  # v3 decides a path both mark
-                keep[key] = value
+        is_marker = path in found and (name in ("zarr.json", ".zarray", ".zgroup", ".zattrs"))
+        owner = array_above(key)
+        if is_marker:
+            if array_above(path) is None and not (name != "zarr.json" and path in v3):
+                keep.add(key)  # a node's metadata, with no array above it; v3 decides a path both mark
             continue
-        owner = next((p for p in ancestors(key) if p in found), None)
-        if owner is None or (found[owner] == "array" and valid(owner)):
-            keep[key] = value
-    added: list[str] = []
-    # a missing group is v3 if the store has any v3 node, whatever the order of its keys
-    marker, group = (("zarr.json", b'{"zarr_format":3,"node_type":"group","attributes":{}}') if v3
-                     else (".zgroup", b'{"zarr_format":2}'))
-    for path in sorted(p for p in found if valid(p)):
+        if owner is not None:
+            keep.add(key)  # an array's chunk, or anything else below an array
+        elif next((p for p in ancestors(key) if p in found), None) is None:
+            keep.add(key)  # below no node: not part of the hierarchy
+    added: dict[str, bytes] = {}
+    for path in sorted(p for p in found if array_above(p) is None):
+        marker, group = ("zarr.json", GROUP_V3) if path in v3 else (".zgroup", GROUP_V2)
         for a in ancestors(path):
-            key = (f"{a}/" if a else "") + marker
-            if a in found or key in added:
+            if a in found:
                 continue
-            keep[key] = group  # replacing a document there that marks no node
-            added.append(key)
-    bounds = [*store.bounds, *(Key(k) for k in added)] if store.bounds_stated else None
-    return _map_keys(store, lambda k: k if k in keep else None, bounds, {k: keep[k] for k in added},
-                     added, dict(options), unconsolidate=True)  # type: ignore[arg-type]
+            key = (f"{a}/" if a else "") + marker
+            added.setdefault(key, group)  # replacing a document there that marks no node
+    bounds = [*bounds_kept, *(Key(k) for k in added)] if bounds_kept is not None else None
+    return _map_keys(store, lambda k: k if k in keep else None, bounds, dict(added),  # type: ignore[arg-type]
+                     list(added), options, unconsolidate=True)

@@ -1,6 +1,7 @@
 """Bounds (refkv.bounds) and the operators that combine reference stores by them
 (refkv.compose): overlay, union, map_keys, mount, shift_chunks and normalize."""
 
+import hashlib
 import json
 import random
 
@@ -12,8 +13,8 @@ from obstore.store import MemoryStore
 
 import refkv.zarr
 from refkv import ReferenceStore
-from refkv.bounds import ChunkBox, Key, KeyRange, Prefix, chunk_key, derive, nodes, parse_chunk_key
-from refkv.compose import map_keys, mount, normalize, overlay, shift_chunks, union
+from refkv.bounds import Bound, ChunkBox, Key, KeyRange, Prefix, chunk_key, derive, nodes, parse_chunk_key
+from refkv.compose import _Cover, map_keys, mount, normalize, overlay, shift_chunks, union
 from refkv.errors import ResolutionError
 from refkv.pb import Concat, Range, Source
 from refkv.policy import Policy
@@ -208,7 +209,7 @@ def test_map_keys_mount_shift_and_normalize():
                                   "a/b/c/x/zarr.json": GROUP, "a/b/stray": b"s", "loose": b"l",
                                   "v2/.zarray": b"{}", "v2/0": b"0"}))
     assert set(n.mapping) == {"zarr.json", "a/zarr.json", "a/b/zarr.json", "a/b/c/zarr.json", "a/b/c/c/0",
-                              "loose", "v2/.zarray", "v2/0"}
+                              "loose", "v2/.zarray", "v2/0", ".zgroup"}  # each node's ancestors in its own version
     assert {"zarr.json", "a/zarr.json"} <= n.read_at_open
     # v3 decides a path v2 and v3 both mark, whatever the key order; a broken ancestor document is replaced
     for order in (1, -1):
@@ -442,3 +443,117 @@ def test_map_keys_refuses_a_key_source_naming_dropped_consolidated_metadata():
     s = ReferenceStore({".zmetadata": b"{}", "v": Range(source=0, length=1)}, [Source(key=".zmetadata")])
     with pytest.raises(ValueError, match=r"a key source names '\.zmetadata', which the result does not hold"):
         map_keys(s, lambda k: k)
+
+
+def test_the_bounds_index_finds_the_bounds_that_contain_each_key():
+    rng = random.Random(11)
+    chunks = [f"0/c/{z}/{y}" for z in (0, 1, 70, 5000, 900000) for y in (0, 3)]
+    keys = ["", "a", "a/b", "a/b/c", "a0", "b", "c", *chunks]
+    for _ in range(400):
+        sets = []
+        for i in range(rng.randrange(1, 6)):
+            bounds: list[Bound] = []
+            for _ in range(rng.randrange(1, 4)):
+                kind = rng.randrange(4)
+                if kind == 0:
+                    bounds.append(Key(rng.choice([k for k in keys if k])))
+                elif kind == 1:
+                    s = rng.choice(keys)
+                    bounds.append(KeyRange(s, rng.choice([None, s + "z"])))
+                elif kind == 2:
+                    bounds.append(Prefix(rng.choice(["", "a", "a/b", "0", "0/c/1"])))
+                else:  # boxes small, deep on one axis, and wide on every axis
+                    lo = (rng.choice([0, 1, 70]), rng.choice([0, 3]))
+                    depth = rng.choice([(1, 4), (6000, 1), (10**6, 10**6), (0, 2)])
+                    bounds.append(ChunkBox("0", lo, (lo[0] + depth[0], lo[1] + depth[1])))
+            sets.append((i, bounds))
+        cover = _Cover(sets)
+        for k in keys:
+            assert cover.which(k) == {i for i, bs in sets if any(b.contains(k) for b in bs)}, (sets, k)
+
+
+def test_operators_keep_bounds_hidden_flags_and_meaning_through_every_step(tmp_path):
+    # normalize: an array owns everything below it, a stray node document included
+    chunks = {f"a/c/{y}/{x}": b"x" * 4 for y in range(2) for x in range(2)}
+    stray = overlay(ReferenceStore({"zarr.json": GROUP, "a/zarr.json": array([4, 4], [2, 2]), **chunks}),
+                    ReferenceStore({"a/c/zarr.json": GROUP}, bounds=[Key("a/c/zarr.json")]))
+    assert set(normalize(stray).mapping) == {"zarr.json", "a/zarr.json", *chunks}
+    # stated bounds go through shift_chunks and map_keys, or they refuse
+    patch = ReferenceStore({"0/zarr.json": array([4], [1]), **{f"0/c/{i}": b"P" for i in range(4)}},
+                           bounds=[ChunkBox("0", (1,), (2,))])
+    shifted = shift_chunks(patch, "0", (0,))
+    assert set(shifted.mapping) == {"0/c/1"}
+    assert shifted.bounds == (ChunkBox("0", (1,), (2,)),)
+    assert shift_chunks(patch, "0", (2, 0), new_axes=1).bounds == (ChunkBox("0", (2, 1), (3, 2)),)
+    keyed = ReferenceStore({"k": b"v", "j": b"w"}, bounds=[Key("k")])
+    assert map_keys(keyed, lambda k: "x" + k).bounds == (Key("xk"),)
+    # url= on one store keeps every source reading the same object
+    (tmp_path / "d.bin").write_bytes(b"DATA")
+    (tmp_path / "other").mkdir()
+    (tmp_path / "other" / "d.bin").write_bytes(b"ELSE")
+    rel = ReferenceStore({"v": Range(source=0, length=4)}, [Source(url="d.bin")], url=f"{tmp_path.as_uri()}/")
+    assert mount(rel, "m", url=f"{(tmp_path / 'other').as_uri()}/").get("m/v") == b"DATA"
+    assert map_keys(rel, lambda k: k, url=f"{(tmp_path / 'other').as_uri()}/").get("v") == b"DATA"
+    # a store with nothing in it takes no part in the result's options
+    remote = ReferenceStore({"r": b"r"}, url="https://h.test/a/", page_size=4096)
+    assert (overlay(ReferenceStore({}), remote).url, overlay(ReferenceStore({}), remote).page_size) == (
+        "https://h.test/a/", 4096)
+    # stores agreeing on a key their own references read through combine in either order
+    s1 = ReferenceStore({"hdr": b"H", "v": Range(source=0, length=1)}, [Source(key="hdr")])
+    s2 = ReferenceStore({"hdr": b"H"})
+    assert union(s1, s2).get("v") == union(s2, s1).get("v") == b"H"
+    # hidden keys keep their flags; a store without nodes keeps every key
+    h = ReferenceStore({"__vz__/h": b"H" * 50, "v": Range(source=0, length=1)}, [Source(key="__vz__/h")],
+                       compressed=["__vz__/h"])
+    assert "__vz__/h" in overlay(h).compressed
+    assert set(normalize(ReferenceStore({".zmetadata": b"{}", "k": b"v"})).mapping) == {".zmetadata", "k"}
+    # malformed and deeply nested documents mark no node
+    odd = ReferenceStore({"a//zarr.json": array([1], [1]), "/zarr.json": array([1], [1]),
+                          "deep/zarr.json": b"[" * 100000, "other": b"o"})
+    assert set(odd.bounds) == {Key("a//zarr.json"), Key("/zarr.json"), Key("deep/zarr.json"), Key("other")}
+    assert overlay(odd).mapping.keys() == odd.mapping.keys()
+    # numpy integers are integers
+    assert shift_chunks(ReferenceStore({"zarr.json": array([4], [2]), "c/1": b"x"}), "", (np.int64(1),)).bounds == (
+        ChunkBox("", (1,), (3,)),)
+    assert ChunkBox("a", (np.int64(0),), (np.int32(2),)).stop == (2,)  # pyrefly: ignore[bad-argument-type]
+
+
+def test_union_refuses_numbers_that_differ_beyond_float_range():
+    big = [json.dumps({"zarr_format": 3, "node_type": "group", "attributes": {}}).encode().replace(
+        b'"attributes": {}', f'"attributes": {{"x": {n}}}'.encode()) for n in ("1e400", "2e400")]
+    with pytest.raises(ValueError, match="hold different values"):
+        union(ReferenceStore({"zarr.json": big[0]}), ReferenceStore({"zarr.json": big[1]}))
+
+
+def test_map_keys_refuses_to_guess_how_a_stated_box_moves():
+    with pytest.raises(ValueError, match="map_keys cannot move the bound"):
+        map_keys(ReferenceStore({}, bounds=[ChunkBox("0", (2,), (3,))]), lambda k: k)
+
+
+def test_shift_chunks_refuses_a_stated_key_range_over_the_array():
+    s = ReferenceStore({"0/zarr.json": array([4], [1]), "0/c/1": b"x"}, bounds=[KeyRange("0/c/1", "0/c/2")])
+    with pytest.raises(ValueError, match="shift_chunks cannot move the bound"):
+        shift_chunks(s, "0", (0,))
+
+
+def test_shift_chunks_refuses_malformed_array_metadata():
+    with pytest.raises(ValueError, match="malformed array metadata"):
+        shift_chunks(ReferenceStore({".zarray": b'{"shape": [4]}'}), "", (0,))
+
+
+def test_combining_refuses_hidden_names_that_collide():
+    digest = hashlib.sha256(b"B1").hexdigest()[:16]
+    crafted = f"__vz__/h~{digest}"
+    a = ReferenceStore({crafted: b"EVIL", "a": Range(source=0, length=4)}, [Source(key=crafted)])
+    b = ReferenceStore({"__vz__/h": b"B1", "b": Range(source=0, length=2)}, [Source(key="__vz__/h")])
+    c = ReferenceStore({"__vz__/h": b"C1", "c": Range(source=0, length=2)}, [Source(key="__vz__/h")])
+    with pytest.raises(ValueError, match="two different hidden values come to the name"):
+        union(b, c, a)
+
+
+def test_combining_refuses_a_reference_into_a_document_it_rewrites():
+    listed = json.dumps({"zarr_format": 3, "node_type": "group", "attributes": {},
+                         "consolidated_metadata": {"kind": "inline", "metadata": {}}}).encode()
+    s = ReferenceStore({"zarr.json": listed, "v": Range(source=0, length=5)}, [Source(key="zarr.json")])
+    with pytest.raises(ValueError, match="whose value the result rewrites"):
+        overlay(s)
