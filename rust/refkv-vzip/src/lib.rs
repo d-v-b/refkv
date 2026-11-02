@@ -4,6 +4,7 @@
 //! writes, byte for byte.
 
 pub mod pb;
+pub mod sources;
 pub mod uri;
 mod writer;
 
