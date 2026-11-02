@@ -15,7 +15,9 @@ This note proposes those as operators, and a property of a store that makes
 the union and the overlay well-defined: its **bounds**, the keys it answers
 for. It is a design note, not normative. A prototype of every operator here
 was run against the TIFF stack and the cases in
-[Checked by a prototype](#checked-by-a-prototype).
+[Checked by a prototype](#checked-by-a-prototype). TensorStore has close
+counterparts at two levels; [Prior art: TensorStore](#prior-art-tensorstore)
+compares them.
 
 ## What a union does beyond a dict merge
 
@@ -35,10 +37,11 @@ was run against the TIFF stack and the cases in
 
 ## A union of keys is wrong for Zarr
 
-A left-biased union at the level of keys, `a` winning every key both hold,
-can build a hierarchy that decodes wrongly. If `a` holds `0/zarr.json` and
-`b` holds the chunks `0/c/...`, `b`'s chunks are decoded with `a`'s codecs,
-data type and shape.
+A union at the level of keys, in which the later operand `b` wins every key
+both hold, can build a hierarchy that decodes wrongly. If `b` holds
+`0/zarr.json` and `a` holds the chunks `0/c/...`, `a`'s chunks are decoded
+with `b`'s codecs, data type and shape. Here and below, `x ⊕ y` is such a
+union, with `y` winning.
 
 **First attempt: shadow by node.** The unit is the Zarr node: an array's
 metadata and its chunks win or lose together, and a group's metadata wins
@@ -46,8 +49,8 @@ while its children merge. The prototype found two faults.
 
 - **It is not associative when node kinds differ.** Let `A` have a group `p`
   with an array `p/q`, `B` an array `p`, and `C` a group `p` with an array
-  `p/r`. Then `(A ∪ B) ∪ C` keeps `p/r`: `A`'s group wins `p`, and `B`'s array
-  no longer shadows anything. But `A ∪ (B ∪ C)` loses `p/r`, because `B`'s
+  `p/r`. Then `C ⊕ (B ⊕ A)` keeps `p/r`: `A`'s group wins `p`, and `B`'s array
+  no longer shadows anything. But `(C ⊕ B) ⊕ A` loses `p/r`, because `B`'s
   array shadowed `C`'s subtree before `A` was applied. Coverage was inferred
   from metadata, and the metadata that implied it lost.
 - **A header cannot add metadata to someone else's chunks.** A store holding
@@ -71,15 +74,19 @@ The two cases look the same today: `get` returns None for both.
 A bound is one of:
 
 - `key(k)`: one key;
-- `prefix(p)`: every key under `p/` (`p/` itself, not `p` followed by any
-  character, so `0/c/1/` does not take in `0/c/10/`);
+- `range(lo, hi)`: every key `k` with `lo ≤ k < hi`, compared as UTF-8
+  bytes, as TensorStore's `kvstack` layers take `inclusive_min` and
+  `exclusive_max`;
+- `prefix(p)`: every key under `p/`. It is `range("p/", "p0")`, since `0`
+  follows `/`, so `0/c/1/` does not take in `0/c/10/`;
 - `box(path, lo, hi)`: the chunks of the array at `path` whose coordinates
   `c` satisfy `lo ≤ c < hi`.
 
 A box is needed because chunk keys do not sort in index order. Under the
-default chunk key encoding, `0/c/10` sorts before `0/c/2`, so no interval of
-keys is "chunks 2 to 10". Keys and prefixes need no knowledge of Zarr; a box
-reads the array's `chunk_key_encoding` to map a key to coordinates.
+default chunk key encoding, `0/c/10` sorts before `0/c/2`, so no range of
+keys is "chunks 2 to 10". Keys, ranges and prefixes need no knowledge of
+Zarr; a box reads the array's `chunk_key_encoding` to map a key to
+coordinates.
 
 **The default bounds** are derived from what the store holds:
 - a `prefix` over each array's subtree;
@@ -104,12 +111,13 @@ All of them return a new store; stores stay immutable.
 - **`map_chunks(store, array, f)`.** Moves the chunks of `array` to
   coordinates `f(c)`. It reads the array's chunk key encoding both ways and
   leaves the metadata alone. Box bounds move with it.
-- **`overlay(*stores)`.** For each key, the first operand whose bounds contain
+- **`overlay(*stores)`.** For each key, the last operand whose bounds contain
   it answers, with a value or with absence. The result's bounds are the union
   of the operands'. This is a priority lookup, like `ChainMap` with stated
-  membership. It is associative, idempotent and has the empty store as its
-  identity, but is not commutative. The `A`, `B`, `C` case above gives the
-  same keys however it is nested.
+  membership but the later store winning, as a later layer wins in
+  TensorStore's `stack` and `kvstack`. It is associative, idempotent and has
+  the empty store as its identity, but is not commutative. The `A`, `B`, `C`
+  case above gives the same keys however it is nested.
 - **`union(*stores)`.** `overlay`, but where two operands' bounds share a key,
   both must answer the same (equal values, or both absent), or it raises
   naming the key. On disjoint bounds it is commutative as well, and it is the
@@ -121,10 +129,10 @@ All of them return a new store; stores stay immutable.
 
 An `overlay` with stated bounds also covers two cases that no union of keys
 can:
-- **A patch.** A store with the bounds of one chunk replaces that chunk and
-  leaves the rest.
-- **A tombstone.** A store with empty contents and the bounds of a region
-  turns that region into fill value.
+- **A patch.** `overlay(stack, patch)`, where the patch has the bounds of one
+  chunk, replaces that chunk and leaves the rest.
+- **A tombstone.** `overlay(stack, gone)`, where `gone` has empty contents and
+  the bounds of a region, turns that region into fill value.
 
 ## The TIFF stack on the operators
 
@@ -172,15 +180,15 @@ optimization rather than a meaning.
 
 **Lazy composition.** With bounds in each archive, an `overlay` of opened
 archives need not read either one's directory up front:
-- `get(k)` goes to the first archive whose bounds contain `k`;
+- `get(k)` goes to the last archive whose bounds contain `k`;
 - `list` merges the sorted listings of each archive, each filtered to the keys
-  no earlier archive's bounds contain;
+  no later archive's bounds contain;
 - two archives can be checked for overlap by comparing their bounds alone.
 
 ## Checked by a prototype
 
 A prototype of `map_keys`, `mount`, `map_chunks`, `overlay` and `union` with
-the three kinds of bound was run on the 24-plane stack of the TIFF example.
+the four kinds of bound was run on the 24-plane stack of the TIFF example.
 It found:
 
 - **The stack.** `union(header, *planes)` reads as a `(24, 256, 256)` array
@@ -191,9 +199,65 @@ It found:
 - **A patch.** One chunk's bounds replace that chunk and leave the other 95.
 - **A tombstone.** Plane 5's box over an empty store reads plane 5 as zeros
   and plane 6 unchanged.
+- **Prefixes as ranges.** `range("0/c/1/", "0/c/10")` contains the same
+  keys as `prefix("0/c/1")`, and not `0/c/10/0/0`.
 - **Without bounds.** Node shadowing gave different results for
-  `(A ∪ B) ∪ C` and `A ∪ (B ∪ C)`. A union with the header's default bounds
+  `C ⊕ (B ⊕ A)` and `(C ⊕ B) ⊕ A`. A union with the header's default bounds
   refused the stack, because the header claimed every chunk under `0/`.
+
+## Prior art: TensorStore
+
+[TensorStore](https://google.github.io/tensorstore/) composes stores at two
+levels. Its key-value level is close to this proposal; its array level does
+more, at a cost this proposal avoids.
+
+**Keys: the [`kvstack`](https://google.github.io/tensorstore/kvstore/kvstack/index.html)
+driver.**
+- Each layer maps an `exact` key, a `prefix`, or a range (`inclusive_min`,
+  `exclusive_max`) to an underlying kvstore. Those are this proposal's `key`,
+  `prefix` and `range` bounds.
+- `strip_prefix` removes a prefix from the keys a layer passes on, the
+  inverse of `mount`.
+- "If the key ranges of the layers overlap, the last layer takes
+  precedence": `overlay`'s rule.
+- Every range is stated by the user, and there is no box. The defaults
+  derived from Zarr nodes are this proposal's own, since only a store that
+  knows it holds Zarr can derive them.
+- The documentation does not say whether a key missing inside a layer's
+  range falls through to an earlier layer. Here it does not: inside its
+  bounds, a store's answer is final.
+
+**Arrays: the [`stack`](https://google.github.io/tensorstore/driver/stack/index.html)
+driver** (`ts.overlay`, `ts.stack`, `ts.concat`).
+- Each layer is placed in a common index domain by an index transform, so
+  its domain is a box bound in array coordinates. "The last layer that
+  contains any given position within the domain takes precedence."
+- The domain is the hull of the layers' domains, unless one is given.
+- "Reading or writing at a position that has no backing layer results in an
+  error." There is no fill value.
+- Layers must share a data type, but each keeps its own chunks and codecs:
+  the stack has no chunk layout or codecs of its own.
+
+**The difference: when the combining happens.** TensorStore keeps its layers
+apart and assembles values when they are read, so a reader needs TensorStore
+and the JSON spec of the layers. These operators build one Zarr hierarchy in
+one store, whose every chunk is, byte for byte, a chunk of an operand.
+
+- **Wider reach.** Any Zarr reader with refkv's store opens the result, and a
+  read is one lookup in one flat key table rather than a search through
+  layers.
+- **Stricter inputs.** The operands of a stack need equal codecs and chunk
+  shapes, and a join along an existing axis must fall on whole chunks.
+  TensorStore's index transforms translate, stride and relabel any region;
+  `map_chunks` moves whole chunks only.
+- **Absence.** Inside a store's bounds a missing chunk is its fill value,
+  which a tombstone relies on. TensorStore's `stack` driver has no such
+  case: an uncovered position is an error.
+
+[Lazy composition](#bounds-in-a-saved-archive) of opened archives, routed by
+their bounds, is what `kvstack` does. Where a join cannot fall on whole
+chunks, refkv could zarrify each file as its own array and write a
+TensorStore `stack` spec over them, rather than refuse the join.
 
 ## Open questions
 
