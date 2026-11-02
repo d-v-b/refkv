@@ -179,8 +179,10 @@ MARKERS = {"zarr.json": 3, ".zarray": 2, ".zgroup": 2}
 def nodes(mapping: Mapping[str, object]) -> dict[str, str]:
     """{path: "array" | "group"} for every Zarr node `mapping` marks; the root's path is
     "". A v3 node's kind is its `zarr.json`'s `node_type`; a document that is not a bytes
-    JSON object with a known `node_type` marks no node."""
-    out: dict[str, str] = {}
+    JSON object with a known `node_type` marks no node. Where v2 and v3 documents mark one
+    path, the v3 document decides; a v2 `.zarray` wins over a `.zgroup`."""
+    v3: dict[str, str] = {}
+    v2: dict[str, str] = {}
     for key, value in mapping.items():
         if key.startswith(RESERVED_PREFIX):
             continue
@@ -188,12 +190,13 @@ def nodes(mapping: Mapping[str, object]) -> dict[str, str]:
         if name == "zarr.json":
             kind = _node_type(value)
             if kind is not None:
-                out[path] = kind
+                v3[path] = kind
         elif name == ".zarray":
-            out[path] = "array"
+            v2[path] = "array"
         elif name == ".zgroup":
-            out.setdefault(path, "group")
-    return out
+            v2.setdefault(path, "group")
+    # whatever the keys' order: a v3 document decides a path it marks, then a v2 array's
+    return {**v2, **v3}
 
 
 def _node_type(value: object) -> str | None:

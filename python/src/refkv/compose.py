@@ -23,7 +23,8 @@ a combination. Its hidden keys (under the binding's reserved prefix) are carried
 a carried value reads one through a key source, renamed by its content if another
 store's differs.
 Consolidated metadata (a `zarr.json`'s `consolidated_metadata`, a v2 `.zmetadata`) lists
-the nodes of one store, so `overlay`, `union`, `map_keys` and `normalize` drop it.
+the nodes of one store, so `overlay`, `union`, `map_keys` and `normalize` drop it. Every
+result's `info` is empty unless `info=` is given.
 
 A stack of same-layout arrays along a new axis, say the planes of a z-stack, is a header
 holding the stack's metadata, bounded to its own keys, and the planes' chunks:
@@ -44,7 +45,9 @@ import bisect
 import dataclasses
 import hashlib
 import heapq
+import itertools
 import json
+import math
 from collections import Counter
 from collections.abc import Callable, Iterable, Sequence
 from typing import TYPE_CHECKING, TypedDict, Unpack
@@ -56,19 +59,20 @@ from refkv.bounds import (
     Key,
     KeyRange,
     Prefix,
+    _node_type,
     ancestors,
     chunk_key,
     nodes,
     parse_chunk_key,
 )
 from refkv.pb import Concat, Range, Reference, Source
+from refkv.policy import Policy, _scheme
 from refkv.refstore import ReferenceStore
 from refkv.uri import resolve as resolve_reference
 from refkv.vzip.names import RESERVED_PREFIX
 
 if TYPE_CHECKING:
-    from refkv.policy import Policy
-    from refkv.reader import Registry, Stats
+    from refkv.reader import Registry, Resolver, Stats
 
 __all__ = [
     "ChunkBox", "Key", "KeyRange", "Prefix",
@@ -77,9 +81,9 @@ __all__ = [
 
 Value = bytes | Reference
 
-# Boxes at most this many chunks deep on their first axis are indexed by that axis'
-# coordinate; deeper ones are checked against every key of their array.
-_BUCKET_DEPTH = 64
+# Boxes of at most this many chunks are indexed chunk by chunk; larger ones are checked
+# against every chunk key of their array.
+_BOX_CELLS = 4096
 
 
 class Options(TypedDict, total=False):
@@ -100,8 +104,10 @@ class _Cover:
     def __init__(self, sets: Iterable[tuple[int, Iterable[Bound]]]) -> None:
         self.keys: dict[str, set[int]] = {}
         ranges: list[tuple[str, str | None, int]] = []
-        self.boxes: dict[tuple[str, int, str, str], tuple[dict[int, list[tuple[ChunkBox, int]]],
-                                                         list[tuple[ChunkBox, int]]]] = {}
+        # by array path, then by (rank, encoding, separator): the small boxes' chunks, and
+        # the large boxes
+        self.boxes: dict[str, dict[tuple[int, str, str], tuple[dict[tuple[int, ...], set[int]],
+                                                               list[tuple[ChunkBox, int]]]]] = {}
         for i, bounds in sets:
             for b in bounds:
                 if isinstance(b, Key):
@@ -111,13 +117,11 @@ class _Cover:
                     if r.stop is None or r.start < r.stop:
                         ranges.append((r.start, r.stop, i))
                 else:
-                    group = (b.array, len(b.start), b.encoding, b.separator)
-                    buckets, wide = self.boxes.setdefault(group, ({}, []))
-                    if any(a == z for a, z in zip(b.start, b.stop, strict=True)):
-                        continue  # an empty box
-                    if b.start and b.stop[0] - b.start[0] <= _BUCKET_DEPTH:
-                        for c0 in range(b.start[0], b.stop[0]):
-                            buckets.setdefault(c0, []).append((b, i))
+                    groups = self.boxes.setdefault(b.array, {})
+                    cells, wide = groups.setdefault((len(b.start), b.encoding, b.separator), ({}, []))
+                    if math.prod(z - a for a, z in zip(b.start, b.stop, strict=True)) <= _BOX_CELLS:
+                        for c in itertools.product(*(range(a, z) for a, z in zip(b.start, b.stop, strict=True))):
+                            cells.setdefault(c, set()).add(i)
                     else:
                         wide.append((b, i))
         self._sweep(ranges)
@@ -150,13 +154,15 @@ class _Cover:
         k = bisect.bisect_right(self.points, key) - 1
         if k >= 0:
             out |= self.pieces[k]
-        for (array, rank, encoding, sep), (buckets, wide) in self.boxes.items():
-            c = parse_chunk_key(key, array, rank, encoding, sep)
-            if c is None:
-                continue
-            for b, i in (buckets.get(c[0], []) if c else []) + wide:
-                if i not in out and all(a <= x < z for x, a, z in zip(c, b.start, b.stop, strict=True)):
-                    out.add(i)
+        for array in ancestors(key):
+            for (rank, encoding, sep), (cells, wide) in self.boxes.get(array, {}).items():
+                c = parse_chunk_key(key, array, rank, encoding, sep)
+                if c is None:
+                    continue
+                out |= cells.get(c, set())
+                for b, i in wide:
+                    if i not in out and all(a <= x < z for x, a, z in zip(c, b.start, b.stop, strict=True)):
+                        out.add(i)
         return out
 
     def contains(self, key: str) -> bool:
@@ -229,7 +235,7 @@ def _hidden_names(stores: Sequence[ReferenceStore]) -> tuple[list[dict[str, str]
 
     Raises ValueError for such a hidden key whose value is a reference, not bytes."""
     found: list[dict[str, bytes]] = []
-    distinct: dict[str, set[bytes]] = {}
+    distinct: dict[str, set[bytes]] = {}  # by base name: a name a combination gave stays one
     for store in stores:
         named: dict[str, bytes] = {}
         for s in store.sources:
@@ -242,30 +248,78 @@ def _hidden_names(stores: Sequence[ReferenceStore]) -> tuple[list[dict[str, str]
                     f"a key source names the hidden key {k!r}, whose value is a reference; "
                     "a combination carries only bytes hidden values")
             named[k] = value
-            distinct.setdefault(k, set()).add(value)
+            distinct.setdefault(_hidden_base(k, value), set()).add(value)
         found.append(named)
     names: list[dict[str, str]] = []
     values: dict[str, bytes] = {}
     for named in found:
         out = {}
         for k, value in named.items():
-            name = k if len(distinct[k]) == 1 else f"{k}~{hashlib.sha256(value).hexdigest()[:16]}"
+            base = _hidden_base(k, value)
+            name = base if len(distinct[base]) == 1 else f"{base}~{_digest(value)}"
             out[k] = name
             values[name] = value
         names.append(out)
     return names, values
 
 
-def _base_url(stores: Sequence[ReferenceStore], url: str | None) -> str | None:
-    """The result's base URL: `url`, or the stores' one, or the first store's when all are
-    local or all remote (the reader policy tells only those apart). Mixed: an error."""
-    if url is not None or not stores:
-        return url
-    local = {s.url.startswith("file:") for s in stores}
-    if len(local) > 1:
-        raise ValueError("the stores have local and remote base URLs; pass url= to say "
-                         "which the result has (it decides whether file: sources may be read)")
-    return stores[0].url
+def _digest(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()[:16]
+
+
+def _hidden_base(key: str, value: bytes) -> str:
+    """The name a hidden key had before a combination named it by its value's digest."""
+    base, sep, digest = key.rpartition("~")
+    return base if sep and digest == _digest(value) else key
+
+
+def _registry_key(resolver: Resolver) -> tuple[object, ...]:
+    """What tells two resolvers' registered stores apart: the same objects, or none."""
+    reg = resolver._registry  # noqa: SLF001 (refkv's own Resolver)
+    return (None if reg is None else id(reg),
+            tuple((s, n, p, id(st)) for s, n, p, st in resolver._prefixes))  # noqa: SLF001
+
+
+def _has_files(store: ReferenceStore) -> bool:
+    return any(s.url is not None and _scheme(s.url) == "file" for s in _absolute(store))
+
+
+def _reach(stores: Sequence[ReferenceStore], options: Options) -> None:
+    """Fill in `options`' policy, registry and base URL for a combination of `stores`, so
+    that no store's sources become readable that its own options refuse.
+
+    Raises ValueError when the stores' policies, or registries, differ and `options` sets
+    none, and when no base URL serves them all: a remote store's `file:` sources, which a
+    remote base refuses, beside a local store's, which need a local one."""
+    if not stores:
+        return
+    first = stores[0]
+    if "policy" not in options:
+        if any(s.policy != first.policy for s in stores):
+            raise ValueError("the stores have different reader policies; pass policy= to say "
+                             "which the result has")
+        options["policy"] = first.policy
+    if "registry" not in options:
+        if any(_registry_key(s.resolver) != _registry_key(first.resolver) for s in stores):
+            raise ValueError("the stores have different registries; pass registry= to say "
+                             "which the result has")
+        options["registry"] = first.resolver
+    if "url" in options:
+        return
+    local = [s for s in stores if _scheme(s.url) == "file"]
+    remote = [s for s in stores if _scheme(s.url) != "file"]
+    policy = options["policy"] or Policy()
+    if not local or not remote:
+        options["url"] = first.url
+    elif policy.allow_files_from_remote_archives or not any(_has_files(s) for s in remote):
+        options["url"] = local[0].url
+    elif not any(_has_files(s) for s in local):
+        options["url"] = remote[0].url
+    else:
+        raise ValueError("a remote store has file: sources, which its base URL keeps it from "
+                         "reading, and a local store has file: sources too, so no base URL "
+                         "serves both; pass url= to choose (a local one lets every store read "
+                         "local files)")
 
 
 def _build(mapping: dict[str, Value], sources: list[Source], *, read_at_open: Iterable[str] = (),
@@ -293,7 +347,7 @@ def _combine(stores: Sequence[ReferenceStore], agree: bool, options: Options) ->
     for s in stores:
         if not isinstance(s, ReferenceStore):
             raise TypeError(f"the operands are ReferenceStores, not {type(s).__name__}")
-    url = _base_url(stores, options.pop("url", None))
+    _reach(stores, options)
     cover = _Cover(enumerate(s.bounds for s in stores))
     sources: list[Source] = []
     index: dict[Source, int] = {}
@@ -331,8 +385,15 @@ def _combine(stores: Sequence[ReferenceStore], agree: bool, options: Options) ->
                 continue
             mapping[key] = value
             origin[key] = i
-            internal += [(i, k) for s in _used(held)
-                         if (k := absolute[s].key) is not None and not k.startswith(RESERVED_PREFIX)]
+            for s in _used(held):
+                k = store.sources[s].key
+                if k is None:
+                    continue
+                if not k.startswith(RESERVED_PREFIX):
+                    internal.append((i, k))
+                elif k not in names:
+                    raise ValueError(f"store {i} has a reference to its hidden key {k!r}, which it "
+                                     "does not hold")
         read_at_open += [k for k in store.read_at_open if origin.get(k) == i]
         compressed += [k for k in store.compressed if origin.get(k) == i]
     if agree:
@@ -348,8 +409,6 @@ def _combine(stores: Sequence[ReferenceStore], agree: bool, options: Options) ->
     used = {sources[s].key for v in mapping.values() for s in _used(v)}
     mapping.update((k, v) for k, v in hidden.items() if k in used)
     bounds = [b for s in stores for b in s.bounds]
-    if url is not None:
-        options["url"] = url
     return _build(mapping, sources, read_at_open=read_at_open, compressed=compressed,
                   bounds=bounds, template=stores[0] if stores else None, options=options)
 
@@ -357,17 +416,23 @@ def _combine(stores: Sequence[ReferenceStore], agree: bool, options: Options) ->
 def overlay(*stores: ReferenceStore, **options: Unpack[Options]) -> ReferenceStore:
     """One store answering each key from the last of `stores` whose bounds contain it.
 
+    Combine many stores in one call: each call copies its stores, so a fold of pairwise
+    calls takes time quadratic in their number.
+
     The result holds the key's value from that store, or nothing if that store holds none
     (inside its bounds, a missing key is absent: a chunk's fill value). Its bounds are
     every store's. A store's keys outside its own bounds are not carried.
 
-    Keyword arguments set the result's options (`ReferenceStore`): by default its base
-    URL is the stores' (pass `url=` when some are local and some remote), its `info` is
-    empty, and its registry, policy, request cap and page size are the first store's.
+    Keyword arguments set the result's options (`ReferenceStore`). By default its policy
+    and registry are the stores' (which must agree), its base URL one that lets no store
+    read what its own refuses (the reader policy tells only local `file:` bases from
+    remote ones), its `info` empty, and its request cap and page size the first store's.
 
     Raises ValueError when a value carried into the result is a reference through a key
     source (an internal reference) whose key the result takes from another store, or
-    leaves out.
+    leaves out, or names a hidden key its own store does not hold; when the stores'
+    policies or registries differ and none is given; and when no base URL serves them
+    all (see `url=`).
     """
     return _combine(stores, False, dict(options))  # type: ignore[arg-type]
 
@@ -430,7 +495,7 @@ def _map_keys(store: ReferenceStore, f: Callable[[str], str | None], bounds: Ite
     sources = []
     for i, s in enumerate(store.sources):
         if s.key is not None and s.key not in renamed and i in used:
-            raise ValueError(f"a key source names {s.key!r}, which is dropped")
+            raise ValueError(f"a key source names {s.key!r}, which the result does not hold")
         sources.append(dataclasses.replace(s, key=renamed[s.key]) if s.key in renamed else s)
     options.setdefault("url", store.url)
     return _build(mapping, sources,
@@ -481,7 +546,7 @@ def _array(store: ReferenceStore, array: str) -> tuple[list[int], list[int], str
         name = encoding["name"]
         sep = encoding.get("configuration", {}).get("separator", "/" if name == "default" else ".")
         return list(meta["shape"]), list(grid["configuration"]["chunk_shape"]), name, sep
-    return list(meta["shape"]), list(meta["chunks"]), "v2", meta.get("dimension_separator", ".")
+    return list(meta["shape"]), list(meta["chunks"]), "v2", meta.get("dimension_separator") or "."
 
 
 def shift_chunks(store: ReferenceStore, array: str, offset: Sequence[int], *, new_axes: int = 0,
@@ -530,13 +595,17 @@ def normalize(store: ReferenceStore, **options: Unpack[Options]) -> ReferenceSto
     the nearest node above it is a kept array (its chunks), or when no node is above it
     at all (it is not part of the hierarchy); under a group, it is dropped, as a chunk an
     `overlay` left under a group that replaced its array. A store with no Zarr nodes is
-    returned with the same keys. The result's bounds are the store's, plus the added
-    groups' keys when they were stated; derived otherwise.
+    returned with the same keys. Where v2 and v3 documents mark one path, the v3 document
+    is kept. A missing group is v3 when the store has a v3 node, and replaces a document
+    there that marks no node. The result's bounds are the store's, plus the added groups'
+    keys when they were stated; derived otherwise.
     """
     found = nodes(store.mapping)
     if not found:
         return map_keys(store, lambda k: k, bounds=store.bounds if store.bounds_stated else None, **options)
     arrays = {p for p, kind in found.items() if kind == "array"}
+    v3 = {k.rpartition("/")[0] for k, v in store.mapping.items()
+          if k.rpartition("/")[2] == "zarr.json" and _node_type(v) is not None}
 
     def valid(path: str) -> bool:
         return not any(a in arrays for a in ancestors(path)) if path else True
@@ -548,23 +617,22 @@ def normalize(store: ReferenceStore, **options: Unpack[Options]) -> ReferenceSto
             continue
         path, _, name = key.rpartition("/")
         if (name in MARKERS or name == ".zattrs") and path in found:
-            if valid(path):
+            if valid(path) and not (name != "zarr.json" and path in v3):  # v3 decides a path both mark
                 keep[key] = value
             continue
         owner = next((p for p in ancestors(key) if p in found), None)
         if owner is None or (found[owner] == "array" and valid(owner)):
             keep[key] = value
     added: list[str] = []
-    kept = {p for p in found if valid(p)}
-    for path in sorted(kept):
-        version = 3 if (f"{path}/" if path else "") + "zarr.json" in store.mapping else 2
+    # a missing group is v3 if the store has any v3 node, whatever the order of its keys
+    marker, group = (("zarr.json", b'{"zarr_format":3,"node_type":"group","attributes":{}}') if v3
+                     else (".zgroup", b'{"zarr_format":2}'))
+    for path in sorted(p for p in found if valid(p)):
         for a in ancestors(path):
-            base = f"{a}/" if a else ""
-            if a in found or base + "zarr.json" in keep or base + ".zgroup" in keep:
+            key = (f"{a}/" if a else "") + marker
+            if a in found or key in added:
                 continue
-            key = base + ("zarr.json" if version == 3 else ".zgroup")
-            keep[key] = (b'{"zarr_format":3,"node_type":"group","attributes":{}}' if version == 3
-                         else b'{"zarr_format":2}')
+            keep[key] = group  # replacing a document there that marks no node
             added.append(key)
     bounds = [*store.bounds, *(Key(k) for k in added)] if store.bounds_stated else None
     return _map_keys(store, lambda k: k if k in keep else None, bounds, {k: keep[k] for k in added},

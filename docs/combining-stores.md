@@ -60,9 +60,18 @@ All of them return a new store.
   left under a group, and adds a group wherever a node's parent is missing.
 
 A combination merges its stores' source tables. It resolves each store's relative
-URLs against that store's own base and keeps one entry for equal sources. Its
-base URL is the stores' own, or `url=` when some stores are local and some remote:
-the base decides whether `file:` sources may be read.
+URLs against that store's own base and keeps one entry for equal sources.
+
+A combination never lets a store read what its own options refuse:
+- **Policy and registry.** It takes the stores' reader policy and registry, and
+  raises if they differ, unless you pass `policy=` or `registry=`.
+- **Base URL.** It decides whether `file:` sources may be read: a store opened
+  from a URL may not read local files. When some stores are local and some
+  remote, the result takes a base under which no store reads more than before.
+  It raises when none exists, unless you pass `url=`.
+
+Combine many stores in one call, not a fold of pairwise calls: each call copies
+its stores.
 
 ## A stack
 

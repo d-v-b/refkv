@@ -8,12 +8,15 @@ import numpy as np
 import pytest
 import tifffile
 import zarr
+from obstore.store import MemoryStore
 
 import refkv.zarr
 from refkv import ReferenceStore
-from refkv.bounds import ChunkBox, Key, KeyRange, Prefix, chunk_key, derive, parse_chunk_key
+from refkv.bounds import ChunkBox, Key, KeyRange, Prefix, chunk_key, derive, nodes, parse_chunk_key
 from refkv.compose import map_keys, mount, normalize, overlay, shift_chunks, union
+from refkv.errors import ResolutionError
 from refkv.pb import Concat, Range, Source
+from refkv.policy import Policy
 from refkv.zarrify import zarrify
 
 GROUP = b'{"zarr_format":3,"node_type":"group","attributes":{}}'
@@ -74,6 +77,8 @@ def test_derived_bounds_follow_the_zarr_nodes():
     assert set(derive(mapping)) == {Key("zarr.json"), Prefix("a"), Key("g/zarr.json"), Key("g/stray"),
                                     Key("v2/.zgroup"), Key("v2/.zattrs"), Prefix("v2/arr"), Key("loose")}
     assert derive({"zarr.json": array([4], [2]), "c/0": b"x"}) == (Prefix(""),)
+    both = {"g/.zarray": b"{}", "g/zarr.json": GROUP}
+    assert nodes(both) == nodes(dict(reversed(both.items()))) == {"g": "group"}
     store = ReferenceStore(mapping)
     assert set(store.bounds) == set(derive(mapping))
     assert not store.bounds_stated
@@ -130,6 +135,22 @@ def test_overlay_and_union_answer_each_key_from_the_store_that_bounds_it():
         assert values(overlay(s, s)) == values(overlay(s)) == values(overlay(empty, s)) == values(overlay(s, empty))
 
 
+def test_combining_keeps_each_store_from_reading_what_its_own_policy_refuses(tmp_path):
+    (tmp_path / "a.bin").write_bytes(b"AAAA")
+    remote = ReferenceStore({"b": Range(source=0, length=4)}, [Source(url=(tmp_path / "a.bin").as_uri())],
+                            url="https://h.test/archive/")
+    for local_url in (f"{tmp_path.as_uri()}/", "FILE:///tmp/"):
+        combined = overlay(ReferenceStore({"a": b"a"}, url=local_url), remote)
+        assert combined.url == "https://h.test/archive/"
+        with pytest.raises(ResolutionError, match="may not read local files"):
+            combined.get("b")
+    # beside a remote store with no file sources, the local store's base loosens nothing
+    mixed = overlay(ReferenceStore({"b": b"b"}, url="https://h.test/"), ReferenceStore({"a": b"a"}))
+    assert mixed.url.startswith("file:")
+    loose = Policy(allow_private_hosts=True)
+    assert overlay(ReferenceStore({}), ReferenceStore({}, policy=loose), policy=loose).policy == loose
+
+
 def test_combining_merges_source_tables():
     a = ReferenceStore({"x": Range(source=1, offset=0, length=2), "y": Range(source=1, offset=2, length=2)},
                        [Source(url="unused.bin"), Source(url="d.bin", size=9)], url="file:///data/")
@@ -175,12 +196,21 @@ def test_map_keys_mount_shift_and_normalize():
         moved = shift_chunks(src, "im", (4, 1, 0), new_axes=1)
         assert values(moved) == {chunk_key("im", (4, 1 + y, 0), encoding, sep): bytes([y]) for y in range(3)}
         assert moved.bounds == (ChunkBox("im", (4, 1, 0), (5, 4, 1), encoding, sep),)  # pyrefly: ignore[bad-argument-type]
+    nulls = json.dumps({"zarr_format": 2, "shape": [4], "chunks": [2], "dimension_separator": None}).encode()
+    assert set(shift_chunks(ReferenceStore({"v/.zarray": nulls, "v/1": b"x"}), "v", (2,)).mapping) == {"v/3"}
     n = normalize(ReferenceStore({"a/b/zarr.json": GROUP, "a/b/c/zarr.json": array([1], [1]), "a/b/c/c/0": b"0",
                                   "a/b/c/x/zarr.json": GROUP, "a/b/stray": b"s", "loose": b"l",
                                   "v2/.zarray": b"{}", "v2/0": b"0"}))
     assert set(n.mapping) == {"zarr.json", "a/zarr.json", "a/b/zarr.json", "a/b/c/zarr.json", "a/b/c/c/0",
                               "loose", "v2/.zarray", "v2/0"}
     assert {"zarr.json", "a/zarr.json"} <= n.read_at_open
+    # v3 decides a path v2 and v3 both mark, whatever the key order; a broken ancestor document is replaced
+    for order in (1, -1):
+        mixed = dict(list({"p/.zarray": b"{}", "p/0": b"0", "p/zarr.json": GROUP, "p/q/zarr.json": array([1], [1]),
+                           "a/zarr.json": b"not json", "a/b/zarr.json": GROUP}.items())[::order])
+        assert set(normalize(ReferenceStore(mixed)).mapping) == {"zarr.json", "p/zarr.json", "p/q/zarr.json",
+                                                                "a/zarr.json", "a/b/zarr.json"}
+        assert normalize(ReferenceStore(mixed)).mapping["a/zarr.json"] == GROUP
     flat = ReferenceStore({"k": b"v"}, bounds=[Key("k")])
     assert values(normalize(flat)) == {"k": b"v"}
     assert normalize(flat).bounds == (Key("k"),)
@@ -245,9 +275,30 @@ def test_combining_refuses_an_internal_reference_to_a_key_another_store_answers(
         overlay(e, ReferenceStore({"hdr": b"other"}))
 
 
-def test_combining_refuses_local_and_remote_bases_without_a_url():
-    with pytest.raises(ValueError, match="local and remote base URLs; pass url="):
-        overlay(ReferenceStore({"a": b"a"}), ReferenceStore({"b": b"b"}, url="https://h.test/"))
+def test_combining_refuses_a_base_url_that_would_let_a_store_read_local_files(tmp_path):
+    (tmp_path / "a.bin").write_bytes(b"AAAA")
+    remote = ReferenceStore({"b": Range(source=0, length=4)}, [Source(url=(tmp_path / "a.bin").as_uri())],
+                            url="https://h.test/archive/")
+    local = ReferenceStore({"a": Range(source=0, length=4)}, [Source(url="a.bin")], url=f"{tmp_path.as_uri()}/")
+    with pytest.raises(ValueError, match="a remote store has file: sources"):
+        overlay(local, remote)
+
+
+def test_combining_refuses_stores_with_different_policies():
+    with pytest.raises(ValueError, match="different reader policies; pass policy="):
+        overlay(ReferenceStore({"a": b"a"}), ReferenceStore({"b": b"b"}, policy=Policy(allow_private_hosts=True)))
+
+
+def test_combining_refuses_stores_with_different_registries():
+    with pytest.raises(ValueError, match="different registries; pass registry="):
+        overlay(ReferenceStore({"a": b"a"}), ReferenceStore({"b": b"b"}, registry={"s3://bucket": MemoryStore()}))
+
+
+def test_combining_refuses_a_reference_to_a_hidden_key_its_store_lacks():
+    a = ReferenceStore({"__vz__/h": b"SECRET", "va": Range(source=0, length=6)}, [Source(key="__vz__/h")])
+    b = ReferenceStore({"vb": Range(source=0, length=6)}, [Source(key="__vz__/h")])
+    with pytest.raises(ValueError, match="store 1 has a reference to its hidden key '__vz__/h', which it does not"):
+        overlay(a, b)
 
 
 def test_combining_refuses_an_operand_that_is_not_a_reference_store():
@@ -267,7 +318,7 @@ def test_map_keys_refuses_a_rename_into_the_reserved_prefix():
 
 def test_map_keys_refuses_dropping_the_key_of_a_used_key_source():
     s = ReferenceStore({"hdr": b"H", "v": Range(source=0, length=1)}, [Source(key="hdr")])
-    with pytest.raises(ValueError, match="a key source names 'hdr', which is dropped"):
+    with pytest.raises(ValueError, match="a key source names 'hdr', which the result does not hold"):
         map_keys(s, lambda k: None if k == "hdr" else k)
 
 
@@ -342,6 +393,10 @@ def test_combining_drops_consolidated_metadata_and_carries_hidden_headers():
     h3 = ReferenceStore({"__vz__/hdr": b"TWO", "q": Range(source=0, length=3)}, [Source(key="__vz__/hdr")],
                         bounds=[Key("q")])
     shared = union(h1.with_bounds([Key("p")]), h2.with_bounds([Key("q")]), h3)
+    # a header a combination renamed keeps its name when combined again
+    nested = union(overlay(h1, h2), h1)
+    assert nested.get("p") == b"ONE"
+    assert len(nested.sources) == 2
     forward, backward = union(h1, h2), union(h2, h1)
     assert set(forward.mapping) == set(backward.mapping)
     assert all(forward.get(k) == backward.get(k) for k in ("p", "q"))
@@ -361,7 +416,7 @@ def test_combining_drops_consolidated_metadata_and_carries_hidden_headers():
 def test_shift_chunks_refuses_a_chunk_that_reads_through_a_dropped_key():
     s = ReferenceStore({"zarr.json": array([2], [2]), "hdr": b"H", "c/0": Range(source=0, length=1)},
                        [Source(key="hdr")])
-    with pytest.raises(ValueError, match="a key source names 'hdr', which is dropped"):
+    with pytest.raises(ValueError, match="a key source names 'hdr', which the result does not hold"):
         shift_chunks(s, "", (0,))
 
 
@@ -379,5 +434,5 @@ def test_map_keys_refuses_a_rename_to_something_other_than_a_string():
 
 def test_map_keys_refuses_a_key_source_naming_dropped_consolidated_metadata():
     s = ReferenceStore({".zmetadata": b"{}", "v": Range(source=0, length=1)}, [Source(key=".zmetadata")])
-    with pytest.raises(ValueError, match=r"a key source names '\.zmetadata', which is dropped"):
+    with pytest.raises(ValueError, match=r"a key source names '\.zmetadata', which the result does not hold"):
         map_keys(s, lambda k: k)
