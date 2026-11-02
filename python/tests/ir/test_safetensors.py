@@ -16,7 +16,7 @@ from ir_helpers import zarrified as shared_zarrified
 
 from refkv._narrow import mapping, ndarray, sequence, string
 
-ACCEPTED = sorted(p for p in (FIXTURES / "safetensors").iterdir() if "reject" not in p.name)
+ACCEPTED = sorted(p for p in (FIXTURES / "safetensors").iterdir() if p.is_file() and "reject" not in p.name)
 
 # a dtype's Zarr data type, its NumPy type and its bits (spec/zarrify/safetensors.md §3
 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#3-data-types>)

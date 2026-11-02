@@ -166,6 +166,113 @@
           "additionalProperties": false
         },
         {
+          "type": "object",
+          "description": "A store's root: its shards, indexes and configurations (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#92-source-metadata)",
+          "properties": {
+            "files": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "key": {
+                    "type": "string"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "key"
+                ],
+                "oneOf": [
+                  {
+                    "required": [
+                      "path"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "reason"
+                    ]
+                  }
+                ],
+                "additionalProperties": false
+              }
+            },
+            "indexes": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "key": {
+                    "type": "string"
+                  },
+                  "agrees": {
+                    "type": "boolean"
+                  },
+                  "metadata": {},
+                  "problems": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "maxItems": 20
+                  },
+                  "problem_count": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "problem": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "key"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "configs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "key": {
+                    "type": "string"
+                  },
+                  "config": {},
+                  "problem": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "key"
+                ],
+                "oneOf": [
+                  {
+                    "required": [
+                      "config"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "problem"
+                    ]
+                  }
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "files"
+          ],
+          "additionalProperties": false
+        },
+        {
           "$ref": "#/$defs/mirror"
         },
         {
@@ -359,6 +466,35 @@
           "type": "object"
         }
       ]
+    },
+    "storeMirror": {
+      "type": "object",
+      "description": "refkv_source's, for a store convention: the IR mirror's description (spec/conventions.md §8.2 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#82-the-table>, §8.9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>), and the members the convention keeps beside it",
+      "properties": {
+        "ir": {
+          "$ref": "#/$defs/mirror/properties/ir"
+        },
+        "empty_dirs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "description": "A SAFE product's empty directories (spec/zarrify/safe.md §6.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#63-the-source-metadata-node>)"
+        },
+        "ignored": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "description": "The recorded keys of the listed objects that spec/zarrify.md §1.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs> ignores"
+        }
+      },
+      "required": [
+        "ir"
+      ],
+      "additionalProperties": false
     },
     "safetensorsTensor": {
       "type": "object",

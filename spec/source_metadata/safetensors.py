@@ -37,6 +37,51 @@ SCHEMA = {
             "required": ["header_length", "tensors"],
             "additionalProperties": False,
         },
+        {
+            "type": "object",
+            "description": f"A store's root: its shards, indexes and configurations ({_ST}#92-source-metadata)",
+            "properties": {
+                "files": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {"key": {"type": "string"}, "path": {"type": "string"},
+                                       "reason": {"type": "string"}},
+                        "required": ["key"],
+                        "oneOf": [{"required": ["path"]}, {"required": ["reason"]}],
+                        "additionalProperties": False,
+                    },
+                },
+                "indexes": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "key": {"type": "string"},
+                            "agrees": {"type": "boolean"},
+                            "metadata": {},
+                            "problems": {"type": "array", "items": {"type": "string"}, "maxItems": 20},
+                            "problem_count": {"type": "integer", "minimum": 1},
+                            "problem": {"type": "string"},
+                        },
+                        "required": ["key"],
+                        "additionalProperties": False,
+                    },
+                },
+                "configs": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {"key": {"type": "string"}, "config": {}, "problem": {"type": "string"}},
+                        "required": ["key"],
+                        "oneOf": [{"required": ["config"]}, {"required": ["problem"]}],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            "required": ["files"],
+            "additionalProperties": False,
+        },
         {"$ref": "#/$defs/mirror"},
         {"$ref": "#/$defs/mirrorView"},
     ]

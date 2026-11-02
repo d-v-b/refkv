@@ -84,7 +84,7 @@ The table, generated from the registry, lists them:
 | [OME-Zarr](zarrify/ome-zarr.md#part-2-the-profile) | store | OME-Zarr 0.4 hierarchies on Zarr v2, migrated to OME-Zarr 0.5 |
 | [QPTIFF](zarrify/qptiff.md#part-2-the-profile) | file | Akoya (PerkinElmer) Vectra QPTIFF slides and inForm component data, a TIFF with an XML description per image, in LZW, JPEG or uncompressed tiles or strips |
 | [Sentinel-2 SAFE](zarrify/safe.md#part-2-the-profile) | file or store | Sentinel-2 Level-1C and Level-2A products: a `.SAFE` directory (a store) or a `.SAFE.zip` file |
-| [safetensors](zarrify/safetensors.md#part-2-the-profile) | file | safetensors files of a model's tensors (`model.safetensors`), in every data type the library defines, `BF16`, `F8_*`, `F4` and `F6_*` included |
+| [safetensors](zarrify/safetensors.md#part-2-the-profile) | file or store | safetensors files of a model's tensors (`model.safetensors`), in every data type the library defines, `BF16`, `F8_*`, `F4` and `F6_*` included; and stores of them, such as a model's repository of shards with its index |
 | [TIFF](zarrify/tiff.md#part-2-the-profile) | file | TIFF and BigTIFF, including OME-TIFF and JPEG-tiled slides such as Aperio SVS |
 | [VSI](zarrify/vsi.md#part-2-the-profile) | file | Olympus cellSens VSI slides: a `.vsi` file and the tile files beside it, probed by key (uncompressed, JPEG, JPEG 2000 and lossless JPEG tiles) |
 | [Zarr v2](zarrify/zarr2.md#part-2-the-profile) | store | Zarr v2 hierarchies |
@@ -114,7 +114,7 @@ a reference entry, is one of:
 
 | range | written | its bytes |
 |---|---|---|
-| a source range | `(i, offset, length)` | `length` bytes of source `i`, from `offset`: of a `url` source: the input, source 0, for a file input; for a store input, an object, in the order [§1.4](#14-store-inputs) gives (the SAFE document gives its own order, and so does each profile that reads a file as a store, [§1.8](#18-files-read-as-stores), whose source 0 need not be the input), or of a data source ([§1.2](#12-input)), whole, or a zero data source's first `length` bytes |
+| a source range | `(i, offset, length)` | `length` bytes of source `i`, from `offset`: of a `url` source: the input, source 0, for a file input; for a store input, an object, in the order [§1.4](#14-store-inputs) gives (the SAFE document and the safetensors store form give their own order, and so does each profile that reads a file as a store, [§1.8](#18-files-read-as-stores), whose source 0 need not be the input), or of a data source ([§1.2](#12-input)), whole, or a zero data source's first `length` bytes |
 | a literal range | a literal of `d` | the bytes `d`, which the entry carries ([spec/refkv.md §4.2](refkv.md#42-range)) |
 
 A format's chunk tables ([conventions §11.5](conventions.md#115-layout-tables)) give each
@@ -373,6 +373,7 @@ decide, by the first row that matches:
 | `.zarray` or `.zgroup` | OME-Zarr profile ([ome-zarr.md §11](zarrify/ome-zarr.md#11-ome-zarr-profile)) if the store declares OME-NGFF 0.4 (below), else Zarr v2 profile ([zarr2.md §7](zarrify/zarr2.md#7-zarr-v2-profile)) |
 | `attributes.json` | N5 profile ([n5.md §8](zarrify/n5.md#8-n5-profile)) |
 | `manifest.safe` | SAFE profile ([safe.md §8](zarrify/safe.md#8-safe-profile)), directory form |
+| none of these, and a key at any depth that ends in `.safetensors` | safetensors profile ([safetensors.md §9](zarrify/safetensors.md#9-the-store-form)), store form |
 | anything else, including an empty store | rejected |
 
 **Declaring OME-NGFF 0.4.** The test reads at most three documents, by
@@ -422,6 +423,8 @@ bytes, only on its key and size.) The SAFE profile and the files read as stores
 reads its band files in ranges (their boxes, main headers and tile-part
 headers), with HTTP range requests, and a response that is not of the
 requested length is a failure ([safe.md §8.2](zarrify/safe.md#82-objects-and-reading)).
+The safetensors profile's store form is another: it reads each shard's header in ranges, in
+the same way ([safetensors.md §9.3](zarrify/safetensors.md#93-reading-and-checks)).
 
 **Object URLs.** The URL of the object with key `k` is `U` followed by
 `k`'s UTF-8 bytes with every byte that is not an unreserved character
@@ -449,10 +452,11 @@ object's listed size ([§1.5](#15-listing-a-store)): the URL of its object. The 
 compared as UTF-8 byte strings (which is the order of Unicode code points),
 and the entry with key `k` at position `i` of that order has the single
 range `(i, 0, size)`. No other entry is a reference, and a store input's
-output has no data sources ([§1.2](#12-input)). The SAFE profile is the exception: its
+output has no data sources ([§1.2](#12-input)). The SAFE profile is an exception: its
 url sources are one per object that some reference uses, and data sources
 follow them, and its references are ranges within objects
-([safe.md §8.8](zarrify/safe.md#88-the-source-table)).
+([safe.md §8.8](zarrify/safe.md#88-the-source-table)). The safetensors profile's store form is
+another, in the same way ([safetensors.md §9.4](zarrify/safetensors.md#94-chunks-and-sources)).
 
 These rules replace [§1.2](#12-input)'s **References stay in the file** (but for the
 SAFE profile, whose payloads are checked as [§1.2](#12-input) says): each range lies

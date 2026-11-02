@@ -59,8 +59,8 @@ pub enum Fail {
 // the store kinds, in the words of `python -m refkv.zarrify`'s usage (python/src/refkv/zarrify/__main__.py)
 const USAGE: &str = "usage: vzip convert <url or path> <out.vzip> [--url <source url>] [--checksums] \
 [--allow-private-hosts] [--connections N] [--byte-cost SECONDS_PER_MB] [--workers N] [--format vzip|phkv|hybrid]\n\
-(a URL ending in / or a directory is an N5, Zarr v2 or OME-Zarr 0.4 store, or a Sentinel-2 .SAFE directory; \
-a directory needs --url;\n\
+(a URL ending in / or a directory is an N5, Zarr v2 or OME-Zarr 0.4 store, a Sentinel-2 .SAFE directory, \
+or a store of safetensors files; a directory needs --url;\n\
 a store's objects are read by up to N requests at a time, default 16)";
 
 /// Whether the command line asks for the usage: `vzip -h`, `vzip --help`, or either flag anywhere

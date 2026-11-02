@@ -431,8 +431,10 @@ impl Store {
             Ok("n5")
         } else if o.contains_key("manifest.safe") {
             Ok("safe")
+        } else if o.keys().any(|k| k.ends_with(".safetensors")) {
+            Ok("safetensors")
         } else {
-            rejected("not an N5, Zarr v2 or SAFE store: the root has no .zarray, .zgroup, attributes.json or manifest.safe")
+            rejected("not an N5, Zarr v2, SAFE or safetensors store: the root has no .zarray, .zgroup, attributes.json or manifest.safe, and no key ends in .safetensors")
         }
     }
 
@@ -480,6 +482,7 @@ pub fn zarrify_store(store: &Store) -> Result<(String, refkv_ir::out::Out), Fail
     let out = run_store(store, match fmt {
         "n5" => "n5",
         "safe" => "safe",
+        "safetensors" => "safetensors",
         _ => "zarr2",
     })?;
     // a Zarr v2 store the core found to be OME-Zarr's says so in its summary

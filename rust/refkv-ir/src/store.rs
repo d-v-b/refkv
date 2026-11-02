@@ -92,6 +92,9 @@ pub enum StoreFormat {
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md>): the header file, listed
     /// alone, and a detached header's data file, which the run probes for.
     Nrrd,
+    /// A store of safetensors files, such as a model's shards (`safetensors/store.rs`;
+    /// spec/zarrify/safetensors.md <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md>).
+    Safetensors,
     /// A GRIB file (`grib/`; spec/zarrify/grib.md
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md>): the GRIB file, listed
     /// alone, and its index, which the run probes for.
@@ -107,6 +110,7 @@ impl StoreFormat {
             "vsi" => Some(StoreFormat::Vsi),
             "nrrd" => Some(StoreFormat::Nrrd),
             "grib" => Some(StoreFormat::Grib),
+            "safetensors" => Some(StoreFormat::Safetensors),
             _ => None,
         }
     }
@@ -118,6 +122,7 @@ impl StoreFormat {
             StoreFormat::Vsi => "vsi",
             StoreFormat::Nrrd => "nrrd",
             StoreFormat::Grib => "grib",
+            StoreFormat::Safetensors => "safetensors",
         }
     }
     /// The convention the mirror declares.
@@ -129,6 +134,7 @@ impl StoreFormat {
             StoreFormat::Vsi => "vsi",
             StoreFormat::Nrrd => "nrrd",
             StoreFormat::Grib => "grib",
+            StoreFormat::Safetensors => "safetensors",
         }
     }
     fn parser(self, ir: Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> Res<Box<dyn StoreParser>> {
@@ -139,6 +145,7 @@ impl StoreFormat {
             StoreFormat::Vsi => Ok(Box::new(crate::vsi::Vsi::new(ir, objects, keys)?)),
             StoreFormat::Nrrd => Ok(Box::new(crate::nrrd::Nrrd::new(ir, objects, keys)?)),
             StoreFormat::Grib => Ok(Box::new(crate::grib::Grib::new(ir, objects, keys)?)),
+            StoreFormat::Safetensors => Ok(Box::new(crate::safetensors::store::SafetensorsStore::new(ir, objects, keys)?)),
         }
     }
 }
@@ -472,6 +479,7 @@ pub fn store_output(format: StoreFormat, ir: &Ir, facts: &J, stats: J, url: &str
         StoreFormat::Vsi => crate::project::vsi::project(ir, facts, url, &Default::default())?,
         StoreFormat::Nrrd => crate::project::nrrd::project(ir, facts, url)?,
         StoreFormat::Grib => crate::project::grib::project(ir, facts, url)?,
+        StoreFormat::Safetensors => crate::project::safetensors::project_store(ir, facts, url)?,
     };
     crate::shard::refuse(&out)?;
     let mut summary = std::mem::take(&mut out.summary);
