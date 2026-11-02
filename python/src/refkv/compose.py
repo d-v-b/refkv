@@ -83,9 +83,11 @@ __all__ = [
 Value = bytes | Reference
 
 # A chunk box is indexed in a grid of cells 2**level chunks wide on each axis, its level on
-# each axis the finest at which it spans at most _BOX_SPAN cells there; so a box thin on
-# one axis and running to the end of the others still takes a cell of its own.
+# each axis the finest at which it spans at most _BOX_SPAN cells there, rounded up to a
+# multiple of _LEVEL_STEP; so a box thin on one axis and running to the end of the others
+# still takes a cell of its own, and boxes of many sizes share a few grids.
 _BOX_SPAN = 4
+_LEVEL_STEP = 3
 
 _DOCUMENTS = frozenset({"zarr.json", ".zarray", ".zgroup", ".zattrs"})
 GROUP_V3 = b'{"zarr_format":3,"node_type":"group","attributes":{}}'
@@ -202,7 +204,8 @@ class _Boxes:
         for b, i in boxes:
             if any(a >= z for a, z in zip(b.start, b.stop, strict=True)):
                 continue  # an empty box
-            levels = tuple(_level(a, z) for a, z in zip(b.start, b.stop, strict=True))
+            levels = tuple(-(-_level(a, z) // _LEVEL_STEP) * _LEVEL_STEP
+                           for a, z in zip(b.start, b.stop, strict=True))
             grid = out.grids.setdefault(levels, {})
             spans = [range(a >> n, ((z - 1) >> n) + 1) for a, z, n in zip(b.start, b.stop, levels, strict=True)]
             for cell in itertools.product(*spans):
@@ -388,7 +391,8 @@ def _unconsolidated(key: str, value: Value) -> Value | None:
                          "result would make stale, cannot be dropped; hold Zarr documents as bytes")
     doc = _load(value)
     if doc is None and b'"consolidated_metadata"' in value:
-        raise ValueError(f"{key!r} is too deeply nested to drop its consolidated metadata from")
+        raise ValueError(f"{key!r} is not JSON that can be parsed (malformed, or nested too deep), "
+                         "so its consolidated metadata cannot be dropped")
     if not isinstance(doc, dict) or doc.get("consolidated_metadata") is None:
         return value
     del doc["consolidated_metadata"]
@@ -783,8 +787,9 @@ def map_keys(store: ReferenceStore, f: Callable[[str], str | None], *,
 
     Raises ValueError when two keys are renamed to one, when a key is renamed into, or out
     of, the reserved prefix, when a value uses a key source whose key is dropped or
-    rewritten, and when the store states a `KeyRange`, `Prefix` or `ChunkBox` bound and
-    `bounds` is not given, since a function on keys cannot move one.
+    rewritten, when the store states a `KeyRange`, `Prefix` or `ChunkBox` bound and
+    `bounds` is not given, since a function on keys cannot move one, and when a key outside
+    the store's stated bounds is renamed onto one inside them.
     """
     if bounds is None and store.bounds_stated:
         moved: list[Bound] = []
@@ -996,9 +1001,9 @@ def normalize(store: ReferenceStore, **options: Unpack[Options]) -> ReferenceSto
     An array owns every key below it: its chunks are kept, and a node document below it is
     dropped. A group owns only its metadata: another key whose nearest node above it is a
     group is dropped, as a chunk an `overlay` left under a group that replaced its array.
-    Ownership is decided in the hierarchy with the added groups, so a second `normalize`
-    changes nothing; a key with no node above it even then is not part of the hierarchy
-    and is kept. Where v2 and v3
+    Ownership is decided in the hierarchy with the added groups (a root group among them),
+    so a second `normalize` changes nothing, and every key that is neither a node's
+    metadata nor below an array, such as a stray file at the root, is dropped. Where v2 and v3
     documents mark one path, the v3 document is kept, and a v2 group's documents beside a
     v3 group too, so that v2 nodes below it stay reachable. Each missing ancestor of a v3 node
     gets a v3 group, and of a v2 node a v2 group, replacing a document there that marks no
@@ -1054,8 +1059,6 @@ def normalize(store: ReferenceStore, **options: Unpack[Options]) -> ReferenceSto
             continue
         if array_above(key) is not None:
             keep.add(key)  # an array's chunk, or anything else below an array
-        elif next((p for p in ancestors(key) if p in every), None) is None:
-            keep.add(key)  # below no node: not part of the hierarchy
     bounds = [*bounds_kept, *(Key(k) for k in added)] if bounds_kept is not None else None
     return _map_keys(store, lambda k: k if k in keep else None, bounds, dict(added),  # type: ignore[arg-type]
                      list(added), options, unconsolidate=True)

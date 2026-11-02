@@ -665,3 +665,9 @@ def test_combining_refuses_a_zarr_document_held_as_a_reference():
                        url="https://h.test/")
     with pytest.raises(ValueError, match="held as a reference, so its consolidated metadata"):
         overlay(s)
+
+
+def test_combining_refuses_a_document_it_cannot_parse_to_drop_its_listing():
+    deep = b'{"consolidated_metadata":' + b"[" * 100000 + b"]" * 100000 + b"}"
+    with pytest.raises(ValueError, match="not JSON that can be parsed"):
+        overlay(ReferenceStore({"zarr.json": deep}))

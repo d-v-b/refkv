@@ -64,7 +64,8 @@ All of them return a new store.
   states one needs `bounds=`.
 - **`normalize(store)`.** Makes the store a valid hierarchy:
   - an array owns everything below it;
-  - a key under a group, such as a chunk left behind by an overlay, is dropped;
+  - any other key not under an array is dropped: a chunk left under a group by an
+    overlay, or a stray file at the root;
   - a group is added wherever a node's parent is missing, in that node's Zarr
     version.
 
