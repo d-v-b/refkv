@@ -690,8 +690,10 @@ def test_union_agrees_on_values_that_read_the_same_bytes():
         (ReferenceStore({"k": b"abc"}), ReferenceStore({"k": Range(source=0, offset=1, length=3)},
                                                        [Source(data=b"xabcx")])),
     ]
+    attrs = b'{"a": 1}'
+    pairs.append((ReferenceStore({"g/.zattrs": attrs}), ReferenceStore({"g/.zattrs": Range(data=b'{ "a" : 1 }')})))
     for a, b in pairs:  # each pair unites in either order (the second pair's URL is not read)
-        assert set(union(a, b).mapping) == set(union(b, a).mapping) == {"k"}
+        assert set(union(a, b).mapping) == set(union(b, a).mapping) == set(a.mapping)
     assert union(*pairs[2]).get("k") == b"abc"
 
 
@@ -716,3 +718,9 @@ def test_normalize_refuses_a_zarr_document_held_as_a_reference():
                        [Source(url="https://h.test/a.json")], url="https://h.test/")
     with pytest.raises(ValueError, match="normalize cannot tell what node"):
         normalize(s)
+
+
+def test_union_refuses_a_value_that_would_not_read_against_one_that_does():
+    for broken in (Range(source=0, offset=1, length=9), Range(source=0, offset=1, length=3, crc32c=1)):
+        with pytest.raises(ValueError, match="hold different values"):
+            union(ReferenceStore({"k": b"abc"}), ReferenceStore({"k": broken}, [Source(data=b"xabcx")]))

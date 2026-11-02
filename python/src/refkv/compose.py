@@ -67,7 +67,7 @@ from refkv.bounds import (
     parse_chunk_key,
 )
 from refkv.pb import Concat, Range, Reference, Source
-from refkv.policy import Policy, _scheme
+from refkv.policy import Policy, _scheme, crc32c
 from refkv.refstore import ReferenceStore
 from refkv.uri import resolve as resolve_reference
 from refkv.vzip.names import RESERVED_PREFIX
@@ -429,44 +429,52 @@ def _form(key: str, value: Value, identity: Callable[[int], object], *, document
     """What `union` compares of a store's `value` at `key`: with `documents`, a Zarr document
     (`zarr.json`, `.zarray`, `.zgroup`, `.zattrs`) held as bytes as its JSON value, a
     `zarr.json` without `consolidated_metadata`; else what the value reads (`_reads`)."""
+    reads = _reads(value, identity)
     name = key.rpartition("/")[2]
-    if documents and name in _DOCUMENTS and isinstance(value, bytes):
-        doc = _load(value)
+    if documents and name in _DOCUMENTS and all(kind == "data" for kind, *_ in reads):
+        doc = _load(b"".join(cast("bytes", what) for _, what, *_ in reads))
         if doc is not None:
             if isinstance(doc, dict) and name == "zarr.json":
                 doc.pop("consolidated_metadata", None)
             return ("json", _canonical(doc))
-    return ("reads", _reads(value, identity))
+    return ("reads", reads)
 
 
-def _reads(value: Value, identity: Callable[[int], object]) -> tuple[object, ...]:
+def _reads(value: Value, identity: Callable[[int], object]) -> tuple[tuple[str, object, int, int, int | None], ...]:
     """What `value` reads, as segments whatever its form: the bytes it holds or names (literal
     data, a data source, a key source to bytes) as `("data", bytes)`, adjacent ones joined;
     a range of another source as `("range", identity, offset, length)`, adjacent ranges of
     one source joined. So `b"abc"`, `Range(data=b"abc")` and a one-part `Concat` agree."""
     parts = value.parts if isinstance(value, Concat) else (value,)
-    out: list[tuple[str, object, int, int]] = []  # ("data", bytes, 0, 0) or ("range", source, offset, length)
+    # ("data", bytes, 0, 0, None), or ("range", source, offset, length, crc32c): a range the
+    # reader would refuse (past the end of the bytes it names, or failing its checksum)
+    # stays a range, so it never equals bytes that read
+    out: list[tuple[str, object, int, int, int | None]] = []
     for r in parts:
         if isinstance(r, bytes):
-            kind, what, offset, length = "data", r, 0, 0
+            seg: tuple[str, object, int, int, int | None] = ("data", r, 0, 0, None)
         elif r.data is not None:
-            kind, what, offset, length = "data", r.data, 0, 0
+            seg = ("data", r.data, 0, 0, None)
         else:
             source = identity(r.source)
             held = (source.data if isinstance(source, Source) else
                     source[1] if isinstance(source, tuple) and source[0] == "bytes" else None)
-            if isinstance(held, bytes):
-                kind, what, offset, length = "data", held[r.offset:r.offset + r.length], 0, 0
+            part = held[r.offset:r.offset + r.length] if isinstance(held, bytes) else None
+            if part is not None and len(part) == r.length and (r.crc32c is None or crc32c(part) == r.crc32c):
+                seg = ("data", part, 0, 0, None)
             else:
-                kind, what, offset, length = "range", source, r.offset, r.length
-        if (kind == "data" and not what) or (kind == "range" and not length):
+                seg = ("range", source, r.offset, r.length, r.crc32c)
+        kind, what, offset, length, crc = seg
+        if (kind == "data" and not what) or (kind == "range" and not length and crc is None):
             continue  # reads nothing
-        if out and out[-1][0] == kind == "data":
-            out[-1] = ("data", cast("bytes", out[-1][1]) + cast("bytes", what), 0, 0)
-        elif out and out[-1][0] == kind == "range" and out[-1][1] == what and out[-1][2] + out[-1][3] == offset:
-            out[-1] = ("range", what, out[-1][2], out[-1][3] + length)
+        last = out[-1] if out else None
+        if last is not None and last[0] == kind == "data":
+            out[-1] = ("data", cast("bytes", last[1]) + cast("bytes", what), 0, 0, None)
+        elif (last is not None and last[0] == kind == "range" and last[1] == what and last[4] is None
+              and crc is None and last[2] + last[3] == offset):
+            out[-1] = ("range", what, last[2], last[3] + length, None)
         else:
-            out.append((kind, what, offset, length))
+            out.append(seg)
     return tuple(out)
 
 
