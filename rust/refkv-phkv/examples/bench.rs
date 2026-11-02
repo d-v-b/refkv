@@ -17,6 +17,9 @@ use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
 use std::time::Instant;
 
 const CHUNK: u64 = 4096;
+/// the clustered workload: `CLUSTER_RUNS` runs of `CLUSTER` neighbouring keys
+const CLUSTER: u64 = 100;
+const CLUSTER_RUNS: usize = 3;
 
 /// `arr/c/a/b/c`: the chunk keys of a 3-D array, 100 keys under each `arr/c/a/b/`.
 fn key(i: u64) -> String {
@@ -261,6 +264,25 @@ fn read(t: &dyn Open, refs: bool, n: u64, reps: usize, lookups: usize) {
     }
     let mean = lat.iter().sum::<f64>() / lat.len() as f64;
     lat.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    // clustered: runs of 100 neighbouring keys, in order, on one fresh store (a block of keys that
+    // share a prefix, read one after another: the lookups of a reader of a chunk's neighbours)
+    let s = t.open();
+    let (mut clat, mut cr, mut cb, mut cn) = (vec![], 0, 0, 0u64);
+    for _ in 0..CLUSTER_RUNS {
+        let start = next() / CLUSTER * CLUSTER;
+        for i in start..(start + CLUSTER).min(n) {
+            let k = key(i);
+            let (r0, b0) = c.get();
+            let t0 = Instant::now();
+            lookup(&s, refs, &k);
+            clat.push(ms(t0));
+            let (r1, b1) = c.get();
+            cr += r1 - r0;
+            cb += b1 - b0;
+            cn += 1;
+        }
+    }
+    let cmean = clat.iter().sum::<f64>() / clat.len() as f64;
     // list: the 100 keys under one prefix, on an opened store
     let a = next() / 100;
     let prefix = format!("arr/c/{}/{}/", a / 100, a % 100);
@@ -279,7 +301,8 @@ fn read(t: &dyn Open, refs: bool, n: u64, reps: usize, lookups: usize) {
     println!(
         "{{\"open_ms\":{:.3},\"open_requests\":{open_r},\"open_bytes\":{open_b},\"first_get_ms\":{:.3},\"first_get_requests\":{get_r},\"first_get_bytes\":{get_b},\
 \"warm_ms_median\":{:.3},\"warm_ms_mean\":{:.3},\"warm_ms_p95\":{:.3},\"warm_requests_per_get\":{:.3},\"warm_bytes_per_get\":{:.1},\
-\"list_ms\":{:.3},\"list_requests\":{list_r},\"list_bytes\":{list_b}}}",
+\"list_ms\":{:.3},\"list_requests\":{list_r},\"list_bytes\":{list_b},\
+\"clustered_ms_mean\":{:.3},\"clustered_requests_per_get\":{:.3},\"clustered_bytes_per_get\":{:.1},\"clustered_lookups\":{cn}}}",
         median(&mut open_ms),
         median(&mut get_ms),
         lat[lat.len() / 2],
@@ -288,6 +311,9 @@ fn read(t: &dyn Open, refs: bool, n: u64, reps: usize, lookups: usize) {
         r as f64 / lookups as f64,
         b as f64 / lookups as f64,
         median(&mut list_ms),
+        cmean,
+        cr as f64 / cn as f64,
+        cb as f64 / cn as f64,
     );
 }
 
