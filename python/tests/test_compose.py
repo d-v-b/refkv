@@ -640,3 +640,13 @@ def test_combining_refuses_a_box_that_takes_in_no_chunk_of_its_array():
     described = ReferenceStore({"a/zarr.json": array([4, 4], [2, 2])})
     with pytest.raises(ValueError, match="takes in no chunk of array 'a'"):
         overlay(described, ReferenceStore({}, bounds=[ChunkBox("a", (0, 0), (1, 1), separator=".")]))
+
+
+def test_mount_keeps_derived_bounds_derived_and_normalize_is_idempotent():
+    s = ReferenceStore({"zarr.json": GROUP, "0/zarr.json": array([2], [1]), "0/c/0": b"x"})
+    mounted = mount(s, "m")
+    assert not mounted.bounds_stated
+    assert set(map_keys(mounted, lambda k: "n/" + k).mapping) == {"n/m/zarr.json", "n/m/0/zarr.json", "n/m/0/c/0"}
+    mixed = ReferenceStore({"a/b/zarr.json": GROUP, "v2/x/.zarray": b"{}", "v2/x/0": b"0"})
+    once = normalize(mixed)
+    assert values(normalize(once)) == values(once)

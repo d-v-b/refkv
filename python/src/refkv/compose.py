@@ -848,7 +848,8 @@ def mount(store: ReferenceStore, path: str, **options: Unpack[Options]) -> Refer
     """
     if not isinstance(path, str) or not path or path.startswith("/") or path.endswith("/") or "//" in path:
         raise ValueError(f"mount path {path!r}: a non-empty node path, with no leading, trailing or doubled '/'")
-    return _map_keys(store, lambda k: f"{path}/{k}", [_mount_bound(b, path) for b in store.bounds], {}, [],
+    bounds = [_mount_bound(b, path) for b in store.bounds] if store.bounds_stated else None  # derived stay derived
+    return _map_keys(store, lambda k: f"{path}/{k}", bounds, {}, [],
                      options, unconsolidate=False)  # type: ignore[arg-type]
 
 
@@ -972,7 +973,8 @@ def normalize(store: ReferenceStore, **options: Unpack[Options]) -> ReferenceSto
     dropped. A group owns only its metadata: another key whose nearest node above it is a
     group is dropped, as a chunk an `overlay` left under a group that replaced its array.
     A key with no node above it is not part of the hierarchy and is kept. Where v2 and v3
-    documents mark one path, the v3 document is kept. Each missing ancestor of a v3 node
+    documents mark one path, the v3 document is kept, and a v2 group's documents beside a
+    v3 group too, so that v2 nodes below it stay reachable. Each missing ancestor of a v3 node
     gets a v3 group, and of a v2 node a v2 group, replacing a document there that marks no
     node. A store with no Zarr nodes is returned with the same keys. The result's bounds
     are the store's, plus the added groups' keys when they were stated; derived otherwise.
@@ -1001,8 +1003,11 @@ def normalize(store: ReferenceStore, **options: Unpack[Options]) -> ReferenceSto
         is_marker = path in found and (name in ("zarr.json", ".zarray", ".zgroup", ".zattrs"))
         owner = array_above(key)
         if is_marker:
-            if array_above(path) is None and not (name != "zarr.json" and path in v3):
-                keep.add(key)  # a node's metadata, with no array above it; v3 decides a path both mark
+            # a node's metadata, with no array above it; where v2 and v3 documents mark one
+            # path, a v2 document is kept only beside a v3 group, as a v2 group's
+            v2_beside = name != "zarr.json" and path in v3
+            if array_above(path) is None and (not v2_beside or (found[path] == "group" and name != ".zarray")):
+                keep.add(key)
             continue
         if owner is not None:
             keep.add(key)  # an array's chunk, or anything else below an array
