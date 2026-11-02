@@ -740,24 +740,45 @@ impl<R: ReadAt> Store<R> {
     /// <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#222-operations>): the keys
     /// that are not hidden and start with `prefix`, in UTF-8 order.
     pub fn list(&self, prefix: &str) -> Result<Vec<String>, ReadError> {
+        let prefix = prefix.as_bytes();
         let mut out = Vec::new();
-        for i in 0..self.pages.len() {
-            if !format::page_may_hold(&self.pages, i, prefix.as_bytes()) {
-                continue;
+        // Keys are sorted, so the pages that may hold the prefix are adjacent: bisect to the first
+        // (the last page whose first key is at most the prefix, or page 0), then take pages while
+        // their first key starts with the prefix.
+        let first = self.pages.partition_point(|p| p.first_key.as_slice() <= prefix).saturating_sub(1);
+        if self.pages.is_empty() || !format::page_may_hold(&self.pages, first, prefix) {
+            return Ok(out);
+        }
+        let mut end = first + 1;
+        while end < self.pages.len() && self.pages[end].first_key.starts_with(prefix) {
+            end += 1;
+        }
+        // read the run in as few requests as the request limit allows: a span of whole pages each
+        let mut i = first;
+        while i < end {
+            let mut j = i + 1;
+            while j < end && self.pages[j].offset + self.pages[j].length - self.pages[i].offset <= self.limits.request_bytes {
+                j += 1;
             }
-            for rec in self.page_records(i)? {
-                if !rec.hidden && rec.key.starts_with(prefix.as_bytes()) {
-                    out.push(String::from_utf8(rec.key).map_err(|_| ReadError { class: Class::Entry, message: "a key that is not UTF-8".into() })?);
+            let start = self.pages[i].offset;
+            let span = self.read(start, self.pages[j - 1].offset + self.pages[j - 1].length - start, Class::Entry)?;
+            for k in i..j {
+                let p = &self.pages[k];
+                let from = (p.offset - start) as usize;
+                for rec in self.parse_page(k, &span[from..from + p.length as usize])? {
+                    if !rec.hidden && rec.key.starts_with(prefix) {
+                        out.push(String::from_utf8(rec.key).map_err(|_| ReadError { class: Class::Entry, message: "a key that is not UTF-8".into() })?);
+                    }
                 }
             }
+            i = j;
         }
         Ok(out)
     }
 
-    /// The records of page `i`; an entry error if the page cannot be parsed.
-    fn page_records(&self, i: usize) -> Result<Vec<Record>, ReadError> {
+    /// The records of page `i`, whose bytes are `b`; an entry error if the page cannot be parsed.
+    fn parse_page(&self, i: usize, b: &[u8]) -> Result<Vec<Record>, ReadError> {
         let p = &self.pages[i];
-        let b = self.read(p.offset, p.length, Class::Entry)?;
         let mut recs = Vec::new();
         let mut at = 0usize;
         while at < b.len() {
