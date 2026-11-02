@@ -81,9 +81,11 @@ __all__ = [
 
 Value = bytes | Reference
 
-# Boxes of at most this many chunks are indexed chunk by chunk; larger ones are checked
-# against every chunk key of their array.
+# Boxes of at most this many chunks are indexed chunk by chunk. A larger one is indexed
+# by the coordinate of its shallowest axis when that is at most _BOX_DEPTH chunks deep (a
+# stack's plane is one chunk deep); else it is checked against every chunk key of its array.
 _BOX_CELLS = 4096
+_BOX_DEPTH = 64
 
 
 class Options(TypedDict, total=False):
@@ -98,16 +100,24 @@ class Options(TypedDict, total=False):
     max_concurrency: int | None
 
 
+@dataclasses.dataclass
+class _Boxes:
+    """The chunk boxes of one array and encoding, indexed (see `_BOX_CELLS`)."""
+
+    cells: dict[tuple[int, ...], set[int]] = dataclasses.field(default_factory=dict)
+    slabs: dict[tuple[int, int], list[tuple[ChunkBox, int]]] = dataclasses.field(default_factory=dict)
+    wide: list[tuple[ChunkBox, int]] = dataclasses.field(default_factory=list)
+
+
 class _Cover:
     """Which of several numbered bound sets contain a key: `which(key)`, as a set."""
 
     def __init__(self, sets: Iterable[tuple[int, Iterable[Bound]]]) -> None:
         self.keys: dict[str, set[int]] = {}
         ranges: list[tuple[str, str | None, int]] = []
-        # by array path, then by (rank, encoding, separator): the small boxes' chunks, and
-        # the large boxes
-        self.boxes: dict[str, dict[tuple[int, str, str], tuple[dict[tuple[int, ...], set[int]],
-                                                               list[tuple[ChunkBox, int]]]]] = {}
+        # by array path, then by (rank, encoding, separator): the small boxes' chunks; the
+        # large boxes by (axis, coordinate) on their shallowest axis; and the rest
+        self.boxes: dict[str, dict[tuple[int, str, str], _Boxes]] = {}
         for i, bounds in sets:
             for b in bounds:
                 if isinstance(b, Key):
@@ -118,12 +128,17 @@ class _Cover:
                         ranges.append((r.start, r.stop, i))
                 else:
                     groups = self.boxes.setdefault(b.array, {})
-                    cells, wide = groups.setdefault((len(b.start), b.encoding, b.separator), ({}, []))
-                    if math.prod(z - a for a, z in zip(b.start, b.stop, strict=True)) <= _BOX_CELLS:
+                    group = groups.setdefault((len(b.start), b.encoding, b.separator), _Boxes())
+                    extents = [z - a for a, z in zip(b.start, b.stop, strict=True)]
+                    if math.prod(extents) <= _BOX_CELLS:
                         for c in itertools.product(*(range(a, z) for a, z in zip(b.start, b.stop, strict=True))):
-                            cells.setdefault(c, set()).add(i)
+                            group.cells.setdefault(c, set()).add(i)
+                    elif min(extents) <= _BOX_DEPTH:
+                        axis = extents.index(min(extents))
+                        for x in range(b.start[axis], b.stop[axis]):
+                            group.slabs.setdefault((axis, x), []).append((b, i))
                     else:
-                        wide.append((b, i))
+                        group.wide.append((b, i))
         self._sweep(ranges)
 
     def _sweep(self, ranges: list[tuple[str, str | None, int]]) -> None:
@@ -155,12 +170,13 @@ class _Cover:
         if k >= 0:
             out |= self.pieces[k]
         for array in ancestors(key):
-            for (rank, encoding, sep), (cells, wide) in self.boxes.get(array, {}).items():
+            for (rank, encoding, sep), group in self.boxes.get(array, {}).items():
                 c = parse_chunk_key(key, array, rank, encoding, sep)
                 if c is None:
                     continue
-                out |= cells.get(c, set())
-                for b, i in wide:
+                out |= group.cells.get(c, set())
+                candidates = [group.wide, *(group.slabs.get((axis, x), ()) for axis, x in enumerate(c))]
+                for b, i in itertools.chain.from_iterable(candidates):
                     if i not in out and all(a <= x < z for x, a, z in zip(c, b.start, b.stop, strict=True)):
                         out.add(i)
         return out

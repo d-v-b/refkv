@@ -113,6 +113,12 @@ def test_overlay_and_union_answer_each_key_from_the_store_that_bounds_it():
     cleared = np.asarray(zarr.open_group(refkv.zarr.store(overlay(stack, gone)), mode="r").get_array("0")[...])
     assert not cleared[2].any()
     assert cleared[1].any()
+    # large boxes, indexed by a shallow axis or not at all, bound the same chunks
+    slab, wide = ChunkBox("0", (1, 0, 0), (2, 100, 100)), ChunkBox("0", (1, 0, 0), (100, 100, 100))
+    for big, left in ((slab, (0, 2)), (wide, (0,))):
+        cleared_big = overlay(stack, ReferenceStore({}, bounds=[big]))
+        assert sorted(k for k in cleared_big.mapping if k.startswith("0/c/")) == [f"0/c/{z}/{y}/{x}" for z in left
+                                                                                  for y in range(2) for x in range(2)]
     # a key outside a store's own bounds is not carried
     assert "zarr.json" not in overlay(ReferenceStore({"zarr.json": GROUP}, bounds=[Key("x")])).mapping
     # the later store wins a key both bound
