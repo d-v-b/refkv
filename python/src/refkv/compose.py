@@ -205,14 +205,20 @@ class _Boxes:
         out = cls()
         boxes = [(b, i) for b, i in boxes if all(a < z for a, z in zip(b.start, b.stop, strict=True))]
         exact = [tuple(_level(a, z) for a, z in zip(b.start, b.stop, strict=True)) for b, _ in boxes]
-        step = _LEVEL_STEP
+        def rounded(levels: tuple[int, ...], step: int) -> tuple[int, ...]:
+            return tuple(-(-n // step) * step for n in levels)
+
+        # the commonest shapes keep their grids; only the rare ones coarsen, until all of them
+        # share the grids left (a mosaic's tiles stay in fine cells beside odd patches)
+        common = [g for g, _ in Counter(rounded(lv, _LEVEL_STEP) for lv in exact).most_common(_MAX_GRIDS // 2)]
         top = max((n for levels in exact for n in levels), default=0)
-        # coarser levels, fewer grids to probe for each key; past the top level every level
-        # is 0 or the step, and coarsening further changes nothing
-        while step < top and len({tuple(-(-n // step) * step for n in levels) for levels in exact}) > _MAX_GRIDS:
+        step = _LEVEL_STEP
+        rare = [lv for lv in exact if rounded(lv, _LEVEL_STEP) not in common]
+        while step < top and len({rounded(lv, step) for lv in rare}) > _MAX_GRIDS - len(common):
             step *= 2
         for (b, i), level in zip(boxes, exact, strict=True):
-            levels = tuple(-(-n // step) * step for n in level)
+            fine = rounded(level, _LEVEL_STEP)
+            levels = fine if fine in common else rounded(level, step)
             grid = out.grids.setdefault(levels, {})
             spans = [range(a >> n, ((z - 1) >> n) + 1) for a, z, n in zip(b.start, b.stop, levels, strict=True)]
             for cell in itertools.product(*spans):
@@ -696,11 +702,11 @@ def _combine(stores: Sequence[ReferenceStore], agree: bool, options: Options) ->
                    if (k := s.sources[src].key) is not None and not k.startswith(RESERVED_PREFIX)}
         seen: dict[str, tuple[object, int, set[int]]] = {}
         for i, mine in enumerate(answers):
-            for key, _, kept in mine:
+            for key, held, kept in mine:
                 if kept is None:
                     continue  # a key the result drops is not compared
-                if key in targets:
-                    form: object = ("target", kept) if isinstance(kept, bytes) else ("target-reference", i)
+                if key in targets:  # what a key source reads: the bytes held, before any rewrite
+                    form: object = ("target", held) if isinstance(held, bytes) else ("target-reference", i)
                 else:
                     form = _form(key, kept, identity(i))
                 first = seen.setdefault(key, (form, i, set()))
@@ -952,6 +958,8 @@ def _array(store: ReferenceStore, array: str) -> tuple[list[int], list[int], str
     """(shape, chunk shape, encoding, separator) of the array at `array` in `store`."""
     base = f"{array}/" if array else ""
     v3, v2 = store.mapping.get(base + "zarr.json"), store.mapping.get(base + ".zarray")
+    if v3 is not None and node_type(v3) is None and v2 is not None:
+        v3 = None  # a zarr.json that marks no node, beside a v2 array: the v2 array decides
     doc = v3 if v3 is not None else v2
     if not isinstance(doc, bytes):
         raise ValueError(  # noqa: TRY004 (a missing array, not a wrong argument type)
@@ -975,7 +983,7 @@ def _array(store: ReferenceStore, array: str) -> tuple[list[int], list[int], str
             raise ValueError(f"{array!r}: chunk key encoding {name!r} with separator {sep!r}, or a "
                              "chunk shape of another rank than the shape")
         return [operator.index(n) for n in shape], [operator.index(c) for c in chunks], name, sep
-    except (KeyError, TypeError, AttributeError, RecursionError) as e:
+    except (KeyError, TypeError, AttributeError, RecursionError, json.JSONDecodeError) as e:
         raise ValueError(f"{array!r}: malformed array metadata ({type(e).__name__}: {e})") from None
 
 

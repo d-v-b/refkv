@@ -2,6 +2,7 @@
 (refkv.compose): overlay, union, map_keys, mount, shift_chunks and normalize."""
 
 import hashlib
+import itertools
 import json
 import random
 import time
@@ -772,3 +773,26 @@ def test_the_bounds_index_coarsens_many_box_shapes_and_still_finds_them():
             want = {i for i, bs in sets if bs[0].contains(key)}
             assert cover.which(key) == want
             assert cover.owner(key) == max(want, default=-1)
+
+
+def test_rare_box_shapes_leave_a_mosaic_in_fine_cells_and_documents_compare_as_held():
+    tiles = [(i, [ChunkBox("a", (x * 5, y * 5, z * 5), (x * 5 + 5, y * 5 + 5, z * 5 + 5))])
+             for i, (x, y, z) in enumerate(itertools.product(range(8), repeat=3))]
+    shapes = list(itertools.product([1, 20, 150, 1200], repeat=3))[:40]
+    odd = [(len(tiles) + k, [ChunkBox("a", (1000,) * 3, (1000 + a, 1000 + b, 1000 + c))])
+           for k, (a, b, c) in enumerate(shapes)]
+    def fullest(cover):
+        group = cover.boxes["a"][(3, "default", "/")]
+        return max(len(found) for grid in group.grids.values() for found in grid.values())
+
+    cover = _Cover(tiles + odd)
+    assert fullest(cover) == fullest(_Cover(tiles))  # the tiles' cells as full as without the odd boxes
+    assert cover.owner("a/c/7/12/39") == 1 * 64 + 2 * 8 + 7
+    listed = (b'{"zarr_format":3,"node_type":"group","attributes":{},'
+              b'"consolidated_metadata":{"kind":"inline","metadata":{}}}')
+    reader = ReferenceStore({"zarr.json": listed, "v": Range(source=0, length=5)}, [Source(key="zarr.json")])
+    holder = ReferenceStore({"zarr.json": listed, "v": listed[:5]})
+    assert union(reader, holder).get("v") == listed[:5]
+    stray = ReferenceStore({"a/.zarray": json.dumps({"zarr_format": 2, "shape": [2], "chunks": [1]}).encode(),
+                            "a/0": b"x", "a/zarr.json": b"not json"})
+    assert set(shift_chunks(stray, "a", (1,)).mapping) == {"a/1"}
