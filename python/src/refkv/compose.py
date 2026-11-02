@@ -20,7 +20,8 @@ A combination's sources are each store's, relative URLs resolved against that st
 base URL, equal ones merged, and the unused dropped; references are renumbered to match,
 the most used source first. A store's keys outside its own bounds are never carried into
 a combination. Its hidden keys (under the binding's reserved prefix) are carried only when
-a carried value reads one through a key source, renamed if another store's differs.
+a carried value reads one through a key source, renamed by its content if another
+store's differs.
 Consolidated metadata (a `zarr.json`'s `consolidated_metadata`, a v2 `.zmetadata`) lists
 the nodes of one store, so `overlay`, `union`, `map_keys` and `normalize` drop it.
 
@@ -41,6 +42,7 @@ from __future__ import annotations
 
 import bisect
 import dataclasses
+import hashlib
 import heapq
 import json
 from collections import Counter
@@ -203,33 +205,40 @@ def _unconsolidated(key: str, value: Value) -> Value | None:
     return json.dumps(doc, separators=(",", ":")).encode()
 
 
-def _hidden_names(store: ReferenceStore, taken: dict[str, Value], tag: int) -> dict[str, str]:
-    """{hidden key: its name in a combination} for each hidden key of `store` that a key source
-    names, given the hidden values `taken` so far (which it extends): the name an equal value
-    already has, else the key itself if free, else a new one (`key~tag`, ...).
+def _hidden_names(stores: Sequence[ReferenceStore]) -> tuple[list[dict[str, str]], dict[str, bytes]]:
+    """The names, in a combination of `stores`, of the hidden keys their key sources name:
+    for each store, {hidden key: name}, and the values by name. A key every store that
+    has it holds the same value under keeps its name; otherwise each distinct value is
+    named `key~` and the start of its SHA-256 digest, so no name depends on the order of
+    `stores`.
 
     Raises ValueError for such a hidden key whose value is a reference, not bytes."""
-    out: dict[str, str] = {}
-    for s in store.sources:
-        k = s.key
-        if k is None or not k.startswith(RESERVED_PREFIX) or k in out or k not in store.mapping:
-            continue
-        value = store.mapping[k]
-        if not isinstance(value, bytes):
-            raise ValueError(  # noqa: TRY004 (a store the operation cannot combine, not a wrong argument)
-                f"a key source names the hidden key {k!r}, whose value is a reference; "
-                "a combination carries only bytes hidden values")
-        same = [n for n, v in taken.items() if v == value and (n == k or n.startswith(k + "~"))]
-        if same:
-            out[k] = same[0]
-            continue
-        name, n = k, 0
-        while name in taken:
-            n += 1
-            name = f"{k}~{tag}" if n == 1 else f"{k}~{tag}.{n}"
-        taken[name] = value
-        out[k] = name
-    return out
+    found: list[dict[str, bytes]] = []
+    distinct: dict[str, set[bytes]] = {}
+    for store in stores:
+        named: dict[str, bytes] = {}
+        for s in store.sources:
+            k = s.key
+            if k is None or not k.startswith(RESERVED_PREFIX) or k in named or k not in store.mapping:
+                continue
+            value = store.mapping[k]
+            if not isinstance(value, bytes):
+                raise ValueError(  # noqa: TRY004 (a store the operation cannot combine, not a wrong argument)
+                    f"a key source names the hidden key {k!r}, whose value is a reference; "
+                    "a combination carries only bytes hidden values")
+            named[k] = value
+            distinct.setdefault(k, set()).add(value)
+        found.append(named)
+    names: list[dict[str, str]] = []
+    values: dict[str, bytes] = {}
+    for named in found:
+        out = {}
+        for k, value in named.items():
+            name = k if len(distinct[k]) == 1 else f"{k}~{hashlib.sha256(value).hexdigest()[:16]}"
+            out[k] = name
+            values[name] = value
+        names.append(out)
+    return names, values
 
 
 def _base_url(stores: Sequence[ReferenceStore], url: str | None) -> str | None:
@@ -275,14 +284,14 @@ def _combine(stores: Sequence[ReferenceStore], agree: bool, options: Options) ->
     index: dict[Source, int] = {}
     mapping: dict[str, Value] = {}
     origin: dict[str, int] = {}
-    answers: dict[str, tuple[Value, set[int], int]] = {}  # for `agree`: value, holders, first holder
+    answers: dict[str, tuple[Value | None, set[int], int]] = {}  # for `agree`: value, holders, first holder
     read_at_open: list[str] = []
     compressed: list[str] = []
     internal: list[tuple[int, str]] = []  # (store, key) of each key source a carried value uses
-    hidden: dict[str, Value] = {}  # the hidden keys key sources name, by their names in the result
+    hidden_names, hidden = _hidden_names(stores)
     for i, store in enumerate(stores):
         table = []
-        names = _hidden_names(store, hidden, i)
+        names = hidden_names[i]
         absolute = [dataclasses.replace(s, key=names[s.key]) if s.key in names else s for s in _absolute(store)]
         for src in absolute:
             if src not in index:
@@ -293,7 +302,7 @@ def _combine(stores: Sequence[ReferenceStore], agree: bool, options: Options) ->
         for key, held in store.mapping.items():
             if key.startswith(RESERVED_PREFIX) or not own.contains(key):
                 continue
-            value = _renumber(held, table)
+            value = _unconsolidated(key, _renumber(held, table))
             if agree:
                 seen = answers.get(key)
                 if seen is None:
@@ -302,10 +311,7 @@ def _combine(stores: Sequence[ReferenceStore], agree: bool, options: Options) ->
                     raise ValueError(f"{key!r}: stores {seen[2]} and {i} hold different values")
                 else:
                     seen[1].add(i)
-            if max(cover.which(key)) != i:
-                continue
-            value = _unconsolidated(key, value)
-            if value is None:
+            if max(cover.which(key)) != i or value is None:
                 continue
             mapping[key] = value
             origin[key] = i

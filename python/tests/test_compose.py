@@ -314,6 +314,9 @@ def test_combining_drops_consolidated_metadata_and_carries_hidden_headers():
     out = overlay(a, b)
     assert document(out, "zarr.json") == {"zarr_format": 3, "node_type": "group", "attributes": {}}
     assert ".zmetadata" not in out.mapping
+    # union compares what it keeps: root groups that differ only in their listings agree
+    assert document(union(a.with_bounds([Key("zarr.json"), Prefix("x")]),
+                          b.with_bounds([Key("zarr.json"), Prefix("y")])), "zarr.json") == document(out, "zarr.json")
     assert sorted(zarr.open_group(refkv.zarr.store(out), mode="r").array_keys()) == ["x", "y"]
     assert "consolidated_metadata" in document(mount(a, "m"), "m/zarr.json")
     # hidden keys that key sources name are carried, renamed when two stores' differ
@@ -326,6 +329,9 @@ def test_combining_drops_consolidated_metadata_and_carries_hidden_headers():
     h3 = ReferenceStore({"__vz__/hdr": b"TWO", "q": Range(source=0, length=3)}, [Source(key="__vz__/hdr")],
                         bounds=[Key("q")])
     shared = union(h1.with_bounds([Key("p")]), h2.with_bounds([Key("q")]), h3)
+    forward, backward = union(h1, h2), union(h2, h1)
+    assert set(forward.mapping) == set(backward.mapping)
+    assert all(forward.get(k) == backward.get(k) for k in ("p", "q"))
     assert len(shared.sources) == 2
     assert shared.get("q") == b"TWO"
     assert overlay(h1).get("p") == b"ONE"
