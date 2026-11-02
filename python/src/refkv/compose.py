@@ -47,7 +47,6 @@ import bisect
 import dataclasses
 import hashlib
 import heapq
-import itertools
 import json
 import operator
 from collections import Counter
@@ -82,13 +81,11 @@ __all__ = [
 
 Value = bytes | Reference
 
-# A chunk box is indexed in a grid of cells 2**level chunks wide on each axis, its level on
-# each axis the finest at which it spans at most _BOX_SPAN cells there, rounded up to a
-# multiple of _LEVEL_STEP; so a box thin on one axis and running to the end of the others
-# still takes a cell of its own, and boxes of many sizes share a few grids.
-_BOX_SPAN = 4
-_LEVEL_STEP = 3
-_MAX_GRIDS = 32  # more grids than this, and the step doubles
+# The chunk boxes of an array are indexed in a bulk-loaded box tree (an R-tree): one entry
+# per box whatever its size or rank, each node the bounding box of what is below it and the
+# greatest number there, so a lookup descends only into nodes that contain the chunk (and,
+# for `owner`, could beat the best number found so far).
+_LEAF = 16
 
 _DOCUMENTS = frozenset({"zarr.json", ".zarray", ".zgroup", ".zattrs"})
 GROUP_V3 = b'{"zarr_format":3,"node_type":"group","attributes":{}}'
@@ -192,73 +189,67 @@ class _Intervals:
         return out
 
 
-@dataclasses.dataclass
-class _Boxes:
-    """The chunk boxes of one array and chunk key encoding, each in the grid of its levels
-    (see `_BOX_SPAN`), each cell's boxes by number, greatest first."""
+@dataclasses.dataclass(slots=True)
+class _BoxNode:
+    """A node of a box tree: the bounding box of the boxes below it, their greatest number,
+    and either its children (greatest number first) or, at a leaf, its boxes."""
 
-    grids: dict[tuple[int, ...], dict[tuple[int, ...], list[tuple[ChunkBox, int]]]] = dataclasses.field(
-        default_factory=dict)
+    start: tuple[int, ...]
+    stop: tuple[int, ...]
+    top: int
+    children: list[_BoxNode]
+    boxes: list[tuple[ChunkBox, int]]
+
+    def holds(self, c: tuple[int, ...]) -> bool:
+        return all(a <= x < z for x, a, z in zip(c, self.start, self.stop, strict=True))
+
+
+class _Boxes:
+    """The chunk boxes of one array and chunk key encoding, in a box tree (see `_LEAF`)."""
+
+    def __init__(self, boxes: list[tuple[ChunkBox, int]]) -> None:
+        boxes = [(b, i) for b, i in boxes if all(a < z for a, z in zip(b.start, b.stop, strict=True))]
+        self.root = self._build(boxes) if boxes else None
 
     @classmethod
-    def of(cls, boxes: list[tuple[ChunkBox, int]]) -> _Boxes:
-        out = cls()
-        boxes = [(b, i) for b, i in boxes if all(a < z for a, z in zip(b.start, b.stop, strict=True))]
-        exact = [tuple(_level(a, z) for a, z in zip(b.start, b.stop, strict=True)) for b, _ in boxes]
-        def rounded(levels: tuple[int, ...], step: int) -> tuple[int, ...]:
-            return tuple(-(-n // step) * step for n in levels)
-
-        # the commonest shapes keep their grids; only the rare ones coarsen, until all of them
-        # share the grids left (a mosaic's tiles stay in fine cells beside odd patches)
-        common = [g for g, _ in Counter(rounded(lv, _LEVEL_STEP) for lv in exact).most_common(_MAX_GRIDS // 2)]
-        top = max((n for levels in exact for n in levels), default=0)
-        step = _LEVEL_STEP
-        rare = [lv for lv in exact if rounded(lv, _LEVEL_STEP) not in common]
-        while step < top and len({rounded(lv, step) for lv in rare}) > _MAX_GRIDS - len(common):
-            step *= 2
-        for (b, i), level in zip(boxes, exact, strict=True):
-            fine = rounded(level, _LEVEL_STEP)
-            levels = fine if fine in common else rounded(level, step)
-            grid = out.grids.setdefault(levels, {})
-            spans = [range(a >> n, ((z - 1) >> n) + 1) for a, z, n in zip(b.start, b.stop, levels, strict=True)]
-            for cell in itertools.product(*spans):
-                grid.setdefault(cell, []).append((b, i))
-        for grid in out.grids.values():
-            for boxes_here in grid.values():
-                boxes_here.sort(key=lambda bi: -bi[1])
-        return out
-
-    def _cells(self, c: tuple[int, ...]) -> Iterable[list[tuple[ChunkBox, int]]]:
-        for levels, grid in self.grids.items():
-            found = grid.get(tuple(x >> n for x, n in zip(c, levels, strict=True)))
-            if found:
-                yield found
+    def _build(cls, boxes: list[tuple[ChunkBox, int]]) -> _BoxNode:
+        rank = len(boxes[0][0].start)
+        start = tuple(min(b.start[d] for b, _ in boxes) for d in range(rank))
+        stop = tuple(max(b.stop[d] for b, _ in boxes) for d in range(rank))
+        top = max(i for _, i in boxes)
+        if len(boxes) <= _LEAF or rank == 0:
+            return _BoxNode(start, stop, top, [], sorted(boxes, key=lambda bi: -bi[1]))
+        # split at the median of the boxes' centers on the axis where the centers spread most
+        axis = max(range(rank), key=lambda d: max(b.start[d] + b.stop[d] for b, _ in boxes)
+                   - min(b.start[d] + b.stop[d] for b, _ in boxes))
+        boxes = sorted(boxes, key=lambda bi: bi[0].start[axis] + bi[0].stop[axis])
+        half = len(boxes) // 2
+        children = sorted((cls._build(boxes[:half]), cls._build(boxes[half:])), key=lambda n: -n.top)
+        return _BoxNode(start, stop, top, children, [])
 
     def which(self, c: tuple[int, ...], out: set[int]) -> None:
-        for boxes in self._cells(c):
-            for b, i in boxes:
+        work = [self.root] if self.root is not None and self.root.holds(c) else []
+        while work:
+            node = work.pop()
+            for b, i in node.boxes:
                 if i not in out and all(a <= x < z for x, a, z in zip(c, b.start, b.stop, strict=True)):
                     out.add(i)
+            work.extend(child for child in node.children if child.holds(c))
 
     def owner(self, c: tuple[int, ...], best: int) -> int:
-        for boxes in self._cells(c):
-            for b, i in boxes:
+        work = [self.root] if self.root is not None else []
+        while work:
+            node = work.pop()
+            if node.top <= best or not node.holds(c):
+                continue
+            for b, i in node.boxes:  # greatest number first: the first that holds c wins here
                 if i <= best:
                     break
                 if all(a <= x < z for x, a, z in zip(c, b.start, b.stop, strict=True)):
                     best = i
                     break
+            work.extend(reversed(node.children))  # the child with the greater number is taken first
         return best
-
-
-def _level(a: int, z: int) -> int:
-    """The finest level at which `[a, z)` spans at most `_BOX_SPAN` cells."""
-    level = max(0, (z - a).bit_length() - 2)
-    while ((z - 1) >> level) - (a >> level) + 1 > _BOX_SPAN:
-        level += 1
-    while level and ((z - 1) >> (level - 1)) - (a >> (level - 1)) + 1 <= _BOX_SPAN:
-        level -= 1
-    return level
 
 
 class _Cover:
@@ -280,7 +271,7 @@ class _Cover:
                     group = (len(b.start), b.encoding, b.separator)
                     boxes.setdefault(b.array, {}).setdefault(group, []).append((b, i))
         self.ranges = _Intervals(ranges)
-        self.boxes = {array: {g: _Boxes.of(items) for g, items in groups.items()}
+        self.boxes = {array: {g: _Boxes(items) for g, items in groups.items()}
                       for array, groups in boxes.items()}
         self.top = {key: max(found) for key, found in self.keys.items()}
 
@@ -384,11 +375,20 @@ def _canonical(doc: object) -> str:
 
 def _load(value: bytes) -> object:
     """A JSON document with its numbers kept as written (`_Number`); None if `value` is not
-    JSON."""
+    strict JSON: UTF-8 without a byte order mark, and no object with a key twice (readers
+    disagree on which value of a doubled key counts)."""
     try:
-        return json.loads(value, parse_float=_Number, parse_int=_Number, parse_constant=_Number)
+        return json.loads(value.decode("utf-8"), parse_float=_Number, parse_int=_Number,
+                          parse_constant=_Number, object_pairs_hook=_object)
     except (ValueError, RecursionError):
         return None
+
+
+def _object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    out = dict(pairs)
+    if len(out) != len(pairs):
+        raise ValueError("an object with a key twice")
+    return out
 
 
 def _unconsolidated(key: str, value: Value) -> Value | None:
@@ -789,10 +789,15 @@ def _check_boxes(stores: Sequence[ReferenceStore]) -> None:
                 except ValueError:
                     continue
                 layouts.setdefault(path, set()).add((len(shape), encoding, sep))
+    def layout(rank: int, encoding: str, sep: str) -> tuple[int, str, str]:
+        # a v2 key of at most one axis has no separator in it
+        return (rank, encoding, "" if encoding == "v2" and rank <= 1 else sep)
+
+    known = {path: {layout(*lay) for lay in lays} for path, lays in layouts.items()}
     for s in stores:
         for b in s.bounds:
-            if isinstance(b, ChunkBox) and b.array in layouts and (
-                    (len(b.start), b.encoding, b.separator) not in layouts[b.array]):
+            if isinstance(b, ChunkBox) and b.array in known and (
+                    layout(len(b.start), b.encoding, b.separator) not in known[b.array]):
                 rank, encoding, sep = min(layouts[b.array])
                 raise ValueError(f"the bound {b!r} takes in no chunk of array {b.array!r}, which has "
                                  f"{rank} axes and chunk key encoding {encoding!r} with separator {sep!r}")
@@ -872,6 +877,8 @@ def map_keys(store: ReferenceStore, f: Callable[[str], str | None], *,
             if new is not None:
                 moved.append(Key(new))
         bounded = {b.key for b in moved if isinstance(b, Key)}
+        if len(bounded) != len(moved):
+            raise ValueError("two of the store's Key bounds are renamed to one key")
         inside = {b.key for b in store.bounds if isinstance(b, Key)}
         for key in store.mapping:
             if key not in inside and not key.startswith(RESERVED_PREFIX) and f(key) in bounded:

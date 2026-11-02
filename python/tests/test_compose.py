@@ -760,7 +760,7 @@ def test_union_compares_a_long_concat_in_linear_time():
     assert time.perf_counter() - start < 10
 
 
-def test_the_bounds_index_coarsens_many_box_shapes_and_still_finds_them():
+def test_the_bounds_index_finds_boxes_of_many_shapes_and_ranks():
     rng = random.Random(4)
     for rank, count in ((3, 300), (6, 80)):
         sets = []
@@ -776,19 +776,15 @@ def test_the_bounds_index_coarsens_many_box_shapes_and_still_finds_them():
             assert cover.owner(key) == max(want, default=-1)
 
 
-def test_rare_box_shapes_leave_a_mosaic_in_fine_cells_and_documents_compare_as_held():
+def test_a_mosaic_beside_odd_boxes_and_documents_compared_as_held():
     tiles = [(i, [ChunkBox("a", (x * 5, y * 5, z * 5), (x * 5 + 5, y * 5 + 5, z * 5 + 5))])
              for i, (x, y, z) in enumerate(itertools.product(range(8), repeat=3))]
     shapes = list(itertools.product([1, 20, 150, 1200], repeat=3))[:40]
     odd = [(len(tiles) + k, [ChunkBox("a", (1000,) * 3, (1000 + a, 1000 + b, 1000 + c))])
            for k, (a, b, c) in enumerate(shapes)]
-    def fullest(cover):
-        group = cover.boxes["a"][(3, "default", "/")]
-        return max(len(found) for grid in group.grids.values() for found in grid.values())
-
     cover = _Cover(tiles + odd)
-    assert fullest(cover) == fullest(_Cover(tiles))  # the tiles' cells as full as without the odd boxes
     assert cover.owner("a/c/7/12/39") == 1 * 64 + 2 * 8 + 7
+    assert cover.which("a/c/1000/1000/1000") == {len(tiles) + k for k in range(len(odd))}
     listed = (b'{"zarr_format":3,"node_type":"group","attributes":{},'
               b'"consolidated_metadata":{"kind":"inline","metadata":{}}}')
     reader = ReferenceStore({"zarr.json": listed, "v": Range(source=0, length=5)}, [Source(key="zarr.json")])
@@ -797,3 +793,24 @@ def test_rare_box_shapes_leave_a_mosaic_in_fine_cells_and_documents_compare_as_h
     stray = ReferenceStore({"a/.zarray": json.dumps({"zarr_format": 2, "shape": [2], "chunks": [1]}).encode(),
                             "a/0": b"x", "a/zarr.json": b"not json"})
     assert set(shift_chunks(stray, "a", (1,)).mapping) == {"a/1"}
+
+
+def test_union_compares_only_strict_json_as_documents():
+    doubled = b'{"zarr_format":3,"node_type":"group","attributes":{"a":1,"a":2}}'
+    single = b'{"zarr_format":3,"node_type":"group","attributes":{"a":2}}'
+    bom = b"\xef\xbb\xbf" + single
+    for other in (doubled, bom):
+        with pytest.raises(ValueError, match="hold different values"):
+            union(ReferenceStore({"zarr.json": single}), ReferenceStore({"zarr.json": other}))
+
+
+def test_map_keys_refuses_two_bounds_renamed_to_one():
+    with pytest.raises(ValueError, match="two of the store's Key bounds are renamed to one key"):
+        map_keys(ReferenceStore({"x": b"1"}, bounds=[Key("x"), Key("y")]), lambda _: "z")
+
+
+def test_a_v2_box_of_one_axis_matches_either_separator():
+    zarray = json.dumps({"zarr_format": 2, "shape": [4], "chunks": [1], "dimension_separator": "/"}).encode()
+    s = ReferenceStore({"a/.zarray": zarray, "a/1": b"x", "a/2": b"y"})
+    blank = ReferenceStore({}, bounds=[ChunkBox("a", (1,), (2,), "v2")])
+    assert set(overlay(s, blank).mapping) == {"a/.zarray", "a/2"}
