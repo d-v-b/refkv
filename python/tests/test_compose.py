@@ -756,3 +756,19 @@ def test_union_compares_a_long_concat_in_linear_time():
     start = time.perf_counter()
     union(ReferenceStore({"k": Concat(parts)}, data), ReferenceStore({"k": Concat(parts)}, data))
     assert time.perf_counter() - start < 10
+
+
+def test_the_bounds_index_coarsens_many_box_shapes_and_still_finds_them():
+    rng = random.Random(4)
+    for rank, count in ((3, 300), (6, 80)):
+        sets = []
+        for i in range(count):
+            start = tuple(rng.randrange(0, 50) for _ in range(rank))
+            size = tuple(rng.choice([1, 3, 9, 30, 100, 1000]) for _ in range(rank))
+            sets.append((i, [ChunkBox("0", start, tuple(a + s for a, s in zip(start, size, strict=True)))]))
+        cover = _Cover(sets)
+        for _ in range(300):
+            key = "0/c/" + "/".join(str(rng.randrange(0, 200)) for _ in range(rank))
+            want = {i for i, bs in sets if bs[0].contains(key)}
+            assert cover.which(key) == want
+            assert cover.owner(key) == max(want, default=-1)

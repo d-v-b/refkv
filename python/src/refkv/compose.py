@@ -206,8 +206,11 @@ class _Boxes:
         boxes = [(b, i) for b, i in boxes if all(a < z for a, z in zip(b.start, b.stop, strict=True))]
         exact = [tuple(_level(a, z) for a, z in zip(b.start, b.stop, strict=True)) for b, _ in boxes]
         step = _LEVEL_STEP
-        while len({tuple(-(-n // step) * step for n in levels) for levels in exact}) > _MAX_GRIDS:
-            step *= 2  # coarser levels, fewer grids to probe for each key
+        top = max((n for levels in exact for n in levels), default=0)
+        # coarser levels, fewer grids to probe for each key; past the top level every level
+        # is 0 or the step, and coarsening further changes nothing
+        while step < top and len({tuple(-(-n // step) * step for n in levels) for levels in exact}) > _MAX_GRIDS:
+            step *= 2
         for (b, i), level in zip(boxes, exact, strict=True):
             levels = tuple(-(-n // step) * step for n in level)
             grid = out.grids.setdefault(levels, {})
