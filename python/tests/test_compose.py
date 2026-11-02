@@ -574,8 +574,9 @@ def test_shift_chunks_refuses_a_stated_key_range_over_the_array():
 
 
 def test_shift_chunks_refuses_malformed_array_metadata():
-    with pytest.raises(ValueError, match="malformed array metadata"):
-        shift_chunks(ReferenceStore({".zarray": b'{"shape": [4]}'}), "", (0,))
+    for doc in ({".zarray": b'{"shape": [4]}'}, {".zarray": b"\x80not utf-8"}):
+        with pytest.raises(ValueError, match="malformed array metadata"):
+            shift_chunks(ReferenceStore(doc), "", (0,))
 
 
 def test_combining_refuses_hidden_names_that_collide():

@@ -983,7 +983,7 @@ def _array(store: ReferenceStore, array: str) -> tuple[list[int], list[int], str
             raise ValueError(f"{array!r}: chunk key encoding {name!r} with separator {sep!r}, or a "
                              "chunk shape of another rank than the shape")
         return [operator.index(n) for n in shape], [operator.index(c) for c in chunks], name, sep
-    except (KeyError, TypeError, AttributeError, RecursionError, json.JSONDecodeError) as e:
+    except (KeyError, TypeError, AttributeError, RecursionError, json.JSONDecodeError, UnicodeDecodeError) as e:
         raise ValueError(f"{array!r}: malformed array metadata ({type(e).__name__}: {e})") from None
 
 
