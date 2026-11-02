@@ -215,8 +215,9 @@ def test_map_keys_mount_shift_and_normalize():
     n = normalize(ReferenceStore({"a/b/zarr.json": GROUP, "a/b/c/zarr.json": array([1], [1]), "a/b/c/c/0": b"0",
                                   "a/b/c/x/zarr.json": GROUP, "a/b/stray": b"s", "loose": b"l",
                                   "v2/.zarray": b"{}", "v2/0": b"0"}))
+    # each node's ancestors in its own version; "loose" lies under the root group added
     assert set(n.mapping) == {"zarr.json", "a/zarr.json", "a/b/zarr.json", "a/b/c/zarr.json", "a/b/c/c/0",
-                              "loose", "v2/.zarray", "v2/0", ".zgroup"}  # each node's ancestors in its own version
+                              "v2/.zarray", "v2/0", ".zgroup"}
     assert {"zarr.json", "a/zarr.json"} <= n.read_at_open
     # v3 decides a path v2 and v3 both mark, whatever the key order; a broken ancestor document is replaced
     for order in (1, -1):
@@ -650,3 +651,17 @@ def test_mount_keeps_derived_bounds_derived_and_normalize_is_idempotent():
     mixed = ReferenceStore({"a/b/zarr.json": GROUP, "v2/x/.zarray": b"{}", "v2/x/0": b"0"})
     once = normalize(mixed)
     assert values(normalize(once)) == values(once)
+    for stray in ({"a/zarr.json": GROUP, "stray": b"s"}, {"zarr.json": b"junk", "a/.zarray": b"{}", "a/0": b"7"}):
+        first = normalize(ReferenceStore(stray))
+        assert values(normalize(first)) == values(first)
+        assert "zarr.json" not in first.mapping or first.mapping["zarr.json"] != b"junk"
+    # a store whose bounds keep a key outside them out is not renamed into them
+    with pytest.raises(ValueError, match="outside the store's bounds, is renamed to 'public', inside them"):
+        map_keys(ReferenceStore({"secret": b"x"}, bounds=[Key("public")]), lambda _: "public")
+
+
+def test_combining_refuses_a_zarr_document_held_as_a_reference():
+    s = ReferenceStore({"zarr.json": Range(source=0, length=10)}, [Source(url="https://h.test/zarr.json")],
+                       url="https://h.test/")
+    with pytest.raises(ValueError, match="held as a reference, so its consolidated metadata"):
+        overlay(s)

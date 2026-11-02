@@ -139,6 +139,9 @@ without_plane_5 = overlay(stack, blank)
   them. The stores of a stack need the same codecs and chunk shape. A join along
   an existing axis must fall on whole chunks, because Zarr's regular chunk grid
   allows no partial chunk in the middle.
+- **Zarr documents as bytes.** A combination drops consolidated metadata from each
+  `zarr.json`, so it must be able to read one. It refuses a `zarr.json` held as a
+  reference to another file's bytes.
 - **Only in-memory stores.** The operators take `ReferenceStore`s.
   `refkv.open(path)` returns an archive reader, which they do not take yet.
 

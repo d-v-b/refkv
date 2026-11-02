@@ -49,7 +49,6 @@ import hashlib
 import heapq
 import itertools
 import json
-import math
 import operator
 from collections import Counter
 from collections.abc import Callable, Iterable, Sequence
@@ -83,10 +82,10 @@ __all__ = [
 
 Value = bytes | Reference
 
-# A chunk box is indexed in one grid of a multi-resolution set: the finest level whose
-# cells (2**level chunks wide on every axis) it covers at most _BOX_CELLS of. Each box then
-# takes a few cells, whatever its size, and each cell holds few boxes of its scale.
-_BOX_CELLS = 64
+# A chunk box is indexed in a grid of cells 2**level chunks wide on each axis, its level on
+# each axis the finest at which it spans at most _BOX_SPAN cells there; so a box thin on
+# one axis and running to the end of the others still takes a cell of its own.
+_BOX_SPAN = 4
 
 _DOCUMENTS = frozenset({"zarr.json", ".zarray", ".zgroup", ".zattrs"})
 GROUP_V3 = b'{"zarr_format":3,"node_type":"group","attributes":{}}'
@@ -191,10 +190,11 @@ class _Intervals:
 
 @dataclasses.dataclass
 class _Boxes:
-    """The chunk boxes of one array and chunk key encoding, each in the grid of its level
-    (see `_BOX_CELLS`), each cell's boxes by number, greatest first."""
+    """The chunk boxes of one array and chunk key encoding, each in the grid of its levels
+    (see `_BOX_SPAN`), each cell's boxes by number, greatest first."""
 
-    levels: dict[int, dict[tuple[int, ...], list[tuple[ChunkBox, int]]]] = dataclasses.field(default_factory=dict)
+    grids: dict[tuple[int, ...], dict[tuple[int, ...], list[tuple[ChunkBox, int]]]] = dataclasses.field(
+        default_factory=dict)
 
     @classmethod
     def of(cls, boxes: list[tuple[ChunkBox, int]]) -> _Boxes:
@@ -202,34 +202,47 @@ class _Boxes:
         for b, i in boxes:
             if any(a >= z for a, z in zip(b.start, b.stop, strict=True)):
                 continue  # an empty box
-            level = 0
-            while math.prod(((z - 1) >> level) - (a >> level) + 1
-                            for a, z in zip(b.start, b.stop, strict=True)) > _BOX_CELLS:
-                level += 1
-            grid = out.levels.setdefault(level, {})
-            spans = [range(a >> level, ((z - 1) >> level) + 1) for a, z in zip(b.start, b.stop, strict=True)]
+            levels = tuple(_level(a, z) for a, z in zip(b.start, b.stop, strict=True))
+            grid = out.grids.setdefault(levels, {})
+            spans = [range(a >> n, ((z - 1) >> n) + 1) for a, z, n in zip(b.start, b.stop, levels, strict=True)]
             for cell in itertools.product(*spans):
                 grid.setdefault(cell, []).append((b, i))
-        for grid in out.levels.values():
+        for grid in out.grids.values():
             for boxes_here in grid.values():
                 boxes_here.sort(key=lambda bi: -bi[1])
         return out
 
+    def _cells(self, c: tuple[int, ...]) -> Iterable[list[tuple[ChunkBox, int]]]:
+        for levels, grid in self.grids.items():
+            found = grid.get(tuple(x >> n for x, n in zip(c, levels, strict=True)))
+            if found:
+                yield found
+
     def which(self, c: tuple[int, ...], out: set[int]) -> None:
-        for level, grid in self.levels.items():
-            for b, i in grid.get(tuple(x >> level for x in c), ()):
+        for boxes in self._cells(c):
+            for b, i in boxes:
                 if i not in out and all(a <= x < z for x, a, z in zip(c, b.start, b.stop, strict=True)):
                     out.add(i)
 
     def owner(self, c: tuple[int, ...], best: int) -> int:
-        for level, grid in self.levels.items():
-            for b, i in grid.get(tuple(x >> level for x in c), ()):
+        for boxes in self._cells(c):
+            for b, i in boxes:
                 if i <= best:
                     break
                 if all(a <= x < z for x, a, z in zip(c, b.start, b.stop, strict=True)):
                     best = i
                     break
         return best
+
+
+def _level(a: int, z: int) -> int:
+    """The finest level at which `[a, z)` spans at most `_BOX_SPAN` cells."""
+    level = max(0, (z - a).bit_length() - 2)
+    while ((z - 1) >> level) - (a >> level) + 1 > _BOX_SPAN:
+        level += 1
+    while level and ((z - 1) >> (level - 1)) - (a >> (level - 1)) + 1 <= _BOX_SPAN:
+        level -= 1
+    return level
 
 
 class _Cover:
@@ -368,9 +381,14 @@ def _unconsolidated(key: str, value: Value) -> Value | None:
     name = key.rpartition("/")[2]
     if name == ".zmetadata":
         return None
-    if name != "zarr.json" or not isinstance(value, bytes):
+    if name != "zarr.json":
         return value
+    if not isinstance(value, bytes):
+        raise ValueError(f"{key!r} is held as a reference, so its consolidated metadata, which the "  # noqa: TRY004
+                         "result would make stale, cannot be dropped; hold Zarr documents as bytes")
     doc = _load(value)
+    if doc is None and b'"consolidated_metadata"' in value:
+        raise ValueError(f"{key!r} is too deeply nested to drop its consolidated metadata from")
     if not isinstance(doc, dict) or doc.get("consolidated_metadata") is None:
         return value
     del doc["consolidated_metadata"]
@@ -744,7 +762,8 @@ def union(*stores: ReferenceStore, **options: Unpack[Options]) -> ReferenceStore
     Raises ValueError naming the key when two stores hold different values for it, or
     when one holds it and another whose bounds contain it does not, and as `overlay`
     does. On stores with disjoint bounds, the order of `stores` changes only the order of
-    the result's keys and sources.
+    the result's keys and sources, and the options taken from the first store (its page
+    size and request cap, and its base URL where the stores' differ).
     """
     return _combine(stores, True, options)  # type: ignore[arg-type]
 
@@ -776,6 +795,11 @@ def map_keys(store: ReferenceStore, f: Callable[[str], str | None], *,
             new = f(b.key)
             if new is not None:
                 moved.append(Key(new))
+        bounded = {b.key for b in moved if isinstance(b, Key)}
+        inside = {b.key for b in store.bounds if isinstance(b, Key)}
+        for key in store.mapping:
+            if key not in inside and not key.startswith(RESERVED_PREFIX) and f(key) in bounded:
+                raise ValueError(f"{key!r}, outside the store's bounds, is renamed to {f(key)!r}, inside them")
         bounds = moved
     return _map_keys(store, f, bounds, {}, [], options, unconsolidate=True)  # type: ignore[arg-type]
 
@@ -972,12 +996,16 @@ def normalize(store: ReferenceStore, **options: Unpack[Options]) -> ReferenceSto
     An array owns every key below it: its chunks are kept, and a node document below it is
     dropped. A group owns only its metadata: another key whose nearest node above it is a
     group is dropped, as a chunk an `overlay` left under a group that replaced its array.
-    A key with no node above it is not part of the hierarchy and is kept. Where v2 and v3
+    Ownership is decided in the hierarchy with the added groups, so a second `normalize`
+    changes nothing; a key with no node above it even then is not part of the hierarchy
+    and is kept. Where v2 and v3
     documents mark one path, the v3 document is kept, and a v2 group's documents beside a
     v3 group too, so that v2 nodes below it stay reachable. Each missing ancestor of a v3 node
     gets a v3 group, and of a v2 node a v2 group, replacing a document there that marks no
     node. A store with no Zarr nodes is returned with the same keys. The result's bounds
     are the store's, plus the added groups' keys when they were stated; derived otherwise.
+    It reads the store as one whole hierarchy: normalize a combination, not a patch or
+    other bounded part of one.
 
     Raises ValueError when a value reads through a key source whose key is dropped or
     replaced.
@@ -994,33 +1022,40 @@ def normalize(store: ReferenceStore, **options: Unpack[Options]) -> ReferenceSto
         """The outermost array strictly above `path`, which owns it."""
         return next((a for a in reversed(ancestors(path)) if a in arrays), None)
 
+    # the groups to add, at each missing ancestor of a node with no array above it
+    added: dict[str, bytes] = {}
+    for path in sorted(p for p in found if array_above(p) is None):
+        marker, group = ("zarr.json", GROUP_V3) if path in v3 else (".zgroup", GROUP_V2)
+        for a in ancestors(path):
+            if a not in found:
+                added.setdefault((f"{a}/" if a else "") + marker, group)
+    # ownership is decided in the hierarchy as it will be, added groups included, so that
+    # a second normalize finds nothing more to do
+    new_groups = {k.rpartition("/")[0] for k in added}
+    every = {**found, **dict.fromkeys(new_groups, "group")}
+    v3 |= {k.rpartition("/")[0] for k in added if k.rpartition("/")[2] == "zarr.json"}
+
     keep: set[str] = set()
     for key in store.mapping:
         if key.startswith(RESERVED_PREFIX):
             keep.add(key)
             continue
         path, _, name = key.rpartition("/")
-        is_marker = path in found and (name in ("zarr.json", ".zarray", ".zgroup", ".zattrs"))
-        owner = array_above(key)
-        if is_marker:
+        if path in every and name in ("zarr.json", ".zarray", ".zgroup", ".zattrs"):
+            if path in new_groups and name != ".zattrs":
+                continue  # a document there that marks no node: the added group replaces it
+            if name == "zarr.json" and path not in v3:
+                continue  # a zarr.json beside a v2 node that marks no node itself
             # a node's metadata, with no array above it; where v2 and v3 documents mark one
             # path, a v2 document is kept only beside a v3 group, as a v2 group's
             v2_beside = name != "zarr.json" and path in v3
-            if array_above(path) is None and (not v2_beside or (found[path] == "group" and name != ".zarray")):
+            if array_above(path) is None and (not v2_beside or (every[path] == "group" and name != ".zarray")):
                 keep.add(key)
             continue
-        if owner is not None:
+        if array_above(key) is not None:
             keep.add(key)  # an array's chunk, or anything else below an array
-        elif next((p for p in ancestors(key) if p in found), None) is None:
+        elif next((p for p in ancestors(key) if p in every), None) is None:
             keep.add(key)  # below no node: not part of the hierarchy
-    added: dict[str, bytes] = {}
-    for path in sorted(p for p in found if array_above(p) is None):
-        marker, group = ("zarr.json", GROUP_V3) if path in v3 else (".zgroup", GROUP_V2)
-        for a in ancestors(path):
-            if a in found:
-                continue
-            key = (f"{a}/" if a else "") + marker
-            added.setdefault(key, group)  # replacing a document there that marks no node
     bounds = [*bounds_kept, *(Key(k) for k in added)] if bounds_kept is not None else None
     return _map_keys(store, lambda k: k if k in keep else None, bounds, dict(added),  # type: ignore[arg-type]
                      list(added), options, unconsolidate=True)
