@@ -405,8 +405,8 @@ def _dump(doc: object) -> str:
 
 def _form(key: str, value: Value, identity: Callable[[int], object], *, documents: bool = True) -> object:
     """What `union` compares of a store's `value` at `key`: a reference with each source
-    given by `identity` (its absolute URL and pins, or the bytes of a hidden key it names),
-    so that two stores' references compare whatever their tables; with `documents`, a Zarr
+    given by `identity` (a URL source's absolute URL and pins, a key source's value), so
+    that two stores' references compare whatever their tables; with `documents`, a Zarr
     document (`zarr.json`, `.zarray`, `.zgroup`, `.zattrs`) as its JSON value, a `zarr.json`
     without `consolidated_metadata`; else the bytes."""
     if isinstance(value, Concat):
@@ -717,11 +717,11 @@ def overlay(*stores: ReferenceStore, **options: Unpack[Options]) -> ReferenceSto
     time quadratic in their number.
 
     Keyword arguments set the result's options (`ReferenceStore`). By default its policy
-    and registry are the stores' (which must agree), its base URL one that lets no store
-    read what its own refuses (the reader policy tells only local `file:` bases from
-    remote ones), its `info` empty, and its request cap and page size the first store's;
-    stores with no keys and no sources take no part in these. An explicit `url=` is the
-    caller's choice, and a local one lets every store read local files.
+    and registry are those of the stores with URL sources (which must agree), its base
+    URL one that lets none of them read what its own refuses (the reader policy tells
+    only local `file:` bases from remote ones), its `info` empty, and its request cap and
+    page size the first store's that holds anything. An explicit `url=` is the caller's
+    choice, and a local one lets every store read local files.
 
     Raises ValueError when a value carried into the result reads through a key source (an
     internal reference) whose key the result takes, with another value, from another
@@ -735,10 +735,11 @@ def overlay(*stores: ReferenceStore, **options: Unpack[Options]) -> ReferenceSto
 def union(*stores: ReferenceStore, **options: Unpack[Options]) -> ReferenceStore:
     """`overlay`, where any two `stores` whose bounds share a key must answer it the same.
 
-    References are compared by what they read (each source's absolute URL and pins, or
-    the bytes of the hidden key it names), and `zarr.json` documents as canonical JSON,
-    without the consolidated metadata the result drops; the result keeps the last store's
-    bytes. Keys the result drops (`.zmetadata`) are not compared.
+    References are compared by what they read: each URL source by its absolute URL and
+    pins, each key source by the value of the key it names in its own store. Zarr
+    documents (`zarr.json`, `.zarray`, `.zgroup`, `.zattrs`) are compared as canonical
+    JSON, a `zarr.json` without the consolidated metadata the result drops; the result
+    keeps the last store's bytes. Keys the result drops (`.zmetadata`) are not compared.
 
     Raises ValueError naming the key when two stores hold different values for it, or
     when one holds it and another whose bounds contain it does not, and as `overlay`

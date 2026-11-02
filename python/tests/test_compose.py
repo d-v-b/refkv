@@ -634,3 +634,9 @@ def test_one_overlay_of_many_overlapping_layers_takes_linear_time():
     assert top.mapping["0/c/7"] == bytes([999 % 256])
     assert not blanked.mapping
     assert time.perf_counter() - start < 30
+
+
+def test_combining_refuses_a_box_that_takes_in_no_chunk_of_its_array():
+    described = ReferenceStore({"a/zarr.json": array([4, 4], [2, 2])})
+    with pytest.raises(ValueError, match="takes in no chunk of array 'a'"):
+        overlay(described, ReferenceStore({}, bounds=[ChunkBox("a", (0, 0), (1, 1), separator=".")]))

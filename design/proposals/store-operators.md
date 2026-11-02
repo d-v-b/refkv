@@ -42,14 +42,14 @@ compares them.
   operands', filtered to the keys that survive. `info` is empty unless the
   call gives one, because no operand's summary describes the result.
 - **What the result may read.** A combination must not let any operand read
-  what its own options refuse. The operands' `policy` and `registry` must
-  agree unless the call gives them. The base URL decides whether `file:`
-  sources may be read (a store opened from a URL may not read local files),
-  so it is chosen so that no operand reads more than it did; a combination
-  raises when no base serves them all, unless the call gives `url=`.
-  Operands with no keys and no sources, such as tombstones, read nothing and
-  take no part in these choices, nor in `page_size` and the request cap,
-  which come from the first operand that does.
+  what its own options refuse. Only the operands with URL sources read
+  anything outside themselves, so only they decide: their `policy` and
+  `registry` must agree unless the call gives them, and the base URL, which
+  decides whether `file:` sources may be read (a store opened from a URL may
+  not read local files), is chosen so that none of them reads more than it
+  did. A combination raises when no base serves them all, unless the call
+  gives `url=`. `page_size` and the request cap come from the first operand
+  that holds anything.
 
 ## A union of keys is wrong for Zarr
 
