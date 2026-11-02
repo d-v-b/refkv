@@ -70,8 +70,7 @@ One OME-Zarr 0.5 image at the archive root, with one array per level.
 ## Try it
 
 [example.py](example.py) zarrifies a public file and plots it with matplotlib. Its
-dependencies are in its header (PEP 723), so it runs on its own (uv builds refkv from GitHub,
-which needs a Rust toolchain, until a release on PyPI has `refkv.zarrify`):
+dependencies are in its header (PEP 723), so it runs on its own, with refkv from PyPI:
 
 ```bash
 uv run docs/zarrify/ndpi/example.py
@@ -120,7 +119,7 @@ print(img.shape, img.dtype, img.mean(axis=(1, 2)).round(1))
 sends no CORS headers, so the browser cannot read them. The live demo does
 work for NDPI files on hosts that allow it, such as its own example, a
 lymphoma slide from QuPath's tutorial data on Zenodo (221 MB, CC BY 4.0):
-<https://d-v-b.github.io/vzip-demo/image-to-zarr/?url=https%3A%2F%2Fzenodo.org%2Fapi%2Frecords%2F18302140%2Ffiles%2Fki67_lymphoma.ndpi%2Fcontent>.
+<https://d-v-b.github.io/refkv-demo/image-to-zarr/?url=https%3A%2F%2Fzenodo.org%2Fapi%2Frecords%2F18302140%2Ffiles%2Fki67_lymphoma.ndpi%2Fcontent>.
 It was ready in about 2 s, with 3 levels.
 
 ## Viewing

@@ -91,8 +91,7 @@ reads only the tile from the file. SVS slides with JPEG 2000 tiles
 ## Try it
 
 [example.py](example.py) zarrifies a public file and plots it with matplotlib. Its
-dependencies are in its header (PEP 723), so it runs on its own (uv builds refkv from GitHub,
-which needs a Rust toolchain, until a release on PyPI has `refkv.zarrify`):
+dependencies are in its header (PEP 723), so it runs on its own, with refkv from PyPI:
 
 ```bash
 uv run docs/zarrify/tiff/example.py
@@ -189,7 +188,7 @@ uv run refkv zarrify plain.tif plain.vzip
 
 **In the browser.** The live demo zarrifies the same OME-TIFF and opens it
 in Neuroglancer:
-<https://d-v-b.github.io/vzip-demo/image-to-zarr/?url=https%3A%2F%2Fftp.ebi.ac.uk%2Fpub%2Fdatabases%2FIDR%2Fidr0096-tratwal-marrowquant%2F20210609-ftp-ome-tiffs%2F4000_d11_m5_LT_2%2520(20x_01).ome.tiff>.
+<https://d-v-b.github.io/refkv-demo/image-to-zarr/?url=https%3A%2F%2Fftp.ebi.ac.uk%2Fpub%2Fdatabases%2FIDR%2Fidr0096-tratwal-marrowquant%2F20210609-ftp-ome-tiffs%2F4000_d11_m5_LT_2%2520(20x_01).ome.tiff>.
 It was ready in about 1 s, from 17 range requests (before the read planner;
 the count differs now). The OpenSlide SVS files
 do not work there: openslide.cs.cmu.edu sends no CORS headers, so the

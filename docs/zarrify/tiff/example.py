@@ -1,9 +1,6 @@
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["refkv[zarr,images]", "matplotlib"]
-#
-# [tool.uv.sources]
-# refkv = { git = "https://github.com/d-v-b/refkv", subdirectory = "python" }
+# dependencies = ["refkv[zarr,images]>=0.2.0", "matplotlib"]
 # ///
 """OpenSlide's Aperio SVS test slide CMU-1-Small-Region, zarrified without copying it: refkv reads
 the file's structure and presents it as Zarr, each chunk a reference to the file's own bytes, read

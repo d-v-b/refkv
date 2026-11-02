@@ -14,16 +14,20 @@
       "1.2.840.10008.1.2.1": {"explicit": true, "little": true, "codec": "native"},
       "1.2.840.10008.1.2.2": {"explicit": true, "little": false, "codec": "native"},
       "1.2.840.10008.1.2.4.50": {"explicit": true, "little": true, "codec": "jpeg"},
+      "1.2.840.10008.1.2.4.57": {"explicit": true, "little": true, "codec": "ljpeg"},
+      "1.2.840.10008.1.2.4.70": {"explicit": true, "little": true, "codec": "ljpeg"},
       "1.2.840.10008.1.2.4.90": {"explicit": true, "little": true, "codec": "jpeg2k"},
       "1.2.840.10008.1.2.4.91": {"explicit": true, "little": true, "codec": "jpeg2k"}
     },
-    "bits_by_codec": {"native": [8, 16, 32], "jpeg": [8], "jpeg2k": [8, 16]},
+    "bits_by_codec": {"native": [8, 16, 32], "jpeg": [8], "ljpeg": [8, 16], "jpeg2k": [8, 16]},
     "photometrics": {
       "about": "by codec and Samples per Pixel",
       "native/1": ["MONOCHROME1", "MONOCHROME2"],
       "native/3": ["RGB"],
       "jpeg/1": ["MONOCHROME1", "MONOCHROME2"],
       "jpeg/3": ["RGB", "YBR_FULL", "YBR_FULL_422"],
+      "ljpeg/1": ["MONOCHROME1", "MONOCHROME2"],
+      "ljpeg/3": ["RGB"],
       "jpeg2k/1": ["MONOCHROME1", "MONOCHROME2"],
       "jpeg2k/3": ["RGB", "YBR_ICT", "YBR_RCT"]
     },
@@ -172,6 +176,24 @@
         {"require": "ranges >= 1", "message": "frame {f} has no data"},
         {"require": "!adobe || first > 2", "message": "frame {f}'s first fragment is too short for a JPEG stream"},
         {"require": "!adobe || soi", "message": "frame {f}'s first fragment does not start with a JPEG SOI marker (FF D8)"}
+      ]
+    },
+    "lossless_frame": {
+      "about": "a lossless JPEG frame's markers up to its first SOS (spec/zarrify/dicom.md §7.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#75-frames>, Lossless JPEG)",
+      "given": {
+        "f": "", "header": "its stream starts with SOI, and its markers, each with a length, run to an SOS after a frame header", "sof": "the frame header's marker",
+        "precision": "", "components": "the frame header's", "scan": "the components of the first scan", "predictor": "", "point_transform": "",
+        "restart": "the restart interval of the last DRI before the SOS, or 0", "spp": "", "bits_allocated": "", "signed": ""
+      },
+      "constraints": [
+        {"require": "header", "message": "frame {f} is not a JPEG stream with a frame header and a scan"},
+        {"require": "sof == 195", "message": "frame {f} is not a lossless JPEG stream (SOF3)"},
+        {"require": "components == spp && scan == spp", "message": "frame {f} has {components} components, {scan} in its first scan, for Samples per Pixel {spp}"},
+        {"require": "precision >= 2 && precision <= bits_allocated", "message": "frame {f} has a precision of {precision} bits for Bits Allocated {bits_allocated}"},
+        {"require": "!signed || precision == bits_allocated", "message": "frame {f} has a precision of {precision} bits for signed pixels of Bits Allocated {bits_allocated}"},
+        {"require": "predictor >= 1 && predictor <= 7", "message": "frame {f} has the predictor {predictor}"},
+        {"require": "point_transform == 0", "message": "frame {f} has the point transform {point_transform}"},
+        {"require": "restart == 0", "message": "frame {f} has the restart interval {restart}"}
       ]
     },
     "range": {

@@ -58,8 +58,7 @@ each stage position `p` is an image at `<p>/` with one array, `<p>/0`.
 ## Try it
 
 [example.py](example.py) zarrifies a public file and plots it with matplotlib. Its
-dependencies are in its header (PEP 723), so it runs on its own (uv builds refkv from GitHub,
-which needs a Rust toolchain, until a release on PyPI has `refkv.zarrify`):
+dependencies are in its header (PEP 723), so it runs on its own, with refkv from PyPI:
 
 ```bash
 uv run docs/zarrify/nd2/example.py
@@ -112,7 +111,7 @@ print(a[:, 12, 512, 512])
 **In the browser.** The live demo opens the same file and shows it in
 Neuroglancer with one composited layer, a checkbox, color and contrast per
 channel:
-<https://d-v-b.github.io/vzip-demo/image-to-zarr/?url=https%3A%2F%2Fftp.ebi.ac.uk%2Fbiostudies%2Ffire%2FS-BIAD%2F077%2FS-BIAD2077%2FFiles%2F373_230614_A1_Blk_Reg2_40x.nd2>.
+<https://d-v-b.github.io/refkv-demo/image-to-zarr/?url=https%3A%2F%2Fftp.ebi.ac.uk%2Fbiostudies%2Ffire%2FS-BIAD%2F077%2FS-BIAD2077%2FFiles%2F373_230614_A1_Blk_Reg2_40x.nd2>.
 It was ready in about 1 s, from 9 range requests (at revision 16, before
 the read planner). Every ND2 file of the
 corpus is on ftp.ebi.ac.uk or Zenodo, which both allow cross-origin reads.

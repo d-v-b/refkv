@@ -1,10 +1,10 @@
 """python -m refkv.ir <url or path> <out.vzip> [--url <source url>] [--no-mirror]
 [--allow-private-hosts]: as python -m refkv.zarrify, through the IR (exit status 3
-when rejected). Every format reads through the read planner, under the reader
+when rejected, 2 on a usage error). Every format reads through the read planner, under the reader
 policy (spec/refkv.md §6.7
 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>): a source on a loopback
 or private host needs
---allow-private-hosts."""
+--allow-private-hosts. `-h` or `--help` prints the usage to stdout."""
 
 import json
 import sys
@@ -14,9 +14,14 @@ from refkv.ir import zarrify
 from refkv.policy import Policy
 from refkv.zarrify.common import Rejected
 
+USAGE = "usage: python -m refkv.ir <url or path> <out.vzip> [--url <source url>] [--no-mirror] [--allow-private-hosts]"
+
 
 def main(argv: list[str]) -> int:
     args = list(argv)
+    if "-h" in args or "--help" in args:
+        print(USAGE)
+        return 0
     url, mirror = None, "--no-mirror" not in args
     policy = Policy(allow_private_hosts="--allow-private-hosts" in args)
     args = [a for a in args if a not in ("--no-mirror", "--planner", "--allow-private-hosts")]
@@ -24,6 +29,9 @@ def main(argv: list[str]) -> int:
         i = args.index("--url")
         url = args[i + 1]
         del args[i:i + 2]
+    if len(args) != 2:
+        print(USAGE, file=sys.stderr)
+        return 2
     try:
         fmt, out, ir = zarrify(args[0], url, mirror, policy)
     except Rejected as e:
@@ -41,4 +49,5 @@ def main(argv: list[str]) -> int:
     return 0
 
 
-sys.exit(main(sys.argv[1:]))
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

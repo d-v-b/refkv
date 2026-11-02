@@ -64,9 +64,7 @@ lists them.
 ## Try it
 
 [example.py](example.py) zarrifies a public file and plots it, and its cover,
-with matplotlib. Its dependencies are in its header (PEP 723), so it runs on its
-own (uv builds refkv from GitHub, which needs a Rust toolchain, until a release
-on PyPI has `refkv.zarrify`):
+with matplotlib. Its dependencies are in its header (PEP 723), so it runs on its own, with refkv from PyPI:
 
 ```bash
 uv run docs/zarrify/flac/example.py
@@ -112,7 +110,9 @@ The last line reads six samples five seconds in: one request of the one
 frame that holds them (17 KB of the 3.4 MB file), decoded on the fly.
 
 **In the browser.** The service worker serves a zarrified FLAC as a Zarr
-hierarchy like any other; the demo page does not display audio.
+hierarchy like any other. The demo page's FLAC example, a file of the
+IETF CELLAR test set (`57 - PNG PICTURE`), lists the archive's arrays and
+offers the archive for download; the page does not display audio.
 
 ## Supported and not supported
 

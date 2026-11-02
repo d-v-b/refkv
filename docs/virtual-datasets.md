@@ -8,9 +8,8 @@ from the file it came from: no data is copied.
 
 ## Install
 
-<!-- This installs main, which has these extras once this page is merged; do not pin a branch. -->
 ```bash
-pip install "refkv[virtualizarr] @ git+https://github.com/d-v-b/refkv#subdirectory=python" xarray h5py h5netcdf fsspec aiohttp
+pip install "refkv[virtualizarr]" xarray h5py h5netcdf fsspec aiohttp
 ```
 
 The `virtualizarr` extra installs VirtualiZarr, which

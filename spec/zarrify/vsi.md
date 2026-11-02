@@ -8,13 +8,26 @@ store, which files it reads and which inputs it rejects, is the VSI profile,
 [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `c0a1d4e6-5b7f-4f3a-9c2d-8e1f6a7b3c45` ·
-Schema: [schema.json](vsi/schema.json) · Added 2026-10-21, after
-[revision 29](../history/virtualize/REVISIONS.md#revision-29-no-recorded-revision-the-profile-registry)
-(a profile's changes are recorded here, dated, from then on) · Changed 2026-10-26, with no
-change to any output: the layout is tabulated, its entries in [Layout](#layout) and its types
-in type tables ([conventions §11.5](../conventions.md#115-layout-tables)), which also state what
-refkv already wrote: a value field's empty data is opaque, `""` ([§6.1](#61-the-root)), and an
-IFD image's summary has no `sizes`, `grids` or `tilesOutside` ([§9.5](#95-summary))
+Schema: [schema.json](vsi/schema.json)
+
+Changed 2026-11-01, with no change to any output: the slide is read as a file read as a store,
+by the rules [spec/zarrify.md §1.8](../zarrify.md#18-files-read-as-stores) now states for the
+VSI, NRRD and GRIB profiles ([§9](#9-vsi-profile)).
+
+Changed 2026-10-30: a tile file's tiles may be lossless JPEG (compression 5), each tile a chunk
+of the codec `imagecodecs_ljpeg`, where such a file was rejected; and an ETS header of version
+0x30003, whose `dimensions` is 0 and which lists no sizes, is read, every coordinate but the
+column, the row and the level of size 1 ([§3](#3-the-tile-files), [§4.1](#41-the-pyramid)); a stack's second tile
+file name, `frame_t_0.ets`, is probed only when its first, `frame_t.ets`, is absent, in a
+second batch ([§9.2](#92-the-tile-files)).
+
+Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
+[Layout](#layout) and its types in type tables
+([conventions §11.5](../conventions.md#115-layout-tables)), which also state what refkv already
+wrote: a value field's empty data is opaque, `""` ([§6.1](#61-the-root)), and an IFD image's
+summary has no `sizes`, `grids` or `tilesOutside` ([§9.5](#95-summary)).
+
+Added 2026-10-21.
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
@@ -324,7 +337,7 @@ The ETS header, `ets_size` bytes at `ets_offset`, whose first 228 are:
 | 8 | `i32` | `pixel_type` (the table `pixel_types`: 1 `int8`, 2 `uint8`, 3 `int16`, 4 `uint16`, 5 `int32`, 6 `uint32`, 7 `int64`, 8 `uint64`, 9 `float32`, 10 `float64`) |
 | 12 | `i32` | `channels`: the **samples per pixel**, 1, 3 or 4 |
 | 16 | `i32` | `colorspace` |
-| 20 | `i32` | `compression` (the table `compressions`: 0 none, 2 JPEG, 3 JPEG 2000; 5 lossless JPEG, 8 PNG and 9 BMP are named and not supported) |
+| 20 | `i32` | `compression` (the table `compressions`: 0 none, 2 JPEG, 3 JPEG 2000, 5 lossless JPEG; 8 PNG and 9 BMP are named and not supported) |
 | 24 | `i32` | `quality` |
 | 28 | `i32` | `tile_width` `tw` |
 | 32 | `i32` | `tile_height` `th` |
@@ -334,7 +347,7 @@ The ETS header, `ets_size` bytes at `ets_offset`, whose first 228 are:
 | 148 | `i32` | `component_order`: 1 when uncompressed samples are stored blue, green, red |
 | 152 | `i32` | `use_pyramid`: not 0 when the last coordinate is the level |
 | 156 | `bytes[28]` | reserved |
-| 184 | `i32` | `dimensions`: the sizes listed, at most 10 |
+| 184 | `i32` | `dimensions`: the sizes listed, at most 10; 0 in a header of version 0x30003, which lists none |
 | 188 | `i32[10]` | `dimension_sizes`: the size of each coordinate, the first two the image's width and height |
 
 The tile directory, `tiles` records of `20 + 4n` bytes at `tiles_offset`, each:
@@ -405,7 +418,7 @@ dimension of another meaning has the size 1, [§9.3](#93-tiles-and-levels).)
 | `data_type` | string | required | the data type of the pixel type ([§3](#3-the-tile-files)) |
 | `chunk_grid` | object | required | regular, its chunk shape `[1, S or 1, 1, th, tw]` in the axes present (`S` on the `c` axis when `S > 1`, else 1) |
 | `fill_value` | number | required | the background's first sample (`background`'s first `bytes` bytes as the pixel type; 0 for a float that is not finite). A tile the directory lacks reads as the background |
-| `codecs` | array of object | required | for `S > 1`, `transpose` with the order that puts `c` last of the axes (`{"name": "transpose", "configuration": {"order": [1, 2, 0]}}` for `c`, `y`, `x`), since the samples are interleaved; then `imagecodecs_jpeg` for JPEG, `imagecodecs_jpeg2k` for JPEG 2000, or `bytes` with `{"endian": "little"}` (plain `bytes` for a one-byte type). A JPEG tile of three samples is a plain codestream; no transform marker is added |
+| `codecs` | array of object | required | for `S > 1`, `transpose` with the order that puts `c` last of the axes (`{"name": "transpose", "configuration": {"order": [1, 2, 0]}}` for `c`, `y`, `x`), since the samples are interleaved; then `imagecodecs_jpeg` for JPEG, `imagecodecs_jpeg2k` for JPEG 2000, `imagecodecs_ljpeg` for lossless JPEG, or `bytes` with `{"endian": "little"}` (plain `bytes` for a one-byte type). A JPEG tile of three samples is a plain codestream; no transform marker is added |
 | `dimension_names` | array of string | required | the axes |
 
 **Chunks:** each tile inside its level is the chunk at `l/c/<t>/<c>/<z>/<row>/<column>`
@@ -651,7 +664,7 @@ then, for a pyramid, `tile_file`, `ets`, `levels` and `tiles_outside`, or, for a
 | `samples` | integer | required | the samples per pixel, the ETS `channels` |
 | `colorspace` | integer | required | the ETS `colorspace` |
 | `compression` | integer | required | the ETS `compression` |
-| `codec` | string | required | `raw`, `jpeg` or `jpeg2000` |
+| `codec` | string | required | `raw`, `jpeg`, `jpeg2000` or `ljpeg` |
 | `quality` | integer | required | the ETS `quality` |
 | `tile_width` | integer | required | `tw` |
 | `tile_height` | integer | required | `th` |
@@ -695,7 +708,7 @@ stack's tile file, at its key under the directories `_<name>_` and
 and its bytes stay in the file (the table holds none of them). The view,
 `refkv_source/tree`, shows the headers, the tree's fields and values, the
 IFDs' entries and the tile directories; tiles, strips and gaps are not
-shown. A tile file the profile did not read (a `frame_t_0.ets` beside a
+shown. A tile file the profile did not probe (a `frame_t_0.ets` beside a
 `frame_t.ets`, [§9.2](#92-the-tile-files)) is not an object.
 
 ### 6.3 Elements
@@ -732,7 +745,7 @@ In a tile file:
 | `ets` | value | `{magic:ascii[4],version:<i4,pixel_type:<i4,channels:<i4,colorspace:<i4,compression:<i4,quality:<i4,tile_width:<i4,tile_height:<i4,tile_depth:<i4,pixel_info_hints:<i4[17],background:bytes[40],component_order:<i4,use_pyramid:<i4,reserved:bytes[28],dimensions:<i4,dimension_sizes:<i4[10]}` | `(ets_offset, 228)`: the ETS header |
 | `ets_extra` | value | `bytes[ets_size − 228]` | the rest of the ETS header, when `ets_size > 228` |
 | `directory` | value | `{coordinates:<i4,coordinate:<i4[n],offset:<i8,size:<i4,index:<i4}[tiles]` | `(tiles_offset, tiles × (20 + 4n))`: the tile directory, when there are tiles |
-| `tiles/<k>` | data | | tile `k` of the directory, `(offset, size)`; its form `{"geometry": {"shape": [th, tw], "samples": S, "bits": 8 × bytes}, "codec": {"compression": "raw" \| "jpeg" \| "jpeg2000"}, "recipe": [["src", 0, null]]}` |
+| `tiles/<k>` | data | | tile `k` of the directory, `(offset, size)`; its form `{"geometry": {"shape": [th, tw], "samples": S, "bits": 8 × bytes}, "codec": {"compression": "raw" \| "jpeg" \| "jpeg2000" \| "ljpeg"}, "recipe": [["src", 0, null]]}` |
 | `gaps/<offset>` | gap | | bytes no other element claims |
 
 ### 6.4 Equivalence
@@ -880,18 +893,13 @@ path), which its **signature** ([spec/zarrify.md §1.2](../zarrify.md#12-input),
 [profiles/vsi.json](profiles/vsi.json)) chose: bytes 0–3 of `H`
 are `49 49 2A 00` (a little-endian classic TIFF) and bytes 8 to 11 `18 00 49 53` (a container
 header's size, 24, and version, 21321; [the convention §2.1](#21-containers-and-fields)),
-tested before the TIFF profile's. The profile reads it as a **store**
-([§1.4](../zarrify.md#14-store-inputs)) whose URL is the `.vsi` file's
-directory (the URL up to and including its last `/`; for a local path, the
-URI reference of its directory, ending in `/`, or `--url`'s directory when
-`--url` names the `.vsi` file; a bare file name with no `--url` records the
-empty store URL, so that the keys name the files relative to the archive),
-and whose objects are the `.vsi` file, at its key (its name, percent-decoded
-from the URL), and the tile files the profile finds. The store is not listed
-(a plain web server cannot list a directory): its objects are **probed** by
-key ([§9.2](#92-the-tile-files)). The root's `source.url` is the `.vsi`
-file's object URL. The `.vsi` file's key must end in `.vsi` (in any case)
-and hold no `/`; its URL must have no query or fragment.
+tested before the TIFF profile's. The profile reads it as a **file read as a
+store** ([spec/zarrify.md §1.8](../zarrify.md#18-files-read-as-stores)): the
+store URL is the `.vsi` file's directory, its objects are the `.vsi` file, at
+its key, and the tile files the profile probes for
+([§9.2](#92-the-tile-files)), and the root's `source.url` is the `.vsi` file's
+object URL. The `.vsi` file's key MUST end in `.vsi` (in any case), or the
+input is rejected.
 
 ### 9.1 The .vsi file
 
@@ -937,16 +945,19 @@ size 1, [§9.3](#93-tiles-and-levels)).
 For each stack that has a tile file, in the tree's order, the profile
 **probes** two keys, in this order: `_<base>_/stack<id>/frame_t.ets` and
 `_<base>_/stack<id>/frame_t_0.ets`, where `<base>` is the `.vsi` file's key
-without its last four characters and `<id>` the stack's id in decimal. All
-probes of all stacks are one batch. A probe asks the host whether the object
-exists and how large it is: a local file that is there, or an HTTP object
-whose response to the first request is not a 404 (a `HEAD` or a ranged `GET`
-under the reader policy; a 404 is **absent**; any other failure is a
-failure, not a rejection). The first candidate found, in the order above,
-is the stack's **tile file**, an object of the store at that key; a
-candidate found after one that was found is neither read nor an object (the
-mirror does not list it). A stack none of whose candidates exists is
-rejected: `stack <id> (<name>) has no tile file: neither
+without its last four characters and `<id>` the stack's id in decimal. The
+first keys of all stacks are one batch; the second keys of the stacks whose
+first key is absent are a second batch, left out when there are none. A key
+is not probed once an earlier key of its stack is found, so a host is never
+asked for a file beside a tile file it has: a host may answer for a missing
+file in a way a reader cannot tell from a failure, such as a 404 without
+CORS headers, which a browser reports as a network error. A probe asks the
+host whether the object exists and how large it is: a local file that is
+there, or an HTTP object whose response to the first request is not a 404
+(a `HEAD` or a ranged `GET` under the reader policy; a 404 is **absent**;
+any other failure is a failure, not a rejection). The first candidate
+found, in the order above, is the stack's **tile file**, an object of the
+store at that key. A stack none of whose candidates exists is rejected: `stack <id> (<name>) has no tile file: neither
 _<base>_/stack<id>/frame_t.ets nor _<base>_/stack<id>/frame_t_0.ets exists`.
 
 The hosts drive this through the core's store run: the run's `poll` returns
@@ -965,11 +976,12 @@ is not 64, whose `coordinates` are fewer than 2 or more than 16, whose ETS
 header is outside the file or shorter than 228 bytes, whose tile count is
 negative or over 2^24, or whose directory is outside the file. Its ETS
 header is rejected when its magic is not `ETS`, its pixel type is not in
-`pixel_types`, its `channels` are not 1, 3 or 4, its compression is 5, 8 or 9
-(named in the rejection as lossless JPEG, PNG or BMP) or any other value
-than 0, 2 or 3, its tiles are not 1 to 65535 pixels on each side, its
-`tile_depth` is not 1, or its `dimensions` are fewer than 2 or more than
-`coordinates`.
+`pixel_types`, its `channels` are not 1, 3 or 4, its compression is 8 or 9
+(named in the rejection as PNG or BMP) or any other value
+than 0, 2, 3 or 5, its tiles are not 1 to 65535 pixels on each side, its
+`tile_depth` is not 1, or its `dimensions` are 1 or more than
+`coordinates` (0, as a version 0x30003 header has, lists no sizes: every
+coordinate but the column, the row and the level then has the size 1).
 
 ### 9.3 Tiles and levels
 

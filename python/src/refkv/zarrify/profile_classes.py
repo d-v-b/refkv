@@ -44,6 +44,22 @@ class FlacSource(Source):
 
 
 @dataclass(frozen=True)
+class GribSource(Source):
+    """WMO FM 92 GRIB edition 2 (WMO-No. 306, Manual on Codes, Volume I.2): a file the `grib`
+    profile reads, its first bytes untested (`Source` lists its read options)."""
+
+    profile: ClassVar[str] = "grib"
+
+
+@dataclass(frozen=True)
+class Hdf5Source(Source):
+    """HDF5, NWB: a file the `hdf5` profile reads, its first bytes untested (`Source` lists its
+    read options)."""
+
+    profile: ClassVar[str] = "hdf5"
+
+
+@dataclass(frozen=True)
 class ImsSource(Source):
     """Imaris IMS: a file the `ims` profile reads, its first bytes untested (`Source` lists its
     read options)."""
@@ -69,8 +85,8 @@ class Mp3Source(Source):
 
 @dataclass(frozen=True)
 class Mp4Source(Source):
-    """MP4 and QuickTime (H.264 video, AAC and MP3 audio): a file the `mp4` profile reads, its
-    first bytes untested (`Source` lists its read options)."""
+    """MP4 and QuickTime (H.264 and HEVC video, AAC and MP3 audio): a file the `mp4` profile
+    reads, its first bytes untested (`Source` lists its read options)."""
 
     profile: ClassVar[str] = "mp4"
 
@@ -116,6 +132,14 @@ class NiftiSource(Source):
 
 
 @dataclass(frozen=True)
+class NpySource(Source):
+    """NumPy NPY and NPZ (NEP 1): a file the `npy` profile reads, its first bytes untested
+    (`Source` lists its read options)."""
+
+    profile: ClassVar[str] = "npy"
+
+
+@dataclass(frozen=True)
 class NrrdSource(Source):
     """NRRD (Teem): a file the `nrrd` profile reads, its first bytes untested (`Source` lists
     its read options)."""
@@ -156,6 +180,22 @@ class SafeStore(Store):
 
 
 @dataclass(frozen=True)
+class SafetensorsSource(Source):
+    """safetensors (Hugging Face): a file the `safetensors` profile reads, its first bytes
+    untested (`Source` lists its read options)."""
+
+    profile: ClassVar[str] = "safetensors"
+
+
+@dataclass(frozen=True)
+class SafetensorsStore(Store):
+    """safetensors (Hugging Face): a store the `safetensors` profile reads, its root's keys
+    untested (`Store` lists its read options)."""
+
+    profile: ClassVar[str] = "safetensors"
+
+
+@dataclass(frozen=True)
 class TiffSource(Source):
     """TIFF, OME-TIFF, Aperio SVS: a file the `tiff` profile reads, its first bytes untested
     (`Source` lists its read options)."""
@@ -185,6 +225,8 @@ CLASSES: dict[str, type[Source | Store]] = {
     "DicomSource": DicomSource,
     "FitsSource": FitsSource,
     "FlacSource": FlacSource,
+    "GribSource": GribSource,
+    "Hdf5Source": Hdf5Source,
     "ImsSource": ImsSource,
     "LifSource": LifSource,
     "Mp3Source": Mp3Source,
@@ -194,11 +236,14 @@ CLASSES: dict[str, type[Source | Store]] = {
     "Nd2Source": Nd2Source,
     "NdpiSource": NdpiSource,
     "NiftiSource": NiftiSource,
+    "NpySource": NpySource,
     "NrrdSource": NrrdSource,
     "OmeZarrStore": OmeZarrStore,
     "QptiffSource": QptiffSource,
     "SafeSource": SafeSource,
     "SafeStore": SafeStore,
+    "SafetensorsSource": SafetensorsSource,
+    "SafetensorsStore": SafetensorsStore,
     "TiffSource": TiffSource,
     "VsiSource": VsiSource,
     "Zarr2Store": Zarr2Store,
@@ -209,6 +254,8 @@ __all__ = [
     "DicomSource",
     "FitsSource",
     "FlacSource",
+    "GribSource",
+    "Hdf5Source",
     "ImsSource",
     "LifSource",
     "Mp3Source",
@@ -218,11 +265,14 @@ __all__ = [
     "Nd2Source",
     "NdpiSource",
     "NiftiSource",
+    "NpySource",
     "NrrdSource",
     "OmeZarrStore",
     "QptiffSource",
     "SafeSource",
     "SafeStore",
+    "SafetensorsSource",
+    "SafetensorsStore",
     "TiffSource",
     "VsiSource",
     "Zarr2Store",

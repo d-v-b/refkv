@@ -1,6 +1,6 @@
 # phkv: the perfect-hash binding of refkv
 
-Format version: 0 (**provisional**) · Specification revision: 11.2 · Part 3
+Format version: 0 (**provisional**, a draft's: [§1.3](../refkv.md#13-versioning)) · Specification revision: 11.3 · Part 3
 status: **draft**
 
 This document is Part 3 of the refkv specification: the **perfect-hash
@@ -8,8 +8,9 @@ binding**, which keeps a store in a single file, a **phkv store**, whose keys
 are found through a perfect hash in one hop.
 [Part 1](../refkv.md), in spec/refkv.md, specifies the reference value type,
 and its introduction ([§1](../refkv.md#1-introduction)) covers every part:
-the conventions, the conformance of readers and writers, and the format
-version and revisions. The sections are numbered as one specification, so this
+the conventions, the conformance of readers and writers, and the revisions.
+This part's format version 0 is a draft's, which promises nothing yet
+([§1.3](../refkv.md#13-versioning)). The sections are numbered as one specification, so this
 part starts at [§16](#16-what-the-phkv-binding-defines).
 
 Part 3 is a **draft**: unlike Parts 1 and 2, anything in it may still change,

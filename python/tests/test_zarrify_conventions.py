@@ -7,7 +7,8 @@ Node, through js/conformance/documents.ts). In each accepted output, every
 node that declares the profile's convention validates against its JSON Schema
 (spec/zarrify/<profile>/schema.json): the root always declares it, with the
 provenance members, and another node only when it has source metadata, with
-only that member. No node has any other attribute besides `ome`. (For the file profiles,
+only that member. No node has any other attribute besides `ome` (but an HDF5 node, which holds the
+source's own). (For the file profiles,
 `refkv_source` and the groups of its view are the IR mirror of conventions §8
 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#8-the-ir-mirror>, validated by the
 same schemas.) The inputs are every fixture of every profile of the registry
@@ -40,6 +41,10 @@ GEOZARR = {"proj:": "proj", "spatial:": "spatial", "multiscales": "multiscales"}
 # <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>), on the nodes
 # below the layouts the root names.
 DATASET_ATTRS = {"units", "long_name", "actual_range", "scale_factor", "add_offset"}
+# The CF attributes of a GRIB hierarchy's variables and coordinates, beside the numbers that identify
+# a variable, `GRIB_<key>` (spec/zarrify/grib.md §3
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#3-the-hierarchy>)
+GRIB_ATTRS = {"units", "long_name", "standard_name", "calendar", "coordinates", "bounds", "scale_factor", "add_offset"}
 # The registry's tool (spec/tools/profiles.py), which checks the documents' copies of each CMO
 # against its own `cmo` without importing refkv: here, `cmo` is checked against refkv's.
 _tool = importlib.util.spec_from_file_location("spec_tools_profiles", ROOT / "spec" / "tools" / "profiles.py")
@@ -126,9 +131,16 @@ def test_every_output_declares_its_profile_where_the_convention_says():
             layouts = tuple(f"{p}/" for p in mapping(root.get("layouts", {})).values())
             for key, doc in d.items():
                 attrs = mapping(mapping(doc).get("attributes", {}))
-                geo = {m for m in attrs if m.startswith(tuple(GEOZARR))} if fmt == "safe" else set()
+                geo = {m for m in attrs if m.startswith(tuple(GEOZARR))} if fmt in ("safe", "grib") else set()
+                if fmt == "grib" and at(doc, "node_type") == "array" and not key.startswith("refkv_source/"):
+                    geo |= {m for m in attrs if m in GRIB_ATTRS or m.startswith("GRIB_")}
                 if layouts and key.startswith(layouts) and at(doc, "node_type") == "array":
                     geo |= set(attrs) & DATASET_ATTRS
+                # an HDF5 node's attributes are the source's own, as hdmf-zarr's convention places
+                # them (spec/zarrify/hdf5.md §2.1
+                # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#21-declaration-and-attributes>)
+                if fmt == "hdf5" and not key.startswith("refkv_source/"):
+                    geo |= set(attrs) - {"zarr_conventions", CONVENTION_KEY}
                 assert set(attrs) - geo <= {"ome", "zarr_conventions", CONVENTION_KEY}, (impl, path.name, key)
                 for name in {n for p, n in GEOZARR.items() for m in geo if m.startswith(p)}:
                     errors = [e.message for e in geozarr_schema(name).iter_errors(doc)]

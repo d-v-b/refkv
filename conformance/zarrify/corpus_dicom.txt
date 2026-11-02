@@ -18,3 +18,10 @@ https://storage.googleapis.com/idc-open-data/46481e31-d3d6-4621-8f10-73bc8cca5f2
 https://storage.googleapis.com/idc-open-data/d42b19a9-89fe-47e1-9dcf-834d1ae510da/b03a7cd0-78c9-41f7-bae3-5f74e90d6194.dcm|idc-rms-j2k-lossless|ends-sha256=a69fda4634a65e09ece8ebb6c66f0edd4dcf8e54d5a164c4ec1dd7140d9fdee9
 https://storage.googleapis.com/idc-open-data/53d54ceb-fb2a-46f4-8458-9ee5dcbd9fef/3cacf081-7ede-4b13-8566-dd96c480db49.dcm|idc-rms-native|ends-sha256=4d0029189025a17c6189a4f99e4b8d9fc1172dee24792dc7f18a679b34963110
 https://storage.googleapis.com/idc-open-data/a1a1e797-a747-4c2b-acbb-4f746a6ecf03/4d1159c0-e240-4b0b-a274-60c2e38d6976.dcm|idc-htan-native|ends-sha256=399488b7451ebcb1cecef26234ebdf7e3b350ecdcf7d14d5ee44f847a29aee37
+# JPEG Lossless (1.2.840.10008.1.2.4.57 and .70) from pydicom's pylibjpeg-data, pinned: a signed NM
+# image, an MR image with predictor 7, a two-frame RGB ultrasound and a 10-bit CR image (NEMA WG04).
+# The frozen reference rejects the transfer syntaxes, so each compares py with web alone.
+https://raw.githubusercontent.com/pydicom/pylibjpeg-data/8253566715800a7fc3d4d949abab102c8172bca0/ljdata/ds/JPEGLosslessSV1/JPEG-LL.dcm|pylibjpeg-JPEG-LL|no-ref|ends-sha256=5c6a8c580f6648802738512c7a8737c3de03f9e7175a5b6b75ed82f8a59026b8
+https://raw.githubusercontent.com/pydicom/pylibjpeg-data/8253566715800a7fc3d4d949abab102c8172bca0/ljdata/ds/JPEGLossless/JPEGLossless_1s_1f_u_16_12.dcm|pylibjpeg-JPEGLossless_1s_1f_u_16_12|no-ref|ends-sha256=bd2c50e20dc7095ec7f13e0438ac2534252025fcccbe314d57bb62f39fdea00a
+https://raw.githubusercontent.com/pydicom/pylibjpeg-data/8253566715800a7fc3d4d949abab102c8172bca0/ljdata/ds/JPEGLosslessSV1/JPEGLosslessP14SV1_3s_2f_u_08_08.dcm|pylibjpeg-JPEGLosslessP14SV1_3s_2f_u_08_08|no-ref|ends-sha256=54bb6d712fbdaca556d8ccec498d04d95a48908ebab02a3422f75e89255bfbe4
+https://raw.githubusercontent.com/pydicom/pylibjpeg-data/8253566715800a7fc3d4d949abab102c8172bca0/ljdata/ds/JPEGLosslessSV1/RG2_JPLL.dcm|pylibjpeg-RG2_JPLL|no-ref|ends-sha256=a84b15d8f8631589e0a3b4a5e63840dc7e2886739a8ffad47316ff29f1233a0d

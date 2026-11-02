@@ -13,6 +13,7 @@ import { RefkvError } from "../../src/archive.ts";
 import { HttpResolutionError } from "../../src/http.ts";
 import { blockReader, ImageError } from "../../src/zarrify/common.ts";
 import { irFormat, zarrifyImage, zarrifySource } from "../../src/zarrify/index.ts";
+import { REGISTRY } from "../../src/zarrify/profiles.ts";
 import { zarrifyIr } from "../../src/zarrify/ir/run.ts";
 import { bytesSource, OPEN, openHttpSource } from "../../src/zarrify/ir/source.ts";
 import { IMS_REVISION, REVISION as FROZEN_REVISION } from "../../../conformance/zarrify/reference/ts/revision.ts";
@@ -105,7 +106,12 @@ test("the Rust core gives the frozen zarrifiers' hierarchy, and rejects the same
       referenceImage(url, blockReader(read, bytes.length), bytes.length),
       zarrifyImage(url, read, bytes.length),
     ]);
-    if (got.status === "fulfilled") assert.equal(got.value.format, await irFormat(bytes.subarray(0, 552)), path);
+    if (got.status === "fulfilled") {
+      // the sniffed profile, or the one its reading chose (an Imaris file is sniffed as HDF5)
+      const sniffed = await irFormat(bytes.subarray(0, 552));
+      const chosenBy = REGISTRY.find((e) => e.name === got.value.format)?.chosen_by;
+      assert.ok(got.value.format === sniffed || chosenBy === sniffed, `${path}: ${got.value.format}, sniffed ${sniffed}`);
+    }
     if (ref.status === "rejected" || got.status === "rejected") {
       if (got.status === "rejected" && !(got.reason instanceof ImageError)) problems.push(`${path}: ${got.reason}`);
       if (ref.status !== got.status) problems.push(`${path}: the reference ${ref.status === "rejected" ? "rejects" : "accepts"} it, the core does not`);
@@ -208,7 +214,7 @@ async function withFetch(respond: (url: string, init: RequestInit) => Promise<Re
 
 const NO_RETRY_DELAY = { policy: { allowPrivateHosts: true }, attempts: 2, baseDelay: 0 };
 
-test("a request that gets no response fails with fetch's message, and names CORS as a cause in a browser", async () => {
+test("a request that gets no response fails with fetch's message, and says why in a browser", async () => {
   const url = "https://data.test/x.tif";
   let calls = 0;
   const failing = async (): Promise<Response> => {
@@ -218,9 +224,10 @@ test("a request that gets no response fails with fetch's message, and names CORS
   await withFetch(failing, false, () => assert.rejects(openHttpSource(url, NO_RETRY_DELAY),
     (e) => e instanceof HttpResolutionError && e.message === `${url}: Failed to fetch`));
   assert.equal(calls, 2);
+  // in a browser, asking again without CORS gets no response either: the server could not be reached
   await withFetch(failing, true, () => assert.rejects(openHttpSource(url, NO_RETRY_DELAY),
-    (e) => e instanceof HttpResolutionError &&
-      e.message.startsWith(`${url}: Failed to fetch. A browser reports this for a server that does not allow cross-origin reads`)));
+    (e) => e instanceof HttpResolutionError && e.noResponse === "unreachable" &&
+      e.message.startsWith(`${url}: Failed to fetch: the server could not be reached`)));
 });
 
 test("a body cut short after a response does not name CORS as a cause", async () => {

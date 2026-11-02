@@ -10,7 +10,8 @@
 //! checks the schema (`schema/dicom.json`) and reads the pixel data's structure: the Basic
 //! Offset Table, then the frames' item headers an Extended Offset Table names (one batch), or
 //! the fragments' item headers, those the Basic Offset Table predicts in one batch; then the
-//! frames' first two bytes for a JPEG with three samples; (4) the scan of the elements after
+//! frames' first two bytes for a JPEG with three samples, or a lossless JPEG frame's markers
+//! up to its first SOS, from its first 512 bytes; (4) the scan of the elements after
 //! Pixel Data; then the root's source metadata (`json.rs`) and the IR are built from what
 //! was read.
 
@@ -34,6 +35,9 @@ const MAX_WINDOW: u64 = 1 << 24;
 /// SOI and the Adobe APP14 marker, without its last byte, the color transform
 /// (spec/zarrify/dicom.md §7.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#75-frames>).
 pub const ADOBE: [u8; 17] = [0xFF, 0xD8, 0xFF, 0xEE, 0x00, 0x0E, 0x41, 0x64, 0x6F, 0x62, 0x65, 0x00, 0x64, 0x00, 0x00, 0x00, 0x00];
+/// The bytes of a lossless JPEG frame read at once for its markers up to the first SOS, which
+/// writers keep within a few hundred bytes (more are read when they are not).
+const LOSSLESS_HEAD: u64 = 512;
 /// The most bytes of an element the IR holds (the view shows at most 1024).
 const HOLD: u64 = 1 << 10;
 /// The most times the root's translation and the IR's walk, which the scan prepares, start
@@ -107,6 +111,7 @@ fn syntax(rules: &Rules, uid: &[u8]) -> Option<(Enc, &'static str)> {
     let s = rules.table("syntaxes").get(latin1(uid))?;
     let codec = match s["codec"].as_str()? {
         "jpeg" => "jpeg",
+        "ljpeg" => "ljpeg",
         "jpeg2k" => "jpeg2k",
         _ => "native",
     };
@@ -1001,6 +1006,50 @@ impl Dicom {
             }
             check(r, "payload", &mut rules::env([("f", num(f as f64)), ("payload", num(payload_size(&parts) as f64))]))?;
         }
+        if img.codec == "ljpeg" {
+            self.lossless_check(img, &frames)?;
+        }
+        Ok(())
+    }
+
+    /// Each lossless JPEG frame's markers up to its first SOS: read for every frame at once,
+    /// its first `LOSSLESS_HEAD` bytes, and then from where a walk stops, until every walk
+    /// ends.
+    fn lossless_check(&mut self, img: &Image, frames: &[Vec<(u64, u64)>]) -> R<()> {
+        let mut heads = Vec::with_capacity(frames.len());
+        let mut want = Vec::new();
+        for ranges in frames {
+            match lossless_head(&self.b, ranges) {
+                Ok(h) => heads.push(h),
+                Err(Fail::Miss(o, n)) => {
+                    let end = ranges.iter().find(|&&(a, m)| a <= o && o < a + m).map_or(o + n, |&(a, m)| a + m);
+                    want.push((o, n.max(LOSSLESS_HEAD.min(end - o))));
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        if let Some(&(o, m)) = want.first() {
+            self.want = want;
+            return Err(Fail::Miss(o, m));
+        }
+        for (f, h) in heads.iter().enumerate() {
+            let h = h.unwrap_or_default();
+            let mut env = rules::env([
+                ("f", num(f as f64)),
+                ("header", flag(heads[f].is_some())),
+                ("sof", num(h.sof)),
+                ("precision", num(h.precision)),
+                ("components", num(h.components)),
+                ("scan", num(h.scan)),
+                ("predictor", num(h.predictor)),
+                ("point_transform", num(h.point_transform)),
+                ("restart", num(h.restart)),
+                ("spp", num(img.spp as f64)),
+                ("bits_allocated", num(img.bits_allocated as f64)),
+                ("signed", flag(img.signed)),
+            ]);
+            check(self.rules, "lossless_frame", &mut env)?;
+        }
         Ok(())
     }
 
@@ -1042,6 +1091,95 @@ fn fail_text(f: Fail) -> String {
 /// The last byte of the Adobe marker: the color transform (0 for RGB, 1 for YCbCr).
 pub fn adobe_marker(photometric: &str) -> u8 {
     u8::from(photometric != "RGB")
+}
+
+/// What a lossless JPEG frame's markers up to its first SOS give (spec/zarrify/dicom.md §7.5
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#75-frames>).
+#[derive(Clone, Copy, Default, Debug)]
+struct LosslessHead {
+    sof: u8,
+    precision: u8,
+    components: u8,
+    scan: u8,
+    predictor: u8,
+    point_transform: u8,
+    restart: u16,
+}
+
+/// `n` bytes of a frame's stream from `k`, which runs through its ranges in order: None past
+/// its end, or Miss for the first range's bytes not held.
+fn stream_bytes(b: &Bytes, ranges: &[(u64, u64)], k: u64, n: u64) -> R<Option<Vec<u8>>> {
+    let mut out = Vec::with_capacity(n as usize);
+    let mut skip = k;
+    for &(o, m) in ranges {
+        if out.len() as u64 == n {
+            break;
+        }
+        if skip >= m {
+            skip -= m;
+            continue;
+        }
+        let take = (m - skip).min(n - out.len() as u64);
+        out.extend_from_slice(b.get(o + skip, take)?);
+        skip = 0;
+    }
+    Ok((out.len() as u64 == n).then_some(out))
+}
+
+/// A lossless JPEG frame's markers, from its SOI up to its first SOS: None when its stream
+/// does not start with SOI, or ends, or has a byte other than a marker's where one is due,
+/// before an SOS that follows a frame header. Fill bytes (FF) before a marker are skipped,
+/// and so are markers without a length (TEM, RSTn) and the segments not read.
+fn lossless_head(b: &Bytes, ranges: &[(u64, u64)]) -> R<Option<LosslessHead>> {
+    let at = |k: u64, n: u64| stream_bytes(b, ranges, k, n);
+    if at(0, 2)?.as_deref() != Some(&[0xFF, 0xD8]) {
+        return Ok(None);
+    }
+    let mut h = LosslessHead::default();
+    let mut k = 2;
+    loop {
+        let Some(m) = at(k, 2)? else { return Ok(None) };
+        match m[..] {
+            [0xFF, 0xFF] => {
+                k += 1;
+                continue;
+            }
+            [0xFF, 0x01] | [0xFF, 0xD0..=0xD7] => {
+                k += 2;
+                continue;
+            }
+            [0xFF, 0xD8 | 0xD9] | [0xFF, 0x00] => return Ok(None),
+            [0xFF, _] => {}
+            _ => return Ok(None),
+        }
+        let Some(l) = at(k + 2, 2)? else { return Ok(None) };
+        let length = u16::from_be_bytes([l[0], l[1]]) as u64;
+        let body = |n: u64| if length >= 2 + n { at(k + 4, n) } else { Ok(None) };
+        match m[1] {
+            0xC0..=0xCF if !matches!(m[1], 0xC4 | 0xC8 | 0xCC) => {
+                let Some(v) = body(6)? else { return Ok(None) };
+                (h.sof, h.precision, h.components) = (m[1], v[0], v[5]);
+            }
+            0xDD => {
+                let Some(v) = body(2)? else { return Ok(None) };
+                h.restart = u16::from_be_bytes([v[0], v[1]]);
+            }
+            0xDA => {
+                let Some(v) = body(1)? else { return Ok(None) };
+                let ns = v[0] as u64;
+                let Some(v) = body(1 + 2 * ns + 3)? else { return Ok(None) };
+                if h.sof == 0 {
+                    return Ok(None);
+                }
+                h.scan = v[0];
+                h.predictor = v[1 + 2 * ns as usize];
+                h.point_transform = v[3 + 2 * ns as usize] & 0x0F;
+                return Ok(Some(h));
+            }
+            _ => {}
+        }
+        k += 2 + length;
+    }
 }
 
 /// Each frame's ranges of data, in order, without empty ones (the parts before the JPEG

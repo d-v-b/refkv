@@ -930,7 +930,7 @@ class ReferenceReader:
                              f"not {max_concurrency!r}")
         self.policy = policy or Policy()
         # spec §5 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>:
-        # absolute, lexically normalised, symlinks not resolved
+        # absolute, lexically normalized, symlinks not resolved
         self.url = url if is_url(url) else file_uri(url)
         self.resolver = _resolver(registry)
         self.stats = stats or Stats()

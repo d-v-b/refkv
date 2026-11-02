@@ -64,8 +64,7 @@ lists them.
 ## Try it
 
 [example.py](example.py) zarrifies a public file and plots it with matplotlib. Its
-dependencies are in its header (PEP 723), so it runs on its own (uv builds refkv from GitHub,
-which needs a Rust toolchain, until a release on PyPI has `refkv.zarrify`):
+dependencies are in its header (PEP 723), so it runs on its own, with refkv from PyPI:
 
 ```bash
 uv run docs/zarrify/mp3/example.py
@@ -116,7 +115,9 @@ frames (about 54 KB), decoded on the fly. The same samples, as
 its gapless trimming, start `delay + 529` samples later in its output.
 
 **In the browser.** The service worker serves a zarrified MP3 as a Zarr
-hierarchy like any other; the demo page does not display audio.
+hierarchy like any other. The demo page's MP3 example, this file,
+lists the archive's array and offers the archive for download; the page
+does not display audio.
 
 ## Supported and not supported
 
@@ -184,5 +185,5 @@ and on the public file of
 
 - Profile: [spec/zarrify/mp3.md](../../../spec/zarrify/mp3.md#part-2-the-profile)
 - Rust core: [rust/refkv-ir/src/mp3.rs](../../../rust/refkv-ir/src/mp3.rs)
-- Codec: [python/src/refkv/zarr/codecs/mp3.py](../../../python/src/refkv/zarr/codecs/mp3.py)
+- Codec: [python/src/refkv/zarr/codecs/stream.py](../../../python/src/refkv/zarr/codecs/stream.py) (`refkv.stream`)
 - Fixtures: [fixtures/mp3/](../../../fixtures/mp3/)

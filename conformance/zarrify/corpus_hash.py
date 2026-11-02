@@ -13,7 +13,10 @@ A corpus line is `url|name[|py-only][|<fingerprint>]`, and the fingerprint is
 A file's fingerprint costs two range requests, however large the file, and a store's
 one listing. Both are read through proxy.py's cache (the one compare.py uses), so an
 input compare.py has read costs no request at all. A host given with `--cache-only` is
-never asked: its inputs are fingerprinted from the cache, or reported as not cached.
+never asked: its inputs are fingerprinted from the cache, or reported as not cached. An
+input whose server does not serve it (proxy.py's `upstream_failure`: a timeout, a reset
+connection, an HTTP error) is reported as unavailable, and does not fail `check`, as
+compare.py does not compare it.
 
 Usage: python conformance/zarrify/corpus_hash.py record|check [--cache-only <host>]...
   record: add each line's fingerprint, or replace it (prints the ones that changed);
@@ -29,7 +32,7 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
-from proxy import BLOCK, RemoteListings, Upstream  # noqa: E402
+from proxy import BLOCK, RemoteListings, Upstream, upstream_failure  # noqa: E402
 
 CACHE = Path("/tmp/vzip-proxy-cache")  # noqa: S108 (the cache the runs share, by design)
 KINDS = ("ends-sha256", "listing-sha256")
@@ -87,7 +90,7 @@ def main(argv: list[str]) -> int:
     mode = argv[0]
     cache_only = {argv[i + 1] for i, a in enumerate(argv) if a == "--cache-only"}
     upstream = Upstream(CACHE)
-    bad = 0
+    bad = unavailable = 0
     for path in sorted(HERE.glob("corpus_*.txt")):
         lines = path.read_text().split("\n")
         for j, line in enumerate(lines):
@@ -101,6 +104,10 @@ def main(argv: list[str]) -> int:
                 bad += mode == "check" and old is None
                 continue
             except Exception as e:  # noqa: BLE001
+                if upstream_failure(e) is not None:
+                    print(f"{path.name} {name}: unavailable: {type(e).__name__}: {e}")
+                    unavailable += 1
+                    continue
                 print(f"{path.name} {name}: unreadable: {type(e).__name__}: {e}")
                 bad += 1
                 continue
@@ -111,6 +118,8 @@ def main(argv: list[str]) -> int:
         if mode == "record":
             path.write_text("\n".join(lines))
     print(f"{bad} problems" if mode == "check" else "recorded")
+    if unavailable:
+        print(f"{unavailable} inputs unavailable upstream, not fingerprinted")
     return 1 if bad else 0
 
 

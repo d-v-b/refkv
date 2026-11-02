@@ -50,8 +50,7 @@ resolution level.
 ## Try it
 
 [example.py](example.py) zarrifies a public file and plots it with matplotlib. Its
-dependencies are in its header (PEP 723), so it runs on its own (uv builds refkv from GitHub,
-which needs a Rust toolchain, until a release on PyPI has `refkv.zarrify`):
+dependencies are in its header (PEP 723), so it runs on its own, with refkv from PyPI:
 
 ```bash
 uv run docs/zarrify/ims/example.py
@@ -179,7 +178,7 @@ which must be rejected (the LZ4 file and a scene file).
 
 - Profile: [spec/zarrify/ims.md](../../../spec/zarrify/ims.md#part-2-the-profile)
 - Rust core: [rust/refkv-ir/src/ims.rs](../../../rust/refkv-ir/src/ims.rs) (the layout and the walk),
-  [rust/refkv-ir/src/hdf5.rs](../../../rust/refkv-ir/src/hdf5.rs) (the HDF5 reader),
+  [rust/refkv-ir/src/hdf5/](../../../rust/refkv-ir/src/hdf5/) (the HDF5 reader),
   [rust/refkv-ir/schema/ims.json](../../../rust/refkv-ir/schema/ims.json) (the source model)
 - Frozen reference (revision 25): [conformance/zarrify/reference/refkv_reference/ims/](../../../conformance/zarrify/reference/refkv_reference/ims/)
 - Fixtures: [fixtures/ims/](../../../fixtures/ims/)

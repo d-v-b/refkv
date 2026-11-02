@@ -62,6 +62,51 @@
       "message": "unsupported transfer syntax 1.2.840.10008.1.2.4.80"
     },
     {
+      "test": "dicom_reject_ljpeg_baseline",
+      "input": "dicom_reject_ljpeg_baseline.dcm",
+      "message": "frame 0 is not a lossless JPEG stream (SOF3)"
+    },
+    {
+      "test": "dicom_reject_ljpeg_components",
+      "input": "dicom_reject_ljpeg_components.dcm",
+      "message": "frame 0 has 3 components, 3 in its first scan, for Samples per Pixel 1"
+    },
+    {
+      "test": "dicom_reject_ljpeg_no_scan",
+      "input": "dicom_reject_ljpeg_no_scan.dcm",
+      "message": "frame 0 is not a JPEG stream with a frame header and a scan"
+    },
+    {
+      "test": "dicom_reject_ljpeg_point_transform",
+      "input": "dicom_reject_ljpeg_point_transform.dcm",
+      "message": "frame 0 has the point transform 1"
+    },
+    {
+      "test": "dicom_reject_ljpeg_precision",
+      "input": "dicom_reject_ljpeg_precision.dcm",
+      "message": "frame 0 has a precision of 12 bits for Bits Allocated 8"
+    },
+    {
+      "test": "dicom_reject_ljpeg_predictor",
+      "input": "dicom_reject_ljpeg_predictor.dcm",
+      "message": "frame 0 has the predictor 0"
+    },
+    {
+      "test": "dicom_reject_ljpeg_restart",
+      "input": "dicom_reject_ljpeg_restart.dcm",
+      "message": "frame 0 has the restart interval 8"
+    },
+    {
+      "test": "dicom_reject_ljpeg_signed_precision",
+      "input": "dicom_reject_ljpeg_signed_precision.dcm",
+      "message": "frame 0 has a precision of 12 bits for signed pixels of Bits Allocated 16"
+    },
+    {
+      "test": "dicom_reject_ljpeg_ybr",
+      "input": "dicom_reject_ljpeg_ybr.dcm",
+      "message": "unsupported Photometric Interpretation 'YBR_FULL' with 3 samples per pixel"
+    },
+    {
       "test": "dicom_reject_misplaced_delimiter",
       "input": "dicom_reject_misplaced_delimiter.dcm",
       "message": "expected an item at 498, found (FFFE,E00D)"

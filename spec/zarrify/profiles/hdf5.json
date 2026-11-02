@@ -1,0 +1,17 @@
+{
+  "name": "hdf5",
+  "title": "HDF5",
+  "uuid": "6c006834-424b-451b-b786-f8c502ec32af",
+  "version": 0,
+  "kind": "file",
+  "sniff": 70,
+  "chosen_by": null,
+  "suffixes": [
+    ".h5",
+    ".nwb"
+  ],
+  "reference": null,
+  "source": "HDF5, NWB",
+  "inputs": "HDF5 files, NWB files first among them: every group, dataset, attribute, link and object reference the profile can present, in hdmf-zarr's Zarr v3 form",
+  "for": "HDF5 files (`.h5`, `.hdf5`), and NWB files (`.nwb`), which pynwb's `NWBZarrIO` opens"
+}

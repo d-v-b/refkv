@@ -112,11 +112,75 @@ def test_unregistered_source_rejected():
         VZipWriter(io.BytesIO()).add_ranges("k", [Range(source=0, length=1)])
 
 
-def test_dangling_internal_reference_rejected():
-    w = VZipWriter(io.BytesIO())
-    w.add_ranges("k", [Range(source=w.internal("nope"), length=1)])
-    with pytest.raises(ValueError, match="missing entries: \\['nope'\\]"):
+def test_close_accepts_internal_and_data_sources(tmp_path):
+    """Internal references to an entry, a hidden entry and a late one, and a data source, pass
+    `close`'s checks, which run before the late entries are written."""
+    arc = tmp_path / "x.vzip"
+    with open(arc, "wb") as f, VZipWriter(f) as w:
+        w.add_bytes("a/zarr.json", b"{}", late=True)
+        w.add_bytes("blob", b"0123456789")
+        hidden = w.add_hidden("idx", b"abcd")
+        w.add_ranges("c/0", [Range(source=w.internal("blob"), offset=2, length=3)])
+        w.add_ranges("c/1", [Range(source=w.internal(hidden), length=4)])
+        w.add_ranges("c/2", [Range(source=w.internal("a/zarr.json"), length=2)])
+        w.add_ranges("c/3", [Range(source=w.blob(b"xyz"), offset=1, length=2)])
+    s = VZipStore(str(arc))
+    assert [_get(s, f"c/{i}") for i in range(4)] == [b"234", b"abcd", b"{}", b"yz"]
+    assert f.closed  # the `with open` closed it; close() left it open
+
+
+def _close_refused(w: VZipWriter, f: io.BytesIO, match: str) -> None:
+    """`w.close()` raises ValueError matching `match`, having written nothing more to `f`."""
+    written = f.getvalue()
+    with pytest.raises(ValueError, match=match):
         w.close()
+    assert f.getvalue() == written
+    assert not f.closed
+
+
+def test_close_refuses_a_missing_entry():
+    f = io.BytesIO()
+    w = VZipWriter(f)
+    w.add_bytes("a/zarr.json", b"{}", late=True)
+    w.add_ranges("k", [Range(source=w.internal("nope"), length=1)])
+    _close_refused(w, f, "missing entries: \\['nope'\\]")
+
+
+def test_close_refuses_an_invalid_url_source():
+    f = io.BytesIO()
+    w = VZipWriter(f)
+    w.add_ref("k", "http://[bad", 0, 1)
+    _close_refused(w, f, "invalid url sources")
+
+
+def test_close_refuses_an_empty_key_source():
+    f = io.BytesIO()
+    w = VZipWriter(f)
+    w.add_ranges("k", [Range(source=w.internal(""), length=1)])
+    _close_refused(w, f, "empty key source")
+
+
+def test_close_refuses_a_key_source_naming_a_format_entry():
+    f = io.BytesIO()
+    w = VZipWriter(f)
+    w.add_ranges("k", [Range(source=w.internal("__vz__/sources"), length=1)])
+    _close_refused(w, f, "format entries")
+
+
+def test_close_refuses_a_key_source_naming_a_reference():
+    f = io.BytesIO()
+    w = VZipWriter(f)
+    w.add_ref("r", "http://example.org/x", 0, 1)
+    w.add_ranges("k", [Range(source=w.internal("r"), length=1)])
+    _close_refused(w, f, "internal references to reference entries")
+
+
+def test_close_refuses_a_range_past_its_source():
+    f = io.BytesIO()
+    w = VZipWriter(f)
+    w.add_bytes("blob", b"0123")
+    w.add_ranges("k", [Range(source=w.internal("blob"), offset=2, length=3)])
+    _close_refused(w, f, "past the end of source")
 
 
 def test_duplicate_key_rejected():
