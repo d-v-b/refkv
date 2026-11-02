@@ -37,7 +37,8 @@ def cold(r):
 def warm(r):
     return f"{r['warm_requests_per_get']:.2f} req, {human(r['warm_bytes_per_get'])}, {ms(r['warm_ms_median'])} ms"
 def clustered(r):
-    return f"{r['clustered_requests_per_get']:.2f} req, {human(r['clustered_bytes_per_get'])}, {ms(r['clustered_ms_mean'])} ms"
+    return (f"{r['clustered_requests_per_get']:.2f} req, {human(r['clustered_bytes_per_get'])}, "
+            f"{ms(r['clustered_ms_mean'])} ms")
 def lst(r):
     return f"{r['list_requests']} req, {human(r['list_bytes'])}, {ms(r['list_ms'])} ms"
 def size(r):
@@ -50,7 +51,7 @@ for workload in ("refs", "bytes"):
     for title, cell in (("First lookup of a store opened cold (open and one `%s`)"
                          % ("raw" if workload == "refs" else "get"), cold),
                         ("Later lookups of random keys in an opened store (per lookup, median)", warm),
-                        ("Clustered lookups on a fresh store: 3 runs of 100 neighbouring keys, in order (per lookup, mean)", clustered),
+                        ("Clustered lookups, 3 runs of 100 neighbouring keys (per lookup, mean)", clustered),
                         ("`list` of the 100 keys under one prefix, on a store opened cold", lst)):
         print(f"### {title}\n")
         for t in transports:
