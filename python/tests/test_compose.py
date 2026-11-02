@@ -297,3 +297,38 @@ def test_bounds_refuse_malformed_arguments():
         ReferenceStore({}, bounds=Key("a"))  # pyrefly: ignore[bad-argument-type]
     with pytest.raises(TypeError, match="a bound is a Key, KeyRange, Prefix or ChunkBox, not str"):
         ReferenceStore({}, bounds=["a"])  # pyrefly: ignore[bad-argument-type]
+
+
+def test_combining_drops_consolidated_metadata_and_carries_hidden_headers():
+    consolidated = json.dumps({"zarr_format": 3, "node_type": "group", "attributes": {},
+                               "consolidated_metadata": {"kind": "inline", "metadata": {}}}).encode()
+    a = ReferenceStore({"zarr.json": consolidated, "x/zarr.json": array([2], [2]), "x/c/0": b"aa"})
+    b = ReferenceStore({"zarr.json": consolidated, "y/zarr.json": array([2], [2]), "y/c/0": b"bb", ".zmetadata": b"{}"})
+    out = overlay(a, b)
+    assert json.loads(out.mapping["zarr.json"]) == {"zarr_format": 3, "node_type": "group", "attributes": {}}
+    assert ".zmetadata" not in out.mapping
+    assert sorted(zarr.open_group(refkv.zarr.store(out), mode="r").array_keys()) == ["x", "y"]
+    assert "consolidated_metadata" in json.loads(mount(a, "m").mapping["m/zarr.json"])
+    # hidden keys that key sources name are carried, renamed when two stores' differ
+    h1 = ReferenceStore({"__vz__/hdr": b"ONE", "p": Range(source=0, length=3)}, [Source(key="__vz__/hdr")])
+    h2 = ReferenceStore({"__vz__/hdr": b"TWO", "q": Range(source=0, length=3)}, [Source(key="__vz__/hdr")])
+    both = overlay(h1, h2)
+    assert both.get("p") == b"ONE"
+    assert both.get("q") == b"TWO"
+    assert values(overlay(h1, h1)) == values(overlay(h1))
+    assert overlay(h1).get("p") == b"ONE"
+    # shift_chunks renames a key source with the chunk it names, and keeps hidden headers
+    s = ReferenceStore({"zarr.json": array([4], [2]), "c/0": b"ab", "c/1": Range(source=0, length=1),
+                        "__vz__/h": b"H", "c/2": Range(source=1, length=1)},
+                       [Source(key="c/0"), Source(key="__vz__/h")])
+    moved = shift_chunks(s, "", (3,))
+    assert set(moved.mapping) == {"c/3", "c/4", "c/5", "__vz__/h"}
+    assert moved.get("c/4") == b"a"
+    assert moved.get("c/5") == b"H"
+
+
+def test_shift_chunks_refuses_a_chunk_that_reads_through_a_dropped_key():
+    s = ReferenceStore({"zarr.json": array([2], [2]), "hdr": b"H", "c/0": Range(source=0, length=1)},
+                       [Source(key="hdr")])
+    with pytest.raises(ValueError, match="a key source names 'hdr', which is dropped"):
+        shift_chunks(s, "", (0,))

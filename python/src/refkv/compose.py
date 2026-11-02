@@ -18,8 +18,11 @@ operators build new stores and change none:
 
 A combination's sources are each store's, relative URLs resolved against that store's
 base URL, equal ones merged, and the unused dropped; references are renumbered to match,
-the most used source first. A store's keys outside its own bounds, and hidden keys (those
-under the binding's reserved prefix), are never carried into a combination.
+the most used source first. A store's keys outside its own bounds are never carried into
+a combination. Its hidden keys (under the binding's reserved prefix) are carried only when
+a carried value reads one through a key source, renamed if another store's differs.
+Consolidated metadata (a `zarr.json`'s `consolidated_metadata`, a v2 `.zmetadata`) lists
+the nodes of one store, so `overlay`, `union`, `map_keys` and `normalize` drop it.
 
 A stack of same-layout arrays along a new axis, say the planes of a z-stack, is a header
 holding the stack's metadata, bounded to its own keys, and the planes' chunks:
@@ -182,6 +185,42 @@ def _used(value: Value) -> list[int]:
     return [r.source for r in parts if r.data is None]
 
 
+def _unconsolidated(key: str, value: Value) -> Value | None:
+    """`value` without the consolidated metadata a combination makes stale: None for a v2
+    `.zmetadata` document, and a v3 `zarr.json` without its `consolidated_metadata`."""
+    name = key.rpartition("/")[2]
+    if name == ".zmetadata":
+        return None
+    if name != "zarr.json" or not isinstance(value, bytes):
+        return value
+    try:
+        doc = json.loads(value)
+    except ValueError:
+        return value
+    if not isinstance(doc, dict) or doc.get("consolidated_metadata") is None:
+        return value
+    del doc["consolidated_metadata"]
+    return json.dumps(doc, separators=(",", ":")).encode()
+
+
+def _hidden_names(store: ReferenceStore, taken: dict[str, bytes | Reference], tag: int) -> dict[str, str]:
+    """{hidden key: its name in a combination} for each hidden key of `store` that a key source
+    names, given the hidden values `taken` so far (which it extends): the same name for an
+    equal or new value, another (`name~tag`, ...) for a different one."""
+    out: dict[str, str] = {}
+    for s in store.sources:
+        k = s.key
+        if k is None or not k.startswith(RESERVED_PREFIX) or k in out or k not in store.mapping:
+            continue
+        value, name, n = store.mapping[k], k, 0
+        while name in taken and taken[name] != value:
+            n += 1
+            name = f"{k}~{tag}" if n == 1 else f"{k}~{tag}.{n}"
+        taken[name] = value
+        out[k] = name
+    return out
+
+
 def _base_url(stores: Sequence[ReferenceStore], url: str | None) -> str | None:
     """The result's base URL: `url`, or the stores' one, or the first store's when all are
     local or all remote (the reader policy tells only those apart). Mixed: an error."""
@@ -229,9 +268,11 @@ def _combine(stores: Sequence[ReferenceStore], agree: bool, options: Options) ->
     read_at_open: list[str] = []
     compressed: list[str] = []
     internal: list[tuple[int, str]] = []  # (store, key) of each key source a carried value uses
+    hidden: dict[str, Value] = {}  # the hidden keys key sources name, by their names in the result
     for i, store in enumerate(stores):
         table = []
-        absolute = _absolute(store)
+        names = _hidden_names(store, hidden, i)
+        absolute = [dataclasses.replace(s, key=names[s.key]) if s.key in names else s for s in _absolute(store)]
         for src in absolute:
             if src not in index:
                 index[src] = len(sources)
@@ -252,9 +293,13 @@ def _combine(stores: Sequence[ReferenceStore], agree: bool, options: Options) ->
                     seen[1].add(i)
             if max(cover.which(key)) != i:
                 continue
+            value = _unconsolidated(key, value)
+            if value is None:
+                continue
             mapping[key] = value
             origin[key] = i
-            internal += [(i, k) for s in _used(held) if (k := absolute[s].key) is not None]
+            internal += [(i, k) for s in _used(held)
+                         if (k := absolute[s].key) is not None and not k.startswith(RESERVED_PREFIX)]
         read_at_open += [k for k in store.read_at_open if origin.get(k) == i]
         compressed += [k for k in store.compressed if origin.get(k) == i]
     if agree:
@@ -267,6 +312,8 @@ def _combine(stores: Sequence[ReferenceStore], agree: bool, options: Options) ->
         if origin.get(target) != i:
             raise ValueError(f"store {i} has a reference to its own key {target!r}, which the result "
                              "takes from another store or leaves out")
+    used = {sources[s].key for v in mapping.values() for s in _used(v)}
+    mapping.update((k, v) for k, v in hidden.items() if k in used)
     bounds = [b for s in stores for b in s.bounds]
     if url is not None:
         options["url"] = url
@@ -309,23 +356,29 @@ def map_keys(store: ReferenceStore, f: Callable[[str], str | None], *,
 
     Key sources (internal references) are renamed with their keys. The result's bounds
     are `bounds`, or derived from its keys: a function on keys says nothing about the
-    ranges and boxes of stated bounds.
+    ranges and boxes of stated bounds. Consolidated metadata is dropped, as the renamed
+    keys may no longer match it.
 
     Raises ValueError when two keys are renamed to one, when a key is renamed into, or out
     of, the binding's reserved prefix, or when a value uses a key source whose key is
     dropped. Hidden keys (under the reserved prefix) are kept as they are.
     """
-    return _map_keys(store, f, bounds, {}, [], dict(options))  # type: ignore[arg-type]
+    return _map_keys(store, f, bounds, {}, [], dict(options), unconsolidate=True)  # type: ignore[arg-type]
 
 
 def _map_keys(store: ReferenceStore, f: Callable[[str], str | None], bounds: Iterable[Bound] | None,
-              extra: dict[str, bytes], read_at_open: list[str], options: Options) -> ReferenceStore:
-    """`map_keys`, then the bytes values of `extra` added, read at open with `read_at_open`."""
+              extra: dict[str, bytes], read_at_open: list[str], options: Options, *,
+              unconsolidate: bool) -> ReferenceStore:
+    """`map_keys`, then the bytes values of `extra` added, read at open with `read_at_open`;
+    consolidated metadata dropped with `unconsolidate`, since renamed keys make it stale."""
     mapping: dict[str, Value] = {}
     names: dict[str, str] = {}
-    for key, value in store.mapping.items():
+    for key, held in store.mapping.items():
         new = key if key.startswith(RESERVED_PREFIX) else f(key)
         if new is None:
+            continue
+        value = _unconsolidated(new, held) if unconsolidate else held
+        if value is None:
             continue
         if not isinstance(new, str) or not new:
             raise ValueError(f"{key!r} is renamed to {new!r}; keys are non-empty strings")
@@ -370,8 +423,8 @@ def mount(store: ReferenceStore, path: str, **options: Unpack[Options]) -> Refer
     """
     if not isinstance(path, str) or not path or path.startswith("/") or path.endswith("/") or "//" in path:
         raise ValueError(f"mount path {path!r}: a non-empty node path, with no leading, trailing or doubled '/'")
-    return map_keys(store, lambda k: f"{path}/{k}", bounds=[_mount_bound(b, path) for b in store.bounds],
-                    **options)
+    return _map_keys(store, lambda k: f"{path}/{k}", [_mount_bound(b, path) for b in store.bounds], {}, [],
+                     dict(options), unconsolidate=False)  # type: ignore[arg-type]
 
 
 def _array(store: ReferenceStore, array: str) -> tuple[list[int], list[int], str, str]:
@@ -405,10 +458,12 @@ def shift_chunks(store: ReferenceStore, array: str, offset: Sequence[int], *, ne
     store gives that. Its bounds are the `ChunkBox` the moved array's chunk grid fills,
     so it answers for exactly those chunks, holding them or not. For the planes of a
     stack, `shift_chunks(plane, "0", (i, 0, 0), new_axes=1)` puts plane `i`'s chunk
-    `(y, x)` at `(i, y, x)`.
+    `(y, x)` at `(i, y, x)`. Hidden keys are kept, and key sources renamed with the
+    chunks they name.
 
     Raises ValueError when `array` is not an array of `store` with a regular chunk grid,
-    or when `offset` has another length than the moved array's axes or a negative entry.
+    when `offset` has another length than the moved array's axes or a negative entry, or
+    when a chunk reads through a key source whose key is not a chunk of the array.
     """
     shape, chunks, encoding, sep = _array(store, array)
     rank = len(shape)
@@ -420,17 +475,16 @@ def shift_chunks(store: ReferenceStore, array: str, offset: Sequence[int], *, ne
     if any(isinstance(o, bool) or not isinstance(o, int) or o < 0 for o in offset):
         raise ValueError(f"offset {offset}: entries are integers of 0 or more")
     grid = (1,) * new_axes + tuple(-(-n // c) if c else 0 for n, c in zip(shape, chunks, strict=True))
-    mapping: dict[str, Value] = {}
-    for key, value in store.mapping.items():
+    def move(key: str) -> str | None:
         c = parse_chunk_key(key, array, rank, encoding, sep)
         if c is None:
-            continue
-        moved = tuple(o + x for o, x in zip(offset, (0,) * new_axes + c, strict=True))
-        mapping[chunk_key(array, moved, encoding, sep)] = value
+            return None
+        return chunk_key(array, tuple(o + x for o, x in zip(offset, (0,) * new_axes + c, strict=True)),
+                         encoding, sep)
+
     box = ChunkBox(array, offset, tuple(o + g for o, g in zip(offset, grid, strict=True)),
                    encoding, sep)  # type: ignore[arg-type]
-    options.setdefault("url", store.url)
-    return _build(mapping, list(store.sources), bounds=[box], template=store, options=options)
+    return _map_keys(store, move, [box], {}, [], dict(options), unconsolidate=False)  # type: ignore[arg-type]
 
 
 def normalize(store: ReferenceStore, **options: Unpack[Options]) -> ReferenceStore:
@@ -478,5 +532,5 @@ def normalize(store: ReferenceStore, **options: Unpack[Options]) -> ReferenceSto
                          else b'{"zarr_format":2}')
             added.append(key)
     bounds = [*store.bounds, *(Key(k) for k in added)] if store.bounds_stated else None
-    return _map_keys(store, lambda k: k if k in keep else None, bounds,
-                     {k: keep[k] for k in added}, added, dict(options))  # type: ignore[arg-type]
+    return _map_keys(store, lambda k: k if k in keep else None, bounds, {k: keep[k] for k in added},
+                     added, dict(options), unconsolidate=True)  # type: ignore[arg-type]

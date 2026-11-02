@@ -17,6 +17,8 @@ how. The ZIP binding keeps a store in one ZIP file, a vzip archive (Part 2
   <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#62-operations>: `get(key)`,
   or `get(key, RangeRequest(start, end))` (also `OffsetRequest`, `SuffixRequest`),
   `classify`, `raw`, `list`, each also a coroutine (`get_async`, ...).
+- `refkv.compose`: stores combined into new ones by their bounds (`refkv.bounds`), the
+  keys each answers for: `overlay`, `union`, `mount`, `shift_chunks`.
 - `Policy`, `Stats`: what a store may read, and what it fetched. Every store also
   takes `registry=`, the application's object stores by URL prefix (an
   `obspec_utils` `ObjectStoreRegistry`, or a mapping), and `max_concurrency`
