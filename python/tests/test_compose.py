@@ -327,6 +327,9 @@ def test_combining_drops_consolidated_metadata_and_carries_hidden_headers():
     assert document(union(c, d), "zarr.json")["attributes"] == {"unit": "µm"}
     with pytest.raises(ValueError, match=r"'zarr\.json': stores 0 and 1 hold different values"):
         union(c, ReferenceStore({"zarr.json": GROUP}))
+    flag = json.dumps({"zarr_format": 3, "node_type": "group", "attributes": {"flag": True}}).encode()
+    with pytest.raises(ValueError, match=r"'zarr\.json': stores 0 and 1 hold different values"):
+        union(ReferenceStore({"zarr.json": flag}), ReferenceStore({"zarr.json": flag.replace(b"true", b"1")}))
     assert sorted(zarr.open_group(refkv.zarr.store(out), mode="r").array_keys()) == ["x", "y"]
     assert "consolidated_metadata" in document(mount(a, "m"), "m/zarr.json")
     # hidden keys that key sources name are carried, renamed when two stores' differ

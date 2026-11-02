@@ -216,7 +216,8 @@ def _agreement_form(key: str, value: Value) -> object:
         return value
     if isinstance(doc, dict):
         doc.pop("consolidated_metadata", None)
-    return ("json", doc)
+    # as canonical text, not as Python values, which would equate true, 1 and 1.0
+    return ("json", json.dumps(doc, sort_keys=True, separators=(",", ":"), ensure_ascii=False))
 
 
 def _hidden_names(stores: Sequence[ReferenceStore]) -> tuple[list[dict[str, str]], dict[str, bytes]]:
