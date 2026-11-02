@@ -7,7 +7,8 @@
 use refkv_phkv::ptrhash::{self, Params};
 use refkv_vzip::pb::{decode_cd_index, Page, Range};
 use refkv_vzip::{Layout, Options, Writer, RESERVED_PREFIX};
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+use std::collections::{BTreeMap, HashMap};
 use std::io::Read;
 use std::time::Instant;
 
@@ -78,7 +79,41 @@ fn scan(page: &[u8], key: &[u8]) -> bool {
     false
 }
 
+/// An LRU cache of byte ranges read, by exact (offset, length), bounded in bytes.
+struct Cache { cap: u64, used: u64, tick: u64, map: HashMap<(usize, usize), u64>, order: BTreeMap<u64, (usize, usize)> }
+impl Cache {
+    fn new(cap: u64) -> Cache { Cache { cap, used: 0, tick: 0, map: HashMap::new(), order: BTreeMap::new() } }
+    /// true on a hit; a miss is recorded (and evicts) so the next read of it hits
+    fn touch(&mut self, k: (usize, usize)) -> bool {
+        self.tick += 1;
+        if let Some(t) = self.map.insert(k, self.tick) {
+            self.order.remove(&t);
+            self.order.insert(self.tick, k);
+            return true;
+        }
+        self.order.insert(self.tick, k);
+        self.used += k.1 as u64;
+        while self.used > self.cap {
+            let (&t, &old) = self.order.iter().next().unwrap();
+            self.order.remove(&t);
+            self.map.remove(&old);
+            self.used -= old.1 as u64;
+        }
+        false
+    }
+}
+
+impl Remote<'_> {
+    /// a read through the cache: a hit costs no request
+    fn cached(&self, c: &RefCell<Cache>, off: usize, len: usize) -> &[u8] {
+        let end = (off + len).min(self.f.len());
+        if c.borrow_mut().touch((off, len)) { &self.f[off..end] } else { self.read(off, len) }
+    }
+}
+
 const REC_READ: usize = 128;
+const BLOCK: usize = 4096;
+const CACHE_BYTES: u64 = 64 << 20;
 
 fn main() {
     let mut args = std::env::args().skip(1);
@@ -89,17 +124,23 @@ fn main() {
         let s = w.url("data.nc").unwrap();
         for i in 0..n { w.add_ranges(&key(i), vec![Range::of(s, i * 4096, 4096)]).unwrap(); }
     };
-    let mut a = Writer::new(Vec::new(), Options { mirror_refs: true, page_size: None }); fill(&mut a);
-    let hashed = a.close_with_trailer("hash", &mut |l: &Layout| Ok(build_entry(l))).unwrap();
 
-    // lookup order: a fixed pseudo-random permutation of the keys
-    let order: Vec<u64> = (0..lookups as u64).map(|i| ptrhash::fmix64(i + 1) % n).collect();
-    let names: Vec<String> = order.iter().map(|&i| key(i)).collect();
+    // ---- workloads: random keys, and clustered keys (a random run of 100 neighbours, in order)
+    let l = lookups;
+    let random: Vec<u64> = (0..l as u64).map(|i| ptrhash::fmix64(i + 1) % n).collect();
+    let clustered: Vec<u64> = (0..(l / 100) as u64).flat_map(|b| { let s = ptrhash::fmix64(b + 7) % (n / 100) * 100; s..s + 100 }).collect();
+    let workloads = [("random", random), ("clustered (runs of 100)", clustered)];
 
-    struct Row { name: String, open_bytes: usize, reqs: f64, bytes: f64, cpu_us: f64 }
+    struct Row { name: String, open_bytes: usize, reqs: Vec<f64>, bytes: Vec<f64>, cpu_us: Vec<f64> }
     let mut rows: Vec<Row> = Vec::new();
+    let nw = workloads.len();
+    let names: Vec<Vec<String>> = workloads.iter().map(|(_, w)| w.iter().map(|&i| key(i)).collect()).collect();
 
-    // ---- hash side
+    // ---- hash side: slot table in memory or read per lookup; records read as 128 B or as 4 KiB blocks
+    let hashed = {
+        let mut a = Writer::new(Vec::new(), Options { mirror_refs: true, page_size: None }); fill(&mut a);
+        a.close_with_trailer("hash", &mut |l: &Layout| Ok(build_entry(l))).unwrap()
+    };
     let (cd_off, recs) = parse_cd(&hashed);
     let hb = recs.iter().find(|r| r.0 == b"__vz__/hash").unwrap();
     let h = &hashed[hb.1..hb.1 + hb.2];
@@ -108,26 +149,40 @@ fn main() {
     let pilots = &h[32..32 + pil_len];
     let table_off = hb.1 + 32 + pil_len;
     let table_len = h.len() - 32 - pil_len;
-    for cached in [false, true] {
-        let r = Remote { f: &hashed, reqs: Cell::new(0), bytes: Cell::new(0) };
-        let t = Instant::now();
-        for name in &names {
-            let k = name.as_bytes();
-            let sl = ptrhash::slot(&params, pilots, ptrhash::hash(k, params.seed)) as usize;
-            let off = if cached { rd32(&h[32 + pil_len..], 4 * sl) } else { rd32(r.read(table_off + 4 * sl, 4), 0) } as usize;
-            assert!(scan(r.read(cd_off + off, REC_READ), k), "record fits in {REC_READ} B");
+    for (cached_slots, blocks) in [(false, false), (true, false), (true, true)] {
+        let mut row = Row {
+            name: format!("hash, slots {}, {}", if cached_slots { "in memory" } else { "per lookup" }, if blocks { "4 KiB record blocks cached" } else { "128 B records" }),
+            open_bytes: 32 + pil_len + if cached_slots { table_len } else { 0 }, reqs: vec![], bytes: vec![], cpu_us: vec![],
+        };
+        for names in &names {
+            let r = Remote { f: &hashed, reqs: Cell::new(0), bytes: Cell::new(0) };
+            let cache = RefCell::new(Cache::new(CACHE_BYTES));
+            let t = Instant::now();
+            for name in names {
+                let k = name.as_bytes();
+                let sl = ptrhash::slot(&params, pilots, ptrhash::hash(k, params.seed)) as usize;
+                let off = if cached_slots { rd32(&h[32 + pil_len..], 4 * sl) } else { rd32(r.read(table_off + 4 * sl, 4), 0) } as usize;
+                let at = cd_off + off;
+                let ok = if blocks {
+                    let b = at & !(BLOCK - 1);
+                    let first = scan(&r.cached(&cache, b, BLOCK)[at - b..], k);
+                    // a record that crosses the block's end continues in the next one
+                    first || { let nb = r.cached(&cache, b + BLOCK, BLOCK); let mut v = r.f[at..b + BLOCK].to_vec(); v.extend_from_slice(&nb[..REC_READ.min(nb.len())]); scan(&v, k) }
+                } else {
+                    scan(r.read(at, REC_READ), k)
+                };
+                assert!(ok, "record found");
+            }
+            let el = t.elapsed();
+            let (q, b) = r.reset();
+            let c = names.len() as f64;
+            row.reqs.push(q as f64 / c); row.bytes.push(b as f64 / c); row.cpu_us.push(el.as_secs_f64() * 1e6 / c);
         }
-        let el = t.elapsed();
-        let (q, b) = r.reset();
-        let l = lookups as f64;
-        rows.push(Row {
-            name: format!("hash, slot table {}", if cached { "cached at open" } else { "read per lookup" }),
-            open_bytes: 32 + pil_len + if cached { table_len } else { 0 },
-            reqs: q as f64 / l, bytes: b as f64 / l, cpu_us: el.as_secs_f64() * 1e6 / l,
-        });
+        rows.push(row);
     }
+    drop(hashed);
 
-    // ---- page side
+    // ---- page side: pages cached by (offset, length)
     for page_size in [4096u64, 16384, 65536] {
         let mut a = Writer::new(Vec::new(), Options { mirror_refs: true, page_size: Some(page_size) }); fill(&mut a);
         let paged = a.close().unwrap();
@@ -137,30 +192,38 @@ fn main() {
         assert_eq!(ir.3, 8);
         flate2::read::DeflateDecoder::new(&paged[ir.1..ir.1 + ir.2]).read_to_end(&mut raw).unwrap();
         let pages: Vec<Page> = decode_cd_index(&raw).unwrap().pages;
-        let r = Remote { f: &paged, reqs: Cell::new(0), bytes: Cell::new(0) };
-        let t = Instant::now();
-        for name in &names {
-            let k = name.as_bytes();
-            let pi = pages.partition_point(|p| p.first_key.as_bytes() <= k).saturating_sub(1);
-            let pg = &pages[pi];
-            assert!(scan(r.read(cd_off + pg.offset as usize, pg.length as usize), k), "key in its page");
+        let mut row = Row { name: format!("paged, {} KiB pages, cached", page_size / 1024), open_bytes: ir.2, reqs: vec![], bytes: vec![], cpu_us: vec![] };
+        for names in &names {
+            let r = Remote { f: &paged, reqs: Cell::new(0), bytes: Cell::new(0) };
+            let cache = RefCell::new(Cache::new(CACHE_BYTES));
+            let t = Instant::now();
+            for name in names {
+                let k = name.as_bytes();
+                let pi = pages.partition_point(|p| p.first_key.as_bytes() <= k).saturating_sub(1);
+                let pg = &pages[pi];
+                assert!(scan(r.cached(&cache, cd_off + pg.offset as usize, pg.length as usize), k), "key in its page");
+            }
+            let el = t.elapsed();
+            let (q, b) = r.reset();
+            let c = names.len() as f64;
+            row.reqs.push(q as f64 / c); row.bytes.push(b as f64 / c); row.cpu_us.push(el.as_secs_f64() * 1e6 / c);
         }
-        let el = t.elapsed();
-        let (q, b) = r.reset();
-        let l = lookups as f64;
-        rows.push(Row { name: format!("paged, {} KiB pages", page_size / 1024), open_bytes: ir.2, reqs: q as f64 / l, bytes: b as f64 / l, cpu_us: el.as_secs_f64() * 1e6 / l });
+        rows.push(row);
     }
 
-    println!("n={n} keys, {lookups} random lookups (CPU measured; network modelled)\n");
-    println!("{:<34} {:>11} {:>5} {:>9} {:>8}", "", "open bytes", "reqs", "B/lookup", "CPU µs");
-    for r in &rows {
-        println!("{:<34} {:>11} {:>5.2} {:>9.0} {:>8.2}", r.name, r.open_bytes, r.reqs, r.bytes, r.cpu_us);
-    }
-    for (rtt_ms, bw_mb, label) in [(0.5, 1000.0, "same-region, fast (0.5 ms, 1 GB/s)"), (10.0, 100.0, "object store (10 ms, 100 MB/s)"), (50.0, 100.0, "far/slow (50 ms, 100 MB/s)"), (10.0, 10.0, "object store, thin link (10 ms, 10 MB/s)")] {
-        println!("\n{label}: ms per lookup");
+    println!("n={n} keys, {} lookups per workload, {} MiB cache (CPU measured; network modelled)", lookups, CACHE_BYTES >> 20);
+    for (w, (wname, _)) in workloads.iter().enumerate() {
+        println!("\n== {wname}");
+        println!("{:<52} {:>11} {:>6} {:>9} {:>8}", "", "open bytes", "reqs", "B/lookup", "CPU µs");
         for r in &rows {
-            let ms = r.cpu_us / 1e3 + r.reqs * rtt_ms + r.bytes / (bw_mb * 1e3);
-            println!("  {:<34} {:>8.3}", r.name, ms);
+            println!("{:<52} {:>11} {:>6.3} {:>9.0} {:>8.2}", r.name, r.open_bytes, r.reqs[w], r.bytes[w], r.cpu_us[w]);
+        }
+        for (rtt_ms, bw_mb, label) in [(0.5, 1000.0, "0.5 ms, 1 GB/s"), (10.0, 100.0, "10 ms, 100 MB/s"), (10.0, 10.0, "10 ms, 10 MB/s")] {
+            println!("  ms per lookup at {label}:");
+            for r in &rows {
+                println!("    {:<50} {:>8.3}", r.name, r.cpu_us[w] / 1e3 + r.reqs[w] * rtt_ms + r.bytes[w] / (bw_mb * 1e3));
+            }
         }
     }
+    let _ = nw;
 }
