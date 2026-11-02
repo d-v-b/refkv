@@ -60,6 +60,7 @@ from refkv.bounds import (
     KeyRange,
     Prefix,
     ancestors,
+    ancestors_from_root,
     chunk_key,
     node_type,
     nodes,
@@ -403,13 +404,23 @@ def _unconsolidated(key: str, value: Value) -> Value | None:
         raise ValueError(f"{key!r} is held as a reference, so its consolidated metadata, which the "  # noqa: TRY004
                          "result would make stale, cannot be dropped; hold Zarr documents as bytes")
     doc = _load(value)
-    if doc is None and b'"consolidated_metadata"' in value:
+    if doc is None and _listed(value):
         raise ValueError(f"{key!r} is not strict JSON (malformed, with a byte order mark or a key "
                          "twice, or nested too deep), so its consolidated metadata cannot be dropped")
     if not isinstance(doc, dict) or doc.get("consolidated_metadata") is None:
         return value
     del doc["consolidated_metadata"]
     return _dump(doc).encode()
+
+
+def _listed(value: bytes) -> bool:
+    """Whether a reader as lenient as zarr-python's (any of UTF-8, 16 or 32, a byte order
+    mark, keys twice, escaped names) would find a `consolidated_metadata` listing in `value`."""
+    try:
+        doc = json.loads(value)
+    except (ValueError, RecursionError):
+        return b"consolidated_metadata" in value  # can't tell: take a mention as one
+    return isinstance(doc, dict) and doc.get("consolidated_metadata") is not None
 
 
 def _dump(doc: object) -> str:
@@ -778,9 +789,9 @@ def _undefault(options: Options) -> None:
 
 
 def _layout(rank: int, encoding: str, sep: str) -> tuple[int, str, str]:
-    """What tells chunk keys apart: rank, encoding, and the separator, except for a v2 key of
-    at most one axis, which has no separator in it."""
-    return (rank, encoding, "" if encoding == "v2" and rank <= 1 else sep)
+    """What tells chunk keys apart: rank, encoding, and the separator, except for a key with
+    no separator in it: one of no axes (`c`, `0`), or a v2 key of one axis."""
+    return (rank, encoding, "" if rank == 0 or (encoding == "v2" and rank == 1) else sep)
 
 
 def _check_boxes(stores: Sequence[ReferenceStore]) -> None:
@@ -1113,7 +1124,7 @@ def normalize(store: ReferenceStore, **options: Unpack[Options]) -> ReferenceSto
 
     def array_above(path: str) -> str | None:
         """The outermost array strictly above `path`, which owns it."""
-        return next((a for a in reversed(ancestors(path)) if a in arrays), None)
+        return next((a for a in ancestors_from_root(path) if a in arrays), None)
 
     # the paths with a v2 node document that normalize keeps: a v2 array's where no v3
     # document marks the path, a v2 group's where none or a v3 group does

@@ -28,7 +28,7 @@ from __future__ import annotations
 import json
 import operator
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from typing import Literal, SupportsIndex, cast
 
@@ -37,6 +37,7 @@ from refkv.vzip.names import RESERVED_PREFIX
 __all__ = ["Bound", "ChunkBox", "Key", "KeyRange", "Prefix", "chunk_key", "derive", "parse_chunk_key"]
 
 _INDEX = re.compile(r"0|[1-9][0-9]*")
+_DIGITS = 4000  # longer indexes are past what Python converts to int, and past any array
 
 
 def _check_path(path: str, what: str) -> None:
@@ -187,7 +188,7 @@ def parse_chunk_key(key: str, array: str, rank: int, encoding: str = "default",
         if rank == 0:
             return () if rest == "0" else None
         parts = rest.split(separator)
-    if len(parts) != rank or not all(_INDEX.fullmatch(p) for p in parts):
+    if len(parts) != rank or not all(len(p) <= _DIGITS and _INDEX.fullmatch(p) for p in parts):
         return None
     return tuple(int(p) for p in parts)
 
@@ -254,13 +255,26 @@ def derive(mapping: Mapping[str, object]) -> tuple[Bound, ...]:
     return tuple(out)
 
 
-def ancestors(key: str) -> list[str]:
-    """The node paths above `key`, nearest first: `a/b/c` gives `a/b`, `a`, then ``."""
-    out = []
-    while key:
-        key = key.rpartition("/")[0]
-        out.append(key)
-    return out
+def ancestors(key: str) -> Iterator[str]:
+    """The node paths above `key`, nearest first: `a/b/c` gives `a/b`, `a`, then ``. One at a
+    time, so a deep key costs memory for one path, not for all of them."""
+    end = len(key)
+    while end > 0:
+        end = key.rfind("/", 0, end)
+        if end < 0:
+            yield ""
+            return
+        yield key[:end]
+
+
+def ancestors_from_root(key: str) -> Iterator[str]:
+    """`ancestors(key)`, the root first."""
+    if key:
+        yield ""
+    start = 0
+    while (end := key.find("/", start)) >= 0:
+        yield key[:end]
+        start = end + 1
 
 
 def _under(key: str, paths: set[str]) -> bool:

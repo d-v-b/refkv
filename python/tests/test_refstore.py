@@ -605,6 +605,7 @@ def test_a_base_directory_keeps_its_trailing_slash(tmp_path):
     (tmp_path / "run1").mkdir()
     (tmp_path / "x.bin").write_bytes(b"WRONG")
     (tmp_path / "run1" / "x.bin").write_bytes(b"RIGHT")
-    store = refkv.ReferenceStore({"k": Range(source=0, length=5)}, [Source(url="x.bin")], url=f"{tmp_path}/run1/")
-    assert store.url.endswith("/run1/")
-    assert store.get("k") == b"RIGHT"
+    for base in (f"{tmp_path}/run1/", f"{tmp_path}/run1/.", f"{tmp_path}/run1/sub/.."):
+        store = refkv.ReferenceStore({"k": Range(source=0, length=5)}, [Source(url="x.bin")], url=base)
+        assert store.url.endswith("/run1/")
+        assert store.get("k") == b"RIGHT"

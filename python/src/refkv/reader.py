@@ -934,10 +934,12 @@ class ReferenceReader:
         if is_url(url):
             self.url = url
         else:
-            # a directory written with its trailing separator stays a directory: its relative
-            # sources resolve inside it, not beside it
+            # a directory written as one (a trailing separator, or a last `.` or `..`) stays
+            # a directory: its relative sources resolve inside it, not beside it
             base = file_uri(url)
-            self.url = base + "/" if url.endswith(("/", os.sep)) and not base.endswith("/") else base
+            last = url.replace(os.sep, "/").rpartition("/")[2]  # not Path(url).name, which drops a `.`
+            directory = url.endswith(("/", os.sep)) or last in (".", "..")
+            self.url = base + "/" if directory and not base.endswith("/") else base
         self.resolver = _resolver(registry)
         self.stats = stats or Stats()
         self.max_concurrency = max_concurrency

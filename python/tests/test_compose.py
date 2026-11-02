@@ -823,3 +823,26 @@ def test_a_v2_box_of_one_axis_matches_either_separator():
     s = ReferenceStore({"a/.zarray": zarray, "a/1": b"x", "a/2": b"y"})
     blank = ReferenceStore({}, bounds=[ChunkBox("a", (1,), (2,), "v2")])
     assert set(overlay(s, blank).mapping) == {"a/.zarray", "a/2"}
+
+
+def test_lenient_listings_deep_keys_rank_zero_boxes_and_huge_indexes():
+    # a listing a lenient reader would find, in a document that is not strict JSON, is refused
+    listed = json.dumps({"zarr_format": 3, "node_type": "group", "attributes": {},
+                         "consolidated_metadata": {"kind": "inline", "metadata": {}}})
+    with pytest.raises(ValueError, match="not strict JSON"):
+        overlay(ReferenceStore({"zarr.json": listed.encode("utf-16")}))
+    escaped = listed.replace('"consolidated_metadata"', '"consolidated_\\u006detadata"').encode()
+    assert "consolidated" not in document(overlay(ReferenceStore({"zarr.json": escaped})), "zarr.json")
+    # a deep key costs memory for one path at a time
+    deep = ReferenceStore({"a/" * 20000 + "x": b"x", "zarr.json": GROUP})
+    assert len(deep.bounds) == 2
+    # a rank-0 box matches whatever the array's separator
+    scalar = json.dumps({"zarr_format": 3, "node_type": "array", "shape": [], "data_type": "uint8",
+                         "chunk_grid": {"name": "regular", "configuration": {"chunk_shape": []}},
+                         "chunk_key_encoding": {"name": "default", "configuration": {"separator": "."}},
+                         "fill_value": 0, "codecs": [{"name": "bytes"}]}).encode()
+    s = ReferenceStore({"a/zarr.json": scalar, "a/c": b"\x07"})
+    assert "a/c" not in overlay(s, ReferenceStore({}, bounds=[ChunkBox("a", (), ())])).mapping
+    # an index too long to be a chunk's is no chunk key
+    junk = ReferenceStore({"a/c/0": b"x", "a/c/" + "1" * 5000: b"junk"})
+    assert "a/c/0" not in overlay(junk, ReferenceStore({}, bounds=[ChunkBox("a", (0,), (1,))])).mapping
