@@ -153,11 +153,17 @@ pub struct Limits {
     /// read at open: blocks of this many bytes from the start of the section, by default 4 KiB (512
     /// slots), the size of a vzip page. 8 or less reads only the lookup's own slot, and keeps nothing.
     pub slot_block: u64,
+    /// the bytes of RECORDS read at once, and kept for later lookups, when a lookup reads a record
+    /// whose slot gives its length: blocks of this many bytes from the start of the section, which
+    /// serve the records of neighbouring keys (records are stored in key order). 0, the default,
+    /// reads each record by itself and keeps nothing. A record that crosses a block's end, or is
+    /// longer than a block, is read by itself. The blocks kept are bounded by `RECORD_BLOCK_CACHE`.
+    pub record_block: u64,
 }
 
 impl Default for Limits {
     fn default() -> Limits {
-        Limits { sources: 1 << 22, url_reads: 1024, open_bytes: 256 << 20, request_bytes: 1 << 32, record_read: DEFAULT_RECORD_READ, tail: DEFAULT_TAIL, slots_at_open: 0, slot_block: DEFAULT_SLOT_BLOCK }
+        Limits { sources: 1 << 22, url_reads: 1024, open_bytes: 256 << 20, request_bytes: 1 << 32, record_read: DEFAULT_RECORD_READ, tail: DEFAULT_TAIL, slots_at_open: 0, slot_block: DEFAULT_SLOT_BLOCK, record_block: 0 }
     }
 }
 
@@ -222,6 +228,8 @@ pub struct Store<R: ReadAt> {
     slots_buf: Option<Vec<u8>>,
     /// the blocks of SLOTS read so far, by index, when the section is read in blocks
     slot_blocks: Mutex<HashMap<u64, Vec<u8>>>,
+    /// the blocks of RECORDS read so far, by index, and their total size (`Limits::record_block`)
+    record_blocks: Mutex<(u64, HashMap<u64, Vec<u8>>)>,
     hash: Option<(Params, Vec<u8>)>,
     pages: Vec<Page>,
     property_entries: Vec<DirEntry>,
@@ -230,6 +238,10 @@ pub struct Store<R: ReadAt> {
 
 /// How many bytes of SLOTS a lookup reads at once, by default (`Limits::slot_block`).
 pub const DEFAULT_SLOT_BLOCK: u64 = 4096;
+
+/// The most bytes of RECORDS blocks (`Limits::record_block`) a store keeps: when a block would take
+/// it past this, the blocks kept are dropped first.
+pub const RECORD_BLOCK_CACHE: u64 = 64 << 20;
 
 /// How many bytes of the end of the file a reader reads first, by default: 512 KiB and a
 /// superblock, which holds the perfect hash and page index of about 10^6 keys.
@@ -458,7 +470,7 @@ impl<R: ReadAt> Store<R> {
             hash = Some((params, pilots));
             pages = format::decode_pages(&whole(&one[section::PAGES as usize].unwrap())?, records.0, records.1).map_err(|m| archive(format!("PAGES: {m}")))?;
         }
-        Ok(Store { r, file_size, sb, limits, sources, revision, metadata, records, slots, slots_buf, slot_blocks: Mutex::new(slot_blocks), hash, pages, property_entries, properties: OnceLock::new() })
+        Ok(Store { r, file_size, sb, limits, sources, revision, metadata, records, slots, slots_buf, slot_blocks: Mutex::new(slot_blocks), record_blocks: Mutex::new((0, HashMap::new())), hash, pages, property_entries, properties: OnceLock::new() })
     }
 
     /// The store's file.
@@ -505,6 +517,32 @@ impl<R: ReadAt> Store<R> {
         Ok(b)
     }
 
+    /// The `n` bytes at `off` in RECORDS, from a block of RECORDS kept for the records around them
+    /// when `Limits::record_block` says to read in blocks and the bytes lie within one block.
+    fn record_bytes(&self, off: u64, n: u64) -> Result<Vec<u8>, ReadError> {
+        let (start, end) = self.records;
+        let block = self.limits.record_block;
+        if block == 0 || n > block {
+            return self.read(off, n, Class::Entry);
+        }
+        let (i, at) = ((off - start) / block, (off - start) % block);
+        if at + n > block {
+            // across the end of its block: read by itself
+            return self.read(off, n, Class::Entry);
+        }
+        let mut kept = self.record_blocks.lock().unwrap_or_else(|e| e.into_inner());
+        if !kept.1.contains_key(&i) {
+            let from = start + i * block;
+            let b = self.read(from, block.min(end - from), Class::Entry)?;
+            if kept.0 + b.len() as u64 > RECORD_BLOCK_CACHE {
+                *kept = (0, HashMap::new());
+            }
+            kept.0 += b.len() as u64;
+            kept.1.insert(i, b);
+        }
+        Ok(kept.1[&i][at as usize..(at + n) as usize].to_vec())
+    }
+
     /// The record at `off` in RECORDS: an entry error if it is outside or malformed.
     /// `length`, if the slot gives it, is the record's length: the record is read in one read of
     /// exactly that many bytes.
@@ -517,7 +555,7 @@ impl<R: ReadAt> Store<R> {
             if n > end - off {
                 return err(Class::Entry, format!("the record at {off} of {n} bytes extends past the end of RECORDS"));
             }
-            let b = self.read(off, n, Class::Entry)?;
+            let b = self.record_bytes(off, n)?;
             return match format::parse_record(&b, self.sb.hybrid()).map_err(|m| ReadError { class: Class::Entry, message: format!("record at {off}: {m}") })? {
                 Parsed::Whole(rec, len) if len as u64 == n => Ok(rec),
                 _ => err(Class::Entry, format!("the record at {off} is not the {n} bytes its slot gives")),

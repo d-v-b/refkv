@@ -616,3 +616,27 @@ fn list_is_sorted_and_complete_across_pages() {
         }
     }
 }
+
+#[test]
+fn record_blocks_serve_neighbouring_records_with_the_same_values() {
+    // 3,000 small records, stored in key order: 100 neighbours fall in a few 4 KiB blocks of RECORDS
+    let b = write(Options::default(), |w| {
+        for i in 0..3000 {
+            w.add_bytes(&format!("k/{i:04}"), &[i as u8; 20]).unwrap();
+        }
+    });
+    let reads_for = |record_block: u64| {
+        let limits = refkv_phkv::Limits { record_block, ..Default::default() };
+        let s = Store::open_with(Logging(b.clone(), Default::default()), limits).unwrap();
+        s.reader().1.borrow_mut().clear();
+        for i in 0..3000 {
+            assert_eq!(whole_in(&s, &format!("k/{i:04}")).unwrap(), vec![i as u8; 20], "record_block {record_block}");
+        }
+        assert!(whole_in(&s, "k/9999").is_none());
+        let n = s.reader().1.borrow().len();
+        n
+    };
+    let (alone, blocks) = (reads_for(0), reads_for(4096));
+    // alone: a read per record (and the slot blocks); in blocks: a read per 4 KiB of RECORDS instead
+    assert!(blocks * 3 < alone, "{blocks} reads in blocks against {alone} alone");
+}
