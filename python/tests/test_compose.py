@@ -660,6 +660,13 @@ def test_mount_keeps_derived_bounds_derived_and_normalize_is_idempotent():
         map_keys(ReferenceStore({"secret": b"x"}, bounds=[Key("public")]), lambda _: "public")
 
 
+def test_a_later_store_may_replace_a_zarr_document_held_as_a_reference():
+    held = ReferenceStore({"zarr.json": Range(source=0, length=10)}, [Source(url="https://h.test/zarr.json")],
+                          url="https://h.test/")
+    header = ReferenceStore({"zarr.json": GROUP}, bounds=[Key("zarr.json")])
+    assert overlay(held, header).mapping["zarr.json"] == GROUP
+
+
 def test_combining_refuses_a_zarr_document_held_as_a_reference():
     s = ReferenceStore({"zarr.json": Range(source=0, length=10)}, [Source(url="https://h.test/zarr.json")],
                        url="https://h.test/")

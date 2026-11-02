@@ -600,8 +600,6 @@ def _combine(stores: Sequence[ReferenceStore], agree: bool, options: Options) ->
         for key, held in store.mapping.items():
             if key.startswith(RESERVED_PREFIX) or (own is not None and not own.contains(key)):
                 continue
-            kept = _unconsolidated(key, held)
-            mine.append((key, held, kept))
             if agree:
                 which = covering.get(key)
                 if which is None:
@@ -609,6 +607,13 @@ def _combine(stores: Sequence[ReferenceStore], agree: bool, options: Options) ->
                 owner = max(which)
             else:
                 owner = cover.owner(key)
+            # only the value the result keeps is rewritten (and may be refused); another
+            # store's is compared as it is, `_form` reading a document without its listing
+            if owner == i:
+                kept = _unconsolidated(key, held)
+            else:
+                kept = None if key.rpartition("/")[2] == ".zmetadata" else held
+            mine.append((key, held, kept))
             if kept is not None and owner == i:
                 wins.add(key)
         answers.append(mine)
@@ -783,7 +788,8 @@ def map_keys(store: ReferenceStore, f: Callable[[str], str | None], *,
     the reserved prefix) are kept as they are. Consolidated metadata is dropped, as the
     renamed keys may no longer match it. The result's bounds are `bounds`; else, for a
     store whose bounds are derived, derived again from its keys; else the store's stated
-    `Key` bounds renamed with `f`.
+    `Key` bounds renamed with `f`. A combination's result states its operands' bounds:
+    rename it with `bounds=`, or after `.with_bounds(None)` to derive them again.
 
     Raises ValueError when two keys are renamed to one, when a key is renamed into, or out
     of, the reserved prefix, when a value uses a key source whose key is dropped or

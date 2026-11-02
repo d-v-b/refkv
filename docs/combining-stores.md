@@ -61,7 +61,9 @@ All of them return a new store.
 - **`map_keys(store, f)`.** Renames each key to `f(key)`, or drops it where `f`
   returns None. Derived bounds are derived again, and stated `Key` bounds are
   renamed. A function on keys can't move a range, prefix or box, so a store that
-  states one needs `bounds=`.
+  states one needs `bounds=`. A combination's result states its operands' bounds,
+  so to rename one, pass `bounds=`, or call `.with_bounds(None)` to derive them
+  again from its keys.
 - **`normalize(store)`.** Makes the store a valid hierarchy:
   - an array owns everything below it;
   - any other key not under an array is dropped: a chunk left under a group by an
@@ -141,8 +143,9 @@ without_plane_5 = overlay(stack, blank)
   an existing axis must fall on whole chunks, because Zarr's regular chunk grid
   allows no partial chunk in the middle.
 - **Zarr documents as bytes.** A combination drops consolidated metadata from each
-  `zarr.json`, so it must be able to read one. It refuses a `zarr.json` held as a
-  reference to another file's bytes.
+  `zarr.json` it keeps, so it must be able to read one. It refuses to keep a
+  `zarr.json` held as a reference to another file's bytes, though a later store
+  may replace it.
 - **Only in-memory stores.** The operators take `ReferenceStore`s.
   `refkv.open(path)` returns an archive reader, which they do not take yet.
 
