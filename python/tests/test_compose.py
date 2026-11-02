@@ -690,6 +690,8 @@ def test_union_agrees_on_values_that_read_the_same_bytes():
         (ReferenceStore({"k": b"abc"}), ReferenceStore({"k": Range(source=0, offset=1, length=3)},
                                                        [Source(data=b"xabcx")])),
     ]
+    pairs.append((ReferenceStore({"k": b"abc"}), ReferenceStore(
+        {"k": Concat((Range(data=b"abc"), Range(source=0, offset=0, length=0, crc32c=5)))}, [Source(data=b"x")])))
     attrs = b'{"a": 1}'
     pairs.append((ReferenceStore({"g/.zattrs": attrs}), ReferenceStore({"g/.zattrs": Range(data=b'{ "a" : 1 }')})))
     for a, b in pairs:  # each pair unites in either order (the second pair's URL is not read)

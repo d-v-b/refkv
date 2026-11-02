@@ -455,6 +455,8 @@ def _reads(value: Value, identity: Callable[[int], object]) -> tuple[tuple[str, 
             seg: tuple[str, object, int, int, int | None] = ("data", r, 0, 0, None)
         elif r.data is not None:
             seg = ("data", r.data, 0, 0, None)
+        elif not r.length:
+            continue  # a zero-length range is never resolved, nor its checksum checked
         else:
             source = identity(r.source)
             held = (source.data if isinstance(source, Source) else
@@ -465,7 +467,7 @@ def _reads(value: Value, identity: Callable[[int], object]) -> tuple[tuple[str, 
             else:
                 seg = ("range", source, r.offset, r.length, r.crc32c)
         kind, what, offset, length, crc = seg
-        if (kind == "data" and not what) or (kind == "range" and not length and crc is None):
+        if kind == "data" and not what:
             continue  # reads nothing
         last = out[-1] if out else None
         if last is not None and last[0] == kind == "data":
