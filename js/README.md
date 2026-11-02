@@ -98,6 +98,30 @@ publishes it, with the Neuroglancer build, to its own directory of the demo
 site (the `gh-pages` branch of `d-v-b/refkv-demo`, which hosts each refkv demo
 in a directory and lists them at https://d-v-b.github.io/refkv-demo/).
 
+### The phkv variant
+
+`REFKV_FORMAT=phkv node build.mjs` builds the same demo into `dist-phkv/`, with a service worker
+that writes the archives it zarrifies as standalone [phkv](../spec/bindings/phkv.md) stores (the
+draft perfect-hash binding) instead of vzip archives, and a page whose text says so.
+`REFKV_FORMAT=phkv demo/pages.sh phkv-image-to-zarr [remote url]` publishes it to a directory of its
+own beside the vzip demo. Its worker's saved archives are kept under their own cache prefix
+(`refkv-phkv-archives-`), since the workers of one origin share Cache Storage.
+
+The format is in `src/phkv.ts` (a writer, and `PhkvArchive`, a reader that finds a key through the
+perfect hash in one hop, in `src/ptrhash.ts` and `src/xxh64.ts`), a TypeScript port of
+`rust/refkv-phkv`, which reads what it writes and which it reads. `openArchive` opens whichever of
+a phkv store and a vzip archive its bytes are, so the `archive/` route of the worker serves both by
+URL. What it does not do yet:
+
+- **Zstandard.** It reads codecs 0 (none) and 1 (DEFLATE), and writes codec 0. Rust's writer
+  defaults to Zstandard for its sections, so a store written by `vzip convert --format phkv` does
+  not open here yet (it is refused with an archive error that names the codec).
+- **The hybrid profile**, and PROPERTY sections (skipped).
+- **Neuroglancer links to share.** The fork's `vzip:` adapter reads vzip archives, so a phkv store
+  has no link that opens in any deployment: the demo's link for one is the worker's, which opens
+  only on its origin. Python's `refkv` does not read phkv stores either, so the demo shows no Python
+  script for a `.phkv` input.
+
 ## What is supported
 
 The rules are [spec/zarrify.md](../spec/zarrify.md)'s profiles, one per

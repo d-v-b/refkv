@@ -12,6 +12,11 @@
 // $NEUROGLANCER, by default a clone next to this repository (../neuroglancer),
 // as serve.mjs and pages.sh read the fork. Without them the map page cannot
 // decode bands, and the demo cannot sample contrast from such chunks.
+//
+// REFKV_FORMAT=phkv builds the phkv variant of the demo into dist-phkv/: the same page and worker,
+// but the worker writes the archives it zarrifies as standalone phkv stores
+// (spec/bindings/phkv.md) rather than vzip archives, and the page's text says so. The default,
+// `vzip`, builds dist/.
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -20,7 +25,12 @@ import * as esbuild from "esbuild";
 
 const here = path.dirname(new URL(import.meta.url).pathname);
 
-const dist = path.join(here, "dist");
+const format = process.env.REFKV_FORMAT ?? "vzip";
+if (format !== "vzip" && format !== "phkv") {
+  console.error(`REFKV_FORMAT=${format}: expected vzip or phkv`);
+  process.exit(1);
+}
+const dist = path.join(here, format === "vzip" ? "dist" : `dist-${format}`);
 const wasm = process.env.REFKV_IR_WASM || path.join(here, "../rust/refkv-ir/target/web/refkv_ir.wasm");
 if (!fs.existsSync(wasm)) {
   console.error(`${wasm} is missing: build it with \`just js::wasm\``);
@@ -64,6 +74,7 @@ const common = {
     __REFKV_PROFILES__: JSON.stringify(registry),
     __REFKV_RELEASE__: JSON.stringify(release),
     __REFKV_BUILD__: JSON.stringify(workerBuild),
+    __REFKV_FORMAT__: JSON.stringify(format),
   },
 };
 const build = (entry, outfile, options = {}) =>
@@ -111,6 +122,7 @@ for (const [name, text] of Object.entries(blocks)) {
   if (!marker.test(page)) throw new Error(`demo/index.html has no block ${name}`);
   page = page.replace(marker, () => text);
 }
+if (format === "phkv") page = phkvPage(page);
 fs.writeFileSync(path.join(dist, "index.html"), page);
 fs.copyFileSync(path.join(here, "../demo/map/map.html"), path.join(dist, "map.html"));
 fs.copyFileSync(wasm, path.join(dist, "refkv_ir.wasm"));
@@ -120,4 +132,43 @@ for (const decoder of decoders) {
   } else {
     console.warn(`${decoder} is missing: the pages will not decode its codec (set NEUROGLANCER)`);
   }
+}
+
+/**
+ * The demo page for the phkv variant: its text names a phkv store where the page says vzip archive,
+ * and says what a phkv store can and cannot do today. Every substitution must match, so that a
+ * change to demo/index.html that the variant would miss fails the build.
+ */
+function phkvPage(html) {
+  const sub = (re, to) => {
+    if (!re.test(html)) throw new Error(`demo/index.html has no ${re}: update phkvPage in js/build.mjs`);
+    html = html.replace(re, () => to);
+  };
+  sub(/<title>Image files to Zarr in the browser<\/title>/, "<title>Image files to Zarr in the browser (phkv)</title>");
+  sub(
+    /into a vzip archive in the browser and serves it as plain Zarr, opened here in Neuroglancer or on a map\. Host the archive, and its Neuroglancer link opens anywhere\./,
+    "into a phkv store in the browser and serves it as plain Zarr, opened here in Neuroglancer or on a map. " +
+      "The phkv variant of the refkv demo: one file, whose keys a perfect hash finds in one hop.",
+  );
+  sub(/<h1>Image files to Zarr in the browser<\/h1>/, "<h1>Image files to Zarr in the browser, with phkv</h1>");
+  sub(/or a \.vzip archive\. Your browser/, "a .vzip archive or a .phkv store. Your browser");
+  sub(/or a \.vzip archive">/, "a .vzip archive or a .phkv store\">");
+  sub(/Download \.vzip/, "Download .phkv");
+  sub(
+    /<p class="share" id="share-local">[\s\S]*?<\/p>/,
+    `<p class="share" id="share-local">This Neuroglancer link opens only on this site, in a browser where this page
+      has zarrified the file: the page's service worker answers its reads. The store it keeps is a
+      <a href="https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md">phkv</a> store (a draft
+      format): download the .phkv and open its URL here, from a server that allows cross-origin reads (CORS), or read
+      it with refkv's Rust crate. The Neuroglancer fork and refkv's Python package read vzip archives, not phkv stores
+      yet, so there is no link to share. The store refers to the original's bytes by URL, so it stays small, and pins
+      each source's size.</p>`,
+  );
+  sub(/writes a vzip archive in memory/, "writes a phkv store in memory");
+  sub(
+    /That link works only\s+here; download the archive and host it, and the Neuroglancer link to its URL opens in any deployment\s+of the viewer, with no service worker\./,
+    "That link works only here. A phkv store is one file, indexed by a perfect hash, so a reader finds a key in " +
+      "one hop, however many keys it has; this page can open one you host (a .phkv URL).",
+  );
+  return html;
 }
