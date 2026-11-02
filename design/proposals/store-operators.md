@@ -28,20 +28,28 @@ compares them.
   source's new index. Index 0 should go to the most-used source, as
   `from_virtualizarr` does, since it costs nothing on the wire.
 - **Internal sources.** A `Source(key=k)` names an entry of the same store.
-  A rename must rename `k` too, and a union must refuse one whose target is
-  answered by another operand. A key source may name a hidden key (under
+  A rename must rename `k` too. A combination refuses one whose target it
+  takes from another operand, unless that operand holds the same bytes there,
+  since a reference reads bytes. A key source may name a hidden key (under
   the binding's reserved prefix, such as a header many values share); a
-  combination carries it, renamed if another operand's hidden key of that
-  name differs.
+  combination carries it, renamed by its content's digest if another carried
+  hidden key of that name differs.
 - **Consolidated metadata.** A group's `consolidated_metadata` (or a v2
   `.zmetadata`) lists one store's nodes, and a reader trusts it over a
   listing. A combination, a rename and `normalize` drop it; `mount` keeps it,
   since a subtree moved whole is still listed right.
 - **Store properties.** `read_at_open` and `compressed` are the union of the
-  operands', filtered to the keys that survive. `page_size`, `url`,
-  `registry` and `policy` come from the call, or else from the first operand.
-  `info` is empty unless the call gives one, because no operand's summary
-  describes the result.
+  operands', filtered to the keys that survive. `info` is empty unless the
+  call gives one, because no operand's summary describes the result.
+- **What the result may read.** A combination must not let any operand read
+  what its own options refuse. The operands' `policy` and `registry` must
+  agree unless the call gives them. The base URL decides whether `file:`
+  sources may be read (a store opened from a URL may not read local files),
+  so it is chosen so that no operand reads more than it did; a combination
+  raises when no base serves them all, unless the call gives `url=`.
+  Operands with no keys and no sources, such as tombstones, read nothing and
+  take no part in these choices, nor in `page_size` and the request cap,
+  which come from the first operand that does.
 
 ## A union of keys is wrong for Zarr
 
