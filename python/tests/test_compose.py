@@ -314,9 +314,19 @@ def test_combining_drops_consolidated_metadata_and_carries_hidden_headers():
     out = overlay(a, b)
     assert document(out, "zarr.json") == {"zarr_format": 3, "node_type": "group", "attributes": {}}
     assert ".zmetadata" not in out.mapping
-    # union compares what it keeps: root groups that differ only in their listings agree
-    assert document(union(a.with_bounds([Key("zarr.json"), Prefix("x")]),
-                          b.with_bounds([Key("zarr.json"), Prefix("y")])), "zarr.json") == document(out, "zarr.json")
+    # union compares what it keeps: root groups that differ only in their listings and formatting agree,
+    # and a .zmetadata it drops is not compared
+    plain = json.dumps({"zarr_format": 3, "node_type": "group", "attributes": {"unit": "µm"},
+                        "consolidated_metadata": None}, indent=2, ensure_ascii=False).encode()
+    listed = json.dumps({"zarr_format": 3, "node_type": "group", "attributes": {"unit": "µm"},
+                         "consolidated_metadata": {"kind": "inline", "metadata": {"x": {}}}}).encode()
+    c = ReferenceStore({"zarr.json": listed, ".zmetadata": b"{}", "x/zarr.json": array([2], [2])},
+                       bounds=[Key("zarr.json"), Key(".zmetadata"), Prefix("x")])
+    d = ReferenceStore({"zarr.json": plain, "y/zarr.json": array([2], [2])},
+                       bounds=[Key("zarr.json"), Key(".zmetadata"), Prefix("y")])
+    assert document(union(c, d), "zarr.json")["attributes"] == {"unit": "µm"}
+    with pytest.raises(ValueError, match=r"'zarr\.json': stores 0 and 1 hold different values"):
+        union(c, ReferenceStore({"zarr.json": GROUP}))
     assert sorted(zarr.open_group(refkv.zarr.store(out), mode="r").array_keys()) == ["x", "y"]
     assert "consolidated_metadata" in document(mount(a, "m"), "m/zarr.json")
     # hidden keys that key sources name are carried, renamed when two stores' differ

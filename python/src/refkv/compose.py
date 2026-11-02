@@ -205,6 +205,20 @@ def _unconsolidated(key: str, value: Value) -> Value | None:
     return json.dumps(doc, separators=(",", ":")).encode()
 
 
+def _agreement_form(key: str, value: Value) -> object:
+    """What `union` compares of `value`: a `zarr.json` document as parsed JSON without its
+    `consolidated_metadata`, so that formatting and listings don't count; else the value."""
+    if key.rpartition("/")[2] != "zarr.json" or not isinstance(value, bytes):
+        return value
+    try:
+        doc = json.loads(value)
+    except ValueError:
+        return value
+    if isinstance(doc, dict):
+        doc.pop("consolidated_metadata", None)
+    return ("json", doc)
+
+
 def _hidden_names(stores: Sequence[ReferenceStore]) -> tuple[list[dict[str, str]], dict[str, bytes]]:
     """The names, in a combination of `stores`, of the hidden keys their key sources name:
     for each store, {hidden key: name}, and the values by name. A key every store that
@@ -284,7 +298,7 @@ def _combine(stores: Sequence[ReferenceStore], agree: bool, options: Options) ->
     index: dict[Source, int] = {}
     mapping: dict[str, Value] = {}
     origin: dict[str, int] = {}
-    answers: dict[str, tuple[Value | None, set[int], int]] = {}  # for `agree`: value, holders, first holder
+    answers: dict[str, tuple[object, set[int], int]] = {}  # for `agree`: compared form, holders, first holder
     read_at_open: list[str] = []
     compressed: list[str] = []
     internal: list[tuple[int, str]] = []  # (store, key) of each key source a carried value uses
@@ -303,11 +317,12 @@ def _combine(stores: Sequence[ReferenceStore], agree: bool, options: Options) ->
             if key.startswith(RESERVED_PREFIX) or not own.contains(key):
                 continue
             value = _unconsolidated(key, _renumber(held, table))
-            if agree:
+            if agree and value is not None:
                 seen = answers.get(key)
+                form = _agreement_form(key, value)
                 if seen is None:
-                    answers[key] = (value, {i}, i)
-                elif seen[0] != value:
+                    answers[key] = (form, {i}, i)
+                elif seen[0] != form:
                     raise ValueError(f"{key!r}: stores {seen[2]} and {i} hold different values")
                 else:
                     seen[1].add(i)
@@ -358,6 +373,9 @@ def overlay(*stores: ReferenceStore, **options: Unpack[Options]) -> ReferenceSto
 
 def union(*stores: ReferenceStore, **options: Unpack[Options]) -> ReferenceStore:
     """`overlay`, where any two `stores` whose bounds share a key must answer it the same.
+
+    `zarr.json` documents are compared as JSON, without their consolidated metadata, which
+    the result drops; the result keeps the last store's bytes.
 
     Raises ValueError naming the key when two stores hold different values for it, or
     when one holds it and another whose bounds contain it does not. On stores with
