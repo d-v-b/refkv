@@ -296,7 +296,7 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
     ("n5_reject_json_too_deep", "nests more than 256"),
     ("n5_reject_json_empty_object", "invalid JSON"),
     ("n5_reject_reserved_key", "__vz__"),
-    ("n5_reject_no_root_attributes", "not an N5, Zarr v2 or SAFE store"),
+    ("n5_reject_no_root_attributes", "not an N5, Zarr v2, SAFE or safetensors store"),
     ("n5_reject_gzip_level", "gzip level 10"),
     ("n5_reject_zstd_level", "zstd level 2.5"),
     ("n5_reject_objects_collision", "the node refkv_source is where"),

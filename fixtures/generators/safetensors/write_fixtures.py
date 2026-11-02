@@ -173,6 +173,8 @@ def main() -> None:
     # a header past the first read, 64 KiB
     write("st_long_header.safetensors", library({"w": ("F16", values("F16", (4,)))}, {"long": "x" * 70000}))
 
+    stores()
+
     # rejected
     t = '{"a":{"dtype":"F32","shape":[2],"data_offsets":[0,8]}}'
     write("st_reject_short.safetensors", b"\x02\x00\x00\x00\x00")
@@ -196,6 +198,50 @@ def main() -> None:
     write("st_reject_misaligned.safetensors", hand('{"a":{"dtype":"F4","shape":[3],"data_offsets":[0,2]}}', bytes(2)))
     write("st_reject_trailing.safetensors", hand(t, bytes(9)))
     write("st_reject_beyond.safetensors", hand(t, bytes(4)))
+
+
+def put(store: Path, key: str, b: bytes) -> None:
+    (store / key).parent.mkdir(parents=True, exist_ok=True)
+    (store / key).write_bytes(b)
+
+
+def stores() -> None:
+    """Stores of safetensors files (spec/zarrify/safetensors.md §9
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#9-the-store-form>): a
+    model's two shards with their index and configuration and other files, as a Hub repository
+    holds them; and a store of every case the store form records."""
+    model = OUT / "st_store_model"
+    first = {"embed.weight": ("BF16", values("BF16", (8, 4))), "layers.0.w": ("F8_E4M3", values("F8_E4M3", (4, 4), 1)),
+             "layers.0.scale": ("F8_E8M0", values("F8_E8M0", (2, 2), 2))}
+    second = {"layers.1.w": ("I8", values("I8", (4, 2), 3)), "norm": ("F32", values("F32", (4,), 4))}
+    names = {"model-00001-of-00002.safetensors": first, "model-00002-of-00002.safetensors": second}
+    weight_map = {}
+    for file, tensors in names.items():
+        put(model, file, library(tensors))
+        weight_map |= dict.fromkeys(tensors, file)
+    index = {"metadata": {"total_size": 0}, "weight_map": dict(sorted(weight_map.items()))}
+    put(model, "model.safetensors.index.json", json.dumps(index, indent=2).encode())
+    put(model, "config.json", json.dumps({"architectures": ["Tiny"], "quantization_config": {"expert_dtype": "fp4"},
+                                          "hidden_size": 4}, indent=2).encode())
+    put(model, "README.md", b"# A tiny model\n")
+    put(model, "inference/generate.py", b'print("hello")\n')
+    # every case: a nested model and its configuration, a shard with a bad header (not
+    # presented), a shard whose key has a reserved segment, an index that disagrees with its
+    # shards, a configuration that is not JSON, a shard whose header is past the first read, and
+    # an empty object
+    mixed = OUT / "st_store_mixed"
+    conv = {"conv.weight": ("F16", values("F16", (2, 2, 3, 3)))}
+    put(mixed, "unet/diffusion_pytorch_model.safetensors", library(conv))
+    put(mixed, "unet/config.json", b'{"in_channels": 4}')
+    short = '{"a":{"dtype":"F32","shape":[3],"data_offsets":[0,8]}}'
+    put(mixed, "vae/diffusion_pytorch_model.safetensors", hand(short, bytes(8)))
+    put(mixed, "vae/config.json", b'{"latent": ')
+    put(mixed, "__hidden/x.safetensors", library({"x": ("U8", values("U8", (2,)))}))
+    put(mixed, "text/model.safetensors", library({"w": ("F32", values("F32", (2,)))}))
+    disagreeing = {"weight_map": {"w": "model.safetensors", "gone": "other.safetensors"}}
+    put(mixed, "text/model.safetensors.index.json", json.dumps(disagreeing).encode())
+    put(mixed, "long/model.safetensors", library({"w": ("F16", values("F16", (4,)))}, {"long": "x" * 70000}))
+    put(mixed, "empty.txt", b"")
 
 
 if __name__ == "__main__":

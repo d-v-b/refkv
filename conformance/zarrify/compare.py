@@ -668,8 +668,9 @@ def corpus(proxy: Proxy, fixtures: Path, quick: bool, local_only: bool, large: b
               *(["no-ref"] if FILE_SUFFIXES[p.suffix]["reference"] is None
                 or unmutated(p.name) in REVISED else []))
              for p in files]
+    registry = {string(e["name"]): e for e in REGISTRY}
     items += [(f"fixture-{s.name}", proxy.local_store(s.relative_to(fixtures).as_posix()),
-               *(["no-ref"] if unmutated(s.name) in REVISED else []))
+               *(["no-ref"] if registry[s.parent.name]["reference"] is None or unmutated(s.name) in REVISED else []))
               for s in stores]
     # each store profile's largest synthetic store that it does not reject, listed the Hub's way
     # too (spec/zarrify.md §1.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>),

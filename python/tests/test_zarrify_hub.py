@@ -145,9 +145,7 @@ def test_lists_a_hub_store():
                              "model-00001-of-00048.safetensors": 970533624, "encoding/tests/test_input_1.json": 2}
     assert (store.requests, store.listed, store.ignored) == (3, 4, [])
     assert store.read("config.json").startswith(b"{}")
-    # no profile takes a repository of safetensors files (yet)
-    with pytest.raises(Rejected, match=r"not an N5, Zarr v2 or SAFE store"):
-        choose_profile(store)
+    assert choose_profile(store) == "safetensors"
 
 
 def test_lists_a_hub_directory_of_a_dataset():
