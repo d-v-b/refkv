@@ -78,10 +78,13 @@ What it shows, with the defaults:
    (69 MiB, 3.9 s at 10^6 keys, in Python). Paged vzip and phkv do not.
 2. **A hybrid archive read as phkv opens in 4 to 7 requests** (8 to 18 when the superblock was found by
    probing). It is also smaller than before: 158 to 168 B per key, against 172 to 225 B.
-3. **`list` with phkv reads one page per request.** Pages are 4 KiB. For references, 100 keys fit in 1 to 2
-   pages. With 1 KiB values inline, the same 100 keys span 26 pages: 26 requests and about 540 ms at 20 ms,
-   against 4 requests for paged vzip. A writer's larger `page_size` cuts that (below). A hybrid store's
-   records are small, since its values are ZIP entries: 2 requests.
+3. **`list` with phkv reads the pages it needs in one request.** The pages that may hold a prefix are adjacent,
+   so the reader bisects to the first and reads the run as one span, in several only where it would exceed
+   `Limits::request_bytes`. At 10^5 keys over HTTP, 20 ms per request, 100 keys: with references 1 request and
+   21 ms (2 requests, 43 ms before); with 1 KiB values inline 1 request, 107 KiB and 21 ms (26 requests and
+   540 ms before), against 4 requests and about 77 to 83 ms for paged vzip. A hybrid store's records are small, since
+   its values are ZIP entries: 1 request. The tuning table below was measured with the earlier `list`, one
+   request per page, so its `list` column overstates the requests of a small `page_size`.
 4. **Size.** For references, per key: standalone phkv 38 B at 10^3 and 42 B at 10^6; vzip 119 to 125 B;
    hybrid 158 to 168 B. With 1 KiB values the values dominate: phkv is 5% smaller than vzip.
 5. **Languages.** vzip rows are the Python reader and phkv rows the Rust one, so compare requests and bytes;
