@@ -12,6 +12,13 @@ this layout as a reference store, and the subset of HDF5 that it reads, is the H
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `6c006834-424b-451b-b786-f8c502ec32af` ·
 Schema: [schema.json](hdf5/schema.json)
 
+Changed 2026-11-01, with no change to any output: the checks list every rejection and limit,
+among them the datatypes' nesting, the rounds of reads and the references' budget, and say that
+a datatype that does not decode rejects the input, where they said that none did
+([§8.2](#82-reading), [§8.3](#83-checks)).
+
+Added 2026-10-29.
+
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
 # Part 1. The convention
@@ -375,10 +382,10 @@ The profile reads HDF5 by the subset of
 - **Data layouts** of classes 0 (compact) and 1 (contiguous) and 2 (chunked, with any fill
   value) are read for every dataset; class 3 (virtual) and the external data files message
   (type 0x07) are recognized and not read further.
-- **Datatypes** of every class (versions 1 to 5) are decoded whole: a compound's members (in
-  version 1, a member with dimensions rejects the input), an enumeration's members and values,
-  an array's dimensions, a sequence's base; the revised references of version 4 are recognized
-  and not decoded.
+- **Datatypes** of every class (versions 1 to 5) are decoded whole, nested at most 16 levels deep: a
+  compound's members, an enumeration's members and values, an array's dimensions, a sequence's
+  base; the revised references of version 4 are recognized and not decoded. A datatype message
+  that does not decode rejects the input ([§8.3](#83-checks)).
 - **Soft links in symbol tables:** a symbol table entry of cache type 2 is a soft link, its value
   the local heap's NUL-terminated text at the scratch pad's first 4 bytes (its object header
   address is not read).
@@ -399,8 +406,8 @@ reject; then the storage of strings, references and records; then the collection
 
 ### 8.3 Checks
 
-A rule of [§8.2](#82-reading)'s subset that fails for a structure the walk reaches rejects the
-input, the message prefixed with the object's canonical path (`/units/spike_times: chunk [3]
+A zarrifier MUST reject the input when a rule of [§8.2](#82-reading)'s subset fails for a
+structure the walk reaches, the message prefixed with the object's canonical path (`/units/spike_times: chunk [3]
 lies outside the file`): its header, a group's links, its attributes, a dataset's messages and
 chunk index, and the storage of a presented dataset of strings, references or records. Besides:
 
@@ -409,13 +416,35 @@ chunk index, and the storage of a presented dataset of strings, references or re
   (`<path>: element k names no global heap collection`), an object it holds (`… names no object
   of its collection`), whose data is the element's length (`… is n bytes long, its heap object
   m`).
+- **Datatypes:** the datatype message of every dataset and attribute the walk reaches MUST
+  decode: of a class 0 to 10 (`unsupported datatype class n`) and a version 1 to 5
+  (`unsupported datatype message version n`), its fields within the message (`a datatype runs
+  past its message`, `a datatype member's name runs past its message`), its members, bases and
+  elements nested at most 16 levels below it (`datatypes nested too deep`), and no member
+  of a version 1 compound with dimensions (`a compound member with dimensions (datatype
+  version 1)`).
+- **Attributes:** an attribute's data lies within its message (`attribute <name>: its data runs
+  past its message`).
 - **Data:** a contiguous dataset's data lies within the file.
+- **Rounds:** the run reads in rounds, each round the reads that what was read so far calls for,
+  all at once; an input that needs more than 4096 rounds is rejected (`more than 4096 rounds of
+  dependent reads`).
 - **Budgets:** at most 131072 objects (`budget: more than 131072 objects`); no object more than
   64 links deep (`budget: objects more than 64 links deep`); a dataset of strings, references
-  or records of at most 2^26 bytes; at most 2^20 strings presented in all; the mirror's rows
-  ([spec/zarrify.md §1.1](../zarrify.md#11-output-and-equivalence)).
+  or records of at most 2^26 bytes (`budget: a dataset of strings or references of more than
+  67108864 bytes`); at most 2^20 strings presented in all (`budget: more than 1048576
+  strings`); the mirror's rows
+  ([spec/zarrify.md §1.1](../zarrify.md#11-output-and-equivalence)); the references
+  ([spec/zarrify.md §1.2](../zarrify.md#12-input)).
 
-No datatype, filter or layout rejects the input: [§7.4](#74-what-is-not-presented) records them.
+These limits bound what is read without rejecting: the walk reads at most 4096 of the global
+heap collections that one object's attributes name; the mirror describes at most
+`2^21 + floor(size / 8)` elements, as the IMS walk's room
+([ims.md §5.3](ims.md#53-the-walk)), the structures past it its gaps; and a node's attributes
+take at most 2^16 bytes ([§6](#6-attributes), **Budget**).
+
+No datatype that decodes, and no filter or layout, rejects the input: [§7.4](#74-what-is-not-presented)
+records those the profile does not present.
 
 ### 8.4 Chunk references
 

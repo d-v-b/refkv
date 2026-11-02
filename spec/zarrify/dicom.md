@@ -9,16 +9,24 @@ refkv produces this layout as a reference store is the DICOM profile,
 [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `acf17198-e5a5-48d3-8187-22ec4bb40ea5` ·
-Schema: [schema.json](dicom/schema.json) · Changed 2026-10-26, with no change to any output: the
-layout is tabulated, its entries in [Layout](#layout) and its types in type tables
-([conventions §11.5](../conventions.md#115-layout-tables)), among them the datasets as JSON
-([`DicomDataset`](#type-dicomdataset), [`DicomAttribute`](#type-dicomattribute)) and a
-chunk's ranges ([`DicomChunk`](#type-dicomchunk)); and the text says, as refkv already wrote it,
-that `S` always has `meta` and `dataset` ([§5.1](#51-the-root)) · Changed 2026-10-30: the
-JPEG Lossless transfer syntaxes, Process 14 and its selection value 1, are admitted
-([§2.1](#21-transfer-syntax)), their frames chunks of `imagecodecs_ljpeg`
+Schema: [schema.json](dicom/schema.json)
+
+Changed 2026-10-30: the JPEG Lossless transfer syntaxes, Process 14 and its selection value 1,
+are admitted ([§2.1](#21-transfer-syntax)), their frames chunks of `imagecodecs_ljpeg`
 ([§4](#4-output)), each frame's markers up to its first scan read and checked
-([§7.5](#75-frames), **Lossless JPEG**)
+([§7.5](#75-frames), **Lossless JPEG**).
+
+Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
+[Layout](#layout) and its types in type tables
+([conventions §11.5](../conventions.md#115-layout-tables)), among them the datasets as JSON
+([`DicomDataset`](#type-dicomdataset), [`DicomAttribute`](#type-dicomattribute)) and a chunk's
+ranges ([`DicomChunk`](#type-dicomchunk)); and the text says, as refkv already wrote it, that
+`S` always has `meta` and `dataset` ([§5.1](#51-the-root)).
+
+Changes before 2026-10-22 are recorded in
+[the revision log of VIRTUALIZE.md](../history/virtualize/REVISIONS.md), this document's earlier
+name, up to
+[revision 29](../history/virtualize/REVISIONS.md#revision-29-no-recorded-revision-the-profile-registry).
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
@@ -971,7 +979,7 @@ referenced image sequence and shared functional groups
 
 # Part 2. The profile
 
-The DICOM profile of [spec/zarrify.md](../zarrify.md) (revision 16) is [§7](#7-dicom-profile) of this document. What every profile's Part 2 shares is in
+The DICOM profile of [spec/zarrify.md](../zarrify.md) is [§7](#7-dicom-profile) of this document. What every profile's Part 2 shares is in
 [spec/zarrify.md, Profiles](../zarrify.md#profiles).
 
 ## 7. DICOM profile
