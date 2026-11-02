@@ -6,7 +6,9 @@ operators build new stores and change none:
 
 - `overlay(*stores)`: each key from the last store whose bounds contain it, a value or
   absence, as a later layer wins in TensorStore's `stack` and `kvstack`. Associative and
-  idempotent in what it reads, with the empty store as identity; not commutative.
+  idempotent in what it reads, with the empty store as identity; not commutative. A
+  nested call checks its intermediate result, so it may refuse what one flat call, in
+  which a later store hides the offending value, accepts.
 - `union(*stores)`: `overlay`, where stores whose bounds share a key must answer it the
   same (equal values, or both absent). On disjoint bounds it is also commutative: the
   operator for a stack or a mosaic.
@@ -23,7 +25,8 @@ a combination. Its hidden keys (under the binding's reserved prefix) are carried
 a carried value reads one through a key source, renamed by its content if another carried
 one of that name differs. Consolidated metadata (a `zarr.json`'s `consolidated_metadata`,
 a v2 `.zmetadata`) lists the nodes of one store, so `overlay`, `union`, `map_keys` and
-`normalize` drop it. Every result's `info` is empty unless `info=` is given.
+`normalize` (of a store with Zarr nodes) drop it, keeping every other number and string
+of the document as written. Every result's `info` is empty unless `info=` is given.
 
 A stack of same-layout arrays along a new axis, say the planes of a z-stack, is a header
 holding the stack's metadata, bounded to its own keys, and the planes' chunks:
@@ -40,8 +43,10 @@ design, with its reasons.
 
 from __future__ import annotations
 
+import bisect
 import dataclasses
 import hashlib
+import heapq
 import itertools
 import json
 import math
@@ -78,13 +83,12 @@ __all__ = [
 
 Value = bytes | Reference
 
-# A chunk box is indexed in a grid of bins, each at most _BIN chunks wide on an axis (less
-# where the array's boxes are thinner, as a stack's planes are one chunk deep), when it
-# covers at most _MAX_BINS of them; else by the bins of its thinnest axis alone; else it
-# is checked against every chunk key of its array.
-_BIN = 64
-_MAX_BINS = 4096
+# A chunk box is indexed in one grid of a multi-resolution set: the finest level whose
+# cells (2**level chunks wide on every axis) it covers at most _BOX_CELLS of. Each box then
+# takes a few cells, whatever its size, and each cell holds few boxes of its scale.
+_BOX_CELLS = 64
 
+_DOCUMENTS = frozenset({"zarr.json", ".zarray", ".zgroup", ".zattrs"})
 GROUP_V3 = b'{"zarr_format":3,"node_type":"group","attributes":{}}'
 GROUP_V2 = b'{"zarr_format":2}'
 
@@ -126,6 +130,32 @@ class _Intervals:
 
     def __init__(self, items: list[tuple[str, str | None, int]]) -> None:
         self.root = self._build(items)
+        # for `owner`: the key line split at every end, with the greatest number per piece
+        self.points = sorted({s for s, _, _ in items} | {e for _, e, _ in items if e is not None})
+        starts: dict[str, list[tuple[str | None, int]]] = {}
+        for s, e, i in items:
+            starts.setdefault(s, []).append((e, i))
+        self.top: list[int] = []
+        active: Counter[int] = Counter()
+        ends: list[tuple[str, int]] = []  # (end, number), a heap
+        best: list[int] = []  # numbers active, a max-heap (negated), pruned lazily
+        for point in self.points:
+            while ends and ends[0][0] <= point:
+                _, i = heapq.heappop(ends)
+                active[i] -= 1
+            for e, i in starts.get(point, ()):
+                active[i] += 1
+                heapq.heappush(best, -i)
+                if e is not None:
+                    heapq.heappush(ends, (e, i))
+            while best and active[-best[0]] <= 0:
+                heapq.heappop(best)
+            self.top.append(-best[0] if best else -1)
+
+    def owner(self, key: str) -> int:
+        """The greatest number of an interval containing `key`, or -1."""
+        k = bisect.bisect_right(self.points, key) - 1
+        return self.top[k] if k >= 0 else -1
 
     @classmethod
     def _build(cls, items: list[tuple[str, str | None, int]]) -> _Node | None:
@@ -161,41 +191,45 @@ class _Intervals:
 
 @dataclasses.dataclass
 class _Boxes:
-    """The chunk boxes of one array and chunk key encoding, indexed by bins."""
+    """The chunk boxes of one array and chunk key encoding, each in the grid of its level
+    (see `_BOX_CELLS`), each cell's boxes by number, greatest first."""
 
-    bins: tuple[int, ...] = ()
-    grid: dict[tuple[int, ...], list[tuple[ChunkBox, int]]] = dataclasses.field(default_factory=dict)
-    slabs: dict[tuple[int, int], list[tuple[ChunkBox, int]]] = dataclasses.field(default_factory=dict)
-    wide: list[tuple[ChunkBox, int]] = dataclasses.field(default_factory=list)
+    levels: dict[int, dict[tuple[int, ...], list[tuple[ChunkBox, int]]]] = dataclasses.field(default_factory=dict)
 
     @classmethod
-    def of(cls, boxes: list[tuple[ChunkBox, int]], rank: int) -> _Boxes:
-        boxes = [(b, i) for b, i in boxes if all(a < z for a, z in zip(b.start, b.stop, strict=True))]
-        # bins as thin as the array's typical box on each axis, so that one small box does
-        # not make every large one span thousands of bins
-        bins = tuple(max(1, min(_BIN, sorted(b.stop[d] - b.start[d] for b, _ in boxes)[len(boxes) // 2]))
-                     if boxes else 1 for d in range(rank))
-        out = cls(bins)
+    def of(cls, boxes: list[tuple[ChunkBox, int]]) -> _Boxes:
+        out = cls()
         for b, i in boxes:
-            spans = [range(a // n, (z - 1) // n + 1) for a, z, n in zip(b.start, b.stop, bins, strict=True)]
-            if math.prod(len(s) for s in spans) <= _MAX_BINS:
-                for cell in itertools.product(*spans):
-                    out.grid.setdefault(cell, []).append((b, i))
-            elif min(len(s) for s in spans) <= _MAX_BINS:
-                axis = min(range(rank), key=lambda d: len(spans[d]))
-                for x in spans[axis]:
-                    out.slabs.setdefault((axis, x), []).append((b, i))
-            else:
-                out.wide.append((b, i))
+            if any(a >= z for a, z in zip(b.start, b.stop, strict=True)):
+                continue  # an empty box
+            level = 0
+            while math.prod(((z - 1) >> level) - (a >> level) + 1
+                            for a, z in zip(b.start, b.stop, strict=True)) > _BOX_CELLS:
+                level += 1
+            grid = out.levels.setdefault(level, {})
+            spans = [range(a >> level, ((z - 1) >> level) + 1) for a, z in zip(b.start, b.stop, strict=True)]
+            for cell in itertools.product(*spans):
+                grid.setdefault(cell, []).append((b, i))
+        for grid in out.levels.values():
+            for boxes_here in grid.values():
+                boxes_here.sort(key=lambda bi: -bi[1])
         return out
 
     def which(self, c: tuple[int, ...], out: set[int]) -> None:
-        cell = tuple(x // n for x, n in zip(c, self.bins, strict=True))
-        candidates = [self.grid.get(cell, ()), self.wide,
-                      *(self.slabs.get((d, x), ()) for d, x in enumerate(cell))]
-        for b, i in itertools.chain.from_iterable(candidates):
-            if i not in out and all(a <= x < z for x, a, z in zip(c, b.start, b.stop, strict=True)):
-                out.add(i)
+        for level, grid in self.levels.items():
+            for b, i in grid.get(tuple(x >> level for x in c), ()):
+                if i not in out and all(a <= x < z for x, a, z in zip(c, b.start, b.stop, strict=True)):
+                    out.add(i)
+
+    def owner(self, c: tuple[int, ...], best: int) -> int:
+        for level, grid in self.levels.items():
+            for b, i in grid.get(tuple(x >> level for x in c), ()):
+                if i <= best:
+                    break
+                if all(a <= x < z for x, a, z in zip(c, b.start, b.stop, strict=True)):
+                    best = i
+                    break
+        return best
 
 
 class _Cover:
@@ -217,26 +251,39 @@ class _Cover:
                     group = (len(b.start), b.encoding, b.separator)
                     boxes.setdefault(b.array, {}).setdefault(group, []).append((b, i))
         self.ranges = _Intervals(ranges)
-        self.boxes = {array: {g: _Boxes.of(items, g[0]) for g, items in groups.items()}
+        self.boxes = {array: {g: _Boxes.of(items) for g, items in groups.items()}
                       for array, groups in boxes.items()}
+        self.top = {key: max(found) for key, found in self.keys.items()}
 
     def which(self, key: str) -> set[int]:
         out = set(self.keys.get(key, ()))
         if self.ranges.root is not None:
             out |= self.ranges.which(key)
-        if len(self.boxes) <= 8:  # a few arrays: test each, rather than walk the key's ancestors
-            arrays: Iterable[str] = [a for a in self.boxes if not a or key.startswith(a + "/")]
-        else:
-            arrays = ancestors(key)
-        for array in arrays:
+        for array in self._arrays(key):
             for (rank, encoding, sep), group in self.boxes.get(array, {}).items():
                 c = parse_chunk_key(key, array, rank, encoding, sep)
                 if c is not None:
                     group.which(c, out)
         return out
 
+    def _arrays(self, key: str) -> Iterable[str]:
+        if len(self.boxes) <= 8:  # a few arrays: test each, rather than walk the key's ancestors
+            return [a for a in self.boxes if not a or key.startswith(a + "/")]
+        return ancestors(key)
+
+    def owner(self, key: str) -> int:
+        """The greatest number of a set containing `key`, or -1: `max(which(key))`, without
+        finding every set."""
+        best = max(self.top.get(key, -1), self.ranges.owner(key))
+        for array in self._arrays(key):
+            for (rank, encoding, sep), group in self.boxes.get(array, {}).items():
+                c = parse_chunk_key(key, array, rank, encoding, sep)
+                if c is not None:
+                    best = group.owner(c, best)
+        return best
+
     def contains(self, key: str) -> bool:
-        return bool(self.which(key))
+        return self.owner(key) >= 0
 
 
 # ---------------------------------------------------------------- values and sources
@@ -323,33 +370,58 @@ def _unconsolidated(key: str, value: Value) -> Value | None:
         return None
     if name != "zarr.json" or not isinstance(value, bytes):
         return value
-    try:
-        doc = json.loads(value)
-    except (ValueError, RecursionError):
-        return value
+    doc = _load(value)
     if not isinstance(doc, dict) or doc.get("consolidated_metadata") is None:
         return value
     del doc["consolidated_metadata"]
-    return json.dumps(doc, separators=(",", ":"), ensure_ascii=False).encode()
+    return _dump(doc).encode()
+
+
+def _dump(doc: object) -> str:
+    """`doc`, from `_load`, as compact JSON: its keys in their order, its numbers as written,
+    its strings escaped to ASCII (so a lone surrogate is still valid JSON). A stack walks it."""
+    parts: list[str] = []
+    work: list[object] = [doc]
+    while work:
+        x = work.pop()
+        if isinstance(x, _Token):
+            parts.append(x)
+        elif isinstance(x, dict):
+            items: list[object] = [_Token("{")]
+            for n, (k, v) in enumerate(x.items()):
+                items += [_Token("," if n else ""), _Token(json.dumps(k) + ":"), v]
+            work.extend(reversed([*items, _Token("}")]))
+        elif isinstance(x, list):
+            items = [_Token("[")]
+            for n, v in enumerate(x):
+                items += [_Token("," if n else ""), v]
+            work.extend(reversed([*items, _Token("]")]))
+        elif isinstance(x, _Number):
+            parts.append(str(x))
+        else:
+            parts.append(json.dumps(x))
+    return "".join(parts)
 
 
 def _form(key: str, value: Value, identity: Callable[[int], object], *, documents: bool = True) -> object:
     """What `union` compares of a store's `value` at `key`: a reference with each source
     given by `identity` (its absolute URL and pins, or the bytes of a hidden key it names),
-    so that two stores' references compare whatever their tables; with `documents`, a
-    `zarr.json` document as its JSON value without `consolidated_metadata`; else the bytes."""
+    so that two stores' references compare whatever their tables; with `documents`, a Zarr
+    document (`zarr.json`, `.zarray`, `.zgroup`, `.zattrs`) as its JSON value, a `zarr.json`
+    without `consolidated_metadata`; else the bytes."""
     if isinstance(value, Concat):
         return ("concat", tuple(_form(key, r, identity) for r in value.parts))
     if isinstance(value, Range):
         if value.data is not None:
             return ("data", value.data)
         return ("range", identity(value.source), value.offset, value.length, value.crc32c)
-    if not documents or key.rpartition("/")[2] != "zarr.json":
+    name = key.rpartition("/")[2]
+    if not documents or name not in _DOCUMENTS:
         return value
     doc = _load(value)
     if doc is None:
         return value
-    if isinstance(doc, dict):
+    if isinstance(doc, dict) and name == "zarr.json":
         doc.pop("consolidated_metadata", None)
     return ("json", _canonical(doc))
 
@@ -419,15 +491,19 @@ def _has_files(store: ReferenceStore) -> bool:
 def _reach(stores: Sequence[ReferenceStore], options: Options) -> None:
     """Fill in `options`' policy, registry, base URL, page size and request cap for a
     combination of `stores`, so that no store's sources become readable that its own
-    options refuse. Stores with no keys and no sources (tombstones) read nothing and take
-    no part.
+    options refuse. Only the stores with URL sources read anything outside themselves, so
+    only they decide the policy, registry and base URL; the first store with keys or
+    sources gives the page size and request cap.
 
     Raises ValueError when the stores' policies, or registries, differ and `options` sets
     none, and when no base URL serves them all: a remote store's `file:` sources, which a
     remote base refuses, beside a local store's, which need a local one."""
-    stores = [s for s in stores if s.mapping or s.sources] or list(stores)
-    if not stores:
+    present = [s for s in stores if s.mapping or s.sources] or list(stores)
+    if not present:
         return
+    options.setdefault("page_size", present[0].page_size)
+    options.setdefault("max_concurrency", present[0].max_concurrency)
+    stores = [s for s in present if any(src.url is not None for src in s.sources)] or present[:1]
     first = stores[0]
     if "policy" not in options:
         if any(s.policy != first.policy for s in stores):
@@ -439,8 +515,6 @@ def _reach(stores: Sequence[ReferenceStore], options: Options) -> None:
             raise ValueError("the stores have different registries; pass registry= to say "
                              "which the result has")
         options["registry"] = first.resolver
-    options.setdefault("page_size", first.page_size)
-    options.setdefault("max_concurrency", first.max_concurrency)
     if "url" in options:
         return
     local = [s for s in stores if _scheme(s.url) == "file"]
@@ -488,6 +562,7 @@ def _combine(stores: Sequence[ReferenceStore], agree: bool, options: Options) ->
         if not isinstance(s, ReferenceStore):
             raise TypeError(f"the operands are ReferenceStores, not {type(s).__name__}")
     _reach(stores, options)
+    _check_boxes(stores)
     cover = _Cover(enumerate(s.bounds for s in stores))
     absolute = [_absolute(s) for s in stores]
 
@@ -495,7 +570,7 @@ def _combine(stores: Sequence[ReferenceStore], agree: bool, options: Options) ->
     # result would keep (None for a `.zmetadata` it drops), and whether this store answers.
     answers: list[list[tuple[str, Value, Value | None]]] = []
     carried: list[set[str]] = []
-    covering: dict[str, set[int]] = {}  # each key's stores, found once
+    covering: dict[str, set[int]] = {}  # for `agree`: each key's stores, found once
     for i, store in enumerate(stores):
         own = _Cover([(0, store.bounds)]) if store.bounds_stated else None  # derived bounds hold every key
         mine: list[tuple[str, Value, Value | None]] = []
@@ -505,10 +580,14 @@ def _combine(stores: Sequence[ReferenceStore], agree: bool, options: Options) ->
                 continue
             kept = _unconsolidated(key, held)
             mine.append((key, held, kept))
-            which = covering.get(key)
-            if which is None:
-                which = covering[key] = cover.which(key)
-            if kept is not None and max(which) == i:
+            if agree:
+                which = covering.get(key)
+                if which is None:
+                    which = covering[key] = cover.which(key)
+                owner = max(which)
+            else:
+                owner = cover.owner(key)
+            if kept is not None and owner == i:
                 wins.add(key)
         answers.append(mine)
         carried.append(wins)
@@ -526,13 +605,19 @@ def _combine(stores: Sequence[ReferenceStore], agree: bool, options: Options) ->
         named.append(found)
     hidden_names, hidden = _hidden_names(named)
 
-    def identity(i: int) -> Callable[[int], object]:
+    def identity(i: int, *, follow: bool = True) -> Callable[[int], object]:
+        """Each source of store `i` as what it reads: a URL source as itself (absolute), a
+        key source as the value of that key in store `i` (followed one step)."""
         def source(s: int) -> object:
             src = absolute[i][s]
-            if src.key is not None and src.key.startswith(RESERVED_PREFIX):
-                held = stores[i].mapping.get(src.key)
-                return ("hidden", held if isinstance(held, bytes) else src.key)
-            return src
+            if src.key is None:
+                return src
+            held = stores[i].mapping.get(src.key)
+            if held is None or not follow:
+                return ("missing" if held is None else "key", src.key)
+            if isinstance(held, bytes):
+                return ("bytes", held)
+            return ("reference", _form(src.key, held, identity(i, follow=False), documents=False))
         return source
 
     if agree:
@@ -599,6 +684,27 @@ def _combine(stores: Sequence[ReferenceStore], agree: bool, options: Options) ->
     bounds = [b for s in stores for b in s.bounds]
     return _build(mapping, sources, read_at_open=read_at_open, compressed=compressed,
                   bounds=bounds, template=None, options=options)
+
+
+def _check_boxes(stores: Sequence[ReferenceStore]) -> None:
+    """Raise ValueError for a `ChunkBox` of an array some store describes, whose rank or
+    chunk key encoding is not the array's: it would take in none of the array's chunks."""
+    layouts: dict[str, set[tuple[int, str, str]]] = {}
+    for s in stores:
+        for path, kind in nodes(s.mapping).items():
+            if kind == "array":
+                try:
+                    shape, _, encoding, sep = _array(s, path)
+                except ValueError:
+                    continue
+                layouts.setdefault(path, set()).add((len(shape), encoding, sep))
+    for s in stores:
+        for b in s.bounds:
+            if isinstance(b, ChunkBox) and b.array in layouts and (
+                    (len(b.start), b.encoding, b.separator) not in layouts[b.array]):
+                rank, encoding, sep = min(layouts[b.array])
+                raise ValueError(f"the bound {b!r} takes in no chunk of array {b.array!r}, which has "
+                                 f"{rank} axes and chunk key encoding {encoding!r} with separator {sep!r}")
 
 
 def overlay(*stores: ReferenceStore, **options: Unpack[Options]) -> ReferenceStore:
@@ -781,7 +887,10 @@ def _shift_bounds(store: ReferenceStore, array: str, rank: int, encoding: str, s
     """The bounds of `shift_chunks`' result: the store's bounds on the array's chunks, moved."""
     whole = ChunkBox(array, offset, tuple(o + g for o, g in zip(offset, grid, strict=True)),
                      encoding, sep)  # type: ignore[arg-type]
-    chunks = Prefix(array).as_range() if array else KeyRange("")
+    base = f"{array}/" if array else ""
+    # the keys that may be chunk keys of the array: `c` and what follows it, or digits (v2)
+    chunks = (KeyRange(base + "c", base + "c" + chr(ord(sep) + 1)) if encoding == "default"
+              else KeyRange(base + "0", base + ":"))
     out: list[Bound] = []
     for b in store.bounds:
         if isinstance(b, Prefix) and (not b.path or array == b.path or array.startswith(b.path + "/")):
@@ -799,8 +908,8 @@ def _shift_bounds(store: ReferenceStore, array: str, rank: int, encoding: str, s
         elif isinstance(b, (KeyRange, Prefix)):
             r = b.as_range() if isinstance(b, Prefix) else b
             if (r.stop is None or chunks.start < r.stop) and (chunks.stop is None or r.start < chunks.stop):
-                raise ValueError(f"shift_chunks cannot move the bound {b!r}, which takes in some of "
-                                 f"{array!r}'s keys")
+                raise ValueError(f"shift_chunks cannot move the bound {b!r}, which may take in some of "
+                                 f"{array!r}'s chunks")
         elif isinstance(b, ChunkBox) and b.array == array:
             raise ValueError(f"shift_chunks cannot move the bound {b!r}, of another chunk key encoding or rank")
     return out

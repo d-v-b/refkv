@@ -27,7 +27,9 @@ A bound is one of four kinds, from `refkv.bounds` (also importable from
 A box is needed because chunk keys do not sort in index order: `0/c/10` sorts
 before `0/c/2`, so no key range is "chunks 2 to 10". A box takes the array's
 chunk key encoding, `encoding="default"` (Zarr v3: `c/0/1`) or `"v2"` (`0.1`),
-and its `separator`.
+and its `separator`, which defaults to the encoding's own (`/` or `.`). A
+combination refuses a box whose rank or encoding doesn't match the array's, since
+it would take in none of the array's chunks.
 
 A store built without bounds derives them from its Zarr nodes:
 - an array answers for its whole subtree;

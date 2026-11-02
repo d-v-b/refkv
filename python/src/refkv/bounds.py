@@ -100,6 +100,7 @@ class ChunkBox:
 
     `encoding` and `separator` are the array's chunk key encoding: `"default"` (Zarr v3's,
     keys `c/0/1` with separator `/`, `c.0.1` with `.`) or `"v2"` (keys `0.1`, or `0/1`).
+    The separator defaults to the encoding's own: `/` for `"default"`, `.` for `"v2"`.
     An array of no axes has one chunk, which `start=stop=()` takes in.
     """
 
@@ -107,10 +108,12 @@ class ChunkBox:
     start: tuple[int, ...]
     stop: tuple[int, ...]
     encoding: Literal["default", "v2"] = "default"
-    separator: Literal["/", "."] = "/"
+    separator: Literal["/", "."] = None  # type: ignore[assignment]  # the encoding's own
 
     def __post_init__(self) -> None:
         _check_path(self.array, "ChunkBox array")
+        if self.separator is None:
+            object.__setattr__(self, "separator", "." if self.encoding == "v2" else "/")
         object.__setattr__(self, "start", _indexes(self.start, "start"))
         object.__setattr__(self, "stop", _indexes(self.stop, "stop"))
         if self.encoding not in ("default", "v2"):

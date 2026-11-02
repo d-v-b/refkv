@@ -4,6 +4,7 @@
 import hashlib
 import json
 import random
+import time
 
 import numpy as np
 import pytest
@@ -21,6 +22,7 @@ from refkv.policy import Policy
 from refkv.zarrify import zarrify
 
 GROUP = b'{"zarr_format":3,"node_type":"group","attributes":{}}'
+GROUP_V2 = b'{"zarr_format":2}'
 
 
 def array(shape, chunks, separator="/", encoding="default"):
@@ -152,8 +154,13 @@ def test_combining_keeps_each_store_from_reading_what_its_own_policy_refuses(tmp
         with pytest.raises(ResolutionError, match="may not read local files"):
             combined.get("b")
     # beside a remote store with no file sources, the local store's base loosens nothing
-    mixed = overlay(ReferenceStore({"b": b"b"}, url="https://h.test/"), ReferenceStore({"a": b"a"}))
-    assert mixed.url.startswith("file:")
+    web = ReferenceStore({"b": Range(source=0, length=1)}, [Source(url="https://h.test/b.bin")], url="https://h.test/")
+    disk = ReferenceStore({"a": Range(source=0, length=4)}, [Source(url="a.bin")], url=f"{tmp_path.as_uri()}/")
+    assert overlay(web, disk).url.startswith("file:")
+    # a store that reads nothing outside itself, such as a header, takes no part
+    header = ReferenceStore({"h": b"h"}, policy=Policy(allow_private_hosts=True))
+    assert overlay(header, web).url == "https://h.test/"
+    assert overlay(header, web).policy == web.policy
     loose = Policy(allow_private_hosts=True)
     assert overlay(ReferenceStore({}), ReferenceStore({}, policy=loose), policy=loose).policy == loose
 
@@ -292,13 +299,17 @@ def test_combining_refuses_a_base_url_that_would_let_a_store_read_local_files(tm
 
 
 def test_combining_refuses_stores_with_different_policies():
+    src = [Source(url="https://h.test/x.bin")]
     with pytest.raises(ValueError, match="different reader policies; pass policy="):
-        overlay(ReferenceStore({"a": b"a"}), ReferenceStore({"b": b"b"}, policy=Policy(allow_private_hosts=True)))
+        overlay(ReferenceStore({"a": Range(source=0, length=1)}, src),
+                ReferenceStore({"b": Range(source=0, length=1)}, src, policy=Policy(allow_private_hosts=True)))
 
 
 def test_combining_refuses_stores_with_different_registries():
+    src = [Source(url="https://h.test/x.bin")]
     with pytest.raises(ValueError, match="different registries; pass registry="):
-        overlay(ReferenceStore({"a": b"a"}), ReferenceStore({"b": b"b"}, registry={"s3://bucket": MemoryStore()}))
+        overlay(ReferenceStore({"a": Range(source=0, length=1)}, src),
+                ReferenceStore({"b": Range(source=0, length=1)}, src, registry={"s3://bucket": MemoryStore()}))
 
 
 def test_combining_refuses_a_reference_to_a_hidden_key_its_store_lacks():
@@ -581,3 +592,45 @@ def test_combining_refuses_a_reference_into_a_document_it_rewrites():
     s = ReferenceStore({"zarr.json": listed, "v": Range(source=0, length=5)}, [Source(key="zarr.json")])
     with pytest.raises(ValueError, match="whose value the result rewrites"):
         overlay(s)
+
+
+def test_combinations_read_what_each_store_reads_at_any_scale():
+    # union compares a store's own key sources by what they read
+    a = ReferenceStore({"k": b"AAAA", "X": Range(source=0, length=4)}, [Source(key="k")], bounds=[Key("k"), Key("X")])
+    b = ReferenceStore({"k": b"BBBB", "X": Range(source=0, length=4)}, [Source(key="k")], bounds=[Key("X")])
+    for order in ((a, b), (b, a)):
+        with pytest.raises(ValueError, match="'X': stores 0 and 1 hold different values"):
+            union(*order)
+    # a v2 box takes the v2 separator; one that matches no chunk of a described array is refused
+    v2 = json.dumps({"zarr_format": 2, "shape": [2, 2], "chunks": [1, 1], "dtype": "|u1", "compressor": None,
+                     "fill_value": 0, "order": "C", "filters": None}).encode()
+    s = ReferenceStore({".zgroup": GROUP_V2, "a/.zarray": v2, **{f"a/{y}.{x}": bytes([y * 2 + x + 1])
+                                                                 for y in range(2) for x in range(2)}})
+    blank = ReferenceStore({}, bounds=[ChunkBox("a", (0, 0), (1, 2), encoding="v2")])
+    assert sorted(k for k in overlay(s, blank).mapping if k[2:3].isdigit()) == ["a/1.0", "a/1.1"]
+    # v2 documents compare as JSON
+    assert union(ReferenceStore({".zgroup": GROUP_V2}), ReferenceStore({".zgroup": b'{\n  "zarr_format": 2\n}'}))
+    # dropping consolidated metadata keeps every other number and string as written
+    odd = (b'{"zarr_format":3,"node_type":"group","attributes":{"x":1E400,"y":0.30000000000000000000001,'
+           b'"s":"\\ud800","u":"\\u00b5"},"consolidated_metadata":{"kind":"inline","metadata":{}}}')
+    kept = overlay(ReferenceStore({"zarr.json": odd})).mapping["zarr.json"]
+    assert kept == (b'{"zarr_format":3,"node_type":"group","attributes":{"x":1E400,"y":0.30000000000000000000001,'
+                    b'"s":"\\ud800","u":"\\u00b5"}}')
+    # a box to the end of a huge array, and a Prefix beside an array's chunks, are fine
+    huge = ReferenceStore({"0/c/5/5": b"x"}, bounds=[ChunkBox("0", (0, 0), (10**30, 10**30))])
+    assert overlay(huge).mapping["0/c/5/5"] == b"x"
+    beside = ReferenceStore({"0/zarr.json": array([4], [1]), "0/c/1": b"x", "0/attrs/a": b"a"},
+                            bounds=[Prefix("0/attrs"), ChunkBox("0", (0,), (4,))])
+    assert set(shift_chunks(beside, "0", (1,)).mapping) == {"0/c/2"}
+
+
+def test_one_overlay_of_many_overlapping_layers_takes_linear_time():
+    layers = [ReferenceStore({f"0/c/{k}": bytes([i % 256]) for k in range(200)}, bounds=[Prefix("0")])
+              for i in range(1000)]
+    patches = [ReferenceStore({}, bounds=[ChunkBox("0", (k,), (k + 1,))]) for k in range(1001)]
+    start = time.perf_counter()
+    top = overlay(*layers)
+    blanked = overlay(*layers, *patches)
+    assert top.mapping["0/c/7"] == bytes([999 % 256])
+    assert not blanked.mapping
+    assert time.perf_counter() - start < 30
