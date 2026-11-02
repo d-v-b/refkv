@@ -598,3 +598,13 @@ def test_public_api():
 def test_open_refuses_an_unknown_binding():
     with pytest.raises(ValueError, match="no binding 'kv'"):
         refkv.open("x.vzip", binding="kv")
+
+
+def test_a_base_directory_keeps_its_trailing_slash(tmp_path):
+    """A base path written as a directory resolves relative sources inside it."""
+    (tmp_path / "run1").mkdir()
+    (tmp_path / "x.bin").write_bytes(b"WRONG")
+    (tmp_path / "run1" / "x.bin").write_bytes(b"RIGHT")
+    store = refkv.ReferenceStore({"k": Range(source=0, length=5)}, [Source(url="x.bin")], url=f"{tmp_path}/run1/")
+    assert store.url.endswith("/run1/")
+    assert store.get("k") == b"RIGHT"
