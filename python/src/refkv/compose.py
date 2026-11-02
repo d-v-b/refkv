@@ -70,7 +70,7 @@ from refkv.pb import Concat, Range, Reference, Source
 from refkv.policy import Policy, _scheme, crc32c
 from refkv.refstore import ReferenceStore
 from refkv.uri import resolve as resolve_reference
-from refkv.vzip.names import RESERVED_PREFIX
+from refkv.vzip.names import INDEX_KEY, RESERVED_PREFIX, SOURCES_KEY
 
 if TYPE_CHECKING:
     from refkv.reader import Registry, Resolver, Stats
@@ -88,6 +88,7 @@ Value = bytes | Reference
 # still takes a cell of its own, and boxes of many sizes share a few grids.
 _BOX_SPAN = 4
 _LEVEL_STEP = 3
+_MAX_GRIDS = 32  # more grids than this, and the step doubles
 
 _DOCUMENTS = frozenset({"zarr.json", ".zarray", ".zgroup", ".zattrs"})
 GROUP_V3 = b'{"zarr_format":3,"node_type":"group","attributes":{}}'
@@ -95,9 +96,10 @@ GROUP_V2 = b'{"zarr_format":2}'
 
 
 class Options(TypedDict, total=False):
-    """The options of the store an operator returns (see `ReferenceStore`)."""
+    """The options of the store an operator returns (see `ReferenceStore`). A `url` or
+    `policy` of None asks for the default the operator decides from its stores."""
 
-    url: str
+    url: str | None
     page_size: int | None
     info: dict[str, object]
     registry: Registry | None
@@ -201,11 +203,13 @@ class _Boxes:
     @classmethod
     def of(cls, boxes: list[tuple[ChunkBox, int]]) -> _Boxes:
         out = cls()
-        for b, i in boxes:
-            if any(a >= z for a, z in zip(b.start, b.stop, strict=True)):
-                continue  # an empty box
-            levels = tuple(-(-_level(a, z) // _LEVEL_STEP) * _LEVEL_STEP
-                           for a, z in zip(b.start, b.stop, strict=True))
+        boxes = [(b, i) for b, i in boxes if all(a < z for a, z in zip(b.start, b.stop, strict=True))]
+        exact = [tuple(_level(a, z) for a, z in zip(b.start, b.stop, strict=True)) for b, _ in boxes]
+        step = _LEVEL_STEP
+        while len({tuple(-(-n // step) * step for n in levels) for levels in exact}) > _MAX_GRIDS:
+            step *= 2  # coarser levels, fewer grids to probe for each key
+        for (b, i), level in zip(boxes, exact, strict=True):
+            levels = tuple(-(-n // step) * step for n in level)
             grid = out.grids.setdefault(levels, {})
             spans = [range(a >> n, ((z - 1) >> n) + 1) for a, z, n in zip(b.start, b.stop, levels, strict=True)]
             for cell in itertools.product(*spans):
@@ -471,13 +475,14 @@ def _reads(value: Value, identity: Callable[[int], object]) -> tuple[tuple[str, 
             continue  # reads nothing
         last = out[-1] if out else None
         if last is not None and last[0] == kind == "data":
-            out[-1] = ("data", cast("bytes", last[1]) + cast("bytes", what), 0, 0, None)
+            cast("list[bytes]", last[1]).append(cast("bytes", what))  # joined once, at the end
         elif (last is not None and last[0] == kind == "range" and last[1] == what and last[4] is None
               and crc is None and last[2] + last[3] == offset):
             out[-1] = ("range", what, last[2], last[3] + length, None)
         else:
-            out.append(seg)
-    return tuple(out)
+            out.append(("data", [what], 0, 0, None) if kind == "data" else seg)
+    return tuple(("data", b"".join(cast("list[bytes]", what)), 0, 0, None) if kind == "data"
+                 else (kind, what, offset, length, crc) for kind, what, offset, length, crc in out)
 
 
 def _digest(value: bytes) -> str:
@@ -487,7 +492,7 @@ def _digest(value: bytes) -> str:
 def _hidden_base(key: str, value: bytes) -> str:
     """The name a hidden key had before a combination named it by its value's digest."""
     base, sep, digest = key.rpartition("~")
-    return base if sep and digest == _digest(value) else key
+    return base if sep and digest == _digest(value) and base not in (SOURCES_KEY, INDEX_KEY) else key
 
 
 def _hidden_value(store: ReferenceStore, i: int, k: str) -> bytes:
@@ -615,6 +620,7 @@ def _combine(stores: Sequence[ReferenceStore], agree: bool, options: Options) ->
     for s in stores:
         if not isinstance(s, ReferenceStore):
             raise TypeError(f"the operands are ReferenceStores, not {type(s).__name__}")
+    _undefault(options)
     _reach(stores, options)
     _check_boxes(stores)
     cover = _Cover(enumerate(s.bounds for s in stores))
@@ -680,12 +686,20 @@ def _combine(stores: Sequence[ReferenceStore], agree: bool, options: Options) ->
         return source
 
     if agree:
+        # a key some store reads through a key source must be held as the same bytes by every
+        # store that holds it: a key source reads only bytes, so which store wins must not
+        # change what that source reads
+        targets = {k for i, s in enumerate(stores) for _, held, _ in answers[i] for src in _used(held)
+                   if (k := s.sources[src].key) is not None and not k.startswith(RESERVED_PREFIX)}
         seen: dict[str, tuple[object, int, set[int]]] = {}
         for i, mine in enumerate(answers):
             for key, _, kept in mine:
                 if kept is None:
                     continue  # a key the result drops is not compared
-                form = _form(key, kept, identity(i))
+                if key in targets:
+                    form: object = ("target", kept) if isinstance(kept, bytes) else ("target-reference", i)
+                else:
+                    form = _form(key, kept, identity(i))
                 first = seen.setdefault(key, (form, i, set()))
                 if first[0] != form:
                     raise ValueError(f"{key!r}: stores {first[1]} and {i} hold different values")
@@ -733,16 +747,25 @@ def _combine(stores: Sequence[ReferenceStore], agree: bool, options: Options) ->
         if target in rewritten:
             raise ValueError(f"store {i} has a reference to its own key {target!r}, whose value the "
                              "result rewrites (dropping its consolidated metadata)")
-        # a reference reads bytes, so the value it reads must be the same bytes, not just
-        # the same JSON
-        if j != i and (j is None or _form(target, stores[i].mapping.get(target, b""), identity(i), documents=False)
-                       != _form(target, stores[j].mapping[target], identity(j), documents=False)):
+        # a key source reads its key's bytes (a key holding a reference is refused), so the
+        # result must hold the same bytes there, not a reference that reads them
+        own_value = stores[i].mapping.get(target)
+        kept_value = None if j is None else stores[j].mapping[target]
+        if j != i and not (isinstance(own_value, bytes) and isinstance(kept_value, bytes) and own_value == kept_value):
             raise ValueError(f"store {i} has a reference to its own key {target!r}, which the result "
                              "takes from another store or leaves out")
     mapping.update(hidden)
     bounds = [b for s in stores for b in s.bounds]
     return _build(mapping, sources, read_at_open=read_at_open, compressed=compressed,
                   bounds=bounds, template=None, options=options)
+
+
+def _undefault(options: Options) -> None:
+    """Drop a `url=None` or `policy=None` from `options`: None asks for the default, which an
+    operator decides from its stores, never the looser default of a new `ReferenceStore`."""
+    for name in ("url", "policy"):
+        if name in options and options[name] is None:  # type: ignore[literal-required]
+            del options[name]  # type: ignore[misc]
 
 
 def _check_boxes(stores: Sequence[ReferenceStore]) -> None:
@@ -880,6 +903,7 @@ def _map_keys(store: ReferenceStore, f: Callable[[str], str | None], bounds: Ite
         mapping[k] = v
     renamed = {old: new for new, old in names.items() if new in mapping}
     used = {s for v in mapping.values() for s in _used(v)}
+    _undefault(options)
     base = options.get("url", store.url)
     originals = store.sources if base == store.url else _absolute(store)
     sources = []

@@ -726,3 +726,33 @@ def test_union_refuses_a_value_that_would_not_read_against_one_that_does():
     for broken in (Range(source=0, offset=1, length=9), Range(source=0, offset=1, length=3, crc32c=1)):
         with pytest.raises(ValueError, match="hold different values"):
             union(ReferenceStore({"k": b"abc"}), ReferenceStore({"k": broken}, [Source(data=b"xabcx")]))
+
+
+def test_combining_refuses_a_key_source_target_another_store_holds_as_a_reference():
+    i = ReferenceStore({"t": b"HELLO", "v": Range(source=0, length=5)}, [Source(key="t")])
+    j = ReferenceStore({"t": Range(source=0, length=5)}, [Source(data=b"HELLO")])
+    for order in ((i, j), (j, i)):
+        with pytest.raises(ValueError, match="'t': stores 0 and 1 hold different values"):
+            union(*order)
+
+
+def test_options_of_none_ask_for_the_default_the_stores_decide(tmp_path):
+    (tmp_path / "a.bin").write_bytes(b"AAAA")
+    remote = ReferenceStore({"b": Range(source=0, length=4)}, [Source(url=(tmp_path / "a.bin").as_uri())],
+                            url="https://h.test/archive/")
+    strict = Policy(prefixes=("https://only.test/",))
+    for combined in (overlay(remote, url=None), mount(remote, "m", url=None),
+                     overlay(remote.with_bounds(None), policy=None)):
+        assert combined.url == "https://h.test/archive/"
+    assert overlay(ReferenceStore({"k": b"v"}, policy=strict), policy=None).policy == strict
+    crafted = "__vz__/sources~" + hashlib.sha256(b"H").hexdigest()[:16]
+    hidden = ReferenceStore({crafted: b"H", "v": Range(source=0, length=1)}, [Source(key=crafted)])
+    assert overlay(hidden).get("v") == b"H"
+
+
+def test_union_compares_a_long_concat_in_linear_time():
+    parts = tuple(Range(source=0, offset=512 * k, length=512) for k in range(40000))
+    data = [Source(data=bytes(512 * 40000))]
+    start = time.perf_counter()
+    union(ReferenceStore({"k": Concat(parts)}, data), ReferenceStore({"k": Concat(parts)}, data))
+    assert time.perf_counter() - start < 10

@@ -144,8 +144,8 @@ without_plane_5 = overlay(stack, blank)
   allows no partial chunk in the middle.
 - **Zarr documents as bytes.** A combination drops consolidated metadata from each
   `zarr.json` it keeps, so it must be able to read one. It refuses to keep a
-  `zarr.json` held as a reference to another file's bytes, though a later store
-  may replace it.
+  `zarr.json` held as a range, even a literal one, though a later store may
+  replace it; `normalize` refuses one too.
 - **Only in-memory stores.** The operators take `ReferenceStore`s.
   `refkv.open(path)` returns an archive reader, which they do not take yet.
 
