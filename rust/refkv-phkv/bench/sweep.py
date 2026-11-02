@@ -55,9 +55,8 @@ def main():
     print(f"### `tail`: the bytes read first, {n:,} references, open and one lookup\n")
     tails = [OLD_TAIL, 128 << 10, 256 << 10, DEFAULT_TAIL, 1 << 20]
     print("| tail | " + " | ".join(human(t) for t in tails) + " |\n|---|" + "---|" * len(tails))
-    for label, name in (("standalone", f"{n}.phkv"), ("hybrid", f"{n}.hybrid")):
-        print(f"| {label} | " + " | ".join(cold(run("refs", n, name, t, DEFAULT_RECORD_READ, sweep="tail",
-                                                    tail=t)) for t in tails) + " |")
+    print("| phkv | " + " | ".join(cold(run("refs", n, f"{n}.phkv", t, DEFAULT_RECORD_READ, sweep="tail",
+                                            tail=t)) for t in tails) + " |")
 
     n = args.bytes_keys
     print(f"\n### `record_read`: the bytes read at a record first, {n:,} keys of 1 KiB inline values\n")

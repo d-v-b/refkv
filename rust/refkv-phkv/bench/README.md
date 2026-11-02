@@ -21,10 +21,8 @@ what each reads (a section, a page, an entry's bytes): `uv run python rust/refkv
 
 ## What is measured
 
-- **Files.** The same keys written five ways by `examples/bench.rs build`: vzip without and with a
-  page index (4 KiB pages), standalone phkv, and a hybrid archive. A hybrid archive is read both as vzip
-  (by the Python reader) and as phkv (by the Rust reader), so those two rows are the same bytes.
-  Keys are `arr/c/a/b/c`, 100 under each `arr/c/a/b/`.
+- **Files.** The same keys written three ways by `examples/bench.rs build`: vzip without and with a
+  page index (4 KiB pages), and phkv. Keys are `arr/c/a/b/c`, 100 under each `arr/c/a/b/`.
 - **Workloads.** `refs`: each key is a reference, one 4 KiB range of one URL; the lookup is `raw`, so
   no source is read. `bytes`: each key holds 1 KiB of incompressible bytes in the store; the lookup
   is `get`.

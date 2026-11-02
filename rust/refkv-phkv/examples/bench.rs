@@ -2,13 +2,13 @@
 //! reader on them, over a local file and over HTTP, counting the reads it makes.
 //!
 //! ```text
-//! bench build <dir> <n> <refs|bytes> <value_bytes>                  writes n.phkv, n.hybrid, n.vzip, n.paged.vzip
+//! bench build <dir> <n> <refs|bytes> <value_bytes>                  writes n.phkv, n.vzip, n.paged.vzip
 //! bench build <dir> <n> <refs|bytes> <value_bytes> <tag> <page_size> <inline_max>
-//!                                                                    writes only n.<tag>.phkv and n.<tag>.hybrid
+//!                                                                    writes only n.<tag>.phkv
 //! bench read <path-or-url> <refs|bytes> <n> <reps> [<tail> <record_read> <slots_at_open> <slot_block> <lookups> <record_block>]
 //!                                                                    times the reader, prints one JSON object
 //! ```
-use refkv_phkv::{HybridWriter, Limits, NoUrls, Options, Request, Store, Writer, DEFAULT_TAIL};
+use refkv_phkv::{Limits, NoUrls, Options, Request, Store, Writer, DEFAULT_TAIL};
 use refkv_vzip::pb::Range;
 use std::cell::OnceCell;
 use std::fs::File;
@@ -53,8 +53,6 @@ fn build(dir: &str, n: u64, workload: &str, vsize: usize, variant: Option<(&str,
     }).collect();
     let mut p = Writer::new(out("phkv"), opts);
     let ps = p.url("data.nc").unwrap();
-    let mut h = HybridWriter::new(out("hybrid"), zopts(Some(4096)), opts).unwrap();
-    let hs = h.url("data.nc").unwrap();
     for i in 0..n {
         let k = key(i);
         if refs {
@@ -63,21 +61,18 @@ fn build(dir: &str, n: u64, workload: &str, vsize: usize, variant: Option<(&str,
                 z.add_ranges(&k, vec![r(*s)]).unwrap();
             }
             p.add_ranges(&k, &[r(ps)]).unwrap();
-            h.add_ranges(&k, vec![r(hs)]).unwrap();
         } else {
             let v = value(i, vsize);
             for (z, _) in &mut vzips {
                 z.add_bytes(&k, &v, false, false).unwrap();
             }
             p.add_bytes(&k, &v).unwrap();
-            h.add_bytes(&k, &v, false, false).unwrap();
         }
     }
     for (z, _) in vzips {
         z.close().unwrap();
     }
     p.close().unwrap();
-    h.close().unwrap();
 }
 
 /// Reads counted: the number of reads and the bytes they returned.

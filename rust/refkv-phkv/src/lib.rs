@@ -1,22 +1,19 @@
 //! phkv stores, refkv's perfect-hash binding (spec/bindings/phkv.md
 //! <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md>): the container's bytes
-//! ([`format`]), its perfect hash ([`ptrhash`]), the standalone [`Writer`], the [`HybridWriter`]
-//! that embeds a store in a vzip archive, and the [`Store`] reader for both.
+//! ([`format`]), its perfect hash ([`ptrhash`]), the [`Writer`], and the [`Store`] reader.
 
 pub mod format;
-mod hybrid;
 pub mod ptrhash;
 mod reader;
 mod writer;
 
 pub use format::{Codec, Prop};
-pub use hybrid::HybridWriter;
 pub use reader::{DEFAULT_RECORD_READ, DEFAULT_SLOT_BLOCK, DEFAULT_TAIL, Class, EntryInfo, Kind, Limits, NoUrls, ReadAt, ReadError, Request, Resolver, Store};
 pub use writer::{Options, Writer};
 
 /// A writer's failure: what it was asked to write breaks a writer requirement (spec/refkv.md §7
-/// <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#7-writing>, spec/bindings/phkv.md §23.1
-/// <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#231-requirements>), or the
+/// <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#7-writing>, spec/bindings/phkv.md §22.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#221-requirements>), or the
 /// output could not be written.
 #[derive(Debug)]
 pub enum Error {

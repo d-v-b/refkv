@@ -1,7 +1,7 @@
-//! The standalone writer (spec/bindings/phkv.md §23
-//! <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#23-writing-a-phkv-store>), in the
-//! recommended layout (§23.2
-//! <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#232-recommended-layout-informative>):
+//! The standalone writer (spec/bindings/phkv.md §22
+//! <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#22-writing-a-phkv-store>), in the
+//! recommended layout (§22.2
+//! <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#222-recommended-layout-informative>):
 //!
 //! ```text
 //! [bytes values]       as they are added, unless inline
@@ -189,7 +189,6 @@ impl Props {
 /// A key and its value, before the records are written.
 pub(crate) struct Entry {
     pub key: String,
-    pub hidden: bool,
     pub value: Value,
 }
 
@@ -198,22 +197,19 @@ pub(crate) struct Entry {
 /// file), METADATA, then the directory and superblock. `at` is the offset of the first byte.
 pub(crate) struct Tail {
     pub bytes: Vec<u8>,
-    pub superblock_end: u64,
 }
 
 pub(crate) struct TailInput<'a> {
     pub entries: &'a mut Vec<Entry>,
     pub sources: &'a Sources,
-    pub sources_section: Option<DirEntry>,
     pub props: &'a Props,
     pub opts: &'a Options,
-    pub hybrid: bool,
 }
 
 /// The sections, directory and superblock, from offset `at`: the superblock's `distance` and the
 /// region are `d` and `region`, which the caller has worked out.
-pub(crate) fn build_tail(input: TailInput, at: u64, d: u64, region_offset: u64, region_extra: u64) -> Result<Tail, Error> {
-    let TailInput { entries, sources, sources_section, props, opts, hybrid } = input;
+pub(crate) fn build_tail(input: TailInput, at: u64, d: u64, region_offset: u64) -> Result<Tail, Error> {
+    let TailInput { entries, sources, props, opts } = input;
     entries.sort_unstable_by(|a, b| a.key.as_bytes().cmp(b.key.as_bytes()));
     let n = entries.len() as u64;
     let mut out: Vec<u8> = Vec::new();
@@ -249,7 +245,7 @@ pub(crate) fn build_tail(input: TailInput, at: u64, d: u64, region_offset: u64, 
             }
             offsets.push(off);
             rec.clear();
-            Record { key: e.key.as_bytes().to_vec(), rank: rank as u64, hidden: e.hidden, value: e.value.clone() }.encode(&mut rec);
+            Record { key: e.key.as_bytes().to_vec(), rank: rank as u64, value: e.value.clone() }.encode(&mut rec);
             out.extend_from_slice(&rec);
             lengths.push(rec.len() as u64);
         }
@@ -289,10 +285,7 @@ pub(crate) fn build_tail(input: TailInput, at: u64, d: u64, region_offset: u64, 
     } else if !props.columns.is_empty() {
         return invalid("properties in a store with no keys");
     }
-    match sources_section {
-        Some(s) => dir.push(s),
-        None => push(&mut out, &mut dir, section::SOURCES, opts.section_codec, &sources.encode()),
-    }
+    push(&mut out, &mut dir, section::SOURCES, opts.section_codec, &sources.encode());
     if !props.metadata.is_empty() {
         let entries: Vec<(String, Vec<u8>)> = props.metadata.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
         push(&mut out, &mut dir, section::METADATA, opts.section_codec, &format::encode_metadata(&entries));
@@ -306,17 +299,17 @@ pub(crate) fn build_tail(input: TailInput, at: u64, d: u64, region_offset: u64, 
     let superblock_end = pos(&out) + format::SUPERBLOCK_SIZE;
     let sb = Superblock {
         version: format::VERSION,
-        flags: if hybrid { format::FLAG_HYBRID } else { 0 },
+        flags: 0,
         distance: d,
         key_count: n,
         directory_offset,
         directory_length: dbytes.len() as u64,
         region_offset,
-        region_length: superblock_end - region_offset + region_extra,
+        region_length: superblock_end - region_offset,
         directory_crc32c: format::crc32c(&dbytes),
     };
     out.extend_from_slice(&sb.encode());
-    Ok(Tail { bytes: out, superblock_end })
+    Ok(Tail { bytes: out })
 }
 
 /// Writes a standalone phkv store to `W`.
@@ -393,7 +386,7 @@ impl<W: Write> Writer<W> {
             self.write(&stored)?;
             Stored::At(at)
         };
-        self.push(Entry { key: key.into(), hidden: false, value: Value::Bytes { codec, stored: at, stored_length, size: data.len() as u64, crc32c: crc } });
+        self.push(Entry { key: key.into(), value: Value::Bytes { codec, stored: at, stored_length, size: data.len() as u64, crc32c: crc } });
         Ok(())
     }
 
@@ -415,7 +408,7 @@ impl<W: Write> Writer<W> {
         }
         let size = self.pos - at;
         let crc = self.opts.crc32c.then_some(crc);
-        self.push(Entry { key: key.into(), hidden: false, value: Value::Bytes { codec: Codec::None, stored: Stored::At(at), stored_length: size, size, crc32c: crc } });
+        self.push(Entry { key: key.into(), value: Value::Bytes { codec: Codec::None, stored: Stored::At(at), stored_length: size, size, crc32c: crc } });
         Ok(())
     }
 
@@ -423,7 +416,7 @@ impl<W: Write> Writer<W> {
     pub fn add_ranges(&mut self, key: &str, ranges: &[Range]) -> Result<(), Error> {
         self.check_key(key)?;
         let (kind, payload) = self.sources.reference(key, ranges)?;
-        self.push(Entry { key: key.into(), hidden: false, value: Value::Reference { kind, payload } });
+        self.push(Entry { key: key.into(), value: Value::Reference { kind, payload } });
         Ok(())
     }
 
@@ -454,10 +447,9 @@ impl<W: Write> Writer<W> {
         self.props.check_keys(|k| self.names.contains_key(k))?;
         let at = self.pos;
         let tail = build_tail(
-            TailInput { entries: &mut self.entries, sources: &self.sources, sources_section: None, props: &self.props, opts: &self.opts, hybrid: false },
+            TailInput { entries: &mut self.entries, sources: &self.sources, props: &self.props, opts: &self.opts },
             at,
             self.opts.distance,
-            0,
             0,
         )?;
         self.write(&tail.bytes)?;

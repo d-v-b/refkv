@@ -145,15 +145,13 @@ fn origin(url: &str) -> Option<&str> {
     Some(&url[..end])
 }
 
-/// What `convert` writes: a vzip archive, a standalone phkv store, or a vzip archive with a phkv
-/// container in `__vz__/phkv` (spec/bindings/phkv.md §16.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#162-profiles>).
+/// What `convert` writes: a vzip archive, or a phkv store (spec/bindings/phkv.md
+/// <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md>).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Container {
     #[default]
     Vzip,
     Phkv,
-    Hybrid,
 }
 
 impl Container {
@@ -161,7 +159,6 @@ impl Container {
         match s {
             "vzip" => Some(Container::Vzip),
             "phkv" => Some(Container::Phkv),
-            "hybrid" => Some(Container::Hybrid),
             _ => None,
         }
     }
@@ -216,10 +213,6 @@ pub fn save(a: &Archive, path: &str, policy: &Policy, container: Container) -> R
     let zip = Options { mirror_refs: true, page_size: Some(PAGE_SIZE) };
     let written = match container {
         Container::Vzip => write(a, Writer::new(out, zip)),
-        Container::Hybrid => {
-            let w = refkv_phkv::HybridWriter::new(out, zip, refkv_phkv::Options::default()).map_err(|e| Fail::Other(e.to_string()))?;
-            write(a, w)
-        }
         Container::Phkv => write(a, refkv_phkv::Writer::new(out, refkv_phkv::Options::default())),
     };
     if let Err(e) = written {
@@ -268,29 +261,7 @@ impl Sink for Writer<BufWriter<File>> {
     }
 }
 
-impl Sink for refkv_phkv::HybridWriter<BufWriter<File>> {
-    fn source(&mut self, s: Source) -> Result<u32, String> {
-        refkv_phkv::HybridWriter::source(self, s).map_err(|e| e.to_string())
-    }
-
-    fn add_ranges(&mut self, key: &str, ranges: Vec<Range>) -> Result<(), String> {
-        refkv_phkv::HybridWriter::add_ranges(self, key, ranges).map_err(|e| e.to_string())
-    }
-
-    fn add_bytes(&mut self, key: &str, data: &[u8], late: bool) -> Result<(), String> {
-        refkv_phkv::HybridWriter::add_bytes(self, key, data, !late, late).map_err(|e| e.to_string())
-    }
-
-    fn add_hidden(&mut self, name: &str, data: &[u8], late: bool) -> Result<(), String> {
-        refkv_phkv::HybridWriter::add_hidden(self, name, data, !late, late).map(|_| ()).map_err(|e| e.to_string())
-    }
-
-    fn finish(self) -> Result<BufWriter<File>, String> {
-        self.close().map_err(|e| e.to_string())
-    }
-}
-
-/// A standalone phkv store: values Zstandard-compressed, but the small documents a reader fetches
+/// A phkv store: values Zstandard-compressed, but the small documents a reader fetches
 /// when opening, which are stored as they are, inline in their records when short.
 impl Sink for refkv_phkv::Writer<BufWriter<File>> {
     fn source(&mut self, s: Source) -> Result<u32, String> {
@@ -307,7 +278,7 @@ impl Sink for refkv_phkv::Writer<BufWriter<File>> {
     }
 
     fn add_hidden(&mut self, name: &str, _: &[u8], _: bool) -> Result<(), String> {
-        Err(format!("{RESERVED_PREFIX}{name}: a standalone phkv store has no hidden entries"))
+        Err(format!("{RESERVED_PREFIX}{name}: a phkv store has no hidden entries"))
     }
 
     fn finish(self) -> Result<BufWriter<File>, String> {
@@ -480,19 +451,6 @@ mod tests {
         let (dir, path, r) = save_in_dir("phkv", &small_archive(), Container::Phkv);
         r.unwrap();
         check_phkv(&path, refkv_phkv::Codec::Zstd);
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn saves_a_hybrid_store() {
-        let mut a = small_archive();
-        a.entries.push((format!("{RESERVED_PREFIX}extra"), b"x".to_vec(), false));
-        let (dir, path, r) = save_in_dir("hybrid", &a, Container::Hybrid);
-        r.unwrap();
-        check_phkv(&path, refkv_phkv::Codec::Deflate);
-        // the hidden entry is in the archive, but not in the store's mapping
-        let s = refkv_phkv::Store::open(File::open(&path).unwrap()).unwrap();
-        assert_eq!(s.classify(&format!("{RESERVED_PREFIX}extra")).unwrap(), None);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

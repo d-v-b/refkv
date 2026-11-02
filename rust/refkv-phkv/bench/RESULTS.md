@@ -4,11 +4,11 @@ Method, files and caveats: [README.md](README.md). A request is one read of the 
 over HTTP, a `pread` on a file). "http 20 ms" is loopback with 20 ms added to each request. The tables are
 generated: the full matrix by `report.py`, the parameters by `sweep.py`, paged vzip against phkv by `versus.py`.
 
+The hybrid profile (a vzip archive carrying a phkv container) was removed after these tables were generated, so
+its rows are gone from them; the other rows are the numbers measured then.
+
 The reader measured here, against the first run:
 
-- a hybrid store's superblock is found from the ZIP end of central directory record instead of by probing,
-  and the window before it is read in one request
-  ([§17.2](../../../spec/bindings/phkv.md#172-finding-the-superblock)); the hybrid file has no padding;
 - a record's continuation read, and a section that overlaps a read already made, read only the bytes still
   missing;
 - new defaults (`Limits`): SLOTS is read in 4 KiB blocks, the size of a vzip page, kept for later lookups
@@ -76,18 +76,15 @@ What it shows, with the defaults:
 
 1. **The unpaged vzip archive's open cost grows with the key count**: it reads the whole central directory
    (69 MiB, 3.9 s at 10^6 keys, in Python). Paged vzip and phkv do not.
-2. **A hybrid archive read as phkv opens in 4 to 7 requests** (8 to 18 when the superblock was found by
-   probing). It is also smaller than before: 158 to 168 B per key, against 172 to 225 B.
-3. **`list` with phkv reads the pages it needs in one request.** The pages that may hold a prefix are adjacent,
+2. **`list` with phkv reads the pages it needs in one request.** The pages that may hold a prefix are adjacent,
    so the reader bisects to the first and reads the run as one span, in several only where it would exceed
    `Limits::request_bytes`. At 10^5 keys over HTTP, 20 ms per request, 100 keys: with references 1 request and
    21 ms (2 requests, 43 ms before); with 1 KiB values inline 1 request, 107 KiB and 21 ms (26 requests and
-   540 ms before), against 4 requests and about 77 to 83 ms for paged vzip. A hybrid store's records are small, since
-   its values are ZIP entries: 1 request. The tuning table below was measured with the earlier `list`, one
+   540 ms before), against 4 requests and about 77 to 83 ms for paged vzip. The tuning table below was measured with the earlier `list`, one
    request per page, so its `list` column overstates the requests of a small `page_size`.
-4. **Size.** For references, per key: standalone phkv 38 B at 10^3 and 42 B at 10^6; vzip 119 to 125 B;
-   hybrid 158 to 168 B. With 1 KiB values the values dominate: phkv is 5% smaller than vzip.
-5. **Languages.** vzip rows are the Python reader and phkv rows the Rust one, so compare requests and bytes;
+3. **Size.** For references, per key: phkv 38 B at 10^3 and 42 B at 10^6; vzip 119 to 125 B.
+   With 1 KiB values the values dominate: phkv is 5% smaller than vzip.
+4. **Languages.** vzip rows are the Python reader and phkv rows the Rust one, so compare requests and bytes;
    at 10^6 keys the Python reader's own work is about 90 ms even on a local file.
 
 ## Tuning
@@ -98,12 +95,9 @@ Over HTTP with 20 ms per request (`sweep.py`), the other parameters at their def
 
 | tail | 64.1 KiB | 128.0 KiB | 256.0 KiB | 512.1 KiB | 1.0 MiB |
 |---|---|---|---|---|---|
-| standalone | 5 req, 285.1 KiB, 114 ms | 5 req, 285.1 KiB, 108 ms | 4 req, 285.1 KiB, 87 ms | 3 req, 516.1 KiB, 67 ms | 3 req, 1.0 MiB, 71 ms |
-| hybrid | 7 req, 348.2 KiB, 151 ms | 7 req, 412.1 KiB, 154 ms | 6 req, 540.1 KiB, 133 ms | 5 req, 1.0 MiB, 114 ms | 5 req, 2.0 MiB, 114 ms |
+| phkv | 5 req, 285.1 KiB, 114 ms | 5 req, 285.1 KiB, 108 ms | 4 req, 285.1 KiB, 87 ms | 3 req, 516.1 KiB, 67 ms | 3 req, 1.0 MiB, 71 ms |
 
 512 KiB takes the 10^6-key open from 5 requests to 3, because PTRHASH and PAGES (about 280 KiB) come with it.
-For a hybrid store the first read is made twice (the end of the file, and the window before the superblock),
-so its bytes double.
 
 **Reader `Limits::record_read`**, the bytes read at a record first, 10^5 keys of 1 KiB inline values:
 
@@ -191,8 +185,6 @@ What the parameters do not fix: `list` still takes one request per page, only fe
 | vzip (python) | 116.2 KiB | 1.2 MiB | 11.7 MiB | 119.5 MiB |
 | vzip, paged (python) | 116.5 KiB | 1.2 MiB | 11.7 MiB | 119.6 MiB |
 | phkv (rust) | 37.3 KiB | 384.0 KiB | 3.9 MiB | 40.3 MiB |
-| hybrid, read as vzip (python) | 154.0 KiB | 1.5 MiB | 15.5 MiB | 159.9 MiB |
-| hybrid, read as phkv (rust) | 154.0 KiB | 1.5 MiB | 15.5 MiB | 159.9 MiB |
 
 ### First lookup of a store opened cold (open and one `raw`)
 
@@ -203,8 +195,6 @@ What the parameters do not fix: `list` still takes one request per page, only fe
 | vzip (python) | 3 req, 68.0 KiB, 3.79 ms | 3 req, 691.1 KiB, 24 ms | 3 req, 6.8 MiB, 261 ms | 3 req, 69.3 MiB, 2836 ms |
 | vzip, paged (python) | 4 req, 68.3 KiB, 2.36 ms | 4 req, 69.5 KiB, 3.01 ms | 4 req, 81.4 KiB, 11 ms | 4 req, 199.8 KiB, 95 ms |
 | phkv (rust) | 2 req, 37.3 KiB, 0.16 ms | 2 req, 384.0 KiB, 0.31 ms | 3 req, 516.1 KiB, 0.57 ms | 3 req, 516.1 KiB, 1.58 ms |
-| hybrid, read as vzip (python) | 4 req, 68.3 KiB, 2.41 ms | 4 req, 69.5 KiB, 3.53 ms | 4 req, 81.4 KiB, 11 ms | 4 req, 199.8 KiB, 99 ms |
-| hybrid, read as phkv (rust) | 2 req, 154.0 KiB, 0.19 ms | 3 req, 1.0 MiB, 0.52 ms | 5 req, 1.0 MiB, 0.80 ms | 5 req, 1.0 MiB, 1.92 ms |
 
 **http 0 ms**
 
@@ -213,8 +203,6 @@ What the parameters do not fix: `list` still takes one request per page, only fe
 | vzip (python) | 3 req, 68.0 KiB, 5.67 ms | 3 req, 691.1 KiB, 26 ms | 3 req, 6.8 MiB, 261 ms | 3 req, 69.3 MiB, 2997 ms |
 | vzip, paged (python) | 4 req, 68.3 KiB, 4.22 ms | 4 req, 69.5 KiB, 5.30 ms | 4 req, 81.4 KiB, 14 ms | 4 req, 199.8 KiB, 97 ms |
 | phkv (rust) | 2 req, 37.3 KiB, 2.63 ms | 2 req, 384.0 KiB, 2.52 ms | 3 req, 516.1 KiB, 3.82 ms | 3 req, 516.1 KiB, 4.58 ms |
-| hybrid, read as vzip (python) | 4 req, 68.3 KiB, 4.30 ms | 4 req, 69.5 KiB, 6.26 ms | 4 req, 81.4 KiB, 14 ms | 4 req, 199.8 KiB, 98 ms |
-| hybrid, read as phkv (rust) | 2 req, 154.0 KiB, 1.97 ms | 3 req, 1.0 MiB, 3.95 ms | 5 req, 1.0 MiB, 5.64 ms | 5 req, 1.0 MiB, 6.62 ms |
 
 **http 20 ms**
 
@@ -223,8 +211,6 @@ What the parameters do not fix: `list` still takes one request per page, only fe
 | vzip (python) | 3 req, 68.0 KiB, 69 ms | 3 req, 691.1 KiB, 89 ms | 3 req, 6.8 MiB, 319 ms | 3 req, 69.3 MiB, 3023 ms |
 | vzip, paged (python) | 4 req, 68.3 KiB, 88 ms | 4 req, 69.5 KiB, 89 ms | 4 req, 81.4 KiB, 97 ms | 4 req, 199.8 KiB, 181 ms |
 | phkv (rust) | 2 req, 37.3 KiB, 44 ms | 2 req, 384.0 KiB, 46 ms | 3 req, 516.1 KiB, 69 ms | 3 req, 516.1 KiB, 70 ms |
-| hybrid, read as vzip (python) | 4 req, 68.3 KiB, 88 ms | 4 req, 69.5 KiB, 89 ms | 4 req, 81.4 KiB, 99 ms | 4 req, 199.8 KiB, 181 ms |
-| hybrid, read as phkv (rust) | 2 req, 154.0 KiB, 45 ms | 3 req, 1.0 MiB, 69 ms | 5 req, 1.0 MiB, 110 ms | 5 req, 1.0 MiB, 114 ms |
 
 ### Later lookups of random keys in an opened store (per lookup, median)
 
@@ -235,8 +221,6 @@ What the parameters do not fix: `list` still takes one request per page, only fe
 | vzip (python) | 1.00 req, 8 B, 0.56 ms | 1.00 req, 8 B, 0.56 ms | 1.00 req, 8 B, 0.48 ms | 1.00 req, 9 B, 0.54 ms |
 | vzip, paged (python) | 1.08 req, 334 B, 0.54 ms | 1.59 req, 2.4 KiB, 1.16 ms | 1.96 req, 3.9 KiB, 1.51 ms | 1.99 req, 4.0 KiB, 1.39 ms |
 | phkv (rust) | 1.00 req, 25 B, 0.00 ms | 1.00 req, 27 B, 0.00 ms | 1.46 req, 1.8 KiB, 0.01 ms | 1.94 req, 3.8 KiB, 0.01 ms |
-| hybrid, read as vzip (python) | 1.08 req, 334 B, 0.63 ms | 1.59 req, 2.4 KiB, 1.52 ms | 1.96 req, 3.9 KiB, 1.57 ms | 1.99 req, 4.0 KiB, 1.52 ms |
-| hybrid, read as phkv (rust) | 1.00 req, 25 B, 0.00 ms | 1.00 req, 27 B, 0.00 ms | 1.41 req, 1.6 KiB, 0.00 ms | 1.94 req, 3.8 KiB, 0.01 ms |
 
 **http 0 ms**
 
@@ -245,8 +229,6 @@ What the parameters do not fix: `list` still takes one request per page, only fe
 | vzip (python) | 1.00 req, 8 B, 1.13 ms | 1.00 req, 8 B, 1.04 ms | 1.00 req, 8 B, 1.18 ms | 1.00 req, 9 B, 1.06 ms |
 | vzip, paged (python) | 1.08 req, 334 B, 1.09 ms | 1.59 req, 2.4 KiB, 2.24 ms | 1.96 req, 3.9 KiB, 2.38 ms | 1.99 req, 4.0 KiB, 2.44 ms |
 | phkv (rust) | 1.00 req, 25 B, 0.42 ms | 1.00 req, 27 B, 0.47 ms | 1.46 req, 1.8 KiB, 0.76 ms | 1.94 req, 3.8 KiB, 0.83 ms |
-| hybrid, read as vzip (python) | 1.08 req, 334 B, 1.02 ms | 1.59 req, 2.4 KiB, 2.25 ms | 1.96 req, 3.9 KiB, 2.46 ms | 1.99 req, 4.0 KiB, 2.75 ms |
-| hybrid, read as phkv (rust) | 1.00 req, 25 B, 0.51 ms | 1.00 req, 27 B, 0.55 ms | 1.41 req, 1.6 KiB, 1.09 ms | 1.94 req, 3.8 KiB, 1.16 ms |
 
 **http 20 ms**
 
@@ -255,8 +237,6 @@ What the parameters do not fix: `list` still takes one request per page, only fe
 | vzip (python) | 1.00 req, 8 B, 22 ms | 1.00 req, 8 B, 22 ms | 1.00 req, 8 B, 22 ms | 1.00 req, 9 B, 22 ms |
 | vzip, paged (python) | 1.08 req, 334 B, 22 ms | 1.59 req, 2.4 KiB, 44 ms | 1.96 req, 3.9 KiB, 45 ms | 1.99 req, 4.0 KiB, 44 ms |
 | phkv (rust) | 1.00 req, 25 B, 21 ms | 1.00 req, 27 B, 21 ms | 1.46 req, 1.8 KiB, 22 ms | 1.94 req, 3.8 KiB, 43 ms |
-| hybrid, read as vzip (python) | 1.08 req, 334 B, 22 ms | 1.59 req, 2.4 KiB, 44 ms | 1.96 req, 3.9 KiB, 45 ms | 1.99 req, 4.0 KiB, 45 ms |
-| hybrid, read as phkv (rust) | 1.00 req, 25 B, 21 ms | 1.00 req, 27 B, 21 ms | 1.41 req, 1.6 KiB, 22 ms | 1.94 req, 3.8 KiB, 43 ms |
 
 ### `list` of the 100 keys under one prefix, on a store opened cold
 
@@ -267,8 +247,6 @@ What the parameters do not fix: `list` still takes one request per page, only fe
 | vzip (python) | 2 req, 67.9 KiB, 3.14 ms | 2 req, 691.1 KiB, 22 ms | 2 req, 6.8 MiB, 247 ms | 2 req, 69.3 MiB, 2829 ms |
 | vzip, paged (python) | 5 req, 76.3 KiB, 2.32 ms | 4 req, 73.5 KiB, 2.80 ms | 5 req, 89.5 KiB, 11 ms | 5 req, 207.9 KiB, 99 ms |
 | phkv (rust) | 2 req, 8.0 KiB, 0.08 ms | 2 req, 8.0 KiB, 0.11 ms | 2 req, 8.0 KiB, 0.07 ms | 1 req, 4.0 KiB, 0.13 ms |
-| hybrid, read as vzip (python) | 5 req, 76.3 KiB, 2.33 ms | 4 req, 73.5 KiB, 3.50 ms | 5 req, 89.5 KiB, 12 ms | 5 req, 207.9 KiB, 98 ms |
-| hybrid, read as phkv (rust) | 2 req, 8.0 KiB, 0.09 ms | 2 req, 8.0 KiB, 0.14 ms | 2 req, 8.0 KiB, 0.06 ms | 1 req, 4.0 KiB, 0.12 ms |
 
 **http 0 ms**
 
@@ -277,8 +255,6 @@ What the parameters do not fix: `list` still takes one request per page, only fe
 | vzip (python) | 2 req, 67.9 KiB, 4.60 ms | 2 req, 691.1 KiB, 26 ms | 2 req, 6.8 MiB, 259 ms | 2 req, 69.3 MiB, 2952 ms |
 | vzip, paged (python) | 5 req, 76.3 KiB, 5.53 ms | 4 req, 73.5 KiB, 5.36 ms | 5 req, 89.5 KiB, 15 ms | 5 req, 207.9 KiB, 99 ms |
 | phkv (rust) | 2 req, 8.0 KiB, 1.07 ms | 2 req, 8.0 KiB, 1.17 ms | 2 req, 8.0 KiB, 1.16 ms | 1 req, 4.0 KiB, 0.67 ms |
-| hybrid, read as vzip (python) | 5 req, 76.3 KiB, 5.61 ms | 4 req, 73.5 KiB, 5.32 ms | 5 req, 89.5 KiB, 15 ms | 5 req, 207.9 KiB, 100 ms |
-| hybrid, read as phkv (rust) | 2 req, 8.0 KiB, 1.18 ms | 2 req, 8.0 KiB, 1.22 ms | 2 req, 8.0 KiB, 1.39 ms | 1 req, 4.0 KiB, 0.68 ms |
 
 **http 20 ms**
 
@@ -287,8 +263,6 @@ What the parameters do not fix: `list` still takes one request per page, only fe
 | vzip (python) | 2 req, 67.9 KiB, 48 ms | 2 req, 691.1 KiB, 67 ms | 2 req, 6.8 MiB, 298 ms | 2 req, 69.3 MiB, 3019 ms |
 | vzip, paged (python) | 5 req, 76.3 KiB, 68 ms | 4 req, 73.5 KiB, 69 ms | 5 req, 89.5 KiB, 79 ms | 5 req, 207.9 KiB, 165 ms |
 | phkv (rust) | 2 req, 8.0 KiB, 43 ms | 2 req, 8.0 KiB, 43 ms | 2 req, 8.0 KiB, 43 ms | 1 req, 4.0 KiB, 21 ms |
-| hybrid, read as vzip (python) | 5 req, 76.3 KiB, 68 ms | 4 req, 73.5 KiB, 69 ms | 5 req, 89.5 KiB, 80 ms | 5 req, 207.9 KiB, 169 ms |
-| hybrid, read as phkv (rust) | 2 req, 8.0 KiB, 43 ms | 2 req, 8.0 KiB, 43 ms | 2 req, 8.0 KiB, 42 ms | 1 req, 4.0 KiB, 21 ms |
 
 ## Workload `bytes`
 
@@ -299,8 +273,6 @@ What the parameters do not fix: `list` still takes one request per page, only fe
 | vzip (python) | 1.1 MiB | 10.7 MiB | 107.3 MiB |
 | vzip, paged (python) | 1.1 MiB | 10.7 MiB | 107.4 MiB |
 | phkv (rust) | 1.0 MiB | 10.2 MiB | 101.6 MiB |
-| hybrid, read as vzip (python) | 1.1 MiB | 11.1 MiB | 111.6 MiB |
-| hybrid, read as phkv (rust) | 1.1 MiB | 11.1 MiB | 111.6 MiB |
 
 ### First lookup of a store opened cold (open and one `get`)
 
@@ -311,8 +283,6 @@ What the parameters do not fix: `list` still takes one request per page, only fe
 | vzip (python) | 2 req, 65.0 KiB, 2.83 ms | 3 req, 575.4 KiB, 20 ms | 3 req, 5.6 MiB, 192 ms |
 | vzip, paged (python) | 3 req, 69.0 KiB, 1.87 ms | 4 req, 70.3 KiB, 2.74 ms | 4 req, 80.4 KiB, 9.17 ms |
 | phkv (rust) | 2 req, 513.1 KiB, 0.39 ms | 2 req, 513.1 KiB, 0.65 ms | 3 req, 517.1 KiB, 2.58 ms |
-| hybrid, read as vzip (python) | 4 req, 69.2 KiB, 2.73 ms | 4 req, 70.3 KiB, 2.55 ms | 4 req, 80.3 KiB, 9.71 ms |
-| hybrid, read as phkv (rust) | 4 req, 1.0 MiB, 0.52 ms | 4 req, 1.0 MiB, 0.64 ms | 6 req, 1.0 MiB, 0.89 ms |
 
 **http 0 ms**
 
@@ -321,8 +291,6 @@ What the parameters do not fix: `list` still takes one request per page, only fe
 | vzip (python) | 2 req, 65.0 KiB, 3.86 ms | 3 req, 575.4 KiB, 23 ms | 3 req, 5.6 MiB, 195 ms |
 | vzip, paged (python) | 3 req, 69.0 KiB, 3.31 ms | 4 req, 70.3 KiB, 5.16 ms | 4 req, 80.4 KiB, 12 ms |
 | phkv (rust) | 2 req, 513.1 KiB, 2.78 ms | 2 req, 513.1 KiB, 2.98 ms | 3 req, 517.1 KiB, 6.07 ms |
-| hybrid, read as vzip (python) | 4 req, 69.2 KiB, 5.23 ms | 4 req, 70.3 KiB, 5.47 ms | 4 req, 80.3 KiB, 11 ms |
-| hybrid, read as phkv (rust) | 4 req, 1.0 MiB, 4.79 ms | 4 req, 1.0 MiB, 4.62 ms | 6 req, 1.0 MiB, 5.41 ms |
 
 **http 20 ms**
 
@@ -331,8 +299,6 @@ What the parameters do not fix: `list` still takes one request per page, only fe
 | vzip (python) | 2 req, 65.0 KiB, 46 ms | 3 req, 575.4 KiB, 86 ms | 3 req, 5.6 MiB, 263 ms |
 | vzip, paged (python) | 3 req, 69.0 KiB, 66 ms | 4 req, 70.3 KiB, 89 ms | 4 req, 80.4 KiB, 95 ms |
 | phkv (rust) | 2 req, 513.1 KiB, 46 ms | 2 req, 513.1 KiB, 46 ms | 3 req, 517.1 KiB, 71 ms |
-| hybrid, read as vzip (python) | 4 req, 69.2 KiB, 88 ms | 4 req, 70.3 KiB, 88 ms | 4 req, 80.3 KiB, 98 ms |
-| hybrid, read as phkv (rust) | 4 req, 1.0 MiB, 90 ms | 4 req, 1.0 MiB, 90 ms | 6 req, 1.0 MiB, 134 ms |
 
 ### Later lookups of random keys in an opened store (per lookup, median)
 
@@ -343,8 +309,6 @@ What the parameters do not fix: `list` still takes one request per page, only fe
 | vzip (python) | 0.99 req, 1014 B, 0.49 ms | 1.00 req, 1.0 KiB, 0.51 ms | 1.00 req, 1.0 KiB, 0.55 ms |
 | vzip, paged (python) | 1.06 req, 1.3 KiB, 0.46 ms | 1.55 req, 3.2 KiB, 1.08 ms | 1.95 req, 4.8 KiB, 1.66 ms |
 | phkv (rust) | 1.00 req, 1.0 KiB, 0.00 ms | 1.00 req, 1.0 KiB, 0.00 ms | 1.54 req, 3.2 KiB, 0.01 ms |
-| hybrid, read as vzip (python) | 1.07 req, 1.3 KiB, 0.51 ms | 1.54 req, 3.2 KiB, 1.21 ms | 1.95 req, 4.8 KiB, 1.50 ms |
-| hybrid, read as phkv (rust) | 2.00 req, 1.0 KiB, 0.00 ms | 2.00 req, 1.0 KiB, 0.01 ms | 2.40 req, 2.6 KiB, 0.01 ms |
 
 **http 0 ms**
 
@@ -353,8 +317,6 @@ What the parameters do not fix: `list` still takes one request per page, only fe
 | vzip (python) | 0.99 req, 1014 B, 0.94 ms | 1.00 req, 1.0 KiB, 0.96 ms | 1.00 req, 1.0 KiB, 0.97 ms |
 | vzip, paged (python) | 1.06 req, 1.3 KiB, 0.95 ms | 1.55 req, 3.2 KiB, 2.21 ms | 1.95 req, 4.8 KiB, 2.46 ms |
 | phkv (rust) | 1.00 req, 1.0 KiB, 0.46 ms | 1.00 req, 1.0 KiB, 0.55 ms | 1.54 req, 3.2 KiB, 0.87 ms |
-| hybrid, read as vzip (python) | 1.07 req, 1.3 KiB, 1.02 ms | 1.54 req, 3.2 KiB, 2.20 ms | 1.95 req, 4.8 KiB, 2.66 ms |
-| hybrid, read as phkv (rust) | 2.00 req, 1.0 KiB, 1.27 ms | 2.00 req, 1.0 KiB, 1.18 ms | 2.40 req, 2.6 KiB, 1.29 ms |
 
 **http 20 ms**
 
@@ -363,8 +325,6 @@ What the parameters do not fix: `list` still takes one request per page, only fe
 | vzip (python) | 0.99 req, 1014 B, 22 ms | 1.00 req, 1.0 KiB, 22 ms | 1.00 req, 1.0 KiB, 22 ms |
 | vzip, paged (python) | 1.06 req, 1.3 KiB, 22 ms | 1.55 req, 3.2 KiB, 44 ms | 1.95 req, 4.8 KiB, 45 ms |
 | phkv (rust) | 1.00 req, 1.0 KiB, 21 ms | 1.00 req, 1.0 KiB, 21 ms | 1.54 req, 3.2 KiB, 42 ms |
-| hybrid, read as vzip (python) | 1.07 req, 1.3 KiB, 22 ms | 1.54 req, 3.2 KiB, 44 ms | 1.95 req, 4.8 KiB, 45 ms |
-| hybrid, read as phkv (rust) | 2.00 req, 1.0 KiB, 43 ms | 2.00 req, 1.0 KiB, 43 ms | 2.40 req, 2.6 KiB, 43 ms |
 
 ### `list` of the 100 keys under one prefix, on a store opened cold
 
@@ -375,8 +335,6 @@ What the parameters do not fix: `list` still takes one request per page, only fe
 | vzip (python) | 1 req, 64.0 KiB, 2.30 ms | 2 req, 574.4 KiB, 19 ms | 2 req, 5.6 MiB, 190 ms |
 | vzip, paged (python) | 4 req, 76.0 KiB, 1.82 ms | 4 req, 73.3 KiB, 2.48 ms | 4 req, 83.4 KiB, 9.56 ms |
 | phkv (rust) | 26 req, 106.6 KiB, 0.08 ms | 26 req, 106.7 KiB, 0.10 ms | 26 req, 106.8 KiB, 0.26 ms |
-| hybrid, read as vzip (python) | 5 req, 76.3 KiB, 2.86 ms | 4 req, 73.3 KiB, 3.00 ms | 4 req, 83.3 KiB, 9.39 ms |
-| hybrid, read as phkv (rust) | 2 req, 8.0 KiB, 0.10 ms | 2 req, 8.0 KiB, 0.11 ms | 2 req, 8.0 KiB, 0.06 ms |
 
 **http 0 ms**
 
@@ -385,8 +343,6 @@ What the parameters do not fix: `list` still takes one request per page, only fe
 | vzip (python) | 1 req, 64.0 KiB, 3.11 ms | 2 req, 574.4 KiB, 21 ms | 2 req, 5.6 MiB, 198 ms |
 | vzip, paged (python) | 4 req, 76.0 KiB, 4.18 ms | 4 req, 73.3 KiB, 4.90 ms | 4 req, 83.4 KiB, 12 ms |
 | phkv (rust) | 26 req, 106.6 KiB, 14 ms | 26 req, 106.7 KiB, 14 ms | 26 req, 106.8 KiB, 13 ms |
-| hybrid, read as vzip (python) | 5 req, 76.3 KiB, 5.35 ms | 4 req, 73.3 KiB, 4.95 ms | 4 req, 83.3 KiB, 12 ms |
-| hybrid, read as phkv (rust) | 2 req, 8.0 KiB, 1.28 ms | 2 req, 8.0 KiB, 1.22 ms | 2 req, 8.0 KiB, 1.09 ms |
 
 **http 20 ms**
 
@@ -395,6 +351,4 @@ What the parameters do not fix: `list` still takes one request per page, only fe
 | vzip (python) | 1 req, 64.0 KiB, 25 ms | 2 req, 574.4 KiB, 63 ms | 2 req, 5.6 MiB, 241 ms |
 | vzip, paged (python) | 4 req, 76.0 KiB, 50 ms | 4 req, 73.3 KiB, 69 ms | 4 req, 83.4 KiB, 78 ms |
 | phkv (rust) | 26 req, 106.6 KiB, 552 ms | 26 req, 106.7 KiB, 553 ms | 26 req, 106.8 KiB, 555 ms |
-| hybrid, read as vzip (python) | 5 req, 76.3 KiB, 68 ms | 4 req, 73.3 KiB, 68 ms | 4 req, 83.3 KiB, 76 ms |
-| hybrid, read as phkv (rust) | 2 req, 8.0 KiB, 43 ms | 2 req, 8.0 KiB, 43 ms | 2 req, 8.0 KiB, 43 ms |
 

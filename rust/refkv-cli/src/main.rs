@@ -3,13 +3,12 @@
 //!
 //! ```text
 //! vzip convert <url or path> <out.vzip> [--url <source url>] [--checksums] [--allow-private-hosts]
-//!     [--connections N] [--byte-cost SECONDS_PER_MB] [--workers N] [--format vzip|phkv|hybrid]
+//!     [--connections N] [--byte-cost SECONDS_PER_MB] [--workers N] [--format vzip|phkv]
 //! ```
 //!
-//! `--format` chooses the container: a vzip archive (the default), a standalone phkv store, or a
-//! vzip archive that also carries a phkv container (spec/bindings/phkv.md §16.2
-//! <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#162-profiles>). Only vzip
-//! archives match the Python zarrifier's output byte for byte.
+//! `--format` chooses the container: a vzip archive (the default), or a phkv store
+//! (spec/bindings/phkv.md <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md>).
+//! Only vzip archives match the Python zarrifier's output byte for byte.
 //!
 //! Every format of docs/zarrify/README.md goes through the Rust core (rust/refkv-ir): a
 //! file (a URL or a path), or a store (an http(s) URL ending in `/`, listed by S3
@@ -58,7 +57,7 @@ pub enum Fail {
 
 // the store kinds, in the words of `python -m refkv.zarrify`'s usage (python/src/refkv/zarrify/__main__.py)
 const USAGE: &str = "usage: vzip convert <url or path> <out.vzip> [--url <source url>] [--checksums] \
-[--allow-private-hosts] [--connections N] [--byte-cost SECONDS_PER_MB] [--workers N] [--format vzip|phkv|hybrid]\n\
+[--allow-private-hosts] [--connections N] [--byte-cost SECONDS_PER_MB] [--workers N] [--format vzip|phkv]\n\
 (a URL ending in / or a directory is an N5, Zarr v2 or OME-Zarr 0.4 store, or a Sentinel-2 .SAFE directory; \
 a directory needs --url;\n\
 a store's objects are read by up to N requests at a time, default 16)";
@@ -133,7 +132,7 @@ fn parse(argv: &[String]) -> Result<Args, Fail> {
     let workers = take(&mut args, "--workers")?.map(|v| number::<i64>("--workers", &v)).transpose()?.unwrap_or(store::WORKERS as i64);
     let format = match take(&mut args, "--format")? {
         None => output::Container::default(),
-        Some(f) => output::Container::parse(&f).ok_or_else(|| Fail::Usage(format!("--format {f:?} is not vzip, phkv or hybrid")))?,
+        Some(f) => output::Container::parse(&f).ok_or_else(|| Fail::Usage(format!("--format {f:?} is not vzip or phkv")))?,
     };
     let [input, out] = <[String; 2]>::try_from(args).map_err(|_| Fail::Usage(USAGE.into()))?;
     Ok(Args { input, out, url, checksums, allow_private_hosts, connections, byte_cost, workers: workers.max(1) as usize, format })
@@ -251,7 +250,9 @@ mod tests {
             }
         );
         assert_eq!(parse(&args("a b --connections 0")).unwrap().connections, None);
-        assert_eq!(parse(&args("a b --format hybrid")).unwrap().format, output::Container::Hybrid);
+        assert_eq!(parse(&args("a b --format phkv")).unwrap().format, output::Container::Phkv);
+        // the hybrid format was removed
+        assert!(matches!(parse(&args("a b --format hybrid")), Err(Fail::Usage(_))));
         assert!(matches!(parse(&args("a b --format tar")), Err(Fail::Usage(_))));
     }
 

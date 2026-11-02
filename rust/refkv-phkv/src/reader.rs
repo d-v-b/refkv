@@ -1,5 +1,5 @@
-//! The reader (spec/bindings/phkv.md §22
-//! <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#22-reading-a-phkv-store>):
+//! The reader (spec/bindings/phkv.md §21
+//! <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#21-reading-a-phkv-store>):
 //! opening, the operations of spec/refkv.md §6.2
 //! <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#62-operations>, and the binding's own
 //! `entry_info` and `property`. It reads through [`ReadAt`], so the same code serves files,
@@ -198,8 +198,8 @@ pub enum Kind {
 /// What [`Store::entry_info`] reports.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EntryInfo {
-    Bytes { codec: Codec, stored_length: u64, size: u64, crc32c: Option<u32>, hidden: bool },
-    Reference { payload_length: u64, hidden: bool },
+    Bytes { codec: Codec, stored_length: u64, size: u64, crc32c: Option<u32> },
+    Reference { payload_length: u64 },
 }
 
 /// A PROPERTY section's header, read when a property is first asked for.
@@ -250,35 +250,13 @@ pub const DEFAULT_TAIL: u64 = (512 << 10) + format::SUPERBLOCK_SIZE;
 /// How many bytes of a record a lookup reads first, by default (`Limits::record_read`).
 pub const DEFAULT_RECORD_READ: u64 = 4608;
 
-/// Where the central directory starts, from the vzip end of central directory record at the end
-/// of `tail` (spec/bindings/vzip.md §10.4
-/// <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#104-end-of-central-directory-record-and-archive-comment>), if there is one: the record is 22 + 22 or 22 + 38
-/// bytes from the end, and a zip64 offset is in the record the locator before it points at.
-fn central_directory_offset(tail: &[u8], tail_at: u64) -> Option<u64> {
-    let n = tail.len();
-    let eocd = [(60, 38u16), (44, 22)].into_iter().find_map(|(back, comment)| {
-        let at = n.checked_sub(back)?;
-        (format::le_u32(tail, at) == 0x0605_4b50 && u16::from_le_bytes([tail[at + 20], tail[at + 21]]) == comment).then_some(at)
-    })?;
-    let offset = format::le_u32(tail, eocd + 16);
-    if offset != u32::MAX {
-        return Some(offset as u64);
-    }
-    let loc = eocd.checked_sub(20)?;
-    if format::le_u32(tail, loc) != 0x0706_4b50 {
-        return None;
-    }
-    let record = usize::try_from(format::le_u64(tail, loc + 8).checked_sub(tail_at)?).ok()?;
-    (record + 56 <= loc && format::le_u32(tail, record) == 0x0606_4b50).then(|| format::le_u64(tail, record + 48))
-}
-
 impl<R: ReadAt> Store<R> {
     pub fn open(r: R) -> Result<Store<R>, ReadError> {
         Store::open_with(r, Limits::default())
     }
 
-    /// Opens a store (spec/bindings/phkv.md §22.1
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#221-opening>): every
+    /// Opens a store (spec/bindings/phkv.md §21.1
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#211-opening>): every
     /// failure is an archive error.
     pub fn open_with(r: R, limits: Limits) -> Result<Store<R>, ReadError> {
         let archive = |m: String| ReadError { class: Class::Archive, message: m };
@@ -287,8 +265,8 @@ impl<R: ReadAt> Store<R> {
         let tail_at = file_size - tail_len;
         let mut tail = vec![0u8; tail_len as usize];
         r.read_at(tail_at, &mut tail).map_err(|e| archive(e.to_string()))?;
-        // a read of [off, off + len), from the tail, or the window before a hybrid store's superblock,
-        // when it holds it
+        // a read of [off, off + len), from the tail, or from the window (what was read of SLOTS and what
+        // follows it, when SLOTS is read at open), when it holds it
         let window: RefCell<(u64, Vec<u8>)> = RefCell::new((0, Vec::new()));
         let read = |off: u64, len: u64| -> Result<Vec<u8>, ReadError> {
             if off.checked_add(len).is_none_or(|e| e > file_size) {
@@ -314,21 +292,9 @@ impl<R: ReadAt> Store<R> {
         };
 
         // the superblock (spec/bindings/phkv.md §17.2 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#172-finding-the-superblock>):
-        // at the start of the central directory of a hybrid store, else at a probe distance
+        // at a probe distance from the end
         let mut found = None;
-        if let Some(cd) = central_directory_offset(&tail, tail_at).filter(|&cd| cd >= format::SUPERBLOCK_SIZE && cd <= file_size) {
-            // the superblock ends the container, so the bytes before it are likely its directory and
-            // sections: one read of as many as the tail holds, for the superblock and what follows it
-            let start = cd.saturating_sub(tail_len);
-            if start < tail_at {
-                let mut b = vec![0u8; (cd - start) as usize];
-                r.read_at(start, &mut b).map_err(|e| archive(e.to_string()))?;
-                *window.borrow_mut() = (start, b);
-            }
-            let b = read(cd - format::SUPERBLOCK_SIZE, format::SUPERBLOCK_SIZE)?;
-            found = Superblock::matching(&b, file_size - cd).filter(Superblock::hybrid);
-        }
-        for d in format::probe_distances().filter(|_| found.is_none()) {
+        for d in format::probe_distances() {
             if d + format::SUPERBLOCK_SIZE > file_size {
                 break;
             }
@@ -344,7 +310,7 @@ impl<R: ReadAt> Store<R> {
         if sb.version != format::VERSION {
             return err(Class::Archive, format!("unsupported format version {}", sb.version));
         }
-        if sb.flags & !format::FLAG_HYBRID != 0 {
+        if sb.flags != 0 {
             return err(Class::Archive, format!("unsupported superblock flags {:#x}", sb.flags));
         }
         let n = sb.key_count;
@@ -451,8 +417,8 @@ impl<R: ReadAt> Store<R> {
             if slots_whole {
                 slots_buf = Some(read(sl.offset, sl.length)?);
             } else if limits.slot_block >= format::SLOT_SIZE {
-                // the whole blocks of SLOTS that the first read, or the window before a hybrid
-                // superblock, already holds are kept, as if a lookup had read them
+                // the whole blocks of SLOTS that the first read, or the window, already holds are kept,
+                // as if a lookup had read them
                 let block = limits.slot_block - limits.slot_block % format::SLOT_SIZE;
                 let w = window.borrow();
                 for (at, held) in [(tail_at, &tail[..]), (w.0, &w.1[..])] {
@@ -556,7 +522,7 @@ impl<R: ReadAt> Store<R> {
                 return err(Class::Entry, format!("the record at {off} of {n} bytes extends past the end of RECORDS"));
             }
             let b = self.record_bytes(off, n)?;
-            return match format::parse_record(&b, self.sb.hybrid()).map_err(|m| ReadError { class: Class::Entry, message: format!("record at {off}: {m}") })? {
+            return match format::parse_record(&b).map_err(|m| ReadError { class: Class::Entry, message: format!("record at {off}: {m}") })? {
                 Parsed::Whole(rec, len) if len as u64 == n => Ok(rec),
                 _ => err(Class::Entry, format!("the record at {off} is not the {n} bytes its slot gives")),
             };
@@ -570,7 +536,7 @@ impl<R: ReadAt> Store<R> {
         let mut b = self.read(off, first, Class::Entry)?;
         loop {
             let len = b.len() as u64;
-            match format::parse_record(&b, self.sb.hybrid()).map_err(|m| ReadError { class: Class::Entry, message: format!("record at {off}: {m}") })? {
+            match format::parse_record(&b).map_err(|m| ReadError { class: Class::Entry, message: format!("record at {off}: {m}") })? {
                 Parsed::Whole(rec, _) => return Ok(rec),
                 Parsed::Needs(n) if n > end - off => return err(Class::Entry, format!("record at {off} extends past the end of RECORDS")),
                 Parsed::Needs(n) if n <= len => return err(Class::Entry, format!("record at {off} is malformed")),
@@ -580,7 +546,7 @@ impl<R: ReadAt> Store<R> {
         }
     }
 
-    /// The record of `key`, hidden or not (spec/bindings/phkv.md §19.5
+    /// The record of `key` (spec/bindings/phkv.md §19.5
     /// <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#195-lookup>).
     fn lookup(&self, key: &str) -> Result<Option<Record>, ReadError> {
         let Some((params, pilots)) = &self.hash else {
@@ -610,9 +576,9 @@ impl<R: ReadAt> Store<R> {
         Ok((rec.key == key.as_bytes()).then_some(rec))
     }
 
-    /// The record of `key` if it is in the mapping: not hidden.
+    /// The record of `key` if it is in the mapping.
     fn lookup_visible(&self, key: &str) -> Result<Option<Record>, ReadError> {
-        Ok(self.lookup(key)?.filter(|r| !r.hidden))
+        self.lookup(key)
     }
 
     pub fn classify(&self, key: &str) -> Result<Option<Kind>, ReadError> {
@@ -661,8 +627,8 @@ impl<R: ReadAt> Store<R> {
         Ok(v[a as usize..b as usize].to_vec())
     }
 
-    /// `get` (spec/bindings/phkv.md §22.2
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#222-operations>).
+    /// `get` (spec/bindings/phkv.md §21.2
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#212-operations>).
     pub fn get(&self, key: &str, request: Request, resolver: &dyn Resolver) -> Result<Option<Vec<u8>>, ReadError> {
         if let Request::Range(s, e) = request
             && s > e
@@ -774,9 +740,9 @@ impl<R: ReadAt> Store<R> {
         }
     }
 
-    /// `list` (spec/bindings/phkv.md §22.2
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#222-operations>): the keys
-    /// that are not hidden and start with `prefix`, in UTF-8 order.
+    /// `list` (spec/bindings/phkv.md §21.2
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#212-operations>): the keys
+    /// that start with `prefix`, in UTF-8 order.
     pub fn list(&self, prefix: &str) -> Result<Vec<String>, ReadError> {
         let prefix = prefix.as_bytes();
         let mut out = Vec::new();
@@ -804,7 +770,7 @@ impl<R: ReadAt> Store<R> {
                 let p = &self.pages[k];
                 let from = (p.offset - start) as usize;
                 for rec in self.parse_page(k, &span[from..from + p.length as usize])? {
-                    if !rec.hidden && rec.key.starts_with(prefix) {
+                    if rec.key.starts_with(prefix) {
                         out.push(String::from_utf8(rec.key).map_err(|_| ReadError { class: Class::Entry, message: "a key that is not UTF-8".into() })?);
                     }
                 }
@@ -820,7 +786,7 @@ impl<R: ReadAt> Store<R> {
         let mut recs = Vec::new();
         let mut at = 0usize;
         while at < b.len() {
-            match format::parse_record(&b[at..], self.sb.hybrid()) {
+            match format::parse_record(&b[at..]) {
                 Ok(Parsed::Whole(rec, len)) => {
                     recs.push(rec);
                     at += len;
@@ -835,19 +801,13 @@ impl<R: ReadAt> Store<R> {
         Ok(recs)
     }
 
-    /// `raw`: in a standalone store, a bytes value's stored bytes, not decoded; in a hybrid store,
-    /// what vzip's raw view gives: the decoded value, and the container region for `__vz__/phkv`.
-    /// A reference gives its payload. Hidden records are included.
+    /// `raw`: a bytes value's stored bytes, not decoded; a reference gives its payload.
     pub fn raw(&self, key: &str) -> Result<Option<Vec<u8>>, ReadError> {
-        if self.sb.hybrid() && key == format::HYBRID_KEY {
-            return self.read(self.sb.region_offset, self.sb.region_length, Class::Body).map(Some);
-        }
         let Some(rec) = self.lookup(key)? else {
             return Ok(None);
         };
         match &rec.value {
             Value::Reference { payload, .. } => Ok(Some(payload.clone())),
-            Value::Bytes { size, .. } if self.sb.hybrid() => self.bytes_window(&rec, 0, *size).map(Some),
             Value::Bytes { codec, stored, stored_length, size, crc32c } => {
                 let v = match stored {
                     Stored::Inline(d) => d.clone(),
@@ -874,11 +834,11 @@ impl<R: ReadAt> Store<R> {
     }
 
     /// `entry_info`: how a key's value is stored, so that what [`Store::raw`] gives can be
-    /// interpreted. Hidden records are included.
+    /// interpreted.
     pub fn entry_info(&self, key: &str) -> Result<Option<EntryInfo>, ReadError> {
         Ok(self.lookup(key)?.map(|r| match r.value {
-            Value::Bytes { codec, stored_length, size, crc32c, .. } => EntryInfo::Bytes { codec, stored_length, size, crc32c, hidden: r.hidden },
-            Value::Reference { payload, .. } => EntryInfo::Reference { payload_length: payload.len() as u64, hidden: r.hidden },
+            Value::Bytes { codec, stored_length, size, crc32c, .. } => EntryInfo::Bytes { codec, stored_length, size, crc32c },
+            Value::Reference { payload, .. } => EntryInfo::Reference { payload_length: payload.len() as u64 },
         }))
     }
 

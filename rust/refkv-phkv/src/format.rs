@@ -10,7 +10,6 @@ pub const MAGIC: &[u8; 4] = b"PHKV";
 pub const VERSION: u16 = 0;
 pub const SUPERBLOCK_SIZE: u64 = 64;
 pub const DIR_ENTRY_SIZE: u64 = 40;
-pub const FLAG_HYBRID: u16 = 1;
 pub const FLAG_MUST_UNDERSTAND: u8 = 1;
 /// The size of a slot: a `u64` offset, then a `u32` length (spec/bindings/phkv.md §18.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#182-slots-section>).
@@ -50,9 +49,6 @@ pub fn unpack_slot(slot: &[u8]) -> Result<Option<(u64, Option<u64>)>, String> {
 /// The largest reference payload (spec/bindings/phkv.md §19.3
 /// <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#193-reference-records>).
 pub const MAX_PAYLOAD: u64 = 1 << 24;
-/// The hybrid profile's entry (spec/bindings/phkv.md §21
-/// <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#21-hybrid-profile>).
-pub const HYBRID_KEY: &str = "__vz__/phkv";
 
 /// The probe distances (spec/bindings/phkv.md §17.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#172-finding-the-superblock>):
@@ -302,10 +298,6 @@ impl Superblock {
             directory_crc32c: le_u32(b, 56),
         })
     }
-
-    pub fn hybrid(&self) -> bool {
-        self.flags & FLAG_HYBRID != 0
-    }
 }
 
 // ---------------------------------------------------------------- directory
@@ -418,7 +410,6 @@ pub const KIND_RANGE: u8 = 1;
 pub const KIND_CONCAT: u8 = 2;
 pub const REC_INLINE: u8 = 1;
 pub const REC_CRC32C: u8 = 2;
-pub const REC_HIDDEN: u8 = 4;
 
 /// Where a bytes record's stored bytes are.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -441,19 +432,17 @@ pub enum Value {
 pub struct Record {
     pub key: Vec<u8>,
     pub rank: u64,
-    pub hidden: bool,
     pub value: Value,
 }
 
 impl Record {
     pub fn encode(&self, out: &mut Vec<u8>) {
         put_varint(out, self.key.len() as u64);
-        let hidden = if self.hidden { REC_HIDDEN } else { 0 };
         match &self.value {
             Value::Bytes { codec, stored, stored_length, size, crc32c } => {
                 out.push(KIND_BYTES);
                 let inline = if matches!(stored, Stored::Inline(_)) { REC_INLINE } else { 0 };
-                out.push(inline | if crc32c.is_some() { REC_CRC32C } else { 0 } | hidden);
+                out.push(inline | if crc32c.is_some() { REC_CRC32C } else { 0 });
                 put_varint(out, self.rank);
                 out.push(*codec as u8);
                 if let Stored::At(o) = stored {
@@ -471,7 +460,7 @@ impl Record {
             }
             Value::Reference { kind, payload } => {
                 out.push(*kind);
-                out.push(hidden);
+                out.push(0);
                 put_varint(out, self.rank);
                 put_varint(out, payload.len() as u64);
                 out.extend_from_slice(&self.key);
@@ -490,8 +479,8 @@ pub enum Parsed {
 }
 
 /// Decodes the record at the start of `b`. `b` may be cut short: then, if the fields before the key
-/// are whole, it says how long the record is. `hybrid` says whether `hidden` is allowed.
-pub fn parse_record(b: &[u8], hybrid: bool) -> Result<Parsed, String> {
+/// are whole, it says how long the record is.
+pub fn parse_record(b: &[u8]) -> Result<Parsed, String> {
     let mut c = Cur::new(b);
     let key_len = c.varint()?;
     if key_len == 0 {
@@ -499,14 +488,10 @@ pub fn parse_record(b: &[u8], hybrid: bool) -> Result<Parsed, String> {
     }
     let kind = c.u8()?;
     let flags = c.u8()?;
-    if flags & !(REC_INLINE | REC_CRC32C | REC_HIDDEN) != 0 {
+    if flags & !(REC_INLINE | REC_CRC32C) != 0 {
         return Err(format!("record flags {flags:#x} have unknown bits"));
     }
-    if flags & REC_HIDDEN != 0 && !hybrid {
-        return Err("a hidden record in a standalone store".into());
-    }
     let rank = c.varint()?;
-    let hidden = flags & REC_HIDDEN != 0;
     let total = |c: &Cur, tail: u64| -> Result<u64, String> {
         (c.pos as u64).checked_add(key_len).and_then(|t| t.checked_add(tail)).ok_or_else(|| "record length exceeds 2^64 - 1".to_string())
     };
@@ -527,7 +512,7 @@ pub fn parse_record(b: &[u8], hybrid: bool) -> Result<Parsed, String> {
                 Some(o) => Stored::At(o),
                 None => Stored::Inline(c.bytes(stored_length)?.to_vec()),
             };
-            Ok(Parsed::Whole(Record { key, rank, hidden, value: Value::Bytes { codec, stored, stored_length, size, crc32c: crc } }, c.pos))
+            Ok(Parsed::Whole(Record { key, rank, value: Value::Bytes { codec, stored, stored_length, size, crc32c: crc } }, c.pos))
         }
         KIND_RANGE | KIND_CONCAT => {
             if flags & (REC_INLINE | REC_CRC32C) != 0 {
@@ -540,7 +525,7 @@ pub fn parse_record(b: &[u8], hybrid: bool) -> Result<Parsed, String> {
             }
             let key = utf8_key(c.bytes(key_len)?)?;
             let payload = c.bytes(payload_len)?.to_vec();
-            Ok(Parsed::Whole(Record { key, rank, hidden, value: Value::Reference { kind, payload } }, c.pos))
+            Ok(Parsed::Whole(Record { key, rank, value: Value::Reference { kind, payload } }, c.pos))
         }
         k => Err(format!("unknown record kind {k}")),
     }
@@ -764,14 +749,14 @@ mod tests {
     #[test]
     fn records_round_trip() {
         let recs = [
-            Record { key: b"a".to_vec(), rank: 0, hidden: false, value: Value::Bytes { codec: Codec::None, stored: Stored::Inline(b"xyz".to_vec()), stored_length: 3, size: 3, crc32c: Some(7) } },
-            Record { key: b"b/c".to_vec(), rank: 1, hidden: true, value: Value::Bytes { codec: Codec::Zstd, stored: Stored::At(12345), stored_length: 10, size: 99, crc32c: None } },
-            Record { key: b"d".to_vec(), rank: 2, hidden: false, value: Value::Reference { kind: KIND_RANGE, payload: vec![8, 1] } },
+            Record { key: b"a".to_vec(), rank: 0, value: Value::Bytes { codec: Codec::None, stored: Stored::Inline(b"xyz".to_vec()), stored_length: 3, size: 3, crc32c: Some(7) } },
+            Record { key: b"b/c".to_vec(), rank: 1, value: Value::Bytes { codec: Codec::Zstd, stored: Stored::At(12345), stored_length: 10, size: 99, crc32c: None } },
+            Record { key: b"d".to_vec(), rank: 2, value: Value::Reference { kind: KIND_RANGE, payload: vec![8, 1] } },
         ];
         for r in recs {
             let mut b = Vec::new();
             r.encode(&mut b);
-            match parse_record(&b, true).unwrap() {
+            match parse_record(&b).unwrap() {
                 Parsed::Whole(back, len) => {
                     assert_eq!(back, r);
                     assert_eq!(len, b.len());
@@ -780,8 +765,21 @@ mod tests {
             }
             // the fields before the key are always under 64 bytes: a short read gives the length
             if b.len() > 40 {
-                assert!(matches!(parse_record(&b[..40], true).unwrap(), Parsed::Needs(n) if n == b.len() as u64));
+                assert!(matches!(parse_record(&b[..40]).unwrap(), Parsed::Needs(n) if n == b.len() as u64));
             }
+        }
+    }
+
+    #[test]
+    fn a_record_flag_that_was_hidden_is_unknown() {
+        // bit 2 was the hybrid profile's `hidden`; it is reserved now
+        let mut b = Vec::new();
+        Record { key: b"a".to_vec(), rank: 0, value: Value::Reference { kind: KIND_RANGE, payload: vec![8, 1] } }.encode(&mut b);
+        assert!(parse_record(&b).is_ok());
+        b[2] |= 4; // key length, kind, flags
+        match parse_record(&b) {
+            Err(m) => assert!(m.contains("unknown bits"), "{m}"),
+            Ok(_) => panic!("a record with flag bit 2 was accepted"),
         }
     }
 

@@ -1,6 +1,6 @@
 # refkv: a reference value type for key-value stores
 
-Format version: 0 (**provisional**) · Specification revision: 11.3
+Format version: 0 (**provisional**) · Specification revision: 11.4
 
 ## 1. Introduction
 
@@ -23,7 +23,7 @@ The specification has three parts, in three documents:
 - [Part 3](bindings/phkv.md#part-3-the-perfect-hash-binding), in
   [spec/bindings/phkv.md](bindings/phkv.md), is the **perfect-hash binding**,
   a **draft**: how a store is kept in a single file indexed by a perfect hash,
-  a **phkv store**, on its own or inside a vzip archive.
+  a **phkv store**.
 
 The documents share this introduction and one revision, and number their
 sections as one specification: Part 2 starts at

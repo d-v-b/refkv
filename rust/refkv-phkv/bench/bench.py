@@ -179,8 +179,6 @@ FORMATS = [  # (label, file suffix, reader)
     ("vzip", "vzip", "py"),
     ("vzip, paged", "paged.vzip", "py"),
     ("phkv", "phkv", "rs"),
-    ("hybrid, read as vzip", "hybrid", "py"),
-    ("hybrid, read as phkv", "hybrid", "rs"),
 ]
 
 

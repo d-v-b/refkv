@@ -640,3 +640,16 @@ fn record_blocks_serve_neighbouring_records_with_the_same_values() {
     // alone: a read per record (and the slot blocks); in blocks: a read per 4 KiB of RECORDS instead
     assert!(blocks * 3 < alone, "{blocks} reads in blocks against {alone} alone");
 }
+
+#[test]
+fn a_superblock_with_the_flag_that_was_hybrid_is_an_archive_error() {
+    // flag bit 0 marked a hybrid store; the flags are reserved now, and a reader refuses any set bit
+    let mut b = three_values();
+    let at = b.len() - 64;
+    let mut sb = superblock(&b);
+    sb.flags = 1;
+    b[at..].copy_from_slice(&sb.encode());
+    let e = Store::open(b).err().unwrap();
+    assert_eq!(e.class, Class::Archive);
+    assert!(e.message.contains("flags"), "{}", e.message);
+}

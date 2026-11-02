@@ -1,4 +1,4 @@
-//! Prints every key of a phkv store (standalone or hybrid) as JSON, `{key: [kind, crc32c of the
+//! Prints every key of a phkv store as JSON, `{key: [kind, crc32c of the
 //! value]}`, resolving `file:` sources (relative ones against the store's own location) and checking
 //! their size pins: `cargo run --release --example dump -- store.phkv`. A test aid, not a reader
 //! policy (spec/refkv.md §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>).

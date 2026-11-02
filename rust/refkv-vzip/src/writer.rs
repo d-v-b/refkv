@@ -564,8 +564,7 @@ impl<W: Write> Writer<W> {
     /// As [`Self::close`], with one more hidden STORED entry, `__vz__/<name>`, written last before
     /// the central directory. Its body is what `build` gives for the archive's final layout: every
     /// other entry's body offset, and how many bytes will follow the body (the central directory
-    /// and the end records), which a body such as a phkv container (spec/bindings/phkv.md §21
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#21-hybrid-profile>) needs.
+    /// and the end records), which a body that indexes the archive, such as a hash of its keys, needs.
     /// `build` is called again if its body's size changes whether the entry needs ZIP64.
     pub fn close_with_trailer(self, name: &str, build: &mut dyn FnMut(&Layout) -> Result<Vec<u8>, Error>) -> Result<W, Error> {
         self.finish(Some((name, build)))

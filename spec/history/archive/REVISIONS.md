@@ -1230,6 +1230,41 @@ its own format version, revisions and numbering, and drops the hybrid profile.
 When it lands, its step 3 replaces the passages above: refkv.md then lists
 Parts 1 and 2 alone. Until then, this revision states Part 3's status as it is.
 
+## Revision 11.4: the perfect-hash binding drops the hybrid profile (editorial for Parts 1 and 2)
+
+Format version 0, specification revision 11.4. **Status: provisional.** Parts 1
+and 2 do not change, so the revision 11 conformance suite applies unchanged;
+stores still record revision 11. The change is to Part 3, a draft, whose
+changes are not changes to the format of Parts 1 and 2
+([§1.3](../../refkv.md#13-versioning)).
+
+**What prompted it.** Measurements of phkv against vzip (requests, bytes and
+time over HTTP, at 10^5 to 10^6 keys, for random and clustered lookups, and for
+`list`) gave the hybrid profile no case of its own. A hybrid store was the
+largest of the three layouts (159 bytes per key, against 122 for vzip and 37
+for a standalone phkv store) because its container repeated what the central
+directory already said, and a reader that wanted vzip's compatibility could read
+the same archive as vzip alone. A perfect hash for vzip, if it comes, should be
+designed for the ZIP binding, as one more hidden entry with its own layout.
+
+**The change.**
+- **[§21](../../bindings/phkv.md#21-reading-a-phkv-store), formerly §22:** the hybrid
+  profile (formerly §21) is gone, and with it the `hybrid` superblock flag
+  (`flags` is now 0, every bit reserved), the `hidden` record flag (bit 2 of a
+  record's `flags` is reserved), the `__vz__/` name reservation, the superblock's
+  discovery from the ZIP end of central directory record
+  ([§17.2](../../bindings/phkv.md#172-finding-the-superblock) is the probe
+  distances alone), `raw("__vz__/phkv")`, and the hybrid rules for `raw`,
+  `list` and the writer's requirements.
+- **Numbering:** Part 3's §22 to §24 are now §21 to §23, and §16.3 is §16.2
+  (the comparison with the ZIP binding has two columns).
+- **Compatibility:** a phkv reader refuses a superblock with a flag set, and a
+  record with flag bit 2 set, as it refuses any unknown bit. No store written
+  under revision 11.2 or 11.3 as a standalone store changes; a hybrid store
+  (a vzip archive with a `__vz__/phkv` entry) is still a valid vzip archive, and
+  its entry is one more hidden entry to a vzip reader, but it is no longer a
+  phkv store.
+
 ## Open feedback: browser readers (from the Neuroglancer driver)
 
 The Neuroglancer driver

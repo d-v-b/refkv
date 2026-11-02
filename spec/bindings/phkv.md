@@ -1,6 +1,6 @@
 # phkv: the perfect-hash binding of refkv
 
-Format version: 0 (**provisional**, a draft's: [§1.3](../refkv.md#13-versioning)) · Specification revision: 11.3 · Part 3
+Format version: 0 (**provisional**, a draft's: [§1.3](../refkv.md#13-versioning)) · Specification revision: 11.4 · Part 3
 status: **draft**
 
 This document is Part 3 of the refkv specification: the **perfect-hash
@@ -16,11 +16,8 @@ part starts at [§16](#16-what-the-phkv-binding-defines).
 Part 3 is a **draft**: unlike Parts 1 and 2, anything in it may still change,
 and no conformance suite tests it yet.
 
-A phkv store is either a file of its own (the **standalone** profile) or a
-vzip archive ([Part 2](vzip.md)) that also carries a phkv container in a
-hidden entry (the **hybrid** profile, [§21](#21-hybrid-profile)). A hybrid
-store is a valid vzip archive, which readers that know only vzip read as
-before.
+A phkv store is a file of its own: it is not a ZIP file, and a ZIP tool or a
+vzip reader cannot read it.
 
 # Part 3. The perfect-hash binding
 
@@ -34,7 +31,7 @@ its keys. The phkv binding answers the three questions of
 |---|---|
 | marking | each key has a **record** ([§19](#19-records)); its `kind` field says whether the value is bytes, or a reference whose payload is a `Range` or a `Concat`. The record holds the reference payload itself. |
 | source table | the SOURCES section ([§17.4](#174-sections)), found through the section directory, which the superblock locates ([§17.1](#171-superblock)). The superblock starts with the magic `PHKV` and records the format version. The binding's auxiliary data are its other sections: the records, the page index, the perfect hash, the slot table, properties and metadata. |
-| names | a key is stored as its UTF-8 bytes, exactly. A standalone store reserves no names. A hybrid store reserves vzip's `__vz__/` prefix ([§21](#21-hybrid-profile)). |
+| names | a key is stored as its UTF-8 bytes, exactly. A phkv store reserves no names. |
 
 What a phkv store adds over the ZIP binding:
 
@@ -68,57 +65,38 @@ bits. A **varint** is an unsigned LEB128 integer, as protobuf's VARINT
 - `×`, `+` and `⊕` (exclusive or) on 64-bit values wrap modulo 2^64 unless
   stated otherwise.
 
-### 16.2 Profiles
+### 16.2 Comparison with the ZIP binding (informative)
 
-- **Standalone:** the file holds only the store. Its layout is up to the
-  writer, within the rules of [§17](#17-container);
-  [§23.2](#232-recommended-layout-informative) recommends one.
-- **Hybrid:** the file is a valid vzip archive, and the phkv container is the
-  body of its hidden entry `__vz__/phkv` ([§21](#21-hybrid-profile)). Bytes
-  values and the source table are the ZIP entries' bodies, which the
-  container's records and directory point at, so nothing is stored twice.
-
-Readers open both profiles the same way ([§22.1](#221-opening)). The
-superblock's `hybrid` flag tells them which one a file is.
-
-### 16.3 Comparison with the ZIP binding (informative)
-
-The same store can be written three ways. The sizes are those of the
+The same store can be written both ways. The sizes are those of the
 reference writers (rust/refkv-vzip, rust/refkv-phkv) for 100,000 single-range
 references with keys of about 11 bytes; the vzip archive has a page index with
 64 KiB pages.
 
-| | vzip ([Part 2](vzip.md)) | phkv, standalone | phkv, hybrid |
-|---|---|---|---|
-| the file is | a ZIP archive | a phkv store | a ZIP archive and a phkv store |
-| read by ZIP tools | yes | no | yes; `__vz__/phkv` is one more hidden entry |
-| read by vzip readers | yes | no | yes, unchanged |
-| read by phkv readers | no | yes | yes, through the container alone |
-| found at open by | the end of central directory record, at one of two fixed offsets from the end | a superblock at a probe distance from the end ([§17.2](#172-finding-the-superblock)) | the end of central directory record, which gives the superblock's place ([§17.2](#172-finding-the-superblock)) |
-| read at open | the end records, the source table, and the page index or the whole central directory | the superblock, directory, source table, page index and perfect hash ([§22.1](#221-opening)) | per reader, as in its own column |
-| finding a key | without a page index: a map of the central directory built at open; with one: bisect the index, read one page (about 64 KiB here), scan it | compute a slot, read 12 bytes, read one record (one hop, [§19.5](#195-lookup)) | per reader |
-| `list(prefix)` | the page index, or the central directory | the page index ([§19.4](#194-page-index)) | per reader |
-| per-key cost | a 30-byte local header and a 46-byte central directory record, each with the key; a reference's payload in the record's extra field, and again in the body when mirrored | a record (about 6 bytes plus the key and payload), a 12-byte slot, about 0.34 bytes of pilot, and the page index's share | the vzip archive's, plus the container's records and slots |
-| measured size | 122 bytes per key | 37 bytes per key | 159 bytes per key |
-| bytes values | STORED or DEFLATE | none, DEFLATE or Zstandard, optionally inline in the record | STORED or DEFLATE (ZIP methods 0 and 8) |
-| value checksum | the CRC-32 of every entry (readers need not check it) | an optional CRC-32C per value, which readers check whenever they have the whole value ([§19.2](#192-bytes-records)) | both |
-| per-key properties | none (readers ignore ZIP timestamps and attributes) | typed, optional columns ([§20](#20-properties)) | as standalone, for phkv readers |
-| reserved names | `__vz__/` | none | `__vz__/` |
-| reference payload limit | 65,519 bytes | 2^24 bytes | 65,519 bytes (the ZIP side's) |
-| `raw(key)` of a compressed value | the inflated body | the stored bytes, with `entry_info` to interpret them | the inflated body, as vzip |
-| a writer must | sort the central directory, if it writes a page index | sort the records, build the perfect hash | both |
-| status | provisional; the conformance suite tests it | draft | draft |
+| | vzip ([Part 2](vzip.md)) | phkv |
+|---|---|---|
+| the file is | a ZIP archive | a phkv store |
+| read by ZIP tools | yes | no |
+| found at open by | the end of central directory record, at one of two fixed offsets from the end | a superblock at a probe distance from the end ([§17.2](#172-finding-the-superblock)) |
+| read at open | the end records, the source table, and the page index or the whole central directory | the superblock, directory, source table, page index and perfect hash ([§21.1](#211-opening)) |
+| finding a key | without a page index: a map of the central directory built at open; with one: bisect the index, read one page (about 64 KiB here), scan it | compute a slot, read 12 bytes, read one record (one hop, [§19.5](#195-lookup)) |
+| `list(prefix)` | the page index, or the central directory | the page index ([§19.4](#194-page-index)) |
+| per-key cost | a 30-byte local header and a 46-byte central directory record, each with the key; a reference's payload in the record's extra field, and again in the body when mirrored | a record (about 6 bytes plus the key and payload), a 12-byte slot, about 0.34 bytes of pilot, and the page index's share |
+| measured size | 122 bytes per key | 37 bytes per key |
+| bytes values | STORED or DEFLATE | none, DEFLATE or Zstandard, optionally inline in the record |
+| value checksum | the CRC-32 of every entry (readers need not check it) | an optional CRC-32C per value, which readers check whenever they have the whole value ([§19.2](#192-bytes-records)) |
+| per-key properties | none (readers ignore ZIP timestamps and attributes) | typed, optional columns ([§20](#20-properties)) |
+| reserved names | `__vz__/` | none |
+| reference payload limit | 65,519 bytes | 2^24 bytes |
+| `raw(key)` of a compressed value | the inflated body | the stored bytes, with `entry_info` to interpret them |
+| a writer must | sort the central directory, if it writes a page index | sort the records, build the perfect hash |
+| status | provisional; the conformance suite tests it | draft |
 
 Which to write:
 
 - **vzip**, for the widest compatibility, and when the archive will be read
   by ZIP tools or by readers that know only vzip.
-- **standalone phkv**, for the fastest lookups and the smallest file, when
-  every reader knows phkv: about a third the size of the vzip archive above,
-  with one hop per key instead of a page read.
-- **hybrid**, to keep vzip readers and ZIP tools working while phkv readers
-  get one-hop lookups and properties. It costs the most space, since the
-  container's records repeat what the central directory already says.
+- **phkv**, for the smallest file, when every reader knows phkv: about a third
+  the size of the vzip archive above.
 
 ## 17. Container
 
@@ -130,7 +108,7 @@ The superblock is 64 bytes:
 |---|---|---|---|
 | 0 | `magic` | 4 bytes | ASCII `PHKV` |
 | 4 | `version` | `u16` | the format version ([§1.3](../refkv.md#13-versioning)): 0 |
-| 6 | `flags` | `u16` | bit 0: `hybrid`. Other bits are 0. |
+| 6 | `flags` | `u16` | 0: all bits are reserved. |
 | 8 | `distance` | `u64` | `D`, the superblock's distance from the end of the file: the bytes after it ([§17.2](#172-finding-the-superblock)) |
 | 16 | `key_count` | `u64` | `n`, the number of records ([§19](#19-records)) |
 | 24 | `directory_offset` | `u64` | the offset of the section directory |
@@ -142,32 +120,20 @@ The superblock is 64 bytes:
 
 All offsets in a phkv store are absolute file offsets.
 
-The **container region** is the bytes the container occupies:
-
-- in a hybrid store, the body of the entry `__vz__/phkv`
-  ([§21](#21-hybrid-profile));
-- in a standalone store, from `region_offset` (0, unless the writer placed the
-  store after other data) to the end of the superblock.
-
-Readers use it only for `raw("__vz__/phkv")` in a hybrid store
-([§22.2](#222-operations)).
+The **container region** is the bytes the container occupies: from
+`region_offset` (0, unless the writer placed the store after other data) to
+the end of the superblock. Readers do not use it.
 
 ### 17.2 Finding the superblock
 
 The superblock ends `D` bytes before the end of the file: it occupies
 `[file_size − D − 64, file_size − D)`. The bytes after it do not belong to
 the store, and readers do not read them. `D` is the superblock's `distance`,
-and a store is one of two kinds:
-
-- **A hybrid store** ([§21](#21-hybrid-profile)) has the `hybrid` flag, and
-  its superblock ends where the ZIP central directory starts. `D` is the size
-  of the central directory and the end records, so it is any number.
-- **A standalone store** has `D` at one of the **probe distances**: 0, and
-  2^k for each k from 10 to 30 (1 KiB, 2 KiB, 4 KiB, …, 1 GiB). A writer
-  usually writes the superblock last (`D` = 0), but may reserve `D` bytes
-  after it for data that is not the store's, such as a signature added later.
-  In the manner of HDF5's user block, this lets a store live where its last
-  bytes are not its own.
+and is one of the **probe distances**: 0, and 2^k for each k from 10 to 30
+(1 KiB, 2 KiB, 4 KiB, …, 1 GiB). A writer usually writes the superblock last
+(`D` = 0), but may reserve `D` bytes after it for data that is not the
+store's, such as a signature added later. In the manner of HDF5's user block,
+this lets a store live where its last bytes are not its own.
 
 A reader finds the superblock as follows. A candidate at distance `D` is a
 **match** if the 64 bytes at `file_size − D − 64`:
@@ -176,34 +142,21 @@ A reader finds the superblock as follows. A candidate at distance `D` is a
 2. hold in bytes 60–63 the CRC-32C of bytes 0–59; and
 3. have a `distance` equal to `D`.
 
-Step 1 is for hybrid stores. If the file ends with a vzip end of central
-directory record ([vzip §10.4](vzip.md#104-end-of-central-directory-record-and-archive-comment):
-it is 44 or 60 bytes from the end, and its comment starts with
-`vzip/`), let `C` be the central directory's offset: the record's own
-offset field, or the offset in the zip64 end of central directory record when
-that field is `0xFFFFFFFF` ([vzip §10.2](vzip.md#102-zip64)). The candidate at
-`D = file_size − C` is a match if it has the `hybrid` flag too. If there is
-no such record, or the candidate is not a match, go to step 2.
-
-Step 2 is for standalone stores. For each probe distance `D`, in increasing
-order, with `D + 64 ≤ file_size`, test the candidate at `D`.
-
-The first match is the superblock. If none matches, the file is not a phkv
-store. Once a match is found, a reader does not look further: if its
-`version` is not one the reader implements, or `flags` has a bit set other
-than bit 0, the store is of an unsupported version. Either way, opening fails
-with an archive error ([§6.4](../refkv.md#64-errors)).
+For each probe distance `D`, in increasing order, with `D + 64 ≤ file_size`,
+test the candidate at `D`. The first match is the superblock. If none matches,
+the file is not a phkv store. Once a match is found, a reader does not look
+further: if its `version` is not one the reader implements, or `flags` is not
+0, the store is of an unsupported version. Either way, opening fails with an
+archive error ([§6.4](../refkv.md#64-errors)).
 
 The three conditions together make a false match vanishingly rare: random
 bytes match with probability about 2^-64 per candidate, and a superblock
 written for another distance does not match at this one. A reader reads at
-least the last 64 KiB + 64 bytes first, which holds the end records and every
-probe candidate up to 64 KiB, and reads 64 bytes per larger candidate. (The
-reference reader reads 512 KiB + 64 bytes, which holds the PTRHASH and PAGES
-sections of about 10^6 keys as well.) A hybrid
-store's superblock takes one such read when the central directory is larger
-than that, however large it is; a standalone store's takes one per probe
-distance beyond the tail it needs to reach.
+least the last 64 KiB + 64 bytes first, which holds every probe candidate up
+to 64 KiB, and reads 64 bytes per larger candidate. (The reference reader
+reads 512 KiB + 64 bytes, which holds the PTRHASH and PAGES sections of about
+10^6 keys as well.) A store's superblock takes one read per probe distance
+beyond the tail it needs to reach.
 
 ### 17.3 Section directory
 
@@ -224,8 +177,7 @@ them, each describing one **section**:
 
 The directory MUST lie within the file and match `directory_crc32c`. Each
 section's stored bytes MUST lie within the file. Sections MAY overlap other
-data of the file: in a hybrid store the SOURCES section is the body of
-`__vz__/sources` ([§21](#21-hybrid-profile)).
+data of the file.
 
 A reader skips an entry whose `type` it does not know, unless the entry's
 `must_understand` flag is set, which is an archive error. Every section is
@@ -253,7 +205,7 @@ A known section in the wrong number, or with a codec its row does not allow,
 is an archive error.
 
 The sections a reader reads **whole** are SOURCES, PAGES, PTRHASH and
-METADATA. It reads them at open ([§22.1](#221-opening)), decodes them, and
+METADATA. It reads them at open ([§21.1](#211-opening)), decodes them, and
 checks their `crc32c` and `size`. The others are read piece by piece and are
 never decoded, so their `crc32c` is checked only by a reader that happens to
 read one whole (which it MAY do).
@@ -373,7 +325,7 @@ writer finds a seed and pilots is its own choice. The reference writer
 
 With these parameters seed 0 almost always succeeds. Two equal keys can never
 be placed, but a writer rejects duplicate keys first
-([§23.1](#231-requirements)).
+([§22.1](#221-requirements)).
 
 ## 19. Records
 
@@ -386,7 +338,7 @@ increasing UTF-8 order of their keys, with nothing between them. A record is:
 |---|---|---|---|
 | `key_length` | varint | always | the length of `key`, at least 1 |
 | `kind` | `u8` | always | 0: bytes; 1: a reference whose payload is a `Range`; 2: a reference whose payload is a `Concat` |
-| `flags` | `u8` | always | bit 0: `inline`; bit 1: `crc32c`; bit 2: `hidden`. Other bits are 0. |
+| `flags` | `u8` | always | bit 0: `inline`; bit 1: `crc32c`. Other bits are 0. |
 | `rank` | varint | always | the record's position in the RECORDS section: 0 for the first |
 | `codec` | `u8` | kind 0 | the value's codec ([§17.5](#175-codecs)) |
 | `offset` | varint | kind 0, not `inline` | the offset of the value's stored bytes |
@@ -405,8 +357,7 @@ is self-contained: its key is never compressed against another record's, so
 any record decodes from its own offset.
 
 `inline`, `crc32c` and `codec` are for bytes records only: a reference record
-with `inline` or `crc32c` set is malformed. `hidden` is for the hybrid profile
-only ([§21](#21-hybrid-profile)): a standalone store has no hidden record.
+with `inline` or `crc32c` set is malformed.
 
 A record is **malformed** if a field does not decode (a truncated or
 overlong varint), it extends past the end of the RECORDS section, `kind` or
@@ -418,8 +369,7 @@ overlong varint), it extends past the end of the RECORDS section, `kind` or
 The value of a kind-0 record is its stored bytes, decoded with its codec. The
 stored bytes are the record's `data` if `inline` is set, and otherwise the
 `stored_length` bytes at `offset`, which MUST lie within the file. A writer
-places them where it likes: in the standalone profile, typically before the
-RECORDS section; in the hybrid profile, in the body of the key's ZIP entry.
+places them where it likes, typically before the RECORDS section.
 
 If `crc32c` is set, the record's `crc32c` field is the CRC-32C of the value.
 A reader MUST check it whenever it has the whole value: on decoding a
@@ -516,7 +466,7 @@ its place. A type-4 value MUST be valid UTF-8.
 The section is **malformed** if its length is not what its fields imply, a
 value type is not one of the above, a reserved byte is not 0, or the offsets
 are out of order or past its end. A malformed PROPERTY section is an error of
-the property operation that reads it ([§22.2](#222-operations)), not of the
+the property operation that reads it ([§21.2](#212-operations)), not of the
 store.
 
 ### 20.2 Property names
@@ -544,47 +494,9 @@ one name, `writer`: the name and version of the program that wrote the store,
 in UTF-8. A METADATA section that does not decode, or breaks these rules, is
 an archive error.
 
-## 21. Hybrid profile
+## 21. Reading a phkv store
 
-A hybrid store is a vzip archive ([Part 2](vzip.md)) that is also a phkv
-store:
-
-1. **The entry.** The archive has a hidden STORED entry `__vz__/phkv`, the
-   last entry before the central directory. Its body is the container
-   region: the phkv sections that are not other entries' bodies, the
-   directory and the superblock, which ends the region. `region_offset` and
-   `region_length` are its body offset and size.
-2. **Distance.** The superblock ends where the central directory starts, so
-   `D` is the size of the central directory and the end records, and has the
-   `hybrid` flag. A phkv reader finds the superblock from the end of central
-   directory record ([§17.2](#172-finding-the-superblock)), which is the one
-   place where it reads a ZIP structure; the container is otherwise read
-   alone.
-3. **Records.** The store has one record for every entry of the archive
-   except `__vz__/phkv`, so its `n` counts hidden entries too. A record has
-   `hidden` set if and only if its key starts with `__vz__/`.
-   - A bytes entry has a kind-0 record, not `inline`, with codec 0 (method 0)
-     or 1 (method 8), whose `offset`, `stored_length` and `size` are the
-     entry's body offset, compressed size and uncompressed size.
-   - A reference entry has a kind-1 (extra field 0x7A76) or kind-2 (0x7A77)
-     record with the same payload. Its body MUST be byte-identical to the
-     payload ([§11.3](vzip.md#113-reference-entries) allows an empty body;
-     this profile does not).
-4. **The source table.** The SOURCES section is the body of
-   `__vz__/sources`: its directory entry has codec 1 and the entry's body
-   offset and compressed size.
-5. **Agreement.** The phkv operations ([§22.2](#222-operations)) give the
-   same results as vzip's ([§13.2](vzip.md#132-operations)) for every key.
-
-A reader that knows only vzip sees `__vz__/phkv` as one more hidden entry,
-and reads the archive as before. A phkv reader reads no ZIP structure but the end of central directory record.
-
-Bytes values cannot use codec 2 (Zstandard) in a hybrid store, since a vzip
-archive allows only methods 0 and 8 ([§10.1](vzip.md#101-structure)).
-
-## 22. Reading a phkv store
-
-### 22.1 Opening
+### 21.1 Opening
 
 Opening a phkv store ([§6.1](../refkv.md#61-opening)) reads and checks the
 following. Any failure is an archive error:
@@ -612,37 +524,32 @@ records and PROPERTY sections are not read at open. A reader MAY read
 the SLOTS section whole and keep it, which saves a read per lookup at the cost
 of about 12 bytes per key read at open and held.
 
-### 22.2 Operations
+### 21.2 Operations
 
 On a phkv store, the operations of [§6.2](../refkv.md#62-operations) work as
 follows.
 
 - **classify(key)** finds the key's record ([§19.5](#195-lookup)), and returns
   its kind: `bytes` for kind 0, `reference` for kinds 1 and 2. A key without a
-  record, or whose record is `hidden`, is *missing*.
+  record is *missing*.
 - **get(key, request)**, for a bytes record, returns the requested window of
   its value ([§19.2](#192-bytes-records)). A codec-0 value is read only within
   the window; a compressed one is decoded whole. A reference is resolved
-  ([§6.3](../refkv.md#63-resolving-a-reference)). A key without a record, or
-  whose record is `hidden`, is *missing*.
-- **list(prefix)** returns the keys of the records that are not `hidden` and
+  ([§6.3](../refkv.md#63-resolving-a-reference)). A key without a record is
+  *missing*.
+- **list(prefix)** returns the keys of the records that
   start with `prefix`, in UTF-8 order. It reads the pages whose key range may
   hold such a key, with the rule of [§13.2](vzip.md#132-operations), and fails
   with an entry error if one of them cannot be parsed
   ([§19.4](#194-page-index)).
-- **raw(key)**, in a standalone store, returns a bytes record's **stored**
-  bytes, not decoded, and a reference record's payload. It does not decode
-  the stored bytes, so the only body errors it reports are stored bytes
-  outside the file and, for a codec-0 value with `crc32c` set, a checksum
-  mismatch. In a hybrid store it returns what vzip's raw view returns
-  ([§13.2](vzip.md#132-operations)): a bytes record's value, decoded; a
-  reference record's payload (which is its entry's body,
-  [§21](#21-hybrid-profile)); the same for `hidden` records; and for
-  `__vz__/phkv`, the container region. In either profile a key without a
-  record is *missing*.
+- **raw(key)** returns a bytes record's **stored** bytes, not decoded, and a
+  reference record's payload. It does not decode the stored bytes, so the only
+  body errors it reports are stored bytes outside the file and, for a codec-0
+  value with `crc32c` set, a checksum mismatch. A key without a record is
+  *missing*.
 
 A phkv reader also provides two operations of its own, which are not refkv
-operations and look up keys as raw does, `hidden` records included:
+operations and look up keys as raw does:
 
 - **entry_info(key)** → *missing*, or the record's kind; for a bytes record,
   also its codec, `stored_length`, `size`, and `crc32c` if present; for a
@@ -654,14 +561,14 @@ operations and look up keys as raw does, `hidden` records included:
   ([§20.1](#201-property-sections)) or the record's `rank` is not less than
   `n`.
 
-### 22.3 Errors
+### 21.3 Errors
 
 In a phkv store, the error classes of [§6.4](../refkv.md#64-errors) have these
 causes, besides those of Part 1:
 
 | class | causes in a phkv store |
 |---|---|
-| **archive error** | everything [§22.1](#221-opening) checks |
+| **archive error** | everything [§21.1](#211-opening) checks |
 | **entry error** | the slot of the key points outside the RECORDS section, or at a malformed record ([§19.5](#195-lookup)); for list, a page that cannot be parsed ([§19.4](#194-page-index)) |
 | **body error** | a bytes value's stored bytes lie outside the file (judged as a whole, even for a small window); compressed stored bytes do not decode cleanly ([§17.5](#175-codecs)); a codec-0 value whose `stored_length` and `size` differ; a `crc32c` mismatch ([§19.2](#192-bytes-records)) |
 | **payload error** | a payload longer than 2^24 bytes ([§19.3](#193-reference-records)) |
@@ -670,7 +577,7 @@ In the order of checks of [§6.4](../refkv.md#64-errors), step 3 is the
 lookup of [§19.5](#195-lookup) and the record's entry error, and step 4 reads
 the stored bytes.
 
-### 22.4 Violations readers need not detect
+### 21.4 Violations readers need not detect
 
 For stores that break these writer requirements, reader results are
 unspecified (besides those of
@@ -686,29 +593,21 @@ unspecified (besides those of
   checks there.
 - [§20](#20-properties): duplicate PROPERTY names, and whether a value matches
   its registered meaning.
-- [§21](#21-hybrid-profile): whether a hybrid store's container matches its
-  ZIP structures. A phkv reader reads only the container; a vzip reader only
-  the ZIP structures.
-- [§17.1](#171-superblock): `region_offset` and `region_length`, except in
-  `raw("__vz__/phkv")`.
+- [§17.1](#171-superblock): `region_offset` and `region_length`.
 
-## 23. Writing a phkv store
+## 22. Writing a phkv store
 
-### 23.1 Requirements
+### 22.1 Requirements
 
 A writer of a phkv store follows [§7](../refkv.md#7-writing). It MUST also
 reject its input, producing no store, if:
 
 - a reference payload exceeds 2^24 bytes ([§19.3](#193-reference-records));
-- in the hybrid profile, a key is `__vz__/phkv`, or the input breaks a
-  requirement of the ZIP binding ([§14.1](vzip.md#141-requirements));
-- in the hybrid profile, a bytes value would use codec 2
-  ([§21](#21-hybrid-profile)).
 
 It writes the perfect hash of [§18](#18-perfect-hash) for every store with a
 key; a writer that finds no seed and pilots for its keys fails.
 
-### 23.2 Recommended layout (informative)
+### 22.2 Recommended layout (informative)
 
 ```
 [bytes values]          not inline, in key order
@@ -730,14 +629,12 @@ read did not cover it. Each `get` then reads one slot and one record, plus the
 value if it is not inline. A reader that keeps the slots it reads, a block at
 a time, reads no slot for a later `get` whose slot is in a block it has.
 
-### 23.3 File names
+### 22.3 File names
 
-A standalone store SHOULD be named with the extension `.phkv`. A hybrid store
-is a vzip archive, and SHOULD be named `.vzip`
-([§14.3](vzip.md#143-archive-file-names)). Readers MUST NOT depend on the file
-name.
+A phkv store SHOULD be named with the extension `.phkv`. Readers MUST NOT
+depend on the file name.
 
-## 24. Security considerations for phkv
+## 23. Security considerations for phkv
 
 - Every offset and length in a phkv store comes from the file. Readers MUST
   check that each region lies within the file before reading it, and MUST
@@ -767,7 +664,6 @@ name.
 | slot | a `u64` offset into RECORDS, then a `u32` length: 0 for an empty slot, `0xFFFFFFFF` for 2^32 − 1 bytes or more | phkv binding |
 | smallest record | 6 | phkv binding |
 | payload limit | 2^24 | phkv binding |
-| hybrid entry | `__vz__/phkv` | phkv binding |
 
 **XXH64** ([§16.1](#161-notation)):
 
