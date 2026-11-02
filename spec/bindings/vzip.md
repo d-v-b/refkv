@@ -1,13 +1,14 @@
 # vzip: the ZIP binding of refkv
 
-Format version: 0 (**provisional**) · Specification revision: 11.2
+Format version: 0 (**provisional**) · Specification revision: 11.3
 
 This document is Part 2 of the refkv specification: the **ZIP binding**, which
 keeps a store in a single ZIP file, a **vzip archive**. [Part 1](../refkv.md),
 in spec/refkv.md, specifies the reference value type, and its introduction
-([§1](../refkv.md#1-introduction)) covers both parts: the conventions, the
+([§1](../refkv.md#1-introduction)) covers every part: the conventions, the
 conformance of readers and writers, and the format version and revisions,
-which the two parts share. The sections are numbered as one specification, so
+which this part shares with Part 1 (Part 3, the draft perfect-hash binding,
+shares the revisions alone, [§1.3](../refkv.md#13-versioning)). The sections are numbered as one specification, so
 this part starts at [§9](#9-what-the-zip-binding-defines).
 
 A vzip archive is always a valid ZIP file. A ZIP reader that knows nothing
