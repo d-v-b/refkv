@@ -33,6 +33,13 @@ def values(store):
     return dict(store.mapping)
 
 
+def document(store, key):
+    """The JSON document at `key` of `store`."""
+    value = store.mapping[key]
+    assert isinstance(value, bytes)
+    return json.loads(value)
+
+
 def test_bounds_contain_their_keys():
     cases = [
         (Key("a/b"), "a/b", True), (Key("a/b"), "a/bc", False),
@@ -305,10 +312,10 @@ def test_combining_drops_consolidated_metadata_and_carries_hidden_headers():
     a = ReferenceStore({"zarr.json": consolidated, "x/zarr.json": array([2], [2]), "x/c/0": b"aa"})
     b = ReferenceStore({"zarr.json": consolidated, "y/zarr.json": array([2], [2]), "y/c/0": b"bb", ".zmetadata": b"{}"})
     out = overlay(a, b)
-    assert json.loads(out.mapping["zarr.json"]) == {"zarr_format": 3, "node_type": "group", "attributes": {}}
+    assert document(out, "zarr.json") == {"zarr_format": 3, "node_type": "group", "attributes": {}}
     assert ".zmetadata" not in out.mapping
     assert sorted(zarr.open_group(refkv.zarr.store(out), mode="r").array_keys()) == ["x", "y"]
-    assert "consolidated_metadata" in json.loads(mount(a, "m").mapping["m/zarr.json"])
+    assert "consolidated_metadata" in document(mount(a, "m"), "m/zarr.json")
     # hidden keys that key sources name are carried, renamed when two stores' differ
     h1 = ReferenceStore({"__vz__/hdr": b"ONE", "p": Range(source=0, length=3)}, [Source(key="__vz__/hdr")])
     h2 = ReferenceStore({"__vz__/hdr": b"TWO", "q": Range(source=0, length=3)}, [Source(key="__vz__/hdr")])

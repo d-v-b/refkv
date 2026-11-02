@@ -367,7 +367,7 @@ def map_keys(store: ReferenceStore, f: Callable[[str], str | None], *,
 
 
 def _map_keys(store: ReferenceStore, f: Callable[[str], str | None], bounds: Iterable[Bound] | None,
-              extra: dict[str, bytes], read_at_open: list[str], options: Options, *,
+              extra: dict[str, Value], read_at_open: list[str], options: Options, *,
               unconsolidate: bool) -> ReferenceStore:
     """`map_keys`, then the bytes values of `extra` added, read at open with `read_at_open`;
     consolidated metadata dropped with `unconsolidate`, since renamed keys make it stale."""
