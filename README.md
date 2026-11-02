@@ -16,7 +16,7 @@ from Python or in the browser, and saves the result as one small archive.
 >
 > The current goal of this package is **capability demonstration**, not code quality. Do not expect the internals to express anything except
 > the minimum needed to satisfy the design requirements. If this package demonstrates real utility,
-> then the design practice will transition from pure velocity to slower deliberate and maintainable development.
+> then the design practice will transition from pure velocity to a slower, more methodical pace.
 >
 > If this package looks like it could be useful to you, let us know with a GitHub star or an issue expressing features you use / need. That's
 > an actionable signal we can use to re-orient development.
