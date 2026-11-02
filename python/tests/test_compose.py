@@ -518,9 +518,11 @@ def test_operators_keep_bounds_hidden_flags_and_meaning_through_every_step(tmp_p
     assert ChunkBox("a", (np.int64(0),), (np.int32(2),)).stop == (2,)  # pyrefly: ignore[bad-argument-type]
 
 
-def test_union_compares_a_deeply_nested_document_by_its_bytes():
+def test_union_compares_a_deeply_nested_document_as_json():
     deep = b'{"zarr_format":3,"node_type":"group","attributes":{"x":' + b"[" * 1400 + b"]" * 1400 + b"}}"
-    assert union(ReferenceStore({"zarr.json": deep}), ReferenceStore({"zarr.json": deep})).mapping["zarr.json"] == deep
+    spaced = deep.replace(b'"attributes":', b'"attributes" : ').replace(b"{", b"{ ")
+    both = union(ReferenceStore({"zarr.json": deep}), ReferenceStore({"zarr.json": spaced}))
+    assert both.mapping["zarr.json"] == spaced
     with pytest.raises(ValueError, match="hold different values"):
         union(ReferenceStore({"zarr.json": deep}), ReferenceStore({"zarr.json": deep.replace(b"[]", b"[1]")}))
 

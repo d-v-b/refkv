@@ -272,16 +272,38 @@ class _Number(str):
     __slots__ = ()
 
 
-def _tagged(doc: object) -> object:
-    """`doc`, a parsed JSON value, as a tree in which each value carries its JSON type, so
-    that `true`, `1` and `1.0` differ, and a number written `1e400` is not `2e400`."""
-    if isinstance(doc, dict):
-        return ("object", tuple(sorted((k, _tagged(v)) for k, v in doc.items())))
-    if isinstance(doc, list):
-        return ("array", tuple(_tagged(v) for v in doc))
-    if isinstance(doc, _Number):
-        return ("number", str(doc))
-    return (type(doc).__name__, doc)
+class _Token(str):
+    """Text `_canonical` writes as it is, which no parsed JSON value is."""
+
+    __slots__ = ()
+
+
+def _canonical(doc: object) -> str:
+    """`doc`, a parsed JSON value, as one canonical text: object keys sorted, strings
+    quoted, numbers as written and marked `n` (so `true`, `1` and `1.0` differ, and no
+    string or object spells a number). It walks with a stack, not recursion, so a deep
+    document neither stops it nor makes comparing two results recurse."""
+    parts: list[str] = []
+    work: list[object] = [doc]
+    while work:
+        x = work.pop()
+        if isinstance(x, _Token):
+            parts.append(x)
+        elif isinstance(x, dict):
+            items: list[object] = [_Token("{")]
+            for n, k in enumerate(sorted(x)):
+                items += [_Token("," if n else ""), _Token(json.dumps(k, ensure_ascii=False) + ":"), x[k]]
+            work.extend(reversed([*items, _Token("}")]))
+        elif isinstance(x, list):
+            items = [_Token("[")]
+            for n, v in enumerate(x):
+                items += [_Token("," if n else ""), v]
+            work.extend(reversed([*items, _Token("]")]))
+        elif isinstance(x, _Number):
+            parts.append("n" + x)
+        else:  # a string, true, false or null
+            parts.append(json.dumps(x, ensure_ascii=False))
+    return "".join(parts)
 
 
 def _load(value: bytes) -> object:
@@ -329,10 +351,7 @@ def _form(key: str, value: Value, identity: Callable[[int], object], *, document
         return value
     if isinstance(doc, dict):
         doc.pop("consolidated_metadata", None)
-    try:
-        return ("json", _tagged(doc))
-    except RecursionError:  # nested deeper than Python recurses: compare the bytes
-        return value
+    return ("json", _canonical(doc))
 
 
 def _digest(value: bytes) -> str:
