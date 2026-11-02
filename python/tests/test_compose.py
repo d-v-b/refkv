@@ -323,6 +323,11 @@ def test_combining_drops_consolidated_metadata_and_carries_hidden_headers():
     assert both.get("p") == b"ONE"
     assert both.get("q") == b"TWO"
     assert values(overlay(h1, h1)) == values(overlay(h1))
+    h3 = ReferenceStore({"__vz__/hdr": b"TWO", "q": Range(source=0, length=3)}, [Source(key="__vz__/hdr")],
+                        bounds=[Key("q")])
+    shared = union(h1.with_bounds([Key("p")]), h2.with_bounds([Key("q")]), h3)
+    assert len(shared.sources) == 2
+    assert shared.get("q") == b"TWO"
     assert overlay(h1).get("p") == b"ONE"
     # shift_chunks renames a key source with the chunk it names, and keeps hidden headers
     s = ReferenceStore({"zarr.json": array([4], [2]), "c/0": b"ab", "c/1": Range(source=0, length=1),
@@ -339,3 +344,15 @@ def test_shift_chunks_refuses_a_chunk_that_reads_through_a_dropped_key():
                        [Source(key="hdr")])
     with pytest.raises(ValueError, match="a key source names 'hdr', which is dropped"):
         shift_chunks(s, "", (0,))
+
+
+def test_combining_refuses_a_hidden_key_source_whose_value_is_a_reference():
+    s = ReferenceStore({"__vz__/h": Range(source=1, length=1), "v": Range(source=0, length=1)},
+                       [Source(key="__vz__/h"), Source(url="d.bin")])
+    with pytest.raises(ValueError, match="names the hidden key '__vz__/h', whose value is a reference"):
+        overlay(s)
+
+
+def test_map_keys_refuses_a_rename_to_something_other_than_a_string():
+    with pytest.raises(ValueError, match="'a' is renamed to 1; keys are non-empty strings"):
+        map_keys(ReferenceStore({"a": b"1"}), lambda _: 1)  # pyrefly: ignore[bad-argument-type]

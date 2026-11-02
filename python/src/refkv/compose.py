@@ -203,17 +203,28 @@ def _unconsolidated(key: str, value: Value) -> Value | None:
     return json.dumps(doc, separators=(",", ":")).encode()
 
 
-def _hidden_names(store: ReferenceStore, taken: dict[str, bytes | Reference], tag: int) -> dict[str, str]:
+def _hidden_names(store: ReferenceStore, taken: dict[str, Value], tag: int) -> dict[str, str]:
     """{hidden key: its name in a combination} for each hidden key of `store` that a key source
-    names, given the hidden values `taken` so far (which it extends): the same name for an
-    equal or new value, another (`name~tag`, ...) for a different one."""
+    names, given the hidden values `taken` so far (which it extends): the name an equal value
+    already has, else the key itself if free, else a new one (`key~tag`, ...).
+
+    Raises ValueError for such a hidden key whose value is a reference, not bytes."""
     out: dict[str, str] = {}
     for s in store.sources:
         k = s.key
         if k is None or not k.startswith(RESERVED_PREFIX) or k in out or k not in store.mapping:
             continue
-        value, name, n = store.mapping[k], k, 0
-        while name in taken and taken[name] != value:
+        value = store.mapping[k]
+        if not isinstance(value, bytes):
+            raise ValueError(  # noqa: TRY004 (a store the operation cannot combine, not a wrong argument)
+                f"a key source names the hidden key {k!r}, whose value is a reference; "
+                "a combination carries only bytes hidden values")
+        same = [n for n, v in taken.items() if v == value and (n == k or n.startswith(k + "~"))]
+        if same:
+            out[k] = same[0]
+            continue
+        name, n = k, 0
+        while name in taken:
             n += 1
             name = f"{k}~{tag}" if n == 1 else f"{k}~{tag}.{n}"
         taken[name] = value
@@ -377,9 +388,6 @@ def _map_keys(store: ReferenceStore, f: Callable[[str], str | None], bounds: Ite
         new = key if key.startswith(RESERVED_PREFIX) else f(key)
         if new is None:
             continue
-        value = _unconsolidated(new, held) if unconsolidate else held
-        if value is None:
-            continue
         if not isinstance(new, str) or not new:
             raise ValueError(f"{key!r} is renamed to {new!r}; keys are non-empty strings")
         if new.startswith(RESERVED_PREFIX) != key.startswith(RESERVED_PREFIX):
@@ -388,7 +396,9 @@ def _map_keys(store: ReferenceStore, f: Callable[[str], str | None], bounds: Ite
         if new in names:
             raise ValueError(f"{names[new]!r} and {key!r} are both renamed to {new!r}")
         names[new] = key
-        mapping[new] = value
+        value = _unconsolidated(new, held) if unconsolidate else held
+        if value is not None:
+            mapping[new] = value
     mapping.update(extra)
     renamed = {old: new for new, old in names.items()}
     used = {s for v in mapping.values() for s in _used(v)}
