@@ -73,3 +73,30 @@ test("a file that is neither a phkv store nor a vzip archive is a server error, 
   assert.equal(r.status, 500);
   assert.match(await text(r), /not a vzip archive|archive/);
 });
+
+// A real file through the Rust core (needs refkv_ir.wasm: `just js::wasm`): the phkv handler's
+// zarrified store holds the keys and values the vzip handler's does.
+test("zarrifying a TIFF gives a phkv store with the vzip archive's keys and values", async () => {
+  const fs = await import("node:fs");
+  const file = new Uint8Array(fs.readFileSync(new URL("../../fixtures/tiff/float32_uncompressed_be.ome.tif", import.meta.url)));
+  const url = "https://data.test/float32_uncompressed_be.ome.tif";
+  const make = (format: "vzip" | "phkv") =>
+    makeHandler({
+      prefix: PREFIX,
+      format,
+      openFile: async () => ({ size: file.length, read: async (o, n) => file.subarray(o, o + n) }),
+      fetchRange: async (_u, start, end) => ({ data: file.subarray(start, end), size: file.length }),
+    });
+  const base = `${PREFIX}tiff/${encodeId(url)}/`;
+  const [phkv, vzip] = [make("phkv"), make("vzip")];
+  const store = new Uint8Array(await (await phkv(new Request(`${base}${PHKV_ARCHIVE_KEY}`))).arrayBuffer());
+  const { PhkvArchive } = await import("../src/phkv.ts");
+  const keys = (await PhkvArchive.openStore(store, url)).keys();
+  assert.ok(keys.length > 2);
+  assert.ok(keys.includes("zarr.json"));
+  for (const k of keys) {
+    const [a, b] = await Promise.all([phkv(new Request(base + k)), vzip(new Request(base + k))]);
+    assert.equal(a.status, 200, k);
+    assert.deepEqual(new Uint8Array(await a.arrayBuffer()), new Uint8Array(await b.arrayBuffer()), k);
+  }
+});
