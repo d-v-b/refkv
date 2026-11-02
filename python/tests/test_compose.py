@@ -829,8 +829,10 @@ def test_lenient_listings_deep_keys_rank_zero_boxes_and_huge_indexes():
     # a listing a lenient reader would find, in a document that is not strict JSON, is refused
     listed = json.dumps({"zarr_format": 3, "node_type": "group", "attributes": {},
                          "consolidated_metadata": {"kind": "inline", "metadata": {}}})
-    with pytest.raises(ValueError, match="not strict JSON"):
-        overlay(ReferenceStore({"zarr.json": listed.encode("utf-16")}))
+    first_listed = listed[:-1] + ', "consolidated_metadata": null}'
+    for doc in (listed.encode("utf-16"), first_listed.encode()):
+        with pytest.raises(ValueError, match="not strict JSON"):
+            overlay(ReferenceStore({"zarr.json": doc}))
     escaped = listed.replace('"consolidated_metadata"', '"consolidated_\\u006detadata"').encode()
     assert "consolidated" not in document(overlay(ReferenceStore({"zarr.json": escaped})), "zarr.json")
     # a deep key costs memory for one path at a time

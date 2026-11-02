@@ -416,11 +416,19 @@ def _unconsolidated(key: str, value: Value) -> Value | None:
 def _listed(value: bytes) -> bool:
     """Whether a reader as lenient as zarr-python's (any of UTF-8, 16 or 32, a byte order
     mark, keys twice, escaped names) would find a `consolidated_metadata` listing in `value`."""
+    copies: list[bool] = []
+
+    def pairs(items: list[tuple[str, object]]) -> dict[str, object]:
+        # every copy of a doubled key counts, as readers disagree on which one wins; an
+        # object's members are built before it, so the last call is the top level's
+        copies[:] = [v is not None for k, v in items if k == "consolidated_metadata"]
+        return dict(items)
+
     try:
-        doc = json.loads(value)
+        doc = json.loads(value, object_pairs_hook=pairs)
     except (ValueError, RecursionError):
         return b"consolidated_metadata" in value  # can't tell: take a mention as one
-    return isinstance(doc, dict) and doc.get("consolidated_metadata") is not None
+    return isinstance(doc, dict) and any(copies)
 
 
 def _dump(doc: object) -> str:
