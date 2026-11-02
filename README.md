@@ -13,6 +13,13 @@ from Python or in the browser, and saves the result as one small archive.
 > refkv is released on [PyPI](https://pypi.org/project/refkv/) as 0.x versions,
 > with no support; until 1.0 the specification and the zarrified layouts can
 > change without regard for existing archives.
+>
+> The current goal of this package is **capability demonstration**, not code quality. Do not expect the internals to express anything except
+> the minimum needed to satisfy the design requirements. If this package demonstrates real utility,
+> then the design practice will transition from pure velocity to a slower, more methodical pace.
+>
+> If this package looks like it could be useful to you, let us know with a GitHub star or an issue expressing features you use / need. That's
+> an actionable signal we can use to re-orient development.
 
 ## Zarrify a file
 
