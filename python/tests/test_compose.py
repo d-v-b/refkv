@@ -678,3 +678,41 @@ def test_combining_refuses_a_document_it_cannot_parse_to_drop_its_listing():
     deep = b'{"consolidated_metadata":' + b"[" * 100000 + b"]" * 100000 + b"}"
     with pytest.raises(ValueError, match="not JSON that can be parsed"):
         overlay(ReferenceStore({"zarr.json": deep}))
+
+
+def test_union_agrees_on_values_that_read_the_same_bytes():
+    url = [Source(url="https://h.test/d.bin")]
+    pairs = [
+        (ReferenceStore({"k": b"abc"}), ReferenceStore({"k": Range(data=b"abc")})),
+        (ReferenceStore({"k": Range(source=0, offset=2, length=4)}, url, url="https://h.test/"),
+         ReferenceStore({"k": Concat((Range(source=0, offset=2, length=1), Range(source=0, offset=3, length=3)))},
+                        url, url="https://h.test/")),
+        (ReferenceStore({"k": b"abc"}), ReferenceStore({"k": Range(source=0, offset=1, length=3)},
+                                                       [Source(data=b"xabcx")])),
+    ]
+    for a, b in pairs:  # each pair unites in either order (the second pair's URL is not read)
+        assert set(union(a, b).mapping) == set(union(b, a).mapping) == {"k"}
+    assert union(*pairs[2]).get("k") == b"abc"
+
+
+@pytest.mark.filterwarnings("ignore:Both zarr.json:UserWarning")  # a mixed hierarchy, on purpose
+def test_normalize_reaches_every_node_through_groups_of_its_version():
+    a3 = array([2], [1])
+    store = ReferenceStore({"a/.zgroup": GROUP_V2, "a/b/zarr.json": a3, "a/b/c/0": b"\x07"})
+    n = normalize(store)
+    root = zarr.open_group(refkv.zarr.store(n), mode="r")
+    a = root["a"]
+    assert isinstance(a, zarr.Group)
+    b = a["b"]
+    assert isinstance(b, zarr.Array)
+    assert np.asarray(b[...]).tolist() == [7, 0]
+    clash = normalize(ReferenceStore({"zarr.json": GROUP, ".zarray": b"{}", "a/.zgroup": GROUP_V2}))
+    assert values(normalize(clash)) == values(clash)
+    assert values(normalize(n)) == values(n)
+
+
+def test_normalize_refuses_a_zarr_document_held_as_a_reference():
+    s = ReferenceStore({"zarr.json": GROUP, "a/zarr.json": Range(source=0, length=10)},
+                       [Source(url="https://h.test/a.json")], url="https://h.test/")
+    with pytest.raises(ValueError, match="normalize cannot tell what node"):
+        normalize(s)

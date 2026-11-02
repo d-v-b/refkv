@@ -52,7 +52,7 @@ import json
 import operator
 from collections import Counter
 from collections.abc import Callable, Iterable, Sequence
-from typing import TYPE_CHECKING, SupportsIndex, TypedDict, Unpack
+from typing import TYPE_CHECKING, SupportsIndex, TypedDict, Unpack, cast
 
 from refkv.bounds import (
     Bound,
@@ -426,26 +426,48 @@ def _dump(doc: object) -> str:
 
 
 def _form(key: str, value: Value, identity: Callable[[int], object], *, documents: bool = True) -> object:
-    """What `union` compares of a store's `value` at `key`: a reference with each source
-    given by `identity` (a URL source's absolute URL and pins, a key source's value), so
-    that two stores' references compare whatever their tables; with `documents`, a Zarr
-    document (`zarr.json`, `.zarray`, `.zgroup`, `.zattrs`) as its JSON value, a `zarr.json`
-    without `consolidated_metadata`; else the bytes."""
-    if isinstance(value, Concat):
-        return ("concat", tuple(_form(key, r, identity) for r in value.parts))
-    if isinstance(value, Range):
-        if value.data is not None:
-            return ("data", value.data)
-        return ("range", identity(value.source), value.offset, value.length, value.crc32c)
+    """What `union` compares of a store's `value` at `key`: with `documents`, a Zarr document
+    (`zarr.json`, `.zarray`, `.zgroup`, `.zattrs`) held as bytes as its JSON value, a
+    `zarr.json` without `consolidated_metadata`; else what the value reads (`_reads`)."""
     name = key.rpartition("/")[2]
-    if not documents or name not in _DOCUMENTS:
-        return value
-    doc = _load(value)
-    if doc is None:
-        return value
-    if isinstance(doc, dict) and name == "zarr.json":
-        doc.pop("consolidated_metadata", None)
-    return ("json", _canonical(doc))
+    if documents and name in _DOCUMENTS and isinstance(value, bytes):
+        doc = _load(value)
+        if doc is not None:
+            if isinstance(doc, dict) and name == "zarr.json":
+                doc.pop("consolidated_metadata", None)
+            return ("json", _canonical(doc))
+    return ("reads", _reads(value, identity))
+
+
+def _reads(value: Value, identity: Callable[[int], object]) -> tuple[object, ...]:
+    """What `value` reads, as segments whatever its form: the bytes it holds or names (literal
+    data, a data source, a key source to bytes) as `("data", bytes)`, adjacent ones joined;
+    a range of another source as `("range", identity, offset, length)`, adjacent ranges of
+    one source joined. So `b"abc"`, `Range(data=b"abc")` and a one-part `Concat` agree."""
+    parts = value.parts if isinstance(value, Concat) else (value,)
+    out: list[tuple[str, object, int, int]] = []  # ("data", bytes, 0, 0) or ("range", source, offset, length)
+    for r in parts:
+        if isinstance(r, bytes):
+            kind, what, offset, length = "data", r, 0, 0
+        elif r.data is not None:
+            kind, what, offset, length = "data", r.data, 0, 0
+        else:
+            source = identity(r.source)
+            held = (source.data if isinstance(source, Source) else
+                    source[1] if isinstance(source, tuple) and source[0] == "bytes" else None)
+            if isinstance(held, bytes):
+                kind, what, offset, length = "data", held[r.offset:r.offset + r.length], 0, 0
+            else:
+                kind, what, offset, length = "range", source, r.offset, r.length
+        if (kind == "data" and not what) or (kind == "range" and not length):
+            continue  # reads nothing
+        if out and out[-1][0] == kind == "data":
+            out[-1] = ("data", cast("bytes", out[-1][1]) + cast("bytes", what), 0, 0)
+        elif out and out[-1][0] == kind == "range" and out[-1][1] == what and out[-1][2] + out[-1][3] == offset:
+            out[-1] = ("range", what, out[-1][2], out[-1][3] + length)
+        else:
+            out.append((kind, what, offset, length))
+    return tuple(out)
 
 
 def _digest(value: bytes) -> str:
@@ -762,8 +784,9 @@ def overlay(*stores: ReferenceStore, **options: Unpack[Options]) -> ReferenceSto
 def union(*stores: ReferenceStore, **options: Unpack[Options]) -> ReferenceStore:
     """`overlay`, where any two `stores` whose bounds share a key must answer it the same.
 
-    References are compared by what they read: each URL source by its absolute URL and
-    pins, each key source by the value of the key it names in its own store. Zarr
+    Values are compared by what they read, whatever their form: bytes, literal ranges,
+    data sources and key sources to bytes by those bytes, and ranges of URL sources by
+    the absolute URL, pins, offset and length, adjacent ranges joined. Zarr
     documents (`zarr.json`, `.zarray`, `.zgroup`, `.zattrs`) are compared as canonical
     JSON, a `zarr.json` without the consolidated metadata the result drops; the result
     keeps the last store's bytes. Keys the result drops (`.zmetadata`) are not compared.
@@ -1012,15 +1035,20 @@ def normalize(store: ReferenceStore, **options: Unpack[Options]) -> ReferenceSto
     metadata nor below an array, such as a stray file at the root, is dropped. Where v2 and v3
     documents mark one path, the v3 document is kept, and a v2 group's documents beside a
     v3 group too, so that v2 nodes below it stay reachable. Each missing ancestor of a v3 node
-    gets a v3 group, and of a v2 node a v2 group, replacing a document there that marks no
-    node. A store with no Zarr nodes is returned with the same keys. The result's bounds
+    gets a v3 group, and of a v2 node a v2 group, where it has no group of that version,
+    replacing a document there that marks no node: every node is reachable from the root
+    through groups of its own version. A store with no Zarr nodes is returned with the same keys. The result's bounds
     are the store's, plus the added groups' keys when they were stated; derived otherwise.
     It reads the store as one whole hierarchy: normalize a combination, not a patch or
     other bounded part of one.
 
     Raises ValueError when a value reads through a key source whose key is dropped or
-    replaced.
+    replaced, and when a `zarr.json` is held as a reference.
     """
+    for key, value in store.mapping.items():
+        if key.rpartition("/")[2] == "zarr.json" and not isinstance(value, bytes):
+            raise ValueError(f"{key!r} is held as a reference, so normalize cannot tell what node, "
+                             "if any, it marks; hold Zarr documents as bytes")
     found = nodes(store.mapping)
     bounds_kept = store.bounds if store.bounds_stated else None
     if not found:
@@ -1033,16 +1061,21 @@ def normalize(store: ReferenceStore, **options: Unpack[Options]) -> ReferenceSto
         """The outermost array strictly above `path`, which owns it."""
         return next((a for a in reversed(ancestors(path)) if a in arrays), None)
 
-    # the groups to add, at each missing ancestor of a node with no array above it
+    # the paths with a v2 node document that normalize keeps: a v2 array's where no v3
+    # document marks the path, a v2 group's where none or a v3 group does
+    v2 = {path for path, _, name in (k.rpartition("/") for k in store.mapping) if path in found and (
+        (name == ".zarray" and path not in v3) or (name == ".zgroup" and (path not in v3 or found[path] == "group")))}
+    # the groups to add: at each ancestor of a node with no array above it that has no group
+    # of the node's own Zarr version, so that the node is reachable from the root in it
     added: dict[str, bytes] = {}
     for path in sorted(p for p in found if array_above(p) is None):
-        marker, group = ("zarr.json", GROUP_V3) if path in v3 else (".zgroup", GROUP_V2)
+        version, marker, group = (v3, "zarr.json", GROUP_V3) if path in v3 else (v2, ".zgroup", GROUP_V2)
         for a in ancestors(path):
-            if a not in found:
+            if a not in version:
                 added.setdefault((f"{a}/" if a else "") + marker, group)
     # ownership is decided in the hierarchy as it will be, added groups included, so that
     # a second normalize finds nothing more to do
-    new_groups = {k.rpartition("/")[0] for k in added}
+    new_groups = {k.rpartition("/")[0] for k in added} - found.keys()
     every = {**found, **dict.fromkeys(new_groups, "group")}
     v3 |= {k.rpartition("/")[0] for k in added if k.rpartition("/")[2] == "zarr.json"}
 
