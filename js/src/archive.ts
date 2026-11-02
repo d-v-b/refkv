@@ -61,6 +61,8 @@ export interface Entry {
   size: number;
   bodyOffset: number;
   reference?: { headerId: number; payload: Uint8Array };
+  /** The CRC-32C of a bytes value, where the binding records one (a phkv record does). */
+  crc32c?: number;
   /**
    * Set if the record has an entry error (spec §11.1
    * <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#111-classification>, §10.2
@@ -371,11 +373,13 @@ export class Archive {
    */
   revision: number | undefined;
   policy: typeof DEFAULT_POLICY;
+  /** The largest reference payload the binding allows (a ZIP extra field's, here). */
+  protected maxPayload = 65519;
   private fetchRange: RangeFetcher;
   /** Sends this archive's requests, checking addresses (rule 3), where the platform allows. */
   private netFetch: CheckedFetch | undefined;
 
-  private constructor(
+  protected constructor(
     bytes: Uint8Array,
     baseUrl: string,
     sources: Source[],
@@ -563,11 +567,16 @@ export class Archive {
    */
   lookup(key: string): Entry | undefined {
     if (key.startsWith("__vz__/")) return undefined;
-    const entry = this.entries.get(key);
+    const entry = this.entryFor(key);
     if (entry?.error !== undefined) {
       throw new RefkvError("entry", `${JSON.stringify(key)}: ${entry.error}`);
     }
     return entry;
+  }
+
+  /** The entry of `key` as the container has it, hidden or not: a binding finds keys here. */
+  protected entryFor(key: string): Entry | undefined {
+    return this.entries.get(key);
   }
 
   /** Visible keys, in UTF-8 order. */
@@ -583,6 +592,7 @@ export class Archive {
         entry.reference!.headerId,
         entry.reference!.payload,
         this.sources.length,
+        this.maxPayload,
       );
     } catch (e) {
       if (!(e instanceof MalformedError)) throw e;
@@ -600,7 +610,7 @@ export class Archive {
     return Number(total);
   }
 
-  private async body(entry: Entry): Promise<Uint8Array> {
+  protected async body(entry: Entry): Promise<Uint8Array> {
     const end = entry.bodyOffset + entry.csize;
     if (end > this.bytes.length) {
       throw new RefkvError("body", `${entry.key}: body outside the file`);
@@ -619,6 +629,9 @@ export class Archive {
     if (body.length !== entry.size) {
       throw new RefkvError("body", `${entry.key}: inflates to ${body.length} bytes`);
     }
+    if (entry.crc32c !== undefined && crc32c(body) !== entry.crc32c) {
+      throw new RefkvError("body", `${entry.key}: the value does not match its crc32c`);
+    }
     return body;
   }
 
@@ -634,7 +647,7 @@ export class Archive {
       return s.data.subarray(Number(start), Number(end));
     }
     if (s.key !== undefined) {
-      const target = this.entries.get(s.key);
+      const target = this.entryFor(s.key);
       if (target === undefined || target.reference !== undefined || target.error) {
         fail(`key ${JSON.stringify(s.key)} is not a bytes entry`);
       }

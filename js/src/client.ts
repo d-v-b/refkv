@@ -1,6 +1,6 @@
 // Page-side helpers for the refkv service worker.
 
-import { ARCHIVE_KEY, encodeId, PENDING_HEADER } from "./server.ts";
+import { type ArchiveFormat, ARCHIVE_KEY, encodeId, PENDING_HEADER, PHKV_ARCHIVE_KEY } from "./server.ts";
 
 /**
  * Registers the service worker at `scriptUrl` (relative to this page) and waits until it controls
@@ -76,7 +76,13 @@ export function archiveZarrUrl(prefix: string, url: string): string {
   return `${prefix}archive/${encodeId(new URL(url).href)}/`;
 }
 
-/** Where the archive behind a Zarr URL can be downloaded. */
-export function archiveDownloadUrl(zarrUrl: string): string {
-  return zarrUrl + ARCHIVE_KEY;
+/** Where the archive behind a Zarr URL can be downloaded, as the `format` its worker writes. */
+export function archiveDownloadUrl(zarrUrl: string, format: ArchiveFormat = "vzip"): string {
+  return zarrUrl + (format === "phkv" ? PHKV_ARCHIVE_KEY : ARCHIVE_KEY);
 }
+
+/** Whether a URL names an archive by its extension: a .vzip archive or a .phkv store. */
+export const isArchiveUrl = (url: string): boolean => /\.(?:vzip|phkv)(?:[?#]|$)/i.test(url);
+
+/** Whether a URL names a .vzip archive, which a Neuroglancer deployment can open by its URL. */
+export const isVzipUrl = (url: string): boolean => /\.vzip(?:[?#]|$)/i.test(url);
