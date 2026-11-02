@@ -11,45 +11,48 @@ below.
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `bbe3f6b9-488d-4d8d-85ce-60a1649dd27e` ·
 Schema: [schema.json](mp4/schema.json)
 
-Added 2026-10-23, after
-[revision 29](../history/virtualize/REVISIONS.md#revision-29-no-recorded-revision-the-profile-registry)
-(a profile's changes are recorded here, dated, from then on).
+Changed 2026-11-01, with no change to any output: the checks say that a zarrifier MUST reject
+an input that fails one, in RFC 2119's words; and the registry lists the file names this
+document does, `.mp4`, `.m4a`, `.m4v` and `.mov`, which the profile reads alike, as its
+signature chooses it by the file's first bytes.
 
-**2026-10-29.** A version 0 `ctts` box's offsets are signed, as version 1's are, where they were
-unsigned: Apple's encoder writes negative ones, which made each picture they belong to seem
+Changed 2026-10-29: a version 0 `ctts` box's offsets are signed, as version 1's are, where they
+were unsigned: Apple's encoder writes negative ones, which made each picture they belong to seem
 presented after every later sync sample, and the track's video was not zarrified
 ([§2](#2-boxes), [§3](#3-tracks-and-samples)).
 
-**2026-10-28.** HEVC video tracks (`hvc1` and `hev1` sample entries) are zarrified as H.264
-tracks are: 4:2:0 of 8 bits (Main) or 10 (Main 10, an iPhone's HDR video), the planes `uint8`
-or `uint16`, the `refkv.stream` format `"hevc"` with the `hvcC` box as its setup
+Changed 2026-10-28: HEVC video tracks (`hvc1` and `hev1` sample entries) are zarrified as H.264
+tracks are: 4:2:0 of 8 bits (Main) or 10 (Main 10, an iPhone's HDR video), the planes `uint8` or
+`uint16`, the `refkv.stream` format `"hevc"` with the `hvcC` box as its setup
 ([§4.1](#41-video-tracks), [§8.2](#82-tracks)); their IRAP pictures are the sync samples, and
 their RASL and RADL pictures leading pictures, under the rules H.264's open groups follow
 ([§8.3](#83-chunks)). A video chunk holds at most 32 MiB of luma counted in bytes, so half as
 many 10-bit pictures as 8-bit ones; a video track's source metadata has its `bit_depth`
 ([§5.2](#52-the-tracks)).
 
-**2026-10-26.** A duration or an edit's `media_time` past 2^53 − 1 in magnitude is the string
-of its digits, as [conventions §6](../conventions.md#6-source-metadata-as-json) writes an
+Changed 2026-10-26: a duration or an edit's `media_time` past 2^53 − 1 in magnitude is the
+string of its digits, as [conventions §6](../conventions.md#6-source-metadata-as-json) writes an
 integer, where it was a JSON number ([§5](#5-source-metadata)); a track whose ID an earlier
-zarrified track has is not zarrified, its reason saying so, where both were written to one
-group ([§8.2](#82-tracks)). The layout is tabulated, its entries in [Layout](#layout) and its
-types in type tables ([conventions §11.5](../conventions.md#115-layout-tables)); the summary is
-a table too. And the text says what refkv already wrote: a four-character code is a plain
-string of its bytes' code points ([§5](#5-source-metadata)), and a chunk of `time` is not a
-`refkv.stream` chunk ([§8.3](#83-chunks)).
+zarrified track has is not zarrified, its reason saying so, where both were written to one group
+([§8.2](#82-tracks)). The layout is tabulated, its entries in [Layout](#layout) and its types in
+type tables ([conventions §11.5](../conventions.md#115-layout-tables)); the summary is a table
+too. And the text says what refkv already wrote: a four-character code is a plain string of its
+bytes' code points ([§5](#5-source-metadata)), and a chunk of `time` is not a `refkv.stream`
+chunk ([§8.3](#83-chunks)).
 
-**2026-10-25.** A track whose sync samples are followed in decode order by pictures presented
-before them (leading pictures: a camera's B-frames after each IDR picture, or an open group's)
-is zarrified, not refused, while each leading picture is presented after the sync sample
-before; a chunk that holds a leading picture of the sync sample it would decode from decodes
-from the sync sample before that ([§8.2](#82-tracks), [§8.3](#83-chunks)). A track whose sync
-sample table does not increase, or names a sample past the last, is refused.
+Changed 2026-10-25: a track whose sync samples are followed in decode order by pictures
+presented before them (leading pictures: a camera's B-frames after each IDR picture, or an open
+group's) is zarrified, not refused, while each leading picture is presented after the sync
+sample before; a chunk that holds a leading picture of the sync sample it would decode from
+decodes from the sync sample before that ([§8.2](#82-tracks), [§8.3](#83-chunks)). A track whose
+sync sample table does not increase, or names a sample past the last, is refused.
 
-**2026-10-24.** A video chunk holds whole groups of pictures, from a sync sample, in place of
-`F` pictures from a multiple of `F`; a group longer than `F` pictures is split. Where the
+Changed 2026-10-24: a video chunk holds whole groups of pictures, from a sync sample, in place
+of `F` pictures from a multiple of `F`; a group longer than `F` pictures is split. Where the
 chunks' lengths differ, the planes' chunk grid is the zarr-extensions `rectilinear` grid
 ([§4.1](#41-video-tracks), [§8.3](#83-chunks)).
+
+Added 2026-10-23.
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
@@ -490,7 +493,7 @@ The input is an MP4 or QuickTime file, which its **signature** ([spec/zarrify.md
 top-level boxes' headers, then the whole `moov` box (and the `ftyp` box); it
 never reads the media data.
 
-**Checks.** The input is rejected unless all of these hold. They are checked
+**Checks.** A zarrifier MUST reject the input unless all of these hold. They are checked
 as the boxes are met, the top-level boxes first, in the file's order, then
 the `moov` box's tree, then each track's samples; a rejection gives the first
 that fails.

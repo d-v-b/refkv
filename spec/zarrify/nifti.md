@@ -7,12 +7,20 @@ How refkv produces this layout as a reference store, and which files it
 accepts, is the NIfTI profile, [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `06e5809d-4d54-4b72-afd0-6bf61a7b4c85` ·
-Schema: [schema.json](nifti/schema.json) · Changed 2026-10-25: an edge chunk's zero padding
-is a range of the output's one zero data source, not a literal range of each reference, so that
-the archive holds the zeros once ([§7.2](#72-chunks)); no chunk's values change, nor which
-chunks are copied · Changed 2026-10-26, with no change to any output: the layout is tabulated,
-its entries in [Layout](#layout) and its types in type tables
-([conventions §11.5](../conventions.md#115-layout-tables))
+Schema: [schema.json](nifti/schema.json)
+
+Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
+[Layout](#layout) and its types in type tables
+([conventions §11.5](../conventions.md#115-layout-tables)).
+
+Changed 2026-10-25: an edge chunk's zero padding is a range of the output's one zero data
+source, not a literal range of each reference, so that the archive holds the zeros once
+([§7.2](#72-chunks)); no chunk's values change, nor which chunks are copied.
+
+Changes before 2026-10-22 are recorded in
+[the revision log of VIRTUALIZE.md](../history/virtualize/REVISIONS.md), this document's earlier
+name, up to
+[revision 29](../history/virtualize/REVISIONS.md#revision-29-no-recorded-revision-the-profile-registry).
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
@@ -488,7 +496,7 @@ bytes.
 
 # Part 2. The profile
 
-The NIfTI profile of [spec/zarrify.md](../zarrify.md) (revision 16) is [§7](#7-nifti-profile) of this document. What every profile's Part 2 shares is in
+The NIfTI profile of [spec/zarrify.md](../zarrify.md) is [§7](#7-nifti-profile) of this document. What every profile's Part 2 shares is in
 [spec/zarrify.md, Profiles](../zarrify.md#profiles).
 
 ## 7. NIfTI profile

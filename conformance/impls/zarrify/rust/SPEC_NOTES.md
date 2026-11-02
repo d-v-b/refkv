@@ -1,6 +1,6 @@
-# Notes on ZARRIFY.md (revision 4) from the Rust implementation
+# Notes on VIRTUALIZE.md (revision 4) from the Rust implementation
 
-These notes come from implementing the TIFF and ND2 profiles from ZARRIFY.md
+These notes come from implementing the TIFF and ND2 profiles from VIRTUALIZE.md
 and HARNESS.md alone. The fourth revision is precise: all 95 fixtures behave as
 their names say, and the three public inputs succeed. No rule was found under
 which two careful implementers would produce different output for a real
