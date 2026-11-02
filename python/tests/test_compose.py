@@ -356,3 +356,9 @@ def test_combining_refuses_a_hidden_key_source_whose_value_is_a_reference():
 def test_map_keys_refuses_a_rename_to_something_other_than_a_string():
     with pytest.raises(ValueError, match="'a' is renamed to 1; keys are non-empty strings"):
         map_keys(ReferenceStore({"a": b"1"}), lambda _: 1)  # pyrefly: ignore[bad-argument-type]
+
+
+def test_map_keys_refuses_a_key_source_naming_dropped_consolidated_metadata():
+    s = ReferenceStore({".zmetadata": b"{}", "v": Range(source=0, length=1)}, [Source(key=".zmetadata")])
+    with pytest.raises(ValueError, match=r"a key source names '\.zmetadata', which is dropped"):
+        map_keys(s, lambda k: k)

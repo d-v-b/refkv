@@ -400,7 +400,7 @@ def _map_keys(store: ReferenceStore, f: Callable[[str], str | None], bounds: Ite
         if value is not None:
             mapping[new] = value
     mapping.update(extra)
-    renamed = {old: new for new, old in names.items()}
+    renamed = {old: new for new, old in names.items() if new in mapping}
     used = {s for v in mapping.values() for s in _used(v)}
     sources = []
     for i, s in enumerate(store.sources):
