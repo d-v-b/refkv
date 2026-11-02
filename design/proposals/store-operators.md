@@ -28,9 +28,9 @@ compares them.
   source's new index. Index 0 should go to the most-used source, as
   `from_virtualizarr` does, since it costs nothing on the wire.
 - **Internal sources.** A `Source(key=k)` names an entry of the same store.
-  A rename must rename `k` too. A combination refuses one whose target it
-  takes from another operand, unless that operand holds the same bytes there,
-  since a reference reads bytes. A key source may name a hidden key (under
+  A rename must rename `k` too. A reference reads bytes, so a combination
+  refuses one whose target it leaves out, rewrites (dropping its consolidated
+  metadata), or takes from another operand that does not hold the same bytes. A key source may name a hidden key (under
   the binding's reserved prefix, such as a header many values share); a
   combination carries it, renamed by its content's digest if another carried
   hidden key of that name differs.
