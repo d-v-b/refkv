@@ -678,7 +678,7 @@ def test_combining_refuses_a_zarr_document_held_as_a_reference():
 
 def test_combining_refuses_a_document_it_cannot_parse_to_drop_its_listing():
     deep = b'{"consolidated_metadata":' + b"[" * 100000 + b"]" * 100000 + b"}"
-    with pytest.raises(ValueError, match="not JSON that can be parsed"):
+    with pytest.raises(ValueError, match="not strict JSON"):
         overlay(ReferenceStore({"zarr.json": deep}))
 
 
@@ -802,6 +802,15 @@ def test_union_compares_only_strict_json_as_documents():
     for other in (doubled, bom):
         with pytest.raises(ValueError, match="hold different values"):
             union(ReferenceStore({"zarr.json": single}), ReferenceStore({"zarr.json": other}))
+
+
+def test_map_keys_and_shift_chunks_take_repeated_bounds_and_one_axis_v2_boxes():
+    twice = union(ReferenceStore({"zarr.json": GROUP}, bounds=[Key("zarr.json")]),
+                  ReferenceStore({"zarr.json": GROUP}, bounds=[Key("zarr.json")]))
+    assert map_keys(twice, lambda k: "m/" + k).bounds == (Key("m/zarr.json"),)
+    zarray = json.dumps({"zarr_format": 2, "shape": [4], "chunks": [1], "dimension_separator": "/"}).encode()
+    s = ReferenceStore({"a/.zarray": zarray, "a/1": b"x"}, bounds=[ChunkBox("a", (1,), (2,), "v2")])
+    assert set(shift_chunks(s, "a", (2,)).mapping) == {"a/3"}
 
 
 def test_map_keys_refuses_two_bounds_renamed_to_one():

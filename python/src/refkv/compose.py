@@ -404,8 +404,8 @@ def _unconsolidated(key: str, value: Value) -> Value | None:
                          "result would make stale, cannot be dropped; hold Zarr documents as bytes")
     doc = _load(value)
     if doc is None and b'"consolidated_metadata"' in value:
-        raise ValueError(f"{key!r} is not JSON that can be parsed (malformed, or nested too deep), "
-                         "so its consolidated metadata cannot be dropped")
+        raise ValueError(f"{key!r} is not strict JSON (malformed, with a byte order mark or a key "
+                         "twice, or nested too deep), so its consolidated metadata cannot be dropped")
     if not isinstance(doc, dict) or doc.get("consolidated_metadata") is None:
         return value
     del doc["consolidated_metadata"]
@@ -777,6 +777,12 @@ def _undefault(options: Options) -> None:
             del options[name]  # type: ignore[misc]
 
 
+def _layout(rank: int, encoding: str, sep: str) -> tuple[int, str, str]:
+    """What tells chunk keys apart: rank, encoding, and the separator, except for a v2 key of
+    at most one axis, which has no separator in it."""
+    return (rank, encoding, "" if encoding == "v2" and rank <= 1 else sep)
+
+
 def _check_boxes(stores: Sequence[ReferenceStore]) -> None:
     """Raise ValueError for a `ChunkBox` of an array some store describes, whose rank or
     chunk key encoding is not the array's: it would take in none of the array's chunks."""
@@ -789,15 +795,11 @@ def _check_boxes(stores: Sequence[ReferenceStore]) -> None:
                 except ValueError:
                     continue
                 layouts.setdefault(path, set()).add((len(shape), encoding, sep))
-    def layout(rank: int, encoding: str, sep: str) -> tuple[int, str, str]:
-        # a v2 key of at most one axis has no separator in it
-        return (rank, encoding, "" if encoding == "v2" and rank <= 1 else sep)
-
-    known = {path: {layout(*lay) for lay in lays} for path, lays in layouts.items()}
+    known = {path: {_layout(*lay) for lay in lays} for path, lays in layouts.items()}
     for s in stores:
         for b in s.bounds:
             if isinstance(b, ChunkBox) and b.array in known and (
-                    layout(len(b.start), b.encoding, b.separator) not in known[b.array]):
+                    _layout(len(b.start), b.encoding, b.separator) not in known[b.array]):
                 rank, encoding, sep = min(layouts[b.array])
                 raise ValueError(f"the bound {b!r} takes in no chunk of array {b.array!r}, which has "
                                  f"{rank} axes and chunk key encoding {encoding!r} with separator {sep!r}")
@@ -868,17 +870,17 @@ def map_keys(store: ReferenceStore, f: Callable[[str], str | None], *,
     the store's stated bounds is renamed onto one inside them.
     """
     if bounds is None and store.bounds_stated:
-        moved: list[Bound] = []
+        renamed: dict[str, str] = {}  # each distinct Key bound's new name, by it
         for b in store.bounds:
             if not isinstance(b, Key):
                 raise ValueError(  # noqa: TRY004 (a bound the operation cannot move, not a wrong argument)
                     f"map_keys cannot move the bound {b!r}; pass bounds= for the result")
-            new = f(b.key)
-            if new is not None:
-                moved.append(Key(new))
-        bounded = {b.key for b in moved if isinstance(b, Key)}
-        if len(bounded) != len(moved):
+            if b.key not in renamed and (new := f(b.key)) is not None:
+                renamed[b.key] = new
+        bounded = set(renamed.values())
+        if len(bounded) != len(renamed):  # a repeated bound is one bound, two distinct ones are not
             raise ValueError("two of the store's Key bounds are renamed to one key")
+        moved: list[Bound] = [Key(new) for new in renamed.values()]
         inside = {b.key for b in store.bounds if isinstance(b, Key)}
         for key in store.mapping:
             if key not in inside and not key.startswith(RESERVED_PREFIX) and f(key) in bounded:
@@ -1007,8 +1009,8 @@ def _shift_bounds(store: ReferenceStore, array: str, rank: int, encoding: str, s
     for b in store.bounds:
         if isinstance(b, Prefix) and (not b.path or array == b.path or array.startswith(b.path + "/")):
             out.append(whole)
-        elif isinstance(b, ChunkBox) and (b.array, len(b.start), b.encoding, b.separator) == (
-                array, rank, encoding, sep):
+        elif isinstance(b, ChunkBox) and b.array == array and (
+                _layout(len(b.start), b.encoding, b.separator) == _layout(rank, encoding, sep)):
             start = tuple(o + x for o, x in zip(offset, (0,) * new_axes + b.start, strict=True))
             stop = tuple(o + x for o, x in zip(offset, (1,) * new_axes + b.stop, strict=True))
             out.append(ChunkBox(array, start, stop, encoding, sep))  # type: ignore[arg-type]
