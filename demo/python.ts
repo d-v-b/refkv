@@ -26,7 +26,13 @@ export function stem(url: string): string {
  * decides the extras; `release` is the earliest refkv release the script needs, or undefined
  * for none.
  */
-export function pythonScript(url: string, isArchive: boolean, profile: string | undefined, release: string | undefined): string {
+export function pythonScript(
+  url: string,
+  isArchive: boolean,
+  profile: string | undefined,
+  release: string | undefined,
+  format: "vzip" | "phkv" = "vzip",
+): string {
   const extra = MEDIA.includes(profile ?? "") ? "media" : "images";
   const requirement = `refkv[${extra}]${release ? `>=${release}` : ""}`;
   const name = stem(url);
@@ -62,12 +68,20 @@ export function pythonScript(url: string, isArchive: boolean, profile: string | 
       ];
   const save = isArchive
     ? []
-    : [
-        "",
-        "# The vzip archive this page downloads: the hierarchy, in one file that refers to the",
-        "# input's bytes. Host it, and refkv.zarr.open(url) reads it anywhere.",
-        `# reference.save(${JSON.stringify(`${name}.vzip`)})`,
-      ];
+    : format === "phkv"
+      ? [
+          "",
+          "# This page downloads a phkv store of the hierarchy. This script does not write one:",
+          "# refkv's Python package has no phkv writer or reader yet, only vzip archives, which",
+          "# it saves and reopens with refkv.zarr.open(url).",
+          `# reference.save(${JSON.stringify(`${name}.vzip`)})`,
+        ]
+      : [
+          "",
+          "# The vzip archive this page downloads: the hierarchy, in one file that refers to the",
+          "# input's bytes. Host it, and refkv.zarr.open(url) reads it anywhere.",
+          `# reference.save(${JSON.stringify(`${name}.vzip`)})`,
+        ];
   return [
     ...header,
     ...open,

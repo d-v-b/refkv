@@ -637,7 +637,7 @@ function mediaProfile(url: string): string | undefined {
 
 /** Shows the Python script that builds the same hierarchy as `input`, and links it as a file. */
 function showPython(input: Input, profile: string | undefined) {
-  const script = pythonScript(input.url, input.isArchive, profile, __REFKV_RELEASE__ || undefined);
+  const script = pythonScript(input.url, input.isArchive, profile, __REFKV_RELEASE__ || undefined, __REFKV_FORMAT__);
   const file = `${input.isArchive ? "open" : "zarrify"}_${stem(input.url)}.py`;
   $("python-code").innerHTML = hljs.highlight(script, { language: "python" }).value; // escaped by highlight.js
   $("python-run").textContent = `uv run ${file}`;
