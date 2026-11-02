@@ -266,11 +266,29 @@ def _used(value: Value) -> list[int]:
     return [r.source for r in parts if r.data is None]
 
 
+class _Number(str):
+    """A JSON number as written, which no parsed JSON value is."""
+
+    __slots__ = ()
+
+
+def _tagged(doc: object) -> object:
+    """`doc`, a parsed JSON value, as a tree in which each value carries its JSON type, so
+    that `true`, `1` and `1.0` differ, and a number written `1e400` is not `2e400`."""
+    if isinstance(doc, dict):
+        return ("object", tuple(sorted((k, _tagged(v)) for k, v in doc.items())))
+    if isinstance(doc, list):
+        return ("array", tuple(_tagged(v) for v in doc))
+    if isinstance(doc, _Number):
+        return ("number", str(doc))
+    return (type(doc).__name__, doc)
+
+
 def _load(value: bytes) -> object:
-    """A JSON document, its numbers kept as written (so `1e400` and `2e400` differ); None
-    if `value` is not JSON."""
+    """A JSON document with its numbers kept as written (`_Number`); None if `value` is not
+    JSON."""
     try:
-        return json.loads(value, parse_float=lambda s: {"$number": s}, parse_constant=lambda s: {"$number": s})
+        return json.loads(value, parse_float=_Number, parse_int=_Number, parse_constant=_Number)
     except (ValueError, RecursionError):
         return None
 
@@ -293,25 +311,25 @@ def _unconsolidated(key: str, value: Value) -> Value | None:
     return json.dumps(doc, separators=(",", ":"), ensure_ascii=False).encode()
 
 
-def _form(key: str, value: Value, identity: Callable[[int], object]) -> object:
+def _form(key: str, value: Value, identity: Callable[[int], object], *, documents: bool = True) -> object:
     """What `union` compares of a store's `value` at `key`: a reference with each source
     given by `identity` (its absolute URL and pins, or the bytes of a hidden key it names),
-    so that two stores' references compare whatever their tables; a `zarr.json` document
-    as canonical JSON without its `consolidated_metadata`; else the bytes."""
+    so that two stores' references compare whatever their tables; with `documents`, a
+    `zarr.json` document as its JSON value without `consolidated_metadata`; else the bytes."""
     if isinstance(value, Concat):
         return ("concat", tuple(_form(key, r, identity) for r in value.parts))
     if isinstance(value, Range):
         if value.data is not None:
             return ("data", value.data)
         return ("range", identity(value.source), value.offset, value.length, value.crc32c)
-    if key.rpartition("/")[2] != "zarr.json":
+    if not documents or key.rpartition("/")[2] != "zarr.json":
         return value
     doc = _load(value)
     if doc is None:
         return value
     if isinstance(doc, dict):
         doc.pop("consolidated_metadata", None)
-    return ("json", json.dumps(doc, sort_keys=True, separators=(",", ":"), ensure_ascii=False))
+    return ("json", _tagged(doc))
 
 
 def _digest(value: bytes) -> str:
@@ -549,8 +567,10 @@ def _combine(stores: Sequence[ReferenceStore], agree: bool, options: Options) ->
         if target in rewritten:
             raise ValueError(f"store {i} has a reference to its own key {target!r}, whose value the "
                              "result rewrites (dropping its consolidated metadata)")
-        if j != i and (j is None or _form(target, stores[i].mapping.get(target, b""), identity(i))
-                       != _form(target, stores[j].mapping[target], identity(j))):
+        # a reference reads bytes, so the value it reads must be the same bytes, not just
+        # the same JSON
+        if j != i and (j is None or _form(target, stores[i].mapping.get(target, b""), identity(i), documents=False)
+                       != _form(target, stores[j].mapping[target], identity(j), documents=False)):
             raise ValueError(f"store {i} has a reference to its own key {target!r}, which the result "
                              "takes from another store or leaves out")
     mapping.update(hidden)

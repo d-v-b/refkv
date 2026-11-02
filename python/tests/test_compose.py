@@ -518,6 +518,21 @@ def test_operators_keep_bounds_hidden_flags_and_meaning_through_every_step(tmp_p
     assert ChunkBox("a", (np.int64(0),), (np.int32(2),)).stop == (2,)  # pyrefly: ignore[bad-argument-type]
 
 
+def test_union_refuses_a_number_against_an_object_that_spells_it():
+    docs = [json.dumps({"zarr_format": 3, "node_type": "group", "attributes": {"x": x}}).encode()
+            for x in (1.5, {"$number": "1.5"})]
+    with pytest.raises(ValueError, match="hold different values"):
+        union(ReferenceStore({"zarr.json": docs[0]}), ReferenceStore({"zarr.json": docs[1]}))
+
+
+def test_combining_refuses_a_reference_into_a_document_another_store_writes_differently():
+    pretty = json.dumps({"zarr_format": 3, "node_type": "group", "attributes": {}}, indent=2).encode()
+    compact = json.dumps({"zarr_format": 3, "node_type": "group", "attributes": {}}).encode()
+    i = ReferenceStore({"zarr.json": pretty, "v": Range(source=0, offset=10, length=5)}, [Source(key="zarr.json")])
+    with pytest.raises(ValueError, match=r"store 0 has a reference to its own key 'zarr\.json'"):
+        overlay(i, ReferenceStore({"zarr.json": compact}))
+
+
 def test_union_refuses_numbers_that_differ_beyond_float_range():
     big = [json.dumps({"zarr_format": 3, "node_type": "group", "attributes": {}}).encode().replace(
         b'"attributes": {}', f'"attributes": {{"x": {n}}}'.encode()) for n in ("1e400", "2e400")]
