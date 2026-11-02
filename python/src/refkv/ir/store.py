@@ -49,7 +49,7 @@ from refkv.policy import Policy
 from refkv.refstore import ReferenceStore
 from refkv.vzip.archive import VZipWriter
 from refkv.zarrify.common import Rejected, reference_store
-from refkv.zarrify.store import Opener, Store, object_url, open_store
+from refkv.zarrify.store import WORKERS, Opener, Store, object_url, open_store
 
 type StorePart = tuple[Literal["object"], str, int, int] | tuple[int, int, int] | bytes
 """A part of a store run's reference: ("object", key, offset, length) of a store's object,
@@ -337,8 +337,7 @@ def zarrify_store(location: str, url: str | None = None, fmt: str = "zarr2", mir
     """(output, IR, run counts) of the store at `location` (an http(s) store URL, listed and
     read under `policy`, or a local directory served at `url`), parsed by the core's store
     format `fmt`, as `run_store` (`mirror` false: no mirror, and no record of the ignored keys)."""
-    kw = {} if workers is None else {"workers": workers}
-    store = open_store(location, url, policy=policy, opener=opener, **kw)
+    store = open_store(location, url, policy=policy, opener=opener, workers=WORKERS if workers is None else workers)
     try:
         return run_store(store, fmt, mirror)
     finally:

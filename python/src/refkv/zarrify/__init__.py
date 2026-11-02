@@ -68,7 +68,16 @@ from refkv.zarrify import profile_classes
 from refkv.zarrify.common import Output, Rejected
 from refkv.zarrify.profile_classes import *  # noqa: F403 (one class per profile: profile_classes.__all__)
 from refkv.zarrify.sources import Dataset, Image, Source, Store, layout_names
-from refkv.zarrify.store import WORKERS, ListingFailed, StoreLimit, choose_profile, object_url, open_store
+from refkv.zarrify.store import (
+    WORKERS,
+    ListingFailed,
+    StoreLimit,
+    choose_profile,
+    hub_endpoint,
+    hub_page,
+    object_url,
+    open_store,
+)
 from refkv.zarrify.store import Store as Listed
 from refkv.zarrify.store.beside import VsiFiles
 
@@ -208,6 +217,9 @@ async def _zarrify_async(location: str, url: str | None = None, *, checksums: bo
     if fmt is None and is_store(location):
         return await _zarrify_store_async(location, url, checksums=checksums, workers=workers, policy=policy,
                                           layouts=layouts)
+    # a Hub tree's web page (§1.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>)
+    if location.startswith(("http://", "https://")) and hub_page(location, hub_endpoint()):
+        raise Rejected(f"{location} is a Hub repository's page, not a file: end it in / to zarrify the repository")
     # the names, before the file is read when the profile is named (once: `layouts` may be an iterator)
     names = layout_names(layouts, fmt) if fmt is not None else None
     transport = await asyncio.to_thread(open_transport, location, policy)

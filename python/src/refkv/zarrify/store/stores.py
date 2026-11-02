@@ -1,9 +1,9 @@
 """The store readers (spec/zarrify.md §1.4
 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>, §1.5
 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>): `Store`, its
-prefetch of documents, a store listed over http(s) (`HttpStore`) or from a local directory
-(`DirStore`), `open_store`, and the store profile a store's root keys select
-(`choose_profile`).
+prefetch of documents, a store listed over http(s) (`HttpStore`; `HubStore`, a Hugging Face Hub
+repository) or from a local directory (`DirStore`), `open_store`, and the store profile a store's
+root keys select (`choose_profile`).
 """
 
 from __future__ import annotations
@@ -26,8 +26,16 @@ from refkv.policy import Policy
 from refkv.reader import _send
 from refkv.zarrify.common import UA, Rejected, _retry, _ThreadConnections, follow
 from refkv.zarrify.store.documents import MAX_DOCUMENT, parse_json
-from refkv.zarrify.store.listing import parse_listing
-from refkv.zarrify.store.urls import check_store_url, listing_endpoint, object_url, query_encode
+from refkv.zarrify.store.listing import next_link, parse_hub_revision, parse_hub_tree, parse_listing
+from refkv.zarrify.store.urls import (
+    HubRepo,
+    check_store_url,
+    hub_endpoint,
+    hub_repo,
+    listing_endpoint,
+    object_url,
+    query_encode,
+)
 
 
 class ListingFailed(OSError):  # noqa: N818 (public name)
@@ -285,13 +293,23 @@ class HttpStore(Store):
         # output, may be changed afterwards (--url).
         self.location = url
         self.url = url
-        self.endpoint, self.prefix = listing_endpoint(url)
         self.objects = {}
         self.ignored = []
         self.folders = []
         # A test's urlopen, in place of the network: the policy then checks URLs as written.
         self._opener = opener
         self._conns = _ThreadConnections()
+        self._max_objects = max_objects
+        self._list()
+
+    def _check_limit(self) -> None:
+        if self._max_objects is not None and self.listed > self._max_objects:
+            raise StoreLimit(f"the store lists more than {self._max_objects} objects")
+
+    def _list(self) -> None:
+        """Lists the store with S3 ListObjectsV2 (§1.5
+        <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>)."""
+        self.endpoint, self.prefix = listing_endpoint(self.location)
         seen: set[str] = set()
         tokens: set[str] = set()
         token = None
@@ -299,11 +317,10 @@ class HttpStore(Store):
             q = f"?list-type=2&prefix={query_encode(self.prefix)}"
             if token is not None:
                 q += f"&continuation-token={query_encode(token)}"
-            body = self._get_listing(self.endpoint + q)
+            _, _, body = self._get_listing(self.endpoint + q)
             listed, token = parse_listing(body, self.prefix)
             self._add(listed, self.prefix, seen)
-            if max_objects is not None and self.listed > max_objects:
-                raise StoreLimit(f"the store lists more than {max_objects} objects")
+            self._check_limit()
             if token is None:
                 break
             if token in tokens:  # the listing would repeat itself (§1.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>)
@@ -327,28 +344,36 @@ class HttpStore(Store):
             raise urllib.error.URLError(e) from None
 
     def _get(self, url: str, headers: dict[str, str]) -> tuple[int, bytes]:
-        """(status, body) of a GET of `url`, following at most 5 redirects; the policy
-        checks `url`, and each redirect's target before it is requested."""
-        headers = {"User-Agent": UA, **headers}
-        _, status, _, body = follow(self.location, url, lambda u: self._send(u, headers), self.policy)
+        """(status, body) of a GET of `url`, following at most 5 redirects; the policy checks `url`,
+        and each redirect's target before it is requested."""
+        _, status, _, body = self._request(url, headers)
         return status, body
 
-    def _get_listing(self, url: str) -> bytes:
+    def _request(self, url: str, headers: dict[str, str]) -> tuple[str, int, Message | None, bytes]:
+        """(the URL that answered, status, headers, body) of `_get`'s request."""
+        headers = {"User-Agent": UA, **headers}
+        return follow(self.location, url, lambda u: self._send(u, headers), self.policy)
+
+    def _no_listing(self, url: str, status: int) -> Rejected:
+        return Rejected(f"the store has no listing: {url} answered HTTP {status}")
+
+    def _get_listing(self, url: str) -> tuple[str, Message | None, bytes]:
+        """(the URL that answered, headers, body) of a listing request's 200 response."""
         self.requests += 1
 
-        def get() -> bytes:
-            status, body = self._get(url, {})
+        def get() -> tuple[str, Message | None, bytes]:
+            answered, status, msg, body = self._request(url, {})
             if status != 200:
                 # urllib takes no headers, whatever typeshed says
                 raise urllib.error.HTTPError(url, status, f"HTTP {status}", None, None)  # pyrefly: ignore[bad-argument-type]
-            return body
+            return answered, msg, body
 
         try:
             return _retry(get)
         except urllib.error.HTTPError as e:
             if e.code in (408, 429) or e.code >= 500:
                 raise ListingFailed(f"{url}: HTTP {e.code}") from None
-            raise Rejected(f"the store has no listing: {url} answered HTTP {e.code}") from None
+            raise self._no_listing(url, e.code) from None
         except (urllib.error.URLError, ConnectionError, TimeoutError) as e:
             raise ListingFailed(f"{url}: {e}") from None
 
@@ -389,6 +414,48 @@ class HttpStore(Store):
         if len(data) != length:
             raise OSError(f"{url}: read {len(data)} bytes at {offset}, not {length}")
         return data
+
+
+class HubStore(HttpStore):
+    """A Hugging Face Hub repository at a revision (§1.5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>), `repo`: the
+    revision resolved once to a commit (`commit`), the tree listed at that commit, and the files
+    read at the store's base (`location`, and `url` unless renamed), which names the commit. Every
+    request is made under the reader policy, as `HttpStore`'s are."""
+
+    commit: str
+
+    def __init__(self, url: str, repo: HubRepo, *, max_objects: int | None = None,
+                 opener: Opener | None = None, workers: int = WORKERS, policy: Policy | None = None) -> None:
+        self.repo = repo
+        super().__init__(url, max_objects=max_objects, opener=opener, workers=workers, policy=policy)
+
+    @override
+    def _no_listing(self, url: str, status: int) -> Rejected:
+        why = {401: " (a repository that does not exist, or a private one)",
+               404: " (a revision or a directory the repository does not have)"}.get(status, "")
+        return Rejected(f"the Hub answered HTTP {status} for {url}{why}")
+
+    @override
+    def _list(self) -> None:
+        repo = self.repo
+        _, _, body = self._get_listing(repo.revision_url())
+        self.commit = parse_hub_revision(body)
+        self.location = self.url = repo.base(self.commit)
+        seen: set[str] = set()
+        link: str | None = repo.tree_url(self.commit)
+        requested: set[str] = set()
+        while link is not None:
+            requested.add(link)
+            answered, msg, body = self._get_listing(link)
+            listed, entries = parse_hub_tree(body, repo.directory)
+            self._add(listed, repo.directory, seen)
+            self._check_limit()
+            link = next_link((msg.get_all("Link") or []) if msg is not None else [], answered, repo.endpoint)
+            if link is not None and not entries:  # a page that lists nothing could be followed forever
+                raise Rejected("a Hub tree page with a next link lists nothing")
+            if link in requested:
+                raise Rejected(f"the Hub tree's next link {link[:200]!r} was requested already")
 
 
 class DirStore(Store):
@@ -438,14 +505,20 @@ class DirStore(Store):
 
 
 def open_store(location: str, url: str | None = None, *, max_objects: int | None = None,
-               opener: Opener | None = None, workers: int = WORKERS, policy: Policy | None = None) -> Store:
+               opener: Opener | None = None, workers: int = WORKERS, policy: Policy | None = None,
+               hub: str | None = None) -> Store:
     """The store at an http(s) URL ending in `/` (listed and read there under the
     reader policy `policy`, default `Policy()`, and named `url` in the output if
-    given, its documents read by up to `workers` requests at a time), or a local
-    directory served at `url` (§1.2
+    given, its documents read by up to `workers` requests at a time): a Hub store
+    when it is under the Hub's endpoint (`hub`, else `HF_ENDPOINT`, else
+    https://huggingface.co; §1.5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>), else an
+    S3-style one. Or a local directory served at `url` (§1.2
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>), read sequentially."""
     if location.startswith(("http://", "https://")):
-        store = HttpStore(location, max_objects=max_objects, opener=opener, workers=workers, policy=policy)
+        repo = hub_repo(location, hub_endpoint(hub))
+        kw = {"max_objects": max_objects, "opener": opener, "workers": workers, "policy": policy}
+        store = HttpStore(location, **kw) if repo is None else HubStore(location, repo, **kw)
         if url is not None:
             check_store_url(url)
             store.url = url
