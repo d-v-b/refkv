@@ -689,6 +689,8 @@ just lint
 just typecheck
 ```
 
+`just preflight` runs the last three together, with `just sections` against `origin/main`; run it before every push.
+
 ```bash
 just test
 ```
