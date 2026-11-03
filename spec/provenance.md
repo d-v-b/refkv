@@ -109,11 +109,10 @@ zarrifiers against each other, or a profile's fixtures) removes them first.
 4. **Informational.** A reader MUST NOT change how it reads a hierarchy's
    data by the property. It MAY use it to warn about a hierarchy written by a
    version with a known defect, naming the defect.
-5. **Format schemas.** A format's convention admits the member
-   `refkv_provenance` on the root and the CMO in `zarr_conventions`, beside
-   its own declaration ([conventions §2](conventions.md#2-attributes)). Its
-   JSON Schema accepts any object there, and this convention's
-   [schema](provenance/schema.json) checks it.
+5. **Beside a format's convention.** A format's convention admits other
+   conventions' members ([conventions §2](conventions.md#2-attributes)), and
+   its JSON Schema accepts them unchecked; this convention's
+   [schema](provenance/schema.json) checks `refkv_provenance`.
 
 ## 5. Versions and the format conventions
 

@@ -4,8 +4,8 @@
 
 Each schema validates the zarr.json of one node of a zarrified hierarchy that
 declares the convention (spec/zarrify/<profile>.md): the convention's
-metadata object in `zarr_conventions`, the property `refkv_zarrified`, and no
-other attribute besides `ome`. The root carries the property's provenance
+metadata object in `zarr_conventions`, the property `refkv_zarrified`, and `ome`; other
+attributes are accepted and not checked. The root carries the property's provenance
 members; any other node (store profiles only) carries only the profile's
 source-metadata member. Each profile's member schema is its module of spec/source_metadata/
 (one per profile, so that adding a profile adds a module); the profiles are the registry's
@@ -205,15 +205,13 @@ def schema(profile: str) -> dict:
                         "maxContains": 1,
                     },
                     CONVENTION_KEY: prop,
-                    # the provenance convention, beside this one (spec/provenance.md), checked
-                    # by its own schema
-                    "refkv_provenance": {"type": "object",
-                                         "description": "refkv's provenance convention (spec/provenance.md)"},
                     **getattr(module, "ATTRIBUTES", {}),
                 },
                 "required": ["zarr_conventions", CONVENTION_KEY],
-                # a convention whose nodes hold the source's own attributes (HDF5's) leaves them open
-                "additionalProperties": bool(getattr(module, "OPEN_ATTRIBUTES", False)),
+                # other attributes: other conventions' (spec/provenance.md's, say), and the source's own
+                # on an HDF5 node (spec/conventions.md §2
+                # <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>)
+                "additionalProperties": True,
             },
         },
         "required": ["zarr_format", "node_type", "attributes"],
