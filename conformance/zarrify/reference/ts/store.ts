@@ -39,6 +39,7 @@ async function virtualizeStoreProfile(
     const chosen = chooseProfile(store);
     // the frozen reference has no safetensors profile (the shipped chooser, which it uses, does)
     if (chosen === "safetensors") throw new StoreError("the frozen reference reads no store of safetensors files");
+    if (chosen === "precomputed") throw new StoreError("the frozen reference reads no Neuroglancer precomputed store");
     if (chosen === "safe") return { format: "safe", ...(await virtualizeSafeStore(store)) };
     let format: "n5" | "zarr2" | "ome-zarr" = chosen;
     if (format === "zarr2" && (await declares04(store))) format = "ome-zarr";

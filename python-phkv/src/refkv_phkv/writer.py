@@ -187,7 +187,7 @@ def save(
     <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md>) at the local `path`, and
     return a `Summary` of it. `refkv_phkv.open(path)` reads it back with the same values. A
     lookup in a phkv store reads a few ranges of the file, however many keys it holds, where a
-    vzip archive reads a page of its directory (`ReferenceStore.save`).
+    vzip archive reads a page of its directory (`ReferenceStore.save_vzip`).
 
     The bytes values of `store.compressed` are DEFLATE-compressed. The hidden values a store keeps
     under `__vz__/` are the ZIP binding's bookkeeping, not the store's keys, so they are not
@@ -197,7 +197,7 @@ def save(
     - `inline_max`: a value whose stored bytes are at most this long is kept in its record,
       so that the lookup that finds the key reads it too.
     - `page_size`: about how many bytes of records each page of the page index holds.
-    - `relative_to`, `policy`: as for `ReferenceStore.save`: the sources are made relative
+    - `relative_to`, `policy`: as for `ReferenceStore.save_vzip`: the sources are made relative
       to the store, and checked against the reader policy, before anything is written.
     """
     path = os.fspath(path)

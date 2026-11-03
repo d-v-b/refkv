@@ -23,7 +23,9 @@ a lossless JPEG chunk ([§3](#3-arrays)); refkv's `refkv.skip` drops the NPY hea
 decodes a GRIB field's message ([§12](#12-grib-messages)). Changed 2026-10-31: `refkv.grib`
 decodes packing 5.40, JPEG 2000 of the reversible 5/3 transform, where it was an error
 ([§12](#12-grib-messages)). Changed 2026-11-01, with no change to any output:
-the document cites its own sections as `§n` links.)
+the document cites its own sections as `§n` links. Changed 2026-11-03, with no change to any
+output: [§2](#2-attributes), [§3](#3-arrays) and [§7](#7-source-values-as-arrays) name what the
+formats' documents already say of their attributes, arrays, codecs and fill values.)
 
 <!-- profiles:conventions-table -->
 | format | convention | UUID |
@@ -47,6 +49,7 @@ the document cites its own sections as `§n` links.)
 | NumPy NPY and NPZ (NEP 1) | [npy](zarrify/npy.md) | `62b1d1ba-8eb3-465c-a333-75e096fce519` |
 | NRRD (Teem) | [nrrd](zarrify/nrrd.md) | `23e0c600-8da6-40f1-81e7-ab246e948e88` |
 | OME-Zarr 0.4 | [ome-zarr](zarrify/ome-zarr.md) | `b74ea302-65bb-49ae-b81f-f9bb52cd4eed` |
+| Neuroglancer precomputed | [precomputed](zarrify/precomputed.md) | `c499987a-9518-4b2b-a804-a70a8de1a911` |
 | Akoya QPTIFF | [qptiff](zarrify/qptiff.md) | `329ea136-2f55-4c27-b6f4-8e60ca2109b8` |
 | Sentinel-2 SAFE (Level-1C, Level-2A) | [safe](zarrify/safe.md) | `ef81346c-19e8-42ad-93b0-a279ccaf44c1` |
 | safetensors (Hugging Face) | [safetensors](zarrify/safetensors.md) | `15e7ce39-d4ca-4514-8144-6e19d2a0341b` |
@@ -210,7 +213,8 @@ recorded ignored keys. For a file's convention,
 `refkv_source` is the source's IR mirror ([§8](#8-the-ir-mirror)), from which the source is
 rebuilt byte for byte; for a store's, the store's
 ([§8.9](#89-stores)), from which the listing and the documents read are rebuilt: always
-present (under a root array, as plain keys of the archive).
+present (under a root array, as plain keys of the archive). A FLAC file's pictures, source values
+kept as arrays, are outside it, under the root's `pictures` ([flac §4.2](zarrify/flac.md#42-the-pictures)).
 
 **Nothing else.** Outside `refkv_zarrified`, a node's attributes hold only
 members that the hierarchy's target formats define, where the format's
@@ -218,17 +222,18 @@ convention places them:
 
 | member | defined by | on |
 |---|---|---|
-| `ome` | OME-NGFF 0.5 ([§4](#4-images)) | images, and a collection's root and `OME` group |
-| `proj:code`, `proj:wkt2`, `spatial:*`, `multiscales` | the GeoZarr members of the zarr-conventions `proj`, `spatial` and `multiscales` conventions | nodes of the SAFE convention, which lists their CMOs in `zarr_conventions` after its own |
-| the CF attributes | [§9](#9-dataset-layouts) | a dataset layout's variables |
-| `zarr_conventions` | [`Declaration`](#type-declaration) | nodes that declare the convention |
+| `ome` | OME-NGFF 0.5 ([§4](#4-images)) | images, a collection's root and `OME` group, and the OME-Zarr convention's other OME groups (its labels groups, plates and wells) |
+| `proj:code`, `proj:wkt2`, `spatial:*`, `multiscales` | the GeoZarr members of the zarr-conventions `proj`, `spatial` and `multiscales` conventions | nodes of the SAFE convention and [a GRIB hierarchy's grid groups](zarrify/grib.md#4-georeferencing), which list their CMOs in `zarr_conventions`, after the format's own on a node that declares the convention |
+| the CF attributes | [§9](#9-dataset-layouts) | a dataset layout's variables, and [a GRIB hierarchy's variables and coordinates](zarrify/grib.md#3-the-hierarchy), with the `GRIB_<key>` numbers that identify a variable |
+| `zarr_conventions` | [`Declaration`](#type-declaration) | nodes that declare the convention, and nodes that hold the GeoZarr members above |
 
 Everything
 taken from the source goes under the key, on the node it belongs to,
 including attributes a source store had (and the conventions they
 declare), so it can neither collide with nor masquerade as the target
 formats' metadata. A source that is itself such a hierarchy therefore
-nests its own record.
+nests its own record. The HDF5 convention departs from this: a node's attributes are the source's
+own, beside the key ([hdf5 §2.1](zarrify/hdf5.md#21-declaration-and-attributes)).
 
 ## 3. Arrays
 
@@ -238,13 +243,19 @@ below. The conventions that say otherwise:
 | convention | its arrays |
 |---|---|
 | N5, Zarr v2, OME-Zarr (the store conventions) | are defined by the convention itself |
+| Neuroglancer precomputed | have the codec `refkv.precomputed`, a chunk being one chunk object or a whole shard ([precomputed §3.1](zarrify/precomputed.md#31-the-array)) |
 | CZI | have, for clipped levels, the zarr-extensions `rectilinear` chunk grid, and may have the codecs `imagecodecs_jpegxr` and `numcodecs.shuffle` |
 | NDPI | have, for JPEG XR levels, the codec `imagecodecs_jpegxr` |
 | QPTIFF | have, for LZW tiles and strips, the codec `refkv.tiff_lzw` ([qptiff §4.1](zarrify/qptiff.md#41-data-types-and-codecs)) |
 | MP3, MP4, FLAC | have the codec `refkv.stream` of [§10](#10-coded-streams), and dimension names of their own |
-| MP4 | have, for video planes whose chunks differ in length, the `rectilinear` chunk grid |
+| MP4 | have, for video planes whose chunks differ in length, the `rectilinear` chunk grid; a track's `time` array has the `gzip` codec |
 | FLAC | is sharded, as [spec/zarrify.md §2.1](zarrify.md#21-virtual-shards) says |
 | NRRD | has, when gzip-encoded, the `gzip` codec, which compresses it |
+| FITS | have, for tile-compressed images, the codec `refkv.fits_tiles` ([fits §3.3](zarrify/fits.md#33-tile-compressed-images)) |
+| GRIB | are defined by the convention itself ([grib §3](zarrify/grib.md#3-the-hierarchy)): a variable has the codec `refkv.grib` and a `float64` coordinate the `gzip` codec, both with the fill value `"NaN"` |
+| HDF5 | are defined by the convention itself ([hdf5 §3](zarrify/hdf5.md#3-datasets)), with the dataset's own chunks and filters, and `vlen-utf8` for strings |
+| NPY, safetensors | have the data type's zero as their fill value; NPY's, for a deflated `.npz` member, the codec `refkv.skip`; safetensors', for a data type of fewer than 8 bits, the codec `packbits` |
+| VSI | have, for a pyramid's levels, the background's first sample as their fill value ([vsi §4.1](zarrify/vsi.md#41-the-pyramid)) |
 
 The object:
 
@@ -277,7 +288,7 @@ value).
 | `data_type` | string | required | a Zarr v3 data type, which the format's convention gives |
 | `chunk_grid` | object | required | `{"name": "regular", "configuration": {"chunk_shape": [...]}}`, one chunk size per axis (or, where the table above says so, the `rectilinear` grid the format's document gives) |
 | `chunk_key_encoding` | object | required | `{"name": "default", "configuration": {"separator": "/"}}` |
-| `fill_value` | number | required | `0` |
+| `fill_value` | number or string | required | `0`, unless the table above says otherwise |
 | `codecs` | array of object | required | the codecs below, in their order |
 | `dimension_names` | array of string | required | the axes' names, in order (**Axes**, below) |
 | `attributes` | object | required | `{}`, unless the format's convention gives the array attributes: a [`Declaration`](#type-declaration) when the array has source metadata ([§2](#2-attributes), [§7](#7-source-values-as-arrays)), CF attributes ([§9](#9-dataset-layouts)) |
@@ -292,8 +303,8 @@ value).
 | `attributes` | object | required | `{}`, or the members the format's convention gives: a [`Declaration`](#type-declaration) when the group declares the convention ([§2](#2-attributes)) |
 
 A format's document names its arrays' types after this one, by the members it gives
-(`shape`, `data_type`, `chunk_grid`'s chunk shape, `codecs`, `dimension_names` and
-`attributes`); the members it does not name are as here.
+(`shape`, `data_type`, `chunk_grid`'s chunk shape, `fill_value`, `codecs`, `dimension_names`
+and `attributes`); the members it does not name are as here.
 
 **Axes.** An image's axes are a subsequence of `t, c, z, y, x`, in that
 order: `t` (time), `c` (channel), `z`, `y`, `x` (space). `y` and `x` are
@@ -315,15 +326,16 @@ of each step, and always one of step 3.
 | 4 | `{"name": "zstd", "configuration": {"level": 0, "checksum": false}}` | the bytes are Zstandard frames |
 
 **Codec names.** Every codec a convention names is one that a reader of Zarr v3 finds by its
-name: zarr-python's own (`bytes`, `transpose`, `gzip`, `zstd`, `blosc`, `sharding_indexed`, and
+name: zarr-python's own (`bytes`, `transpose`, `gzip`, `zstd`, `blosc`, `sharding_indexed`, `vlen-utf8`, and
 `numcodecs.zlib`, `numcodecs.shuffle` and `numcodecs.delta`, its names for numcodecs' codecs),
 imagecodecs-zarr's (`imagecodecs_jpeg`, `imagecodecs_jpeg2k`, `imagecodecs_jpegxr`,
 `imagecodecs_ljpeg`, `imagecodecs_delta`), the
-zarr-extensions registry's (`n5_default`), or refkv's own, which are named `refkv.<codec>`
+zarr-extensions registry's (`n5_default`, `packbits`), or refkv's own, which are named `refkv.<codec>`
 (`refkv.stream`, [§10](#10-coded-streams); `refkv.fits_tiles`,
 [fits §3.3](zarrify/fits.md#33-tile-compressed-images); `refkv.tiff_lzw`,
 [qptiff §4.1](zarrify/qptiff.md#41-data-types-and-codecs); `refkv.skip`,
-[npy §4.4](zarrify/npy.md#44-the-refkvskip-codec)). refkv names a
+[npy §4.4](zarrify/npy.md#44-the-refkvskip-codec); `refkv.grib`, [§12](#12-grib-messages);
+`refkv.precomputed`, [precomputed §6](zarrify/precomputed.md#6-the-codec-refkvprecomputed)). refkv names a
 codec of its own only where none of the others decodes the chunks as the convention says (QPTIFF's
 LZW streams can run past their tile, which `imagecodecs_lzw` does not allow; no codec of the
 others drops the NPY header a deflated `.npz` member inflates to). refkv's Python
@@ -557,7 +569,7 @@ the binary64 value.
 ## 7. Source values as arrays
 
 A value that is too large for JSON, that is a column of numbers, or that is
-opaque is an array of the source metadata node ([§2](#2-attributes)). Each such array's
+opaque is an array of the source metadata node (but for FLAC's pictures, [§2](#2-attributes)). Each such array's
 `zarr.json` is as in [§3](#3-arrays), with `fill_value` 0 unless the convention says
 otherwise, `codecs` `[{"name": "bytes", "configuration": {"endian": E}}]`
 (`[{"name": "bytes"}]` for one-byte data types), where `E` is `"little"`
@@ -722,6 +734,12 @@ chain ends at an element that is not an alias, within 64 steps; for each
 derived element whose form is a JSON object with a member `size`, the leaves
 in its space partition `[0, size)` of its derived bytes; and the root and
 the names are as above.
+
+A table (8.2) may leave out what canonical form leaves out, and these
+invariants allow for it: a derived element with no descendants in a table had
+them left out (8.8, step 3), so its leaves need not partition its derived
+bytes, and an alias's target chain in a table may end at `-1` (8.8, step 7).
+The IR a parser builds leaves nothing out.
 
 A **run** is an element whose subtree stands for `count` copies of itself
 (its **members**): member `j` has every extent of the subtree shifted by

@@ -34,7 +34,7 @@ pip install "refkv-phkv[zarr]"   # and refkv.zarr, for zarr-python and xarray
 ```
 
 - `refkv_phkv.save(store, path)` writes a `refkv.ReferenceStore`, checking its sources
-  against the reader policy first, as `ReferenceStore.save` does. The ZIP binding's hidden
+  against the reader policy first, as `ReferenceStore.save_vzip` does. The ZIP binding's hidden
   values (`__vz__/`) are not written, unless a `key` source refers to one.
 - `refkv_phkv.PhkvWriter` writes a store key by key: bytes values (none, DEFLATE or
   Zstandard, small ones inline in their record), references, per-key properties and

@@ -6,7 +6,7 @@ source table (spec/refkv.md, Part 1
 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#part-1-reference-values>). A
 `ReferenceStore` holds that mapping in memory, and reads like any reference store
 (`refkv.reader.ReferenceReader`); `refkv.zarr.store(store)` opens it for zarr and
-xarray, as `refkv.zarr.open` does a saved archive. `save` writes it as a vzip
+xarray, as `refkv.zarr.open` does a saved archive. `save_vzip` writes it as a vzip
 archive, one ZIP file (Part 2
 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#part-2-the-zip-binding>), which
 `refkv.open` reads back as a store with the same values.
@@ -19,7 +19,7 @@ archive, one ZIP file (Part 2
     store = zarrify("https://example.org/image.ome.tiff")
     store.info["format"]                # "tiff", and what the profile found
     store.get("zarr.json")              # readable now, in memory
-    store.save("image.vzip")            # the archive: one serialization of the store
+    store.save_vzip("image.vzip")       # the archive: one serialization of the store
 
 The workflow for virtual datasets, such as many netCDF files zarrified with
 VirtualiZarr and concatenated with xarray:
@@ -29,7 +29,7 @@ VirtualiZarr and concatenated with xarray:
 
     store = refkv.ReferenceStore.from_virtualizarr(vds)  # vds: a virtual dataset
     ds = xr.open_zarr(refkv.zarr.store(store))  # readable now: chunks come from the files
-    summary = store.save("data.vzip")   # one file: the metadata and the references
+    summary = store.save_vzip("data.vzip")  # one file: the metadata and the references
     ds = xr.open_zarr(refkv.zarr.open("data.vzip"))
 """
 
@@ -43,12 +43,15 @@ import gc
 import os
 import re
 import types
+import warnings
 from collections import Counter
 from collections.abc import AsyncIterator, Callable, Generator, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict, Unpack, override
 
+from refkv.bounds import Bound, derive
+from refkv.bounds import check as check_bounds
 from refkv.errors import ResolutionError
 from refkv.pb import Concat, Range, Reference, Source, parts
 from refkv.policy import Policy
@@ -77,7 +80,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class Summary:
-    """What `ReferenceStore.save` wrote.
+    """What `ReferenceStore.save_vzip` wrote.
 
     - `path`: the archive.
     - `keys`: the keys of the store (bytes and references; hidden keys not counted).
@@ -137,7 +140,7 @@ def sources_to_save(
     under the prefix `relative_to` made relative to `path`, each checked against the reader
     policy `policy` (default `Policy()`, the default reader's), as a reader of the saved store
     would resolve it. A source the policy refuses raises ResolutionError (a ValueError), and the
-    caller writes nothing. Every binding's writer applies this check: `ReferenceStore.save`
+    caller writes nothing. Every binding's writer applies this check: `ReferenceStore.save_vzip`
     for a vzip archive, and `refkv_phkv.save` for a phkv store."""
     path = os.fspath(path)
     base = file_uri(path)
@@ -206,7 +209,7 @@ class ReferenceStore(ReferenceReader):
     It reads right away: `store.get(key)`, or, for zarr and xarray,
     `xr.open_zarr(refkv.zarr.store(store))`. References are resolved with the same
     reader as a saved archive (`refkv.open`), under the same `Policy`, and with
-    the same options. `save` writes it as a vzip archive.
+    the same options. `save_vzip` writes it as a vzip archive.
 
     Build one with a constructor:
 
@@ -228,17 +231,21 @@ class ReferenceStore(ReferenceReader):
       the current directory, makes the store a local one for the reader policy:
       it may read `file:` sources, like an archive opened from a local path.
     - `read_at_open`: the keys a reader fetches when it opens the store, which
-      `save` places where an archive's opening request reads them. The default
+      `save_vzip` places where an archive's opening request reads them. The default
       is every `zarr.json` document.
-    - `compressed`: the keys of bytes values that `save` writes DEFLATE-compressed
+    - `compressed`: the keys of bytes values that `save_vzip` writes DEFLATE-compressed
       (spec §10.1 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#101-structure>):
       a smaller archive, but a reader then fetches such a value whole to read any
       range of it. The default is none. Each must be a key of a bytes value.
-    - `page_size`: the page index `save` writes when it is not given one (see
-      `save`; the default, None, writes none).
+    - `page_size`: the page index `save_vzip` writes when it is not given one (see
+      `save_vzip`; the default, None, writes none).
     - `info`: what the store's builder says about it, as JSON-like values, read
-      back as `store.info`; `save` does not write it. `refkv.zarrify` records
+      back as `store.info`; `save_vzip` does not write it. `refkv.zarrify` records
       the format and the profile's summary here.
+    - `bounds`: the keys the store answers for when it is combined with other
+      stores (`refkv.bounds`, `refkv.compose`). The default, None, derives them
+      from the store's Zarr nodes (`refkv.bounds.derive`). They change nothing
+      the store reads, and `save` does not write them.
     - `registry`, `stats`, `policy`, `max_concurrency`: how references are
       resolved, as for every reference store (`refkv.reader.ReferenceReader`). The
       default policy, `Policy()`, reads `http(s)` sources on public hosts and,
@@ -247,7 +254,7 @@ class ReferenceStore(ReferenceReader):
       `ObjectStoreRegistry` given to VirtualiZarr. At most 8 requests are in
       flight by default (`max_concurrency=None` for no cap).
 
-    `save` writes the values in the order of `mapping`, but for those of
+    `save_vzip` writes the values in the order of `mapping`, but for those of
     `read_at_open`, which it writes last, in that order too: with `read_at_open`,
     `compressed` and `page_size`, a builder decides the whole archive, byte for byte.
     """
@@ -262,6 +269,7 @@ class ReferenceStore(ReferenceReader):
         compressed: Iterable[str] = (),
         page_size: int | None = None,
         info: Mapping[str, object] | None = None,
+        bounds: Iterable[Bound] | None = None,
         registry: Registry | None = None,
         stats: Stats | None = None,
         policy: Policy | None = None,
@@ -277,7 +285,7 @@ class ReferenceStore(ReferenceReader):
             if not key:
                 raise ValueError(f"keys are non-empty strings, not {key!r}")
             if key in (SOURCES_KEY, INDEX_KEY):
-                raise ValueError(f"{key!r} is a format entry, written by `save` itself")
+                raise ValueError(f"{key!r} is a format entry, written by `save_vzip` itself")
             if isinstance(v, (bytes, bytearray, memoryview)):
                 values[key] = bytes(v)
             elif isinstance(v, (Range, Concat)):
@@ -308,6 +316,8 @@ class ReferenceStore(ReferenceReader):
                     f"compressed names {key!r}, which is not a key of a bytes value")
         self._page_size = _page_size(page_size)
         self._info = copy.deepcopy(dict(info or {}))
+        self._bounds = None if bounds is None else check_bounds(bounds)
+        self._derived: tuple[Bound, ...] | None = None
 
     # ------------------------------------------------------------ constructors
 
@@ -342,7 +352,7 @@ class ReferenceStore(ReferenceReader):
           policy allows, and any reader can read, a browser included.
         - `registry`: the stores to read sources with, such as the
           `ObjectStoreRegistry` given to `open_virtual_dataset`, for private
-          data. The store then reads `s3://` sources too; `save` checks them
+          data. The store then reads `s3://` sources too; `save_vzip` checks them
           against the archive's readers' policy, so pass it
           `policy=Policy(schemes={"s3"})`, and give its readers the registry.
         - `read_at_open`: as for the constructor; by default, the metadata
@@ -364,7 +374,7 @@ class ReferenceStore(ReferenceReader):
         mapping.update((k, Range(source=index[u], offset=o, length=n))
                        for k, (u, o, n) in refs.items())
         kwargs.setdefault("read_at_open", [k for k in concrete if read_at_open(k, vds)])
-        # `save` writes in the mapping's order: the bytes values, then the references, each sorted
+        # `save_vzip` writes in the mapping's order: the bytes values, then the references, each sorted
         mapping = {k: mapping[k] for k in sorted(mapping, key=lambda k: (not isinstance(mapping[k], bytes), k))}
         return cls(mapping, [Source(url=u) for u in urls], **kwargs)
 
@@ -377,19 +387,19 @@ class ReferenceStore(ReferenceReader):
 
     @property
     def read_at_open(self) -> frozenset[str]:
-        """The keys a reader fetches when it opens the store, which `save` writes last
+        """The keys a reader fetches when it opens the store, which `save_vzip` writes last
         (the constructor's `read_at_open`)."""
         return self._read_at_open
 
     @property
     def compressed(self) -> frozenset[str]:
-        """The keys of bytes values that `save` writes DEFLATE-compressed (the
+        """The keys of bytes values that `save_vzip` writes DEFLATE-compressed (the
         constructor's `compressed`)."""
         return self._compressed
 
     @property
     def page_size(self) -> int | None:
-        """The page size of the page index `save` writes when it is not given one, or
+        """The page size of the page index `save_vzip` writes when it is not given one, or
         None for no page index (the constructor's `page_size`)."""
         return self._page_size
 
@@ -401,6 +411,29 @@ class ReferenceStore(ReferenceReader):
         input (such as "tiff" or "zarr2"), and the profile's summary of what it
         found, as `python -m refkv.zarrify` prints it. Empty otherwise."""
         return copy.deepcopy(self._info)
+
+    @property
+    def bounds(self) -> tuple[Bound, ...]:
+        """The keys the store answers for when combined with other stores: the
+        constructor's `bounds`, or those `refkv.bounds.derive` gives for its keys."""
+        if self._bounds is not None:
+            return self._bounds
+        if self._derived is None:
+            self._derived = derive(self._values)
+        return self._derived
+
+    @property
+    def bounds_stated(self) -> bool:
+        """Whether the constructor was given `bounds` (else they are derived)."""
+        return self._bounds is not None
+
+    def with_bounds(self, bounds: Iterable[Bound] | None) -> ReferenceStore:
+        """This store with other `bounds` (None: derived), its values, sources and
+        options unchanged."""
+        return ReferenceStore(self._values, self._sources, url=self.url, read_at_open=self._read_at_open,
+                              compressed=self._compressed, page_size=self._page_size, info=self._info,
+                              bounds=bounds, registry=self.resolver, stats=self.stats,
+                              policy=self.policy, max_concurrency=self.max_concurrency)
 
     def __eq__(self, other: object) -> bool:
         return self is other
@@ -415,6 +448,23 @@ class ReferenceStore(ReferenceReader):
     # ------------------------------------------------------------ persistence
 
     def save(
+        self,
+        path: str | os.PathLike[str],
+        *,
+        page_size: int | types.EllipsisType | None = ...,
+        mirror_refs: bool = True,
+        relative_to: str | None = None,
+        policy: Policy | None = None,
+    ) -> Summary:
+        """Deprecated: the name preferred one binding over the others. Call `save_vzip`,
+        which this calls, with the same arguments."""
+        warnings.warn("ReferenceStore.save is deprecated: refkv has no default binding, so name "
+                      "the one to write. ReferenceStore.save_vzip writes the same vzip archive.",
+                      DeprecationWarning, stacklevel=2)
+        return self.save_vzip(path, page_size=page_size, mirror_refs=mirror_refs,
+                              relative_to=relative_to, policy=policy)
+
+    def save_vzip(
         self,
         path: str | os.PathLike[str],
         *,
@@ -516,11 +566,11 @@ class ReferenceStore(ReferenceReader):
 
     @override
     async def raw_async(self, key: str) -> bytes | None:
-        """A bytes value, a hidden key's included; a reference's payload, as `save`
+        """A bytes value, a hidden key's included; a reference's payload, as `save_vzip`
         writes it (spec §4.4
         <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#44-reference-payloads>), with
         the source indexes of this store's table. The format entries an archive
-        holds are written by `save`, and are missing here."""
+        holds are written by `save_vzip`, and are missing here."""
         v = self._values.get(key)
         if v is None or isinstance(v, bytes):
             return v

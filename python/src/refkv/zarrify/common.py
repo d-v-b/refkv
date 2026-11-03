@@ -142,7 +142,7 @@ class Output:
             w.close()
 
     def to_store(self, *, policy: Policy | None = None, info: dict[str, object] | None = None) -> ReferenceStore:
-        """The output as a `refkv.ReferenceStore`, which `save` writes as the archive
+        """The output as a `refkv.ReferenceStore`, which `save_vzip` writes as the archive
         `write` writes, byte for byte (`reference_store`)."""
         sources = [Source(url=self.url, size=self.size, etag=self.etag)]
         for value, i in sorted(self.data.items(), key=lambda item: item[1]):

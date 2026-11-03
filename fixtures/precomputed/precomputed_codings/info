@@ -1,0 +1,34 @@
+{
+ "@type": "neuroglancer_multiscale_volume",
+ "type": "image",
+ "data_type": "uint16",
+ "num_channels": 2,
+ "scales": [
+  {
+   "key": "0",
+   "size": [
+    16,
+    4,
+    2
+   ],
+   "chunk_sizes": [
+    [
+     4,
+     4,
+     2
+    ]
+   ],
+   "resolution": [
+    1.5,
+    1.5,
+    3.25
+   ],
+   "voxel_offset": [
+    0,
+    0,
+    0
+   ],
+   "encoding": "raw"
+  }
+ ]
+}

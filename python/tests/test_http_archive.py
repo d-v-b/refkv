@@ -127,7 +127,7 @@ def _serve_archive(base, state, tmp_path, *, page_size=None, sources=None) -> st
     mapping.update({f"r/{i:03}": Range(source=0, offset=37 * i, length=50) for i in range(40)})
     mapping["c"] = Concat((Range(data=b"<"), Range(source=0, offset=4000, length=96)))
     path = tmp_path / "a.vzip"
-    refkv.ReferenceStore(mapping, sources).save(path, page_size=page_size, policy=SERVED)
+    refkv.ReferenceStore(mapping, sources).save_vzip(path, page_size=page_size, policy=SERVED)
     state["files"]["/a.vzip"] = path.read_bytes()
     return str(path)
 

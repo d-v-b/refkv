@@ -265,6 +265,10 @@ pub struct Ir {
     pub shared: Vec<Vec<u8>>,
     pub shared_index: HashMap<Vec<u8>, u32>,
     pub finished: bool,
+    /// Read from a stored table (`mirror::load`), which may have left out what canonical form
+    /// leaves out (conventions §8.8
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#88-canonical-form>, steps 3 and 7).
+    pub loaded: bool,
     /// A store IR (conventions §8.9
     /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>): many sources, its
     /// objects; `size` is the sum of their sizes. Otherwise a file IR: one source, source 0.

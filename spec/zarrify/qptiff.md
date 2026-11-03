@@ -13,6 +13,8 @@ How refkv produces this layout as a reference store is the QPTIFF profile,
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `329ea136-2f55-4c27-b6f4-8e60ca2109b8` ·
 Schema: [schema.json](qptiff/schema.json)
 
+Changed 2026-11-03, with no change to any output: the example's channels have the windows sampled from its LZW level.
+
 Changed 2026-10-27: an image of an integer type with Predictor 2 has a layout, as in the TIFF
 convention, which [§4.1](#41-data-types-and-codecs) cites (`imagecodecs_delta` before `bytes`);
 other predictors are still rejected; no output of a file accepted before changed.
@@ -354,9 +356,9 @@ OME metadata:
     ]
   }],
   "omero": {"channels": [
-    {"label": "DAPI", "color": "0000FF", "active": true, "window": {"min": 0, "max": 255, "start": 0, "end": 255}},
-    {"label": "Cy3 & TRITC", "color": "FF3C9D", "active": true, "window": {"min": 0, "max": 255, "start": 0, "end": 255}},
-    {"label": "Opal 520", "color": "00FF00", "active": true, "window": {"min": 0, "max": 255, "start": 0, "end": 255}}
+    {"label": "DAPI", "color": "0000FF", "active": true, "window": {"min": 0, "max": 255, "start": 13, "end": 251}},
+    {"label": "Cy3 & TRITC", "color": "FF3C9D", "active": true, "window": {"min": 0, "max": 255, "start": 16, "end": 252}},
+    {"label": "Opal 520", "color": "00FF00", "active": true, "window": {"min": 0, "max": 255, "start": 15, "end": 253}}
   ]}
 }
 ```

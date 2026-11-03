@@ -48,10 +48,11 @@ gives its own archive.
 - **omero:** a gray or R, G, B channel with the stored value range; for
   grayscale images, the Window Center and Width, converted to stored values.
   `MONOCHROME1` is marked `inverted`.
-- **Metadata:** every element of the file, private ones included, in the
-  DICOM JSON Model under the root's `refkv_zarrified.dicom`; the members
-  that would make the root large, and values kept as arrays, are on
-  `refkv_source`.
+- **Metadata:** the file's elements, private ones included, in the DICOM
+  JSON Model under the root's `refkv_zarrified.dicom`, but for
+  [those the convention omits](../../../spec/zarrify/dicom.md#52-the-datasets-as-json)
+  (group lengths and trailing padding, for example); the whole file, and
+  the members that would make the root large, are on `refkv_source`, its IR mirror.
 
 ## Try it
 
@@ -70,7 +71,7 @@ uv run refkv zarrify https://raw.githubusercontent.com/pydicom/pydicom/v3.0.1/sr
 ```
 
 ```
-{"format": "dicom", "axes": ["y", "x"], "shape": [128, 128], "dataType": "int16", "transferSyntax": "1.2.840.10008.1.2.1", "photometric": "MONOCHROME2", "frames": 1, "wholeSlide": false, "references": 1}
+{"format": "dicom", "axes": ["y", "x"], "shape": [128, 128], "dataType": "int16", "transferSyntax": "1.2.840.10008.1.2.1", "photometric": "MONOCHROME2", "frames": 1, "wholeSlide": false, "references": 1, ...}
 ```
 
 ```python
@@ -101,7 +102,7 @@ uv run refkv zarrify https://storage.googleapis.com/idc-open-data/76f1a2b6-bb09-
 ```
 
 ```
-{"format": "dicom", "axes": ["c", "y", "x"], "shape": [3, 10592, 22410], "dataType": "uint8", "transferSyntax": "1.2.840.10008.1.2.4.50", "photometric": "RGB", "frames": 4230, "wholeSlide": true, "references": 4230}
+{"format": "dicom", "axes": ["c", "y", "x"], "shape": [3, 10592, 22410], "dataType": "uint8", "transferSyntax": "1.2.840.10008.1.2.4.50", "photometric": "RGB", "frames": 4230, "wholeSlide": true, "references": 4230, ...}
 ```
 
 This took 5.4 minutes (see Performance) and wrote a 704 KB archive, at
@@ -123,8 +124,8 @@ print(tile.mean(axis=(1, 2)).round(1))
 
 ```
 [('c', None), ('y', 'millimeter'), ('x', 'millimeter')]
-[{'type': 'scale', 'scale': [1, 0.00101, 0.00101]}]
-(3, 10592, 22410) uint8 (3, 240, 240) (TransposeCodec(order=(1, 2, 0)), JpegCodec())
+[{'type': 'scale', 'scale': [1.0, 0.00101, 0.00101]}]
+(3, 10592, 22410) uint8 (3, 240, 240) (TransposeCodec(order=(1, 2, 0)), Jpeg(level=None, ...))
 [77.5 58.5 98.1]
 ```
 
@@ -187,7 +188,7 @@ The browser code ([js/](../../../js/README.md)) reads DICOM (Part 10 files):
 - Native pixel data in implicit or explicit VR, little or big endian, and
   JPEG Baseline, JPEG Lossless or JPEG 2000 frames, including frames split over several
   fragments, with or without a Basic or Extended Offset Table.
-- Multi-frame images along `z`; whole-slide images (TILED_FULL) as one
+- Multi-frame images along `z`, or `t` for a cine (Frame Time or Frame Time Vector); whole-slide images (TILED_FULL) as one
   pyramid level per file, with frames as tiles.
 - Pixel spacing as scale; window center and width in `omero`.
 

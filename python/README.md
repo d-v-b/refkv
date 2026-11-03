@@ -17,7 +17,7 @@ through its Rust core, without copying their pixels
 from refkv.zarrify import zarrify
 
 store = zarrify("https://example.org/slide.ndpi")  # a refkv.ReferenceStore
-store.save("slide.vzip")                               # one vzip archive
+store.save_vzip("slide.vzip")                          # one vzip archive
 ```
 
 The format comes from the file's first bytes, not its name. A source or store

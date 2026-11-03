@@ -65,7 +65,7 @@ uv run refkv zarrify https://downloads.openmicroscopy.org/images/Imaris-IMS/elia
 ```
 
 ```
-{"format": "ims", "levels": 4, "sizes": {"t": 1, "c": 2, "z": 64, "y": 1567, "x": 2048}, "dataType": "uint8", "chunkShape": [16, 256, 256], "compressed": [true, true, true, true], "chunks": 612, "channels": ["CollagenIV (TxRed)", "GFAP (FITC)"]}
+{"format": "ims", "levels": 4, "sizes": {"t": 1, "c": 2, "z": 64, "y": 1567, "x": 2048}, "dataType": "uint8", "chunkShape": [16, 256, 256], "compressed": [true, true, true, true], "channels": ["CollagenIV (TxRed)", "GFAP (FITC)"], "chunks": 612, ...}
 ```
 
 This took 6 s and wrote an 80 KB archive, at spec/zarrify.md revision 16
@@ -93,7 +93,7 @@ print(g["3"][:, 4, 100, 120:126])
 2 (2, 64, 391, 512) (1, 16, 256, 256) [{'type': 'scale', 'scale': [1, 0.19999999999999998, 0.091769820971867, 0.091623046875]}, {'type': 'translation', 'translation': [0, -0.1, -0.082, -0.082]}]
 3 (2, 32, 195, 256) (1, 16, 256, 256) [{'type': 'scale', 'scale': [1, 0.39999999999999997, 0.1840102564102564, 0.18324609375]}, {'type': 'translation', 'translation': [0, -0.1, -0.082, -0.082]}]
 [('CollagenIV (TxRed)', 'FF0000'), ('GFAP (FITC)', '00FF00')]
-(BytesCodec(endian=None), ZlibCodec(level=1))
+(BytesCodec(endian=None), Zlib(codec_name='numcodecs.zlib', codec_config={'level': 1}))
 [[ 0  0  0  0  0  0]
  [22 20 18 16 16 16]]
 ```

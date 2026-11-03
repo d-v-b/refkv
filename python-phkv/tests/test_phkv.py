@@ -49,7 +49,7 @@ def test_reads_what_it_was_saved_from(tmp_path):
     blob.write_bytes(DATA)
     store = _store(tmp_path.as_uri())
     summary = refkv_phkv.save(store, tmp_path / "s.phkv", policy=SERVED)
-    store.save(tmp_path / "s.vzip", policy=SERVED)
+    store.save_vzip(tmp_path / "s.vzip", policy=SERVED)
     phkv = refkv.open(tmp_path / "s.phkv", binding="phkv")
     assert isinstance(phkv, PhkvStore)
     assert (summary.keys, summary.references, summary.sources) == (len(store.list()), N + 1, 2)

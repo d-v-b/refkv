@@ -14,7 +14,7 @@ import { toLonLat } from "ol/proj.js";
 import GeoZarr from "ol/source/GeoZarr.js";
 import OSM from "ol/source/OSM.js";
 import proj4 from "proj4";
-import { archiveZarrUrl, fetchWorker, imageZarrUrl, registerVzipWorker } from "../../js/src/client.ts";
+import { archiveZarrUrl, fetchWorker, imageZarrUrl, isArchiveUrl, registerVzipWorker } from "../../js/src/client.ts";
 import { WORKER_HEADER } from "../../js/src/server.ts";
 import { registerJpeg2k } from "./jpeg2k.ts";
 
@@ -97,7 +97,7 @@ async function main() {
   $<HTMLAnchorElement>("back").href = `./?url=${encodeURIComponent(url)}`;
   setStatus("Starting the service worker…");
   const prefix = await registerVzipWorker(new URL("vzip-sw.js", location.href));
-  const zarrUrl = /\.vzip(?:[?#]|$)/i.test(url) ? archiveZarrUrl(prefix, url) : imageZarrUrl(prefix, url);
+  const zarrUrl = isArchiveUrl(url) ? archiveZarrUrl(prefix, url) : imageZarrUrl(prefix, url);
   setStatus("Reading the product (a few minutes for a large SAFE zip)…");
   const t0 = performance.now();
   const root = await getJson(`${zarrUrl}zarr.json`);

@@ -8,7 +8,8 @@ from refkv.zarrify import Rejected, zarrify
 from refkv.zarrify.store import WORKERS
 
 # the store kinds, in the words of `vzip convert`'s usage (rust/refkv-cli/src/main.rs)
-STORES = "an N5, Zarr v2 or OME-Zarr 0.4 store, a Sentinel-2 .SAFE directory, or a store of safetensors files"
+STORES = ("an N5, Zarr v2 or OME-Zarr 0.4 store, a Neuroglancer precomputed volume, a Sentinel-2 .SAFE directory, "
+          "or a store of safetensors files")
 USAGE = ("usage: refkv zarrify <url or path> <out.vzip> [--url <source url>] [--checksums]"
          " [--allow-private-hosts] [--connections N] [--byte-cost SECONDS_PER_MB] [--workers N]\n"
          f"(a URL ending in / or a directory is {STORES}; a directory needs --url;\n"
@@ -72,7 +73,7 @@ def main(argv: list[str]) -> int:
         print(f"error: {e}", file=sys.stderr)
         return 1
     try:  # the archive's sources are checked against the policy the input was read under
-        store.save(args[1], policy=policy)
+        store.save_vzip(args[1], policy=policy)
     except ResolutionError as e:  # a source a reader under that policy could not read
         print(f"error: {e}", file=sys.stderr)
         return 1
