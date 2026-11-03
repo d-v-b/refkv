@@ -533,7 +533,7 @@ class ReferenceStore(ReferenceReader):
         <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md>) at the local `path`, and
         return a `Summary` of it. `refkv.phkv.open(path)` reads it back with the same values. A
         lookup in a phkv store reads a few ranges of the file, however many keys it holds, where
-        a vzip archive reads a page of its directory (see `save`).
+        a vzip archive reads a page of its directory (see `save_vzip`).
 
         The bytes values of `compressed` are DEFLATE-compressed. A phkv store reserves no names,
         so the hidden values this store keeps under `__vz__/` are written as ordinary keys.
@@ -541,8 +541,8 @@ class ReferenceStore(ReferenceReader):
         - `inline_max`: a value whose stored bytes are at most this long is kept in its record,
           so that the lookup that finds the key reads it too.
         - `page_size`: about how many bytes of records each page of the page index holds.
-        - `relative_to`, `policy`: as for `save`.
-        - `mirror_refs`: `save`'s option has no meaning here, since a reference's record is its
+        - `relative_to`, `policy`: as for `save_vzip`.
+        - `mirror_refs`: `save_vzip`'s option has no meaning here, since a reference's record is its
           payload: any value other than None is a ValueError.
         """
         if mirror_refs is not None:

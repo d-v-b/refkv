@@ -301,7 +301,8 @@ def czi_bands(h: int, h2: int, r: int, w: int, q: int, uncompressed: bool) -> tu
     CZI level of r tile rows of height h (the last h2), w pixels of q bytes wide."""
 
 # a phkv store could not be read: `.args` is (class, message), the class one of "archive", "entry",
-# "body", "payload", "resolution", "request", "property" and "io" (spec §6.4)
+# "body", "payload", "resolution", "request", "property" and "io" (spec §6.4
+# <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#64-errors>)
 class PhkvReadError(Exception): ...
 
 # a phkv store (spec/bindings/phkv.md), read through `size()` and `read(offset, length)`; every

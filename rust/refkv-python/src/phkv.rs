@@ -7,10 +7,11 @@
 use pyo3::exceptions::{PyException, PyOSError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyList};
+use pyo3::{PyTraverseError, PyVisit};
 use refkv_phkv::{Class, Codec, EntryInfo, Error, Fetched, Kind, Limits, Options, Prop, ReadAt, ReadError, Request, Store, Writer};
 use refkv_vzip::pb::{Range, Source};
 use std::io;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 pyo3::create_exception!(refkv._core, PhkvReadError, PyException);
 
@@ -43,20 +44,23 @@ fn io_err(e: PyErr) -> io::Error {
     io::Error::other(e.to_string())
 }
 
-/// The bytes of a store, read by Python callbacks: `size()` and `read(offset, length)`.
-struct PyReadAt {
+/// The Python callbacks that read a store: `size()` and `read(offset, length)`.
+struct Callbacks {
     size: Py<PyAny>,
     read: Py<PyAny>,
 }
 
+/// The bytes of a store, read by its callbacks.
+struct PyReadAt(Arc<Callbacks>);
+
 impl ReadAt for PyReadAt {
     fn size(&self) -> io::Result<u64> {
-        Python::attach(|py| self.size.call0(py)?.extract::<u64>(py)).map_err(io_err)
+        Python::attach(|py| self.0.size.call0(py)?.extract::<u64>(py)).map_err(io_err)
     }
 
     fn read_at(&self, offset: u64, buf: &mut [u8]) -> io::Result<()> {
         Python::attach(|py| {
-            let got = self.read.call1(py, (offset, buf.len()))?;
+            let got = self.0.read.call1(py, (offset, buf.len()))?;
             let got = got.extract::<&[u8]>(py)?;
             if got.len() != buf.len() {
                 return Err(PyValueError::new_err(format!("read {} bytes of {}", got.len(), buf.len())));
@@ -71,6 +75,7 @@ impl ReadAt for PyReadAt {
 #[pyclass(name = "PhkvStore", module = "refkv._core", frozen)]
 pub struct PyPhkvStore {
     store: Store<PyReadAt>,
+    callbacks: Arc<Callbacks>,
 }
 
 #[pymethods]
@@ -86,9 +91,17 @@ impl PyPhkvStore {
         let mut limits = Limits::default();
         limits.sources = sources.unwrap_or(limits.sources);
         limits.open_bytes = open_bytes.unwrap_or(limits.open_bytes);
-        let at = PyReadAt { size, read };
+        let callbacks = Arc::new(Callbacks { size, read });
+        let at = PyReadAt(callbacks.clone());
         let store = py.detach(|| Store::open_with(at, limits)).map_err(read_err)?;
-        Ok(PyPhkvStore { store })
+        Ok(PyPhkvStore { store, callbacks })
+    }
+
+    /// The callbacks are usually methods of the object that holds this store: a cycle, which the
+    /// garbage collector can only find if it sees them.
+    fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        visit.call(&self.callbacks.size)?;
+        visit.call(&self.callbacks.read)
     }
 
     /// The most bytes of the end of the file a reader reads first (`size()` may serve them).
@@ -216,9 +229,13 @@ pub struct PyPhkvWriter {
 }
 
 impl PyPhkvWriter {
-    fn with<T>(&self, f: impl FnOnce(&mut Writer<PyWrite>) -> Result<T, Error>) -> PyResult<T> {
-        let mut w = self.writer.lock().unwrap();
-        f(w.as_mut().ok_or_else(|| PyValueError::new_err("the writer is closed"))?).map_err(write_err)
+    /// `f` on the writer, with the interpreter released: whoever holds the lock may need the
+    /// interpreter to write to the file object, so nobody may wait for the lock while holding it.
+    fn with<T: Send>(&self, py: Python<'_>, f: impl FnOnce(&mut Writer<PyWrite>) -> Result<T, Error> + Send) -> PyResult<T> {
+        py.detach(|| {
+            let mut w = self.writer.lock().unwrap();
+            f(w.as_mut().ok_or_else(|| PyValueError::new_err("the writer is closed"))?).map_err(write_err)
+        })
     }
 }
 
@@ -234,61 +251,64 @@ impl PyPhkvWriter {
     }
 
     /// Interns a source, given as its protobuf message, and gives its index.
-    fn source(&self, message: &[u8]) -> PyResult<u32> {
+    fn source(&self, py: Python<'_>, message: &[u8]) -> PyResult<u32> {
         let src = Source::decode(message).map_err(|e| PyValueError::new_err(e.to_string()))?;
-        self.with(|w| w.source(src))
+        self.with(py, |w| w.source(src))
     }
 
     #[pyo3(signature = (key, data, codec_=None))]
     fn add_bytes(&self, py: Python<'_>, key: &str, data: &[u8], codec_: Option<u8>) -> PyResult<()> {
         let codec_ = codec_.map(codec).transpose()?;
-        py.detach(|| self.with(|w| match codec_ {
+        self.with(py, |w| match codec_ {
             Some(c) => w.add_bytes_with(key, data, c),
             None => w.add_bytes(key, data),
-        }))
+        })
     }
 
     /// Adds the bytes of the file at `path`, streaming it.
     fn add_file(&self, py: Python<'_>, key: &str, path: std::path::PathBuf) -> PyResult<()> {
-        py.detach(|| self.with(|w| w.add_file(key, &path)))
+        self.with(py, |w| w.add_file(key, &path))
     }
 
     /// Adds a reference to the concatenation of ranges, each `(source, offset, length, crc32c)`
     /// or literal bytes.
-    fn add_ranges(&self, key: &str, ranges: Vec<Bound<'_, PyAny>>) -> PyResult<()> {
+    fn add_ranges(&self, py: Python<'_>, key: &str, ranges: Vec<Bound<'_, PyAny>>) -> PyResult<()> {
         let ranges = ranges
             .into_iter()
-            .map(|r| match r.extract::<Vec<u8>>() {
-                Ok(data) if r.is_instance_of::<PyBytes>() => Ok(Range::literal(data)),
-                _ => {
-                    let (source, offset, length, crc32c): (u32, u64, u64, Option<u32>) = r.extract()?;
-                    Ok(Range { source, offset, length, data: None, crc32c })
+            .map(|r| {
+                if r.is_instance_of::<PyBytes>() {
+                    return Ok(Range::literal(r.extract()?));
                 }
+                let (source, offset, length, crc32c): (u32, u64, u64, Option<u32>) = r.extract()?;
+                Ok(Range { source, offset, length, data: None, crc32c })
             })
             .collect::<PyResult<Vec<Range>>>()?;
-        self.with(|w| w.add_ranges(key, &ranges))
+        self.with(py, |w| w.add_ranges(key, &ranges))
     }
 
     /// Sets a property of a key: `kind` is `"u64"`, `"i64"`, `"bytes"` or `"str"`.
-    fn set_property(&self, key: &str, name: &str, kind: &str, value: &Bound<'_, PyAny>) -> PyResult<()> {
+    fn set_property(&self, py: Python<'_>, key: &str, name: &str, kind: &str, value: &Bound<'_, PyAny>) -> PyResult<()> {
+        let out_of_range = |e: PyErr| PyValueError::new_err(format!("property {name:?}: {e}"));
         let value = match kind {
-            "u64" => Prop::U64(value.extract()?),
-            "i64" => Prop::I64(value.extract()?),
+            "u64" => Prop::U64(value.extract().map_err(out_of_range)?),
+            "i64" => Prop::I64(value.extract().map_err(out_of_range)?),
             "bytes" => Prop::Bytes(value.extract()?),
             "str" => Prop::Str(value.extract()?),
             _ => return Err(PyValueError::new_err(format!("no property type {kind:?}"))),
         };
-        self.with(|w| w.set_property(key, name, value))
+        self.with(py, |w| w.set_property(key, name, value))
     }
 
-    fn set_metadata(&self, name: &str, value: &[u8]) -> PyResult<()> {
-        self.with(|w| w.set_metadata(name, value))
+    fn set_metadata(&self, py: Python<'_>, name: &str, value: &[u8]) -> PyResult<()> {
+        self.with(py, |w| w.set_metadata(name, value))
     }
 
     /// Writes the records and the other sections; the writer is then closed.
     fn close(&self, py: Python<'_>) -> PyResult<()> {
-        let w = self.writer.lock().unwrap().take().ok_or_else(|| PyValueError::new_err("the writer is closed"))?;
-        py.detach(|| w.close()).map(drop).map_err(write_err)
+        py.detach(|| {
+            let w = self.writer.lock().unwrap().take().ok_or_else(|| PyValueError::new_err("the writer is closed"))?;
+            w.close().map(drop).map_err(write_err)
+        })
     }
 }
 

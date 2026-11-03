@@ -8,8 +8,8 @@ The container (its perfect hash, slots, records and pages) is read by the Rust c
 `refkv._core.PhkvStore`, which reads the store through the two callbacks this class gives it. A
 lookup takes a few ranged reads: the end of the file when the store opens (the superblock, the
 perfect hash and the page index), then a block of slots and a record. The Rust code is blocking,
-so each call into it runs on a thread, and its reads run on the event loop, under the store's
-`max_concurrency`, `Stats` and registry. A reference is resolved here, by the code every
+so each call into it runs on a thread of the store's own, and its reads run on the event loop, under
+the store's `max_concurrency`, `Stats` and registry. A reference is resolved here, by the code every
 reference store shares (`ReferenceReader`).
 """
 
@@ -18,6 +18,8 @@ from __future__ import annotations
 import asyncio
 import contextvars
 from collections.abc import AsyncIterator, Callable, Coroutine
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from typing import TYPE_CHECKING, ClassVar, TypedDict, cast, override
 
 from refkv import _core
@@ -35,6 +37,7 @@ from refkv.pb import Concat, Range, Reference, Source
 from refkv.policy import Policy
 from refkv.reader import (
     DEFAULT_CONCURRENCY,
+    UNCAPPED_THREADS,
     Kind,
     OffsetRequest,
     RangeRequest,
@@ -45,6 +48,8 @@ from refkv.reader import (
     SuffixRequest,
     _abs_range,
 )
+
+_U64_MAX = (1 << 64) - 1
 
 MAX_PAYLOAD = 1 << 24
 """The longest reference payload a phkv store may hold (spec/bindings/phkv.md §19.3
@@ -57,10 +62,11 @@ _ERRORS: dict[str, type[RefkvError]] = {
     "payload": PayloadError,
     "resolution": ResolutionError,
     "request": RequestError,
+    "io": BodyError,  # a read that failed after the store opened, as in the ZIP binding
 }
 
 # The loop whose coroutines the Rust core's reads run on: the one that awaited the call. The
-# value is copied into the thread the call runs on (asyncio.to_thread copies the context).
+# call runs on its thread in a context that holds it (`PhkvStore._blocking`).
 _loop: contextvars.ContextVar[asyncio.AbstractEventLoop] = contextvars.ContextVar("refkv_phkv_loop")
 
 if TYPE_CHECKING:
@@ -83,11 +89,11 @@ def _mode(request: Request | None) -> tuple[int, int, int]:
     """`request` as `_core.PhkvStore.fetch` takes it: (mode, a, b), checked by `_abs_range`."""
     match request:
         case RangeRequest(start, end):
-            return 1, start, end
+            return 1, min(start, _U64_MAX), min(end, _U64_MAX)
         case OffsetRequest(start):
-            return 2, start, 0
+            return 2, min(start, _U64_MAX), 0
         case SuffixRequest(count):
-            return 3, count, 0
+            return 3, min(count, _U64_MAX), 0
         case _:
             return 0, 0, 0
 
@@ -126,7 +132,8 @@ class PhkvStore(ReferenceReader):
       (`ReferenceReader`).
     - `revision`: the spec revision the writer followed, if it said (spec §1.3
       <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#13-versioning>).
-    - `metadata`: the entries of the store's METADATA section, by name.
+    - `metadata`: the entries of the store's METADATA section, by name. Reading this or `revision`
+      opens the store if nothing has yet.
     - `property(key, name)`: a key's property (spec §20
       <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#20-properties>), such as
       `"mtime"`, `"mode"` or `"media_type"`; None if the key has none.
@@ -143,8 +150,9 @@ class PhkvStore(ReferenceReader):
     ) -> None:
         super().__init__(url, registry=registry, stats=stats, policy=policy, max_concurrency=max_concurrency)
         self._core: _core.PhkvStore | None = None
-        self.revision: int | None = None
-        self.metadata: dict[str, bytes] = {}
+        self._core_threads: ThreadPoolExecutor | None = None
+        self._revision: int | None = None
+        self._metadata: dict[str, bytes] = {}
         self._size = 0
         self._tail, self._tail_start = b"", 0  # the end of the file, read once
 
@@ -189,16 +197,28 @@ class PhkvStore(ReferenceReader):
             raise ValueError(f"{self.url} is shorter than {offset + length} bytes")
         return data
 
+    def _core_executor(self) -> ThreadPoolExecutor:
+        """The store's own threads for calls into the Rust core, as many as its cap. A call holds
+        its thread until its reads finish, and a read may take a thread of the loop's default
+        executor (`LocalFiles`) or of `_executor` (`HttpObjects`), so a call on either could wait
+        for a thread that only its own kind holds."""
+        with self._threads_lock:
+            if self._core_threads is None:
+                self._core_threads = ThreadPoolExecutor(
+                    max_workers=self.max_concurrency or UNCAPPED_THREADS,
+                    thread_name_prefix="refkv-phkv")
+            return self._core_threads
+
     async def _blocking[T](self, f: Callable[..., T], *args: object) -> T:
         """`f(*args)`, which the Rust core runs, on a thread; its reads run here. A failure of the
         core is an error of spec §6.4 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#64-errors>."""
-        token = _loop.set(asyncio.get_running_loop())
+        loop = asyncio.get_running_loop()
+        context = contextvars.copy_context()
+        context.run(_loop.set, loop)
         try:
-            return await asyncio.to_thread(f, *args)
+            return await loop.run_in_executor(self._core_executor(), partial(context.run, f, *args))
         except _core.PhkvReadError as e:
             raise _error(e) from None
-        finally:
-            _loop.reset(token)
 
     # ------------------------------------------------------------ opening
 
@@ -217,13 +237,25 @@ class PhkvStore(ReferenceReader):
     def _open_core(self) -> None:
         core = _core.PhkvStore(self._size_of, self._read_at, self.policy.max_sources, self.policy.max_format_entry)
         self._sources = [Source.decode(s) for s in core.sources()]
-        self.revision = core.revision
-        self.metadata = dict(core.metadata())
+        self._revision = core.revision
+        self._metadata = dict(core.metadata())
         self._core = core
 
     @property
     def _store(self) -> _core.PhkvStore:
         return cast("_core.PhkvStore", self._core)  # set by _open, which every operation awaits first
+
+    @property
+    def revision(self) -> int | None:
+        """The spec revision the writer followed, if it said."""
+        run(self._ensure_open())
+        return self._revision
+
+    @property
+    def metadata(self) -> dict[str, bytes]:
+        """The entries of the store's METADATA section, by name."""
+        run(self._ensure_open())
+        return self._metadata
 
     # ------------------------------------------------------------ the operations
 
