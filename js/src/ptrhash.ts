@@ -110,7 +110,7 @@ function slotInPart(params: Params, hh: number, hl: number, pilot: number): numb
   return mulhi(OH, OL, params.slots);
 }
 
-/** The slot of the key whose hash is `h`, among `params.parts * params.slots` (spec §18.3). */
+/** The slot of the key whose hash is `h`, among `params.parts * params.slots` (spec §18.3 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#183-query>). */
 export function slot(params: Params, pilots: Uint8Array, h: bigint): number {
   const hh = hi(h);
   const hl = lo(h);
