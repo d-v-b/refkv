@@ -1258,3 +1258,17 @@ reader to run inside a web browser. Its demo reads the IDR OME-TIFF from
 A future revision could define a "browser profile" that permits these
 relaxations explicitly. It could also say what a writer can do to keep pins
 checkable in browsers, such as recommending servers that expose the headers.
+
+## Revision 11.4: a range of an object stored with a content coding
+
+Format version 0, specification revision 11.4. **Status: provisional.** No store's values change.
+An object store serves an object uploaded with a `Content-Encoding` with that header on every
+response, and a range of the stored bytes, and the rule of
+[§5.2](../../refkv.md#52-reading-over-http) made every such object unreadable, whatever the store's
+pins said. The chunks of Harris15, a Neuroglancer precomputed volume, are stored that way, with
+`Content-Encoding: br`
+([the precomputed convention §6.3](../../zarrify/precomputed.md#63-content-codings)). A reader MAY
+now accept a 206 whose `Content-Range` total equals the source's `size` pin. A compressing proxy,
+which the rule is there to catch, changes the total or sends no range, and a source without a `size`
+pin is refused as before. A reader that refuses every such response still conforms, so the
+conformance suite and its three implementations are unchanged.

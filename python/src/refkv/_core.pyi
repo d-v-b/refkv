@@ -277,8 +277,8 @@ def project(format: str, ir: Ir, facts: str, url: str) -> Out[FilePart]:  # noqa
     Python objects (`out_py`), or Rejected. Raises ValueError for an unknown format, or facts
     that are not JSON."""
 def mirror(ir: Ir, profile: str) -> tuple[Out[FilePart], str]:
-    """The mirror of an IR (for the profile "nd2", "tiff", "czi", "dicom", "nifti", "ims", "ndpi",
-    "mrc" or "mp3"): its entries and references under `refkv_source` (`out_py`'s form, the url empty), and what the
+    """The mirror of an IR under `profile`'s convention (a name of spec/zarrify/profiles/): its
+    entries and references under `refkv_source` (`out_py`'s form, the url empty), and what the
     table folded (JSON)."""
 def canonical_problem(get: Get, read: Read) -> str | None:
     """What makes a stored mirror non-canonical (conventions §8.8

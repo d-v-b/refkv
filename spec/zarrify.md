@@ -2,6 +2,9 @@
 
 Profiles version: 0 (**draft**)
 
+Changed 2026-11-03: a store whose root has `info` is a Neuroglancer precomputed volume
+([§1.4](#14-store-inputs)), the first store profile whose chunk entries are not at their objects' keys.
+
 Changed 2026-11-01, with no change to any output: the text states what refkv already did: the
 references' budget ([§1.2](#12-input)), the rules of a file read as a store, which the VSI, NRRD
 and GRIB profiles cite ([§1.8](#18-files-read-as-stores)), and the profiles that define data
@@ -82,6 +85,7 @@ The table, generated from the registry, lists them:
 | [NumPy](zarrify/npy.md#part-2-the-profile) | file | NumPy `.npy` files, and `.npz` archives of them (`np.savez`, `np.savez_compressed`), whose stored and deflated members it presents |
 | [NRRD](zarrify/nrrd.md#part-2-the-profile) | file | NRRD files (`.nrrd`) and detached headers with one data file (`.nhdr`), raw or gzip-encoded |
 | [OME-Zarr](zarrify/ome-zarr.md#part-2-the-profile) | store | OME-Zarr 0.4 hierarchies on Zarr v2, migrated to OME-Zarr 0.5 |
+| [Neuroglancer precomputed](zarrify/precomputed.md#part-2-the-profile) | store | Neuroglancer precomputed volumes, unsharded or with identity-hashed shards |
 | [QPTIFF](zarrify/qptiff.md#part-2-the-profile) | file | Akoya (PerkinElmer) Vectra QPTIFF slides and inForm component data, a TIFF with an XML description per image, in LZW, JPEG or uncompressed tiles or strips |
 | [Sentinel-2 SAFE](zarrify/safe.md#part-2-the-profile) | file or store | Sentinel-2 Level-1C and Level-2A products: a `.SAFE` directory (a store) or a `.SAFE.zip` file |
 | [safetensors](zarrify/safetensors.md#part-2-the-profile) | file or store | safetensors files of a model's tensors (`model.safetensors`), in every data type the library defines, `BF16`, `F8_*`, `F4` and `F6_*` included; and stores of them, such as a model's repository of shards with its index |
@@ -153,8 +157,8 @@ sources with identical bytes), the same set of keys, and for every key:
 
 **IR mirrors.** For a file input, `refkv_source` is the
 source's IR mirror ([conventions §8](conventions.md#8-the-ir-mirror)); for
-a store input (a SAFE directory included), the store's ([conventions §8.9](conventions.md#89-stores),
-whose limits replace those below).
+a store input (a SAFE directory included) or a file read as a store ([§1.8](#18-files-read-as-stores)),
+a store IR's ([conventions §8.9](conventions.md#89-stores), whose limits replace those below).
 Its table and view are canonical: a function of the source's IR, folded and
 encoded one way only ([conventions §8.8](conventions.md#88-canonical-form)).
 Mirrors are therefore compared entry for entry, as above, like the rest of the
@@ -318,8 +322,8 @@ whose output would have more than `2^22 + 4 × Z` references, `Z` the source's s
 store IR, its objects' total size), with the message `budget: more than N refs`, or more than
 2^20 repeats, with the message `budget: more than 1048576 repeats` (`N` in decimal). The
 budget applies to the CZI, DICOM, FITS, FLAC, HDF5, IMS, LIF, MP3, MP4, MRC, NDPI, NIfTI,
-NumPy, NRRD, QPTIFF, TIFF and VSI profiles; the GRIB, ND2 and SAFE profiles and the store
-profiles bound their outputs by their own rules.
+NumPy, NRRD, QPTIFF, safetensors (both its forms), TIFF and VSI profiles; the GRIB, ND2 and
+SAFE profiles and the store profiles bound their outputs by their own rules.
 
 ### 1.3 Arithmetic
 
@@ -373,6 +377,7 @@ decide, by the first row that matches:
 | `.zarray` or `.zgroup` | OME-Zarr profile ([ome-zarr.md §11](zarrify/ome-zarr.md#11-ome-zarr-profile)) if the store declares OME-NGFF 0.4 (below), else Zarr v2 profile ([zarr2.md §7](zarrify/zarr2.md#7-zarr-v2-profile)) |
 | `attributes.json` | N5 profile ([n5.md §8](zarrify/n5.md#8-n5-profile)) |
 | `manifest.safe` | SAFE profile ([safe.md §8](zarrify/safe.md#8-safe-profile)), directory form |
+| `info` | Neuroglancer precomputed profile ([precomputed.md §11](zarrify/precomputed.md#11-neuroglancer-precomputed-profile)) |
 | none of these, and a key at any depth that ends in `.safetensors` | safetensors profile ([safetensors.md §9](zarrify/safetensors.md#9-the-store-form)), store form |
 | anything else, including an empty store | rejected |
 
@@ -897,6 +902,7 @@ else. The profiles, generated from the registry:
 - the NumPy profile: [spec/zarrify/npy.md §8](zarrify/npy.md#8-numpy-profile);
 - the NRRD profile: [spec/zarrify/nrrd.md §8](zarrify/nrrd.md#8-nrrd-profile);
 - the OME-Zarr profile: [spec/zarrify/ome-zarr.md §11](zarrify/ome-zarr.md#11-ome-zarr-profile);
+- the Neuroglancer precomputed profile: [spec/zarrify/precomputed.md §11](zarrify/precomputed.md#11-neuroglancer-precomputed-profile);
 - the QPTIFF profile: [spec/zarrify/qptiff.md §7](zarrify/qptiff.md#7-qptiff-profile);
 - the SAFE profile: [spec/zarrify/safe.md §8](zarrify/safe.md#8-safe-profile);
 - the safetensors profile: [spec/zarrify/safetensors.md §8](zarrify/safetensors.md#8-safetensors-profile);

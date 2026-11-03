@@ -138,7 +138,7 @@ class Policy:
       `s3`. It may not name `file`: see `allow_files_from_remote_archives`.
       A reader needs a store for such a URL anyway (`registry=`), and a
       URL under a registered prefix is allowed without it; so `schemes`
-      matters most to `ReferenceStore.save`, which checks the sources it
+      matters most to `ReferenceStore.save_vzip`, which checks the sources it
       writes against the policy of the archive's future readers.
     - `prefixes`: if given, a URL is allowed if and only if it matches one of
       them (rule 2), whatever its scheme. Rule 3 still applies.
@@ -180,9 +180,9 @@ class Policy:
         store = refkv.open("data.vzip", policy=policy)
 
         refs = refkv.ReferenceStore.from_virtualizarr(vds, registry=registry)
-        refs.save("data.vzip", policy=refkv.Policy(schemes={"s3"}))
+        refs.save_vzip("data.vzip", policy=refkv.Policy(schemes={"s3"}))
 
-    `ReferenceStore.save` checks the references it writes against a policy
+    `ReferenceStore.save_vzip` checks the references it writes against a policy
     too, `Policy()` by default, so an archive that the default reader cannot
     read fails when it is written, not when it is read.
     """

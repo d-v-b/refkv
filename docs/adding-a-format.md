@@ -475,7 +475,8 @@ In the core, and in place of
   `finish`), built from the IR and the listing's objects and keys;
 - `StoreFormat` and its matches in the same file: `from_name`, `name`, `profile`,
   `parser`, and the projection;
-- the projection in `src/project/<m>.rs`.
+- the projection in `src/project/<m>.rs`, and in `kept` (`src/project/store.rs`) the
+  members it records beside the mirror.
 
 Decide what each object is in the IR: **held**, with its bytes in the mirror, as for
 a document the profile reads; **described in place**, as for a file whose bytes stay
@@ -588,6 +589,7 @@ output. The readers so far:
 | NumPy | NumPy |
 | safetensors | safetensors |
 | SAFE | rasterio |
+| Neuroglancer precomputed | tensorstore |
 
 Add the reader to the root `pyproject.toml`'s `dev` group, then run `uv lock`.
 

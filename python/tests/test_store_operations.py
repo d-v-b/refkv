@@ -41,7 +41,7 @@ def _stores(tmp_path):
     out: dict[str, refkv.ReferenceStore | VZipStore] = {"memory": store}
     for page_size in [None, 64]:
         path = tmp_path / f"{page_size}.vzip"
-        store.save(path, page_size=page_size)
+        store.save_vzip(path, page_size=page_size)
         out[f"archive, page_size={page_size}"] = refkv.open(path)
     return out
 
@@ -135,7 +135,7 @@ def test_get_of_a_refused_source_raises(tmp_path):
     classify, which reads no source, still says it is a reference."""
     store = refkv.ReferenceStore({"r": Range(source=0, offset=0, length=4)},
                                 [Source(url="http://127.0.0.1:9/x.bin")])
-    store.save(tmp_path / "r.vzip", policy=refkv.Policy(allow_private_hosts=True))
+    store.save_vzip(tmp_path / "r.vzip", policy=refkv.Policy(allow_private_hosts=True))
     for s in [store, refkv.open(tmp_path / "r.vzip")]:
         with pytest.raises(ResolutionError, match=re.escape("127.0.0.1")):
             s.get("r")

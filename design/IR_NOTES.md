@@ -1634,7 +1634,9 @@ The user's answers to §41's open questions:
   than N rows", N = 2^22 + floor(size / 4), raised before expanding when the
   rows outside derived spaces, runs expanded, already exceed N. No source the
   parsers accept comes near it (fewer than one element per four bytes); the
-  tests craft an IR (Rust) and a table (Python) past it.
+  tests craft an IR (Rust) and a table (Python) past it. **Now:** a source can
+  describe more than one element per four bytes, as a TIFF of many small IFDs does
+  ([conventions §8.3](../spec/conventions.md#83-column-runs)).
 - **The view check** (`view_problem`, compare.py): the view rebuilt from the
   table and the source (LV inflated, XML references decoded), compared group
   by group and member by member.

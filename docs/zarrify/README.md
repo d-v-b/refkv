@@ -37,6 +37,7 @@ who each one is for, what you get, and how to run it.
 | NumPy | NumPy arrays: `.npy` files, and the arrays of `.npz` archives, stored or deflated | [npy](npy/README.md) | [npy.md §8](../../spec/zarrify/npy.md#8-numpy-profile) |
 | NRRD | NRRD volumes, attached or detached, raw or gzip (`.nrrd`, `.nhdr`) | [nrrd](nrrd/README.md) | [nrrd.md §8](../../spec/zarrify/nrrd.md#8-nrrd-profile) |
 | OME-Zarr | OME-Zarr 0.4 hierarchies, migrated to OME-Zarr 0.5 in place | [ome-zarr](ome-zarr/README.md) | [ome-zarr.md §11](../../spec/zarrify/ome-zarr.md#11-ome-zarr-profile) |
+| Neuroglancer precomputed | connectomics volumes in Neuroglancer's precomputed format, including shards too many to scan | [precomputed](precomputed/README.md) | [precomputed.md §11](../../spec/zarrify/precomputed.md#11-neuroglancer-precomputed-profile) |
 | QPTIFF | Akoya (PerkinElmer) Vectra multiplex scans and inForm component data | [qptiff](qptiff/README.md) | [qptiff.md §7](../../spec/zarrify/qptiff.md#7-qptiff-profile) |
 | Sentinel-2 SAFE | Sentinel-2 Level-1C and Level-2A products, as a `.SAFE` directory or a `.SAFE.zip` | [safe](safe/README.md) | [safe.md §8](../../spec/zarrify/safe.md#8-safe-profile) |
 | safetensors | machine learning model weights in safetensors files (`.safetensors`), each tensor an array, and a model's shards as one group | [safetensors](safetensors/README.md) | [safetensors.md §8](../../spec/zarrify/safetensors.md#8-safetensors-profile) |
@@ -146,7 +147,7 @@ Read the archive in Python with `refkv.zarr` and zarr-python
 (`pip install 'refkv[zarr]'`, or `refkv[images]` for the JPEG, JPEG 2000,
 JPEG XR and LZW decoders and TIFF's horizontal predictor). zarr-python finds the codecs that some formats need by
 the names the archive gives: refkv's own (`refkv.stream`, `refkv.grib`, `refkv.fits_tiles`,
-`refkv.tiff_lzw`, `refkv.skip`, and `n5_default`) through refkv's `zarr.codecs` entry points,
+`refkv.tiff_lzw`, `refkv.skip`, `refkv.precomputed`, and `n5_default`) through refkv's `zarr.codecs` entry points,
 with no `import refkv.zarr` in your code (zarr imports the codec modules, which are
 under `refkv.zarr`, itself), imagecodecs-zarr's (`imagecodecs_jpeg`,
 `imagecodecs_jpeg2k`, `imagecodecs_jpegxr`, `imagecodecs_ljpeg`, `imagecodecs_delta`), which `refkv[images]` installs, and
@@ -169,7 +170,7 @@ g = zarr.open_group(refkv.zarr.open("out.vzip"), mode="r")
 **From Python.** The command is a thin wrapper over
 `refkv.zarrify.zarrify`, which returns the result as a
 `refkv.ReferenceStore` instead of writing a file. The store reads right away,
-in memory; `store.save(path)` writes the archive, the same bytes the command
+in memory; `store.save_vzip(path)` writes the archive, the same bytes the command
 writes; and `store.info` holds the format and the summary the command prints:
 
 ```python
@@ -180,7 +181,7 @@ from refkv.zarrify import zarrify
 store = zarrify("https://openslide.cs.cmu.edu/download/openslide-testdata/Aperio/CMU-1-Small-Region.svs")
 store.info["format"]                                   # "tiff"
 g = zarr.open_group(refkv.zarr.store(store), mode="r")  # no archive yet
-store.save("CMU-1-Small-Region.vzip")
+store.save_vzip("CMU-1-Small-Region.vzip")
 ```
 
 `zarrify` takes the input's local path or URL, and the command's options as
@@ -191,10 +192,10 @@ accepts the input, `refkv.errors.ResolutionError` when the reader policy
 refuses the input or a source (such as a URL on a private host), and `OSError`
 when the input cannot be read (`FileNotFoundError` for a missing local file,
 an HTTP error status, or a host that cannot be reached). The store reads its sources under the `policy` it was
-given. `save` checks the sources against the policy the archive's readers will
+given. `save_vzip` checks the sources against the policy the archive's readers will
 use, `Policy()` unless it is given one, and raises `ResolutionError` for a
 source a reader under it could not read, so for sources on a private host pass
-that one too: `store.save(path, policy=policy)`.
+that one too: `store.save_vzip(path, policy=policy)`.
 
 **Naming the input's format.** Given a string, `zarrify` decides what the input
 is. It is a store when it is a directory or a URL ending in `/`, and otherwise a
@@ -204,7 +205,7 @@ names the profile instead
 be in that format, and a store's URL needs no trailing `/`. There is one class
 per profile in the registry. `<Name>Source` is for a file (`TiffSource`,
 `Mp4Source`, `NdpiSource`, ...). `<Name>Store` is for a store (`Zarr2Store`,
-`OmeZarrStore`, `N5Store`). SAFE has both, `SafeSource` for a `.SAFE.zip` file
+`OmeZarrStore`, `N5Store`, `PrecomputedStore`, `SafetensorsStore`). SAFE has both, `SafeSource` for a `.SAFE.zip` file
 and `SafeStore` for a `.SAFE` directory. The input's read options belong to the
 class (`url`, `checksums`, `policy`, and `connections` and `byte_cost` for a
 file, or `workers` and `max_objects` for a store), so `zarrify` raises
@@ -419,6 +420,8 @@ each format's metadata is:
   configuration as written. Its mirror is a store's: shards described in place,
   indexes and configurations held, and every other object referenced whole under
   `refkv_source/objects/`.
+- **Neuroglancer precomputed:** the `info` document, every member, and each array's scale;
+  the scales it does not present, with the reason each.
 - **N5, Zarr v2 and OME-Zarr:** each node's own attributes and the layout
   members its `zarr.json` does not reproduce, on the node, as
   `{"attributes": ..., "metadata": ...}` (with `"unversioned"` for an

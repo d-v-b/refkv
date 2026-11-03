@@ -23,7 +23,7 @@ from the proposal. [IR_NOTES.md](IR_NOTES.md) is the log of how it got there.
 ## 1. Verdict
 
 vzip worked: eleven formats zarrified into Zarr v3 (the
-[registry](../spec/zarrify/profiles/) now has 24 profiles and one dataset layout),
+[registry](../spec/zarrify/profiles/) now has 25 profiles and one dataset layout),
 two implementations agreed on 667 fixtures and the public corpora, and independent
 readers confirmed the pixels. Four rounds of per-format review made every format lossless and
 bounded on the inputs reviewers could think of.
@@ -212,8 +212,8 @@ These invariants give, for every format at once:
   to 2^22 + 4 × size, and exact repeats, up to 2^20: a repeat has the element start,
   length and piece of an earlier reference. It does not consult aliases, and a
   reference that overlaps another without equaling it is not a repeat. The
-  projections of ND2, SAFE, GRIB, N5, Zarr v2 and OME-Zarr do not use `Refs`: they
-  write their references to the output directly.
+  projections of ND2, SAFE, GRIB, N5, Zarr v2, OME-Zarr and Neuroglancer precomputed
+  do not use `Refs`: they write their references to the output directly.
 
 ### 3.4 Projections
 

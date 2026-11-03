@@ -682,9 +682,21 @@ def _http_get(url: str, range_: str, src: Source | None,
             raise ResolutionError(f"{url}: Last-Modified {last_modified!r} is not an IMF-fixdate")
         if lm > src.modified_not_after:
             raise ResolutionError(f"{url}: Last-Modified {last_modified} is after the pin")
-    if enc != "identity":
+    if enc != "identity" and not _stored_coding(msg, status, src):
         raise ResolutionError(f"{url}: response has Content-Encoding {enc!r}")
     return url, status, msg, body
+
+
+def _stored_coding(msg: Message, status: int, src: Source | None) -> bool:
+    """Whether a response with a Content-Encoding still gives the bytes of the object as stored
+    (spec §5.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#52-reading-over-http>): a
+    206 whose Content-Range gives the total the source's `size` pin names. A range applies to
+    the coded representation, and a pin that matches its total says that is what the writer
+    listed, where a proxy's compression would change the total or send no range at all."""
+    if status != 206 or src is None or src.size is None:
+        return False
+    m = re.fullmatch(r"(?i:bytes) \d+-\d+/(\d+)", (msg.get("Content-Range") or "").strip())
+    return m is not None and int(m[1]) == src.size
 
 
 def _content_range(url: str, msg: Message, status: int) -> tuple[int, int, str]:
@@ -931,7 +943,15 @@ class ReferenceReader:
         self.policy = policy or Policy()
         # spec §5 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>:
         # absolute, lexically normalized, symlinks not resolved
-        self.url = url if is_url(url) else file_uri(url)
+        if is_url(url):
+            self.url = url
+        else:
+            # a directory written as one (a trailing separator, or a last `.` or `..`) stays
+            # a directory: its relative sources resolve inside it, not beside it
+            base = file_uri(url)
+            last = url.replace(os.sep, "/").rpartition("/")[2]  # not Path(url).name, which drops a `.`
+            directory = url.endswith(("/", os.sep)) or last in (".", "..")
+            self.url = base + "/" if directory and not base.endswith("/") else base
         self.resolver = _resolver(registry)
         self.stats = stats or Stats()
         self.max_concurrency = max_concurrency
