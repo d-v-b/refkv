@@ -145,10 +145,11 @@ Rejected:
 
 The browser code ([js/](../../../js/README.md)) reads MP3 (MPEG-1, MPEG-2 and MPEG-2.5 Layer III audio):
 
-- The one format that is not an image: one array `samples` of int16,
+- The one format that is not an image: one array `samples` of `float32`,
   `[time, channel]`, in chunks of 256 frames, each referencing the frames a
-  decoder needs before it (the bit reservoir); the `mp3` codec decodes a
-  chunk when it is read (in Python, with miniaudio).
+  decoder needs before it (the bit reservoir); the `refkv.stream` codec decodes
+  a chunk when it is read (in Python, with ffmpeg's float MP3 decoder through
+  PyAV).
 - The stream's parameters, the Xing or Info frame's fields and the ID3v1
   tag under `refkv_zarrified`; the ID3v2 and APE tags in the mirror.
 

@@ -144,6 +144,67 @@ fn refuses_a_literal_range_with_a_checksum() {
 }
 
 #[test]
+fn a_refused_reference_leaves_no_range_to_check() {
+    let mut w = writer();
+    let blob = w.blob(b"abc").unwrap();
+    w.add_bytes("k", b"x", false, false).unwrap();
+    // were its range kept, close would find it past the end of the blob
+    refused(w.add_ranges("k", vec![Range::of(blob, 2, 2)]));
+    w.close().unwrap();
+}
+
+#[test]
+fn a_refused_bulk_reference_leaves_no_source() {
+    let mut w = writer();
+    w.add_bytes("k", b"x", false, false).unwrap();
+    // were its url kept, close would find it invalid
+    refused(w.add_url_refs([("k".to_string(), "not a uri".to_string(), 1, None)], false));
+    w.close().unwrap();
+}
+
+#[test]
+fn a_reference_cannot_take_the_key_of_a_late_entry() {
+    let mut w = writer();
+    let blob = w.blob(b"abc").unwrap();
+    w.add_bytes("k", b"x", false, true).unwrap();
+    refused(w.add_ranges("k", vec![Range::of(blob, 0, 1)]));
+    refused(w.add_url_refs([("k".to_string(), "http://h/o".to_string(), 1, None)], false));
+    refused(w.add_bytes("k", b"y", false, false));
+    w.close().unwrap();
+}
+
+#[test]
+fn refuses_a_range_past_a_reference_as_a_key_source_naming_one() {
+    // as the phkv writer does, whatever the range
+    let mut w = writer();
+    let blob = w.blob(b"abc").unwrap();
+    w.add_ranges("r", vec![Range::of(blob, 0, 1)]).unwrap();
+    let r = w.internal("r").unwrap();
+    w.add_ranges("s", vec![Range::of(r, 0, 1000)]).unwrap();
+    match w.close() {
+        Err(Error::Invalid(m)) => assert!(m.contains("internal references to reference entries"), "{m:?}"),
+        r => panic!("{r:?}"),
+    }
+}
+
+#[test]
+fn a_bulk_reference_is_kept_only_where_it_was_prepared() {
+    use refkv_vzip::sources::SourceTable;
+    let mut t = SourceTable::default();
+    let a = t.url_reference("a", "http://h/a".into(), 1, None, false).unwrap();
+    let b = t.url_reference("b", "http://h/b".into(), 1, None, false).unwrap();
+    t.keep(a).unwrap();
+    // `b` names source 0, which is `a`'s
+    refused(t.keep(b));
+    assert_eq!(t.len(), 1);
+
+    let c = t.url_reference("c", "http://h/c".into(), 1, None, false).unwrap();
+    t.add(Source::url("http://h/other")).unwrap();
+    refused(t.keep(c));
+    assert_eq!(t.len(), 2);
+}
+
+#[test]
 fn refuses_a_range_past_2_64() {
     let mut w = writer();
     let s = w.url("a").unwrap();

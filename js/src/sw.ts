@@ -11,12 +11,17 @@
 // when it activates, as its zarrify rules may differ. Each build keeps the MAX_ARCHIVES archives
 // saved last, at most MAX_BYTES in all.
 
-import { encodeId, makeHandler, type SavedArchives } from "./server.ts";
+import { type ArchiveFormat, encodeId, makeHandler, type SavedArchives } from "./server.ts";
 
 declare const self: ServiceWorkerGlobalScope;
 declare const __REFKV_BUILD__: string;
+/** What this build writes its archives as (js/build.mjs: `REFKV_FORMAT`). */
+declare const __REFKV_FORMAT__: ArchiveFormat;
 
-const CACHE_PREFIX = "refkv-archives-";
+// A phkv build keeps its archives apart: an origin's workers share Cache Storage, and a worker
+// deletes the caches of other builds under its prefix (`dropOlderBuilds`), so a vzip worker and a
+// phkv worker on one origin (two demos of one site) must not share a prefix.
+const CACHE_PREFIX = __REFKV_FORMAT__ === "phkv" ? "refkv-phkv-archives-" : "refkv-archives-";
 const CACHE = CACHE_PREFIX + __REFKV_BUILD__;
 const MAX_ARCHIVES = 16;
 const MAX_BYTES = 2 ** 30;
@@ -52,7 +57,7 @@ const prefix = new URL("vz/", self.registration.scope).href;
 // Chrome fails a request its worker has not answered in 5 minutes, and zarrifying a large input
 // from a slow server can take longer: a request waits a minute at most, and the page asks again
 // (fetchWorker), each request keeping the worker alive while the build goes on.
-const handle = makeHandler({ prefix, saved, pendingAfter: 60_000 });
+const handle = makeHandler({ prefix, saved, pendingAfter: 60_000, format: __REFKV_FORMAT__ });
 
 async function dropOlderBuilds() {
   for (const name of await caches.keys()) {
