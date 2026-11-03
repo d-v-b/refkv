@@ -24,6 +24,7 @@ from refkv.zarrify.store import (
     HttpStore,
     ListingFailed,
     StoreLimit,
+    StoreOutput,
     classify,
     find_chunks,
     listing_endpoint,
@@ -360,3 +361,16 @@ def test_finds_nearest_arrays_and_nodes():
     assert len(implicit) == 500
     assert "" in implicit
     assert deep not in implicit
+
+
+def test_a_failed_write_keeps_the_previous_file(tmp_path):
+    def unreadable(_url, _offset, _length):
+        raise OSError("unreadable")
+
+    path = tmp_path / "o.vzip"
+    path.write_bytes(b"previous")
+    out = StoreOutput("http://h/b/s/", chunks=[("c/0", 4)], checksum=unreadable)
+    with pytest.raises(OSError, match="unreadable"):
+        out.write(str(path))
+    assert path.read_bytes() == b"previous"
+    assert [p.name for p in tmp_path.iterdir()] == ["o.vzip"]

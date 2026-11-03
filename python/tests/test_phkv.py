@@ -431,3 +431,13 @@ def test_opens_as_a_zarr_store(tmp_path):
     store.save_phkv(tmp_path / "g.phkv")
     group = zarr.open_group(refkv.zarr.open(tmp_path / "g.phkv", binding="phkv"), mode="r")
     assert group.metadata.zarr_format == 3
+
+
+def test_save_phkv_failing_keeps_the_previous_file(tmp_path):
+    path = tmp_path / "a.phkv"
+    path.write_bytes(b"previous")
+    unsavable = refkv.ReferenceStore({"k": Range(source=0, length=5)}, [Source(key="missing")])
+    with pytest.raises(ValueError, match="missing"):
+        unsavable.save_phkv(path)
+    assert path.read_bytes() == b"previous"
+    assert [p.name for p in tmp_path.iterdir()] == ["a.phkv"]

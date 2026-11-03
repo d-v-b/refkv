@@ -190,3 +190,16 @@ def test_a_store_output_refuses_a_reference_to_source_0():
     with pytest.raises(AssertionError, match="source 0"):
         # a range of source 0, which a store's output has no type for
         StoreIrOutput(URL, refs={"a": [(0, 4)]}).table()  # pyrefly: ignore[bad-assignment]
+
+
+def test_a_failed_write_keeps_the_previous_file(tmp_path):
+    def unreadable(_url, _offset, _length):
+        raise OSError("unreadable")
+
+    path = tmp_path / "o.vzip"
+    path.write_bytes(b"previous")
+    out = StoreIrOutput(URL, refs={"a": [("object", "x.jp2", 0, 4)]}, sizes={"x.jp2": 20}, checksum=unreadable)
+    with pytest.raises(OSError, match="unreadable"):
+        out.write(str(path))
+    assert path.read_bytes() == b"previous"
+    assert [p.name for p in tmp_path.iterdir()] == ["o.vzip"]

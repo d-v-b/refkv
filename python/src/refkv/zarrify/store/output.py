@@ -12,6 +12,7 @@ import re
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 
+from refkv._files import replacing
 from refkv._narrow import at, mapping, string
 from refkv.pb import Range, Source
 from refkv.policy import Policy
@@ -150,7 +151,7 @@ class StoreOutput:
         return {k: [(i, 0, n)] for i, (k, n) in enumerate(self.chunks)}
 
     def write(self, out_path: str) -> None:
-        with open(out_path, "wb") as fh:
+        with replacing(out_path) as fh:
             w = VZipWriter(fh, page_size=1 << 16, checksum=self.checksum)
             # each source pins its object's listed size (§1.4
             # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>)

@@ -44,6 +44,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from refkv import _core, _sync
+from refkv._files import replacing
 from refkv.pb import Range, Source
 from refkv.policy import Policy
 from refkv.refstore import ReferenceStore
@@ -229,7 +230,7 @@ class StoreIrOutput:
         return self.table()[0]
 
     def write(self, out_path: str) -> None:
-        with open(out_path, "wb") as fh:
+        with replacing(out_path) as fh:
             w = VZipWriter(fh, page_size=1 << 16, checksum=self.checksum)
             whole = self._whole_objects()
             if not self.data and len(whole) == len(self.refs) and len(set(whole.values())) == len(whole):
