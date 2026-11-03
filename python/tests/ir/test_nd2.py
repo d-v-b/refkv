@@ -1,19 +1,24 @@
 """The ND2 IR (round 2): the Rust parser and its schema, the image projection
 against today's profile, the compact mirror, and the read planner."""
 
+import importlib.util
+import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import ClassVar, override
 
+import numpy as np
 import pytest
-from ir_helpers import FIXTURES, as_the_reference
+from ir_helpers import FIXTURES, ROOT, as_the_reference
 
 from refkv._narrow import integer
 from refkv.errors import ResolutionError
 from refkv.ir import parse
 from refkv.ir import zarrify as via_ir
+from refkv.ir.cmirror import Archive, canonical_problem, rebuild_from_archive, view_problem
 from refkv.ir.planner import FileTransport, HttpTransport
 from refkv.policy import Policy
+from refkv.zarrify import zarrify
 
 LOOPBACK = Policy(allow_private_hosts=True)  # the test servers are on 127.0.0.1
 ND2S = sorted((FIXTURES / "nd2").glob("*.nd2"))
@@ -22,6 +27,43 @@ ND2S = sorted((FIXTURES / "nd2").glob("*.nd2"))
 @pytest.mark.parametrize("path", ND2S, ids=lambda p: p.name)
 def test_projects_as_today_and_rebuilds(path, tmp_path):
     as_the_reference(path, tmp_path, "nd2")
+
+
+def test_a_mirror_past_the_derived_budget_rebuilds(tmp_path):
+    """More LV records than a table keeps of derived spaces (conventions §8.8
+    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#88-canonical-form>): the last
+    chunks' records are left out, and the mirror still reads, is canonical and rebuilds the file."""
+    writer = ROOT / "fixtures" / "generators" / "nd2" / "write_fixtures.py"
+    spec = importlib.util.spec_from_file_location("nd2_fixtures", writer)
+    assert spec is not None
+    assert spec.loader is not None
+    w = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(w)
+    f = w.Nd2()
+    f.chunk("ImageAttributesLV!", w.attributes(4, 4, 1, 16, sequence=1))
+    f.chunk("ImageMetadataSeqLV|0!", w.picture([("DAPI", 0xFF0000, 1)], 0.25))
+    f.chunk("ImageDataSeq|0!", w.frame_bytes(np.zeros((4, 4, 1), np.uint16), 8, False))
+    chunks, records = 40, 27_500
+    for k in range(chunks):
+        f.chunk(f"Extra{k}LV!", w.compressed(w.level("big", [w.lv(f"k{i}", 1) for i in range(records)])))
+    path = tmp_path / "big.nd2"
+    f.finish(path)
+    store = zarrify(str(path))
+    node = store.get("refkv_source/zarr.json")
+    assert node is not None
+    assert json.loads(node)["attributes"]["refkv_zarrified"]["nd2"]["ir"]["elements"] < chunks * records
+    archive = tmp_path / "big.vzip"
+    store.save(archive)
+    data = path.read_bytes()
+
+    def read(o: int, n: int) -> bytes:
+        return data[o:o + n]
+
+    assert canonical_problem(Archive(str(archive), read)) is None
+    assert view_problem(Archive(str(archive), read)) is None
+    rebuilt = bytearray()
+    assert rebuild_from_archive(str(archive), read, rebuilt.extend) == len(data)
+    assert rebuilt == data
 
 
 def test_frames_fold_into_one_run():
