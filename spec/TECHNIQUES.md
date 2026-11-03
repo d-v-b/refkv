@@ -57,6 +57,7 @@ own with a standard codec. The same few techniques recur:
 | the whole array is one compressed stream with no index of its blocks (a gzip-encoded NRRD) | one chunk of the whole array, referencing the stream, decoded by the `gzip` codec: coarse, but nothing is copied | NRRD (`gzip`) |
 | the unit is too large to be a chunk (one JPEG strip per level) | cut it at the format's own resynchronization points (restart markers), and rewrite each piece's header as literal bytes | NDPI |
 | rows have padding | one byte range per row, gathered into one chunk | ND2 |
+| the unit is too small to be a chunk (a strip of one row, so a key a row), and is uncompressed | several units as one chunk: one range where they are contiguous, a range each where they are not, up to a limit in bytes and in units | TIFF uncompressed strips |
 | units carry a per-unit header | a codec that parses it, rather than layout tricks | N5 (`n5_default`) |
 | units are too many to reference (a billion chunks), but groups of them are regular boxes of the grid with an index of their own | one reference per group, whole, and a codec that reads the group's own index when a unit is read: the output comes from the listing alone | Neuroglancer precomputed (`refkv.precomputed`) |
 | a unit's decoded shape depends on where it lies, which a codec is not told (a chunk clipped by the volume's end) | a small literal before each reference that gives its position, read for no request | Neuroglancer precomputed |

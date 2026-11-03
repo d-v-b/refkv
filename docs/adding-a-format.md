@@ -185,6 +185,10 @@ the profile".
 and [conventions §3](../spec/conventions.md#3-arrays).
 - Contiguous data is cut with a chunk limit: MRC, FITS and HDF5 use 2^20
   bytes ([conventions §7](../spec/conventions.md#7-source-values-as-arrays)).
+- Small uncompressed units can be joined: TIFF strips of one row become one chunk
+  of up to 2^20 bytes and 2^10 strips, because readers fetch a key at a time
+  ([#195](https://github.com/d-v-b/refkv/issues/195)). Limit the units too, or a
+  chunk whose units are apart can pass a reader's `max_reads`.
 - Size chunks for the domain. Video chunks are cut at keyframes and bounded
   by bytes of luma, not pictures, so 10-bit HEVC holds half as many pictures.
 

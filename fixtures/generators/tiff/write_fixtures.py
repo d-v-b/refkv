@@ -93,7 +93,7 @@ def main() -> None:
             rowsperstrip=16, compression="lzw", photometric="rgb", planarconfig="separate")
     pyramid(OUT / "strips_tcyx_uint16_lzw.ome.tif", image((2, 3, 70, 50), np.uint16), 1, axes="TCYX",
             rowsperstrip=16, compression="lzw", photometric="minisblack")
-    # two uncompressed levels whose last strips lack different rows: one zero data source
+    # two uncompressed levels whose short last strips are joined into chunks of the whole level
     pyramid(OUT / "strips_uint16_pyramid_short.ome.tif", image((70, 50), np.uint16), 1, axes="YX",
             rowsperstrip=16, photometric="minisblack")
 
@@ -139,6 +139,9 @@ def main() -> None:
     tifffile.imwrite(OUT / "edge_reject_predictor_jpeg.tif", small, tile=(32, 32), compression="zlib",
                      predictor=True)
     patch_short(OUT / "edge_reject_predictor_jpeg.tif", "Compression", 7)
+    # one row a strip, as the OME-TIFF of d-v-b/refkv#195: each plane's strips join into one chunk
+    pyramid(OUT / "strips_one_row_tyx.ome.tif", image((3, 40, 16), np.uint8), 1, axes="TYX",
+            rowsperstrip=1, photometric="minisblack")
     for p in sorted(OUT.glob("*.tif")):
         print(p.name, p.stat().st_size)
 

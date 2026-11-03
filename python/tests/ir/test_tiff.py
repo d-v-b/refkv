@@ -187,27 +187,27 @@ STRIPS = {
     # short last strip: None (no short strip), "zeros" (a zero data source) or "lzw" (a tail)
     "lzw_uint8.tif": ([([64, 64], [32, 32])], ["bytes", "refkv.tiff_lzw"], [None]),
     "strips_uint8.tif": ([([64, 64], [64, 64])], ["bytes"], [None]),  # one strip, the whole image
-    "strips_uint16_short.tif": ([([70, 50], [16, 50])], ["bytes"], ["zeros"]),
+    "strips_uint16_short.tif": ([([70, 50], [70, 50])], ["bytes"], [None]),  # its strips joined
     "strips_uint16_lzw_short.tif": ([([70, 50], [16, 50])], ["bytes", "refkv.tiff_lzw"], ["lzw"]),
-    "strips_rgb_contig_short.tif": ([([3, 70, 50], [3, 16, 50])], ["transpose", "bytes"], ["zeros"]),
+    "strips_rgb_contig_short.tif": ([([3, 70, 50], [3, 70, 50])], ["transpose", "bytes"], [None]),
     "strips_rgb_planar_lzw.ome.tif": ([([3, 70, 50], [1, 16, 50]), ([3, 35, 25], [1, 16, 25])],
                                       ["bytes", "refkv.tiff_lzw"], ["lzw", "lzw"]),
     "strips_tcyx_uint16_lzw.ome.tif": ([([2, 3, 70, 50], [1, 1, 16, 50]), ([2, 3, 35, 25], [1, 1, 16, 25])],
                                        ["bytes", "refkv.tiff_lzw"], ["lzw", "lzw"]),
-    # two levels whose last strips lack 1000 and 650 bytes: prefixes of one zero data source
-    "strips_uint16_pyramid_short.ome.tif": ([([70, 50], [16, 50]), ([35, 25], [16, 25])], ["bytes"],
-                                            ["zeros", "zeros"]),
+    "strips_uint16_pyramid_short.ome.tif": ([([70, 50], [70, 50]), ([35, 25], [35, 25])], ["bytes"],
+                                            [None, None]),
 }
 
 
 def test_strips_and_lzw_are_the_images_pixels(tmp_path):
     """§4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>,
     §4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>: LZW tiles and
-    strips are `refkv.tiff_lzw` chunks; a level in strips has chunks of RowsPerStrip rows by the
-    image's width, one strip each, and a short last strip is padded to the chunk with a prefix of
-    the output's one zero data source (uncompressed) or a literal tail of its LZW stream;
-    interleaved or planar samples, the planes of an OME-TIFF and a SubIFD level alike. Each level
-    reads as tifffile reads it, and the mirror rebuilds the file."""
+    strips are `refkv.tiff_lzw` chunks; a level in compressed strips has chunks of RowsPerStrip
+    rows by the image's width, one strip each, and a short last strip is padded to the chunk with
+    a literal tail of its LZW stream, while uncompressed strips join
+    (test_uncompressed_strips_join_into_larger_chunks); interleaved or planar samples, the planes
+    of an OME-TIFF and a SubIFD level alike. Each level reads as tifffile reads it, and the mirror
+    rebuilds the file."""
     for name, (levels, codecs, padding) in STRIPS.items():
         zero_sources = set()
         path = FIXTURES / "tiff" / name
@@ -242,6 +242,99 @@ def test_strips_and_lzw_are_the_images_pixels(tmp_path):
                 elif pad == "lzw":  # the literal tail
                     assert isinstance(parts[1], bytes), key
         assert len(zero_sources) == ("zeros" in padding), name
+
+
+# (data, tifffile's arguments, the level's chunk shape, and the ranges of each chunk down the y axis)
+ONE_ROW = {"rowsperstrip": 1, "photometric": "minisblack"}
+RGB_ONE_ROW = {"rowsperstrip": 1, "photometric": "rgb"}
+JOINED = {
+    "a plane within the limits is one chunk": (ramp("uint8", (40, 16)), ONE_ROW, [40, 16], [1]),
+    "several rows a strip": (ramp("uint16", (70, 50)), {**ONE_ROW, "rowsperstrip": 16}, [70, 50], [1]),
+    "big-endian": (ramp("uint16", (40, 16)), {**ONE_ROW, "byteorder": ">"}, [40, 16], [1]),
+    "float": (ramp("float32", (40, 16)), ONE_ROW, [40, 16], [1]),
+    "interleaved samples": (ramp("uint8", (40, 16, 3)), {**RGB_ONE_ROW, "planarconfig": "contig"}, [3, 40, 16], [1]),
+    "planar samples, a chunk each": (ramp("uint8", (3, 40, 16)), {**RGB_ONE_ROW, "planarconfig": "separate"},
+                                     [1, 40, 16],
+                                     [1]),
+    # 2^20 bytes hold 1048 rows, so 2000 rows are 2 even chunks of 1000
+    "above the byte limit, even chunks": (ramp("uint8", (2000, 1000)), ONE_ROW, [1000, 1000], [1, 1]),
+    # 2^20 bytes would hold 65536 rows, 2^10 strips only 1024
+    "at the strip limit": (ramp("uint8", (4096, 16)), ONE_ROW, [1024, 16], [1, 1, 1, 1]),
+    # the last chunk lacks a row, then 3 rows with its short last strip of 1 row: zero bytes after it
+    "a short last chunk is padded": (ramp("uint8", (2001, 1000)), ONE_ROW, [1001, 1000], [1, 2]),
+    "a short last strip in a padded chunk": (ramp("uint8", (2005, 1000)), {**ONE_ROW, "rowsperstrip": 2}, [1004, 1000],
+                                             [1, 2]),
+}
+STAY = {
+    # 600000 bytes a strip: two do not fit in 2^20, and the short last strip is padded as before
+    "two strips do not fit": (ramp("uint8", (1500, 1000)), {**ONE_ROW, "rowsperstrip": 600}, [600, 1000], [1, 1, 2]),
+    "LZW": (ramp("uint8", (40, 16)), {**ONE_ROW, "compression": "lzw"}, [1, 16], [1] * 40),
+    "Deflate": (ramp("uint8", (40, 16)), {**ONE_ROW, "compression": "zlib"}, [1, 16], [1] * 40),
+}
+
+
+@pytest.mark.parametrize("case", [*JOINED, *STAY])
+def test_uncompressed_strips_join_into_larger_chunks(case, tmp_path):
+    """§4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>: a level's
+    uncompressed strips join into chunks of at most 2^20 bytes and 2^10 strips, as even as whole
+    strips allow, one range when they meet; a level of compressed strips, or whose two strips
+    do not fit, keeps a chunk per strip. Each level reads as tifffile reads it."""
+    data, kw, chunk, ranges = {**JOINED, **STAY}[case]
+    path = tmp_path / "s.tif"
+    tifffile.imwrite(path, data, metadata=None, **kw)
+    out, g, _ = zarrified(path, tmp_path, "tiff")
+    meta = json.loads(out.bytes_entries["0/zarr.json"])
+    assert meta["chunk_grid"]["configuration"]["chunk_shape"] == chunk
+    with tifffile.TiffFile(path) as tf:
+        want = tf.series[0].asarray()
+    got = ndarray(g.get_array("0")[...])
+    assert got.shape == want.shape or got.shape == np.moveaxis(want, -1, 0).shape
+    assert np.array_equal(got, want if got.shape == want.shape else np.moveaxis(want, -1, 0))
+    first_sample = "0/c/0/" if len(chunk) == 3 else "0/c/"
+    assert [len(out.refs[f"{first_sample}{row}/0"]) for row in range(len(ranges))] == ranges
+    if case in JOINED:
+        assert np.prod(chunk) * want.dtype.itemsize <= 2**20
+
+
+def test_strips_join_with_a_range_per_run_of_the_file(tmp_path):
+    """§7.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#73-chunks>: strips that
+    do not meet in the file are a chunk of several ranges, in the strips' order, those that meet
+    merged."""
+    path = FIXTURES / "tiff" / "edge_strips_apart.tif"
+    out, g, _ = zarrified(path, tmp_path, "tiff")
+    with tifffile.TiffFile(path) as tf:
+        page = tf.pages[0]
+        assert isinstance(page, tifffile.TiffPage)
+        offsets = page.dataoffsets
+        want = page.asarray()
+    assert json.loads(out.bytes_entries["0/zarr.json"])["chunk_grid"]["configuration"]["chunk_shape"] == [8, 8]
+    assert out.refs["0/c/0/0"] == [(offsets[0], 16), (offsets[1], 32), (offsets[3], 16)]
+    assert np.array_equal(ndarray(g.get_array("0")[...]), want)
+
+
+def test_a_level_with_an_absent_strip_stays_one_strip_a_chunk(tmp_path):
+    """§4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>: a level with
+    a strip that does not hold exactly its rows stays one strip a chunk, and its absent strip is
+    the fill value."""
+    out, g, _ = zarrified(FIXTURES / "tiff" / "edge_strips_absent.tif", tmp_path, "tiff")
+    assert json.loads(out.bytes_entries["0/zarr.json"])["chunk_grid"]["configuration"]["chunk_shape"] == [2, 8]
+    assert "0/c/1/0" not in out.refs
+    assert ndarray(g.get_array("0")[2:4]).max() == 0
+
+
+def test_joined_levels_share_one_zero_data_source(tmp_path):
+    """§4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>: the padding of
+    each level's short last chunk is a prefix of the output's one zero data source."""
+    path = tmp_path / "p.tif"
+    with tifffile.TiffWriter(path, ome=True) as tif:
+        kw = {"rowsperstrip": 1, "photometric": "minisblack"}
+        tif.write(ramp("uint8", (4005, 1000)), subifds=1, metadata={"axes": "YX"}, **kw)
+        tif.write(ramp("uint8", (2001, 999)), subfiletype=1, **kw)
+    out, g, _ = zarrified(path, tmp_path, "tiff")
+    pads = [out.refs[key][-1] for key in ("0/c/3/0", "1/c/1/0")]
+    assert [p[2] for p in pads] == [3000, 999]
+    assert pads[0][0] == pads[1][0] != 0
+    assert np.array_equal(ndarray(g.get_array("1")[...]), ramp("uint8", (2001, 999)))
 
 
 def strips_tiff(path, data, **kw):
