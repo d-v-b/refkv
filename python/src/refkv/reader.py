@@ -30,7 +30,7 @@ import socket
 import threading
 import urllib.error
 import urllib.request
-from collections.abc import AsyncIterator, Buffer, Callable, Coroutine, Mapping
+from collections.abc import AsyncIterator, Buffer, Callable, Coroutine, Iterable, Mapping
 from concurrent.futures import Executor, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from email.message import Message
@@ -65,8 +65,9 @@ class Stats:
       `ReferenceStore`, which holds its mapping in memory.
     - `external_requests`, `external_bytes`: reads of the sources that
       references point to, such as the original netCDF files. Nearby ranges of
-      one source are merged into one request, so this counts requests, not
-      references.
+      one source are merged into one request, within a value and between values
+      read at the same time, so this counts requests, not references, and the
+      bytes include those between the ranges.
     - `log`: every request, as `(url, start, length)`.
 
     One `Stats` may be shared by several stores; `reset()` sets it back to
@@ -865,6 +866,48 @@ UNCAPPED_THREADS = 64
 """The threads a store with `max_concurrency=None` reads over HTTP with."""
 
 
+@dataclass(eq=False)
+class _Waiting:
+    """A read of bytes [start, end) of a url source, which `future` gets, waiting to be served
+    by one request with the reads near it."""
+
+    start: int
+    end: int
+    future: asyncio.Future[bytes]
+
+
+@dataclass(eq=False)
+class _Merging:
+    """One event loop's reads of url sources waiting, by source, and the requests serving them."""
+
+    waiting: dict[int, list[_Waiting]] = field(default_factory=dict)
+    serving: set[asyncio.Task[None]] = field(default_factory=set)
+    held: bool = False  # whether reads whose window has passed wait for a connection
+
+
+def _merged(reads: Iterable[_Waiting], *, gap: int, amplification: int, longest: int) -> list[list[_Waiting]]:
+    """`reads` of one source, as the runs that one request each serves, in order of offset.
+
+    A read joins the run before it if it starts at most `gap` bytes after the run's end, and the
+    run then fetches at most `amplification` times the bytes its reads ask for, plus `gap`, and
+    at most `longest` bytes. A read is never cut, so a longer one is a run of its own."""
+    runs: list[list[_Waiting]] = []
+    start = end = asked = 0
+    for read in sorted(reads, key=lambda r: (r.start, r.end)):
+        new = read.end - max(read.start, end)
+        if (runs and read.start - end <= gap
+                and (span := max(end, read.end) - start) <= longest
+                and span <= amplification * (asked + max(new, 0)) + gap):
+            runs[-1].append(read)
+        else:
+            runs.append([read])
+            start, end, asked = read.start, read.start, 0
+            new = read.end - read.start
+        end = max(end, read.end)
+        asked += max(new, 0)
+    return runs
+
+
 class ReferenceReader:
     """The read path that every reference store shares: a read-only mapping whose
     values are bytes or references (spec/refkv.md, Part 1
@@ -924,6 +967,17 @@ class ReferenceReader:
       many as the cap (64 with no cap), so the cap
       is the same on every machine: it doesn't depend on the CPU count, as
       asyncio's shared default thread pool does.
+
+    Values read at the same time share requests: reads of one source less than
+    64 KiB apart merge into one request, whichever values they are for, while
+    they wait 2 ms (`MERGE_WINDOW`), or for a connection when all of them are
+    busy. Zarr asks for at most `async.concurrency` chunks at once, so that
+    setting, not this reader, limits how many merge: raise it to read many small
+    chunks in few requests. Since `max_concurrency` bounds the connections, that
+    opens no more of them to this store's sources:
+
+        with zarr.config.set({"async.concurrency": 1024}):
+            data = array[region]
     """
 
     def __init__(
@@ -959,6 +1013,7 @@ class ReferenceReader:
         self._opening: dict[asyncio.AbstractEventLoop, asyncio.Task[None]] = {}  # loop -> the task opening
         self._sources: list[Source] = []
         self._semaphore: tuple[asyncio.AbstractEventLoop, asyncio.Semaphore] | None = None
+        self._merging: tuple[asyncio.AbstractEventLoop, _Merging] | None = None
         self._threads: ThreadPoolExecutor | None = None
         self._threads_lock = threading.Lock()
 
@@ -1145,6 +1200,88 @@ class ReferenceReader:
     # Concat of many short ranges, such as
     # one per image row, would otherwise cost one request per range.
     MERGE_GAP = 1 << 16
+    # The reads of different values that wait at the same time merge as well, under that gap
+    # (`_shared_read`). They only gain speed, where one value's reads must also stay within
+    # `max_reads`, so a run has limits of its own, the IR read planner's for a server of single
+    # ranges (rust/refkv-ir/src/plan.rs): this many times the bytes it asks for, plus a gap...
+    MERGE_AMPLIFICATION = 4
+    # ...and the bytes waiting over `max_concurrency`, between these lengths, so that a batch
+    # that reads much keeps every connection busy.
+    MERGE_MIN_RUN = 1 << 20
+    MERGE_MAX_RUN = 32 << 20
+    # How long, in seconds, a read waits for the reads near it. None: no waiting and no merging
+    # between values.
+    MERGE_WINDOW: float | None = 0.002
+
+    async def _shared_read(self, source: int, start: int, end: int) -> bytes:
+        """Bytes [start, end) of a url source, read with the reads of other values waiting at the
+        same time (spec §6.3
+        <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#63-resolving-a-reference>). A read
+        waits for the window, and for as long as every connection is busy. A local file has no
+        request to save, so it is read at once."""
+        src = self._sources[source]
+        url = resolve_reference(self.url, cast("str", src.url))  # a url source's
+        if self.MERGE_WINDOW is None or urlparse(url).scheme.lower() == "file":
+            return await self._url_bytes(src, start, end)
+        loop = asyncio.get_running_loop()
+        current = self._merging
+        if current is None or current[0] is not loop:  # as `_limit`: one per loop
+            current = self._merging = (loop, _Merging())
+        merging = current[1]
+        if not merging.waiting:
+            loop.call_later(self.MERGE_WINDOW, self._flush, merging)
+        read = _Waiting(start, end, loop.create_future())
+        merging.waiting.setdefault(source, []).append(read)
+        return await read.future
+
+    def _flush(self, merging: _Merging) -> None:
+        """Start as many requests as there are connections free, for the reads waiting (dropping
+        those whose values gave up). The rest wait for a request to end, and merge with the
+        reads that come meanwhile."""
+        free = (self.max_concurrency or math.inf) - len(merging.serving)
+        for source in list(merging.waiting):
+            if free <= 0:
+                break
+            reads = [r for r in merging.waiting.pop(source) if not r.future.done()]
+            longest = sum(r.end - r.start for r in reads) // (self.max_concurrency or DEFAULT_CONCURRENCY)
+            longest = min(max(longest, self.MERGE_MIN_RUN), self.MERGE_MAX_RUN)
+            runs = _merged(reads, gap=self.MERGE_GAP, amplification=self.MERGE_AMPLIFICATION, longest=longest)
+            while runs and free > 0:
+                task = asyncio.get_running_loop().create_task(self._serve(source, runs.pop(0)))
+                merging.serving.add(task)
+                task.add_done_callback(functools.partial(self._served, merging))
+                free -= 1
+            if runs:  # to the back of the line: the next source's reads go first
+                merging.waiting[source] = [r for run in runs for r in run]
+        merging.held = bool(merging.waiting)
+
+    def _served(self, merging: _Merging, task: asyncio.Task[None]) -> None:
+        """A request ended: a connection is free for the reads whose window has passed. Reads
+        still in their window are left to it, since the reads near them are about to come."""
+        merging.serving.discard(task)
+        if merging.held:
+            self._flush(merging)
+
+    async def _serve(self, source: int, run: list[_Waiting]) -> None:
+        """Read `run` in one request, and give each read its bytes. A run ends where its last read
+        ends, so it may fail where that read alone would; the others must not fail with it, so each
+        read of a run that fails is read on its own, and gets its own result."""
+        start = run[0].start
+        try:
+            data = await self._url_bytes(self._sources[source], start, max(r.end for r in run))
+        except asyncio.CancelledError:  # the loop is closing
+            for r in run:
+                r.future.cancel()
+            raise
+        except Exception as e:  # noqa: BLE001 - whatever a value's own read would raise
+            if len(run) > 1:
+                await asyncio.gather(*(self._serve(source, [r]) for r in run))
+            elif not run[0].future.done():
+                run[0].future.set_exception(e)
+            return
+        for r in run:
+            if not r.future.done():
+                r.future.set_result(data[r.start - start : r.end - start])
 
     async def _ref_bytes(self, ref: Reference, start: int, end: int) -> bytes:
         """Bytes [start, end) of the value described by `ref` (spec §6.3
@@ -1201,7 +1338,7 @@ class ReferenceReader:
             raise RequestError(f"the value needs {len(runs)} reads; this reader allows "
                                f"{self.policy.max_reads} ("
                                f"spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)")
-        coros += [self._url_bytes(self._sources[s], a, b) for s, a, b in runs]
+        coros += [self._shared_read(s, a, b) for s, a, b in runs]
         try:
             done = await asyncio.gather(*coros)
         except ResolutionError:

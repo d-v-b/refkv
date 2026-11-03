@@ -413,16 +413,18 @@ def counting_server():
 @pytest.mark.usefixtures("no_proxy")
 def test_max_concurrency_caps_requests_in_flight(counting_server, tmp_path):
     """With zarr reading 32 chunks at once, each chunk a reference to its own range of
-    a served file, a store keeps at most `max_concurrency` requests in flight: the
-    in-memory store, and the saved archive read over HTTP, its own reads (tail,
-    pages) included: 8 by default. With None, more are in flight."""
+    a served file too far from the others to merge, a store keeps at most
+    `max_concurrency` requests in flight: the in-memory store, and the saved archive
+    read over HTTP, its own reads (tail, pages) included: 8 by default. With None, more
+    are in flight."""
     base, state = counting_server
     n = 32
-    state["files"]["/src.bin"] = bytes(range(n)) * 1024
+    apart = 2 * refkv.ReferenceStore.MERGE_GAP
+    state["files"]["/src.bin"] = b"".join(bytes([i]) * apart for i in range(n))
     mem = zarr.storage.MemoryStore()
     zarr.create_array(mem, name="x", shape=(n,), chunks=(1,), dtype="u1", compressors=None)
     mapping: dict[str, bytes | Range] = {k: v.to_bytes() for k, v in mem._store_dict.items()}
-    mapping.update({f"x/c/{i}": Range(source=0, offset=1024 * i + i, length=1) for i in range(n)})
+    mapping.update({f"x/c/{i}": Range(source=0, offset=apart * i, length=1) for i in range(n)})
     sources = [Source(url=f"{base}/src.bin")]
     policy = refkv.Policy(allow_private_hosts=True)
     refkv.ReferenceStore(mapping, sources).save_vzip(tmp_path / "a.vzip", page_size=64, policy=policy)
