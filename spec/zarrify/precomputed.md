@@ -238,6 +238,12 @@ A voxel `i` covers `[i, i + 1) × resolution` in the format, and OME-NGFF places
 So a level's translation along an axis is `(voxel_offset + 0.5) × resolution`, in binary64, and 0
 for `c`: the first voxel of a level downsampled by 2 lies over the first two of the level before.
 
+<a id="type-precomputedroot"></a>**`PrecomputedRoot`**, the root's `zarr.json`, a
+[`GroupDocument`](../conventions.md#type-groupdocument) whose attributes are a
+[`Declaration`](../conventions.md#type-declaration), and `ome`, a
+[`PrecomputedOme`](#type-precomputedome), when any scale is presented. A root with no presented
+scale is a plain group.
+
 <a id="type-precomputedome"></a>**`PrecomputedOme`**, an [`OmeImage`](../conventions.md#type-omeimage) with:
 
 | member | value |
