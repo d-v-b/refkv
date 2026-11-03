@@ -108,7 +108,7 @@ def _zarrified(fixture: str, tmp_path: Path) -> ReferenceReader:
     path = FIXTURES / fixture
     if not path.is_dir():
         return zarrify(str(path))
-    zarrify_store(str(path), f"https://example.test/{path.name}/").save(str(tmp_path / f"{path.name}.vzip"))
+    zarrify_store(str(path), f"https://example.test/{path.name}/").save_vzip(str(tmp_path / f"{path.name}.vzip"))
     return refkv.open(str(tmp_path / f"{path.name}.vzip"), registry={"https://example.test": LocalStore(path.parent)})
 
 

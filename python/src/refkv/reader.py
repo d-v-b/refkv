@@ -943,7 +943,15 @@ class ReferenceReader:
         self.policy = policy or Policy()
         # spec §5 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>:
         # absolute, lexically normalized, symlinks not resolved
-        self.url = url if is_url(url) else file_uri(url)
+        if is_url(url):
+            self.url = url
+        else:
+            # a directory written as one (a trailing separator, or a last `.` or `..`) stays
+            # a directory: its relative sources resolve inside it, not beside it
+            base = file_uri(url)
+            last = url.replace(os.sep, "/").rpartition("/")[2]  # not Path(url).name, which drops a `.`
+            directory = url.endswith(("/", os.sep)) or last in (".", "..")
+            self.url = base + "/" if directory and not base.endswith("/") else base
         self.resolver = _resolver(registry)
         self.stats = stats or Stats()
         self.max_concurrency = max_concurrency

@@ -41,7 +41,7 @@ def main(argv: list[str]) -> int:
         print(f"error: {e}", file=sys.stderr)
         return 1
     try:  # the archive's sources are checked against the policy the input was read under
-        out.to_store(policy=policy).save(args[1], policy=policy)
+        out.to_store(policy=policy).save_vzip(args[1], policy=policy)
     except ResolutionError as e:  # a source a reader under that policy could not read
         print(f"error: {e}", file=sys.stderr)
         return 1

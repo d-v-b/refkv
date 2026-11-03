@@ -635,7 +635,9 @@ pub fn names(ir: &Ir) -> Res<()> {
 
 /// Coverage and injectivity (the leaves partition [0, size)); parents precede
 /// their children; aliases name an element; the root and the names (`names`);
-/// each derived space with a size is partitioned by its leaves.
+/// each derived space with a size is partitioned by its leaves. A table read back may have
+/// left out an alias's target or a derived element's descendants (conventions §8.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>).
 pub fn check(ir: &Ir) -> Res<()> {
     let n = ir.len();
     for i in 0..n {
@@ -650,7 +652,8 @@ pub fn check(ir: &Ir) -> Res<()> {
                 j = ir.target(j);
                 seen += 1;
             }
-            if j == NONE || j as usize >= n || seen >= 64 {
+            let left_out = ir.loaded && j == NONE && seen < 64;
+            if !left_out && (j == NONE || j as usize >= n || seen >= 64) {
                 return Err(format!(
                     "{} names no element (target {})",
                     who(ir, i as u32),
@@ -702,8 +705,13 @@ pub fn check(ir: &Ir) -> Res<()> {
     check_derived(ir)
 }
 
-/// Each derived element whose form gives its derived size: its leaves partition it.
+/// Each derived element whose form gives its derived size: its leaves partition it, unless it is
+/// in a table and has no descendants, which were left out.
 fn check_derived(ir: &Ir) -> Res<()> {
+    let mut has_children = vec![false; ir.len()];
+    for &p in ir.parent.iter().filter(|&&p| p != NONE) {
+        has_children[p as usize] = true;
+    }
     let mut spaces: std::collections::BTreeMap<u32, Vec<(u64, u64, u32)>> = Default::default();
     for i in 0..ir.len() {
         if ir.space[i] != 0 && is_leaf(ir.kind[i]) && ir.len[i] > 0 {
@@ -714,7 +722,7 @@ fn check_derived(ir: &Ir) -> Res<()> {
         }
     }
     for i in 0..ir.len() as u32 {
-        if ir.kind[i as usize] != DERIVED {
+        if ir.kind[i as usize] != DERIVED || (ir.loaded && !has_children[i as usize]) {
             continue;
         }
         let Some(form) = ir.form(i) else { continue };

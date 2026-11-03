@@ -735,6 +735,12 @@ derived element whose form is a JSON object with a member `size`, the leaves
 in its space partition `[0, size)` of its derived bytes; and the root and
 the names are as above.
 
+A table (8.2) may leave out what canonical form leaves out, and these
+invariants allow for it: a derived element with no descendants in a table had
+them left out (8.8, step 3), so its leaves need not partition its derived
+bytes, and an alias's target chain in a table may end at `-1` (8.8, step 7).
+The IR a parser builds leaves nothing out.
+
 A **run** is an element whose subtree stands for `count` copies of itself
 (its **members**): member `j` has every extent of the subtree shifted by
 `j × stride` and the run's root's name index increased by `j`. A run's

@@ -72,7 +72,7 @@ with tempfile.TemporaryDirectory() as d:
     mapping = {"x/zarr.json": metadata, "x/c/0": Range(source=0, offset=4, length=4),
                "y": Concat((Range(data=b"<"), Range(source=0, offset=0, length=2)))}
     store = refkv.ReferenceStore(mapping, [Source(url=file_uri("src.bin"))])
-    print(store.save("m.vzip"))
+    print(store.save_vzip("m.vzip"))
     reopened = refkv.open("m.vzip")
     for s in (store, reopened):
         assert s.get("x/zarr.json") == metadata
@@ -111,7 +111,7 @@ with tempfile.TemporaryDirectory() as d:
     threading.Thread(target=server.serve_forever, daemon=True).start()
     base = f"http://127.0.0.1:{server.server_address[1]}"
     served = refkv.ReferenceStore(mapping, [Source(url=f"{base}/src.bin")])
-    served.save("h.vzip", page_size=64, policy=refkv.Policy(allow_private_hosts=True))
+    served.save_vzip("h.vzip", page_size=64, policy=refkv.Policy(allow_private_hosts=True))
     # an archive's own loopback address is refused by default, as its sources' are
     try:
         refkv.open(f"{base}/h.vzip").list()
@@ -144,9 +144,9 @@ with tempfile.TemporaryDirectory() as d:
     from refkv.zarrify import zarrify, zarrify_store
 
     n = zarrify(str(FIXTURES / "nifti" / "nifti_block_x_split.nii"))
-    n.save("n.vzip")
+    n.save_vzip("n.vzip")
     z = zarrify_store(str(FIXTURES / "zarr2" / "zarr2_hierarchy"), "https://example.test/z/")
-    z.save("z.vzip")
+    z.save_vzip("z.vzip")
     assert (n.info["format"], z.info["format"]) == ("nifti", "zarr2")
     saved = refkv.open("n.vzip")
     for key in ("zarr.json", "0/c/0/0"):  # in memory as saved
@@ -161,7 +161,7 @@ with tempfile.TemporaryDirectory() as d:
     assert not list(package.glob("_ir*")), sorted(p.name for p in package.iterdir())
 
     t = zarrify(str(FIXTURES / "tiff" / "jpeg_gray.tif"))
-    t.save("t.vzip")
+    t.save_vzip("t.vzip")
     assert t.info["format"] == "tiff"
     assert refkv.open("t.vzip").get("zarr.json") == t.get("zarr.json")
 
