@@ -50,6 +50,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict, Unpack, override
 
+from refkv.bounds import Bound, derive
+from refkv.bounds import check as check_bounds
 from refkv.errors import ResolutionError
 from refkv.pb import Concat, Range, Reference, Source, parts
 from refkv.policy import Policy
@@ -184,6 +186,10 @@ class ReferenceStore(ReferenceReader):
     - `info`: what the store's builder says about it, as JSON-like values, read
       back as `store.info`; `save_vzip` does not write it. `refkv.zarrify` records
       the format and the profile's summary here.
+    - `bounds`: the keys the store answers for when it is combined with other
+      stores (`refkv.bounds`, `refkv.compose`). The default, None, derives them
+      from the store's Zarr nodes (`refkv.bounds.derive`). They change nothing
+      the store reads, and `save` does not write them.
     - `registry`, `stats`, `policy`, `max_concurrency`: how references are
       resolved, as for every reference store (`refkv.reader.ReferenceReader`). The
       default policy, `Policy()`, reads `http(s)` sources on public hosts and,
@@ -207,6 +213,7 @@ class ReferenceStore(ReferenceReader):
         compressed: Iterable[str] = (),
         page_size: int | None = None,
         info: Mapping[str, object] | None = None,
+        bounds: Iterable[Bound] | None = None,
         registry: Registry | None = None,
         stats: Stats | None = None,
         policy: Policy | None = None,
@@ -253,6 +260,8 @@ class ReferenceStore(ReferenceReader):
                     f"compressed names {key!r}, which is not a key of a bytes value")
         self._page_size = _page_size(page_size)
         self._info = copy.deepcopy(dict(info or {}))
+        self._bounds = None if bounds is None else check_bounds(bounds)
+        self._derived: tuple[Bound, ...] | None = None
 
     # ------------------------------------------------------------ constructors
 
@@ -346,6 +355,29 @@ class ReferenceStore(ReferenceReader):
         input (such as "tiff" or "zarr2"), and the profile's summary of what it
         found, as `python -m refkv.zarrify` prints it. Empty otherwise."""
         return copy.deepcopy(self._info)
+
+    @property
+    def bounds(self) -> tuple[Bound, ...]:
+        """The keys the store answers for when combined with other stores: the
+        constructor's `bounds`, or those `refkv.bounds.derive` gives for its keys."""
+        if self._bounds is not None:
+            return self._bounds
+        if self._derived is None:
+            self._derived = derive(self._values)
+        return self._derived
+
+    @property
+    def bounds_stated(self) -> bool:
+        """Whether the constructor was given `bounds` (else they are derived)."""
+        return self._bounds is not None
+
+    def with_bounds(self, bounds: Iterable[Bound] | None) -> ReferenceStore:
+        """This store with other `bounds` (None: derived), its values, sources and
+        options unchanged."""
+        return ReferenceStore(self._values, self._sources, url=self.url, read_at_open=self._read_at_open,
+                              compressed=self._compressed, page_size=self._page_size, info=self._info,
+                              bounds=bounds, registry=self.resolver, stats=self.stats,
+                              policy=self.policy, max_concurrency=self.max_concurrency)
 
     def __eq__(self, other: object) -> bool:
         return self is other
