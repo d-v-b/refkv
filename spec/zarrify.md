@@ -2,6 +2,9 @@
 
 Profiles version: 0 (**draft**)
 
+Changed 2026-11-04, with no change to any output: the root's `refkv_provenance` member and its CMO
+([spec/provenance.md](provenance.md)) are not part of the output ([§1.1](#11-output-and-equivalence)).
+
 Changed 2026-11-03: a store whose root has `info` is a Neuroglancer precomputed volume
 ([§1.4](#14-store-inputs)), the first store profile whose chunk entries are not at their objects' keys.
 
@@ -170,7 +173,9 @@ with the message `budget: the mirror would have more than N rows`.
 The archive's byte layout (entry order, compression, page index) is the
 writer's choice and is not part of the output. Neither are the sources'
 pins and the ranges' checksums ([§1.2](#12-input)): an `etag` pin depends on what the
-server sent, and checksums are optional. A zarrifier that records checksums
+server sent, and checksums are optional. Nor is the root's provenance, its member
+`refkv_provenance` and that convention's CMO ([spec/provenance.md §3](provenance.md#3-not-part-of-the-output)),
+which names the program that wrote it. A zarrifier that records checksums
 does not join a shard's ranges across its inner chunks ([§2.1](#21-virtual-shards)), so
 outputs are compared between zarrifiers that both record checksums or both do not. Two zarrifiers conform to
 the same profile revision ([Profiles](#profiles)) if they produce equivalent outputs for every input

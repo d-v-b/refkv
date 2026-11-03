@@ -25,7 +25,9 @@ decodes packing 5.40, JPEG 2000 of the reversible 5/3 transform, where it was an
 ([§12](#12-grib-messages)). Changed 2026-11-01, with no change to any output:
 the document cites its own sections as `§n` links. Changed 2026-11-03, with no change to any
 output: [§2](#2-attributes), [§3](#3-arrays) and [§7](#7-source-values-as-arrays) name what the
-formats' documents already say of their attributes, arrays, codecs and fill values.)
+formats' documents already say of their attributes, arrays, codecs and fill values. Changed
+2026-11-04, with no change to any output: the root may also declare the provenance convention,
+[spec/provenance.md](provenance.md), [§2](#2-attributes).)
 
 <!-- profiles:conventions-table -->
 | format | convention | UUID |
@@ -197,7 +199,10 @@ node, translated by [§6](#6-source-metadata-as-json).
 
 There are no other members. The property holds no time and nothing about the program that
 made the hierarchy, so that two conforming producers make equivalent
-hierarchies from the same source.
+hierarchies from the same source. A separate convention records the program, on the root
+only: [spec/provenance.md](provenance.md). Its member `refkv_provenance` and its CMO may be
+beside a format's declaration, also where the format's layout says the root's attributes are
+a `Declaration` and nothing else, and they are not part of the output.
 
 **The source metadata node.** A file format's metadata that grows with the
 data (one item per frame, plane or channel), and the source's values kept as

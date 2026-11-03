@@ -40,6 +40,10 @@
               "$ref": "#/$defs/nodeProperty"
             }
           ]
+        },
+        "refkv_provenance": {
+          "type": "object",
+          "description": "refkv's provenance convention (spec/provenance.md)"
         }
       },
       "required": [

@@ -41,6 +41,10 @@
             }
           ]
         },
+        "refkv_provenance": {
+          "type": "object",
+          "description": "refkv's provenance convention (spec/provenance.md)"
+        },
         "_LINKS": {
           "type": "array",
           "description": "hdmf-zarr's links: a group's soft links and second hard links",

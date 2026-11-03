@@ -205,6 +205,10 @@ def schema(profile: str) -> dict:
                         "maxContains": 1,
                     },
                     CONVENTION_KEY: prop,
+                    # the provenance convention, beside this one (spec/provenance.md), checked
+                    # by its own schema
+                    "refkv_provenance": {"type": "object",
+                                         "description": "refkv's provenance convention (spec/provenance.md)"},
                     **getattr(module, "ATTRIBUTES", {}),
                 },
                 "required": ["zarr_conventions", CONVENTION_KEY],
