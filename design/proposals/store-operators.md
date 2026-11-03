@@ -1,8 +1,9 @@
 # Proposal: store operators and key bounds
 
 refkv builds a `ReferenceStore` from one input: a file, a store, or a
-VirtualiZarr dataset. Combining stores is left to the caller. A TIFF-stack
-example, written by hand, used four operations that are general:
+VirtualiZarr dataset. Combining stores is left to the caller. The TIFF-stack
+example ([docs/tiff-stack.md](../../docs/tiff-stack.md)), written by hand,
+uses four operations that are general:
 
 1. **Rename keys.** Each file's chunk `0/c/y/x` becomes `0/c/i/y/x`.
 2. **Merge source tables.** References index their store's source table, so
@@ -172,10 +173,11 @@ stack = union(header, *planes)
 ```
 
 Each operand states what it answers for, none overlaps another, and `union`
-checks that. A by-hand version merges source tables, moves indexes and builds
-keys itself. Here, `union` would raise if two planes' boxes overlapped, and
-the remaining check, that every file's `0/zarr.json` is the same, belongs in
-`stacked_metadata`.
+checks that. The by-hand version in
+[docs/examples/tiff_stack.py](../../docs/examples/tiff_stack.py) merges source
+tables, moves indexes and builds keys itself. Here, `union` would raise if two
+planes' boxes overlapped, and the remaining check, that every file's
+`0/zarr.json` is the same, belongs in `stacked_metadata`.
 
 ## Bounds in a saved archive
 
