@@ -1272,3 +1272,15 @@ now accept a 206 whose `Content-Range` total equals the source's `size` pin. A c
 which the rule is there to catch, changes the total or sends no range, and a source without a `size`
 pin is refused as before. A reader that refuses every such response still conforms, so the
 conformance suite and its three implementations are unchanged.
+
+## Revision 11.5: reads shared between values
+
+Format version 0, specification revision 11.5. **Status: provisional.** No store's values change.
+A client such as zarr-python asks for each chunk with a `get` of its own, so
+[§6.3](../../refkv.md#63-resolving-a-reference) coalescing, which spoke of one `get`, left a plane of
+1024 one-row strips at 1024 requests. A reader MAY now combine the reads of `get`s in progress at the
+same time. The section's rule that coalescing changes no result needed spelling out for them, since a
+shared read can fail where only one of its reads would: the reader then makes each read on its own.
+[§6.7](../../refkv.md#67-reader-policy) rule 5 still counts the reads of one `get` by itself. A reader
+that combines nothing across `get`s still conforms, so the conformance suite and its three
+implementations are unchanged.

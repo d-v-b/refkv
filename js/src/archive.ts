@@ -333,6 +333,67 @@ export function checkAddress(policy: Policy, url: string, address: string): void
  */
 export const MERGE_GAP = 1 << 16;
 
+/**
+ * The reads of different values that wait at the same time merge as well, under that gap. They
+ * only gain speed, where one value's reads must also stay within `maxReads`, so a run has limits
+ * of its own, the IR read planner's for a server of single ranges (rust/refkv-ir/src/plan.rs):
+ * this many times the bytes it asks for, plus a gap...
+ */
+export const MERGE_AMPLIFICATION = 4;
+/**
+ * ...and the bytes waiting over this many connections, between these lengths, so that a batch
+ * that reads much keeps connections busy.
+ */
+const MERGE_CONNECTIONS = 8;
+const MERGE_MIN_RUN = 1 << 20;
+const MERGE_MAX_RUN = 32 << 20;
+/** How long, in milliseconds, a read waits for the reads near it. */
+export const MERGE_WINDOW = 2;
+
+/** A read of bytes `[offset, end)` of a url source, waiting to be served by one request with the reads near it. */
+type Waiting = {
+  offset: bigint;
+  end: bigint;
+  resolve: (data: Uint8Array) => void;
+  reject: (reason: unknown) => void;
+};
+
+/**
+ * `reads` of one source, as the runs that one request each serves, in order of offset. A read
+ * joins the run before it if it starts at most `MERGE_GAP` bytes after the run's end, and the run
+ * then fetches at most `MERGE_AMPLIFICATION` times the bytes its reads ask for, plus `MERGE_GAP`,
+ * and at most `longest` bytes. A read is never cut, so a longer one is a run of its own.
+ */
+export function mergedRuns<T extends { offset: bigint; end: bigint }>(reads: T[], longest: bigint): T[][] {
+  const big = (v: bigint, w: bigint) => (v > w ? v : w);
+  const sorted = [...reads].sort((x, y) =>
+    x.offset < y.offset ? -1 : x.offset > y.offset ? 1 : x.end < y.end ? -1 : x.end > y.end ? 1 : 0);
+  const runs: T[][] = [];
+  let start = 0n;
+  let end = 0n;
+  let asked = 0n;
+  for (const read of sorted) {
+    const fresh = big(read.end - big(read.offset, end), 0n);
+    const span = big(end, read.end) - start;
+    if (
+      runs.length > 0 &&
+      read.offset - end <= BigInt(MERGE_GAP) &&
+      span <= longest &&
+      span <= BigInt(MERGE_AMPLIFICATION) * (asked + fresh) + BigInt(MERGE_GAP)
+    ) {
+      runs[runs.length - 1].push(read);
+      asked += fresh;
+      end = big(end, read.end);
+    } else {
+      runs.push([read]);
+      start = read.offset;
+      end = read.end;
+      asked = read.end - read.offset;
+    }
+  }
+  return runs;
+}
+
 const U32_ALL = 0xffffffff;
 const strictUtf8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
@@ -378,6 +439,8 @@ export class Archive {
   private fetchRange: RangeFetcher;
   /** Sends this archive's requests, checking addresses (rule 3), where the platform allows. */
   private netFetch: CheckedFetch | undefined;
+  /** The reads of url sources waiting to merge, by source. */
+  private waiting = new Map<number, Waiting[]>();
 
   protected constructor(
     bytes: Uint8Array,
@@ -693,6 +756,56 @@ export class Archive {
     }
   }
 
+  /**
+   * Bytes of a url source, read with the reads of other values waiting at the same time (spec §6.3
+   * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#63-resolving-a-reference>).
+   */
+  private sharedRead(source: number, offset: bigint, end: bigint): Promise<Uint8Array> {
+    return new Promise((resolve, reject) => {
+      if (this.waiting.size === 0) setTimeout(() => this.flush(), MERGE_WINDOW);
+      const reads = this.waiting.get(source);
+      const read = { offset, end, resolve, reject };
+      if (reads) reads.push(read);
+      else this.waiting.set(source, [read]);
+    });
+  }
+
+  /** Starts the requests that serve the reads waiting. */
+  private flush(): void {
+    const waiting = this.waiting;
+    this.waiting = new Map();
+    for (const [source, reads] of waiting) {
+      const bytes = reads.reduce((n, r) => n + (r.end - r.offset), 0n);
+      const share = bytes / BigInt(MERGE_CONNECTIONS);
+      const floor = BigInt(MERGE_MIN_RUN);
+      const ceiling = BigInt(MERGE_MAX_RUN);
+      const longest = share < floor ? floor : share > ceiling ? ceiling : share;
+      for (const run of mergedRuns(reads, longest)) void this.serve(source, run);
+    }
+  }
+
+  /**
+   * Reads `run` in one request, and gives each read its bytes. A run ends where its last read
+   * ends, so it may fail where that read alone would; the others must not fail with it, so each
+   * read of a run that fails is read on its own, and gets its own result.
+   */
+  private async serve(source: number, run: Waiting[]): Promise<void> {
+    const offset = run[0].offset;
+    const end = run.reduce((e, r) => (r.end > e ? r.end : e), offset);
+    let data: Uint8Array;
+    try {
+      data = await this.source({ source, offset, length: end - offset });
+    } catch (e) {
+      if (run.length > 1) await Promise.all(run.map((r) => this.serve(source, [r])));
+      else run[0].reject(e);
+      return;
+    }
+    for (const r of run) {
+      const from = Number(r.offset - offset);
+      r.resolve(data.subarray(from, from + Number(r.end - r.offset)));
+    }
+  }
+
   /** Bytes `[start, end)` of a visible key's value, or undefined if absent. */
   async read(key: string, start = 0, end?: number): Promise<Uint8Array | undefined> {
     const entry = this.lookup(key);
@@ -763,7 +876,7 @@ export class Archive {
       );
     }
     for (const run of runs) {
-      run.data = this.source({ source: run.source, offset: run.offset, length: run.end - run.offset });
+      run.data = this.sharedRead(run.source, run.offset, run.end);
     }
     const whole = await Promise.all(
       parts.map(async (p) => {

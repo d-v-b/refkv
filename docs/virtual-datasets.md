@@ -166,6 +166,19 @@ What each step does:
 - **Requests.** `refkv.zarr.open(..., max_concurrency=16)` allows more requests in
   flight, and `max_concurrency=None` removes the cap. Respect the host's
   limits.
+- **Many small chunks.** Chunks read at the same time share requests when they lie
+  less than 64 KiB apart in one source file, but zarr asks for only
+  `async.concurrency` chunks at once (10 by default), which limits how many can
+  share one. Raising it makes both fewer requests and a faster read, and opens no
+  more connections, since `max_concurrency` bounds those. The setting is zarr's, and
+  applies to the other stores of the process too:
+
+  ```python
+  with zarr.config.set({"async.concurrency": 1024}):
+      plane = array[0]
+  ```
+
+  At the default, the requests fall by up to tenfold but the read takes about as long.
 
 ## Publishing
 
