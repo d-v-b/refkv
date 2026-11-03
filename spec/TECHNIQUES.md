@@ -1,10 +1,11 @@
 # Mapping image formats to Zarr: techniques
 
-refkv maps a dozen source formats ([the formats table](../docs/zarrify/README.md#formats):
+refkv maps about two dozen source formats ([the formats table](../docs/zarrify/README.md#formats):
 image files, chunked array stores, and Sentinel-2 SAFE products, a directory or a zip file
-of JPEG 2000 bands and XML metadata) to Zarr v3 without copying their data.
+of JPEG 2000 bands and XML metadata, audio and video files, and HDF5, GRIB and NumPy files) to
+Zarr v3 without copying their data.
 
-Doing the same thing a dozen times shows which problems recur, and which
+Doing the same thing two dozen times shows which problems recur, and which
 techniques solve them for any format. This document collects those
 techniques. It then proposes, from them, how the conventions should
 treat a source's metadata. It is a design note: the conventions in this
@@ -57,6 +58,8 @@ own with a standard codec. The same few techniques recur:
 | the unit is too large to be a chunk (one JPEG strip per level) | cut it at the format's own resynchronization points (restart markers), and rewrite each piece's header as literal bytes | NDPI |
 | rows have padding | one byte range per row, gathered into one chunk | ND2 |
 | units carry a per-unit header | a codec that parses it, rather than layout tricks | N5 (`n5_default`) |
+| units are too many to reference (a billion chunks), but groups of them are regular boxes of the grid with an index of their own | one reference per group, whole, and a codec that reads the group's own index when a unit is read: the output comes from the listing alone | Neuroglancer precomputed (`refkv.precomputed`) |
+| a unit's decoded shape depends on where it lies, which a codec is not told (a chunk clipped by the volume's end) | a small literal before each reference that gives its position, read for no request | Neuroglancer precomputed |
 | units carry a few header bytes before a standard stream | a range that starts after them; the header's one meaningful bit becomes a codec | CZI (the Zstd1 header, whose hi-lo flag is `numcodecs.shuffle`) |
 | the unit's bytes are a transform of the pixels a standard codec undoes (16-bit values split into low and high bytes) | that codec in the chain, before the compressor | CZI (`bytes`, `numcodecs.shuffle`, `zstd`) |
 | the unit's values are differences along a row (a horizontal predictor) | an array-to-array codec before `bytes` that sums them back along that axis | TIFF Predictor 2 (`imagecodecs_delta`, `bytes`, `refkv.tiff_lzw`) |
@@ -66,6 +69,7 @@ own with a standard codec. The same few techniques recur:
 | units lie at arbitrary positions, overlapping (stage tile scans) | one array per position, holding all its planes, and recording where it lies; repeated planes at one position in further arrays | CZI tiles |
 | samples are interleaved, or the order is Fortran | a `transpose` codec | TIFF, ND2, NIfTI RGB, Zarr v2 `order: F` |
 | byte order | the `bytes` codec's `endian` | everywhere |
+| elements narrower than a byte (4- and 6-bit floats), packed least significant bit first | the zarr-extensions `packbits` codec in place of `bytes`, and chunks cut where a run of elements starts on a byte (else one chunk) | safetensors `F4`, `F6_*` |
 | edge units are truncated or padded | a codec that tolerates it (N5), or stores matching Zarr's whole-edge rule (HDF5); chunks wholly outside the image are dropped | N5, IMS |
 | units are missing | no entry: the chunk reads as the fill value | ND2 missing frames, HDF5 unallocated chunks, sparse Zarr |
 | the source's key scheme | a chunk key encoding that reproduces it | Zarr v2 and N5 via the `v2` encoding |
@@ -199,26 +203,27 @@ From [§1](#1-three-kinds-of-information), [§4](#4-numeric-metadata-as-arrays) 
 | FLAC | the stream's parameters, STREAMINFO's fields (its MD5 as hex), each metadata block's type and size, the Vorbis comments, the cue sheet, each picture's fields, the seek table's counts, the ID3v2 and ID3v1 tags' fields | none | each picture's data, by reference (`pictures/<i>`) |
 | IMS | none | the whole HDF5 tree, mirrored under `refkv_source/hdf5`: each group's attributes, links and named datatypes on its own group | every dataset but the image's (histograms, thumbnail, `DataSetTimes`, `Scene8` tables), by reference, typed when its elements are numbers; large attributes, copied |
 | N5 | each node's `attributes.json` without its layout members (`dimensions`, `blockSize`, `dataType`, `compression`, `n5`) | none | none |
+| Neuroglancer precomputed | the `info` document, every member, and on each array its scale; scales not presented, each with its reason | none | none |
 | Zarr v2, OME-Zarr | each node's `.zattrs` | none | none |
 | CZI | the file header (version, GUIDs) | the attachment directory's entries (name, type, GUID, the form of their data), within a 64 KiB budget | the directory as copied typed columns, one per field and dimension; subblock metadata, attachments and unplaced data as families; the metadata XML, attachments (time stamps and focus positions typed, event lists as columns), unreferenced segments and the tail by reference |
+| safetensors | the header's length and `__metadata__`, and every tensor's entry as written (name, `dtype`, shape, `data_offsets`, other members), with its path or the reason it is not presented | none | none; the header and each tensor's data by reference |
 | SAFE | the product's identity (a fixed set of fields, a derived convenience); per band, the values that interpret it (band id, wavelengths, gains, irradiance, quantification and offsets), recorded and not applied; GeoZarr `proj` and `spatial` on the resolution groups | the XML documents as text within a 64 KiB budget, and the keys of the rest | the XML documents past the budget, and each band file's JP2 header, as arrays of bytes; every other file kept whole |
 
-## 8. Open questions
+## 8. Questions the conventions settled
 
-1. **The metadata node's name and place.**
-   - Proposal: a child group `refkv_source` of the root.
-   - It declares the convention, with the collections as its `S`, and
-     holds the arrays.
-   - OME-NGFF readers ignore children they don't know.
-2. **Array naming:** names from the source (`AcqTimesCache`,
-   `ifd/3/320`), or from meaning (`time`, `stage_x`)? Source names are
-   repeatable without a dictionary; meaningful names need a table per
-   format.
-3. **Where an inline array is too large** (a gathered or derived array of
-   millions of frames), the same rules apply, but the archive grows. Is
-   there a limit?
-4. **N**, the count above which a numeric tag becomes an array (proposed:
-   64).
-5. **Index order vs physical order** (ND2's negative z step):
-   - option 1: flip the index so that z increases with position;
-   - option 2: record the sign and keep the source order.
+This note's proposal came before the conventions, and they settled the questions it left open:
+
+1. **The metadata node's name and place:** the group `refkv_source`, a child of the root,
+   which declares the convention ([conventions §2](conventions.md#2-attributes)); OME-NGFF
+   readers ignore it.
+2. **Array naming:** names from the source. The IR mirror names each structure as the source
+   does ([conventions §8.1](conventions.md#81-elements)), which needs no dictionary per format.
+3. **Where an inline array is too large:** the mirror's rows have a budget
+   ([conventions §8.3](conventions.md#83-column-runs)), and so do a profile's references
+   ([spec/zarrify.md §1.2](zarrify.md#12-input)); an input past either is rejected.
+4. **N**, the count above which a numeric tag becomes an array: there is none. The mirror holds
+   every value in typed columns ([conventions §8](conventions.md#8-the-ir-mirror)), so no
+   threshold picks the values that become arrays.
+5. **Index order vs physical order:** option 1. ND2's z index is flipped for a negative
+   `dZStep`, so that z increases with position
+   ([nd2.md §4.3](zarrify/nd2.md#43-output)).

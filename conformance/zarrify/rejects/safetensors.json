@@ -1,0 +1,93 @@
+{
+  "about": "The inputs the safetensors profile rejects, each with the start of its message (the Rust tests' prefix). rust/refkv-ir/build.rs writes a Rust test per case into tests/safetensors.rs; python/tests/ir/test_rejects.py checks each through the host and that every rejected fixture is listed here.",
+  "cases": [
+    {
+      "test": "st_reject_beyond",
+      "input": "st_reject_beyond.safetensors",
+      "message": "the tensors' data ends at byte 8 of the 4-byte buffer, not at its end"
+    },
+    {
+      "test": "st_reject_dtype",
+      "input": "st_reject_dtype.safetensors",
+      "message": "the tensor a has the data type F128, which safetensors does not define"
+    },
+    {
+      "test": "st_reject_duplicate",
+      "input": "st_reject_duplicate.safetensors",
+      "message": "the safetensors header is not JSON: the member \"a\" appears twice at line 1 column 57"
+    },
+    {
+      "test": "st_reject_end_before_begin",
+      "input": "st_reject_end_before_begin.safetensors",
+      "message": "the tensor a's data_offsets [8, 4] end before they begin"
+    },
+    {
+      "test": "st_reject_entry",
+      "input": "st_reject_entry.safetensors",
+      "message": "the safetensors header's entry for the tensor a has no shape of integers from 0 to 2^53 - 1"
+    },
+    {
+      "test": "st_reject_gap",
+      "input": "st_reject_gap.safetensors",
+      "message": "the tensor b's data, at [8, 12) of the buffer, leaves the bytes [4, 8) to no tensor"
+    },
+    {
+      "test": "st_reject_header_limit",
+      "input": "st_reject_header_limit.safetensors",
+      "message": "the safetensors header's length 100000001 is more than the 100000000 bytes the safetensors library reads",
+      "host": "not a file of any supported format"
+    },
+    {
+      "test": "st_reject_header_outside",
+      "input": "st_reject_header_outside.safetensors",
+      "message": "the 1000-byte safetensors header is outside the 29-byte file"
+    },
+    {
+      "test": "st_reject_metadata",
+      "input": "st_reject_metadata.safetensors",
+      "message": "the safetensors header's __metadata__ is not an object of strings"
+    },
+    {
+      "test": "st_reject_misaligned",
+      "input": "st_reject_misaligned.safetensors",
+      "message": "the tensor a of shape [3] and data type F4 is 12 bits, not a whole number of bytes"
+    },
+    {
+      "test": "st_reject_not_json",
+      "input": "st_reject_not_json.safetensors",
+      "message": "the safetensors header is not JSON: expected value at line 1 column 6"
+    },
+    {
+      "test": "st_reject_not_utf8",
+      "input": "st_reject_not_utf8.safetensors",
+      "message": "the safetensors header is not UTF-8"
+    },
+    {
+      "test": "st_reject_overlap",
+      "input": "st_reject_overlap.safetensors",
+      "message": "the tensor b's data, at [4, 12) of the buffer, overlaps the data before it, which ends at 8"
+    },
+    {
+      "test": "st_reject_short",
+      "input": "st_reject_short.safetensors",
+      "message": "too short for a safetensors file: 5 bytes, fewer than the 8 of its header's length",
+      "host": "not a file of any supported format"
+    },
+    {
+      "test": "st_reject_size",
+      "input": "st_reject_size.safetensors",
+      "message": "the tensor a of shape [3] and data type F32 is 12 bytes, not the 8 its data_offsets give"
+    },
+    {
+      "test": "st_reject_start",
+      "input": "st_reject_start.safetensors",
+      "message": "the safetensors header does not start with an opening brace",
+      "host": "not a file of any supported format"
+    },
+    {
+      "test": "st_reject_trailing",
+      "input": "st_reject_trailing.safetensors",
+      "message": "the tensors' data ends at byte 8 of the 9-byte buffer, not at its end"
+    }
+  ]
+}

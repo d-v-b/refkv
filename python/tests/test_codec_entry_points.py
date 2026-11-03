@@ -15,12 +15,14 @@ from pathlib import Path
 import numpy as np
 import pytest
 import zarr
+import zarr.core.dtype
 import zarr.registry
 from obstore.store import LocalStore
 
 import refkv
 import refkv.zarr
 import refkv.zarr.codecs
+import refkv.zarr.dtypes
 from refkv._narrow import ndarray
 from refkv.reader import ReferenceReader
 from refkv.zarr.codecs.n5_default import N5BlockError
@@ -36,14 +38,21 @@ EVERY_CODEC = {
     "refkv.tiff_lzw": ("qptiff/qptiff_fl_lzw_narrow_eoi.qptiff", "0"),
     "refkv.stream": ("mp3/mp3_single_frame.mp3", "samples"),
     "refkv.fits_tiles": ("fits/fits_comp_gzip1.fits", "1"),
+    "refkv.skip": ("npy/npz_compressed.npz", "fortran"),
+    "refkv.grib": ("grib/grib_simple.grib2", "grid0/t_surface"),
+    "refkv.precomputed": ("precomputed/precomputed_raw_clipped", "0"),
+    "packbits": ("safetensors/st_dtypes.safetensors", "f4"),
     "n5_default": ("n5/n5_compressions", "zlib_f64"),
     "numcodecs.zlib": ("tiff/tczyx_uint16_deflate.ome.tif", "0"),
     "imagecodecs_jpeg": ("dicom/dicom_jpeg_single_frame_fragments.dcm", "0"),
     "imagecodecs_jpeg2k": ("dicom/dicom_j2k_signed16.dcm", "0"),
+    "imagecodecs_ljpeg": ("dicom/dicom_ljpeg_signed16_eot.dcm", "0"),
     "imagecodecs_jpegxr": ("ndpi/ndpi_jpegxr_bgr.ndpi", "0"),
     "imagecodecs_delta": ("tiff/predictor_lzw_uint16.tif", "0"),
 }
 
+# An array of a data type of refkv's (refkv.zarr.dtypes, ml_dtypes types), read by zarr alone
+# through refkv's `zarr.data_type` entry points, is saved and compared as its bytes.
 # The zarr-extensions codec that another package (zarr-n5) also registers, and its implementation
 # in refkv, by the name zarr's config gives it: with both installed, the config chooses one.
 SHARED = {"n5_default": "refkv.zarr.codecs.n5_default.N5DefaultCodec"}
@@ -63,7 +72,8 @@ zarr.config.set({ {f"codecs.{name}": cls for name, cls in SHARED.items()}!r})
 assert not [m for m in sys.modules if m == "refkv" or m.startswith("refkv.")], "zarr imported refkv"
 root, out, *paths = sys.argv[1:]
 for i, path in enumerate(paths):
-    np.save(f"{{out}}/{{i}}.npy", zarr.open_array(LocalStore(root, read_only=True), path=path, mode="r")[...])
+    a = zarr.open_array(LocalStore(root, read_only=True), path=path, mode="r")[...]
+    np.save(f"{{out}}/{{i}}.npy", a.view(np.uint8) if a.dtype.type.__module__ == "ml_dtypes" else a)
 """
 
 # Run in a fresh interpreter: has zarr load refkv's `n5_default` through its entry point, and
@@ -71,6 +81,7 @@ for i, path in enumerate(paths):
 LOAD_N5_DEFAULT = """
 import warnings
 import zarr
+import zarr.core.dtype
 import zarr.registry
 from zarr.errors import ZarrUserWarning
 warnings.simplefilter("ignore", ZarrUserWarning)  # zarr-n5's n5_default, when it is installed
@@ -97,7 +108,7 @@ def _zarrified(fixture: str, tmp_path: Path) -> ReferenceReader:
     path = FIXTURES / fixture
     if not path.is_dir():
         return zarrify(str(path))
-    zarrify_store(str(path), f"https://example.test/{path.name}/").save(str(tmp_path / f"{path.name}.vzip"))
+    zarrify_store(str(path), f"https://example.test/{path.name}/").save_vzip(str(tmp_path / f"{path.name}.vzip"))
     return refkv.open(str(tmp_path / f"{path.name}.vzip"), registry={"https://example.test": LocalStore(path.parent)})
 
 
@@ -111,12 +122,22 @@ def test_entry_points_name_every_codec_and_resolve_to_it():
     modules = {m.name for m in pkgutil.iter_modules(refkv.zarr.codecs.__path__) if not m.name.startswith("_")}
     points = _refkv_entry_points()
     assert {e.value.partition(":")[0] for e in points.values()} == {f"refkv.zarr.codecs.{m}" for m in modules}
-    assert set(points) == {"refkv.tiff_lzw", "refkv.stream", "refkv.fits_tiles", "n5_default"}
+    assert set(points) == {"refkv.tiff_lzw", "refkv.stream", "refkv.fits_tiles", "refkv.grib", "refkv.precomputed",
+                           "refkv.skip", "n5_default", "packbits"}
     for name, e in points.items():
         with zarr.config.set({f"codecs.{name}": SHARED[name]} if name in SHARED else {}):
             assert zarr.registry.get_codec_class(name) is e.load(), name
-    # refkv's own codecs are named refkv.<codec>, but n5_default, a zarr-extensions codec
-    assert {n for n in points if not n.startswith("refkv.")} == {"n5_default"}
+    # refkv's own codecs are named refkv.<codec>, but n5_default and packbits, zarr-extensions codecs
+    assert {n for n in points if not n.startswith("refkv.")} == {"n5_default", "packbits"}
+
+
+def test_data_type_entry_points_name_every_data_type_and_resolve_to_it():
+    """Every data type of refkv.zarr.dtypes has a `zarr.data_type` entry point, under its name,
+    and zarr's registry resolves that name to the entry point's class."""
+    points = {e.name: e for e in importlib.metadata.distribution("refkv").entry_points if e.group == "zarr.data_type"}
+    assert set(points) == {cls._zarr_v3_name for cls in refkv.zarr.dtypes.DATA_TYPES}
+    for name, e in points.items():
+        assert zarr.core.dtype.data_type_registry.get(name) is e.load(), name
 
 
 def test_zarr_alone_decodes_every_codec_of_refkvs_archives(tmp_path):
@@ -134,7 +155,8 @@ def test_zarr_alone_decodes_every_codec_of_refkvs_archives(tmp_path):
                 (root / str(i) / key).parent.mkdir(parents=True, exist_ok=True)
                 (root / str(i) / key).write_bytes(value)
         paths.append(f"{i}/{path}")
-        expected.append(ndarray(zarr.open_array(refkv.zarr.store(store), path=path, mode="r")[...]))
+        a = ndarray(zarr.open_array(refkv.zarr.store(store), path=path, mode="r")[...])
+        expected.append(a.view(np.uint8) if a.dtype.type.__module__ == "ml_dtypes" else a)
     subprocess.run([sys.executable, "-I", "-c", READ_WITH_ZARR_ALONE, str(root), str(out), *paths],
                    check=True)
     for i, (name, want) in enumerate(zip(EVERY_CODEC, expected, strict=True)):

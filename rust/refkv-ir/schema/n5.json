@@ -68,8 +68,8 @@
       "given": {"path": "", "dimensions": "", "blockSize": "", "dataType": "", "members": "", "compressionType": "", "c": "", "c_members": ""},
       "derive": {"n": "len(dimensions)", "type": "c.type"},
       "constraints": [
-        {"require": "kind(dimensions) == 'list' && n >= 1 && n <= max_dimensions && int(dimensions, 0, max_safe)", "message": "{path}: dimensions {dimensions} is not 1 to 32 sizes"},
-        {"require": "kind(blockSize) == 'list' && len(blockSize) == n && int(blockSize, 1, max_block)", "message": "{path}: blockSize {blockSize} is not {n} block sizes"},
+        {"require": "kind(dimensions) == 'list' && n >= 1 && n <= max_dimensions && ints(dimensions, 0, max_safe)", "message": "{path}: dimensions {dimensions} is not 1 to 32 sizes"},
+        {"require": "kind(blockSize) == 'list' && len(blockSize) == n && ints(blockSize, 1, max_block)", "message": "{path}: blockSize {blockSize} is not {n} block sizes"},
         {"require": "kind(dataType) == 'string' && in(dataType, data_type_names)", "message": "{path}: dataType {dataType} is not supported"},
         {"require": "!in('compression', members) || (kind(c) == 'object' && kind(type) == 'string')", "message": "{path}: compression is not an object with a string type"},
         {"require": "in('compression', members) || kind(compressionType) == 'string'", "message": "{path}: no compression"},

@@ -68,8 +68,7 @@ lists them.
 ## Try it
 
 [example.py](example.py) zarrifies a public file and plots it with matplotlib. Its
-dependencies are in its header (PEP 723), so it runs on its own (uv builds refkv from GitHub,
-which needs a Rust toolchain, until a release on PyPI has `refkv.zarrify`):
+dependencies are in its header (PEP 723), so it runs on its own, with refkv from PyPI:
 
 ```bash
 uv run docs/zarrify/mrc/example.py
@@ -131,7 +130,7 @@ Data variables:
     data     (z, y, x) float32 32kB dask.array<chunksize=(20, 20, 20), meta=np.ndarray>
 Attributes:
     zarr_conventions:   [{'uuid': 'f139bf4e-7bab-4c3c-9b2d-66ba747f9b93', 'sc...
-    refkv_zarrified:  {'profile': 'mrc-dataset', 'version': 0, 'revision': ...
+    refkv_zarrified:  {'profile': 'mrc-dataset', 'version': 0, 'source': {'u...
 0.1251585
 ```
 
@@ -156,8 +155,8 @@ Supported:
 - MRC2014 files, either byte order: single images, image stacks, volumes
   and volume stacks.
 - Extended headers of any type (CCP4 symmetry records, FEI, SerialEM, ...)
-  are kept in the source metadata; they do not change where the values
-  start.
+  are kept in the mirror as opaque bytes and never read; the values start
+  after them.
 
 Rejected:
 
@@ -188,7 +187,7 @@ files without `MAP` at byte 208, and modes 3 and 101.
   after one request for the file's size. The extended header is never
   read.
 - Reading a chunk is one range request of at most 1 MiB.
-- The archive has one entry per chunk.
+- The archive has one entry per chunk, beside its documents and the mirror's chunks.
 
 ## How it's verified
 

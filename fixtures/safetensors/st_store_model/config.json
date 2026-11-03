@@ -1,0 +1,9 @@
+{
+  "architectures": [
+    "Tiny"
+  ],
+  "quantization_config": {
+    "expert_dtype": "fp4"
+  },
+  "hidden_size": 4
+}

@@ -1,0 +1,48 @@
+{
+ "@type": "neuroglancer_multiscale_volume",
+ "type": "segmentation",
+ "data_type": "uint32",
+ "num_channels": 1,
+ "scales": [
+  {
+   "key": "0",
+   "size": [
+    8,
+    4,
+    4
+   ],
+   "chunk_sizes": [
+    [
+     4,
+     4,
+     4
+    ]
+   ],
+   "resolution": [
+    8,
+    8,
+    8
+   ],
+   "voxel_offset": [
+    0,
+    0,
+    0
+   ],
+   "encoding": "compressed_segmentation",
+   "compressed_segmentation_block_size": [
+    2,
+    2,
+    2
+   ],
+   "sharding": {
+    "@type": "neuroglancer_uint64_sharded_v1",
+    "hash": "identity",
+    "preshift_bits": 0,
+    "minishard_bits": 1,
+    "shard_bits": 1,
+    "minishard_index_encoding": "raw",
+    "data_encoding": "gzip"
+   }
+  }
+ ]
+}

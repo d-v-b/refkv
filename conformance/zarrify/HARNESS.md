@@ -136,7 +136,16 @@ include:
 
 `compare.py --fixtures <dir>` takes the store fixtures from `<dir>/n5/`,
 `<dir>/zarr2/` and `<dir>/ome-zarr/` (as `mutate.py` writes them), and `--large` adds the corpus
-inputs marked `py-only`, which every implementation but the browser's runs.
+inputs marked `py-only`, which every implementation but the browser's runs. A mutant of a
+fixture in `revised.json` compares as its fixture does: without the frozen reference.
+
+When a remote server does not serve an input (a timeout, a reset connection, an HTTP error
+after the proxy's retries, or a 404 for the input itself), the proxy answers the request
+with 404 or 502 instead of dropping the connection, and `compare.py` reports the input as
+`UNAVAILABLE` rather than comparing it, unless every implementation read it anyway. An
+unavailable input does not fail the run; the summary names how many there were and their
+hosts. A 404 for a file beside the input, or for an object of a store, is a probe's answer
+and is passed on as it is.
 
 ## The built-in implementations, and what a comparison proves
 
@@ -190,7 +199,8 @@ to that comparison: it loads the table, checks its invariants (conventions
 [§8.4](../../spec/conventions.md#84-reading-the-source-back)), checks that it describes a source of the size source 0 pins, and
 checks that it is canonical (folded again from what it loads, it is the same
 table, entry for entry); a mirror that fails is a crash of the
-implementation that wrote it. A store's mirror (SAFE's directory form, Zarr v2's and N5's,
+implementation that wrote it. A store IR's mirror (that of a store input, or of a VSI, NRRD or GRIB
+file, which its profile reads as a store, [spec/zarrify.md §1.8](../../spec/zarrify.md#18-files-read-as-stores);
 [conventions §8.9](../../spec/conventions.md#89-stores)) is checked likewise, with
 the store in place of source 0: every held object it rebuilds is the store's
 object byte for byte, every url source pins its object's listed size, it is

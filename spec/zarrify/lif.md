@@ -7,12 +7,16 @@ conventions share is in [spec/conventions.md](../conventions.md), cited here as 
 [Part 2](#part-2-the-profile) below, cited as "the profile §n".
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `b099ab1f-f9d4-4276-9006-9ff1193a34b2` ·
-Schema: [schema.json](lif/schema.json) · Changed 2026-10-26, with no change to any output: the
-layout is tabulated, its entries in [Layout](#layout) and its types in type tables
+Schema: [schema.json](lif/schema.json)
+
+Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
+[Layout](#layout) and its types in type tables
 ([conventions §11.5](../conventions.md#115-layout-tables)), and the blocks' fields, the
-dimensions' and channels' attributes, the data types and the channels' colors are tables;
-the prose also gives an image's source metadata members in the order refkv already wrote
-them, `tile_scan` before `field` and `tile` ([§5.2](#52-the-images))
+dimensions' and channels' attributes, the data types and the channels' colors are tables; the
+prose also gives an image's source metadata members in the order refkv already wrote them,
+`tile_scan` before `field` and `tile` ([§5.2](#52-the-images)).
+
+Added 2026-10-25.
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 

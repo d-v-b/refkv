@@ -40,7 +40,7 @@ vds = vz.open_virtual_mfdataset(
 
 # 2. Save it as a vzip archive, naming the files by their public HTTPS URLs.
 store = refkv.ReferenceStore.from_virtualizarr(vds, rewrite_urls=refkv.public_s3_url)
-print(store.save("oisst.vzip"))
+print(store.save_vzip("oisst.vzip"))
 
 # 3. Reopen it with xarray: the yearly mean SST over the Nino 3.4 region, weighted by area.
 stats = refkv.Stats()

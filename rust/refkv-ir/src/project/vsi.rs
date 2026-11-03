@@ -38,6 +38,7 @@ fn codecs(codec: &str, bytes: u64, samples: u64, axes: &[&str]) -> J {
     match codec {
         "jpeg" => out.push(json!({"name": "imagecodecs_jpeg"})),
         "jpeg2000" => out.push(json!({"name": "imagecodecs_jpeg2k"})),
+        "ljpeg" => out.push(json!({"name": "imagecodecs_ljpeg"})),
         _ => out.push(bytes_codec(bytes, "little")),
     }
     J::Array(out)

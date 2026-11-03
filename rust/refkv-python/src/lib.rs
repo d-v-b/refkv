@@ -216,12 +216,17 @@ impl PyIr {
             return Ok(None);
         };
         let tid = self.ir.ty[i as usize];
-        let mut cache = self.types.lock().unwrap();
-        let ty = cache
-            .entry(tid)
-            .or_insert_with(|| types::parse(self.ir.types.get(tid)).ok());
-        let Some(ty) = ty else { return Ok(None) };
-        let v = types::decode(ty, raw).map_err(PyValueError::new_err)?;
+        // the cache's lock is released before to_py makes Python objects: on a free-threaded
+        // build, a thread blocked on it while attached would hold up a stop-the-world pause
+        // (the garbage collector's) that the holder's allocation waits for
+        let v = {
+            let mut cache = self.types.lock().unwrap();
+            let ty = cache
+                .entry(tid)
+                .or_insert_with(|| types::parse(self.ir.types.get(tid)).ok());
+            let Some(ty) = ty else { return Ok(None) };
+            types::decode(ty, raw).map_err(PyValueError::new_err)?
+        };
         Ok(Some(to_py(py, &v)?))
     }
     fn children(&self, i: i64) -> PyResult<Vec<u32>> {
@@ -766,7 +771,7 @@ fn project<'py>(py: Python<'py>, format: &str, ir: &PyIr, facts: &str, url: &str
     out_py(py, &o)
 }
 
-/// The mirror of an IR (for the profile "nd2", "tiff", "czi", "dicom", "nifti", "ims", "ndpi", "mrc" or "mp3"): its entries and
+/// The mirror of an IR under `profile`'s convention (a name of spec/zarrify/profiles/): its entries and
 /// references under `refkv_source` (`out_py`'s form, the url empty), and what the
 /// table folded (JSON).
 #[pyfunction]
@@ -804,6 +809,14 @@ fn view_problem(keys: Vec<String>, get: Bound<'_, PyAny>, read: Bound<'_, PyAny>
     refkv_ir::mirror::view_problem(&keys, &g, &mut rd)
 }
 
+/// CRC-32C (Castagnoli, RFC 3720 §B.4) of `data`: a range's checksum (spec §4.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>).
+#[pyfunction]
+#[pyo3(name = "crc32c")]
+fn range_crc32c(py: Python<'_>, data: &[u8]) -> u32 {
+    py.detach(|| crc32c::crc32c(data))
+}
+
 /// The format a file's first bytes (up to 552 of them) give (`Format::sniff`), if any: its
 /// profile's name.
 #[pyfunction]
@@ -837,6 +850,18 @@ fn fits_tiles_decode<'py>(py: Python<'py>, chunk: &[u8], config: &str, chunk_sha
     Ok(PyBytes::new(py, &out))
 }
 
+/// The `refkv.grib` codec (spec/conventions.md §12
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#12-grib-messages>): the values
+/// of a field of the GRIB message `chunk`, as little-endian float64 in C order over
+/// `chunk_shape`, NaN where missing, from the codec's configuration (JSON).
+#[pyfunction]
+fn grib_decode<'py>(py: Python<'py>, chunk: &[u8], config: &str, chunk_shape: Vec<u64>) -> PyResult<Bound<'py, PyBytes>> {
+    let cfg: serde_json::Value = serde_json::from_str(config).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let cfg = refkv_ir::grib::codec::Config::from_json(&cfg).map_err(PyValueError::new_err)?;
+    let out = py.detach(|| refkv_ir::grib::codec::decode(chunk, &cfg, &chunk_shape)).map_err(PyValueError::new_err)?;
+    Ok(PyBytes::new(py, &bytes_of(&out, f64::to_le_bytes)))
+}
+
 /// For tests: the reference payload past which a NIfTI or MRC edge chunk is copied (None:
 /// the payload limit), so that small files reach the copy (spec/zarrify/nifti.md §7.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#72-chunks>,
@@ -865,7 +890,12 @@ fn _set_chunk_frames(n: Option<usize>) {
     refkv_ir::mp3::set_chunk_frames(n);
 }
 
-#[pymodule]
+// Safe without the GIL (`gil_used = false`), so a free-threaded Python keeps it disabled on
+// import. The process-wide settings above are atomics, which each run reads once, into its
+// facts. A parser or run (`Nd2Parser`, `Run`, ...) takes `&mut self` and is driven by one
+// thread at a time: a second thread's call while one is under way raises RuntimeError
+// ("Already borrowed"), on any build, since a call detaches while the core works.
+#[pymodule(gil_used = false)]
 #[pyo3(name = "_core")]
 fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyIr>()?;
@@ -876,9 +906,11 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyStoreRun>()?;
     m.add_function(wrap_pyfunction!(rebuild_store, m)?)?;
     m.add_function(wrap_pyfunction!(plan_spans, m)?)?;
+    m.add_function(wrap_pyfunction!(range_crc32c, m)?)?;
     m.add_function(wrap_pyfunction!(sniff, m)?)?;
     m.add_function(wrap_pyfunction!(registry, m)?)?;
     m.add_function(wrap_pyfunction!(fits_tiles_decode, m)?)?;
+    m.add_function(wrap_pyfunction!(grib_decode, m)?)?;
     m.add_function(wrap_pyfunction!(_set_copy_threshold, m)?)?;
     m.add_function(wrap_pyfunction!(_set_chunk_frames, m)?)?;
     m.add_function(wrap_pyfunction!(_set_shard_frames, m)?)?;

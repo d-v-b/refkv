@@ -1,11 +1,64 @@
 # refkv: reference-aware key-value storage
 
+refkv presents image files and chunked array stores in
+[about two dozen formats](docs/zarrify/README.md#formats) as Zarr hierarchies
+whose chunks are references to the original bytes, without copying them. It
+**zarrifies** a TIFF slide, an ND2 or CZI file, an HDF5 file or an N5 store
+from Python or in the browser, and saves the result as one small archive.
+
 > [!CAUTION]
 > This project is almost entirely vibe-coded. It is intended for personal use,
 > and as a proof of concept. If you need virtual Zarr datasets, use
 > [Icechunk](https://icechunk.io/) or [kerchunk](https://github.com/fsspec/kerchunk).
+> refkv is released on [PyPI](https://pypi.org/project/refkv/) as 0.x versions,
+> with no support; until 1.0 the specification and the zarrified layouts can
+> change without regard for existing archives.
+>
+> The current goal of this package is **capability demonstration**, not code quality. Do not expect the internals to express anything except
+> the minimum needed to satisfy the design requirements. If this package demonstrates real utility,
+> then the design practice will transition from pure velocity to a slower, more methodical pace.
+>
+> If this package looks like it could be useful to you, let us know with a GitHub star or an issue expressing features you use / need. That's
+> an actionable signal we can use to re-orient development.
 
-This repository is an experiment. It defines a value type, and two implementations of it, at different levels of abstraction:
+## Zarrify a file
+
+```bash
+pip install "refkv[images]"   # or refkv[media] for MP3, FLAC and MP4
+```
+
+```python
+import zarr
+import refkv.zarr
+from refkv.zarrify import zarrify
+
+store = zarrify("https://openslide.cs.cmu.edu/download/openslide-testdata/Aperio/CMU-1-Small-Region.svs")
+image = zarr.open_group(refkv.zarr.store(store), mode="r")["0"]  # the full-resolution level
+image.shape                   # (3, 2967, 2220)
+tile = image[:, :512, :512]   # reads and decodes only the JPEG tiles it covers
+store.save_vzip("slide.vzip") # the hierarchy as one vzip archive, about 30 KB
+```
+
+`zarrify` reads the file's structure (its headers and indexes), not its data.
+A Rust core does the work, natively from Python and as WebAssembly in the
+browser. [docs/zarrify/](docs/zarrify/README.md) has a page per format: what
+you get, how to run it, and what is not supported.
+
+**[Try the live demo](https://d-v-b.github.io/refkv-demo/image-to-zarr/)**: paste the URL
+of a remote image file or store, and the browser zarrifies it and shows it in Neuroglancer
+(or, for a Sentinel-2 product, on a map).
+
+## Virtual datasets
+
+For netCDF, HDF5 and the other files
+[VirtualiZarr](https://virtualizarr.readthedocs.io/) reads,
+`refkv.ReferenceStore.from_virtualizarr(vds)` turns a virtual dataset into a
+store that xarray opens, through `refkv.zarr` with the `zarr` extra
+([docs/virtual-datasets.md](docs/virtual-datasets.md) has a runnable example).
+
+## The model
+
+Underneath, the repository defines a value type, and two implementations of it, at different levels of abstraction:
 
 **refkv** is a __reference value type__ for key-value storage:
 a value is either bytes or a reference to byte ranges of other objects, such
@@ -13,9 +66,11 @@ as the chunks inside HDF5, netCDF or TIFF files. The model is specified
 without a backend ([spec/refkv.md](spec/refkv.md)), so any key-value store
 that can tell bytes from references can hold such a store.
 
-**vzip** is an implementation of `refkv` that stores bytes and references in a plain zip archive. 
-A `vzip` archive contains regular files or `refkv` references, which can point to byte ranges in external objects.
-A `vzip` reader resolves those references before returning bytes to the consumer.
+**vzip** is refkv's binding to a plain ZIP archive
+([spec/bindings/vzip.md](spec/bindings/vzip.md)). A vzip archive holds regular
+files and refkv references, which can point to byte ranges in external objects,
+and a vzip reader resolves those references before returning bytes. Every
+zarrified hierarchy above is saved as one.
 
 **phkv** is a second implementation of `refkv`, in draft ([spec/bindings/phkv.md](spec/bindings/phkv.md)):
 a refkv store kept in one file with a perfect hash of its keys, so that a lookup
@@ -34,7 +89,7 @@ archive, which keeps the archive readable by ZIP tools.
 | per-key properties | none | typed columns (`mtime`, `mode`, `media_type`, your own) | for phkv readers |
 | reserved names | `__vz__/` | none | `__vz__/` |
 | reference payload limit | 65,519 bytes | 16 MiB | 65,519 bytes |
-| Python | `refkv.vzip`, `store.save(path)` | `refkv.phkv`, `store.save_phkv(path)`, `refkv.open(url, binding="phkv")` | not yet |
+| Python | `refkv.vzip`, `store.save_vzip(path)` | `refkv.phkv`, `store.save_phkv(path)`, `refkv.open(url, binding="phkv")` | not yet |
 | status | provisional, with a conformance suite | draft | draft |
 
 The sizes and request counts are the reference writers' and readers' on the same store
@@ -43,31 +98,13 @@ Write vzip for the widest compatibility, and when ZIP tools or vzip-only readers
 for the smallest file and the fewest requests per lookup, when every reader knows phkv; the hybrid
 keeps both kinds of reader working, at the largest size.
 
-The code in this repository exercises the model by writing vzip archives, and phkv stores from Python and Rust. A
-Rust core **zarrifies** image files and chunked array stores in
-[a dozen formats](docs/zarrify/README.md#formats): it presents each
-as a Zarr hierarchy whose chunks are references to the original bytes,
-without copying them. It runs natively from Python and as WebAssembly in the
-browser.
+The code in this repository exercises the model by writing vzip archives, and phkv stores from Python and Rust.
 
-```python
-from refkv.zarrify import zarrify
+## Documentation
 
-store = zarrify("https://example.org/slide.ndpi")  # a refkv.ReferenceStore
-store.save("slide.vzip")                               # one vzip archive
-```
-
-For netCDF, HDF5 and the other files
-[VirtualiZarr](https://virtualizarr.readthedocs.io/) reads,
-`refkv.ReferenceStore.from_virtualizarr(vds)` turns a virtual dataset into a
-store that xarray opens, through `refkv.zarr` with the `zarr` extra
-([docs/virtual-datasets.md](docs/virtual-datasets.md) has a runnable example).
 [docs/](docs/README.md) is for users: installing, the live demos, and a page
-per format.
-
-Status: experimental, proof of concept, anything can change. There are no
-production users, no release history and no support, and the specification
-can change without regard for existing archives.
+per format. [python/README.md](python/README.md) lists the extras and the
+platforms with wheels, and [js/README.md](js/README.md) covers the browser code.
 
 ## Layout
 
@@ -77,11 +114,11 @@ code is organized by language.
 | directory | holds |
 |---|---|
 | [spec/](spec/) | the specifications: the reference value type ([refkv.md](spec/refkv.md)), its ZIP binding ([bindings/vzip.md](spec/bindings/vzip.md)), and the draft perfect-hash binding ([bindings/phkv.md](spec/bindings/phkv.md)), zarrification ([zarrify.md](spec/zarrify.md)), the conventions every zarrified hierarchy shares ([conventions.md](spec/conventions.md)), one document per format with its Zarr convention and its profile ([zarrify/](spec/zarrify/), each `<format>.md` beside `<format>/schema.json`), the wire schema ([proto/](spec/proto/)), and earlier revisions ([history/](spec/history/)) |
-| [docs/](docs/README.md) | user documentation: [virtual datasets with xarray](docs/virtual-datasets.md), and a page per format in [docs/zarrify/](docs/zarrify/README.md) |
+| [docs/](docs/README.md) | user documentation: [virtual datasets with xarray](docs/virtual-datasets.md), [combining stores](docs/combining-stores.md), [a stack of TIFF files](docs/tiff-stack.md), and a page per format in [docs/zarrify/](docs/zarrify/README.md) |
 | [design/](design/) | design notes and studies: [ARCHITECTURE.md](design/ARCHITECTURE.md), [FINDINGS.md](design/FINDINGS.md), [PITCH.md](design/PITCH.md), [COMPARISON.md](design/COMPARISON.md), [THIRD_PARTY_READERS.md](design/THIRD_PARTY_READERS.md) (third-party readers as format parsers), the IR notes ([IR_NOTES.md](design/IR_NOTES.md)), the conformance rounds' notes and proposals, and the experiment scripts the notes cite |
 | [python/](python/) | the Python distribution `refkv` ([pyproject.toml](python/pyproject.toml)): the package (`python/src/refkv`, with the ZIP binding in `refkv.vzip`), its tests (`python/tests`) and its [release process](python/RELEASING.md); the root `pyproject.toml` is a uv workspace over it, with the repository's development tools |
 | [js/](js/README.md) | the TypeScript library (`js/src`) and its Node tests |
-| [demo/](demo/) | the browser demo, which `just js::build` bundles with the library and `demo/pages.sh` publishes to https://d-v-b.github.io/vzip-demo/ |
+| [demo/](demo/) | the browser demo, which `just js::build` bundles with the library and `demo/pages.sh` publishes to https://d-v-b.github.io/refkv-demo/ |
 | [rust/refkv-ir](rust/refkv-ir/) | the Rust core: the format parsers, the IR, the projections and the read planner, built for Python (through the bindings in [rust/refkv-python](rust/refkv-python/)) and for the browser (wasm32) |
 | [rust/refkv-python](rust/refkv-python/) | the core's Python bindings, which the `refkv` wheel builds in as the module `refkv._core` (`manifest-path` in [python/pyproject.toml](python/pyproject.toml)) |
 | [fixtures/](fixtures/) | the synthetic test inputs every implementation shares, one directory per format, and their generators ([fixtures/generators/](fixtures/generators/)) |

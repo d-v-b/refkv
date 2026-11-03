@@ -8,6 +8,7 @@
 // the visible data), but only from the layer panel's widget: a viewer state
 // cannot ask for it.
 
+import { decodeGrib } from "../js/src/embed.ts";
 import { decodeJpeg2000 } from "./map/jpeg2k_decoder.ts";
 import { decodeJpegXr } from "./jpegxr_decoder.ts";
 
@@ -55,10 +56,11 @@ export function usableWindow(w: Window | undefined, dataType: string): boolean {
 
 /**
  * The decoded samples of a chunk, as bytes and their byte order, for the
- * codecs this page decodes: `bytes`, `imagecodecs_jpeg2k` and
- * `imagecodecs_jpegxr`, after any `transpose` (the order of the samples does
- * not matter for their percentiles), with `gzip` or `numcodecs.zlib` after them.
- * Undefined for any other chain.
+ * codecs this page decodes: `bytes`, `imagecodecs_jpeg2k`, `imagecodecs_jpegxr`
+ * and `refkv.grib` (with refkv's Rust core, which the service worker also
+ * runs), after any `transpose` (the order of the samples does not matter for
+ * their percentiles), with `gzip` or `numcodecs.zlib` after them. Undefined
+ * for any other chain.
  */
 async function decodeChunk(meta: any, encoded: Uint8Array): Promise<[Uint8Array, boolean] | undefined> {
   const codecs: { name: string; configuration?: any }[] = meta.codecs.filter((c: { name: string }) => c.name !== "transpose");
@@ -80,13 +82,17 @@ async function decodeChunk(meta: any, encoded: Uint8Array): Promise<[Uint8Array,
       const d = await decodeJpegXr(JPEGXR_WASM, bytes);
       return d.bytesPerSample === size ? [d.data, true] : undefined;
     }
+    case "refkv.grib": {
+      const values = await decodeGrib(bytes, first.configuration, meta.chunk_grid.configuration.chunk_shape, meta.data_type);
+      return [new Uint8Array(values.buffer), true];
+    }
   }
   return undefined;
 }
 
 /**
  * The 5th and 99.9th percentiles of the samples of a decoded chunk, without
- * those equal to the fill value: in a coarse level they are mostly the area
+ * NaN (a GRIB field's missing points) and those equal to the fill value: in a coarse level they are mostly the area
  * outside the acquired region (a slide scan's unscanned tiles), and would
  * set the black point below the data's own background. The 5th rather than
  * the 1st, since a lossy slide scan has a thin tail of near-zero values at
@@ -103,7 +109,7 @@ function percentiles(bytes: Uint8Array, le: boolean, dataType: string, fill: unk
   const values: number[] = [];
   for (let i = 0; i < n; i += step) {
     const v = get(view, i * size, le);
-    if (v !== fill) values.push(v);
+    if (v !== fill && !Number.isNaN(v)) values.push(v);
   }
   if (values.length === 0) return undefined;
   values.sort((x, y) => x - y);
@@ -116,16 +122,18 @@ function percentiles(bytes: Uint8Array, le: boolean, dataType: string, fill: unk
  * chunked by `chunks`): one per channel in `channels` (indices along the `c`
  * axis, which must be chunked one channel at a time), or with no channels a
  * single one. Each is undefined where the chunk is missing or not decodable
- * here.
+ * here. The chunk is that of the index `start` when given.
  */
 export async function sampleRanges(
-  url: string, meta: any, axes: { name: string }[], chunks: number[], channels?: number[],
+  url: string, meta: any, axes: { name: string }[], chunks: number[], channels?: number[], start?: number[],
 ): Promise<([number, number] | undefined)[]> {
   if (!TYPES[meta.data_type] || meta.chunk_grid.name !== "regular") return channels?.map(() => undefined) ?? [undefined];
   const c = axes.findIndex((a) => a.name === "c");
   if (channels !== undefined && (c < 0 || chunks[c] !== 1)) return channels.map(() => undefined);
-  // The chunk the view opens on: the first time point, the middle elsewhere.
-  const index = meta.shape.map((n: number, i: number) => axes[i]?.name === "t" ? 0 : Math.floor(Math.floor(n / 2) / chunks[i]));
+  // The chunk the view opens on: at `start`, else the first time point and the
+  // middle elsewhere.
+  const index = meta.shape.map((n: number, i: number) =>
+    Math.floor((start?.[i] ?? (axes[i]?.name === "t" ? 0 : Math.floor(n / 2))) / chunks[i]));
   const enc = meta.chunk_key_encoding ?? { name: "default" };
   const sep = enc.configuration?.separator ?? (enc.name === "v2" ? "." : "/");
   const one = async (k?: number) => {

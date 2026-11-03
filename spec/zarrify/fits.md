@@ -8,20 +8,28 @@ which files it accepts, is the FITS profile, [Part 2](#part-2-the-profile)
 below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `4b0d3a7e-1c52-4f6a-9b8e-2d7f0c6a1e93` ·
-Schema: [schema.json](fits/schema.json) · Changed 2026-10-25: an edge chunk's zero padding
-is a range of the output's one zero data source, not a literal range of each reference, so that
-the archive holds the zeros once ([§9.4](#94-chunks)); no chunk's values change, nor which
-chunks are copied · Changed 2026-10-26: an ASCII table's `TNULLn` is its column's `null`, a
-string, where it was `null`, and an integer card of an HDU's or a column's member past
-2^53 − 1 is the string of its digits, as in the cards, where it was `null`
-([§5.2](#52-an-hdus-node)); the layout is tabulated, its entries in
-[Layout](#layout) and its types in type tables
-([conventions §11.5](../conventions.md#115-layout-tables)), and the text says what refkv
-already wrote: a table's `rows` array is present, without chunks, when `NAXIS1 × NAXIS2` is 0
+Schema: [schema.json](fits/schema.json)
+
+Changed 2026-11-03, with no change to any output: a comment card keeps its leading spaces ([§5.3](#53-cards)); tile-compressed images are not
+listed as rejected ([§8](#8-what-the-layout-does-not-express)), and the worked example of a chunk
+cut follows [conventions §7](../conventions.md#7-source-values-as-arrays).
+
+Changed 2026-10-26: an ASCII table's `TNULLn` is its column's `null`, a string, where it was
+`null`, and an integer card of an HDU's or a column's member past 2^53 − 1 is the string of its
+digits, as in the cards, where it was `null` ([§5.2](#52-an-hdus-node)); the layout is
+tabulated, its entries in [Layout](#layout) and its types in type tables
+([conventions §11.5](../conventions.md#115-layout-tables)), and the text says what refkv already
+wrote: a table's `rows` array is present, without chunks, when `NAXIS1 × NAXIS2` is 0
 ([§4](#4-tables)); a compression's `dither_seed` is `null` without `ZDITHER0`
 ([§5.1](#51-the-root)); a real card value that is not finite in binary64 is `{"text": t}`
 ([§5.3](#53-cards)); and a tile-compressed image's summary carries its `compression`
-([§9.5](#95-summary))
+([§9.5](#95-summary)).
+
+Changed 2026-10-25: an edge chunk's zero padding is a range of the output's one zero data
+source, not a literal range of each reference, so that the archive holds the zeros once
+([§9.4](#94-chunks)); no chunk's values change, nor which chunks are copied.
+
+Added 2026-10-24.
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
@@ -153,8 +161,9 @@ a row; an edge chunk along the cut axis is followed by zero bytes up to the whol
 
 For example, a `10272 × 4755` float32 plane (a JWST mosaic's `SCI`) has rows
 of 41088 bytes, so `floor(2^20 / 41088) = 25` rows per chunk and `k =
-ceil(4755 / 25) = 191` chunks of shape `[25, 10272]`, the last of 5 rows
-padded with zero bytes. A `1100 × 1000` uint8 plane of 1100000 bytes, over
+ceil(4755 / 25) = 191`. That count would pad its last chunk with 20 rows, over the 1024 bytes
+[conventions §7](../conventions.md#7-source-values-as-arrays) allows, so the plane is cut at the
+first larger count within them: 317 chunks of shape `[15, 10272]`, with no padding. A `1100 × 1000` uint8 plane of 1100000 bytes, over
 `L`, is cut along its rows into 2 chunks of 550 rows, `[550, 1000]`; a
 20-plane stack of `128 × 256` int16 (64 KiB planes) into 2 chunks of 10
 planes, `[10, 128, 256]`.
@@ -416,7 +425,7 @@ order, the `END` card not included, duplicates kept; or `null` (**Budget**, belo
 |---|---|---|---|
 | `keyword` (item 0) | string | required | bytes 0–7 of the card as text, trailing spaces trimmed; for an ESO `HIERARCH` card (keyword `HIERARCH` without a value indicator at bytes 8–9), the text between `HIERARCH ` and the `=`, trimmed, as written (`"ESO INS OPTI-3 ID"`) |
 | `value` (item 1) | string, boolean, number, array of number, [`FitsValueText`](#type-fitsvaluetext) or null | required | for a card with a value indicator (`= ` at bytes 8–9), its value field (bytes 10–79) read as the standard says (the table below); `null` for an orphan `CONTINUE`, a `COMMENT`, `HISTORY` or blank card, and any card without a value indicator (below) |
-| `comment` (item 2) | string or null | required | the text after the `/` that follows the value, trimmed, or `null` when there is none; for a card without a value indicator, bytes 8–79 trimmed (a `COMMENT` or `HISTORY` card's text) |
+| `comment` (item 2) | string or null | required | the text after the `/` that follows the value, trimmed, or `null` when there is none; for a card without a value indicator, bytes 8–79, trailing spaces trimmed (a `COMMENT` or `HISTORY` card's text, its leading spaces kept) |
 
 A value field's JSON value:
 
@@ -530,8 +539,7 @@ gives some of it no Zarr expression:
 - **Checksums.** `CHECKSUM` and `DATASUM` are cards; nothing verifies them.
 - **ASDF and JSON trees** (JWST's `ASDF` extension, Rubin's JSON HDU) are
   the bytes of a one-row table.
-- **Random groups** and **tile-compressed tables** are rejected; so are
-  **tile-compressed images** in this revision.
+- **Random groups** and **tile-compressed tables** are rejected.
 
 # Part 2. The profile
 

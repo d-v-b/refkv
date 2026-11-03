@@ -13,3 +13,9 @@ https://janelia-cosem-datasets.s3.amazonaws.com/jrc_hela-2/jrc_hela-2.zarr/recon
 https://janelia-cosem-datasets.s3.amazonaws.com/jrc_hela-2/jrc_hela-2.zarr/recon-1/labels/groundtruth/crop155/|hela2_groundtruth_crop155|listing-sha256=bf9fb5b5f56de47a3e82dd2a5dc8c370ed6d566740125e69fee7e3d53b0178d5
 https://janelia-cosem-datasets.s3.amazonaws.com/jrc_cos7-11/jrc_cos7-11.zarr/recon-1/em/fibsem-uint16/s5/|cos7_11_fibsem_uint16_s5|listing-sha256=0b2900ebb999ceeb9ab060b97246e48f5b946417262afab5297b02066fbd7a9b
 https://s3.amazonaws.com/janelia-cosem-datasets/jrc_cos7-11/jrc_cos7-11.zarr/recon-1/em/fibsem-uint16/s4/|cos7_11_fibsem_uint16_s4_path_style|listing-sha256=5655403ecfb74627363a21a9c5456b0ee116680e1f8cce0a2e379108e84294db
+# A Zarr v2 store in a Hugging Face Hub dataset repository, at a commit, listed with the Hub's API
+# (spec/zarrify.md §1.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>)
+# and served by the proxy's Hub endpoint: KokosDev/mur-sst-ml-benchmark-Zarr's pacific_sst.zarr, a
+# subset of NASA JPL's MUR SST analysis (500 objects). The frozen reference lists no Hub store
+# (no-ref).
+https://huggingface.co/datasets/KokosDev/mur-sst-ml-benchmark-Zarr/tree/715e1970c7099cae22fe672020acb6b706121385/pacific_sst.zarr/|hub_mur_sst_pacific|no-ref|listing-sha256=7bf7b1e40905c666fa1548abfdcd1a2c26d36618964c944d7d1495c9eedd271b

@@ -1,0 +1,12 @@
+# url|name|no-ref of the public HDF5 files in the corpus (the frozen reference has no HDF5 profile, so each compares
+# py with web alone): NWB files of the DANDI Archive (each dandiset's license, CC-BY 4.0 for these), by their
+# content-addressed blob URLs, which a new version of a dandiset does not change. 000006: NWB 2.0.2, every dataset
+# contiguous; 000054: NWB 2.9.0, contiguous traces of 14.66 MB, a compound pixel_mask, six soft links; 000021: an
+# Allen probe's LFP, chunked deflate (47193, 1) chunks, a bool; 000409: IBL raw ecephys, 51 GB, 46 chunked deflate
+# datasets; 000728: Allen Brain Observatory ophys, 9125 objects
+https://dandiarchive.s3.amazonaws.com/blobs/321/9fd/3219fd98-6e52-4764-81ca-b780ee8fa326|dandi_000006_anm372907|no-ref|ends-sha256=9669df1a2eac4b771860e6f7150f5d78398013ecf19f6c3ae50bb992d491b320
+https://dandiarchive.s3.amazonaws.com/blobs/1f1/a35/1f1a35b2-6025-4d93-a2bb-ba8aae74e7f5|dandi_000006_anm369962|no-ref|ends-sha256=6722158750af8150692b521c206d2612f33559c07339917fa39eb575db6c608f
+https://dandiarchive.s3.amazonaws.com/blobs/5ca/ea3/5caea343-caf7-4914-aa51-6379f9524c3b|dandi_000054_f3_day8_ophys|no-ref|ends-sha256=3583bb05fea5d2b24db51b0d557bcea7cd5913a7460d2ddb0aaf6f3ca3735a8b
+https://dandiarchive.s3.amazonaws.com/blobs/a7f/c69/a7fc69c4-8fb2-4ee7-9e19-99222f31b8f4|dandi_000021_probe_lfp|no-ref|ends-sha256=ea6009243a8a0e16190d7d9ba0060ed7f81e699b445e8ce3ffebf8ac05088de8
+https://dandiarchive.s3.amazonaws.com/blobs/68f/d35/68fd35f1-8860-4612-9f00-c2a9582d41b3|dandi_000409_ibl_raw_ecephys|no-ref|ends-sha256=b9f980e6bb587006d3f97fe4397432f9306bc8ead9832e1bf17147e0ca07b2d4
+https://dandiarchive.s3.amazonaws.com/blobs/0a5/f64/0a5f6405-d361-4d9e-8fde-8ca00be0f3b4|dandi_000728_abo_ophys|no-ref|ends-sha256=80414d2be2ac2b66d97cdc678340cd8a34d34ee5bbd84c1cd3681d92e0839442

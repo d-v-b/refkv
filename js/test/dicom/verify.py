@@ -11,8 +11,8 @@ js/conformance/zarrify.ts (the browser code, run under Node). The whole
 array is then read through the reference reader (python/src/refkv) and zarr-python,
 and must equal what pydicom reads from the file: its pixel_array for native
 pixel data, and for encapsulated pixel data its frames (pydicom's
-generate_frames) decoded by imagecodecs, with the color space that the
-Photometric Interpretation names. Whole-slide tiles are assembled into the
+generate_frames) decoded by imagecodecs (lossless JPEG by libjpeg-turbo), with
+the color space that the Photometric Interpretation names. Whole-slide tiles are assembled into the
 total pixel matrix. `dicom_reject_*` files must be rejected.
 
 Usage: uv run python js/test/dicom/verify.py [<file or URL> ...]
@@ -61,6 +61,7 @@ from refkv_reference.dicom.source import dictionary_vr  # noqa: E402
 
 WHOLE_SLIDE = "1.2.840.10008.5.1.4.1.1.77.1.6"
 NATIVE = {"1.2.840.10008.1.2", "1.2.840.10008.1.2.1", "1.2.840.10008.1.2.2"}
+LOSSLESS = {"1.2.840.10008.1.2.4.57", "1.2.840.10008.1.2.4.70"}
 
 
 def expected(ds: pydicom.Dataset) -> np.ndarray:
@@ -83,6 +84,10 @@ def expected(ds: pydicom.Dataset) -> np.ndarray:
                     colorspace = "RGB" if ds.PhotometricInterpretation == "RGB" else "YCBCR"
                 decoded.append(imagecodecs.jpeg8_decode(frame, colorspace=colorspace,
                                                         outcolorspace="RGB" if spp == 3 else None))
+            elif ds.file_meta.TransferSyntaxUID in LOSSLESS:
+                # libjpeg-turbo, not the ljpeg decoder that imagecodecs_ljpeg calls: signed
+                # pixels as their bit patterns, read as the data type below
+                decoded.append(imagecodecs.jpeg8_decode(frame).astype(f"uint{ds.BitsAllocated}").view(dtype))
             else:
                 decoded.append(imagecodecs.jpeg2k_decode(frame))
         frames = np.stack(decoded).astype(dtype)

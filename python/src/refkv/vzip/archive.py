@@ -123,13 +123,25 @@ class Entry:
 
 
 class VZipWriter:
-    """Stream a vzip archive to a binary file object."""
+    """Stream a vzip archive to a binary file object.
+
+    Each `add_*` call writes its entry to `f` at once; `close` writes the source table, the
+    late entries, the page index and the central directory. As a context manager, the
+    writer closes when the block ends without an exception; when one escapes the block,
+    `close` is skipped and `f` holds entries without a central directory, which no reader
+    opens.
+    """
 
     def __init__(
         self, f: BinaryIO, *, mirror_refs: bool = True, page_size: int | None = None,
         checksum: Callable[[str, int, int], int] | None = None,
     ) -> None:
-        """`page_size`: if set, also write a CdIndex with pages of ~page_size bytes.
+        """`mirror_refs`: also write each reference's payload as its entry's body, for ZIP
+        tools that ignore extra fields (spec §11.3
+        <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#113-reference-entries>);
+        otherwise a reference entry's body is empty.
+
+        `page_size`: if set, also write a CdIndex with pages of ~page_size bytes.
 
         `checksum(url, offset, length)`: if set, the CRC-32C of those bytes of a url
         source, recorded on every range of a url source that has none (spec §4.2
@@ -297,6 +309,8 @@ class VZipWriter:
         return key
 
     def add_ref(self, key: str, url: str, offset: int, length: int) -> None:
+        """Add a reference to bytes [offset, offset+length) of the object at `url` (interned with
+        `url`): `add_ranges` with one range."""
         self.add_ranges(key, [Range(source=self.url(url), offset=offset, length=length)])
 
     def add_ranges(self, key: str, ranges: list[Range]) -> None:
@@ -387,12 +401,13 @@ class VZipWriter:
             if n is not None and src.url is None and r.offset + r.length > n:
                 raise ValueError(f"{key!r}: range [{r.offset}, {r.offset + r.length}) is past the "
                                  f"end of source {r.source} ({n} bytes)")
-        missing = sorted(x.key for x in sources if x.key is not None and x.key not in self._names)
-        if missing:
-            raise ValueError(f"internal references to missing entries: {missing}")
         fmt = sorted(x.key for x in sources if x.key in (SOURCES_KEY, INDEX_KEY))
         if fmt:
             raise ValueError(f"key sources naming format entries: {fmt}")
+        missing = sorted(x.key for x in sources
+                         if x.key is not None and x.key not in self._names and x.key not in self._late_keys)
+        if missing:
+            raise ValueError(f"internal references to missing entries: {missing}")
         bad = [x.url for x in sources if x.url is not None and x is not placeholder
                and not is_uri_reference(x.url)]
         if any(x.url == "" for x in sources) or bad:
@@ -427,7 +442,18 @@ class VZipWriter:
         return off + _LFH.size + len(name.encode()) + (20 if _is_large(size, csize) else 0), csize
 
     def close(self) -> None:
+        """Check the archive, then write its source table, its late entries, its page index
+        (with `page_size`) and its central directory. `f` stays open: the caller closes it.
+
+        Raises ValueError, before anything more is written, when the source table breaks a
+        writer requirement (spec §7
+        <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#7-writing>): an empty or invalid
+        url source, an empty key source, a key source naming a format entry, a missing entry or
+        a reference entry, or a range past the end of an internal or data source. `f` then holds
+        the entries added so far, without a central directory."""
         sources = self._source_list
+        if not getattr(self, "_skip_checks", False):  # test hook: see conformance/vzip/cases.py
+            self._check_sources(sources)
         # test hooks (conformance/vzip/cases.py builds deliberately broken archives)
         table = getattr(self, "_source_table_override", None) or _encode_sources(sources, SPEC_REVISION)
         if getattr(self, "_sources_trailing_junk", False):
@@ -441,9 +467,6 @@ class VZipWriter:
             self._entry(key, data, compress=compress)
             _name, _off, size, csize, method, *_ = self._cd[-1]
             pinned.append(Pinned(key, self._data_offset(-1)[0], size, csize, method))
-
-        if not getattr(self, "_skip_checks", False):  # test hook: see conformance/vzip/cases.py
-            self._check_sources(sources)
 
         trailer = {SOURCES_KEY, INDEX_KEY}
         body = sorted(r for r in self._cd if r[0] not in trailer)

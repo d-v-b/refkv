@@ -167,7 +167,7 @@ class StoreOutput:
             w.close()
 
     def to_store(self, *, policy: Policy | None = None, info: dict[str, object] | None = None) -> ReferenceStore:
-        """The output as a `refkv.ReferenceStore`, which `save` writes as the archive
+        """The output as a `refkv.ReferenceStore`, which `save_vzip` writes as the archive
         `write` writes, byte for byte (`refkv.zarrify.common.reference_store`)."""
         sources = [Source(url=object_url(self.url, self.origins.get(k, k)), size=n) for k, n in self.chunks]
         refs = [(k, [Range(source=i, offset=0, length=n)]) for i, (k, n) in enumerate(self.chunks)]

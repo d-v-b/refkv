@@ -147,7 +147,7 @@ export function isStoreUrl(url: string): boolean {
 export async function zarrifyStore(
   input: Store | string,
   options: PinOptions & { policy?: Policy; headers?: Record<string, string> } = {},
-): Promise<ArchiveDesc & { format: "n5" | "zarr2" | "ome-zarr" | "safe"; summary: object }> {
+): Promise<ArchiveDesc & { format: "n5" | "zarr2" | "ome-zarr" | "safe" | "precomputed" | "safetensors"; summary: object }> {
   if (typeof input !== "string" && (options.policy !== undefined || options.headers !== undefined)) {
     // a listed store was opened under its policy already
     throw new TypeError("zarrifyStore: a policy applies to a store URL; pass it to openHttpStore for an opened store");
@@ -169,11 +169,13 @@ export async function zarrifyStore(
 
 async function zarrifyStoreProfile(
   store: Store,
-): Promise<ArchiveDesc & { format: "n5" | "zarr2" | "ome-zarr" | "safe"; summary: object }> {
+): Promise<ArchiveDesc & { format: "n5" | "zarr2" | "ome-zarr" | "safe" | "precomputed" | "safetensors"; summary: object }> {
   try {
     const chosen = chooseProfile(store);
     if (chosen === "safe") return { format: "safe", ...(await zarrifyStoreIr("safe", store)) };
+    if (chosen === "safetensors") return { format: "safetensors", ...(await zarrifyStoreIr("safetensors", store)) };
     if (chosen === "n5") return { format: "n5", ...(await zarrifyStoreIr("n5", store)) };
+    if (chosen === "precomputed") return { format: "precomputed", ...(await zarrifyStoreIr("precomputed", store)) };
     // the core decides between Zarr v2 and OME-Zarr 0.4 (its summary's `format`)
     const desc = await zarrifyStoreIr("zarr2", store);
     return { format: desc.summary.format === "ome-zarr" ? "ome-zarr" : "zarr2", ...desc };
