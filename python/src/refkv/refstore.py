@@ -126,6 +126,62 @@ def bulk() -> Generator[None]:
 _ORIGIN = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://[^/?#]*")
 
 
+def sources_to_save(
+    sources: Sequence[Source],
+    path: str | os.PathLike[str],
+    *,
+    relative_to: str | None = None,
+    policy: Policy | None = None,
+) -> list[Source]:
+    """The source table to write for a store saved at the local `path`: `sources`, with the URLs
+    under the prefix `relative_to` made relative to `path`, each checked against the reader
+    policy `policy` (default `Policy()`, the default reader's), as a reader of the saved store
+    would resolve it. A source the policy refuses raises ResolutionError (a ValueError), and the
+    caller writes nothing. Every binding's writer applies this check: `ReferenceStore.save`
+    for a vzip archive, and `refkv_phkv.save` for a phkv store."""
+    path = os.fspath(path)
+    base = file_uri(path)
+    sources = list(sources)
+    if relative_to:
+        sources = [dataclasses.replace(s, url=s.url.removeprefix(relative_to))
+                   if s.url is not None and s.url.startswith(relative_to) else s
+                   for s in sources]
+    check = policy or Policy()
+    refused = []
+    # Without a prefix list, the policy decides a valid absolute URL by its scheme and
+    # host alone: one check per origin, not per source (a store has a source per
+    # object). Each URL is still checked to be a URI reference, as resolving it does.
+    by_origin: dict[str, str | None] = {}
+    cache = check.prefixes is None and type(check).check is Policy.check  # not a subclass's own check
+    for s in sources:
+        if s.url is None:
+            continue
+        origin = _ORIGIN.match(s.url) if cache else None
+        if origin is not None and origin[0] in by_origin and is_uri_reference(s.url):
+            error = by_origin[origin[0]]
+        else:
+            try:
+                resolved = resolve_reference(base, s.url)
+            except ValueError as e:  # not a URI reference: its own error, not its origin's
+                error = str(e)
+            else:
+                try:
+                    check.check(base, resolved)
+                    error = None
+                except (ResolutionError, ValueError) as e:
+                    error = str(e)
+                if origin is not None:
+                    by_origin[origin[0]] = error
+        if error is not None:
+            refused.append(error)
+    if refused:
+        whose = "the default reader policy" if policy is None else "the reader policy given"
+        raise ResolutionError(f"not saving {path}: {whose} refuses {len(refused)} of its "
+                              f"{len(sources)} sources, so a reader could not read them. "
+                              f"The first: {refused[0]}")
+    return sources
+
+
 def _rewrite(rewrite_urls: Mapping[str, str] | Callable[[str], str | None] | None) -> Callable[[str], str]:
     """`rewrite_urls` as a function of a URL."""
     if rewrite_urls is None:
@@ -402,45 +458,7 @@ class ReferenceStore(ReferenceReader):
           `Policy(schemes={"s3"})`.
         """
         path = os.fspath(path)
-        base = file_uri(path)
-        sources = self._sources
-        if relative_to:
-            sources = [dataclasses.replace(s, url=s.url.removeprefix(relative_to))
-                       if s.url is not None and s.url.startswith(relative_to) else s
-                       for s in sources]
-        check = policy or Policy()
-        refused = []
-        # Without a prefix list, the policy decides a valid absolute URL by its scheme and
-        # host alone: one check per origin, not per source (a store has a source per
-        # object). Each URL is still checked to be a URI reference, as resolving it does.
-        by_origin: dict[str, str | None] = {}
-        cache = check.prefixes is None and type(check).check is Policy.check  # not a subclass's own check
-        for s in sources:
-            if s.url is None:
-                continue
-            origin = _ORIGIN.match(s.url) if cache else None
-            if origin is not None and origin[0] in by_origin and is_uri_reference(s.url):
-                error = by_origin[origin[0]]
-            else:
-                try:
-                    resolved = resolve_reference(base, s.url)
-                except ValueError as e:  # not a URI reference: its own error, not its origin's
-                    error = str(e)
-                else:
-                    try:
-                        check.check(base, resolved)
-                        error = None
-                    except (ResolutionError, ValueError) as e:
-                        error = str(e)
-                    if origin is not None:
-                        by_origin[origin[0]] = error
-            if error is not None:
-                refused.append(error)
-        if refused:
-            whose = "the default reader policy" if policy is None else "the reader policy given"
-            raise ResolutionError(f"not saving {path}: {whose} refuses {len(refused)} of its "
-                                  f"{len(sources)} sources, so a reader could not read them. "
-                                  f"The first: {refused[0]}")
+        sources = sources_to_save(self._sources, path, relative_to=relative_to, policy=policy)
         page_size = self._page_size if page_size is ... else _page_size(page_size)
         from refkv.vzip.archive import VZipWriter  # noqa: PLC0415 (`import refkv` imports no ZIP code)
 

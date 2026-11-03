@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
@@ -16,6 +16,7 @@ resolution-markers = [
 [manifest]
 members = [
     "refkv",
+    "refkv-phkv",
     "refkv-workspace",
 ]
 
@@ -872,7 +873,7 @@ name = "eccodeslib"
 version = "2.50.0.33"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "eckitlib" },
+    { name = "eckitlib", marker = "sys_platform != 'win32'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/53/e4/82224fb48965fdbf54a31e9413ae12d0b41aacf732297c93ff0029c09fb6/eccodeslib-2.50.0.33-cp312-cp312-macosx_15_0_arm64.whl", hash = "sha256:7112c65beb2fa3e92b8c67a34682b446804805af5cbba305f0e890443540e8ba", size = 9058278, upload-time = "2026-10-16T18:44:03.765Z" },
@@ -3331,10 +3332,28 @@ requires-dist = [
 provides-extras = ["images", "media", "obstore", "virtualizarr", "zarr"]
 
 [[package]]
+name = "refkv-phkv"
+source = { editable = "python-phkv" }
+dependencies = [
+    { name = "refkv" },
+]
+
+[package.optional-dependencies]
+zarr = [
+    { name = "refkv", extra = ["zarr"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "refkv", editable = "python" },
+    { name = "refkv", extras = ["zarr"], marker = "extra == 'zarr'", editable = "python" },
+]
+provides-extras = ["zarr"]
+
+[[package]]
 name = "refkv-workspace"
 version = "0"
 source = { virtual = "." }
-default-groups = "all"
 
 [package.dev-dependencies]
 bench = [
@@ -3372,6 +3391,7 @@ dev = [
     { name = "pytest" },
     { name = "rasterio" },
     { name = "refkv", extra = ["images", "media", "obstore", "virtualizarr", "zarr"] },
+    { name = "refkv-phkv" },
     { name = "ruff" },
     { name = "safetensors" },
     { name = "soundfile" },
@@ -3420,6 +3440,7 @@ dev = [
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "rasterio", specifier = ">=1.5.2" },
     { name = "refkv", extras = ["zarr", "images", "media", "virtualizarr", "obstore"], editable = "python" },
+    { name = "refkv-phkv", editable = "python-phkv" },
     { name = "ruff", specifier = ">=0.17.2" },
     { name = "safetensors", specifier = ">=0.8.0" },
     { name = "soundfile", specifier = ">=0.14.0" },

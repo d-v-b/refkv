@@ -5,6 +5,7 @@ through zarr and xarray (`refkv.zarr`)."""
 import dataclasses
 import threading
 import time
+import unittest.mock
 import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import override
@@ -576,8 +577,8 @@ def test_mapping_cannot_be_changed():
 
 def test_public_api():
     assert set(refkv.__all__) == {
-        "Concat", "OffsetRequest", "Policy", "Range", "RangeRequest", "ReferenceStore",
-        "Source", "Stats", "SuffixRequest", "Summary", "open", "public_s3_url"}
+        "BINDINGS_GROUP", "Concat", "OffsetRequest", "Policy", "Range", "RangeRequest", "ReferenceStore",
+        "Source", "Stats", "SuffixRequest", "Summary", "bindings", "open", "public_s3_url"}
     assert all(hasattr(refkv, name) for name in refkv.__all__)
     assert set(refkv.vzip.__all__) == {"VZipStore", "VZipWriter", "open"}
     assert all(hasattr(refkv.vzip, name) for name in refkv.vzip.__all__)
@@ -598,3 +599,27 @@ def test_public_api():
 def test_open_refuses_an_unknown_binding():
     with pytest.raises(ValueError, match="no binding 'kv'"):
         refkv.open("x.vzip", binding="kv")
+
+
+def test_bindings_are_found_through_entry_points():
+    """refkv registers its own binding in the `refkv.bindings` group, as other distributions
+    register theirs, and names the distribution of a known binding that is not installed."""
+    assert refkv.BINDINGS_GROUP == "refkv.bindings"
+    assert "vzip" in refkv.bindings()
+    with (pytest.raises(ValueError, match="no binding 'phkv'") as e,
+          unittest.mock.patch("refkv.entry_points", return_value=[])):
+        refkv.open("x.phkv", binding="phkv")
+    assert "pip install refkv-phkv" in str(e.value)
+
+
+def test_sources_to_save_checks_and_relativizes(tmp_path):
+    """What every binding's writer applies before writing: URLs under `relative_to` are made
+    relative, and a source the reader policy refuses is a ResolutionError."""
+    from refkv.refstore import sources_to_save  # noqa: PLC0415 (the test: the public name)
+
+    sources = [Source(url="http://example.test/dir/a.bin"), Source(data=b"x")]
+    got = sources_to_save(sources, tmp_path / "s.vzip", relative_to="http://example.test/dir/",
+                          policy=refkv.Policy())
+    assert got == [Source(url="a.bin"), Source(data=b"x")]
+    with pytest.raises(refkv.errors.ResolutionError, match="refuses"):
+        sources_to_save([Source(url="s3://bucket/x")], tmp_path / "s.vzip")

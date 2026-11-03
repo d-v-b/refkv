@@ -12,7 +12,9 @@ how. The ZIP binding keeps a store in one ZIP file, a vzip archive (Part 2
   one from a VirtualiZarr virtual dataset, and `store.save(path)` writes it as a
   vzip archive.
 - `open(url)`: a saved store, as a store that reads the same values: with the ZIP
-  binding (the default, and today the only one), a `refkv.vzip.VZipStore`.
+  binding (the default), a `refkv.vzip.VZipStore`. Other bindings are distributions of their own,
+  found through the entry-point group `refkv.bindings`: `refkv-phkv` (`import refkv_phkv`) reads
+  and writes the perfect-hash binding, and `refkv.open(url, binding="phkv")` then opens it.
 - Both have the operations of spec/refkv.md §6.2
   <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#62-operations>: `get(key)`,
   or `get(key, RangeRequest(start, end))` (also `OffsetRequest`, `SuffixRequest`),
@@ -37,9 +39,9 @@ virtual-dataset workflow; `help(refkv.refstore)` has its details.
 from __future__ import annotations
 
 import importlib
-from importlib.metadata import PackageNotFoundError, version
+from importlib.metadata import PackageNotFoundError, entry_points, version
 from types import ModuleType
-from typing import TYPE_CHECKING, TypedDict, Unpack
+from typing import TYPE_CHECKING, Any, Literal, TypedDict, Unpack, overload
 
 from refkv import vzip
 from refkv.pb import Concat, Range, Source
@@ -69,23 +71,51 @@ if TYPE_CHECKING:
         max_concurrency: int | None
 
 BINDINGS = ("vzip",)
-"""The bindings `open` can read a store with: the ZIP binding, `"vzip"`."""
+"""The bindings `refkv` itself reads stores with: the ZIP binding, `"vzip"`. Other distributions
+add theirs through the entry-point group `refkv.bindings` (`bindings()` lists every one that is
+installed)."""
+
+BINDINGS_GROUP = "refkv.bindings"
+"""The entry-point group in which a distribution registers a binding: the name is the binding's,
+the value a callable `open(url, **kwargs)` that returns a read-only store, as `refkv.vzip.open`
+does."""
+
+_PACKAGES = {"phkv": "refkv-phkv"}
+"""The distribution of each binding that is not refkv's own, for the error that names it."""
 
 
-def open(url: str, *, binding: str = "vzip", **kwargs: Unpack[VZipOptions]) -> VZipStore:  # noqa: A001 (refkv.open, the public name)
+def bindings() -> tuple[str, ...]:
+    """The bindings `open` can read a store with: `refkv`'s own, `"vzip"`, and those of the
+    installed distributions that register one in the entry-point group `refkv.bindings` (such as
+    `"phkv"`, from `refkv-phkv`)."""
+    found = {ep.name for ep in entry_points(group=BINDINGS_GROUP)}
+    return (*BINDINGS, *sorted(found - set(BINDINGS)))
+
+
+@overload
+def open(url: str, *, binding: Literal["vzip"] = "vzip", **kwargs: Unpack[VZipOptions]) -> VZipStore: ...  # noqa: A001 (refkv.open, the public name)
+@overload
+def open(url: str, *, binding: str, **kwargs: Any) -> Any: ...  # noqa: A001, ANN401 (a binding another distribution provides: its own store type)
+def open(url: str, *, binding: str = "vzip", **kwargs: Any) -> Any:  # noqa: A001 (refkv.open, the public name)
     """Open the store saved at `url` (a local path or an `http(s)` URL, presigned or with
     a query string, of any name) as a read-only store, with the binding `binding`. The
-    ZIP binding, `"vzip"` (the default, and today the only one), opens a vzip archive as a
-    `refkv.vzip.VZipStore`: `refkv.open("data.vzip").get("zarr.json")`. For zarr and
-    xarray, `refkv.zarr.open(url)` takes the same arguments and wraps the store.
+    ZIP binding, `"vzip"` (the default), opens a vzip archive as a `refkv.vzip.VZipStore`:
+    `refkv.open("data.vzip").get("zarr.json")`. A binding another distribution provides, such
+    as `"phkv"` (`pip install refkv-phkv`), opens its own kind of store the same way:
+    `refkv.open("data.phkv", binding="phkv")`. For zarr and xarray, `refkv.zarr.open(url)`
+    takes the same arguments and wraps the store.
 
     Other keyword arguments go to the binding's store: `policy`, `registry` (the stores
     to read sources with, such as an `obspec_utils` `ObjectStoreRegistry` or a mapping
     `{"s3://bucket": S3Store(...)}`), `stats`, `max_concurrency` (8 by default; None for
-    no cap), and `resolve`. A binding not in `BINDINGS` is a ValueError."""
+    no cap), and, for the ZIP binding, `resolve`. A binding that is not in `bindings()` is a
+    ValueError, which names the distribution to install if it is a known one."""
     if binding == "vzip":
         return vzip.open(str(url), **kwargs)
-    raise ValueError(f"no binding {binding!r}: refkv reads stores with {', '.join(map(repr, BINDINGS))}")
+    for ep in entry_points(group=BINDINGS_GROUP, name=binding):
+        return ep.load()(str(url), **kwargs)
+    hint = f" (pip install {_PACKAGES[binding]})" if binding in _PACKAGES else ""
+    raise ValueError(f"no binding {binding!r}{hint}: refkv reads stores with {', '.join(map(repr, bindings()))}")
 
 
 def __getattr__(name: str) -> ModuleType:
@@ -97,6 +127,7 @@ def __getattr__(name: str) -> ModuleType:
 
 
 __all__ = [
+    "BINDINGS_GROUP",
     "Concat",
     "OffsetRequest",
     "Policy",
@@ -107,6 +138,7 @@ __all__ = [
     "Stats",
     "SuffixRequest",
     "Summary",
+    "bindings",
     "open",
     "public_s3_url",
 ]

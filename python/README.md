@@ -35,6 +35,10 @@ For netCDF, HDF5 and the other files
 `refkv.ReferenceStore.from_virtualizarr(vds)` turns a virtual dataset into a
 store that xarray opens ([example](https://github.com/d-v-b/refkv/blob/main/docs/virtual-datasets.md)).
 
+The perfect-hash binding, phkv (a draft), is the separate package
+[`refkv-phkv`](https://github.com/d-v-b/refkv/tree/main/python-phkv): `pip install refkv-phkv`
+adds `refkv_phkv.save(store, path)` and lets `refkv.open(url, binding="phkv")` read the result.
+
 ```bash
 pip install refkv                  # read (local or over http(s)), write, zarrify
 pip install "refkv[zarr]"          # refkv.zarr: open a store with zarr-python and xarray

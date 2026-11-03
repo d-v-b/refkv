@@ -1,0 +1,39 @@
+# The refkv-phkv Python distribution (pyproject.toml): the package src/refkv_phkv with its
+# bindings to the phkv crate (the crate ../rust/refkv-phkv-python, the module
+# refkv_phkv._core). From the root: `just python-phkv::test` and so on. The build recipes write
+# git's version into the bindings' Cargo.toml and Cargo.lock for the build, and restore both
+# afterwards (tools/version.py run), the same version as refkv's.
+
+set shell := ["bash", "-euo", "pipefail", "-c"]
+
+out := source_directory() / "dist"
+
+[private]
+default:
+    @just --list
+
+# Run the package's tests in the repository's environment (uv sync builds refkv-phkv into it first)
+test *args:
+    cd .. && uv sync -q --locked && uv run pytest -q python-phkv/tests {{args}}
+
+# Build the bindings crate alone with cargo (no tests of its own: this checks it compiles and links)
+cargo-test:
+    cargo test --release --manifest-path ../rust/refkv-phkv-python/Cargo.toml
+
+# Print the version git describes (tools/version.py), as semver and as PEP 440
+version:
+    @python3 tools/version.py show
+    @python3 tools/version.py pep440
+
+# Write the version git describes into the bindings' Cargo.toml and Cargo.lock (CI's release
+# builds, whose checkout is thrown away; locally, `build` and `sdist` do it for the build alone)
+version-write:
+    python3 tools/version.py write
+
+# Build a release wheel into dist/ (abi3, for this platform)
+build *args:
+    python3 tools/version.py run -- uvx maturin build --release --out {{quote(out)}} {{args}}
+
+# Build the sdist into dist/ (it holds the bindings and the crates they bind, and builds on its own)
+sdist:
+    python3 tools/version.py run -- uvx maturin sdist --out {{quote(out)}}

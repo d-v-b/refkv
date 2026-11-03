@@ -48,6 +48,12 @@ Issues = "https://github.com/d-v-b/refkv/issues"
 # `refkv zarrify <file or store> <out.vzip>` (refkv/__main__.py)
 refkv = "refkv.__main__:main"
 
+# The bindings `refkv.open(url, binding=...)` reads stores with (src/refkv/__init__.py): refkv's
+# own, the ZIP binding; a distribution of another binding, such as refkv-phkv (python-phkv/),
+# registers its `open` in the same group.
+[project.entry-points."refkv.bindings"]
+vzip = "refkv.vzip:open"
+
 # The codecs refkv's archives name that zarr-python and imagecodecs-zarr do not provide
 # (src/refkv/zarr/codecs/), which zarr loads by name when it opens an array that names one, without
 # `import refkv.zarr`. A base install, without zarr, never loads them; a codec whose decoder needs

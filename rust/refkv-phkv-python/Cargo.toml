@@ -1,0 +1,36 @@
+# The Python bindings of refkv-phkv (the module refkv_phkv._core), over the phkv crate
+# rust/refkv-phkv, which maturin compiles into the refkv-phkv wheel (python-phkv/pyproject.toml,
+# whose `manifest-path` names this crate). It is to refkv-phkv what rust/refkv-python is to
+# refkv, and a crate of its own for the same reasons: not a member of a Cargo workspace, its own
+# lock, and no Rust tests (the Python tests, python-phkv/tests, test the module). Neither
+# binding crate depends on the other: refkv._core has no phkv in it
+# (design/plans/split-bindings.md §5).
+[package]
+name = "refkv-phkv-python"
+# A placeholder: python-phkv/tools/version.py writes the version git describes, in release
+# builds, as python/tools/version.py does for refkv.
+version = "0.0.0"
+edition = "2024"
+description = "refkv-phkv's Python bindings (the module refkv_phkv._core)"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[lib]
+name = "_core"
+crate-type = ["cdylib"]
+test = false
+doctest = false
+
+[dependencies]
+pyo3 = { version = "0.29", features = ["extension-module", "abi3-py312", "abi3t-py315"] }
+refkv-phkv = { path = "../refkv-phkv" }
+# the protobuf messages of Part 1 (Range, Source), until they have a crate of their own (the
+# plan's step 1)
+refkv-vzip = { path = "../refkv-vzip" }
+
+[build-dependencies]
+pyo3-build-config = "0.29"
+
+[profile.release]
+opt-level = 3
+debug = false

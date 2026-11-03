@@ -4,6 +4,7 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
 mod python
+mod python-phkv
 mod js
 mod impls "conformance/impls"
 
@@ -15,7 +16,7 @@ default:
 
 # Test the Python package (python/src/refkv; it zarrifies every format of docs/zarrify/README.md with the Rust core, built first)
 test *args: ir-build
-    uv run pytest -q python/tests {{args}}
+    uv run pytest -q python/tests python-phkv/tests {{args}}
 
 # Build refkv (python/: the package, with its bindings to the IR core rust/refkv-ir, the
 # parsers, the read planner, the projections and the mirror, as the module refkv._core) into
