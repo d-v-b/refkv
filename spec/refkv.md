@@ -1,6 +1,6 @@
 # refkv: a reference value type for key-value stores
 
-Format version: 0 (**provisional**) · Specification revision: 11.3
+Format version: 0 (**provisional**) · Specification revision: 11.4
 
 ## 1. Introduction
 
@@ -733,7 +733,17 @@ This section applies to readers that support `http:` and `https:`.
     Repeated `Content-Encoding` fields combine into one list (RFC 9110
     §5.3), so two `identity` fields are the list `identity, identity`,
     which is also an error. Redirects, 412 and 416 responses are not
-    checked for `Content-Encoding`.
+    checked for `Content-Encoding`. There is one exception, which a reader
+    MAY make: a 206 whose `Content-Range` total equals the source's `size`
+    pin gives the object's bytes as stored, whatever its `Content-Encoding`,
+    since a range applies to the coded representation (RFC 9110 §14.1) and
+    the pin says that this representation is what the writer listed. An
+    object store serves objects that way when they were uploaded with a
+    `Content-Encoding` (the chunks of a Neuroglancer precomputed volume,
+    [the precomputed convention §6.3](zarrify/precomputed.md#63-content-codings)),
+    and a compressing proxy, which this rule is here to catch, changes the
+    total or sends no range. A reader that cannot see the header or stops the
+    body being decoded (a browser's `fetch`) does not make the exception.
   - **Repeated fields:** more than one `Content-Range`, `ETag` or
     `Last-Modified` field is a resolution error. So is more than one
     `Location` field on a redirect.
