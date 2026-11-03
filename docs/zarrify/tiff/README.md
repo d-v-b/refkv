@@ -40,11 +40,16 @@ level, `0` the full resolution.
   the same format that get strictly smaller (how SVS stores its pyramid, so
   its label, macro and thumbnail images are skipped).
 - **Chunks:** one TIFF tile per chunk, for each plane and sample plane, or,
-  for an image in strips, one strip per chunk (its rows by the image's
-  width). A short last strip is padded to the other strips' rows, so that the
-  chunk grid stays regular: with zeros when uncompressed, and with a few
-  literal bytes that continue its stream when LZW. Interleaved RGB keeps its
-  samples in one chunk, behind a `transpose` codec.
+  for an image in compressed strips, one strip per chunk (its rows by the
+  image's width). Uncompressed strips are joined, without copying, into chunks
+  of up to 1 MiB (2^20 bytes) and 1024 strips, so a file of one row per strip
+  does not get a key per row; a reader of a chunk reads all of it, so reading
+  one row then costs up to 1 MiB
+  ([tiff.md §4.5](../../../spec/zarrify/tiff.md#45-strips)). A short last chunk
+  is padded to the others' rows, so that the chunk grid stays regular: with
+  zeros when uncompressed, and with a few literal bytes that continue its
+  stream when LZW. Interleaved RGB keeps its samples in one chunk, behind a
+  `transpose` codec.
 - **Codecs:** none, LZW (`refkv.tiff_lzw`), DEFLATE (`numcodecs.zlib`), zstd, JPEG
   2000 (`imagecodecs_jpeg2k`) and JPEG (`imagecodecs_jpeg`), the tiles and
   strips as stored.

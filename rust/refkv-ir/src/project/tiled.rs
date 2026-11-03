@@ -89,6 +89,32 @@ pub fn plane(refs: &mut Refs, prefix: &str, e: Option<u64>, per: u64, across: u6
     Ok(())
 }
 
+/// The chunks of one IFD's uncompressed strips joined, `join` strips a chunk
+/// (spec/zarrify/tiff.md §4.5
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>): the members of its element `e` (none
+/// without one), with `per` strips a sample plane, keyed `prefix` and `coords(s, row, 0)`, a chunk's
+/// last strip `k` followed by `tail(k)`.
+pub fn joined(refs: &mut Refs, prefix: &str, e: Option<u64>, per: u64, join: u64, coords: impl Fn(u64, u64, u64) -> Vec<u64>,
+              tail: impl Fn(u64) -> Option<Part>) -> Result<(), String> {
+    let mut members = e.map(|e| refs.ir.members(e as u32)).unwrap_or_default();
+    members.sort_unstable();
+    let at = |k: u64| (k / per, k % per / join);
+    for group in members.chunk_by(|a, b| at(a.0) == at(b.0)) {
+        let (s, row) = at(group[0].0);
+        let strips: Vec<_> = group.iter().map(|&(_, start, length, form)| (start, length, form)).collect();
+        let last = group[group.len() - 1].0;
+        refs.joined(key(prefix, coords(s, row, 0)), &strips, tail(last))?;
+    }
+    Ok(())
+}
+
+/// The rows of a level's chunk: a tile's or a strip's, or those of the strips it joins, at most
+/// the image's length.
+pub fn chunk_rows(lv: &J) -> u64 {
+    let (th, join) = (n(&lv["th"]), n(&lv["join"]));
+    if join > 1 { (th * join).min(n(&lv["h"])) } else { th }
+}
+
 /// The output's one zero data source (spec/zarrify.md §1.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>) of a TIFF's or QPTIFF's
 /// padded strips: as many zero bytes as the most any strip of the facts' levels is padded with.
@@ -126,6 +152,11 @@ impl Padding {
                 .map(|p| (at(p), (n(&p["prefix"]), arr(&p["tail"]).iter().map(|b| n(b) as u8).collect())))
                 .collect(),
         })
+    }
+
+    /// The zero bytes after plane `p`'s strip `k`, the last of a joined chunk.
+    pub fn zeros_after(&self, p: u64, k: u64) -> Option<Part> {
+        self.zeros.get(&(p, k)).cloned()
     }
 
     /// The ranges of plane `p`'s strip `k` at chunk row `row`, of `length` bytes at `start`, when it

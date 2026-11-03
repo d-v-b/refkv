@@ -58,7 +58,7 @@ fn omero(facts: &J, size_c: u64, data_type: &str, sampled: &[Option<J>]) -> Opti
 fn level_shape<'a>(facts: &'a J, lv: &J) -> (Vec<&'a str>, Vec<u64>, Vec<u64>) {
     let spp = n(&facts["spp"]);
     let sizes = &facts["sizes"];
-    let (w, h, tw, th) = (n(&lv["w"]), n(&lv["h"]), n(&lv["tw"]), n(&lv["th"]));
+    let (w, h, tw, th) = (n(&lv["w"]), n(&lv["h"]), n(&lv["tw"]), tiled::chunk_rows(lv));
     let axes = strs(&facts["axes"]);
     let shape = axes.iter().map(|a| along(a, [n(&sizes["t"]), n(&sizes["c"]), n(&sizes["z"]), h, w])).collect();
     let chunk = axes.iter().map(|a| along(a, [1, if tiled::contig(facts) { spp } else { 1 }, 1, th, tw])).collect();
@@ -100,10 +100,12 @@ fn arrays(ir: &Ir, facts: &J, url: &str, only: Option<usize>) -> Result<(Out, Ve
     let mut zeros = tiled::zero_source(facts);
     tiled::arrays(ir, facts, url, only, shape, |refs, li, lv| {
         let (w, h, tw, th) = (n(&lv["w"]), n(&lv["h"]), n(&lv["tw"]), n(&lv["th"]));
-        // a level in strips has one chunk a row; its short last strip is padded to the chunk
+        // a level in strips has one chunk a row, of one strip or, uncompressed, of the strips it
+        // joins; its short last chunk is padded
         // (spec/zarrify/tiff.md §4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>)
         let across = if lv["strips"].as_bool().unwrap_or(false) { 1 } else { w.div_ceil(tw) };
         let per = across * h.div_ceil(th);
+        let join = n(&lv["join"]);
         let padding = tiled::Padding::of(refs, lv, &mut zeros)?;
         let planes = arr(&lv["planes"]);
         let prefix = format!("{li}/c/");
@@ -126,7 +128,11 @@ fn arrays(ir: &Ir, facts: &J, url: &str, only: Option<usize>) -> Result<(Out, Ve
                         coords.extend([row, col]);
                         coords
                     };
-                    tiled::plane(refs, &prefix, tiles, per, across, coords, |k, row, start, length| padding.parts(p, k, row, start, length))?;
+                    if join > 1 {
+                        tiled::joined(refs, &prefix, tiles, per, join, coords, |k| padding.zeros_after(p, k))?;
+                    } else {
+                        tiled::plane(refs, &prefix, tiles, per, across, coords, |k, row, start, length| padding.parts(p, k, row, start, length))?;
+                    }
                 }
             }
         }
