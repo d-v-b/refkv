@@ -20,7 +20,7 @@ URL = "https://openslide.cs.cmu.edu/download/openslide-testdata/Hamamatsu/CMU-1.
 
 root = zarr.open_group(refkv.zarr.store(zarrify(URL)), mode="r")
 levels = sorted(root.array_keys(), key=int)  # the pyramid's levels, 0 its full resolution
-smallest = np.asarray(root.get_array(levels[-1])[...])  # [c, y, x], JPEG-coded tiles decoded by refkv.zarr's codecs
+smallest = np.asarray(root.get_array(levels[-1])[...])  # [c, y, x], JPEG-coded chunks decoded by imagecodecs-zarr
 fig, ax = plt.subplots(figsize=(8, 6))
 ax.imshow(smallest.transpose(1, 2, 0))
 ax.set_title(f"CMU-1.ndpi, level {levels[-1]} of {len(levels)}")

@@ -164,7 +164,7 @@ print(a[:, 1000, 1000:1004])
 
 ```
 [{'type': 'scale', 'scale': [1, 0.499, 0.499]}, {'type': 'translation', 'translation': [0, 23449.873, 25691.574]}]
-(3, 2967, 2220) uint8 (3, 240, 240) (TransposeCodec(order=(1, 2, 0)), JpegCodec())
+(3, 2967, 2220) uint8 (3, 240, 240) (TransposeCodec(order=(1, 2, 0)), Jpeg(level=None, ...))
 [[67 18 38 85]
  [34  5  0 24]
  [65 53 55 83]]

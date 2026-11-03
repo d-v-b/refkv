@@ -10,6 +10,8 @@ OME-Zarr profile, [Part 2](#part-2-the-profile) below.
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `b74ea302-65bb-49ae-b81f-f9bb52cd4eed` ·
 Schema: [schema.json](ome-zarr/schema.json)
 
+Changed 2026-11-03, with no change to any output: two citations of OME-NGFF's text no longer link to refkv's conventions.
+
 Changed 2026-10-27: a zlib stream's codec is `numcodecs.zlib`, zarr-python's name for it, in
 place of `zlib` ([conventions §3](../conventions.md#3-arrays), d-v-b/refkv#90).
 
@@ -270,7 +272,7 @@ has no `source.image` (0.4's default):
 The checks of I1–I7 apply to every dataset, dropped or not: a dropped
 dataset is still part of a 0.4 document the input must get right.
 
-**Plates and wells** ([conventions §4](../conventions.md#4-images), OME-NGFF 0.4 §3.8, §3.9). For each plate at path `P`:
+**Plates and wells** (OME-NGFF 0.4 §3.8, §3.9). For each plate at path `P`:
 
 - P1. `plate` is an object; `columns` and `rows` are arrays of objects
   whose member `name` is a string of one or more ASCII letters and digits,
@@ -388,7 +390,7 @@ as in the [Zarr v2 convention](zarr2.md#4-source-metadata).
 ## 6. Arrays
 
 OME-NGFF 0.5 requires every level of an image to have `dimension_names`
-equal to the image's axis names ([conventions §3](../conventions.md#3-arrays) of 0.5: "MUST be included in the
+equal to the image's axis names (OME-NGFF 0.5 §3: "MUST be included in the
 zarr.json of the Zarr array of a multiscale level and MUST match the names
 in the axes metadata"). Each array that is a level of a multiscale (the
 array a kept dataset's path names, label images included) gets the member

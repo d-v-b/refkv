@@ -108,8 +108,6 @@ dapi = g["5"][0]  # the smallest level's first channel
 print(dapi.shape, dapi.dtype, dapi.mean())
 ```
 
-The same file and the inForm component fields are listed with their
-structure in [spec/zarrify/qptiff.md](../../../spec/zarrify/qptiff.md).
 The command line also takes a local path, and `vzip convert` ([rust/refkv-cli](../../../rust/refkv-cli/))
 writes the same archive without Python.
 
@@ -167,8 +165,7 @@ Rejected:
   compressions, FillOrder 2, subsampled YCbCr that is not JPEG.
 
 A plain TIFF (no `PerkinElmer-QPI` Software tag) is read by the
-[TIFF profile](../tiff/README.md), which still rejects LZW; LZW support is
-specific to QPTIFF for now.
+[TIFF profile](../tiff/README.md).
 
 ### In the browser
 
@@ -177,7 +174,7 @@ The browser code ([js/](../../../js/README.md)) reads Akoya QPTIFF (Vectra scans
 - The FullResolution images as channels and the runs of ReducedResolution
   images as levels, named and colored in `omero` from each image's XML
   description; tiles, or strips for the smallest levels and inForm fields
-  (a rectilinear chunk grid when the last strip is short).
+  (a short last strip padded to the chunk's rows).
 - Compression: none, LZW (`refkv.tiff_lzw`), JPEG, DEFLATE, zstd, JPEG 2000, and Predictor 2
   (`imagecodecs_delta`).
 
