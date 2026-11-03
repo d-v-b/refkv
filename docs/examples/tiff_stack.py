@@ -17,6 +17,7 @@ with zarr, and checks every plane against tifffile.
 import asyncio
 import dataclasses
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -118,7 +119,8 @@ def main(directory: Path) -> None:
     directory = directory.resolve()
     paths = sorted(directory.glob("*.tif"))
     sidecar = directory / "stack.vzip"
-    print(stack(asyncio.run(zarrify_all(paths)), [p.name for p in paths]).save(sidecar, relative_to=f"{directory}/"))
+    stacked = stack(asyncio.run(zarrify_all(paths)), [p.name for p in paths])
+    print(stacked.save(sidecar, relative_to=f"{directory}{os.sep}"))  # zarrify keeps the path's own separator
 
     image = zarr.open_group(refkv.zarr.open(str(sidecar)), mode="r").get_array("0")
     print(f"{sidecar}: {image.shape} {image.dtype}, chunks {image.chunks}")
