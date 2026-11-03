@@ -1,4 +1,4 @@
-# Plan: vzip and phkv as separate packages
+# Plan: separating vzip and phkv
 
 This plan separates the two bindings so that each can change without the
 other: the ZIP binding (vzip) stays a simple, single, ordinary ZIP file, and
@@ -11,8 +11,8 @@ made.
 It covers four things: a crate for the value type that both bindings share
 ([§2](#2-a-crate-for-part-1-refkv)), the hybrid profile
 ([§3](#3-the-hybrid-profile-drop-it)), the specification
-([§4](#4-the-specification)) and the Python package, with what
-[#141](https://github.com/d-v-b/refkv/pull/141) should do
+([§4](#4-the-specification)) and Python, where both bindings stay in one
+package and [#141](https://github.com/d-v-b/refkv/pull/141) lands as it is
 ([§5](#5-python-and-141)). [§6](#6-the-cli-js-and-ci) covers the rest, and
 [§7](#7-order-of-work) gives the order of the work.
 
@@ -162,51 +162,32 @@ vzip.md does not mention phkv and needs no change.
 
 ## 5. Python and #141
 
-**`refkv` keeps vzip.** The `refkv` distribution stays Part 1 plus the ZIP
-binding: `ReferenceStore`, the shared read path (`refkv.reader`), the
-zarrifiers and `refkv.vzip`. vzip is the binding every zarrify run writes and
-`refkv.open` reads by default, so separating it from `refkv` would give every
-user two packages to install. The Python code is already factored this way:
-`refkv.pb`, `refkv.uri` and `refkv.reader` are Part 1, and `refkv.vzip` is the
-binding.
+**Both bindings stay in the `refkv` distribution.** An earlier version of this
+plan made phkv a distribution of its own, `refkv-phkv`, found through an
+entry-point group. The plan no longer does that: the separation it is after
+comes from the crate ([§2](#2-a-crate-for-part-1-refkv)), dropping the hybrid
+profile ([§3](#3-the-hybrid-profile-drop-it)) and the specification
+([§4](#4-the-specification)), and a second distribution adds a package to
+install and its own release jobs without adding to that.
 
-**phkv becomes a distribution of its own, `refkv-phkv`** (import name
-`refkv_phkv`), a second member of the uv workspace beside `python/`:
+The Python code already keeps the two apart. `refkv.pb`, `refkv.uri` and
+`refkv.reader` are Part 1, and `refkv.vzip` and `refkv.phkv` are the bindings.
+`import refkv` loads no code of either binding's reader or writer until it is
+used, so a user of one does not pay at import for the other.
 
-- `python-phkv/`, with its own `pyproject.toml`, built by maturin from a crate
-  `rust/refkv-phkv-python` that binds `rust/refkv-phkv`, as
-  `rust/refkv-python` binds `rust/refkv-ir`. It depends on `refkv`.
-- It provides `refkv_phkv.open(url)`, `PhkvStore`, `PhkvWriter` and
-  `refkv_phkv.save(store, path)`, for a `ReferenceStore`.
-- `refkv.open(url, binding=...)` finds bindings through an entry-point group
-  `refkv.bindings`, where `refkv` registers `"vzip"` and `refkv-phkv` registers
-  `"phkv"`. With `refkv-phkv` installed, `refkv.open(url, binding="phkv")` and
-  `refkv.zarr.open(url, binding="phkv")` work as #141 has them; without it,
-  the error names the package to install.
-- `refkv` makes public what a binding's writer needs from a `ReferenceStore`:
-  `mapping` (public already), and the source check that #141 factors out of
-  `save` as `_sources_to_save`.
+**#141 lands as it is:** `refkv.phkv`, `refkv.open(url, binding="phkv")`,
+`ReferenceStore.save_phkv`, and the reader and writer in `refkv._core`
+(`rust/refkv-python/src/phkv.rs`). `refkv.open` keeps its two named bindings,
+and `_sources_to_save` stays private, since nothing outside `refkv` writes a
+store.
 
-**What #141 should do.** Its reader and writer, the Rust bindings
-(`rust/refkv-python/src/phkv.rs`), `Store::fetch` and `Store::key_bytes` in
-`refkv-phkv`, and its tests carry over. What changes:
+**What this costs.**
 
-1. Move `python/src/refkv/phkv/` to `python-phkv/src/refkv_phkv/`, and
-   `rust/refkv-python/src/phkv.rs` to `rust/refkv-phkv-python/`, so that
-   `refkv._core` and `rust/refkv-python/Cargo.toml` do not depend on
-   `refkv-phkv`.
-2. Replace `ReferenceStore.save_phkv` with `refkv_phkv.save(store, path)`.
-3. Replace the hard-coded `binding="phkv"` in `refkv.open` with the
-   entry-point lookup, and make `_sources_to_save` public.
-4. Move its README and docs sections to `python-phkv/README.md`, leaving one
-   line in `README.md` that points to it.
-5. Add the wheel and sdist jobs for `refkv-phkv` to the release workflow,
-   copied from `refkv`'s with the working directory changed. The wheels are
-   abi3, so one per platform as for `refkv`.
-
-#141 can land in this form before or after the crate of [§2](#2-a-crate-for-part-1-refkv),
-since it uses `refkv-phkv`'s public reader and writer, which the crate split
-does not change.
+- Every install carries phkv: about 800 KiB more of compiled core on a macOS
+  build, compared across nearby commits, on a core of about 8 MB.
+- Every wheel compiles Zstandard's C code, which `refkv-phkv` uses.
+- phkv ships on `refkv`'s releases, and a draft binding sits in the public API
+  of the main package, so its documentation has to say that it is a draft.
 
 ## 6. The CLI, JS and CI
 
@@ -214,13 +195,12 @@ does not change.
   crates. It keeps `--format phkv`, loses `--format hybrid`, and imports the
   value types from `refkv`. Making the phkv output a default Cargo feature is
   possible but buys little while the CLI is not published.
-- **JS.** Nothing changes. A JS phkv reader, if one is written, is its own npm
-  package for the same reasons as in Python.
+- **JS.** Nothing changes. A JS phkv reader, if one is written, belongs in the
+  same library, as in Python.
 - **CI.** The `cli` job's `just` recipe already tests `refkv-vzip` and
   `refkv-phkv` separately; it gains `cargo test` for `refkv`, and rust-cache's
-  `workspaces` list gains `rust/refkv`. The workspace's `dev` group gains
-  `refkv-phkv`, so the `pytest` job's `uv sync` builds it, and `just test`
-  runs its tests.
+  `workspaces` list gains `rust/refkv`. The `pytest` job already builds the
+  phkv bindings once #141 is in, as part of `refkv._core`.
 
 ## 7. Order of work
 
@@ -234,8 +214,7 @@ Each step is one pull request against `main`, and each leaves `main` green.
    no longer depends on `refkv-vzip`.
 3. **Split the specification** ([§4](#4-the-specification)): renumber
    phkv.md, its version line, and refkv.md's three passages.
-4. **#141 in its new form** ([§5](#5-python-and-141)): the `refkv-phkv`
-   distribution, the `refkv.bindings` entry points and the release jobs.
+4. **Merge #141** ([§5](#5-python-and-141)).
 
 Steps 1 to 3 touch different files except for `rust/refkv-phkv`, so 2 and 3
 can go in either order once 1 has merged. Step 4 depends on none of them.
@@ -247,10 +226,8 @@ can go in either order once 1 has merged. Step 4 depends on none of them.
   `refkv-vzip` only for `hybrid.rs`", and phkv's §21 stays, renumbered.
 - **vzip's reserved names in `ReferenceStore`.** A `ReferenceStore` keeps
   values under vzip's reserved prefix `__vz__/` out of its mapping, and #141
-  writes those it holds into a phkv store as ordinary keys. After the split,
-  `refkv_phkv.save` should probably skip them, since they are the ZIP
-  binding's bookkeeping, not the store's keys, but that needs a look at which
-  hidden values a `ReferenceStore` can hold.
-- **The directory name.** `python-phkv/` sits beside `python/`. The
-  alternative is a `bindings/` or `phkv/` directory holding the phkv crate,
-  its Python package and its specification together.
+  writes those it holds into a phkv store as ordinary keys, where `list` and
+  `list_dir` show them. `save_phkv` should probably skip them, since they are
+  the ZIP binding's bookkeeping, not the store's keys, but a key source may
+  name one. zarrify refuses output keys under that prefix, so its stores are
+  not affected.
