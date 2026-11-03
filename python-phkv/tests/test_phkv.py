@@ -346,3 +346,16 @@ def test_hidden_values_are_not_keys(tmp_path):
     s = refkv_phkv.open(tmp_path / "s.phkv")
     assert s.list() == ["__vz__/used", "a", "r"]
     assert s.get("r") == b"234"
+
+
+def test_save_phkv_is_refkv_phkv_save(tmp_path):
+    """`ReferenceStore.save_phkv(path)` writes the file `refkv_phkv.save(store, path)` does, and
+    returns the same summary."""
+    (tmp_path / "blob.bin").write_bytes(DATA)
+    store = _store(tmp_path.as_uri())
+    summary = store.save_phkv(tmp_path / "m.phkv", policy=SERVED, inline_max=64)
+    other = refkv_phkv.save(store, tmp_path / "f.phkv", policy=SERVED, inline_max=64)
+    assert (summary.keys, summary.references, summary.sources, summary.bytes) == (
+        other.keys, other.references, other.sources, other.bytes)
+    assert (tmp_path / "m.phkv").read_bytes() == (tmp_path / "f.phkv").read_bytes()
+    assert refkv.open(tmp_path / "m.phkv", binding="phkv").get("c") == b"<" + DATA[4000:4096] + b"123"

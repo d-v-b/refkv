@@ -531,6 +531,28 @@ class ReferenceStore(ReferenceReader):
             n_sources = w.n_sources
         return Summary(path, len(self._keys), refs, n_sources, Path(path).stat().st_size)
 
+    def save_phkv(
+        self,
+        path: str | os.PathLike[str],
+        *,
+        inline_max: int = 4096,
+        page_size: int = 4096,
+        relative_to: str | None = None,
+        policy: Policy | None = None,
+    ) -> Summary:
+        """Write the store as a phkv store at the local `path`, and return a `Summary` of it:
+        `refkv_phkv.save(self, path, ...)`, with the same arguments. The perfect-hash binding is
+        the distribution `refkv-phkv` (`pip install refkv-phkv`), which `refkv` does not import
+        until this is called; without it, this raises ImportError. `refkv.open(path,
+        binding="phkv")` reads the result back."""
+        try:
+            import refkv_phkv  # noqa: PLC0415 (`import refkv` imports no phkv code)
+        except ImportError as e:
+            raise ImportError("ReferenceStore.save_phkv needs the refkv-phkv distribution: "
+                              "pip install refkv-phkv") from e
+        return refkv_phkv.save(self, path, inline_max=inline_max, page_size=page_size,
+                               relative_to=relative_to, policy=policy)
+
     # ------------------------------------------------------------ reading
 
     @override

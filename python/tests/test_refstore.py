@@ -656,3 +656,13 @@ def test_a_base_directory_keeps_its_trailing_slash(tmp_path):
         store = refkv.ReferenceStore({"k": Range(source=0, length=5)}, [Source(url="x.bin")], url=base)
         assert store.url.endswith("/run1/")
         assert store.get("k") == b"RIGHT"
+
+
+def test_save_phkv_needs_refkv_phkv(tmp_path):
+    """`save_phkv` hands the store to `refkv_phkv.save`, and says which distribution to install
+    when it is missing."""
+    store = refkv.ReferenceStore({"a": b"1"}, [])
+    with (unittest.mock.patch.dict("sys.modules", {"refkv_phkv": None}),
+          pytest.raises(ImportError, match="pip install refkv-phkv")):
+        store.save_phkv(tmp_path / "s.phkv")
+    assert not (tmp_path / "s.phkv").exists()
