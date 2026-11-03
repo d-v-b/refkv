@@ -3,8 +3,8 @@
 # dependencies = ["refkv[zarr,images]>=0.2.0", "matplotlib"]
 # ///
 """A Sentinel-2 Level-1C product (tile 32TNS, the Alps, 2024-01-03): a true-color crop, zarrified
-without copying it: refkv reads the file's structure and presents it as Zarr, each chunk a reference
-to the file's own bytes, read only when plotted.
+without copying it: refkv reads the product's structure and presents it as Zarr, each chunk a reference
+to the product's own bytes, read only when plotted.
 
 Run with `uv run docs/zarrify/safe/example.py`; the figure is saved as safe.png.
 """

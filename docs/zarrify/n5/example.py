@@ -3,8 +3,8 @@
 # dependencies = ["refkv[zarr]>=0.2.0", "matplotlib"]
 # ///
 """Mitochondria labels of HeLa cell 2 (OpenOrganelle, jrc_hela-2), an N5 multiscale, zarrified
-without copying it: refkv reads the file's structure and presents it as Zarr, each chunk a reference
-to the file's own bytes, read only when plotted.
+without copying it: refkv reads the store's structure and presents it as Zarr, each chunk a reference
+to the store's own bytes, read only when plotted.
 
 Run with `uv run docs/zarrify/n5/example.py`; the figure is saved as n5.png.
 """

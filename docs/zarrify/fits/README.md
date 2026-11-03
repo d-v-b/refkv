@@ -114,7 +114,7 @@ These are astropy's values (`fits.open(path)[1].data[1800:1803, 1800:1804]`)
 to within the last bits of the dequantization: the convention computes
 `(I − R + 0.5) × ZSCALE + ZZERO` in binary64 with each operation rounded,
 where a build of cfitsio may fuse the multiply and the add. Reading those
-three rows fetched one 1 MiB chunk: 18 tiles, one range of the heap.
+three rows fetched one chunk: 18 tiles, one range of the heap.
 
 **In the browser.** The demo page zarrifies a FITS file and serves it as
 Zarr; the Neuroglancer fork displays uncompressed images, and
