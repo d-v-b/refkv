@@ -1,0 +1,44 @@
+{
+ "@type": "neuroglancer_multiscale_volume",
+ "type": "image",
+ "data_type": "uint8",
+ "num_channels": 1,
+ "scales": [
+  {
+   "key": "gray",
+   "size": [
+    32,
+    16,
+    3
+   ],
+   "chunk_sizes": [
+    [
+     16,
+     16,
+     2
+    ]
+   ],
+   "resolution": [
+    8,
+    8,
+    45
+   ],
+   "voxel_offset": [
+    0,
+    0,
+    0
+   ],
+   "encoding": "jpeg",
+   "jpeg_quality": 90,
+   "sharding": {
+    "@type": "neuroglancer_uint64_sharded_v1",
+    "hash": "identity",
+    "preshift_bits": 1,
+    "minishard_bits": 1,
+    "shard_bits": 0,
+    "minishard_index_encoding": "gzip",
+    "data_encoding": "raw"
+   }
+  }
+ ]
+}

@@ -29,6 +29,7 @@ import { writeVzip } from "./writer.ts";
 const STORE_FORMATS: Record<StoreProfile, string | undefined> = {
   zarr2: "Zarr v2",
   n5: "N5",
+  precomputed: "Neuroglancer precomputed",
   "ome-zarr": "OME-Zarr",
   safe: undefined,
   vsi: "VSI",

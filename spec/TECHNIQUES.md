@@ -58,6 +58,8 @@ own with a standard codec. The same few techniques recur:
 | the unit is too large to be a chunk (one JPEG strip per level) | cut it at the format's own resynchronization points (restart markers), and rewrite each piece's header as literal bytes | NDPI |
 | rows have padding | one byte range per row, gathered into one chunk | ND2 |
 | units carry a per-unit header | a codec that parses it, rather than layout tricks | N5 (`n5_default`) |
+| units are too many to reference (a billion chunks), but groups of them are regular boxes of the grid with an index of their own | one reference per group, whole, and a codec that reads the group's own index when a unit is read: the output comes from the listing alone | Neuroglancer precomputed (`refkv.precomputed`) |
+| a unit's decoded shape depends on where it lies, which a codec is not told (a chunk clipped by the volume's end) | a small literal before each reference that gives its position, read for no request | Neuroglancer precomputed |
 | units carry a few header bytes before a standard stream | a range that starts after them; the header's one meaningful bit becomes a codec | CZI (the Zstd1 header, whose hi-lo flag is `numcodecs.shuffle`) |
 | the unit's bytes are a transform of the pixels a standard codec undoes (16-bit values split into low and high bytes) | that codec in the chain, before the compressor | CZI (`bytes`, `numcodecs.shuffle`, `zstd`) |
 | the unit's values are differences along a row (a horizontal predictor) | an array-to-array codec before `bytes` that sums them back along that axis | TIFF Predictor 2 (`imagecodecs_delta`, `bytes`, `refkv.tiff_lzw`) |
@@ -201,6 +203,7 @@ From [§1](#1-three-kinds-of-information), [§4](#4-numeric-metadata-as-arrays) 
 | FLAC | the stream's parameters, STREAMINFO's fields (its MD5 as hex), each metadata block's type and size, the Vorbis comments, the cue sheet, each picture's fields, the seek table's counts, the ID3v2 and ID3v1 tags' fields | none | each picture's data, by reference (`pictures/<i>`) |
 | IMS | none | the whole HDF5 tree, mirrored under `refkv_source/hdf5`: each group's attributes, links and named datatypes on its own group | every dataset but the image's (histograms, thumbnail, `DataSetTimes`, `Scene8` tables), by reference, typed when its elements are numbers; large attributes, copied |
 | N5 | each node's `attributes.json` without its layout members (`dimensions`, `blockSize`, `dataType`, `compression`, `n5`) | none | none |
+| Neuroglancer precomputed | the `info` document, every member, and on each array its scale; scales not presented, each with its reason | none | none |
 | Zarr v2, OME-Zarr | each node's `.zattrs` | none | none |
 | CZI | the file header (version, GUIDs) | the attachment directory's entries (name, type, GUID, the form of their data), within a 64 KiB budget | the directory as copied typed columns, one per field and dimension; subblock metadata, attachments and unplaced data as families; the metadata XML, attachments (time stamps and focus positions typed, event lists as columns), unreferenced segments and the tail by reference |
 | safetensors | the header's length and `__metadata__`, and every tensor's entry as written (name, `dtype`, shape, `data_offsets`, other members), with its path or the reason it is not presented | none | none; the header and each tensor's data by reference |

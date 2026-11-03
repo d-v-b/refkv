@@ -1,0 +1,14 @@
+{
+  "name": "precomputed",
+  "title": "Neuroglancer precomputed",
+  "uuid": "c499987a-9518-4b2b-a804-a70a8de1a911",
+  "version": 0,
+  "kind": "store",
+  "sniff": null,
+  "chosen_by": null,
+  "suffixes": [],
+  "reference": null,
+  "source": "Neuroglancer precomputed",
+  "inputs": "Neuroglancer precomputed volumes, unsharded or with identity-hashed shards",
+  "for": "connectomics volumes in Neuroglancer's precomputed format, including shards too many to scan"
+}

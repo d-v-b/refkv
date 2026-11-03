@@ -99,6 +99,9 @@ pub enum StoreFormat {
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md>): the GRIB file, listed
     /// alone, and its index, which the run probes for.
     Grib,
+    /// A Neuroglancer precomputed volume (`precomputed.rs`; spec/zarrify/precomputed.md
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/precomputed.md>).
+    Precomputed,
 }
 
 impl StoreFormat {
@@ -111,6 +114,7 @@ impl StoreFormat {
             "nrrd" => Some(StoreFormat::Nrrd),
             "grib" => Some(StoreFormat::Grib),
             "safetensors" => Some(StoreFormat::Safetensors),
+            "precomputed" => Some(StoreFormat::Precomputed),
             _ => None,
         }
     }
@@ -123,6 +127,7 @@ impl StoreFormat {
             StoreFormat::Nrrd => "nrrd",
             StoreFormat::Grib => "grib",
             StoreFormat::Safetensors => "safetensors",
+            StoreFormat::Precomputed => "precomputed",
         }
     }
     /// The convention the mirror declares.
@@ -135,6 +140,7 @@ impl StoreFormat {
             StoreFormat::Nrrd => "nrrd",
             StoreFormat::Grib => "grib",
             StoreFormat::Safetensors => "safetensors",
+            StoreFormat::Precomputed => "precomputed",
         }
     }
     fn parser(self, ir: Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> Res<Box<dyn StoreParser>> {
@@ -146,6 +152,7 @@ impl StoreFormat {
             StoreFormat::Nrrd => Ok(Box::new(crate::nrrd::Nrrd::new(ir, objects, keys)?)),
             StoreFormat::Grib => Ok(Box::new(crate::grib::Grib::new(ir, objects, keys)?)),
             StoreFormat::Safetensors => Ok(Box::new(crate::safetensors::store::SafetensorsStore::new(ir, objects, keys)?)),
+            StoreFormat::Precomputed => Ok(Box::new(crate::precomputed::Precomputed::new(ir, objects, keys))),
         }
     }
 }
@@ -480,6 +487,7 @@ pub fn store_output(format: StoreFormat, ir: &Ir, facts: &J, stats: J, url: &str
         StoreFormat::Nrrd => crate::project::nrrd::project(ir, facts, url)?,
         StoreFormat::Grib => crate::project::grib::project(ir, facts, url)?,
         StoreFormat::Safetensors => crate::project::safetensors::project_store(ir, facts, url)?,
+        StoreFormat::Precomputed => crate::project::precomputed::project(ir, facts, url)?,
     };
     crate::shard::refuse(&out)?;
     let mut summary = std::mem::take(&mut out.summary);
