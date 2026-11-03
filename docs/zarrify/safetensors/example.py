@@ -25,7 +25,7 @@ URL = ("https://huggingface.co/openai-community/gpt2/resolve/607a30d783dfa663caf
        "model.safetensors")
 
 store = zarrify(URL)
-store.save("gpt2.vzip")
+store.save_vzip("gpt2.vzip")
 root = zarr.open_group(refkv.zarr.store(store), mode="r")
 meta = root.attrs["refkv_zarrified"]  # attributes are JSON: check the parts read
 assert isinstance(meta, dict)

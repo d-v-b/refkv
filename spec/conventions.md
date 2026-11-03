@@ -49,6 +49,7 @@ formats' documents already say of their attributes, arrays, codecs and fill valu
 | NumPy NPY and NPZ (NEP 1) | [npy](zarrify/npy.md) | `62b1d1ba-8eb3-465c-a333-75e096fce519` |
 | NRRD (Teem) | [nrrd](zarrify/nrrd.md) | `23e0c600-8da6-40f1-81e7-ab246e948e88` |
 | OME-Zarr 0.4 | [ome-zarr](zarrify/ome-zarr.md) | `b74ea302-65bb-49ae-b81f-f9bb52cd4eed` |
+| Neuroglancer precomputed | [precomputed](zarrify/precomputed.md) | `c499987a-9518-4b2b-a804-a70a8de1a911` |
 | Akoya QPTIFF | [qptiff](zarrify/qptiff.md) | `329ea136-2f55-4c27-b6f4-8e60ca2109b8` |
 | Sentinel-2 SAFE (Level-1C, Level-2A) | [safe](zarrify/safe.md) | `ef81346c-19e8-42ad-93b0-a279ccaf44c1` |
 | safetensors (Hugging Face) | [safetensors](zarrify/safetensors.md) | `15e7ce39-d4ca-4514-8144-6e19d2a0341b` |
@@ -242,6 +243,7 @@ below. The conventions that say otherwise:
 | convention | its arrays |
 |---|---|
 | N5, Zarr v2, OME-Zarr (the store conventions) | are defined by the convention itself |
+| Neuroglancer precomputed | have the codec `refkv.precomputed`, a chunk being one chunk object or a whole shard ([precomputed §3.1](zarrify/precomputed.md#31-the-array)) |
 | CZI | have, for clipped levels, the zarr-extensions `rectilinear` chunk grid, and may have the codecs `imagecodecs_jpegxr` and `numcodecs.shuffle` |
 | NDPI | have, for JPEG XR levels, the codec `imagecodecs_jpegxr` |
 | QPTIFF | have, for LZW tiles and strips, the codec `refkv.tiff_lzw` ([qptiff §4.1](zarrify/qptiff.md#41-data-types-and-codecs)) |
@@ -332,7 +334,8 @@ zarr-extensions registry's (`n5_default`, `packbits`), or refkv's own, which are
 (`refkv.stream`, [§10](#10-coded-streams); `refkv.fits_tiles`,
 [fits §3.3](zarrify/fits.md#33-tile-compressed-images); `refkv.tiff_lzw`,
 [qptiff §4.1](zarrify/qptiff.md#41-data-types-and-codecs); `refkv.skip`,
-[npy §4.4](zarrify/npy.md#44-the-refkvskip-codec); `refkv.grib`, [§12](#12-grib-messages)). refkv names a
+[npy §4.4](zarrify/npy.md#44-the-refkvskip-codec); `refkv.grib`, [§12](#12-grib-messages);
+`refkv.precomputed`, [precomputed §6](zarrify/precomputed.md#6-the-codec-refkvprecomputed)). refkv names a
 codec of its own only where none of the others decodes the chunks as the convention says (QPTIFF's
 LZW streams can run past their tile, which `imagecodecs_lzw` does not allow; no codec of the
 others drops the NPY header a deflated `.npz` member inflates to). refkv's Python
@@ -734,6 +737,12 @@ chain ends at an element that is not an alias, within 64 steps; for each
 derived element whose form is a JSON object with a member `size`, the leaves
 in its space partition `[0, size)` of its derived bytes; and the root and
 the names are as above.
+
+A table (8.2) may leave out what canonical form leaves out, and these
+invariants allow for it: a derived element with no descendants in a table had
+them left out (8.8, step 3), so its leaves need not partition its derived
+bytes, and an alias's target chain in a table may end at `-1` (8.8, step 7).
+The IR a parser builds leaves nothing out.
 
 A **run** is an element whose subtree stands for `count` copies of itself
 (its **members**): member `j` has every extent of the subtree shifted by

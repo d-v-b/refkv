@@ -537,7 +537,9 @@ def choose_profile(store: Store) -> str:
         return "n5"
     if "manifest.safe" in store.objects:
         return "safe"
+    if "info" in store.objects:
+        return "precomputed"
     if any(k.endswith(".safetensors") for k in store.objects):
         return "safetensors"
-    raise Rejected("not an N5, Zarr v2, SAFE or safetensors store: the root has no .zarray, .zgroup, "
-                   "attributes.json or manifest.safe, and no key ends in .safetensors")
+    raise Rejected("not an N5, Zarr v2, SAFE, Neuroglancer precomputed or safetensors store: the root has no "
+                   ".zarray, .zgroup, attributes.json, manifest.safe or info, and no key ends in .safetensors")

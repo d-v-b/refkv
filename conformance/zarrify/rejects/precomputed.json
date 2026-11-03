@@ -1,0 +1,14 @@
+{
+  "about": "The inputs the precomputed profile rejects, each with the start of its message (the Rust tests' prefix, or what each store test's message contains). rust/refkv-ir/build.rs writes a Rust test per case into tests/precomputed.rs; python/tests/ir/test_rejects.py checks each through the host and that every rejected fixture is listed here.",
+  "cases": [
+    {"test": "precomputed_reject_not_object", "input": "precomputed_reject_not_object", "message": "info is not a JSON object"},
+    {"test": "precomputed_reject_not_json", "input": "precomputed_reject_not_json", "message": "info: invalid JSON"},
+    {"test": "precomputed_reject_empty", "input": "precomputed_reject_empty", "message": "info: invalid JSON: the document is empty"},
+    {"test": "precomputed_reject_skeletons", "input": "precomputed_reject_skeletons", "message": "info: @type neuroglancer_skeletons is not a volume"},
+    {"test": "precomputed_reject_data_type", "input": "precomputed_reject_data_type", "message": "info: data_type bool is not supported"},
+    {"test": "precomputed_reject_num_channels", "input": "precomputed_reject_num_channels", "message": "info: num_channels 0 is not 1 to 65535 channels"},
+    {"test": "precomputed_reject_type", "input": "precomputed_reject_type", "message": "info: type 3 is not a string"},
+    {"test": "precomputed_reject_no_scales", "input": "precomputed_reject_no_scales", "message": "info: scales"},
+    {"test": "precomputed_reject_empty_scales", "input": "precomputed_reject_empty_scales", "message": "info: scales"}
+  ]
+}

@@ -1,0 +1,6 @@
+# url|name of the public Neuroglancer precomputed volumes in the corpus (store URLs end in "/"),
+# listed anonymously with S3 ListObjectsV2. Harris15 is raw and unsharded (Harris et al. 2015,
+# open-neurodata), its chunks stored with Content-Encoding: br. BANC (Bates et al.,
+# bossdb-open-data) is JPEG in shards, 87767 objects, within the browser limit.
+https://open-neurodata.s3.amazonaws.com/kharris15/oblique/em/|kharris15_oblique_em|listing-sha256=4948119f2ee31ade2753591f831ce173b3b52509c95a129cf9a39253b9f2c53e
+https://bossdb-open-data.s3.amazonaws.com/bates_phelps_kim_yang2025/banc/em/|banc_em|listing-sha256=cbf9711c8db9a04b149bf82321c221a33b9d0dc4ee8e269ffa2b7f9fb02f70a9

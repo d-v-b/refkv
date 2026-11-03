@@ -1,0 +1,76 @@
+{
+ "@type": "neuroglancer_multiscale_volume",
+ "type": "image",
+ "data_type": "uint8",
+ "num_channels": 1,
+ "scales": [
+  {
+   "key": "a",
+   "size": [
+    10,
+    9,
+    5
+   ],
+   "chunk_sizes": [
+    [
+     2,
+     2,
+     2
+    ]
+   ],
+   "resolution": [
+    8,
+    8,
+    8
+   ],
+   "voxel_offset": [
+    0,
+    0,
+    4
+   ],
+   "encoding": "raw",
+   "sharding": {
+    "@type": "neuroglancer_uint64_sharded_v1",
+    "hash": "identity",
+    "preshift_bits": 1,
+    "minishard_bits": 1,
+    "shard_bits": 6,
+    "minishard_index_encoding": "gzip",
+    "data_encoding": "gzip"
+   }
+  },
+  {
+   "key": "b",
+   "size": [
+    4,
+    3,
+    2
+   ],
+   "chunk_sizes": [
+    [
+     2,
+     2,
+     2
+    ]
+   ],
+   "resolution": [
+    16,
+    16,
+    16
+   ],
+   "voxel_offset": [
+    0,
+    0,
+    0
+   ],
+   "encoding": "raw",
+   "sharding": {
+    "@type": "neuroglancer_uint64_sharded_v1",
+    "hash": "identity",
+    "preshift_bits": 2,
+    "minishard_bits": 1,
+    "shard_bits": 0
+   }
+  }
+ ]
+}

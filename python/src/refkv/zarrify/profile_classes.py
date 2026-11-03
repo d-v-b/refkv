@@ -156,6 +156,14 @@ class OmeZarrStore(Store):
 
 
 @dataclass(frozen=True)
+class PrecomputedStore(Store):
+    """Neuroglancer precomputed: a store the `precomputed` profile reads, its root's keys
+    untested (`Store` lists its read options)."""
+
+    profile: ClassVar[str] = "precomputed"
+
+
+@dataclass(frozen=True)
 class QptiffSource(Source):
     """Akoya QPTIFF: a file the `qptiff` profile reads, its first bytes untested (`Source` lists
     its read options)."""
@@ -239,6 +247,7 @@ CLASSES: dict[str, type[Source | Store]] = {
     "NpySource": NpySource,
     "NrrdSource": NrrdSource,
     "OmeZarrStore": OmeZarrStore,
+    "PrecomputedStore": PrecomputedStore,
     "QptiffSource": QptiffSource,
     "SafeSource": SafeSource,
     "SafeStore": SafeStore,
@@ -268,6 +277,7 @@ __all__ = [
     "NpySource",
     "NrrdSource",
     "OmeZarrStore",
+    "PrecomputedStore",
     "QptiffSource",
     "SafeSource",
     "SafeStore",

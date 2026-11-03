@@ -1,6 +1,9 @@
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["refkv[zarr]>=0.2.0", "xarray", "matplotlib"]
+# dependencies = ["refkv[zarr]", "xarray", "matplotlib"]
+#
+# [tool.uv.sources]
+# refkv = { git = "https://github.com/d-v-b/refkv", subdirectory = "python" }
 # ///
 """An HRRR forecast (NOAA, public domain), zarrified from NOAA's bucket without copying it: refkv
 reads each message's header, through the file's index, and presents the fields as xarray
@@ -19,7 +22,7 @@ from refkv.zarrify import zarrify
 URL = "https://noaa-hrrr-bdp-pds.s3.amazonaws.com/hrrr.20261029/conus/hrrr.t00z.wrfsfcf06.grib2"
 
 store = zarrify(URL)
-store.save("hrrr.vzip")
+store.save_vzip("hrrr.vzip")
 ds = xr.open_zarr(refkv.zarr.store(store), group="grid0", consolidated=False, zarr_format=3)
 t2m = ds["t_heightAboveGround"].sel(heightAboveGround=2.0).isel(time=0, step=0)
 print(ds)

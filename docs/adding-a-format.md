@@ -499,6 +499,7 @@ the PR. The readers so far:
 | FLAC | libsndfile, and the file's own MD5 |
 | MP3, MP4 | ffmpeg through PyAV |
 | CZI | czifile, pylibCZIrw |
+| Neuroglancer precomputed | tensorstore |
 
 Add the reader to the root `pyproject.toml`'s `dev` group, then run `uv lock`.
 
