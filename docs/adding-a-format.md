@@ -414,7 +414,7 @@ reaches:
 - the bindings in `rust/refkv-python/src/lib.rs` and
   `python/src/refkv/_core.pyi`;
 - `python/src/refkv/zarr/codecs/<codec>.py`, and its `zarr.codecs` entry point
-  in `python/pyproject.toml`;
+  in `python/pyproject.toml`, which `python/tests/check_base_install.py` lists too;
 - the wasm export, for the browser;
 - a section in `spec/conventions.md`.
 
