@@ -1,7 +1,7 @@
 // A phkv store, standalone profile, in memory (spec/bindings/phkv.md
 // <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md>, Part 3, a draft): a writer
-// (§23) and a reader, `PhkvArchive`, which finds a key through the perfect hash in one hop (§19.5)
-// and resolves references as `Archive` does (§6.3).
+// (§23 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#23-writing-a-phkv-store>) and a reader, `PhkvArchive`, which finds a key through the perfect hash in one hop (§19.5 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#195-lookup>)
+// and resolves references as `Archive` does (§6.3 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#63-resolving-a-reference>).
 //
 // What this implements of the format: codec 0 (none) for sections and values the writer writes, and
 // DEFLATE (codec 1) for those it reads. Not implemented: the hybrid profile, Zstandard (codec 2:
@@ -37,7 +37,7 @@ const REC_HIDDEN = 4;
 const utf8 = new TextEncoder();
 const strictUtf8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
-/** The probe distances of a standalone store (spec §17.2): 0, and 2^k for k from 10 to 30. */
+/** The probe distances of a standalone store (spec §17.2 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#172-finding-the-superblock>): 0, and 2^k for k from 10 to 30. */
 const probeDistances = (): number[] => [0, ...Array.from({ length: 21 }, (_, k) => 2 ** (10 + k))];
 
 // ---- writing
@@ -102,10 +102,10 @@ interface Section {
 }
 
 /**
- * Writes `desc` as a standalone phkv store, in the recommended layout (spec §23.2): the bytes values
+ * Writes `desc` as a standalone phkv store, in the recommended layout (spec §23.2 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#232-recommended-layout-informative>): the bytes values
  * that are not inline, the records, the slot table, the page index, the perfect hash, the source
  * table, the section directory and the superblock (`distance` 0). Every section is stored
- * (codec 0), and every bytes value too. Throws InvalidInputError for input that spec §7 or §23.1
+ * (codec 0), and every bytes value too. Throws InvalidInputError for input that spec §7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#7-writing> or §23.1 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#231-requirements>
  * rejects. `desc.mirror` and `compress` are vzip's and are ignored.
  */
 export function writePhkv(desc: ArchiveDesc): Uint8Array {
@@ -259,7 +259,7 @@ interface Superblock {
 const safe = (v: bigint, what: string): number =>
   v > BigInt(Number.MAX_SAFE_INTEGER) ? fail("archive", `${what} is too large for this reader`) : Number(v);
 
-/** The superblock of a standalone store, at the first probe distance that matches (spec §17.2). */
+/** The superblock of a standalone store, at the first probe distance that matches (spec §17.2 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#172-finding-the-superblock>). */
 function findSuperblock(bytes: Uint8Array): Superblock | undefined {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   for (const d of probeDistances()) {
@@ -393,7 +393,7 @@ export class PhkvArchive extends Archive {
     }
     for (const d of [records, slotsDir]) if (d !== undefined && d.codec !== 0) fail("archive", `section ${d.type} has codec ${d.codec}`);
 
-    /** A section read whole: checked against its crc32c and decoded to its size (spec §17.5). */
+    /** A section read whole: checked against its crc32c and decoded to its size (spec §17.5 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#175-codecs>). */
     const whole = async (d: Dir): Promise<Uint8Array> => {
       const stored = bytes.subarray(d.offset, d.offset + d.length);
       if (crc32c(stored) !== d.crc) return fail("archive", `section ${d.type} does not match its crc32c`);
@@ -453,7 +453,7 @@ export class PhkvArchive extends Archive {
         return fail("archive", "the SLOTS section is not 12 bytes per slot");
       }
       store.slots = bytes.subarray(slotsDir!.offset, slotsDir!.offset + slotsDir!.length);
-      // the page index: contiguous over RECORDS, with strictly increasing first keys (spec §19.4)
+      // the page index: contiguous over RECORDS, with strictly increasing first keys (spec §19.4 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#194-page-index>)
       const pagesBytes = await whole(pagesDir!);
       let at = 0;
       let next = 0;
@@ -483,7 +483,7 @@ export class PhkvArchive extends Archive {
     return store;
   }
 
-  /** The record of `key`, found through the perfect hash (spec §19.5), as an entry. */
+  /** The record of `key`, found through the perfect hash (spec §19.5 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#195-lookup>), as an entry. */
   protected override entryFor(key: string): Entry | undefined {
     const known = this.entries.get(key);
     if (known !== undefined || this.keyCount === 0) return known;
@@ -501,7 +501,7 @@ export class PhkvArchive extends Archive {
 
   /**
    * The record at `at` of RECORDS, as an entry, or undefined if its key is not `key`. A malformed
-   * record is an entry error (spec §19.5 step 3). `length` is the slot's, if it gave one.
+   * record is an entry error (spec §19.5 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#195-lookup> step 3). `length` is the slot's, if it gave one.
    */
   private record(at: number, length: number | undefined, key: string): Entry | undefined {
     const bad = (m: string): never => fail("entry", `${JSON.stringify(key)}: ${m}`);
@@ -559,7 +559,7 @@ export class PhkvArchive extends Archive {
     return entry;
   }
 
-  /** A phkv store reserves no names (spec §16): every key is visible. */
+  /** A phkv store reserves no names (spec §16 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#16-what-the-phkv-binding-defines>): every key is visible. */
   override lookup(key: string): Entry | undefined {
     const entry = this.entryFor(key);
     if (entry?.error !== undefined) throw new RefkvError("entry", `${JSON.stringify(key)}: ${entry.error}`);

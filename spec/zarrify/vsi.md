@@ -10,6 +10,8 @@ store, which files it reads and which inputs it rejects, is the VSI profile,
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `c0a1d4e6-5b7f-4f3a-9c2d-8e1f6a7b3c45` ·
 Schema: [schema.json](vsi/schema.json)
 
+Changed 2026-11-03, with no change to any output: a level's scale is written `sx × (W / w_l)`, in the order refkv computes it.
+
 Changed 2026-11-01, with no change to any output: the slide is read as a file read as a store,
 by the rules [spec/zarrify.md §1.8](../zarrify.md#18-files-read-as-stores) now states for the
 VSI, NRRD and GRIB profiles ([§9](#9-vsi-profile)).
@@ -496,7 +498,7 @@ Each axis's scale and unit:
 
 | axis | scale | unit |
 |---|---|---|
-| `x`, `y` | with a unit and a `RWC frame scale` `[sx, sy]`: at level `l`, `sx × W / w_l` and `sy × H / h_l` (so level 0 has `sx`, `sy`, and each coarser level the pixel size its subsampling gives; an IFD image has `sx`, `sy`); otherwise 1 | with a unit and a `RWC frame scale`, that unit; otherwise none |
+| `x`, `y` | with a unit and a `RWC frame scale` `[sx, sy]`: at level `l`, `sx × (W / w_l)` and `sy × (H / h_l)` (so level 0 has `sx`, `sy`, and each coarser level the pixel size its subsampling gives; an IFD image has `sx`, `sy`); otherwise 1 | with a unit and a `RWC frame scale`, that unit; otherwise none |
 | `z` | with the `z` axis present, a finite positive z step and a z unit the table names, the step; else 1 | that z unit; else none |
 | `t`, `c` | 1 | none |
 

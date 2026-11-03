@@ -40,7 +40,7 @@ in the order the XML lists them (`0`, `1`, ...), each with one array, `0`.
 - **Chunks:** one plane of one channel, or of all channels when they are
   interleaved (RGB, with the `transpose` codec), or bands of its rows when a
   plane is over 16 MiB. No compression: the file has none.
-- **Scale:** each dimension's `Length` over its elements, in micrometers (from
+- **Scale:** each dimension's `Length` over its elements less one, in micrometers (from
   meters) and seconds. No translation.
 - **omero:** a channel per channel, colored by its LUT (`Red`, `Green`, ...).
 - **Metadata:** each image's group holds its element of the XML (its name,

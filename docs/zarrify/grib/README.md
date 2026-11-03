@@ -43,8 +43,7 @@ xarray opens (`xr.open_zarr(store, group="grid0")`), with:
   sections are in the IR mirror on `refkv_source`, from which the file is rebuilt byte for byte.
 
 **Packings.** Simple (5.0), complex (5.2), complex with spatial differencing (5.3, NOAA's), IEEE
-floats (5.4), PNG (5.41) and CCSDS (5.42, ECMWF's). JPEG 2000 (5.40), which NOAA's RAP uses, is
-not decoded yet: such a field is listed as not presented, and a file of nothing else is rejected.
+floats (5.4), JPEG 2000 (5.40, which NOAA's RAP uses), PNG (5.41) and CCSDS (5.42, ECMWF's).
 
 **Not presented.** A field is listed with its reason, rather than rejecting the file, when its
 grid is not a regular latitude/longitude or Lambert conformal grid, its packing is not one of the
@@ -66,7 +65,7 @@ Supported:
   the message or reused from an earlier field of the same message.
 
 Not presented, each field listed with its reason under `refkv_zarrified.grib`: other grids,
-JPEG 2000 and other packings, product templates with dimensions refkv does not name yet, and
+other packings, product templates with dimensions refkv does not name yet, and
 predefined bitmaps.
 
 Rejected:
@@ -74,7 +73,7 @@ Rejected:
 - GRIB edition 1, and files that do not parse as edition 2 messages: a truncated message, one
   without its `7777` end, sections out of order or over 1 MiB
   ([spec §8.4](../../../spec/zarrify/grib.md#84-checks-and-rejection)).
-- A file none of whose fields is presented, such as one of JPEG 2000 fields alone.
+- A file none of whose fields is presented.
 
 ## Measured
 

@@ -196,7 +196,9 @@ test("a record whose slot points outside RECORDS is an entry error", async () =>
   assert.throws(() => a.lookup("a"), (e) => e instanceof RefkvError && e.errorClass === "entry");
 });
 
-test("the writer rejects what spec §7 and §23.1 reject", () => {
+// spec §7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#7-writing> and §23.1
+// <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#231-requirements>
+test("the writer rejects what the spec's requirements reject", () => {
   const rejects = (desc: ArchiveDesc) => assert.throws(() => writePhkv(desc), InvalidInputError);
   rejects({ sources: [], entries: [{ key: "", bytes: utf8("x") }] });
   rejects({ sources: [], entries: [{ key: "a", bytes: utf8("x") }, { key: "a", bytes: utf8("y") }] });

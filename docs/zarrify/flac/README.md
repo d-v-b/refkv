@@ -153,7 +153,7 @@ Rejected:
   shard's index (at most 8 KB) is read once.
 - The archive has one entry per 512 frames, each at most about 21 KB (a
   4-byte header and a range per frame, and 16 bytes of index per frame), and
-  the mirror's table has a row per frame.
+  the mirror's table describes every frame, folded where frames repeat.
 - zarr-python's sharding codec merges the byte ranges of a read whose gaps
   are under 1 MiB (`array.sharding_coalesce_max_gap_bytes`); frames are
   contiguous, so a read of a run of samples asks for no bytes it does not

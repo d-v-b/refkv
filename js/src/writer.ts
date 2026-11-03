@@ -157,7 +157,7 @@ export function referenceBlock(ranges: Range[]): {
 }
 
 /**
- * Throws InvalidInputError if `desc` breaks a requirement of spec §7; `maxPayload` is the largest
+ * Throws InvalidInputError if `desc` breaks a requirement of spec §7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#7-writing>; `maxPayload` is the largest
  * reference payload the binding allows (vzip's, by default).
  */
 export function validate(desc: ArchiveDesc, maxPayload = MAX_PAYLOAD) {

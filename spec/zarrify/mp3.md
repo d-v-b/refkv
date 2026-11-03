@@ -10,6 +10,8 @@ is the MP3 profile, [Part 2](#part-2-the-profile) below.
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `b6cb0047-9448-4fdc-b03e-10dd3d6aa829` ·
 Schema: [schema.json](mp3/schema.json)
 
+Changed 2026-11-03, with no change to any output: the introduction no longer calls MP3 the one source that is not an image.
+
 Changed 2026-11-01, with no change to any output: the checks say that a zarrifier MUST reject
 an input that fails one, in RFC 2119's words.
 
@@ -28,8 +30,7 @@ Added 2026-10-21.
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
-MP3 is the one format among refkv's conventions whose source is not an
-image: the hierarchy holds the decoded audio as one array of samples, with no
+An MP3 file is not an image: the hierarchy holds the decoded audio as one array of samples, with no
 OME-NGFF metadata. The samples stay in the file as MPEG frames; the array's
 codec decodes them when a chunk is read.
 
