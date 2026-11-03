@@ -21,7 +21,7 @@ own file. No pixel is copied.
 - **One source table.** The stack's source table lists every file's sources in
   order, and each reference's source index is moved by the number of sources
   before its file's.
-- **Relative URLs.** `save(..., relative_to=prefix)` writes each source URL
+- **Relative URLs.** `save_vzip(..., relative_to=prefix)` writes each source URL
   under `prefix` relative to the sidecar (`z000.tif`), so the directory can move
   or be copied with its sidecar. Without it, the URLs are absolute local paths.
   The prefix is the directory as `zarrify` names a local file,
@@ -38,13 +38,17 @@ Without arguments, the example first writes a synthetic stack of 24 tiled,
 zlib-compressed TIFFs to `./tiff_stack/`. With a directory, it stacks the
 directory's `*.tif` files in name order. It then reopens the sidecar with zarr
 and checks every plane against tifffile. The file is
-[examples/tiff_stack.py](examples/tiff_stack.py):
+[examples/tiff_stack.py](examples/tiff_stack.py). uv builds refkv from GitHub, which needs a
+Rust toolchain, until a release on PyPI has `save_vzip`; refkv 0.2.0 does not:
 
 <!-- include: examples/tiff_stack.py -->
 ```python
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["refkv[zarr]>=0.2.0", "tifffile"]
+# dependencies = ["refkv[zarr]", "tifffile"]
+#
+# [tool.uv.sources]
+# refkv = { git = "https://github.com/d-v-b/refkv", subdirectory = "python" }
 # ///
 """A stack of TIFF files as one Zarr array, saved as a vzip sidecar beside them.
 
@@ -164,7 +168,7 @@ def main(directory: Path) -> None:
     paths = sorted(directory.glob("*.tif"))
     sidecar = directory / "stack.vzip"
     stacked = stack(asyncio.run(zarrify_all(paths)), [p.name for p in paths])
-    print(stacked.save(sidecar, relative_to=path_reference(str(directory)) + "/"))
+    print(stacked.save_vzip(sidecar, relative_to=path_reference(str(directory)) + "/"))
 
     image = zarr.open_group(refkv.zarr.open(str(sidecar)), mode="r").get_array("0")
     print(f"{sidecar}: {image.shape} {image.dtype}, chunks {image.chunks}")

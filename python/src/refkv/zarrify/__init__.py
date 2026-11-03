@@ -24,7 +24,7 @@ input is read under, and is not written.
 
 In Python, `zarrify(location)` (or `zarrify_store`, for a store; `zarrify_async` and
 `zarrify_store_async` from async code) returns the result as a `refkv.ReferenceStore`:
-readable in memory, and written as a vzip archive by `store.save(path)`; `store.info` holds
+readable in memory, and written as a vzip archive by `store.save_vzip(path)`; `store.info` holds
 the format and the profile's summary.
 
 A file or a store at an http(s) URL is read under the reader policy (spec/refkv.md
@@ -262,10 +262,10 @@ async def zarrify_async(location: str | Source | Store, url: str | None = None, 
 
         store = await zarrify_async("https://example.org/image.ome.tiff")
         store.info["format"]      # "tiff"
-        store.save("image.vzip")  # the vzip archive
+        store.save_vzip("image.vzip")  # the vzip archive
 
     The store reads in memory (`store.get`, `refkv.zarr.store(store)`), its sources
-    under `policy`, and `store.save(path)` writes it as a vzip archive. `store.info`
+    under `policy`, and `store.save_vzip(path)` writes it as a vzip archive. `store.info`
     is `{"format": ..., **summary}`: the profile that zarrified the input (such as
     "tiff", "nifti" or "zarr2") and its summary of what it found, as `python -m
     refkv.zarrify` prints it. While the
@@ -281,7 +281,7 @@ async def zarrify_async(location: str | Source | Store, url: str | None = None, 
     - `policy`: the reader policy (spec/refkv.md §6.7
       <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>) the input is
       read under, and the store's sources after it (default `Policy()`: private
-      hosts refused). `save` checks the sources against the policy the archive's
+      hosts refused). `save_vzip` checks the sources against the policy the archive's
       readers will use, `Policy()` unless given: pass it this one when the
       sources are on a private host.
     - `connections`, `byte_cost`: for a file the Rust core reads (`refkv.ir`), the

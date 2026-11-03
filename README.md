@@ -36,7 +36,7 @@ store = zarrify("https://openslide.cs.cmu.edu/download/openslide-testdata/Aperio
 image = zarr.open_group(refkv.zarr.store(store), mode="r")["0"]  # the full-resolution level
 image.shape                   # (3, 2967, 2220)
 tile = image[:, :512, :512]   # reads and decodes only the JPEG tiles it covers
-store.save("slide.vzip")      # the hierarchy as one vzip archive, about 30 KB
+store.save_vzip("slide.vzip") # the hierarchy as one vzip archive, about 30 KB
 ```
 
 `zarrify` reads the file's structure (its headers and indexes), not its data.

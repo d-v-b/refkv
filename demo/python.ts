@@ -66,7 +66,7 @@ export function pythonScript(url: string, isArchive: boolean, profile: string | 
         "",
         "# The vzip archive this page downloads: the hierarchy, in one file that refers to the",
         "# input's bytes. Host it, and refkv.zarr.open(url) reads it anywhere.",
-        `# reference.save(${JSON.stringify(`${name}.vzip`)})`,
+        `# reference.save_vzip(${JSON.stringify(`${name}.vzip`)})`,
       ];
   return [
     ...header,

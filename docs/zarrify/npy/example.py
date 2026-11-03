@@ -1,6 +1,9 @@
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["refkv[zarr]>=0.2.0", "matplotlib"]
+# dependencies = ["refkv[zarr]", "matplotlib"]
+#
+# [tool.uv.sources]
+# refkv = { git = "https://github.com/d-v-b/refkv", subdirectory = "python" }
 # ///
 """An archive of two arrays, saved by `np.savez` and zarrified without copying it: refkv reads the
 archive's structure and presents each member as a Zarr array, each chunk a reference to the file's
@@ -22,7 +25,7 @@ wave = np.sin(x * y * 3) * np.exp(-(x**2 + y**2) / 4)
 np.savez("arrays.npz", image=wave.astype(np.float32), profile=wave[200])
 
 store = zarrify("arrays.npz")
-store.save("arrays.vzip")
+store.save_vzip("arrays.vzip")
 root = zarr.open_group(refkv.zarr.store(store), mode="r")
 image, profile = root.get_array("image"), root.get_array("profile")
 print(sorted(root.array_keys()), image.shape, image.chunks)
