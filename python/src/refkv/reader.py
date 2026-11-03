@@ -956,6 +956,7 @@ class ReferenceReader:
         self.stats = stats or Stats()
         self.max_concurrency = max_concurrency
         self._is_open = False
+        self._opening: dict[asyncio.AbstractEventLoop, asyncio.Task[None]] = {}  # loop -> the task opening
         self._sources: list[Source] = []
         self._semaphore: tuple[asyncio.AbstractEventLoop, asyncio.Semaphore] | None = None
         self._threads: ThreadPoolExecutor | None = None
@@ -1022,8 +1023,20 @@ class ReferenceReader:
         self._is_open = True
 
     async def _ensure_open(self) -> None:
-        if not self._is_open:
-            await self._open()
+        """Open the store, once however many callers ask at the same time. A task belongs
+        to one event loop, so each loop has its own: two loops opening at the same moment
+        each read what the store needs, and a loop that closes takes only its own open
+        with it. A failed open raises for every caller waiting on it, and the next
+        operation tries again."""
+        if self._is_open:
+            return
+        loop = asyncio.get_running_loop()
+        task = self._opening.get(loop)
+        if task is None:
+            task = self._opening[loop] = loop.create_task(self._open())
+            task.add_done_callback(lambda _: self._opening.pop(loop, None))
+        # shield: one caller being cancelled must not cancel an open others await
+        await asyncio.shield(task)
 
     def _executor(self) -> ThreadPoolExecutor:
         """The store's own threads for blocking HTTP reads, as many as its cap."""
