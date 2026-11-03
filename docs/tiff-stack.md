@@ -21,11 +21,12 @@ own file. No pixel is copied.
 - **One source table.** The stack's source table lists every file's sources in
   order, and each reference's source index is moved by the number of sources
   before its file's.
-- **Relative URLs.** `save(..., relative_to=directory + os.sep)` writes each
-  source URL relative to the sidecar (`z000.tif`), so the directory can move or
-  be copied with its sidecar. Without it, the URLs are absolute local paths.
-  `zarrify` writes a local file's URL as its path, with the platform's
-  separator (`\` on Windows), so the prefix ends with `os.sep`.
+- **Relative URLs.** `save(..., relative_to=prefix)` writes each source URL
+  under `prefix` relative to the sidecar (`z000.tif`), so the directory can move
+  or be copied with its sidecar. Without it, the URLs are absolute local paths.
+  The prefix is the directory as `zarrify` names a local file,
+  `refkv.uri.path_reference` (a percent-encoded path, or a `file:` URL on
+  Windows), with a `/`.
 
 The root group keeps the files' OME-Zarr `multiscales`, with the `z` axis in
 front, and lists the files in stack order under `tiff_stack.files`. Each file's
@@ -60,7 +61,6 @@ with zarr, and checks every plane against tifffile.
 import asyncio
 import dataclasses
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -70,6 +70,7 @@ import zarr
 
 import refkv
 import refkv.zarr
+from refkv.uri import path_reference
 from refkv.zarrify import zarrify_async
 
 
@@ -163,7 +164,7 @@ def main(directory: Path) -> None:
     paths = sorted(directory.glob("*.tif"))
     sidecar = directory / "stack.vzip"
     stacked = stack(asyncio.run(zarrify_all(paths)), [p.name for p in paths])
-    print(stacked.save(sidecar, relative_to=f"{directory}{os.sep}"))  # zarrify keeps the path's own separator
+    print(stacked.save(sidecar, relative_to=path_reference(str(directory)) + "/"))
 
     image = zarr.open_group(refkv.zarr.open(str(sidecar)), mode="r").get_array("0")
     print(f"{sidecar}: {image.shape} {image.dtype}, chunks {image.chunks}")

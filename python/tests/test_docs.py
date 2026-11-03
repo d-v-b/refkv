@@ -33,7 +33,10 @@ def test_pages_quote_their_examples_verbatim():
 
 def test_tiff_stack_example_runs(tmp_path, monkeypatch, capsys):
     """examples/tiff_stack.py writes its synthetic stack, saves the sidecar, and finds every
-    plane equal to its file, also after the directory moves."""
+    plane equal to its file, also after the directory moves (from a path with a space,
+    which a source URL percent-encodes)."""
+    tmp_path = tmp_path / "a b"
+    tmp_path.mkdir()
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("sys.argv", ["tiff_stack.py"])
     runpy.run_path(str(DOCS / "examples" / "tiff_stack.py"), run_name="__main__")
