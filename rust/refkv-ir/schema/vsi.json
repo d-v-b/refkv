@@ -31,11 +31,11 @@
       "about": "the ETS header's compression: the tiles' codec",
       "0": "raw",
       "2": "jpeg",
-      "3": "jpeg2000"
+      "3": "jpeg2000",
+      "5": "ljpeg"
     },
     "unsupported_compressions": {
       "about": "compressions the profile names and rejects",
-      "5": "lossless JPEG",
       "8": "PNG",
       "9": "BMP"
     },
@@ -303,7 +303,7 @@
         {"require": "present(codec)", "message": "{key}: unknown ETS compression {compression}"},
         {"require": "tile_width >= 1 && tile_height >= 1 && tile_width <= 65535 && tile_height <= 65535", "message": "{key}: tiles of {tile_width} × {tile_height} pixels"},
         {"require": "tile_depth == 1", "message": "{key}: tiles of depth {tile_depth}"},
-        {"require": "dimensions >= 2 && dimensions <= coordinates", "message": "{key}: {dimensions} dimensions for {coordinates} coordinates per tile"}
+        {"require": "dimensions == 0 || (dimensions >= 2 && dimensions <= coordinates)", "message": "{key}: {dimensions} dimensions for {coordinates} coordinates per tile"}
       ]
     },
     "dimension": {

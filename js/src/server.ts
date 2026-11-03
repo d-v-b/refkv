@@ -1,11 +1,11 @@
 // Serves the values of vzip archives as plain HTTP, so that any Zarr reader
-// can read them. Archives are either zarrified TIFFs or existing .vzip
-// files, named by URL:
+// can read them. Archives are either files and stores the handler zarrifies
+// (every format of docs/zarrify/README.md) or existing .vzip files, named by URL:
 //
-//   <prefix>image/<id>/<key>     the image file at decodeId(id), or the N5,
-//                                Zarr v2 or OME-Zarr 0.4 store if that URL ends in "/",
-//                                zarrified by spec/zarrify.md
-//   <prefix>tiff/<id>/<key>      the same, for TIFF files only
+//   <prefix>image/<id>/<key>     the file at decodeId(id), by its first bytes, or, if that
+//                                URL ends in "/", the N5, Zarr v2 or OME-Zarr 0.4 store or the
+//                                Sentinel-2 .SAFE directory there, zarrified by spec/zarrify.md
+//   <prefix>tiff/<id>/<key>      the file at decodeId(id) as a TIFF, its first bytes untested
 //   <prefix>archive/<id>/<key>   the .vzip archive at decodeId(id)
 //   .../__vz__/archive.vzip      the archive itself (keys under __vz__/ are
 //                                hidden, so no key can collide with it)
@@ -14,13 +14,14 @@
 // (sw.ts); kept free of service worker APIs so it can run under Node.
 
 import { Archive, type Policy, type RangeFetcher, RefkvError } from "./archive.ts";
-import { HttpResolutionError, openHttpFile, readHttpRange } from "./http.ts";
+import { HttpResolutionError, noResponse, openHttpFile, readHttpRange } from "./http.ts";
 import { ImageError } from "./zarrify/common.ts";
 import { isStoreUrl, zarrifySource, zarrifyStore } from "./zarrify/index.ts";
 import { zarrifyIr } from "./zarrify/ir/run.ts";
 import { openHttpSource, type RangeSource, readerSource } from "./zarrify/ir/source.ts";
 import { openHttpStore, StoreError, StoreLimitError, StoreReadError } from "./zarrify/store.ts";
 import type { StoreProfile } from "./zarrify/ir/store.ts";
+import { openArchive, writePhkv } from "./phkv.ts";
 import { writeVzip } from "./writer.ts";
 
 /** The titles rejections of the Rust core's store profiles carry, as the profiles' own errors did;
@@ -32,12 +33,43 @@ const STORE_FORMATS: Record<StoreProfile, string | undefined> = {
   safe: undefined,
   vsi: "VSI",
   nrrd: "NRRD",
+  grib: "GRIB",
+  safetensors: "safetensors",
 };
 
 export const ARCHIVE_KEY = "__vz__/archive.vzip";
 
+/** The same for a handler that writes phkv stores (`format: "phkv"`): the store itself. */
+export const PHKV_ARCHIVE_KEY = "__vz__/archive.phkv";
+
+/** What a handler writes the archives it zarrifies as: a vzip archive, or a standalone phkv store. */
+export type ArchiveFormat = "vzip" | "phkv";
+
 /** Marks every response of the handler, so pages can tell it from the network's. */
 export const WORKER_HEADER = "X-Vzip-Worker";
+
+/** On a 502 for a request that got no response: why, where the browser could tell (a
+ * `NoResponseCause`: `cors`, `unreachable` or `mixed-content`). */
+export const ERROR_HEADER = "X-Vzip-Error";
+
+/**
+ * Marks a 503 answered while the archive is still being built (`pendingAfter`): the build goes
+ * on, and the same request, made again, waits for it again.
+ */
+export const PENDING_HEADER = "X-Vzip-Pending";
+
+const PENDING = Symbol("pending");
+
+/** `p`'s value, or PENDING if it has not settled after `ms` (never, when `ms` is undefined). */
+async function within<T>(p: Promise<T>, ms: number | undefined): Promise<T | typeof PENDING> {
+  if (ms === undefined) return p;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([p, new Promise<typeof PENDING>((r) => (timer = setTimeout(() => r(PENDING), ms)))]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 export function encodeId(url: string): string {
   let s = "";
@@ -51,6 +83,18 @@ export function decodeId(id: string): string {
   return new TextDecoder("utf-8", { fatal: true }).decode(
     Uint8Array.from(s, (c) => c.charCodeAt(0)),
   );
+}
+
+/**
+ * Where the handler keeps the archives it zarrifies, so that they outlast it, by name
+ * (`<kind>/<url>`, as `kind` and the URL appear in the route): the service worker's are in Cache
+ * Storage (sw.ts). Its methods may fail: the handler then zarrifies as if nothing were saved.
+ */
+export interface SavedArchives {
+  /** The archive's bytes (`writeVzip`'s output), if saved. */
+  get(name: string): Promise<Uint8Array | undefined>;
+  put(name: string, bytes: Uint8Array): Promise<void>;
+  delete(name: string): Promise<void>;
 }
 
 export interface HandlerOptions {
@@ -67,7 +111,17 @@ export interface HandlerOptions {
    * as written and on each response's final URL.
    */
   fetchStore?: (url: string, init?: RequestInit) => Promise<Response>;
+  /**
+   * Reads a range of a source of an archive the handler serves; defaults to `readHttpRange`.
+   * The archive checks each URL against its policy before calling it, and passes the check for
+   * redirect targets as `options.allow`.
+   */
   fetchRange?: RangeFetcher;
+  /**
+   * The whole of the `.vzip` archive at a URL of the `archive/` route; defaults to a `fetch` that
+   * throws an `HttpResolutionError` for no response or a status other than 2xx. The archive's
+   * URL is not checked against `policy`: a fetch given here decides what it reads.
+   */
   fetchArchive?: (url: string) => Promise<Uint8Array>;
   /**
    * The reader policy (spec §6.7
@@ -81,6 +135,36 @@ export interface HandlerOptions {
    * check them again.
    */
   policy?: Policy;
+  /**
+   * Milliseconds a request waits for an archive still being built before it is answered 503,
+   * with PENDING_HEADER and `Retry-After: 0`; undefined (the default) waits until it is built.
+   * A browser fails a request its service worker has not answered in 5 minutes, and zarrifying
+   * a large input from a slow server can take longer, so the worker answers before then and the
+   * page asks again (`fetchWorker` in client.ts).
+   */
+  pendingAfter?: number;
+  /**
+   * Where archives the handler zarrifies are saved, and looked up before zarrifying. A saved
+   * archive is served as it is: its sources' pins (size, and ETag where the server showed one)
+   * are checked as its values are read, and a read whose pin or range checksum fails (its
+   * `RefkvError` has `sourceChanged`) answers 502 and drops the archive, here and from `saved`,
+   * so the next request zarrifies the input again.
+   */
+  saved?: SavedArchives;
+  /**
+   * What the archives the handler zarrifies are written as (default `"vzip"`). An archive named
+   * by URL (the `archive/` route) is opened as the format it is, whatever this says.
+   */
+  format?: ArchiveFormat;
+}
+
+/** `f()`'s value, or undefined if it throws or rejects. */
+async function attempt<T>(f: () => Promise<T>): Promise<T | undefined> {
+  try {
+    return await f();
+  } catch {
+    return undefined;
+  }
 }
 
 interface Opened {
@@ -93,7 +177,7 @@ function response(status: number, body: string | Uint8Array | null, headers: Rec
     status,
     headers: {
       "Access-Control-Allow-Origin": "*",
-      "Access-Control-Expose-Headers": `Content-Range, Content-Length, ${WORKER_HEADER}`,
+      "Access-Control-Expose-Headers": `Content-Range, Content-Length, ${WORKER_HEADER}, ${ERROR_HEADER}, ${PENDING_HEADER}`,
       [WORKER_HEADER]: "1",
       ...(typeof body === "string" ? { "Content-Type": "text/plain; charset=utf-8" } : {}),
       ...headers,
@@ -116,12 +200,25 @@ function parseRange(header: string | null, size: number): { start: number; end: 
   return { start, end };
 }
 
-export function makeHandler(options: HandlerOptions) {
+/**
+ * The request handler of the routes above, for the service worker (sw.ts) or a Node server: a
+ * GET or HEAD request under `options.prefix` is answered with a value of the archive its route
+ * names, opened or zarrified on its first request and kept for the next ones, honoring a single
+ * `Range`. It never throws: a failure is a response, 404 for a key the archive lacks or a path
+ * outside the routes, 416 for an unsatisfiable range, 422 for an input a profile rejects, 502 for
+ * a source that cannot be read (with ERROR_HEADER when there was no response), 503 with
+ * PENDING_HEADER for an archive still being built after `pendingAfter`, 507 for a store over a
+ * limit, and 500 otherwise. Every response carries WORKER_HEADER and CORS headers.
+ */
+export function makeHandler(options: HandlerOptions): (request: Request) => Promise<Response> {
   const {
     prefix,
     fetchStore,
     fetchRange = (url, start, end, pins, options) => readHttpRange(url, start, end, pins, undefined, options),
     policy = {},
+    pendingAfter,
+    saved,
+    format = "vzip",
     openSource = options.openFile
       ? async (url: string) => {
         const file = await options.openFile!(url);
@@ -129,15 +226,18 @@ export function makeHandler(options: HandlerOptions) {
       }
       : (url: string) => openHttpSource(url, { policy }),
     fetchArchive = async (url) => {
-      const r = await fetch(url);
+      const r = await fetch(url).catch(async (e: unknown) => {
+        throw await noResponse(url, e);
+      });
       if (!r.ok) throw new HttpResolutionError(`${url}: HTTP ${r.status}`);
       return new Uint8Array(await r.arrayBuffer());
     },
   } = options;
   const opened = new Map<string, Promise<Opened>>();
 
-  function open(kind: string, url: string): Promise<Opened> {
-    const name = `${kind}/${url}`;
+  // A build that fails stays here until a request reports its failure (one asking again after a
+  // pending answer, say), which then forgets it, so the next request builds it again.
+  function open(name: string, kind: string, url: string): Promise<Opened> {
     let p = opened.get(name);
     if (p === undefined) {
       p = (async () => {
@@ -145,7 +245,15 @@ export function makeHandler(options: HandlerOptions) {
         const trimmed = base.endsWith("/") ? base.slice(0, -1) : base;
         const stem = decodeURIComponent(trimmed.slice(trimmed.lastIndexOf("/") + 1)) || "archive";
         if (kind === "archive") {
-          return { archive: await Archive.open(await fetchArchive(url), url, fetchRange, policy), filename: stem };
+          return { archive: await openArchive(await fetchArchive(url), url, fetchRange, policy), filename: stem };
+        }
+        const filename = `${stem.replace(/\.(ome\.tiff?|tiff?|nd2|n5|zarr)$/i, "")}.${format}`;
+        const read = (bytes: Uint8Array) => openArchive(bytes, url, fetchRange, { ...policy, unverifiablePins: true });
+        const kept = saved && await attempt(() => saved.get(name));
+        if (kept !== undefined) {
+          const archive = await attempt(() => read(kept));
+          if (archive !== undefined) return { archive, filename };
+          await attempt(() => saved!.delete(name));
         }
         let virtual;
         if (kind === "image" && isStoreUrl(url)) {
@@ -162,14 +270,13 @@ export function makeHandler(options: HandlerOptions) {
             virtual = await zarrifySource(url, source);
           }
         }
-        const bytes = await writeVzip(virtual);
-        return {
-          archive: await Archive.open(bytes, url, fetchRange, { ...policy, unverifiablePins: true }),
-          filename: `${stem.replace(/\.(ome\.tiff?|tiff?|nd2|n5|zarr)$/i, "")}.vzip`,
-        };
+        const bytes = format === "phkv" ? writePhkv(virtual) : await writeVzip(virtual);
+        const archive = await read(bytes);
+        if (saved) await attempt(() => saved.put(name, bytes));
+        return { archive, filename };
       })();
       opened.set(name, p);
-      p.catch(() => opened.delete(name));
+      p.catch(() => {}); // reported by the requests that wait for it
     }
     return p;
   }
@@ -192,11 +299,20 @@ export function makeHandler(options: HandlerOptions) {
       return response(400, "invalid URL");
     }
     const head = request.method === "HEAD";
+    const name = `${kind}/${url}`;
+    const opening = open(name, kind, url);
     try {
-      const { archive, filename } = await open(kind, url);
-      if (key === ARCHIVE_KEY) {
+      const built = await within(opening, pendingAfter).catch((e: unknown) => {
+        if (opened.get(name) === opening) opened.delete(name);
+        throw e;
+      });
+      if (built === PENDING) {
+        return response(503, "still zarrifying; ask again", { "Retry-After": "0", [PENDING_HEADER]: "1" });
+      }
+      const { archive, filename } = built;
+      if (key === ARCHIVE_KEY || key === PHKV_ARCHIVE_KEY) {
         return response(200, head ? null : archive.bytes, {
-          "Content-Type": "application/zip",
+          "Content-Type": key === ARCHIVE_KEY ? "application/zip" : "application/octet-stream",
           "Content-Length": String(archive.bytes.length),
           "Content-Disposition": `attachment; filename="${filename.replaceAll('"', "")}"`,
         });
@@ -222,6 +338,10 @@ export function makeHandler(options: HandlerOptions) {
       });
     } catch (e) {
       const message = (e as Error).message;
+      if (e instanceof RefkvError && e.sourceChanged && opened.get(name) === opening) {
+        opened.delete(name);
+        if (saved) await attempt(() => saved.delete(name));
+      }
       if (e instanceof RefkvError) {
         const status = e.errorClass === "request" ? 416 : e.errorClass === "resolution" ? 502 : 500;
         return response(status, message);
@@ -236,7 +356,9 @@ export function makeHandler(options: HandlerOptions) {
       if (e instanceof ImageError) return response(422, message);
       if (e instanceof StoreLimitError) return response(507, message);
       if (e instanceof StoreReadError) return response(502, message);
-      if (e instanceof HttpResolutionError) return response(502, message);
+      if (e instanceof HttpResolutionError) {
+        return response(502, message, e.noResponse ? { [ERROR_HEADER]: e.noResponse } : {});
+      }
       return response(500, message);
     }
   };

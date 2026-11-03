@@ -102,6 +102,11 @@
       "message": "fill_value NaN is not a uint16"
     },
     {
+      "test": "zarr2_reject_fill_list_int",
+      "input": "zarr2_reject_fill_list_int",
+      "message": "fill_value [1] is not a uint16"
+    },
+    {
       "test": "zarr2_reject_fill_uint64_max",
       "input": "zarr2_reject_fill_uint64_max",
       "message": "is not a uint64"
@@ -130,7 +135,7 @@
       "test": "zarr2_reject_no_root_metadata",
       "input": "zarr2_reject_no_root_metadata",
       "message": "the root has no .zarray or .zgroup",
-      "host": "not an N5, Zarr v2 or SAFE store: the root has no .zarray, .zgroup, attributes.json or manifest.safe"
+      "host": "not an N5, Zarr v2, SAFE or safetensors store: the root has no .zarray, .zgroup, attributes.json or manifest.safe, and no key ends in .safetensors"
     },
     {
       "test": "zarr2_reject_objects_collision",

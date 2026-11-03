@@ -156,7 +156,11 @@ export function referenceBlock(ranges: Range[]): {
     : { id: CONCAT_ID, payload: encodeConcat(ranges) };
 }
 
-function validate(desc: ArchiveDesc) {
+/**
+ * Throws InvalidInputError if `desc` breaks a requirement of spec §7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#7-writing>; `maxPayload` is the largest
+ * reference payload the binding allows (vzip's, by default).
+ */
+export function validate(desc: ArchiveDesc, maxPayload = MAX_PAYLOAD) {
   const n = desc.sources.length;
   const byKey = new Map<string, EntryDesc>();
   for (const e of desc.entries) {
@@ -226,8 +230,8 @@ function validate(desc: ArchiveDesc) {
       total += r.length;
     }
     if (total > U64_MAX) reject(`${e.key}: value size exceeds 2^64 - 1`);
-    if (referenceBlock(e.ranges).payload.length > MAX_PAYLOAD) {
-      reject(`${e.key}: reference payload exceeds ${MAX_PAYLOAD} bytes`);
+    if (referenceBlock(e.ranges).payload.length > maxPayload) {
+      reject(`${e.key}: reference payload exceeds ${maxPayload} bytes`);
     }
   }
 }

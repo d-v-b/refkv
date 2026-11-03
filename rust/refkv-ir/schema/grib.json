@@ -1,0 +1,77 @@
+{
+  "source_model": "grib",
+  "version": 1,
+  "about": "The source model of a GRIB edition 2 file (spec/zarrify/grib.md §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#53-elements>): the elements a parser emits, and the roles the file, each message, its sections, the padding between messages and the fields play, each with the constraints the input must meet (spec/zarrify/grib.md §8 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#8-grib-profile>). The parser checks them in this order. A field that the profile cannot present does not reject the input: it is recorded with its reason. Projections read a valid IR and check nothing.",
+  "limits": {
+    "max_section": 1048576,
+    "max_padding": 4096,
+    "max_index": 16777216
+  },
+  "elements": {
+    "about": "The IR of a GRIB file, a store run's: the GRIB file is object 0, described in place, and an index beside it, when the run found one, is held. L is a message's length, n a section's.",
+    "<file>/messages/<i>": {"kind": "struct", "extent": "(start, L): message i, i from 0, in the file's order"},
+    "<file>/messages/<i>/indicator": {"kind": "value", "type": "{magic:ascii[4],reserved:bytes[2],discipline:u1,edition:u1,length:>u8}", "extent": "(start, 16): section 0"},
+    "<file>/messages/<i>/sections/<j>": {"kind": "value, struct or data", "about": "the message's j-th section after section 0, j from 0: sections 1 to 5 a value {length:>u4,number:u1,body:bytes[n - 5]}; section 6 a value {length:>u4,number:u1,indicator:u1} without a bitmap, else a struct of the value header and the data bitmap; section 7 data, form {geometry: {points, values}, codec: {packing, field}, recipe: [[src, 0, null]]}"},
+    "<file>/messages/<i>/end": {"kind": "value", "type": "ascii[4]", "extent": "(start + L - 4, 4): section 8, 7777"},
+    "<file>/gaps/<offset>": {"kind": "gap", "about": "bytes between messages, or after the last, that are not a message"},
+    "<index>/text": {"kind": "value", "type": "ascii[n]", "about": "an index file's text, held"}
+  },
+  "roles": {
+    "file": {
+      "given": {"size": "the GRIB file's size"},
+      "constraints": [
+        {"require": "size >= 16", "message": "file too short for a GRIB message"}
+      ]
+    },
+    "indicator": {
+      "given": {"at": "the message's offset", "whole": "the file holds 16 bytes at it", "edition": "octet 8", "length": "octets 9-16", "end": "the file's size"},
+      "constraints": [
+        {"require": "whole", "message": "the file ends inside the GRIB message at byte {at}"},
+        {"require": "edition == 2", "message": "a GRIB edition {edition} message at byte {at}: only edition 2 is read"},
+        {"require": "length >= 21 && at + length <= end", "message": "the GRIB message at byte {at} has the length {length}, past the {end}-byte file"}
+      ]
+    },
+    "end": {
+      "given": {"at": "the message's offset", "ok": "its last 4 bytes are 7777"},
+      "constraints": [
+        {"require": "ok", "message": "the GRIB message at byte {at} does not end with 7777"}
+      ]
+    },
+    "section": {
+      "given": {"at": "the message's offset", "offset": "the section's offset in the message", "number": "its number", "length": "its length", "room": "the message's bytes from the section to section 8"},
+      "constraints": [
+        {"require": "length >= 5 && length <= room", "message": "the section {number} at byte {offset} of the GRIB message at byte {at} has the length {length}, past the message's end"}
+      ]
+    },
+    "section_size": {
+      "given": {"at": "the message's offset", "number": "a section's number (1 to 5)", "length": "its length"},
+      "constraints": [
+        {"require": "length <= max_section", "message": "the section {number} of the GRIB message at byte {at} has {length} octets, more than the profile reads"}
+      ]
+    },
+    "order": {
+      "given": {"at": "the message's offset", "problem": "what is wrong with its sections' order or contents, or absent"},
+      "constraints": [
+        {"require": "!present(problem)", "message": "the GRIB message at byte {at}: {problem}"}
+      ]
+    },
+    "padding": {
+      "given": {"at": "where a message was due", "length": "the bytes before the next message, or to the file's end", "found": "a message follows them, or the file ends within max_padding bytes"},
+      "constraints": [
+        {"require": "found && length <= max_padding", "message": "the bytes at byte {at} are not a GRIB message"}
+      ]
+    },
+    "messages": {
+      "given": {"count": "the messages read"},
+      "constraints": [
+        {"require": "count >= 1", "message": "no GRIB message"}
+      ]
+    },
+    "fields": {
+      "given": {"count": "the fields presented", "fields": "the fields", "reasons": "the reasons the others are not, comma-separated"},
+      "constraints": [
+        {"require": "count >= 1", "message": "none of the {fields} GRIB fields can be presented: {reasons}"}
+      ]
+    }
+  }
+}

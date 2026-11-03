@@ -9,8 +9,7 @@ import re
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
-import google_crc32c
-
+from refkv import _core
 from refkv._extras import OBSTORE_HINT
 from refkv.errors import ResolutionError
 
@@ -25,7 +24,7 @@ _ENCODED = re.compile(r"%(2[eEfF]|5[cC])")
 
 def crc32c(data: bytes) -> int:
     """CRC-32C (Castagnoli, RFC 3720 §B.4) of `data`."""
-    return google_crc32c.value(bytes(data))
+    return _core.crc32c(bytes(data))
 
 
 def _scheme(url: str) -> str:
@@ -172,14 +171,16 @@ class Policy:
     Rule 7 (unverifiable pins) has no option here: this reader always sees a
     response's headers, so every pin it is given can be checked.
 
-    For example, to read only sources under one prefix, or to save an
-    archive whose references name an S3 bucket, which its readers will read
-    with a store registered for the bucket (`help(refkv.reader.Resolver)`):
+    For example, to read only sources under one prefix, or to save a
+    `refkv.ReferenceStore` whose references name an S3 bucket, which the
+    archive's readers will read with a store registered for the bucket
+    (`help(refkv.reader.Resolver)`):
 
         policy = refkv.Policy(prefixes=("https://data.example/archive/",))
         store = refkv.open("data.vzip", policy=policy)
 
-        store.save("data.vzip", policy=refkv.Policy(schemes={"s3"}))
+        refs = refkv.ReferenceStore.from_virtualizarr(vds, registry=registry)
+        refs.save("data.vzip", policy=refkv.Policy(schemes={"s3"}))
 
     `ReferenceStore.save` checks the references it writes against a policy
     too, `Policy()` by default, so an archive that the default reader cannot

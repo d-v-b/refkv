@@ -125,20 +125,25 @@ def test_reads_in_flight_are_bounded(monkeypatch):
 
 def test_bytes_held_ahead_are_bounded():
     sizes = {f"k{i}": 10 for i in range(30)}
-    held, most, lock = [0], [0], threading.Lock()
+    held, most, read_, lock = [0], [0], set(), threading.Lock()
 
     def read(key):
         with lock:
             held[0] += sizes[key]
             most[0] = max(most[0], held[0])
         time.sleep(0.002)
+        with lock:
+            read_.add(key)
         return b"x" * sizes[key]
 
     p = _Prefetch(read, list(sizes.items()), workers=8, budget=35, wanted=None)
     for key, size in sizes.items():
         time.sleep(0.005)
-        assert p.take(key) == (True, b"x" * 10)
+        while key not in read_:
+            time.sleep(0.001)
+        # taken and counted as one step: take() frees its budget, and no read starts in between
         with lock:
+            assert p.take(key) == (True, b"x" * 10)
             held[0] -= size
     assert most[0] <= 35
 

@@ -65,6 +65,17 @@ fn drive(r: &mut StoreRun) -> Res<Vec<Vec<ObjectRequest>>> {
 }
 
 #[test]
+fn a_store_runs_request_holds_at_most_16_spans() {
+    // 20 ranges of one object, each 5000 bytes from the next, too far apart to merge: two requests,
+    // of 16 spans and 4, whatever the run's concurrency
+    let ranges: Vec<(usize, u64, u64)> = (0..20).map(|k| (1, k * 5000, 8)).collect();
+    let mut r = run(vec![ranges], vec![]).unwrap();
+    let seen = drive(&mut r).unwrap();
+    assert_eq!(seen.len(), 1);
+    assert_eq!(seen[0].iter().map(|q| q.spans.len()).collect::<Vec<_>>(), vec![16, 4]);
+}
+
+#[test]
 fn a_store_run_reads_each_batch_as_one_request_per_object() {
     // a batch of two whole documents, then ranges of one object: near ones merged, far ones apart
     let mut r = run(vec![vec![(0, 0, 10), (2, 0, 3)], vec![(1, 0, 16), (1, 100, 16), (1, 90_000, 8)]], vec![0, 2]).unwrap();

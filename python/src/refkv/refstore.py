@@ -183,10 +183,6 @@ class ReferenceStore(ReferenceReader):
     - `info`: what the store's builder says about it, as JSON-like values, read
       back as `store.info`; `save` does not write it. `refkv.zarrify` records
       the format and the profile's summary here.
-
-    `save` writes the values in the order of `mapping`, but for those of
-    `read_at_open`, which it writes last, in that order too: with `read_at_open`,
-    `compressed` and `page_size`, a builder decides the whole archive, byte for byte.
     - `registry`, `stats`, `policy`, `max_concurrency`: how references are
       resolved, as for every reference store (`refkv.reader.ReferenceReader`). The
       default policy, `Policy()`, reads `http(s)` sources on public hosts and,
@@ -194,6 +190,10 @@ class ReferenceStore(ReferenceReader):
       a prefix the `registry` has a store for, such as the
       `ObjectStoreRegistry` given to VirtualiZarr. At most 8 requests are in
       flight by default (`max_concurrency=None` for no cap).
+
+    `save` writes the values in the order of `mapping`, but for those of
+    `read_at_open`, which it writes last, in that order too: with `read_at_open`,
+    `compressed` and `page_size`, a builder decides the whole archive, byte for byte.
     """
 
     def __init__(
@@ -289,8 +289,12 @@ class ReferenceStore(ReferenceReader):
           data. The store then reads `s3://` sources too; `save` checks them
           against the archive's readers' policy, so pass it
           `policy=Policy(schemes={"s3"})`, and give its readers the registry.
-        - Other keyword arguments go to the `ReferenceStore` constructor
-          (`policy`, `stats`, `max_concurrency`, `url`).
+        - `read_at_open`: as for the constructor; by default, the metadata
+          documents (`zarr.json`) and the chunks of indexed coordinates such as
+          `time`, which xarray reads when it opens the dataset.
+        - Other keyword arguments go to the `ReferenceStore` constructor:
+          `compressed`, `page_size`, `info`, `policy`, `stats`, `max_concurrency`
+          and `url`.
         """
         from refkv.convert import read_at_open, split_virtual_dataset  # noqa: PLC0415 (the virtualizarr extra)
 
@@ -317,14 +321,20 @@ class ReferenceStore(ReferenceReader):
 
     @property
     def read_at_open(self) -> frozenset[str]:
+        """The keys a reader fetches when it opens the store, which `save` writes last
+        (the constructor's `read_at_open`)."""
         return self._read_at_open
 
     @property
     def compressed(self) -> frozenset[str]:
+        """The keys of bytes values that `save` writes DEFLATE-compressed (the
+        constructor's `compressed`)."""
         return self._compressed
 
     @property
     def page_size(self) -> int | None:
+        """The page size of the page index `save` writes when it is not given one, or
+        None for no page index (the constructor's `page_size`)."""
         return self._page_size
 
     @property

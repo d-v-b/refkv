@@ -1,9 +1,6 @@
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["refkv[zarr]", "matplotlib"]
-#
-# [tool.uv.sources]
-# refkv = { git = "https://github.com/d-v-b/refkv", subdirectory = "python" }
+# dependencies = ["refkv[zarr]>=0.2.0", "matplotlib"]
 # ///
 """pynrrd's test ball (BallBinary30x30x30), twice: a `.nrrd` file whose data is one gzip stream, and
 a detached `.nhdr` header whose raw data lies in a file beside it. Each is zarrified without copying

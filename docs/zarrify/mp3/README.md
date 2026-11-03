@@ -2,8 +2,8 @@
 
 refkv turns a file into a Zarr dataset by writing a small archive of
 references to the file's bytes, without copying its content
-([overview](../README.md)). This page is about MP3 files: the one format
-refkv zarrifies that is not an image.
+([overview](../README.md)). This page is about MP3 files: lossy audio,
+which refkv presents as an array of the decoder's samples.
 
 ## Who this is for
 
@@ -64,8 +64,7 @@ lists them.
 ## Try it
 
 [example.py](example.py) zarrifies a public file and plots it with matplotlib. Its
-dependencies are in its header (PEP 723), so it runs on its own (uv builds refkv from GitHub,
-which needs a Rust toolchain, until a release on PyPI has `refkv.zarrify`):
+dependencies are in its header (PEP 723), so it runs on its own, with refkv from PyPI:
 
 ```bash
 uv run docs/zarrify/mp3/example.py
@@ -113,10 +112,12 @@ print(a[22050 * 60:22050 * 60 + 8, 0])
 The last line reads the samples one minute in: one request for the chunk's
 frames (about 54 KB), decoded on the fly. The same samples, as
 `ffmpeg -i publicopinion_20_lippmann_64kb.mp3 -f s16le -` gives them after
-its gapless trimming, start `delay + 529` samples later in its output.
+its gapless trimming, come `delay + 529` samples earlier in its output.
 
 **In the browser.** The service worker serves a zarrified MP3 as a Zarr
-hierarchy like any other; the demo page does not display audio.
+hierarchy like any other. The demo page's MP3 example, this file,
+lists the archive's array and offers the archive for download; the page
+does not display audio.
 
 ## Supported and not supported
 
@@ -144,10 +145,11 @@ Rejected:
 
 The browser code ([js/](../../../js/README.md)) reads MP3 (MPEG-1, MPEG-2 and MPEG-2.5 Layer III audio):
 
-- The one format that is not an image: one array `samples` of int16,
+- One array `samples` of `float32`,
   `[time, channel]`, in chunks of 256 frames, each referencing the frames a
-  decoder needs before it (the bit reservoir); the `mp3` codec decodes a
-  chunk when it is read (in Python, with miniaudio).
+  decoder needs before it (the bit reservoir); the `refkv.stream` codec decodes
+  a chunk when it is read (in Python, with ffmpeg's float MP3 decoder through
+  PyAV).
 - The stream's parameters, the Xing or Info frame's fields and the ID3v1
   tag under `refkv_zarrified`; the ID3v2 and APE tags in the mirror.
 
@@ -163,10 +165,10 @@ bitrates, and files whose frames change sample rate, version or channel count.
   (two frames, plus the fewest frames holding 511 bytes of main data for
   MPEG-1 or 255 for MPEG-2: about 3 to 8 frames, a few percent of the
   chunk), then decoding them.
-- The archive has one entry per chunk, and the mirror's table has a row
-  per frame, folded into one run when the frames are all of one length
-  (the file above: 167 KB in all, most of it the chunks' headers, about 4
-  bytes a frame), a few bytes per frame more otherwise.
+- The archive has one entry per chunk, beside its documents and the
+  mirror's chunks, and the mirror's table describes every frame, folded
+  where frames repeat (the file above: 167 KB in all, most of it the
+  chunks' headers, about 4 bytes a frame).
 
 ## How it's verified
 
@@ -184,5 +186,5 @@ and on the public file of
 
 - Profile: [spec/zarrify/mp3.md](../../../spec/zarrify/mp3.md#part-2-the-profile)
 - Rust core: [rust/refkv-ir/src/mp3.rs](../../../rust/refkv-ir/src/mp3.rs)
-- Codec: [python/src/refkv/zarr/codecs/mp3.py](../../../python/src/refkv/zarr/codecs/mp3.py)
+- Codec: [python/src/refkv/zarr/codecs/stream.py](../../../python/src/refkv/zarr/codecs/stream.py) (`refkv.stream`)
 - Fixtures: [fixtures/mp3/](../../../fixtures/mp3/)

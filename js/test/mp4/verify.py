@@ -58,6 +58,13 @@ def decoded(path: Path, index: int):
     return s.type, frames, sorted(integer(p.pts, "pts") for p in packets)
 
 
+def plane(frame, k: int) -> np.ndarray:
+    """Plane `k` of a decoded picture: uint8 for 8 bits a sample, uint16 for 10."""
+    p = frame.planes[k]
+    dtype = np.dtype("<u2") if frame.format.name.endswith("10le") else np.dtype(np.uint8)
+    return np.frombuffer(p, dtype).reshape(p.height, p.line_size // dtype.itemsize)[:, :p.width]
+
+
 def problems_of(path: Path, out: Path) -> list[str]:
     root = zarr.open_group(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
     problems = []
@@ -70,10 +77,9 @@ def problems_of(path: Path, out: Path) -> list[str]:
         kind, frames, pts = decoded(path, integer(track["id"]) - 1)
         if kind == "video":
             for k, name in enumerate("yuv"):
-                want = np.stack([np.frombuffer(f.planes[k], np.uint8).reshape(f.planes[k].height, f.planes[k].line_size)
-                                 [:, :f.planes[k].width] for f in frames])
+                want = np.stack([plane(f, k) for f in frames])
                 got = ndarray(g.get_array(name)[...])
-                if got.shape != want.shape or not np.array_equal(got, want):
+                if got.dtype != want.dtype or got.shape != want.shape or not np.array_equal(got, want):
                     problems.append(f"track {track['id']}'s {name} plane differs from ffmpeg's "
                                     f"({got.shape} vs {want.shape})")
             media_times = (integer(at(e, "media_time")) for e in sequence(tm["edits"]))

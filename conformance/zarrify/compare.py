@@ -60,6 +60,9 @@ Usage: uv run python conformance/zarrify/compare.py <out dir>
 Every archive is also read by spec/bindings/vzip.md's strict reading (`strict`): an archive the
 independent reader refuses, or reads differently, or that breaks a writer requirement,
 counts as a crash of the implementation that wrote it.
+
+An input whose server did not serve it (proxy.py's `Failures`) is UNAVAILABLE, not compared,
+and does not fail the run (HARNESS.md).
 """
 
 from __future__ import annotations
@@ -68,13 +71,16 @@ import base64
 import bisect
 import hashlib
 import json
+import os
 import re
 import shlex
 import struct
 import subprocess
 import sys
+import urllib.parse
 import urllib.request
 import zipfile
+from collections import Counter
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -87,7 +93,7 @@ sys.path.insert(0, str(HERE / "reference"))
 sys.path.insert(0, str(ROOT / "conformance" / "vzip"))
 sys.path.insert(0, str(ROOT / "conformance" / "impls" / "python"))
 from corpus_hash import entries as corpus_entries  # noqa: E402
-from proxy import Proxy  # noqa: E402
+from proxy import HUB, Proxy  # noqa: E402
 from refkv_reference import legacy  # noqa: E402
 from validate import validate  # noqa: E402
 from vzip_impl import reader as strict_reader  # noqa: E402
@@ -130,9 +136,16 @@ MIRRORED = {"nifti": ("header_rest", "extender", "extensions", "extensions_trunc
 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#44-arrays>, spec/zarrify/ndpi.md §4
 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#4-the-image>).
 ADDED = {"tiff": ("omero",), "ndpi": ("omero",)}
-# The fixtures (by file name) whose layout the profile changed after the freeze, which the frozen
-# reference does not give: they compare py with web alone (revised.json says which, and why).
+# The fixtures (by file or store name) whose layout or verdict the profile changed after the
+# freeze, which the frozen reference does not give: they and their mutants compare py with web
+# alone (revised.json says which, and why).
 REVISED = set(json.loads((HERE / "revised.json").read_text())["fixtures"])
+
+
+def unmutated(name: str) -> str:
+    """A fixture's name without the `.m<k>` that mutate.py gives its mutants (`a.ome.m3.tif`:
+    `a.ome.tif`; the store `s.m3`: `s`); any other name as it is."""
+    return re.sub(r"\.m\d+(?=(\.[^.]+)?$)", "", name)
 # The profiles whose edge chunks' zero padding is a range of the output's zero data source since
 # the freeze, where the frozen reference pads with a literal range (spec/zarrify/nifti.md §7.2
 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#72-chunks>): compared with it,
@@ -411,11 +424,12 @@ def store_mirror_problem(path: Path, view: dict, fetch=None) -> str | None:
     url = prop.get("source", {}).get("url") if isinstance(prop, dict) else None
     if not isinstance(prop, dict) or not isinstance(url, str):
         return "no store URL on the root"
-    if prop.get("profile") in ("vsi", "nrrd"):
-        # a VSI root names the .vsi file, and a NRRD root the header file; the store's URL is its
-        # directory (spec/zarrify/vsi.md §9
+    if prop.get("profile") in ("vsi", "nrrd", "grib"):
+        # a VSI root names the .vsi file, a NRRD root the header file and a GRIB root the GRIB
+        # file; the store's URL is its directory (spec/zarrify/vsi.md §9
         # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#9-vsi-profile>,
-        # spec/zarrify/nrrd.md §8 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#8-nrrd-profile>)
+        # spec/zarrify/nrrd.md §8 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#8-nrrd-profile>,
+        # spec/zarrify/grib.md §8 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#8-grib-profile>)
         url = url[:url.rfind("/") + 1]
     pins = {s.url: s.size for s in decode_source_table(zipfile.ZipFile(path).read("__vz__/sources"))
             if s.url is not None}
@@ -468,7 +482,7 @@ def _source_size(path: Path) -> int | None:
     return sources[0].size if sources else None
 
 
-def check(item: tuple, impls: dict, out_dir: Path) -> dict:
+def check(item: tuple, impls: dict, out_dir: Path, proxy: Proxy | None = None) -> dict:
     name, url = item[:2]
     if len(item) > 2 and item[2] == "py-only":  # past the browser's limit: every implementation but web
         impls = {k: v for k, v in impls.items() if k != "web"}
@@ -476,6 +490,19 @@ def check(item: tuple, impls: dict, out_dir: Path) -> dict:
     if len(item) > 2 and item[2] == "no-ref":
         impls = {k: v for k, v in impls.items() if k != "ref"}
     results = {n: run(impl, url, out_dir / f"{name}.{n}.out") for n, impl in impls.items()}
+    # an input that the frozen reference rejects and that the others zarrify with a profile it
+    # never had (an HDF5 file that is not an Imaris file, which the HDF5 profile now takes): the
+    # reference has no verdict to give, so py and web alone
+    others = [results[n] for n in results if n != "ref"]
+    if "ref" in results and results["ref"][0] == "rejected" and others and all(
+            status == "ok" and profile(mapping(value)) not in REFERENCE_REVISIONS for status, value in others):
+        results.pop("ref")
+        impls = {k: v for k, v in impls.items() if k != "ref"}
+    # an input whose server did not serve it (proxy.py's Failures): not compared, unless every
+    # implementation read it anyway
+    why = proxy.unavailable(url) if proxy is not None else None
+    if why and any(status != "ok" for status, _ in results.values()):
+        return {"name": name, "url": url, "verdicts": {n: ("UNAVAILABLE", [why]) for n in results}}
     ref_name = next(iter(impls))
     ref = results[ref_name]
     mirror = ref[0] == "ok" and profile(mapping(ref[1])) in IR_PROFILES
@@ -609,18 +636,47 @@ def store_fixtures(fixtures: Path) -> list[Path]:
     return sorted(d for f in STORE_FORMATS if (fixtures / f).is_dir() for d in (fixtures / f).iterdir() if d.is_dir())
 
 
+def hub_fixtures(stores: list[Path]) -> list[Path]:
+    """Of each store profile's synthetic stores, the one with the most files whose name does not
+    say that the profile rejects it."""
+    largest: dict[str, tuple[int, str, Path]] = {}
+    for s in stores:
+        if "reject" not in s.name:
+            n = sum(1 for f in s.rglob("*") if f.is_file())
+            best = largest.get(s.parent.name)
+            if best is None or (-n, s.name) < (-best[0], best[1]):
+                largest[s.parent.name] = (n, s.name, s)
+    return [largest[k][2] for k in sorted(largest)]
+
+
 def corpus(proxy: Proxy, fixtures: Path, quick: bool, local_only: bool, large: bool = False,
            idr_listing: str | None = None) -> list[tuple]:
     stores = store_fixtures(fixtures)
     files = [p for p in sorted(p for s in FILE_SUFFIXES for p in fixtures.rglob(f"*{s}"))
              if not any(p.is_relative_to(s) for s in stores)]
     # a profile the frozen reference never had (its `reference` is null), and a fixture whose layout
-    # changed after the freeze (REVISED): its files compare py with web alone
-    items = [(f"fixture-{p.stem}", proxy.local(p.relative_to(fixtures).as_posix()),
+    # changed after the freeze (REVISED), or a mutant of one: its files compare py with web alone
+    # an input's name names its output files (check), and inputs run three at a time: a stem
+    # that several files share (a generator's expected arrays, `.npy` like the NumPy profile's
+    # inputs, beside its fixtures) names each by its path instead
+    stems = Counter(p.stem for p in files)
+
+    def name(p: Path) -> str:
+        return p.stem if stems[p.stem] == 1 else p.relative_to(fixtures).as_posix().replace("/", "__")
+
+    items = [(f"fixture-{name(p)}", proxy.local(p.relative_to(fixtures).as_posix()),
               *(["no-ref"] if FILE_SUFFIXES[p.suffix]["reference"] is None
-                or p.name in REVISED else []))
+                or unmutated(p.name) in REVISED else []))
              for p in files]
-    items += [(f"fixture-{s.name}", proxy.local_store(s.relative_to(fixtures).as_posix())) for s in stores]
+    registry = {string(e["name"]): e for e in REGISTRY}
+    items += [(f"fixture-{s.name}", proxy.local_store(s.relative_to(fixtures).as_posix()),
+               *(["no-ref"] if registry[s.parent.name]["reference"] is None or unmutated(s.name) in REVISED else []))
+              for s in stores]
+    # each store profile's largest synthetic store that it does not reject, listed the Hub's way
+    # too (spec/zarrify.md §1.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>),
+    # which the frozen reference does not
+    items += [(f"fixture-hub-{s.name}", proxy.hub_fixture_store(s.relative_to(fixtures).as_posix()), "no-ref")
+              for s in hub_fixtures(stores)]
     if local_only:
         return items
     listing = (Path(idr_listing).read_text() if idr_listing else
@@ -636,7 +692,10 @@ def corpus(proxy: Proxy, fixtures: Path, quick: bool, local_only: bool, large: b
         listed = [(url, name, *flags) for url, name, flags, _ in corpus_entries(corpus_file)]
         listed = [x for x in listed if large or x[2:] != ("py-only",)]
         for url, name, *flags in (listed[:3] if quick else listed):
-            target = proxy.remote_store(url) if url.endswith("/") else proxy.remote(url)
+            if url.startswith(f"{HUB}/"):  # a Hub store, served by the proxy's Hub endpoint
+                target = proxy.hub(url)
+            else:
+                target = proxy.remote_store(url) if url.endswith("/") else proxy.remote(url)
             items.append((f"{prefix}{name}", target, *flags))
     return items
 
@@ -655,6 +714,7 @@ def main(argv: list[str]) -> int:
     only = opts[opts.index("--only") + 1] if "--only" in opts else None
     fixtures = Path(opts[opts.index("--fixtures") + 1]) if "--fixtures" in opts else ROOT / "fixtures"
     proxy = Proxy(fixtures, Path("/tmp/vzip-proxy-cache"))  # noqa: S108 (the cache the runs share, by design)
+    os.environ["HF_ENDPOINT"] = proxy.hub_endpoint  # the zarrifiers' Hub (spec/zarrify.md §1.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>)
     listing = opts[opts.index("--idr-listing") + 1] if "--idr-listing" in opts else None
     items = corpus(proxy, fixtures, "--quick" in opts, "--fixtures" in opts, "--large" in opts, listing)
     if only:
@@ -667,7 +727,7 @@ def main(argv: list[str]) -> int:
     print(f"{len(items)} inputs, implementations: {', '.join(impls)} (reference: {next(iter(impls))})", flush=True)
     results = []
     with ThreadPoolExecutor(3) as pool:
-        for r in pool.map(lambda item: check(item, impls, out), items):
+        for r in pool.map(lambda item: check(item, impls, out, proxy), items):
             results.append(r)
             line = "  ".join(f"{n}:{v[0]}" for n, v in r["verdicts"].items())
             print(f"{r['name'][:44]:44s} {line}", flush=True)
@@ -682,8 +742,17 @@ def main(argv: list[str]) -> int:
             if n in r["verdicts"]:  # an input this implementation did not run (py-only, no-ref)
                 counts[r["verdicts"][n][0]] = counts.get(r["verdicts"][n][0], 0) + 1
         print(f"{n:10s} " + ", ".join(f"{v} {k}" for k, v in sorted(counts.items())))
-    bad = [r for r in results if any(v[0] not in ("equivalent", "rejects") for v in r["verdicts"].values())]
+    passed = ("equivalent", "rejects", "UNAVAILABLE")
+    bad = [r for r in results if any(v[0] not in passed for v in r["verdicts"].values())]
+    # an UNAVAILABLE verdict's detail starts with the URL that failed (Failures.unavailable)
+    unavailable = [v[1][0] for r in results for v in list(r["verdicts"].values())[:1] if v[0] == "UNAVAILABLE"]
     print(f"\n{len(results)} inputs, {len(bad)} with a divergence or crash")
+    if unavailable:
+        hosts = sorted({urllib.parse.urlsplit(why).hostname or "?" for why in unavailable})
+        note = f"{len(unavailable)} inputs not compared: their server did not serve them ({', '.join(hosts)})"
+        print(note)
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            print(f"::warning title=corpus inputs unavailable::{note}")
     return 1 if bad else 0
 
 

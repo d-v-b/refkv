@@ -355,3 +355,54 @@ def test_store_mirror_problem_finds_an_object_the_store_does_not_serve(tmp_path)
         raise OSError("refused")
 
     assert compare.store_mirror_problem(path, compare._zip_view(path), refuse) == ".zattrs: OSError: refused"
+
+
+def test_unmutated():
+    cases = [
+        ("lzw_uint8.m3.tif", "lzw_uint8.tif"),
+        ("strips_rgb_planar_lzw.ome.m12.tif", "strips_rgb_planar_lzw.ome.tif"),
+        ("n5_reject_objects_collision.m7", "n5_reject_objects_collision"),
+        ("lzw_uint8.tif", "lzw_uint8.tif"),  # not a mutant
+        ("strips_rgb_planar_lzw.ome.tif", "strips_rgb_planar_lzw.ome.tif"),
+        ("zarr2_hierarchy", "zarr2_hierarchy"),
+    ]
+    for name, want in cases:
+        assert compare.unmutated(name) == want, name
+
+
+# An implementation for check(): `fake.py <verdict> <url> <out>` rejects (exit 3), crashes (exit
+# 1), or writes a HARNESS.md output whose root declares the profile <verdict>.
+FAKE = """
+import json, sys
+verdict, _url, out = sys.argv[1:]
+if verdict == "reject":
+    print("rejected: no", file=sys.stderr)
+    sys.exit(3)
+if verdict == "crash":
+    sys.exit(1)
+root = {"zarr_format": 3, "node_type": "group", "attributes": {KEY: {"profile": verdict}}}
+json.dump({"sources": [], "entries": {"zarr.json": {"json": root}}}, open(out, "w"))
+""".replace("KEY", repr(compare.CONVENTION_KEY))
+
+
+def test_check(tmp_path, monkeypatch):
+    fake = tmp_path / "fake.py"
+    fake.write_text(FAKE)
+    proxy = compare.Proxy(tmp_path, tmp_path / "cache")
+
+    def check(ref: str, others: str, why: str | None = None) -> dict:
+        impls = {n: ("json", [sys.executable, str(fake), v])
+                 for n, v in (("ref", ref), ("py", others), ("web", others))}
+        monkeypatch.setattr(proxy, "unavailable", lambda _url: why)  # proxy.py's Failures, as if recorded
+        verdicts = compare.check(("x", proxy.remote("https://x.test/a")), impls, tmp_path, proxy)["verdicts"]
+        return {n: v[0] for n, v in verdicts.items()}
+
+    # a profile the frozen reference never had: py and web alone; one it had: against it
+    assert check("reject", "hdf5") == {"py": "equivalent", "web": "equivalent"}
+    assert check("reject", "tiff") == {"ref": "rejects", "py": "DIVERGES", "web": "DIVERGES"}
+    # an input its server did not serve: not compared, unless every implementation read it
+    every = ("ref", "py", "web")
+    assert check("crash", "crash", "https://x.test/a: TimeoutError") == dict.fromkeys(every, "UNAVAILABLE")
+    assert check("reject", "reject", "https://x.test/a: HTTPError 404") == dict.fromkeys(every, "UNAVAILABLE")
+    assert check("tiff", "tiff", "https://x.test/a: TimeoutError") == dict.fromkeys(every, "equivalent")
+    assert check("crash", "crash") == dict.fromkeys(every, "CRASHED")

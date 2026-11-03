@@ -11,10 +11,17 @@ cited here as "conventions §n"; "the MRC convention §n" is a section of
 [mrc.md](mrc.md).
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `f139bf4e-7bab-4c3c-9b2d-66ba747f9b93` ·
-Schema: [schema.json](mrc-dataset/schema.json) · Changed 2026-10-26, with no change to any
-output: the layout is tabulated, its entries in [Layout](#layout) and its types in type tables
+Schema: [schema.json](mrc-dataset/schema.json)
+
+Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
+[Layout](#layout) and its types in type tables
 ([conventions §11.5](../conventions.md#115-layout-tables)), and the stack example gives its
-fixture's `cella` ([§5](#5-example))
+fixture's `cella` ([§5](#5-example)).
+
+Changes before 2026-10-22 are recorded in
+[the revision log of VIRTUALIZE.md](../history/virtualize/REVISIONS.md), this document's earlier
+name, up to
+[revision 29](../history/virtualize/REVISIONS.md#revision-29-no-recorded-revision-the-profile-registry).
 
 ## Layout
 

@@ -159,7 +159,7 @@ fn container(layout: &Layout, opts: &Options, crcs: &HashMap<String, u32>, props
     props.check_keys(|k| names.contains(k))?;
     let d = layout.tail_len;
     // the source table is already the body of __vz__/sources: the container only points at it
-    let sources = crate::writer::Sources::default();
+    let sources = refkv_vzip::sources::SourceTable::default();
     let tail = build_tail(
         TailInput { entries: &mut entries, sources: &sources, sources_section, props, opts, hybrid: true },
         layout.body_offset,

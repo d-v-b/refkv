@@ -15,7 +15,17 @@ CMO ([§1](#1-conventions)). Changed 2026-10-27: a zlib stream's codec is `numco
 place of `zlib`, and every codec's name is zarr-python's, imagecodecs-zarr's, the zarr-extensions
 registry's or refkv's own `refkv.<codec>`, [§3](#3-arrays) (d-v-b/refkv#90). Changed
 2026-10-27: imagecodecs-zarr's `imagecodecs_delta` sums back differences along `x`, a step of its
-own between `transpose` and `bytes`, [§3](#3-arrays).)
+own between `transpose` and `bytes`, [§3](#3-arrays). Changed 2026-10-28: the `refkv.stream`
+format `"hevc"` codes HEVC access units, its setup the HEVCDecoderConfigurationRecord
+([§10](#10-coded-streams)). Changed 2026-10-30: imagecodecs-zarr's `imagecodecs_ljpeg` decodes
+a lossless JPEG chunk ([§3](#3-arrays)); refkv's `refkv.skip` drops the NPY header a deflated
+`.npz` member inflates to ([§3](#3-arrays)). Changed 2026-10-30: the codec `refkv.grib`
+decodes a GRIB field's message ([§12](#12-grib-messages)). Changed 2026-10-31: `refkv.grib`
+decodes packing 5.40, JPEG 2000 of the reversible 5/3 transform, where it was an error
+([§12](#12-grib-messages)). Changed 2026-11-01, with no change to any output:
+the document cites its own sections as `§n` links. Changed 2026-11-03, with no change to any
+output: [§2](#2-attributes), [§3](#3-arrays) and [§7](#7-source-values-as-arrays) name what the
+formats' documents already say of their attributes, arrays, codecs and fill values.)
 
 <!-- profiles:conventions-table -->
 | format | convention | UUID |
@@ -24,20 +34,24 @@ own between `transpose` and `bytes`, [§3](#3-arrays).)
 | DICOM | [dicom](zarrify/dicom.md) | `acf17198-e5a5-48d3-8187-22ec4bb40ea5` |
 | FITS | [fits](zarrify/fits.md) | `4b0d3a7e-1c52-4f6a-9b8e-2d7f0c6a1e93` |
 | FLAC (Free Lossless Audio Codec) | [flac](zarrify/flac.md) | `e9108d07-b24b-432f-a8ce-09d80c8073b4` |
+| WMO FM 92 GRIB edition 2 (WMO-No. 306, Manual on Codes, Volume I.2) | [grib](zarrify/grib.md) | `c9bbe039-8dfa-49f9-a655-756f822a42d6` |
+| HDF5, NWB | [hdf5](zarrify/hdf5.md) | `6c006834-424b-451b-b786-f8c502ec32af` |
 | Imaris IMS | [ims](zarrify/ims.md) | `5067a535-8261-4b25-a93c-1985ed333bde` |
 | Leica LIF | [lif](zarrify/lif.md) | `b099ab1f-f9d4-4276-9006-9ff1193a34b2` |
 | MP3 (MPEG Layer III audio) | [mp3](zarrify/mp3.md) | `b6cb0047-9448-4fdc-b03e-10dd3d6aa829` |
-| MP4 and QuickTime (H.264 video, AAC and MP3 audio) | [mp4](zarrify/mp4.md) | `bbe3f6b9-488d-4d8d-85ce-60a1649dd27e` |
+| MP4 and QuickTime (H.264 and HEVC video, AAC and MP3 audio) | [mp4](zarrify/mp4.md) | `bbe3f6b9-488d-4d8d-85ce-60a1649dd27e` |
 | MRC2014 | [mrc](zarrify/mrc.md) | `2aacd010-2ed1-4748-bc3c-5dd5e840bbce` |
 | MRC2014, as a dataset ([§9](#9-dataset-layouts)) | [mrc-dataset](zarrify/mrc-dataset.md) | `f139bf4e-7bab-4c3c-9b2d-66ba747f9b93` |
 | N5 | [n5](zarrify/n5.md) | `ad5d4c39-c69e-48f7-a3ef-4cc8c607d416` |
 | Nikon ND2 | [nd2](zarrify/nd2.md) | `59612f14-e314-4207-ba00-8f422ba71490` |
 | Hamamatsu NDPI | [ndpi](zarrify/ndpi.md) | `6cac71ef-dbb2-4acd-b60c-00389aa4238a` |
 | NIfTI-1 and NIfTI-2 | [nifti](zarrify/nifti.md) | `06e5809d-4d54-4b72-afd0-6bf61a7b4c85` |
+| NumPy NPY and NPZ (NEP 1) | [npy](zarrify/npy.md) | `62b1d1ba-8eb3-465c-a333-75e096fce519` |
 | NRRD (Teem) | [nrrd](zarrify/nrrd.md) | `23e0c600-8da6-40f1-81e7-ab246e948e88` |
 | OME-Zarr 0.4 | [ome-zarr](zarrify/ome-zarr.md) | `b74ea302-65bb-49ae-b81f-f9bb52cd4eed` |
 | Akoya QPTIFF | [qptiff](zarrify/qptiff.md) | `329ea136-2f55-4c27-b6f4-8e60ca2109b8` |
 | Sentinel-2 SAFE (Level-1C, Level-2A) | [safe](zarrify/safe.md) | `ef81346c-19e8-42ad-93b0-a279ccaf44c1` |
+| safetensors (Hugging Face) | [safetensors](zarrify/safetensors.md) | `15e7ce39-d4ca-4514-8144-6e19d2a0341b` |
 | TIFF, OME-TIFF, Aperio SVS | [tiff](zarrify/tiff.md) | `48e9ac4e-1156-4a62-955e-20467d9c2700` |
 | Olympus VSI | [vsi](zarrify/vsi.md) | `c0a1d4e6-5b7f-4f3a-9c2d-8e1f6a7b3c45` |
 | Zarr v2 | [zarr2](zarrify/zarr2.md) | `8e792619-d671-4687-ab51-752885dd3ee6` |
@@ -88,10 +102,10 @@ framework](https://github.com/zarr-conventions/zarr-conventions-spec).
 **Versions.** Each convention has a **version**, an integer stated in its
 document's header.
 
-- **Until refkv's first release**, every convention is at version **0**.
-  Version 0 promises nothing: any change may change a layout; a convention's
-  document records its changes.
-- **At the release**, every convention becomes version 1, tagged
+- **Until refkv 1.0**, every convention is at version **0**, in the 0.x
+  releases too. Version 0 promises nothing: any change may change a layout; a
+  convention's document records its changes.
+- **At refkv 1.0**, every convention becomes version 1, tagged
   `zarrify-<p>-v1` in the refkv repository. From then on a convention's
   version increases by 1 whenever the layout it specifies, or the reference
   store that refkv's profile for that format specifies, changes for some
@@ -198,7 +212,8 @@ recorded ignored keys. For a file's convention,
 `refkv_source` is the source's IR mirror ([§8](#8-the-ir-mirror)), from which the source is
 rebuilt byte for byte; for a store's, the store's
 ([§8.9](#89-stores)), from which the listing and the documents read are rebuilt: always
-present (under a root array, as plain keys of the archive).
+present (under a root array, as plain keys of the archive). A FLAC file's pictures, source values
+kept as arrays, are outside it, under the root's `pictures` ([flac §4.2](zarrify/flac.md#42-the-pictures)).
 
 **Nothing else.** Outside `refkv_zarrified`, a node's attributes hold only
 members that the hierarchy's target formats define, where the format's
@@ -206,17 +221,18 @@ convention places them:
 
 | member | defined by | on |
 |---|---|---|
-| `ome` | OME-NGFF 0.5 ([§4](#4-images)) | images, and a collection's root and `OME` group |
-| `proj:code`, `proj:wkt2`, `spatial:*`, `multiscales` | the GeoZarr members of the zarr-conventions `proj`, `spatial` and `multiscales` conventions | nodes of the SAFE convention, which lists their CMOs in `zarr_conventions` after its own |
-| the CF attributes | [§9](#9-dataset-layouts) | a dataset layout's variables |
-| `zarr_conventions` | [`Declaration`](#type-declaration) | nodes that declare the convention |
+| `ome` | OME-NGFF 0.5 ([§4](#4-images)) | images, a collection's root and `OME` group, and the OME-Zarr convention's other OME groups (its labels groups, plates and wells) |
+| `proj:code`, `proj:wkt2`, `spatial:*`, `multiscales` | the GeoZarr members of the zarr-conventions `proj`, `spatial` and `multiscales` conventions | nodes of the SAFE convention and [a GRIB hierarchy's grid groups](zarrify/grib.md#4-georeferencing), which list their CMOs in `zarr_conventions`, after the format's own on a node that declares the convention |
+| the CF attributes | [§9](#9-dataset-layouts) | a dataset layout's variables, and [a GRIB hierarchy's variables and coordinates](zarrify/grib.md#3-the-hierarchy), with the `GRIB_<key>` numbers that identify a variable |
+| `zarr_conventions` | [`Declaration`](#type-declaration) | nodes that declare the convention, and nodes that hold the GeoZarr members above |
 
 Everything
 taken from the source goes under the key, on the node it belongs to,
 including attributes a source store had (and the conventions they
 declare), so it can neither collide with nor masquerade as the target
 formats' metadata. A source that is itself such a hierarchy therefore
-nests its own record.
+nests its own record. The HDF5 convention departs from this: a node's attributes are the source's
+own, beside the key ([hdf5 §2.1](zarrify/hdf5.md#21-declaration-and-attributes)).
 
 ## 3. Arrays
 
@@ -230,9 +246,14 @@ below. The conventions that say otherwise:
 | NDPI | have, for JPEG XR levels, the codec `imagecodecs_jpegxr` |
 | QPTIFF | have, for LZW tiles and strips, the codec `refkv.tiff_lzw` ([qptiff §4.1](zarrify/qptiff.md#41-data-types-and-codecs)) |
 | MP3, MP4, FLAC | have the codec `refkv.stream` of [§10](#10-coded-streams), and dimension names of their own |
-| MP4 | have, for video planes whose chunks differ in length, the `rectilinear` chunk grid |
+| MP4 | have, for video planes whose chunks differ in length, the `rectilinear` chunk grid; a track's `time` array has the `gzip` codec |
 | FLAC | is sharded, as [spec/zarrify.md §2.1](zarrify.md#21-virtual-shards) says |
 | NRRD | has, when gzip-encoded, the `gzip` codec, which compresses it |
+| FITS | have, for tile-compressed images, the codec `refkv.fits_tiles` ([fits §3.3](zarrify/fits.md#33-tile-compressed-images)) |
+| GRIB | are defined by the convention itself ([grib §3](zarrify/grib.md#3-the-hierarchy)): a variable has the codec `refkv.grib` and a `float64` coordinate the `gzip` codec, both with the fill value `"NaN"` |
+| HDF5 | are defined by the convention itself ([hdf5 §3](zarrify/hdf5.md#3-datasets)), with the dataset's own chunks and filters, and `vlen-utf8` for strings |
+| NPY, safetensors | have the data type's zero as their fill value; NPY's, for a deflated `.npz` member, the codec `refkv.skip`; safetensors', for a data type of fewer than 8 bits, the codec `packbits` |
+| VSI | have, for a pyramid's levels, the background's first sample as their fill value ([vsi §4.1](zarrify/vsi.md#41-the-pyramid)) |
 
 The object:
 
@@ -265,7 +286,7 @@ value).
 | `data_type` | string | required | a Zarr v3 data type, which the format's convention gives |
 | `chunk_grid` | object | required | `{"name": "regular", "configuration": {"chunk_shape": [...]}}`, one chunk size per axis (or, where the table above says so, the `rectilinear` grid the format's document gives) |
 | `chunk_key_encoding` | object | required | `{"name": "default", "configuration": {"separator": "/"}}` |
-| `fill_value` | number | required | `0` |
+| `fill_value` | number or string | required | `0`, unless the table above says otherwise |
 | `codecs` | array of object | required | the codecs below, in their order |
 | `dimension_names` | array of string | required | the axes' names, in order (**Axes**, below) |
 | `attributes` | object | required | `{}`, unless the format's convention gives the array attributes: a [`Declaration`](#type-declaration) when the array has source metadata ([§2](#2-attributes), [§7](#7-source-values-as-arrays)), CF attributes ([§9](#9-dataset-layouts)) |
@@ -280,8 +301,8 @@ value).
 | `attributes` | object | required | `{}`, or the members the format's convention gives: a [`Declaration`](#type-declaration) when the group declares the convention ([§2](#2-attributes)) |
 
 A format's document names its arrays' types after this one, by the members it gives
-(`shape`, `data_type`, `chunk_grid`'s chunk shape, `codecs`, `dimension_names` and
-`attributes`); the members it does not name are as here.
+(`shape`, `data_type`, `chunk_grid`'s chunk shape, `fill_value`, `codecs`, `dimension_names`
+and `attributes`); the members it does not name are as here.
 
 **Axes.** An image's axes are a subsequence of `t, c, z, y, x`, in that
 order: `t` (time), `c` (channel), `z`, `y`, `x` (space). `y` and `x` are
@@ -298,20 +319,23 @@ of each step, and always one of step 3.
 | 3 | `{"name": "bytes", "configuration": {"endian": "little"}}`, or `"big"` | a larger data type |
 | 3 | `{"name": "imagecodecs_jpeg2k"}` | JPEG 2000: one codestream per chunk, decoding to the chunk's `[y, x]`, or, when interleaved, to `[y, x, c]`, after which `transpose` applies |
 | 3 | `{"name": "imagecodecs_jpeg"}` | JPEG: one complete JPEG stream per chunk, ISO/IEC 10918-1 with the JFIF/Adobe color conventions, decoding to the chunk's `[y, x]` or `[y, x, c]` like JPEG 2000 |
+| 3 | `{"name": "imagecodecs_ljpeg"}` | lossless JPEG: one complete JPEG stream per chunk, ISO/IEC 10918-1's lossless process (SOF3, predictors 1 to 7), its samples stored without a color transform, decoding to the chunk's `[y, x]` or `[y, x, c]` like JPEG 2000 |
 | 4 | `{"name": "numcodecs.zlib", "configuration": {"level": 1}}` | the bytes are zlib streams (RFC 1950) |
 | 4 | `{"name": "zstd", "configuration": {"level": 0, "checksum": false}}` | the bytes are Zstandard frames |
 
 **Codec names.** Every codec a convention names is one that a reader of Zarr v3 finds by its
-name: zarr-python's own (`bytes`, `transpose`, `gzip`, `zstd`, `blosc`, `sharding_indexed`, and
+name: zarr-python's own (`bytes`, `transpose`, `gzip`, `zstd`, `blosc`, `sharding_indexed`, `vlen-utf8`, and
 `numcodecs.zlib`, `numcodecs.shuffle` and `numcodecs.delta`, its names for numcodecs' codecs),
 imagecodecs-zarr's (`imagecodecs_jpeg`, `imagecodecs_jpeg2k`, `imagecodecs_jpegxr`,
-`imagecodecs_delta`), the
-zarr-extensions registry's (`n5_default`), or refkv's own, which are named `refkv.<codec>`
+`imagecodecs_ljpeg`, `imagecodecs_delta`), the
+zarr-extensions registry's (`n5_default`, `packbits`), or refkv's own, which are named `refkv.<codec>`
 (`refkv.stream`, [§10](#10-coded-streams); `refkv.fits_tiles`,
 [fits §3.3](zarrify/fits.md#33-tile-compressed-images); `refkv.tiff_lzw`,
-[qptiff §4.1](zarrify/qptiff.md#41-data-types-and-codecs)). refkv names a
+[qptiff §4.1](zarrify/qptiff.md#41-data-types-and-codecs); `refkv.skip`,
+[npy §4.4](zarrify/npy.md#44-the-refkvskip-codec); `refkv.grib`, [§12](#12-grib-messages)). refkv names a
 codec of its own only where none of the others decodes the chunks as the convention says (QPTIFF's
-LZW streams can run past their tile, which `imagecodecs_lzw` does not allow). refkv's Python
+LZW streams can run past their tile, which `imagecodecs_lzw` does not allow; no codec of the
+others drops the NPY header a deflated `.npz` member inflates to). refkv's Python
 package provides its own codecs to zarr-python through the `zarr.codecs` entry points, and the
 `images` extra installs imagecodecs-zarr.
 
@@ -542,7 +566,7 @@ the binary64 value.
 ## 7. Source values as arrays
 
 A value that is too large for JSON, that is a column of numbers, or that is
-opaque is an array of the source metadata node ([§2](#2-attributes)). Each such array's
+opaque is an array of the source metadata node (but for FLAC's pictures, [§2](#2-attributes)). Each such array's
 `zarr.json` is as in [§3](#3-arrays), with `fill_value` 0 unless the convention says
 otherwise, `codecs` `[{"name": "bytes", "configuration": {"endian": E}}]`
 (`[{"name": "bytes"}]` for one-byte data types), where `E` is `"little"`
@@ -1169,8 +1193,8 @@ revision of this section.
 
 A store input ([spec/zarrify.md §1.4](zarrify.md#14-store-inputs)) is
 a set of objects named by keys. Its IR, a **store IR**, has many sources: each
-object of the store is one. Sections [8.1](#81-elements) to
-[8.8](#88-canonical-form) hold for a store IR with the changes this section
+object of the store is one. Sections [§8.1](#81-elements) to
+[§8.8](#88-canonical-form) hold for a store IR with the changes this section
 gives. An IR without objects, a **file IR**, is the special case of one
 source, source 0: this section changes nothing in it, its table or its view.
 
@@ -1227,12 +1251,12 @@ object whose size is 0 is **empty**: no element in it has a length.
 which suits documents, read whole and small. An object that a format reads
 in ranges (a SAFE band file: its boxes, main header and tile-part headers,
 a few kilobytes of a file of up to 160 MB) can be described without being
-held: an object that has children and whose form ([8.5](#85-forms-and-recipes))
+held: an object that has children and whose form ([§8.5](#85-forms-and-recipes))
 is `{"bytes":"source"}` is **described in place**. Its leaves partition
 `[0, s)` of its bytes, as a held object's do, but the table does not hold its
 bytes: they are its own source's, which a reader reads at the object's URL
 ([spec/zarrify.md §1.4](zarrify.md#14-store-inputs)), as it reads a file
-IR's source 0 ([8.4](#84-reading-the-source-back)). A producer reads every value
+IR's source 0 ([§8.4](#84-reading-the-source-back)). A producer reads every value
 the view shows in such an object (its parser holds them). A held object is
 then an object with children that is not described in place.
 
@@ -1245,7 +1269,7 @@ at `b_j + x`, where `b_j` is the sum of the sizes of the objects before `j` in i
 order. The leaves then partition `[0, Z)`, as a file's do, once each leaf is
 checked to end within its object.
 
-**The table** (changes to [8.2](#82-the-table)). The description `I` has the
+**The table** (changes to [§8.2](#82-the-table)). The description `I` has the
 member `"objects": o` after `size`, `o` the number of objects; its presence is
 what makes the IR a store's. `Z` is the sum of the objects' sizes. An object
 row's start (column 6) is stored as it is (0, since its extent is `(0, s)`),
@@ -1254,12 +1278,12 @@ distance from 0), as if the object row were a row of length 0 ending there: an
 object's descendants' starts count from the start of their own source. The
 kinds of rows go to 6. When the IR has held objects, `refkv_source/ir/held` is a
 group of two arrays holding their bytes, `offsets` and `data`, as
-`refkv_source/ir/shared` holds the shared data sources ([8.2](#82-the-table)):
+`refkv_source/ir/shared` holds the shared data sources ([§8.2](#82-the-table)):
 one byte string per held object, in id order, each the object's `s` bytes. An object described in place has its form row (code 2) and no byte string
-in `ir/held`. A column of encoding 2 ([8.3](#83-column-runs)) is invalid in a store IR (no
+in `ir/held`. A column of encoding 2 ([§8.3](#83-column-runs)) is invalid in a store IR (no
 profile has a named array rule for stores).
 
-**Limits** (changes to [8.3](#83-column-runs)). A store IR has at most 2^24
+**Limits** (changes to [§8.3](#83-column-runs)). A store IR has at most 2^24
 objects, and its expanded table at most `N = 2^22 + floor(Z / 4) + 4 × o` rows;
 the distinct names (the description holds them) total at most 2^24 UTF-8 bytes.
 A producer rejects a store past one of these with the message
@@ -1271,7 +1295,7 @@ children and a length, not described in place) are not as many as `ir/held`'s
 byte strings, or one of
 whose byte strings is not as long as its object.
 
-**Reading the store back** (in place of [8.4](#84-reading-the-source-back)). A
+**Reading the store back** (in place of [§8.4](#84-reading-the-source-back)). A
 reader reads `rows`, `tables` and `held`, expands the column runs, checks the
 invariants above, and then has:
 
@@ -1289,7 +1313,7 @@ hierarchy references it (a chunk's bytes are the archive's references to the
 store), and an object described in place is its own source (the hierarchy
 references its ranges; reading it rebuilds it).
 
-**The view** (changes to [8.7](#87-the-view)). Referenced and empty objects are
+**The view** (changes to [§8.7](#87-the-view)). Referenced and empty objects are
 neither shown nor visited (a store's chunk objects would fill the view's budget
 of visits); a held object is shown as a struct is, by its own document; a
 directory whose document would be empty is not shown. A shown value of a held
@@ -1297,7 +1321,7 @@ object is read from that object's bytes in `ir/held`, so a validator rebuilds
 the view from the archive alone; one of an object described in place, from
 that object's source.
 
-**Canonical form** (changes to [8.8](#88-canonical-form)). An object's first
+**Canonical form** (changes to [§8.8](#88-canonical-form)). An object's first
 byte is 0, the start of its source, whether or not it has a length, so the
 first byte of a directory is 0 too: the objects and directories of one
 directory are ordered by name, then by name index, which is the order of the
@@ -1419,11 +1443,11 @@ decode to, not byte for byte.
 
 ## 10. Coded streams
 
-Audio and video formats code each frame (an MP3 or AAC frame, an H.264
-picture) into a run of bytes that a decoder can only decode after the
+Audio and video formats code each frame (an MP3 or AAC frame, an H.264 or
+HEVC picture) into a run of bytes that a decoder can only decode after the
 frames it depends on: an MP3 frame's bit reservoir reaches into the frames
-before it, an AAC frame overlaps the one before it, and an H.264 picture
-is predicted from other pictures, back to the last keyframe. A chunk of
+before it, an AAC frame overlaps the one before it, and an H.264 or HEVC
+picture is predicted from other pictures, back to the last keyframe. A chunk of
 such a stream's samples therefore holds the frames it decodes to and the
 frames before them that a decoder must decode first, its **lead-in**. The
 array-to-bytes codec `refkv.stream` decodes such a chunk.
@@ -1433,9 +1457,9 @@ array-to-bytes codec `refkv.stream` decodes such a chunk.
 
 | member | type | presence | value |
 |---|---|---|---|
-| `format` | string | required | the coding of the frames: `"mp3"` (MPEG-1, 2 or 2.5 Layer III frames), `"aac"` (raw AAC frames, without ADTS headers), `"flac"` (FLAC frames, [RFC 9639 §9](https://www.rfc-editor.org/rfc/rfc9639#section-9)) or `"h264"` (H.264 access units as an MP4 file holds them: each NAL unit preceded by its length, in the length's size the setup gives) |
-| `setup` | string | optional | when the format has one: the decoder's configuration, base64 ([RFC 4648 §4](https://www.rfc-editor.org/rfc/rfc4648#section-4)): for `"aac"` the AudioSpecificConfig (ISO/IEC 14496-3 §1.6.2.1), for `"flac"` `fLaC` and the stream's STREAMINFO block, header included (42 bytes: the form ffmpeg's decoder and WebCodecs' `description` take), for `"h264"` the AVCDecoderConfigurationRecord (an MP4 file's avcC box, ISO/IEC 14496-15 §5.3.3.1), which holds the parameter sets |
-| `plane` | string | optional | for `"h264"` only: the plane of a decoded picture the array holds, `"y"`, `"u"` or `"v"` |
+| `format` | string | required | the coding of the frames: `"mp3"` (MPEG-1, 2 or 2.5 Layer III frames), `"aac"` (raw AAC frames, without ADTS headers), `"flac"` (FLAC frames, [RFC 9639 §9](https://www.rfc-editor.org/rfc/rfc9639#section-9)), `"h264"` (H.264 access units as an MP4 file holds them: each NAL unit preceded by its length, in the length's size the setup gives) or `"hevc"` (HEVC access units, the same way) |
+| `setup` | string | optional | when the format has one: the decoder's configuration, base64 ([RFC 4648 §4](https://www.rfc-editor.org/rfc/rfc4648#section-4)): for `"aac"` the AudioSpecificConfig (ISO/IEC 14496-3 §1.6.2.1), for `"flac"` `fLaC` and the stream's STREAMINFO block, header included (42 bytes: the form ffmpeg's decoder and WebCodecs' `description` take), for `"h264"` the AVCDecoderConfigurationRecord (an MP4 file's avcC box, ISO/IEC 14496-15 §5.3.3.1), which holds the parameter sets, for `"hevc"` the HEVCDecoderConfigurationRecord (an MP4 file's hvcC box, ISO/IEC 14496-15 §8.3.3.1), which holds the VPS, SPS and PPS and the NAL unit lengths' size (the form WebCodecs' `description` takes for both) |
+| `plane` | string | optional | for `"h264"` and `"hevc"` only: the plane of a decoded picture the array holds, `"y"`, `"u"` or `"v"` |
 
 There are no other members.
 
@@ -1470,24 +1494,28 @@ fit its rows, or whose shape is not the array's, is an error. The outputs
 are the decoder's own samples, with no conversion: `float32` for MP3 and
 AAC, the stream's integer samples for FLAC (of the bits per sample the
 setup gives, in the array's signed integer type: a decoder that gives them
-in the high bits of a wider integer is shifted back), and the 8-bit planes
-of a 4:2:0 picture for H.264 (`u` and `v` half the size of `y` along each
-axis, rounded up).
+in the high bits of a wider integer is shifted back), and the planes of a
+4:2:0 picture for H.264 and HEVC (`u` and `v` half the size of `y` along each
+axis, rounded up), `uint8` for 8 bits a sample and `uint16` for 10, the
+sample's value (from 0 to 1023, not scaled to the type's range).
 
 The outputs are placed by the frame each comes from, whatever order the
-decoder gives them in: an H.264 decoder outputs pictures in presentation
-order, after a delay, and may emit nothing for a frame it cannot decode.
+decoder gives them in: an H.264 or HEVC decoder outputs pictures in
+presentation order, after a delay, and may emit nothing for a frame it
+cannot decode (an HEVC decoder skips the RASL pictures of the CRA picture it
+starts from, and those of a BLA picture).
 A decoder that cannot say which frame an output comes from does not decode
 this codec. Nor does one whose output for a frame depends on more than a
 bounded run of the frames before it, such as ffmpeg's fixed-point MP3
 decoder, which carries its rounding error from frame to frame, so a chunk
 it decodes from the lead-in differs from the stream by a unit here and
-there. ffmpeg's float MP3 decoder, its AAC decoder, its FLAC decoder and its
-H.264 decoder (the implementations' decoders, through PyAV) decode it.
+there. ffmpeg's float MP3 decoder, its AAC decoder, its FLAC decoder, its
+H.264 decoder and its HEVC decoder (the implementations' decoders, through
+PyAV) decode it.
 
 **Determinism.** A chunk decodes to the same values every time, and, for
-MP3, FLAC and H.264, to the values a decoder of the whole stream gives
-(FLAC and H.264 decoding is exact by their standards; a FLAC frame depends
+MP3, FLAC, H.264 and HEVC, to the values a decoder of the whole stream gives
+(FLAC, H.264 and HEVC decoding is exact by their standards; a FLAC frame depends
 on no other, so it needs no lead-in). AAC's perceptual noise substitution
 fills a band with noise from a pseudo-random generator whose state runs on
 from frame to frame, so a chunk's noise bands differ from those of a
@@ -1629,3 +1657,80 @@ the bytes, as [§10](#10-coded-streams)'s [`StreamChunk`](#type-streamchunk).
 **Placeholders and other lists.** A table of placeholders has the columns `placeholder` and
 `value`. A list whose items share the same parts (a code's meanings, the members of an
 object) is a table, one row per item and one column per part.
+
+## 12. GRIB messages
+
+A GRIB edition 2 message (WMO-No. 306, *Manual on Codes*, Volume I.2, FM 92 GRIB edition 2,
+cited here as "FM 92") holds one or more fields, each a grid of values packed by one of FM 92's
+data representation templates, with the grid, the packing's parameters and the bitmap of missing
+points in the message's own sections. The array-to-bytes codec `refkv.grib` decodes a field of a
+message ([spec/zarrify/grib.md](zarrify/grib.md)).
+
+**The codec.** `{"name": "refkv.grib", "configuration": C}`, where `C`, which may be absent, is a
+<a id="type-gribconfiguration"></a>**`GribConfiguration`**:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `field` | integer | optional | the field to decode, from 0, in the order of the message's sections 7; 0 when absent |
+
+There are no other members. A chunk's number of values is the grid's `Nj × Ni`, at most 2^31,
+and section 3's number of points; its shape is 1 along every dimension but its last two, which
+are the grid's `Nj` and `Ni` (section 3's number of points along a meridian and along a parallel,
+octets 35–38 and 31–34 of templates 3.0, 3.1, 3.10, 3.20, 3.30 and 3.40); the array's data type is
+`float64` or `float32`.
+
+**A chunk's bytes** are one message, sections 0 to 8, as a GRIB file holds it, and no more: the
+chunk's length is the message's.
+
+**Decoding a chunk.**
+
+1. **The field.** The sections are walked from section 0; the field's sections 3, 5, 6 and 7 are
+   the last of each number at or before its section 7. A message that does not parse (a section
+   past the message's length, no `7777` at its end) or has too few fields is an error.
+2. **Unpacking.** Section 5's template gives the field's `n` values (octets 6–9):
+   - **5.0**, simple packing, **5.2**, complex packing, and **5.3**, complex packing with
+     spatial differencing of order 1 or 2: scaled integers `X`, each value
+     `(R + X × 2^E) × 10^−D`, where `R` is octets 12–15, an IEEE binary32, and `E` and `D`
+     octets 16–17 and 18–19, signed integers (sign and magnitude), computed in binary64:
+     `2^E` exactly, and `10^−D` as `D` successive divisions of 1 by 10 (for a negative `D`,
+     `−D` successive multiplications), which for `D` ≥ 6 is not always the binary64 nearest
+     `10^−D`, but is what ecCodes computes. A bit width of 0 (octet 20), or complex packing
+     with no groups, makes every value `R`, as ecCodes, NCEP's g2c and their encoders read it,
+     though FM 92's formula would scale it. Complex packing's missing values (missing value
+     management, octet 23, 1 or 2) are NaN; with spatial differencing, the differences run
+     over the values that are not missing, and the first values (octets 1–6 of section 7's
+     start) are unsigned, the overall minimum signed.
+   - **5.4**: IEEE floating point values, binary32 or binary64 (octet 12), as they are.
+   - **5.40**: section 7 is a JPEG 2000 codestream (ITU-T T.800 | ISO/IEC 15444-1, not a JP2
+     file) of `X`: one unsigned component, not subsampled, of at most 20 bits, whose image has
+     `n` samples (`Ni × Nj`, or `n × 1` with a bitmap, as NCEP's g2c writes it), of the
+     reversible 5/3 wavelet transform, lossless or truncated at a rate (ecCodes' lossy 5.40,
+     octet 22 = 1, keeps the 5/3 transform). `X` is the samples OpenJPEG decodes, which ecCodes
+     calls: the 5/3 transform in integers, a truncated coefficient at the midpoint of its
+     interval, the samples clamped to the precision's range. Then as 5.0. The irreversible 9/7
+     transform is an error (decoders compute it in floating point, each in its own order, and
+     their samples differ by 1 at some points), as are samples of more than 20 bits (within
+     which a decoder that computes the 5/3 transform in binary32 is exact).
+   - **5.41**: section 7 is a PNG image of `X`, not interlaced and with no palette, a gray
+     sample of 1 to 16 bits, or an RGB or RGBA sample of 24 or 32 bits as one integer; then as
+     5.0.
+   - **5.42**: section 7 is a CCSDS 121.0-B adaptive entropy coded stream of `X`, unsigned, of
+     the flags, block size and reference sample interval of octets 22–25; then as 5.0.
+
+   Any other template (the spectral 5.50 and 5.51; 5.61; 5.200), or 5.4 of another precision, is
+   an error.
+3. **Placing.** With a bitmap (section 6's indicator 0; or 254, the bitmap of the last earlier
+   field of the message whose indicator is 0), the `n` values fill, in order, the points whose
+   bit is 1, and the others are NaN; the number of bits that are 1 must be `n`. Without one
+   (255), `n` must be the grid's number of points. An indicator from 1 to 253 is an error.
+4. **Ordering.** The points, in the file's order, are its lines: `Nj` lines of `Ni` points, or,
+   when bit 3 (`0x20`) of section 3's scanning mode is set, `Ni` lines of `Nj` points (the points
+   consecutive along `j`). When bit 4 (`0x10`) is set, so that every other line runs the
+   opposite way, those lines (the second, the fourth, …) are reversed. Then, with bit 3, the
+   lines are transposed, so that the result is `Nj` rows of `Ni` points. Bits 1 and 2, the
+   directions of `i` and `j`, are kept: the first row is the one the file gives first.
+   Scanning-mode bits 5 to 8 (`0x0F`) must be 0.
+5. **Type.** The values are converted to the array's data type: `float64` as they are, `float32`
+   to nearest.
+
+The codec has no encoder.

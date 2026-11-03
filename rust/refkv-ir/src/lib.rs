@@ -11,7 +11,6 @@ pub mod coding;
 pub mod cxml;
 pub mod expr;
 pub mod fed;
-pub mod hdf5;
 pub mod ir;
 pub mod json;
 pub mod lv;
@@ -32,6 +31,7 @@ pub mod store;
 pub mod text;
 pub mod types;
 pub mod xml;
+pub mod zip;
 
 #[cfg(target_arch = "wasm32")]
 pub mod wasm;

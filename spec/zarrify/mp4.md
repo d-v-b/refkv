@@ -11,36 +11,55 @@ below.
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `bbe3f6b9-488d-4d8d-85ce-60a1649dd27e` ·
 Schema: [schema.json](mp4/schema.json)
 
-Added 2026-10-23, after
-[revision 29](../history/virtualize/REVISIONS.md#revision-29-no-recorded-revision-the-profile-registry)
-(a profile's changes are recorded here, dated, from then on).
+Changed 2026-11-03, with no change to any output: the elements table lists the structs `samples` and `samples/<T>`, as refkv already wrote them.
 
-**2026-10-26.** A duration or an edit's `media_time` past 2^53 − 1 in magnitude is the string
-of its digits, as [conventions §6](../conventions.md#6-source-metadata-as-json) writes an
+Changed 2026-11-01, with no change to any output: the checks say that a zarrifier MUST reject
+an input that fails one, in RFC 2119's words; and the registry lists the file names this
+document does, `.mp4`, `.m4a`, `.m4v` and `.mov`, which the profile reads alike, as its
+signature chooses it by the file's first bytes.
+
+Changed 2026-10-29: a version 0 `ctts` box's offsets are signed, as version 1's are, where they
+were unsigned: Apple's encoder writes negative ones, which made each picture they belong to seem
+presented after every later sync sample, and the track's video was not zarrified
+([§2](#2-boxes), [§3](#3-tracks-and-samples)).
+
+Changed 2026-10-28: HEVC video tracks (`hvc1` and `hev1` sample entries) are zarrified as H.264
+tracks are: 4:2:0 of 8 bits (Main) or 10 (Main 10, an iPhone's HDR video), the planes `uint8` or
+`uint16`, the `refkv.stream` format `"hevc"` with the `hvcC` box as its setup
+([§4.1](#41-video-tracks), [§8.2](#82-tracks)); their IRAP pictures are the sync samples, and
+their RASL and RADL pictures leading pictures, under the rules H.264's open groups follow
+([§8.3](#83-chunks)). A video chunk holds at most 32 MiB of luma counted in bytes, so half as
+many 10-bit pictures as 8-bit ones; a video track's source metadata has its `bit_depth`
+([§5.2](#52-the-tracks)).
+
+Changed 2026-10-26: a duration or an edit's `media_time` past 2^53 − 1 in magnitude is the
+string of its digits, as [conventions §6](../conventions.md#6-source-metadata-as-json) writes an
 integer, where it was a JSON number ([§5](#5-source-metadata)); a track whose ID an earlier
-zarrified track has is not zarrified, its reason saying so, where both were written to one
-group ([§8.2](#82-tracks)). The layout is tabulated, its entries in [Layout](#layout) and its
-types in type tables ([conventions §11.5](../conventions.md#115-layout-tables)); the summary is
-a table too. And the text says what refkv already wrote: a four-character code is a plain
-string of its bytes' code points ([§5](#5-source-metadata)), and a chunk of `time` is not a
-`refkv.stream` chunk ([§8.3](#83-chunks)).
+zarrified track has is not zarrified, its reason saying so, where both were written to one group
+([§8.2](#82-tracks)). The layout is tabulated, its entries in [Layout](#layout) and its types in
+type tables ([conventions §11.5](../conventions.md#115-layout-tables)); the summary is a table
+too. And the text says what refkv already wrote: a four-character code is a plain string of its
+bytes' code points ([§5](#5-source-metadata)), and a chunk of `time` is not a `refkv.stream`
+chunk ([§8.3](#83-chunks)).
 
-**2026-10-25.** A track whose sync samples are followed in decode order by pictures presented
-before them (leading pictures: a camera's B-frames after each IDR picture, or an open group's)
-is zarrified, not refused, while each leading picture is presented after the sync sample
-before; a chunk that holds a leading picture of the sync sample it would decode from decodes
-from the sync sample before that ([§8.2](#82-tracks), [§8.3](#83-chunks)). A track whose sync
-sample table does not increase, or names a sample past the last, is refused.
+Changed 2026-10-25: a track whose sync samples are followed in decode order by pictures
+presented before them (leading pictures: a camera's B-frames after each IDR picture, or an open
+group's) is zarrified, not refused, while each leading picture is presented after the sync
+sample before; a chunk that holds a leading picture of the sync sample it would decode from
+decodes from the sync sample before that ([§8.2](#82-tracks), [§8.3](#83-chunks)). A track whose
+sync sample table does not increase, or names a sample past the last, is refused.
 
-**2026-10-24.** A video chunk holds whole groups of pictures, from a sync sample, in place of
-`F` pictures from a multiple of `F`; a group longer than `F` pictures is split. Where the
+Changed 2026-10-24: a video chunk holds whole groups of pictures, from a sync sample, in place
+of `F` pictures from a multiple of `F`; a group longer than `F` pictures is split. Where the
 chunks' lengths differ, the planes' chunk grid is the zarr-extensions `rectilinear` grid
 ([§4.1](#41-video-tracks), [§8.3](#83-chunks)).
+
+Added 2026-10-23.
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
 An MP4 file is not an image. The hierarchy holds each track it zarrifies
-as a group: an H.264 video track as the Y, U and V planes of its pictures
+as a group: an H.264 or HEVC video track as the Y, U and V planes of its pictures
 and their presentation times, an AAC or MP3 audio track as its samples. The
 pictures and samples stay in the file as coded frames; the arrays' codec,
 `refkv.stream` ([conventions §10](../conventions.md#10-coded-streams)),
@@ -123,7 +142,7 @@ count, from the box's fields.
 | `hdlr` | `{version:u1,flags:u1[3],pre_defined:>u4,handler_type:ascii[4],reserved:>u4[3]}`, then the name, `cstr` | |
 | `elst` | `{version:u1,flags:u1[3],entry_count:>u4}` | version 0: `{segment_duration:>u4,media_time:>i4,media_rate:>i2,media_rate_fraction:>i2}[n]`; version 1: the duration and time `>u8`, `>i8` |
 | `stts` | the same | `{sample_count:>u4,sample_delta:>u4}[n]` |
-| `ctts` | the same | `{sample_count:>u4,sample_offset:>u4}[n]` (version 1: `>i4`) |
+| `ctts` | the same | `{sample_count:>u4,sample_offset:>i4}[n]` |
 | `stsc` | the same | `{first_chunk:>u4,samples_per_chunk:>u4,sample_description_index:>u4}[n]` |
 | `stsz` | `{version:u1,flags:u1[3],sample_size:>u4,sample_count:>u4}` | `>u4[n]` when `sample_size` is 0, `n` the sample count |
 | `stco`, `co64`, `stss` | `{version:u1,flags:u1[3],entry_count:>u4}` | `>u4[n]`, `>u8[n]`, `>u4[n]` |
@@ -135,7 +154,7 @@ A **sample entry** of a video track (its handler is `vide`) has the fields
 `{reserved:u1[6],data_reference_index:>u2,version:>u2,revision:>u2,vendor:>u4,channel_count:>u2,sample_size:>u2,compression_id:>i2,packet_size:>u2,sample_rate:>u4}`,
 28 bytes, followed for a QuickTime sound description of version 1 by
 `{samples_per_packet:>u4,bytes_per_packet:>u4,bytes_per_frame:>u4,bytes_per_sample:>u4}`.
-After its fields, a sample entry holds boxes (`avcC`, `esds`, `btrt`,
+After its fields, a sample entry holds boxes (`avcC`, `hvcC`, `esds`, `btrt`,
 `pasp`, `colr`, and QuickTime's `wave`, which holds an `esds` box of its own).
 The payload of every other box, and of a sample entry of another handler or
 of a sound description of version 2, is opaque.
@@ -158,8 +177,11 @@ are in chunks: chunk `c` (from 1) starts at entry `c − 1` of `stco` or
 **decode time** is the sum of the `sample_delta`s of the samples before it
 (`stts` gives each run of samples its delta), and its **presentation time**
 its decode time plus its `ctts` offset (0 without a `ctts` box), both in the
-media timescale. The **sync samples** are the samples `stss` names (its
-entries, less 1), or every sample when the track has no `stss` box.
+media timescale. The offset is signed in either version of the box, as
+QuickTime's are and as Apple's encoder writes them, negative ones in a
+version 0 box, where ISO/IEC 14496-12 §8.6.1.3 has version 0's unsigned.
+The **sync samples** are the samples `stss` names (its entries, less 1), or
+every sample when the track has no `stss` box.
 
 ## 4. The layout
 
@@ -174,14 +196,16 @@ metadata, and its arrays below. Every array's `zarr.json` is
 
 ### 4.1 Video tracks
 
-An H.264 track of `N` samples, `W × H` pixels (its sample entry's `width`
-and `height`), holds its pictures in **presentation order**: picture `p` is
+An H.264 or HEVC track of `N` samples, `W × H` pixels (its sample entry's
+`width` and `height`), of `D` bits a sample (its SPS's bit depth, [§8.2](#82-tracks)), holds
+its pictures in **presentation order**: picture `p` is
 the sample with the `p`-th smallest presentation time. Its arrays are `y`, `u` and `v`, the
 planes of the pictures, and `time`, the pictures' presentation times.
 
 **Chunks.** A chunk holds at most
-`F = min(256, max(1, floor(2^25 / (W × H))))` pictures: at most 32 MiB of
-luma (16 pictures at 1920 × 1080), since a chunk decodes whole. The
+`F = min(256, max(1, floor(2^25 / (W × H × B))))` pictures, `B` the bytes of a sample (1 for
+`D` = 8, 2 for 10): at most 32 MiB of luma (16 pictures at 1920 × 1080 of 8 bits, 8 of 10),
+since a chunk decodes whole. The
 chunks are cut at the sync samples' presentation indexes: chunk `q` holds
 the pictures `a_q` to `a_{q+1} − 1`, from `a_0 = 0`, where `a_{q+1}` is
 `N` when `N − a_q ≤ F`; else the greatest presentation index of a sync
@@ -198,9 +222,9 @@ of chunk `q`:
 | member | type | presence | value |
 |---|---|---|---|
 | `shape` | array of integer | required | `[N, H, W]` for `y` and `[N, ceil(H / 2), ceil(W / 2)]` for `u` and `v` |
-| `data_type` | string | required | `"uint8"` |
+| `data_type` | string | required | `"uint8"` when `D` is 8, `"uint16"` when it is 10 (the decoder's samples, from 0 to 2^D − 1) |
 | `chunk_grid` | object | required | when every `L_q` but the last is `L_0` and the last at most `L_0`, the regular grid of chunk shape `[L_0, H, W]` (or the chroma planes' sizes); otherwise the zarr-extensions `rectilinear` grid ([chunk-grids/rectilinear](https://github.com/zarr-developers/zarr-extensions/tree/main/chunk-grids/rectilinear)), exactly `{"name": "rectilinear", "configuration": {"kind": "inline", "chunk_shapes": [T, H, W]}}` (or the chroma planes' sizes), `T` the lengths in order, each run of `r > 1` equal lengths `L` written `[L, r]`, as the CZI convention writes a clipped axis ([zarrify/czi.md §4.3](czi.md#43-image-arrays)) |
-| `codecs` | array of object | required | `[{"name": "refkv.stream", "configuration": {"format": "h264", "setup": S, "plane": P}}]`, a [`StreamConfiguration`](../conventions.md#type-streamconfiguration), `S` the base64 of the sample entry's `avcC` box's payload and `P` the array's name |
+| `codecs` | array of object | required | `[{"name": "refkv.stream", "configuration": {"format": V, "setup": S, "plane": P}}]`, a [`StreamConfiguration`](../conventions.md#type-streamconfiguration), `V` `"h264"` for H.264 and `"hevc"` for HEVC, `S` the base64 of the payload of the sample entry's `avcC` box (H.264) or `hvcC` box (HEVC), and `P` the array's name |
 | `dimension_names` | array of string | required | `["time", "y", "x"]` |
 | `attributes` | object | required | `{}` ([§1](#1-declaration)) |
 
@@ -310,15 +334,16 @@ are the same up to `frames` and at the end, `chunk_frames`.
 | `id` | integer | required | its ID |
 | `handler` | string | required | its handler |
 | `codec` | string | required | its sample entry's type |
-| `format` | string | required | `"h264"` |
+| `format` | string | required | `"h264"` or `"hevc"` |
 | `timescale` | integer | required | the media's timescale |
 | `duration` | [`Integer`](../conventions.md#type-integer) | required | the media's duration |
 | `edits` | array of [`Mp4Edit`](#type-mp4edit) | required | its `elst` box's entries |
 | `frames` | integer | required | its sample count `N` |
 | `width` | integer | required | `W` ([§4.1](#41-video-tracks)) |
 | `height` | integer | required | `H` |
-| `profile` | integer | required | the SPS's `profile_idc` |
-| `level` | integer | required | the SPS's `level_idc` |
+| `bit_depth` | integer | required | `D`: 8 or 10 |
+| `profile` | integer | required | the SPS's `profile_idc` (H.264) or `general_profile_idc` (HEVC: 1 Main, 2 Main 10) |
+| `level` | integer | required | the SPS's `level_idc` (H.264) or `general_level_idc` (HEVC: 30 times the level) |
 | `sync_samples` | integer | required | the count of its sync samples |
 | `chunk_frames` | integer | required | the most frames a chunk holds: `F` |
 
@@ -365,7 +390,9 @@ the IR's root, whose path is `""`
 | `<box>/name` | value | `cstr[k]` | an `hdlr` box's name |
 | `<box>/data` | value | `bytes[k]` | the payload of a box the convention does not parse, opaque |
 | `<box>/rest` | value | `bytes[k]` | bytes of a box that are none of its fields, table or boxes |
-| `samples/<T>/<j>` | data | | sample `j` of track `T`, `(offset, size)`; its form's geometry is `{"width", "height", "planes": 3, "data_type": "uint8"}` for a video track and `{"samples", "channels", "data_type": "float32"}` for an audio track (null for a track the profile does not zarrify), its codec `{"name": E, "format": F}` (`F` null for such a track), its recipe `[["src", 0, null]]` |
+| `samples` | struct | | the samples of the file's tracks |
+| `samples/<T>` | struct | | track `T`'s samples |
+| `samples/<T>/<j>` | data | | sample `j` of track `T`, `(offset, size)`; its form's geometry is `{"width", "height", "planes": 3, "data_type"}` for a video track, its data type the planes' (`"uint8"` or `"uint16"`), and `{"samples", "channels", "data_type": "float32"}` for an audio track (null for a track the profile does not zarrify), its codec `{"name": E, "format": F}` (`F` null for such a track), its recipe `[["src", 0, null]]` |
 | `gaps/<offset>` | gap | | bytes no other element claims: the media data in no sample, and fewer than 8 bytes after the last box |
 
 A box is named by its type: printable ASCII as it is but for `/`, `~`, `%`
@@ -414,7 +441,7 @@ and `tracks/1`'s `{"mp4": V}`, `V`:
 ```json
 {"id": 1, "handler": "vide", "codec": "avc1", "format": "h264", "timescale": 10240, "duration": 30720,
  "edits": [{"duration": 48000, "media_time": 2048, "rate": 1.0}], "frames": 30, "width": 64, "height": 48,
- "profile": 100, "level": 10, "sync_samples": 3, "chunk_frames": 256}
+ "bit_depth": 8, "profile": 100, "level": 10, "sync_samples": 3, "chunk_frames": 256}
 ```
 
 The edit list starts the movie at media time 2048, two pictures' worth:
@@ -437,11 +464,19 @@ This section is informative.
   reader aligning two tracks applies it.
 - **Color.** The planes are the decoder's Y, U and V samples. Their color
   primaries, transfer function, matrix and range (the SPS's VUI, a `colr`
-  box) are in the mirror; converting to RGB is the reader's.
-- **Other tracks and codecs.** HEVC, AV1, 10-bit or 4:2:2 H.264, other
-  audio codecs, timecode, text and chapter tracks are recorded in `tracks`
-  with the reason the profile does not zarrify them, and kept whole in
-  the mirror.
+  box) are in the mirror; converting to RGB is the reader's. So is an HDR
+  stream's transfer function: an iPhone's HDR video is 10-bit HEVC with
+  HLG's, and its Dolby Vision metadata (a `dvcC` or `dvvC` box, and RPU NAL
+  units in the samples, which an HEVC decoder ignores) is in the mirror,
+  not applied: the planes are the HLG base layer's.
+- **Orientation.** The `tkhd` box's matrix, which turns a phone's portrait
+  video upright on the movie's display, is in the mirror, not applied: the
+  planes are as coded.
+- **Other tracks and codecs.** AV1, Dolby Vision's own sample entries
+  (`dvh1`, `dvhe`), 10-bit or 4:2:2 H.264, 4:2:2, 4:4:4 or 12-bit HEVC,
+  other audio codecs, timecode, text, chapter and metadata tracks are
+  recorded in `tracks` with the reason the profile does not zarrify them,
+  and kept whole in the mirror.
 - **Metadata.** `udta` and `meta` boxes (titles, iTunes tags, GPS) are
   opaque in the mirror.
 
@@ -462,7 +497,7 @@ The input is an MP4 or QuickTime file, which its **signature** ([spec/zarrify.md
 top-level boxes' headers, then the whole `moov` box (and the `ftyp` box); it
 never reads the media data.
 
-**Checks.** The input is rejected unless all of these hold. They are checked
+**Checks.** A zarrifier MUST reject the input unless all of these hold. They are checked
 as the boxes are met, the top-level boxes first, in the file's order, then
 the `moov` box's tree, then each track's samples; a rejection gives the first
 that fails.
@@ -494,8 +529,8 @@ that fails.
   chunk; and every sample ends within the file.
 - **A track:** the profile zarrifies at least one track ([§8.2](#82-tracks)).
   Without one, the input is rejected with each track's reason: `no track can
-  be zarrified: track 1 (hev1): hev1 video is not supported: only H.264
-  (avc1) is`.
+  be zarrified: track 1 (hvc1): HEVC with chroma format 2 and bit depth 8 is
+  not supported: only 4:2:0 of 8 or 10 bits is`.
 
 A box that is not well formed but within a box the profile does not parse
 is not checked: its payload is opaque.
@@ -512,10 +547,16 @@ and the track is kept in the mirror but has no group:
 - its `stsd` box has more than one sample entry, or an `stsc` entry names
   another;
 - its media timescale is 0;
-- **video:** its sample entry is not `avc1`; or its `avcC` box is absent,
-  holds no SPS, or an SPS the profile cannot read; or the SPS is not 8-bit
-  4:2:0 (`chroma_format_idc` 1 and both bit depths 8; profiles below High
-  are); or its width or height is 0; or its first sample is not a sync
+- **video:** its sample entry is none of `avc1`, `hvc1` and `hev1`; or, for
+  `avc1`, its `avcC` box is absent, holds no SPS, or an SPS the profile
+  cannot read, or the SPS is not 8-bit 4:2:0 (`chroma_format_idc` 1 and both
+  bit depths 8; profiles below High are); or, for `hvc1` and `hev1`, its
+  `hvcC` box is absent, does not hold a VPS, an SPS and a PPS, gives NAL unit
+  lengths of 3 bytes (`lengthSizeMinusOne` 2, which ISO/IEC 14496-15 does not
+  allow), or its first SPS cannot be read to its bit depths (ITU-T H.265
+  §7.3.2.2), or the SPS is not 4:2:0 of 8 or 10 bits (`chroma_format_idc` 1
+  and both bit depths 8, or both 10: Main and Main 10); or its width or
+  height is 0; or its first sample is not a sync
   sample; or its sync samples do not increase, or one is past its last
   sample; or two samples share a presentation time; or two sync samples
   (or the last one and the end) are more than 1024 samples apart; or a
@@ -535,6 +576,26 @@ and the track is kept in the mirror but has no group:
 - its track ID is an earlier zarrified track's (`its track ID n is an earlier zarrified
   track's`): a zarrified track's group is named by its ID, so of the tracks that share one,
   only the first that no other reason keeps from being zarrified is zarrified.
+
+**HEVC's random access pictures.** ISO/IEC 14496-15 marks an HEVC sample as a
+sync sample when its picture is an IRAP picture: an IDR, a CRA or a BLA
+picture. An IRAP picture may be followed in decode order by leading pictures:
+RADL pictures, which are predicted from it alone, and RASL pictures, which
+may also reference the group before (a CRA picture's in an open group, as
+x265 codes by default). The profile reads no sample, so it does not see which
+kind an IRAP or a leading picture is; the presentation-order rules above
+place them as they place H.264's, and a chunk that holds a leading picture
+decodes from the sync sample before its own ([§8.3](#83-chunks)), which
+decodes a RASL picture as a decoder of the whole stream does, and a RADL
+picture too (its reference pictures, from the IRAP picture on, are all
+decoded). A chunk that starts with a CRA picture decodes from it, and the
+decoder skips that picture's RASL pictures, which are the chunk before's. A
+BLA picture's RASL pictures are output by no decoder, in a chunk or in the
+whole stream, so their rows are the fill value. An `hev1` track may carry
+parameter sets in its samples as well as in its `hvcC` box: a chunk decodes
+with the box's and with those of the samples it decodes, so a sync sample
+that needs a parameter set only an earlier sample carries is decoded
+wrongly, which the profile, reading no sample, does not check.
 
 The channel count and sample rate of an AAC track are its
 AudioSpecificConfig's (the sample entry's channel count when its channel
