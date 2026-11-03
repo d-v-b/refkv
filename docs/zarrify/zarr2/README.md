@@ -49,7 +49,7 @@ instead; see [ome-zarr](../ome-zarr/README.md).
 
 ## Try it
 
-[example.py](example.py) zarrifies a public file and plots it with matplotlib. Its
+[example.py](example.py) zarrifies a public store and plots it with matplotlib. Its
 dependencies are in its header (PEP 723), so it runs on its own, with refkv from PyPI:
 
 ```bash

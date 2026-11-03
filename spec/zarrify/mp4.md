@@ -11,6 +11,8 @@ below.
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `bbe3f6b9-488d-4d8d-85ce-60a1649dd27e` ·
 Schema: [schema.json](mp4/schema.json)
 
+Changed 2026-11-03, with no change to any output: the elements table lists the structs `samples` and `samples/<T>`, as refkv already wrote them.
+
 Changed 2026-11-01, with no change to any output: the checks say that a zarrifier MUST reject
 an input that fails one, in RFC 2119's words; and the registry lists the file names this
 document does, `.mp4`, `.m4a`, `.m4v` and `.mov`, which the profile reads alike, as its
@@ -388,6 +390,8 @@ the IR's root, whose path is `""`
 | `<box>/name` | value | `cstr[k]` | an `hdlr` box's name |
 | `<box>/data` | value | `bytes[k]` | the payload of a box the convention does not parse, opaque |
 | `<box>/rest` | value | `bytes[k]` | bytes of a box that are none of its fields, table or boxes |
+| `samples` | struct | | the samples of the file's tracks |
+| `samples/<T>` | struct | | track `T`'s samples |
 | `samples/<T>/<j>` | data | | sample `j` of track `T`, `(offset, size)`; its form's geometry is `{"width", "height", "planes": 3, "data_type"}` for a video track, its data type the planes' (`"uint8"` or `"uint16"`), and `{"samples", "channels", "data_type": "float32"}` for an audio track (null for a track the profile does not zarrify), its codec `{"name": E, "format": F}` (`F` null for such a track), its recipe `[["src", 0, null]]` |
 | `gaps/<offset>` | gap | | bytes no other element claims: the media data in no sample, and fewer than 8 bytes after the last box |
 

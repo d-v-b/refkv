@@ -79,7 +79,7 @@ uv run refkv zarrify https://ftp.ebi.ac.uk/biostudies/fire/S-BIAD/077/S-BIAD2077
 ```
 
 ```
-{"format": "nd2", "sizes": {"z": 25, "c": 5, "y": 1024, "x": 1024}, "dataType": "uint16", "compressed": false, "paddedRows": false, "rowBlock": 1024, "positions": 1, "frames": 25, "missing": 0, "channels": ["DAPI", "EGFP", "dTomato", "Alx647", "TD"], "planner": {…}, "elements": …, "folded": {…}}
+{"format": "nd2", "sizes": {"z": 25, "c": 5, "y": 1024, "x": 1024}, "dataType": "uint16", "compressed": false, "paddedRows": false, "rowBlock": 1024, "positions": 1, "frames": 25.0, "missing": 0.0, "channels": ["DAPI", "EGFP", "dTomato", "Alx647", "TD"], "planner": {…}, "elements": …, "folded": {…}}
 ```
 
 This took 3 s and wrote an 8 KB archive at revision 16; the archive now also
@@ -132,7 +132,7 @@ Supported:
 - ND2 format version 3 and later.
 - Time loops (including multi-phase ones), stage-position loops and z
   loops; spectral loops become channels.
-- 8- and 16-bit integer and 32-bit float pixels, with any number of
+- 8- and 16-bit integer and 32-bit float pixels, with up to 1024
   components.
 - Uncompressed frames, padded or not, and losslessly (zlib) compressed
   frames. Frames missing from the file read as zeros.
