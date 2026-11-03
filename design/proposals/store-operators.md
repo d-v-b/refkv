@@ -2,8 +2,8 @@
 
 refkv builds a `ReferenceStore` from one input: a file, a store, or a
 VirtualiZarr dataset. Combining stores is left to the caller. The TIFF-stack
-example ([docs/tiff-stack.md](../../docs/tiff-stack.md)) does it by hand, and
-in doing so it uses four operations that are general:
+example ([docs/tiff-stack.md](../../docs/tiff-stack.md)), written by hand,
+uses four operations that are general:
 
 1. **Rename keys.** Each file's chunk `0/c/y/x` becomes `0/c/i/y/x`.
 2. **Merge source tables.** References index their store's source table, so
@@ -13,8 +13,10 @@ in doing so it uses four operations that are general:
 
 This note proposes those as operators, and a property of a store that makes
 the union and the overlay well-defined: its **bounds**, the keys it answers
-for. It is a design note, not normative. A prototype of every operator here
-was run against the TIFF stack and the cases in
+for. It is a design note, not normative. `refkv.bounds` and `refkv.compose`
+implement it; [docs/combining-stores.md](../../docs/combining-stores.md) is
+the user's guide. A prototype of every operator was first run against the
+TIFF stack and the cases in
 [Checked by a prototype](#checked-by-a-prototype). TensorStore has close
 counterparts at two levels; [Prior art: TensorStore](#prior-art-tensorstore)
 compares them.
@@ -27,13 +29,28 @@ compares them.
   source's new index. Index 0 should go to the most-used source, as
   `from_virtualizarr` does, since it costs nothing on the wire.
 - **Internal sources.** A `Source(key=k)` names an entry of the same store.
-  A rename must rename `k` too, and a union must refuse one whose target is
-  answered by another operand.
+  A rename must rename `k` too. A reference reads bytes, so a combination
+  refuses one whose target it leaves out, rewrites (dropping its consolidated
+  metadata), or takes from another operand that does not hold the same bytes. A key source may name a hidden key (under
+  the binding's reserved prefix, such as a header many values share); a
+  combination carries it, renamed by its content's digest if another carried
+  hidden key of that name differs.
+- **Consolidated metadata.** A group's `consolidated_metadata` (or a v2
+  `.zmetadata`) lists one store's nodes, and a reader trusts it over a
+  listing. A combination, a rename and `normalize` drop it; `mount` keeps it,
+  since a subtree moved whole is still listed right.
 - **Store properties.** `read_at_open` and `compressed` are the union of the
-  operands', filtered to the keys that survive. `page_size`, `url`,
-  `registry` and `policy` come from the call, or else from the first operand.
-  `info` is empty unless the call gives one, because no operand's summary
-  describes the result.
+  operands', filtered to the keys that survive. `info` is empty unless the
+  call gives one, because no operand's summary describes the result.
+- **What the result may read.** A combination must not let any operand read
+  what its own options refuse. Only the operands with URL sources read
+  anything outside themselves, so only they decide: their `policy` and
+  `registry` must agree unless the call gives them, and the base URL, which
+  decides whether `file:` sources may be read (a store opened from a URL may
+  not read local files), is chosen so that none of them reads more than it
+  did. A combination raises when no base serves them all, unless the call
+  gives `url=`. `page_size` and the request cap come from the first operand
+  that holds anything.
 
 ## A union of keys is wrong for Zarr
 
@@ -78,7 +95,8 @@ A bound is one of:
   bytes, as TensorStore's `kvstack` layers take `inclusive_min` and
   `exclusive_max`;
 - `prefix(p)`: every key under `p/`. It is `range("p/", "p0")`, since `0`
-  follows `/`, so `0/c/1/` does not take in `0/c/10/`;
+  follows `/`, so `0/c/1/` does not take in `0/c/10/`. `prefix("")`, the
+  default bound of an array at the root, is every key;
 - `box(path, lo, hi)`: the chunks of the array at `path` whose coordinates
   `c` satisfy `lo ≤ c < hi`.
 
@@ -106,11 +124,15 @@ All of them return a new store; stores stay immutable.
 - **`map_keys(store, f)`.** Renames each key to `f(key)`, or drops it where
   `f` returns None. Internal sources and bounds follow. Two keys mapping to
   one raises.
-- **`mount(store, path)`.** `map_keys` under `path/`, plus a group at each
-  ancestor that lacks a node.
-- **`map_chunks(store, array, f)`.** Moves the chunks of `array` to
-  coordinates `f(c)`. It reads the array's chunk key encoding both ways and
-  leaves the metadata alone. Box bounds move with it.
+- **`mount(store, path)`.** `map_keys` under `path/`, its bounds moved with
+  it. It adds no group above `path`: in an `overlay`, such a group would
+  replace another store's. `normalize` adds the missing ones at the end.
+- **`shift_chunks(store, array, offset, new_axes=0)`.** The chunks of `array`
+  alone, with `new_axes` new leading axes and then moved by `offset`. The
+  result holds no metadata, and its bounds are the box the moved chunk grid
+  fills. A move by an offset maps a box to a box; an arbitrary function on
+  coordinates would not, which is why an earlier `map_chunks(store, array,
+  f)` became this.
 - **`overlay(*stores)`.** For each key, the last operand whose bounds contain
   it answers, with a value or with absence. The result's bounds are the union
   of the operands'. This is a priority lookup, like `ChainMap` with stated
@@ -144,7 +166,7 @@ header = ReferenceStore(
     bounds=[key("zarr.json"), key("0/zarr.json")],
 )
 planes = [
-    map_chunks(s, "0", lambda c, i=i: (i, *c)).with_bounds([box("0", (i, 0, 0), (i + 1, *grid))])
+    shift_chunks(s, "0", (i, 0, 0), new_axes=1)
     for i, s in enumerate(stores)
 ]
 stack = union(header, *planes)
@@ -152,16 +174,16 @@ stack = union(header, *planes)
 
 Each operand states what it answers for, none overlaps another, and `union`
 checks that. The by-hand version in
-[docs/examples/tiff_stack.py](../../docs/examples/tiff_stack.py) merges
-source tables, moves indexes and builds keys itself. It also has to check by
-hand that the files' layouts agree. Here, `union` would raise if two planes'
-boxes overlapped, and the remaining check, that every file's `0/zarr.json` is
-the same, belongs in `stacked_metadata`.
+[docs/examples/tiff_stack.py](../../docs/examples/tiff_stack.py) merges source
+tables, moves indexes and builds keys itself. Here, `union` would raise if two
+planes' boxes overlapped, and the remaining check, that every file's
+`0/zarr.json` is the same, belongs in `stacked_metadata`.
 
 ## Bounds in a saved archive
 
 Stated bounds must survive `save`, or a reopened patch reverts to its
-default bounds and shadows what it should not. Two options:
+default bounds and shadows what it should not. The implementation does not
+write them yet: a reopened archive derives its bounds again. Two options:
 
 - **A format entry.** Write the bounds beside the source table, under the
   binding's reserved prefix, as `__vz__/` is in
@@ -182,12 +204,14 @@ optimization rather than a meaning.
 archives need not read either one's directory up front:
 - `get(k)` goes to the last archive whose bounds contain `k`;
 - `list` merges the sorted listings of each archive, each filtered to the keys
-  no later archive's bounds contain;
+  inside its own bounds and outside every later archive's, so that it lists
+  exactly the keys `get` answers from that archive;
 - two archives can be checked for overlap by comparing their bounds alone.
 
 ## Checked by a prototype
 
-A prototype of `map_keys`, `mount`, `map_chunks`, `overlay` and `union` with
+A prototype of `map_keys`, `mount`, `map_chunks` (now `shift_chunks`),
+`overlay` and `union` with
 the four kinds of bound was run on the 24-plane stack of the TIFF example.
 It found:
 
@@ -214,10 +238,12 @@ more, at a cost this proposal avoids.
 **Keys: the [`kvstack`](https://google.github.io/tensorstore/kvstore/kvstack/index.html)
 driver.**
 - Each layer maps an `exact` key, a `prefix`, or a range (`inclusive_min`,
-  `exclusive_max`) to an underlying kvstore. Those are this proposal's `key`,
-  `prefix` and `range` bounds.
-- `strip_prefix` removes a prefix from the keys a layer passes on, the
-  inverse of `mount`.
+  `exclusive_max`) to an underlying kvstore: this proposal's `key`, `range`
+  and, with a trailing `/`, `prefix` bounds.
+- With `prefix: "p/"`, a layer's kvstore appears under `p/` in the stack,
+  `strip_prefix` removing it on the way down: the effect of `mount(store,
+  "p")`. A kvstack `prefix` is a raw string prefix, so this proposal's
+  `prefix(p)` is a kvstack `prefix` of `p/`, not `p`.
 - "If the key ranges of the layers overlap, the last layer takes
   precedence": `overlay`'s rule.
 - Every range is stated by the user, and there is no box. The defaults
@@ -249,7 +275,7 @@ one store, whose every chunk is, byte for byte, a chunk of an operand.
 - **Stricter inputs.** The operands of a stack need equal codecs and chunk
   shapes, and a join along an existing axis must fall on whole chunks.
   TensorStore's index transforms translate, stride and relabel any region;
-  `map_chunks` moves whole chunks only.
+  `shift_chunks` moves whole chunks only.
 - **Absence.** Inside a store's bounds a missing chunk is its fill value,
   which a tombstone relies on. TensorStore's `stack` driver has no such
   case: an uncovered position is an error.
@@ -262,10 +288,9 @@ TensorStore `stack` spec over them, rather than refuse the join.
 ## Open questions
 
 - **One URL, two pins.** Two operands that pin the same URL differently were
-  built from different versions of the object. Keep both sources, so the
-  reader fails the stale one, or refuse the union?
-- **Zarr v2 nodes.** `.zarray` and `.zgroup` nodes, and the `.` separator of
-  v2 chunk keys, for `map_chunks` and boxes.
+  built from different versions of the object. The implementation keeps both
+  sources, so the reader fails the stale one; refusing the combination
+  instead would report the mismatch sooner.
 - **Joining along an existing axis.** This needs each operand's extent along
   the axis to be a whole number of chunks. Zarr's regular chunk grid allows
   no partial chunk in the middle, and a rectilinear chunk grid would remove
