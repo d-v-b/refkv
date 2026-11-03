@@ -1,0 +1,187 @@
+{
+ "@type": "neuroglancer_multiscale_volume",
+ "type": "image",
+ "data_type": "uint8",
+ "num_channels": 1,
+ "scales": [
+  {
+   "key": "good",
+   "size": [
+    4,
+    2,
+    2
+   ],
+   "chunk_sizes": [
+    [
+     2,
+     2,
+     2
+    ],
+    [
+     1,
+     1,
+     1
+    ]
+   ],
+   "resolution": [
+    2,
+    2,
+    2
+   ],
+   "voxel_offset": [
+    0,
+    0,
+    0
+   ],
+   "encoding": "raw"
+  },
+  {
+   "key": "fp",
+   "size": [
+    4,
+    2,
+    2
+   ],
+   "chunk_sizes": [
+    [
+     2,
+     2,
+     2
+    ]
+   ],
+   "resolution": [
+    4,
+    4,
+    4
+   ],
+   "voxel_offset": [
+    0,
+    0,
+    0
+   ],
+   "encoding": "fpzip"
+  },
+  {
+   "key": "murmur",
+   "size": [
+    4,
+    2,
+    2
+   ],
+   "chunk_sizes": [
+    [
+     2,
+     2,
+     2
+    ]
+   ],
+   "resolution": [
+    8,
+    8,
+    8
+   ],
+   "voxel_offset": [
+    0,
+    0,
+    0
+   ],
+   "encoding": "raw",
+   "sharding": {
+    "@type": "neuroglancer_uint64_sharded_v1",
+    "preshift_bits": 0,
+    "minishard_bits": 0,
+    "shard_bits": 1,
+    "hash": "murmurhash3_x86_128"
+   }
+  },
+  {
+   "key": "wrap",
+   "size": [
+    8,
+    2,
+    2
+   ],
+   "chunk_sizes": [
+    [
+     2,
+     2,
+     2
+    ]
+   ],
+   "resolution": [
+    16,
+    16,
+    16
+   ],
+   "voxel_offset": [
+    0,
+    0,
+    0
+   ],
+   "encoding": "raw",
+   "sharding": {
+    "@type": "neuroglancer_uint64_sharded_v1",
+    "preshift_bits": 0,
+    "minishard_bits": 0,
+    "shard_bits": 0,
+    "hash": "identity"
+   }
+  },
+  {
+   "key": "../up",
+   "size": [
+    4,
+    2,
+    2
+   ],
+   "chunk_sizes": [
+    [
+     2,
+     2,
+     2
+    ]
+   ],
+   "resolution": [
+    32,
+    32,
+    32
+   ],
+   "voxel_offset": [
+    0,
+    0,
+    0
+   ],
+   "encoding": "raw"
+  },
+  {
+   "key": "good",
+   "size": [
+    4,
+    2,
+    2
+   ],
+   "chunk_sizes": [
+    [
+     2,
+     2,
+     2
+    ]
+   ],
+   "resolution": [
+    64,
+    64,
+    64
+   ],
+   "voxel_offset": [
+    0,
+    0,
+    0
+   ],
+   "encoding": "raw"
+  },
+  {
+   "key": "broken"
+  },
+  "not an object"
+ ]
+}

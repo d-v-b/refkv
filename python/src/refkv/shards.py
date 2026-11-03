@@ -85,7 +85,12 @@ def write_vzip_sharded(
     page_size: int | None = None,
     index_location: Literal["start", "end"] = "end",
 ) -> None:
-    """Like `write_vzip`, but store each listed variable as virtual shards.
+    """Like `write_vzip`, but store each virtual variable as virtual shards; returns None.
+
+    `chunks_per_shard` maps the name of every virtual variable of `vds` to the
+    number of its chunks a shard holds along each dimension: an unlisted one
+    raises KeyError. Loadable variables are written as bytes, as `write_vzip`
+    writes them.
 
     By default each shard index is a hidden DEFLATE-compressed entry that the
     shard's reference points at through an internal source, so the central directory
@@ -95,6 +100,13 @@ def write_vzip_sharded(
     `index_location` is written to the sharding codec metadata, and the shard
     value is built to match: `[file] ++ [index]` for "end", `[index] ++ [file]`
     for "start" (with chunk offsets shifted past the index).
+
+    Unlike `write_vzip`, the archive's sources are not checked against a reader
+    policy: an archive the default reader refuses (an `s3://` source, say) is
+    written without complaint.
+
+    Raises ValueError when a shard's chunks lie in more than one file (choose a
+    smaller shard), and NotImplementedError for a variable with inlined chunks.
     """
     contents: dict[str, Buffer] = {}
     mem = MemoryStore(contents)

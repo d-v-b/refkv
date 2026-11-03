@@ -39,7 +39,8 @@ fn recipe(form: &str) -> Option<Vec<Step>> {
         .iter()
         .map(|p| match p[0].as_str()? {
             "src" => Some(Step::Src(p[1].as_u64()?, p[2].as_u64())),
-            _ => Some(Step::Shared(p[1].as_u64()? as usize)),
+            "shared" => Some(Step::Shared(p[1].as_u64()? as usize)),
+            _ => None,
         })
         .collect()
 }
@@ -126,6 +127,14 @@ mod tests {
         let whole = vec![Part::Src(14, 16), Part::Src(10, 2), Part::Data(1, 0, 4)];
         assert_eq!(refs.out.refs, vec![("a".into(), whole.clone()), ("b".into(), vec![Part::Src(10, 5)]), ("c".into(), whole)]);
         assert_eq!(refs.out.data, vec![b"tail".to_vec()]);
+    }
+
+    #[test]
+    fn rejects_a_form_whose_recipe_has_a_part_it_cannot_follow() {
+        let mut ir = Ir::new(100);
+        ir.forms.id(r#"{"recipe":[["rows",0,40,39,4]]}"#);
+        let mut refs = Refs::new(&ir, Out::new("u"));
+        assert_eq!(refs.parts(0, 160, 0).err().unwrap(), "internal: form 0 has no recipe");
     }
 
     #[test]

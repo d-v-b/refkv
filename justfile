@@ -86,11 +86,14 @@ example-oisst:
     cd "$(mktemp -d)" && uv run --project "{{justfile_directory()}}" python "{{justfile_directory()}}/docs/examples/oisst.py"
 
 # Check that every section reference ("§n") is a link to a heading that exists, and test the check;
-# and that what derives from the profile registry (spec/zarrify/profiles/) is current
-sections:
+# that what derives from the profile registry (spec/zarrify/profiles/) is current; and that each
+# format document's changelog is in spec/zarrify.md's form, and, with a base (`just sections
+# origin/main`), records every change to the document since it (spec/tools/changelog.py)
+sections base="":
     uv run pytest -q spec/tools
     uv run python spec/tools/sections.py check
     uv run python spec/tools/profiles.py check
+    uv run python spec/tools/changelog.py check {{ if base != "" { "--base " + base } else { "" } }}
 
 # Lint every Python file of the repository with ruff (pyproject.toml's [tool.ruff]: every rule, less
 # the ones it names with their reasons)
@@ -146,6 +149,18 @@ fixtures-check:
     if [ -n "$(git status --porcelain -- fixtures)" ]; then
         git status --short -- fixtures >&2
         echo "fixtures-check: the generators' output differs from the committed fixtures" >&2
+        exit 1
+    fi
+
+# Regenerate the conventions' JSON schemas (spec/generate_schemas.py, from spec/source_metadata/)
+# and check that they are the committed ones
+schemas-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    uv run python spec/generate_schemas.py > /dev/null
+    if [ -n "$(git status --porcelain -- spec/zarrify)" ]; then
+        git status --short -- spec/zarrify >&2
+        echo "schemas-check: spec/generate_schemas.py's output differs from the committed schemas" >&2
         exit 1
     fi
 
@@ -254,6 +269,6 @@ archives-idr:
     uv run python design/experiments/tiff_to_vzip.py --no-pins {{quote(idr_tiff)}} \
         design/experiments/out/ng_idr/idr0096_4000_d11_m5_LT_2_unpinned.vzip
 
-# Build and publish a demo to https://d-v-b.github.io/vzip-demo/ (see demo/pages.sh)
+# Build and publish a demo to https://d-v-b.github.io/refkv-demo/ (see demo/pages.sh)
 deploy-demo *args: js::build
     demo/pages.sh {{args}}

@@ -1,0 +1,1 @@
+{"@type": "neuroglancer_multiscale_volume", "type": "image", "data_type": "uint8", "num_channels": 1, "scales": []}

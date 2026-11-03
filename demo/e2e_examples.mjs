@@ -86,6 +86,13 @@ try {
       result.levels = await page.$$eval("#levels tr", (rows) => rows.map((r) => r.textContent));
       phase = "viewer";
       const mapLink = await page.$("#open-map:not([hidden])");
+      if (!mapLink && !(await page.$("#open-ng:not([hidden])"))) {
+        // audio: the page lists the archive's arrays and opens no viewer
+        result.viewer = "none";
+        result.note = await page.textContent("#view-note");
+        console.log(`  no viewer: ${result.note}`);
+        continue;
+      }
       const viewer = await context.newPage();
       if (mapLink) {
         result.viewer = "map";
@@ -131,6 +138,17 @@ try {
             ]),
           };
         });
+        // Two-finger scroll (the wheel) steps along the third display
+        // dimension; up is +1, since the view starts at the first time point.
+        const before = await viewer.evaluate(() => Array.from(window.viewer.navigationState.position.value));
+        await viewer.mouse.wheel(0, -100);
+        await viewer.waitForTimeout(500);
+        result.scrolled = await viewer.evaluate((before) => {
+          const v = window.viewer;
+          const after = v.navigationState.position.value;
+          return v.coordinateSpace.value.names.filter((_, i) => after[i] !== before[i]);
+        }, before);
+        console.log(`  scroll moves: ${result.scrolled.join(", ") || "nothing"}`);
         result.controlled = await viewer.evaluate(() => navigator.serviceWorker.controller !== null);
       }
       console.log(`  ${result.viewer}: ${JSON.stringify(result.value).slice(0, 400)}`);

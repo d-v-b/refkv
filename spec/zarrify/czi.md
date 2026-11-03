@@ -8,18 +8,25 @@ is the CZI profile, [Part 2](#part-2-the-profile) below, cited as
 "the profile §n".
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `7a0733c7-d4be-4482-a64f-6904d9354ea5` ·
-Schema: [schema.json](czi/schema.json) · Changed 2026-10-26, with no change to any output: the
-layout is tabulated, its entries in [Layout](#layout) and its types in type tables
+Schema: [schema.json](czi/schema.json)
+
+Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
+[Layout](#layout) and its types in type tables
 ([conventions §11.5](../conventions.md#115-layout-tables)), and the source's structures, the
-values read from the metadata XML, the codecs and the cases of a coded size are tables;
-the prose also states what refkv already wrote and it left unsaid: when the largest divisor
-band of a large uncompressed tile holds less than 2^20 bytes, its bands are short bands of the
-most rows within 2^24 bytes, and the level's or tile array's grid is rectilinear ([§4.3](#43-image-arrays),
-[§4.4](#44-tiles)); and it drops the per-element arrays under `refkv_source` that the IR
-mirror replaced in
+values read from the metadata XML, the codecs and the cases of a coded size are tables; the
+prose also states what refkv already wrote and it left unsaid: when the largest divisor band of
+a large uncompressed tile holds less than 2^20 bytes, its bands are short bands of the most rows
+within 2^24 bytes, and the level's or tile array's grid is rectilinear
+([§4.3](#43-image-arrays), [§4.4](#44-tiles)); and it drops the per-element arrays under
+`refkv_source` that the IR mirror replaced in
 [revision 21](../history/virtualize/REVISIONS.md#revision-21-the-ir-mirror-is-the-source-metadata-of-tiff-nd2-and-czi)
 ([§7.5](#75-chunk-references)), and names the subblock segment `ZISRAWSUBBLOCK`
-([§5.3](#53-elements))
+([§5.3](#53-elements)).
+
+Changes before 2026-10-22 are recorded in
+[the revision log of VIRTUALIZE.md](../history/virtualize/REVISIONS.md), this document's earlier
+name, up to
+[revision 29](../history/virtualize/REVISIONS.md#revision-29-no-recorded-revision-the-profile-registry).
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
@@ -906,7 +913,7 @@ finds (`segments/<k>`). (The display channel's `High` is 0.25: the window ends a
 
 # Part 2. The profile
 
-The CZI profile of [spec/zarrify.md](../zarrify.md) (revision 18) is [§7](#7-czi-profile) of this document. (Conformance is spec/zarrify.md's [Appendix A](../zarrify.md#appendix-a-conformance).) What every profile's Part 2 shares is in
+The CZI profile of [spec/zarrify.md](../zarrify.md) is [§7](#7-czi-profile) of this document. (Conformance is spec/zarrify.md's [Appendix A](../zarrify.md#appendix-a-conformance).) What every profile's Part 2 shares is in
 [spec/zarrify.md, Profiles](../zarrify.md#profiles).
 
 ## 7. CZI profile

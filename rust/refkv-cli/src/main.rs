@@ -27,7 +27,8 @@
 //!
 //! Exits with status 3 if the input is rejected, 2 on a usage error, and 1 if the reader policy
 //! refuses the input or a source the archive would name, or on any other failure. On success, the
-//! summary (`{"format": ..., ...}`) is printed as Python's `json.dumps` prints it.
+//! summary (`{"format": ..., ...}`) is printed as Python's `json.dumps` prints it. `-h` or
+//! `--help` prints the usage to stdout, with status 0.
 
 mod http;
 mod output;
@@ -55,10 +56,25 @@ pub enum Fail {
     Other(String),
 }
 
+// the store kinds, in the words of `python -m refkv.zarrify`'s usage (python/src/refkv/zarrify/__main__.py)
 const USAGE: &str = "usage: vzip convert <url or path> <out.vzip> [--url <source url>] [--checksums] \
 [--allow-private-hosts] [--connections N] [--byte-cost SECONDS_PER_MB] [--workers N] [--format vzip|phkv|hybrid]\n\
-(a URL ending in / or a directory is an N5, Zarr v2 or SAFE store; a directory needs --url;\n\
+(a URL ending in / or a directory is an N5, Zarr v2 or OME-Zarr 0.4 store, a Neuroglancer precomputed volume, a Sentinel-2 .SAFE directory, \
+or a store of safetensors files; a directory needs --url;\n\
+a Hugging Face Hub URL https://huggingface.co/<owner>/<repo>/tree/<rev>/ is listed at its commit,\n\
+at HF_ENDPOINT's Hub if set;\n\
 a store's objects are read by up to N requests at a time, default 16)";
+
+/// Whether the command line asks for the usage: `vzip -h`, `vzip --help`, or either flag anywhere
+/// after `convert`.
+fn wants_help(argv: &[String]) -> bool {
+    let help = |a: &String| a == "-h" || a == "--help";
+    match argv.first().map(String::as_str) {
+        Some("convert") => argv[1..].iter().any(help),
+        Some(_) => help(&argv[0]),
+        None => false,
+    }
+}
 
 /// The options of `convert`.
 #[derive(Debug, Default, PartialEq)]
@@ -132,8 +148,9 @@ fn convert(a: &Args) -> Result<serde_json::Value, Fail> {
     }
     let policy = policy::Policy { allow_private_hosts: a.allow_private_hosts };
     let client = http::Client::new(policy, Duration::from_secs(60));
+    let hub = store::hub_endpoint(std::env::var("HF_ENDPOINT").ok().as_deref())?;
     let (fmt, summary, archive) = if store::is_store(&a.input) {
-        let s = store::Store::open(&a.input, a.url.as_deref(), &client, a.workers)?;
+        let s = store::Store::open(&a.input, a.url.as_deref(), &client, a.workers, &hub)?;
         let (fmt, out) = store::zarrify_store(&s)?;
         let summary = out.summary.clone();
         let (mut archive, objects) = output::store_archive(out, &s.listing().objects)?;
@@ -141,6 +158,9 @@ fn convert(a: &Args) -> Result<serde_json::Value, Fail> {
             output::checksums(&mut archive, s.listing().workers, |i, o, n| s.read_range(&objects[i], o, n))?;
         }
         (fmt, summary, archive)
+    } else if store::hub_page(&a.input, &hub) {
+        // a Hub tree's web page (spec/zarrify.md §1.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>)
+        return Err(Fail::Rejected(format!("{} is a Hub repository's page, not a file: end it in / to zarrify the repository", a.input)));
     } else if let Some(beside) = run::beside_format(&transport::Transport::open(&a.input, &client)?)? {
         // a VSI file is read with its tile files, and a NRRD header with its data file, as a store
         // (vsi.rs): its sources are the files some reference uses, their sizes pinned
@@ -180,6 +200,10 @@ fn convert(a: &Args) -> Result<serde_json::Value, Fail> {
 
 fn main() -> ExitCode {
     let argv: Vec<String> = std::env::args().skip(1).collect();
+    if wants_help(&argv) {
+        println!("{USAGE}");
+        return ExitCode::SUCCESS;
+    }
     let r = match argv.first().map(String::as_str) {
         Some("convert") => parse(&argv[1..]).and_then(|a| convert(&a)),
         _ => Err(Fail::Usage(USAGE.into())),
@@ -235,6 +259,21 @@ mod tests {
         assert_eq!(parse(&args("a b --connections 0")).unwrap().connections, None);
         assert_eq!(parse(&args("a b --format hybrid")).unwrap().format, output::Container::Hybrid);
         assert!(matches!(parse(&args("a b --format tar")), Err(Fail::Usage(_))));
+    }
+
+    #[test]
+    fn help() {
+        for (line, want) in [
+            ("--help", true),
+            ("-h", true),
+            ("convert --help", true),
+            ("convert in.tif out.vzip -h", true),
+            ("convert in.tif out.vzip", false),
+            ("", false),
+            ("bogus --help", false),
+        ] {
+            assert_eq!(wants_help(&args(line)), want, "{line}");
+        }
     }
 
     #[test]

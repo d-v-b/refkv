@@ -14,7 +14,8 @@ without a server and without copying pixel data:
    base64url encoding of the file's or store's URL.
 2. The service worker reads the file's structure with a few range requests
    (batched by the Rust core's read planner) and
-   writes a vzip archive in memory by [spec/zarrify.md](../spec/zarrify.md): an
+   writes a vzip archive by [spec/zarrify.md](../spec/zarrify.md), which it
+   saves in Cache Storage ([Limits](#limits)): an
    OME-NGFF 0.5 dataset (or, for a store, its Zarr v3 hierarchy; for SAFE,
    a GeoZarr hierarchy) whose chunks are references to the source's tiles,
    frames, strips, subblocks or chunk objects. The
@@ -37,6 +38,29 @@ const prefix = await registerVzipWorker("/vzip-sw.js"); // waits until the page 
 const zarr = imageZarrUrl(prefix, "https://example.org/slide.ome.tiff"); // or an .nd2
 // e.g. in Neuroglancer: `${zarr}|zarr3:`
 ```
+
+A request waits at most a minute (`pendingAfter` in `makeHandler`; 60 s in
+`src/sw.ts`) for an archive that is still being zarrified, since Chrome fails a
+request its worker has not answered in 5 minutes. It is then answered `503`
+with the header `X-Vzip-Pending: 1` and `Retry-After: 0`; the zarrify goes on,
+and the same request, made again, waits for it again. `fetchWorker(url,
+init)` (from `src/client.ts`) is `fetch` that asks again until the answer is
+not pending; a Zarr reader that does not retry a 503 should be given the first
+request through it:
+
+```js
+import { fetchWorker } from "./src/client.ts";
+
+const r = await fetchWorker(`${zarr}zarr.json`); // waits however long the zarrify takes
+```
+
+Every response of the worker carries `X-Vzip-Worker: 1`. A `502` for a
+request that got no response says why in `X-Vzip-Error`, where the browser
+can tell: `cors` (the server answers, but its CORS headers do not let this
+site read the response), `unreachable` (the host does not answer at all), or
+`mixed-content` (an `http://` URL read from an `https://` page). The demo
+shows each with what to do about it, and, for `cors`, its Python script,
+which CORS does not restrict.
 
 Build and run the demo, which also serves the Neuroglancer fork
 (https://github.com/d-v-b/neuroglancer, branch `vzip`) at `/neuroglancer/`.
@@ -69,10 +93,34 @@ with no service worker. The fork's `vzip:` adapter checks the archive's pins
 where the response shows their headers, and skips those a cross-origin
 server hides ([spec/refkv.md §6.7](../spec/refkv.md#67-reader-policy), rule 7).
 
-Live demo: https://d-v-b.github.io/vzip-demo/image-to-zarr/ (formerly `tiff-to-zarr/`, which now redirects). `demo/pages.sh`
+Live demo: https://d-v-b.github.io/refkv-demo/image-to-zarr/ (formerly at https://d-v-b.github.io/vzip-demo/, whose links now redirect). `demo/pages.sh`
 publishes it, with the Neuroglancer build, to its own directory of the demo
-site (the `gh-pages` branch of `d-v-b/vzip-demo`, which hosts each refkv demo
-in a directory and lists them at https://d-v-b.github.io/vzip-demo/).
+site (the `gh-pages` branch of `d-v-b/refkv-demo`, which hosts each refkv demo
+in a directory and lists them at https://d-v-b.github.io/refkv-demo/).
+
+### The phkv variant
+
+`REFKV_FORMAT=phkv node build.mjs` builds the same demo into `dist-phkv/`, with a service worker
+that writes the archives it zarrifies as standalone [phkv](../spec/bindings/phkv.md) stores (the
+draft perfect-hash binding) instead of vzip archives, and a page whose text says so.
+`REFKV_FORMAT=phkv demo/pages.sh phkv-image-to-zarr [remote url]` publishes it to a directory of its
+own beside the vzip demo. Its worker's saved archives are kept under their own cache prefix
+(`refkv-phkv-archives-`), since the workers of one origin share Cache Storage.
+
+The format is in `src/phkv.ts` (a writer, and `PhkvArchive`, a reader that finds a key through the
+perfect hash in one hop, in `src/ptrhash.ts` and `src/xxh64.ts`), a TypeScript port of
+`rust/refkv-phkv`, which reads what it writes and which it reads. `openArchive` opens whichever of
+a phkv store and a vzip archive its bytes are, so the `archive/` route of the worker serves both by
+URL. What it does not do yet:
+
+- **Zstandard.** It reads codecs 0 (none) and 1 (DEFLATE), and writes codec 0. Rust's writer
+  defaults to Zstandard for its sections, so a store written by `vzip convert --format phkv` does
+  not open here yet (it is refused with an archive error that names the codec).
+- **The hybrid profile**, and PROPERTY sections (skipped).
+- **Neuroglancer links to share.** The fork's `vzip:` adapter reads vzip archives, so a phkv store
+  has no link that opens in any deployment: the demo's link for one is the worker's, which opens
+  only on its origin. Python's `refkv` does not read phkv stores either, so the demo shows no Python
+  script for a `.phkv` input.
 
 ## What is supported
 
@@ -98,8 +146,10 @@ opts in (`allowPrivateHosts`, given to `openHttpSource`, `openHttpStore` or
 `zarrifyStore`; `--allow-private-hosts` in the Node CLIs). Each source pins its size, and the input file's its ETag when every
 response exposed the same strong one.
 
-What each file format gives in the browser, and what it refuses with HTTP 422, is in the
-format's own page, `docs/zarrify/<format>/README.md` ("In the browser"; the index is
+The browser runs the same Rust core as Python, so a file format gives the same hierarchy,
+and refuses the same inputs (with HTTP 422), in both. What each format gives, and what it
+refuses, is in the format's own page, `docs/zarrify/<format>/README.md` ("What you get" and
+"Supported and not supported", with "In the browser" where there is more to say; the index is
 [docs/zarrify/README.md](../docs/zarrify/README.md#formats)).
 
 N5, Zarr v2 and OME-Zarr 0.4 stores (a URL ending in `/`, listed with S3 ListObjectsV2):
@@ -130,15 +180,24 @@ limit of this implementation, [spec/zarrify.md Appendix A](../spec/zarrify.md#ap
 - **Same origin only.** A service worker only controls pages from its own
   origin, so the viewer must be served from the same origin as the worker.
   A link to share names a hosted archive instead (see the demo, above).
-- **Codecs are the viewer's job.** The chunks are the TIFF's tiles as they
-  are. The Neuroglancer fork decodes `imagecodecs_jpeg2k`; other viewers
-  need their own decoder for it.
+- **Codecs are the viewer's job.** The chunks are the source's own bytes: a
+  TIFF's JPEG or JPEG 2000 tiles, an MP3, FLAC or MP4 file's frames
+  (`refkv.stream`), a GRIB message (`refkv.grib`), an N5 block
+  (`n5_default`). The Neuroglancer fork decodes these, `imagecodecs_jpeg2k`
+  and refkv's own codecs included (but not `numcodecs.zlib`, an HDF5 file's
+  deflated datasets); other viewers need their own decoder for each.
 - **Few ETag pins.** Every source pins its size, but an ETag only when the
   server exposes it to scripts, which cross-origin servers rarely do (nor
   `Last-Modified` or `Content-Range`). For the same reason, a 206 response
   with no visible `Content-Range` is accepted when its body has the
   requested length (see `src/http.ts`).
-- **Kept in memory.** Archives are rebuilt if the browser stops the worker.
+- **Saved per build.** The archives the worker zarrifies are saved in Cache
+  Storage, so a worker the browser stopped serves them again without
+  zarrifying. A cache holds the 16 archives saved last, at most 1 GiB in all,
+  and is named for the worker's build: a new build drops the older builds'
+  caches. A saved archive is dropped when a read finds that its source changed
+  (its size or ETag pin fails; the read answers 502), and the next request
+  zarrifies the input again (`src/sw.ts`).
 - **No page index.** The writer does not write a page index, and the reader
   holds the whole archive in memory.
 

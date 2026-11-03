@@ -19,9 +19,14 @@ use refkv_ir::store::{StoreFormat, StoreRun};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-/// The title a rejection names the input's format by, and its named file: a VSI or NRRD input.
+/// The title a rejection names the input's format by, and its named file: a VSI, NRRD or GRIB
+/// input.
 fn titles(format: StoreFormat) -> (&'static str, &'static str) {
-    if format == StoreFormat::Nrrd { ("NRRD", "header file") } else { ("VSI", ".vsi file") }
+    match format {
+        StoreFormat::Nrrd => ("NRRD", "header file"),
+        StoreFormat::Grib => ("GRIB", "GRIB file"),
+        _ => ("VSI", ".vsi file"),
+    }
 }
 
 /// (the directory, the named file's key) of an input of the format `title` names (VSI, NRRD):

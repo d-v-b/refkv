@@ -142,7 +142,7 @@ class Output:
             w.close()
 
     def to_store(self, *, policy: Policy | None = None, info: dict[str, object] | None = None) -> ReferenceStore:
-        """The output as a `refkv.ReferenceStore`, which `save` writes as the archive
+        """The output as a `refkv.ReferenceStore`, which `save_vzip` writes as the archive
         `write` writes, byte for byte (`reference_store`)."""
         sources = [Source(url=self.url, size=self.size, etag=self.etag)]
         for value, i in sorted(self.data.items(), key=lambda item: item[1]):
@@ -526,7 +526,7 @@ LENGTHS = {
 
 
 def centred(cx: float, cy: float, w0: int, h0: int, sx: float, sy: float) -> dict[str, float]:
-    """The translation of an image whose centre is at (cx, cy) (conventions §5
+    """The translation of an image whose center is at (cx, cy) (conventions §5
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#5-units>)."""
     return {"x": cx - w0 * sx / 2, "y": cy - h0 * sy / 2}
 

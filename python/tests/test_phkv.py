@@ -3,7 +3,11 @@ or `PhkvWriter`, and read back as a reference store through the Rust core (`refk
 and the read path every reference store shares, from disk and over HTTP."""
 
 import asyncio
+import gc
 import io
+import subprocess
+import sys
+import weakref
 
 import pytest
 import zarr
@@ -13,7 +17,7 @@ import refkv
 import refkv.phkv
 import refkv.zarr
 from refkv import OffsetRequest, RangeRequest, SuffixRequest
-from refkv.errors import ArchiveError, RefkvError, RequestError, ResolutionError
+from refkv.errors import ArchiveError, BodyError, RefkvError, RequestError, ResolutionError
 from refkv.pb import Concat, Range, Source
 from refkv.phkv import PhkvStore, PhkvWriter
 from refkv.policy import crc32c
@@ -49,7 +53,7 @@ def test_reads_what_it_was_saved_from(tmp_path):
     blob.write_bytes(DATA)
     store = _store(tmp_path.as_uri())
     summary = store.save_phkv(tmp_path / "s.phkv", policy=SERVED)
-    store.save(tmp_path / "s.vzip", policy=SERVED)
+    store.save_vzip(tmp_path / "s.vzip", policy=SERVED)
     phkv = refkv.open(tmp_path / "s.phkv", binding="phkv")
     assert isinstance(phkv, PhkvStore)
     assert (summary.keys, summary.references, summary.sources) == (len(store.list()), N + 1, 2)
@@ -62,8 +66,9 @@ def test_reads_what_it_was_saved_from(tmp_path):
 
 
 def test_requests(tmp_path):
-    """A range, an offset and a suffix select the same bytes of a bytes value and of a reference as
-    they do of the store the file was saved from; a request error is raised for a missing key too."""
+    """A range, an offset and a suffix, of any size, select the same bytes of a bytes value and of a
+    reference as they do of the store the file was saved from; a request error is raised for a
+    missing key too."""
     (tmp_path / "blob.bin").write_bytes(DATA)
     store = _store(tmp_path.as_uri())
     store.save_phkv(tmp_path / "s.phkv", policy=SERVED)
@@ -71,7 +76,9 @@ def test_requests(tmp_path):
     for key in ["b/0007", "r/0003", "c", "big", "empty"]:
         for request in [RangeRequest(2, 9), RangeRequest(5, 5), RangeRequest(0, 10**9),
                         RangeRequest(10**9, 10**9 + 1), OffsetRequest(3), OffsetRequest(10**9),
-                        SuffixRequest(4), SuffixRequest(10**9), SuffixRequest(0)]:
+                        SuffixRequest(4), SuffixRequest(10**9), SuffixRequest(0),
+                        RangeRequest(0, 2**70), RangeRequest(2**70, 2**71), OffsetRequest(2**70),
+                        SuffixRequest(2**70)]:
             assert phkv.get(key, request) == store.get(key, request), (key, request)
     for key in ["b/0007", "nothing"]:
         with pytest.raises(RequestError):
@@ -185,7 +192,8 @@ def test_the_writer_refuses_what_a_writer_must_refuse():
     """A violation of what a writer must do (spec/refkv.md §7
     <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#7-writing>, and the binding's) is a
     ValueError, and no store is written: a duplicate or empty key, a range of a missing source,
-    a key source that is not a bytes key or is short, and a reference that names a reference."""
+    a key source that is not a bytes key or is short, a reference that names a reference, a literal
+    range with a checksum, and a property its type cannot hold."""
     def write(add):
         with PhkvWriter(io.BytesIO()) as w:
             add(w)
@@ -205,7 +213,16 @@ def test_the_writer_refuses_what_a_writer_must_refuse():
         w.add_bytes("k", b"12345")
         w.add_ranges("r", [Range(source=w.internal("k"), offset=3, length=5)])
 
-    for add in (duplicate, lambda w: w.add_bytes("", b"1"), unregistered, to_a_reference, too_short):
+    def negative_mode(w):
+        w.add_bytes("k", b"1")
+        w.set_property("k", "mode", -1)
+
+    def too_large(w):
+        w.add_bytes("k", b"1")
+        w.set_property("k", "x:n", 2**64)
+
+    for add in (duplicate, lambda w: w.add_bytes("", b"1"), unregistered, to_a_reference, too_short,
+                lambda w: w.add_ranges("r", [Range(data=b"x", crc32c=5)]), negative_mode, too_large):
         with pytest.raises(ValueError, match=r"."):
             write(add)
     with pytest.raises(ValueError, match="codec"):
@@ -249,8 +266,100 @@ def test_a_corrupt_record_is_an_entry_error(tmp_path):
     assert 1 <= errors < 50
 
 
+def test_revision_and_metadata_open_the_store(tmp_path):
+    """`revision` and `metadata` report what the file holds, with no operation before them."""
+    path = tmp_path / "s.phkv"
+    with open(path, "wb") as f, PhkvWriter(f) as w:
+        w.add_bytes("a", b"1")
+        w.set_metadata("writer", b"test")
+    assert refkv.phkv.open(path).metadata["writer"] == b"test"
+    assert refkv.phkv.open(path).revision is not None
+
+
+def test_a_store_nothing_holds_is_collected(tmp_path):
+    """A store and its Rust core refer to each other, through the core's read callbacks: the garbage
+    collector must see that, or every store opened stays in memory with its tail."""
+    _store().save_phkv(tmp_path / "s.phkv", policy=SERVED)
+    store = refkv.phkv.open(tmp_path / "s.phkv", policy=SERVED)
+    assert store.get("b/0007") is not None
+    ref = weakref.ref(store)
+    del store
+    gc.collect()
+    assert ref() is None
+
+
+def test_a_file_that_went_away_is_a_body_error(tmp_path):
+    """A value that cannot be read after the store opened is the error the ZIP binding reports."""
+    path = tmp_path / "s.phkv"
+    refkv.ReferenceStore({f"k{i:04}": bytes(5000) for i in range(400)}, []).save_phkv(path)
+    store = refkv.phkv.open(path)
+    assert store.get("k0399") is not None  # opens the store, and reads the end of the file
+    path.unlink()
+    with pytest.raises(BodyError):
+        store.get("k0000")
+
+
+_LOCAL_READS = """
+import asyncio, sys
+from concurrent.futures import ThreadPoolExecutor
+import refkv
+
+async def main():
+    asyncio.get_running_loop().set_default_executor(ThreadPoolExecutor(1))
+    store = refkv.open(sys.argv[1], binding="phkv")
+    values = await asyncio.gather(*(store.get_async(f"k{i:04}") for i in range(64)))
+    assert values == [bytes([i]) * 5000 for i in range(64)]
+    assert await store.get_async("c") == b"".join(bytes([i]) for i in range(64))
+
+asyncio.run(main())
+"""
+
+_SHARED_WRITER = """
+import io, threading
+from refkv.phkv import PhkvWriter
+
+w = PhkvWriter(io.BytesIO())
+
+def values():
+    for i in range(200):
+        w.add_bytes(f"k{i}", b"v" * 100_000)
+
+def names():
+    for i in range(100_000):
+        w.url(f"https://example.org/{i}")
+
+threads = [threading.Thread(target=f) for f in (values, names)]
+for t in threads:
+    t.start()
+for t in threads:
+    t.join()
+w.close()
+"""
+
+
+def _finishes(script: str, *args: object) -> None:
+    """`script` runs to its end in a Python of its own, so a deadlock fails the test, not the run."""
+    subprocess.run([sys.executable, "-c", script, *map(str, args)], check=True, timeout=60)
+
+
+def test_reads_of_a_local_store_wait_for_nothing_they_hold(tmp_path):
+    """A call into the Rust core waits for its reads, and a local read takes a thread of the loop's
+    default executor. The calls must not fill that executor: with one thread in it, concurrent
+    gets, and a get of many key sources, still finish."""
+    mapping: dict[str, bytes | Concat] = {f"k{i:04}": bytes([i % 251]) * 5000 for i in range(400)}
+    mapping["c"] = Concat(tuple(Range(source=i, offset=0, length=1) for i in range(64)))
+    refkv.ReferenceStore(mapping, [Source(key=f"k{i:04}") for i in range(64)]).save_phkv(tmp_path / "s.phkv")
+    _finishes(_LOCAL_READS, tmp_path / "s.phkv")
+
+
+def test_threads_can_share_a_writer():
+    """A writer's file object takes the interpreter, so a thread that holds the interpreter must not
+    wait for the writer: two threads using one writer finish."""
+    _finishes(_SHARED_WRITER)
+
+
 def test_save_checks_the_sources(tmp_path):
-    """`save_phkv` checks the sources as `save` does: the reader policy must accept every url
+    """`save_phkv` checks the sources as `save_vzip` does: the reader policy must accept every url
     source, and a key source must name a bytes key; nothing else is checked until read."""
     ref = {"r": Range(source=0, offset=0, length=1)}
     with pytest.raises(ResolutionError, match="refuses"):

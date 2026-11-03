@@ -240,9 +240,10 @@ export function decodeReference(
   headerId: number,
   payload: Uint8Array,
   numSources: number,
+  maxPayload = 65519,
 ): Range[] {
-  if (payload.length > 65519) {
-    throw new MalformedError("reference payload exceeds 65519 bytes");
+  if (payload.length > maxPayload) {
+    throw new MalformedError(`reference payload exceeds ${maxPayload} bytes`);
   }
   let parts: Range[];
   if (headerId === 0x7a76) {

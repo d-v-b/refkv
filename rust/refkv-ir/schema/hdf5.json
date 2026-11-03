@@ -1,0 +1,61 @@
+{
+  "source_model": "hdf5",
+  "version": 1,
+  "about": "The source model of an HDF5 file (spec/zarrify/hdf5.md §8 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#8-hdf5-profile>): the elements a parser emits, which are the IMS profile's (spec/zarrify/ims.md §5.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#52-elements>), and the budgets of the walk and of the data the profile reads. The rules of the HDF5 subset are the binary layer, checked by the HDF5 reader (`hdf5/mod.rs`) where the profile reads each structure; projections read a valid IR and check nothing.",
+  "limits": {
+    "max_safe": 9007199254740991,
+    "max_objects": 131072,
+    "walk_depth": 64,
+    "max_strings": 1048576,
+    "max_storage_bytes": 67108864,
+    "attribute_bytes": 65536,
+    "walk_elements": 2097152,
+    "walk_bytes_per_element": 8,
+    "walk_collections": 4096,
+    "max_rounds": 4096
+  },
+  "tables": {},
+  "elements": {
+    "about": "The IR of an HDF5 file, as the IMS profile's (spec/zarrify/ims.md §5.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#52-elements>): objects numbered in canonical order (depth first from the root group, a group's hard links in ascending byte order of their names), then the objects no path reaches in ascending address order; the global heap collections that attributes and datasets of strings name. Bytes no element claims are gaps.",
+    "superblock": {"kind": "value", "type": "{signature,version,...} (48 bytes for versions 2 and 3, 96 or 100 for 0 and 1)"},
+    "superblock_extension": {"kind": "struct", "about": "the superblock extension's object header, as an object's"},
+    "objects/<i>": {
+      "kind": "struct",
+      "about": "object i (a group, dataset or named datatype): its header and the structures it names",
+      "children": {
+        "prefix": "the header's prefix",
+        "checksum": "<u4 after a version 2 header's first block",
+        "messages/<k>": "struct: header, data (an attribute message a struct of prelude, name, datatype, dataspace, value; a link message a struct of fields, name, target)",
+        "blocks/<j>": "a version 2 continuation block's signature and checksum",
+        "symbol_table": "struct: heap (header, data), nodes/<k> (header, entries), snods/<k> (header, entries)",
+        "links": "dense links: heap, index, items/<j>",
+        "attributes": "dense attributes: heap, index, items/<j>",
+        "index": "the chunk index's structures",
+        "chunks/<n>": "data: the chunk at row-major grid index n; form geometry {chunk, size}, codec {filters, mask}, recipe the whole chunk",
+        "data": "data: a contiguous dataset's data; form geometry {shape, size}, codec {filters}, recipe the whole range"
+      }
+    },
+    "global_heaps/<k>": {"kind": "struct", "about": "a global heap collection: header, objects/<p> (header, data), free (header)"},
+    "gaps/<offset>": {"kind": "gap"}
+  },
+  "roles": {
+    "objects": {
+      "about": "the walk (spec/zarrify/hdf5.md §8.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#83-checks>), after each level",
+      "given": {"objects": "the objects reached so far", "depth": "the levels walked", "more": "the next level has objects"},
+      "constraints": [
+        {"require": "objects <= max_objects", "message": "budget: more than {max_objects} objects"},
+        {"require": "!more || depth < walk_depth", "message": "budget: objects more than {walk_depth} links deep"}
+      ]
+    },
+    "storage": {
+      "about": "the bytes of a dataset of strings or references, which the profile reads",
+      "given": {"bytes": "its elements' bytes"},
+      "constraints": [{"require": "bytes <= max_storage_bytes", "message": "budget: a dataset of strings or references of more than {max_storage_bytes} bytes"}]
+    },
+    "strings": {
+      "about": "the strings of the datasets presented",
+      "given": {"strings": "the strings so far"},
+      "constraints": [{"require": "strings <= max_strings", "message": "budget: more than {max_strings} strings"}]
+    }
+  }
+}

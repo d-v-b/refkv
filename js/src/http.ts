@@ -36,7 +36,34 @@ import {
   parseImfFixdate,
 } from "./uri.ts";
 
-export class HttpResolutionError extends Error {}
+/**
+ * Why a request got no response, where a browser can tell (`noResponse`): the server does not
+ * allow this site to read it (CORS), it could not be reached, or it is an http:// URL read from an
+ * https:// page (mixed content).
+ */
+export type NoResponseCause = "cors" | "unreachable" | "mixed-content";
+
+/**
+ * A range read over HTTP failed (`readHttpRange`, `openHttpFile`): the URL is not one it reads, the
+ * request got no response or an error status, the response breaks spec §5.2
+ * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#52-reading-over-http>, or a pin failed.
+ * `Archive` throws it on as a "resolution" `RefkvError`, with its `sourceChanged`; the service
+ * worker answers it with a 502, naming `noResponse` in a header.
+ */
+export class HttpResolutionError extends Error {
+  /** Whether the object is not the one the pins name: it changed since they were taken. */
+  sourceChanged: boolean;
+  /**
+   * Why the request got no response, where a browser could tell (`noResponse`): undefined for a
+   * response that failed, or a request outside a browser.
+   */
+  noResponse: NoResponseCause | undefined;
+  constructor(message: string, sourceChanged = false, noResponse?: NoResponseCause) {
+    super(message);
+    this.sourceChanged = sourceChanged;
+    this.noResponse = noResponse;
+  }
+}
 
 /** Whether this runs in a browser (a page or a worker), where fetch reports a cross-origin read
  * the server does not allow as it reports a network error. */
@@ -45,13 +72,49 @@ export function inBrowser(): boolean {
   return g.document !== undefined || g.WorkerGlobalScope !== undefined;
 }
 
-/** The message for a request to `url` that got no response (`e`, fetch's error): in a browser,
- * with the likeliest cause besides the network, a server that does not allow the read (CORS). */
-export function fetchFailed(url: string, e: unknown, browser = inBrowser()): string {
+/** Whether the server of `url` answers a request made without CORS (its opaque response's body is
+ * not read). */
+async function answers(url: string): Promise<boolean> {
+  const abort = new AbortController();
+  try {
+    await fetch(url, { mode: "no-cors", cache: "no-store", signal: abort.signal });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    abort.abort();
+  }
+}
+
+/**
+ * The error for a request to `url` that got no response (`e`, fetch's error). A browser reports a
+ * server that does not allow this site to read it (CORS), one it cannot reach, and an http:// URL
+ * read from an https:// page (mixed content) alike, as a TypeError. This tells them apart: mixed
+ * content by the URLs' schemes (`page`, this page's or worker's), the other two by asking again
+ * without CORS (`probe`), which a server that answers at all answers.
+ */
+export async function noResponse(
+  url: string,
+  e: unknown,
+  browser = inBrowser(),
+  probe = answers,
+  page = (globalThis as { location?: { protocol: string } }).location?.protocol,
+): Promise<HttpResolutionError> {
   const message = `${url}: ${(e as Error).message}`;
-  if (!browser || !(e instanceof TypeError)) return message;
-  return `${message}. A browser reports this for a server that does not allow cross-origin reads ` +
-    "(no Access-Control-Allow-Origin header for this page) as well as for one it cannot reach";
+  if (!browser || !(e instanceof TypeError)) return new HttpResolutionError(message);
+  if (page === "https:" && new URL(url).protocol === "http:") {
+    return new HttpResolutionError(
+      `${message}: this https:// page cannot read an http:// URL (mixed content)`, false, "mixed-content");
+  }
+  if (await probe(url)) {
+    return new HttpResolutionError(
+      `${message}: the server answered, but its CORS headers do not let this site read the response ` +
+        "(it sends no Access-Control-Allow-Origin for this site, or refuses the preflight of a range request)",
+      false, "cors");
+  }
+  return new HttpResolutionError(
+    `${message}: the server could not be reached (the host may not exist, or it refused or dropped the connection)`,
+    false, "unreachable");
 }
 
 /**
@@ -109,7 +172,7 @@ export async function readHttpRange(
   }
   const headers: Record<string, string> = {
     Range: `bytes=${start}-${end - 1}`,
-    // Ignored by browsers (forbidden header); honoured elsewhere.
+    // Ignored by browsers (forbidden header); honored elsewhere.
     "Accept-Encoding": "identity",
   };
   if (pins.etag !== undefined) headers["If-Match"] = pins.etag;
@@ -131,10 +194,10 @@ export async function readHttpRange(
       : await fetch(url, { headers, signal, redirect: "follow", cache: "no-store" });
   } catch (e) {
     signal?.throwIfAborted();
-    throw new HttpResolutionError(fetchFailed(url, e));
+    throw await noResponse(url, e);
   }
-  const fail = (message: string): never => {
-    throw new HttpResolutionError(`${url}: ${message}`);
+  const fail = (message: string, sourceChanged = false): never => {
+    throw new HttpResolutionError(`${url}: ${message}`, sourceChanged);
   };
   if (response.redirected) {
     // The final URL must still satisfy the URL rules, and the policy (§6.7
@@ -147,9 +210,9 @@ export async function readHttpRange(
       fail((e as Error).message);
     }
   }
-  if (response.status === 412) fail("a pin failed (412)");
+  if (response.status === 412) fail("a pin failed (412)", true);
   if (response.status === 416)
-    fail("the object is shorter than the range (416)");
+    fail("the object is shorter than the range (416)", true);
   if (response.status !== 200 && response.status !== 206) {
     fail(`HTTP ${response.status}`);
   }
@@ -177,6 +240,7 @@ export async function readHttpRange(
     fail(
       `the ETag is ${JSON.stringify(etag)}, but the archive pins ${pins.etag}: the source ` +
         "changed since the archive was written, or its server does not send the ETag",
+      true,
     );
   }
   if (pins.modifiedNotAfter !== undefined && !skip(lastModified)) {
@@ -187,7 +251,7 @@ export async function readHttpRange(
       );
     }
     if (BigInt(t!) > pins.modifiedNotAfter)
-      fail("Last-Modified is after the pin");
+      fail("Last-Modified is after the pin", true);
   }
   const body = new Uint8Array(await response.arrayBuffer());
   if (response.status === 200) {

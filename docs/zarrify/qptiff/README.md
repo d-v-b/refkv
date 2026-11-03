@@ -69,8 +69,7 @@ level, `0` the full resolution.
 ## Try it
 
 [example.py](example.py) zarrifies a public file and plots it with matplotlib. Its
-dependencies are in its header (PEP 723), so it runs on its own (uv builds refkv from GitHub,
-which needs a Rust toolchain, until a release on PyPI has `refkv.zarrify`):
+dependencies are in its header (PEP 723), so it runs on its own, with refkv from PyPI:
 
 ```bash
 uv run docs/zarrify/qptiff/example.py
@@ -109,8 +108,6 @@ dapi = g["5"][0]  # the smallest level's first channel
 print(dapi.shape, dapi.dtype, dapi.mean())
 ```
 
-The same file and the inForm component fields are listed with their
-structure in [spec/zarrify/qptiff.md](../../../spec/zarrify/qptiff.md).
 The command line also takes a local path, and `vzip convert` ([rust/refkv-cli](../../../rust/refkv-cli/))
 writes the same archive without Python.
 
@@ -119,7 +116,7 @@ the browser cannot read Akoya's samples there. The live demo's QPTIFF
 example is a Vectra Polaris fluorescence slide on Zenodo (record 16569043,
 CDLA-Sharing-1.0; 3 channels, 71472 × 61440 pixels, 9 levels of JPEG tiles,
 362 MB):
-<https://d-v-b.github.io/vzip-demo/image-to-zarr/?url=https%3A%2F%2Fzenodo.org%2Fapi%2Frecords%2F16569043%2Ffiles%2F2025-07-15_13_13_34.qptiff%2Fcontent>.
+<https://d-v-b.github.io/refkv-demo/image-to-zarr/?url=https%3A%2F%2Fzenodo.org%2Fapi%2Frecords%2F16569043%2Ffiles%2F2025-07-15_13_13_34.qptiff%2Fcontent>.
 It was ready in about 7 s, from 29 range requests. An LZW slide on a host
 that allows cross-origin reads (Zenodo record 5545864's inForm component
 fields, for example) zarrifies the same way.
@@ -168,8 +165,7 @@ Rejected:
   compressions, FillOrder 2, subsampled YCbCr that is not JPEG.
 
 A plain TIFF (no `PerkinElmer-QPI` Software tag) is read by the
-[TIFF profile](../tiff/README.md), which still rejects LZW; LZW support is
-specific to QPTIFF for now.
+[TIFF profile](../tiff/README.md).
 
 ### In the browser
 
@@ -178,7 +174,7 @@ The browser code ([js/](../../../js/README.md)) reads Akoya QPTIFF (Vectra scans
 - The FullResolution images as channels and the runs of ReducedResolution
   images as levels, named and colored in `omero` from each image's XML
   description; tiles, or strips for the smallest levels and inForm fields
-  (a rectilinear chunk grid when the last strip is short).
+  (a short last strip padded to the chunk's rows).
 - Compression: none, LZW (`refkv.tiff_lzw`), JPEG, DEFLATE, zstd, JPEG 2000, and Predictor 2
   (`imagecodecs_delta`).
 

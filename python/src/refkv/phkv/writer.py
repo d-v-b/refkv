@@ -119,6 +119,10 @@ class PhkvWriter:
 
         `Range.source` must come from `source`/`url`/`internal`/`blob`.
         """
+        ranges = list(ranges)
+        for r in ranges:
+            if r.data is not None and r.crc32c is not None:
+                raise ValueError(f"literal range of {key!r} with a crc32c (spec §7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#7-writing>)")
         if self._checksum is not None:
             ranges = [self._with_checksum(r) for r in ranges]
         self._w.add_ranges(key, [bytes(r.data) if r.data is not None else (r.source, r.offset, r.length, r.crc32c)

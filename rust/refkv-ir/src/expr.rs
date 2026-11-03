@@ -451,16 +451,16 @@ pub fn eval<S: Scope>(e: &E, env: &S) -> V {
                     }
                 }
                 "present" => V::Bool(a.first().is_some_and(|x| *x != V::Absent)),
-                // a number that is an integer within ±(2^53 − 1) and from lo to hi (by
-                // default unbounded); a list: every item one
-                "int" => {
+                // int: a number that is an integer within ±(2^53 − 1) and from lo to hi (by
+                // default unbounded), never a list; ints: a list whose every item is one
+                "int" | "ints" => {
                     let lo = a.get(1).and_then(|x| x.num()).unwrap_or(f64::NEG_INFINITY);
                     let hi = a.get(2).and_then(|x| x.num()).unwrap_or(f64::INFINITY);
                     let one = |v: &V| matches!(v, V::Num(x) if x.fract() == 0.0 && x.abs() <= 9007199254740991.0 && lo <= *x && *x <= hi);
-                    V::Bool(match a.first() {
-                        Some(V::List(items)) => items.iter().all(one),
-                        Some(v) => one(v),
-                        None => false,
+                    V::Bool(match (f.as_str(), a.first()) {
+                        ("ints", Some(V::List(items))) => items.iter().all(one),
+                        ("int", Some(v)) => one(v),
+                        _ => false,
                     })
                 }
                 // the JSON kind of a value: 'absent', 'bool', 'number', 'string', 'list' or 'object'
