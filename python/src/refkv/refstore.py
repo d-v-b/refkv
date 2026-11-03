@@ -42,13 +42,15 @@ import dataclasses
 import gc
 import os
 import re
+import secrets
+import stat
 import types
 import warnings
 from collections import Counter
 from collections.abc import AsyncIterator, Callable, Generator, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, TypedDict, Unpack, override
+from typing import TYPE_CHECKING, BinaryIO, TypedDict, Unpack, override
 
 from refkv.bounds import Bound, derive
 from refkv.bounds import check as check_bounds
@@ -123,6 +125,46 @@ def bulk() -> Generator[None]:
     finally:
         if enabled:
             gc.enable()
+
+
+@contextlib.contextmanager
+def _replacing(path: str) -> Generator[BinaryIO]:
+    """A binary file whose contents take the place of the file at `path` when the block ends,
+    so a block that raises leaves `path` as it was, and removes what it wrote.
+
+    The file is a temporary one beside `path`, made by `open` so that the umask applies to it as
+    to any new file, and closed before it is moved: Windows moves no open file. It takes the mode
+    of a file it replaces, as writing that file in place would keep it, and `open` refuses what
+    it would refuse in place, such as a read-only file. `path` is followed through a symlink, and
+    a device or a pipe is written in place: neither is a file to replace.
+
+    The directory must be writable, and on Windows no other process may hold `path` open: each
+    raises PermissionError, with `path` as it was. A replaced file keeps no hard links, and has
+    the owner of this process."""
+    target = Path(path).resolve()
+    try:
+        previous = target.stat()
+    except FileNotFoundError:
+        previous = None
+    if previous is not None:
+        if not stat.S_ISREG(previous.st_mode):
+            with open(path, "wb") as f:
+                yield f
+            return
+        with open(target, "r+b"):
+            pass
+    temporary = target.parent / f".refkv-{secrets.token_hex(8)}.tmp"
+    try:
+        with open(temporary, "xb") as f:
+            if previous is not None:
+                temporary.chmod(stat.S_IMODE(previous.st_mode))
+            yield f
+            f.flush()
+            os.fsync(f.fileno())  # its contents on disk before its name is the file's
+        temporary.replace(target)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
 
 
 # An absolute URL's scheme and authority (RFC 3986 §3)
@@ -421,7 +463,8 @@ class ReferenceStore(ReferenceReader):
         `Summary` of it. `refkv.open(path)` reads it back with the same values.
 
         The entries are written in the store's order (see the class), the bytes
-        values of `compressed` DEFLATE-compressed.
+        values of `compressed` DEFLATE-compressed. The archive replaces a file at `path` only once
+        it is complete: a save that raises leaves that file as it was.
 
         - `page_size`: the store's `page_size` by default. None writes no page index, and a reader
           then loads the whole central directory, about 125 bytes per key, when
@@ -495,7 +538,7 @@ class ReferenceStore(ReferenceReader):
         from refkv.vzip.archive import VZipWriter  # noqa: PLC0415 (`import refkv` imports no ZIP code)
 
         refs = 0
-        with bulk(), open(path, "wb") as f, VZipWriter(f, mirror_refs=mirror_refs,
+        with bulk(), _replacing(path) as f, VZipWriter(f, mirror_refs=mirror_refs,
                                                        page_size=page_size) as w:
             index = [w.source(s) for s in sources]  # equal sources share an index
             for k, v in self._values.items():
