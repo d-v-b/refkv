@@ -1,5 +1,17 @@
 # IR prototype: notes
 
+**Status (2026-11-03).** This is a dated log, kept as history. Each section says what
+was true when it was written, in the names of its time (`vzip_source`, `vzip_ir`,
+`virtualize`), so a section's numbers and limits may since have changed. Every profile
+now goes through the Rust core, [rust/refkv-ir](../rust/refkv-ir/).
+
+- The design as built is [ARCHITECTURE.md](ARCHITECTURE.md).
+- The normative text is
+  [spec/conventions.md §8](../spec/conventions.md#8-the-ir-mirror), the IR mirror. This
+  log adds no rules.
+- A **Now:** note below corrects a claim that still reads as current. Earlier text
+  stays as it was written.
+
 These notes are a log of the IR's rounds. The round-1 Python prototype they
 start from (`model.py`, `types.py`, `check.py`, `emit.py`, `mirror.py`) and
 the scripts of round 3's measurements (`experiments/ir_round3/`) are no longer
@@ -50,6 +62,12 @@ which the IR can only reach through an alias. Limits are resource limits,
 stated once for every format: records ≤ 2^20 + size, bytes read ≤ 2^24 + 2 ×
 size, read calls ≤ 2^20 + size / 64, references ≤ 2^22 + 4 × size, repeated
 references ≤ 2^20, mirror documents ≤ 2^24 bytes.
+
+**Now:** records ≤ 2^22 + size / 4, and elements, with runs expanded, ≤ 2^30 + size
+(`Budget::new`, `rust/refkv-ir/src/ir.rs`). There is no longer one budget: the limits
+are kept where each quantity is counted, and `Budget`'s `read` and `reads` are not
+charged
+([ARCHITECTURE.md §3.5](ARCHITECTURE.md#35-resources-and-io)).
 
 **References.** A projection never writes a range itself: `Refs.chunk(key,
 element)` writes the element's recipe (source ranges, literals, shared data
@@ -1037,27 +1055,41 @@ moved into the parser with the checks. The source-metadata translators
 - **Runs of distinct values.** CZI subblocks and directory entries, and TIFF
   tiles of distinct lengths, do not fold; a run with a column of values per
   stepping field would fold them (xt.czi: 900,009 rows to a few dozen).
+  **Now:** closed by the table's column runs
+  ([§30](#30-the-mirror-column-runs-and-its-size): xt.czi and walk0.czi, 900,031 rows
+  to 34 stored).
 - **The cap's trade-off on single-range servers.** With amplification 4, a
   file of many small subblocks on a server without multi-range requests costs
   a request per few subblocks (xt.czi on the EBI profile: §24). That is the
   price of never reading the whole file; with multi-range requests (EBI,
   Apache) it does not arise.
+  **Now:** closed. The cap is per server, with a ceiling of 16
+  ([§29](#29-the-read-cap-per-server)), and bytes have a cost
+  ([§37](#37-connections-the-cost-of-bytes-small-files)).
 - **The mirror's write.** The table's chunks are now deflated at level 1 by
   the mirror; the archive's documents are still deflated at level 9 by the
   writer. The mirror is larger than today's `vzip_source` on slides (+4% to
   +37%) and smaller on small CZI files.
+  **Now:** closed. Column runs brought the mirror to or under `vzip_source`'s size
+  on every corpus, a few small ND2 files apart
+  ([§30](#30-the-mirror-column-runs-and-its-size)), and the canonical table is not
+  deflated ([§41](#41-the-canonical-mirror-virtualize-revision-22)).
 - **The planner's first batches.** Through the caching proxy (single ranges,
   no delay) round 3 reads 52 MB of the CZI corpus where today reads 42 MB:
   until the cost model has samples, a batch's gaps are judged at the remote
   defaults (50 ms, 20 MB/s), so more of them are merged (within the cap).
   Bandwidth is calibrated only from requests of 256 KiB or more, which a
   parser that asks for headers rarely makes.
+  **Now:** closed. Until calibrated the planner plans conservatively (4 KiB, cap 4),
+  and sends a request to measure the bandwidth
+  ([§29](#29-the-read-cap-per-server), `rust/refkv-ir/src/plan.rs`).
 - **The Python core of round 1** (`model.py`, `check.py`, `emit.py`,
   `mirror.py`) was kept for its tests and the mirror's helpers; nothing
   parsed with it any more, and the repository's reorganization removed it.
 - **Pointer IFDs** (EXIF, GPS, private IFD tags) are described for the IR only;
   they are read after the layout, so they add rounds (one per depth) but no
   checks.
+  **Now:** still so (`Phase::Pointers`, `rust/refkv-ir/src/tiff.rs`).
 
 ## 27. Tests
 
@@ -1271,6 +1303,9 @@ over entries, references and data sources, and each host writes them.
   (`virtualizeSource`, and `virtualizeImage` for callers with byte readers); its
   http source honors the TypeScript reader policy, through `#net`'s checked fetch
   under Node.
+  **Now:** every profile goes through the core. `refkv.zarrify.zarrify` sends a file
+  to `refkv.ir.zarrify`, or to a store run when the profile reads it as a store, and a
+  store to a store run; `js/src/zarrify/index.ts` does the same.
 - The frozen oracles: `conformance/zarrify/reference/refkv_reference` (Python,
   with `cli.py` and the old tests in `python/tests/reference`) and
   `conformance/zarrify/reference/ts` (TypeScript, with CLIs; the old Node tests import it).
@@ -1330,19 +1365,32 @@ ready in 51 ms, the module's fetch and compilation included.
 
 - **The conventions' §5** (§32): the archives' `vzip_source` no longer follows the
   three conventions as written.
+  **Now:** closed by revision 21
+  ([§36](#36-the-mirror-is-normative-virtualize-revision-21)).
 - **Delete the frozen twins?** They are the only independent check of the IR's
   hierarchy; deleting them leaves the mirror's rebuild and the fixtures' expected
   pixels (the verify scripts) as the checks.
+  **Now:** still open: they stay until the user decides otherwise
+  ([HARNESS.md](../conformance/zarrify/HARNESS.md)).
 - **Small files on single-range servers** pay 2 or 3 more round trips than today
   (§29); reading more than 64 KiB on open, or reading small files whole, would
   remove them.
+  **Now:** closed. A remote source of at most 1 MiB is read whole
+  ([§37](#37-connections-the-cost-of-bytes-small-files)); larger files keep their
+  rounds.
 - **Bytes against time.** Where requests dominate on single-range servers the IR
   reads up to 16× what it asks (the CZI corpus: 4× today's bytes for the same time
   at 32 connections). A cost for bytes (egress) would change the ceiling.
+  **Now:** closed. The planner charges for bytes (`byte_cost`, by default 0.1 s per
+  MB), under the same ceiling
+  ([§37](#37-connections-the-cost-of-bytes-small-files)).
 - **Multi-range packs** are 100 ranges (half of Apache's default MaxRanges); at 6
   connections xt.czi needs 1,005 of them.
+  **Now:** still so (`MAX_RANGES`, `rust/refkv-ir/src/plan.rs`).
 - **wasm size**: 1.58 MB (498 KB gzip), built at opt-level 3 without LTO or
   wasm-opt.
+  **Now:** closed. The build has LTO and `wasm-opt`
+  ([§38](#38-the-wasm-module): 1.15 MB, 436 KB gzip, for the formats of that time).
 
 ## 35. Commits
 
