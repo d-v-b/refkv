@@ -192,7 +192,9 @@ A chunk is about 128 pieces of the file, one per row of JPEG blocks
   modeled views of CMU-1 at 20 ms and 50 Mbit/s, the study's prototype takes
   the total from 41 s to 14 s, and the Rust core's read planner, used per
   view, to 18 s (15 s with a cache of the fetched spans). Neither is the
-  default reader yet: the readers of archives still read chunk by chunk.
+  default reader yet: the readers of archives merge the reads of chunks read at
+  the same time ([spec §6.3](../../../spec/refkv.md#63-resolving-a-reference)), but
+  with a fixed gap, no cost model and no cache.
   ([design/IR_NOTES.md](../../../design/IR_NOTES.md#49-revision-26-ndpi-on-the-ir)
   has the table.)
 - **The header is free.** Since spec/zarrify.md revision 14 the JPEG header

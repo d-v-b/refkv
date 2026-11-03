@@ -1,6 +1,6 @@
 # refkv: a reference value type for key-value stores
 
-Format version: 0 (**provisional**) · Specification revision: 11.4
+Format version: 0 (**provisional**) · Specification revision: 11.5
 
 ## 1. Introduction
 
@@ -870,6 +870,27 @@ read would. Apart from such gaps, readers SHOULD fetch only the bytes in
 step 3. A reader MUST NOT return bytes for a request it could not resolve
 completely.
 
+A reader MAY also combine the reads of different `get`s in progress at the
+same time, since zarr and other clients ask for each chunk with a `get` of its
+own. That also must not change any `get`'s result, so:
+
+- a read shared by several `get`s can fail where only one of them would. When
+  it fails, the reader MUST make each of its reads on its own, and give each
+  `get` that read's result;
+- the reader checks the pins of the source on the shared response, as on any
+  other ([§5.1](#51-pins)). Reads of two entries of the source table are not
+  combined, even with one URL, since their pins may differ;
+- a range with a `crc32c` is still read whole and checked by itself, and a
+  failed check fails the `get`s that need that range and no other.
+
+The reader decides how long a read waits for others, and how many bytes between
+them it fetches to save a request; a `get` made alone should not wait long for
+company. The implementations in the specification's repository wait 2 ms, or for a
+connection when the store's are all busy (the Python reader), and fetch at most
+4 times the bytes a shared read asks for, plus 64 KiB. A `multipart/byteranges`
+response is still an error ([§5.2](#52-reading-over-http)), so reads too far apart
+to combine this way remain separate requests.
+
 ### 6.4 Errors
 
 There are six classes of error. Each says which operations it makes fail.
@@ -1042,7 +1063,10 @@ it; the other limits are resource limits ([§6.4](#64-errors)).
    `url` sources that one `get` may make, counted after coalescing
    ([§6.3](#63-resolving-a-reference)), with each read counting once however
    many redirects it follows. A `get` that would need more is a request
-   error, reported before any of its reads is made.
+   error, reported before any of its reads is made. The count is of the reads
+   the `get` needs by itself: sharing them with other `get`s
+   ([§6.3](#63-resolving-a-reference)) does not change it, and neither does
+   making one on its own after a shared read fails.
 6. **Data read at open.** A reader MUST have a maximum size for the source
    table and for each piece of the binding's auxiliary data, and MUST stop
    reading or decompressing either as soon as its output passes that size,

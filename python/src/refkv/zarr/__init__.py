@@ -30,6 +30,11 @@ infinity or −0 is a string in the archive, such as `"NaN"`. The store decodes 
 serves each as the float zarr-python and hdmf-zarr write (the literal `NaN`), so that pynwb's
 `NWBZarrIO` reads a `rate` of NaN as a number; a string attribute `"NaN"` stays a string.
 Every other value is the archive's, as it is; `reader` gives the archive's own bytes.
+
+Zarr asks for each chunk with a `get` of its own, at most `async.concurrency` at once. The chunks
+waiting at the same time share requests, under the reference store (`ReferenceReader`), so raising
+that setting reads many small chunks in few requests, and no more connections than the store's
+`max_concurrency`.
 """
 
 from __future__ import annotations

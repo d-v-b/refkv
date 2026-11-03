@@ -105,6 +105,14 @@ lint:
 typecheck:
     uv run pyrefly check
 
+# Run before every push what CI's `sections` job runs (.github/workflows/ci.yml): the section checks
+# against a freshly fetched origin/main, lint and typecheck
+preflight:
+    git fetch --no-tags origin main
+    just sections origin/main
+    just lint
+    just typecheck
+
 # Regenerate what derives from the profile registry, spec/zarrify/profiles/<name>.json (the one
 # place a profile's identity is written, one file per profile): the Rust core's copies, and the
 # index tables of spec/zarrify.md, spec/conventions.md and docs/zarrify/README.md
