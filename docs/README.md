@@ -51,3 +51,7 @@ The Python package `refkv` stores a [VirtualiZarr](https://virtualizarr.readthed
 ## Combining stores
 
 `refkv.compose` builds one store from several without copying data: the planes of a z-stack as one array, tiles as a mosaic, or a fix to one chunk. Each store answers for its bounds, the keys it speaks for; `overlay` and `union` combine stores by them. [combining-stores.md](combining-stores.md) explains bounds and the operators, with a stack, a patch and a deletion.
+
+## A stack of TIFF files
+
+[tiff-stack.md](tiff-stack.md) zarrifies a directory of TIFF files, one per plane, and stacks them into one `(z, y, x)` array saved as a vzip sidecar beside the files, with source URLs relative to the sidecar ([examples/tiff_stack.py](examples/tiff_stack.py)).
