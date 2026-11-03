@@ -111,7 +111,7 @@ Preprocessed 2P and VR Data (22769, 161) 15.4609
 ```
 
 These are the values `NWBHDF5IO` reads from the file; the three rows came from
-one 1 MiB chunk (1628 rows of 161 float32), one range request.
+one chunk under 1 MiB (1518 rows of 161 float32), one range request.
 
 **At scale.** An IBL raw electrophysiology file of 51 GB (dandiset 000409:
 176 objects, 10,367 chunks) zarrifies in 28 rounds; an Allen Brain

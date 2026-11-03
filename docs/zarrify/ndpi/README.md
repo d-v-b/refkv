@@ -84,7 +84,7 @@ uv run refkv zarrify https://openslide.cs.cmu.edu/download/openslide-testdata/Ha
 ```
 
 ```
-{"format": "ndpi", "axes": ["c", "y", "x"], "levels": [[3, 38144, 51200], [3, 9536, 12800], [3, 2384, 3200], [3, 596, 800]], "references": 1093, "codec": "imagecodecs_jpeg"}
+{"format": "ndpi", "axes": ["c", "y", "x"], "levels": [[3, 38144, 51200], [3, 9536, 12800], [3, 2384, 3200], [3, 596, 800]], "references": 1093, "codec": "imagecodecs_jpeg", ...}
 ```
 
 This took 14 s (openslide.cs.cmu.edu answers each request in about half a

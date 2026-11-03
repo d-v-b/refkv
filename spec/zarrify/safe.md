@@ -10,6 +10,9 @@ How refkv produces this layout as a reference store is the SAFE profile,
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `ef81346c-19e8-42ad-93b0-a279ccaf44c1` ·
 Schema: [schema.json](safe/schema.json)
 
+Changed 2026-11-03, with no change to any output: the radiometric offsets and quantification values are said to be on each spectral
+band, not on `TCI`, as [§6.2](#62-band-arrays) has it.
+
 Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
 [Layout](#layout) and its types in type tables
 ([conventions §11.5](../conventions.md#115-layout-tables)), the GeoZarr attributes of the root
@@ -40,7 +43,7 @@ rebuilt from byte ranges of the band's file, plus a header that is shared
 by the band's chunks. The groups declare their coordinate reference system
 and affine transform with the zarr-conventions `proj` and `spatial`
 conventions ([§5](#5-georeferencing-geozarr)). The source's values are recorded but never applied: the
-radiometric offsets and the quantification values are metadata of each band
+radiometric offsets and the quantification values are metadata of each spectral band
 ([§6.2](#62-band-arrays)). Every file of the product is kept: `refkv_source` is the product's IR
 mirror, which lists every object, holds the XML documents it reads, describes
 each band file's boxes, codestream and tile-parts, and references every other

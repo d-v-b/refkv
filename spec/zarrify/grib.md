@@ -13,6 +13,9 @@ from 1.
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `c9bbe039-8dfa-49f9-a655-756f822a42d6` ·
 Schema: [schema.json](grib/schema.json)
 
+Changed 2026-11-03, with no change to any output: the time, step and member coordinates' `long_name`s, `number`'s `units`, and the
+`float64` coordinates' fill value are said, as refkv already wrote them ([§3.3](#33-coordinates)).
+
 Changed 2026-11-01: the root's `index` names the index whose offsets the run used, where it
 named the first index read even when another one's offsets were used, and the run tries each
 index in turn ([§5.1](#51-the-root), [§8.2](#82-finding-the-messages)). With no other change to
@@ -280,10 +283,10 @@ A grid's group holds these coordinates, each a 1-D array named as its dimension 
 
 | coordinate | values | data type | attributes |
 |---|---|---|---|
-| `time` | the group's fields' reference times, ascending, each once | `float64` | `units` `"seconds since 1970-01-01T00:00:00Z"`, `calendar` `"proleptic_gregorian"`, `standard_name` `"forecast_reference_time"` |
-| `step` | their steps, ascending, each once | `float64` | `units` `"seconds"`, `standard_name` `"forecast_period"` |
-| `valid_time` | `time + step`, over `(time, step)` | `float64` | as `time`'s, `standard_name` `"time"` |
-| `number` | the members' numbers, ascending, when a variable has them | `float64` | `standard_name` `"realization"` |
+| `time` | the group's fields' reference times, ascending, each once | `float64` | `units` `"seconds since 1970-01-01T00:00:00Z"`, `calendar` `"proleptic_gregorian"`, `standard_name` `"forecast_reference_time"`, `long_name` `"initial time of forecast"` |
+| `step` | their steps, ascending, each once | `float64` | `units` `"seconds"`, `standard_name` `"forecast_period"`, `long_name` `"time since forecast_reference_time"` |
+| `valid_time` | `time + step`, over `(time, step)` | `float64` | `units` and `calendar` as `time`'s, `standard_name` `"time"`, `long_name` `"time"` |
+| `number` | the members' numbers, ascending, when a variable has them | `float64` | `units` `"1"`, `standard_name` `"realization"`, `long_name` `"ensemble member numerical id"` |
 | a level dimension | the first surfaces' values of the variables that have it, ascending by the first value then the second, each pair once | `float64` | `units` (Pa, m, K, …) when the level type has one, `long_name` the dimension's name, and `bounds` for a layer |
 | `<level>_bounds` | for a layer, `[first, second]` of each value, over (the level, `bounds`) | `float64` | — |
 | `latitude`, `longitude` or `y`, `x` | the grid's positions ([§4](#4-georeferencing)) | `uint32` | `units`, `standard_name`, `scale_factor`, `add_offset` |
@@ -294,7 +297,7 @@ grid's two are the index of [conventions §9](../conventions.md#9-dataset-layout
 give the positions.
 
 <a id="type-gribcoordinate"></a>**`GribCoordinate`**: an [`ArrayDocument`](../conventions.md#type-arraydocument)
-of the table's row.
+of the table's row, a `float64` coordinate with the fill value `"NaN"`.
 
 ## 4. Georeferencing
 

@@ -55,7 +55,7 @@ lists what the layout does not express.
 
 ## Try it
 
-[example.py](example.py) saves an archive with `np.savez`, zarrifies it, and plots one of its
+[example.py](example.py) saves an archive with `np.savez`, zarrifies it, and plots its
 arrays with matplotlib, read through Zarr. Its dependencies are in its header (PEP 723), so it runs on its own, with refkv from PyPI:
 
 ```bash
