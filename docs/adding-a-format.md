@@ -128,7 +128,9 @@ Close a gap in the Rust core instead.
 **Decide what one input is**: one file, a store, or a file read as a store
 (NRRD's detached headers, VSI's tile files). FITS gives four reasons for a
 single file, and leaves collections to a later combine step. SAFE takes a
-store, because only the product's XML relates its JPEG 2000 files.
+store, because only the product's XML relates its JPEG 2000 files. Either kind of
+store takes more work in the hosts ([§5.3](#53-the-hosts),
+[§5.6](#56-a-store-input)).
 
 **For a large format, write a plan first**, in `design/plans/<p>.md`.
 [fits.md](../design/plans/fits.md), [czi.md](../design/plans/czi.md),
@@ -371,15 +373,25 @@ can loop forever or ask for a whole file:
 A plain file profile needs no change in Python, the browser code or the CLI:
 each reads the registry. Python needs only the generated classes.
 
-A file read as a store run (`store_run()`, as NRRD's detached headers and
-VSI's tiles are) is still registered by hand in several places:
-- `StoreFormat` in `rust/refkv-ir/src/store.rs`;
-- `rust/refkv-cli/src/{run.rs,main.rs}`;
-- `js/src/zarrify/{index.ts,ir/run.ts,ir/store.ts}`;
-- `python/src/refkv/zarrify/__init__.py`;
-- `conformance/zarrify/{compare.py,proxy.py}`.
+A file read as a store run (`store_run()`,
+[zarrify §1.8](../spec/zarrify.md#18-files-read-as-stores), as NRRD's detached
+headers, VSI's tiles and GRIB's index files are) is still registered by hand in
+several places:
+- `StoreFormat` and its matches in `rust/refkv-ir/src/store.rs`;
+- `StoreFormat` in `js/src/zarrify/ir/store.ts`;
+- `BESIDE` in `js/src/zarrify/ir/vsi.ts` and `python/src/refkv/zarrify/__init__.py`;
+- `titles` in `rust/refkv-cli/src/vsi.rs`;
+- `STORE_FORMATS` in `js/src/server.ts`;
+- the profiles in `store_mirror_problem` (`conformance/zarrify/compare.py`) whose root
+  names the file rather than the store;
+- the list of profiles in [zarrify §1.8](../spec/zarrify.md#18-files-read-as-stores).
 
-[#119](https://github.com/d-v-b/refkv/pull/119) is the model. Every read of
+The rest of each host finds the format through these. The CLI asks
+`store_run()` (`beside_format` in `rust/refkv-cli/src/run.rs`), and Python and the
+browser code ask `BESIDE`.
+
+[#119](https://github.com/d-v-b/refkv/pull/119) added the first of these, and
+[#170](https://github.com/d-v-b/refkv/pull/170) is the shortest list, GRIB's. Every read of
 the extra files goes through the reader policy
 ([#41](https://github.com/d-v-b/refkv/pull/41)). Test paths on Windows too:
 CI caught a runner that split paths on `/`.
@@ -402,7 +414,7 @@ reaches:
 - the bindings in `rust/refkv-python/src/lib.rs` and
   `python/src/refkv/_core.pyi`;
 - `python/src/refkv/zarr/codecs/<codec>.py`, and its `zarr.codecs` entry point
-  in `python/pyproject.toml`;
+  in `python/pyproject.toml`, which `python/tests/check_base_install.py` lists too;
 - the wasm export, for the browser;
 - a section in `spec/conventions.md`.
 
@@ -423,6 +435,78 @@ session of its own, and state the merge order in both PRs. It has lagged on:
 Where the browser can't decode exactly, refuse with an error rather than
 show wrong pixels. WebKit and Chromium convert HEVC chroma nonlinearly, 57 to
 72 levels off, so the fork refuses those pictures.
+
+### 5.5 A new data type, only if Zarr has none
+
+Use Zarr v3's own data types, or zarr-extensions' where one means the same thing.
+Check the semantics, as for a codec: zarr-extensions' `float8_e4m3` has infinities,
+and PyTorch's `float8_e4m3fn` doesn't, so safetensors defines
+[`refkv.float8_e4m3fn`](../spec/zarrify/safetensors.md#31-the-refkvfloat8_e4m3fn-data-type).
+A data type of refkv's own is named `refkv.<type>`, like a codec.
+
+safetensors ([#186](https://github.com/d-v-b/refkv/pull/186)) shows every place a
+data type reaches that zarr-python lacks:
+
+- the profile's document, which names the type, or defines it when it is refkv's own;
+- the `types` table of `rust/refkv-ir/schema/<p>.json`, which the parser checks;
+- a `ZDType` in `python/src/refkv/zarr/dtypes.py`, listed in its `DATA_TYPES`;
+- its `zarr.data_type` entry point in `python/pyproject.toml`, with any library it
+  needs in the `zarr` extra;
+- `python/tests/test_zarr_dtypes.py`, and `python/tests/check_base_install.py`,
+  which reads each entry point's type on a clean install.
+
+A type whose elements are smaller than a byte also needs a codec
+([§5.4](#54-a-new-codec-only-if-none-fits)), as safetensors' `F4` and `F6_*` have
+`packbits`. The demo shows only the arrays Neuroglancer can, so a data type the
+fork lacks has no view there until the fork has it.
+
+### 5.6 A store input
+
+A store's source is a listing of objects, not one byte stream
+([zarrify §1.4](../spec/zarrify.md#14-store-inputs),
+[conventions §8.9](../spec/conventions.md#89-stores)). Its registry entry has `kind`
+`store`, or `both` when it has a file form too, and the generated classes follow:
+`<Name>Store`, and for `both` `<Name>Source` as well.
+
+In the core, and in place of
+[§5.2](#52-the-rust-core)'s `FileProfile`, add:
+
+- a type implementing `StoreParser` (`rust/refkv-ir/src/store.rs`: `step`, `feed`,
+  `finish`), built from the IR and the listing's objects and keys;
+- `StoreFormat` and its matches in the same file: `from_name`, `name`, `profile`,
+  `parser`, and the projection;
+- the projection in `src/project/<m>.rs`, and in `kept` (`src/project/store.rs`) the
+  members it records beside the mirror.
+
+Decide what each object is in the IR: **held**, with its bytes in the mirror, as for
+a document the profile reads; **described in place**, as for a file whose bytes stay
+at its URL; or **referenced** whole. An object nothing else uses goes under
+`refkv_source/objects/`
+([zarrify §1.4](../spec/zarrify.md#14-store-inputs)).
+
+The hosts register it by hand:
+
+- a row in the table of root keys in
+  [zarrify §1.4](../spec/zarrify.md#14-store-inputs), and its test in all three
+  choosers, with one rejection message: `choose_profile` in
+  `python/src/refkv/zarrify/store/stores.py`, `chooseProfile` in
+  `js/src/zarrify/store.ts`, and `choose_profile` in `rust/refkv-cli/src/store.rs`.
+  The message changes the reject tables' entries of the other store profiles;
+- its dispatch: `zarrifyStoreProfile` in `js/src/zarrify/index.ts`, and `zarrify_store`
+  in `rust/refkv-cli/src/store.rs`;
+- `StoreFormat` in `js/src/zarrify/ir/store.ts`, and `STORE_FORMATS` in
+  `js/src/server.ts`;
+- the usage text: `STORES` in `python/src/refkv/zarrify/__main__.py`, and
+  `rust/refkv-cli/src/main.rs`;
+- `conformance/zarrify/reference/ts/store.ts`, which uses the shipped chooser, so must
+  refuse a profile the frozen reference never had;
+- `STORE_FORMATS` in `conformance/zarrify/mutate.py`, to mutate its stores.
+
+Each directory under `fixtures/<p>/` is one store, and `compare.py` finds them through
+the registry. It also lists each store profile's largest fixture store the Hugging
+Face Hub's way ([zarrify §1.5](../spec/zarrify.md#15-listing-a-store)). In a corpus
+file, a store's URL ends in `/`. [#189](https://github.com/d-v-b/refkv/pull/189), the
+safetensors store form, is the model.
 
 ## 6. Fixtures, tests and verification
 
@@ -480,14 +564,16 @@ valid inputs, comparing every value, and one test per error case.
 ### Verification against an independent reader
 
 Every profile compares its output with the format's own library, value for
-value. `js/test/<p>/verify.py` serves the fixtures over HTTP, zarrifies them
-with the browser code, reads them back through zarr-python, and compares them
+value. For most, `js/test/<p>/verify.py` serves the fixtures over HTTP, zarrifies
+them with the browser code, reads them back through zarr-python, and compares them
 with the reader. `just verify-of <p>` runs it; CI does not, so run it before
-the PR. The readers so far:
+the PR. GRIB and HDF5 have no such script: `python/tests/ir/test_<p>.py` makes their
+comparison, in `just test`, and `compare.py` holds the browser code to the same
+output. The readers so far:
 
 | format | independent reader |
 |---|---|
-| TIFF, QPTIFF | tifffile |
+| TIFF, QPTIFF, NDPI | tifffile |
 | ND2 | nd2 |
 | DICOM, NIfTI | pydicom, nibabel |
 | IMS, HDF5 | h5py |
@@ -499,6 +585,10 @@ the PR. The readers so far:
 | FLAC | libsndfile, and the file's own MD5 |
 | MP3, MP4 | ffmpeg through PyAV |
 | CZI | czifile, pylibCZIrw |
+| GRIB | ecCodes |
+| NumPy | NumPy |
+| safetensors | safetensors |
+| SAFE | rasterio |
 | Neuroglancer precomputed | tensorstore |
 
 Add the reader to the root `pyproject.toml`'s `dev` group, then run `uv lock`.
@@ -626,6 +716,9 @@ just cli-identical
 ```bash
 just verify-of <p>
 ```
+
+`just verify-of` needs `js/test/<p>/verify.py`. For a profile without one, such as
+GRIB or HDF5, `just test` runs the comparison instead.
 
 Stale builds gave agents false results more than once:
 - The core embeds the registry at compile time, so rebuild after

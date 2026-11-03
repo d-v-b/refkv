@@ -205,7 +205,7 @@ names the profile instead
 be in that format, and a store's URL needs no trailing `/`. There is one class
 per profile in the registry. `<Name>Source` is for a file (`TiffSource`,
 `Mp4Source`, `NdpiSource`, ...). `<Name>Store` is for a store (`Zarr2Store`,
-`OmeZarrStore`, `N5Store`). SAFE has both, `SafeSource` for a `.SAFE.zip` file
+`OmeZarrStore`, `N5Store`, `PrecomputedStore`, `SafetensorsStore`). SAFE has both, `SafeSource` for a `.SAFE.zip` file
 and `SafeStore` for a `.SAFE` directory. The input's read options belong to the
 class (`url`, `checksums`, `policy`, and `connections` and `byte_cost` for a
 file, or `workers` and `max_objects` for a store), so `zarrify` raises
@@ -374,20 +374,70 @@ each format's metadata is:
   the archive. The root keeps the stream's parameters, STREAMINFO (with its
   MD5), the Vorbis comments, the cue sheet, the pictures' fields and the tags'
   fields; each picture's data is an array of bytes under `pictures`.
+- **FITS:** the IR mirror on `refkv_source`: every HDU's header, its data or
+  table rows and heap, and its padding. The root keeps a row per HDU (its type,
+  name, `BITPIX`, axes, offsets and any tile compression) and the primary header's
+  cards. Each HDU's node keeps its own header's cards, as keyword, value and comment
+  ([fits §5](../../spec/zarrify/fits.md#5-source-metadata), where a budget applies),
+  an image's scaling and unit, and a table's columns.
+- **GRIB:** the IR mirror on `refkv_source`, of the GRIB file described in place and
+  every index file the run read, held: every message's sections, and their bytes.
+  The root keeps the counts of messages and fields, the index it used, and each field
+  it does not present, with the reason
+  ([grib §5](../../spec/zarrify/grib.md#5-source-metadata)).
+- **HDF5:** the IR mirror on `refkv_source`, whose elements are IMS's: the
+  superblock, every object and the global heap collections that attributes and
+  datasets name. Each group keeps its address, each attribute's HDF5 datatype, its
+  external links, and the children and attributes it does not present, with the
+  reason. Each dataset's array keeps its address, datatype, layout, chunk index,
+  filters and fill value bytes
+  ([hdf5 §7](../../spec/zarrify/hdf5.md#7-source-metadata)).
+- **MP4:** the IR mirror on `refkv_source`, from the file's boxes down. The root
+  keeps the `ftyp` brands, the movie's timescale and duration, and a row per track
+  (its ID, handler and codec, with its path or the reason it is not presented). Each
+  track's group keeps its timescale, duration and edit list, and a video track's
+  size, bit depth, profile and level, or an audio track's sample rate and channels
+  ([mp4 §5](../../spec/zarrify/mp4.md#5-source-metadata)).
+- **NumPy:** the IR mirror on `refkv_source`: each array's preamble and header that
+  was read in a range of the file, every `.npz` member, the ZIP structures and every
+  byte between or after them. The root keeps a `.npy` file's header, or each `.npz`
+  member's name, compression method and sizes, its header, and its path or the reason
+  it is not presented
+  ([npy §5](../../spec/zarrify/npy.md#5-source-metadata)).
+- **QPTIFF:** the IR mirror on `refkv_source`, as for TIFF, which holds every QPI
+  description, the ScanProfile included. The root keeps the byte order and BigTIFF
+  flag; the channel names and colors the layout reads are also in `omero`
+  ([qptiff §5](../../spec/zarrify/qptiff.md#5-source-metadata)).
 - **safetensors:** the IR mirror on `refkv_source`: the header length, the
   header with its padding, and every tensor's data, so that the file is rebuilt
   from the archive. The root keeps the header's length, its `__metadata__`
   members, and every tensor (its name, `dtype`, shape, `data_offsets` and any
   other member of its entry), with its path or the reason it is not presented.
+  A store of shards is one group
+  ([safetensors §9](../../spec/zarrify/safetensors.md#9-the-store-form)): each
+  presented shard's group keeps that metadata, and the root keeps every shard's key
+  with its path or reason, each index's agreement with the headers, and each
+  configuration as written. Its mirror is a store's: shards described in place,
+  indexes and configurations held, and every other object referenced whole under
+  `refkv_source/objects/`.
 - **Neuroglancer precomputed:** the `info` document, every member, and each array's scale;
   the scales it does not present, with the reason each.
 - **N5, Zarr v2 and OME-Zarr:** each node's own attributes and the layout
   members its `zarr.json` does not reproduce, on the node, as
   `{"attributes": ..., "metadata": ...}` (with `"unversioned"` for an
-  OME-Zarr group); every other object of the store, kept whole under
-  `refkv_source/objects/`.
-- **SAFE:** the product's identity on the root, each band's radiometric
-  values on its array, and every file of the product kept on `refkv_source`.
+  OME-Zarr group). `refkv_source` is the store's IR mirror
+  ([conventions §8.9](../../spec/conventions.md#89-stores)): its table lists every
+  object's key and size, and holds the node documents the profile reads, so that
+  each is rebuilt byte for byte. Every object that no chunk or document accounts for
+  is referenced whole under `refkv_source/objects/`.
+- **SAFE:** the product's identity on the root (its URI, level, type, baseline, tile,
+  sensing time and CRS), and each band's radiometric values on its array.
+  `refkv_source` is the product's IR mirror
+  ([safe §6.3](../../spec/zarrify/safe.md#63-the-source-metadata-node)), which keeps
+  every file. A `.SAFE` directory's is a store's: the XML documents read whole are
+  held, the band files described in place, and every other object referenced whole
+  under `refkv_source/objects/`. A `.SAFE.zip`'s describes the zip file, its
+  structures and entries, and rebuilds it byte for byte.
 
 So a reader who needs, say, an ND2 file's objective or a DICOM series'
 acquisition parameters finds them in the hierarchy. For the NIfTI example

@@ -129,6 +129,7 @@ listed with their messages in
 [conformance/zarrify/rejects/safetensors.json](../../../conformance/zarrify/rejects/safetensors.json).
 
 - Profile: [spec/zarrify/safetensors.md](../../../spec/zarrify/safetensors.md#part-2-the-profile)
-- Rust core: [rust/refkv-ir/src/safetensors.rs](../../../rust/refkv-ir/src/safetensors.rs)
+- Rust core: [rust/refkv-ir/src/safetensors/mod.rs](../../../rust/refkv-ir/src/safetensors/mod.rs),
+  and the store form, [store.rs](../../../rust/refkv-ir/src/safetensors/store.rs)
 - Data types and codec: [python/src/refkv/zarr/dtypes.py](../../../python/src/refkv/zarr/dtypes.py),
   [python/src/refkv/zarr/codecs/packbits.py](../../../python/src/refkv/zarr/codecs/packbits.py)
