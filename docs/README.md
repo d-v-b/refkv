@@ -47,3 +47,7 @@ clone with every extra, and the repository's test and benchmark tools.
 ## Virtual datasets from xarray and VirtualiZarr
 
 The Python package `refkv` stores a [VirtualiZarr](https://virtualizarr.readthedocs.io/) virtual dataset, such as many netCDF or HDF5 files concatenated along time with xarray, without copying their data. `refkv.ReferenceStore.from_virtualizarr(vds)` builds a store that `xr.open_zarr(refkv.zarr.store(store))` reads right away, `store.save_vzip("data.vzip")` writes it as one vzip archive, and `xr.open_zarr(refkv.zarr.open("data.vzip"))` reopens it, reading each chunk from the file it came from. [virtual-datasets.md](virtual-datasets.md) walks through it with five years of NOAA sea surface temperature: install, a runnable example ([examples/oisst.py](examples/oisst.py)), scaling up, publishing, private data, and troubleshooting.
+
+## A stack of TIFF files
+
+[tiff-stack.md](tiff-stack.md) zarrifies a directory of TIFF files, one per plane, and stacks them into one `(z, y, x)` array saved as a vzip sidecar beside the files, with source URLs relative to the sidecar ([examples/tiff_stack.py](examples/tiff_stack.py)).
