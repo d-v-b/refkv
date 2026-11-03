@@ -6,7 +6,7 @@ reference store kept in one ZIP file, a vzip archive.
   read-only store, a `VZipStore` (`refkv.vzip.store`). `refkv.open(url)` comes here
   with its default binding.
 - `VZipWriter`: writes a vzip archive to a binary file (`refkv.vzip.archive`), as
-  `ReferenceStore.save` does.
+  `ReferenceStore.save_vzip` does.
 - `refkv.vzip.names`: the names the binding reserves, under `__vz__/`.
 
 `python -m refkv.vzip.cli` is the archive conformance harness's command line

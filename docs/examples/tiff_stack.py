@@ -1,6 +1,9 @@
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["refkv[zarr]>=0.2.0", "tifffile"]
+# dependencies = ["refkv[zarr]", "tifffile"]
+#
+# [tool.uv.sources]
+# refkv = { git = "https://github.com/d-v-b/refkv", subdirectory = "python" }
 # ///
 """A stack of TIFF files as one Zarr array, saved as a vzip sidecar beside them.
 
@@ -120,7 +123,7 @@ def main(directory: Path) -> None:
     paths = sorted(directory.glob("*.tif"))
     sidecar = directory / "stack.vzip"
     stacked = stack(asyncio.run(zarrify_all(paths)), [p.name for p in paths])
-    print(stacked.save(sidecar, relative_to=path_reference(str(directory)) + "/"))
+    print(stacked.save_vzip(sidecar, relative_to=path_reference(str(directory)) + "/"))
 
     image = zarr.open_group(refkv.zarr.open(str(sidecar)), mode="r").get_array("0")
     print(f"{sidecar}: {image.shape} {image.dtype}, chunks {image.chunks}")

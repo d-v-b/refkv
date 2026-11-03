@@ -91,7 +91,9 @@ The 2026-10-29 00z runs, read from a machine in Europe over HTTP, with each feed
 ## Example
 
 [example.py](example.py) zarrifies an HRRR forecast from NOAA's bucket and plots its 2 m
-temperature with xarray:
+temperature with xarray. Its dependencies are in its header (PEP 723), so it runs on its own (uv
+builds refkv from GitHub, which needs a Rust toolchain, until a release on PyPI has `save_vzip`;
+refkv 0.2.0 does not):
 
 ```
 uv run docs/zarrify/grib/example.py
