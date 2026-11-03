@@ -1262,7 +1262,7 @@ class ReferenceReader:
         if merging.held:
             self._flush(merging)
 
-    async def _serve(self, source: int, run: list[_Waiting]) -> None:
+    async def _serve(self, source: int, run: builtins.list[_Waiting]) -> None:
         """Read `run` in one request, and give each read its bytes. A run ends where its last read
         ends, so it may fail where that read alone would; the others must not fail with it, so each
         read of a run that fails is read on its own, and gets its own result."""

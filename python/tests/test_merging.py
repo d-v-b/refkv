@@ -63,7 +63,7 @@ def server():
 def _store(url, refs, *, pins=None, policy=SERVED, **kw):
     """A store whose keys are `refs`' keys: each a range (offset, length) of the source at `url`,
     or a list of `Range`s of it."""
-    mapping = {k: Concat(parts=r) if isinstance(r, list) else Range(source=0, offset=r[0], length=r[1])
+    mapping = {k: Concat(parts=tuple(r)) if isinstance(r, list) else Range(source=0, offset=r[0], length=r[1])
                for k, r in refs.items()}
     return ReferenceStore(mapping, sources=[Source(url=url, **(pins or {}))], url="https://store.test/",
                           policy=policy, **kw)
@@ -74,7 +74,7 @@ async def _gather(store, *keys):
 
 
 def _spans(reads, *, gap=GAP, amplification=4, longest=1 << 20):
-    waiting = [_Waiting(a, b, None) for a, b in reads]
+    waiting = [_Waiting(a, b, None) for a, b in reads]  # pyrefly: ignore[bad-argument-type] (planning uses no future)
     runs = _merged(waiting, gap=gap, amplification=amplification, longest=longest)
     return [[(r.start, r.end) for r in run] for run in runs]
 
