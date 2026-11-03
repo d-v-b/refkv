@@ -153,8 +153,8 @@ sources with identical bytes), the same set of keys, and for every key:
 
 **IR mirrors.** For a file input, `refkv_source` is the
 source's IR mirror ([conventions §8](conventions.md#8-the-ir-mirror)); for
-a store input (a SAFE directory included), the store's ([conventions §8.9](conventions.md#89-stores),
-whose limits replace those below).
+a store input (a SAFE directory included) or a file read as a store ([§1.8](#18-files-read-as-stores)),
+a store IR's ([conventions §8.9](conventions.md#89-stores), whose limits replace those below).
 Its table and view are canonical: a function of the source's IR, folded and
 encoded one way only ([conventions §8.8](conventions.md#88-canonical-form)).
 Mirrors are therefore compared entry for entry, as above, like the rest of the
@@ -318,8 +318,8 @@ whose output would have more than `2^22 + 4 × Z` references, `Z` the source's s
 store IR, its objects' total size), with the message `budget: more than N refs`, or more than
 2^20 repeats, with the message `budget: more than 1048576 repeats` (`N` in decimal). The
 budget applies to the CZI, DICOM, FITS, FLAC, HDF5, IMS, LIF, MP3, MP4, MRC, NDPI, NIfTI,
-NumPy, NRRD, QPTIFF, TIFF and VSI profiles; the GRIB, ND2 and SAFE profiles and the store
-profiles bound their outputs by their own rules.
+NumPy, NRRD, QPTIFF, safetensors (both its forms), TIFF and VSI profiles; the GRIB, ND2 and
+SAFE profiles and the store profiles bound their outputs by their own rules.
 
 ### 1.3 Arithmetic
 

@@ -769,7 +769,7 @@ fn project<'py>(py: Python<'py>, format: &str, ir: &PyIr, facts: &str, url: &str
     out_py(py, &o)
 }
 
-/// The mirror of an IR (for the profile "nd2", "tiff", "czi", "dicom", "nifti", "ims", "ndpi", "mrc" or "mp3"): its entries and
+/// The mirror of an IR under `profile`'s convention (a name of spec/zarrify/profiles/): its entries and
 /// references under `refkv_source` (`out_py`'s form, the url empty), and what the
 /// table folded (JSON).
 #[pyfunction]
