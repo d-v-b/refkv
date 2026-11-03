@@ -1,5 +1,5 @@
 """The in-memory store (refkv.ReferenceStore), its persistence through the ZIP binding
-(`save`), the read path it shares with a saved archive (`refkv.open`), and both read
+(`save_vzip`), the read path it shares with a saved archive (`refkv.open`), and both read
 through zarr and xarray (`refkv.zarr`)."""
 
 import dataclasses
@@ -7,7 +7,7 @@ import threading
 import time
 import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import override
+from typing import Any, override
 
 import numpy as np
 import obstore.store
@@ -66,7 +66,7 @@ def test_store_reads_what_its_saved_archive_reads(netcdf_files, tmp_path):
             for mirror_refs in [True, False]:
                 for relative_to in [None, file_uri(tmp_path) + "/"]:
                     out = tmp_path / f"{i}-{page_size}-{mirror_refs}-{relative_to is None}.vzip"
-                    summary = store.save(out, page_size=page_size, mirror_refs=mirror_refs,
+                    summary = store.save_vzip(out, page_size=page_size, mirror_refs=mirror_refs,
                                          relative_to=relative_to)
                     refs = sum(not isinstance(v, bytes) for v in store.mapping.values())
                     assert summary == refkv.Summary(str(out), len(in_memory), refs, n_sources,
@@ -85,7 +85,7 @@ def test_write_vzip_is_the_store_in_one_step(netcdf_files, tmp_path, capsys):
                     compat="override")
     summary = write_vzip(vds, tmp_path / "a.vzip", page_size=256)
     assert capsys.readouterr().out == ""
-    other = refkv.ReferenceStore.from_virtualizarr(vds).save(tmp_path / "b.vzip", page_size=256)
+    other = refkv.ReferenceStore.from_virtualizarr(vds).save_vzip(tmp_path / "b.vzip", page_size=256)
     assert summary == dataclasses.replace(other, path=str(tmp_path / "a.vzip"))
     assert (tmp_path / "a.vzip").read_bytes() == (tmp_path / "b.vzip").read_bytes()
     stats = refkv.Stats()
@@ -146,12 +146,12 @@ def test_store_from_a_mapping(tmp_path):
     store = refkv.ReferenceStore(mapping, [Source(url=file_uri(src)), Source(key="__vz__/shared")])
     want = {"a": b"plain", "b": bytes([8, 9, 10, 11]), "c": b"<" + bytes([60, 61, 62, 63]) + b"yz"}
     assert _values(store) == want
-    store.save(tmp_path / "m.vzip")
+    store.save_vzip(tmp_path / "m.vzip")
     assert _values(refkv.open(tmp_path / "m.vzip")) == want
 
 
 def test_save_follows_the_store_layout(tmp_path):
-    """`save` writes the values in the mapping's order, `read_at_open` last, deflates
+    """`save_vzip` writes the values in the mapping's order, `read_at_open` last, deflates
     those of `compressed`, and writes the store's page index unless given another;
     `info` is the builder's, kept out of the archive."""
     mapping = {"z": b"z" * 64, "r": Range(source=0, offset=0, length=4), "a/zarr.json": b"{}", "m": b"m" * 64}
@@ -166,7 +166,7 @@ def test_save_follows_the_store_layout(tmp_path):
     assert store.info == {"format": "x", "n": [1]}
     for page_size, index in ((..., True), (None, False)):
         path = tmp_path / f"{index}.vzip"
-        store.save(path, page_size=page_size)
+        store.save_vzip(path, page_size=page_size)
         entries = sorted(zipfile.ZipFile(path).infolist(), key=lambda e: e.header_offset)
         names = [e.filename for e in entries if not e.filename.startswith("__vz__/")]
         assert names == ["z", "r", "m", "a/zarr.json"]
@@ -198,10 +198,32 @@ def test_reading_a_refused_scheme_says_how_to_fix_it():
         _ = xr.open_zarr(refkv.zarr.store(store), consolidated=False).x.values
 
 
+def test_save_warns_and_writes_what_save_vzip_writes(tmp_path):
+    store = refkv.ReferenceStore(
+        {"a": b"x" * 1000, "b": Range(source=0, offset=0, length=4)},
+        [Source(url="https://example.org/data/b.bin")],
+    )
+    cases: list[dict[str, Any]] = [
+        {},
+        {"page_size": 64},
+        {"page_size": None},
+        {"mirror_refs": False},
+        {"relative_to": "https://example.org/data/"},
+        {"policy": refkv.Policy(schemes=frozenset({"https"}))},
+    ]
+    for options in cases:
+        with pytest.warns(DeprecationWarning, match="save_vzip") as caught:
+            old = store.save(tmp_path / "old.vzip", **options)
+        assert caught[0].filename == __file__  # the caller's line, not refkv's
+        new = store.save_vzip(tmp_path / "new.vzip", **options)
+        assert (old.keys, old.references, old.sources) == (new.keys, new.references, new.sources)
+        assert (tmp_path / "old.vzip").read_bytes() == (tmp_path / "new.vzip").read_bytes()
+
+
 def test_save_refuses_sources_the_reader_policy_refuses(tmp_path):
     with pytest.raises(ResolutionError, match=r"not saving .*default reader policy refuses 1 of its 1 "
                                               r"sources.*refkv\.public_s3_url"):
-        _s3_store().save(tmp_path / "x.vzip")
+        _s3_store().save_vzip(tmp_path / "x.vzip")
     assert not (tmp_path / "x.vzip").exists()
 
 
@@ -213,9 +235,9 @@ def test_save_counts_each_refused_source_of_a_shared_origin(tmp_path):
     store = refkv.ReferenceStore({f"k{i}": Range(source=i, offset=0, length=1) for i in range(5)},
                                 [Source(url=u) for u in urls])
     with pytest.raises(ResolutionError, match=r"refuses 3 of its 5 sources.*127\.0\.0\.1/b"):
-        store.save(tmp_path / "x.vzip")
+        store.save_vzip(tmp_path / "x.vzip")
     with pytest.raises(ResolutionError, match=r"refuses 4 of its 5 sources.*127\.0\.0\.1/b"):
-        store.save(tmp_path / "x.vzip", policy=refkv.Policy(prefixes=("https://data.test/a",)))
+        store.save_vzip(tmp_path / "x.vzip", policy=refkv.Policy(prefixes=("https://data.test/a",)))
     # a policy with its own check decides each source
 
     class ByPath(refkv.Policy):
@@ -226,22 +248,22 @@ def test_save_counts_each_refused_source_of_a_shared_origin(tmp_path):
             super().check(base, url, **kwargs)
 
     with pytest.raises(ResolutionError, match=r"refuses 1 of its 5 sources.*data\.test/c: refused by path"):
-        store.save(tmp_path / "x.vzip", policy=ByPath(allow_private_hosts=True))
+        store.save_vzip(tmp_path / "x.vzip", policy=ByPath(allow_private_hosts=True))
     # an invalid URL is refused on its own, after or before its origin's other sources
     for urls in (["https://data.test/a", "https://data.test/a b", "https://data.test/c"],
                  ["https://data.test/a b", "https://data.test/a", "https://data.test/c"]):
         store = refkv.ReferenceStore({f"k{i}": Range(source=i, offset=0, length=1) for i in range(3)},
                                     [Source(url=u) for u in urls])
         with pytest.raises(ResolutionError, match=r"refuses 1 of its 3 sources.*not a valid URI reference"):
-            store.save(tmp_path / "x.vzip")
+            store.save_vzip(tmp_path / "x.vzip")
     assert not (tmp_path / "x.vzip").exists()
 
 
 def test_save_checks_against_the_policy_given(tmp_path):
     store = _s3_store()
-    store.save(tmp_path / "ok.vzip", policy=refkv.Policy(schemes=frozenset({"s3"})))
+    store.save_vzip(tmp_path / "ok.vzip", policy=refkv.Policy(schemes=frozenset({"s3"})))
     with pytest.raises(ResolutionError, match="reader policy given refuses"):
-        store.save(tmp_path / "x.vzip", policy=refkv.Policy(prefixes=("https://data.example/",)))
+        store.save_vzip(tmp_path / "x.vzip", policy=refkv.Policy(prefixes=("https://data.example/",)))
 
 
 # ------------------------------------------------------------ the application's stores
@@ -277,7 +299,7 @@ def test_registry_reads_registered_sources(netcdf_files, tmp_path):
                 registry=registry)
             xr.testing.assert_identical(xr.open_zarr(refkv.zarr.store(store)).load(),
                                         expected.load())
-            store.save(tmp_path / "v.vzip", policy=s3)
+            store.save_vzip(tmp_path / "v.vzip", policy=s3)
             reopened = refkv.zarr.open(tmp_path / "v.vzip", registry=registry)
             xr.testing.assert_identical(xr.open_zarr(reopened).load(), expected.load())
             if prefix == "s3://bucket/data":
@@ -285,7 +307,7 @@ def test_registry_reads_registered_sources(netcdf_files, tmp_path):
             store = refkv.ReferenceStore(mapping, sources, registry=registry)
             want = {"a": blob[8:12], "b": blob[:2] + b"!"}
             assert _values(store) == want, form
-            store.save(tmp_path / "m.vzip", policy=s3)
+            store.save_vzip(tmp_path / "m.vzip", policy=s3)
             assert _values(refkv.open(tmp_path / "m.vzip", registry=registry)) == want, form
 
 
@@ -399,7 +421,7 @@ def test_max_concurrency_caps_requests_in_flight(counting_server, tmp_path):
     mapping.update({f"x/c/{i}": Range(source=0, offset=1024 * i + i, length=1) for i in range(n)})
     sources = [Source(url=f"{base}/src.bin")]
     policy = refkv.Policy(allow_private_hosts=True)
-    refkv.ReferenceStore(mapping, sources).save(tmp_path / "a.vzip", page_size=64, policy=policy)
+    refkv.ReferenceStore(mapping, sources).save_vzip(tmp_path / "a.vzip", page_size=64, policy=policy)
     state["files"]["/a.vzip"] = (tmp_path / "a.vzip").read_bytes()
     stores = {
         "memory": lambda **cap: refkv.ReferenceStore(mapping, sources, policy=policy, **cap),
@@ -477,7 +499,7 @@ def test_a_page_size_that_is_not_positive_is_rejected(tmp_path, page_size):
     with pytest.raises(ValueError, match=f"page_size is a positive number of bytes or None, not {page_size}"):
         refkv.ReferenceStore({}, page_size=page_size)
     with pytest.raises(ValueError, match=f"page_size is a positive number of bytes or None, not {page_size}"):
-        refkv.ReferenceStore({}).save(tmp_path / "x.vzip", page_size=page_size)
+        refkv.ReferenceStore({}).save_vzip(tmp_path / "x.vzip", page_size=page_size)
     assert not (tmp_path / "x.vzip").exists()
 
 
@@ -497,7 +519,7 @@ def store(request, tmp_path):
     s = refkv.ReferenceStore({k: v.to_bytes() for k, v in mem._store_dict.items()})
     if request.param == "memory":
         return refkv.zarr.store(s)
-    s.save(tmp_path / "a.vzip")
+    s.save_vzip(tmp_path / "a.vzip")
     return refkv.zarr.open(tmp_path / "a.vzip")
 
 

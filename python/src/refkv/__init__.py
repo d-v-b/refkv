@@ -9,7 +9,7 @@ how. The ZIP binding keeps a store in one ZIP file, a vzip archive (Part 2
 `refkv.vzip` reads and writes.
 
 - `ReferenceStore`: a store in memory. `ReferenceStore.from_virtualizarr(vds)` builds
-  one from a VirtualiZarr virtual dataset, and `store.save(path)` writes it as a
+  one from a VirtualiZarr virtual dataset, and `store.save_vzip(path)` writes it as a
   vzip archive.
 - `open(url)`: a saved store, as a store that reads the same values: with the ZIP
   binding (the default, and today the only one), a `refkv.vzip.VZipStore`.

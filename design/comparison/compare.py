@@ -344,7 +344,7 @@ def write_vzip(vds, out, _ctx, cfg) -> None:
     from refkv import Policy, ReferenceStore
 
     # the sources are served on 127.0.0.1, which the default policy refuses (see open_vzip)
-    ReferenceStore.from_virtualizarr(vds).save(
+    ReferenceStore.from_virtualizarr(vds).save_vzip(
         out, page_size=None if cfg == "default" else 1 << 16,
         policy=Policy(allow_private_hosts=True))
 

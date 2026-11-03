@@ -127,7 +127,7 @@ def write_vzip(
     """Write a VirtualiZarr virtual dataset to a vzip archive at `path`, and return a
     `refkv.Summary` of it.
 
-    The same as `refkv.ReferenceStore.from_virtualizarr(vds).save(path, ...)`, which
+    The same as `refkv.ReferenceStore.from_virtualizarr(vds).save_vzip(path, ...)`, which
     is the preferred spelling: the store reads before it is saved, and takes
     `rewrite_urls` and the reader options.
 
@@ -140,11 +140,11 @@ def write_vzip(
       the archive.
     - `page_size`: write a page index with pages of about this many bytes (for
       example 65536), so that readers load only the part of the central directory
-      they need; None writes none. `ReferenceStore.save` says when it helps.
+      they need; None writes none. `ReferenceStore.save_vzip` says when it helps.
 
     Raises ValueError if the default reader policy would refuse a source, such as
-    an `s3://` URL; `ReferenceStore.save` says how to fix it."""
-    return ReferenceStore.from_virtualizarr(vds).save(
+    an `s3://` URL; `ReferenceStore.save_vzip` says how to fix it."""
+    return ReferenceStore.from_virtualizarr(vds).save_vzip(
         path, mirror_refs=mirror_refs, relative_to=relative_to, page_size=page_size)
 
 

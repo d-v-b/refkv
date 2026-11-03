@@ -169,7 +169,7 @@ g = zarr.open_group(refkv.zarr.open("out.vzip"), mode="r")
 **From Python.** The command is a thin wrapper over
 `refkv.zarrify.zarrify`, which returns the result as a
 `refkv.ReferenceStore` instead of writing a file. The store reads right away,
-in memory; `store.save(path)` writes the archive, the same bytes the command
+in memory; `store.save_vzip(path)` writes the archive, the same bytes the command
 writes; and `store.info` holds the format and the summary the command prints:
 
 ```python
@@ -180,7 +180,7 @@ from refkv.zarrify import zarrify
 store = zarrify("https://openslide.cs.cmu.edu/download/openslide-testdata/Aperio/CMU-1-Small-Region.svs")
 store.info["format"]                                   # "tiff"
 g = zarr.open_group(refkv.zarr.store(store), mode="r")  # no archive yet
-store.save("CMU-1-Small-Region.vzip")
+store.save_vzip("CMU-1-Small-Region.vzip")
 ```
 
 `zarrify` takes the input's local path or URL, and the command's options as
@@ -191,10 +191,10 @@ accepts the input, `refkv.errors.ResolutionError` when the reader policy
 refuses the input or a source (such as a URL on a private host), and `OSError`
 when the input cannot be read (`FileNotFoundError` for a missing local file,
 an HTTP error status, or a host that cannot be reached). The store reads its sources under the `policy` it was
-given. `save` checks the sources against the policy the archive's readers will
+given. `save_vzip` checks the sources against the policy the archive's readers will
 use, `Policy()` unless it is given one, and raises `ResolutionError` for a
 source a reader under it could not read, so for sources on a private host pass
-that one too: `store.save(path, policy=policy)`.
+that one too: `store.save_vzip(path, policy=policy)`.
 
 **Naming the input's format.** Given a string, `zarrify` decides what the input
 is. It is a store when it is a directory or a URL ending in `/`, and otherwise a

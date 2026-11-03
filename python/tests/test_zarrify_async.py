@@ -45,7 +45,7 @@ INPUTS = [
 
 
 def _saved(store, path, policy):
-    store.save(path, policy=policy)
+    store.save_vzip(path, policy=policy)
     return path.read_bytes()
 
 

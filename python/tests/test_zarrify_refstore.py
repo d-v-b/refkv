@@ -1,5 +1,5 @@
 """`refkv.zarrify.zarrify` returns a `refkv.ReferenceStore`, which reads in memory
-as its saved archive reads, and whose `save` writes the archive the profile output's
+as its saved archive reads, and whose `save_vzip` writes the archive the profile output's
 own writer writes, byte for byte."""
 
 import shutil
@@ -70,7 +70,7 @@ def test_zarrify_returns_the_store_it_saves(proxy, tmp_path, name, is_store, che
     _, out = _zarrify(location, checksums=checksums, policy=policy)
     assert store.info == {"format": fmt, **out.summary}
 
-    store.save(tmp_path / "new.vzip", policy=policy)
+    store.save_vzip(tmp_path / "new.vzip", policy=policy)
     out.write(str(tmp_path / "old.vzip"))
     assert (tmp_path / "new.vzip").read_bytes() == (tmp_path / "old.vzip").read_bytes()
 
@@ -110,7 +110,7 @@ def test_a_local_input_is_named_by_its_percent_encoded_path(tmp_path, monkeypatc
         store = zarrify(str(path.relative_to(tmp_path) if relative else path))
         want = zarrify(str(fixture))
         assert all(is_uri_reference(s.url or "") for s in store.sources), (dirname, name)
-        store.save(tmp_path / f"{i}.vzip")
+        store.save_vzip(tmp_path / f"{i}.vzip")
         saved = refkv.open(str(tmp_path / f"{i}.vzip"))
         keys = want.list()
         assert store.list() == saved.list() == keys
