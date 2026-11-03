@@ -78,8 +78,13 @@ it.
 
 **What it costs.** It ties phkv's format to vzip's:
 
-- bytes values cannot use codec 2 (Zstandard), since a ZIP entry can only be
-  stored or deflated;
+- bytes values cannot use codec 2 (Zstandard), since vzip allows only ZIP
+  methods 0 (STORED) and 8 (DEFLATE)
+  ([vzip §10.1](../../spec/bindings/vzip.md#101-structure)). ZIP itself
+  defines Zstandard as method 93
+  ([APPNOTE 6.3.8](https://pkwaredownloads.blob.core.windows.net/pem/APPNOTE.txt)),
+  so vzip could admit it, but then a ZIP reader that knows only STORED and
+  DEFLATE could not read those entries;
 - every record mirrors a ZIP entry, a reference's body must equal its payload,
   and the store's `n` counts vzip's hidden entries;
 - the superblock carries a `hybrid` flag, and finding it
