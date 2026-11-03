@@ -100,15 +100,15 @@ browser reader does not accept that yet. Python does ([spec/refkv.md §5.2](../.
 
 ## Performance
 
-Measured on 2026-11-03 from a home connection, in `us-east-1`'s direction:
+Measured once on 2026-11-03, over the public internet, so take these as a scale and not a benchmark:
 
 | volume | objects | chunks | zarrify | archive | reading a few chunks |
 |---|---|---|---|---|---|
 | Harris15, raw and unsharded | 766 | 766 | 1.4 s | 136 KB | 1 to 3 s (a whole 4 MB chunk) |
 | BANC, JPEG in shards | 87 767 | 690 million | 24 s | 15 MB | about 1 s |
 
-Zarrifying takes the listing's time and one read of `info`. A Zarr chunk of BANC's finest scale is
-1.3 GB when decoded, but the codec allocates only what a read selects.
+Zarrifying makes the listing's requests and one read of `info`. A Zarr chunk of BANC's finest scale
+is 2.1 GB when decoded, but the codec allocates only what a read selects.
 
 ## How it's verified
 

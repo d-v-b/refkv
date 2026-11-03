@@ -424,8 +424,8 @@ is a box of 32 × 16 × 16 chunks, so the array's chunk shape is `[256, 2048, 40
 2^17 shard numbers have a box within the grid, each with its object. At the coarsest scale,
 `512_512_45`, of size 2048 × 2304 × 7010 and `shard_bits` 5, the box is 16 × 32 × 16 chunks, and runs
 past the 18 chunks the volume has along y: tensorstore gives that scale the same shape as its write
-chunk, (2048, 2304, 256). The archive is 14 731 923 bytes for 690 million chunks, and takes 23.6 s to
-write, nearly all of it the listing. Reading a few chunks takes about a second, and the values equal
+chunk, (2048, 2304, 256). The archive is 14 731 923 bytes for 690 million chunks, and took 23.6 s to
+write. Reading a few chunks takes about a second, and the values equal
 tensorstore's.
 
 ## 10. What the layout does not express, and what was weighed
