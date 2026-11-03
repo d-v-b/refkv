@@ -95,9 +95,9 @@ zarrifiers against each other, or a profile's fixtures) removes them first.
 ## 4. Rules
 
 1. **Opt-in.** A producer MAY declare the convention, and SHOULD do so only
-   when its user asks. Left out, the hierarchy is the same, byte for byte,
-   whichever producer, release or machine wrote it, with nothing to strip
-   before comparing. refkv declares it only when asked, through an option
+   when its user asks. Left out, a hierarchy's documents are the same
+   whichever producer, release or machine wrote them, and two outputs compare
+   with nothing stripped. refkv declares it only when asked, through an option
    such as `provenance=True`.
 2. **Root only.** No node other than the root declares it. A program that
    writes a new root, such as a combination of stores with its own header,
