@@ -119,7 +119,7 @@ NOT_TENSORSTORE = {"precomputed_codings", "precomputed_codings_bare", "precomput
 
 def tensorstore_scale(name, index):
     v = tensorstore.open({"driver": "neuroglancer_precomputed",
-                          "kvstore": {"driver": "file", "path": f"{FIXTURES / name}/"},
+                          "kvstore": {"driver": "file", "path": f"{(FIXTURES / name).as_posix()}/"},
                           "scale_index": index}).result()
     # x, y, z, channel, from voxel_offset
     a = np.asarray(v.translate_to[0, 0, 0, 0].read().result())

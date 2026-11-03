@@ -344,7 +344,7 @@ def segmentation() -> None:
                                           compressed_segmentation_block_size=list(block))],
                       kind="segmentation", mesh="mesh"))
     write(root, "mesh/info", b'{"@type": "neuroglancer_multilod_draco"}')
-    write(root, "mesh/1:0", b"a mesh")
+    write(root, "mesh/1.index", b"a mesh")
     for lo, hi, _ in boxes(size, chunk):
         labels = {(x - lo[0], y - lo[1], z - lo[2]): label(x, y, z)
                   for z in range(lo[2], hi[2]) for y in range(lo[1], hi[1]) for x in range(lo[0], hi[0])}

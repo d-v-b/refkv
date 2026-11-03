@@ -85,7 +85,7 @@ def problems_of(store: Path, out: Path) -> list[str]:
         if store.name in CODED | OWN_RULES:
             continue
         index = integer(at(array.attrs.asdict(), "refkv_zarrified", "precomputed", "index"))
-        v = tensorstore_level({"driver": "file", "path": f"{store}/"}, index)
+        v = tensorstore_level({"driver": "file", "path": f"{store.as_posix()}/"}, index)
         theirs = np.asarray(v.translate_to[0, 0, 0, 0].read().result()).transpose(3, 2, 1, 0)
         if not np.array_equal(got, theirs[0] if theirs.shape[0] == 1 else theirs):
             problems.append(f"{path}: differs from tensorstore")
