@@ -21,6 +21,7 @@ import { zarrifyIr } from "./zarrify/ir/run.ts";
 import { openHttpSource, type RangeSource, readerSource } from "./zarrify/ir/source.ts";
 import { openHttpStore, StoreError, StoreLimitError, StoreReadError } from "./zarrify/store.ts";
 import type { StoreProfile } from "./zarrify/ir/store.ts";
+import { openArchive, writePhkv } from "./phkv.ts";
 import { writeVzip } from "./writer.ts";
 
 /** The titles rejections of the Rust core's store profiles carry, as the profiles' own errors did;
@@ -37,6 +38,12 @@ const STORE_FORMATS: Record<StoreProfile, string | undefined> = {
 };
 
 export const ARCHIVE_KEY = "__vz__/archive.vzip";
+
+/** The same for a handler that writes phkv stores (`format: "phkv"`): the store itself. */
+export const PHKV_ARCHIVE_KEY = "__vz__/archive.phkv";
+
+/** What a handler writes the archives it zarrifies as: a vzip archive, or a standalone phkv store. */
+export type ArchiveFormat = "vzip" | "phkv";
 
 /** Marks every response of the handler, so pages can tell it from the network's. */
 export const WORKER_HEADER = "X-Vzip-Worker";
@@ -144,6 +151,11 @@ export interface HandlerOptions {
    * so the next request zarrifies the input again.
    */
   saved?: SavedArchives;
+  /**
+   * What the archives the handler zarrifies are written as (default `"vzip"`). An archive named
+   * by URL (the `archive/` route) is opened as the format it is, whatever this says.
+   */
+  format?: ArchiveFormat;
 }
 
 /** `f()`'s value, or undefined if it throws or rejects. */
@@ -206,6 +218,7 @@ export function makeHandler(options: HandlerOptions): (request: Request) => Prom
     policy = {},
     pendingAfter,
     saved,
+    format = "vzip",
     openSource = options.openFile
       ? async (url: string) => {
         const file = await options.openFile!(url);
@@ -232,10 +245,10 @@ export function makeHandler(options: HandlerOptions): (request: Request) => Prom
         const trimmed = base.endsWith("/") ? base.slice(0, -1) : base;
         const stem = decodeURIComponent(trimmed.slice(trimmed.lastIndexOf("/") + 1)) || "archive";
         if (kind === "archive") {
-          return { archive: await Archive.open(await fetchArchive(url), url, fetchRange, policy), filename: stem };
+          return { archive: await openArchive(await fetchArchive(url), url, fetchRange, policy), filename: stem };
         }
-        const filename = `${stem.replace(/\.(ome\.tiff?|tiff?|nd2|n5|zarr)$/i, "")}.vzip`;
-        const read = (bytes: Uint8Array) => Archive.open(bytes, url, fetchRange, { ...policy, unverifiablePins: true });
+        const filename = `${stem.replace(/\.(ome\.tiff?|tiff?|nd2|n5|zarr)$/i, "")}.${format}`;
+        const read = (bytes: Uint8Array) => openArchive(bytes, url, fetchRange, { ...policy, unverifiablePins: true });
         const kept = saved && await attempt(() => saved.get(name));
         if (kept !== undefined) {
           const archive = await attempt(() => read(kept));
@@ -257,7 +270,7 @@ export function makeHandler(options: HandlerOptions): (request: Request) => Prom
             virtual = await zarrifySource(url, source);
           }
         }
-        const bytes = await writeVzip(virtual);
+        const bytes = format === "phkv" ? writePhkv(virtual) : await writeVzip(virtual);
         const archive = await read(bytes);
         if (saved) await attempt(() => saved.put(name, bytes));
         return { archive, filename };
@@ -297,9 +310,9 @@ export function makeHandler(options: HandlerOptions): (request: Request) => Prom
         return response(503, "still zarrifying; ask again", { "Retry-After": "0", [PENDING_HEADER]: "1" });
       }
       const { archive, filename } = built;
-      if (key === ARCHIVE_KEY) {
+      if (key === ARCHIVE_KEY || key === PHKV_ARCHIVE_KEY) {
         return response(200, head ? null : archive.bytes, {
-          "Content-Type": "application/zip",
+          "Content-Type": key === ARCHIVE_KEY ? "application/zip" : "application/octet-stream",
           "Content-Length": String(archive.bytes.length),
           "Content-Disposition": `attachment; filename="${filename.replaceAll('"', "")}"`,
         });

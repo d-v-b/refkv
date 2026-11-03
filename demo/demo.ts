@@ -1,14 +1,16 @@
 import hljs from "highlight.js/lib/core";
 import python from "highlight.js/lib/languages/python";
-import { Archive } from "../js/src/archive.ts";
 import {
   archiveDownloadUrl,
   archiveZarrUrl,
   fetchWorker,
   imageZarrUrl,
+  isArchiveUrl,
+  isVzipUrl,
   registerVzipWorker,
 } from "../js/src/client.ts";
-import { ERROR_HEADER, WORKER_HEADER } from "../js/src/server.ts";
+import { openArchive } from "../js/src/phkv.ts";
+import { type ArchiveFormat, ERROR_HEADER, WORKER_HEADER } from "../js/src/server.ts";
 import { sampleRanges, tooNarrow, usableWindow } from "./contrast.ts";
 import { pythonScript, stem } from "./python.ts";
 
@@ -17,6 +19,8 @@ hljs.registerLanguage("python", python);
 // The earliest refkv release the Python script needs: the latest release tag of the commit
 // the page was built from (js/build.mjs), or "" when the build found none.
 declare const __REFKV_RELEASE__: string;
+// What the worker writes its archives as, "vzip" or "phkv" (js/build.mjs: `REFKV_FORMAT`).
+declare const __REFKV_FORMAT__: ArchiveFormat;
 
 // The examples are the links with a data-url attribute in index.html, where
 // their sources and licenses are noted.
@@ -496,9 +500,9 @@ async function seriesViews(zarrUrl: string): Promise<View[]> {
 
 /** The keys of the archive of the hierarchy at `zarrUrl` (which the worker holds). */
 async function archiveKeys(zarrUrl: string): Promise<string[]> {
-  const r = await fetchWorker(archiveDownloadUrl(zarrUrl));
+  const r = await fetchWorker(archiveDownloadUrl(zarrUrl, __REFKV_FORMAT__));
   if (!r.ok) throw new Error(`${r.status}: ${await r.text()}`);
-  const archive = await Archive.open(new Uint8Array(await r.arrayBuffer()), zarrUrl, () => {
+  const archive = await openArchive(new Uint8Array(await r.arrayBuffer()), zarrUrl, () => {
     throw new Error("not read");
   });
   return archive.keys();
@@ -521,7 +525,7 @@ async function listArrays(zarrUrl: string, keys?: string[]): Promise<{ path: str
 }
 
 let prefix: Promise<string> | undefined;
-/** An input: its URL, its Zarr URL under the worker's prefix, and whether it is a .vzip archive. */
+/** An input: its URL, its Zarr URL under the worker's prefix, and whether it is a .vzip or .phkv archive. */
 interface Input {
   url: string;
   zarrUrl: string;
@@ -536,10 +540,11 @@ let views: (View & { input: Input })[] = [];
  * .vzip input it names the archive itself, `<archive url>|vzip:<path>|zarr3:`, which any
  * deployment of the Neuroglancer fork opens, wherever the link is shared. Otherwise it is the
  * worker's URL, `<url>|zarr3:`, which opens only on this site, in a browser where the page has
- * zarrified the input: a link to share names an archive of it, downloaded and hosted.
+ * zarrified the input: a link to share names an archive of it, downloaded and hosted. (A .phkv
+ * input gets the worker's URL too: the fork reads vzip archives, not phkv stores.)
  */
 function neuroglancerSource(shown: Input, url: string): string {
-  if (!shown.isArchive) return `${url}|zarr3:`;
+  if (!shown.isArchive || !isVzipUrl(shown.url)) return `${url}|zarr3:`;
   if (!url.startsWith(shown.zarrUrl)) throw new Error(`${url} is not under ${shown.zarrUrl}`);
   const path = url.slice(shown.zarrUrl.length).split("/").map(encodeURIComponent).join("/");
   return `${shown.url}|vzip:${path}|zarr3:`;
@@ -571,8 +576,9 @@ let shown: View | undefined;
 async function showView(view: View & { input: Input }) {
   shown = view;
   const source = (url: string) => neuroglancerSource(view.input, url);
-  $("share-local").hidden = view.input.isArchive;
-  $("share-archive").hidden = !view.input.isArchive;
+  const linkable = view.input.isArchive && isVzipUrl(view.input.url);
+  $("share-local").hidden = linkable;
+  $("share-archive").hidden = !linkable;
   $("name").textContent = view.name;
   $("zarr-url").textContent = source(view.url);
   $("view-note").textContent = view.note ?? "";
@@ -654,7 +660,7 @@ async function zarrify(url: string) {
   status.scrollIntoView({ block: "nearest", behavior: "smooth" });
   prefix ??= registerVzipWorker(new URL("vzip-sw.js", location.href));
   const p = await prefix;
-  const isArchive = /\.vzip(?:[?#]|$)/i.test(url);
+  const isArchive = isArchiveUrl(url);
   const zarrUrl = isArchive ? archiveZarrUrl(p, url) : imageZarrUrl(p, url);
   const opened: Input = { url, zarrUrl, isArchive };
   setStatus(isArchive ? "Opening the archive…" : "Reading the file's structure…");
@@ -745,10 +751,11 @@ async function zarrify(url: string) {
     }
     await showView(views[0]);
   }
-  $<HTMLAnchorElement>("download").href = archiveDownloadUrl(zarrUrl);
+  $<HTMLAnchorElement>("download").href = archiveDownloadUrl(zarrUrl, __REFKV_FORMAT__);
   showPython(opened, attrs.refkv_zarrified?.profile);
   $("result").hidden = false;
-  $("python").hidden = false;
+  // the script opens an archive with refkv's Python package, which does not read phkv stores
+  $("python").hidden = isArchive && !isVzipUrl(url);
   setStatus(`Ready in ${ms} ms.`);
 }
 
@@ -769,8 +776,8 @@ $("form").addEventListener("submit", (event) => {
     showError(e);
     // Python reads a file whatever its server's CORS headers say
     if (e instanceof WorkerError && e.reason === "cors") {
-      showPython({ url, zarrUrl: "", isArchive: /\.vzip(?:[?#]|$)/i.test(url) }, mediaProfile(url));
-      $("python").hidden = false;
+      showPython({ url, zarrUrl: "", isArchive: isArchiveUrl(url) }, mediaProfile(url));
+      $("python").hidden = isArchiveUrl(url) && !isVzipUrl(url);
     }
   });
 });
