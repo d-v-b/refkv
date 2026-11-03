@@ -94,8 +94,11 @@ zarrifiers against each other, or a profile's fixtures) removes them first.
 
 ## 4. Rules
 
-1. **Optional.** A producer MAY declare the convention. refkv declares it
-   only when asked ([§6](#6-open-questions)).
+1. **Opt-in.** A producer MAY declare the convention, and SHOULD do so only
+   when its user asks. Left out, the hierarchy is the same, byte for byte,
+   whichever producer, release or machine wrote it, with nothing to strip
+   before comparing. refkv declares it only when asked, through an option
+   such as `provenance=True`.
 2. **Root only.** No node other than the root declares it. A program that
    writes a new root, such as a combination of stores with its own header,
    writes its own `refkv_provenance` or none; it MUST NOT copy an operand's,
@@ -126,11 +129,6 @@ convention's layout may change without its version changing.
 
 ## 6. Open questions
 
-- **The default.** Declaring the convention by default makes it present on
-  the archives where it would be wanted later, when a defect is found; asking
-  for it makes every archive repeatable, byte for byte, without stripping it.
-  This draft takes the second, with an option such as `provenance=True` on
-  `zarrify` and `save`.
 - **Where it lives.** A binding could record the writer instead, as a format
   entry under its reserved prefix
   ([spec/bindings/vzip.md §11.4](bindings/vzip.md#114-hidden-entries)): a ZIP
