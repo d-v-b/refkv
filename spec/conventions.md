@@ -673,9 +673,12 @@ the elements are (its **source model**). Sections 8.1 to 8.7 are all a reader
 needs to read the table, check it, and rebuild the source; 8.8 is how a
 producer writes it, one way only, so that the mirror of a source is the same
 whoever writes it. A store (an N5, Zarr v2 or OME-Zarr store, a SAFE
-directory) is many objects: its IR has many sources, one per object, and
-[§8.9](#89-stores) says how 8.1 to 8.8 apply to it. An IR of one file is the
-special case of one source, source 0, which 8.1 to 8.8 describe as they stand.
+directory, a safetensors store) is many objects, and so is a file that its
+profile reads as a store (VSI, NRRD and GRIB,
+[spec/zarrify.md §1.8](zarrify.md#18-files-read-as-stores)): its IR has many
+sources, one per object, and [§8.9](#89-stores) says how 8.1 to 8.8 apply to
+it. Any other file's IR is the special case of one source, source 0, which 8.1
+to 8.8 describe as they stand.
 
 ### 8.1 Elements
 
@@ -890,9 +893,9 @@ canonical mirror (8.8: runs expanded, derived spaces left out) would have more
 than `N = 2^22 + floor(Z / 4)` rows, with the message
 `budget: the mirror would have more than N rows` (N in decimal), and may do so
 before expanding when the elements outside derived spaces, every run expanded,
-are already more than `N`. (No source any parser accepts
-comes near it today: they describe fewer than one element per four bytes of
-the source; the limit bounds what a reader must expand.) So is one whose columns' lengths
+are already more than `N`. (A source can describe more than one element per
+four bytes, as a TIFF of many small IFDs does, so `floor(Z / 4)` alone does not
+admit every source; the limit bounds what a reader must expand.) So is one whose columns' lengths
 differ, whose column refers to values past `column_values` or entries past
 its array, whose column run's member 0 is not `size` rows of sibling
 subtrees (every row's parent is the first row's parent or an earlier row of
@@ -924,15 +927,22 @@ objects from the table alone: [§8.9](#89-stores).)
 
 ### 8.5 Forms and recipes
 
-A form is a JSON object: for a data element, `geometry` (the format's
-description of the unit, such as its shape and data type), `codec` and
-`recipe`; for a derived element, the transform and, when known, `size`;
-for an object of a store described in place, `{"bytes":"source"}`
-([§8.9](#89-stores)).
+A form is a JSON object: for a data element, `recipe` and, as its format
+gives them, `geometry` (the format's description of the unit, such as its shape
+and data type) and `codec` (a SAFE tile part has no `geometry`, and a FITS
+table's rows and heap have no `codec`); for a derived element,
+`transform` and, when known, `size`, with `skip` for `nd2-lv-zlib` (the bytes
+of the element before its zlib stream); for an object of a store described in
+place, `{"bytes":"source"}` ([§8.9](#89-stores)).
 A **recipe** is the bytes of the unit as a list of parts: `["src", o, n]`,
 the `n` bytes (`null`: up to the element's end) at offset `o` from the
-element's start; and `["shared", k]`, shared data source `k` (8.2). The
-hierarchy's chunks are references built from recipes; the rebuild does not
+element's start; `["shared", k]`, shared data source `k` (8.2); and
+`["rows", o, s, n, c]`, `c` runs of `n` bytes each, the first at offset `o`
+from the element's start and each `s` bytes after the one before, the bytes
+between them not being part of the unit (an ND2 frame's padded rows,
+[nd2.md §5.3](zarrify/nd2.md#53-elements)). The hierarchy's chunks are
+references built from recipes, except ND2's, which its profile builds from the
+frame's layout ([nd2.md §7.3](zarrify/nd2.md#73-frames)); the rebuild does not
 need forms.
 
 ### 8.6 Types
@@ -1149,7 +1159,7 @@ compares mirrors entry for entry. In order:
 
    | profile | rule | applies to | `x` | `y` |
    |---|---|---|---|---|
-   | TIFF | layout tables | the start or length of a column run of at least 16 members of one data row each, with a name index, in a struct `tiles` (or `strips`) with no index | the first child `value` (no index) of the first struct child `tags/` with index 324 for starts and 325 for lengths (273 and 279 for `strips`) of that struct's parent: TileOffsets and TileByteCounts (StripOffsets, StripByteCounts) | member 0's name index |
+   | TIFF, QPTIFF | layout tables | the start or length of a column run of at least 16 members of one data row each, with a name index, in a struct `tiles` (or `strips`) with no index | the first child `value` (no index) of the first struct child `tags/` with index 324 for starts and 325 for lengths (273 and 279 for `strips`) of that struct's parent: TileOffsets and TileByteCounts (StripOffsets, StripByteCounts) | member 0's name index |
 
    The other profiles have none. A format adds a rule by a change of this
    section and its convention: a new row in this table, whose conditions
@@ -1202,7 +1212,10 @@ revision of this section.
 
 A store input ([spec/zarrify.md §1.4](zarrify.md#14-store-inputs)) is
 a set of objects named by keys. Its IR, a **store IR**, has many sources: each
-object of the store is one. Sections [§8.1](#81-elements) to
+object of the store is one. A file read as a store
+([spec/zarrify.md §1.8](zarrify.md#18-files-read-as-stores)) has a store IR too,
+even when it is the only object: the objects are the files its profile read,
+which are then the store's listing. Sections [§8.1](#81-elements) to
 [§8.8](#88-canonical-form) hold for a store IR with the changes this section
 gives. An IR without objects, a **file IR**, is the special case of one
 source, source 0: this section changes nothing in it, its table or its view.
@@ -1581,8 +1594,10 @@ declaration is [§9](#9-dataset-layouts)'s.
 
 For a file's convention, `refkv_source` is the file's IR mirror
 ([§8](#8-the-ir-mirror)): its table, from which the file is rebuilt byte for
-byte, and its view, `refkv_source/tree`; for a store's, it is the store's
-([§8.9](#89-stores)). The format's convention lists the IR's elements, the
+byte, and its view, `refkv_source/tree`; for a store's, and for a file that
+its profile reads as a store
+([spec/zarrify.md §1.8](zarrify.md#18-files-read-as-stores)), it is a store
+IR's ([§8.9](#89-stores)). The format's convention lists the IR's elements, the
 format's **source model**.
 
 ### 11.4 Equivalence

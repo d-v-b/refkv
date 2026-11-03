@@ -9,6 +9,10 @@ ND2 profile, [Part 2](#part-2-the-profile) below.
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `59612f14-e314-4207-ba00-8f422ba71490` ·
 Schema: [schema.json](nd2/schema.json)
 
+Changed 2026-11-03, with no change to any output: a placed frame's `pixels` form is given, with
+its recipe's `rows` part ([conventions §8.5](../conventions.md#85-forms-and-recipes)), and row
+padding, which `pixels` claims, is no longer listed under `gaps`.
+
 Changed 2026-10-27: a zlib stream's codec is `numcodecs.zlib`, zarr-python's name for it, in
 place of `zlib` ([conventions §3](../conventions.md#3-arrays), d-v-b/refkv#90).
 
@@ -578,10 +582,24 @@ indexes. Every chunk struct holds `header`
 | an LV scalar | value | `{lv:u1,k:u1,name:bytes[2k],v:T}` | named (below) by the record's name as JSON ([§5.1](#51-decoded-chunks)); `T` its value's type (`u1` bool, `<i4`, `<u4`, `<u8`, `<f8`, `utf16[n]` string, `{n:<u8,v:bytes[n]}` byte array) |
 | an LV level | struct | | named as a scalar is; `header` (`{lv:u1,k:u1,name:bytes[2k],count:<u4,length:<u8}`), its records, and `table` (`bytes[8c]`, the bytes it skips) |
 | an XML element | struct or value | `xml:<runtype>` or `xml` | under `chunks/<name>/xml`, named (below) by its tag: an element with a `value` attribute is a value (its attribute's text), any other a struct of its child elements |
-| `frames/<f>` | struct | | each chunk `ImageDataSeq\|<f>!`: `header`, `name`, and for a placed frame ([§4.1](#41-frames)) `timestamp` (`<f8`), `pixels` (data: the frame's pixels; its form's recipe the range, or the rows of padded rows) and `trailing` (`bytes`, data after the pixels), else `data` (`bytes[d]`) |
-| `gaps/<offset>` | gap | | name padding, replaced map records, row padding and any other bytes no element claims |
+| `frames/<f>` | struct | | each chunk `ImageDataSeq\|<f>!`: `header`, `name`, and for a placed frame ([§4.1](#41-frames)) `timestamp` (`<f8`), `pixels` (data: the frame's pixels, row padding included, with the form below) and `trailing` (`bytes`, data after the pixels), else `data` (`bytes[d]`) |
+| `gaps/<offset>` | gap | | name padding, replaced map records and any other bytes no element claims |
 
 A chunk whose bytes an earlier element claims is an alias of it.
+
+**The form of `pixels`.** With `R = uiWidth × uiComp × uiBpcInMemory / 8` and `D` the
+`data_type` ([§4.3](#43-output)), it is
+`{"geometry":{"shape":[uiHeight,uiWidth,uiComp],"dtype":D},"codec":C,"recipe":P}`, with
+
+| frame | `C` | `P` |
+|---|---|---|
+| compressed | `["zlib","bytes"]` | `[["src",0,d − 8]]`, `d` its chunk's data length |
+| uncompressed, `uiWidthBytes = R` | `["bytes"]` | `[["src",0,uiHeight × R]]` |
+| uncompressed, padded rows | `["bytes"]` | `[["rows",0,uiWidthBytes,R,uiHeight]]` ([conventions §8.5](../conventions.md#85-forms-and-recipes)) |
+
+The recipe describes the whole frame, whatever row blocks its chunks are ([§7.3](#73-frames)).
+An uncompressed frame's `pixels` has the extent of its `uiHeight × uiWidthBytes` bytes, or of those
+that lie within the file.
 
 **Names.** The chunks under `chunks`, the records of a decoded chunk or of a
 level, and the child elements of an XML element take their names from the
