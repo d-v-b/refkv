@@ -532,12 +532,16 @@ def test_operators_keep_bounds_hidden_flags_and_meaning_through_every_step(tmp_p
 
 
 def test_union_compares_a_deeply_nested_document_as_json():
-    deep = b'{"zarr_format":3,"node_type":"group","attributes":{"x":' + b"[" * 1400 + b"]" * 1400 + b"}}"
+    deep = b'{"zarr_format":3,"node_type":"group","attributes":{"x":' + b"[" * 500 + b"]" * 500 + b"}}"
     spaced = deep.replace(b'"attributes":', b'"attributes" : ').replace(b"{", b"{ ")
     both = union(ReferenceStore({"zarr.json": deep}), ReferenceStore({"zarr.json": spaced}))
     assert both.mapping["zarr.json"] == spaced
     with pytest.raises(ValueError, match="hold different values"):
         union(ReferenceStore({"zarr.json": deep}), ReferenceStore({"zarr.json": deep.replace(b"[]", b"[1]")}))
+    # nested past DEEPEST, on any interpreter, documents are compared as bytes
+    deeper = [d.replace(b"[" * 500, b"[" * 600).replace(b"]" * 500, b"]" * 600) for d in (deep, spaced)]
+    with pytest.raises(ValueError, match="hold different values"):
+        union(*(ReferenceStore({"zarr.json": d}) for d in deeper))
 
 
 def test_union_refuses_a_number_against_an_object_that_spells_it():

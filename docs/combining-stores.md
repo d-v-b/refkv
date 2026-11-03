@@ -145,7 +145,9 @@ without_plane_5 = overlay(stack, blank)
 - **Zarr documents as bytes.** A combination drops consolidated metadata from each
   `zarr.json` it keeps, so it must be able to read one. It refuses to keep a
   `zarr.json` held as a range, even a literal one, though a later store may
-  replace it; `normalize` refuses one too.
+  replace it; `normalize` refuses one too. A document whose arrays and objects
+  nest more than 512 deep is not parsed: `union` compares it as bytes, and a
+  combination refuses one that mentions `consolidated_metadata`.
 - **Box lookups.** Chunk boxes are found through a tree of bounding boxes, so a
   lookup checks only the boxes near a chunk. Many boxes crossing at one point
   without holding it (a construction rather than a layout) defeat that, and each

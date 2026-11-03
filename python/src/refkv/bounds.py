@@ -25,12 +25,13 @@ design/proposals/store-operators.md
 
 from __future__ import annotations
 
+import itertools
 import json
 import operator
 import re
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
-from typing import Literal, SupportsIndex, cast
+from typing import Any, Literal, SupportsIndex, cast
 
 from refkv.vzip.names import RESERVED_PREFIX
 
@@ -38,6 +39,20 @@ __all__ = ["Bound", "ChunkBox", "Key", "KeyRange", "Prefix", "chunk_key", "deriv
 
 _INDEX = re.compile(r"0|[1-9][0-9]*")
 _DIGITS = 4000  # longer indexes are past what Python converts to int, and past any array
+DEEPEST = 512  # load_json refuses a document whose arrays and objects nest deeper
+_STRING = re.compile(r'"[^"\\]*(?:\\.[^"\\]*)*"', re.DOTALL)
+_BRACKET = re.compile(r"[\[\]{}]")
+
+
+def load_json(value: str | bytes, **options: Any) -> Any:  # noqa: ANN401 (json.loads's own types)
+    """`json.loads(value, **options)`, refusing a document nested deeper than `DEEPEST`
+    before parsing it, with a `json.JSONDecodeError`. How deep `json` itself reaches depends
+    on the interpreter and its stack: a RecursionError, a parse or a crash."""
+    text = value if isinstance(value, str) else value.decode(json.detect_encoding(value), "surrogatepass")
+    steps = (1 if c in "[{" else -1 for c in _BRACKET.findall(_STRING.sub("", text)))
+    if max(itertools.accumulate(steps, initial=0)) > DEEPEST:
+        raise json.JSONDecodeError(f"arrays or objects nested deeper than {DEEPEST}", text, 0)
+    return json.loads(text, **options)
 
 
 def _check_path(path: str, what: str) -> None:
@@ -228,8 +243,8 @@ def node_type(value: object) -> str | None:
     if not isinstance(value, bytes):
         return None
     try:
-        doc = json.loads(value)
-    except (ValueError, RecursionError):
+        doc = load_json(value)
+    except ValueError:
         return None
     kind = doc.get("node_type") if isinstance(doc, dict) else None
     return kind if kind in ("array", "group") else None

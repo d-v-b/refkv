@@ -62,6 +62,7 @@ from refkv.bounds import (
     ancestors,
     ancestors_from_root,
     chunk_key,
+    load_json,
     node_type,
     nodes,
     parse_chunk_key,
@@ -379,9 +380,9 @@ def _load(value: bytes) -> object:
     strict JSON: UTF-8 without a byte order mark, and no object with a key twice (readers
     disagree on which value of a doubled key counts)."""
     try:
-        return json.loads(value.decode("utf-8"), parse_float=_Number, parse_int=_Number,
-                          parse_constant=_Number, object_pairs_hook=_object)
-    except (ValueError, RecursionError):
+        return load_json(value.decode("utf-8"), parse_float=_Number, parse_int=_Number,
+                         parse_constant=_Number, object_pairs_hook=_object)
+    except ValueError:
         return None
 
 
@@ -425,8 +426,8 @@ def _listed(value: bytes) -> bool:
         return dict(items)
 
     try:
-        doc = json.loads(value, object_pairs_hook=pairs)
-    except (ValueError, RecursionError):
+        doc = load_json(value, object_pairs_hook=pairs)
+    except ValueError:
         return b"consolidated_metadata" in value  # can't tell: take a mention as one
     return isinstance(doc, dict) and any(copies)
 
@@ -993,7 +994,7 @@ def _array(store: ReferenceStore, array: str) -> tuple[list[int], list[int], str
         raise ValueError(  # noqa: TRY004 (a missing array, not a wrong argument type)
             f"{array!r} is not an array of the store: no zarr.json or .zarray document")
     try:
-        meta = json.loads(doc)
+        meta = load_json(doc)
         if v3 is not None:
             if meta.get("node_type") != "array":
                 raise ValueError(f"{array!r} is a {meta.get('node_type')}, not an array")
@@ -1011,7 +1012,7 @@ def _array(store: ReferenceStore, array: str) -> tuple[list[int], list[int], str
             raise ValueError(f"{array!r}: chunk key encoding {name!r} with separator {sep!r}, or a "
                              "chunk shape of another rank than the shape")
         return [operator.index(n) for n in shape], [operator.index(c) for c in chunks], name, sep
-    except (KeyError, TypeError, AttributeError, RecursionError, json.JSONDecodeError, UnicodeDecodeError) as e:
+    except (KeyError, TypeError, AttributeError, json.JSONDecodeError, UnicodeDecodeError) as e:
         raise ValueError(f"{array!r}: malformed array metadata ({type(e).__name__}: {e})") from None
 
 
