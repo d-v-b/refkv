@@ -27,18 +27,23 @@ from pydicom.dataset import Dataset, FileMetaDataset
 from pydicom.encaps import encapsulate, encapsulate_extended
 from pydicom.filebase import DicomBytesIO
 from pydicom.filewriter import write_dataset, write_file_meta_info
+from pydicom.pixels.encoders.native import _encode_row
 from pydicom.sequence import Sequence
 from pydicom.uid import (
+    HTJ2K,
     JPEG2000,
     UID,
     ExplicitVRBigEndian,
     ExplicitVRLittleEndian,
+    HTJ2KLossless,
+    HTJ2KLosslessRPCL,
     ImplicitVRLittleEndian,
     JPEG2000Lossless,
     JPEGBaseline8Bit,
     JPEGLossless,
     JPEGLosslessSV1,
     JPEGLSLossless,
+    JPEGLSNearLossless,
     RLELossless,
     generate_uid,
 )
@@ -348,7 +353,7 @@ def rejects() -> None:
     save("dicom_reject_palette", pixels(ds), ExplicitVRLittleEndian)
 
     ds = image(SECONDARY_CAPTURE, 4, 4, spp=3, photometric="YBR_FULL")
-    save("dicom_reject_native_ybr", native(ds, ramp((4, 4, 3), np.uint8), vr="OB"), ExplicitVRLittleEndian)
+    save("dicom_ybr_full_native", native(ds, ramp((4, 4, 3), np.uint8), vr="OB"), ExplicitVRLittleEndian)
 
     ds = image(WHOLE_SLIDE, 4, 4, frames=4)
     whole_slide(ds, 8, 8, organization="TILED_SPARSE")
@@ -1066,6 +1071,215 @@ def series() -> None:
     write("slide_paths", "b.dcm", level("1.2.3.14", 8, 8))
 
 
+def rle(pixels: np.ndarray) -> bytes:
+    """A DICOM RLE frame (PS3.5
+    [Annex G](https://dicom.nema.org/medical/dicom/current/output/chtml/part05/chapter_G.html)) of
+    `pixels` ([rows, columns[, samples]]): one PackBits segment per byte of each sample, most
+    significant first."""
+    cells = pixels if pixels.ndim == 3 else pixels[..., None]
+    size = cells.dtype.itemsize
+    raw = cells.astype(cells.dtype.newbyteorder("<")).view(np.uint8).reshape(*cells.shape, size)
+    segments = []
+    for sample in range(cells.shape[2]):
+        for byte in range(size - 1, -1, -1):
+            segment = b"".join(_encode_row(row.tobytes()) for row in raw[:, :, sample, byte])
+            segments.append(segment + b"\0" * (len(segment) % 2))
+    offsets, at = [], 64
+    for segment in segments:
+        offsets.append(at)
+        at += len(segment)
+    return struct.pack("<16L", len(segments), *offsets, *[0] * (15 - len(segments))) + b"".join(segments)
+
+
+def jpegls(pixels: np.ndarray, near: int | None = None) -> bytes:
+    return cast("bytes", imagecodecs.jpegls_encode(pixels, level=near))
+
+
+def htj2k(pixels: np.ndarray, rgb: bool | None = None, reversible: bool = True) -> bytes:
+    return cast("bytes", imagecodecs.htj2k_encode(pixels, rgb=rgb, reversible=reversible,
+                                                  level=None if reversible else 0.01))
+
+
+def codecs_and_photometrics() -> None:
+    """RLE, JPEG-LS and HTJ2K frames (spec/zarrify/dicom.md §7.5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#75-frames>), palette images,
+    native YCbCr images, and JPEG 2000 frames of YBR_FULL_422, whose chroma is subsampled. That
+    frame, which imagecodecs cannot write, is from IDC's cgci_blgsp collection (CC BY 3.0):
+    series b5227222-7aa4-4e15-b0b7-a822d19dd04b, instance 14d108c5-7b6f-4f85-9fac-dba4d36ea03a."""
+    RNG.bit_generator.state = np.random.default_rng(16).bit_generator.state  # its own stream, whatever ran before
+    pixels = ramp((3, 12, 10), np.uint16) & 0x0FFF
+    ds = image(MULTIFRAME_GRAYSCALE, 12, 10, bits=16, stored=12, frames=3)
+    ds.PixelData = encapsulate([rle(p) for p in pixels], has_bot=True)
+    save("dicom_rle_mono16_bot", ds, RLELossless)
+
+    ds = image(SECONDARY_CAPTURE, 8, 11)
+    frame = rle(ramp((8, 11), np.uint8))
+    ds.PixelData = encapsulate([frame], fragments_per_frame=2, has_bot=False)
+    save("dicom_rle_mono8_fragments", ds, RLELossless)
+
+    ds = image(MULTIFRAME_GRAYSCALE, 7, 9, photometric="MONOCHROME1", bits=16, signed=True, frames=2)
+    ds.PixelData = encapsulate([rle(p) for p in ramp((2, 7, 9), np.int16)], has_bot=False)
+    save("dicom_rle_signed16", ds, RLELossless)
+
+    ds = image(MULTIFRAME_GRAYSCALE, 6, 5, bits=32, frames=2)
+    ds.PixelData = encapsulate([rle(p) for p in ramp((2, 6, 5), np.uint32)], has_bot=True)
+    save("dicom_rle_mono32", ds, RLELossless)
+
+    ds = image(MULTIFRAME_GRAYSCALE, 8, 12, spp=3, photometric="RGB", frames=2)
+    ds.PixelData = encapsulate([rle(p) for p in ramp((2, 8, 12, 3), np.uint8)], has_bot=True)
+    save("dicom_rle_rgb8_frames", ds, RLELossless)
+
+    ds = image(SECONDARY_CAPTURE, 8, 12, spp=3, photometric="RGB", bits=16)
+    ds.PixelData = encapsulate([rle(ramp((8, 12, 3), np.uint16))], has_bot=False)
+    save("dicom_rle_rgb16", ds, RLELossless)
+
+    ds = image(SECONDARY_CAPTURE, 8, 12, spp=3, photometric="YBR_FULL")
+    ds.PixelData = encapsulate([rle(ramp((8, 12, 3), np.uint8))], has_bot=False)
+    save("dicom_rle_ybr_full", ds, RLELossless)
+
+    def mono(stream: bytes, syntax: UID, name: str, **kw) -> None:
+        ds = image(SECONDARY_CAPTURE, 8, 8, **kw)
+        ds.PixelData = encapsulate([stream], has_bot=False)
+        save(name, ds, syntax)
+
+    pixels8 = ramp((8, 8), np.uint8)
+    three_segments = rle(ramp((8, 8, 3), np.uint8))
+    mono(three_segments, RLELossless, "dicom_reject_rle_segments")
+    mono(struct.pack("<L", 1), RLELossless, "dicom_reject_rle_no_header")
+    mono(struct.pack("<2L", 1, 32) + bytes(32), RLELossless, "dicom_reject_rle_first_offset")
+
+    pixels = ramp((3, 12, 10), np.uint16) & 0x0FFF
+    ds = image(MULTIFRAME_GRAYSCALE, 12, 10, bits=16, stored=12, frames=3)
+    ds.PixelData = encapsulate([jpegls(p) for p in pixels], has_bot=True)
+    save("dicom_jpegls_mono16_bot", ds, JPEGLSLossless)
+
+    ds = image(MULTIFRAME_GRAYSCALE, 12, 10, bits=16, signed=True, frames=2)
+    ds.PixelData = encapsulate([jpegls(p.view(np.uint16)) for p in ramp((2, 12, 10), np.int16)], has_bot=False)
+    save("dicom_jpegls_signed16", ds, JPEGLSLossless)
+
+    ds = image(SECONDARY_CAPTURE, 16, 16)
+    ds.PixelData = encapsulate([jpegls(smooth(1, 16, 16, 1)[0], near=2)], has_bot=False)
+    save("dicom_jpegls_near_mono8", ds, JPEGLSNearLossless)
+
+    ds = image(SECONDARY_CAPTURE, 8, 12, spp=3, photometric="RGB")
+    ds.PixelData = encapsulate([jpegls(ramp((8, 12, 3), np.uint8))], has_bot=False)
+    save("dicom_jpegls_rgb", ds, JPEGLSLossless)
+
+    ds = image(SECONDARY_CAPTURE, 8, 12, spp=3, photometric="YBR_FULL")
+    ds.PixelData = encapsulate([jpegls(ramp((8, 12, 3), np.uint8))], has_bot=False)
+    save("dicom_jpegls_ybr_full", ds, JPEGLSLossless)
+
+    mono(jpeg(smooth(1, 8, 8, 1)[0], "MONOCHROME2"), JPEGLSLossless, "dicom_reject_jpegls_baseline")
+    mono(jpegls(ramp((8, 8, 3), np.uint8)), JPEGLSLossless, "dicom_reject_jpegls_components")
+    mono(jpegls(ramp((8, 8), np.uint16) | 0x0FFF), JPEGLSLossless, "dicom_reject_jpegls_precision")
+    signed = ramp((8, 8), np.uint16) & 0x0FFF
+    mono(jpegls(signed, near=None)[:0] + _jpegls_precision(jpegls(signed), 12), JPEGLSLossless,
+         "dicom_reject_jpegls_signed_precision", bits=16, stored=12, signed=True)
+    mono(jpegls(ramp((9, 8), np.uint8)), JPEGLSLossless, "dicom_reject_jpegls_shape")
+    stream = jpegls(pixels8)
+    mono(stream[: stream.index(b"\xff\xda")] + b"\xff\xd9", JPEGLSLossless, "dicom_reject_jpegls_no_scan")
+
+    pixels = ramp((2, 12, 10), np.uint16) & 0x0FFF
+    ds = image(MULTIFRAME_GRAYSCALE, 12, 10, bits=16, stored=12, frames=2)
+    ds.PixelData = encapsulate([htj2k(p) for p in pixels], has_bot=True)
+    save("dicom_htj2k_mono16_bot", ds, HTJ2KLossless)
+
+    ds = image(SECONDARY_CAPTURE, 12, 10, bits=16, signed=True)
+    ds.PixelData = encapsulate([htj2k(ramp((12, 10), np.int16))], has_bot=False)
+    save("dicom_htj2k_signed16", ds, HTJ2KLosslessRPCL)
+
+    ds = image(SECONDARY_CAPTURE, 16, 16, spp=3, photometric="YBR_RCT")
+    ds.PixelData = encapsulate([htj2k(ramp((16, 16, 3), np.uint8), rgb=True)], has_bot=False)
+    save("dicom_htj2k_rgb_rct", ds, HTJ2KLossless)
+
+    ds = image(SECONDARY_CAPTURE, 16, 16, spp=3, photometric="RGB")
+    ds.PixelData = encapsulate([htj2k(ramp((16, 16, 3), np.uint8), rgb=False)], has_bot=False)
+    save("dicom_htj2k_rgb_no_transform", ds, HTJ2KLossless)
+
+    ds = image(SECONDARY_CAPTURE, 16, 16, spp=3, photometric="YBR_ICT")
+    ds.PixelData = encapsulate([htj2k(smooth(1, 16, 16, 3)[0], rgb=True, reversible=False)], has_bot=False)
+    save("dicom_htj2k_rgb_ict", ds, HTJ2K)
+
+    def palette_image(rows: int = 6, columns: int = 8, *, bits: int = 8, **kw) -> Dataset:
+        ds = image(SECONDARY_CAPTURE, rows, columns, photometric="PALETTE COLOR", bits=bits, **kw)
+        ramps = {"Red": np.arange(256), "Green": 255 - np.arange(256), "Blue": np.arange(256) // 2}
+        for color, values in ramps.items():
+            setattr(ds, f"{color}PaletteColorLookupTableDescriptor", [256, 0, 16])
+            setattr(ds, f"{color}PaletteColorLookupTableData", (values * 257).astype("<u2").tobytes())
+        return ds
+
+    def palette_bytes(ds: Dataset) -> None:
+        for color in ("Red", "Green", "Blue"):
+            ds[f"{color}PaletteColorLookupTableData"].VR = "OW"
+
+    ds = native(palette_image(), ramp((6, 8), np.uint8), vr="OB")
+    palette_bytes(ds)
+    save("dicom_palette_native8", ds, ExplicitVRLittleEndian)
+
+    # an implicit file, of 16-bit indices and two entries past the first mapped value 10
+    ds = palette_image(bits=16)
+    for color in ("Red", "Green", "Blue"):
+        setattr(ds, f"{color}PaletteColorLookupTableDescriptor", [4, 10, 16])
+        setattr(ds, f"{color}PaletteColorLookupTableData", struct.pack("<4H", 0, 1000, 2000, 65535))
+    save("dicom_palette_first_mapped", native(ds, 10 + ramp((6, 8), np.uint16) % 4), ImplicitVRLittleEndian)
+
+    # entries of one byte each, in OB
+    ds = native(palette_image(), ramp((6, 8), np.uint8), vr="OB")
+    for color in ("Red", "Green", "Blue"):
+        setattr(ds, f"{color}PaletteColorLookupTableDescriptor", [256, 0, 8])
+        setattr(ds, f"{color}PaletteColorLookupTableData", np.arange(256, dtype=np.uint8).tobytes())
+        ds[f"{color}PaletteColorLookupTableData"].VR = "OB"
+    save("dicom_palette_entries_of_bytes", ds, ExplicitVRLittleEndian)
+
+    ds = palette_image()
+    palette_bytes(ds)
+    ds.PixelData = encapsulate([rle(ramp((6, 8), np.uint8))], has_bot=False)
+    save("dicom_palette_rle", ds, RLELossless)
+
+    ds = native(palette_image(), ramp((6, 8), np.uint8), vr="OB")
+    palette_bytes(ds)
+    del ds.RedPaletteColorLookupTableData
+    ds.SegmentedRedPaletteColorLookupTableData = bytes(8)
+    save("dicom_palette_segmented", ds, ExplicitVRLittleEndian)
+    ds = native(palette_image(), ramp((6, 8), np.uint8), vr="OB")
+    del ds.GreenPaletteColorLookupTableData
+    save("dicom_reject_palette_no_tables", ds, ExplicitVRLittleEndian)
+    ds = native(palette_image(), ramp((6, 8), np.uint8), vr="OB")
+    ds.BluePaletteColorLookupTableDescriptor = [128, 0, 16]
+    save("dicom_reject_palette_descriptors_differ", ds, ExplicitVRLittleEndian)
+    ds = native(palette_image(), ramp((6, 8), np.uint8), vr="OB")
+    ds.GreenPaletteColorLookupTableData = bytes(2)
+    save("dicom_reject_palette_lengths_differ", ds, ExplicitVRLittleEndian)
+    ds = native(palette_image(), ramp((6, 8), np.uint8), vr="OB")
+    for color in ("Red", "Green", "Blue"):
+        setattr(ds, f"{color}PaletteColorLookupTableData", bytes(2))
+    save("dicom_reject_palette_short", ds, ExplicitVRLittleEndian)
+    ds = native(palette_image(), ramp((6, 8), np.uint8), vr="OB")
+    for color in ("Red", "Green", "Blue"):
+        setattr(ds, f"{color}PaletteColorLookupTableDescriptor", [256, 0, 12])
+    save("dicom_reject_palette_bits", ds, ExplicitVRLittleEndian)
+    ds = image(SECONDARY_CAPTURE, 6, 8, photometric="PALETTE COLOR", bits=32)
+    save("dicom_reject_palette_depth", native(ds, ramp((6, 8), np.uint32)), ExplicitVRLittleEndian)
+
+    ds = image(MULTIFRAME_GRAYSCALE, 5, 7, spp=3, photometric="YBR_FULL", frames=2, planar=1)
+    save("dicom_ybr_full_planar_frames", native(ds, ramp((2, 5, 7, 3), np.uint8), vr="OB"), ExplicitVRLittleEndian)
+
+    frame = (Path(__file__).parent / "frame_ybr_422.j2k").read_bytes()
+    ds = image(MULTIFRAME_GRAYSCALE, 240, 240, spp=3, photometric="YBR_FULL_422", frames=2)
+    ds.PixelData = encapsulate([frame, frame], has_bot=True)
+    save("dicom_j2k_ybr_422", ds, JPEG2000)
+    ds = image(SECONDARY_CAPTURE, 16, 16, spp=3, photometric="YBR_FULL_422")
+    ds.PixelData = encapsulate([j2k(ramp((16, 16, 3), np.uint8), mct=False)], has_bot=False)
+    save("dicom_reject_j2k_ybr_422_not_subsampled", ds, JPEG2000)
+
+
+def _jpegls_precision(stream: bytes, precision: int) -> bytes:
+    """`stream` with its frame header's precision set: its header alone, which is all the
+    profile reads."""
+    at = stream.index(b"\xff\xf7")
+    return stream[: at + 4] + bytes([precision]) + stream[at + 5 :]
+
+
 def packed_bits(pixels: np.ndarray) -> bytes:
     """`pixels` of 0 and 1 as one run of bits, least significant first, padded to an even length
     (PS3.5 [8.1.1](https://dicom.nema.org/medical/dicom/current/output/chtml/part05/chapter_8.html#sect_8.1.1))."""
@@ -1180,4 +1394,5 @@ if __name__ == "__main__":
     review4()
     lossless()
     one_bit()
+    codecs_and_photometrics()
     series()
