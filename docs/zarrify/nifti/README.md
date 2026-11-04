@@ -19,6 +19,14 @@ a run of at most 128 KiB of that block: several z-slices, one slice, or
 some rows of a large slice. The SPM `avg152T1.nii` template became a 12 KB
 archive in under 4 s (at spec/zarrify.md revision 16).
 
+## Gzipped files
+
+A `.nii.gz` is read as it is, with nothing decompressed but its first bytes: one chunk references
+the whole file, with the codecs `bytes`, `refkv.skip` (the header's length) and `gzip`. The cost is
+reads: a gzip stream has no index, so reading one slice inflates the whole stream, and holds the
+whole array in memory. To slice a large volume repeatedly, decompress it once and zarrify the
+`.nii`.
+
 ## What you get
 
 One OME-Zarr 0.5 image at the archive root, with one array, `0`.
@@ -26,8 +34,10 @@ One OME-Zarr 0.5 image at the archive root, with one array, `0`.
 - **Axes:** `t` (4-D and up), `c` (5-D, or RGB/RGBA voxels), `z` (3-D and
   up), `y`, `x`. NIfTI's first dimension, which varies fastest, is `x`.
 - **Data types:** every NIfTI integer and float type (`uint8` to `uint64`,
-  `int8` to `int64`, `float32`, `float64`), and RGB24 or RGBA32 as `uint8`
-  with a `c` axis.
+  `int8` to `int64`, `float32`, `float64`), COMPLEX64 and COMPLEX128 as
+  `complex64` and `complex128`, and RGB24 or RGBA32 as `uint8` with a `c`
+  axis. The Neuroglancer fork has no complex data type, so zarr-python reads
+  a complex array and the browser demo does not show one.
 - **Chunks:** the voxels as the file stores them, cut into equal runs of at
   most 128 KiB along the outermost axis that allows it: whole volumes or
   blocks of slices when they are small, else blocks of rows of a slice (13
@@ -130,9 +140,8 @@ Supported:
 
 Rejected:
 
-- Gzipped files (`.nii.gz`), the usual way NIfTI is distributed: `not a
-  file of any supported format`. A gzip stream has no byte
-  ranges to reference; decompress the file first (and host the `.nii`).
+- A gzipped file with bytes after the voxels, or of several gzip members
+  (`bgzip`): a chunk could not decode it. Decompress the file first.
 - Header-and-image pairs (`.hdr`/`.img`, magic `ni1`, `ni2`).
 - Complex, binary and 128-bit types.
 - Data along dimensions 6 and 7, such as CIFTI-2 files.
@@ -149,8 +158,8 @@ The browser code ([js/](../../../js/README.md)) reads NIfTI (NIfTI-1 and NIfTI-2
   translation; the whole header, and its intensity scaling, recorded under
   `refkv_zarrified`.
 
-Not supported, and refused with HTTP 422: gzipped files (`.nii.gz`),
-header-and-image pairs, complex types, and dimensions 6 and 7 (CIFTI).
+Not supported, and refused with HTTP 422: header-and-image pairs, COMPLEX256,
+and dimensions 6 and 7 (CIFTI).
 
 ## Performance
 

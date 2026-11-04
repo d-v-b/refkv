@@ -8,7 +8,7 @@
 use super::contiguous::Zeros;
 use super::{arr, key, n, obj, strs, translations, truthy, window, Copied};
 use crate::ir::Ir;
-use crate::out::{array_json, image_ome, tiff_codecs, transpose_codec, Out, Part};
+use crate::out::{array_json, image_ome, rectilinear_array_json, tiff_codecs, transpose_codec, Out, Part};
 use crate::refs::Refs;
 use serde_json::{json, Value as J};
 use std::collections::HashMap;
@@ -25,7 +25,20 @@ pub fn data_type(facts: &J) -> Result<String, String> {
         3 => "float",
         f => return Err(format!("internal: sample format {f}")),
     };
-    Ok(format!("{kind}{}", n(&facts["bits"])))
+    // packed samples are held in the smallest type that takes them
+    let bits = match n(&facts["bits"]) {
+        1 => 8,
+        12 => 16,
+        bits => bits,
+    };
+    Ok(format!("{kind}{bits}"))
+}
+
+/// Whether the samples are packed, of 1 or 12 bits, so that their type's range is not theirs, and
+/// the core does not sample their windows (spec/zarrify/tiff.md §4.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>).
+pub fn packed(facts: &J) -> bool {
+    matches!(n(&facts["bits"]), 1 | 12)
 }
 
 /// Whether a pixel's samples are interleaved (more than one, PlanarConfiguration 1): a chunk
@@ -50,12 +63,9 @@ pub fn channel(facts: &J, s: u64, c: u64) -> u64 {
 pub fn arrays(ir: &Ir, facts: &J, url: &str, only: Option<usize>, shape: impl Fn(&J) -> (Vec<u64>, Vec<u64>),
               mut tiles: impl FnMut(&mut Refs, usize, &J) -> Result<(), String>) -> Result<(Out, Vec<Vec<u64>>), String> {
     let axes = strs(&facts["axes"]);
-    let mut codecs = if contig(facts) { vec![transpose_codec(&axes)] } else { vec![] };
     // `x` in stored order: the last axis, or the one before the samples when they are interleaved
     let x = axes.len() - if contig(facts) { 2 } else { 1 };
-    codecs.extend(tiff_codecs(n(&facts["compression"]), n(&facts["predictor"]), n(&facts["bits"]),
-                              facts["little"].as_bool().unwrap_or(false), x));
-    let codecs = J::Array(codecs);
+    let samples = if contig(facts) { n(&facts["spp"]) } else { 1 };
     let data_type = data_type(facts)?;
     let mut refs = Refs::new(ir, Out::new(url));
     let levels = arr(&facts["levels"]);
@@ -65,11 +75,43 @@ pub fn arrays(ir: &Ir, facts: &J, url: &str, only: Option<usize>, shape: impl Fn
             continue;
         }
         let (shape, chunk) = shape(lv);
-        refs.out.json(&format!("{li}/zarr.json"), &array_json(&shape, &data_type, json!(chunk), codecs.clone(), &axes));
+        // in the array's order, whose axes end `y`, `x` with the samples before them
+        let (rows, columns) = (chunk[chunk.len() - 2], chunk[chunk.len() - 1]);
+        let mut codecs = if contig(facts) { vec![transpose_codec(&axes)] } else { vec![] };
+        if facts["eer"].is_object() {
+            let e = &facts["eer"];
+            codecs.push(json!({"name": "imagecodecs_eer", "configuration": {"shape": [rows, columns], "skipbits": e["skipbits"], "horzbits": e["horzbits"], "vertbits": e["vertbits"]}}));
+        } else {
+            codecs.extend(tiff_codecs(n(&facts["compression"]), n(&facts["predictor"]), n(&facts["bits"]), n(&facts["spp"]),
+                                      facts["little"].as_bool().unwrap_or(false), x, columns * samples));
+        }
+        let codecs = J::Array(codecs);
+        let doc = if lv["rectilinear"].as_bool().unwrap_or(false) {
+            rectilinear_array_json(&shape, &data_type, &short_last_strip(&axes, &chunk, n(&lv["h"])), codecs.clone(), &axes)
+        } else {
+            array_json(&shape, &data_type, json!(chunk), codecs.clone(), &axes)
+        };
+        refs.out.json(&format!("{li}/zarr.json"), &doc);
         shapes.push(shape);
         tiles(&mut refs, li, lv)?;
     }
     Ok((refs.out, shapes))
+}
+
+/// The chunk lengths of a level of `h` rows whose last strip is short, for the `rectilinear` grid
+/// (spec/zarrify/tiff.md §4.5
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>): along `y`, a run of
+/// full strips and the short one; along every other axis, the chunk's length.
+fn short_last_strip(axes: &[&str], chunk: &[u64], h: u64) -> J {
+    let lengths = axes.iter().zip(chunk).map(|(a, &k)| {
+        if *a != "y" {
+            return json!(k);
+        }
+        let full = (h - 1) / k;
+        let last = h - full * k;
+        if full > 1 { json!([[k, full], last]) } else { json!([k, last]) }
+    });
+    J::Array(lengths.collect())
 }
 
 /// The chunks of one IFD's tiles, the members of its element `e` (none without one): member k

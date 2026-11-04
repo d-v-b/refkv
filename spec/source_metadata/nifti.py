@@ -39,6 +39,25 @@ SCHEMA = {"anyOf": [{
             "required": ["slope", "inter"],
             "additionalProperties": False,
         },
+        "gzip": {
+            "type": "object",
+            "description": "A file gzipped whole: where the voxels start in its stream, and what the stream's start "
+                           "holds before them "
+                           "(spec/zarrify/nifti.md §7.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#74-gzipped-files>)",
+            "properties": {
+                "skip": {"type": "integer", "minimum": 0},
+                "extender": {"type": "array", "items": {"type": "integer"}, "minItems": 4, "maxItems": 4},
+                "extensions": {"type": "array", "items": {
+                    "type": "object",
+                    "properties": {"esize": {"type": "integer"}, "ecode": {"type": "integer"},
+                                   "data": {"$ref": "#/$defs/text"}},
+                    "required": ["esize", "ecode"],
+                    "additionalProperties": False,
+                }},
+            },
+            "required": ["skip", "extender", "extensions"],
+            "additionalProperties": False,
+        },
     },
     "required": ["nifti_version", "byte_order", "header"],
     "additionalProperties": False,

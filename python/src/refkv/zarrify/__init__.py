@@ -66,6 +66,7 @@ from refkv.policy import Policy, crc32c
 from refkv.refstore import ReferenceStore
 from refkv.zarrify import profile_classes
 from refkv.zarrify.common import Output, Rejected
+from refkv.zarrify.dicom_series import SeriesOutput, zarrify_series_async
 from refkv.zarrify.profile_classes import *  # noqa: F403 (one class per profile: profile_classes.__all__)
 from refkv.zarrify.sources import Dataset, Image, Source, Store, layout_names
 from refkv.zarrify.store import (
@@ -80,6 +81,7 @@ from refkv.zarrify.store import (
 )
 from refkv.zarrify.store import Store as Listed
 from refkv.zarrify.store.beside import VsiFiles
+from refkv.zarrify.store.stores import DirStore
 
 NOT_SUPPORTED = "not a file of any supported format"
 
@@ -99,7 +101,8 @@ def _no_store_layouts(layouts: Iterable[Image | Dataset] | None, fmt: str) -> No
 async def _zarrify_store_async(location: str, url: str | None = None, *, max_objects: int | None = None,
                                checksums: bool = False, workers: int = WORKERS, policy: Policy | None = None,
                                fmt: str | None = None,
-                               layouts: Iterable[Image | Dataset] | None = None) -> tuple[str, StoreIrOutput]:
+                               layouts: Iterable[Image | Dataset] | None = None,
+                               ) -> tuple[str, StoreIrOutput | SeriesOutput]:
     """(format, output) for the store at `location` (§1.4
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>), its documents
     read by up to `workers` requests at a time; with `checksums`, the output's ranges
@@ -125,6 +128,12 @@ async def _zarrify_store_async(location: str, url: str | None = None, *, max_obj
             store._release()  # noqa: SLF001 (this thread's connections)
 
     store, fmt = await asyncio.to_thread(listed)
+    if fmt == "dicom":
+        try:
+            return fmt, await _zarrify_dicom_store(store, location, url, checksums=checksums, policy=policy,
+                                                   workers=workers)
+        finally:
+            store.close()
     try:
         if named is None:
             _no_store_layouts(layouts, fmt)  # a named profile's were checked before the store was listed
@@ -145,13 +154,36 @@ async def _zarrify_store_async(location: str, url: str | None = None, *, max_obj
     return fmt, out
 
 
+async def _zarrify_dicom_store(store: Listed, location: str, url: str | None, *, checksums: bool,
+                               policy: Policy | None, workers: int) -> SeriesOutput:
+    """The DICOM store form (spec/zarrify/dicom.md §9
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#9-the-store-form>): each key
+    ending in `.dcm` zarrified as a file, the others recorded."""
+    keys = sorted(k for k in store.objects if k.endswith(".dcm"))
+    others = sorted(k for k in store.objects if not k.endswith(".dcm"))
+
+    async def read(key: str) -> ReferenceStore:
+        # a local directory's files are read there, and named by the URL it is served from
+        local = isinstance(store, DirStore)
+        where = str(Path(location) / key) if local else object_url(location, key)
+        named = object_url(store.url, key) if local or url is not None else None
+        fmt, out = await _zarrify_async(where, named, checksums=checksums, policy=policy, fmt="dicom")
+        return await asyncio.to_thread(out.to_store, policy=policy, info={"format": fmt, **out.summary})
+
+    return await zarrify_series_async(keys, others, store.url, read, workers=workers)
+
+
 def _zarrify_store(location: str, url: str | None = None, *, max_objects: int | None = None,
                    checksums: bool = False, workers: int = WORKERS, policy: Policy | None = None,
                    fmt: str | None = None,
                    layouts: Iterable[Image | Dataset] | None = None) -> tuple[str, StoreIrOutput]:
-    """`_zarrify_store_async`, the caller's thread waiting for it (`refkv._sync.run`)."""
-    return _sync.run(_zarrify_store_async(location, url, max_objects=max_objects, checksums=checksums,
-                                          workers=workers, policy=policy, fmt=fmt, layouts=layouts))
+    """`_zarrify_store_async`, the caller's thread waiting for it (`refkv._sync.run`), for a
+    store the core reads: a store of DICOM files is joined in `zarrify_async`'s path alone."""
+    fmt, out = _sync.run(_zarrify_store_async(location, url, max_objects=max_objects, checksums=checksums,
+                                              workers=workers, policy=policy, fmt=fmt, layouts=layouts))
+    if isinstance(out, SeriesOutput):
+        raise TypeError("a store of DICOM files has no IR output: zarrify it with zarrify_store")
+    return fmt, out
 
 
 # The file profiles whose input is read with the files beside it, as a store run that probes for
@@ -204,7 +236,8 @@ def is_store(location: str) -> bool:
 async def _zarrify_async(location: str, url: str | None = None, *, checksums: bool = False,
                          policy: Policy | None = None, connections: int | None = None,
                          byte_cost: float | None = None, workers: int = WORKERS, fmt: str | None = None,
-                         layouts: Iterable[Image | Dataset] | None = None) -> tuple[str, Output | StoreIrOutput]:
+                         layouts: Iterable[Image | Dataset] | None = None,
+                         ) -> tuple[str, Output | StoreIrOutput | SeriesOutput]:
     """(format, output) for the file at `location`, by its first bytes, or for
     the store at `location` (a URL ending in `/`, or a directory); for the file at `location`
     by the file profile `fmt`, when given, its first bytes untested (§1.7
@@ -233,10 +266,7 @@ async def _zarrify_async(location: str, url: str | None = None, *, checksums: bo
     names = layout_names(layouts, fmt) if fmt is not None else None
     transport = await asyncio.to_thread(open_transport, location, policy)
     if fmt is None:
-        want = min(552, transport.size)
-        held = transport.head[1]
-        head = held[:want] if want <= len(held) else await asyncio.to_thread(transport.get, 0, want)
-        fmt = ir.sniff(head)
+        fmt = await ir.sniffed(transport)
         if fmt is None:
             raise Rejected(NOT_SUPPORTED)
         names = layout_names(layouts, fmt)
@@ -258,9 +288,13 @@ def _zarrify(location: str, url: str | None = None, *, checksums: bool = False,
              policy: Policy | None = None, connections: int | None = None,
              byte_cost: float | None = None, workers: int = WORKERS, fmt: str | None = None,
              layouts: Iterable[Image | Dataset] | None = None) -> tuple[str, Output | StoreIrOutput]:
-    """`_zarrify_async`, the caller's thread waiting for it (`refkv._sync.run`)."""
-    return _sync.run(_zarrify_async(location, url, checksums=checksums, policy=policy, connections=connections,
-                                    byte_cost=byte_cost, workers=workers, fmt=fmt, layouts=layouts))
+    """`_zarrify_async`, the caller's thread waiting for it (`refkv._sync.run`), for an input the
+    core reads: a store of DICOM files is joined in `zarrify_async`'s path alone."""
+    fmt, out = _sync.run(_zarrify_async(location, url, checksums=checksums, policy=policy, connections=connections,
+                                        byte_cost=byte_cost, workers=workers, fmt=fmt, layouts=layouts))
+    if isinstance(out, SeriesOutput):
+        raise TypeError("a store of DICOM files has no IR output: zarrify it with zarrify")
+    return fmt, out
 
 
 async def zarrify_async(location: str | Source | Store, url: str | None = None, *, checksums: bool | None = None,

@@ -104,8 +104,9 @@ de facto readers, and record the decision with a dated change note:
   dropped the video of all 88 DANDI `.mov` files
   ([#153](https://github.com/d-v-b/refkv/pull/153)).
 - MRC went the other way: it refuses mrcfile's permissive fallback to little
-  endian ([#83](https://github.com/d-v-b/refkv/pull/83)). IMOD's unsigned-byte
-  flag, which mrcfile ignores, decides int8 against uint8.
+  endian ([#83](https://github.com/d-v-b/refkv/pull/83)). IMOD's signed-byte
+  flag, which mrcfile ignores, decides int8 against uint8: in a file with
+  IMOD's stamp, bit 0 set or a standard `nversion` is int8, and otherwise uint8.
 
 **Expect reference readers to disagree, and choose the oracle explicitly:**
 
@@ -175,7 +176,8 @@ HDF5 lists unpresented objects with a reason instead of rejecting the file.
 **The signature.** See [zarrify §1.2](../spec/zarrify.md#12-input), "Choosing
 the profile".
 - A test on the first `min(552, size)` bytes, with a precedence (`sniff`)
-  among the file profiles.
+  among the file profiles. A late signature, on `min(65600, size)` bytes, is
+  tested only when no other matches, as for an HDF5 file after a user block.
 - Or no signature, with `chosen_by` naming the profile whose reading chooses
   it, as TIFF chooses NDPI and QPTIFF.
 - A new parent profile can change a child's outputs: HDF5 had to revise IMS.

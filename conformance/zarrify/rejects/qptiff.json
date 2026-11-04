@@ -37,11 +37,6 @@
       "message": "the images of QPTIFF level 1 differ in size, tiling or format"
     },
     {
-      "test": "qptiff_edge_reject_predictor_float",
-      "input": "edge_reject_qptiff_predictor_float.qptiff",
-      "message": "unsupported predictor 3"
-    },
-    {
       "test": "qptiff_edge_reject_strip_count",
       "input": "edge_reject_qptiff_strip_count.qptiff",
       "message": "IFD at 8 has 3 tiles or strips, expected 5"

@@ -1,6 +1,6 @@
 # NIfTI
 
-The Zarr layout of a NIfTI-1 or NIfTI-2 single file (`.nii`), and the
+The Zarr layout of a NIfTI-1 or NIfTI-2 single file (`.nii`), gzipped or not (`.nii.gz`), and the
 translation of its header into JSON. What all of refkv's conventions share is
 in [spec/conventions.md](../conventions.md), cited here as "conventions §n".
 How refkv produces this layout as a reference store, and which files it
@@ -8,6 +8,12 @@ accepts, is the NIfTI profile, [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `06e5809d-4d54-4b72-afd0-6bf61a7b4c85` ·
 Schema: [schema.json](nifti/schema.json)
+
+Changed 2026-11-04: COMPLEX64 and COMPLEX128 voxels are `complex64` and `complex128` arrays
+([§3](#3-data-types)), where the profile rejected them; COMPLEX256 is still rejected.
+
+Changed 2026-11-04: a file gzipped whole (`.nii.gz`) is read, as one chunk of the whole stream
+([§7.4](#74-gzipped-files)), where the profile rejected it.
 
 Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
 [Layout](#layout) and its types in type tables
@@ -38,7 +44,7 @@ The hierarchy's entries ([conventions §11.5](../conventions.md#115-layout-table
 | `zarr.json#/attributes/refkv_zarrified` | attribute | [`RootProperty`](../conventions.md#type-rootproperty) | `profile` `"nifti"`, `version` `0`, `source.url` the file's URL |
 | `zarr.json#/attributes/refkv_zarrified/nifti` | attribute | [`NiftiRoot`](#type-niftiroot) | the root's source metadata ([§5.1](#51-the-root)) |
 | `0/zarr.json` | array | [`NiftiArray`](#type-niftiarray) | the voxels ([§4.1](#41-the-array)) |
-| `0/c/<coords>` | chunk | [`NiftiChunk`](#type-niftichunk) | every chunk of the array ([§7.2](#72-chunks)) |
+| `0/c/<coords>` | chunk | [`NiftiChunk`](#type-niftichunk) or [`NiftiGzipChunk`](#type-niftigzipchunk) | every chunk of the array ([§7.2](#72-chunks)), or the one chunk of a gzipped file ([§7.4](#74-gzipped-files)) |
 | `refkv_source/**` | subtree | [the mirror's entries](../conventions.md#table-mirror) | the IR mirror ([§5.2](#52-the-ir-mirror)): its elements are [§5.3](#53-elements)'s |
 
 | placeholder | value |
@@ -185,11 +191,15 @@ dimensions 6 and 7 have size 1. `v` is `vox_offset` as an integer.
 | 768 | UINT32 | `uint32` | 4 | 1 |
 | 1024 | INT64 | `int64` | 8 | 1 |
 | 1280 | UINT64 | `uint64` | 8 | 1 |
+| 32 | COMPLEX64 | `complex64` | 8 | 1 |
+| 1792 | COMPLEX128 | `complex128` | 16 | 1 |
 | 128 | RGB24 | `uint8` | 3 | 3 |
 | 2304 | RGBA32 | `uint8` | 4 | 4 |
 
 RGB24 and RGBA32 are the **color** data types: each voxel is its samples
-(red, green, blue and, for RGBA32, alpha) in consecutive bytes. The file's
+(red, green, blue and, for RGBA32, alpha) in consecutive bytes. COMPLEX64 and
+COMPLEX128 are the **complex** data types: a voxel is its real part, then its
+imaginary part, each a binary32 or a binary64 in the file's byte order. The file's
 voxel data is `X × Y × Z × T × C × b` bytes at offset `v`, `x` varying
 fastest, then `y`, `z`, `t` and `k`, the index along dimension 5.
 
@@ -220,8 +230,9 @@ axes before the cut axis, whole along those after) and the bytes of each chunk.
 | `dimension_names` | array of string | required | the axes: `t` if `n ≥ 4`; `c` if `n ≥ 5` or the data type is a color type; `z` if `n ≥ 3`; then `y` and `x`. (The axes follow `n`, so a dimension of size 1 up to `n` still has its axis.) |
 | `shape` | array of integer | required | `T`, `C` (the samples per voxel for a color type), `Z`, `Y` and `X`, each only for the axes present |
 | `data_type` | string | required | from [§3](#3-data-types) |
-| `chunk_grid` | object | required | regular, its chunk shape `V`'s chunk shape, each axis's size in the array's axis order |
-| `codecs` | array of object | required | when the axes of `V` are in another order than the array's, `transpose` ([conventions §3](../conventions.md#3-arrays)), with `order` the index in the array's axes of each axis of `V`, in the order of `V` (for example `[1, 0, 2, 3, 4]` for `n ≥ 5`, and `[0, 2, 3, 4, 1]` for a color type with `t`, `c`, `z`, `y` and `x`); then `bytes`, with `"endian"` (`"little"` or `"big"`: the file's byte order) when the data type is larger than 1 byte. There is no compressor |
+| `chunk_grid` | object | required | regular, its chunk shape `V`'s chunk shape, each axis's size in the array's axis order; of a gzipped file, the array's shape ([§7.4](#74-gzipped-files)) |
+| `fill_value` | number or array of number | required | 0, or `[0, 0]` for a complex data type |
+| `codecs` | array of object | required | when the axes of `V` are in another order than the array's, `transpose` ([conventions §3](../conventions.md#3-arrays)), with `order` the index in the array's axes of each axis of `V`, in the order of `V` (for example `[1, 0, 2, 3, 4]` for `n ≥ 5`, and `[0, 2, 3, 4, 1]` for a color type with `t`, `c`, `z`, `y` and `x`); then `bytes`, with `"endian"` (`"little"` or `"big"`: the file's byte order) when the data type is larger than 1 byte. There is no compressor but of a gzipped file, whose `bytes` is followed by `refkv.skip` and `gzip` ([§7.4](#74-gzipped-files)) |
 | `attributes` | object | required | `{}` |
 
 **Chunks:** every chunk is present. The array's chunk with coords `q_a` along each axis `a`
@@ -311,9 +322,9 @@ cases, and in no other. Its `channels` are
 | case | when | channels | `label` and `color` | `window` |
 |---|---|---|---|---|
 | **color** | a color data type | one per sample | `("R", "FF0000")`, `("G", "00FF00")`, `("B", "0000FF")` and, for RGBA32, `("A", "FFFFFF")` | `{"min": 0, "max": 255, "start": 0, "end": 255}` |
-| **display range** | another data type, with `cal_min` and `cal_max` finite, `cal_max > cal_min`, `lo` and `hi` (below) finite, and `C` at most 64 | one per index `k < C` of dimension 5 (one when `n < 5`) | `("C<k>", "FFFFFF")`, `k` in decimal | `{"min": lo, "max": hi, "start": lo, "end": hi}` |
+| **display range** | another data type that is not complex, with `cal_min` and `cal_max` finite, `cal_max > cal_min`, `lo` and `hi` (below) finite, and `C` at most 64 | one per index `k < C` of dimension 5 (one when `n < 5`) | `("C<k>", "FFFFFF")`, `k` in decimal | `{"min": lo, "max": hi, "start": lo, "end": hi}` |
 
-The window in raw values is `lo = cal_min` and `hi = cal_max`; when the scaling applies
+A complex value has no order, so it has no window. The window in raw values is `lo = cal_min` and `hi = cal_max`; when the scaling applies
 ([§4.2](#42-value-scaling)), `lo` and `hi` are instead the smaller and the larger of
 `(cal_min − i) / s` and `(cal_max − i) / s`. One of these is not finite only when the
 arithmetic overflows binary64, which only NIfTI-2's binary64 fields can make it do. With
@@ -339,6 +350,7 @@ Everything the file holds is on `refkv_source`, the file's **IR mirror**
 | `header` | [`NiftiHeader`](#type-niftiheader) | required | every field of the header |
 | `scaling` | [`NiftiScaling`](#type-niftiscaling) | optional | present when the scaling is nontrivial ([§4.2](#42-value-scaling)) |
 | `affine` | [`NiftiAffine`](#type-niftiaffine) | optional | present when the image has an affine ([§4.3](#43-scales-units-and-position)) |
+| `gzip` | [`NiftiGzip`](#type-niftigzip) | optional | present when the file is gzipped whole ([§7.4](#74-gzipped-files)) |
 
 <a id="type-niftiheader"></a>**`NiftiHeader`**: an object with one member per field of
 [§2](#2-the-header) for the file's version, in the order of [§2](#2-the-header) and named as
@@ -414,6 +426,10 @@ the extension at `q` has `esize` (`i32`) at `q` and `ecode` (`i32`) at
 The chain stops, without the extension at `q`, when `esize < 8` or
 `q + esize > v`. (The standard's rule that `esize` is a multiple of 16 is not
 checked.)
+
+A file gzipped whole ([§7.4](#74-gzipped-files)) has one element beside the root: `voxels`, of
+extent `(0, size)`, the gzip stream, its codec `{"encoding": "gzip", "endian": "little" \| "big",
+"skip": v}`. The file's bytes do not show the header, so `NiftiRoot` is all that holds it.
 
 The view ([conventions §8.7](../conventions.md#87-the-view)) shows the header,
 the extender and each extension of at most 1024 bytes; a text extension's
@@ -547,8 +563,8 @@ overflow.)
 when the first of them is not 0 ([the convention §5.3](#53-elements)) are read
 to make the source metadata. They never reject the input, and never change
 where the voxel data starts: it starts at `v` whatever they hold. A
-header-and-image pair (magic `ni1` or `ni2`) and a gzipped file are rejected
-by [§1.2](../zarrify.md#12-input).
+header-and-image pair (magic `ni1` or `ni2`) is rejected
+by [§1.2](../zarrify.md#12-input). A gzipped file is read as [§7.4](#74-gzipped-files) says.
 
 ### 7.2 Chunks
 
@@ -610,3 +626,63 @@ summary, with these members:
 | `affine` | `"sform"`, `"qform"` or `null` |
 | `translation` | whether the image has a translation |
 | `extensions` | whether the extender's first byte is nonzero |
+| `gzip` | `true`, when the file is gzipped whole; otherwise absent |
+
+### 7.4 Gzipped files
+
+A file gzipped whole is one gzip member (RFC 1952) that holds a NIfTI file, as `gzip` and dcm2niix
+write `.nii.gz`. This profile reads it ([spec/zarrify.md §1.2](../zarrify.md#12-input),
+**Choosing the profile**: the signature of [§7.1](#71-header) holds of what the file's first bytes
+inflate to). **`S`** is the stream, those bytes the member holds. Every check of [§7.1](#71-header)
+is made of `S` as of a file, but that nothing bounds `v + B` but the trailer's check below, and
+a file is too short when `S` is.
+
+**Reads.** The file's first bytes, doubling from 64 KiB up to 16 MiB until they inflate to as much
+of `S` as is wanted, and the last 4 bytes of the file, its trailer's `ISIZE`. What is wanted is the
+first 552 bytes of `S`, and when the extender's first byte is not 0, the extension chain, from
+`L + 4` up to 1 MiB of it, or to `v`. A stream whose start holds less than that is taken to end
+where it stops. No other byte is inflated.
+
+**The trailer.** The input is rejected when `S` ends before `L + 4` bytes (`the gzip stream ends or
+breaks in the header's first <L + 4> bytes`), or when `ISIZE`, the stream's size modulo 2^32, is not
+`(v + B) mod 2^32`: `the gzip trailer records a stream of <ISIZE> bytes modulo 2^32, not the <v + B>
+of the header and the voxel data: bytes after the voxel data, or a file of several gzip members,
+which a chunk cannot decode`. A `bytes` codec refuses a chunk of another length than the array's,
+and several members are what `bgzip` writes: its last trailer records its last block's size.
+
+**The array** is `V` as [§4.1](#41-the-array) says, in **one chunk of the whole array**: its chunk
+shape is the array's shape, and its codecs are those of [§4.1](#41-the-array), then:
+
+| codec | when |
+|---|---|
+| `{"name": "refkv.skip", "configuration": {"length": v}}` | always: `v` is at least `L + 4`. It passes over the header, the extender and the extensions |
+| `{"name": "gzip", "configuration": {"level": 6}}` | always: its level, which decoding ignores, is written as refkv writes its own gzip chunks' |
+
+<a id="type-niftigzipchunk"></a>**`NiftiGzipChunk`**, the array's one chunk, `0/c/0/.../0`:
+
+| part | range | presence | value |
+|---|---|---|---|
+| the stream | source range `(0, 0, size)` | required | the whole file, which the `gzip` codec decodes |
+
+<a id="type-niftigzip"></a>**`NiftiGzip`**, what the file's bytes do not show of what the header
+is followed by:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `skip` | integer | required | `v` |
+| `extender` | array of integer | required | the 4 extender bytes |
+| `extensions` | array of [`NiftiGzipExtension`](#type-niftigzipextension) | required | the extensions of the chain ([§5.3](#53-elements)) in the bytes of `S` read, in chain order |
+
+<a id="type-niftigzipextension"></a>**`NiftiGzipExtension`**:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `esize` | integer | required | its `esize` |
+| `ecode` | integer | required | its `ecode` |
+| `data` | [`Text`](../conventions.md#type-text) | optional | its data up to the first NUL, for a text ecode ([§5.3](#53-elements)) of an extension of at most 1024 bytes |
+
+**The cost is reads.** Nothing is copied and every value is exact, but the chunk is coarse: a
+gzip stream has no index, so a reader inflates the whole stream to read any value, even one slice,
+holds the whole array in memory to do so, and reads it with no concurrency. Zarrifying stays cheap,
+since only the start of the stream is inflated. A reader that needs random access to a large
+volume should decompress the file once and zarrify that, which gives chunks of at most 128 KiB.

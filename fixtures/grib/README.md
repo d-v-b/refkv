@@ -8,7 +8,8 @@ The `grib_*` files whose names do not name a feed are synthetic: eccodes 2.50.0 
 the generator assembled them from sections eccodes wrote.
 
 The others are samples of public forecasts, one whole message each, copied unchanged from the
-byte range their feed's index gives. All are the 2026-10-29 00z runs.
+byte range their feed's index gives. All are the 2026-10-29 00z runs, but the five of the other
+grids, the 2026-10-01 00z runs, and the 2026-11-03 sea ice analysis, a whole file.
 
 | fixture | source | bytes | field | license |
 |---|---|---|---|---|
@@ -22,6 +23,12 @@ byte range their feed's index gives. All are the 2026-10-29 00z runs.
 | `grib_rap_apcp.grib2` | [`rap.t00z.awp130pgrbf06.grib2`](https://noaa-rap-pds.s3.amazonaws.com/rap.20261029/rap.t00z.awp130pgrbf06.grib2) (index `.idx`, message 311) | 18449662–18538677 | APCP, surface, 3–6 h | public domain (NOAA) |
 | `grib_cfs_wind.grib2` | [`pgbf2026103000.01.2026102900.grb2`](https://noaa-cfs-pds.s3.amazonaws.com/cfs.20261029/00/6hrly_grib_01/pgbf2026103000.01.2026102900.grb2) (index `.idx`, message 359) | 17421074–17555141 | UGRD and VGRD, 1829 m | public domain (NOAA) |
 | `grib_nbm_tmp.grib2` | [`blend.t00z.core.f006.co.grib2`](https://noaa-nbm-grib2-pds.s3.amazonaws.com/blend.20261029/00/core/blend.t00z.core.f006.co.grib2) (index `.idx`, message 186) | 161452866–161870327 | TMP, surface | public domain (NOAA) |
+| `grib_cfs_flux_land.grib2` | [`flxf2026100106.01.2026100100.grb2`](https://noaa-cfs-pds.s3.amazonaws.com/cfs.20261001/00/6hrly_grib_01/flxf2026100106.01.2026100100.grb2) (index `.idx`, message 34) | 1812264–1814887 | LAND, surface (3.40) | public domain (NOAA) |
+| `grib_gfs_flux_land.grib2` | [`gfs.t00z.sfluxgrbf006.grib2`](https://noaa-gfs-bdp-pds.s3.amazonaws.com/gfs.20261001/00/atmos/gfs.t00z.sfluxgrbf006.grib2) (index `.idx`, message 111) | 306021315–306115015 | LAND, surface (3.40) | public domain (NOAA) |
+| `grib_hrrr_ak_massden.grib2` | [`hrrr.t00z.wrfsfcf01.ak.grib2`](https://noaa-hrrr-bdp-pds.s3.amazonaws.com/hrrr.20261001/alaska/hrrr.t00z.wrfsfcf01.ak.grib2) (index `.idx`, message 81) | 34370972–34373526 | MASSDEN, 8 m (3.20) | public domain (NOAA) |
+| `grib_nbm_ak_frzspr.grib2` | [`blend.t00z.core.f006.ak.grib2`](https://noaa-nbm-grib2-pds.s3.amazonaws.com/blend.20261001/00/core/blend.t00z.core.f006.ak.grib2) (index `.idx`, message 13) | 11698213–11855872 | FRZSPR, surface (3.20) | public domain (NOAA) |
+| `grib_nbm_hi_vis.grib2` | [`blend.t00z.core.f006.hi.grib2`](https://noaa-nbm-grib2-pds.s3.amazonaws.com/blend.20261001/00/core/blend.t00z.core.f006.hi.grib2) (index `.idx`, message 65) | 7122372–7138628 | VIS, surface (3.10) | public domain (NOAA) |
+| `grib_seaice_south.grib2` | [`seaice.t00z.south12psg.grib2`](https://nomads.ncep.noaa.gov/pub/data/nccf/com/seaice_analysis/prod/seaice_analysis.20261103/seaice.t00z.south12psg.grib2) (no index; NOMADS keeps about a week) | 0–47961 | ICEC, mean sea level (3.20, south pole) | public domain (NOAA) |
 
 The byte ranges are inclusive. The ECMWF samples are ECMWF's open data, used under the Creative
 Commons Attribution 4.0 International license: source www.ecmwf.int, unchanged.

@@ -413,6 +413,19 @@ pub struct Tiff {
     prefetch: Prefetch,
 }
 
+/// The bytes of a row of `w` pixels of `samples` samples of `bits` bits each, which a row of packed
+/// samples rounds up to a whole byte (spec/zarrify/tiff.md §4.5
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>).
+fn row_size(w: u64, bits: u64, samples: u64) -> u128 {
+    (w as u128 * bits as u128 * samples as u128).div_ceil(8)
+}
+
+/// Whether a compression is EER's (spec/zarrify/tiff.md §4.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>).
+fn is_eer(compression: u64) -> bool {
+    matches!(compression, 65000..=65002)
+}
+
 struct Level {
     w: u64,
     h: u64,
@@ -431,6 +444,10 @@ struct Level {
     /// chunks of shards (spec/zarrify/tiff.md §4.5
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>)
     shard: u64,
+    /// the level's last strip is short and cannot be padded, so that its chunks are those of a
+    /// `rectilinear` grid (spec/zarrify/tiff.md §4.5
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>)
+    rectilinear: bool,
     /// how a short last strip is padded to the chunk (spec/zarrify/tiff.md §4.5
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>):
     /// `{"zeros": [{c, k, zeros}, ...]}` (uncompressed) or `{"lzw": [{c, k, prefix, tail}, ...]}`,
@@ -450,17 +467,18 @@ impl Level {
 /// 2^10 strips and 2^30 decoded bytes, as even as whole strips allow (spec/zarrify/tiff.md §4.5
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>): each strip stays a
 /// stream of its own, which the sharding codec finds through the shard's index. A level stays
-/// one strip a chunk when it has one strip, or when two do not fit.
+/// one strip a chunk when it has one strip, when two do not fit, or when its last strip is short
+/// and cannot be padded: the sharding codec refuses the `rectilinear` grid that then needs.
 fn shard_strips(levels: &mut [Level], bits: u64, spp: u64, planar: u64, compression: u64) {
     if !matches!(compression, 5 | 8 | 32946 | 50000) {
         return;
     }
     let contig = spp > 1 && planar == 1;
     for lv in levels.iter_mut().filter(|lv| lv.strips) {
-        let row = lv.w as u128 * (bits / 8) as u128 * if contig { spp as u128 } else { 1 };
+        let row = row_size(lv.w, bits, if contig { spp } else { 1 });
         let strips = lv.h.div_ceil(lv.th);
         let most = (MAX_SHARD_BYTES / (lv.th as u128 * row)).min(MAX_JOINED_STRIPS) as u64;
-        if strips >= 2 && most >= 2 {
+        if strips >= 2 && most >= 2 && (compression == 5 || lv.h % lv.th == 0) {
             lv.shard = strips.div_ceil(strips.div_ceil(most));
         }
     }
@@ -2047,7 +2065,11 @@ impl Tiff {
     }
 
     fn fmt(&self, k: usize, m: &Vals) -> Got<Fmt> {
-        let bits = self.reqs(k, m, 258)?;
+        // TIFF 6.0's default, which a bilevel image's writer may rely on
+        let bits = match m.get(&258) {
+            Some(Loaded::Ints(v)) => v.clone(),
+            _ => vec![1],
+        };
         let formats = match m.get(&339) {
             Some(Loaded::Ints(v)) => v.clone(),
             _ => vec![1],
@@ -2067,6 +2089,43 @@ impl Tiff {
         let compression = self.req(k, m, 259, Some(1))?;
         let photometric = if compression == 7 { first_int(m, 262) } else { None };
         Ok((bits[0], spp, formats[0], planar, compression, self.req(k, m, 317, Some(1))?, photometric))
+    }
+
+    /// The main-chain indexes of an EER file's frames: the IFDs of IFD 0's size and format, as
+    /// `pages` tests them, in chain order. Each frame's tags are read, in one batch.
+    fn eer_frames(&self, i0: usize, f0: &Fmt) -> Got<Vec<usize>> {
+        let loaded = self.load(&self.chain, false, false)?;
+        let size = |k: usize, m: &Vals| (first_int(m, 256), first_int(m, 257), self.tiled(k));
+        let at0 = self.chain.iter().position(|&k| k == i0).unwrap_or(0);
+        let want = size(i0, &loaded[at0]);
+        let mut frames = Vec::new();
+        for (i, (&k, m)) in self.chain.iter().zip(&loaded).enumerate() {
+            let format = match self.fmt(k, m) {
+                Ok(f) => Some(f),
+                Err(Stop::Reject(_)) => None,
+                Err(e) => return Err(e),
+            };
+            if size(k, m) == want && format.as_ref() == Some(f0) {
+                frames.push(i);
+            }
+        }
+        Ok(frames)
+    }
+
+    /// An EER image's skip, horizontal and vertical bits (spec/zarrify/tiff.md §4.3
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>): from
+    /// its compression, but for 65002's, from tags 65007 to 65009, each 7, 2 and 2 without its tag.
+    /// A tag of another field type counts as absent: these are outside the table, and read only here.
+    fn eer_bits(&self, k: usize, compression: u64) -> (u64, u64, u64) {
+        let tag = |t: u16, default: u64| {
+            let value = self.ifds[k].field(t).filter(|e| unsigned(e.typ)).and_then(|e| self.ints(e, true));
+            value.and_then(|v| v.first().copied()).unwrap_or(default)
+        };
+        match compression {
+            65000 => (8, 2, 2),
+            65001 => (7, 2, 2),
+            _ => (tag(65007, 7), tag(65008, 2), tag(65009, 2)),
+        }
     }
 
     fn tiled(&self, k: usize) -> bool {
@@ -2164,7 +2223,7 @@ impl Tiff {
             let same = dims(k, &vals[&k])? == d0 && self.fmt(k, &vals[&k])? == f0;
             self.rules.check("level_ifd", rules::env([("offset", num(self.ifds[k].offset as f64)), ("same", flag(same))]))?;
         }
-        Ok(Level { w: d0.0, h: d0.1, tw: d0.3, th: d0.4, ifds: ks.to_vec(), strips: !d0.2, join: 1, shard: 1, pad: J::Null })
+        Ok(Level { w: d0.0, h: d0.1, tw: d0.3, th: d0.4, ifds: ks.to_vec(), strips: !d0.2, join: 1, shard: 1, rectilinear: false, pad: J::Null })
     }
 
     /// The `strips` role of an IFD that is not tiled: StripOffsets, StripByteCounts and a
@@ -2209,6 +2268,7 @@ impl Tiff {
                 ("compression", num(compression as f64)),
                 ("predictor", num(predictor as f64)),
                 ("sample_format", num(sample_format as f64)),
+                ("bits", num(bits as f64)),
             ]),
         )?;
         // the planes (spec/zarrify/tiff.md §3
@@ -2229,9 +2289,13 @@ impl Tiff {
             Some(s) => s.sizes.2,
             None => int_attr(self.rules, px, "SizeZ", 1, 1)?,
         };
-        let size_t = match &mm_stack {
-            Some(s) => s.sizes.0,
-            None => int_attr(self.rules, px, "SizeT", 1, 1)?,
+        // an EER file's frames, without OME-XML: the main-chain IFDs of IFD 0's size and format
+        // (spec/zarrify/tiff.md §4.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#41-planes>)
+        let frames = if is_eer(compression) && ome.is_none() && mm_stack.is_none() { Some(self.eer_frames(i0, &f0)?) } else { None };
+        let size_t = match (&mm_stack, &frames) {
+            (Some(s), _) => s.sizes.0,
+            (None, Some(f)) => f.len() as u64,
+            _ => int_attr(self.rules, px, "SizeT", 1, 1)?,
         };
         let mut size_c = match &mm_stack {
             Some(s) => s.sizes.1.max(if spp > 1 { spp } else { 1 }),
@@ -2267,7 +2331,10 @@ impl Tiff {
         };
         let mut plane_file: Vec<usize> = vec![0; if tiff_data_file.is_some() { count } else { 0 }];
         match &ome {
-            None => plane_ifd[0] = 0,
+            None => match &frames {
+                Some(f) => plane_ifd.iter_mut().zip(f).for_each(|(p, &i)| *p = i as i128),
+                None => plane_ifd[0] = 0,
+            },
             Some(o) => {
                 let sizes = |d: u8| match d {
                     b'Z' => size_z,
@@ -2374,7 +2441,7 @@ impl Tiff {
             if ome.is_none() && plan.is_none() {
                 for &k in &self.chain[1..] {
                     let (pw, ph) = (levels.last().unwrap().w, levels.last().unwrap().h);
-                    if !(self.tiled(k) && self.ifds[k].has(258)) {
+                    if !self.tiled(k) {
                         continue;
                     }
                     let m = self.load(&[k], false, false)?.pop().unwrap();
@@ -2400,7 +2467,7 @@ impl Tiff {
                         self.ifds[k].field(t).filter(|e| unsigned(e.typ)).and_then(|e| self.ints(e, true)).and_then(|v| v.first().copied())
                     };
                     for &k in &self.chain[1..] {
-                        if used.contains(&k) || !self.ifds[k].has(258) || (one(k, 256), one(k, 257)) != (Some(w0), Some(h0)) {
+                        if used.contains(&k) || (one(k, 256), one(k, 257)) != (Some(w0), Some(h0)) {
                             continue;
                         }
                         let m = match self.load(&[k], false, false) {
@@ -2436,6 +2503,17 @@ impl Tiff {
             ("photometric", photometric.map(|p| num(p as f64)).unwrap_or(V::Absent)),
         ]);
         self.rules.check("image", &mut env)?;
+        // an EER image's codec reads the tag's bits, and decodes one shape for a level's chunks
+        let eer = if is_eer(compression) { Some(self.eer_bits(i0, compression)) } else { None };
+        if let Some(bits) = eer {
+            for lv in &levels {
+                let short = lv.strips && lv.h % lv.th != 0;
+                for &k in &lv.ifds {
+                    let same = self.eer_bits(k, compression) == bits;
+                    self.rules.check("eer", rules::env([("offset", num(self.ifds[k].offset as f64)), ("same", flag(same)), ("short", flag(short))]))?;
+                }
+            }
+        }
         // the tiles, or strips, of every plane of every level
         let mut prefixes = HashMap::new();
         for lv in &levels {
@@ -2455,9 +2533,12 @@ impl Tiff {
         }
         // a level in strips whose last strip is short, padded to the chunk (spec/zarrify/tiff.md §4.5
         // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>): one that
-        // cannot be padded rejects the input (the `padding` role)
+        // cannot be padded has a `rectilinear` grid
         if plan.is_none() {
-            self.pad_strips(&mut levels, &vals, bits, spp, planar, compression)?;
+            let padded = self.pad_strips(&mut levels, &vals, bits, spp, planar, compression)?;
+            for (lv, padded) in levels.iter_mut().zip(padded) {
+                lv.rectilinear = !padded;
+            }
         }
         // pixel size and position (spec/zarrify/tiff.md §4.4
         // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#44-arrays>)
@@ -2584,6 +2665,7 @@ impl Tiff {
             "compression": compression,
             "predictor": predictor,
             "photometric": photometric,
+            "eer": eer.map(|(skip, horz, vert)| json!({"skipbits": skip, "horzbits": horz, "vertbits": vert})),
             "sizes": {"t": size_t, "c": size_c, "z": size_z},
             "plane_c": plane_c,
             "ome": ome.as_ref().map(|o| json!({
@@ -2746,7 +2828,7 @@ impl Tiff {
                     Some(p) => p.iter().map(|x| x.filter(|x| x.0 == 0).and_then(|x| of(&chain[x.1]))).collect::<Vec<_>>(),
                     None => lv.ifds.iter().map(of).collect::<Vec<_>>(),
                 };
-                json!({"w": lv.w, "h": lv.h, "tw": lv.tw, "th": lv.th, "strips": lv.strips, "join": lv.join, "shard": lv.shard, "pad": lv.pad,
+                json!({"w": lv.w, "h": lv.h, "tw": lv.tw, "th": lv.th, "strips": lv.strips, "join": lv.join, "shard": lv.shard, "rectilinear": lv.rectilinear, "pad": lv.pad,
                        "planes": planes})
             })
             .collect();
@@ -3738,7 +3820,7 @@ impl Tiff {
             first.get_or_insert(this);
         }
         let (w, h, tiled, tw, th) = first.ok_or_else(|| Stop::Reject("internal: an empty QPTIFF level".into()))?;
-        Ok(Level { w, h, tw, th, ifds: ks.to_vec(), strips: !tiled, join: 1, shard: 1, pad: J::Null })
+        Ok(Level { w, h, tw, th, ifds: ks.to_vec(), strips: !tiled, join: 1, shard: 1, rectilinear: false, pad: J::Null })
     }
 
     /// Joins the strips of each uncompressed level into chunks of at most 2^20 bytes and 2^10
@@ -3752,7 +3834,7 @@ impl Tiff {
         }
         let contig = spp > 1 && planar == 1;
         for lv in levels.iter_mut().filter(|lv| lv.strips) {
-            let row = lv.w as u128 * (bits / 8) as u128 * if contig { spp as u128 } else { 1 };
+            let row = row_size(lv.w, bits, if contig { spp } else { 1 });
             let strips = lv.h.div_ceil(lv.th);
             let most = (MAX_JOINED_BYTES / (lv.th as u128 * row)).min(MAX_JOINED_STRIPS) as u64;
             if strips < 2 || most < 2 {
@@ -3788,7 +3870,7 @@ impl Tiff {
         let samples = if spp > 1 && !contig { spp } else { 1 };
         // the sizes in bytes, from the file's integers, in u128 (a product that does not fit in u64
         // saturates, and is then more padding than the `padding` role allows)
-        let row_bytes = |lv: &Level| lv.w as u128 * (bits / 8) as u128 * if contig { spp as u128 } else { 1 };
+        let row_bytes = |lv: &Level| row_size(lv.w, bits, if contig { spp } else { 1 });
         let bytes = |x: u128| u64::try_from(x).unwrap_or(u64::MAX);
         // the bytes of an LZW strip of `n` bytes the scan reads to find where its output reaches
         // `target` bytes (spec/zarrify/tiff.md §7.1
@@ -4185,7 +4267,7 @@ mod tests {
     #[test]
     fn compressed_strips_shard_within_the_limits() {
         // (w, h, th, in strips, bits, spp, planar, compression, the strips of a shard)
-        let cases: [(u64, u64, u64, bool, u64, u64, u64, u64, u64); 18] = [
+        let cases: [(u64, u64, u64, bool, u64, u64, u64, u64, u64); 20] = [
             (1344, 1024, 1, true, 16, 1, 1, 5, 1024),          // LZW, one shard a plane
             (1344, 1024, 1, true, 16, 1, 1, 8, 1024),          // Deflate
             (1344, 1024, 1, true, 16, 1, 1, 32946, 1024),      // the other Deflate
@@ -4203,10 +4285,12 @@ mod tests {
             (1344, 1024, 1, true, 16, 1, 1, 1, 1),             // uncompressed strips join instead
             (1344, 1024, 8, true, 8, 1, 1, 7, 1),              // JPEG
             (1344, 1024, 8, true, 8, 1, 1, 34712, 1),          // JPEG 2000
-            (1344, 1000, 16, true, 8, 1, 1, 5, 63),            // a short last strip is a strip
+            (1344, 1000, 16, true, 8, 1, 1, 5, 63),            // a short last LZW strip is padded, and a strip
+            (1344, 1000, 16, true, 8, 1, 1, 8, 1),             // a short last Deflate strip is not: no shard
+            (1344, 1000, 16, true, 8, 1, 1, 50000, 1),         // nor one of zstd
         ];
         for (w, h, th, strips, bits, spp, planar, compression, want) in cases {
-            let mut levels = [Level { w, h, tw: w, th, ifds: vec![], strips, join: 1, shard: 1, pad: J::Null }];
+            let mut levels = [Level { w, h, tw: w, th, ifds: vec![], strips, join: 1, shard: 1, rectilinear: false, pad: J::Null }];
             shard_strips(&mut levels, bits, spp, planar, compression);
             assert_eq!(levels[0].shard, want, "{w} x {h}, {th} rows, compression {compression}");
         }

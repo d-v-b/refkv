@@ -52,7 +52,8 @@ level, `0` the full resolution.
   ([tiff.md §4.5](../../../spec/zarrify/tiff.md#45-strips)). A short last chunk
   is padded to the others' rows, so that the chunk grid stays regular: with
   zeros when uncompressed, and with a few literal bytes that continue its
-  stream when LZW; a short last strip of DEFLATE, zstd or JPEG rejects the file. Interleaved RGB keeps its samples in one chunk, behind a
+  stream when LZW; a short last strip of DEFLATE, zstd, JPEG or JPEG 2000 cannot be padded, so its level
+  has the `rectilinear` chunk grid, a chunk a strip, unsharded. Interleaved RGB keeps its samples in one chunk, behind a
   `transpose` codec.
 - **Codecs:** none, LZW (`refkv.tiff_lzw`), DEFLATE (`numcodecs.zlib`), zstd, JPEG
   2000 (`imagecodecs_jpeg2k`) and JPEG (`imagecodecs_jpeg`), the tiles and
@@ -223,27 +224,29 @@ Supported:
 - Pyramids as SubIFDs (OME-TIFF), or as a sequence of smaller tiled images
   (SVS).
 - OME-TIFF planes over Z, C and T in any `DimensionOrder`, single-file.
-- Unsigned and signed integers of 8 to 64 bits, `float32` and `float64`,
+- Unsigned and signed integers of 8 to 64 bits, `float32` and `float64`, unsigned samples of 1 and 12
+  bits (`imagecodecs_packints`, read as `uint8` and `uint16`, and a file without BitsPerSample as 1 bit),
   planar or interleaved samples.
-- Compression: none, LZW, DEFLATE, zstd, JPEG 2000, and JPEG (8-bit, gray
-  or RGB or YCbCr) with or without `JPEGTables`.
+- Compression: none, LZW, DEFLATE, zstd, LZMA, PackBits, CCITT Group 4 (1 bit), EER (a stack of frames along
+  `t`), JPEG 2000, LERC (as GDAL's COG driver writes for LINZ's elevation), WebP (3 or 4 samples of 8 bits,
+  as for LINZ's imagery), JPEG XL, and JPEG (8-bit, gray or RGB or YCbCr) with or without `JPEGTables`.
 - The horizontal predictor (Predictor 2), as GDAL, libtiff and tifffile write
   it with LZW, DEFLATE or zstd, of integer samples: imagecodecs-zarr's
   `imagecodecs_delta` codec sums the differences back (zarr-python reads it
   with `refkv[images]`).
+- The floating-point predictor (Predictor 3), as GDAL writes for Copernicus DEM and USGS 3DEP
+  tiles, with LZW, DEFLATE or zstd, of float samples: imagecodecs-zarr's `imagecodecs_floatpred`
+  codec undoes it, in the place of `bytes`.
 
 Rejected:
 
-- Images in strips whose last strip is shorter than the others, when
-  compressed with DEFLATE, zstd, JPEG or JPEG 2000: such a strip cannot be
-  padded to the chunk. Nor one that would need more than 4 MiB (2^22 bytes)
-  of zeros, or a short last LZW strip of more than 16 MiB (2^24 bytes), which
-  is read to pad it.
+- Images in strips whose last strip is shorter than the others, when they would need more than
+  4 MiB (2^22 bytes) of zeros, or a short last LZW strip of more than 16 MiB (2^24 bytes), which is
+  read to pad it.
 - Old-style JPEG (compression 6).
-- The floating-point predictor (Predictor 3), and Predictor 2 of float
-  samples (whose bits are differenced as integers), without compression
-  (libtiff stores such a file undifferenced) or with JPEG: no codec of refkv's
-  conventions sums these back.
+- Predictor 2 of float samples (whose bits are differenced as integers), Predictor 3 of
+  integer samples, either without compression (libtiff stores such a file undifferenced) or with
+  JPEG: no codec of refkv's conventions undoes these.
 - An image across files with SubIFD levels, or whose strips leave a short last strip
   ([§7.4](../../../spec/zarrify/tiff.md#74-several-files)).
 - An OME-TIFF with several RGB channels (`SizeC` other than 1 or the
@@ -270,14 +273,14 @@ The browser code ([js/](../../../js/README.md)) reads TIFF:
   sizes and units.
 - Samples per pixel stored planar (one chunk per channel) or interleaved
   (through a `transpose` codec).
-- Compression: none, LZW (`refkv.tiff_lzw`), DEFLATE (`numcodecs.zlib`), zstd, JPEG 2000
-  (`imagecodecs_jpeg2k`), and JPEG (`imagecodecs_jpeg`), and Predictor 2 (`imagecodecs_delta`). JPEG tiles that keep
+- Compression: none, LZW (`refkv.tiff_lzw`), DEFLATE (`numcodecs.zlib`), zstd, LZMA (`imagecodecs_lzma`), PackBits (`imagecodecs_packbits`), CCITT Group 4 (`imagecodecs_ccittfax4`), EER (`imagecodecs_eer`), JPEG 2000
+  (`imagecodecs_jpeg2k`), LERC (`imagecodecs_lerc`), WebP (`imagecodecs_webp`), JPEG XL (`imagecodecs_jpegxl`), and JPEG (`imagecodecs_jpeg`), and Predictors 2 (`imagecodecs_delta`) and 3 (`imagecodecs_floatpred`). JPEG tiles that keep
   their tables in `JPEGTables`, as in Aperio SVS, become complete JPEG streams
   through references that prepend the tables and a color marker, held once
   in the archive as a `data` source.
 
 Not supported, and refused with HTTP 422: what the profile rejects (above),
-such as old-style JPEG and the floating-point predictor.
+such as old-style JPEG.
 
 ## Several files
 

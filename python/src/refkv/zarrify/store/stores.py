@@ -547,5 +547,7 @@ def choose_profile(store: Store) -> str:
         return "precomputed"
     if any(k.endswith(".safetensors") for k in store.objects):
         return "safetensors"
+    if any(k.endswith(".dcm") for k in store.objects):
+        return "dicom"
     raise Rejected("not an N5, Zarr v2, SAFE, Neuroglancer precomputed or safetensors store: the root has no "
                    ".zarray, .zgroup, attributes.json, manifest.safe or info, and no key ends in .safetensors")

@@ -28,8 +28,18 @@ output: [§2](#2-attributes), [§3](#3-arrays) and [§7](#7-source-values-as-arr
 formats' documents already say of their attributes, arrays, codecs and fill values. Changed
 2026-11-04, with no change to any output: a node's attributes may hold other conventions'
 members, such as [spec/provenance.md](provenance.md)'s on the root, which each convention's JSON
-Schema accepts ([§2](#2-attributes)). Changed 2026-11-04: imagecodecs-zarr's `imagecodecs_png` and
-`imagecodecs_bmp` decode a chunk that is one PNG or BMP file ([§3](#3-arrays)).)
+Schema accepts ([§2](#2-attributes)). Changed 2026-11-04: imagecodecs-zarr's `imagecodecs_floatpred`
+undoes TIFF's floating-point predictor, in the place of `bytes` ([§3](#3-arrays)). Changed 2026-11-04:
+imagecodecs-zarr's `imagecodecs_lerc`, `imagecodecs_webp`, `imagecodecs_jpegxl` and `imagecodecs_lzma`
+decode a chunk ([§3](#3-arrays)). Changed 2026-11-04: imagecodecs-zarr's `imagecodecs_packints`,
+`imagecodecs_packbits`, `imagecodecs_ccittfax4` and `imagecodecs_eer` decode a chunk ([§3](#3-arrays)).
+Changed 2026-11-04: a TIFF level whose short last strip cannot be
+padded has the `rectilinear` chunk grid ([§3](#3-arrays)). Changed 2026-11-04: imagecodecs-zarr's
+`imagecodecs_png` and `imagecodecs_bmp` decode a chunk that is one PNG or BMP file, and its
+`imagecodecs_lzw` decodes an LZW chunk that holds exactly the chunk's bytes, as CZI's LZW subblocks
+do ([§3](#3-arrays)). Changed 2026-11-04: [§12](#12-grib-messages) decodes reduced grids and template
+3.101 as one line of points, and [§2](#2-attributes) places the numbers that name a 3.101 grid on its
+group.)
 
 <!-- profiles:conventions-table -->
 | format | convention | UUID |
@@ -235,7 +245,7 @@ convention places them:
 |---|---|---|
 | `ome` | OME-NGFF 0.5 ([§4](#4-images)) | images, a collection's root and `OME` group, and the OME-Zarr convention's other OME groups (its labels groups, plates and wells) |
 | `proj:code`, `proj:wkt2`, `spatial:*`, `multiscales` | the GeoZarr members of the zarr-conventions `proj`, `spatial` and `multiscales` conventions | nodes of the SAFE convention and [a GRIB hierarchy's grid groups](zarrify/grib.md#4-georeferencing), which list their CMOs in `zarr_conventions`, after the format's own on a node that declares the convention |
-| the CF attributes | [§9](#9-dataset-layouts) | a dataset layout's variables, and [a GRIB hierarchy's variables and coordinates](zarrify/grib.md#3-the-hierarchy), with the `GRIB_<key>` numbers that identify a variable |
+| the CF attributes | [§9](#9-dataset-layouts) | a dataset layout's variables, and [a GRIB hierarchy's variables and coordinates](zarrify/grib.md#3-the-hierarchy), with the `GRIB_<key>` numbers that identify a variable, and [a GRIB grid group of template 3.101](zarrify/grib.md#4-georeferencing), the `GRIB_<key>` numbers that name its grid |
 | `zarr_conventions` | [`Declaration`](#type-declaration) | nodes that declare the convention, and nodes that hold the GeoZarr members above |
 
 Everything
@@ -257,6 +267,7 @@ below. The conventions that say otherwise:
 | Neuroglancer precomputed | have the codec `refkv.precomputed`, a chunk being one chunk object or a whole shard ([precomputed §3.1](zarrify/precomputed.md#31-the-array)) |
 | CZI | have, for clipped levels, the zarr-extensions `rectilinear` chunk grid, and may have the codecs `imagecodecs_jpegxr` and `numcodecs.shuffle` |
 | NDPI | have, for JPEG XR levels, the codec `imagecodecs_jpegxr` |
+| TIFF | have, for a level whose short last strip cannot be padded, the `rectilinear` chunk grid ([tiff §4.5](zarrify/tiff.md#45-strips)) |
 | QPTIFF | have, for LZW tiles and strips, the codec `refkv.tiff_lzw` ([qptiff §4.1](zarrify/qptiff.md#41-data-types-and-codecs)) |
 | MP3, MP4, FLAC | have the codec `refkv.stream` of [§10](#10-coded-streams), and dimension names of their own |
 | MP4 | have, for video planes whose chunks differ in length, the `rectilinear` chunk grid; a track's `time` array has the `gzip` codec |
@@ -330,19 +341,31 @@ of each step, and always one of step 3.
 | 2 | `{"name": "imagecodecs_delta", "configuration": {"axis": a, "dist": 1}}` | the chunk's bytes hold an integer data type's values as differences along `x` (**Delta**, below). `a` is the index of `x` in stored order: the last axis, or the one before last when `codecs` has `transpose` |
 | 3 | `{"name": "bytes"}` (no `configuration`) | a 1-byte data type |
 | 3 | `{"name": "bytes", "configuration": {"endian": "little"}}`, or `"big"` | a larger data type |
+| 3 | `{"name": "imagecodecs_floatpred", "configuration": {"axis": a, "dist": 1}}` | the chunk's bytes hold a float data type's values through TIFF's floating-point predictor (**Floatpred**, below). `a` is as for `imagecodecs_delta` |
 | 3 | `{"name": "imagecodecs_jpeg2k"}` | JPEG 2000: one codestream per chunk, decoding to the chunk's `[y, x]`, or, when interleaved, to `[y, x, c]`, after which `transpose` applies |
 | 3 | `{"name": "imagecodecs_jpeg"}` | JPEG: one complete JPEG stream per chunk, ISO/IEC 10918-1 with the JFIF/Adobe color conventions, decoding to the chunk's `[y, x]` or `[y, x, c]` like JPEG 2000 |
 | 3 | `{"name": "imagecodecs_ljpeg"}` | lossless JPEG: one complete JPEG stream per chunk, ISO/IEC 10918-1's lossless process (SOF3, predictors 1 to 7), its samples stored without a color transform, decoding to the chunk's `[y, x]` or `[y, x, c]` like JPEG 2000 |
 | 3 | `{"name": "imagecodecs_png"}` | PNG: one complete PNG file per chunk, of `uint8` or `uint16`, its samples as the file says, decoding to the chunk's `[y, x]` or `[y, x, c]` like JPEG 2000 |
 | 3 | `{"name": "imagecodecs_bmp"}` | BMP: one complete BMP file per chunk, of `uint8`, its rows and samples as the file says (bottom up, blue first), decoding to the chunk's `[y, x]`, or to `[y, x, c]` red first, like JPEG 2000 |
+| 3 | `{"name": "imagecodecs_lerc"}` | LERC: one stream per chunk, in Deflate or zstd or not, decoding to the chunk's `[y, x]` or `[y, x, c]` like JPEG 2000 |
+| 3 | `{"name": "imagecodecs_webp", "configuration": {"hasalpha": h}}` | WebP: one stream per chunk, decoding to the chunk's `[y, x, c]` of 4 samples when `h` and 3 otherwise |
+| 3 | `{"name": "imagecodecs_jpegxl"}` | JPEG XL: one stream per chunk, decoding to the chunk's `[y, x]` or `[y, x, c]` like JPEG 2000 |
+| 3 | `{"name": "imagecodecs_packints", "configuration": {"bitspersample": b, "runlen": n}}` | samples of `b` bits, most significant first, in rows of `n` samples each starting on a whole byte, into the data type |
+| 3 | `{"name": "imagecodecs_ccittfax4"}` | CCITT Group 4 (ITU-T T.6): one stream per chunk, decoding to the chunk's `[y, x]`, a coded black run 1 and a white one 0 |
+| 3 | `{"name": "imagecodecs_eer", "configuration": {"shape": [h, w], "skipbits": s, "horzbits": a, "vertbits": b}}` | Electron Event Representation: one frame per chunk, of that shape, decoding to one bit a pixel |
+| 4 | `{"name": "imagecodecs_packbits"}` | the bytes are TIFF PackBits streams ([tiff §4.3](zarrify/tiff.md#43-data-types-and-codecs)), run-length coded, unlike the zarr-extensions' `packbits` |
 | 4 | `{"name": "numcodecs.zlib", "configuration": {"level": 1}}` | the bytes are zlib streams (RFC 1950) |
+| 4 | `{"name": "imagecodecs_lzw"}` | the bytes are TIFF LZW streams (TIFF 6.0 §13: codes packed most significant bit first, with the "early change"), each decoding whole to exactly the chunk's bytes |
 | 4 | `{"name": "zstd", "configuration": {"level": 0, "checksum": false}}` | the bytes are Zstandard frames |
+| 4 | `{"name": "imagecodecs_lzma"}` | the bytes are xz streams |
 
 **Codec names.** Every codec a convention names is one that a reader of Zarr v3 finds by its
 name: zarr-python's own (`bytes`, `transpose`, `gzip`, `zstd`, `blosc`, `sharding_indexed`, `vlen-utf8`, and
 `numcodecs.zlib`, `numcodecs.shuffle` and `numcodecs.delta`, its names for numcodecs' codecs),
 imagecodecs-zarr's (`imagecodecs_jpeg`, `imagecodecs_jpeg2k`, `imagecodecs_jpegxr`,
-`imagecodecs_ljpeg`, `imagecodecs_png`, `imagecodecs_bmp`, `imagecodecs_delta`), the
+`imagecodecs_ljpeg`, `imagecodecs_lzw`, `imagecodecs_png`, `imagecodecs_bmp`, `imagecodecs_delta`, `imagecodecs_floatpred`, `imagecodecs_lerc`,
+`imagecodecs_webp`, `imagecodecs_jpegxl`, `imagecodecs_lzma`, `imagecodecs_packints`, `imagecodecs_packbits`,
+`imagecodecs_ccittfax4`, `imagecodecs_eer`), the
 zarr-extensions registry's (`n5_default`, `packbits`), or refkv's own, which are named `refkv.<codec>`
 (`refkv.stream`, [§10](#10-coded-streams); `refkv.fits_tiles`,
 [fits §3.3](zarrify/fits.md#33-tile-compressed-images); `refkv.tiff_lzw`,
@@ -366,6 +389,16 @@ before: the samples are an axis of their own, so a sum along `x` runs over each 
 decodes as `imagecodecs.delta_decode(chunk, axis=axis, dist=1)` does. (zarr-python's
 `numcodecs.delta`, numcodecs' `Delta`, differences the chunk flattened, across its rows and
 samples, so it does not undo a horizontal predictor.)
+
+**Floatpred.** `imagecodecs_floatpred` is an array-to-bytes codec, in the place of `bytes`, so in
+decoding it gives the array `transpose` then reorders. It undoes TIFF's floating-point predictor
+(Predictor 3, [tiff §4.3](zarrify/tiff.md#43-data-types-and-codecs)). Each row along axis `axis`
+holds the most significant bytes of its values, then their next bytes and so on, whatever the
+byte order, each byte stored less the byte one sample before it, modulo 256. A chunk with an axis
+after `axis` has that axis's length of samples a pixel, and the step is that length. It decodes as
+`imagecodecs.floatpred_decode(chunk, axis=axis, dist=1)` does, to values in the platform's byte order
+(a `dist` of the sample count is not what interleaved samples need, and imagecodecs refuses one of
+3).
 
 JPEG 2000 decoding follows OpenJPEG, as imagecodecs does: a 3-component codestream whose
 first component is at full resolution and whose other two are subsampled holds YCbCr, and
@@ -1711,11 +1744,13 @@ message ([spec/zarrify/grib.md](zarrify/grib.md)).
 |---|---|---|---|
 | `field` | integer | optional | the field to decode, from 0, in the order of the message's sections 7; 0 when absent |
 
-There are no other members. A chunk's number of values is the grid's `Nj × Ni`, at most 2^31,
-and section 3's number of points; its shape is 1 along every dimension but its last two, which
-are the grid's `Nj` and `Ni` (section 3's number of points along a meridian and along a parallel,
-octets 35–38 and 31–34 of templates 3.0, 3.1, 3.10, 3.20, 3.30 and 3.40); the array's data type is
-`float64` or `float32`.
+There are no other members. A chunk's number of values is section 3's number of points, at most
+2^31. On a grid of rows, its shape is 1 along every dimension but its last two, which are the
+grid's `Nj` and `Ni` (section 3's number of points along a meridian and along a parallel, octets
+35–38 and 31–34 of templates 3.0, 3.1, 3.10, 3.20, 3.30 and 3.40), whose product is that number. On
+a grid with no such rows, a reduced grid (3.0 or 3.40 with a list of the points along each parallel,
+section 3's octet 11 not 0 and octet 12, 1) or 3.101, its shape is 1 along every dimension but its
+last, which is that number. The array's data type is `float64` or `float32`.
 
 **A chunk's bytes** are one message, sections 0 to 8, as a GRIB file holds it, and no more: the
 chunk's length is the message's.
@@ -1767,7 +1802,9 @@ chunk's length is the message's.
    opposite way, those lines (the second, the fourth, …) are reversed. Then, with bit 3, the
    lines are transposed, so that the result is `Nj` rows of `Ni` points. Bits 1 and 2, the
    directions of `i` and `j`, are kept: the first row is the one the file gives first.
-   Scanning-mode bits 5 to 8 (`0x0F`) must be 0.
+   Scanning-mode bits 5 to 8 (`0x0F`) must be 0. A reduced grid's scanning mode must have none of
+   bits 3 to 8 set, and it and 3.101, which has none, are one line of their points, in the file's
+   order.
 5. **Type.** The values are converted to the array's data type: `float64` as they are, `float32`
    to nearest.
 

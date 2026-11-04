@@ -19,14 +19,14 @@
       "1024": {"dtype": "int64", "bits": 64, "samples": 1},
       "1280": {"dtype": "uint64", "bits": 64, "samples": 1},
       "128": {"dtype": "uint8", "bits": 24, "samples": 3},
-      "2304": {"dtype": "uint8", "bits": 32, "samples": 4}
+      "2304": {"dtype": "uint8", "bits": 32, "samples": 4},
+      "32": {"dtype": "complex64", "bits": 64, "samples": 1},
+      "1792": {"dtype": "complex128", "bits": 128, "samples": 1}
     },
     "unsupported": {
       "about": "datatypes the profile names and rejects",
       "1": "BINARY",
-      "32": "COMPLEX64",
       "1536": "FLOAT128",
-      "1792": "COMPLEX128",
       "2048": "COMPLEX256"
     }
   },
@@ -35,7 +35,7 @@
     "header": {"kind": "value", "type": "the header as one record, a field per field of spec/zarrify/nifti.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#2-the-header> in its order: numbers Ei2, Ei4, Ei8, u1, Ef4, Ef8 (arrays for T[k]), text cstr[k]", "extent": "(0, L)"},
     "extender": {"kind": "value", "type": "u1[4]", "extent": "(L, 4)"},
     "extensions/<i>": {"kind": "value", "type": "{esize:Ei4,ecode:Ei4,data:cstr[d]} for a text ecode (4, 6, 8, 32, 44), {esize:Ei4,ecode:Ei4,data:bytes[d]} otherwise, {esize:Ei4,ecode:Ei4} when d is 0 (d = esize - 8)", "extent": "the extension, when the extender's first byte is not 0, in chain order"},
-    "voxels": {"kind": "data", "form": "{geometry: {data_type, samples}, codec: {endian}, recipe: [[src, 0, null]]}", "extent": "(v, B)"},
+    "voxels": {"kind": "data", "form": "{geometry: {data_type, samples}, codec: {endian}, recipe: [[src, 0, null]]}; of a gzipped file, codec: {encoding: gzip, endian, skip: v}", "extent": "(v, B); of a gzipped file, the whole file, and no other element"},
     "gaps/<offset>": {"kind": "gap", "about": "padding, bytes the chain does not hold, bytes after the voxel data"}
   },
   "roles": {
@@ -85,6 +85,13 @@
       "given": {"total": "B = X Y Z T C b, exactly", "total_shown": "B in decimal", "vox": "v", "size": "the file's size"},
       "constraints": [
         {"require": "total <= max_safe && vox + total <= size", "message": "the {total_shown}-byte voxel data at {vox} is outside the {size}-byte file"}
+      ]
+    },
+    "gzip_stream": {
+      "given": {"inflated": "the bytes of the stream's start that inflated", "first": "L + 4", "stream": "(v + B) modulo 2^32", "stream_shown": "v + B in decimal", "isize": "the size the gzip trailer records"},
+      "constraints": [
+        {"require": "inflated >= first", "message": "the gzip stream ends or breaks in the header's first {first} bytes"},
+        {"require": "isize == stream", "message": "the gzip trailer records a stream of {isize} bytes modulo 2^32, not the {stream_shown} of the header and the voxel data: bytes after the voxel data, or a file of several gzip members, which a chunk cannot decode"}
       ]
     }
   }

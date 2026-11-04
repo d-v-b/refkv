@@ -24,7 +24,11 @@ chunks byte ranges of the file. The attributes, links and object references
 are in the form hdmf-zarr 0.14 writes and reads, so pynwb's `NWBZarrIO`
 opens a zarrified NWB file as an NWB file. Any other HDF5 file (a netCDF-4
 file, an instrument's output) gets the same hierarchy; an Imaris file is
-the [IMS profile](../ims/README.md)'s.
+the [IMS profile](../ims/README.md)'s. A netCDF-4 file's variables have their
+dimension names and its coordinate variables are arrays, so xarray opens the
+hierarchy with its dimensions and coordinates. xarray's Zarr backend keeps no
+attribute's float32, so a scaled variable may decode as float64 where it
+decodes as float32 from the file.
 
 ## What you get
 
@@ -142,8 +146,8 @@ Supported:
 
 Rejected:
 
-- Offsets or lengths of other than 8 bytes, a base address other than 0, a
-  superblock after a user block.
+- Offsets or lengths of other than 8 bytes, a base address other than where
+  the superblock is.
 - Structures that do not read: truncated files, chunks outside the file, a
   string that names no global heap object or one of another length.
 - More than 131,072 objects, objects more than 64 links deep, more than
