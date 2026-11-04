@@ -231,7 +231,12 @@ pub struct Czi {
     given: usize,
     /// the highest FilePart this file's entries name
     highest: i32,
+    /// a part with no directory: whether its subblocks are looked for, where the walk stands, how
+    /// many segments it has passed, and the positions the given entries already name
+    scans: bool,
     scan_at: u64,
+    scanned: u64,
+    known: HashSet<i64>,
     fed: Fed,
     pub ir: Ir,
     rules: &'static Rules,
@@ -299,7 +304,10 @@ impl Czi {
             role: Role::Alone,
             given: 0,
             highest: 0,
+            scans: false,
             scan_at: 0,
+            scanned: 0,
+            known: HashSet::new(),
             fed: Fed::default(),
             ir: Ir::new(size),
             rules: rules::of("czi"),
@@ -336,8 +344,17 @@ impl Czi {
     }
 
     /// Part `part` of the image `of`, at `key`, with the entries the master's directory has of it.
-    pub(crate) fn part(size: u64, key: &str, part: i32, of: Master, given: Vec<Entry>) -> Self {
-        Czi { role: Role::Part { key: key.to_string(), part, of }, given: given.len(), entries: given, ..Czi::new(size) }
+    /// `complete`: those entries are all the image lacks, so that a part with no directory need
+    /// not be walked for more, a read a segment.
+    pub(crate) fn part(size: u64, key: &str, part: i32, of: Master, given: Vec<Entry>, complete: bool) -> Self {
+        Czi {
+            role: Role::Part { key: key.to_string(), part, of },
+            given: given.len(),
+            scans: given.is_empty() || !complete,
+            known: given.iter().map(|e| e.pos).collect(),
+            entries: given,
+            ..Czi::new(size)
+        }
     }
 
     /// This file's part number: 0 but for a part.
@@ -841,12 +858,10 @@ impl Czi {
     /// The subblocks of a part with no directory, from the segment headers in file order, one read
     /// each: each subblock's copy of its entry is its entry. None when the segments end.
     fn scan(&mut self) -> Res<Option<Step>> {
-        let known: HashSet<i64> = self.entries.iter().map(|e| e.pos).collect();
         let max_walk = self.rules.limit("max_walk") as u64;
-        let mut walked = 0;
-        loop {
+        while self.scans {
             let o = self.scan_at;
-            if o + 32 > self.size || walked >= max_walk {
+            if o + 32 > self.size || self.scanned >= max_walk {
                 break;
             }
             let n = SCAN_HEAD.min(self.size - o);
@@ -858,18 +873,18 @@ impl Czi {
             if !walkable_id(&h[..16]) || a < 0 || u < 0 || !self.within(o as i64 + 32, a) {
                 break;
             }
-            if seg_id(&h[..16]) == Kind::Subblock.id() && a >= 256 && n >= 288 && !known.contains(&(o as i64)) {
-                self.scanned(o, &h)?;
+            if seg_id(&h[..16]) == Kind::Subblock.id() && a >= 256 && n >= 288 && !self.known.contains(&(o as i64)) {
+                self.scanned_subblock(o, &h)?;
             }
             self.scan_at = o + 32 + a as u64;
-            walked += 1;
+            self.scanned += 1;
         }
         self.fed.clear();
         Ok(None)
     }
 
     /// The subblock whose first bytes at `o` are `h`, an entry of its part.
-    fn scanned(&mut self, o: u64, h: &[u8]) -> Res<()> {
+    fn scanned_subblock(&mut self, o: u64, h: &[u8]) -> Res<()> {
         let i = self.entries.len();
         let (pt, comp, d) = (i32::le_at(h, 50), i32::le_at(h, 66), i32::le_at(h, 76));
         self.rules.check(
@@ -1194,7 +1209,7 @@ impl Czi {
     // ---- the attachments
 
     fn att_heads(&mut self) -> Res<Option<Step>> {
-        if self.a1.is_empty() {
+        if self.att.is_none() || self.a1.is_empty() {
             self.phase = Phase::AttData;
             return Ok(None);
         }

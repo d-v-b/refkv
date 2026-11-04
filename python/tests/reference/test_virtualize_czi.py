@@ -299,7 +299,9 @@ def test_rejects(case):
 
 
 def test_every_reject_fixture_has_a_test():
-    assert {p.stem[len("czi_reject_"):] for p in FIXTURES.glob("czi_reject_*.czi")} == set(REJECTIONS)
+    # but an image across files, which the frozen reference does not read as one: the core's table has those
+    names = {p.stem[len("czi_reject_"):] for p in FIXTURES.glob("czi_reject_*.czi") if "_parts_" not in p.stem}
+    assert names == set(REJECTIONS)
 
 
 @pytest.fixture(scope="module")

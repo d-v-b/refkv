@@ -1175,9 +1175,10 @@ the master and the part both name is described once, the second name an alias, a
 subblock's copy of its entry agrees ([§3.2](#32-conforming-and-unplaced-subblocks)) with an entry of a
 part or of the master naming it, whatever FilePart each names.
 
-A part with no directory has as its entries the subblocks a walk ([§7.2](#72-structures-and-the-walk),
-step 6) finds, one read of 1 KiB a segment: each `ZISRAWSUBBLOCK` segment of at least 256 bytes that no
-entry of the master names, its copy of its entry taken as the entry and held to the same checks. A
+A part with no directory has as its entries those the master names and, when it names none there or
+the file is still short, the subblocks a walk ([§7.2](#72-structures-and-the-walk), step 6) finds, one
+read of 1 KiB a segment: each `ZISRAWSUBBLOCK` segment of at least 256 bytes that no entry of the master
+names, its copy of its entry taken as the entry and held to the same checks. A
 `ZISRAWSUBBLOCK` segment in a file with a directory that no entry names is not placed, as in a file
 input.
 

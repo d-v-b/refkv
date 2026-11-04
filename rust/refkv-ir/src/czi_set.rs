@@ -254,7 +254,8 @@ impl StoreParser for CziSet {
         self.keys.push(key.to_string());
         self.elems.push(e);
         let given = self.named.given_to(self.next);
-        self.parts.push(Czi::part(size, key, self.next, self.named.master()?, given));
+        let complete = self.planes.as_ref().is_none_or(Planes::complete);
+        self.parts.push(Czi::part(size, key, self.next, self.named.master()?, given, complete));
         self.phase = Phase::Part;
         Ok(Some(e))
     }

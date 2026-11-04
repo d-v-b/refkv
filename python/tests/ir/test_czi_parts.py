@@ -6,7 +6,9 @@ rejections are in conformance/zarrify/rejects/czi.json."""
 from __future__ import annotations
 
 import sys
+from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
+from types import ModuleType
 
 import numpy as np
 import pytest
@@ -15,23 +17,32 @@ from ir_helpers import FIXTURES, ROOT
 
 import refkv.zarr
 from refkv import _core
-from refkv._narrow import at, mapping, ndarray
+from refkv._narrow import at, integer, mapping, ndarray
 from refkv.ir.store import StoreIrOutput
 from refkv.policy import Policy
 from refkv.zarrify import Rejected
 from refkv.zarrify import _zarrify as zarrify
 from refkv.zarrify.store.beside import VsiFiles
 
-sys.path.insert(0, str(ROOT / "fixtures" / "generators" / "czi"))
 sys.path.insert(0, str(ROOT / "conformance" / "zarrify"))
-# pyrefly: ignore[missing-import]  # on sys.path above; the config's search-path lacks fixtures/generators
-import write_fixtures
 from proxy import Proxy
 
-# pyrefly: ignore[missing-import]  # on sys.path above; the config's search-path lacks fixtures/generators
-from write_fixtures import part_plane
-
 CZI = FIXTURES / "czi"
+
+
+def czi_generator() -> ModuleType:
+    """The CZI fixtures' writer, under a name of its own: each format's generator is `write_fixtures`."""
+    spec = spec_from_file_location("czi_write_fixtures", ROOT / "fixtures" / "generators" / "czi" / "write_fixtures.py")
+    assert spec is not None
+    assert spec.loader is not None
+    module = module_from_spec(spec)
+    sys.modules[spec.name] = module  # its dataclasses look their module up
+    spec.loader.exec_module(module)
+    return module
+
+
+write_fixtures = czi_generator()
+part_plane = write_fixtures.part_plane
 
 
 @pytest.fixture(scope="module")
@@ -115,6 +126,19 @@ def test_the_probes_stop_when_the_planes_are_found(tmp_path):
     _, out = zarrify(str(tmp_path / "a.czi"))
     assert isinstance(out, StoreIrOutput)
     assert set(out.sizes) == {"a.czi", "a(1).czi"}
+
+
+def test_a_part_its_master_covers_is_not_walked_a_read_a_segment(tmp_path):
+    """The master's directory names every subblock of the part, which has no directory: its headers
+    are read in one batch, and the array is whole."""
+    p = write_fixtures.part(1, *range(1, 200), omit_directory=True)
+    (tmp_path / "many(1).czi").write_bytes(p.build())
+    data = write_fixtures.master(0, planes=200, more_entries=write_fixtures.named_by_master(p, 1, *range(199))).build()
+    (tmp_path / "many.czi").write_bytes(data)
+    _, out = zarrify(str(tmp_path / "many.czi"))
+    assert isinstance(out, StoreIrOutput)
+    assert integer(at(out.summary, "reads", "batches")) < 40
+    assert np.array_equal(ndarray(read(out, tmp_path).get_array("0/0")[...]), planes(200))
 
 
 def test_over_http_the_parts_are_probed_beside_the_input(server, tmp_path):
