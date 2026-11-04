@@ -319,6 +319,19 @@ pub struct Expected {
     format: Fmt,
 }
 
+/// The read ahead of a Micro-Manager file's IFDs, whose offsets its index map holds.
+#[derive(Clone, Copy, PartialEq)]
+enum Prefetch {
+    Start,
+    Header,
+    Map(u64),
+    Entries(u64, u64),
+    Done,
+}
+
+/// The bytes read of each IFD an index map names.
+const PREFETCH_IFD: u64 = 1024;
+
 /// A parser's state as part of an image across files.
 #[derive(Default)]
 struct SetState {
@@ -397,6 +410,8 @@ pub struct Tiff {
     head: Vec<u8>,
     /// its part in an image across files
     set: SetState,
+    /// how far the read of a Micro-Manager file's IFDs ahead of the chain has gone (`mm_prefetch`)
+    prefetch: Prefetch,
 }
 
 struct Level {
@@ -504,6 +519,7 @@ impl Tiff {
             qptiff: false,
             head: Vec::new(),
             set: SetState::default(),
+            prefetch: Prefetch::Start,
         }
     }
 
@@ -625,6 +641,9 @@ impl Tiff {
                     self.decide(&h, v, n)?;
                 }
                 Phase::Chain => {
+                    if let Some(s) = self.mm_prefetch()? {
+                        return Ok(s);
+                    }
                     // the main chain, an IFD a round: each names the next
                     if let Some(s) = self.read_pending()? {
                         return Ok(s);
@@ -1624,6 +1643,58 @@ impl Tiff {
             ifd: word(e, 16),
         }).collect();
         Ok(Some(Mm { summary, entries }))
+    }
+
+    /// The next read of a Micro-Manager file's IFDs ahead of the main chain, so that a stack of
+    /// many planes is not an IFD a request: its index map names them all, and the chain's walk
+    /// then finds them read. A file without the header costs only the read of its bytes 8 to 39.
+    fn mm_prefetch(&mut self) -> Res<Option<Step>> {
+        loop {
+            match self.prefetch {
+                Prefetch::Done => return Ok(None),
+                Prefetch::Start => {
+                    if !self.le || self.big || self.ndpi || self.qptiff || !self.within(0, 40) || !self.chain.is_empty() {
+                        self.prefetch = Prefetch::Done;
+                        continue;
+                    }
+                    self.prefetch = Prefetch::Header;
+                    return Ok(Some(self.ask(vec![(8, 32)])));
+                }
+                Prefetch::Header => {
+                    let h = self.fed.get(8, 32).ok_or("internal: no header")?.to_vec();
+                    self.fed.clear();
+                    let index = u32::at(&h, 4, true) as u64;
+                    if u32::at(&h, 0, true) != 54773648 || u32::at(&h, 24, true) != 2355492 || !self.within(index, 8) {
+                        self.prefetch = Prefetch::Done;
+                        continue;
+                    }
+                    self.prefetch = Prefetch::Map(index);
+                    return Ok(Some(self.ask(vec![(index, 8)])));
+                }
+                Prefetch::Map(index) => {
+                    let h = self.fed.get(index, 8).ok_or("internal: no index map's header")?.to_vec();
+                    self.fed.clear();
+                    let n = u32::at(&h, 4, true) as u64;
+                    if u32::at(&h, 0, true) != 3453623 || n == 0 || n > 100000 || !self.within(index + 8, 20 * n) {
+                        self.prefetch = Prefetch::Done;
+                        continue;
+                    }
+                    self.prefetch = Prefetch::Entries(index + 8, n);
+                    return Ok(Some(self.ask(vec![(index + 8, 20 * n)])));
+                }
+                Prefetch::Entries(at, n) => {
+                    let b = self.fed.get(at, 20 * n).ok_or("internal: no index map")?.to_vec();
+                    self.fed.clear();
+                    self.prefetch = Prefetch::Done;
+                    let ranges: Vec<(u64, u64)> = b.chunks_exact(20).map(|e| u32::at(e, 16, true) as u64)
+                        .filter(|&o| o < self.size).map(|o| (o, PREFETCH_IFD.min(self.size - o))).collect();
+                    if ranges.is_empty() {
+                        continue;
+                    }
+                    return Ok(Some(self.ask(ranges)));
+                }
+            }
+        }
     }
 
     /// The stack's planes, once every file is known; else what to probe next: a file run stops

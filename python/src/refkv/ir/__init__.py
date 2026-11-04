@@ -46,7 +46,7 @@ def parse(fmt: str, transport: Transport,
     return ir, json.loads(facts), json.loads(stats)
 
 
-class Beside(Exception):
+class NamesSiblingsError(Exception):
     """A file that names siblings (spec/zarrify.md §1.9
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>): the
     caller starts over with a store run of the format, `args[0]`."""
@@ -79,7 +79,7 @@ async def zarrify_async(location: str, url: str | None = None, mirror: bool = Tr
     await drive_async(run, transport, connections)
     fmt = run.format  # a TIFF the core found to be NDPI is "ndpi"
     if run.beside:
-        raise Beside(fmt)
+        raise NamesSiblingsError(fmt)
     if named in TIFF_VARIANTS and fmt != named:  # before the projection reads more
         raise Rejected(f"not {TIFF_VARIANTS[named]}: the TIFF parser read it as {fmt}")
 

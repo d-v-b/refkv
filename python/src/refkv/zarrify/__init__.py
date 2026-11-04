@@ -160,7 +160,7 @@ BESIDE = {"vsi": ("VSI", ".vsi file"), "nrrd": ("NRRD", "header file"), "grib": 
           "tiff": ("TIFF", "TIFF file")}
 # Those of them that read a file with the files beside it only when it names some (spec/zarrify.md
 # §1.9 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>):
-# a file run finds out, and starts over (`ir.Beside`).
+# a file run finds out, and starts over (`ir.NamesSiblingsError`).
 ON_DEMAND = {"tiff"}
 
 
@@ -242,7 +242,7 @@ async def _zarrify_async(location: str, url: str | None = None, *, checksums: bo
     try:
         found, out, _ = await ir.zarrify_async(location, url, transport=transport, connections=connections,
                                                byte_cost=byte_cost, fmt=fmt, layouts=names, checksums=checksums)
-    except ir.Beside as e:
+    except ir.NamesSiblingsError as e:
         return await _zarrify_beside_async(e.args[0], location, url, transport, checksums=checksums, policy=policy,
                                            connections=connections)
     if checksums:

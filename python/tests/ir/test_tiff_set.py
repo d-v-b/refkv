@@ -25,6 +25,7 @@ from refkv.zarrify import _zarrify as zarrify
 
 sys.path.insert(0, str(ROOT / "fixtures" / "generators" / "tiff"))
 sys.path.insert(0, str(ROOT / "conformance" / "zarrify"))
+import write_set_fixtures  # noqa: E402
 from proxy import Proxy  # noqa: E402
 from write_set_fixtures import plane  # noqa: E402
 
@@ -103,6 +104,21 @@ def test_over_http_the_siblings_are_probed_beside_the_input(server, tmp_path):
     g = zarr.open_group(refkv.zarr.open(str(tmp_path / "a.vzip"), policy=policy), mode="r", zarr_format=3)
     assert at(g.attrs, "refkv_zarrified", "source") == {"url": server + name}
     assert np.array_equal(ndarray(g.get_array("0")[...]), ALL_OF_IT)
+
+
+def test_a_stack_of_many_planes_is_not_an_ifd_a_request(tmp_path, monkeypatch):
+    """Its index map names its IFDs, read in one batch rather than one a round down the chain."""
+    monkeypatch.setattr(write_set_fixtures, "OUT", tmp_path)
+    planes = [plane(k) for k in range(200)]
+    summary = {"Channels": 1, "Slices": 1, "Frames": 200, "UUID": "u"}
+    index = [(0, 0, t, 0) for t in range(200)]
+    name = "many_MMStack_Pos0.ome.tif"
+    write_set_fixtures.write(name, planes[:150], summary=summary, index=index[:150])
+    write_set_fixtures.write("many_MMStack_Pos0_1.ome.tif", planes[150:], summary=summary, index=index[150:])
+    _, out = zarrify(str(tmp_path / name))
+    assert isinstance(out, StoreIrOutput)
+    assert out.summary["reads"]["batches"] < 40
+    assert np.array_equal(ndarray(read(out, tmp_path).get_array("0")[...]), np.stack(planes))
 
 
 def test_a_url_of_the_directory_names_the_siblings_there(tmp_path):
