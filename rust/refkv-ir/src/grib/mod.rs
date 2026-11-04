@@ -407,6 +407,12 @@ impl Grib {
         crate::check::finish(&mut ir)?;
         self.ir = Some(ir);
         let messages: Vec<J> = self.messages.values().map(|m| json!([m.start, m.length])).collect();
+        // each grid once: a reduced grid's list of rows may be long, and so may the list of fields
+        let mut grids = Map::new();
+        for f in fields.iter().filter(|f| f.reason.is_none()) {
+            let key = f.grid.key.iter().map(|x| format!("{x:02x}")).collect::<String>();
+            grids.entry(key).or_insert_with(|| grid_json(&f.grid));
+        }
         let fields: Vec<J> = fields.iter().map(field_json).collect();
         let unpresented: Vec<J> = fields.iter().filter(|f| f.get("reason").is_some())
             .map(|f| json!({"message": f["message"], "field": f["field"], "reason": f["reason"]})).collect();
@@ -416,6 +422,7 @@ impl Grib {
             "own": {"messages": messages.len(), "fields": fields.len(), "index": index, "unpresented": unpresented},
             "messages": messages,
             "fields": fields,
+            "grids": grids,
             "counts": {"batches": self.batches},
         }))
     }
@@ -443,10 +450,8 @@ fn field_json(f: &Field) -> J {
     m.insert("qualifier".into(), json!(f.product.qualifier));
     m.insert("packing".into(), json!(f.packing.template));
     m.insert("bitmap".into(), json!(f.bitmap));
-    m.insert("shape".into(), json!([f.grid.ny, f.grid.nx]));
     m.insert("single".into(), json!(f.single));
     m.insert("parts".into(), json!(f.parts));
-    m.insert("grid_info".into(), grid_json(&f.grid));
     if let Some(r) = f.reason {
         m.insert("reason".into(), json!(r));
     }
@@ -462,11 +467,33 @@ fn grid_json(g: &Grid) -> J {
     };
     let projection = match &g.projection {
         Some(meta::Projection::LatLon { lat0, lon0, dlat, dlon }) => json!({"kind": "latlon", "lat0": lat0, "lon0": lon0, "dlat": dlat, "dlon": dlon}),
+        Some(meta::Projection::Rotated { lat0, lon0, dlat, dlon, pole_lat, pole_lon, angle }) =>
+            json!({"kind": "rotated", "lat0": lat0, "lon0": lon0, "dlat": dlat, "dlon": dlon, "pole_lat": pole_lat, "pole_lon": pole_lon, "angle": angle}),
+        Some(meta::Projection::Gaussian { lon0, dlon, rows }) => json!({"kind": "gaussian", "lon0": lon0, "dlon": dlon, "rows": gaussian_json(rows)}),
+        Some(meta::Projection::Polar { lat0, lon0, lad, lov, dx, dy, south }) =>
+            json!({"kind": "polar", "lat0": lat0, "lon0": lon0, "lad": lad, "lov": lov, "dx": dx, "dy": dy, "south": south}),
+        Some(meta::Projection::Mercator { lat0, lon0, lad, dx, dy }) => json!({"kind": "mercator", "lat0": lat0, "lon0": lon0, "lad": lad, "dx": dx, "dy": dy}),
+        Some(meta::Projection::Reduced { rows, lon0, counts }) => {
+            let rows = match rows {
+                meta::ReducedRows::Gaussian(r) => gaussian_json(r),
+                meta::ReducedRows::Regular { lat0, dlat } => json!({"lat0": lat0, "dlat": dlat}),
+            };
+            json!({"kind": "reduced", "rows": rows, "lon0": lon0, "counts": counts})
+        }
+        Some(meta::Projection::Unstructured { grid, reference, uuid }) => {
+            let hex: String = uuid.iter().map(|x| format!("{x:02x}")).collect();
+            json!({"kind": "unstructured", "grid": grid, "reference": reference, "uuid": hex})
+        }
         Some(meta::Projection::Lambert { lat0, lon0, lad, lov, dx, dy, latin1, latin2, south }) =>
             json!({"kind": "lambert", "lat0": lat0, "lon0": lon0, "lad": lad, "lov": lov, "dx": dx, "dy": dy, "latin1": latin1, "latin2": latin2, "south": south}),
         None => J::Null,
     };
-    json!({"template": g.template, "nx": g.nx, "ny": g.ny, "scan": g.scan, "earth": earth, "projection": projection})
+    json!({"template": g.template, "points": g.points, "nx": g.nx, "ny": g.ny, "scan": g.scan, "earth": earth, "projection": projection})
+}
+
+/// A Gaussian grid's rows, as facts.
+fn gaussian_json(r: &meta::GaussianRows) -> J {
+    json!({"parallels": r.parallels, "first": r.first, "step": r.step})
 }
 
 impl StoreParser for Grib {

@@ -131,10 +131,98 @@ pub enum Projection {
     /// 3.0: the first point's latitude and longitude, and the increments, in degrees, each
     /// increment with the direction the scanning mode gives it
     LatLon { lat0: f64, lon0: f64, dlat: f64, dlon: f64 },
+    /// 3.1: as 3.0, in the rotated frame, and the southern pole's latitude and longitude and the
+    /// angle of rotation, in degrees
+    Rotated { lat0: f64, lon0: f64, dlat: f64, dlon: f64, pole_lat: f64, pole_lon: f64, angle: f64 },
+    /// 3.40: the first point's longitude, the longitude's increment, and the rows
+    Gaussian { lon0: f64, dlon: f64, rows: GaussianRows },
     /// 3.30: the first point's latitude and longitude, LaD, LoV, the increments in meters (with
     /// their directions), the two secants' latitudes, and whether the projection's pole is the
     /// south pole
     Lambert { lat0: f64, lon0: f64, lad: f64, lov: f64, dx: f64, dy: f64, latin1: f64, latin2: f64, south: bool },
+    /// 3.20: the first point's latitude and longitude, LaD, LoV, the increments in meters (with
+    /// their directions), and whether the projection's pole is the south pole
+    Polar { lat0: f64, lon0: f64, lad: f64, lov: f64, dx: f64, dy: f64, south: bool },
+    /// 3.10: the first point's latitude and longitude, LaD, and the increments in meters (with
+    /// their directions)
+    Mercator { lat0: f64, lon0: f64, lad: f64, dx: f64, dy: f64 },
+    /// 3.0 or 3.40 with a list of the points of each row: the rows' latitudes, the first point's
+    /// longitude, and each row's number of points
+    Reduced { rows: ReducedRows, lon0: f64, counts: Vec<u64> },
+    /// 3.101: the number of the grid used, its number in the reference, and its UUID
+    Unstructured { grid: u64, reference: u8, uuid: [u8; 16] },
+}
+
+/// The rows of a Gaussian grid: N, the first row's number from the north, from 0, and +1 or −1,
+/// the way the next row's number goes.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GaussianRows {
+    pub parallels: u64,
+    pub first: u64,
+    pub step: i64,
+}
+
+/// The latitudes of a reduced grid's rows.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ReducedRows {
+    /// 3.40
+    Gaussian(GaussianRows),
+    /// 3.0: the first row's latitude, and the increment with its direction
+    Regular { lat0: f64, dlat: f64 },
+}
+
+/// The most parallels between a pole and the equator (`N`) of a Gaussian grid the profile presents
+/// (spec/zarrify/grib.md §2.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#24-grids>):
+/// computing a latitude takes time in proportion to `N`, and every row's in proportion to `N²`.
+pub const MAX_PARALLELS: u64 = 1 << 13;
+
+/// Newton's iterations of each Gauss–Legendre latitude.
+const GAUSS_ITERATIONS: usize = 5;
+
+/// The latitude in degrees of row `k` (from 0, north to south) of the Gaussian grid of `n`
+/// parallels between a pole and the equator: the zeros of the Legendre polynomial of degree `2n`,
+/// by Newton's method from an asymptotic estimate, a fixed number of times and with musl's libm
+/// functions, so that every host gets the same bits (spec/zarrify/grib.md §4
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#4-georeferencing>).
+pub fn gaussian_latitude(n: u64, k: u64) -> f64 {
+    if k >= n {
+        return -gaussian_latitude(n, 2 * n - 1 - k);
+    }
+    let pi = std::f64::consts::PI;
+    let degree = (2 * n) as f64;
+    let mut x = libm::cos(pi * (k as f64 + 0.75) / (degree + 0.5));
+    for _ in 0..GAUSS_ITERATIONS {
+        let (mut before, mut p) = (1.0, x);
+        for j in 2..=2 * n {
+            let j = j as f64;
+            let next = ((2.0 * j - 1.0) * x * p - (j - 1.0) * before) / j;
+            before = p;
+            p = next;
+        }
+        let slope = degree * (before - x * p) / (1.0 - x * x);
+        x -= p / slope;
+    }
+    libm::asin(x) * (180.0 / pi)
+}
+
+/// The rows of the Gaussian grid of `n` parallels whose first of `nj` rows lies at `lat0` and
+/// whose rows run the way `sj` says (+1 south to north, −1 north to south); None when `n` is out
+/// of range, `lat0` is not within a tenth of the rows' spacing of a row, or the rows run past a
+/// pole.
+fn gaussian_rows(n: u64, lat0: f64, nj: u64, sj: f64) -> Option<GaussianRows> {
+    if n == 0 || n > MAX_PARALLELS {
+        return None;
+    }
+    let estimate = (90.0 - lat0) * ((2 * n) as f64 + 0.5) / 180.0 - 0.75;
+    if !(-0.5..(2 * n) as f64).contains(&estimate) {
+        return None;
+    }
+    let first = libm::round(estimate) as u64;
+    if (lat0 - gaussian_latitude(n, first)).abs() >= 9.0 / n as f64 {
+        return None;
+    }
+    let fits = if sj < 0.0 { first.checked_add(nj)? <= 2 * n } else { nj <= first + 1 };
+    fits.then_some(GaussianRows { parallels: n, first, step: if sj < 0.0 { 1 } else { -1 } })
 }
 
 /// Section 3, the grid definition section.
@@ -164,6 +252,87 @@ fn angle(v: i64, basic: u64, subdivisions: u64) -> f64 {
     }
 }
 
+/// The span from the first longitude to the last, the way `si` runs (+1 east, −1 west).
+fn longitude_span(lon0: f64, lon1: f64, si: f64) -> f64 {
+    let span = lon1 - lon0;
+    if si > 0.0 && span < 0.0 {
+        span + 360.0
+    } else if si < 0.0 && span > 0.0 {
+        span - 360.0
+    } else {
+        span
+    }
+}
+
+/// Whether a row of `count` evenly spaced points whose first and last longitudes are `span` apart
+/// goes round the Earth: the step from the last back to the first is its others', within a tenth.
+fn closes(span: f64, count: u64) -> bool {
+    let step = 360.0 / count as f64;
+    (span.abs() + step - 360.0).abs() < step / 10.0
+}
+
+/// The increments of the lat/lon template 3.0 or 3.1: when given (flag bits 3 and 4), else from
+/// the corners.
+fn latlon_increments(s3: &[u8], g: &Grid, a: &dyn Fn(usize) -> f64, si: f64, sj: f64) -> (f64, f64) {
+    let (basic, sub) = (uint(s3, o(39), 4), uint(s3, o(43), 4));
+    let (lat0, lon0, lat1, lon1) = (a(47), a(51), a(56), a(60));
+    let (di, dj) = (uint(s3, o(64), 4), uint(s3, o(68), 4));
+    let flags = s3[o(55)];
+    let dlon = if flags & 0x20 != 0 && !missing(di, 4) {
+        si * angle(di as i64, basic, sub)
+    } else if g.nx > 1 {
+        longitude_span(lon0, lon1, si) / (g.nx - 1) as f64
+    } else {
+        0.0
+    };
+    let dlat = if flags & 0x10 != 0 && !missing(dj, 4) {
+        sj * angle(dj as i64, basic, sub)
+    } else if g.ny > 1 {
+        (lat1 - lat0) / (g.ny - 1) as f64
+    } else {
+        0.0
+    };
+    (dlat, dlon)
+}
+
+/// The rows' list of a reduced grid of template 3.0 or 3.40: None (it is not presented, `reduced`)
+/// unless the list gives the points along each parallel (octet 12, 1), there is one number per row
+/// and they add up to the grid's points, its rows run along parallels from west to east, one
+/// direction, and its rows go round the Earth.
+fn reduced(s3: &[u8], g: &Grid, sj: f64) -> Option<Projection> {
+    let width = s3[o(11)] as usize;
+    if s3[o(12)] != 1 || g.scan & 0xb0 != 0 || !missing(g.nx, 4) || width > 8 {
+        return None;
+    }
+    let rows = usize::try_from(g.ny).ok().filter(|&r| r > 0 && r.checked_mul(width).is_some_and(|l| o(73) + l <= s3.len()))?;
+    let counts: Vec<u64> = (0..rows).map(|r| uint(s3, o(73) + r * width, width)).collect();
+    let longest = counts.iter().copied().max()?;
+    let total = counts.iter().try_fold(0u64, |t, &c| t.checked_add(c))?;
+    if total != g.points || longest == 0 {
+        return None;
+    }
+    let (basic, sub) = (uint(s3, o(39), 4), uint(s3, o(43), 4));
+    let a = |at: usize| angle(signed(s3, o(at), 4), basic, sub);
+    let (lat0, lon0, lat1, lon1) = (a(47), a(51), a(56), a(60));
+    if !closes(longitude_span(lon0, lon1, 1.0), longest) {
+        return None;
+    }
+    let rows = if g.template == 40 {
+        ReducedRows::Gaussian(gaussian_rows(uint(s3, o(68), 4), lat0, g.ny, sj)?)
+    } else {
+        let dj = uint(s3, o(68), 4);
+        let dlat = if s3[o(55)] & 0x10 != 0 && !missing(dj, 4) {
+            sj * angle(dj as i64, basic, sub)
+        } else if g.ny > 1 {
+            (lat1 - lat0) / (g.ny - 1) as f64
+        } else {
+            0.0
+        };
+        ReducedRows::Regular { lat0, dlat }
+    };
+    Some(Projection::Reduced { rows, lon0, counts })
+}
+
 pub fn grid(s3: &[u8]) -> Result<Grid, String> {
     if s3.len() < 14 {
         return Err(format!("a GRIB section 3 of {} octets, fewer than 14", s3.len()));
@@ -171,18 +340,22 @@ pub fn grid(s3: &[u8]) -> Result<Grid, String> {
     let template = uint(s3, o(13), 2);
     let points = uint(s3, o(7), 4);
     let mut g = Grid { template, points, nx: 0, ny: 0, scan: 0, earth: None, projection: None, reason: None, key: s3[o(6)..].to_vec() };
-    // a list of the number of points along each row or column (a reduced grid)
     if s3[o(6)] != 0 {
         g.reason = Some("grid_source");
         return Ok(g);
     }
-    if s3[o(11)] != 0 {
+    // a list of the number of points along each row or column (a reduced grid)
+    if s3[o(11)] != 0 && !matches!(template, 0 | 40) {
         g.reason = Some("reduced");
         return Ok(g);
     }
     let (min_len, scan_at) = match template {
-        0 => (72, 72),
+        0 | 40 => (72, 72),
+        1 => (84, 72),
+        10 => (72, 60),
+        20 => (65, 65),
         30 => (81, 65),
+        101 => (35, 0),
         _ => {
             g.reason = Some("grid");
             return Ok(g);
@@ -190,6 +363,16 @@ pub fn grid(s3: &[u8]) -> Result<Grid, String> {
     };
     if s3.len() < min_len {
         return Err(format!("a GRIB section 3 of template 3.{template} has {} octets, fewer than {min_len}", s3.len()));
+    }
+    if template == 101 {
+        if points == 0 {
+            g.reason = Some("grid_size");
+        } else {
+            let mut uuid = [0; 16];
+            uuid.copy_from_slice(&s3[o(20)..o(36)]);
+            g.projection = Some(Projection::Unstructured { grid: uint(s3, o(16), 3), reference: s3[o(19)], uuid });
+        }
+        return Ok(g);
     }
     g.nx = uint(s3, o(31), 4);
     g.ny = uint(s3, o(35), 4);
@@ -199,57 +382,97 @@ pub fn grid(s3: &[u8]) -> Result<Grid, String> {
     // that differ in those bits alone are one
     g.key[o(scan_at) - o(6)] &= !0x30;
     g.earth = earth(s3);
+    // +i is west to east unless bit 1 (0x80); +j north to south unless bit 2 (0x40)
+    let (si, sj) = (if g.scan & 0x80 != 0 { -1.0 } else { 1.0 }, if g.scan & 0x40 != 0 { 1.0 } else { -1.0 });
+    if s3[o(11)] != 0 {
+        g.projection = reduced(s3, &g, sj);
+        if g.projection.is_none() {
+            g.reason = Some("reduced");
+        }
+        return Ok(g);
+    }
     if g.nx == 0 || g.ny == 0 || missing(g.nx, 4) || missing(g.ny, 4) || g.nx.checked_mul(g.ny) != Some(points) {
         g.reason = Some("grid_size");
         return Ok(g);
     }
-    // +i is west to east unless bit 1 (0x80); +j north to south unless bit 2 (0x40)
-    let (si, sj) = (if g.scan & 0x80 != 0 { -1.0 } else { 1.0 }, if g.scan & 0x40 != 0 { 1.0 } else { -1.0 });
+    let d = |at: usize| signed(s3, o(at), 4) as f64 / 1e6;
+    // the increments of a projected grid, in millimeters, with their directions, in meters; None
+    // when either is 0 or missing
+    let meters = |at_x: usize, at_y: usize| {
+        let (x, y) = (uint(s3, o(at_x), 4), uint(s3, o(at_y), 4));
+        (x != 0 && y != 0 && !missing(x, 4) && !missing(y, 4)).then(|| (si * x as f64 / 1e3, sj * y as f64 / 1e3))
+    };
     g.projection = match template {
-        0 => {
+        0 | 1 | 40 => {
             let (basic, sub) = (uint(s3, o(39), 4), uint(s3, o(43), 4));
             let a = |at: usize| angle(signed(s3, o(at), 4), basic, sub);
-            let (lat0, lon0, lat1, lon1) = (a(47), a(51), a(56), a(60));
-            let (di, dj) = (uint(s3, o(64), 4), uint(s3, o(68), 4));
-            let flags = s3[o(55)];
-            // the increments when given (flag bits 3 and 4), else from the corners
-            let dlon = if flags & 0x20 != 0 && !missing(di, 4) {
-                si * angle(di as i64, basic, sub)
-            } else if g.nx > 1 {
-                let mut span = lon1 - lon0;
-                if si > 0.0 && span < 0.0 {
-                    span += 360.0;
-                } else if si < 0.0 && span > 0.0 {
-                    span -= 360.0;
+            let (lat0, lon0) = (a(47), a(51));
+            match template {
+                0 => {
+                    let (dlat, dlon) = latlon_increments(s3, &g, &a, si, sj);
+                    Some(Projection::LatLon { lat0, lon0, dlat, dlon })
                 }
-                span / (g.nx - 1) as f64
-            } else {
-                0.0
-            };
-            let dlat = if flags & 0x10 != 0 && !missing(dj, 4) {
-                sj * angle(dj as i64, basic, sub)
-            } else if g.ny > 1 {
-                (lat1 - lat0) / (g.ny - 1) as f64
-            } else {
-                0.0
-            };
-            Some(Projection::LatLon { lat0, lon0, dlat, dlon })
+                1 if g.earth.is_none() => {
+                    g.reason = Some("earth");
+                    None
+                }
+                1 => {
+                    let (dlat, dlon) = latlon_increments(s3, &g, &a, si, sj);
+                    let angle = f32::from_be_bytes([s3[o(81)], s3[o(82)], s3[o(83)], s3[o(84)]]) as f64;
+                    Some(Projection::Rotated { lat0, lon0, dlat, dlon, pole_lat: a(73), pole_lon: a(77), angle })
+                }
+                _ => {
+                    // the longitude's increment from the corners: producers round Di, CFS's 0.9375
+                    // to 0.938
+                    let span = longitude_span(lon0, a(60), si);
+                    let dlon = if g.nx == 1 {
+                        0.0
+                    } else if closes(span, g.nx) {
+                        si * (360.0 / g.nx as f64)
+                    } else {
+                        span / (g.nx - 1) as f64
+                    };
+                    let rows = gaussian_rows(uint(s3, o(68), 4), lat0, g.ny, sj);
+                    if rows.is_none() {
+                        g.reason = Some("gaussian");
+                    }
+                    rows.map(|rows| Projection::Gaussian { lon0, dlon, rows })
+                }
+            }
+        }
+        // a shape this profile cannot model, or a bipolar projection
+        20 | 30 if g.earth.is_none() || s3[o(64)] & 0x40 != 0 => {
+            g.reason = Some("earth");
+            None
+        }
+        10 if g.earth.is_none() => {
+            g.reason = Some("earth");
+            None
+        }
+        10 => {
+            let lad = d(48);
+            let m = meters(65, 69).filter(|_| lad.abs() < 90.0);
+            if m.is_none() {
+                g.reason = Some("projection");
+            }
+            m.map(|(dx, dy)| Projection::Mercator { lat0: d(39), lon0: d(43), lad, dx, dy })
+        }
+        20 => {
+            let (lad, south) = (d(48), s3[o(64)] & 0x80 != 0);
+            let hemisphere = if south { (-90.0..0.0).contains(&lad) } else { lad > 0.0 && lad <= 90.0 };
+            let m = meters(56, 60).filter(|_| hemisphere);
+            if m.is_none() {
+                g.reason = Some("projection");
+            }
+            m.map(|(dx, dy)| Projection::Polar { lat0: d(39), lon0: d(43), lad, lov: d(52), dx, dy, south })
         }
         _ => {
-            let d = |at: usize| signed(s3, o(at), 4) as f64 / 1e6;
             let (dx, dy) = (uint(s3, o(56), 4), uint(s3, o(60), 4));
-            let flags = s3[o(64)];
-            if g.earth.is_none() || flags & 0x40 != 0 {
-                // a shape this profile cannot model, or a bipolar projection
-                g.reason = Some("earth");
-                None
-            } else {
-                Some(Projection::Lambert {
-                    lat0: d(39), lon0: d(43), lad: d(48), lov: d(52),
-                    dx: si * dx as f64 / 1e3, dy: sj * dy as f64 / 1e3,
-                    latin1: d(66), latin2: d(70), south: flags & 0x80 != 0,
-                })
-            }
+            Some(Projection::Lambert {
+                lat0: d(39), lon0: d(43), lad: d(48), lov: d(52),
+                dx: si * dx as f64 / 1e3, dy: sj * dy as f64 / 1e3,
+                latin1: d(66), latin2: d(70), south: s3[o(64)] & 0x80 != 0,
+            })
         }
     };
     Ok(g)
@@ -460,5 +683,16 @@ mod tests {
         assert_eq!(epoch_seconds(2026, 10, 29, 6, 0, 0), Some(1_793_253_600));
         assert_eq!(epoch_seconds(2000, 2, 29, 0, 0, 0), Some(951_782_400));
         assert_eq!(epoch_seconds(2026, 13, 1, 0, 0, 0), None);
+    }
+
+    #[test]
+    fn gaussian_latitudes_are_the_rows_of_their_grids() {
+        // the first rows of NCEP's T62 and T1534, ecCodes' N = 32, and the mirror in the south
+        assert!((gaussian_latitude(47, 0) - 88.542).abs() < 1e-3);
+        assert!((gaussian_latitude(768, 0) - 89.910324).abs() < 1e-6);
+        assert!((gaussian_latitude(32, 0) - 87.863799).abs() < 1e-6);
+        assert_eq!(gaussian_latitude(32, 63), -gaussian_latitude(32, 0));
+        assert_eq!(gaussian_rows(768, 89.910324, 1536, -1.0), Some(GaussianRows { parallels: 768, first: 0, step: 1 }));
+        assert_eq!(gaussian_rows(768, -89.910324, 1536, 1.0), Some(GaussianRows { parallels: 768, first: 1535, step: -1 }));
     }
 }

@@ -1707,11 +1707,13 @@ message ([spec/zarrify/grib.md](zarrify/grib.md)).
 |---|---|---|---|
 | `field` | integer | optional | the field to decode, from 0, in the order of the message's sections 7; 0 when absent |
 
-There are no other members. A chunk's number of values is the grid's `Nj × Ni`, at most 2^31,
-and section 3's number of points; its shape is 1 along every dimension but its last two, which
-are the grid's `Nj` and `Ni` (section 3's number of points along a meridian and along a parallel,
-octets 35–38 and 31–34 of templates 3.0, 3.1, 3.10, 3.20, 3.30 and 3.40); the array's data type is
-`float64` or `float32`.
+There are no other members. A chunk's number of values is section 3's number of points, at most
+2^31. On a grid of rows, its shape is 1 along every dimension but its last two, which are the
+grid's `Nj` and `Ni` (section 3's number of points along a meridian and along a parallel, octets
+35–38 and 31–34 of templates 3.0, 3.1, 3.10, 3.20, 3.30 and 3.40), whose product is that number. On
+a grid with no such rows, a reduced grid (3.0 or 3.40 with a list of the points along each parallel,
+section 3's octet 11 not 0 and octet 12, 1) or 3.101, its shape is 1 along every dimension but its
+last, which is that number. The array's data type is `float64` or `float32`.
 
 **A chunk's bytes** are one message, sections 0 to 8, as a GRIB file holds it, and no more: the
 chunk's length is the message's.
@@ -1763,7 +1765,9 @@ chunk's length is the message's.
    opposite way, those lines (the second, the fourth, …) are reversed. Then, with bit 3, the
    lines are transposed, so that the result is `Nj` rows of `Ni` points. Bits 1 and 2, the
    directions of `i` and `j`, are kept: the first row is the one the file gives first.
-   Scanning-mode bits 5 to 8 (`0x0F`) must be 0.
+   Scanning-mode bits 5 to 8 (`0x0F`) must be 0. A reduced grid's scanning mode must have none of
+   bits 3 to 8 set, and it and 3.101, which has none, are one line of their points, in the file's
+   order.
 5. **Type.** The values are converted to the array's data type: `float64` as they are, `float32`
    to nearest.
 
