@@ -12,8 +12,9 @@ zarrifies image files and stores, without Zarr. The extras add:
   `imagecodecs_jpegxr`, `imagecodecs_ljpeg`, `imagecodecs_png` and `imagecodecs_bmp` codecs the
   archives of JPEG, JPEG 2000, JPEG XR, lossless JPEG, PNG and BMP images name, whose
   `imagecodecs_lerc`, `imagecodecs_webp`, `imagecodecs_jpegxl` and `imagecodecs_lzma` those of TIFFs
-  in LERC, WebP, JPEG XL and LZMA, and whose `imagecodecs_delta` those of TIFFs with a horizontal
-  predictor, and imagecodecs, whose LZW decoder `refkv.tiff_lzw` calls, with the `zarr` extra;
+  in LERC, WebP, JPEG XL and LZMA, whose `imagecodecs_lzw` those of CZI's LZW subblocks, and whose
+  `imagecodecs_delta` those of TIFFs with a horizontal predictor, and imagecodecs, whose LZW decoder
+  `refkv.tiff_lzw` calls, with the `zarr` extra;
 - `media`: the decoders of the `refkv.stream` codec, which reads zarrified MP3,
   FLAC and MP4 files: ffmpeg's MP3, AAC, FLAC and H.264 decoders, through PyAV,
   with the `zarr` extra;
