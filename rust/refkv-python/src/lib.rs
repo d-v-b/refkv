@@ -607,6 +607,12 @@ impl PyRun {
     fn format(&mut self) -> PyResult<&'static str> {
         Ok(self.get()?.format.name())
     }
+    /// Whether the file names siblings (`Run::beside`), once `poll` gave None: the run has no
+    /// output, and the host starts over with a store run of `format`.
+    #[getter]
+    fn beside(&mut self) -> PyResult<bool> {
+        Ok(self.get()?.beside())
+    }
     /// The planner's counts and model (JSON).
     fn stats(&mut self) -> PyResult<String> {
         Ok(self.get()?.planner.stats_json().to_string())

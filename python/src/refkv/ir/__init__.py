@@ -46,6 +46,12 @@ def parse(fmt: str, transport: Transport,
     return ir, json.loads(facts), json.loads(stats)
 
 
+class Beside(Exception):
+    """A file that names siblings (spec/zarrify.md §1.9
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>): the
+    caller starts over with a store run of the format, `args[0]`."""
+
+
 async def zarrify_async(location: str, url: str | None = None, mirror: bool = True, policy: Policy | None = None,
                         transport: Transport | None = None, connections: int | None = None,
                         byte_cost: float | None = None, fmt: str | None = None,
@@ -72,6 +78,8 @@ async def zarrify_async(location: str, url: str | None = None, mirror: bool = Tr
     run = new_run("tiff" if fmt in TIFF_VARIANTS else fmt, transport, connections, byte_cost)
     await drive_async(run, transport, connections)
     fmt = run.format  # a TIFF the core found to be NDPI is "ndpi"
+    if run.beside:
+        raise Beside(fmt)
     if named in TIFF_VARIANTS and fmt != named:  # before the projection reads more
         raise Rejected(f"not {TIFF_VARIANTS[named]}: the TIFF parser read it as {fmt}")
 

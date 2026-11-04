@@ -199,6 +199,8 @@ pub struct StoreRun {
     /// the keys the parser asked the host to probe, not yet answered (`found`)
     probes: Vec<String>,
     answered: usize,
+    /// the keys probed so far, at most `beside::MAX_FILES`
+    probed: u64,
 }
 
 impl StoreRun {
@@ -234,6 +236,7 @@ impl StoreRun {
             ignored: Vec::new(),
             probes: Vec::new(),
             answered: 0,
+            probed: 0,
         })
     }
 
@@ -302,6 +305,10 @@ impl StoreRun {
                     if k.is_empty() || k.split('/').any(|s| s.is_empty() || s == "." || s == "..") || !seen.insert(k.as_str()) {
                         return Err(format!("internal: the probed key {k:?} is listed already, or is not a key"));
                     }
+                }
+                self.probed += keys.len() as u64;
+                if self.probed > crate::beside::MAX_FILES {
+                    return Err(format!("budget: the input names more than {} files", crate::beside::MAX_FILES));
                 }
                 self.stats.batches += 1;
                 self.probes = keys;
@@ -523,4 +530,39 @@ pub fn run_store(format: StoreFormat, keys: Vec<(String, u64)>, read: &dyn Fn(us
         }
     }
     r.finish()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A parser that probes `batch` new keys each step, forever.
+    struct Prober { batch: usize, next: usize, ir: Option<Ir> }
+
+    impl StoreParser for Prober {
+        fn step(&mut self) -> Res<StoreStep> {
+            let keys = (self.next..self.next + self.batch).map(|i| format!("k{i}")).collect();
+            self.next += self.batch;
+            Ok(StoreStep::Probe(keys))
+        }
+        fn feed(&mut self, _: usize, _: u64, _: &[u8]) {}
+        fn found(&mut self, _: &str, _: usize, _: Option<u64>) -> Res<Option<u32>> {
+            Ok(None)
+        }
+        fn finish(mut self: Box<Self>) -> Res<(Ir, J)> {
+            Ok((self.ir.take().unwrap(), J::Null))
+        }
+    }
+
+    #[test]
+    fn a_run_probes_at_most_the_bound_on_files() {
+        let mut run = StoreRun::with(StoreFormat::Nrrd, vec![("a".into(), 1)], 1, &|ir, _, _| {
+            Ok(Box::new(Prober { batch: crate::beside::MAX_FILES as usize, next: 0, ir: Some(ir) }))
+        }).unwrap();
+        assert!(run.poll().unwrap().is_some());
+        for _ in 0..crate::beside::MAX_FILES {
+            run.found(None).unwrap();
+        }
+        assert_eq!(run.poll().err().as_deref(), Some("budget: the input names more than 65536 files"));
+    }
 }
