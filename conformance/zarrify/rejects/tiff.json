@@ -62,14 +62,39 @@
       "message": "the IFD at 834 has malformed JPEGTables"
     },
     {
+      "test": "tiff_edge_reject_mm_foreign_MMStack_Pos0",
+      "input": "edge_reject_mm_foreign_MMStack_Pos0.ome.tif",
+      "message": "the file names siblings",
+      "host": "the file \"edge_reject_mm_foreign_MMStack_Pos0_1.ome.tif\" is not part of this image"
+    },
+    {
+      "test": "tiff_edge_reject_mm_foreign_part",
+      "input": "edge_reject_mm_foreign_MMStack_Pos0_1.ome.tif",
+      "message": "the file names siblings",
+      "host": "edge_reject_mm_foreign_MMStack_Pos0_1.ome.tif is a later file of a Micro-Manager stack: zarrify edge_reject_mm_foreign_MMStack_Pos0.ome.tif"
+    },
+    {
+      "test": "tiff_edge_reject_mm_part_MMStack_Pos0_1",
+      "input": "edge_reject_mm_part_MMStack_Pos0_1.ome.tif",
+      "message": "the file names siblings",
+      "host": "edge_reject_mm_part_MMStack_Pos0_1.ome.tif is a later file of a Micro-Manager stack: zarrify edge_reject_mm_part_MMStack_Pos0.ome.tif"
+    },
+    {
+      "test": "tiff_edge_reject_mm_positions",
+      "input": "edge_reject_mm_positions_MMStack.ome.tif",
+      "message": "a Micro-Manager file of several positions is not supported"
+    },
+    {
       "test": "tiff_edge_reject_multifile",
       "input": "edge_reject_multifile.tif",
-      "message": "multi-file OME-TIFF is not supported"
+      "message": "the file names siblings",
+      "host": "the file \"a.tif\" does not exist"
     },
     {
       "test": "tiff_edge_reject_multifile_uuid",
       "input": "edge_reject_multifile_uuid.tif",
-      "message": "multi-file OME-TIFF is not supported"
+      "message": "the file names siblings",
+      "host": "a TiffData names a file by its UUID alone (urn:uuid:1), with no FileName"
     },
     {
       "test": "tiff_edge_reject_nbsp_size",
@@ -85,6 +110,24 @@
       "test": "tiff_edge_reject_no_width",
       "input": "edge_reject_no_width.tif",
       "message": "IFD at 4136 has no tag 256"
+    },
+    {
+      "test": "tiff_edge_reject_ome_set_identity",
+      "input": "edge_reject_ome_set_identity.ome.tif",
+      "message": "the file names siblings",
+      "host": "the file \"ome_set_stranger.ome.tif\" is not part of this image"
+    },
+    {
+      "test": "tiff_edge_reject_ome_set_outside",
+      "input": "edge_reject_ome_set_outside.ome.tif",
+      "message": "the file names siblings",
+      "host": "the TiffData's file name \"../secret.tif\" is not a path below the file's directory"
+    },
+    {
+      "test": "tiff_edge_reject_ome_set_size",
+      "input": "edge_reject_ome_set_size.ome.tif",
+      "message": "the file names siblings",
+      "host": "a file of the image holds planes of another size or format"
     },
     {
       "test": "tiff_edge_reject_planar3",
@@ -184,7 +227,8 @@
     {
       "test": "tiff_edge_reject_uuid_self_closing",
       "input": "edge_reject_uuid_self_closing.tif",
-      "message": "multi-file OME-TIFF is not supported"
+      "message": "the file names siblings",
+      "host": "a TiffData names a file by its UUID alone (), with no FileName"
     },
     {
       "test": "tiff_edge_reject_ycbcr_default",
