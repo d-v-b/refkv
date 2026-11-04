@@ -42,6 +42,7 @@ ROOT = HERE.parents[2]
 sys.path.insert(0, str(ROOT / "conformance" / "vzip"))
 
 import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store)
+from refkv import _core  # noqa: E402
 from refkv._narrow import JSON, at, mapping, ndarray  # noqa: E402
 
 sys.path.insert(0, str(HERE.parent))
@@ -70,7 +71,7 @@ def expected(img) -> tuple[np.ndarray, list[str]]:
 
 def raw_header(data: bytes):
     """nibabel's reading of the header alone, without the extensions."""
-    klass = nib.Nifti2Header if data[4:7] == b"n+2" else nib.Nifti1Header
+    klass = nib.Nifti2Header if data[4:7] in (b"n+2", b"ni2") else nib.Nifti1Header
     length = 540 if klass is nib.Nifti2Header else 348
     return klass.from_fileobj(io.BytesIO(data[:length] + bytes(4)), check=False)
 
@@ -156,7 +157,7 @@ def header_problems(nii: Path, meta: Mapping[str, JSON], out: Path) -> list[str]
     rebuilt from the mirror; and the extender and extensions the view shows against the
     file's chain, and nibabel's."""
     data = nii.read_bytes()
-    two = data[4:7] == b"n+2"
+    two = data[4:7] in (b"n+2", b"ni2")
     raw = raw_header(data)
     want = {}
     names = raw.structarr.dtype.names
@@ -175,6 +176,14 @@ def header_problems(nii: Path, meta: Mapping[str, JSON], out: Path) -> list[str]
     if (meta["nifti_version"] != (2 if two else 1)
             or meta["byte_order"] != ("little" if raw.endianness == "<" else "big")):
         problems.append(f"version or byte order {meta['nifti_version']}, {meta['byte_order']}")
+    if "data_file" in meta:  # a pair: its header file held, its image file described in place
+        with zipfile.ZipFile(out) as z:
+            keys = set(z.namelist())
+            rebuilt = {k: (n, held) for k, n, held in _core.rebuild_store(lambda k: z.read(k) if k in keys else None)}
+        image = nii.parent / str(meta["data_file"])
+        if rebuilt != {nii.name: (len(data), data), image.name: (image.stat().st_size, None)}:
+            problems.append(f"the mirror lists {sorted(rebuilt)}, of {nii.name} and {image.name}")
+        return problems
     problems += mirror_problems(out, nii)
 
     with zipfile.ZipFile(out) as z:
@@ -225,7 +234,7 @@ def shown_bytes(v) -> bytes:
 def check(nii: Path, out: Path, _) -> tuple[list, str]:
     """A zarrified file's problems against nibabel's reading of it, and its chunks and axes."""
     img = load(nii, str(out.parent))
-    assert isinstance(img, nib.Nifti1Image), nii  # (a NIfTI-2 image is one too)
+    assert isinstance(img, nib.Nifti1Pair), nii  # (a NIfTI-1 image is one too, and NIfTI-2's)
     want, axes = expected(img)
     root = zarr.open_group(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
     arr = root.get_array("0")
@@ -255,7 +264,7 @@ def check(nii: Path, out: Path, _) -> tuple[list, str]:
 
 
 def main(fixtures: Path) -> int:
-    paths = sorted(fixtures.glob("*.nii"))
+    paths = sorted(p for p in fixtures.iterdir() if p.suffix in (".nii", ".hdr", ".HDR"))
     return run(paths, check, url=serve(paths))
 
 

@@ -82,12 +82,112 @@ pub fn detect(head: &[u8]) -> Option<u8> {
     None
 }
 
+/// The NIfTI version a header-and-image pair's first bytes select (magic `ni1` or `ni2`, spec/zarrify/nifti.md §7.5
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#75-header-and-image-pairs>), if one.
+pub fn detect_pair(head: &[u8]) -> Option<u8> {
+    if head.len() < 12 {
+        return None;
+    }
+    let sizes = [i32::le_at(head, 0), i32::be_at(head, 0)];
+    if sizes.contains(&348) && head.len() >= 348 && &head[344..348] == b"ni1\0" {
+        return Some(1);
+    }
+    if sizes.contains(&540) && &head[4..12] == b"ni2\0\r\n\x1a\n" {
+        return Some(2);
+    }
+    None
+}
+
 /// The header at the start of `raw` (at least its length), of the version `detect` gives, in
 /// the byte order in which its first field is the header's length.
 pub fn header(raw: &[u8], version: u8) -> Header<'_> {
     let length = if version == 1 { 348 } else { 540 };
     let little = i32::le_at(raw, 0) == length;
     Header { raw: &raw[..length as usize], little, fields: if version == 1 { &NIFTI1 } else { &NIFTI2 } }
+}
+
+/// What the checks of a header give (spec/zarrify/nifti.md §7.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#71-header>): its length, its fields, the voxels' data type and samples, the voxel offset, and the voxel data's size.
+pub(crate) struct Checked<'a> {
+    pub length: u64,
+    pub h: Header<'a>,
+    pub dtype: String,
+    pub samples: u64,
+    pub vox: u64,
+    pub total: u128,
+}
+
+/// The checks of the header of the given `version` at the start of `got`, of a file of `size` bytes, up to
+/// the voxel offset's, which is at least `first`; `voxel_data`'s is the caller's, which knows the voxels' file.
+pub(crate) fn check_header<'a>(rules: &Rules, got: &'a [u8], version: u8, size: u64, first: impl Fn(u64) -> u64) -> Res<Checked<'a>> {
+    let length: u64 = if version == 1 { 348 } else { 540 };
+    rules.check(
+        "file",
+        rules::env([("version", num(version)), ("length", num(length as f64)), ("size", num(size as f64))]),
+    )?;
+    let h = header(got, version);
+    let dim = h.values("dim");
+    let n = dim[0].i();
+    rules.check("dimensions", rules::env([("n", num(n as f64))]))?;
+    let mut sizes = [1i64; 8];
+    for i in 1..=n as usize {
+        let d = dim[i].i();
+        rules.check(
+            "dimension",
+            rules::env([("i", num(i as f64)), ("size", num(d as f64)), ("shown", text(&d.to_string()))]),
+        )?;
+        sizes[i] = d;
+    }
+    rules.check("unused_dimensions", rules::env([("d6", num(sizes[6] as f64)), ("d7", num(sizes[7] as f64))]))?;
+    let code = h.get("datatype").i();
+    let bitpix = h.get("bitpix").i();
+    rules.check("data_type", rules::env([("code", num(code as f64)), ("bitpix", num(bitpix as f64)), ("n", num(n as f64))]))?;
+    let spec = &rules.table("datatypes")[code.to_string()];
+    let (bits, samples) = (spec["bits"].as_u64().unwrap_or(8), spec["samples"].as_u64().unwrap_or(1));
+    let (vox, integral, shown) = match h.get("vox_offset") {
+        Num::Float(v) if v.is_finite() && v.fract() == 0.0 => (v, true, format!("{}", v as i128)),
+        Num::Float(v) => (v, false, py_float(v)),
+        Num::Int(v) => (v as f64, true, v.to_string()),
+    };
+    rules.check(
+        "voxel_offset",
+        rules::env([("vox", num(vox)), ("integral", flag(integral)), ("shown", text(&shown)), ("first", num(first(length) as f64))]),
+    )?;
+    let total = sizes[1..6].iter().fold(bits as u128 / 8, |a, &s| a.saturating_mul(s as u128));
+    let dtype = spec["dtype"].as_str().unwrap_or("uint8").to_string();
+    Ok(Checked { length, h, dtype, samples, vox: vox as u64, total })
+}
+
+/// The extensions in `block`, which starts at offset `q` of the object `parent` (spec/zarrify/nifti.md §5
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#5-source-metadata>), the next numbered `k`:
+/// the bytes of `block` it took them from, and whether the chain goes on past them. It stops at an
+/// `esize` below 8 or past `end`.
+pub(crate) fn chain_values(ir: &mut Ir, parent: u32, block: &[u8], q: u64, end: u64, little: bool, k: &mut u64) -> Res<(u64, bool)> {
+    let e = if little { "<" } else { ">" };
+    let i32_at = |at: usize| i32::at(block, at, little);
+    let mut p = 0usize;
+    while p + 8 <= block.len() {
+        let (esize, ecode) = (i32_at(p), i32_at(p + 4));
+        let at = q + p as u64;
+        if esize < 8 || at + esize as u64 > end {
+            return Ok((p as u64, false));
+        }
+        let esize = esize as u64;
+        let keep = esize <= SHOWN;
+        if keep && p + esize as usize > block.len() {
+            break; // a shown extension past the window: the next window starts at it
+        }
+        let ty = match esize - 8 {
+            0 => format!("{{esize:{e}i4,ecode:{e}i4}}"),
+            d if TEXT_CODES.contains(&ecode) => format!("{{esize:{e}i4,ecode:{e}i4,data:cstr[{d}]}}"),
+            d => format!("{{esize:{e}i4,ecode:{e}i4,data:bytes[{d}]}}"),
+        };
+        let raw = if keep { Some(&block[p..p + esize as usize]) } else { None };
+        ir.value(parent, "extensions/", *k, &ty, 0, (at, esize), raw)?;
+        *k += 1;
+        p += esize as usize;
+    }
+    Ok((p as u64, true))
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -142,6 +242,10 @@ impl Nifti {
                     return Ok(Step::Read(vec![(0, self.size.min(552))]));
                 }
                 Phase::Head => {
+                    let got = self.fed.get(0, self.size.min(552)).ok_or("internal: no header")?;
+                    if detect_pair(got).is_some() {
+                        return Ok(Step::Beside);
+                    }
                     self.head()?;
                     self.phase = Phase::Chain;
                 }
@@ -170,41 +274,7 @@ impl Nifti {
     fn head(&mut self) -> Res<()> {
         let got = self.fed.get(0, self.size.min(552)).ok_or("internal: no header")?.to_vec();
         let version = detect(&got).ok_or("not a NIfTI-1 or NIfTI-2 single file")?;
-        let length: u64 = if version == 1 { 348 } else { 540 };
-        self.rules.check(
-            "file",
-            rules::env([("version", num(version)), ("length", num(length as f64)), ("size", num(self.size as f64))]),
-        )?;
-        let h = header(&got, version);
-        let dim = h.values("dim");
-        let n = dim[0].i();
-        self.rules.check("dimensions", rules::env([("n", num(n as f64))]))?;
-        let mut sizes = [1i64; 8];
-        for i in 1..=n as usize {
-            let d = dim[i].i();
-            self.rules.check(
-                "dimension",
-                rules::env([("i", num(i as f64)), ("size", num(d as f64)), ("shown", text(&d.to_string()))]),
-            )?;
-            sizes[i] = d;
-        }
-        self.rules.check("unused_dimensions", rules::env([("d6", num(sizes[6] as f64)), ("d7", num(sizes[7] as f64))]))?;
-        let code = h.get("datatype").i();
-        let bitpix = h.get("bitpix").i();
-        self.rules.check("data_type", rules::env([("code", num(code as f64)), ("bitpix", num(bitpix as f64)), ("n", num(n as f64))]))?;
-        let spec = &self.rules.table("datatypes")[code.to_string()];
-        let (bits, samples) = (spec["bits"].as_u64().unwrap_or(8), spec["samples"].as_u64().unwrap_or(1));
-        let (vox, integral, shown) = match h.get("vox_offset") {
-            Num::Float(v) if v.is_finite() && v.fract() == 0.0 => (v, true, format!("{}", v as i128)),
-            Num::Float(v) => (v, false, py_float(v)),
-            Num::Int(v) => (v as f64, true, v.to_string()),
-        };
-        self.rules.check(
-            "voxel_offset",
-            rules::env([("vox", num(vox)), ("integral", flag(integral)), ("shown", text(&shown)), ("length", num(length as f64))]),
-        )?;
-        let vox = vox as u64;
-        let total = sizes[1..6].iter().fold(bits as u128 / 8, |a, &s| a.saturating_mul(s as u128));
+        let Checked { length, h, dtype, samples, vox, total, .. } = check_header(self.rules, &got, version, self.size, |length| length + 4)?;
         self.rules.check(
             "voxel_data",
             rules::env([
@@ -219,7 +289,6 @@ impl Nifti {
         let header = self.ir.value(0, "header", NO_INDEX, &h.record_type(), 0, (0, length), Some(h.raw))?;
         self.ir.value(0, "extender", NO_INDEX, "u1[4]", 0, (length, 4), Some(&ext))?;
         let endian = if h.little { "little" } else { "big" };
-        let dtype = spec["dtype"].as_str().unwrap_or("uint8");
         let form = json!({"geometry": {"data_type": dtype, "samples": samples}, "codec": {"endian": endian},
                           "recipe": [["src", 0, null]]});
         let voxels = self.ir.data(0, "voxels", NO_INDEX, 0, (vox, total as u64), &form.to_string())?;
@@ -234,36 +303,11 @@ impl Nifti {
         Ok(())
     }
 
-    /// The extensions in a window of the chain from `q` (spec/zarrify/nifti.md §5
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#5-source-metadata>):
-    /// the chain stops at an `esize` below 8 or past the voxel data.
+    /// The extensions in a window of the chain from `q` (`chain_values`).
     fn chain(&mut self, block: &[u8]) -> Res<()> {
-        let e = if self.little { "<" } else { ">" };
-        let i32_at = |at: usize| i32::at(block, at, self.little);
-        let mut p = 0usize;
-        while p + 8 <= block.len() {
-            let (esize, ecode) = (i32_at(p), i32_at(p + 4));
-            let at = self.q + p as u64;
-            if esize < 8 || at + esize as u64 > self.vox {
-                self.chaining = false;
-                return Ok(());
-            }
-            let esize = esize as u64;
-            let keep = esize <= SHOWN;
-            if keep && p + esize as usize > block.len() {
-                break; // a shown extension past the window: the next window starts at it
-            }
-            let ty = match esize - 8 {
-                0 => format!("{{esize:{e}i4,ecode:{e}i4}}"),
-                d if TEXT_CODES.contains(&ecode) => format!("{{esize:{e}i4,ecode:{e}i4,data:cstr[{d}]}}"),
-                d => format!("{{esize:{e}i4,ecode:{e}i4,data:bytes[{d}]}}"),
-            };
-            let raw = if keep { Some(&block[p..p + esize as usize]) } else { None };
-            self.ir.value(0, "extensions/", self.k, &ty, 0, (at, esize), raw)?;
-            self.k += 1;
-            p += esize as usize;
-        }
-        self.q += p as u64;
+        let (took, goes_on) = chain_values(&mut self.ir, 0, block, self.q, self.vox, self.little, &mut self.k)?;
+        self.chaining = goes_on;
+        self.q += took;
         Ok(())
     }
 
@@ -289,9 +333,9 @@ crate::parser!(Nifti);
 pub struct Profile;
 
 impl crate::run::FileProfile for Profile {
-    /// A NIfTI-1 or NIfTI-2 single-file header (`detect`).
+    /// A NIfTI-1 or NIfTI-2 single-file header (`detect`), or a pair's (`detect_pair`).
     fn detect(&self, head: &[u8]) -> bool {
-        detect(head).is_some()
+        detect(head).is_some() || detect_pair(head).is_some()
     }
     fn parser(&self, size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::of::<Nifti>(size)

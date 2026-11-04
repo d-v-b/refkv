@@ -7,20 +7,27 @@ import os
 import struct
 import time
 from pathlib import Path
+from typing import Any
 
+import nibabel as nib
+import numpy as np
 import pytest
-from ir_helpers import FIXTURES, as_the_reference, assert_rebuilds, same_hierarchy
+import zarr
+from ir_helpers import FIXTURES, REVISED, as_the_reference, assert_rebuilds, same_hierarchy
 from refkv_reference import virtualize  # the frozen reference (ir_helpers)
 
+import refkv.zarr
 from refkv import _core
 from refkv._narrow import at, integer
 from refkv.ir import zarrify as via_ir
+from refkv.ir.store import StoreIrOutput
 from refkv.zarrify import Rejected, common
+from refkv.zarrify import _zarrify as zarrify_input
 
 NIIS = sorted((FIXTURES / "nifti").glob("*.nii"))
 
 
-@pytest.mark.parametrize("path", NIIS, ids=lambda p: p.name)
+@pytest.mark.parametrize("path", [p for p in NIIS if p.name not in REVISED], ids=lambda p: p.name)
 def test_projects_as_the_reference_and_rebuilds(path, tmp_path):
     as_the_reference(path, tmp_path, "nifti")
 
@@ -175,3 +182,52 @@ def test_more_than_2_22_chunks_are_cut_as_the_reference_cuts_them(tmp_path, monk
     a = compare._zip_view(tmp_path / "ref.vzip")
     b = compare._zip_view(tmp_path / "ir.vzip")
     assert compare.differences(compare.without_source(compare.at_revision(a)), compare.without_source(b)) == []
+
+
+PAIRS = sorted(p for p in (FIXTURES / "nifti").iterdir() if "nifti_pair_" in p.name and p.suffix in (".hdr", ".HDR"))
+
+
+@pytest.mark.parametrize("header", PAIRS, ids=lambda p: p.name)
+def test_a_pair_is_read_as_nibabel_reads_it(header, monkeypatch):
+    """A header-and-image pair (spec/zarrify/nifti.md §7.5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#75-header-and-image-pairs>), found by its
+    magic and read as a store: its array is nibabel's, with its edge chunks copied or not; its root names the
+    image file, and its chunks are ranges of that file. Its mirror rebuilds the two files."""
+    image_name = header.name[:-4] + {".hdr": ".img", ".HDR": ".IMG"}[header.suffix]
+    monkeypatch.setattr(common, "MAX_PAYLOAD", 8)
+    _core._set_copy_threshold(8)
+    try:
+        copied_fmt, copied_out = via_named(header)
+    finally:
+        _core._set_copy_threshold(None)
+    monkeypatch.undo()
+    fmt, out = via_named(header)
+    assert fmt == copied_fmt == "nifti"
+    assert isinstance(out, StoreIrOutput)
+    root = zarr.open_group(refkv.zarr.store(out.to_store()), mode="r", zarr_format=3)
+    copied_root = zarr.open_group(refkv.zarr.store(copied_out.to_store()), mode="r", zarr_format=3)
+    array = root.get_array("0")
+    attrs: Any = dict(root.attrs)
+    assert attrs["refkv_zarrified"]["nifti"]["data_file"] == image_name
+    assert attrs["refkv_zarrified"]["source"]["url"].endswith(header.name)
+    image: Any = nib.load(header)
+    assert image.header["magic"].item() in (b"ni1", b"ni2")
+    want = np.asarray(image.dataobj.get_unscaled())
+    got = np.asarray(array[...])
+    assert np.array_equal(np.sort(got, axis=None), np.sort(pair_values(want), axis=None))
+    assert np.array_equal(got, np.asarray(copied_root.get_array("0")[...]))
+    assert set(out.sizes) == {header.name, image_name}
+    rebuilt = {key: (size, held) for key, size, held in _core.rebuild_store(out.entries.get)}
+    assert rebuilt[image_name] == (out.sizes[image_name], None)
+    assert rebuilt[header.name] == (header.stat().st_size, header.read_bytes())
+
+
+def pair_values(array: np.ndarray) -> np.ndarray:
+    """nibabel's values as a plain array: the samples of a color type, each as a value."""
+    if array.dtype.names is None:
+        return array
+    return np.stack([array[name] for name in array.dtype.names], axis=-1)
+
+
+def via_named(path: Path) -> tuple[str, Any]:
+    return zarrify_input(str(path))

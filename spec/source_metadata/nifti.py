@@ -39,6 +39,11 @@ SCHEMA = {"anyOf": [{
             "required": ["slope", "inter"],
             "additionalProperties": False,
         },
+        "data_file": {
+            "type": "string",
+            "description": "A header-and-image pair's image file, its key "
+                           "(spec/zarrify/nifti.md §7.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#75-header-and-image-pairs>)",
+        },
     },
     "required": ["nifti_version", "byte_order", "header"],
     "additionalProperties": False,

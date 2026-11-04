@@ -20,9 +20,10 @@ TABLES = sorted((ROOT / "conformance" / "zarrify" / "rejects").glob("*.json"))
 
 def rejected_name(name: str) -> bool:
     """Whether a fixture's name says it is rejected (conformance/zarrify/HARNESS.md:
-    `*_reject_*`, `unsupported_*`); a name starting with `_` is a slide's tile directory, part of
-    an input, not one."""
-    return not name.startswith("_") and ("reject" in name or name.startswith("unsupported"))
+    `*_reject_*`, `unsupported_*`); a name starting with `_` is a slide's tile directory, and an
+    `.img` file a NIfTI pair's image file, part of an input, not one."""
+    return (not name.startswith("_") and not name.endswith(".img")
+            and ("reject" in name or name.startswith("unsupported")))
 
 
 def table(path) -> list[dict]:

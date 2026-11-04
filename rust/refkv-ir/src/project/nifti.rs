@@ -5,7 +5,8 @@
 //! IR: the header is the IR's `header` value, and the array's chunks are cut from its
 //! `voxels` element.
 
-use super::{along, contiguous, header_json, image_axes, n, Copied};
+use super::vsi::object_url;
+use super::{along, arr, contiguous, header_json, image_axes, n, Copied};
 use crate::ir::Ir;
 use crate::nifti::header;
 use crate::record::Header;
@@ -70,6 +71,22 @@ fn parts<'a>(ir: &'a Ir, facts: &J) -> Result<(Header<'a>, u32), String> {
     Ok((header(raw, n(&facts["version"]) as u8), n(&facts["voxels"]) as u32))
 }
 
+/// The image file's ranges of the edge chunks a pair's projection copies (§7.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#72-chunks>), of voxels at `vox`.
+pub fn copy_ranges(h: &Header, vox: u64, facts: &J) -> Result<Vec<(u64, u64)>, String> {
+    Ok(contiguous::copy_reads(&cut(h, vox, facts)?.chunks).collect())
+}
+
+/// The output of a header-and-image pair (§7.5
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#75-header-and-image-pairs>), its
+/// store URL `url`: the single file's, of the image file's voxels, with the header file's URL as its source's.
+pub fn project_pair(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
+    let copied: Copied = arr(&facts["copied"]).iter()
+        .map(|c| ((n(&c[0]), n(&c[1])), arr(&c[2]).iter().map(|b| n(b) as u8).collect()))
+        .collect();
+    project(ir, facts, url, &copied)
+}
+
 /// The source's ranges of the edge chunks the projection copies (§7.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#72-chunks>).
 pub fn reads(ir: &Ir, facts: &J) -> Result<Vec<(u64, u64)>, String> {
@@ -81,8 +98,13 @@ pub fn reads(ir: &Ir, facts: &J) -> Result<Vec<(u64, u64)>, String> {
 pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, String> {
     let (h, voxels) = parts(ir, facts)?;
     let version = n(&facts["version"]) as u8;
-    let (vox, form) = (ir.start[voxels as usize], ir.form_id(voxels).ok_or("internal: the voxels have no form")?);
-    let length = ir.len[voxels as usize];
+    let form = ir.form_id(voxels).ok_or("internal: the voxels have no form")?;
+    // a store IR's offsets are virtual: a pair's voxels are given in the image file's
+    let data_key = facts["data_key"].as_str();
+    let (vox, length) = match data_key {
+        Some(_) => (n(&facts["start"]), n(&facts["length"])),
+        None => (ir.start[voxels as usize], ir.len[voxels as usize]),
+    };
     let dim: Vec<i64> = h.values("dim").iter().map(|x| x.i()).collect();
     let c = if dim[0] >= 5 { dim[5] as u64 } else { 1 };
     let spec = &crate::rules::of("nifti").table("datatypes")[h.get("datatype").i().to_string()];
@@ -190,8 +212,12 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     if let Some(a) = affine {
         own.insert("affine".into(), json!({"form": a, "applied": placed.is_some()}));
     }
+    if let Some(key) = data_key {
+        own.insert("data_file".into(), json!(key));
+    }
+    let source_url = facts["header_key"].as_str().map_or(url.to_string(), |k| object_url(url, k));
     let mut out = Out::new(url);
-    out.json("zarr.json", &root_json(ome, "nifti", url, Some(J::Object(own))));
+    out.json("zarr.json", &root_json(ome, "nifti", &source_url, Some(J::Object(own))));
     let mut codecs = Vec::new();
     if stored != axes {
         let order: Vec<usize> = stored.iter().map(|a| axes.iter().position(|b| b == a).unwrap()).collect();
@@ -201,16 +227,21 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     out.json("0/zarr.json", &array_json(&shape, data_type, json!(chunk_shape), J::Array(codecs), &axes));
     let count = chunks.len();
     let mut refs = Refs::new(ir, out);
+    refs.in_object_of(voxels);
     let mut zeros = contiguous::Zeros::of(&chunks);
     // the chunks' coordinates in the array's axis order
     contiguous::emit(&mut refs, chunks, (vox, length, form), copied, &["0/c/"], |c| axes.iter().map(|a| c[pos(a)]).collect(), &mut zeros)?;
     let mut out = refs.out;
     let sizes: Map<String, J> = axes.iter().map(|a| (a.to_string(), json!(shape_of(a)))).collect();
-    out.summary = json!({
+    let mut summary = json!({
         "version": version, "byteOrder": endian, "sizes": sizes, "dataType": data_type, "color": color,
         "chunkShape": chunk_shape, "chunks": count,
         "scaling": if nontrivial { let (s, i) = scaling.unwrap(); json!({"slope": s, "inter": i}) } else { J::Null },
         "affine": affine, "translation": translation.is_some(), "extensions": facts["extended"],
     });
+    if let Some(key) = data_key {
+        summary["dataFile"] = json!(key);
+    }
+    out.summary = summary;
     Ok(out)
 }

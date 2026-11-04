@@ -19,6 +19,12 @@ a run of at most 128 KiB of that block: several z-slices, one slice, or
 some rows of a large slice. The SPM `avg152T1.nii` template became a 12 KB
 archive in under 4 s (at spec/zarrify.md revision 16).
 
+## Header-and-image pairs
+
+Give the `.hdr` file. refkv finds the `.img` file beside it, by its name, and the chunks reference
+the `.img` file. Each chunk is a range of it, as in a single `.nii` file. A file of this kind has the
+magic `ni1` or `ni2`; a `.hdr` file with neither, such as ANALYZE 7.5's, is not read.
+
 ## What you get
 
 One OME-Zarr 0.5 image at the archive root, with one array, `0`.
@@ -133,7 +139,9 @@ Rejected:
 - Gzipped files (`.nii.gz`), the usual way NIfTI is distributed: `not a
   file of any supported format`. A gzip stream has no byte
   ranges to reference; decompress the file first (and host the `.nii`).
-- Header-and-image pairs (`.hdr`/`.img`, magic `ni1`, `ni2`).
+- A header-and-image pair whose `.img` file is missing or too short, or whose header file is not
+  named `.hdr`. NIfTI records nothing that ties the two files together, so an `.img` of the right
+  length from another image would not be noticed.
 - Complex, binary and 128-bit types.
 - Data along dimensions 6 and 7, such as CIFTI-2 files.
 - A `vox_offset` inside the header, or voxel data past the end of the file.
@@ -149,8 +157,7 @@ The browser code ([js/](../../../js/README.md)) reads NIfTI (NIfTI-1 and NIfTI-2
   translation; the whole header, and its intensity scaling, recorded under
   `refkv_zarrified`.
 
-Not supported, and refused with HTTP 422: gzipped files (`.nii.gz`),
-header-and-image pairs, complex types, and dimensions 6 and 7 (CIFTI).
+Not supported, and refused with HTTP 422: gzipped files (`.nii.gz`), complex types, and dimensions 6 and 7 (CIFTI).
 
 ## Performance
 

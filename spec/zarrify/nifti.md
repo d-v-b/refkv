@@ -1,13 +1,16 @@
 # NIfTI
 
-The Zarr layout of a NIfTI-1 or NIfTI-2 single file (`.nii`), and the
-translation of its header into JSON. What all of refkv's conventions share is
+The Zarr layout of a NIfTI-1 or NIfTI-2 single file (`.nii`) or header-and-image pair (`.hdr` and
+`.img`), and the translation of its header into JSON. What all of refkv's conventions share is
 in [spec/conventions.md](../conventions.md), cited here as "conventions §n".
 How refkv produces this layout as a reference store, and which files it
 accepts, is the NIfTI profile, [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `06e5809d-4d54-4b72-afd0-6bf61a7b4c85` ·
 Schema: [schema.json](nifti/schema.json)
+
+Changed 2026-11-04: a header-and-image pair is read, its image file found beside its header file
+([§7.5](#75-header-and-image-pairs)), where the profile rejected it.
 
 Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
 [Layout](#layout) and its types in type tables
@@ -35,7 +38,7 @@ The hierarchy's entries ([conventions §11.5](../conventions.md#115-layout-table
 | `zarr.json` | group | [`ImageGroup`](../conventions.md#type-imagegroup) | the root: the image ([§4](#4-the-image)) |
 | `zarr.json#/attributes/ome` | attribute | [`OmeImage`](../conventions.md#type-omeimage) | `M`: one level, the array `0`, with the scales and translation of [§4.3](#43-scales-units-and-position), and `omero` as [§4.4](#44-channels) says |
 | `zarr.json#/attributes/zarr_conventions` | attribute | array of [`ConventionMetadata`](../conventions.md#type-conventionmetadata) | the CMO of [§1](#1-declaration) |
-| `zarr.json#/attributes/refkv_zarrified` | attribute | [`RootProperty`](../conventions.md#type-rootproperty) | `profile` `"nifti"`, `version` `0`, `source.url` the file's URL |
+| `zarr.json#/attributes/refkv_zarrified` | attribute | [`RootProperty`](../conventions.md#type-rootproperty) | `profile` `"nifti"`, `version` `0`, `source.url` the file's URL (of a pair, its header file's) |
 | `zarr.json#/attributes/refkv_zarrified/nifti` | attribute | [`NiftiRoot`](#type-niftiroot) | the root's source metadata ([§5.1](#51-the-root)) |
 | `0/zarr.json` | array | [`NiftiArray`](#type-niftiarray) | the voxels ([§4.1](#41-the-array)) |
 | `0/c/<coords>` | chunk | [`NiftiChunk`](#type-niftichunk) | every chunk of the array ([§7.2](#72-chunks)) |
@@ -339,6 +342,7 @@ Everything the file holds is on `refkv_source`, the file's **IR mirror**
 | `header` | [`NiftiHeader`](#type-niftiheader) | required | every field of the header |
 | `scaling` | [`NiftiScaling`](#type-niftiscaling) | optional | present when the scaling is nontrivial ([§4.2](#42-value-scaling)) |
 | `affine` | [`NiftiAffine`](#type-niftiaffine) | optional | present when the image has an affine ([§4.3](#43-scales-units-and-position)) |
+| `data_file` | string | optional | of a pair, its image file's key ([§7.5](#75-header-and-image-pairs)) |
 
 <a id="type-niftiheader"></a>**`NiftiHeader`**: an object with one member per field of
 [§2](#2-the-header) for the file's version, in the order of [§2](#2-the-header) and named as
@@ -414,6 +418,9 @@ the extension at `q` has `esize` (`i32`) at `q` and `ecode` (`i32`) at
 The chain stops, without the extension at `q`, when `esize < 8` or
 `q + esize > v`. (The standard's rule that `esize` is a multiple of 16 is not
 checked.)
+
+A pair's IR is a store's ([conventions §8.9](../conventions.md#89-stores)): these elements lie in its
+objects, as [§7.5](#75-header-and-image-pairs) says.
 
 The view ([conventions §8.7](../conventions.md#87-the-view)) shows the header,
 the extender and each extension of at most 1024 bytes; a text extension's
@@ -546,9 +553,9 @@ overflow.)
 **Extensions.** The 4 extender bytes at offset `L` and the extension chain
 when the first of them is not 0 ([the convention §5.3](#53-elements)) are read
 to make the source metadata. They never reject the input, and never change
-where the voxel data starts: it starts at `v` whatever they hold. A
-header-and-image pair (magic `ni1` or `ni2`) and a gzipped file are rejected
-by [§1.2](../zarrify.md#12-input).
+where the voxel data starts: it starts at `v` whatever they hold. A gzipped file is rejected
+by [§1.2](../zarrify.md#12-input). A header-and-image pair is read as
+[§7.5](#75-header-and-image-pairs) says.
 
 ### 7.2 Chunks
 
@@ -610,3 +617,43 @@ summary, with these members:
 | `affine` | `"sform"`, `"qform"` or `null` |
 | `translation` | whether the image has a translation |
 | `extensions` | whether the extender's first byte is nonzero |
+| `dataFile` | of a pair, its image file's key; otherwise absent |
+
+### 7.5 Header-and-image pairs
+
+A NIfTI file may be two files: a **header file** `.hdr`, whose header has the magic `ni1` or `ni2`, and
+an **image file** `.img` beside it, which holds the voxels. The input is the header file. An `.img` file has no
+signature, so it cannot be named. A file with the magic `n+1` or `n+2` is a single file whatever
+its name.
+
+**Signature.** This profile's signature ([§7.1](#71-header)) also holds of a file with bytes 0–3 the
+32-bit integer 348 in either byte order and bytes 344–347 `6E 69 31 00` (`ni1`), NIfTI-1; or bytes 0–3
+the integer 540 and bytes 4–11 `6E 69 32 00 0D 0A 1A 0A` (`ni2`), NIfTI-2. A header without either
+magic, such as ANALYZE 7.5's, matches no signature and is rejected.
+
+**Siblings** ([spec/zarrify.md §1.9](../zarrify.md#19-sources-beside-the-input)):
+
+| what | it says |
+|---|---|
+| form | on demand: a file with the pair's magic is a file read as a store, any other is a file input |
+| names | one derived key: the header file's key with its last four characters `.hdr` as `.img`, or `.HDR` as `.IMG`. A key that does not end in one of them is rejected: `the header file "<key>" of a NIfTI pair is not named .hdr, which is how its image file's name is found` |
+| probes | one batch, of the one key; required: `the image file "<key>" does not exist` |
+| identity | the format records nothing that says which files belong together. So the profile checks what it can: that the voxel data lies within the image file |
+| order | first use: the image file is source 0, and the zero data source, when a reference is padded, source 1 |
+| reads and mirror | the header file's first 552 bytes, then the whole of it when it is longer, and the image file only for the edge chunks [§7.2](#72-chunks) copies. The mirror's store IR holds the header file, of at most 2^24 bytes (`the header file "<key>" of <size> bytes is more than 16777216, which the mirror holds`), and describes the image file in place |
+
+**The checks** are those of [§7.1](#71-header), of the header file, with two differences. `v`, the voxel
+offset, is a position in the image file, so it is an integer from 0 to 2^53 − 1, and is usually 0. `v
++ B` is at most the image file's size. The header file may end at its header, with no extender;
+when it has one, the chain ([§5.3](#53-elements)) lies in the header file, whose size takes the place of `v`.
+
+**The IR's objects** ([conventions §8.9](../conventions.md#89-stores)):
+
+| object | elements |
+|---|---|
+| the header file, held | `header`, `extender` and `extensions/<i>` as [§5.3](#53-elements) gives them, `gaps/<offset>` for the bytes after the chain |
+| the image file, described in place | `voxels`, of extent `(v, B)`, and `gaps/<offset>` for the bytes before and after them |
+
+**The array and its chunks** are the single file's ([§4.1](#41-the-array), [`NiftiChunk`](#type-niftichunk)), source 0
+being the image file. The root's `source.url` is the header file's object URL
+([spec/zarrify.md §1.4](../zarrify.md#14-store-inputs)), and its `data_file` the image file's key.

@@ -79,8 +79,7 @@
     {
       "test": "nifti_reject_pair_magic",
       "input": "nifti_reject_pair_magic.nii",
-      "message": "not a NIfTI-1 or NIfTI-2 single file",
-      "host": "not a file of any supported format"
+      "message": "the header file \"nifti_reject_pair_magic.nii\" of a NIfTI pair is not named .hdr, which is how its image file's name is found"
     },
     {
       "test": "nifti_reject_rgb_5d",
@@ -111,6 +110,21 @@
       "test": "nifti_reject_vox_offset_zero",
       "input": "nifti_reject_vox_offset_zero.nii",
       "message": "vox_offset 0 is not from 352 to 2^53 - 1"
+    },
+    {
+      "test": "nifti_reject_pair_no_image",
+      "input": "nifti_reject_pair_no_image.hdr",
+      "message": "the image file \"nifti_reject_pair_no_image.img\" does not exist"
+    },
+    {
+      "test": "nifti_reject_pair_image_short",
+      "input": "nifti_reject_pair_image_short.hdr",
+      "message": "the 24-byte voxel data at 0 is outside the 23-byte file"
+    },
+    {
+      "test": "nifti_reject_pair_vox_negative",
+      "input": "nifti_reject_pair_vox_negative.hdr",
+      "message": "vox_offset -16 is not from 0 to 2^53 - 1"
     }
   ]
 }

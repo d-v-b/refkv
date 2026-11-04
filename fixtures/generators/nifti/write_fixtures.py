@@ -94,6 +94,46 @@ def nifti(name: str, dims, datatype: int = 2, *, version: int = 1, order: str = 
     (OUT / f"{name}.nii").write_bytes(content[: len(content) - truncate])
 
 
+def pair(name: str, dims, datatype: int = 2, *, version: int = 1, stem_case=str.lower, prefix: bytes = b"",
+         bare: bool = False, short: int = 0, image: bool = True, **fields) -> None:
+    """A header-and-image pair (spec/zarrify/nifti.md §7.5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#75-header-and-image-pairs>): `nifti`'s file with
+    the pair's magic, split into its header file and its image file, `prefix` before the voxels; `bare`: with no
+    extender, as a header file may end at its header."""
+    n = dims[0]
+    size = math.prod(dims[1 : n + 1]) * TYPES[datatype][1] // 8
+    fields.setdefault("vox_offset", len(prefix))
+    nifti(name, dims, datatype, version=version, magic={1: b"ni1\0", 2: b"ni2\0\r\n\x1a\n"}[version], **fields)
+    path = OUT / f"{name}.nii"
+    content = path.read_bytes()
+    path.unlink()
+    head, voxels = content[: len(content) - size], content[len(content) - size :]
+    (OUT / f"{name}.{stem_case('hdr')}").write_bytes(head[: LENGTHS[version]] if bare else head)
+    if image:
+        whole = prefix + voxels
+        (OUT / f"{name}.{stem_case('img')}").write_bytes(whole[: len(whole) - short])
+
+
+def pairs() -> None:
+    """Header-and-image pairs: NIfTI-1 and NIfTI-2, in both byte orders; a header file that ends at its header, one
+    with extensions, in upper case, and an image file whose voxels do not start it; an edge chunk the
+    projection pads; and the inputs the profile rejects."""
+    pair("nifti_pair_n1_le_int16", [3, 5, 4, 3], 4, pixdim=[1, 2.0, 3.0, 4.0, 1, 1, 1, 1], sform_code=2,
+         srow=AXIS_ALIGNED)
+    pair("nifti_pair_n1_be_bare", [4, 4, 3, 2, 2], 4, order=">", bare=True, scl_slope=0.5, scl_inter=-20.0)
+    pair("nifti_pair_n2_le_ext_5d", [5, 3, 2, 2, 2, 3], 16, version=2, extension=b"a comment in the header file")
+    pair("nifti_pair_n2_be_rgb24", [3, 3, 2, 2], 128, version=2, order=">")
+    pair("nifti_pair_n1_le_offset", [3, 3, 2, 2], 512, prefix=bytes(range(16)))
+    pair("nifti_pair_upper", [3, 3, 2, 2], 2, stem_case=str.upper)
+    pair("nifti_pair_edge_chunk", [2, 65537, 2], 2, version=2)
+    rng = np.random.default_rng(2)
+    nib.Nifti1Pair(rng.integers(0, 255, (6, 5, 4), dtype=np.uint8), np.diag([0.5, 0.75, 1.25, 1.0])).to_filename(
+        OUT / "nifti_pair_nibabel.img")
+    pair("nifti_reject_pair_no_image", [3, 3, 2, 2], 2, image=False)
+    pair("nifti_reject_pair_image_short", [3, 3, 2, 2], 4, short=1)
+    pair("nifti_reject_pair_vox_negative", [3, 3, 2, 2], 2, vox_offset=-16.0)
+
+
 def quaternion_b(radians: float) -> list[float]:
     """A rotation about x: quatern_b, c, d."""
     return [math.sin(radians / 2), 0.0, 0.0]
@@ -123,7 +163,7 @@ def by_nibabel() -> None:
 
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
-    for p in OUT.glob("*.nii"):
+    for p in [*OUT.glob("*.nii"), *OUT.glob("*.hdr"), *OUT.glob("*.HDR"), *OUT.glob("*.img"), *OUT.glob("*.IMG")]:
         p.unlink()
     by_nibabel()
 
@@ -356,6 +396,7 @@ def packed_extensions() -> None:
 
 if __name__ == "__main__":
     main()
+    pairs()
     reconstruction()
     blocks_and_regions()
     chunks_and_extensions()
