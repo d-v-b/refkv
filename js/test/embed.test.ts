@@ -110,12 +110,14 @@ function npyFloat64(path: string): Float64Array {
 }
 
 test("decodes refkv.grib chunks to eccodes' values", async () => {
-  // fields of 16 × 12 grids (fixtures/generators/grib/write_fixtures.py): alternate rows reversed,
+  // fields of 16 × 12 grids (fixtures/generators/grib/write_fixtures.py): a polar stereographic
+  // grid, alternate rows reversed,
   // CCSDS across reference sample intervals, PNG with every filter, JPEG 2000 in tiles and
   // truncated at a rate, complex packing's primary and secondary missing values, and a bitmap
   // reused through indicator 254
   for (const [name, field] of [
     ["grib_scan_50", 0],
+    ["grib_polar", 0],
     ["grib_ccsds_rsi", 0],
     ["grib_png", 0],
     ["grib_jpeg2000_tiles", 0],
@@ -128,6 +130,15 @@ test("decodes refkv.grib chunks to eccodes' values", async () => {
     assert.deepEqual(got, want, name);
     assert.deepEqual(await decodeGrib(fixture(`grib/${name}.grib2`), { field }, [12, 16], "float32"),
       Float32Array.from(want), name);
+  }
+});
+
+test("decodes refkv.grib chunks of grids with no rows to eccodes' values", async () => {
+  // a chunk's shape is 1 along each dimension but its last, its points in the file's order: a
+  // reduced grid with a bitmap, and an unstructured one
+  for (const [name, points] of [["grib_reduced_bitmap", 6114], ["grib_unstructured", 192]] as const) {
+    const want = npyFloat64(`grib/expected/${name}.0.npy`);
+    assert.deepEqual(await decodeGrib(fixture(`grib/${name}.grib2`), {}, [1, 1, points]), want, name);
   }
 });
 

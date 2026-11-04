@@ -126,13 +126,12 @@ Supported:
   groups, soft links (Imaris 10), and chunks under any of HDF5's chunk
   indexes (version 1 and 2 B-trees, fixed and extensible arrays, implicit,
   single chunk).
-- Uncompressed or deflate chunks.
+- Uncompressed, deflate or LZ4 chunks, after byte shuffling or not, with a Fletcher32 checksum or
+  not (which stays in the source).
 
 Rejected, with the message the command prints:
 
-- LZ4 compression, alone or after byte shuffling, as Imaris 10 can write:
-  `unsupported HDF5 filters [32004]` (for the OME sample
-  `croppedRetinaLz4.ims`). No Zarr codec decodes these chunks as stored.
+- Other HDF5 filters: `unsupported HDF5 filters [32001]`.
 - HDF5 files that are not Imaris images, including Imaris scene files
   without image data: `not an Imaris file (no DataSet group)`.
 - Image datasets that are compact or contiguous, and data types other than
@@ -146,10 +145,10 @@ The browser code ([js/](../../../js/README.md)) reads Imaris IMS (HDF5):
 - Files from Imaris 5.5 to 10 and its converters: every resolution level,
   time point and channel, with extents, units, time step, channel names,
   colors and contrast ranges.
-- Chunks as stored, uncompressed or deflate (`numcodecs.zlib`).
+- Chunks as stored, uncompressed, deflate (`numcodecs.zlib`) or LZ4 (`imagecodecs_lz4h5`), after byte
+  shuffling (`numcodecs.shuffle`) or not.
 
-Not supported, and refused with HTTP 422: LZ4 or shuffle compression (as
-Imaris 10 can write), and HDF5 features Imaris files do not use.
+Not supported, and refused with HTTP 422: other filters, and HDF5 features Imaris files do not use.
 
 ## Performance
 
@@ -171,8 +170,8 @@ size), and rebuilds each file byte for byte from its archive's mirror.
 `compare.py` checks that the Python and browser outputs are identical, and
 equivalent outside `refkv_source` to the frozen reference (the Python
 profile of revision 25), on those files and on the 21 public files of
-[corpus_ims.txt](../../../conformance/zarrify/corpus_ims.txt), two of
-which must be rejected (the LZ4 file and a scene file).
+[corpus_ims.txt](../../../conformance/zarrify/corpus_ims.txt), one of
+which must be rejected (a scene file).
 
 - Profile: [spec/zarrify/ims.md](../../../spec/zarrify/ims.md#part-2-the-profile)
 - Rust core: [rust/refkv-ir/src/ims.rs](../../../rust/refkv-ir/src/ims.rs) (the layout and the walk),

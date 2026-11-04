@@ -13,6 +13,11 @@ from 1.
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `c9bbe039-8dfa-49f9-a655-756f822a42d6` ·
 Schema: [schema.json](grib/schema.json)
 
+Changed 2026-11-04: fields on Gaussian (3.40), rotated (3.1), polar stereographic (3.20), Mercator
+(3.10) and unstructured (3.101) grids, and reduced grids (of 3.0 and 3.40), which were not
+presented, are ([§2.4](#24-grids), [§3.1](#31-variables), [§4](#4-georeferencing)), with the new
+reasons `gaussian` and `projection` ([§2.6](#26-what-is-not-presented)).
+
 Changed 2026-11-03, with no change to any output: the time, step and member coordinates' `long_name`s, `number`'s `units`, and the
 `float64` coordinates' fill value are said, as refkv already wrote them ([§3.3](#33-coordinates)).
 
@@ -56,8 +61,8 @@ The hierarchy's entries ([conventions §11.5](../conventions.md#115-layout-table
 |---|---|
 | `<g>` | the grid's number, from 0, in the order of the grids' first presented fields |
 | `<variable>` | a variable's name ([§3.2](#32-names)) |
-| `<coordinate>` | `time`, `step`, `valid_time`, `number`, a level dimension's name and its `_bounds`, and the grid's two dimensions ([§3.3](#33-coordinates)) |
-| `<coords>` | the field's coordinates along the variable's dimensions, in decimal, one key segment each, the grid's two always `0/0` |
+| `<coordinate>` | `time`, `step`, `valid_time`, `number`, a level dimension's name and its `_bounds`, the grid's dimensions that have coordinates, and a reduced grid's `latitude` and `longitude` ([§3.3](#33-coordinates)) |
+| `<coords>` | the field's coordinates along the variable's dimensions, in decimal, one key segment each, each of the grid's always `0` |
 
 ## 1. Declaration
 
@@ -141,26 +146,57 @@ A field whose statistic has more than one time range (its count, not 1) is not p
 
 ### 2.4 Grids
 
-A field is presented only when its section 3 defines its grid by a template (octet 6, 0) with no
-list of points per row (octet 11, 0), of one of these templates, whose `Ni` × `Nj` is its number
-of points (octets 7–10); otherwise it is not presented (`grid_source`, `reduced`, `grid`,
-`grid_size`, [§2.6](#26-what-is-not-presented)). Two
-grids are one when their sections 3 are equal from octet 6 but the scanning mode's bits 3 and 4
-(`0x20`, `0x10`), which change the order of the points in the file, not in the decoded field:
+A field is presented only when its section 3 defines its grid by a template (octet 6, 0) of one
+of these, whose `Ni` × `Nj` is its number of points (octets 7–10), with no list of points per row
+(octet 11, 0) unless it is a reduced grid below; otherwise it is not presented (`grid_source`,
+`reduced`, `grid`, `grid_size`, [§2.6](#26-what-is-not-presented)). Two grids are one when their
+sections 3 are equal from octet 6 but the scanning mode's bits 3 and 4 (`0x20`, `0x10`), which
+change the order of the points in the file, not in the decoded field:
 
 | template | grid | `Ni`, `Nj` | scanning mode | the first point, the increments |
 |---|---|---|---|---|
 | 3.0 | regular latitude/longitude | octets 31–34, 35–38 | octet 72 | `La1`, `Lo1` (47–50, 51–54); `Di`, `Dj` (64–67, 68–71) when flag table 3.3's bits 3 and 4 (octet 55) say they are given, else from the last point (`La2`, `Lo2`, 56–59, 60–63) |
+| 3.1 | rotated latitude/longitude | octets 31–34, 35–38 | octet 72 | as 3.0, in the rotated frame; the southern pole's latitude and longitude (73–76, 77–80), and the angle of rotation in degrees (81–84, an IEEE binary32) |
+| 3.40 | Gaussian latitude/longitude | octets 31–34, 35–38 | octet 72 | `La1`, `Lo1` (47–50, 51–54), `Lo2` (60–63), and `N`, the parallels between a pole and the equator (68–71) |
 | 3.30 | Lambert conformal | octets 31–34, 35–38 | octet 65 | `La1`, `Lo1` (39–42, 43–46); `Dx`, `Dy` in mm (56–59, 60–63); `LaD`, `LoV` (48–51, 52–55), `Latin1`, `Latin2` (66–69, 70–73) |
+| 3.20 | polar stereographic | octets 31–34, 35–38 | octet 65 | `La1`, `Lo1` (39–42, 43–46); `Dx`, `Dy` in mm (56–59, 60–63); `LaD`, `LoV` (48–51, 52–55); the projection's pole (octet 64, bit 1: the south pole) |
+| 3.10 | Mercator | octets 31–34, 35–38 | octet 60 | `La1`, `Lo1` (39–42, 43–46); `Di`, `Dj` in mm (65–68, 69–72); `LaD` (48–51) |
+| 3.101 | general unstructured | — | — | the number of the grid used (16–18), its number in the reference (19), and its UUID (20–35); a grid of at least one point, which section 3 does not place |
 
-Angles are in 10^−6 degree, or for 3.0 in units of the basic angle and its subdivisions (octets
-39–46) when both are given. The scanning mode's bit 1 (`0x80`) runs `i` from east to west, and
-bit 2 (`0x40`) runs `j` from south to north; an increment takes the sign of its direction. A
-3.30 field whose Earth (code table 3.2, octet 15) is not of a shape of the table below, or a
-shape whose octets 16–30 it needs are missing (a scale factor `0xff` or a value of all ones), or
-whose projection is bipolar (octet 64, bit 2), is not presented (`earth`). A scaled value of
-octets 16–30 is its 4 octets, unsigned, scaled by the signed octet before them as a level's
-value is ([§2.3](#23-dimensions)).
+Angles are in 10^−6 degree, or for 3.0, 3.1 and 3.40 in units of the basic angle and its
+subdivisions (octets 39–46) when both are given. The scanning mode's bit 1 (`0x80`) runs `i` from
+east to west, and bit 2 (`0x40`) runs `j` from south to north; an increment takes the sign of its
+direction. A 3.1, 3.10, 3.20 or 3.30 field whose Earth (code table 3.2, octet 15) is not of a shape
+of the table below, or a shape whose octets 16–30 it needs are missing (a scale factor `0xff` or a
+value of all ones), or a 3.20 or 3.30 field whose projection is bipolar (octet 64, bit 2), is not
+presented (`earth`). A scaled value of octets 16–30 is its 4 octets, unsigned, scaled by the signed
+octet before them as a level's value is ([§2.3](#23-dimensions)).
+
+A 3.20 field whose `LaD` is not in its pole's hemisphere (above 0 and at most 90 for the north pole,
+below 0 and at least −90 for the south), a 3.10 field whose `LaD` is not between −90 and 90, or
+either with an increment that is 0 or missing, is not presented (`projection`). Octets 61–64 of 3.10,
+the orientation of the grid, are not read: NOAA's NBM writes a central meridian there, on a grid
+whose `i` runs along the parallels, and a Mercator grid with another orientation would be read as
+if it did too.
+
+**Gaussian rows.** A 3.40 grid's rows are of the `2N` latitudes of [§4](#4-georeferencing), numbered
+from 0 north to south, and `Nj` of them may be presented: its first row is the one nearest `La1`,
+and the rows that follow run south, or north with the scanning mode's bit 2. Such a field whose `N`
+is 0 or more than 8192, a bound on the time its rows take to compute, whose `La1` is not within `9 / N` degrees (a tenth of the rows' spacing) of a row, or whose rows run past a pole,
+is not presented (`gaussian`). Its longitude increment comes from its corners, not from `Di`, which
+producers round (CFSv2 writes 0.938 for 0.9375, which puts its last point 0.19° off): `360 / Ni` when
+`(Lo2 − Lo1) + 360 / Ni` is within a tenth of `360 / Ni` of 360, else `(Lo2 − Lo1) / (Ni − 1)`, with
+360 added or subtracted so that the span runs `i`'s way, and 0 when `Ni` is 1.
+
+**Reduced grids.** A 3.0 or 3.40 grid with a list of the points along each parallel (octet 11, the
+width in octets of each number, at most 8; octet 12, 1) is presented as a sequence of points, when:
+`Ni` is missing (all ones); the list, from octet 73, holds a number for each of its `Nj` rows,
+which add up to its number of points; its scanning mode has none of bits 1, 3 and 4 set; and its rows
+go round the Earth: `(Lo2 − Lo1) + 360 / m`, with 360 added when `Lo2 − Lo1` is negative and `m` its
+longest row, is within a tenth of `360 / m` of 360. The points of a row of `c` are at `Lo1 + i × 360 / c`,
+`i` from 0, and the rows' latitudes are a 3.40's above (`N` and `La1`, within its rules) or a
+3.0's (`La1` and `Dj`, or from `La2`). Any other grid with a list is not presented (`reduced`),
+including a sub-area of a reduced grid, whose rows do not go round the Earth.
 
 | shape | the Earth |
 |---|---|
@@ -194,10 +230,12 @@ mirror.
 | reason | the field's |
 |---|---|
 | `grid_source` | grid is not defined by a template (section 3 octet 6) |
-| `reduced` | grid lists the points of each row (section 3 octet 11) |
-| `grid` | grid template is not 3.0 or 3.30 |
-| `grid_size` | `Ni` × `Nj` is not its number of points |
-| `earth` | Lambert grid's Earth is not of shapes 0–8, or its projection is bipolar |
+| `reduced` | grid lists the points of each row (section 3 octet 11), and is not a reduced grid [§2.4](#24-grids) presents |
+| `grid` | grid template is not one of [§2.4](#24-grids)'s |
+| `grid_size` | `Ni` × `Nj` is not its number of points, or a 3.101 grid has none |
+| `gaussian` | Gaussian grid's `N` is 0 or more than 8192, its `La1` is not a row, or its rows run past a pole |
+| `earth` | rotated, Lambert, polar stereographic or Mercator grid's Earth is not of shapes 0–8, or its Lambert or polar projection is bipolar |
+| `projection` | polar stereographic or Mercator grid's `LaD` is out of its range, or an increment is 0 or missing |
 | `product` | product template is not one of [§2.3](#23-dimensions)'s |
 | `statistic` | statistic has more than one time range |
 | `time` | step is not a whole number of seconds (a month, a year) |
@@ -221,10 +259,12 @@ dimensions are, in order:
 - `time` and `step`, always;
 - its level dimension ([§3.2](#32-names)), when its fields' first surfaces have values;
 - `number`, when its template has an ensemble member;
-- the grid's `y` and `x` (`latitude` and `longitude` for 3.0).
+- the grid's: `y` and `x` for 3.10, 3.20 and 3.30; `latitude` and `longitude` for 3.0 and 3.40;
+  `rlat` and `rlon` for 3.1; and `point` alone for a reduced grid and 3.101, whose length is the
+  grid's number of points.
 
 Its shape is its group's coordinates' lengths along its dimensions, its chunk shape 1 along each
-but the grid's two, which it takes whole; its codecs are `[{"name": "refkv.grib"}]`. A chunk is a
+but the grid's, which it takes whole; its codecs are `[{"name": "refkv.grib"}]`. A chunk is a
 field at its coordinates; a cell no field has has no chunk, and reads as NaN.
 
 **Repeated fields.** A field whose cell another field of its identity already holds (a file may
@@ -233,7 +273,8 @@ first field of each cell is in the variable, the second in a second variable nam
 with `_2`, and so on. No field is dropped.
 
 A variable's attributes are `long_name` and `units`, when [§3.2](#32-names)'s table names its
-parameter; `coordinates`, `"valid_time"`; and `GRIB_centre`, `GRIB_discipline`,
+parameter; `coordinates`, `"valid_time"`, or on a reduced grid `"valid_time latitude longitude"`;
+and `GRIB_centre`, `GRIB_discipline`,
 `GRIB_parameterCategory`, `GRIB_parameterNumber`, `GRIB_productDefinitionTemplateNumber`,
 `GRIB_typeOfFirstFixedSurface` and `GRIB_typeOfSecondFixedSurface`, the numbers that identify
 it, and for a statistic `GRIB_typeOfStatisticalProcessing` and `GRIB_lengthOfTimeRange` (its
@@ -289,12 +330,20 @@ A grid's group holds these coordinates, each a 1-D array named as its dimension 
 | `number` | the members' numbers, ascending, when a variable has them | `float64` | `units` `"1"`, `standard_name` `"realization"`, `long_name` `"ensemble member numerical id"` |
 | a level dimension | the first surfaces' values of the variables that have it, ascending by the first value then the second, each pair once | `float64` | `units` (Pa, m, K, …) when the level type has one, `long_name` the dimension's name, and `bounds` for a layer |
 | `<level>_bounds` | for a layer, `[first, second]` of each value, over (the level, `bounds`) | `float64` | — |
-| `latitude`, `longitude` or `y`, `x` | the grid's positions ([§4](#4-georeferencing)) | `uint32` | `units`, `standard_name`, `scale_factor`, `add_offset` |
+| `latitude`, `longitude`, `y`, `x`, `rlat` or `rlon`, the grid's evenly spaced dimensions | the grid's positions ([§4](#4-georeferencing)) | `uint32` | `units`, `standard_name`, `scale_factor`, `add_offset` |
+| `latitude` of a 3.40 grid | its rows' latitudes ([§4](#4-georeferencing)), in the file's order | `float64` | `units` `"degrees_north"`, `standard_name` `"latitude"` |
+| `latitude`, `longitude` of a reduced grid | each point's position ([§2.4](#24-grids)), in the file's order, over `point` | `float64` | `units` `"degrees_north"` and `"degrees_east"`, `standard_name` `"latitude"` and `"longitude"` |
 
-The `float64` coordinates are one chunk each, little-endian and deflated (gzip, level 6). The
-grid's two are the index of [conventions §9](../conventions.md#9-dataset-layouts)'s regular steps
-([conventions §9](../conventions.md#9-dataset-layouts)), whose `scale_factor` and `add_offset`
-give the positions.
+The `float64` coordinates are one chunk each, little-endian and deflated (gzip, level 6), but a
+reduced grid's two, which are in chunks of at most 2^17 values
+([conventions §9](../conventions.md#9-dataset-layouts)). The grid's evenly spaced dimensions are
+the index of [conventions §9](../conventions.md#9-dataset-layouts)'s regular steps, whose
+`scale_factor` and `add_offset` give the positions: `units` `"degrees_north"`, `"degrees_east"` and
+`standard_name` `"latitude"`, `"longitude"` for 3.0 and 3.40; `units` `"degrees"` and
+`standard_name` `"grid_latitude"`, `"grid_longitude"` for 3.1; and `units` `"m"` and `standard_name`
+`"projection_y_coordinate"`, `"projection_x_coordinate"` for 3.10, 3.20 and 3.30. A 3.101 grid's
+`point` has no coordinate: section 3 names the grid that holds its positions
+([§4](#4-georeferencing)).
 
 <a id="type-gribcoordinate"></a>**`GribCoordinate`**: an [`ArrayDocument`](../conventions.md#type-arraydocument)
 of the table's row, a `float64` coordinate with the fill value `"NaN"`.
@@ -302,18 +351,20 @@ of the table's row, a `float64` coordinate with the fill value `"NaN"`.
 ## 4. Georeferencing
 
 A grid's group carries the GeoZarr `proj` and `spatial` conventions' members, as SAFE's
-resolution groups do ([spec/zarrify/safe.md §5](safe.md#5-georeferencing-geozarr)).
+resolution groups do ([spec/zarrify/safe.md §5](safe.md#5-georeferencing-geozarr)), but a reduced
+grid's, which has `proj` alone, and a 3.101 grid's, which has neither.
 
 <a id="type-gribgridgroup"></a>**`GribGridGroup`**, its attributes:
 
 | member | value |
 |---|---|
-| `zarr_conventions` | the CMOs of `proj` and `spatial` |
-| `proj:wkt2` | the CRS: for 3.0, a geographic CRS on the grid's Earth; for 3.30, a Lambert Conic Conformal (2SP) CRS on it, its false origin at (`Latin1`, `LoV`), its standard parallels `Latin1` and `Latin2` |
-| `spatial:dimensions` | `["latitude", "longitude"]` for 3.0, `["y", "x"]` for 3.30 |
-| `spatial:transform` | `[dx, 0, x0, 0, dy, y0]`: for 3.0, `dx` the longitude's increment, `x0` `Lo1`, `dy` the latitude's increment and `y0` `La1`, in degrees; for 3.30, `Dx` and `Dy` in meters and `(x0, y0)` the first point projected, by **The Lambert projection** below |
-| `spatial:shape` | `[Nj, Ni]` |
-| `spatial:registration` | `"node"`: the positions are grid points |
+| `zarr_conventions` | the CMOs of `proj` and `spatial`; of `proj` alone for a reduced grid, when it has `proj:wkt2`; absent for 3.101 |
+| `proj:wkt2` | the CRS, when the grid's Earth is of a shape [§2.4](#24-grids) names: for 3.0, 3.40 and a reduced grid, a geographic CRS on the grid's Earth; for 3.1, a geographic CRS on it derived by a `Pole rotation (GRIB convention)` conversion of the southern pole and the angle of rotation; for 3.30, a Lambert Conic Conformal (2SP) CRS on it, its false origin at (`Latin1`, `LoV`), its standard parallels `Latin1` and `Latin2`; for 3.20, a Polar Stereographic (variant B) CRS on it, its standard parallel `LaD`, its longitude of origin `LoV`, or `LoV + 180°` in [−180, 180) for the south pole, as NCEP's south-polar grids require (PROJ's `y` runs away from the south pole along its longitude of origin); for 3.10, a Mercator (variant B) CRS on it, its first standard parallel `LaD`, its natural origin's longitude 0; absent for 3.101 |
+| `spatial:dimensions` | the grid's dimensions ([§3.1](#31-variables)), but for a reduced grid and 3.101 |
+| `spatial:transform` | `[dx, 0, x0, 0, dy, y0]`: for 3.0 and 3.1, `dx` the longitude's increment, `x0` `Lo1`, `dy` the latitude's increment and `y0` `La1`, in degrees; for 3.10, 3.20 and 3.30, `Dx` and `Dy` in meters and `(x0, y0)` the first point projected, by **The Lambert projection**, **The polar stereographic projection** and **The Mercator projection** below. Absent for 3.40, whose latitudes are not evenly spaced, a reduced grid and 3.101 |
+| `spatial:shape` | `[Nj, Ni]`, but for a reduced grid and 3.101 |
+| `spatial:registration` | `"node"`: the positions are grid points; but for a reduced grid and 3.101 |
+| `GRIB_numberOfGridUsed`, `GRIB_numberOfGridInReference`, `GRIB_uuidOfHGrid` | for 3.101 alone: its section 3's octets 16–18 and 19, and its octets 20–35 in lowercase hexadecimal, 32 digits and no hyphens, which name the grid file that gives the points' positions |
 
 **The Lambert projection.** `(x0, y0)` is the Lambert conformal conic projection of the first
 point, (`La1`, `Lo1`), with its origin at (`Latin1`, `LoV`) (Snyder, *Map Projections: A
@@ -338,9 +389,51 @@ degrees ([§2.4](#24-grids)):
   (Rust's `f64::rem_euclid`);
 - `x0 = ρ × sin(θ)` and `y0 = ρ0 − ρ × cos(θ)`.
 
-The grid's positions are its `y` and `x` coordinates: `y0 + j × dy` and `x0 + i × dx`. The
-values are in the file's order ([§2.5](#25-values)): a grid that scans north to south has a
+**The polar stereographic projection.** `(x0, y0)` is the polar stereographic projection of
+(`La1`, `Lo1`), true to scale at `LaD` (Snyder, equations 21-33 to 21-36, 14-15 and 15-9), computed
+the same way with `a`, `e`, `m` and `t` above, and `s` = −1 when the projection's pole is the south
+pole, else 1:
+
+- `ρ = 2 × a × t(r(s × La1)) / sqrt(pow(1 + e, 1 + e) × pow(1 − e, 1 − e))` when `LaD` is 90 or −90;
+- else `ρ = a × m(c) × t(r(s × La1)) / t(c)`, where `c = r(s × LaD)`;
+- `θ = r(L)`, where `L` is `Lo1 − LoV` in [−180, 180) as above;
+- `x0 = s × ρ × sin(θ)` and `y0 = −ρ × cos(θ)`: whichever the pole, `y` runs towards it along `LoV`.
+
+That is how NCEP's south-polar grids place their points: the first point of its sea ice analysis
+(`seaice.t00z.south12psg.grib2`), 36.866°S 139.806°E with `LoV` 100°, scanning `j` northward, puts
+the pole inside the grid and its ice in the Weddell, Ross and Amundsen Seas only so. ecCodes 2.50
+runs `x` and `y` the other way, off Antarctica, and FM 92's note that latitude increases with `y`
+along `LoV` holds only of a north pole.
+
+**The Mercator projection.** `(x0, y0)` is the Mercator projection of (`La1`, `Lo1`), true to scale
+at `LaD`, its central meridian Greenwich (Snyder, equations 7-6, 7-7, 14-15 and 15-9), computed the
+same way with `a`, `e`, `m` and `t` above: `k = a × m(r(LaD))`, `x0 = k × r(L)`, where `L` is `Lo1`
+in [−180, 180) as above, and `y0 = −k × log(t(r(La1)))`. Its grid may run past 180°: its `x` then
+exceeds the projection's range, as `Lo1 + i × dx` does.
+
+**The Gaussian latitudes.** The `2N` latitudes of a 3.40 grid are, from north to south, the zeros
+of the Legendre polynomial `P` of degree `2N`, computed in binary64 with musl's `cos` and `asin`,
+each operation in the order written, by Newton's method, 5 times from an asymptotic estimate. For
+row `k`, from 0, the latitude is `−(the latitude of row 2N − 1 − k)` when `k` is at least `N`, and
+otherwise:
+
+- `x = cos(π × (k + 0.75) / (2N + 0.5))`, then 5 times:
+  - `p0 = 1`, `p = x`, then for `j` from 2 to `2N`, `q = ((2 × j − 1) × x × p − (j − 1) × p0) / j`,
+    `p0 = p`, `p = q`;
+  - `d = 2N × (p0 − x × p) / (1 − x × x)` and `x = x − p / d`;
+- the latitude is `asin(x) × (180 / π)` degrees, `180 / π` the quotient rounded first.
+
+The row nearest `La1` ([§2.4](#24-grids)) is `k`, the integer nearest
+`(90 − La1) × (2N + 0.5) / 180 − 0.75`, halves away from zero, which must lie from −0.5 to below
+`2N`.
+
+The grid's evenly spaced positions are its `y` and `x` coordinates: `y0 + j × dy` and `x0 + i × dx`.
+The values are in the file's order ([§2.5](#25-values)): a grid that scans north to south has a
 descending latitude.
+
+**Unstructured grids.** A 3.101 field's points are placed by a separate grid file, which the
+group's `GRIB_uuidOfHGrid` names and the file does not hold. The values are presented by their
+index in that file.
 
 ## 5. Source metadata
 
@@ -403,7 +496,8 @@ grid0/ci_surface           (1, 1, 1, 721, 1440)
 ## 7. What the layout does not express
 
 - GRIB edition 1, and the fields of [§2.6](#26-what-is-not-presented).
-- 2-D latitudes and longitudes of a projected grid: a reader computes them from the CRS.
+- 2-D latitudes and longitudes of a projected or rotated grid: a reader computes them from the CRS.
+- A 3.101 grid's positions, which are in another file ([§4](#4-georeferencing)).
 - A field's position in a file of many fields as a dimension of its own: the many files of a
   forecast run, stacked along `time` and `step`, are a later profile's.
 - Which of complex packing's two missing values a missing value was: both are NaN.
@@ -464,7 +558,7 @@ file, in decimal), when:
 | a section (its length, the first 4 octets, and its number, the fifth) is shorter than 5 octets, or ends after the message's section 8 begins | `the section {number} at byte {offset} of the GRIB message at byte {at} has the length {length}, past the message's end` |
 | a section 1 to 5 is longer than 1 MiB (2^20 octets) | `the section {number} of the GRIB message at byte {at} has {length} octets, more than the profile reads` |
 | the sections are not in FM 92's order (section 1 first; after a section 7, the message may restate sections 2, 3 or 4 on, for the next field; sections 5, 6 and 7 always follow 4, 5 and 6), or the last before section 8 is not a section 7 | `the GRIB message at byte {at}: its section {n} follows section {m}`, or `…: it ends after section {m}, not section 7` |
-| a field's section 1 is shorter than 21 octets, its section 3 than 14 (for 3.0, 72; for 3.30, 81), its section 4 than 9 (for 4.0, 4.2, 4.5 and 4.6, 34; 4.1, 36; 4.8, 58; 4.9, 71; 4.10, 59; 4.11, 61; 4.12, 60), its section 5 than 11, or its section 6 than 6 | `the GRIB message at byte {at}: a GRIB section {n} …` |
+| a field's section 1 is shorter than 21 octets, its section 3 than 14 (for 3.0, 3.10 and 3.40, 72; for 3.1, 84; for 3.20, 65; for 3.30, 81; for 3.101, 35), its section 4 than 9 (for 4.0, 4.2, 4.5 and 4.6, 34; 4.1, 36; 4.8, 58; 4.9, 71; 4.10, 59; 4.11, 61; 4.12, 60), its section 5 than 11, or its section 6 than 6 | `the GRIB message at byte {at}: a GRIB section {n} …` |
 | padding ([§8.2](#82-finding-the-messages)) is longer than 4096 bytes, or is not followed by a message or the file's end | `the bytes at byte {at} are not a GRIB message` |
 | the file holds no message | `no GRIB message` |
 | no field is presented | `none of the {fields} GRIB fields can be presented: {reasons}`, the reasons ([§2.6](#26-what-is-not-presented)) in UTF-8 order, comma-separated |

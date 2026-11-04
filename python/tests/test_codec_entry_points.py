@@ -32,9 +32,9 @@ FIXTURES = Path(__file__).resolve().parents[2] / "fixtures"
 
 # For every codec an archive of refkv's names, a fixture whose zarrified array (at the path given)
 # names it: refkv's own (its entry points), zarr-python's `numcodecs.zlib` and imagecodecs-zarr's
-# image codecs, its LZMA, `imagecodecs_delta` and `imagecodecs_floatpred`. The LZW fixture's final code is one
-# bit too narrow, which imagecodecs-zarr's `imagecodecs_lzw` would decode to too many bytes: it reads only through
-# `refkv.tiff_lzw`.
+# image codecs, its LZMA, `imagecodecs_delta`, `imagecodecs_floatpred`, `imagecodecs_packints` and
+# `imagecodecs_packbits`. The LZW fixture's final code is one bit too narrow, which imagecodecs-zarr's
+# `imagecodecs_lzw` would decode to too many bytes: it reads only through `refkv.tiff_lzw`.
 EVERY_CODEC = {
     "refkv.tiff_lzw": ("qptiff/qptiff_fl_lzw_narrow_eoi.qptiff", "0"),
     "refkv.stream": ("mp3/mp3_single_frame.mp3", "samples"),
@@ -42,6 +42,9 @@ EVERY_CODEC = {
     "refkv.skip": ("npy/npz_compressed.npz", "fortran"),
     "refkv.grib": ("grib/grib_simple.grib2", "grid0/t_surface"),
     "refkv.precomputed": ("precomputed/precomputed_raw_clipped", "0"),
+    "refkv.h5_bitshuffle": ("hdf5/hdf5_third_party.h5", "bitshuffle_lz4"),
+    "imagecodecs_lzf": ("hdf5/hdf5_filters.h5", "lzf"),
+    "imagecodecs_lz4h5": ("hdf5/hdf5_third_party.h5", "lz4"),
     "packbits": ("safetensors/st_dtypes.safetensors", "f4"),
     "n5_default": ("n5/n5_compressions", "zlib_f64"),
     "numcodecs.zlib": ("tiff/tczyx_uint16_deflate.ome.tif", "0"),
@@ -60,6 +63,10 @@ EVERY_CODEC = {
     "imagecodecs_webp": ("tiff/webp_rgb.tif", "0"),
     "imagecodecs_jpegxl": ("tiff/jpegxl_uint16.tif", "0"),
     "imagecodecs_lzma": ("tiff/lzma_uint16.tif", "0"),
+    "imagecodecs_packints": ("tiff/uint12_strips.tif", "0"),
+    "imagecodecs_packbits": ("tiff/packbits_uint8.tif", "0"),
+    "imagecodecs_ccittfax4": ("tiff/bilevel_g4.tif", "0"),
+    "imagecodecs_eer": ("tiff/eer_v1_frames.tif", "0"),
 }
 
 # An array of a data type of refkv's (refkv.zarr.dtypes, ml_dtypes types), read by zarr alone
@@ -134,7 +141,7 @@ def test_entry_points_name_every_codec_and_resolve_to_it():
     points = _refkv_entry_points()
     assert {e.value.partition(":")[0] for e in points.values()} == {f"refkv.zarr.codecs.{m}" for m in modules}
     assert set(points) == {"refkv.tiff_lzw", "refkv.stream", "refkv.fits_tiles", "refkv.grib", "refkv.precomputed",
-                           "refkv.skip", "n5_default", "packbits"}
+                           "refkv.skip", "refkv.h5_bitshuffle", "n5_default", "packbits"}
     for name, e in points.items():
         with zarr.config.set({f"codecs.{name}": SHARED[name]} if name in SHARED else {}):
             assert zarr.registry.get_codec_class(name) is e.load(), name

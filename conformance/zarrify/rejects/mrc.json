@@ -80,6 +80,26 @@
       "test": "mrc_reject_data_outside",
       "input": "mrc_reject_data_outside.mrc",
       "message": "the 48-byte data at 1040 is outside the 1087-byte file"
+    },
+    {
+      "test": "mrc_reject_gzip_int4_odd_width",
+      "input": "mrc_reject_gzip_int4_odd_width.mrc.gz",
+      "message": "a gzipped file of 4-bit values and odd nx = 3, whose rows each start on a byte, which one chunk cannot decode"
+    },
+    {
+      "test": "mrc_reject_gzip_trailing",
+      "input": "mrc_reject_gzip_trailing.mrc.gz",
+      "message": "the gzip trailer records a stream of 1080 bytes modulo 2^32, not the 1072 of the header and the data"
+    },
+    {
+      "test": "mrc_reject_gzip_members",
+      "input": "mrc_reject_gzip_members.mrc.gz",
+      "message": "the gzip trailer records a stream of"
+    },
+    {
+      "test": "mrc_reject_gzip_header_cut",
+      "input": "mrc_reject_gzip_header_cut.mrc.gz",
+      "message": "file too short for a 1024-byte MRC header"
     }
   ]
 }

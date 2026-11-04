@@ -19,6 +19,14 @@ a run of at most 128 KiB of that block: several z-slices, one slice, or
 some rows of a large slice. The SPM `avg152T1.nii` template became a 12 KB
 archive in under 4 s (at spec/zarrify.md revision 16).
 
+## Gzipped files
+
+A `.nii.gz` is read as it is, with nothing decompressed but its first bytes: one chunk references
+the whole file, with the codecs `bytes`, `refkv.skip` (the header's length) and `gzip`. The cost is
+reads: a gzip stream has no index, so reading one slice inflates the whole stream, and holds the
+whole array in memory. To slice a large volume repeatedly, decompress it once and zarrify the
+`.nii`.
+
 ## What you get
 
 One OME-Zarr 0.5 image at the archive root, with one array, `0`.
@@ -132,9 +140,8 @@ Supported:
 
 Rejected:
 
-- Gzipped files (`.nii.gz`), the usual way NIfTI is distributed: `not a
-  file of any supported format`. A gzip stream has no byte
-  ranges to reference; decompress the file first (and host the `.nii`).
+- A gzipped file with bytes after the voxels, or of several gzip members
+  (`bgzip`): a chunk could not decode it. Decompress the file first.
 - Header-and-image pairs (`.hdr`/`.img`, magic `ni1`, `ni2`).
 - Complex, binary and 128-bit types.
 - Data along dimensions 6 and 7, such as CIFTI-2 files.
@@ -151,8 +158,8 @@ The browser code ([js/](../../../js/README.md)) reads NIfTI (NIfTI-1 and NIfTI-2
   translation; the whole header, and its intensity scaling, recorded under
   `refkv_zarrified`.
 
-Not supported, and refused with HTTP 422: gzipped files (`.nii.gz`),
-header-and-image pairs, COMPLEX256, and dimensions 6 and 7 (CIFTI).
+Not supported, and refused with HTTP 422: header-and-image pairs, COMPLEX256,
+and dimensions 6 and 7 (CIFTI).
 
 ## Performance
 

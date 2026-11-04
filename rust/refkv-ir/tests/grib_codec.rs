@@ -79,7 +79,9 @@ fn every_field_of_every_fixture_decodes_to_eccodes_values() {
         assert!(!want.is_empty(), "{name}: no expected values");
         for (k, (shape, values)) in want.iter().enumerate() {
             let got = decode(&message, &Config { field: k }, shape).unwrap_or_else(|e| panic!("{name} field {k}: {e}"));
-            assert_eq!(grid_shape(&message, k).unwrap(), (shape[0], shape[1]), "{name} field {k}");
+            // a grid with no rows is one row of its points
+            let rows = if shape.len() == 1 { (1, shape[0]) } else { (shape[0], shape[1]) };
+            assert_eq!(grid_shape(&message, k).unwrap(), rows, "{name} field {k}");
             match values {
                 Want::Values(values) => {
                     assert_eq!(got.len(), values.len(), "{name} field {k}");
@@ -98,7 +100,7 @@ fn every_field_of_every_fixture_decodes_to_eccodes_values() {
         let past = decode(&message, &Config { field: want.len() }, &want[0].0).unwrap_err();
         assert!(past.contains("was asked for"), "{name}: {past}");
     }
-    assert_eq!(checked, 57);
+    assert_eq!(checked, 79);
 }
 
 /// The section of number `number` (the first) of a single-field fixture.
@@ -287,6 +289,61 @@ fn rejects_a_grid_template_it_does_not_decode() {
     let s3 = section(&m, 3).offset as usize;
     m[s3 + 12..s3 + 14].copy_from_slice(&50u16.to_be_bytes());
     assert_eq!(error(&m, 0, &[12, 16]), "refkv.grib: grid template 3.50 is not decoded");
+}
+
+#[test]
+fn rejects_a_list_of_points_along_meridians() {
+    // the reduced grid's list as if it gave the points along each meridian (octet 12)
+    let mut m = fixture("grib_reduced_ll.grib2");
+    let s3 = section(&m, 3).offset as usize;
+    m[s3 + 11] = 2;
+    assert_eq!(
+        error(&m, 0, &[176]),
+        "refkv.grib: a grid with a list of numbers of points (section 3, octet 11) is not decoded, but for the points along each parallel (octet 12, here 2) of template 3.0 or 3.40"
+    );
+}
+
+#[test]
+fn rejects_a_list_of_points_on_another_template() {
+    // a Lambert grid with a list
+    let mut m = fixture("grib_lambert.grib2");
+    let s3 = section(&m, 3).offset as usize;
+    m[s3 + 10] = 2;
+    m[s3 + 11] = 1;
+    assert_eq!(
+        error(&m, 0, &[12, 16]),
+        "refkv.grib: a grid with a list of numbers of points (section 3, octet 11) is not decoded, but for the points along each parallel (octet 12, here 1) of template 3.0 or 3.40"
+    );
+}
+
+#[test]
+fn rejects_a_reduced_grid_scanned_along_columns() {
+    let mut m = fixture("grib_reduced_ll.grib2");
+    let s3 = section(&m, 3).offset as usize;
+    m[s3 + 71] = 0x20;
+    assert_eq!(error(&m, 0, &[176]), "refkv.grib: scanning mode 0x20 of a reduced grid is not decoded");
+}
+
+#[test]
+fn rejects_an_unstructured_grid_of_no_points() {
+    let mut m = fixture("grib_unstructured.grib2");
+    let s3 = section(&m, 3).offset as usize;
+    m[s3 + 6..s3 + 10].fill(0);
+    assert_eq!(error(&m, 0, &[192]), "refkv.grib: the grid has no points");
+}
+
+#[test]
+fn rejects_a_short_unstructured_section() {
+    let m = fixture("grib_unstructured.grib2");
+    let s = section(&m, 3);
+    let (at, end) = (s.offset as usize, (s.offset + s.length) as usize);
+    // section 3 cut to 34 octets, its length and the message's restated
+    let mut b = m[..at + 34].to_vec();
+    b.extend_from_slice(&m[end..]);
+    b[at..at + 4].copy_from_slice(&34u32.to_be_bytes());
+    let total = b.len() as u64;
+    b[8..16].copy_from_slice(&total.to_be_bytes());
+    assert_eq!(error(&b, 0, &[192]), "refkv.grib: section 3 is 34 octets, too short for grid template 3.101");
 }
 
 #[test]

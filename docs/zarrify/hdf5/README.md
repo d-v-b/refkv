@@ -67,7 +67,7 @@ A Zarr v3 hierarchy that mirrors the file's:
 
 **What is not presented**, and recorded instead: region references, opaque,
 time, array and sequence datatypes, compounds with gaps, filters other than
-deflate and shuffle, chunks a filter skipped, virtual datasets, datasets in
+deflate, shuffle, Fletcher32, LZF, Blosc, zstd, LZ4 and bitshuffle (Szip, N-bit and scale-offset among them), chunks skipped by shuffle or bitshuffle, virtual datasets, datasets in
 external files, and external links (not followed).
 [spec/zarrify/hdf5.md §7.4](../../../spec/zarrify/hdf5.md#74-what-is-not-presented)
 lists them.
