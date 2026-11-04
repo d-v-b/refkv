@@ -102,8 +102,8 @@ def main() -> None:
     # which imagecodecs_delta sums back.
     tifffile.imwrite(OUT / "predictor_deflate_uint8.tif", small, tile=(32, 32),
                      compression="zlib", predictor=True)
-    # Rejected: Deflate strips whose last is short, which cannot be padded.
-    tifffile.imwrite(OUT / "edge_reject_strips_deflate_short.tif", tall, rowsperstrip=16, compression="zlib",
+    # Deflate strips whose last is short, which cannot be padded: a `rectilinear` grid.
+    tifffile.imwrite(OUT / "strips_uint16_deflate_short.tif", tall, rowsperstrip=16, compression="zlib",
                      photometric="minisblack")
 
     # More of Predictor 2 (written last, so that the fixtures above keep their pixels): uint16
@@ -146,6 +146,25 @@ def main() -> None:
     for name, compression in (("lzw", "lzw"), ("deflate", "zlib"), ("zstd", "zstd")):
         pyramid(OUT / f"strips_one_row_tyx_{name}.ome.tif", image((3, 40, 16), np.uint8), 1, axes="TYX",
                 rowsperstrip=1, compression=compression, photometric="minisblack")
+    # More short last strips that cannot be padded (spec/zarrify/tiff.md §4.5
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>): zstd, big-endian with
+    # Predictor 2, JPEG and JPEG 2000, interleaved and planar samples, two strips, an OME-TIFF of
+    # several planes and a SubIFD level, and one whose level of one strip keeps a regular grid.
+    tifffile.imwrite(OUT / "strips_uint16_zstd_short.tif", tall, rowsperstrip=16, compression="zstd",
+                     photometric="minisblack")
+    tifffile.imwrite(OUT / "strips_uint16_deflate_be_predictor_short.tif", tall, byteorder=">", rowsperstrip=16,
+                     compression="zlib", predictor=True, photometric="minisblack")
+    tifffile.imwrite(OUT / "strips_rgb_contig_jpeg_short.tif", np.moveaxis(image((3, 70, 48), np.uint8), 0, -1).copy(),
+                     rowsperstrip=16, compression="jpeg", photometric="rgb", planarconfig="contig")
+    tifffile.imwrite(OUT / "strips_rgb_contig_deflate_short.tif",
+                     np.moveaxis(image((3, 24, 50), np.uint8), 0, -1).copy(), rowsperstrip=16, compression="zlib",
+                     photometric="rgb", planarconfig="contig")
+    tifffile.imwrite(OUT / "strips_rgb_planar_jpeg2000_short.tif", image((3, 70, 50), np.uint8), rowsperstrip=16,
+                     compression="jpeg2000", photometric="rgb", planarconfig="separate")
+    pyramid(OUT / "strips_tcyx_uint16_deflate_short.ome.tif", image((2, 3, 70, 50), np.uint16), 1, axes="TCYX",
+            rowsperstrip=16, compression="zlib", photometric="minisblack")
+    pyramid(OUT / "strips_uint8_deflate_short_level.ome.tif", image((48, 50), np.uint8), 1, axes="YX",
+            rowsperstrip=32, compression="zlib", photometric="minisblack")
     for p in sorted(OUT.glob("*.tif")):
         print(p.name, p.stat().st_size)
 
