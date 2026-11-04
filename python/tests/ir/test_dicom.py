@@ -18,7 +18,7 @@ from refkv._narrow import at, integer, ndarray, sequence
 from refkv.ir import zarrify as via_ir
 
 
-def testdata(name: str) -> Path:
+def pydicom_file(name: str) -> Path:
     """A test file of pydicom's."""
     path = get_testdata_file(name)
     assert isinstance(path, str), name
@@ -29,7 +29,7 @@ DICOMS = sorted((FIXTURES / "dicom").glob("*.dcm"))
 LOSSLESS = [p for p in DICOMS if p.name.startswith("dicom_ljpeg_")]
 # pydicom's own 1-bit segmentations: frames on bytes (512 by 512), off them (510 by 510), and one
 ONE_BIT = [*(p for p in DICOMS if p.name.startswith("dicom_bits1_")),
-           *map(testdata, ("liver.dcm", "liver_nonbyte_aligned.dcm", "liver_1frame.dcm", "liver_expb.dcm"))]
+           *map(pydicom_file, ("liver.dcm", "liver_nonbyte_aligned.dcm", "liver_1frame.dcm", "liver_expb.dcm"))]
 PROBES = ["dicom_big_private.dcm", "dicom_chain_bot.dcm", "dicom_chain_nobot.dcm", "dicom_deep_defined.dcm",
           "dicom_eot_many.dcm", "dicom_fragments_many.dcm", "dicom_frames_many.dcm", "dicom_items_distinct.dcm",
           "dicom_items_same.dcm", "dicom_many_elements.dcm"]
