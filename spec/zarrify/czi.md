@@ -1155,8 +1155,8 @@ whose Size is their StoredSize (a pyramid's are not):
   gives (0 for an entry without the letter), of which it says the product of those sizes;
 - its **tiles** are the distinct Starts of M, of which it says `SizeM`.
 
-XML that gives neither says nothing, and no such file is short, whatever is missing. Across the master
-and the parts read so far, the entries of the parts count too. On the 24 files of the public corpus
+XML that gives neither says nothing, and no such file is short, whatever is missing. The entries of
+the master and of the parts read so far all count. On the 24 files of the public corpus
 (`conformance/zarrify/corpus_czi.txt`) the one file this finds short is the master of a set of four,
 `Image_1_2023_08_18__14_32_31_964.czi` of [Zenodo record 19047136](https://zenodo.org/records/19047136),
 whose XML gives `SizeM` 4 and whose directory has M 0.

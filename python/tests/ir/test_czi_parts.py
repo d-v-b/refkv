@@ -15,7 +15,7 @@ from ir_helpers import FIXTURES, ROOT
 
 import refkv.zarr
 from refkv import _core
-from refkv._narrow import at, ndarray
+from refkv._narrow import at, mapping, ndarray
 from refkv.ir.store import StoreIrOutput
 from refkv.policy import Policy
 from refkv.zarrify import Rejected
@@ -24,8 +24,11 @@ from refkv.zarrify.store.beside import VsiFiles
 
 sys.path.insert(0, str(ROOT / "fixtures" / "generators" / "czi"))
 sys.path.insert(0, str(ROOT / "conformance" / "zarrify"))
+# pyrefly: ignore[missing-import]  # on sys.path above; the config's search-path lacks fixtures/generators
 import write_fixtures
 from proxy import Proxy
+
+# pyrefly: ignore[missing-import]  # on sys.path above; the config's search-path lacks fixtures/generators
 from write_fixtures import part_plane
 
 CZI = FIXTURES / "czi"
@@ -79,7 +82,7 @@ def test_a_complete_file_stays_a_file_input(tmp_path):
         fmt, out = zarrify(str(CZI / name))
         assert fmt == "czi"
         assert not isinstance(out, StoreIrOutput)
-        assert "parts" not in at(read(out, tmp_path).attrs, "refkv_zarrified", "czi")
+        assert "parts" not in mapping(at(read(out, tmp_path).attrs, "refkv_zarrified", "czi"))
 
 
 @pytest.mark.parametrize(("name", "probes"), [
@@ -105,7 +108,8 @@ def test_a_run_probes_only_what_the_file_calls_for(name, probes, monkeypatch):
 
 def test_the_probes_stop_when_the_planes_are_found(tmp_path):
     """A third file beside two that hold every plane is not read: it is not an object."""
-    sources = {"a.czi": "czi_parts_spaced.czi", "a(1).czi": "czi_parts_spaced (1).czi", "a(2).czi": "czi_gray8_single.czi"}
+    sources = {"a.czi": "czi_parts_spaced.czi", "a(1).czi": "czi_parts_spaced (1).czi",
+               "a(2).czi": "czi_gray8_single.czi"}
     for name, source in sources.items():
         (tmp_path / name).write_bytes((CZI / source).read_bytes())
     _, out = zarrify(str(tmp_path / "a.czi"))

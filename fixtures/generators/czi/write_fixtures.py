@@ -565,15 +565,18 @@ def stamps() -> Att:
     return Att("TimeStamps", "CZTIMS", time_stamps([0.0]))
 
 
-def master(*ts: int, planes: int, **kw) -> Czi:
+def master(*ts: int, planes: int, attachments: list[Att] | None = None,
+           more_entries: list[bytes] | None = None) -> Czi:
     """A master that holds the planes `ts` of `planes`."""
-    return Czi(in_time(*ts), xml(px=2.5e-7, py=2.5e-7, sizes={"T": planes}), file_guid=MASTER, **kw)
+    return Czi(in_time(*ts), xml(px=2.5e-7, py=2.5e-7, sizes={"T": planes}), attachments=attachments,
+               file_guid=MASTER, more_entries=more_entries or [])
 
 
-def part(number: int, *ts: int, guid: str = PART_1, **kw) -> Czi:
+def part(number: int, *ts: int, guid: str = PART_1, primary_guid: str = MASTER, entry_part: int = 0,
+         omit_directory: bool = False, early: tuple[bytes, ...] = ()) -> Czi:
     """Part `number`, as its fields say, that holds the planes `ts`."""
-    kw = {"primary_guid": MASTER, "file_part": number, **kw}
-    return Czi(in_time(*ts), file_guid=guid, **kw)
+    return Czi(in_time(*ts), file_guid=guid, primary_guid=primary_guid, file_part=number, entry_part=entry_part,
+               omit_directory=omit_directory, early=list(early))
 
 
 def named_by_master(p: Czi, number: int, *which: int) -> list[bytes]:
@@ -610,7 +613,7 @@ def parts() -> dict[str, bytes]:
     out["czi_parts_own(2).czi"] = part(2, 3, guid=PART_2, entry_part=2).build()
     # a part with no directory, which only its master's XML shows
     out["czi_parts_walk.czi"] = master(0, planes=2).build()
-    out["czi_parts_walk(1).czi"] = part(1, 1, omit_directory=True, early=[segment("DELETED", bytes(64))]).build()
+    out["czi_parts_walk(1).czi"] = part(1, 1, omit_directory=True, early=(segment("DELETED", bytes(64)),)).build()
     # the other spelling
     out["czi_parts_spaced.czi"] = master(0, planes=2).build()
     out["czi_parts_spaced (1).czi"] = part(1, 1).build()
