@@ -384,6 +384,7 @@ decide, by the first row that matches:
 | `manifest.safe` | SAFE profile ([safe.md §8](zarrify/safe.md#8-safe-profile)), directory form |
 | `info` | Neuroglancer precomputed profile ([precomputed.md §11](zarrify/precomputed.md#11-neuroglancer-precomputed-profile)) |
 | none of these, and a key at any depth that ends in `.safetensors` | safetensors profile ([safetensors.md §9](zarrify/safetensors.md#9-the-store-form)), store form |
+| none of these, and a key at any depth that ends in `.dcm` | DICOM profile ([dicom.md §9](zarrify/dicom.md#9-the-store-form)), store form, in the Python binding alone: other implementations reject such a store |
 | anything else, including an empty store | rejected |
 
 **Declaring OME-NGFF 0.4.** The test reads at most three documents, by

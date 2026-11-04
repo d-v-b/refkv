@@ -20,11 +20,38 @@ JPEG, lossless JPEG, JPEG 2000 or raw as stored. A 60 MB whole-slide level from 
 became a 704 KB archive (at spec/zarrify.md revision 16, before the archive
 kept every element of the file).
 
+## A series
+
+A CT or MR series, or a slide's pyramid, is many files. Give refkv the prefix that holds them, in
+Python or with `python -m refkv.zarrify`, and it zarrifies each `.dcm` file there and joins them with
+`refkv.compose`, into one group per Series Instance UID:
+
+```python
+from refkv.zarrify import zarrify
+
+store = zarrify("https://storage.googleapis.com/idc-open-data/96d032cf-ab4f-45c1-ba51-d9523d076747/")
+store.save_vzip("series.vzip")
+```
+
+- **Slices** become one `z`, `y`, `x` array, sorted by position along the slice normal, or by
+  Instance Number when a file has none. `z` has a scale in millimeters when the gaps are uniform.
+- **A whole-slide image** becomes multiscales, `0` the largest level; thumbnails and labels stay
+  out of them.
+- **Each file stays too**, under `instances/<j>`, with its own attributes and mirror. Nothing is
+  copied: both views reference the same bytes.
+
+A series that cannot be joined keeps its files under `instances/` with its `reason`: positions that
+repeat (a 4D series), files of different shapes, or a slide's optical paths in files of their own.
+A file that is not a DICOM image is listed with its reason, and does not fail the store.
+
+The form is Python-only, because `refkv.compose` is. The CLI of the Rust binding and the browser code
+reject a store of DICOM files.
+
 ## What you get
 
 One OME-Zarr 0.5 image at the archive root, with one array, `0`. A DICOM
 file is one level: a whole-slide pyramid is one file per level, and each file
-gives its own archive.
+gives its own archive, unless you zarrify their prefix ([a series](#a-series)).
 
 - **Axes:** `c` for RGB; for a multi-frame image that is not a slide, its
   frames along `t` when the Frame Increment Pointer names Frame Time or

@@ -985,6 +985,86 @@ def review4() -> None:
         ExplicitVRBigEndian, little=False)
 
 
+def series() -> None:
+    """Stores of DICOM files (spec/zarrify/dicom.md §9
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#9-the-store-form>), under
+    fixtures/dicom_series/: slices named against their order, a slide's levels, and the series that
+    cannot be joined."""
+    RNG.bit_generator.state = np.random.default_rng(7).bit_generator.state  # its own stream, whatever ran before
+    root = OUT.parent / "dicom_series"
+
+    def write(name: str, key: str, ds: Dataset, syntax: UID = ExplicitVRLittleEndian) -> None:
+        meta = FileMetaDataset()
+        meta.MediaStorageSOPClassUID = ds.SOPClassUID
+        meta.MediaStorageSOPInstanceUID = ds.SOPInstanceUID
+        meta.TransferSyntaxUID = syntax
+        ds.file_meta = meta
+        ds.preamble = b"\0" * 128
+        (root / name / key).parent.mkdir(parents=True, exist_ok=True)
+        ds.save_as(root / name / key, enforce_file_format=True)
+
+    def plane(series_uid: str, *, position: float | None = None, number: int | None = None, rows: int = 4,
+              columns: int = 6, spp: int = 1, frames: int | None = None) -> Dataset:
+        photometric = "RGB" if spp == 3 else "MONOCHROME2"
+        ds = image(MULTIFRAME_GRAYSCALE if frames else CT, rows, columns, spp=spp, photometric=photometric,
+                   bits=8 if spp == 3 else 16, frames=frames)
+        ds.SeriesInstanceUID = series_uid
+        ds.PixelSpacing = [0.5, 0.25]
+        if position is not None:
+            # tilted, so that a position is along the normal, not one coordinate
+            ds.ImageOrientationPatient = [1, 0, 0, 0, 0.6, 0.8]
+            ds.ImagePositionPatient = [0, -0.8 * position, 0.6 * position]
+        if number is not None:
+            ds.InstanceNumber = number
+        shape = (*([frames] if frames else []), rows, columns, *([3] if spp == 3 else []))
+        return native(ds, ramp(shape, np.uint8 if spp == 3 else np.uint16), vr="OB" if spp == 3 else "OW")
+
+    for key, at in (("c.dcm", 0.0), ("a.dcm", 2.5), ("e.dcm", 5.0), ("b.dcm", 7.5), ("d.dcm", 10.0)):
+        write("slices", key, plane("1.2.3.4", position=at))
+    (root / "slices" / "notes.txt").write_text("not a DICOM file\n")
+    (root / "slices" / "broken.dcm").write_bytes(b"not a DICOM file")
+
+    for key, at in (("b.dcm", 1.0), ("a.dcm", 4.0), ("c.dcm", 0.0)):
+        write("uneven_rgb", key, plane("1.2.3.5", position=at, spp=3))
+    for key, number in (("x.dcm", 2), ("y.dcm", 1), ("z.dcm", 3)):
+        write("numbered", key, plane("1.2.3.6", number=number))
+    write("two_series", "a/1.dcm", plane("1.2.3.7", position=0.0))
+    write("two_series", "a/2.dcm", plane("1.2.3.7", position=1.0))
+    write("two_series", "b/1.dcm", plane("1.2.3.8"))
+    for key, at in (("a.dcm", 1.0), ("b.dcm", 1.0)):
+        write("repeated_position", key, plane("1.2.3.9", position=at))
+    write("different_shapes", "a.dcm", plane("1.2.3.10", position=0.0))
+    write("different_shapes", "b.dcm", plane("1.2.3.10", position=1.0, rows=5))
+    write("multi_frame", "a.dcm", plane("1.2.3.11", position=0.0, frames=2))
+    write("multi_frame", "b.dcm", plane("1.2.3.11", position=1.0, frames=2))
+    write("no_order", "a.dcm", plane("1.2.3.12"))
+    write("no_order", "b.dcm", plane("1.2.3.12"))
+    (root / "only_broken").mkdir(parents=True, exist_ok=True)
+    (root / "only_broken" / "a.dcm").write_bytes(b"not a DICOM file")
+
+    def level(series_uid: str, height: int, width: int, kind: str = "VOLUME") -> Dataset:
+        rows, columns = 4, 4
+        across, down = -(-width // columns), -(-height // rows)
+        ds = image(WHOLE_SLIDE, rows, columns, frames=across * down)
+        ds.SeriesInstanceUID = series_uid
+        ds.ImageType = ["DERIVED", "PRIMARY", kind, "NONE"]
+        ds.DimensionOrganizationType = "TILED_FULL"
+        ds.TotalPixelMatrixColumns, ds.TotalPixelMatrixRows = width, height
+        measures = Dataset()
+        measures.PixelSpacing = [0.25 * 16 / width, 0.25 * 16 / width]
+        shared = Dataset()
+        shared.PixelMeasuresSequence = Sequence([measures])
+        ds.SharedFunctionalGroupsSequence = Sequence([shared])
+        return native(ds, ramp((across * down, rows, columns), np.uint8), vr="OB")
+
+    write("slide", "c.dcm", level("1.2.3.13", 16, 16))
+    write("slide", "a.dcm", level("1.2.3.13", 8, 8))
+    write("slide", "b.dcm", level("1.2.3.13", 4, 4))
+    write("slide", "label.dcm", level("1.2.3.13", 8, 12, "LABEL"))
+    write("slide_paths", "a.dcm", level("1.2.3.14", 8, 8))
+    write("slide_paths", "b.dcm", level("1.2.3.14", 8, 8))
+
+
 def lossless() -> None:
     """Lossless JPEG, Process 14 (1.2.840.10008.1.2.4.57) and its selection value 1
     (1.2.840.10008.1.2.4.70): frames whose markers up to the first SOS the profile reads
@@ -1046,3 +1126,4 @@ if __name__ == "__main__":
     review3()
     review4()
     lossless()
+    series()

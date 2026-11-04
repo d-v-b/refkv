@@ -11,6 +11,9 @@ refkv produces this layout as a reference store is the DICOM profile,
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `acf17198-e5a5-48d3-8187-22ec4bb40ea5` ·
 Schema: [schema.json](dicom/schema.json)
 
+Changed 2026-11-04: a store of DICOM files has a form of its own ([§9](#9-the-store-form)): one group per
+series, its files stacked by position, or a slide's levels as multiscales.
+
 Changed 2026-10-30: the JPEG Lossless transfer syntaxes, Process 14 and its selection value 1,
 are admitted ([§2.1](#21-transfer-syntax)), their frames chunks of `imagecodecs_ljpeg`
 ([§4](#4-output)), each frame's markers up to its first scan read and checked
@@ -79,7 +82,7 @@ The image's array has no attributes.
 The input is one DICOM Part 10 file (PS3.10): a 128-byte preamble, `DICM`,
 the File Meta Information, then a dataset whose last element read is Pixel
 Data. One file is one image with one pyramid level; a whole-slide image's
-other levels are other files.
+other levels are other files, which the store form joins ([§9](#9-the-store-form)).
 
 
 ### 2.1 Transfer syntax
@@ -1239,8 +1242,8 @@ These are deliberate, and follow from the rules above.
   its first 512 bytes, which a Basic or Extended Offset Table lets the
   reads of all frames batch.
 - A file is one level. A whole-slide pyramid spans several files (one per
-  level); `TILED_SPARSE` images, and those with several focal planes or
-  optical paths, are rejected.
+  level), which the store form joins ([§9](#9-the-store-form)); `TILED_SPARSE` images, and those
+  with several focal planes or optical paths, are rejected.
 - The frames of a multi-frame image that is not a whole-slide image are
   placed along `t` when the Frame Increment Pointer names Frame Time or
   Frame Time Vector, and along `z` otherwise, whatever they are. An
@@ -1257,3 +1260,92 @@ These are deliberate, and follow from the rules above.
 A file whose preamble holds a TIFF header, as dual-personality files and
 some toolkits write it, is still read by this profile: [§1.2](../zarrify.md#12-input) tests for `DICM`
 first.
+
+## 9. The store form
+
+The store form zarrifies a store input ([spec/zarrify.md §1.4](../zarrify.md#14-store-inputs)) of
+DICOM files, such as a series's prefix in `idc-open-data`. The store chooses it when its root has
+none of the other store profiles' keys and some key ends in `.dcm` ("Choosing the profile"). It
+is in the Python binding alone, whose `refkv.compose` does the joining: the Rust core reads one file
+at a time, and a store of DICOM files is rejected by the browser code and the Rust CLI. It reads
+what the file form reads ([§7](#7-dicom-profile)), for each file, and no pixel data.
+
+### 9.1 Files
+
+Every key that ends in `.dcm` is a **file**, zarrified by the file form. A file that form rejects is
+recorded with its reason ([§9.3](#93-source-metadata)), and the store is rejected only when no file
+is left. Any other key is recorded and not read. The files are grouped by the first value of Series
+Instance UID `(0020,000E)` (`unknown` for a file without one); a series's **path** is its UID.
+
+### 9.2 A series
+
+A series is one of these **kinds**, by the first that applies. A kind other than `instances` joins
+its files with `refkv.compose`; no chunk's bytes change, and a chunk references the file it read.
+
+| kind | when | arrays of its group |
+|---|---|---|
+| `single` | it has one file | that file's array, as `0` |
+| `pyramid` | every file is a whole-slide image ([§3](#3-the-image)) and those of Image Type `(0008,0008)` with the third value `VOLUME` have different shapes, one set of axes and one data type | those files' arrays, largest first by the product of its shape, as `0`, `1`, ... |
+| `stack` | no file is multi-frame, all their arrays have one shape, data type, chunk grid, chunk key encoding, fill value, codecs and dimension names, and one Pixel Spacing, and they have an order (below) | one array `0`, the new axis `z` after `c` |
+| `instances` | anything else | none: its member `reason` says why |
+
+**Order.** When every file has the same Image Orientation (Patient) `(0020,0037)`, of 6 values within
+10^−4 of each other, and an Image Position (Patient) `(0020,0032)` of 3 values, a file's **position**
+is its Image Position along the orientation's normal, the cross product of its row and column
+cosines, and the files are sorted by it. Two positions within 10^−4 have no order. Otherwise, when every file has
+an Instance Number `(0020,0013)`, all different, they are sorted by it. Otherwise they have no order.
+
+**The stack.** The array is as the first file's ([§4](#4-output)), with the new axis of size `N` and
+of chunk size 1 at index 1 if the first axis is `c` and at index 0 otherwise. Plane `i`'s chunk at
+`c/<c>/<y>/<x>` or `c/<y>/<x>` is the file's chunk at `c/<c>/<i>/<y>/<x>` or `c/<i>/<y>/<x>`. A
+`transpose` has the order that puts `c` last. Its image's `z` axis has the unit `millimeter` and the
+scale `s` when the gaps between positions are uniform: each within 1% of their mean `s`; else the
+axis has the scale 1 and no unit, and each file's position is in the source metadata. Its other axes,
+and `omero`, are the first file's.
+
+**The pyramid.** A level's array is its file's, under the level's name. The image's `datasets` are
+the levels', each with its file's scale, or, when the files have no Pixel Spacing, the first level's
+size over its own along `y` and `x`. A slide's other files (a thumbnail, a label, an overview) are not
+levels: they are in `instances`.
+
+### 9.3 Source metadata
+
+The root is a group that declares the convention ([§1](#1-declaration)), with `source.url` the store
+URL and `S` a [`DicomStore`](#type-dicomstore). Each series's group, at its path, declares it with a
+[`DicomSeries`](#type-dicomseries), and holds an `ome` member unless its kind is `instances`.
+Every file's own hierarchy, as the file form gives it, its root's `S` and `refkv_source` mirror
+included, is under its series at `instances/<j>`, `j` its index in `instances`. The arrays of the kinds above
+reference the same bytes as those hierarchies do.
+
+<a id="type-dicomstore"></a>**`DicomStore`**, the root's `S`:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `series` | array of object | required | each series, by UID: `{"series_instance_uid", "path", "kind", "instances"}`, `instances` the number of its files |
+| `rejected` | array of object | when a file was rejected | `{"key", "reason"}`, by key |
+| `other_objects` | array of string | when the store has one | the keys not read, by key |
+
+<a id="type-dicomseries"></a>**`DicomSeries`**, a series's `S`:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `series_instance_uid` | string | required | its UID |
+| `kind` | string | required | [§9.2](#92-a-series)'s |
+| `reason` | string | when `instances` | why |
+| `spacing` | number | when a stack's gaps are uniform | `s` |
+| `instances` | array of object | required | each file: `{"key", "path", "sop_instance_uid", "position"}`; `position` for a stack sorted by it, `sop_instance_uid` when the file has one |
+
+A stack's and a pyramid's files are in the order of their array or levels, a pyramid's others after
+them by size. An `instances` series's are by key, or by size for a slide.
+
+### 9.4 Limits
+
+This section is informative.
+
+- Files whose keys do not end in `.dcm`, which some archives write, are not read.
+- A slide's optical paths and focal planes in files of their own repeat a size, so the slide is
+  `instances`; `refkv.compose` can join them, but what their axis is depends on the slide.
+- A 4D series, of several times or echoes at each position, repeats a position, so it is
+  `instances`.
+- Concatenated files, which split one image, are not joined: each is rejected or stands alone.
+
