@@ -16,6 +16,11 @@ Changed 2026-11-04: a file that names siblings is read as a store: an external l
 it names, one level deep, and external storage is presented when its files are there
 ([§8.6](#86-external-files)).
 
+Changed 2026-11-04: a dataset with Fletcher32, LZF, Blosc, zstd, LZ4 or bitshuffle is presented
+([§3.1](#31-data-types), [§3.4](#34-the-codec-refkvh5_bitshuffle)), and a chunk an optional filter
+skipped is read in that filter's literal form ([§3.2](#32-chunks)), so that `filter` and
+`filter_mask` name only what remains.
+
 Changed 2026-11-04: a file after a user block is read, its addresses relative to the superblock
 ([§8](#8-hdf5-profile), [§8.2](#82-reading)), and the root records the block's size
 ([§7.1](#71-groups)).
@@ -179,12 +184,25 @@ sequences; region references and the revised references of datatype version 4; i
 padding bits and floats that are not IEEE; compounds with a gap, two byte orders, or members of
 other kinds.
 
-**Filters.** A chunked dataset's filters, in pipeline order, are codecs after `bytes`: deflate
-(1) is `{"name": "numcodecs.zlib", "configuration": {"level": 1}}` and shuffle (2)
-`{"name": "numcodecs.shuffle", "configuration": {"elementsize": s}}`, `s` the datatype's size.
-A dataset with any other filter is not presented (`filter`). Strings, references and records
-have no filters: their chunks are written as [§4](#4-variable-length-strings),
-[§5](#5-object-references) and [§3.3](#33-compounds) say.
+**Filters.** A chunked dataset's filters, in pipeline order, are codecs after `bytes`, `s` the
+datatype's size and `cd` the filter's client data values:
+
+| filter | codec |
+|---|---|
+| deflate (1) | `{"name": "numcodecs.zlib", "configuration": {"level": 1}}` |
+| shuffle (2) | `{"name": "numcodecs.shuffle", "configuration": {"elementsize": s}}` |
+| Fletcher32 (3), last in the pipeline | none: each reference ends before the checksum ([§3.2](#32-chunks)), which stays in the source |
+| LZF (32000) | `{"name": "imagecodecs_lzf", "configuration": {"header": false}}` |
+| Blosc (32001) | `{"name": "blosc", "configuration": {"cname": c, "clevel": cd[4], "shuffle": h, "typesize": s, "blocksize": 0}}`, `c` the name of compressor `cd[6]` (`blosclz`, `lz4`, `lz4hc`, `snappy`, `zlib`, `zstd`), `h` of shuffle `cd[5]` (`noshuffle`, `shuffle`, `bitshuffle`); without those values, 5, `shuffle` and `blosclz`, the filter's defaults. A Blosc frame says how it was made, so these values do not change what decodes |
+| LZ4 (32004) | `{"name": "imagecodecs_lz4h5"}` |
+| bitshuffle (32008), `cd[4]` 0 or 2 | `{"name": "refkv.h5_bitshuffle", "configuration": {"elementsize": s, "block_size": b, "compression": x}}` ([§3.4](#34-the-codec-refkvh5_bitshuffle)), `b` `cd[3]`, or when that is 0 its default there, and `x` `none` for 0, `lz4` for 2 |
+| zstd (32015) | `{"name": "zstd", "configuration": {"level": cd[0], "checksum": false}}` |
+
+A dataset with any other filter, Fletcher32 anywhere but last, or client data values outside these
+is not presented (`filter`). Strings, references and records have no filters in the hierarchy:
+their chunks are written as [§4](#4-variable-length-strings), [§5](#5-object-references) and
+[§3.3](#33-compounds) say, which the profile can only do through deflate, shuffle and Fletcher32
+([§8.2](#82-reading)), so with any other filter they are not presented (`filter`).
 
 ### 3.2 Chunks
 
@@ -195,14 +213,34 @@ By the dataset's layout and data type:
 | **contiguous**, allocated | contiguous values ([conventions §7](../conventions.md#7-source-values-as-arrays)), cut with the limit 2^20 bytes, the element the datatype's (a byte for a fixed-length string) | one range of source 0 each; an edge chunk's padding a range of the zero data source, or the chunk copied with its padding when its reference would not fit in a payload ([spec/zarrify.md §1.2](../zarrify.md#12-input)), as the FITS profile's |
 | **contiguous**, unallocated (its address undefined), or of size 0 | the shape (each size at least 1) | none: the array reads as its fill value |
 | **compact** | the shape (each size at least 1) | one chunk, the range of source 0 of the data in the layout message; none for a size of 0 |
-| **chunked** | HDF5's chunk shape (and the trailing axis) | one per allocated HDF5 chunk, its range of source 0 as the file stores it (HDF5 stores edge chunks whole, as Zarr does); an unallocated chunk has none |
+| **chunked** | HDF5's chunk shape (and the trailing axis) | one per allocated HDF5 chunk, its range of source 0 as the file stores it, without its checksum (HDF5 stores edge chunks whole, as Zarr does); an unallocated chunk has none |
 
 The chunk key of grid coordinates `x` is `<path>/c/<x0>/<x1>/…`, `<path>/c` at rank 0; with a
-trailing axis, its coordinate is 0. A chunked dataset of fixed size with a chunk whose filter
-mask is not 0 (an optional filter skipped it, as deflate does bytes it cannot shrink) is not
-presented (`filter_mask`): its codecs would differ by chunk; nor is one whose partial edge
-chunks are stored unfiltered (layout flag bit 0, `edge_chunks`). A contiguous or compact
-dataset whose storage is not its elements' size is not presented (`size`).
+trailing axis, its coordinate is 0. A chunked dataset whose partial edge chunks are stored unfiltered
+(layout flag bit 0) is not presented (`edge_chunks`). A contiguous or compact dataset whose storage
+is not its elements' size is not presented (`size`).
+
+**Fletcher32.** With Fletcher32 in the pipeline, a chunk's range ends 4 bytes early, unless the
+chunk's filter mask has Fletcher32's bit set, which means it has no checksum. A chunk of at most 4 bytes
+with a checksum is not presented (`filter_mask`).
+
+**Filter masks.** An optional filter that cannot shrink a chunk leaves it as it was and sets the
+filter's bit in the chunk's filter mask, as h5py's LZF and deflate do for small or incompressible
+chunks. An array has one list of codecs, so such a chunk is given the form that filter's codec
+reads, literals around the range of its stored bytes `R` (without a checksum), which copies none of them:
+
+| filter skipped | the chunk's parts |
+|---|---|
+| deflate | a zlib stream ([RFC 1950](https://www.rfc-editor.org/rfc/rfc1950)): the literal `78 01`, for each run of at most 65535 bytes of `R` in turn a stored block's header ([RFC 1951](https://www.rfc-editor.org/rfc/rfc1951), section 3.2.4) and the run, then the literal Adler-32 of `R`, big-endian. The profile reads `R` for it, at most 2^26 bytes of such chunks a dataset |
+| LZF | for each run of at most 32 bytes of `R` in turn a literal control byte, the run's length less 1, and the run, for `R` of at most 2^16 bytes |
+| zstd | a frame ([RFC 8878](https://www.rfc-editor.org/rfc/rfc8878)): the literal magic number, the descriptor `E0` and `R`'s length (8 bytes, little-endian), then for each run of at most 2^17 bytes in turn its raw block's 3-byte header and the run |
+| LZ4 | the literal `R`'s length (8 bytes, big-endian) and twice more (4 bytes, big-endian; a block stored when its length is the block size), then `R` |
+| Blosc | c-blosc's 16-byte header of a copied chunk (format 2, codec version 1, flags 2, the datatype's size, then `R`'s length twice and that plus 16, each 4 bytes little-endian), then `R` |
+
+The chunk's filter mask MUST have exactly one of these filters' bits set beside Fletcher32's, and `R`
+MUST be the chunk's byte count. A dataset with a chunk for which either fails, or past the limits
+above, is not presented (`filter_mask`): a chunk shuffle or bitshuffle skipped, which no literal
+can turn into its output, or one with two bits set.
 
 A virtual dataset (layout class 3, `layout`) is not presented: its data is not in the file. One with
 an external data files message has its data in the files it names, and is presented when they are
@@ -228,6 +266,35 @@ padded with zero bytes. This copies the records' values into the archive, the on
 from "Structure only" ([spec/zarrify.md §1.2](../zarrify.md#12-input)): no range of the file
 holds UTF-32 paths, and hdmf-zarr reads no other form. NWB's
 `TimeSeriesReferenceVectorData` (a trials table's `timeseries` column) is such a compound.
+
+### 3.4 The codec `refkv.h5_bitshuffle`
+
+`refkv.h5_bitshuffle` decodes a chunk of HDF5's bitshuffle filter (32008), used by DECTRIS detectors
+with LZ4, in the framing that [`bshuf_h5filter.c` and `bitshuffle_core.c`](https://github.com/kiyo-masui/bitshuffle/tree/master/src)
+write and [DECTRIS's `compression.c`](https://github.com/dectris/compression/blob/main/src/compression.c)
+reads. No other codec does: `imagecodecs_bitshuffle` handles neither its blocks' framing nor LZ4. It has
+no encoder. Its configuration:
+
+| member | type | value |
+|---|---|---|
+| `elementsize` | integer | the bytes of an element, `e` |
+| `block_size` | integer | the elements of a block, `b`, a multiple of 8. When the filter gives 0, its default: `floor(8192 / e)` less that modulo 8, at least 128 |
+| `compression` | string | `none`, or `lz4` |
+
+A chunk of `n` elements is cut into `floor(n / b)` blocks of `b` elements, one more of the elements
+left, less those modulo 8, and at the end the `n mod 8` elements left, as they are.
+
+- **`none`:** the chunk is its blocks in turn, then the elements left.
+- **`lz4`:** the chunk starts with its decoded length in bytes (8 bytes, big-endian) and the block size in
+  bytes (4 bytes, big-endian), which govern `n` and `b`; each block is its compressed length (4 bytes,
+  big-endian) and an [LZ4 block](https://github.com/lz4/lz4/blob/dev/doc/lz4_Block_format.md) that
+  decompresses to all its bytes, and then come the elements left. A decoded length of 0 is an empty chunk.
+
+A block of `m` elements holds `8e` rows of `m / 8` bytes each: bit `i` of byte `j` of element `k` is
+the bit `k mod 8`, counting from the least significant, of byte `floor(k / 8)` of row `8j + i`.
+
+A chunk that does not end where its framing says, or whose block size is not a multiple of `8e` bytes,
+is an error of the decoder.
 
 ## 4. Variable-length strings
 
@@ -378,7 +445,7 @@ the file.
 | `reserved` | a root link `refkv_source`; an attribute named as a member the hierarchy writes |
 | `named_datatype`, `object` | a named datatype; an object that is neither a group nor a dataset |
 | `datatype` | a dataset's or attribute's datatype outside [§3.1](#31-data-types) or [§6](#6-attributes) |
-| `filter`, `filter_mask`, `edge_chunks` | a filter other than deflate and shuffle; a chunk a filter skipped; unfiltered partial edge chunks |
+| `filter`, `filter_mask`, `edge_chunks` | a filter outside [§3.1](#31-data-types)'s, or a dataset of strings, references or records with one beyond deflate, shuffle and Fletcher32; a chunk with no form its codecs read ([§3.2](#32-chunks)); unfiltered partial edge chunks |
 | `layout`, `external_storage`, `dimension_only`, `null_dataspace`, `size`, `fill_value` | [§3](#3-datasets) |
 | `external_reference` | an object or attribute an external link reaches that names paths of its own file ([§8.6](#86-external-files)) |
 | `shared` | an attribute with a shared datatype or dataspace |
@@ -443,9 +510,9 @@ The profile reads HDF5 by the subset of
 - **External links:** a link message of type 64's value is a byte of version and flags, then
   the file name and the path, each NUL-terminated.
 - **The storage of strings, references and records** (contiguous: the bytes at its address;
-  compact: the layout message's data; chunked: each allocated chunk, inflated (deflate) and
-  unshuffled (shuffle) by the filters its mask does not skip, its elements placed by the chunk's
-  grid coordinates, unallocated ones zero) and the global heap collections their strings name
+  compact: the layout message's data; chunked: each allocated chunk, its checksum dropped
+  (Fletcher32), inflated (deflate) and unshuffled (shuffle) by the filters its mask does not skip,
+  its elements placed by the chunk's grid coordinates, unallocated ones zero) and the global heap collections their strings name
   ([ims.md §7.9](ims.md#79-source-metadata-structures)); a collection that cannot be read has
   no objects.
 
@@ -505,7 +572,7 @@ records those the profile does not present.
 |---|---|
 | contiguous | the range of source 0, then its zero padding (a range of the zero data source) for an edge chunk; or bytes, the range's and the padding, when that would not fit in a payload |
 | compact | the range of source 0 of the layout message's data |
-| chunked | the range of source 0 of the chunk, as stored |
+| chunked | the range of source 0 of the chunk, as stored without its checksum, with the literals of [§3.2](#32-chunks)'s **Filter masks** for a chunk an optional filter skipped |
 | strings | literals and ranges of source 0 ([§4](#4-variable-length-strings)) |
 | references, records | bytes ([§5](#5-object-references), [§3.3](#33-compounds)) |
 

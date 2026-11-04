@@ -862,6 +862,16 @@ fn fits_tiles_decode<'py>(py: Python<'py>, chunk: &[u8], config: &str, chunk_sha
     Ok(PyBytes::new(py, &out))
 }
 
+/// The `refkv.h5_bitshuffle` codec (spec/zarrify/hdf5.md §3.4
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#34-the-codec-refkvh5_bitshuffle>): a chunk's bytes
+/// from HDF5's bitshuffle filter, its elements of `elementsize` bytes, in blocks of `block_size`
+/// elements, LZ4-compressed when `lz4`.
+#[pyfunction]
+fn h5_bitshuffle_decode<'py>(py: Python<'py>, chunk: &[u8], elementsize: usize, block_size: usize, lz4: bool) -> PyResult<Bound<'py, PyBytes>> {
+    let out = py.detach(|| refkv_ir::h5_bitshuffle::decode(chunk, elementsize, block_size, lz4)).map_err(PyValueError::new_err)?;
+    Ok(PyBytes::new(py, &out))
+}
+
 /// The `refkv.grib` codec (spec/conventions.md §12
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#12-grib-messages>): the values
 /// of a field of the GRIB message `chunk`, as little-endian float64 in C order over
@@ -922,6 +932,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(sniff, m)?)?;
     m.add_function(wrap_pyfunction!(registry, m)?)?;
     m.add_function(wrap_pyfunction!(fits_tiles_decode, m)?)?;
+    m.add_function(wrap_pyfunction!(h5_bitshuffle_decode, m)?)?;
     m.add_function(wrap_pyfunction!(grib_decode, m)?)?;
     m.add_function(wrap_pyfunction!(_set_copy_threshold, m)?)?;
     m.add_function(wrap_pyfunction!(_set_chunk_frames, m)?)?;

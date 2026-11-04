@@ -48,10 +48,22 @@ def zarrified(path: Path, url: str | None = None, policy: Policy | None = None) 
     return out, zarr.open_group(refkv.zarr.store(out.to_store(policy=policy)), mode="r", zarr_format=3)
 
 
-def expected(path: Path, root: zarr.Group) -> np.ndarray:
+def pynrrd_read(path: Path, tmp: Path):
+    """pynrrd's reading. With the gzip encoding and a byte skip it skips the bytes of the decompressed
+    data, as the NRRD definition says, but first seeks as far into the compressed stream: it reads a
+    copy with as many bytes before the stream."""
+    if path.name != "nrrd_gzip_byte_skip.nrrd":
+        return nrrd.read(str(path), index_order="C")  # the header's last axis first
+    end = path.read_bytes().index(b"\n\n") + 2
+    copy = tmp / path.name
+    copy.write_bytes(path.read_bytes()[:end] + bytes(4) + path.read_bytes()[end:])
+    return nrrd.read(str(copy), index_order="C")
+
+
+def expected(path: Path, root: zarr.Group, tmp: Path) -> np.ndarray:
     """pynrrd's array, its axes put in the image's order by the root's `axes` (each header axis's
     image axis, fastest first)."""
-    data, _ = nrrd.read(str(path), index_order="C")  # the header's last axis first
+    data, _ = pynrrd_read(path, tmp)
     stored = [string(a) for a in reversed(sequence(at(root.attrs, "refkv_zarrified", "nrrd", "axes")))]
     names = [string(mapping(a)["name"]) for a in sequence(at(root.attrs, "ome", "multiscales", 0, "axes"))]
     return np.transpose(data, [stored.index(n) for n in names])
@@ -65,7 +77,7 @@ def test_inputs_match_pynrrd_and_rebuild(path, tmp_path):
     the archive), and a detached header's file, which no chunk references, is held."""
     out, root = zarrified(path)
     got = ndarray(root.get_array("0")[...])
-    want = expected(path, root)
+    want = expected(path, root, tmp_path)
     assert got.dtype == want.dtype.newbyteorder("=")
     assert got.shape == want.shape
     assert np.array_equal(got, want, equal_nan=got.dtype.kind == "f")
@@ -84,7 +96,7 @@ def test_inputs_match_pynrrd_and_rebuild(path, tmp_path):
     out.write(str(tmp_path / "a.vzip"))
 
 
-def test_edge_chunks_past_the_payload_are_copied():
+def test_edge_chunks_past_the_payload_are_copied(tmp_path):
     """An edge chunk whose reference (its range and its zero padding) does not fit in a payload
     is copied into the archive, padding included (spec/zarrify/nrrd.md §8.5
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#85-chunks>): with a payload
@@ -95,7 +107,7 @@ def test_edge_chunks_past_the_payload_are_copied():
         out, root = zarrified(path)
     assert "0/c/2/0/0" in out.entries
     assert "0/c/2/0/0" not in out.refs
-    assert np.array_equal(ndarray(root.get_array("0")[...]), expected(path, root))
+    assert np.array_equal(ndarray(root.get_array("0")[...]), expected(path, root, tmp_path))
 
 
 def test_a_url_that_does_not_name_the_header_file_is_rejected():
@@ -129,9 +141,22 @@ def test_over_http_the_data_file_is_probed_beside_the_header(server, tmp_path):
     out.write(str(tmp_path / "a.vzip"))
     g = zarr.open_group(refkv.zarr.open(str(tmp_path / "a.vzip"), policy=policy), mode="r", zarr_format=3)
     assert at(g.attrs, "refkv_zarrified", "source") == {"url": server + path.name}
-    assert np.array_equal(ndarray(g.get_array("0")[...]), expected(path, g))
+    assert np.array_equal(ndarray(g.get_array("0")[...]), expected(path, g, tmp_path))
 
 
 def test_over_http_a_missing_data_file_is_rejected(server):
     with pytest.raises(Rejected, match=re.escape('the data file "image.raw" does not exist')):
         zarrify(server + "nrrd_reject_detached_missing.nhdr", policy=Policy(allow_private_hosts=True))
+
+
+def test_gzip_with_a_byte_skip_passes_over_decompressed_bytes():
+    """The gzip stream's first bytes are the byte skip's (spec/zarrify/nrrd.md §4.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#41-the-array>): a `refkv.skip` codec
+    passes over them, in the one chunk."""
+    _, root = zarrified(NRRD / "nrrd_gzip_byte_skip.nrrd")
+    array = root.get_array("0")
+    metadata = mapping(array.metadata.to_dict())
+    codecs = [mapping(c) for c in sequence(metadata["codecs"])]
+    assert [c["name"] for c in codecs][-3:] == ["bytes", "refkv.skip", "gzip"]
+    assert codecs[-2]["configuration"] == {"length": 4}
+    assert array.chunks == array.shape == (5, 6)

@@ -29,7 +29,7 @@ const FRAGMENT_READ: u64 = 1 << 12;
 /// The boxes whose payload is boxes.
 const CONTAINERS: [&[u8; 4]; 9] = [b"moov", b"trak", b"mdia", b"minf", b"stbl", b"edts", b"dinf", b"tref", b"mvex"];
 /// The names of a box struct's own values, which a child box's name must not take.
-const OWN: [&str; 8] = ["header", "fields", "fields_v1", "entries", "name", "data", "rest", "gaps"];
+const OWN: [&str; 9] = ["header", "fields", "fields_v1", "fields_v2", "entries", "name", "data", "rest", "gaps"];
 /// AAC's sampling frequencies by index (ISO/IEC 14496-3 §1.6.3.4).
 const AAC_RATES: [u32; 13] = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350];
 /// The H.264 profiles whose SPS carries the chroma format and bit depths (ITU-T H.264 §7.3.2.1.1).
@@ -82,7 +82,101 @@ struct Entry {
     channels: u64,
     rate: u64,
     sound_version: u64,
+    /// the sample entry's `sample_size`, in bits
+    bits: u64,
+    /// a version 2 sound description's format flags and bytes a packet
+    lpcm_flags: u64,
+    lpcm_packet: u64,
     children: Vec<([u8; 4], Vec<u8>)>,
+}
+
+/// How a PCM track's samples are stored: their data type's name and bytes, and their byte order.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Pcm {
+    data_type: &'static str,
+    bytes: u64,
+    endian: &'static str,
+}
+
+impl Pcm {
+    fn new(data_type: &'static str, bytes: u64, little: bool) -> Result<Pcm, String> {
+        Ok(Pcm { data_type, bytes, endian: if little { "little" } else { "big" } })
+    }
+}
+
+// A version 2 sound description's format flags (Apple's kAudioFormatFlagIs...).
+const LPCM_FLOAT: u64 = 0x1;
+const LPCM_BIG_ENDIAN: u64 = 0x2;
+const LPCM_SIGNED: u64 = 0x4;
+const LPCM_NON_INTERLEAVED: u64 = 0x20;
+
+/// How the sample entry `e`'s samples are stored, when it is a PCM one, or why the profile does not
+/// read them (spec/zarrify/mp4.md §8.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#82-tracks>).
+fn pcm_of(e: &Entry) -> Option<Result<Pcm, String>> {
+    // QuickTime's in32, fl32 and fl64 are big-endian, without an enda box that says otherwise
+    let enda = || e.child(b"enda").is_some_and(|b| b.len() >= 2 && uint(b, 0, 2, false) == 1);
+    let bad = |what: String| Err(format!("{what} PCM is not supported: the bytes codec has no data type for it"));
+    Some(match &e.typ {
+        b"sowt" | b"twos" => match e.bits {
+            8 => Pcm::new("int8", 1, true),
+            16 => Pcm::new("int16", 2, &e.typ == b"sowt"),
+            b => bad(format!("{b}-bit")),
+        },
+        b"raw " | b"NONE" => match e.bits {
+            8 => Pcm::new("uint8", 1, true),
+            b => bad(format!("{b}-bit unsigned")),
+        },
+        b"in24" => bad("24-bit".into()),
+        b"in32" => Pcm::new("int32", 4, enda()),
+        b"fl32" => Pcm::new("float32", 4, enda()),
+        b"fl64" => Pcm::new("float64", 8, enda()),
+        b"ipcm" | b"fpcm" => {
+            // a PCMConfig box (ISO/IEC 23003-5 §5.1): its format flags, then its sample size
+            let Some(c) = e.child(b"pcmC").filter(|c| c.len() >= 6) else {
+                return Some(Err(format!("an {} sample entry without a pcmC box", latin1(&e.typ))));
+            };
+            let little = c[4] & 1 == 1;
+            match (&e.typ, c[5]) {
+                (b"ipcm", 8) => Pcm::new("int8", 1, little),
+                (b"ipcm", 16) => Pcm::new("int16", 2, little),
+                (b"ipcm", 32) => Pcm::new("int32", 4, little),
+                (b"fpcm", 32) => Pcm::new("float32", 4, little),
+                (b"fpcm", 64) => Pcm::new("float64", 8, little),
+                (_, b) => bad(format!("{b}-bit")),
+            }
+        }
+        b"lpcm" => {
+            let (float, signed, little) = (e.lpcm_flags & LPCM_FLOAT != 0, e.lpcm_flags & LPCM_SIGNED != 0, e.lpcm_flags & LPCM_BIG_ENDIAN == 0);
+            if e.sound_version != 2 {
+                return Some(Err(format!("an lpcm sample entry in a version {} sound description", e.sound_version)));
+            }
+            if e.lpcm_flags & LPCM_NON_INTERLEAVED != 0 {
+                return Some(Err("PCM whose channels are not interleaved is not supported".into()));
+            }
+            if e.lpcm_packet != e.channels * e.bits.div_ceil(8) {
+                return Some(Err(format!("PCM of {} bytes a frame, for {} channels of {} bits, is not supported", e.lpcm_packet, e.channels, e.bits)));
+            }
+            match (float, signed, e.bits) {
+                (true, _, 32) => Pcm::new("float32", 4, little),
+                (true, _, 64) => Pcm::new("float64", 8, little),
+                (false, true, 8) => Pcm::new("int8", 1, little),
+                (false, true, 16) => Pcm::new("int16", 2, little),
+                (false, true, 32) => Pcm::new("int32", 4, little),
+                (false, false, 8) => Pcm::new("uint8", 1, little),
+                (false, false, b) => bad(format!("{b}-bit unsigned")),
+                (_, _, b) => bad(format!("{b}-bit")),
+            }
+        }
+        _ => return None,
+    })
+}
+
+/// The bytes of a PCM frame of the track, when it stores PCM the profile reads and has channels.
+fn pcm_frame(t: &Track) -> Option<u64> {
+    let e = t.entries.first()?;
+    let p = pcm_of(e)?.ok()?;
+    (e.channels > 0).then_some(e.channels * p.bytes)
 }
 
 impl Entry {
@@ -237,6 +331,9 @@ const VISUAL: &str = "{reserved:u1[6],data_reference_index:>u2,pre_defined:>u2,r
 /// description, whose four more fields follow).
 const AUDIO: &str = "{reserved:u1[6],data_reference_index:>u2,version:>u2,revision:>u2,vendor:>u4,channel_count:>u2,sample_size:>u2,compression_id:>i2,packet_size:>u2,sample_rate:>u4}";
 const AUDIO_V1: &str = "{samples_per_packet:>u4,bytes_per_packet:>u4,bytes_per_frame:>u4,bytes_per_sample:>u4}";
+/// The fields a QuickTime sound description of version 2 adds, of 72 bytes with the sample entry's
+/// header and fields.
+const AUDIO_V2: &str = "{size_of_struct_only:>u4,audio_sample_rate:>f8,audio_channels:>u4,always_7f000000:>u4,const_bits_per_channel:>u4,format_specific_flags:>u4,const_bytes_per_audio_packet:>u4,const_lpcm_frames_per_audio_packet:>u4}";
 const FULL: &str = "{version:u1,flags:u1[3],entry_count:>u4}";
 const TREX: &str = "{version:u1,flags:u1[3],track_id:>u4,default_sample_description_index:>u4,default_sample_duration:>u4,default_sample_size:>u4,default_sample_flags:>u4}";
 
@@ -705,10 +802,19 @@ impl Mp4 {
                 self.ir.value(s, "fields", NO_INDEX, AUDIO, 0, (b.body(), 28), Some(&body[..28]))?;
                 e.sound_version = uint(body, 8, 2, false);
                 e.channels = uint(body, 16, 2, false);
+                e.bits = uint(body, 18, 2, false);
                 e.rate = uint(body, 24, 4, false) >> 16;
                 if e.sound_version == 1 && n >= 44 {
                     self.ir.value(s, "fields_v1", NO_INDEX, AUDIO_V1, 0, (b.body() + 28, 16), Some(&body[28..44]))?;
                     Some(44)
+                } else if e.sound_version == 2 && &b.typ == b"lpcm" && n >= 64 {
+                    self.ir.value(s, "fields_v2", NO_INDEX, AUDIO_V2, 0, (b.body() + 28, 36), Some(&body[28..64]))?;
+                    e.rate = f64::from_bits(uint(body, 32, 8, false)) as u64;
+                    e.channels = uint(body, 40, 4, false);
+                    e.bits = uint(body, 48, 4, false);
+                    e.lpcm_flags = uint(body, 52, 4, false);
+                    e.lpcm_packet = uint(body, 56, 4, false);
+                    Some(64)
                 } else if e.sound_version == 0 {
                     Some(28)
                 } else {
@@ -769,6 +875,18 @@ impl Mp4 {
                     }
                 };
                 let ts = self.ir.struct_(ss, "", k as u64, 0, None)?;
+                // a PCM track's frames: each sample a whole number of them, or no PCM track
+                if let (Some(frame), true) = (pcm_frame(t), f["reason"].is_null()) {
+                    let fixed = t.fixed_size.map(|f| f.0).filter(|&n| n != 1 && n % frame != 0);
+                    match fixed.or(sizes.iter().copied().find(|n| n % frame != 0)) {
+                        Some(n) => {
+                            f["reason"] = json!(format!("PCM samples of {n} bytes, not a whole number of {frame}-byte frames"));
+                            f["format"] = J::Null;
+                            f["geometry"] = J::Null;
+                        }
+                        None => f["frames"] = json!(sizes.iter().sum::<u64>() / frame),
+                    }
+                }
                 let form = json!({
                     "geometry": f["geometry"].clone(),
                     "codec": {"name": latin1(&t.entries.first().map(|e| e.typ).unwrap_or(*b"    ")), "format": f["format"].clone()},
@@ -850,6 +968,17 @@ impl Mp4 {
                     ("at", num(run.at as f64)), ("start", num(start as f64)), ("size", num(self.size as f64)),
                 ]))?;
                 let mut o = start as u64;
+                // a PCM run of one sample size is one element: it may have a sample per PCM frame
+                let size = traf.size.unwrap_or(trex.size);
+                let tabled = TRUN_DURATION | TRUN_SIZE | TRUN_FLAGS | TRUN_OFFSET;
+                if run.count > 0 && run.flags & tabled == 0 && pcm_frame(t).is_some_and(|frame| size % frame == 0) {
+                    t.frag_offsets.push(o);
+                    t.frag_sizes.push(run.count * size);
+                    o += run.count * size;
+                    dts = dts.saturating_add((run.count as i64).saturating_mul(traf.duration.unwrap_or(trex.duration) as i64));
+                    next = o;
+                    continue;
+                }
                 let mut member = 0;
                 for j in 0..run.count {
                     let mut own = |bit: u64| {
@@ -884,7 +1013,8 @@ impl Mp4 {
 
     /// Each sample's (offset, size), in decode order, from the stsz, stsc and stco or co64
     /// tables, the tables' sample counts checked against each other, then from the track's
-    /// fragments.
+    /// fragments. A PCM track of one sample size gives each chunk's samples as one, since it may
+    /// have a sample per PCM frame, and a sample size of 1 is QuickTime's for one frame of any size.
     fn layout(&self, t: &Track) -> Res<(Vec<u64>, Vec<u64>)> {
         let mut layout = self.table_layout(t)?;
         layout.0.extend_from_slice(&t.frag_offsets);
@@ -901,7 +1031,10 @@ impl Mp4 {
             Some((_, count)) => count,
             None => t.sizes.len() as u64,
         };
-        self.rules.check("samples", rules::env([("track", num(t.id as f64)), ("n", num(n as f64))]))?;
+        let unit = t.fixed_size.and(pcm_frame(t));
+        if unit.is_none() {
+            self.rules.check("samples", rules::env([("track", num(t.id as f64)), ("n", num(n as f64))]))?;
+        }
         let size_of = |j: u64| match t.fixed_size {
             Some((s, _)) => s,
             None => t.sizes[j as usize],
@@ -934,6 +1067,15 @@ impl Mp4 {
             let next = t.stsc.get(i + 1).map_or(chunks + 1, |x| x.0);
             for c in e.0..next {
                 let mut o = t.offsets[(c - 1) as usize];
+                if let (Some((size, _)), Some(frame)) = (t.fixed_size.filter(|_| unit.is_some()), unit) {
+                    if j + e.1 > n {
+                        return counts("sample-to-chunk table", j + e.1).map(|_| (offsets.clone(), sizes.clone()));
+                    }
+                    offsets.push(o);
+                    sizes.push(e.1 * if size == 1 { frame } else { size });
+                    j += e.1;
+                    continue;
+                }
                 for _ in 0..e.1 {
                     if j >= n {
                         return counts("sample-to-chunk table", j + 1).map(|_| (offsets.clone(), sizes.clone()));
@@ -1019,8 +1161,24 @@ impl Mp4 {
                 f["pts"] = json!(pts);
                 f["sync"] = json!(sync);
             } else {
-                if e.sound_version > 1 {
+                if e.sound_version > 1 && &e.typ != b"lpcm" {
                     return Err(format!("a version {} QuickTime sound description", e.sound_version));
+                }
+                if let Some(pcm) = pcm_of(e) {
+                    let pcm = pcm?;
+                    // a sample rate past 16 bits may be 0 in the sample entry; the media timescale is it
+                    let rate = if e.rate > 0 { e.rate } else { t.timescale };
+                    if rate == 0 || e.channels == 0 {
+                        return Err("a sample rate or channel count of 0".into());
+                    }
+                    f["format"] = json!("pcm");
+                    f["geometry"] = json!({"channels": e.channels, "data_type": pcm.data_type});
+                    f["endian"] = json!(pcm.endian);
+                    f["bytes"] = json!(pcm.bytes);
+                    f["sample_rate"] = json!(rate);
+                    f["channels"] = json!(e.channels);
+                    f["spf"] = json!(1);
+                    return Ok(());
                 }
                 let (format, setup, rate, channels, spf) = match &e.typ {
                     b"mp4a" => {
@@ -1042,7 +1200,7 @@ impl Mp4 {
                         }
                     }
                     b".mp3" => ("mp3", None, e.rate, e.channels, if e.rate >= 32000 { 1152 } else { 576 }),
-                    _ => return Err(format!("{} audio is not supported: only AAC and MP3 are", codec.trim())),
+                    _ => return Err(format!("{} audio is not supported: only AAC, MP3 and PCM are", codec.trim())),
                 };
                 if rate == 0 || channels == 0 {
                     return Err("a sample rate or channel count of 0".into());
@@ -1495,6 +1653,57 @@ mod tests {
             gops(&pts, &[0, 4, 8, 12]),
             Err("sample 0, before the sync sample 4 in decode order, is presented after it".into())
         );
+    }
+
+    /// The PCM sample entries and how each stores its samples: a sample entry's bits, and a
+    /// QuickTime enda box and pcmC box and version 2 flags.
+    #[test]
+    fn sample_entries_give_the_pcm_format() {
+        let entry = |typ: &[u8; 4], bits: u64, children: Vec<([u8; 4], Vec<u8>)>| Entry { typ: *typ, bits, channels: 2, children, ..Default::default() };
+        let lpcm = |bits: u64, flags: u64, packet: u64| Entry { typ: *b"lpcm", bits, channels: 2, sound_version: 2, lpcm_flags: flags, lpcm_packet: packet, ..Default::default() };
+        let enda = || vec![(*b"enda", vec![0, 1])];
+        let pcmc = |flags: u8, bits: u8| vec![(*b"pcmC", vec![0, 0, 0, 0, flags, bits])];
+        let wave = vec![(*b"wave", vec![0, 0, 0, 10, b'e', b'n', b'd', b'a', 0, 1])];
+        let cases: Vec<(Entry, &str, u64, &str)> = vec![
+            (entry(b"sowt", 16, vec![]), "int16", 2, "little"),
+            (entry(b"twos", 16, vec![]), "int16", 2, "big"),
+            (entry(b"twos", 8, vec![]), "int8", 1, "little"),
+            (entry(b"raw ", 8, vec![]), "uint8", 1, "little"),
+            (entry(b"in32", 32, vec![]), "int32", 4, "big"),
+            (entry(b"in32", 32, enda()), "int32", 4, "little"),
+            (entry(b"fl32", 32, wave), "float32", 4, "little"),
+            (entry(b"fl64", 64, vec![]), "float64", 8, "big"),
+            (entry(b"ipcm", 16, pcmc(1, 16)), "int16", 2, "little"),
+            (entry(b"ipcm", 16, pcmc(0, 32)), "int32", 4, "big"),
+            (entry(b"fpcm", 16, pcmc(1, 64)), "float64", 8, "little"),
+            (lpcm(32, LPCM_FLOAT, 8), "float32", 4, "little"),
+            (lpcm(16, LPCM_SIGNED | LPCM_BIG_ENDIAN, 4), "int16", 2, "big"),
+            (lpcm(8, 0, 2), "uint8", 1, "little"),
+        ];
+        for (e, data_type, bytes, endian) in cases {
+            assert_eq!(pcm_of(&e), Some(Ok(Pcm { data_type, bytes, endian })), "{:?}", e.typ);
+        }
+        assert_eq!(pcm_of(&entry(b"mp4a", 16, vec![])), None);
+    }
+
+    #[test]
+    fn twenty_four_bit_pcm_has_no_data_type() {
+        let e = Entry { typ: *b"in24", bits: 24, channels: 2, ..Default::default() };
+        assert_eq!(pcm_of(&e), Some(Err("24-bit PCM is not supported: the bytes codec has no data type for it".into())));
+    }
+
+    #[test]
+    fn an_ipcm_entry_without_its_pcmc_box_fails() {
+        let e = Entry { typ: *b"ipcm", bits: 16, channels: 2, ..Default::default() };
+        assert_eq!(pcm_of(&e), Some(Err("an ipcm sample entry without a pcmC box".into())));
+    }
+
+    #[test]
+    fn non_interleaved_or_padded_lpcm_fails() {
+        let e = Entry { typ: *b"lpcm", bits: 16, channels: 2, sound_version: 2, lpcm_flags: LPCM_SIGNED | LPCM_NON_INTERLEAVED, lpcm_packet: 4, ..Default::default() };
+        assert_eq!(pcm_of(&e), Some(Err("PCM whose channels are not interleaved is not supported".into())));
+        let e = Entry { typ: *b"lpcm", bits: 24, channels: 2, sound_version: 2, lpcm_flags: LPCM_SIGNED, lpcm_packet: 8, ..Default::default() };
+        assert_eq!(pcm_of(&e), Some(Err("PCM of 8 bytes a frame, for 2 channels of 24 bits, is not supported".into())));
     }
 
     /// A fragment's sample is a sync sample unless its flags say it is not, or that it depends on

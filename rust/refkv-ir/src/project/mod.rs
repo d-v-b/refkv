@@ -54,7 +54,7 @@ pub fn reads(format: Format, ir: &Ir, facts: &J) -> Result<Vec<(u64, u64)>, Stri
 /// (conventions §6
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>):
 /// UTF-8 if valid, else {"latin1": ...}.
-fn json_text(b: &[u8]) -> J {
+pub(crate) fn json_text(b: &[u8]) -> J {
     text_json(&b[..b.iter().position(|&c| c == 0).unwrap_or(b.len())])
 }
 

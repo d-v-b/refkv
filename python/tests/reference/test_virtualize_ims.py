@@ -181,8 +181,8 @@ def test_virtualizes_the_synthetic_files():
 
 @pytest.mark.parametrize(("name", "message"), [
     ("ims_reject_not_imaris.ims", "not an Imaris file"),
-    ("ims_reject_shuffle.ims", r"filters \[2, 1\]"),
-    ("ims_reject_fletcher32.ims", r"filters \[3\]"),
+    ("ims_shuffle_deflate.ims", r"filters \[2, 1\]"),
+    ("ims_fletcher32.ims", r"filters \[3\]"),
     ("ims_reject_fill_value.ims", "fill value"),
     ("ims_reject_float64.ims", "class 1, 8 bytes"),
     ("ims_reject_offset_size.ims", "offsets and lengths of 4"),

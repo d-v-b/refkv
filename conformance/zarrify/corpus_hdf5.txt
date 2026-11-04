@@ -14,3 +14,6 @@ https://dandiarchive.s3.amazonaws.com/blobs/68f/d35/68fd35f1-8860-4612-9f00-c2a9
 https://dandiarchive.s3.amazonaws.com/blobs/0a5/f64/0a5f6405-d361-4d9e-8fde-8ca00be0f3b4|dandi_000728_abo_ophys|no-ref|ends-sha256=80414d2be2ac2b66d97cdc678340cd8a34d34ee5bbd84c1cd3681d92e0839442
 https://noaa-nesdis-n20-pds.s3.amazonaws.com/VIIRS-I1-SDR/2024/01/01/SVI01_j01_d20240101_t0001177_e0002404_b31704_c20240101004435284000_oeac_ops.h5|jpss_viirs_i1_sdr|no-ref|ends-sha256=36f4d7df2a7c442b38d2bd89618869a00858b677cd06507cd67ae670b2a5ee5b
 https://www.ncei.noaa.gov/data/sea-surface-temperature-optimum-interpolation/v2.1/access/avhrr/202401/oisst-avhrr-v02r01.20240101.nc|noaa_oisst_v2_1|no-ref|ends-sha256=aad06c48cc93870643106ebf0acd34197fe12645af8304fd2a417b01c3d616ba
+# A Sentinel-5P NO2 product (Copernicus Sentinel data, the meeo-s5p bucket), a netCDF-4 file of 153 datasets
+# with the pipeline shuffle, deflate, Fletcher32
+https://meeo-s5p.s3.amazonaws.com/NRTI/L2__NO2___/2024/01/01/S5P_NRTI_L2__NO2____20240101T080326_20240101T080826_32219_03_020600_20240101T090808.nc|s5p_no2_nrti|no-ref|ends-sha256=1d11365c2dbb396a1e403301fff825685c89c3eaf3d7f03a27428c02de9f3291
