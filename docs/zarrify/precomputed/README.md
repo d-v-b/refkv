@@ -24,8 +24,10 @@ A Zarr v3 hierarchy whose root is an OME-NGFF 0.5 image, one array per scale, fu
   is one whole shard, the box of chunks that shard holds: the array reads the shard's own index to
   find a chunk, so a read of one chunk takes three requests, as it does in Neuroglancer.
 - **Codec:** `refkv.precomputed`, which refkv's Python package provides. It decodes `raw`, `jpeg`,
-  `png` and `compressed_segmentation` chunks, gzip chunks and indexes within shards, and
-  chunks stored with a gzip, brotli or Zstandard coding, which it finds from each object's bytes.
+  `png`, `jxl`, `compressed_segmentation`, `compresso`, `crackle`, `fpzip`, `zfpc` and `kempressed`
+  chunks, gzip chunks and indexes within shards, and chunks stored with a gzip, brotli or Zstandard
+  coding, which it finds from each object's bytes. `jpeg`, `png`, `jxl` and `zfpc` need the `images`
+  extra, and `compresso`, `crackle`, `fpzip` and `kempressed` the `precomputed` extra.
   It reads a chunk clipped by the volume's upper bound, with the fill value past the bound.
 - **Attributes:** the whole `info` document on the root, as `refkv_zarrified.precomputed.info`, and
   each array's scale on the array. Physical scale and position in nanometers, as OME-NGFF's
@@ -70,15 +72,15 @@ uv run python -m refkv.zarrify https://open-neurodata.s3.amazonaws.com/kharris15
 ## Viewing
 
 Neuroglancer reads the original store as it is, and is the viewer to use for it. The Neuroglancer
-fork that opens refkv's archives does not have the codec `refkv.precomputed` yet, so an archive of
-this format reads in Python, through zarr-python, and not yet in the demo.
+fork that opens refkv's archives has the codec `refkv.precomputed` for the encodings it has decoders
+of, all of these but `fpzip`, `zfpc` and `kempressed`, which read in Python, through zarr-python.
 
 ## Supported and not supported
 
 | | |
 |---|---|
 | Layouts | unsharded, and sharded with the `identity` hash |
-| Encodings | `raw`, `jpeg`, `png`, `compressed_segmentation` |
+| Encodings | `raw`, `jpeg`, `png`, `compressed_segmentation`, `compresso`, `crackle`, `jxl`, `fpzip`, `zfpc`, `kempressed` |
 | Data types | `uint8` to `uint64`, `int8` to `int64`, `float32`, `float64` |
 | Chunk codings | none, gzip, brotli, Zstandard, per object |
 | Shard codings | `raw` or `gzip` for each of chunks and minishard indexes |
@@ -87,7 +89,9 @@ These are not presented as arrays, and not lost. The objects stay referenced und
 `refkv_source/objects/`, and the root's `refkv_zarrified.precomputed.not_presented` says why, scale
 by scale:
 
-- the encodings `compresso`, `fpzip`, `zfpc`, `kempressed` and `jxl`;
+- other encodings, and an encoding's scale of a data type or number of channels it does not hold
+  (`compresso` and `crackle`: `uint8` to `uint64` in 1 channel; `jxl`: `uint8` in 1 channel; `fpzip`
+  and `kempressed`: `float32` and `float64`; `zfpc`: `int32`, `int64`, `float32` and `float64`);
 - the `murmurhash3_x86_128` hash, which scatters a shard's chunks over the volume. All 8 sharded
   volumes of the 13 surveyed use `identity`;
 - shards that wrap, each holding several boxes of chunks;

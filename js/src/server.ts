@@ -37,6 +37,7 @@ const STORE_FORMATS: Record<StoreProfile, string | undefined> = {
   nifti: "NIfTI",
   grib: "GRIB",
   safetensors: "safetensors",
+  tiff: "TIFF",
 };
 
 export const ARCHIVE_KEY = "__vz__/archive.vzip";

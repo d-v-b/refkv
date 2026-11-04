@@ -424,7 +424,7 @@ def store_mirror_problem(path: Path, view: dict, fetch=None) -> str | None:
     url = prop.get("source", {}).get("url") if isinstance(prop, dict) else None
     if not isinstance(prop, dict) or not isinstance(url, str):
         return "no store URL on the root"
-    if prop.get("profile") in ("vsi", "nrrd", "grib", "nifti"):
+    if prop.get("profile") in ("vsi", "nrrd", "grib", "tiff", "nifti"):
         # a VSI root names the .vsi file, a NRRD root and a NIfTI pair's the header file and a GRIB
         # root the GRIB file; the store's URL is its directory (spec/zarrify/vsi.md §9
         # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#9-vsi-profile>,
@@ -445,7 +445,11 @@ def store_mirror_problem(path: Path, view: dict, fetch=None) -> str | None:
         # empty, but a SAFE product's folder markers, which it drops (spec/zarrify/safe.md
         # §2.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#21-objects>)
         marker = prop.get("profile") == "safe" and key.endswith(SAFE_MARKER) and len(key) > len(SAFE_MARKER)
-        if held is None and size > 0 and u not in pins and not marker:
+        # nor a VSI slide's files, described in place, each read at its object URL: a file no
+        # reference uses, such as a .vsi file whose IFD images are all left out, has no source
+        # (spec/zarrify/vsi.md §9.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#94-chunks>)
+        in_place = prop.get("profile") == "vsi"
+        if held is None and size > 0 and u not in pins and not marker and not in_place:
             return f"{key}: a referenced object of {size} bytes that no source names"
         if held is not None:
             try:

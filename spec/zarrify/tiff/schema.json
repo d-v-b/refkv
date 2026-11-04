@@ -148,6 +148,15 @@
             },
             "bigtiff": {
               "type": "boolean"
+            },
+            "files": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "micromanager": {
+              "type": "object"
             }
           },
           "required": [

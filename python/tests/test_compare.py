@@ -287,6 +287,22 @@ def test_store_mirror_problem(tmp_path):
         assert compare.store_mirror_problem(path, compare._zip_view(path), fetch) is None, name
 
 
+def test_store_mirror_problem_accepts_a_vsi_file_no_reference_uses(tmp_path):
+    """A slide whose macro image is left out has no reference to its `.vsi` file, so no source
+    names it; the mirror still reads it at its object URL (spec/zarrify/vsi.md §9.4
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#94-chunks>)."""
+    name = "vsi_left_out_macro_compression.vsi"
+    url = "https://data.test/slides/"
+    _, out = zarrify(str(ROOT / "fixtures" / "vsi" / name), url + name)
+    path = tmp_path / "s.vzip"
+    out.write(str(path))
+
+    def fetch(u: str, o: int, n: int) -> bytes:
+        return (ROOT / "fixtures" / "vsi" / urllib.parse.unquote(u[len(url):])).read_bytes()[o:o + n]
+
+    assert compare.store_mirror_problem(path, compare._zip_view(path), fetch) is None
+
+
 def test_store_mirror_problem_finds_a_document_other_than_the_store_s(tmp_path):
     path, fetch = _store_archive(tmp_path)
     assert compare.store_mirror_problem(path, compare._zip_view(path), lambda u, o, n: fetch(u, o, n)[:-1] + b"!") == \

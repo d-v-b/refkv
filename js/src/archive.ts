@@ -349,6 +349,19 @@ const MERGE_MIN_RUN = 1 << 20;
 const MERGE_MAX_RUN = 32 << 20;
 /** How long, in milliseconds, a read waits for the reads near it. */
 export const MERGE_WINDOW = 2;
+/**
+ * The longest, in milliseconds, a read waits for a request near it, so that a stalled or very long
+ * request does not stall the reads beside it.
+ */
+export const MERGE_MAX_WAIT = 1000;
+/**
+ * A read waits for a request near it only while a source has this many requests in flight. Fewer
+ * leave connections free, where waiting only costs time: a client that limits its own reads would
+ * spend its turns waiting. More are queued by the browser on HTTP/1.1, at 6 connections per host,
+ * where they can no longer merge. A lower limit reads faster on HTTP/1.1 and a higher one on
+ * HTTP/2, which has no such queue; this one lost the least across both when measured.
+ */
+export const MERGE_BUSY = 16;
 
 /** A read of bytes `[offset, end)` of a url source, waiting to be served by one request with the reads near it. */
 type Waiting = {
@@ -356,7 +369,12 @@ type Waiting = {
   end: bigint;
   resolve: (data: Uint8Array) => void;
   reject: (reason: unknown) => void;
+  /** When it began to wait, in milliseconds. */
+  since: number;
 };
+
+/** A request in flight, and the reads it serves. */
+type Serving = { offset: bigint; end: bigint; reads: Waiting[] };
 
 /**
  * `reads` of one source, as the runs that one request each serves, in order of offset. A read
@@ -441,6 +459,11 @@ export class Archive {
   private netFetch: CheckedFetch | undefined;
   /** The reads of url sources waiting to merge, by source. */
   private waiting = new Map<number, Waiting[]>();
+  /** The requests in flight, by source. */
+  private serving = new Map<number, Set<Serving>>();
+  private flushPending = false;
+  /** Set while some reads whose window has ended wait for a request to end. */
+  private release: ReturnType<typeof setTimeout> | undefined;
 
   protected constructor(
     bytes: Uint8Array,
@@ -762,26 +785,69 @@ export class Archive {
    */
   private sharedRead(source: number, offset: bigint, end: bigint): Promise<Uint8Array> {
     return new Promise((resolve, reject) => {
-      if (this.waiting.size === 0) setTimeout(() => this.flush(), MERGE_WINDOW);
+      if (!this.flushPending) {
+        this.flushPending = true;
+        setTimeout(() => {
+          this.flushPending = false;
+          this.flush();
+        }, MERGE_WINDOW);
+      }
       const reads = this.waiting.get(source);
-      const read = { offset, end, resolve, reject };
+      const read = { offset, end, resolve, reject, since: Date.now() };
       if (reads) reads.push(read);
       else this.waiting.set(source, [read]);
     });
   }
 
-  /** Starts the requests that serve the reads waiting. */
+  /**
+   * Starts the requests that serve the reads waiting. While its source is busy (`MERGE_BUSY`), a
+   * read near a request in flight waits for a request to end, up to `MERGE_MAX_WAIT`, and merges
+   * with the reads that come meanwhile: a client that starts its next chunks as the last ones
+   * finish starts them a few at a time, and those are the chunks beside them. Reads far from any
+   * request do not wait, so reads that cannot merge are as concurrent as they were. A read inside a
+   * request in flight joins it, since its bytes are on their way.
+   */
   private flush(): void {
-    const waiting = this.waiting;
-    this.waiting = new Map();
-    for (const [source, reads] of waiting) {
+    const now = Date.now();
+    clearTimeout(this.release);
+    this.release = undefined;
+    let oldest = Infinity;
+    for (const [source, waiting] of [...this.waiting]) {
+      // Not the requests this loop starts, which share out one batch of reads.
+      const serving = [...(this.serving.get(source) ?? [])];
+      const reads = waiting.filter((r) => !Archive.join(r, serving));
       const bytes = reads.reduce((n, r) => n + (r.end - r.offset), 0n);
       const share = bytes / BigInt(MERGE_CONNECTIONS);
       const floor = BigInt(MERGE_MIN_RUN);
       const ceiling = BigInt(MERGE_MAX_RUN);
       const longest = share < floor ? floor : share > ceiling ? ceiling : share;
-      for (const run of mergedRuns(reads, longest)) void this.serve(source, run);
+      const gap = BigInt(MERGE_GAP);
+      const held: Waiting[] = [];
+      for (const run of mergedRuns(reads, longest)) {
+        const offset = run[0].offset;
+        const end = run.reduce((e, r) => (r.end > e ? r.end : e), offset);
+        const near = serving.some((s) => s.offset - end <= gap && offset - s.end <= gap);
+        const since = run.reduce((t, r) => Math.min(t, r.since), now);
+        if (near && serving.length >= MERGE_BUSY && now - since < MERGE_MAX_WAIT) {
+          held.push(...run);
+          oldest = Math.min(oldest, since);
+        } else {
+          void this.serve(source, run);
+        }
+      }
+      if (held.length > 0) this.waiting.set(source, held);
+      else this.waiting.delete(source);
     }
+    if (oldest < Infinity) {
+      this.release = setTimeout(() => this.flush(), oldest + MERGE_MAX_WAIT - now);
+    }
+  }
+
+  /** Adds `read` to a request in flight that covers it, if there is one. */
+  private static join(read: Waiting, serving: Serving[]): boolean {
+    const request = serving.find((s) => s.offset <= read.offset && read.end <= s.end);
+    request?.reads.push(read);
+    return request !== undefined;
   }
 
   /**
@@ -792,14 +858,26 @@ export class Archive {
   private async serve(source: number, run: Waiting[]): Promise<void> {
     const offset = run[0].offset;
     const end = run.reduce((e, r) => (r.end > e ? r.end : e), offset);
+    const serving = this.serving.get(source) ?? new Set<Serving>();
+    this.serving.set(source, serving);
+    const request = { offset, end, reads: run };
+    serving.add(request);
+    const finished = () => {
+      serving.delete(request);
+      if (serving.size === 0) this.serving.delete(source);
+      if (this.release !== undefined) this.flush();
+    };
     let data: Uint8Array;
     try {
       data = await this.source({ source, offset, length: end - offset });
     } catch (e) {
+      // Finished before the reads are made alone, so that no other read joins a request that failed.
+      finished();
       if (run.length > 1) await Promise.all(run.map((r) => this.serve(source, [r])));
       else run[0].reject(e);
       return;
     }
+    finished();
     for (const r of run) {
       const from = Number(r.offset - offset);
       r.resolve(data.subarray(from, from + Number(r.end - r.offset)));

@@ -2,6 +2,9 @@
 
 Profiles version: 0 (**draft**)
 
+Changed 2026-11-04: the TIFF profile reads an image across files, on demand
+([tiff.md §7.4](zarrify/tiff.md#74-several-files)); a file that names none has the output it had.
+
 Changed 2026-11-04: a NIfTI header-and-image pair is a file read as a store
 ([§1.8](#18-files-read-as-stores)), where the NIfTI profile rejected it.
 
@@ -79,7 +82,7 @@ The table, generated from the registry, lists them:
 | profile | input | inputs |
 |---|---|---|
 | [CZI](zarrify/czi.md#part-2-the-profile) | file | Zeiss CZI files (ZISRAW, file version 1), with uncompressed, JPEG, JPEG XR and Zstd subblocks, mosaics and pyramids |
-| [DICOM](zarrify/dicom.md#part-2-the-profile) | file | DICOM Part 10 files with native, JPEG, lossless JPEG or JPEG 2000 pixel data, including whole-slide images |
+| [DICOM](zarrify/dicom.md#part-2-the-profile) | file | DICOM Part 10 files with native, JPEG, lossless JPEG, JPEG-LS, RLE, JPEG 2000 or HTJ2K pixel data, including whole-slide images |
 | [FITS](zarrify/fits.md#part-2-the-profile) | file | FITS files: images, multi-extension files, binary and ASCII tables |
 | [FLAC](zarrify/flac.md#part-2-the-profile) | file | FLAC files (`.flac`) of a fixed block size, with their metadata blocks and ID3v2 and ID3v1 tags; one sharded array of integer samples, not an image |
 | [GRIB](zarrify/grib.md#part-2-the-profile) | file | GRIB edition 2 files of gridded fields, such as NOAA's and ECMWF's forecasts, whose regular latitude/longitude and Lambert conformal fields it presents |
@@ -100,8 +103,8 @@ The table, generated from the registry, lists them:
 | [QPTIFF](zarrify/qptiff.md#part-2-the-profile) | file | Akoya (PerkinElmer) Vectra QPTIFF slides and inForm component data, a TIFF with an XML description per image, in LZW, JPEG or uncompressed tiles or strips |
 | [Sentinel-2 SAFE](zarrify/safe.md#part-2-the-profile) | file or store | Sentinel-2 Level-1C and Level-2A products: a `.SAFE` directory (a store) or a `.SAFE.zip` file |
 | [safetensors](zarrify/safetensors.md#part-2-the-profile) | file or store | safetensors files of a model's tensors (`model.safetensors`), in every data type the library defines, `BF16`, `F8_*`, `F4` and `F6_*` included; and stores of them, such as a model's repository of shards with its index |
-| [TIFF](zarrify/tiff.md#part-2-the-profile) | file | TIFF and BigTIFF, including OME-TIFF and JPEG-tiled slides such as Aperio SVS |
-| [VSI](zarrify/vsi.md#part-2-the-profile) | file | Olympus cellSens VSI slides: a `.vsi` file and the tile files beside it, probed by key (uncompressed, JPEG, JPEG 2000 and lossless JPEG tiles) |
+| [TIFF](zarrify/tiff.md#part-2-the-profile) | file | TIFF and BigTIFF, including OME-TIFF across files, Micro-Manager stacks and JPEG-tiled slides such as Aperio SVS |
+| [VSI](zarrify/vsi.md#part-2-the-profile) | file | Olympus cellSens VSI slides: a `.vsi` file and the tile files beside it, probed by key (uncompressed, JPEG, JPEG 2000, lossless JPEG, PNG and BMP tiles) |
 | [Zarr v2](zarrify/zarr2.md#part-2-the-profile) | store | Zarr v2 hierarchies |
 <!-- /profiles -->
 
@@ -755,7 +758,8 @@ The VSI ([vsi.md §9](zarrify/vsi.md#9-vsi-profile)), NRRD
 ([grib.md §8](zarrify/grib.md#8-grib-profile)) profiles are chosen by a file input's signature
 ([§1.2](#12-input)), and read the file and the files beside it (a slide's tile files, a
 detached header's data file, a GRIB file's index files) as a store
-([§1.4](#14-store-inputs)), as the NIfTI profile does for a header-and-image pair
+([§1.4](#14-store-inputs)), and so do the TIFF profile, for an input that names other files
+([tiff.md §7.4](zarrify/tiff.md#74-several-files)), and the NIfTI profile, for a header-and-image pair
 ([nifti.md §7.5](zarrify/nifti.md#75-header-and-image-pairs)). Such a **file read as a store** is read as follows; the profile's
 document says which keys it probes, how it reads each object, and the order of its sources, under
 the rules of [§1.9](#19-sources-beside-the-input).
