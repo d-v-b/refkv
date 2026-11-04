@@ -53,7 +53,7 @@ pub fn arrays(ir: &Ir, facts: &J, url: &str, only: Option<usize>, shape: impl Fn
     let mut codecs = if contig(facts) { vec![transpose_codec(&axes)] } else { vec![] };
     // `x` in stored order: the last axis, or the one before the samples when they are interleaved
     let x = axes.len() - if contig(facts) { 2 } else { 1 };
-    codecs.extend(tiff_codecs(n(&facts["compression"]), n(&facts["predictor"]), n(&facts["bits"]),
+    codecs.extend(tiff_codecs(n(&facts["compression"]), n(&facts["predictor"]), n(&facts["bits"]), n(&facts["spp"]),
                               facts["little"].as_bool().unwrap_or(false), x));
     let codecs = J::Array(codecs);
     let data_type = data_type(facts)?;

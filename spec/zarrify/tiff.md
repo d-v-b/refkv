@@ -14,6 +14,10 @@ them, and a Micro-Manager stack's index maps give its planes, in one file or sev
 ([§7.4](#74-several-files), [§7.5](#75-micro-manager-stacks)). A Micro-Manager file presented one
 plane before, and a file that names others was rejected.
 
+Changed 2026-11-04: LERC (Compression 34887), LZMA (34925), WebP (50001) and JPEG XL (50002) have a
+layout, each through its imagecodecs codec ([§4.3](#43-data-types-and-codecs)); no output of a file
+accepted before changed.
+
 Changed 2026-11-04: a level in compressed strips whose last strip is short and cannot be padded has a
 layout: the `rectilinear` grid, a chunk a strip, unsharded ([§4.4](#44-arrays), [§4.5](#45-strips)),
 where it rejected the input; no output of a file accepted before changed.
@@ -350,12 +354,26 @@ BitsPerSample, which MUST be 8, 16, 32 or 64 (32 or 64 for `float`).
 | 50000 (zstd) | 2 | `imagecodecs_delta`, bytes, zstd |
 | 33003, 33004, 33005, 34712 (JPEG 2000) | any | imagecodecs_jpeg2k |
 | 7 (JPEG) | 1 | imagecodecs_jpeg |
+| 34887 (LERC) | 1 | `imagecodecs_lerc` |
+| 34925 (LZMA) | 1 | bytes, `imagecodecs_lzma` |
+| 34925 (LZMA) | 2 | `imagecodecs_delta`, bytes, `imagecodecs_lzma` |
+| 50001 (WebP) | 1 | `{"name": "imagecodecs_webp", "configuration": {"hasalpha": h}}` |
+| 50002 (JPEG XL) | 1 | `imagecodecs_jpegxl` |
 
 Anything else is rejected. JPEG (Compression 7) additionally requires
 BitsPerSample 8, SampleFormat 1, and either SamplesPerPixel 1, or
 SamplesPerPixel 3 with PlanarConfiguration 1 and PhotometricInterpretation
 2 (RGB) or 6 (YCbCr); otherwise the input is rejected. (Old-style JPEG,
 Compression 6, is rejected.)
+
+**LERC** is one LERC stream a tile or strip, which holds its own type and shape; a stream
+in Deflate or zstd, as LercParameters (tag 50674) records, is one the codec finds without being
+told. Pixels a stream's mask leaves out decode to the codec's values, as tifffile reads them. LERC
+has no 64-bit integers, which are rejected. **LZMA** is an xz stream of the bytes. **WebP** requires
+BitsPerSample 8, SampleFormat 1, PlanarConfiguration 1, and SamplesPerPixel 3 or 4; `h` is `true` for
+4, since a WebP stream may leave out an alpha channel that is all opaque, and would otherwise decode
+to 3 samples, and `false` for 3. **JPEG XL** requires SampleFormat 1 with BitsPerSample 8 or 16, or
+SampleFormat 3 with BitsPerSample 32. Otherwise the input is rejected.
 
 `{"name": "refkv.tiff_lzw"}`, refkv's own codec (imagecodecs-zarr's `imagecodecs_lzw` reads the
 whole stream, which the next sentences rule out), has no configuration: each chunk is one TIFF
@@ -376,7 +394,7 @@ in stored order: `n − 1` for an array of `n` axes, or `n − 2` when `transpos
 each row of a tile or strip, the writer stored each sample less the same sample of the pixel
 before it, in the data type's arithmetic (modulo 2^BitsPerSample), so that the decompressed
 bytes are differences, and the codec sums them back along `x`, each sample apart. GDAL, libtiff
-and tifffile write it with LZW, Deflate and zstd.
+and tifffile write it with LZW, Deflate, zstd and LZMA.
 
 Any other Predictor rejects the input, but for JPEG 2000, whose streams do not use it, and so
 does Predictor 2:
@@ -393,7 +411,7 @@ by significance, which no codec of [conventions §3](../conventions.md#3-arrays)
 The codecs read the bytes of a tile as they are, filled from each byte's
 most significant bit (FillOrder 1), and decode samples at full resolution.
 So, for every IFD that is a plane or a level:
-- when Compression is 1, 5, 8, 32946 or 50000, FillOrder MUST be 1;
+- when Compression is 1, 5, 8, 32946, 34887, 34925, 50000, 50001 or 50002, FillOrder MUST be 1;
 - when PhotometricInterpretation is 6 (YCbCr) and Compression is neither 7
   nor JPEG 2000 (whose streams hold their own sampling), YCbCrSubsampling
   MUST be present and exactly `[1, 1]` (absent, it is TIFF 6.0's default
@@ -606,9 +624,9 @@ and at most 20 bytes of range a strip. The limit of 2^30 bytes bounds what a rea
 shard as one value holds at once. A level of one strip has nothing to gather.
 
 Whether a reader makes fewer requests depends on the reader, which [zarrify
-§2.1](../zarrify.md#21-virtual-shards) describes. A strip of JPEG or JPEG 2000 keeps a chunk a strip,
-and so does a level of any compression but LZW whose last strip is short and not uncompressed, as
-below.
+§2.1](../zarrify.md#21-virtual-shards) describes. A strip of JPEG, JPEG 2000, LERC, LZMA, WebP or JPEG XL keeps
+a chunk a strip, and so does a level of any compression but LZW whose last strip is short and not
+uncompressed, as below.
 So has a level of uncompressed strips with a strip that does not hold exactly its rows: a strip with
 no bytes, which is the fill value, or with more or fewer bytes than its rows, whose rows the
 concatenation would misplace.
@@ -623,7 +641,7 @@ chunk's rows, and of a level that does not join, the strip's):
 |---|---|
 | **1 (uncompressed)** | of a level that joins, `(R′ − rows) × B` zero bytes; of another, `R × B − n`, `n` the strip's byte count: `(R − rows) × B` when the strip holds its rows, and none when it holds `R × B` bytes or more (as a strip written with all the chunk's rows does; like any uncompressed tile or strip, one of more bytes than its chunk does not decode) |
 | **5 (LZW)** | the strip's stream is read until its output reaches the strip's size (`rows × B` bytes; a stream that does not reach it, or whose code crosses it, rejects the input), and what follows (its end-of-information code, or the malformed final code of [§4.3](#43-data-types-and-codecs)) is replaced by a **tail** that continues the stream: a Clear code at the width the decoder has there, then the `(R − rows) × B` zeros as the codes 0, 258, 259, ... (each code one zero longer than the last, the entry the decoder defines on reading the previous one) and one more code for the remainder shorter than the next entry, then the end-of-information code, every code at the width the decoder has when it reads it. The chunk's bytes are the strip's bytes before the byte holding the cut, then the tail, which starts with that byte's bits before the cut |
-| **another compression** (JPEG, Deflate, zstd, JPEG 2000) | cannot be padded: the level has the `rectilinear` grid, below |
+| **another compression** (JPEG, Deflate, zstd, JPEG 2000, LERC, LZMA, WebP, JPEG XL) | cannot be padded: the level has the `rectilinear` grid, below |
 
 With Predictor 2, the padding is the same: each padded row is differences of 0, which sum back
 to zeros, since the differencing starts again at each row. (A short strip of Deflate or zstd cannot be extended without decompressing and compressing it
