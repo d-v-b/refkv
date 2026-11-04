@@ -279,6 +279,20 @@ The browser code ([js/](../../../js/README.md)) reads TIFF:
 Not supported, and refused with HTTP 422: what the profile rejects (above),
 such as old-style JPEG and the floating-point predictor.
 
+## Several files
+
+An OME-TIFF whose `TiffData` elements name other files is read with them, as is a Micro-Manager
+stack, which holds no OME-XML and keeps its planes in numbered files of up to 4 GB
+([§7.4](../../../spec/zarrify/tiff.md#74-several-files),
+[§7.5](../../../spec/zarrify/tiff.md#75-micro-manager-stacks)). Name the first file:
+
+```bash
+uv run refkv zarrify "https://downloads.openmicroscopy.org/images/Micro-Manager/1.4.22/sebastien/Test_Dataset_MultiPosition_Stack_1_MMStack_Pos0.ome.tif" stack.vzip
+```
+
+Each position of a Micro-Manager acquisition is its own input. This one is 140 frames of 3 channels
+and 21 slices across two files, 4.7 GB, read with 26 MB of requests.
+
 ## Performance
 
 - Zarrifying reads only the IFDs, the tag values the layout uses and the

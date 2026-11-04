@@ -979,7 +979,9 @@ An image across files, and a Micro-Manager stack in any number of files:
   last strip is not supported`;
 - has no `ome/planes` aliases in its mirror, as an alias stays within its object.
 
-Its `source.url` is the named file's object URL, whichever files hold the planes.
+Its `source.url` is the named file's object URL, whichever files hold the planes. Its `omero`
+windows are sampled as a single file's are ([§4.4](#44-arrays)), from the chunks in whichever files
+hold them.
 
 ### 7.5 Micro-Manager stacks
 
@@ -1001,7 +1003,8 @@ one:
 The summary is the `L` bytes at 40, which MUST be a JSON object. The index map at `M` is the `u32`s
 `3453623` and `N`, with `N` at least 1, and `N` entries of 5 `u32`s: channel, slice, frame, position
 and an IFD's offset. A file that is not all of this, whatever its bytes 8–11, is a TIFF like any
-other.
+other. The profile reads each IFD an index map names ahead of walking the main chain, a batch of
+ranges rather than an IFD a request: every IFD's elements are as the chain gives them.
 
 The array's axes are as [§4.4](#44-arrays) gives them, of sizes `SizeT`, `SizeC` and `SizeZ`, the
 greatest frame, channel and slice of the index maps of all the files, plus 1. Each entry's plane is
