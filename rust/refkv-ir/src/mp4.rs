@@ -1392,7 +1392,7 @@ pub fn esds_config(esds: &[u8]) -> Option<(u8, Vec<u8>)> {
     Some((oti, asc))
 }
 
-/// The fields of an av1C box's payload the profile reads, as an SPS's (AV1-ISOBMFF §2.3.3): its
+/// The fields of an av1C box's payload the profile reads, as an SPS's (AV1-ISOBMFF section 2.3.3): its
 /// seq_profile and seq_level_idx_0, its bit depth, and its subsampling as chroma_format_idc's values.
 pub fn av1_config(av1c: &[u8]) -> Option<Sps> {
     if av1c.len() < 4 || av1c[0] != 0x81 {
@@ -1411,8 +1411,8 @@ pub fn av1_config(av1c: &[u8]) -> Option<Sps> {
     Some(Sps { profile, level, chroma, luma: depth, chroma_depth: depth })
 }
 
-/// The fields of a vpcC box's payload the profile reads, as an SPS's (the VP Codec ISOBMFF Binding
-/// §2.2): its profile and level, its bit depth, and its subsampling as chroma_format_idc's values.
+/// The fields of a vpcC box's payload the profile reads, as an SPS's (the VP Codec ISOBMFF Binding,
+/// section 2.2): its profile and level, its bit depth, and its subsampling as chroma_format_idc's values.
 pub fn vp9_config(vpcc: &[u8]) -> Option<Sps> {
     let (&version, &[profile, level, f, ..]) = (vpcc.first()?, vpcc.get(4..)?) else { return None };
     if version != 1 {
