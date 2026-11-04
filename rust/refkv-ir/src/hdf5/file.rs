@@ -81,6 +81,11 @@ pub struct Hdf5 {
 }
 
 /// What the hierarchy holds of an object, decided in the walk's order.
+/// The start of the `NAME` of a netCDF-4 dimension scale that is no variable.
+const NOT_A_VARIABLE: &[u8] = b"This is a netCDF dimension but not a netCDF variable";
+/// netCDF-4's prefix of a variable named as a dimension it is not the coordinate of.
+const NON_COORD_PREFIX: &[u8] = b"_nc4_non_coord_";
+
 enum Decision {
     Group,
     Dataset(Box<Dataset>, Dt, Present),
@@ -206,7 +211,7 @@ impl Hdf5 {
             Ok(lenient(self.h.links(at))?.is_some_and(|l| l.has("ResolutionLevel 0")))
         })()?;
         if imaris {
-            let mut ims = Box::new(crate::ims::Ims::new(self.h.size()));
+            let mut ims = Box::new(crate::ims::Ims::new(self.h.file_size()));
             for (o, d) in std::mem::take(&mut self.log) {
                 ims.feed(o, d);
             }
@@ -338,6 +343,44 @@ impl Hdf5 {
     }
 
     /// What the hierarchy holds of the object at `at`, whose name is `name` (None for the root).
+    /// Whether the dataset at `at` is the dimension scale netCDF-4 writes for a dimension with no
+    /// variable, whose `NAME` says so (spec/zarrify/hdf5.md §3
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#3-datasets>).
+    fn is_dimension_only(&mut self, at: u64) -> R<bool> {
+        Ok(lenient(self.h.attributes(at))?.is_some_and(|attrs| {
+            fixed_attribute(&attrs, b"NAME").is_some_and(|name| name.starts_with(NOT_A_VARIABLE))
+        }))
+    }
+
+    /// The dimension names of the array of the dataset at `at`, of link path `segs`, without a
+    /// trailing axis: the first scale `DIMENSION_LIST` attaches to each axis, by link name; a
+    /// dimension scale of rank 1 without one is its own (spec/zarrify/hdf5.md §3
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#3-datasets>). None when
+    /// no axis has a name.
+    fn dimension_names(&mut self, at: u64, rank: usize, segs: &[Vec<u8>], segs_of: &HashMap<u64, &Vec<Vec<u8>>>) -> R<Option<Vec<J>>> {
+        let Some(attrs) = lenient(self.h.attributes(at))? else { return Ok(None) };
+        let list = attrs.list.iter().find(|a| a.name == b"DIMENSION_LIST").and_then(|a| super::attribute_parts(&a.data).ok());
+        let mut names = vec![J::Null; rank];
+        if let Some((t, dims, data)) = list {
+            let attached = types::parse(&t).is_ok_and(|dt| {
+                dt.size == 16 && matches!(&dt.kind, Kind::Vlen { string: false, base, .. } if matches!(base.kind, Kind::Reference { kind: 0 }))
+            });
+            if !attached || dims != [rank as u64] || data.len() != 16 * rank {
+                return Ok(None);
+            }
+            for (k, name) in names.iter_mut().enumerate() {
+                let (n, c, i) = (le(&data, 16 * k, 4)?, le(&data, 16 * k + 4, 8)?, le(&data, 16 * k + 12, 4)?);
+                let first = if n == 0 { None } else { self.heap(c, i).and_then(|scales| le(&scales, 0, 8).ok()) };
+                if let Some(segs) = first.and_then(|a| segs_of.get(&a)) {
+                    *name = segs.last().map_or(J::Null, |s| dimension_name(s));
+                }
+            }
+        } else if rank == 1 && fixed_attribute(&attrs, b"CLASS").is_some_and(|c| c == b"DIMENSION_SCALE") {
+            names[0] = segs.last().map_or(J::Null, |s| dimension_name(s));
+        }
+        Ok(names.iter().any(|n| !n.is_null()).then_some(names))
+    }
+
     fn decide(&mut self, at: u64, name: Option<&[u8]>) -> R<Decision> {
         if let Some(n) = name {
             let ok = std::str::from_utf8(n).is_ok_and(|s| !s.is_empty() && s != "." && s != ".." && !s.starts_with("__") && !s.contains('/'));
@@ -362,6 +405,9 @@ impl Hdf5 {
             Layout::Null => return Ok(Decision::Not("null_dataspace")),
             Layout::Virtual => return Ok(Decision::Not("layout")),
             _ => {}
+        }
+        if self.is_dimension_only(at)? {
+            return Ok(Decision::Not("dimension_only"));
         }
         let p = match present(&dt) {
             Ok(p) => p,
@@ -591,6 +637,7 @@ impl Hdf5 {
 
     fn make_facts(&mut self) -> R<()> {
         let sb = self.h.superblock()?;
+        let base = self.h.src.base;
         let mut nodes = Vec::new();
         let mut counts: BTreeMap<&'static str, u64> = BTreeMap::new();
         let mut not_counts: BTreeMap<String, u64> = BTreeMap::new();
@@ -665,6 +712,9 @@ impl Hdf5 {
                     }
                     if segs.is_empty() {
                         own.insert("superblock".into(), json!(sb.version));
+                        if base > 0 {
+                            own.insert("user_block".into(), json!(base));
+                        }
                     }
                     let mut attrs = attributes;
                     if !links_json.is_empty() {
@@ -691,7 +741,7 @@ impl Hdf5 {
                                     if m != n {
                                         return super::bad(format!("{}: element {k} is {n} bytes long, its heap object {m}", self.path(*at)));
                                     }
-                                    (o + 16, n)
+                                    (base + o + 16, n)
                                 };
                                 spans.push(json!(o));
                                 spans.push(json!(len));
@@ -721,13 +771,13 @@ impl Hdf5 {
                             attrs.insert("_DTYPE".into(), json!("object_reference"));
                             json!({"kind": "references", "paths": paths})
                         }
-                        (_, Layout::Compact) => json!({"kind": "compact", "offset": ds.compact.0, "length": ds.compact.1.len()}),
+                        (_, Layout::Compact) => json!({"kind": "compact", "offset": base + ds.compact.0, "length": ds.compact.1.len()}),
                         (_, Layout::Contiguous) => match ds.contiguous.0 {
                             Some(a) if ds.contiguous.1 > 0 => {
                                 if a.checked_add(ds.contiguous.1).is_none_or(|e| e > self.h.size()) {
                                     return super::bad(format!("{}: its data lies outside the file", self.path(*at)));
                                 }
-                                json!({"kind": "contiguous", "at": at, "offset": a, "length": ds.contiguous.1, "item": if trailing.is_some() { 1 } else { dt.size }})
+                                json!({"kind": "contiguous", "at": at, "offset": base + a, "length": ds.contiguous.1, "item": if trailing.is_some() { 1 } else { dt.size }})
                             }
                             _ => json!({"kind": "none"}),
                         },
@@ -749,9 +799,25 @@ impl Hdf5 {
                         data_type = t;
                         fill = f;
                     }
+                    let mut dimension_names = self.dimension_names(*at, ds.dims.len(), segs, &segs_of)?;
+                    if dimension_names.is_some() {
+                        for v in attrs.values_mut() {
+                            if let J::Array(values) = v {
+                                if values.len() == 1 && !values[0].is_array() {
+                                    *v = values.remove(0);
+                                }
+                            }
+                        }
+                    }
+                    if let Some(fill) = lenient(self.h.attributes(*at))?.and_then(|attrs| xarray_fill(&attrs, &dt)) {
+                        attrs.insert("_FillValue".into(), fill);
+                    }
                     let mut shape = ds.dims.clone();
                     if let Some(n) = trailing {
                         shape.push(n);
+                        if let Some(names) = &mut dimension_names {
+                            names.push(J::Null);
+                        }
                     }
                     own.insert("datatype".into(), describe(&dt));
                     if let Some(m) = &ds.maxdims {
@@ -787,7 +853,8 @@ impl Hdf5 {
                         own.insert("unpresented_attributes".into(), J::Object(attr_not));
                     }
                     nodes.push(json!({"path": key, "segments": segs.len(), "attributes": attrs, "own": own,
-                                      "array": {"shape": shape, "data_type": data_type, "fill_value": fill, "codecs": codecs, "store": store}}));
+                                      "array": {"shape": shape, "data_type": data_type, "fill_value": fill, "codecs": codecs, "store": store,
+                                                "dimension_names": dimension_names}}));
                 }
                 Decision::Not(_) => unreachable!(),
             }
@@ -941,7 +1008,7 @@ impl Hdf5 {
             .filter_map(|n| n["array"]["store"]["at"].as_u64())
             .collect();
         let room = self.room.unwrap_or(self.limit("walk_elements") + size / self.limit("walk_bytes_per_element"));
-        let mut e = Emit { ir: Ir::new(size), h: &self.h, chunks_of: HashMap::new(), data_of: HashMap::new(), room, must };
+        let mut e = Emit { ir: Ir::new(self.h.file_size()), h: &self.h, chunks_of: HashMap::new(), data_of: HashMap::new(), room, must };
         let sb = self.h.sb.clone().ok_or("internal: no superblock")?;
         e.superblock(&sb)?;
         if let Some(ext) = self.extension.take() {
@@ -1009,7 +1076,7 @@ impl Lookup for Hdf5 {
     fn heap(&self, collection: u64, index: u64) -> Option<Vec<u8>> {
         let col = self.heaps.get(&collection)?;
         let &(o, n) = col.objects.get(&index)?;
-        self.h.src.store.get(o + 16, n).map(|b| b.to_vec())
+        self.h.src.get(o + 16, n).map(|b| b.to_vec())
     }
     fn path(&self, address: u64) -> Option<String> {
         self.paths.get(&address).cloned()
@@ -1024,6 +1091,7 @@ fn vlen_collections(dt: &Dt, count: usize, data: &[u8], out: &mut BTreeSet<u64>)
     fn find(dt: &Dt, base: usize, offsets: &mut Vec<usize>) {
         match &dt.kind {
             Kind::Vlen { string: true, .. } => offsets.push(base),
+            Kind::Vlen { base: of, .. } if matches!(of.kind, Kind::Reference { kind: 0 }) => offsets.push(base),
             Kind::Compound(m) => m.iter().for_each(|m| find(&m.dt, base + m.offset as usize, offsets)),
             _ => {}
         }
@@ -1042,6 +1110,42 @@ fn vlen_collections(dt: &Dt, count: usize, data: &[u8], out: &mut BTreeSet<u64>)
             }
         }
     }
+}
+
+/// The bytes, to their first NUL, of the object's fixed-length string attribute `name`.
+fn fixed_attribute(attrs: &super::Attrs, name: &[u8]) -> Option<Vec<u8>> {
+    let a = attrs.list.iter().find(|a| a.name == name)?;
+    let (t, _, data) = super::attribute_parts(&a.data).ok()?;
+    let dt = types::parse(&t).ok()?;
+    if !matches!(dt.kind, Kind::Str { .. }) {
+        return None;
+    }
+    Some(data.split(|&b| b == 0).next().unwrap_or(&[]).to_vec())
+}
+
+/// The value of the `_FillValue` attribute, of one number, of a dataset of the numeric datatype
+/// `of`, as xarray's Zarr backend reads the member of that name (spec/zarrify/hdf5.md §6
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes>): an integer's
+/// a number, a float's the Base64 of its 8 little-endian bytes as a float64.
+fn xarray_fill(attrs: &super::Attrs, of: &Dt) -> Option<J> {
+    let a = attrs.list.iter().find(|a| a.name == b"_FillValue")?;
+    let (t, dims, data) = super::attribute_parts(&a.data).ok()?;
+    let dt = types::parse(&t).ok()?;
+    if super::product(&dims) != 1 || data.len() as u64 != dt.size {
+        return None;
+    }
+    let value = types::as_f64(&dt, &data)?;
+    match of.kind {
+        Kind::Float { .. } => Some(json!(crate::mirror::base64(&value.to_le_bytes()))),
+        Kind::Int { .. } if value.fract() == 0.0 && value.abs() <= 9007199254740991.0 => Some(json!(value as i64)),
+        _ => None,
+    }
+}
+
+/// The dimension name of a scale's link name: netCDF-4's name of the variable, without the
+/// prefix it gives one that is not its dimension's coordinate.
+fn dimension_name(link: &[u8]) -> J {
+    json!(utf8_or_latin1(link.strip_prefix(NON_COORD_PREFIX).unwrap_or(link)))
 }
 
 /// An external link's value: a version and flags byte, then the file's name and the object's
@@ -1213,6 +1317,10 @@ impl crate::run::FileProfile for Profile {
     /// The HDF5 signature at offset 0.
     fn detect(&self, head: &[u8]) -> bool {
         head.len() >= 8 && &head[..8] == super::SIGNATURE
+    }
+    /// A superblock after a user block.
+    fn detect_late(&self, head: &[u8]) -> bool {
+        super::user_block(head).is_some()
     }
     fn parser(&self, size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::of::<Hdf5>(size)

@@ -10,6 +10,12 @@ use crate::project::Copied;
 use crate::Parser;
 use serde_json::Value as J;
 
+/// The bytes a file's signatures test (spec/zarrify.md §1.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>).
+pub const SNIFF: usize = 552;
+/// The bytes its late signatures test: up to a superblock after a 64 KiB user block.
+pub const SNIFF_LATE: usize = 65_600;
+
 // `Format`: one variant per file profile of the registry (profiles/; build.rs)
 include!(concat!(env!("OUT_DIR"), "/formats.rs"));
 
@@ -26,10 +32,17 @@ impl Format {
     }
 
     /// The format a file's first bytes give, if one of these: the first, in the registry's
-    /// `sniff` order, whose profile's `detect` takes them (spec/zarrify.md §1.2
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>).
+    /// `sniff` order, whose profile's `detect` takes the first `SNIFF` of them, else the first
+    /// whose `detect_late` takes them all (spec/zarrify.md §1.2
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>). A host passes
+    /// `SNIFF` bytes, and `SNIFF_LATE` if that gives no format.
     pub fn sniff(head: &[u8]) -> Option<Format> {
-        Format::SNIFFED.iter().copied().find(|f| f.profile().detect(head))
+        let early = &head[..head.len().min(SNIFF)];
+        Format::SNIFFED
+            .iter()
+            .copied()
+            .find(|f| f.profile().detect(early))
+            .or_else(|| Format::SNIFFED.iter().copied().find(|f| f.profile().detect_late(head)))
     }
 }
 
@@ -40,6 +53,12 @@ pub trait FileProfile: Sync {
     /// Whether a file's first bytes (up to 552 of them) are the profile's signature; asked only
     /// of a profile the registry gives a `sniff` precedence.
     fn detect(&self, head: &[u8]) -> bool {
+        let _ = head;
+        false
+    }
+    /// Whether a file's first bytes (up to `SNIFF_LATE` of them), that no `detect` took, are the
+    /// profile's late signature.
+    fn detect_late(&self, head: &[u8]) -> bool {
         let _ = head;
         false
     }
@@ -158,6 +177,8 @@ pub struct Run {
     whole: bool,
     in_batch: bool,
     done: bool,
+    /// The parser found the file names siblings (`Step::Beside`).
+    beside: bool,
 }
 
 impl Run {
@@ -174,6 +195,7 @@ impl Run {
             whole: format.profile().whole(),
             in_batch: false,
             done: false,
+            beside: false,
         }
     }
 
@@ -224,6 +246,11 @@ impl Run {
                     self.planner.begin(r, self.whole);
                     self.in_batch = true;
                 }
+                Step::Beside => {
+                    self.beside = true;
+                    self.done = true;
+                    return Ok(None);
+                }
                 Step::Done => {
                     let p = self.parser.take().unwrap();
                     // a TIFF the TIFF parser found to be NDPI or QPTIFF is a run of that format
@@ -266,6 +293,15 @@ impl Run {
         self.poll()
     }
 
+    /// Whether the parser found that the file names siblings, once `poll` gave None: it has no
+    /// output, and the host starts over with a store run of `format` over the file alone
+    /// (spec/zarrify.md §1.9
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>,
+    /// **When an input is read as a store**).
+    pub fn beside(&self) -> bool {
+        self.beside
+    }
+
     /// Request `k` of the last poll: each span's bytes (None: a multi-range request
     /// the server did not answer with its ranges), and the seconds it took.
     pub fn complete(&mut self, k: usize, data: Option<Vec<Vec<u8>>>, seconds: f64) -> Result<(), String> {
@@ -280,6 +316,9 @@ impl Run {
     pub fn finish_copied(self) -> Result<(Ir, serde_json::Value, serde_json::Value, crate::project::Copied), String> {
         if !self.done {
             return Err("the run is not done".into());
+        }
+        if self.beside {
+            return Err("internal: a file that names siblings has no file run's output".into());
         }
         let mut stats = self.planner.stats_json();
         // the batch that read what the parser did not keep of the view's values
@@ -351,4 +390,38 @@ pub fn run_bytes(format: Format, data: &[u8]) -> Result<(Ir, serde_json::Value, 
         }
     }
     r.finish()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A parser that finds, at its first step, that the file names siblings.
+    struct NamesSiblings;
+
+    impl Parser for NamesSiblings {
+        fn new(_size: u64) -> Self {
+            NamesSiblings
+        }
+        fn step(&mut self) -> Result<Step, String> {
+            Ok(Step::Beside)
+        }
+        fn feed(&mut self, _offset: u64, _data: Vec<u8>) {}
+        fn finish(self) -> Result<(Ir, J), String> {
+            Err("not reached".into())
+        }
+        fn found(&self) -> Option<&'static str> {
+            None
+        }
+    }
+
+    #[test]
+    fn a_file_that_names_siblings_ends_its_run_without_an_output() {
+        let mut run = Run::new(Format::ALL[0], 8, false, 1);
+        run.parser = Some(AnyParser::of::<NamesSiblings>(8));
+        assert!(!run.beside());
+        assert!(run.poll().unwrap().is_none());
+        assert!(run.beside());
+        assert_eq!(run.finish().err().as_deref(), Some("internal: a file that names siblings has no file run's output"));
+    }
 }

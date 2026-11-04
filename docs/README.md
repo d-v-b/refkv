@@ -27,11 +27,13 @@ holds as the module `refkv._core`. Extras add the rest:
 archives of image files use (imagecodecs-zarr's) and the LZW one (refkv's),
 `refkv[media]` for the decoders of the `refkv.stream` codec, which reads
 zarrified MP3, FLAC and MP4 files (ffmpeg's, through PyAV),
+`refkv[precomputed]` for the decoders of the `compresso`, `crackle`, `fpzip`
+and `kempressed` encodings of the `refkv.precomputed` codec,
 `refkv[virtualizarr]` for virtual datasets from VirtualiZarr (below; refkv
 itself does not import xarray), and
 `refkv[obstore]` for obstore's `S3Store` and the other cloud stores, to pass
 as `registry=` for `s3://`, `gs://` or `az://` sources (`refkv[virtualizarr]`
-includes it). `images` and `media` include `zarr`.
+includes it). `images`, `media` and `precomputed` include `zarr`.
 
 ```bash
 pip install "refkv[images]"   # zarrify image files and read them with zarr-python

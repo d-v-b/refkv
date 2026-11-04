@@ -19,14 +19,14 @@
       "1024": {"dtype": "int64", "bits": 64, "samples": 1},
       "1280": {"dtype": "uint64", "bits": 64, "samples": 1},
       "128": {"dtype": "uint8", "bits": 24, "samples": 3},
-      "2304": {"dtype": "uint8", "bits": 32, "samples": 4}
+      "2304": {"dtype": "uint8", "bits": 32, "samples": 4},
+      "32": {"dtype": "complex64", "bits": 64, "samples": 1},
+      "1792": {"dtype": "complex128", "bits": 128, "samples": 1}
     },
     "unsupported": {
       "about": "datatypes the profile names and rejects",
       "1": "BINARY",
-      "32": "COMPLEX64",
       "1536": "FLOAT128",
-      "1792": "COMPLEX128",
       "2048": "COMPLEX256"
     }
   },

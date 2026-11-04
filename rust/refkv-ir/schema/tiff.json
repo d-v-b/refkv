@@ -68,7 +68,7 @@
     "layout_tags": [273, 279, 288, 289, 324, 325, 513, 514, 519, 520, 521],
     "pointers": {"330": "subifds", "34665": "exif", "34853": "gps", "40965": "interoperability"},
     "jpeg2000": [33003, 33004, 33005, 34712],
-    "compressions": [1, 5, 7, 8, 32946, 50000, 33003, 33004, 33005, 34712],
+    "compressions": [1, 5, 7, 8, 32946, 50000, 33003, 33004, 33005, 34712, 34887, 34925, 50001, 50002],
     "zlib": [8, 32946],
     "sample_kinds": {"1": "uint", "2": "int", "3": "float"},
     "units": {
@@ -218,19 +218,19 @@
       ]
     },
     "predictor": {
-      "about": "IFD 0's Predictor (spec/zarrify/tiff.md §4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>): none (1), or, with an integer type and LZW, Deflate or zstd, horizontal differencing (2), which imagecodecs_delta sums back; JPEG 2000 streams do not use it",
+      "about": "IFD 0's Predictor (spec/zarrify/tiff.md §4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>): none (1), or, with LZW, Deflate, zstd or LZMA, horizontal differencing (2) of an integer type, which imagecodecs_delta sums back, or the floating-point predictor (3) of a float type, which imagecodecs_floatpred undoes; JPEG 2000 streams do not use it",
       "given": {"compression": "", "predictor": "", "sample_format": "IFD 0's SampleFormat"},
       "constraints": [
         {
-          "require": "in(compression, jpeg2000) || in(predictor, [1, 2])",
+          "require": "in(compression, jpeg2000) || in(predictor, [1, 2, 3])",
           "message": "unsupported predictor {predictor}"
         },
         {
-          "require": "in(compression, jpeg2000) || predictor == 1 || in(sample_format, [1, 2])",
+          "require": "in(compression, jpeg2000) || predictor == 1 || (predictor == 2 && in(sample_format, [1, 2])) || (predictor == 3 && sample_format == 3)",
           "message": "predictor {predictor} with SampleFormat {sample_format}"
         },
         {
-          "require": "in(compression, jpeg2000) || predictor == 1 || in(compression, [5, 8, 32946, 50000])",
+          "require": "in(compression, jpeg2000) || predictor == 1 || in(compression, [5, 8, 32946, 50000, 34925])",
           "message": "predictor {predictor} with compression {compression}"
         }
       ]
@@ -269,10 +269,67 @@
     },
     "ome_planes": {
       "about": "the planes the OME-XML describes",
-      "given": {"planes": "SizeT × channels per plane × SizeZ", "files": "distinct UUIDs the TiffData name"},
+      "given": {"planes": "SizeT × channels per plane × SizeZ"},
       "constraints": [
-        {"require": "planes <= max_planes", "message": "{planes} planes is more than {max_planes}"},
-        {"require": "files <= 1", "message": "multi-file OME-TIFF is not supported"}
+        {"require": "planes <= max_planes", "message": "{planes} planes is more than {max_planes}"}
+      ]
+    },
+    "set_name": {
+      "about": "a TiffData's FileName, a written name",
+      "given": {"name": "the name", "ok": "whether it is a key below the file's directory"},
+      "constraints": [
+        {"require": "ok", "message": "the TiffData's file name \"{name}\" is not a path below the file's directory"}
+      ]
+    },
+    "set_uuid": {
+      "about": "a TiffData's UUID without a FileName, which can only name this file",
+      "given": {"uuid": "its text", "ok": "whether it is the OME element's UUID"},
+      "constraints": [
+        {"require": "ok", "message": "a TiffData names a file by its UUID alone ({uuid}), with no FileName"}
+      ]
+    },
+    "set_file": {
+      "about": "a file a TiffData names",
+      "given": {"key": "its key", "found": "whether it exists"},
+      "constraints": [
+        {"require": "found", "message": "the file \"{key}\" does not exist"}
+      ]
+    },
+    "set_identity": {
+      "about": "a sibling's own UUID",
+      "given": {"key": "its key", "same": "whether it is the one the named file records"},
+      "constraints": [
+        {"require": "same", "message": "the file \"{key}\" is not part of this image"}
+      ]
+    },
+    "set_format": {
+      "about": "a sibling's planes",
+      "given": {"same": "whether they have the named file's size and format"},
+      "constraints": [
+        {"require": "same", "message": "a file of the image holds planes of another size or format"}
+      ]
+    },
+    "set_layout": {
+      "about": "what an image across files does not support",
+      "given": {"set": "whether a plane may lie in another file", "flat": "no IFD 0 SubIFD levels", "whole": "no short last strip"},
+      "constraints": [
+        {"require": "!set || flat", "message": "an image across files with SubIFD levels is not supported"},
+        {"require": "!set || whole", "message": "an image across files whose strips leave a short last strip is not supported"}
+      ]
+    },
+    "micromanager_part": {
+      "about": "a later file of a Micro-Manager stack, named as the input",
+      "given": {"key": "its key", "later": "whether its name is a later file's", "first": "the first file's name"},
+      "constraints": [
+        {"require": "!later", "message": "{key} is a later file of a Micro-Manager stack: zarrify {first}"}
+      ]
+    },
+    "micromanager": {
+      "about": "a Micro-Manager index map's entries",
+      "given": {"one_position": "whether it is of the first entry's position", "found": "whether its offset is a main-chain IFD's"},
+      "constraints": [
+        {"require": "one_position", "message": "a Micro-Manager file of several positions is not supported"},
+        {"require": "found", "message": "a Micro-Manager index map names an IFD that is not in the main chain"}
       ]
     },
     "tiff_data": {
@@ -328,7 +385,7 @@
       },
       "constraints": [
         {
-          "require": "!in(compression, [1, 5, 8, 32946, 50000]) || fill_order == 1",
+          "require": "!in(compression, [1, 5, 8, 32946, 50000, 34887, 34925, 50001, 50002]) || fill_order == 1",
           "message": "the image at {offset} has FillOrder {fill_order}"
         },
         {
@@ -388,6 +445,9 @@
           "require": "in(compression, jpeg2000) || compression != 7 || (bits == 8 && sample_format == 1 && (spp == 1 || (spp == 3 && planar == 1 && in(photometric, [2, 6]))))",
           "message": "unsupported JPEG: {bits}-bit, {spp} samples, planar {planar}, photometric {photometric}"
         },
+        {"require": "compression != 34887 || bits < 64 || sample_format == 3", "message": "unsupported LERC: {bits}-bit, SampleFormat {sample_format}"},
+        {"require": "compression != 50001 || (bits == 8 && sample_format == 1 && planar == 1 && in(spp, [3, 4]))", "message": "unsupported WebP: {bits}-bit, SampleFormat {sample_format}, {spp} samples, planar {planar}"},
+        {"require": "compression != 50002 || (sample_format == 1 && in(bits, [8, 16])) || (sample_format == 3 && bits == 32)", "message": "unsupported JPEG XL: {bits}-bit, SampleFormat {sample_format}"},
         {"require": "in(compression, compressions)", "message": "unsupported compression {compression}"}
       ]
     },
@@ -432,10 +492,9 @@
       "constraints": [{"require": "read <= size", "message": "the short last LZW strips would be read for their tails {read} bytes, more than the file's {size}"}]
     },
     "padding": {
-      "about": "a level in strips whose last strip is short, after it is padded (uncompressed, LZW) or found unpaddable (another compression)",
+      "about": "a level in strips whose last strip is short, after it is padded (uncompressed, LZW) or found unpaddable (another compression), whose chunks are then a rectilinear grid's (spec/zarrify/tiff.md §4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>)",
       "given": {"level": "", "compression": "", "kept": "the level is padded", "zeros": "the most zero bytes a strip of the level is padded with", "read": "(LZW) the most bytes of a last strip read for its tail: its byte count, at most 3 × its decoded size + 64"},
       "constraints": [
-        {"require": "kept", "message": "level {level} is in strips of compression {compression} whose last strip is short, which cannot be padded"},
         {"require": "zeros <= max_padding", "message": "level {level} pads its last strip with {zeros} zero bytes, more than {max_padding}"},
         {"require": "!present(read) || read <= eager_decode", "message": "level {level}'s last LZW strip would be read up to {read} bytes for its tail, more than {eager_decode}"}
       ]

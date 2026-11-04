@@ -39,6 +39,8 @@ LAYOUT = {
 }
 # mode: (numpy type, bytes per voxel)
 MODES = {0: ("i1", 1), 1: ("i2", 2), 2: ("f4", 4), 4: ("c8", 8), 6: ("u2", 2), 12: ("f2", 2)}
+COMPLEX_INT16 = 3
+INT4 = 101
 MACHST = {"<": b"\x44\x44\0\0", ">": b"\x11\x11\0\0"}
 
 
@@ -80,6 +82,24 @@ def mrc(name: str, dims, mode: int = 2, *, order: str = "<", ispg: int = 1, data
         data = voxels([max(d, 0) for d in dims], mode if mode in MODES else 2, order, seed)
     content = bytes(header) + extended + data + trailer
     (OUT / f"{name}.mrc").write_bytes(content[: len(content) - truncate])
+
+
+def nibbles(dims, seed: int) -> bytes:
+    """Mode 101's data: random 4-bit values, the first of each byte in its low nibble, each row
+    starting on a byte (spec/zarrify/mrc.md §3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#3-data-types>)."""
+    nx, ny, nz = dims
+    rng = np.random.default_rng(seed)
+    rows = rng.integers(0, 16, size=(nz * ny, nx + nx % 2), dtype=np.uint8)
+    rows[:, nx:] = 0
+    return (rows[:, ::2] | rows[:, 1::2] << 4).tobytes()
+
+
+def complex_ints(dims, order: str, seed: int) -> bytes:
+    """Mode 3's data: a real and an imaginary int16 per value."""
+    nx, ny, nz = dims
+    rng = np.random.default_rng(seed)
+    return rng.integers(-30000, 30000, size=(nz, ny, nx, 2), dtype=np.int16).astype(order + "i2").tobytes()
 
 
 def ccp4_symmetry(ops: list[str]) -> bytes:
@@ -152,6 +172,18 @@ def main() -> None:
     # An image stack's origin is a phase origin in pixels: no translation.
     mrc("mrc_edge_origin_image_stack", (3, 3, 2), 2, ispg=0, origin=[1.0, 2.0, 0.0])
     mrc("mrc_edge_origin_image", (3, 3, 1), 2, ispg=0, origin=[1.0, 2.0, 0.0])
+    # Mode 101, packed 4-bit values: a width whose rows are one run of bits, cut as chunks; an
+    # odd width, whose rows each end on a padding nibble, one chunk a row; and an image
+    dims = (4, 3, 2)
+    mrc("mrc_mode_int4", dims, INT4, data=nibbles(dims, 101), cella=[4.0, 3.0, 2.0], dmin=0.0, dmax=15.0)
+    dims = (5, 3, 2)
+    mrc("mrc_mode_int4_odd_width", dims, INT4, data=nibbles(dims, 102), dmin=0.0, dmax=15.0)
+    dims = (6, 3, 1)
+    mrc("mrc_mode_int4_image", dims, INT4, ispg=0, data=nibbles(dims, 103))
+    # Mode 3, a real and an imaginary int16, in both byte orders
+    dims = (3, 2, 2)
+    mrc("mrc_mode_complex_int16", dims, COMPLEX_INT16, data=complex_ints(dims, "<", 3), dmin=-100.0, dmax=100.0)
+    mrc("mrc_mode_complex_int16_be", dims, COMPLEX_INT16, order=">", data=complex_ints(dims, ">", 4))
     # IMOD's stamp and flags at bytes 152 and 156. In a stamped file bit 0 of the flags says
     # the bytes are signed ("1 = bytes are stored as signed (the default as of IMOD 4.9)",
     # imodFlags in <https://bio3d.colorado.edu/imod/doc/mrc_format.txt>); when that bit is clear,
@@ -202,8 +234,7 @@ def main() -> None:
     mrc("mrc_reject_nx_zero", (0, 2, 2), 2)
     mrc("mrc_reject_ny_negative", (3, -2, 2), 2, data=b"")
     mrc("mrc_reject_nz_zero", (3, 2, 0), 2)
-    mrc("mrc_reject_mode_complex_int16", (3, 2, 2), 3, data=bytes(48))
-    mrc("mrc_reject_mode_int4", (3, 2, 2), 101, data=bytes(6))
+    mrc("mrc_reject_mode_int4_short", (3, 2, 2), INT4, data=bytes(6))
     mrc("mrc_reject_mode_unknown", (3, 2, 2), 7, data=bytes(48))
     mrc("mrc_reject_mode_negative", (3, 2, 2), -1, data=bytes(48))
     mrc("mrc_reject_nsymbt_negative", (3, 2, 2), 2, nsymbt=-80)

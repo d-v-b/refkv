@@ -1,0 +1,4 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<LMSDataContainerHeader Version="2">
+<Element Name="edge_reject_lif_xlef_identity" Visibility="1" CopyOption="1" UniqueID="00000000-0000-4000-8000-0000a2de2863"><Data><Experiment Path="C:/data/edge_reject_lif_xlef_identity" /></Data><Memory Size="0" MemoryBlockID="" /><Children><Reference File=".%5C_edge_reject_lif_xlef_identity_%5CSolo.xlif" UUID="00000000-0000-4000-8000-000018991a24" /></Children></Element>
+</LMSDataContainerHeader>

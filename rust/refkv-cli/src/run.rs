@@ -4,7 +4,7 @@
 
 use crate::transport::Transport;
 use crate::Fail;
-use refkv_ir::run::{Format, Run};
+use refkv_ir::run::{Format, Run, SNIFF, SNIFF_LATE};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// The rejection of a file no format's signature matches.
@@ -102,6 +102,24 @@ pub fn drive(run: &mut Run, t: &Transport, conc: usize) -> Result<(), Fail> {
     Ok(())
 }
 
+/// The format of the file `t` opened, by its first bytes: `SNIFF` of them and, only when those
+/// give none, `SNIFF_LATE` (spec/zarrify.md §1.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>).
+fn sniffed(t: &Transport) -> Result<Option<Format>, Fail> {
+    let head = |want: u64| -> Result<Vec<u8>, Fail> {
+        let (held, _) = t.head();
+        if held.len() as u64 >= want { Ok(held[..want as usize].to_vec()) } else { t.get(0, want) }
+    };
+    let want = t.size().min(SNIFF as u64);
+    if let Some(f) = Format::sniff(&head(want)?) {
+        return Ok(Some(f));
+    }
+    if want == t.size() {
+        return Ok(None);
+    }
+    Ok(Format::sniff(&head(t.size().min(SNIFF_LATE as u64))?))
+}
+
 /// The store format of the file `t` opened, when its profile reads it with the files beside it
 /// (`Format::store_run`): a VSI file (spec/zarrify/vsi.md §9.1
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#91-the-vsi-file>) with its
@@ -109,10 +127,15 @@ pub fn drive(run: &mut Run, t: &Transport, conc: usize) -> Result<(), Fail> {
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#83-the-data-file>) with its
 /// data file (vsi.rs), rather than as a file run.
 pub fn beside_format(t: &Transport) -> Result<Option<refkv_ir::store::StoreFormat>, Fail> {
-    let want = t.size().min(552);
-    let (held, _) = t.head();
-    let head = if held.len() as u64 >= want { held[..want as usize].to_vec() } else { t.get(0, want)? };
-    Ok(Format::sniff(&head).filter(|f| f.store_run()).and_then(|f| refkv_ir::store::StoreFormat::from_name(f.name())))
+    Ok(sniffed(t)?.filter(|f| f.store_run()).and_then(|f| refkv_ir::store::StoreFormat::from_name(f.name())))
+}
+
+/// What a file's run gave: its format and output, or the store format to start over with, when the
+/// file names siblings (spec/zarrify.md §1.9
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>).
+pub enum Zarrified {
+    File(Format, refkv_ir::out::Out),
+    Beside(refkv_ir::store::StoreFormat),
 }
 
 /// (format, output) of the file at `location`, read through `t`: the format its first bytes give
@@ -120,21 +143,23 @@ pub fn beside_format(t: &Transport) -> Result<Option<refkv_ir::store::StoreForma
 /// `url` (default: `location`, or for a local file the path's URI reference), for ranges that
 /// will carry checksums when `checksums`.
 pub fn zarrify_file(location: &str, url: Option<&str>, t: &Transport, connections: Option<usize>, byte_cost: Option<f64>,
-                    checksums: bool) -> Result<(Format, refkv_ir::out::Out), Fail> {
-    let want = t.size().min(552);
-    let (held, _) = t.head();
-    let head = if held.len() as u64 >= want { held[..want as usize].to_vec() } else { t.get(0, want)? };
-    let fmt = Format::sniff(&head).ok_or_else(|| Fail::Rejected(NOT_SUPPORTED.into()))?;
+                    checksums: bool) -> Result<Zarrified, Fail> {
+    let fmt = sniffed(t)?.ok_or_else(|| Fail::Rejected(NOT_SUPPORTED.into()))?;
     let mut run = new_run(fmt, t, connections, byte_cost)?;
     drive(&mut run, t, concurrency(t, connections)?)?;
     let fmt = run.format;
+    if run.beside() {
+        let store = refkv_ir::store::StoreFormat::from_name(fmt.name())
+            .ok_or_else(|| Fail::Rejected(format!("internal: the {} profile reads no siblings", fmt.name())))?;
+        return Ok(Zarrified::Beside(store));
+    }
     let name = match url {
         Some(u) => u.to_string(),
         None if t.remote() => location.to_string(),
         None => refkv_vzip::uri::path_reference(location).map_err(Fail::Other)?,
     };
     let out = run.into_output(&name, true, checksums).map_err(Fail::Rejected)?;
-    Ok((fmt, out))
+    Ok(Zarrified::File(fmt, out))
 }
 
 #[cfg(test)]
@@ -158,7 +183,9 @@ mod tests {
         let client = crate::http::Client::new(crate::policy::Policy::default(), std::time::Duration::from_secs(5));
         for checksums in [false, true] {
             let t = Transport::open(path, &client).unwrap();
-            let (_, out) = zarrify_file(path, Some("https://data.test/a.flac"), &t, None, None, checksums).unwrap();
+            let Ok(Zarrified::File(_, out)) = zarrify_file(path, Some("https://data.test/a.flac"), &t, None, None, checksums) else {
+                panic!("not a file's output");
+            };
             assert_eq!(out.summary["joinRanges"], serde_json::json!(!checksums));
         }
     }

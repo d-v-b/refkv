@@ -59,6 +59,24 @@ def as_json(v):
 
 
 IMOD = 1146047817
+# The modes mrcfile does not read, whose values come from the file's bytes: complex int16, and
+# 4 bits, a row's first value in the low nibble of its first byte.
+UNREAD = {3, 101}
+
+
+def unread_mode(header, raw: bytes, order: str) -> np.ndarray:
+    """The data of a mode of UNREAD, in the array's shape (spec/zarrify/mrc.md §3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#3-data-types>)."""
+    nx, ny, nz = int(header.nx), int(header.ny), int(header.nz)
+    data = raw[1024 + int(header.nsymbt):]
+    shape = (ny, nx) if int(header.ispg) == 0 and nz == 1 else (nz, ny, nx)
+    if int(header.mode) == 3:
+        dtype = np.dtype([("real", order + "i2"), ("imag", order + "i2")])
+        return np.frombuffer(data, dtype, nz * ny * nx).astype(dtype.newbyteorder("=")).reshape(shape)
+    rows = np.frombuffer(data, np.uint8, nz * ny * ((nx + 1) // 2)).reshape(nz * ny, -1)
+    values = np.empty((nz * ny, 2 * rows.shape[1]), np.uint8)
+    values[:, ::2], values[:, 1::2] = rows & 15, rows >> 4
+    return values[:, :nx].reshape(shape)
 
 
 def load(path):
@@ -68,11 +86,14 @@ def load(path):
     file with IMOD's stamp and bit 0 of its flags clear is its bytes as uint8."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        with mrcfile.open(path, permissive=False) as f:
+        with mrcfile.open(path, permissive=True) as f:
             # mrcfile is unannotated: pyrefly takes its header for None, as it is before a read
-            header, data = cast("np.recarray", f.header).copy(), np.array(f.data)
+            header, data = cast("np.recarray", f.header).copy(), f.data
     raw = path.read_bytes()
     order = "<" if header.mode.dtype.byteorder in "<=" else ">"
+    if int(header.mode) in UNREAD:
+        return header, unread_mode(header, raw, order)
+    data = np.array(data)
     stamp, flags = struct.unpack(order + "ii", raw[152:160])
     if int(header.mode) == 0 and stamp == IMOD and not flags & 1:
         data = data.view(np.uint8)
@@ -87,8 +108,8 @@ def zarrified(path, tmp_path):
 
 @pytest.mark.parametrize("path", [p for p in MRCS if not p.name.startswith("mrc_reject")], ids=lambda p: p.name)
 def test_matches_mrcfile_and_rebuilds(path, tmp_path):
-    """The array is mrcfile's data, in its shape and type; every header field is mrcfile's
-    reading of it (spec/zarrify/mrc.md §5.1
+    """The array is mrcfile's data (for a mode mrcfile does not read, the file's bytes), in its
+    shape and type; every header field is mrcfile's reading of it (spec/zarrify/mrc.md §5.1
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#51-the-root>); the file is
     rebuilt from the mirror."""
     header, want = load(path)
@@ -105,7 +126,7 @@ def test_matches_mrcfile_and_rebuilds(path, tmp_path):
     for name in names:
         assert at(meta, "header", name) == as_json(header[name]), name
     assert meta["byte_order"] == ("little" if header.mode.dtype.byteorder in "<=" else "big")
-    assert meta["data_type"] == str(want.dtype.newbyteorder("="))
+    assert meta["data_type"] == ("struct" if want.dtype.names else str(want.dtype.newbyteorder("=")))
     kind = {2: "image", 4: "volume_stack"}.get(want.ndim, "image_stack" if header.ispg == 0 else "volume")
     assert meta["kind"] == kind
     assert out.summary["kind"] == kind

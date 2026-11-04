@@ -28,6 +28,10 @@ pub struct Refs<'a> {
     seen: HashSet<(u64, u64, u64)>,
     limits: [u64; 2],
     spent: [u64; 2],
+    /// of a store IR: each element's object (`in_object_of`)
+    sources: Option<crate::ir::Sources>,
+    /// the object the ranges being added are of, and its virtual offset
+    object: Option<(String, u64)>,
 }
 
 const WHAT: [&str; 2] = ["refs", "repeats"];
@@ -54,7 +58,36 @@ impl<'a> Refs<'a> {
             seen: HashSet::new(),
             limits: [(1 << 22) + 4 * ir.size, 1 << 20],
             spent: [0, 0],
+            sources: None,
+            object: None,
         }
+    }
+
+    /// The ranges added from now on are of the object that holds element `e`, when the IR is a
+    /// store's (conventions §8.9
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>); a file IR's stay
+    /// ranges of source 0.
+    pub fn in_object_of(&mut self, e: u32) {
+        if !self.ir.store {
+            return;
+        }
+        let ir = self.ir;
+        let sources = self.sources.get_or_insert_with(|| ir.sources());
+        self.object = sources.of.get(e as usize).filter(|&&o| o != crate::ir::NONE)
+            .map(|&o| (ir.key(o), sources.base[o as usize]));
+    }
+
+    fn base(&self) -> u64 {
+        self.object.as_ref().map_or(0, |o| o.1)
+    }
+
+    /// `parts` as ranges of the object they are of (`in_object_of`).
+    fn placed(&self, parts: Vec<Part>) -> Vec<Part> {
+        let Some((key, _)) = &self.object else { return parts };
+        parts.into_iter().map(|p| match p {
+            Part::Src(o, n) => Part::Obj(key.clone(), o, n),
+            p => p,
+        }).collect()
     }
 
     fn charge(&mut self, k: usize) -> Result<(), String> {
@@ -89,13 +122,14 @@ impl<'a> Refs<'a> {
     /// `form`), or `parts` of it, piece `piece`.
     pub fn chunk(&mut self, key: String, start: u64, length: u64, form: u32, parts: Option<Vec<Part>>, piece: u64) -> Result<(), String> {
         self.charge(0)?;
-        if !self.seen.insert((start, length, piece)) {
+        if !self.seen.insert((self.base() + start, length, piece)) {
             self.charge(1)?;
         }
         let parts = match parts {
             Some(p) => p,
             None => self.parts(start, length, form)?,
         };
+        let parts = self.placed(parts);
         if payload_size(&parts) > MAX_PAYLOAD {
             return Err(format!("{key}: a reference payload of more than {MAX_PAYLOAD} bytes"));
         }
@@ -109,7 +143,7 @@ impl<'a> Refs<'a> {
         let mut parts: Vec<Part> = Vec::new();
         for &(start, length, form) in strips {
             self.charge(0)?;
-            if !self.seen.insert((start, length, 0)) {
+            if !self.seen.insert((self.base() + start, length, 0)) {
                 self.charge(1)?;
             }
             for part in self.parts(start, length, form)? {
@@ -120,6 +154,7 @@ impl<'a> Refs<'a> {
             }
         }
         parts.extend(tail);
+        let parts = self.placed(parts);
         if payload_size(&parts) > MAX_PAYLOAD {
             return Err(format!("{key}: a reference payload of more than {MAX_PAYLOAD} bytes"));
         }

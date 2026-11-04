@@ -182,6 +182,10 @@ class Run:
     @multirange.setter
     def multirange(self, v: bool | None) -> None: ...
     @property
+    def beside(self) -> bool:
+        """Whether the file names siblings, once `poll` gave None: the run has no output, and
+        the host starts over with a store run of `format`."""
+    @property
     def format(self) -> str:
         """The run's format: "tiff" becomes "ndpi" once its parser finds the file is NDPI."""
     def stats(self) -> str:
@@ -218,6 +222,9 @@ class StoreRun:
         exist) before polling again."""
     def found(self, size: int | None) -> None:
         """The answer to the next probe of the batch: the key's size, or None when it does not exist."""
+    def found_as(self, size: int, key: str) -> None:
+        """The answer to the next probe of the batch, found at another key by listing
+        (`StoreRun::found_as`): its size and that key."""
     def ignore(self, keys: Sequence[str], folders: Sequence[str] = ...) -> None:
         """The keys the listing ignores, before the first poll (`StoreRun::ignore`): `keys`, the
         relative keys the store reader ignored and recorded (`Store.ignored`), which the
@@ -242,7 +249,7 @@ def crc32c(data: bytes) -> int:
     """CRC-32C (Castagnoli, RFC 3720 §B.4) of `data`: a range's checksum (spec §4.2
     <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>)."""
 def sniff(head: bytes) -> str | None:
-    """The format a file's first bytes (up to 552 of them) give (`Format::sniff`), if any: its
+    """The format a file's first bytes (up to 65,600 of them) give (`Format::sniff`), if any: its
     profile's name."""
 def registry() -> str:
     """The profile registry (spec/zarrify/profiles/, as the core holds it): its entries, by

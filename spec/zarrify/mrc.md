@@ -13,6 +13,10 @@ Changed 2026-11-04: a mode 0 file with IMOD's stamp is `uint8` when bit 0 of IMO
 clear and `int8` when it is set ([§3](#3-data-types)); the earlier rule read the bit inverted,
 against IMOD's documentation, so a stamped mode 0 file's data type changes.
 
+Changed 2026-11-04: modes 3 and 101 are admitted ([§3](#3-data-types)): mode 3 as a `struct` of two
+`int16`, mode 101 as `uint8` through zarr-extensions' bit-packing `packbits`, its chunks cut where
+values start on a byte ([§4.1](#41-the-array)).
+
 Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
 [Layout](#layout) and its types in type tables
 ([conventions §11.5](../conventions.md#115-layout-tables)), and the text says, as refkv already
@@ -144,9 +148,11 @@ fastest, then the row, then the section.
 | 0 | INT8 | `int8` | 1 |
 | 1 | INT16 | `int16` | 2 |
 | 2 | FLOAT32 | `float32` | 4 |
+| 3 | COMPLEX_INT16 | `struct` of `real` and `imag`, each `int16` | 4 |
 | 4 | COMPLEX64 | `complex64` | 8 |
 | 6 | UINT16 | `uint16` | 2 |
 | 12 | FLOAT16 | `float16` | 2 |
+| 101 | INT4 | `uint8`, packed | ½, each row starting on a byte |
 
 Mode 0 is `int8`, as the MRC2014 standard says, except in a file IMOD
 marks as unsigned. When `mode` is 0 and the `i32` at byte 152 (in the
@@ -162,6 +168,19 @@ Reading a stamped file with the bit clear as `int8` would make every value over 
 stamp.)
 A `complex64` value is its real part, then its imaginary part, each a
 binary32 in the file's byte order.
+
+A mode 3 value is its real part, then its imaginary part, each an `int16` in the file's byte
+order. Zarr has no complex integer type, so the array's data type is zarr-extensions'
+[`struct`](https://github.com/zarr-developers/zarr-extensions/tree/main/data-types/struct) with the
+fields `real` and `imag`.
+
+A mode 101 value is 4 bits, unsigned: a row's first value is the low nibble of its first byte, its
+second the high nibble, and so on. A row of odd `nx` ends on a padding nibble, so that every row
+starts on a byte and has `⌈nx / 2⌉` bytes, and `B = ⌈nx / 2⌉ × ny × nz` ([§8.1](#81-header)).
+The order is zarr-extensions'
+[`packbits`](https://github.com/zarr-developers/zarr-extensions/tree/main/codecs/packbits), which is
+bit packing, not TIFF's run-length PackBits; the array decodes to one `uint8` a value, from 0 to
+15. SerialEM writes this mode for K2 and K3 frames.
 
 ## 4. The image
 
@@ -203,8 +222,8 @@ the volume's index in the stack, of type `time`; it is not the acquisition time.
 | `shape` | array of integer | required | `[ny, nx]`, `[nz, ny, nx]` or `[nz / mz, mz, ny, nx]`, in the axes' order |
 | `data_type` | string | required | from [§3](#3-data-types) |
 | `chunk_grid` | object | required | regular, the chunk shape that [conventions §7](../conventions.md#7-source-values-as-arrays) gives (**Chunks**, below) |
-| `fill_value` | number or array of number | required | 0, or `[0, 0]` for `complex64` |
-| `codecs` | array of object | required | `[{"name": "bytes", "configuration": {"endian": E}}]`, `E` the file's byte order, or `[{"name": "bytes"}]` for a one-byte data type (`int8`, and IMOD's `uint8`). There is no transpose: the stored order is the array's |
+| `fill_value` | number, array of number or object | required | 0, `[0, 0]` for `complex64`, or `{"real": 0, "imag": 0}` for mode 3 |
+| `codecs` | array of object | required | `[{"name": "bytes", "configuration": {"endian": E}}]`, `E` the file's byte order, or `[{"name": "bytes"}]` for a one-byte data type (`int8`, and IMOD's `uint8`); for mode 101, `[{"name": "packbits", "configuration": {"padding_encoding": "none", "last_bit": 3}}]`. There is no transpose: the stored order is the array's |
 | `dimension_names` | array of string | required | the axes |
 | `attributes` | object | required | `{}` ([§1](#1-declaration)) |
 
@@ -221,6 +240,13 @@ For example, a `256 × 128` int16 stack of 20 sections (the fixture
 floor(2^20 / 65536)) = 2` chunks of 10 sections each, the chunk shape
 `[10, 128, 256]`. A `1000 × 1100` int8 image of 1100000 bytes, over `L`, is
 cut along its rows into 2 chunks of 550 rows, `[550, 1000]`.
+
+**Chunks of mode 101.** The values are cut with elements of one byte, the same limit, as the
+safetensors profile cuts a packed tensor ([safetensors.md §8.3](safetensors.md#83-chunks)): when
+`nx` is even and each chunk's first value is the first of a byte, each chunk of values `[s, s + m)`
+is the bytes `[v + s / 2, v + (s + m) / 2)`, padded with zero bytes to the whole chunk's. Otherwise,
+as for an odd `nx`, whose rows are not one run of bits, there is one chunk per row, its chunk shape
+1 along every axis but the columns', each the row's `⌈nx / 2⌉` bytes.
 
 ### 4.2 Scales, units and position
 
@@ -254,7 +280,7 @@ in its unit cell, are not applied ([§7](#7-what-the-layout-does-not-express)); 
 ### 4.3 Channels
 
 `M` has an `"omero"` member, an [`Omero`](../conventions.md#type-omero), when the data type is
-not `complex64`, and `dmin` and `dmax` are finite with `dmax > dmin`, and in no other case:
+not `complex64` or a mode 3 `struct`, and `dmin` and `dmax` are finite with `dmax > dmin`, and in no other case:
 `{"channels": [{"label": "C0", "color": "FFFFFF", "active": true, "window":
 {"min": dmin, "max": dmax, "start": dmin, "end": dmax}}]}`, one channel
 (an [`OmeroChannel`](../conventions.md#type-omerochannel)) whatever the kind of file.
@@ -344,7 +370,7 @@ Paths are relative to the IR's root, whose path is `""`
 | `""` | struct | | the root: the whole file, `(0, size)` |
 | `header` | value | record | `(0, 1024)`: the header as one record, a field per field of [§2](#2-the-header) in its order and named as there: `Ei4` or `Ef4` for its type (`[k]` for `T[k]`), `u1[4]` for `machst`, `bytes[k]` for `bytes[k]`, `cstr[k]` for `char[k]`, and `{text:cstr[80]}[10]` for `label` |
 | `extended` | value | `bytes[n]` | `(1024, n)`, when `n > 0`: the extended header, opaque |
-| `data` | data | | `(1024 + n, B)`, `B = nx × ny × nz × b`: the data; its form's geometry is `{"data_type": D, "samples": 1}` ([§3](#3-data-types)), its codec `{"endian": "little" \| "big"}`, and its recipe `[["src", 0, null]]` |
+| `data` | data | | `(1024 + n, B)`, `B` the data's size ([§8.1](#81-header)): the data; its form's geometry is `{"data_type": D, "samples": 1}`, with `"bits": 4` for mode 101 ([§3](#3-data-types)), its codec `{"endian": "little" \| "big"}`, and its recipe `[["src", 0, null]]` |
 | `gaps/<offset>` | gap | | bytes no other element claims: those after the data |
 
 The view ([conventions §8.7](../conventions.md#87-the-view)) shows the header;
@@ -494,13 +520,12 @@ the fourth byte of `map`, a space or a NUL, are not checked.)
 order:
 
 - **Dimensions:** `nx`, `ny` and `nz` are each at least 1.
-- **Mode:** `mode` is in the table of [the convention §3](#3-data-types).
-  Modes 3 (complex int16) and 101 (4-bit) are named in the rejection; any
+- **Mode:** `mode` is in the table of [the convention §3](#3-data-types); any
   other value is unknown.
 - **Extended header:** `nsymbt` is not negative, and `1024 + nsymbt` is at
   most the file's size.
 - **Volume stack:** if `ispg ≥ 401`, `mz` is at least 1 and divides `nz`.
-- **Data size:** `B = nx × ny × nz × b` computed exactly is at most
+- **Data size:** `B = nx × ny × nz × b` (for mode 101, `⌈nx / 2⌉ × ny × nz`) computed exactly is at most
   2^53 − 1, and `1024 + nsymbt + B` is at most the file's size.
 
 Every check applies whatever the other fields hold. No other field is

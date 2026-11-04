@@ -46,7 +46,7 @@
         "zarr_conventions",
         "refkv_zarrified"
       ],
-      "additionalProperties": false
+      "additionalProperties": true
     }
   },
   "required": [
@@ -246,6 +246,44 @@
                 "fields"
               ],
               "additionalProperties": false
+            },
+            "not_presented": {
+              "type": "array",
+              "description": "The IFD images left out (spec/zarrify/vsi.md §4.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#44-ifd-images-that-are-not-presented>)",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "ifd": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "ifd",
+                  "reason"
+                ],
+                "additionalProperties": false
+              },
+              "minItems": 1
             }
           },
           "required": [
@@ -592,7 +630,10 @@
                   "enum": [
                     "raw",
                     "jpeg",
-                    "jpeg2000"
+                    "jpeg2000",
+                    "ljpeg",
+                    "png",
+                    "bmp"
                   ]
                 },
                 "quality": {

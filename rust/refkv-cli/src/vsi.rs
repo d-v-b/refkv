@@ -6,7 +6,9 @@
 //! store formats ask for those files by key (the probes of `refkv_ir::store::StoreRun`) rather
 //! than from a listing. The files are the objects of a store whose URL is the named file's
 //! directory, each read through a transport of its own (`transport.rs`); a probe opens the file,
-//! and one that does not exist (a missing local file, an HTTP 404) is absent. The twin of
+//! and one that does not exist (a missing local file, an HTTP 404) is absent. A LAS X project's files
+//! (spec/zarrify/lif.md §8 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#8-las-x-documents>)
+//! are named in another case than they have, so a local directory's are found by listing it. The twin of
 //! python/src/refkv/zarrify/store/beside.py.
 
 use crate::http::Client;
@@ -25,6 +27,8 @@ fn titles(format: StoreFormat) -> (&'static str, &'static str) {
     match format {
         StoreFormat::Nrrd => ("NRRD", "header file"),
         StoreFormat::Grib => ("GRIB", "GRIB file"),
+        StoreFormat::Lif => ("LIF", "named document"),
+        StoreFormat::Tiff => ("TIFF", "TIFF file"),
         _ => ("VSI", ".vsi file"),
     }
 }
@@ -72,6 +76,11 @@ pub struct Files {
     pub requests: u64,
     /// the format's title, which a rejection names
     title: &'static str,
+    /// a local directory's files are found by listing it (spec/zarrify.md §1.9
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>, **Case**)
+    case: bool,
+    /// the directories listed, by key
+    listed: HashMap<String, Option<Vec<String>>>,
 }
 
 impl Files {
@@ -100,13 +109,46 @@ impl Files {
         };
         let mut sizes = HashMap::new();
         sizes.insert(key.clone(), t.size());
-        Ok(Files { location: dir, url, remote, client: client.clone(), keys: vec![key], transports: vec![t], sizes, requests: 0, title })
+        let case = format == StoreFormat::Lif && !remote;
+        Ok(Files { location: dir, url, remote, client: client.clone(), keys: vec![key], transports: vec![t], sizes, requests: 0, title, case,
+                   listed: HashMap::new() })
     }
 
-    /// The size of the file `key` once opened, or None when it does not exist.
-    fn probe(&mut self, key: &str) -> Result<Option<u64>, Fail> {
+    /// The path of the file or directory at `key`.
+    fn path(&self, key: &str) -> std::path::PathBuf {
+        let mut p = std::path::PathBuf::from(if self.location.is_empty() { "." } else { self.location.as_str() });
+        for seg in key.split('/').filter(|s| !s.is_empty()) {
+            p.push(seg);
+        }
+        p
+    }
+
+    /// The entries of the local directory at the key `key`, or None when there is none.
+    fn listdir(&mut self, key: &str) -> Option<Vec<String>> {
+        if let Some(l) = self.listed.get(key) {
+            return l.clone();
+        }
+        let got = std::fs::read_dir(self.path(key)).ok().map(|d| {
+            d.filter_map(|e| e.ok().and_then(|e| e.file_name().into_string().ok())).collect::<Vec<String>>()
+        });
+        self.listed.insert(key.to_string(), got.clone());
+        got
+    }
+
+    /// The size and key of the file `written` once opened, or None when it does not exist.
+    fn probe(&mut self, written: &str) -> Result<Option<(u64, String)>, Fail> {
+        let found = if self.case {
+            match refkv_ir::beside::found_key(written, |d| self.listdir(d)) {
+                Ok(Some(k)) => k,
+                Ok(None) => return Ok(None),
+                Err((a, b)) => return Err(Fail::Rejected(format!("the file \"{written}\" matches both \"{a}\" and \"{b}\""))),
+            }
+        } else {
+            written.to_string()
+        };
+        let key = found.as_str();
         if let Some(&n) = self.sizes.get(key) {
-            return Ok(Some(n));
+            return Ok(Some((n, found)));
         }
         let t = if self.remote {
             match Transport::open(&object_url(&self.location, key), &self.client) {
@@ -115,10 +157,7 @@ impl Files {
                 Err(e) => return Err(e),
             }
         } else {
-            let mut p = std::path::PathBuf::from(if self.location.is_empty() { "." } else { self.location.as_str() });
-            for seg in key.split('/') {
-                p.push(seg);
-            }
+            let p = self.path(key);
             if !p.is_file() {
                 return Ok(None);
             }
@@ -129,7 +168,7 @@ impl Files {
         self.keys.push(key.to_string());
         self.transports.push(t);
         self.sizes.insert(key.to_string(), n);
-        Ok(Some(n))
+        Ok(Some((n, found)))
     }
 
     pub fn remote(&self) -> bool {
@@ -164,8 +203,12 @@ pub fn zarrify_vsi(location: &str, url: Option<&str>, t: Transport, client: &Arc
             // a batch of probes: each key answered with its size, or None when it does not exist
             let keys: Vec<String> = run.probes().to_vec();
             for k in keys {
-                let size = files.probe(&k)?;
-                run.found(size).map_err(Fail::Rejected)?;
+                match files.probe(&k)? {
+                    Some((size, key)) if key != k => run.found_as(size, &key),
+                    Some((size, _)) => run.found(Some(size)),
+                    None => run.found(None),
+                }
+                .map_err(Fail::Rejected)?;
             }
             continue;
         }

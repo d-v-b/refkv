@@ -26,7 +26,7 @@ who each one is for, what you get, and how to run it.
 | GRIB | GRIB2 files of gridded weather and climate fields (`.grib2`), as labeled arrays with CF coordinates | [grib](grib/README.md) | [grib.md §8](../../spec/zarrify/grib.md#8-grib-profile) |
 | HDF5 | HDF5 files (`.h5`, `.hdf5`), and NWB files (`.nwb`), which pynwb's `NWBZarrIO` opens | [hdf5](hdf5/README.md) | [hdf5.md §8](../../spec/zarrify/hdf5.md#8-hdf5-profile) |
 | IMS | Imaris `.ims` files | [ims](ims/README.md) | [ims.md §7](../../spec/zarrify/ims.md#7-ims-profile) |
-| LIF | Leica LIF files (`.lif`) | [lif](lif/README.md) | [lif.md §7](../../spec/zarrify/lif.md#7-lif-profile) |
+| LIF | Leica LIF, LOF and LIFEXT files, and LAS X projects (`.lif`, `.lof`, `.lifext`, `.xlef`, `.xlcf`, `.xlif`, `.xllf`) | [lif](lif/README.md) | [lif.md §7](../../spec/zarrify/lif.md#7-lif-profile) |
 | MP3 | MP3 audio files, as an array of samples (`.mp3`) | [mp3](mp3/README.md) | [mp3.md §8](../../spec/zarrify/mp3.md#8-mp3-profile) |
 | MP4 | MP4 and QuickTime video and audio, as arrays of planes and samples (`.mp4`, `.m4a`, `.m4v`, `.mov`) | [mp4](mp4/README.md) | [mp4.md §8](../../spec/zarrify/mp4.md#8-mp4-profile) |
 | MRC | MRC2014 maps, image stacks, volumes and volume stacks (`.mrc`, `.map`) | [mrc](mrc/README.md) | [mrc.md §8](../../spec/zarrify/mrc.md#8-mrc-profile) |
@@ -145,16 +145,17 @@ Policy`). A local file or directory needs neither.
 
 Read the archive in Python with `refkv.zarr` and zarr-python
 (`pip install 'refkv[zarr]'`, or `refkv[images]` for the JPEG, JPEG 2000,
-JPEG XR and LZW decoders and TIFF's horizontal predictor). zarr-python finds the codecs that some formats need by
+JPEG XR, PNG, BMP, LERC, WebP, JPEG XL, LZMA and LZW decoders and TIFF's horizontal and floating-point predictors). zarr-python finds the codecs that some formats need by
 the names the archive gives: refkv's own (`refkv.stream`, `refkv.grib`, `refkv.fits_tiles`,
 `refkv.tiff_lzw`, `refkv.skip`, `refkv.precomputed`, and `n5_default`) through refkv's `zarr.codecs` entry points,
 with no `import refkv.zarr` in your code (zarr imports the codec modules, which are
 under `refkv.zarr`, itself), imagecodecs-zarr's (`imagecodecs_jpeg`,
-`imagecodecs_jpeg2k`, `imagecodecs_jpegxr`, `imagecodecs_ljpeg`, `imagecodecs_delta`), which `refkv[images]` installs, and
+`imagecodecs_jpeg2k`, `imagecodecs_jpegxr`, `imagecodecs_ljpeg`, `imagecodecs_lzw`, `imagecodecs_jpegls`, `imagecodecs_dicomrle`, `imagecodecs_htj2k`, `imagecodecs_png`, `imagecodecs_bmp`, `imagecodecs_delta`, `imagecodecs_floatpred`, `imagecodecs_lerc`, `imagecodecs_webp`, `imagecodecs_jpegxl`, `imagecodecs_lzma`), which `refkv[images]` installs, and
 zarr-python's own (`numcodecs.zlib`, `numcodecs.shuffle`, `numcodecs.delta`). So a
 copy of an archive's arrays (in a directory, or in another store) reads with zarr
 alone, except that an array on the zarr-extensions `rectilinear` chunk grid (a
-clipped CZI level, an MP4 video plane whose chunks differ in length) also needs
+clipped CZI level, an MP4 video plane whose chunks differ in length, a TIFF level whose compressed last
+strip is short) also needs
 `zarr.config.set({"array.rectilinear_chunks": True})`. Importing `refkv.zarr` sets
 it, and so does loading one of refkv's codecs, but zarr checks an array's chunk
 grid before it loads its codecs: set it yourself before opening such an array.
@@ -277,8 +278,7 @@ Two limits apply:
   display. Of a hierarchy that is not an OME-Zarr image (an HDF5 file, a
   Zarr v2 or N5 store without one), the page shows the arrays Neuroglancer
   can: two or more axes, a data type it has (not `float64` or `int64`) and
-  codecs the fork decodes (not `numcodecs.zlib`, an HDF5 file's deflated
-  datasets); an HDF5 file's images first. A local build of the demo (`just
+  codecs the fork decodes; an HDF5 file's images first. A local build of the demo (`just
   js::build && node demo/serve.mjs 8080`; the build compiles the Rust core
   to WebAssembly first, `dist/refkv_ir.wasm`, so it needs a Rust toolchain
   with the `wasm32` target) shows a change before it is deployed.
@@ -345,7 +345,7 @@ each format's metadata is:
   the data type, the axis map and the voxel size. The archive also holds the
   file as a dataset for xarray under `dataset/`, declared by its own
   convention ([conventions §9](../../spec/conventions.md#9-dataset-layouts)).
-- **LIF:** the IR mirror on `refkv_source`: the XML header, every memory
+- **LIF, LOF and LIFEXT:** the IR mirror on `refkv_source`: the XML header, every memory
   block (an image's or not) and any bytes after them. The root keeps the
   file's version; each image keeps its element of the XML (its name, its path
   in the file's tree), its memory block, and every attribute of its dimensions
@@ -361,7 +361,7 @@ each format's metadata is:
   tree field by field, and the IFDs inside it) and every tile file (its
   headers, tile directory and tiles), each described in place, so that the
   mirror rebuilds each file from the slide's own bytes. The root keeps the
-  metadata tree as JSON, the list of stacks and the file's size; each
+  metadata tree as JSON, the list of stacks, the IFD images it left out and the file's size; each
   image keeps its stack's properties (scale, origin, channels, creation
   time, magnification) and its tile file's headers.
 - **MP3:** the IR mirror on `refkv_source`: the ID3v2 tags, the Xing or

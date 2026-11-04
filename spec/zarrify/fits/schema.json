@@ -46,7 +46,7 @@
         "zarr_conventions",
         "refkv_zarrified"
       ],
-      "additionalProperties": false
+      "additionalProperties": true
     }
   },
   "required": [
@@ -604,6 +604,12 @@
                         "pattern": "^-?[1-9][0-9]{15,}$"
                       }
                     ]
+                  },
+                  "field": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
                   }
                 },
                 "required": [
@@ -615,10 +621,24 @@
                   "zero",
                   "null",
                   "disp",
-                  "bcol"
+                  "bcol",
+                  "field"
                 ],
                 "additionalProperties": false
               }
+            },
+            "not_struct": {
+              "description": "Why a table's rows are bytes, null when they are a struct (spec/zarrify/fits.md §4.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#41-rows-as-a-struct>)",
+              "enum": [
+                null,
+                "ascii",
+                "form",
+                "names",
+                "empty",
+                "width",
+                "fields",
+                "row_size"
+              ]
             }
           },
           "required": [

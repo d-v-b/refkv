@@ -52,7 +52,8 @@ level, `0` the full resolution.
   ([tiff.md §4.5](../../../spec/zarrify/tiff.md#45-strips)). A short last chunk
   is padded to the others' rows, so that the chunk grid stays regular: with
   zeros when uncompressed, and with a few literal bytes that continue its
-  stream when LZW; a short last strip of DEFLATE, zstd or JPEG rejects the file. Interleaved RGB keeps its samples in one chunk, behind a
+  stream when LZW; a short last strip of DEFLATE, zstd, JPEG or JPEG 2000 cannot be padded, so its level
+  has the `rectilinear` chunk grid, a chunk a strip, unsharded. Interleaved RGB keeps its samples in one chunk, behind a
   `transpose` codec.
 - **Codecs:** none, LZW (`refkv.tiff_lzw`), DEFLATE (`numcodecs.zlib`), zstd, JPEG
   2000 (`imagecodecs_jpeg2k`) and JPEG (`imagecodecs_jpeg`), the tiles and
@@ -208,11 +209,9 @@ a TCGA slide on Zenodo with JPEG 2000 tiles, does work.
 
 The Neuroglancer fork (<https://github.com/d-v-b/neuroglancer>, branch `vzip`)
 displays these archives: it decodes `imagecodecs_jpeg` (8-bit),
-`imagecodecs_jpeg2k` (8- and 16-bit integers) and `zstd`, and DEFLATE as `zlib`, which
-archives named before d-v-b/refkv#90, and not yet `numcodecs.zlib`; the
-idr0096 OME-TIFF above, whose tiles are JPEG 2000, renders through the live demo. It does not decode
-`imagecodecs_delta`, so an image with Predictor 2 is not shown there (zarr-python, with
-`refkv[images]`, reads it). It has no `int64` or
+`imagecodecs_jpeg2k` (8- and 16-bit integers), `zstd`, `numcodecs.zlib`, `refkv.tiff_lzw` and
+`imagecodecs_delta`; the
+idr0096 OME-TIFF above, whose tiles are JPEG 2000, renders through the live demo. It has no `int64` or
 `float64` data types, so a TIFF with 64-bit integer or float samples cannot
 be shown there (zarr-python reads it).
 
@@ -227,26 +226,28 @@ Supported:
 - OME-TIFF planes over Z, C and T in any `DimensionOrder`, single-file.
 - Unsigned and signed integers of 8 to 64 bits, `float32` and `float64`,
   planar or interleaved samples.
-- Compression: none, LZW, DEFLATE, zstd, JPEG 2000, and JPEG (8-bit, gray
+- Compression: none, LZW, DEFLATE, zstd, LZMA, JPEG 2000, LERC (as GDAL's COG driver writes for LINZ's
+  elevation), WebP (3 or 4 samples of 8 bits, as for LINZ's imagery), JPEG XL, and JPEG (8-bit, gray
   or RGB or YCbCr) with or without `JPEGTables`.
 - The horizontal predictor (Predictor 2), as GDAL, libtiff and tifffile write
   it with LZW, DEFLATE or zstd, of integer samples: imagecodecs-zarr's
   `imagecodecs_delta` codec sums the differences back (zarr-python reads it
   with `refkv[images]`).
+- The floating-point predictor (Predictor 3), as GDAL writes for Copernicus DEM and USGS 3DEP
+  tiles, with LZW, DEFLATE or zstd, of float samples: imagecodecs-zarr's `imagecodecs_floatpred`
+  codec undoes it, in the place of `bytes`.
 
 Rejected:
 
-- Images in strips whose last strip is shorter than the others, when
-  compressed with DEFLATE, zstd, JPEG or JPEG 2000: such a strip cannot be
-  padded to the chunk. Nor one that would need more than 4 MiB (2^22 bytes)
-  of zeros, or a short last LZW strip of more than 16 MiB (2^24 bytes), which
-  is read to pad it.
+- Images in strips whose last strip is shorter than the others, when they would need more than
+  4 MiB (2^22 bytes) of zeros, or a short last LZW strip of more than 16 MiB (2^24 bytes), which is
+  read to pad it.
 - Old-style JPEG (compression 6).
-- The floating-point predictor (Predictor 3), and Predictor 2 of float
-  samples (whose bits are differenced as integers), without compression
-  (libtiff stores such a file undifferenced) or with JPEG: no codec of refkv's
-  conventions sums these back.
-- Multi-file OME-TIFF (`TiffData` naming other files).
+- Predictor 2 of float samples (whose bits are differenced as integers), Predictor 3 of
+  integer samples, either without compression (libtiff stores such a file undifferenced) or with
+  JPEG: no codec of refkv's conventions undoes these.
+- An image across files with SubIFD levels, or whose strips leave a short last strip
+  ([§7.4](../../../spec/zarrify/tiff.md#74-several-files)).
 - An OME-TIFF with several RGB channels (`SizeC` other than 1 or the
   samples per pixel).
 - More than 100000 IFDs or planes.
@@ -271,15 +272,28 @@ The browser code ([js/](../../../js/README.md)) reads TIFF:
   sizes and units.
 - Samples per pixel stored planar (one chunk per channel) or interleaved
   (through a `transpose` codec).
-- Compression: none, LZW (`refkv.tiff_lzw`), DEFLATE (`numcodecs.zlib`), zstd, JPEG 2000
-  (`imagecodecs_jpeg2k`), and JPEG (`imagecodecs_jpeg`), and Predictor 2 (`imagecodecs_delta`,
-  which the Neuroglancer fork does not decode yet, [Viewing](#viewing)). JPEG tiles that keep
+- Compression: none, LZW (`refkv.tiff_lzw`), DEFLATE (`numcodecs.zlib`), zstd, LZMA (`imagecodecs_lzma`), JPEG 2000
+  (`imagecodecs_jpeg2k`), LERC (`imagecodecs_lerc`), WebP (`imagecodecs_webp`), JPEG XL (`imagecodecs_jpegxl`), and JPEG (`imagecodecs_jpeg`), and Predictors 2 (`imagecodecs_delta`) and 3 (`imagecodecs_floatpred`). JPEG tiles that keep
   their tables in `JPEGTables`, as in Aperio SVS, become complete JPEG streams
   through references that prepend the tables and a color marker, held once
   in the archive as a `data` source.
 
 Not supported, and refused with HTTP 422: what the profile rejects (above),
-such as old-style JPEG, the floating-point predictor, and multi-file OME-TIFF.
+such as old-style JPEG.
+
+## Several files
+
+An OME-TIFF whose `TiffData` elements name other files is read with them, as is a Micro-Manager
+stack, which holds no OME-XML and keeps its planes in numbered files of up to 4 GB
+([§7.4](../../../spec/zarrify/tiff.md#74-several-files),
+[§7.5](../../../spec/zarrify/tiff.md#75-micro-manager-stacks)). Name the first file:
+
+```bash
+uv run refkv zarrify "https://downloads.openmicroscopy.org/images/Micro-Manager/1.4.22/sebastien/Test_Dataset_MultiPosition_Stack_1_MMStack_Pos0.ome.tif" stack.vzip
+```
+
+Each position of a Micro-Manager acquisition is its own input. This one is 140 frames of 3 channels
+and 21 slices across two files, 4.7 GB, read with 26 MB of requests.
 
 ## Performance
 

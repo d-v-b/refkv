@@ -176,7 +176,8 @@ HDF5 lists unpresented objects with a reason instead of rejecting the file.
 **The signature.** See [zarrify §1.2](../spec/zarrify.md#12-input), "Choosing
 the profile".
 - A test on the first `min(552, size)` bytes, with a precedence (`sniff`)
-  among the file profiles.
+  among the file profiles. A late signature, on `min(65600, size)` bytes, is
+  tested only when no other matches, as for an HDF5 file after a user block.
 - Or no signature, with `chosen_by` naming the profile whose reading chooses
   it, as TIFF chooses NDPI and QPTIFF.
 - A new parent profile can change a child's outputs: HDF5 had to revise IMS.
@@ -405,8 +406,14 @@ each reads the registry. Python needs only the generated classes.
 
 A file read as a store run (`store_run()`,
 [zarrify §1.8](../spec/zarrify.md#18-files-read-as-stores), as NRRD's detached
-headers, VSI's tiles and GRIB's index files are) is still registered by hand in
-several places:
+headers, VSI's tiles and GRIB's index files are) follows
+[zarrify §1.9](../spec/zarrify.md#19-sources-beside-the-input), and its document gives that
+section's sibling table. `refkv_ir::beside::written_key` turns a written name into a key. A
+profile whose file may name no sibling reads it **on demand**: its file parser returns
+`Step::Beside` on finding one, each host then starts over with a store run of the format, and a
+file that names none keeps its file run's output. The on-demand form does not set `store_run()`.
+
+Either form is still registered by hand in several places:
 - `StoreFormat` and its matches in `rust/refkv-ir/src/store.rs`;
 - `StoreFormat` in `js/src/zarrify/ir/store.ts`;
 - `BESIDE` in `js/src/zarrify/ir/vsi.ts` and `python/src/refkv/zarrify/__init__.py`;
@@ -419,6 +426,10 @@ several places:
 The rest of each host finds the format through these. The CLI asks
 `store_run()` (`beside_format` in `rust/refkv-cli/src/run.rs`), and Python and the
 browser code ask `BESIDE`.
+
+A format whose writers name files in another case than they have (LIF's XLEF documents) also lists
+a local directory for its files: `CASE` in `python/src/refkv/zarrify/__init__.py` and `case` in
+`rust/refkv-cli/src/vsi.rs`, which answer a probe with `StoreRun::found_as`.
 
 [#119](https://github.com/d-v-b/refkv/pull/119) added the first of these, and
 [#170](https://github.com/d-v-b/refkv/pull/170) is the shortest list, GRIB's. Every read of

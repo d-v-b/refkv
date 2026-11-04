@@ -9,13 +9,17 @@ zarrifies image files and stores, without Zarr. The extras add:
   (`refkv.zarr.codecs`), which zarr finds through refkv's `zarr.codecs` entry
   points;
 - `images`: imagecodecs-zarr, whose `imagecodecs_jpeg`, `imagecodecs_jpeg2k`,
-  `imagecodecs_jpegxr` and `imagecodecs_ljpeg` codecs the archives of JPEG, JPEG 2000,
-  JPEG XR and lossless JPEG images name, and whose `imagecodecs_delta` those of TIFFs with a horizontal
-  predictor, and imagecodecs, whose LZW decoder `refkv.tiff_lzw` calls, with the
-  `zarr` extra;
+  `imagecodecs_jpegxr`, `imagecodecs_ljpeg`, `imagecodecs_png` and `imagecodecs_bmp` codecs the
+  archives of JPEG, JPEG 2000, JPEG XR, lossless JPEG, PNG and BMP images name, whose
+  `imagecodecs_lerc`, `imagecodecs_webp`, `imagecodecs_jpegxl` and `imagecodecs_lzma` those of TIFFs
+  in LERC, WebP, JPEG XL and LZMA, whose `imagecodecs_lzw` those of CZI's LZW subblocks, and whose
+  `imagecodecs_delta` and `imagecodecs_floatpred` those of TIFFs with a horizontal or floating-point
+  predictor, and imagecodecs, whose LZW decoder `refkv.tiff_lzw` calls, with the `zarr` extra;
 - `media`: the decoders of the `refkv.stream` codec, which reads zarrified MP3,
   FLAC and MP4 files: ffmpeg's MP3, AAC, FLAC and H.264 decoders, through PyAV,
   with the `zarr` extra;
+- `precomputed`: the decoders of the `refkv.precomputed` codec's `compresso`, `crackle`, `fpzip`
+  and `kempressed` encodings, with the `zarr` extra;
 - `obstore`: obstore, whose stores (`S3Store`, `GCSStore`, `AzureStore`, ...)
   an application passes as `registry=` to read `s3://`, `gs://` or `az://`
   sources. refkv does not import it: a registry takes any obspec store, and

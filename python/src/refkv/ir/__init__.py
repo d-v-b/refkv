@@ -28,10 +28,24 @@ TIFF_VARIANTS = {e["name"]: e["title"] for e in REGISTRY if e["chosen_by"] == "t
 
 
 def sniff(head: bytes) -> str | None:
-    """The IR format a file's first bytes (up to 552 of them) give, if any: the Rust core's
+    """The IR format a file's first bytes (up to 65,600 of them) give, if any: the Rust core's
     `Format::sniff`, which tests each file profile's signature in the registry's `sniff` order
     (spec/zarrify.md §1.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>)."""
     return _core.sniff(head)
+
+
+async def sniffed(transport: Transport) -> str | None:
+    """The IR format of the file `transport` opened, by its first bytes: 552 of them and, only
+    when those give none, 65,600 (`sniff`)."""
+    async def head(want: int) -> bytes:
+        held = transport.head[1] or b""
+        return held[:want] if len(held) >= want else await asyncio.to_thread(transport.get, 0, want)
+
+    want = min(552, transport.size)
+    fmt = sniff(await head(want))
+    if fmt is None and want < transport.size:
+        fmt = sniff(await head(min(65600, transport.size)))
+    return fmt
 
 
 def parse(fmt: str, transport: Transport,
@@ -44,6 +58,12 @@ def parse(fmt: str, transport: Transport,
     except _core.Rejected as e:
         raise Rejected(str(e)) from None
     return ir, json.loads(facts), json.loads(stats)
+
+
+class NamesSiblingsError(Exception):
+    """A file that names siblings (spec/zarrify.md §1.9
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>): the
+    caller starts over with a store run of the format, `args[0]`."""
 
 
 async def zarrify_async(location: str, url: str | None = None, mirror: bool = True, policy: Policy | None = None,
@@ -62,16 +82,15 @@ async def zarrify_async(location: str, url: str | None = None, mirror: bool = Tr
     (spec/zarrify.md §2.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#21-virtual-shards>)."""
     transport = transport or await asyncio.to_thread(open_transport, location, policy)
     if fmt is None:
-        want = min(552, transport.size)
-        held = transport.head[1] or b""
-        head = held[:want] if len(held) >= want else await asyncio.to_thread(transport.get, 0, want)
-        fmt = sniff(head)
+        fmt = await sniffed(transport)
         if fmt is None:
             raise Rejected("not a file of any supported format")
     named = fmt
     run = new_run("tiff" if fmt in TIFF_VARIANTS else fmt, transport, connections, byte_cost)
     await drive_async(run, transport, connections)
     fmt = run.format  # a TIFF the core found to be NDPI is "ndpi"
+    if run.beside:
+        raise NamesSiblingsError(fmt)
     if named in TIFF_VARIANTS and fmt != named:  # before the projection reads more
         raise Rejected(f"not {TIFF_VARIANTS[named]}: the TIFF parser read it as {fmt}")
 

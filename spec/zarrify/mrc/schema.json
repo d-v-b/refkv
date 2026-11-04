@@ -46,7 +46,7 @@
         "zarr_conventions",
         "refkv_zarrified"
       ],
-      "additionalProperties": false
+      "additionalProperties": true
     }
   },
   "required": [
@@ -162,7 +162,8 @@
                 "float32",
                 "complex64",
                 "uint16",
-                "float16"
+                "float16",
+                "struct"
               ]
             },
             "header": {

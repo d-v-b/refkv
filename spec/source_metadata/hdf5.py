@@ -1,13 +1,14 @@
 """The HDF5 convention's source metadata (spec/zarrify/hdf5.md), for spec/generate_schemas.py.
 
 A node of the HDF5 convention holds the source's own attributes beside the convention's
-(spec/zarrify/hdf5.md §2.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#21-declaration-and-attributes>):
-`OPEN_ATTRIBUTES` lets the schema accept them, and `ATTRIBUTES` describes the members hdmf-zarr's
-convention reserves, which refkv writes."""
+(spec/zarrify/hdf5.md §2.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#21-declaration-and-attributes>),
+which every schema accepts, and `ATTRIBUTES` describes the members hdmf-zarr's convention reserves,
+which refkv writes."""
 
 _HDF5 = "https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md"
 _REASONS = ["name", "reserved", "named_datatype", "object", "datatype", "filter", "filter_mask", "edge_chunks",
-            "layout", "external_storage", "null_dataspace", "fill_value", "size", "shared", "budget"]
+            "layout", "external_storage", "dimension_only", "null_dataspace", "fill_value", "size", "shared",
+            "budget"]
 _DATATYPE = {"type": "object", "properties": {"class": {"type": "string"}, "size": {"type": "integer", "minimum": 0}},
              "required": ["class", "size"],
              "description": f"An HDF5 datatype, described ({_HDF5}#7-source-metadata)"}
@@ -23,6 +24,8 @@ SCHEMA = {"anyOf": [
         "properties": {
             "address": {"type": "integer", "minimum": 0, "description": "Its object header's address"},
             "superblock": {"enum": [0, 1, 2, 3], "description": "The root's: the superblock's version"},
+            "user_block": {"type": "integer", "minimum": 512,
+                           "description": "The root's, when the file has one: the user block's size"},
             "attributes": _TYPES,
             "unpresented_attributes": _NOT,
             "unpresented": _NOT,
@@ -77,5 +80,3 @@ ATTRIBUTES = {
     ".specloc": {"anyOf": [_REF, {"type": "string"}], "description": "An NWB file's cached specifications"},
 }
 
-# the source's attributes, any names (but the reserved ones, which ATTRIBUTES gives)
-OPEN_ATTRIBUTES = True

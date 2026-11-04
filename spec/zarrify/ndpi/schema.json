@@ -46,7 +46,7 @@
         "zarr_conventions",
         "refkv_zarrified"
       ],
-      "additionalProperties": false
+      "additionalProperties": true
     }
   },
   "required": [
@@ -138,7 +138,7 @@
       "anyOf": [
         {
           "type": "object",
-          "description": "The root's: level 0's acquisition tags (spec/zarrify/ndpi.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#5-source-metadata>)",
+          "description": "The root's: the first image's acquisition tags and the focal planes (spec/zarrify/ndpi.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#5-source-metadata>)",
           "properties": {
             "Fluorescence": {
               "$ref": "#/$defs/text",
@@ -184,6 +184,71 @@
                 }
               ],
               "description": "Tag 65454, the exposure time, in microseconds"
+            },
+            "FocalOffsets": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              },
+              "minItems": 1,
+              "description": "Tag 65424 of the planes of each level kept, ascending, in nanometers: one for each index along z"
+            },
+            "LeftOut": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "ifd": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Its main-chain index"
+                  },
+                  "magnification": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "enum": [
+                          "Infinity"
+                        ]
+                      }
+                    ]
+                  },
+                  "width": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "height": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "reason": {
+                    "enum": [
+                      "frame",
+                      "size",
+                      "chunks",
+                      "no_offset",
+                      "duplicate",
+                      "offsets"
+                    ]
+                  },
+                  "offset": {
+                    "type": "integer",
+                    "description": "Tag 65424, in nanometers"
+                  }
+                },
+                "required": [
+                  "ifd",
+                  "magnification",
+                  "width",
+                  "height",
+                  "reason"
+                ],
+                "additionalProperties": false
+              },
+              "minItems": 1,
+              "description": "The images of positive Magnification in no level, in chain order (spec/zarrify/ndpi.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#3-levels>)"
             }
           },
           "minProperties": 1,

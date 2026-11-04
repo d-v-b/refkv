@@ -16,3 +16,16 @@ https://openslide.cs.cmu.edu/download/openslide-testdata/Hamamatsu/Hamamatsu-2.n
 # The frozen reference has no JPEG XR levels (no-ref).
 https://downloads.openmicroscopy.org/images/Hamamatsu-NDPI/hamamatsu/DM0014%20-%202020-04-02%2010.25.21.ndpi|ndpi-DM0014-10.25.21-fluorescence|no-ref|ends-sha256=21205ab87de094b738152668145e35021d0b10ee8ac55658ade2ac60d7b76f84
 https://downloads.openmicroscopy.org/images/Hamamatsu-NDPI/hamamatsu/DM0014%20-%202020-04-02%2011.10.47.ndpi|ndpi-DM0014-11.10.47|no-ref|ends-sha256=15ce1e08e01fa9525845255c8da85baa06685a0b9147ed543677970e7d7e62ea
+# Elevation tiles in Predictor 3, the floating-point predictor: Copernicus DEM GLO-30 (Deflate; (c) DLR and
+# Airbus, on AWS's open data registry) and USGS 3DEP 1/3 arc-second (LZW; public domain). The frozen
+# reference has no Predictor 3 (no-ref).
+https://copernicus-dem-30m.s3.amazonaws.com/Copernicus_DSM_COG_10_N47_00_E008_00_DEM/Copernicus_DSM_COG_10_N47_00_E008_00_DEM.tif|dem-copernicus-glo30-N47-E008|no-ref|ends-sha256=6c7ddaa71eb1fb65134ee3515d03f3eb7911fd4f7e059bd35b38cb00b6614c93
+https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/13/TIFF/current/n40w106/USGS_13_n40w106.tif|dem-usgs-3dep-13-n40w106|no-ref|ends-sha256=3c273944b4608684521599e8ed4b11969a0b163032101e5eae168118846148e5
+# Land Information New Zealand's elevation and imagery (CC BY 4.0, on AWS's open data registry): LERC
+# in float32, and WebP of RGBA tiles. The frozen reference has neither (no-ref).
+https://nz-elevation.s3-ap-southeast-2.amazonaws.com/auckland/auckland-north_2016-2018/dem_1m/2193/AY30_10000_0405.tiff|linz-elevation-auckland-north-AY30-0405|no-ref|ends-sha256=76da9d6fa824c1d9c829968418d2263deec76b02eb7a298106a5be9e6bc6835d
+https://nz-imagery.s3-ap-southeast-2.amazonaws.com/auckland/auckland_2017_0.075m/rgb/2193/AY30_1000_4543.tiff|linz-imagery-auckland-2017-AY30-4543|no-ref|ends-sha256=1bd1c9dfe49012c1f85241aa623deb43be6e72db9f0a9239e01a20f13f169dae
+
+# A Hamamatsu NDPI slide with 3 focal planes of 7 levels, from OME's sample images ((c) Mike Wicks,
+# CC BY 4.0, as the readme.txt beside it says; 5.8 GB). The frozen reference rejects focal planes (no-ref).
+https://downloads.openmicroscopy.org/images/Hamamatsu-NDPI/imagesc-86248/SR1274-908A.ndpi|ndpi-SR1274-908A-focal-planes|no-ref|ends-sha256=1ff03c40fb982e1018c67e860ada732dac4a563af7652c25ebc92add41650b15

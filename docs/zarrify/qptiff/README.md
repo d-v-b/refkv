@@ -124,11 +124,8 @@ fields, for example) zarrifies the same way.
 ## Viewing
 
 The Neuroglancer fork refkv's demo uses decodes `imagecodecs_jpeg`, so JPEG
-scans render there. It decodes LZW under the name `imagecodecs_lzw`
-([d-v-b/neuroglancer#6](https://github.com/d-v-b/neuroglancer/pull/6)), which
-archives named before d-v-b/refkv#90, and not yet `refkv.tiff_lzw`, so LZW scans
-render there once the fork registers that name too; zarr-python reads both
-(above).
+scans render there. It decodes LZW as `refkv.tiff_lzw`, so LZW scans render there too, and as
+`imagecodecs_lzw`, which archives named before d-v-b/refkv#90; zarr-python reads both (above).
 
 ## Supported and not supported
 
@@ -147,7 +144,8 @@ Supported:
 - Compression: none, LZW, DEFLATE, zstd, JPEG 2000, and JPEG (8-bit gray,
   RGB or YCbCr) with or without `JPEGTables`.
 - The horizontal predictor (Predictor 2) of integer samples with LZW,
-  DEFLATE or zstd, as in the TIFF profile (`imagecodecs_delta`).
+  DEFLATE or zstd, as in the TIFF profile (`imagecodecs_delta`), and the floating-point predictor
+  (Predictor 3) of float samples (`imagecodecs_floatpred`).
 
 Rejected:
 
@@ -156,8 +154,7 @@ Rejected:
 - ReducedResolution images that do not come in groups of one per channel,
   levels whose images differ in size, tiling or format, or that do not get
   strictly smaller.
-- The floating-point predictor (Predictor 3), as in the TIFF profile, which
-  reads Predictor 2 (horizontal differencing) with `imagecodecs_delta`.
+- A predictor the TIFF profile rejects.
 - A level in JPEG (or Deflate, zstd, JPEG 2000) strips whose last strip is
   short is left out of the pyramid, since such a strip cannot be padded;
   the scanners' JPEG brightfield scans have one such level, the smallest.
@@ -175,10 +172,10 @@ The browser code ([js/](../../../js/README.md)) reads Akoya QPTIFF (Vectra scans
   images as levels, named and colored in `omero` from each image's XML
   description; tiles, or strips for the smallest levels and inForm fields
   (a short last strip padded to the chunk's rows).
-- Compression: none, LZW (`refkv.tiff_lzw`), JPEG, DEFLATE, zstd, JPEG 2000, and Predictor 2
-  (`imagecodecs_delta`).
+- Compression: none, LZW (`refkv.tiff_lzw`), JPEG, DEFLATE, zstd, JPEG 2000, and Predictors 2
+  (`imagecodecs_delta`) and 3 (`imagecodecs_floatpred`).
 
-Not supported, and refused with HTTP 422: the floating-point predictor, several RGB channels,
+Not supported, and refused with HTTP 422: several RGB channels,
 and images that do not follow the format's arrangement.
 
 ## How it's verified

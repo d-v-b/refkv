@@ -192,6 +192,12 @@ class Store:
         probe (`refkv.ir.store.drive_store`). A listed store has the objects it listed."""
         return self.objects.get(key)
 
+    def found_key(self, key: str) -> str:
+        """The key the store found a probed `key` at (spec/zarrify.md §1.9
+        <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>,
+        **Case**): the key itself, but for a host that lists."""
+        return key
+
     def prefetch(self, keys: Iterable[str], wanted: Callable[[str], bool | None] | None = None) -> None:
         """Starts reading the documents `keys`, in that order (the order the
         profile reads them), concurrently if `workers` > 1; once per store.
@@ -541,5 +547,7 @@ def choose_profile(store: Store) -> str:
         return "precomputed"
     if any(k.endswith(".safetensors") for k in store.objects):
         return "safetensors"
+    if any(k.endswith(".dcm") for k in store.objects):
+        return "dicom"
     raise Rejected("not an N5, Zarr v2, SAFE, Neuroglancer precomputed or safetensors store: the root has no "
                    ".zarray, .zgroup, attributes.json, manifest.safe or info, and no key ends in .safetensors")
