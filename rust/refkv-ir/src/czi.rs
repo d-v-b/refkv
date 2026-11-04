@@ -36,7 +36,7 @@ const GROUP: usize = 16384; // subblocks a round reads the headers of
 const LETTERS: &[u8] = b"XYZCTRSIHVBM";
 const SERIES: &[u8] = b"SBHIRV";
 const FIRST_HEAD: u64 = 1024; // the first bytes of a JPEG or JPEG XR subblock's data read for its codec header
-const ZSTD_HEAD: u64 = 32;
+const ZSTD_HEAD: u64 = 32; // and of an LZW subblock's
 const SEGMENT_HEAD: u64 = 2048; // the bytes read at a compressed subblock's segment: its header, and often its codec header
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -756,7 +756,7 @@ impl Czi {
                         continue;
                     }
                 }
-                let first = if matches!(e.comp, coding::ZSTD0 | coding::ZSTD1) { ZSTD_HEAD } else { FIRST_HEAD };
+                let first = if matches!(e.comp, coding::ZSTD0 | coding::ZSTD1 | coding::LZW) { ZSTD_HEAD } else { FIRST_HEAD };
                 r.push((start, first.min(bound)));
                 self.subs[i].asked = first.min(bound);
             }

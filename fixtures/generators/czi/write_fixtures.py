@@ -80,6 +80,35 @@ def jpeg(a: np.ndarray) -> bytes:
     return cast("bytes", imagecodecs.jpeg8_encode(a, level=95))
 
 
+def jpeg12(a: np.ndarray) -> bytes:
+    """A stream of 12-bit samples (SOF1), a Gray16 subblock's JPEG."""
+    return cast("bytes", imagecodecs.jpeg8_encode(a, level=95, bitspersample=12))
+
+
+def lzw(a: np.ndarray) -> bytes:
+    return cast("bytes", imagecodecs.lzw_encode(raw(a)))
+
+
+def ljpeg(a: np.ndarray, bits: int | None = None) -> bytes:
+    return cast("bytes", imagecodecs.ljpeg_encode(a, bitspersample=bits or a.dtype.itemsize * 8))
+
+
+def ramp(pixel_type: int, w: int, h: int, k: int = 0) -> np.ndarray:
+    """Known pixels of a pixel type, [h, w] or [h, w, samples], as stored (B, G, R, A), which
+    the tests compute again, rather than decode, and which take no draw from RNG, so that a new
+    fixture leaves the others' bytes alone."""
+    dt, p = TYPES[pixel_type]
+    kind = np.dtype(dt)
+    v = np.arange(w * h * p, dtype=np.int64) * 37 + k * 101
+    if kind.kind == "c":
+        out = (v / 8 + 1j * v / 16).astype(kind)
+    elif kind.kind == "f":
+        out = (v / 8).astype(kind)
+    else:
+        out = (v % (int(np.iinfo(kind).max) + 1)).astype(kind)
+    return out.reshape((h, w) if p == 1 else (h, w, p))
+
+
 def set_jxr_format(b: bytes, guid: bytes) -> bytes:
     out = bytearray(b)
     ifd = struct.unpack_from("<I", out, 4)[0]
@@ -230,7 +259,8 @@ def plane(pixel_type: int, compression: int, x: int, y: int, w: int, h: int, *, 
     the other dimensions as keyword arguments (C=1, ...), its pixels random unless given."""
     a = pixels(pixel_type, w, h) if stored is None else stored
     if coded is None:
-        coded = {0: raw, 5: zstd0, 1: jpeg, 4: jxr}[compression](a) if compression != 6 else zstd1(a, hilo)
+        coders = {0: raw, 5: zstd0, 1: jpeg, 2: lzw, 3: ljpeg, 4: jxr}
+        coded = coders[compression](a) if compression != 6 else zstd1(a, hilo)
     letters = [("X", x, wl or w, w), ("Y", y, hl or h, h)]
     letters += [(letter, v, 1, 1) for letter, v in dims.items()]
     return Sb(pixel_type, compression, letters, coded)
@@ -431,6 +461,41 @@ def accepted() -> dict[str, Czi]:
     f["czi_empty_directory"] = Czi([], xml())
     f["czi_spare_bytes"] = Czi([_spare(plane(0, 0, 0, 0, 4, 4, C=0), b"\x00\x00\x07\x00\x00"),
                                 _pyramid(plane(0, 0, 0, 0, 2, 2, wl=4, hl=4, C=0), 1)])
+    f.update(codec_fixtures())
+    return f
+
+
+def codec_fixtures() -> dict[str, Czi]:
+    """LZW, lossless JPEG and 12-bit JPEG subblocks (spec/zarrify/czi.md §3.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#31-pixel-types-and-codecs>), of
+    known pixels (`ramp`). Each `plane` is given its pixels, so that it takes no draw from RNG."""
+    f = {}
+    types = (0, 1, 2, 3, 4, 8, 9, 10, 11, 12, 13)
+    lattice = [plane(1, 2, 10 * i, 8 * j, 7 if i == 2 else 10, 5 if j == 1 else 8, S=len(types),
+                     stored=ramp(1, 7 if i == 2 else 10, 5 if j == 1 else 8, 100 + 10 * j + i))
+               for j in range(2) for i in range(3)]  # a clipped level
+    f["czi_lzw"] = Czi([plane(t, 2, 0, 0, 12, 8, S=k, stored=ramp(t, 12, 8, k)) for k, t in enumerate(types)] + lattice)
+    twelve = ramp(1, 12, 8, 2) % 4096
+    f["czi_ljpeg"] = Czi([plane(0, 3, 0, 0, 12, 8, S=0, stored=ramp(0, 12, 8, 0)),
+                          plane(1, 3, 0, 0, 12, 8, S=1, stored=ramp(1, 12, 8, 1)),
+                          plane(1, 3, 0, 0, 12, 8, S=2, stored=twelve, coded=ljpeg(twelve, 12))])
+    # smooth, so that the lossy stream stays near it
+    smooth = (np.arange(32 * 16, dtype=np.uint16).reshape(16, 32) * 7).astype("<u2")
+    f["czi_jpeg_12bit"] = Czi([plane(1, 1, 32 * i, 0, 32, 16, stored=smooth, coded=jpeg12(smooth + 64 * i))
+                               for i in range(2)])
+    gray8, gray16 = ramp(0, 6, 4), ramp(1, 6, 4)
+    f["czi_codec_unplaced"] = Czi([
+        # starts as codes packed least significant bit first do
+        plane(0, 2, 0, 0, 6, 4, S=0, stored=gray8, coded=b"\x00\x01" + lzw(gray8)[2:]),
+        plane(0, 2, 0, 0, 6, 4, S=1, stored=gray8, coded=b"\x80"),  # too short for its first code
+        plane(0, 3, 0, 0, 6, 4, S=2, stored=gray8, coded=jpeg(gray8)),  # not lossless
+        plane(1, 3, 0, 0, 6, 4, S=3, stored=gray8, coded=ljpeg(gray8)),  # lossless, of 8 bits, for Gray16
+        plane(0, 3, 0, 0, 6, 4, S=4, stored=gray8, coded=ljpeg(gray16 % 4096, 12)),  # lossless, of 12 bits, for Gray8
+        plane(1, 1, 0, 0, 6, 4, S=5, stored=gray8, coded=jpeg(gray8)),  # 8 bits for Gray16: it would read as 0 to 255
+        plane(1, 1, 0, 0, 6, 4, S=6, stored=gray8, coded=ljpeg(gray16)),  # lossless under JpgFile
+        plane(0, 1, 0, 0, 6, 4, S=7, stored=gray8, coded=jpeg12(gray16 % 4096)),  # 12 bits for Gray8
+        plane(0, 0, 0, 0, 6, 4, S=8, stored=gray8),  # placed
+    ])
     return f
 
 
@@ -508,11 +573,12 @@ def rejected() -> dict[str, tuple[Czi, Patch | None]]:
         "subblock_copy_count": (sub(copy=lambda e: e[:28] + struct.pack("<i", 41) + e[32:]), None),
         "negative_sizes": (sub(sizes=(-1, 0, 16)), None),
         "pixel_type_unknown": (entry(lambda e: e[:2] + struct.pack("<i", 5) + e[6:]), None),
-        "compression_lzw": (entry(lambda e: e[:18] + struct.pack("<i", 2) + e[22:]), None),
+        "ljpeg_bgr24": (entry(lambda e: e[:2] + struct.pack("<ii", 3, 0) + e[10:18] + struct.pack("<i", 3) + e[22:]),
+                        None),
         "compression_chunked": (entry(lambda e: e[:18] + struct.pack("<i", 7) + e[22:]), None),
         "compression_raw_camera": (entry(lambda e: e[:18] + struct.pack("<i", 100) + e[22:]), None),
-        "jpeg_gray16": (entry(lambda e: e[:2] + struct.pack("<ii", 1, 0) + e[10:18] + struct.pack("<i", 1) + e[22:]),
-                        None),
+        "jpeg_bgr48": (entry(lambda e: e[:2] + struct.pack("<ii", 4, 0) + e[10:18] + struct.pack("<i", 1) + e[22:]),
+                       None),
         "metadata_id": (base(metadata_id="ZISRAWMETADATX"), None),
         "metadata_outside_file": (base(metadata_sizes=(1 << 30, 0)), None),
         "metadata_negative": (base(metadata_sizes=(-5, 0)), None),

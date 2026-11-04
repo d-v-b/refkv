@@ -7,7 +7,7 @@
 //! parser's band floor).
 
 use super::{along, arr, key, n, obj, strs, translations, truthy};
-use crate::coding::{pixel_type, JPEG, JPEGXR, UNCOMPRESSED, ZSTD0, ZSTD1};
+use crate::coding::{pixel_type, JPEG, JPEGXR, LJPEG, LZW, UNCOMPRESSED, ZSTD0, ZSTD1};
 use crate::ir::Ir;
 use crate::out::{bioformats2raw, bytes_codec, declare_array, declared_group, image_ome, item_size, metadata_group, omero_channel, omero_json, omero_window, rectilinear_array_json, transpose_codec, Out, Part, RGBA};
 use crate::refs::Refs;
@@ -37,6 +37,11 @@ fn codecs(form: Form, data_type: &str, p: u64, axes: &[&str]) -> J {
     let mut out = if p > 1 { vec![transpose_codec(axes)] } else { vec![] };
     match form.1 {
         JPEG => out.push(json!({"name": "imagecodecs_jpeg"})),
+        LJPEG => out.push(json!({"name": "imagecodecs_ljpeg"})),
+        LZW => {
+            out.push(bytes_codec(item_size(data_type), "little"));
+            out.push(json!({"name": "imagecodecs_lzw"}));
+        }
         JPEGXR => out.push(json!({"name": "imagecodecs_jpegxr"})),
         ZSTD0 | ZSTD1 => {
             out.push(bytes_codec(item_size(data_type), "little"));

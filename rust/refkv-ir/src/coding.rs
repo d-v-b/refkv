@@ -34,6 +34,8 @@ impl Head<'_> {
 
 pub const UNCOMPRESSED: i32 = 0;
 pub const JPEG: i32 = 1;
+pub const LZW: i32 = 2;
+pub const LJPEG: i32 = 3;
 pub const JPEGXR: i32 = 4;
 pub const ZSTD0: i32 = 5;
 pub const ZSTD1: i32 = 6;
@@ -118,8 +120,9 @@ fn zstd_content_size(h: &Head, at: u64) -> Result<Option<u64>, Need> {
     Ok(Some(if n == 2 { v + 256 } else { v }))
 }
 
-/// (width, height) of a JPEG stream's frame header.
-fn jpeg_frame(h: &Head, p: u64) -> Result<Option<(u64, u64)>, Need> {
+/// (width, height) of a JPEG stream's frame header, when `admits` its marker and precision and
+/// it has `p` components.
+fn jpeg_frame(h: &Head, p: u64, admits: impl Fn(u8, u8) -> bool) -> Result<Option<(u64, u64)>, Need> {
     let Some(b) = h.get(0, 2)? else { return Ok(None) };
     if b != [0xFF, 0xD8] {
         return Ok(None);
@@ -152,7 +155,7 @@ fn jpeg_frame(h: &Head, p: u64) -> Result<Option<(u64, u64)>, Need> {
             let Some(f) = h.get(pos + 2, 6)? else { return Ok(None) };
             let (precision, height, width, count) =
                 (f[0], u16::be_at(f, 1) as u64, u16::be_at(f, 3) as u64, f[5]);
-            if matches!(m, 0xC0..=0xC2) && precision == 8 && height >= 1 && width >= 1 && count as u64 == p {
+            if admits(m, precision) && height >= 1 && width >= 1 && count as u64 == p {
                 return Ok(Some((width, height)));
             }
             return Ok(None);
@@ -240,7 +243,20 @@ pub fn coded_size(pt: i32, comp: i32, w: u64, h: u64, n: u64, head: &Head) -> Re
             }
             Ok((zstd_content_size(head, len)?.map(|x| x as u128) == Some(pixels)).then_some((w, h, hilo, len)))
         }
-        JPEG => Ok(jpeg_frame(head, p)?.map(|(a, b)| (a, b, false, 0))),
+        JPEG => {
+            // Gray16 holds 12-bit samples, or nothing that decodes to its values
+            let bits = if pt == 1 { 12 } else { 8 };
+            Ok(jpeg_frame(head, p, |m, precision| matches!(m, 0xC0..=0xC2) && precision == bits)?.map(|(a, b)| (a, b, false, 0)))
+        }
+        LJPEG => {
+            let bits = if q == 1 { 2..=8 } else { 9..=16 };
+            Ok(jpeg_frame(head, p, |m, precision| m == 0xC3 && bits.contains(&precision))?.map(|(a, b)| (a, b, false, 0)))
+        }
+        // nothing but the stream's first code says it is one: its size is known only by decoding it
+        LZW => {
+            let Some(b) = head.get(0, 2)? else { return Ok(None) };
+            Ok((b[0] == 0x80 && b[1] & 0x80 == 0).then_some((w, h, false, 0)))
+        }
         JPEGXR => Ok(jpegxr_size(head, pt)?.map(|(a, b)| (a, b, false, 0))),
         _ => Ok(None),
     }
@@ -256,6 +272,8 @@ pub fn codec_chain(pt: i32, comp: i32, hilo: bool) -> serde_json::Value {
     let zstd = json!({"name": "zstd", "configuration": {"level": 0, "checksum": false}});
     match comp {
         JPEG => json!([{"name": "imagecodecs_jpeg"}]),
+        LJPEG => json!([{"name": "imagecodecs_ljpeg"}]),
+        LZW => json!([bytes, {"name": "imagecodecs_lzw"}]),
         JPEGXR => json!([{"name": "imagecodecs_jpegxr"}]),
         ZSTD0 | ZSTD1 if hilo => json!([bytes, {"name": "numcodecs.shuffle", "configuration": {"elementsize": 2}}, zstd]),
         ZSTD0 | ZSTD1 => json!([bytes, zstd]),
