@@ -129,6 +129,11 @@ fn track_json(t: &J, chunk: u64) -> J {
         m.insert(if k == "count" { "frames".into() } else { k.into() }, t[k].clone());
     }
     match t["format"].as_str() {
+        Some("mjpeg") => {
+            m.insert("width".into(), t["geometry"]["width"].clone());
+            m.insert("height".into(), t["geometry"]["height"].clone());
+            m.insert("channels".into(), t["geometry"]["channels"].clone());
+        }
         Some("h264" | "hevc") => {
             m.insert("width".into(), t["geometry"]["width"].clone());
             m.insert("height".into(), t["geometry"]["height"].clone());
@@ -146,6 +151,18 @@ fn track_json(t: &J, chunk: u64) -> J {
     }
     m.insert("chunk_frames".into(), json!(chunk));
     J::Object(m)
+}
+
+/// The presentation times of a video track's pictures, in the track's timescale, little-endian
+/// int64 deflated (§4.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#41-video-tracks>).
+fn time_array(out: &mut Out, dir: &str, order: &[usize], pts: &[i64]) {
+    let count = order.len();
+    gzip_array(out, &format!("{dir}/time"), "int64", count as u64, TIME_CHUNK, "time", vec![], json!({}), |q, c| {
+        let (from, to) = ((q * c) as usize, (((q + 1) * c) as usize).min(count));
+        let mut raw: Vec<u8> = order[from..to].iter().flat_map(|&d| pts[d].to_le_bytes()).collect();
+        raw.resize(c as usize * 8, 0);
+        raw
+    });
 }
 
 pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, String> {
@@ -179,7 +196,31 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
         let sample = |j: usize| (ir.start[first + j], ir.len[first + j]);
         let chunks;
         let chunk;
-        if format == "h264" || format == "hevc" {
+        if format == "mjpeg" {
+            // a picture a chunk, each its sample's own JPEG stream, in presentation order (§4.3
+            // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#43-motion-jpeg-tracks>)
+            let (w, h, channels) = (n(&t["geometry"]["width"]), n(&t["geometry"]["height"]), n(&t["geometry"]["channels"]));
+            let pts: Vec<i64> = arr(&t["pts"]).iter().map(|v| v.as_i64().unwrap_or(0)).collect();
+            let mut order: Vec<usize> = (0..count).collect();
+            order.sort_by_key(|&d| pts[d]);
+            chunk = 1;
+            chunks = count;
+            refs.out.json(&format!("{dir}/zarr.json"), &declared_group(Map::new(), "mp4", None, Some(track_json(t, chunk))));
+            let codecs = json!([{"name": "imagecodecs_jpeg"}]);
+            let frames = count as u64;
+            let doc = if channels == 1 {
+                array_json(&[frames, h, w], "uint8", json!([1, h, w]), codecs, &["time", "y", "x"])
+            } else {
+                array_json(&[frames, h, w, channels], "uint8", json!([1, h, w, channels]), codecs, &["time", "y", "x", "c"])
+            };
+            refs.out.json(&format!("{dir}/pictures/zarr.json"), &doc);
+            let tail = if channels == 1 { "0/0" } else { "0/0/0" };
+            for (q, &d) in order.iter().enumerate() {
+                let (o, len) = sample(d);
+                refs.chunk(format!("{dir}/pictures/c/{q}/{tail}"), o, len, form, None, q as u64)?;
+            }
+            time_array(&mut refs.out, &dir, &order, &pts);
+        } else if format == "h264" || format == "hevc" {
             // the planes of the pictures, in presentation order (§4.1
             // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#41-video-tracks>):
             // uint8 for 8 bits a sample, uint16 for more
@@ -218,14 +259,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
                 refs.out.refs(&format!("{dir}/u/c/{q}/0/0"), parts.clone());
                 refs.out.refs(&format!("{dir}/v/c/{q}/0/0"), parts);
             }
-            // the presentation times, in the track's timescale, delta-free little-endian int64
-            // deflated (§4.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#41-video-tracks>)
-            gzip_array(&mut refs.out, &format!("{dir}/time"), "int64", count as u64, TIME_CHUNK, "time", vec![], json!({}), |q, c| {
-                let (from, to) = ((q * c) as usize, (((q + 1) * c) as usize).min(count));
-                let mut raw: Vec<u8> = order[from..to].iter().flat_map(|&d| pts[d].to_le_bytes()).collect();
-                raw.resize(c as usize * 8, 0);
-                raw
-            });
+            time_array(&mut refs.out, &dir, &order, &pts);
         } else {
             // the samples (§4.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#42-audio-tracks>)
             let (spf, channels) = (n(&t["spf"]), n(&t["channels"]));
