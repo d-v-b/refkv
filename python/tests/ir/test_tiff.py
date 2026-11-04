@@ -12,6 +12,7 @@ import pytest
 import tifffile
 import zarr
 from ir_helpers import FIXTURES, REVISED, as_the_reference, omero_and_expected_windows, same_hierarchy, zarrified
+from PIL import Image
 from refkv_reference import virtualize  # the frozen reference (ir_helpers)
 
 import refkv
@@ -558,22 +559,79 @@ def patch_tag(path, tag: str, *, value: int | None = None, code: int | None = No
     return path
 
 
-def test_a_short_last_strip_of_deflate_is_rejected():
-    """§4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>: a level
-    in Deflate strips whose last strip is short cannot be padded, and an inner chunk of a shard
-    must decode to its shape like any chunk: it rejects the input."""
-    with pytest.raises(Rejected, match="level 0 is in strips of compression 8 whose last strip is short"):
-        via_ir(str(FIXTURES / "tiff" / "edge_reject_strips_deflate_short.tif"), "u")
+RECTILINEAR = {
+    # name: each level's chunk lengths along `y`, or the integer of a regular grid's chunk shape
+    "strips_uint16_deflate_short.tif": [[[16, 4], 6]],
+    "strips_uint16_zstd_short.tif": [[[16, 4], 6]],
+    "strips_uint16_deflate_be_predictor_short.tif": [[[16, 4], 6]],
+    "strips_rgb_contig_jpeg_short.tif": [[[16, 4], 6]],
+    "strips_rgb_contig_deflate_short.tif": [[16, 8]],  # two strips, no run
+    "strips_rgb_planar_jpeg2000_short.tif": [[[16, 4], 6]],
+    "strips_tcyx_uint16_deflate_short.ome.tif": [[[16, 4], 6], [[16, 2], 3]],
+    "strips_uint8_deflate_short_level.ome.tif": [[32, 16], 24],  # a level of one strip stays regular
+}
 
 
-def test_a_short_last_strip_of_zstd_is_rejected(tmp_path):
-    """§4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>: so does a level
-    in zstd strips."""
-    path = tmp_path / "s.tif"
-    kw: dict[str, Any] = {**ONE_ROW, "rowsperstrip": 16, "compression": "zstd"}
-    tifffile.imwrite(path, ramp("uint16", (70, 50)), metadata=None, **kw)
-    with pytest.raises(Rejected, match="level 0 is in strips of compression 50000 whose last strip is short"):
-        via_ir(str(path), "u")
+def test_a_short_last_strip_that_cannot_be_padded_has_a_rectilinear_grid(tmp_path):
+    """§4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>: a level whose
+    last strip is short and not uncompressed or LZW has the `rectilinear` grid, a run of full strips
+    and the short one, a chunk a strip, unsharded. Every level reads as tifffile reads it (the
+    windows: test_omero_windows_sample_the_coarsest_level)."""
+    for name, levels in RECTILINEAR.items():
+        path = FIXTURES / "tiff" / name
+        out, g, _ = zarrified(path, tmp_path, "tiff")
+        ms = mapping(at(g.attrs, "ome", "multiscales", 0))
+        names = [string(at(a, "name")) for a in sequence(ms["axes"])]
+        with tifffile.TiffFile(path) as tf:
+            series = tf.series[0]
+            want = [(level.asarray(), series.axes) for level in series.levels]
+        assert len(want) == len(levels), name
+        for li, ((data, axes), y) in enumerate(zip(want, levels, strict=True)):
+            meta = json.loads(out.bytes_entries[f"{li}/zarr.json"])
+            assert all(string(at(c, "name")) != "sharding_indexed" for c in sequence(meta["codecs"])), (name, li)
+            grid = mapping(meta["chunk_grid"])
+            if isinstance(y, int):
+                assert grid["name"] == "regular", (name, li)
+                assert at(grid, "configuration", "chunk_shape", names.index("y")) == y, (name, li)
+            else:
+                assert grid["name"] == "rectilinear", (name, li)
+                assert at(grid, "configuration", "chunk_shapes", names.index("y")) == y, (name, li)
+            letters = [AXIS[a] for a in axes]
+            want_level = np.transpose(data, [letters.index(a) for a in names])
+            got = ndarray(g.get_array(str(li))[...])
+            # JPEG and JPEG 2000 are as tifffile decodes the same streams
+            assert np.array_equal(got, want_level), (name, li)
+
+
+def test_the_short_last_strips_of_common_writers_read_back(tmp_path):
+    """§4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>: what tifffile's
+    and Pillow's defaults write with zlib and zstd, which leave a short last strip at these heights."""
+    data = ramp("uint8", (1000, 1000))
+    for name, compression in (("zlib", "zlib"), ("zstd", "zstd")):
+        path = tmp_path / f"{name}.tif"
+        tifffile.imwrite(path, data, compression=compression, metadata=None, photometric="minisblack")
+        _, g, _ = zarrified(path, tmp_path, "tiff")
+        assert np.array_equal(ndarray(g.get_array("0")[...]), data), name
+    path = tmp_path / "pillow.tif"
+    Image.fromarray(data).save(path, compression="tiff_adobe_deflate")
+    with tifffile.TiffFile(path) as tf:
+        page = tf.pages.first
+        assert page.rowsperstrip < 1000
+        assert 1000 % page.rowsperstrip != 0
+    _, g, _ = zarrified(path, tmp_path, "tiff")
+    assert np.array_equal(ndarray(g.get_array("0")[...]), data)
+
+
+def test_a_read_of_part_of_a_rectilinear_level_decodes_its_short_chunk(tmp_path):
+    """§4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>: the short chunk
+    decodes to its own rows, alone and across its neighbor."""
+    path = FIXTURES / "tiff" / "strips_uint16_deflate_short.tif"
+    _, g, _ = zarrified(path, tmp_path, "tiff")
+    a = g.get_array("0")
+    with tifffile.TiffFile(path) as tf:
+        want = tf.asarray()
+    assert np.array_equal(ndarray(a[64:70, 3:9]), want[64:70, 3:9])  # the short chunk alone
+    assert np.array_equal(ndarray(a[60:66, :]), want[60:66, :])  # across the last two
 
 
 def delta(axis):

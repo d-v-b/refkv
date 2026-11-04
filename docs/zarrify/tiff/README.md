@@ -52,7 +52,8 @@ level, `0` the full resolution.
   ([tiff.md §4.5](../../../spec/zarrify/tiff.md#45-strips)). A short last chunk
   is padded to the others' rows, so that the chunk grid stays regular: with
   zeros when uncompressed, and with a few literal bytes that continue its
-  stream when LZW; a short last strip of DEFLATE, zstd or JPEG rejects the file. Interleaved RGB keeps its samples in one chunk, behind a
+  stream when LZW; a short last strip of DEFLATE, zstd, JPEG or JPEG 2000 cannot be padded, so its level
+  has the `rectilinear` chunk grid, a chunk a strip, unsharded. Interleaved RGB keeps its samples in one chunk, behind a
   `transpose` codec.
 - **Codecs:** none, LZW (`refkv.tiff_lzw`), DEFLATE (`numcodecs.zlib`), zstd, JPEG
   2000 (`imagecodecs_jpeg2k`) and JPEG (`imagecodecs_jpeg`), the tiles and
@@ -235,11 +236,9 @@ Supported:
 
 Rejected:
 
-- Images in strips whose last strip is shorter than the others, when
-  compressed with DEFLATE, zstd, JPEG or JPEG 2000: such a strip cannot be
-  padded to the chunk. Nor one that would need more than 4 MiB (2^22 bytes)
-  of zeros, or a short last LZW strip of more than 16 MiB (2^24 bytes), which
-  is read to pad it.
+- Images in strips whose last strip is shorter than the others, when they would need more than
+  4 MiB (2^22 bytes) of zeros, or a short last LZW strip of more than 16 MiB (2^24 bytes), which is
+  read to pad it.
 - Old-style JPEG (compression 6).
 - The floating-point predictor (Predictor 3), and Predictor 2 of float
   samples (whose bits are differenced as integers), without compression

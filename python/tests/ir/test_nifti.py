@@ -7,9 +7,13 @@ import os
 import struct
 import time
 from pathlib import Path
+from typing import Any
 
+import nibabel as nib
+import numpy as np
 import pytest
-from ir_helpers import FIXTURES, as_the_reference, assert_rebuilds, same_hierarchy
+import zarr
+from ir_helpers import FIXTURES, REVISED, as_the_reference, assert_rebuilds, same_hierarchy, zarrified
 from refkv_reference import virtualize  # the frozen reference (ir_helpers)
 
 from refkv import _core
@@ -20,9 +24,35 @@ from refkv.zarrify import Rejected, common
 NIIS = sorted((FIXTURES / "nifti").glob("*.nii"))
 
 
-@pytest.mark.parametrize("path", NIIS, ids=lambda p: p.name)
+@pytest.mark.parametrize("path", [p for p in NIIS if p.name not in REVISED], ids=lambda p: p.name)
 def test_projects_as_the_reference_and_rebuilds(path, tmp_path):
     as_the_reference(path, tmp_path, "nifti")
+
+
+@pytest.mark.parametrize(("name", "data_type", "endian", "axes"), [
+    ("nifti_n1_le_complex64", "complex64", "little", (2, 1, 0)),
+    ("nifti_n1_be_complex64_4d", "complex64", "big", (3, 2, 1, 0)),
+    ("nifti_n2_le_complex128_5d", "complex128", "little", (3, 4, 2, 1, 0)),
+    ("nifti_n2_be_complex128", "complex128", "big", (2, 1, 0)),
+])
+def test_complex_voxels_are_complex_arrays(name, data_type, endian, axes, tmp_path):
+    """COMPLEX64 and COMPLEX128 (spec/zarrify/nifti.md §3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#3-data-types>) are read back as
+    nibabel reads them, in either byte order, with no display window."""
+    path = FIXTURES / "nifti" / f"{name}.nii"
+    _, root, _ = zarrified(path, tmp_path, "nifti")
+    array = root["0"]
+    assert isinstance(array, zarr.Array)
+    metadata: Any = array.metadata.to_dict()  # JSON, of the shape spec/zarrify/nifti.md gives
+    assert metadata["data_type"] == data_type
+    assert tuple(metadata["fill_value"]) == (0.0, 0.0)
+    assert metadata["codecs"][-1]["configuration"]["endian"] == endian
+    image: Any = nib.load(path)  # nibabel's own annotations stop at the base class
+    expected = np.asarray(image.dataobj.get_unscaled()).transpose(axes)
+    assert expected.imag.any()
+    assert np.array_equal(np.asarray(array[...]), expected)
+    ome: Any = root.attrs["ome"]
+    assert "omero" not in ome
 
 
 def test_edge_chunks_past_the_payload_are_copied_as_the_reference_copies_them(tmp_path, monkeypatch):
