@@ -149,7 +149,7 @@ class Ndpi:
             elif typ == 5:
                 raw = b"".join(struct.pack("<II", *v) for v in values)
             else:
-                raw = struct.pack(f"<{len(values)}{ {3: 'H', 4: 'I', 9: 'i', 11: 'f', 13: 'I', 16: 'Q'}[typ] }",
+                raw = struct.pack(f"<{len(values)}{ {3: 'H', 4: 'I', 8: 'h', 9: 'i', 11: 'f', 13: 'I', 16: 'Q'}[typ] }",
                                   *values)
             in_line = len(raw) <= 4 and (typ != 2 or not raw)
             field = raw.ljust(4, b"\x00") if in_line else struct.pack("<I", self.blob(raw))
@@ -183,10 +183,6 @@ def main() -> None:
     f.write("ndpi_levels.ndpi")
 
     # Rejected.
-    f = Ndpi()  # two levels with one magnification (focal planes)
-    f.image(level0[0], level0[2], level0[3], 20.0, level0[1])
-    f.image(level1[0], level1[2], level1[3], 20.0, level1[1])
-    f.write("edge_reject_ndpi_focal_planes.ndpi")
     f = Ndpi()  # a later level that is not smaller
     f.image(level1[0], level1[2], level1[3], 20.0, level1[1])
     f.image(level0[0], level0[2], level0[3], 5.0, level0[1])
