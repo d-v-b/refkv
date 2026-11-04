@@ -25,6 +25,8 @@ dev = [
     "fsspec>=2026.9.0",
     "h5netcdf>=1.8.1",
     "h5py>=3.16.0",
+    # the third-party HDF5 filters the HDF5 and IMS fixtures use, written and read back with h5py
+    "hdf5plugin>=5.1.0",
     "jsonschema>=4.26.0",
     "liffile>=2026.10.14",
     "mrcfile>=1.5.0",

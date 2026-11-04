@@ -81,6 +81,21 @@ fn a_run_without_a_data_offset_follows_the_run_before() {
     assert!(common::rebuilt(&moved_ir, &moved) == moved);
 }
 
+/// A run of a PCM track's samples of one size is one element, however many samples it has, and
+/// the elements are the track's bytes: 8192 frames of 4 bytes, in fragments.
+#[test]
+fn a_pcm_run_is_one_element() {
+    let file = std::fs::read(common::fixtures().join("mp4/mov_frag_pcm_s32be.mov")).unwrap();
+    let runs = file.windows(4).filter(|w| w == b"trun").count();
+    let (ir, facts) = refkv_ir::parse_bytes::<Mp4>(&file).unwrap();
+    assert_eq!(facts["tracks"][0]["format"], "pcm");
+    assert_eq!(facts["tracks"][0]["frames"], 8192);
+    let samples = samples_of(&ir, &facts, 0);
+    assert_eq!(samples.len(), runs);
+    assert_eq!(samples.iter().map(|s| s.1).sum::<u64>(), 8192 * 4);
+    assert!(common::rebuilt(&ir, &file) == file);
+}
+
 /// The parser reads the moof boxes and little else: with each mdat box grown by 256 KiB, past the
 /// first read and any read ahead, a fragment takes one read.
 #[test]

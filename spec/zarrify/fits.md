@@ -1,6 +1,6 @@
 # FITS
 
-The Zarr layout of a FITS file (`.fits`): its images, its tables and its
+The Zarr layout of a FITS file (`.fits`, `.fits.gz`, `.fits.bz2`): its images, its tables and its
 headers, and the translation of its headers into JSON. What all of refkv's
 conventions share is in [spec/conventions.md](../conventions.md), cited here
 as "conventions §n". How refkv produces this layout as a reference store, and
@@ -9,6 +9,11 @@ below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `4b0d3a7e-1c52-4f6a-9b8e-2d7f0c6a1e93` ·
 Schema: [schema.json](fits/schema.json)
+
+Changed 2026-11-04: a whole file in gzip or bzip2 (`.fits.gz`, `.fits.bz2`) is accepted, where it
+was rejected: each array is one chunk, the whole stream, with `refkv.skip` stopping at the array's
+end ([§2.1](#21-a-compressed-file)); the root's source metadata has the member `stream`
+([§5.1](#51-the-root)).
 
 Changed 2026-11-04: a binary table's `rows` is a `struct` array over its rows where its columns
 tile its row, and stays bytes otherwise, the reason in its node's `not_struct`; a column's
@@ -77,13 +82,13 @@ The hierarchy's entries ([conventions §11.5](../conventions.md#115-layout-table
 | `<i>/zarr.json#/attributes/zarr_conventions` | attribute | array of [`ConventionMetadata`](../conventions.md#type-conventionmetadata) | the CMO of [§1](#1-declaration), on every HDU's node |
 | `<i>/zarr.json#/attributes/refkv_zarrified` | attribute | [`NodeProperty`](../conventions.md#type-nodeproperty) | on every HDU's node |
 | `<i>/zarr.json#/attributes/refkv_zarrified/fits` | attribute | [`FitsNode`](#type-fitsnode) | the HDU's source metadata ([§5.2](#52-an-hdus-node)) |
-| `<i>/c/<coords>` | chunk | [`FitsChunk`](#type-fitschunk) | every chunk of an image's array ([§9.4](#94-chunks)) |
+| `<i>/c/<coords>` | chunk | [`FitsChunk`](#type-fitschunk) | every chunk of an image's array ([§9.4](#94-chunks)), or a [`FitsStreamChunk`](#type-fitsstreamchunk) in a compressed file |
 | `<i>/c/<coords>` | chunk | [`FitsTiledChunk`](#type-fitstiledchunk) | a chunk of a tile-compressed image's array with at least one tile ([§3.3](#33-tile-compressed-images), [§9.4](#94-chunks)) |
 | `<i>/rows/zarr.json` | array | [`FitsStructRowsArray`](#type-fitsstructrowsarray) | a binary table's rows as a `struct`, when its columns tile its row, with no chunk when `NAXIS2` is 0 ([§4.1](#41-rows-as-a-struct)) |
 | `<i>/rows/zarr.json` | array | [`FitsRowsArray`](#type-fitsrowsarray) | any other table's rows as bytes, with no chunk when `NAXIS1 × NAXIS2` is 0 ([§4.2](#42-rows-as-bytes)) |
-| `<i>/rows/c/<coords>` | chunk | [`FitsChunk`](#type-fitschunk) | every chunk of a table's rows ([§9.4](#94-chunks)) |
+| `<i>/rows/c/<coords>` | chunk | [`FitsChunk`](#type-fitschunk) | every chunk of a table's rows ([§9.4](#94-chunks)), or a [`FitsStreamChunk`](#type-fitsstreamchunk) in a compressed file |
 | `<i>/heap/zarr.json` | array | [`FitsHeapArray`](#type-fitsheaparray) | a table's heap, when it is not empty ([§4](#4-tables)) |
-| `<i>/heap/c/<k>` | chunk | [`FitsHeapChunk`](#type-fitsheapchunk) | every chunk of a table's heap ([§9.4](#94-chunks)) |
+| `<i>/heap/c/<k>` | chunk | [`FitsHeapChunk`](#type-fitsheapchunk) | every chunk of a table's heap ([§9.4](#94-chunks)), or a [`FitsStreamChunk`](#type-fitsstreamchunk) in a compressed file |
 | `refkv_source/**` | subtree | [the mirror's entries](../conventions.md#table-mirror) | the IR mirror ([§6](#6-the-ir-mirror)): its elements are [§6.1](#61-elements)'s |
 
 | placeholder | value |
@@ -129,6 +134,43 @@ An HDU's **kind**, by its mandatory cards ([§9.3](#93-checks)):
 
 Random groups (`GROUPS = T`), tile-compressed tables (`ZTABLE = T`) and
 extensions of any other `XTENSION` are rejected by the profile.
+
+### 2.1 A compressed file
+
+A **compressed file** is a FITS file compressed whole: one or more gzip members (RFC 1952,
+`.fits.gz`) or bzip2 streams (`.fits.bz2`, as SDSS serves its frames), with nothing after them.
+No byte range of it reaches a value: gzip's and bzip2's blocks start at bit offsets that only
+decoding the stream finds, and a reader has to decode from a block's start to reach a value in it.
+So every array with data has **one chunk**, of the array's shape, and that chunk is the whole
+file, whichever of the file's HDUs the array holds. Decoding it gives the FITS file: the HDUs before the
+array's, the array's bytes, its padding, and the HDUs after it. The chunk's codecs then keep the
+array's bytes alone:
+
+| codec, in the array's `codecs` | what it does in decoding |
+|---|---|
+| `{"name": "gzip", "configuration": {"level": 1}}`, or `{"name": "numcodecs.bz2", "configuration": {"level": 1}}` for bzip2 | decodes the file; decoding does not use the level |
+| `{"name": "refkv.skip", "configuration": {"length": k, "keep": n}}` ([npy §4.4](npy.md#44-the-refkvskip-codec)) | keeps the `n` bytes at `k` of that: `k` the array's first byte in the decoded file, `n` its bytes |
+| the `bytes` codec of [§3.1](#31-the-array) or [§4](#4-tables) | decodes those bytes, as in an uncompressed file |
+
+`keep` is what several HDUs need, and any one image needs too: an array's data is followed by its padding to
+a block, so even a file of one image decodes to more than the image's bytes unless they fill a
+block, and `bytes` takes exactly its array's size. The other way to stop at an array's end, a chunk of its own
+per HDU, has no ranges to cut: the stream is usually one gzip member, so an HDU has no stream of its
+own. Offsets in the source metadata (`offset`, `data_offset`, [§5.1](#51-the-root)) are of the
+decoded file, and the member `stream` says the file is compressed.
+
+Everything else of the layout is as for the decoded file: the same nodes and arrays, the same
+metadata, with this one chunk in place of the cut of [conventions §7](../conventions.md#7-source-values-as-arrays). A
+tile-compressed image's tiles are in the decoded file's heap, out of a reference's reach, and
+a chunk of them needs a literal prefix ([§3.3](#33-tile-compressed-images)) that a whole stream cannot
+carry: a compressed file with one is rejected ([§9.3](#93-checks)), and decompressing it first
+leaves a `.fz` file this layout reads well.
+
+**What it costs a reader.** Reading any value of an array fetches the whole file and decodes it into
+memory, each time, as a gzip [NRRD](nrrd.md#42-the-gzip-encoding) and a deflated `.npz` member's reads do; and in a file of many HDUs, reading
+each array does so again, since each chunk is the same stream. A reader that wants one chip of a
+large mosaic should decompress the file first. What the layout gives such a file is a Zarr
+hierarchy, its metadata in the archive without a read, and its values in any reader of Zarr.
 
 ## 3. Images
 
@@ -416,6 +458,15 @@ members in this order:
 |---|---|---|---|
 | `hdus` | array of [`FitsHdu`](#type-fitshdu) | required | one object per HDU, in file order |
 | `cards` | [`FitsCards`](#type-fitscards) | required | the primary header's cards ([§5.3](#53-cards)) |
+| `stream` | [`FitsStream`](#type-fitsstream) or null | required | `null`, or for a compressed file ([§2.1](#21-a-compressed-file)) its compression |
+
+<a id="type-fitsstream"></a>**`FitsStream`**, a compressed file's compression, with its members in
+this order:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `method` | string | required | `"gzip"` or `"bzip2"` |
+| `size` | integer | required | the decoded file's bytes, which `offset` and `data_offset` index |
 
 <a id="type-fitshdu"></a>**`FitsHdu`**, an HDU's row of the root's table, with its members in
 this order:
@@ -531,8 +582,8 @@ bytes are in the mirror in any case.
 
 ## 6. The IR mirror
 
-`refkv_source` is the file's IR mirror ([conventions §11.3](../conventions.md#113-the-ir-mirror)).
-The view shows each HDU's
+`refkv_source` is the file's IR mirror ([conventions §11.3](../conventions.md#113-the-ir-mirror));
+a compressed file's rebuilds the compressed file, byte for byte. The view shows each HDU's
 header as a spill (a header is at least 2880 bytes, over the 1024 bytes a
 shown value may have); its cards are in the nodes' source metadata.
 
@@ -549,6 +600,7 @@ length ([§4](#4-tables)):
 | path | kind | type | extent: what |
 |---|---|---|---|
 | `""` | struct | | the root: the whole file, `(0, size)` |
+| `stream` | derived | | a compressed file, whole, `(0, size)`, its form `{"transform": "gunzip", "size": U}` (`"bunzip2"` for bzip2), `U` the decoded file's bytes. The elements below are then under it, their paths starting `stream/`, their extents in its space ([conventions §8.1](../conventions.md#81-elements)) |
 | `hdus/<i>` | struct | | HDU `i`: from its first header byte to the end of its padding |
 | `hdus/<i>/header` | value | `{card:ascii[80]}[36k]` | the header's blocks, the `END` card and the blank padding cards included |
 | `hdus/<i>/data` | data | | an image's `D` bytes, when `D > 0`: its form's geometry is `{"data_type": T, "shape": S}` ([§3.1](#31-the-array)), its codec `{"endian": "big"}`, its recipe `[["src", 0, null]]` |
@@ -559,6 +611,9 @@ length ([§4](#4-tables)):
 | `hdus/<i>/heap/<j>` | data | | chunk `j` of a tile-compressed image ([§3.3](#33-tile-compressed-images)): from its first present tile's start to its last's end, geometry `{"tiles": [first, N]}`, recipe `[["src", 0, null]]` when the tiles are adjacent, else one `["src", o, n]` per tile; a chunk without a tile has none |
 | `hdus/<i>/pad` | value | `bytes[p]` | the data's padding, when `p > 0` |
 | `gaps/<offset>` | gap | | bytes after the last HDU (the standard's special records); heap bytes no tile uses |
+
+A validator derives a `stream` element's bytes again by decoding the file ([conventions
+§8.8](../conventions.md#88-canonical-form)), so its space may hold the headers the view shows.
 
 ### 6.2 Equivalence
 
@@ -620,6 +675,8 @@ gives some of it no Zarr expression:
 - **ASDF and JSON trees** (JWST's `ASDF` extension, Rubin's JSON HDU) are
   the bytes of a one-row table.
 - **Random groups** and **tile-compressed tables** are rejected.
+- **Partial reads of a compressed file.** Any read decodes the whole stream
+  ([§2.1](#21-a-compressed-file)).
 
 # Part 2. The profile
 
@@ -628,17 +685,28 @@ gives some of it no Zarr expression:
 ### 9.1 Choosing the profile
 
 The input is a FITS file, which its **signature** ([spec/zarrify.md §1.2](../zarrify.md#12-input), tested at the
-precedence of [profiles/fits.json](profiles/fits.json)) chose: bytes 0–8 of `H` are `SIMPLE  =` and byte 29 is `T` (the
-fixed-format logical of the standard's first card). A file whose first card
-is `SIMPLE = F` (a non-conforming file), a file whose first card is
-`XTENSION` (an extension written alone), and a gzip (`1F 8B`) or bzip2
-(`BZh`) compressed file (`.fits.gz`, `.fits.bz2`), into which no byte range
-reaches, match no profile's signature and are rejected.
+precedence of [profiles/fits.json](profiles/fits.json)) chose, one of:
+
+- bytes 0–8 of `H` are `SIMPLE  =` and byte 29 is `T` (the fixed-format logical of the standard's
+  first card);
+- `H` begins a gzip member (`1F 8B 08`), and the bytes it decodes to begin as the first case says;
+- `H` begins a bzip2 stream at its first block (`BZh`, a digit from 1 to 9, then the block's
+  magic number `31 41 59 26 53 59`). A block decodes only whole, so `H` cannot say more: a bzip2 file of
+  anything else is rejected once read ([§9.3](#93-checks)), as not a FITS file.
+
+A file whose first card is `SIMPLE = F` (a non-conforming file) and a file whose first card is
+`XTENSION` (an extension written alone), compressed or not, match no profile's signature and are
+rejected.
 
 ### 9.2 Reading
 
 The profile reads headers and the main tables of tile-compressed images,
-never data. For each HDU in turn, from its first byte: a window of at most
+never data, but for a compressed file. A compressed file is read whole, in one range, and decoded twice, as its
+decoded size is needed before the first header, and the file holds the decoded file's size nowhere
+it can be trusted (gzip's is modulo 2^32 and per member, bzip2 has none): once to its end, keeping
+nothing, then along with the walk below, whose "file" is the decoded file, keeping only the
+windows. The output depends on the stream's structure and the headers, not on a value of the data
+([Structure only](../zarrify.md#12-input)). For each HDU in turn, from its first byte: a window of at most
 2^16 bytes, extended by such windows until the header's `END` card is in
 it; the bytes of the window past the header are the next HDU's first bytes
 when they reach them. A header MUST end within 2^24 bytes of its first
@@ -653,7 +721,11 @@ The input is rejected unless all of these hold, checked in this order, HDU by
 HDU, every check applying whatever the other cards hold. A rejection names
 the HDU by its number.
 
-- **File:** the file's size is at least 2880.
+- **Compression:** a compressed file is at most 2^31 bytes, since it is held while it is walked
+  and any reader would hold it whole; it decodes to its end, and each gzip member's or bzip2
+  block's checksum holds. Nothing may follow its last member or stream.
+- **File:** the file's size (a compressed file's decoded size, as in every check below) is at
+  least 2880; a file that does not begin with `SIMPLE  =` and a `T` at byte 29 is not a FITS file.
 - **Header:** every card scanned, up to and including `END`, is 80 bytes of
   printable ASCII (bytes 32–126); an `END` card is found within the lesser
   of the file's remaining bytes and 2^24.
@@ -679,7 +751,7 @@ the HDU by its number.
   when absent) is at least `NAXIS1 × NAXIS2` and at most `NAXIS1 × NAXIS2 +
   PCOUNT`; a card `ZTABLE = T` (a tile-compressed table) is rejected.
 - **Tile-compressed images** (`BINTABLE` with `ZIMAGE = T`), in this order:
-  the table is at most 2^26 bytes; `ZCMPTYPE` is `RICE_1`, `RICE_ONE`,
+  the file is not compressed ([§2.1](#21-a-compressed-file)); the table is at most 2^26 bytes; `ZCMPTYPE` is `RICE_1`, `RICE_ONE`,
   `GZIP_1`, `GZIP_2` or `NOCOMPRESS` (`HCOMPRESS_1` and `PLIO_1` are
   rejected and named; any other is rejected); `ZBITPIX` is a `BITPIX` value;
   `ZNAXIS` in 1 … 999; each `ZNAXISn` at least 0 and `ZTILEn` (defaulted)
@@ -764,6 +836,17 @@ at least one present tile:
 | the streams | source range `(0, s, e − s)` | optional | when every present tile starts where the one before it ends: `s` the first present tile's start, `e` the last's end |
 | a stream | source range `(0, o_t, n_t)` | optional | otherwise, one per present tile `t`, in storage order: `o_t` its stream's start in the file, `n_t` its length |
 
+<a id="type-fitsstreamchunk"></a>**`FitsStreamChunk`**, in a compressed file, the one chunk of
+an array with data, its coordinates all 0, whichever array of the file ([§2.1](#21-a-compressed-file)); an
+array with no data has no chunk:
+
+| part | range | presence | value |
+|---|---|---|---|
+| the file | source range `(0, 0, Z)` | required | `Z` the file's size |
+
+The array's chunk shape is its shape, and it has the codecs of
+[§2.1](#21-a-compressed-file). The array's data type, shape and dimension names do not change.
+
 The ranges lie within the file (by the data size check). The output's source table
 is source 0, followed by the zero data source when a reference is padded;
 it has no other data source. `refkv_source` is the IR
@@ -784,3 +867,4 @@ summary, with these members:
 | `chunks` | the number of the arrays' chunks, in all |
 | `cards` | the headers' cards in all |
 | `tables` | the table HDUs |
+| `stream` | a compressed file's `method`, else `null` |

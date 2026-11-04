@@ -362,7 +362,7 @@ const SHOWN_TYPES = ["uint8", "int8", "uint16", "int16", "uint32", "int32", "uin
 
 /** The codecs the Neuroglancer fork decodes (src/datasource/zarr/codec/ there). */
 const DECODED_CODECS = [
-  "bytes", "transpose", "crc32c", "blosc", "zstd", "gzip", "zlib", "numcodecs.zlib", "sharding_indexed", "numcodecs.shuffle",
+  "bytes", "transpose", "crc32c", "blosc", "zstd", "gzip", "zlib", "numcodecs.zlib", "numcodecs.bz2", "sharding_indexed", "numcodecs.shuffle",
   "n5_default", "imagecodecs_delta", "imagecodecs_jpeg", "imagecodecs_jpeg2k", "imagecodecs_jpegxr", "imagecodecs_ljpeg",
   "imagecodecs_lzw", "refkv.fits_tiles", "refkv.grib", "refkv.skip", "refkv.stream", "refkv.tiff_lzw",
 ];

@@ -55,6 +55,7 @@ refkv = "refkv.__main__:main"
 # precomputed) names it when a chunk is decoded.
 [project.entry-points."zarr.codecs"]
 "refkv.fits_tiles" = "refkv.zarr.codecs.fits_tiles:FitsTilesCodec"
+"refkv.h5_bitshuffle" = "refkv.zarr.codecs.h5_bitshuffle:H5BitshuffleCodec"
 "refkv.grib" = "refkv.zarr.codecs.grib:GribCodec"
 "refkv.precomputed" = "refkv.zarr.codecs.precomputed:PrecomputedCodec"
 "refkv.skip" = "refkv.zarr.codecs.skip:SkipCodec"
