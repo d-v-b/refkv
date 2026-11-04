@@ -16,7 +16,7 @@ zarrify <url> <out.json>
 - `<url>` is an `http://` URL of a file of any file profile (an image, audio, a
   table or a model's tensors, a SAFE zip included), or of a store (N5, Zarr v2, OME-Zarr
   0.4, Neuroglancer precomputed, a SAFE directory or a store of safetensors files), whose URL ends in `/`
-  ([§1.4](../../spec/zarrify.md#14-store-inputs)). A VSI, NRRD or GRIB file is read with
+  ([§1.4](../../spec/zarrify.md#14-store-inputs)). A VSI, NRRD or GRIB file, or a LAS X document, is read with
   the files beside it, by name ([§1.8](../../spec/zarrify.md#18-files-read-as-stores)).
   Use the URL, exactly as given, as the input URL `U` of the specification
   ([§1.2](../../spec/zarrify.md#12-input)).
