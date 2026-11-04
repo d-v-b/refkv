@@ -226,7 +226,8 @@ Supported:
 - OME-TIFF planes over Z, C and T in any `DimensionOrder`, single-file.
 - Unsigned and signed integers of 8 to 64 bits, `float32` and `float64`,
   planar or interleaved samples.
-- Compression: none, LZW, DEFLATE, zstd, JPEG 2000, and JPEG (8-bit, gray
+- Compression: none, LZW, DEFLATE, zstd, LZMA, JPEG 2000, LERC (as GDAL's COG driver writes for LINZ's
+  elevation), WebP (3 or 4 samples of 8 bits, as for LINZ's imagery), JPEG XL, and JPEG (8-bit, gray
   or RGB or YCbCr) with or without `JPEGTables`.
 - The horizontal predictor (Predictor 2), as GDAL, libtiff and tifffile write
   it with LZW, DEFLATE or zstd, of integer samples: imagecodecs-zarr's
@@ -271,8 +272,8 @@ The browser code ([js/](../../../js/README.md)) reads TIFF:
   sizes and units.
 - Samples per pixel stored planar (one chunk per channel) or interleaved
   (through a `transpose` codec).
-- Compression: none, LZW (`refkv.tiff_lzw`), DEFLATE (`numcodecs.zlib`), zstd, JPEG 2000
-  (`imagecodecs_jpeg2k`), and JPEG (`imagecodecs_jpeg`), and Predictors 2 (`imagecodecs_delta`) and 3 (`imagecodecs_floatpred`). JPEG tiles that keep
+- Compression: none, LZW (`refkv.tiff_lzw`), DEFLATE (`numcodecs.zlib`), zstd, LZMA (`imagecodecs_lzma`), JPEG 2000
+  (`imagecodecs_jpeg2k`), LERC (`imagecodecs_lerc`), WebP (`imagecodecs_webp`), JPEG XL (`imagecodecs_jpegxl`), and JPEG (`imagecodecs_jpeg`), and Predictors 2 (`imagecodecs_delta`) and 3 (`imagecodecs_floatpred`). JPEG tiles that keep
   their tables in `JPEGTables`, as in Aperio SVS, become complete JPEG streams
   through references that prepend the tables and a color marker, held once
   in the archive as a `data` source.

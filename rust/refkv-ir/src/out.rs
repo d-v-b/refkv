@@ -430,16 +430,20 @@ pub fn item_size(data_type: &str) -> u64 {
 }
 
 /// The codecs after `transpose` of a TIFF `compression` and `predictor` (the tags' values: JPEG
-/// 2000 and JPEG as their imagecodecs codecs; else `imagecodecs_delta` along the stored axis `x`
+/// 2000, JPEG, LERC, WebP, with alpha when a pixel has 4 samples, and JPEG XL as their imagecodecs
+/// codecs; else `imagecodecs_delta` along the stored axis `x`
 /// for Predictor 2, then `bytes`, with the byte order for samples of more than 8 bits, or
 /// `imagecodecs_floatpred` along `x` in place of both for Predictor 3, then
 /// `refkv.tiff_lzw` for LZW (spec/zarrify/tiff.md §4.3
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>),
-/// `numcodecs.zlib` for Deflate or `zstd` for Zstandard).
-pub fn tiff_codecs(compression: u64, predictor: u64, bits: u64, little: bool, x: usize) -> Vec<J> {
+/// `numcodecs.zlib` for Deflate, `zstd` for Zstandard or `imagecodecs_lzma` for LZMA).
+pub fn tiff_codecs(compression: u64, predictor: u64, bits: u64, spp: u64, little: bool, x: usize) -> Vec<J> {
     match compression {
         33003 | 33004 | 33005 | 34712 => return vec![json!({"name": "imagecodecs_jpeg2k"})],
         7 => return vec![json!({"name": "imagecodecs_jpeg"})],
+        34887 => return vec![json!({"name": "imagecodecs_lerc"})],
+        50001 => return vec![json!({"name": "imagecodecs_webp", "configuration": {"hasalpha": spp == 4}})],
+        50002 => return vec![json!({"name": "imagecodecs_jpegxl"})],
         _ => {}
     }
     let mut out = Vec::new();
@@ -457,6 +461,7 @@ pub fn tiff_codecs(compression: u64, predictor: u64, bits: u64, little: bool, x:
         5 => out.push(json!({"name": "refkv.tiff_lzw"})),
         8 | 32946 => out.push(json!({"name": "numcodecs.zlib", "configuration": {"level": 1}})),
         50000 => out.push(json!({"name": "zstd", "configuration": {"level": 0, "checksum": false}})),
+        34925 => out.push(json!({"name": "imagecodecs_lzma"})),
         _ => {}
     }
     out

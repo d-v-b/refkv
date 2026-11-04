@@ -44,6 +44,12 @@ def main() -> None:
     # A short last strip of Deflate, which cannot be padded: the `rectilinear` grid.
     tifffile.imwrite(OUT / "predictor3_strips_float32_deflate_short.tif", image((70, 50), np.float32) / 7,
                      rowsperstrip=16, compression="zlib", predictor=True, photometric="minisblack")
+    # And LZMA, tiled and in big-endian strips.
+    lzma_floats = image((64, 48), np.float32) / 7
+    tifffile.imwrite(OUT / "predictor3_lzma_float32.tif", lzma_floats, tile=(32, 32), compression="lzma",
+                     predictor=True, photometric="minisblack")
+    tifffile.imwrite(OUT / "predictor3_lzma_float32_be.tif", lzma_floats, byteorder=">", rowsperstrip=16,
+                     compression="lzma", predictor=True, photometric="minisblack")
     tifffile.imwrite(OUT / "edge_reject_predictor3_integer.tif", small, tile=(32, 32), compression="zlib",
                      predictor=True)
     patch_short(OUT / "edge_reject_predictor3_integer.tif", "Predictor", 3)
