@@ -27,7 +27,7 @@ fn ims_with_room(data: &[u8], room: Option<u64>) -> (refkv_ir::ir::Ir, serde_jso
                     p.feed(o, data[o as usize..(o + n) as usize].to_vec());
                 }
             }
-            refkv_ir::nd2::Step::Beside => panic!("an IMS file names no siblings"),
+            refkv_ir::nd2::Step::Beside => panic!("the file names siblings"),
             refkv_ir::nd2::Step::Done => break,
         }
     }
