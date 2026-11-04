@@ -81,6 +81,11 @@ pub struct Hdf5 {
 }
 
 /// What the hierarchy holds of an object, decided in the walk's order.
+/// The start of the `NAME` of a netCDF-4 dimension scale that is no variable.
+const NOT_A_VARIABLE: &[u8] = b"This is a netCDF dimension but not a netCDF variable";
+/// netCDF-4's prefix of a variable named as a dimension it is not the coordinate of.
+const NON_COORD_PREFIX: &[u8] = b"_nc4_non_coord_";
+
 enum Decision {
     Group,
     Dataset(Box<Dataset>, Dt, Present),
@@ -338,6 +343,44 @@ impl Hdf5 {
     }
 
     /// What the hierarchy holds of the object at `at`, whose name is `name` (None for the root).
+    /// Whether the dataset at `at` is the dimension scale netCDF-4 writes for a dimension with no
+    /// variable, whose `NAME` says so (spec/zarrify/hdf5.md §3
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#3-datasets>).
+    fn is_dimension_only(&mut self, at: u64) -> R<bool> {
+        Ok(lenient(self.h.attributes(at))?.is_some_and(|attrs| {
+            fixed_attribute(&attrs, b"NAME").is_some_and(|name| name.starts_with(NOT_A_VARIABLE))
+        }))
+    }
+
+    /// The dimension names of the array of the dataset at `at`, of link path `segs`, without a
+    /// trailing axis: the first scale `DIMENSION_LIST` attaches to each axis, by link name; a
+    /// dimension scale of rank 1 without one is its own (spec/zarrify/hdf5.md §3
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#3-datasets>). None when
+    /// no axis has a name.
+    fn dimension_names(&mut self, at: u64, rank: usize, segs: &[Vec<u8>], segs_of: &HashMap<u64, &Vec<Vec<u8>>>) -> R<Option<Vec<J>>> {
+        let Some(attrs) = lenient(self.h.attributes(at))? else { return Ok(None) };
+        let list = attrs.list.iter().find(|a| a.name == b"DIMENSION_LIST").and_then(|a| super::attribute_parts(&a.data).ok());
+        let mut names = vec![J::Null; rank];
+        if let Some((t, dims, data)) = list {
+            let attached = types::parse(&t).is_ok_and(|dt| {
+                dt.size == 16 && matches!(&dt.kind, Kind::Vlen { string: false, base, .. } if matches!(base.kind, Kind::Reference { kind: 0 }))
+            });
+            if !attached || dims != [rank as u64] || data.len() != 16 * rank {
+                return Ok(None);
+            }
+            for (k, name) in names.iter_mut().enumerate() {
+                let (n, c, i) = (le(&data, 16 * k, 4)?, le(&data, 16 * k + 4, 8)?, le(&data, 16 * k + 12, 4)?);
+                let first = if n == 0 { None } else { self.heap(c, i).and_then(|scales| le(&scales, 0, 8).ok()) };
+                if let Some(segs) = first.and_then(|a| segs_of.get(&a)) {
+                    *name = segs.last().map_or(J::Null, |s| dimension_name(s));
+                }
+            }
+        } else if rank == 1 && fixed_attribute(&attrs, b"CLASS").is_some_and(|c| c == b"DIMENSION_SCALE") {
+            names[0] = segs.last().map_or(J::Null, |s| dimension_name(s));
+        }
+        Ok(names.iter().any(|n| !n.is_null()).then_some(names))
+    }
+
     fn decide(&mut self, at: u64, name: Option<&[u8]>) -> R<Decision> {
         if let Some(n) = name {
             let ok = std::str::from_utf8(n).is_ok_and(|s| !s.is_empty() && s != "." && s != ".." && !s.starts_with("__") && !s.contains('/'));
@@ -362,6 +405,9 @@ impl Hdf5 {
             Layout::Null => return Ok(Decision::Not("null_dataspace")),
             Layout::Virtual => return Ok(Decision::Not("layout")),
             _ => {}
+        }
+        if self.is_dimension_only(at)? {
+            return Ok(Decision::Not("dimension_only"));
         }
         let p = match present(&dt) {
             Ok(p) => p,
@@ -749,9 +795,25 @@ impl Hdf5 {
                         data_type = t;
                         fill = f;
                     }
+                    let mut dimension_names = self.dimension_names(*at, ds.dims.len(), segs, &segs_of)?;
+                    if dimension_names.is_some() {
+                        for v in attrs.values_mut() {
+                            if let J::Array(values) = v {
+                                if values.len() == 1 && !values[0].is_array() {
+                                    *v = values.remove(0);
+                                }
+                            }
+                        }
+                    }
+                    if let Some(fill) = lenient(self.h.attributes(*at))?.and_then(|attrs| xarray_fill(&attrs, &dt)) {
+                        attrs.insert("_FillValue".into(), fill);
+                    }
                     let mut shape = ds.dims.clone();
                     if let Some(n) = trailing {
                         shape.push(n);
+                        if let Some(names) = &mut dimension_names {
+                            names.push(J::Null);
+                        }
                     }
                     own.insert("datatype".into(), describe(&dt));
                     if let Some(m) = &ds.maxdims {
@@ -787,7 +849,8 @@ impl Hdf5 {
                         own.insert("unpresented_attributes".into(), J::Object(attr_not));
                     }
                     nodes.push(json!({"path": key, "segments": segs.len(), "attributes": attrs, "own": own,
-                                      "array": {"shape": shape, "data_type": data_type, "fill_value": fill, "codecs": codecs, "store": store}}));
+                                      "array": {"shape": shape, "data_type": data_type, "fill_value": fill, "codecs": codecs, "store": store,
+                                                "dimension_names": dimension_names}}));
                 }
                 Decision::Not(_) => unreachable!(),
             }
@@ -1024,6 +1087,7 @@ fn vlen_collections(dt: &Dt, count: usize, data: &[u8], out: &mut BTreeSet<u64>)
     fn find(dt: &Dt, base: usize, offsets: &mut Vec<usize>) {
         match &dt.kind {
             Kind::Vlen { string: true, .. } => offsets.push(base),
+            Kind::Vlen { base: of, .. } if matches!(of.kind, Kind::Reference { kind: 0 }) => offsets.push(base),
             Kind::Compound(m) => m.iter().for_each(|m| find(&m.dt, base + m.offset as usize, offsets)),
             _ => {}
         }
@@ -1042,6 +1106,42 @@ fn vlen_collections(dt: &Dt, count: usize, data: &[u8], out: &mut BTreeSet<u64>)
             }
         }
     }
+}
+
+/// The bytes, to their first NUL, of the object's fixed-length string attribute `name`.
+fn fixed_attribute(attrs: &super::Attrs, name: &[u8]) -> Option<Vec<u8>> {
+    let a = attrs.list.iter().find(|a| a.name == name)?;
+    let (t, _, data) = super::attribute_parts(&a.data).ok()?;
+    let dt = types::parse(&t).ok()?;
+    if !matches!(dt.kind, Kind::Str { .. }) {
+        return None;
+    }
+    Some(data.split(|&b| b == 0).next().unwrap_or(&[]).to_vec())
+}
+
+/// The value of the `_FillValue` attribute, of one number, of a dataset of the numeric datatype
+/// `of`, as xarray's Zarr backend reads the member of that name (spec/zarrify/hdf5.md §6
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes>): an integer's
+/// a number, a float's the Base64 of its 8 little-endian bytes as a float64.
+fn xarray_fill(attrs: &super::Attrs, of: &Dt) -> Option<J> {
+    let a = attrs.list.iter().find(|a| a.name == b"_FillValue")?;
+    let (t, dims, data) = super::attribute_parts(&a.data).ok()?;
+    let dt = types::parse(&t).ok()?;
+    if super::product(&dims) != 1 || data.len() as u64 != dt.size {
+        return None;
+    }
+    let value = types::as_f64(&dt, &data)?;
+    match of.kind {
+        Kind::Float { .. } => Some(json!(crate::mirror::base64(&value.to_le_bytes()))),
+        Kind::Int { .. } if value.fract() == 0.0 && value.abs() <= 9007199254740991.0 => Some(json!(value as i64)),
+        _ => None,
+    }
+}
+
+/// The dimension name of a scale's link name: netCDF-4's name of the variable, without the
+/// prefix it gives one that is not its dimension's coordinate.
+fn dimension_name(link: &[u8]) -> J {
+    json!(utf8_or_latin1(link.strip_prefix(NON_COORD_PREFIX).unwrap_or(link)))
 }
 
 /// An external link's value: a version and flags byte, then the file's name and the object's
