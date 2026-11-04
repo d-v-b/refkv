@@ -55,3 +55,7 @@ The Python package `refkv` stores a [VirtualiZarr](https://virtualizarr.readthed
 ## A stack of TIFF files
 
 [tiff-stack.md](tiff-stack.md) zarrifies a directory of TIFF files, one per plane, and stacks them into one `(z, y, x)` array saved as a vzip sidecar beside the files, with source URLs relative to the sidecar ([examples/tiff_stack.py](examples/tiff_stack.py)).
+
+## Viewing a contiguous array in blocks
+
+A file's pixels in row-major order are zarrified as slabs, which a viewer can only browse in xy. `refkv.zarr.contiguous` finds such arrays and `refkv.zarr.blocks` serves them as cubes or any other chunk grid, computing each block's ranges at read time. [blocks.md](blocks.md) explains why the cut is thin, why a cube cannot be a stored reference, and what a block read costs.
