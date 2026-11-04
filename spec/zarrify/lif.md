@@ -1,14 +1,20 @@
 # LIF
 
 The Zarr layout of a Leica LIF file (the Leica Image File that LAS X and LAS AF write,
-versions 1 and 2), of a Leica object file (LOF) and of a LIF extension file (LIFEXT), and the
-translation of their XML into JSON. What all of refkv's
+versions 1 and 2), of a Leica object file (LOF), of a LIF extension file (LIFEXT) and of a LAS X
+project of XLEF, XLCF, XLIF and XLLF documents ([§8](#8-las-x-documents)), and the translation of
+their XML into JSON. What all of refkv's
 conventions share is in [spec/conventions.md](../conventions.md), cited here as "conventions
 §n". How refkv produces this layout as a reference store is the LIF profile,
 [Part 2](#part-2-the-profile) below, cited as "the profile §n".
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `b099ab1f-f9d4-4276-9006-9ff1193a34b2` ·
 Schema: [schema.json](lif/schema.json)
+
+Changed 2026-11-04: a LAS X project is accepted ([§8](#8-las-x-documents)), where its documents matched
+no signature. Its input is a file read as a store: the second signature of [§7.1](#71-detection), the
+sibling table of [§8.2](#82-the-siblings), and the root's source metadata has the members `files` and
+`not_presented`, and a `file` of `"set"`. The output of a LIF, LOF or LIFEXT file does not change.
 
 Changed 2026-11-04: a LOF ([§2.5](#25-leica-object-files)) and a LIFEXT file
 ([§2.6](#26-lifext-files)) are accepted, where they were rejected; a LIF file's output does not
@@ -52,7 +58,7 @@ series each:
 | `zarr.json` | group | [`GroupDocument`](../conventions.md#type-groupdocument), attributes a [`CollectionRoot`](../conventions.md#type-collectionroot) | the root ([§4.1](#41-the-hierarchy)) |
 | `zarr.json#/attributes/ome` | attribute | `{"version": "0.5", "bioformats2raw.layout": 3}` | when the file has a series; absent for a file without images (only folders, or FLIM data), which then has no `OME` group |
 | `zarr.json#/attributes/zarr_conventions` | attribute | array of [`ConventionMetadata`](../conventions.md#type-conventionmetadata) | the CMO of [§1](#1-declaration) |
-| `zarr.json#/attributes/refkv_zarrified` | attribute | [`RootProperty`](../conventions.md#type-rootproperty) | `profile` `"lif"`, `version` `0`, `source.url` the file's URL |
+| `zarr.json#/attributes/refkv_zarrified` | attribute | [`RootProperty`](../conventions.md#type-rootproperty) | `profile` `"lif"`, `version` `0`, `source.url` the file's URL, or a project's named document's object URL |
 | `zarr.json#/attributes/refkv_zarrified/lif` | attribute | [`LifRoot`](#type-lifroot) | the root's source metadata ([§5.1](#51-the-root)) |
 | `OME/zarr.json` | group | [`GroupDocument`](../conventions.md#type-groupdocument), attributes a [`SeriesGroup`](../conventions.md#type-seriesgroup) | when the file has a series: `series` `"0"`, `"1"`, ..., one per series |
 | `<s>/zarr.json` | group | [`ImageGroup`](../conventions.md#type-imagegroup) | series `s` ([§4.2](#42-images)) |
@@ -62,7 +68,7 @@ series each:
 | `<s>/zarr.json#/attributes/refkv_zarrified/lif` | attribute | [`LifImage`](#type-lifimage) | the series' source metadata ([§5.2](#52-the-images)) |
 | `<s>/0/zarr.json` | array | [`LifArray`](#type-lifarray) | the series' array ([§4.3](#43-image-arrays)); attributes `{}` |
 | `<s>/0/c/<coords>` | chunk | [`LifChunk`](#type-lifchunk) | a band of a plane ([§4.3](#43-image-arrays)); every chunk is present |
-| `refkv_source/**` | subtree | [the mirror's entries](../conventions.md#table-mirror) | the IR mirror ([§5.3](#53-the-ir-mirror)): its elements are [§5.4](#54-elements)'s; the convention writes no arrays of its own under it |
+| `refkv_source/**` | subtree | [the mirror's entries](../conventions.md#table-mirror) | the IR mirror ([§5.3](#53-the-ir-mirror)): its elements are [§5.4](#54-elements)'s; the convention writes no arrays of its own under it (a LAS X project's LOFs that no image's chunks reference are chunks under `refkv_source/objects/`, [§8.2](#82-the-siblings)) |
 
 | placeholder | value |
 |---|---|
@@ -437,7 +443,17 @@ or shows the merged image.
 | member | type | presence | value |
 |---|---|---|---|
 | `version` | integer | required | `V`, the file's version ([§2.2](#22-the-xml-header)): 1 or 2 |
-| `file` | string | optional | `"lof"` for a LOF ([§2.5](#25-leica-object-files)), `"lifext"` for a LIFEXT file ([§2.6](#26-lifext-files)); absent for a LIF file |
+| `file` | string | optional | `"lof"` for a LOF ([§2.5](#25-leica-object-files)), `"lifext"` for a LIFEXT file ([§2.6](#26-lifext-files)), `"set"` for a LAS X project ([§8](#8-las-x-documents)), then `V` being its named document's; absent for a LIF file |
+| `files` | array of string | optional | of a LAS X project: the key of every sibling, as found, in the order they were found |
+| `not_presented` | array of [`LifNotPresented`](#type-lifnotpresented) | optional | of a LAS X project: the images [§8.4](#84-the-images) leaves out, in the walk's order; absent when there is none |
+
+<a id="type-lifnotpresented"></a>**`LifNotPresented`**, an image a project's output leaves out:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `path` | array of (string or `null`) | required | its path ([§8.4](#84-the-images)) |
+| `document` | string | required | the key of the document that describes it |
+| `reason` | string | required | why, naming the entries of its `Memory` |
 
 Everything else is on the images and on `refkv_source`.
 
@@ -586,11 +602,16 @@ profile's Part 2 shares is in [spec/zarrify.md, Profiles](../zarrify.md#profiles
 ### 7.1 Detection
 
 **Signature** ([spec/zarrify.md §1.2](../zarrify.md#12-input), tested at the precedence of
-[profiles/lif.json](profiles/lif.json)): bytes 0–3 of `H` are `70 00 00 00` (the test value) and
-byte 8 is `2A` (the magic byte). No other profile's signature matches these bytes: a NIfTI file
-starts with a header size of 348 or 540, the others with a magic number of their own. A LOF or a
-LIFEXT file starts with the same bytes, and its XML says which it is ([§2.2](#22-the-xml-header));
-XLIF, XLEF, XLCF and XLLF files are XML and match no signature.
+[profiles/lif.json](profiles/lif.json)), either of two:
+
+1. Bytes 0–3 of `H` are `70 00 00 00` (the test value) and byte 8 is `2A` (the magic byte). No other
+   profile's signature matches these bytes: a NIfTI file starts with a header size of 348 or 540, the
+   others with a magic number of their own. A LOF or a LIFEXT file starts with the same bytes, and its
+   XML says which it is ([§2.2](#22-the-xml-header)).
+2. `H` starts with the UTF-8 byte order mark `EF BB BF` or with `<?xml`, and holds the bytes
+   `LMSDataContainerHeader`: a LAS X document, an input of [§8](#8-las-x-documents). No other signature
+   tests for XML, so nothing else claims these bytes, and a LIF file's XML is UTF-16 at byte 13. LAS X
+   writes the root within the first 100 bytes.
 
 ### 7.2 Reading
 
@@ -673,7 +694,7 @@ the T and Z dimensions ([§3.3](#33-axes-and-fields)). Band `j` of the plane is 
 | input | what it is | outcome |
 |---|---|---|
 | a **LIFEXT** file beside a LIF file | not named by the LIF file | not read ([§2.6](#26-lifext-files)): it is an input of its own |
-| **XLIF, XLEF, XLCF and XLLF** | XML that names image files beside it: TIFF, JPEG, PNG, BMP or LOF | match no signature. A profile of them would read a store of the files a document names, as VSI reads its tile files |
+| an image in **`Frame`s** of a LAS X project | TIFF, JPEG, PNG or BMP files, of one image or of a plane each | not presented, and recorded ([§8.4](#84-the-images)): its files are not read |
 | **FLIM** raw data | `SingleMoleculeDetection` elements, photon arrival histograms | has no image: its blocks are kept as bytes in the mirror |
 
 LIF stores pixels uncompressed and unpacked, so every image the convention gives a layout is
@@ -713,3 +734,106 @@ referenced, not decoded.
   range. Bit-packed data (`BitInc` other than 0), other data types, channels of two types, and
   channels that are neither planar nor interleaved cannot be referenced as chunks, and are
   rejected.
+- **LAS X documents.** A project's documents describe the images a LIF file's XML header describes, so its
+  output has the layout of a LIF file's, and its images their paths in the same tree. The documents are read
+  whole and kept in the mirror. A LOF gives what its document does, and LAS X writes both the same; the
+  profile reads a LOF's for the layout, so that a project and a LOF of it give one image. [§8.2](#82-the-siblings)
+  lists the rest.
+
+## 8. LAS X documents
+
+LAS X can save a project as many files instead of one LIF file: **documents**, which are XML, name one
+another and name the files that hold the images. An XLEF is the experiment, an XLCF a collection, an
+XLIF an image or another element, and an XLLF a folder view. Images are held in LOFs
+([§2.5](#25-leica-object-files)), or in TIFF, JPEG, PNG or BMP files, one per plane or per image.
+
+Such an input is a file read as a store ([zarrify §1.8](../zarrify.md#18-files-read-as-stores)), and its
+output has the layout of [§4](#4-output): a bioformats2raw collection of the images, each with its path
+in the tree of elements.
+
+### 8.1 The documents
+
+A document is UTF-8, usually after a byte order mark, and is read by the tag scan of
+[§2.2](#22-the-xml-header). Its bytes MUST be valid UTF-8, its root MUST be named
+`LMSDataContainerHeader`, with a `Version` of 1 or 2, and the root MUST have a child `Element`: the
+document's **element**. So a document holds one element, and:
+
+| path under the element | what |
+|---|---|
+| `Data/Experiment`, `Data/Collection`, ... | what it is; only `Data/Image` matters here: such an element is an **image** |
+| `Data/Image` | as in [§2.3](#23-images) and [§2.4](#24-dimensions-and-channels) |
+| `Memory` | its attribute `Size`, and the children that have an attribute `File`, its **entries**: `Block` (`Offset`, `Size`, `UUID`) or `Frame`, ... |
+| `Children/Reference` | each with an attribute `File`, a **reference**, names a document, and may have a `UUID` |
+
+A `Reference` without a `File` names nothing. Elements that are not images (`Data/Experiment`,
+`Data/Collection`, LAS X's `Data/ProcessingControl` in `IOManagerConfiguation.xlif`, whose `Memory` has
+a `Size` of 0, and a `Data/SimpleListInMemory`) add only the documents and LOFs they name.
+
+A `Memory` of exactly one entry, a `Block` whose `File` ends in `.lof` in ASCII lower case, names a
+**LOF**. It MUST have an integer `Offset` and an integer `Size` ([§2.2](#22-the-xml-header)), for an
+element that is an image or not. Any other entries name nothing the profile reads ([§8.4](#84-the-images)).
+
+### 8.2 The siblings
+
+The sibling table ([zarrify §1.9](../zarrify.md#19-sources-beside-the-input)):
+
+| what | it says |
+|---|---|
+| form | always: an input whose bytes match the second signature of [§7.1](#71-detection) is a file read as a store. A LIF, LOF or LIFEXT file names no sibling and is a file input |
+| names | written: each `File` of a `Reference` or of a LOF's `Block`, percent-decoded once, each `\` a `/`, with `..` allowed, relative to the directory of the document that holds it, through the steps of **Naming**; **Case** applies. A name those steps reject rejects the input. `Frame`s and other entries are not made keys |
+| probes | the keys that the documents of one level name, in one batch: a level's documents in the order read, each one's `Reference`s, then its `Block`. All required; an absent one rejects the input: ``the document "<key>" does not exist``, or ``the LOF "<key>"``, with the advice of **Absent names** below. Files a `Frame` names are not probed. A key already known is not probed again, and what it would have named is already known too, so a document that names itself or an earlier document adds nothing |
+| identity | a `Reference`'s `UUID` against the `UniqueID` of the element of the document it names, and the `UniqueID` of an element that names a LOF against the `UniqueID` of the LOF's `Element`, where both exist; else ``the document "<key>" is not part of this experiment``, or ``the LOF "<key>"`` |
+| order | first use |
+| reads and mirror | a document is read whole and **held**, with one child `xml`, of type `xml`, its whole extent. A LOF is read as [§7.2](#72-reading) says, and **described in place**, its [§5.4](#54-elements) elements under its object; a LOF that no image's chunks reference, as beside a frame image, is also referenced whole at `refkv_source/objects/<key>` ([zarrify §1.4](../zarrify.md#14-store-inputs)), which makes it a source. Nothing is read of what no document names |
+
+**Case.** LAS X writes names in lower case on a file system that ignores it, so a written key differs
+from the file's: `.%5Cmetadata%5Cseries010_edf001.xlcf` for `Metadata/Series010_EDF001.xlcf`. So this
+profile says **Case** applies. A host that can list a local directory finds each key by listing it
+segment by segment, and a key's object is the file's key as listed. Two entries that match only ignoring
+case reject the input: ``the file "<key>" matches both "<a>" and "<b>"``. This listing happens whether or
+not the written key opens, so that a file system that ignores case gives the same output as one that
+does not.
+
+**Absent names.** A web server cannot list a directory, so over HTTP, and in the browser, a written name
+is the only key tried, and a set whose names are in another case than its files is rejected, unless the
+server itself ignores case. The message says what to do: download the set, and zarrify the local copy
+with `--url` naming where it is served. This reads the same output, with the keys the files have.
+S3 stores are not listed for this today.
+
+### 8.3 Limits
+
+| limit | value | bounds |
+|---|---|---|
+| a document | 2^27 bytes | its parse, and its bytes in the mirror |
+| the documents of an input | 2^28 bytes in total | the same |
+| names | at most 65536 keys probed ([zarrify §1.9](../zarrify.md#19-sources-beside-the-input), **Bounds**) | requests |
+| depth | 16 levels of documents, the named file being level 1: ``budget: documents name documents more than 16 levels deep``. A level is the fewest references from the named file; the walk of [§8.4](#84-the-images) also holds to it | requests, and an image's `path` |
+| a LOF | named by at most one document: two images must not name one block | as [§2.3](#23-images) |
+
+A document's or LOF's limits are the store run's besides: its reads ([conventions §8.9](../conventions.md#89-stores)).
+
+### 8.4 The images
+
+The documents are walked from the named file, a document before the ones it names, and these in the
+order of its `Reference`s, each document once. The walk gives the images in order, so that `k` and the
+series ([§4.1](#41-the-hierarchy)) number the input's images as a LIF file's do, and each image's `path`
+([§2.3](#23-images)) is the `Name` of each document's element on the way to it.
+
+An image element with a LOF is **presented**. Its LOF MUST be a LOF ([§2.5](#25-leica-object-files),
+`the LOF "<key>" is not a LOF file`), MUST have an image (``the LOF "<key>" that "<document>" names holds
+no image``), and that image is the one the output has: its dimensions and channels are its LOF's, which
+LAS X writes the same as its document's, and its checks are [§7.3](#73-rejection)'s, whose message then
+starts with ``the LOF "<key>": ``. Its `Offset` plus its `Size` MUST be at most the LOF's data size `D`, and
+the image's extent ([§3.2](#32-channels)) at most its `Size`: its plane offset ([§7.4](#74-chunk-references))
+counts from `B` plus its `Offset`. LAS X writes an `Offset` of 0 and a `Size` of `D`.
+
+Any other image element is **not presented**, and is recorded on the root
+([§5.1](#51-the-root)) with its reason. That is an image in TIFF, JPEG, PNG or BMP `Frame`s, an image of
+several `Block`s, an image whose `Block` is not of a LOF, and one whose `Memory` names no file. Its
+document is still in the mirror, as is every other element, so nothing about it is lost but the
+reference to its pixels. A later version MAY present an uncompressed TIFF frame: a frame's `Size` is the
+plane's, and its `Offset` where the plane falls in the image, so it needs each TIFF's strips read, and one
+file for each plane at worst.
+
+The references of an image are ranges of its LOF's object, named by object URL
+([zarrify §1.8](../zarrify.md#18-files-read-as-stores)).

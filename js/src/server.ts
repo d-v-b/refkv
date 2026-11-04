@@ -36,6 +36,7 @@ const STORE_FORMATS: Record<StoreProfile, string | undefined> = {
   nrrd: "NRRD",
   grib: "GRIB",
   safetensors: "safetensors",
+  lif: "LIF",
 };
 
 export const ARCHIVE_KEY = "__vz__/archive.vzip";

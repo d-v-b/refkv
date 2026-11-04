@@ -1,6 +1,7 @@
 """Checks the browser LIF zarrifier's output against liffile.
 
-Each fixtures/lif/*.lif, *.lof and *.lifext is served over local HTTP and zarrified by js/conformance/zarrify.ts
+Each fixtures/lif/*.lif, *.lof and *.lifext, and the LAS X project lif_xlef_tree.xlef, is served
+over local HTTP and zarrified by js/conformance/zarrify.ts
 (the browser code, run under Node). Each image of the file is read by liffile, and each of its
 fields (a mosaic's tiles) is a series of the archive, read through the reference reader and
 zarr-python, which must equal liffile's data, in its type, with the image's axes in the order
@@ -60,7 +61,9 @@ def problems_of(path: Path, out: Path) -> list[str]:
     s = 0
     with liffile.LifFile(path) as f:
         for k, im in enumerate(f.images):
-            want = expected_fields(im)
+            # through its LOF: liffile flips BGR samples read through a document, and does not say so
+            # pyrefly: ignore[missing-attribute]
+            want = expected_fields(im._lof_reference.images[0] if path.suffix == ".xlef" else im)
             dims = [dict(e.attrib) for e in
                     im.xml_element.findall("./Data/Image/ImageDescription/Dimensions/DimensionDescription")]
             for field, values in enumerate(want):
@@ -77,11 +80,13 @@ def problems_of(path: Path, out: Path) -> list[str]:
                 s += 1
     if s != len(series):
         problems.append(f"{len(series)} series, not {s}")
-    return problems + mirror_problems(out, path)
+    return problems if path.suffix == ".xlef" else problems + mirror_problems(out, path)
 
 
 def main(fixtures: Path) -> int:
-    paths = sorted(p for s in ("lif", "lof", "lifext") for p in fixtures.glob(f"*.{s}"))
+    # liffile reads only the first parent of a LIFEXT file: python/tests/ir/test_lif.py checks the rest
+    paths = sorted(p for s in ("lif", "lof", "lifext") for p in fixtures.glob(f"*.{s}") if "two_parents" not in p.name)
+    paths += sorted(fixtures.glob("lif_xlef_tree.xlef"))
     return run(paths, lambda path, out, _: problems_of(path, out), url=serve(paths), width=44)
 
 

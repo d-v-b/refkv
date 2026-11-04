@@ -9,7 +9,9 @@
     "max_dimensions": 16,
     "max_channels": 1024,
     "max_extent": 2147483648,
-    "max_series": 65536
+    "max_series": 65536,
+    "max_document": 134217728,
+    "max_documents": 268435456
   },
   "elements": {
     "about": "The IR of a LIF, LOF or LIFEXT file. n is the XML header's length in bytes (twice its characters), i a memory block's index in file order, H its fixed part (18 bytes for a LIF file of version 1, 22 for any other, 9 for a LOF's), m its ID's length in bytes, D its data's size, and x a LOF's XML's length in bytes.",
@@ -74,6 +76,88 @@
       "given": {"count": "the file's image elements"},
       "constraints": [
         {"require": "count <= 1", "message": "the LOF's XML has {count} images, not at most 1"}
+      ]
+    },
+    "document_size": {
+      "about": "a LAS X document, before it is read whole (spec/zarrify/lif.md §8.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#83-limits>)",
+      "given": {"key": "its key", "size": "its size", "total": "the size of the documents so far"},
+      "constraints": [
+        {"require": "size <= max_document", "message": "the document \"{key}\" of {size} bytes is longer than 2^27 bytes"},
+        {"require": "total <= max_documents", "message": "budget: the documents are more than 2^28 bytes"}
+      ]
+    },
+    "document": {
+      "about": "a LAS X document, read whole (spec/zarrify/lif.md §8.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#81-the-documents>)",
+      "given": {"key": "its key", "utf8": "its bytes are UTF-8", "root": "the root element's name", "version": "the root's Version, an integer or its text", "element": "the root has a child Element"},
+      "constraints": [
+        {"require": "utf8", "message": "the document \"{key}\" is not UTF-8"},
+        {"require": "root == 'LMSDataContainerHeader'", "message": "the document \"{key}\" has the root element {root}, not LMSDataContainerHeader"},
+        {"require": "in(version, [1, 2])", "message": "the document \"{key}\" has the unsupported version {version}, not 1 or 2"},
+        {"require": "element", "message": "the document \"{key}\" has no Element"}
+      ]
+    },
+    "block": {
+      "about": "the Block of a LOF that a document names (spec/zarrify/lif.md §8.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#81-the-documents>)",
+      "given": {"key": "the document's key", "offset": "its Offset", "size": "its Size"},
+      "constraints": [
+        {"require": "int(offset) && int(size)", "message": "the document \"{key}\" has a Block whose Offset or Size ({offset}, {size}) is not an integer"}
+      ]
+    },
+    "name": {
+      "about": "a written name (spec/zarrify/lif.md §8.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#82-the-siblings>)",
+      "given": {"name": "the name as written", "what": "the element that holds it", "key": "the document's key", "below": "the name's steps give a key"},
+      "constraints": [
+        {"require": "below", "message": "the name \"{name}\" of a {what} in \"{key}\" is not a path below the named file's directory: zarrify the file at the top of the set"}
+      ]
+    },
+    "absent": {
+      "about": "a name no file answers (spec/zarrify/lif.md §8.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#82-the-siblings>)",
+      "given": {"noun": "what the name names", "key": "its key", "found": "false"},
+      "constraints": [
+        {"require": "found", "message": "the {noun} \"{key}\" does not exist. LAS X writes names in lower case, and a web server cannot list a directory to find the file's own: download the set and zarrify the local copy"}
+      ]
+    },
+    "role": {
+      "about": "a key named as two kinds of file",
+      "given": {"key": "its key", "one": "false"},
+      "constraints": [
+        {"require": "one", "message": "the file \"{key}\" is named both as a document and as a LOF"}
+      ]
+    },
+    "named_twice": {
+      "about": "a LOF two documents name (spec/zarrify/lif.md §8.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#83-limits>)",
+      "given": {"key": "its key", "a": "the first document's key", "b": "the second's", "once": "false"},
+      "constraints": [
+        {"require": "once", "message": "the LOF \"{key}\" is named by both \"{a}\" and \"{b}\""}
+      ]
+    },
+    "lof_file": {
+      "about": "a file a Block names (spec/zarrify/lif.md §8.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#84-the-images>)",
+      "given": {"key": "its key", "lof": "it is a LOF"},
+      "constraints": [
+        {"require": "lof", "message": "the LOF \"{key}\" is not a LOF file"}
+      ]
+    },
+    "lof_image": {
+      "about": "a LOF an image's document names (spec/zarrify/lif.md §8.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#84-the-images>)",
+      "given": {"document": "the document's key", "key": "the LOF's", "has": "the LOF has an image, or the document's element is no image"},
+      "constraints": [
+        {"require": "has", "message": "the LOF \"{key}\" that \"{document}\" names holds no image"}
+      ]
+    },
+    "block_fits": {
+      "about": "a Block's Offset and Size against its LOF (spec/zarrify/lif.md §8.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#84-the-images>)",
+      "given": {"document": "the document's key", "key": "the LOF's", "end": "Offset plus Size", "fits": "it is at most the LOF's data size", "held": "the LOF's data size", "size": "the Block's Size", "need": "the image's extent", "covers": "the Size is at least the extent, or the element is no image"},
+      "constraints": [
+        {"require": "fits", "message": "the Block in \"{document}\" reaches {end} bytes into the LOF \"{key}\", which holds {held}"},
+        {"require": "covers", "message": "the image in \"{document}\" reaches {need} bytes into its Block of {size} bytes"}
+      ]
+    },
+    "identity": {
+      "about": "a named file against what names it, where both record an ID (spec/zarrify/lif.md §8.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#82-the-siblings>)",
+      "given": {"noun": "what it is", "key": "its key", "same": "the IDs are one, or one of them is absent"},
+      "constraints": [
+        {"require": "same", "message": "the {noun} \"{key}\" is not part of this experiment"}
       ]
     },
     "image": {

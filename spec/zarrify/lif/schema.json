@@ -149,8 +149,46 @@
             "file": {
               "enum": [
                 "lof",
-                "lifext"
+                "lifext",
+                "set"
               ]
+            },
+            "files": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "A LAS X project's siblings: every document and LOF but the named file"
+            },
+            "not_presented": {
+              "type": "array",
+              "description": "The images of a LAS X project the output leaves out, each with its reason",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "array",
+                    "items": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "document": {
+                    "type": "string"
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path",
+                  "document",
+                  "reason"
+                ],
+                "additionalProperties": false
+              }
             }
           },
           "required": [

@@ -31,6 +31,7 @@ pub mod shard;
 pub mod store;
 pub mod text;
 pub mod types;
+pub mod xlef;
 pub mod xml;
 pub mod zip;
 

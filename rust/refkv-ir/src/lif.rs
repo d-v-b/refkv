@@ -78,7 +78,7 @@ struct Node<'a> {
 /// §2.7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#27-the-metadata-xml>): a
 /// start tag that is not self-closing opens an element, an end tag closes the innermost open
 /// element of its name and every element opened after it, and one that matches none is ignored.
-struct Tree<'a> {
+pub struct Tree<'a> {
     x: &'a str,
     nodes: Vec<Node<'a>>,
     /// the first element at depth 0, and the end of its subtree (the next element at depth 0)
@@ -86,7 +86,7 @@ struct Tree<'a> {
 }
 
 impl<'a> Tree<'a> {
-    fn build(x: &'a str) -> Tree<'a> {
+    pub fn build(x: &'a str) -> Tree<'a> {
         let mut nodes: Vec<Node<'a>> = Vec::new();
         let mut open: Vec<u32> = Vec::new();
         let mut counts: HashMap<&'a str, u32> = HashMap::new();
@@ -133,17 +133,22 @@ impl<'a> Tree<'a> {
         Tree { x, nodes, root: root.map(|(r, e)| (r, e.min(n))) }
     }
 
-    fn name(&self, n: u32) -> &'a str {
+    /// The root: the first element at depth 0.
+    pub fn root(&self) -> Option<u32> {
+        self.root.map(|r| r.0)
+    }
+
+    pub fn name(&self, n: u32) -> &'a str {
         self.nodes[n as usize].tag.name
     }
 
     /// The first attribute `name`, references decoded.
-    fn attr(&self, n: u32, name: &str) -> Option<String> {
+    pub fn attr(&self, n: u32, name: &str) -> Option<String> {
         self.nodes[n as usize].tag.attr(self.x, name).map(|a| a.0)
     }
 
     /// Every attribute, references decoded, in order; of a repeated name the first.
-    fn attrs(&self, n: u32) -> Map<String, J> {
+    pub fn attrs(&self, n: u32) -> Map<String, J> {
         let mut out = Map::new();
         for (k, v, _) in self.nodes[n as usize].tag.attrs(self.x) {
             if !out.contains_key(&k) {
@@ -153,7 +158,7 @@ impl<'a> Tree<'a> {
         out
     }
 
-    fn children(&self, n: u32) -> impl Iterator<Item = u32> + '_ {
+    pub fn children(&self, n: u32) -> impl Iterator<Item = u32> + '_ {
         let mut c = self.nodes[n as usize].first;
         std::iter::from_fn(move || {
             (c != NONE).then(|| {
@@ -164,23 +169,23 @@ impl<'a> Tree<'a> {
         })
     }
 
-    fn named(&self, n: u32, name: &'a str) -> impl Iterator<Item = u32> + '_ {
+    pub fn named(&self, n: u32, name: &'a str) -> impl Iterator<Item = u32> + '_ {
         self.children(n).filter(move |&c| self.name(c) == name)
     }
 
-    fn child(&self, n: u32, name: &'a str) -> Option<u32> {
+    pub fn child(&self, n: u32, name: &'a str) -> Option<u32> {
         self.named(n, name).next()
     }
 
     /// The first child along each step of `path`.
-    fn at(&self, n: u32, path: &[&'a str]) -> Option<u32> {
+    pub fn at(&self, n: u32, path: &[&'a str]) -> Option<u32> {
         path.iter().try_fold(n, |m, step| self.child(m, step))
     }
 }
 
 /// An attribute's integer: its text, whitespace trimmed, is one or more digits of a value at most
 /// 2^53 - 1.
-fn integer(v: Option<&str>) -> Option<u64> {
+pub fn integer(v: Option<&str>) -> Option<u64> {
     let t = v?.trim_matches([' ', '\t', '\r', '\n']);
     if t.is_empty() || !t.bytes().all(|c| c.is_ascii_digit()) || t.trim_start_matches('0').len() > 16 {
         return None;
@@ -194,7 +199,7 @@ fn decimal(v: Option<&str>) -> Option<f64> {
 }
 
 /// An integer attribute as a role's given: its value, its text when not an integer, else absent.
-fn given(v: &Option<String>) -> crate::expr::V {
+pub fn given(v: &Option<String>) -> crate::expr::V {
     match (v, integer(v.as_deref())) {
         (_, Some(x)) => num(x as f64),
         (Some(t), None) => text(t),
@@ -348,6 +353,10 @@ pub struct Lif {
     images: Vec<Image>,
     file: File,
     object: Object,
+    /// of a LOF of a set, where its image starts in the block's data (`Lif::in_set`)
+    offset: u64,
+    /// the `UniqueID` of the first `Element` of its XML
+    unique: Option<String>,
     /// the root's Version: of a LIF file, the width of a block's data size
     version: u64,
     predicted: Vec<Predicted>,
@@ -373,6 +382,8 @@ impl Lif {
             images: Vec::new(),
             file: File::Lif,
             object: Object::default(),
+            offset: 0,
+            unique: None,
             version: 2,
             predicted: Vec::new(),
             next_predicted: 0,
@@ -382,6 +393,18 @@ impl Lif {
             facts: J::Null,
             asked: sans::Asked::default(),
         }
+    }
+
+    /// A parser of a LOF that a document names, whose `Block` has the `Offset` `offset`
+    /// (spec/zarrify/lif.md §8.4
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#84-the-images>).
+    pub fn in_set(size: u64, offset: u64) -> Self {
+        Lif { offset, ..Lif::new(size) }
+    }
+
+    /// Whether the file is a LOF, once its XML is read.
+    pub fn is_lof(&self) -> bool {
+        self.file == File::Lof
     }
 
     pub fn feed(&mut self, offset: u64, data: Vec<u8>) {
@@ -396,6 +419,10 @@ impl Lif {
                     return Ok(self.asked.ask(vec![(0, self.size.min(FIRST))]));
                 }
                 Phase::Head => {
+                    // a LAS X document: its input is a store run's (`crate::xlef`)
+                    if self.fed.get(0, self.size.min(552)).is_some_and(crate::xlef::detect) {
+                        return Ok(Step::Beside);
+                    }
                     self.header()?;
                     self.phase = Phase::Xml;
                     let end = HEAD + 2 * self.chars;
@@ -579,6 +606,7 @@ impl Lif {
             self.file = File::Lifext;
         }
         let tree = tree.ok_or("internal: no XML tree")?;
+        self.unique = tree.root().and_then(|r| tree.child(r, "Element")).and_then(|e| tree.attr(e, "UniqueID"));
         // the file's own element's block, then the blocks of data, each ID once: LAS X names
         // empty and repeated IDs it writes no block for
         let (r, end) = tree.root.ok_or("internal: no root")?;
@@ -698,7 +726,7 @@ impl Lif {
             let block = found.first().copied();
             let other = block.and_then(|b| named[b]);
             let held = block.map_or(0, |b| self.blocks[b].size);
-            let need = f.end;
+            let need = f.end + self.offset as u128;
             self.rules.check(
                 "memory",
                 rules::env([
@@ -715,13 +743,15 @@ impl Lif {
             let b = block.ok_or("internal: no block")?;
             named[b] = Some(k);
             self.blocks[b].image = Some(k);
-            f.place(self.blocks[b].data(), b);
+            f.place(self.blocks[b].data() + self.offset, b);
             series += f.fields.len() as u64;
             self.rules.check("series", rules::env([("count", num(series as f64))]))?;
             facts.push(image_facts(im, &f, k));
         }
         self.emit()?;
-        let mut facts = json!({"version": self.version, "file": self.file.name(), "blocks": self.blocks.len(), "images": facts, "series": series});
+        let held = self.blocks.first().map_or(0, |b| b.size);
+        let mut facts = json!({"version": self.version, "file": self.file.name(), "blocks": self.blocks.len(), "images": facts, "series": series,
+                               "unique": self.unique, "held": held});
         self.asked.put(&mut facts);
         self.facts = facts;
         Ok(())
@@ -1159,7 +1189,7 @@ fn image_facts(im: &Image, f: &Layout, k: usize) -> J {
         "interleaved": f.interleaved, "axes": f.axes, "shape": f.shape, "chunk_shape": f.chunk_shape,
         "offsets": f.offsets, "order": f.order, "colors": colors, "resolution": f.resolution,
         "t": [f.t.0, f.t.1], "z": [f.z.0, f.z.1], "rows": f.rows, "row": f.row, "y_stride": f.y_stride,
-        "band": f.band, "base": f.base, "block": f.block,
+        "band": f.band, "base": f.base, "block": f.block, "end": f.end as u64,
         "field_dims": f.field_dims.iter().map(|d| d.1).collect::<Vec<_>>(),
         "fields": f.fields.iter().map(|(i, o)| json!([i, o])).collect::<Vec<_>>(),
         "tiles": tiles,
@@ -1171,9 +1201,10 @@ fn image_facts(im: &Image, f: &Layout, k: usize) -> J {
 pub struct Profile;
 
 impl crate::run::FileProfile for Profile {
-    /// The test value at byte 0 and the magic byte at byte 8 (`detect`).
+    /// The test value at byte 0 and the magic byte at byte 8 (`detect`), or a LAS X document
+    /// (`crate::xlef::detect`), whose file run finds that it is one and starts over as a store run.
     fn detect(&self, head: &[u8]) -> bool {
-        detect(head)
+        detect(head) || crate::xlef::detect(head)
     }
     fn parser(&self, size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::of::<Lif>(size)

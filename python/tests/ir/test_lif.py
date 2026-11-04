@@ -6,19 +6,40 @@ inputs the profile rejects are conformance/zarrify/rejects/lif.json's (test_reje
 import json
 import math
 import sys
+from pathlib import Path
 
 import liffile
 import numpy as np
 import pytest
+import zarr
 from ir_helpers import FIXTURES, ROOT, zarrified
 
+import refkv.zarr
+from refkv import _core
 from refkv._narrow import at, integer, mapping, ndarray, number, sequence, string
+from refkv.ir import NamesSiblingsError
+from refkv.ir import zarrify as via_ir
+from refkv.ir.store import StoreIrOutput
+from refkv.policy import Policy
+from refkv.zarrify import Rejected
+from refkv.zarrify import _zarrify as zarrify
+from refkv.zarrify.store import object_url
+from refkv.zarrify.store.beside import VsiFiles, folded, found_key
+
+sys.path.insert(0, str(ROOT / "conformance" / "zarrify"))
+from proxy import Proxy
 
 sys.path.insert(0, str(ROOT / "fixtures" / "generators" / "lif"))
 # pyrefly: ignore[missing-import]  # on sys.path above; the config's search-path lacks fixtures/generators
 from write_fixtures import Img, Lif, Lof, accepted_lifext  # the fixtures' writer, for a file too large to commit
 
 LIFS = sorted(p for s in ("lif", "lof", "lifext") for p in (FIXTURES / "lif").glob(f"lif_*.{s}"))
+
+
+@pytest.fixture(scope="module")
+def server(tmp_path_factory):
+    """The fixtures served over HTTP by the harness proxy: the directory's URL, ending in `/`."""
+    return Proxy(FIXTURES / "lif", tmp_path_factory.mktemp("cache")).base + "f/"
 # liffile's dimension codes as axes; any other is a field dimension
 AXIS = {"T": "t", "C": "c", "S": "c", "Z": "z", "Y": "y", "X": "x"}
 
@@ -133,6 +154,157 @@ def test_a_lof_reads_its_parts_not_its_pixels(tmp_path):
     assert integer(at(out.summary, "planner", "bytes")) < (1 << 16) + (1 << 14)
     with liffile.LifFile(big) as f:
         assert np.array_equal(ndarray(root.get_array("0/0")[...]), f.images[0].asarray())
+
+
+LIF = FIXTURES / "lif"
+# each accepted project: its named file, its images' paths, and those it does not present
+PROJECTS = [
+    ("lif_xlef_tree.xlef", [["lif_xlef_tree", "Series1"], ["lif_xlef_tree", "Group A", "Series 2"]], 0),
+    ("lif_xlef_lowercase.xlef", [["lif_xlef_lowercase", "Series1"], ["lif_xlef_lowercase", "Group A", "Series 2"]], 0),
+    ("lif_xlef_frames.xlef", [["lif_xlef_frames", "Solo"]], 2),
+    ("lif_xlef_cycle.xlef", [["lif_xlef_cycle", "Back", "Solo"]], 0),
+    ("lif_xlef_chain.xlef", [], 0),
+    ("lif_xlcf.xlcf", [["lif_xlcf", "Solo"]], 0),
+    ("lif_xlif.xlif", [["Solo"]], 0),
+    ("lif_xllf.xllf", [["lif_xllf", "Solo"]], 0),
+]
+
+
+def project_output(name: str) -> tuple[StoreIrOutput, zarr.Group]:
+    fmt, out = zarrify(str(LIF / name))
+    policy = None
+    assert fmt == "lif"
+    assert isinstance(out, StoreIrOutput)
+    return out, zarr.open_group(refkv.zarr.store(out.to_store(policy=policy)), mode="r", zarr_format=3)
+
+
+@pytest.mark.parametrize(("name", "paths", "left_out"), PROJECTS, ids=lambda v: v if isinstance(v, str) else "")
+def test_a_project_matches_liffile_and_rebuilds(name, paths, left_out):
+    """A project's images are, in the order its documents name one another, each at its path in the
+    element tree, with the element's attributes from its document and its array from its LOF
+    (spec/zarrify/lif.md §8.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#84-the-images>).
+    liffile, where it can read the project, gives the same arrays. Every file is an object of the
+    mirror at the key it has, whatever case its name is written in: a document held, and a LOF
+    described in place, a source of the archive when a chunk references it."""
+    out, root = project_output(name)
+    meta = mapping(at(root.attrs, "refkv_zarrified", "lif"))
+    assert meta["file"] == "set"
+    assert meta["version"] == 2
+    assert len(sequence(meta.get("not_presented", []))) == left_out
+    for r in sequence(meta.get("not_presented", [])):
+        assert string(at(r, "reason"))
+    series = [string(s) for s in sequence(at(root.get_group("OME").attrs, "ome", "series"))] if "OME" in root else []
+    assert len(series) == len(paths)
+    groups = [root.get_group(s) for s in series]
+    own = [mapping(at(g.attrs, "refkv_zarrified", "lif")) for g in groups]
+    assert [o["path"] for o in own] == paths
+    assert [o["image"] for o in own] == list(range(len(paths)))
+    if name != "lif_xlef_cycle.xlef" and left_out == 0:  # liffile follows a cycle forever, and opens every frame
+        with liffile.LifFile(LIF / name) as f:
+            images = list(f.images)
+            assert len(images) == len(paths)
+            for im, group, o in zip(images, groups, own, strict=True):
+                # through its LOF: liffile flips BGR samples read through a document, and does not say so
+                # pyrefly: ignore[missing-attribute]
+                _, want = expected_fields(im._lof_reference.images[0])
+                got = ndarray(group.get_array("0")[...])
+                assert got.dtype == want.dtype
+                assert np.array_equal(got.reshape(want[0].shape), want[0])
+                assert o["attributes"] == dict(im.xml_element.attrib)
+                assert o["memory"] == elements(im, "./Memory")[0]
+                assert o["dimensions"] == elements(im, "./Data/Image/ImageDescription/Dimensions/DimensionDescription")
+    rebuilt = _core.rebuild_store(out.entries.get)
+    assert {k for k, _, _ in rebuilt} == set(out.sizes)
+    assert set(sequence(meta["files"])) == {k for k, _, _ in rebuilt} - {name}
+    sources = out.table()[0]
+    for key, size, held in rebuilt:
+        data = (LIF / key).read_bytes()
+        assert size == len(data), key
+        if key.endswith(".lof"):
+            assert held is None, key
+        else:
+            assert held == data, key
+    for o in own:
+        assert at(o, "attributes", "Name") == sequence(o["path"])[-1]
+    # every LOF is a source, of an image's chunks or at refkv_source/objects/; no document is
+    lofs = {object_url(out.url, k) for k, _, _ in rebuilt if k.endswith(".lof")}
+    assert {u for u in sources if u is not None} == lofs
+
+
+def test_a_project_is_read_with_the_keys_its_files_have(tmp_path):
+    """Names written in another case than the files have find them by listing the directories
+    (spec/zarrify/lif.md §8.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#82-the-siblings>);
+    an output names the files as they are, in its sources and its mirror."""
+    out, root = project_output("lif_xlef_lowercase.xlef")
+    keys = set(out.sizes)
+    assert "_lif_xlef_lowercase_/Metadata/Series1.xlif" in keys
+    assert "_lif_xlef_lowercase_/Series1/Metadata/FrameProperties.xlif" in keys
+    assert "_lif_xlef_lowercase_/Group A/Series 2.lof" in keys
+    assert all(k == k.replace("metadata", "Metadata") for k in keys)
+    assert len(sequence(at(root.attrs, "refkv_zarrified", "lif", "files"))) == len(keys) - 1
+    # a directory of a copy of the project, moved: its key is relative to the named file
+    other = tmp_path / "a b"
+    other.mkdir()
+    for k in keys:
+        (other / k).parent.mkdir(parents=True, exist_ok=True)
+        (other / k).write_bytes((LIF / k).read_bytes())
+    _, moved = zarrify(str(other / "lif_xlef_lowercase.xlef"), url="https://data.test/set/lif_xlef_lowercase.xlef")
+    assert isinstance(moved, StoreIrOutput)
+    assert set(moved.sizes) == keys
+
+
+def test_folding_and_listing_are_the_core_s():
+    """The hosts' twin of refkv_ir::beside: simple case folding, an exact entry first."""
+    assert folded("Series010.XLIF") == "series010.xlif"
+    assert folded("\u00c9") == folded("\u00e9")
+    assert folded("stra\u00dfe") != folded("strasse")
+    assert folded("\u0131") != folded("i")
+    tree = {"": ["Metadata", "both.lof", "BOTH.lof"], "Metadata": ["Series010.xlif"]}
+    assert found_key("metadata/SERIES010.xlif", tree.get) == "Metadata/Series010.xlif"
+    assert found_key("both.lof", tree.get) == "both.lof"
+    assert found_key("absent.lof", tree.get) is None
+    assert found_key("both.lof/x", tree.get) is None
+
+
+def test_two_entries_that_match_ignoring_case_are_rejected():
+    """A file system that ignores case cannot hold such a pair, so a listing stands in for it."""
+    tree = {"": ["Dir"], "Dir": ["A.lof", "a.LOF"]}
+    with pytest.raises(Rejected, match=r'the file "dir/a\.lof" matches both "Dir/A\.lof" and "Dir/a\.LOF"'):
+        found_key("dir/a.lof", tree.get)
+
+
+def test_over_http_a_project_is_read_with_its_names_as_written(server):
+    """A web server cannot list: the names written as the files have them are found, and the host
+    lists nothing."""
+    policy = Policy(allow_private_hosts=True)
+    fmt, out = zarrify(server + "lif_xlef_tree.xlef", policy=policy)
+    assert fmt == "lif"
+    assert out.summary["series"] == 2
+    assert out.url == server
+
+
+def test_over_http_the_host_never_lists(server, monkeypatch):
+    def refuse(_path):
+        raise AssertionError("a remote input was listed")
+
+    monkeypatch.setattr(Path, "iterdir", refuse)
+    s = VsiFiles(server + "lif_xlef_tree.xlef", policy=Policy(allow_private_hosts=True), case=True)
+    assert s.case is False
+    assert s.probe("_lif_xlef_tree_/Series1.lof") is not None
+    assert s.found_key("_lif_xlef_tree_/Series1.lof") == "_lif_xlef_tree_/Series1.lof"
+
+
+def test_over_http_an_absent_name_says_to_download_the_set(server):
+    with pytest.raises(Rejected, match="download the set and zarrify the local copy"):
+        zarrify(server + "edge_reject_lif_xlef_absent.xlef", policy=Policy(allow_private_hosts=True))
+
+
+def test_a_file_run_of_a_document_starts_over_as_a_store_run():
+    """A document's bytes are the LIF profile's second signature (spec/zarrify/lif.md §7.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#71-detection>): a file run finds
+    that it is one, and says so to the host."""
+    with pytest.raises(NamesSiblingsError):
+        via_ir(str(LIF / "lif_xlcf.xlcf"))
 
 
 def test_bands_bound_a_chunk(tmp_path):
