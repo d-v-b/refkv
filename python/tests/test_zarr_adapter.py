@@ -49,6 +49,33 @@ def test_zarr_reads_what_the_store_reads(tmp_path):
             ["a", "b", "c", "d/e", "d/f/g"], ["d/e", "d/f/g"], ["e", "f"]), name
 
 
+def test_getsize_says_a_value_s_size_without_reading_a_source(tmp_path):
+    """A reference's size comes from its ranges, which zarr-http-server asks for each suffix range: a
+    shard's index must not cost the shard."""
+    for name, s in _stores(tmp_path).items():
+        s.stats.reset()
+        zs = refkv.zarr.store(s)
+        assert {k: sync(zs.getsize(k)) for k in VALUES} == {k: len(v) for k, v in VALUES.items()}, name
+        assert s.stats.external_requests == 0, name
+
+
+def test_getsize_of_a_rewritten_document_is_its_rewritten_size(tmp_path):
+    """A `zarr.json` is rewritten when read (`_hdf5_floats`), so its size is not its entry's."""
+    (tmp_path / "src.bin").write_bytes(b"")
+    doc = b'{"zarr_format": 3, "node_type": "group", "attributes": {"a": 1}}'
+    zs = refkv.zarr.store(refkv.ReferenceStore({"zarr.json": doc}, []))
+    got = sync(zs.get("zarr.json", PROTO))
+    assert got is not None
+    assert sync(zs.getsize("zarr.json")) == len(got.to_bytes())
+
+
+def test_getsize_of_a_missing_key_raises(tmp_path):
+    for name, s in _stores(tmp_path).items():
+        with pytest.raises(FileNotFoundError):
+            sync(refkv.zarr.store(s).getsize("nope"))
+        assert s.stats.external_requests == 0, name
+
+
 def test_store_refuses_another_type():
     with pytest.raises(TypeError, match="wraps a reference store"):
         refkv.zarr.store({"a": b""})  # pyrefly: ignore[bad-argument-type] (the type refused)

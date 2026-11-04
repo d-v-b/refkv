@@ -2,15 +2,22 @@
 today's profile, the compact mirror, and the amplification probes."""
 
 import json
+import struct
+import zlib
+from typing import Any
 
 import numpy as np
 import pytest
 import tifffile
+import zarr
 from ir_helpers import FIXTURES, REVISED, as_the_reference, omero_and_expected_windows, same_hierarchy, zarrified
 from refkv_reference import virtualize  # the frozen reference (ir_helpers)
 
+import refkv
+import refkv.zarr
 from refkv._narrow import at, integer, mapping, ndarray, sequence, string
 from refkv.ir import zarrify as via_ir
+from refkv.policy import crc32c
 from refkv.zarrify import Rejected
 
 TIFFS = sorted((FIXTURES / "tiff").iterdir())
@@ -199,12 +206,20 @@ STRIPS = {
 }
 
 
+def inner_of(meta):
+    """(the chunk shape, the codecs) of a level's document: the inner chunks' when it is sharded."""
+    if meta["codecs"][0]["name"] == "sharding_indexed":
+        config = meta["codecs"][0]["configuration"]
+        return config["chunk_shape"], config["codecs"]
+    return meta["chunk_grid"]["configuration"]["chunk_shape"], meta["codecs"]
+
+
 def test_strips_and_lzw_are_the_images_pixels(tmp_path):
     """§4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>,
     §4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>: LZW tiles and
-    strips are `refkv.tiff_lzw` chunks; a level in compressed strips has chunks of RowsPerStrip
-    rows by the image's width, one strip each, and a short last strip is padded to the chunk with
-    a literal tail of its LZW stream, while uncompressed strips join
+    strips are `refkv.tiff_lzw` chunks; a level in compressed strips has inner chunks of
+    RowsPerStrip rows by the image's width, one strip each, and a short last strip is padded to
+    the inner chunk with a literal tail of its LZW stream, while uncompressed strips join
     (test_uncompressed_strips_join_into_larger_chunks); interleaved or planar samples, the planes
     of an OME-TIFF and a SubIFD level alike. Each level reads as tifffile reads it, and the mirror
     rebuilds the file."""
@@ -221,33 +236,37 @@ def test_strips_and_lzw_are_the_images_pixels(tmp_path):
         for li, ((shape, chunk), pad, (data, axes)) in enumerate(zip(levels, padding, want, strict=True)):
             meta = json.loads(out.bytes_entries[f"{li}/zarr.json"])
             assert meta["shape"] == shape, (name, li)
-            assert meta["chunk_grid"]["configuration"]["chunk_shape"] == chunk, (name, li)
-            assert [c["name"] for c in meta["codecs"]] == codecs, name
+            inner, inner_codecs = inner_of(meta)
+            assert inner == chunk, (name, li)
+            assert [c["name"] for c in inner_codecs] == codecs, name
             letters = [AXIS[a] for a in axes]
             want_level = np.transpose(data, [letters.index(a) for a in names])
             assert np.array_equal(ndarray(g.get_array(str(li))[...]), want_level), (name, li)
-            # the last strip's references: the strip, then its padding
-            down = -(-shape[-2] // chunk[-2])
+            # the last row's references: its shards' or the strip's, then its padding
+            grid = meta["chunk_grid"]["configuration"]["chunk_shape"]
+            down = -(-shape[-2] // grid[-2])
             last = [k for k in out.refs if k.startswith(f"{li}/c/") and int(k.split("/")[-2]) == down - 1]
             planes, across = int(np.prod(shape[:-2])) // int(np.prod(chunk[:-2])), -(-shape[-1] // chunk[-1])
             assert len(last) == planes * across, (name, li)  # the last row's chunks of every plane
             for key in last:
                 parts = out.refs[key]
+                if meta["codecs"][0]["name"] == "sharding_indexed":  # the strips, a tail if any, the index
+                    assert isinstance(parts[-1], bytes), key
+                    assert isinstance(parts[-2], bytes) == (pad == "lzw"), key
+                    continue
                 assert len(parts) == (1 if pad is None else 2), key
                 if pad == "zeros":  # (source, 0, length) of the zero data source
                     assert isinstance(parts[1], tuple), key
                     assert len(parts[1]) == 3, key
                     assert parts[1][1] == 0, key
                     zero_sources.add(parts[1][0])
-                elif pad == "lzw":  # the literal tail
-                    assert isinstance(parts[1], bytes), key
         assert len(zero_sources) == ("zeros" in padding), name
 
 
 # (data, tifffile's arguments, the level's chunk shape, and the ranges of each chunk down the y axis)
-ONE_ROW = {"rowsperstrip": 1, "photometric": "minisblack"}
-RGB_ONE_ROW = {"rowsperstrip": 1, "photometric": "rgb"}
-JOINED = {
+ONE_ROW: dict[str, Any] = {"rowsperstrip": 1, "photometric": "minisblack"}
+RGB_ONE_ROW: dict[str, Any] = {"rowsperstrip": 1, "photometric": "rgb"}
+JOINED: dict[str, tuple[np.ndarray, dict[str, Any], list[int], list[int]]] = {
     "a plane within the limits is one chunk": (ramp("uint8", (40, 16)), ONE_ROW, [40, 16], [1]),
     "several rows a strip": (ramp("uint16", (70, 50)), {**ONE_ROW, "rowsperstrip": 16}, [70, 50], [1]),
     "big-endian": (ramp("uint16", (40, 16)), {**ONE_ROW, "byteorder": ">"}, [40, 16], [1]),
@@ -265,11 +284,9 @@ JOINED = {
     "a short last strip in a padded chunk": (ramp("uint8", (2005, 1000)), {**ONE_ROW, "rowsperstrip": 2}, [1004, 1000],
                                              [1, 2]),
 }
-STAY = {
+STAY: dict[str, tuple[np.ndarray, dict[str, Any], list[int], list[int]]] = {
     # 600000 bytes a strip: two do not fit in 2^20, and the short last strip is padded as before
     "two strips do not fit": (ramp("uint8", (1500, 1000)), {**ONE_ROW, "rowsperstrip": 600}, [600, 1000], [1, 1, 2]),
-    "LZW": (ramp("uint8", (40, 16)), {**ONE_ROW, "compression": "lzw"}, [1, 16], [1] * 40),
-    "Deflate": (ramp("uint8", (40, 16)), {**ONE_ROW, "compression": "zlib"}, [1, 16], [1] * 40),
 }
 
 
@@ -277,8 +294,9 @@ STAY = {
 def test_uncompressed_strips_join_into_larger_chunks(case, tmp_path):
     """§4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>: a level's
     uncompressed strips join into chunks of at most 2^20 bytes and 2^10 strips, as even as whole
-    strips allow, one range when they meet; a level of compressed strips, or whose two strips
-    do not fit, keeps a chunk per strip. Each level reads as tifffile reads it."""
+    strips allow, one range when they meet; a level whose two strips do not fit keeps a chunk per
+    strip (compressed strips: test_compressed_strips_are_the_inner_chunks_of_shards). Each level
+    reads as tifffile reads it."""
     data, kw, chunk, ranges = {**JOINED, **STAY}[case]
     path = tmp_path / "s.tif"
     tifffile.imwrite(path, data, metadata=None, **kw)
@@ -332,9 +350,189 @@ def test_joined_levels_share_one_zero_data_source(tmp_path):
         tif.write(ramp("uint8", (2001, 999)), subfiletype=1, **kw)
     out, g, _ = zarrified(path, tmp_path, "tiff")
     pads = [out.refs[key][-1] for key in ("0/c/3/0", "1/c/1/0")]
-    assert [p[2] for p in pads] == [3000, 999]
+    assert all(len(p) == 3 for p in pads)
+    assert [p[-1] for p in pads] == [3000, 999]
     assert pads[0][0] == pads[1][0] != 0
     assert np.array_equal(ndarray(g.get_array("1")[...]), ramp("uint8", (2001, 999)))
+
+
+# (data, tifffile's arguments, the inner chunk shape, the shard shape, and the shards of a plane or
+# sample plane; the inner codecs are test_predictor_2_is_summed_back_by_imagecodecs_delta's and
+# test_strips_and_lzw_are_the_images_pixels's concern)
+ONE_ROW_ZLIB: dict[str, Any] = {**ONE_ROW, "compression": "zlib"}
+SHARDED: dict[str, tuple[np.ndarray, dict[str, Any], list[int], list[int], int]] = {
+    "LZW": (ramp("uint8", (40, 16)), {**ONE_ROW, "compression": "lzw"}, [1, 16], [40, 16], 1),
+    "Deflate": (ramp("uint8", (40, 16)), ONE_ROW_ZLIB, [1, 16], [40, 16], 1),
+    "zstd": (ramp("uint8", (40, 16)), {**ONE_ROW, "compression": "zstd"}, [1, 16], [40, 16], 1),
+    "several rows a strip": (ramp("uint16", (64, 50)), {**ONE_ROW_ZLIB, "rowsperstrip": 16}, [16, 50], [64, 50], 1),
+    "big-endian": (ramp("uint16", (40, 16)), {**ONE_ROW_ZLIB, "byteorder": ">"}, [1, 16], [40, 16], 1),
+    "float": (ramp("float32", (40, 16)), ONE_ROW_ZLIB, [1, 16], [40, 16], 1),
+    "Predictor 2": (ramp("uint16", (40, 16)), {**ONE_ROW_ZLIB, "predictor": True}, [1, 16], [40, 16], 1),
+    "LZW with Predictor 2": (ramp("uint16", (40, 16)), {**ONE_ROW, "compression": "lzw", "predictor": True}, [1, 16],
+                             [40, 16], 1),
+    "interleaved samples": (ramp("uint8", (40, 16, 3)),
+                            {**RGB_ONE_ROW, "compression": "zlib", "planarconfig": "contig"},
+                            [3, 1, 16], [3, 40, 16], 1),
+    "planar samples, shards each": (ramp("uint8", (3, 40, 16)),
+                                    {**RGB_ONE_ROW, "compression": "zlib", "planarconfig": "separate"},
+                                    [1, 1, 16], [1, 40, 16], 1),
+    # 2^10 strips a shard, and 3000 of them as 3 even shards
+    "at the strip limit": (ramp("uint8", (4096, 16)), ONE_ROW_ZLIB, [1, 16], [1024, 16], 4),
+    "above the strip limit, even shards": (ramp("uint8", (3000, 16)), ONE_ROW_ZLIB, [1, 16], [1000, 16], 3),
+    "two strips": (ramp("uint8", (2, 16)), ONE_ROW_ZLIB, [1, 16], [2, 16], 1),
+    # a shard's shape may pass the array's: 70 rows in 5 strips of 16 rows, the last short and padded
+    "a short last LZW strip": (ramp("uint16", (70, 50)), {**ONE_ROW, "compression": "lzw", "rowsperstrip": 16},
+                               [16, 50], [80, 50], 1),
+}
+
+
+@pytest.mark.parametrize("case", SHARDED)
+def test_compressed_strips_are_the_inner_chunks_of_shards(case, tmp_path):
+    """§4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>,
+    spec/zarrify.md §2.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#21-virtual-shards>: a
+    level's LZW, Deflate and zstd strips are the inner chunks of shards, at most 2^10 strips and as
+    even as whole strips allow, each shard one range where its strips meet and a literal index of
+    their lengths. Each level reads as tifffile reads it, and the mirror rebuilds the file."""
+    data, kw, inner, shard, shards = SHARDED[case]
+    path = tmp_path / "s.tif"
+    tifffile.imwrite(path, data, metadata=None, **kw)
+    out, g, _ = zarrified(path, tmp_path, "tiff")
+    meta = json.loads(out.bytes_entries["0/zarr.json"])
+    assert meta["chunk_grid"]["configuration"]["chunk_shape"] == shard
+    assert [c["name"] for c in meta["codecs"]] == ["sharding_indexed"]
+    config = meta["codecs"][0]["configuration"]
+    assert config["chunk_shape"] == inner
+    assert config["index_location"] == "end"
+    assert config["index_codecs"] == [{"name": "bytes", "configuration": {"endian": "little"}}, {"name": "crc32c"}]
+    with tifffile.TiffFile(path) as tf:
+        page = tf.pages[0]
+        assert isinstance(page, tifffile.TiffPage)
+        want = tf.series[0].asarray()
+        offsets, counts = page.dataoffsets, page.databytecounts
+    got = ndarray(g.get_array("0")[...])
+    assert np.array_equal(got, want if got.shape == want.shape else np.moveaxis(want, -1, 0))
+    planes = 3 if case.startswith("planar") else 1
+    assert len([k for k in out.refs if k.startswith("0/c/")]) == shards * planes
+    # the first shard: its strips one range, then their lengths in the index
+    per = len(offsets) // planes // shards + (len(offsets) // planes % shards > 0)
+    first = out.refs["0/c/0/0/0" if len(shard) == 3 else "0/c/0/0"]
+    index = first[-1]
+    assert isinstance(index, bytes)
+    entries = np.frombuffer(index[:-4], dtype="<u8").reshape(-1, 2)
+    assert len(entries) == shard[-2] // inner[-2]
+    held = entries[:per]
+    # (a padded last strip holds its tail, and not all its bytes)
+    whole = per - 1 if case == "a short last LZW strip" else per
+    assert held[:whole, 1].tolist() == [int(n) for n in counts[:whole]]
+    assert first[0][0] == int(offsets[0])
+    assert first[0][1] >= sum(int(n) for n in counts[:whole])
+    assert held[:, 0].tolist() == np.cumsum([0, *held[:-1, 1]]).tolist()
+    assert (entries[per:] == 2**64 - 1).all()
+    assert int.from_bytes(index[-4:], "little") == crc32c(index[:-4])
+
+
+def test_one_compressed_strip_is_one_chunk(tmp_path):
+    """§4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>: a level of one
+    strip has nothing to gather, and is not sharded."""
+    path = tmp_path / "s.tif"
+    kw: dict[str, Any] = {**ONE_ROW_ZLIB, "rowsperstrip": 40}
+    tifffile.imwrite(path, ramp("uint8", (40, 16)), metadata=None, **kw)
+    out, g, _ = zarrified(path, tmp_path, "tiff")
+    assert [c["name"] for c in json.loads(out.bytes_entries["0/zarr.json"])["codecs"]] == ["bytes", "numcodecs.zlib"]
+    assert np.array_equal(ndarray(g.get_array("0")[...]), ramp("uint8", (40, 16)))
+
+
+def compressed_strips(path, rows: list[bytes], order: list[int], counts: list[int | None] | None = None):
+    """A little-endian uint8 TIFF of Deflate strips of 1 row, written in the file in the order `order`,
+    with a gap of 3 bytes between them; each strip's count `counts[k]` in place of its stream's length
+    when given (0: absent)."""
+    streams = [zlib.compress(r) for r in rows]
+    n = len(rows)
+    tags = 9
+    table = 8 + 2 + tags * 12 + 4
+    data = table + 8 * n
+    offsets, blob = [0] * n, bytearray()
+    for k in order:
+        offsets[k] = data + len(blob)
+        blob += streams[k] + b"gap"
+    lengths = [len(s) if counts is None or counts[k] is None else counts[k] for k, s in enumerate(streams)]
+    entries = [(256, 4, 1, len(rows[0])), (257, 4, 1, n), (258, 3, 1, 8), (259, 3, 1, 8), (262, 3, 1, 1),
+               (273, 4, n, table), (277, 3, 1, 1), (278, 4, 1, 1), (279, 4, n, table + 4 * n)]
+    head = b"II*\0" + struct.pack("<I", 8) + struct.pack("<H", tags)
+    head += b"".join(struct.pack("<HHII", *e) for e in entries) + struct.pack("<I", 0)
+    path.write_bytes(head + struct.pack(f"<{n}I", *offsets) + struct.pack(f"<{n}I", *lengths) + bytes(blob))
+    return offsets
+
+
+def shard_index(parts) -> np.ndarray:
+    """The (offset, length) entries of the literal index that ends a shard's reference `parts`."""
+    index = parts[-1]
+    assert isinstance(index, bytes)
+    return np.frombuffer(index[:-4], dtype="<u8").reshape(-1, 2)
+
+
+def test_a_shard_has_a_range_per_run_of_the_file(tmp_path):
+    """spec/zarrify.md §2.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#21-virtual-shards>:
+    strips that do not meet in the file, or are not in the file's order, are a range each, in the
+    strips' order, and the index gives each its place in the shard, not in the file."""
+    data = ramp("uint8", (4, 16))
+    rows = [r.tobytes() for r in data]
+    path = tmp_path / "s.tif"
+    offsets = compressed_strips(path, rows, [3, 0, 2, 1])
+    out, g, _ = zarrified(path, tmp_path, "tiff")
+    lengths = [len(zlib.compress(r)) for r in rows]
+    parts = out.refs["0/c/0/0"]
+    assert parts[:-1] == [(o, n) for o, n in zip(offsets, lengths, strict=True)]
+    places = np.cumsum([0, *lengths[:-1]])
+    assert shard_index(parts).tolist() == [[int(a), n] for a, n in zip(places, lengths, strict=True)]
+    assert np.array_equal(ndarray(g.get_array("0")[...]), data)
+
+
+def test_an_absent_strip_is_an_empty_entry_of_the_shard(tmp_path):
+    """§4.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#44-arrays>,
+    spec/zarrify.md §2.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#21-virtual-shards>: a
+    strip of no bytes is an inner chunk the shard does not hold, and reads as the fill value; a
+    shard that holds no strip has no entry."""
+    data = ramp("uint8", (4, 16))
+    path = tmp_path / "s.tif"
+    compressed_strips(path, [r.tobytes() for r in data], [0, 1, 2, 3], [None, 0, None, None])
+    out, g, _ = zarrified(path, tmp_path, "tiff")
+    assert (shard_index(out.refs["0/c/0/0"])[1] == 2**64 - 1).all()
+    want = data.copy()
+    want[1] = 0
+    assert np.array_equal(ndarray(g.get_array("0")[...]), want)
+
+    path = tmp_path / "none.tif"
+    compressed_strips(path, [r.tobytes() for r in data], [0, 1, 2, 3], [0, 0, 0, 0])
+    out, g, _ = zarrified(path, tmp_path, "tiff")
+    assert not [k for k in out.refs if k.startswith("0/c/")]
+    assert np.array_equal(ndarray(g.get_array("0")[...]), np.zeros((4, 16), "uint8"))
+
+
+@pytest.mark.parametrize(("region", "requests", "strips"), [
+    ((Ellipsis,), 1, range(40)),  # the whole shard: one value, one range
+    ((7,), 1, range(7, 8)),  # one row: its strip alone
+    ((slice(8, 12),), 1, range(8, 12)),  # the strips of a crop meet: one read
+])
+def test_a_read_through_a_shard_reads_its_strips_alone(region, requests, strips, tmp_path):
+    """§4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>: a reader of a
+    few rows reads the shard's literal index, which takes no request, and those strips' bytes."""
+    data = ramp("uint8", (40, 16))
+    path = tmp_path / "s.tif"
+    tifffile.imwrite(path, data, metadata=None, **ONE_ROW_ZLIB)
+    with tifffile.TiffFile(path) as tf:
+        page = tf.pages[0]
+        assert isinstance(page, tifffile.TiffPage)
+        counts = page.databytecounts
+    archive = tmp_path / "s.vzip"
+    _, out, _ = via_ir(str(path), None)
+    out.to_store().save_vzip(archive)
+    stats = refkv.Stats()
+    policy = refkv.Policy(allow_file_hosts=True)
+    a = zarr.open_array(refkv.zarr.open(archive, stats=stats, policy=policy), path="0", mode="r")
+    assert np.array_equal(ndarray(a[region]), data[region])
+    assert stats.external_requests == requests
+    assert stats.external_bytes == sum(int(counts[k]) for k in strips)
 
 
 def strips_tiff(path, data, **kw):
@@ -361,9 +559,20 @@ def patch_tag(path, tag: str, *, value: int | None = None, code: int | None = No
 
 def test_a_short_last_strip_of_deflate_is_rejected():
     """§4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>: a level
-    in Deflate strips whose last strip is short cannot be padded, and rejects the input."""
+    in Deflate strips whose last strip is short cannot be padded, and an inner chunk of a shard
+    must decode to its shape like any chunk: it rejects the input."""
     with pytest.raises(Rejected, match="level 0 is in strips of compression 8 whose last strip is short"):
         via_ir(str(FIXTURES / "tiff" / "edge_reject_strips_deflate_short.tif"), "u")
+
+
+def test_a_short_last_strip_of_zstd_is_rejected(tmp_path):
+    """§4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>: so does a level
+    in zstd strips."""
+    path = tmp_path / "s.tif"
+    kw: dict[str, Any] = {**ONE_ROW, "rowsperstrip": 16, "compression": "zstd"}
+    tifffile.imwrite(path, ramp("uint16", (70, 50)), metadata=None, **kw)
+    with pytest.raises(Rejected, match="level 0 is in strips of compression 50000 whose last strip is short"):
+        via_ir(str(path), "u")
 
 
 def delta(axis):
@@ -404,7 +613,7 @@ def test_predictor_2_is_summed_back_by_imagecodecs_delta(tmp_path):
             want = [(level.asarray(), series.axes) for level in series.levels]
         assert len(want) == len(sequence(ms["datasets"])), name
         for li, (data, axes) in enumerate(want):
-            assert json.loads(out.bytes_entries[f"{li}/zarr.json"])["codecs"] == codecs, (name, li)
+            assert inner_of(json.loads(out.bytes_entries[f"{li}/zarr.json"]))[1] == codecs, (name, li)
             letters = [AXIS[a] for a in axes]
             want_level = np.transpose(data, [letters.index(a) for a in names])
             assert np.array_equal(ndarray(g.get_array(str(li))[...]), want_level), (name, li)

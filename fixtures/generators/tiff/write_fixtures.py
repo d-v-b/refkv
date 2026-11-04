@@ -142,6 +142,10 @@ def main() -> None:
     # one row a strip, as the OME-TIFF of d-v-b/refkv#195: each plane's strips join into one chunk
     pyramid(OUT / "strips_one_row_tyx.ome.tif", image((3, 40, 16), np.uint8), 1, axes="TYX",
             rowsperstrip=1, photometric="minisblack")
+    # and compressed, the file's strips the inner chunks of one shard a plane
+    for name, compression in (("lzw", "lzw"), ("deflate", "zlib"), ("zstd", "zstd")):
+        pyramid(OUT / f"strips_one_row_tyx_{name}.ome.tif", image((3, 40, 16), np.uint8), 1, axes="TYX",
+                rowsperstrip=1, compression=compression, photometric="minisblack")
     for p in sorted(OUT.glob("*.tif")):
         print(p.name, p.stat().st_size)
 

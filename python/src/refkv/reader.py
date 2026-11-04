@@ -1031,6 +1031,11 @@ class ReferenceReader:
         """`raw`, as a coroutine."""
         raise NotImplementedError
 
+    async def _value_size(self, key: str) -> int | None:
+        """The size of `key`'s value, None if the key is missing, without reading a reference's
+        sources: its ranges' sizes say it."""
+        raise NotImplementedError
+
     def list_async(self, prefix: str = "") -> AsyncIterator[str]:
         """`list`, as an asynchronous iterator."""
         raise NotImplementedError

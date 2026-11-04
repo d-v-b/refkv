@@ -189,6 +189,8 @@ and [conventions §3](../spec/conventions.md#3-arrays).
   of up to 2^20 bytes and 2^10 strips, because readers fetch a key at a time
   ([#195](https://github.com/d-v-b/refkv/issues/195)). Limit the units too, or a
   chunk whose units are apart can pass a reader's `max_reads`.
+- Small compressed units can't be joined, since a codec decodes one stream a chunk. Make them
+  inner chunks of a virtual shard (**Virtual shards**, below).
 - Size chunks for the domain. Video chunks are cut at keyframes and bounded
   by bytes of luma, not pictures, so 10-bit HEVC holds half as many pictures.
 
@@ -201,7 +203,8 @@ and NRRD.
   ([#120](https://github.com/d-v-b/refkv/pull/120): 102 MB to 7.1 MB on an
   fMRI file). An LZW stream can take a literal tail.
 - Deflate, zstd, JPEG and JPEG 2000 short strips can't be padded, so those
-  inputs are rejected ([#137](https://github.com/d-v-b/refkv/pull/137)).
+  inputs are rejected ([#137](https://github.com/d-v-b/refkv/pull/137)). A shard
+  doesn't help: an inner chunk must decode to the inner shape too.
 - A rectilinear grid is the last resort, as MP4's keyframe chunks are.
 
 **Bytes that no chunk owns.** See [zarrify §1.2](../spec/zarrify.md#12-input).
@@ -252,9 +255,31 @@ and [§5](../spec/conventions.md#5-units).
 **A dataset layout (`<p>-dataset`), or not.** See
 [conventions §9](../spec/conventions.md#9-dataset-layouts).
 
-**Virtual shards, or not.** See
-[zarrify §2.1](../spec/zarrify.md#21-virtual-shards). FLAC shards its frames;
-NWB declined.
+**Virtual shards: consider them whenever units are small and many.** See
+[zarrify §2.1](../spec/zarrify.md#21-virtual-shards) and
+[TECHNIQUES §2](../spec/TECHNIQUES.md#2-chunks-from-the-sources-own-units). A projection writes its
+array unsharded and calls `Out::shard(path, shape)`; the pass in `rust/refkv-ir/src/shard.rs` does the
+rest. It needs no new codec and no decoding, the Neuroglancer fork already reads shards of the codecs it
+knows, and a compressed unit stays one stream.
+
+Use it when a file has many small units of one shape on a regular grid: frames, strips, small tiles.
+- **It gains:** fewer keys, a smaller archive (about 16 bytes of index a unit against about 100 bytes
+  of a key), and partial reads that stay exact.
+- **It gains only in zarr-python:** fewer requests. zarrita and Neuroglancer read one inner chunk at
+  a time ([zarrify §2.1](../spec/zarrify.md#21-virtual-shards)). Measure them, and do not promise a
+  faster browser. Measure against the unsharded array too, through a store that merges reads
+  ([refkv §6.3](../spec/refkv.md#63-resolving-a-reference)): it already saves most of those requests
+  at zarr-python's higher concurrency, so the keys and the archive may be the larger gain.
+- **It costs:** a reader that does not know sharding sees only shards. The reference payload limit of
+  65,519 bytes caps the units of a shard: count 16 bytes of index and the unit's ranges.
+- **Limit a shard by units**, for the payload and `max_reads`
+  ([refkv §6.7](../spec/refkv.md#67-reader-policy), rule 5), and by decoded bytes, for a reader that
+  reads a shard whole. Don't limit it by what a partial read costs, which a shard already keeps exact.
+- **It does not fix edge units.** An inner chunk decodes to the inner shape like any chunk.
+
+Who has decided: FLAC shards its frames, and TIFF its LZW, Deflate and zstd strips
+([tiff.md §4.5](../spec/zarrify/tiff.md#45-strips)). NWB declined, and Neuroglancer precomputed is past
+the payload limit ([precomputed](../spec/zarrify/precomputed.md)).
 
 **Determinism.** See
 [zarrify §1.1](../spec/zarrify.md#11-output-and-equivalence) and

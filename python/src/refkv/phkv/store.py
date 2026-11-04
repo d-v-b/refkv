@@ -282,6 +282,14 @@ class PhkvStore(ReferenceReader):
         return await self._ref_bytes(ref, start, end)
 
     @override
+    async def _value_size(self, key: str) -> int | None:
+        await self._ensure_open()
+        found = await self._blocking(self._store.fetch, key, *_mode(None))
+        if found is None:
+            return None
+        return len(found[1]) if found[0] == "bytes" else _reference(found[1], found[2]).size
+
+    @override
     async def raw_async(self, key: str) -> bytes | None:
         """What the store holds under `key`: a bytes value's stored bytes, not decoded, and a
         reference's payload (spec/bindings/phkv.md §22.2
