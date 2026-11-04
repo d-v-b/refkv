@@ -11,6 +11,9 @@ import { CziError } from "../../../conformance/zarrify/reference/ts/czi/virtuali
 
 const FIXTURES = fileURLToPath(new URL("../../../fixtures/czi/", import.meta.url));
 const utf8 = new TextDecoder();
+// What the profile reads since the reference froze (conformance/zarrify/revised.json).
+const REVISED = new Set<string>(JSON.parse(fs.readFileSync(new URL("../../../conformance/zarrify/revised.json",
+  import.meta.url), "utf8")).fixtures);
 
 async function zarrify(name: string) {
   const bytes = new Uint8Array(fs.readFileSync(FIXTURES + name));
@@ -66,8 +69,7 @@ const SUMMARIES: [string, object][] = [
 ];
 
 test("zarrifies the synthetic CZI files", async () => {
-  // but an image across files, which this frozen reference does not read as one (conformance/zarrify/revised.json)
-  const names = fs.readdirSync(FIXTURES).filter((f) => f.endsWith(".czi") && !f.startsWith("czi_reject_") && !f.startsWith("czi_parts_"));
+  const names = fs.readdirSync(FIXTURES).filter((f) => f.endsWith(".czi") && !f.startsWith("czi_reject_") && !REVISED.has(f));
   assert.deepEqual(names.map((f) => f.slice(0, -4)).sort(), SUMMARIES.map(([n]) => n).sort());
   for (const [name, summary] of SUMMARIES) {
     const v = await zarrify(`${name}.czi`);

@@ -39,11 +39,6 @@
       "message": "directory entry 0 has an unsupported Compression"
     },
     {
-      "test": "czi_reject_compression_lzw",
-      "input": "czi_reject_compression_lzw.czi",
-      "message": "directory entry 0 has an unsupported Compression"
-    },
-    {
       "test": "czi_reject_compression_raw_camera",
       "input": "czi_reject_compression_raw_camera.czi",
       "message": "directory entry 0 has an unsupported Compression"
@@ -121,9 +116,14 @@
       "host": "czi_reject_file_part.czi is part 1 of another file: zarrify that one"
     },
     {
-      "test": "czi_reject_jpeg_gray16",
-      "input": "czi_reject_jpeg_gray16.czi",
-      "message": "directory entry 0: Compression 1 with PixelType"
+      "test": "czi_reject_jpeg_bgr48",
+      "input": "czi_reject_jpeg_bgr48.czi",
+      "message": "directory entry 0: Compression 1 with PixelType 4"
+    },
+    {
+      "test": "czi_reject_ljpeg_bgr24",
+      "input": "czi_reject_ljpeg_bgr24.czi",
+      "message": "directory entry 0: Compression 3 with PixelType 3"
     },
     {
       "test": "czi_reject_major_2",

@@ -429,6 +429,25 @@ pub trait Lookup {
     fn path(&self, address: u64) -> Option<String>;
 }
 
+/// The value of the integer or IEEE float of `dt` in `b` (its `dt.size` bytes) as a binary64.
+pub fn as_f64(dt: &Dt, b: &[u8]) -> Option<f64> {
+    match &dt.kind {
+        Kind::Int { big, signed, .. } if number(dt).is_some() => Some(int_of(b, *big, *signed) as f64),
+        Kind::Float { big, ieee: Some(_) } => match *b {
+            [_, _, _, _] => {
+                let bytes = [b[0], b[1], b[2], b[3]];
+                Some(if *big { f32::from_be_bytes(bytes) } else { f32::from_le_bytes(bytes) } as f64)
+            }
+            [_, _, _, _, _, _, _, _] => {
+                let bytes = [b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]];
+                Some(if *big { f64::from_be_bytes(bytes) } else { f64::from_le_bytes(bytes) })
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 /// The JSON of one value of `dt` in `b` (its `dt.size` bytes), or None when the datatype has
 /// none (spec/zarrify/hdf5.md §6
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes>).

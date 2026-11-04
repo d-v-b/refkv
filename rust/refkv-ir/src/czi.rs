@@ -41,7 +41,7 @@ const GROUP: usize = 16384; // subblocks a round reads the headers of
 const LETTERS: &[u8] = b"XYZCTRSIHVBM";
 const SERIES: &[u8] = b"SBHIRV";
 const FIRST_HEAD: u64 = 1024; // the first bytes of a JPEG or JPEG XR subblock's data read for its codec header
-const ZSTD_HEAD: u64 = 32;
+const ZSTD_HEAD: u64 = 32; // and of an LZW subblock's
 const SEGMENT_HEAD: u64 = 2048; // the bytes read at a compressed subblock's segment: its header, and often its codec header
 const SCAN_HEAD: u64 = 1024; // the bytes read at a segment of a part with no directory: its header and its subblock's entry
 
@@ -125,7 +125,7 @@ struct Sub {
     a: i64,
     n: i64,
     agrees: bool,
-    /// (coded width, coded height, hi-lo, header length)
+    /// (coded width, coded height, form flag, header length)
     coded: Option<(u64, u64, bool, u64)>,
     data_el: Option<u32>,
     head: Vec<u8>,
@@ -264,7 +264,7 @@ pub struct Czi {
     walk_prev: Option<u32>,
     window: u64,
     facts: Option<J>,
-    /// data forms by (pixel type, compression, hi-lo, coded width, coded height)
+    /// data forms by (pixel type, compression, form flag, coded width, coded height)
     forms: HashMap<(i32, i32, bool, u64, u64), String>,
     /// what the parse asked for
     pub asked: sans::Asked,
@@ -1070,7 +1070,7 @@ impl Czi {
                         continue;
                     }
                 }
-                let first = if matches!(e.comp, coding::ZSTD0 | coding::ZSTD1) { ZSTD_HEAD } else { FIRST_HEAD };
+                let first = if matches!(e.comp, coding::ZSTD0 | coding::ZSTD1 | coding::LZW) { ZSTD_HEAD } else { FIRST_HEAD };
                 r.push((start, first.min(bound)));
                 self.subs[i].asked = first.min(bound);
             }
@@ -1167,7 +1167,7 @@ impl Czi {
         let start = o + 32 + sub.length + sub.m as u64;
         let n = sub.n as u64;
         let placed = if sub.agrees { sub.coded } else { None };
-        let Some((cw, ch, hilo, skip)) = placed else {
+        let Some((cw, ch, flag, skip)) = placed else {
             if n > 0 {
                 self.ir.value(s, "data", NO_INDEX, &format!("bytes[{n}]"), 0, (start, n), None)?;
             }
@@ -1178,7 +1178,7 @@ impl Czi {
         if e.comp == coding::ZSTD1 {
             self.ir.value(s, "zstd1_header", NO_INDEX, &format!("bytes[{skip}]"), 0, (start, skip), None)?;
         }
-        let key = (e.pt, e.comp, hilo, cw, ch);
+        let key = (e.pt, e.comp, flag, cw, ch);
         let form = match self.forms.get(&key) {
             Some(f) => f.clone(),
             None => {
@@ -1188,7 +1188,7 @@ impl Czi {
                 }
                 let f = json!({
                     "geometry": {"shape": shape, "dtype": dtype, "pixel_type": e.pt, "compression": e.comp},
-                    "codec": coding::codec_chain(e.pt, e.comp, hilo),
+                    "codec": coding::codec_chain(e.pt, e.comp, flag),
                     "recipe": [["src", 0, null]],
                 })
                 .to_string();
@@ -1614,7 +1614,7 @@ impl Czi {
         let mut ps: Vec<Placed> = Vec::new();
         for (i, e) in self.entries.iter().enumerate() {
             let sub = &self.subs[i];
-            let (Some(el), true, Some((cw, ch, hilo, _))) = (sub.data_el, sub.agrees, sub.coded) else { continue };
+            let (Some(el), true, Some((cw, ch, flag, _))) = (sub.data_el, sub.agrees, sub.coded) else { continue };
             let (x, y) = (e.dim(b'X').unwrap(), e.dim(b'Y').unwrap());
             let series = SERIES.iter().map(|&l| e.dim(l).map(|d| (1, d.0 as i64)).unwrap_or((0, 0))).collect();
             let st = |l: u8| e.dim(l).map(|d| d.0 as i64).unwrap_or(0);
@@ -1630,7 +1630,7 @@ impl Czi {
                 h: y.2 as i64,
                 cw,
                 ch,
-                form: (e.pt, e.comp, hilo),
+                form: (e.pt, e.comp, flag),
                 layer: layer(x.1 as i64, y.1 as i64, x.2 as i64, y.2 as i64),
                 el,
             });

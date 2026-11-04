@@ -10,6 +10,13 @@ is the CZI profile, [Part 2](#part-2-the-profile) below, cited as
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `7a0733c7-d4be-4482-a64f-6904d9354ea5` ·
 Schema: [schema.json](czi/schema.json)
 
+Changed 2026-11-04: subblocks in LZW have a layout, their codecs `bytes` and `imagecodecs_lzw`, and
+so do Gray8 and Gray16 subblocks in lossless JPEG, `imagecodecs_ljpeg`, whether under Compression 3
+or JpgFile, and Gray16 subblocks of 12-bit JPEG, `imagecodecs_jpeg`
+([§3.1](#31-pixel-types-and-codecs)). Any other stream under those Compressions has no coded size,
+so a Gray16 subblock of 8-bit JPEG, which rejected the input, is unplaced ([§3.2](#32-conforming-and-unplaced-subblocks)). Lossless JPEG with Bgr24 or Bgr48, JPEG with
+Bgr48 and raw data are still rejected. No output of a file accepted before changed.
+
 Changed 2026-11-04: an image across numbered files is read ([§7.9](#79-several-files)), where a
 FilePart other than 0 was rejected; a file whose XML says it has more planes or tiles than its
 directory holds is probed for its parts and read as a store, and so is the one file of the public
@@ -371,14 +378,42 @@ the data type, little-endian.
 | Compression | name | pixel types | codecs after `transpose` ([conventions §3](../conventions.md#3-arrays)) | sample order |
 |---|---|---|---|---|
 | 0 | uncompressed | all | `bytes` | B, G, R, A |
-| 1 | JpgFile | Gray8, Bgr24 | `imagecodecs_jpeg` | R, G, B |
+| 1 | JpgFile | Gray8, Gray16, Bgr24 | `imagecodecs_jpeg`; `imagecodecs_ljpeg` for a lossless stream | R, G, B |
+| 2 | LZW | all | `bytes`, `imagecodecs_lzw` | B, G, R, A |
+| 3 | lossless JPEG | Gray8, Gray16 | `imagecodecs_ljpeg` | |
 | 4 | JpgXr | Gray8, Gray16, Gray32Float, Bgr24, Bgr48, Bgr96Float, Bgra32 | `imagecodecs_jpegxr` | R, G, B, A |
 | 5 | Zstd0 | all | `bytes`, `zstd` | B, G, R, A |
 | 6 | Zstd1 | all | `bytes`, `zstd`; with hi-lo packing `bytes`, `numcodecs.shuffle`, `zstd` | B, G, R, A |
 
-Any other Compression (2 LZW, 3 lossless JPEG, 7 chunked-extensible, 100 to
-999 camera raw, 1000 and up system raw, and unknown values), and a listed
-Compression with a pixel type its row does not list, rejects the input.
+Any other Compression (7 chunked-extensible, 100 to 999 camera raw, 1000 and up
+system raw, and unknown values), and a listed Compression with a pixel type its
+row does not list, rejects the input. Raw data is a camera's or a system's own
+coding, which no codec of [conventions §3](../conventions.md#3-arrays) decodes.
+
+Compression 2 is LZW in Bio-Formats and czifile, and libCZI does not read it. Compression 3 is
+named by czifile alone, as "JPEG lossless (undocumented)", without a decoder; Bio-Formats and libCZI
+have no such value, so no reader checks what the profile does with it. So what these subblocks hold
+is decided from their streams
+([§3.2](#32-conforming-and-unplaced-subblocks)):
+
+- **LZW** is TIFF's ([tiff §4.3](tiff.md#43-data-types-and-codecs)), as both readers decode it: codes
+  packed most significant bit first, a property of the stream and not of any byte order. It decodes
+  to the bytes an uncompressed subblock holds, little-endian and in stored sample order, as
+  Bio-Formats' own decoder reads them. No CZI writer is known to run on past a subblock, so the stock
+  codec fits, and not `refkv.tiff_lzw`.
+- **Lossless JPEG** has no color transform, so its components are in the order its writer gave them,
+  which nothing states. The profile would have to guess which channel is which, so Bgr24 and Bgr48
+  are rejected.
+- **JPEG with Gray16** can't hold 16-bit samples in its DCT process, which stops at 12 bits. No
+  document or public file says what a writer puts there, so the frame header decides:
+
+  | stream | what it reads as | layout |
+  |---|---|---|
+  | lossless (SOF3) | `uint16`, in Bio-Formats and czifile alike | `imagecodecs_ljpeg`, as under Compression 3; so too for Gray8 |
+  | DCT, 12-bit samples | `uint16` with its values as coded, in czifile; Bio-Formats does not read it | `imagecodecs_jpeg` |
+  | DCT, 8-bit samples | values from 0 to 255: `imagecodecs_jpeg` gives them, with no message, in an array that says it has 16 bits, and czifile gives `uint8`; Bio-Formats does not read it | none: it has no faithful `uint16` form, so it has no coded size |
+
+  Bgr48 stays rejected, as no reader has been checked on 12-bit color.
 
 Each codec's JSON form, exactly:
 
@@ -387,6 +422,8 @@ Each codec's JSON form, exactly:
 | `bytes` | `{"name": "bytes", "configuration": {"endian": "little"}}`, and `{"name": "bytes"}` (no configuration) for the 1-byte types `uint8` ([conventions §3](../conventions.md#3-arrays)) | |
 | `zstd` | `{"name": "zstd", "configuration": {"level": 0, "checksum": false}}` | the zarr-extensions `zstd` codec; level 0 is the encoder's default and does not affect decoding |
 | `imagecodecs_jpeg` | that of [conventions §3](../conventions.md#3-arrays) | one complete JPEG stream |
+| `imagecodecs_ljpeg` | that of [conventions §3](../conventions.md#3-arrays) | one complete lossless JPEG stream |
+| `imagecodecs_lzw` | that of [conventions §3](../conventions.md#3-arrays) | one complete LZW stream, decoding to the bytes `bytes` reads |
 | `imagecodecs_jpegxr` | `{"name": "imagecodecs_jpegxr"}`, with no configuration | an array-to-bytes codec, each chunk one JPEG XR file (ITU-T T.832 with its TIFF-like container, as the subblock holds it), decoding as `imagecodecs.jpegxr_decode` (jxrlib) does to `[y, x]`, or to `[y, x, c]` with the samples in the order jxrlib gives them (R, G, B, and A for `Bgra32`), after which `transpose` applies. Its encoded form is jxrlib's, so it needs nothing beyond the chunk's shape and data type. It is not in the zarr-extensions registry; imagecodecs-zarr provides it to zarr-python (refkv's `images` extra installs it), and its registration and a Neuroglancer decoder are a follow-up ([design/plans/czi.md §7](../../design/plans/czi.md#7-decisions-on-the-open-questions)) |
 | `numcodecs.shuffle` | `{"name": "numcodecs.shuffle", "configuration": {"elementsize": 2}}` | a bytes-to-bytes codec: numcodecs' `Shuffle` with element size 2, as zarr-python 3 names it (`zarr.codecs.numcodecs.Shuffle`). Its encoded bytes are byte 0 of every 2-byte element, then byte 1 of every element |
 
@@ -399,7 +436,7 @@ would replace the `numcodecs.` name; that is a follow-up,
 [design/plans/czi.md §7](../../design/plans/czi.md#7-decisions-on-the-open-questions).)
 
 **Sample order.** The `c` samples of a pixel are in the order the codec gives them: as
-stored (B, G, R, A) for uncompressed and Zstd data, and R, G, B (A) for JPEG and JPEG XR,
+stored (B, G, R, A) for uncompressed, LZW and Zstd data, and R, G, B (A) for JPEG and JPEG XR,
 which decode to RGB. Transpose reorders axes, not indices, so the order is kept, and named in
 `omero` ([§4.3](#43-image-arrays)).
 
@@ -411,14 +448,16 @@ subblock's data is the zstd frame.
 ### 3.2 Conforming and unplaced subblocks
 
 A subblock's **coded size** is the width and height its data holds, and its
-**codec form** is its PixelType, Compression and, for Zstd1, its hi-lo flag. Its coded size,
-by its Compression (`W`, `H` its stored width and height):
+**codec form** is its PixelType, Compression, for Zstd1 its hi-lo flag, and for JpgFile whether its
+stream is lossless. Its coded size, by its Compression (`W`, `H` its stored width and height):
 
 | Compression | coded size | when |
 |---|---|---|
 | uncompressed | its stored size | `n ≥ W × H × q`; the first `W × H × q` bytes are its pixels and the rest, if any, its **trailing bytes** |
 | Zstd0, Zstd1 | its stored size | its Zstd1 header (for Zstd1) is one of those of [§3.1](#31-pixel-types-and-codecs), hi-lo packing is only on Gray16 and Bgr48, and its zstd frame header declares a content size of `W × H × q` bytes and no dictionary ([the profile §7.4](#74-codec-headers)) |
-| JpgFile | the width and height of its JPEG frame header | SOF0, SOF1 or SOF2, 8-bit samples, `p` components |
+| JpgFile | the width and height of its JPEG frame header | SOF0, SOF1 or SOF2, `p` components, samples of 12 bits for Gray16 and of 8 bits otherwise; or, for Gray8 and Gray16, what lossless JPEG's row says |
+| LZW | its stored size | its stream starts with the Clear code ([the profile §7.4](#74-codec-headers)) |
+| lossless JPEG | the width and height of its JPEG frame header | SOF3, `p` components, samples of 2 to 8 bits for Gray8 and of 9 to 16 bits for Gray16 |
 | JpgXr | the `ImageWidth` and `ImageHeight` of its JPEG XR container | its `PixelFormat` is one this subblock's pixel type admits (the profile [§7.4](#74-codec-headers)) |
 
 A subblock is **unplaced** when its copy of its entry does not agree ([§2.4](#24-subblocks)),
@@ -427,7 +466,7 @@ codec header cannot be read or does not match). An unplaced subblock is in
 no image and is no tile: its data is kept as bytes ([§5.3](#53-elements)). Every other
 subblock is **placed**, and **conforming** when its coded size is its stored
 size. (Some writers store a pyramid edge tile of `ceil(N/2)` pixels in the
-directory but encode `floor(N/2)`; such a JPEG or JPEG XR subblock is placed
+directory but encode `floor(N/2)`; such a JPEG, lossless JPEG or JPEG XR subblock is placed
 but not conforming, and becomes a tile of its coded size, [§4.4](#44-tiles).)
 
 ### 3.3 Series
@@ -694,7 +733,7 @@ and row `j`, is the chunk at `t − lo_t`, `c − lo_c`, `z − lo_z` (each for
 its axis), `j`, `i'` (or its bands), a [`CziChunk`](#type-czichunk). The chunk holds the subblock's pixels
 as its codec form codes them: the first `W × H × q` bytes of its data for
 uncompressed (or a band's rows of them), the zstd frame after its Zstd1
-header, the JPEG stream, or the JPEG XR file, each being its whole data
+header, the LZW or JPEG stream, or the JPEG XR file, each being its whole data
 otherwise. Cells without a subblock have no chunk.
 
 ### 4.4 Tiles
@@ -1031,9 +1070,16 @@ output may depend on ([spec/zarrify.md §1.2](../zarrify.md#12-input), structure
   bytes. The first `M` in `C0`–`CF` other than `C4`, `C8` and `CC` is the
   frame header: precision (1 byte), height and width (2 bytes each,
   big-endian) and the component count (1 byte). There is a coded size when
-  `M` is `C0`, `C1` or `C2`, the precision is 8, the height and width are at
-  least 1 and the component count is the pixel type's `p`; a start of scan
+  the height and width are at least 1, the component count is the pixel
+  type's `p`, and, for JpgFile, `M` is `C0`, `C1` or `C2` and the precision is
+  12 for Gray16 and 8 otherwise, or, for lossless JPEG and for JpgFile with
+  Gray8 or Gray16, `M` is `C3` and the precision is 2 to 8 for Gray8 and 9 to
+  16 for Gray16. A start of scan
   (`DA`) or end of image (`D9`) before the frame header gives none.
+- **LZW:** `D[0]` is `80` and the top bit of `D[1]` is clear, so that its first
+  code, of 9 bits, most significant bit first, is 256, Clear. Anything else, as
+  the other bit order some old TIFF writers used, gives no coded size. The
+  stream's decoded size is not stated anywhere short of decoding it.
 - **JPEG XR:** `D` starts with `49 49 BC 01`; the `u32` at byte 4 is the
   offset of the image directory: a `u16` count `e` and `e` entries of 12
   bytes (`u16` tag, `u16` type, `u32` count, `u32` value or offset). Of the
@@ -1070,7 +1116,7 @@ and is `n` bytes, of stored width `W` and height `H`: one range, by its codec fo
 | a band, uncompressed | source range `(0, P + k × b × W × q, min(b, H − k × b) × W × q)` | optional | with row bands of `b` rows ([the convention §4.3](#43-image-arrays)): band `k` of its rows, `b` rows but for the last band of short bands, which has `H − k × b` |
 | the zstd frame, Zstd0 | source range `(0, P, n)` | optional | for a Zstd0 subblock |
 | the zstd frame, Zstd1 | source range `(0, P + l, n − l)` | optional | for a Zstd1 subblock, `l` its header length |
-| the JPEG stream or JPEG XR file | source range `(0, P, n)` | optional | for a JPEG or JPEG XR subblock |
+| the LZW or JPEG stream or JPEG XR file | source range `(0, P, n)` | optional | for an LZW, JPEG, lossless JPEG or JPEG XR subblock |
 
 The references by kind:
 
@@ -1087,12 +1133,13 @@ The references by kind:
 
 ### 7.6 Equivalence notes
 
-The hi-lo flag, Zstd frame content size, JPEG frame header and JPEG XR
-directory decide whether a subblock is placed, so two producers read them
+The hi-lo flag, Zstd frame content size, JPEG frame header, first LZW code and
+JPEG XR directory decide whether a subblock is placed, so two producers read them
 alike, and only them: a producer MUST NOT decompress a subblock to decide
 anything (structure only). A zstd stream that, after a valid frame header,
 holds more than one frame or trailing bytes is placed all the same, and
-fails when a reader decodes it; a writer of such files is not known.
+fails when a reader decodes it; a writer of such files is not known. So is an
+LZW stream that does not decode to exactly `W × H × q` bytes.
 
 ### 7.7 Reading the output
 
@@ -1108,14 +1155,15 @@ The layout uses two things that are not in every Zarr reader:
   the last column and `H'` high in the last row; with row bands, it holds the
   band of column `i` that [§4.3](#43-image-arrays) numbers `j`, of the band's height
   (refkv's verifier, `js/test/czi/verify.py`, checks both ways).
-- **Codecs.** `imagecodecs_jpegxr` (JPEG XR subblocks) and
-  `numcodecs.shuffle` (Zstd1 with hi-lo packing) are not in the
-  zarr-extensions registry, nor in the Neuroglancer fork refkv's viewer uses.
-  zarr-python 3 has `numcodecs.shuffle`; imagecodecs-zarr (refkv's `images`
-  extra) has `imagecodecs_jpegxr`. Files with these codecs are accepted, not
-  rejected: their chunks are the subblocks' bytes, so the archive is
-  complete whatever a reader supports. Their registration, and decoders in
-  the Neuroglancer fork, are a follow-up.
+- **Codecs.** `imagecodecs_jpegxr` (JPEG XR subblocks), `imagecodecs_lzw`,
+  `imagecodecs_ljpeg` and `numcodecs.shuffle` (Zstd1 with hi-lo packing) are not
+  in the zarr-extensions registry. zarr-python 3 has `numcodecs.shuffle`;
+  imagecodecs-zarr (refkv's `images` extra) has the others. The Neuroglancer
+  fork refkv's viewer uses decodes them all, and `imagecodecs_jpeg` for `uint8`
+  alone, so it refuses a Gray16 array of 12-bit JPEG. Files with these codecs
+  are accepted, not rejected: their chunks are the subblocks' bytes, so the
+  archive is complete whatever a reader supports. Their registration is a
+  follow-up.
 
 ### 7.8 Measured cost
 
