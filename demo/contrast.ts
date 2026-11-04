@@ -127,7 +127,10 @@ function percentiles(bytes: Uint8Array, le: boolean, dataType: string, fill: unk
 export async function sampleRanges(
   url: string, meta: any, axes: { name: string }[], chunks: number[], channels?: number[], start?: number[],
 ): Promise<([number, number] | undefined)[]> {
-  if (!TYPES[meta.data_type] || meta.chunk_grid.name !== "regular") return channels?.map(() => undefined) ?? [undefined];
+  // (a shard is many chunks, which `decodeChunk` does not decode: no need to fetch it to find that out)
+  if (!TYPES[meta.data_type] || meta.chunk_grid.name !== "regular" || meta.codecs[0]?.name === "sharding_indexed") {
+    return channels?.map(() => undefined) ?? [undefined];
+  }
   const c = axes.findIndex((a) => a.name === "c");
   if (channels !== undefined && (c < 0 || chunks[c] !== 1)) return channels.map(() => undefined);
   // The chunk the view opens on: at `start`, else the first time point and the
