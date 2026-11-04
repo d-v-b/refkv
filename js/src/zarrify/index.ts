@@ -98,7 +98,11 @@ async function zarrifyWith(url: string, input: Input, pins: PinOptions): Promise
   // a VSI file is read with its tile files, and a NRRD header with its data file, as a store
   // (ir/vsi.ts): its sources are the files some reference uses, their sizes pinned, not source 0
   // alone
-  const format = await irFormat(await input.read(0, Math.min(552, input.size)));
+  // the signatures' bytes and, only when those give no format, the late signatures' (§1.2
+  // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>)
+  const format =
+    (await irFormat(await input.read(0, Math.min(552, input.size)))) ??
+    (input.size > 552 ? await irFormat(await input.read(0, Math.min(65600, input.size))) : undefined);
   if (format === undefined) throw new ImageError(NOT_SUPPORTED);
   const asStore = async (beside: BesideFormat): Promise<ImageDesc> => {
     const { store, ...desc } = await zarrifyVsi(url, input.source, pins.open ? { open: pins.open } : {}, beside);

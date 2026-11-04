@@ -109,8 +109,8 @@ def main() -> None:
     # More of Predictor 2 (written last, so that the fixtures above keep their pixels): uint16
     # whose differences wrap around, in LZW, Deflate and zstd, little- and big-endian; int16;
     # interleaved RGB of uint8 and uint16; LZW strips whose last is short, padded with a tail;
-    # and an OME-TIFF of several planes and a SubIFD level. Rejected: the floating-point
-    # predictor 3; Predictor 2 with a float type, with no compression, or with JPEG.
+    # and an OME-TIFF of several planes and a SubIFD level. Rejected: Predictor 2 with a float
+    # type, with no compression, or with JPEG.
     wide = image((64, 64), np.uint16) * 257
     tifffile.imwrite(OUT / "predictor_lzw_uint16.tif", wide, tile=(32, 32), compression="lzw",
                      predictor=True, photometric="minisblack")
@@ -128,7 +128,7 @@ def main() -> None:
     pyramid(OUT / "predictor_tcyx_uint16_lzw.ome.tif", image((2, 3, 64, 64), np.uint16) * 257, 1, axes="TCYX",
             tile=(32, 32), compression="lzw", predictor=True, photometric="minisblack")
     floats = image((64, 64), np.float32) / 7
-    tifffile.imwrite(OUT / "unsupported_predictor_float.tif", floats, tile=(32, 32), compression="zlib",
+    tifffile.imwrite(OUT / "predictor3_deflate_float32.tif", floats, tile=(32, 32), compression="zlib",
                      predictor=True, photometric="minisblack")  # tifffile's predictor of floats is 3
     tifffile.imwrite(OUT / "unsupported_predictor_2_float.tif", floats, tile=(32, 32), compression="zlib",
                      predictor=True, photometric="minisblack")

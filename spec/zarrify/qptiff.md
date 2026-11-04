@@ -13,6 +13,10 @@ How refkv produces this layout as a reference store is the QPTIFF profile,
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `329ea136-2f55-4c27-b6f4-8e60ca2109b8` ·
 Schema: [schema.json](qptiff/schema.json)
 
+Changed 2026-11-04: an image of `float32` with Predictor 3 has a layout, as in the TIFF convention,
+which [§4.1](#41-data-types-and-codecs) cites (`imagecodecs_floatpred` in place of `bytes`); no output
+of a file accepted before changed.
+
 Changed 2026-11-03, with no change to any output: the example's channels have the windows sampled from its LZW level.
 
 Changed 2026-10-27: an image of an integer type with Predictor 2 has a layout, as in the TIFF
@@ -186,7 +190,8 @@ are kept in the source metadata and otherwise ignored.
 The data type and codecs are those of [the TIFF convention §4.3](tiff.md#43-data-types-and-codecs),
 including its requirements on JPEG, FillOrder and YCbCr subsampling, its LZW row
 (`bytes`, `refkv.tiff_lzw`: the scanners' default), its Predictor 2 (`imagecodecs_delta`
-before `bytes`) and its rejection of other predictors.
+before `bytes`), its Predictor 3 (`imagecodecs_floatpred` in place of `bytes`) and its rejection of
+other predictors.
 
 ### 4.2 Tiles and strips
 
@@ -293,7 +298,7 @@ middle chunk of each channel of the last level, there in steps 1 to 3,
 when `spp` is not 3 (an RGB image, whose samples keep the type's range)
 and Compression is 1, 5 (LZW, decoded as [§4.1](#41-data-types-and-codecs)
 says, into the chunk's size) or 8 or 32946 (Deflate), with Predictor 2's differences summed
-back; a level in strips
+back and Predictor 3 undone; a level in strips
 has the chunk shape above, and a padded last strip's rows past the image
 are not values. A channel without a sampled window has, with an integer
 data type, the window of the type's whole range (0 to 255 for `uint8`),

@@ -211,7 +211,7 @@ impl Hdf5 {
             Ok(lenient(self.h.links(at))?.is_some_and(|l| l.has("ResolutionLevel 0")))
         })()?;
         if imaris {
-            let mut ims = Box::new(crate::ims::Ims::new(self.h.size()));
+            let mut ims = Box::new(crate::ims::Ims::new(self.h.file_size()));
             for (o, d) in std::mem::take(&mut self.log) {
                 ims.feed(o, d);
             }
@@ -637,6 +637,7 @@ impl Hdf5 {
 
     fn make_facts(&mut self) -> R<()> {
         let sb = self.h.superblock()?;
+        let base = self.h.src.base;
         let mut nodes = Vec::new();
         let mut counts: BTreeMap<&'static str, u64> = BTreeMap::new();
         let mut not_counts: BTreeMap<String, u64> = BTreeMap::new();
@@ -711,6 +712,9 @@ impl Hdf5 {
                     }
                     if segs.is_empty() {
                         own.insert("superblock".into(), json!(sb.version));
+                        if base > 0 {
+                            own.insert("user_block".into(), json!(base));
+                        }
                     }
                     let mut attrs = attributes;
                     if !links_json.is_empty() {
@@ -737,7 +741,7 @@ impl Hdf5 {
                                     if m != n {
                                         return super::bad(format!("{}: element {k} is {n} bytes long, its heap object {m}", self.path(*at)));
                                     }
-                                    (o + 16, n)
+                                    (base + o + 16, n)
                                 };
                                 spans.push(json!(o));
                                 spans.push(json!(len));
@@ -767,13 +771,13 @@ impl Hdf5 {
                             attrs.insert("_DTYPE".into(), json!("object_reference"));
                             json!({"kind": "references", "paths": paths})
                         }
-                        (_, Layout::Compact) => json!({"kind": "compact", "offset": ds.compact.0, "length": ds.compact.1.len()}),
+                        (_, Layout::Compact) => json!({"kind": "compact", "offset": base + ds.compact.0, "length": ds.compact.1.len()}),
                         (_, Layout::Contiguous) => match ds.contiguous.0 {
                             Some(a) if ds.contiguous.1 > 0 => {
                                 if a.checked_add(ds.contiguous.1).is_none_or(|e| e > self.h.size()) {
                                     return super::bad(format!("{}: its data lies outside the file", self.path(*at)));
                                 }
-                                json!({"kind": "contiguous", "at": at, "offset": a, "length": ds.contiguous.1, "item": if trailing.is_some() { 1 } else { dt.size }})
+                                json!({"kind": "contiguous", "at": at, "offset": base + a, "length": ds.contiguous.1, "item": if trailing.is_some() { 1 } else { dt.size }})
                             }
                             _ => json!({"kind": "none"}),
                         },
@@ -1004,7 +1008,7 @@ impl Hdf5 {
             .filter_map(|n| n["array"]["store"]["at"].as_u64())
             .collect();
         let room = self.room.unwrap_or(self.limit("walk_elements") + size / self.limit("walk_bytes_per_element"));
-        let mut e = Emit { ir: Ir::new(size), h: &self.h, chunks_of: HashMap::new(), data_of: HashMap::new(), room, must };
+        let mut e = Emit { ir: Ir::new(self.h.file_size()), h: &self.h, chunks_of: HashMap::new(), data_of: HashMap::new(), room, must };
         let sb = self.h.sb.clone().ok_or("internal: no superblock")?;
         e.superblock(&sb)?;
         if let Some(ext) = self.extension.take() {
@@ -1072,7 +1076,7 @@ impl Lookup for Hdf5 {
     fn heap(&self, collection: u64, index: u64) -> Option<Vec<u8>> {
         let col = self.heaps.get(&collection)?;
         let &(o, n) = col.objects.get(&index)?;
-        self.h.src.store.get(o + 16, n).map(|b| b.to_vec())
+        self.h.src.get(o + 16, n).map(|b| b.to_vec())
     }
     fn path(&self, address: u64) -> Option<String> {
         self.paths.get(&address).cloned()
@@ -1313,6 +1317,10 @@ impl crate::run::FileProfile for Profile {
     /// The HDF5 signature at offset 0.
     fn detect(&self, head: &[u8]) -> bool {
         head.len() >= 8 && &head[..8] == super::SIGNATURE
+    }
+    /// A superblock after a user block.
+    fn detect_late(&self, head: &[u8]) -> bool {
+        super::user_block(head).is_some()
     }
     fn parser(&self, size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::of::<Hdf5>(size)

@@ -2,6 +2,9 @@
 
 Profiles version: 0 (**draft**)
 
+Changed 2026-11-04: a profile may state a late signature, which a host reads further for
+([§1.2](#12-input)), as the HDF5 profile's does for a file after a user block.
+
 Changed 2026-11-04: the CZI profile reads an image across numbered files, on demand
 ([czi.md §7.9](zarrify/czi.md#79-several-files)); a file whose bytes call for no part has the output
 it had.
@@ -253,7 +256,10 @@ for a profile that defines none, the table is source 0 alone.
 document states its **signature**, a test on `H`, and its registry entry
 (`zarrify/profiles/<name>.json`) the signature's precedence, `sniff`. The signatures are
 tested in ascending precedence, those of equal precedence in order of the profiles' names,
-and the first that matches chooses the profile. A file that no signature matches is rejected.
+and the first that matches chooses the profile. When none matches, the same is done with the
+late signatures of those documents that state one, tests on `L`, the file's first
+`min(65600, size)` bytes. A host that reads no further than a signature needs reads `H` first, and
+`L` only then. A file that no signature matches is rejected.
 A profile whose `sniff` is null has no signature: the reading of another profile, its registry
 entry's `chosen_by`, chooses it (the TIFF profile's chooses NDPI and QPTIFF, the HDF5 profile's
 IMS). The precedences, generated from the registry, by

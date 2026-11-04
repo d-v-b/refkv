@@ -142,8 +142,8 @@ impl Emit<'_> {
         if n == 0 || !self.h.src.within(o, n) {
             return Ok(None);
         }
-        let raw = if n <= 1024 && !ty.starts_with("bytes") { self.h.src.store.get(o, n).map(|b| b.to_vec()) } else { None };
-        Ok(Some(self.ir.value(parent, name, nidx, ty, 0, (o, n), raw.as_deref())?))
+        let raw = if n <= 1024 && !ty.starts_with("bytes") { self.h.src.get(o, n).map(|b| b.to_vec()) } else { None };
+        Ok(Some(self.ir.value(parent, name, nidx, ty, 0, (o + self.h.src.base, n), raw.as_deref())?))
     }
 
     pub fn bytes(&mut self, parent: u32, name: &str, nidx: u64, o: u64, n: u64) -> Res<Option<u32>> {
@@ -431,7 +431,7 @@ impl Emit<'_> {
                         if self.spent(at) {
                             break;
                         }
-                        if let Some(d) = self.h.src.store.get(a, n).map(|b| b.to_vec()) {
+                        if let Some(d) = self.h.src.get(a, n).map(|b| b.to_vec()) {
                             self.link(items, "", k as u64, a, &d)?;
                         } else {
                             self.bytes(items, "", k as u64, a, n)?;
@@ -495,7 +495,7 @@ impl Emit<'_> {
                     let end = ch.list.iter().map(|c| c.1 + c.2).max().unwrap();
                     if self.h.src.within(first, end - first) {
                         let form = json!({"geometry": {"chunk": ds.chunk, "size": ds.datatype.size, "grid": max_grid}, "codec": {"filters": ds.filters}, "recipe": [["src", 0, null]]});
-                        self.ir.data(o, "data", NO_INDEX, 0, (first, end - first), &form.to_string())?;
+                        self.ir.data(o, "data", NO_INDEX, 0, (first + self.h.src.base, end - first), &form.to_string())?;
                     }
                 } else if !ch.list.is_empty() && (image || !self.full()) {
                     let s = self.ir.struct_(o, "chunks", NO_INDEX, 0, None)?;
@@ -516,7 +516,7 @@ impl Emit<'_> {
                             f["codec"]["mask"] = json!(mask);
                             f.to_string()
                         };
-                        self.ir.data(s, "", idx as u64, 0, (*a, *n), &form)?;
+                        self.ir.data(s, "", idx as u64, 0, (*a + self.h.src.base, *n), &form)?;
                     }
                 }
             }
@@ -524,7 +524,7 @@ impl Emit<'_> {
                 if let (Some(a), n) = ds.contiguous {
                     if n > 0 && self.h.src.within(a, n) {
                         let form = json!({"geometry": {"shape": ds.dims, "size": ds.datatype.size}, "codec": {"filters": ds.filters}, "recipe": [["src", 0, null]]});
-                        let id = self.ir.data(o, "data", NO_INDEX, 0, (a, n), &form.to_string())?;
+                        let id = self.ir.data(o, "data", NO_INDEX, 0, (a + self.h.src.base, n), &form.to_string())?;
                         self.data_of.insert(at, id);
                     }
                 }
