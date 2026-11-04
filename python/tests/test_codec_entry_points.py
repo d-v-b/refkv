@@ -48,6 +48,8 @@ EVERY_CODEC = {
     "imagecodecs_jpeg2k": ("dicom/dicom_j2k_signed16.dcm", "0"),
     "imagecodecs_ljpeg": ("dicom/dicom_ljpeg_signed16_eot.dcm", "0"),
     "imagecodecs_jpegxr": ("ndpi/ndpi_jpegxr_bgr.ndpi", "0"),
+    "imagecodecs_png": ("vsi/vsi_png.vsi", "0/0"),
+    "imagecodecs_bmp": ("vsi/vsi_bmp.vsi", "0/0"),
     "imagecodecs_delta": ("tiff/predictor_lzw_uint16.tif", "0"),
 }
 

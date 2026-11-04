@@ -7,6 +7,41 @@
       "message": "8-bit Pixel Data of VR OW in big endian"
     },
     {
+      "test": "dicom_reject_bits1_big_endian_ow",
+      "input": "dicom_reject_bits1_big_endian_ow.dcm",
+      "message": "1-bit Pixel Data of VR OW in big endian"
+    },
+    {
+      "test": "dicom_reject_bits1_jpeg2k",
+      "input": "dicom_reject_bits1_jpeg2k.dcm",
+      "message": "unsupported Bits Allocated 1"
+    },
+    {
+      "test": "dicom_reject_bits1_samples",
+      "input": "dicom_reject_bits1_samples.dcm",
+      "message": "Bits Allocated 1 with 3 samples per pixel, Bits Stored 1 and Pixel Representation 0"
+    },
+    {
+      "test": "dicom_reject_bits1_short",
+      "input": "dicom_reject_bits1_short.dcm",
+      "message": "Pixel Data has 4 bytes, less than 2 frames of 4"
+    },
+    {
+      "test": "dicom_reject_bits1_short_off_bytes",
+      "input": "dicom_reject_bits1_short_off_bytes.dcm",
+      "message": "Pixel Data has 4 bytes, less than 3 frames of 2"
+    },
+    {
+      "test": "dicom_reject_bits1_signed",
+      "input": "dicom_reject_bits1_signed.dcm",
+      "message": "Bits Allocated 1 with 1 samples per pixel, Bits Stored 1 and Pixel Representation 1"
+    },
+    {
+      "test": "dicom_reject_bits1_whole_slide",
+      "input": "dicom_reject_bits1_whole_slide.dcm",
+      "message": "a whole-slide image of Bits Allocated 1"
+    },
+    {
       "test": "dicom_reject_bits_allocated",
       "input": "dicom_reject_bits_allocated.dcm",
       "message": "unsupported Bits Allocated 12"

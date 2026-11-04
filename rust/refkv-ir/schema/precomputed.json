@@ -16,7 +16,10 @@
       "uint8": 1, "int8": 1, "uint16": 2, "int16": 2, "uint32": 4, "int32": 4, "uint64": 8, "int64": 8, "float32": 4, "float64": 8
     },
     "data_type_names": ["uint8", "int8", "uint16", "int16", "uint32", "int32", "uint64", "int64", "float32", "float64"],
-    "encodings": ["raw", "jpeg", "png", "compressed_segmentation"],
+    "encodings": ["raw", "jpeg", "png", "compressed_segmentation", "compresso", "crackle", "jxl", "fpzip", "zfpc", "kempressed"],
+    "label_types": ["uint8", "uint16", "uint32", "uint64"],
+    "float_types": ["float32", "float64"],
+    "zfp_types": ["int32", "int64", "float32", "float64"],
     "stream_encodings": ["raw", "gzip"]
   },
   "elements": {
@@ -72,7 +75,13 @@
         {"require": "encoding != 'jpeg' || (data_type == 'uint8' && (num_channels == 1 || num_channels == 3))", "message": "jpeg holds uint8 in 1 or 3 channels, not {data_type} in {num_channels}"},
         {"require": "encoding != 'png' || ((data_type == 'uint8' || data_type == 'uint16') && num_channels <= 4)", "message": "png holds uint8 or uint16 in at most 4 channels, not {data_type} in {num_channels}"},
         {"require": "encoding != 'compressed_segmentation' || data_type == 'uint32' || data_type == 'uint64'", "message": "compressed_segmentation holds uint32 or uint64, not {data_type}"},
-        {"require": "encoding != 'compressed_segmentation' || (kind(block) == 'list' && len(block) == 3 && ints(block, 1, max_chunk))", "message": "its compressed_segmentation_block_size is not 3 positive integers"}
+        {"require": "encoding != 'compressed_segmentation' || (kind(block) == 'list' && len(block) == 3 && ints(block, 1, max_chunk))", "message": "its compressed_segmentation_block_size is not 3 positive integers"},
+        {"require": "encoding != 'compresso' || (in(data_type, label_types) && num_channels == 1)", "message": "compresso holds uint8 to uint64 in 1 channel, not {data_type} in {num_channels}"},
+        {"require": "encoding != 'crackle' || (in(data_type, label_types) && num_channels == 1)", "message": "crackle holds uint8 to uint64 in 1 channel, not {data_type} in {num_channels}"},
+        {"require": "encoding != 'jxl' || (data_type == 'uint8' && num_channels == 1)", "message": "jxl holds uint8 in 1 channel, not {data_type} in {num_channels}"},
+        {"require": "encoding != 'fpzip' || in(data_type, float_types)", "message": "fpzip holds float32 or float64, not {data_type}"},
+        {"require": "encoding != 'kempressed' || in(data_type, float_types)", "message": "kempressed holds float32 or float64, not {data_type}"},
+        {"require": "encoding != 'zfpc' || in(data_type, zfp_types)", "message": "zfpc holds int32, int64, float32 or float64, not {data_type}"}
       ]
     },
     "sharding": {

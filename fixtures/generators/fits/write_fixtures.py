@@ -248,6 +248,19 @@ def accepted() -> None:
     asdf = fits.Column(name="ASDF_METADATA", format=f"{len(yaml)}B", array=np.frombuffer(yaml, dtype=np.uint8)[None, :])
     write("fits_bintable_asdf",
           [primary(), image(ramp((3, 3), "f4", 90), "SCI", 1), fits.BinTableHDU.from_columns([asdf], name="ASDF")])
+    # A column with no name (its field is col<n>), and one of repeat 0 (no field), patched in: astropy
+    # names every column and writes no zero-width one.
+    named = [fits.Column(name="a", format="J", array=np.array([1, 2], dtype=np.int32)),
+             fits.Column(name="b", format="2E", array=np.array([[1.5, 2.5], [3.5, 4.5]], dtype=np.float32)),
+             fits.Column(name="c", format="I", array=np.array([3, 4], dtype=np.int16))]
+    path = write("fits_bintable_unnamed", [primary(), fits.BinTableHDU.from_columns(named)])
+    data = patch_card(remove_card(path.read_bytes(), 1, "TTYPE2"), 1, "TFIELDS", "TFIELDS =                    4")
+    path.write_bytes(_append_card(data, 1, "TFORM4  = '0J      '"))
+    # Two columns of one name, and a row the fields do not tile: the rows stay bytes.
+    path = write("fits_bintable_same_name", [primary(), fits.BinTableHDU.from_columns(named)])
+    path.write_bytes(patch_card(path.read_bytes(), 1, "TTYPE3", "TTYPE3  = 'a       '"))
+    path = write("fits_bintable_short_form", [primary(), fits.BinTableHDU.from_columns(named)])
+    path.write_bytes(patch_card(path.read_bytes(), 1, "TFORM3", "TFORM3  = 'B       '"))
     ascii_cols = [
         fits.Column(name="a_i", format="I6", array=np.array([1, 22, 333])),
         fits.Column(name="a_f", format="F8.3", array=np.array([1.5, 2.25, -3.125])),
