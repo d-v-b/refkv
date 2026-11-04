@@ -28,7 +28,9 @@ output: [§2](#2-attributes), [§3](#3-arrays) and [§7](#7-source-values-as-arr
 formats' documents already say of their attributes, arrays, codecs and fill values. Changed
 2026-11-04, with no change to any output: a node's attributes may hold other conventions'
 members, such as [spec/provenance.md](provenance.md)'s on the root, which each convention's JSON
-Schema accepts ([§2](#2-attributes)).)
+Schema accepts ([§2](#2-attributes)). Changed 2026-11-04: [§12](#12-grib-messages) decodes reduced
+grids and template 3.101 as one line of points, and [§2](#2-attributes) places the numbers that name
+a 3.101 grid on its group.)
 
 <!-- profiles:conventions-table -->
 | format | convention | UUID |
@@ -234,7 +236,7 @@ convention places them:
 |---|---|---|
 | `ome` | OME-NGFF 0.5 ([§4](#4-images)) | images, a collection's root and `OME` group, and the OME-Zarr convention's other OME groups (its labels groups, plates and wells) |
 | `proj:code`, `proj:wkt2`, `spatial:*`, `multiscales` | the GeoZarr members of the zarr-conventions `proj`, `spatial` and `multiscales` conventions | nodes of the SAFE convention and [a GRIB hierarchy's grid groups](zarrify/grib.md#4-georeferencing), which list their CMOs in `zarr_conventions`, after the format's own on a node that declares the convention |
-| the CF attributes | [§9](#9-dataset-layouts) | a dataset layout's variables, and [a GRIB hierarchy's variables and coordinates](zarrify/grib.md#3-the-hierarchy), with the `GRIB_<key>` numbers that identify a variable |
+| the CF attributes | [§9](#9-dataset-layouts) | a dataset layout's variables, and [a GRIB hierarchy's variables and coordinates](zarrify/grib.md#3-the-hierarchy), with the `GRIB_<key>` numbers that identify a variable, and [a GRIB grid group of template 3.101](zarrify/grib.md#4-georeferencing), the `GRIB_<key>` numbers that name its grid |
 | `zarr_conventions` | [`Declaration`](#type-declaration) | nodes that declare the convention, and nodes that hold the GeoZarr members above |
 
 Everything

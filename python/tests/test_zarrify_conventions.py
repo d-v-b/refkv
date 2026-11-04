@@ -45,6 +45,9 @@ DATASET_ATTRS = {"units", "long_name", "actual_range", "scale_factor", "add_offs
 # a variable, `GRIB_<key>` (spec/zarrify/grib.md §3
 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#3-the-hierarchy>)
 GRIB_ATTRS = {"units", "long_name", "standard_name", "calendar", "coordinates", "bounds", "scale_factor", "add_offset"}
+# What names a template 3.101 grid, on its group (spec/conventions.md §2
+# <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>).
+GRIB_GRID_ATTRS = {"GRIB_numberOfGridUsed", "GRIB_numberOfGridInReference", "GRIB_uuidOfHGrid"}
 # The registry's tool (spec/tools/profiles.py), which checks the documents' copies of each CMO
 # against its own `cmo` without importing refkv: here, `cmo` is checked against refkv's.
 _tool = importlib.util.spec_from_file_location("spec_tools_profiles", ROOT / "spec" / "tools" / "profiles.py")
@@ -134,6 +137,8 @@ def test_every_output_declares_its_profile_where_the_convention_says():
                 geo = {m for m in attrs if m.startswith(tuple(GEOZARR))} if fmt in ("safe", "grib") else set()
                 if fmt == "grib" and at(doc, "node_type") == "array" and not key.startswith("refkv_source/"):
                     geo |= {m for m in attrs if m in GRIB_ATTRS or m.startswith("GRIB_")}
+                if fmt == "grib" and at(doc, "node_type") == "group" and key.startswith("grid"):
+                    geo |= set(attrs) & GRIB_GRID_ATTRS
                 if layouts and key.startswith(layouts) and at(doc, "node_type") == "array":
                     geo |= set(attrs) & DATASET_ATTRS
                 # an HDF5 node's attributes are the source's own, as hdmf-zarr's convention places

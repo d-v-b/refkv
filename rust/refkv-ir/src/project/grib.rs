@@ -149,7 +149,7 @@ fn lon180(l: f64) -> f64 {
     (l + 180.0).rem_euclid(360.0) - 180.0
 }
 
-/// `r(d)` of spec/zarrify/grib.md §4: degrees as radians.
+/// `r(d)` of spec/zarrify/grib.md §4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#4-georeferencing>: degrees as radians.
 fn radians(d: f64) -> f64 {
     d * (std::f64::consts::PI / 180.0)
 }
@@ -166,12 +166,12 @@ fn axis_and_eccentricity(earth: &J) -> (f64, f64) {
     }
 }
 
-/// `m(x)` of spec/zarrify/grib.md §4 (Snyder's 14-15).
+/// `m(x)` of spec/zarrify/grib.md §4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#4-georeferencing> (Snyder's 14-15).
 fn big_m(x: f64, e: f64) -> f64 {
     libm::cos(x) / libm::sqrt(1.0 - e * e * libm::sin(x) * libm::sin(x))
 }
 
-/// `t(x)` of spec/zarrify/grib.md §4 (Snyder's 15-9).
+/// `t(x)` of spec/zarrify/grib.md §4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#4-georeferencing> (Snyder's 15-9).
 fn big_t(x: f64, e: f64) -> f64 {
     let s = libm::sin(x);
     libm::tan(std::f64::consts::FRAC_PI_4 - x / 2.0) / libm::pow((1.0 - e * s) / (1.0 + e * s), e / 2.0)
