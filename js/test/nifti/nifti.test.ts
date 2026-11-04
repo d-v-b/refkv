@@ -158,7 +158,7 @@ for (const [name, message] of [
   ["nifti_reject_dim0.nii", /dim\[0\] = 0/],
   ["nifti_reject_dim6.nii", /dimensions 6 and 7/],
   ["nifti_reject_n2_dim_huge.nii", /dim\[1\] = 9007199254740992/],
-  ["nifti_reject_complex64.nii", /COMPLEX64/],
+  ["nifti_reject_complex256.nii", /COMPLEX256/],
   ["nifti_reject_datatype_unknown.nii", /unknown NIfTI datatype 3/],
   ["nifti_reject_bitpix.nii", /bitpix 8/],
   ["nifti_reject_rgb_5d.nii", /fifth dimension/],
