@@ -266,6 +266,7 @@
                   "edge_chunks",
                   "layout",
                   "external_storage",
+                  "dimension_only",
                   "null_dataspace",
                   "fill_value",
                   "size",
