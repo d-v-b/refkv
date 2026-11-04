@@ -7,9 +7,9 @@ video, 8-bit and Main 10 (HLG, as an iPhone records it), in hvc1 and hev1 sample
 open groups (CRA pictures and their RASL pictures), RADL pictures, and in a QuickTime file;
 AAC and MP3 audio, alone and beside video; the moov box before and after the media data, a
 64-bit mdat size and an mdat that runs to the end of the file; fragmented files, as ffmpeg's muxer
-writes them and with each way a track fragment can say where its samples are; tracks the profile
-does not zarrify (10-bit H.264, 4:2:2 HEVC) beside ones it does; and the inputs it rejects
-(`mp4_reject_*`). The byte-crafted edge
+writes them and with each way a track fragment can say where its samples are; Motion JPEG of each
+sample entry; tracks the profile does not zarrify (10-bit H.264, 4:2:2 HEVC) beside ones it does;
+and the inputs it rejects (`*_reject_*`). The byte-crafted edge
 cases are write_edge_fixtures.py's.
 
 The media are ffmpeg's test sources encoded by ffmpeg (libx264, libx265, its AAC encoder and
@@ -24,11 +24,14 @@ Usage: uv run python fixtures/generators/mp4/write_fixtures.py
 
 from __future__ import annotations
 
+import io
 import shutil
 import struct
 import subprocess
 import sys
 from pathlib import Path
+
+from PIL import Image
 
 OUT = Path(__file__).parents[2] / "mp4"
 CONTAINERS = {b"moov", b"trak", b"mdia", b"minf", b"stbl", b"edts", b"dinf", b"mvex", b"moof", b"traf"}
@@ -172,6 +175,28 @@ def main() -> None:
     write("mov_hevc_main10_aac.mov",
           ffmpeg(*video(), *audio(), *x265(f"{OPEN_GOP}:{HLG}", "yuv420p10le"), *AAC, fmt="mov"))
     write("mov_hevc_aac.mov", ffmpeg(*video(), *audio(), *x265(OPEN_GOP), *AAC, fmt="mov"))
+    # Motion JPEG: each sample entry; gray, progressive and CMYK streams, which ffmpeg's encoder does
+    # not write; a first picture with its frame header past the first read; in fragments; and what
+    # the profile does not read, beside AAC
+    mjpeg = ("-c:v", "mjpeg", "-q:v", "5")
+    short = video(seconds=1)
+    beside = (*short, *audio(16000, 1), *mjpeg, *AAC)
+    write("mov_mjpeg.mov", ffmpeg(*short, *mjpeg, fmt="mov"))
+    write("mp4_mjpeg_aac.mp4", ffmpeg(*beside))
+    write("mov_mjpa_444.mov", ffmpeg(*short, *mjpeg, "-pix_fmt", "yuvj444p", "-tag:v", "mjpa", fmt="mov"))
+    write("mov_dmb1_422.mov", ffmpeg(*short, *mjpeg, "-pix_fmt", "yuvj422p", "-tag:v", "dmb1", fmt="mov"))
+    write("mov_mjpeg_gray.mov", from_jpegs(jpegs("L")))
+    write("mov_mjpeg_progressive.mov", from_jpegs(jpegs("RGB", progressive=True)))
+    big = jpegs("RGB")
+    big[0] = big[0][:2] + b"\xff\xe1" + struct.pack(">H", 20002) + bytes(20000) + big[0][2:]
+    write("mov_mjpeg_late_header.mov", from_jpegs(big))
+    write("mp4_frag_mjpeg.mp4", ffmpeg(*short, *mjpeg, "-movflags", "frag_keyframe+empty_moov"))
+    mov = ffmpeg(*beside, fmt="mov")
+    write("mov_mjpb_aac.mov", entry_type(mov, b"mjpb"))
+    write("mov_mjpeg_fields_aac.mov", doubled_height(mov))
+    write("mov_mjpeg_12bit_aac.mov", first_picture(mov, 12))
+    write("mov_mjpeg_no_header_aac.mov", first_picture(mov, None))
+    write("mov_reject_mjpeg_cmyk.mov", from_jpegs(jpegs("CMYK")))
     # fragmented: a moof box per keyframe beside AAC; each track in a moof box of its own, the data
     # offsets from the moof box; the first fragment's samples in the moov box's tables; DASH's sidx
     # boxes, with version 1 trun boxes of negative offsets; audio alone; and every way a track
@@ -221,6 +246,59 @@ def main() -> None:
     write("mp4_reject_frag_trun_table.mp4", frag[:o + h + 4] + struct.pack(">I", 1 << 20) + frag[o + h + 8:])
     write("mp4_reject_frag_trun_before.mp4", frag[:o + h + 8] + struct.pack(">i", -(1 << 30)) + frag[o + h + 12:])
     write("mp4_reject_frag_sample_outside.mp4", frag_sample_outside(frag))
+
+
+def jpegs(mode: str, **options: object) -> list[bytes]:
+    """10 JPEG streams of a moving gradient, by Pillow, in the color mode `mode`."""
+    out = []
+    for k in range(10):
+        image = Image.linear_gradient("L").resize((64, 48)).rotate(36 * k)
+        stream = io.BytesIO()
+        image.convert(mode).save(stream, "JPEG", quality=80, **options)
+        out.append(stream.getvalue())
+    return out
+
+
+def from_jpegs(streams: list[bytes]) -> bytes:
+    """A QuickTime file of the JPEG streams, each a sample as it is, at 10 pictures a second."""
+    for k, stream in enumerate(streams):
+        (OUT / f"_tmp{k}.jpg").write_bytes(stream)
+    data = ffmpeg("-framerate", "10", "-i", str(OUT / "_tmp%d.jpg"), "-c:v", "copy", fmt="mov")
+    for k in range(len(streams)):
+        (OUT / f"_tmp{k}.jpg").unlink()
+    return data
+
+
+def entry_type(data: bytes, typ: bytes) -> bytes:
+    """The file with its first sample entry of the type `typ`."""
+    o, h, _ = find(data, "/stsd")
+    return data[:o + h + 12] + typ + data[o + h + 16:]
+
+
+def doubled_height(data: bytes) -> bytes:
+    """The file with its first sample entry's height doubled, so that its JPEG pictures are half
+    of it, as an interlaced picture's fields are."""
+    o, h, _ = find(data, "/stsd")
+    out = bytearray(data)
+    at = o + h + 8 + 8 + 26  # the box's fields, the entry's header, the height's offset in it
+    struct.pack_into(">H", out, at, 2 * struct.unpack_from(">H", data, at)[0])
+    return bytes(out)
+
+
+def first_picture(data: bytes, precision: int | None) -> bytes:
+    """The file with its first sample's frame header of `precision` bits, or with no JPEG stream at
+    its start (None)."""
+    o, h, _ = find(data, "/stco")
+    (first,) = struct.unpack_from(">I", data, o + h + 8)
+    assert data[first:first + 2] == b"\xff\xd8", "the video's chunk is first"
+    out = bytearray(data)
+    if precision is None:
+        out[first:first + 2] = bytes(2)
+    else:
+        sof = data.index(b"\xff\xc0", first)
+        assert data[sof + 4] == 8
+        out[sof + 4] = precision
+    return bytes(out)
 
 
 def box(typ: bytes, *payload: bytes) -> bytes:

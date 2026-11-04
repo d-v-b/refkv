@@ -11,6 +11,12 @@ below.
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `bbe3f6b9-488d-4d8d-85ce-60a1649dd27e` ·
 Schema: [schema.json](mp4/schema.json)
 
+Changed 2026-11-04: a Motion JPEG track is zarrified, where it was recorded with a reason: its
+pictures are one array, a picture a chunk, each chunk its sample's own JPEG stream through
+`imagecodecs_jpeg`, with the sample entries `jpeg`, `mjpa`, `dmb1` and `mp4v` of object type
+indication 0x6C ([§4.3](#43-motion-jpeg-tracks), [§8.2](#82-tracks)). A zarrifier reads the frame
+header of such a track's first sample ([§8.1](#81-boxes)).
+
 Changed 2026-11-04: a fragmented file is zarrified, where it was rejected: a track's samples are its
 tables' and then its track fragments', in the file's order ([§3](#3-tracks-and-samples)), and the
 moof boxes are parsed ([§2](#2-boxes), [§5.3](#53-elements)). A track's `duration` runs to where its
@@ -66,10 +72,11 @@ This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
 An MP4 file is not an image. The hierarchy holds each track it zarrifies
 as a group: an H.264 or HEVC video track as the Y, U and V planes of its pictures
-and their presentation times, an AAC or MP3 audio track as its samples. The
+and their presentation times, a Motion JPEG track as its pictures and their presentation
+times, an AAC or MP3 audio track as its samples. The
 pictures and samples stay in the file as coded frames; the arrays' codec,
-`refkv.stream` ([conventions §10](../conventions.md#10-coded-streams)),
-decodes them when a chunk is read.
+`refkv.stream` ([conventions §10](../conventions.md#10-coded-streams)) or
+`imagecodecs_jpeg`, decodes them when a chunk is read.
 
 # Part 1. The convention
 
@@ -87,11 +94,13 @@ The hierarchy's entries ([conventions §11.5](../conventions.md#115-layout-table
 | `tracks/<id>/zarr.json` | group | [`GroupDocument`](../conventions.md#type-groupdocument), its attributes a [`Declaration`](../conventions.md#type-declaration) and nothing else | a track the profile zarrifies ([§4](#4-the-layout), [§8.2](#82-tracks)) |
 | `tracks/<id>/zarr.json#/attributes/zarr_conventions` | attribute | array of [`ConventionMetadata`](../conventions.md#type-conventionmetadata) | the CMO of [§1](#1-declaration) |
 | `tracks/<id>/zarr.json#/attributes/refkv_zarrified` | attribute | [`NodeProperty`](../conventions.md#type-nodeproperty) | the track's property |
-| `tracks/<id>/zarr.json#/attributes/refkv_zarrified/mp4` | attribute | [`Mp4VideoTrack`](#type-mp4videotrack) or [`Mp4AudioTrack`](#type-mp4audiotrack) | the track's source metadata ([§5.2](#52-the-tracks)) |
+| `tracks/<id>/zarr.json#/attributes/refkv_zarrified/mp4` | attribute | [`Mp4VideoTrack`](#type-mp4videotrack), [`Mp4JpegTrack`](#type-mp4jpegtrack) or [`Mp4AudioTrack`](#type-mp4audiotrack) | the track's source metadata ([§5.2](#52-the-tracks)) |
 | `tracks/<id>/<plane>/zarr.json` | array | [`Mp4PlaneArray`](#type-mp4planearray) | a video track's plane ([§4.1](#41-video-tracks)) |
 | `tracks/<id>/<plane>/c/<q>/0/0` | chunk | [`Mp4VideoChunk`](#type-mp4videochunk) | every chunk of a plane ([§8.3](#83-chunks)) |
-| `tracks/<id>/time/zarr.json` | array | [`Mp4TimeArray`](#type-mp4timearray) | a video track's presentation times ([§4.1](#41-video-tracks)) |
+| `tracks/<id>/time/zarr.json` | array | [`Mp4TimeArray`](#type-mp4timearray) | a video or Motion JPEG track's presentation times ([§4.1](#41-video-tracks)) |
 | `tracks/<id>/time/c/<k>` | chunk | [`Mp4TimeChunk`](#type-mp4timechunk) | every chunk of `time`, a bytes entry ([§8.3](#83-chunks)) |
+| `tracks/<id>/pictures/zarr.json` | array | [`Mp4JpegArray`](#type-mp4jpegarray) | a Motion JPEG track's pictures ([§4.3](#43-motion-jpeg-tracks)) |
+| `tracks/<id>/pictures/c/<q>/0/0`, `tracks/<id>/pictures/c/<q>/0/0/0` | chunk | [`Mp4JpegChunk`](#type-mp4jpegchunk) | every chunk of the pictures ([§8.3](#83-chunks)) |
 | `tracks/<id>/samples/zarr.json` | array | [`Mp4AudioArray`](#type-mp4audioarray) | an audio track's samples ([§4.2](#42-audio-tracks)) |
 | `tracks/<id>/samples/c/<q>/0` | chunk | [`Mp4AudioChunk`](#type-mp4audiochunk) | every chunk of the samples ([§8.3](#83-chunks)) |
 | `refkv_source/**` | subtree | [the mirror's entries](../conventions.md#table-mirror) | the IR mirror ([conventions §11.3](../conventions.md#113-the-ir-mirror)): its elements are [§5.3](#53-elements)'s |
@@ -318,11 +327,32 @@ The samples of an AAC track coded with perceptual noise substitution are
 those of [conventions §10](../conventions.md#10-coded-streams): in the
 noise bands, a chunk's noise is its own.
 
+### 4.3 Motion JPEG tracks
+
+A Motion JPEG track of `N` pictures of width `W` and height `H`, each of `C` components (1 or 3),
+holds its pictures in one array, `pictures`, in presentation order, a picture a chunk:
+
+<a id="type-mp4jpegarray"></a>**`Mp4JpegArray`**, the `zarr.json` of `pictures`: an
+[`ArrayDocument`](../conventions.md#type-arraydocument) with these members:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `shape` | array of integer | required | `[N, H, W]` for one component, `[N, H, W, 3]` for three |
+| `data_type` | string | required | `"uint8"` |
+| `chunk_grid` | object | required | regular, its chunk shape `[1, H, W]` or `[1, H, W, 3]` |
+| `codecs` | array of object | required | `[{"name": "imagecodecs_jpeg"}]` |
+| `dimension_names` | array of string | required | `["time", "y", "x"]` or `["time", "y", "x", "c"]` |
+| `attributes` | object | required | `{}` ([§1](#1-declaration)) |
+
+The values are the JPEG decoder's, whose three components are RGB by the stream's own markers: unlike
+a video track's planes, a picture's color conversion is the codec's. `time` is
+[`Mp4TimeArray`](#type-mp4timearray).
+
 ## 5. Source metadata
 
 The root's and each track group's source metadata are objects with the
 members below ([`Mp4Root`](#type-mp4root), [`Mp4VideoTrack`](#type-mp4videotrack),
-[`Mp4AudioTrack`](#type-mp4audiotrack)), in that order, translated by
+[`Mp4JpegTrack`](#type-mp4jpegtrack), [`Mp4AudioTrack`](#type-mp4audiotrack)), in that order, translated by
 [conventions §6](../conventions.md#6-source-metadata-as-json). Everything
 the file holds is on `refkv_source`, the file's **IR mirror**
 ([§5.3](#53-elements)), from which the file is rebuilt byte for byte. A **four-character
@@ -386,6 +416,23 @@ are the same up to `frames` and at the end, `chunk_frames`.
 | `sync_samples` | integer | required | the count of its sync samples |
 | `chunk_frames` | integer | required | the most frames a chunk holds: `F` |
 
+<a id="type-mp4jpegtrack"></a>**`Mp4JpegTrack`**:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `id` | integer | required | its ID |
+| `handler` | string | required | its handler |
+| `codec` | string | required | its sample entry's type |
+| `format` | string | required | `"mjpeg"` |
+| `timescale` | integer | required | the media's timescale |
+| `duration` | [`Integer`](../conventions.md#type-integer) | required | the media's duration, as an [`Mp4VideoTrack`](#type-mp4videotrack)'s |
+| `edits` | array of [`Mp4Edit`](#type-mp4edit) | required | its `elst` box's entries |
+| `frames` | integer | required | its sample count `N` |
+| `width` | integer | required | `W` ([§4.3](#43-motion-jpeg-tracks)) |
+| `height` | integer | required | `H` |
+| `channels` | integer | required | `C`: 1 or 3 |
+| `chunk_frames` | integer | required | the most frames a chunk holds: 1 |
+
 <a id="type-mp4audiotrack"></a>**`Mp4AudioTrack`**:
 
 | member | type | presence | value |
@@ -431,7 +478,7 @@ the IR's root, whose path is `""`
 | `<box>/rest` | value | `bytes[k]` | bytes of a box that are none of its fields, table or boxes |
 | `samples` | struct | | the samples of the file's tracks |
 | `samples/<T>` | struct | | track `T`'s samples |
-| `samples/<T>/<j>` | data | | sample `j` of track `T`, `(offset, size)`; its form's geometry is `{"width", "height", "planes": 3, "data_type"}` for a video track, its data type the planes' (`"uint8"` or `"uint16"`), and `{"samples", "channels", "data_type": "float32"}` for an audio track (null for a track the profile does not zarrify), its codec `{"name": E, "format": F}` (`F` null for such a track), its recipe `[["src", 0, null]]` |
+| `samples/<T>/<j>` | data | | sample `j` of track `T`, `(offset, size)`; its form's geometry is `{"width", "height", "planes": 3, "data_type"}` for a video track, `{"width", "height", "channels", "data_type"}` for a Motion JPEG track, its data type the planes' (`"uint8"` or `"uint16"`), and `{"samples", "channels", "data_type": "float32"}` for an audio track (null for a track the profile does not zarrify), its codec `{"name": E, "format": F}` (`F` null for such a track), its recipe `[["src", 0, null]]` |
 | `gaps/<offset>` | gap | | bytes no other element claims: the media data in no sample, and fewer than 8 bytes after the last box |
 
 A box is named by its type: printable ASCII as it is but for `/`, `~`, `%`
@@ -511,7 +558,7 @@ This section is informative.
 - **Orientation.** The `tkhd` box's matrix, which turns a phone's portrait
   video upright on the movie's display, is in the mirror, not applied: the
   planes are as coded.
-- **Other tracks and codecs.** AV1, Dolby Vision's own sample entries
+- **Other tracks and codecs.** AV1, Motion JPEG B, Dolby Vision's own sample entries
   (`dvh1`, `dvhe`), 10-bit or 4:2:2 H.264, 4:2:2, 4:4:4 or 12-bit HEVC,
   other audio codecs, timecode, text, chapter and metadata tracks are
   recorded in `tracks` with the reason the profile does not zarrify them,
@@ -537,7 +584,8 @@ top-level boxes' headers, then the whole `moov` box and each whole `moof` box (a
 box). It does not read the media data, though a read for a box's header may run into it (from the
 first read and, once the file has shown a `moof` box, 4 KiB from each box whose header is not yet
 read, which holds most `moof` boxes and the `mdat` header after them, so that a fragment takes one
-read).
+read), but for a Motion JPEG track's first sample, up to its frame header and of at most 1 MiB
+([§8.2](#82-tracks)): no other sample is read, so that the others' are taken to be the same.
 
 **Checks.** A zarrifier MUST reject the input unless all of these hold. They are checked
 as the boxes are met, the top-level boxes first, in the file's order, then
@@ -612,6 +660,13 @@ and the track is kept in the mirror but has no group:
   presented before it (a **leading picture**), but after the sync sample
   before: a camera's B-frames after each IDR picture are, and an open
   group's, which may reference the group before ([§8.3](#83-chunks));
+- **Motion JPEG:** its sample entry is `jpeg`, `mjpa`, `dmb1`, or `mp4v` with an `esds` box of object
+  type indication 0x6C; and its first sample has no JPEG frame header in its first 1 MiB; or its
+  width or height is 0; or the frame header (ITU T.81 §B.2.2) is not baseline, extended sequential or
+  progressive of 8 bits (marker 0xC0 to 0xC2); or has other than 1 or 3 components; or its size is
+  not the sample entry's, as an interlaced picture's fields are, a JPEG stream each; or two samples
+  share a presentation time. `mjpb` (Motion JPEG B, whose streams have no markers) and any other `mp4v`
+  are other video codecs;
 - **audio:** its sample entry is a QuickTime sound description of version 2;
   or it is neither `mp4a` nor `.mp3`; or, for `mp4a`, its `esds` box (or the
   one in its `wave` box) is absent or cannot be read, or its object type
@@ -697,6 +752,12 @@ pictures `a` to `b − 1`:
 |---|---|---|---|
 | the header | literal | required | the [`StreamChunk`](../conventions.md#type-streamchunk) header of the samples from `s` to the last of the pictures in decode order: their count, then each one's size and its position, its presentation index less `a` when that is from 0 to `b − a − 1`, else −1 |
 | the samples | source ranges `(0, offset, length)` | required | those samples, in decode order, a range per run of samples that follow each other in the file |
+
+<a id="type-mp4jpegchunk"></a>**`Mp4JpegChunk`**, chunk `q` of `pictures`:
+
+| part | range | presence | value |
+|---|---|---|---|
+| the picture | source range `(0, offset, length)` | required | the sample presented `q`th, whole |
 
 <a id="type-mp4audiochunk"></a>**`Mp4AudioChunk`**, chunk `q` of `samples`, of the frames
 `a = q × 256` to `b − 1`:

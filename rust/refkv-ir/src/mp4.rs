@@ -439,7 +439,7 @@ impl Mp4 {
                 let Some(data) = self.fed.get(o, have) else { return Ok(Some((o, have))) };
                 match jpeg_frame_header(&Head { have: data, bound }) {
                     Ok(frame) => break frame,
-                    Err(need) => have = need.max(have * 2).min(bound),
+                    Err(need) => have = (need + JPEG_READ).min(bound),
                 }
             };
             self.tracks[k].jpeg = Some(frame);

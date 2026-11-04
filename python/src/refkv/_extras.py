@@ -10,7 +10,7 @@ zarrifies image files and stores, without Zarr. The extras add:
   points;
 - `images`: imagecodecs-zarr, whose `imagecodecs_jpeg`, `imagecodecs_jpeg2k`,
   `imagecodecs_jpegxr`, `imagecodecs_ljpeg`, `imagecodecs_png` and `imagecodecs_bmp` codecs the
-  archives of JPEG, JPEG 2000, JPEG XR, lossless JPEG, PNG and BMP images name, whose
+  archives of JPEG, JPEG 2000, JPEG XR, lossless JPEG, PNG and BMP images and MP4's Motion JPEG name, whose
   `imagecodecs_lerc`, `imagecodecs_webp`, `imagecodecs_jpegxl` and `imagecodecs_lzma` those of TIFFs
   in LERC, WebP, JPEG XL and LZMA, whose `imagecodecs_lzw` those of CZI's LZW subblocks, and whose
   `imagecodecs_delta` and `imagecodecs_floatpred` those of TIFFs with a horizontal or floating-point

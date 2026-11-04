@@ -9,6 +9,7 @@ import json
 import av
 import numpy as np
 import pytest
+from imagecodecs import jpeg_decode
 from ir_helpers import FIXTURES, core_setting
 from ir_helpers import zarrified as shared_zarrified
 from zarr.core.metadata import ArrayV3Metadata
@@ -54,6 +55,14 @@ def decoded(path, index):
     return s.type, frames, sorted(p.pts for p in packets)
 
 
+def jpeg_samples(path, index):
+    """The samples of Motion JPEG stream `index`, by ffmpeg's demuxer, in presentation order: (their
+    bytes, their times)."""
+    c = av.open(str(path))
+    packets = sorted((p for p in c.demux(c.streams[index]) if p.size), key=lambda p: p.pts)
+    return [bytes(p) for p in packets], [p.pts for p in packets]
+
+
 def plane(f, k):
     """Plane `k` of a decoded picture: uint8 for 8 bits a sample, uint16 for 10."""
     p = f.planes[k]
@@ -86,9 +95,24 @@ def test_tracks_are_ffmpegs_decoding(path, chunk_frames, tmp_path):
         g = root.get_group(string(track["path"]))
         tm = mapping(at(g.attrs, "refkv_zarrified", "mp4"))
         assert tm["id"] == track["id"]
-        assert tm["format"] in ("h264", "hevc", "aac", "mp3")
+        assert tm["format"] in ("h264", "hevc", "mjpeg", "aac", "mp3")
         kind, frames, pts = decoded(path, integer(track["id"]) - 1)
-        if kind == "video":
+        if tm["format"] == "mjpeg":
+            streams, times = jpeg_samples(path, integer(track["id"]) - 1)
+            got = ndarray(g.get_array("pictures")[...])
+            assert got.dtype == np.uint8
+            assert tm["frames"] == len(streams) == len(frames)
+            assert np.array_equal(got, np.stack([jpeg_decode(b) for b in streams]))
+            # the decoder's RGB is that of ffmpeg's conversion, near enough to be the same picture
+            gray = tm["channels"] == 1
+            rgb = np.stack([f.to_ndarray(format="gray" if gray else "rgb24") for f in frames])
+            assert np.mean(np.abs(got.astype(np.int16) - rgb)) < 8
+            assert ndarray(g.get_array("time")[...]).tolist() == times
+            meta = g.get_array("pictures").metadata
+            assert isinstance(meta, ArrayV3Metadata)
+            assert meta.dimension_names == (("time", "y", "x") if gray else ("time", "y", "x", "c"))
+            assert meta.chunk_grid.chunk_shape[0] == 1
+        elif kind == "video":
             assert tm["frames"] == len(frames)
             assert tm["width"] == frames[0].width
             for k, p in enumerate("yuv"):
@@ -296,6 +320,12 @@ TRACKS = [
     ("mp4_frag_h264_aac.mp4", ["tracks/1", "tracks/2"], {}),
     ("mp4_frag_hevc_moof_base.mp4", ["tracks/1", "tracks/2"], {}),
     ("mp4_frag_aac.mp4", ["tracks/1"], {}),
+    ("mov_mjpeg.mov", ["tracks/1"], {}),
+    ("mp4_mjpeg_aac.mp4", ["tracks/1", "tracks/2"], {}),
+    ("mov_mjpb_aac.mov", ["tracks/2"], {1: "mjpb video is not supported"}),
+    ("mov_mjpeg_fields_aac.mov", ["tracks/2"], {1: "JPEG pictures of 64x48 in a sample entry of 64x96"}),
+    ("mov_mjpeg_12bit_aac.mov", ["tracks/2"], {1: "JPEG of marker 0xC0 and 12 bits is not supported"}),
+    ("mov_mjpeg_no_header_aac.mov", ["tracks/2"], {1: "a first sample without a JPEG frame header"}),
 ]
 
 

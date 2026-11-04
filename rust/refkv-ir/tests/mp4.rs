@@ -81,6 +81,45 @@ fn a_run_without_a_data_offset_follows_the_run_before() {
     assert!(common::rebuilt(&moved_ir, &moved) == moved);
 }
 
+/// A Motion JPEG track's first sample is read up to its frame header and no further, and no other
+/// sample is read: 4 KiB of it hold most frame headers, and a read more those of a stream with
+/// 20 KB of application data before its frame header. With 1 MiB of free box before the mdat box,
+/// past the first read, the samples are read for this alone.
+#[test]
+fn a_motion_jpeg_track_reads_its_first_sample_s_frame_header() {
+    const GROWN: u32 = 1 << 20;
+    for (name, want) in [("mov_mjpeg.mov", 1), ("mov_mjpeg_late_header.mov", 2)] {
+        let plain = std::fs::read(common::fixtures().join("mp4").join(name)).unwrap();
+        let mdat = plain.windows(4).position(|w| w == b"mdat").unwrap() - 4;
+        let moov = plain.windows(4).rposition(|w| w == b"moov").unwrap() - 4;
+        let stco = plain.windows(4).rposition(|w| w == b"stco").unwrap();
+        let count = u32::from_be_bytes(plain[stco + 8..stco + 12].try_into().unwrap()) as usize;
+        let mut data = plain.clone();
+        for at in (0..count).map(|k| stco + 12 + 4 * k) {
+            let offset = u32::from_be_bytes(plain[at..at + 4].try_into().unwrap());
+            data[at..at + 4].copy_from_slice(&(offset + GROWN).to_be_bytes());
+        }
+        let free = [&GROWN.to_be_bytes()[..], b"free", &vec![0; GROWN as usize - 8]].concat();
+        data.splice(mdat..mdat, free);
+        let media = mdat as u64 + GROWN as u64..moov as u64 + GROWN as u64;
+        let mut parser = Mp4::new(data.len() as u64);
+        let mut reads = Vec::new();
+        while let refkv_ir::nd2::Step::Read(ranges) = parser.step().unwrap() {
+            for (o, n) in ranges {
+                if media.contains(&o) && n != 16 {
+                    reads.push(n);
+                }
+                parser.feed(o, data[o as usize..(o + n) as usize].to_vec());
+            }
+        }
+        assert_eq!(reads.len(), want, "{name}: {reads:?}");
+        assert!(reads[0] <= 4096, "{name}: {reads:?}");
+        let (ir, facts) = parser.finish().unwrap();
+        assert_eq!(facts["tracks"][0]["format"], "mjpeg", "{name}");
+        assert!(common::rebuilt(&ir, &data) == data, "{name}");
+    }
+}
+
 /// The parser reads the moof boxes and little else: with each mdat box grown by 256 KiB, past the
 /// first read and any read ahead, a fragment takes one read.
 #[test]

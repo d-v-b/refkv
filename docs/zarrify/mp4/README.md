@@ -39,14 +39,18 @@ A group at the archive root, and a group per track refkv zarrifies, at
   `rectilinear` chunk grid, which `refkv.zarr` turns on in zarr-python.
   No color conversion: RGB depends on the stream's color matrix, which is
   the reader's to apply.
+- **Motion JPEG:** `pictures`, `uint8`, `[time, y, x, c]` in RGB (`[time, y, x]` for a gray
+  stream), the JPEG decoder's output, a picture a chunk, in presentation order, and `time`
+  as above.
 - **Audio (AAC-LC, MP3):** `samples`, `float32`, `[time, channel]`, the
   decoder's output, in chunks of 256 frames.
 - **Codecs:** `refkv.stream` (zarr finds it through refkv's entry points), which
-  decodes with ffmpeg's decoders through PyAV (the `media` extra).
+  decodes with ffmpeg's decoders through PyAV (the `media` extra); `imagecodecs_jpeg` for
+  Motion JPEG, through imagecodecs (the `images` extra).
 - **Metadata:** under `refkv_zarrified.mp4` on the root, the brands, the
   movie's timescale and duration, and every track: its codec, its path,
   or why it is not zarrified (`av01 video is not supported: only H.264
-  (avc1) and HEVC (hvc1, hev1) are`). Each track's group holds its
+  (avc1), HEVC (hvc1, hev1) and Motion JPEG (jpeg, mjpa, dmb1) are`). Each track's group holds its
   timescale, edit list, dimensions, bit depth, profile and level, or its
   sample rate and channel count. The whole file (every box, field by field, every sample, and the
   media data in no sample) is described on `refkv_source` by the Rust
@@ -161,10 +165,12 @@ Supported:
   leading pictures (x265's open groups included): an iPhone's video, its
   HDR video's HLG base layer included (its Dolby Vision metadata is
   recorded, not applied).
+- Motion JPEG tracks, one component or three, 8-bit baseline, extended or progressive: the
+  sample entries `jpeg`, `mjpa`, `dmb1`, and `mp4v` as ffmpeg's MP4 muxer writes it.
 - AAC-LC and MP3 audio tracks, mono or stereo, in either container.
 
-Not zarrified (listed with the reason, and kept in the mirror): AV1 and
-other video codecs, Dolby Vision's own sample entries (`dvh1`, `dvhe`),
+Not zarrified (listed with the reason, and kept in the mirror): AV1, Motion JPEG B and
+other video codecs, interlaced or 12-bit Motion JPEG, Dolby Vision's own sample entries (`dvh1`, `dvhe`),
 `avc3` (parameter sets in the stream), 10-bit, 4:2:2 and 4:4:4 H.264, 4:2:2,
 4:4:4 and 12-bit HEVC, groups of more than 1024 pictures, HE-AAC and other
 audio codecs, timecode, text and metadata tracks.

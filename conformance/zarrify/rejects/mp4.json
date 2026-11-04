@@ -47,6 +47,11 @@
       "message": "no track can be zarrified: track 1 (hvc1): HEVC with chroma format 2 and bit depth 8 is not supported: only 4:2:0 of 8 or 10 bits is"
     },
     {
+      "test": "mov_reject_mjpeg_cmyk",
+      "input": "mov_reject_mjpeg_cmyk.mov",
+      "message": "no track can be zarrified: track 1 (jpeg): JPEG of 4 components is not supported: only 1 or 3 is"
+    },
+    {
       "test": "mp4_reject_moov_twice",
       "input": "mp4_reject_moov_twice.mp4",
       "message": "a second moov box at 6388"
