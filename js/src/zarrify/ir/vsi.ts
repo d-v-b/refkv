@@ -18,12 +18,12 @@ import { zarrifyStoreIr } from "./store.ts";
 
 /** The formats whose input is read with the files beside it: each one's title, as a rejection
  * names it. */
-export const BESIDE = { vsi: "VSI", nrrd: "NRRD", grib: "GRIB", tiff: "TIFF" } as const;
+export const BESIDE = { vsi: "VSI", nrrd: "NRRD", grib: "GRIB", tiff: "TIFF", czi: "CZI" } as const;
 export type BesideFormat = keyof typeof BESIDE;
 /** Those that read a file with the files beside it only when it names some (spec/zarrify.md §1.9
  * <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>): a file
  * run finds out, and starts over (`NamesSiblings`). */
-export const ON_DEMAND: ReadonlySet<string> = new Set<BesideFormat>(["tiff"]);
+export const ON_DEMAND: ReadonlySet<string> = new Set<BesideFormat>(["tiff", "czi"]);
 
 /** [the directory's URL (ending in `/`), the named file's key (its last segment,
  * percent-decoded)] of an input of the format `title` names (VSI, NRRD). */

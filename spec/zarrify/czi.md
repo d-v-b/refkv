@@ -10,6 +10,12 @@ is the CZI profile, [Part 2](#part-2-the-profile) below, cited as
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `7a0733c7-d4be-4482-a64f-6904d9354ea5` ·
 Schema: [schema.json](czi/schema.json)
 
+Changed 2026-11-04: an image across numbered files is read ([§7.9](#79-several-files)), where a
+FilePart other than 0 was rejected; a file whose XML says it has more planes or tiles than its
+directory holds is probed for its parts and read as a store, and so is the one file of the public
+corpus it finds, `Image_1_2023_08_18__14_32_31_964.czi`, which is a set of four; the root has `parts`
+in that case ([§5.1](#51-the-root)). Every other file's output is what it was.
+
 Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
 [Layout](#layout) and its types in type tables
 ([conventions §11.5](../conventions.md#115-layout-tables)), and the source's structures, the
@@ -157,10 +163,8 @@ The `ZISRAWFILE` segment's data starts with these 80 bytes (the rest of the 512 
 | 68–71 | `i32` UpdatePending |
 | 72–79 | `i64` AttachmentDirectoryPosition |
 
-Major MUST be 1. FilePart MUST be 0: a CZI whose image is
-split over several files (`name.czi`, `name(1).czi`, ...) is rejected, both
-here and wherever a directory entry or attachment entry names a FilePart
-other than 0, since a reference reaches one file only.
+Major MUST be 1. FilePart is 0 but in a part of an image split over several files
+(`name.czi`, `name(1).czi`, ...), which [§7.9](#79-several-files) reads, and which is not an input.
 
 A **GUID** is written as text in the 36-character form whose first three
 groups are the `u32`, `u16` and `u16` at its bytes 0–3, 4–5 and 6–7 read
@@ -180,7 +184,7 @@ or of any other schema, rejects the input):
 | 0–1 | `DV` |
 | 2–5 | `i32` PixelType ([§3.1](#31-pixel-types-and-codecs)) |
 | 6–13 | `i64` FilePosition, the subblock segment's offset |
-| 14–17 | `i32` FilePart (MUST be 0) |
+| 14–17 | `i32` FilePart ([§7.9](#79-several-files)) |
 | 18–21 | `i32` Compression ([§3.1](#31-pixel-types-and-codecs)) |
 | 22–27 | 6 spare bytes; byte 22 is the **pyramid type** (0 none, 1 single subblock, 2 multi subblock) |
 | 28–31 | `i32` DimensionCount `d` |
@@ -272,7 +276,7 @@ An entry of schema `A1` (bytes 0–1) is:
 | 0–1 | `A1` |
 | 2–11 | 10 spare bytes |
 | 12–19 | `i64` FilePosition |
-| 20–23 | `i32` FilePart (MUST be 0) |
+| 20–23 | `i32` FilePart ([§7.9](#79-several-files)) |
 | 24–39 | 16 bytes ContentGuid |
 | 40–47 | 8 bytes ContentFileType |
 | 48–127 | 80 bytes Name |
@@ -789,6 +793,7 @@ scan has 1000 tile arrays, not 200000.)
 | `file_guid` | string | required | FileGuid, likewise |
 | `file_part` | integer | required | `0` |
 | `update_pending` | integer | required | UpdatePending |
+| `parts` | array of string | when the input is read as a store ([§7.9](#79-several-files)) | the key of each part, in order |
 
 Everything else is on `refkv_source`.
 
@@ -1123,3 +1128,77 @@ reads of up to 1 MiB), plus the metadata XML and the attachment headers:
 requests for a 5.9 MB line scan of 3575 subblocks. The archives are 29 KB
 to 1.7 MB; no document exceeds 1.9 KB. Details per file are in
 `spec/history/virtualize/REVISIONS.md` (revision 18).
+
+### 7.9 Several files
+
+An image may lie in several files, `name.czi` (the **master**) and `name(1).czi`, `name(2).czi`, ...
+(its **parts**). The format records neither the files' names nor how many there are, and a writer
+may say which part a file is in more than one way. The rules are those of
+[spec/zarrify.md §1.9](../zarrify.md#19-sources-beside-the-input), and this is the profile's sibling
+table:
+
+| what | it says |
+|---|---|
+| form | on demand. A file whose bytes call for no part is a file input with a file IR, whose output has no `parts` |
+| names | derived: for part `p` of `<base>.czi`, `<base>(<p>).czi`, then `<base> (<p>).czi` when that is absent. A key not ending in `.czi` (in any case) is all `<base>`, and its parts' keys end in `.czi` |
+| probes | one key at a time, from `p` = 1, each spelling in turn. Up to the highest part an entry of the master names, each required: `the file "<key>" does not exist`, the key in its first spelling. Past that, only while the file is **short** (below), ending at the first absent part, or when it no longer is. A file that is not short and names no part costs no probe |
+| identity | either the file's PrimaryFileGuid is the master's FileGuid and its FilePart is `p`, or it is **its own primary**, PrimaryFileGuid its own FileGuid and FilePart 0, with at least one `A1` attachment entry, all of them naming FilePart `p`, and with the `Name` and the `CreationDate` of the XML's `Information/Document` the master's, each where both have it. Else: `the file "<key>" is not part of this image` |
+| order | first use |
+| reads and mirror | each file as [§7.2](#72-structures-and-the-walk) reads a file, one after the other, and the mirror describes each in place at its key, under its object as a file IR describes the file ([§5.3](#53-elements)), the master's XML alone giving the image's values ([§2.7](#27-the-metadata-xml)) |
+
+**Short.** A file is short when its directory has fewer planes or tiles than its metadata XML says
+the image has, which reads `Information/Image`'s `SizeC`, `SizeZ`, `SizeT`, `SizeS`, `SizeB`,
+`SizeH`, `SizeI`, `SizeR`, `SizeV` and `SizeM`, the first of each. Of the entries with an X and a Y
+whose Size is their StoredSize (a pyramid's are not):
+
+- its **planes** are the distinct values of the Starts of the letters other than M whose size the XML
+  gives (0 for an entry without the letter), of which it says the product of those sizes;
+- its **tiles** are the distinct Starts of M, of which it says `SizeM`.
+
+XML that gives neither says nothing, and no such file is short, whatever is missing. Across the master
+and the parts read so far, the entries of the parts count too. On the 24 files of the public corpus
+(`conformance/zarrify/corpus_czi.txt`) the one file this finds short is the master of a set of four,
+`Image_1_2023_08_18__14_32_31_964.czi` of [Zenodo record 19047136](https://zenodo.org/records/19047136),
+whose XML gives `SizeM` 4 and whose directory has M 0.
+
+A file short of planes with no parts, such as an acquisition that stopped early, is therefore
+probed for part 1 in both spellings, and is a file read as a store whose only object is the named
+file, with an empty `parts`: its image is the same, its source a `url` source, and its mirror a store
+IR.
+
+**Entries.** A directory entry of the master naming FilePart `p`, above 0, is of a subblock in part
+`p`, at its FilePosition there; entry `i`'s other checks ([§2.3](#23-the-subblock-directory)) are
+made in the master. A part's own directory, when its SubBlockDirectoryPosition is not 0, has entries
+of that part: a FilePart of 0 there means the part, since the field may be reserved, and any other but
+`p` is rejected, `directory entry <i> is in FilePart <n>`, as a negative one is anywhere. A subblock
+the master and the part both name is described once, the second name an alias, and placed once. A
+subblock's copy of its entry agrees ([§3.2](#32-conforming-and-unplaced-subblocks)) with an entry of a
+part or of the master naming it, whatever FilePart each names.
+
+A part with no directory has as its entries the subblocks a walk ([§7.2](#72-structures-and-the-walk),
+step 6) finds, one read of 1 KiB a segment: each `ZISRAWSUBBLOCK` segment of at least 256 bytes that no
+entry of the master names, its copy of its entry taken as the entry and held to the same checks. A
+`ZISRAWSUBBLOCK` segment in a file with a directory that no entry names is not placed, as in a file
+input.
+
+**Attachments.** An `A1` entry's FilePart has the same meaning in a part as a directory entry's. In a
+file with attachment entries that name other parts, each such attachment is not read, the part it
+names is required, and that part's walk describes the segment. A file whose `A1` entries, at least one,
+all name one part `p`, above 0, is that part, as ZEN's Lightsheet writes, even when its file header's
+FilePart is 0.
+
+**Placement.** The subblocks of all the files are placed as one image's
+([§3](#3-placement)), in the order of the master's entries, then each part's in turn, those the
+master named first. The hierarchy's `source.url` is the named file's object URL
+([conventions §2](../conventions.md#2-attributes)), and the root's `parts`
+([§5.1](#51-the-root)) lists every part's key, in order.
+
+**The input.** A file with a FilePart other than 0, or whose attachment entries say it is a part, is
+rejected as an input, its message naming the master from its own name:
+`name(1).czi is part 1 of the file name.czi: zarrify that one`. When its name has no number in
+parentheses the message says `of another file`. A negative FilePart is rejected: `FilePart -1 is
+negative`.
+
+**Bounds.** An entry naming a part above 2^16 is rejected before anything is probed: `budget: the
+input names more than 65536 files`. A part with no directory stops being walked at the limit of
+[§7.3](#73-rejection).

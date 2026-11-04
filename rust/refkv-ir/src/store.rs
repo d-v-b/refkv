@@ -106,6 +106,10 @@ pub enum StoreFormat {
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#74-several-files>): the named
     /// file, listed alone, and the files it names, which the run probes for.
     Tiff,
+    /// A CZI image across numbered files (`czi_set.rs`; spec/zarrify/czi.md §7.9
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#79-several-files>): the named
+    /// file, listed alone, and its parts, which the run probes for.
+    Czi,
 }
 
 impl StoreFormat {
@@ -120,6 +124,7 @@ impl StoreFormat {
             "safetensors" => Some(StoreFormat::Safetensors),
             "precomputed" => Some(StoreFormat::Precomputed),
             "tiff" => Some(StoreFormat::Tiff),
+            "czi" => Some(StoreFormat::Czi),
             _ => None,
         }
     }
@@ -134,6 +139,7 @@ impl StoreFormat {
             StoreFormat::Safetensors => "safetensors",
             StoreFormat::Precomputed => "precomputed",
             StoreFormat::Tiff => "tiff",
+            StoreFormat::Czi => "czi",
         }
     }
     /// The convention the mirror declares.
@@ -148,6 +154,7 @@ impl StoreFormat {
             StoreFormat::Safetensors => "safetensors",
             StoreFormat::Precomputed => "precomputed",
             StoreFormat::Tiff => "tiff",
+            StoreFormat::Czi => "czi",
         }
     }
     fn parser(self, ir: Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> Res<Box<dyn StoreParser>> {
@@ -161,6 +168,7 @@ impl StoreFormat {
             StoreFormat::Safetensors => Ok(Box::new(crate::safetensors::store::SafetensorsStore::new(ir, objects, keys)?)),
             StoreFormat::Precomputed => Ok(Box::new(crate::precomputed::Precomputed::new(ir, objects, keys))),
             StoreFormat::Tiff => Ok(Box::new(crate::tiff_set::TiffSet::new(ir, objects, keys)?)),
+            StoreFormat::Czi => Ok(Box::new(crate::czi_set::CziSet::new(ir, objects, keys)?)),
         }
     }
 }
@@ -504,6 +512,7 @@ pub fn store_output(format: StoreFormat, ir: &Ir, facts: &J, stats: J, url: &str
         StoreFormat::Safetensors => crate::project::safetensors::project_store(ir, facts, url)?,
         StoreFormat::Precomputed => crate::project::precomputed::project(ir, facts, url)?,
         StoreFormat::Tiff => crate::project::tiff::project_set(ir, facts, url)?,
+        StoreFormat::Czi => crate::project::czi::project_set(ir, facts, url)?,
     };
     crate::shard::refuse(&out)?;
     let mut summary = std::mem::take(&mut out.summary);

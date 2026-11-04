@@ -8,7 +8,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import override
 
 import pytest
-from ir_helpers import FIXTURES, as_the_reference, same_hierarchy
+from ir_helpers import FIXTURES, REVISED, as_the_reference, same_hierarchy
 from refkv_reference import virtualize  # the frozen reference (ir_helpers)
 from refkv_reference.czi.xml import read_xml_values
 
@@ -20,7 +20,7 @@ from refkv.ir.planner import HttpTransport
 from refkv.policy import Policy
 from refkv.zarrify import Rejected
 
-CZIS = sorted((FIXTURES / "czi").iterdir())
+CZIS = sorted(p for p in (FIXTURES / "czi").iterdir() if p.name not in REVISED)
 
 
 @pytest.mark.parametrize("path", CZIS, ids=lambda p: p.name)

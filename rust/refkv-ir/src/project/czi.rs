@@ -155,6 +155,7 @@ fn cell_refs(refs: &mut Refs, path: &str, axes: &[&str], compression: i32, q: u6
         } else {
             (0..h.div_ceil(rows)).map(|k| (start + k * rows * w * q, rows.min(h - k * rows) * w * q)).collect()
         };
+        refs.in_object_of(el as u32);
         for (k, (o, len)) in pieces.into_iter().enumerate() {
             let y = row * per + k as u64;
             let coords = axes.iter().map(|a| along(a, [t, c, z, y, col]));
@@ -167,12 +168,25 @@ fn cell_refs(refs: &mut Refs, path: &str, axes: &[&str], compression: i32, q: u6
 /// The CZI hierarchy: the root, an image group per series with an array per level,
 /// and the tile arrays under `tiles`.
 pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
+    project_named(ir, facts, url, url)
+}
+
+/// The image of the CZI store run (spec/zarrify/czi.md §7.9
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#79-several-files>): as `project`,
+/// its references ranges of the files that hold the subblocks, its root naming the named file.
+pub fn project_set(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
+    let named = super::vsi::object_url(url, facts["named_key"].as_str().unwrap_or(""));
+    project_named(ir, facts, url, &named)
+}
+
+/// The hierarchy at the store or file URL `url`, whose root names the input `named`.
+fn project_named(ir: &Ir, facts: &J, url: &str, named: &str) -> Result<Out, String> {
     let values = &facts["values"];
     let images = arr(&facts["images"]);
     let tiles = arr(&facts["tiles"]);
     let mut out = Out::new(url);
     out.lazy.push(format!("{TILES}/"));
-    bioformats2raw(&mut out, "czi", url, facts["root"].clone(), images.len(), !images.is_empty());
+    bioformats2raw(&mut out, "czi", named, facts["root"].clone(), images.len(), !images.is_empty());
     let mut refs = Refs::new(ir, out);
     for (k, im) in images.iter().enumerate() {
         let axes = strs(&im["axes"]);

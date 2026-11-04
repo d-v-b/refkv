@@ -424,7 +424,7 @@ def store_mirror_problem(path: Path, view: dict, fetch=None) -> str | None:
     url = prop.get("source", {}).get("url") if isinstance(prop, dict) else None
     if not isinstance(prop, dict) or not isinstance(url, str):
         return "no store URL on the root"
-    if prop.get("profile") in ("vsi", "nrrd", "grib", "tiff"):
+    if prop.get("profile") in ("vsi", "nrrd", "grib", "tiff", "czi"):
         # a VSI root names the .vsi file, a NRRD root the header file and a GRIB root the GRIB
         # file; the store's URL is its directory (spec/zarrify/vsi.md §9
         # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#9-vsi-profile>,

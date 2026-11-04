@@ -2,6 +2,10 @@
 
 Profiles version: 0 (**draft**)
 
+Changed 2026-11-04: the CZI profile reads an image across numbered files, on demand
+([czi.md §7.9](zarrify/czi.md#79-several-files)); a file whose bytes call for no part has the output
+it had.
+
 Changed 2026-11-04: the TIFF profile reads an image across files, on demand
 ([tiff.md §7.4](zarrify/tiff.md#74-several-files)); a file that names none has the output it had.
 
@@ -78,7 +82,7 @@ The table, generated from the registry, lists them:
 <!-- profiles:spec-table -->
 | profile | input | inputs |
 |---|---|---|
-| [CZI](zarrify/czi.md#part-2-the-profile) | file | Zeiss CZI files (ZISRAW, file version 1), with uncompressed, JPEG, JPEG XR and Zstd subblocks, mosaics and pyramids |
+| [CZI](zarrify/czi.md#part-2-the-profile) | file | Zeiss CZI files (ZISRAW, file version 1), with uncompressed, JPEG, JPEG XR and Zstd subblocks, mosaics and pyramids, in one file or across numbered files |
 | [DICOM](zarrify/dicom.md#part-2-the-profile) | file | DICOM Part 10 files with native, JPEG, lossless JPEG or JPEG 2000 pixel data, including whole-slide images |
 | [FITS](zarrify/fits.md#part-2-the-profile) | file | FITS files: images, multi-extension files, binary and ASCII tables |
 | [FLAC](zarrify/flac.md#part-2-the-profile) | file | FLAC files (`.flac`) of a fixed block size, with their metadata blocks and ID3v2 and ID3v1 tags; one sharded array of integer samples, not an image |
@@ -756,7 +760,8 @@ The VSI ([vsi.md §9](zarrify/vsi.md#9-vsi-profile)), NRRD
 ([§1.2](#12-input)), and read the file and the files beside it (a slide's tile files, a
 detached header's data file, a GRIB file's index files) as a store
 ([§1.4](#14-store-inputs)), and so does the TIFF profile, for an input that names other files
-([tiff.md §7.4](zarrify/tiff.md#74-several-files)). Such a **file read as a store** is read as follows; the profile's
+([tiff.md §7.4](zarrify/tiff.md#74-several-files)), and the CZI profile, for an input with parts
+([czi.md §7.9](zarrify/czi.md#79-several-files)). Such a **file read as a store** is read as follows; the profile's
 document says which keys it probes, how it reads each object, and the order of its sources, under
 the rules of [§1.9](#19-sources-beside-the-input).
 
@@ -884,7 +889,9 @@ The root's source metadata records every sibling's key.
 that it was the right file. Where a format records which files belong together, the profile MUST
 read that record from each sibling and reject one that does not match, `the <noun> "<key>" is not
 part of this <set>`, rather than present another file's bytes as this image. CZI's `PrimaryFileGuid`
-and `FilePart` are such a record, and so is an OME-TIFF's `UUID` beside the `UUID` of the file it
+and `FilePart` are such a record, as are, in the files one of its writers makes, each attachment
+entry's `FilePart` and the document named in the XML ([czi.md §7.9](zarrify/czi.md#79-several-files)),
+and so is an OME-TIFF's `UUID` beside the `UUID` of the file it
 names, when that file holds an OME-XML document. Where a format records none (a NIfTI pair, NRRD's
 data file, an HDF5 external file), the profile says so, and checks what it can: that every range
 lies within its object.

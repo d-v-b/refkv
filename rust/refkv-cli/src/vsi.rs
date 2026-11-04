@@ -26,6 +26,7 @@ fn titles(format: StoreFormat) -> (&'static str, &'static str) {
         StoreFormat::Nrrd => ("NRRD", "header file"),
         StoreFormat::Grib => ("GRIB", "GRIB file"),
         StoreFormat::Tiff => ("TIFF", "TIFF file"),
+        StoreFormat::Czi => ("CZI", "CZI file"),
         _ => ("VSI", ".vsi file"),
     }
 }
