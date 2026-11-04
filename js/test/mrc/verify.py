@@ -75,6 +75,24 @@ def as_json(v):
 
 
 IMOD = 1146047817
+# The modes mrcfile does not read, whose values come from the file's bytes: complex int16, and
+# 4 bits, a row's first value in the low nibble of its first byte.
+UNREAD = {3, 101}
+
+
+def unread_mode(header, raw: bytes, order: str) -> np.ndarray:
+    """The data of a mode of UNREAD, in the array's shape (spec/zarrify/mrc.md §3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#3-data-types>)."""
+    nx, ny, nz = int(header.nx), int(header.ny), int(header.nz)
+    data = raw[1024 + int(header.nsymbt):]
+    shape = (ny, nx) if int(header.ispg) == 0 and nz == 1 else (nz, ny, nx)
+    if int(header.mode) == 3:
+        dtype = np.dtype([("real", order + "i2"), ("imag", order + "i2")])
+        return np.frombuffer(data, dtype, nz * ny * nx).astype(dtype.newbyteorder("=")).reshape(shape)
+    rows = np.frombuffer(data, np.uint8, nz * ny * ((nx + 1) // 2)).reshape(nz * ny, -1)
+    values = np.empty((nz * ny, 2 * rows.shape[1]), np.uint8)
+    values[:, ::2], values[:, 1::2] = rows & 15, rows >> 4
+    return values[:, :nx].reshape(shape)
 
 
 def load(path: Path):
@@ -84,11 +102,14 @@ def load(path: Path):
     file with IMOD's stamp and bit 0 of its flags is its bytes as uint8."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        with mrcfile.open(path, permissive=False) as f:
+        with mrcfile.open(path, permissive=True) as f:
             assert f.header is not None, path  # (None only before a header is read or created)
-            header, data = f.header.copy(), np.array(f.data)
+            header, data = f.header.copy(), f.data
     raw = gzip.decompress(path.read_bytes()) if path.suffix == ".gz" else path.read_bytes()
     order = "<" if header.mode.dtype.byteorder in "<=" else ">"
+    if int(header.mode) in UNREAD:
+        return header, unread_mode(header, raw, order)
+    data = np.array(data)
     stamp, flags = struct.unpack(order + "ii", raw[152:160])
     if int(header.mode) == 0 and stamp == IMOD and flags & 1:
         data = data.view(np.uint8)
@@ -107,7 +128,7 @@ def problems_of(path: Path, out: Path) -> list[str]:
     zarrified = mapping(at(root.attrs, "refkv_zarrified"))
     meta = mapping(zarrified["mrc"])
     fields = mapping(meta["header"], "header")
-    if meta["data_type"] != str(want.dtype.newbyteorder("=")):
+    if meta["data_type"] != ("struct" if want.dtype.names else str(want.dtype.newbyteorder("="))):
         problems.append(f"data_type {meta['data_type']} != {want.dtype}")
     if list(fields) != list(header.dtype.names):
         problems.append(f"header fields {list(fields)} != mrcfile's {list(header.dtype.names)}")

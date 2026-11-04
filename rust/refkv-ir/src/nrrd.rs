@@ -502,13 +502,10 @@ fn data_file(rules: &Rules, d: &[u8], header_key: &str) -> Res<String> {
     let w = words(d);
     let several = w.first().is_some_and(|f| *f == b"LIST")
         || ((4..=5).contains(&w.len()) && w[0].contains(&b'%') && w[1..].iter().all(|x| integer(x).is_some()));
-    let segments: Vec<&str> = s.split('/').filter(|x| *x != ".").collect();
-    let relative = std::str::from_utf8(d).is_ok() && !s.starts_with('/') && !segments.is_empty()
-        && segments.iter().all(|x| !x.is_empty() && *x != ".." && !x.contains(['\\', ':']));
-    let key = segments.join("/");
-    rules.check("data_file", rules::env([("shown", text(&s)), ("several", flag(several)), ("relative", flag(relative)),
-                                          ("itself", flag(key == header_key))]))?;
-    Ok(key)
+    let key = crate::beside::written_key(d, "", Default::default());
+    rules.check("data_file", rules::env([("shown", text(&s)), ("several", flag(several)), ("relative", flag(key.is_some())),
+                                          ("itself", flag(key.as_deref() == Some(header_key)))]))?;
+    Ok(key.unwrap_or_default())
 }
 
 /// Each axis's place in the image (spec/zarrify/nrrd.md §4.1

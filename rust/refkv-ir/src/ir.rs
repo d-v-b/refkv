@@ -290,6 +290,26 @@ fn find<T: Copy>(table: &[(u32, T)], i: u32) -> Option<T> {
 
 pub type Res<T> = Result<T, String>;
 
+/// A form's text with each `["shared",k]` of its recipe naming `map[k]`.
+fn shared_renumbered(form: &str, map: &[u32]) -> String {
+    const MARK: &str = "[\"shared\",";
+    let mut out = String::with_capacity(form.len());
+    let mut rest = form;
+    while let Some(at) = rest.find(MARK) {
+        let digits = at + MARK.len();
+        out.push_str(&rest[..digits]);
+        let end = rest[digits..].find(']').map_or(rest.len(), |e| digits + e);
+        let k: usize = rest[digits..end].parse().unwrap_or(usize::MAX);
+        match map.get(k) {
+            Some(n) => out.push_str(&n.to_string()),
+            None => out.push_str(&rest[digits..end]),
+        }
+        rest = &rest[end..];
+    }
+    out.push_str(rest);
+    out
+}
+
 impl Ir {
     pub fn new(size: u64) -> Self {
         let mut ir = Ir {
@@ -684,6 +704,60 @@ impl Ir {
         let f = self.forms.id(form);
         self.form_of.push((i, f));
         Ok(i)
+    }
+
+    /// The file IR `from` joined to this store IR under its object `under`, the object taking the
+    /// place of its root, as a file of a set is described in place: the ids `from`'s elements have
+    /// here, by their ids there. `from` may be finished (conventions §8.9
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>: the extents in
+    /// space 0 of an object's descendants are ranges of its bytes, as they were of the file's).
+    pub fn graft(&mut self, from: &Ir, under: u32) -> Res<Vec<u32>> {
+        if !self.store || from.store {
+            return Err("internal: a graft takes a file IR into a store IR".into());
+        }
+        if from.space.iter().any(|&s| s != 0) {
+            return Err("internal: a graft of an IR with derived spaces".into());
+        }
+        let added = from.len().saturating_sub(1) as u64;
+        if let Some(b) = self.budget.as_mut() {
+            b.spent_records += added;
+            b.spent_elements += added;
+            if b.spent_records > b.records {
+                return Err(format!("budget: more than {} IR records", b.records));
+            }
+            if b.spent_elements > b.elements {
+                return Err(format!("budget: more than {} IR elements", b.elements));
+            }
+        }
+        let base = self.len() as u32;
+        let at = |i: u32| if i == 0 { under } else { base + i - 1 };
+        let map: Vec<u32> = (0..from.len() as u32).map(at).collect();
+        let shared: Vec<u32> = from.shared.iter().map(|b| self.share(b)).collect();
+        for i in 1..from.len() {
+            let name = self.names.id(from.names.get(from.name[i]));
+            let ty = self.types.id(from.types.get(from.ty[i]));
+            self.kind.push(from.kind[i]);
+            self.parent.push(at(from.parent[i]));
+            self.name.push(name);
+            self.nidx.push(from.nidx[i]);
+            self.ty.push(ty);
+            self.space.push(0);
+            self.start.push(from.start[i]);
+            self.len.push(from.len[i]);
+        }
+        for &(i, o, n) in &from.values {
+            let start = self.vbytes.len() as u64;
+            self.vbytes.extend_from_slice(&from.vbytes[o as usize..(o + n as u64) as usize]);
+            self.values.push((at(i), start, n));
+        }
+        for &(i, f) in &from.form_of {
+            let form = shared_renumbered(from.forms.get(f), &shared);
+            self.form_of.push((at(i), self.forms.id(&form)));
+        }
+        self.targets.extend(from.targets.iter().map(|&(i, t)| (at(i), at(t))));
+        self.was.extend(from.was.iter().map(|&(i, k)| (at(i), k)));
+        self.runs.extend(from.runs.iter().map(|&(r, c, s)| (at(r), c, s)));
+        Ok(map)
     }
 
     /// A second name for element `target` (an earlier one): it claims nothing.

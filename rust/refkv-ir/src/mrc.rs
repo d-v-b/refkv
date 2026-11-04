@@ -156,7 +156,11 @@ impl Mrc {
                 rules::env([("ispg", num(ispg as f64)), ("nz", num(dims[2] as f64)), ("mz", num(mz as f64))]),
             )?;
         }
-        let total = dims.iter().fold(bytes as u128, |a, &s| a.saturating_mul(s as u128));
+        // a packed mode's rows each start on a byte (spec/zarrify/mrc.md §3
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#3-data-types>)
+        let bits = spec["bits"].as_u64();
+        let row = bits.map_or((dims[0] as u128).saturating_mul(bytes as u128), |k| (dims[0] as u128).saturating_mul(k as u128).div_ceil(8));
+        let total = dims[1..].iter().fold(row, |a, &s| a.saturating_mul(s as u128));
         let offset = HEADER + nsymbt as u64;
         self.rules.check(
             "data_size",
@@ -167,6 +171,11 @@ impl Mrc {
                 ("size", num(size)),
             ]),
         )?;
+        let endian = if h.little { "little" } else { "big" };
+        let geometry = match bits {
+            Some(k) => json!({"data_type": dtype, "samples": 1, "bits": k}),
+            None => json!({"data_type": dtype, "samples": 1}),
+        };
         if let Some(isize) = isize {
             let stream = offset as u128 + total;
             self.rules.check(
@@ -177,8 +186,10 @@ impl Mrc {
                     ("isize", num(isize as f64)),
                 ]),
             )?;
-            let endian = if h.little { "little" } else { "big" };
-            let form = json!({"geometry": {"data_type": dtype, "samples": 1},
+            if let Some(k) = bits {
+                self.rules.check("gzip_packed", rules::env([("nx", num(dims[0] as f64)), ("bits", num(k as f64))]))?;
+            }
+            let form = json!({"geometry": geometry,
                               "codec": {"encoding": "gzip", "endian": endian, "skip": offset},
                               "recipe": [["src", 0, null]]});
             let data = self.ir.data(0, "data", NO_INDEX, 0, (0, self.size), &form.to_string())?;
@@ -190,9 +201,7 @@ impl Mrc {
         if nsymbt > 0 {
             self.ir.value(0, "extended", NO_INDEX, &format!("bytes[{nsymbt}]"), 0, (HEADER, nsymbt as u64), None)?;
         }
-        let endian = if h.little { "little" } else { "big" };
-        let form = json!({"geometry": {"data_type": dtype, "samples": 1}, "codec": {"endian": endian},
-                          "recipe": [["src", 0, null]]});
+        let form = json!({"geometry": geometry, "codec": {"endian": endian}, "recipe": [["src", 0, null]]});
         let data = self.ir.data(0, "data", NO_INDEX, 0, (offset, total as u64), &form.to_string())?;
         // the payload past which the projection copies an edge chunk, read once per run
         self.facts = json!({"header": header, "data": data, "data_type": dtype, "copy_threshold": crate::out::copy_threshold()});

@@ -32,14 +32,9 @@
       "message": "nz = 0 is not positive"
     },
     {
-      "test": "mrc_reject_mode_complex_int16",
-      "input": "mrc_reject_mode_complex_int16.mrc",
-      "message": "unsupported MRC mode 3 (COMPLEX_INT16)"
-    },
-    {
-      "test": "mrc_reject_mode_int4",
-      "input": "mrc_reject_mode_int4.mrc",
-      "message": "unsupported MRC mode 101 (INT4)"
+      "test": "mrc_reject_mode_int4_short",
+      "input": "mrc_reject_mode_int4_short.mrc",
+      "message": "the 8-byte data at 1024 is outside the 1030-byte file"
     },
     {
       "test": "mrc_reject_mode_unknown",
@@ -85,6 +80,11 @@
       "test": "mrc_reject_data_outside",
       "input": "mrc_reject_data_outside.mrc",
       "message": "the 48-byte data at 1040 is outside the 1087-byte file"
+    },
+    {
+      "test": "mrc_reject_gzip_int4_odd_width",
+      "input": "mrc_reject_gzip_int4_odd_width.mrc.gz",
+      "message": "a gzipped file of 4-bit values and odd nx = 3, whose rows each start on a byte, which one chunk cannot decode"
     },
     {
       "test": "mrc_reject_gzip_trailing",

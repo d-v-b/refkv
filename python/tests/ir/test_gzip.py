@@ -34,7 +34,7 @@ def test_presents_what_the_plain_file_presents_in_one_chunk(path, fmt, member, t
     assert got.shape == want.shape
     assert got.dtype == want.dtype
     assert got.chunks == got.shape
-    assert np.array_equal(got[...], want[...], equal_nan=True)
+    assert np.array_equal(got[...], want[...], equal_nan=got.dtype.names is None)
 
     got_attrs: Any = dict(got_root.attrs)
     want_attrs: Any = dict(want_root.attrs)
@@ -45,7 +45,7 @@ def test_presents_what_the_plain_file_presents_in_one_chunk(path, fmt, member, t
 
     metadata: Any = got.metadata.to_dict()
     codecs = metadata["codecs"]
-    assert [c["name"] for c in codecs[-3:]] == ["bytes", "refkv.skip", "gzip"]
+    assert [c["name"] for c in codecs[-2:]] == ["refkv.skip", "gzip"]
     assert codecs[-2]["configuration"]["length"] == gzipped["skip"]
     want_metadata: Any = want.metadata.to_dict()
     assert codecs[:-2] == want_metadata["codecs"]
