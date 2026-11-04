@@ -38,8 +38,10 @@ export function rejection(w: IrExports, r: number): ImageError {
  * <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>): the
  * caller starts over with a store run of the format. */
 export class NamesSiblings extends Error {
-  constructor(readonly format: string) {
+  readonly format: string;
+  constructor(format: string) {
     super(`a ${format} file that names siblings is read as a store`);
+    this.format = format;
   }
 }
 
