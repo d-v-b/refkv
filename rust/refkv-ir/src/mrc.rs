@@ -23,6 +23,10 @@ pub const HEADER: u64 = 1024;
 pub const IMOD_STAMP: usize = 152;
 pub const IMOD_FLAGS: usize = 156;
 pub const IMOD: i64 = 1146047817;
+/// The NVERSION values that declare the MRC standard: 10 times its year plus a version, from 2014.
+/// IMOD's own test ends at the current year plus 2; a fixed end keeps the output the same whenever
+/// a file is zarrified, and still leaves out the values old SerialEM files hold there.
+pub const NVERSION_STANDARD: std::ops::Range<i64> = 20140..21000;
 
 /// The header's fields (`i4`, `f4`, `u1`, `b` for opaque bytes, `c` for text, or `l` for the
 /// ten 80-byte labels), in the standard's order
@@ -115,12 +119,16 @@ impl Mrc {
         self.rules.check("mode", rules::env([("code", num(code as f64))]))?;
         let spec = &self.rules.table("modes")[code.to_string()];
         let bytes = spec["bytes"].as_u64().unwrap_or(1);
-        // In a file with IMOD's stamp, bit 0 of IMOD's flags says mode 0 is signed ("1 = bytes
-        // are stored as signed (the default as of IMOD 4.9)", imodFlags in
-        // <https://bio3d.colorado.edu/imod/doc/mrc_format.txt>); a stamped file without it is
-        // unsigned (spec/zarrify/mrc.md §3
+        // In a file with IMOD's stamp, mode 0 is signed when bit 0 of IMOD's flags is set ("1 =
+        // bytes are stored as signed (the default as of IMOD 4.9)", imodFlags in
+        // <https://bio3d.colorado.edu/imod/doc/mrc_format.txt>) or NVERSION declares the standard
+        // (the same document: "the best way to indicate that a byte file is signed"); otherwise
+        // it is unsigned (spec/zarrify/mrc.md §3
         // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#3-data-types>)
-        let imod_unsigned = code == 0 && h.number(IMOD_STAMP, "i4").i() == IMOD && h.number(IMOD_FLAGS, "i4").i() & 1 == 0;
+        let imod_unsigned = code == 0
+            && h.number(IMOD_STAMP, "i4").i() == IMOD
+            && h.number(IMOD_FLAGS, "i4").i() & 1 == 0
+            && !NVERSION_STANDARD.contains(&h.get("nversion").i());
         let dtype = if imod_unsigned { "uint8" } else { spec["dtype"].as_str().unwrap_or("int8") };
         let nsymbt = h.get("nsymbt").i();
         self.rules.check("extended_header", rules::env([("nsymbt", num(nsymbt as f64)), ("size", num(self.size as f64))]))?;

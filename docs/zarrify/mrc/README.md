@@ -31,8 +31,8 @@ One OME-Zarr 0.5 image at the archive root, with one array, `0`.
 - **Data types:** `int8`, `int16`, `uint16`, `float16`, `float32` and
   `complex64` (modes 0, 1, 6, 12, 2 and 4), `uint8` for mode 101 (4-bit values,
   read through `packbits`), a `struct` of `real` and `imag` `int16`s for mode 3;
-  `uint8` for a mode 0 file with IMOD's stamp and bit 0 of IMOD's flags clear
-  (unsigned bytes, IMOD's default before 4.9).
+  `uint8` for a mode 0 file with IMOD's stamp, bit 0 of IMOD's flags clear and
+  no standard `nversion` (unsigned bytes, IMOD's default before 4.9).
 - **Chunks:** the values as the file stores them, cut into equal runs of at
   most 1 MiB along the outermost axis that allows it.
 - **Codecs:** `bytes` in the file's byte order. No compression: the file
