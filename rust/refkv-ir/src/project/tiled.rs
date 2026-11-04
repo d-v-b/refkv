@@ -25,7 +25,20 @@ pub fn data_type(facts: &J) -> Result<String, String> {
         3 => "float",
         f => return Err(format!("internal: sample format {f}")),
     };
-    Ok(format!("{kind}{}", n(&facts["bits"])))
+    // packed samples are held in the smallest type that takes them
+    let bits = match n(&facts["bits"]) {
+        1 => 8,
+        12 => 16,
+        bits => bits,
+    };
+    Ok(format!("{kind}{bits}"))
+}
+
+/// Whether the samples are packed, of 1 or 12 bits, so that their type's range is not theirs, and
+/// the core does not sample their windows (spec/zarrify/tiff.md §4.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>).
+pub fn packed(facts: &J) -> bool {
+    matches!(n(&facts["bits"]), 1 | 12)
 }
 
 /// Whether a pixel's samples are interleaved (more than one, PlanarConfiguration 1): a chunk
@@ -50,12 +63,9 @@ pub fn channel(facts: &J, s: u64, c: u64) -> u64 {
 pub fn arrays(ir: &Ir, facts: &J, url: &str, only: Option<usize>, shape: impl Fn(&J) -> (Vec<u64>, Vec<u64>),
               mut tiles: impl FnMut(&mut Refs, usize, &J) -> Result<(), String>) -> Result<(Out, Vec<Vec<u64>>), String> {
     let axes = strs(&facts["axes"]);
-    let mut codecs = if contig(facts) { vec![transpose_codec(&axes)] } else { vec![] };
     // `x` in stored order: the last axis, or the one before the samples when they are interleaved
     let x = axes.len() - if contig(facts) { 2 } else { 1 };
-    codecs.extend(tiff_codecs(n(&facts["compression"]), n(&facts["predictor"]), n(&facts["bits"]),
-                              facts["little"].as_bool().unwrap_or(false), x));
-    let codecs = J::Array(codecs);
+    let samples = if contig(facts) { n(&facts["spp"]) } else { 1 };
     let data_type = data_type(facts)?;
     let mut refs = Refs::new(ir, Out::new(url));
     let levels = arr(&facts["levels"]);
@@ -65,6 +75,17 @@ pub fn arrays(ir: &Ir, facts: &J, url: &str, only: Option<usize>, shape: impl Fn
             continue;
         }
         let (shape, chunk) = shape(lv);
+        // in the array's order, whose axes end `y`, `x` with the samples before them
+        let (rows, columns) = (chunk[chunk.len() - 2], chunk[chunk.len() - 1]);
+        let mut codecs = if contig(facts) { vec![transpose_codec(&axes)] } else { vec![] };
+        if facts["eer"].is_object() {
+            let e = &facts["eer"];
+            codecs.push(json!({"name": "imagecodecs_eer", "configuration": {"shape": [rows, columns], "skipbits": e["skipbits"], "horzbits": e["horzbits"], "vertbits": e["vertbits"]}}));
+        } else {
+            codecs.extend(tiff_codecs(n(&facts["compression"]), n(&facts["predictor"]), n(&facts["bits"]),
+                                      facts["little"].as_bool().unwrap_or(false), x, columns * samples));
+        }
+        let codecs = J::Array(codecs);
         refs.out.json(&format!("{li}/zarr.json"), &array_json(&shape, &data_type, json!(chunk), codecs.clone(), &axes));
         shapes.push(shape);
         tiles(&mut refs, li, lv)?;

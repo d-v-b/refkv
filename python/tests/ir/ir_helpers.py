@@ -184,6 +184,7 @@ def omero_and_expected_windows(path, profile: str) -> tuple[JSON, list[dict[str,
     with tifffile.TiffFile(path) as tf:
         page = tf.pages.first
         spp, pi, comp = page.samplesperpixel, page.photometric, page.compression
+        bits = page.bitspersample
     rgb = spp == 3 if profile == "qptiff" else spp > 1 and (pi == 2 or (pi == 6 and comp == 7))
     codecs = sequence(a.metadata.to_dict()["codecs"])
     if at(codecs, 0, "name") == "sharding_indexed":  # the windows sample an inner chunk (`a.chunks`)
@@ -208,6 +209,8 @@ def omero_and_expected_windows(path, profile: str) -> tuple[JSON, list[dict[str,
                           "max": int(extremes[1]) if integer else extremes[1], "start": lo, "end": hi}
         if window is None and integer:
             info = np.iinfo(a.dtype)
-            window = {"min": int(info.min), "max": int(info.max), "start": int(info.min), "end": int(info.max)}
+            # packed samples' range is their bits', not their type's
+            hi = (1 << bits) - 1 if bits in (1, 12) else int(info.max)
+            window = {"min": int(info.min), "max": hi, "start": int(info.min), "end": hi}
         windows.append(window)
     return mapping(at(g.attrs, "ome")).get("omero"), windows

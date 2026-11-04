@@ -9,6 +9,12 @@ store is the TIFF profile, [Part 2](#part-2-the-profile) below.
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `48e9ac4e-1156-4a62-955e-20467d9c2700` ·
 Schema: [schema.json](tiff/schema.json)
 
+Changed 2026-11-04: samples of 1 and 12 bits, PackBits (Compression 32773), CCITT Group 4 (4) and EER
+(65000 to 65002) have a layout ([§4.3](#43-data-types-and-codecs)); BitsPerSample takes TIFF 6.0's
+default of 1, so that a bilevel file without tag 258 has one too ([§2](#2-the-source)); an EER file's
+IFDs are planes along `t` ([§4.1](#41-planes)); a level scan's candidate and a later page need not
+have BitsPerSample; no output of a file accepted before changed.
+
 Changed 2026-11-04: a level's LZW, Deflate and zstd strips are the inner chunks of shards of at most
 2^10 strips and 2^30 decoded bytes ([§4.5](#45-strips), [zarrify §2.1](../zarrify.md#21-virtual-shards))
 in place of one chunk a strip, so that an image of one compressed row a strip no longer has a key a
@@ -129,7 +135,7 @@ types and counts are as the profile checks them
 | tag | name | kind | default |
 |---|---|---|---|
 | 256, 257 | ImageWidth, ImageLength | scalar | required |
-| 258 | BitsPerSample | array | required |
+| 258 | BitsPerSample | array | 1 (TIFF 6.0) |
 | 259 | Compression | scalar | 1 |
 | 262 | PhotometricInterpretation | scalar | none (required for JPEG with 3 samples, [§4.3](#43-data-types-and-codecs)) |
 | 266 | FillOrder | scalar | 1 |
@@ -147,12 +153,13 @@ types and counts are as the profile checks them
 | 339 | SampleFormat | array | 1 |
 | 347 | JPEGTables | bytes | none |
 | 530 | YCbCrSubsampling | array | `[2, 2]` (TIFF 6.0) |
+| 65007, 65008, 65009 | EER skip, horizontal and vertical bits | scalar | 7, 2, 2, read only for Compression 65002, and absent when not of an unsigned integer type ([§4.3](#43-data-types-and-codecs)) |
 
 **Format.** An IFD's **format** is the tuple (BitsPerSample, SamplesPerPixel,
 SampleFormat, PlanarConfiguration, Compression, Predictor). Computing it
 requires:
 
-- BitsPerSample, with at least one value, all equal and at least 1;
+- BitsPerSample, when the tag is present with at least one value, all equal and at least 1;
 - SamplesPerPixel at least 1;
 - SampleFormat values all equal (when the tag is present it MUST have at
   least one value).
@@ -255,7 +262,9 @@ TIFF tags decide.
 ### 4.1 Planes
 
 Let `spp` be IFD 0's SamplesPerPixel. Without OME-XML there is one plane,
-IFD 0. With OME-XML:
+IFD 0, except that IFD 0 of EER (Compression 65000, 65001 or 65002) has one plane per main-chain IFD of
+its width, length, tiling and format, in chain order, along `t` (`SizeT` is their count): an EER file
+is a stack of frames. With OME-XML:
 
 - `SizeZ` and `SizeT` default to 1; `SizeC` defaults to `spp`.
 - If `spp > 1`: `SizeC` 1 is read as `spp`; any other `SizeC ≠ spp` is
@@ -305,7 +314,7 @@ chain that a later mapping replaces is not an error.)
   plane, its IFD's `k`-th SubIFD. A plane IFD with fewer than `s` SubIFDs
   rejects the input.
 - Otherwise level 0 is the planes. Without OME-XML, the later main-chain
-  IFDs are scanned in order. An IFD that is tiled and has BitsPerSample is a
+  IFDs are scanned in order. An IFD that is tiled is a
   **candidate**: its format and size are checked as [§2](#2-the-source) says (a failure
   rejects the input). A candidate becomes the next level if it has IFD 0's
   format and is strictly smaller in both width and length than the last
@@ -327,7 +336,8 @@ images in strips had a layout: its later pages of its size are not read as plane
 ### 4.3 Data types and codecs
 
 The data type is `uint`, `int` or `float` (SampleFormat 1, 2, 3) followed by
-BitsPerSample, which MUST be 8, 16, 32 or 64 (32 or 64 for `float`).
+BitsPerSample, which MUST be 8, 16, 32 or 64 (32 or 64 for `float`). Samples may also be **packed**,
+of BitsPerSample 1 with the data type `uint8`, or 12 with `uint16`, and SampleFormat 1.
 
 | Compression | Predictor | codecs ([conventions §3](../conventions.md#3-arrays)) |
 |---|---|---|
@@ -340,12 +350,39 @@ BitsPerSample, which MUST be 8, 16, 32 or 64 (32 or 64 for `float`).
 | 50000 (zstd) | 2 | `imagecodecs_delta`, bytes, zstd |
 | 33003, 33004, 33005, 34712 (JPEG 2000) | any | imagecodecs_jpeg2k |
 | 7 (JPEG) | 1 | imagecodecs_jpeg |
+| 32773 (PackBits) | 1 | bytes, `imagecodecs_packbits` |
+| 4 (CCITT Group 4) | 1 | `imagecodecs_ccittfax4` |
+| 65000, 65001, 65002 (EER) | 1 | `{"name": "imagecodecs_eer", "configuration": {"shape": [h, w], "skipbits": s, "horzbits": a, "vertbits": b}}` |
 
 Anything else is rejected. JPEG (Compression 7) additionally requires
 BitsPerSample 8, SampleFormat 1, and either SamplesPerPixel 1, or
 SamplesPerPixel 3 with PlanarConfiguration 1 and PhotometricInterpretation
 2 (RGB) or 6 (YCbCr); otherwise the input is rejected. (Old-style JPEG,
 Compression 6, is rejected.)
+
+**Packed samples.** Packed samples have `{"name": "imagecodecs_packints", "configuration":
+{"bitspersample": BitsPerSample, "runlen": n}}` in the place of `bytes`, `n` the samples of a chunk's row:
+its width, times SamplesPerPixel when interleaved. Their bits run most significant first and a row
+starts on a whole byte, in either byte order (TIFF 6.0 and libtiff, for whichever byte order the
+file has), so the codec has no `endian`, and the chunk's bytes are `ceil(n × BitsPerSample / 8)` bytes a
+row. A sample of 1 bit decodes to 0 or 1, what it holds, PhotometricInterpretation (0, WhiteIsZero, or
+1, BlackIsZero) telling which is white. They MUST be uncompressed, LZW, Deflate, zstd or PackBits (and
+CCITT and EER, which are their own codecs below), with Predictor 1, which libtiff does not apply to them.
+`refkv.tiff_lzw` then takes a chunk's size in samples for the size it decodes up to, which is more than
+the stream holds, so it reads the whole stream.
+
+**PackBits**, TIFF 6.0 §9's run-length coding (`imagecodecs_packbits`, not the zarr-extensions codec
+`packbits`, which packs bits), is one stream a tile or strip, with no predictor.
+
+**CCITT.** Compression 4 is one T.6 stream a tile or strip, which requires BitsPerSample 1 and SamplesPerPixel 1.
+It decodes to a sample of 1 for a coded black run and 0 for a white one, as an uncompressed bilevel
+image holds them. Compression 2 and 3 are rejected.
+
+**EER**, Electron Event Representation, requires BitsPerSample 1 and SamplesPerPixel 1, of `s`, `a`
+and `b` bits: 8, 2, 2 for Compression 65000; 7, 2, 2 for 65001; and tags 65007, 65008 and 65009 for 65002.
+`[h, w]` is the level's chunk's rows and columns, one shape for every chunk, so a level in strips whose
+last is short is rejected, and every IFD of every level MUST have IFD 0's bits. It decodes a frame's
+events to one bit a pixel, and has no super-resolution (`superres` is left out, as 0).
 
 `{"name": "refkv.tiff_lzw"}`, refkv's own codec (imagecodecs-zarr's `imagecodecs_lzw` reads the
 whole stream, which the next sentences rule out), has no configuration: each chunk is one TIFF
@@ -383,7 +420,7 @@ by significance, which no codec of [conventions §3](../conventions.md#3-arrays)
 The codecs read the bytes of a tile as they are, filled from each byte's
 most significant bit (FillOrder 1), and decode samples at full resolution.
 So, for every IFD that is a plane or a level:
-- when Compression is 1, 5, 8, 32946 or 50000, FillOrder MUST be 1;
+- when Compression is 1, 4, 5, 8, 32773, 32946, 50000, 65000, 65001 or 65002, FillOrder MUST be 1;
 - when PhotometricInterpretation is 6 (YCbCr) and Compression is neither 7
   nor JPEG 2000 (whose streams hold their own sampling), YCbCrSubsampling
   MUST be present and exactly `[1, 1]` (absent, it is TIFF 6.0's default
@@ -520,7 +557,8 @@ sample would tint; another compression; no sampled chunk or window)
 has, for `uint` and `int`, the window of the type's whole range,
 `{"min": lo, "max": hi, "start": lo, "end": hi}` with `lo` and `hi` the
 type's least and greatest values (0 and 255 for `uint8`, −32768 and
-32767 for `int16`), and for `float` none. An integer type's values are
+32767 for `int16`), packed samples ([§4.3](#43-data-types-and-codecs)), which have no sampled window,
+that of their bits (0 and 1, or 0 and 4095), and for `float` none. An integer type's values are
 JSON integers; a float type's are JSON numbers, a `float32` value
 converted exactly to a double.
 
@@ -551,7 +589,8 @@ shards its strips ([§4.5](#45-strips)), these chunks are the array's inner chun
 An IFD in strips ([§2](#2-the-source)) that becomes a plane or a level has its **rows per
 strip** `R = min(RowsPerStrip, ImageLength)`, and `S = ceil(ImageLength / R)` strips per sample
 plane, the last holding the remaining rows. Let `B` be the bytes of one row of a strip:
-ImageWidth × BitsPerSample / 8, times SamplesPerPixel when the samples are interleaved. A level
+`ceil(ImageWidth × BitsPerSample / 8)`, with ImageWidth times SamplesPerPixel when the samples are
+interleaved. A level
 in strips has chunks of `R′` rows by the level's width ([§4.4](#44-arrays)), `m` strips each,
 which are `R′ = R` and `m = 1` unless it joins them.
 
@@ -594,7 +633,7 @@ and at most 20 bytes of range a strip. The limit of 2^30 bytes bounds what a rea
 shard as one value holds at once. A level of one strip has nothing to gather.
 
 Whether a reader makes fewer requests depends on the reader, which [zarrify
-§2.1](../zarrify.md#21-virtual-shards) describes. A strip of JPEG or JPEG 2000 keeps a chunk a strip.
+§2.1](../zarrify.md#21-virtual-shards) describes. A strip of another compression keeps a chunk a strip.
 So has a level of uncompressed strips with a strip that does not hold exactly its rows: a strip with
 no bytes, which is the fill value, or with more or fewer bytes than its rows, whose rows the
 concatenation would misplace.
@@ -609,7 +648,7 @@ chunk's rows, and of a level that does not join, the strip's):
 |---|---|
 | **1 (uncompressed)** | of a level that joins, `(R′ − rows) × B` zero bytes; of another, `R × B − n`, `n` the strip's byte count: `(R − rows) × B` when the strip holds its rows, and none when it holds `R × B` bytes or more (as a strip written with all the chunk's rows does; like any uncompressed tile or strip, one of more bytes than its chunk does not decode) |
 | **5 (LZW)** | the strip's stream is read until its output reaches the strip's size (`rows × B` bytes; a stream that does not reach it, or whose code crosses it, rejects the input), and what follows (its end-of-information code, or the malformed final code of [§4.3](#43-data-types-and-codecs)) is replaced by a **tail** that continues the stream: a Clear code at the width the decoder has there, then the `(R − rows) × B` zeros as the codes 0, 258, 259, ... (each code one zero longer than the last, the entry the decoder defines on reading the previous one) and one more code for the remainder shorter than the next entry, then the end-of-information code, every code at the width the decoder has when it reads it. The chunk's bytes are the strip's bytes before the byte holding the cut, then the tail, which starts with that byte's bits before the cut |
-| **another compression** (JPEG, Deflate, zstd, JPEG 2000) | cannot be padded: the input is rejected |
+| **another compression** (JPEG, Deflate, zstd, JPEG 2000, PackBits, CCITT, EER) | cannot be padded: the input is rejected |
 
 With Predictor 2, the padding is the same: each padded row is differences of 0, which sum back
 to zeros, since the differencing starts again at each row. (A short strip of Deflate or zstd cannot be extended without decompressing and compressing it
@@ -854,8 +893,9 @@ read for:
 |---|---|
 | each IFD whose SubIFDs are read (above) | its SubIFDs tag |
 | IFD 0 | its ImageDescription, when its field type is ASCII (2) |
+| without OME-XML, when IFD 0 is EER, every main-chain IFD | every tag of the table but the tile and strip tables, for its format ([the convention §4.1](#41-planes)), and tags 65007, 65008 and 65009 in their value fields |
 | IFD 0 and every IFD that becomes a plane or a level, or is a candidate of the level scan ([the convention §4.1, §4.2](#41-planes)) | every other tag of the table but the tile and strip tables (TileOffsets, TileByteCounts, StripOffsets, StripByteCounts), which are read only for planes and levels |
-| without OME-XML and SubIFDs, when IFD 0 is in strips, each later main-chain IFD that is not a level, has BitsPerSample, and whose ImageWidth and ImageLength (in their value fields) are IFD 0's ([the convention §4.2](#42-pyramid-levels)), in chain order, until one has IFD 0's format | every tag of the table but the tile and strip tables, for its format |
+| without OME-XML and SubIFDs, when IFD 0 is in strips, each later main-chain IFD that is not a level, and whose ImageWidth and ImageLength (in their value fields) are IFD 0's ([the convention §4.2](#42-pyramid-levels)), in chain order, until one has IFD 0's format | every tag of the table but the tile and strip tables, for its format |
 | every IFD of a level in LZW strips whose last strip is short | the bytes of its last strip (of each sample plane), for the tail of [the convention §4.5](#45-strips): at most `3 × rows × B + 64` of them, which hold the strip's output for any stream that does not spend more than a Clear code and a literal on each byte it decodes; a stream that does not reach the strip's size within them is read as one that ends before it |
 
 Each value read of an integer type MUST be at most 2^53 − 1 (only a LONG8

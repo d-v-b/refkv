@@ -32,8 +32,9 @@ FIXTURES = Path(__file__).resolve().parents[2] / "fixtures"
 
 # For every codec an archive of refkv's names, a fixture whose zarrified array (at the path given)
 # names it: refkv's own (its entry points), zarr-python's `numcodecs.zlib` and imagecodecs-zarr's
-# image codecs and `imagecodecs_delta`. The LZW fixture's final code is one bit too narrow, which imagecodecs-zarr's
-# `imagecodecs_lzw` would decode to too many bytes: it reads only through `refkv.tiff_lzw`.
+# image codecs, `imagecodecs_delta`, `imagecodecs_packints` and `imagecodecs_packbits`. The LZW fixture's
+# final code is one bit too narrow, which imagecodecs-zarr's `imagecodecs_lzw` would decode to too many bytes: it
+# reads only through `refkv.tiff_lzw`.
 EVERY_CODEC = {
     "refkv.tiff_lzw": ("qptiff/qptiff_fl_lzw_narrow_eoi.qptiff", "0"),
     "refkv.stream": ("mp3/mp3_single_frame.mp3", "samples"),
@@ -49,6 +50,10 @@ EVERY_CODEC = {
     "imagecodecs_ljpeg": ("dicom/dicom_ljpeg_signed16_eot.dcm", "0"),
     "imagecodecs_jpegxr": ("ndpi/ndpi_jpegxr_bgr.ndpi", "0"),
     "imagecodecs_delta": ("tiff/predictor_lzw_uint16.tif", "0"),
+    "imagecodecs_packints": ("tiff/uint12_strips.tif", "0"),
+    "imagecodecs_packbits": ("tiff/packbits_uint8.tif", "0"),
+    "imagecodecs_ccittfax4": ("tiff/bilevel_g4.tif", "0"),
+    "imagecodecs_eer": ("tiff/eer_v1_frames.tif", "0"),
 }
 
 # An array of a data type of refkv's (refkv.zarr.dtypes, ml_dtypes types), read by zarr alone

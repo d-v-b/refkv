@@ -68,7 +68,8 @@
     "layout_tags": [273, 279, 288, 289, 324, 325, 513, 514, 519, 520, 521],
     "pointers": {"330": "subifds", "34665": "exif", "34853": "gps", "40965": "interoperability"},
     "jpeg2000": [33003, 33004, 33005, 34712],
-    "compressions": [1, 5, 7, 8, 32946, 50000, 33003, 33004, 33005, 34712],
+    "compressions": [1, 4, 5, 7, 8, 32946, 50000, 32773, 33003, 33004, 33005, 34712, 65000, 65001, 65002],
+      "eer": [65000, 65001, 65002],
     "zlib": [8, 32946],
     "sample_kinds": {"1": "uint", "2": "int", "3": "float"},
     "units": {
@@ -219,7 +220,7 @@
     },
     "predictor": {
       "about": "IFD 0's Predictor (spec/zarrify/tiff.md §4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>): none (1), or, with an integer type and LZW, Deflate or zstd, horizontal differencing (2), which imagecodecs_delta sums back; JPEG 2000 streams do not use it",
-      "given": {"compression": "", "predictor": "", "sample_format": "IFD 0's SampleFormat"},
+      "given": {"compression": "", "predictor": "", "sample_format": "IFD 0's SampleFormat", "bits": "IFD 0's BitsPerSample"},
       "constraints": [
         {
           "require": "in(compression, jpeg2000) || in(predictor, [1, 2])",
@@ -232,6 +233,10 @@
         {
           "require": "in(compression, jpeg2000) || predictor == 1 || in(compression, [5, 8, 32946, 50000])",
           "message": "predictor {predictor} with compression {compression}"
+        },
+        {
+          "require": "in(compression, jpeg2000) || predictor == 1 || !in(bits, [1, 12])",
+          "message": "predictor {predictor} with {bits}-bit samples"
         }
       ]
     },
@@ -328,7 +333,7 @@
       },
       "constraints": [
         {
-          "require": "!in(compression, [1, 5, 8, 32946, 50000]) || fill_order == 1",
+          "require": "!in(compression, [1, 4, 5, 8, 32946, 50000, 32773, 65000, 65001, 65002]) || fill_order == 1",
           "message": "the image at {offset} has FillOrder {fill_order}"
         },
         {
@@ -381,13 +386,16 @@
       "derive": {"kind": "at(sample_kinds, sample_format)"},
       "constraints": [
         {
-          "require": "present(kind) && in(bits, [8, 16, 32, 64]) && (kind != 'float' || bits >= 32)",
+          "require": "present(kind) && (in(bits, [8, 16, 32, 64]) || (in(bits, [1, 12]) && kind == 'uint')) && (kind != 'float' || bits >= 32)",
           "message": "unsupported sample type: {bits}-bit, SampleFormat {sample_format}"
         },
         {
           "require": "in(compression, jpeg2000) || compression != 7 || (bits == 8 && sample_format == 1 && (spp == 1 || (spp == 3 && planar == 1 && in(photometric, [2, 6]))))",
           "message": "unsupported JPEG: {bits}-bit, {spp} samples, planar {planar}, photometric {photometric}"
         },
+        {"require": "!in(bits, [1, 12]) || in(compression, [1, 4, 5, 8, 32946, 50000, 32773]) || in(compression, eer)", "message": "unsupported compression {compression} of {bits}-bit samples"},
+        {"require": "compression != 4 || (bits == 1 && spp == 1)", "message": "unsupported CCITT: {bits}-bit, {spp} samples"},
+        {"require": "!in(compression, eer) || (bits == 1 && spp == 1)", "message": "unsupported EER: {bits}-bit, {spp} samples"},
         {"require": "in(compression, compressions)", "message": "unsupported compression {compression}"}
       ]
     },
@@ -430,6 +438,14 @@
       "about": "the short last LZW strips of every level, as they are read for their tails: their distinct ranges together",
       "given": {"read": "their bytes", "size": "the file's"},
       "constraints": [{"require": "read <= size", "message": "the short last LZW strips would be read for their tails {read} bytes, more than the file's {size}"}]
+    },
+    "eer": {
+      "about": "an IFD an EER level uses (spec/zarrify/tiff.md §4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>): one codec, of one shape and one set of bits, decodes the level's chunks",
+      "given": {"offset": "", "same": "its skip, horizontal and vertical bits are IFD 0's", "short": "the level's last strip is short"},
+      "constraints": [
+        {"require": "same", "message": "the image at {offset} has other EER bits than IFD 0"},
+        {"require": "!short", "message": "the image at {offset} is in EER strips whose last is short, which the codec's one shape does not decode"}
+      ]
     },
     "padding": {
       "about": "a level in strips whose last strip is short, after it is padded (uncompressed, LZW) or found unpaddable (another compression)",

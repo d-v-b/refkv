@@ -86,7 +86,7 @@ zarr = [
     "zarr>=3.4.0",
     "ml-dtypes>=0.6.0",
 ]
-# the image codecs: imagecodecs-zarr's JPEG, JPEG 2000 and JPEG XR codecs and its delta codec
+# the image codecs: imagecodecs-zarr's JPEG, JPEG 2000, JPEG XR, CCITT, EER, PackBits and packed-integer codecs and its delta codec
 # (a TIFF's horizontal predictor), which refkv's archives name, and imagecodecs' LZW decoder,
 # which refkv.tiff_lzw calls
 images = [
