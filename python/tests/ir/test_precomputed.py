@@ -4,9 +4,12 @@ rust/refkv-ir/src/precomputed.rs; spec/zarrify/precomputed.md
 zarr-python and the codec `refkv.precomputed`. One test over the accepted fixture stores, every
 array equal to the values their generator states, and to tensorstore's reading of the same store
 wherever tensorstore can read it; one each of what a reader of a shard reads and of the layout's
-documents; and one per way the codec refuses a chunk."""
+documents; and one per way the codec refuses a chunk. The encodings tensorstore has no decoder for
+are chunks of their reference encoders, in fixtures/generators/precomputed/streams.json."""
 
 import asyncio
+import base64
+import importlib
 import json
 import struct
 from pathlib import Path
@@ -95,6 +98,16 @@ def png():
     return {"0": values((6, 4, 3), dtype="<u2")}
 
 
+def compresso():
+    z, y, x = np.mgrid[0:3, 0:4, 0:6]
+    return {"0": (((x // 2) + 2 * (y // 2) + z) % 5 * 1000 + 7).astype("u4")}
+
+
+def crackle():
+    z, y, x = np.mgrid[0:4, 0:4, 0:8]
+    return {"0": (((x + y + z) % 3 + 1).astype("u8") << np.uint64(40)) + (x // 2).astype("u8")}
+
+
 def not_presented():
     a = values((4, 2, 2))
     a[..., 2:4] = 0  # the empty object's chunk
@@ -111,10 +124,20 @@ EXPECTED = {
     "precomputed_segmentation": segmentation,
     "precomputed_segmentation_sharded": segmentation_sharded,
     "precomputed_not_presented": not_presented,
+    "precomputed_compresso": compresso,
+    "precomputed_crackle": crackle,
+    "precomputed_fpzip": lambda: {"0": (values((6, 4, 3), 2, "f4") / 8).astype("f4")},
+    # a float64's and an int32's values, which float32 cannot hold
+    "precomputed_zfpc": lambda: {"0": values((6, 4, 3), 2, "f8") / 3},
+    "precomputed_zfpc_int32": lambda: {"0": values((6, 4, 3), 2, "i4") * 1000003},
+    "precomputed_kempressed": lambda: {"0": (values((6, 4, 3), 3, "f4") / 64).astype("f4")},
 }
 # what tensorstore cannot read as a local store: a chunk's content coding is the HTTP response's
 # there, so a directory of coded objects, and a name with a suffix, are not its format
-NOT_TENSORSTORE = {"precomputed_codings", "precomputed_codings_bare", "precomputed_not_presented"}
+NOT_TENSORSTORE = {"precomputed_codings", "precomputed_codings_bare", "precomputed_not_presented",
+                   # and these encodings it has no decoder for
+                   "precomputed_compresso", "precomputed_crackle", "precomputed_fpzip", "precomputed_zfpc",
+                   "precomputed_zfpc_int32", "precomputed_kempressed"}
 
 
 def tensorstore_scale(name, index):
@@ -148,6 +171,14 @@ def test_jpeg_chunks_read_as_tensorstore_reads_them(tmp_path):
     array = group.get_array("0")
     assert array.shape == (3, 16, 32)
     assert np.array_equal(ndarray(array[2, :, :16]), ndarray(array[0, :, :16]))
+
+
+def test_jxl_chunks_read_as_their_image_in_a_chunk_of_slices(tmp_path):
+    _, group = opened("precomputed_jxl", tmp_path)
+    assert np.array_equal(ndarray(group.get_array("0")[...]), values((32, 16, 3)))
+    # the lossy scale: libjxl's values at level 90, near what was encoded
+    lossy = ndarray(group.get_array("1")[...]).astype(int)
+    assert np.abs(lossy - values((16, 16, 2)).astype(int)).max() <= 16
 
 
 def test_the_layout_presents_scales_full_resolution_first_and_keeps_info(tmp_path):
@@ -266,4 +297,60 @@ def test_a_chunk_without_its_header_is_refused():
 def test_an_unknown_encoding_is_refused():
     with pytest.raises(ValueError, match="has no decoder"):
         PrecomputedCodec.from_dict({"name": "refkv.precomputed", "configuration": {
-            "encoding": "fpzip", "size": [1, 1, 1], "chunk_size": [1, 1, 1]}})
+            "encoding": "webp", "size": [1, 1, 1], "chunk_size": [1, 1, 1]}})
+
+
+def stream(name):
+    """A chunk's stream, as its reference encoder wrote it."""
+    streams = json.loads((FIXTURES.parents[0] / "generators" / "precomputed" / "streams.json").read_text())
+    return base64.b64decode(streams[name])
+
+
+def test_a_missing_package_is_named_with_its_extra(monkeypatch):
+    def absent(name):
+        raise ImportError(f"No module named {name!r}", name=name)
+
+    monkeypatch.setattr(importlib, "import_module", absent)
+    codec = PrecomputedCodec(encoding="compresso", size=(4, 4, 2), chunk_size=(4, 4, 2))
+    with pytest.raises(ImportError, match=r"needs 'compresso', which refkv's 'precomputed' extra"):
+        codec._decode_chunk(stream("compresso/0/0-4_0-4_0-2"), (0, 0, 0), 1, np.dtype("u4"))
+
+
+def test_a_missing_imagecodecs_is_named_with_its_extra(monkeypatch):
+    def absent(name):
+        raise ImportError(f"No module named {name!r}", name=name)
+
+    monkeypatch.setattr(importlib, "import_module", absent)
+    codec = PrecomputedCodec(encoding="jxl", size=(16, 16, 2), chunk_size=(16, 16, 2))
+    with pytest.raises(ImportError, match=r"needs 'imagecodecs', which refkv's 'images' extra"):
+        codec._decode_chunk(stream("jxl/1/0-16_0-16_0-2"), (0, 0, 0), 1, np.dtype("u1"))
+
+
+def test_a_bad_stream_is_refused():
+    codec = PrecomputedCodec(encoding="zfpc", size=(4, 4, 2), chunk_size=(4, 4, 2))
+    with pytest.raises(PrecomputedChunkError, match="a bad zfpc stream"):
+        codec._decode_chunk(b"zfpc" + b"\0" * 4, (0, 0, 0), 2, np.dtype("f8"))
+
+
+def test_a_stream_of_another_shape_is_refused():
+    # the first chunk's stream, 4 × 4 × 2, where the codec expects 4 × 4 × 4 voxels
+    codec = PrecomputedCodec(encoding="compresso", size=(4, 4, 4), chunk_size=(4, 4, 4))
+    with pytest.raises(PrecomputedChunkError, match=r"holds \(4, 4, 2, 1\) voxels"):
+        codec._decode_chunk(stream("compresso/0/0-4_0-4_0-2"), (0, 0, 0), 1, np.dtype("u4"))
+
+
+def test_a_stream_of_another_data_type_is_refused():
+    codec = PrecomputedCodec(encoding="compresso", size=(4, 4, 2), chunk_size=(4, 4, 2))
+    with pytest.raises(PrecomputedChunkError, match="is uint32, not uint8"):
+        codec._decode_chunk(stream("compresso/0/0-4_0-4_0-2"), (0, 0, 0), 1, np.dtype("u1"))
+
+
+def test_an_image_of_another_data_type_is_refused():
+    codec = PrecomputedCodec(encoding="jxl", size=(16, 16, 2), chunk_size=(16, 16, 2))
+    with pytest.raises(PrecomputedChunkError, match="is uint8, not uint16"):
+        codec._decode_chunk(stream("jxl/1/0-16_0-16_0-2"), (0, 0, 0), 1, np.dtype("u2"))
+
+
+def test_a_stream_of_the_wrong_encoding_is_refused():
+    with pytest.raises(PrecomputedChunkError, match="is not crackle, gzip, zstd or brotli"):
+        uncode(stream("compresso/0/0-4_0-4_0-2"), "crackle", (0, 0), 1)
