@@ -27,7 +27,7 @@ def plane(k: int) -> np.ndarray:
 
 
 def write(name: str, planes: list[np.ndarray], description: str | None = None, summary: dict | None = None,
-          index: list[tuple[int, int, int, int]] | None = None) -> None:
+          index: list[tuple[int, int, int, int]] | None = None, width: int = WIDTH) -> None:
     """A little-endian classic TIFF of one strip a plane: with `summary` and `index` (channel, slice,
     frame, position, by plane), a Micro-Manager file's header; `description` is IFD 0's."""
     summary_bytes = json.dumps(summary).encode() if summary is not None else b""
@@ -46,7 +46,7 @@ def write(name: str, planes: list[np.ndarray], description: str | None = None, s
         ifds.append((at, len(data), len(buf)))
         buf += bytes(2 + 12 * (11 if text is not None and len(ifds) == 1 else 10) + 4)
     for k, (at, size, ifd) in enumerate(ifds):
-        tags = [(256, 3, 1, WIDTH), (257, 3, 1, HEIGHT), (258, 3, 1, 16), (259, 3, 1, 1), (262, 3, 1, 1)]
+        tags = [(256, 3, 1, width), (257, 3, 1, HEIGHT), (258, 3, 1, 16), (259, 3, 1, 1), (262, 3, 1, 1)]
         if text is not None and k == 0:
             tags.append((270, 2, len(text), described))
         tags += [(273, 4, 1, at), (277, 3, 1, 1), (278, 3, 1, HEIGHT), (279, 4, 1, size), (339, 3, 1, 1)]
@@ -92,14 +92,12 @@ def ome_sets() -> None:
     # a sibling whose own UUID is not the one the document records
     links = data(0, 1, "edge_reject_ome_set_identity.ome.tif", a) + data(1, 1, "ome_set_stranger.ome.tif", b)
     write("edge_reject_ome_set_identity.ome.tif", [plane(0)], ome(2, links, f"urn:uuid:{a}"))
-    write("ome_set_stranger.ome.tif", [plane(1)], ome(1, "<TiffData/>", "urn:uuid:ffffffff-0000-0000-0000-000000000000"))
+    stranger = "urn:uuid:ffffffff-0000-0000-0000-000000000000"
+    write("ome_set_stranger.ome.tif", [plane(1)], ome(1, "<TiffData/>", stranger))
     # a sibling of another size
     links = data(0, 1, "edge_reject_ome_set_size.ome.tif", a) + data(1, 1, "ome_set_narrow.tif", b)
     write("edge_reject_ome_set_size.ome.tif", [plane(0)], ome(2, links, f"urn:uuid:{a}"))
-    global WIDTH
-    width, WIDTH = WIDTH, 8
-    write("ome_set_narrow.tif", [plane(1)])
-    WIDTH = width
+    write("ome_set_narrow.tif", [plane(1)[:, :8]], width=8)
     # a TiffData that names a file a parent directory holds
     write("edge_reject_ome_set_outside.ome.tif", [plane(0)], ome(2, data(0, 1, "edge_reject_ome_set_outside.ome.tif", a)
                                                                  + data(1, 1, "../secret.tif", b), f"urn:uuid:{a}"))
@@ -122,10 +120,11 @@ def micromanager() -> None:
     write("edge_reject_mm_part_MMStack_Pos0_1.ome.tif", planes[5:], summary=summary, index=index[5:])
     # a second file of another stack
     write("edge_reject_mm_foreign_MMStack_Pos0.ome.tif", planes[:5], summary=summary, index=index[:5])
-    write("edge_reject_mm_foreign_MMStack_Pos0_1.ome.tif", planes[5:], summary={**summary, "UUID": "another"}, index=index[5:])
+    write("edge_reject_mm_foreign_MMStack_Pos0_1.ome.tif", planes[5:], summary={**summary, "UUID": "another"},
+          index=index[5:])
     # several positions in one file
-    write("edge_reject_mm_positions_MMStack.ome.tif", planes[:2], summary={**summary, "Frames": 1, "Slices": 1, "Channels": 2},
-          index=[(0, 0, 0, 0), (0, 0, 0, 1)])
+    write("edge_reject_mm_positions_MMStack.ome.tif", planes[:2],
+          summary={**summary, "Frames": 1, "Slices": 1, "Channels": 2}, index=[(0, 0, 0, 0), (0, 0, 0, 1)])
 
 
 if __name__ == "__main__":

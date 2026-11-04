@@ -25,9 +25,9 @@ from refkv.zarrify import _zarrify as zarrify
 
 sys.path.insert(0, str(ROOT / "fixtures" / "generators" / "tiff"))
 sys.path.insert(0, str(ROOT / "conformance" / "zarrify"))
-import write_set_fixtures  # noqa: E402
-from proxy import Proxy  # noqa: E402
-from write_set_fixtures import plane  # noqa: E402
+import write_set_fixtures
+from proxy import Proxy
+from write_set_fixtures import plane
 
 TIFF = FIXTURES / "tiff"
 ALL_OF_IT = np.stack([plane(k) for k in range(8)]).reshape(2, 2, 2, 8, 16).transpose(0, 2, 1, 3, 4)  # (t, c, z, y, x)
@@ -121,7 +121,7 @@ def test_a_stack_of_many_planes_is_not_an_ifd_a_request(tmp_path, monkeypatch):
     assert np.array_equal(ndarray(read(out, tmp_path).get_array("0")[...]), np.stack(planes))
 
 
-def test_a_url_of_the_directory_names_the_siblings_there(tmp_path):
+def test_a_url_of_the_directory_names_the_siblings_there():
     """With `--url`, every object's URL is below the URL the named file is served from."""
     name = "ome_set_a.ome.tif"
     _, out = zarrify(str(TIFF / name), f"https://data.test/x/{name}")
