@@ -8,7 +8,8 @@
 //! chunks are its tiles (the members of its IFD's `tiles`), or its strip, each as it is, of the
 //! data type and samples its streams' pixel format gives. Its `omero` is the RGB samples the
 //! streams decode to, or the one channel, labeled with the slide's Fluorescence, each with its
-//! type's whole range for a window.
+//! type's whole range for a window. A level's planes are stacked along a `z` axis, each with
+//! chunks of its own, when the facts' axes have one.
 
 use super::{arr, n, strs, tiled};
 use crate::ir::Ir;
@@ -34,53 +35,67 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     let mut refs = Refs::new(ir, Out::new(url));
     let levels = arr(&facts["levels"]);
     let mut shapes = Vec::with_capacity(levels.len());
+    // planes stacked along `z`, each with chunks of its own (spec/zarrify/ndpi.md §4
+    // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#4-the-image>)
+    let stacked = axes.len() == 4;
     for (li, lv) in levels.iter().enumerate() {
-        let (w, h, strip, length) = (n(&lv["w"]), n(&lv["h"]), n(&lv["strip"]), n(&lv["length"]));
-        let chunk = if codec == "imagecodecs_jpegxr" {
-            // a JPEG XR level: its tiles, or its strip, each a chunk as it is
-            // (spec/zarrify/ndpi.md §7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>)
-            let (tw, th) = (n(&lv["tw"]), n(&lv["th"]));
-            if lv["tiles_ifd"].is_null() {
-                refs.chunk(format!("{li}/c/0/0/0"), strip, length, 0, Some(vec![Part::Src(strip, length)]), 0)?;
+        let (w, h) = (n(&lv["w"]), n(&lv["h"]));
+        let planes = arr(&lv["planes"]);
+        let mut chunk = [samples, h, w];
+        for (z, p) in planes.iter().enumerate() {
+            let at = if stacked { format!("{li}/c/0/{z}/") } else { format!("{li}/c/0/") };
+            let (strip, length) = (n(&p["strip"]), n(&p["length"]));
+            chunk = if codec == "imagecodecs_jpegxr" {
+                // a JPEG XR level: its tiles, or its strip, each a chunk as it is
+                // (spec/zarrify/ndpi.md §7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>)
+                let (tw, th) = (n(&p["tw"]), n(&p["th"]));
+                if p["tiles_ifd"].is_null() {
+                    refs.chunk(format!("{at}0/0"), strip, length, 0, Some(vec![Part::Src(strip, length)]), 0)?;
+                } else {
+                    let across = w.div_ceil(tw);
+                    let per = across * h.div_ceil(th);
+                    tiled::plane(&mut refs, &at, p["tiles"].as_u64(), per, across, |_, row, col| vec![row, col],
+                                 |_, _, _, _| None)?;
+                }
+                [samples, th, tw]
+            } else if p["grid"].is_null() {
+                // the strip, or, when its frame header is not the level's size, the strip with the
+                // level's height and width in its SOF0 (spec/zarrify/ndpi.md §7
+                // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>)
+                let parts = match p["frame"].as_u64() {
+                    Some(f) => {
+                        let mut size = (h as u16).to_be_bytes().to_vec();
+                        size.extend((w as u16).to_be_bytes());
+                        vec![Part::Src(strip, f), Part::Lit(size), Part::Src(strip + f + 4, length - f - 4)]
+                    }
+                    None => vec![Part::Src(strip, length)],
+                };
+                refs.chunk(format!("{at}0/0"), strip, length, 0, Some(parts), 0)?;
+                [3, h, w]
             } else {
-                let across = w.div_ceil(tw);
-                let per = across * h.div_ceil(th);
-                tiled::plane(&mut refs, &format!("{li}/c/"), lv["tiles"].as_u64(), per, across, |_, row, col| vec![0, row, col],
-                             |_, _, _, _| None)?;
-            }
-            [samples, th, tw]
-        } else if lv["grid"].is_null() {
-            // the strip, or, when its frame header is not the level's size, the strip with the
-            // level's height and width in its SOF0 (spec/zarrify/ndpi.md §7
-            // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>)
-            let parts = match lv["frame"].as_u64() {
-                Some(at) => {
-                    let mut size = (h as u16).to_be_bytes().to_vec();
-                    size.extend((w as u16).to_be_bytes());
-                    vec![Part::Src(strip, at), Part::Lit(size), Part::Src(strip + at + 4, length - at - 4)]
+                let starts = values(ir, &p["starts"]).ok_or("internal: no McuStarts in the IR")?;
+                let high = values(ir, &p["high"]);
+                let g = Grid::from_facts(&p["grid"], combine(starts, high.as_deref()), length);
+                let (before, after) = g.pieces();
+                let (before, after) = (refs.out.shared(before), refs.out.shared(after));
+                let sof = g.sof(g.b);
+                let (down, across) = g.chunks();
+                for u in 0..down {
+                    for v in 0..across {
+                        let parts = g.parts(u, v, g.b, &before, &sof, &after);
+                        refs.chunk(format!("{at}{u}/{v}"), strip, length, 0, Some(parts), u * across + v)?;
+                    }
                 }
-                None => vec![Part::Src(strip, length)],
+                g.chunk_shape()
             };
-            refs.chunk(format!("{li}/c/0/0/0"), strip, length, 0, Some(parts), 0)?;
-            [3, h, w]
+        }
+        let [cs, ch, cw] = chunk;
+        let (shape, chunk) = if stacked {
+            (vec![samples, planes.len() as u64, h, w], json!([cs, 1, ch, cw]))
         } else {
-            let starts = values(ir, &lv["starts"]).ok_or("internal: no McuStarts in the IR")?;
-            let high = values(ir, &lv["high"]);
-            let g = Grid::from_facts(&lv["grid"], combine(starts, high.as_deref()), length);
-            let (before, after) = g.pieces();
-            let (before, after) = (refs.out.shared(before), refs.out.shared(after));
-            let sof = g.sof(g.b);
-            let (down, across) = g.chunks();
-            for u in 0..down {
-                for v in 0..across {
-                    let parts = g.parts(u, v, g.b, &before, &sof, &after);
-                    refs.chunk(format!("{li}/c/0/{u}/{v}"), strip, length, 0, Some(parts), u * across + v)?;
-                }
-            }
-            g.chunk_shape()
+            (vec![samples, h, w], json!(chunk))
         };
-        let shape = vec![samples, h, w];
-        refs.out.json(&format!("{li}/zarr.json"), &array_json(&shape, data_type, json!(chunk), codecs.clone(), &axes));
+        refs.out.json(&format!("{li}/zarr.json"), &array_json(&shape, data_type, chunk, codecs.clone(), &axes));
         shapes.push(shape);
     }
     let mut out = refs.out;
