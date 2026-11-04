@@ -29,9 +29,7 @@ fn numpy_dtype(data_type: &str) -> String {
 fn palette(refs: &mut Refs, p: &J, endian: &str) -> Result<(), String> {
     let (entries, cell) = (n(&p["entries"]), n(&p["cell"]));
     let data_type = if cell == 1 { "uint8" } else { "uint16" };
-    let mut array = array_json(&[3, entries], data_type, json!([1, entries]), json!([bytes_codec(cell, endian)]), &["c", "i"]);
-    array["attributes"] = json!({"first_mapped": p["first_mapped"], "bits": p["bits"]});
-    refs.out.json("palette/zarr.json", &array);
+    refs.out.json("palette/zarr.json", &array_json(&[3, entries], data_type, json!([1, entries]), json!([bytes_codec(cell, endian)]), &["c", "i"]));
     for (k, table) in arr(&p["tables"]).iter().enumerate() {
         let (start, length) = (n(table), entries * cell);
         refs.chunk(format!("palette/c/{k}/0"), start, length, 0, Some(vec![Part::Src(start, length)]), 0)?;
@@ -76,7 +74,11 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     ome["omero"] = omero_json(channels);
 
     let mut refs = Refs::new(ir, Out::new(url));
-    refs.out.json("zarr.json", &root_json(ome, "dicom", url, Some(facts["root"].clone())));
+    let mut own = facts["root"].clone();
+    if let Some(p) = facts.get("palette").filter(|p| !p.is_null()) {
+        own["palette"] = json!({"path": "palette", "first_mapped": p["first_mapped"], "bits": p["bits"]});
+    }
+    refs.out.json("zarr.json", &root_json(ome, "dicom", url, Some(own)));
     refs.out.json("0/zarr.json", &array_json(&shape, data_type, json!(chunk), J::Array(codecs), &axes));
     // the data elements under Pixel Data, by name index: frames, or fragments
     let mut members = ir.members(n(&facts["pixel"]) as u32);

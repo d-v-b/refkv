@@ -35,7 +35,7 @@ gives its own archive.
   slide's shape and one tile per chunk.
 - **Palette images** (`PALETTE COLOR`): `0` holds the stored indices, and the array
   `palette` the red, green and blue lookup tables, shape `[3, entries]`, with the
-  first mapped value in its attributes, unless the tables are segmented: they then
+  first mapped value in the root's `refkv_zarrified.dicom.palette`, unless the tables are segmented: they then
   stay in the mirror. No color is applied.
 - **Native and RLE `YBR_FULL`:** channels `Y`, `Cb` and `Cr`, as stored, not converted.
 - **Data types:** `uint8`, `int8`, `uint16`, `int16`, `uint32`, `int32` (the

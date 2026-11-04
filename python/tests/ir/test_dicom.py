@@ -185,8 +185,8 @@ def test_palette_images_are_indices_and_their_tables(path, tmp_path):
     lut = ndarray(table[...])
     descriptor = ds.RedPaletteColorLookupTableDescriptor
     assert lut.shape == (3, descriptor[0] or 65536)
-    assert table.attrs["first_mapped"] == descriptor[1]
-    assert table.attrs["bits"] == descriptor[2]
+    assert at(root.attrs, "refkv_zarrified", "dicom", "palette") == {
+        "path": "palette", "first_mapped": descriptor[1], "bits": descriptor[2]}
     for values, color in zip(lut, ("Red", "Green", "Blue"), strict=True):
         raw = ds[f"{color}PaletteColorLookupTableData"].value
         order = ">" if not ds.is_little_endian and lut.dtype.itemsize > 1 else "<"

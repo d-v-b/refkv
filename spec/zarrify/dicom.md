@@ -347,7 +347,7 @@ An entry has `b` bytes: 2 when `n ≥ 2E`, as most writers store them whatever `
 | `data_type` | string | required | `uint8` for `b` = 1, else `uint16` |
 | `chunk_grid` | object | required | regular, its chunk shape `[1, E]` |
 | `codecs` | array of object | required | `bytes`, with `endian` by the encoding when `b` is 2 |
-| `attributes` | object | required | `{"first_mapped": m, "bits": d}` |
+| `attributes` | object | required | `{}` ([§1](#1-declaration)) |
 
 Chunk `palette/c/<k>/0` is the first `b × E` bytes of the value of table `k`, red, green then blue:
 one range of source 0. No chunk is copied. A stored value `v` is shown as the entries at
@@ -385,6 +385,7 @@ except where this section says otherwise).
 | `pixel_unreferenced_headers` | boolean | optional | `true`, present when that family also holds the frames' item headers (**Pixel data that no frame holds**) |
 | `pixel_fragments` | string | optional | present when a frame of encapsulated pixel data has more than one fragment (**Fragments**, [§5.2](#52-the-datasets-as-json)): `"refkv_source/pixel_fragments"`, which names no element: the fragments are the IR's elements `dataset/7FE00010/fragments/<j>` |
 | `pixel_offset_table` | boolean | optional | `true`, present when the Basic Offset Table of encapsulated pixel data is not empty (**Fragments**) |
+| `palette` | object | optional | present when the file has an array `palette` ([§4.1](#41-the-palette)): `{"path": "palette", "first_mapped": m, "bits": d}` |
 | `trailing` | string | optional | present when the bytes after the last element that parses (**After Pixel Data**, [§5.2](#52-the-datasets-as-json)) are not empty: `"refkv_source/trailing"`, the IR's element that holds them |
 
 The members of the File Meta Information and of the top-level dataset that
