@@ -19,7 +19,7 @@
 
 use super::types::{self, describe, present, values_json, Dt, Field, FieldKind, Kind, Lookup, Present};
 use super::walk::{lenient, visit, Emit, Visit};
-use super::{le, Acc, Collection, Dataset, Fail, Index, Layout, Target, H5, R, UNDEFINED};
+use super::{le, Acc, Collection, Dataset, Fail, Index, Layout, Target, BITSHUFFLE, BLOSC, CHECKSUM, DEFLATE, FLETCHER32, H5, LZ4, LZF, R, SHUFFLE, UNDEFINED, ZSTD};
 use crate::ir::{Ir, NO_INDEX};
 use crate::nd2::Step;
 use crate::rules::{self, num, Rules, Vars};
@@ -49,6 +49,13 @@ const EXTERNAL: u8 = 64;
 /// The external data files message.
 const EXTERNAL_FILES: u16 = 0x07;
 
+/// The filters the profile itself undoes, to read strings, references and records.
+const READABLE: [u64; 3] = [DEFLATE, SHUFFLE, FLETCHER32];
+/// Blosc's compressors by their codes, as its filter's seventh value gives them.
+const BLOSC_NAMES: [&str; 6] = ["blosclz", "lz4", "lz4hc", "snappy", "zlib", "zstd"];
+/// Bitshuffle's compression values (fifth): none, and `BSHUF_H5_COMPRESS_LZ4`.
+const BITSHUFFLE_LZ4: u32 = 2;
+
 pub struct Hdf5 {
     h: H5,
     rules: &'static Rules,
@@ -75,6 +82,8 @@ pub struct Hdf5 {
     records: HashMap<u64, Dt>,
     /// the global heap collections read, by address
     heaps: BTreeMap<u64, Rc<Collection>>,
+    /// each chunk deflate skipped, by its dataset's header and grid index: its bytes' Adler-32
+    adlers: HashMap<(u64, u128), u32>,
     facts: Option<J>,
     /// the walk's room in elements, when a test sets it (else the schema's)
     pub room: Option<u64>,
@@ -116,6 +125,7 @@ impl Hdf5 {
             strings: BTreeSet::new(),
             records: HashMap::new(),
             heaps: BTreeMap::new(),
+            adlers: HashMap::new(),
             facts: None,
             room: None,
         }
@@ -414,18 +424,17 @@ impl Hdf5 {
             Err(why) => return Ok(Decision::Not(why)),
         };
         if ds.layout == Layout::Chunked {
-            if ds.filters.iter().any(|f| !matches!(f, 1 | 2)) {
+            // strings, references and records are decoded here, by each chunk's mask, so only with
+            // the filters this code undoes; the others are the readers'
+            let decoded = matches!(p, Present::Strings | Present::References | Present::Records(_));
+            if !presented_filters(&ds, decoded) {
                 return Ok(Decision::Not("filter"));
             }
             if ds.raw_edges {
                 return Ok(Decision::Not("edge_chunks"));
             }
-            // a chunk a filter skipped (an optional filter that failed, as deflate does on
-            // bytes it cannot shrink) has its own codecs, which an array cannot give it; the
-            // pointers of strings, references and records are decoded here, by each chunk's mask
             let ch = self.h.chunks(at, &ds, true)?;
-            let decoded = matches!(present(&dt), Ok(Present::Strings | Present::References | Present::Records(_)));
-            if !decoded && ch.list.iter().any(|c| c.3 != 0) {
+            if !decoded && !chunk_parts(&ds, &ch, dt.size, self.limit("max_storage_bytes")).is_some_and(|c| c.iter().all(Option::is_some)) {
                 return Ok(Decision::Not("filter_mask"));
             }
         }
@@ -479,8 +488,9 @@ impl Hdf5 {
                         if mask >> i & 1 != 0 {
                             continue;
                         }
-                        b = match f {
-                            1 => miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(&b, cb).map_err(|e| Fail::Bad(format!("a chunk does not inflate: {e:?}")))?,
+                        b = match *f {
+                            DEFLATE => miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(&b, cb).map_err(|e| Fail::Bad(format!("a chunk does not inflate: {e:?}")))?,
+                            FLETCHER32 => b[..b.len().saturating_sub(CHECKSUM as usize)].to_vec(),
                             _ => unshuffle(&b, size as usize),
                         };
                     }
@@ -494,13 +504,39 @@ impl Hdf5 {
         }
     }
 
+    /// The Adler-32 of each chunk of the dataset at `at` that deflate skipped, which the literal
+    /// around it needs (spec/zarrify/hdf5.md §3.2
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#32-chunks>).
+    fn read_skipped(&mut self, at: u64, ds: &Dataset, size: u64) -> R<()> {
+        if ds.layout != Layout::Chunked {
+            return Ok(());
+        }
+        let ch = self.h.chunks(at, ds, true)?;
+        let Some(parts) = chunk_parts(ds, &ch, size, self.limit("max_storage_bytes")) else { return Ok(()) };
+        let mut acc = Acc::default();
+        for (c, part) in ch.list.iter().zip(parts) {
+            let Some(ChunkPart { stored, wrap: Some(DEFLATE) }) = part else { continue };
+            let idx = super::ravel(&c.0, &ds.grid);
+            if self.adlers.contains_key(&(at, idx)) {
+                continue;
+            }
+            if let Some(b) = acc.take(self.h.read(c.1, stored)) {
+                self.adlers.insert((at, idx), adler32(&b));
+            }
+        }
+        acc.done()
+    }
+
     fn data(&mut self) -> R<()> {
         let mut acc = Acc::default();
         for (at, segs) in self.order.clone() {
             let r = (|| -> R<()> {
                 let name = segs.last().map(|s| s.as_slice());
                 let Decision::Dataset(ds, dt, p) = self.decide(at, name)? else { return Ok(()) };
-                if !matches!(p, Present::Strings | Present::References | Present::Records(_)) || self.storage.contains_key(&at) {
+                if !matches!(p, Present::Strings | Present::References | Present::Records(_)) {
+                    return self.read_skipped(at, &ds, dt.size);
+                }
+                if self.storage.contains_key(&at) {
                     return Ok(());
                 }
                 let b = self.elements(at, &ds, dt.size)?;
@@ -791,7 +827,18 @@ impl Hdf5 {
                             if ch.list.is_empty() {
                                 json!({"kind": "none", "chunk": chunk})
                             } else {
-                                json!({"kind": "chunked", "at": at, "grid": ds.grid, "chunk": chunk, "trailing": trailing.is_some()})
+                                let parts = chunk_parts(&ds, &ch, dt.size, self.limit("max_storage_bytes")).ok_or_else(|| Fail::Bad("internal: a chunk's filter mask".into()))?;
+                                let mut masked = Vec::new();
+                                for (c, part) in ch.list.iter().zip(parts) {
+                                    let part = part.ok_or_else(|| Fail::Bad("internal: a chunk's filter mask".into()))?;
+                                    if c.3 != 0 {
+                                        let idx = super::ravel(&c.0, &ds.grid);
+                                        let adler = self.adlers.get(&(*at, idx)).copied();
+                                        masked.push(json!({"index": idx as u64, "stored": part.stored, "wrap": part.wrap, "adler": adler, "item": dt.size}));
+                                    }
+                                }
+                                let trim = if ds.filters.contains(&FLETCHER32) { CHECKSUM } else { 0 };
+                                json!({"kind": "chunked", "at": at, "grid": ds.grid, "chunk": chunk, "trailing": trailing.is_some(), "trim": trim, "masked": masked})
                             }
                         }
                     };
@@ -1247,6 +1294,111 @@ fn zero_of(t: &J) -> J {
     }
 }
 
+/// The codec of a filter in a pipeline of elements of `size` bytes, from its client data values;
+/// None for Fletcher32, whose checksum the chunk's reference leaves out, or a filter with values
+/// no reader's codec has a form of.
+fn filter_codec(f: u64, cd: &[u32], size: u64) -> Option<J> {
+    match f {
+        DEFLATE => Some(json!({"name": "numcodecs.zlib", "configuration": {"level": 1}})),
+        SHUFFLE => Some(json!({"name": "numcodecs.shuffle", "configuration": {"elementsize": size}})),
+        LZF => Some(json!({"name": "imagecodecs_lzf", "configuration": {"header": false}})),
+        LZ4 => Some(json!({"name": "imagecodecs_lz4h5"})),
+        ZSTD => Some(json!({"name": "zstd", "configuration": {"level": cd.first().copied().unwrap_or(0), "checksum": false}})),
+        BLOSC => {
+            // the values 0 to 3 are the filter's own; a pipeline without the others has its defaults
+            let cname = BLOSC_NAMES.get(cd.get(6).copied().unwrap_or(0) as usize)?;
+            let shuffle = ["noshuffle", "shuffle", "bitshuffle"].get(cd.get(5).copied().unwrap_or(1) as usize)?;
+            Some(json!({"name": "blosc", "configuration": {
+                "cname": cname, "clevel": cd.get(4).copied().unwrap_or(5), "shuffle": shuffle, "typesize": size, "blocksize": 0
+            }}))
+        }
+        BITSHUFFLE => {
+            let compression = match cd.get(4).copied().unwrap_or(0) {
+                0 => "none",
+                BITSHUFFLE_LZ4 => "lz4",
+                _ => return None,
+            };
+            let block = match cd.get(3).copied().unwrap_or(0) as u64 {
+                0 => crate::h5_bitshuffle::default_block(size),
+                b => b,
+            };
+            Some(json!({"name": "refkv.h5_bitshuffle", "configuration": {"elementsize": size, "block_size": block, "compression": compression}}))
+        }
+        _ => None,
+    }
+}
+
+/// Whether the dataset's filters are ones a reader's codecs undo, in an order they can: Fletcher32
+/// only last, as its checksum is then the chunk's last bytes; when `decoded`, only the filters the
+/// profile undoes itself.
+fn presented_filters(ds: &Dataset, decoded: bool) -> bool {
+    let n = ds.filters.len();
+    ds.filters.iter().enumerate().all(|(k, &f)| f != FLETCHER32 || k + 1 == n)
+        && ds.filters.iter().zip(&ds.client_data).all(|(&f, cd)| {
+            if decoded {
+                READABLE.contains(&f)
+            } else {
+                f == FLETCHER32 || filter_codec(f, cd, ds.datatype.size).is_some()
+            }
+        })
+}
+
+/// How a chunk's reference reads it: the `stored` bytes before any checksum, in the literal framing
+/// of the filter `wrap`, the one that skipped it, if any.
+struct ChunkPart {
+    stored: u64,
+    wrap: Option<u64>,
+}
+
+/// Each chunk's reference by its filter mask (spec/zarrify/hdf5.md §3.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#32-chunks>), None for a chunk that
+/// has none; None for all when the chunks deflate skipped, which are read, pass `budget` bytes.
+fn chunk_parts(ds: &Dataset, ch: &super::Chunks, size: u64, budget: u64) -> Option<Vec<Option<ChunkPart>>> {
+    let bit = |id: u64| ds.filters.iter().position(|&f| f == id).map_or(0u32, |k| 1 << k);
+    let checksum = bit(FLETCHER32);
+    let every = 1u32.checked_shl(ds.filters.len() as u32).map_or(u32::MAX, |b| b - 1);
+    let bytes = super::product(&ds.chunk).saturating_mul(size as u128);
+    let mut read = 0u64;
+    let mut out = Vec::with_capacity(ch.list.len());
+    for &(_, _, n, mask) in &ch.list {
+        let trim = if checksum != 0 && mask & checksum == 0 { CHECKSUM } else { 0 };
+        let rest = mask & every & !checksum;
+        let part = if n <= trim {
+            None
+        } else if rest == 0 {
+            Some(ChunkPart { stored: n - trim, wrap: None })
+        } else {
+            // one filter skipped, of those with a literal form, and all the chunk's bytes are there
+            let skipped = ds.filters.iter().copied().find(|&f| bit(f) == rest).filter(|f| crate::project::hdf5::framed(*f, n - trim));
+            match skipped {
+                Some(f) if (n - trim) as u128 == bytes => {
+                    if f == DEFLATE {
+                        read = read.saturating_add(n - trim);
+                    }
+                    Some(ChunkPart { stored: n - trim, wrap: Some(f) })
+                }
+                _ => None,
+            }
+        };
+        out.push(part);
+    }
+    (read <= budget).then_some(out)
+}
+
+/// RFC 1950's Adler-32.
+fn adler32(b: &[u8]) -> u32 {
+    let (mut a, mut c) = (1u32, 0u32);
+    for run in b.chunks(5552) {
+        for &x in run {
+            a += x as u32;
+            c += a;
+        }
+        a %= 65521;
+        c %= 65521;
+    }
+    c << 16 | a
+}
+
 /// Bytes as lowercase hexadecimal, and back.
 pub fn hex(b: &[u8]) -> String {
     b.iter().map(|x| format!("{x:02x}")).collect()
@@ -1261,15 +1413,7 @@ pub fn unhex(s: &str) -> Vec<u8> {
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#3-datasets>).
 fn array_type(ds: &Dataset, dt: &Dt, p: &Present) -> (J, J, J, Option<u64>) {
     let fill = ds.fill.as_ref().and_then(|f| fill_json(dt, p, f));
-    let filters = |size: u64| -> Vec<J> {
-        ds.filters
-            .iter()
-            .map(|f| match f {
-                1 => json!({"name": "numcodecs.zlib", "configuration": {"level": 1}}),
-                _ => json!({"name": "numcodecs.shuffle", "configuration": {"elementsize": size}}),
-            })
-            .collect()
-    };
+    let filters = |size: u64| -> Vec<J> { ds.filters.iter().zip(&ds.client_data).filter_map(|(&f, cd)| filter_codec(f, cd, size)).collect() };
     match p {
         Present::Strings | Present::References => (json!("string"), json!([{"name": "vlen-utf8"}]), json!(""), None),
         // the data type and fill value are the records' (`records_of`)

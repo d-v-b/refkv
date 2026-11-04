@@ -61,7 +61,7 @@ test("zarrifies the synthetic IMS files", async () => {
 
 for (const [name, message] of [
   ["ims_reject_not_imaris.ims", /not an Imaris file/],
-  ["ims_reject_shuffle.ims", /filters \[2, 1\]/],
+  ["ims_reject_blosc.ims", /filters \[32001\]/],
   ["ims_reject_fill_value.ims", /fill value/],
   ["ims_reject_size_mismatch.ims", /differ in size/],
   ["ims_reject_imagesize_vlen.ims", /ImageSizeX is not a string/],
