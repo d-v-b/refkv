@@ -208,11 +208,9 @@ a TCGA slide on Zenodo with JPEG 2000 tiles, does work.
 
 The Neuroglancer fork (<https://github.com/d-v-b/neuroglancer>, branch `vzip`)
 displays these archives: it decodes `imagecodecs_jpeg` (8-bit),
-`imagecodecs_jpeg2k` (8- and 16-bit integers) and `zstd`, and DEFLATE as `zlib`, which
-archives named before d-v-b/refkv#90, and not yet `numcodecs.zlib`; the
-idr0096 OME-TIFF above, whose tiles are JPEG 2000, renders through the live demo. It does not decode
-`imagecodecs_delta`, so an image with Predictor 2 is not shown there (zarr-python, with
-`refkv[images]`, reads it). It has no `int64` or
+`imagecodecs_jpeg2k` (8- and 16-bit integers), `zstd`, `numcodecs.zlib`, `refkv.tiff_lzw` and
+`imagecodecs_delta`; the
+idr0096 OME-TIFF above, whose tiles are JPEG 2000, renders through the live demo. It has no `int64` or
 `float64` data types, so a TIFF with 64-bit integer or float samples cannot
 be shown there (zarr-python reads it).
 
@@ -272,8 +270,7 @@ The browser code ([js/](../../../js/README.md)) reads TIFF:
 - Samples per pixel stored planar (one chunk per channel) or interleaved
   (through a `transpose` codec).
 - Compression: none, LZW (`refkv.tiff_lzw`), DEFLATE (`numcodecs.zlib`), zstd, JPEG 2000
-  (`imagecodecs_jpeg2k`), and JPEG (`imagecodecs_jpeg`), and Predictor 2 (`imagecodecs_delta`,
-  which the Neuroglancer fork does not decode yet, [Viewing](#viewing)). JPEG tiles that keep
+  (`imagecodecs_jpeg2k`), and JPEG (`imagecodecs_jpeg`), and Predictor 2 (`imagecodecs_delta`). JPEG tiles that keep
   their tables in `JPEGTables`, as in Aperio SVS, become complete JPEG streams
   through references that prepend the tables and a color marker, held once
   in the archive as a `data` source.
