@@ -506,7 +506,8 @@ is an attribute `_LINKS` or an attribute holding a reference: each is recorded a
 
 **External storage.** A dataset of a fixed-size datatype and contiguous layout whose slots give its
 every byte is presented, with `external_storage` in its `hdf5` member: `[[key, offset, length], …]`,
-the ranges in the data's order. The slots are read in order, each giving the bytes at its offset in its
+the ranges in the data's order. A slot's name is a key beside the input, where HDF5 itself looks from the
+working directory unless a prefix is set. The slots are read in order, each giving the bytes at its offset in its
 file, a size of 2^64 − 1 the rest of the data. The chunks are cut as a contiguous dataset's are
 ([§3.2](#32-chunks)), with the data numbered from 0 across the slots, so that a chunk across two
 slots is a reference of two ranges, and an edge chunk's padding is a range of the zero data source.
