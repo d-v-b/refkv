@@ -11,7 +11,8 @@
 //! Offset Table, then the frames' item headers an Extended Offset Table names (one batch), or
 //! the fragments' item headers, those the Basic Offset Table predicts in one batch; then the
 //! frames' first two bytes for a JPEG with three samples, or a lossless JPEG frame's markers
-//! up to its first SOS, from its first 512 bytes; (4) the scan of the elements after
+//! up to its first SOS, from its first 512 bytes, as a JPEG-LS frame's are, or an RLE frame's
+//! header, or a JPEG 2000 frame's SIZ for YBR_FULL_422; (4) the scan of the elements after
 //! Pixel Data; then the root's source metadata (`json.rs`) and the IR are built from what
 //! was read.
 
@@ -38,6 +39,8 @@ pub const ADOBE: [u8; 17] = [0xFF, 0xD8, 0xFF, 0xEE, 0x00, 0x0E, 0x41, 0x64, 0x6
 /// The bytes of a lossless JPEG frame read at once for its markers up to the first SOS, which
 /// writers keep within a few hundred bytes (more are read when they are not).
 const LOSSLESS_HEAD: u64 = 512;
+/// The bytes of an RLE frame's header read: its number of segments and first offset.
+const RLE_HEAD: u64 = 8;
 /// The most bytes of an element the IR holds (the view shows at most 1024).
 const HOLD: u64 = 1 << 10;
 /// The most times the root's translation and the IR's walk, which the scan prepares, start
@@ -113,6 +116,9 @@ fn syntax(rules: &Rules, uid: &[u8]) -> Option<(Enc, &'static str)> {
         "jpeg" => "jpeg",
         "ljpeg" => "ljpeg",
         "jpeg2k" => "jpeg2k",
+        "dicomrle" => "dicomrle",
+        "jpegls" => "jpegls",
+        "htj2k" => "htj2k",
         _ => "native",
     };
     Some((Enc { explicit: s["explicit"].as_bool()?, little: s["little"].as_bool()? }, codec))
@@ -158,6 +164,27 @@ impl<'a> Vals<'a> {
             self.whole(&el, 4)?;
             Ok(Some(self.b.u32(el.value, el.little)? as u64))
         }
+    }
+
+    /// A lookup table descriptor (spec/zarrify/dicom.md §4.1
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#41-the-palette>): its first
+    /// three values, of VR US or SS, the second signed for SS; None when it has fewer.
+    fn descriptor(&self, tag: u32) -> R<Option<[i64; 3]>> {
+        let vr = if self.ds.and_then(|d| d.get(&tag)).is_some_and(|w| w.el.vr_is("SS")) { "SS" } else { "US" };
+        let Some(el) = self.element(tag, vr)? else { return Ok(None) };
+        self.whole(&el, 2)?;
+        if el.length < 6 {
+            return Ok(None);
+        }
+        let at = |k: u64| self.b.u16(el.value + 2 * k, el.little);
+        let first = if vr == "SS" { at(1)? as i16 as i64 } else { at(1)? as i64 };
+        Ok(Some([at(0)? as i64, first, at(2)? as i64]))
+    }
+
+    /// A lookup table's element, of VR OW or OB.
+    fn table(&self, tag: u32) -> R<Option<El>> {
+        let vr = if self.ds.and_then(|d| d.get(&tag)).is_some_and(|w| w.el.vr_is("OB")) { "OB" } else { "OW" };
+        self.element(tag, vr)
     }
 
     fn integers64(&self, tag: u32) -> R<Option<Vec<u64>>> {
@@ -235,6 +262,19 @@ fn opt(v: Option<u64>) -> crate::expr::V {
 
 /// The image and its pixel data's layout, as the profile reads them.
 #[derive(Clone, Debug)]
+/// A PALETTE COLOR image's lookup tables (spec/zarrify/dicom.md §4.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#41-the-palette>).
+pub struct Palette {
+    pub entries: u64,
+    pub first_mapped: i64,
+    pub bits: u64,
+    /// the bytes of an entry
+    pub cell: u64,
+    /// the red, green and blue tables' first bytes
+    pub tables: [u64; 3],
+}
+
+#[derive(Clone, Debug)]
 pub struct Image {
     pub start: u64,
     pub enc: Enc,
@@ -262,6 +302,7 @@ pub struct Image {
     pub window_finite: bool,
     pub eot: Option<Vec<u64>>,
     pub eotl: Option<Vec<u64>>,
+    pub palette: Option<Palette>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -711,6 +752,7 @@ impl Dicom {
         ]);
         env.insert("key", text(&key));
         check(r, "image", &mut env)?;
+        let palette = if photometric == Some(b"PALETTE COLOR".as_slice()) { palette_tables(&v, bits_allocated.unwrap())? } else { None };
         let (spp, rows, columns) = (spp.unwrap(), rows.unwrap(), columns.unwrap());
         let (bits_allocated, bits_stored, representation) = (bits_allocated.unwrap(), bits_stored.unwrap(), representation.unwrap());
         let photometric = latin1(photometric.unwrap());
@@ -823,6 +865,7 @@ impl Dicom {
             window_finite,
             eot,
             eotl,
+            palette,
         })
     }
 
@@ -1022,16 +1065,53 @@ impl Dicom {
             }
             check(r, "payload", &mut rules::env([("f", num(f as f64)), ("payload", num(payload_size(&parts) as f64))]))?;
         }
-        if img.codec == "ljpeg" {
-            self.lossless_check(img, &frames)?;
+        match img.codec {
+            "ljpeg" => self.lossless_check(img, &frames, "lossless_frame")?,
+            "jpegls" => self.lossless_check(img, &frames, "jpegls_frame")?,
+            "dicomrle" => self.rle_check(img, &frames)?,
+            "jpeg2k" if img.photometric == "YBR_FULL_422" => {
+                let subsampled = frames.first().map_or(Ok(false), |f| half_width_chroma(&self.b, f))?;
+                check(self.rules, "ybr_422_frame", &mut rules::env([("subsampled", flag(subsampled))]))?;
+            }
+            _ => {}
         }
         Ok(())
     }
 
-    /// Each lossless JPEG frame's markers up to its first SOS: read for every frame at once,
-    /// its first `LOSSLESS_HEAD` bytes, and then from where a walk stops, until every walk
-    /// ends.
-    fn lossless_check(&mut self, img: &Image, frames: &[Vec<(u64, u64)>]) -> R<()> {
+    /// Each RLE frame's number of segments and first offset, read for every frame at once.
+    fn rle_check(&mut self, img: &Image, frames: &[Vec<(u64, u64)>]) -> R<()> {
+        let mut heads = Vec::with_capacity(frames.len());
+        let mut want = Vec::new();
+        for ranges in frames {
+            match stream_bytes(&self.b, ranges, 0, RLE_HEAD) {
+                Ok(h) => heads.push(h),
+                Err(Fail::Miss(o, n)) => want.push((o, n)),
+                Err(e) => return Err(e),
+            }
+        }
+        if let Some(&(o, m)) = want.first() {
+            self.want = want;
+            return Err(Fail::Miss(o, m));
+        }
+        let expected = img.spp * (img.bits_allocated / 8);
+        for (f, h) in heads.iter().enumerate() {
+            let word = |k: usize| h.as_ref().map_or(0, |b| u32::from_le_bytes([b[k], b[k + 1], b[k + 2], b[k + 3]]));
+            let mut env = rules::env([
+                ("f", num(f as f64)),
+                ("header", flag(h.is_some())),
+                ("segments", num(word(0) as f64)),
+                ("expected", num(expected as f64)),
+                ("first", num(word(4) as f64)),
+            ]);
+            check(self.rules, "rle_frame", &mut env)?;
+        }
+        Ok(())
+    }
+
+    /// Each lossless JPEG or JPEG-LS frame's markers up to its first SOS, checked by the role
+    /// `role`: read for every frame at once, its first `LOSSLESS_HEAD` bytes, and then from where
+    /// a walk stops, until every walk ends.
+    fn lossless_check(&mut self, img: &Image, frames: &[Vec<(u64, u64)>], role: &str) -> R<()> {
         let mut heads = Vec::with_capacity(frames.len());
         let mut want = Vec::new();
         for ranges in frames {
@@ -1063,8 +1143,13 @@ impl Dicom {
                 ("spp", num(img.spp as f64)),
                 ("bits_allocated", num(img.bits_allocated as f64)),
                 ("signed", flag(img.signed)),
+                ("stream_rows", num(h.rows)),
+                ("stream_columns", num(h.columns)),
+                ("rows", num(img.rows as f64)),
+                ("columns", num(img.columns as f64)),
+                ("interleave", num(h.interleave)),
             ]);
-            check(self.rules, "lossless_frame", &mut env)?;
+            check(self.rules, role, &mut env)?;
         }
         Ok(())
     }
@@ -1116,10 +1201,58 @@ struct LosslessHead {
     sof: u8,
     precision: u8,
     components: u8,
+    rows: u16,
+    columns: u16,
     scan: u8,
     predictor: u8,
+    interleave: u8,
     point_transform: u8,
     restart: u16,
+}
+
+/// The red, green and blue tables' descriptors and elements (spec/zarrify/dicom.md §4.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#41-the-palette>); None for a
+/// segmented palette, whose entries are commands, which stays in the mirror.
+fn palette_tables(v: &Vals, bits_allocated: u64) -> R<Option<Palette>> {
+    if (0..3).any(|k| v.ds.is_some_and(|d| d.contains_key(&(0x0028_1221 + k)))) {
+        return Ok(None);
+    }
+    let mut descriptors = [None; 3];
+    let mut tables = [None; 3];
+    for k in 0..3 {
+        descriptors[k] = v.descriptor(0x0028_1101 + k as u32)?;
+        tables[k] = v.table(0x0028_1201 + k as u32)?;
+    }
+    let [entries, first_mapped, bits] = descriptors[0].unwrap_or([0, 0, 0]);
+    let entries = if entries == 0 { 1 << 16 } else { entries as u64 };
+    let length = tables[0].map_or(0, |t: El| t.length as u64);
+    let mut env = rules::env([
+        ("bits_allocated", num(bits_allocated as f64)),
+        ("described", flag(descriptors.iter().all(Option::is_some))),
+        ("alike", flag(descriptors[1] == descriptors[0] && descriptors[2] == descriptors[0])),
+        ("bits", num(bits as f64)),
+        ("entries", num(entries as f64)),
+        ("tables", flag(tables.iter().all(Option::is_some))),
+        ("same_length", flag(tables.iter().all(|t| t.is_some_and(|t| t.length as u64 == length)))),
+        ("length", num(length as f64)),
+    ]);
+    check(v.rules, "palette", &mut env)?;
+    Ok(Some(Palette {
+        entries,
+        first_mapped,
+        bits: bits as u64,
+        cell: if length >= 2 * entries { 2 } else { 1 },
+        tables: [tables[0].unwrap().value, tables[1].unwrap().value, tables[2].unwrap().value],
+    }))
+}
+
+/// Whether a JPEG 2000 frame's SIZ gives three components, the second and third of half the
+/// first's width and its height, which a decoder upsamples and converts to RGB
+/// (spec/zarrify/dicom.md §7.5
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#75-frames>, JPEG 2000).
+fn half_width_chroma(b: &Bytes, ranges: &[(u64, u64)]) -> R<bool> {
+    let Some(h) = stream_bytes(b, ranges, 0, 51)? else { return Ok(false) };
+    Ok(h[..4] == [0xFF, 0x4F, 0xFF, 0x51] && h[40..42] == [0, 3] && h[43..45] == [1, 1] && h[46..48] == [2, 1] && h[49..51] == [2, 1])
 }
 
 /// `n` bytes of a frame's stream from `k`, which runs through its ranges in order: None past
@@ -1172,9 +1305,11 @@ fn lossless_head(b: &Bytes, ranges: &[(u64, u64)]) -> R<Option<LosslessHead>> {
         let length = u16::from_be_bytes([l[0], l[1]]) as u64;
         let body = |n: u64| if length >= 2 + n { at(k + 4, n) } else { Ok(None) };
         match m[1] {
-            0xC0..=0xCF if !matches!(m[1], 0xC4 | 0xC8 | 0xCC) => {
+            0xC0..=0xCF | 0xF7 if !matches!(m[1], 0xC4 | 0xC8 | 0xCC) => {
                 let Some(v) = body(6)? else { return Ok(None) };
                 (h.sof, h.precision, h.components) = (m[1], v[0], v[5]);
+                h.rows = u16::from_be_bytes([v[1], v[2]]);
+                h.columns = u16::from_be_bytes([v[3], v[4]]);
             }
             0xDD => {
                 let Some(v) = body(2)? else { return Ok(None) };
@@ -1189,6 +1324,7 @@ fn lossless_head(b: &Bytes, ranges: &[(u64, u64)]) -> R<Option<LosslessHead>> {
                 }
                 h.scan = v[0];
                 h.predictor = v[1 + 2 * ns as usize];
+                h.interleave = v[2 + 2 * ns as usize];
                 h.point_transform = v[3 + 2 * ns as usize] & 0x0F;
                 return Ok(Some(h));
             }
@@ -1256,6 +1392,9 @@ fn facts(img: &Image, lay: &Layout, root: Map<String, J>, pixel: u32) -> J {
         "pixel": pixel,
         "layout": layout,
         "bounds": lay.bounds,
+        "palette": img.palette.as_ref().map(|p| json!({
+            "entries": p.entries, "first_mapped": p.first_mapped, "bits": p.bits, "cell": p.cell, "tables": p.tables,
+        })),
         "adobe": (img.codec == "jpeg" && img.spp == 3).then(|| adobe_marker(&img.photometric)),
     })
 }
