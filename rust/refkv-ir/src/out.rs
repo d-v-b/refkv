@@ -436,11 +436,15 @@ pub fn item_size(data_type: &str) -> u64 {
 /// `imagecodecs_floatpred` along `x` in place of both for Predictor 3, then
 /// `refkv.tiff_lzw` for LZW (spec/zarrify/tiff.md §4.3
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>),
-/// `numcodecs.zlib` for Deflate, `zstd` for Zstandard or `imagecodecs_lzma` for LZMA).
-pub fn tiff_codecs(compression: u64, predictor: u64, bits: u64, spp: u64, little: bool, x: usize) -> Vec<J> {
+/// `numcodecs.zlib` for Deflate, `zstd` for Zstandard, `imagecodecs_lzma` for LZMA or
+/// `imagecodecs_packbits` for PackBits). Packed samples, of 1 or 12 bits, have `imagecodecs_packints`
+/// in the place of `bytes`, `runlen` samples a row, and CCITT Group 4 its imagecodecs codec. EER's
+/// codec depends on the level's chunk shape: `project/tiled.rs` writes it.
+pub fn tiff_codecs(compression: u64, predictor: u64, bits: u64, spp: u64, little: bool, x: usize, runlen: u64) -> Vec<J> {
     match compression {
         33003 | 33004 | 33005 | 34712 => return vec![json!({"name": "imagecodecs_jpeg2k"})],
         7 => return vec![json!({"name": "imagecodecs_jpeg"})],
+        4 => return vec![json!({"name": "imagecodecs_ccittfax4"})],
         34887 => return vec![json!({"name": "imagecodecs_lerc"})],
         50001 => return vec![json!({"name": "imagecodecs_webp", "configuration": {"hasalpha": spp == 4}})],
         50002 => return vec![json!({"name": "imagecodecs_jpegxl"})],
@@ -454,6 +458,8 @@ pub fn tiff_codecs(compression: u64, predictor: u64, bits: u64, spp: u64, little
     // apart by the axis after `x`, so `dist` is 1 however many samples a pixel has
     if predictor == 3 {
         out.push(json!({"name": "imagecodecs_floatpred", "configuration": {"axis": x, "dist": 1}}));
+    } else if matches!(bits, 1 | 12) {
+        out.push(json!({"name": "imagecodecs_packints", "configuration": {"bitspersample": bits, "runlen": runlen}}));
     } else {
         out.push(bytes_codec(bits.div_ceil(8), if little { "little" } else { "big" }));
     }
@@ -461,6 +467,7 @@ pub fn tiff_codecs(compression: u64, predictor: u64, bits: u64, spp: u64, little
         5 => out.push(json!({"name": "refkv.tiff_lzw"})),
         8 | 32946 => out.push(json!({"name": "numcodecs.zlib", "configuration": {"level": 1}})),
         50000 => out.push(json!({"name": "zstd", "configuration": {"level": 0, "checksum": false}})),
+        32773 => out.push(json!({"name": "imagecodecs_packbits"})),
         34925 => out.push(json!({"name": "imagecodecs_lzma"})),
         _ => {}
     }
