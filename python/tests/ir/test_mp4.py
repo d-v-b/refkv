@@ -111,7 +111,8 @@ def test_tracks_are_ffmpegs_decoding(path, chunk_frames, tmp_path):
             meta = g.get_array("pictures").metadata
             assert isinstance(meta, ArrayV3Metadata)
             assert meta.dimension_names == (("time", "y", "x") if gray else ("time", "y", "x", "c"))
-            assert meta.chunk_grid.chunk_shape[0] == 1
+            doc = json.loads(out.bytes_entries[f"{track['path']}/pictures/zarr.json"])
+            assert doc["chunk_grid"]["configuration"]["chunk_shape"][0] == 1
         elif kind == "video":
             assert tm["frames"] == len(frames)
             assert tm["width"] == frames[0].width
