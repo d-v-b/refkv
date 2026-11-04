@@ -176,7 +176,10 @@ def check_store(store_dir: Path, out: Path, tmp: str) -> list[str]:
     # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#4-source-metadata>), and
     # they do not change how chunks decode.
     for f in copy.rglob(".zarray"):
-        z = json.loads(f.read_text())
+        try:
+            z = json.loads(f.read_text())
+        except json.JSONDecodeError:  # an array that is left out
+            continue
         c = z.get("compressor")
         if isinstance(c, dict) and c.get("id") in NUMCODECS:
             z["compressor"] = {k: v for k, v in c.items() if k in NUMCODECS[c["id"]]}

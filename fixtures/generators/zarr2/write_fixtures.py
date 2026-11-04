@@ -445,7 +445,7 @@ def main() -> None:
     accepted("dtype_unicode", dtype="<U4", fill_value="")
     accepted("dtype_bytes", dtype="|S8", fill_value=None)
     reject("dtype_object", dtype="|O")
-    accepted("dtype_complex", dtype="<c8")
+    accepted("dtype_complex", dtype="<c8", fill_value=[0, 0])
     accepted("dtype_datetime", dtype="<M8[ns]")
     accepted("dtype_structured", dtype=[["a", "<u2"], ["b", "<f4"]], fill_value=None)
     reject("dtype_no_byteorder", dtype="|u2")
