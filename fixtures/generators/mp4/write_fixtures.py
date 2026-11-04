@@ -6,8 +6,9 @@ several chunks, groups of pictures of unequal lengths, open groups, two video tr
 video, 8-bit and Main 10 (HLG, as an iPhone records it), in hvc1 and hev1 sample entries, with
 open groups (CRA pictures and their RASL pictures), RADL pictures, and in a QuickTime file;
 AAC and MP3 audio, alone and beside video; the moov box before and after the media data, a
-64-bit mdat size and an mdat that runs to the end of the file; tracks the profile does not
-zarrify (10-bit H.264, 4:2:2 HEVC) beside ones it does; and the inputs it rejects
+64-bit mdat size and an mdat that runs to the end of the file; fragmented files, as ffmpeg's muxer
+writes them and with each way a track fragment can say where its samples are; tracks the profile
+does not zarrify (10-bit H.264, 4:2:2 HEVC) beside ones it does; and the inputs it rejects
 (`mp4_reject_*`). The byte-crafted edge
 cases are write_edge_fixtures.py's.
 
@@ -30,7 +31,7 @@ import sys
 from pathlib import Path
 
 OUT = Path(__file__).parents[2] / "mp4"
-CONTAINERS = {b"moov", b"trak", b"mdia", b"minf", b"stbl", b"edts", b"dinf", b"mvex"}
+CONTAINERS = {b"moov", b"trak", b"mdia", b"minf", b"stbl", b"edts", b"dinf", b"mvex", b"moof", b"traf"}
 
 
 def video(size: str = "64x48", rate: int = 10, seconds: float = 3) -> list[str]:
@@ -171,15 +172,33 @@ def main() -> None:
     write("mov_hevc_main10_aac.mov",
           ffmpeg(*video(), *audio(), *x265(f"{OPEN_GOP}:{HLG}", "yuv420p10le"), *AAC, fmt="mov"))
     write("mov_hevc_aac.mov", ffmpeg(*video(), *audio(), *x265(OPEN_GOP), *AAC, fmt="mov"))
+    # fragmented: a moof box per keyframe beside AAC; each track in a moof box of its own, the data
+    # offsets from the moof box; the first fragment's samples in the moov box's tables; DASH's sidx
+    # boxes, with version 1 trun boxes of negative offsets; audio alone; and every way a track
+    # fragment can say where its samples are
+    empty = ("-movflags", "frag_keyframe+empty_moov")
+    frag = ffmpeg(*video(), *audio(), *X264, "-g", "10", "-bf", "2", *AAC, *empty)
+    write("mp4_frag_h264_aac.mp4", frag)
+    write("mp4_frag_hevc_moof_base.mp4",
+          ffmpeg(*video(), *audio(), *x265("keyint=10:min-keyint=10:scenecut=0"), *AAC,
+                 "-movflags", "frag_keyframe+empty_moov+separate_moof+default_base_moof"))
+    write("mp4_frag_hybrid.mp4", ffmpeg(*video(), *X264, "-g", "10", "-bf", "2", "-movflags", "frag_keyframe"))
+    write("mp4_frag_dash.mp4",
+          ffmpeg(*video(), *X264, "-g", "10", "-bf", "2", "-movflags",
+                 "frag_keyframe+empty_moov+dash+global_sidx+negative_cts_offsets+default_base_moof"))
+    write("mp4_frag_aac.mp4", ffmpeg(*audio(44100, 2, 2), *AAC, "-movflags", "empty_moov+frag_custom+frag_every_frame"))
+    write("mp4_frag_offsets.mp4",
+          refragmented(ffmpeg(*video(), *audio(), *X264, "-g", "7", "-bf", "2", *AAC, *empty)))
     # tracks the profile does not zarrify, beside one it does
     write("mp4_h264_10bit_aac.mp4", ffmpeg(*video(), *audio(), "-c:v", "libx264", "-threads", "1",
                                            "-pix_fmt", "yuv420p10le", "-g", "10", *AAC))
     write("mp4_hevc_422_aac.mp4", ffmpeg(*video(), *audio(), *x265("keyint=10", "yuv422p10le"), *AAC))
 
-    # rejected: fragmented, no moov box (cut before it), only tracks it does not zarrify (4:2:2 HEVC),
+    # rejected: no moov box (cut before it), only tracks it does not zarrify (4:2:2 HEVC),
     # a box past the end of the file, a box smaller than its header, a second moov box, a
-    # sample past the end of the file, and tables that disagree on the sample count
-    write("mp4_reject_fragmented.mp4", ffmpeg(*video(), *X264, "-g", "10", "-movflags", "frag_keyframe+empty_moov"))
+    # sample past the end of the file, tables that disagree on the sample count, and a fragmented
+    # file with no trex box, a traf box with no tfhd box, a trun box whose table does not fit, a
+    # trun box whose data starts before the file, and a fragment's sample past the end of the file
     o, _, _ = find(plain, "/moov")
     write("mp4_reject_no_moov.mp4", plain[:o])
     write("mp4_reject_hevc_422_only.mp4", ffmpeg(*video(), *x265("keyint=10", "yuv422p")))
@@ -194,6 +213,170 @@ def main() -> None:
     s, h, _ = find(plain, "/stts")
     (count,) = struct.unpack_from(">I", plain, s + h + 8)
     write("mp4_reject_stts_count.mp4", plain[:s + h + 8] + struct.pack(">I", count + 1) + plain[s + h + 12:])
+    o, h, _ = find(frag, "/trex")
+    write("mp4_reject_frag_no_trex.mp4", frag[:o + 4] + b"free" + frag[o + 8:])
+    o, h, _ = find(frag, "/tfhd")
+    write("mp4_reject_frag_no_tfhd.mp4", frag[:o + 4] + b"free" + frag[o + 8:])
+    o, h, _ = find(frag, "/trun")
+    write("mp4_reject_frag_trun_table.mp4", frag[:o + h + 4] + struct.pack(">I", 1 << 20) + frag[o + h + 8:])
+    write("mp4_reject_frag_trun_before.mp4", frag[:o + h + 8] + struct.pack(">i", -(1 << 30)) + frag[o + h + 12:])
+    write("mp4_reject_frag_sample_outside.mp4", frag_sample_outside(frag))
+
+
+def box(typ: bytes, *payload: bytes) -> bytes:
+    body = b"".join(payload)
+    return struct.pack(">I4s", 8 + len(body), typ) + body
+
+
+def fragment_samples(data: bytes, moof: int, size: int) -> list[dict]:
+    """Each traf box of the moof box at `moof`: its track, base time, and each sample's duration,
+    size, flags and composition offset, as ffmpeg's muxer writes them (a base data offset, a data
+    offset and a table of durations, sizes and offsets at most, the first sample's flags and
+    others' by default) with the defaults its tfhd box gives; and its data's offset."""
+    trafs = []
+    for name, t, th, tn in boxes(data, moof + 8, moof + size):
+        if not name.endswith("/traf"):
+            continue
+        boxed = {b.rsplit("/", 1)[1]: (o, h) for b, o, h, _ in boxes(data, t + th, t + tn, "")}
+        o, h = boxed["tfhd"]
+        (flags, track) = struct.unpack_from(">II", data, o + h)
+        flags &= 0xFFFFFF
+        at = o + h + 8
+        base = moof
+        if flags & 1:
+            (base,) = struct.unpack_from(">Q", data, at)
+            at += 8
+        defaults = {}
+        for bit, field in ((2, "entry"), (8, "duration"), (0x10, "size"), (0x20, "flags")):
+            if flags & bit:
+                (defaults[field],) = struct.unpack_from(">I", data, at)
+                at += 4
+        o, h = boxed["tfdt"]
+        time = struct.unpack_from(">Q" if data[o + h] == 1 else ">I", data, o + h + 4)[0]
+        o, h = boxed["trun"]
+        (rflags, count) = struct.unpack_from(">II", data, o + h)
+        rflags &= 0xFFFFFF
+        at = o + h + 8
+        (offset,) = struct.unpack_from(">i", data, at)
+        at += 4
+        first = None
+        if rflags & 4:
+            (first,) = struct.unpack_from(">I", data, at)
+            at += 4
+        samples = []
+        for j in range(count):
+            sample = dict(defaults)
+            for bit, field in ((0x100, "duration"), (0x200, "size"), (0x400, "flags"), (0x800, "cto")):
+                if rflags & bit:
+                    (sample[field],) = struct.unpack_from(">i" if field == "cto" else ">I", data, at)
+                    at += 4
+            if j == 0 and first is not None:
+                sample["flags"] = first
+            samples.append(sample)
+        trafs.append({"track": track, "time": time, "data": base + offset, "samples": samples})
+    return trafs
+
+
+def tfhd(flags: int, track: int, *fields: bytes) -> bytes:
+    return box(b"tfhd", struct.pack(">II", flags, track), *fields)
+
+
+def tfdt(time: int, version: int = 0) -> bytes:
+    return box(b"tfdt", struct.pack(">IQ", 1 << 24, time) if version else struct.pack(">II", 0, time))
+
+
+ALL_MEMBERS = ("duration", "size", "flags", "cto")
+
+
+def trun(samples: list[dict], *, offset: int | None = None, first_flags: int | None = None,
+         members: tuple[str, ...] = ALL_MEMBERS) -> bytes:
+    """A trun box of `samples`, its table of `members`."""
+    bits = {"duration": 0x100, "size": 0x200, "flags": 0x400, "cto": 0x800}
+    flags = sum(bits[m] for m in members) | (0 if offset is None else 1) | (0 if first_flags is None else 4)
+    body = struct.pack(">II", flags, len(samples))
+    if offset is not None:
+        body += struct.pack(">i", offset)
+    if first_flags is not None:
+        body += struct.pack(">I", first_flags)
+    for s in samples:
+        for m in members:
+            body += struct.pack(">i", s.get(m, 0)) if m == "cto" else struct.pack(">I", s.get(m, 0))
+    return box(b"trun", body)
+
+
+def traf_pair(way: int, v: dict, a: dict, durations: dict[int, int], at: int, data_at: int) -> tuple[tuple, tuple]:
+    """The boxes of the traf boxes of `v` and `a`, in a moof box at `at` whose data is at `data_at`
+    (`v`'s, then `a`'s), saying where their samples are in the way `way` (refragmented's)."""
+    v_size = sum(s["size"] for s in v["samples"])
+    if way == 0:
+        half = max(1, len(v["samples"]) // 2)
+        skip = sum(s["size"] for s in v["samples"][:half])
+        return ((tfhd(1, v["track"], struct.pack(">Q", data_at)), tfdt(v["time"]),
+                 trun(v["samples"][:half]), trun(v["samples"][half:], offset=skip)),
+                (tfhd(1, a["track"], struct.pack(">Q", data_at + v_size)), tfdt(a["time"]), trun(a["samples"])))
+    if way == 1:
+        by_trex = all(s["duration"] == durations[a["track"]] for s in a["samples"])
+        return ((tfhd(0, v["track"]), tfdt(v["time"]), trun(v["samples"], offset=data_at - at)),
+                (tfhd(0, a["track"]), tfdt(a["time"]),
+                 trun(a["samples"], offset=0, members=ALL_MEMBERS[1:] if by_trex else ALL_MEMBERS)))
+    if way == 2:
+        rest = v["samples"][1].get("flags", 0) if len(v["samples"]) > 1 else 0
+        same = all(s.get("flags") == rest for s in v["samples"][1:])
+        video = (trun(v["samples"], offset=data_at - at, first_flags=v["samples"][0]["flags"],
+                      members=("duration", "size", "cto")) if same else trun(v["samples"], offset=data_at - at))
+        sizes = {s["size"] for s in a["samples"]}
+        one = sizes.pop() if len(sizes) == 1 else None
+        size_flag, size_field = (0x10, (struct.pack(">I", one),)) if one is not None else (0, ())
+        members = ("duration", "flags", "cto") if one is not None else ALL_MEMBERS
+        return ((tfhd(0x20020, v["track"], struct.pack(">I", rest)), tfdt(v["time"], 1), video),
+                (tfhd(0x20000 | size_flag, a["track"], *size_field), tfdt(a["time"], 1),
+                 trun(a["samples"], offset=data_at + v_size - at, members=members)))
+    return ((tfhd(0x20000, v["track"]), trun(v["samples"], offset=data_at - at)),
+            (tfhd(0x20000, a["track"]), trun(a["samples"], offset=data_at + v_size - at)))
+
+
+def refragmented(data: bytes) -> bytes:
+    """`data`, a fragmented file of two tracks, each moof box with a traf box of each, its moof
+    and mdat boxes written anew, each moof box's track fragments saying where their samples are
+    in another of the ways ISO/IEC 14496-12 §8.8.7 and §8.8.8 give. Way 0: the tfhd box's base data
+    offset and no data offset, its trun box split in two, the second's data offset its own (a run
+    without one starts where the one before ended, which ffmpeg's demuxer does not read:
+    tests/mp4.rs has that). Way 1: the moof box's start by default, the second traf box's where the
+    first's data ended, and the second's durations the trex box's when they all are. Way 2:
+    default-base-is-moof, a version 1 tfdt box, the first sample's flags its own and the others' the
+    tfhd box's, the sizes by default when they are all one. Way 3: no tfdt box, the times following
+    the fragment before's."""
+    moofs = [(o, n) for name, o, _, n in boxes(data) if name == "/moof"]
+    first = moofs[0][0]
+    parsed = [fragment_samples(data, o, n) for o, n in moofs]
+    assert all(len(p) == 2 for p in parsed), "a traf box of each track"
+    # the trex boxes' durations hold each track's first sample's, so that a fragment can leave it out
+    durations = {t["track"]: t["samples"][0]["duration"] for t in parsed[0]}
+    head = bytearray(data[:first])
+    for name, o, h, _ in boxes(data):
+        if name.endswith("/trex"):
+            (track,) = struct.unpack_from(">I", data, o + h + 4)
+            struct.pack_into(">I", head, o + h + 12, durations[track])
+    out = bytes(head)
+    for k, (v, a) in enumerate(parsed):
+        media = b"".join(data[t["data"]:t["data"] + sum(s["size"] for s in t["samples"])] for t in (v, a))
+        at = len(out)
+        data_at = at + 8
+        for _ in range(2):  # the second time, knowing the moof box's length
+            video, sound = traf_pair(k % 4, v, a, durations, at, data_at)
+            moof = box(b"moof", box(b"mfhd", struct.pack(">II", 0, k + 1)), box(b"traf", *video), box(b"traf", *sound))
+            data_at = at + len(moof) + 8
+        out += moof + box(b"mdat", media)
+    return out
+
+
+def frag_sample_outside(data: bytes) -> bytes:
+    """`data` with its first fragment's first sample's size made larger than the file."""
+    o, h, _ = find(data, "/trun")
+    (flags, _count) = struct.unpack_from(">II", data, o + h)
+    assert flags & 0x200, "sizes in the table"
+    at = o + h + 8 + 4 + (4 if flags & 4 else 0) + (4 if flags & 0x100 else 0)
+    return data[:at] + struct.pack(">I", len(data) + 1) + data[at + 4:]
 
 
 def irregular_groups() -> bytes:
