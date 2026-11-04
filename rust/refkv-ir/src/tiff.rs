@@ -431,6 +431,10 @@ struct Level {
     /// chunks of shards (spec/zarrify/tiff.md §4.5
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>)
     shard: u64,
+    /// the level's last strip is short and cannot be padded, so that its chunks are those of a
+    /// `rectilinear` grid (spec/zarrify/tiff.md §4.5
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>)
+    rectilinear: bool,
     /// how a short last strip is padded to the chunk (spec/zarrify/tiff.md §4.5
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>):
     /// `{"zeros": [{c, k, zeros}, ...]}` (uncompressed) or `{"lzw": [{c, k, prefix, tail}, ...]}`,
@@ -450,7 +454,8 @@ impl Level {
 /// 2^10 strips and 2^30 decoded bytes, as even as whole strips allow (spec/zarrify/tiff.md §4.5
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>): each strip stays a
 /// stream of its own, which the sharding codec finds through the shard's index. A level stays
-/// one strip a chunk when it has one strip, or when two do not fit.
+/// one strip a chunk when it has one strip, when two do not fit, or when its last strip is short
+/// and cannot be padded: the sharding codec refuses the `rectilinear` grid that then needs.
 fn shard_strips(levels: &mut [Level], bits: u64, spp: u64, planar: u64, compression: u64) {
     if !matches!(compression, 5 | 8 | 32946 | 50000) {
         return;
@@ -460,7 +465,7 @@ fn shard_strips(levels: &mut [Level], bits: u64, spp: u64, planar: u64, compress
         let row = lv.w as u128 * (bits / 8) as u128 * if contig { spp as u128 } else { 1 };
         let strips = lv.h.div_ceil(lv.th);
         let most = (MAX_SHARD_BYTES / (lv.th as u128 * row)).min(MAX_JOINED_STRIPS) as u64;
-        if strips >= 2 && most >= 2 {
+        if strips >= 2 && most >= 2 && (compression == 5 || lv.h % lv.th == 0) {
             lv.shard = strips.div_ceil(strips.div_ceil(most));
         }
     }
@@ -2164,7 +2169,7 @@ impl Tiff {
             let same = dims(k, &vals[&k])? == d0 && self.fmt(k, &vals[&k])? == f0;
             self.rules.check("level_ifd", rules::env([("offset", num(self.ifds[k].offset as f64)), ("same", flag(same))]))?;
         }
-        Ok(Level { w: d0.0, h: d0.1, tw: d0.3, th: d0.4, ifds: ks.to_vec(), strips: !d0.2, join: 1, shard: 1, pad: J::Null })
+        Ok(Level { w: d0.0, h: d0.1, tw: d0.3, th: d0.4, ifds: ks.to_vec(), strips: !d0.2, join: 1, shard: 1, rectilinear: false, pad: J::Null })
     }
 
     /// The `strips` role of an IFD that is not tiled: StripOffsets, StripByteCounts and a
@@ -2455,9 +2460,12 @@ impl Tiff {
         }
         // a level in strips whose last strip is short, padded to the chunk (spec/zarrify/tiff.md §4.5
         // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>): one that
-        // cannot be padded rejects the input (the `padding` role)
+        // cannot be padded has a `rectilinear` grid
         if plan.is_none() {
-            self.pad_strips(&mut levels, &vals, bits, spp, planar, compression)?;
+            let padded = self.pad_strips(&mut levels, &vals, bits, spp, planar, compression)?;
+            for (lv, padded) in levels.iter_mut().zip(padded) {
+                lv.rectilinear = !padded;
+            }
         }
         // pixel size and position (spec/zarrify/tiff.md §4.4
         // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#44-arrays>)
@@ -2746,7 +2754,7 @@ impl Tiff {
                     Some(p) => p.iter().map(|x| x.filter(|x| x.0 == 0).and_then(|x| of(&chain[x.1]))).collect::<Vec<_>>(),
                     None => lv.ifds.iter().map(of).collect::<Vec<_>>(),
                 };
-                json!({"w": lv.w, "h": lv.h, "tw": lv.tw, "th": lv.th, "strips": lv.strips, "join": lv.join, "shard": lv.shard, "pad": lv.pad,
+                json!({"w": lv.w, "h": lv.h, "tw": lv.tw, "th": lv.th, "strips": lv.strips, "join": lv.join, "shard": lv.shard, "rectilinear": lv.rectilinear, "pad": lv.pad,
                        "planes": planes})
             })
             .collect();
@@ -3738,7 +3746,7 @@ impl Tiff {
             first.get_or_insert(this);
         }
         let (w, h, tiled, tw, th) = first.ok_or_else(|| Stop::Reject("internal: an empty QPTIFF level".into()))?;
-        Ok(Level { w, h, tw, th, ifds: ks.to_vec(), strips: !tiled, join: 1, shard: 1, pad: J::Null })
+        Ok(Level { w, h, tw, th, ifds: ks.to_vec(), strips: !tiled, join: 1, shard: 1, rectilinear: false, pad: J::Null })
     }
 
     /// Joins the strips of each uncompressed level into chunks of at most 2^20 bytes and 2^10
@@ -4185,7 +4193,7 @@ mod tests {
     #[test]
     fn compressed_strips_shard_within_the_limits() {
         // (w, h, th, in strips, bits, spp, planar, compression, the strips of a shard)
-        let cases: [(u64, u64, u64, bool, u64, u64, u64, u64, u64); 18] = [
+        let cases: [(u64, u64, u64, bool, u64, u64, u64, u64, u64); 20] = [
             (1344, 1024, 1, true, 16, 1, 1, 5, 1024),          // LZW, one shard a plane
             (1344, 1024, 1, true, 16, 1, 1, 8, 1024),          // Deflate
             (1344, 1024, 1, true, 16, 1, 1, 32946, 1024),      // the other Deflate
@@ -4203,10 +4211,12 @@ mod tests {
             (1344, 1024, 1, true, 16, 1, 1, 1, 1),             // uncompressed strips join instead
             (1344, 1024, 8, true, 8, 1, 1, 7, 1),              // JPEG
             (1344, 1024, 8, true, 8, 1, 1, 34712, 1),          // JPEG 2000
-            (1344, 1000, 16, true, 8, 1, 1, 5, 63),            // a short last strip is a strip
+            (1344, 1000, 16, true, 8, 1, 1, 5, 63),            // a short last LZW strip is padded, and a strip
+            (1344, 1000, 16, true, 8, 1, 1, 8, 1),             // a short last Deflate strip is not: no shard
+            (1344, 1000, 16, true, 8, 1, 1, 50000, 1),         // nor one of zstd
         ];
         for (w, h, th, strips, bits, spp, planar, compression, want) in cases {
-            let mut levels = [Level { w, h, tw: w, th, ifds: vec![], strips, join: 1, shard: 1, pad: J::Null }];
+            let mut levels = [Level { w, h, tw: w, th, ifds: vec![], strips, join: 1, shard: 1, rectilinear: false, pad: J::Null }];
             shard_strips(&mut levels, bits, spp, planar, compression);
             assert_eq!(levels[0].shard, want, "{w} x {h}, {th} rows, compression {compression}");
         }
