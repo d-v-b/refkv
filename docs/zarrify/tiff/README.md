@@ -231,6 +231,9 @@ Supported:
   it with LZW, DEFLATE or zstd, of integer samples: imagecodecs-zarr's
   `imagecodecs_delta` codec sums the differences back (zarr-python reads it
   with `refkv[images]`).
+- The floating-point predictor (Predictor 3), as GDAL writes for Copernicus DEM and USGS 3DEP
+  tiles, with LZW, DEFLATE or zstd, of float samples: imagecodecs-zarr's `imagecodecs_floatpred`
+  codec undoes it, in the place of `bytes`.
 
 Rejected:
 
@@ -240,10 +243,9 @@ Rejected:
   of zeros, or a short last LZW strip of more than 16 MiB (2^24 bytes), which
   is read to pad it.
 - Old-style JPEG (compression 6).
-- The floating-point predictor (Predictor 3), and Predictor 2 of float
-  samples (whose bits are differenced as integers), without compression
-  (libtiff stores such a file undifferenced) or with JPEG: no codec of refkv's
-  conventions sums these back.
+- Predictor 2 of float samples (whose bits are differenced as integers), Predictor 3 of
+  integer samples, either without compression (libtiff stores such a file undifferenced) or with
+  JPEG: no codec of refkv's conventions undoes these.
 - Multi-file OME-TIFF (`TiffData` naming other files).
 - An OME-TIFF with several RGB channels (`SizeC` other than 1 or the
   samples per pixel).
@@ -270,13 +272,13 @@ The browser code ([js/](../../../js/README.md)) reads TIFF:
 - Samples per pixel stored planar (one chunk per channel) or interleaved
   (through a `transpose` codec).
 - Compression: none, LZW (`refkv.tiff_lzw`), DEFLATE (`numcodecs.zlib`), zstd, JPEG 2000
-  (`imagecodecs_jpeg2k`), and JPEG (`imagecodecs_jpeg`), and Predictor 2 (`imagecodecs_delta`). JPEG tiles that keep
+  (`imagecodecs_jpeg2k`), and JPEG (`imagecodecs_jpeg`), and Predictors 2 (`imagecodecs_delta`) and 3 (`imagecodecs_floatpred`). JPEG tiles that keep
   their tables in `JPEGTables`, as in Aperio SVS, become complete JPEG streams
   through references that prepend the tables and a color marker, held once
   in the archive as a `data` source.
 
 Not supported, and refused with HTTP 422: what the profile rejects (above),
-such as old-style JPEG, the floating-point predictor, and multi-file OME-TIFF.
+such as old-style JPEG and multi-file OME-TIFF.
 
 ## Performance
 

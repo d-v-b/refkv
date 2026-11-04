@@ -9,6 +9,12 @@ store is the TIFF profile, [Part 2](#part-2-the-profile) below.
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `48e9ac4e-1156-4a62-955e-20467d9c2700` ·
 Schema: [schema.json](tiff/schema.json)
 
+Changed 2026-11-04: an image of a `float` type with Predictor 3, the floating-point predictor, and
+LZW, Deflate or zstd has a layout, `imagecodecs_floatpred` in place of `bytes`
+([§4.3](#43-data-types-and-codecs)), and its `omero` windows sampled through the predictor
+([§4.4](#44-arrays)); Predictor 3 with an integer type, with no compression or with JPEG is rejected;
+no output of a file accepted before changed.
+
 Changed 2026-11-04: a level's LZW, Deflate and zstd strips are the inner chunks of shards of at most
 2^10 strips and 2^30 decoded bytes ([§4.5](#45-strips), [zarrify §2.1](../zarrify.md#21-virtual-shards))
 in place of one chunk a strip, so that an image of one compressed row a strip no longer has a key a
@@ -334,10 +340,13 @@ BitsPerSample, which MUST be 8, 16, 32 or 64 (32 or 64 for `float`).
 | 1 | 1 | bytes |
 | 5 (LZW) | 1 | bytes, `refkv.tiff_lzw` |
 | 5 (LZW) | 2 | `imagecodecs_delta`, bytes, `refkv.tiff_lzw` |
+| 5 (LZW) | 3 | `imagecodecs_floatpred`, `refkv.tiff_lzw` |
 | 8, 32946 (Deflate) | 1 | bytes, `numcodecs.zlib` |
 | 8, 32946 (Deflate) | 2 | `imagecodecs_delta`, bytes, `numcodecs.zlib` |
+| 8, 32946 (Deflate) | 3 | `imagecodecs_floatpred`, `numcodecs.zlib` |
 | 50000 (zstd) | 1 | bytes, zstd |
 | 50000 (zstd) | 2 | `imagecodecs_delta`, bytes, zstd |
+| 50000 (zstd) | 3 | `imagecodecs_floatpred`, zstd |
 | 33003, 33004, 33005, 34712 (JPEG 2000) | any | imagecodecs_jpeg2k |
 | 7 (JPEG) | 1 | imagecodecs_jpeg |
 
@@ -368,17 +377,27 @@ before it, in the data type's arithmetic (modulo 2^BitsPerSample), so that the d
 bytes are differences, and the codec sums them back along `x`, each sample apart. GDAL, libtiff
 and tifffile write it with LZW, Deflate and zstd.
 
-Any other Predictor rejects the input, but for JPEG 2000, whose streams do not use it, and so
-does Predictor 2:
-- with a `float` data type, whose values a writer differences as integers of their bits
-  (libtiff does), which no codec of [conventions §3](../conventions.md#3-arrays) sums back;
-- with Compression 1, which libtiff stores without differencing (it applies a predictor only
-  inside a compression's coder) and tifffile does not write, so that readers disagree on what
-  the bytes hold;
-- with JPEG (Compression 7), whose stream does not use it.
+Predictor 3, the floating-point predictor (Adobe's [TIFF Technical Note
+3](http://chriscox.org/TIFFTN3d1.pdf)), with a `float` data type
+(SampleFormat 3) puts `{"name": "imagecodecs_floatpred", "configuration": {"axis": a, "dist": 1}}`
+([conventions §3](../conventions.md#3-arrays)) in place of `bytes`, `a` being the index of `x` in
+stored order, as above. Within each row of a tile or strip, the writer gathered the most significant
+bytes of the row's values, then their next bytes and so on, and stored each byte less the same byte
+of the sample before it along `x`, modulo 256. These bytes do not depend on the file's byte order, so
+the codec has no `endian`. Interleaved samples have `dist` 1 too: the codec takes the axis after
+`a` for a pixel's samples and differences each with the same sample of the pixel before. (A `dist`
+of the sample count is not what they need, and imagecodecs refuses one of 3.) GDAL, libtiff and
+tifffile write it with LZW, Deflate and zstd.
 
-Predictor 3, the floating-point predictor, differences the bytes of a row after reordering them
-by significance, which no codec of [conventions §3](../conventions.md#3-arrays) undoes.
+Any other Predictor rejects the input, but for JPEG 2000, whose streams do not use it, and so
+do:
+- Predictor 2 with a `float` data type, whose values a writer differences as integers of their
+  bits (libtiff does), which no codec of [conventions §3](../conventions.md#3-arrays) sums back,
+  and Predictor 3 with an integer data type, which libtiff does not write;
+- Predictor 2 or 3 with Compression 1, which libtiff stores without differencing (it applies a
+  predictor only inside a compression's coder) and tifffile does not write, so that readers
+  disagree on what the bytes hold;
+- Predictor 2 or 3 with JPEG (Compression 7), whose stream does not use it.
 
 The codecs read the bytes of a tile as they are, filled from each byte's
 most significant bit (FillOrder 1), and decode samples at full resolution.
@@ -492,8 +511,8 @@ are the data's extremes, not a display setting), so the window is
 sampled from the data, as refkv's demo samples a contrast range, when
 the samples do not decode to RGB (above) and Compression is 1, 5, 8 or
 32946, whose chunks refkv decodes (LZW as [§4.3](#43-data-types-and-codecs) says, into
-the chunk's size, and Predictor 2's differences summed back as `imagecodecs_delta` does; it
-does not decode JPEG, JPEG 2000 or zstd):
+the chunk's size, Predictor 2's differences summed back as `imagecodecs_delta` does, and
+Predictor 3 undone as `imagecodecs_floatpred` does; it does not decode JPEG, JPEG 2000 or zstd):
 1. Channel `c`'s **sampled chunk** is the chunk of the last level (the
    coarsest) with coords: along `t`, 0; along `c`, the chunk holding
    channel `c` (`c`, or 0 when interleaved); along `z`, `y` and `x`, the
@@ -611,7 +630,7 @@ chunk's rows, and of a level that does not join, the strip's):
 | **5 (LZW)** | the strip's stream is read until its output reaches the strip's size (`rows × B` bytes; a stream that does not reach it, or whose code crosses it, rejects the input), and what follows (its end-of-information code, or the malformed final code of [§4.3](#43-data-types-and-codecs)) is replaced by a **tail** that continues the stream: a Clear code at the width the decoder has there, then the `(R − rows) × B` zeros as the codes 0, 258, 259, ... (each code one zero longer than the last, the entry the decoder defines on reading the previous one) and one more code for the remainder shorter than the next entry, then the end-of-information code, every code at the width the decoder has when it reads it. The chunk's bytes are the strip's bytes before the byte holding the cut, then the tail, which starts with that byte's bits before the cut |
 | **another compression** (JPEG, Deflate, zstd, JPEG 2000) | cannot be padded: the input is rejected |
 
-With Predictor 2, the padding is the same: each padded row is differences of 0, which sum back
+With Predictor 2 or 3, the padding is the same: each padded row is differences of 0, which sum back
 to zeros, since the differencing starts again at each row. (A short strip of Deflate or zstd cannot be extended without decompressing and compressing it
 again, and a JPEG or JPEG 2000 stream holds its own height, so these have no padding that
 references the strip's bytes. A shard does not change this: an inner chunk decodes to the inner
