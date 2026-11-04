@@ -80,7 +80,7 @@ fn accepted_pairs_have_one_array() {
             accepted += 1;
         }
     }
-    assert_eq!(accepted, 8);
+    assert_eq!(accepted, 9);
 }
 
 /// A pair's references are ranges of its image file; its image file's bytes before the voxels pass over.

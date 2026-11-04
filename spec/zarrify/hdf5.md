@@ -12,6 +12,11 @@ this layout as a reference store, and the subset of HDF5 that it reads, is the H
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `6c006834-424b-451b-b786-f8c502ec32af` ·
 Schema: [schema.json](hdf5/schema.json)
 
+Changed 2026-11-04: an array has `dimension_names` from its `DIMENSION_LIST`, or from itself as a
+dimension scale, a netCDF-4 dimension without a variable is not presented
+([§3](#3-datasets)), and such a dataset's attribute of one element is a scalar and any dataset's
+`_FillValue` in the form xarray reads ([§6](#6-attributes)).
+
 Changed 2026-11-01, with no change to any output: the checks list every rejection and limit,
 among them the datatypes' nesting, the rounds of reads and the references' budget, and say that
 a datatype that does not decode rejects the input, where they said that none did
@@ -133,7 +138,17 @@ is not presented, with the reason [§7.4](#74-what-is-not-presented) gives.
   departs from [conventions §3](../conventions.md#3-arrays)'s fill value 0: an unallocated chunk of an HDF5 dataset reads as
   its fill value. A fill value the data type has no JSON form of is not presented
   (`fill_value`).
-- **Dimension names:** none.
+- **Dimension names:** when the dataset has a `DIMENSION_LIST` attribute, a sequence of object
+  references per axis, an axis's name is the name of the first dataset of its sequence, by its
+  link name in the hierarchy ([§2.2](#22-paths)) without a leading `_nc4_non_coord_`, and `null` when
+  its sequence is empty or names no object the walk reached. A dataset of rank 1 with no such
+  attribute and a `CLASS` attribute of `DIMENSION_SCALE` has its own name, the same way. Any
+  trailing axis of a fixed-length string is `null`. A dataset with neither, or with every axis
+  `null`, has no `dimension_names`. So a netCDF-4 file's variables have their dimensions and its
+  coordinate variables are arrays named as theirs, which is what xarray reads as coordinates.
+- **A dimension without a variable:** a dimension scale whose `NAME` attribute is a fixed-length
+  string starting `This is a netCDF dimension but not a netCDF variable` is not presented
+  (`dimension_only`): netCDF-4 writes it for the dimension alone, and its values are not data.
 - **Attributes:** [§2.1](#21-declaration-and-attributes).
 
 ### 3.1 Data types
@@ -257,6 +272,17 @@ order of the attributes' names, its value as JSON
 | an object reference | [§5](#5-object-references) |
 | a compound | an object of its members' values, by name |
 
+**On a dataset with `dimension_names`** ([§3](#3-datasets)), an attribute that is an array of one
+element is that element's value, as netCDF-4 reads such an attribute: netCDF-4 writes its
+numbers so, and xarray takes `scale_factor` for a list otherwise.
+
+**`_FillValue`.** On a dataset of an integer or IEEE float datatype, an attribute named `_FillValue`
+of one integer or float, a scalar or an array of one element, is the form xarray's Zarr backend
+reads a member of that name in: for an integer dataset the number (a value that is not an integer
+of at most 2^53 − 1 in magnitude keeps the table's form), and for a float dataset the Base64 of the
+8 little-endian bytes of the value as a binary64. Every other attribute of netCDF-4's, such as
+`scale_factor`, keeps the table's form. The attribute's bytes stay in the IR mirror.
+
 A **float value** is the encoding Zarr v3 gives a fill value of the data type `float16`,
 `float32` or `float64` of the float's size
 ([Zarr v3 data types, permitted fill values](https://zarr-specs.readthedocs.io/en/latest/v3/data-types/index.html#fill-value-list)),
@@ -340,7 +366,7 @@ the file.
 | `named_datatype`, `object` | a named datatype; an object that is neither a group nor a dataset |
 | `datatype` | a dataset's or attribute's datatype outside [§3.1](#31-data-types) or [§6](#6-attributes) |
 | `filter`, `filter_mask`, `edge_chunks` | a filter other than deflate and shuffle; a chunk a filter skipped; unfiltered partial edge chunks |
-| `layout`, `external_storage`, `null_dataspace`, `size`, `fill_value` | [§3](#3-datasets) |
+| `layout`, `external_storage`, `dimension_only`, `null_dataspace`, `size`, `fill_value` | [§3](#3-datasets) |
 | `shared` | an attribute with a shared datatype or dataspace |
 | `budget` | an attribute past its node's budget |
 
