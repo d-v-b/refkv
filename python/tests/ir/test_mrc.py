@@ -244,7 +244,9 @@ CASES = {
                              None, ("0/c/0/0/0", [(1024, 24)])),
     "mrc_imod_signed_other_flags": ({"dataType": "int8"}, None, None, None, None, None, None),
     "mrc_imod_unsigned_uint8": ({"dataType": "uint8"}, None, None, None, {"data_type": "uint8"},
-                                {"min": 0, "max": 255, "start": 0, "end": 255}, None),
+                                {"min": 0, "max": 255, "start": 0, "end": 255}, ("0/c/0/0/0", [(1024, 24)])),
+    # the stamp and flags are read in the file's byte order: only this fixture fails if they aren't
+    "mrc_imod_unsigned_uint8_be": ({"dataType": "uint8", "byteOrder": "big"}, None, None, None, None, None, None),
     "mrc_imod_signed_int8_be": ({"dataType": "int8", "byteOrder": "big"}, None, None, None, None, None, None),
     "mrc_imod_flag_no_stamp": ({"dataType": "int8"}, None, None, None, None, None, None),
     "mrc_edge_volume_stack_one": ({"kind": "volume_stack", "sizes": {"t": 1, "z": 3, "y": 2, "x": 3}},

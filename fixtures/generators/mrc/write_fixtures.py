@@ -196,6 +196,8 @@ def main() -> None:
     mrc("mrc_imod_flag_no_stamp", (4, 3, 2), 0, extra2=bytes(44) + struct.pack("<i", 1) + bytes(36))
     mrc("mrc_imod_signed_int8_be", (4, 3, 2), 0, order=">",
         extra2=bytes(40) + struct.pack(">ii", 1146047817, 1) + bytes(36))
+    mrc("mrc_imod_unsigned_uint8_be", (4, 3, 2), 0, order=">",
+        extra2=bytes(40) + struct.pack(">ii", 1146047817, 0) + bytes(36))
     mrc("mrc_edge_volume_stack_one", (3, 2, 3), 2, ispg=401, mz=3)
     mrc("mrc_edge_ispg_230", (3, 2, 2), 2, ispg=230)
     mrc("mrc_edge_ispg_negative", (3, 2, 2), 2, ispg=-1)

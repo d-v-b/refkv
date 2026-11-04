@@ -154,8 +154,8 @@ fastest, then the row, then the section.
 | 12 | FLOAT16 | `float16` | 2 |
 | 101 | INT4 | `uint8`, packed | ½, each row starting on a byte |
 
-Mode 0 is `int8`, as the MRC2014 standard says, except in a file IMOD
-marks as unsigned. When `mode` is 0 and the `i32` at byte 152 (in the
+Mode 0 is `int8`, as the MRC2014 standard says, except in an IMOD file
+whose bytes are unsigned. When `mode` is 0 and the `i32` at byte 152 (in the
 file's byte order; the 41st byte of `extra2`) is 1146047817 (IMOD's stamp,
 `IMOD` as a little-endian integer), bit 0 of the `i32` at byte 156 (IMOD's
 flags) says the bytes are signed: set, the data type is `int8`; when that
@@ -301,7 +301,7 @@ Everything the file holds is on `refkv_source`, the file's **IR mirror**
 |---|---|---|---|
 | `byte_order` | string | required | `"little"` or `"big"` |
 | `kind` | string | required | `"image"`, `"image_stack"`, `"volume"` or `"volume_stack"` ([§4.1](#41-the-array)) |
-| `data_type` | string | required | the Zarr data type of [§3](#3-data-types) (`uint8` for a mode 0 file IMOD's stamp marks as unsigned) |
+| `data_type` | string | required | the Zarr data type of [§3](#3-data-types) (`uint8` for a mode 0 file that [§3](#3-data-types) reads as unsigned, and for mode 101) |
 | `header` | [`MrcHeader`](#type-mrcheader) | required | every field of the header |
 | `axis_map` | [`MrcAxisMap`](#type-mrcaxismap) | required | whether the axis map named the axes ([§4.1](#41-the-array)) |
 | `voxel_size` | [`MrcVoxelSize`](#type-mrcvoxelsize) | optional | the voxel size in angstroms ([§4.2](#42-scales-units-and-position)), present when every axis has one |
