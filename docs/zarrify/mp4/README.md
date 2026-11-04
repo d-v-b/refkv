@@ -39,7 +39,7 @@ A group at the archive root, and a group per track refkv zarrifies, at
   `rectilinear` chunk grid, which `refkv.zarr` turns on in zarr-python.
   No color conversion: RGB depends on the stream's color matrix, which is
   the reader's to apply.
-- **Audio (AAC-LC, MP3):** `samples`, `float32`, `[time, channel]`, the
+- **Audio (AAC-LC, HE-AAC, MP3):** `samples`, `float32`, `[time, channel]`, the
   decoder's output, in chunks of 256 frames.
 - **Audio (PCM):** `samples`, `[time, channel]`, in the file's own data type
   (`uint8`, `int8`, `int16`, `int32`, `float32` or `float64`) and byte order, in
@@ -164,12 +164,13 @@ Supported:
   leading pictures (x265's open groups included): an iPhone's video, its
   HDR video's HLG base layer included (its Dolby Vision metadata is
   recorded, not applied).
-- AAC-LC and MP3 audio tracks, mono or stereo, in either container.
+- AAC-LC, HE-AAC, HE-AAC v2 and MP3 audio tracks, mono or stereo, in either container. An HE-AAC
+  chunk's high band is its own, not the whole stream's: SBR's noise runs on from frame to frame.
 
 Not zarrified (listed with the reason, and kept in the mirror): AV1 and
 other video codecs, Dolby Vision's own sample entries (`dvh1`, `dvhe`),
 `avc3` (parameter sets in the stream), 10-bit, 4:2:2 and 4:4:4 H.264, 4:2:2,
-4:4:4 and 12-bit HEVC, groups of more than 1024 pictures, HE-AAC, 24-bit PCM
+4:4:4 and 12-bit HEVC, groups of more than 1024 pictures, 24-bit PCM
 (`bytes` has no data type for it) and other audio codecs, timecode, text and
 metadata tracks.
 

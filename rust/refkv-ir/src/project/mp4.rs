@@ -21,6 +21,9 @@ const TIME_CHUNK: u64 = 1 << 17;
 /// side information are at most 38 bytes), and the reservoir its lead-in holds (MPEG-1's).
 const MP3_OVERHEAD: u64 = 38;
 const MP3_RESERVOIR: u64 = 511;
+/// The frames before an HE-AAC chunk it decodes first, at about 46 ms each: SBR decodes only after
+/// its header, which an encoder repeats about every half a second, and from its own frame before.
+const SBR_LEAD: usize = 16;
 /// A PCM chunk's frames for each frame of an AAC chunk's: 1024, an AAC frame's samples, so that a
 /// chunk of `samples` holds as many samples whichever the track's coding.
 const PCM_FRAMES: u64 = 1024;
@@ -102,12 +105,12 @@ pub fn video_units(a: usize, b: usize, order: &[usize], rank: &[usize], sync: &[
 /// first chunk; for AAC the frame before it (its overlap); for MP3 the two frames before it
 /// and before them the fewest whose main data (at least each frame's length less 38 bytes)
 /// holds 511 bytes, or every frame from the first.
-pub fn audio_lead(a: usize, format: &str, sizes: &[u64]) -> usize {
+pub fn audio_lead(a: usize, format: &str, spf: u64, sizes: &[u64]) -> usize {
     if a == 0 {
         return 0;
     }
     if format == "aac" {
-        return a - 1;
+        return a.saturating_sub(if spf == 2048 { SBR_LEAD } else { 1 });
     }
     audio::reservoir_lead(a, MP3_RESERVOIR, |l| sizes[l].saturating_sub(MP3_OVERHEAD))
 }
@@ -294,7 +297,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
             let doc = array_json(&[count as u64 * spf, channels], "float32", json!([chunk * spf, channels]), stream_codec(format, &t["setup"], None), &["time", "channel"]);
             refs.out.json(&format!("{dir}/samples/zarr.json"), &doc);
             let sizes: Vec<u64> = (0..count).map(|j| sample(j).1).collect();
-            chunks = audio::chunks(&mut refs, ir, &format!("{dir}/samples"), first, count, chunk as usize, spf, form, |a| audio_lead(a, format, &sizes))?;
+            chunks = audio::chunks(&mut refs, ir, &format!("{dir}/samples"), first, count, chunk as usize, spf, form, |a| audio_lead(a, format, spf, &sizes))?;
         }
         let frames = if format == "pcm" { n(&t["frames"]) } else { count as u64 };
         summary.push(json!({"id": id, "format": format, "path": dir, "frames": frames, "chunkFrames": chunk, "chunks": chunks}));
@@ -390,9 +393,11 @@ mod tests {
     #[test]
     fn an_audio_chunk_leads_in_by_its_format() {
         let sizes = vec![144u64; 20];
-        assert_eq!(audio_lead(0, "aac", &sizes), 0);
-        assert_eq!(audio_lead(8, "aac", &sizes), 7);
+        assert_eq!(audio_lead(0, "aac", 1024, &sizes), 0);
+        assert_eq!(audio_lead(8, "aac", 1024, &sizes), 7);
+        assert_eq!(audio_lead(8, "aac", 2048, &sizes), 0);
+        assert_eq!(audio_lead(20, "aac", 2048, &vec![0; 40]), 4);
         // 106 bytes of main data a frame at least: 5 frames hold 530
-        assert_eq!(audio_lead(12, "mp3", &sizes), 5);
+        assert_eq!(audio_lead(12, "mp3", 1152, &sizes), 5);
     }
 }

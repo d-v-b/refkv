@@ -7,7 +7,7 @@ video, 8-bit and Main 10 (HLG, as an iPhone records it), in hvc1 and hev1 sample
 open groups (CRA pictures and their RASL pictures), RADL pictures, and in a QuickTime file;
 AAC and MP3 audio, alone and beside video; the moov box before and after the media data, a
 64-bit mdat size and an mdat that runs to the end of the file; fragmented files, as ffmpeg's muxer
-writes them and with each way a track fragment can say where its samples are; PCM audio of each kind
+writes them and with each way a track fragment can say where its samples are; HE-AAC; PCM audio of each kind
 of sample entry; tracks the profile does not zarrify (10-bit H.264, 4:2:2 HEVC) beside ones it does;
 and the inputs it rejects (`mp4_reject_*`). The byte-crafted edge
 cases are write_edge_fixtures.py's.
@@ -172,6 +172,21 @@ def main() -> None:
     write("mov_hevc_main10_aac.mov",
           ffmpeg(*video(), *audio(), *x265(f"{OPEN_GOP}:{HLG}", "yuv420p10le"), *AAC, fmt="mov"))
     write("mov_hevc_aac.mov", ffmpeg(*video(), *audio(), *x265(OPEN_GOP), *AAC, fmt="mov"))
+    # HE-AAC and HE-AAC v2, as AudioToolbox writes them (macOS only), and the same streams with the
+    # hierarchical signaling; SBR that does not double the rate, and another AAC object type
+    he = ("-c:a", "aac_at", "-profile:a", "4", "-b:a", "32k")
+    he2 = ("-c:a", "aac_at", "-profile:a", "28", "-b:a", "24k")
+    tone = audio(44100, 1.5, 2)
+    he_aac = ffmpeg(*tone, *he)
+    he_aac_v2 = ffmpeg(*tone, *he2)
+    write("mp4_he_aac.mp4", he_aac)
+    write("mp4_he_aac_v2.mp4", he_aac_v2)
+    write("mp4_he_aac_hierarchical.mp4", audio_config(he_aac, bytes.fromhex("2b92088000")))
+    write("mp4_he_aac_v2_hierarchical.mp4", audio_config(he_aac_v2, bytes.fromhex("eb8a0880000000")))
+    beside_he = ffmpeg(*video(), *audio(44100, 1.5, 2), *X264, "-g", "10", *he)
+    write("mp4_he_aac_h264.mp4", beside_he)
+    write("mp4_he_aac_low_sbr_h264.mp4", audio_config(beside_he, bytes.fromhex("139056e598")))
+    write("mp4_aac_ssr_h264.mp4", audio_config(beside_he, bytes.fromhex("1b9056e5a0")))
     # PCM, alone and beside video: QuickTime's sample entries, a version 2 sound description past
     # 16 bits of sample rate, ISO/IEC 23003-5's, and QuickTime's own sample size of 1
     pcm16 = ffmpeg(*video(), *audio(8000, 1), *X264, "-g", "10", "-c:a", "pcm_s16le", fmt="mov")
@@ -245,6 +260,17 @@ def main() -> None:
     write("mp4_reject_frag_trun_table.mp4", frag[:o + h + 4] + struct.pack(">I", 1 << 20) + frag[o + h + 8:])
     write("mp4_reject_frag_trun_before.mp4", frag[:o + h + 8] + struct.pack(">i", -(1 << 30)) + frag[o + h + 12:])
     write("mp4_reject_frag_sample_outside.mp4", frag_sample_outside(frag))
+
+
+def audio_config(data: bytes, config: bytes) -> bytes:
+    """The file with its AudioSpecificConfig replaced by `config`, of the same length."""
+    o = data.index(b"esds")
+    at = data.index(b"\x05\x80", o)  # the descriptor's tag, then its length's bytes
+    while data[at + 1] & 0x80:
+        at += 1
+    start = at + 2
+    assert data[start - 1] == len(config), (data[start - 1], len(config))
+    return data[:start] + config + data[start + len(config):]
 
 
 def box(typ: bytes, *payload: bytes) -> bytes:

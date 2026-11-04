@@ -11,6 +11,12 @@ below.
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `bbe3f6b9-488d-4d8d-85ce-60a1649dd27e` ·
 Schema: [schema.json](mp4/schema.json)
 
+Changed 2026-11-04: an HE-AAC or HE-AAC v2 track is zarrified, where it was recorded with a reason
+or, signaled backward-compatibly, declared at half its rate: its frames decode to 2048 samples
+([§4.2](#42-audio-tracks), [§8.2](#82-tracks)), a chunk's lead-in is 16 frames
+([§8.3](#83-chunks)), and its noise is a chunk's own
+([conventions §10](../conventions.md#10-coded-streams)).
+
 Changed 2026-11-04: a PCM audio track is zarrified, where it was recorded with a reason: its samples
 are the file's own bytes, through the `bytes` codec, with the sample entries `sowt`, `twos`, `raw `,
 `NONE`, `in32`, `fl32`, `fl64`, `ipcm`, `fpcm` and `lpcm` ([§4.2](#42-audio-tracks),
@@ -307,7 +313,7 @@ decodes the same pictures and keeps its plane.
 ### 4.2 Audio tracks
 
 An AAC or MP3 track of `N` samples (coded frames), each decoding to `S`
-samples of each of its `C` channels (`S` is 1024 for AAC, 1152 for MP3 at
+samples of each of its `C` channels (`S` is 1024 for AAC, 2048 for HE-AAC, 1152 for MP3 at
 32 kHz and more and 576 below), holds its samples in one array, `samples`:
 
 <a id="type-mp4audioarray"></a>**`Mp4AudioArray`**, the `zarr.json` of `samples` of an AAC or MP3
@@ -650,7 +656,9 @@ and the track is kept in the mirror but has no group:
   one in its `wave` box) is absent or cannot be read, or its object type
   indication is neither AAC (0x40, 0x66 to 0x68) nor MPEG audio (0x69, 0x6B);
   or, for AAC, its AudioSpecificConfig cannot be read, or its object type is
-  not AAC-LC (2), or its frames are 960 samples; or its sample rate or
+  not AAC-LC (2), alone or under SBR's and parametric stereo's (HE-AAC, explicitly 5 and 29, or
+  backward-compatibly by the sync words 0x2B7 and 0x548, ISO/IEC 14496-3 §1.6.5), or its frames are
+  960 samples; or its SBR's sample rate is not twice the core's; or its sample rate or
   channel count is 0;
 - its track ID is an earlier zarrified track's (`its track ID n is an earlier zarrified
   track's`): a zarrified track's group is named by its ID, so of the tracks that share one,
@@ -698,7 +706,8 @@ flag 0x20) or whose `const_bytes_per_audio_packet` is not a frame's bytes, and a
 
 The channel count and sample rate of an AAC track are its
 AudioSpecificConfig's (the sample entry's channel count when its channel
-configuration is 0); those of an MP3 track its sample entry's.
+configuration is 0): of HE-AAC, SBR's sample rate, and of HE-AAC v2, 2 channels from its mono
+core; those of an MP3 track its sample entry's.
 
 The presentation-order rules bound the samples a chunk decodes
 ([§8.3](#83-chunks)). Its pictures are decoded at or after the last sync
@@ -734,7 +743,10 @@ each other in the file:
 - **Audio**, chunk `q` of the frames `a = q × 256` to `b − 1`: the frames
   `l` to `b − 1`, frame `j`'s position −1 when `j < a` and `(j − a) × S`
   otherwise. `l = a` for the first chunk; otherwise, for AAC, `l = a − 1`
-  (the frame before the chunk, whose overlap its first frame needs), and for
+  (the frame before the chunk, whose overlap its first frame needs), for HE-AAC
+  `l = max(0, a − 16)` (SBR decodes only after its header, which encoders repeat about every half a
+  second, 16 frames being about 740 ms at a 22.05 kHz core; the profile, reading no sample, does
+  not see where one is, and a chunk whose lead-in holds none has no SBR up to the next), and for
   MP3, `l` is the greatest index at most `a − 2` such that frames `l` to
   `a − 3` hold at least 511 bytes of main data, counting each frame's size
   less 38 bytes (its header, CRC and side information are at most that), or

@@ -23,7 +23,8 @@ ACCEPTED = [p for p in FILES if "reject" not in p.name]
 # AAC with noise substitution: a chunk decodes its noise from a generator of its own
 # (spec/zarrify/mp4.md §4.2
 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#42-audio-tracks>)
-NOISE = {"mp4_aac_pns.mp4"}
+NOISE = {"mp4_aac_pns.mp4", "mp4_he_aac.mp4", "mp4_he_aac_v2.mp4", "mp4_he_aac_hierarchical.mp4",
+         "mp4_he_aac_v2_hierarchical.mp4", "mp4_he_aac_h264.mp4"}
 # A trun box of negative composition offsets: ffmpeg's demuxer adds the largest of them to every
 # time (its dts_shift), where a sample's presentation time is its decode time plus its offset
 SHIFTED = {"mp4_frag_dash.mp4"}
@@ -319,6 +320,9 @@ TRACKS = [
     ("mp4_frag_h264_aac.mp4", ["tracks/1", "tracks/2"], {}),
     ("mp4_frag_hevc_moof_base.mp4", ["tracks/1", "tracks/2"], {}),
     ("mp4_frag_aac.mp4", ["tracks/1"], {}),
+    ("mp4_he_aac_h264.mp4", ["tracks/1", "tracks/2"], {}),
+    ("mp4_he_aac_low_sbr_h264.mp4", ["tracks/1"], {2: "HE-AAC of SBR at 48000 Hz over a core at 22050 Hz"}),
+    ("mp4_aac_ssr_h264.mp4", ["tracks/1"], {2: "AAC object type 3 is not supported"}),
     ("mp4_frag_pcm_h264.mp4", ["tracks/1", "tracks/2"], {}),
     ("mov_frag_pcm_s32be.mov", ["tracks/1"], {}),
 ]
@@ -414,6 +418,18 @@ def test_a_pcm_track_is_the_file_s_bytes(tmp_path):
     _, root = zarrified(FIXTURES / "mp4" / "mov_pcm_96k_lpcm.mov", tmp_path)
     tm = mapping(at(root["tracks/1"].attrs, "refkv_zarrified", "mp4"))
     assert (tm["sample_rate"], tm["channels"], tm["codec"], tm["format"]) == (96000, 2, "lpcm", "pcm")
+
+
+def test_an_he_aac_track_is_twice_its_core(tmp_path):
+    """An HE-AAC track's rate and frames are SBR's, by either signaling in its AudioSpecificConfig,
+    and HE-AAC v2's channels are parametric stereo's, of a mono core (spec/zarrify/mp4.md §8.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#82-tracks>)."""
+    for name in ("mp4_he_aac.mp4", "mp4_he_aac_v2.mp4", "mp4_he_aac_hierarchical.mp4",
+                 "mp4_he_aac_v2_hierarchical.mp4"):
+        _out, root = zarrified(FIXTURES / "mp4" / name, tmp_path)
+        track = mapping(at(root["tracks/1"].attrs, "refkv_zarrified", "mp4"))
+        assert (track["format"], track["sample_rate"], track["channels"], track["samples_per_frame"]) == (
+            "aac", 44100, 2, 2048), name
 
 
 def test_reads_a_fragmented_file_s_tracks(tmp_path):

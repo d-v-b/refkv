@@ -1188,12 +1188,17 @@ impl Mp4 {
                             0x40 | 0x66 | 0x67 | 0x68 => {
                                 let a = aac_config(&asc).ok_or("an AudioSpecificConfig the profile cannot read")?;
                                 if a.aot != 2 {
-                                    return Err(format!("AAC object type {} is not supported: only AAC-LC (2) is", a.aot));
+                                    return Err(format!("AAC object type {} is not supported: only AAC-LC (2), and HE-AAC of it (5 and 29), are", a.aot));
                                 }
                                 if a.short {
                                     return Err("960-sample AAC frames are not supported".into());
                                 }
-                                ("aac", Some(asc), a.rate, if a.channels > 0 { a.channels } else { e.channels }, 1024)
+                                let channels = if a.channels > 0 { a.channels } else { e.channels };
+                                match a.sbr_rate {
+                                    None => ("aac", Some(asc), a.rate, channels, 1024),
+                                    Some(r) if r == 2 * a.rate => ("aac", Some(asc), r, if a.ps { 2 } else { channels }, 2048),
+                                    Some(r) => return Err(format!("HE-AAC of SBR at {r} Hz over a core at {} Hz is not supported: only at twice its rate is", a.rate)),
+                                }
                             }
                             0x69 | 0x6B => ("mp3", None, e.rate, e.channels, if e.rate >= 32000 { 1152 } else { 576 }),
                             x => return Err(format!("audio of object type indication 0x{x:02x} is not supported")),
@@ -1543,19 +1548,47 @@ pub struct Asc {
     pub rate: u64,
     pub channels: u64,
     pub short: bool,
+    /// the sample rate SBR extends it to, when the stream has SBR (HE-AAC)
+    pub sbr_rate: Option<u64>,
+    /// whether the stream has parametric stereo (HE-AAC v2)
+    pub ps: bool,
 }
 
 pub fn aac_config(asc: &[u8]) -> Option<Asc> {
-    let mut r = Bits { b: asc, at: 0 };
-    let mut aot = r.bits(5)?;
-    if aot == 31 {
-        aot = 32 + r.bits(6)?;
+    fn object_type(r: &mut Bits) -> Option<u64> {
+        let aot = r.bits(5)?;
+        if aot == 31 { Some(32 + r.bits(6)?) } else { Some(aot) }
     }
-    let index = r.bits(4)?;
-    let rate = if index == 15 { r.bits(24)? } else { *AAC_RATES.get(index as usize)? as u64 };
+    fn sample_rate(r: &mut Bits) -> Option<u64> {
+        let index = r.bits(4)?;
+        if index == 15 { r.bits(24) } else { AAC_RATES.get(index as usize).map(|&x| x as u64) }
+    }
+    let mut r = Bits { b: asc, at: 0 };
+    let mut aot = object_type(&mut r)?;
+    let rate = sample_rate(&mut r)?;
     let channels = r.bits(4)?;
-    let short = if aot == 2 { r.bit()? == 1 } else { false };
-    Some(Asc { aot, rate, channels, short })
+    // explicit, hierarchical signaling: SBR's object type (and parametric stereo's) comes first
+    let mut ps = aot == 29;
+    let mut sbr_rate = None;
+    let explicit = aot == 5 || aot == 29;
+    if explicit {
+        sbr_rate = Some(sample_rate(&mut r)?);
+        aot = object_type(&mut r)?;
+    }
+    if aot != 2 {
+        return Some(Asc { aot, rate, channels, short: false, sbr_rate, ps });
+    }
+    // GASpecificConfig: its frame length, then a core coder (AAC-LC has none) and an extension flag
+    let short = r.bit()? == 1;
+    let (depends, _extension) = (r.bit()?, r.bit()?);
+    // backward-compatible signaling: after the config, a sync word and SBR's object type, then
+    // another and parametric stereo's flag. A channel configuration of 0 has a program config
+    // element in between, which the profile does not read.
+    if !explicit && depends == 0 && channels != 0 && r.bits(11) == Some(0x2B7) && r.bits(5) == Some(5) && r.bit() == Some(1) {
+        sbr_rate = Some(sample_rate(&mut r)?);
+        ps = r.bits(11) == Some(0x548) && r.bit() == Some(1);
+    }
+    Some(Asc { aot, rate, channels, short, sbr_rate, ps })
 }
 
 crate::parser!(Mp4);
@@ -1727,7 +1760,29 @@ mod tests {
         let ten = [0x01, 0x6E, 0x00, 0x0A, 0xFF, 0xE1, 0x00, 0x18, 0x67, 0x6E, 0x00, 0x0A, 0xA6, 0xCD, 0x94, 0x47, 0xB0, 0x11, 0x00, 0x00, 0x03,
                    0x00, 0x01, 0x00, 0x00, 0x03, 0x00, 0x14, 0x0F, 0x12, 0x25, 0x96, 0x01, 0x00, 0x06, 0x68, 0xEB, 0xE3, 0xCB, 0x22, 0xC0];
         assert_eq!(h264_sps(&ten), Some(Sps { profile: 110, level: 10, chroma: 1, luma: 10, chroma_depth: 10 }));
-        assert_eq!(aac_config(&[0x14, 0x08]), Some(Asc { aot: 2, rate: 16000, channels: 1, short: false }));
+        assert_eq!(aac_config(&[0x14, 0x08]), Some(Asc { aot: 2, rate: 16000, channels: 1, short: false, sbr_rate: None, ps: false }));
+    }
+
+    /// An AudioSpecificConfig of each signaling of HE-AAC and HE-AAC v2: AudioToolbox's backward-
+    /// compatible ones (the fixtures mp4_he_aac.mp4 and mp4_he_aac_v2.mp4), and the hierarchical
+    /// ones of the same streams, of SBR's and parametric stereo's object types.
+    #[test]
+    fn he_aac_signaling_gives_the_format() {
+        let he = |channels, ps| Some(Asc { aot: 2, rate: 22050, channels, short: false, sbr_rate: Some(44100), ps });
+        assert_eq!(aac_config(&[0x13, 0x90, 0x56, 0xE5, 0xA0]), he(2, false));
+        assert_eq!(aac_config(&[0x13, 0x88, 0x56, 0xE5, 0xA5, 0x48, 0x80]), he(1, true));
+        assert_eq!(aac_config(&[0x2B, 0x92, 0x08, 0x80]), he(2, false));
+        assert_eq!(aac_config(&[0xEB, 0x8A, 0x08, 0x80]), he(1, true));
+    }
+
+    /// A sync word that is not SBR's, an SBR flag of 0 and an object type under SBR other than
+    /// AAC-LC's.
+    #[test]
+    fn other_config_extensions_are_not_sbr() {
+        assert_eq!(aac_config(&[0x13, 0x90, 0x56, 0xE4, 0xA0]).and_then(|a| a.sbr_rate), None);
+        assert_eq!(aac_config(&[0x13, 0x90, 0x56, 0xE5, 0x20]).and_then(|a| a.sbr_rate), None);
+        assert_eq!(aac_config(&[0x2B, 0x92, 0x08, 0x80]).map(|a| a.aot), Some(2));
+        assert_eq!(aac_config(&[0x2B, 0x92, 0x10, 0x80]).map(|a| a.aot), Some(4));
     }
 
     /// x265's hvcC boxes: Main, 8-bit, with three temporal sub-layers (so that the SPS's
