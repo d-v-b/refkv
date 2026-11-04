@@ -78,8 +78,15 @@ SCHEMA = {"anyOf": [
                 "additionalProperties": False,
             }},
             "cards": FITS_CARDS,
+            "stream": {"anyOf": [{"type": "null"}, {
+                "type": "object",
+                "description": "A compressed file's compression (spec/zarrify/fits.md §2.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#21-a-compressed-file>)",
+                "properties": {"method": {"enum": ["gzip", "bzip2"]}, "size": {"type": "integer", "minimum": 0}},
+                "required": ["method", "size"],
+                "additionalProperties": False,
+            }]},
         },
-        "required": ["hdus", "cards"],
+        "required": ["hdus", "cards", "stream"],
         "additionalProperties": False,
     },
     {

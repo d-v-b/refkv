@@ -151,7 +151,9 @@ The profile takes a single file, for four reasons:
    first.
 
 Consequences: SDSS imaging frames (whole-file bzip2) and `.fits.gz` cannot
-be virtualized and are rejected by their first bytes. Tom Robitaille's
+be virtualized by ranges of their values. They were rejected by their first bytes, and since
+2026-11-04 are one chunk per array, the whole stream
+([fits §2.1](../../spec/zarrify/fits.md#21-a-compressed-file)). Tom Robitaille's
 "each chunk a valid FITS file" layout (the comment linked from the issue)
 is producible with `Concat` references and no codec context, as a second
 layout later, not in version 0.
