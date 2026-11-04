@@ -880,8 +880,9 @@ The root's source metadata records every sibling's key.
 that it was the right file. Where a format records which files belong together, the profile MUST
 read that record from each sibling and reject one that does not match, `the <noun> "<key>" is not
 part of this <set>`, rather than present another file's bytes as this image. CZI's `PrimaryFileGuid`
-and `FilePart` are such a record, and so is an OME-TIFF's `UUID` beside the `UUID` of the file it
-names, when that file holds an OME-XML document. Where a format records none (a NIfTI pair, NRRD's
+and `FilePart` are such a record where a writer fills them in, and so is an OME-TIFF's `UUID` beside
+the `UUID` of the file it names, when that file holds an OME-XML document. A profile uses what its
+format's writers actually record, and says how strong that is. Where a format records none (a NIfTI pair, NRRD's
 data file, an HDF5 external file), the profile says so, and checks what it can: that every range
 lies within its object.
 
