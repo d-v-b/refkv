@@ -9,6 +9,12 @@ store is the TIFF profile, [Part 2](#part-2-the-profile) below.
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `48e9ac4e-1156-4a62-955e-20467d9c2700` ·
 Schema: [schema.json](tiff/schema.json)
 
+Changed 2026-11-04: a level's LZW, Deflate and zstd strips are the inner chunks of shards of at most
+2^10 strips and 2^30 decoded bytes ([§4.5](#45-strips), [zarrify §2.1](../zarrify.md#21-virtual-shards))
+in place of one chunk a strip, so that an image of one compressed row a strip no longer has a key a
+row (d-v-b/refkv#195). The output of a file with such a level changes; its pixels and its `omero`
+windows, which sample one strip, do not. A short last strip of Deflate or zstd is still rejected.
+
 Changed 2026-11-03: a level's uncompressed strips join into chunks of at most 2^20 bytes and 2^10
 strips ([§4.5](#45-strips), [§7.3](#73-chunks)) in place of one chunk a strip, so that an image of
 one row a strip no longer has a key a row (d-v-b/refkv#195); a level in compressed strips, one
@@ -78,8 +84,8 @@ The hierarchy's entries ([conventions §11.5](../conventions.md#115-layout-table
 | `zarr.json#/attributes/zarr_conventions` | attribute | array of [`ConventionMetadata`](../conventions.md#type-conventionmetadata) | the CMO of [§1](#1-declaration) |
 | `zarr.json#/attributes/refkv_zarrified` | attribute | [`RootProperty`](../conventions.md#type-rootproperty) | `profile` `"tiff"`, `version` `0`, `source.url` the file's URL |
 | `zarr.json#/attributes/refkv_zarrified/tiff` | attribute | [`TiffRoot`](#type-tiffroot) | the root's source metadata ([§5](#5-source-metadata)) |
-| `<L>/zarr.json` | array | [`TiffArray`](#type-tiffarray) | level `L` ([§4.2](#42-pyramid-levels), [§4.4](#44-arrays)) |
-| `<L>/c/<coords>` | chunk | [`TiffChunk`](#type-tiffchunk) | a tile or strip of a plane of level `L`, present when its byte count is more than 0 ([§4.4](#44-arrays), **Chunks**; [§7.3](#73-chunks)) |
+| `<L>/zarr.json` | array | [`TiffArray`](#type-tiffarray) | level `L` ([§4.2](#42-pyramid-levels), [§4.4](#44-arrays)); as a [`ShardedArray`](../zarrify.md#type-shardedarray) when the level shards its strips ([§4.5](#45-strips)) |
+| `<L>/c/<coords>` | chunk | [`TiffChunk`](#type-tiffchunk) | a tile or strip of a plane of level `L`, present when its byte count is more than 0 ([§4.4](#44-arrays), **Chunks**; [§7.3](#73-chunks)); of a level that shards its strips, a [`Shard`](../zarrify.md#type-shard) of them, present when one of them is |
 | `refkv_source/**` | subtree | [the mirror's entries](../conventions.md#table-mirror) | the IR mirror ([§5](#5-source-metadata)): its elements are [§5.1](#51-elements)'s |
 
 | placeholder | value |
@@ -537,7 +543,8 @@ stream with the IFD's JPEGTables and an explicit color transform for its
 PhotometricInterpretation (2: RGB as stored; 6: YCbCr). For JPEG,
 JPEGTables, when present, MUST be at least 4 bytes long, start with
 `FF D8` and end with `FF D9`, and every present tile or strip MUST be more than 2
-bytes long. Its reference is a [`TiffChunk`](#type-tiffchunk) ([§7.3](#73-chunks)).
+bytes long. Its reference is a [`TiffChunk`](#type-tiffchunk) ([§7.3](#73-chunks)). Of a level that
+shards its strips ([§4.5](#45-strips)), these chunks are the array's inner chunks.
 
 ### 4.5 Strips
 
@@ -564,10 +571,33 @@ plane of `n` chunks costs `1 / n` of the plane, at most 2^20 bytes. The limit of
 chunk whose strips are all apart within the reads a reader allows a value by default
 ([refkv §6.7](../refkv.md#67-reader-policy), rule 5).
 
-A strip of another compression is a stream of its own, which the codecs of
-[§4.3](#43-data-types-and-codecs) decode one at a time, so its level has a chunk a strip. So has a
-level with a strip that does not hold exactly its rows: a strip with no bytes, which is the fill
-value, or with more or fewer bytes than its rows, whose rows the concatenation would misplace.
+**Shards of compressed strips.** A strip of LZW, Deflate or zstd is a stream of its own, which the
+codecs of [§4.3](#43-data-types-and-codecs) decode one at a time, so it stays one chunk, and its
+level gathers those chunks in shards instead ([zarrify §2.1](../zarrify.md#21-virtual-shards)). Let
+`M = min(floor(2^30 / (R × B)), 2^10)`, the most strips a shard holds. A level **shards** its strips
+when Compression is 5, 8, 32946 or 50000 and `S` and `M` are at least 2. Its array is then a
+[`ShardedArray`](../zarrify.md#type-shardedarray) of the array this document describes:
+
+- the inner chunks are that array's chunks, of `R` rows by the level's width, one strip each, and
+  the inner codecs its codecs;
+- a shard holds `K = ceil(S / ceil(S / M))` inner chunks along `y`, the fewest shards those limits
+  allow, as even as whole strips allow, and 1 along every other axis, so that each sample plane of
+  each plane has its own shards. The shard's rows, `K × R`, may be more than ImageLength.
+
+Each shard's index is written from StripOffsets and StripByteCounts, with no strip read (but a short
+LZW strip's, below), and a strip with no bytes is an inner chunk the shard does not hold. The limits
+are not [the joined strips'](#45-strips), because they answer another question: a reader of a few
+rows of a shard reads only those strips, so 2^20 bytes would bound nothing a partial read costs. The
+limit of 2^10 strips is the one a joined chunk has, and also keeps a shard's reference within the
+payload limit ([§1.2](../zarrify.md#12-input)) however far apart its strips are, at 16 bytes of index
+and at most 20 bytes of range a strip. The limit of 2^30 bytes bounds what a reader that reads a whole
+shard as one value holds at once. A level of one strip has nothing to gather.
+
+Whether a reader makes fewer requests depends on the reader, which [zarrify
+§2.1](../zarrify.md#21-virtual-shards) describes. A strip of JPEG or JPEG 2000 keeps a chunk a strip.
+So has a level of uncompressed strips with a strip that does not hold exactly its rows: a strip with
+no bytes, which is the fill value, or with more or fewer bytes than its rows, whose rows the
+concatenation would misplace.
 
 When its last chunk is **short** (the level has more than one chunk and ImageLength is not a
 multiple of `R′`), it is **padded** to `R′` rows, so that every chunk decodes to the chunk shape
@@ -584,7 +614,8 @@ chunk's rows, and of a level that does not join, the strip's):
 With Predictor 2, the padding is the same: each padded row is differences of 0, which sum back
 to zeros, since the differencing starts again at each row. (A short strip of Deflate or zstd cannot be extended without decompressing and compressing it
 again, and a JPEG or JPEG 2000 stream holds its own height, so these have no padding that
-references the strip's bytes.) A strip padded with more than 2^22 (4194304) zero bytes
+references the strip's bytes. A shard does not change this: an inner chunk decodes to the inner
+chunk shape like any chunk, and the sharding codec has no shorter one.) A strip padded with more than 2^22 (4194304) zero bytes
 rejects the input, so that no archive holds more zeros than that, and an LZW tail stays within
 one code table; so does a short last LZW strip whose tail would read more than 2^24
 (16777216) of its bytes (its byte count, read up to the bound of [§7.1](#71-reading)), and so do
@@ -849,7 +880,10 @@ rejected, or that something MUST hold and it does not
 
 Every chunk that the convention says is present
 ([the convention §4.4](#44-arrays)) is the
-entry `<level>/c/<coords>`. Tile (strip) `k`, with TileByteCounts (StripByteCounts) `n > 0`,
+entry `<level>/c/<coords>`, but for a level that shards its strips
+([the convention §4.5](#45-strips)), whose entries are its shards
+([zarrify §2.1](../zarrify.md#21-virtual-shards)), each a [`Shard`](../zarrify.md#type-shard) whose
+inner chunks' ranges are their references here. Tile (strip) `k`, with TileByteCounts (StripByteCounts) `n > 0`,
 has the single range `(0, TileOffsets[k], n)` (`StripOffsets[k]`; for JPEG, for a short
 last strip, and for strips that a level joins, see below). The references
 are listed (for [§1.2](../zarrify.md#12-input)'s order of first use) level by level, within a level

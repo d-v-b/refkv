@@ -101,11 +101,17 @@ fn arrays(ir: &Ir, facts: &J, url: &str, only: Option<usize>) -> Result<(Out, Ve
     tiled::arrays(ir, facts, url, only, shape, |refs, li, lv| {
         let (w, h, tw, th) = (n(&lv["w"]), n(&lv["h"]), n(&lv["tw"]), n(&lv["th"]));
         // a level in strips has one chunk a row, of one strip or, uncompressed, of the strips it
-        // joins; its short last chunk is padded
+        // joins; its short last chunk is padded. Each strip is one chunk here, whatever a shard
+        // pass then gathers (`shard::apply_all`)
         // (spec/zarrify/tiff.md §4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>)
         let across = if lv["strips"].as_bool().unwrap_or(false) { 1 } else { w.div_ceil(tw) };
         let per = across * h.div_ceil(th);
         let join = n(&lv["join"]);
+        if n(&lv["shard"]) > 1 {
+            // compressed strips are the inner chunks of shards, down the rows of a plane
+            let along: Vec<u64> = strs(&facts["axes"]).iter().map(|a| if *a == "y" { n(&lv["shard"]) } else { 1 }).collect();
+            refs.out.shard(&li.to_string(), &along);
+        }
         let padding = tiled::Padding::of(refs, lv, &mut zeros)?;
         let planes = arr(&lv["planes"]);
         let prefix = format!("{li}/c/");

@@ -598,6 +598,11 @@ class ReferenceStore(ReferenceReader):
         return await self._ref_bytes(v, start, end)
 
     @override
+    async def _value_size(self, key: str) -> int | None:
+        v = self._visible(key)
+        return None if v is None else len(v) if isinstance(v, bytes) else v.size
+
+    @override
     async def classify_async(self, key: str) -> Kind:
         v = self._visible(key)
         return "missing" if v is None else "bytes" if isinstance(v, bytes) else "reference"

@@ -54,6 +54,13 @@ feasibility.
 - **Never panic.** The wasm build must reject malformed input. Read with
   `.get()` and checked arithmetic, and give every loop and read a stated
   bound.
+- **Many small units: consider a virtual shard first.** Frames, strips or small
+  tiles on a regular grid can be the inner chunks of the stock `sharding_indexed`
+  codec: call `Out::shard(path, shape)` from the projection, and
+  `rust/refkv-ir/src/shard.rs` writes the reference and its literal index. No new
+  codec, nothing decoded, compressed units allowed, and partial reads stay exact.
+  Only zarr-python makes fewer requests from it, so measure before promising speed.
+  See [§3](../../../docs/adding-a-format.md#3-decide-the-layout).
 - **Edge chunks.** Use a regular grid, padded with the shared zero data
   source. Reject a short chunk whose stream can't be padded. A rectilinear
   grid is the last resort.
