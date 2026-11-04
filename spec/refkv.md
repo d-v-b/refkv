@@ -885,9 +885,12 @@ own. That also must not change any `get`'s result, so:
 
 The reader decides how long a read waits for others, and how many bytes between
 them it fetches to save a request; a `get` made alone should not wait long for
-company. The implementations in the specification's repository wait 2 ms, or for a
-connection when the store's are all busy (the Python reader), and fetch at most
-4 times the bytes a shared read asks for, plus 64 KiB. A `multipart/byteranges`
+company. The implementations in the specification's repository wait 2 ms. The
+Python reader also waits for a connection when the store's are all busy. The JS
+reader, which has no limit of its own on connections, also waits up to 1 s while 16
+requests to the source are in flight, if one of them lies within 64 KiB of the read,
+and takes a read wholly inside a request in flight from that request. They fetch at
+most 4 times the bytes a shared read asks for, plus 64 KiB. A `multipart/byteranges`
 response is still an error ([§5.2](#52-reading-over-http)), so reads too far apart
 to combine this way remain separate requests.
 

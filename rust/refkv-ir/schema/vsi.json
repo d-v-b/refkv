@@ -32,12 +32,9 @@
       "0": "raw",
       "2": "jpeg",
       "3": "jpeg2000",
-      "5": "ljpeg"
-    },
-    "unsupported_compressions": {
-      "about": "compressions the profile names and rejects",
-      "8": "PNG",
-      "9": "BMP"
+      "5": "ljpeg",
+      "8": "png",
+      "9": "bmp"
     },
     "field_types": {
       "about": "the metadata tree's field types (the low 24 bits of a field's type word): the IR type of a value, per element (text and byte types take the field's length), and the type's name",
@@ -294,13 +291,14 @@
     },
     "ets": {
       "given": {"key": "the tile file's key", "magic": "the ETS magic", "pixel_type": "pixel_type", "channels": "channels", "compression": "compression", "tile_width": "tile_width", "tile_height": "tile_height", "tile_depth": "tile_depth", "dimensions": "the dimension count", "coordinates": "the coordinates per tile"},
-      "derive": {"pixel": "at(pixel_types, pixel_type)", "codec": "at(compressions, compression)", "named": "at(unsupported_compressions, compression)"},
+      "derive": {"pixel": "at(pixel_types, pixel_type)", "codec": "at(compressions, compression)"},
       "constraints": [
         {"require": "magic == 'ETS'", "message": "{key}: the ETS header's magic is {magic}"},
         {"require": "present(pixel)", "message": "{key}: unsupported pixel type {pixel_type}"},
         {"require": "channels == 1 || channels == 3 || channels == 4", "message": "{key}: {channels} samples per pixel"},
-        {"require": "!present(named)", "message": "{key}: unsupported ETS compression {compression} ({named})"},
         {"require": "present(codec)", "message": "{key}: unknown ETS compression {compression}"},
+        {"require": "compression != 8 || pixel_type == 2 || pixel_type == 4", "message": "{key}: PNG tiles of the pixel type {pixel_type}, which is not uint8 or uint16"},
+        {"require": "compression != 9 || pixel_type == 2", "message": "{key}: BMP tiles of the pixel type {pixel_type}, which is not uint8"},
         {"require": "tile_width >= 1 && tile_height >= 1 && tile_width <= 65535 && tile_height <= 65535", "message": "{key}: tiles of {tile_width} × {tile_height} pixels"},
         {"require": "tile_depth == 1", "message": "{key}: tiles of depth {tile_depth}"},
         {"require": "dimensions == 0 || (dimensions >= 2 && dimensions <= coordinates)", "message": "{key}: {dimensions} dimensions for {coordinates} coordinates per tile"}

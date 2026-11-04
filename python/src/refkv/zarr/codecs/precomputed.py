@@ -4,14 +4,16 @@ header that says where it lies (spec/zarrify/precomputed.md §6
 
 A shard is one Zarr chunk, read as Neuroglancer reads it: the shard index, then the minishard
 indexes of the chunks asked for, then those chunks, so a reader of one chunk of a shard of
-thousands makes at most three range reads. Lossy and packed encodings need imagecodecs (the
-`images` extra), named when a chunk is decoded.
+thousands makes at most three range reads. JPEG, PNG, JPEG XL and zfpc need imagecodecs (the
+`images` extra), and compresso, crackle, fpzip and kempressed their own packages (the `precomputed`
+extra), each named when a chunk is decoded.
 """
 
 from __future__ import annotations
 
 import asyncio
 import gzip
+import importlib
 import struct
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
@@ -42,11 +44,21 @@ if TYPE_CHECKING:
 HEADER = 12
 # a minishard index entry's three uint64 columns
 ENTRY = 24
-ENCODINGS = ("raw", "jpeg", "png", "compressed_segmentation")
+ENCODINGS = ("raw", "jpeg", "png", "compressed_segmentation", "compresso", "crackle", "jxl", "fpzip", "zfpc",
+             "kempressed")
 ZSTD_MAGIC = b"\x28\xb5\x2f\xfd"
 GZIP_MAGIC = b"\x1f\x8b"
-JPEG_MAGIC = b"\xff\xd8"
-PNG_MAGIC = b"\x89PNG"
+# what a stream of each encoding that has a signature begins with: JPEG XL's two are a codestream's
+# and a container's
+MAGICS = {"jpeg": (b"\xff\xd8",), "png": (b"\x89PNG",), "compresso": (b"cpso",), "crackle": (b"crkl",),
+          "jxl": (b"\xff\x0a", b"\0\0\0\x0cJXL \r\n\x87\n"), "fpzip": (b"fpy)",), "kempressed": (b"fpy)",),
+          "zfpc": (b"zfpc",)}
+# the imagecodecs decoder of each image encoding
+IMAGE_DECODERS = {"jpeg": "jpeg8_decode", "png": "png_decode", "jxl": "jpegxl_decode"}
+# a zfpc stream's header: magic, format version, the data type's byte, 4 uint32 sizes (0 for a
+# dimension it does not have) and the byte of correlated dimensions
+ZFPC_HEADER = 23
+ZFPC_DATA_TYPES = {1: "i4", 2: "i8", 3: "f4", 4: "f8"}
 # ranges of a shard this near are read as one, and at most this long
 COALESCE_GAP = 1 << 20
 COALESCE_MAX = 1 << 26
@@ -56,13 +68,17 @@ class PrecomputedChunkError(ValueError):
     """A chunk or a shard that the refkv.precomputed codec cannot decode."""
 
 
-def _imagecodecs() -> ModuleType:
-    """imagecodecs, which decodes JPEG, PNG, brotli and zstd, imported when a chunk first needs it."""
+def _decoder(extra: str, module: str) -> ModuleType:
+    """An optional decoder's module, imported when a chunk first needs it."""
     try:
-        import imagecodecs  # noqa: PLC0415 (the images extra)
+        return importlib.import_module(module)
     except ImportError as e:
-        raise missing("images", "Reading precomputed chunks", e) from e
-    return imagecodecs
+        raise missing(extra, "Reading precomputed chunks", e) from e
+
+
+def _imagecodecs() -> ModuleType:
+    """imagecodecs, which decodes JPEG, PNG, JPEG XL, ZFP, brotli and zstd."""
+    return _decoder("images", "imagecodecs")
 
 
 def _ints3(value: object, name: str) -> tuple[int, int, int]:
@@ -101,14 +117,12 @@ def uncode(data: bytes, encoding: str, raw_lengths: tuple[int, ...], channels: i
     """A chunk object's bytes without the content coding its object may have
     (spec/zarrify/precomputed.md §6.3
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/precomputed.md#63-content-codings>),
-    which the listing does not say and the bytes do: a raw chunk has one of its lengths, JPEG,
-    PNG and compressed_segmentation begin as they do, gzip and zstd have their magic numbers, and
-    what is left can only be brotli, which has none."""
+    which the listing does not say and the bytes do: a raw chunk has one of its lengths, the
+    other encodings begin as they do, gzip and zstd have their magic numbers, and what is left can
+    only be brotli, which has none."""
     if encoding == "raw" and len(data) in raw_lengths:
         return data
-    if encoding == "jpeg" and data.startswith(JPEG_MAGIC):
-        return data
-    if encoding == "png" and data.startswith(PNG_MAGIC):
+    if data.startswith(MAGICS.get(encoding, ())):
         return data
     if encoding == "compressed_segmentation" and len(data) >= 4 and struct.unpack_from("<I", data)[0] == channels:
         return data
@@ -174,6 +188,45 @@ def _decode_segmentation(data: bytes, shape: tuple[int, int, int, int], block: t
                     z1, y1, x1 = min(z0 + bz, sz), min(y0 + by, sy), min(x0 + bx, sx)
                     out[c, z0:z1, y0:y1, x0:x1] = block_values[:z1 - z0, :y1 - y0, :x1 - x0].astype(dtype)
     return out
+
+
+def _decode_zfpc(data: bytes) -> np.ndarray:
+    """A zfpc stream as an array (x, y, z[, c]): one ZFP stream per position along the dimensions
+    not correlated, the first of those fastest, after an offset and their sizes as `uint64`s. The
+    streams are decoded with imagecodecs, since the zfpc package needs zfpy, whose version numcodecs
+    cannot parse, and its `decompress` (0.1.2) reads every stream into `float32`."""
+    if data[4] != 0:
+        raise ValueError(f"format version {data[4]}")
+    dtype = np.dtype(ZFPC_DATA_TYPES[data[5] & 7])
+    shape = tuple(n for n in struct.unpack_from("<4I", data, 6) if n)
+    free = [a for a in range(len(shape)) if not data[22] >> a & 1]
+    positions = list(np.ndindex(*(shape[a] for a in reversed(free))))
+    at, *sizes = struct.unpack_from(f"<{1 + len(positions)}Q", data, ZFPC_HEADER)
+    out = np.empty(shape, dtype=dtype)
+    for position, size in zip(positions, sizes, strict=True):
+        where: list[int | slice] = [slice(None)] * len(shape)
+        for a, p in zip(reversed(free), position, strict=True):
+            where[a] = p
+        plane = out[tuple(where)]
+        plane[...] = _imagecodecs().zfp_decode(data[at:at + size]).reshape(plane.shape)
+        at += size
+    return out
+
+
+def _decode_volume(data: bytes, encoding: str) -> np.ndarray:
+    """A stream of an encoding that holds a volume, as an array (x, y, z[, c]). kempressed is an
+    fpzip stream of each value plus 2, with z and the channel swapped, as cloud-volume writes it."""
+    try:
+        if encoding == "zfpc":
+            return _decode_zfpc(data)
+        if encoding in ("compresso", "crackle"):
+            return _decoder("precomputed", encoding).decompress(data)
+        volume = _decoder("precomputed", "fpzip").decompress(data, order="F")
+        return volume if encoding == "fpzip" else np.swapaxes(volume, 2, 3) - 2.0
+    except ImportError:
+        raise
+    except Exception as e:
+        raise PrecomputedChunkError(f"a bad {encoding} stream of {len(data)} bytes: {e}") from e
 
 
 @dataclass(frozen=True)
@@ -273,14 +326,24 @@ class PrecomputedCodec(ArrayBytesCodecPartialDecodeMixin, ArrayBytesCodec):
             if self.block is None:
                 raise PrecomputedChunkError("compressed_segmentation without a block size")
             return _decode_segmentation(data, shape, self.block, dtype)
-        codecs = _imagecodecs()
-        image = codecs.jpeg8_decode(data) if self.encoding == "jpeg" else codecs.png_decode(data)
-        # an image of width x and height y × z, slices one under the other; samples last
-        pixels = image.reshape(*image.shape[:2], -1)
-        if pixels.shape != (y * z, x, channels):
-            raise PrecomputedChunkError(f"a {self.encoding} chunk at {position} is an image of {image.shape}, not "
-                                        f"({y * z}, {x}, {channels})")
-        return pixels.reshape(z, y, x, channels).transpose(3, 0, 1, 2).astype(dtype)
+        if self.encoding in IMAGE_DECODERS:
+            image = getattr(_imagecodecs(), IMAGE_DECODERS[self.encoding])(data)
+            # an image of width x and height y × z, slices one under the other; samples last
+            pixels = image.reshape(*image.shape[:2], -1)
+            if pixels.shape != (y * z, x, channels):
+                raise PrecomputedChunkError(f"a {self.encoding} chunk at {position} is an image of {image.shape}, not "
+                                            f"({y * z}, {x}, {channels})")
+            if image.dtype != dtype:
+                raise PrecomputedChunkError(f"a {self.encoding} chunk at {position} is {image.dtype}, not {dtype}")
+            return pixels.reshape(z, y, x, channels).transpose(3, 0, 1, 2).astype(dtype)
+        volume = _decode_volume(data, self.encoding)
+        got = volume.shape + (1,) * (4 - volume.ndim)
+        if got != (x, y, z, channels):
+            raise PrecomputedChunkError(f"a {self.encoding} chunk at {position} holds {got} voxels, not "
+                                        f"({x}, {y}, {z}, {channels})")
+        if volume.dtype != dtype:
+            raise PrecomputedChunkError(f"a {self.encoding} chunk at {position} is {volume.dtype}, not {dtype}")
+        return volume.reshape(got).transpose(3, 2, 1, 0).astype(dtype)
 
     async def _read_shard(self, read: Callable[[int, int], Awaitable[bytes]],
                           wanted: Iterable[tuple[int, int, int]]) -> dict[tuple[int, int, int], bytes]:

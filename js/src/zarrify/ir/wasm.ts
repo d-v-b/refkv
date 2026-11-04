@@ -19,6 +19,7 @@ export interface IrExports {
   vz_run_multirange(p: number, v: number): void;
   vz_run_settings(p: number, byteCost: number, wholeBelow: bigint): void;
   vz_run_poll(p: number): bigint;
+  vz_run_beside(p: number): number;
   vz_run_complete(p: number, k: number, ok: number, data: number, n: number, seconds: number): bigint;
   vz_run_stats(p: number): bigint;
   vz_run_output(p: number, url: number, n: number, flags: number): bigint;
