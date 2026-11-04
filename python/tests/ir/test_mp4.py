@@ -407,7 +407,7 @@ def test_a_pcm_track_is_the_file_s_bytes(tmp_path):
     out, _root = zarrified(FIXTURES / "mp4" / "mov_pcm_s16le_h264.mov", tmp_path)
     parts = out.refs["tracks/2/samples/c/0/0"]
     assert len(parts) > 1, "the video between the audio's chunks"
-    assert sum(n for _o, n in parts) == 8000 * 2
+    assert sum(p[1] for p in parts if isinstance(p, tuple)) == 8000 * 2
     meta = json.loads(out.bytes_entries["tracks/2/samples/zarr.json"])
     assert meta["chunk_grid"]["configuration"]["chunk_shape"] == [8000, 1]
     # a version 2 sound description's rate and channels are its own fields

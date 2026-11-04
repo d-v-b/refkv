@@ -79,7 +79,7 @@ def problems_of(path: Path, out: Path) -> list[str]:
         tm = mapping(at(g.attrs, "refkv_zarrified", "mp4"))
         if tm["format"] == "pcm":
             c = av.open(str(path))
-            s = c.streams[integer(track["id"]) - 1]
+            s = next(a for a in c.streams.audio if a.index == integer(track["id"]) - 1)
             want = np.concatenate([f.to_ndarray().T if f.format.is_planar else f.to_ndarray().reshape(f.samples, -1)
                                    for f in c.decode(s)])
             if s.codec_context.name == "pcm_s8":  # ffmpeg's decoder gives these as unsigned, 128 more
