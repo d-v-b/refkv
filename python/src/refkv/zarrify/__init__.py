@@ -156,7 +156,12 @@ def _zarrify_store(location: str, url: str | None = None, *, max_objects: int | 
 
 # The file profiles whose input is read with the files beside it, as a store run that probes for
 # them: (the format's title, the named file) as a rejection names them.
-BESIDE = {"vsi": ("VSI", ".vsi file"), "nrrd": ("NRRD", "header file"), "grib": ("GRIB", "GRIB file")}
+BESIDE = {"vsi": ("VSI", ".vsi file"), "nrrd": ("NRRD", "header file"), "grib": ("GRIB", "GRIB file"),
+          "tiff": ("TIFF", "TIFF file")}
+# Those of them that read a file with the files beside it only when it names some (spec/zarrify.md
+# §1.9 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>):
+# a file run finds out, and starts over (`ir.NamesSiblingsError`).
+ON_DEMAND = {"tiff"}
 
 
 async def _zarrify_beside_async(fmt: str, location: str, url: str | None, transport: Transport, *,
@@ -231,7 +236,7 @@ async def _zarrify_async(location: str, url: str | None = None, *, checksums: bo
         if fmt is None:
             raise Rejected(NOT_SUPPORTED)
         names = layout_names(layouts, fmt)
-    if fmt in BESIDE:
+    if fmt in BESIDE and fmt not in ON_DEMAND:
         return await _zarrify_beside_async(fmt, location, url, transport, checksums=checksums, policy=policy,
                                            connections=connections)
     try:

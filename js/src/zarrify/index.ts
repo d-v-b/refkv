@@ -12,7 +12,7 @@ import { type IrFormat, NamesSiblings, zarrifyIr } from "./ir/run.ts";
 import { ir, out, put } from "./ir/wasm.ts";
 import { type RangeSource, readerSource } from "./ir/source.ts";
 import { zarrifyStoreIr } from "./ir/store.ts";
-import { BESIDE, type BesideFormat, zarrifyVsi } from "./ir/vsi.ts";
+import { BESIDE, type BesideFormat, ON_DEMAND, zarrifyVsi } from "./ir/vsi.ts";
 import { chooseProfile, closeStore, objectUrl, openHttpStore, type Store } from "./store.ts";
 import type { Policy } from "../archive.ts";
 import { crc32c } from "../deflate.ts";
@@ -108,7 +108,7 @@ async function zarrifyWith(url: string, input: Input, pins: PinOptions): Promise
     }
     return { format: beside, ...desc };
   };
-  if (format in BESIDE) return asStore(format as BesideFormat);
+  if (format in BESIDE && !ON_DEMAND.has(format)) return asStore(format as BesideFormat);
   let desc;
   try {
     desc = await zarrifyIr(format, url, input.source, { checksums: pins.checksums === true });
