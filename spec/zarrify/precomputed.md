@@ -13,6 +13,11 @@ and its
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `c499987a-9518-4b2b-a804-a70a8de1a911` ·
 Schema: [schema.json](precomputed/schema.json)
 
+Changed 2026-11-04: scales of the encodings `compresso`, `crackle`, `jxl`, `fpzip`, `zfpc` and
+`kempressed` are presented, where they were kept and not presented, each for the data types and
+channels its format holds ([§3.3](#33-scales-that-are-not-presented), [§6.2](#62-decoding),
+[§6.3](#63-content-codings)); a chunk of another data type than the array's is an error.
+
 Added 2026-11-03.
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
