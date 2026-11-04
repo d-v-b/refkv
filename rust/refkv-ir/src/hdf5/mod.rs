@@ -33,6 +33,10 @@ use std::sync::Arc as Rc;
 pub const SIGNATURE: &[u8; 8] = b"\x89HDF\r\n\x1a\n";
 /// A slot of the external data files message whose size is the rest of the file.
 pub const EXTERNAL_UNLIMITED: u64 = u64::MAX;
+/// The smallest user block: every other is twice one.
+const USER_BLOCK_MIN: u64 = 512;
+/// The bytes of a superblock that `superblock_at` tests.
+const SUPERBLOCK_PROOF: u64 = 36;
 pub const UNDEFINED: u64 = u64::MAX;
 pub const MAX_SAFE: u64 = (1 << 53) - 1;
 /// Blocks of one object header (§7.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#72-object-headers>).
@@ -115,7 +119,10 @@ impl Acc {
 /// A file read sans-IO: what was fed (ranges that touch merged into one, so that a read finds
 /// its bytes in the one range at or before it), and what a round wants.
 pub struct Src {
+    /// The bytes from the base address to the end of the file: the addresses' range.
     pub size: u64,
+    /// The superblock's offset in the file, which every address is relative to.
+    pub base: u64,
     pub store: Fed,
     pub want: Vec<(u64, u64)>,
 }
@@ -135,7 +142,18 @@ impl Src {
     }
 
     pub fn new(size: u64) -> Src {
-        Src { size, store: Fed::new(Overlap::MergeNew), want: Vec::new() }
+        Src { size, base: 0, store: Fed::new(Overlap::MergeNew), want: Vec::new() }
+    }
+
+    /// Takes `base` for the base address: what was the file's start is now address -`base`.
+    fn rebase(&mut self, base: u64) {
+        self.size -= base;
+        self.base = base;
+    }
+
+    /// The `n` bytes at address `at`, if they were fed.
+    pub fn get(&self, at: u64, n: u64) -> Option<&[u8]> {
+        self.store.get(at + self.base, n)
     }
 
     /// The `n` bytes at `at`, which MUST lie within the file (§7.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#71-hdf5-structures>).
@@ -147,10 +165,10 @@ impl Src {
         if n == 0 {
             return Ok(Vec::new());
         }
-        if let Some(b) = self.store.get(at, n) {
+        if let Some(b) = self.get(at, n) {
             return Ok(b.to_vec());
         }
-        self.want.push((at, n.max(WINDOW).min(self.size - at)));
+        self.want.push((at + self.base, n.max(WINDOW).min(self.size - at)));
         Err(Fail::Miss)
     }
 
@@ -162,6 +180,29 @@ impl Src {
 // ---- fields
 
 /// The little-endian unsigned integer of `n` (at most 8) bytes at `at` of `d`.
+/// Whether `head`, the bytes at offset `at` of a file, starts a superblock of a version the
+/// profile reads, with 8-byte addresses and lengths, whose base address is `at`.
+fn superblock_at(head: &[u8], at: u64) -> bool {
+    if head.len() < SUPERBLOCK_PROOF as usize || head[..8] != SIGNATURE[..] {
+        return false;
+    }
+    let (sizes, base_at) = match head[8] {
+        0 => (13, 24),
+        1 => (13, 28),
+        2 | 3 => (9, 12),
+        _ => return false,
+    };
+    head[sizes] == 8 && head[sizes + 1] == 8 && le(head, base_at, 8) == Ok(at)
+}
+
+/// The size of the user block `head`, a file's first bytes, shows: the first of 512, 1024,
+/// 2048, … that `head` holds a superblock at.
+pub fn user_block(head: &[u8]) -> Option<u64> {
+    std::iter::successors(Some(USER_BLOCK_MIN), |at| Some(at * 2))
+        .take_while(|at| at + SUPERBLOCK_PROOF <= head.len() as u64)
+        .find(|&at| superblock_at(&head[at as usize..(at + SUPERBLOCK_PROOF) as usize], at))
+}
+
 pub fn le(d: &[u8], at: usize, n: usize) -> R<u64> {
     if at.checked_add(n).is_none_or(|e| e > d.len()) {
         return bad("truncated HDF5 structure");
@@ -780,6 +821,11 @@ impl H5 {
         self.src.size
     }
 
+    /// The whole file's size, with what a user block adds to `size`.
+    pub fn file_size(&self) -> u64 {
+        self.src.base + self.src.size
+    }
+
     pub fn read(&mut self, at: u64, n: u64) -> R<Vec<u8>> {
         self.src.read(at, n)
     }
@@ -790,11 +836,8 @@ impl H5 {
         if let Some(s) = &self.sb {
             return Ok(s.clone());
         }
-        let head = self.read(0, 9.min(self.size()))?;
-        if head.len() < 9 || head[..8] != SIGNATURE[..] {
-            return bad("not an HDF5 file");
-        }
-        let version = head[8];
+        self.find_base()?;
+        let version = self.read(8, 1)?[0];
         let (sb, base_at, sizes, root_at, len) = match version {
             0 | 1 => {
                 let n = if version == 1 { 76 } else { 72 };
@@ -811,8 +854,8 @@ impl H5 {
         if sizes != (8, 8) {
             return bad(format!("HDF5 offsets and lengths of {} and {} bytes are not supported", sizes.0, sizes.1));
         }
-        if le(&sb, base_at, 8)? != 0 {
-            return bad("HDF5 base address is not 0");
+        if le(&sb, base_at, 8)? != self.src.base {
+            return bad("the HDF5 base address is not the superblock's offset");
         }
         let Some(root) = address(le(&sb, root_at, 8)?)? else { return bad("no HDF5 root group") };
         let extension = if version >= 2 { address(le(&sb, 20, 8)?).ok().flatten() } else { None };
@@ -827,6 +870,27 @@ impl H5 {
         let s = Super { version, len: len.min(self.size()), root, extension, leaf_k, internal_k, istore_k };
         self.sb = Some(s.clone());
         Ok(s)
+    }
+
+    /// Takes the superblock's offset for the base address: 0 when the file starts with the
+    /// signature, else the first of 512, 1024, 2048, … that holds a superblock of that base
+    /// address (spec/zarrify/hdf5.md §8.2
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#82-reading>). A replay
+    /// finds the signature at address 0 again.
+    fn find_base(&mut self) -> R<()> {
+        let head = self.read(0, 9.min(self.size()))?;
+        if head.len() == 9 && head[..8] == SIGNATURE[..] {
+            return Ok(());
+        }
+        let mut at = USER_BLOCK_MIN;
+        while at + SUPERBLOCK_PROOF <= self.size() {
+            if superblock_at(&self.read(at, SUPERBLOCK_PROOF)?, at) {
+                self.src.rebase(at);
+                return Ok(());
+            }
+            at *= 2;
+        }
+        bad("not an HDF5 file")
     }
 
     // ---- object headers (§7.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#72-object-headers>)
@@ -2191,5 +2255,68 @@ mod tests {
         assert!(matches!(s.read(4990, 20), Err(Fail::Bad(_))));
         s.store.feed(10, vec![1; 1024]);
         assert_eq!(s.read(12, 2).unwrap(), vec![1, 1]);
+    }
+
+    /// A file's first bytes: a user block of `block` bytes, then a superblock of `version`
+    /// with addresses and lengths of `width` bytes and base address `base`.
+    fn after_block(block: usize, version: u8, width: u8, base: u64) -> Vec<u8> {
+        let (sizes, base_at) = match version {
+            0 => (13, 24),
+            1 => (13, 28),
+            _ => (9, 12),
+        };
+        let mut h = vec![0u8; block + 64];
+        h[block..block + 8].copy_from_slice(SIGNATURE);
+        h[block + 8] = version;
+        h[block + sizes] = width;
+        h[block + sizes + 1] = width;
+        h[block + base_at..block + base_at + 8].copy_from_slice(&base.to_le_bytes());
+        h
+    }
+
+    #[test]
+    fn a_superblock_of_its_own_base_address_gives_the_user_block() {
+        for (block, version) in [(512, 0), (1024, 1), (2048, 2), (4096, 3)] {
+            assert_eq!(user_block(&after_block(block, version, 8, block as u64)), Some(block as u64));
+        }
+    }
+
+    #[test]
+    fn a_user_block_is_not_given_by_a_base_address_of_0() {
+        assert_eq!(user_block(&after_block(512, 0, 8, 0)), None);
+    }
+
+    #[test]
+    fn a_user_block_is_not_given_by_an_offset_of_no_power_of_two() {
+        assert_eq!(user_block(&after_block(768, 0, 8, 768)), None);
+    }
+
+    #[test]
+    fn a_user_block_is_not_given_by_other_sizes() {
+        assert_eq!(user_block(&after_block(512, 0, 4, 512)), None);
+    }
+
+    #[test]
+    fn a_user_block_is_not_given_by_an_unknown_version() {
+        assert_eq!(user_block(&after_block(512, 4, 8, 512)), None);
+    }
+
+    #[test]
+    fn a_user_block_is_not_given_by_a_superblock_past_the_head() {
+        let h = after_block(1024, 0, 8, 1024);
+        assert_eq!(user_block(&h[..1024 + 35]), None);
+        assert_eq!(user_block(&h[..1024 + 36]), Some(1024));
+    }
+
+    #[test]
+    fn a_rebased_source_reads_and_asks_by_file_offset() {
+        let mut s = Src::new(5000);
+        s.rebase(1024);
+        assert_eq!(s.size, 3976);
+        assert_eq!(s.read(10, 2), Err(Fail::Miss));
+        assert_eq!(s.want.last().map(|w| w.0), Some(1034));
+        s.store.feed(1034, vec![7; 2]);
+        assert_eq!(s.read(10, 2).unwrap(), vec![7, 7]);
+        assert!(matches!(s.read(3976, 1), Err(Fail::Bad(_))));
     }
 }

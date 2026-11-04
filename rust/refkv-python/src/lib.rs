@@ -829,7 +829,7 @@ fn range_crc32c(py: Python<'_>, data: &[u8]) -> u32 {
     py.detach(|| crc32c::crc32c(data))
 }
 
-/// The format a file's first bytes (up to 552 of them) give (`Format::sniff`), if any: its
+/// The format a file's first bytes (up to 65,600 of them) give (`Format::sniff`), if any: its
 /// profile's name.
 #[pyfunction]
 fn sniff(head: &[u8]) -> Option<&'static str> {

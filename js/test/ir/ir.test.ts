@@ -108,7 +108,7 @@ test("the Rust core gives the frozen zarrifiers' hierarchy, and rejects the same
     ]);
     if (got.status === "fulfilled") {
       // the sniffed profile, or the one its reading chose (an Imaris file is sniffed as HDF5)
-      const sniffed = await irFormat(bytes.subarray(0, 552));
+      const sniffed = await irFormat(bytes.subarray(0, 65600));
       const chosenBy = REGISTRY.find((e) => e.name === got.value.format)?.chosen_by;
       assert.ok(got.value.format === sniffed || chosenBy === sniffed, `${path}: ${got.value.format}, sniffed ${sniffed}`);
     }

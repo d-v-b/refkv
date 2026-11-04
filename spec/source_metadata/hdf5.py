@@ -8,8 +8,7 @@ which refkv writes."""
 _HDF5 = "https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md"
 _REASONS = ["name", "reserved", "named_datatype", "object", "datatype", "filter", "filter_mask", "edge_chunks",
             "layout", "external_storage", "external_reference", "dimension_only", "null_dataspace", "fill_value",
-            "size", "shared",
-            "budget"]
+            "size", "shared", "budget"]
 _DATATYPE = {"type": "object", "properties": {"class": {"type": "string"}, "size": {"type": "integer", "minimum": 0}},
              "required": ["class", "size"],
              "description": f"An HDF5 datatype, described ({_HDF5}#7-source-metadata)"}
@@ -28,6 +27,8 @@ SCHEMA = {"anyOf": [
         "properties": {
             "address": {"type": "integer", "minimum": 0, "description": "Its object header's address"},
             "superblock": {"enum": [0, 1, 2, 3], "description": "The root's: the superblock's version"},
+            "user_block": {"type": "integer", "minimum": 512,
+                           "description": "The root's, when the file has one: the user block's size"},
             "attributes": _TYPES,
             "unpresented_attributes": _NOT,
             "unpresented": _NOT,

@@ -10,6 +10,12 @@ use crate::project::Copied;
 use crate::Parser;
 use serde_json::Value as J;
 
+/// The bytes a file's signatures test (spec/zarrify.md §1.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>).
+pub const SNIFF: usize = 552;
+/// The bytes its late signatures test: up to a superblock after a 64 KiB user block.
+pub const SNIFF_LATE: usize = 65_600;
+
 // `Format`: one variant per file profile of the registry (profiles/; build.rs)
 include!(concat!(env!("OUT_DIR"), "/formats.rs"));
 
@@ -26,10 +32,17 @@ impl Format {
     }
 
     /// The format a file's first bytes give, if one of these: the first, in the registry's
-    /// `sniff` order, whose profile's `detect` takes them (spec/zarrify.md §1.2
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>).
+    /// `sniff` order, whose profile's `detect` takes the first `SNIFF` of them, else the first
+    /// whose `detect_late` takes them all (spec/zarrify.md §1.2
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>). A host passes
+    /// `SNIFF` bytes, and `SNIFF_LATE` if that gives no format.
     pub fn sniff(head: &[u8]) -> Option<Format> {
-        Format::SNIFFED.iter().copied().find(|f| f.profile().detect(head))
+        let early = &head[..head.len().min(SNIFF)];
+        Format::SNIFFED
+            .iter()
+            .copied()
+            .find(|f| f.profile().detect(early))
+            .or_else(|| Format::SNIFFED.iter().copied().find(|f| f.profile().detect_late(head)))
     }
 }
 
@@ -40,6 +53,12 @@ pub trait FileProfile: Sync {
     /// Whether a file's first bytes (up to 552 of them) are the profile's signature; asked only
     /// of a profile the registry gives a `sniff` precedence.
     fn detect(&self, head: &[u8]) -> bool {
+        let _ = head;
+        false
+    }
+    /// Whether a file's first bytes (up to `SNIFF_LATE` of them), that no `detect` took, are the
+    /// profile's late signature.
+    fn detect_late(&self, head: &[u8]) -> bool {
         let _ = head;
         false
     }

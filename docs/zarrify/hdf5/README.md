@@ -148,8 +148,8 @@ Rejected:
 
 - External files that are not there, or that do not hold what a dataset's
   slots say, leave the link or dataset recorded rather than rejected.
-- Offsets or lengths of other than 8 bytes, a base address other than 0, a
-  superblock after a user block.
+- Offsets or lengths of other than 8 bytes, a base address other than where
+  the superblock is.
 - Structures that do not read: truncated files, chunks outside the file, a
   string that names no global heap object or one of another length.
 - More than 131,072 objects, objects more than 64 links deep, more than
