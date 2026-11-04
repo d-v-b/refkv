@@ -18,6 +18,10 @@ Changed 2026-11-04: LERC (Compression 34887), LZMA (34925), WebP (50001) and JPE
 layout, each through its imagecodecs codec ([§4.3](#43-data-types-and-codecs)); no output of a file
 accepted before changed.
 
+Changed 2026-11-04: a level in compressed strips whose last strip is short and cannot be padded has a
+layout: the `rectilinear` grid, a chunk a strip, unsharded ([§4.4](#44-arrays), [§4.5](#45-strips)),
+where it rejected the input; no output of a file accepted before changed.
+
 Changed 2026-11-04: a level's LZW, Deflate and zstd strips are the inner chunks of shards of at most
 2^10 strips and 2^30 decoded bytes ([§4.5](#45-strips), [zarrify §2.1](../zarrify.md#21-virtual-shards))
 in place of one chunk a strip, so that an image of one compressed row a strip no longer has a key a
@@ -435,8 +439,9 @@ the image's scale (level `L` has width `WL` and length `HL`, level 0 width `W0` 
 | `x` | always | the level's width `WL` | the level's TileWidth; for a level in strips, `WL` | `PX × (W0 / WL)` | `x`'s (**Pixel size**) |
 
 Levels may differ in tile size, and one may be tiled and another in strips. The chunk grid is
-always the regular grid of that chunk shape: a short last chunk is padded
-([§4.5](#45-strips)). (In a scale, the division is computed first.)
+the regular grid of that chunk shape, a short last chunk padded, or, for a level whose short last
+strip cannot be padded, the `rectilinear` grid ([§4.5](#45-strips)). (In a scale, the division is
+computed first.)
 
 <a id="type-tiffarray"></a>**`TiffArray`**, level `L`'s `zarr.json`: an
 [`ArrayDocument`](../conventions.md#type-arraydocument) with these members:
@@ -445,7 +450,7 @@ always the regular grid of that chunk shape: a short last chunk is padded
 |---|---|---|---|
 | `shape` | array of integer | required | each present axis's shape, above |
 | `data_type` | string | required | from [§4.3](#43-data-types-and-codecs) |
-| `chunk_grid` | object | required | regular, its chunk shape each present axis's chunk shape, above |
+| `chunk_grid` | object | required | regular, its chunk shape each present axis's chunk shape, above; or `rectilinear` ([§4.5](#45-strips)) |
 | `codecs` | array of object | required | from [§4.3](#43-data-types-and-codecs): `transpose` first when `spp > 1` and PlanarConfiguration is 1, then the codecs of the Compression's and Predictor's row |
 | `dimension_names` | array of string | required | the axes present, above |
 | `attributes` | object | required | `{}` |
@@ -599,7 +604,8 @@ chunk whose strips are all apart within the reads a reader allows a value by def
 codecs of [§4.3](#43-data-types-and-codecs) decode one at a time, so it stays one chunk, and its
 level gathers those chunks in shards instead ([zarrify §2.1](../zarrify.md#21-virtual-shards)). Let
 `M = min(floor(2^30 / (R × B)), 2^10)`, the most strips a shard holds. A level **shards** its strips
-when Compression is 5, 8, 32946 or 50000 and `S` and `M` are at least 2. Its array is then a
+when Compression is 5, 8, 32946 or 50000, `S` and `M` are at least 2, and, of Deflate and zstd,
+ImageLength is a multiple of `R`. Its array is then a
 [`ShardedArray`](../zarrify.md#type-shardedarray) of the array this document describes:
 
 - the inner chunks are that array's chunks, of `R` rows by the level's width, one strip each, and
@@ -618,7 +624,9 @@ and at most 20 bytes of range a strip. The limit of 2^30 bytes bounds what a rea
 shard as one value holds at once. A level of one strip has nothing to gather.
 
 Whether a reader makes fewer requests depends on the reader, which [zarrify
-§2.1](../zarrify.md#21-virtual-shards) describes. A strip of another compression keeps a chunk a strip.
+§2.1](../zarrify.md#21-virtual-shards) describes. A strip of JPEG, JPEG 2000, LERC, LZMA, WebP or JPEG XL keeps
+a chunk a strip, and so does a level of any compression but LZW whose last strip is short and not
+uncompressed, as below.
 So has a level of uncompressed strips with a strip that does not hold exactly its rows: a strip with
 no bytes, which is the fill value, or with more or fewer bytes than its rows, whose rows the
 concatenation would misplace.
@@ -633,13 +641,24 @@ chunk's rows, and of a level that does not join, the strip's):
 |---|---|
 | **1 (uncompressed)** | of a level that joins, `(R′ − rows) × B` zero bytes; of another, `R × B − n`, `n` the strip's byte count: `(R − rows) × B` when the strip holds its rows, and none when it holds `R × B` bytes or more (as a strip written with all the chunk's rows does; like any uncompressed tile or strip, one of more bytes than its chunk does not decode) |
 | **5 (LZW)** | the strip's stream is read until its output reaches the strip's size (`rows × B` bytes; a stream that does not reach it, or whose code crosses it, rejects the input), and what follows (its end-of-information code, or the malformed final code of [§4.3](#43-data-types-and-codecs)) is replaced by a **tail** that continues the stream: a Clear code at the width the decoder has there, then the `(R − rows) × B` zeros as the codes 0, 258, 259, ... (each code one zero longer than the last, the entry the decoder defines on reading the previous one) and one more code for the remainder shorter than the next entry, then the end-of-information code, every code at the width the decoder has when it reads it. The chunk's bytes are the strip's bytes before the byte holding the cut, then the tail, which starts with that byte's bits before the cut |
-| **another compression** (JPEG, Deflate, zstd, JPEG 2000, LERC, LZMA, WebP, JPEG XL) | cannot be padded: the input is rejected |
+| **another compression** (JPEG, Deflate, zstd, JPEG 2000, LERC, LZMA, WebP, JPEG XL) | cannot be padded: the level has the `rectilinear` grid, below |
 
 With Predictor 2, the padding is the same: each padded row is differences of 0, which sum back
 to zeros, since the differencing starts again at each row. (A short strip of Deflate or zstd cannot be extended without decompressing and compressing it
 again, and a JPEG or JPEG 2000 stream holds its own height, so these have no padding that
-references the strip's bytes. A shard does not change this: an inner chunk decodes to the inner
-chunk shape like any chunk, and the sharding codec has no shorter one.) A strip padded with more than 2^22 (4194304) zero bytes
+references the strip's bytes.)
+
+**A short last strip that cannot be padded.** Such a level's array has the zarr-extensions
+`rectilinear` chunk grid ([conventions §3](../conventions.md#3-arrays)), of chunk shapes the level's
+along every axis but `y`, and along `y` a run of `S − 1` lengths `R` and one of the last strip's rows:
+`[[R, S − 1], last]`, or `[R, last]` when `S` is 2. Each strip is one chunk, which decodes to
+exactly its rows. A level like this does not shard (the sharding codec has no shorter inner chunk,
+and readers refuse it on this grid), which costs little: a strip of one row is never
+short. A strip whose stream holds more than its rows does not decode, as a tile of more bytes than
+its chunk does not; zarrifying reads no strip, so it cannot tell. The reader needs zarr-python's `array.rectilinear_chunks`, as [docs/zarrify/README.md](../../docs/zarrify/README.md)
+says, and TensorStore refuses this grid.
+
+A strip padded with more than 2^22 (4194304) zero bytes
 rejects the input, so that no archive holds more zeros than that, and an LZW tail stays within
 one code table; so does a short last LZW strip whose tail would read more than 2^24
 (16777216) of its bytes (its byte count, read up to the bound of [§7.1](#71-reading)), and so do
@@ -954,8 +973,8 @@ TileOffsets[k]` and `n = TileByteCounts[k] > 0` (`StripOffsets[k]`, `StripByteCo
 | the rest of the tile | source range `(0, o + 2, n − 2)` | optional | when `P` is not empty: the tile's bytes after its first 2 |
 
 A short last strip thus has, when uncompressed and lacking bytes, the ranges `[(0, o, n), Z]`, and when LZW,
-the ranges `[(0, o, p), T]` (a JPEG strip is never short: [the convention §4.5](#45-strips)
-rejects it). Of a JPEG tile, every byte of the tile is
+the ranges `[(0, o, p), T]`; a short last strip of another compression is not padded, and has the
+ranges of any other strip ([the convention §4.5](#45-strips)). Of a JPEG tile, every byte of the tile is
 referenced, none replaced, so the chunk holds the tile whatever its first 2
 bytes are. `P` depends only on the IFD, so every tile of an IFD has the
 same `P`, and IFDs with the same bytes (as several levels of a slide often
