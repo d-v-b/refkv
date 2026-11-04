@@ -228,5 +228,9 @@ pub fn ome(facts: &J, axes: &[&str], name: Option<&J>) -> Result<J, String> {
 /// The root's source metadata: the byte order, and whether the file is a BigTIFF.
 pub fn own(facts: &J) -> J {
     let little = facts["little"].as_bool().unwrap_or(false);
-    json!({"byte_order": if little { "little" } else { "big" }, "bigtiff": facts["bigtiff"]})
+    let mut own = json!({"byte_order": if little { "little" } else { "big" }, "bigtiff": facts["bigtiff"]});
+    if !facts["micromanager"].is_null() {
+        own["micromanager"] = facts["micromanager"].clone();
+    }
+    own
 }

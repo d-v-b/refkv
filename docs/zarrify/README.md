@@ -145,12 +145,12 @@ Policy`). A local file or directory needs neither.
 
 Read the archive in Python with `refkv.zarr` and zarr-python
 (`pip install 'refkv[zarr]'`, or `refkv[images]` for the JPEG, JPEG 2000,
-JPEG XR, CCITT, EER, PackBits and LZW decoders, packed integers and TIFF's horizontal predictor). zarr-python finds the codecs that some formats need by
+JPEG XR, PNG, BMP, CCITT, EER, PackBits and LZW decoders, packed integers and TIFF's horizontal predictor). zarr-python finds the codecs that some formats need by
 the names the archive gives: refkv's own (`refkv.stream`, `refkv.grib`, `refkv.fits_tiles`,
 `refkv.tiff_lzw`, `refkv.skip`, `refkv.precomputed`, and `n5_default`) through refkv's `zarr.codecs` entry points,
 with no `import refkv.zarr` in your code (zarr imports the codec modules, which are
 under `refkv.zarr`, itself), imagecodecs-zarr's (`imagecodecs_jpeg`,
-`imagecodecs_jpeg2k`, `imagecodecs_jpegxr`, `imagecodecs_ljpeg`, `imagecodecs_delta`, `imagecodecs_packints`, `imagecodecs_packbits`, `imagecodecs_ccittfax4`, `imagecodecs_eer`), which `refkv[images]` installs, and
+`imagecodecs_jpeg2k`, `imagecodecs_jpegxr`, `imagecodecs_ljpeg`, `imagecodecs_jpegls`, `imagecodecs_dicomrle`, `imagecodecs_htj2k`, `imagecodecs_png`, `imagecodecs_bmp`, `imagecodecs_delta`, `imagecodecs_packints`, `imagecodecs_packbits`, `imagecodecs_ccittfax4`, `imagecodecs_eer`), which `refkv[images]` installs, and
 zarr-python's own (`numcodecs.zlib`, `numcodecs.shuffle`, `numcodecs.delta`). So a
 copy of an archive's arrays (in a directory, or in another store) reads with zarr
 alone, except that an array on the zarr-extensions `rectilinear` chunk grid (a
@@ -360,7 +360,7 @@ each format's metadata is:
   tree field by field, and the IFDs inside it) and every tile file (its
   headers, tile directory and tiles), each described in place, so that the
   mirror rebuilds each file from the slide's own bytes. The root keeps the
-  metadata tree as JSON, the list of stacks and the file's size; each
+  metadata tree as JSON, the list of stacks, the IFD images it left out and the file's size; each
   image keeps its stack's properties (scale, origin, channels, creation
   time, magnification) and its tile file's headers.
 - **MP3:** the IR mirror on `refkv_source`: the ID3v2 tags, the Xing or

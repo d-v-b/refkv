@@ -36,7 +36,7 @@
    "encoding": "raw"
   },
   {
-   "key": "fp",
+   "key": "webp",
    "size": [
     4,
     2,
@@ -59,7 +59,7 @@
     0,
     0
    ],
-   "encoding": "fpzip"
+   "encoding": "webp"
   },
   {
    "key": "murmur",
@@ -182,6 +182,84 @@
   {
    "key": "broken"
   },
-  "not an object"
+  "not an object",
+  {
+   "key": "fp",
+   "size": [
+    4,
+    2,
+    2
+   ],
+   "chunk_sizes": [
+    [
+     2,
+     2,
+     2
+    ]
+   ],
+   "resolution": [
+    128,
+    128,
+    128
+   ],
+   "voxel_offset": [
+    0,
+    0,
+    0
+   ],
+   "encoding": "fpzip"
+  },
+  {
+   "key": "kemp",
+   "size": [
+    4,
+    2,
+    2
+   ],
+   "chunk_sizes": [
+    [
+     2,
+     2,
+     2
+    ]
+   ],
+   "resolution": [
+    256,
+    256,
+    256
+   ],
+   "voxel_offset": [
+    0,
+    0,
+    0
+   ],
+   "encoding": "kempressed"
+  },
+  {
+   "key": "zfp",
+   "size": [
+    4,
+    2,
+    2
+   ],
+   "chunk_sizes": [
+    [
+     2,
+     2,
+     2
+    ]
+   ],
+   "resolution": [
+    512,
+    512,
+    512
+   ],
+   "voxel_offset": [
+    0,
+    0,
+    0
+   ],
+   "encoding": "zfpc"
+  }
  ]
 }

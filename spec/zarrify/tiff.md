@@ -9,6 +9,11 @@ store is the TIFF profile, [Part 2](#part-2-the-profile) below.
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `48e9ac4e-1156-4a62-955e-20467d9c2700` ·
 Schema: [schema.json](tiff/schema.json)
 
+Changed 2026-11-04: an OME-TIFF whose `TiffData` elements name several files is one image across
+them, and a Micro-Manager stack's index maps give its planes, in one file or several
+([§7.4](#74-several-files), [§7.5](#75-micro-manager-stacks)). A Micro-Manager file presented one
+plane before, and a file that names others was rejected.
+
 Changed 2026-11-04: samples of 1 and 12 bits, PackBits (Compression 32773), CCITT Group 4 (4) and EER
 (65000 to 65002) have a layout ([§4.3](#43-data-types-and-codecs)); BitsPerSample takes TIFF 6.0's
 default of 1, so that a bilevel file without tag 258 has one too ([§2](#2-the-source)); an EER file's
@@ -282,9 +287,10 @@ are none):
 - **Multi-file datasets:** a `TiffData` with a `UUID` names the file
   identified by the `UUID`'s `FileName` if it has one, else by its text (two
   identifiers are the same file only if they are equal strings). If the
-  `TiffData` elements name more than one distinct file, the input is
-  rejected. Otherwise `UUID`s are ignored, so a file that names itself is
-  accepted, and a `TiffData` without a `UUID` names no file.
+  `TiffData` elements name more than one distinct file, their planes lie in
+  those files ([§7.4](#74-several-files)). Otherwise `UUID`s are ignored, so a
+  file that names itself is accepted, and a `TiffData` without a `UUID` names
+  no file.
 - **Coverage:** a `TiffData` starts at position (`FirstZ`, `FirstC`,
   `FirstT`) (each default 0, and each MUST be less than `SizeZ`, `Cp`,
   `SizeT` respectively, else the input is rejected) and IFD index `IFD`
@@ -672,6 +678,8 @@ The root's source metadata `S` is a [`TiffRoot`](#type-tiffroot):
 |---|---|---|---|
 | `byte_order` | string | required | `"little"` or `"big"`: the file's byte order |
 | `bigtiff` | boolean | required | `true` for a BigTIFF (magic 43), `false` for a TIFF (magic 42) |
+| `files` | array of string | optional | the keys of the other files of an image across files, in the order the named file's parser found them ([§7.4](#74-several-files)); present for an input read as a store only |
+| `micromanager` | object | optional | a Micro-Manager stack's summary metadata, the JSON object as the file holds it ([§7.5](#75-micro-manager-stacks)); present for such a stack only |
 
 Everything else the file holds is on
 `refkv_source`, which is the file's **IR mirror**
@@ -974,3 +982,87 @@ referenced, none replaced, so the chunk holds the tile whatever its first 2
 bytes are. `P` depends only on the IFD, so every tile of an IFD has the
 same `P`, and IFDs with the same bytes (as several levels of a slide often
 have) share one data source.
+
+### 7.4 Several files
+
+An image's planes may lie in several files: those its OME-XML's `TiffData` elements name
+([§4.1](#41-planes)), and those of a Micro-Manager stack ([§7.5](#75-micro-manager-stacks)). The
+rules are those of [spec/zarrify.md §1.9](../zarrify.md#19-sources-beside-the-input), and this is the
+profile's sibling table:
+
+| what | it says |
+|---|---|
+| form | on demand. A file that names one file, or none, is a file input with a file IR |
+| names | written: each `FileName`, with none of the optional steps (no percent-decoding, no `\`, no `..`, case kept). Derived: a Micro-Manager stack's later files, `<stem>_<n>.ome.tif` |
+| probes | the document's files, all in one batch, in the order the `TiffData` elements first name them, each required: `the file "<key>" does not exist`. A Micro-Manager stack's, one at a time, from `n` = 1, while its index maps hold fewer planes than its summary says, ending at the first absent |
+| identity | OME-XML: a `UUID`'s text and the `UUID` attribute of the `OME` element of the file it names, when both are there, MUST be equal. A sibling with no OME-XML records nothing to compare. Micro-Manager: every file's summary MUST have the first's `UUID`. Else: `the file "<key>" is not part of this image` |
+| order | first use ([§7.3](#73-chunks) walks the planes in (t, c, z) order, each by its file) |
+| reads and mirror | each file as [§7.1](#71-reading) reads a TIFF, its main chain and the tags of its IFDs, and the mirror describes each in place at its key, under its object as a file IR describes the file ([§5](#5-source-metadata)) |
+
+A `UUID` with a `FileName` names the file by that name, which is a written name: one that is not a
+key below the file's directory is rejected, `the TiffData's file name "<name>" is not a path below
+the file's directory`. A `UUID` with no `FileName` can name only the named file, when its text is
+the `OME` element's `UUID`; any other is rejected, since nothing says where that file is: `a TiffData
+names a file by its UUID alone (<text>), with no FileName`.
+
+The planes are as [§4.1](#41-planes) maps them, each with its file: a `TiffData`'s `IFD` is an index
+in the main chain of the file it names. Every plane's IFD MUST exist in that file. Every IFD of a
+plane in another file has the size and the format the named file's first plane has
+([§4.2](#42-pyramid-levels)), else: `a file of the image holds planes of another size or format`.
+
+An image across files, and a Micro-Manager stack in any number of files:
+
+- has one level. IFD 0 with `SubIFDs` is rejected: `an image across files with SubIFD levels is not
+  supported`;
+- has one strip a chunk: strips are neither joined nor sharded ([§4.5](#45-strips)), and a level in
+  strips whose last strip is short is rejected: `an image across files whose strips leave a short
+  last strip is not supported`;
+- has no `ome/planes` aliases in its mirror, as an alias stays within its object.
+
+Its `source.url` is the named file's object URL, whichever files hold the planes. Its `omero`
+windows are sampled as a single file's are ([§4.4](#44-arrays)), from the chunks in whichever files
+hold them.
+
+### 7.5 Micro-Manager stacks
+
+A **Micro-Manager stack** is what Micro-Manager's "image stack" format writes, usually as
+`<name>_MMStack_Pos0.ome.tif`. Despite the name, such a file holds no OME-XML, and its planes are not
+described by any TIFF tag: its own header describes them
+([Micro-Manager file formats](https://micro-manager.org/Micro-Manager_File_Formats)). When no
+OME-XML was found, a little-endian classic TIFF whose bytes 8–39 are these little-endian `u32`s is
+one:
+
+| bytes | field |
+|---|---|
+| 8–11 | `54773648` |
+| 12–15 | the index map's offset `M` |
+| 16–31 | the display settings' and comments' headers and offsets, not read |
+| 32–35 | `2355492` |
+| 36–39 | the summary's length `L`, at most 2^24 |
+
+The summary is the `L` bytes at 40, which MUST be a JSON object. The index map at `M` is the `u32`s
+`3453623` and `N`, with `N` at least 1, and `N` entries of 5 `u32`s: channel, slice, frame, position
+and an IFD's offset. A file that is not all of this, whatever its bytes 8–11, is a TIFF like any
+other. The profile reads each IFD an index map names ahead of walking the main chain, a batch of
+ranges rather than an IFD a request: every IFD's elements are as the chain gives them.
+
+The array's axes are as [§4.4](#44-arrays) gives them, of sizes `SizeT`, `SizeC` and `SizeZ`, the
+greatest frame, channel and slice of the index maps of all the files, plus 1. Each entry's plane is
+the IFD at its offset, which MUST be in that file's main chain, else `a Micro-Manager index map names
+an IFD that is not in the main chain`. Every entry of a file MUST have the position of its file's
+first entry, else `a Micro-Manager file of several positions is not supported`: Micro-Manager's
+default writes a file for each position, and each is an input. A plane no entry names has no chunk,
+since an acquisition may be stopped or skip planes.
+
+The stack's **expected planes** are the product of the summary's `Frames`, `Slices` and `Channels`,
+each 1 when it is absent. When the named file's `N` is at least that, the input is a file input.
+Otherwise it names siblings, and its later files are probed as [§7.4](#74-several-files) says; a
+stopped acquisition, whose first later file is absent, therefore costs one probe. A key of the form
+`<s>_<n>.ome.tif`, with `<n>` digits and `<s>` holding `_MMStack`, whose expected planes the file does
+not cover, is a later file named as the input, and is rejected: `<key> is a later file of a
+Micro-Manager stack: zarrify <s>.ome.tif`.
+
+The summary's `PixelSize_um` and `z-step_um`, when they are numbers other than 0, are the scale of
+`x` and `y` and of `z`, in micrometers (their absolute values), in place of the resolution tags
+([§4.4](#44-arrays)). The summary's `ChNames` name the channels of the `omero` as the OME-XML's
+`Channel` names do. The whole summary is the root's `micromanager` member ([§5](#5-source-metadata)).
