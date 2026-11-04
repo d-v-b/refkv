@@ -37,6 +37,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # js/test, for ver
 from verify_common import LOOPBACK_SOURCES, run, serve  # noqa: E402
 
 MAX_SAFE = (1 << 53) - 1
+# a nameless column is valid FITS, which astropy cannot open (python/tests/ir/test_fits.py reads it)
+NOT_READ_BY_ASTROPY = {"fits_bintable_unnamed.fits"}
 COMMENTARY = ("COMMENT", "HISTORY", "")
 # hand-built tile-compressed fixtures astropy cannot read: the fixture with the same image, and
 # the rows an absent tile leaves at 0
@@ -138,7 +140,10 @@ def problems_of(path: Path, out: Path) -> list[str]:
                 elif isinstance(hdu, (fits.BinTableHDU, fits.TableHDU)):
                     n1, n2 = hdu.header["NAXIS1"], hdu.header["NAXIS2"]
                     rows = raw[info["datLoc"]:info["datLoc"] + n1 * n2]
-                    if n1 * n2 and ndarray(root.get_array(f"{i}/rows")[...]).tobytes() != rows:
+                    stored = ndarray(root.get_array(f"{i}/rows")[...])
+                    if stored.dtype.names:  # a struct over the rows, big-endian in the file
+                        stored = stored.astype(stored.dtype.newbyteorder(">"))
+                    if n1 * n2 and stored.tobytes() != rows:
                         problems.append(f"HDU {i} rows differ")
                     theap = hdu.header.get("THEAP", n1 * n2)
                     heap = hdu.header["PCOUNT"] - (theap - n1 * n2)
@@ -157,7 +162,8 @@ def problems_of(path: Path, out: Path) -> list[str]:
 
 
 def main(fixtures: Path) -> int:
-    paths = sorted(p for p in fixtures.iterdir() if p.name.endswith((".fits", ".fz")))
+    paths = sorted(p for p in fixtures.iterdir()
+                   if p.name.endswith((".fits", ".fz")) and p.name not in NOT_READ_BY_ASTROPY)
     return run(paths, lambda path, out, _: problems_of(path, out), url=serve(paths))
 
 
