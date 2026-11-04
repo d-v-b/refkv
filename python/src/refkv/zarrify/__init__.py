@@ -237,7 +237,7 @@ async def _zarrify_async(location: str, url: str | None = None, *, checksums: bo
     try:
         found, out, _ = await ir.zarrify_async(location, url, transport=transport, connections=connections,
                                                byte_cost=byte_cost, fmt=fmt, layouts=names, checksums=checksums)
-    except ir.Beside as e:
+    except ir.NamesSiblingsError as e:
         return await _zarrify_beside_async(e.args[0], location, url, transport, checksums=checksums, policy=policy,
                                            connections=connections)
     if checksums:
