@@ -82,7 +82,7 @@ pub fn arrays(ir: &Ir, facts: &J, url: &str, only: Option<usize>, shape: impl Fn
             let e = &facts["eer"];
             codecs.push(json!({"name": "imagecodecs_eer", "configuration": {"shape": [rows, columns], "skipbits": e["skipbits"], "horzbits": e["horzbits"], "vertbits": e["vertbits"]}}));
         } else {
-            codecs.extend(tiff_codecs(n(&facts["compression"]), n(&facts["predictor"]), n(&facts["bits"]),
+            codecs.extend(tiff_codecs(n(&facts["compression"]), n(&facts["predictor"]), n(&facts["bits"]), n(&facts["spp"]),
                                       facts["little"].as_bool().unwrap_or(false), x, columns * samples));
         }
         let codecs = J::Array(codecs);

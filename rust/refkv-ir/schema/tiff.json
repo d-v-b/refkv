@@ -68,7 +68,7 @@
     "layout_tags": [273, 279, 288, 289, 324, 325, 513, 514, 519, 520, 521],
     "pointers": {"330": "subifds", "34665": "exif", "34853": "gps", "40965": "interoperability"},
     "jpeg2000": [33003, 33004, 33005, 34712],
-    "compressions": [1, 4, 5, 7, 8, 32946, 50000, 32773, 33003, 33004, 33005, 34712, 65000, 65001, 65002],
+    "compressions": [1, 4, 5, 7, 8, 32946, 50000, 32773, 33003, 33004, 33005, 34712, 34887, 34925, 50001, 50002, 65000, 65001, 65002],
       "eer": [65000, 65001, 65002],
     "zlib": [8, 32946],
     "sample_kinds": {"1": "uint", "2": "int", "3": "float"},
@@ -219,7 +219,7 @@
       ]
     },
     "predictor": {
-      "about": "IFD 0's Predictor (spec/zarrify/tiff.md §4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>): none (1), or, with an integer type and LZW, Deflate or zstd, horizontal differencing (2), which imagecodecs_delta sums back; JPEG 2000 streams do not use it",
+      "about": "IFD 0's Predictor (spec/zarrify/tiff.md §4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>): none (1), or, with an integer type and LZW, Deflate, zstd or LZMA, horizontal differencing (2), which imagecodecs_delta sums back; JPEG 2000 streams do not use it",
       "given": {"compression": "", "predictor": "", "sample_format": "IFD 0's SampleFormat", "bits": "IFD 0's BitsPerSample"},
       "constraints": [
         {
@@ -231,7 +231,7 @@
           "message": "predictor {predictor} with SampleFormat {sample_format}"
         },
         {
-          "require": "in(compression, jpeg2000) || predictor == 1 || in(compression, [5, 8, 32946, 50000])",
+          "require": "in(compression, jpeg2000) || predictor == 1 || in(compression, [5, 8, 32946, 50000, 34925])",
           "message": "predictor {predictor} with compression {compression}"
         },
         {
@@ -390,7 +390,7 @@
       },
       "constraints": [
         {
-          "require": "!in(compression, [1, 4, 5, 8, 32946, 50000, 32773, 65000, 65001, 65002]) || fill_order == 1",
+          "require": "!in(compression, [1, 4, 5, 8, 32946, 34887, 34925, 50000, 32773, 50001, 50002, 65000, 65001, 65002]) || fill_order == 1",
           "message": "the image at {offset} has FillOrder {fill_order}"
         },
         {
@@ -453,6 +453,9 @@
         {"require": "!in(bits, [1, 12]) || in(compression, [1, 4, 5, 8, 32946, 50000, 32773]) || in(compression, eer)", "message": "unsupported compression {compression} of {bits}-bit samples"},
         {"require": "compression != 4 || (bits == 1 && spp == 1)", "message": "unsupported CCITT: {bits}-bit, {spp} samples"},
         {"require": "!in(compression, eer) || (bits == 1 && spp == 1)", "message": "unsupported EER: {bits}-bit, {spp} samples"},
+        {"require": "compression != 34887 || bits < 64 || sample_format == 3", "message": "unsupported LERC: {bits}-bit, SampleFormat {sample_format}"},
+        {"require": "compression != 50001 || (bits == 8 && sample_format == 1 && planar == 1 && in(spp, [3, 4]))", "message": "unsupported WebP: {bits}-bit, SampleFormat {sample_format}, {spp} samples, planar {planar}"},
+        {"require": "compression != 50002 || (sample_format == 1 && in(bits, [8, 16])) || (sample_format == 3 && bits == 32)", "message": "unsupported JPEG XL: {bits}-bit, SampleFormat {sample_format}"},
         {"require": "in(compression, compressions)", "message": "unsupported compression {compression}"}
       ]
     },

@@ -227,8 +227,9 @@ Supported:
 - Unsigned and signed integers of 8 to 64 bits, `float32` and `float64`, unsigned samples of 1 and 12
   bits (`imagecodecs_packints`, read as `uint8` and `uint16`, and a file without BitsPerSample as 1 bit),
   planar or interleaved samples.
-- Compression: none, LZW, DEFLATE, zstd, PackBits, CCITT Group 4 (1 bit), EER (a stack of frames along
-  `t`), JPEG 2000, and JPEG (8-bit, gray or RGB or YCbCr) with or without `JPEGTables`.
+- Compression: none, LZW, DEFLATE, zstd, LZMA, PackBits, CCITT Group 4 (1 bit), EER (a stack of frames along
+  `t`), JPEG 2000, LERC (as GDAL's COG driver writes for LINZ's elevation), WebP (3 or 4 samples of 8 bits,
+  as for LINZ's imagery), JPEG XL, and JPEG (8-bit, gray or RGB or YCbCr) with or without `JPEGTables`.
 - The horizontal predictor (Predictor 2), as GDAL, libtiff and tifffile write
   it with LZW, DEFLATE or zstd, of integer samples: imagecodecs-zarr's
   `imagecodecs_delta` codec sums the differences back (zarr-python reads it
@@ -270,8 +271,8 @@ The browser code ([js/](../../../js/README.md)) reads TIFF:
   sizes and units.
 - Samples per pixel stored planar (one chunk per channel) or interleaved
   (through a `transpose` codec).
-- Compression: none, LZW (`refkv.tiff_lzw`), DEFLATE (`numcodecs.zlib`), zstd, PackBits (`imagecodecs_packbits`), CCITT Group 4 (`imagecodecs_ccittfax4`), EER (`imagecodecs_eer`), JPEG 2000
-  (`imagecodecs_jpeg2k`), and JPEG (`imagecodecs_jpeg`), and Predictor 2 (`imagecodecs_delta`). JPEG tiles that keep
+- Compression: none, LZW (`refkv.tiff_lzw`), DEFLATE (`numcodecs.zlib`), zstd, LZMA (`imagecodecs_lzma`), PackBits (`imagecodecs_packbits`), CCITT Group 4 (`imagecodecs_ccittfax4`), EER (`imagecodecs_eer`), JPEG 2000
+  (`imagecodecs_jpeg2k`), LERC (`imagecodecs_lerc`), WebP (`imagecodecs_webp`), JPEG XL (`imagecodecs_jpegxl`), and JPEG (`imagecodecs_jpeg`), and Predictor 2 (`imagecodecs_delta`). JPEG tiles that keep
   their tables in `JPEGTables`, as in Aperio SVS, become complete JPEG streams
   through references that prepend the tables and a color marker, held once
   in the archive as a `data` source.

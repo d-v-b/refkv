@@ -564,6 +564,10 @@ def patch_tag(path, tag: str, *, value: int | None = None, code: int | None = No
 RECTILINEAR = {
     # name: each level's chunk lengths along `y`, or the integer of a regular grid's chunk shape
     "strips_uint16_deflate_short.tif": [[[16, 4], 6]],
+    "lerc_float32_strips_short.tif": [[[16, 3], 8]],
+    "webp_rgb_strips_short.tif": [[[16, 3], 8]],
+    "jpegxl_uint16_strips_short.tif": [[[16, 3], 8]],
+    "lzma_uint16_strips_short.tif": [[[16, 3], 8]],
     "bilevel_packbits_strips_short.tif": [[[16, 2], 8]],
     "bilevel_g4_strips_short.tif": [[[16, 2], 8]],
     "strips_uint16_zstd_short.tif": [[[16, 4], 6]],
@@ -687,6 +691,71 @@ def test_predictor_3_is_rejected():
     no codec undoes the floating-point predictor."""
     with pytest.raises(Rejected, match="unsupported predictor 3"):
         via_ir(str(FIXTURES / "tiff" / "unsupported_predictor_float.tif"), "u")
+
+
+LERC, LZMA = {"name": "imagecodecs_lerc"}, {"name": "imagecodecs_lzma"}
+JPEGXL = {"name": "imagecodecs_jpegxl"}
+
+
+def webp(hasalpha):
+    return {"name": "imagecodecs_webp", "configuration": {"hasalpha": hasalpha}}
+
+
+MORE_CODECS = {
+    # name: the codecs
+    "lerc_uint16.tif": [LERC],
+    "lerc_float32_strips.tif": [LERC],  # in strips
+    "lerc_deflate_float32.tif": [LERC],  # the stream in Deflate, which the codec finds itself
+    "lerc_zstd_float64.tif": [LERC],  # in zstd
+    "lerc_rgb_contig_uint8.tif": [INTERLEAVED, LERC],
+    "webp_rgb.tif": [INTERLEAVED, webp(False)],
+    "webp_rgb_strips.tif": [INTERLEAVED, webp(False)],
+    "webp_rgba_opaque_tile.tif": [INTERLEAVED, webp(True)],  # a tile of opaque alpha keeps its alpha
+    "jpegxl_uint8.tif": [JPEGXL],
+    "jpegxl_uint16.tif": [JPEGXL],
+    "jpegxl_float32.tif": [JPEGXL],
+    "jpegxl_rgb_uint8.tif": [INTERLEAVED, JPEGXL],
+    "lzma_uint16.tif": [LE, LZMA],
+    "lzma_predictor_uint16_be.tif": [delta(1), BE, LZMA],
+    "lerc_float32_strips_short.tif": [LERC],
+    "webp_rgb_strips_short.tif": [INTERLEAVED, webp(False)],
+    "jpegxl_uint16_strips_short.tif": [JPEGXL],
+    "lzma_uint16_strips_short.tif": [LE, LZMA],
+}
+
+
+def test_lerc_webp_jpeg_xl_and_lzma_read_as_tifffile_reads_them(tmp_path):
+    """§4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>: these
+    compressions are chunks of imagecodecs' codecs, a tile or strip each. Every level reads as
+    tifffile reads it, and an RGBA tile whose alpha is opaque keeps it."""
+    for name, codecs in MORE_CODECS.items():
+        path = FIXTURES / "tiff" / name
+        out, g, _ = zarrified(path, tmp_path, "tiff")
+        ms = mapping(at(g.attrs, "ome", "multiscales", 0))
+        names = [string(at(a, "name")) for a in sequence(ms["axes"])]
+        with tifffile.TiffFile(path) as tf:
+            series = tf.series[0]
+            data, axes = series.asarray(), series.axes
+        assert inner_of(json.loads(out.bytes_entries["0/zarr.json"]))[1] == codecs, name
+        letters = [AXIS[a] for a in axes]
+        want = np.transpose(data, [letters.index(a) for a in names])
+        assert np.array_equal(ndarray(g.get_array("0")[...]), want), name
+    with tifffile.TiffFile(FIXTURES / "tiff" / "webp_rgba_opaque_tile.tif") as tf:
+        assert tf.asarray()[0, 0, 3] == 255  # the opaque tile that a WebP stream may leave out
+
+
+@pytest.mark.parametrize(("name", "message"), [
+    ("edge_reject_webp_gray.tif", "unsupported WebP: 8-bit, SampleFormat 1, 1 samples"),
+    ("edge_reject_webp_uint16.tif", "unsupported WebP: 16-bit"),
+    ("edge_reject_jpegxl_int16.tif", "unsupported JPEG XL: 16-bit, SampleFormat 2"),
+    ("edge_reject_lerc_uint64.tif", "unsupported LERC: 64-bit, SampleFormat 1"),
+    ("edge_reject_predictor_lerc.tif", "predictor 2 with compression 34887"),
+    ("edge_reject_compression_unknown.tif", "unsupported compression 34661"),
+])
+def test_what_the_new_decoders_do_not_hold_is_rejected(name, message):
+    """§4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>."""
+    with pytest.raises(Rejected, match=message):
+        via_ir(str(FIXTURES / "tiff" / name), "u")
 
 
 def packints(bits, runlen):
