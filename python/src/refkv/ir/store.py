@@ -106,7 +106,12 @@ async def drive_store_async(run: _core.StoreRun, store: Store, workers: int | No
             # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#92-the-tile-files>):
             # each key answered with its size, or None when it does not exist
             for key in run.probes():
-                run.found(store.probe(key))
+                size = store.probe(key)
+                at = store.found_key(key)
+                if size is not None and at != key:
+                    run.found_as(size, at)
+                else:
+                    run.found(size)
         return reqs
 
     try:
