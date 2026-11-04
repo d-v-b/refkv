@@ -4,8 +4,8 @@
 //! §9.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#94-chunks>) from a valid
 //! store IR: a bioformats2raw layout of one OME-Zarr image per stack with pixels, each level's
 //! chunks the tile file's tiles, and the macro image from the `.vsi` file's own IFD; the root
-//! carries the metadata tree as JSON. The facts hold what the parser read; the projection
-//! checks only the archive's own limits.
+//! carries the metadata tree as JSON and the IFD images it does not present. The facts hold what
+//! the parser read; the projection checks only the archive's own limits.
 
 use super::{along, arr, image_axes, key, n, translation, with_counts, Copied};
 use crate::ir::Ir;
@@ -39,6 +39,8 @@ fn codecs(codec: &str, bytes: u64, samples: u64, axes: &[&str]) -> J {
         "jpeg" => out.push(json!({"name": "imagecodecs_jpeg"})),
         "jpeg2000" => out.push(json!({"name": "imagecodecs_jpeg2k"})),
         "ljpeg" => out.push(json!({"name": "imagecodecs_ljpeg"})),
+        "png" => out.push(json!({"name": "imagecodecs_png"})),
+        "bmp" => out.push(json!({"name": "imagecodecs_bmp"})),
         _ => out.push(bytes_codec(bytes, "little")),
     }
     J::Array(out)
@@ -231,14 +233,7 @@ fn image(refs: &mut Refs, k: usize, im: &J, vsi_key: &str) -> Result<J, String> 
                 parts.push(Part::Obj(vsi_key.to_string(), o + 2, len - 2));
             }
         } else {
-            // the strips, contiguous ones as one range
-            for s in strips {
-                let (o, len) = (n(&s[1]), n(&s[2]));
-                match parts.last_mut() {
-                    Some(Part::Obj(_, po, pn)) if *po + *pn == o => *pn += len,
-                    _ => parts.push(Part::Obj(vsi_key.to_string(), o, len)),
-                }
-            }
+            parts = crate::vsi::tiff::runs(vsi_key, strips.iter().map(|s| (n(&s[1]), n(&s[2]))));
         }
         let (el, start, length) = (n(&strips[0][0]), n(&strips[0][1]), n(&strips[0][2]));
         let _ = el;
@@ -255,11 +250,15 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
     let images = arr(&facts["images"]);
     let vsi_key = facts["vsi"]["key"].as_str().unwrap_or("").to_string();
     let mut out = Out::new(url);
-    let own = json!({
+    let mut own = json!({
         "file": facts["vsi"],
         "stacks": facts["stacks"],
         "tree": facts["tree"],
     });
+    let not_presented = arr(&facts["not_presented"]);
+    if !not_presented.is_empty() {
+        own["not_presented"] = facts["not_presented"].clone();
+    }
     let vsi_url = object_url(url, &vsi_key);
     bioformats2raw(&mut out, PROFILE, &vsi_url, own, images.len(), !images.is_empty());
     let mut refs = Refs::new(ir, out);
@@ -272,6 +271,6 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
         super::store::check_key(k)?;
     }
     let chunks: u64 = summaries.iter().map(|s| n(&s["chunks"])).sum();
-    out.summary = with_counts(json!({"images": summaries, "chunks": chunks, "dataSources": out.data.len()}), facts);
+    out.summary = with_counts(json!({"images": summaries, "notPresented": not_presented.len(), "chunks": chunks, "dataSources": out.data.len()}), facts);
     Ok(out)
 }

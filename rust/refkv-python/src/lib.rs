@@ -375,6 +375,7 @@ impl PyIr {
 fn step_py(r: Result<Step, String>) -> PyResult<Option<Vec<(u64, u64)>>> {
     match r {
         Ok(Step::Read(v)) => Ok(Some(v)),
+        Ok(Step::Beside) => Err(Rejected::new_err("the file names siblings, which a run reads as a store")),
         Ok(Step::Done) => Ok(None),
         Err(e) => Err(Rejected::new_err(e)),
     }
@@ -606,6 +607,12 @@ impl PyRun {
     #[getter]
     fn format(&mut self) -> PyResult<&'static str> {
         Ok(self.get()?.format.name())
+    }
+    /// Whether the file names siblings (`Run::beside`), once `poll` gave None: the run has no
+    /// output, and the host starts over with a store run of `format`.
+    #[getter]
+    fn beside(&mut self) -> PyResult<bool> {
+        Ok(self.get()?.beside())
     }
     /// The planner's counts and model (JSON).
     fn stats(&mut self) -> PyResult<String> {

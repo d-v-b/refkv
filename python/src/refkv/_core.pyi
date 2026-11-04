@@ -182,6 +182,10 @@ class Run:
     @multirange.setter
     def multirange(self, v: bool | None) -> None: ...
     @property
+    def beside(self) -> bool:
+        """Whether the file names siblings, once `poll` gave None: the run has no output, and
+        the host starts over with a store run of `format`."""
+    @property
     def format(self) -> str:
         """The run's format: "tiff" becomes "ndpi" once its parser finds the file is NDPI."""
     def stats(self) -> str:

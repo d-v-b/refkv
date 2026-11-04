@@ -62,14 +62,19 @@ from refkv_reference.dicom.source import dictionary_vr  # noqa: E402
 WHOLE_SLIDE = "1.2.840.10008.5.1.4.1.1.77.1.6"
 NATIVE = {"1.2.840.10008.1.2", "1.2.840.10008.1.2.1", "1.2.840.10008.1.2.2"}
 LOSSLESS = {"1.2.840.10008.1.2.4.57", "1.2.840.10008.1.2.4.70"}
+RLE = "1.2.840.10008.1.2.5"
+JPEGLS = {"1.2.840.10008.1.2.4.80", "1.2.840.10008.1.2.4.81"}
+HTJ2K = {"1.2.840.10008.1.2.4.201", "1.2.840.10008.1.2.4.202", "1.2.840.10008.1.2.4.203"}
 
 
 def expected(ds: pydicom.Dataset) -> np.ndarray:
     """The image as the profile lays it out: [c,] [z,] y, x."""
     n = int(ds.get("NumberOfFrames", 1) or 1)
     rows, columns, spp = ds.Rows, ds.Columns, ds.SamplesPerPixel
-    dtype = np.dtype(f"{'u' if ds.PixelRepresentation == 0 else ''}int{ds.BitsAllocated}")
-    if ds.file_meta.TransferSyntaxUID in NATIVE:
+    dtype = np.dtype(f"{'u' if ds.PixelRepresentation == 0 else ''}int{ds.BitsAllocated}" if ds.BitsAllocated > 1
+                     else bool)
+    if ds.file_meta.TransferSyntaxUID in NATIVE or ds.file_meta.TransferSyntaxUID == RLE:
+        # as stored: pydicom's conversions need asking for
         frames = np.asarray(ds.pixel_array).ravel()[: n * rows * columns * spp]  # without excess pixel data
         frames = frames.reshape(n, rows, columns, *([spp] if spp > 1 else []))
     else:
@@ -88,6 +93,10 @@ def expected(ds: pydicom.Dataset) -> np.ndarray:
                 # libjpeg-turbo, not the ljpeg decoder that imagecodecs_ljpeg calls: signed
                 # pixels as their bit patterns, read as the data type below
                 decoded.append(imagecodecs.jpeg8_decode(frame).astype(f"uint{ds.BitsAllocated}").view(dtype))
+            elif ds.file_meta.TransferSyntaxUID in JPEGLS:
+                decoded.append(imagecodecs.jpegls_decode(frame))
+            elif ds.file_meta.TransferSyntaxUID in HTJ2K:
+                decoded.append(imagecodecs.htj2k_decode(frame, planar=False))
             else:
                 decoded.append(imagecodecs.jpeg2k_decode(frame))
         frames = np.stack(decoded).astype(dtype)
@@ -367,7 +376,7 @@ def header_problems(root, data: bytes) -> list[str]:
     # Native pixel data past the frames, unless one 00 byte.
     n = int(ds.get("NumberOfFrames", 1) or 1)
     if ds.file_meta.TransferSyntaxUID in NATIVE:
-        extra = ds.PixelData[n * ds.Rows * ds.Columns * ds.SamplesPerPixel * (ds.BitsAllocated // 8):]
+        extra = ds.PixelData[(n * ds.Rows * ds.Columns * ds.SamplesPerPixel * ds.BitsAllocated + 7) // 8:]
         kept = array_bytes(root, source["pixel_extra"]) if "pixel_extra" in source else b""
         if kept != (extra if extra not in (b"", b"\0") else b""):
             problems.append(f"pixel_extra: {kept[:8]!r} vs {extra[:8]!r}")

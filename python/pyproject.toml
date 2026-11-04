@@ -51,7 +51,8 @@ refkv = "refkv.__main__:main"
 # The codecs refkv's archives name that zarr-python and imagecodecs-zarr do not provide
 # (src/refkv/zarr/codecs/), which zarr loads by name when it opens an array that names one, without
 # `import refkv.zarr`. A base install, without zarr, never loads them; a codec whose decoder needs
-# another extra (refkv.tiff_lzw: images, refkv.stream: media) names it when a chunk is decoded.
+# another extra (refkv.tiff_lzw: images, refkv.stream: media, refkv.precomputed: images and
+# precomputed) names it when a chunk is decoded.
 [project.entry-points."zarr.codecs"]
 "refkv.fits_tiles" = "refkv.zarr.codecs.fits_tiles:FitsTilesCodec"
 "refkv.h5_bitshuffle" = "refkv.zarr.codecs.h5_bitshuffle:H5BitshuffleCodec"
@@ -100,6 +101,14 @@ images = [
 media = [
     "refkv[zarr]",
     "av>=15.0",
+]
+# the decoders of the refkv.precomputed codec's encodings that imagecodecs does not have:
+# compresso, crackle and fpzip (and so kempressed). JPEG XL and zfpc are imagecodecs', in `images`
+precomputed = [
+    "refkv[zarr]",
+    "compresso>=3.3.3",
+    "crackle-codec>=0.52.0",
+    "fpzip>=1.2.5",
 ]
 # obstore's stores, such as S3Store, to pass as registry= for s3://, gs:// and az:// sources
 # (refkv takes any obspec store, and does not import obstore itself)
