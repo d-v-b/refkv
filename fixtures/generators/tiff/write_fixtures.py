@@ -102,8 +102,8 @@ def main() -> None:
     # which imagecodecs_delta sums back.
     tifffile.imwrite(OUT / "predictor_deflate_uint8.tif", small, tile=(32, 32),
                      compression="zlib", predictor=True)
-    # Rejected: Deflate strips whose last is short, which cannot be padded.
-    tifffile.imwrite(OUT / "edge_reject_strips_deflate_short.tif", tall, rowsperstrip=16, compression="zlib",
+    # Deflate strips whose last is short, which cannot be padded: a `rectilinear` grid.
+    tifffile.imwrite(OUT / "strips_uint16_deflate_short.tif", tall, rowsperstrip=16, compression="zlib",
                      photometric="minisblack")
 
     # More of Predictor 2 (written last, so that the fixtures above keep their pixels): uint16
