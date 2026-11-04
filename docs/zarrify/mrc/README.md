@@ -29,7 +29,9 @@ One OME-Zarr 0.5 image at the archive root, with one array, `0`.
   are named by the header's axis map (`mapc`, `mapr`, `maps`) when it is a
   permutation of x, y and z; the values are never reordered.
 - **Data types:** `int8`, `int16`, `uint16`, `float16`, `float32` and
-  `complex64` (modes 0, 1, 6, 12, 2 and 4); `uint8` for a mode 0 file that
+  `complex64` (modes 0, 1, 6, 12, 2 and 4), `uint8` for mode 101 (4-bit values,
+  read through `packbits`), a `struct` of `real` and `imag` `int16`s for mode 3;
+  `uint8` for a mode 0 file that
   IMOD marks as unsigned.
 - **Chunks:** the values as the file stores them, cut into equal runs of at
   most 1 MiB along the outermost axis that allows it.
@@ -164,7 +166,6 @@ Rejected:
   file of any supported format`. A gzip stream has no byte ranges to reference; decompress the map first.
 - Files without `MAP` at byte 208 (the pre-2000 format), and a machine
   stamp that is neither little- nor big-endian.
-- Complex int16 (mode 3) and 4-bit (mode 101) data.
 - A volume stack whose `mz` does not divide `nz`, and data past the end of
   the file.
 
@@ -173,13 +174,13 @@ Rejected:
 The browser code ([js/](../../../js/README.md)) reads MRC (MRC2014 files):
 
 - Images, image stacks, volumes and volume stacks (`t`, `z`, `y`, `x`),
-  either byte order, modes 0, 1, 2, 4, 6 and 12.
+  either byte order, modes 0, 1, 2, 3, 4, 6, 12 and 101.
 - Chunks of at most 1 MiB: blocks of sections, or blocks of rows.
 - The voxel size (angstroms) as scale, the origin as translation, the whole
   header under `refkv_zarrified`.
 
 Not supported, and refused with HTTP 422: gzipped maps (`.map.gz`), pre-2000
-files without `MAP` at byte 208, and modes 3 and 101.
+files without `MAP` at byte 208.
 
 ## Performance
 

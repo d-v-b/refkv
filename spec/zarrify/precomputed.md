@@ -13,6 +13,11 @@ and its
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `c499987a-9518-4b2b-a804-a70a8de1a911` ·
 Schema: [schema.json](precomputed/schema.json)
 
+Changed 2026-11-04: scales of the encodings `compresso`, `crackle`, `jxl`, `fpzip`, `zfpc` and
+`kempressed` are presented, where they were kept and not presented, each for the data types and
+channels its format holds ([§3.3](#33-scales-that-are-not-presented), [§6.2](#62-decoding),
+[§6.3](#63-content-codings)); a chunk of another data type than the array's is an error.
+
 Added 2026-11-03.
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
@@ -107,7 +112,7 @@ conditions of [§3.3](#33-scales-that-are-not-presented) hold. Its members:
 | `resolution` | 3 numbers | a voxel's size in nanometers along x, y and z |
 | `voxel_offset` | 3 integers | the coordinates of the volume's first voxel; 0 when absent |
 | `chunk_sizes` | array of 3 integers | the chunk sizes; the first is the one the layout uses. The format lets a scale be read in any of them, each holding the same voxels |
-| `encoding` | string | how a chunk's voxels are coded: `raw`, `jpeg`, `png` or `compressed_segmentation` are presented |
+| `encoding` | string | how a chunk's voxels are coded: `raw`, `jpeg`, `png`, `compressed_segmentation`, `compresso`, `crackle`, `jxl`, `fpzip`, `zfpc` or `kempressed` are presented |
 | `compressed_segmentation_block_size` | 3 integers | that encoding's block size |
 | `sharding` | object | the shards ([§4](#4-shards)); absent for an unsharded scale |
 
@@ -163,11 +168,17 @@ objects are other objects, referenced whole.
 | its first element is 3 integers from 1 to 2^32 − 1 | `its first chunk size is not 3 integers from 1 to 4294967295` |
 | `voxel_offset` is absent, or 3 integers | `its voxel_offset is not 3 integers` |
 | `encoding` is a string | `its encoding is not a string` |
-| `encoding` is one the codec decodes. The format's others (`compresso`, `fpzip`, `zfpc`, `kempressed`, `jxl`) are kept, not presented | `its encoding E has no decoder` |
+| `encoding` is one the codec decodes | `its encoding E has no decoder` |
 | `jpeg` holds `uint8`, in 1 or 3 channels | `jpeg holds uint8 in 1 or 3 channels, not T in N` |
 | `png` holds `uint8` or `uint16`, in at most 4 channels | `png holds uint8 or uint16 in at most 4 channels, not T in N` |
 | `compressed_segmentation` holds `uint32` or `uint64` | `compressed_segmentation holds uint32 or uint64, not T` |
 | `compressed_segmentation_block_size` is 3 positive integers, for that encoding | `its compressed_segmentation_block_size is not 3 positive integers` |
+| `compresso` holds `uint8`, `uint16`, `uint32` or `uint64`, in 1 channel | `compresso holds uint8 to uint64 in 1 channel, not T in N` |
+| `crackle` holds `uint8`, `uint16`, `uint32` or `uint64`, in 1 channel | `crackle holds uint8 to uint64 in 1 channel, not T in N` |
+| `jxl` holds `uint8`, in 1 channel | `jxl holds uint8 in 1 channel, not T in N` |
+| `fpzip` holds `float32` or `float64` | `fpzip holds float32 or float64, not T` |
+| `kempressed` holds `float32` or `float64` | `kempressed holds float32 or float64, not T` |
+| `zfpc` holds `int32`, `int64`, `float32` or `float64` | `zfpc holds int32, int64, float32 or float64, not T` |
 | `key` is a path of nonempty segments, none `.` or `..` | `its key K is not a path within the store` |
 | `resolution`'s members are finite | `its resolution is not 3 finite numbers` |
 | the grid has fewer than 2^32 chunks along each axis | `its chunk grid is 2^32 chunks or more along an axis` |
@@ -303,12 +314,29 @@ The decoder reads the position, and for each chunk the selection touches:
    - `raw`: little-endian values, x fastest, then y, z and the channel. A raw chunk of the whole
      chunk size, from a writer that pads its edge chunks, is accepted too, cut back to the clipped
      shape.
-   - `jpeg`, `png`: one image of width `x` and height `y × z`, its samples the channels, its rows
-     the volume's in the same order.
+   - `jpeg`, `png`, `jxl`: one image of width `x` and height `y × z`, its samples the channels, its
+     rows the volume's in the same order.
    - `compressed_segmentation`: the stream the format defines, with a block grid of the clipped
      shape.
-   An encoded shape other than the clipped one is an error.
+   - `compresso`, `crackle`: a stream of that format, its own header giving `x`, `y` and `z` and its
+     voxels' width, x fastest.
+   - `fpzip`: an fpzip stream of 4 dimensions, `x`, `y`, `z` and the channel, x fastest.
+   - `zfpc`: a [zfpc](https://github.com/seung-lab/zfpc) stream of dimensions as for `fpzip`: a
+     header of 23 bytes, whose byte 5's low 3 bits are the data type, 1 to 4 for `int32`, `int64`,
+     `float32` and `float64`, whose 4 little-endian `uint32`s from byte 6 are the dimensions, and
+     whose byte 22 has bit `a` set when dimension `a` is correlated; then a little-endian `uint64`,
+     the offset of the first stream, and one the size of each stream; then the ZFP streams, each
+     with its header, one per position along the dimensions not correlated, the first of them
+     fastest.
+   - `kempressed`: an fpzip stream of dimensions `x`, `y`, the channel and `z`, each value 2 more
+     than the voxel's, as [cloud-volume](https://github.com/seung-lab/cloud-volume/blob/master/cloudvolume/chunks.py)
+     writes it.
+
+   An encoded shape or data type other than the clipped shape and the array's is an error.
 4. **Fills the rest of the chunk** with the fill value, past the volume's end.
+
+These encodings need decoders that only a reader of those chunks needs: the profile reads no chunk ([§11.1](#111-reading)), so a hierarchy is the same with or
+without one.
 
 A reader of one chunk of a shard makes at most three requests: the shard index, one minishard index
 and the chunk. Chunks read together from a minishard may be one request when they lie near each
@@ -327,6 +355,11 @@ no chunk, so the decoder finds the coding from the bytes, one object at a time:
 | beginning `FF D8`, for `jpeg` | not coded |
 | beginning `89 50 4E 47`, for `png` | not coded |
 | whose first little-endian `uint32` is `num_channels`, for `compressed_segmentation` | not coded: the first of a stream's channel offsets |
+| beginning `cpso`, for `compresso` | not coded |
+| beginning `crkl`, for `crackle` | not coded |
+| beginning `FF 0A` or `00 00 00 0C 4A 58 4C 20 0D 0A 87 0A`, for `jxl` | not coded: a codestream, or a container |
+| beginning `fpy)`, for `fpzip` and `kempressed` | not coded |
+| beginning `zfpc`, for `zfpc` | not coded |
 | beginning `1F 8B` | gzip (RFC 1952) |
 | beginning `28 B5 2F FD` | Zstandard (RFC 8878) |
 | anything else | brotli (RFC 7932), which has no signature; bytes that do not decode are an error |
@@ -438,7 +471,10 @@ tensorstore's.
 
 *This section is informative.*
 
-**Not expressed.** Encodings the codec has no decoder for are kept but not presented. A scale whose
+**Not expressed.** Encodings the codec has no decoder for are kept but not presented, as is a `jxl`
+scale of 3 channels: cloud-volume, the writer these encodings have, writes 3 gray frames that its own
+reader does not read back in order, and one RGB image is another layout of the same bytes, which a
+reader that does not see the frames, as Neuroglancer's does not, would take for it. A scale whose
 hash is `murmurhash3_x86_128`, whose shards are no boxes, is kept but not presented: all 8 sharded
 volumes of the 13 surveyed (hemibrain, FAFB, FlyWire, H01, MICrONS and BANC among them, inspected
 2026-11-03) have `identity`, and none wraps. A later layout could present such a scale with a

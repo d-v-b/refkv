@@ -93,6 +93,7 @@ pub unsafe extern "C" fn vz_grib_decode(chunk: *const u8, n: usize, config: *con
 fn step_out(r: Result<Step, String>) -> i64 {
     match r {
         Ok(Step::Read(r)) => 1 + set_out(r.iter().flat_map(|(o, n)| [o.to_le_bytes(), n.to_le_bytes()]).flatten().collect()) as i64,
+        Ok(Step::Beside) => -(set_out(b"the file names siblings, which a run reads as a store".to_vec()) as i64),
         Ok(Step::Done) => 0,
         Err(e) => -(set_out(e.into_bytes()) as i64),
     }
@@ -305,6 +306,16 @@ pub unsafe extern "C" fn vz_run_poll(p: *mut Run) -> i64 {
         }
         Err(e) => err_out(e),
     }
+}
+
+/// Whether the file names siblings (`Run::beside`), once `vz_run_poll` gave 0: 1 when the run has
+/// no output, and the host starts over with a store run of the format; else 0.
+///
+/// # Safety
+/// `p` from `vz_run_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vz_run_beside(p: *mut Run) -> i32 {
+    unsafe { &*p }.beside() as i32
 }
 
 /// Request `k` of the last poll completed in `seconds`: with `ok`, `data`/`n` (from

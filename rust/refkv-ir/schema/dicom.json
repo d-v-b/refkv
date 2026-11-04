@@ -13,23 +13,35 @@
       "1.2.840.10008.1.2": {"explicit": false, "little": true, "codec": "native"},
       "1.2.840.10008.1.2.1": {"explicit": true, "little": true, "codec": "native"},
       "1.2.840.10008.1.2.2": {"explicit": true, "little": false, "codec": "native"},
+      "1.2.840.10008.1.2.5": {"explicit": true, "little": true, "codec": "dicomrle"},
       "1.2.840.10008.1.2.4.50": {"explicit": true, "little": true, "codec": "jpeg"},
       "1.2.840.10008.1.2.4.57": {"explicit": true, "little": true, "codec": "ljpeg"},
       "1.2.840.10008.1.2.4.70": {"explicit": true, "little": true, "codec": "ljpeg"},
+      "1.2.840.10008.1.2.4.80": {"explicit": true, "little": true, "codec": "jpegls"},
+      "1.2.840.10008.1.2.4.81": {"explicit": true, "little": true, "codec": "jpegls"},
       "1.2.840.10008.1.2.4.90": {"explicit": true, "little": true, "codec": "jpeg2k"},
-      "1.2.840.10008.1.2.4.91": {"explicit": true, "little": true, "codec": "jpeg2k"}
+      "1.2.840.10008.1.2.4.91": {"explicit": true, "little": true, "codec": "jpeg2k"},
+      "1.2.840.10008.1.2.4.201": {"explicit": true, "little": true, "codec": "htj2k"},
+      "1.2.840.10008.1.2.4.202": {"explicit": true, "little": true, "codec": "htj2k"},
+      "1.2.840.10008.1.2.4.203": {"explicit": true, "little": true, "codec": "htj2k"}
     },
-    "bits_by_codec": {"native": [8, 16, 32], "jpeg": [8], "ljpeg": [8, 16], "jpeg2k": [8, 16]},
+    "bits_by_codec": {"native": [1, 8, 16, 32], "jpeg": [8], "ljpeg": [8, 16], "jpeg2k": [8, 16], "dicomrle": [8, 16, 32], "jpegls": [8, 16], "htj2k": [8, 16]},
     "photometrics": {
       "about": "by codec and Samples per Pixel",
-      "native/1": ["MONOCHROME1", "MONOCHROME2"],
-      "native/3": ["RGB"],
+      "native/1": ["MONOCHROME1", "MONOCHROME2", "PALETTE COLOR"],
+      "native/3": ["RGB", "YBR_FULL"],
+      "dicomrle/1": ["MONOCHROME1", "MONOCHROME2", "PALETTE COLOR"],
+      "dicomrle/3": ["RGB", "YBR_FULL"],
+      "jpegls/1": ["MONOCHROME1", "MONOCHROME2", "PALETTE COLOR"],
+      "jpegls/3": ["RGB", "YBR_FULL"],
+      "htj2k/1": ["MONOCHROME1", "MONOCHROME2", "PALETTE COLOR"],
+      "htj2k/3": ["RGB", "YBR_ICT", "YBR_RCT"],
       "jpeg/1": ["MONOCHROME1", "MONOCHROME2"],
       "jpeg/3": ["RGB", "YBR_FULL", "YBR_FULL_422"],
-      "ljpeg/1": ["MONOCHROME1", "MONOCHROME2"],
+      "ljpeg/1": ["MONOCHROME1", "MONOCHROME2", "PALETTE COLOR"],
       "ljpeg/3": ["RGB"],
-      "jpeg2k/1": ["MONOCHROME1", "MONOCHROME2"],
-      "jpeg2k/3": ["RGB", "YBR_ICT", "YBR_RCT"]
+      "jpeg2k/1": ["MONOCHROME1", "MONOCHROME2", "PALETTE COLOR"],
+      "jpeg2k/3": ["RGB", "YBR_FULL_422", "YBR_ICT", "YBR_RCT"]
     },
     "whole_slide": "1.2.840.10008.5.1.4.1.1.77.1.6"
   },
@@ -114,14 +126,16 @@
         {"require": "!present(high_bit) || high_bit == bits_stored - 1", "message": "High Bit {high_bit} is not Bits Stored - 1"},
         {"require": "in(representation, [0, 1])", "message": "unsupported Pixel Representation {representation}"},
         {"require": "in(bits_allocated, at(bits_by_codec, codec))", "message": "unsupported Bits Allocated {bits_allocated}"},
+        {"require": "bits_allocated != 1 || (spp == 1 && bits_stored == 1 && representation == 0)", "message": "Bits Allocated 1 with {spp} samples per pixel, Bits Stored {bits_stored} and Pixel Representation {representation}"},
         {"require": "codec != 'jpeg' || (bits_stored == 8 && representation == 0)", "message": "JPEG Baseline needs 8 unsigned bits stored"},
         {"require": "in(photometric, admitted)", "message": "unsupported Photometric Interpretation '{photometric}' with {spp} samples per pixel"}
       ]
     },
     "whole_slide": {
       "about": "a VL Whole Slide Microscopy Image",
-      "given": {"organization": "", "width": "", "height": "", "optical_paths": "", "focal_planes": "", "n": "", "across": "", "down": "", "tiles": "n is across times down, exactly"},
+      "given": {"organization": "", "width": "", "height": "", "optical_paths": "", "focal_planes": "", "n": "", "across": "", "down": "", "tiles": "n is across times down, exactly", "bits_allocated": ""},
       "constraints": [
+        {"require": "bits_allocated != 1", "message": "a whole-slide image of Bits Allocated 1"},
         {"require": "organization == 'TILED_FULL'", "message": "a whole-slide image whose Dimension Organization Type is not TILED_FULL"},
         {"require": "present(width)", "message": "missing Total Pixel Matrix Columns"},
         {"require": "present(height)", "message": "missing Total Pixel Matrix Rows"},
@@ -132,12 +146,13 @@
       ]
     },
     "native": {
-      "given": {"undefined": "", "within": "the value lies within the file", "length": "", "size": "", "n": "", "frame_size": "", "enough": "length >= n × frame_size", "ow8_big": "OW, 8 bits allocated, big endian"},
+      "given": {"undefined": "", "within": "the value lies within the file", "length": "", "size": "", "n": "", "frame_size": "", "enough": "length >= n × frame_size (for Bits Allocated 1, ceil(n × Rows × Columns / 8))", "ow8_big": "OW, 8 bits allocated, big endian", "ow1_big": "OW, 1 bit allocated, big endian"},
       "constraints": [
         {"require": "!undefined", "message": "native Pixel Data with an undefined length"},
         {"require": "within", "message": "Pixel Data's {length} bytes run past the end of the {size}-byte file"},
         {"require": "enough", "message": "Pixel Data has {length} bytes, less than {n} frames of {frame_size}"},
-        {"require": "!ow8_big", "message": "8-bit Pixel Data of VR OW in big endian"}
+        {"require": "!ow8_big", "message": "8-bit Pixel Data of VR OW in big endian"},
+        {"require": "!ow1_big", "message": "1-bit Pixel Data of VR OW in big endian"}
       ]
     },
     "encapsulated": {
@@ -194,6 +209,57 @@
         {"require": "predictor >= 1 && predictor <= 7", "message": "frame {f} has the predictor {predictor}"},
         {"require": "point_transform == 0", "message": "frame {f} has the point transform {point_transform}"},
         {"require": "restart == 0", "message": "frame {f} has the restart interval {restart}"}
+      ]
+    },
+    "palette": {
+      "about": "a PALETTE COLOR image's lookup tables (spec/zarrify/dicom.md §4.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#41-the-palette>)",
+      "given": {
+        "bits_allocated": "", "described": "the three descriptors are present, of 3 values each", "alike": "the three descriptors are equal",
+        "bits": "the descriptors' bits per entry", "entries": "the descriptors' entries, 65536 for 0",
+        "tables": "the three tables are present", "same_length": "the three tables are of one length", "length": "their length in bytes"
+      },
+      "constraints": [
+        {"require": "bits_allocated == 8 || bits_allocated == 16", "message": "a palette image of Bits Allocated {bits_allocated}"},
+        {"require": "described", "message": "PALETTE COLOR without its three lookup table descriptors"},
+        {"require": "alike", "message": "the three lookup table descriptors differ"},
+        {"require": "bits == 8 || bits == 16", "message": "a lookup table of {bits} bits per entry"},
+        {"require": "tables", "message": "PALETTE COLOR without its three lookup tables"},
+        {"require": "same_length", "message": "the three lookup tables differ in length"},
+        {"require": "length >= entries", "message": "a lookup table of {length} bytes for {entries} entries"}
+      ]
+    },
+    "rle_frame": {
+      "about": "a DICOM RLE frame's header (spec/zarrify/dicom.md §7.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#75-frames>, RLE)",
+      "given": {"f": "", "header": "its stream holds the number of segments and the first offset", "segments": "", "expected": "Samples per Pixel times the bytes of Bits Allocated", "first": "the first segment's offset"},
+      "constraints": [
+        {"require": "header", "message": "frame {f} is too short to be an RLE stream"},
+        {"require": "segments == expected", "message": "frame {f} has {segments} RLE segments, not {expected}"},
+        {"require": "first == 64", "message": "frame {f}'s first RLE segment is at {first}, not 64"}
+      ]
+    },
+    "jpegls_frame": {
+      "about": "a JPEG-LS frame's markers up to its first SOS (spec/zarrify/dicom.md §7.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#75-frames>, JPEG-LS)",
+      "given": {
+        "f": "", "header": "its stream starts with SOI, and its markers, each with a length, run to an SOS after a frame header", "sof": "the frame header's marker",
+        "precision": "", "components": "the frame header's", "stream_rows": "", "stream_columns": "", "scan": "the components of the first scan", "interleave": "", "point_transform": "",
+        "spp": "", "rows": "", "columns": "", "bits_allocated": "", "signed": ""
+      },
+      "constraints": [
+        {"require": "header", "message": "frame {f} is not a JPEG-LS stream with a frame header and a scan"},
+        {"require": "sof == 247", "message": "frame {f} is not a JPEG-LS stream (SOF55)"},
+        {"require": "components == spp", "message": "frame {f} has {components} components for Samples per Pixel {spp}"},
+        {"require": "stream_rows == rows && stream_columns == columns", "message": "frame {f} is {stream_rows} by {stream_columns}, not {rows} by {columns}"},
+        {"require": "precision >= 2 && precision <= bits_allocated", "message": "frame {f} has a precision of {precision} bits for Bits Allocated {bits_allocated}"},
+        {"require": "!signed || precision == bits_allocated", "message": "frame {f} has a precision of {precision} bits for signed pixels of Bits Allocated {bits_allocated}"},
+        {"require": "(interleave == 0 && scan == 1) || (interleave > 0 && interleave <= 2 && scan == spp)", "message": "frame {f}'s first scan has {scan} components in interleave mode {interleave}"},
+        {"require": "point_transform == 0", "message": "frame {f} has the point transform {point_transform}"}
+      ]
+    },
+    "ybr_422_frame": {
+      "about": "a JPEG 2000 frame of YBR_FULL_422 (spec/zarrify/dicom.md §7.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#75-frames>, JPEG 2000)",
+      "given": {"subsampled": "the first frame's SIZ gives three components, the second and third at half the first's width"},
+      "constraints": [
+        {"require": "subsampled", "message": "a JPEG 2000 frame of YBR_FULL_422 that is not three components of half-width chroma"}
       ]
     },
     "range": {
