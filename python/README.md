@@ -69,6 +69,7 @@ pip install refkv                  # read (local or over http(s)), write, zarrif
 pip install "refkv[zarr]"          # refkv.zarr: open a store with zarr-python and xarray
 pip install "refkv[images]"        # and the JPEG, JPEG 2000, JPEG XR and LZW codecs
 pip install "refkv[media]"         # and the refkv.stream decoders (PyAV), for MP3, FLAC and MP4
+pip install "refkv[precomputed]"   # and the refkv.precomputed decoders of compresso, crackle, fpzip, kempressed
 pip install "refkv[virtualizarr]"  # virtual datasets from VirtualiZarr (with obstore)
 pip install "refkv[obstore]"       # obstore's S3Store and others, for registry= (s3://, gs://, az://)
 ```
@@ -81,10 +82,11 @@ archive's own URL included.
 
 Wheels are built for Linux (glibc and musl), macOS and Windows, on x86_64 and arm64
 (Python 3.12 and later), and for free-threaded CPython 3.14t and 3.15t and later, where
-refkv leaves the GIL disabled. There every extra installs from wheels on 3.14t; on 3.15t
-the base install and `refkv[obstore]` do, but numcodecs (which zarr needs, and so `zarr`,
-`images` and `virtualizarr`) and PyAV (`media`) have no 3.15t wheels yet, so pip builds
-numcodecs from source and cannot install PyAV. One parser or run is driven by one thread at
+refkv leaves the GIL disabled. There every extra but `precomputed` installs from wheels on
+3.14t; on 3.15t the base install and `refkv[obstore]` do, but numcodecs (which zarr needs, and
+so `zarr`, `images` and `virtualizarr`) and PyAV (`media`) have no 3.15t wheels yet, so pip
+builds numcodecs from source and cannot install PyAV. compresso and fpzip (`precomputed`) have
+wheels for CPython 3.12 and 3.13 only, so pip builds them from source on later versions. One parser or run is driven by one thread at
 a time: a second thread's call on it while one is under way raises `RuntimeError: Already
 borrowed`. Separate runs go on in parallel.
 
