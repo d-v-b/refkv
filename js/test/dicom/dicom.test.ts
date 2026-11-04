@@ -206,8 +206,8 @@ for (const [tag, what, length] of [
 }
 
 for (const [name, message] of [
-  ["dicom_reject_rle.dcm", /RLE segments/],
-  ["dicom_reject_jpegls.dcm", /not a JPEG-LS stream/],
+  ["dicom_reject_rle.dcm", /transfer syntax 1\.2\.840\.10008\.1\.2\.5/],
+  ["dicom_reject_jpegls.dcm", /transfer syntax/],
   ["dicom_reject_palette.dcm", /PALETTE COLOR/],
   ["dicom_reject_tiled_sparse.dcm", /TILED_FULL/],
   ["dicom_reject_focal_planes.dcm", /focal planes/],
