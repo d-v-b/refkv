@@ -115,7 +115,9 @@ def test_the_documents_cmos_are_the_ones_refkv_writes():
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="needs node for the browser implementation")
 def test_every_output_declares_its_profile_where_the_convention_says():
-    cases = inputs()
+    # the browser code cannot list a directory, so it finds no name written in another case than the
+    # file has (spec/zarrify/lif.md §8.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#82-the-siblings>)
+    cases = [c for c in inputs() if c[0].name != "lif_xlef_lowercase.xlef"]
     p = subprocess.run(["node", str(ROOT / "js" / "conformance" / "documents.ts")], cwd=ROOT,
                        input=json.dumps([[str(path), url] for path, url in cases]), capture_output=True,
                        text=True, check=True)

@@ -2,7 +2,8 @@
 
 refkv turns an image file into an OME-Zarr dataset by writing a small archive
 of references to the file's bytes, without copying the pixels
-([overview](../README.md)). This page is about Leica LIF files.
+([overview](../README.md)). This page is about Leica LIF files, and the object
+files (LOF) and extension files (LIFEXT) that LAS X writes.
 
 ## Who this is for
 
@@ -50,10 +51,27 @@ in the order the XML lists them (`0`, `1`, ...), each with one array, `0`.
   `refkv_source` by the Rust core's IR mirror, from which it is rebuilt byte for
   byte.
 
-**What is not read.** LOF files (one image of an XLEF project) and LIFEXT files
-are rejected, and XLEF, XLIF and XLCF projects (XML naming image files beside
-them) are not LIF files. FLIM raw data (photon histograms) has no image; its
-block is kept in the mirror.
+A LOF is one image with this layout, and a LIFEXT file (pyramid levels and
+histograms of a LIF file's images) its images with this layout, each with the
+`MemoryBlockID` of the image of the LIF file it is of, as its `parent`. A LIF file
+and its LIFEXT file do not name each other, so each is an input of its own.
+
+A LAS X project, saved as an XLEF, XLCF, XLIF or XLLF document that names others and
+the LOFs that hold its images, has the same layout: name the document at the top of the
+set, and every image in a LOF is an image of the output, with its path in the tree of
+elements, and the documents kept in the mirror. LAS X writes names in lower case, as in
+`.%5Cmetadata%5Cseries010.xlif` for `Metadata/Series010.xlif`, so read a project from a
+local directory, which refkv lists to find the file's real name. A plain web server cannot
+list a directory, so over HTTP such a set is rejected, with a message that says to download
+it. `--url` still names where the local copy will be served, as the archive's source:
+
+```bash
+uv run refkv zarrify Schnecke.xlef schnecke.vzip --url https://example.org/snail/Schnecke.xlef
+```
+
+**What is not read.** The images of a project in `Frame`s of TIFF, JPEG, PNG or BMP files are
+not presented; the root's `refkv_zarrified.lif.not_presented` lists each, with its reason. FLIM
+raw data (photon histograms) has no image; its block is kept in the mirror.
 [spec/zarrify/lif.md §7.5](../../../spec/zarrify/lif.md#75-what-the-profile-does-not-read)
 says so.
 
@@ -112,12 +130,17 @@ Supported:
 
 - LIF files with their XML header and memory blocks, every image of the file's tree, tile
   scans (each tile an image) and other field dimensions.
+- LOF files, with LAS X's XML or the bare `Data` element of older writers, and LIFEXT files.
+- LAS X projects: XLEF, XLCF, XLIF and XLLF documents and the LOFs they name, from a local
+  directory, or over HTTP when their names are written as their files have them.
 - Every bit depth the XML describes in whole bytes, as `uint8` to `uint64`, and `float16` to
   `float64`; planar and interleaved (RGB) channels.
 
 Rejected:
 
-- LOF and LIFEXT files; XLEF, XLIF and XLCF projects are not LIF files and match no format.
+- A project's name that leaves the named file's directory: name the document at the top of the set.
+- A project's document or LOF that is absent, including, over HTTP, one whose name is written in
+  another case than the file has.
 - Bit-packed data, other data types, an image whose channels differ in type, and channels that
   are neither planar nor interleaved
   ([spec §7.6](../../../spec/zarrify/lif.md#76-decisions)).

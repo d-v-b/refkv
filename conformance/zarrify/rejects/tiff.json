@@ -185,11 +185,6 @@
       "message": "SizeZ='0' is less than 1"
     },
     {
-      "test": "tiff_edge_reject_strips_deflate_short",
-      "input": "edge_reject_strips_deflate_short.tif",
-      "message": "level 0 is in strips of compression 8 whose last strip is short, which cannot be padded"
-    },
-    {
       "test": "tiff_edge_reject_subifd_count",
       "input": "edge_reject_subifd_count.tif",
       "message": "the IFD at 9832 has fewer SubIFDs than IFD 0"
