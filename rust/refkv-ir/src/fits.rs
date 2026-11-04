@@ -356,6 +356,115 @@ pub fn tile_at(shape: &[u64], tile: &[u64], r: u64) -> (Vec<u64>, Vec<u64>) {
     (coords, extent)
 }
 
+// ---- a binary table's rows as a struct
+
+/// A column's field (§4.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#41-rows-as-a-struct>).
+struct Field {
+    /// the data type and fill value of one value
+    one: J,
+    fill: J,
+    /// the bytes of one value, and the values
+    bytes: u64,
+    count: u64,
+    /// the leaf fields of the data type
+    leaves: u64,
+}
+
+impl Field {
+    /// The field's data type and fill value: `count` values are a nested struct of the fields
+    /// `0`, `1`, ..., since a field of Zarr's `struct` has no shape.
+    fn written(&self) -> (J, J) {
+        if self.count == 1 {
+            return (self.one.clone(), self.fill.clone());
+        }
+        let fields: Vec<J> = (0..self.count).map(|k| json!({"name": k.to_string(), "data_type": self.one})).collect();
+        let fills: serde_json::Map<String, J> = (0..self.count).map(|k| (k.to_string(), self.fill.clone())).collect();
+        (json!({"name": "struct", "configuration": {"fields": fields}}), J::Object(fills))
+    }
+}
+
+/// A column's field, from its `TFORMn`, `rTa`; None when it has none (`r` is 0).
+fn field_of(form: &str) -> Result<Option<Field>, &'static str> {
+    let digits = form.bytes().take_while(u8::is_ascii_digit).count();
+    let repeat: u64 = if digits == 0 { 1 } else { form[..digits].parse().map_err(|_| "form")? };
+    let letter = *form.as_bytes().get(digits).ok_or("form")?;
+    let values = |one: &str, fill: J, bytes: u64, count: u64| Field { one: json!(one), fill, bytes, count, leaves: count };
+    let field = match letter {
+        b'L' | b'B' => values("uint8", json!(0), 1, repeat),
+        b'X' => values("uint8", json!(0), 1, repeat.div_ceil(8)),
+        b'I' => values("int16", json!(0), 2, repeat),
+        b'J' => values("int32", json!(0), 4, repeat),
+        b'K' => values("int64", json!(0), 8, repeat),
+        b'E' => values("float32", json!(0.0), 4, repeat),
+        b'D' => values("float64", json!(0.0), 8, repeat),
+        b'C' => values("complex64", json!([0.0, 0.0]), 8, repeat),
+        b'M' => values("complex128", json!([0.0, 0.0]), 16, repeat),
+        b'A' => Field {
+            one: json!({"name": "null_terminated_bytes", "configuration": {"length_bytes": repeat}}),
+            fill: json!(""),
+            bytes: repeat,
+            count: repeat.min(1),
+            leaves: 1,
+        },
+        b'P' | b'Q' if repeat <= 1 => {
+            let (ty, bytes) = if letter == b'P' { ("int32", 8) } else { ("int64", 16) };
+            let fields = json!([{"name": "n", "data_type": ty}, {"name": "o", "data_type": ty}]);
+            Field { one: json!({"name": "struct", "configuration": {"fields": fields}}), fill: json!({"n": 0, "o": 0}), bytes, count: repeat, leaves: 2 }
+        }
+        _ => return Err("form"),
+    };
+    Ok((field.count > 0).then_some(field))
+}
+
+/// A binary table's rows as a struct, or why they stay bytes (§4.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#41-rows-as-a-struct>): the first
+/// reason that holds, every column's form before any name.
+fn row_struct(cards: &[Card], forms: &[String], row_bytes: u64, max_fields: u64, max_row: u64) -> Result<J, &'static str> {
+    let columns = forms.iter().map(|form| field_of(form)).collect::<Result<Vec<_>, _>>()?;
+    let mut names: Vec<J> = Vec::with_capacity(forms.len());
+    let mut taken = std::collections::HashSet::new();
+    for (k, field) in columns.iter().enumerate() {
+        if field.is_none() {
+            names.push(J::Null);
+            continue;
+        }
+        let name = match card(cards, &format!("TTYPE{}", k + 1)).map(|c| &c.value) {
+            Some(Value::Str(s)) if !s.trim().is_empty() => s.trim().to_string(),
+            _ => format!("col{}", k + 1),
+        };
+        if !taken.insert(name.clone()) {
+            return Err("names");
+        }
+        names.push(json!(name));
+    }
+    let present = || columns.iter().flatten();
+    if taken.is_empty() || row_bytes == 0 {
+        return Err("empty");
+    }
+    if present().fold(0u64, |a, f| a.saturating_add(f.bytes.saturating_mul(f.count))) != row_bytes {
+        return Err("width");
+    }
+    if present().fold(0u64, |a, f| a.saturating_add(f.leaves)) > max_fields {
+        return Err("fields");
+    }
+    if row_bytes > max_row {
+        return Err("row_size");
+    }
+    let (mut fields, mut fills) = (Vec::new(), serde_json::Map::new());
+    let mut ordered = false;
+    for (field, name) in columns.iter().zip(&names) {
+        let (Some(field), Some(name)) = (field, name.as_str()) else { continue };
+        let (ty, fill) = field.written();
+        fields.push(json!({"name": name, "data_type": ty}));
+        fills.insert(name.to_string(), fill);
+        // a value of more than one byte, a descriptor's among them, has a byte order; an `A`
+        // column's value is its characters
+        ordered |= field.bytes > 1 && !field.one["name"].as_str().is_some_and(|n| n == "null_terminated_bytes");
+    }
+    Ok(json!({"data_type": {"name": "struct", "configuration": {"fields": fields}}, "fill_value": fills, "ordered": ordered, "fields": names}))
+}
+
 // ---- the parser
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -769,6 +878,13 @@ impl Fits {
                 self.rules.check("stream_tiles", rules::env([("hdu", num(hdu)), ("compressed", flag(self.decoded.is_some()))]))?;
                 self.rules.check("table_size", rules::env([("hdu", num(hdu)), ("bytes", num(rows as f64))]))?;
                 comp = Some(self.compressed(&cards, &forms, axes[1])?);
+            } else if xtension == "BINTABLE" {
+                match row_struct(&cards, &forms, axes[0], self.limit("max_row_fields"), self.limit("max_row_bytes")) {
+                    Ok(row) => table["struct"] = row,
+                    Err(reason) => table["not_struct"] = json!(reason),
+                }
+            } else {
+                table["not_struct"] = json!("ascii");
             }
         }
         // the elements
@@ -1168,6 +1284,72 @@ mod tests {
         assert_eq!(cards[0].value, Value::Str("the first part and the second and the last".into()));
         assert_eq!(cards[0].comment.as_deref(), Some("c1 c3"));
         assert_eq!(cards[1].keyword, "CONTINUE");
+    }
+
+    #[test]
+    fn a_table_s_columns_are_a_struct_s_fields() {
+        let mut raw = rec("TTYPE1  = 'flag    '");
+        raw.extend(rec("TTYPE2  = 'bands   '"));
+        raw.extend(rec("TTYPE4  = 'name    '"));
+        raw.extend(rec("TTYPE5  = 'var     '"));
+        let cards = parse_cards(&raw, 4);
+        let forms = ["L", "2E", "0J", "3A", "PI(3)", "9X"].map(String::from);
+        let row = row_struct(&cards, &forms, 1 + 8 + 3 + 8 + 2, 4096, 1 << 20).unwrap();
+        let two = json!({"name": "struct", "configuration": {"fields": [
+            {"name": "0", "data_type": "float32"}, {"name": "1", "data_type": "float32"}]}});
+        let text = json!({"name": "null_terminated_bytes", "configuration": {"length_bytes": 3}});
+        let descriptor = json!({"name": "struct", "configuration": {"fields": [
+            {"name": "n", "data_type": "int32"}, {"name": "o", "data_type": "int32"}]}});
+        let bits = json!({"name": "struct", "configuration": {"fields": [
+            {"name": "0", "data_type": "uint8"}, {"name": "1", "data_type": "uint8"}]}});
+        assert_eq!(row["data_type"], json!({"name": "struct", "configuration": {"fields": [
+            {"name": "flag", "data_type": "uint8"}, {"name": "bands", "data_type": two},
+            {"name": "name", "data_type": text}, {"name": "var", "data_type": descriptor},
+            {"name": "col6", "data_type": bits}]}}));
+        assert_eq!(row["fill_value"], json!({"flag": 0, "bands": {"0": 0.0, "1": 0.0}, "name": "", "var": {"n": 0, "o": 0}, "col6": {"0": 0, "1": 0}}));
+        assert_eq!(row["ordered"], json!(true));
+        // the zero-width column has no field
+        assert_eq!(row["fields"], json!(["flag", "bands", null, "name", "var", "col6"]));
+        // one-byte fields alone have no byte order
+        assert_eq!(row_struct(&[], &["2B".into(), "3A".into()], 5, 4096, 1 << 20).unwrap()["ordered"], json!(false));
+    }
+
+    #[test]
+    fn a_table_with_an_unknown_form_stays_bytes() {
+        assert_eq!(row_struct(&[], &["3Z".into()], 3, 4096, 1 << 20), Err("form"));
+    }
+
+    #[test]
+    fn a_table_with_a_descriptor_of_repeat_2_stays_bytes() {
+        assert_eq!(row_struct(&[], &["2PE(3)".into()], 16, 4096, 1 << 20), Err("form"));
+    }
+
+    #[test]
+    fn a_table_with_two_columns_of_one_name_stays_bytes() {
+        let mut raw = rec("TTYPE1  = 'a       '");
+        raw.extend(rec("TTYPE2  = 'a       '"));
+        assert_eq!(row_struct(&parse_cards(&raw, 2), &["J".into(), "J".into()], 8, 4096, 1 << 20), Err("names"));
+    }
+
+    #[test]
+    fn a_table_without_a_field_stays_bytes() {
+        assert_eq!(row_struct(&[], &[], 0, 4096, 1 << 20), Err("empty"));
+        assert_eq!(row_struct(&[], &["0J".into()], 0, 4096, 1 << 20), Err("empty"));
+    }
+
+    #[test]
+    fn a_table_whose_fields_do_not_tile_its_row_stays_bytes() {
+        assert_eq!(row_struct(&[], &["J".into()], 8, 4096, 1 << 20), Err("width"));
+    }
+
+    #[test]
+    fn a_table_of_too_many_fields_stays_bytes() {
+        assert_eq!(row_struct(&[], &["4097E".into()], 4 * 4097, 4096, 1 << 20), Err("fields"));
+    }
+
+    #[test]
+    fn a_table_of_too_long_a_row_stays_bytes() {
+        assert_eq!(row_struct(&[], &["2000000A".into()], 2000000, 4096, 1 << 20), Err("row_size"));
     }
 
     #[test]

@@ -2,9 +2,9 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#2-hdus-and-nodes>) from a
 //! valid IR: the root group with the table of HDUs and the primary header's cards, and one
 //! node per HDU at the path of its index: an array for an image (its chunks cut from the
-//! `data` element), a group with the arrays `rows` and `heap` for a table, and an empty
-//! group for an HDU without data, each declaring the convention with its own cards. A compressed
-//! file's arrays have one chunk each, its whole stream.
+//! `data` element), a group with the arrays `rows` (a struct over the rows, or their bytes) and
+//! `heap` for a table, and an empty group for an HDU without data, each declaring the convention
+//! with its own cards. A compressed file's arrays have one chunk each, its whole stream.
 
 use super::{contiguous, key, Copied};
 use crate::fed::Word;
@@ -26,6 +26,10 @@ struct Node {
     chunks: Vec<(Vec<u64>, Chunk)>,
     /// in a compressed file, the array's bytes of what it decodes to: (offset, length)
     within: Option<(u64, u64)>,
+    /// a table's rows as a struct (§4
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#4-tables>): its data type,
+    /// its fill value and whether a field has a byte order
+    row: Option<J>,
 }
 
 const PROFILE: &str = "fits";
@@ -104,6 +108,7 @@ fn own_json(h: &J, cards: &[Card]) -> J {
         }
         Some("table") => {
             let forms = h["table"]["tform"].as_array().cloned().unwrap_or_default();
+            let fields = &h["table"]["struct"]["fields"];
             let columns: Vec<J> = forms
                 .iter()
                 .enumerate()
@@ -115,10 +120,12 @@ fn own_json(h: &J, cards: &[Card]) -> J {
                         "scale": number(cards, &format!("TSCAL{n}")), "zero": number(cards, &format!("TZERO{n}")),
                         "null": string_or_number(cards, &format!("TNULL{n}")), "disp": string(cards, &format!("TDISP{n}")),
                         "bcol": number(cards, &format!("TBCOL{n}")),
+                        "field": fields[k],
                     })
                 })
                 .collect();
             own.insert("columns".into(), J::Array(columns));
+            own.insert("not_struct".into(), h["table"]["not_struct"].clone());
         }
         _ => {}
     }
@@ -157,20 +164,26 @@ fn cut_arrays(ir: &Ir, h: &J, threshold: usize) -> Result<Vec<Node>, String> {
             let element = h["elements"]["data"].as_u64().map(|v| v as u32);
             let offset = element.map_or(0, |e| ir.start[e as usize]);
             let (grid, chunks) = grid_chunks(offset, &shape, item, CHUNK_BYTES, threshold).ok_or("internal: the data cannot be cut into chunks")?;
-            out.push(Node { path: index.to_string(), data_type: h["data_type"].as_str().unwrap_or("uint8").to_string(), shape, dims, element, grid, chunks, within: None });
+            out.push(Node { path: index.to_string(), data_type: h["data_type"].as_str().unwrap_or("uint8").to_string(), shape, dims, element, grid, chunks, within: None, row: None });
         }
         Some("table") => {
             let t = &h["table"];
             let (rows, row_bytes, heap) = (t["rows"].as_u64().unwrap_or(0), t["row_bytes"].as_u64().unwrap_or(0), t["heap"].as_u64().unwrap_or(0));
             let element = h["elements"]["rows"].as_u64().map(|v| v as u32);
             let offset = element.map_or(0, |e| ir.start[e as usize]);
-            let shape = vec![rows, row_bytes];
-            let (grid, chunks) = grid_chunks(offset, &shape, 1, CHUNK_BYTES, threshold).ok_or("internal: the rows cannot be cut into chunks")?;
-            out.push(Node { path: format!("{index}/rows"), data_type: "uint8".into(), shape, dims: vec!["row".into(), "byte".into()], element, grid, chunks, within: None });
+            let path = format!("{index}/rows");
+            let row = (!t["struct"].is_null()).then(|| t["struct"].clone());
+            // a struct's element is a row; bytes' a byte of a row
+            let (shape, item, dims, data_type): (Vec<u64>, u64, Vec<String>, &str) = match row {
+                Some(_) => (vec![rows], row_bytes, vec!["row".into()], "struct"),
+                None => (vec![rows, row_bytes], 1, vec!["row".into(), "byte".into()], "uint8"),
+            };
+            let (grid, chunks) = grid_chunks(offset, &shape, item, CHUNK_BYTES, threshold).ok_or("internal: the rows cannot be cut into chunks")?;
+            out.push(Node { path, data_type: data_type.into(), shape, dims, element, grid, chunks, within: None, row });
             if heap > 0 {
                 let e = h["elements"]["heap"].as_u64().ok_or("internal: a heap without an element")? as u32;
                 let (size, chunks) = blob_chunks(ir.start[e as usize], heap);
-                out.push(Node { path: format!("{index}/heap"), data_type: "uint8".into(), shape: vec![heap], dims: vec!["byte".into()], element: Some(e), grid: vec![size], chunks, within: None });
+                out.push(Node { path: format!("{index}/heap"), data_type: "uint8".into(), shape: vec![heap], dims: vec!["byte".into()], element: Some(e), grid: vec![size], chunks, within: None, row: None });
             }
         }
         _ => {}
@@ -251,8 +264,9 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     let mut zeros = contiguous::Zeros::of(all_arrays.iter().flat_map(|(_, _, arrays)| arrays.iter().flat_map(|a| &a.chunks)));
     let mut refs = Refs::new(ir, out);
     for (is_image, own, node_arrays) in all_arrays {
-        for Node { path, data_type, shape, dims, element, grid, chunks, within } in node_arrays {
-            let mut codecs = vec![bytes_codec(item_size(&data_type), "big")];
+        for Node { path, data_type, shape, dims, element, grid, chunks, within, row } in node_arrays {
+            let item = row.as_ref().map_or(item_size(&data_type), |r| if r["ordered"] == true { 2 } else { 1 });
+            let mut codecs = vec![bytes_codec(item, "big")];
             if let Some((length, keep)) = within {
                 codecs.push(json!({"name": "refkv.skip", "configuration": {"length": length, "keep": keep}}));
                 codecs.push(match stream["method"].as_str() {
@@ -263,6 +277,10 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
             let codecs = J::Array(codecs);
             let dim_refs: Vec<&str> = dims.iter().map(|s| s.as_str()).collect();
             let mut doc = array_json(&shape, &data_type, json!(grid), codecs, &dim_refs);
+            if let Some(r) = &row {
+                doc["data_type"] = r["data_type"].clone();
+                doc["fill_value"] = r["fill_value"].clone();
+            }
             if is_image {
                 declare_array(&mut doc, PROFILE, own.clone());
             }

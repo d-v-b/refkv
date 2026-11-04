@@ -15,6 +15,10 @@ was rejected: each array is one chunk, the whole stream, with `refkv.skip` stopp
 end ([§2.1](#21-a-compressed-file)); the root's source metadata has the member `stream`
 ([§5.1](#51-the-root)).
 
+Changed 2026-11-04: a binary table's `rows` is a `struct` array over its rows where its columns
+tile its row, and stays bytes otherwise, the reason in its node's `not_struct`; a column's
+`field` names its field ([§4](#4-tables), [§5.2](#52-an-hdus-node)).
+
 Changed 2026-11-03, with no change to any output: a comment card keeps its leading spaces ([§5.3](#53-cards)); tile-compressed images are not
 listed as rejected ([§8](#8-what-the-layout-does-not-express)), and the worked example of a chunk
 cut follows [conventions §7](../conventions.md#7-source-values-as-arrays).
@@ -80,7 +84,8 @@ The hierarchy's entries ([conventions §11.5](../conventions.md#115-layout-table
 | `<i>/zarr.json#/attributes/refkv_zarrified/fits` | attribute | [`FitsNode`](#type-fitsnode) | the HDU's source metadata ([§5.2](#52-an-hdus-node)) |
 | `<i>/c/<coords>` | chunk | [`FitsChunk`](#type-fitschunk) | every chunk of an image's array ([§9.4](#94-chunks)), or a [`FitsStreamChunk`](#type-fitsstreamchunk) in a compressed file |
 | `<i>/c/<coords>` | chunk | [`FitsTiledChunk`](#type-fitstiledchunk) | a chunk of a tile-compressed image's array with at least one tile ([§3.3](#33-tile-compressed-images), [§9.4](#94-chunks)) |
-| `<i>/rows/zarr.json` | array | [`FitsRowsArray`](#type-fitsrowsarray) | a table's rows, with no chunk when `NAXIS1 × NAXIS2` is 0 ([§4](#4-tables)) |
+| `<i>/rows/zarr.json` | array | [`FitsStructRowsArray`](#type-fitsstructrowsarray) | a binary table's rows as a `struct`, when its columns tile its row, with no chunk when `NAXIS2` is 0 ([§4.1](#41-rows-as-a-struct)) |
+| `<i>/rows/zarr.json` | array | [`FitsRowsArray`](#type-fitsrowsarray) | any other table's rows as bytes, with no chunk when `NAXIS1 × NAXIS2` is 0 ([§4.2](#42-rows-as-bytes)) |
 | `<i>/rows/c/<coords>` | chunk | [`FitsChunk`](#type-fitschunk) | every chunk of a table's rows ([§9.4](#94-chunks)), or a [`FitsStreamChunk`](#type-fitsstreamchunk) in a compressed file |
 | `<i>/heap/zarr.json` | array | [`FitsHeapArray`](#type-fitsheaparray) | a table's heap, when it is not empty ([§4](#4-tables)) |
 | `<i>/heap/c/<k>` | chunk | [`FitsHeapChunk`](#type-fitsheapchunk) | every chunk of a table's heap ([§9.4](#94-chunks)), or a [`FitsStreamChunk`](#type-fitsstreamchunk) in a compressed file |
@@ -89,7 +94,7 @@ The hierarchy's entries ([conventions §11.5](../conventions.md#115-layout-table
 | placeholder | value |
 |---|---|
 | `<i>` | the HDU's number, from 0 in file order, in decimal ([§2](#2-hdus-and-nodes)) |
-| `<coords>` | the chunk's coordinates along the array's axes, in decimal, one key segment each (so it stands for as many segments as the array has axes: two for a table's rows) |
+| `<coords>` | the chunk's coordinates along the array's axes, in decimal, one key segment each (so it stands for as many segments as the array has axes: two for a table's rows as bytes, one as a `struct`) |
 | `<k>` | the chunk's index along the heap, in decimal |
 
 ## 1. Declaration
@@ -336,15 +341,81 @@ A binary table is rows of `NAXIS1` bytes, `NAXIS2` of them, each a
 concatenation of its `TFIELDS` columns' fields with no padding, then, after
 `THEAP` bytes from the start of the data (`NAXIS1 × NAXIS2` when the card is
 absent), the **heap** of variable-length arrays, the last of the `PCOUNT`
-supplemental bytes. An ASCII table is rows of text and has no heap. A
-column is a strided read, and a Zarr v3 struct data type cannot record
-big-endian fields, so this version keeps a table as bytes that any FITS
-table reader decodes: the arrays `<i>/rows` and `<i>/heap`, and the column definitions in
-the group's source metadata ([§5.2](#52-an-hdus-node)).
+supplemental bytes. An ASCII table is rows of text and has no heap. A table's
+group holds the arrays `<i>/rows` and `<i>/heap`, and the column definitions are
+in the group's source metadata ([§5.2](#52-an-hdus-node)).
 
-<a id="type-fitsrowsarray"></a>**`FitsRowsArray`**, `<i>/rows/zarr.json`, present for every
-table, with no chunk when `NAXIS1 × NAXIS2` is 0: an
+### 4.1 Rows as a struct
+
+A binary table's rows are an array of one `struct` element per row, the columns its fields, as
+the HDF5 convention presents a compound ([hdf5 §3.1](hdf5.md#31-data-types)). A chunk is whole
+rows of the file, big-endian, as an image's are; nothing is copied. A column's `TFORMn` is `rTa`:
+a repeat count `r` (1 when absent), a letter `T`, and text `a` that no field depends on.
+
+| `T` | a value | the field's data type |
+|---|---|---|
+| `L` | a logical | `uint8`: the byte as stored, `T`, `F` or 0 |
+| `X` | `r` bits | `ceil(r / 8)` values of `uint8`, the bits as stored |
+| `B` | an unsigned byte | `uint8` |
+| `I`, `J`, `K` | a signed integer | `int16`, `int32`, `int64` |
+| `E`, `D` | a float | `float32`, `float64` |
+| `C`, `M` | a complex number | `complex64`, `complex128` |
+| `A` | `r` characters | one `{"name": "null_terminated_bytes", "configuration": {"length_bytes": r}}`: the bytes as stored, the trailing spaces kept |
+| `P`, `Q` | a variable-length array's descriptor | `{"n": I, "o": I}`, a nested `struct`, `I` `int32` for `P` and `int64` for `Q`: its element count and its offset in the heap; `r` is at most 1 |
+
+A column of `r` values of a type other than `A`, with `r` above 1, has a nested `struct` of the
+fields `0`, `1`, … `r − 1`, since a field of a Zarr `struct` has no shape (`TDIMn` is
+metadata, in the column's `dim`). A logical is not `bool` because a `bool` is the byte 0 or 1,
+and `F` is neither. A column with `r = 0` has no bytes and no field. The values are the stored
+ones: `TSCALn`, `TZEROn` and `TNULLn` are recorded in the column's source metadata and not applied,
+as [§3.2](#32-value-scaling) says of an image's.
+
+**A column's name.** A field is named `TTYPEn`, its spaces trimmed, or `col<n>` when
+that card is absent or blank. A column's `field` ([`FitsColumn`](#type-fitscolumn)) gives the name.
+
+**Variable-length columns stay out.** The field of a `P` or `Q` column holds its descriptor, not
+its values, which stay in the `heap` array as bytes. A row's elements are of one size, and a
+variable-length array's values are of a size that differs by row, outside the row; no Zarr data type
+holds them by reference to the file's bytes, without copying them or their offsets out of the
+heap. A reader finds row `k`'s values at `o` bytes into `heap`, `n` values of the column's type,
+big-endian.
+
+**When the rows stay bytes.** The rows are [bytes](#42-rows-as-bytes) when a field cannot be
+written, and the node's `not_struct` ([§5.2](#52-an-hdus-node)) gives the first of these that
+holds, in this order:
+
+| `not_struct` | when |
+|---|---|
+| `ascii` | the table is an ASCII table: a column is text a reader parses by its `TFORMn` |
+| `form` | a `TFORMn` is not of the table above (no letter, another letter, or a `P` or `Q` of `r` above 1) |
+| `names` | two columns have one name (FITS forbids it, case aside; a `struct` cannot hold it) |
+| `empty` | no column has a field, or `NAXIS1` is 0 |
+| `width` | the fields' bytes do not sum to `NAXIS1`: the columns do not tile the row |
+| `fields` | the leaf fields number more than 4096 (an `A` column has one, a descriptor two): past that, a `zarr.json` of a nested field per value is too long to be of use |
+| `row_size` | `NAXIS1` is over the chunk limit `2^20`, which a row has to fit |
+
+A tile-compressed image's table ([§3.3](#33-tile-compressed-images)) is not a table here.
+
+<a id="type-fitsstructrowsarray"></a>**`FitsStructRowsArray`**, `<i>/rows/zarr.json` of rows as a
+`struct`, present with no chunk when `NAXIS2` is 0: an
 [`ArrayDocument`](../conventions.md#type-arraydocument) with these members:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `shape` | array of integer | required | `[NAXIS2]` |
+| `data_type` | object | required | `{"name": "struct", "configuration": {"fields": F}}`, `F` an object `{"name": name, "data_type": D}` per column with a field, in column order |
+| `chunk_grid` | object | required | regular: contiguous values ([conventions §7](../conventions.md#7-source-values-as-arrays)), the element a row, cut with the limit `2^20` |
+| `fill_value` | object | required | the object of its fields' zeros, by name: `0` for an integer, `0.0` for a float, `[0.0, 0.0]` for a complex number, `""` for an `A` column's, and for a nested `struct` the object of its own |
+| `codecs` | array of object | required | `[{"name": "bytes", "configuration": {"endian": "big"}}]`, or `[{"name": "bytes"}]` when every field is one byte |
+| `dimension_names` | array of string | required | `["row"]` |
+| `attributes` | object | required | `{}` ([§1](#1-declaration)) |
+
+### 4.2 Rows as bytes
+
+<a id="type-fitsrowsarray"></a>**`FitsRowsArray`**, `<i>/rows/zarr.json` of an ASCII table's rows
+or a binary table's that [stay bytes](#41-rows-as-a-struct), present with no chunk when
+`NAXIS1 × NAXIS2` is 0: an [`ArrayDocument`](../conventions.md#type-arraydocument) with these
+members:
 
 | member | type | presence | value |
 |---|---|---|---|
@@ -355,6 +426,8 @@ table, with no chunk when `NAXIS1 × NAXIS2` is 0: an
 | `codecs` | array of object | required | `[{"name": "bytes"}]` |
 | `dimension_names` | array of string | required | `["row", "byte"]` |
 | `attributes` | object | required | `{}` ([§1](#1-declaration)) |
+
+### 4.3 The heap
 
 <a id="type-fitsheaparray"></a>**`FitsHeapArray`**, `<i>/heap/zarr.json`, present when
 `H ≥ 1`, where `H = PCOUNT − (THEAP − NAXIS1 × NAXIS2)` is the heap's length: an
@@ -447,6 +520,7 @@ members in this order:
 | `blank` | number, [`Integer`](../conventions.md#type-integer) or null | optional | for an image: `BLANK`, likewise |
 | `bunit` | string or null | optional | for an image: `BUNIT`, the card's string, or `null` |
 | `columns` | array of [`FitsColumn`](#type-fitscolumn) | optional | for a table: one object per column `n` of `1 … TFIELDS` |
+| `not_struct` | string or null | optional | for a table: `null` when `rows` is a `struct`, else why it is bytes ([§4.1](#41-rows-as-a-struct)) |
 
 <a id="type-fitscolumn"></a>**`FitsColumn`**, column `n` of a table, each member the card's
 string or number, or `null` when absent or not of the member's type (`null`, `TNULLn`, takes
@@ -463,6 +537,7 @@ either: a string in an ASCII table, an integer in a binary one):
 | `null` | string, number, [`Integer`](../conventions.md#type-integer) or null | required | `TNULLn`: an integer in a binary table, a string in an ASCII table |
 | `disp` | string or null | required | `TDISPn` |
 | `bcol` | number, [`Integer`](../conventions.md#type-integer) or null | required | `TBCOLn` |
+| `field` | string or null | required | the name of the column's field in `rows`; `null` when the column has none or `rows` is bytes ([§4.1](#41-rows-as-a-struct)) |
 
 ### 5.3 Cards
 
@@ -529,7 +604,7 @@ length ([§4](#4-tables)):
 | `hdus/<i>` | struct | | HDU `i`: from its first header byte to the end of its padding |
 | `hdus/<i>/header` | value | `{card:ascii[80]}[36k]` | the header's blocks, the `END` card and the blank padding cards included |
 | `hdus/<i>/data` | data | | an image's `D` bytes, when `D > 0`: its form's geometry is `{"data_type": T, "shape": S}` ([§3.1](#31-the-array)), its codec `{"endian": "big"}`, its recipe `[["src", 0, null]]` |
-| `hdus/<i>/rows` | data | | a table's `N1 × N2` bytes, when not 0: geometry `{"rows": N2, "row_bytes": N1}`, recipe `[["src", 0, null]]` |
+| `hdus/<i>/rows` | data | | a table's `N1 × N2` bytes, when not 0, as a `struct` or as bytes: geometry `{"rows": N2, "row_bytes": N1}`, recipe `[["src", 0, null]]` |
 | `hdus/<i>/gap` | value | `bytes[g]` | the `g` bytes between the rows and the heap, when `g > 0` |
 | `hdus/<i>/heap` | data | | a table's heap, when `H > 0`: geometry `{"bytes": H}`, recipe `[["src", 0, null]]` |
 | `hdus/<i>/table` | value | record `[N2]` | a tile-compressed image's main table, one record per tile typed from its columns in row order (`COMPRESSED_DATA:{n:>i4,o:>i4}` for a `P` descriptor, `>i8` for `Q`; `ZSCALE:>f8`, `ZZERO:>f8`, `ZBLANK:>i4`), held by the parser |
@@ -572,10 +647,11 @@ and `refkv_source`, 27 elements. The array `1` declares the convention with
 
 The fixture `fits_bintable_heap.fits` holds a binary table `VLA` of 3 rows
 of 12 bytes (a `PI()` descriptor column and a `2I` column) and an 8-byte
-heap. Its node `1` is a group with the arrays `1/rows` (`[3, 12]`, the chunk
-`1/rows/c/0/0` the range `(5760, 36)`) and `1/heap` (`[8]`, the chunk
+heap. Its node `1` is a group with the arrays `1/rows` (`[3]`, a `struct` of the
+fields `var`, `{"n": int32, "o": int32}`, and `xyz`, `{"0": int16, "1": int16}`, the
+chunk `1/rows/c/0` the range `(5760, 36)`) and `1/heap` (`[8]`, the chunk
 `1/heap/c/0` the range `(5796, 8)`), and the group's `columns` are
-`[{"name": "var", "form": "PI(3)", ...}, {"name": "xyz", "form": "2I", ...}]`.
+`[{"name": "var", "form": "PI(3)", ..., "field": "var"}, {"name": "xyz", "form": "2I", ..., "field": "xyz"}]`.
 
 ## 8. What the layout does not express
 
@@ -589,8 +665,12 @@ gives some of it no Zarr expression:
   OME-NGFF coordinate metadata.
 - **Value scaling.** `BSCALE`, `BZERO` and `BLANK` are recorded, not applied
   ([§3.2](#32-value-scaling)).
-- **Table columns.** A table is rows and heap bytes ([§4](#4-tables)); its
-  columns are described, not presented as arrays.
+- **Table columns.** A column is a field of its table's `struct`, not an array
+  of its own, since its values are strided through the rows ([§4](#4-tables)); a
+  reader of one column reads whole rows. ASCII tables, and the binary tables
+  [§4.1](#41-rows-as-a-struct) leaves as bytes, are described and not decoded.
+- **Variable-length columns.** A `P` or `Q` column's values are bytes of the
+  heap, by the descriptor in its row ([§4.1](#41-rows-as-a-struct)).
 - **Checksums.** `CHECKSUM` and `DATASUM` are cards; nothing verifies them.
 - **ASDF and JSON trees** (JWST's `ASDF` extension, Rubin's JSON HDU) are
   the bytes of a one-row table.
