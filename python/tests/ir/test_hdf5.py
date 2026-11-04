@@ -22,8 +22,10 @@ from zarr.core.metadata import ArrayV3Metadata
 
 import refkv.zarr
 from refkv._narrow import mapping, number, sequence
+from refkv.ir import sniff
 from refkv.zarrify import zarrify
 
+USER_BLOCKS = {"hdf5_user_block_512.h5": 512, "hdf5_user_block_1024.h5": 1024, "hdf5_user_block_4096.h5": 4096}
 ACCEPTED = sorted(p for p in (FIXTURES / "hdf5").iterdir() if p.suffix in (".h5", ".nwb") and "reject" not in p.name)
 
 # the objects each fixture holds that the hierarchy does not present, by path, with the reason
@@ -232,6 +234,22 @@ def test_the_summary_names_an_nwb_file():
 def test_an_imaris_file_is_the_ims_profiles():
     _, info = opened(FIXTURES / "ims" / "ims_earliest_uint16_deflate.ims")
     assert info["format"] == "ims"
+
+
+@pytest.mark.parametrize(("name", "size"), USER_BLOCKS.items())
+def test_a_user_block_is_recorded_and_its_file_sniffed(name, size):
+    path = FIXTURES / "hdf5" / name
+    root, _ = opened(path)
+    assert own(root)["user_block"] == size
+    head = path.read_bytes()
+    # the host's two reads: a superblock past the first takes the second
+    assert sniff(head[:552]) == ("hdf5" if size == 512 else None)
+    assert sniff(head[:65600]) == "hdf5"
+
+
+def test_a_file_without_a_user_block_records_none():
+    root, _ = opened(FIXTURES / "hdf5" / "hdf5_numbers.h5")
+    assert "user_block" not in own(root)
 
 
 def test_a_netcdf4_file_reads_as_its_dimensions_and_coordinates():

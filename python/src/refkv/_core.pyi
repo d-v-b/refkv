@@ -249,7 +249,7 @@ def crc32c(data: bytes) -> int:
     """CRC-32C (Castagnoli, RFC 3720 §B.4) of `data`: a range's checksum (spec §4.2
     <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>)."""
 def sniff(head: bytes) -> str | None:
-    """The format a file's first bytes (up to 552 of them) give (`Format::sniff`), if any: its
+    """The format a file's first bytes (up to 65,600 of them) give (`Format::sniff`), if any: its
     profile's name."""
 def registry() -> str:
     """The profile registry (spec/zarrify/profiles/, as the core holds it): its entries, by

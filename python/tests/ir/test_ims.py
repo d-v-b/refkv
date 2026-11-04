@@ -25,6 +25,8 @@ FILTERED = (
     "ims_shuffle_deflate_fletcher32.ims",
     "ims_shuffle_lz4.ims",
 )
+# a file after a user block, which the frozen reference rejects and the profile has read since
+USER_BLOCK = "ims_user_block.ims"
 
 
 def same_as_reference(path, tmp_path) -> bool:
@@ -33,7 +35,7 @@ def same_as_reference(path, tmp_path) -> bool:
     return as_the_reference(path, tmp_path, "ims", named=True) is not None
 
 
-@pytest.mark.parametrize("path", [p for p in IMS if p.name not in FILTERED], ids=lambda p: p.name)
+@pytest.mark.parametrize("path", [p for p in IMS if p.name not in (*FILTERED, USER_BLOCK)], ids=lambda p: p.name)
 def test_projects_as_the_reference_and_rebuilds(path, tmp_path):
     assert same_as_reference(path, tmp_path) == (not path.name.startswith("ims_reject"))
 
@@ -44,6 +46,16 @@ def test_filter_pipelines_read_as_h5py_reads_them(name, tmp_path):
     _, root, _ = zarrified(path, tmp_path, "ims")
     with h5py.File(path, "r") as f:
         want = f["DataSet/ResolutionLevel 0/TimePoint 0/Channel 0/Data"][:2, :6, :7]
+    array = root["0"]
+    assert isinstance(array, zarr.Array)
+    assert np.array_equal(array[()], want)
+
+
+def test_a_file_after_a_user_block_reads_as_h5py_reads_it(tmp_path):
+    path = FIXTURES / "ims" / USER_BLOCK
+    _, root, _ = zarrified(path, tmp_path, "ims")
+    with h5py.File(path, "r") as f:
+        want = f["DataSet/ResolutionLevel 0/TimePoint 0/Channel 0/Data"][:3, :6, :7]
     array = root["0"]
     assert isinstance(array, zarr.Array)
     assert np.array_equal(array[()], want)

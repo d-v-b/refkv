@@ -432,7 +432,8 @@ pub fn item_size(data_type: &str) -> u64 {
 /// The codecs after `transpose` of a TIFF `compression` and `predictor` (the tags' values: JPEG
 /// 2000, JPEG, LERC, WebP, with alpha when a pixel has 4 samples, and JPEG XL as their imagecodecs
 /// codecs; else `imagecodecs_delta` along the stored axis `x`
-/// for Predictor 2, then `bytes`, with the byte order for samples of more than 8 bits, then
+/// for Predictor 2, then `bytes`, with the byte order for samples of more than 8 bits, or
+/// `imagecodecs_floatpred` along `x` in place of both for Predictor 3, then
 /// `refkv.tiff_lzw` for LZW (spec/zarrify/tiff.md §4.3
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>),
 /// `numcodecs.zlib` for Deflate, `zstd` for Zstandard or `imagecodecs_lzma` for LZMA).
@@ -449,7 +450,13 @@ pub fn tiff_codecs(compression: u64, predictor: u64, bits: u64, spp: u64, little
     if predictor == 2 {
         out.push(json!({"name": "imagecodecs_delta", "configuration": {"axis": x, "dist": 1}}));
     }
-    out.push(bytes_codec(bits.div_ceil(8), if little { "little" } else { "big" }));
+    // the predictor's stream has one byte order, whatever the file's, and the codec keeps samples
+    // apart by the axis after `x`, so `dist` is 1 however many samples a pixel has
+    if predictor == 3 {
+        out.push(json!({"name": "imagecodecs_floatpred", "configuration": {"axis": x, "dist": 1}}));
+    } else {
+        out.push(bytes_codec(bits.div_ceil(8), if little { "little" } else { "big" }));
+    }
     match compression {
         5 => out.push(json!({"name": "refkv.tiff_lzw"})),
         8 | 32946 => out.push(json!({"name": "numcodecs.zlib", "configuration": {"level": 1}})),

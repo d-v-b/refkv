@@ -406,6 +406,28 @@ def patched(source: str, name: str, patches: list[tuple[int, bytes]], cut: int |
     (OUT / name).write_bytes(bytes(b))
 
 
+def user_blocks():
+    """Files after a user block, of the earliest and the latest superblocks, whose every kind of
+    storage has addresses relative to it; the last block is past the 552 bytes that signatures test."""
+    for size, libver in ((512, "earliest"), (1024, "latest"), (4096, "earliest")):
+        name = f"hdf5_user_block_{size}.h5"
+        with open_file(name, libver=libver, userblock_size=size) as f:
+            f.create_dataset("contiguous", data=ramp((6, 4), "<i2"))
+            f.create_dataset("chunked", data=ramp((6, 4), "<f4"), chunks=(3, 2), compression="gzip")
+            strings = np.array(["one", "two", ""], dtype=object)
+            f.create_dataset("strings", data=strings, dtype=h5py.string_dtype("utf-8"))
+            f.create_dataset("references", data=[f["contiguous"].ref], dtype=h5py.ref_dtype)
+            dcpl = h5py.h5p.create(h5py.h5p.DATASET_CREATE)
+            dcpl.set_layout(h5py.h5d.COMPACT)
+            data = ramp((2, 2), "<i2")
+            space = h5py.h5s.create_simple(data.shape)
+            d = h5py.h5d.create(f.id, b"compact", h5py.h5t.py_create(data.dtype), space, dcpl=dcpl)
+            d.write(h5py.h5s.ALL, h5py.h5s.ALL, data)
+            f.attrs["title"] = "after a user block"
+        with open(OUT / name, "r+b") as block:
+            block.write(f"a user block of {size} bytes".encode())
+
+
 def rejects():
     with open_file("_strings.h5") as f:
         f.create_dataset("scalar_int", data=np.int32(-5))
@@ -418,6 +440,10 @@ def rejects():
     size = (OUT / "hdf5_links_earliest.h5").stat().st_size
     patched("hdf5_links_earliest.h5", "hdf5_reject_offsets_4.h5", [(13, b"\x04")])
     patched("hdf5_links_earliest.h5", "hdf5_reject_superblock_version.h5", [(8, b"\x09")])
+    # a base address that is not where the superblock is, at offset 0, and after a user block
+    # (as for an HDF5 file that is the first member of a tar file)
+    patched("hdf5_links_earliest.h5", "hdf5_reject_base_address.h5", [(24, struct.pack("<Q", 512))])
+    patched("hdf5_user_block_512.h5", "hdf5_reject_base_after_block.h5", [(512 + 24, struct.pack("<Q", 0))])
     patched("hdf5_links_earliest.h5", "hdf5_reject_truncated.h5", [], cut=size // 3)
     # the first element of `ascii`: a collection at the address of `scalar_int`'s data, an
     # object index no collection has, a length its object does not have
@@ -450,6 +476,7 @@ def main():
     names_and_attributes()
     netcdf4()
     nwb_files()
+    user_blocks()
     rejects()
     for p in sorted(OUT.glob("*")):
         print(p.name, p.stat().st_size)
