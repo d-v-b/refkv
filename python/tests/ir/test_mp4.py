@@ -24,7 +24,7 @@ ACCEPTED = [p for p in FILES if "reject" not in p.name]
 # (spec/zarrify/mp4.md §4.2
 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#42-audio-tracks>)
 NOISE = {"mp4_aac_pns.mp4", "mp4_he_aac.mp4", "mp4_he_aac_v2.mp4", "mp4_he_aac_hierarchical.mp4",
-         "mp4_he_aac_v2_hierarchical.mp4", "mp4_he_aac_h264.mp4"}
+         "mp4_he_aac_v2_hierarchical.mp4", "mp4_he_aac_h264.mp4", "mp4_he_aac_v2_long.mp4"}
 # A trun box of negative composition offsets: ffmpeg's demuxer adds the largest of them to every
 # time (its dts_shift), where a sample's presentation time is its decode time plus its offset
 SHIFTED = {"mp4_frag_dash.mp4"}
@@ -430,6 +430,22 @@ def test_an_he_aac_track_is_twice_its_core(tmp_path):
         track = mapping(at(root["tracks/1"].attrs, "refkv_zarrified", "mp4"))
         assert (track["format"], track["sample_rate"], track["channels"], track["samples_per_frame"]) == (
             "aac", 44100, 2, 2048), name
+
+
+def test_an_he_aac_chunk_s_lead_in_reaches_its_headers(tmp_path):
+    """A chunk of 7 frames of HE-AAC v2 decodes from 64 frames before it, past parametric stereo's
+    headers (spec/zarrify/mp4.md §8.3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#83-chunks>): a tone's chunks are
+    the whole stream's, but for the error SBR's filter banks leave, some 70 dB below it."""
+    path = FIXTURES / "mp4" / "mp4_he_aac_v2_long.mp4"
+    _kind, frames, _pts = decoded(path, 0)
+    want = samples(frames)
+    _, root = zarrified(path, tmp_path, 7)
+    got = ndarray(root.get_array("tracks/1/samples")[...])
+    # past the first chunks, whose lead-in the stream's start cuts short and the encoder's priming
+    start = 2048 * 70
+    error = np.sqrt(np.mean((got[start:] - want[start:]) ** 2))
+    assert 20 * np.log10(np.sqrt(np.mean(want[start:] ** 2)) / error) > 60
 
 
 def test_reads_a_fragmented_file_s_tracks(tmp_path):

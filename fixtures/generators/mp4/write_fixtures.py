@@ -181,6 +181,7 @@ def main() -> None:
     he_aac_v2 = ffmpeg(*tone, *he2)
     write("mp4_he_aac.mp4", he_aac)
     write("mp4_he_aac_v2.mp4", he_aac_v2)
+    write("mp4_he_aac_v2_long.mp4", ffmpeg(*audio(44100, 10, 2), *he2))
     write("mp4_he_aac_hierarchical.mp4", audio_config(he_aac, bytes.fromhex("2b92088000")))
     write("mp4_he_aac_v2_hierarchical.mp4", audio_config(he_aac_v2, bytes.fromhex("eb8a0880000000")))
     beside_he = ffmpeg(*video(), *audio(44100, 1.5, 2), *X264, "-g", "10", *he)
