@@ -72,6 +72,9 @@ TYPES = {0: ("u1", 1), 1: ("<u2", 1), 2: ("<f4", 1), 3: ("u1", 3), 4: ("<u2", 3)
 LIBCZI_TYPES = {0, 1, 2, 3, 4}  # pixel types libCZI composites
 
 
+REVISED = set(json.loads((ROOT / "conformance" / "zarrify" / "revised.json").read_text())["fixtures"])
+
+
 def run(impl: str, url: str, out: Path) -> subprocess.CompletedProcess:
     """`impl`: py, web, or ref (the frozen TypeScript twin, conformance/zarrify/reference/ts)."""
     cmd = {"py": ["uv", "run", "python", "-m", "refkv.zarrify", "--allow-private-hosts"],
@@ -204,16 +207,12 @@ def decode_direct(raw: bytes, codecs: list[dict], data_type: str, shape: list[in
     stored = [shape[i] for i in order] if order else shape
     if "imagecodecs_jpeg" in names:
         a = imagecodecs.jpeg8_decode(raw)
-    elif "imagecodecs_ljpeg" in names:
-        a = imagecodecs.ljpeg_decode(raw)
     elif "imagecodecs_jpegxr" in names:
         a = imagecodecs.jpegxr_decode(raw)
     else:
         b = raw
         if "zstd" in names:
             b = imagecodecs.zstd_decode(b)
-        if "imagecodecs_lzw" in names:
-            b = imagecodecs.lzw_decode(b)
         if "numcodecs.shuffle" in names:
             b = np.frombuffer(b, "u1").reshape(2, -1).T.tobytes()
         a = np.frombuffer(b, np.dtype(data_type).newbyteorder("<"))
@@ -381,14 +380,14 @@ def check_file(path: Path, ar: Archive) -> list[str]:
         if "c" in axes and TYPES[pt][1] == 1:
             got = got[..., 0]
         try:
-            want = got if comp == 3 else czi_pixels(sb.data(), pt)  # czifile has no lossless JPEG decoder
+            want = czi_pixels(sb.data(), pt)
         except ValueError:
             # czifile cannot reshape data with trailing bytes: its first pixels' bytes, as czifile reads them
             dt, p = TYPES[pt]
             hw = got.shape[:2]
             want = np.frombuffer(data, dt, count=hw[0] * hw[1] * p).reshape(*hw, p)
             want = want[..., 0] if p == 1 else want[..., [2, 1, 0, 3][:p]]
-        if comp in (0, 2, 5, 6) and TYPES[pt][1] > 1:
+        if comp in (0, 5, 6) and TYPES[pt][1] > 1:
             got = got[..., [2, 1, 0, 3][: TYPES[pt][1]]]  # czifile returns R, G, B; the archive holds B, G, R
             if pt == 9:  # czifile sets alpha to 255: compare the stored alpha with the raw bytes
                 raw_alpha = (np.frombuffer(data, "u1")[3::4][: got[..., 3].size].reshape(got.shape[:2])
@@ -628,6 +627,9 @@ def main(argv: list[str]) -> int:
         paths.append(tmp / "big" / "czi_big_bands.czi")
     failures = 0
     for path in paths:
+        if path.name in REVISED:  # the frozen reference rejects it: python/tests/ir/test_czi.py reads its pixels
+            print(f"{path.name:44s} skipped (conformance/zarrify/revised.json)")
+            continue
         server = Server(path.parent)
         out = tmp / f"{path.stem}.vzip"
         p = run(impl, server.base + path.name, out)
