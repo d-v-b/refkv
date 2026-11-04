@@ -173,6 +173,15 @@ fn deterministic() {
     assert_eq!(make(), make());
 }
 
+/// `r` is an invalid-store error whose message has `needle`: the text the vzip writer gives for the
+/// same store, which the source table shares.
+fn refused_with(r: Result<impl std::fmt::Debug, refkv_phkv::Error>, needle: &str) {
+    match r {
+        Err(refkv_phkv::Error::Invalid(m)) => assert!(m.contains(needle), "{m:?} lacks {needle:?}"),
+        r => panic!("not refused as invalid: {r:?}"),
+    }
+}
+
 fn writer() -> Writer<Vec<u8>> {
     Writer::new(Vec::new(), Options::default())
 }
@@ -191,7 +200,48 @@ fn refuses_an_empty_key() {
 
 #[test]
 fn refuses_an_invalid_url() {
-    assert!(writer().url("not a uri").is_err());
+    let mut w = writer();
+    w.url("not a uri").unwrap(); // checked at close, as the vzip writer does
+    refused_with(w.close(), "empty or invalid url sources");
+}
+
+#[test]
+fn refuses_an_empty_key_source() {
+    let mut w = writer();
+    w.internal("").unwrap();
+    refused_with(w.close(), "empty key source");
+}
+
+#[test]
+fn refuses_a_key_source_naming_a_reference() {
+    let mut w = writer();
+    let blob = w.blob(b"abc").unwrap();
+    w.add_ranges("r", &[Range::of(blob, 0, 1)]).unwrap();
+    let r = w.internal("r").unwrap();
+    w.add_ranges("s", &[Range::of(r, 0, 1)]).unwrap();
+    refused_with(w.close(), "internal references to reference entries");
+}
+
+#[test]
+fn refuses_a_range_past_a_reference_as_a_key_source_naming_one() {
+    // as the vzip writer does, whatever the range
+    let mut w = writer();
+    let blob = w.blob(b"abc").unwrap();
+    w.add_ranges("r", &[Range::of(blob, 0, 1)]).unwrap();
+    let r = w.internal("r").unwrap();
+    w.add_ranges("s", &[Range::of(r, 0, 1000)]).unwrap();
+    refused_with(w.close(), "internal references to reference entries");
+}
+
+#[test]
+fn takes_a_key_source_named_like_a_vzip_format_entry() {
+    // a standalone store reserves no names
+    let mut w = writer();
+    w.add_bytes("__vz__/sources", b"abc").unwrap();
+    let k = w.internal("__vz__/sources").unwrap();
+    w.add_ranges("r", &[Range::of(k, 1, 2)]).unwrap();
+    let s = Store::open(w.close().unwrap()).unwrap();
+    assert_eq!(whole(&s, "r").unwrap(), b"bc");
 }
 
 #[test]
@@ -218,7 +268,7 @@ fn refuses_a_range_past_the_end_of_a_data_source() {
     let mut w = writer();
     let blob = w.blob(b"abc").unwrap();
     w.add_ranges("r", &[Range::of(blob, 2, 2)]).unwrap();
-    assert!(w.close().is_err());
+    refused_with(w.close(), "past the end of source");
 }
 
 #[test]
@@ -226,7 +276,7 @@ fn refuses_a_key_source_naming_a_missing_key() {
     let mut w = writer();
     let k = w.internal("missing").unwrap();
     w.add_ranges("r", &[Range::of(k, 0, 1)]).unwrap();
-    assert!(w.close().is_err());
+    refused_with(w.close(), "internal references to missing entries");
 }
 
 #[test]
@@ -590,4 +640,53 @@ fn a_slot_is_a_u64_offset_and_a_u32_length() {
     // no record is shorter than 6 bytes
     assert!(format::unpack_slot(&format::pack_slot(5, 5)).is_err());
     assert_eq!(format::unpack_slot(&format::pack_slot(5, 6)).unwrap(), Some((5, Some(6))));
+}
+
+/// `list` returns exactly the keys with the prefix, in UTF-8 order, whether the pages it needs
+/// are read in one request or (under a small `request_bytes`) in several.
+#[test]
+fn list_is_sorted_and_complete_across_pages() {
+    use refkv_phkv::Limits;
+    let value = vec![7u8; 300];
+    // keys written out of order; the writer sorts them. Values are inline, so a page holds ~13 records.
+    let keys: Vec<String> = (0..3000u32).map(|i| format!("k/{:04}", (i * 7919) % 3000)).chain(["a", "zzz", "k", "k/", "k0"].map(String::from)).collect();
+    let b = write(Options::default(), |w| {
+        for k in &keys {
+            w.add_bytes(k, &value).unwrap();
+        }
+    });
+    let mut sorted = keys.clone();
+    sorted.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
+    let limits = Limits { request_bytes: 20_000, ..Limits::default() };
+    for s in [Store::open(b.clone()).unwrap(), Store::open_with(b, limits).unwrap()] {
+        for prefix in ["", "k/", "k/0", "k/00", "k/0123", "k/29", "k/2999", "k/3", "k", "k0", "a", "b", "zzz", "zzzz", "\u{7f}"] {
+            let want: Vec<&String> = sorted.iter().filter(|k| k.starts_with(prefix)).collect();
+            let got = s.list(prefix).unwrap();
+            assert_eq!(got.iter().collect::<Vec<_>>(), want, "prefix {prefix:?}");
+        }
+    }
+}
+
+#[test]
+fn record_blocks_serve_neighbouring_records_with_the_same_values() {
+    // 3,000 small records, stored in key order: 100 neighbours fall in a few 4 KiB blocks of RECORDS
+    let b = write(Options::default(), |w| {
+        for i in 0..3000 {
+            w.add_bytes(&format!("k/{i:04}"), &[i as u8; 20]).unwrap();
+        }
+    });
+    let reads_for = |record_block: u64| {
+        let limits = refkv_phkv::Limits { record_block, ..Default::default() };
+        let s = Store::open_with(Logging(b.clone(), Default::default()), limits).unwrap();
+        s.reader().1.borrow_mut().clear();
+        for i in 0..3000 {
+            assert_eq!(whole_in(&s, &format!("k/{i:04}")).unwrap(), vec![i as u8; 20], "record_block {record_block}");
+        }
+        assert!(whole_in(&s, "k/9999").is_none());
+        let n = s.reader().1.borrow().len();
+        n
+    };
+    let (alone, blocks) = (reads_for(0), reads_for(4096));
+    // alone: a read per record (and the slot blocks); in blocks: a read per 4 KiB of RECORDS instead
+    assert!(blocks * 3 < alone, "{blocks} reads in blocks against {alone} alone");
 }

@@ -7,35 +7,62 @@ cited here as "conventions §n". How refkv produces this layout as a reference
 store is the TIFF profile, [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `48e9ac4e-1156-4a62-955e-20467d9c2700` ·
-Schema: [schema.json](tiff/schema.json) ·
+Schema: [schema.json](tiff/schema.json)
+
+Changed 2026-11-04: a level's LZW, Deflate and zstd strips are the inner chunks of shards of at most
+2^10 strips and 2^30 decoded bytes ([§4.5](#45-strips), [zarrify §2.1](../zarrify.md#21-virtual-shards))
+in place of one chunk a strip, so that an image of one compressed row a strip no longer has a key a
+row (d-v-b/refkv#195). The output of a file with such a level changes; its pixels and its `omero`
+windows, which sample one strip, do not. A short last strip of Deflate or zstd is still rejected.
+
+Changed 2026-11-03: a level's uncompressed strips join into chunks of at most 2^20 bytes and 2^10
+strips ([§4.5](#45-strips), [§7.3](#73-chunks)) in place of one chunk a strip, so that an image of
+one row a strip no longer has a key a row (d-v-b/refkv#195); a level in compressed strips, one
+whose two strips do not fit, and one with a strip that does not hold exactly its rows keep a
+chunk a strip. The output of a file with such a level changes, and its `omero` windows, which
+sample a chunk, may too.
+
+Changed 2026-11-03, with no change to any output: one-byte integer values' types are `u1[n]` and `i1[n]`, and a form's `rows` and
+`columns` are defined, as refkv already wrote them ([§5.1](#51-elements)).
+
 Changed 2026-10-27: an image of an integer type with Predictor 2 (horizontal differencing) and
 LZW, Deflate or zstd has a layout, its codecs `imagecodecs_delta` before `bytes`
 ([§4.3](#43-data-types-and-codecs)), and its `omero` windows sampled through the predictor
 ([§4.4](#44-arrays)); any other predictor, and Predictor 2 with a `float` type, with no
-compression or with JPEG, is still rejected; no output of a file accepted before changed ·
-Changed 2026-10-27: images in strips and LZW
-(Compression 5) have a layout, which they had in the QPTIFF convention only: a level in strips
-has chunks of its rows per strip, a short last strip padded to them when uncompressed (with a
-range of the output's zero data source, [§7.3](#73-chunks)) or LZW ([§4.5](#45-strips)), and
-LZW is `refkv.tiff_lzw` ([§4.3](#43-data-types-and-codecs)); the
-table of [§2](#2-the-source) holds the strip tags, which the profile now checks in every IFD it
-reads ([§7.1](#71-reading)); no output of a file accepted before changed ·
-Changed 2026-10-27: a zlib stream's codec is `numcodecs.zlib`, zarr-python's name for it, in place of `zlib` ([conventions §3](../conventions.md#3-arrays), d-v-b/refkv#90) ·
-Changed 2026-10-26, with no change to any output:
-the layout is tabulated, its entries in [Layout](#layout) and its types in type tables
+compression or with JPEG, is still rejected; no output of a file accepted before changed.
+
+Changed 2026-10-27: images in strips and LZW (Compression 5) have a layout, which they had in
+the QPTIFF convention only: a level in strips has chunks of its rows per strip, a short last
+strip padded to them when uncompressed (with a range of the output's zero data source,
+[§7.3](#73-chunks)) or LZW ([§4.5](#45-strips)), and LZW is `refkv.tiff_lzw`
+([§4.3](#43-data-types-and-codecs)); the table of [§2](#2-the-source) holds the strip tags,
+which the profile now checks in every IFD it reads ([§7.1](#71-reading)); no output of a file
+accepted before changed.
+
+Changed 2026-10-27: a zlib stream's codec is `numcodecs.zlib`, zarr-python's name for it, in
+place of `zlib` ([conventions §3](../conventions.md#3-arrays), d-v-b/refkv#90).
+
+Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
+[Layout](#layout) and its types in type tables
 ([conventions §11.5](../conventions.md#115-layout-tables)); the QPTIFF convention shares
-[`TiffRoot`](#type-tiffroot) and [`TiffChunk`](#type-tiffchunk); and a tile's or strip's
-recipe frames it with the IFD's JPEG prefix whenever that prefix is not empty (the Adobe marker
-of 3 samples included, with or without JPEGTables) and the tile is more than 2 bytes, as
-refkv already wrote ([§5.1](#51-elements)) · Changed 2026-10-23: each `omero` channel's window
-is sampled from the coarsest level's data when refkv decodes its compression and the samples are
-not RGB, and an image of a float type has an `omero` when every channel's window is sampled
-([§4.4](#44-arrays)); the profile reads the sampled chunks
-([§7.1](#71-reading)) · Changed 2026-10-22: an image of an integer type has
-an `omero` member ([§4.4](#44-arrays)), with the OME-XML's channel names and colors
-([§3](#3-ome-xml)) and the type's range as each channel's window, after
-[revision 29](../history/virtualize/REVISIONS.md#revision-29-no-recorded-revision-the-profile-registry)
-(a profile's changes are recorded here, dated, from then on)
+[`TiffRoot`](#type-tiffroot) and [`TiffChunk`](#type-tiffchunk); and a tile's or strip's recipe
+frames it with the IFD's JPEG prefix whenever that prefix is not empty (the Adobe marker of 3
+samples included, with or without JPEGTables) and the tile is more than 2 bytes, as refkv
+already wrote ([§5.1](#51-elements)).
+
+Changed 2026-10-23: each `omero` channel's window is sampled from the coarsest level's data when
+refkv decodes its compression and the samples are not RGB, and an image of a float type has an
+`omero` when every channel's window is sampled ([§4.4](#44-arrays)); the profile reads the
+sampled chunks ([§7.1](#71-reading)).
+
+Changed 2026-10-22: an image of an integer type has an `omero` member ([§4.4](#44-arrays)), with
+the OME-XML's channel names and colors ([§3](#3-ome-xml)) and the type's range as each channel's
+window.
+
+Changes before 2026-10-22 are recorded in
+[the revision log of VIRTUALIZE.md](../history/virtualize/REVISIONS.md), this document's earlier
+name, up to
+[revision 29](../history/virtualize/REVISIONS.md#revision-29-no-recorded-revision-the-profile-registry).
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
@@ -57,8 +84,8 @@ The hierarchy's entries ([conventions §11.5](../conventions.md#115-layout-table
 | `zarr.json#/attributes/zarr_conventions` | attribute | array of [`ConventionMetadata`](../conventions.md#type-conventionmetadata) | the CMO of [§1](#1-declaration) |
 | `zarr.json#/attributes/refkv_zarrified` | attribute | [`RootProperty`](../conventions.md#type-rootproperty) | `profile` `"tiff"`, `version` `0`, `source.url` the file's URL |
 | `zarr.json#/attributes/refkv_zarrified/tiff` | attribute | [`TiffRoot`](#type-tiffroot) | the root's source metadata ([§5](#5-source-metadata)) |
-| `<L>/zarr.json` | array | [`TiffArray`](#type-tiffarray) | level `L` ([§4.2](#42-pyramid-levels), [§4.4](#44-arrays)) |
-| `<L>/c/<coords>` | chunk | [`TiffChunk`](#type-tiffchunk) | a tile or strip of a plane of level `L`, present when its byte count is more than 0 ([§4.4](#44-arrays), **Chunks**; [§7.3](#73-chunks)) |
+| `<L>/zarr.json` | array | [`TiffArray`](#type-tiffarray) | level `L` ([§4.2](#42-pyramid-levels), [§4.4](#44-arrays)); as a [`ShardedArray`](../zarrify.md#type-shardedarray) when the level shards its strips ([§4.5](#45-strips)) |
+| `<L>/c/<coords>` | chunk | [`TiffChunk`](#type-tiffchunk) | a tile or strip of a plane of level `L`, present when its byte count is more than 0 ([§4.4](#44-arrays), **Chunks**; [§7.3](#73-chunks)); of a level that shards its strips, a [`Shard`](../zarrify.md#type-shard) of them, present when one of them is |
 | `refkv_source/**` | subtree | [the mirror's entries](../conventions.md#table-mirror) | the IR mirror ([§5](#5-source-metadata)): its elements are [§5.1](#51-elements)'s |
 
 | placeholder | value |
@@ -380,11 +407,11 @@ the image's scale (level `L` has width `WL` and length `HL`, level 0 width `W0` 
 | `t` | `SizeT > 1` | `SizeT` | 1 | 1 | none |
 | `c` | the channel count is more than 1 | the channel count | `spp` if interleaved, else 1 | 1 | none |
 | `z` | `SizeZ > 1` | `SizeZ` | 1 | `PZ` | `z`'s (**Pixel size**) |
-| `y` | always | the level's length `HL` | the level's TileLength; for a level in strips, its rows per strip `R` ([§4.5](#45-strips)) | `PY × (H0 / HL)` | `y`'s (**Pixel size**) |
+| `y` | always | the level's length `HL` | the level's TileLength; for a level in strips, its chunk rows `R′` ([§4.5](#45-strips)) | `PY × (H0 / HL)` | `y`'s (**Pixel size**) |
 | `x` | always | the level's width `WL` | the level's TileWidth; for a level in strips, `WL` | `PX × (W0 / WL)` | `x`'s (**Pixel size**) |
 
 Levels may differ in tile size, and one may be tiled and another in strips. The chunk grid is
-always the regular grid of that chunk shape: a short last strip is padded
+always the regular grid of that chunk shape: a short last chunk is padded
 ([§4.5](#45-strips)). (In a scale, the division is computed first.)
 
 <a id="type-tiffarray"></a>**`TiffArray`**, level `L`'s `zarr.json`: an
@@ -477,7 +504,7 @@ does not decode JPEG, JPEG 2000 or zstd):
    MUST give exactly the chunk's size (else the chunk is not sampled),
    as values of the data type: channel `c`'s (of each pixel's `spp`
    values, the `c`-th, when interleaved), at the rows and columns inside
-   the array (an edge tile's padding past the image, and a padded last strip's rows, are left out),
+   the array (an edge tile's padding past the image, and a padded last chunk's rows, are left out),
    leaving out those equal to the fill value 0 (in a coarse level they
    are mostly the area outside the acquired region) and, of a float
    type, those that are not finite.
@@ -507,40 +534,88 @@ the window's in the order min, max, start, end.
 and planar (else 0). Both TileOffsets and TileByteCounts (StripOffsets and StripByteCounts)
 MUST have `T` times the number of sample planes values. The chunk with coords `t`, `c` (the
 plane's channel, or the sample `s`, or 0 when interleaved), `z` (each only when present),
-then the tile row and column (the strip index and 0), is tile (strip) `k`. It is present when
-its byte count is more than 0, and absent (the fill value) otherwise. Its bytes are the
-tile's or strip's, encoded as the codecs say (a short last strip's, with its padding,
-[§4.5](#45-strips)); for JPEG, a JPEG tile is made a complete
+then the tile row and column (the strip index and 0), is tile (strip) `k`; of a level that joins
+its strips ([§4.5](#45-strips)), the chunk with row `i` and column 0 is strips `s × T + i × m` to
+`s × T + min((i + 1) × m, T) − 1`, in that order. A chunk is present when its byte count is more than 0, and absent
+(the fill value) otherwise. Its bytes are the tile's or strip's (or strips'), encoded as the codecs
+say (a short last chunk's, with its padding, [§4.5](#45-strips)); for JPEG, a JPEG tile is made a complete
 stream with the IFD's JPEGTables and an explicit color transform for its
 PhotometricInterpretation (2: RGB as stored; 6: YCbCr). For JPEG,
 JPEGTables, when present, MUST be at least 4 bytes long, start with
 `FF D8` and end with `FF D9`, and every present tile or strip MUST be more than 2
-bytes long. Its reference is a [`TiffChunk`](#type-tiffchunk) ([§7.3](#73-chunks)).
+bytes long. Its reference is a [`TiffChunk`](#type-tiffchunk) ([§7.3](#73-chunks)). Of a level that
+shards its strips ([§4.5](#45-strips)), these chunks are the array's inner chunks.
 
 ### 4.5 Strips
 
 An IFD in strips ([§2](#2-the-source)) that becomes a plane or a level has its **rows per
-strip** `R = min(RowsPerStrip, ImageLength)`, and `ceil(ImageLength / R)` strips per sample
-plane, the last holding the remaining rows. A level in strips has chunks of `R` rows by the
-level's width ([§4.4](#44-arrays)), one strip each.
+strip** `R = min(RowsPerStrip, ImageLength)`, and `S = ceil(ImageLength / R)` strips per sample
+plane, the last holding the remaining rows. Let `B` be the bytes of one row of a strip:
+ImageWidth × BitsPerSample / 8, times SamplesPerPixel when the samples are interleaved. A level
+in strips has chunks of `R′` rows by the level's width ([§4.4](#44-arrays)), `m` strips each,
+which are `R′ = R` and `m = 1` unless it joins them.
 
-When its last strip is **short** (the level has more than one strip and ImageLength is not a
-multiple of `R`), the last strip's chunk is **padded** to `R` rows, so that every chunk
-decodes to the chunk shape (a Zarr reader then needs no irregular chunk grid): the strip's
-bytes are followed by the bytes that make the rows missing zero, which depend on the
-compression (`rows` being the strip's rows and `B` the bytes of one row of the strip:
-ImageWidth × BitsPerSample / 8, times SamplesPerPixel when the samples are interleaved):
+**Joined strips.** An uncompressed strip is its rows' bytes, nothing around them, so
+consecutive strips are the rows of a larger chunk without decoding anything. Let
+`M = min(floor(2^20 / (R × B)), 2^10)`, the most strips a chunk holds. A level **joins** its strips
+when Compression is 1, `S` and `M` are at least 2, and every strip of every sample plane of every
+IFD of the level holds exactly its rows, `rows × B` bytes. Then
+
+- `m = ceil(S / ceil(S / M))`, the fewest chunks those limits allow, as even as whole strips allow;
+- `R′ = min(m × R, ImageLength)`.
+
+The strips of a chunk need not meet in the file ([§7.3](#73-chunks)). The limit of 2^20 bytes is
+the one contiguous source values have ([conventions §7](../conventions.md#7-source-values-as-arrays)),
+and it bounds what a partial read costs, since a reader of a chunk reads all of it: one row of a
+plane of `n` chunks costs `1 / n` of the plane, at most 2^20 bytes. The limit of 2^10 strips keeps a
+chunk whose strips are all apart within the reads a reader allows a value by default
+([refkv §6.7](../refkv.md#67-reader-policy), rule 5).
+
+**Shards of compressed strips.** A strip of LZW, Deflate or zstd is a stream of its own, which the
+codecs of [§4.3](#43-data-types-and-codecs) decode one at a time, so it stays one chunk, and its
+level gathers those chunks in shards instead ([zarrify §2.1](../zarrify.md#21-virtual-shards)). Let
+`M = min(floor(2^30 / (R × B)), 2^10)`, the most strips a shard holds. A level **shards** its strips
+when Compression is 5, 8, 32946 or 50000 and `S` and `M` are at least 2. Its array is then a
+[`ShardedArray`](../zarrify.md#type-shardedarray) of the array this document describes:
+
+- the inner chunks are that array's chunks, of `R` rows by the level's width, one strip each, and
+  the inner codecs its codecs;
+- a shard holds `K = ceil(S / ceil(S / M))` inner chunks along `y`, the fewest shards those limits
+  allow, as even as whole strips allow, and 1 along every other axis, so that each sample plane of
+  each plane has its own shards. The shard's rows, `K × R`, may be more than ImageLength.
+
+Each shard's index is written from StripOffsets and StripByteCounts, with no strip read (but a short
+LZW strip's, below), and a strip with no bytes is an inner chunk the shard does not hold. The limits
+are not [the joined strips'](#45-strips), because they answer another question: a reader of a few
+rows of a shard reads only those strips, so 2^20 bytes would bound nothing a partial read costs. The
+limit of 2^10 strips is the one a joined chunk has, and also keeps a shard's reference within the
+payload limit ([§1.2](../zarrify.md#12-input)) however far apart its strips are, at 16 bytes of index
+and at most 20 bytes of range a strip. The limit of 2^30 bytes bounds what a reader that reads a whole
+shard as one value holds at once. A level of one strip has nothing to gather.
+
+Whether a reader makes fewer requests depends on the reader, which [zarrify
+§2.1](../zarrify.md#21-virtual-shards) describes. A strip of JPEG or JPEG 2000 keeps a chunk a strip.
+So has a level of uncompressed strips with a strip that does not hold exactly its rows: a strip with
+no bytes, which is the fill value, or with more or fewer bytes than its rows, whose rows the
+concatenation would misplace.
+
+When its last chunk is **short** (the level has more than one chunk and ImageLength is not a
+multiple of `R′`), it is **padded** to `R′` rows, so that every chunk decodes to the chunk shape
+(a Zarr reader then needs no irregular chunk grid): the bytes of its strips are followed by the
+bytes that make the rows missing zero, which depend on the compression (`rows` being the
+chunk's rows, and of a level that does not join, the strip's):
 
 | Compression | padding |
 |---|---|
-| **1 (uncompressed)** | `R × B − n` zero bytes, `n` the strip's byte count: `(R − rows) × B` when the strip holds its rows, and none when it holds `R × B` bytes or more (as a strip written with all the chunk's rows does; like any uncompressed tile or strip, one of more bytes than its chunk does not decode) |
+| **1 (uncompressed)** | of a level that joins, `(R′ − rows) × B` zero bytes; of another, `R × B − n`, `n` the strip's byte count: `(R − rows) × B` when the strip holds its rows, and none when it holds `R × B` bytes or more (as a strip written with all the chunk's rows does; like any uncompressed tile or strip, one of more bytes than its chunk does not decode) |
 | **5 (LZW)** | the strip's stream is read until its output reaches the strip's size (`rows × B` bytes; a stream that does not reach it, or whose code crosses it, rejects the input), and what follows (its end-of-information code, or the malformed final code of [§4.3](#43-data-types-and-codecs)) is replaced by a **tail** that continues the stream: a Clear code at the width the decoder has there, then the `(R − rows) × B` zeros as the codes 0, 258, 259, ... (each code one zero longer than the last, the entry the decoder defines on reading the previous one) and one more code for the remainder shorter than the next entry, then the end-of-information code, every code at the width the decoder has when it reads it. The chunk's bytes are the strip's bytes before the byte holding the cut, then the tail, which starts with that byte's bits before the cut |
 | **another compression** (JPEG, Deflate, zstd, JPEG 2000) | cannot be padded: the input is rejected |
 
 With Predictor 2, the padding is the same: each padded row is differences of 0, which sum back
 to zeros, since the differencing starts again at each row. (A short strip of Deflate or zstd cannot be extended without decompressing and compressing it
 again, and a JPEG or JPEG 2000 stream holds its own height, so these have no padding that
-references the strip's bytes.) A strip padded with more than 2^22 (4194304) zero bytes
+references the strip's bytes. A shard does not change this: an inner chunk decodes to the inner
+chunk shape like any chunk, and the sharding codec has no shorter one.) A strip padded with more than 2^22 (4194304) zero bytes
 rejects the input, so that no archive holds more zeros than that, and an LZW tail stays within
 one code table; so does a short last LZW strip whose tail would read more than 2^24
 (16777216) of its bytes (its byte count, read up to the bound of [§7.1](#71-reading)), and so do
@@ -585,10 +660,10 @@ for BigTIFF) and `C` the entry-count type (`u2`, or `u8`).
 | `…/entry_count` | value | `EC` | the entry count `n` |
 | `…/tags/<tag>` | struct | | the first entry of tag `<tag>` (12 or 20 bytes); a later one of the same tag is `…/tags/<tag>~<k>`, `k` = 1, 2, … |
 | `…/tags/<tag>/entry` | value | record | the entry's tag, field type and count (`{tag:Eu2,type:Eu2,count:EW}`), with `offset:EW` when the value is out of line, or `field:bytes[4\|8]` when the field type is unknown |
-| `…/tags/<tag>/value` | value | by field type | the value: in the entry's field (the bytes it uses; the rest of the field is a gap), or at its offset when it lies within the file. Its type is `ascii[n]` (ASCII), `Eu1[n]`, `Eu2[n]`, `Eu4[n]`, `Eu8[n]`, `Ei1[n]` … (integers), `Eu4[n,2]`, `Ei4[n,2]` (rationals), `Ef4[n]`, `Ef8[n]`, or `bytes[n]` (UNDEFINED) |
+| `…/tags/<tag>/value` | value | by field type | the value: in the entry's field (the bytes it uses; the rest of the field is a gap), or at its offset when it lies within the file. Its type is `ascii[n]` (ASCII), `u1[n]`, `i1[n]` (one-byte integers, which have no byte order), `Eu2[n]`, `Eu4[n]`, `Eu8[n]`, `Ei2[n]` … (larger integers), `Eu4[n,2]`, `Ei4[n,2]` (rationals), `Ef4[n]`, `Ef8[n]`, or `bytes[n]` (UNDEFINED) |
 | `…/next_ifd` | value | `EW` | the next-IFD offset |
 | `…/tiles`, `…/strips` | struct | | an IFD's tiles or strips (by its TileOffsets and TileByteCounts, or StripOffsets and StripByteCounts), when it has both tables |
-| `…/tiles/<j>`, `…/strips/<j>` | data | | tile or strip `j`, when its byte count is not 0 and it lies within the file; its form's geometry is `{"shape": [rows, columns], "samples": s, "bits": b}`, its codec `{"compression": c}`, and its recipe the bytes (`[["src", 0, null]]`), or, when the IFD's JPEG prefix `P` (a [`TiffJpegPrefix`](#type-tiffjpegprefix): for JPEG (7), the Adobe marker for 3 samples, then the JPEGTables, when the IFD has them, without their SOI and EOI; empty for every other compression) is not empty and the tile or strip is more than 2 bytes, the first 2 bytes, `P` (shared data source `x`, [conventions §8.2](../conventions.md#82-the-table)), and the rest: `[["src", 0, 2], ["shared", x], ["src", 2, null]]` |
+| `…/tiles/<j>`, `…/strips/<j>` | data | | tile or strip `j`, when its byte count is not 0 and it lies within the file; its form's geometry is `{"shape": [rows, columns], "samples": s, "bits": b}` (`rows`, `columns`: a tile's TileLength and TileWidth; a strip's RowsPerStrip, or ImageLength without one, and ImageWidth, the same for a short last strip), its codec `{"compression": c}`, and its recipe the bytes (`[["src", 0, null]]`), or, when the IFD's JPEG prefix `P` (a [`TiffJpegPrefix`](#type-tiffjpegprefix): for JPEG (7), the Adobe marker for 3 samples, then the JPEGTables, when the IFD has them, without their SOI and EOI; empty for every other compression) is not empty and the tile or strip is more than 2 bytes, the first 2 bytes, `P` (shared data source `x`, [conventions §8.2](../conventions.md#82-the-table)), and the rest: `[["src", 0, 2], ["shared", x], ["src", 2, null]]` |
 | `…/subifds/<j>` | struct | | SubIFD `j` of the IFD (to depth 4), as an IFD |
 | `…/exif`, `…/gps`, `…/interoperability`, `…/ifd_<tag>` | struct | | the IFD a pointer tag ([§5.2](#52-which-ifds)) leads to (`…/<name>/<j>` when the tag has several values), as an IFD |
 | `ome/planes/<p>` | alias | | plane `p` of the OME-XML ([§4.1](#41-planes)): the main-chain IFD its `TiffData` names |
@@ -706,7 +781,7 @@ NUL, so tag 305's 12 bytes are `tifffile.py`).
 
 # Part 2. The profile
 
-The TIFF profile of [spec/zarrify.md](../zarrify.md) (revision 16) is [§7](#7-tiff-profile) of this document. What every profile's Part 2 shares is in
+The TIFF profile of [spec/zarrify.md](../zarrify.md) is [§7](#7-tiff-profile) of this document. What every profile's Part 2 shares is in
 [spec/zarrify.md, Profiles](../zarrify.md#profiles).
 
 ## 7. TIFF profile
@@ -805,9 +880,12 @@ rejected, or that something MUST hold and it does not
 
 Every chunk that the convention says is present
 ([the convention §4.4](#44-arrays)) is the
-entry `<level>/c/<coords>`. Tile (strip) `k`, with TileByteCounts (StripByteCounts) `n > 0`,
-has the single range `(0, TileOffsets[k], n)` (`StripOffsets[k]`; for JPEG, and for a short
-last strip, see below). The references
+entry `<level>/c/<coords>`, but for a level that shards its strips
+([the convention §4.5](#45-strips)), whose entries are its shards
+([zarrify §2.1](../zarrify.md#21-virtual-shards)), each a [`Shard`](../zarrify.md#type-shard) whose
+inner chunks' ranges are their references here. Tile (strip) `k`, with TileByteCounts (StripByteCounts) `n > 0`,
+has the single range `(0, TileOffsets[k], n)` (`StripOffsets[k]`; for JPEG, for a short
+last strip, and for strips that a level joins, see below). The references
 are listed (for [§1.2](../zarrify.md#12-input)'s order of first use) level by level, within a level
 by `t`, then `c`, then `z`, and within a plane by `k`. Besides these and the
 root's and the arrays' `zarr.json`, the archive's entries are those of the
@@ -840,8 +918,9 @@ TileOffsets[k]` and `n = TileByteCounts[k] > 0` (`StripOffsets[k]`, `StripByteCo
 
 | part | range | presence | value |
 |---|---|---|---|
-| the tile | source range `(0, o, n)` | optional | when `P` is empty (every compression but JPEG, and JPEG with one sample and no JPEGTables) and the tile is not a short last strip of LZW: the whole tile or strip |
-| the zero rows | `Z`, source range `(i, 0, z)` | optional | for an uncompressed short last strip that lacks `z > 0` bytes of the chunk's size ([the convention §4.5](#45-strips)), after the strip: the first `z` bytes of the output's zero data source `i` ([§1.2](../zarrify.md#12-input)) |
+| the tile | source range `(0, o, n)` | optional | when `P` is empty (every compression but JPEG, and JPEG with one sample and no JPEGTables), the tile is not a short last strip of LZW, and its level does not join its strips: the whole tile or strip |
+| the strips | source ranges `(0, o, n)` | optional | for a chunk of a level that joins its strips ([the convention §4.5](#45-strips)): its strips in order, one range each, a range that starts where the one before it ends being merged into it, so that contiguous strips are one range |
+| the zero rows | `Z`, source range `(i, 0, z)` | optional | for an uncompressed short last chunk that lacks `z > 0` bytes of its size ([the convention §4.5](#45-strips)), after its strips: the first `z` bytes of the output's zero data source `i` ([§1.2](../zarrify.md#12-input)) |
 | the strip before the cut | source range `(0, o, p)` | optional | for an LZW short last strip: `p` the bytes before the cut's byte |
 | the tail | `T`, a literal range | optional | for an LZW short last strip: the literal tail of [the convention §4.5](#45-strips) |
 | the tile's SOI | source range `(0, o, 2)` | optional | when `P` is not empty: the tile's first 2 bytes |

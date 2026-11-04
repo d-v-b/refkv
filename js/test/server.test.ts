@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { test } from "node:test";
 import { HttpResolutionError } from "../src/http.ts";
-import { ARCHIVE_KEY, encodeId, makeHandler } from "../src/server.ts";
+import { ARCHIVE_KEY, encodeId, ERROR_HEADER, makeHandler, PENDING_HEADER, type SavedArchives, WORKER_HEADER } from "../src/server.ts";
 
 const PREFIX = "https://viewer.test/vz/";
 const FIXTURES = new URL("../../fixtures/tiff/", import.meta.url);
@@ -184,4 +184,166 @@ test("serves zarrified stores, and reports rejected ones", async () => {
   const missing = await get(h, `image/${encodeId("https://data.test/b/no_such_store/")}/zarr.json`);
   assert.equal(missing.status, 422);
   assert.match(await missing.text(), /^store: the store has no listing/);
+});
+
+/** A handler whose file opens wait for `gate` (and, on the first open, fail if `failFirst`). */
+function slowHandler(gate: Promise<void>, failFirst = false) {
+  const state = { opens: 0 };
+  const h = makeHandler({
+    prefix: PREFIX,
+    pendingAfter: 10,
+    openFile: async (url) => {
+      state.opens++;
+      const first = state.opens === 1;
+      if (first) await gate;
+      if (first && failFirst) throw new HttpResolutionError(`${url}: HTTP 503`);
+      const bytes = local(url);
+      return { size: bytes.length, read: async (o, n) => bytes.subarray(o, o + n) };
+    },
+  });
+  // asks until the answer is not pending, as the page does: a build can outlast pendingAfter
+  const settled = async (path: string) => {
+    for (;;) {
+      const r = await get(h, path);
+      if (r.headers.get(PENDING_HEADER) === null) return r;
+    }
+  };
+  return { h, state, settled };
+}
+
+test("a request answers 503 pending while its archive is built, and asking again serves it", async () => {
+  let release!: () => void;
+  const { h, state, settled } = slowHandler(new Promise<void>((r) => (release = r)));
+  const path = `${tiff("float32_uncompressed_be.ome.tif")}zarr.json`;
+  const pending = await get(h, path);
+  assert.equal(pending.status, 503);
+  assert.equal(pending.headers.get(PENDING_HEADER), "1");
+  assert.equal(pending.headers.get("Retry-After"), "0");
+  assert.equal(pending.headers.get(WORKER_HEADER), "1");
+  assert.match(pending.headers.get("Access-Control-Expose-Headers")!, new RegExp(PENDING_HEADER));
+  release();
+  const served = await settled(path);
+  assert.equal(served.status, 200);
+  assert.equal((await served.json()).attributes.ome.version, "0.5");
+  assert.equal(state.opens, 1, "asking again waits for the same build");
+});
+
+test("a build that fails after a pending answer fails the next request, and the one after builds again", async () => {
+  let fail!: () => void;
+  const { h, state, settled } = slowHandler(new Promise<void>((r) => (fail = r)), true);
+  const path = `${tiff("float32_uncompressed_be.ome.tif")}zarr.json`;
+  assert.equal((await get(h, path)).status, 503);
+  fail();
+  const failed = await settled(path);
+  assert.equal(failed.status, 502);
+  assert.match(await failed.text(), /HTTP 503/);
+  assert.equal((await settled(path)).status, 200);
+  assert.equal(state.opens, 2);
+});
+
+/** Saved archives in a Map, as Cache Storage keeps them for the service worker. */
+function memoryStore(): SavedArchives & { map: Map<string, Uint8Array> } {
+  const map = new Map<string, Uint8Array>();
+  return {
+    map,
+    get: async (name) => map.get(name),
+    put: async (name, bytes) => void map.set(name, bytes),
+    delete: async (name) => void map.delete(name),
+  };
+}
+
+/** A handler that saves archives in `saved`, reading data.test/x.tif from the fixture `state.file`. */
+function savingHandler(saved: SavedArchives, state: { file: string; opens: number }) {
+  const bytes = () => local(remote(state.file));
+  return makeHandler({
+    prefix: PREFIX,
+    saved,
+    openFile: async () => {
+      state.opens++;
+      const b = bytes();
+      return { size: b.length, read: async (o, n) => b.subarray(o, o + n) };
+    },
+    fetchRange: async (_url, start, end) => {
+      const b = bytes();
+      return { data: b.subarray(start, end), size: b.length }; // the size pin is checked
+    },
+  });
+}
+
+const x = tiff("x.tif");
+const X_NAME = `tiff/${remote("x.tif")}`;
+
+test("serves a saved archive without zarrifying again", async () => {
+  const saved = memoryStore();
+  const state = { file: "float32_uncompressed_be.ome.tif", opens: 0 };
+  const first = savingHandler(saved, state);
+  const chunk = await (await get(first, `${x}0/c/1/2`)).arrayBuffer();
+  assert.equal(state.opens, 1);
+  assert.deepEqual([...saved.map.keys()], [X_NAME]);
+  assert.deepEqual(new Uint8Array(await (await get(first, `${x}${ARCHIVE_KEY}`)).arrayBuffer()), saved.map.get(X_NAME));
+  // a new handler, as a restarted worker has, serves the saved archive
+  const second = savingHandler(saved, state);
+  const again = await get(second, `${x}0/c/1/2`);
+  assert.equal(again.status, 200);
+  assert.deepEqual(await again.arrayBuffer(), chunk);
+  assert.equal((await (await get(second, `${x}zarr.json`)).json()).attributes.ome.version, "0.5");
+  assert.equal(state.opens, 1, "the input is not zarrified again");
+});
+
+test("drops a saved archive whose source changed, and zarrifies it again", async () => {
+  const saved = memoryStore();
+  const state = { file: "float32_uncompressed_be.ome.tif", opens: 0 };
+  assert.equal((await get(savingHandler(saved, state), `${x}zarr.json`)).status, 200);
+  state.file = "svs_like_int16.tif"; // a file of another size at the same URL
+  const h = savingHandler(saved, state);
+  const stale = await get(h, `${x}0/c/1/2`);
+  assert.equal(stale.status, 502);
+  assert.match(await stale.text(), /the archive pins \d+: the source changed/);
+  assert.equal(saved.map.has(X_NAME), false);
+  assert.equal(state.opens, 1);
+  const fresh = await get(h, `${x}zarr.json`);
+  assert.equal(fresh.status, 200);
+  assert.equal(state.opens, 2);
+  assert.equal(saved.map.has(X_NAME), true);
+});
+
+test("drops a saved archive that cannot be opened, and zarrifies it again", async () => {
+  const saved = memoryStore();
+  saved.map.set(X_NAME, new Uint8Array([1, 2, 3]));
+  const state = { file: "float32_uncompressed_be.ome.tif", opens: 0 };
+  assert.equal((await get(savingHandler(saved, state), `${x}zarr.json`)).status, 200);
+  assert.equal(state.opens, 1);
+  assert.ok(saved.map.get(X_NAME)!.length > 3, "the new archive replaces it");
+});
+
+test("zarrifies when the saved archives cannot be read", async () => {
+  const saved = { ...memoryStore(), get: () => { throw new Error("no cache"); } };
+  const state = { file: "float32_uncompressed_be.ome.tif", opens: 0 };
+  assert.equal((await get(savingHandler(saved, state), `${x}zarr.json`)).status, 200);
+  assert.equal(state.opens, 1);
+});
+
+test("serves an archive that cannot be saved", async () => {
+  const saved = { ...memoryStore(), put: async () => { throw new Error("quota exceeded"); } };
+  const state = { file: "float32_uncompressed_be.ome.tif", opens: 0 };
+  const h = savingHandler(saved, state);
+  assert.equal((await get(h, `${x}zarr.json`)).status, 200);
+  assert.equal((await get(h, `${x}0/c/1/2`)).status, 200);
+  assert.equal(saved.map.size, 0);
+  assert.equal((await get(savingHandler(saved, state), `${x}zarr.json`)).status, 200);
+  assert.equal(state.opens, 2, "nothing was saved, so a new handler zarrifies again");
+});
+
+test("a source that got no response answers 502 with its cause, where the browser could tell", async () => {
+  const h = makeHandler({
+    prefix: PREFIX,
+    openFile: async (url) => {
+      throw new HttpResolutionError(`${url}: Failed to fetch: the server answered, but its CORS headers ...`, false, "cors");
+    },
+  });
+  const r = await get(h, `${tiff("float32_uncompressed_be.ome.tif")}zarr.json`);
+  assert.equal(r.status, 502);
+  assert.equal(r.headers.get(ERROR_HEADER), "cors");
+  assert.match(r.headers.get("Access-Control-Expose-Headers")!, new RegExp(ERROR_HEADER));
+  assert.match(await r.text(), /CORS headers/);
 });

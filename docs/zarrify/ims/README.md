@@ -50,8 +50,7 @@ resolution level.
 ## Try it
 
 [example.py](example.py) zarrifies a public file and plots it with matplotlib. Its
-dependencies are in its header (PEP 723), so it runs on its own (uv builds refkv from GitHub,
-which needs a Rust toolchain, until a release on PyPI has `refkv.zarrify`):
+dependencies are in its header (PEP 723), so it runs on its own, with refkv from PyPI:
 
 ```bash
 uv run docs/zarrify/ims/example.py
@@ -66,7 +65,7 @@ uv run refkv zarrify https://downloads.openmicroscopy.org/images/Imaris-IMS/elia
 ```
 
 ```
-{"format": "ims", "levels": 4, "sizes": {"t": 1, "c": 2, "z": 64, "y": 1567, "x": 2048}, "dataType": "uint8", "chunkShape": [16, 256, 256], "compressed": [true, true, true, true], "chunks": 612, "channels": ["CollagenIV (TxRed)", "GFAP (FITC)"]}
+{"format": "ims", "levels": 4, "sizes": {"t": 1, "c": 2, "z": 64, "y": 1567, "x": 2048}, "dataType": "uint8", "chunkShape": [16, 256, 256], "compressed": [true, true, true, true], "channels": ["CollagenIV (TxRed)", "GFAP (FITC)"], "chunks": 612, ...}
 ```
 
 This took 6 s and wrote an 80 KB archive, at spec/zarrify.md revision 16
@@ -94,7 +93,7 @@ print(g["3"][:, 4, 100, 120:126])
 2 (2, 64, 391, 512) (1, 16, 256, 256) [{'type': 'scale', 'scale': [1, 0.19999999999999998, 0.091769820971867, 0.091623046875]}, {'type': 'translation', 'translation': [0, -0.1, -0.082, -0.082]}]
 3 (2, 32, 195, 256) (1, 16, 256, 256) [{'type': 'scale', 'scale': [1, 0.39999999999999997, 0.1840102564102564, 0.18324609375]}, {'type': 'translation', 'translation': [0, -0.1, -0.082, -0.082]}]
 [('CollagenIV (TxRed)', 'FF0000'), ('GFAP (FITC)', '00FF00')]
-(BytesCodec(endian=None), ZlibCodec(level=1))
+(BytesCodec(endian=None), Zlib(codec_name='numcodecs.zlib', codec_config={'level': 1}))
 [[ 0  0  0  0  0  0]
  [22 20 18 16 16 16]]
 ```
@@ -111,9 +110,7 @@ points, 3 channels) in about 5 s and showed it in Neuroglancer.
 ## Viewing
 
 The Neuroglancer fork (<https://github.com/d-v-b/neuroglancer>, branch `vzip`)
-reads every data type and codec this profile writes but `numcodecs.zlib` (the fork decodes
-`zlib`, which archives named before d-v-b/refkv#90), so a deflate-compressed file's archive
-does not render there until the fork registers that name too; the HeLa time-lapse
+reads every data type and codec this profile writes; the HeLa time-lapse
 above renders through a local build of the demo, as one layer with a color
 and a contrast control per channel (the fork assembles each of its chunks
 from the file's chunks of every channel, as Imaris stores one channel per
@@ -179,7 +176,7 @@ which must be rejected (the LZ4 file and a scene file).
 
 - Profile: [spec/zarrify/ims.md](../../../spec/zarrify/ims.md#part-2-the-profile)
 - Rust core: [rust/refkv-ir/src/ims.rs](../../../rust/refkv-ir/src/ims.rs) (the layout and the walk),
-  [rust/refkv-ir/src/hdf5.rs](../../../rust/refkv-ir/src/hdf5.rs) (the HDF5 reader),
+  [rust/refkv-ir/src/hdf5/](../../../rust/refkv-ir/src/hdf5/) (the HDF5 reader),
   [rust/refkv-ir/schema/ims.json](../../../rust/refkv-ir/schema/ims.json) (the source model)
 - Frozen reference (revision 25): [conformance/zarrify/reference/refkv_reference/ims/](../../../conformance/zarrify/reference/refkv_reference/ims/)
 - Fixtures: [fixtures/ims/](../../../fixtures/ims/)

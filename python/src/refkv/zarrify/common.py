@@ -25,6 +25,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from email.message import Message
 
+from refkv._files import replacing
 from refkv._narrow import integer, string
 from refkv.errors import ResolutionError
 from refkv.pb import Concat, Range, Source
@@ -118,7 +119,7 @@ class Output:
         return (i, 0, len(value))
 
     def write(self, out_path: str) -> None:
-        with open(out_path, "wb") as fh:
+        with replacing(out_path) as fh:
             w = VZipWriter(fh, page_size=1 << 16, checksum=self.checksum)
             src = w.source(Source(url=self.url, size=self.size, etag=self.etag))
             for value, i in self.data.items():
@@ -142,7 +143,7 @@ class Output:
             w.close()
 
     def to_store(self, *, policy: Policy | None = None, info: dict[str, object] | None = None) -> ReferenceStore:
-        """The output as a `refkv.ReferenceStore`, which `save` writes as the archive
+        """The output as a `refkv.ReferenceStore`, which `save_vzip` writes as the archive
         `write` writes, byte for byte (`reference_store`)."""
         sources = [Source(url=self.url, size=self.size, etag=self.etag)]
         for value, i in sorted(self.data.items(), key=lambda item: item[1]):
@@ -526,7 +527,7 @@ LENGTHS = {
 
 
 def centred(cx: float, cy: float, w0: int, h0: int, sx: float, sy: float) -> dict[str, float]:
-    """The translation of an image whose centre is at (cx, cy) (conventions §5
+    """The translation of an image whose center is at (cx, cy) (conventions §5
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#5-units>)."""
     return {"x": cx - w0 * sx / 2, "y": cy - h0 * sy / 2}
 

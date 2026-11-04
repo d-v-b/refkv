@@ -1,12 +1,26 @@
-import { Archive } from "../js/src/archive.ts";
+import hljs from "highlight.js/lib/core";
+import python from "highlight.js/lib/languages/python";
 import {
   archiveDownloadUrl,
   archiveZarrUrl,
+  fetchWorker,
   imageZarrUrl,
+  isArchiveUrl,
+  isVzipUrl,
   registerVzipWorker,
 } from "../js/src/client.ts";
-import { WORKER_HEADER } from "../js/src/server.ts";
+import { openArchive } from "../js/src/phkv.ts";
+import { type ArchiveFormat, ERROR_HEADER, WORKER_HEADER } from "../js/src/server.ts";
 import { sampleRanges, tooNarrow, usableWindow } from "./contrast.ts";
+import { pythonScript, stem } from "./python.ts";
+
+hljs.registerLanguage("python", python);
+
+// The earliest refkv release the Python script needs: the latest release tag of the commit
+// the page was built from (js/build.mjs), or "" when the build found none.
+declare const __REFKV_RELEASE__: string;
+// What the worker writes its archives as, "vzip" or "phkv" (js/build.mjs: `REFKV_FORMAT`).
+declare const __REFKV_FORMAT__: ArchiveFormat;
 
 // The examples are the links with a data-url attribute in index.html, where
 // their sources and licenses are noted.
@@ -15,19 +29,63 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 const input = $<HTMLInputElement>("url");
 const status = $("status");
 
-const setStatus = (text: string, error = false) => {
-  status.textContent = text;
-  status.classList.toggle("error", error);
+const setStatus = (text: string) => {
+  status.replaceChildren(text);
+  status.classList.remove("error");
 };
 
+/** A request to the service worker that failed: its status, its message, and, for a source that
+ * got no response, why (its X-Vzip-Error: `cors`, `unreachable` or `mixed-content`). */
+class WorkerError extends Error {
+  readonly status: number;
+  readonly reason: string | undefined;
+  constructor(status: number, message: string, reason: string | null) {
+    super(message);
+    this.status = status;
+    this.reason = reason ?? undefined;
+  }
+}
+
+/** What to do about an error, by its cause or status. */
+function helpFor(e: unknown): string {
+  if (!(e instanceof WorkerError)) return "";
+  switch (e.reason) {
+    case "cors":
+      return "The file's server does not let other sites read it from a browser. Its owner can allow it " +
+        "with CORS headers: Access-Control-Allow-Origin, and Access-Control-Expose-Headers for Content-Range, " +
+        "Content-Length and ETag. Python is not restricted by CORS: the script below zarrifies the file on your machine.";
+    case "unreachable":
+      return "Check the URL: the browser got no answer from its server.";
+    case "mixed-content":
+      return "Use the file's https:// URL, if its server has one.";
+  }
+  if (e.status === 422) return "The input was read, but it is not a format, or a form of one, that this page zarrifies.";
+  if (e.status === 507) return "The store is larger than this page lists in a browser; the Python package has no such limit.";
+  return "";
+}
+
+/** Shows `e` in the status area: a title, its message, and what to do about it. */
+function showError(e: unknown) {
+  const message = String((e as Error).message ?? e);
+  const title = document.createElement("strong");
+  title.textContent = "Could not zarrify this input";
+  const detail = document.createElement("p");
+  detail.textContent = message;
+  const help = document.createElement("p");
+  help.className = "help";
+  help.textContent = helpFor(e);
+  status.replaceChildren(title, detail, ...(help.textContent ? [help] : []));
+  status.classList.add("error");
+}
+
 async function getJson(url: string) {
-  const r = await fetch(url);
+  const r = await fetchWorker(url);
   if (r.headers.get(WORKER_HEADER) === null) {
     throw new Error(
       `the refkv service worker did not answer this request (HTTP ${r.status} from the network); reload the page and try again`,
     );
   }
-  if (!r.ok) throw new Error(`${r.status}: ${await r.text()}`);
+  if (!r.ok) throw new WorkerError(r.status, await r.text(), r.headers.get(ERROR_HEADER));
   return r.json();
 }
 
@@ -76,11 +134,18 @@ function imageState(
   dtype: string,
   omero: OmeroChannel[] = [],
   labels: { name: string; url: string }[] = [],
+  flipY = false,
+  start?: number[],
 ) {
   // The two displayed axes: x and y, or else the last two.
   let xi = axes.findIndex((a) => a.name === "x");
   let yi = axes.findIndex((a) => a.name === "y");
   if (xi < 0 || yi < 0) [yi, xi] = [axes.length - 2, axes.length - 1];
+  // The axis two-finger scroll (the wheel) steps along: the first axis other
+  // than x, y and c with more than one element, when there is one (t or z,
+  // say). Neuroglancer's wheel moves along the third display dimension, and
+  // does nothing without one.
+  const scrolled = axes.find((a, i) => i !== xi && i !== yi && a.name !== "c" && shape[i] > 1);
   // The coordinate space, declared up front so that displayDimensions can
   // name x and y before the layers load (otherwise Neuroglancer may display a
   // non-spatial axis such as t).
@@ -104,16 +169,19 @@ function imageState(
   const position = axes.flatMap((a, i) => {
     if (a.name === "c") return [];
     const at = offset(images[0], i);
+    if (start !== undefined && i !== xi && i !== yi) return [at + start[i]];
     if (a.name === "t" || a.name === "time") return [at];
     return [at + (a.name === "z" ? Math.floor(shape[i] / 2) : shape[i] / 2)];
   });
   const view = {
     dimensions,
     position,
-    displayDimensions: [axes[xi].name, axes[yi].name],
+    displayDimensions: [axes[xi].name, axes[yi].name, ...(scrolled ? [scrolled.name] : [])],
     // With the coordinate space declared, this counts full-resolution voxels
     // per screen pixel.
     crossSectionScale: Math.max(shape[yi] / 600, shape[xi] / 850),
+    // half a turn about x, which reverses y
+    ...(flipY ? { crossSectionOrientation: [1, 0, 0, 0] } : {}),
     layout: "xy",
   };
   const many = images.length > 1;
@@ -239,6 +307,13 @@ interface View {
   omero: OmeroChannel[];
   labels: { name: string; url: string }[];
   note?: string;
+  /** Whether its rows run south to north (a GRIB grid that scans so), drawn flipped so that
+   * north is up. */
+  flipY?: boolean;
+  /** The index along each axis but the displayed two that the view opens at (a GRIB variable's
+   * first field: its levels are the grid's, of which it may have few); otherwise the first time
+   * point and the middle elsewhere. */
+  start?: number[];
 }
 
 type Multiscale = any;
@@ -282,20 +357,109 @@ function arrayView(url: string, path: string, meta: ArrayMeta): View {
   };
 }
 
+/** The data types Neuroglancer shows (its DataType): no int64, float64, bool or strings. */
+const SHOWN_TYPES = ["uint8", "int8", "uint16", "int16", "uint32", "int32", "uint64", "float32"];
+
+/** The codecs the Neuroglancer fork decodes (src/datasource/zarr/codec/ there). */
+const DECODED_CODECS = [
+  "bytes", "transpose", "crc32c", "blosc", "zstd", "gzip", "zlib", "numcodecs.zlib", "sharding_indexed", "numcodecs.shuffle",
+  "n5_default", "imagecodecs_delta", "imagecodecs_jpeg", "imagecodecs_jpeg2k", "imagecodecs_jpegxr", "imagecodecs_ljpeg",
+  "imagecodecs_lzw", "refkv.fits_tiles", "refkv.grib", "refkv.skip", "refkv.stream", "refkv.tiff_lzw",
+];
+
 /**
- * The views of an MP4 file: each H.264 track's luma (its Y plane), scrolled
- * over time. Neuroglancer shows one array per layer, and a picture's color
- * needs all three planes, the chroma at half size; the U and V planes are in
- * the archive beside Y.
+ * The codecs whose float64 arrays the fork shows, as float32: they decode a
+ * chunk to float32 values (a GRIB field's are rounded to nearest).
  */
-async function videoViews(zarrUrl: string, mp4: { tracks?: { path: string | null; handler: string }[] }): Promise<View[]> {
-  const tracks = (mp4.tracks ?? []).filter((t) => t.path !== null && t.handler === "vide");
-  return Promise.all(tracks.map(async (t) => {
+const FLOAT64_CODECS = ["refkv.grib"];
+
+/** The names of the codecs of `codecs`, and of those a sharding codec among them holds. */
+const codecNames = (codecs: { name: string; configuration?: any }[]): string[] =>
+  codecs.flatMap((c) => [c.name, ...codecNames(c.configuration?.codecs ?? []), ...codecNames(c.configuration?.index_codecs ?? [])]);
+
+/**
+ * Whether Neuroglancer can show the array `meta` as an image: two or more axes, of a type it
+ * shows (or float64, of a codec of {@link FLOAT64_CODECS}), with codecs it decodes.
+ */
+const showable = (meta: ArrayMeta) =>
+  meta.shape.length >= 2 &&
+  (SHOWN_TYPES.includes(meta.data_type) ||
+    (meta.data_type === "float64" && meta.codecs.some((c: { name: string }) => FLOAT64_CODECS.includes(c.name)))) &&
+  codecNames(meta.codecs).every((n) => DECODED_CODECS.includes(n));
+
+/** The profiles whose archives hold audio samples, which the page lists but does not show. */
+const AUDIO = ["mp3", "flac"];
+
+/** The sample entries of the video tracks the fork's `refkv.stream` codec decodes. */
+const DECODED_VIDEO = ["avc1", "hvc1", "hev1"];
+
+/**
+ * The views of an MP4 file: each 8-bit H.264 or HEVC track's luma (its Y
+ * plane), scrolled over time. Neuroglancer shows one array per layer, and a
+ * picture's color needs all three planes, the chroma at half size; the U and
+ * V planes are in the archive beside Y. The fork's `refkv.stream` codec
+ * decodes HEVC where the browser's WebCodecs has a decoder for it that gives
+ * the stream's own pictures, and says why in the layer's error where not. A
+ * 10-bit HEVC track (`uint16` planes) is named in a note, not opened: no
+ * browser measured gives its pictures unconverted (Chrome's cannot be copied,
+ * WebKit's are 8-bit).
+ */
+async function videoViews(zarrUrl: string, mp4: { tracks?: { path: string | null; handler: string; codec: string }[] }): Promise<View[]> {
+  const video = (mp4.tracks ?? []).filter((t) => t.path !== null && t.handler === "vide");
+  const planes = await Promise.all(video.map(async (t) => {
     const url = `${zarrUrl}${t.path}/y/`;
-    const view = arrayView(url, `${t.path}/y`, await getJson(`${url}zarr.json`));
+    return { t, url, meta: DECODED_VIDEO.includes(t.codec) ? await getJson(`${url}zarr.json`) : undefined };
+  }));
+  const shown = planes.filter((p) => p.meta?.data_type === "uint8");
+  const others = planes.filter((p) => p.meta?.data_type !== "uint8")
+    .map(({ t, meta }) => `${t.path} (${t.codec}${meta === undefined ? "" : ", 10-bit"})`);
+  if (shown.length === 0 && others.length > 0) {
+    throw new Error(`no 8-bit H.264 or HEVC track to show: Neuroglancer does not decode ${others.join(", ")}, which the archive holds`);
+  }
+  return shown.map(({ t, url, meta }) => {
+    const view = arrayView(url, `${t.path}/y`, meta);
     view.label = `${t.path} (luma)`;
+    if (others.length > 0) view.note = `Not shown: ${others.join(", ")}, which Neuroglancer does not decode.`;
+    return view;
+  });
+}
+
+/** Whether the index `a` comes before `b`, axis by axis. */
+const before = (a: number[], b: number[]) => {
+  const i = a.findIndex((x, k) => x !== b[k]);
+  return i >= 0 && a[i] < b[i];
+};
+
+/** The GRIB variables shown first, when a file has them: temperature 2 m above the ground (and
+ * at other heights), at the surface, then on pressure levels. */
+const GRIB_FIRST = ["t_heightAboveGround", "t_surface", "t_isobaric"];
+
+/**
+ * The views of a GRIB file: each variable of each grid (`grid<g>/<variable>`), a temperature
+ * first. A grid's rows run in the file's order, so one that scans south to north (its
+ * `spatial:transform`'s row step positive, as HRRR's) is flipped to put north up.
+ */
+async function gribViews(zarrUrl: string): Promise<View[]> {
+  const keys = await archiveKeys(zarrUrl);
+  const arrays = (await listArrays(zarrUrl, keys)).filter(({ path, meta }) => path.includes("/") && showable(meta));
+  const grids = new Map<string, Promise<any>>();
+  const views = await Promise.all(arrays.map(async ({ path, meta }) => {
+    const grid = path.slice(0, path.indexOf("/"));
+    if (!grids.has(grid)) grids.set(grid, getJson(`${zarrUrl}${grid}/zarr.json`));
+    const transform: number[] | undefined = (await grids.get(grid)).attributes?.["spatial:transform"];
+    const view = arrayView(`${zarrUrl}${path}/`, path, meta);
+    view.flipY = (transform?.[4] ?? 0) > 0;
+    // its first field, by its chunk keys (`c/<i>/<j>/…`, a chunk a field)
+    const fields = keys.filter((k) => k.startsWith(`${path}/c/`))
+      .map((k) => k.slice(path.length + 3).split("/").map(Number));
+    view.start = fields.reduce((a, b) => (before(b, a) ? b : a), fields[0]);
     return view;
   }));
+  const rank = (v: View) => {
+    const k = GRIB_FIRST.indexOf(v.label.slice(v.label.indexOf("/") + 1));
+    return k < 0 ? GRIB_FIRST.length : k;
+  };
+  return views.sort((a, b) => rank(a) - rank(b));
 }
 
 /** The views of a bioformats2raw layout: each series, and all of them together when they can be. */
@@ -333,18 +497,24 @@ async function seriesViews(zarrUrl: string): Promise<View[]> {
   return [all, ...views];
 }
 
-/**
- * The arrays of the hierarchy at `zarrUrl`, outside `refkv_source`, from the
- * keys of its archive (which the worker holds in memory): a Zarr hierarchy
- * cannot otherwise be listed.
- */
-async function listArrays(zarrUrl: string): Promise<{ path: string; meta: ArrayMeta }[]> {
-  const r = await fetch(archiveDownloadUrl(zarrUrl));
+/** The keys of the archive of the hierarchy at `zarrUrl` (which the worker holds). */
+async function archiveKeys(zarrUrl: string): Promise<string[]> {
+  const r = await fetchWorker(archiveDownloadUrl(zarrUrl, __REFKV_FORMAT__));
   if (!r.ok) throw new Error(`${r.status}: ${await r.text()}`);
-  const archive = await Archive.open(new Uint8Array(await r.arrayBuffer()), zarrUrl, () => {
+  const archive = await openArchive(new Uint8Array(await r.arrayBuffer()), zarrUrl, () => {
     throw new Error("not read");
   });
-  const paths = archive.keys()
+  return archive.keys();
+}
+
+/**
+ * The arrays of the hierarchy at `zarrUrl`, outside `refkv_source`, from the
+ * keys of its archive (`keys`, else {@link archiveKeys}): a Zarr hierarchy
+ * cannot otherwise be listed.
+ */
+async function listArrays(zarrUrl: string, keys?: string[]): Promise<{ path: string; meta: ArrayMeta }[]> {
+  keys ??= await archiveKeys(zarrUrl);
+  const paths = keys
     .filter((k) => (k === "zarr.json" || k.endsWith("/zarr.json")) && !k.startsWith("refkv_source/"))
     .map((k) => k.slice(0, -"zarr.json".length).replace(/\/$/, ""));
   const nodes = await Promise.all(paths.map(async (path) => ({
@@ -354,7 +524,7 @@ async function listArrays(zarrUrl: string): Promise<{ path: string; meta: ArrayM
 }
 
 let prefix: Promise<string> | undefined;
-/** An input: its URL, its Zarr URL under the worker's prefix, and whether it is a .vzip archive. */
+/** An input: its URL, its Zarr URL under the worker's prefix, and whether it is a .vzip or .phkv archive. */
 interface Input {
   url: string;
   zarrUrl: string;
@@ -369,10 +539,11 @@ let views: (View & { input: Input })[] = [];
  * .vzip input it names the archive itself, `<archive url>|vzip:<path>|zarr3:`, which any
  * deployment of the Neuroglancer fork opens, wherever the link is shared. Otherwise it is the
  * worker's URL, `<url>|zarr3:`, which opens only on this site, in a browser where the page has
- * zarrified the input: a link to share names an archive of it, downloaded and hosted.
+ * zarrified the input: a link to share names an archive of it, downloaded and hosted. (A .phkv
+ * input gets the worker's URL too: the fork reads vzip archives, not phkv stores.)
  */
 function neuroglancerSource(shown: Input, url: string): string {
-  if (!shown.isArchive) return `${url}|zarr3:`;
+  if (!shown.isArchive || !isVzipUrl(shown.url)) return `${url}|zarr3:`;
   if (!url.startsWith(shown.zarrUrl)) throw new Error(`${url} is not under ${shown.zarrUrl}`);
   const path = url.slice(shown.zarrUrl.length).split("/").map(encodeURIComponent).join("/");
   return `${shown.url}|vzip:${path}|zarr3:`;
@@ -404,8 +575,9 @@ let shown: View | undefined;
 async function showView(view: View & { input: Input }) {
   shown = view;
   const source = (url: string) => neuroglancerSource(view.input, url);
-  $("share-local").hidden = view.input.isArchive;
-  $("share-archive").hidden = !view.input.isArchive;
+  const linkable = view.input.isArchive && isVzipUrl(view.input.url);
+  $("share-local").hidden = linkable;
+  $("share-archive").hidden = !linkable;
   $("name").textContent = view.name;
   $("zarr-url").textContent = source(view.url);
   $("view-note").textContent = view.note ?? "";
@@ -414,7 +586,7 @@ async function showView(view: View & { input: Input }) {
   const dataType: string = level0.data_type;
   const coarsest = view.levels[view.levels.length - 1];
   const sample = (channels?: number[]) =>
-    sampleRanges(coarsest.url, coarsest.meta, view.axes, chunkShapeOf(coarsest.meta), channels);
+    sampleRanges(coarsest.url, coarsest.meta, view.axes, chunkShapeOf(coarsest.meta), channels, view.start);
   // Each channel's contrast: the file's window when it is usable, else one
   // sampled from the data (contrast.ts). 8-bit data keeps its full range.
   let omero = view.omero;
@@ -435,7 +607,7 @@ async function showView(view: View & { input: Input }) {
   }
   const state = neuroglancerState(
     view.images.map((img) => ({ ...img, url: source(img.url) })), view.axes, view.scale, level0.shape, dataType, omero,
-    view.labels.map((l) => ({ ...l, url: source(l.url) })),
+    view.labels.map((l) => ({ ...l, url: source(l.url) })), view.flipY, view.start,
   );
   // An image shown with Neuroglancer's default shader gets a sampled range too.
   const plain = state.layers.filter((l) => l.type === "image" && !("shader" in l));
@@ -453,16 +625,41 @@ async function showView(view: View & { input: Input }) {
   ng.href = new URL(`neuroglancer/#!${encodeURIComponent(JSON.stringify(state))}`, location.href).href;
 }
 
+let pythonUrl: string | undefined;
+
+/** The media profile a URL's extension suggests (whose script needs refkv's media extra), for a
+ * script shown before the input was read. */
+function mediaProfile(url: string): string | undefined {
+  const ext = new URL(url).pathname.toLowerCase().match(/\.(\w+)$/)?.[1];
+  return ext === "mp3" ? "mp3" : ext === "flac" ? "flac" : ext && ["mp4", "mov", "m4a", "m4v"].includes(ext) ? "mp4" : undefined;
+}
+
+/** Shows the Python script that builds the same hierarchy as `input`, and links it as a file. */
+function showPython(input: Input, profile: string | undefined) {
+  const script = pythonScript(input.url, input.isArchive, profile, __REFKV_RELEASE__ || undefined);
+  const file = `${input.isArchive ? "open" : "zarrify"}_${stem(input.url)}.py`;
+  $("python-code").innerHTML = hljs.highlight(script, { language: "python" }).value; // escaped by highlight.js
+  $("python-run").textContent = `uv run ${file}`;
+  if (pythonUrl) URL.revokeObjectURL(pythonUrl);
+  pythonUrl = URL.createObjectURL(new Blob([script], { type: "text/x-python" }));
+  const save = $<HTMLAnchorElement>("python-save");
+  save.href = pythonUrl;
+  save.download = file;
+}
+
 async function zarrify(url: string) {
   $("result").hidden = true;
+  $("python").hidden = true;
   // Record the URL in the address bar, so the page can be shared or reloaded.
   const here = new URL(location.href);
   here.searchParams.set("url", url);
   history.replaceState(null, "", here);
   setStatus("Starting the service worker…");
+  // the status and the result are above the examples: bring them into view
+  status.scrollIntoView({ block: "nearest", behavior: "smooth" });
   prefix ??= registerVzipWorker(new URL("vzip-sw.js", location.href));
   const p = await prefix;
-  const isArchive = /\.vzip(?:[?#]|$)/i.test(url);
+  const isArchive = isArchiveUrl(url);
   const zarrUrl = isArchive ? archiveZarrUrl(p, url) : imageZarrUrl(p, url);
   const opened: Input = { url, zarrUrl, isArchive };
   setStatus(isArchive ? "Opening the archive…" : "Reading the file's structure…");
@@ -488,6 +685,26 @@ async function zarrify(url: string) {
     $("share-archive").hidden = true;
     map.hidden = false;
     map.href = new URL(`map.html?url=${encodeURIComponent(url)}`, location.href).href;
+  } else if (AUDIO.includes(attrs.refkv_zarrified?.profile)) {
+    // Audio: an array of samples, decoded from the file's frames when a chunk
+    // is read (the refkv.stream codec). Neuroglancer shows images, so the page
+    // lists the arrays and offers the archive.
+    const info = attrs.refkv_zarrified[attrs.refkv_zarrified.profile] ?? {};
+    views = [];
+    const file = url.split("?")[0].split("/").pop()!;
+    try {
+      $("name").textContent = decodeURIComponent(file);
+    } catch {
+      $("name").textContent = file;
+    }
+    $("zarr-url").textContent = neuroglancerSource(opened, zarrUrl);
+    const rate = info.sample_rate;
+    $("view-note").textContent = `Audio${rate ? ` at ${rate} Hz` : ""}: not shown here. ` +
+      "zarr-python reads the samples from the downloaded archive, with refkv's media extra.";
+    showLevels(await listArrays(zarrUrl));
+    $("open-ng").hidden = true;
+    $("share-local").hidden = true;
+    $("share-archive").hidden = true;
   } else {
     const ms0 = attrs.ome?.multiscales?.[0];
     let found: View[];
@@ -500,10 +717,31 @@ async function zarrify(url: string) {
       found = [await omeView(zarrUrl, ms0, ms0.name ?? "image", attrs.refkv_zarrified?.profile === "ome-zarr")];
     } else if (attrs.ome?.["bioformats2raw.layout"] !== undefined) {
       found = await seriesViews(zarrUrl);
+    } else if (attrs.refkv_zarrified?.profile === "grib") {
+      found = await gribViews(zarrUrl);
+      if (found.length === 0) throw new Error("no GRIB variable to show");
     } else {
-      // No OME-Zarr image (a Zarr v2 or N5 hierarchy without one): its arrays.
-      found = (await listArrays(zarrUrl)).map(({ path, meta }) => arrayView(`${zarrUrl}${path}/`, path, meta));
-      if (found.length === 0) throw new Error("no arrays to show");
+      // No OME-Zarr image (a Zarr v2 or N5 hierarchy without one, or an
+      // HDF5 file's datasets): its arrays that Neuroglancer can show. An HDF5
+      // file has many, most of them small or long and narrow (an NWB file's
+      // traces, time by cell), so its images come first (the last two axes
+      // each 64 or more, neither 8 times the other), then the rest, each the
+      // largest first.
+      const arrays = (await listArrays(zarrUrl)).filter(({ meta }) => showable(meta));
+      if (attrs.refkv_zarrified?.profile === "hdf5") {
+        const size = (meta: ArrayMeta) => meta.shape.reduce((a: number, b: number) => a * b, 1);
+        const image = (meta: ArrayMeta) => {
+          const [h, w] = meta.shape.slice(-2);
+          return Math.min(h, w) >= 64 && Math.max(h, w) <= 8 * Math.min(h, w);
+        };
+        arrays.sort((a, b) => Number(image(b.meta)) - Number(image(a.meta)) || size(b.meta) - size(a.meta));
+      }
+      // at most 50 in the picker (an NWB file of stimulus frames has thousands)
+      found = arrays.slice(0, 50).map(({ path, meta }) => arrayView(`${zarrUrl}${path}/`, path, meta));
+      if (found.length === 0) throw new Error("no arrays to show (Neuroglancer shows arrays of two or more axes)");
+      if (arrays.length > found.length) {
+        for (const v of found) v.note = `${found.length} of the ${arrays.length} arrays Neuroglancer can show are listed.`;
+      }
     }
     views = found.map((v) => ({ ...v, input: opened }));
     if (views.length > 1) {
@@ -512,17 +750,35 @@ async function zarrify(url: string) {
     }
     await showView(views[0]);
   }
-  $<HTMLAnchorElement>("download").href = archiveDownloadUrl(zarrUrl);
+  $<HTMLAnchorElement>("download").href = archiveDownloadUrl(zarrUrl, __REFKV_FORMAT__);
+  showPython(opened, attrs.refkv_zarrified?.profile);
   $("result").hidden = false;
+  // the script opens an archive with refkv's Python package, which does not read phkv stores
+  $("python").hidden = isArchive && !isVzipUrl(url);
   setStatus(`Ready in ${ms} ms.`);
 }
 
+$("python-copy").addEventListener("click", () => {
+  navigator.clipboard.writeText($("python-code").textContent ?? "").then(
+    () => ($("python-copy").textContent = "Copied"),
+    () => ($("python-copy").textContent = "Copy failed"),
+  );
+  setTimeout(() => ($("python-copy").textContent = "Copy"), 2000);
+});
 $("view").addEventListener("change", () => {
-  showView(views[Number($<HTMLSelectElement>("view").value)]).catch((e) => setStatus(String(e.message ?? e), true));
+  showView(views[Number($<HTMLSelectElement>("view").value)]).catch(showError);
 });
 $("form").addEventListener("submit", (event) => {
   event.preventDefault();
-  zarrify(input.value.trim()).catch((e) => setStatus(String(e.message ?? e), true));
+  const url = input.value.trim();
+  zarrify(url).catch((e) => {
+    showError(e);
+    // Python reads a file whatever its server's CORS headers say
+    if (e instanceof WorkerError && e.reason === "cors") {
+      showPython({ url, zarrUrl: "", isArchive: isArchiveUrl(url) }, mediaProfile(url));
+      $("python").hidden = isArchiveUrl(url) && !isVzipUrl(url);
+    }
+  });
 });
 for (const link of document.querySelectorAll<HTMLAnchorElement>("a[data-url]")) {
   link.addEventListener("click", (event) => {

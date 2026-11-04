@@ -18,6 +18,10 @@ import {
 import { getScheme, resolveReference } from "./uri.ts";
 import { CONCAT_ID, RANGE_ID, SOURCES_KEY } from "./writer.ts";
 
+/**
+ * The six classes of error (spec §6.4 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#64-errors>),
+ * by the names readers report them by.
+ */
 export type ErrorClass =
   | "archive"
   | "entry"
@@ -26,11 +30,27 @@ export type ErrorClass =
   | "resolution"
   | "request";
 
+/**
+ * An error of one of the six classes of spec §6.4
+ * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#64-errors>: `Archive.open` throws an
+ * "archive" error, and `Archive.read` the others: "entry" and "body" for a key's own entry,
+ * "payload" for a malformed reference, "resolution" for a range it cannot resolve (its source, a
+ * pin that fails, a URL the policy refuses, or a request that fails), and "request" for an invalid
+ * range or a resource limit. Its message starts `refkv <class> error: `.
+ */
 export class RefkvError extends Error {
+  /** The error's class, as spec §6.5 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#65-error-reporting> has readers report it. */
   errorClass: ErrorClass;
-  constructor(errorClass: ErrorClass, message: string) {
+  /**
+   * Whether a source is not the one the archive pins (spec §5.1
+   * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#51-pins>): a pin or a range checksum
+   * failed, so the source changed since the archive was written.
+   */
+  sourceChanged: boolean;
+  constructor(errorClass: ErrorClass, message: string, sourceChanged = false) {
     super(`refkv ${errorClass} error: ${message}`);
     this.errorClass = errorClass;
+    this.sourceChanged = sourceChanged;
   }
 }
 
@@ -41,6 +61,8 @@ export interface Entry {
   size: number;
   bodyOffset: number;
   reference?: { headerId: number; payload: Uint8Array };
+  /** The CRC-32C of a bytes value, where the binding records one (a phkv record does). */
+  crc32c?: number;
   /**
    * Set if the record has an entry error (spec §11.1
    * <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#111-classification>, §10.2
@@ -311,6 +333,67 @@ export function checkAddress(policy: Policy, url: string, address: string): void
  */
 export const MERGE_GAP = 1 << 16;
 
+/**
+ * The reads of different values that wait at the same time merge as well, under that gap. They
+ * only gain speed, where one value's reads must also stay within `maxReads`, so a run has limits
+ * of its own, the IR read planner's for a server of single ranges (rust/refkv-ir/src/plan.rs):
+ * this many times the bytes it asks for, plus a gap...
+ */
+export const MERGE_AMPLIFICATION = 4;
+/**
+ * ...and the bytes waiting over this many connections, between these lengths, so that a batch
+ * that reads much keeps connections busy.
+ */
+const MERGE_CONNECTIONS = 8;
+const MERGE_MIN_RUN = 1 << 20;
+const MERGE_MAX_RUN = 32 << 20;
+/** How long, in milliseconds, a read waits for the reads near it. */
+export const MERGE_WINDOW = 2;
+
+/** A read of bytes `[offset, end)` of a url source, waiting to be served by one request with the reads near it. */
+type Waiting = {
+  offset: bigint;
+  end: bigint;
+  resolve: (data: Uint8Array) => void;
+  reject: (reason: unknown) => void;
+};
+
+/**
+ * `reads` of one source, as the runs that one request each serves, in order of offset. A read
+ * joins the run before it if it starts at most `MERGE_GAP` bytes after the run's end, and the run
+ * then fetches at most `MERGE_AMPLIFICATION` times the bytes its reads ask for, plus `MERGE_GAP`,
+ * and at most `longest` bytes. A read is never cut, so a longer one is a run of its own.
+ */
+export function mergedRuns<T extends { offset: bigint; end: bigint }>(reads: T[], longest: bigint): T[][] {
+  const big = (v: bigint, w: bigint) => (v > w ? v : w);
+  const sorted = [...reads].sort((x, y) =>
+    x.offset < y.offset ? -1 : x.offset > y.offset ? 1 : x.end < y.end ? -1 : x.end > y.end ? 1 : 0);
+  const runs: T[][] = [];
+  let start = 0n;
+  let end = 0n;
+  let asked = 0n;
+  for (const read of sorted) {
+    const fresh = big(read.end - big(read.offset, end), 0n);
+    const span = big(end, read.end) - start;
+    if (
+      runs.length > 0 &&
+      read.offset - end <= BigInt(MERGE_GAP) &&
+      span <= longest &&
+      span <= BigInt(MERGE_AMPLIFICATION) * (asked + fresh) + BigInt(MERGE_GAP)
+    ) {
+      runs[runs.length - 1].push(read);
+      asked += fresh;
+      end = big(end, read.end);
+    } else {
+      runs.push([read]);
+      start = read.offset;
+      end = read.end;
+      asked = read.end - read.offset;
+    }
+  }
+  return runs;
+}
+
 const U32_ALL = 0xffffffff;
 const strictUtf8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
@@ -335,6 +418,11 @@ function parseExtra(extra: Uint8Array, view: DataView, base: number) {
   return blocks;
 }
 
+/**
+ * A vzip archive (spec/bindings/vzip.md), opened from the bytes of its tail by `Archive.open`:
+ * its source table and its entries, whose values `read` gives, resolving references under the
+ * archive's reader policy. An archive never changes once opened.
+ */
 export class Archive {
   bytes: Uint8Array;
   baseUrl: string;
@@ -346,11 +434,15 @@ export class Archive {
    */
   revision: number | undefined;
   policy: typeof DEFAULT_POLICY;
+  /** The largest reference payload the binding allows (a ZIP extra field's, here). */
+  protected maxPayload = 65519;
   private fetchRange: RangeFetcher;
   /** Sends this archive's requests, checking addresses (rule 3), where the platform allows. */
   private netFetch: CheckedFetch | undefined;
+  /** The reads of url sources waiting to merge, by source. */
+  private waiting = new Map<number, Waiting[]>();
 
-  private constructor(
+  protected constructor(
     bytes: Uint8Array,
     baseUrl: string,
     sources: Source[],
@@ -377,8 +469,10 @@ export class Archive {
    * relative `url` sources.
    * `policy` (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)
    * defaults to `DEFAULT_POLICY`, which allows http(s)
-   * sources on public hosts, and for a local archive also `file` sources and
-   * loopback and private hosts.
+   * sources on public hosts, and for a local archive (a `file:` `baseUrl`) also `file`
+   * sources. Loopback and private hosts are refused for every archive, local or not,
+   * unless the policy has `allowPrivateHosts: true`. Throws a `RefkvError` of class
+   * "archive" for an archive opening refuses.
    */
   static async open(
     bytes: Uint8Array,
@@ -536,11 +630,16 @@ export class Archive {
    */
   lookup(key: string): Entry | undefined {
     if (key.startsWith("__vz__/")) return undefined;
-    const entry = this.entries.get(key);
+    const entry = this.entryFor(key);
     if (entry?.error !== undefined) {
       throw new RefkvError("entry", `${JSON.stringify(key)}: ${entry.error}`);
     }
     return entry;
+  }
+
+  /** The entry of `key` as the container has it, hidden or not: a binding finds keys here. */
+  protected entryFor(key: string): Entry | undefined {
+    return this.entries.get(key);
   }
 
   /** Visible keys, in UTF-8 order. */
@@ -556,6 +655,7 @@ export class Archive {
         entry.reference!.headerId,
         entry.reference!.payload,
         this.sources.length,
+        this.maxPayload,
       );
     } catch (e) {
       if (!(e instanceof MalformedError)) throw e;
@@ -573,7 +673,7 @@ export class Archive {
     return Number(total);
   }
 
-  private async body(entry: Entry): Promise<Uint8Array> {
+  protected async body(entry: Entry): Promise<Uint8Array> {
     const end = entry.bodyOffset + entry.csize;
     if (end > this.bytes.length) {
       throw new RefkvError("body", `${entry.key}: body outside the file`);
@@ -592,6 +692,9 @@ export class Archive {
     if (body.length !== entry.size) {
       throw new RefkvError("body", `${entry.key}: inflates to ${body.length} bytes`);
     }
+    if (entry.crc32c !== undefined && crc32c(body) !== entry.crc32c) {
+      throw new RefkvError("body", `${entry.key}: the value does not match its crc32c`);
+    }
     return body;
   }
 
@@ -599,15 +702,15 @@ export class Archive {
     const s = this.sources[r.source];
     const start = r.offset;
     const end = r.offset + r.length;
-    const fail = (m: string): never => {
-      throw new RefkvError("resolution", `source ${r.source}: ${m}`);
+    const fail = (m: string, sourceChanged = false): never => {
+      throw new RefkvError("resolution", `source ${r.source}: ${m}`, sourceChanged);
     };
     if (s.data !== undefined) {
       if (end > BigInt(s.data.length)) fail("range past the end of the data");
       return s.data.subarray(Number(start), Number(end));
     }
     if (s.key !== undefined) {
-      const target = this.entries.get(s.key);
+      const target = this.entryFor(s.key);
       if (target === undefined || target.reference !== undefined || target.error) {
         fail(`key ${JSON.stringify(s.key)} is not a bytes entry`);
       }
@@ -643,12 +746,63 @@ export class Archive {
             ? `${url}: the archive pins the size ${s.size}, which the response does not give`
             : `${url}: the source is ${size} bytes, but the archive pins ${s.size}: the source ` +
                 "changed since the archive was written",
+          size !== undefined,
         );
       }
       return data;
     } catch (e) {
-      if (e instanceof HttpResolutionError) fail(e.message);
+      if (e instanceof HttpResolutionError) fail(e.message, e.sourceChanged);
       throw e;
+    }
+  }
+
+  /**
+   * Bytes of a url source, read with the reads of other values waiting at the same time (spec §6.3
+   * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#63-resolving-a-reference>).
+   */
+  private sharedRead(source: number, offset: bigint, end: bigint): Promise<Uint8Array> {
+    return new Promise((resolve, reject) => {
+      if (this.waiting.size === 0) setTimeout(() => this.flush(), MERGE_WINDOW);
+      const reads = this.waiting.get(source);
+      const read = { offset, end, resolve, reject };
+      if (reads) reads.push(read);
+      else this.waiting.set(source, [read]);
+    });
+  }
+
+  /** Starts the requests that serve the reads waiting. */
+  private flush(): void {
+    const waiting = this.waiting;
+    this.waiting = new Map();
+    for (const [source, reads] of waiting) {
+      const bytes = reads.reduce((n, r) => n + (r.end - r.offset), 0n);
+      const share = bytes / BigInt(MERGE_CONNECTIONS);
+      const floor = BigInt(MERGE_MIN_RUN);
+      const ceiling = BigInt(MERGE_MAX_RUN);
+      const longest = share < floor ? floor : share > ceiling ? ceiling : share;
+      for (const run of mergedRuns(reads, longest)) void this.serve(source, run);
+    }
+  }
+
+  /**
+   * Reads `run` in one request, and gives each read its bytes. A run ends where its last read
+   * ends, so it may fail where that read alone would; the others must not fail with it, so each
+   * read of a run that fails is read on its own, and gets its own result.
+   */
+  private async serve(source: number, run: Waiting[]): Promise<void> {
+    const offset = run[0].offset;
+    const end = run.reduce((e, r) => (r.end > e ? r.end : e), offset);
+    let data: Uint8Array;
+    try {
+      data = await this.source({ source, offset, length: end - offset });
+    } catch (e) {
+      if (run.length > 1) await Promise.all(run.map((r) => this.serve(source, [r])));
+      else run[0].reject(e);
+      return;
+    }
+    for (const r of run) {
+      const from = Number(r.offset - offset);
+      r.resolve(data.subarray(from, from + Number(r.end - r.offset)));
     }
   }
 
@@ -722,7 +876,7 @@ export class Archive {
       );
     }
     for (const run of runs) {
-      run.data = this.source({ source: run.source, offset: run.offset, length: run.end - run.offset });
+      run.data = this.sharedRead(run.source, run.offset, run.end);
     }
     const whole = await Promise.all(
       parts.map(async (p) => {
@@ -739,6 +893,7 @@ export class Archive {
           "resolution",
           `the bytes read do not match the range's crc32c ${crc} (got ${crc32c(data)}): the ` +
             "source changed since the archive was written",
+          true,
         );
       }
       return data.subarray(lo, hi);

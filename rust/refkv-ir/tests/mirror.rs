@@ -232,6 +232,88 @@ fn no_read(_: u64, _: u64) -> Result<Vec<u8>, String> {
     Err("no reads".into())
 }
 
+/// A table of a 10-byte source: the root and a derived element of its bytes, 8 bytes derived,
+/// with the rows `extra` (kind, up, name, space, coded start, length) after them.
+fn derived_table(extra: &[(u8, u32, i32, u32, i64, u64)]) -> Table {
+    let mut t = Table {
+        size: 10,
+        kind: vec![0, 3],
+        up: vec![0, 1],
+        name: vec![0, 1],
+        nidx: vec![u64::MAX, u64::MAX],
+        ty: vec![0, 0],
+        space: vec![0, 0],
+        start: vec![0, -10],
+        length: vec![10, 10],
+        forms: vec![[1, 0]],
+        form_text: vec![r#"{"size":8,"transform":"zlib"}"#.into()],
+        names: vec!["".into(), "z".into(), "a".into(), "b".into()],
+        types: vec!["".into()],
+        ..Default::default()
+    };
+    for &(kind, up, name, space, start, length) in extra {
+        t.kind.push(kind);
+        t.up.push(up);
+        t.name.push(name);
+        t.nidx.push(u64::MAX);
+        t.ty.push(0);
+        t.space.push(space);
+        t.start.push(start);
+        t.length.push(length);
+    }
+    t
+}
+
+/// What a table may leave out (conventions §8.8
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#88-canonical-form>, steps 3 and 7):
+/// a derived element's descendants, and an alias's target, directly or at the end of a chain.
+#[test]
+fn a_table_may_leave_out_derived_spaces_and_alias_targets() {
+    let alias = (4, 2, 2, 0, 0, 0);
+    let chained = (4, 3, 3, 0, 0, 0);
+    for (extra, targets) in [
+        (vec![], vec![]),
+        (vec![alias], vec![[2, -1]]),
+        (vec![alias, chained], vec![[2, -1], [3, 2]]),
+    ] {
+        let mut t = derived_table(&extra);
+        t.targets = targets;
+        let ir = load(&t, &mut no_read).unwrap();
+        check(&ir).unwrap();
+        assert_eq!(leaves(&ir).unwrap(), [(0, 10)]);
+    }
+}
+
+#[test]
+fn a_table_whose_derived_space_has_a_hole_is_invalid() {
+    let ir = load(&derived_table(&[(1, 1, 2, 1, -10, 4)]), &mut no_read).unwrap();
+    assert!(check(&ir).unwrap_err().starts_with("derived bytes [4, 8) of element 1"));
+}
+
+/// Step 3 leaves all of a derived element's descendants out or none: one with only empty
+/// descendants left none of them out, and they do not cover it.
+#[test]
+fn a_table_whose_derived_space_has_only_empty_descendants_is_invalid() {
+    let ir = load(&derived_table(&[(0, 1, 2, 1, 0, 0)]), &mut no_read).unwrap();
+    assert!(check(&ir).unwrap_err().starts_with("derived bytes [0, 8) of element 1"));
+}
+
+#[test]
+fn a_table_whose_alias_target_is_past_its_rows_is_invalid() {
+    let mut t = derived_table(&[(4, 2, 2, 0, 0, 0)]);
+    t.targets = vec![[2, 99]];
+    let ir = load(&t, &mut no_read).unwrap();
+    assert!(check(&ir).unwrap_err().contains("names no element (target 99)"));
+}
+
+/// An IR a parser built has every descendant: only a table read back has left any out.
+#[test]
+fn an_ir_whose_derived_element_has_no_descendants_is_invalid() {
+    let mut ir = Ir::new(10);
+    ir.derived(0, "z", 0, (0, 10), r#"{"size":8,"transform":"zlib"}"#).unwrap();
+    assert!(check(&ir).unwrap_err().starts_with("derived bytes [0, 8) of element 1"));
+}
+
 fn err(t: &Table) -> String {
     match load(t, &mut no_read) {
         Ok(_) => panic!("loaded"),

@@ -1,6 +1,25 @@
-# Zarrifying image files and stores as OME-Zarr in refkv
+# Zarrifying files and stores as Zarr in refkv
 
 Profiles version: 0 (**draft**)
+
+Changed 2026-11-04, with no change to any output: the root's `refkv_provenance` member and its CMO
+([spec/provenance.md](provenance.md)) are not part of the output ([§1.1](#11-output-and-equivalence)).
+
+Changed 2026-11-03: a store whose root has `info` is a Neuroglancer precomputed volume
+([§1.4](#14-store-inputs)), the first store profile whose chunk entries are not at their objects' keys.
+
+Changed 2026-11-01, with no change to any output: the text states what refkv already did: the
+references' budget ([§1.2](#12-input)), the rules of a file read as a store, which the VSI, NRRD
+and GRIB profiles cite ([§1.8](#18-files-read-as-stores)), and the profiles that define data
+sources ([§1.2](#12-input)); the introduction names the outputs that are not OME-Zarr
+([§1](#1-introduction)); and the format documents' changelogs have one form, which defines a
+profile revision ([Profiles](#profiles)).
+
+Changed 2026-10-29: the HDF5 profile has the signature that was the IMS profile's, at its
+precedence, 70, and its reading chooses the IMS profile for an Imaris file
+([§1.2](#12-input), [hdf5.md §8.1](zarrify/hdf5.md#81-choosing-the-profile)); an Imaris file's
+output does not change, and an HDF5 file that is not one is the HDF5 profile's, where the IMS
+profile rejected it.
 
 Changed 2026-10-26, with no change to any output: a reference's ranges ([§1.1](#11-output-and-equivalence))
 and a virtual shard's document and reference ([§2.1](#21-virtual-shards)) are defined in type
@@ -26,13 +45,17 @@ profile's signature is in its own document, tested in the registry's order
 
 To **zarrify** a file or store is to present it as Zarr without copying it:
 its chunks are references to the input's own bytes. A **zarrifier** reads
-the structure of an image file or of a chunked array store (the formats of the table below), and writes a
-vzip archive ([spec/bindings/vzip.md](bindings/vzip.md)) that presents the pixels as an OME-Zarr
-dataset, or for a store as a Zarr v3 hierarchy (for an OME-Zarr 0.4 store,
-an OME-Zarr 0.5 one; for a Sentinel-2 SAFE product, a GeoZarr one; for an
-MP3 file, the one format that is not an image, a plain array of audio
-samples). The
-pixels stay where they are: each Zarr chunk is a reference to byte ranges of
+the structure of a file or of a chunked array store (the formats of the table below), and writes a
+vzip archive ([spec/bindings/vzip.md](bindings/vzip.md)) that presents its data as a Zarr v3
+hierarchy, in the layout of the format's convention ([§2](#2-the-zarr-layout)):
+- an image as an OME-Zarr dataset (an OME-Zarr 0.4 store as an OME-Zarr 0.5 one; a Sentinel-2
+  SAFE product as a GeoZarr one);
+- a Zarr v2 or N5 store as a Zarr v3 hierarchy;
+- the formats that are not images as arrays with no OME-NGFF metadata: MP3's and FLAC's audio
+  samples, MP4's tracks, GRIB's fields (georeferenced with GeoZarr), HDF5's groups and datasets
+  (in hdmf-zarr's form) and NumPy's arrays.
+
+The data stays where it is: each Zarr chunk is a reference to byte ranges of
 the file, or to a whole object of the store. This document specifies, for
 each supported input format (a **profile**), exactly which archive a
 zarrifier produces, so that independent zarrifiers produce the same
@@ -48,29 +71,36 @@ The table, generated from the registry, lists them:
 | profile | input | inputs |
 |---|---|---|
 | [CZI](zarrify/czi.md#part-2-the-profile) | file | Zeiss CZI files (ZISRAW, file version 1), with uncompressed, JPEG, JPEG XR and Zstd subblocks, mosaics and pyramids |
-| [DICOM](zarrify/dicom.md#part-2-the-profile) | file | DICOM Part 10 files with native or JPEG-encapsulated pixel data, including whole-slide images |
+| [DICOM](zarrify/dicom.md#part-2-the-profile) | file | DICOM Part 10 files with native, JPEG, lossless JPEG or JPEG 2000 pixel data, including whole-slide images |
 | [FITS](zarrify/fits.md#part-2-the-profile) | file | FITS files: images, multi-extension files, binary and ASCII tables |
 | [FLAC](zarrify/flac.md#part-2-the-profile) | file | FLAC files (`.flac`) of a fixed block size, with their metadata blocks and ID3v2 and ID3v1 tags; one sharded array of integer samples, not an image |
+| [GRIB](zarrify/grib.md#part-2-the-profile) | file | GRIB edition 2 files of gridded fields, such as NOAA's and ECMWF's forecasts, whose regular latitude/longitude and Lambert conformal fields it presents |
+| [HDF5](zarrify/hdf5.md#part-2-the-profile) | file | HDF5 files, NWB files first among them: every group, dataset, attribute, link and object reference the profile can present, in hdmf-zarr's Zarr v3 form |
 | [IMS](zarrify/ims.md#part-2-the-profile) | file | Imaris IMS files (HDF5) |
 | [LIF](zarrify/lif.md#part-2-the-profile) | file | Leica LIF files (LAS X and LAS AF, versions 1 and 2): every image of the file's element tree, with interleaved or planar channels, z-stacks, time series and mosaics, uncompressed |
 | [MP3](zarrify/mp3.md#part-2-the-profile) | file | MPEG-1, MPEG-2 and MPEG-2.5 Layer III audio files (`.mp3`), with their ID3v2, ID3v1 and APE tags; one array of samples, not an image |
-| [MP4](zarrify/mp4.md#part-2-the-profile) | file | MP4 and QuickTime files (`.mp4`, `.m4a`, `.mov`) with H.264 video and AAC or MP3 audio tracks; a group per track, not an image |
+| [MP4](zarrify/mp4.md#part-2-the-profile) | file | MP4 and QuickTime files (`.mp4`, `.m4a`, `.m4v`, `.mov`) with H.264 or HEVC video and AAC or MP3 audio tracks; a group per track, not an image |
 | [MRC](zarrify/mrc.md#part-2-the-profile) | file | MRC2014 files (CCP4 maps, image stacks, volumes and volume stacks) |
 | [N5](zarrify/n5.md#part-2-the-profile) | store | N5 containers, default-mode blocks |
 | [ND2](zarrify/nd2.md#part-2-the-profile) | file | Nikon ND2, format version 3 and later |
 | [NDPI](zarrify/ndpi.md#part-2-the-profile) | file | Hamamatsu NDPI slides, a TIFF variant with 64-bit offsets |
 | [NIfTI](zarrify/nifti.md#part-2-the-profile) | file | NIfTI-1 and NIfTI-2 single files (`.nii`) |
+| [NumPy](zarrify/npy.md#part-2-the-profile) | file | NumPy `.npy` files, and `.npz` archives of them (`np.savez`, `np.savez_compressed`), whose stored and deflated members it presents |
 | [NRRD](zarrify/nrrd.md#part-2-the-profile) | file | NRRD files (`.nrrd`) and detached headers with one data file (`.nhdr`), raw or gzip-encoded |
 | [OME-Zarr](zarrify/ome-zarr.md#part-2-the-profile) | store | OME-Zarr 0.4 hierarchies on Zarr v2, migrated to OME-Zarr 0.5 |
+| [Neuroglancer precomputed](zarrify/precomputed.md#part-2-the-profile) | store | Neuroglancer precomputed volumes, unsharded or with identity-hashed shards |
 | [QPTIFF](zarrify/qptiff.md#part-2-the-profile) | file | Akoya (PerkinElmer) Vectra QPTIFF slides and inForm component data, a TIFF with an XML description per image, in LZW, JPEG or uncompressed tiles or strips |
 | [Sentinel-2 SAFE](zarrify/safe.md#part-2-the-profile) | file or store | Sentinel-2 Level-1C and Level-2A products: a `.SAFE` directory (a store) or a `.SAFE.zip` file |
+| [safetensors](zarrify/safetensors.md#part-2-the-profile) | file or store | safetensors files of a model's tensors (`model.safetensors`), in every data type the library defines, `BF16`, `F8_*`, `F4` and `F6_*` included; and stores of them, such as a model's repository of shards with its index |
 | [TIFF](zarrify/tiff.md#part-2-the-profile) | file | TIFF and BigTIFF, including OME-TIFF and JPEG-tiled slides such as Aperio SVS |
-| [VSI](zarrify/vsi.md#part-2-the-profile) | file | Olympus cellSens VSI slides: a `.vsi` file and the tile files beside it, probed by key (uncompressed, JPEG and JPEG 2000 tiles) |
+| [VSI](zarrify/vsi.md#part-2-the-profile) | file | Olympus cellSens VSI slides: a `.vsi` file and the tile files beside it, probed by key (uncompressed, JPEG, JPEG 2000 and lossless JPEG tiles) |
 | [Zarr v2](zarrify/zarr2.md#part-2-the-profile) | store | Zarr v2 hierarchies |
 <!-- /profiles -->
 
 The table says which profiles read a single file (a **file input**), which a store of many
-objects (a **store input**, [§1.4](#14-store-inputs)), and which either; VSI ([vsi.md §9](zarrify/vsi.md#9-vsi-profile)) is named by a file, its `.vsi`, and reads it and the tile files beside it as a store it probes rather than lists. [Appendix A](#appendix-a-conformance) is informative:
+objects (a **store input**, [§1.4](#14-store-inputs)), and which either. The VSI, NRRD and GRIB
+profiles are named by a file and read it, with the files beside it, as a store they probe
+rather than list ([§1.8](#18-files-read-as-stores)). [Appendix A](#appendix-a-conformance) is informative:
 the implementations and how they are compared.
 
 The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are to be
@@ -91,7 +121,7 @@ a reference entry, is one of:
 
 | range | written | its bytes |
 |---|---|---|
-| a source range | `(i, offset, length)` | `length` bytes of source `i`, from `offset`: of a `url` source: the input, source 0, for a file input; for a store input, an object, in the order [§1.4](#14-store-inputs) gives (the SAFE, VSI and NRRD documents give their own order: VSI's and NRRD's for a file input they read as a store, whose source 0 need not be the input), or of a data source ([§1.2](#12-input)), whole, or a zero data source's first `length` bytes |
+| a source range | `(i, offset, length)` | `length` bytes of source `i`, from `offset`: of a `url` source: the input, source 0, for a file input; for a store input, an object, in the order [§1.4](#14-store-inputs) gives (the SAFE document and the safetensors store form give their own order, and so does each profile that reads a file as a store, [§1.8](#18-files-read-as-stores), whose source 0 need not be the input), or of a data source ([§1.2](#12-input)), whole, or a zero data source's first `length` bytes |
 | a literal range | a literal of `d` | the bytes `d`, which the entry carries ([spec/refkv.md §4.2](refkv.md#42-range)) |
 
 A format's chunk tables ([conventions §11.5](conventions.md#115-layout-tables)) give each
@@ -130,8 +160,8 @@ sources with identical bytes), the same set of keys, and for every key:
 
 **IR mirrors.** For a file input, `refkv_source` is the
 source's IR mirror ([conventions §8](conventions.md#8-the-ir-mirror)); for
-a store input (a SAFE directory included), the store's ([conventions §8.9](conventions.md#89-stores),
-whose limits replace those below).
+a store input (a SAFE directory included) or a file read as a store ([§1.8](#18-files-read-as-stores)),
+a store IR's ([conventions §8.9](conventions.md#89-stores), whose limits replace those below).
 Its table and view are canonical: a function of the source's IR, folded and
 encoded one way only ([conventions §8.8](conventions.md#88-canonical-form)).
 Mirrors are therefore compared entry for entry, as above, like the rest of the
@@ -143,10 +173,12 @@ with the message `budget: the mirror would have more than N rows`.
 The archive's byte layout (entry order, compression, page index) is the
 writer's choice and is not part of the output. Neither are the sources'
 pins and the ranges' checksums ([§1.2](#12-input)): an `etag` pin depends on what the
-server sent, and checksums are optional. A zarrifier that records checksums
+server sent, and checksums are optional. Nor is the root's provenance, its member
+`refkv_provenance` and that convention's CMO ([spec/provenance.md §3](provenance.md#3-not-part-of-the-output)),
+which names the program that wrote it. A zarrifier that records checksums
 does not join a shard's ranges across its inner chunks ([§2.1](#21-virtual-shards)), so
 outputs are compared between zarrifiers that both record checksums or both do not. Two zarrifiers conform to
-the same profile revision if they produce equivalent outputs for every input
+the same profile revision ([Profiles](#profiles)) if they produce equivalent outputs for every input
 that the profile accepts, and both reject every input it rejects.
 
 ### 1.2 Input
@@ -161,7 +193,8 @@ the URL it will be served from: a directory is a store input, listed as
 
 For a file input, the output's source table is source 0, a `url` source
 whose value is `U` as given, followed by the output's **data sources**, if
-its profile defines any. Source 0 carries pins ([spec/refkv.md §5.1](refkv.md#51-pins)):
+its profile defines any (a file read as a store has the sources of
+[§1.8](#18-files-read-as-stores) instead). Source 0 carries pins ([spec/refkv.md §5.1](refkv.md#51-pins)):
 
 - a `size` pin, the file's size;
 - an `etag` pin when every response the zarrifier received for the file
@@ -190,14 +223,18 @@ but for a **zero data source**: `n` zero bytes, `n` the most zero padding
 any reference of the output holds, of which a reference padded with `p`
 zero bytes names the first `p`, `(i, 0, p)`. Every other range of a
 reference is a range of source 0 or a literal range. A profile that defines
-shared byte strings says so, as the TIFF
-([tiff.md §7](zarrify/tiff.md#7-tiff-profile), JPEG tiles) and SAFE ([safe.md §8](zarrify/safe.md#8-safe-profile), JPEG 2000 main headers) profiles do, and as the
-TIFF ([tiff.md §7.3](zarrify/tiff.md#73-chunks), short last strips), QPTIFF
-([qptiff.md §7](zarrify/qptiff.md#7-qptiff-profile), short last strips), NIfTI ([nifti.md §7.2](zarrify/nifti.md#72-chunks)), MRC
-([mrc.md §8.2](zarrify/mrc.md#82-chunks)), FITS
-([fits.md §9.4](zarrify/fits.md#94-chunks)) and NRRD
-([nrrd.md §8.5](zarrify/nrrd.md#85-chunks)) profiles do for a zero data
-source; for a profile that defines none, the table is source 0 alone.
+shared byte strings says so: the TIFF
+([tiff.md §7](zarrify/tiff.md#7-tiff-profile), JPEG tiles), NDPI
+([ndpi.md §7](zarrify/ndpi.md#7-ndpi-profile), JPEG headers), SAFE
+([safe.md §8](zarrify/safe.md#8-safe-profile), JPEG 2000 main headers) and VSI
+([vsi.md §9](zarrify/vsi.md#9-vsi-profile), JPEG prefixes) profiles do, and the TIFF
+([tiff.md §7.3](zarrify/tiff.md#73-chunks), short last strips), QPTIFF
+([qptiff.md §7](zarrify/qptiff.md#7-qptiff-profile), short last strips), NIfTI
+([nifti.md §7.2](zarrify/nifti.md#72-chunks)), MRC ([mrc.md §8.2](zarrify/mrc.md#82-chunks)),
+FITS ([fits.md §9.4](zarrify/fits.md#94-chunks)), NRRD
+([nrrd.md §8.5](zarrify/nrrd.md#85-chunks)), HDF5 ([hdf5.md §8.4](zarrify/hdf5.md#84-chunk-references))
+and NumPy ([npy.md §8](zarrify/npy.md#8-numpy-profile)) profiles do for a zero data source;
+for a profile that defines none, the table is source 0 alone.
 
 **Choosing the profile.** The file's first bytes decide. `H` is the file's first
 `min(552, size)` bytes; a test that needs a byte beyond `H` does not match. Each file profile's
@@ -206,7 +243,8 @@ document states its **signature**, a test on `H`, and its registry entry
 tested in ascending precedence, those of equal precedence in order of the profiles' names,
 and the first that matches chooses the profile. A file that no signature matches is rejected.
 A profile whose `sniff` is null has no signature: the reading of another profile, its registry
-entry's `chosen_by`, chooses it (the TIFF profile's chooses NDPI and QPTIFF). The precedences, generated from the registry, by
+entry's `chosen_by`, chooses it (the TIFF profile's chooses NDPI and QPTIFF, the HDF5 profile's
+IMS). The precedences, generated from the registry, by
 profile name:
 
 <!-- profiles:sniff-table -->
@@ -216,15 +254,18 @@ profile name:
 | DICOM ([dicom.md §7](zarrify/dicom.md#7-dicom-profile)) | 10 |
 | FITS ([fits.md §9](zarrify/fits.md#9-fits-profile)) | 110 |
 | FLAC ([flac.md §8](zarrify/flac.md#8-flac-profile)) | 95 |
-| IMS ([ims.md §7](zarrify/ims.md#7-ims-profile)) | 70 |
+| GRIB ([grib.md §8](zarrify/grib.md#8-grib-profile)) | 65 |
+| HDF5 ([hdf5.md §8](zarrify/hdf5.md#8-hdf5-profile)) | 70 |
 | LIF ([lif.md §7](zarrify/lif.md#7-lif-profile)) | 55 |
 | MP3 ([mp3.md §8](zarrify/mp3.md#8-mp3-profile)) | 100 |
 | MP4 ([mp4.md §8](zarrify/mp4.md#8-mp4-profile)) | 85 |
 | MRC ([mrc.md §8](zarrify/mrc.md#8-mrc-profile)) | 90 |
 | ND2 ([nd2.md §7](zarrify/nd2.md#7-nd2-profile)) | 20 |
 | NIfTI ([nifti.md §7](zarrify/nifti.md#7-nifti-profile)) | 60 |
+| NumPy ([npy.md §8](zarrify/npy.md#8-numpy-profile)) | 75 |
 | NRRD ([nrrd.md §8](zarrify/nrrd.md#8-nrrd-profile)) | 95 |
 | Sentinel-2 SAFE ([safe.md §8](zarrify/safe.md#8-safe-profile)) | 80 |
+| safetensors ([safetensors.md §8](zarrify/safetensors.md#8-safetensors-profile)) | 35 |
 | TIFF ([tiff.md §7](zarrify/tiff.md#7-tiff-profile)) | 40 |
 | VSI ([vsi.md §9](zarrify/vsi.md#9-vsi-profile)) | 30 |
 <!-- /profiles -->
@@ -243,11 +284,8 @@ not affect equivalence.
 ([spec/refkv.md §6.7](refkv.md#67-reader-policy)) that the application chooses,
 applied to every request it makes for the input: a file's, and a store's
 listing and object reads ([§1.4](#14-store-inputs), [§1.5](#15-listing-a-store)), each redirect target checked before it
-is requested. A request the policy refuses is a failure, not a rejection. The
-implementations in this repository default to the defaults of [spec/refkv.md §6.7](refkv.md#67-reader-policy), so they refuse
-loopback, private, link-local and special hosts, and requests through a
-proxy, unless the application allows private hosts or unchecked proxies (the
-same settings, and `--allow-private-hosts` on their command lines).
+is requested. A request the policy refuses is a failure, not a rejection
+([Appendix A](#appendix-a-conformance) gives the implementations' defaults).
 
 **Structure only.** The output MUST NOT depend on the file's pixel data.
 (Reading blocks that happen to include pixel bytes is fine.) Coding
@@ -276,6 +314,21 @@ literal range of bytes `d`, `0x2A varint(len(d)) d`. The payload of several
 ranges is a `Concat` message: for each range, `0x0A varint(len(r)) r`, where
 `r` is that range's `Range` message. `varint` is the protobuf base-128
 encoding (1 byte below 2^7, 2 below 2^14, and so on).
+
+**The references' budget.** A profile that references the elements of the source's IR
+([conventions §8](conventions.md#8-the-ir-mirror)) bounds how many references it writes,
+so that a small input cannot make a large output. Each chunk it references is one
+**reference** (for a sharded array, each inner chunk, counted before the chunks are put in
+shards, [§2.1](#21-virtual-shards)); a chunk that references the same bytes of the same element
+as an earlier one (the same extent of the IR, and the same piece of it, where a profile cuts an element into
+pieces) is also one **repeat**, as when two chunks name one element that two structures share
+(an alias, [conventions §8.1](conventions.md#81-elements)). A zarrifier MUST reject an input
+whose output would have more than `2^22 + 4 × Z` references, `Z` the source's size (for a
+store IR, its objects' total size), with the message `budget: more than N refs`, or more than
+2^20 repeats, with the message `budget: more than 1048576 repeats` (`N` in decimal). The
+budget applies to the CZI, DICOM, FITS, FLAC, HDF5, IMS, LIF, MP3, MP4, MRC, NDPI, NIfTI,
+NumPy, NRRD, QPTIFF, safetensors (both its forms), TIFF and VSI profiles; the GRIB, ND2 and
+SAFE profiles and the store profiles bound their outputs by their own rules.
 
 ### 1.3 Arithmetic
 
@@ -329,6 +382,8 @@ decide, by the first row that matches:
 | `.zarray` or `.zgroup` | OME-Zarr profile ([ome-zarr.md §11](zarrify/ome-zarr.md#11-ome-zarr-profile)) if the store declares OME-NGFF 0.4 (below), else Zarr v2 profile ([zarr2.md §7](zarrify/zarr2.md#7-zarr-v2-profile)) |
 | `attributes.json` | N5 profile ([n5.md §8](zarrify/n5.md#8-n5-profile)) |
 | `manifest.safe` | SAFE profile ([safe.md §8](zarrify/safe.md#8-safe-profile)), directory form |
+| `info` | Neuroglancer precomputed profile ([precomputed.md §11](zarrify/precomputed.md#11-neuroglancer-precomputed-profile)) |
+| none of these, and a key at any depth that ends in `.safetensors` | safetensors profile ([safetensors.md §9](zarrify/safetensors.md#9-the-store-form)), store form |
 | anything else, including an empty store | rejected |
 
 **Declaring OME-NGFF 0.4.** The test reads at most three documents, by
@@ -372,18 +427,26 @@ not declare 0.4 is read by [zarr2.md §7](zarrify/zarr2.md#7-zarr-v2-profile), w
 the local file. A response that does not have the listed size is a
 failure, not a rejection (the store changed while it was read). A profile
 reads only the metadata documents it names; it never reads a chunk object.
-(**Structure only**, §1.2, applies: the output never depends on a chunk's
-bytes, only on its key and size.) The SAFE profile is the exception: it
+(**Structure only**, [§1.2](#12-input), applies: the output never depends on a chunk's
+bytes, only on its key and size.) The SAFE profile and the files read as stores
+([§1.8](#18-files-read-as-stores)) are the exceptions: the SAFE profile
 reads its band files in ranges (their boxes, main headers and tile-part
 headers), with HTTP range requests, and a response that is not of the
 requested length is a failure ([safe.md §8.2](zarrify/safe.md#82-objects-and-reading)).
+The safetensors profile's store form is another: it reads each shard's header in ranges, in
+the same way ([safetensors.md §9.3](zarrify/safetensors.md#93-reading-and-checks)).
 
-**Object URLs.** The URL of the object with key `k` is `U` followed by
+**Object URLs.** The **base** of the store is `U`, but for a Hub store
+([§1.5](#15-listing-a-store)), whose base is the URL it gives its files at the
+pinned commit. The URL of the object with key `k` is the base followed by
 `k`'s UTF-8 bytes with every byte that is not an unreserved character
 (`A`–`Z`, `a`–`z`, `0`–`9`, `-`, `.`, `_`, `~`), a sub-delim
 (`!$&'()*+,;=`), `:`, `@` or `/` written as `%` and two uppercase hex
 digits (the encoding of [spec/refkv.md §5](refkv.md#5-source-table) for local paths). For example, the key
-`a b/0.0` of the store `https://h/x/` has the URL `https://h/x/a%20b/0.0`.
+`a b/0.0` of the store `https://h/x/` has the URL `https://h/x/a%20b/0.0`,
+and the key `config.json` of the Hub store
+`https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017/tree/main/` has the URL
+`https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017/resolve/1bae0e1088993b9b82de08f59de5be5a34e42170/config.json`.
 
 **Source table and chunk references.** A profile names the **chunk
 objects** of each array: objects whose keys are chunk keys of the array,
@@ -404,10 +467,11 @@ object's listed size ([§1.5](#15-listing-a-store)): the URL of its object. The 
 compared as UTF-8 byte strings (which is the order of Unicode code points),
 and the entry with key `k` at position `i` of that order has the single
 range `(i, 0, size)`. No other entry is a reference, and a store input's
-output has no data sources ([§1.2](#12-input)). The SAFE profile is the exception: its
+output has no data sources ([§1.2](#12-input)). The SAFE profile is an exception: its
 url sources are one per object that some reference uses, and data sources
 follow them, and its references are ranges within objects
-([safe.md §8.8](zarrify/safe.md#88-the-source-table)).
+([safe.md §8.8](zarrify/safe.md#88-the-source-table)). The safetensors profile's store form is
+another, in the same way ([safetensors.md §9.4](zarrify/safetensors.md#94-chunks-and-sources)).
 
 These rules replace [§1.2](#12-input)'s **References stay in the file** (but for the
 SAFE profile, whose payloads are checked as [§1.2](#12-input) says): each range lies
@@ -427,7 +491,106 @@ its regular files, at any depth, with keys the relative paths joined by `/`
 and sizes the file sizes. Symbolic links and files whose names are not
 valid UTF-8 are not objects. `P` is empty.
 
-**HTTP stores** are listed with the Amazon S3 `ListObjectsV2` operation,
+**Hub repositories.** A repository of the Hugging Face Hub, at a revision,
+is listed with the Hub's API, not with S3's. The Hub's **endpoint** `E` is
+`https://huggingface.co`, unless the application gives another, such as a
+mirror or a test server (as `huggingface_hub`'s `HF_ENDPOINT` does, which
+this repository's Python implementation and command lines read, without a
+trailing `/`; the browser code takes it as an option): an `http` or `https`
+URL with an authority without userinfo, no query or fragment, and a path
+that is empty or does not end in `/` (an endpoint given that is not one is
+the application's error: a failure, not a rejection). `U` is a **Hub store** when its scheme
+and authority are `E`'s, compared without regard to case, and its path
+starts with `E`'s path followed by `/`. The rest of the path, `R`, MUST be
+
+- `<owner>/<repo>/tree/<rev>/` or `<owner>/<repo>/tree/<rev>/<dir>/`, a
+  model repository, or
+- the same after `datasets/`, a dataset repository,
+
+where `<owner>` and `<repo>` are names (one or more of `A`–`Z`, `a`–`z`,
+`0`–`9`, `-`, `_` and `.`, but neither `.` nor `..`), `<rev>` is a nonempty
+segment and `<dir>` is one or more nonempty segments separated by `/`;
+otherwise the input is rejected. So `https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017/tree/main/`
+is a Hub store, and `https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017/`
+(no revision) and `https://huggingface.co/spaces/o/r/tree/main/` (a Space)
+are rejected. The **revision** `r` is `<rev>` percent-decoded, and the
+**directory** `D` is `<dir>` percent-decoded followed by `/` (or empty when
+there is no `<dir>`); both MUST be valid UTF-8, and `D` MUST NOT contain a
+segment `.` or `..`, or the input is rejected. A branch whose name holds a
+`/` is written with `%2F` (`tree/refs%2Fpr%2F1/` is the revision
+`refs/pr/1`). `P` is `D`. `A` is `E` followed by `/api/models/` or, for a
+dataset repository, `/api/datasets/`, then `<owner>/<repo>`.
+
+(The trailing `/` is not added: a zarrifier does not normalize `U`
+([§1.2](#12-input)), and the Hub's pages give their tree URLs without it. A
+URL that would be a Hub store if it ended in `/`, and that is therefore a
+file input, is rejected without being read, since it names a web page that no
+profile reads. A single file of a repository is a file input at its
+`resolve` URL, `E/<owner>/<repo>/resolve/<rev>/<path>`.)
+
+**Resolving the revision.** The first request is a `GET` of `A`, then
+`/revision/`, `enc(r)` and `?expand%5B%5D=sha&expand%5B%5D=gated`. Its body,
+read as a JSON document by [§1.6](#16-json-documents), MUST be an object whose member `sha` is
+a string of 40 lowercase hex digits, the **commit** `C`, and whose member
+`gated`, if present, is `false`; otherwise the input is rejected (a gated
+repository answers its files' reads only to an account that accepted its
+terms). Every later request names `C`, not `r`, so that the listing and
+every read see the same files however the branch moves, and two inputs that
+name the same commit, by a branch, a tag or the commit itself, give the
+same output. The store's base ([§1.4](#14-store-inputs)) is `E`, then `/datasets/` for a
+dataset repository or `/` for a model, then `<owner>/<repo>/resolve/`, `C`,
+`/`, and `D` encoded as [§1.4](#14-store-inputs) encodes a key: for example
+`https://huggingface.co/datasets/o/r/resolve/715e1970c7099cae22fe672020acb6b706121385/a.zarr/`.
+The Hub answers a file's URL with a redirect to a server that answers range
+requests; both send `Access-Control-Allow-Origin` (for a browser's reads), as
+the API does.
+
+**Listing a Hub store.** The next request is a `GET` of `A`, then `/tree/`,
+`C`, then `/` and `D` without its last `/` encoded as a key (when `D` is not
+empty), then `?recursive=true`. Each later request is a `GET` of the
+previous response's **next link**, and the listing is complete after a
+response with none. A response's `Link` headers (several are read as one,
+joined by `,`) MUST be a list of links separated by `,` and optional `S`,
+each `<`, a URI reference without `>`, `>`, then any number of parameters
+`;`, optional `S`, a name (letters, digits and `-`), `=` and a value (one or
+more characters other than `S`, `;`, `,` and `"`, or a quoted string: `"`, any
+characters other than `"`, `"`), with optional `S` around each `;` and `=`.
+A link is a next link when it has a parameter `rel` (in any case) whose value,
+split at `S`, holds `next` (in any case); a response has at most one, and its
+URI reference, resolved against the URL that answered (after redirects), MUST have `E`'s scheme
+and authority (compared without regard to case). A response with no `Link`
+header has no next link. A `Link` header that is not such a list, a second
+next link, and a next link elsewhere reject the input. Each response is
+then:
+
+- status 200: its body is parsed as below;
+- status 408 or 429, any 5xx status, or no response: a failure;
+- any other status: the input is rejected. The Hub answers 401 for a
+  repository that does not exist and for a private one (the reader does not
+  authenticate), and 404 for a revision or a directory it does not have.
+
+These statuses apply to the revision's request too. A body is read as a
+JSON document by [§1.6](#16-json-documents) and MUST be an array of objects, each with a
+member `type` that is the string `file` or `directory` and a member `path`
+that is a string (with no lone surrogate escape) starting with `D` and longer than `D`; a `file`'s member
+`size` MUST be an integer from 0 to 2^53 − 1. A `file` lists an object whose
+key is its `path` and whose size is its `size` (the file's own size, even
+when the repository stores it with LFS or Xet); a `directory` lists nothing,
+since the store's directories follow from its keys ([§1.4](#14-store-inputs)). Other members
+are not read. A key listed twice, in one response or two, rejects the input,
+and so do a next link that an earlier request of the same listing requested
+and a response with a next link whose body is an empty array.
+
+For example, `https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017/tree/main/`
+resolves `main` with
+`https://huggingface.co/api/models/deepseek-ai/DeepSeek-V4.1-Flash-1017/revision/main?expand%5B%5D=sha&expand%5B%5D=gated`
+and is listed from
+`https://huggingface.co/api/models/deepseek-ai/DeepSeek-V4.1-Flash-1017/tree/1bae0e1088993b9b82de08f59de5be5a34e42170?recursive=true`
+(83 files, 48 of them `.safetensors`). Its root has none of the keys that
+choose a profile ([§1.4](#14-store-inputs)), so it is rejected there.
+
+**HTTP stores** other than Hub stores are listed with the Amazon S3
+`ListObjectsV2` operation,
 which S3 and S3-compatible servers answer anonymously for public buckets.
 The listing endpoint and the key prefix `P` come from `U`:
 
@@ -528,8 +691,7 @@ instead of being followed forever.)
 ### 1.6 JSON documents
 
 The metadata documents of a store (N5's `attributes.json`, Zarr's
-`.zarray`, `.zgroup` and `.zattrs`) are read as JSON, with these rules, in
-both implementations:
+`.zarray`, `.zgroup` and `.zattrs`) are read as JSON, with these rules:
 
 - The object MUST be at most 16777216 (2^24) bytes. Its bytes MUST be UTF-8
   and MUST NOT start with a byte order mark (`EF BB BF`).
@@ -578,6 +740,42 @@ holds. Neither changes what a profile accepts or what it writes for a layout.
 Two outputs of one input are equivalent ([§1.1](#11-output-and-equivalence)) when their
 zarrifiers wrote the same layouts.
 
+### 1.8 Files read as stores
+
+The VSI ([vsi.md §9](zarrify/vsi.md#9-vsi-profile)), NRRD
+([nrrd.md §8](zarrify/nrrd.md#8-nrrd-profile)) and GRIB
+([grib.md §8](zarrify/grib.md#8-grib-profile)) profiles are chosen by a file input's signature
+([§1.2](#12-input)), and read the file and the files beside it (a slide's tile files, a
+detached header's data file, a GRIB file's index files) as a store
+([§1.4](#14-store-inputs)). Such a **file read as a store** is read as follows; the profile's
+document says which keys it probes, how it reads each object, and the order of its sources.
+
+- **The store URL and the key.** `U` MUST have no query and no fragment component, or the
+  input is rejected (`<format> input <U> has a query or a fragment`). The **store URL** is `U`
+  up to and including its last `/`, and the **named file's key** is the rest, percent-decoded,
+  which MUST be nonempty and hold no `/`, or the input is rejected (`<format> input <U> names
+  no file`). An implementation that reads a local file uses the URL its directory will be
+  served from, which MUST be a store URL that [§1.4](#14-store-inputs) accepts; given a bare
+  file name and no URL, it records the empty store URL, so that the object URLs name the files
+  relative to the archive.
+- **Probing.** The store is not listed (a plain web server cannot list a directory). Its
+  objects are the named file and the objects the profile **probes** for, by key: an object
+  exists when its URL can be read (a local file that exists; an HTTP response that is not 404),
+  and is absent when it cannot (a missing file; HTTP 404). Any other error is a failure. An
+  object is read in ranges, with HTTP range requests, and a response that is not of the
+  requested length is a failure.
+- **Sources.** The output's `url` sources are the object URLs
+  ([§1.4](#14-store-inputs), **Object URLs**) of the objects its references use, each with a
+  `size` pin, in the order the profile's document gives, followed by its data sources
+  ([§1.2](#12-input)). Source 0 need not be the named file.
+- **`source.url`** ([§2](#2-the-zarr-layout)) is the named file's object URL, the store URL
+  followed by the key encoded as [§1.4](#14-store-inputs) says. It is not `U` as given when
+  `U` encodes the key otherwise (`%7E` for `~`, or lowercase hex digits).
+- **The mirror** is a store IR ([conventions §8.9](conventions.md#89-stores)), with its limits.
+- **Rejection.** [§1.4](#14-store-inputs)'s rejection and failure rules apply to every object
+  read, and [§1.2](#12-input)'s **References stay in the file** to every range, within its
+  object.
+
 ## 2. The Zarr layout
 
 A zarrifier's output presents its input as a Zarr hierarchy whose layout
@@ -597,7 +795,9 @@ specifies for the input, at the convention's version that the profile
 states, with:
 
 - `source.url` ([conventions §2](conventions.md#2-attributes)) the input URL `U` as given ([§1.2](#12-input)): for a
-  file input the URL of source 0, for a store input the store URL ([§1.4](#14-store-inputs));
+  file input the URL of source 0, for a store input the store URL ([§1.4](#14-store-inputs)), but
+  for a Hub store its base, which names the commit ([§1.5](#15-listing-a-store)), and for a file
+  read as a store the named file's object URL ([§1.8](#18-files-read-as-stores));
 - every chunk entry the convention says is present, with the reference the
   profile specifies, and no other chunk entry;
 - the documents as JSON (`zarr.json`, compared by [§1.1](#11-output-and-equivalence)), and no other
@@ -677,9 +877,16 @@ the input is rejected: an inner chunk costs its ranges and 16 bytes of index,
 an inner chunk a shard does not hold 16 bytes, and a shard 4 bytes of
 CRC-32C. An inner chunk the profile copies is a literal range of all its
 bytes, so a profile shards an array only where its copied inner chunks fit
-in their shards' payloads. Only file profiles shard: the hosts of a store
-input's zarrifier do not yet tell the pass that joins ranges whether they
-record checksums.
+in their shards' payloads. Only file profiles shard (store profiles' arrays are not sharded).
+
+Sharding sets how many keys an array has, and what a reader of a few inner chunks costs. It does not
+set how a reader asks for many (informative). zarr-python reads a shard of which it wants every inner
+chunk as one value, and fetches the inner chunks it wants of another together, so a whole plane is one
+request where the inner chunks meet. zarrita and Neuroglancer read each inner chunk apart, so they ask
+their store for as many values as an unsharded array of the inner chunks (zarrita's, plus one for the
+index). A store that merges reads in progress ([refkv §6.3](refkv.md#63-resolving-a-reference)) merges
+those as it merges the reads of separate chunks, so what reaches the source depends on that store, and
+hardly on the shards.
 
 ## Profiles
 
@@ -695,6 +902,8 @@ else. The profiles, generated from the registry:
 - the DICOM profile: [spec/zarrify/dicom.md §7](zarrify/dicom.md#7-dicom-profile);
 - the FITS profile: [spec/zarrify/fits.md §9](zarrify/fits.md#9-fits-profile);
 - the FLAC profile: [spec/zarrify/flac.md §8](zarrify/flac.md#8-flac-profile);
+- the GRIB profile: [spec/zarrify/grib.md §8](zarrify/grib.md#8-grib-profile);
+- the HDF5 profile: [spec/zarrify/hdf5.md §8](zarrify/hdf5.md#8-hdf5-profile);
 - the IMS profile: [spec/zarrify/ims.md §7](zarrify/ims.md#7-ims-profile);
 - the LIF profile: [spec/zarrify/lif.md §7](zarrify/lif.md#7-lif-profile);
 - the MP3 profile: [spec/zarrify/mp3.md §8](zarrify/mp3.md#8-mp3-profile);
@@ -704,17 +913,32 @@ else. The profiles, generated from the registry:
 - the ND2 profile: [spec/zarrify/nd2.md §7](zarrify/nd2.md#7-nd2-profile);
 - the NDPI profile: [spec/zarrify/ndpi.md §7](zarrify/ndpi.md#7-ndpi-profile);
 - the NIfTI profile: [spec/zarrify/nifti.md §7](zarrify/nifti.md#7-nifti-profile);
+- the NumPy profile: [spec/zarrify/npy.md §8](zarrify/npy.md#8-numpy-profile);
 - the NRRD profile: [spec/zarrify/nrrd.md §8](zarrify/nrrd.md#8-nrrd-profile);
 - the OME-Zarr profile: [spec/zarrify/ome-zarr.md §11](zarrify/ome-zarr.md#11-ome-zarr-profile);
+- the Neuroglancer precomputed profile: [spec/zarrify/precomputed.md §11](zarrify/precomputed.md#11-neuroglancer-precomputed-profile);
 - the QPTIFF profile: [spec/zarrify/qptiff.md §7](zarrify/qptiff.md#7-qptiff-profile);
 - the SAFE profile: [spec/zarrify/safe.md §8](zarrify/safe.md#8-safe-profile);
+- the safetensors profile: [spec/zarrify/safetensors.md §8](zarrify/safetensors.md#8-safetensors-profile);
 - the TIFF profile: [spec/zarrify/tiff.md §7](zarrify/tiff.md#7-tiff-profile);
 - the VSI profile: [spec/zarrify/vsi.md §9](zarrify/vsi.md#9-vsi-profile);
 - the Zarr v2 profile: [spec/zarrify/zarr2.md §7](zarrify/zarr2.md#7-zarr-v2-profile).
 <!-- /profiles -->
 
-A profile's Part 2 starts by naming the revision of this document it follows, if any, its
-section, and the profiles it builds on. [§1](#1-introduction) and [§2](#2-the-zarr-layout)
+A profile's Part 2 starts by naming its section and the profiles it builds on.
+
+**Changelogs and profile revisions.** Each format's document records its own changes, in the
+paragraphs after its version line, its **changelog**: one paragraph per entry, newest first.
+An entry is `Changed <date>: ` and what changed, with links to the sections it changed, or
+`Changed <date>, with no change to any output: ` for a change that no output shows (a
+clarification, a table that states what refkv already wrote); the last entry is
+`Added <date>.`, or, for a document that predates its changelog, the pointer to the log of the
+revisions of VIRTUALIZE.md, this document's earlier name, which records its changes up to
+2026-10-21. A change to a document's text outside its changelog (but for the blocks
+generated from the registry) adds an entry, which `spec/tools/changelog.py` checks. A
+**profile revision** is a profile's document as of an entry's date: two zarrifiers conform to
+the same profile revision ([§1.1](#11-output-and-equivalence)) when they follow the document
+as of the same date. This document's own changes are recorded at its top, in the same form. [§1](#1-introduction) and [§2](#2-the-zarr-layout)
 apply to every profile, and to a store input's in particular the store input rules of
 [§1.4](#14-store-inputs)–[§1.6](#16-json-documents). The output has the convention's layout
 for the input ([§2](#2-the-zarr-layout)); the profile says how the input is read, which inputs
@@ -741,9 +965,12 @@ a store whose listing has more than 100000 objects (counting every listed
 250 bytes of archive held in memory, and the listing takes one request per
 1000 keys, so the limit bounds the archive at about 25 MB and the listing at
 100 sequential requests. The same limit applies to a SAFE zip file's
-entries. The Python reference has no limit; its run on a 470000-chunk
-OpenOrganelle level is recorded in `spec/history/virtualize/REVISIONS.md`
-(revision 12).
+entries. The Python reference has no limit of its own beyond the store IR's 2^24 objects
+([conventions §8.9](conventions.md#89-stores)), past which every zarrifier rejects the store;
+its run on a 470000-chunk OpenOrganelle level is recorded in
+`spec/history/virtualize/REVISIONS.md` (revision 12). Store profiles do not shard
+([§2.1](#21-virtual-shards)) because the hosts of a store input's zarrifier do not tell the pass
+that joins ranges whether they record checksums.
 
 Implementations written from this document alone, round by round, are in
 `conformance/impls/zarrify/`; `spec/history/virtualize/REVISIONS.md` records what each
@@ -751,7 +978,11 @@ round found and how this document changed, up to revision 29; since then each
 profile's document records its own changes.
 
 Both write the pins of [§1.2](#12-input) and [§1.4](#14-store-inputs), and record checksums when asked to
-(`--checksums`, after the two arguments, in either command).
+(`--checksums`, after the two arguments, in either command). Both read under the defaults of
+[spec/refkv.md §6.7](refkv.md#67-reader-policy)'s reader policy, so they refuse loopback,
+private, link-local and special hosts, and requests through a proxy, unless the application
+allows private hosts or unchecked proxies (the same settings, and `--allow-private-hosts` on
+their command lines).
 
 `conformance/zarrify/compare.py` runs implementations on a corpus and
 compares their outputs by [§1.1](#11-output-and-equivalence) (`conformance/zarrify/HARNESS.md`
@@ -766,7 +997,10 @@ describes the command an implementation provides). The corpus has:
   file saying where its inputs come from.
 
 The harness's proxy (`conformance/zarrify/proxy.py`) serves the synthetic
-stores, and forwards remote ones, with the listing operation of [§1.5](#15-listing-a-store).
+stores, and forwards remote ones, with the listing operation of [§1.5](#15-listing-a-store). It
+is a Hub endpoint too, under `hub/` (`HF_ENDPOINT`, for the zarrifiers it
+runs): the synthetic stores as directories of the model repository
+`f/fixtures`, and remote Hub repositories forwarded from `https://huggingface.co`.
 
 Pixel correctness is checked separately, against an independent reader of
 the format, by `js/test/<profile>/verify.py`, whose docstring names the

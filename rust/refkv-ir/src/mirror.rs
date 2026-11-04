@@ -1061,7 +1061,7 @@ pub struct Table {
 }
 
 /// The IR a stored table describes, its column runs expanded (at most the record
-/// budget of rows). `read(offset, length)` gives source bytes (`refkv_source/bytes`),
+/// budget of rows). `read(offset, length)` gives source 0's bytes,
 /// for the columns read from arrays in the source.
 pub fn load(t: &Table, read: &mut dyn FnMut(u64, u64) -> Result<Vec<u8>, String>) -> Result<Ir, String> {
     let m = t.kind.len();
@@ -1092,7 +1092,7 @@ pub fn load(t: &Table, read: &mut dyn FnMut(u64, u64) -> Result<Vec<u8>, String>
         }
     }
     let n = total as usize;
-    let mut ir = Ir { size: t.size, store: t.objects.is_some(), objects: t.objects.unwrap_or(0), budget: None, ..Default::default() };
+    let mut ir = Ir { size: t.size, store: t.objects.is_some(), objects: t.objects.unwrap_or(0), budget: None, loaded: true, ..Default::default() };
     let max_kind = if ir.store { OBJECT } else { GAP };
     for s in &t.names {
         ir.names.id(s);

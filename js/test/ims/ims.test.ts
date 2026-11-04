@@ -3,6 +3,8 @@ import fs from "node:fs";
 import { test } from "node:test";
 import { zarrifyImage } from "../../src/zarrify/index.ts";
 import { ImageError } from "../../src/zarrify/common.ts";
+import { zarrifyIr } from "../../src/zarrify/ir/run.ts";
+import { readerSource } from "../../src/zarrify/ir/source.ts";
 
 const FIXTURES = new URL("../../../fixtures/ims/", import.meta.url);
 
@@ -67,6 +69,10 @@ for (const [name, message] of [
   ["ims_reject_raw_edges_image.ims", /a chunk's filter mask is not 0/],
 ] as const) {
   test(`rejects ${name}`, async () => {
-    await assert.rejects(zarrify(name), (e) => e instanceof ImageError && message.test(e.message));
+    // by the IMS profile named: sniffed, an HDF5 file that is not an Imaris file is the HDF5 profile's
+    const bytes = new Uint8Array(fs.readFileSync(new URL(name, FIXTURES)));
+    const source = readerSource(async (o, n) => bytes.subarray(o, o + n), bytes.length);
+    await assert.rejects(zarrifyIr("ims", `https://data.test/${name}`, source),
+      (e) => e instanceof ImageError && message.test(e.message));
   });
 }

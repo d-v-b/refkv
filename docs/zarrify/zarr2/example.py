@@ -1,13 +1,10 @@
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["refkv[zarr]", "matplotlib"]
-#
-# [tool.uv.sources]
-# refkv = { git = "https://github.com/d-v-b/refkv", subdirectory = "python" }
+# dependencies = ["refkv[zarr]>=0.2.0", "matplotlib"]
 # ///
 """HeLa cell 2 FIB-SEM (OpenOrganelle, jrc_hela-2), a Zarr v2 array: three slices, zarrified without
-copying it: refkv reads the file's structure and presents it as Zarr, each chunk a reference to the
-file's own bytes, read only when plotted.
+copying it: refkv reads the store's structure and presents it as Zarr, each chunk a reference to the
+store's own bytes, read only when plotted.
 
 Run with `uv run docs/zarrify/zarr2/example.py`; the figure is saved as zarr2.png.
 """

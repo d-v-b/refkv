@@ -1,9 +1,6 @@
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["refkv[zarr]", "matplotlib"]
-#
-# [tool.uv.sources]
-# refkv = { git = "https://github.com/d-v-b/refkv", subdirectory = "python" }
+# dependencies = ["refkv[zarr]>=0.2.0", "matplotlib"]
 # ///
 """A Leica LIF file (Zenodo 6606445, a 2 x 2 tile scan of a neuron and LAS X's merged image,
 four channels, 12 z-planes), zarrified without copying it: refkv reads the file's XML header and

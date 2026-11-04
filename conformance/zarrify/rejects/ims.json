@@ -1,5 +1,5 @@
 {
-  "about": "The inputs the ims profile rejects, each with the start of its message (the Rust tests' prefix, or what each store test's message contains), and, where the Python host rejects it earlier, the host's message. rust/refkv-ir/build.rs writes a Rust test per case into tests/ims.rs; python/tests/ir/test_rejects.py checks each through the host and that every rejected fixture is listed here.",
+  "about": "The inputs the ims profile rejects, each with the start of its message (the Rust tests' prefix, or what each store test's message contains), and, where the Python host rejects it earlier, the host's message; a case with a `profile` is given to the host named as that profile's input (an HDF5 file that is not an Imaris file is the HDF5 profile's, which accepts it). rust/refkv-ir/build.rs writes a Rust test per case into tests/ims.rs; python/tests/ir/test_rejects.py checks each through the host and that every rejected fixture is listed here.",
   "cases": [
     {
       "test": "ims_reject_chunk_mismatch",
@@ -54,7 +54,8 @@
     {
       "test": "ims_reject_not_imaris",
       "input": "ims_reject_not_imaris.ims",
-      "message": "not an Imaris file (no DataSet group)"
+      "message": "not an Imaris file (no DataSet group)",
+      "profile": "ims"
     },
     {
       "test": "ims_reject_offset_size",

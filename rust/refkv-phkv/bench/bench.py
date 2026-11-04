@@ -128,6 +128,19 @@ def read_python(url: str, workload: str, n: int, reps: int, lookups: int = 200) 
         b += st.archive_bytes - b0
     mean = sum(lat) / len(lat)
     lat.sort()
+    # clustered: runs of 100 neighbouring keys, in order, on one fresh store (as bench.rs does)
+    s, st = new()
+    clat, cr, cb, cn = [], 0, 0, 0
+    for _ in range(3):
+        start = rng.randrange(n) // 100 * 100
+        for i in range(start, min(start + 100, n)):
+            r0, b0 = st.archive_requests, st.archive_bytes
+            t = time.perf_counter()
+            lookup(s, key(i))
+            clat.append((time.perf_counter() - t) * 1e3)
+            cr += st.archive_requests - r0
+            cb += st.archive_bytes - b0
+            cn += 1
     a = rng.randrange(n) // 100
     prefix = f"arr/c/{a // 100}/{a % 100}/"
     list_ms, lr, lb = [], 0, 0
@@ -144,6 +157,8 @@ def read_python(url: str, workload: str, n: int, reps: int, lookups: int = 200) 
         "warm_ms_median": lat[len(lat) // 2], "warm_ms_mean": mean, "warm_ms_p95": lat[len(lat) * 95 // 100],
         "warm_requests_per_get": r / lookups, "warm_bytes_per_get": b / lookups,
         "list_ms": statistics.median(list_ms), "list_requests": lr, "list_bytes": lb,
+        "clustered_ms_mean": sum(clat) / len(clat), "clustered_requests_per_get": cr / cn,
+        "clustered_bytes_per_get": cb / cn, "clustered_lookups": cn,
     }
 
 
@@ -209,6 +224,8 @@ def main():
                       f"{row['first_get_bytes']:>9}B {row['first_get_ms']:9.2f}ms"
                       f" | warm {row['warm_requests_per_get']:.2f}req {row['warm_bytes_per_get']:8.0f}B "
                       f"{row['warm_ms_median']:8.3f}ms"
+                      f" | clustered {row['clustered_requests_per_get']:.2f}req {row['clustered_bytes_per_get']:7.0f}B "
+                      f"{row['clustered_ms_mean']:7.3f}ms"
                       f" | list {row['list_requests']}req {row['list_bytes']:>8}B {row['list_ms']:8.2f}ms  "
                       f"({time.time() - t:.0f}s)", flush=True)
         (args.out / "results.json").write_text(json.dumps(rows, indent=1))

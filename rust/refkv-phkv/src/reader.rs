@@ -153,11 +153,17 @@ pub struct Limits {
     /// read at open: blocks of this many bytes from the start of the section, by default 4 KiB (512
     /// slots), the size of a vzip page. 8 or less reads only the lookup's own slot, and keeps nothing.
     pub slot_block: u64,
+    /// the bytes of RECORDS read at once, and kept for later lookups, when a lookup reads a record
+    /// whose slot gives its length: blocks of this many bytes from the start of the section, which
+    /// serve the records of neighbouring keys (records are stored in key order). 0, the default,
+    /// reads each record by itself and keeps nothing. A record that crosses a block's end, or is
+    /// longer than a block, is read by itself. The blocks kept are bounded by `RECORD_BLOCK_CACHE`.
+    pub record_block: u64,
 }
 
 impl Default for Limits {
     fn default() -> Limits {
-        Limits { sources: 1 << 22, url_reads: 1024, open_bytes: 256 << 20, request_bytes: 1 << 32, record_read: DEFAULT_RECORD_READ, tail: DEFAULT_TAIL, slots_at_open: 0, slot_block: DEFAULT_SLOT_BLOCK }
+        Limits { sources: 1 << 22, url_reads: 1024, open_bytes: 256 << 20, request_bytes: 1 << 32, record_read: DEFAULT_RECORD_READ, tail: DEFAULT_TAIL, slots_at_open: 0, slot_block: DEFAULT_SLOT_BLOCK, record_block: 0 }
     }
 }
 
@@ -187,6 +193,14 @@ impl Request {
 pub enum Kind {
     Bytes,
     Reference,
+}
+
+/// What [`Store::fetch`] finds.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Fetched {
+    Bytes(Vec<u8>),
+    /// the kind (1 `Range`, 2 `Concat`) and payload of a reference
+    Reference { kind: u8, payload: Vec<u8> },
 }
 
 /// What [`Store::entry_info`] reports.
@@ -222,6 +236,8 @@ pub struct Store<R: ReadAt> {
     slots_buf: Option<Vec<u8>>,
     /// the blocks of SLOTS read so far, by index, when the section is read in blocks
     slot_blocks: Mutex<HashMap<u64, Vec<u8>>>,
+    /// the blocks of RECORDS read so far, by index, and their total size (`Limits::record_block`)
+    record_blocks: Mutex<(u64, HashMap<u64, Vec<u8>>)>,
     hash: Option<(Params, Vec<u8>)>,
     pages: Vec<Page>,
     property_entries: Vec<DirEntry>,
@@ -230,6 +246,10 @@ pub struct Store<R: ReadAt> {
 
 /// How many bytes of SLOTS a lookup reads at once, by default (`Limits::slot_block`).
 pub const DEFAULT_SLOT_BLOCK: u64 = 4096;
+
+/// The most bytes of RECORDS blocks (`Limits::record_block`) a store keeps: when a block would take
+/// it past this, the blocks kept are dropped first.
+pub const RECORD_BLOCK_CACHE: u64 = 64 << 20;
 
 /// How many bytes of the end of the file a reader reads first, by default: 512 KiB and a
 /// superblock, which holds the perfect hash and page index of about 10^6 keys.
@@ -458,7 +478,7 @@ impl<R: ReadAt> Store<R> {
             hash = Some((params, pilots));
             pages = format::decode_pages(&whole(&one[section::PAGES as usize].unwrap())?, records.0, records.1).map_err(|m| archive(format!("PAGES: {m}")))?;
         }
-        Ok(Store { r, file_size, sb, limits, sources, revision, metadata, records, slots, slots_buf, slot_blocks: Mutex::new(slot_blocks), hash, pages, property_entries, properties: OnceLock::new() })
+        Ok(Store { r, file_size, sb, limits, sources, revision, metadata, records, slots, slots_buf, slot_blocks: Mutex::new(slot_blocks), record_blocks: Mutex::new((0, HashMap::new())), hash, pages, property_entries, properties: OnceLock::new() })
     }
 
     /// The store's file.
@@ -505,6 +525,32 @@ impl<R: ReadAt> Store<R> {
         Ok(b)
     }
 
+    /// The `n` bytes at `off` in RECORDS, from a block of RECORDS kept for the records around them
+    /// when `Limits::record_block` says to read in blocks and the bytes lie within one block.
+    fn record_bytes(&self, off: u64, n: u64) -> Result<Vec<u8>, ReadError> {
+        let (start, end) = self.records;
+        let block = self.limits.record_block;
+        if block == 0 || n > block {
+            return self.read(off, n, Class::Entry);
+        }
+        let (i, at) = ((off - start) / block, (off - start) % block);
+        if at + n > block {
+            // across the end of its block: read by itself
+            return self.read(off, n, Class::Entry);
+        }
+        let mut kept = self.record_blocks.lock().unwrap_or_else(|e| e.into_inner());
+        if !kept.1.contains_key(&i) {
+            let from = start + i * block;
+            let b = self.read(from, block.min(end - from), Class::Entry)?;
+            if kept.0 + b.len() as u64 > RECORD_BLOCK_CACHE {
+                *kept = (0, HashMap::new());
+            }
+            kept.0 += b.len() as u64;
+            kept.1.insert(i, b);
+        }
+        Ok(kept.1[&i][at as usize..(at + n) as usize].to_vec())
+    }
+
     /// The record at `off` in RECORDS: an entry error if it is outside or malformed.
     /// `length`, if the slot gives it, is the record's length: the record is read in one read of
     /// exactly that many bytes.
@@ -517,7 +563,7 @@ impl<R: ReadAt> Store<R> {
             if n > end - off {
                 return err(Class::Entry, format!("the record at {off} of {n} bytes extends past the end of RECORDS"));
             }
-            let b = self.read(off, n, Class::Entry)?;
+            let b = self.record_bytes(off, n)?;
             return match format::parse_record(&b, self.sb.hybrid()).map_err(|m| ReadError { class: Class::Entry, message: format!("record at {off}: {m}") })? {
                 Parsed::Whole(rec, len) if len as u64 == n => Ok(rec),
                 _ => err(Class::Entry, format!("the record at {off} is not the {n} bytes its slot gives")),
@@ -584,6 +630,12 @@ impl<R: ReadAt> Store<R> {
         }))
     }
 
+    /// Bytes `[start, end)` of the bytes value at `key`, hidden or not: what a `key` source of a
+    /// range reads. Every failure is a resolution error.
+    pub fn key_bytes(&self, key: &str, start: u64, end: u64) -> Result<Vec<u8>, ReadError> {
+        self.source_bytes(&Source::key(key), start, end.saturating_sub(start), &NoUrls)
+    }
+
     /// Bytes `[a, b)` of a bytes record's value: a codec-0 value is read only within the window, a
     /// compressed one is decoded whole; the CRC-32C is checked whenever the whole value is had.
     fn bytes_window(&self, rec: &Record, a: u64, b: u64) -> Result<Vec<u8>, ReadError> {
@@ -626,6 +678,16 @@ impl<R: ReadAt> Store<R> {
     /// `get` (spec/bindings/phkv.md §22.2
     /// <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#222-operations>).
     pub fn get(&self, key: &str, request: Request, resolver: &dyn Resolver) -> Result<Option<Vec<u8>>, ReadError> {
+        match self.fetch(key, request)? {
+            None => Ok(None),
+            Some(Fetched::Bytes(b)) => Ok(Some(b)),
+            Some(Fetched::Reference { kind, payload }) => self.resolve(kind, &payload, request, resolver).map(Some),
+        }
+    }
+
+    /// `get` up to resolving a reference: the requested window of a bytes value, or the kind and
+    /// payload of a reference, for a host that resolves references itself.
+    pub fn fetch(&self, key: &str, request: Request) -> Result<Option<Fetched>, ReadError> {
         if let Request::Range(s, e) = request
             && s > e
         {
@@ -640,9 +702,9 @@ impl<R: ReadAt> Store<R> {
                 if b - a > self.limits.request_bytes {
                     return err(Class::Request, "the window exceeds the request limit");
                 }
-                self.bytes_window(&rec, a, b).map(Some)
+                self.bytes_window(&rec, a, b).map(|v| Some(Fetched::Bytes(v)))
             }
-            Value::Reference { kind, payload } => self.resolve(*kind, payload, request, resolver).map(Some),
+            Value::Reference { kind, payload } => Ok(Some(Fetched::Reference { kind: *kind, payload: payload.clone() })),
         }
     }
 
@@ -740,24 +802,45 @@ impl<R: ReadAt> Store<R> {
     /// <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#222-operations>): the keys
     /// that are not hidden and start with `prefix`, in UTF-8 order.
     pub fn list(&self, prefix: &str) -> Result<Vec<String>, ReadError> {
+        let prefix = prefix.as_bytes();
         let mut out = Vec::new();
-        for i in 0..self.pages.len() {
-            if !format::page_may_hold(&self.pages, i, prefix.as_bytes()) {
-                continue;
+        // Keys are sorted, so the pages that may hold the prefix are adjacent: bisect to the first
+        // (the last page whose first key is at most the prefix, or page 0), then take pages while
+        // their first key starts with the prefix.
+        let first = self.pages.partition_point(|p| p.first_key.as_slice() <= prefix).saturating_sub(1);
+        if self.pages.is_empty() || !format::page_may_hold(&self.pages, first, prefix) {
+            return Ok(out);
+        }
+        let mut end = first + 1;
+        while end < self.pages.len() && self.pages[end].first_key.starts_with(prefix) {
+            end += 1;
+        }
+        // read the run in as few requests as the request limit allows: a span of whole pages each
+        let mut i = first;
+        while i < end {
+            let mut j = i + 1;
+            while j < end && self.pages[j].offset + self.pages[j].length - self.pages[i].offset <= self.limits.request_bytes {
+                j += 1;
             }
-            for rec in self.page_records(i)? {
-                if !rec.hidden && rec.key.starts_with(prefix.as_bytes()) {
-                    out.push(String::from_utf8(rec.key).map_err(|_| ReadError { class: Class::Entry, message: "a key that is not UTF-8".into() })?);
+            let start = self.pages[i].offset;
+            let span = self.read(start, self.pages[j - 1].offset + self.pages[j - 1].length - start, Class::Entry)?;
+            for k in i..j {
+                let p = &self.pages[k];
+                let from = (p.offset - start) as usize;
+                for rec in self.parse_page(k, &span[from..from + p.length as usize])? {
+                    if !rec.hidden && rec.key.starts_with(prefix) {
+                        out.push(String::from_utf8(rec.key).map_err(|_| ReadError { class: Class::Entry, message: "a key that is not UTF-8".into() })?);
+                    }
                 }
             }
+            i = j;
         }
         Ok(out)
     }
 
-    /// The records of page `i`; an entry error if the page cannot be parsed.
-    fn page_records(&self, i: usize) -> Result<Vec<Record>, ReadError> {
+    /// The records of page `i`, whose bytes are `b`; an entry error if the page cannot be parsed.
+    fn parse_page(&self, i: usize, b: &[u8]) -> Result<Vec<Record>, ReadError> {
         let p = &self.pages[i];
-        let b = self.read(p.offset, p.length, Class::Entry)?;
         let mut recs = Vec::new();
         let mut at = 0usize;
         while at < b.len() {

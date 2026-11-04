@@ -58,8 +58,7 @@ each stage position `p` is an image at `<p>/` with one array, `<p>/0`.
 ## Try it
 
 [example.py](example.py) zarrifies a public file and plots it with matplotlib. Its
-dependencies are in its header (PEP 723), so it runs on its own (uv builds refkv from GitHub,
-which needs a Rust toolchain, until a release on PyPI has `refkv.zarrify`):
+dependencies are in its header (PEP 723), so it runs on its own, with refkv from PyPI:
 
 ```bash
 uv run docs/zarrify/nd2/example.py
@@ -80,7 +79,7 @@ uv run refkv zarrify https://ftp.ebi.ac.uk/biostudies/fire/S-BIAD/077/S-BIAD2077
 ```
 
 ```
-{"format": "nd2", "sizes": {"z": 25, "c": 5, "y": 1024, "x": 1024}, "dataType": "uint16", "compressed": false, "paddedRows": false, "rowBlock": 1024, "positions": 1, "frames": 25, "missing": 0, "channels": ["DAPI", "EGFP", "dTomato", "Alx647", "TD"], "planner": {…}, "elements": …, "folded": {…}}
+{"format": "nd2", "sizes": {"z": 25, "c": 5, "y": 1024, "x": 1024}, "dataType": "uint16", "compressed": false, "paddedRows": false, "rowBlock": 1024, "positions": 1, "frames": 25.0, "missing": 0.0, "channels": ["DAPI", "EGFP", "dTomato", "Alx647", "TD"], "planner": {…}, "elements": …, "folded": {…}}
 ```
 
 This took 3 s and wrote an 8 KB archive at revision 16; the archive now also
@@ -112,7 +111,7 @@ print(a[:, 12, 512, 512])
 **In the browser.** The live demo opens the same file and shows it in
 Neuroglancer with one composited layer, a checkbox, color and contrast per
 channel:
-<https://d-v-b.github.io/vzip-demo/image-to-zarr/?url=https%3A%2F%2Fftp.ebi.ac.uk%2Fbiostudies%2Ffire%2FS-BIAD%2F077%2FS-BIAD2077%2FFiles%2F373_230614_A1_Blk_Reg2_40x.nd2>.
+<https://d-v-b.github.io/refkv-demo/image-to-zarr/?url=https%3A%2F%2Fftp.ebi.ac.uk%2Fbiostudies%2Ffire%2FS-BIAD%2F077%2FS-BIAD2077%2FFiles%2F373_230614_A1_Blk_Reg2_40x.nd2>.
 It was ready in about 1 s, from 9 range requests (at revision 16, before
 the read planner). Every ND2 file of the
 corpus is on ftp.ebi.ac.uk or Zenodo, which both allow cross-origin reads.
@@ -120,9 +119,8 @@ corpus is on ftp.ebi.ac.uk or Zenodo, which both allow cross-origin reads.
 ## Viewing
 
 The Neuroglancer fork (<https://github.com/d-v-b/neuroglancer>, branch `vzip`)
-displays ND2 archives: all three data types and the `bytes` codec are among those
-it reads, and losslessly compressed files' `numcodecs.zlib` is not yet (the fork decodes
-`zlib`, which archives named before d-v-b/refkv#90). The z-stack above, which is
+displays ND2 archives: all three data types, the `bytes` codec and losslessly compressed
+files' `numcodecs.zlib` are among those it reads. The z-stack above, which is
 uncompressed, renders through the live demo. A multi-position
 file is shown as one layer per position, placed at its stage coordinates.
 
@@ -133,7 +131,7 @@ Supported:
 - ND2 format version 3 and later.
 - Time loops (including multi-phase ones), stage-position loops and z
   loops; spectral loops become channels.
-- 8- and 16-bit integer and 32-bit float pixels, with any number of
+- 8- and 16-bit integer and 32-bit float pixels, with up to 1024
   components.
 - Uncompressed frames, padded or not, and losslessly (zlib) compressed
   frames. Frames missing from the file read as zeros.

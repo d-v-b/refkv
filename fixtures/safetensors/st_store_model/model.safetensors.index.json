@@ -1,0 +1,12 @@
+{
+  "metadata": {
+    "total_size": 0
+  },
+  "weight_map": {
+    "embed.weight": "model-00001-of-00002.safetensors",
+    "layers.0.scale": "model-00001-of-00002.safetensors",
+    "layers.0.w": "model-00001-of-00002.safetensors",
+    "layers.1.w": "model-00002-of-00002.safetensors",
+    "norm": "model-00002-of-00002.safetensors"
+  }
+}

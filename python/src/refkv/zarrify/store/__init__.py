@@ -3,12 +3,12 @@
 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#16-json-documents>): the store
 machinery, one module per concern, whose names this package gathers.
 
-- `urls`: a store URL's checks, the URL of each object (`object_url`), and the listing
-  endpoint of an S3-style store.
-- `listing`: the XML subset a listing is read in, and the objects of one ListObjectsV2
-  response (`parse_listing`).
+- `urls`: a store URL's checks, the URL of each object (`object_url`), the listing
+  endpoint of an S3-style store, and the repository of a Hub store (`hub_repo`).
+- `listing`: the XML subset a listing is read in, the objects of one ListObjectsV2
+  response (`parse_listing`), and a Hub store's commit, tree page and next link.
 - `documents`: the strict JSON reader of metadata documents (`parse_json`), and its limits.
-- `stores`: the store readers (`Store`, `HttpStore`, `DirStore`), their prefetch of
+- `stores`: the store readers (`Store`, `HttpStore`, `HubStore`, `DirStore`), their prefetch of
   documents, `open_store`, and the store profile a store's root keys select
   (`choose_profile`).
 - `beside`: the files of a VSI or NRRD input, as a store the Rust core probes (`VsiFiles`);
@@ -37,7 +37,7 @@ from refkv.zarrify.store.hierarchy import (
     join,
     parent_of,
 )
-from refkv.zarrify.store.listing import Element, parse_listing, parse_xml
+from refkv.zarrify.store.listing import Element, next_link, parse_hub_revision, parse_hub_tree, parse_listing, parse_xml
 from refkv.zarrify.store.output import (
     EMPTY_KEY,
     GROUP_IMPLICIT,
@@ -53,6 +53,7 @@ from refkv.zarrify.store.stores import (
     WORKERS,
     DirStore,
     HttpStore,
+    HubStore,
     ListingFailed,
     Opener,
     Read,
@@ -62,12 +63,23 @@ from refkv.zarrify.store.stores import (
     choose_profile,
     open_store,
 )
-from refkv.zarrify.store.urls import check_store_url, listing_endpoint, object_url, query_encode
+from refkv.zarrify.store.urls import (
+    HUB,
+    HubRepo,
+    check_store_url,
+    hub_endpoint,
+    hub_page,
+    hub_repo,
+    listing_endpoint,
+    object_url,
+    query_encode,
+)
 
 __all__ = [
     "BLOSC_NAMES",
     "EMPTY_KEY",
     "GROUP_IMPLICIT",
+    "HUB",
     "MAX_BLOCK",
     "MAX_DEPTH",
     "MAX_DOCUMENT",
@@ -79,6 +91,8 @@ __all__ = [
     "DirStore",
     "Element",
     "HttpStore",
+    "HubRepo",
+    "HubStore",
     "ListingFailed",
     "Opener",
     "PathTrie",
@@ -98,15 +112,21 @@ __all__ = [
     "doc_key",
     "find_chunks",
     "grid",
+    "hub_endpoint",
+    "hub_page",
+    "hub_repo",
     "implicit_groups",
     "is_number",
     "join",
     "listing_endpoint",
+    "next_link",
     "num",
     "object_key",
     "object_url",
     "open_store",
     "parent_of",
+    "parse_hub_revision",
+    "parse_hub_tree",
     "parse_json",
     "parse_listing",
     "parse_xml",

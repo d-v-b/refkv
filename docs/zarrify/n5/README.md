@@ -55,9 +55,8 @@ A Zarr v3 hierarchy with a node at the path of every N5 group and dataset.
 
 ## Try it
 
-[example.py](example.py) zarrifies a public file and plots it with matplotlib. Its
-dependencies are in its header (PEP 723), so it runs on its own (uv builds refkv from GitHub,
-which needs a Rust toolchain, until a release on PyPI has `refkv.zarrify`):
+[example.py](example.py) zarrifies a public store and plots it with matplotlib. Its
+dependencies are in its header (PEP 723), so it runs on its own, with refkv from PyPI:
 
 ```bash
 uv run docs/zarrify/n5/example.py
@@ -105,7 +104,7 @@ s1 (6000, 800, 3184) (256, 256, 256) uint16 [8.0, 8.0, 10.48]
 s2 (3000, 400, 1592) (128, 128, 128) uint16 [16.0, 16.0, 20.960000000000004]
 s3 (1500, 200, 796) (64, 64, 64) uint16 [32.0, 32.0, 41.92]
 s4 (750, 100, 398) (64, 64, 64) uint16 [64.0, 64.0, 83.84]
-(N5DefaultCodec(codecs=(TransposeCodec(order=(2, 1, 0)), BytesCodec(endian='big'), GzipCodec(level=1))),)
+(N5DefaultCodec(codecs=(TransposeCodec(order=(2, 1, 0)), BytesCodec(endian='big'), GzipCodec(level=6))),)
 ('x', 'y', 'z') ['z', 'y', 'x']
 [203 203 203 203   0 203 203 203   0   0]
 ```

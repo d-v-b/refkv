@@ -1,0 +1,95 @@
+{
+  "source_model": "precomputed",
+  "version": 1,
+  "about": "The source model of a Neuroglancer precomputed volume (spec/zarrify/precomputed.md §11 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/precomputed.md#11-neuroglancer-precomputed-profile>): the elements a parser emits in a store IR (conventions §8.9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>), the tables of data types and encodings, and the roles of the info document and of each of its scales. The parser checks this schema as it reads the document. The role `info` rejects the input. The role `scale`, and the rule of the sharding object after it, only keep that scale from the layout: its message is the reason recorded.",
+  "limits": {
+    "max_safe": 9007199254740991,
+    "max_document": 16777216,
+    "max_channels": 65535,
+    "max_chunk": 4294967295,
+    "max_bits": 64,
+    "max_minishard_bits": 32
+  },
+  "tables": {
+    "data_types": {
+      "about": "data_type: the bytes per element; the Zarr data_type is the same name",
+      "uint8": 1, "int8": 1, "uint16": 2, "int16": 2, "uint32": 4, "int32": 4, "uint64": 8, "int64": 8, "float32": 4, "float64": 8
+    },
+    "data_type_names": ["uint8", "int8", "uint16", "int16", "uint32", "int32", "uint64", "int64", "float32", "float64"],
+    "encodings": ["raw", "jpeg", "png", "compressed_segmentation"],
+    "stream_encodings": ["raw", "gzip"]
+  },
+  "elements": {
+    "about": "The store IR of a precomputed volume: the listing (directories and objects, conventions §8.9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>), and the one document the profile reads, held whole. `<m>` is a member name, named by the rule of spec/zarrify/nd2.md §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#53-elements> with `gaps` and `json` the fixed names.",
+    "info": {
+      "kind": "object",
+      "about": "the info document, held: its bytes are in ir/held",
+      "children": {
+        "<m>": "ascii[n]: the bytes of the value of the top-level member <m>, as written (JSON text); a member given twice is two values, the later one named <m>~ with index 1, and so on",
+        "gaps/<o>": "the rest: braces, names, colons, commas and whitespace (the whole document when it has no member)",
+        "json": "ascii[s]: in place of the members and gaps, the whole document, when it has more than 4096 top-level members (json.rs MAX_MEMBERS, shared by the store formats)"
+      }
+    },
+    "<k>": {
+      "kind": "object",
+      "about": "every other object (chunks, shards, provenance, meshes, skeletons and the objects of a scale that is not presented): referenced, one leaf, or empty"
+    }
+  },
+  "roles": {
+    "candidate": {
+      "about": "the info document, before it is read",
+      "given": {"key": "", "size": "its listed size"},
+      "constraints": [
+        {"require": "size <= max_document", "message": "{key}: JSON document of {size} bytes exceeds 16777216"},
+        {"require": "size > 0", "message": "{key}: invalid JSON: the document is empty"}
+      ]
+    },
+    "info": {
+      "about": "the info document (spec/zarrify/precomputed.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/precomputed.md#2-the-info-document>), read by spec/zarrify.md §1.6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#16-json-documents>",
+      "given": {"value": "the document's value", "type_": "its member @type", "data_type": "", "num_channels": "", "kind_": "its member type", "scales": ""},
+      "constraints": [
+        {"require": "kind(value) == 'object'", "message": "info is not a JSON object"},
+        {"require": "!present(type_) || type_ == 'neuroglancer_multiscale_volume'", "message": "info: @type {type_} is not a volume"},
+        {"require": "kind(data_type) == 'string' && in(data_type, data_type_names)", "message": "info: data_type {data_type} is not supported"},
+        {"require": "kind(num_channels) == 'number' && int(num_channels, 1, max_channels)", "message": "info: num_channels {num_channels} is not 1 to 65535 channels"},
+        {"require": "kind(kind_) == 'string'", "message": "info: type {kind_} is not a string"},
+        {"require": "kind(scales) == 'list' && len(scales) >= 1", "message": "info: scales is not a nonempty array"}
+      ]
+    },
+    "scale": {
+      "about": "a scale of the info document (spec/zarrify/precomputed.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/precomputed.md#3-scales>). A failed constraint keeps the scale from the layout, its message the reason recorded",
+      "given": {"value": "the scale", "key": "", "size": "", "resolution": "", "chunk_sizes": "", "first_chunk": "chunk_sizes' first element", "voxel_offset": "", "encoding": "", "block": "compressed_segmentation_block_size", "data_type": "", "num_channels": ""},
+      "constraints": [
+        {"require": "kind(value) == 'object'", "message": "the scale is not an object"},
+        {"require": "kind(key) == 'string'", "message": "its key is not a string"},
+        {"require": "kind(size) == 'list' && len(size) == 3 && ints(size, 1, max_safe)", "message": "its size is not 3 positive integers"},
+        {"require": "kind(resolution) == 'list' && len(resolution) == 3 && min(resolution) > 0", "message": "its resolution is not 3 positive numbers"},
+        {"require": "kind(chunk_sizes) == 'list' && len(chunk_sizes) >= 1", "message": "its chunk_sizes is not a nonempty array"},
+        {"require": "kind(first_chunk) == 'list' && len(first_chunk) == 3 && ints(first_chunk, 1, max_chunk)", "message": "its first chunk size is not 3 integers from 1 to 4294967295"},
+        {"require": "!present(voxel_offset) || (kind(voxel_offset) == 'list' && len(voxel_offset) == 3 && ints(voxel_offset, -max_safe, max_safe))", "message": "its voxel_offset is not 3 integers"},
+        {"require": "kind(encoding) == 'string'", "message": "its encoding is not a string"},
+        {"require": "in(encoding, encodings)", "message": "its encoding {encoding} has no decoder"},
+        {"require": "encoding != 'jpeg' || (data_type == 'uint8' && (num_channels == 1 || num_channels == 3))", "message": "jpeg holds uint8 in 1 or 3 channels, not {data_type} in {num_channels}"},
+        {"require": "encoding != 'png' || ((data_type == 'uint8' || data_type == 'uint16') && num_channels <= 4)", "message": "png holds uint8 or uint16 in at most 4 channels, not {data_type} in {num_channels}"},
+        {"require": "encoding != 'compressed_segmentation' || data_type == 'uint32' || data_type == 'uint64'", "message": "compressed_segmentation holds uint32 or uint64, not {data_type}"},
+        {"require": "encoding != 'compressed_segmentation' || (kind(block) == 'list' && len(block) == 3 && ints(block, 1, max_chunk))", "message": "its compressed_segmentation_block_size is not 3 positive integers"}
+      ]
+    },
+    "sharding": {
+      "about": "a scale's sharding object (spec/zarrify/precomputed.md §4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/precomputed.md#4-shards>). A failed constraint keeps the scale from the layout, its message the reason recorded",
+      "given": {"value": "", "type_": "its member @type", "hash": "", "preshift_bits": "", "minishard_bits": "", "shard_bits": "", "minishard_index_encoding": "", "data_encoding": "", "chunk_sizes": ""},
+      "constraints": [
+        {"require": "kind(value) == 'object'", "message": "its sharding is not an object"},
+        {"require": "type_ == 'neuroglancer_uint64_sharded_v1'", "message": "its sharding @type {type_} is not neuroglancer_uint64_sharded_v1"},
+        {"require": "kind(preshift_bits) == 'number' && int(preshift_bits, 0, max_bits)", "message": "its preshift_bits is not an integer from 0 to 64"},
+        {"require": "kind(minishard_bits) == 'number' && int(minishard_bits, 0, max_minishard_bits)", "message": "its minishard_bits is not an integer from 0 to 32"},
+        {"require": "kind(shard_bits) == 'number' && int(shard_bits, 0, max_bits)", "message": "its shard_bits is not an integer from 0 to 64"},
+        {"require": "preshift_bits + minishard_bits + shard_bits <= max_bits", "message": "its preshift_bits, minishard_bits and shard_bits are more than 64 bits"},
+        {"require": "!present(minishard_index_encoding) || in(minishard_index_encoding, stream_encodings)", "message": "its minishard_index_encoding {minishard_index_encoding} is not raw or gzip"},
+        {"require": "!present(data_encoding) || in(data_encoding, stream_encodings)", "message": "its data_encoding {data_encoding} is not raw or gzip"},
+        {"require": "len(chunk_sizes) == 1", "message": "a sharded scale has more than one chunk size"},
+        {"require": "hash == 'identity'", "message": "its hash {hash} scatters chunks across shards, so no shard is a box of chunks"}
+      ]
+    }
+  }
+}

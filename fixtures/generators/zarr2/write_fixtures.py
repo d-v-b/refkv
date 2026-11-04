@@ -282,6 +282,7 @@ def main() -> None:
     reject("fill_bool_int", dtype="|b1", fill_value=1)
     reject("fill_fraction_int", fill_value=0.5)
     reject("fill_string_int", fill_value="NaN")
+    reject("fill_list_int", fill_value=[1])
     reject("fill_uint64_max", dtype="<u8", fill_value=18446744073709551615)
     reject("fill_f4_overflow", dtype="<f4", fill_value=1e39)
     reject("fill_base64", dtype="<f8", fill_value="AAAAAAAA+H8=")

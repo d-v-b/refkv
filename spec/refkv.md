@@ -1,6 +1,6 @@
 # refkv: a reference value type for key-value stores
 
-Format version: 0 (**provisional**) · Specification revision: 11.2
+Format version: 0 (**provisional**) · Specification revision: 11.5
 
 ## 1. Introduction
 
@@ -25,10 +25,12 @@ The specification has three parts, in three documents:
   a **draft**: how a store is kept in a single file indexed by a perfect hash,
   a **phkv store**, on its own or inside a vzip archive.
 
-The documents share this introduction, one format version and one
-revision, and number their sections as one specification: Part 2 starts at
+The documents share this introduction and one revision, and number their
+sections as one specification: Part 2 starts at
 [§9](bindings/vzip.md#9-what-the-zip-binding-defines), and Part 3 at
-[§16](bindings/phkv.md#16-what-the-phkv-binding-defines).
+[§16](bindings/phkv.md#16-what-the-phkv-binding-defines). Parts 1 and 2 share
+one format version; Part 3, a draft, is outside its promise
+([§1.3](#13-versioning)).
 
 A binding defines only three things ([§3](#3-bindings)): how a value is
 marked as a reference, where the store's source table is kept, and how keys
@@ -70,8 +72,10 @@ that readers are not required to detect; for those, the results are
 unspecified.
 
 A reader or a writer follows Part 1 and a binding. The specification defines
-one binding, ZIP ([spec/bindings/vzip.md](bindings/vzip.md)), and its
-conformance suite tests vzip archives.
+two bindings: the ZIP binding ([spec/bindings/vzip.md](bindings/vzip.md)),
+which is normative and whose conformance suite tests vzip archives, and the
+perfect-hash binding ([spec/bindings/phkv.md](bindings/phkv.md)), a draft that
+no conformance suite tests yet.
 
 ### 1.3 Versioning
 
@@ -81,6 +85,14 @@ as the magic `vzip/<version>`
 ([§10.4](bindings/vzip.md#104-end-of-central-directory-record-and-archive-comment)). This
 document specifies format version **0**. A format version covers Part 1 and
 the ZIP binding together: a change to either is a change to the format.
+
+The perfect-hash binding (Part 3) is a draft, and its format version is
+outside this section's promise. A phkv store records format version 0 in its
+superblock ([§17.1](bindings/phkv.md#171-superblock)), and that provisional
+version promises nothing yet: any revision may change what a phkv store of
+version 0 is, without a new version, until Part 3 leaves draft. A change to
+Part 3 is not a change to the format of Parts 1 and 2, and does not change
+the format version that a vzip archive records.
 
 - **What a version is:** a format version fixes the meaning of every valid
   store. Readers implement a set of versions and MUST reject a store whose
@@ -113,10 +125,10 @@ the ZIP binding together: a change to either is a change to the format.
   format version, which matters while that version is provisional and
   revisions may still change results.
 
-**Releases.** Until refkv's first release, every store is format version 0
-and records its revision as above. The release rule is:
+**Releases.** Until refkv 1.0, every store is format version 0, in the 0.x
+releases too, and records its revision as above. The release rule is:
 
-1. At the first release, the text of this document becomes format version
+1. At refkv 1.0, the text of this document becomes format version
    1, and the commit is tagged `refkv-format-v1` in the specification's
    repository.
 2. After that, every **breaking change** (any change that
@@ -721,7 +733,17 @@ This section applies to readers that support `http:` and `https:`.
     Repeated `Content-Encoding` fields combine into one list (RFC 9110
     §5.3), so two `identity` fields are the list `identity, identity`,
     which is also an error. Redirects, 412 and 416 responses are not
-    checked for `Content-Encoding`.
+    checked for `Content-Encoding`. There is one exception, which a reader
+    MAY make: a 206 whose `Content-Range` total equals the source's `size`
+    pin gives the object's bytes as stored, whatever its `Content-Encoding`,
+    since a range applies to the coded representation (RFC 9110 §14.1) and
+    the pin says that this representation is what the writer listed. An
+    object store serves objects that way when they were uploaded with a
+    `Content-Encoding` (the chunks of a Neuroglancer precomputed volume,
+    [the precomputed convention §6.3](zarrify/precomputed.md#63-content-codings)),
+    and a compressing proxy, which this rule is here to catch, changes the
+    total or sends no range. A reader that cannot see the header or stops the
+    body being decoded (a browser's `fetch`) does not make the exception.
   - **Repeated fields:** more than one `Content-Range`, `ETag` or
     `Last-Modified` field is a resolution error. So is more than one
     `Location` field on a redirect.
@@ -847,6 +869,27 @@ end of one of the ranges it covers, so it fails only where that range's own
 read would. Apart from such gaps, readers SHOULD fetch only the bytes in
 step 3. A reader MUST NOT return bytes for a request it could not resolve
 completely.
+
+A reader MAY also combine the reads of different `get`s in progress at the
+same time, since zarr and other clients ask for each chunk with a `get` of its
+own. That also must not change any `get`'s result, so:
+
+- a read shared by several `get`s can fail where only one of them would. When
+  it fails, the reader MUST make each of its reads on its own, and give each
+  `get` that read's result;
+- the reader checks the pins of the source on the shared response, as on any
+  other ([§5.1](#51-pins)). Reads of two entries of the source table are not
+  combined, even with one URL, since their pins may differ;
+- a range with a `crc32c` is still read whole and checked by itself, and a
+  failed check fails the `get`s that need that range and no other.
+
+The reader decides how long a read waits for others, and how many bytes between
+them it fetches to save a request; a `get` made alone should not wait long for
+company. The implementations in the specification's repository wait 2 ms, or for a
+connection when the store's are all busy (the Python reader), and fetch at most
+4 times the bytes a shared read asks for, plus 64 KiB. A `multipart/byteranges`
+response is still an error ([§5.2](#52-reading-over-http)), so reads too far apart
+to combine this way remain separate requests.
 
 ### 6.4 Errors
 
@@ -1020,7 +1063,10 @@ it; the other limits are resource limits ([§6.4](#64-errors)).
    `url` sources that one `get` may make, counted after coalescing
    ([§6.3](#63-resolving-a-reference)), with each read counting once however
    many redirects it follows. A `get` that would need more is a request
-   error, reported before any of its reads is made.
+   error, reported before any of its reads is made. The count is of the reads
+   the `get` needs by itself: sharing them with other `get`s
+   ([§6.3](#63-resolving-a-reference)) does not change it, and neither does
+   making one on its own after a shared read fails.
 6. **Data read at open.** A reader MUST have a maximum size for the source
    table and for each piece of the binding's auxiliary data, and MUST stop
    reading or decompressing either as soon as its output passes that size,

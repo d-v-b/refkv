@@ -57,8 +57,7 @@ One OME-Zarr 0.5 image at the archive root, with one array, `0`.
 ## Try it
 
 [example.py](example.py) zarrifies a public file and plots it with matplotlib. Its
-dependencies are in its header (PEP 723), so it runs on its own (uv builds refkv from GitHub,
-which needs a Rust toolchain, until a release on PyPI has `refkv.zarrify`):
+dependencies are in its header (PEP 723), so it runs on its own, with refkv from PyPI:
 
 ```bash
 uv run docs/zarrify/nifti/example.py
@@ -72,7 +71,7 @@ uv run refkv zarrify https://raw.githubusercontent.com/spm/spm/main/canonical/av
 ```
 
 ```
-{"format": "nifti", "version": 1, "byteOrder": "little", "sizes": {"z": 91, "y": 109, "x": 91}, "dataType": "uint8", "color": false, "chunkShape": [13, 109, 91], "chunks": 7, "scaling": {"slope": 0.003921568859368563, "inter": 0.0}, "affine": "sform", "translation": false, "extensions": false}
+{"format": "nifti", "version": 1, "byteOrder": "little", "sizes": {"z": 91, "y": 109, "x": 91}, "dataType": "uint8", "color": false, "chunkShape": [13, 109, 91], "chunks": 7, "scaling": {"slope": 0.003921568859368563, "inter": 0.0}, "affine": "sform", "translation": false, "extensions": false, ...}
 ```
 
 (This is the current summary, with the chunking of revision 23; it was
@@ -145,7 +144,7 @@ The browser code ([js/](../../../js/README.md)) reads NIfTI (NIfTI-1 and NIfTI-2
 
 - Up to five dimensions (`t`, `c`, `z`, `y`, `x`), either byte order, all
   integer and float types, and RGB/RGBA voxels.
-- One chunk per z-slice, split into row blocks when a slice is over 128 KiB.
+- Chunks of as many whole slices as fit in 128 KiB, or of row blocks when a slice is over it.
 - Pixel size and units as scale; an axis-aligned qform or sform as
   translation; the whole header, and its intensity scaling, recorded under
   `refkv_zarrified`.
@@ -158,7 +157,8 @@ header-and-image pairs, complex types, and dimensions 6 and 7 (CIFTI).
 - Zarrifying reads the first 552 bytes of the file: one range request,
   after one request for the file's size.
 - Reading a chunk is one range request of at most 128 KiB.
-- The archive has one entry per chunk: 7 for this template.
+- The archive has one entry per chunk, 7 for this template, beside its 7 documents and the
+  mirror's 2 chunks.
 
 ## How it's verified
 
@@ -172,6 +172,11 @@ those files and on the 12 public files of
 data).
 
 - Profile: [spec/zarrify/nifti.md](../../../spec/zarrify/nifti.md#part-2-the-profile)
-- Python: [python/src/refkv/zarrify/nifti/](../../../python/src/refkv/zarrify/nifti/)
-- Browser: [js/src/zarrify/nifti/](../../../js/src/zarrify/nifti/)
+- Rust core: [rust/refkv-ir/src/nifti.rs](../../../rust/refkv-ir/src/nifti.rs)
+  (the parser) and [rust/refkv-ir/src/project/nifti.rs](../../../rust/refkv-ir/src/project/nifti.rs)
+  (the projection)
+- Python host: [python/src/refkv/ir/](../../../python/src/refkv/ir/); browser host:
+  [js/src/zarrify/ir/](../../../js/src/zarrify/ir/)
+- Frozen reference: [conformance/zarrify/reference/refkv_reference/nifti/](../../../conformance/zarrify/reference/refkv_reference/nifti/)
+  and [conformance/zarrify/reference/ts/nifti/](../../../conformance/zarrify/reference/ts/nifti/)
 - Fixtures: [fixtures/nifti/](../../../fixtures/nifti/)

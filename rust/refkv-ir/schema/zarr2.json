@@ -290,11 +290,11 @@
           "message": "{path}/.zarray: zarr_format is not 2"
         },
         {
-          "require": "kind(shape) == 'list' && len(shape) <= max_dims && int(shape, 0, max_safe)",
+          "require": "kind(shape) == 'list' && len(shape) <= max_dims && ints(shape, 0, max_safe)",
           "message": "{path}: shape {shape} is not up to 32 sizes"
         },
         {
-          "require": "kind(chunks) == 'list' && len(chunks) == len(shape) && int(chunks, 1, max_safe)",
+          "require": "kind(chunks) == 'list' && len(chunks) == len(shape) && ints(chunks, 1, max_safe)",
           "message": "{path}: chunks {chunks} is not {n} chunk sizes"
         },
         {

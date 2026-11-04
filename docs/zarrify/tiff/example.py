@@ -1,9 +1,6 @@
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["refkv[zarr,images]", "matplotlib"]
-#
-# [tool.uv.sources]
-# refkv = { git = "https://github.com/d-v-b/refkv", subdirectory = "python" }
+# dependencies = ["refkv[zarr,images]>=0.2.0", "matplotlib"]
 # ///
 """OpenSlide's Aperio SVS test slide CMU-1-Small-Region, zarrified without copying it: refkv reads
 the file's structure and presents it as Zarr, each chunk a reference to the file's own bytes, read
@@ -22,7 +19,7 @@ from refkv.zarrify import zarrify
 URL = "https://openslide.cs.cmu.edu/download/openslide-testdata/Aperio/CMU-1-Small-Region.svs"
 
 root = zarr.open_group(refkv.zarr.store(zarrify(URL)), mode="r")
-image = np.asarray(root.get_array("0")[...])  # [c, y, x], JPEG-coded tiles decoded by refkv.zarr's codecs
+image = np.asarray(root.get_array("0")[...])  # [c, y, x], JPEG-coded chunks decoded by imagecodecs-zarr
 fig, ax = plt.subplots(figsize=(7, 9))
 ax.imshow(image.transpose(1, 2, 0))
 ax.set_title("CMU-1-Small-Region.svs")

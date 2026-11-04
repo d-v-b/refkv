@@ -1,5 +1,5 @@
 """`refkv.zarrify.zarrify` returns a `refkv.ReferenceStore`, which reads in memory
-as its saved archive reads, and whose `save` writes the archive the profile output's
+as its saved archive reads, and whose `save_vzip` writes the archive the profile output's
 own writer writes, byte for byte."""
 
 import shutil
@@ -14,7 +14,7 @@ from refkv.pb import Range, Source
 from refkv.policy import Policy
 from refkv.uri import is_uri_reference
 from refkv.zarrify import _zarrify, zarrify
-from refkv.zarrify.common import reference_store
+from refkv.zarrify.common import Output, reference_store
 
 sys.path.insert(0, str(Path(__file__).parents[2] / "conformance" / "zarrify"))
 from proxy import Proxy
@@ -70,7 +70,7 @@ def test_zarrify_returns_the_store_it_saves(proxy, tmp_path, name, is_store, che
     _, out = _zarrify(location, checksums=checksums, policy=policy)
     assert store.info == {"format": fmt, **out.summary}
 
-    store.save(tmp_path / "new.vzip", policy=policy)
+    store.save_vzip(tmp_path / "new.vzip", policy=policy)
     out.write(str(tmp_path / "old.vzip"))
     assert (tmp_path / "new.vzip").read_bytes() == (tmp_path / "old.vzip").read_bytes()
 
@@ -110,7 +110,7 @@ def test_a_local_input_is_named_by_its_percent_encoded_path(tmp_path, monkeypatc
         store = zarrify(str(path.relative_to(tmp_path) if relative else path))
         want = zarrify(str(fixture))
         assert all(is_uri_reference(s.url or "") for s in store.sources), (dirname, name)
-        store.save(tmp_path / f"{i}.vzip")
+        store.save_vzip(tmp_path / f"{i}.vzip")
         saved = refkv.open(str(tmp_path / f"{i}.vzip"))
         keys = want.list()
         assert store.list() == saved.list() == keys
@@ -145,3 +145,16 @@ def test_cli_refuses_to_read_an_input_its_policy_refuses(tmp_path, module):
     assert p.returncode == 1, p.stderr
     assert p.stderr.startswith("error: "), p.stderr
     assert not out.exists(), p.stderr
+
+
+def test_a_failed_write_keeps_the_previous_file(tmp_path):
+    def unreadable(_url, _offset, _length):
+        raise OSError("unreadable")
+
+    path = tmp_path / "o.vzip"
+    path.write_bytes(b"previous")
+    out = Output("http://h/a.bin", refs={"a": [(0, 4)]}, checksum=unreadable)
+    with pytest.raises(OSError, match="unreadable"):
+        out.write(str(path))
+    assert path.read_bytes() == b"previous"
+    assert [p.name for p in tmp_path.iterdir()] == ["o.vzip"]

@@ -6,14 +6,17 @@ without a request, `classify`, `list`, `list_dir`, `raw` and the source table, o
 import asyncio
 import itertools
 import re
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
 import refkv
 from refkv import OffsetRequest, RangeRequest, SuffixRequest
 from refkv._sync import run
-from refkv.errors import RequestError, ResolutionError
+from refkv.errors import ArchiveError, RequestError, ResolutionError
 from refkv.pb import Concat, Range, Source
+from refkv.reader import _collect
 from refkv.uri import file_uri
 from refkv.vzip.store import VZipStore
 
@@ -41,7 +44,7 @@ def _stores(tmp_path):
     out: dict[str, refkv.ReferenceStore | VZipStore] = {"memory": store}
     for page_size in [None, 64]:
         path = tmp_path / f"{page_size}.vzip"
-        store.save(path, page_size=page_size)
+        store.save_vzip(path, page_size=page_size)
         out[f"archive, page_size={page_size}"] = refkv.open(path)
     return out
 
@@ -135,7 +138,7 @@ def test_get_of_a_refused_source_raises(tmp_path):
     classify, which reads no source, still says it is a reference."""
     store = refkv.ReferenceStore({"r": Range(source=0, offset=0, length=4)},
                                 [Source(url="http://127.0.0.1:9/x.bin")])
-    store.save(tmp_path / "r.vzip", policy=refkv.Policy(allow_private_hosts=True))
+    store.save_vzip(tmp_path / "r.vzip", policy=refkv.Policy(allow_private_hosts=True))
     for s in [store, refkv.open(tmp_path / "r.vzip")]:
         with pytest.raises(ResolutionError, match=re.escape("127.0.0.1")):
             s.get("r")
@@ -152,3 +155,110 @@ def test_a_method_that_returns_at_once_refuses_refkvs_own_loop(tmp_path):
     with pytest.raises(RuntimeError, match="await its _async form"):
         run(nested())
     assert asyncio.run(store.get_async("a")) == b"plain bytes"  # another loop is fine
+
+
+def _archive(tmp_path, *, page_size=None):
+    (tmp_path / "src.bin").write_bytes(SRC)
+    sources = [Source(url=file_uri(tmp_path / "src.bin")), Source(key="__vz__/shared")]
+    path = tmp_path / f"{page_size}.vzip"
+    refkv.ReferenceStore(_mapping(), sources).save_vzip(path, page_size=page_size)
+    return path
+
+
+async def _first_gets(store, n=64, *, return_exceptions=False):
+    return await asyncio.gather(*(store.get_async("a") for _ in range(n)),
+                                return_exceptions=return_exceptions)
+
+
+@pytest.mark.parametrize("page_size", [None, 64])
+def test_concurrent_first_reads_open_the_store_once(tmp_path, page_size):
+    """Operations that start together on a fresh store make the requests they make one at
+    a time: one open, its tail read once."""
+    path = _archive(tmp_path, page_size=page_size)
+    alone = refkv.Stats()
+    store = refkv.open(path, stats=alone)
+    assert run(store.get_async("a")) == b"plain bytes"
+    assert alone.archive_requests > 0
+
+    together = refkv.Stats()
+    assert asyncio.run(_first_gets(refkv.open(path, stats=together))) == [b"plain bytes"] * 64
+    assert sorted(together.log) == sorted(alone.log)
+    assert together.log.count(alone.log[0]) == 1
+
+    mixed = refkv.Stats()
+    store = refkv.open(path, stats=mixed)
+
+    async def operations():
+        return await asyncio.gather(store.classify_async("a"), store.raw_async("a"),
+                                    _collect(store.list_async("d/")), store.get_async("a"))
+
+    assert asyncio.run(operations()) == ["bytes", b"plain bytes", ["d/e", "d/f/g"], b"plain bytes"]
+    assert mixed.log.count(alone.log[0]) == 1
+
+
+def test_failed_open_raises_for_every_caller_and_is_tried_again(tmp_path):
+    """A failed open is one request, its error reaches each caller waiting on it, and
+    it isn't kept: the next operation opens the store."""
+    path = _archive(tmp_path)
+    good = path.read_bytes()
+    path.write_bytes(b"not an archive")
+    stats = refkv.Stats()
+    store = refkv.open(path, stats=stats)
+
+    failures = asyncio.run(_first_gets(store, return_exceptions=True))
+    assert len(failures) == 64
+    assert all(isinstance(e, ArchiveError) for e in failures)
+    assert stats.archive_requests == 1
+    with pytest.raises(ArchiveError):  # tried again, and failed again
+        asyncio.run(store.get_async("a"))
+    assert stats.archive_requests == 2
+
+    path.write_bytes(good)
+    assert asyncio.run(store.get_async("a")) == b"plain bytes"
+
+
+def test_cancelling_one_caller_leaves_the_open_to_the_others(tmp_path):
+    """The caller that started the open is cancelled; the others still get their values
+    from that one open."""
+    path = _archive(tmp_path)
+    stats = refkv.Stats()
+    store = refkv.open(path, stats=stats)
+
+    async def main():
+        first = asyncio.create_task(store.get_async("a"))
+        await asyncio.sleep(0)  # the open has started
+        others = [asyncio.create_task(store.get_async("a")) for _ in range(4)]
+        await asyncio.sleep(0)
+        first.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await first
+        return await asyncio.gather(*others)
+
+    assert asyncio.run(main()) == [b"plain bytes"] * 4
+    opened = refkv.Stats()
+    run(refkv.open(path, stats=opened)._ensure_open())
+    assert stats.log.count(opened.log[0]) == 1
+
+
+def test_a_store_opens_from_another_event_loop(tmp_path):
+    """An open is tied to no loop but its own: one lost as its loop closes doesn't stop a
+    later loop, and loops that open at the same moment all get the values."""
+    path = _archive(tmp_path)
+    store = refkv.open(path)
+
+    async def abandon():
+        asyncio.create_task(store.get_async("a"))  # noqa: RUF006 (left for asyncio.run to cancel)
+        await asyncio.sleep(0)
+
+    asyncio.run(abandon())
+    assert asyncio.run(_first_gets(store)) == [b"plain bytes"] * 64
+
+    fresh = refkv.open(path)
+    barrier = threading.Barrier(4)
+
+    def on_a_loop(_):
+        barrier.wait()
+        return asyncio.run(_first_gets(fresh, 8))
+
+    with ThreadPoolExecutor(4) as pool:
+        assert list(pool.map(on_a_loop, range(4))) == [[b"plain bytes"] * 8] * 4

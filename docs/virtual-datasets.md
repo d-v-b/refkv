@@ -8,9 +8,8 @@ from the file it came from: no data is copied.
 
 ## Install
 
-<!-- This installs main, which has these extras once this page is merged; do not pin a branch. -->
 ```bash
-pip install "refkv[virtualizarr] @ git+https://github.com/d-v-b/refkv#subdirectory=python" xarray h5py h5netcdf fsspec aiohttp
+pip install "refkv[virtualizarr]" xarray h5py h5netcdf fsspec aiohttp
 ```
 
 The `virtualizarr` extra installs VirtualiZarr, which
@@ -81,7 +80,7 @@ vds = vz.open_virtual_mfdataset(
 
 # 2. Save it as a vzip archive, naming the files by their public HTTPS URLs.
 store = refkv.ReferenceStore.from_virtualizarr(vds, rewrite_urls=refkv.public_s3_url)
-print(store.save("oisst.vzip"))
+print(store.save_vzip("oisst.vzip"))
 
 # 3. Reopen it with xarray: the yearly mean SST over the Nino 3.4 region, weighted by area.
 stats = refkv.Stats()
@@ -126,7 +125,7 @@ What each step does:
 2. **Save.** `from_virtualizarr` turns the virtual dataset into a store:
    Zarr metadata, the coordinates as bytes, and each chunk as a reference.
    `rewrite_urls=refkv.public_s3_url` names each file by its public HTTPS URL
-   ([publishing](#publishing)). `save` writes the archive and summarizes it.
+   ([publishing](#publishing)). `save_vzip` writes the archive and summarizes it.
 3. **Compute.** `refkv.zarr.open` opens the archive as a read-only Zarr store
    for `xr.open_zarr`, which reads chunks from the netCDF files, at most 8
    requests at a time. The files' chunking stays: a chunk of `sst` is a whole day's global
@@ -153,11 +152,33 @@ What each step does:
   directory was 18.8 MB, and a page index cut opening to 2 requests and
   115 kB ([design/COMPARISON.md](../design/COMPARISON.md#opening)). Once the
   directory passes a few MB, tens of thousands of keys, save with
-  `store.save("oisst.vzip", page_size=65536)`
+  `store.save_vzip("oisst.vzip", page_size=65536)`
   ([spec §12, Page index](../spec/bindings/vzip.md#12-page-index-optional)).
+- **The perfect-hash binding.** For a store of hundreds of thousands of keys,
+  `store.save_phkv("oisst.phkv")` writes the draft phkv binding instead
+  ([spec](../spec/bindings/phkv.md)): a perfect hash of the keys, so that opening
+  the file and reading the first key takes 3 requests of about 516 KiB at 10^5
+  and 10^6 keys, and each later key one or two, fewer than a paged archive takes
+  ([benchmarks](../rust/refkv-phkv/bench/RESULTS.md)).
+  `refkv.open("oisst.phkv", binding="phkv")` and
+  `refkv.zarr.open("oisst.phkv", binding="phkv")` read it with the same options
+  as an archive. It is not a ZIP file, so ZIP tools cannot open it.
 - **Requests.** `refkv.zarr.open(..., max_concurrency=16)` allows more requests in
   flight, and `max_concurrency=None` removes the cap. Respect the host's
   limits.
+- **Many small chunks.** Chunks read at the same time share requests when they lie
+  less than 64 KiB apart in one source file, but zarr asks for only
+  `async.concurrency` chunks at once (10 by default), which limits how many can
+  share one. Raising it makes both fewer requests and a faster read, and opens no
+  more connections, since `max_concurrency` bounds those. The setting is zarr's, and
+  applies to the other stores of the process too:
+
+  ```python
+  with zarr.config.set({"async.concurrency": 1024}):
+      plane = array[0]
+  ```
+
+  At the default, the requests fall by up to tenfold but the read takes about as long.
 
 ## Publishing
 
@@ -172,7 +193,7 @@ prefix relative to the archive, so the two can move together.
 For private data, every reference store takes `registry=`: the
 `ObjectStoreRegistry` you gave VirtualiZarr, or a mapping of URL prefixes to
 stores, such as obstore's (`pip install "refkv[obstore]"`, which the
-`virtualizarr` extra includes). Readers need the same stores, so tell `save`
+`virtualizarr` extra includes). Readers need the same stores, so tell `save_vzip`
 their policy:
 
 ```python
@@ -180,7 +201,7 @@ from obstore.store import S3Store
 
 registry = {"s3://my-bucket": S3Store("my-bucket", region="us-west-2")}
 store = refkv.ReferenceStore.from_virtualizarr(vds, registry=registry)
-store.save("private.vzip", policy=refkv.Policy(schemes={"s3"}))
+store.save_vzip("private.vzip", policy=refkv.Policy(schemes={"s3"}))
 ds = xr.open_zarr(refkv.zarr.open("private.vzip", registry=registry))
 ```
 
@@ -213,7 +234,7 @@ register its store, as above; that allows its URLs. The rules are in
   `s3://` URLs, which the default policy refuses. For a public
   bucket, pass `rewrite_urls=refkv.public_s3_url` to `from_virtualizarr`. For
   a private one, pass `registry=` to read, and
-  `policy=refkv.Policy(schemes={"s3"})` to `save` ([publishing](#publishing)).
+  `policy=refkv.Policy(schemes={"s3"})` to `save_vzip` ([publishing](#publishing)).
 - **`no store is registered for s3://...`.** The policy allows the scheme,
   but no store serves the URL; pass `registry={"s3://bucket": S3Store(...)}`,
   with obstore's `S3Store` (`refkv[obstore]`).

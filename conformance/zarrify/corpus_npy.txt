@@ -1,0 +1,8 @@
+# url|name|no-ref of the public NumPy files in the corpus (the frozen reference has no NumPy profile, so
+# each compares py with web alone): NumPy's own test data (BSD-3-Clause), at v2.1.0: a file of
+# Python 3, one of Python 2 on 64-bit Windows (its header's integers are longs), and object arrays,
+# which the profile rejects
+https://raw.githubusercontent.com/numpy/numpy/2f7fe64b8b6d7591dd208942f1cc74473d5db4cb/numpy/lib/tests/data/python3.npy|numpy_python3|no-ref|ends-sha256=22c7b4afe3170d2606055511c2291c12e787ec79af3cd3676805a6ff85381884
+https://raw.githubusercontent.com/numpy/numpy/2f7fe64b8b6d7591dd208942f1cc74473d5db4cb/numpy/lib/tests/data/win64python2.npy|numpy_win64python2|no-ref|ends-sha256=cf5ddba5e2bd76c3bbd4c48d3eb9332086e91507f47cd3b68d1e76be70411006
+https://raw.githubusercontent.com/numpy/numpy/2f7fe64b8b6d7591dd208942f1cc74473d5db4cb/numpy/lib/tests/data/py3-objarr.npy|numpy_py3_objarr|no-ref|ends-sha256=3c7d7508ed8739399579e920ea4480a819b3903388758e8bfebd6ef255565085
+https://raw.githubusercontent.com/numpy/numpy/2f7fe64b8b6d7591dd208942f1cc74473d5db4cb/numpy/lib/tests/data/py3-objarr.npz|numpy_py3_objarr_npz|no-ref|ends-sha256=cdd5090f2727ee53ee8b213cc1182a77bd87640632d3022e409f72a283694a2a

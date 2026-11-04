@@ -51,16 +51,17 @@ def zarrified(path, tmp_path, fmt: str, url: str | None = None):
     return out, zarr.open_group(refkv.zarr.store(out.to_store()), mode="r", zarr_format=3), ir
 
 
-def as_the_reference(path, tmp_path, fmt: str, *, same_message: bool = False):
+def as_the_reference(path, tmp_path, fmt: str, *, same_message: bool = False, named: bool = False):
     """The IR's output of the file at `path` is the frozen reference's but `refkv_source`, its IR
     is valid and its archive rebuilds the file; or both reject it (with the same message, when
-    `same_message`). The IR's output, or None when rejected."""
+    `same_message`; the IR's run named as `fmt`'s when `named`, as for an HDF5 file the IMS
+    reference rejects and the HDF5 profile accepts). The IR's output, or None when rejected."""
     url = f"https://data.test/{path.name}"
     try:
         _, ref = reference(str(path), url)
     except Rejected as e:
         with pytest.raises(Rejected) as got:
-            via_ir(str(path), url)
+            via_ir(str(path), url, fmt=fmt if named else None)
         if same_message:
             assert str(got.value) == str(e)  # noqa: PT017 (the reference's message, not the one raised here)
         return None
@@ -184,7 +185,10 @@ def omero_and_expected_windows(path, profile: str) -> tuple[JSON, list[dict[str,
         page = tf.pages.first
         spp, pi, comp = page.samplesperpixel, page.photometric, page.compression
     rgb = spp == 3 if profile == "qptiff" else spp > 1 and (pi == 2 or (pi == 6 and comp == 7))
-    decoded = {string(at(c, "name")) for c in sequence(a.metadata.to_dict()["codecs"])} <= DECODED
+    codecs = sequence(a.metadata.to_dict()["codecs"])
+    if at(codecs, 0, "name") == "sharding_indexed":  # the windows sample an inner chunk (`a.chunks`)
+        codecs = sequence(at(codecs, 0, "configuration", "codecs"))
+    decoded = {string(at(c, "name")) for c in codecs} <= DECODED
     integer = np.issubdtype(a.dtype, np.integer)
     windows: list[dict[str, float] | None] = []
     for ch in range(count):

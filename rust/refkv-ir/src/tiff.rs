@@ -98,6 +98,13 @@ const QPTIFF_SCALARS: [u16; 16] = [256, 257, 259, 262, 266, 277, 278, 282, 283, 
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#7-qptiff-profile>).
 const QPI_SOFTWARE: &[u8] = b"PerkinElmer-QPI";
 const MAX_SAFE: u64 = (1 << 53) - 1;
+/// The most bytes and strips of a chunk of joined strips (spec/zarrify/tiff.md §4.5
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>).
+const MAX_JOINED_BYTES: u128 = 1 << 20;
+const MAX_JOINED_STRIPS: u128 = 1 << 10;
+/// The most decoded bytes of a shard of compressed strips (spec/zarrify/tiff.md §4.5
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>).
+const MAX_SHARD_BYTES: u128 = 1 << 30;
 
 fn is_used(tag: u16) -> bool {
     is_table(tag) && tag != 270 && tag != 330
@@ -310,11 +317,47 @@ struct Level {
     ifds: Vec<usize>,
     /// the level is in strips
     strips: bool,
+    /// the strips of a chunk of the level, more than 1 when its uncompressed strips are joined
+    /// (spec/zarrify/tiff.md §4.5
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>)
+    join: u64,
+    /// the strips of a shard of the level, more than 1 when its compressed strips are the inner
+    /// chunks of shards (spec/zarrify/tiff.md §4.5
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>)
+    shard: u64,
     /// how a short last strip is padded to the chunk (spec/zarrify/tiff.md §4.5
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>):
     /// `{"zeros": [{c, k, zeros}, ...]}` (uncompressed) or `{"lzw": [{c, k, prefix, tail}, ...]}`,
     /// each strip keyed by its IFD's index in the level and its own; null when none
     pad: J,
+}
+
+impl Level {
+    /// The rows of a chunk: a tile's or a strip's, or those of the strips it joins, at most the
+    /// image's length.
+    fn chunk_rows(&self) -> u64 {
+        if self.join > 1 { (self.th * self.join).min(self.h) } else { self.th }
+    }
+}
+
+/// Makes the LZW, Deflate and zstd strips of each level the inner chunks of shards of at most
+/// 2^10 strips and 2^30 decoded bytes, as even as whole strips allow (spec/zarrify/tiff.md §4.5
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>): each strip stays a
+/// stream of its own, which the sharding codec finds through the shard's index. A level stays
+/// one strip a chunk when it has one strip, or when two do not fit.
+fn shard_strips(levels: &mut [Level], bits: u64, spp: u64, planar: u64, compression: u64) {
+    if !matches!(compression, 5 | 8 | 32946 | 50000) {
+        return;
+    }
+    let contig = spp > 1 && planar == 1;
+    for lv in levels.iter_mut().filter(|lv| lv.strips) {
+        let row = lv.w as u128 * (bits / 8) as u128 * if contig { spp as u128 } else { 1 };
+        let strips = lv.h.div_ceil(lv.th);
+        let most = (MAX_SHARD_BYTES / (lv.th as u128 * row)).min(MAX_JOINED_STRIPS) as u64;
+        if strips >= 2 && most >= 2 {
+            lv.shard = strips.div_ceil(strips.div_ceil(most));
+        }
+    }
 }
 
 struct Layout {
@@ -1573,7 +1616,7 @@ impl Tiff {
             let same = dims(k, &vals[&k])? == d0 && self.fmt(k, &vals[&k])? == f0;
             self.rules.check("level_ifd", rules::env([("offset", num(self.ifds[k].offset as f64)), ("same", flag(same))]))?;
         }
-        Ok(Level { w: d0.0, h: d0.1, tw: d0.3, th: d0.4, ifds: ks.to_vec(), strips: !d0.2, pad: J::Null })
+        Ok(Level { w: d0.0, h: d0.1, tw: d0.3, th: d0.4, ifds: ks.to_vec(), strips: !d0.2, join: 1, shard: 1, pad: J::Null })
     }
 
     /// The `strips` role of an IFD that is not tiled: StripOffsets, StripByteCounts and a
@@ -1853,6 +1896,9 @@ impl Tiff {
                 }
             }
         }
+        // uncompressed strips joined into larger chunks, then each level's short last chunk padded
+        self.join_strips(&mut levels, &vals, bits, spp, planar, compression)?;
+        shard_strips(&mut levels, bits, spp, planar, compression);
         // a level in strips whose last strip is short, padded to the chunk (spec/zarrify/tiff.md §4.5
         // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>): one that
         // cannot be padded rejects the input (the `padding` role)
@@ -2110,7 +2156,7 @@ impl Tiff {
             .map(|lv| {
                 // a level's chunks are its IFDs' tiles, or strips
                 let of = |k: &usize| tiles_of.get(k).copied().and_then(|(t, s)| if lv.strips { s } else { t });
-                json!({"w": lv.w, "h": lv.h, "tw": lv.tw, "th": lv.th, "strips": lv.strips, "pad": lv.pad,
+                json!({"w": lv.w, "h": lv.h, "tw": lv.tw, "th": lv.th, "strips": lv.strips, "join": lv.join, "shard": lv.shard, "pad": lv.pad,
                        "planes": lv.ifds.iter().map(of).collect::<Vec<_>>()})
             })
             .collect();
@@ -2984,7 +3030,40 @@ impl Tiff {
             first.get_or_insert(this);
         }
         let (w, h, tiled, tw, th) = first.ok_or_else(|| Stop::Reject("internal: an empty QPTIFF level".into()))?;
-        Ok(Level { w, h, tw, th, ifds: ks.to_vec(), strips: !tiled, pad: J::Null })
+        Ok(Level { w, h, tw, th, ifds: ks.to_vec(), strips: !tiled, join: 1, shard: 1, pad: J::Null })
+    }
+
+    /// Joins the strips of each uncompressed level into chunks of at most 2^20 bytes and 2^10
+    /// strips, as even as whole strips allow (spec/zarrify/tiff.md §4.5
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>). A level stays one strip a chunk
+    /// when two strips do not fit, or when a strip does not hold exactly its rows' bytes, which
+    /// a chunk could not then find by position.
+    fn join_strips(&self, levels: &mut [Level], vals: &HashMap<usize, Vals>, bits: u64, spp: u64, planar: u64, compression: u64) -> Got<()> {
+        if compression != 1 {
+            return Ok(());
+        }
+        let contig = spp > 1 && planar == 1;
+        for lv in levels.iter_mut().filter(|lv| lv.strips) {
+            let row = lv.w as u128 * (bits / 8) as u128 * if contig { spp as u128 } else { 1 };
+            let strips = lv.h.div_ceil(lv.th);
+            let most = (MAX_JOINED_BYTES / (lv.th as u128 * row)).min(MAX_JOINED_STRIPS) as u64;
+            if strips < 2 || most < 2 {
+                continue;
+            }
+            let last = lv.h - lv.th * (strips - 1);
+            let mut whole = true;
+            for &k in &lv.ifds {
+                let counts = self.reqs(k, &vals[&k], 279)?;
+                whole &= counts.iter().enumerate().all(|(j, &n)| {
+                    let rows = if j as u64 % strips == strips - 1 { last } else { lv.th };
+                    n as u128 == rows as u128 * row
+                });
+            }
+            if whole {
+                lv.join = strips.div_ceil(strips.div_ceil(most));
+            }
+        }
+        Ok(())
     }
 
     /// Pads each level in strips whose last strip is short to the chunk (spec/zarrify/tiff.md §4.5
@@ -3020,9 +3099,10 @@ impl Tiff {
                 .collect())
         };
         let short_of = |lv: &Level| -> Option<u64> {
-            let down = lv.h.div_ceil(lv.th);
-            let short = lv.h - lv.th * (down - 1);
-            (lv.strips && down > 1 && short != lv.th).then_some(short)
+            let rows = lv.chunk_rows();
+            let down = lv.h.div_ceil(rows);
+            let short = lv.h - rows * (down - 1);
+            (lv.strips && down > 1 && short != rows).then_some(short)
         };
         let mut need = Vec::new();
         // the distinct ranges of the strips read for their tails, whose bytes together are at most
@@ -3033,7 +3113,7 @@ impl Tiff {
                 let Some(short) = short_of(lv) else { continue };
                 // the zeros an LZW tail would hold, and the bytes of a strip read for it, within the
                 // limits before its strips are read
-                let missing = bytes((lv.th - short) as u128 * row_bytes(lv));
+                let missing = bytes((lv.chunk_rows() - short) as u128 * row_bytes(lv));
                 let target = bytes(short as u128 * row_bytes(lv));
                 let mut most_read = 0;
                 for &k in &lv.ifds {
@@ -3070,7 +3150,7 @@ impl Tiff {
         for (li, lv) in levels.iter_mut().enumerate() {
             let Some(short) = short_of(lv) else { continue };
             let rows = row_bytes(lv);
-            let missing = bytes((lv.th - short) as u128 * rows);
+            let missing = bytes((lv.chunk_rows() - short) as u128 * rows);
             // the most zero bytes a strip of the level is padded with
             let mut most = missing;
             match compression {
@@ -3081,7 +3161,7 @@ impl Tiff {
                     most = 0;
                     for (c, &k) in lv.ifds.iter().enumerate() {
                         for (j, _, n) in last_strips(lv, k, &vals[&k])? {
-                            let z = bytes(lv.th as u128 * rows).saturating_sub(n);
+                            let z = if lv.join > 1 { missing } else { bytes(lv.th as u128 * rows).saturating_sub(n) };
                             if n > 0 && z > 0 {
                                 most = most.max(z);
                                 pads.push(json!({"c": c, "k": j, "zeros": z}));
@@ -3387,5 +3467,40 @@ impl crate::run::FileProfile for Profile {
     }
     fn reads(&self, ir: &crate::ir::Ir, facts: &serde_json::Value) -> Result<Vec<(u64, u64)>, String> {
         crate::project::tiff::reads(ir, facts)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compressed_strips_shard_within_the_limits() {
+        // (w, h, th, in strips, bits, spp, planar, compression, the strips of a shard)
+        let cases: [(u64, u64, u64, bool, u64, u64, u64, u64, u64); 18] = [
+            (1344, 1024, 1, true, 16, 1, 1, 5, 1024),          // LZW, one shard a plane
+            (1344, 1024, 1, true, 16, 1, 1, 8, 1024),          // Deflate
+            (1344, 1024, 1, true, 16, 1, 1, 32946, 1024),      // the other Deflate
+            (1344, 1024, 1, true, 16, 1, 1, 50000, 1024),      // zstd
+            (16, 4096, 1, true, 8, 1, 1, 8, 1024),             // at the strip limit
+            (16, 3000, 1, true, 8, 1, 1, 8, 1000),             // 3000 strips, 3 even shards
+            (1 << 16, 1 << 16, 32, true, 8, 1, 1, 8, 512),     // 2^21 bytes a strip: the byte limit first
+            (1 << 16, 1 << 14, 16, true, 8, 3, 1, 8, 256),     // interleaved samples count in a row's bytes
+            (1 << 16, 1 << 14, 16, true, 8, 3, 2, 8, 1024),    // planar samples do not
+            (1 << 19, 1 << 11, 1 << 10, true, 8, 1, 1, 8, 2),  // two strips of 2^29 bytes fit
+            (1000, 2, 1, true, 8, 1, 1, 8, 2),                 // two strips are enough
+            (100, 1, 1, true, 8, 1, 1, 8, 1),                  // one strip: no shard
+            (1 << 20, 1 << 11, 1 << 10, true, 8, 1, 1, 8, 1),  // two strips of 2^30 bytes do not fit
+            (1344, 1024, 1, false, 16, 1, 1, 8, 1),            // tiles: no shard
+            (1344, 1024, 1, true, 16, 1, 1, 1, 1),             // uncompressed strips join instead
+            (1344, 1024, 8, true, 8, 1, 1, 7, 1),              // JPEG
+            (1344, 1024, 8, true, 8, 1, 1, 34712, 1),          // JPEG 2000
+            (1344, 1000, 16, true, 8, 1, 1, 5, 63),            // a short last strip is a strip
+        ];
+        for (w, h, th, strips, bits, spp, planar, compression, want) in cases {
+            let mut levels = [Level { w, h, tw: w, th, ifds: vec![], strips, join: 1, shard: 1, pad: J::Null }];
+            shard_strips(&mut levels, bits, spp, planar, compression);
+            assert_eq!(levels[0].shard, want, "{w} x {h}, {th} rows, compression {compression}");
+        }
     }
 }
