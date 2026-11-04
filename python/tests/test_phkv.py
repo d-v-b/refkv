@@ -441,3 +441,16 @@ def test_save_phkv_failing_keeps_the_previous_file(tmp_path):
         unsavable.save_phkv(path)
     assert path.read_bytes() == b"previous"
     assert [p.name for p in tmp_path.iterdir()] == ["a.phkv"]
+
+
+def test_save_phkv_skips_hidden_values_unless_a_key_source_reads_one(tmp_path):
+    """The `__vz__/` values are the ZIP binding's bookkeeping, so they are not keys of a phkv store,
+    unless a `key` source refers to one."""
+    mapping = {"a": b"x" * 8, "__vz__/h": b"hidden", "__vz__/s": b"0123456789", "r": Range(source=0, length=4)}
+    store = refkv.ReferenceStore(mapping, [Source(key="__vz__/s")])
+    store.save_phkv(tmp_path / "s.phkv")
+    s = refkv.phkv.open(tmp_path / "s.phkv")
+    assert asyncio.run(s.get_async("a")) == b"x" * 8
+    assert asyncio.run(s.get_async("r")) == b"0123"
+    assert asyncio.run(s.get_async("__vz__/s")) == b"0123456789"  # needed by "r", so kept
+    assert asyncio.run(s.get_async("__vz__/h")) is None

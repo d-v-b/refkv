@@ -224,10 +224,8 @@ can go in either order once 1 has merged. Step 4 depends on none of them.
 - **The hybrid profile.** [§3](#3-the-hybrid-profile-drop-it) recommends
   dropping it. If it stays, step 2 becomes "make `refkv-phkv` depend on
   `refkv-vzip` only for `hybrid.rs`", and phkv's §21 stays, renumbered.
-- **vzip's reserved names in `ReferenceStore`.** A `ReferenceStore` keeps
-  values under vzip's reserved prefix `__vz__/` out of its mapping, and #141
-  writes those it holds into a phkv store as ordinary keys, where `list` and
-  `list_dir` show them. `save_phkv` should probably skip them, since they are
-  the ZIP binding's bookkeeping, not the store's keys, but a key source may
-  name one. zarrify refuses output keys under that prefix, so its stores are
-  not affected.
+- **vzip's reserved names in `ReferenceStore`.** A `ReferenceStore` keeps values under vzip's
+  reserved prefix `__vz__/` out of its mapping. `save_phkv` does not write them, since they are the
+  ZIP binding's bookkeeping, not the store's keys, unless a `key` source refers to one, which is then
+  written as an ordinary key. zarrify refuses output keys under that prefix, so its stores are not
+  affected.
