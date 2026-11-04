@@ -4,7 +4,7 @@
 //! node per HDU at the path of its index: an array for an image (its chunks cut from the
 //! `data` element), a group with the arrays `rows` (a struct over the rows, or their bytes) and
 //! `heap` for a table, and an empty group for an HDU without data, each declaring the convention
-//! with its own cards.
+//! with its own cards. A compressed file's arrays have one chunk each, its whole stream.
 
 use super::{contiguous, key, Copied};
 use crate::fed::Word;
@@ -14,6 +14,23 @@ use crate::ir::Ir;
 use crate::out::{array_json, blob_chunks, bytes_codec, declare_array, declared_group, grid_chunks, int_json, item_size, json_size, Chunk, Out, Part};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
+
+/// An array of an HDU with its chunks.
+struct Node {
+    path: String,
+    data_type: String,
+    shape: Vec<u64>,
+    dims: Vec<String>,
+    element: Option<u32>,
+    grid: Vec<u64>,
+    chunks: Vec<(Vec<u64>, Chunk)>,
+    /// in a compressed file, the array's bytes of what it decodes to: (offset, length)
+    within: Option<(u64, u64)>,
+    /// a table's rows as a struct (§4
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#4-tables>): its data type,
+    /// its fill value and whether a field has a byte order
+    row: Option<J>,
+}
 
 const PROFILE: &str = "fits";
 /// The most bytes of a chunk of an image or of a table's rows (§3.1
@@ -115,25 +132,28 @@ fn own_json(h: &J, cards: &[Card]) -> J {
     J::Object(own)
 }
 
-/// An array of an HDU with its chunks.
-struct Node {
-    path: String,
-    data_type: String,
-    shape: Vec<u64>,
-    dims: Vec<String>,
-    element: Option<u32>,
-    grid: Vec<u64>,
-    chunks: Vec<(Vec<u64>, Chunk)>,
-    /// a table's rows as a struct (§4
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#4-tables>): its data type,
-    /// its fill value and whether a field has a byte order
-    row: Option<J>,
-}
-
 /// The arrays of HDU `h`, cut as conventions §7
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays> cuts
-/// contiguous values.
-fn arrays(ir: &Ir, h: &J, threshold: usize) -> Result<Vec<Node>, String> {
+/// contiguous values; in a compressed file, each one chunk, the file's `length` bytes (§2.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#21-a-compressed-file>).
+fn arrays(ir: &Ir, h: &J, threshold: usize, stream: &J) -> Result<Vec<Node>, String> {
+    let mut out = cut_arrays(ir, h, threshold)?;
+    if let Some(length) = stream["length"].as_u64() {
+        for a in &mut out {
+            let (start, bytes) = a.element.map_or((0, 0), |e| (ir.start[e as usize], ir.len[e as usize]));
+            a.within = Some((start, bytes));
+            a.grid = a.shape.iter().map(|&s| s.max(1)).collect();
+            a.chunks = if bytes > 0 {
+                vec![(vec![0; a.shape.len()], Chunk::Ranges(vec![Part::Src(0, length)]))]
+            } else {
+                Vec::new()
+            };
+        }
+    }
+    Ok(out)
+}
+
+fn cut_arrays(ir: &Ir, h: &J, threshold: usize) -> Result<Vec<Node>, String> {
     let index = h["index"].as_u64().unwrap_or(0);
     let mut out = Vec::new();
     match h["kind"].as_str() {
@@ -144,7 +164,7 @@ fn arrays(ir: &Ir, h: &J, threshold: usize) -> Result<Vec<Node>, String> {
             let element = h["elements"]["data"].as_u64().map(|v| v as u32);
             let offset = element.map_or(0, |e| ir.start[e as usize]);
             let (grid, chunks) = grid_chunks(offset, &shape, item, CHUNK_BYTES, threshold).ok_or("internal: the data cannot be cut into chunks")?;
-            out.push(Node { path: index.to_string(), data_type: h["data_type"].as_str().unwrap_or("uint8").to_string(), shape, dims, element, grid, chunks, row: None });
+            out.push(Node { path: index.to_string(), data_type: h["data_type"].as_str().unwrap_or("uint8").to_string(), shape, dims, element, grid, chunks, within: None, row: None });
         }
         Some("table") => {
             let t = &h["table"];
@@ -159,11 +179,11 @@ fn arrays(ir: &Ir, h: &J, threshold: usize) -> Result<Vec<Node>, String> {
                 None => (vec![rows, row_bytes], 1, vec!["row".into(), "byte".into()], "uint8"),
             };
             let (grid, chunks) = grid_chunks(offset, &shape, item, CHUNK_BYTES, threshold).ok_or("internal: the rows cannot be cut into chunks")?;
-            out.push(Node { path, data_type: data_type.into(), shape, dims, element, grid, chunks, row });
+            out.push(Node { path, data_type: data_type.into(), shape, dims, element, grid, chunks, within: None, row });
             if heap > 0 {
                 let e = h["elements"]["heap"].as_u64().ok_or("internal: a heap without an element")? as u32;
                 let (size, chunks) = blob_chunks(ir.start[e as usize], heap);
-                out.push(Node { path: format!("{index}/heap"), data_type: "uint8".into(), shape: vec![heap], dims: vec!["byte".into()], element: Some(e), grid: vec![size], chunks, row: None });
+                out.push(Node { path: format!("{index}/heap"), data_type: "uint8".into(), shape: vec![heap], dims: vec!["byte".into()], element: Some(e), grid: vec![size], chunks, within: None, row: None });
             }
         }
         _ => {}
@@ -176,7 +196,7 @@ pub fn reads(ir: &Ir, facts: &J) -> Result<Vec<(u64, u64)>, String> {
     let threshold = contiguous::threshold(facts);
     let mut out = Vec::new();
     for h in facts["hdus"].as_array().into_iter().flatten() {
-        for a in arrays(ir, h, threshold)? {
+        for a in arrays(ir, h, threshold, &facts["stream"])? {
             out.extend(contiguous::copy_reads(&a.chunks));
         }
     }
@@ -186,6 +206,7 @@ pub fn reads(ir: &Ir, facts: &J) -> Result<Vec<(u64, u64)>, String> {
 pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, String> {
     let threshold = contiguous::threshold(facts);
     let hdus = facts["hdus"].as_array().cloned().unwrap_or_default();
+    let stream = &facts["stream"];
     let mut out = Out::new(url);
     // the root: the table of HDUs and the primary header's cards (§5.1
     // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#51-the-root>)
@@ -221,7 +242,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
             tiled.push((h.clone(), own));
             continue;
         }
-        let node_arrays = arrays(ir, h, threshold)?;
+        let node_arrays = arrays(ir, h, threshold, stream)?;
         if kind == "image" {
             // the array is the node itself: its document gets the declaration
         } else {
@@ -229,7 +250,10 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
         }
         all_arrays.push((kind == "image", own, node_arrays));
     }
-    let root_own = json!({"hdus": table, "cards": primary_cards});
+    let root_own = json!({"hdus": table, "cards": primary_cards, "stream": match stream.is_null() {
+        true => J::Null,
+        false => json!({"method": stream["method"], "size": stream["size"]}),
+    }});
     out.json("zarr.json", &declared_group(Map::new(), PROFILE, Some(url), Some(root_own)));
     for (key, doc) in docs {
         out.json(&key, &doc);
@@ -240,9 +264,17 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     let mut zeros = contiguous::Zeros::of(all_arrays.iter().flat_map(|(_, _, arrays)| arrays.iter().flat_map(|a| &a.chunks)));
     let mut refs = Refs::new(ir, out);
     for (is_image, own, node_arrays) in all_arrays {
-        for Node { path, data_type, shape, dims, element, grid, chunks, row } in node_arrays {
+        for Node { path, data_type, shape, dims, element, grid, chunks, within, row } in node_arrays {
             let item = row.as_ref().map_or(item_size(&data_type), |r| if r["ordered"] == true { 2 } else { 1 });
-            let codecs = json!([bytes_codec(item, "big")]);
+            let mut codecs = vec![bytes_codec(item, "big")];
+            if let Some((length, keep)) = within {
+                codecs.push(json!({"name": "refkv.skip", "configuration": {"length": length, "keep": keep}}));
+                codecs.push(match stream["method"].as_str() {
+                    Some("gzip") => json!({"name": "gzip", "configuration": {"level": 1}}),
+                    _ => json!({"name": "numcodecs.bz2", "configuration": {"level": 1}}),
+                });
+            }
+            let codecs = J::Array(codecs);
             let dim_refs: Vec<&str> = dims.iter().map(|s| s.as_str()).collect();
             let mut doc = array_json(&shape, &data_type, json!(grid), codecs, &dim_refs);
             if let Some(r) = &row {
@@ -298,7 +330,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
         }
     }
     let mut out = refs.out;
-    out.summary = json!({"hdus": hdus.len(), "kinds": kinds, "arrays": summary_arrays, "chunks": count, "cards": cards_total, "tables": tables});
+    out.summary = json!({"hdus": hdus.len(), "kinds": kinds, "arrays": summary_arrays, "chunks": count, "cards": cards_total, "tables": tables, "stream": stream["method"]});
     Ok(out)
 }
 

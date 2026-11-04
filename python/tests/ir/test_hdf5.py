@@ -10,6 +10,7 @@ import math
 import warnings
 
 import h5py
+import hdf5plugin  # noqa: F401  (h5py reads the fixtures' third-party filters through it)
 import numpy as np
 import pytest
 import xarray as xr
@@ -33,7 +34,12 @@ UNPRESENTED = {
                            "refkv_source": "reserved"},
     "hdf5_compounds.h5": {"gap": "datatype", "mixed_order": "datatype"},
     "hdf5_layouts.h5": {"external": "external_storage", "null": "null_dataspace", "virtual": "layout"},
-    "hdf5_filters.h5": {"fletcher32": "filter", "lzf": "filter"},
+    "hdf5_masks.h5": {
+        "bitshuffle_skipped": "filter_mask",
+        "deflate_skipped_short": "filter_mask",
+        "shuffle_skipped": "filter_mask",
+    },
+    "hdf5_third_party.h5": {"bitshuffle_zstd": "filter", "strings_lz4": "filter"},
     "hdf5_netcdf4.h5": {"depth": "dimension_only", "x": "dimension_only"},
     "hdf5_links_earliest.h5": {"region": "datatype"},
     "hdf5_links_latest.h5": {"region": "datatype"},

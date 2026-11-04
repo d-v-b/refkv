@@ -1,7 +1,7 @@
 # url|name of the public Imaris IMS files in the corpus. Sources: the OME sample images
 # (downloads.openmicroscopy.org/images/Imaris-IMS/, CC BY 4.0) and Zenodo records (each under the
 # record's license, CC BY 4.0 or CC0). Writers include Andor Fusion, Imaris 7-10 and ImarisFileConverter;
-# croppedRetinaLz4 (LZ4) and the scene-only hCD8 file must be rejected.
+# croppedRetinaLz4 (LZ4) compares py with web alone, since the frozen reference rejects LZ4, and the scene-only hCD8 file must be rejected.
 https://downloads.openmicroscopy.org/images/Imaris-IMS/davemason/Convallaria_3C_1T_confocal.ims|ome_convallaria_3c_1t|ends-sha256=e1aa9e0762f8e532caba50022a41fd6f5b591659eb132e72c45e2f4675c371d9
 https://downloads.openmicroscopy.org/images/Imaris-IMS/davemason/Convallaria_3C_10T_confocal.ims|ome_convallaria_3c_10t|ends-sha256=2b3b97c001b601f5a2c30b659ba25dfcb979cb95ac583b9ad02b6872e1f08d88
 https://downloads.openmicroscopy.org/images/Imaris-IMS/davemason/TransFactors_2C_SRRF.ims|ome_transfactors_2c_srrf|ends-sha256=f0ab139b219af38b558df82b07d31014c221f5022412d584086681f3615e71e0
@@ -9,7 +9,7 @@ https://downloads.openmicroscopy.org/images/Imaris-IMS/davemason/Convallaria_3C_
 https://downloads.openmicroscopy.org/images/Imaris-IMS/eliana/retina_large.ims|ome_retina_large|ends-sha256=48ffe1f873b89d03a4c43a80e03b9522198ab5853d9ca5e283010656ae018b59
 https://downloads.openmicroscopy.org/images/Imaris-IMS/eliana/2016-07-26_17.11.03_Sample%20Prefix_5P298C2_Protocol.ims|ome_eliana_protocol|ends-sha256=bf2df92513d5116bbb004eba59c7c3c07248182774de1897b064495771546dad
 https://downloads.openmicroscopy.org/images/Imaris-IMS/bitplane/performance/performanceTestImage.ims|ome_bitplane_performance|ends-sha256=63b81604a5802728944668765cc11db5d4fe271a0e91f58a8344f93c072c15ff
-https://downloads.openmicroscopy.org/images/Imaris-IMS/bitplane/lz4/croppedRetinaLz4.ims|ome_bitplane_retina_lz4|ends-sha256=b7debc9d24c349e5aa46a3eb26f9a9c8356cb651cf68cdd521a6eca72cc1e4db
+https://downloads.openmicroscopy.org/images/Imaris-IMS/bitplane/lz4/croppedRetinaLz4.ims|ome_bitplane_retina_lz4|no-ref|ends-sha256=b7debc9d24c349e5aa46a3eb26f9a9c8356cb651cf68cdd521a6eca72cc1e4db
 https://zenodo.org/api/records/14675120/files/Andor_Dragonfly_example_2Dsnap.ims/content|zenodo_dragonfly_2dsnap|ends-sha256=24f26352f3d764cc628fcd8faec4fb6c68468f5784a3b251a18b324b1b91e9c5
 https://zenodo.org/api/records/4449687/files/HeLa_H2BmCherry_GFPtubulin_Mitotracker.ims/content|zenodo_hela_mitotracker|ends-sha256=9f624b8c22c539fbef8e5077182cd51c983de7f0082e50ec9be0016e0fd4099d
 https://zenodo.org/api/records/4433202/files/EM_C_596.ims/content|zenodo_ovule_em_c_596|ends-sha256=2dbd76cc55b71ce2e933a301bcf0a46cc93179d10919236f433167bcb9e9a736
