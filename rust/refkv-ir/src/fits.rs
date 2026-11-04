@@ -1,5 +1,5 @@
 //! A sans-IO parser of FITS files (images, multi-extension files, binary and ASCII tables,
-//! tile-compressed images) into the IR (spec/zarrify/fits.md §9
+//! tile-compressed images, whole files in gzip or bzip2) into the IR (spec/zarrify/fits.md §9
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#9-fits-profile>, and the
 //! source model of §6.1
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#61-elements>).
@@ -10,7 +10,9 @@
 //! the profile's order. The IR is one struct per HDU: its header (one value of 80-byte cards),
 //! its data (an image's values; a table's rows, gap and heap; a tile-compressed image's table
 //! and the heap in chunks of tiles) and its padding, and a gap for any bytes after the last
-//! HDU (special records).
+//! HDU (special records). A compressed file is read whole and decoded once to learn its decoded
+//! size, then again as the walk goes, keeping only the headers: its IR is one derived element,
+//! the file, and these elements in its space.
 
 use crate::expr::V;
 use crate::fed::{Fed, Overlap, Word};
@@ -19,7 +21,9 @@ use crate::nd2::Step;
 use crate::rules::{self, Rules, flag, num, text};
 use crate::sans;
 use crate::text::latin1;
+use crate::transform::Transform;
 use serde_json::{json, Value as J};
+use std::io::{Cursor, Read};
 
 /// A FITS block, and a card.
 pub const BLOCK: u64 = 2880;
@@ -33,11 +37,46 @@ pub const TILE_CHUNK_BYTES: u64 = 1 << 20;
 
 type Res<T> = Result<T, String>;
 
-/// Whether a file's first bytes are a FITS file's (spec/zarrify.md §1.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>): `SIMPLE  =` and a
-/// fixed-format `T` in column 30.
-pub fn detect(head: &[u8]) -> bool {
+/// `SIMPLE  =` and a fixed-format `T` in column 30.
+fn simple(head: &[u8]) -> bool {
     head.len() >= 30 && &head[..9] == b"SIMPLE  =" && head[29] == b'T'
+}
+
+/// The compression a file's first bytes say it is in (§9.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#91-choosing-the-profile>): a gzip
+/// member of deflate, or a bzip2 stream at its first block.
+fn compression(head: &[u8]) -> Option<Transform> {
+    match head {
+        [0x1f, 0x8b, 8, ..] => Some(Transform::Gunzip),
+        [b'B', b'Z', b'h', b'1'..=b'9', 0x31, 0x41, 0x59, 0x26, 0x53, 0x59, ..] => Some(Transform::Bunzip2),
+        _ => None,
+    }
+}
+
+/// A compression's name in a message and in the root's `stream` (§5.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#51-the-root>).
+fn method(transform: Transform) -> &'static str {
+    if transform == Transform::Gunzip { "gzip" } else { "bzip2" }
+}
+
+/// Whether a file's first bytes are a FITS file's (spec/zarrify.md §1.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>): `simple`, or the first
+/// bytes of a gzip member that decodes to that, or a bzip2 stream, whose first block decodes
+/// only whole.
+pub fn detect(head: &[u8]) -> bool {
+    match compression(head) {
+        Some(Transform::Gunzip) => {
+            let mut decoded = [0u8; 30];
+            let mut reader = Transform::Gunzip.reader(head);
+            let mut got = 0;
+            while let Ok(n @ 1..) = reader.read(&mut decoded[got..]) {
+                got += n;
+            }
+            simple(&decoded[..got])
+        }
+        Some(_) => true,
+        None => simple(head),
+    }
 }
 
 /// A card's value (FITS Standard 4.0, section 4.2).
@@ -322,6 +361,8 @@ pub fn tile_at(shape: &[u64], tile: &[u64], r: u64) -> (Vec<u64>, Vec<u64>) {
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Phase {
     Start,
+    /// a compressed file, being read whole
+    Whole(Transform),
     Hdu,
     Done,
 }
@@ -368,8 +409,24 @@ struct Pending {
     comp: Comp,
 }
 
+/// A compressed file's stream, decoded as far as the walk has read.
+struct Decoded {
+    reader: Box<dyn Read + Send + Sync>,
+    at: u64,
+    transform: Transform,
+    /// the file's bytes
+    length: u64,
+}
+
 pub struct Fits {
+    /// the bytes the HDUs are in: the file's, or what a compressed file decodes to
     size: u64,
+    /// a compressed file's stream
+    decoded: Option<Decoded>,
+    /// the element the HDUs are under and the space of their extents: the root and the source, or
+    /// a compressed file's derived element and its space
+    parent: u32,
+    space: u32,
     phase: Phase,
     /// the bytes fed, one contiguous run
     fed: Fed,
@@ -387,6 +444,9 @@ impl Fits {
     pub fn new(size: u64) -> Self {
         Fits {
             size,
+            decoded: None,
+            parent: 0,
+            space: 0,
             phase: Phase::Start,
             fed: Fed::new(Overlap::Run),
             offset: 0,
@@ -415,12 +475,75 @@ impl Fits {
 
     pub fn step(&mut self) -> Result<Step, String> {
         loop {
+            match self.walk()? {
+                // a compressed file's reads are of what it decodes to, in order
+                Step::Read(reads) if self.decoded.is_some() => {
+                    for (o, n) in reads {
+                        let b = self.decode(o, n)?;
+                        self.fed.feed(o, b);
+                    }
+                }
+                step => return Ok(step),
+            }
+        }
+    }
+
+    /// `n` bytes at `o` of what a compressed file decodes to, past the bytes last read.
+    fn decode(&mut self, o: u64, n: u64) -> Res<Vec<u8>> {
+        let d = self.decoded.as_mut().ok_or("internal: no stream")?;
+        let name = method(d.transform);
+        let failed = |e: std::io::Error| format!("the {name} stream does not decode: {e}");
+        std::io::copy(&mut (&mut d.reader).take(o.saturating_sub(d.at)), &mut std::io::sink()).map_err(failed)?;
+        let mut b = Vec::with_capacity(n as usize);
+        (&mut d.reader).take(n).read_to_end(&mut b).map_err(failed)?;
+        d.at = o + b.len() as u64;
+        Ok(b)
+    }
+
+    /// The whole of a compressed file, fed: decoded once to learn its size and that it decodes,
+    /// and its derived element, whose space the HDUs' extents are in (§2.1
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#21-a-compressed-file>).
+    fn open(&mut self, transform: Transform) -> Res<()> {
+        let raw = self.fed.from(0).to_vec();
+        self.fed = Fed::new(Overlap::Run);
+        let name = text(method(transform));
+        let decoded = std::io::copy(&mut transform.reader(&raw[..]), &mut std::io::sink());
+        let reason = decoded.as_ref().err().map_or(String::new(), |e| e.to_string());
+        self.rules.check("stream", rules::env([("method", name), ("ok", flag(decoded.is_ok())), ("reason", text(&reason))]))?;
+        let size = decoded.map_err(|e| e.to_string())?;
+        let length = raw.len() as u64;
+        let form = json!({"transform": transform.name(), "size": size}).to_string();
+        self.space = self.ir.derived(0, "stream", 0, (0, length), &form)?;
+        self.parent = self.space;
+        self.size = size;
+        self.decoded = Some(Decoded { reader: transform.reader(Cursor::new(raw)), at: 0, transform, length });
+        Ok(())
+    }
+
+    /// The parse's next step, its reads of the bytes the HDUs are in.
+    fn walk(&mut self) -> Result<Step, String> {
+        loop {
             match self.phase {
                 Phase::Start => {
                     self.phase = Phase::Hdu;
                     return Ok(Step::Read(vec![(0, self.size.min(WINDOW))]));
                 }
+                Phase::Whole(transform) => {
+                    let have = self.fed.from(0).len() as u64;
+                    if have < self.size {
+                        return Ok(Step::Read(vec![(have, self.size - have)]));
+                    }
+                    self.open(transform)?;
+                    self.phase = Phase::Hdu;
+                }
                 Phase::Hdu => {
+                    if self.index == 0 && self.decoded.is_none() {
+                        if let Some(transform) = compression(self.fed.from(0)) {
+                            self.rules.check("stream_size", rules::env([("size", num(self.size as f64)), ("method", text(method(transform)))]))?;
+                            self.phase = Phase::Whole(transform);
+                            continue;
+                        }
+                    }
                     if let Some(p) = &self.pending {
                         if self.table_buf.is_none() {
                             // the table, with the next HDU's first window when the current window does not reach it
@@ -450,7 +573,7 @@ impl Fits {
                         return Ok(Step::Read(vec![(self.offset + have, want - have)]));
                     }
                     if self.index == 0 {
-                        if !detect(self.fed.from(self.offset)) {
+                        if !simple(self.fed.from(self.offset)) {
                             return Err("not a FITS file".into());
                         }
                         self.rules.check("file", rules::env([("size", num(self.size as f64))]))?;
@@ -643,6 +766,7 @@ impl Fits {
             let gap = theap as u64 - rows;
             table = json!({"tfields": tfields, "tform": forms, "row_bytes": axes[0], "rows": axes[1], "theap": theap, "gap": gap, "heap": total - rows - gap});
             if xtension == "BINTABLE" && Self::is_true(&cards, "ZIMAGE") {
+                self.rules.check("stream_tiles", rules::env([("hdu", num(hdu)), ("compressed", flag(self.decoded.is_some()))]))?;
                 self.rules.check("table_size", rules::env([("hdu", num(hdu)), ("bytes", num(rows as f64))]))?;
                 comp = Some(self.compressed(&cards, &forms, axes[1])?);
             }
@@ -651,9 +775,10 @@ impl Fits {
         let data_end = data_offset + total;
         let padded_end = data_offset + total.div_ceil(BLOCK) * BLOCK;
         let hdu_end = padded_end.min(self.size);
-        let s = self.ir.struct_(0, "hdus/", self.index, 0, Some((self.offset, hdu_end - self.offset)))?;
+        let space = self.space;
+        let s = self.ir.struct_(self.parent, "hdus/", self.index, space, Some((self.offset, hdu_end - self.offset)))?;
         let ty = format!("{{card:ascii[80]}}[{}]", header_bytes / CARD as u64);
-        let header = self.ir.value(s, "header", NO_INDEX, &ty, 0, (self.offset, header_bytes), Some(&self.fed.from(self.offset)[..header_bytes as usize]))?;
+        let header = self.ir.value(s, "header", NO_INDEX, &ty, space, (self.offset, header_bytes), Some(&self.fed.from(self.offset)[..header_bytes as usize]))?;
         let mut elements = json!({"header": header});
         let empty = naxis == 0;
         let (rows, gap, heap) = match table.as_object() {
@@ -663,32 +788,32 @@ impl Fits {
         if kind == "image" && total > 0 {
             let shape: Vec<u64> = axes.iter().rev().copied().collect();
             let form = json!({"geometry": {"data_type": spec["dtype"], "shape": shape}, "codec": {"endian": "big"}, "recipe": [["src", 0, null]]});
-            elements["data"] = json!(self.ir.data(s, "data", NO_INDEX, 0, (data_offset, total), &form.to_string())?);
+            elements["data"] = json!(self.ir.data(s, "data", NO_INDEX, space, (data_offset, total), &form.to_string())?);
         } else if let Some(c) = &comp {
             // the main table (held once read), the gap; the heap's chunks follow the table
             let ty = Self::table_type(&c.columns, c.rows);
             if rows > 0 {
-                elements["table"] = json!(self.ir.value(s, "table", NO_INDEX, &ty, 0, (data_offset, rows), None)?);
+                elements["table"] = json!(self.ir.value(s, "table", NO_INDEX, &ty, space, (data_offset, rows), None)?);
             }
             if gap > 0 {
-                elements["gap"] = json!(self.ir.value(s, "gap", NO_INDEX, &format!("bytes[{gap}]"), 0, (data_offset + rows, gap), None)?);
+                elements["gap"] = json!(self.ir.value(s, "gap", NO_INDEX, &format!("bytes[{gap}]"), space, (data_offset + rows, gap), None)?);
             }
         } else if kind == "table" {
             if rows > 0 {
                 let form = json!({"geometry": {"rows": table["rows"], "row_bytes": table["row_bytes"]}, "recipe": [["src", 0, null]]});
-                elements["rows"] = json!(self.ir.data(s, "rows", NO_INDEX, 0, (data_offset, rows), &form.to_string())?);
+                elements["rows"] = json!(self.ir.data(s, "rows", NO_INDEX, space, (data_offset, rows), &form.to_string())?);
             }
             if gap > 0 {
-                elements["gap"] = json!(self.ir.value(s, "gap", NO_INDEX, &format!("bytes[{gap}]"), 0, (data_offset + rows, gap), None)?);
+                elements["gap"] = json!(self.ir.value(s, "gap", NO_INDEX, &format!("bytes[{gap}]"), space, (data_offset + rows, gap), None)?);
             }
             if heap > 0 {
                 let form = json!({"geometry": {"bytes": heap}, "recipe": [["src", 0, null]]});
-                elements["heap"] = json!(self.ir.data(s, "heap", NO_INDEX, 0, (data_offset + rows + gap, heap), &form.to_string())?);
+                elements["heap"] = json!(self.ir.data(s, "heap", NO_INDEX, space, (data_offset + rows + gap, heap), &form.to_string())?);
             }
         }
         let pad = hdu_end.saturating_sub(data_end);
         if pad > 0 {
-            elements["pad"] = json!(self.ir.value(s, "pad", NO_INDEX, &format!("bytes[{pad}]"), 0, (data_end, pad), None)?);
+            elements["pad"] = json!(self.ir.value(s, "pad", NO_INDEX, &format!("bytes[{pad}]"), space, (data_end, pad), None)?);
         }
         let name = card(&cards, "EXTNAME").and_then(|c| match &c.value {
             Value::Str(s) => Some(s.trim().to_string()),
@@ -966,8 +1091,15 @@ impl Fits {
         Ok(())
     }
 
-    pub fn finish(self) -> Result<(Ir, J), String> {
-        let facts = json!({"hdus": self.hdus, "copy_threshold": crate::out::copy_threshold()});
+    pub fn finish(mut self) -> Result<(Ir, J), String> {
+        let mut facts = json!({"hdus": self.hdus, "copy_threshold": crate::out::copy_threshold()});
+        if let Some(d) = &self.decoded {
+            // the checker fills the source's gaps: this one, special records, is in the space
+            if self.offset < self.size {
+                self.ir.add(GAP, self.parent, "gaps/", self.offset, "", self.space, Some((self.offset, self.size - self.offset)))?;
+            }
+            facts["stream"] = json!({"method": method(d.transform), "length": d.length, "size": self.size});
+        }
         sans::finish(self.phase == Phase::Done, self.ir, facts)
     }
 }
@@ -1044,6 +1176,36 @@ mod tests {
         assert!(!detect(&rec("SIMPLE  =                    F")));
         assert!(!detect(&rec("XTENSION= 'IMAGE   '")));
         assert!(!detect(b"SIMPLE  ="));
+    }
+
+    /// A compressed file over the limit is rejected from its first bytes, before it is read.
+    #[test]
+    fn rejects_a_compressed_file_over_the_limit() {
+        let mut parser = Fits::new((1 << 31) + 1);
+        assert!(matches!(parser.step(), Ok(Step::Read(_))));
+        parser.feed(0, vec![0x1f, 0x8b, 8, 0]);
+        let message = parser.step().err().unwrap();
+        assert!(message.starts_with("a gzip file of 2147483649 bytes, over the 2147483648"), "{message}");
+    }
+
+    /// A gzip member's first bytes are tested as what they decode to; a bzip2 stream's first
+    /// block decodes only whole, so its magic numbers are the test.
+    #[test]
+    fn detects_a_compressed_file_by_its_stream() {
+        let gzip = |data: &[u8]| {
+            let mut g = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+            std::io::Write::write_all(&mut g, data).unwrap();
+            g.finish().unwrap()
+        };
+        assert!(detect(&gzip(&rec("SIMPLE  =                    T"))));
+        assert!(!detect(&gzip(&rec("SIMPLE  =                    F"))));
+        assert!(!detect(&gzip(b"not a FITS file, though long enough to test")));
+        // cut in the middle of its deflate stream, past the bytes the test needs
+        let long = gzip(&rec("SIMPLE  =                    T").repeat(40));
+        assert!(detect(&long[..long.len() - 12]));
+        assert!(detect(b"BZh91AY&SY..."));
+        assert!(!detect(b"BZh9\x17\x72\x45\x38\x50\x90\0\0\0\0"));
+        assert!(!detect(&[0x1f, 0x8b, 7, 0]));
     }
 
     /// The tile grid cut (§3.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#33-tile-compressed-images>).

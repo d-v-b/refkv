@@ -665,7 +665,7 @@ def corpus(proxy: Proxy, fixtures: Path, quick: bool, local_only: bool, large: b
         return p.stem if stems[p.stem] == 1 else p.relative_to(fixtures).as_posix().replace("/", "__")
 
     items = [(f"fixture-{name(p)}", proxy.local(p.relative_to(fixtures).as_posix()),
-              *(["no-ref"] if FILE_SUFFIXES[p.suffix]["reference"] is None
+              *(["no-ref"] if next(e for x, e in FILE_SUFFIXES.items() if p.name.endswith(x))["reference"] is None
                 or unmutated(p.name) in REVISED else []))
              for p in files]
     registry = {string(e["name"]): e for e in REGISTRY}

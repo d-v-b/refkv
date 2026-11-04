@@ -2,6 +2,8 @@
 astropy's reading of every synthetic file, the mirror's rebuild, and the inputs the profile
 rejects. FITS has no frozen Python reference: astropy is the independent reader."""
 
+import bz2
+import gzip
 import json
 import warnings
 from typing import cast
@@ -18,7 +20,7 @@ from refkv.ir import zarrify as via_ir
 from refkv.zarrify import Rejected
 from refkv.zarrify.common import Output
 
-FILES = sorted(p for p in (FIXTURES / "fits").iterdir() if p.name.endswith((".fits", ".fz")))
+FILES = sorted(p for p in (FIXTURES / "fits").iterdir() if p.name.endswith((".fits", ".fz", ".fits.gz", ".fits.bz2")))
 ACCEPTED = [p for p in FILES if "reject" not in p.name]
 REJECTED = [p for p in FILES if "reject" in p.name]
 MAX_SAFE = (1 << 53) - 1
@@ -27,6 +29,12 @@ MAX_SAFE = (1 << 53) - 1
 SAME_IMAGE = {"fits_comp_hand_absent_tile": ("fits_comp_hand_one_column", slice(3, 6)),
               "fits_comp_hand_no_ztile": ("fits_comp_hand_one_column", None)}
 COMMENTARY = ("COMMENT", "HISTORY", "")
+
+
+def decoded_bytes(path) -> bytes:
+    """The file's bytes, or what a compressed file decodes to."""
+    raw = path.read_bytes()
+    return gzip.decompress(raw) if path.suffix == ".gz" else bz2.decompress(raw) if path.suffix == ".bz2" else raw
 
 
 def zarrified(path, tmp_path) -> tuple[Output, zarr.Group]:
@@ -91,7 +99,7 @@ def test_matches_astropy_and_rebuilds(path, tmp_path):
     a table's rows and heap are the file's bytes, every node's cards are astropy's, the root
     lists the HDUs with their offsets, and the file is rebuilt from the mirror."""
     out, root = zarrified(path, tmp_path)
-    raw = path.read_bytes()
+    raw = decoded_bytes(path)
     meta = mapping(at(root.attrs, "refkv_zarrified", "fits"))
     same = SAME_IMAGE.get(path.stem)
     with (warnings.catch_warnings(),
@@ -198,6 +206,62 @@ def test_chunks(name, tmp_path):
     assert list(root.get_array(path).chunks) == shape
     assert sum(1 for k in out.refs if k.startswith(f"{path}/c/")) == count
     assert len(out.refs[key]) == parts
+
+
+@pytest.mark.parametrize(("name", "method", "codec"), [
+    ("fits_gzip_mef.fits.gz", "gzip", "gzip"),
+    ("fits_gzip_members.fits.gz", "gzip", "gzip"),
+    ("fits_bzip2_mef.fits.bz2", "bzip2", "numcodecs.bz2"),
+    ("fits_bzip2_streams.fits.bz2", "bzip2", "numcodecs.bz2"),
+])
+def test_compressed_arrays_are_the_whole_file(name, method, codec, tmp_path):
+    """Each array of a compressed file is one chunk, the whole file, whose codecs keep the array's
+    bytes of what it decodes to (spec/zarrify/fits.md §2.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#21-a-compressed-file>), and the
+    arrays and their metadata are those of the same file not compressed, but for the chunks."""
+    path = FIXTURES / "fits" / name
+    out, root = zarrified(path, tmp_path)
+    plain, plain_root = zarrified(FIXTURES / "fits" / "fits_mef_sci_err_dq.fits", tmp_path)
+    decoded = decoded_bytes(path)
+    assert at(root.attrs, "refkv_zarrified", "fits", "stream") == {"method": method, "size": len(decoded)}
+    assert at(plain_root.attrs, "refkv_zarrified", "fits", "stream") is None
+    assert at(root.attrs, "refkv_zarrified", "fits", "hdus") == at(plain_root.attrs, "refkv_zarrified", "fits", "hdus")
+    size = path.stat().st_size
+    for i in range(1, 7):
+        doc = mapping(json.loads(out.bytes_entries[f"{i}/zarr.json"]))
+        entry = mapping(at(root.attrs, "refkv_zarrified", "fits", "hdus", i))
+        assert sequence(doc["codecs"])[1:] == [
+            {"name": "refkv.skip", "configuration": {"length": entry["data_offset"], "keep": entry["data_bytes"]}},
+            {"name": codec, "configuration": {"level": 1}},
+        ]
+        assert sum(1 for k in out.refs if k.startswith(f"{i}/c/")) == 1
+        assert len(out.refs[f"{i}/c/0/0"]) == 1
+        assert out.refs[f"{i}/c/0/0"][0][-1] == size
+        same = root.get_array(str(i))
+        assert same.chunks == same.shape
+        assert np.array_equal(ndarray(same[...]), ndarray(plain_root.get_array(str(i))[...]))
+    assert plain.summary["stream"] is None
+    assert out.summary["stream"] == method
+
+
+def test_deflate_as_writers_compress(tmp_path):
+    """A file gzip's deflate compressed, which the fixtures' stored blocks are not: a table's rows
+    and its heap read as in the file."""
+    plain = (FIXTURES / "fits" / "fits_bintable_heap.fits").read_bytes()
+    path = tmp_path / "deflated.fits.gz"
+    path.write_bytes(gzip.compress(plain))
+    _, root = zarrified(path, tmp_path)
+    _, want = zarrified(FIXTURES / "fits" / "fits_bintable_heap.fits", tmp_path)
+    for name in ("1/rows", "1/heap"):
+        assert np.array_equal(ndarray(root.get_array(name)[...]), ndarray(want.get_array(name)[...]))
+
+
+def test_compressed_array_without_data_has_no_chunk(tmp_path):
+    """An array of a size 0 has no chunk in a compressed file either."""
+    out, root = zarrified(FIXTURES / "fits" / "fits_gzip_no_data.fits.gz", tmp_path)
+    for name, array in root.members(max_depth=None):
+        if isinstance(array, zarr.Array) and 0 in array.shape:
+            assert not [k for k in out.refs if k.startswith(f"{name}/c/")]
 
 
 def test_summary(tmp_path):

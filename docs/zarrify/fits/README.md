@@ -6,7 +6,7 @@ references to the file's bytes, without copying the pixels
 
 ## Who this is for
 
-FITS (`.fits`, `.fz`) is the archive format of astronomy: HST and JWST
+FITS (`.fits`, `.fz`, `.fits.gz`, `.fits.bz2`) is the archive format of astronomy: HST and JWST
 exposures and mosaics, Rubin and Euclid images, DECam, Pan-STARRS, Legacy
 Surveys and ZTF survey products, spectra and light curves, and radio cubes.
 A file is a sequence of HDUs (header-data units), each a header of 80-byte
@@ -49,6 +49,12 @@ system cards describe for astropy and the viewers.
   (`[NAXIS2, NAXIS1]` of `uint8`) and `heap` (the variable-length arrays),
   and the column definitions in the group's metadata. Any FITS table
   reader decodes the bytes; columns are not arrays yet.
+- **Compressed files** (`.fits.gz`, `.fits.bz2`, SDSS's frames among them):
+  the same nodes and metadata, each array one chunk, the whole file. Its
+  codecs decode the file and keep the array's bytes (`gzip` or `numcodecs.bz2`,
+  then `refkv.skip`, then `bytes`). Reading any value fetches and decodes the
+  whole file, and a second array of the file does that again: for one chip of
+  a large mosaic, decompress the file first.
 - **Empty HDUs** (`NAXIS = 0`, the empty primary of a multi-extension file):
   a group with the header's cards.
 - **Cards:** every HDU's node carries its header as `[keyword, value,
@@ -127,6 +133,8 @@ Supported:
 
 - Images of every `BITPIX`, multi-extension files, `NAXIS = 0` HDUs,
   special records after the last HDU, a truncated final block.
+- Whole files in gzip or bzip2, of any number of members or streams, but for a
+  tile-compressed image in one.
 - Tile-compressed images with `RICE_1` (`BLOCKSIZE` 16 or 32, `BYTEPIX` 1,
   2 or 4), `GZIP_1`, `GZIP_2` and `NOCOMPRESS`, tiles of any shape,
   quantized floats with `NO_DITHER`, `SUBTRACTIVE_DITHER_1` and
@@ -137,8 +145,11 @@ Supported:
 
 Rejected:
 
-- Whole-file gzip and bzip2 (`.fits.gz`, SDSS's `.fits.bz2`): a compressed
-  stream has no byte ranges to reference; decompress the file first.
+- A tile-compressed image inside a whole-file gzip or bzip2: its tiles have
+  no byte ranges to reference; decompress the file first, which leaves a `.fz`.
+- Whole-file compressed files over 2 GiB: zarrifying holds the file in memory
+  to decode it twice, and a reader would hold it, and all it decodes to, to
+  read any of it.
 - Non-conforming files (`SIMPLE = F`), files whose first card is
   `XTENSION`, random groups (`GROUPS = T`), tile-compressed tables
   (`ZTABLE = T`), `HCOMPRESS_1` and `PLIO_1` compression, the deprecated
@@ -155,6 +166,9 @@ Rejected:
   bytes per tile) in one range. A DECam exposure of 61 chips reads about
   10 MB of a 331 MB file; a plain multi-extension file reads its headers
   alone.
+- A compressed file is the exception: zarrifying reads it all and decodes it
+  twice, and a reader reads it all for any value. An SDSS frame of 4 MiB is
+  quick; a 2 GiB file is not.
 - Reading a chunk of an image is one range request of at most 1 MiB; of a
   tile-compressed image, one range of its tiles' streams (about 170 KB for
   128 DECam rows), decoded in Rust.
