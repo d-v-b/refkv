@@ -3,8 +3,13 @@
 # scan, (c) Michael Goelzer; eight series of a FRET experiment, (c) Nicolas Chiaruttini; FRAP series in
 # folders, (c) Sean Warren; z-stacks and a tile scan with its merged image, Zenodo 6606445, (c) Peter
 # Zentis; a 3 GB slide of tile scans, merged and processed images, Zenodo 15353569, (c) Pamela Young
+# And from OME's Leica-XLEF directory, which states no license: a LOF of its Snail set, a LIFEXT file, and
+# the set's XLEF, whose names LAS X wrote in lower case, so that over HTTP both hosts reject it, by name
 https://downloads.openmicroscopy.org/images/Leica-LIF/michael/PR2729_frameOrderCombinedScanTypes.lif|goelzer_pr2729|no-ref|ends-sha256=0bc71cfc8e515e332da5d5271d28520764a0bf2902792b51b92a7e3b6a214346
 https://downloads.openmicroscopy.org/images/Leica-LIF/imagesc-30856/20191025%20Test%20FRET%20585.%20423%2C%20426.lif|chiaruttini_fret|no-ref|ends-sha256=4e94cca76df4a54fab93ca58df9973312cc87c0eca4d7fcc5ccb3edaf495be73
 https://downloads.openmicroscopy.org/images/Leica-LIF/seanwarren/150519_FRAP_test_ROIs_chromagreen/150519_FRAP_test_ROIs_chromagreen.lif|warren_frap|no-ref|ends-sha256=3b3d27a09a87f452205665d4a8b5b3f288dc6ec1feed8daaa52d6882793a96cb
 https://downloads.openmicroscopy.org/images/Leica-LIF/zenodo-6606445/Project007.lif|zentis_project007|no-ref|ends-sha256=8dfd101058d61b66471a8807c9447dc063b3250c9dfd9c3b8b308f66c556349c
 https://downloads.openmicroscopy.org/images/Leica-LIF/imagesc-110520/AMR1.lif|young_amr1|no-ref|ends-sha256=5831923fe7c5d0a730de572618131ede0e0b4872ab161698234cf9916e1019ac
+https://downloads.openmicroscopy.org/images/Leica-XLEF/Snail/XLEF-LOF%20Snail/Series010_EDF001/EDF%20Image.lof|snail_edf_lof|no-ref|ends-sha256=3f8b67aa6549d818bd435fd881150476fbef64a4277638724cced0b16aef95cf
+https://downloads.openmicroscopy.org/images/Leica-XLEF/lif/confocal%20LIFs/MaF%20in%20Navigator%2012bit%203s%20z5.lifext|maf_navigator_lifext|no-ref|ends-sha256=d86654108d5df6e86ab113c253349a7a7a250edc2fcc0bbf78dbac9acd2698e3
+https://downloads.openmicroscopy.org/images/Leica-XLEF/Snail/XLEF-LOF%20Snail/Schnecke.xlef|snail_xlef|no-ref|ends-sha256=b6fa4413812e998d6c290316f7c736237d929837c09decb84724cf0dbb227393

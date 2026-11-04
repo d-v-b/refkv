@@ -16,8 +16,9 @@ recording as a NumPy array, over HTTP, without decoding the whole file or
 converting it to images first, has to write that machinery today.
 
 An MP4 file indexes every coded frame (its offset, size, timestamp and
-whether it is a keyframe) in its `moov` box, so refkv reads that box alone,
-never the media, and writes an archive in which every Zarr chunk is a run
+whether it is a keyframe) in its `moov` box, and a fragmented one, as a
+camera or a live stream records it, in a `moof` box per fragment, so refkv
+reads those boxes alone, not the media, and writes an archive in which every Zarr chunk is a run
 of frames, referenced together with the frames before it that a decoder
 needs: back to the keyframe before it, for video. The archive's
 `refkv.stream` codec decodes a chunk when it is read.
@@ -168,14 +169,15 @@ other video codecs, Dolby Vision's own sample entries (`dvh1`, `dvhe`),
 4:4:4 and 12-bit HEVC, groups of more than 1024 pictures, HE-AAC and other
 audio codecs, timecode, text and metadata tracks.
 
-Rejected: fragmented MP4 (`moof` boxes), files without a `moov` box, files
+Rejected: files without a `moov` box, files
 with none of the tracks above, and malformed boxes or sample tables.
 
 ## Performance
 
 - Zarrifying reads the first 64 KiB, each top-level box header after it,
   and the `moov` box: for a file whose `moov` box is at the end, three or
-  four requests.
+  four requests. A fragmented file takes a request more per fragment (a
+  recording cut into 2-second fragments, 1800 requests an hour).
 - Reading a video chunk is one request per run of its pictures in the file
   (the audio interleaved between them splits them) and decoding its
   pictures. A chunk starts at a keyframe, unless it splits a group longer

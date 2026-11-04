@@ -425,6 +425,10 @@ The rest of each host finds the format through these. The CLI asks
 `store_run()` (`beside_format` in `rust/refkv-cli/src/run.rs`), and Python and the
 browser code ask `BESIDE`.
 
+A format whose writers name files in another case than they have (LIF's XLEF documents) also lists
+a local directory for its files: `CASE` in `python/src/refkv/zarrify/__init__.py` and `case` in
+`rust/refkv-cli/src/vsi.rs`, which answer a probe with `StoreRun::found_as`.
+
 [#119](https://github.com/d-v-b/refkv/pull/119) added the first of these, and
 [#170](https://github.com/d-v-b/refkv/pull/170) is the shortest list, GRIB's. Every read of
 the extra files goes through the reader policy
