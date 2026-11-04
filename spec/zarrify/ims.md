@@ -9,6 +9,9 @@ it reads, is the IMS profile, [Part 2](#part-2-the-profile) below.
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `5067a535-8261-4b25-a93c-1985ed333bde` ·
 Schema: [schema.json](ims/schema.json)
 
+Changed 2026-11-04: a dataset with shuffle, LZ4 or Fletcher32 is presented
+([§2.2](#22-the-imaris-layout), [§4](#4-output), [§7.8](#78-chunk-references)).
+
 Changed 2026-11-01, with no change to any output: the rejections name the rounds of reads and
 the references' budget, which refkv already applied ([§7.7](#77-rejection)).
 
@@ -94,9 +97,8 @@ links to `/Workflows/InitialImages/...`. Files written with newer HDF5
 format bounds (superblock version 3, layout versions 4 and 5) index chunks by
 fixed arrays or as a single chunk, by extensible arrays or version 2
 B-trees when dimensions are unlimited, and implicitly when chunks are
-allocated early. Imaris 10 can also compress chunks with LZ4
-(filter 32004), alone or after byte shuffling (filter 2); no codec of [conventions §3](../conventions.md#3-arrays)
-decodes those, so such files are rejected.
+allocated early. Imaris 10 and ImarisWriter can also compress chunks with LZ4
+(filter 32004), alone or after byte shuffling (filter 2).
 
 
 ### 2.1 Attributes as text
@@ -145,9 +147,9 @@ to reach them:
     image's size `(Z, Y, X)`. (Imaris pads the dataset to whole chunks; the
     image is its part from the origin.)
   - The dataset MUST have rank 3, its sizes (in order z, y, x) MUST be at
-    least `Z`, `Y` and `X`, and its filters MUST be none, or exactly one
-    with identifier 1 (deflate, whose chunks are zlib streams). Other filters
-    (shuffle 2, Fletcher32 3, LZ4 32004, ...) reject the input.
+    least `Z`, `Y` and `X`, and its filters, in pipeline order, MUST be shuffle (2) if any,
+    then deflate (1, whose chunks are zlib streams) or LZ4 (32004) if any, then Fletcher32 (3) if
+    any. Others reject the input.
   - Its **data type**, by its datatype. Any other datatype rejects the input.
 
     | class | size | its fields | data type |
@@ -162,8 +164,7 @@ to reach them:
 All datasets MUST have the same data type and, for data types of 2 or 4
 bytes, the same byte order. All datasets of a level `r` MUST have the same
 image size `(Zr, Yr, Xr)`, the same chunk shape `(cz, cy, cx)` and the same
-filters (both none or both deflate). Levels may differ in chunk shape and
-filters.
+filters. Levels may differ in chunk shape and filters.
 
 ## 3. Metadata
 
@@ -253,7 +254,7 @@ planes keeps them, so that its bytes decode to its Zarr chunk); then `y`,
 | `shape` | array of integer | required | `T`, `C`, `Zr`, `Yr`, `Xr`, each only for the axes present |
 | `data_type` | string | required | the data type of [§2.2](#22-the-imaris-layout) |
 | `chunk_grid` | object | required | regular, its chunk shape 1, 1, `cz`, `cy`, `cx`, each only for the axes present |
-| `codecs` | array of object | required | `bytes` (with the byte order as its `endian` for data types of 2 or 4 bytes), followed by `numcodecs.zlib` for deflate |
+| `codecs` | array of object | required | `bytes` (with the byte order as its `endian` for data types of 2 or 4 bytes), followed in pipeline order by `{"name": "numcodecs.shuffle", "configuration": {"elementsize": s}}` for shuffle, `s` the data type's size, `numcodecs.zlib` for deflate and `imagecodecs_lz4h5` for LZ4. Fletcher32 has no codec: [§7.8](#78-chunk-references) leaves its checksum out |
 | `attributes` | object | required | `{}` |
 
 **Scale** of level `r`, for each axis:
@@ -330,7 +331,7 @@ signed, for `n` bits), and `s`, `e` the two values of `ColorRange`:
 **Chunks:** the chunk of level `r` with coords `t`, `c`, `i` (each only
 when its axis is present), `j`, `k` is the chunk at grid coordinates
 `(i, j, k)` of dataset `(r, t, c)`, as HDF5 stores it (zlib-compressed
-for deflate): an [`ImsChunk`](#type-imschunk). It is present when that chunk is allocated
+for deflate), without a Fletcher32 checksum: an [`ImsChunk`](#type-imschunk). It is present when that chunk is allocated
 and not wholly outside the image (`i × cz < Zr`, `j × cy < Yr` and `k × cx < Xr`);
 otherwise it is absent (the fill value, 0). HDF5 stores edge chunks
 whole, like Zarr, so a chunk's bytes decode to its Zarr chunk.
@@ -1008,8 +1009,8 @@ input: what it cannot read is not described, and its bytes are gaps.
 Each allocated chunk of dataset `(r, t, c)` at coordinates
 `(i, j, k)` that is not wholly outside the image (that is,
 `i × cz < Zr`, `j × cy < Yr` and `k × cx < Xr`) is the entry
-`<r>/c/<coords>` with the single range `(0, address, size)`; the coords
-are `t`, `c`, `i` (each only when its axis is present), `j`, `k`.
+`<r>/c/<coords>` with the single range `(0, address, size)`, or, with Fletcher32 in the pipeline, `(0,
+address, size − 4)`; the coords are `t`, `c`, `i` (each only when its axis is present), `j`, `k`.
 Chunks in the padding are not output, and unallocated chunks have no entry.
 HDF5 stores edge chunks whole, like Zarr, so a chunk's bytes decode to its
 Zarr chunk. (A single range's payload is at most 21 bytes, within the limit
@@ -1020,7 +1021,7 @@ of dataset `(r, t, c)` ([§7.5](#75-datasets-and-chunks) gives its address and s
 
 | part | range | presence | value |
 |---|---|---|---|
-| the chunk | source range `(0, address, size)` | required | the chunk's bytes as HDF5 stores them, zlib streams for deflate |
+| the chunk | source range `(0, address, size)`, less a Fletcher32 checksum's 4 bytes | required | the chunk's bytes as HDF5 stores them, zlib streams for deflate |
 
 ### 7.9 Source metadata structures
 

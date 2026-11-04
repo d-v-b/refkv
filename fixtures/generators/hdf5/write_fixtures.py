@@ -23,6 +23,7 @@ from pathlib import Path
 
 import h5netcdf
 import h5py
+import hdf5plugin
 import hdmf.container
 import numpy as np
 from hdmf.backends.hdf5 import H5DataIO
@@ -195,7 +196,7 @@ def latest():
 
 def filters_and_chunks():
     """Chunked datasets: partial edge chunks, unallocated chunks, deflate, shuffle and deflate,
-    big-endian data; and fletcher32 and lzf (not presented)."""
+    big-endian data, fletcher32 and lzf."""
     with open_file("hdf5_filters.h5") as f:
         f.create_dataset("plain", data=ramp((10, 7), "<i4"), chunks=(4, 3))
         sparse = f.create_dataset("sparse", shape=(8, 8), dtype="<f4", chunks=(4, 4))
@@ -205,6 +206,63 @@ def filters_and_chunks():
         f.create_dataset("unlimited", data=ramp((5,), "<u4"), chunks=(2,), maxshape=(None,))
         f.create_dataset("fletcher32", data=ramp((8,), "<i4"), chunks=(4,), fletcher32=True)
         f.create_dataset("lzf", data=ramp((8,), "<i4"), chunks=(4,), compression="lzf")
+
+
+def third_party():
+    """The third-party filters readers' codecs undo, alone and after shuffle: Blosc with three of its
+    compressors and shuffles, zstd, LZ4, and bitshuffle with and without LZ4, its block sizes leaving
+    a short block and leftover elements."""
+    with open_file("hdf5_third_party.h5") as f:
+        values = ramp((75,), "<i4")
+        f.create_dataset("blosc_lz4", data=values, chunks=(30,), **hdf5plugin.Blosc("lz4", 5, hdf5plugin.Blosc.SHUFFLE))
+        blosc = hdf5plugin.Blosc
+        f.create_dataset("blosc_zstd", data=values, chunks=(30,), **blosc("zstd", 3, blosc.BITSHUFFLE))
+        f.create_dataset("blosc_plain", data=values, chunks=(30,), **blosc("blosclz", 1, blosc.NOSHUFFLE))
+        f.create_dataset("zstd", data=values, chunks=(30,), **hdf5plugin.Zstd(clevel=4))
+        f.create_dataset("lz4", data=values, chunks=(30,), **hdf5plugin.LZ4())
+        f.create_dataset("shuffle_lz4", data=values, chunks=(30,), shuffle=True, **hdf5plugin.LZ4(nbytes=32))
+        f.create_dataset("bitshuffle_lz4", data=values, chunks=(30,), **hdf5plugin.Bitshuffle(cname="lz4"))
+        block = hdf5plugin.Bitshuffle(nelems=8, cname="lz4")
+        f.create_dataset("bitshuffle_block", data=ramp((5, 7), ">u2"), chunks=(4, 7), **block)
+        f.create_dataset("bitshuffle_bare", data=values, chunks=(30,), **hdf5plugin.Bitshuffle(nelems=16, cname="none"))
+        f.create_dataset("fletcher32_all", data=values, chunks=(30,), shuffle=True, compression="gzip", fletcher32=True)
+        f.create_dataset("fletcher32_lz4", data=values, chunks=(30,), fletcher32=True, **hdf5plugin.LZ4())
+        references = [f["zstd"].ref, f["lz4"].ref]
+        f.create_dataset("references_fletcher32", data=references, dtype=h5py.ref_dtype, chunks=(2,), fletcher32=True)
+        # not presented: bitshuffle's zstd, which has no codec, and strings the profile cannot unpack
+        f.create_dataset("bitshuffle_zstd", data=values, chunks=(30,), **hdf5plugin.Bitshuffle(cname="zstd"))
+        f.create_dataset("strings_lz4", data=["ab", "cde"], dtype=h5py.string_dtype(), chunks=(2,), **hdf5plugin.LZ4())
+
+
+def filter_masks():
+    """Chunks an optional filter skipped, written directly so that each mask is the one named: a
+    chunk deflate, LZF, Blosc, zstd or LZ4 skipped, shuffled or not, and a checksum skipped; and, not
+    presented, a chunk shuffle or bitshuffle skipped, or one deflate skipped of a length that is not
+    the chunk's."""
+    first = ramp((4,), "<i4")
+    second = first + 100
+    shuffled = np.frombuffer(second.tobytes(), "u1").reshape(4, 4).T.tobytes()
+
+    def dataset(f, name, kw, chunks):
+        d = f.create_dataset(name, shape=(8,), dtype="<i4", chunks=(4,), **kw)
+        d[0:4] = first
+        for offset, raw, mask in chunks:
+            d.id.write_direct_chunk((offset,), raw, mask)
+
+    with open_file("hdf5_masks.h5") as f:
+        dataset(f, "deflate_skipped", {"compression": "gzip"}, [(4, second.tobytes(), 0b1)])
+        dataset(f, "shuffle_deflate_skipped", {"compression": "gzip", "shuffle": True}, [(4, shuffled, 0b10)])
+        all_three = {"compression": "gzip", "shuffle": True, "fletcher32": True}
+        dataset(f, "deflate_checksum_skipped", all_three, [(4, shuffled, 0b110)])
+        dataset(f, "checksum_skipped", {"fletcher32": True}, [(4, second.tobytes(), 0b1)])
+        dataset(f, "lzf_skipped", {"compression": "lzf"}, [(4, second.tobytes(), 0b1)])
+        blosc = hdf5plugin.Blosc("lz4", 5, hdf5plugin.Blosc.NOSHUFFLE)
+        dataset(f, "blosc_skipped", blosc, [(4, second.tobytes(), 0b1)])
+        dataset(f, "zstd_skipped", hdf5plugin.Zstd(), [(4, second.tobytes(), 0b1)])
+        dataset(f, "lz4_skipped", {"shuffle": True, **hdf5plugin.LZ4()}, [(4, shuffled, 0b10)])
+        dataset(f, "shuffle_skipped", {"compression": "gzip", "shuffle": True}, [(4, second.tobytes(), 0b1)])
+        dataset(f, "bitshuffle_skipped", hdf5plugin.Bitshuffle(cname="lz4"), [(4, second.tobytes(), 0b1)])
+        dataset(f, "deflate_skipped_short", {"compression": "gzip"}, [(4, second.tobytes()[:8], 0b1)])
 
 
 def names_and_attributes():
@@ -375,6 +433,8 @@ def main():
     references_and_links("hdf5_links_latest.h5", "latest")
     latest()
     filters_and_chunks()
+    third_party()
+    filter_masks()
     names_and_attributes()
     netcdf4()
     nwb_files()

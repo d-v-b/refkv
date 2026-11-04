@@ -10,3 +10,6 @@ https://dandiarchive.s3.amazonaws.com/blobs/5ca/ea3/5caea343-caf7-4914-aa51-6379
 https://dandiarchive.s3.amazonaws.com/blobs/a7f/c69/a7fc69c4-8fb2-4ee7-9e19-99222f31b8f4|dandi_000021_probe_lfp|no-ref|ends-sha256=ea6009243a8a0e16190d7d9ba0060ed7f81e699b445e8ce3ffebf8ac05088de8
 https://dandiarchive.s3.amazonaws.com/blobs/68f/d35/68fd35f1-8860-4612-9f00-c2a9582d41b3|dandi_000409_ibl_raw_ecephys|no-ref|ends-sha256=b9f980e6bb587006d3f97fe4397432f9306bc8ead9832e1bf17147e0ca07b2d4
 https://dandiarchive.s3.amazonaws.com/blobs/0a5/f64/0a5f6405-d361-4d9e-8fde-8ca00be0f3b4|dandi_000728_abo_ophys|no-ref|ends-sha256=80414d2be2ac2b66d97cdc678340cd8a34d34ee5bbd84c1cd3681d92e0839442
+# A Sentinel-5P NO2 product (Copernicus Sentinel data, the meeo-s5p bucket), a netCDF-4 file of 153 datasets
+# with the pipeline shuffle, deflate, Fletcher32
+https://meeo-s5p.s3.amazonaws.com/NRTI/L2__NO2___/2024/01/01/S5P_NRTI_L2__NO2____20240101T080326_20240101T080826_32219_03_020600_20240101T090808.nc|s5p_no2_nrti|no-ref|ends-sha256=1d11365c2dbb396a1e403301fff825685c89c3eaf3d7f03a27428c02de9f3291

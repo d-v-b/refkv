@@ -17,6 +17,7 @@ pub mod lv;
 pub mod lzw;
 pub mod mirror;
 pub mod fits_tiles;
+pub mod h5_bitshuffle;
 pub mod out;
 pub mod plan;
 pub mod project;

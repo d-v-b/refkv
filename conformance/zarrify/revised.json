@@ -44,6 +44,11 @@
     "dicom_reject_ljpeg_components.dcm",
     "dicom_reject_ljpeg_no_scan.dcm",
     "dicom_reject_ljpeg_precision.dcm",
-    "dicom_reject_ljpeg_predictor.dcm"
+    "dicom_reject_ljpeg_predictor.dcm",
+    "ims_shuffle_deflate.ims",
+    "ims_fletcher32.ims",
+    "ims_shuffle_deflate_fletcher32.ims",
+    "ims_lz4.ims",
+    "ims_shuffle_lz4.ims"
   ]
 }

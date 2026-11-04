@@ -247,6 +247,12 @@ def sniff(head: bytes) -> str | None:
 def registry() -> str:
     """The profile registry (spec/zarrify/profiles/, as the core holds it): its entries, by
     name, as a JSON array."""
+def h5_bitshuffle_decode(chunk: bytes, elementsize: int, block_size: int, lz4: bool) -> bytes:
+    """The `refkv.h5_bitshuffle` codec (spec/zarrify/hdf5.md §3.4
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#34-the-codec-refkvh5_bitshuffle>): a chunk's bytes
+    from HDF5's bitshuffle filter."""
+
+
 def fits_tiles_decode(chunk: bytes, config: str, chunk_shape: Sequence[int]) -> bytes:
     """The `refkv.fits_tiles` codec (spec/zarrify/fits.md §3.3
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#33-tile-compressed-images>): a

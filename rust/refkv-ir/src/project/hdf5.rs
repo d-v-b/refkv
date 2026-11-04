@@ -9,6 +9,7 @@
 //! canonical paths (references).
 
 use super::{arr, contiguous, key, Copied};
+use crate::hdf5;
 use crate::ir::Ir;
 use crate::out::{declare, declared_group, grid_chunks, Chunk, Out, Part};
 use crate::refs::Refs;
@@ -23,6 +24,9 @@ const STRING_ITEM: u64 = 32;
 const STRING_LIMIT: u64 = 1 << 16;
 /// A reference's share of a chunk (its stored pointer pair), and a chunk's.
 const REFERENCE_ITEM: u64 = 16;
+/// The bytes of an LZF literal run, and the most a chunk's runs hold within a reference payload.
+const LZF_RUN: u64 = 32;
+const LZF_MOST: u64 = 1 << 16;
 
 fn n(v: &J) -> u64 {
     v.as_u64().unwrap_or(0)
@@ -86,6 +90,76 @@ fn string_parts(spans: &[(u64, u64)], pad: u64) -> Vec<Part> {
         lit(&mut parts, [0; 4]);
     }
     parts
+}
+
+/// Whether a chunk of `n` bytes the filter skipped has a literal form within a reference payload
+/// (its LZF form takes a part per 32 bytes).
+pub fn framed(filter: u64, n: u64) -> bool {
+    match filter {
+        hdf5::LZF => n <= LZF_MOST,
+        hdf5::DEFLATE | hdf5::BLOSC | hdf5::LZ4 | hdf5::ZSTD => true,
+        _ => false,
+    }
+}
+
+/// The `length` bytes of the source at `offset`, of a chunk `filter` skipped, in that filter's literal
+/// form: what its codec decodes to those bytes (spec/zarrify/hdf5.md §3.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#32-chunks>). `adler` is their
+/// Adler-32, for deflate; `item` the elements' bytes, for Blosc.
+fn framed_parts(filter: u64, offset: u64, length: u64, adler: u32, item: u64) -> Vec<Part> {
+    let runs = |most: u64, head: &dyn Fn(u64, bool) -> Vec<u8>, first: Vec<u8>, last: Vec<u8>| {
+        let mut lit = first;
+        let mut parts = Vec::new();
+        let mut at = 0;
+        while at < length {
+            let n = most.min(length - at);
+            lit.extend_from_slice(&head(n, at + n == length));
+            parts.push(Part::Lit(std::mem::take(&mut lit)));
+            parts.push(Part::Src(offset + at, n));
+            at += n;
+        }
+        if !last.is_empty() {
+            parts.push(Part::Lit(last));
+        }
+        parts
+    };
+    match filter {
+        // RFC 1950's header and Adler-32, around RFC 1951's stored blocks
+        hdf5::DEFLATE => runs(
+            65535,
+            &|n, end| {
+                let mut h = vec![end as u8];
+                h.extend_from_slice(&(n as u16).to_le_bytes());
+                h.extend_from_slice(&(!(n as u16)).to_le_bytes());
+                h
+            },
+            vec![0x78, 0x01],
+            adler.to_be_bytes().to_vec(),
+        ),
+        // LZF's literal runs: a control byte below 32, one less than the bytes that follow
+        hdf5::LZF => runs(LZF_RUN, &|n, _| vec![(n - 1) as u8], Vec::new(), Vec::new()),
+        // RFC 8878's frame, of one segment with its content size, and raw blocks
+        hdf5::ZSTD => {
+            let mut first = vec![0x28, 0xB5, 0x2F, 0xFD, 0xE0];
+            first.extend_from_slice(&length.to_le_bytes());
+            runs(1 << 17, &|n, end| ((n as u32) << 3 | end as u32).to_le_bytes()[..3].to_vec(), first, Vec::new())
+        }
+        // the filter's framing, a block as long as the chunk, stored because its length is the block's
+        hdf5::LZ4 => {
+            let mut head = length.to_be_bytes().to_vec();
+            head.extend_from_slice(&(length as u32).to_be_bytes());
+            head.extend_from_slice(&(length as u32).to_be_bytes());
+            vec![Part::Lit(head), Part::Src(offset, length)]
+        }
+        // c-blosc's header of a chunk it copied (flag 2): format 2, 16 bytes before the data
+        _ => {
+            let mut head = vec![2, 1, 2, item.min(255) as u8];
+            head.extend_from_slice(&(length as u32).to_le_bytes());
+            head.extend_from_slice(&(length as u32).to_le_bytes());
+            head.extend_from_slice(&((length + 16) as u32).to_le_bytes());
+            vec![Part::Lit(head), Part::Src(offset, length)]
+        }
+    }
 }
 
 /// The `vlen-utf8` bytes of `texts`, then `pad` empty strings.
@@ -186,6 +260,8 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
                 let el = n(&store["element"]) as u32;
                 let grid = shape_of(&store["grid"]);
                 let trailing = store["trailing"].as_bool().unwrap_or(false);
+                let trim = n(&store["trim"]);
+                let masked: std::collections::HashMap<u64, &J> = arr(&store["masked"]).iter().map(|m| (n(&m["index"]), m)).collect();
                 let mut members = ir.members(el);
                 members.sort_unstable();
                 for (idx, start, length, form) in members {
@@ -193,7 +269,16 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
                     if trailing {
                         coords.push(0);
                     }
-                    refs.chunk(chunk_key(path, &coords), start, length, form, None, 0)?;
+                    // a checksum left out, and a chunk a filter skipped given the form its codec reads
+                    let parts = match masked.get(&idx) {
+                        Some(m) => Some(match m["wrap"].as_u64() {
+                            Some(f) => framed_parts(f, start, n(&m["stored"]), n(&m["adler"]) as u32, n(&m["item"])),
+                            None => vec![Part::Src(start, n(&m["stored"]))],
+                        }),
+                        None if trim > 0 => Some(vec![Part::Src(start, length - trim)]),
+                        None => None,
+                    };
+                    refs.chunk(chunk_key(path, &coords), start, length, form, parts, 0)?;
                     count += 1;
                 }
             }
@@ -284,6 +369,35 @@ mod tests {
         // 2048 strings of every offset and length a chunk can hold fit in a payload
         let worst: Vec<(u64, u64)> = (0..2048).map(|k| ((1u64 << 52) + k, u32::MAX as u64)).collect();
         assert!(crate::out::payload_size(&string_parts(&worst, 0)) <= crate::out::MAX_PAYLOAD);
+    }
+
+    /// Stored blocks inflate to the bytes they name: one block, and two past its limit; and the
+    /// longest LZF form fits in a payload.
+    #[test]
+    fn literal_forms_read_as_their_filters_write() {
+        for len in [1u64, 65535, 65536, 200_000] {
+            let src: Vec<u8> = (0..100 + len).map(|k| (k % 251) as u8).collect();
+            let want = &src[100..];
+            let adler = {
+                let (mut a, mut c) = (1u32, 0u32);
+                for &x in want {
+                    a = (a + x as u32) % 65521;
+                    c = (c + a) % 65521;
+                }
+                c << 16 | a
+            };
+            let mut z = Vec::new();
+            for p in framed_parts(hdf5::DEFLATE, 100, len, adler, 1) {
+                match p {
+                    Part::Lit(b) => z.extend_from_slice(&b),
+                    Part::Src(o, m) => z.extend_from_slice(&src[o as usize..(o + m) as usize]),
+                    _ => panic!("a part neither literal nor source"),
+                }
+            }
+            assert_eq!(miniz_oxide::inflate::decompress_to_vec_zlib(&z).unwrap(), want);
+        }
+        assert!(framed(hdf5::LZF, LZF_MOST) && !framed(hdf5::LZF, LZF_MOST + 1) && !framed(hdf5::BITSHUFFLE, 8));
+        assert!(crate::out::payload_size(&framed_parts(hdf5::LZF, (1 << 52) + 1, LZF_MOST, 0, 1)) <= crate::out::MAX_PAYLOAD);
     }
 
     #[test]
