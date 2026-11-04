@@ -14,7 +14,7 @@ from refkv_reference import virtualize  # the frozen reference (ir_helpers)
 from refkv_reference.czi.xml import read_xml_values
 
 from refkv import _core
-from refkv._narrow import integer, mapping, number
+from refkv._narrow import at, integer, mapping, ndarray, number, sequence, string
 from refkv.ir import parse
 from refkv.ir import zarrify as via_ir
 from refkv.ir.planner import HttpTransport
@@ -47,7 +47,7 @@ LZW_TYPES = [("u1", 1), ("<u2", 1), ("<f4", 1), ("u1", 3), ("<u2", 3), ("<f4", 3
 
 
 def lzw_cases():
-    """(image, array of it, what it holds, its codecs after `transpose`) of czi_lzw.czi."""
+    """(image, what its level holds, its codecs after `transpose`) of czi_lzw.czi."""
     for k, (dtype, samples) in enumerate(LZW_TYPES):
         one_byte = np.dtype(dtype).itemsize == 1
         little = {"name": "bytes"} if one_byte else {"name": "bytes", "configuration": {"endian": "little"}}
@@ -62,25 +62,25 @@ def test_lzw_lossless_and_12_bit_subblocks_read_their_pixels(tmp_path):
     for k, want, codecs in lzw_cases():
         meta = json.loads(out.bytes_entries[f"{k}/0/zarr.json"])
         assert meta["codecs"][-2:] == codecs
-        got = np.asarray(g[f"{k}/0"][:])
+        got = ndarray(g.get_array(f"{k}/0")[...])
         if want.ndim == 3:  # [c, y, x], the samples in the order they are stored
             got = np.moveaxis(got, 0, -1)
-            labels = [c["label"] for c in g[str(k)].attrs["ome"]["omero"]["channels"]]
-            assert [label[-1] for label in labels] == list("BGRA"[: want.shape[2]])
+            channels = sequence(at(g.get_group(str(k)).attrs, "ome", "omero", "channels"))
+            assert [string(at(c, "label"))[-1] for c in channels] == list("BGRA"[: want.shape[2]])
         assert got.dtype == want.dtype
         assert np.array_equal(got, want)
-    clipped = g[f"{len(LZW_TYPES)}/0"]
+    clipped = g.get_array(f"{len(LZW_TYPES)}/0")
     meta = json.loads(out.bytes_entries[f"{len(LZW_TYPES)}/0/zarr.json"])
     assert meta["chunk_grid"]["configuration"]["chunk_shapes"] == [[[8, 1], 5], [[10, 2], 7]]
     rows = [np.hstack([ramp("<u2", 1, 7 if i == 2 else 10, 5 if j == 1 else 8, 100 + 10 * j + i) for i in range(3)])
             for j in range(2)]
-    assert np.array_equal(clipped[:], np.vstack(rows))
+    assert np.array_equal(ndarray(clipped[...]), np.vstack(rows))
 
     out, g, _ = zarrified(FIXTURES / "czi" / "czi_ljpeg.czi", tmp_path, "czi")
     twelve = ramp("<u2", 1, 12, 8, 2) % 4096
     for k, want in enumerate([ramp("u1", 1, 12, 8, 0), ramp("<u2", 1, 12, 8, 1), twelve]):
         assert json.loads(out.bytes_entries[f"{k}/0/zarr.json"])["codecs"] == [{"name": "imagecodecs_ljpeg"}]
-        got = np.asarray(g[f"{k}/0"][:])
+        got = ndarray(g.get_array(f"{k}/0")[...])
         assert got.dtype == want.dtype
         assert np.array_equal(got, want)
 
@@ -88,7 +88,7 @@ def test_lzw_lossless_and_12_bit_subblocks_read_their_pixels(tmp_path):
     assert json.loads(out.bytes_entries["0/0/zarr.json"])["codecs"] == [{"name": "imagecodecs_jpeg"}]
     smooth = (np.arange(32 * 16, dtype=np.uint16).reshape(16, 32) * 7).astype("<u2")
     want = np.hstack([smooth, smooth + 64])
-    got = np.asarray(g["0/0"][:])
+    got = ndarray(g.get_array("0/0")[...])
     assert got.dtype == np.dtype("uint16")
     assert got.max() > 255  # 12-bit values, not an 8-bit stream's
     assert np.abs(got.astype(int) - want.astype(int)).max() <= 16  # the stream is lossy
@@ -101,8 +101,8 @@ def test_a_stream_that_does_not_fit_its_subblock_has_no_array(tmp_path):
     precision or a stream of another kind, and LZW codes in the other bit order, are unplaced,
     their data kept as bytes; the rest of the file is read."""
     out, g, ir = zarrified(FIXTURES / "czi" / "czi_codec_unplaced.czi", tmp_path, "czi")
-    assert list(g["OME"].attrs["ome"]["series"]) == ["0"]
-    assert g["0"].attrs["refkv_zarrified"]["czi"] == {"dimensions": {"S": 8}}
+    assert at(g.get_group("OME").attrs, "ome", "series") == ["0"]
+    assert at(g.get_group("0").attrs, "refkv_zarrified", "czi") == {"dimensions": {"S": 8}}
     assert "tiles/zarr.json" not in out.bytes_entries
     kinds = []
     for i in range(9):
