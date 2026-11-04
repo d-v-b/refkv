@@ -1,0 +1,4 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<LMSDataContainerHeader Version="2">
+<Element Name="lif_xlef_lowercase" Visibility="1" CopyOption="1" UniqueID="00000000-0000-4000-8000-00002b7f7f24"><Data><Experiment Path="C:/data/lif_xlef_lowercase" /></Data><Memory Size="0" MemoryBlockID="" /><Children><Reference File=".%5C_lif_xlef_lowercase_%5Cmetadata%5Cseries1.xlif" UUID="00000000-0000-4000-8000-000009849a5f" /><Reference File=".%5C_lif_xlef_lowercase_%5Cmetadata%5Cgroup%20a.xlcf" UUID="00000000-0000-4000-8000-0000dd07b585" /><Reference File=".%5C_lif_xlef_lowercase_%5Cmetadata%5Ciomanagerconfiguation.xlif" UUID="00000000-0000-4000-8000-00006bab3dcb" /></Children></Element>
+</LMSDataContainerHeader>

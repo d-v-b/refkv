@@ -24,6 +24,9 @@ ACCEPTED = [p for p in FILES if "reject" not in p.name]
 # (spec/zarrify/mp4.md §4.2
 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#42-audio-tracks>)
 NOISE = {"mp4_aac_pns.mp4"}
+# A trun box of negative composition offsets: ffmpeg's demuxer adds the largest of them to every
+# time (its dts_shift), where a sample's presentation time is its decode time plus its offset
+SHIFTED = {"mp4_frag_dash.mp4"}
 
 
 def zarrified(path, tmp_path, chunk_frames=None):
@@ -98,7 +101,8 @@ def test_tracks_are_ffmpegs_decoding(path, chunk_frames, tmp_path):
             # layout records and does not apply
             times = (integer(at(e, "media_time")) for e in sequence(tm["edits"]))
             shift = next((t for t in times if t >= 0), 0)
-            assert ndarray(g.get_array("time")[...]).tolist() == [t + shift for t in pts]
+            got = ndarray(g.get_array("time")[...]).tolist()
+            assert got == [t + (got[0] - pts[0] if path.name in SHIFTED else shift) for t in pts]
             meta = g.get_array("y").metadata
             assert isinstance(meta, ArrayV3Metadata)
             assert meta.dimension_names == ("time", "y", "x")
@@ -289,6 +293,9 @@ TRACKS = [
     ("mov_h264_negative_ctts_aac.mov", ["tracks/1", "tracks/2"], {}),
     ("mp4_h264_two_tracks.mp4", ["tracks/1", "tracks/2"], {}),
     ("edge_mp4_duplicate_track_id.mp4", ["tracks/1"], {1: "its track ID 1 is an earlier zarrified track's"}),
+    ("mp4_frag_h264_aac.mp4", ["tracks/1", "tracks/2"], {}),
+    ("mp4_frag_hevc_moof_base.mp4", ["tracks/1", "tracks/2"], {}),
+    ("mp4_frag_aac.mp4", ["tracks/1"], {}),
 ]
 
 
@@ -329,3 +336,24 @@ def test_reads_the_movie_and_track_metadata(tmp_path):
     times = ndarray(root.get_array("tracks/1/time")[...])
     assert at(root["tracks/1"].attrs, "refkv_zarrified", "mp4", "timescale") == 1000
     assert len(set(np.diff(times).tolist())) > 1  # the steps differ
+
+
+def test_reads_a_fragmented_file_s_tracks(tmp_path):
+    """A fragmented file's samples are its tables' and its track fragments', in the file's order
+    (spec/zarrify/mp4.md §3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#3-tracks-and-samples>): ffmpeg's
+    muxer leaves the mdhd box's duration 0 in an empty moov box, which the track's duration
+    extends to where its last sample ends; a keyframe every 10 of 30 pictures is a sync sample
+    wherever it is. With the first fragment's samples in the tables and the others in moof boxes
+    (`mp4_frag_hybrid.mp4`) the track is the same one."""
+    # (file, sync samples, whether its mdhd box counts the samples)
+    for name in ("mp4_frag_h264_aac.mp4", "mp4_frag_hybrid.mp4", "mp4_frag_dash.mp4"):
+        _out, root = zarrified(FIXTURES / "mp4" / name, tmp_path)
+        track = mapping(at(root["tracks/1"].attrs, "refkv_zarrified", "mp4"))
+        assert (track["frames"], track["sync_samples"]) == (30, 3), name
+        assert integer(track["duration"]) == 30 * 1024, name
+    _, plain = zarrified(FIXTURES / "mp4" / "mp4_h264_bframes.mp4", tmp_path)
+    _, hybrid = zarrified(FIXTURES / "mp4" / "mp4_frag_hybrid.mp4", tmp_path)
+    for p in ("y", "u", "v", "time"):
+        assert np.array_equal(ndarray(hybrid.get_array(f"tracks/1/{p}")[...]),
+                              ndarray(plain.get_array(f"tracks/1/{p}")[...])), p

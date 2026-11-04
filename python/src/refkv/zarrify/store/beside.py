@@ -2,8 +2,11 @@
 §9.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#92-the-tile-files>), the
 `.vsi` file named by the input and the tile files beside it, and a NRRD input
 (spec/zarrify/nrrd.md §8.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#83-the-data-file>),
-the header file named by the input and a detached header's data file. The Rust core's `vsi` and
-`nrrd` store formats ask for those files by key (`refkv.ir.store.drive_store`'s probes) rather
+the header file named by the input and a detached header's data file, and a LAS X project
+(spec/zarrify/lif.md §8
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#8-las-x-documents>).
+The Rust core's `vsi`, `nrrd` and `lif` store formats ask for those files by key
+(`refkv.ir.store.drive_store`'s probes) rather
 than from a listing, since a plain web server cannot list a directory. The files are the objects
 of a store whose URL is the named file's directory, each read through a transport of its own
 (`refkv.ir.planner`: a mapped local file, or an http(s) object under the reader policy); a
@@ -15,6 +18,7 @@ from __future__ import annotations
 
 import os
 import threading
+from collections.abc import Callable
 from pathlib import Path
 from typing import override
 from urllib.parse import unquote
@@ -25,6 +29,47 @@ from refkv.uri import path_reference
 from refkv.zarrify.common import Rejected
 from refkv.zarrify.store.stores import Store
 from refkv.zarrify.store.urls import check_store_url, object_url
+
+
+def folded(name: str) -> str:
+    """A name under Unicode's simple case folding (spec/zarrify.md §1.9
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>, **Case**),
+    as refkv_ir::beside::folded gives it: each character's single-character uppercase, then that
+    one's single-character lowercase. Dotless `ı`, which folds only under the Turkic rules, stays
+    itself."""
+    out = []
+    for c in name:
+        if c == "\u0131":
+            out.append(c)
+            continue
+        up = c.upper() if len(c.upper()) == 1 else c
+        out.append(up.lower() if len(up.lower()) == 1 else up)
+    return "".join(out)
+
+
+def found_key(key: str, listdir: Callable[[str], list[str] | None]) -> str | None:
+    """The key a host that can list finds for the written key `key` (the same section):
+    `listdir` gives the entries of the directory at a key (empty for the store's root), or None
+    when there is no such directory. Each segment is the entry equal to it, else the only one equal
+    to it under `folded`. None when one has neither; two such entries reject the input. The twin of
+    refkv_ir::beside::found_key."""
+    at = ""
+    for segment in key.split("/"):
+        entries = listdir(at)
+        if entries is None:
+            return None
+        name = segment
+        if segment not in entries:
+            wanted = folded(segment)
+            matching = sorted((e for e in entries if folded(e) == wanted), key=lambda e: e.encode())
+            if not matching:
+                return None
+            if len(matching) > 1:
+                a, b = (f"{at}/{m}" if at else m for m in matching[:2])
+                raise Rejected(f'the file "{key}" matches both "{a}" and "{b}"')
+            name = matching[0]
+        at = f"{at}/{name}" if at else name
+    return at
 
 
 def split_input(location: str, title: str = "VSI") -> tuple[str, str]:
@@ -50,12 +95,16 @@ class VsiFiles(Store):
     beside it. `url` is the directory's URL, the store URL the output's object URLs are made from
     (`object_url`): the directory of the input URL, or, for a local path, `url` as given (the URL
     the directory will be served from, ending in `/`), else the path's URI reference. `title`
-    names the format in a rejection, and `noun` the named file."""
+    names the format in a rejection, and `noun` the named file. `case`: the format's writers name
+    files in another case than they have, so a local directory's are found by listing it."""
 
     def __init__(self, location: str, url: str | None = None, *, policy: Policy | None = None,
                  workers: int | None = None, transport: Transport | None = None, title: str = "VSI",
-                 noun: str = ".vsi file") -> None:
+                 noun: str = ".vsi file", case: bool = False) -> None:
         self.remote = location.startswith(("http://", "https://"))
+        self.case = case and not self.remote
+        self.dirs: dict[str, list[str] | None] = {}
+        self.at: dict[str, str] = {}
         self.location, self.key = split_input(location, title)
         if url is not None:
             # the URL the named file is named by (--url): the store URL is its directory's
@@ -100,8 +149,28 @@ class VsiFiles(Store):
             return None
         return FileTransport(str(path))
 
+    def _listdir(self, key: str) -> list[str] | None:
+        """The entries of the local directory at the key `key`, or None when there is none."""
+        if key not in self.dirs:
+            path = Path(self.location or os.curdir, *key.split("/"))
+            try:
+                self.dirs[key] = [p.name for p in path.iterdir()]
+            except (FileNotFoundError, NotADirectoryError):
+                self.dirs[key] = None
+        return self.dirs[key]
+
+    @override
+    def found_key(self, key: str) -> str:
+        return self.at.get(key, key)
+
     @override
     def probe(self, key: str) -> int | None:
+        if self.case:
+            found = found_key(key, self._listdir)
+            if found is None:
+                return None
+            self.at[key] = found
+            key = found
         with self._lock:
             if key in self.objects:
                 return self.objects[key]

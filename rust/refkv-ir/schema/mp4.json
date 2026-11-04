@@ -33,10 +33,23 @@
         {"require": "at + size <= end", "message": "the {size}-byte {type} box at {at} is outside its parent, which ends at {end}"}
       ]
     },
-    "fragment": {
-      "given": {"type": "moof or mvex", "at": "the box's offset", "seen": "false"},
+    "moofs": {
+      "given": {"total": "the bytes of the moof boxes so far"},
       "constraints": [
-        {"require": "seen", "message": "fragmented MP4 (the {type} box at {at}) is not supported"}
+        {"require": "total <= max_moov", "message": "the moof boxes are {total} bytes in all, more than 64 MiB"}
+      ]
+    },
+    "fragment": {
+      "given": {"at": "the traf box's offset", "track": "the track its tfhd box names", "tfhd": "whether it has a tfhd box", "trex": "whether the moov box has that track, and a trex box for it"},
+      "constraints": [
+        {"require": "tfhd", "message": "the traf box at {at} has no tfhd box"},
+        {"require": "trex", "message": "the traf box at {at} names track {track}, for which the moov box has no track and trex box"}
+      ]
+    },
+    "run": {
+      "given": {"at": "the trun box's offset", "start": "where its data starts", "size": "the file's size"},
+      "constraints": [
+        {"require": "start >= 0 && start <= size", "message": "the trun box at {at} starts its data at {start}, outside the {size}-byte file"}
       ]
     },
     "movie": {
