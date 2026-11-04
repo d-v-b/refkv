@@ -12,9 +12,49 @@
       "message": "invalid BigTIFF header"
     },
     {
+      "test": "tiff_edge_reject_bilevel_pages",
+      "input": "edge_reject_bilevel_pages.tif",
+      "message": "the image at"
+    },
+    {
+      "test": "tiff_edge_reject_bits_10",
+      "input": "edge_reject_bits_10.tif",
+      "message": "unsupported sample type: 10-bit, SampleFormat 1"
+    },
+    {
+      "test": "tiff_edge_reject_bits_12_int",
+      "input": "edge_reject_bits_12_int.tif",
+      "message": "unsupported sample type: 12-bit, SampleFormat 2"
+    },
+    {
+      "test": "tiff_edge_reject_bits_12_predictor",
+      "input": "edge_reject_bits_12_predictor.tif",
+      "message": "predictor 2 with 12-bit samples"
+    },
+    {
+      "test": "tiff_edge_reject_bits_1_jpeg2000",
+      "input": "edge_reject_bits_1_jpeg2000.tif",
+      "message": "unsupported compression 34712 of 1-bit samples"
+    },
+    {
       "test": "tiff_edge_reject_candidate_planar3",
       "input": "edge_reject_candidate_planar3.tif",
       "message": "PlanarConfiguration 3"
+    },
+    {
+      "test": "tiff_edge_reject_ccitt_fill_order",
+      "input": "edge_reject_ccitt_fill_order.tif",
+      "message": "the image at 16 has FillOrder 2"
+    },
+    {
+      "test": "tiff_edge_reject_ccitt_group3",
+      "input": "edge_reject_ccitt_group3.tif",
+      "message": "unsupported compression 3"
+    },
+    {
+      "test": "tiff_edge_reject_ccitt_uint8",
+      "input": "edge_reject_ccitt_uint8.tif",
+      "message": "unsupported CCITT: 8-bit, 1 samples"
     },
     {
       "test": "tiff_edge_reject_compression_unknown",
@@ -30,6 +70,21 @@
       "test": "tiff_edge_reject_dimension_order",
       "input": "edge_reject_dimension_order.tif",
       "message": "DimensionOrder 'XYZZT'"
+    },
+    {
+      "test": "tiff_edge_reject_eer_bits_differ",
+      "input": "edge_reject_eer_bits_differ.tif",
+      "message": "the image at 174 has other EER bits than IFD 0"
+    },
+    {
+      "test": "tiff_edge_reject_eer_short",
+      "input": "edge_reject_eer_short.tif",
+      "message": "the image at 20 is in EER strips whose last is short"
+    },
+    {
+      "test": "tiff_edge_reject_eer_uint8",
+      "input": "edge_reject_eer_uint8.tif",
+      "message": "unsupported EER: 8-bit, 1 samples"
     },
     {
       "test": "tiff_edge_reject_fill_order",

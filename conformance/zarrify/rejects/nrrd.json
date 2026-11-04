@@ -57,9 +57,9 @@
       "message": "line 6 of the header: the encoding field is given twice"
     },
     {
-      "test": "reject_gzip_byte_skip",
-      "input": "nrrd_reject_gzip_byte_skip.nrrd",
-      "message": "byte skip 4 with the gzip encoding skips decompressed bytes, which no Zarr codec does"
+      "test": "reject_gzip_byte_skip_back",
+      "input": "nrrd_reject_gzip_byte_skip_back.nrrd",
+      "message": "byte skip -1 with the gzip encoding: it counts back from a data end that only decompressing can find"
     },
     {
       "test": "reject_gzip_not_gzip",

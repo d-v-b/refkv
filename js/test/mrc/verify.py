@@ -16,6 +16,7 @@ Usage: uv run python js/test/mrc/verify.py [<dir of .mrc files>]
 from __future__ import annotations
 
 import base64
+import gzip
 import math
 import struct
 import sys
@@ -96,21 +97,21 @@ def unread_mode(header, raw: bytes, order: str) -> np.ndarray:
 
 def load(path: Path):
     """mrcfile's header and data (its warnings, such as a zero grid size, are not failures).
-    mrcfile does not read IMOD's unsigned-byte flag (spec/zarrify/mrc.md §3
+    mrcfile does not read IMOD's signed-byte flag (spec/zarrify/mrc.md §3
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#3-data-types>): a mode 0
-    file with IMOD's stamp and bit 0 of its flags is its bytes as uint8."""
+    file with IMOD's stamp, bit 0 of its flags clear and no standard NVERSION is its bytes as uint8."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         with mrcfile.open(path, permissive=True) as f:
             assert f.header is not None, path  # (None only before a header is read or created)
             header, data = f.header.copy(), f.data
-    raw = path.read_bytes()
+    raw = gzip.decompress(path.read_bytes()) if path.suffix == ".gz" else path.read_bytes()
     order = "<" if header.mode.dtype.byteorder in "<=" else ">"
     if int(header.mode) in UNREAD:
         return header, unread_mode(header, raw, order)
     data = np.array(data)
     stamp, flags = struct.unpack(order + "ii", raw[152:160])
-    if int(header.mode) == 0 and stamp == IMOD and flags & 1:
+    if int(header.mode) == 0 and stamp == IMOD and not flags & 1 and not 20140 <= int(header.nversion) < 21000:
         data = data.view(np.uint8)
     return header, data
 
@@ -162,7 +163,7 @@ def problems_of(path: Path, out: Path) -> list[str]:
 
 
 def main(fixtures: Path) -> int:
-    paths = sorted(fixtures.glob("*.mrc"))
+    paths = sorted([*fixtures.glob("*.mrc"), *fixtures.glob("*.gz")])
     return run(paths, lambda path, out, _: problems_of(path, out), url=serve(paths), width=40)
 
 
