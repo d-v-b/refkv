@@ -17,7 +17,7 @@ from ir_helpers import FIXTURES, ROOT
 
 import refkv.zarr
 from refkv import _core
-from refkv._narrow import at, ndarray
+from refkv._narrow import at, integer, ndarray, sequence
 from refkv.ir.store import StoreIrOutput
 from refkv.policy import Policy
 from refkv.zarrify import Rejected
@@ -25,8 +25,10 @@ from refkv.zarrify import _zarrify as zarrify
 
 sys.path.insert(0, str(ROOT / "fixtures" / "generators" / "tiff"))
 sys.path.insert(0, str(ROOT / "conformance" / "zarrify"))
+# pyrefly: ignore[missing-import]  # on sys.path above; the config's search-path lacks fixtures/generators
 import write_set_fixtures
 from proxy import Proxy
+# pyrefly: ignore[missing-import]  # on sys.path above; the config's search-path lacks fixtures/generators
 from write_set_fixtures import plane
 
 TIFF = FIXTURES / "tiff"
@@ -86,9 +88,9 @@ def test_a_stack_in_one_file_stays_a_file_input(tmp_path):
     assert np.array_equal(ndarray(root.get_array("0")[...]), ALL_OF_IT)
     micromanager = at(root.attrs, "refkv_zarrified", "tiff", "micromanager")
     assert at(micromanager, "UUID") == "390dd25c-dc45-45a8-b421-44772f3de4f4"
-    axes = at(root.attrs, "ome", "multiscales", 0, "axes")
+    axes = sequence(at(root.attrs, "ome", "multiscales", 0, "axes"))
     assert [at(a, "name") for a in axes] == ["t", "c", "z", "y", "x"]
-    channels = at(root.attrs, "ome", "omero", "channels")
+    channels = sequence(at(root.attrs, "ome", "omero", "channels"))
     assert [at(c, "label") for c in channels] == ["BF", "GFP"]
 
 
@@ -117,7 +119,7 @@ def test_a_stack_of_many_planes_is_not_an_ifd_a_request(tmp_path, monkeypatch):
     write_set_fixtures.write("many_MMStack_Pos0_1.ome.tif", planes[150:], summary=summary, index=index[150:])
     _, out = zarrify(str(tmp_path / name))
     assert isinstance(out, StoreIrOutput)
-    assert out.summary["reads"]["batches"] < 40
+    assert integer(at(out.summary, "reads", "batches")) < 40
     assert np.array_equal(ndarray(read(out, tmp_path).get_array("0")[...]), np.stack(planes))
 
 
