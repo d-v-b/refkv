@@ -7,7 +7,8 @@ which refkv writes."""
 
 _HDF5 = "https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md"
 _REASONS = ["name", "reserved", "named_datatype", "object", "datatype", "filter", "filter_mask", "edge_chunks",
-            "layout", "external_storage", "null_dataspace", "fill_value", "size", "shared", "budget"]
+            "layout", "external_storage", "dimension_only", "null_dataspace", "fill_value", "size", "shared",
+            "budget"]
 _DATATYPE = {"type": "object", "properties": {"class": {"type": "string"}, "size": {"type": "integer", "minimum": 0}},
              "required": ["class", "size"],
              "description": f"An HDF5 datatype, described ({_HDF5}#7-source-metadata)"}
