@@ -34,7 +34,10 @@ def main() -> None:
                      compressionargs={"compression": "deflate"}, photometric="minisblack")
     tifffile.imwrite(OUT / "lerc_zstd_float64.tif", image((64, 48), np.float64) / 7, tile=(32, 32),
                      compression="lerc", compressionargs={"compression": "zstd"}, photometric="minisblack")
-    tifffile.imwrite(OUT / "lerc_rgb_contig_uint8.tif", np.moveaxis(image((3, 64, 48), np.uint8), 0, -1).copy(),
+    # blocks of one value, which LERC keeps in its tiled mode: of finer uint8 pixels its bytes differ between
+    # macOS and Linux, and `just fixtures-check` compares them with these
+    lerc_blocks = image((3, 64, 48), np.uint8)[:, ::8, ::8].repeat(8, axis=1).repeat(8, axis=2)
+    tifffile.imwrite(OUT / "lerc_rgb_contig_uint8.tif", np.moveaxis(lerc_blocks, 0, -1).copy(),
                      tile=(32, 32), compression="lerc", photometric="rgb", planarconfig="contig")
     webp_rgb = np.moveaxis(image((3, 64, 48), np.uint8), 0, -1).copy()
     tifffile.imwrite(OUT / "webp_rgb.tif", webp_rgb, tile=(32, 32), compression="webp", photometric="rgb",
