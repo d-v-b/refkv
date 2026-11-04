@@ -16,7 +16,7 @@ each request and the bytes of the ranges it answers. Each reader runs against it
   API for byte ranges), also opening the URL itself (fsspec with its own 512 KB blocks, or the
   whole file when it is at most 32 MB);
 - `czifile`: `czifile.CziFile`, every subblock's data offset and size;
-- `h5py` (IMS): `h5py.File`, every chunk of every chunked dataset (`get_chunk_info`).
+- `h5py` (IMS): `h5py.File`, every chunk of every chunked dataset (`chunk_iter`).
 
 Each package reads a binary file through each of `TRANSPORTS`: fsspec's HTTP file with no cache,
 read-ahead or an LRU block cache, at 64 KiB and 1 MiB blocks, and obstore's buffered reader at
@@ -316,7 +316,8 @@ def run_czifile(fh: File, _url: str) -> str:
 
 
 def run_h5py(fh: File, _url: str) -> str:
-    """Every chunk's byte offset and size (`get_chunk_info`) of every chunked dataset."""
+    """Every chunk's byte offset and size (`chunk_iter`: one pass over the index, where
+    `get_chunk_info(i)` walks it again for each `i`) of every chunked dataset."""
     datasets: list[h5py.Dataset] = []
     with h5py.File(fh, "r") as f:
         f.visititems(lambda _name, obj: datasets.append(obj) if isinstance(obj, h5py.Dataset) else None)
@@ -324,9 +325,9 @@ def run_h5py(fh: File, _url: str) -> str:
         for ds in datasets:
             if ds.chunks is None:
                 continue
-            for i in range(ds.id.get_num_chunks()):
-                ds.id.get_chunk_info(i)
-                n += 1
+            chunks: list[object] = []
+            ds.id.chunk_iter(chunks.append)
+            n += len(chunks)
         return str(n)
 
 

@@ -269,10 +269,67 @@
     },
     "ome_planes": {
       "about": "the planes the OME-XML describes",
-      "given": {"planes": "SizeT × channels per plane × SizeZ", "files": "distinct UUIDs the TiffData name"},
+      "given": {"planes": "SizeT × channels per plane × SizeZ"},
       "constraints": [
-        {"require": "planes <= max_planes", "message": "{planes} planes is more than {max_planes}"},
-        {"require": "files <= 1", "message": "multi-file OME-TIFF is not supported"}
+        {"require": "planes <= max_planes", "message": "{planes} planes is more than {max_planes}"}
+      ]
+    },
+    "set_name": {
+      "about": "a TiffData's FileName, a written name",
+      "given": {"name": "the name", "ok": "whether it is a key below the file's directory"},
+      "constraints": [
+        {"require": "ok", "message": "the TiffData's file name \"{name}\" is not a path below the file's directory"}
+      ]
+    },
+    "set_uuid": {
+      "about": "a TiffData's UUID without a FileName, which can only name this file",
+      "given": {"uuid": "its text", "ok": "whether it is the OME element's UUID"},
+      "constraints": [
+        {"require": "ok", "message": "a TiffData names a file by its UUID alone ({uuid}), with no FileName"}
+      ]
+    },
+    "set_file": {
+      "about": "a file a TiffData names",
+      "given": {"key": "its key", "found": "whether it exists"},
+      "constraints": [
+        {"require": "found", "message": "the file \"{key}\" does not exist"}
+      ]
+    },
+    "set_identity": {
+      "about": "a sibling's own UUID",
+      "given": {"key": "its key", "same": "whether it is the one the named file records"},
+      "constraints": [
+        {"require": "same", "message": "the file \"{key}\" is not part of this image"}
+      ]
+    },
+    "set_format": {
+      "about": "a sibling's planes",
+      "given": {"same": "whether they have the named file's size and format"},
+      "constraints": [
+        {"require": "same", "message": "a file of the image holds planes of another size or format"}
+      ]
+    },
+    "set_layout": {
+      "about": "what an image across files does not support",
+      "given": {"set": "whether a plane may lie in another file", "flat": "no IFD 0 SubIFD levels", "whole": "no short last strip"},
+      "constraints": [
+        {"require": "!set || flat", "message": "an image across files with SubIFD levels is not supported"},
+        {"require": "!set || whole", "message": "an image across files whose strips leave a short last strip is not supported"}
+      ]
+    },
+    "micromanager_part": {
+      "about": "a later file of a Micro-Manager stack, named as the input",
+      "given": {"key": "its key", "later": "whether its name is a later file's", "first": "the first file's name"},
+      "constraints": [
+        {"require": "!later", "message": "{key} is a later file of a Micro-Manager stack: zarrify {first}"}
+      ]
+    },
+    "micromanager": {
+      "about": "a Micro-Manager index map's entries",
+      "given": {"one_position": "whether it is of the first entry's position", "found": "whether its offset is a main-chain IFD's"},
+      "constraints": [
+        {"require": "one_position", "message": "a Micro-Manager file of several positions is not supported"},
+        {"require": "found", "message": "a Micro-Manager index map names an IFD that is not in the main chain"}
       ]
     },
     "tiff_data": {
