@@ -19,6 +19,11 @@ their own ([§4.1](#41-the-palette)), as are native `YBR_FULL`, its channels `Y`
 stored ([§3](#3-the-image)), and JPEG 2000 frames of `YBR_FULL_422`, which decoders convert to RGB
 ([§7.5](#75-frames)).
 
+Changed 2026-11-04: Bits Allocated 1 is admitted for native pixel data
+([§3](#3-the-image)), its array `bool` through zarr-extensions' bit-packing `packbits`
+([§4](#4-output)), each frame a chunk where every frame starts on a byte, else one chunk
+([§7.5](#75-frames)).
+
 Changed 2026-10-30: the JPEG Lossless transfer syntaxes, Process 14 and its selection value 1,
 are admitted ([§2.1](#21-transfer-syntax)), their frames chunks of `imagecodecs_ljpeg`
 ([§4](#4-output)), each frame's markers up to its first scan read and checked
@@ -59,7 +64,7 @@ The hierarchy's entries ([conventions §11.5](../conventions.md#115-layout-table
 | `0/zarr.json` | array | [`DicomArray`](#type-dicomarray) | the pixels ([§4](#4-output)) |
 | `palette/zarr.json` | array | [`DicomPalette`](#type-dicompalette) | the lookup tables of a `PALETTE COLOR` image ([§4.1](#41-the-palette)) |
 | `palette/c/<k>/0` | chunk | a source range | table `k`, red, green or blue ([§4.1](#41-the-palette)) |
-| `0/c/<coords>` | chunk | [`DicomChunk`](#type-dicomchunk) | a frame, or one sample of it when planar; every chunk is present ([§4](#4-output), [§7.6](#76-chunk-references)) |
+| `0/c/<coords>` | chunk | [`DicomChunk`](#type-dicomchunk) | a frame, or one sample of it when planar, or for 1-bit frames that do not all start on a byte the whole data; every chunk is present ([§4](#4-output), [§7.6](#76-chunk-references)) |
 | `refkv_source/**` | subtree | [the mirror's entries](../conventions.md#table-mirror) | the IR mirror ([§5.3](#53-the-ir-mirror)): its elements are [§5.4](#54-elements)'s |
 
 | placeholder | value |
@@ -198,11 +203,16 @@ unusable value in the item does not fall back to the top level.)
   present, MUST be Bits Stored − 1. Pixel Representation MUST be 0
   (unsigned) or 1 (signed).
 - **Data type:** `uint` (Pixel Representation 0) or `int` (1), then Bits
-  Allocated. Bits Allocated MUST be 8, 16 or 32 for native pixel data, 8
+  Allocated; `bool` for Bits Allocated 1. Bits Allocated MUST be 1, 8, 16 or 32 for native pixel data, 8
   for `jpeg`, 8, 16 or 32 for `dicomrle`, and 8 or 16 for `ljpeg`, `jpegls`, `jpeg2k` and `htj2k`. For `jpeg`, Bits Stored MUST be 8 and
-  Pixel Representation 0. (For `ljpeg`, each frame's precision is checked
+  Pixel Representation 0. For Bits Allocated 1, `S` MUST be 1, Bits Stored 1 and Pixel
+  Representation 0, and the file MUST NOT be a whole-slide image. (For `ljpeg`, each frame's precision is checked
   against Bits Allocated and Pixel Representation, as is `jpegls`'s, [§7.5](#75-frames).)
-- **Cells:** native pixels are read as whole cells of Bits Allocated bits.
+- **Packed bits:** native pixels of Bits Allocated 1 are one run of bits, which frames follow
+  each other in without padding: pixel `i` of the run is bit `i mod 8`, from the least
+  significant, of byte `⌊i / 8⌋` (PS3.5
+  [8.1.1](https://dicom.nema.org/medical/dicom/current/output/chtml/part05/chapter_8.html#sect_8.1.1)).
+- **Cells:** native pixels of more bits are read as whole cells of Bits Allocated bits.
   When Bits Stored is less, the cells are not masked or sign-extended: the
   output equals the stored values only when the unused high bits are 0
   (unsigned) or copies of the sign bit (signed), as writers produce them.
@@ -259,8 +269,9 @@ array `"0"`.
 | `dimension_names` | array of string | required | the axes: `c` if `S` = 3; the frame axis ([§3](#3-the-image)), `t` or `z`, if the image is not a whole-slide image and `N > 1`; then `y`, `x` |
 | `shape` | array of integer | required | 3 for `c`, `N` for the frame axis; then `H`, `W` for a whole-slide image, else Rows, Columns |
 | `data_type` | string | required | from [§3](#3-the-image) (**Data type**) |
-| `chunk_grid` | object | required | regular, its chunk shape: for `c`, 1 if the pixel data is native with Planar Configuration 1, else 3; 1 for the frame axis; then Rows, Columns |
-| `codecs` | array of object | required | ([conventions §3](../conventions.md#3-arrays)) `transpose` when `c` is present and its chunk size is 3 (interleaved, as every decoded JPEG, lossless JPEG, JPEG-LS, JPEG 2000 and HTJ2K frame is, and not an RLE frame, which decodes to planar samples); then `bytes` (with `endian` `little` or `big` by the encoding when Bits Allocated is above 8), `imagecodecs_jpeg`, `imagecodecs_ljpeg`, `imagecodecs_jpegls`, `imagecodecs_jpeg2k`, `imagecodecs_htj2k` (with the configuration `{"planar": false}` when `S` = 3: the decoder's default is planar for a stream without a color transform), or `imagecodecs_dicomrle` (with the configuration `{"dtype": D}`, `D` the data type as NumPy writes it, little endian: `"<u2"`, `"\|u1"`) |
+| `chunk_grid` | object | required | regular, its chunk shape: for `c`, 1 if the pixel data is native with Planar Configuration 1, else 3; for the frame axis, 1, or `N` for 1-bit frames that do not all start on a byte ([§7.5](#75-frames)); then Rows, Columns |
+| `fill_value` | number or boolean | required | 0, or `false` for `bool` |
+| `codecs` | array of object | required | ([conventions §3](../conventions.md#3-arrays)) `transpose` when `c` is present and its chunk size is 3 (interleaved, as every decoded JPEG, lossless JPEG, JPEG-LS, JPEG 2000 and HTJ2K frame is, and not an RLE frame, which decodes to planar samples); then `bytes` (with `endian` `little` or `big` by the encoding when Bits Allocated is above 8), `imagecodecs_jpeg`, `imagecodecs_ljpeg`, `imagecodecs_jpegls`, `imagecodecs_jpeg2k`, `imagecodecs_htj2k` (with the configuration `{"planar": false}` when `S` = 3: the decoder's default is planar for a stream without a color transform), or `imagecodecs_dicomrle` (with the configuration `{"dtype": D}`, `D` the data type as NumPy writes it, little endian: `"<u2"`, `"\|u1"`); for Bits Allocated 1, zarr-extensions' [`packbits`](https://github.com/zarr-developers/zarr-extensions/tree/main/codecs/packbits) with `padding_encoding` `"none"`, which is bit packing, not TIFF's run-length PackBits |
 | `attributes` | object | required | `{}` ([§1](#1-declaration)) |
 
 **Scale and units.** Each axis's scale and unit:
@@ -311,9 +322,10 @@ then left to right), swapped if `m < 0`.
 **Chunks:** frame `f` (or sample `s` of it) is the chunk at
 `0/c/<coords>` ([Layout](#layout)). Coords are: for `c`, the sample `s` when planar, else 0;
 for the frame axis, `f`; then the frame's tile row and column for a whole-slide
-image, else 0 and 0. Every chunk is present. A chunk holds the frame's
+image, else 0 and 0. Every chunk is present. 1-bit frames that do not all start on a byte
+([§7.5](#75-frames)) are one chunk, its coords all 0, holding every frame's bits. A chunk holds the frame's
 pixel data: for native pixel data, its `Rows × Columns × S` cells (or one
-sample's, when planar); for encapsulated pixel data, the frame's
+sample's, when planar; its `⌈Rows × Columns / 8⌉` bytes, for Bits Allocated 1); for encapsulated pixel data, the frame's
 fragments' data, concatenated, which is one JPEG, lossless JPEG, JPEG-LS, RLE, JPEG 2000 or HTJ2K stream (a
 JPEG stream with three samples made explicit about its color transform,
 as [§7.5](#75-frames) says). Its ranges are a [`DicomChunk`](#type-dicomchunk).
@@ -780,7 +792,7 @@ as [§7.3](#73-datasets-and-sequences) and **Sequences that the profile does not
 | `<d>/FFFCFFFC~<k>` | value | | the `k`-th later Data Set Trailing Padding of `<d>` (padding is never a duplicate) |
 | `<s>/<i>` | struct | | item `i` of a sequence `<s>`: `header` (`{group:Eu2,element:Eu2,length:Eu4}`), its dataset's elements, and `end` (the item delimiter) when its length is undefined |
 | `dataset/7FE00010` | struct | | the top-level Pixel Data: `header` (`{H}`), then its value (below) |
-| `dataset/7FE00010/frames/<f>` | data | | native pixel data: frame `f`, its `F` bytes ([§7.5](#75-frames)) |
+| `dataset/7FE00010/frames/<f>` | data | | native pixel data: frame `f`, its `F` bytes ([§7.5](#75-frames)), or for 1-bit frames that do not all start on a byte, the one element `frames/0`, every frame's bits; its form's codec is `{"name": "packbits"}` for Bits Allocated 1 |
 | `dataset/7FE00010/padding` | value | `bytes[1]` | native pixel data's one byte `00` past the frames |
 | `…/offset_table` | struct | | encapsulated pixel data's first item: `header` and `offsets` (`Eu4[k]`, or `bytes[n]` when its length is not a multiple of 4) |
 | `…/fragment_headers/<j>` | value | `{group:Eu2,element:Eu2,length:Eu4}` | the item header of fragment `j` (after the offset table), or, with an Extended Offset Table, of frame `j` when the frames' headers are item headers |
@@ -1157,7 +1169,7 @@ metadata ([the convention §5](#5-source-metadata)) never rejects the input.
 
 ### 7.5 Frames
 
-Let `B = Bits Allocated / 8` and `F = Rows × Columns × S × B`, a frame's
+Let `F = ⌈Rows × Columns × S × Bits Allocated / 8⌉`, a frame's
 size. Let `v` be the start of the top-level Pixel Data value and `n` its
 length.
 
@@ -1166,10 +1178,18 @@ within the file (`v + n` at most the file's size; this is checked before
 anything is computed from `n` or `N`), and `n ≥ N × F` (extra bytes, such
 as a padding byte, are not part of a frame: [the convention §5](#5-source-metadata) keeps them).
 In explicit VR big endian,
-Pixel Data with VR `OW` and Bits Allocated 8 is rejected (its bytes are
+Pixel Data with VR `OW` and Bits Allocated 1 or 8 is rejected (its bytes are
 swapped in 16-bit words). Frame `f` is the range `(0, v + f × F, F)`; when
 `S` is 3 and Planar Configuration is 1, sample `s` of the frame is the range
 `(0, v + f × F + s × F / 3, F / 3)`.
+
+**Bits Allocated 1.** Let `b = Rows × Columns`, a frame's bits. Frames follow each other without
+padding, so a frame starts on a byte when `f × b` is a multiple of 8. When `b` is a multiple of 8
+or `N` is 1, each frame is a chunk, as above. Otherwise the frames are one chunk, the range
+`(0, v, F')` with `F' = ⌈N × b / 8⌉`, and `n ≥ F'` replaces `n ≥ N × F`. This is the rule of the
+safetensors profile's packed tensors
+([safetensors.md §8.3](safetensors.md#83-chunks)): a reader decodes a chunk from its first bit, so
+a chunk starts on a byte.
 
 **Encapsulated.** The Pixel Data length MUST be undefined. Its value is a
 **fragment sequence**, read in little endian: items `(FFFE,E000)` of defined
@@ -1305,7 +1325,8 @@ prefix when the prefix is present:
 
 | part | range | presence | value |
 |---|---|---|---|
-| the frame | source range `(0, v + f × F, F)` | optional | present for native pixel data, unless `S` is 3 and Planar Configuration is 1 |
+| the frame | source range `(0, v + f × F, F)` | optional | present for native pixel data, unless `S` is 3 and Planar Configuration is 1, or the frames are one chunk |
+| the frames | source range `(0, v, F')` | optional | present for 1-bit frames that do not all start on a byte ([§7.5](#75-frames)) |
 | sample `s` of the frame | source range `(0, v + f × F + s × F / 3, F / 3)` | optional | present for native pixel data with `S` 3 and Planar Configuration 1 |
 | the Adobe prefix | literal range `P` | optional | present for `jpeg` with `S` = 3, before the fragments' data: the 18 bytes `FF D8 FF EE 00 0E 41 64 6F 62 65 00 64 00 00 00 00 T`, SOI and an Adobe APP14 marker with transform `T` = 0 for `RGB` and 1 for `YBR_FULL` and `YBR_FULL_422` (**JPEG color**, [§7.5](#75-frames)) |
 | the fragments' data | source ranges `(0, start of data, length of data)` | optional | present for encapsulated pixel data: one range for each of the frame's fragments whose data is not empty, in order, at least one; with an Extended Offset Table, the one range `(0, q + EOT[f] + 8, EOTL[f])`. After the Adobe prefix, the first range `(0, o, m)` is instead `(0, o + 2, m − 2)`, without its SOI |

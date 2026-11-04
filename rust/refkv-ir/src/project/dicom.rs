@@ -43,7 +43,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     let chunk: Vec<u64> = arr(&facts["chunk_shape"]).iter().map(n).collect();
     let data_type = facts["data_type"].as_str().unwrap_or("");
     let codec = facts["codec"].as_str().unwrap_or("native");
-    let (spp, planar, count, across) = (n(&facts["spp"]), facts["planar"].as_bool().unwrap_or(false), n(&facts["n"]), n(&facts["across"]));
+    let (spp, planar, count, across) = (n(&facts["spp"]), facts["planar"].as_bool().unwrap_or(false), facts["stored"].as_u64().unwrap_or(n(&facts["n"])), n(&facts["across"]));
     let whole_slide = facts["whole_slide"].as_bool().unwrap_or(false);
     let fa = facts["frame_axis"].as_str().unwrap_or("z");
     let little = facts["little"].as_bool().unwrap_or(true);
@@ -51,6 +51,8 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     // an RLE frame decodes to planar samples, all others to interleaved ones
     let mut codecs = if spp == 3 && !planar && codec != "dicomrle" { vec![transpose_codec(&axes)] } else { vec![] };
     codecs.push(match codec {
+        // zarr-extensions' `packbits`, bit packing (not TIFF's PackBits)
+        "native" if data_type == "bool" => json!({"name": "packbits", "configuration": {"padding_encoding": "none"}}),
         "native" => bytes_codec(item_size(data_type), endian),
         "dicomrle" => json!({"name": "imagecodecs_dicomrle", "configuration": {"dtype": numpy_dtype(data_type)}}),
         "htj2k" if spp == 3 => json!({"name": "imagecodecs_htj2k", "configuration": {"planar": false}}),
@@ -79,7 +81,11 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
         own["palette"] = json!({"path": "palette", "first_mapped": p["first_mapped"], "bits": p["bits"]});
     }
     refs.out.json("zarr.json", &root_json(ome, "dicom", url, Some(own)));
-    refs.out.json("0/zarr.json", &array_json(&shape, data_type, json!(chunk), J::Array(codecs), &axes));
+    let mut array = array_json(&shape, data_type, json!(chunk), J::Array(codecs), &axes);
+    if data_type == "bool" {
+        array["fill_value"] = json!(false);
+    }
+    refs.out.json("0/zarr.json", &array);
     // the data elements under Pixel Data, by name index: frames, or fragments
     let mut members = ir.members(n(&facts["pixel"]) as u32);
     members.sort_unstable();
@@ -137,7 +143,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
         "dataType": data_type,
         "transferSyntax": facts["syntax"],
         "photometric": photometric,
-        "frames": count,
+        "frames": n(&facts["n"]),
         "wholeSlide": whole_slide,
         "references": references,
     });

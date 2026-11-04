@@ -35,3 +35,4 @@ https://storage.googleapis.com/idc-open-data/dac6a2ed-a3a4-4a1d-a985-e0b856bc2d0
 https://storage.googleapis.com/idc-open-data/dea041ff-963b-41b4-b2a5-8e4a32826333/007d59eb-0742-4e8a-a062-33b27bb9bf4f.dcm|idc-ybr-full-us|no-ref|ends-sha256=8bb4205410e40394d8eff25d4f6c554ccc637f917adc809e719402bbe3db0fe3
 https://storage.googleapis.com/idc-open-data/0e27b2cb-a643-412e-a92c-1d594e8b93b6/61935fb6-5ed3-4019-9f41-202720e2afdf.dcm|idc-jpegls-seg|no-ref|ends-sha256=fa433350333dc7c389bb0fc1f698716d0c3875944c99d21f1904776678d0253b
 https://storage.googleapis.com/idc-open-data/b5227222-7aa4-4e15-b0b7-a822d19dd04b/14d108c5-7b6f-4f85-9fac-dba4d36ea03a.dcm|idc-j2k-ybr-422|no-ref|ends-sha256=eacba37279a3f041f1f72edb84b1925db7509bc3ce0b07a07b317ae39e97b438
+# Bits Allocated 1: pydicom's segmentations (frames on bytes, and off them) and two IDC SEG files. The frozen reference rejects them, so each compares py with web alone.

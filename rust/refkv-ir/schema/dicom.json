@@ -25,7 +25,7 @@
       "1.2.840.10008.1.2.4.202": {"explicit": true, "little": true, "codec": "htj2k"},
       "1.2.840.10008.1.2.4.203": {"explicit": true, "little": true, "codec": "htj2k"}
     },
-    "bits_by_codec": {"native": [8, 16, 32], "jpeg": [8], "ljpeg": [8, 16], "jpeg2k": [8, 16], "dicomrle": [8, 16, 32], "jpegls": [8, 16], "htj2k": [8, 16]},
+    "bits_by_codec": {"native": [1, 8, 16, 32], "jpeg": [8], "ljpeg": [8, 16], "jpeg2k": [8, 16], "dicomrle": [8, 16, 32], "jpegls": [8, 16], "htj2k": [8, 16]},
     "photometrics": {
       "about": "by codec and Samples per Pixel",
       "native/1": ["MONOCHROME1", "MONOCHROME2", "PALETTE COLOR"],
@@ -126,14 +126,16 @@
         {"require": "!present(high_bit) || high_bit == bits_stored - 1", "message": "High Bit {high_bit} is not Bits Stored - 1"},
         {"require": "in(representation, [0, 1])", "message": "unsupported Pixel Representation {representation}"},
         {"require": "in(bits_allocated, at(bits_by_codec, codec))", "message": "unsupported Bits Allocated {bits_allocated}"},
+        {"require": "bits_allocated != 1 || (spp == 1 && bits_stored == 1 && representation == 0)", "message": "Bits Allocated 1 with {spp} samples per pixel, Bits Stored {bits_stored} and Pixel Representation {representation}"},
         {"require": "codec != 'jpeg' || (bits_stored == 8 && representation == 0)", "message": "JPEG Baseline needs 8 unsigned bits stored"},
         {"require": "in(photometric, admitted)", "message": "unsupported Photometric Interpretation '{photometric}' with {spp} samples per pixel"}
       ]
     },
     "whole_slide": {
       "about": "a VL Whole Slide Microscopy Image",
-      "given": {"organization": "", "width": "", "height": "", "optical_paths": "", "focal_planes": "", "n": "", "across": "", "down": "", "tiles": "n is across times down, exactly"},
+      "given": {"organization": "", "width": "", "height": "", "optical_paths": "", "focal_planes": "", "n": "", "across": "", "down": "", "tiles": "n is across times down, exactly", "bits_allocated": ""},
       "constraints": [
+        {"require": "bits_allocated != 1", "message": "a whole-slide image of Bits Allocated 1"},
         {"require": "organization == 'TILED_FULL'", "message": "a whole-slide image whose Dimension Organization Type is not TILED_FULL"},
         {"require": "present(width)", "message": "missing Total Pixel Matrix Columns"},
         {"require": "present(height)", "message": "missing Total Pixel Matrix Rows"},
@@ -144,12 +146,13 @@
       ]
     },
     "native": {
-      "given": {"undefined": "", "within": "the value lies within the file", "length": "", "size": "", "n": "", "frame_size": "", "enough": "length >= n × frame_size", "ow8_big": "OW, 8 bits allocated, big endian"},
+      "given": {"undefined": "", "within": "the value lies within the file", "length": "", "size": "", "n": "", "frame_size": "", "enough": "length >= n × frame_size (for Bits Allocated 1, ceil(n × Rows × Columns / 8))", "ow8_big": "OW, 8 bits allocated, big endian", "ow1_big": "OW, 1 bit allocated, big endian"},
       "constraints": [
         {"require": "!undefined", "message": "native Pixel Data with an undefined length"},
         {"require": "within", "message": "Pixel Data's {length} bytes run past the end of the {size}-byte file"},
         {"require": "enough", "message": "Pixel Data has {length} bytes, less than {n} frames of {frame_size}"},
-        {"require": "!ow8_big", "message": "8-bit Pixel Data of VR OW in big endian"}
+        {"require": "!ow8_big", "message": "8-bit Pixel Data of VR OW in big endian"},
+        {"require": "!ow1_big", "message": "1-bit Pixel Data of VR OW in big endian"}
       ]
     },
     "encapsulated": {

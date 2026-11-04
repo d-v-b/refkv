@@ -309,8 +309,12 @@ pub struct Image {
 pub struct Layout {
     /// where Pixel Data ends
     pub end: u64,
-    /// native: a frame's size
+    /// native: a stored element's size, a frame's, or for 1-bit frames that do not all start on
+    /// a byte the whole data's (spec/zarrify/dicom.md §7.5
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#75-frames>)
     pub frame_size: u64,
+    /// native: the stored elements, the frames, or that one
+    pub stored: u64,
     /// native: the bytes past the frames, (offset, length)
     pub extra: Option<(u64, u64)>,
     /// encapsulated: the items (item offset, data offset, data length), the Basic Offset
@@ -768,6 +772,7 @@ impl Dicom {
                 ("across", opt(across)),
                 ("down", opt(down)),
                 ("tiles", flag(tiles)),
+                ("bits_allocated", num(bits_allocated as f64)),
             ]);
             check(r, "whole_slide", &mut env)?;
             (total_columns.unwrap(), total_rows.unwrap(), across.unwrap())
@@ -871,11 +876,16 @@ impl Dicom {
         let size = self.size;
         let pixel = img.pixel;
         let n = img.n;
-        let frame_size = img.rows * img.columns * img.spp * (img.bits_allocated / 8);
-        let mut lay = Layout { frame_size, ..Default::default() };
+        let frame_bits = img.rows * img.columns * img.spp * img.bits_allocated;
+        let frame_size = frame_bits.div_ceil(8);
+        let mut lay = Layout { frame_size, stored: n, ..Default::default() };
         if img.codec == "native" {
             let within = !pixel.undefined() && pixel.end() <= size;
-            let enough = (pixel.length as u128) >= n as u128 * frame_size as u128;
+            // 1-bit frames follow each other without padding: when one does not start on a byte,
+            // the frames are not cut apart
+            let whole = img.bits_allocated == 1 && !frame_bits.is_multiple_of(8);
+            let needed = if whole { (n as u128 * frame_bits as u128).div_ceil(8) } else { n as u128 * frame_size as u128 };
+            let enough = pixel.length as u128 >= needed;
             let mut env = rules::env([
                 ("undefined", flag(pixel.undefined())),
                 ("within", flag(within)),
@@ -885,12 +895,18 @@ impl Dicom {
                 ("frame_size", num(frame_size as f64)),
                 ("enough", flag(enough)),
                 ("ow8_big", flag(!img.enc.little && img.bits_allocated == 8 && pixel.vr_is("OW"))),
+                ("ow1_big", flag(!img.enc.little && img.bits_allocated == 1 && pixel.vr_is("OW"))),
             ]);
             check(r, "native", &mut env)?;
             lay.end = pixel.end();
-            let extra = pixel.length as u64 - n * frame_size;
+            let needed = needed as u64;
+            if whole {
+                lay.frame_size = needed;
+                lay.stored = 1;
+            }
+            let extra = pixel.length as u64 - needed;
             if extra > 1 || (extra == 1 && self.b.get(lay.end - 1, 1)? != [0]) {
-                lay.extra = Some((pixel.value + n * frame_size, extra));
+                lay.extra = Some((pixel.value + needed, extra));
             }
             return Ok(lay);
         }
@@ -1348,8 +1364,10 @@ pub fn parts_of(ranges: &[(u64, u64)], adobe: Option<u8>) -> Vec<Part> {
 /// The facts the projection reads.
 fn facts(img: &Image, lay: &Layout, root: Map<String, J>, pixel: u32) -> J {
     let shape: Vec<u64> = img.axes.iter().map(|a| match *a { "c" => 3, "y" => img.height, "x" => img.width, _ => img.n }).collect();
-    let chunk: Vec<u64> = img.axes.iter().map(|a| match *a { "c" => if img.planar_native { 1 } else { 3 }, "y" => img.rows, "x" => img.columns, _ => 1 }).collect();
-    let data_type = format!("{}int{}", if img.signed { "" } else { "u" }, img.bits_allocated);
+    // for frames that are one stored element, the frame axis's whole size
+    let frames_per_chunk = if lay.stored == 1 { img.n } else { 1 };
+    let chunk: Vec<u64> = img.axes.iter().map(|a| match *a { "c" => if img.planar_native { 1 } else { 3 }, "y" => img.rows, "x" => img.columns, _ => frames_per_chunk }).collect();
+    let data_type = if img.bits_allocated == 1 { "bool".to_string() } else { format!("{}int{}", if img.signed { "" } else { "u" }, img.bits_allocated) };
     let layout = if img.codec == "native" { "native" } else if lay.eot.is_some() { "eot" } else { "fragments" };
     json!({
         "root": root,
@@ -1362,6 +1380,7 @@ fn facts(img: &Image, lay: &Layout, root: Map<String, J>, pixel: u32) -> J {
         "planar": img.planar_native,
         "spp": img.spp,
         "n": img.n,
+        "stored": lay.stored,
         "whole_slide": img.whole_slide,
         "across": img.across,
         "frame_axis": img.frame_axis,
@@ -1691,6 +1710,7 @@ impl Emit<'_> {
         let s = self.ir.struct_(d, &tag_key(PIXEL_DATA), NO_INDEX, 0, Some((el.at, lay.end - el.at))).map_err(hard)?;
         self.value(s, "header", NO_INDEX, &format!("{{{}}}", header_fields(&el, img.enc)), el.at, el.value - el.at)?;
         let codec = match img.codec {
+            "native" if img.bits_allocated == 1 => json!({"name": "packbits"}),
             "native" => json!({"name": "bytes", "endian": if img.enc.little { "little" } else { "big" }}),
             c => json!({"name": c}),
         };
@@ -1701,17 +1721,17 @@ impl Emit<'_> {
         if img.codec == "native" {
             let f = lay.frame_size;
             let first = self.ir.data(s, "frames/", 0, 0, (el.value, f), &form).map_err(hard)?;
-            if img.n > 1 {
+            if lay.stored > 1 {
                 let at = self.ir.runs.partition_point(|x| x.0 < first);
-                self.ir.runs.insert(at, (first, img.n, f));
+                self.ir.runs.insert(at, (first, lay.stored, f));
                 if let Some(b) = self.ir.budget.as_mut() {
-                    b.spent_elements += img.n - 1;
+                    b.spent_elements += lay.stored - 1;
                     if b.spent_elements > b.elements {
                         return Err(hard(format!("budget: more than {} IR elements", b.elements)));
                     }
                 }
             }
-            let extra = el.length as u64 - img.n * f;
+            let extra = el.length as u64 - lay.stored * f;
             if extra == 1 && lay.extra.is_none() {
                 self.value(s, "padding", NO_INDEX, "bytes[1]", el.end() - 1, 1)?;
             }

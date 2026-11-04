@@ -1,7 +1,7 @@
 """The DICOM IR (revision 26): the Rust parser and its schema, the image projection against
 the frozen reference, the mirror's rebuild, runs of identical items and frames, the DICOM
-probes of gen_probes.py at the tests' sizes, and lossless JPEG frames, which the profile
-reads since the freeze."""
+probes of gen_probes.py at the tests' sizes, and what the profile reads since the freeze:
+lossless JPEG frames and 1-bit images."""
 
 
 from pathlib import Path
@@ -42,6 +42,9 @@ HTJ2K = [p for p in DICOMS if p.name.startswith("dicom_htj2k_")]
 PALETTE_TESTDATA = [pydicom_file("examples_palette.dcm")]
 YBR_FULL = [p for p in DICOMS if p.name.startswith("dicom_ybr_full_")
             or p.name in ("dicom_rle_ybr_full.dcm", "dicom_jpegls_ybr_full.dcm")]
+# and the one 1-bit segmentation pydicom's package holds; the others, frames off bytes among them,
+# which pydicom downloads, are in the corpus (conformance/zarrify/corpus_dicom.txt)
+ONE_BIT = [*(p for p in DICOMS if p.name.startswith("dicom_bits1_")), pydicom_file("liver_1frame.dcm")]
 PROBES = ["dicom_big_private.dcm", "dicom_chain_bot.dcm", "dicom_chain_nobot.dcm", "dicom_deep_defined.dcm",
           "dicom_eot_many.dcm", "dicom_fragments_many.dcm", "dicom_frames_many.dcm", "dicom_items_distinct.dcm",
           "dicom_items_same.dcm", "dicom_many_elements.dcm"]
@@ -221,6 +224,26 @@ def test_jpeg2k_ybr_422_frames_decode_to_rgb(tmp_path):
     assert (got.mean(axis=(1, 2, 3)) > 235).all()
     channels = sequence(at(root.attrs, "ome", "omero", "channels"))
     assert [at(c, "label") for c in channels] == ["R", "G", "B"]
+
+
+@pytest.mark.parametrize("path", ONE_BIT, ids=lambda p: p.name)
+def test_one_bit_frames_read_as_pydicom_reads_them(path, tmp_path):
+    """§7.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#75-frames>: the
+    array is `bool` through `packbits`, its chunks the frames when each starts on a byte, else
+    one, and what zarr-python reads is pydicom's pixel_array."""
+    out, root, _ = zarrified(path, tmp_path, "dicom")
+    assert at(out.summary, "planner", "fill", "ranges") == 0
+    array = root.get_array("0")
+    meta = array.metadata.to_dict()
+    assert at(sequence(at(meta, "codecs"))[-1], "name") == "packbits"
+    ds = pydicom.dcmread(path)
+    n, bits = int(ds.get("NumberOfFrames", 1)), ds.Rows * ds.Columns
+    chunk_frames = 1 if bits % 8 == 0 else n
+    assert array.chunks == ((chunk_frames,) if n > 1 else ()) + (ds.Rows, ds.Columns)
+    assert len([k for k in out.refs if k.startswith("0/c/")]) == n // chunk_frames
+    got = ndarray(array[...])
+    assert got.dtype == bool
+    np.testing.assert_array_equal(got, ds.pixel_array.astype(bool))
 
 
 @pytest.mark.parametrize("name", PROBES)

@@ -39,8 +39,10 @@ gives its own archive.
   stay in the mirror. No color is applied.
 - **Native and RLE `YBR_FULL`:** channels `Y`, `Cb` and `Cr`, as stored, not converted.
 - **Data types:** `uint8`, `int8`, `uint16`, `int16`, `uint32`, `int32` (the
-  stored cells, not rescaled).
-- **Codecs:** `bytes` (either byte order) for native pixel data,
+  stored cells, not rescaled), and `bool` for Bits Allocated 1, as
+  segmentations store them.
+- **Codecs:** `bytes` (either byte order) for native pixel data, `packbits`
+  (zarr-extensions' bit packing, not TIFF's PackBits) for Bits Allocated 1,
   `imagecodecs_dicomrle` for RLE Lossless, `imagecodecs_jpegls` for JPEG-LS,
   `imagecodecs_htj2k` for HTJ2K (readable in Python; the Neuroglancer fork has no
   decoder for it yet),

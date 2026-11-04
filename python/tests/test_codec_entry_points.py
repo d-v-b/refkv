@@ -51,6 +51,8 @@ EVERY_CODEC = {
     "imagecodecs_dicomrle": ("dicom/dicom_rle_mono16_bot.dcm", "0"),
     "imagecodecs_jpegls": ("dicom/dicom_jpegls_mono16_bot.dcm", "0"),
     "imagecodecs_htj2k": ("dicom/dicom_htj2k_mono16_bot.dcm", "0"),
+    "imagecodecs_png": ("vsi/vsi_png.vsi", "0/0"),
+    "imagecodecs_bmp": ("vsi/vsi_bmp.vsi", "0/0"),
     "imagecodecs_delta": ("tiff/predictor_lzw_uint16.tif", "0"),
 }
 
