@@ -21,7 +21,7 @@ const MAX_OMERO: u64 = 64;
 /// The most bytes of a channel name, in UTF-8.
 const MAX_NAME: usize = 256;
 
-/// A subblock form: (pixel type, compression, hi-lo packing).
+/// A subblock form: (pixel type, compression, hi-lo packing or a JpgFile stream's being lossless).
 type Form = (i32, i32, bool);
 
 fn form_of(v: &J) -> Result<(Form, &'static str, u64, u64), String> {
@@ -36,8 +36,8 @@ fn form_of(v: &J) -> Result<(Form, &'static str, u64, u64), String> {
 fn codecs(form: Form, data_type: &str, p: u64, axes: &[&str]) -> J {
     let mut out = if p > 1 { vec![transpose_codec(axes)] } else { vec![] };
     match form.1 {
-        JPEG => out.push(json!({"name": "imagecodecs_jpeg"})),
-        LJPEG => out.push(json!({"name": "imagecodecs_ljpeg"})),
+        JPEG if !form.2 => out.push(json!({"name": "imagecodecs_jpeg"})),
+        JPEG | LJPEG => out.push(json!({"name": "imagecodecs_ljpeg"})),
         LZW => {
             out.push(bytes_codec(item_size(data_type), "little"));
             out.push(json!({"name": "imagecodecs_lzw"}));

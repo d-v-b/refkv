@@ -164,6 +164,13 @@ fn jpeg_frame(h: &Head, p: u64, admits: impl Fn(u8, u8) -> bool) -> Result<Optio
     }
 }
 
+/// (width, height) of a lossless JPEG stream of one component whose samples decode to values of
+/// `q` bytes.
+fn lossless_frame(h: &Head, q: u64) -> Result<Option<(u64, u64)>, Need> {
+    let bits = if q == 1 { 2..=8 } else { 9..=16 };
+    jpeg_frame(h, 1, |m, precision| m == 0xC3 && bits.contains(&precision))
+}
+
 /// A JPEG XR container's pixel format (the GUID of its PixelFormat entry), ImageWidth and
 /// ImageHeight (spec/zarrify/czi.md §7.4
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#74-codec-headers>, which the NDPI
@@ -227,9 +234,9 @@ fn jpegxr_size(h: &Head, pt: i32) -> Result<Option<(u64, u64)>, Need> {
     Ok(jpegxr_header(h)?.filter(|(guid, _, _)| jxr_format(pt, guid)).map(|(_, w, h)| (w, h)))
 }
 
-/// (coded width, coded height, hi-lo flag, header length) of a subblock whose
+/// (coded width, coded height, form flag, header length) of a subblock whose
 /// stored size is w × h and whose data is n bytes, or None when it has no coded
-/// size; Err when its codec header needs more of the data than `head` holds.
+/// size. The form flag is Zstd1's hi-lo packing, or a JpgFile stream's being lossless; Err when its codec header needs more of the data than `head` holds.
 pub fn coded_size(pt: i32, comp: i32, w: u64, h: u64, n: u64, head: &Head) -> Result<Option<(u64, u64, bool, u64)>, Need> {
     let Some((_, p, q)) = pixel_type(pt) else { return Ok(None) };
     let pixels = (w as u128) * (h as u128) * (q as u128);
@@ -244,14 +251,17 @@ pub fn coded_size(pt: i32, comp: i32, w: u64, h: u64, n: u64, head: &Head) -> Re
             Ok((zstd_content_size(head, len)?.map(|x| x as u128) == Some(pixels)).then_some((w, h, hilo, len)))
         }
         JPEG => {
+            // a gray stream may be lossless, which Bio-Formats and czifile read under this value
+            if p == 1 {
+                if let Some((a, b)) = lossless_frame(head, q)? {
+                    return Ok(Some((a, b, true, 0)));
+                }
+            }
             // Gray16 holds 12-bit samples, or nothing that decodes to its values
             let bits = if pt == 1 { 12 } else { 8 };
             Ok(jpeg_frame(head, p, |m, precision| matches!(m, 0xC0..=0xC2) && precision == bits)?.map(|(a, b)| (a, b, false, 0)))
         }
-        LJPEG => {
-            let bits = if q == 1 { 2..=8 } else { 9..=16 };
-            Ok(jpeg_frame(head, p, |m, precision| m == 0xC3 && bits.contains(&precision))?.map(|(a, b)| (a, b, false, 0)))
-        }
+        LJPEG => Ok(lossless_frame(head, q)?.map(|(a, b)| (a, b, false, 0))),
         // nothing but the stream's first code says it is one: its size is known only by decoding it
         LZW => {
             let Some(b) = head.get(0, 2)? else { return Ok(None) };
@@ -265,17 +275,17 @@ pub fn coded_size(pt: i32, comp: i32, w: u64, h: u64, n: u64, head: &Head) -> Re
 /// The codecs after `transpose` (spec/zarrify/czi.md §3.1
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#31-pixel-types-and-codecs>), as
 /// JSON.
-pub fn codec_chain(pt: i32, comp: i32, hilo: bool) -> serde_json::Value {
+pub fn codec_chain(pt: i32, comp: i32, flag: bool) -> serde_json::Value {
     use serde_json::json;
     let dt = pixel_type(pt).map(|x| x.0).unwrap_or("uint8");
     let bytes = if dt == "uint8" { json!({"name": "bytes"}) } else { json!({"name": "bytes", "configuration": {"endian": "little"}}) };
     let zstd = json!({"name": "zstd", "configuration": {"level": 0, "checksum": false}});
     match comp {
-        JPEG => json!([{"name": "imagecodecs_jpeg"}]),
-        LJPEG => json!([{"name": "imagecodecs_ljpeg"}]),
+        JPEG if !flag => json!([{"name": "imagecodecs_jpeg"}]),
+        JPEG | LJPEG => json!([{"name": "imagecodecs_ljpeg"}]),
         LZW => json!([bytes, {"name": "imagecodecs_lzw"}]),
         JPEGXR => json!([{"name": "imagecodecs_jpegxr"}]),
-        ZSTD0 | ZSTD1 if hilo => json!([bytes, {"name": "numcodecs.shuffle", "configuration": {"elementsize": 2}}, zstd]),
+        ZSTD0 | ZSTD1 if flag => json!([bytes, {"name": "numcodecs.shuffle", "configuration": {"elementsize": 2}}, zstd]),
         ZSTD0 | ZSTD1 => json!([bytes, zstd]),
         _ => json!([bytes]),
     }

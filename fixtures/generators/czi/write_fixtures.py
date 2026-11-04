@@ -476,14 +476,19 @@ def codec_fixtures() -> dict[str, Czi]:
                for j in range(2) for i in range(3)]  # a clipped level
     f["czi_lzw"] = Czi([plane(t, 2, 0, 0, 12, 8, S=k, stored=ramp(t, 12, 8, k)) for k, t in enumerate(types)] + lattice)
     twelve = ramp(1, 12, 8, 2) % 4096
+    under8, under16 = ramp(0, 12, 8, 3), ramp(1, 12, 8, 4)
     f["czi_ljpeg"] = Czi([plane(0, 3, 0, 0, 12, 8, S=0, stored=ramp(0, 12, 8, 0)),
                           plane(1, 3, 0, 0, 12, 8, S=1, stored=ramp(1, 12, 8, 1)),
-                          plane(1, 3, 0, 0, 12, 8, S=2, stored=twelve, coded=ljpeg(twelve, 12))])
+                          plane(1, 3, 0, 0, 12, 8, S=2, stored=twelve, coded=ljpeg(twelve, 12)),
+                          # lossless under JpgFile, as Bio-Formats and czifile read it
+                          plane(0, 1, 0, 0, 12, 8, S=3, stored=under8, coded=ljpeg(under8)),
+                          plane(1, 1, 0, 0, 12, 8, S=4, stored=under16, coded=ljpeg(under16))])
     # smooth, so that the lossy stream stays near it
     smooth = (np.arange(32 * 16, dtype=np.uint16).reshape(16, 32) * 7).astype("<u2")
     f["czi_jpeg_12bit"] = Czi([plane(1, 1, 32 * i, 0, 32, 16, stored=smooth, coded=jpeg12(smooth + 64 * i))
                                for i in range(2)])
     gray8, gray16 = ramp(0, 6, 4), ramp(1, 6, 4)
+    color = cast("bytes", imagecodecs.jpeg8_encode(ramp(3, 6, 4), lossless=True))
     f["czi_codec_unplaced"] = Czi([
         # starts as codes packed least significant bit first do
         plane(0, 2, 0, 0, 6, 4, S=0, stored=gray8, coded=b"\x00\x01" + lzw(gray8)[2:]),
@@ -492,7 +497,7 @@ def codec_fixtures() -> dict[str, Czi]:
         plane(1, 3, 0, 0, 6, 4, S=3, stored=gray8, coded=ljpeg(gray8)),  # lossless, of 8 bits, for Gray16
         plane(0, 3, 0, 0, 6, 4, S=4, stored=gray8, coded=ljpeg(gray16 % 4096, 12)),  # lossless, of 12 bits, for Gray8
         plane(1, 1, 0, 0, 6, 4, S=5, stored=gray8, coded=jpeg(gray8)),  # 8 bits for Gray16: it would read as 0 to 255
-        plane(1, 1, 0, 0, 6, 4, S=6, stored=gray8, coded=ljpeg(gray16)),  # lossless under JpgFile
+        plane(3, 1, 0, 0, 6, 4, S=6, stored=gray8, coded=color),  # lossless of 3 components, in no stated order
         plane(0, 1, 0, 0, 6, 4, S=7, stored=gray8, coded=jpeg12(gray16 % 4096)),  # 12 bits for Gray8
         plane(0, 0, 0, 0, 6, 4, S=8, stored=gray8),  # placed
     ])

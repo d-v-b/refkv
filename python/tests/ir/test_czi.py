@@ -78,7 +78,10 @@ def test_lzw_lossless_and_12_bit_subblocks_read_their_pixels(tmp_path):
 
     out, g, _ = zarrified(FIXTURES / "czi" / "czi_ljpeg.czi", tmp_path, "czi")
     twelve = ramp("<u2", 1, 12, 8, 2) % 4096
-    for k, want in enumerate([ramp("u1", 1, 12, 8, 0), ramp("<u2", 1, 12, 8, 1), twelve]):
+    # the last two are lossless streams under JpgFile
+    wants = [ramp("u1", 1, 12, 8, 0), ramp("<u2", 1, 12, 8, 1), twelve,
+             ramp("u1", 1, 12, 8, 3), ramp("<u2", 1, 12, 8, 4)]
+    for k, want in enumerate(wants):
         assert json.loads(out.bytes_entries[f"{k}/0/zarr.json"])["codecs"] == [{"name": "imagecodecs_ljpeg"}]
         got = ndarray(g.get_array(f"{k}/0")[...])
         assert got.dtype == want.dtype
@@ -98,8 +101,8 @@ def test_a_stream_that_does_not_fit_its_subblock_has_no_array(tmp_path):
     """spec/zarrify/czi.md §3.2
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#32-conforming-and-unplaced-subblocks>:
     an 8-bit JPEG under Gray16 (it would read as 0 to 255), a lossless stream of the wrong
-    precision or a stream of another kind, and LZW codes in the other bit order, are unplaced,
-    their data kept as bytes; the rest of the file is read."""
+    precision or of 3 components, a stream of another kind, and LZW codes in the other bit order,
+    are unplaced, their data kept as bytes; the rest of the file is read."""
     out, g, ir = zarrified(FIXTURES / "czi" / "czi_codec_unplaced.czi", tmp_path, "czi")
     assert at(g.get_group("OME").attrs, "ome", "series") == ["0"]
     assert at(g.get_group("0").attrs, "refkv_zarrified", "czi") == {"dimensions": {"S": 8}}

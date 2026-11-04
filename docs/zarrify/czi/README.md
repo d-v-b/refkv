@@ -30,7 +30,7 @@ is kept as bytes and has no array.
 | JPEG, 12-bit | Gray16 | `imagecodecs_jpeg` | yes | no: its decoder is 8-bit, so it refuses the array |
 | JPEG XR | Gray8, Gray16, Gray32Float, Bgr24, Bgr48, Bgr96Float, Bgra32 | `imagecodecs_jpegxr` | yes | yes |
 | LZW | all | `bytes`, `imagecodecs_lzw` | yes | yes |
-| lossless JPEG | Gray8, Gray16 | `imagecodecs_ljpeg` | yes | yes |
+| lossless JPEG, under its own value or JPEG's | Gray8, Gray16 | `imagecodecs_ljpeg` | yes | yes |
 
 zarr-python needs `refkv[images]` for the `imagecodecs_` codecs. The fork's column
 is its branch `vzip`, read from its source; these subblocks have not been shown

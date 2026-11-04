@@ -11,10 +11,10 @@ Convention version: 0 (until release, [conventions §1](../conventions.md#1-conv
 Schema: [schema.json](czi/schema.json)
 
 Changed 2026-11-04: subblocks in LZW have a layout, their codecs `bytes` and `imagecodecs_lzw`, and
-so do Gray8 and Gray16 subblocks in lossless JPEG, `imagecodecs_ljpeg`, and Gray16 subblocks of
-12-bit JPEG, `imagecodecs_jpeg` ([§3.1](#31-pixel-types-and-codecs)). Any other stream under those
-Compressions has no coded size, so a Gray16 subblock of 8-bit JPEG, which rejected the input, is
-unplaced ([§3.2](#32-conforming-and-unplaced-subblocks)). Lossless JPEG with Bgr24 or Bgr48, JPEG with
+so do Gray8 and Gray16 subblocks in lossless JPEG, `imagecodecs_ljpeg`, whether under Compression 3
+or JpgFile, and Gray16 subblocks of 12-bit JPEG, `imagecodecs_jpeg`
+([§3.1](#31-pixel-types-and-codecs)). Any other stream under those Compressions has no coded size,
+so a Gray16 subblock of 8-bit JPEG, which rejected the input, is unplaced ([§3.2](#32-conforming-and-unplaced-subblocks)). Lossless JPEG with Bgr24 or Bgr48, JPEG with
 Bgr48 and raw data are still rejected. No output of a file accepted before changed.
 
 Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
@@ -374,7 +374,7 @@ the data type, little-endian.
 | Compression | name | pixel types | codecs after `transpose` ([conventions §3](../conventions.md#3-arrays)) | sample order |
 |---|---|---|---|---|
 | 0 | uncompressed | all | `bytes` | B, G, R, A |
-| 1 | JpgFile | Gray8, Gray16, Bgr24 | `imagecodecs_jpeg` | R, G, B |
+| 1 | JpgFile | Gray8, Gray16, Bgr24 | `imagecodecs_jpeg`; `imagecodecs_ljpeg` for a lossless stream | R, G, B |
 | 2 | LZW | all | `bytes`, `imagecodecs_lzw` | B, G, R, A |
 | 3 | lossless JPEG | Gray8, Gray16 | `imagecodecs_ljpeg` | |
 | 4 | JpgXr | Gray8, Gray16, Gray32Float, Bgr24, Bgr48, Bgr96Float, Bgra32 | `imagecodecs_jpegxr` | R, G, B, A |
@@ -388,22 +388,28 @@ coding, which no codec of [conventions §3](../conventions.md#3-arrays) decodes.
 
 Compression 2 is LZW in Bio-Formats and czifile, and libCZI does not read it. Compression 3 is
 named by czifile alone, as "JPEG lossless (undocumented)", without a decoder; Bio-Formats and libCZI
-have no such value. So what these subblocks hold is decided from their streams
+have no such value, so no reader checks what the profile does with it. So what these subblocks hold
+is decided from their streams
 ([§3.2](#32-conforming-and-unplaced-subblocks)):
 
 - **LZW** is TIFF's ([tiff §4.3](tiff.md#43-data-types-and-codecs)), as both readers decode it: codes
   packed most significant bit first, a property of the stream and not of any byte order. It decodes
-  to the bytes an uncompressed subblock holds, little-endian and in stored sample order. No CZI
-  writer is known to run on past a subblock, so the stock codec fits, and not `refkv.tiff_lzw`.
+  to the bytes an uncompressed subblock holds, little-endian and in stored sample order, as
+  Bio-Formats' own decoder reads them. No CZI writer is known to run on past a subblock, so the stock
+  codec fits, and not `refkv.tiff_lzw`.
 - **Lossless JPEG** has no color transform, so its components are in the order its writer gave them,
   which nothing states. The profile would have to guess which channel is which, so Bgr24 and Bgr48
   are rejected.
-- **JPEG with Gray16** can't hold 16-bit samples, since JPEG's DCT stops at 12 bits. No document or
-  public file says what a writer puts there, so the frame header decides. A stream of 12-bit samples
-  decodes to `uint16` with its values as coded. A stream of 8-bit samples has no faithful `uint16`
-  form: `imagecodecs_jpeg` gives it as values from 0 to 255, with no message, in an array that says
-  it has 16 bits, and czifile gives it as `uint8`. So it has no coded size, and no array. Bgr48 stays rejected, as no reader has been
-  checked on 12-bit color.
+- **JPEG with Gray16** can't hold 16-bit samples in its DCT process, which stops at 12 bits. No
+  document or public file says what a writer puts there, so the frame header decides:
+
+  | stream | what it reads as | layout |
+  |---|---|---|
+  | lossless (SOF3) | `uint16`, in Bio-Formats and czifile alike | `imagecodecs_ljpeg`, as under Compression 3; so too for Gray8 |
+  | DCT, 12-bit samples | `uint16` with its values as coded, in czifile; Bio-Formats does not read it | `imagecodecs_jpeg` |
+  | DCT, 8-bit samples | values from 0 to 255: `imagecodecs_jpeg` gives them, with no message, in an array that says it has 16 bits, and czifile gives `uint8`; Bio-Formats does not read it | none: it has no faithful `uint16` form, so it has no coded size |
+
+  Bgr48 stays rejected, as no reader has been checked on 12-bit color.
 
 Each codec's JSON form, exactly:
 
@@ -438,14 +444,14 @@ subblock's data is the zstd frame.
 ### 3.2 Conforming and unplaced subblocks
 
 A subblock's **coded size** is the width and height its data holds, and its
-**codec form** is its PixelType, Compression and, for Zstd1, its hi-lo flag. Its coded size,
-by its Compression (`W`, `H` its stored width and height):
+**codec form** is its PixelType, Compression, for Zstd1 its hi-lo flag, and for JpgFile whether its
+stream is lossless. Its coded size, by its Compression (`W`, `H` its stored width and height):
 
 | Compression | coded size | when |
 |---|---|---|
 | uncompressed | its stored size | `n ≥ W × H × q`; the first `W × H × q` bytes are its pixels and the rest, if any, its **trailing bytes** |
 | Zstd0, Zstd1 | its stored size | its Zstd1 header (for Zstd1) is one of those of [§3.1](#31-pixel-types-and-codecs), hi-lo packing is only on Gray16 and Bgr48, and its zstd frame header declares a content size of `W × H × q` bytes and no dictionary ([the profile §7.4](#74-codec-headers)) |
-| JpgFile | the width and height of its JPEG frame header | SOF0, SOF1 or SOF2, `p` components, samples of 12 bits for Gray16 and of 8 bits otherwise |
+| JpgFile | the width and height of its JPEG frame header | SOF0, SOF1 or SOF2, `p` components, samples of 12 bits for Gray16 and of 8 bits otherwise; or, for Gray8 and Gray16, what lossless JPEG's row says |
 | LZW | its stored size | its stream starts with the Clear code ([the profile §7.4](#74-codec-headers)) |
 | lossless JPEG | the width and height of its JPEG frame header | SOF3, `p` components, samples of 2 to 8 bits for Gray8 and of 9 to 16 bits for Gray16 |
 | JpgXr | the `ImageWidth` and `ImageHeight` of its JPEG XR container | its `PixelFormat` is one this subblock's pixel type admits (the profile [§7.4](#74-codec-headers)) |
@@ -1061,8 +1067,9 @@ output may depend on ([spec/zarrify.md §1.2](../zarrify.md#12-input), structure
   big-endian) and the component count (1 byte). There is a coded size when
   the height and width are at least 1, the component count is the pixel
   type's `p`, and, for JpgFile, `M` is `C0`, `C1` or `C2` and the precision is
-  12 for Gray16 and 8 otherwise, or, for lossless JPEG, `M` is `C3` and the
-  precision is 2 to 8 for Gray8 and 9 to 16 for Gray16. A start of scan
+  12 for Gray16 and 8 otherwise, or, for lossless JPEG and for JpgFile with
+  Gray8 or Gray16, `M` is `C3` and the precision is 2 to 8 for Gray8 and 9 to
+  16 for Gray16. A start of scan
   (`DA`) or end of image (`D9`) before the frame header gives none.
 - **LZW:** `D[0]` is `80` and the top bit of `D[1]` is clear, so that its first
   code, of 9 bits, most significant bit first, is 256, Clear. Anything else, as
