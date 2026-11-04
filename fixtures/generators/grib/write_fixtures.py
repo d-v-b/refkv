@@ -33,7 +33,14 @@ encoder does not write:
 - `grib_constant`: a bit width of 0 (eccodes keeps D = 2, and every decoder reads R);
 - scanning modes: `grib_scan_40`, `grib_scan_80`, `grib_scan_50` (rows alternate direction),
   `grib_scan_20` (adjacent points in j consecutive) and `grib_scan_30`;
-- grids: `grib_lambert` (3.30, scanning mode 0x40);
+- grids: `grib_lambert` (3.30, scanning mode 0x40); `grib_gaussian` (3.40, N = 8, global),
+  `grib_gaussian_south` (scanning mode 0x40) and `grib_gaussian_regional` (12 rows of N = 32);
+  `grib_rotated` (3.1, the southern pole at 35°S, 10°E) and `grib_rotated_angle` (rotated by 15°);
+  `grib_polar` (3.20, a sphere, scanning mode 0x40), `grib_polar_south` (its south pole) and
+  `grib_polar_pole` (LaD at the pole), and `grib_polar_wgs84`, `grib_polar_south_wgs84` and
+  `grib_polar_pole_wgs84` (the same on WGS 84); `grib_mercator` (3.10, WGS 84, scanning mode 0x40);
+  `grib_reduced_gg` (3.40 with ecCodes' list of N = 32), `grib_reduced_bitmap` (with a bitmap)
+  and `grib_reduced_ll` (3.0 with a list); `grib_unstructured` (3.101);
 - messages of three fields: `grib_fields_4to7` (sections 4–7 repeated) and `grib_fields_3to7`
   (sections 3–7 repeated, each field on another grid);
 - rejects, one per role of the profile's schema (rust/refkv-ir/schema/grib.json) a fixture can
@@ -49,8 +56,11 @@ feed's index gives (fixtures/grib/README.md records them, with their licenses): 
 (5.3 with a bitmap, 5.3 with missing-value management 1, and 5.3 without either), HRRR
 (3.30, scanning mode 0x40: a 5.3 field, and a 5.0 field of bit width 0), ECMWF IFS (5.42,
 with and without a bitmap), NBM (3.30, scanning mode 0x50, missing-value management 1), RAP
-(3.30, 5.40 of 17 bits) and CFSv2 (two fields of 5.40, the second reusing the first's bitmap
-through indicator 254, each image one row of the packed values).
+(3.30, 5.40 of 17 bits), CFSv2 (two fields of 5.40, the second reusing the first's bitmap
+through indicator 254, each image one row of the packed values), and of the grids of
+[gap 4](https://github.com/d-v-b/refkv/pull/219): CFSv2's and GFS's Gaussian fluxes (3.40), HRRR
+Alaska and NBM Alaska (3.20, scanning modes 0x40 and 0x50), NBM Hawaii (3.10, scanning mode
+0x50), and NCEP's sea ice analysis (3.20, the south pole).
 
 Expected values: eccodes' decoding of each field (with multi-field support), float64, NaN
 where eccodes reports a missing value, in the codec's order. eccodes' `values` are in the
@@ -58,7 +68,8 @@ file's order: the generator checks it against its own decoding of the simple-pac
 mode fixtures. The codec keeps the rows and their directions, but reverses every second line
 when scanning mode bit 0x10 is set, then transposes when bit 0x20 is set (a line is a row of
 Ni points, or with 0x20 a column of Nj points), so the expected array is eccodes' values
-reshaped to the lines, every second line reversed (0x10), then transposed (0x20): [Nj, Ni].
+reshaped to the lines, every second line reversed (0x10), then transposed (0x20): [Nj, Ni]. A
+reduced grid's and 3.101's, which have no rows, are eccodes' values as they are: [points].
 The 1-, 2- and 4-bit PNG fields (eccodes' wheel decodes only whole-byte PNG samples) expect
 eccodes' values of the 5.0 message they were made from. For the synthetic messages they are
 `fixtures/grib/expected/<name>.<field>.npy`; for the samples, whose arrays are megabytes,
@@ -93,6 +104,7 @@ EXPECTED = OUT / "expected"
 CACHE = Path("/tmp/vzip-fixture-cache/grib")  # noqa: S108 (a download cache, kept between runs)
 NI, NJ = 16, 12
 MISSING = 1e300  # eccodes' missing value while reading: no field holds it
+ROWLESS = -1  # `decoded`'s Ni and Nj of a reduced grid and 3.101's
 
 # (fixture, source URL, offset, length, the index the offset is from, license)
 NOAA = "public domain (NOAA Open Data Dissemination)"
@@ -103,6 +115,12 @@ IFS = "20261029/00z/ifs/0p25/oper/20261029000000-6h-oper-fc"
 NBM = "https://noaa-nbm-grib2-pds.s3.amazonaws.com/blend.20261029/00/core/blend.t00z.core.f006.co.grib2"
 RAP = "https://noaa-rap-pds.s3.amazonaws.com/rap.20261029/rap.t00z.awp130pgrbf06.grib2"
 CFS = "https://noaa-cfs-pds.s3.amazonaws.com/cfs.20261029/00/6hrly_grib_01/pgbf2026103000.01.2026102900.grb2"
+CFS_FLUX = "https://noaa-cfs-pds.s3.amazonaws.com/cfs.20261001/00/6hrly_grib_01/flxf2026100106.01.2026100100.grb2"
+GFS_FLUX = "https://noaa-gfs-bdp-pds.s3.amazonaws.com/gfs.20261001/00/atmos/gfs.t00z.sfluxgrbf006.grib2"
+HRRR_AK = "https://noaa-hrrr-bdp-pds.s3.amazonaws.com/hrrr.20261001/alaska/hrrr.t00z.wrfsfcf01.ak.grib2"
+NBM_AK = "https://noaa-nbm-grib2-pds.s3.amazonaws.com/blend.20261001/00/core/blend.t00z.core.f006.ak.grib2"
+NBM_HI = "https://noaa-nbm-grib2-pds.s3.amazonaws.com/blend.20261001/00/core/blend.t00z.core.f006.hi.grib2"
+SEAICE = "https://nomads.ncep.noaa.gov/pub/data/nccf/com/seaice_analysis/prod/seaice_analysis.20261103/seaice.t00z.south12psg.grib2"
 SAMPLES = [
     # GFS 0.25°, f006: HINDEX (5.3 with a bitmap), ICETMP (5.3 with missing-value management
     # 1) and LAND (5.3 with neither)
@@ -126,6 +144,19 @@ SAMPLES = [
     # CFSv2 6-hourly pressure levels, f024: UGRD and VGRD at 1829 m in one message (5.40, the
     # first field's bitmap reused by the second, indicator 254)
     ("grib_cfs_wind", CFS, 17421074, 134068, CFS + ".idx", NOAA),
+    # CFSv2 fluxes, f006: LAND (3.40, N = 95, Di rounded to 0.938)
+    ("grib_cfs_flux_land", CFS_FLUX, 1812264, 2624, CFS_FLUX + ".idx", NOAA),
+    # GFS fluxes, f006: LAND (3.40, N = 768)
+    ("grib_gfs_flux_land", GFS_FLUX, 306021315, 93701, GFS_FLUX + ".idx", NOAA),
+    # HRRR Alaska surface, f01: MASSDEN at 8 m (3.20, scanning mode 0x40)
+    ("grib_hrrr_ak_massden", HRRR_AK, 34370972, 2555, HRRR_AK + ".idx", NOAA),
+    # NBM Alaska core, f006: FRZSPR (3.20, shape 1, scanning mode 0x50)
+    ("grib_nbm_ak_frzspr", NBM_AK, 11698213, 157660, NBM_AK + ".idx", NOAA),
+    # NBM Hawaii core, f006: VIS (3.10, scanning mode 0x50, a central meridian in octets 61–64)
+    ("grib_nbm_hi_vis", NBM_HI, 7122372, 16257, NBM_HI + ".idx", NOAA),
+    # NCEP's sea ice analysis of 2026-11-03: ICEC, a whole file with no index (3.20, the south pole,
+    # scanning mode 0x40), on a grid only one way of running x and y keeps around Antarctica
+    ("grib_seaice_south", SEAICE, 0, 47962, None, NOAA),
 ]
 
 
@@ -202,8 +233,11 @@ def decoded(msg: bytes) -> list[tuple[np.ndarray, int, int, int]]:
                 ec.codes_set(h, "missingValue", MISSING)
                 v = np.array(ec.codes_get_values(h), dtype=np.float64)
                 v[v == MISSING] = np.nan
-                ni, nj, scan = (ec.codes_get_long(h, k) for k in ("Ni", "Nj", "scanningMode"))
-                out.append((v, ni, nj, scan))
+                if ec.codes_get_string(h, "gridType") in ("reduced_gg", "reduced_ll", "unstructured_grid"):
+                    out.append((v, ROWLESS, ROWLESS, 0))
+                else:
+                    ni, nj, scan = (ec.codes_get_long(h, k) for k in ("Ni", "Nj", "scanningMode"))
+                    out.append((v, ni, nj, scan))
                 ec.codes_release(h)
     ec.codes_grib_multi_support_off()
     return out
@@ -211,19 +245,41 @@ def decoded(msg: bytes) -> list[tuple[np.ndarray, int, int, int]]:
 
 def ordered(values: np.ndarray, ni: int, nj: int, scan: int) -> np.ndarray:
     """Values in the file's order, in the codec's: [Nj, Ni], every second line reversed (0x10),
-    columns transposed to rows (0x20)."""
+    columns transposed to rows (0x20); a grid with no rows' as they are."""
+    if ni == ROWLESS:
+        return values
     lines = values.reshape((ni, nj) if scan & 0x20 else (nj, ni)).copy()
     if scan & 0x10:
         lines[1::2] = lines[1::2, ::-1]
     return lines.T.copy() if scan & 0x20 else lines
 
 
-def field(seed: int, offset: float = 250.0, scale: float = 30.0) -> np.ndarray:
-    """A smooth field with some texture, in the file's order (192 values)."""
-    k = np.arange(NI * NJ, dtype=np.float64)
-    i, j = k % NI, k // NI
+def field(seed: int, offset: float = 250.0, scale: float = 30.0, ni: int = NI, nj: int = NJ) -> np.ndarray:
+    """A smooth field with some texture, in the file's order (192 values by default)."""
+    k = np.arange(ni * nj, dtype=np.float64)
+    i, j = k % ni, k // ni
     rng = np.random.default_rng(seed)
     return offset + scale * (np.sin(0.4 * i + seed) * np.cos(0.3 * j) + 0.1 * rng.standard_normal(k.size))
+
+
+def grid_message(sample: str, values: np.ndarray, keys: dict[str, object], arrays: dict[str, list[int]] | None = None,
+                 template: int | None = None) -> bytes:
+    """A message of the eccodes sample `sample`, 12 bits, simple packing, of `values` on the grid
+    `keys` and `arrays` set, the template first changed to `template`."""
+    h = ec.codes_grib_new_from_samples(sample)
+    if template is not None:
+        ec.codes_set(h, "gridDefinitionTemplateNumber", template)
+    for k, v in (arrays or {}).items():
+        ec.codes_set_long_array(h, k, v)
+    for k, v in {"packingType": "grid_simple", "bitsPerValue": 12, **keys}.items():
+        ec.codes_set(h, k, v)
+    return encode(h, values)
+
+
+def gaussian_rows(n: int) -> np.ndarray:
+    """The latitudes of the Gaussian grid of `n` parallels, north to south."""
+    roots, _ = np.polynomial.legendre.leggauss(2 * n)
+    return np.degrees(np.arcsin(roots[::-1]))
 
 
 # ---- packings eccodes does not write
@@ -540,6 +596,91 @@ def main() -> None:
         ec.codes_set(h, k, v)
     lambert = encode(h, field(4))
     write("grib_lambert", lambert)
+
+    # Gaussian (3.40): global, on N = 8, north to south and south to north, and 12 rows of N = 32
+    rows = gaussian_rows(8)
+    gaussian = {"N": 8, "Ni": 32, "Nj": 16, "iDirectionIncrementInDegrees": 11.25,
+                "longitudeOfFirstGridPointInDegrees": 0.0, "longitudeOfLastGridPointInDegrees": 348.75}
+    write("grib_gaussian", grid_message("regular_gg_sfc_grib2", field(20, ni=32, nj=16), {
+        **gaussian, "latitudeOfFirstGridPointInDegrees": rows[0], "latitudeOfLastGridPointInDegrees": rows[-1]}))
+    write("grib_gaussian_south", grid_message("regular_gg_sfc_grib2", field(21, ni=32, nj=16), {
+        **gaussian, "scanningMode": 0x40, "latitudeOfFirstGridPointInDegrees": rows[-1],
+        "latitudeOfLastGridPointInDegrees": rows[0]}))
+    rows = gaussian_rows(32)
+    write("grib_gaussian_regional", grid_message("regular_gg_sfc_grib2", field(22), {
+        "N": 32, "Ni": NI, "Nj": NJ, "iDirectionIncrementInDegrees": 2.8125,
+        "longitudeOfFirstGridPointInDegrees": 0.0, "longitudeOfLastGridPointInDegrees": 42.1875,
+        "latitudeOfFirstGridPointInDegrees": rows[10], "latitudeOfLastGridPointInDegrees": rows[21]}))
+
+    # rotated latitude/longitude (3.1): the rotated frame's 16 × 12 points 0.5° apart
+    rotated: dict[str, object] = {
+        "Ni": NI, "Nj": NJ, "iDirectionIncrementInDegrees": 0.5, "jDirectionIncrementInDegrees": 0.5,
+        "latitudeOfFirstGridPointInDegrees": 3.0, "latitudeOfLastGridPointInDegrees": -2.5,
+        "longitudeOfFirstGridPointInDegrees": 356.0, "longitudeOfLastGridPointInDegrees": 3.5,
+        "latitudeOfSouthernPoleInDegrees": -35.0, "longitudeOfSouthernPoleInDegrees": 10.0}
+    write("grib_rotated", grid_message("rotated_ll_sfc_grib2", field(23), rotated))
+    write("grib_rotated_angle",
+          grid_message("rotated_ll_sfc_grib2", field(24), {**rotated, "angleOfRotationInDegrees": 15.0}))
+
+    # polar stereographic (3.20): 16 × 12 points 25 km apart
+    polar = {"Nx": NI, "Ny": NJ, "DxInMetres": 25000, "DyInMetres": 25000}
+    write("grib_polar", grid_message("polar_stereographic_sfc_grib2", field(25), {
+        **polar, "shapeOfTheEarth": 6, "latitudeOfFirstGridPointInDegrees": 55.0,
+        "longitudeOfFirstGridPointInDegrees": 200.0, "LaDInDegrees": 60.0, "orientationOfTheGridInDegrees": 225.0,
+        "southPoleOnProjectionPlane": 0, "scanningMode": 0x40}))
+    write("grib_polar_south", grid_message("polar_stereographic_sfc_grib2", field(26), {
+        **polar, "shapeOfTheEarth": 6, "latitudeOfFirstGridPointInDegrees": -60.0,
+        "longitudeOfFirstGridPointInDegrees": 10.0, "LaDInDegrees": -71.0, "orientationOfTheGridInDegrees": 0.0,
+        "southPoleOnProjectionPlane": 1, "scanningMode": 0x00}))
+    write("grib_polar_pole", grid_message("polar_stereographic_sfc_grib2", field(27), {
+        **polar, "shapeOfTheEarth": 6, "latitudeOfFirstGridPointInDegrees": 70.0,
+        "longitudeOfFirstGridPointInDegrees": 30.0, "LaDInDegrees": 90.0, "orientationOfTheGridInDegrees": 0.0,
+        "southPoleOnProjectionPlane": 0, "scanningMode": 0x40}))
+    # on WGS 84, whose positions eccodes 2.50 does not compute (only for a sphere, it says)
+    write("grib_polar_wgs84", grid_message("polar_stereographic_sfc_grib2", field(33), {
+        **polar, "shapeOfTheEarth": 5, "latitudeOfFirstGridPointInDegrees": 55.0,
+        "longitudeOfFirstGridPointInDegrees": 200.0, "LaDInDegrees": 70.0, "orientationOfTheGridInDegrees": 225.0,
+        "southPoleOnProjectionPlane": 0, "scanningMode": 0x40}))
+    write("grib_polar_south_wgs84", grid_message("polar_stereographic_sfc_grib2", field(34), {
+        **polar, "shapeOfTheEarth": 5, "latitudeOfFirstGridPointInDegrees": -60.0,
+        "longitudeOfFirstGridPointInDegrees": 10.0, "LaDInDegrees": -71.0, "orientationOfTheGridInDegrees": 0.0,
+        "southPoleOnProjectionPlane": 1, "scanningMode": 0x00}))
+    write("grib_polar_pole_wgs84", grid_message("polar_stereographic_sfc_grib2", field(35), {
+        **polar, "shapeOfTheEarth": 5, "latitudeOfFirstGridPointInDegrees": 70.0,
+        "longitudeOfFirstGridPointInDegrees": 30.0, "LaDInDegrees": 90.0, "orientationOfTheGridInDegrees": 0.0,
+        "southPoleOnProjectionPlane": 0, "scanningMode": 0x40}))
+
+    # Mercator (3.10): 16 × 12 points 25 km apart at 20°N, on WGS 84, south to north
+    write("grib_mercator", grid_message("regular_ll_sfc_grib2", field(28), {
+        "shapeOfTheEarth": 5, "Ni": NI, "Nj": NJ, "Di": 25000000, "Dj": 25000000, "LaDInDegrees": 20.0,
+        "latitudeOfFirstGridPointInDegrees": 15.0, "longitudeOfFirstGridPointInDegrees": 200.0,
+        "latitudeOfLastGridPointInDegrees": 17.3, "longitudeOfLastGridPointInDegrees": 203.9,
+        "orientationOfTheGridInDegrees": 0.0, "scanningMode": 0x40}, template=10))
+
+    # reduced grids: eccodes' N = 32 list; with a bitmap; and 3.0 with a list of 12 rows
+    h = ec.codes_grib_new_from_samples("reduced_gg_pl_32_grib2")
+    points = ec.codes_get_size(h, "values")
+    ec.codes_release(h)
+    write("grib_reduced_gg", grid_message("reduced_gg_pl_32_grib2", field(29, ni=points, nj=1), {}))
+    masked = field(30, ni=points, nj=1)
+    masked[100:400] = 9999.0
+    write("grib_reduced_bitmap",
+          grid_message("reduced_gg_pl_32_grib2", masked, {"bitmapPresent": 1, "missingValue": 9999.0}))
+    counts = [4, 8, 12, 16, 16, 16, 16, 16, 16, 12, 8, 4]
+    write("grib_reduced_ll", grid_message("reduced_ll_sfc_grib2", field(31, ni=sum(counts), nj=1), {
+        "Nj": NJ, "latitudeOfFirstGridPointInDegrees": 55.0, "latitudeOfLastGridPointInDegrees": -55.0,
+        "jDirectionIncrementInDegrees": 10.0, "longitudeOfFirstGridPointInDegrees": 0.0,
+        "longitudeOfLastGridPointInDegrees": 337.5}, {"pl": counts}))
+
+    # unstructured (3.101), as ICON's: the grid's numbers and UUID alone
+    h = ec.codes_grib_new_from_samples("regular_ll_sfc_grib2")
+    ec.codes_set(h, "gridDefinitionTemplateNumber", 101)
+    for k, v in {"shapeOfTheEarth": 6, "numberOfGridUsed": 26, "numberOfGridInReference": 1,
+                 "numberOfDataPoints": NI * NJ,
+                 "packingType": "grid_simple", "bitsPerValue": 12}.items():
+        ec.codes_set(h, k, v)
+    ec.codes_set_string(h, "uuidOfHGrid", "a27b8de6-18c4-11e4-820a-b5b098c6a5c0".replace("-", ""))
+    write("grib_unstructured", encode(h, field(32)))
 
     # three fields in a message
     three = [encode(handle(), field(5 + k)) for k in range(3)]

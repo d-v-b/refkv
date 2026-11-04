@@ -110,12 +110,27 @@ struct Grid {
     scan: u8,
 }
 
-/// The grid of section 3 `s3`, for the grid templates whose Ni (or Nx) and Nj (or Ny) are at
-/// octets 31–34 and 35–38: 3.0, 3.1 and 3.40 (scanning mode at octet 72), 3.10 (octet 60), 3.20
-/// and 3.30 (octet 65).
+/// The grid of section 3 `s3`: for the grid templates whose Ni (or Nx) and Nj (or Ny) are at
+/// octets 31–34 and 35–38, 3.0, 3.1 and 3.40 (scanning mode at octet 72), 3.10 (octet 60), 3.20
+/// and 3.30 (octet 65), its Nj rows of Ni points; for a reduced grid (3.0 or 3.40 with a list of
+/// the points along each parallel) and for 3.101, which has no rows, one row of its points.
 fn grid(s3: &[u8]) -> Res<Grid> {
     need(s3, 14, "its grid template number")?;
     let template = uint(s3, 12, 2);
+    let points = uint(s3, 6, 4);
+    let at_most = |g: Grid| {
+        if points > MAX_POINTS {
+            return err(format!("the grid has {points} points, more than {MAX_POINTS}"));
+        }
+        Ok(g)
+    };
+    if template == 101 {
+        need(s3, 35, "grid template 3.101")?;
+        if points == 0 {
+            return err("the grid has no points");
+        }
+        return at_most(Grid { ni: points, nj: 1, scan: 0 });
+    }
     let scan_at = match template {
         0 | 1 | 40 => 71,
         10 => 59,
@@ -123,25 +138,34 @@ fn grid(s3: &[u8]) -> Res<Grid> {
         t => return err(format!("grid template 3.{t} is not decoded")),
     };
     need(s3, scan_at + 1, &format!("grid template 3.{template}"))?;
+    let scan = s3[scan_at];
     if s3[10] != 0 {
-        return err("a grid with a list of numbers of points (section 3, octet 11) is not decoded");
+        if !matches!(template, 0 | 40) || s3[11] != 1 {
+            return err(format!(
+                "a grid with a list of numbers of points (section 3, octet 11) is not decoded, but for the points along each parallel (octet 12, here {}) of template 3.0 or 3.40",
+                s3[11]
+            ));
+        }
+        if scan & 0x3f != 0 {
+            return err(format!("scanning mode 0x{scan:02x} of a reduced grid is not decoded"));
+        }
+        if points == 0 {
+            return err("the grid has no points");
+        }
+        return at_most(Grid { ni: points, nj: 1, scan });
     }
-    let (ni, nj, points) = (uint(s3, 30, 4), uint(s3, 34, 4), uint(s3, 6, 4));
+    let (ni, nj) = (uint(s3, 30, 4), uint(s3, 34, 4));
     if ni == 0 || nj == 0 || ni.checked_mul(nj) != Some(points) {
         return err(format!("the grid is {ni} × {nj} points, and section 3 gives {points}"));
     }
-    if points > MAX_POINTS {
-        return err(format!("the grid has {points} points, more than {MAX_POINTS}"));
-    }
-    let scan = s3[scan_at];
     if scan & 0x0f != 0 {
         return err(format!("scanning mode 0x{scan:02x} (rows or columns offset) is not decoded"));
     }
-    Ok(Grid { ni, nj, scan })
+    at_most(Grid { ni, nj, scan })
 }
 
 /// The grid of field `field` of `message`: its rows and the points of each, (ny, nx) = (Nj, Ni),
-/// the shape `decode` gives its values.
+/// the shape `decode` gives its values; for a grid with no rows, (1, its points).
 pub fn grid_shape(message: &[u8], field: usize) -> Res<(u64, u64)> {
     let m = Message::parse(message)?;
     section3_shape(m.sec(m.field(field)?.s3, 3)?)

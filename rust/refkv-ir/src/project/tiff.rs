@@ -7,7 +7,7 @@
 use super::tiled::{self, MAX_NAME};
 use super::{along, arr, n, strs, window, Copied};
 use crate::ir::Ir;
-use crate::out::{omero_channel, omero_json, root_json, sample_channels, type_window, Out, Part};
+use crate::out::{full_window, omero_channel, omero_json, root_json, sample_channels, type_window, Out, Part};
 use crate::tiff::MAX_OMERO;
 use serde_json::{json, Value as J};
 use std::collections::HashMap;
@@ -36,7 +36,8 @@ fn omero(facts: &J, size_c: u64, data_type: &str, sampled: &[Option<J>]) -> Opti
     if size_c > MAX_OMERO {
         return None;
     }
-    let typed = type_window(data_type);
+    // packed samples' range is their bits', not their type's
+    let typed = if tiled::packed(facts) { Some(full_window(json!(0), json!((1u64 << n(&facts["bits"])) - 1))) } else { type_window(data_type) };
     let windows: Vec<Option<J>> = (0..size_c as usize).map(|c| sampled.get(c).cloned().flatten().or_else(|| typed.clone())).collect();
     if windows.iter().any(Option::is_none) {
         return None;
@@ -74,7 +75,7 @@ fn samples(facts: &J) -> Vec<window::Sample> {
     let size_c = n(&facts["sizes"]["c"]);
     let levels = arr(&facts["levels"]);
     let Some(last) = levels.len().checked_sub(1) else { return Vec::new() };
-    if size_c > MAX_OMERO || rgb(facts) || !window::decodable(n(&facts["compression"])) {
+    if size_c > MAX_OMERO || rgb(facts) || tiled::packed(facts) || !window::decodable(n(&facts["compression"])) {
         return Vec::new();
     }
     let (axes, shape, chunk) = level_shape(facts, &levels[last]);
