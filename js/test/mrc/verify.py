@@ -16,6 +16,7 @@ Usage: uv run python js/test/mrc/verify.py [<dir of .mrc files>]
 from __future__ import annotations
 
 import base64
+import gzip
 import math
 import struct
 import sys
@@ -104,7 +105,7 @@ def load(path: Path):
         with mrcfile.open(path, permissive=True) as f:
             assert f.header is not None, path  # (None only before a header is read or created)
             header, data = f.header.copy(), f.data
-    raw = path.read_bytes()
+    raw = gzip.decompress(path.read_bytes()) if path.suffix == ".gz" else path.read_bytes()
     order = "<" if header.mode.dtype.byteorder in "<=" else ">"
     if int(header.mode) in UNREAD:
         return header, unread_mode(header, raw, order)
@@ -162,7 +163,7 @@ def problems_of(path: Path, out: Path) -> list[str]:
 
 
 def main(fixtures: Path) -> int:
-    paths = sorted(fixtures.glob("*.mrc"))
+    paths = sorted([*fixtures.glob("*.mrc"), *fixtures.glob("*.gz")])
     return run(paths, lambda path, out, _: problems_of(path, out), url=serve(paths), width=40)
 
 

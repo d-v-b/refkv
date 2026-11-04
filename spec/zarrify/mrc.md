@@ -1,7 +1,7 @@
 # MRC
 
-The Zarr layout of an MRC2014 file (`.mrc`, `.mrcs`, `.map`, `.rec`, `.st`), and
-the translation of its header into JSON. What all of refkv's conventions share is
+The Zarr layout of an MRC2014 file (`.mrc`, `.mrcs`, `.map`, `.rec`, `.st`), gzipped or not
+(`.map.gz`, `.mrc.gz`), and the translation of its header into JSON. What all of refkv's conventions share is
 in [spec/conventions.md](../conventions.md), cited here as "conventions §n".
 How refkv produces this layout as a reference store, and which files it
 accepts, is the MRC profile, [Part 2](#part-2-the-profile) below.
@@ -12,6 +12,9 @@ Schema: [schema.json](mrc/schema.json)
 Changed 2026-11-04: modes 3 and 101 are admitted ([§3](#3-data-types)): mode 3 as a `struct` of two
 `int16`, mode 101 as `uint8` through zarr-extensions' bit-packing `packbits`, its chunks cut where
 values start on a byte ([§4.1](#41-the-array)).
+
+Changed 2026-11-04: a file gzipped whole (`.map.gz`, `.mrc.gz`) is read, as one chunk of the whole
+stream ([§8.4](#84-gzipped-files)), where the profile rejected it.
 
 Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
 [Layout](#layout) and its types in type tables
@@ -47,7 +50,7 @@ The hierarchy's entries ([conventions §11.5](../conventions.md#115-layout-table
 | `zarr.json#/attributes/refkv_zarrified` | attribute | [`RootProperty`](../conventions.md#type-rootproperty) | `profile` `"mrc"`, `version` `0`, `source.url` the file's URL, and `layouts` `{"dataset": "dataset"}` unless the dataset layout is left out ([§1](#1-declaration)) |
 | `zarr.json#/attributes/refkv_zarrified/mrc` | attribute | [`MrcRoot`](#type-mrcroot) | the root's source metadata ([§5.1](#51-the-root)) |
 | `0/zarr.json` | array | [`MrcArray`](#type-mrcarray) | the values ([§4.1](#41-the-array)) |
-| `0/c/<coords>` | chunk | [`MrcChunk`](#type-mrcchunk) | every chunk of the array ([§8.2](#82-chunks)) |
+| `0/c/<coords>` | chunk | [`MrcChunk`](#type-mrcchunk) or [`MrcGzipChunk`](#type-mrcgzipchunk) | every chunk of the array ([§8.2](#82-chunks)), or the one chunk of a gzipped file ([§8.4](#84-gzipped-files)) |
 | `dataset/**` | subtree | [the dataset's entries](mrc-dataset.md#layout) | the dataset layout ([§1](#1-declaration), [mrc-dataset.md](mrc-dataset.md)), unless a zarrifier leaves it out |
 | `refkv_source/**` | subtree | [the mirror's entries](../conventions.md#table-mirror) | the IR mirror ([§5.2](#52-the-ir-mirror)): its elements are [§5.3](#53-elements)'s |
 
@@ -296,6 +299,7 @@ Everything the file holds is on `refkv_source`, the file's **IR mirror**
 | `header` | [`MrcHeader`](#type-mrcheader) | required | every field of the header |
 | `axis_map` | [`MrcAxisMap`](#type-mrcaxismap) | required | whether the axis map named the axes ([§4.1](#41-the-array)) |
 | `voxel_size` | [`MrcVoxelSize`](#type-mrcvoxelsize) | optional | the voxel size in angstroms ([§4.2](#42-scales-units-and-position)), present when every axis has one |
+| `gzip` | [`MrcGzip`](#type-mrcgzip) | optional | present when the file is gzipped whole ([§8.4](#84-gzipped-files)) |
 
 <a id="type-mrcheader"></a>**`MrcHeader`**: an object with one member per field of
 [§2](#2-the-header), in its order and named as there, whose type is the field's (the first row
@@ -363,6 +367,10 @@ Paths are relative to the IR's root, whose path is `""`
 | `extended` | value | `bytes[n]` | `(1024, n)`, when `n > 0`: the extended header, opaque |
 | `data` | data | | `(1024 + n, B)`, `B` the data's size ([§8.1](#81-header)): the data; its form's geometry is `{"data_type": D, "samples": 1}`, with `"bits": 4` for mode 101 ([§3](#3-data-types)), its codec `{"endian": "little" \| "big"}`, and its recipe `[["src", 0, null]]` |
 | `gaps/<offset>` | gap | | bytes no other element claims: those after the data |
+
+A file gzipped whole ([§8.4](#84-gzipped-files)) has one element beside the root: `data`, of extent
+`(0, size)`, the gzip stream, its codec `{"encoding": "gzip", "endian": "little" \| "big", "skip":
+1024 + n}`. The file's bytes do not show the header, so `MrcRoot` is all that holds it.
 
 The view ([conventions §8.7](../conventions.md#87-the-view)) shows the header;
 the extended header, opaque bytes, is not shown, and a zarrifier never
@@ -521,9 +529,9 @@ order:
 
 Every check applies whatever the other fields hold. No other field is
 checked: the values the layout uses ([the convention §4](#4-the-image)) only change the
-output as the convention says, and never reject the input. A gzipped map
-(`.map.gz`), a file whose `map` field is not `MAP`, and a file shorter
-than 212 bytes are rejected by [§1.2](../zarrify.md#12-input).
+output as the convention says, and never reject the input. A file whose `map` field is not `MAP`,
+and a file shorter than 212 bytes, are rejected by [§1.2](../zarrify.md#12-input). A gzipped map
+is read as [§8.4](#84-gzipped-files) says.
 
 **The extended header** is described ([the convention §5.3](#53-elements))
 and never read: the data starts at `1024 + nsymbt` whatever it holds.
@@ -591,3 +599,59 @@ summary, with these members:
 | `extendedHeader` | `nsymbt` |
 | `extendedType` | `exttyp` as text |
 | `layouts` | `["dataset"]`, or `[]` without the dataset layout |
+| `gzip` | `true`, when the file is gzipped whole; otherwise absent |
+
+### 8.4 Gzipped files
+
+A file gzipped whole is one gzip member (RFC 1952) that holds an MRC file, as the EMDB distributes
+its maps (`.map.gz`). This profile reads it ([spec/zarrify.md §1.2](../zarrify.md#12-input),
+**Choosing the profile**: the signature of [§8.1](#81-header) holds of what the file's first bytes
+inflate to). **`S`** is the stream, those bytes the member holds. Every check of [§8.1](#81-header)
+is made of `S` as of a file, but that nothing bounds `1024 + nsymbt + B` but the trailer's check
+below, and a file is too short when `S` is.
+
+**Reads.** The file's first bytes, doubling from 64 KiB up to 16 MiB until they inflate to the
+first 1024 bytes of `S`, and the last 4 bytes of the file, its trailer's `ISIZE`. A stream whose
+start holds less than that is taken to end where it stops. No other byte is inflated: the
+extended header is not read, as [§5.3](#53-elements) says.
+
+**The trailer.** The input is rejected when `ISIZE`, the stream's size modulo 2^32, is not `(1024 +
+nsymbt + B) mod 2^32`: `the gzip trailer records a stream of <ISIZE> bytes modulo 2^32, not the
+<1024 + nsymbt + B> of the header and the data: bytes after the data, or a file of several gzip
+members, which a chunk cannot decode`. A `bytes` codec refuses a chunk of another length than the
+array's, and several members are what `bgzip` writes: its last trailer records its last block's
+size.
+
+**A packed mode.** The input is rejected when the mode is packed ([§3](#3-data-types)) and `nx × bits`
+is not a multiple of 8: `a gzipped file of <bits>-bit values and odd nx = <nx>, whose rows each start
+on a byte, which one chunk cannot decode`. The rows of such a file are not one run of bits, and the
+stream cannot be cut into the rows [§4.1](#41-the-array) would give it.
+
+**The array** is `V` as [§4.1](#41-the-array) says, in **one chunk of the whole array**: its chunk
+shape is the array's shape, and its codecs are `bytes` (`packbits` for a packed mode,
+[§4.1](#41-the-array)), then:
+
+| codec | when |
+|---|---|
+| `{"name": "refkv.skip", "configuration": {"length": k}}` | always: `k = 1024 + nsymbt`. It passes over the header and the extended header |
+| `{"name": "gzip", "configuration": {"level": 6}}` | always: its level, which decoding ignores, is written as refkv writes its own gzip chunks' |
+
+The dataset layout's data variable has the same codecs and the same chunk.
+
+<a id="type-mrcgzipchunk"></a>**`MrcGzipChunk`**, the array's one chunk, `0/c/0/.../0`:
+
+| part | range | presence | value |
+|---|---|---|---|
+| the stream | source range `(0, 0, size)` | required | the whole file, which the `gzip` codec decodes |
+
+<a id="type-mrcgzip"></a>**`MrcGzip`**:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `skip` | integer | required | `1024 + nsymbt` |
+
+**The cost is reads.** Nothing is copied and every value is exact, but the chunk is coarse: a
+gzip stream has no index, so a reader inflates the whole stream to read any value, even one slice,
+holds the whole array in memory to do so, and reads it with no concurrency. Zarrifying stays cheap,
+since only the start of the stream is inflated. A reader that needs random access to a large
+volume should decompress the file once and zarrify that, which gives chunks of at most 1 MiB.

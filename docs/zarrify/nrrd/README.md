@@ -85,14 +85,15 @@ Supported:
 - Attached headers (`.nrrd`) and detached headers with one data file (`.nhdr`), magics
   `NRRD0001` to `NRRD0005`.
 - The raw and gzip encodings, either byte order, `line skip`, and `byte skip` (including −1 for
-  raw data at the end of its file).
+  raw data at the end of its file; with gzip data, of the decompressed bytes, by a `refkv.skip`
+  codec).
 
 Rejected, each with a message that says why:
 
 - The ascii (`text`, `txt`) and hex encodings: their values are text, which no chunk can
   reference as binary.
 - The bzip2 encoding: no Zarr codec that both of refkv's readers decode.
-- `byte skip` with gzip data (it skips decompressed bytes, which no Zarr codec does).
+- `byte skip: -1` with gzip data (it counts back from an end only decompressing can find).
 - Detached headers with several data files (`LIST`, or a `%d` pattern), a data file outside the
   header's directory, or one that is missing.
 - The `block` type, and axes OME-NGFF cannot place: one spatial axis or more than three, or two

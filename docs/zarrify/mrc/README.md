@@ -19,6 +19,14 @@ block of values, so refkv reads the header and writes an archive in which
 every Zarr chunk is a run of at most 1 MiB of that block: whole volumes or
 blocks of sections when they are small, else blocks of rows.
 
+## Gzipped maps
+
+A `.map.gz`, as the EMDB distributes its maps, is read as it is, with nothing decompressed but its
+first bytes: one chunk references the whole file, with the codecs `bytes`, `refkv.skip` (the
+header's length) and `gzip`. The cost is reads: a gzip stream has no index, so reading one slice
+inflates the whole stream, and holds the whole array in memory. To slice a large map repeatedly,
+decompress it once and zarrify the `.map`.
+
 ## What you get
 
 One OME-Zarr 0.5 image at the archive root, with one array, `0`.
@@ -162,8 +170,10 @@ Supported:
 
 Rejected:
 
-- Gzipped maps (`.map.gz`), the way the EMDB distributes them: `not a
-  file of any supported format`. A gzip stream has no byte ranges to reference; decompress the map first.
+- A gzipped map with bytes after the data, or of several gzip members
+  (`bgzip`): a chunk could not decode it. Decompress the map first.
+- A gzipped mode 101 file of odd `nx`: its rows each start on a byte, so that
+  one chunk could not decode it. Decompress the file first.
 - Files without `MAP` at byte 208 (the pre-2000 format), and a machine
   stamp that is neither little- nor big-endian.
 - A volume stack whose `mz` does not divide `nz`, and data past the end of
@@ -179,8 +189,8 @@ The browser code ([js/](../../../js/README.md)) reads MRC (MRC2014 files):
 - The voxel size (angstroms) as scale, the origin as translation, the whole
   header under `refkv_zarrified`.
 
-Not supported, and refused with HTTP 422: gzipped maps (`.map.gz`), pre-2000
-files without `MAP` at byte 208.
+Not supported, and refused with HTTP 422: pre-2000 files without `MAP` at
+byte 208.
 
 ## Performance
 

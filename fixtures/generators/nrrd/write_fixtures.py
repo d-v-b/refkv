@@ -155,6 +155,8 @@ def accepted() -> None:
     attached("nrrd_gzip_3d", [6, 5, 4], "short", encoding="gzip", extra=("space: LPS",
              "space directions: (1,0,0) (0,1,0) (0,0,2)", "space origin: (0,0,0)"))
     attached("nrrd_gz_rgb", [3, 5, 4], encoding="gz", extra=("kinds: RGB-color domain domain",))
+    attached("nrrd_gzip_byte_skip", [6, 5], "short", encoding="gzip", extra=("byte skip: 4",),
+             data=gz(b"skip" + values([6, 5], "i2", "<")))
     detached("nrrd_detached_gzip", [5, 4, 3], "int", "./nrrd_detached_gzip_files/data.raw.gz", encoding="gzip",
              write="nrrd_detached_gzip_files/data.raw.gz", extra=("line skip: 1",), prefix=b"skipped\n")
     # detached raw, the header followed by a blank line and more
@@ -199,7 +201,7 @@ def rejected() -> None:
     attached("nrrd_reject_no_endian", [3, 2], "short", data=bytes(12))
     patch("nrrd_reject_no_endian.nrrd", b"endian: little\n", b"")
     attached("nrrd_reject_truncated", [6, 5], "short", truncate=1)
-    attached("nrrd_reject_gzip_byte_skip", [3, 2], encoding="gzip", extra=("byte skip: 4",))
+    attached("nrrd_reject_gzip_byte_skip_back", [3, 2], encoding="gzip", extra=("byte skip: -1",))
     attached("nrrd_reject_gzip_not_gzip", [6, 5], encoding="gzip", data=bytes(40))
     attached("nrrd_reject_one_axis", [12])
     attached("nrrd_reject_kind_about", [3, 2, 2], extra=("kinds: domain domain about",))

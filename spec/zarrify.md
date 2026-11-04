@@ -13,6 +13,10 @@ bounds them ([§1.9](#19-sources-beside-the-input)). The bounds are new, and rej
 names more than 2^16 files; no input that VSI, NRRD or GRIB accepted names so many, and no other
 output changes.
 
+Changed 2026-11-04: a file that no signature matches and that is a gzip member is tested again, by
+what it inflates to, for the profiles that read a file gzipped whole, NIfTI and MRC
+([§1.2](#12-input), **Choosing the profile**); it was rejected.
+
 Changed 2026-11-04, with no change to any output: the root's `refkv_provenance` member and its CMO
 ([spec/provenance.md](provenance.md)) are not part of the output ([§1.1](#11-output-and-equivalence)).
 
@@ -91,11 +95,11 @@ The table, generated from the registry, lists them:
 | [LIF](zarrify/lif.md#part-2-the-profile) | file | Leica LIF files (LAS X and LAS AF, versions 1 and 2), its object files (LOF) and extension files (LIFEXT), and LAS X projects of XLEF, XLCF, XLIF and XLLF documents and LOFs: every image of the element tree, with interleaved or planar channels, z-stacks, time series and mosaics, uncompressed |
 | [MP3](zarrify/mp3.md#part-2-the-profile) | file | MPEG-1, MPEG-2 and MPEG-2.5 Layer III audio files (`.mp3`), with their ID3v2, ID3v1 and APE tags; one array of samples, not an image |
 | [MP4](zarrify/mp4.md#part-2-the-profile) | file | MP4 and QuickTime files (`.mp4`, `.m4a`, `.m4v`, `.mov`) with H.264 or HEVC video and AAC or MP3 audio tracks; a group per track, not an image |
-| [MRC](zarrify/mrc.md#part-2-the-profile) | file | MRC2014 files (CCP4 maps, image stacks, volumes and volume stacks) |
+| [MRC](zarrify/mrc.md#part-2-the-profile) | file | MRC2014 files (CCP4 maps, image stacks, volumes and volume stacks), gzipped or not |
 | [N5](zarrify/n5.md#part-2-the-profile) | store | N5 containers, default-mode blocks |
 | [ND2](zarrify/nd2.md#part-2-the-profile) | file | Nikon ND2, format version 3 and later |
 | [NDPI](zarrify/ndpi.md#part-2-the-profile) | file | Hamamatsu NDPI slides, a TIFF variant with 64-bit offsets |
-| [NIfTI](zarrify/nifti.md#part-2-the-profile) | file | NIfTI-1 and NIfTI-2 single files (`.nii`) |
+| [NIfTI](zarrify/nifti.md#part-2-the-profile) | file | NIfTI-1 and NIfTI-2 single files (`.nii`, `.nii.gz`) |
 | [NumPy](zarrify/npy.md#part-2-the-profile) | file | NumPy `.npy` files, and `.npz` archives of them (`np.savez`, `np.savez_compressed`), whose stored and deflated members it presents |
 | [NRRD](zarrify/nrrd.md#part-2-the-profile) | file | NRRD files (`.nrrd`) and detached headers with one data file (`.nhdr`), raw or gzip-encoded |
 | [OME-Zarr](zarrify/ome-zarr.md#part-2-the-profile) | store | OME-Zarr 0.4 hierarchies on Zarr v2, migrated to OME-Zarr 0.5 |
@@ -255,7 +259,10 @@ tested in ascending precedence, those of equal precedence in order of the profil
 and the first that matches chooses the profile. When none matches, the same is done with the
 late signatures of those documents that state one, tests on `L`, the file's first
 `min(65600, size)` bytes. A host that reads no further than a signature needs reads `H` first, and
-`L` only then. A file that no signature matches is rejected.
+`L` only then. A file that no signature matches, and whose first bytes are a gzip member's
+(`1F 8B 08`), is tested again, by the signatures of the profiles whose documents say they read a
+file gzipped whole: `H` is then what those bytes inflate to, at most its first 552 bytes, in the
+same order. Any other file that no signature matches is rejected.
 A profile whose `sniff` is null has no signature: the reading of another profile, its registry
 entry's `chosen_by`, chooses it (the TIFF profile's chooses NDPI and QPTIFF, the HDF5 profile's
 IMS). The precedences, generated from the registry, by

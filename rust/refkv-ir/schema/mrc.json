@@ -23,7 +23,7 @@
     "about": "The IR of an MRC file. E is the file's byte order (< or >), n the extended header's length (nsymbt), B the data's size.",
     "header": {"kind": "value", "type": "the 1024-byte header as one record, a field per field of spec/zarrify/mrc.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#2-the-header> in its order: numbers Ei4, Ef4 (arrays for T[k]), u1[4] for machst, bytes[k] for the extra space, cstr[k] for text, and {text:cstr[80]}[10] for the labels", "extent": "(0, 1024)"},
     "extended": {"kind": "value", "type": "bytes[n]", "extent": "(1024, n), when n > 0: the extended header, opaque"},
-    "data": {"kind": "data", "form": "{geometry: {data_type, samples: 1}, codec: {endian}, recipe: [[src, 0, null]]}", "extent": "(1024 + n, B)"},
+    "data": {"kind": "data", "form": "{geometry: {data_type, samples: 1}, codec: {endian}, recipe: [[src, 0, null]]}; of a gzipped file, codec: {encoding: gzip, endian, skip: 1024 + n}", "extent": "(1024 + n, B); of a gzipped file, the whole file, and no other element"},
     "gaps/<offset>": {"kind": "gap", "about": "bytes after the data"}
   },
   "roles": {
@@ -69,6 +69,18 @@
       "given": {"total": "B = nx * ny * nz * b, or ceil(nx * bits / 8) * ny * nz for a packed mode, exactly", "total_shown": "B in decimal", "offset": "1024 + nsymbt", "size": "the file's size"},
       "constraints": [
         {"require": "total <= max_safe && offset + total <= size", "message": "the {total_shown}-byte data at {offset} is outside the {size}-byte file"}
+      ]
+    },
+    "gzip_stream": {
+      "given": {"stream": "(1024 + n + B) modulo 2^32", "stream_shown": "1024 + n + B in decimal", "isize": "the size the gzip trailer records"},
+      "constraints": [
+        {"require": "isize == stream", "message": "the gzip trailer records a stream of {isize} bytes modulo 2^32, not the {stream_shown} of the header and the data: bytes after the data, or a file of several gzip members, which a chunk cannot decode"}
+      ]
+    },
+    "gzip_packed": {
+      "given": {"nx": "nx, of a gzipped file of a packed mode", "bits": "the mode's bits per value"},
+      "constraints": [
+        {"require": "int(nx * bits / 8)", "message": "a gzipped file of {bits}-bit values and odd nx = {nx}, whose rows each start on a byte, which one chunk cannot decode"}
       ]
     }
   }

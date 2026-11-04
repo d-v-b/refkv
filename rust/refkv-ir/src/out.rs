@@ -643,6 +643,17 @@ pub fn metadata_array(out: &mut Out, path: &str, data_type: &str, shape: &[u64],
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>).
 pub const GZIP_LEVEL: u8 = 6;
 
+/// The codecs after `bytes` of a chunk that is a gzip stream of `level` holding `skip` bytes
+/// before the values: `refkv.skip` when there are any, and `gzip`.
+pub fn gzip_codecs(skip: u64, level: u8) -> Vec<J> {
+    let mut codecs = Vec::new();
+    if skip > 0 {
+        codecs.push(json!({"name": "refkv.skip", "configuration": {"length": skip}}));
+    }
+    codecs.push(json!({"name": "gzip", "configuration": {"level": level}}));
+    codecs
+}
+
 /// A gzip member's header (RFC 1952): deflate, with no name, time or extra field.
 pub const GZIP_HEADER: [u8; 10] = [0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 255];
 
