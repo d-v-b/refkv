@@ -7,9 +7,10 @@
 use super::tiled::{self, MAX_NAME};
 use super::{along, arr, n, strs, window, Copied};
 use crate::ir::Ir;
-use crate::out::{omero_channel, omero_json, root_json, sample_channels, type_window, Out};
+use crate::out::{omero_channel, omero_json, root_json, sample_channels, type_window, Out, Part};
 use crate::tiff::MAX_OMERO;
 use serde_json::{json, Value as J};
+use std::collections::HashMap;
 
 /// A channel's omero color from its OME-XML `Color` (a signed 32-bit integer, `RRGGBBAA`), else
 /// white.
@@ -120,6 +121,9 @@ fn arrays(ir: &Ir, facts: &J, url: &str, only: Option<usize>) -> Result<(Out, Ve
                 for z in 0..size_z {
                     let p = (t * plane_c + c) * size_z + z;
                     let tiles = planes.get(p as usize).and_then(|v| v.as_u64());
+                    if let Some(e) = tiles {
+                        refs.in_object_of(e as u32);
+                    }
                     let coords = |s, row, col| {
                         let mut coords = Vec::with_capacity(5);
                         if size_t > 1 {
@@ -144,6 +148,57 @@ fn arrays(ir: &Ir, facts: &J, url: &str, only: Option<usize>) -> Result<(Out, Ve
         }
         Ok(())
     })
+}
+
+/// `out` with each range of an object a range of the store's virtual offsets (conventions §8.9
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>), for the windows, whose
+/// chunks are found by range.
+fn virtual_ranges(ir: &Ir, mut out: Out) -> Out {
+    let sources = ir.sources();
+    let base: HashMap<String, u64> = sources.objects.iter().map(|&o| (ir.key(o), sources.base[o as usize])).collect();
+    for (_, parts) in &mut out.refs {
+        for p in parts.iter_mut() {
+            if let Part::Obj(key, o, n) = p {
+                *p = Part::Src(base.get(key.as_str()).copied().unwrap_or(0) + *o, *n);
+            }
+        }
+    }
+    out
+}
+
+/// The virtual offsets of the ranges the windows of a store run's image sample (`samples`).
+pub fn set_reads(ir: &Ir, facts: &J) -> Result<Vec<(u64, u64)>, String> {
+    tiled::reads(ir, facts, &samples(facts), |ir, facts, url, only| {
+        let (out, shapes) = arrays(ir, facts, url, only)?;
+        Ok((virtual_ranges(ir, out), shapes))
+    })
+}
+
+/// The image of the TIFF store run (spec/zarrify/tiff.md §7.4
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#74-several-files>): as `project`,
+/// its references ranges of the files that hold the planes, the bytes its windows sample in the
+/// facts (`set_bytes`, by virtual offset).
+pub fn project_set(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
+    let axes = strs(&facts["axes"]);
+    let data_type = tiled::data_type(facts)?;
+    let (mut out, shapes) = arrays(ir, facts, url, None)?;
+    let copied: Copied = arr(&facts["set_bytes"]).iter().map(|e| {
+        let b: Vec<u8> = arr(&e[1]).iter().map(|x| n(x) as u8).collect();
+        ((n(&e[0]), b.len() as u64), b)
+    }).collect();
+    let sample = samples(facts);
+    let (last, _) = if sample.is_empty() { (Out::new(url), Vec::new()) } else { arrays(ir, facts, url, Some(arr(&facts["levels"]).len() - 1))? };
+    let sampled = tiled::sampled(&virtual_ranges(ir, last), facts, &sample, |lv| level_shape(facts, lv).2, &data_type, &copied);
+    let mut ome = tiled::ome(facts, &axes, Some(&facts["name"]))?;
+    if let Some(omero) = omero(facts, n(&facts["sizes"]["c"]), &data_type, &sampled) {
+        ome["omero"] = omero;
+    }
+    let mut own = tiled::own(facts);
+    own["files"] = facts["files"].clone();
+    let named = super::vsi::object_url(url, facts["named_key"].as_str().unwrap_or(""));
+    out.json("zarr.json", &root_json(ome, "tiff", &named, Some(own)));
+    out.summary = json!({"axes": axes, "levels": shapes, "references": out.refs.len()});
+    Ok(out)
 }
 
 /// The TIFF image: one array per level, its chunks the tiles of each plane. `copied` holds the

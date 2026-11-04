@@ -102,6 +102,10 @@ pub enum StoreFormat {
     /// A Neuroglancer precomputed volume (`precomputed.rs`; spec/zarrify/precomputed.md
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/precomputed.md>).
     Precomputed,
+    /// A TIFF image across files (`tiff_set.rs`; spec/zarrify/tiff.md §7.4
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#74-several-files>): the named
+    /// file, listed alone, and the files it names, which the run probes for.
+    Tiff,
 }
 
 impl StoreFormat {
@@ -115,6 +119,7 @@ impl StoreFormat {
             "grib" => Some(StoreFormat::Grib),
             "safetensors" => Some(StoreFormat::Safetensors),
             "precomputed" => Some(StoreFormat::Precomputed),
+            "tiff" => Some(StoreFormat::Tiff),
             _ => None,
         }
     }
@@ -128,6 +133,7 @@ impl StoreFormat {
             StoreFormat::Grib => "grib",
             StoreFormat::Safetensors => "safetensors",
             StoreFormat::Precomputed => "precomputed",
+            StoreFormat::Tiff => "tiff",
         }
     }
     /// The convention the mirror declares.
@@ -141,6 +147,7 @@ impl StoreFormat {
             StoreFormat::Grib => "grib",
             StoreFormat::Safetensors => "safetensors",
             StoreFormat::Precomputed => "precomputed",
+            StoreFormat::Tiff => "tiff",
         }
     }
     fn parser(self, ir: Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> Res<Box<dyn StoreParser>> {
@@ -153,6 +160,7 @@ impl StoreFormat {
             StoreFormat::Grib => Ok(Box::new(crate::grib::Grib::new(ir, objects, keys)?)),
             StoreFormat::Safetensors => Ok(Box::new(crate::safetensors::store::SafetensorsStore::new(ir, objects, keys)?)),
             StoreFormat::Precomputed => Ok(Box::new(crate::precomputed::Precomputed::new(ir, objects, keys))),
+            StoreFormat::Tiff => Ok(Box::new(crate::tiff_set::TiffSet::new(ir, objects, keys)?)),
         }
     }
 }
@@ -199,6 +207,8 @@ pub struct StoreRun {
     /// the keys the parser asked the host to probe, not yet answered (`found`)
     probes: Vec<String>,
     answered: usize,
+    /// the keys probed so far, at most `beside::MAX_FILES`
+    probed: u64,
 }
 
 impl StoreRun {
@@ -234,6 +244,7 @@ impl StoreRun {
             ignored: Vec::new(),
             probes: Vec::new(),
             answered: 0,
+            probed: 0,
         })
     }
 
@@ -302,6 +313,10 @@ impl StoreRun {
                     if k.is_empty() || k.split('/').any(|s| s.is_empty() || s == "." || s == "..") || !seen.insert(k.as_str()) {
                         return Err(format!("internal: the probed key {k:?} is listed already, or is not a key"));
                     }
+                }
+                self.probed += keys.len() as u64;
+                if self.probed > crate::beside::MAX_FILES {
+                    return Err(format!("budget: the input names more than {} files", crate::beside::MAX_FILES));
                 }
                 self.stats.batches += 1;
                 self.probes = keys;
@@ -488,6 +503,7 @@ pub fn store_output(format: StoreFormat, ir: &Ir, facts: &J, stats: J, url: &str
         StoreFormat::Grib => crate::project::grib::project(ir, facts, url)?,
         StoreFormat::Safetensors => crate::project::safetensors::project_store(ir, facts, url)?,
         StoreFormat::Precomputed => crate::project::precomputed::project(ir, facts, url)?,
+        StoreFormat::Tiff => crate::project::tiff::project_set(ir, facts, url)?,
     };
     crate::shard::refuse(&out)?;
     let mut summary = std::mem::take(&mut out.summary);
@@ -523,4 +539,39 @@ pub fn run_store(format: StoreFormat, keys: Vec<(String, u64)>, read: &dyn Fn(us
         }
     }
     r.finish()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A parser that probes `batch` new keys each step, forever.
+    struct Prober { batch: usize, next: usize, ir: Option<Ir> }
+
+    impl StoreParser for Prober {
+        fn step(&mut self) -> Res<StoreStep> {
+            let keys = (self.next..self.next + self.batch).map(|i| format!("k{i}")).collect();
+            self.next += self.batch;
+            Ok(StoreStep::Probe(keys))
+        }
+        fn feed(&mut self, _: usize, _: u64, _: &[u8]) {}
+        fn found(&mut self, _: &str, _: usize, _: Option<u64>) -> Res<Option<u32>> {
+            Ok(None)
+        }
+        fn finish(mut self: Box<Self>) -> Res<(Ir, J)> {
+            Ok((self.ir.take().unwrap(), J::Null))
+        }
+    }
+
+    #[test]
+    fn a_run_probes_at_most_the_bound_on_files() {
+        let mut run = StoreRun::with(StoreFormat::Nrrd, vec![("a".into(), 1)], 1, &|ir, _, _| {
+            Ok(Box::new(Prober { batch: crate::beside::MAX_FILES as usize, next: 0, ir: Some(ir) }))
+        }).unwrap();
+        assert!(run.poll().unwrap().is_some());
+        for _ in 0..crate::beside::MAX_FILES {
+            run.found(None).unwrap();
+        }
+        assert_eq!(run.poll().err().as_deref(), Some("budget: the input names more than 65536 files"));
+    }
 }

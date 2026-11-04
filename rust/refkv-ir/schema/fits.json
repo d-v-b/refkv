@@ -9,7 +9,9 @@
     "max_naxis": 999,
     "max_hdus": 65536,
     "max_table": 67108864,
-    "max_dither": 10000
+    "max_dither": 10000,
+    "max_row_fields": 4096,
+    "max_row_bytes": 1048576
   },
   "tables": {
     "data_types": {

@@ -7,6 +7,41 @@
       "message": "8-bit Pixel Data of VR OW in big endian"
     },
     {
+      "test": "dicom_reject_bits1_big_endian_ow",
+      "input": "dicom_reject_bits1_big_endian_ow.dcm",
+      "message": "1-bit Pixel Data of VR OW in big endian"
+    },
+    {
+      "test": "dicom_reject_bits1_jpeg2k",
+      "input": "dicom_reject_bits1_jpeg2k.dcm",
+      "message": "unsupported Bits Allocated 1"
+    },
+    {
+      "test": "dicom_reject_bits1_samples",
+      "input": "dicom_reject_bits1_samples.dcm",
+      "message": "Bits Allocated 1 with 3 samples per pixel, Bits Stored 1 and Pixel Representation 0"
+    },
+    {
+      "test": "dicom_reject_bits1_short",
+      "input": "dicom_reject_bits1_short.dcm",
+      "message": "Pixel Data has 4 bytes, less than 2 frames of 4"
+    },
+    {
+      "test": "dicom_reject_bits1_short_off_bytes",
+      "input": "dicom_reject_bits1_short_off_bytes.dcm",
+      "message": "Pixel Data has 4 bytes, less than 3 frames of 2"
+    },
+    {
+      "test": "dicom_reject_bits1_signed",
+      "input": "dicom_reject_bits1_signed.dcm",
+      "message": "Bits Allocated 1 with 1 samples per pixel, Bits Stored 1 and Pixel Representation 1"
+    },
+    {
+      "test": "dicom_reject_bits1_whole_slide",
+      "input": "dicom_reject_bits1_whole_slide.dcm",
+      "message": "a whole-slide image of Bits Allocated 1"
+    },
+    {
       "test": "dicom_reject_bits_allocated",
       "input": "dicom_reject_bits_allocated.dcm",
       "message": "unsupported Bits Allocated 12"
@@ -52,6 +87,11 @@
       "message": "(0028,0009) has a length that is not a multiple of 4"
     },
     {
+      "test": "dicom_reject_j2k_ybr_422_not_subsampled",
+      "input": "dicom_reject_j2k_ybr_422_not_subsampled.dcm",
+      "message": "a JPEG 2000 frame of YBR_FULL_422 that is not three components of half-width chroma"
+    },
+    {
       "test": "dicom_reject_jpeg_soi",
       "input": "dicom_reject_jpeg_soi.dcm",
       "message": "frame 0's first fragment does not start with a JPEG SOI marker (FF D8)"
@@ -59,7 +99,37 @@
     {
       "test": "dicom_reject_jpegls",
       "input": "dicom_reject_jpegls.dcm",
-      "message": "unsupported transfer syntax 1.2.840.10008.1.2.4.80"
+      "message": "frame 0 is not a JPEG-LS stream with a frame header and a scan"
+    },
+    {
+      "test": "dicom_reject_jpegls_baseline",
+      "input": "dicom_reject_jpegls_baseline.dcm",
+      "message": "frame 0 is not a JPEG-LS stream (SOF55)"
+    },
+    {
+      "test": "dicom_reject_jpegls_components",
+      "input": "dicom_reject_jpegls_components.dcm",
+      "message": "frame 0 has 3 components for Samples per Pixel 1"
+    },
+    {
+      "test": "dicom_reject_jpegls_no_scan",
+      "input": "dicom_reject_jpegls_no_scan.dcm",
+      "message": "frame 0 is not a JPEG-LS stream with a frame header and a scan"
+    },
+    {
+      "test": "dicom_reject_jpegls_precision",
+      "input": "dicom_reject_jpegls_precision.dcm",
+      "message": "frame 0 has a precision of 16 bits for Bits Allocated 8"
+    },
+    {
+      "test": "dicom_reject_jpegls_shape",
+      "input": "dicom_reject_jpegls_shape.dcm",
+      "message": "frame 0 is 9 by 8, not 8 by 8"
+    },
+    {
+      "test": "dicom_reject_jpegls_signed_precision",
+      "input": "dicom_reject_jpegls_signed_precision.dcm",
+      "message": "frame 0 has a precision of 12 bits for signed pixels of Bits Allocated 16"
     },
     {
       "test": "dicom_reject_ljpeg_baseline",
@@ -112,11 +182,6 @@
       "message": "expected an item at 498, found (FFFE,E00D)"
     },
     {
-      "test": "dicom_reject_native_ybr",
-      "input": "dicom_reject_native_ybr.dcm",
-      "message": "unsupported Photometric Interpretation 'YBR_FULL' with 3 samples per pixel"
-    },
-    {
       "test": "dicom_reject_no_pixel_data",
       "input": "dicom_reject_no_pixel_data.dcm",
       "message": "no Pixel Data element"
@@ -124,7 +189,37 @@
     {
       "test": "dicom_reject_palette",
       "input": "dicom_reject_palette.dcm",
-      "message": "unsupported Photometric Interpretation 'PALETTE COLOR' with 1 samples per pixel"
+      "message": "PALETTE COLOR without its three lookup table descriptors"
+    },
+    {
+      "test": "dicom_reject_palette_bits",
+      "input": "dicom_reject_palette_bits.dcm",
+      "message": "a lookup table of 12 bits per entry"
+    },
+    {
+      "test": "dicom_reject_palette_depth",
+      "input": "dicom_reject_palette_depth.dcm",
+      "message": "a palette image of Bits Allocated 32"
+    },
+    {
+      "test": "dicom_reject_palette_descriptors_differ",
+      "input": "dicom_reject_palette_descriptors_differ.dcm",
+      "message": "the three lookup table descriptors differ"
+    },
+    {
+      "test": "dicom_reject_palette_lengths_differ",
+      "input": "dicom_reject_palette_lengths_differ.dcm",
+      "message": "the three lookup tables differ in length"
+    },
+    {
+      "test": "dicom_reject_palette_no_tables",
+      "input": "dicom_reject_palette_no_tables.dcm",
+      "message": "PALETTE COLOR without its three lookup tables"
+    },
+    {
+      "test": "dicom_reject_palette_short",
+      "input": "dicom_reject_palette_short.dcm",
+      "message": "a lookup table of 2 bytes for 256 entries"
     },
     {
       "test": "dicom_reject_pixel_past_eof",
@@ -134,7 +229,22 @@
     {
       "test": "dicom_reject_rle",
       "input": "dicom_reject_rle.dcm",
-      "message": "unsupported transfer syntax 1.2.840.10008.1.2.5"
+      "message": "frame 0 has 0 RLE segments, not 1"
+    },
+    {
+      "test": "dicom_reject_rle_first_offset",
+      "input": "dicom_reject_rle_first_offset.dcm",
+      "message": "frame 0's first RLE segment is at 32, not 64"
+    },
+    {
+      "test": "dicom_reject_rle_no_header",
+      "input": "dicom_reject_rle_no_header.dcm",
+      "message": "frame 0 is too short to be an RLE stream"
+    },
+    {
+      "test": "dicom_reject_rle_segments",
+      "input": "dicom_reject_rle_segments.dcm",
+      "message": "frame 0 has 3 RLE segments, not 1"
     },
     {
       "test": "dicom_reject_rows_vr",

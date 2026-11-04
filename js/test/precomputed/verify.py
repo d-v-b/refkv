@@ -42,7 +42,10 @@ from verify_common import LOOPBACK_SOURCES, run  # noqa: E402
 # a chunk's coding is the HTTP response's for tensorstore, so these read only here
 CODED = {"precomputed_codings", "precomputed_codings_bare"}
 # its other objects and its empty chunk follow this convention's rules, not tensorstore's
-OWN_RULES = {"precomputed_not_presented"}
+OWN_RULES = {"precomputed_not_presented", "precomputed_not_presented_labels"}
+# encodings tensorstore has no decoder for
+NOT_TENSORSTORE = {"precomputed_compresso", "precomputed_crackle", "precomputed_jxl", "precomputed_fpzip",
+                   "precomputed_zfpc", "precomputed_zfpc_int32", "precomputed_kempressed"}
 
 
 def tensorstore_level(kvstore, index: int):
@@ -82,7 +85,7 @@ def problems_of(store: Path, out: Path) -> list[str]:
     for path in sorted(root.array_keys(), key=int):
         array = root.get_array(path)
         got = ndarray(array[...])
-        if store.name in CODED | OWN_RULES:
+        if store.name in CODED | OWN_RULES | NOT_TENSORSTORE:
             continue
         index = integer(at(array.attrs.asdict(), "refkv_zarrified", "precomputed", "index"))
         v = tensorstore_level({"driver": "file", "path": f"{store.as_posix()}/"}, index)
