@@ -30,9 +30,11 @@ formats' documents already say of their attributes, arrays, codecs and fill valu
 members, such as [spec/provenance.md](provenance.md)'s on the root, which each convention's JSON
 Schema accepts ([§2](#2-attributes)). Changed 2026-11-04: imagecodecs-zarr's `imagecodecs_packints`,
 `imagecodecs_packbits`, `imagecodecs_ccittfax4` and `imagecodecs_eer` decode a chunk ([§3](#3-arrays)).
-Changed 2026-11-04: a TIFF level whose short last strip cannot be padded has the `rectilinear` chunk
-grid ([§3](#3-arrays)). Changed 2026-11-04: imagecodecs-zarr's `imagecodecs_png` and `imagecodecs_bmp`
-decode a chunk that is one PNG or BMP file ([§3](#3-arrays)).)
+Changed 2026-11-04: a TIFF level whose short last strip cannot be
+padded has the `rectilinear` chunk grid ([§3](#3-arrays)). Changed 2026-11-04: imagecodecs-zarr's
+`imagecodecs_png` and `imagecodecs_bmp` decode a chunk that is one PNG or BMP file, and its
+`imagecodecs_lzw` decodes an LZW chunk that holds exactly the chunk's bytes, as CZI's LZW subblocks
+do ([§3](#3-arrays)).)
 
 <!-- profiles:conventions-table -->
 | format | convention | UUID |
@@ -344,13 +346,14 @@ of each step, and always one of step 3.
 | 3 | `{"name": "imagecodecs_eer", "configuration": {"shape": [h, w], "skipbits": s, "horzbits": a, "vertbits": b}}` | Electron Event Representation: one frame per chunk, of that shape, decoding to one bit a pixel |
 | 4 | `{"name": "imagecodecs_packbits"}` | the bytes are TIFF PackBits streams ([tiff §4.3](zarrify/tiff.md#43-data-types-and-codecs)), run-length coded, unlike the zarr-extensions' `packbits` |
 | 4 | `{"name": "numcodecs.zlib", "configuration": {"level": 1}}` | the bytes are zlib streams (RFC 1950) |
+| 4 | `{"name": "imagecodecs_lzw"}` | the bytes are TIFF LZW streams (TIFF 6.0 §13: codes packed most significant bit first, with the "early change"), each decoding whole to exactly the chunk's bytes |
 | 4 | `{"name": "zstd", "configuration": {"level": 0, "checksum": false}}` | the bytes are Zstandard frames |
 
 **Codec names.** Every codec a convention names is one that a reader of Zarr v3 finds by its
 name: zarr-python's own (`bytes`, `transpose`, `gzip`, `zstd`, `blosc`, `sharding_indexed`, `vlen-utf8`, and
 `numcodecs.zlib`, `numcodecs.shuffle` and `numcodecs.delta`, its names for numcodecs' codecs),
 imagecodecs-zarr's (`imagecodecs_jpeg`, `imagecodecs_jpeg2k`, `imagecodecs_jpegxr`,
-`imagecodecs_ljpeg`, `imagecodecs_png`, `imagecodecs_bmp`, `imagecodecs_delta`, `imagecodecs_packints`,
+`imagecodecs_ljpeg`, `imagecodecs_lzw`, `imagecodecs_png`, `imagecodecs_bmp`, `imagecodecs_delta`, `imagecodecs_packints`,
 `imagecodecs_packbits`, `imagecodecs_ccittfax4`, `imagecodecs_eer`), the
 zarr-extensions registry's (`n5_default`, `packbits`), or refkv's own, which are named `refkv.<codec>`
 (`refkv.stream`, [§10](#10-coded-streams); `refkv.fits_tiles`,

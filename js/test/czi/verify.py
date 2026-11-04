@@ -72,6 +72,9 @@ TYPES = {0: ("u1", 1), 1: ("<u2", 1), 2: ("<f4", 1), 3: ("u1", 3), 4: ("<u2", 3)
 LIBCZI_TYPES = {0, 1, 2, 3, 4}  # pixel types libCZI composites
 
 
+REVISED = set(json.loads((ROOT / "conformance" / "zarrify" / "revised.json").read_text())["fixtures"])
+
+
 def run(impl: str, url: str, out: Path) -> subprocess.CompletedProcess:
     """`impl`: py, web, or ref (the frozen TypeScript twin, conformance/zarrify/reference/ts)."""
     cmd = {"py": ["uv", "run", "python", "-m", "refkv.zarrify", "--allow-private-hosts"],
@@ -624,6 +627,9 @@ def main(argv: list[str]) -> int:
         paths.append(tmp / "big" / "czi_big_bands.czi")
     failures = 0
     for path in paths:
+        if path.name in REVISED:  # the frozen reference rejects it: python/tests/ir/test_czi.py reads its pixels
+            print(f"{path.name:44s} skipped (conformance/zarrify/revised.json)")
+            continue
         server = Server(path.parent)
         out = tmp / f"{path.stem}.vzip"
         p = run(impl, server.base + path.name, out)
