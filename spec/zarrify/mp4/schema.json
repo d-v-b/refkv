@@ -455,7 +455,8 @@
             "format": {
               "enum": [
                 "aac",
-                "mp3"
+                "mp3",
+                "pcm"
               ]
             },
             "sample_rate": {
@@ -468,6 +469,7 @@
             },
             "samples_per_frame": {
               "enum": [
+                1,
                 576,
                 1024,
                 1152

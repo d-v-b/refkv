@@ -6,9 +6,9 @@ several chunks, groups of pictures of unequal lengths, open groups, two video tr
 video, 8-bit and Main 10 (HLG, as an iPhone records it), in hvc1 and hev1 sample entries, with
 open groups (CRA pictures and their RASL pictures), RADL pictures, and in a QuickTime file;
 AAC and MP3 audio, alone and beside video; the moov box before and after the media data, a
-64-bit mdat size and an mdat that runs to the end of the file; tracks the profile does not
-zarrify (10-bit H.264, 4:2:2 HEVC) beside ones it does; and the inputs it rejects
-(`mp4_reject_*`). The byte-crafted edge
+64-bit mdat size and an mdat that runs to the end of the file; PCM audio of each kind of
+sample entry; tracks the profile does not zarrify (10-bit H.264, 4:2:2 HEVC) beside ones it does;
+and the inputs it rejects (`mp4_reject_*`). The byte-crafted edge
 cases are write_edge_fixtures.py's.
 
 The media are ffmpeg's test sources encoded by ffmpeg (libx264, libx265, its AAC encoder and
@@ -171,10 +171,29 @@ def main() -> None:
     write("mov_hevc_main10_aac.mov",
           ffmpeg(*video(), *audio(), *x265(f"{OPEN_GOP}:{HLG}", "yuv420p10le"), *AAC, fmt="mov"))
     write("mov_hevc_aac.mov", ffmpeg(*video(), *audio(), *x265(OPEN_GOP), *AAC, fmt="mov"))
+    # PCM, alone and beside video: QuickTime's sample entries, a version 2 sound description past
+    # 16 bits of sample rate, ISO/IEC 23003-5's, and QuickTime's own sample size of 1
+    pcm16 = ffmpeg(*video(), *audio(8000, 1), *X264, "-g", "10", "-c:a", "pcm_s16le", fmt="mov")
+    write("mov_pcm_s16le_h264.mov", pcm16)
+    write("mov_pcm_s16be_stereo.mov", ffmpeg(*audio(8000, 1, 2), "-c:a", "pcm_s16be", fmt="mov"))
+    write("mov_pcm_u8.mov", ffmpeg(*audio(8000, 1), "-c:a", "pcm_u8", fmt="mov"))
+    write("mov_pcm_s8.mov", ffmpeg(*audio(8000, 1), "-c:a", "pcm_s8", fmt="mov"))
+    write("mov_pcm_s32le.mov", ffmpeg(*audio(8000, 1, 2), "-c:a", "pcm_s32le", fmt="mov"))
+    write("mov_pcm_s32be.mov", ffmpeg(*audio(8000, 1), "-c:a", "pcm_s32be", fmt="mov"))
+    write("mov_pcm_f32le.mov", ffmpeg(*audio(8000, 1), "-c:a", "pcm_f32le", fmt="mov"))
+    write("mov_pcm_f64be.mov", ffmpeg(*audio(8000, 1), "-c:a", "pcm_f64be", fmt="mov"))
+    write("mov_pcm_96k_lpcm.mov", ffmpeg(*audio(96000, 0.1, 2), "-c:a", "pcm_s16le", fmt="mov"))
+    write("mp4_pcm_s16le.mp4", ffmpeg(*video(), *audio(8000, 1), *X264, "-g", "10", "-c:a", "pcm_s16le"))
+    write("mp4_pcm_f32be.mp4", ffmpeg(*audio(8000, 1, 2), "-c:a", "pcm_f32be"))
+    write("mov_pcm_sample_size_1.mov", stsz_size(pcm16, "soun", 1))
     # tracks the profile does not zarrify, beside one it does
     write("mp4_h264_10bit_aac.mp4", ffmpeg(*video(), *audio(), "-c:v", "libx264", "-threads", "1",
                                            "-pix_fmt", "yuv420p10le", "-g", "10", *AAC))
     write("mp4_hevc_422_aac.mp4", ffmpeg(*video(), *audio(), *x265("keyint=10", "yuv422p10le"), *AAC))
+    write("mov_h264_pcm_s24.mov", ffmpeg(*video(), *audio(8000, 1), *X264, "-g", "10", "-c:a", "pcm_s24le", fmt="mov"))
+    write("mov_h264_pcm_odd_size.mov", stsz_size(pcm16, "soun", 3))
+    write("mov_h264_lpcm_not_interleaved.mov",
+          lpcm_flags(ffmpeg(*video(), *audio(96000, 0.1), *X264, "-g", "10", "-c:a", "pcm_s16le", fmt="mov"), 0x20))
 
     # rejected: fragmented, no moov box (cut before it), only tracks it does not zarrify (4:2:2 HEVC),
     # a box past the end of the file, a box smaller than its header, a second moov box, a
@@ -183,6 +202,7 @@ def main() -> None:
     o, _, _ = find(plain, "/moov")
     write("mp4_reject_no_moov.mp4", plain[:o])
     write("mp4_reject_hevc_422_only.mp4", ffmpeg(*video(), *x265("keyint=10", "yuv422p")))
+    write("mov_reject_pcm_s24_only.mov", ffmpeg(*audio(8000, 0.5), "-c:a", "pcm_s24le", fmt="mov"))
     o, _, n = find(fast, "/moov")
     write("mp4_reject_box_outside.mp4", fast[:o] + struct.pack(">I", n + len(fast)) + fast[o + 4:])
     _f, _, fn = find(fast, "/ftyp")
@@ -194,6 +214,32 @@ def main() -> None:
     s, h, _ = find(plain, "/stts")
     (count,) = struct.unpack_from(">I", plain, s + h + 8)
     write("mp4_reject_stts_count.mp4", plain[:s + h + 8] + struct.pack(">I", count + 1) + plain[s + h + 12:])
+
+
+def track_of(data: bytes, handler: str) -> tuple[int, int]:
+    """(offset, size) of the trak box whose hdlr box's handler is `handler`."""
+    for name, t, _, n in boxes(data):
+        if name.endswith("/trak") and handler.encode() in data[t:t + n]:
+            o, h, _ = next((o, h, s) for b, o, h, s in boxes(data) if b.endswith("/hdlr") and t < o < t + n)
+            if data[o + h + 8:o + h + 12] == handler.encode():
+                return t, n
+    raise ValueError(handler)
+
+
+def stsz_size(data: bytes, handler: str, size: int) -> bytes:
+    """`data` with the stsz box of the track of `handler` giving its samples' size as `size`."""
+    t, n = track_of(data, handler)
+    o, h, _ = next((o, h, s) for b, o, h, s in boxes(data) if b.endswith("/stsz") and t < o < t + n)
+    return data[:o + h + 4] + struct.pack(">I", size) + data[o + h + 8:]
+
+
+def lpcm_flags(data: bytes, flags: int) -> bytes:
+    """`data`, whose first lpcm sample entry has `flags` added to its version 2 format flags (52
+    bytes into its payload, 8 of box header before it)."""
+    o = data.index(b"lpcm") - 4
+    at = o + 8 + 52
+    (old,) = struct.unpack_from(">I", data, at)
+    return data[:at] + struct.pack(">I", old | flags) + data[at + 4:]
 
 
 def irregular_groups() -> bytes:

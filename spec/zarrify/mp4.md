@@ -11,6 +11,13 @@ below.
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `bbe3f6b9-488d-4d8d-85ce-60a1649dd27e` ·
 Schema: [schema.json](mp4/schema.json)
 
+Changed 2026-11-04: a PCM audio track is zarrified, where it was recorded with a reason: its samples
+are the file's own bytes, through the `bytes` codec, with the sample entries `sowt`, `twos`, `raw `,
+`NONE`, `in32`, `fl32`, `fl64`, `ipcm`, `fpcm` and `lpcm` ([§4.2](#42-audio-tracks),
+[§8.2](#82-tracks)). A version 2 sound description of `lpcm` is parsed ([§2](#2-boxes)), and a PCM
+track of one sample size is one element a chunk of the file, not one a sample
+([§5.3](#53-elements)), so the 2^24 samples do not bound it ([§8.1](#81-boxes)).
+
 Changed 2026-11-03, with no change to any output: the elements table lists the structs `samples` and `samples/<T>`, as refkv already wrote them.
 
 Changed 2026-11-01, with no change to any output: the checks say that a zarrifier MUST reject
@@ -60,10 +67,11 @@ This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
 An MP4 file is not an image. The hierarchy holds each track it zarrifies
 as a group: an H.264 or HEVC video track as the Y, U and V planes of its pictures
-and their presentation times, an AAC or MP3 audio track as its samples. The
+and their presentation times, an AAC, MP3 or PCM audio track as its samples. The
 pictures and samples stay in the file as coded frames; the arrays' codec,
 `refkv.stream` ([conventions §10](../conventions.md#10-coded-streams)),
-decodes them when a chunk is read.
+decodes them when a chunk is read. A PCM track's samples are not coded, and its chunks
+are the file's bytes.
 
 # Part 1. The convention
 
@@ -86,8 +94,8 @@ The hierarchy's entries ([conventions §11.5](../conventions.md#115-layout-table
 | `tracks/<id>/<plane>/c/<q>/0/0` | chunk | [`Mp4VideoChunk`](#type-mp4videochunk) | every chunk of a plane ([§8.3](#83-chunks)) |
 | `tracks/<id>/time/zarr.json` | array | [`Mp4TimeArray`](#type-mp4timearray) | a video track's presentation times ([§4.1](#41-video-tracks)) |
 | `tracks/<id>/time/c/<k>` | chunk | [`Mp4TimeChunk`](#type-mp4timechunk) | every chunk of `time`, a bytes entry ([§8.3](#83-chunks)) |
-| `tracks/<id>/samples/zarr.json` | array | [`Mp4AudioArray`](#type-mp4audioarray) | an audio track's samples ([§4.2](#42-audio-tracks)) |
-| `tracks/<id>/samples/c/<q>/0` | chunk | [`Mp4AudioChunk`](#type-mp4audiochunk) | every chunk of the samples ([§8.3](#83-chunks)) |
+| `tracks/<id>/samples/zarr.json` | array | [`Mp4AudioArray`](#type-mp4audioarray), or [`Mp4PcmArray`](#type-mp4pcmarray) for PCM | an audio track's samples ([§4.2](#42-audio-tracks)) |
+| `tracks/<id>/samples/c/<q>/0` | chunk | [`Mp4AudioChunk`](#type-mp4audiochunk), or [`Mp4PcmChunk`](#type-mp4pcmchunk) for PCM | every chunk of the samples ([§8.3](#83-chunks)) |
 | `refkv_source/**` | subtree | [the mirror's entries](../conventions.md#table-mirror) | the IR mirror ([conventions §11.3](../conventions.md#113-the-ir-mirror)): its elements are [§5.3](#53-elements)'s |
 
 | placeholder | value |
@@ -153,11 +161,13 @@ A **sample entry** of a video track (its handler is `vide`) has the fields
 78 bytes; one of an audio track (`soun`) has
 `{reserved:u1[6],data_reference_index:>u2,version:>u2,revision:>u2,vendor:>u4,channel_count:>u2,sample_size:>u2,compression_id:>i2,packet_size:>u2,sample_rate:>u4}`,
 28 bytes, followed for a QuickTime sound description of version 1 by
-`{samples_per_packet:>u4,bytes_per_packet:>u4,bytes_per_frame:>u4,bytes_per_sample:>u4}`.
-After its fields, a sample entry holds boxes (`avcC`, `hvcC`, `esds`, `btrt`,
-`pasp`, `colr`, and QuickTime's `wave`, which holds an `esds` box of its own).
+`{samples_per_packet:>u4,bytes_per_packet:>u4,bytes_per_frame:>u4,bytes_per_sample:>u4}`,
+and for one of version 2 of type `lpcm` by
+`{size_of_struct_only:>u4,audio_sample_rate:>f8,audio_channels:>u4,always_7f000000:>u4,const_bits_per_channel:>u4,format_specific_flags:>u4,const_bytes_per_audio_packet:>u4,const_lpcm_frames_per_audio_packet:>u4}`.
+After its fields, a sample entry holds boxes (`avcC`, `hvcC`, `esds`, `pcmC`, `btrt`,
+`pasp`, `colr`, and QuickTime's `wave`, which holds an `esds` or `enda` box of its own).
 The payload of every other box, and of a sample entry of another handler or
-of a sound description of version 2, is opaque.
+of another sound description of version 2, is opaque.
 
 ## 3. Tracks and samples
 
@@ -260,8 +270,8 @@ An AAC or MP3 track of `N` samples (coded frames), each decoding to `S`
 samples of each of its `C` channels (`S` is 1024 for AAC, 1152 for MP3 at
 32 kHz and more and 576 below), holds its samples in one array, `samples`:
 
-<a id="type-mp4audioarray"></a>**`Mp4AudioArray`**, the `zarr.json` of `samples`: an
-[`ArrayDocument`](../conventions.md#type-arraydocument) with these members:
+<a id="type-mp4audioarray"></a>**`Mp4AudioArray`**, the `zarr.json` of `samples` of an AAC or MP3
+track: an [`ArrayDocument`](../conventions.md#type-arraydocument) with these members:
 
 | member | type | presence | value |
 |---|---|---|---|
@@ -278,6 +288,23 @@ which the edit list records, and MP3 encoders with their encoder delay.
 The samples of an AAC track coded with perceptual noise substitution are
 those of [conventions §10](../conventions.md#10-coded-streams): in the
 noise bands, a chunk's noise is its own.
+
+A **PCM** track holds `N` frames of `C` channels, `N` its samples' bytes over the bytes of a frame
+(so a sample may hold several, and `S` is 1), its samples in one array, `samples`, as
+the file stores them:
+
+<a id="type-mp4pcmarray"></a>**`Mp4PcmArray`**, the `zarr.json` of `samples` of a PCM track, `P`
+2^18 frames, the samples of a chunk of `Mp4AudioArray` of AAC: an
+[`ArrayDocument`](../conventions.md#type-arraydocument) with these members:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `shape` | array of integer | required | `[N, C]` |
+| `data_type` | string | required | as [§8.2](#82-tracks)'s table gives: `"uint8"`, `"int8"`, `"int16"`, `"int32"`, `"float32"` or `"float64"` |
+| `chunk_grid` | object | required | when `N` is a multiple of `P` or at most `P`, the regular grid of chunk shape `[min(N, P), C]`; otherwise the `rectilinear` grid `{"name": "rectilinear", "configuration": {"kind": "inline", "chunk_shapes": [[[P, r], l], C]}}`, `r` the chunks of `P` and `l` the frames of the last: a chunk of the `bytes` codec is as long as its shape |
+| `codecs` | array of object | required | `[{"name": "bytes", "configuration": {"endian": E}}]`, `E` as [§8.2](#82-tracks)'s table gives, or `[{"name": "bytes"}]` for a data type of 1 byte |
+| `dimension_names` | array of string | required | `["time", "channel"]` |
+| `attributes` | object | required | `{}` ([§1](#1-declaration)) |
 
 ## 5. Source metadata
 
@@ -354,16 +381,16 @@ are the same up to `frames` and at the end, `chunk_frames`.
 | `id` | integer | required | its ID |
 | `handler` | string | required | its handler |
 | `codec` | string | required | its sample entry's type |
-| `format` | string | required | `"aac"` or `"mp3"` |
+| `format` | string | required | `"aac"`, `"mp3"` or `"pcm"` |
 | `timescale` | integer | required | the media's timescale |
 | `duration` | [`Integer`](../conventions.md#type-integer) | required | the media's duration |
 | `edits` | array of [`Mp4Edit`](#type-mp4edit) | required | its `elst` box's entries |
-| `frames` | integer | required | its sample count `N` |
+| `frames` | integer | required | `N`: its sample count, or a PCM track's frames ([§4.2](#42-audio-tracks)) |
 | `sample_rate` | integer | required | its sample rate ([§8.2](#82-tracks)) |
 | `channels` | integer | required | its channel count `C` |
 | `samples_per_frame` | integer | required | `S` |
 | `samples` | integer | required | `N × S` |
-| `chunk_frames` | integer | required | the most frames a chunk holds: 256 |
+| `chunk_frames` | integer | required | the most frames a chunk holds: 256, or `P` for PCM |
 
 <a id="type-mp4edit"></a>**`Mp4Edit`**, an `elst` box's entry:
 
@@ -385,20 +412,20 @@ the IR's root, whose path is `""`
 | `""` | struct | | the root: the whole file |
 | `<box>` | struct | | a box: the whole box; a top-level box at the root, a child box under its parent box |
 | `<box>/header` | value | `{size:>u4,type:ascii[4]}` or `{size:>u4,type:ascii[4],largesize:>u8}` | the box's header |
-| `<box>/fields`, `<box>/fields_v1` | value | the box's fields ([§2](#2-boxes)) | after the header |
+| `<box>/fields`, `<box>/fields_v1`, `<box>/fields_v2` | value | the box's fields ([§2](#2-boxes)) | after the header |
 | `<box>/entries` | value | the box's table ([§2](#2-boxes)) | after the fields |
 | `<box>/name` | value | `cstr[k]` | an `hdlr` box's name |
 | `<box>/data` | value | `bytes[k]` | the payload of a box the convention does not parse, opaque |
 | `<box>/rest` | value | `bytes[k]` | bytes of a box that are none of its fields, table or boxes |
 | `samples` | struct | | the samples of the file's tracks |
 | `samples/<T>` | struct | | track `T`'s samples |
-| `samples/<T>/<j>` | data | | sample `j` of track `T`, `(offset, size)`; its form's geometry is `{"width", "height", "planes": 3, "data_type"}` for a video track, its data type the planes' (`"uint8"` or `"uint16"`), and `{"samples", "channels", "data_type": "float32"}` for an audio track (null for a track the profile does not zarrify), its codec `{"name": E, "format": F}` (`F` null for such a track), its recipe `[["src", 0, null]]` |
+| `samples/<T>/<j>` | data | | sample `j` of track `T`, `(offset, size)`, or, for a PCM track of one sample size, the samples of its table's chunk `j` together; its form's geometry is `{"width", "height", "planes": 3, "data_type"}` for a video track, its data type the planes' (`"uint8"` or `"uint16"`), `{"samples", "channels", "data_type": "float32"}` for an audio track and `{"channels", "data_type"}` for a PCM one (null for a track the profile does not zarrify), its codec `{"name": E, "format": F}` (`F` null for such a track), its recipe `[["src", 0, null]]` |
 | `gaps/<offset>` | gap | | bytes no other element claims: the media data in no sample, and fewer than 8 bytes after the last box |
 
 A box is named by its type: printable ASCII as it is but for `/`, `~`, `%`
 and the space, every other byte as `%XX` (so `©nam` is `%A9nam`); a second
 box of one type among its siblings, or one whose name is one of a box's own
-values (`header`, `fields`, `fields_v1`, `entries`, `name`, `data`, `rest`,
+values (`header`, `fields`, `fields_v1`, `fields_v2`, `entries`, `name`, `data`, `rest`,
 `gaps`), is named as [conventions §8.1](../conventions.md#81-elements) names
 a repeated source name (`trak~` with the index 1 for the second `trak`). A
 top-level box named `samples` would be so too. The `mdat` box has its header
@@ -474,7 +501,7 @@ This section is informative.
   planes are as coded.
 - **Other tracks and codecs.** AV1, Dolby Vision's own sample entries
   (`dvh1`, `dvhe`), 10-bit or 4:2:2 H.264, 4:2:2, 4:4:4 or 12-bit HEVC,
-  other audio codecs, timecode, text, chapter and metadata tracks are
+  24-bit PCM, which `bytes` has no data type for, other audio codecs, timecode, text, chapter and metadata tracks are
   recorded in `tracks` with the reason the profile does not zarrify them,
   and kept whole in the mirror.
 - **Metadata.** `udta` and `meta` boxes (titles, iTunes tags, GPS) are
@@ -521,7 +548,8 @@ that fails.
   `stco`, `co64` and `stss` box, the fields fit in the payload, and the
   table's `n` entries in the bytes after them. (An `mvhd`, `tkhd`, `mdhd` or
   `hdlr` box too short for its fields is opaque instead.)
-- **Samples:** for every track with an `stsz` box: at most 2^24 samples; its
+- **Samples:** for every track with an `stsz` box: at most 2^24 samples, but for a PCM track
+  of one sample size, which has an element a chunk of its table ([§5.3](#53-elements)); its
   `stts` box, its `ctts` box (when it has one) and its sample-to-chunk
   layout count as many samples as its `stsz` box; its `stsc` table is not
   empty (when it has samples), starts at chunk 1, its `first_chunk`s
@@ -566,8 +594,12 @@ and the track is kept in the mirror but has no group:
   presented before it (a **leading picture**), but after the sync sample
   before: a camera's B-frames after each IDR picture are, and an open
   group's, which may reference the group before ([§8.3](#83-chunks));
-- **audio:** its sample entry is a QuickTime sound description of version 2;
-  or it is neither `mp4a` nor `.mp3`; or, for `mp4a`, its `esds` box (or the
+- **audio:** its sample entry is a QuickTime sound description of version 2, unless of
+  type `lpcm`; or it is none of `mp4a`, `.mp3` and the PCM entries below; or, for a PCM entry, the
+  table below refuses it, or a sample is not a whole number of frames in bytes (but for
+  an `stsz` box's one sample size of 1, QuickTime's for one frame of any size);
+  or its sample rate (the sample entry's, or the media timescale when that is 0, as a sample
+  entry's 16 bits may have to be) or channel count is 0; or, for `mp4a`, its `esds` box (or the
   one in its `wave` box) is absent or cannot be read, or its object type
   indication is neither AAC (0x40, 0x66 to 0x68) nor MPEG audio (0x69, 0x6B);
   or, for AAC, its AudioSpecificConfig cannot be read, or its object type is
@@ -596,6 +628,26 @@ parameter sets in its samples as well as in its `hvcC` box: a chunk decodes
 with the box's and with those of the samples it decodes, so a sync sample
 that needs a parameter set only an earlier sample carries is decoded
 wrongly, which the profile, reading no sample, does not check.
+
+**PCM.** A PCM sample entry stores its samples in this data type, interleaved by channel, and this
+byte order, by its sample size in bits (`B`, the sample entry's `sample_size`; for `ipcm` and `fpcm`,
+the `PCM_sample_size` of its `pcmC` box, ISO/IEC 23003-5; for `lpcm`, its `const_bits_per_channel`):
+
+| sample entry | `B` | data type | byte order |
+|---|---|---|---|
+| `sowt` | 16 | `int16` | little |
+| `sowt`, `twos` | 8 | `int8` | 1 byte |
+| `twos` | 16 | `int16` | big |
+| `raw `, `NONE` | 8 | `uint8` | 1 byte |
+| `in32`, `fl32`, `fl64` | | `int32`, `float32`, `float64` | big, unless a child box `enda` (in `wave`, or in the entry itself) holds 1 |
+| `ipcm` | 8, 16 or 32 | `int8`, `int16` or `int32` | by the `pcmC` box's `format_flags`: little when its bit 0 is set |
+| `fpcm` | 32 or 64 | `float32` or `float64` | by the same |
+| `lpcm` (version 2) | 8, 16 or 32; 32 or 64 with the float flag (0x1) | by its `format_specific_flags`: `float32`, `float64`, or with its signed flag (0x4) `int8`, `int16` or `int32`, without it `uint8` for 8 | big with the flag 0x2 |
+
+Any other `B`, among them 24 bits (`in24` too), is refused with `24-bit PCM is not supported: the
+bytes codec has no data type for it`; so is an `lpcm` entry whose channels are not interleaved (the
+flag 0x20) or whose `const_bytes_per_audio_packet` is not a frame's bytes, and an `ipcm` or
+`fpcm` entry without a `pcmC` box. A version 2 entry's channel count and sample rate are its own fields'.
 
 The channel count and sample rate of an AAC track are its
 AudioSpecificConfig's (the sample entry's channel count when its channel
@@ -659,6 +711,13 @@ pictures `a` to `b − 1`:
 |---|---|---|---|
 | the header | literal | required | the [`StreamChunk`](../conventions.md#type-streamchunk) header of the frames `l` to `b − 1`: their count, then each one's size and its position, −1 when `j < a` and `(j − a) × S` otherwise |
 | the frames | source ranges `(0, offset, length)` | required | frames `l` to `b − 1`, in order, a range per run of frames that follow each other in the file |
+
+<a id="type-mp4pcmchunk"></a>**`Mp4PcmChunk`**, chunk `q` of `samples` of a PCM track, of the
+frames `q × P` to `min(N, (q + 1) × P) − 1`:
+
+| part | range | presence | value |
+|---|---|---|---|
+| the frames | source ranges `(0, offset, length)` | required | those frames' bytes, in order, a range per run of them that follow each other in the file |
 
 <a id="type-mp4timechunk"></a>**`Mp4TimeChunk`**, chunk `k` of `time`:
 
