@@ -564,6 +564,7 @@ def patch_tag(path, tag: str, *, value: int | None = None, code: int | None = No
 RECTILINEAR = {
     # name: each level's chunk lengths along `y`, or the integer of a regular grid's chunk shape
     "strips_uint16_deflate_short.tif": [[[16, 4], 6]],
+    "predictor3_strips_float32_deflate_short.tif": [[[16, 4], 6]],
     "lerc_float32_strips_short.tif": [[[16, 3], 8]],
     "webp_rgb_strips_short.tif": [[[16, 3], 8]],
     "jpegxl_uint16_strips_short.tif": [[[16, 3], 8]],
@@ -686,14 +687,74 @@ def test_predictor_2_is_summed_back_by_imagecodecs_delta(tmp_path):
             assert np.array_equal(ndarray(g.get_array(str(li))[...]), want_level), (name, li)
 
 
-def test_predictor_3_is_rejected():
+LZMA = {"name": "imagecodecs_lzma"}
+
+
+def floatpred(axis):
+    return {"name": "imagecodecs_floatpred", "configuration": {"axis": axis, "dist": 1}}
+
+
+PREDICTOR_3 = {
+    # name: the codecs: imagecodecs_floatpred along `x` in stored order, in the place of `bytes`
+    "predictor3_deflate_float32.tif": [floatpred(1), ZLIB],
+    "predictor3_lzw_float32_be.tif": [floatpred(1), LZW],  # the predictor's bytes have one order
+    "predictor3_lzma_float32.tif": [floatpred(1), LZMA],
+    "predictor3_lzma_float32_be.tif": [floatpred(1), LZMA],
+    "predictor3_zstd_float64.tif": [floatpred(1), ZSTD],  # in strips
+    "predictor3_rgb_contig_deflate_float32.tif": [INTERLEAVED, floatpred(1), ZLIB],  # dist 1, with 3 samples
+    "predictor3_contig_be_lzw_float64.tif": [INTERLEAVED, floatpred(1), LZW],  # 4, big-endian, a padded last strip
+    "predictor3_planar_deflate_float32.tif": [floatpred(2), ZLIB],
+    "predictor3_strips_float32_lzw_short.tif": [floatpred(1), LZW],  # its short last strip padded
+    "predictor3_strips_float32_deflate_short.tif": [floatpred(1), ZLIB],  # of `rectilinear` chunks
+    "predictor3_tcyx_float32_lzw.ome.tif": [floatpred(3), LZW],  # and a SubIFD level
+}
+
+
+def test_predictor_3_is_undone_by_imagecodecs_floatpred(tmp_path):
     """§4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>:
-    no codec undoes the floating-point predictor."""
-    with pytest.raises(Rejected, match="unsupported predictor 3"):
-        via_ir(str(FIXTURES / "tiff" / "unsupported_predictor_float.tif"), "u")
+    Predictor 3 of a float type, with LZW, Deflate or zstd, has `imagecodecs_floatpred` along the
+    stored axis `x` in the place of `bytes`; float32 and float64, either byte order, interleaved
+    and planar samples, tiles and strips (a short last one padded) alike. Every level reads as
+    tifffile reads it (the windows: test_omero_windows_sample_the_coarsest_level)."""
+    for name, codecs in PREDICTOR_3.items():
+        path = FIXTURES / "tiff" / name
+        out, g, _ = zarrified(path, tmp_path, "tiff")
+        ms = mapping(at(g.attrs, "ome", "multiscales", 0))
+        names = [string(at(a, "name")) for a in sequence(ms["axes"])]
+        with tifffile.TiffFile(path) as tf:
+            series = tf.series[0]
+            assert tf.pages.first.predictor == 3, name
+            want = [(level.asarray(), series.axes) for level in series.levels]
+        assert len(want) == len(sequence(ms["datasets"])), name
+        for li, (data, axes) in enumerate(want):
+            assert inner_of(json.loads(out.bytes_entries[f"{li}/zarr.json"]))[1] == codecs, (name, li)
+            letters = [AXIS[a] for a in axes]
+            want_level = np.transpose(data, [letters.index(a) for a in names])
+            assert np.array_equal(ndarray(g.get_array(str(li))[...]), want_level), (name, li)
 
 
-LERC, LZMA = {"name": "imagecodecs_lerc"}, {"name": "imagecodecs_lzma"}
+def test_predictor_3_of_an_integer_type_is_rejected():
+    """§4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>:
+    the floating-point predictor is for float types, which is all libtiff writes it with."""
+    with pytest.raises(Rejected, match="predictor 3 with SampleFormat 1"):
+        via_ir(str(FIXTURES / "tiff" / "edge_reject_predictor3_integer.tif"), "u")
+
+
+def test_predictor_3_without_compression_is_rejected():
+    """§4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>:
+    libtiff applies a predictor only inside a compression's coder, so that readers disagree on what
+    uncompressed bytes hold."""
+    with pytest.raises(Rejected, match="predictor 3 with compression 1"):
+        via_ir(str(FIXTURES / "tiff" / "edge_reject_predictor3_uncompressed.tif"), "u")
+
+
+def test_a_predictor_tiff_does_not_define_is_rejected():
+    """§4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>."""
+    with pytest.raises(Rejected, match="unsupported predictor 4"):
+        via_ir(str(FIXTURES / "tiff" / "edge_reject_predictor_unknown.tif"), "u")
+
+
+LERC = {"name": "imagecodecs_lerc"}
 JPEGXL = {"name": "imagecodecs_jpegxl"}
 
 
