@@ -47,6 +47,7 @@ fn an_imaris_file_is_found_to_be_ims() {
                     p.feed(o, data[o as usize..(o + n) as usize].to_vec());
                 }
             }
+            refkv_ir::nd2::Step::Beside => panic!("the file names siblings"),
             refkv_ir::nd2::Step::Done => break,
         }
     }
