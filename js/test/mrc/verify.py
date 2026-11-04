@@ -97,9 +97,9 @@ def unread_mode(header, raw: bytes, order: str) -> np.ndarray:
 
 def load(path: Path):
     """mrcfile's header and data (its warnings, such as a zero grid size, are not failures).
-    mrcfile does not read IMOD's unsigned-byte flag (spec/zarrify/mrc.md §3
+    mrcfile does not read IMOD's signed-byte flag (spec/zarrify/mrc.md §3
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#3-data-types>): a mode 0
-    file with IMOD's stamp and bit 0 of its flags is its bytes as uint8."""
+    file with IMOD's stamp, bit 0 of its flags clear and no standard NVERSION is its bytes as uint8."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         with mrcfile.open(path, permissive=True) as f:
@@ -111,7 +111,7 @@ def load(path: Path):
         return header, unread_mode(header, raw, order)
     data = np.array(data)
     stamp, flags = struct.unpack(order + "ii", raw[152:160])
-    if int(header.mode) == 0 and stamp == IMOD and flags & 1:
+    if int(header.mode) == 0 and stamp == IMOD and not flags & 1 and not 20140 <= int(header.nversion) < 21000:
         data = data.view(np.uint8)
     return header, data
 
