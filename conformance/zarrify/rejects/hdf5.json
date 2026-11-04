@@ -2,6 +2,17 @@
   "about": "The inputs the hdf5 profile rejects, each with the start of its message. rust/refkv-ir/build.rs writes a Rust test per case into tests/hdf5.rs; python/tests/ir/test_rejects.py checks each through the host and that every rejected fixture is listed here.",
   "cases": [
     {
+      "test": "hdf5_reject_base_address",
+      "input": "hdf5_reject_base_address.h5",
+      "message": "the HDF5 base address is not the superblock's offset"
+    },
+    {
+      "test": "hdf5_reject_base_after_block",
+      "input": "hdf5_reject_base_after_block.h5",
+      "message": "not an HDF5 file",
+      "host": "not a file of any supported format"
+    },
+    {
       "test": "hdf5_reject_chunk_outside",
       "input": "hdf5_reject_chunk_outside.h5",
       "message": "/plain: chunk [0, 0] lies outside the file"

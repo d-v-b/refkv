@@ -81,6 +81,7 @@
     "edge_reject_lerc_uint64.tif",
     "edge_reject_predictor_lerc.tif",
     "ims_reject_not_imaris.ims",
+    "ims_user_block.ims",
     "n5_reject_objects_collision",
     "zarr2_reject_objects_collision",
     "dicom_ljpeg_mono16_bot.dcm",
