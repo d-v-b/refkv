@@ -1,24 +1,34 @@
-"""Writes the synthetic LIF fixtures in fixtures/lif/ (spec/zarrify/lif.md).
+"""Writes the synthetic LIF, LOF and LIFEXT fixtures in fixtures/lif/ (spec/zarrify/lif.md).
 
-No library writes LIF files, so a small writer (`Lif`) builds them byte for byte: the header
-block (test value 0x70, its length, the magic byte 0x2A, the XML's characters and the XML in
+No library writes these files, so small writers build them byte for byte. A LIF file (`Lif`) is the
+header block (test value 0x70, its length, the magic byte 0x2A, the XML's characters and the XML in
 UTF-16), then one memory block per `Memory` element (version 2: a 64-bit data size; version 1:
-32-bit). Each image is an `Img`: its axes from the fastest, `c` where its channels are (`c`
-first: interleaved), with the BytesInc of each packed in that order, as LAS X writes them.
-Every accepted fixture is read once here by liffile, which must give each image's array, as
-the generator laid it out. Rejected fixtures (`edge_reject_lif_*`) each break one rule the
-profile rejects.
+32-bit). A LOF (`Lof`) is a header block whose text is `LMS_Object_File`, its version fields, its
+one memory block, which has no ID, and its XML in a block after the data. A LIFEXT file (`Lifext`)
+is a LIF file whose root is `LMSDataContainerEnhancedHeader`, whose images lie under `ChildrenOf`
+elements and whose blocks have 64-bit sizes whatever its `Version`. Each image is an `Img`: its axes
+from the fastest, `c` where its channels are (`c` first: interleaved), with the BytesInc of each
+packed in that order, as LAS X writes them. Every accepted fixture is read once here by liffile,
+which must give each image's array, as the generator laid it out. Rejected fixtures
+(`edge_reject_lif_*`) each break one rule the profile rejects.
+
+A LAS X project is an XLEF, XLCF, XLIF or XLLF document and the documents and LOFs it names, in a
+directory `_<name>_` beside it (`project`): UTF-8 XML with a byte order mark, whose names are
+percent-encoded Windows paths, in lower case where the project says so, as LAS X writes them.
 
 Usage: uv run python fixtures/generators/lif/write_fixtures.py
 """
 
 from __future__ import annotations
 
+import shutil
 import struct
 import sys
 import zlib
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import quote
 from xml.sax.saxutils import quoteattr
 
 import liffile
@@ -191,6 +201,79 @@ def block(id_: str, data: bytes, version: int = 2) -> bytes:
     return struct.pack("<IIBQBI", TEST, 1 + 8 + 1 + 4 + len(i), MAGIC, len(data), MAGIC, len(i) // 2) + i + data
 
 
+@dataclass
+class Lof:
+    """A Leica object file of one element: `item` an image, or another element's XML and its data
+    (the writer's own `Element` XML, or a tuple of it and the data); `old`, the XML is only the
+    image's `Data`, as an older writer's is; `xml`, this XML in place of the element's."""
+
+    item: Img | tuple[str, bytes]
+    old: bool = False
+    tail: bytes = b""
+    xml: str | None = None
+
+    def data(self) -> bytes:
+        return self.item.data() if isinstance(self.item, Img) else self.item[1]
+
+    def text(self) -> str:
+        if self.xml is not None:
+            return self.xml
+        if isinstance(self.item, Img):
+            self.item.memory = self.item.memory or "MemBlock_541"
+            element = self.item.xml(len(self.data()))
+        else:
+            element = self.item[0]
+        if self.old:
+            return element[element.index("<Data>"):element.index("</Data>") + len("</Data>")]
+        return f"<LMSDataContainerHeader{attrs(Version=2)}>{element}</LMSDataContainerHeader>"
+
+    def build(self) -> bytes:
+        return lof_bytes(self.data(), self.text(), self.tail)
+
+
+def lof_bytes(data: bytes, xml: str, tail: bytes = b"", *, versions: tuple[int, int] = (1, 0), magic: int = MAGIC,
+              xml_test: int = TEST) -> bytes:
+    """A LOF's bytes: the header block, its version fields, its memory block, its XML block."""
+    head = utf16("LMS_Object_File")
+    x = utf16(xml)
+    return (struct.pack("<IIBI", TEST, len(head) + 5, MAGIC, len(head) // 2) + head
+            + struct.pack("<BIBI", magic, versions[0], MAGIC, versions[1])
+            + struct.pack("<BQ", MAGIC, len(data)) + data
+            + struct.pack("<IIBI", xml_test, len(x) + 5, MAGIC, len(x) // 2) + x + tail)
+
+
+@dataclass
+class Lifext:
+    """A LIFEXT file: for each MemoryBlockID of its parent LIF, the images it adds, each an `Img`
+    with its own block, written with 64-bit sizes under a root of `Version` 1, as LAS X writes."""
+
+    children: dict[str, list[Img]]
+    version: int = 1
+
+    def images(self) -> list[Img]:
+        return [im for images in self.children.values() for im in images]
+
+    def build(self) -> bytes:
+        out = []
+        blocks = []
+        n = 0
+        for parent, images in self.children.items():
+            xml = []
+            for im in images:
+                n += 1
+                im.memory = f"MemBlock_{n + 100}"
+                data = im.data()
+                blocks.append((im.memory, data))
+                xml.append(im.xml(len(data)))
+            out.append(f"<ChildrenOf{attrs(MemoryBlockID=parent)}>{''.join(xml)}</ChildrenOf>")
+        root = "LMSDataContainerEnhancedHeader"
+        x = utf16(f"<{root}{attrs(Version=self.version)}>{''.join(out)}</{root}>")
+        file = bytearray(struct.pack("<IIBI", TEST, len(x) + 5, MAGIC, len(x) // 2) + x)
+        for id_, data in blocks:
+            file += block(id_, data, 2)
+        return bytes(file)
+
+
 MICRON = 1e-6
 
 
@@ -247,6 +330,257 @@ def accepted() -> dict[str, Lif]:
     }
 
 
+def accepted_lof() -> dict[str, Lof]:
+    yx = {"x": 15 * MICRON, "y": 11 * MICRON}
+    frame_properties = ('<Element Name="FrameProperties" Visibility="2" CopyOption="1" UniqueID="f8b4a296">'
+                        '<Data><SimpleListInMemory/></Data><Memory Size="13" MemoryBlockID="MemBlock_541"/>'
+                        "<Children/></Element>")
+    return {
+        "lif_lof": Lof(Img("series", "xycz", {"x": 6, "y": 5, "c": 2, "z": 3}, "<u2", 12, lengths=yx,
+                           luts=["Red", "Green"])),
+        "lif_lof_rgb": Lof(Img("rgb", "cxy", {"c": 3, "x": 5, "y": 4}, tags=[3, 2, 1], lengths=yx), tail=bytes(5)),
+        # an older writer's XML, only the image's Data: an element with no Name or UniqueID
+        "lif_lof_data": Lof(Img("old", "xy", {"x": 7, "y": 4}), old=True),
+        # a LOF of no image, as LAS X writes beside each frame image
+        "lif_lof_no_image": Lof((frame_properties, bytes(13))),
+    }
+
+
+def accepted_lifext() -> dict[str, Lifext]:
+    return {
+        # a pyramid level and a histogram of an image of the parent LIF, as LAS X writes
+        "lif_lifext": Lifext({
+            "MemBlock_504": [Img("Position 3_pmd_0", "xyc", {"x": 8, "y": 6, "c": 2}, luts=["Red", "Green"]),
+                             Img("Position 3_histo", "xy", {"x": 16, "y": 2}, "<u2")],
+        }),
+        # of two images: liffile reads the first ChildrenOf alone, so its check sees one image
+        "edge_lif_lifext_two_parents": Lifext({
+            "MemBlock_504": [Img("Position 3_pmd_0", "xy", {"x": 4, "y": 3})],
+            "MemBlock_510": [Img("Position 2_pmd_0", "xyz", {"x": 4, "y": 3, "z": 2})],
+        }),
+    }
+
+
+def written(path: str, lower: bool = False) -> str:
+    """A name as LAS X writes it: a Windows path, percent-encoded, in lower case when `lower`."""
+    return quote((path.lower() if lower else path).replace("/", "\\"), safe="._~-")
+
+
+def document(name: str, data: str, memory: str = '<Memory Size="0" MemoryBlockID="" />',
+             children: tuple[tuple[str, str], ...] = (), *, unique: str | None = None,
+             root: str = "LMSDataContainerHeader", version: int = 2) -> bytes:
+    """A document's bytes: an element's `Data` and `Memory`, and a `Reference` for each (written
+    name, UUID) of `children`."""
+    refs = "".join(f"<Reference{attrs(File=f, UUID=u)} />" for f, u in children)
+    element = attrs(Name=name, Visibility=1, CopyOption=1, UniqueID=unique or uid(name))
+    return b"\xef\xbb\xbf" + (f'<?xml version="1.0" encoding="utf-8"?>\r\n<{root}{attrs(Version=version)}>\r\n'
+                                f"<Element{element}><Data>{data}</Data>{memory}<Children>{refs}</Children>"
+                                "</Element>\r\n"
+                                f"</{root}>").encode()
+
+
+def experiment(name: str, *children: tuple[str, str]) -> bytes:
+    return document(name, f"<Experiment{attrs(Path='C:/data/' + name)} />", children=children)
+
+
+def collection(name: str, *children: tuple[str, str]) -> bytes:
+    return document(name, '<Collection ChildTypeTest="AcceptAll" />', children=children)
+
+
+def image_data(im: Img) -> str:
+    """An image's `Data`, as its element's XML has it."""
+    xml = im.xml(len(im.data()))
+    return xml[xml.index("<Data>") + len("<Data>"):xml.index("</Data>")]
+
+
+def block_memory(file: str, size: int, offset: int | str = 0, *, declared: int | None = None) -> str:
+    uuid = "00000000-0000-4000-8000-00000000b10c"
+    return (f'<Memory{attrs(Size=size if declared is None else declared, MemoryBlockID="")}>'
+            f"<Block{attrs(File=file, Offset=offset, Size=size, UUID=uuid)} /></Memory>")
+
+
+def image_document(im: Img, lof: str, *children: tuple[str, str], offset: int | str = 0, size: int | None = None,
+                   unique: str | None = None) -> bytes:
+    n = len(im.data()) if size is None else size
+    return document(im.name, image_data(im), block_memory(lof, n, offset), children, unique=unique)
+
+
+FRAME_PROPERTIES = "<SimpleListInMemory />"
+
+
+def frame_properties_lof() -> Lof:
+    element = (f"<Element{attrs(Name='FrameProperties', Visibility=2, CopyOption=1, UniqueID=uid('FrameProperties'))}>"
+               f"<Data>{FRAME_PROPERTIES}</Data><Memory{attrs(Size=13, MemoryBlockID='MemBlock_541')}/>"
+               "<Children/></Element>")
+    return Lof((element, bytes(range(13))))
+
+
+def project(name: str, lower: bool = False) -> dict[str, bytes]:
+    """The files of a project, as LAS X lays one out: an experiment that names an image with a list
+    of frame properties beside it, a collection that names another image, and the configuration,
+    an element of no image and no data."""
+    d = f"_{name}_"
+    w = lambda path: written(path, lower)  # noqa: E731
+    series = Img("Series1", "xycz", {"x": 6, "y": 5, "c": 2, "z": 3}, "<u2", 12,
+                 lengths={"x": 15 * MICRON, "y": 11 * MICRON, "z": 4 * MICRON}, luts=["Red", "Green"])
+    rgb = Img("Series 2", "cxy", {"c": 3, "x": 5, "y": 4}, tags=[3, 2, 1], lengths={"x": 15 * MICRON, "y": 11 * MICRON})
+    frames = frame_properties_lof()
+    return {
+        f"{name}.xlef": experiment(
+            name, (w(f"./{d}/Metadata/Series1.xlif"), uid("Series1")),
+            (w(f"./{d}/Metadata/Group A.xlcf"), uid("Group A")),
+            (w(f"./{d}/Metadata/IOManagerConfiguation.xlif"), uid("IOManagerConfiguation"))),
+        f"{d}/Metadata/Series1.xlif": image_document(
+            series, w("../Series1.lof"), (w("../Series1/Metadata/FrameProperties.xlif"), uid("FrameProperties"))),
+        f"{d}/Series1.lof": Lof(series).build(),
+        f"{d}/Series1/Metadata/FrameProperties.xlif": document(
+            "FrameProperties", FRAME_PROPERTIES, block_memory(w("../FrameProperties.lof"), 13)),
+        f"{d}/Series1/FrameProperties.lof": frames.build(),
+        f"{d}/Metadata/Group A.xlcf": collection("Group A", (w("../Group A/Metadata/Series 2.xlif"), uid("Series 2"))),
+        f"{d}/Group A/Metadata/Series 2.xlif": image_document(rgb, w("../Series 2.lof")),
+        f"{d}/Group A/Series 2.lof": Lof(rgb).build(),
+        f"{d}/Metadata/IOManagerConfiguation.xlif": document("IOManagerConfiguation", "<ProcessingControl />"),
+    }
+
+
+def one_image(name: str, suffix: str) -> dict[str, bytes]:
+    """A document of the suffix `suffix` that is an image, with its LOF: named input of its own."""
+    d = f"_{name}_"
+    im = Img("Solo", "xy", {"x": 4, "y": 3})
+    return {f"{name}{suffix}": image_document(im, written(f"./{d}/Solo.lof")), f"{d}/Solo.lof": Lof(im).build()}
+
+
+def one_child(name: str, suffix: str) -> dict[str, bytes]:
+    """A collection of the suffix `suffix` that names an image's document, and its LOF."""
+    d = f"_{name}_"
+    im = Img("Solo", "xy", {"x": 4, "y": 3})
+    return {f"{name}{suffix}": collection(name, (written(f"./{d}/Solo.xlif"), uid("Solo"))),
+            f"{d}/Solo.xlif": image_document(im, written("./Solo.lof")), f"{d}/Solo.lof": Lof(im).build()}
+
+
+def frames_project(name: str) -> dict[str, bytes]:
+    """An experiment with an image in a LOF and images that are not: in TIFF frames (their files
+    absent: nothing asks for them), and an image of no file."""
+    d = f"_{name}_"
+    im = Img("Solo", "xy", {"x": 4, "y": 3})
+    plane = Img("Planes", "xyz", {"x": 4, "y": 3, "z": 2})
+    frames = "".join(
+        f"<Frame{attrs(File=written(f'./planes--z{z:02}.tif'), Offset=12 * z, Size=12, UUID=uid(str(z)))} />"
+        for z in range(2))
+    return {
+        f"{name}.xlef": experiment(name, (written(f"./{d}/Planes.xlif"), uid("Planes")),
+                                   (written(f"./{d}/Solo.xlif"), uid("Solo")),
+                                   (written(f"./{d}/Empty.xlif"), uid("Empty"))),
+        f"{d}/Planes.xlif": document("Planes", image_data(plane),
+                                     f"<Memory{attrs(Size=24, MemoryBlockID='')}>{frames}</Memory>"),
+        f"{d}/Solo.xlif": image_document(im, written("./Solo.lof")),
+        f"{d}/Solo.lof": Lof(im).build(),
+        f"{d}/Empty.xlif": document("Empty", image_data(im)),
+    }
+
+
+def cycle_project(name: str) -> dict[str, bytes]:
+    """An experiment that names a collection that names the experiment, and an image: a key already
+    known adds nothing."""
+    d = f"_{name}_"
+    im = Img("Solo", "xy", {"x": 4, "y": 3})
+    return {
+        f"{name}.xlef": experiment(name, (written(f"./{d}/Back.xlcf"), uid("Back"))),
+        f"{d}/Back.xlcf": collection("Back", (written(f"../{name}.xlef"), uid(name)),
+                                     (written("./Solo.xlif"), uid("Solo")),
+                                     (written("./Back.xlcf"), uid("Back"))),
+        f"{d}/Solo.xlif": image_document(im, written("./Solo.lof")),
+        f"{d}/Solo.lof": Lof(im).build(),
+    }
+
+
+def chain(name: str, levels: int) -> dict[str, bytes]:
+    """Collections, each naming the next, `levels` deep, the named file being level 1."""
+    d = f"_{name}_"
+    files = {f"{name}.xlef": experiment(name, (written(f"./{d}/1.xlcf"), uid("1")))}
+    for i in range(1, levels - 1):
+        files[f"{d}/{i}.xlcf"] = collection(str(i), (written(f"./{i + 1}.xlcf"), uid(str(i + 1))))
+    files[f"{d}/{levels - 1}.xlcf"] = collection(str(levels - 1))
+    return files
+
+
+def projects() -> dict[str, tuple[dict[str, bytes], list[str]]]:
+    """Each accepted project, by its name: its files, and the images liffile reads of it (None: it
+    cannot read it)."""
+    return {
+        "lif_xlef_tree": (project("lif_xlef_tree"), ["Series1", "Series 2"]),
+        "lif_xlef_lowercase": (project("lif_xlef_lowercase", lower=True), ["Series1", "Series 2"]),
+        "lif_xlef_frames": (frames_project("lif_xlef_frames"), []),
+        "lif_xlef_cycle": (cycle_project("lif_xlef_cycle"), []),
+        "lif_xlef_chain": (chain("lif_xlef_chain", 16), []),
+        "lif_xlcf": (one_child("lif_xlcf", ".xlcf"), ["Solo"]),
+        "lif_xlif": (one_image("lif_xlif", ".xlif"), ["Solo"]),
+        "lif_xllf": (one_child("lif_xllf", ".xllf"), ["Solo"]),
+    }
+
+
+def with_two_lofs(name: str) -> dict[str, bytes]:
+    d = f"_{name}_"
+    im = Img("Solo", "xy", {"x": 4, "y": 3})
+    two = Img("Two", "xy", {"x": 4, "y": 3})
+    return {f"{name}.xlef": experiment(name, (written(f"./{d}/Solo.xlif"), uid("Solo")),
+                                       (written(f"./{d}/Two.xlif"), uid("Two"))),
+            f"{d}/Solo.xlif": image_document(im, written("./Solo.lof")),
+            f"{d}/Two.xlif": image_document(two, written("./Solo.lof")),
+            f"{d}/Solo.lof": Lof(im).build()}
+
+
+def rejected_projects() -> dict[str, dict[str, bytes]]:
+    """The projects the profile rejects, each breaking one rule, by its name after
+    `edge_reject_lif_xlef_`."""
+    out: dict[str, dict[str, bytes]] = {}
+
+    def add(case: str, make: Callable[[str, str, Img], dict[str, bytes]]) -> None:
+        name = f"edge_reject_lif_xlef_{case}"
+        out[case] = make(name, f"_{name}_", Img("Solo", "xy", {"x": 4, "y": 3}))
+
+    def named(name: str, d: str, im: Img, offset: int | str = 0, size: int | None = None,
+              unique: str | None = None) -> dict[str, bytes]:
+        """An experiment that names an image's document and its LOF, its `Block` and `UniqueID` these."""
+        return {f"{name}.xlef": experiment(name, (written(f"./{d}/Solo.xlif"), unique or uid("Solo"))),
+                f"{d}/Solo.xlif": image_document(im, written("./Solo.lof"), offset=offset, size=size, unique=unique),
+                f"{d}/Solo.lof": Lof(im).build()}
+
+    def sibling(data: bytes, file: str = "Solo.xlif") -> Callable[[str, str, Img], dict[str, bytes]]:
+        return lambda name, d, _: {f"{name}.xlef": experiment(name, (written(f"./{d}/{file}"), uid("Solo"))),
+                                   f"{d}/{file}": data}
+
+    # names that the steps of a written name reject
+    add("outside", lambda name, _, __: {f"{name}.xlef": experiment(name, (written("../Solo.xlif"), uid("Solo")))})
+    add("drive", lambda name, _, __: {f"{name}.xlef": experiment(name, (written("C:/Solo.xlif"), uid("Solo")))})
+    add("absent", lambda name, d, _: {f"{name}.xlef": experiment(name, (written(f"./{d}/Solo.xlif"), uid("Solo")))})
+    add("absent_lof", lambda name, d, im: {**named(name, d, im), f"{d}/Solo.lof": b""})
+    out["absent_lof"].pop("_edge_reject_lif_xlef_absent_lof_/Solo.lof")
+    add("depth", lambda name, _, __: chain(name, 17))
+    add("identity", lambda name, d, im: {**named(name, d, im),
+                                         f"{name}.xlef": experiment(name, (written(f"./{d}/Solo.xlif"), uid("Other")))})
+    add("lof_identity", lambda name, d, im: named(name, d, im, unique=uid("Other")))
+    add("block_past", lambda name, d, im: named(name, d, im, size=13))
+    add("block_offset", lambda name, d, im: named(name, d, im, offset=1))
+    add("block_short", lambda name, d, im: named(name, d, im, size=11))
+    add("block_integer", lambda name, d, im: named(name, d, im, offset="one"))
+    add("not_lof", lambda name, d, im: {**named(name, d, im), f"{d}/Solo.lof": experiment("Solo")})
+    add("lif_file", lambda name, d, im: {**named(name, d, im), f"{d}/Solo.lof": Lif("a.lif", [im]).build()})
+    add("no_image", lambda name, d, im: {**named(name, d, im), f"{d}/Solo.lof": frame_properties_lof().build()})
+    add("bad_lof", lambda name, d, im: {**named(name, d, im), f"{d}/Solo.lof": Lof(im).build()[:50]})
+    add("shared_lof", lambda name, _, __: with_two_lofs(name))
+    # a document whose name is that of the LOF another document names
+    add("role", lambda name, d, im: {**named(name, d, im), f"{d}/Solo.lof": collection("Other"),
+                                     f"{name}.xlef": experiment(name, (written(f"./{d}/Solo.xlif"), uid("Solo")),
+                                                                (written(f"./{d}/Solo.lof"), uid("Other")))})
+    add("root", sibling(document("Solo", "", root="Elsewhere")))
+    add("version", sibling(document("Solo", "", version=3)))
+    add("not_utf8", sibling(b"\xef\xbb\xbf<LMSDataContainerHeader>\xff"))
+    add("no_element", lambda name, _, __: {
+        f"{name}.xlef": b'<?xml version="1.0"?><LMSDataContainerHeader Version="2"></LMSDataContainerHeader>'})
+    return out
+
+
 def swap(lif: Lif, old: str, new: str) -> bytes:
     """The file of `lif` with the first `old` of its XML written `new` (as long, in UTF-16)."""
     return lif.build().replace(utf16(old), utf16(new), 1)
@@ -263,8 +597,34 @@ def pair() -> Lif:
     return Lif("s.lif", [Img("a", "xy", {"x": 4, "y": 3}), Img("b", "xy", {"x": 4, "y": 3})])
 
 
+def rejected_lof() -> dict[str, bytes]:
+    """The LOFs the profile rejects, each breaking one rule of its parts."""
+    im = Img("plane", "xy", {"x": 4, "y": 3})
+    good = Lof(im).build()
+    data = im.data()
+    head = utf16("LMS_Object_File")
+    two = (f"<LMSDataContainerHeader{attrs(Version=2)}>"
+           f"{Img('a', 'xy', {'x': 2, 'y': 1}, memory='A').xml(2)}{Img('b', 'xy', {'x': 2, 'y': 1}, memory='B').xml(2)}"
+           "</LMSDataContainerHeader>")
+    return {
+        # the header block's text and nothing after it
+        "short": struct.pack("<IIBI", TEST, len(head) + 5, MAGIC, len(head) // 2) + head,
+        "magic": lof_bytes(data, Lof(im).text(), magic=0x2B),
+        # a memory block of more bytes than the file has
+        "data_past_end": good[:54] + struct.pack("<Q", 1 << 40) + good[62:],
+        "xml_block": lof_bytes(data, Lof(im).text(), xml_test=0x71),
+        # an XML block of more characters than the file has
+        "xml_past_end": good[:62 + len(data) + 9] + struct.pack("<I", 1 << 20) + good[62 + len(data) + 13:],
+        # an XML block of "<" and a lone high surrogate
+        "xml_utf16": lof_bytes(data, "")[:-13] + struct.pack("<IIBI", TEST, 9, MAGIC, 2) + b"<\x00\x00\xd8",
+        "two_images": lof_bytes(bytes(4), two),
+        # an image that reaches past the block
+        "short_block": Lof((Img("plane", "xy", {"x": 4, "y": 3}, memory="A").xml(12), bytes(11))).build(),
+        "root": lof_bytes(data, "<Elsewhere/>"),
+    }
+
+
 def rejected() -> dict[str, bytes]:
-    lof = utf16("LMS_Object_File")
     two = pair().build()
     first = two.rindex(utf16("MemBlock_1")) - 22  # the first image's block
     block_id = 'MemoryBlockID="MemBlock_1"'
@@ -274,8 +634,7 @@ def rejected() -> dict[str, bytes]:
         "xml_past_end": (b := plane().build())[:9] + struct.pack("<I", 1 << 20) + b[13:],
         # "<" and a lone high surrogate
         "xml_utf16": struct.pack("<IIBI", TEST, 9, MAGIC, 2) + b"<\x00\x00\xd8",
-        "lof": struct.pack("<IIBI", TEST, len(lof) + 5, MAGIC, len(lof) // 2) + lof,
-        "root": Lif("v.lif", [Img("plane", "xy", {"x": 4, "y": 3})], root="LMSDataContainerEnhancedHeader").build(),
+        "root": Lif("v.lif", [Img("plane", "xy", {"x": 4, "y": 3})], root="LMSDataContainer").build(),
         "version_3": swap(plane(), 'Version="2"', 'Version="3"'),
         "no_memory": swap(plane(), block_id, 'MemoryBlockId="MemBlock_1"'),
         "missing_block": swap(plane(), block_id, 'MemoryBlockID="MemBlock_9"'),
@@ -310,9 +669,14 @@ def rejected() -> dict[str, bytes]:
     }
 
 
-def liffile_check(path: Path, lif: Lif) -> str:
+def liffile_check(path: Path, lif: Lif | Lof | Lifext) -> str:
     """liffile's reading of every image: its array, as the writer laid it out."""
-    want = [it for it in lif.items if isinstance(it, Img)]
+    if isinstance(lif, Lof):
+        want = [lif.item] if isinstance(lif.item, Img) else []
+    elif isinstance(lif, Lifext):
+        want = next(iter(lif.children.values()))  # liffile reads the first ChildrenOf alone
+    else:
+        want = [it for it in lif.items if isinstance(it, Img)]
     with liffile.LifFile(path) as f:
         images = list(f.images)
         if len(images) != len(want):
@@ -328,16 +692,38 @@ def liffile_check(path: Path, lif: Lif) -> str:
     return "ok"
 
 
+def write_project(files: dict[str, bytes]) -> None:
+    for key, data in files.items():
+        path = OUT / key
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+
+
 def main() -> int:
     OUT.mkdir(parents=True, exist_ok=True)
-    for old in OUT.glob("*.lif"):
-        old.unlink()
-    for name, lif in accepted().items():
-        path = OUT / f"{name}.lif"
-        path.write_bytes(lif.build())
-        print(f"{name}: liffile {liffile_check(path, lif)}")
+    for suffix in ("lif", "lof", "lifext", "xlef", "xlcf", "xlif", "xllf"):
+        for old in OUT.glob(f"*.{suffix}"):
+            old.unlink()
+    for old in OUT.glob("_*_"):
+        shutil.rmtree(old)
+    for suffix, files in (("lif", accepted()), ("lof", accepted_lof()), ("lifext", accepted_lifext())):
+        for name, lif in files.items():
+            path = OUT / f"{name}.{suffix}"
+            path.write_bytes(lif.build())
+            print(f"{name}: liffile {liffile_check(path, lif)}")
     for name, data in rejected().items():
         (OUT / f"edge_reject_lif_{name}.lif").write_bytes(data)
+    for name, data in rejected_lof().items():
+        (OUT / f"edge_reject_lif_lof_{name}.lof").write_bytes(data)
+    for name, (files, images) in projects().items():
+        write_project(files)
+        if images:
+            named = next(k for k in files if "/" not in k)
+            with liffile.LifFile(OUT / named) as f:
+                got = [im.name for im in f.images]
+            print(f"{name}: liffile {'ok' if got == images else got}")
+    for files in rejected_projects().values():
+        write_project(files)
     return 0
 
 

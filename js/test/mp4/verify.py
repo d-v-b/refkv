@@ -38,6 +38,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # js/test, for ver
 from verify_common import LOOPBACK_SOURCES, run, serve  # noqa: E402
 
 NOISE = {"mp4_aac_pns.mp4"}
+# A trun box of negative composition offsets: ffmpeg's demuxer adds the largest of them to every
+# time (its dts_shift), where a sample's presentation time is its decode time plus its offset
+SHIFTED = {"mp4_frag_dash.mp4"}
 
 
 def decoded(path: Path, index: int):
@@ -84,7 +87,8 @@ def problems_of(path: Path, out: Path) -> list[str]:
                                     f"({got.shape} vs {want.shape})")
             media_times = (integer(at(e, "media_time")) for e in sequence(tm["edits"]))
             shift = next((m for m in media_times if m >= 0), 0)
-            if ndarray(g.get_array("time")[...]).tolist() != [t + shift for t in pts]:
+            times = ndarray(g.get_array("time")[...]).tolist()
+            if times != [t + (times[0] - pts[0] if path.name in SHIFTED else shift) for t in pts]:
                 problems.append(f"track {track['id']}'s times differ from ffmpeg's")
         else:
             want = np.concatenate([f.to_ndarray().T if f.format.is_planar else f.to_ndarray().reshape(f.samples, -1)

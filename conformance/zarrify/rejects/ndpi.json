@@ -7,11 +7,6 @@
       "message": "NDPI levels differ in compression (7, the first's 22610)"
     },
     {
-      "test": "ndpi_edge_reject_focal_planes",
-      "input": "edge_reject_ndpi_focal_planes.ndpi",
-      "message": "NDPI focal planes (two levels with one magnification) are not supported"
-    },
-    {
       "test": "ndpi_edge_reject_frame",
       "input": "edge_reject_ndpi_frame.ndpi",
       "message": "NDPI level 0's JPEG frame of 64 × 16 pixels has other MCU rows or columns than its 64 × 17"

@@ -17,9 +17,29 @@
       "message": "the free box at 32 is 4 bytes, less than its 8-byte header"
     },
     {
-      "test": "mp4_reject_fragmented",
-      "input": "mp4_reject_fragmented.mp4",
-      "message": "fragmented MP4 (the moof box at "
+      "test": "mp4_reject_frag_no_tfhd",
+      "input": "mp4_reject_frag_no_tfhd.mp4",
+      "message": "the traf box at "
+    },
+    {
+      "test": "mp4_reject_frag_no_trex",
+      "input": "mp4_reject_frag_no_trex.mp4",
+      "message": "the traf box at "
+    },
+    {
+      "test": "mp4_reject_frag_sample_outside",
+      "input": "mp4_reject_frag_sample_outside.mp4",
+      "message": "track 1's sample 0 at "
+    },
+    {
+      "test": "mp4_reject_frag_trun_before",
+      "input": "mp4_reject_frag_trun_before.mp4",
+      "message": "the trun box at "
+    },
+    {
+      "test": "mp4_reject_frag_trun_table",
+      "input": "mp4_reject_frag_trun_table.mp4",
+      "message": "the trun box at "
     },
     {
       "test": "mp4_reject_hevc_422_only",
