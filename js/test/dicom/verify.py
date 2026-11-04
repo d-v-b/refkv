@@ -68,7 +68,8 @@ def expected(ds: pydicom.Dataset) -> np.ndarray:
     """The image as the profile lays it out: [c,] [z,] y, x."""
     n = int(ds.get("NumberOfFrames", 1) or 1)
     rows, columns, spp = ds.Rows, ds.Columns, ds.SamplesPerPixel
-    dtype = np.dtype(f"{'u' if ds.PixelRepresentation == 0 else ''}int{ds.BitsAllocated}")
+    dtype = np.dtype(f"{'u' if ds.PixelRepresentation == 0 else ''}int{ds.BitsAllocated}" if ds.BitsAllocated > 1
+                     else bool)
     if ds.file_meta.TransferSyntaxUID in NATIVE:
         frames = np.asarray(ds.pixel_array).ravel()[: n * rows * columns * spp]  # without excess pixel data
         frames = frames.reshape(n, rows, columns, *([spp] if spp > 1 else []))
@@ -367,7 +368,7 @@ def header_problems(root, data: bytes) -> list[str]:
     # Native pixel data past the frames, unless one 00 byte.
     n = int(ds.get("NumberOfFrames", 1) or 1)
     if ds.file_meta.TransferSyntaxUID in NATIVE:
-        extra = ds.PixelData[n * ds.Rows * ds.Columns * ds.SamplesPerPixel * (ds.BitsAllocated // 8):]
+        extra = ds.PixelData[(n * ds.Rows * ds.Columns * ds.SamplesPerPixel * ds.BitsAllocated + 7) // 8:]
         kept = array_bytes(root, source["pixel_extra"]) if "pixel_extra" in source else b""
         if kept != (extra if extra not in (b"", b"\0") else b""):
             problems.append(f"pixel_extra: {kept[:8]!r} vs {extra[:8]!r}")

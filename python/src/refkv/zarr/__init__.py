@@ -18,7 +18,8 @@ stores use and zarr-python lacks (`refkv.zarr.codecs`, one module per codec, whi
 zarr also finds through refkv's `zarr.codecs` entry points, without this import;
 the `refkv.tiff_lzw` codec's decoder needs the `images` extra, which also installs
 imagecodecs-zarr's JPEG, JPEG 2000 and JPEG XR codecs, the `refkv.stream` codec's
-the `media` extra), and turns on
+the `media` extra, and those of some of the `refkv.precomputed` codec's encodings the
+`precomputed` extra), and turns on
 zarr-python's `array.rectilinear_chunks`, which the zarr-extensions `rectilinear` chunk
 grid of some archives' arrays needs (an MP4 file's video planes, a clipped CZI level).
 

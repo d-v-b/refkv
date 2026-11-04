@@ -9,7 +9,7 @@ use super::{contiguous, header_json, json_text, n, Copied};
 use crate::ir::Ir;
 use crate::mrc::header;
 use crate::record::Header;
-use crate::out::{array_json, bytes_codec, declared_group, full_window, grid_chunks, gzip_array, image_ome, omero_channel, omero_json, root_json, Chunk, Out};
+use crate::out::{array_json, bytes_codec, declared_group, full_window, grid_chunks, gzip_array, image_ome, omero_channel, omero_json, root_json, Chunk, Out, Part};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 
@@ -50,6 +50,8 @@ struct Cut {
     mapped: bool,
     shape: Vec<u64>,
     item: u64,
+    /// a packed mode's bits per value
+    bits: Option<u64>,
     grid: Vec<u64>,
     chunks: Vec<(Vec<u64>, Chunk)>,
 }
@@ -77,8 +79,44 @@ fn cut(h: &Header, offset: u64, facts: &J) -> Result<Cut, String> {
         ),
         _ => (named.clone(), vec![nz, ny, nx]),
     };
-    let (grid, chunks) = grid_chunks(offset, &shape, item, CHUNK_BYTES, contiguous::threshold(facts)).ok_or("internal: the data cannot be cut into chunks")?;
-    Ok(Cut { kind, axes, names: named, mapped, shape, item, grid, chunks })
+    let bits = spec["bits"].as_u64();
+    let threshold = contiguous::threshold(facts);
+    let cut = match bits {
+        Some(k) => contiguous::packed_chunks(offset, &shape, k, CHUNK_BYTES, threshold).filter(|_| (nx * k).is_multiple_of(8)).or_else(|| Some(row_chunks(offset, &shape, k))),
+        None => grid_chunks(offset, &shape, item, CHUNK_BYTES, threshold),
+    };
+    let (grid, chunks) = cut.ok_or("internal: the data cannot be cut into chunks")?;
+    Ok(Cut { kind, axes, names: named, mapped, shape, item, bits, grid, chunks })
+}
+
+/// One chunk per row of packed values, each its whole bytes (spec/zarrify/mrc.md §8.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#82-chunks>): a row starts on a
+/// byte, so a chunk of several rows of an odd width would not be one run of bits.
+fn row_chunks(offset: u64, shape: &[u64], bits: u64) -> (Vec<u64>, Vec<(Vec<u64>, Chunk)>) {
+    let (columns, outer) = shape.split_last().expect("an MRC array has at least 2 axes");
+    let row = (columns * bits).div_ceil(8);
+    let count: u64 = outer.iter().product();
+    let chunks = (0..count).map(|r| {
+        let mut left = r;
+        let mut coords = vec![0; shape.len()];
+        for k in (0..outer.len()).rev() {
+            coords[k] = left % outer[k];
+            left /= outer[k];
+        }
+        (coords, Chunk::Ranges(vec![Part::Src(offset + r * row, row)]))
+    }).collect();
+    let grid = outer.iter().map(|_| 1).chain([*columns]).collect();
+    (grid, chunks)
+}
+
+/// The data type of mode 3 (spec/zarrify/mrc.md §3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#3-data-types>): zarr-extensions'
+/// `struct` of a real and an imaginary `int16`.
+fn complex_int16() -> J {
+    json!({"name": "struct", "configuration": {"fields": [
+        {"name": "real", "data_type": "int16"},
+        {"name": "imag", "data_type": "int16"},
+    ]}})
 }
 
 /// The header and the data's element.
@@ -129,7 +167,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     };
 
     // the array (§4.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#41-the-array>)
-    let Cut { kind, axes, names, mapped, shape, item, grid, chunks } = cut(&h, offset, facts)?;
+    let Cut { kind, axes, names, mapped, shape, item, bits, grid, chunks } = cut(&h, offset, facts)?;
     let mut units: Map<String, J> = Map::new();
     let scales: Vec<J> = axes
         .iter()
@@ -150,7 +188,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
 
     // the display window (§4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#43-channels>)
     let (lo, hi) = (f("dmin"), f("dmax"));
-    let window = mode != 4 && lo.is_finite() && hi.is_finite() && hi > lo;
+    let window = mode != 3 && mode != 4 && lo.is_finite() && hi.is_finite() && hi > lo;
     if window {
         let window = full_window(json!(lo), json!(hi));
         ome["omero"] = omero_json(vec![omero_channel("C0", "FFFFFF", Some(&window))]);
@@ -178,11 +216,18 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
         root["attributes"]["refkv_zarrified"] = insert_after(&root["attributes"]["refkv_zarrified"], "source", "layouts", json!({DATASET: DATASET}));
     }
     out.json("zarr.json", &root);
-    let codecs = vec![bytes_codec(item, endian)];
+    let codecs = match bits {
+        // zarr-extensions' `packbits`, bit packing (not TIFF's PackBits), of each value's low bits
+        Some(k) => vec![json!({"name": "packbits", "configuration": {"padding_encoding": "none", "last_bit": k - 1}})],
+        None => vec![bytes_codec(item, endian)],
+    };
     let mut array = array_json(&shape, data_type, json!(grid), J::Array(codecs), &axes);
     if data_type == "complex64" {
         // a complex fill value is its real and imaginary parts (Zarr v3)
         array["fill_value"] = json!([0, 0]);
+    } else if data_type == "struct" {
+        array["data_type"] = complex_int16();
+        array["fill_value"] = json!({"real": 0, "imag": 0});
     }
     out.json("0/zarr.json", &array);
     // the dataset layout's data variable: the same array under the dataset's dimension names

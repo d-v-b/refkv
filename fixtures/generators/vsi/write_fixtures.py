@@ -23,12 +23,17 @@ a tile missing, a focus map stored as an IFD, a macro JPEG with JPEG tables and 
 tile a plane, `frame_t_0.ets`, 12-bit background), `vsi_jpeg2000_c` (JPEG 2000 uint16 tiles
 with a channel dimension, in a pyramid), `vsi_lossless_jpeg` (lossless JPEG tiles: an RGB
 pyramid whose ETS header, version 0x30003, lists no dimension sizes, and uint16 with
-predictor 6), `vsi_raw_bgr` (raw RGB tiles in BGR order), `vsi_raw_gray_pyramid` (raw
-uint8 tiles, a sparse level), `vsi_raw_types` (one stack per raw
+predictor 6), `vsi_png` (PNG tiles: an RGB pyramid, uint16 gray, RGBA), `vsi_bmp` (BMP tiles: an
+RGB pyramid whose rows are padded, and gray with a palette), `vsi_raw_bgr` (raw RGB tiles in BGR
+order), `vsi_raw_gray_pyramid` (raw uint8 tiles, a sparse level), `vsi_raw_types` (one stack per raw
 pixel type the tables name), `vsi_no_stacks` (the macro image alone), `vsi_metadata_edges`
 (units other than micrometers, no origin, no display limits, an unknown dimension of size 1,
 an unknown stack type, a blob field with a second tag, an empty container, text that is not
 ASCII, both tile file names present).
+
+Fixtures that leave an IFD image out (`vsi_left_out_*`, spec/zarrify/vsi.md §4.4
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#44-ifd-images-that-are-not-presented>),
+each a slide whose pyramid is presented and whose macro image or stack IFD breaks one rule.
 
 Rejecting fixtures (`vsi_reject_*`), each the smallest input that breaks one rule.
 
@@ -40,6 +45,7 @@ from __future__ import annotations
 import itertools
 import shutil
 import struct
+import zlib
 from collections.abc import Callable
 from pathlib import Path
 from typing import cast
@@ -301,7 +307,7 @@ class TiffImage:
 SIS_SIZE, ETS_SIZE = 64, 228
 PIXEL_TYPES = {"int8": 1, "uint8": 2, "int16": 3, "uint16": 4, "int32": 5, "uint32": 6, "int64": 7, "uint64": 8,
                "float32": 9, "float64": 10}
-RAW, JPEG, JPEG2000, LJPEG = 0, 2, 3, 5
+RAW, JPEG, JPEG2000, LJPEG, PNG, BMP = 0, 2, 3, 5, 8, 9
 
 
 def ets_file(tiles: list[tuple[tuple[int, ...], bytes]], *, coordinates: int, dtype: str, samples: int,
@@ -362,6 +368,39 @@ def downsample(a: np.ndarray) -> np.ndarray:
     return np.ascontiguousarray(a[::2, ::2])
 
 
+def png_file(block: np.ndarray) -> bytes:
+    """A tile as a complete PNG file. Written here, its deflate stream in stored blocks, so that
+    the bytes depend on no zlib; rows without a filter, big-endian as PNG's samples are."""
+    h, w = block.shape[:2]
+    samples = block.shape[2] if block.ndim == 3 else 1
+    raw = b"".join(b"\0" + row.astype(block.dtype.newbyteorder(">")).tobytes() for row in block)
+    stream = bytearray(b"\x78\x01")
+    for at in range(0, len(raw), 65535):
+        part = raw[at:at + 65535]
+        stream += struct.pack("<BHH", at + 65535 >= len(raw), len(part), len(part) ^ 0xFFFF) + part
+    stream += struct.pack(">I", zlib.adler32(raw))
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+
+    header = struct.pack(">IIBBBBB", w, h, block.dtype.itemsize * 8, {1: 0, 3: 2, 4: 6}[samples], 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", bytes(stream)) + chunk(b"IEND", b"")
+
+
+def bmp_file(block: np.ndarray) -> bytes:
+    """A tile as a complete BMP file, as Windows writes one: its rows bottom up, each padded to 4
+    bytes, three samples blue first, one sample through a palette of grays."""
+    h, w = block.shape[:2]
+    samples = block.shape[2] if block.ndim == 3 else 1
+    palette = b"".join(bytes((v, v, v, 0)) for v in range(256)) if samples == 1 else b""
+    rows = block[::-1] if samples == 1 else block[::-1, :, ::-1]
+    pixels = b"".join(row.tobytes() + b"\0" * (-w * samples % 4) for row in rows)
+    start = 14 + 40 + len(palette)
+    head = struct.pack("<2sIHHI", b"BM", start + len(pixels), 0, 0, start)
+    info = struct.pack("<IiiHHIIiiII", 40, w, h, 1, samples * 8, 0, len(pixels), 3780, 3780, len(palette) // 4, 0)
+    return head + info + palette + pixels
+
+
 def plane_tiles(plane: np.ndarray, tw: int, th: int, compression: int, samples: int, *, bgr=False, skip=(),
                 quality=90, predictor=1) -> list[tuple[tuple[int, int], bytes]]:
     """A plane cut into full tiles (padded with zeros), each encoded."""
@@ -386,6 +425,10 @@ def plane_tiles(plane: np.ndarray, tw: int, th: int, compression: int, samples: 
                 b = imagecodecs.jpeg8_encode(block, lossless=True, predictor=predictor, colorspace=space,
                                              outcolorspace=space,
                                              bitspersample=None if block.dtype.itemsize == 1 else 16)
+            elif compression == PNG:
+                b = png_file(block)
+            elif compression == BMP:
+                b = bmp_file(block)
             else:
                 b = imagecodecs.jpeg2k_encode(block, level=0, reversible=True, codecformat="J2K")
             out.append(((tx, ty), cast("bytes", b)))  # imagecodecs' stubs: bytes, without out=
@@ -404,6 +447,10 @@ def decoded(tiles, tw, th, h, w, compression, dtype, samples) -> np.ndarray:
             block = imagecodecs.jpeg8_decode(b)
         elif compression == LJPEG:
             block = imagecodecs.ljpeg_decode(b)
+        elif compression == PNG:
+            block = imagecodecs.png_decode(b)
+        elif compression == BMP:
+            block = imagecodecs.bmp_decode(b)
         else:
             block = imagecodecs.jpeg2k_decode(b)
         y0, x0 = ty * th, tx * tw
@@ -493,7 +540,8 @@ class Stack:
         args = {"coordinates": coordinates, "dtype": self.dtype, "samples": self.samples,
                 "compression": self.compression, "tile": self.tile, "dims": sizes, "pyramid": self.levels > 1,
                 "background": self.background,
-                "component_order": 1 if (self.bgr or (self.samples == 3 and self.compression in (JPEG, LJPEG))) else -1,
+                "component_order": (1 if self.bgr or (self.samples == 3 and self.compression in (JPEG, LJPEG, PNG, BMP))
+                                    else -1),
                 "quality": self.quality}
         if self.old_ets:
             args.update(ets_version=0x30003, dims=[], dimensions=0)
@@ -523,7 +571,7 @@ class Stack:
         if self.ifd_pixels is not None:
             k = ifd_index["next"]
             ifd_index["next"] += 1
-            image = TiffImage(self.ifd_pixels)
+            image = self.ifd_pixels if isinstance(self.ifd_pixels, TiffImage) else TiffImage(self.ifd_pixels)
             frame.append(ifd_field(DEFAULT_SAMPLE_IFD, k, lambda at, image=image, k=k: image.region(at, b, k)))
         elif external:
             # the coarse thumbnail: an IFD in the rest of the inline field's region, as the real files
@@ -710,6 +758,22 @@ def accepting() -> None:
         Stack(10002, "20x lossless 16-bit", width=70, height=50, dtype="uint16", compression=LJPEG, tile=(32, 32),
               levels=1, scale=(0.345, 0.345), display=None, predictor=6, seed=41),
     ], macro=macro_image(seed=42)).write()
+    # PNG tiles (spec/zarrify/vsi.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#3-the-tile-files>):
+    # an RGB pyramid, uint16 gray, and RGBA
+    Slide("vsi_png", [
+        Stack(10000, "Overview", width=150, height=100, samples=3, compression=PNG, tile=(64, 64), levels=2,
+              stack_type=1, scale=(2.7, 2.7), origin=(300.0, 600.0), seed=43, background=b"\xee\xee\xee"),
+        Stack(10002, "20x gray 16-bit", width=70, height=50, dtype="uint16", compression=PNG, tile=(32, 32),
+              scale=(0.345, 0.345), display=None, seed=44),
+        Stack(10003, "20x RGBA", width=40, height=24, samples=4, compression=PNG, tile=(16, 16), seed=45),
+    ], macro=macro_image(seed=46)).write()
+    # BMP tiles: an RGB pyramid whose rows are padded (a tile 30 pixels wide), and gray
+    Slide("vsi_bmp", [
+        Stack(10000, "Overview", width=70, height=50, samples=3, compression=BMP, tile=(30, 20), levels=2,
+              stack_type=1, scale=(2.7, 2.7), origin=(300.0, 600.0), seed=47, background=b"\xee\xee\xee"),
+        Stack(10002, "20x gray", width=70, height=50, compression=BMP, tile=(32, 32), scale=(0.345, 0.345),
+              display=None, seed=48),
+    ], macro=macro_image(seed=49)).write()
     # raw RGB in BGR order
     Slide("vsi_raw_bgr", [
         Stack(10000, "Overview", width=40, height=24, samples=3, tile=(16, 16), levels=2, stack_type=1, bgr=True,
@@ -740,6 +804,43 @@ def accepting() -> None:
     slide.write()
     # the second name beside the first: the first is read
     (OUT / "_vsi_metadata_edges_" / "stack10002" / "frame_t_0.ets").write_bytes(b"SIS\0not the file read")
+
+
+def left_out() -> None:
+    """IFD images the layout cannot present (spec/zarrify/vsi.md §4.4
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#44-ifd-images-that-are-not-presented>):
+    each is left out and recorded, and the slide's pyramid is presented."""
+    def pyramid() -> Stack:
+        return Stack(10002, "s", width=24, height=16, tile=(8, 8), levels=2, seed=30)
+
+    def m(**kw) -> TiffImage:
+        return macro_image(seed=31, w=16, h=8, **kw)
+
+    for name, img in [("size", m(extra=((256, LONG, [0]),), skip=(256,))),
+                      ("compression", m(extra=((259, SHORT, [5]),), skip=(259,))),
+                      ("samples", TiffImage(gradient(31, 8, 16, "uint8", 3)[..., :2].copy())),
+                      ("bits", m(extra=((258, SHORT, [16, 16, 16]),), skip=(258,))),
+                      ("planar", m(extra=((284, SHORT, [2]),), skip=(284,))),
+                      ("format", m(extra=((339, SHORT, [3]),))),
+                      ("strips", m(two_strips=True)),
+                      ("strips_and_tiles", m(extra=((324, LONG, [8]), (325, LONG, [4])))),
+                      # one-byte strips apart: more ranges than a reference holds
+                      ("reference", TiffImage(gradient(31, 6000, 1, "uint8"), rows=1))]:
+        Slide(f"vsi_left_out_macro_{name}", [pyramid()], macro=img).write()
+    Slide("vsi_left_out_macro_strip_outside", [pyramid()], macro=m()).write(patch=_strip_outside)
+    Slide("vsi_left_out_macro_no_ifd", [pyramid()],
+          collection_extra=(ifd_field(DEFAULT_SAMPLE_IFD, 9, lambda _at: b""),)).write()
+    Slide("vsi_left_out_macro_outside_the_tree", [pyramid()], macro=m(),
+          top_extra=(value(99, UCHAR, IFD_HERE + bytes(400)),)).write(patch=_ifd_outside_the_tree)
+    # a stack's IFD image and the macro image, recorded in the order of the images; a focus map,
+    # as vsi_rgb_jpeg has, but for its PlanarConfiguration
+    focus = TiffImage(gradient(9, 5, 6, "uint16"), extra=((284, SHORT, [2]),), skip=(284,))
+    Slide("vsi_left_out_stack_and_macro",
+          [pyramid(), Stack(10003, "20x FocusMap", width=6, height=5, dtype="uint16", stack_type=4, ifd_pixels=focus,
+                            display=None)],
+          macro=m(extra=((259, SHORT, [5]),), skip=(259,))).write()
+    # the macro image alone, left out: a slide of no image
+    Slide("vsi_left_out_only_image", [], macro=m(extra=((259, SHORT, [5]),), skip=(259,))).write()
 
 
 def rejecting() -> None:
@@ -790,8 +891,10 @@ def rejecting() -> None:
                      ("sis_tiles_negative", {"tiles_count": -1}), ("sis_directory_outside", {"tiles_offset": 1 << 30}),
                      # the ETS header
                      ("ets_magic", {"ets_magic": b"ETX\0"}), ("ets_pixel_type", {"pixel_type": 11}),
-                     ("ets_samples", {"samples": 2}), ("ets_compression_png", {"compression": 8}),
-                     ("ets_compression_unknown", {"compression": 7}), ("ets_tile_size", {"tile": (0, 8)}),
+                     ("ets_samples", {"samples": 2}), ("ets_compression_unknown", {"compression": 7}),
+                     ("ets_png_pixel_type", {"compression": PNG, "pixel_type": 9}),
+                     ("ets_bmp_pixel_type", {"compression": BMP, "pixel_type": 4}),
+                     ("ets_tile_size", {"tile": (0, 8)}),
                      ("ets_tile_depth", {"tile_depth": 2}), ("ets_dimensions", {"dimensions": 1})]:
         base(f"vsi_reject_{name}").write(ets_kw={10002: kw}, expected=False)
     # dimensions: a size of 0, and an unknown meaning with more than one value
@@ -820,17 +923,6 @@ def rejecting() -> None:
     # an ETS file shorter than its SIS header
     base("vsi_reject_ets_short").write(expected=False)
     (OUT / "_vsi_reject_ets_short_" / "stack10002" / "frame_t.ets").write_bytes(b"SIS\0" + b"\0" * 20)
-    # the macro IFD
-    m = lambda **kw: macro_image(seed=31, w=16, h=8, **kw)  # noqa: E731
-    for name, img in [("ifd_image_size", m(extra=((256, LONG, [0]),), skip=(256,))),
-                      ("ifd_image_compression", m(extra=((259, SHORT, [5]),), skip=(259,))),
-                      ("ifd_image_samples", TiffImage(gradient(31, 8, 16, "uint8", 3)[..., :2].copy())),
-                      ("ifd_image_bits", m(extra=((258, SHORT, [16, 16, 16]),), skip=(258,))),
-                      ("ifd_image_planar", m(extra=((284, SHORT, [2]),), skip=(284,))),
-                      ("ifd_image_format", m(extra=((339, SHORT, [3]),))),
-                      ("ifd_image_strips", m(two_strips=True))]:
-        Slide(f"vsi_reject_{name}", [], macro=img).write(expected=False)
-    write_patched("vsi_reject_ifd_strip_outside", _strip_outside)
 
 
 def _set_last_next(b: bytearray) -> bytearray:
@@ -875,6 +967,19 @@ def _many_ifds(at: int) -> bytes:
     return bytes(out)
 
 
+IFD_HERE = b"IFD HERE"
+
+
+def _ifd_outside_the_tree(b: bytearray) -> bytearray:
+    """The chain's first IFD, copied into a plain value's data, which is no TIFF region."""
+    first = struct.unpack_from("<I", b, 4)[0]
+    size = 2 + 12 * struct.unpack_from("<H", b, first)[0] + 4
+    at = b.index(IFD_HERE) + len(IFD_HERE)
+    b[at:at + size] = b[first:first + size]
+    struct.pack_into("<I", b, 4, at)
+    return b
+
+
 def _strip_outside(b: bytearray) -> bytearray:
     first = struct.unpack_from("<I", b, 4)[0]
     n = struct.unpack_from("<H", b, first)[0]
@@ -890,6 +995,7 @@ def main() -> None:
         shutil.rmtree(OUT)
     OUT.mkdir(parents=True)
     accepting()
+    left_out()
     rejecting()
     # the chain of 65537 IFDs starts at the macro's IFD: link them
     p = OUT / "vsi_reject_ifd_count.vsi"

@@ -8,18 +8,15 @@
   },
   "tables": {
     "modes": {
-      "about": "mode: Zarr data type, bytes per voxel; a mode 0 file with IMOD's stamp (1146047817 at byte 152) and bit 0 of its flags (byte 156) set is uint8 instead",
+      "about": "mode: Zarr data type, bytes per voxel (bits, for one packed narrower than a byte); a mode 0 file with IMOD's stamp (1146047817 at byte 152) and bit 0 of its flags (byte 156) set is uint8 instead",
       "0": {"dtype": "int8", "bytes": 1},
       "1": {"dtype": "int16", "bytes": 2},
       "2": {"dtype": "float32", "bytes": 4},
+      "3": {"dtype": "struct", "bytes": 4},
       "4": {"dtype": "complex64", "bytes": 8},
       "6": {"dtype": "uint16", "bytes": 2},
-      "12": {"dtype": "float16", "bytes": 2}
-    },
-    "unsupported": {
-      "about": "modes the profile names and rejects",
-      "3": "COMPLEX_INT16",
-      "101": "INT4"
+      "12": {"dtype": "float16", "bytes": 2},
+      "101": {"dtype": "uint8", "bytes": 1, "bits": 4}
     }
   },
   "elements": {
@@ -50,9 +47,8 @@
     },
     "mode": {
       "given": {"code": "mode"},
-      "derive": {"spec": "at(modes, code)", "named": "at(unsupported, code)"},
+      "derive": {"spec": "at(modes, code)"},
       "constraints": [
-        {"require": "!present(named)", "message": "unsupported MRC mode {code} ({named})"},
         {"require": "present(spec)", "message": "unknown MRC mode {code}"}
       ]
     },
@@ -70,7 +66,7 @@
       ]
     },
     "data_size": {
-      "given": {"total": "B = nx * ny * nz * b, exactly", "total_shown": "B in decimal", "offset": "1024 + nsymbt", "size": "the file's size"},
+      "given": {"total": "B = nx * ny * nz * b, or ceil(nx * bits / 8) * ny * nz for a packed mode, exactly", "total_shown": "B in decimal", "offset": "1024 + nsymbt", "size": "the file's size"},
       "constraints": [
         {"require": "total <= max_safe && offset + total <= size", "message": "the {total_shown}-byte data at {offset} is outside the {size}-byte file"}
       ]

@@ -1,7 +1,8 @@
 """Writes synthetic Neuroglancer precomputed volumes to fixtures/precomputed/<name>/, covering the
 rules of the profile (spec/zarrify/precomputed.md §11
 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/precomputed.md#11-neuroglancer-precomputed-profile>):
-raw, JPEG, PNG and compressed_segmentation chunks; every content coding of a chunk object;
+raw, JPEG, PNG, compressed_segmentation, compresso, crackle, JPEG XL, fpzip, zfpc and kempressed
+chunks; every content coding of a chunk object;
 chunks clipped by the volume's upper bound, a voxel offset, and missing chunks; shards with raw
 and gzip indexes and data; scales that are not presented, and the inputs the profile rejects
 (`precomputed_reject_*`, one per rule).
@@ -9,8 +10,9 @@ and gzip indexes and data; scales that are not presented, and the inputs the pro
 Everything is written by hand from the format's description, so that the bytes are the same on
 every platform: gzip and zstd as stored blocks, brotli as uncompressed meta-blocks, PNG with a
 stored deflate stream. The JPEG streams are literals, made once with libjpeg-turbo, since a
-JPEG encoder's bytes depend on its build. The values follow `value` below, which
-python/tests/ir/test_precomputed.py states again on its own.
+JPEG encoder's bytes depend on its build, and the streams of the encodings only an encoder can
+write are in streams.json for the same reason (make_streams.py, which imports the volumes below).
+The values follow `value` below, which python/tests/ir/test_precomputed.py states again on its own.
 
 Usage: uv run python fixtures/generators/precomputed/write_fixtures.py
 """
@@ -25,6 +27,13 @@ import zlib
 from pathlib import Path
 
 OUT = Path(__file__).parents[2] / "precomputed"
+STREAMS = Path(__file__).parent / "streams.json"
+# (size, chunk) of the volumes whose chunks are in streams.json
+COMPRESSO_VOLUME = ((6, 4, 3), (4, 4, 2))
+CRACKLE_VOLUME = ((8, 4, 4), (4, 4, 4))
+JXL_LOSSLESS = ((32, 16, 3), (16, 16, 2))
+JXL_LOSSY = ((16, 16, 2), (16, 16, 2))
+FLOAT_VOLUME = ((6, 4, 3), (4, 4, 2))
 # made with imagecodecs.jpeg8_encode(level=90): gray 16 × 32 and 16 × 16 of (7x + 3y) % 256, and
 # 16 × 32 of that, of it upside down and of its inverse, as R, G and B
 JPEG = {k: base64.b64decode(v) for k, v in {
@@ -62,6 +71,15 @@ JPEG = {k: base64.b64decode(v) for k, v in {
 def value(x: int, y: int, z: int, c: int = 0) -> int:
     """A voxel's value, in the volume's own coordinates (no offset)."""
     return (x + 3 * y + 5 * z + 7 * c) % 251
+
+
+def compresso_label(x: int, y: int, z: int) -> int:
+    return ((x // 2) + 2 * (y // 2) + z) % 5 * 1000 + 7
+
+
+def crackle_label(x: int, y: int, z: int) -> int:
+    """Past 2^32, so that a uint64's high word is read."""
+    return (((x + y + z) % 3 + 1) << 40) + x // 2
 
 
 def gzip_stored(data: bytes) -> bytes:
@@ -377,10 +395,62 @@ def float32() -> None:
         write(root, f"0/{chunk_name(lo, hi)}", body)
 
 
+def encoded() -> None:
+    """The chunks of streams.json. compresso clipped, one chunk also in gzip; crackle in a shard;
+    JPEG XL with a clipped slice, and a lossy scale; fpzip, zfpc and kempressed in several channels,
+    and zfpc in 2 data types."""
+    streams = json.loads(STREAMS.read_text())
+
+    def place(root: Path, store: str, scale_index: int, key: str, boxes_of: tuple) -> None:
+        for lo, hi, _ in boxes(*boxes_of):
+            name = chunk_name(lo, hi)
+            write(root, f"{key}/{name}", base64.b64decode(streams[f"{store}/{scale_index}/{name}"]))
+
+    root = OUT / "precomputed_compresso"
+    size, chunk = COMPRESSO_VOLUME
+    info(root, volume("uint32", 1, [scale("0", size, chunk, (8, 8, 8), "compresso")], kind="segmentation"))
+    place(root, "compresso", 0, "0", COMPRESSO_VOLUME)
+    coded = root / "0" / "4-6_0-4_2-3"
+    (root / "0" / "4-6_0-4_2-3.gz").write_bytes(gzip_stored(coded.read_bytes()))
+    coded.unlink()
+
+    root = OUT / "precomputed_crackle"
+    size, chunk = CRACKLE_VOLUME
+    sharding = {"@type": "neuroglancer_uint64_sharded_v1", "hash": "identity", "preshift_bits": 0, "minishard_bits": 1,
+                "shard_bits": 1, "minishard_index_encoding": "raw", "data_encoding": "gzip"}
+    info(root, volume("uint64", 1, [scale("0", size, chunk, (8, 8, 8), "crackle", sharding=sharding)],
+                      kind="segmentation"))
+    chunks = {morton(p, (2, 1, 1)): base64.b64decode(streams[f"crackle/0/{chunk_name(lo, hi)}"])
+              for lo, hi, p in boxes(size, chunk)}
+    for number, data in shards(chunks, 0, 1, 1, True, False).items():
+        write(root, f"0/{shard_name(number, 1)}", data)
+
+    root = OUT / "precomputed_jxl"
+    info(root, volume("uint8", 1, [scale("lossless", *JXL_LOSSLESS, (8, 8, 45), "jxl"),
+                                   scale("lossy", *JXL_LOSSY, (16, 16, 45), "jxl")]))
+    place(root, "jxl", 0, "lossless", JXL_LOSSLESS)
+    place(root, "jxl", 1, "lossy", JXL_LOSSY)
+
+    for store, data_type, channels, encoding in (("fpzip", "float32", 2, "fpzip"), ("zfpc", "float64", 2, "zfpc"),
+                                                 ("zfpc_int32", "int32", 2, "zfpc"),
+                                                 ("kempressed", "float32", 3, "kempressed")):
+        root = OUT / f"precomputed_{store}"
+        info(root, volume(data_type, channels, [scale("0", *FLOAT_VOLUME, (8, 8, 8), encoding)]))
+        place(root, store, 0, "0", FLOAT_VOLUME)
+
+
 def not_presented() -> None:
     """Scales the layout cannot present, each with an object, and other objects beside a scale
     that it can: names that are not chunks, a chunk of another chunk size, an empty object, a
     chunk given twice."""
+    root = OUT / "precomputed_not_presented_labels"
+    labels = [scale("cpso", (2, 2, 2), (2, 2, 2), (1, 1, 1), "compresso"),
+              scale("crkl", (2, 2, 2), (2, 2, 2), (2, 2, 2), "crackle"),
+              scale("jxl", (2, 2, 2), (2, 2, 2), (4, 4, 4), "jxl")]
+    info(root, volume("int8", 3, labels))
+    write(root, "cpso/0-2_0-2_0-2", b"compresso")
+    write(root, "crkl/0-2_0-2_0-2", b"crackle")
+    write(root, "jxl/0-2_0-2_0-2", b"jxl")
     root = OUT / "precomputed_not_presented"
     chunk = (2, 2, 2)
     size = (4, 2, 2)
@@ -389,13 +459,16 @@ def not_presented() -> None:
     good["chunk_sizes"].append([1, 1, 1])
     scales = [
         good,
-        scale("fp", size, chunk, (4, 4, 4), "fpzip"),
+        scale("webp", size, chunk, (4, 4, 4), "webp"),
         scale("murmur", size, chunk, (8, 8, 8), sharding={**base, "hash": "murmurhash3_x86_128"}),
         scale("wrap", (8, 2, 2), chunk, (16, 16, 16), sharding={**base, "shard_bits": 0, "hash": "identity"}),
         scale("../up", size, chunk, (32, 32, 32)),
         scale("good", size, chunk, (64, 64, 64)),
         {"key": "broken"},
         "not an object",
+        scale("fp", size, chunk, (128, 128, 128), "fpzip"),
+        scale("kemp", size, chunk, (256, 256, 256), "kempressed"),
+        scale("zfp", size, chunk, (512, 512, 512), "zfpc"),
     ]
     info(root, volume("uint8", 1, scales))
     for lo, hi, _ in boxes(size, chunk):
@@ -407,7 +480,10 @@ def not_presented() -> None:
     write(root, "good/00-2_0-2_0-2", b"\0" * 8)  # not canonical: other
     write(root, "good/README", b"not a chunk")
     (root / "good" / "2-4_0-2_0-2").write_bytes(b"")  # empty: reads as the fill value
+    write(root, "webp/0-2_0-2_0-2", b"webp")
     write(root, "fp/0-2_0-2_0-2", b"fpzip")
+    write(root, "kemp/0-2_0-2_0-2", b"kempressed")
+    write(root, "zfp/0-2_0-2_0-2", b"zfpc")
     write(root, "murmur/0.shard", b"a shard")
     write(root, "wrap/0.shard", b"a shard")
     write(root, "broken/x", b"x")
@@ -439,6 +515,7 @@ def main() -> None:
     png()
     segmentation()
     float32()
+    encoded()
     not_presented()
     rejected()
 

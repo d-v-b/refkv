@@ -34,8 +34,10 @@ gives its own archive.
   frames are the tiles of the total pixel matrix, so the array has the full
   slide's shape and one tile per chunk.
 - **Data types:** `uint8`, `int8`, `uint16`, `int16`, `uint32`, `int32` (the
-  stored cells, not rescaled).
-- **Codecs:** `bytes` (either byte order) for native pixel data,
+  stored cells, not rescaled), and `bool` for Bits Allocated 1, as
+  segmentations store them.
+- **Codecs:** `bytes` (either byte order) for native pixel data, `packbits`
+  (zarr-extensions' bit packing, not TIFF's PackBits) for Bits Allocated 1,
   `imagecodecs_jpeg` for JPEG Baseline, `imagecodecs_ljpeg` for JPEG
   Lossless, `imagecodecs_jpeg2k` for JPEG 2000; `transpose` first for
   interleaved RGB. JPEG frames get a color marker

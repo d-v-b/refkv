@@ -32,14 +32,9 @@
       "message": "nz = 0 is not positive"
     },
     {
-      "test": "mrc_reject_mode_complex_int16",
-      "input": "mrc_reject_mode_complex_int16.mrc",
-      "message": "unsupported MRC mode 3 (COMPLEX_INT16)"
-    },
-    {
-      "test": "mrc_reject_mode_int4",
-      "input": "mrc_reject_mode_int4.mrc",
-      "message": "unsupported MRC mode 101 (INT4)"
+      "test": "mrc_reject_mode_int4_short",
+      "input": "mrc_reject_mode_int4_short.mrc",
+      "message": "the 8-byte data at 1024 is outside the 1030-byte file"
     },
     {
       "test": "mrc_reject_mode_unknown",

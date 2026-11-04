@@ -48,6 +48,7 @@ SECONDARY_CAPTURE = UID("1.2.840.10008.5.1.4.1.1.7")
 MULTIFRAME_GRAYSCALE = UID("1.2.840.10008.5.1.4.1.1.7.3")
 CT = UID("1.2.840.10008.5.1.4.1.1.2")
 WHOLE_SLIDE = UID("1.2.840.10008.5.1.4.1.1.77.1.6")
+SEGMENTATION = UID("1.2.840.10008.5.1.4.1.1.66.4")
 RNG = np.random.default_rng(6)
 
 
@@ -985,6 +986,58 @@ def review4() -> None:
         ExplicitVRBigEndian, little=False)
 
 
+def packed_bits(pixels: np.ndarray) -> bytes:
+    """`pixels` of 0 and 1 as one run of bits, least significant first, padded to an even length
+    (PS3.5 [8.1.1](https://dicom.nema.org/medical/dicom/current/output/chtml/part05/chapter_8.html#sect_8.1.1))."""
+    raw = np.packbits(pixels.astype(np.uint8).reshape(-1), bitorder="little").tobytes()
+    return raw + (b"\0" if len(raw) % 2 else b"")
+
+
+def one_bit() -> None:
+    """Bits Allocated 1, as segmentations write it: frames that start on a byte, each a chunk,
+    and frames that do not, one chunk (spec/zarrify/dicom.md §7.5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#75-frames>)."""
+    RNG.bit_generator.state = np.random.default_rng(8).bit_generator.state  # its own stream, whatever ran before
+
+    def bits(rows: int, columns: int, frames: int | None = None, **kw) -> Dataset:
+        ds = image(SEGMENTATION, rows, columns, bits=1, stored=1, frames=frames, **kw)
+        ds.PixelData = packed_bits(RNG.integers(0, 2, size=(frames or 1, rows, columns), dtype=np.uint8))
+        ds["PixelData"].VR = "OB"
+        return ds
+
+    save("dicom_bits1_frames_on_bytes", bits(4, 8, 3), ExplicitVRLittleEndian)
+    save("dicom_bits1_frames_off_bytes", bits(5, 3, 3), ExplicitVRLittleEndian)
+    save("dicom_bits1_one_frame", bits(5, 3), ExplicitVRLittleEndian)
+    save("dicom_bits1_inverted_implicit", bits(4, 4, 2, photometric="MONOCHROME1"), ImplicitVRLittleEndian)
+    save("dicom_bits1_big_endian_ob", bits(4, 8, 2), ExplicitVRBigEndian)
+
+    ds = bits(4, 8, 2)
+    ds["PixelData"].VR = "OW"
+    save("dicom_reject_bits1_big_endian_ow", ds, ExplicitVRBigEndian)
+    ds = bits(4, 8, 2)
+    ds.PixelData = ds.PixelData[:4]
+    save("dicom_reject_bits1_short", ds, ExplicitVRLittleEndian)
+    ds = bits(5, 3, 3)
+    ds.PixelData = ds.PixelData[:4]
+    save("dicom_reject_bits1_short_off_bytes", ds, ExplicitVRLittleEndian)
+    ds = bits(4, 8, 2)
+    ds.PixelRepresentation = 1
+    save("dicom_reject_bits1_signed", ds, ExplicitVRLittleEndian)
+    ds = image(SECONDARY_CAPTURE, 4, 8, spp=3, photometric="RGB", bits=1, stored=1)
+    ds.PixelData = bytes(12)
+    ds["PixelData"].VR = "OB"
+    save("dicom_reject_bits1_samples", ds, ExplicitVRLittleEndian)
+    ds = image(WHOLE_SLIDE, 4, 8, bits=1, stored=1, frames=1)
+    ds.DimensionOrganizationType = "TILED_FULL"
+    ds.TotalPixelMatrixColumns, ds.TotalPixelMatrixRows = 8, 4
+    ds.PixelData = bytes(4)
+    ds["PixelData"].VR = "OB"
+    save("dicom_reject_bits1_whole_slide", ds, ExplicitVRLittleEndian)
+    ds = bits(4, 8, 2)
+    ds.PixelData = encapsulate([bytes(4), bytes(4)], has_bot=False)
+    save("dicom_reject_bits1_jpeg2k", ds, JPEG2000Lossless)
+
+
 def lossless() -> None:
     """Lossless JPEG, Process 14 (1.2.840.10008.1.2.4.57) and its selection value 1
     (1.2.840.10008.1.2.4.70): frames whose markers up to the first SOS the profile reads
@@ -1046,3 +1099,4 @@ if __name__ == "__main__":
     review3()
     review4()
     lossless()
+    one_bit()
