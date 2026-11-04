@@ -12,9 +12,9 @@
       "message": "bitpix 8 does not match datatype 4"
     },
     {
-      "test": "nifti_reject_complex64",
-      "input": "nifti_reject_complex64.nii",
-      "message": "unsupported NIfTI datatype 32 (COMPLEX64)"
+      "test": "nifti_reject_complex256",
+      "input": "nifti_reject_complex256.nii",
+      "message": "unsupported NIfTI datatype 2048 (COMPLEX256)"
     },
     {
       "test": "nifti_reject_datatype_unknown",

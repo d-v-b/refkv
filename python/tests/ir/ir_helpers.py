@@ -13,7 +13,7 @@ import tifffile
 import zarr
 
 import refkv.zarr
-from refkv._narrow import JSON, at, mapping, ndarray, sequence, string
+from refkv._narrow import JSON, at, integer, mapping, ndarray, sequence, string
 from refkv.ir import zarrify as via_ir
 from refkv.ir.cmirror import rebuild_from_archive
 from refkv.zarr import ZarrStore
@@ -165,6 +165,12 @@ def as_current(key: str) -> str:
 DECODED = {"transpose", "imagecodecs_delta", "bytes", "numcodecs.zlib", "refkv.tiff_lzw"}
 
 
+def first_length(lengths) -> int:
+    """The first chunk length of a `rectilinear` grid's list along an axis: `L`, or `[L, r]`."""
+    head = at(lengths, 0)
+    return integer(at(head, 0)) if isinstance(head, list) else integer(head)
+
+
 def omero_and_expected_windows(path, profile: str) -> tuple[JSON, list[dict[str, float] | None]]:
     """The `omero` of the file at `path` zarrified, and each channel's window as the TIFF and
     QPTIFF profiles give it (spec/zarrify/tiff.md §4.4
@@ -189,13 +195,19 @@ def omero_and_expected_windows(path, profile: str) -> tuple[JSON, list[dict[str,
     if at(codecs, 0, "name") == "sharding_indexed":  # the windows sample an inner chunk (`a.chunks`)
         codecs = sequence(at(codecs, 0, "configuration", "codecs"))
     decoded = {string(at(c, "name")) for c in codecs} <= DECODED
+    grid = mapping(a.metadata.to_dict()["chunk_grid"])
+    if grid["name"] == "rectilinear":  # the middle chunk is never the short last one: a full strip's shape
+        lengths = sequence(at(grid, "configuration", "chunk_shapes"))
+        chunks = [k if isinstance(k, int) else first_length(k) for k in lengths]
+    else:
+        chunks = a.chunks
     integer = np.issubdtype(a.dtype, np.integer)
     windows: list[dict[str, float] | None] = []
     for ch in range(count):
         window: dict[str, float] | None = None
         if decoded and not rgb:
             region = []
-            for name, n, k in zip(axes, a.shape, a.chunks, strict=True):
+            for name, n, k in zip(axes, a.shape, chunks, strict=True):
                 start = 0 if name == "t" else ch if name == "c" else n // 2 // k * k
                 region.append(slice(start, start + (1 if name in "tc" else k)))
             v = np.sort(ndarray(a[tuple(region)]).ravel())

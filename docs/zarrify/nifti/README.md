@@ -32,8 +32,10 @@ One OME-Zarr 0.5 image at the archive root, with one array, `0`.
 - **Axes:** `t` (4-D and up), `c` (5-D, or RGB/RGBA voxels), `z` (3-D and
   up), `y`, `x`. NIfTI's first dimension, which varies fastest, is `x`.
 - **Data types:** every NIfTI integer and float type (`uint8` to `uint64`,
-  `int8` to `int64`, `float32`, `float64`), and RGB24 or RGBA32 as `uint8`
-  with a `c` axis.
+  `int8` to `int64`, `float32`, `float64`), COMPLEX64 and COMPLEX128 as
+  `complex64` and `complex128`, and RGB24 or RGBA32 as `uint8` with a `c`
+  axis. The Neuroglancer fork has no complex data type, so zarr-python reads
+  a complex array and the browser demo does not show one.
 - **Chunks:** the voxels as the file stores them, cut into equal runs of at
   most 128 KiB along the outermost axis that allows it: whole volumes or
   blocks of slices when they are small, else blocks of rows of a slice (13
@@ -157,7 +159,8 @@ The browser code ([js/](../../../js/README.md)) reads NIfTI (NIfTI-1 and NIfTI-2
   translation; the whole header, and its intensity scaling, recorded under
   `refkv_zarrified`.
 
-Not supported, and refused with HTTP 422: gzipped files (`.nii.gz`), complex types, and dimensions 6 and 7 (CIFTI).
+Not supported, and refused with HTTP 422: gzipped files (`.nii.gz`), COMPLEX256,
+and dimensions 6 and 7 (CIFTI).
 
 ## Performance
 

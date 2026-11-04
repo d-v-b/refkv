@@ -46,6 +46,7 @@ MAGIC = {1: b"n+1\0", 2: b"n+2\0\r\n\x1a\n"}
 TYPES = {
     2: ("u1", 8), 4: ("i2", 16), 8: ("i4", 32), 16: ("f4", 32), 64: ("f8", 64), 256: ("i1", 8),
     512: ("u2", 16), 768: ("u4", 32), 1024: ("i8", 64), 1280: ("u8", 64), 128: ("u1", 24), 2304: ("u1", 32),
+    32: ("c8", 64), 1792: ("c16", 128),
 }
 AXIS_ALIGNED = [2.0, 0, 0, -10.5, 0, 3.0, 0, 20.25, 0, 0, 4.0, 7.0]
 
@@ -56,6 +57,8 @@ def voxels(shape, datatype: int, order: str, seed: int) -> bytes:
     samples = bitpix // 8 if datatype in (128, 2304) else 1
     count = math.prod(shape) * samples
     values = (np.arange(count, dtype=np.int64) * 7 + seed) % 251 - (0 if np_type[0] == "u" else 100)
+    if np_type[0] == "c":  # a real and an imaginary part that differ, so that swapping them shows
+        return (values + 0.5j * (values + 1)).astype(order + np_type).tobytes()
     return np.asarray(values).astype(order + np_type).tobytes()
 
 
@@ -124,6 +127,7 @@ def pairs() -> None:
     pair("nifti_pair_n2_le_ext_5d", [5, 3, 2, 2, 2, 3], 16, version=2, extension=b"a comment in the header file")
     pair("nifti_pair_n2_be_rgb24", [3, 3, 2, 2], 128, version=2, order=">")
     pair("nifti_pair_n1_le_offset", [3, 3, 2, 2], 512, prefix=bytes(range(16)))
+    pair("nifti_pair_n1_le_complex64", [3, 4, 3, 2], 32)
     pair("nifti_pair_upper", [3, 3, 2, 2], 2, stem_case=str.upper)
     pair("nifti_pair_edge_chunk", [2, 65537, 2], 2, version=2)
     rng = np.random.default_rng(2)
@@ -186,6 +190,11 @@ def main() -> None:
     nifti("nifti_n2_be_rgba32", [3, 3, 2, 2], 2304, version=2, order=">")
     nifti("nifti_n1_be_rgb24_4d", [4, 2, 3, 2, 2], 128, order=">", cal_min=0.0, cal_max=100.0, scl_slope=3.0)
     nifti("nifti_n1_le_rgba32_2d", [2, 3, 2], 2304, extension=b"an extension before the voxels")
+    # Complex: both widths, both byte orders; a display range, which a complex type does not use.
+    nifti("nifti_n1_le_complex64", [3, 4, 3, 2], 32, xyzt_units=2, cal_min=-5.0, cal_max=5.0)
+    nifti("nifti_n1_be_complex64_4d", [4, 3, 2, 2, 3], 32, order=">", scl_slope=2.0, scl_inter=1.0)
+    nifti("nifti_n2_le_complex128_5d", [5, 2, 2, 2, 2, 2], 1792, version=2)
+    nifti("nifti_n2_be_complex128", [3, 4, 3, 2], 1792, version=2, order=">")
 
     # Every other data type.
     for datatype, name in [(256, "int8"), (8, "int32"), (768, "uint32"), (1024, "int64"), (1280, "uint64"),
@@ -233,7 +242,7 @@ def main() -> None:
     nifti("nifti_reject_n2_dim_huge", [3, 2**53, 1, 1], 2, version=2, data=b"\0" * 12)
     nifti("nifti_reject_dim6", [6, 3, 2, 1, 1, 1, 2], 2)
     nifti("nifti_reject_dim7", [7, 3, 2, 1, 1, 1, 1, 2], 2)
-    nifti("nifti_reject_complex64", [3, 3, 2, 2], 32, bitpix=64, data=b"\0" * 96)
+    nifti("nifti_reject_complex256", [3, 3, 2, 2], 2048, bitpix=256, data=b"\0" * 384)
     nifti("nifti_reject_float128", [3, 3, 2, 2], 1536, bitpix=128, data=b"\0" * 192)
     nifti("nifti_reject_binary", [3, 8, 2, 2], 1, bitpix=1, data=b"\0" * 4)
     nifti("nifti_reject_datatype_unknown", [3, 3, 2, 2], 3, bitpix=8, data=b"\0" * 12)
