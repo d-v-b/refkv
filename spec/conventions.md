@@ -37,7 +37,9 @@ Changed 2026-11-04: a TIFF level whose short last strip cannot be
 padded has the `rectilinear` chunk grid ([§3](#3-arrays)). Changed 2026-11-04: imagecodecs-zarr's
 `imagecodecs_png` and `imagecodecs_bmp` decode a chunk that is one PNG or BMP file, and its
 `imagecodecs_lzw` decodes an LZW chunk that holds exactly the chunk's bytes, as CZI's LZW subblocks
-do ([§3](#3-arrays)).)
+do ([§3](#3-arrays)). Changed 2026-11-04: [§12](#12-grib-messages) decodes reduced grids and template
+3.101 as one line of points, and [§2](#2-attributes) places the numbers that name a 3.101 grid on its
+group.)
 
 <!-- profiles:conventions-table -->
 | format | convention | UUID |
@@ -243,7 +245,7 @@ convention places them:
 |---|---|---|
 | `ome` | OME-NGFF 0.5 ([§4](#4-images)) | images, a collection's root and `OME` group, and the OME-Zarr convention's other OME groups (its labels groups, plates and wells) |
 | `proj:code`, `proj:wkt2`, `spatial:*`, `multiscales` | the GeoZarr members of the zarr-conventions `proj`, `spatial` and `multiscales` conventions | nodes of the SAFE convention and [a GRIB hierarchy's grid groups](zarrify/grib.md#4-georeferencing), which list their CMOs in `zarr_conventions`, after the format's own on a node that declares the convention |
-| the CF attributes | [§9](#9-dataset-layouts) | a dataset layout's variables, and [a GRIB hierarchy's variables and coordinates](zarrify/grib.md#3-the-hierarchy), with the `GRIB_<key>` numbers that identify a variable |
+| the CF attributes | [§9](#9-dataset-layouts) | a dataset layout's variables, and [a GRIB hierarchy's variables and coordinates](zarrify/grib.md#3-the-hierarchy), with the `GRIB_<key>` numbers that identify a variable, and [a GRIB grid group of template 3.101](zarrify/grib.md#4-georeferencing), the `GRIB_<key>` numbers that name its grid |
 | `zarr_conventions` | [`Declaration`](#type-declaration) | nodes that declare the convention, and nodes that hold the GeoZarr members above |
 
 Everything
@@ -1741,11 +1743,13 @@ message ([spec/zarrify/grib.md](zarrify/grib.md)).
 |---|---|---|---|
 | `field` | integer | optional | the field to decode, from 0, in the order of the message's sections 7; 0 when absent |
 
-There are no other members. A chunk's number of values is the grid's `Nj × Ni`, at most 2^31,
-and section 3's number of points; its shape is 1 along every dimension but its last two, which
-are the grid's `Nj` and `Ni` (section 3's number of points along a meridian and along a parallel,
-octets 35–38 and 31–34 of templates 3.0, 3.1, 3.10, 3.20, 3.30 and 3.40); the array's data type is
-`float64` or `float32`.
+There are no other members. A chunk's number of values is section 3's number of points, at most
+2^31. On a grid of rows, its shape is 1 along every dimension but its last two, which are the
+grid's `Nj` and `Ni` (section 3's number of points along a meridian and along a parallel, octets
+35–38 and 31–34 of templates 3.0, 3.1, 3.10, 3.20, 3.30 and 3.40), whose product is that number. On
+a grid with no such rows, a reduced grid (3.0 or 3.40 with a list of the points along each parallel,
+section 3's octet 11 not 0 and octet 12, 1) or 3.101, its shape is 1 along every dimension but its
+last, which is that number. The array's data type is `float64` or `float32`.
 
 **A chunk's bytes** are one message, sections 0 to 8, as a GRIB file holds it, and no more: the
 chunk's length is the message's.
@@ -1797,7 +1801,9 @@ chunk's length is the message's.
    opposite way, those lines (the second, the fourth, …) are reversed. Then, with bit 3, the
    lines are transposed, so that the result is `Nj` rows of `Ni` points. Bits 1 and 2, the
    directions of `i` and `j`, are kept: the first row is the one the file gives first.
-   Scanning-mode bits 5 to 8 (`0x0F`) must be 0.
+   Scanning-mode bits 5 to 8 (`0x0F`) must be 0. A reduced grid's scanning mode must have none of
+   bits 3 to 8 set, and it and 3.101, which has none, are one line of their points, in the file's
+   order.
 5. **Type.** The values are converted to the array's data type: `float64` as they are, `float32`
    to nearest.
 
