@@ -879,6 +879,15 @@ CRC-32C. An inner chunk the profile copies is a literal range of all its
 bytes, so a profile shards an array only where its copied inner chunks fit
 in their shards' payloads. Only file profiles shard (store profiles' arrays are not sharded).
 
+Sharding sets how many keys an array has, and what a reader of a few inner chunks costs. It does not
+set how a reader asks for many (informative). zarr-python reads a shard of which it wants every inner
+chunk as one value, and fetches the inner chunks it wants of another together, so a whole plane is one
+request where the inner chunks meet. zarrita and Neuroglancer read each inner chunk apart, so they ask
+their store for as many values as an unsharded array of the inner chunks (zarrita's, plus one for the
+index). A store that merges reads in progress ([refkv §6.3](refkv.md#63-resolving-a-reference)) merges
+those as it merges the reads of separate chunks, so what reaches the source depends on that store, and
+hardly on the shards.
+
 ## Profiles
 
 Each profile is Part 2 of its format's document in [zarrify/](zarrify/), whose Part 1

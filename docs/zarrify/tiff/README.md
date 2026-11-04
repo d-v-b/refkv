@@ -40,15 +40,19 @@ level, `0` the full resolution.
   the same format that get strictly smaller (how SVS stores its pyramid, so
   its label, macro and thumbnail images are skipped).
 - **Chunks:** one TIFF tile per chunk, for each plane and sample plane, or,
-  for an image in compressed strips, one strip per chunk (its rows by the
-  image's width). Uncompressed strips are joined, without copying, into chunks
+  for an image in JPEG or JPEG 2000 strips, one strip per chunk (its rows by the
+  image's width). LZW, DEFLATE and zstd strips are the inner chunks of
+  `sharding_indexed` shards of up to 1024 strips, one key per plane for most
+  files, so a read of one row costs that row's bytes and a read of a whole plane
+  through zarr-python one request (zarrita and Neuroglancer still read a strip at
+  a time). Uncompressed strips are joined, without copying, into chunks
   of up to 1 MiB (2^20 bytes) and 1024 strips, so a file of one row per strip
   does not get a key per row; a reader of a chunk reads all of it, so reading
   one row then costs up to 1 MiB
   ([tiff.md §4.5](../../../spec/zarrify/tiff.md#45-strips)). A short last chunk
   is padded to the others' rows, so that the chunk grid stays regular: with
   zeros when uncompressed, and with a few literal bytes that continue its
-  stream when LZW. Interleaved RGB keeps its samples in one chunk, behind a
+  stream when LZW; a short last strip of DEFLATE, zstd or JPEG rejects the file. Interleaved RGB keeps its samples in one chunk, behind a
   `transpose` codec.
 - **Codecs:** none, LZW (`refkv.tiff_lzw`), DEFLATE (`numcodecs.zlib`), zstd, JPEG
   2000 (`imagecodecs_jpeg2k`) and JPEG (`imagecodecs_jpeg`), the tiles and
@@ -204,11 +208,9 @@ a TCGA slide on Zenodo with JPEG 2000 tiles, does work.
 
 The Neuroglancer fork (<https://github.com/d-v-b/neuroglancer>, branch `vzip`)
 displays these archives: it decodes `imagecodecs_jpeg` (8-bit),
-`imagecodecs_jpeg2k` (8- and 16-bit integers) and `zstd`, and DEFLATE as `zlib`, which
-archives named before d-v-b/refkv#90, and not yet `numcodecs.zlib`; the
-idr0096 OME-TIFF above, whose tiles are JPEG 2000, renders through the live demo. It does not decode
-`imagecodecs_delta`, so an image with Predictor 2 is not shown there (zarr-python, with
-`refkv[images]`, reads it). It has no `int64` or
+`imagecodecs_jpeg2k` (8- and 16-bit integers), `zstd`, `numcodecs.zlib`, `refkv.tiff_lzw` and
+`imagecodecs_delta`; the
+idr0096 OME-TIFF above, whose tiles are JPEG 2000, renders through the live demo. It has no `int64` or
 `float64` data types, so a TIFF with 64-bit integer or float samples cannot
 be shown there (zarr-python reads it).
 
@@ -268,8 +270,7 @@ The browser code ([js/](../../../js/README.md)) reads TIFF:
 - Samples per pixel stored planar (one chunk per channel) or interleaved
   (through a `transpose` codec).
 - Compression: none, LZW (`refkv.tiff_lzw`), DEFLATE (`numcodecs.zlib`), zstd, JPEG 2000
-  (`imagecodecs_jpeg2k`), and JPEG (`imagecodecs_jpeg`), and Predictor 2 (`imagecodecs_delta`,
-  which the Neuroglancer fork does not decode yet, [Viewing](#viewing)). JPEG tiles that keep
+  (`imagecodecs_jpeg2k`), and JPEG (`imagecodecs_jpeg`), and Predictor 2 (`imagecodecs_delta`). JPEG tiles that keep
   their tables in `JPEGTables`, as in Aperio SVS, become complete JPEG streams
   through references that prepend the tables and a color marker, held once
   in the archive as a `data` source.

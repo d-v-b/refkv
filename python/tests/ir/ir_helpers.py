@@ -185,7 +185,10 @@ def omero_and_expected_windows(path, profile: str) -> tuple[JSON, list[dict[str,
         page = tf.pages.first
         spp, pi, comp = page.samplesperpixel, page.photometric, page.compression
     rgb = spp == 3 if profile == "qptiff" else spp > 1 and (pi == 2 or (pi == 6 and comp == 7))
-    decoded = {string(at(c, "name")) for c in sequence(a.metadata.to_dict()["codecs"])} <= DECODED
+    codecs = sequence(a.metadata.to_dict()["codecs"])
+    if at(codecs, 0, "name") == "sharding_indexed":  # the windows sample an inner chunk (`a.chunks`)
+        codecs = sequence(at(codecs, 0, "configuration", "codecs"))
+    decoded = {string(at(c, "name")) for c in codecs} <= DECODED
     integer = np.issubdtype(a.dtype, np.integer)
     windows: list[dict[str, float] | None] = []
     for ch in range(count):

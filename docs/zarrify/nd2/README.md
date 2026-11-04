@@ -119,9 +119,8 @@ corpus is on ftp.ebi.ac.uk or Zenodo, which both allow cross-origin reads.
 ## Viewing
 
 The Neuroglancer fork (<https://github.com/d-v-b/neuroglancer>, branch `vzip`)
-displays ND2 archives: all three data types and the `bytes` codec are among those
-it reads, and losslessly compressed files' `numcodecs.zlib` is not yet (the fork decodes
-`zlib`, which archives named before d-v-b/refkv#90). The z-stack above, which is
+displays ND2 archives: all three data types, the `bytes` codec and losslessly compressed
+files' `numcodecs.zlib` are among those it reads. The z-stack above, which is
 uncompressed, renders through the live demo. A multi-position
 file is shown as one layer per position, placed at its stage coordinates.
 
