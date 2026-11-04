@@ -208,11 +208,13 @@ STRIPS = {
 
 
 def inner_of(meta):
-    """(the chunk shape, the codecs) of a level's document: the inner chunks' when it is sharded."""
+    """(the chunk shape, the codecs) of a level's document: the inner chunks' when it is sharded, and a
+    `rectilinear` grid's chunk lengths for its shape."""
     if meta["codecs"][0]["name"] == "sharding_indexed":
         config = meta["codecs"][0]["configuration"]
         return config["chunk_shape"], config["codecs"]
-    return meta["chunk_grid"]["configuration"]["chunk_shape"], meta["codecs"]
+    grid = meta["chunk_grid"]["configuration"]
+    return grid.get("chunk_shape", grid.get("chunk_shapes")), meta["codecs"]
 
 
 def test_strips_and_lzw_are_the_images_pixels(tmp_path):
@@ -561,6 +563,7 @@ def patch_tag(path, tag: str, *, value: int | None = None, code: int | None = No
 RECTILINEAR = {
     # name: each level's chunk lengths along `y`, or the integer of a regular grid's chunk shape
     "strips_uint16_deflate_short.tif": [[[16, 4], 6]],
+    "predictor3_strips_float32_deflate_short.tif": [[[16, 4], 6]],
     "strips_uint16_zstd_short.tif": [[[16, 4], 6]],
     "strips_uint16_deflate_be_predictor_short.tif": [[[16, 4], 6]],
     "strips_rgb_contig_jpeg_short.tif": [[[16, 4], 6]],
@@ -690,6 +693,7 @@ PREDICTOR_3 = {
     "predictor3_contig_be_lzw_float64.tif": [INTERLEAVED, floatpred(1), LZW],  # 4, big-endian, a padded last strip
     "predictor3_planar_deflate_float32.tif": [floatpred(2), ZLIB],
     "predictor3_strips_float32_lzw_short.tif": [floatpred(1), LZW],  # its short last strip padded
+    "predictor3_strips_float32_deflate_short.tif": [floatpred(1), ZLIB],  # of `rectilinear` chunks
     "predictor3_tcyx_float32_lzw.ome.tif": [floatpred(3), LZW],  # and a SubIFD level
 }
 

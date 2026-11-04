@@ -41,6 +41,9 @@ def main() -> None:
                      compression="lzw", predictor=True, photometric="minisblack")
     pyramid(OUT / "predictor3_tcyx_float32_lzw.ome.tif", image((2, 3, 64, 64), np.float32) / 7, 1, axes="TCYX",
             tile=(32, 32), compression="lzw", predictor=True, photometric="minisblack")
+    # A short last strip of Deflate, which cannot be padded: the `rectilinear` grid.
+    tifffile.imwrite(OUT / "predictor3_strips_float32_deflate_short.tif", image((70, 50), np.float32) / 7,
+                     rowsperstrip=16, compression="zlib", predictor=True, photometric="minisblack")
     tifffile.imwrite(OUT / "edge_reject_predictor3_integer.tif", small, tile=(32, 32), compression="zlib",
                      predictor=True)
     patch_short(OUT / "edge_reject_predictor3_integer.tif", "Predictor", 3)

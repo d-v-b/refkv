@@ -44,6 +44,7 @@
     "predictor_zstd_int16.tif",
     "predictor3_deflate_float32.tif",
     "predictor3_lzw_float32_be.tif",
+    "predictor3_strips_float32_deflate_short.tif",
     "predictor3_zstd_float64.tif",
     "predictor3_rgb_contig_deflate_float32.tif",
     "predictor3_contig_be_lzw_float64.tif",
