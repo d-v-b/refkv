@@ -365,13 +365,14 @@ name: zarr-python's own (`bytes`, `transpose`, `gzip`, `zstd`, `blosc`, `shardin
 imagecodecs-zarr's (`imagecodecs_jpeg`, `imagecodecs_jpeg2k`, `imagecodecs_jpegxr`,
 `imagecodecs_ljpeg`, `imagecodecs_lzw`, `imagecodecs_png`, `imagecodecs_bmp`, `imagecodecs_delta`, `imagecodecs_floatpred`, `imagecodecs_lerc`,
 `imagecodecs_webp`, `imagecodecs_jpegxl`, `imagecodecs_lzma`, `imagecodecs_packints`, `imagecodecs_packbits`,
-`imagecodecs_ccittfax4`, `imagecodecs_eer`), the
+`imagecodecs_ccittfax4`, `imagecodecs_eer`, `imagecodecs_lzf`, `imagecodecs_lz4h5`), the
 zarr-extensions registry's (`n5_default`, `packbits`), or refkv's own, which are named `refkv.<codec>`
 (`refkv.stream`, [§10](#10-coded-streams); `refkv.fits_tiles`,
 [fits §3.3](zarrify/fits.md#33-tile-compressed-images); `refkv.tiff_lzw`,
 [qptiff §4.1](zarrify/qptiff.md#41-data-types-and-codecs); `refkv.skip`,
 [npy §4.4](zarrify/npy.md#44-the-refkvskip-codec); `refkv.grib`, [§12](#12-grib-messages);
-`refkv.precomputed`, [precomputed §6](zarrify/precomputed.md#6-the-codec-refkvprecomputed)). refkv names a
+`refkv.precomputed`, [precomputed §6](zarrify/precomputed.md#6-the-codec-refkvprecomputed);
+`refkv.h5_bitshuffle`, [hdf5 §3.4](zarrify/hdf5.md#34-the-codec-refkvh5_bitshuffle)). refkv names a
 codec of its own only where none of the others decodes the chunks as the convention says (QPTIFF's
 LZW streams can run past their tile, which `imagecodecs_lzw` does not allow; no codec of the
 others drops the NPY header a deflated `.npz` member inflates to). refkv's Python

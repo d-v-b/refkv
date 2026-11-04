@@ -2,6 +2,11 @@
   "about": "The inputs the ims profile rejects, each with the start of its message (the Rust tests' prefix, or what each store test's message contains), and, where the Python host rejects it earlier, the host's message; a case with a `profile` is given to the host named as that profile's input (an HDF5 file that is not an Imaris file is the HDF5 profile's, which accepts it). rust/refkv-ir/build.rs writes a Rust test per case into tests/ims.rs; python/tests/ir/test_rejects.py checks each through the host and that every rejected fixture is listed here.",
   "cases": [
     {
+      "test": "ims_reject_blosc",
+      "input": "ims_reject_blosc.ims",
+      "message": "unsupported HDF5 filters [32001]"
+    },
+    {
       "test": "ims_reject_chunk_mismatch",
       "input": "ims_reject_chunk_mismatch.ims",
       "message": "the datasets of level 0 differ in size, chunk shape or filters"
@@ -22,9 +27,9 @@
       "message": "the fill value is not zero"
     },
     {
-      "test": "ims_reject_fletcher32",
-      "input": "ims_reject_fletcher32.ims",
-      "message": "unsupported HDF5 filters [3]"
+      "test": "ims_reject_fletcher32_first",
+      "input": "ims_reject_fletcher32_first.ims",
+      "message": "unsupported HDF5 filters [3, 1]"
     },
     {
       "test": "ims_reject_float64",
@@ -76,11 +81,6 @@
       "test": "ims_reject_relative_soft_link",
       "input": "ims_reject_relative_soft_link.ims",
       "message": "soft link \"Data\" to a relative path"
-    },
-    {
-      "test": "ims_reject_shuffle",
-      "input": "ims_reject_shuffle.ims",
-      "message": "unsupported HDF5 filters [2, 1]"
     },
     {
       "test": "ims_reject_size_mismatch",
