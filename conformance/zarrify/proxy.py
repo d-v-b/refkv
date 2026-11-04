@@ -574,7 +574,7 @@ class Proxy:
         return f"{self.hub_endpoint}/f/fixtures/tree/main/{urllib.parse.quote(name)}/"
 
     def local(self, name: str) -> str:
-        return f"{self.base}f/{name}"
+        return f"{self.base}f/{urllib.parse.quote(name)}"
 
     def local_store(self, name: str) -> str:
         """The store URL of a fixture directory (`name` relative to the fixtures)."""
