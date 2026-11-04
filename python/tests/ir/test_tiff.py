@@ -6,6 +6,7 @@ import struct
 import zlib
 from typing import Any
 
+import imagecodecs
 import numpy as np
 import pytest
 import tifffile
@@ -568,6 +569,8 @@ RECTILINEAR = {
     "webp_rgb_strips_short.tif": [[[16, 3], 8]],
     "jpegxl_uint16_strips_short.tif": [[[16, 3], 8]],
     "lzma_uint16_strips_short.tif": [[[16, 3], 8]],
+    "bilevel_packbits_strips_short.tif": [[[16, 2], 8]],
+    "bilevel_g4_strips_short.tif": [[[16, 2], 8]],
     "strips_uint16_zstd_short.tif": [[[16, 4], 6]],
     "strips_uint16_deflate_be_predictor_short.tif": [[[16, 4], 6]],
     "strips_rgb_contig_jpeg_short.tif": [[[16, 4], 6]],
@@ -812,6 +815,111 @@ def test_lerc_webp_jpeg_xl_and_lzma_read_as_tifffile_reads_them(tmp_path):
 ])
 def test_what_the_new_decoders_do_not_hold_is_rejected(name, message):
     """§4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>."""
+    with pytest.raises(Rejected, match=message):
+        via_ir(str(FIXTURES / "tiff" / name), "u")
+
+
+def packints(bits, runlen):
+    return {"name": "imagecodecs_packints", "configuration": {"bitspersample": bits, "runlen": runlen}}
+
+
+PACKBITS, G4 = {"name": "imagecodecs_packbits"}, {"name": "imagecodecs_ccittfax4"}
+PACKED = {
+    # name: the data type and the codecs of level 0's chunks. tifffile's bilevel files have no tag 258.
+    "bilevel.tif": ("uint8", [packints(1, 45)]),
+    "bilevel_tiled.tif": ("uint8", [packints(1, 16)]),  # a tile's row, padded to a whole byte
+    "bilevel_deflate.tif": ("uint8", [packints(1, 45), ZLIB]),
+    "bilevel_packbits.tif": ("uint8", [packints(1, 45), PACKBITS]),
+    "bilevel_strips_short.tif": ("uint8", [packints(1, 45)]),  # joined
+    "bilevel_lzw_strips_short.tif": ("uint8", [packints(1, 45), LZW]),  # sharded, a tail on its last strip
+    "bilevel_g4.tif": ("uint8", [G4]),
+    "bilevel_g4_strips_no_bits.tif": ("uint8", [G4]),
+    "bilevel_packbits_strips_short.tif": ("uint8", [packints(1, 45), PACKBITS]),
+    "bilevel_g4_strips_short.tif": ("uint8", [G4]),
+    "uint12_strips.tif": ("uint16", [packints(12, 51)]),
+    "uint12_strips_short.tif": ("uint16", [packints(12, 51)]),
+    "uint12_be.tif": ("uint16", [packints(12, 51)]),  # packed bits have one order, whatever the file's
+    "uint12_rgb_contig.tif": ("uint16", [INTERLEAVED, packints(12, 153)]),  # a row of 3 samples a pixel
+    "uint12_deflate_strips.tif": ("uint16", [packints(12, 51), ZLIB]),
+    "uint12_lzw.tif": ("uint16", [packints(12, 51), LZW]),
+    "packbits_uint8.tif": ("uint8", [U8, PACKBITS]),
+    "packbits_uint16_be.tif": ("uint16", [BE, PACKBITS]),
+    "packbits_rgb_contig.tif": ("uint8", [INTERLEAVED, U8, PACKBITS]),
+}
+
+
+def test_packed_samples_packbits_and_ccitt_read_as_tifffile_reads_them(tmp_path):
+    """§4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>: 1-
+    and 12-bit samples are `imagecodecs_packints` in the place of `bytes`, of `uint8` and `uint16`,
+    `runlen` the samples of a row; a file without tag 258 is 1-bit, as TIFF 6.0 says; PackBits and CCITT
+    Group 4 are their imagecodecs codecs. Each reads as tifffile reads it, 1 bit as 0 and 1."""
+    for name, (data_type, codecs) in PACKED.items():
+        path = FIXTURES / "tiff" / name
+        out, g, _ = zarrified(path, tmp_path, "tiff")
+        meta = json.loads(out.bytes_entries["0/zarr.json"])
+        assert meta["data_type"] == data_type, name
+        assert inner_of(meta)[1] == codecs, name
+        ms = mapping(at(g.attrs, "ome", "multiscales", 0))
+        names = [string(at(a, "name")) for a in sequence(ms["axes"])]
+        with tifffile.TiffFile(path) as tf:
+            series = tf.series[0]
+            data, axes = series.asarray(), series.axes
+        letters = [AXIS[a] for a in axes]
+        want = np.transpose(data, [letters.index(a) for a in names]).astype(data_type)
+        assert np.array_equal(ndarray(g.get_array("0")[...]), want), name
+
+
+def test_the_window_of_packed_samples_is_their_own_range():
+    """§4.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#44-arrays>: a `uint8` of 1 bit
+    or a `uint16` of 12 would show dark in its type's range."""
+    for name, top in (("bilevel.tif", 1), ("uint12_strips.tif", 4095)):
+        channel = sequence(at(root_ome(FIXTURES / "tiff" / name), "omero", "channels"))[0]
+        assert at(channel, "window") == {"min": 0, "max": top, "start": 0, "end": top}, name
+
+
+@pytest.mark.parametrize(("name", "bits"), [("eer_v0_frame.tif", (8, 2, 2)), ("eer_v1_frames.tif", (7, 2, 2)),
+                                            ("eer_v2_frames.tif", (8, 3, 1))])
+def test_eer_frames_are_the_t_axis(name, bits, tmp_path):
+    """§4.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#41-planes>, §4.3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>: an EER file's
+    IFDs are frames along `t`, `imagecodecs_eer` the codec, its bits the compression's or, of 65002, the
+    tags'. tifffile reads EER only from an acquisition's metadata, so each frame is checked against
+    imagecodecs' decoding of that strip."""
+    path = FIXTURES / "tiff" / name
+    out, g, _ = zarrified(path, tmp_path, "tiff")
+    with tifffile.TiffFile(path) as tf:
+        pages = [p for p in tf.pages if isinstance(p, tifffile.TiffPage)]
+        want = []
+        for p in pages:
+            tf.filehandle.seek(p.dataoffsets[0])
+            stream = tf.filehandle.read(p.databytecounts[0])
+            want.append(imagecodecs.eer_decode(stream, (32, 48), *bits).astype("uint8"))
+    meta = json.loads(out.bytes_entries["0/zarr.json"])
+    skip, horz, vert = bits
+    assert sequence(meta["codecs"]) == [{"name": "imagecodecs_eer", "configuration": {
+        "shape": [32, 48], "skipbits": skip, "horzbits": horz, "vertbits": vert}}]
+    assert meta["data_type"] == "uint8"
+    got = ndarray(g.get_array("0")[...])
+    assert np.array_equal(got, np.stack(want) if len(want) > 1 else want[0])
+
+
+@pytest.mark.parametrize(("name", "message"), [
+    ("edge_reject_bits_10.tif", "unsupported sample type: 10-bit, SampleFormat 1"),
+    ("edge_reject_bits_12_int.tif", "unsupported sample type: 12-bit, SampleFormat 2"),
+    ("edge_reject_bits_1_jpeg2000.tif", "unsupported compression 34712 of 1-bit samples"),
+    ("edge_reject_bits_12_predictor.tif", "predictor 2 with 12-bit samples"),
+    ("edge_reject_ccitt_uint8.tif", "unsupported CCITT: 8-bit, 1 samples"),
+    ("edge_reject_ccitt_fill_order.tif", "the image at 16 has FillOrder 2"),
+    ("edge_reject_ccitt_group3.tif", "unsupported compression 3"),
+    ("edge_reject_eer_uint8.tif", "unsupported EER: 8-bit, 1 samples"),
+    ("edge_reject_eer_short.tif", "the image at 20 is in EER strips whose last is short"),
+    ("edge_reject_eer_bits_differ.tif", "the image at 174 has other EER bits than IFD 0"),
+    ("edge_reject_bilevel_pages.tif", "is another page of IFD 0's size and format"),
+])
+def test_what_packed_samples_and_their_codecs_do_not_hold_is_rejected(name, message):
+    """§4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>; the
+    stack of bilevel pages, without tag 258, §4.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#42-pyramid-levels>."""
     with pytest.raises(Rejected, match=message):
         via_ir(str(FIXTURES / "tiff" / name), "u")
 

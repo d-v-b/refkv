@@ -17,6 +17,12 @@ pub fn threshold(facts: &J) -> usize {
     facts["copy_threshold"].as_u64().map_or(MAX_PAYLOAD, |t| t as usize)
 }
 
+/// The one chunk of an array of `shape` that a compressed stream `(start, length)` holds whole:
+/// its grid, and the chunk.
+pub fn whole_stream(shape: &[u64], (start, length): (u64, u64)) -> (Vec<u64>, Vec<(Vec<u64>, Chunk)>) {
+    (shape.to_vec(), vec![(vec![0; shape.len()], Chunk::Ranges(vec![Part::Src(start, length)]))])
+}
+
 /// The chunk shape and chunks of contiguous elements of `bits` bits each (fewer than 8) at
 /// `offset`, packed as the `packbits` codec reads them: cut by elements, each counted as a byte,
 /// then each run of elements `[s, s + m)` the bytes `[s k / 8, (s + m) k / 8)`, padded to the

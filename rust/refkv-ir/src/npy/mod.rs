@@ -15,6 +15,7 @@ pub mod header;
 
 use crate::expr::V;
 use crate::fed::{Fed, Overlap, uint};
+use crate::gz::inflate_prefix;
 use crate::ir::*;
 use crate::nd2::Step;
 use crate::rules::{self, Rules, flag, int, num, text};
@@ -73,33 +74,6 @@ enum Read {
     /// the bytes it needs next
     Need(u64, u64),
     Done(Array),
-}
-
-/// The start of a raw deflate stream, from its first bytes `data`: at most `cap` bytes of its
-/// output, and whether more of the stream could give more (the output stopped short of `cap`
-/// where `data` ran out, not where the stream ended or broke).
-fn inflate_prefix(data: &[u8], cap: u64) -> (Vec<u8>, bool) {
-    use miniz_oxide::inflate::stream::{InflateState, inflate};
-    use miniz_oxide::{DataFormat, MZFlush, MZStatus};
-    let mut st = InflateState::new_boxed(DataFormat::Raw);
-    let mut out = Vec::new();
-    let mut input = data;
-    let mut buf = vec![0u8; 1 << 16];
-    while (out.len() as u64) < cap {
-        let room = (cap - out.len() as u64).min(buf.len() as u64) as usize;
-        let r = inflate(&mut st, input, &mut buf[..room], MZFlush::None);
-        out.extend_from_slice(&buf[..r.bytes_written]);
-        input = &input[r.bytes_consumed..];
-        match r.status {
-            Ok(MZStatus::Ok) if r.bytes_written > 0 || r.bytes_consumed > 0 => {}
-            Ok(MZStatus::StreamEnd) | Err(miniz_oxide::MZError::Data) => return (out, false),
-            _ => {
-                let more = (out.len() as u64) < cap && input.is_empty();
-                return (out, more);
-            }
-        }
-    }
-    (out, false)
 }
 
 /// Reads the NPY array a deflated member `e` holds from the start of its stream, inflating its

@@ -1,8 +1,8 @@
 """The GRIB convention's source metadata (spec/zarrify/grib.md), for spec/generate_schemas.py."""
 
 _GRIB = "https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md"
-_REASONS = ["grid_source", "reduced", "grid", "grid_size", "earth", "product", "statistic", "time", "packing",
-            "bitmap", "values"]
+_REASONS = ["grid_source", "reduced", "grid", "grid_size", "gaussian", "earth", "projection", "product", "statistic",
+            "time", "packing", "bitmap", "values"]
 
 UNPRESENTED = {
     "type": "object",

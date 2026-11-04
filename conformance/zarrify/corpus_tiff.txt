@@ -16,6 +16,10 @@ https://openslide.cs.cmu.edu/download/openslide-testdata/Hamamatsu/Hamamatsu-2.n
 # The frozen reference has no JPEG XR levels (no-ref).
 https://downloads.openmicroscopy.org/images/Hamamatsu-NDPI/hamamatsu/DM0014%20-%202020-04-02%2010.25.21.ndpi|ndpi-DM0014-10.25.21-fluorescence|no-ref|ends-sha256=21205ab87de094b738152668145e35021d0b10ee8ac55658ade2ac60d7b76f84
 https://downloads.openmicroscopy.org/images/Hamamatsu-NDPI/hamamatsu/DM0014%20-%202020-04-02%2011.10.47.ndpi|ndpi-DM0014-11.10.47|no-ref|ends-sha256=15ce1e08e01fa9525845255c8da85baa06685a0b9147ed543677970e7d7e62ea
+# An EER movie of 854 frames from a Falcon 4 (EMPIAR-10976, the T20S proteasome; CC0, as EMPIAR's data are):
+# a BigTIFF of Compression 65001, a strip a frame. The frozen reference has no EER (no-ref).
+https://ftp.ebi.ac.uk/empiar/world_availability/10976/data/T20S_10eV/FoilHole_11403779_Data_11393136_11393138_20201211_235504_EER.eer|eer-empiar-10976-T20S|no-ref|ends-sha256=b5b92512a7f2376ef1d2dca40bce050af31333e2da1a1d132539f9c729757551
+
 # Elevation tiles in Predictor 3, the floating-point predictor: Copernicus DEM GLO-30 (Deflate; (c) DLR and
 # Airbus, on AWS's open data registry) and USGS 3DEP 1/3 arc-second (LZW; public domain). The frozen
 # reference has no Predictor 3 (no-ref).
