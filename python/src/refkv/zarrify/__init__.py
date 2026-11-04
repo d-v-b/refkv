@@ -157,11 +157,12 @@ def _zarrify_store(location: str, url: str | None = None, *, max_objects: int | 
 # The file profiles whose input is read with the files beside it, as a store run that probes for
 # them: (the format's title, the named file) as a rejection names them.
 BESIDE = {"vsi": ("VSI", ".vsi file"), "nrrd": ("NRRD", "header file"), "grib": ("GRIB", "GRIB file"),
-          "lif": ("LIF", "named document")}
-# Those of them that read a file with the files beside it only for some of their files
-# (spec/zarrify.md §1.9 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>):
+          "tiff": ("TIFF", "TIFF file"), "lif": ("LIF", "named document")}
+# Those of them that read a file with the files beside it only when it names some, or for some of
+# their files (spec/zarrify.md §1.9
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>):
 # a file run finds out, and starts over (`ir.NamesSiblingsError`).
-ON_DEMAND = {"lif"}
+ON_DEMAND = {"tiff", "lif"}
 # Those whose writers name files in another case than they have (the same section's **Case**).
 CASE = {"lif"}
 

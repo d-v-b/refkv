@@ -26,7 +26,9 @@ fn files(dir: &Path, suffixes: &[&str]) -> Vec<std::path::PathBuf> {
 
 /// Every file profile's fixtures (fixtures/<p>, the files of the registry's suffixes): one
 /// named as rejected (`unsupported_*`, `*_reject_*`; conformance/zarrify/HARNESS.md) is
-/// rejected, and every other is accepted as a valid IR that rebuilds its source.
+/// rejected, and every other is accepted as a valid IR that rebuilds its source. One whose file run
+/// finds that it has siblings ends there, whichever it is: the store run's tests drive it
+/// (`Run::beside`).
 #[test]
 fn accepted_fixtures_are_valid_irs_that_rebuild() {
     for e in refkv_ir::out::registry().iter().filter(|e| e["kind"] == "file") {
@@ -53,6 +55,7 @@ fn accepted_fixtures_are_valid_irs_that_rebuild() {
                     assert!(rebuilt(&ir, &data) == data, "{path:?} does not rebuild");
                     accepted += 1;
                 }
+                Err(m) if m.contains("a file that names siblings") => {}
                 Err(m) => assert!(rejected, "{path:?} was rejected: {m}"),
             }
         }
