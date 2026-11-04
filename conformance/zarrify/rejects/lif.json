@@ -37,9 +37,49 @@
       "message": "image 0 (plane): channel 0 is an unsupported float of 8 bits"
     },
     {
-      "test": "edge_reject_lif_lof",
-      "input": "edge_reject_lif_lof.lif",
-      "message": "a Leica object file (LOF): the profile reads LIF files only"
+      "test": "edge_reject_lif_lof_data_past_end",
+      "input": "edge_reject_lif_lof_data_past_end.lof",
+      "message": "the LOF's memory block of 1099511627776 bytes and its XML block run past the end of the"
+    },
+    {
+      "test": "edge_reject_lif_lof_magic",
+      "input": "edge_reject_lif_lof_magic.lof",
+      "message": "the LOF's magic bytes are 43, 42 and 42, not 42"
+    },
+    {
+      "test": "edge_reject_lif_lof_root",
+      "input": "edge_reject_lif_lof_root.lof",
+      "message": "the XML header's root element is Elsewhere, not LMSDataContainerHeader or LMSDataContainerEnhancedHeader"
+    },
+    {
+      "test": "edge_reject_lif_lof_short",
+      "input": "edge_reject_lif_lof_short.lof",
+      "message": "the 43-byte LOF is too short for its version fields and its memory block"
+    },
+    {
+      "test": "edge_reject_lif_lof_short_block",
+      "input": "edge_reject_lif_lof_short_block.lof",
+      "message": "image 0 (plane) reaches 12 bytes into memory block of the LOF, which holds 11"
+    },
+    {
+      "test": "edge_reject_lif_lof_two_images",
+      "input": "edge_reject_lif_lof_two_images.lof",
+      "message": "the LOF's XML has 2 images, not at most 1"
+    },
+    {
+      "test": "edge_reject_lif_lof_xml_block",
+      "input": "edge_reject_lif_lof_xml_block.lof",
+      "message": "the LOF's XML block's test value is 113 and its magic byte 42, not 112 and 42"
+    },
+    {
+      "test": "edge_reject_lif_lof_xml_past_end",
+      "input": "edge_reject_lif_lof_xml_past_end.lof",
+      "message": "the LOF's XML of 1048576 characters runs past the end of the"
+    },
+    {
+      "test": "edge_reject_lif_lof_xml_utf16",
+      "input": "edge_reject_lif_lof_xml_utf16.lof",
+      "message": "the XML header is not well-formed UTF-16"
     },
     {
       "test": "edge_reject_lif_missing_block",
@@ -99,7 +139,7 @@
     {
       "test": "edge_reject_lif_root",
       "input": "edge_reject_lif_root.lif",
-      "message": "the XML header's root element is LMSDataContainerEnhancedHeader, not LMSDataContainerHeader"
+      "message": "the XML header's root element is LMSDataContainer, not LMSDataContainerHeader or LMSDataContainerEnhancedHeader"
     },
     {
       "test": "edge_reject_lif_rows_overlap",
@@ -136,6 +176,111 @@
       "test": "edge_reject_lif_version_3",
       "input": "edge_reject_lif_version_3.lif",
       "message": "unsupported LIF version 3: the XML header's Version is not 1 or 2"
+    },
+    {
+      "test": "edge_reject_lif_xlef_absent",
+      "input": "edge_reject_lif_xlef_absent.xlef",
+      "message": "the document \"_edge_reject_lif_xlef_absent_/Solo.xlif\" does not exist. LAS X writes names in lower case"
+    },
+    {
+      "test": "edge_reject_lif_xlef_absent_lof",
+      "input": "edge_reject_lif_xlef_absent_lof.xlef",
+      "message": "the LOF \"_edge_reject_lif_xlef_absent_lof_/Solo.lof\" does not exist"
+    },
+    {
+      "test": "edge_reject_lif_xlef_bad_lof",
+      "input": "edge_reject_lif_xlef_bad_lof.xlef",
+      "message": "the LOF \"_edge_reject_lif_xlef_bad_lof_/Solo.lof\": the 50-byte LOF is too short"
+    },
+    {
+      "test": "edge_reject_lif_xlef_block_integer",
+      "input": "edge_reject_lif_xlef_block_integer.xlef",
+      "message": "the document \"_edge_reject_lif_xlef_block_integer_/Solo.xlif\" has a Block whose Offset or Size (one, 12) is not an integer"
+    },
+    {
+      "test": "edge_reject_lif_xlef_block_offset",
+      "input": "edge_reject_lif_xlef_block_offset.xlef",
+      "message": "the LOF \"_edge_reject_lif_xlef_block_offset_/Solo.lof\": image 0 (Solo) reaches 13 bytes into memory block of the LOF, which holds 12"
+    },
+    {
+      "test": "edge_reject_lif_xlef_block_past",
+      "input": "edge_reject_lif_xlef_block_past.xlef",
+      "message": "the Block in \"_edge_reject_lif_xlef_block_past_/Solo.xlif\" reaches 13 bytes into the LOF \"_edge_reject_lif_xlef_block_past_/Solo.lof\", which holds 12"
+    },
+    {
+      "test": "edge_reject_lif_xlef_block_short",
+      "input": "edge_reject_lif_xlef_block_short.xlef",
+      "message": "the image in \"_edge_reject_lif_xlef_block_short_/Solo.xlif\" reaches 12 bytes into its Block of 11 bytes"
+    },
+    {
+      "test": "edge_reject_lif_xlef_depth",
+      "input": "edge_reject_lif_xlef_depth.xlef",
+      "message": "budget: documents name documents more than 16 levels deep"
+    },
+    {
+      "test": "edge_reject_lif_xlef_drive",
+      "input": "edge_reject_lif_xlef_drive.xlef",
+      "message": "the name \"C%3A%5CSolo.xlif\" of a Reference in \"edge_reject_lif_xlef_drive.xlef\" is not a path below the named file's directory"
+    },
+    {
+      "test": "edge_reject_lif_xlef_identity",
+      "input": "edge_reject_lif_xlef_identity.xlef",
+      "message": "the document \"_edge_reject_lif_xlef_identity_/Solo.xlif\" is not part of this experiment"
+    },
+    {
+      "test": "edge_reject_lif_xlef_lif_file",
+      "input": "edge_reject_lif_xlef_lif_file.xlef",
+      "message": "the LOF \"_edge_reject_lif_xlef_lif_file_/Solo.lof\" is not a LOF file"
+    },
+    {
+      "test": "edge_reject_lif_xlef_lof_identity",
+      "input": "edge_reject_lif_xlef_lof_identity.xlef",
+      "message": "the LOF \"_edge_reject_lif_xlef_lof_identity_/Solo.lof\" is not part of this experiment"
+    },
+    {
+      "test": "edge_reject_lif_xlef_no_element",
+      "input": "edge_reject_lif_xlef_no_element.xlef",
+      "message": "the document \"edge_reject_lif_xlef_no_element.xlef\" has no Element"
+    },
+    {
+      "test": "edge_reject_lif_xlef_no_image",
+      "input": "edge_reject_lif_xlef_no_image.xlef",
+      "message": "the LOF \"_edge_reject_lif_xlef_no_image_/Solo.lof\" that \"_edge_reject_lif_xlef_no_image_/Solo.xlif\" names holds no image"
+    },
+    {
+      "test": "edge_reject_lif_xlef_not_lof",
+      "input": "edge_reject_lif_xlef_not_lof.xlef",
+      "message": "the LOF \"_edge_reject_lif_xlef_not_lof_/Solo.lof\" is not a LOF file"
+    },
+    {
+      "test": "edge_reject_lif_xlef_not_utf8",
+      "input": "edge_reject_lif_xlef_not_utf8.xlef",
+      "message": "the document \"_edge_reject_lif_xlef_not_utf8_/Solo.xlif\" is not UTF-8"
+    },
+    {
+      "test": "edge_reject_lif_xlef_outside",
+      "input": "edge_reject_lif_xlef_outside.xlef",
+      "message": "the name \"..%5CSolo.xlif\" of a Reference in \"edge_reject_lif_xlef_outside.xlef\" is not a path below the named file's directory: zarrify the file at the top of the set"
+    },
+    {
+      "test": "edge_reject_lif_xlef_role",
+      "input": "edge_reject_lif_xlef_role.xlef",
+      "message": "the file \"_edge_reject_lif_xlef_role_/Solo.lof\" is named both as a document and as a LOF"
+    },
+    {
+      "test": "edge_reject_lif_xlef_root",
+      "input": "edge_reject_lif_xlef_root.xlef",
+      "message": "the document \"_edge_reject_lif_xlef_root_/Solo.xlif\" has the root element Elsewhere, not LMSDataContainerHeader"
+    },
+    {
+      "test": "edge_reject_lif_xlef_shared_lof",
+      "input": "edge_reject_lif_xlef_shared_lof.xlef",
+      "message": "the LOF \"_edge_reject_lif_xlef_shared_lof_/Solo.lof\" is named by both \"_edge_reject_lif_xlef_shared_lof_/Solo.xlif\" and \"_edge_reject_lif_xlef_shared_lof_/Two.xlif\""
+    },
+    {
+      "test": "edge_reject_lif_xlef_version",
+      "input": "edge_reject_lif_xlef_version.xlef",
+      "message": "the document \"_edge_reject_lif_xlef_version_/Solo.xlif\" has the unsupported version 3, not 1 or 2"
     },
     {
       "test": "edge_reject_lif_xml_past_end",
