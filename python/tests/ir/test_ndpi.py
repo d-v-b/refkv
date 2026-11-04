@@ -8,6 +8,7 @@ import struct
 import imagecodecs
 import numpy as np
 import pytest
+import tifffile
 import zarr
 from ir_helpers import FIXTURES, REVISED, as_the_reference, assert_rebuilds, same_hierarchy
 from refkv_reference import virtualize  # the frozen reference (ir_helpers)
@@ -201,6 +202,82 @@ def test_jpegxr_levels_are_their_streams_pixels(tmp_path):
                     want = np.moveaxis(want if want.ndim == 3 else want[..., None], -1, 0)
                     assert np.array_equal(region, want[:, :region.shape[1], :region.shape[2]]), key
         assert_rebuilds(out, data, tmp_path, f"{path.stem}.vzip")
+
+
+FOCAL = {
+    # name: axes, each level's shape, chunk shape and pages (main-chain IFDs) along z, the root's
+    # FocalOffsets and LeftOut as (ifd, reason, offset), z's scale, its translation, whether z has a unit
+    "ndpi_focal_planes.ndpi": ("czyx", [([3, 3, 1040, 1152], [3, 1, 1024, 1024], [3, 0, 5]),
+                                        ([3, 3, 192, 256], [3, 1, 192, 256], [4, 1, 6])],
+                               [-2000, 0, 2000], [(2, "offsets", 0)], 2.0, -2.0, True),
+    "ndpi_focal_uneven.ndpi": ("czyx", [([3, 3, 48, 64], [3, 1, 48, 64], [4, 0, 2]),
+                                        ([3, 3, 24, 32], [3, 1, 24, 32], [5, 1, 3])],
+                               [-1000, 0, 3000], [(6, "size", 5000), (7, "chunks", 6000), (8, "duplicate", 3000),
+                                                  (9, "no_offset", None), (10, "no_offset", None)], 1.0, 0.0, False),
+    "ndpi_focal_jpegxr.ndpi": ("czyx", [([1, 2, 60, 80], [1, 1, 32, 32], [0, 2]),
+                                        ([1, 2, 30, 40], [1, 1, 30, 40], [1, 3])],
+                               [-500, 500], [], 1.0, -0.5, True),
+    "edge_ndpi_focal_coarse.ndpi": ("czyx", [([3, 3, 40, 48], [3, 1, 40, 48], [1, 2, 3])],
+                                    [-100, 0, 100], [(0, "offsets", 0)], 0.1, -0.1, True),
+    "edge_ndpi_focal_sizes.ndpi": ("cyx", [([3, 192, 256], [3, 192, 256], [0])],
+                                   None, [(1, "size", None)], None, None, False),
+}
+
+
+def test_focal_planes_are_the_z_axis(tmp_path):
+    """§3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#3-levels>, §4
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#4-the-image>: the images of one
+    Magnification are a level's planes, by ascending tag 65424, each read through zarr as tifffile
+    reads its page; `z` comes after `c`, with a scale and translation from evenly spaced offsets only,
+    and the offsets and the images left out, with why, are in the source metadata; the levels'
+    scales are from the first image's, which may be left out, and the mirror rebuilds the file."""
+    for name, (axes, levels, offsets, left_out, scale, start, unit) in FOCAL.items():
+        path = FIXTURES / "ndpi" / name
+        data = path.read_bytes()
+        fmt, out, _ = via_ir(str(path), "u")
+        assert fmt == "ndpi", name
+        attrs = json.loads(out.bytes_entries["zarr.json"])["attributes"]
+        own = attrs["refkv_zarrified"].get("ndpi", {})
+        assert own.get("FocalOffsets") == offsets, name
+        got = [(e["ifd"], e["reason"], e.get("offset")) for e in own.get("LeftOut", [])]
+        assert got == left_out, name
+        ms = attrs["ome"]["multiscales"][0]
+        assert [a["name"] for a in ms["axes"]] == list(axes), name
+        z_units = [a.get("unit") for a in ms["axes"] if a["name"] == "z"]
+        assert z_units == ([("micrometer" if unit else None)] if scale else []), name
+        assert [d["path"] for d in ms["datasets"]] == [str(i) for i in range(len(levels))], name
+        g = zarr.open_group(ZarrStore(shipped(str(path))), mode="r", zarr_format=3)
+        with tifffile.TiffFile(path) as tf:
+            first = tf.pages.first
+            for li, (shape, chunk, pages) in enumerate(levels):
+                meta = json.loads(out.bytes_entries[f"{li}/zarr.json"])
+                assert (meta["shape"], meta["chunk_grid"]["configuration"]["chunk_shape"]) == (shape, chunk), (name, li)
+                assert meta["dimension_names"] == list(axes), (name, li)
+                transforms = ms["datasets"][li]["coordinateTransformations"]
+                resolution, denominator = first.tags[282].value  # per centimeter
+                assert transforms[0]["scale"][-1] == pytest.approx(
+                    10000 / (resolution / denominator) * first.imagewidth / shape[-1]), (name, li)
+                if scale is not None:
+                    assert transforms[0]["scale"][1] == pytest.approx(scale), (name, li)
+                    assert transforms[1]["translation"][1] == pytest.approx(start), (name, li)
+                a = ndarray(g.get_array(str(li))[...])
+                assert a.shape == tuple(shape), (name, li)
+                for z, page in enumerate(pages):
+                    want = tf.pages[page].asarray()
+                    want = np.moveaxis(want if want.ndim == 3 else want[..., None], -1, 0)
+                    plane = a[:, z] if "z" in axes else a
+                    assert np.array_equal(plane, want), (name, li, z)
+        assert_rebuilds(out, data, tmp_path, f"{path.stem}.vzip")
+
+
+def test_focal_planes_share_the_data_sources_of_their_headers():
+    """§7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>: chunks are
+    keyed by plane, and a level left out adds no data source: the planes of a level have one header."""
+    _, out, _ = via_ir(str(FIXTURES / "ndpi" / "ndpi_focal_planes.ndpi"), "u", mirror=False)
+    keys = {k for k in out.refs if k[0].isdigit()}
+    assert keys == {f"0/c/0/{z}/{u}/{v}" for z in range(3) for u in range(2) for v in range(2)} | {
+        f"1/c/0/{z}/0/0" for z in range(3)}
+    assert len(out.data) == 3  # before SOF0, once; after it, once per restart interval
 
 
 def test_a_tiff_is_not_ndpi():

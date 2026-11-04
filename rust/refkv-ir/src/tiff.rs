@@ -48,7 +48,6 @@ use crate::ir::*;
 use crate::nd2::Step;
 use crate::lzw;
 use crate::ndpi;
-use crate::out::Part;
 use crate::rules::{self, Rules, flag, int, num, text};
 use crate::sans;
 use crate::xml::{self, Ev};
@@ -2802,8 +2801,10 @@ impl Tiff {
         if self.ndpi {
             // derive_ndpi wrote the levels; a tiled JPEG XR level's chunks are its IFD's tiles
             for lv in lay.facts["levels"].as_array_mut().into_iter().flatten() {
-                if let Some(k) = lv["tiles_ifd"].as_u64() {
-                    lv["tiles"] = json!(tiles_of.get(&(k as usize)).and_then(|t| t.0));
+                for plane in lv["planes"].as_array_mut().into_iter().flatten() {
+                    if let Some(k) = plane["tiles_ifd"].as_u64() {
+                        plane["tiles"] = json!(tiles_of.get(&(k as usize)).and_then(|t| t.0));
+                    }
                 }
             }
             return Ok(());
@@ -3223,6 +3224,28 @@ impl Tiff {
         (own, label)
     }
 
+    /// An image's focal offset in nanometers (spec/zarrify/ndpi.md §2
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#2-the-source>): the first
+    /// value of tag 65424, when of its field types, within the file, and at most 2^53 - 1 from 0;
+    /// the bytes not read yet are added to `need`. It never rejects.
+    fn ndpi_focal(&self, k: usize, need: &mut Vec<(u64, u64)>) -> Option<i64> {
+        let e = self.ifds[k].field(65424).filter(|e| matches!(e.typ, 3 | 4 | 8 | 9) && e.count > 0)?;
+        let z = type_size(e.typ)?;
+        if !(e.inline || self.within(e.off, z)) {
+            return None;
+        }
+        let Some(b) = self.bytes_of(e, z) else {
+            need.push((e.off, z));
+            return None;
+        };
+        let v = match e.typ {
+            8 => i16::le_at(&b, 0) as i64,
+            9 => i32::le_at(&b, 0) as i64,
+            _ => i64::try_from(*self.ints(e, true)?.first()?).ok()?,
+        };
+        (v.unsigned_abs() <= MAX_SAFE).then_some(v)
+    }
+
     /// The NDPI layout: levels, chunk grids, scales and translation, as facts for
     /// `project/ndpi.rs`. Asks for the values and strip headers not read yet.
     fn derive_ndpi(&self) -> Got<Layout> {
@@ -3270,6 +3293,13 @@ impl Tiff {
             let f = &self.ifds[k];
             [322u16, 323].iter().all(|&t| Self::nint(m, t).is_some_and(|v| v >= 1)) && f.has(324) && f.has(325)
         };
+        // focal offsets are read only when a Magnification has more than one image
+        // (spec/zarrify/ndpi.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#3-levels>)
+        let mut seen = HashSet::new();
+        let repeated = (0..self.chain.len())
+            .filter(|&j| positive(j))
+            .filter_map(|j| mags[j].get(&65421).and_then(|v| v.first()))
+            .any(|m| !seen.insert(m.to_bits()));
         let mut first_level = true;
         for (j, &k) in self.chain.iter().enumerate() {
             if !positive(j) {
@@ -3277,9 +3307,12 @@ impl Tiff {
             }
             let m = self.nload(k, None, &mut need, false)?;
             if first_level {
-                // level 0's acquisition tags, when out of line and not read yet
+                // the first image's acquisition tags, when out of line and not read yet
                 self.ndpi_acquisition(k, &mut need);
                 first_level = false;
+            }
+            if repeated {
+                self.ndpi_focal(k, &mut need);
             }
             let (s0, n) = (Self::nint(&m, 273).unwrap_or(0), Self::nint(&m, 279).unwrap_or(0));
             let fits = (s0 as u128 + n as u128) <= self.size as u128;
@@ -3314,7 +3347,9 @@ impl Tiff {
         // the levels (spec/zarrify/ndpi.md §3
         // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#3-levels>)
         let mut tags: Vec<(usize, NVals)> = Vec::new();
-        let mut levels: Vec<(usize, f64, u64, u64, u64, bool)> = Vec::new(); // (IFD, magnification, w, h, compression, tiled)
+        let mut levels: Vec<(usize, f64, u64, u64, u64, bool)> = Vec::new(); // the images: (IFD, magnification, w, h, compression, tiled)
+        let mut last_size: Option<(u64, u64)> = None; // of the last new Magnification's first image
+        let mut magnifications = HashSet::new();
         for (j, &k) in self.chain.iter().enumerate() {
             self.nload(k, Some(&[65421]), &mut need, true)?; // the profile reads Magnification first
             let mag = self.nreq(&mags[j], 65421, "Magnification")?;
@@ -3332,8 +3367,9 @@ impl Tiff {
             let f = &self.ifds[k];
             let one_strip = [273u16, 279].iter().all(|&t| f.field(t).is_some_and(|e| e.count == 1));
             let tiled = tiled_of(k, &m);
-            let smaller = levels.last().is_none_or(|l| w < l.2 && h < l.3);
-            let new_magnification = !levels.iter().any(|l| l.1 == mag);
+            // an image of an earlier Magnification is a plane of that level, not a new level
+            let new_magnification = magnifications.insert(mag.to_bits());
+            let smaller = !new_magnification || last_size.is_none_or(|l| w < l.0 && h < l.1);
             self.rules.check(
                 "level",
                 rules::env([
@@ -3345,11 +3381,13 @@ impl Tiff {
                     ("one_strip", flag(one_strip)),
                     ("tiled", flag(tiled)),
                     ("smaller", flag(smaller)),
-                    ("new_magnification", flag(new_magnification)),
                     ("width", num(w as f64)),
                     ("height", num(h as f64)),
                 ]),
             )?;
+            if new_magnification {
+                last_size = Some((w, h));
+            }
             levels.push((k, mag, w, h, compression, tiled));
             tags.push((k, m));
         }
@@ -3383,23 +3421,17 @@ impl Tiff {
         }
         // the chunks of each level; the header's pieces are data sources, numbered by first use
         let mut pieces: Vec<Vec<u8>> = Vec::new();
-        let mut piece = |b: &[u8]| -> Part {
-            let i = match pieces.iter().position(|p| p == b) {
-                Some(i) => i,
-                None => {
-                    pieces.push(b.to_vec());
-                    pieces.len() - 1
-                }
-            };
-            Part::Data(i as u32 + 1, 0, b.len() as u64)
-        };
-        let mut out = Vec::new();
-        let mut scales = Vec::new();
+        // by image: its facts, its grid, and what the focal plane rule reads of it
+        let mut out: Vec<J> = Vec::new();
+        let mut grids: Vec<Option<ndpi::Grid>> = Vec::new();
+        let mut images: Vec<ndpi::Image> = Vec::new();
         // the pixel format of level 0's first JPEG XR stream (spec/zarrify/ndpi.md §3
         // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#3-levels>)
         let mut format0: Option<[u8; 16]> = None;
-        for (li, &(k, _, w, h, compression, tiled)) in levels.iter().enumerate() {
+        for (li, &(k, mag, w, h, compression, tiled)) in levels.iter().enumerate() {
             let m = vals(k);
+            let offset = if repeated { self.ndpi_focal(k, &mut need) } else { None };
+            let image = |cut: ndpi::Cut, framed: bool| ndpi::Image { magnification: mag, width: w, height: h, cut, framed, offset };
             let (s0, n) = (Self::nint(m, 273).unwrap_or(0), Self::nint(m, 279).unwrap_or(0));
             if compression == ndpi::JPEGXR {
                 // a JPEG XR level: its tiles, or its strip, each a chunk
@@ -3451,10 +3483,11 @@ impl Tiff {
                     ]),
                 )?;
                 out.push(json!({
-                    "w": w, "h": h, "tw": cw, "th": ch, "strip": s0, "length": n,
+                    "tw": cw, "th": ch, "strip": s0, "length": n,
                     "tiles_ifd": if tiled { json!(k) } else { J::Null },
                 }));
-                scales.push(json!([1, py.unwrap_or(1.0) * (bh as f64 / h as f64), px.unwrap_or(1.0) * (bw as f64 / w as f64)]));
+                grids.push(None);
+                images.push(image(ndpi::Cut::Fixed(ch, cw), true));
                 continue;
             }
             let within = (s0 as u128 + n as u128) <= self.size as u128;
@@ -3497,13 +3530,16 @@ impl Tiff {
                         ]),
                     )?;
                     if !covers {
+                        out.push(J::Null);
+                        grids.push(None);
+                        images.push(image(ndpi::Cut::Fixed(h, w), false));
                         continue;
                     }
                     frame = json!(f.at);
                 }
             }
             let grid = match head {
-                None => J::Null,
+                None => None,
                 Some(McuStarts { starts, .. }) => {
                     let Some(hb) = self.heads.get(&(s0, starts[0])).cloned() else {
                         // a header the batch above did not foresee: ask for it, when it is in the file
@@ -3513,25 +3549,81 @@ impl Tiff {
                         return Err(Stop::Need(vec![(s0, starts[0])]));
                     };
                     let hd = ndpi::header(&hb, self.rules)?;
-                    let (before, after) = (piece(&hb[..hd.sof.0]), piece(&hb[hd.sof.1..]));
-                    ndpi::Grid::new(s0, n, w, h, hb, hd, starts, &before, &after, self.rules)?.facts()
+                    let (before, after) = (ndpi::piece(&mut pieces, &hb[..hd.sof.0]), ndpi::piece(&mut pieces, &hb[hd.sof.1..]));
+                    Some(ndpi::Grid::new(s0, n, w, h, hb, hd, starts, &before, &after, self.rules)?)
                 }
             };
             let high = if added { self.ent_facts(k, 65432) } else { J::Null };
-            out.push(json!({
-                "w": w, "h": h, "strip": s0, "length": n,
-                "starts": self.ent_facts(k, 65426), "high": high, "grid": grid, "frame": frame,
-            }));
-            scales.push(json!([1, py.unwrap_or(1.0) * (bh as f64 / h as f64), px.unwrap_or(1.0) * (bw as f64 / w as f64)]));
+            let cut = grid.as_ref().map_or(ndpi::Cut::Fixed(h, w), |g| ndpi::Cut::Intervals { restart: g.h.restart, mw: g.h.mw, mh: g.h.mh });
+            out.push(json!({"strip": s0, "length": n, "starts": self.ent_facts(k, 65426), "high": high, "grid": J::Null, "frame": frame}));
+            grids.push(grid);
+            images.push(image(cut, true));
         }
-        let mut translation = J::Null;
+        // the levels and their planes (spec/zarrify/ndpi.md §3
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#3-levels>); with images to
+        // choose from, the data sources are numbered again by the first use of those kept, and a
+        // level's planes get one chunk height (§7
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>)
+        let chosen = ndpi::levels(&images);
+        if repeated {
+            let mut pieces: Vec<Vec<u8>> = Vec::new();
+            for level in &chosen.levels {
+                let (mut at, mut planes) = (Vec::new(), Vec::new());
+                for &i in level {
+                    if let Some(g) = grids[i].take() {
+                        let (a, b) = g.pieces();
+                        let (before, after) = (ndpi::piece(&mut pieces, a), ndpi::piece(&mut pieces, b));
+                        at.push(i);
+                        planes.push((g, before, after));
+                    }
+                }
+                ndpi::Grid::one_height(&mut planes, self.rules)?;
+                for (i, (g, _, _)) in at.into_iter().zip(planes) {
+                    grids[i] = Some(g);
+                }
+            }
+        }
+        let offsets = chosen.offsets.as_deref().unwrap_or(&[]);
+        let stacked = offsets.len() > 1;
+        // `z`'s scale and position, when its planes are evenly spaced (§4
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#4-the-image>)
+        let step = if stacked { ndpi::even_step(offsets) } else { None };
+        if step.is_some() {
+            units.insert("z".into(), json!("micrometer"));
+        }
+        let (scale_z, start_z) = step.map_or((1.0, 0.0), |s| (s as f64 / 1000.0, offsets[0] as f64 / 1000.0));
+        let mut facts_of_levels = Vec::with_capacity(chosen.levels.len());
+        let mut scales = Vec::with_capacity(chosen.levels.len());
+        for level in &chosen.levels {
+            let (w, h) = (images[level[0]].width, images[level[0]].height);
+            let planes: Vec<J> = level
+                .iter()
+                .map(|&i| {
+                    let mut p = out[i].take();
+                    if let Some(g) = &grids[i] {
+                        p["grid"] = g.facts();
+                    }
+                    p
+                })
+                .collect();
+            facts_of_levels.push(json!({"w": w, "h": h, "planes": planes}));
+            let (sy, sx) = (py.unwrap_or(1.0) * (bh as f64 / h as f64), px.unwrap_or(1.0) * (bw as f64 / w as f64));
+            scales.push(if stacked { json!([1, scale_z, sy, sx]) } else { json!([1, sy, sx]) });
+        }
+        let mut position = None;
         if let (Some(sx), Some(sy), Some(ox), Some(oy)) =
             (px, py, m0.get(&65422).and_then(|v| v.first()), m0.get(&65423).and_then(|v| v.first()))
         {
             let (x, y) = (ox / 1000.0 - bw as f64 * sx / 2.0, oy / 1000.0 - bh as f64 * sy / 2.0);
             self.rules.check("translation", rules::env([("x", num(x)), ("y", num(y))]))?;
-            translation = json!([0, y, x]);
+            position = Some((y, x));
         }
+        let translation = match (stacked, position) {
+            (false, Some((y, x))) => json!([0, y, x]),
+            (true, Some((y, x))) => json!([0, start_z, y, x]),
+            (true, None) if step.is_some() => json!([0, start_z, 0, 0]),
+            _ => J::Null,
+        };
         // the pixels (spec/zarrify/ndpi.md §3
         // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#3-levels>), and level 0's
         // acquisition tags (§5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#5-source-metadata>)
@@ -3539,14 +3631,41 @@ impl Tiff {
             Some((t, s)) => (t, s, "imagecodecs_jpegxr"),
             None => ("uint8", 3, "imagecodecs_jpeg"),
         };
-        let (own, label) = self.ndpi_acquisition(k0, &mut need);
+        let (mut own, label) = self.ndpi_acquisition(k0, &mut need);
         if !need.is_empty() {
             return Err(Stop::Need(need));
         }
+        // what the source metadata keeps of the focal planes (§5
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#5-source-metadata>)
+        if let Some(o) = &chosen.offsets {
+            own.insert("FocalOffsets".into(), json!(o));
+        }
+        if !chosen.left_out.is_empty() {
+            let entries: Vec<J> = chosen
+                .left_out
+                .iter()
+                .map(|&(i, reason)| {
+                    let im = &images[i];
+                    let mut e = json!({
+                        "ifd": self.chain.iter().position(|&k| k == levels[i].0),
+                        "magnification": crate::project::float_json(im.magnification.to_bits(), 8, im.magnification),
+                        "width": im.width,
+                        "height": im.height,
+                        "reason": reason,
+                    });
+                    if let Some(o) = im.offset {
+                        e["offset"] = json!(o);
+                    }
+                    e
+                })
+                .collect();
+            own.insert("LeftOut".into(), J::Array(entries));
+        }
+        let axes: &[&str] = if stacked { &["c", "z", "y", "x"] } else { &["c", "y", "x"] };
         let facts = json!({
             "profile": "ndpi",
             "ifds": self.chain.len(),
-            "axes": ["c", "y", "x"],
+            "axes": axes,
             "data_type": data_type,
             "samples": samples,
             "codec": codec,
@@ -3555,7 +3674,7 @@ impl Tiff {
             "units": units,
             "scales": scales,
             "translation": translation,
-            "levels": out,
+            "levels": facts_of_levels,
         });
         Ok(Layout { facts, prefixes: HashMap::new(), levels: Vec::new(), planes: None, plan: None, expected: None })
     }

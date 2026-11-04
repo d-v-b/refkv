@@ -3,3 +3,7 @@
 # Archive (public domain): H.264 320 x 240 and AAC stereo, 46 MB (archive.org redirects downloads to a
 # mirror)
 https://archive.org/download/AboutBan1935/AboutBan1935_512kb.mp4|prelinger_about_bananas|no-ref|ends-sha256=4b2a202ad6f21c9c65fa87eeb449292e55053dde2d1e375d25258fb8e739a2e0
+# fragmented: "Elephants Dream" (Orange Open Movie Project, CC BY), from DASH-IF's test vectors: a
+# moof box per segment, H.264 480 x 360, 7.8 MB, and AAC stereo, 5.3 MB
+https://dash.akamaized.net/dash264/TestCases/1a/netflix/ElephantsDream_H264BPL30_0100.264.dash|dashif_elephants_dream_h264|no-ref|ends-sha256=f159b48784d3ca5b6eef8298d5d9b4f45c8099728faf7161d514fa59966a78db
+https://dash.akamaized.net/dash264/TestCases/1a/netflix/ElephantsDream_AAC48K_064.mp4.dash|dashif_elephants_dream_aac|no-ref|ends-sha256=d0ccf382c7b7dc2c7715dd403a46b281befccf2a022c5a7a2de78e878abcd464
