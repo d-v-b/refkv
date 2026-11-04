@@ -2,6 +2,9 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>): what
 //! every profile that reads them shares, a written name's steps to a key and the bounds.
 
+use crate::ir::{key_name, Ir, Res};
+use std::collections::HashMap;
+
 /// The most distinct keys a run probes, the named file not counted (`bounds`, the **Files**
 /// bound of the section).
 pub const MAX_FILES: u64 = 1 << 16;
@@ -9,6 +12,34 @@ pub const MAX_FILES: u64 = 1 << 16;
 pub const MAX_DEPTH: u32 = 16;
 /// The longest written name, in UTF-8 bytes.
 pub const MAX_NAME: usize = 1024;
+
+/// The directories of a store IR that siblings have added, each once.
+#[derive(Default)]
+pub struct Tree {
+    dirs: HashMap<String, u32>,
+}
+
+impl Tree {
+    /// The object of a found sibling, `key` of `size` bytes, under the directories its key names.
+    pub fn object(&mut self, ir: &mut Ir, key: &str, size: u64) -> Res<u32> {
+        let mut parent = 0u32;
+        let mut from = 0;
+        for (at, _) in key.match_indices('/') {
+            parent = match self.dirs.get(&key[..at]) {
+                Some(&d) => d,
+                None => {
+                    let (n, x) = key_name(&key[from..at], false);
+                    let d = ir.struct_(parent, &n, x, 0, None)?;
+                    self.dirs.insert(key[..at].to_string(), d);
+                    d
+                }
+            };
+            from = at + 1;
+        }
+        let (n, x) = key_name(&key[from..], false);
+        ir.object(parent, &n, x, size)
+    }
+}
 
 /// How a format writes names: the steps its profile's document allows (the section's **Naming**).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
