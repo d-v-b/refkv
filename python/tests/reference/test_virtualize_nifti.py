@@ -156,7 +156,7 @@ def test_virtualizes_the_synthetic_files():
     ("nifti_reject_n2_dim_huge", "dim\\[1\\] = 9007199254740992"),
     ("nifti_reject_dim6", "dimensions 6 and 7"),
     ("nifti_reject_dim7", "dimensions 6 and 7"),
-    ("nifti_reject_complex64", "COMPLEX64"),
+    ("nifti_reject_complex256", "COMPLEX256"),
     ("nifti_reject_float128", "FLOAT128"),
     ("nifti_reject_binary", "BINARY"),
     ("nifti_reject_datatype_unknown", "unknown NIfTI datatype 3"),
