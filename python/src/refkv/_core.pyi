@@ -222,6 +222,9 @@ class StoreRun:
         exist) before polling again."""
     def found(self, size: int | None) -> None:
         """The answer to the next probe of the batch: the key's size, or None when it does not exist."""
+    def found_as(self, size: int, key: str) -> None:
+        """The answer to the next probe of the batch, found at another key by listing
+        (`StoreRun::found_as`): its size and that key."""
     def ignore(self, keys: Sequence[str], folders: Sequence[str] = ...) -> None:
         """The keys the listing ignores, before the first poll (`StoreRun::ignore`): `keys`, the
         relative keys the store reader ignored and recorded (`Store.ignored`), which the

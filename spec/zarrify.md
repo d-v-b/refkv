@@ -88,7 +88,7 @@ The table, generated from the registry, lists them:
 | [GRIB](zarrify/grib.md#part-2-the-profile) | file | GRIB edition 2 files of gridded fields, such as NOAA's and ECMWF's forecasts, whose regular latitude/longitude and Lambert conformal fields it presents |
 | [HDF5](zarrify/hdf5.md#part-2-the-profile) | file | HDF5 files, NWB files first among them: every group, dataset, attribute, link and object reference the profile can present, in hdmf-zarr's Zarr v3 form |
 | [IMS](zarrify/ims.md#part-2-the-profile) | file | Imaris IMS files (HDF5) |
-| [LIF](zarrify/lif.md#part-2-the-profile) | file | Leica LIF files (LAS X and LAS AF, versions 1 and 2): every image of the file's element tree, with interleaved or planar channels, z-stacks, time series and mosaics, uncompressed |
+| [LIF](zarrify/lif.md#part-2-the-profile) | file | Leica LIF files (LAS X and LAS AF, versions 1 and 2), its object files (LOF) and extension files (LIFEXT), and LAS X projects of XLEF, XLCF, XLIF and XLLF documents and LOFs: every image of the element tree, with interleaved or planar channels, z-stacks, time series and mosaics, uncompressed |
 | [MP3](zarrify/mp3.md#part-2-the-profile) | file | MPEG-1, MPEG-2 and MPEG-2.5 Layer III audio files (`.mp3`), with their ID3v2, ID3v1 and APE tags; one array of samples, not an image |
 | [MP4](zarrify/mp4.md#part-2-the-profile) | file | MP4 and QuickTime files (`.mp4`, `.m4a`, `.m4v`, `.mov`) with H.264 or HEVC video and AAC or MP3 audio tracks; a group per track, not an image |
 | [MRC](zarrify/mrc.md#part-2-the-profile) | file | MRC2014 files (CCP4 maps, image stacks, volumes and volume stacks) |
@@ -758,9 +758,10 @@ zarrifiers wrote the same layouts.
 
 The VSI ([vsi.md §9](zarrify/vsi.md#9-vsi-profile)), NRRD
 ([nrrd.md §8](zarrify/nrrd.md#8-nrrd-profile)) and GRIB
-([grib.md §8](zarrify/grib.md#8-grib-profile)) profiles are chosen by a file input's signature
+([grib.md §8](zarrify/grib.md#8-grib-profile)) profiles, and the LIF profile for a LAS X document
+([lif.md §8](zarrify/lif.md#8-las-x-documents)), are chosen by a file input's signature
 ([§1.2](#12-input)), and read the file and the files beside it (a slide's tile files, a
-detached header's data file, a GRIB file's index files) as a store
+detached header's data file, a GRIB file's index files, a project's documents and LOFs) as a store
 ([§1.4](#14-store-inputs)), and so does the TIFF profile, for an input that names other files
 ([tiff.md §7.4](zarrify/tiff.md#74-several-files)). Such a **file read as a store** is read as follows; the profile's
 document says which keys it probes, how it reads each object, and the order of its sources, under
