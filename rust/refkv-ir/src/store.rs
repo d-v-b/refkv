@@ -102,6 +102,10 @@ pub enum StoreFormat {
     /// A Neuroglancer precomputed volume (`precomputed.rs`; spec/zarrify/precomputed.md
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/precomputed.md>).
     Precomputed,
+    /// A TIFF image across files (`tiff_set.rs`; spec/zarrify/tiff.md §7.4
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#74-several-files>): the named
+    /// file, listed alone, and the files it names, which the run probes for.
+    Tiff,
 }
 
 impl StoreFormat {
@@ -115,6 +119,7 @@ impl StoreFormat {
             "grib" => Some(StoreFormat::Grib),
             "safetensors" => Some(StoreFormat::Safetensors),
             "precomputed" => Some(StoreFormat::Precomputed),
+            "tiff" => Some(StoreFormat::Tiff),
             _ => None,
         }
     }
@@ -128,6 +133,7 @@ impl StoreFormat {
             StoreFormat::Grib => "grib",
             StoreFormat::Safetensors => "safetensors",
             StoreFormat::Precomputed => "precomputed",
+            StoreFormat::Tiff => "tiff",
         }
     }
     /// The convention the mirror declares.
@@ -141,6 +147,7 @@ impl StoreFormat {
             StoreFormat::Grib => "grib",
             StoreFormat::Safetensors => "safetensors",
             StoreFormat::Precomputed => "precomputed",
+            StoreFormat::Tiff => "tiff",
         }
     }
     fn parser(self, ir: Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> Res<Box<dyn StoreParser>> {
@@ -153,6 +160,7 @@ impl StoreFormat {
             StoreFormat::Grib => Ok(Box::new(crate::grib::Grib::new(ir, objects, keys)?)),
             StoreFormat::Safetensors => Ok(Box::new(crate::safetensors::store::SafetensorsStore::new(ir, objects, keys)?)),
             StoreFormat::Precomputed => Ok(Box::new(crate::precomputed::Precomputed::new(ir, objects, keys))),
+            StoreFormat::Tiff => Ok(Box::new(crate::tiff_set::TiffSet::new(ir, objects, keys)?)),
         }
     }
 }
@@ -495,6 +503,7 @@ pub fn store_output(format: StoreFormat, ir: &Ir, facts: &J, stats: J, url: &str
         StoreFormat::Grib => crate::project::grib::project(ir, facts, url)?,
         StoreFormat::Safetensors => crate::project::safetensors::project_store(ir, facts, url)?,
         StoreFormat::Precomputed => crate::project::precomputed::project(ir, facts, url)?,
+        StoreFormat::Tiff => crate::project::tiff::project_set(ir, facts, url)?,
     };
     crate::shard::refuse(&out)?;
     let mut summary = std::mem::take(&mut out.summary);

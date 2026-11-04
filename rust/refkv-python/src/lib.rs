@@ -375,6 +375,7 @@ impl PyIr {
 fn step_py(r: Result<Step, String>) -> PyResult<Option<Vec<(u64, u64)>>> {
     match r {
         Ok(Step::Read(v)) => Ok(Some(v)),
+        Ok(Step::Beside) => Err(Rejected::new_err("the file names siblings, which a run reads as a store")),
         Ok(Step::Done) => Ok(None),
         Err(e) => Err(Rejected::new_err(e)),
     }

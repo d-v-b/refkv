@@ -244,7 +244,8 @@ Rejected:
   samples (whose bits are differenced as integers), without compression
   (libtiff stores such a file undifferenced) or with JPEG: no codec of refkv's
   conventions sums these back.
-- Multi-file OME-TIFF (`TiffData` naming other files).
+- An image across files with SubIFD levels, or whose strips leave a short last strip
+  ([§7.4](../../../spec/zarrify/tiff.md#74-several-files)).
 - An OME-TIFF with several RGB channels (`SizeC` other than 1 or the
   samples per pixel).
 - More than 100000 IFDs or planes.
@@ -276,7 +277,7 @@ The browser code ([js/](../../../js/README.md)) reads TIFF:
   in the archive as a `data` source.
 
 Not supported, and refused with HTTP 422: what the profile rejects (above),
-such as old-style JPEG, the floating-point predictor, and multi-file OME-TIFF.
+such as old-style JPEG and the floating-point predictor.
 
 ## Performance
 

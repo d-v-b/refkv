@@ -2,6 +2,9 @@
 
 Profiles version: 0 (**draft**)
 
+Changed 2026-11-04: the TIFF profile reads an image across files, on demand
+([tiff.md §7.4](zarrify/tiff.md#74-several-files)); a file that names none has the output it had.
+
 Changed 2026-11-04: a file's siblings have one set of rules, how a profile names, probes, pins and
 bounds them ([§1.9](#19-sources-beside-the-input)). The bounds are new, and reject an input that
 names more than 2^16 files; no input that VSI, NRRD or GRIB accepted names so many, and no other
@@ -97,7 +100,7 @@ The table, generated from the registry, lists them:
 | [QPTIFF](zarrify/qptiff.md#part-2-the-profile) | file | Akoya (PerkinElmer) Vectra QPTIFF slides and inForm component data, a TIFF with an XML description per image, in LZW, JPEG or uncompressed tiles or strips |
 | [Sentinel-2 SAFE](zarrify/safe.md#part-2-the-profile) | file or store | Sentinel-2 Level-1C and Level-2A products: a `.SAFE` directory (a store) or a `.SAFE.zip` file |
 | [safetensors](zarrify/safetensors.md#part-2-the-profile) | file or store | safetensors files of a model's tensors (`model.safetensors`), in every data type the library defines, `BF16`, `F8_*`, `F4` and `F6_*` included; and stores of them, such as a model's repository of shards with its index |
-| [TIFF](zarrify/tiff.md#part-2-the-profile) | file | TIFF and BigTIFF, including OME-TIFF and JPEG-tiled slides such as Aperio SVS |
+| [TIFF](zarrify/tiff.md#part-2-the-profile) | file | TIFF and BigTIFF, including OME-TIFF across files, Micro-Manager stacks and JPEG-tiled slides such as Aperio SVS |
 | [VSI](zarrify/vsi.md#part-2-the-profile) | file | Olympus cellSens VSI slides: a `.vsi` file and the tile files beside it, probed by key (uncompressed, JPEG, JPEG 2000 and lossless JPEG tiles) |
 | [Zarr v2](zarrify/zarr2.md#part-2-the-profile) | store | Zarr v2 hierarchies |
 <!-- /profiles -->
@@ -752,7 +755,8 @@ The VSI ([vsi.md §9](zarrify/vsi.md#9-vsi-profile)), NRRD
 ([grib.md §8](zarrify/grib.md#8-grib-profile)) profiles are chosen by a file input's signature
 ([§1.2](#12-input)), and read the file and the files beside it (a slide's tile files, a
 detached header's data file, a GRIB file's index files) as a store
-([§1.4](#14-store-inputs)). Such a **file read as a store** is read as follows; the profile's
+([§1.4](#14-store-inputs)), and so does the TIFF profile, for an input that names other files
+([tiff.md §7.4](zarrify/tiff.md#74-several-files)). Such a **file read as a store** is read as follows; the profile's
 document says which keys it probes, how it reads each object, and the order of its sources, under
 the rules of [§1.9](#19-sources-beside-the-input).
 

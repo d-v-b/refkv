@@ -6,6 +6,7 @@
 
 pub mod beside;
 pub mod canon;
+pub mod tiff_set;
 pub mod transform;
 pub mod check;
 pub mod coding;
