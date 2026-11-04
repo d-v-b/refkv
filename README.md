@@ -58,7 +58,7 @@ store that xarray opens, through `refkv.zarr` with the `zarr` extra
 
 ## The model
 
-Underneath, the repository defines two things at different levels of abstraction:
+Underneath, the repository defines a value type, and two implementations of it, at different levels of abstraction:
 
 **refkv** is a __reference value type__ for key-value storage:
 a value is either bytes or a reference to byte ranges of other objects, such
@@ -71,6 +71,34 @@ that can tell bytes from references can hold such a store.
 files and refkv references, which can point to byte ranges in external objects,
 and a vzip reader resolves those references before returning bytes. Every
 zarrified hierarchy above is saved as one.
+
+**phkv** is a second implementation of `refkv`, in draft ([spec/bindings/phkv.md](spec/bindings/phkv.md)):
+a refkv store kept in one file with a perfect hash of its keys, so that a lookup
+reads a few ranges of it however many keys it holds. It can also sit inside a vzip
+archive, which keeps the archive readable by ZIP tools.
+
+| | vzip | phkv, standalone | phkv, hybrid |
+|---|---|---|---|
+| the file is | a ZIP archive | a phkv store | a ZIP archive with a phkv store inside |
+| read by ZIP tools | yes | no | yes |
+| read by vzip readers | yes | no | yes, unchanged |
+| finding a key | bisect a page index and scan one page (about 64 KiB), or read the whole central directory | hash the key, read a 12-byte slot, read one record | as phkv readers do, or as vzip readers do |
+| opening plus the first key | 4 requests | 3 requests (about 516 KiB read) | per reader |
+| size, 100,000 single-range references | about 120 bytes per key | about 40 bytes per key | about 160 bytes per key |
+| bytes values | stored or DEFLATE | none, DEFLATE or Zstandard; small values inline in the record | stored or DEFLATE |
+| per-key properties | none | typed columns (`mtime`, `mode`, `media_type`, your own) | for phkv readers |
+| reserved names | `__vz__/` | none | `__vz__/` |
+| reference payload limit | 65,519 bytes | 16 MiB | 65,519 bytes |
+| Python | `refkv.vzip`, `store.save_vzip(path)` | `refkv.phkv`, `store.save_phkv(path)`, `refkv.open(url, binding="phkv")` | not yet |
+| status | provisional, with a conformance suite | draft | draft |
+
+The sizes and request counts are the reference writers' and readers' on the same store
+([spec §16.3](spec/bindings/phkv.md#163-comparison-with-the-zip-binding-informative), [benchmarks](rust/refkv-phkv/bench/RESULTS.md)).
+Write vzip for the widest compatibility, and when ZIP tools or vzip-only readers will read it. Write phkv
+for the smallest file and the fewest requests per lookup, when every reader knows phkv; the hybrid
+keeps both kinds of reader working, at the largest size.
+
+The code in this repository exercises the model by writing vzip archives, and phkv stores from Python and Rust.
 
 ## Documentation
 

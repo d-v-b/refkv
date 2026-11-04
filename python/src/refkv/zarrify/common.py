@@ -25,6 +25,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from email.message import Message
 
+from refkv._files import replacing
 from refkv._narrow import integer, string
 from refkv.errors import ResolutionError
 from refkv.pb import Concat, Range, Source
@@ -118,7 +119,7 @@ class Output:
         return (i, 0, len(value))
 
     def write(self, out_path: str) -> None:
-        with open(out_path, "wb") as fh:
+        with replacing(out_path) as fh:
             w = VZipWriter(fh, page_size=1 << 16, checksum=self.checksum)
             src = w.source(Source(url=self.url, size=self.size, etag=self.etag))
             for value, i in self.data.items():

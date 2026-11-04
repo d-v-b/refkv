@@ -154,9 +154,31 @@ What each step does:
   directory passes a few MB, tens of thousands of keys, save with
   `store.save_vzip("oisst.vzip", page_size=65536)`
   ([spec §12, Page index](../spec/bindings/vzip.md#12-page-index-optional)).
+- **The perfect-hash binding.** For a store of hundreds of thousands of keys,
+  `store.save_phkv("oisst.phkv")` writes the draft phkv binding instead
+  ([spec](../spec/bindings/phkv.md)): a perfect hash of the keys, so that opening
+  the file and reading the first key takes 3 requests of about 516 KiB at 10^5
+  and 10^6 keys, and each later key one or two, fewer than a paged archive takes
+  ([benchmarks](../rust/refkv-phkv/bench/RESULTS.md)).
+  `refkv.open("oisst.phkv", binding="phkv")` and
+  `refkv.zarr.open("oisst.phkv", binding="phkv")` read it with the same options
+  as an archive. It is not a ZIP file, so ZIP tools cannot open it.
 - **Requests.** `refkv.zarr.open(..., max_concurrency=16)` allows more requests in
   flight, and `max_concurrency=None` removes the cap. Respect the host's
   limits.
+- **Many small chunks.** Chunks read at the same time share requests when they lie
+  less than 64 KiB apart in one source file, but zarr asks for only
+  `async.concurrency` chunks at once (10 by default), which limits how many can
+  share one. Raising it makes both fewer requests and a faster read, and opens no
+  more connections, since `max_concurrency` bounds those. The setting is zarr's, and
+  applies to the other stores of the process too:
+
+  ```python
+  with zarr.config.set({"async.concurrency": 1024}):
+      plane = array[0]
+  ```
+
+  At the default, the requests fall by up to tenfold but the read takes about as long.
 
 ## Publishing
 

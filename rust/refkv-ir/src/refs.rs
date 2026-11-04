@@ -28,6 +28,10 @@ pub struct Refs<'a> {
     seen: HashSet<(u64, u64, u64)>,
     limits: [u64; 2],
     spent: [u64; 2],
+    /// of a store IR: each element's object (`in_object_of`)
+    sources: Option<crate::ir::Sources>,
+    /// the object the ranges being added are of, and its virtual offset
+    object: Option<(String, u64)>,
 }
 
 const WHAT: [&str; 2] = ["refs", "repeats"];
@@ -54,7 +58,36 @@ impl<'a> Refs<'a> {
             seen: HashSet::new(),
             limits: [(1 << 22) + 4 * ir.size, 1 << 20],
             spent: [0, 0],
+            sources: None,
+            object: None,
         }
+    }
+
+    /// The ranges added from now on are of the object that holds element `e`, when the IR is a
+    /// store's (conventions §8.9
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>); a file IR's stay
+    /// ranges of source 0.
+    pub fn in_object_of(&mut self, e: u32) {
+        if !self.ir.store {
+            return;
+        }
+        let ir = self.ir;
+        let sources = self.sources.get_or_insert_with(|| ir.sources());
+        self.object = sources.of.get(e as usize).filter(|&&o| o != crate::ir::NONE)
+            .map(|&o| (ir.key(o), sources.base[o as usize]));
+    }
+
+    fn base(&self) -> u64 {
+        self.object.as_ref().map_or(0, |o| o.1)
+    }
+
+    /// `parts` as ranges of the object they are of (`in_object_of`).
+    fn placed(&self, parts: Vec<Part>) -> Vec<Part> {
+        let Some((key, _)) = &self.object else { return parts };
+        parts.into_iter().map(|p| match p {
+            Part::Src(o, n) => Part::Obj(key.clone(), o, n),
+            p => p,
+        }).collect()
     }
 
     fn charge(&mut self, k: usize) -> Result<(), String> {
@@ -89,13 +122,39 @@ impl<'a> Refs<'a> {
     /// `form`), or `parts` of it, piece `piece`.
     pub fn chunk(&mut self, key: String, start: u64, length: u64, form: u32, parts: Option<Vec<Part>>, piece: u64) -> Result<(), String> {
         self.charge(0)?;
-        if !self.seen.insert((start, length, piece)) {
+        if !self.seen.insert((self.base() + start, length, piece)) {
             self.charge(1)?;
         }
         let parts = match parts {
             Some(p) => p,
             None => self.parts(start, length, form)?,
         };
+        let parts = self.placed(parts);
+        if payload_size(&parts) > MAX_PAYLOAD {
+            return Err(format!("{key}: a reference payload of more than {MAX_PAYLOAD} bytes"));
+        }
+        self.out.refs(&key, parts);
+        Ok(())
+    }
+
+    /// The chunk `key` is the elements `strips` (start, length, form), each charged as `chunk`
+    /// charges one, in order and with the ranges that meet merged, then `tail`.
+    pub fn joined(&mut self, key: String, strips: &[(u64, u64, u32)], tail: Option<Part>) -> Result<(), String> {
+        let mut parts: Vec<Part> = Vec::new();
+        for &(start, length, form) in strips {
+            self.charge(0)?;
+            if !self.seen.insert((self.base() + start, length, 0)) {
+                self.charge(1)?;
+            }
+            for part in self.parts(start, length, form)? {
+                match (parts.last_mut(), &part) {
+                    (Some(Part::Src(o, n)), Part::Src(a, b)) if *o + *n == *a => *n += *b,
+                    _ => parts.push(part),
+                }
+            }
+        }
+        parts.extend(tail);
+        let parts = self.placed(parts);
         if payload_size(&parts) > MAX_PAYLOAD {
             return Err(format!("{key}: a reference payload of more than {MAX_PAYLOAD} bytes"));
         }
@@ -127,6 +186,43 @@ mod tests {
         let whole = vec![Part::Src(14, 16), Part::Src(10, 2), Part::Data(1, 0, 4)];
         assert_eq!(refs.out.refs, vec![("a".into(), whole.clone()), ("b".into(), vec![Part::Src(10, 5)]), ("c".into(), whole)]);
         assert_eq!(refs.out.data, vec![b"tail".to_vec()]);
+    }
+
+    #[test]
+    fn joined_merges_the_ranges_that_meet() {
+        let mut ir = Ir::new(100);
+        ir.forms.id(r#"{"recipe":[["src",0,null]]}"#);
+        let mut refs = Refs::new(&ir, Out::new("u"));
+        let cases: [(&str, &[(u64, u64, u32)], Option<Part>, Vec<Part>); 4] = [
+            ("contiguous", &[(0, 4, 0), (4, 4, 0), (8, 4, 0)], None, vec![Part::Src(0, 12)]),
+            ("a gap", &[(0, 4, 0), (10, 4, 0)], None, vec![Part::Src(0, 4), Part::Src(10, 4)]),
+            ("out of order", &[(10, 4, 0), (0, 4, 0)], None, vec![Part::Src(10, 4), Part::Src(0, 4)]),
+            ("a tail", &[(20, 4, 0), (24, 4, 0)], Some(Part::Data(1, 0, 8)), vec![Part::Src(20, 8), Part::Data(1, 0, 8)]),
+        ];
+        for (key, strips, tail, want) in cases {
+            refs.joined(key.into(), strips, tail).unwrap();
+            assert_eq!(refs.out.reference(key), Some(want.as_slice()), "{key}");
+        }
+        // each strip is charged, and a strip used again is a repeat
+        assert_eq!(refs.spent, [9, 3]);
+    }
+
+    #[test]
+    fn rejects_a_joined_chunk_past_the_budget() {
+        let mut ir = Ir::new(100);
+        ir.forms.id(r#"{"recipe":[["src",0,null]]}"#);
+        let mut refs = Refs::new(&ir, Out::new("u"));
+        refs.limits[0] = 2;
+        assert_eq!(refs.joined("k".into(), &[(0, 4, 0), (4, 4, 0), (8, 4, 0)], None), Err("budget: more than 2 refs".into()));
+    }
+
+    #[test]
+    fn rejects_a_joined_chunk_whose_payload_is_past_the_limit() {
+        let mut ir = Ir::new(1 << 40);
+        ir.forms.id(r#"{"recipe":[["src",0,null]]}"#);
+        let mut refs = Refs::new(&ir, Out::new("u"));
+        let strips: Vec<_> = (0..8192).map(|k| (k << 30, 1 << 20, 0)).collect();
+        assert_eq!(refs.joined("k".into(), &strips, None), Err("k: a reference payload of more than 65519 bytes".into()));
     }
 
     #[test]

@@ -8,6 +8,7 @@ from helpers import zarrify
 import refkv.zarr
 from refkv.pb import Concat
 from refkv.shards import write_vzip_sharded
+from refkv.vzip.archive import VZipWriter
 from refkv.vzip.store import VZipStore
 
 
@@ -41,3 +42,21 @@ def test_shard_spanning_files_rejected(netcdf_files, tmp_path):
                     compat="override", data_vars="all")
     with pytest.raises(ValueError, match="spans 2 files"):
         write_vzip_sharded(vds, tmp_path / "x.vzip", {"temp": (8, 2, 2), "mask": (4, 3, 4)})
+
+
+def test_a_failed_write_keeps_the_previous_file(netcdf_files, tmp_path, monkeypatch):
+    def refuse(_self):
+        raise ValueError("refused")
+
+    paths, _ = netcdf_files
+    vds = xr.concat([zarrify(p) for p in paths], dim="time", coords="minimal",
+                    compat="override", data_vars="all")
+    out = tmp_path / "written"
+    out.mkdir()
+    path = out / "x.vzip"
+    path.write_bytes(b"previous")
+    monkeypatch.setattr(VZipWriter, "close", refuse)
+    with pytest.raises(ValueError, match="refused"):
+        write_vzip_sharded(vds, path, {"temp": (4, 2, 2), "mask": (4, 3, 4)})
+    assert path.read_bytes() == b"previous"
+    assert [p.name for p in out.iterdir()] == ["x.vzip"]

@@ -4,7 +4,6 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
 mod python
-mod python-phkv
 mod js
 mod impls "conformance/impls"
 
@@ -16,7 +15,7 @@ default:
 
 # Test the Python package (python/src/refkv; it zarrifies every format of docs/zarrify/README.md with the Rust core, built first)
 test *args: ir-build
-    uv run pytest -q python/tests python-phkv/tests {{args}}
+    uv run pytest -q python/tests {{args}}
 
 # Build refkv (python/: the package, with its bindings to the IR core rust/refkv-ir, the
 # parsers, the read planner, the projections and the mirror, as the module refkv._core) into
@@ -105,6 +104,14 @@ lint:
 # preset for the package; the tests and scripts checked with what they leave unannotated as Any)
 typecheck:
     uv run pyrefly check
+
+# Run before every push what CI's `sections` job runs (.github/workflows/ci.yml): the section checks
+# against a freshly fetched origin/main, lint and typecheck
+preflight:
+    git fetch --no-tags origin main
+    just sections origin/main
+    just lint
+    just typecheck
 
 # Regenerate what derives from the profile registry, spec/zarrify/profiles/<name>.json (the one
 # place a profile's identity is written, one file per profile): the Rust core's copies, and the

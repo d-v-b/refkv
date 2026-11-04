@@ -42,7 +42,6 @@ jobs:
           workspaces: |
             rust/refkv-ir
             rust/refkv-python
-            rust/refkv-phkv-python
       - run: uv sync --all-groups --locked
       # restored and saved in two steps: actions/cache saves only after a job that passed, and a
       # night that fails must still keep the blocks it fetched, or the next one fetches them again
@@ -136,7 +135,6 @@ jobs:
           workspaces: |
             rust/refkv-ir
             rust/refkv-python
-            rust/refkv-phkv-python
       # binaryen's wasm-opt shrinks the wasm32 module (rust/refkv-ir/wasm/build.sh; optional)
       - run: sudo apt-get install -y --no-install-recommends binaryen
       - run: uv sync --all-groups --locked
@@ -205,7 +203,6 @@ jobs:
           workspaces: |
             rust/refkv-ir
             rust/refkv-python
-            rust/refkv-phkv-python
       # binaryen's wasm-opt shrinks the wasm32 module (rust/refkv-ir/wasm/build.sh; optional)
       - run: sudo apt-get install -y --no-install-recommends binaryen
       - run: uv sync --all-groups --locked

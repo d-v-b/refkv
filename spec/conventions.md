@@ -25,7 +25,10 @@ decodes packing 5.40, JPEG 2000 of the reversible 5/3 transform, where it was an
 ([§12](#12-grib-messages)). Changed 2026-11-01, with no change to any output:
 the document cites its own sections as `§n` links. Changed 2026-11-03, with no change to any
 output: [§2](#2-attributes), [§3](#3-arrays) and [§7](#7-source-values-as-arrays) name what the
-formats' documents already say of their attributes, arrays, codecs and fill values.)
+formats' documents already say of their attributes, arrays, codecs and fill values. Changed
+2026-11-04, with no change to any output: a node's attributes may hold other conventions'
+members, such as [spec/provenance.md](provenance.md)'s on the root, which each convention's JSON
+Schema accepts ([§2](#2-attributes)).)
 
 <!-- profiles:conventions-table -->
 | format | convention | UUID |
@@ -197,7 +200,14 @@ node, translated by [§6](#6-source-metadata-as-json).
 
 There are no other members. The property holds no time and nothing about the program that
 made the hierarchy, so that two conforming producers make equivalent
-hierarchies from the same source.
+hierarchies from the same source. A separate convention records the program, on the root
+only: [spec/provenance.md](provenance.md), whose member and CMO are not part of the output.
+
+**Other attributes.** A node's attributes MAY hold members of other conventions beside a
+`Declaration`, and their CMOs in `zarr_conventions`, also where a format's layout says the
+node's attributes are a `Declaration` and nothing else; that layout is what a producer of the
+format writes. A reader ignores the members it does not know, and each convention's JSON Schema
+accepts them without checking them.
 
 **The source metadata node.** A file format's metadata that grows with the
 data (one item per frame, plane or channel), and the source's values kept as

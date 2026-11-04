@@ -50,6 +50,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict, Unpack, override
 
+from refkv._files import replacing
 from refkv.bounds import Bound, derive
 from refkv.bounds import check as check_bounds
 from refkv.errors import ResolutionError
@@ -127,62 +128,6 @@ def bulk() -> Generator[None]:
 
 # An absolute URL's scheme and authority (RFC 3986 §3)
 _ORIGIN = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://[^/?#]*")
-
-
-def sources_to_save(
-    sources: Sequence[Source],
-    path: str | os.PathLike[str],
-    *,
-    relative_to: str | None = None,
-    policy: Policy | None = None,
-) -> list[Source]:
-    """The source table to write for a store saved at the local `path`: `sources`, with the URLs
-    under the prefix `relative_to` made relative to `path`, each checked against the reader
-    policy `policy` (default `Policy()`, the default reader's), as a reader of the saved store
-    would resolve it. A source the policy refuses raises ResolutionError (a ValueError), and the
-    caller writes nothing. Every binding's writer applies this check: `ReferenceStore.save_vzip`
-    for a vzip archive, and `refkv_phkv.save` for a phkv store."""
-    path = os.fspath(path)
-    base = file_uri(path)
-    sources = list(sources)
-    if relative_to:
-        sources = [dataclasses.replace(s, url=s.url.removeprefix(relative_to))
-                   if s.url is not None and s.url.startswith(relative_to) else s
-                   for s in sources]
-    check = policy or Policy()
-    refused = []
-    # Without a prefix list, the policy decides a valid absolute URL by its scheme and
-    # host alone: one check per origin, not per source (a store has a source per
-    # object). Each URL is still checked to be a URI reference, as resolving it does.
-    by_origin: dict[str, str | None] = {}
-    cache = check.prefixes is None and type(check).check is Policy.check  # not a subclass's own check
-    for s in sources:
-        if s.url is None:
-            continue
-        origin = _ORIGIN.match(s.url) if cache else None
-        if origin is not None and origin[0] in by_origin and is_uri_reference(s.url):
-            error = by_origin[origin[0]]
-        else:
-            try:
-                resolved = resolve_reference(base, s.url)
-            except ValueError as e:  # not a URI reference: its own error, not its origin's
-                error = str(e)
-            else:
-                try:
-                    check.check(base, resolved)
-                    error = None
-                except (ResolutionError, ValueError) as e:
-                    error = str(e)
-                if origin is not None:
-                    by_origin[origin[0]] = error
-        if error is not None:
-            refused.append(error)
-    if refused:
-        whose = "the default reader policy" if policy is None else "the reader policy given"
-        raise ResolutionError(f"not saving {path}: {whose} refuses {len(refused)} of its "
-                              f"{len(sources)} sources, so a reader could not read them. "
-                              f"The first: {refused[0]}")
-    return sources
 
 
 def _rewrite(rewrite_urls: Mapping[str, str] | Callable[[str], str | None] | None) -> Callable[[str], str]:
@@ -447,6 +392,50 @@ class ReferenceStore(ReferenceReader):
 
     # ------------------------------------------------------------ persistence
 
+    def _sources_to_save(self, path: str, relative_to: str | None, policy: Policy | None) -> list[Source]:
+        """The source table to write at `path`, with `relative_to` taken off the URLs under it, after
+        checking that the reader policy accepts every source: a ResolutionError otherwise."""
+        base = file_uri(path)
+        sources = self._sources
+        if relative_to:
+            sources = [dataclasses.replace(s, url=s.url.removeprefix(relative_to))
+                       if s.url is not None and s.url.startswith(relative_to) else s
+                       for s in sources]
+        check = policy or Policy()
+        refused = []
+        # Without a prefix list, the policy decides a valid absolute URL by its scheme and
+        # host alone: one check per origin, not per source (a store has a source per
+        # object). Each URL is still checked to be a URI reference, as resolving it does.
+        by_origin: dict[str, str | None] = {}
+        cache = check.prefixes is None and type(check).check is Policy.check  # not a subclass's own check
+        for s in sources:
+            if s.url is None:
+                continue
+            origin = _ORIGIN.match(s.url) if cache else None
+            if origin is not None and origin[0] in by_origin and is_uri_reference(s.url):
+                error = by_origin[origin[0]]
+            else:
+                try:
+                    resolved = resolve_reference(base, s.url)
+                except ValueError as e:  # not a URI reference: its own error, not its origin's
+                    error = str(e)
+                else:
+                    try:
+                        check.check(base, resolved)
+                        error = None
+                    except (ResolutionError, ValueError) as e:
+                        error = str(e)
+                    if origin is not None:
+                        by_origin[origin[0]] = error
+            if error is not None:
+                refused.append(error)
+        if refused:
+            whose = "the default reader policy" if policy is None else "the reader policy given"
+            raise ResolutionError(f"not saving {path}: {whose} refuses {len(refused)} of its "
+                                  f"{len(sources)} sources, so a reader could not read them. "
+                                  f"The first: {refused[0]}")
+        return sources
+
     def save(
         self,
         path: str | os.PathLike[str],
@@ -477,7 +466,8 @@ class ReferenceStore(ReferenceReader):
         `Summary` of it. `refkv.open(path)` reads it back with the same values.
 
         The entries are written in the store's order (see the class), the bytes
-        values of `compressed` DEFLATE-compressed.
+        values of `compressed` DEFLATE-compressed. The archive replaces a file at `path` only once
+        it is complete: a save that raises leaves that file as it was.
 
         - `page_size`: the store's `page_size` by default. None writes no page index, and a reader
           then loads the whole central directory, about 125 bytes per key, when
@@ -508,13 +498,13 @@ class ReferenceStore(ReferenceReader):
           `Policy(schemes={"s3"})`.
         """
         path = os.fspath(path)
-        sources = sources_to_save(self._sources, path, relative_to=relative_to, policy=policy)
+        sources = self._sources_to_save(path, relative_to, policy)
         page_size = self._page_size if page_size is ... else _page_size(page_size)
         from refkv.vzip.archive import VZipWriter  # noqa: PLC0415 (`import refkv` imports no ZIP code)
 
         refs = 0
-        with bulk(), open(path, "wb") as f, VZipWriter(f, mirror_refs=mirror_refs,
-                                                       page_size=page_size) as w:
+        with bulk(), replacing(path) as f, VZipWriter(f, mirror_refs=mirror_refs,
+                                                      page_size=page_size) as w:
             index = [w.source(s) for s in sources]  # equal sources share an index
             for k, v in self._values.items():
                 if isinstance(v, bytes):
@@ -539,19 +529,45 @@ class ReferenceStore(ReferenceReader):
         page_size: int = 4096,
         relative_to: str | None = None,
         policy: Policy | None = None,
+        mirror_refs: None = None,
     ) -> Summary:
-        """Write the store as a phkv store at the local `path`, and return a `Summary` of it:
-        `refkv_phkv.save(self, path, ...)`, with the same arguments. The perfect-hash binding is
-        the distribution `refkv-phkv` (`pip install refkv-phkv`), which `refkv` does not import
-        until this is called; without it, this raises ImportError. `refkv.open(path,
-        binding="phkv")` reads the result back."""
-        try:
-            import refkv_phkv  # noqa: PLC0415 (`import refkv` imports no phkv code)
-        except ImportError as e:
-            raise ImportError("ReferenceStore.save_phkv needs the refkv-phkv distribution: "
-                              "pip install refkv-phkv") from e
-        return refkv_phkv.save(self, path, inline_max=inline_max, page_size=page_size,
-                               relative_to=relative_to, policy=policy)
+        """Write the store as a standalone phkv store (spec/bindings/phkv.md
+        <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md>) at the local `path`, and
+        return a `Summary` of it. `refkv.phkv.open(path)` reads it back with the same values. A
+        lookup in a phkv store reads a few ranges of the file, however many keys it holds, where
+        a vzip archive reads a page of its directory (see `save_vzip`).
+
+        The bytes values of `compressed` are DEFLATE-compressed. A phkv store reserves no names,
+        so the hidden values this store keeps under `__vz__/` are written as ordinary keys.
+        The store replaces a file at `path` only once it is complete: a save that raises leaves that
+        file as it was.
+
+        - `inline_max`: a value whose stored bytes are at most this long is kept in its record,
+          so that the lookup that finds the key reads it too.
+        - `page_size`: about how many bytes of records each page of the page index holds.
+        - `relative_to`, `policy`: as for `save_vzip`.
+        - `mirror_refs`: `save_vzip`'s option has no meaning here, since a reference's record is its
+          payload: any value other than None is a ValueError.
+        """
+        if mirror_refs is not None:
+            raise ValueError("a phkv store has no mirror_refs: a reference's record is its payload")
+        path = os.fspath(path)
+        sources = self._sources_to_save(path, relative_to, policy)
+        from refkv.phkv.writer import PhkvWriter  # noqa: PLC0415 (`import refkv` imports no phkv code)
+
+        refs = 0
+        with bulk(), replacing(path) as f, PhkvWriter(f, inline_max=inline_max, page_size=page_size) as w:
+            index = [w.source(s) for s in sources]  # equal sources share an index
+            for k, v in self._values.items():
+                if isinstance(v, bytes):
+                    w.add_bytes(k, v, codec="deflate" if k in self._compressed else None)
+                else:
+                    w.add_ranges(k, [r if r.data is not None or index[r.source] == r.source else
+                                     dataclasses.replace(r, source=index[r.source])
+                                     for r in parts(v)])
+                    refs += 1
+            n_sources = w.n_sources
+        return Summary(path, len(self._keys), refs, n_sources, Path(path).stat().st_size)
 
     # ------------------------------------------------------------ reading
 
@@ -580,6 +596,11 @@ class ReferenceStore(ReferenceReader):
             return v[start:end]
         start, end = _abs_range(v.size, request)
         return await self._ref_bytes(v, start, end)
+
+    @override
+    async def _value_size(self, key: str) -> int | None:
+        v = self._visible(key)
+        return None if v is None else len(v) if isinstance(v, bytes) else v.size
 
     @override
     async def classify_async(self, key: str) -> Kind:

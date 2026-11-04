@@ -18,7 +18,8 @@ stores use and zarr-python lacks (`refkv.zarr.codecs`, one module per codec, whi
 zarr also finds through refkv's `zarr.codecs` entry points, without this import;
 the `refkv.tiff_lzw` codec's decoder needs the `images` extra, which also installs
 imagecodecs-zarr's JPEG, JPEG 2000 and JPEG XR codecs, the `refkv.stream` codec's
-the `media` extra), and turns on
+the `media` extra, and those of some of the `refkv.precomputed` codec's encodings the
+`precomputed` extra), and turns on
 zarr-python's `array.rectilinear_chunks`, which the zarr-extensions `rectilinear` chunk
 grid of some archives' arrays needs (an MP4 file's video planes, a clipped CZI level).
 
@@ -30,6 +31,11 @@ infinity or −0 is a string in the archive, such as `"NaN"`. The store decodes 
 serves each as the float zarr-python and hdmf-zarr write (the literal `NaN`), so that pynwb's
 `NWBZarrIO` reads a `rate` of NaN as a number; a string attribute `"NaN"` stays a string.
 Every other value is the archive's, as it is; `reader` gives the archive's own bytes.
+
+Zarr asks for each chunk with a `get` of its own, at most `async.concurrency` at once. The chunks
+waiting at the same time share requests, under the reference store (`ReferenceReader`), so raising
+that setting reads many small chunks in few requests, and no more connections than the store's
+`max_concurrency`.
 """
 
 from __future__ import annotations
@@ -214,6 +220,17 @@ class ZarrStore(Store):
 
     async def exists(self, key: str) -> bool:
         return await self.reader.classify_async(key) != "missing"
+
+    @override
+    async def getsize(self, key: str) -> int:
+        """The size of `key`'s value, from its reference's ranges: zarr's default reads the whole
+        value, which is a shard's whole read for the size of the HTTP server's suffix range."""
+        if key == "zarr.json" or key.endswith("/zarr.json"):
+            return await super().getsize(key)  # rewritten when read
+        size = await self.reader._value_size(key)  # noqa: SLF001 (the reference store's size)
+        if size is None:
+            raise FileNotFoundError(key)
+        return size
 
     async def list(self) -> AsyncIterator[str]:
         async for k in self.reader.list_async(""):

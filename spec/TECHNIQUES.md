@@ -57,6 +57,8 @@ own with a standard codec. The same few techniques recur:
 | the whole array is one compressed stream with no index of its blocks (a gzip-encoded NRRD) | one chunk of the whole array, referencing the stream, decoded by the `gzip` codec: coarse, but nothing is copied | NRRD (`gzip`) |
 | the unit is too large to be a chunk (one JPEG strip per level) | cut it at the format's own resynchronization points (restart markers), and rewrite each piece's header as literal bytes | NDPI |
 | rows have padding | one byte range per row, gathered into one chunk | ND2 |
+| the unit is too small to be a chunk (a strip of one row, so a key a row), and is uncompressed | several units as one chunk: one range where they are contiguous, a range each where they are not, up to a limit in bytes and in units | TIFF uncompressed strips |
+| the unit is too small to be a chunk, and is its own compressed stream, or a read of part of a larger chunk should stay cheap | **a virtual shard**: the units are inner chunks of the stock `sharding_indexed` codec, and one reference holds their ranges and a literal index, with no new codec and nothing decoded | TIFF LZW, Deflate and zstd strips; FLAC frames |
 | units carry a per-unit header | a codec that parses it, rather than layout tricks | N5 (`n5_default`) |
 | units are too many to reference (a billion chunks), but groups of them are regular boxes of the grid with an index of their own | one reference per group, whole, and a codec that reads the group's own index when a unit is read: the output comes from the listing alone | Neuroglancer precomputed (`refkv.precomputed`) |
 | a unit's decoded shape depends on where it lies, which a codec is not told (a chunk clipped by the volume's end) | a small literal before each reference that gives its position, read for no request | Neuroglancer precomputed |
@@ -73,6 +75,16 @@ own with a standard codec. The same few techniques recur:
 | edge units are truncated or padded | a codec that tolerates it (N5), or stores matching Zarr's whole-edge rule (HDF5); chunks wholly outside the image are dropped | N5, IMS |
 | units are missing | no entry: the chunk reads as the fill value | ND2 missing frames, HDF5 unallocated chunks, sparse Zarr |
 | the source's key scheme | a chunk key encoding that reproduces it | Zarr v2 and N5 via the `v2` encoding |
+
+**Reach for a virtual shard first when units are small and many**
+([zarrify §2.1](zarrify.md#21-virtual-shards)). It is the only technique here that gathers units
+without changing how each one decodes, so it needs no new codec and works for compressed units,
+which joining cannot do. A key per unit costs about 100 bytes of an archive; a unit in a shard costs
+16, plus its range when it does not meet the one before. A partial read stays exact. What it does not
+do is make every reader cheaper: a reader that fetches one inner chunk at a time asks its store for
+as many values as before, and only a store that merges reads spares the source. The limit is the 65,519-byte payload of a reference, which rules it out at the scale of a
+Neuroglancer precomputed shard ([precomputed](zarrify/precomputed.md)), and it needs a regular grid
+of units that share a shape.
 
 A format whose units can't be made to decode independently (multi-file
 series, TILED_SPARSE) is rejected rather than approximated. (LZW tiles and

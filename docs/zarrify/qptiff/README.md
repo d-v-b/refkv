@@ -124,11 +124,8 @@ fields, for example) zarrifies the same way.
 ## Viewing
 
 The Neuroglancer fork refkv's demo uses decodes `imagecodecs_jpeg`, so JPEG
-scans render there. It decodes LZW under the name `imagecodecs_lzw`
-([d-v-b/neuroglancer#6](https://github.com/d-v-b/neuroglancer/pull/6)), which
-archives named before d-v-b/refkv#90, and not yet `refkv.tiff_lzw`, so LZW scans
-render there once the fork registers that name too; zarr-python reads both
-(above).
+scans render there. It decodes LZW as `refkv.tiff_lzw`, so LZW scans render there too, and as
+`imagecodecs_lzw`, which archives named before d-v-b/refkv#90; zarr-python reads both (above).
 
 ## Supported and not supported
 
