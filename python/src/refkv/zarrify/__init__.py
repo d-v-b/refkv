@@ -234,8 +234,12 @@ async def _zarrify_async(location: str, url: str | None = None, *, checksums: bo
     if fmt in BESIDE:
         return await _zarrify_beside_async(fmt, location, url, transport, checksums=checksums, policy=policy,
                                            connections=connections)
-    found, out, _ = await ir.zarrify_async(location, url, transport=transport, connections=connections,
-                                           byte_cost=byte_cost, fmt=fmt, layouts=names, checksums=checksums)
+    try:
+        found, out, _ = await ir.zarrify_async(location, url, transport=transport, connections=connections,
+                                               byte_cost=byte_cost, fmt=fmt, layouts=names, checksums=checksums)
+    except ir.Beside as e:
+        return await _zarrify_beside_async(e.args[0], location, url, transport, checksums=checksums, policy=policy,
+                                           connections=connections)
     if checksums:
         out.checksum = lambda _u, offset, length: crc32c(transport.get(offset, offset + length))
     return found, out

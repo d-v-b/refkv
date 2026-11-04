@@ -34,6 +34,15 @@ export function rejection(w: IrExports, r: number): ImageError {
 /** Zarrifies `source` (the file at `url`) as `format`; the output's format is the run's
  * (a TIFF the core finds to be NDPI is "ndpi", or QPTIFF "qptiff"). A file the core refuses is an
  * ImageError; a source that cannot be read, its own error. */
+/** A file that names siblings (spec/zarrify.md §1.9
+ * <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>): the
+ * caller starts over with a store run of the format. */
+export class NamesSiblings extends Error {
+  constructor(readonly format: string) {
+    super(`a ${format} file that names siblings is read as a store`);
+  }
+}
+
 export async function zarrifyIr(
   format: IrFormat,
   url: string,
@@ -62,6 +71,7 @@ export async function zarrifyIr(
       if (r === 0) break;
       await perform(w, p, source, decodeRequests(out(w, r - 1)), options.signal);
     }
+    if (w.vz_run_beside(p) !== 0) throw new NamesSiblings(format);
     live = false; // vz_run_output consumes the run
     const u = utf8.encode(url);
     // bit 0: mirror; bit 1: the ranges will carry checksums, so a shard's are not joined
