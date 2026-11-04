@@ -675,9 +675,8 @@ the IMS profile alone.
 ### 4.1 Choosing the profile
 
 The signature is bytes 0–7, `89 48 44 46 0D 0A 1A 0A`, at IMS's precedence,
-70. Version 0 does not search for a superblock at 512, 1024, … (a user
-block). A file with a user block is rejected by its first bytes, as
-today.
+70. A later change searched for a superblock at 512, 1024, … (a user
+block): [spec/zarrify/hdf5.md §8](../../spec/zarrify/hdf5.md#8-hdf5-profile).
 
 ### 4.2 Reading
 
@@ -1021,4 +1020,4 @@ These are recommended answers; the convention states whatever is decided.
     version 0 and states its extensions. Moving the text into `hdf5.md`,
     with ims.md citing it, is an editorial change after both are settled.
 13. **User blocks** (the superblock at 512, 1024, …). **Decision:**
-    rejected in version 0, as today. None of the corpus has one.
+    rejected in version 0. JPSS VIIRS files have one, and a later change reads them.

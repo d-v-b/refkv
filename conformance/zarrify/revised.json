@@ -30,6 +30,7 @@
     "predictor_tcyx_uint16_lzw.ome.tif",
     "predictor_zstd_int16.tif",
     "ims_reject_not_imaris.ims",
+    "ims_user_block.ims",
     "n5_reject_objects_collision",
     "zarr2_reject_objects_collision",
     "dicom_ljpeg_mono16_bot.dcm",
