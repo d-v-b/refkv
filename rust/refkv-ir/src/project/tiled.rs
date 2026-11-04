@@ -8,7 +8,7 @@
 use super::contiguous::Zeros;
 use super::{arr, key, n, obj, strs, translations, truthy, window, Copied};
 use crate::ir::Ir;
-use crate::out::{array_json, image_ome, tiff_codecs, transpose_codec, Out, Part};
+use crate::out::{array_json, image_ome, rectilinear_array_json, tiff_codecs, transpose_codec, Out, Part};
 use crate::refs::Refs;
 use serde_json::{json, Value as J};
 use std::collections::HashMap;
@@ -53,7 +53,7 @@ pub fn arrays(ir: &Ir, facts: &J, url: &str, only: Option<usize>, shape: impl Fn
     let mut codecs = if contig(facts) { vec![transpose_codec(&axes)] } else { vec![] };
     // `x` in stored order: the last axis, or the one before the samples when they are interleaved
     let x = axes.len() - if contig(facts) { 2 } else { 1 };
-    codecs.extend(tiff_codecs(n(&facts["compression"]), n(&facts["predictor"]), n(&facts["bits"]),
+    codecs.extend(tiff_codecs(n(&facts["compression"]), n(&facts["predictor"]), n(&facts["bits"]), n(&facts["spp"]),
                               facts["little"].as_bool().unwrap_or(false), x));
     let codecs = J::Array(codecs);
     let data_type = data_type(facts)?;
@@ -65,11 +65,32 @@ pub fn arrays(ir: &Ir, facts: &J, url: &str, only: Option<usize>, shape: impl Fn
             continue;
         }
         let (shape, chunk) = shape(lv);
-        refs.out.json(&format!("{li}/zarr.json"), &array_json(&shape, &data_type, json!(chunk), codecs.clone(), &axes));
+        let doc = if lv["rectilinear"].as_bool().unwrap_or(false) {
+            rectilinear_array_json(&shape, &data_type, &short_last_strip(&axes, &chunk, n(&lv["h"])), codecs.clone(), &axes)
+        } else {
+            array_json(&shape, &data_type, json!(chunk), codecs.clone(), &axes)
+        };
+        refs.out.json(&format!("{li}/zarr.json"), &doc);
         shapes.push(shape);
         tiles(&mut refs, li, lv)?;
     }
     Ok((refs.out, shapes))
+}
+
+/// The chunk lengths of a level of `h` rows whose last strip is short, for the `rectilinear` grid
+/// (spec/zarrify/tiff.md §4.5
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>): along `y`, a run of
+/// full strips and the short one; along every other axis, the chunk's length.
+fn short_last_strip(axes: &[&str], chunk: &[u64], h: u64) -> J {
+    let lengths = axes.iter().zip(chunk).map(|(a, &k)| {
+        if *a != "y" {
+            return json!(k);
+        }
+        let full = (h - 1) / k;
+        let last = h - full * k;
+        if full > 1 { json!([[k, full], last]) } else { json!([k, last]) }
+    });
+    J::Array(lengths.collect())
 }
 
 /// The chunks of one IFD's tiles, the members of its element `e` (none without one): member k
@@ -207,5 +228,9 @@ pub fn ome(facts: &J, axes: &[&str], name: Option<&J>) -> Result<J, String> {
 /// The root's source metadata: the byte order, and whether the file is a BigTIFF.
 pub fn own(facts: &J) -> J {
     let little = facts["little"].as_bool().unwrap_or(false);
-    json!({"byte_order": if little { "little" } else { "big" }, "bigtiff": facts["bigtiff"]})
+    let mut own = json!({"byte_order": if little { "little" } else { "big" }, "bigtiff": facts["bigtiff"]});
+    if !facts["micromanager"].is_null() {
+        own["micromanager"] = facts["micromanager"].clone();
+    }
+    own
 }

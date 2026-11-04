@@ -9,6 +9,9 @@ accepts, is the NIfTI profile, [Part 2](#part-2-the-profile) below.
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `06e5809d-4d54-4b72-afd0-6bf61a7b4c85` ·
 Schema: [schema.json](nifti/schema.json)
 
+Changed 2026-11-04: COMPLEX64 and COMPLEX128 voxels are `complex64` and `complex128` arrays
+([§3](#3-data-types)), where the profile rejected them; COMPLEX256 is still rejected.
+
 Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
 [Layout](#layout) and its types in type tables
 ([conventions §11.5](../conventions.md#115-layout-tables)).
@@ -185,11 +188,15 @@ dimensions 6 and 7 have size 1. `v` is `vox_offset` as an integer.
 | 768 | UINT32 | `uint32` | 4 | 1 |
 | 1024 | INT64 | `int64` | 8 | 1 |
 | 1280 | UINT64 | `uint64` | 8 | 1 |
+| 32 | COMPLEX64 | `complex64` | 8 | 1 |
+| 1792 | COMPLEX128 | `complex128` | 16 | 1 |
 | 128 | RGB24 | `uint8` | 3 | 3 |
 | 2304 | RGBA32 | `uint8` | 4 | 4 |
 
 RGB24 and RGBA32 are the **color** data types: each voxel is its samples
-(red, green, blue and, for RGBA32, alpha) in consecutive bytes. The file's
+(red, green, blue and, for RGBA32, alpha) in consecutive bytes. COMPLEX64 and
+COMPLEX128 are the **complex** data types: a voxel is its real part, then its
+imaginary part, each a binary32 or a binary64 in the file's byte order. The file's
 voxel data is `X × Y × Z × T × C × b` bytes at offset `v`, `x` varying
 fastest, then `y`, `z`, `t` and `k`, the index along dimension 5.
 
@@ -221,6 +228,7 @@ axes before the cut axis, whole along those after) and the bytes of each chunk.
 | `shape` | array of integer | required | `T`, `C` (the samples per voxel for a color type), `Z`, `Y` and `X`, each only for the axes present |
 | `data_type` | string | required | from [§3](#3-data-types) |
 | `chunk_grid` | object | required | regular, its chunk shape `V`'s chunk shape, each axis's size in the array's axis order |
+| `fill_value` | number or array of number | required | 0, or `[0, 0]` for a complex data type |
 | `codecs` | array of object | required | when the axes of `V` are in another order than the array's, `transpose` ([conventions §3](../conventions.md#3-arrays)), with `order` the index in the array's axes of each axis of `V`, in the order of `V` (for example `[1, 0, 2, 3, 4]` for `n ≥ 5`, and `[0, 2, 3, 4, 1]` for a color type with `t`, `c`, `z`, `y` and `x`); then `bytes`, with `"endian"` (`"little"` or `"big"`: the file's byte order) when the data type is larger than 1 byte. There is no compressor |
 | `attributes` | object | required | `{}` |
 
@@ -311,9 +319,9 @@ cases, and in no other. Its `channels` are
 | case | when | channels | `label` and `color` | `window` |
 |---|---|---|---|---|
 | **color** | a color data type | one per sample | `("R", "FF0000")`, `("G", "00FF00")`, `("B", "0000FF")` and, for RGBA32, `("A", "FFFFFF")` | `{"min": 0, "max": 255, "start": 0, "end": 255}` |
-| **display range** | another data type, with `cal_min` and `cal_max` finite, `cal_max > cal_min`, `lo` and `hi` (below) finite, and `C` at most 64 | one per index `k < C` of dimension 5 (one when `n < 5`) | `("C<k>", "FFFFFF")`, `k` in decimal | `{"min": lo, "max": hi, "start": lo, "end": hi}` |
+| **display range** | another data type that is not complex, with `cal_min` and `cal_max` finite, `cal_max > cal_min`, `lo` and `hi` (below) finite, and `C` at most 64 | one per index `k < C` of dimension 5 (one when `n < 5`) | `("C<k>", "FFFFFF")`, `k` in decimal | `{"min": lo, "max": hi, "start": lo, "end": hi}` |
 
-The window in raw values is `lo = cal_min` and `hi = cal_max`; when the scaling applies
+A complex value has no order, so it has no window. The window in raw values is `lo = cal_min` and `hi = cal_max`; when the scaling applies
 ([§4.2](#42-value-scaling)), `lo` and `hi` are instead the smaller and the larger of
 `(cal_min − i) / s` and `(cal_max − i) / s`. One of these is not finite only when the
 arithmetic overflows binary64, which only NIfTI-2's binary64 fields can make it do. With

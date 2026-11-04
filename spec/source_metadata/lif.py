@@ -7,8 +7,25 @@ _ATTRIBUTES = {"type": "object", "additionalProperties": {"type": "string"},
 SCHEMA = {"anyOf": [
     {
         "type": "object",
-        "description": "The root's: the file's version (spec/zarrify/lif.md §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#51-the-root>)",
-        "properties": {"version": {"enum": [1, 2]}},
+        "description": "The root's: the file's version, and which file of the family it is when not a LIF file "
+                       "(spec/zarrify/lif.md §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#51-the-root>)",
+        "properties": {
+            "version": {"enum": [1, 2]},
+            "file": {"enum": ["lof", "lifext", "set"]},
+            "files": {"type": "array", "items": {"type": "string"},
+                      "description": "A LAS X project's siblings: every document and LOF but the named file"},
+            "not_presented": {
+                "type": "array",
+                "description": "The images of a LAS X project the output leaves out, each with its reason",
+                "items": {
+                    "type": "object",
+                    "properties": {"path": {"type": "array", "items": {"type": ["string", "null"]}},
+                                   "document": {"type": "string"}, "reason": {"type": "string"}},
+                    "required": ["path", "document", "reason"],
+                    "additionalProperties": False,
+                },
+            },
+        },
         "required": ["version"],
         "additionalProperties": False,
     },
@@ -19,6 +36,8 @@ SCHEMA = {"anyOf": [
         "properties": {
             "image": {"type": "integer", "minimum": 0},
             "path": {"type": "array", "items": {"type": ["string", "null"]}, "minItems": 1},
+            "parent": {"type": "string", "description": "In a LIFEXT file, the MemoryBlockID in the parent LIF of "
+                                                        "the image it is of"},
             "attributes": _ATTRIBUTES,
             "memory": _ATTRIBUTES,
             "dimensions": {"type": "array", "items": _ATTRIBUTES, "minItems": 1, "maxItems": 16},
@@ -29,7 +48,7 @@ SCHEMA = {"anyOf": [
             "tile_scan": _ATTRIBUTES,
             "tile": _ATTRIBUTES,
         },
-        "required": ["image", "path", "attributes", "memory", "dimensions", "channels"],
+        "required": ["image", "path", "attributes", "dimensions", "channels"],
         "additionalProperties": False,
     },
     {"$ref": "#/$defs/mirror"},

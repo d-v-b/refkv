@@ -4,10 +4,10 @@
 //! model of §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#53-elements>).
 //!
 //! The rounds: the file's first 64 KiB, then each top-level box header the first read does not
-//! hold, then the whole moov box (the sample tables index every sample, so the media data is
-//! never read). Every box is a struct with its header, fields, table and children; each
-//! track's samples are `data` elements under `samples/<T>`; the media data no sample claims
-//! is gaps. The schema (`schema/mp4.json`) holds the checks that reject a file; whether a
+//! hold, then the whole moov box and each whole moof box (the sample tables and track fragments
+//! index every sample, so the media data is not read). Every box is a struct with its header,
+//! fields, table and children; each track's samples are `data` elements under `samples/<T>`; the
+//! media data no sample claims is gaps. The schema (`schema/mp4.json`) holds the checks that reject a file; whether a
 //! track is zarrified is decided here, and recorded with the reason when it is not.
 
 use crate::expr::V;
@@ -22,8 +22,12 @@ use serde_json::{json, Value as J};
 
 /// The first read, and the most bytes of a moov box (the schema's `max_moov`).
 const HEAD: u64 = 1 << 16;
+/// How much to read for a top-level box's header once the file has shown itself fragmented:
+/// enough to hold most moof boxes and the mdat header after them, so that a fragment takes one
+/// read (spec/zarrify/mp4.md §8.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#81-boxes>).
+const FRAGMENT_READ: u64 = 1 << 12;
 /// The boxes whose payload is boxes.
-const CONTAINERS: [&[u8; 4]; 8] = [b"moov", b"trak", b"mdia", b"minf", b"stbl", b"edts", b"dinf", b"tref"];
+const CONTAINERS: [&[u8; 4]; 9] = [b"moov", b"trak", b"mdia", b"minf", b"stbl", b"edts", b"dinf", b"tref", b"mvex"];
 /// The names of a box struct's own values, which a child box's name must not take.
 const OWN: [&str; 9] = ["header", "fields", "fields_v1", "fields_v2", "entries", "name", "data", "rest", "gaps"];
 /// AAC's sampling frequencies by index (ISO/IEC 14496-3 §1.6.3.4).
@@ -217,6 +221,75 @@ struct Track {
     sync: Option<Vec<u64>>,
     stz2: bool,
     has_stsz: bool,
+    /// the samples of its track fragments: their offsets and sizes, presentation times, and the
+    /// indexes among them of the sync samples
+    frag_offsets: Vec<u64>,
+    frag_sizes: Vec<u64>,
+    frag_pts: Vec<i64>,
+    frag_sync: Vec<u64>,
+    /// the decode time after its last sample, and whether a track fragment names another
+    /// sample description
+    frag_end: Option<i64>,
+    frag_other_entry: bool,
+}
+
+/// A trex box: a track's defaults for its fragments' samples.
+#[derive(Clone, Copy, Debug)]
+struct Trex {
+    track: u64,
+    entry: u64,
+    duration: u64,
+    size: u64,
+    flags: u64,
+}
+
+/// A trun box: its flags, its fields and its table's bytes.
+#[derive(Clone, Debug)]
+struct Trun {
+    at: u64,
+    flags: u64,
+    count: u64,
+    data_offset: Option<i64>,
+    first_flags: Option<u64>,
+    table: Vec<u8>,
+}
+
+/// A traf box: its tfhd box's fields, its tfdt box's time and its trun boxes.
+#[derive(Clone, Debug, Default)]
+struct Traf {
+    at: u64,
+    moof: u64,
+    tfhd: bool,
+    track: u64,
+    base: Option<u64>,
+    base_is_moof: bool,
+    entry: Option<u64>,
+    duration: Option<u64>,
+    size: Option<u64>,
+    flags: Option<u64>,
+    tfdt: Option<u64>,
+    runs: Vec<Trun>,
+}
+
+// A tfhd box's flags (ISO/IEC 14496-12 §8.8.7.1), and a trun box's (ISO/IEC 14496-12 §8.8.8.1).
+const TFHD_BASE: u64 = 0x1;
+const TFHD_ENTRY: u64 = 0x2;
+const TFHD_DURATION: u64 = 0x8;
+const TFHD_SIZE: u64 = 0x10;
+const TFHD_FLAGS: u64 = 0x20;
+const TFHD_BASE_IS_MOOF: u64 = 0x2_0000;
+const TRUN_DATA_OFFSET: u64 = 0x1;
+const TRUN_FIRST_FLAGS: u64 = 0x4;
+const TRUN_DURATION: u64 = 0x100;
+const TRUN_SIZE: u64 = 0x200;
+const TRUN_FLAGS: u64 = 0x400;
+const TRUN_OFFSET: u64 = 0x800;
+
+/// Whether a fragment's sample of these flags is a sync sample (ISO/IEC 14496-12 §8.8.3.1): it is
+/// not when `sample_is_non_sync_sample` is set, or when `sample_depends_on` says it depends on
+/// others, as ffmpeg's demuxer has it (a muxer may set the one and not the other).
+fn sample_is_sync(flags: u64) -> bool {
+    flags & 0x0001_0000 == 0 && flags >> 24 & 3 != 1
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -243,6 +316,13 @@ pub struct Mp4 {
     cur: Option<Track>,
     tracks: Vec<Track>,
     movie: (u64, u64),
+    /// the bytes of the moof boxes so far, the trex boxes, the moof box being read, the traf box
+    /// being read, and those read
+    moof_bytes: u64,
+    trex: Vec<Trex>,
+    moof: Option<u64>,
+    traf: Option<Traf>,
+    trafs: Vec<Traf>,
 }
 
 /// The fields of a sample entry of a video track (ISO/IEC 14496-12 §12.1.3).
@@ -255,12 +335,14 @@ const AUDIO_V1: &str = "{samples_per_packet:>u4,bytes_per_packet:>u4,bytes_per_f
 /// header and fields.
 const AUDIO_V2: &str = "{size_of_struct_only:>u4,audio_sample_rate:>f8,audio_channels:>u4,always_7f000000:>u4,const_bits_per_channel:>u4,format_specific_flags:>u4,const_bytes_per_audio_packet:>u4,const_lpcm_frames_per_audio_packet:>u4}";
 const FULL: &str = "{version:u1,flags:u1[3],entry_count:>u4}";
+const TREX: &str = "{version:u1,flags:u1[3],track_id:>u4,default_sample_description_index:>u4,default_sample_duration:>u4,default_sample_size:>u4,default_sample_flags:>u4}";
 
 impl Mp4 {
     pub fn new(size: u64) -> Self {
         Mp4 {
             size, phase: Phase::Start, fed: Fed::default(), ir: Ir::new(size), rules: rules::of("mp4"), facts: J::Null,
             p: 0, tops: Vec::new(), moov: None, ftyp: None, cur: None, tracks: Vec::new(), movie: (0, 0),
+            moof_bytes: 0, trex: Vec::new(), moof: None, traf: None, trafs: Vec::new(),
         }
     }
 
@@ -289,18 +371,27 @@ impl Mp4 {
 
     /// The top-level boxes (spec/zarrify/mp4.md §8.1
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#81-boxes>): the range to read
-    /// next, or None when every one is known and the moov box (and the ftyp box) read.
+    /// next, or None when every one is known and the moov box, the moof boxes (and the ftyp box)
+    /// read.
     fn walk(&mut self) -> Res<Option<(u64, u64)>> {
         while self.p + 8 <= self.size {
             let n = (self.size - self.p).min(16);
-            let Some(h) = self.fed.get(self.p, n) else { return Ok(Some((self.p, n))) };
+            let Some(h) = self.fed.get(self.p, n) else {
+                let read = if self.moof_bytes > 0 { FRAGMENT_READ } else { 16 };
+                return Ok(Some((self.p, (self.size - self.p).min(read))));
+            };
             let b = header(h, self.p, self.size).ok_or("internal: no box header")?;
             self.check_box(&b, self.size)?;
             if &b.typ == b"ftyp" {
                 self.rules.check("fields", rules::env([("type", text("ftyp")), ("at", num(b.at as f64)), ("need", num(8.0)), ("have", num((b.size - b.head) as f64))]))?;
             }
             if &b.typ == b"moof" {
-                self.rules.check("fragment", rules::env([("type", text("moof")), ("at", num(b.at as f64)), ("seen", flag(false))]))?;
+                self.rules.check("moofs", rules::env([("total", num((self.moof_bytes + b.size) as f64))]))?;
+                if self.fed.get(b.at, b.size).is_none() {
+                    // with the header of the box after it, when there is one
+                    return Ok(Some((b.at, (b.size + 16).min(self.size - b.at))));
+                }
+                self.moof_bytes += b.size;
             }
             if &b.typ == b"moov" {
                 let moovs = self.tops.iter().filter(|t| &t.typ == b"moov").count() + 1;
@@ -376,6 +467,12 @@ impl Mp4 {
                     }
                     self.rest(s, b.body() + 8 + 4 * k, b.end(), Some(&f[..]), b.at)?;
                 }
+                b"moof" => {
+                    let m = self.fed.get(b.at, b.size).ok_or("internal: the moof box was not read")?.to_vec();
+                    self.moof = Some(b.at);
+                    self.container(s, &m, b.at, b.body(), b.end())?;
+                    self.moof = None;
+                }
                 b"mdat" => {}
                 _ => {
                     if b.size > b.head {
@@ -419,6 +516,16 @@ impl Mp4 {
         let body = &m[at(b.body())..at(b.end())];
         let n = body.len() as u64;
         match &b.typ {
+            // a moof box holds the boxes of its track fragments; any other is opaque there
+            t if self.moof.is_some() && !matches!(t, b"traf" | b"tfhd" | b"tfdt" | b"trun") => self.opaque(s, b, body)?,
+            b"traf" if self.traf.is_none() => {
+                self.traf = Some(Traf { at: b.at, moof: self.moof.unwrap_or(0), ..Traf::default() });
+                self.container(s, m, base, b.body(), b.end())?;
+                self.trafs.extend(self.traf.take());
+            }
+            b"tfhd" if self.traf.is_some() => self.tfhd(s, b, body, m, base)?,
+            b"tfdt" if self.traf.is_some() => self.tfdt(s, b, body, m, base)?,
+            b"trun" if self.traf.is_some() => self.trun(s, b, body, m, base)?,
             t if CONTAINERS.contains(&t) => {
                 if t == b"trak" {
                     self.cur = Some(Track::default());
@@ -429,8 +536,12 @@ impl Mp4 {
                     self.tracks.push(t);
                 }
             }
-            b"mvex" => {
-                self.rules.check("fragment", rules::env([("type", text("mvex")), ("at", num(b.at as f64)), ("seen", flag(false))]))?;
+            b"trex" => {
+                self.rules.check("fields", rules::env([("type", text("trex")), ("at", num(b.at as f64)), ("need", num(24.0)), ("have", num(n as f64))]))?;
+                self.ir.value(s, "fields", NO_INDEX, TREX, 0, (b.body(), 24), Some(&body[..24]))?;
+                self.rest(s, b.body() + 24, b.end(), Some(m), base)?;
+                let at = |o| uint(body, o, 4, false);
+                self.trex.push(Trex { track: at(4), entry: at(8), duration: at(12), size: at(16), flags: at(20) });
             }
             b"mvhd" | b"tkhd" | b"mdhd" => {
                 let v1 = n > 0 && body[0] == 1;
@@ -521,6 +632,95 @@ impl Mp4 {
             }
             _ => self.opaque(s, b, body)?,
         }
+        Ok(())
+    }
+
+    /// A tfhd box: the fields its flags name, in that order.
+    fn tfhd(&mut self, s: u32, b: &BoxRef, body: &[u8], m: &[u8], base: u64) -> Res<()> {
+        let n = body.len() as u64;
+        self.rules.check("fields", rules::env([("type", text("tfhd")), ("at", num(b.at as f64)), ("need", num(8.0)), ("have", num(n as f64))]))?;
+        let flags = uint(body, 1, 3, false);
+        let mut ty = String::from("{version:u1,flags:u1[3],track_id:>u4");
+        let mut need = 8u64;
+        let mut named = |bit: u64, field: &str, width: u64| -> Option<u64> {
+            (flags & bit != 0).then(|| {
+                ty += &format!(",{field}:>u{width}");
+                need += width;
+                need - width
+            })
+        };
+        let base_at = named(TFHD_BASE, "base_data_offset", 8);
+        let entry = named(TFHD_ENTRY, "sample_description_index", 4);
+        let duration = named(TFHD_DURATION, "default_sample_duration", 4);
+        let size = named(TFHD_SIZE, "default_sample_size", 4);
+        let sample_flags = named(TFHD_FLAGS, "default_sample_flags", 4);
+        ty.push('}');
+        self.rules.check("fields", rules::env([("type", text("tfhd")), ("at", num(b.at as f64)), ("need", num(need as f64)), ("have", num(n as f64))]))?;
+        self.ir.value(s, "fields", NO_INDEX, &ty, 0, (b.body(), need), Some(&body[..need as usize]))?;
+        self.rest(s, b.body() + need, b.end(), Some(m), base)?;
+        let read = |o: Option<u64>| o.map(|o| uint(body, o as usize, 4, false));
+        let t = self.traf.as_mut().ok_or("internal: a tfhd box outside a traf box")?;
+        t.tfhd = true;
+        t.track = uint(body, 4, 4, false);
+        t.base = base_at.map(|o| uint(body, o as usize, 8, false));
+        t.base_is_moof = flags & TFHD_BASE_IS_MOOF != 0;
+        (t.entry, t.duration, t.size, t.flags) = (read(entry), read(duration), read(size), read(sample_flags));
+        Ok(())
+    }
+
+    /// A tfdt box: the decode time of its track fragment's first sample.
+    fn tfdt(&mut self, s: u32, b: &BoxRef, body: &[u8], m: &[u8], base: u64) -> Res<()> {
+        let n = body.len() as u64;
+        let (need, width) = if body.first() == Some(&1) { (12, 8) } else { (8, 4) };
+        self.rules.check("fields", rules::env([("type", text("tfdt")), ("at", num(b.at as f64)), ("need", num(need as f64)), ("have", num(n as f64))]))?;
+        let ty = format!("{{version:u1,flags:u1[3],base_media_decode_time:>u{width}}}");
+        self.ir.value(s, "fields", NO_INDEX, &ty, 0, (b.body(), need), Some(&body[..need as usize]))?;
+        self.rest(s, b.body() + need, b.end(), Some(m), base)?;
+        let t = self.traf.as_mut().ok_or("internal: a tfdt box outside a traf box")?;
+        t.tfdt = Some(uint(body, 4, width, false));
+        Ok(())
+    }
+
+    /// A trun box: the fields its flags name, then a table of the members they name.
+    fn trun(&mut self, s: u32, b: &BoxRef, body: &[u8], m: &[u8], base: u64) -> Res<()> {
+        let n = body.len() as u64;
+        let at = num(b.at as f64);
+        self.rules.check("fields", rules::env([("type", text("trun")), ("at", at.clone()), ("need", num(8.0)), ("have", num(n as f64))]))?;
+        let flags = uint(body, 1, 3, false);
+        let count = uint(body, 4, 4, false);
+        let mut ty = String::from("{version:u1,flags:u1[3],sample_count:>u4");
+        let mut need = 8u64;
+        let data_at = (flags & TRUN_DATA_OFFSET != 0).then(|| {
+            ty += ",data_offset:>i4";
+            need += 4;
+            need - 4
+        });
+        let first_at = (flags & TRUN_FIRST_FLAGS != 0).then(|| {
+            ty += ",first_sample_flags:>u4";
+            need += 4;
+            need - 4
+        });
+        ty.push('}');
+        self.rules.check("fields", rules::env([("type", text("trun")), ("at", at.clone()), ("need", num(need as f64)), ("have", num(n as f64))]))?;
+        let members: Vec<&str> = [
+            (TRUN_DURATION, "sample_duration:>u4"), (TRUN_SIZE, "sample_size:>u4"), (TRUN_FLAGS, "sample_flags:>u4"),
+            (TRUN_OFFSET, "sample_composition_time_offset:>i4"),
+        ].iter().filter(|m| flags & m.0 != 0).map(|m| m.1).collect();
+        let width = 4 * members.len() as u64;
+        self.rules.check("table", rules::env([("type", text("trun")), ("at", at), ("count", num(count as f64)), ("width", num(width as f64)), ("have", num((n - need) as f64))]))?;
+        self.ir.value(s, "fields", NO_INDEX, &ty, 0, (b.body(), need), Some(&body[..need as usize]))?;
+        let len = count * width;
+        let table = &body[need as usize..(need + len) as usize];
+        if len > 0 {
+            self.ir.value(s, "entries", NO_INDEX, &format!("{{{}}}[{count}]", members.join(",")), 0, (b.body() + need, len), Some(table))?;
+        }
+        self.rest(s, b.body() + need + len, b.end(), Some(m), base)?;
+        let run = Trun {
+            at: b.at, flags, count, table: table.to_vec(),
+            data_offset: data_at.map(|o| uint(body, o as usize, 4, false) as u32 as i32 as i64),
+            first_flags: first_at.map(|o| uint(body, o as usize, 4, false)),
+        };
+        self.traf.as_mut().ok_or("internal: a trun box outside a traf box")?.runs.push(run);
         Ok(())
     }
 
@@ -649,7 +849,8 @@ impl Mp4 {
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#82-tracks>), as `data`
     /// elements; whether the profile zarrifies it, and the facts its projection reads.
     fn samples(&mut self) -> Res<()> {
-        let tracks = std::mem::take(&mut self.tracks);
+        let mut tracks = std::mem::take(&mut self.tracks);
+        self.fragments(&mut tracks)?;
         let mut samples_struct = None;
         let mut facts = Vec::new();
         let mut reasons = Vec::new();
@@ -724,11 +925,105 @@ impl Mp4 {
         Ok(())
     }
 
+    /// The samples of the track fragments, in the file's order, added to their tracks
+    /// (spec/zarrify/mp4.md §3
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#3-tracks-and-samples>).
+    fn fragments(&self, tracks: &mut [Track]) -> Res<()> {
+        // where a traf box's data starts when it does not say: its moof box, for the first of a
+        // moof box's, and else where the data of the traf box before it ended
+        let mut implicit = (u64::MAX, 0u64);
+        for traf in &self.trafs {
+            let trex = self.trex.iter().find(|x| x.track == traf.track);
+            let track = tracks.iter_mut().find(|t| t.id == traf.track);
+            self.rules.check("fragment", rules::env([
+                ("at", num(traf.at as f64)), ("track", num(traf.track as f64)), ("tfhd", flag(traf.tfhd)),
+                ("trex", flag(trex.is_some() && track.is_some())),
+            ]))?;
+            let (Some(trex), Some(t)) = (trex, track) else { return Err("internal: a traf box without a track".into()) };
+            if implicit.0 != traf.moof {
+                implicit = (traf.moof, traf.moof);
+            }
+            let base = match (traf.base, traf.base_is_moof) {
+                (Some(b), _) => b,
+                (None, true) => traf.moof,
+                (None, false) => implicit.1,
+            };
+            t.frag_other_entry |= traf.entry.unwrap_or(trex.entry) != 1;
+            let mut dts = match (traf.tfdt, t.frag_end) {
+                (Some(d), _) => i64::try_from(d).unwrap_or(i64::MAX),
+                (None, Some(d)) => d,
+                (None, None) => t.stts.iter().fold(0i64, |d, e| d.saturating_add((e.0 as i64).saturating_mul(e.1 as i64))),
+            };
+            let table_samples = match t.fixed_size {
+                Some((_, count)) => count,
+                None => t.sizes.len() as u64,
+            };
+            let mut next = base;
+            for run in &traf.runs {
+                self.rules.check("samples", rules::env([
+                    ("track", num(t.id as f64)), ("n", num((table_samples + t.frag_sizes.len() as u64 + run.count) as f64)),
+                ]))?;
+                let start = run.data_offset.map_or(next as i128, |d| base as i128 + d as i128);
+                self.rules.check("run", rules::env([
+                    ("at", num(run.at as f64)), ("start", num(start as f64)), ("size", num(self.size as f64)),
+                ]))?;
+                let mut o = start as u64;
+                // a PCM run of one sample size is one element: it may have a sample per PCM frame
+                let size = traf.size.unwrap_or(trex.size);
+                let tabled = TRUN_DURATION | TRUN_SIZE | TRUN_FLAGS | TRUN_OFFSET;
+                if run.count > 0 && run.flags & tabled == 0 && pcm_frame(t).is_some_and(|frame| size % frame == 0) {
+                    t.frag_offsets.push(o);
+                    t.frag_sizes.push(run.count * size);
+                    o += run.count * size;
+                    dts = dts.saturating_add((run.count as i64).saturating_mul(traf.duration.unwrap_or(trex.duration) as i64));
+                    next = o;
+                    continue;
+                }
+                let mut member = 0;
+                for j in 0..run.count {
+                    let mut own = |bit: u64| {
+                        (run.flags & bit != 0).then(|| {
+                            member += 4;
+                            uint(&run.table, member - 4, 4, false)
+                        })
+                    };
+                    let duration = own(TRUN_DURATION).or(traf.duration).unwrap_or(trex.duration);
+                    let size = own(TRUN_SIZE).or(traf.size).unwrap_or(trex.size);
+                    let sample_flags = own(TRUN_FLAGS);
+                    let offset = own(TRUN_OFFSET).map_or(0, |c| c as u32 as i32 as i64);
+                    let sample_flags = run.first_flags.filter(|_| j == 0).or(sample_flags).or(traf.flags).unwrap_or(trex.flags);
+                    if sample_is_sync(sample_flags) {
+                        t.frag_sync.push(t.frag_sizes.len() as u64);
+                    }
+                    t.frag_offsets.push(o);
+                    t.frag_sizes.push(size);
+                    t.frag_pts.push(dts.saturating_add(offset));
+                    o += size;
+                    dts = dts.saturating_add(duration as i64);
+                }
+                next = o;
+            }
+            implicit.1 = next;
+            t.frag_end = Some(dts);
+            // the media's duration, which the mdhd box of a file of fragments does not count
+            t.duration = t.duration.max(dts.max(0) as u64);
+        }
+        Ok(())
+    }
+
     /// Each sample's (offset, size), in decode order, from the stsz, stsc and stco or co64
-    /// tables; the tables' sample counts checked against each other. A PCM track of one sample
-    /// size gives each chunk's samples as one, since it may have a sample per PCM frame, and a
-    /// sample size of 1 is QuickTime's for one frame of any size.
+    /// tables, the tables' sample counts checked against each other, then from the track's
+    /// fragments. A PCM track of one sample size gives each chunk's samples as one, since it may
+    /// have a sample per PCM frame, and a sample size of 1 is QuickTime's for one frame of any size.
     fn layout(&self, t: &Track) -> Res<(Vec<u64>, Vec<u64>)> {
+        let mut layout = self.table_layout(t)?;
+        layout.0.extend_from_slice(&t.frag_offsets);
+        layout.1.extend_from_slice(&t.frag_sizes);
+        Ok(layout)
+    }
+
+    /// Each sample's (offset, size) that the tables give.
+    fn table_layout(&self, t: &Track) -> Res<(Vec<u64>, Vec<u64>)> {
         if !t.has_stsz {
             return Ok((Vec::new(), Vec::new()));
         }
@@ -820,7 +1115,7 @@ impl Mp4 {
             if offsets.is_empty() {
                 return Err("no samples".into());
             }
-            if t.stsd_count != 1 || t.entries.len() != 1 || t.stsc.iter().any(|e| e.2 != 1) {
+            if t.stsd_count != 1 || t.entries.len() != 1 || t.stsc.iter().any(|e| e.2 != 1) || t.frag_other_entry {
                 return Err("more than one sample description".into());
             }
             if t.timescale == 0 {
@@ -852,7 +1147,9 @@ impl Mp4 {
                     return Err("a sample entry of width or height 0".into());
                 }
                 let pts = presentation(t);
-                let sync = t.sync.clone().map(|s| s.iter().map(|&x| x.saturating_sub(1)).collect::<Vec<u64>>()).unwrap_or_else(|| (0..offsets.len() as u64).collect());
+                let in_tables = offsets.len() as u64 - t.frag_offsets.len() as u64;
+                let mut sync = t.sync.clone().map(|s| s.iter().map(|&x| x.saturating_sub(1)).collect::<Vec<u64>>()).unwrap_or_else(|| (0..in_tables).collect());
+                sync.extend(t.frag_sync.iter().map(|&k| in_tables + k));
                 gops(&pts, &sync)?;
                 f["format"] = json!(format);
                 let data_type = if sps.luma > 8 { "uint16" } else { "uint8" };
@@ -953,7 +1250,7 @@ fn header_type(head: u64) -> &'static str {
 }
 
 /// Each sample's presentation time, in decode order: the decode time from stts, plus the
-/// composition offset of ctts.
+/// composition offset of ctts, then the times of the track's fragments.
 fn presentation(t: &Track) -> Vec<i64> {
     let mut out = Vec::new();
     let mut d = 0i64;
@@ -972,6 +1269,7 @@ fn presentation(t: &Track) -> Vec<i64> {
             j += 1;
         }
     }
+    out.extend_from_slice(&t.frag_pts);
     out
 }
 
@@ -1406,6 +1704,16 @@ mod tests {
         assert_eq!(pcm_of(&e), Some(Err("PCM whose channels are not interleaved is not supported".into())));
         let e = Entry { typ: *b"lpcm", bits: 24, channels: 2, sound_version: 2, lpcm_flags: LPCM_SIGNED, lpcm_packet: 8, ..Default::default() };
         assert_eq!(pcm_of(&e), Some(Err("PCM of 8 bytes a frame, for 2 channels of 24 bits, is not supported".into())));
+    }
+
+    /// A fragment's sample is a sync sample unless its flags say it is not, or that it depends on
+    /// others: the flags ffmpeg's muxer writes, a keyframe's (0x02000000) and others'
+    /// (0x01010000), each of the two alone, and the flags of a writer that sets neither.
+    #[test]
+    fn sample_flags_give_the_sync_samples() {
+        for (flags, sync) in [(0x0200_0000, true), (0x0101_0000, false), (0x0001_0000, false), (0x0100_0000, false), (0, true)] {
+            assert_eq!(sample_is_sync(flags), sync, "{flags:#x}");
+        }
     }
 
     /// x264's avcC boxes for a High profile 8-bit and a High 10 profile 10-bit 4:2:0 stream

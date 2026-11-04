@@ -9,6 +9,19 @@ store is the TIFF profile, [Part 2](#part-2-the-profile) below.
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `48e9ac4e-1156-4a62-955e-20467d9c2700` ·
 Schema: [schema.json](tiff/schema.json)
 
+Changed 2026-11-04: an OME-TIFF whose `TiffData` elements name several files is one image across
+them, and a Micro-Manager stack's index maps give its planes, in one file or several
+([§7.4](#74-several-files), [§7.5](#75-micro-manager-stacks)). A Micro-Manager file presented one
+plane before, and a file that names others was rejected.
+
+Changed 2026-11-04: LERC (Compression 34887), LZMA (34925), WebP (50001) and JPEG XL (50002) have a
+layout, each through its imagecodecs codec ([§4.3](#43-data-types-and-codecs)); no output of a file
+accepted before changed.
+
+Changed 2026-11-04: a level in compressed strips whose last strip is short and cannot be padded has a
+layout: the `rectilinear` grid, a chunk a strip, unsharded ([§4.4](#44-arrays), [§4.5](#45-strips)),
+where it rejected the input; no output of a file accepted before changed.
+
 Changed 2026-11-04: a level's LZW, Deflate and zstd strips are the inner chunks of shards of at most
 2^10 strips and 2^30 decoded bytes ([§4.5](#45-strips), [zarrify §2.1](../zarrify.md#21-virtual-shards))
 in place of one chunk a strip, so that an image of one compressed row a strip no longer has a key a
@@ -273,9 +286,10 @@ are none):
 - **Multi-file datasets:** a `TiffData` with a `UUID` names the file
   identified by the `UUID`'s `FileName` if it has one, else by its text (two
   identifiers are the same file only if they are equal strings). If the
-  `TiffData` elements name more than one distinct file, the input is
-  rejected. Otherwise `UUID`s are ignored, so a file that names itself is
-  accepted, and a `TiffData` without a `UUID` names no file.
+  `TiffData` elements name more than one distinct file, their planes lie in
+  those files ([§7.4](#74-several-files)). Otherwise `UUID`s are ignored, so a
+  file that names itself is accepted, and a `TiffData` without a `UUID` names
+  no file.
 - **Coverage:** a `TiffData` starts at position (`FirstZ`, `FirstC`,
   `FirstT`) (each default 0, and each MUST be less than `SizeZ`, `Cp`,
   `SizeT` respectively, else the input is rejected) and IFD index `IFD`
@@ -340,12 +354,26 @@ BitsPerSample, which MUST be 8, 16, 32 or 64 (32 or 64 for `float`).
 | 50000 (zstd) | 2 | `imagecodecs_delta`, bytes, zstd |
 | 33003, 33004, 33005, 34712 (JPEG 2000) | any | imagecodecs_jpeg2k |
 | 7 (JPEG) | 1 | imagecodecs_jpeg |
+| 34887 (LERC) | 1 | `imagecodecs_lerc` |
+| 34925 (LZMA) | 1 | bytes, `imagecodecs_lzma` |
+| 34925 (LZMA) | 2 | `imagecodecs_delta`, bytes, `imagecodecs_lzma` |
+| 50001 (WebP) | 1 | `{"name": "imagecodecs_webp", "configuration": {"hasalpha": h}}` |
+| 50002 (JPEG XL) | 1 | `imagecodecs_jpegxl` |
 
 Anything else is rejected. JPEG (Compression 7) additionally requires
 BitsPerSample 8, SampleFormat 1, and either SamplesPerPixel 1, or
 SamplesPerPixel 3 with PlanarConfiguration 1 and PhotometricInterpretation
 2 (RGB) or 6 (YCbCr); otherwise the input is rejected. (Old-style JPEG,
 Compression 6, is rejected.)
+
+**LERC** is one LERC stream a tile or strip, which holds its own type and shape; a stream
+in Deflate or zstd, as LercParameters (tag 50674) records, is one the codec finds without being
+told. Pixels a stream's mask leaves out decode to the codec's values, as tifffile reads them. LERC
+has no 64-bit integers, which are rejected. **LZMA** is an xz stream of the bytes. **WebP** requires
+BitsPerSample 8, SampleFormat 1, PlanarConfiguration 1, and SamplesPerPixel 3 or 4; `h` is `true` for
+4, since a WebP stream may leave out an alpha channel that is all opaque, and would otherwise decode
+to 3 samples, and `false` for 3. **JPEG XL** requires SampleFormat 1 with BitsPerSample 8 or 16, or
+SampleFormat 3 with BitsPerSample 32. Otherwise the input is rejected.
 
 `{"name": "refkv.tiff_lzw"}`, refkv's own codec (imagecodecs-zarr's `imagecodecs_lzw` reads the
 whole stream, which the next sentences rule out), has no configuration: each chunk is one TIFF
@@ -366,7 +394,7 @@ in stored order: `n − 1` for an array of `n` axes, or `n − 2` when `transpos
 each row of a tile or strip, the writer stored each sample less the same sample of the pixel
 before it, in the data type's arithmetic (modulo 2^BitsPerSample), so that the decompressed
 bytes are differences, and the codec sums them back along `x`, each sample apart. GDAL, libtiff
-and tifffile write it with LZW, Deflate and zstd.
+and tifffile write it with LZW, Deflate, zstd and LZMA.
 
 Any other Predictor rejects the input, but for JPEG 2000, whose streams do not use it, and so
 does Predictor 2:
@@ -383,7 +411,7 @@ by significance, which no codec of [conventions §3](../conventions.md#3-arrays)
 The codecs read the bytes of a tile as they are, filled from each byte's
 most significant bit (FillOrder 1), and decode samples at full resolution.
 So, for every IFD that is a plane or a level:
-- when Compression is 1, 5, 8, 32946 or 50000, FillOrder MUST be 1;
+- when Compression is 1, 5, 8, 32946, 34887, 34925, 50000, 50001 or 50002, FillOrder MUST be 1;
 - when PhotometricInterpretation is 6 (YCbCr) and Compression is neither 7
   nor JPEG 2000 (whose streams hold their own sampling), YCbCrSubsampling
   MUST be present and exactly `[1, 1]` (absent, it is TIFF 6.0's default
@@ -411,8 +439,9 @@ the image's scale (level `L` has width `WL` and length `HL`, level 0 width `W0` 
 | `x` | always | the level's width `WL` | the level's TileWidth; for a level in strips, `WL` | `PX × (W0 / WL)` | `x`'s (**Pixel size**) |
 
 Levels may differ in tile size, and one may be tiled and another in strips. The chunk grid is
-always the regular grid of that chunk shape: a short last chunk is padded
-([§4.5](#45-strips)). (In a scale, the division is computed first.)
+the regular grid of that chunk shape, a short last chunk padded, or, for a level whose short last
+strip cannot be padded, the `rectilinear` grid ([§4.5](#45-strips)). (In a scale, the division is
+computed first.)
 
 <a id="type-tiffarray"></a>**`TiffArray`**, level `L`'s `zarr.json`: an
 [`ArrayDocument`](../conventions.md#type-arraydocument) with these members:
@@ -421,7 +450,7 @@ always the regular grid of that chunk shape: a short last chunk is padded
 |---|---|---|---|
 | `shape` | array of integer | required | each present axis's shape, above |
 | `data_type` | string | required | from [§4.3](#43-data-types-and-codecs) |
-| `chunk_grid` | object | required | regular, its chunk shape each present axis's chunk shape, above |
+| `chunk_grid` | object | required | regular, its chunk shape each present axis's chunk shape, above; or `rectilinear` ([§4.5](#45-strips)) |
 | `codecs` | array of object | required | from [§4.3](#43-data-types-and-codecs): `transpose` first when `spp > 1` and PlanarConfiguration is 1, then the codecs of the Compression's and Predictor's row |
 | `dimension_names` | array of string | required | the axes present, above |
 | `attributes` | object | required | `{}` |
@@ -575,7 +604,8 @@ chunk whose strips are all apart within the reads a reader allows a value by def
 codecs of [§4.3](#43-data-types-and-codecs) decode one at a time, so it stays one chunk, and its
 level gathers those chunks in shards instead ([zarrify §2.1](../zarrify.md#21-virtual-shards)). Let
 `M = min(floor(2^30 / (R × B)), 2^10)`, the most strips a shard holds. A level **shards** its strips
-when Compression is 5, 8, 32946 or 50000 and `S` and `M` are at least 2. Its array is then a
+when Compression is 5, 8, 32946 or 50000, `S` and `M` are at least 2, and, of Deflate and zstd,
+ImageLength is a multiple of `R`. Its array is then a
 [`ShardedArray`](../zarrify.md#type-shardedarray) of the array this document describes:
 
 - the inner chunks are that array's chunks, of `R` rows by the level's width, one strip each, and
@@ -594,7 +624,9 @@ and at most 20 bytes of range a strip. The limit of 2^30 bytes bounds what a rea
 shard as one value holds at once. A level of one strip has nothing to gather.
 
 Whether a reader makes fewer requests depends on the reader, which [zarrify
-§2.1](../zarrify.md#21-virtual-shards) describes. A strip of JPEG or JPEG 2000 keeps a chunk a strip.
+§2.1](../zarrify.md#21-virtual-shards) describes. A strip of JPEG, JPEG 2000, LERC, LZMA, WebP or JPEG XL keeps
+a chunk a strip, and so does a level of any compression but LZW whose last strip is short and not
+uncompressed, as below.
 So has a level of uncompressed strips with a strip that does not hold exactly its rows: a strip with
 no bytes, which is the fill value, or with more or fewer bytes than its rows, whose rows the
 concatenation would misplace.
@@ -609,13 +641,24 @@ chunk's rows, and of a level that does not join, the strip's):
 |---|---|
 | **1 (uncompressed)** | of a level that joins, `(R′ − rows) × B` zero bytes; of another, `R × B − n`, `n` the strip's byte count: `(R − rows) × B` when the strip holds its rows, and none when it holds `R × B` bytes or more (as a strip written with all the chunk's rows does; like any uncompressed tile or strip, one of more bytes than its chunk does not decode) |
 | **5 (LZW)** | the strip's stream is read until its output reaches the strip's size (`rows × B` bytes; a stream that does not reach it, or whose code crosses it, rejects the input), and what follows (its end-of-information code, or the malformed final code of [§4.3](#43-data-types-and-codecs)) is replaced by a **tail** that continues the stream: a Clear code at the width the decoder has there, then the `(R − rows) × B` zeros as the codes 0, 258, 259, ... (each code one zero longer than the last, the entry the decoder defines on reading the previous one) and one more code for the remainder shorter than the next entry, then the end-of-information code, every code at the width the decoder has when it reads it. The chunk's bytes are the strip's bytes before the byte holding the cut, then the tail, which starts with that byte's bits before the cut |
-| **another compression** (JPEG, Deflate, zstd, JPEG 2000) | cannot be padded: the input is rejected |
+| **another compression** (JPEG, Deflate, zstd, JPEG 2000, LERC, LZMA, WebP, JPEG XL) | cannot be padded: the level has the `rectilinear` grid, below |
 
 With Predictor 2, the padding is the same: each padded row is differences of 0, which sum back
 to zeros, since the differencing starts again at each row. (A short strip of Deflate or zstd cannot be extended without decompressing and compressing it
 again, and a JPEG or JPEG 2000 stream holds its own height, so these have no padding that
-references the strip's bytes. A shard does not change this: an inner chunk decodes to the inner
-chunk shape like any chunk, and the sharding codec has no shorter one.) A strip padded with more than 2^22 (4194304) zero bytes
+references the strip's bytes.)
+
+**A short last strip that cannot be padded.** Such a level's array has the zarr-extensions
+`rectilinear` chunk grid ([conventions §3](../conventions.md#3-arrays)), of chunk shapes the level's
+along every axis but `y`, and along `y` a run of `S − 1` lengths `R` and one of the last strip's rows:
+`[[R, S − 1], last]`, or `[R, last]` when `S` is 2. Each strip is one chunk, which decodes to
+exactly its rows. A level like this does not shard (the sharding codec has no shorter inner chunk,
+and readers refuse it on this grid), which costs little: a strip of one row is never
+short. A strip whose stream holds more than its rows does not decode, as a tile of more bytes than
+its chunk does not; zarrifying reads no strip, so it cannot tell. The reader needs zarr-python's `array.rectilinear_chunks`, as [docs/zarrify/README.md](../../docs/zarrify/README.md)
+says, and TensorStore refuses this grid.
+
+A strip padded with more than 2^22 (4194304) zero bytes
 rejects the input, so that no archive holds more zeros than that, and an LZW tail stays within
 one code table; so does a short last LZW strip whose tail would read more than 2^24
 (16777216) of its bytes (its byte count, read up to the bound of [§7.1](#71-reading)), and so do
@@ -633,6 +676,8 @@ The root's source metadata `S` is a [`TiffRoot`](#type-tiffroot):
 |---|---|---|---|
 | `byte_order` | string | required | `"little"` or `"big"`: the file's byte order |
 | `bigtiff` | boolean | required | `true` for a BigTIFF (magic 43), `false` for a TIFF (magic 42) |
+| `files` | array of string | optional | the keys of the other files of an image across files, in the order the named file's parser found them ([§7.4](#74-several-files)); present for an input read as a store only |
+| `micromanager` | object | optional | a Micro-Manager stack's summary metadata, the JSON object as the file holds it ([§7.5](#75-micro-manager-stacks)); present for such a stack only |
 
 Everything else the file holds is on
 `refkv_source`, which is the file's **IR mirror**
@@ -928,9 +973,93 @@ TileOffsets[k]` and `n = TileByteCounts[k] > 0` (`StripOffsets[k]`, `StripByteCo
 | the rest of the tile | source range `(0, o + 2, n − 2)` | optional | when `P` is not empty: the tile's bytes after its first 2 |
 
 A short last strip thus has, when uncompressed and lacking bytes, the ranges `[(0, o, n), Z]`, and when LZW,
-the ranges `[(0, o, p), T]` (a JPEG strip is never short: [the convention §4.5](#45-strips)
-rejects it). Of a JPEG tile, every byte of the tile is
+the ranges `[(0, o, p), T]`; a short last strip of another compression is not padded, and has the
+ranges of any other strip ([the convention §4.5](#45-strips)). Of a JPEG tile, every byte of the tile is
 referenced, none replaced, so the chunk holds the tile whatever its first 2
 bytes are. `P` depends only on the IFD, so every tile of an IFD has the
 same `P`, and IFDs with the same bytes (as several levels of a slide often
 have) share one data source.
+
+### 7.4 Several files
+
+An image's planes may lie in several files: those its OME-XML's `TiffData` elements name
+([§4.1](#41-planes)), and those of a Micro-Manager stack ([§7.5](#75-micro-manager-stacks)). The
+rules are those of [spec/zarrify.md §1.9](../zarrify.md#19-sources-beside-the-input), and this is the
+profile's sibling table:
+
+| what | it says |
+|---|---|
+| form | on demand. A file that names one file, or none, is a file input with a file IR |
+| names | written: each `FileName`, with none of the optional steps (no percent-decoding, no `\`, no `..`, case kept). Derived: a Micro-Manager stack's later files, `<stem>_<n>.ome.tif` |
+| probes | the document's files, all in one batch, in the order the `TiffData` elements first name them, each required: `the file "<key>" does not exist`. A Micro-Manager stack's, one at a time, from `n` = 1, while its index maps hold fewer planes than its summary says, ending at the first absent |
+| identity | OME-XML: a `UUID`'s text and the `UUID` attribute of the `OME` element of the file it names, when both are there, MUST be equal. A sibling with no OME-XML records nothing to compare. Micro-Manager: every file's summary MUST have the first's `UUID`. Else: `the file "<key>" is not part of this image` |
+| order | first use ([§7.3](#73-chunks) walks the planes in (t, c, z) order, each by its file) |
+| reads and mirror | each file as [§7.1](#71-reading) reads a TIFF, its main chain and the tags of its IFDs, and the mirror describes each in place at its key, under its object as a file IR describes the file ([§5](#5-source-metadata)) |
+
+A `UUID` with a `FileName` names the file by that name, which is a written name: one that is not a
+key below the file's directory is rejected, `the TiffData's file name "<name>" is not a path below
+the file's directory`. A `UUID` with no `FileName` can name only the named file, when its text is
+the `OME` element's `UUID`; any other is rejected, since nothing says where that file is: `a TiffData
+names a file by its UUID alone (<text>), with no FileName`.
+
+The planes are as [§4.1](#41-planes) maps them, each with its file: a `TiffData`'s `IFD` is an index
+in the main chain of the file it names. Every plane's IFD MUST exist in that file. Every IFD of a
+plane in another file has the size and the format the named file's first plane has
+([§4.2](#42-pyramid-levels)), else: `a file of the image holds planes of another size or format`.
+
+An image across files, and a Micro-Manager stack in any number of files:
+
+- has one level. IFD 0 with `SubIFDs` is rejected: `an image across files with SubIFD levels is not
+  supported`;
+- has one strip a chunk: strips are neither joined nor sharded ([§4.5](#45-strips)), and a level in
+  strips whose last strip is short is rejected: `an image across files whose strips leave a short
+  last strip is not supported`;
+- has no `ome/planes` aliases in its mirror, as an alias stays within its object.
+
+Its `source.url` is the named file's object URL, whichever files hold the planes. Its `omero`
+windows are sampled as a single file's are ([§4.4](#44-arrays)), from the chunks in whichever files
+hold them.
+
+### 7.5 Micro-Manager stacks
+
+A **Micro-Manager stack** is what Micro-Manager's "image stack" format writes, usually as
+`<name>_MMStack_Pos0.ome.tif`. Despite the name, such a file holds no OME-XML, and its planes are not
+described by any TIFF tag: its own header describes them
+([Micro-Manager file formats](https://micro-manager.org/Micro-Manager_File_Formats)). When no
+OME-XML was found, a little-endian classic TIFF whose bytes 8–39 are these little-endian `u32`s is
+one:
+
+| bytes | field |
+|---|---|
+| 8–11 | `54773648` |
+| 12–15 | the index map's offset `M` |
+| 16–31 | the display settings' and comments' headers and offsets, not read |
+| 32–35 | `2355492` |
+| 36–39 | the summary's length `L`, at most 2^24 |
+
+The summary is the `L` bytes at 40, which MUST be a JSON object. The index map at `M` is the `u32`s
+`3453623` and `N`, with `N` at least 1, and `N` entries of 5 `u32`s: channel, slice, frame, position
+and an IFD's offset. A file that is not all of this, whatever its bytes 8–11, is a TIFF like any
+other. The profile reads each IFD an index map names ahead of walking the main chain, a batch of
+ranges rather than an IFD a request: every IFD's elements are as the chain gives them.
+
+The array's axes are as [§4.4](#44-arrays) gives them, of sizes `SizeT`, `SizeC` and `SizeZ`, the
+greatest frame, channel and slice of the index maps of all the files, plus 1. Each entry's plane is
+the IFD at its offset, which MUST be in that file's main chain, else `a Micro-Manager index map names
+an IFD that is not in the main chain`. Every entry of a file MUST have the position of its file's
+first entry, else `a Micro-Manager file of several positions is not supported`: Micro-Manager's
+default writes a file for each position, and each is an input. A plane no entry names has no chunk,
+since an acquisition may be stopped or skip planes.
+
+The stack's **expected planes** are the product of the summary's `Frames`, `Slices` and `Channels`,
+each 1 when it is absent. When the named file's `N` is at least that, the input is a file input.
+Otherwise it names siblings, and its later files are probed as [§7.4](#74-several-files) says; a
+stopped acquisition, whose first later file is absent, therefore costs one probe. A key of the form
+`<s>_<n>.ome.tif`, with `<n>` digits and `<s>` holding `_MMStack`, whose expected planes the file does
+not cover, is a later file named as the input, and is rejected: `<key> is a later file of a
+Micro-Manager stack: zarrify <s>.ome.tif`.
+
+The summary's `PixelSize_um` and `z-step_um`, when they are numbers other than 0, are the scale of
+`x` and `y` and of `z`, in micrometers (their absolute values), in place of the resolution tags
+([§4.4](#44-arrays)). The summary's `ChNames` name the channels of the `omero` as the OME-XML's
+`Channel` names do. The whole summary is the root's `micromanager` member ([§5](#5-source-metadata)).

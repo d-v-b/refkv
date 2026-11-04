@@ -37,7 +37,7 @@ sys.path.insert(0, str(ROOT / "conformance" / "zarrify"))
 from proxy import Proxy
 
 VSI = FIXTURES / "vsi"
-SLIDES = sorted(p for p in VSI.glob("*.vsi") if not p.name.startswith("vsi_reject"))
+SLIDES = sorted(p for p in VSI.glob("*.vsi") if not p.name.startswith(("vsi_reject", "vsi_left_out")))
 REJECTED = sorted(p for p in VSI.glob("vsi_reject_*.vsi"))
 URL = "https://data.test/slides/{}"
 
@@ -229,6 +229,78 @@ def test_the_second_tile_file_name_is_read_when_the_first_is_absent_and_the_firs
     assert set(out.sizes) == {"vsi_metadata_edges.vsi", "_vsi_metadata_edges_/stack10002/frame_t.ets"}
 
 
+def left_out_macro(reason: str, ifd: int = 0) -> list[dict[str, object]]:
+    return [{"id": None, "name": "macro image", "ifd": ifd, "reason": reason}]
+
+
+# Each slide that leaves an IFD image out (spec/zarrify/vsi.md §4.4
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#44-ifd-images-that-are-not-presented>),
+# and what its root records.
+LEFT_OUT = {
+    "macro_size": left_out_macro("IFD 0 (macro image) is 0 × 8"),
+    "macro_compression": left_out_macro("IFD 0 (macro image) has compression 5"),
+    "macro_samples": left_out_macro("IFD 0 (macro image) has 2 samples per pixel"),
+    "macro_bits": left_out_macro("IFD 0 (macro image) has 16 bits per sample"),
+    "macro_planar": left_out_macro("IFD 0 (macro image) has PlanarConfiguration 2"),
+    "macro_format": left_out_macro("IFD 0 (macro image) has SampleFormat 3"),
+    "macro_strips": left_out_macro("IFD 0 (macro image) has 2 strips"),
+    "macro_strips_and_tiles": left_out_macro("IFD 0 (macro image) has both strips and tiles"),
+    "macro_reference": left_out_macro("IFD 0 (macro image): its strips do not fit in a reference of 65519 bytes"),
+    "macro_strip_outside": left_out_macro(
+        "IFD 0 (macro image): a strip (266 bytes at 2482) is outside the 2492-byte .vsi file"),
+    "macro_no_ifd": left_out_macro("macro image: the .vsi file has no IFD 9", 9),
+    "macro_outside_the_tree": left_out_macro("IFD 0 (macro image) is not inside the metadata tree"),
+    "stack_and_macro": [{"id": 10003, "name": "20x FocusMap", "ifd": 2,
+                         "reason": "IFD 2 (20x FocusMap) has PlanarConfiguration 2"},
+                        *left_out_macro("IFD 0 (macro image) has compression 5")],
+}
+
+
+@pytest.mark.parametrize("name", LEFT_OUT)
+def test_a_slide_keeps_its_pyramid_when_an_ifd_image_is_left_out(name, tmp_path):
+    """The root records the image left out and why; the pyramid is the one image, its pixels the
+    generator's; every file is still rebuilt from the mirror, the IFD left out included."""
+    path = VSI / f"vsi_left_out_{name}.vsi"
+    out, root = zarrified(path)
+    assert at(root.attrs, "refkv_zarrified", "vsi", "not_presented") == LEFT_OUT[name]
+    assert out.summary["notPresented"] == len(LEFT_OUT[name])
+    assert at(root["OME"].attrs, "ome", "series") == ["0"]
+    assert at(root.attrs, "refkv_zarrified", "vsi", "stacks", 0, "id") == 10002
+    assert "1" not in root
+    want = expected_array(path.stem, 10002)
+    assert want is not None
+    assert np.array_equal(ndarray(root.get_array("0/0")[...]), want[0, 0, 0])
+    rebuilt = _core.rebuild_store(out.entries.get)
+    assert {k: size for k, size, _ in rebuilt} == {k: (VSI / k).stat().st_size for k in out.sizes}
+    out.write(str(tmp_path / "a.vzip"))
+
+
+def test_a_slide_whose_one_image_is_left_out_has_no_image():
+    """No image: no `ome` on the root and no `OME` group (spec/zarrify/vsi.md §4
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#4-the-images>); what was left
+    out is recorded."""
+    out, root = zarrified(VSI / "vsi_left_out_only_image.vsi")
+    assert "ome" not in root.attrs
+    assert "OME" not in root
+    assert out.summary["images"] == []
+    assert at(root.attrs, "refkv_zarrified", "vsi", "not_presented") == left_out_macro(
+        "IFD 0 (macro image) has compression 5")
+
+
+@pytest.mark.parametrize(("name", "codec", "labels"), [("vsi_png", "imagecodecs_png", ["R", "G", "B"]),
+                                                       ("vsi_bmp", "imagecodecs_bmp", ["R", "G", "B"])])
+def test_png_and_bmp_tiles_are_chunks_of_their_codecs(name, codec, labels):
+    """Their first stack: three samples, `transpose` then the codec, and whatever
+    `component_order` says the decoder gives red first; test_slides_match_their_known_pixels_and_rebuild
+    reads every stack back through the codec."""
+    out, root = zarrified(VSI / f"{name}.vsi")
+    assert [c["name"] for c in json.loads(out.entries["0/0/zarr.json"])["codecs"]] == ["transpose", codec]
+    assert [c["name"] for c in json.loads(out.entries["1/0/zarr.json"])["codecs"]] == [codec]
+    channels = sequence(at(root["0"].attrs, "ome", "omero", "channels"))
+    assert [mapping(c)["label"] for c in channels] == labels
+    assert at(root["0"].attrs, "refkv_zarrified", "vsi", "ets", "codec") == name.removeprefix("vsi_")
+
+
 @pytest.mark.parametrize("path", REJECTED, ids=lambda p: p.name)
 def test_rejects(path):
     """Every `vsi_reject_*` fixture is rejected (rust/refkv-ir/tests/vsi.rs checks each message)."""
@@ -322,8 +394,8 @@ def bioformats():
     return Reader
 
 
-@pytest.mark.parametrize("name", ["vsi_rgb_jpeg", "vsi_raw_tzc", "vsi_jpeg2000_c", "vsi_lossless_jpeg", "vsi_raw_bgr",
-                                  "vsi_raw_gray_pyramid"])
+@pytest.mark.parametrize("name", ["vsi_rgb_jpeg", "vsi_raw_tzc", "vsi_jpeg2000_c", "vsi_lossless_jpeg", "vsi_png",
+                                  "vsi_bmp", "vsi_raw_bgr", "vsi_raw_gray_pyramid"])
 def test_matches_bioformats(name):
     """Every level of every stack Bio-Formats reads from the synthetic slides is our array
     (within 1 for JPEG 2000, whose decoders round differently), and so is the macro image;

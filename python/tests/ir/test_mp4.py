@@ -24,6 +24,9 @@ ACCEPTED = [p for p in FILES if "reject" not in p.name]
 # (spec/zarrify/mp4.md §4.2
 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#42-audio-tracks>)
 NOISE = {"mp4_aac_pns.mp4"}
+# A trun box of negative composition offsets: ffmpeg's demuxer adds the largest of them to every
+# time (its dts_shift), where a sample's presentation time is its decode time plus its offset
+SHIFTED = {"mp4_frag_dash.mp4"}
 
 
 def zarrified(path, tmp_path, chunk_frames=None):
@@ -117,7 +120,8 @@ def test_tracks_are_ffmpegs_decoding(path, chunk_frames, tmp_path):
             # layout records and does not apply
             times = (integer(at(e, "media_time")) for e in sequence(tm["edits"]))
             shift = next((t for t in times if t >= 0), 0)
-            assert ndarray(g.get_array("time")[...]).tolist() == [t + shift for t in pts]
+            got = ndarray(g.get_array("time")[...]).tolist()
+            assert got == [t + (got[0] - pts[0] if path.name in SHIFTED else shift) for t in pts]
             meta = g.get_array("y").metadata
             assert isinstance(meta, ArrayV3Metadata)
             assert meta.dimension_names == ("time", "y", "x")
@@ -312,6 +316,11 @@ TRACKS = [
     ("mov_h264_pcm_s24.mov", ["tracks/1"], {2: "24-bit PCM is not supported"}),
     ("mov_h264_pcm_odd_size.mov", ["tracks/1"], {2: "PCM samples of 3 bytes, not a whole number of 2-byte frames"}),
     ("mov_h264_lpcm_not_interleaved.mov", ["tracks/1"], {2: "PCM whose channels are not interleaved is not supported"}),
+    ("mp4_frag_h264_aac.mp4", ["tracks/1", "tracks/2"], {}),
+    ("mp4_frag_hevc_moof_base.mp4", ["tracks/1", "tracks/2"], {}),
+    ("mp4_frag_aac.mp4", ["tracks/1"], {}),
+    ("mp4_frag_pcm_h264.mp4", ["tracks/1", "tracks/2"], {}),
+    ("mov_frag_pcm_s32be.mov", ["tracks/1"], {}),
 ]
 
 
@@ -375,6 +384,8 @@ def test_a_pcm_track_is_the_file_s_bytes(tmp_path):
         ("mp4_pcm_s16le.mp4", "int16", "little", 1),
         ("mp4_pcm_f32be.mp4", "float32", "big", 2),
         ("mov_pcm_sample_size_1.mov", "int16", "little", 1),
+        ("mp4_frag_pcm_h264.mp4", "int16", "little", 1),
+        ("mov_frag_pcm_s32be.mov", "int32", "big", 1),
     ]
     for name, data_type, endian, channels in cases:
         out, root = zarrified(FIXTURES / "mp4" / name, tmp_path, 7)
@@ -403,3 +414,24 @@ def test_a_pcm_track_is_the_file_s_bytes(tmp_path):
     _, root = zarrified(FIXTURES / "mp4" / "mov_pcm_96k_lpcm.mov", tmp_path)
     tm = mapping(at(root["tracks/1"].attrs, "refkv_zarrified", "mp4"))
     assert (tm["sample_rate"], tm["channels"], tm["codec"], tm["format"]) == (96000, 2, "lpcm", "pcm")
+
+
+def test_reads_a_fragmented_file_s_tracks(tmp_path):
+    """A fragmented file's samples are its tables' and its track fragments', in the file's order
+    (spec/zarrify/mp4.md §3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#3-tracks-and-samples>): ffmpeg's
+    muxer leaves the mdhd box's duration 0 in an empty moov box, which the track's duration
+    extends to where its last sample ends; a keyframe every 10 of 30 pictures is a sync sample
+    wherever it is. With the first fragment's samples in the tables and the others in moof boxes
+    (`mp4_frag_hybrid.mp4`) the track is the same one."""
+    # (file, sync samples, whether its mdhd box counts the samples)
+    for name in ("mp4_frag_h264_aac.mp4", "mp4_frag_hybrid.mp4", "mp4_frag_dash.mp4"):
+        _out, root = zarrified(FIXTURES / "mp4" / name, tmp_path)
+        track = mapping(at(root["tracks/1"].attrs, "refkv_zarrified", "mp4"))
+        assert (track["frames"], track["sync_samples"]) == (30, 3), name
+        assert integer(track["duration"]) == 30 * 1024, name
+    _, plain = zarrified(FIXTURES / "mp4" / "mp4_h264_bframes.mp4", tmp_path)
+    _, hybrid = zarrified(FIXTURES / "mp4" / "mp4_frag_hybrid.mp4", tmp_path)
+    for p in ("y", "u", "v", "time"):
+        assert np.array_equal(ndarray(hybrid.get_array(f"tracks/1/{p}")[...]),
+                              ndarray(plain.get_array(f"tracks/1/{p}")[...])), p

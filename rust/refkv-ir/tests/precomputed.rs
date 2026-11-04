@@ -83,7 +83,7 @@ fn accepted_fixtures_mirror_their_info_and_listing() {
         }
         accepted += 1;
     }
-    assert_eq!(accepted, 11);
+    assert_eq!(accepted, 19);
 }
 
 #[test]
@@ -98,17 +98,20 @@ fn scales_that_are_not_presented_are_recorded_and_their_objects_kept() {
         .map(|r| (r["index"].as_u64().unwrap(), r["reason"].as_str().unwrap().to_string()))
         .collect();
     let want = [
-        (1, "its encoding fpzip has no decoder"),
+        (1, "its encoding webp has no decoder"),
         (2, "its hash murmurhash3_x86_128 scatters chunks across shards, so no shard is a box of chunks"),
         (3, "its shards wrap: chunk ids have 2 bits, and preshift_bits, minishard_bits and shard_bits name 0 of them, so that one shard holds several boxes of chunks"),
         (4, "its key \"../up\" is not a path within the store"),
         (5, "its key \"good\" is an earlier scale's"),
         (6, "its size is not 3 positive integers"),
         (7, "the scale is not an object"),
+        (8, "fpzip holds float32 or float64, not uint8"),
+        (9, "kempressed holds float32 or float64, not uint8"),
+        (10, "zfpc holds int32, int64, float32 or float64, not uint8"),
     ];
     assert_eq!(reasons, want.map(|(i, r)| (i, r.to_string())));
     let refs: BTreeMap<&str, &Vec<Part>> = out.refs.iter().map(|(k, p)| (k.as_str(), p)).collect();
-    for k in ["fp/0-2_0-2_0-2", "murmur/0.shard", "wrap/0.shard", "broken/x"] {
+    for k in ["webp/0-2_0-2_0-2", "fp/0-2_0-2_0-2", "kemp/0-2_0-2_0-2", "zfp/0-2_0-2_0-2", "murmur/0.shard", "wrap/0.shard", "broken/x"] {
         assert!(refs.contains_key(format!("refkv_source/objects/{k}").as_str()), "{k}");
     }
     // the other objects of the scale it presents
@@ -120,10 +123,28 @@ fn scales_that_are_not_presented_are_recorded_and_their_objects_kept() {
 }
 
 #[test]
+fn the_encodings_of_one_channel_of_labels_are_not_presented_for_other_volumes() {
+    let files = walk(&fixtures().join("precomputed_not_presented_labels"));
+    let (out, _) = zarrify(&files).unwrap();
+    let doc: serde_json::Value = serde_json::from_slice(&entry(&out)("zarr.json").unwrap()).unwrap();
+    let reasons: Vec<&str> = doc["attributes"]["refkv_zarrified"]["precomputed"]["not_presented"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["reason"].as_str().unwrap())
+        .collect();
+    assert_eq!(reasons, [
+        "compresso holds uint8 to uint64 in 1 channel, not int8 in 3",
+        "crackle holds uint8 to uint64 in 1 channel, not int8 in 3",
+        "jxl holds uint8 in 1 channel, not int8 in 3",
+    ]);
+}
+
+#[test]
 fn a_volume_with_no_scale_to_present_has_no_image_and_keeps_its_objects() {
     let mut files = BTreeMap::new();
     files.insert("info".to_string(), br#"{"type": "image", "data_type": "uint8", "num_channels": 1,
-        "scales": [{"key": "a", "size": [1, 1, 1], "chunk_sizes": [[1, 1, 1]], "resolution": [1, 1, 1], "encoding": "jxl"}]}"#.to_vec());
+        "scales": [{"key": "a", "size": [1, 1, 1], "chunk_sizes": [[1, 1, 1]], "resolution": [1, 1, 1], "encoding": "webp"}]}"#.to_vec());
     files.insert("a/0-1_0-1_0-1".to_string(), b"x".to_vec());
     let (out, _) = zarrify(&files).unwrap();
     let doc: serde_json::Value = serde_json::from_slice(&entry(&out)("zarr.json").unwrap()).unwrap();
