@@ -54,11 +54,14 @@ SCHEMA = {"anyOf": [
             "format": {"enum": ["h264", "hevc", "av1", "vp9"]},
             "width": {"type": "integer", "minimum": 1}, "height": {"type": "integer", "minimum": 1},
             "chroma": {"enum": ["4:2:0", "4:2:2"], "description": "The chroma planes' subsampling"},
-            "bit_depth": {"enum": [8, 10, 12], "description": "The bits of a sample: uint8 planes for 8, uint16 for more"},
+            "bit_depth": {"enum": [8, 10, 12],
+                          "description": "The bits of a sample: uint8 planes for 8, uint16 for more"},
             "profile": {"type": "integer",
-                        "description": "The SPS's profile_idc (H.264), general_profile_idc (HEVC), or its av1C or vpcC box's"},
+                        "description": ("The SPS's profile_idc (H.264), general_profile_idc (HEVC), "
+                                        "or its av1C or vpcC box's")},
             "level": {"type": "integer",
-                      "description": "The SPS's level_idc (H.264), general_level_idc (HEVC), or its av1C or vpcC box's"},
+                      "description": ("The SPS's level_idc (H.264), general_level_idc (HEVC), "
+                                      "or its av1C or vpcC box's")},
             "sync_samples": {"type": "integer", "minimum": 1, "description": "The keyframes"},
         },
         "required": [*_MP4_TRACK_COMMON, "format", "width", "height", "chroma", "bit_depth", "profile", "level",
