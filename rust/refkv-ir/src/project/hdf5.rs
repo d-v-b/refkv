@@ -8,6 +8,7 @@
 //! chunk of literal lengths and global heap ranges (strings), or the `vlen-utf8` bytes of
 //! canonical paths (references).
 
+use super::vsi::object_url;
 use super::{arr, contiguous, key, Copied};
 use crate::ir::Ir;
 use crate::out::{declare, declared_group, grid_chunks, Chunk, Out, Part};
@@ -46,7 +47,7 @@ fn chunk_key(path: &str, coords: &[u64]) -> String {
 /// storage.
 fn contiguous_chunks(a: &J, threshold: usize) -> Result<Option<(Vec<u64>, Vec<(Vec<u64>, Chunk)>)>, String> {
     let store = &a["store"];
-    if store["kind"] != "contiguous" {
+    if store["kind"] != "contiguous" && store["kind"] != "external" {
         return Ok(None);
     }
     let shape = shape_of(&a["shape"]);
@@ -122,6 +123,38 @@ fn run_of(chunk: &Chunk, item: u64) -> (u64, u64, u64) {
 }
 
 pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, String> {
+    build(ir, facts, url, url, copied)
+}
+
+/// The output of a file read as a store (spec/zarrify/hdf5.md §8.6
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#86-external-files>), its store
+/// URL `url`: the root's `source.url` is the named file's object URL.
+pub fn project_store(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
+    let named = object_url(url, facts["named_key"].as_str().unwrap_or(""));
+    build(ir, facts, url, &named, &Copied::new())
+}
+
+/// A range of the external data `ranges` (key, offset, length) lay out, as ranges of their files.
+fn external_parts(ranges: &[J], mut at: u64, mut left: u64) -> Result<Vec<Part>, String> {
+    let mut parts = Vec::new();
+    for r in ranges {
+        let (offset, length) = (n(&r[1]), n(&r[2]));
+        if at >= length {
+            at -= length;
+            continue;
+        }
+        let k = left.min(length - at);
+        parts.push(Part::Obj(r[0].as_str().unwrap_or("").to_string(), offset + at, k));
+        left -= k;
+        at = 0;
+        if left == 0 {
+            return Ok(parts);
+        }
+    }
+    Err("internal: a chunk lies past its external files".into())
+}
+
+fn build(ir: &Ir, facts: &J, url: &str, source: &str, copied: &Copied) -> Result<Out, String> {
     let threshold = contiguous::threshold(facts);
     let nodes = arr(&facts["nodes"]);
     let mut out = Out::new(url);
@@ -140,7 +173,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
         let own = node["own"].clone();
         let a = &node["array"];
         if a.is_null() {
-            docs.push((doc_key, declared_group(attributes, PROFILE, path.is_empty().then_some(url), Some(own))));
+            docs.push((doc_key, declared_group(attributes, PROFILE, path.is_empty().then_some(source), Some(own))));
             continue;
         }
         let shape = shape_of(&a["shape"]);
@@ -148,7 +181,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
         let whole: Vec<u64> = shape.iter().map(|&v| v.max(1)).collect();
         let chunk_shape: Vec<u64> = match store["kind"].as_str() {
             Some("chunked") => shape_of(&store["chunk"]),
-            Some("contiguous") => cut.as_ref().map(|c| c.0.clone()).unwrap_or(whole),
+            Some("contiguous" | "external") => cut.as_ref().map(|c| c.0.clone()).unwrap_or(whole),
             Some("strings") => grid_chunks(0, &shape, STRING_ITEM, STRING_LIMIT, usize::MAX).map_or(whole, |c| c.0),
             Some("references") => grid_chunks(0, &shape, REFERENCE_ITEM, CHUNK_BYTES, usize::MAX).map_or(whole, |c| c.0),
             Some("records") => grid_chunks(0, &shape, n(&store["item"]).max(1), CHUNK_BYTES, usize::MAX).map_or(whole, |c| c.0),
@@ -181,7 +214,27 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
         let path = node["path"].as_str().unwrap_or("");
         let store = &a["store"];
         let shape = shape_of(&a["shape"]);
+        if let Some(object) = store["object"].as_u64() {
+            refs.in_object_of(object as u32);
+        }
         match store["kind"].as_str() {
+            Some("external") => {
+                let Some((_, chunks)) = cut else { continue };
+                let ranges = arr(&store["ranges"]);
+                let total: u64 = ranges.iter().map(|r| n(&r[2])).sum();
+                count += chunks.len() as u64;
+                for (piece, (c, chunk)) in chunks.into_iter().enumerate() {
+                    let Chunk::Ranges(parts) = chunk else { return Err("internal: an external chunk is not a range".into()) };
+                    let mut placed = Vec::new();
+                    for part in contiguous::padded(parts, &mut zeros, &mut refs.out)? {
+                        match part {
+                            Part::Src(o, len) => placed.extend(external_parts(ranges, o, len)?),
+                            part => placed.push(part),
+                        }
+                    }
+                    refs.chunk(chunk_key(path, &c), n(&store["address"]), total, 0, Some(placed), piece as u64)?;
+                }
+            }
             Some("chunked") => {
                 let el = n(&store["element"]) as u32;
                 let grid = shape_of(&store["grid"]);

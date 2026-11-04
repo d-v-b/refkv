@@ -29,6 +29,9 @@ UNPRESENTED = {
                            "refkv_source": "reserved"},
     "hdf5_compounds.h5": {"gap": "datatype", "mixed_order": "datatype"},
     "hdf5_layouts.h5": {"external": "external_storage", "null": "null_dataspace", "virtual": "layout"},
+    "hdf5_external.h5": {"absent_file": "external_storage", "past_the_end": "external_storage",
+                         "linked_references": "external_reference",
+                         "linked_group/references": "external_reference"},
     "hdf5_filters.h5": {"fletcher32": "filter", "lzf": "filter"},
     "hdf5_links_earliest.h5": {"region": "datatype"},
     "hdf5_links_latest.h5": {"region": "datatype"},
@@ -88,7 +91,8 @@ def same_records(f: h5py.File, want: np.ndarray, got: np.ndarray) -> bool:
 
 
 @pytest.mark.parametrize("path", ACCEPTED, ids=lambda p: p.name)
-def test_datasets_are_what_h5py_reads(path):
+def test_datasets_are_what_h5py_reads(path, monkeypatch):
+    monkeypatch.chdir(path.parent)  # HDF5 finds external storage from the working directory
     root, info = opened(path)
     assert info["format"] == "hdf5"
     assert unpresented(root) == UNPRESENTED.get(path.name, {})
@@ -223,3 +227,36 @@ def test_the_summary_names_an_nwb_file():
 def test_an_imaris_file_is_the_ims_profiles():
     _, info = opened(FIXTURES / "ims" / "ims_earliest_uint16_deflate.ims")
     assert info["format"] == "ims"
+
+
+def test_external_links_and_storage_read_as_h5py_reads_them(monkeypatch):
+    path = FIXTURES / "hdf5" / "hdf5_external.h5"
+    monkeypatch.chdir(path.parent)  # HDF5 finds external storage from the working directory
+    root, _ = opened(path)
+    assert own(root)["siblings"] == ["hdf5_external_a.bin", "hdf5_external_b.bin", "hdf5_external_target.h5"]
+    with h5py.File(path, "r") as f:
+        for name in ("own", "spread", "linked_dataset", "linked_group/chunked"):
+            assert np.array_equal(root[name][()], f[name][()]), name  # pyrefly: ignore
+        assert [root["linked_group/strings"][i] for i in range(2)] == ["one", "two"]  # pyrefly: ignore
+    assert own(root["linked_group"])["external"] == {"file": "hdf5_external_target.h5", "path": "/g"}
+    assert own(root["spread"])["external_storage"][1][0] == "hdf5_external_b.bin"
+
+
+def test_what_a_linked_file_cannot_give_stays_recorded():
+    root, _ = opened(FIXTURES / "hdf5" / "hdf5_external.h5")
+    linked = {link["name"] for link in own(root)["external_links"]}
+    assert {"dangling", "absolute", "not_hdf5", "no_target"} <= linked
+    for name in ("dangling", "absolute", "not_hdf5", "no_target"):
+        assert name not in root
+
+
+def test_a_linked_file_follows_no_further():
+    root, _ = opened(FIXTURES / "hdf5" / "hdf5_external.h5")
+    group = root["linked_group"]
+    assert "far" not in group
+    assert [link["name"] for link in own(group)["external_links"]] == ["far"]
+    assert own(group)["unpresented_attributes"]["self"] == "external_reference"
+
+
+def test_a_file_that_names_no_sibling_stays_a_file_input():
+    assert "siblings" not in own(opened(FIXTURES / "hdf5" / "hdf5_numbers.h5")[0])

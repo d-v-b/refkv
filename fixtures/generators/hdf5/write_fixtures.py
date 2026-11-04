@@ -16,6 +16,7 @@ Usage: uv run python fixtures/generators/hdf5/write_fixtures.py
 
 from __future__ import annotations
 
+import os
 import struct
 import uuid
 from datetime import UTC, datetime
@@ -258,6 +259,41 @@ def netcdf4():
         v.attrs["long_name"] = "sea surface temperature"
 
 
+def external_files():
+    """A file that names siblings: external links to a group and a dataset of another file, and to
+    what cannot be followed, and external storage in two raw files (a chunk across them), and in
+    what is absent or too short. The other file's references name its own paths, and its own external
+    link is not followed."""
+    with open_file("hdf5_external_target.h5") as f:
+        g = f.create_group("g")
+        g.attrs["title"] = "linked"
+        g.attrs["self"] = g.ref
+        g.create_dataset("chunked", data=ramp((6, 4), "<f4"), chunks=(3, 2), compression="gzip")
+        g.create_dataset("strings", data=np.array(["one", "two"], dtype=object), dtype=h5py.string_dtype("utf-8"))
+        g.create_dataset("references", data=[g.ref], dtype=h5py.ref_dtype)
+        g["far"] = h5py.ExternalLink("hdf5_external_absent.h5", "/x")
+        f.create_dataset("top", data=ramp((5, 3), "<i2"))
+        f.create_dataset("top_references", data=[f["top"].ref], dtype=h5py.ref_dtype)
+    previous = Path.cwd()
+    os.chdir(OUT)  # h5py writes external storage relative to the working directory
+    try:
+        with open_file("hdf5_external.h5") as f:
+            f.create_dataset("own", data=ramp((3,), "<i4"))
+            f["linked_group"] = h5py.ExternalLink("hdf5_external_target.h5", "/g")
+            f["linked_dataset"] = h5py.ExternalLink("hdf5_external_target.h5", "/top")
+            f["linked_references"] = h5py.ExternalLink("hdf5_external_target.h5", "/top_references")
+            f["no_target"] = h5py.ExternalLink("hdf5_external_target.h5", "/none")
+            f["dangling"] = h5py.ExternalLink("hdf5_external_absent.h5", "/x")
+            f["absolute"] = h5py.ExternalLink("/elsewhere/x.h5", "/x")
+            f["not_hdf5"] = h5py.ExternalLink("hdf5_external_a.bin", "/x")
+            slots = [("hdf5_external_a.bin", 16, 112), ("hdf5_external_b.bin", 8, 80)]
+            f.create_dataset("spread", data=ramp((12, 4), "<i4"), external=slots)
+            f.create_dataset("absent_file", shape=(4,), dtype="<i4", external=[("hdf5_external_absent.bin", 0, 16)])
+            f.create_dataset("past_the_end", shape=(4,), dtype="<i4", external=[("hdf5_external_b.bin", 1 << 20, 16)])
+    finally:
+        os.chdir(previous)
+
+
 def deep():
     """66 nested groups: deeper than the walk's 64 levels."""
     with open_file("hdf5_reject_too_deep.h5") as f:
@@ -378,6 +414,7 @@ def main():
     names_and_attributes()
     netcdf4()
     nwb_files()
+    external_files()
     rejects()
     for p in sorted(OUT.glob("*")):
         print(p.name, p.stat().st_size)

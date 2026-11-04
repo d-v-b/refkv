@@ -424,7 +424,7 @@ def store_mirror_problem(path: Path, view: dict, fetch=None) -> str | None:
     url = prop.get("source", {}).get("url") if isinstance(prop, dict) else None
     if not isinstance(prop, dict) or not isinstance(url, str):
         return "no store URL on the root"
-    if prop.get("profile") in ("vsi", "nrrd", "grib", "tiff", "lif"):
+    if prop.get("profile") in ("vsi", "nrrd", "grib", "tiff", "lif", "hdf5"):
         # a VSI root names the .vsi file, a NRRD root the header file, a GRIB root the GRIB
         # file and a LAS X project's the named document; the store's URL is its directory
         # (spec/zarrify/vsi.md §9

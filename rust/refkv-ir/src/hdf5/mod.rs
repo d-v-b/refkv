@@ -18,7 +18,8 @@
 //! bytes ([`Fail::Bad`]) is final; with misses before it, the round is retried (the outcome
 //! is the one a sequential reading would give).
 
-mod file;
+pub mod file;
+pub mod store;
 pub mod types;
 pub mod walk;
 
@@ -30,6 +31,8 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc as Rc;
 
 pub const SIGNATURE: &[u8; 8] = b"\x89HDF\r\n\x1a\n";
+/// A slot of the external data files message whose size is the rest of the file.
+pub const EXTERNAL_UNLIMITED: u64 = u64::MAX;
 pub const UNDEFINED: u64 = u64::MAX;
 pub const MAX_SAFE: u64 = (1 << 53) - 1;
 /// Blocks of one object header (§7.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#72-object-headers>).
@@ -518,6 +521,15 @@ impl Header {
     pub fn has(&self, typ: u16) -> bool {
         self.messages().any(|m| m.ty == typ)
     }
+}
+
+/// A slot of an external data files message: where in which file a part of the dataset's
+/// contiguous data lies.
+#[derive(Clone, Debug)]
+pub struct ExternalSlot {
+    pub name: Vec<u8>,
+    pub offset: u64,
+    pub size: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -1118,6 +1130,29 @@ impl H5 {
             Some(Target::Other(..)) => bad(format!("link {} is neither hard nor soft", show_bytes(name))),
             None => bad(format!("no link {}", show_bytes(name))),
         }
+    }
+
+    /// The slots of the external data files message (type 0x07) of the object `h`, in order: a
+    /// version and 3 reserved bytes, the slots allocated and used (2 bytes each), the local heap's
+    /// address, then per slot the name's offset in the heap, the offset in its file and the size.
+    pub fn external_slots(&mut self, h: &Header) -> R<Vec<ExternalSlot>> {
+        let Some(m) = h.message(EXTERNAL_FILES, false)? else { return Ok(Vec::new()) };
+        let m = m.to_vec();
+        if m.first() != Some(&1) {
+            return bad("unsupported external data files message version");
+        }
+        let used = le(&m, 6, 2)? as usize;
+        let Some(heap) = address(le(&m, 8, 8)?)? else { return bad("external data files message without a local heap") };
+        let heap = self.local_heap(heap)?;
+        let mut slots = Vec::with_capacity(used);
+        for k in 0..used {
+            let at = 16 + 24 * k;
+            let (name, offset, size) = (le(&m, at, 8)? as usize, le(&m, at + 8, 8)?, le(&m, at + 16, 8)?);
+            let rest = heap.data.get(name..).ok_or(Fail::Bad("an external file's name lies outside its heap".into()))?;
+            let name = rest.split(|&b| b == 0).next().unwrap_or(&[]).to_vec();
+            slots.push(ExternalSlot { name, offset, size });
+        }
+        Ok(slots)
     }
 
     pub fn local_heap(&mut self, at: u64) -> R<Rc<LocalHeap>> {

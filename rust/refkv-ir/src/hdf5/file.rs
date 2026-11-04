@@ -20,6 +20,7 @@
 use super::types::{self, describe, present, values_json, Dt, Field, FieldKind, Kind, Lookup, Present};
 use super::walk::{lenient, visit, Emit, Visit};
 use super::{le, Acc, Collection, Dataset, Fail, Index, Layout, Target, H5, R, UNDEFINED};
+use crate::beside::{written_key, Written};
 use crate::ir::{Ir, NO_INDEX};
 use crate::nd2::Step;
 use crate::rules::{self, num, Rules, Vars};
@@ -33,6 +34,7 @@ enum Phase {
     Sniff,
     Walk,
     Check,
+    Names,
     Data,
     Facts,
     Done,
@@ -50,6 +52,13 @@ const EXTERNAL: u8 = 64;
 const EXTERNAL_FILES: u16 = 0x07;
 
 pub struct Hdf5 {
+    /// the keys the file names as siblings, and of them those its external links name
+    names: BTreeSet<String>,
+    link_keys: BTreeSet<String>,
+    /// each dataset's external slots, by its address
+    slots: HashMap<u64, Vec<super::ExternalSlot>>,
+    /// the siblings a store run found, with their sizes; None in a file run
+    found: Option<HashMap<String, u64>>,
     h: H5,
     rules: &'static Rules,
     phase: Phase,
@@ -113,7 +122,33 @@ impl Hdf5 {
             heaps: BTreeMap::new(),
             facts: None,
             room: None,
+            names: BTreeSet::new(),
+            link_keys: BTreeSet::new(),
+            slots: HashMap::new(),
+            found: None,
         }
+    }
+
+    /// The keys the file names as siblings, once its run has stepped to `Step::Beside`.
+    pub fn sibling_keys(&self) -> &BTreeSet<String> {
+        &self.names
+    }
+
+    /// The siblings a store run found, by key with their sizes: the parse goes on past
+    /// `Step::Beside`, presenting what they let it. A sibling's parser is given none, so that links
+    /// are followed one level deep.
+    pub fn resolve(&mut self, found: HashMap<String, u64>) {
+        self.found = Some(found);
+    }
+
+    /// The keys of the files external links name, which a store run reads.
+    pub fn link_keys(&self) -> &BTreeSet<String> {
+        &self.link_keys
+    }
+
+    /// Whether the parser handed the file to the IMS profile.
+    pub fn is_ims(&self) -> bool {
+        self.ims.is_some()
     }
 
     pub fn feed(&mut self, offset: u64, data: Vec<u8>) {
@@ -145,6 +180,7 @@ impl Hdf5 {
                 Phase::Sniff => self.sniff(),
                 Phase::Walk => self.walk(),
                 Phase::Check => self.strict(),
+                Phase::Names => self.read_names(),
                 Phase::Data => self.data(),
                 Phase::Facts => self.make_facts(),
                 Phase::Done => return Ok(Step::Done),
@@ -154,13 +190,18 @@ impl Hdf5 {
                     if self.ims.is_some() {
                         continue;
                     }
+                    let named = self.phase == Phase::Names;
                     self.phase = match self.phase {
                         Phase::Sniff => Phase::Walk,
                         Phase::Walk => Phase::Check,
-                        Phase::Check => Phase::Data,
+                        Phase::Check => Phase::Names,
+                        Phase::Names => Phase::Data,
                         Phase::Data => Phase::Facts,
                         _ => Phase::Done,
                     };
+                    if named && self.found.is_none() && !self.names.is_empty() {
+                        return Ok(Step::Beside);
+                    }
                 }
                 Err(Fail::Bad(m)) => return Err(m),
                 Err(Fail::Miss) => {
@@ -338,10 +379,67 @@ impl Hdf5 {
     }
 
     /// What the hierarchy holds of the object at `at`, whose name is `name` (None for the root).
+    /// The keys the file names, and each dataset's external slots (spec/zarrify/hdf5.md §8.6
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#86-external-files>): a name
+    /// the steps of a written name reject stays recorded and names no key.
+    fn read_names(&mut self) -> R<()> {
+        let mut acc = Acc::default();
+        for (at, _) in self.order.clone() {
+            let r = (|| -> R<()> {
+                let h = self.h.header(at)?;
+                if h.has(super::SYMBOL_TABLE) || h.has(super::LINK_INFO) {
+                    let Some(links) = lenient(self.h.links(at))? else { return Ok(()) };
+                    for (_, t) in &links.list {
+                        if let Target::Other(EXTERNAL, Some(v)) = t {
+                            let file = v.get(1..).and_then(|b| b.split(|&c| c == 0).next()).unwrap_or(&[]);
+                            let key = written_key(file, "", Written::default());
+                            self.link_keys.extend(key.clone());
+                            self.names.extend(key);
+                        }
+                    }
+                } else if h.has(EXTERNAL_FILES) {
+                    let Some(slots) = lenient(self.h.external_slots(&h))? else { return Ok(()) };
+                    self.names.extend(slots.iter().filter_map(|s| written_key(&s.name, "", Written::default())));
+                    self.slots.insert(at, slots);
+                }
+                Ok(())
+            })();
+            acc.take(r);
+            if acc.stopped() {
+                break;
+            }
+        }
+        acc.done()
+    }
+
+    /// The ranges of the contiguous data of `total` bytes of the dataset at `at` in its external
+    /// files, as (key, offset, length), in the data's order; None unless a store run found every
+    /// file the data lies in and each range lies within its file.
+    fn external_ranges(&self, at: u64, total: u128) -> Option<Vec<(String, u64, u64)>> {
+        let found = self.found.as_ref()?;
+        let mut left = total;
+        let mut out = Vec::new();
+        for s in self.slots.get(&at)? {
+            if left == 0 {
+                break;
+            }
+            let key = written_key(&s.name, "", Written::default())?;
+            let size = *found.get(&key)?;
+            let n = if s.size == super::EXTERNAL_UNLIMITED { left } else { (s.size as u128).min(left) };
+            if s.offset as u128 + n > size as u128 {
+                return None;
+            }
+            if n > 0 {
+                out.push((key, s.offset, n as u64));
+            }
+            left -= n;
+        }
+        (left == 0).then_some(out)
+    }
+
     fn decide(&mut self, at: u64, name: Option<&[u8]>) -> R<Decision> {
         if let Some(n) = name {
-            let ok = std::str::from_utf8(n).is_ok_and(|s| !s.is_empty() && s != "." && s != ".." && !s.starts_with("__") && !s.contains('/'));
-            if !ok {
+            if !std::str::from_utf8(n).is_ok_and(node_name) {
                 return Ok(Decision::Not("name"));
             }
         }
@@ -356,7 +454,11 @@ impl Hdf5 {
         let (type_message, _) = self.h.datatype(&h)?;
         let dt = types::parse(&type_message)?;
         if h.has(EXTERNAL_FILES) {
-            return Ok(Decision::Not("external_storage"));
+            let total = super::product(&ds.dims).saturating_mul(dt.size as u128);
+            let presentable = matches!(present(&dt), Ok(Present::Fixed { .. } | Present::Bytes { .. })) && ds.layout == Layout::Contiguous;
+            if !presentable || self.external_ranges(at, total).is_none() {
+                return Ok(Decision::Not("external_storage"));
+            }
         }
         match ds.layout {
             Layout::Null => return Ok(Decision::Not("null_dataspace")),
@@ -722,6 +824,13 @@ impl Hdf5 {
                             json!({"kind": "references", "paths": paths})
                         }
                         (_, Layout::Compact) => json!({"kind": "compact", "offset": ds.compact.0, "length": ds.compact.1.len()}),
+                        (_, Layout::Contiguous) if self.slots.contains_key(at) => {
+                            let total = super::product(&ds.dims).saturating_mul(dt.size as u128);
+                            let ranges = self.external_ranges(*at, total).ok_or(Fail::Bad("internal: a dataset's external files changed".into()))?;
+                            let ranges: Vec<J> = ranges.iter().map(|r| json!([r.0, r.1, r.2])).collect();
+                            own.insert("external_storage".into(), J::Array(ranges.clone()));
+                            json!({"kind": "external", "address": at, "ranges": ranges, "item": if trailing.is_some() { 1 } else { dt.size }})
+                        }
                         (_, Layout::Contiguous) => match ds.contiguous.0 {
                             Some(a) if ds.contiguous.1 > 0 => {
                                 if a.checked_add(ds.contiguous.1).is_none_or(|e| e > self.h.size()) {
@@ -1042,6 +1151,12 @@ fn vlen_collections(dt: &Dt, count: usize, data: &[u8], out: &mut BTreeSet<u64>)
             }
         }
     }
+}
+
+/// Whether a link's name can be a node's (spec/zarrify/hdf5.md §2.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#22-paths>).
+pub fn node_name(s: &str) -> bool {
+    !s.is_empty() && s != "." && s != ".." && !s.starts_with("__") && !s.contains('/')
 }
 
 /// An external link's value: a version and flags byte, then the file's name and the object's

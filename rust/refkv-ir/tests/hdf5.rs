@@ -16,6 +16,23 @@ macro_rules! reject {
 include!(concat!(env!("OUT_DIR"), "/rejects_hdf5.rs"));
 
 /// Every accepted fixture parses, and its IR rebuilds the file byte for byte.
+/// The parse of a file on its own, the siblings it names found absent.
+fn alone(data: &[u8]) -> Result<(refkv_ir::ir::Ir, serde_json::Value), String> {
+    let mut p = Hdf5::new(data.len() as u64);
+    p.resolve(Default::default());
+    loop {
+        match p.step()? {
+            refkv_ir::nd2::Step::Read(r) => {
+                for (o, n) in r {
+                    p.feed(o, data[o as usize..(o + n) as usize].to_vec());
+                }
+            }
+            _ => break,
+        }
+    }
+    p.finish()
+}
+
 #[test]
 fn accepted_fixtures_rebuild() {
     let mut n = 0;
@@ -26,7 +43,7 @@ fn accepted_fixtures_rebuild() {
             continue;
         }
         let data = std::fs::read(&p).unwrap();
-        let (ir, facts) = refkv_ir::parse_bytes::<Hdf5>(&data).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let (ir, facts) = alone(&data).unwrap_or_else(|e| panic!("{name}: {e}"));
         assert!(facts["nodes"].as_array().is_some_and(|n| !n.is_empty()), "{name}");
         assert_eq!(rebuilt(&ir, &data), data, "{name}");
         n += 1;

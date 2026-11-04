@@ -12,6 +12,10 @@ this layout as a reference store, and the subset of HDF5 that it reads, is the H
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `6c006834-424b-451b-b786-f8c502ec32af` ·
 Schema: [schema.json](hdf5/schema.json)
 
+Changed 2026-11-04: a file that names siblings is read as a store: an external link presents what
+it names, one level deep, and external storage is presented when its files are there
+([§8.6](#86-external-files)).
+
 Changed 2026-11-01, with no change to any output: the checks list every rejection and limit,
 among them the datatypes' nesting, the rounds of reads and the references' budget, and say that
 a datatype that does not decode rejects the input, where they said that none did
@@ -181,8 +185,9 @@ presented (`filter_mask`): its codecs would differ by chunk; nor is one whose pa
 chunks are stored unfiltered (layout flag bit 0, `edge_chunks`). A contiguous or compact
 dataset whose storage is not its elements' size is not presented (`size`).
 
-A virtual dataset (layout class 3, `layout`) and one with an external data files message
-(`external_storage`) are not presented: their data is not in the file.
+A virtual dataset (layout class 3, `layout`) is not presented: its data is not in the file. One with
+an external data files message has its data in the files it names, and is presented when they are
+beside the file ([§8.6](#86-external-files)); otherwise it is not (`external_storage`).
 
 ### 3.3 Compounds
 
@@ -298,6 +303,8 @@ A group's `hdf5` member:
 |---|---|---|
 | `address` | required | its object header's address |
 | `superblock` | the root's | the superblock's version |
+| `siblings` | the root's, of a file read as a store | every sibling's key ([§8.6](#86-external-files)) |
+| `external` | the node an external link presents | `{"file", "path"}`: the key and path the link named |
 | `attributes` | when it has attributes | each attribute's HDF5 datatype, described (below) |
 | `unpresented_attributes` | when some are not presented | each one's reason, by name |
 | `unpresented` | when some children are not presented | each child's reason ([§7.4](#74-what-is-not-presented)), by link name |
@@ -310,7 +317,8 @@ A dataset's array's `hdf5` member: `address`; `datatype`, its HDF5 datatype desc
 `contiguous`, `chunked`); for a chunked one `chunks`, its HDF5 chunk shape, and `index`
 (`btree1`, `single`, `implicit`, `fixed_array`, `extensible_array`, `btree2`); `filters`, the
 filter identifiers, when it has any; `fill_value`, the fill value message's bytes in base64,
-when defined; and `attributes` and `unpresented_attributes` as a group's.
+when defined; `external_storage`, for a dataset in external files, its ranges
+([§8.6](#86-external-files)); and `attributes` and `unpresented_attributes` as a group's.
 
 A **described datatype** is an object with `class` (`integer`, `float`, `time`, `string`,
 `bitfield`, `opaque`, `compound`, `reference`, `enum`, `vlen_string`, `vlen_sequence`,
@@ -341,6 +349,7 @@ the file.
 | `datatype` | a dataset's or attribute's datatype outside [§3.1](#31-data-types) or [§6](#6-attributes) |
 | `filter`, `filter_mask`, `edge_chunks` | a filter other than deflate and shuffle; a chunk a filter skipped; unfiltered partial edge chunks |
 | `layout`, `external_storage`, `null_dataspace`, `size`, `fill_value` | [§3](#3-datasets) |
+| `external_reference` | an object or attribute an external link reaches that names paths of its own file ([§8.6](#86-external-files)) |
 | `shared` | an attribute with a shared datatype or dataspace |
 | `budget` | an attribute past its node's budget |
 
@@ -380,8 +389,8 @@ The profile reads HDF5 by the subset of
 [ims.md §7.9](ims.md#79-source-metadata-structures), extended:
 
 - **Data layouts** of classes 0 (compact) and 1 (contiguous) and 2 (chunked, with any fill
-  value) are read for every dataset; class 3 (virtual) and the external data files message
-  (type 0x07) are recognized and not read further.
+  value) are read for every dataset; class 3 (virtual) is recognized and not read further, and the
+  external data files message (type 0x07) is read as [§8.6](#86-external-files) says.
 - **Datatypes** of every class (versions 1 to 5) are decoded whole, nested at most 16 levels deep: a
   compound's members, an enumeration's members and values, an array's dimensions, a sequence's
   base; the revised references of version 4 are recognized and not decoded. A datatype message
@@ -465,3 +474,40 @@ Both implementations print `objects` (the walk's), `groups` and `arrays` (presen
 (`soft`, `hard` and `external` counts), `chunks` (the allocated chunks of the presented chunked
 datasets), `rounds`, and for a file whose root has `neurodata_type = "NWBFile"`, `nwb`: its
 `nwb_version` and the namespaces cached under `.specloc`'s group, each with its versions.
+
+### 8.6 External files
+
+An external link (link type 64) and the external data files message (type 0x07) name other files.
+Such a file is a sibling ([spec/zarrify.md §1.9](../zarrify.md#19-sources-beside-the-input)). A name
+may dangle, as HDF5 itself lets one: its link or dataset is recorded in place of being presented,
+with nothing rejected.
+
+| what | it says |
+|---|---|
+| form | on demand: a file with a name that takes the steps below is a file read as a store, any other a file input |
+| names | written: an external link's file name, and each slot's name in the local heap the message gives. Neither percent-encoding nor Windows paths apply, `..` is not allowed, and case is kept. A name that a step rejects, such as an absolute path, stays recorded |
+| probes | one batch, of every key the file names, after the walk and its checks. All are optional: a link whose file is absent stays in `external_links`, and a dataset any of whose files is absent or too short is `external_storage`. A host that can open no file beside the input finds each one absent |
+| identity | the format records nothing that says which files belong together, so the profile checks what it can: that each range lies within its object |
+| order | first use |
+| reads and mirror | the structures of a file a link names, as for the named file ([§8.2](#82-reading)), its mirror described in place; a file that only external storage names is not read, and is referenced |
+
+The parser does not know the named file's own name in a file run, so a file whose only external link
+names itself is read as a store, and the link is followed as any other.
+
+**External links.** What a link names is presented at the link's path: the nodes of the found file
+at and below the link's path in that file, with the file's attributes, codecs and ranges, in their
+own object. One level is followed: the external links and external storage of a file a link names
+stay recorded. A file that does not read as HDF5 ([§8.3](#83-checks)), or that is an Imaris file
+([§8.1](#81-choosing-the-profile)), and a path it does not present, leave the link recorded.
+References and hard and soft links name paths of the found file, which the hierarchy does not hold,
+so that a dataset of object references or a compound with a reference member is not presented, nor
+is an attribute `_LINKS` or an attribute holding a reference: each is recorded as
+`external_reference`.
+
+**External storage.** A dataset of a fixed-size datatype and contiguous layout whose slots give its
+every byte is presented, with `external_storage` in its `hdf5` member: `[[key, offset, length], …]`,
+the ranges in the data's order. The slots are read in order, each giving the bytes at its offset in its
+file, a size of 2^64 − 1 the rest of the data. The chunks are cut as a contiguous dataset's are
+([§3.2](#32-chunks)), with the data numbered from 0 across the slots, so that a chunk across two
+slots is a reference of two ranges, and an edge chunk's padding is a range of the zero data source.
+
