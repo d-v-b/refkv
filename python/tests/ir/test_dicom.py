@@ -1,21 +1,35 @@
 """The DICOM IR (revision 26): the Rust parser and its schema, the image projection against
 the frozen reference, the mirror's rebuild, runs of identical items and frames, the DICOM
-probes of gen_probes.py at the tests' sizes, and lossless JPEG frames, which the profile
-reads since the freeze."""
+probes of gen_probes.py at the tests' sizes, and what the profile reads since the freeze:
+lossless JPEG frames and 1-bit images."""
 
+
+from pathlib import Path
 
 import imagecodecs
 import numpy as np
 import pydicom
 import pytest
 from ir_helpers import FIXTURES, REVISED, as_the_reference, zarrified
+from pydicom.data import get_testdata_file
 from pydicom.encaps import generate_frames
 
 from refkv._narrow import at, integer, ndarray, sequence
 from refkv.ir import zarrify as via_ir
 
+
+def testdata(name: str) -> Path:
+    """A test file of pydicom's."""
+    path = get_testdata_file(name)
+    assert isinstance(path, str), name
+    return Path(path)
+
+
 DICOMS = sorted((FIXTURES / "dicom").glob("*.dcm"))
 LOSSLESS = [p for p in DICOMS if p.name.startswith("dicom_ljpeg_")]
+# pydicom's own 1-bit segmentations: frames on bytes (512 by 512), off them (510 by 510), and one
+ONE_BIT = [*(p for p in DICOMS if p.name.startswith("dicom_bits1_")),
+           *map(testdata, ("liver.dcm", "liver_nonbyte_aligned.dcm", "liver_1frame.dcm", "liver_expb.dcm"))]
 PROBES = ["dicom_big_private.dcm", "dicom_chain_bot.dcm", "dicom_chain_nobot.dcm", "dicom_deep_defined.dcm",
           "dicom_eot_many.dcm", "dicom_fragments_many.dcm", "dicom_frames_many.dcm", "dicom_items_distinct.dcm",
           "dicom_items_same.dcm", "dicom_many_elements.dcm"]
@@ -57,6 +71,26 @@ def test_lossless_jpeg_frames_read_as_libjpeg_turbo_decodes_them(path, tmp_path)
     got = ndarray(array[...])
     assert got.dtype == dtype
     np.testing.assert_array_equal(got, want)
+
+
+@pytest.mark.parametrize("path", ONE_BIT, ids=lambda p: p.name)
+def test_one_bit_frames_read_as_pydicom_reads_them(path, tmp_path):
+    """§7.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#75-frames>: the
+    array is `bool` through `packbits`, its chunks the frames when each starts on a byte, else
+    one, and what zarr-python reads is pydicom's pixel_array."""
+    out, root, _ = zarrified(path, tmp_path, "dicom")
+    assert at(out.summary, "planner", "fill", "ranges") == 0
+    array = root.get_array("0")
+    meta = array.metadata.to_dict()
+    assert at(sequence(at(meta, "codecs"))[-1], "name") == "packbits"
+    ds = pydicom.dcmread(path)
+    n, bits = int(ds.get("NumberOfFrames", 1)), ds.Rows * ds.Columns
+    chunk_frames = 1 if bits % 8 == 0 else n
+    assert array.chunks == ((chunk_frames,) if n > 1 else ()) + (ds.Rows, ds.Columns)
+    assert len([k for k in out.refs if k.startswith("0/c/")]) == n // chunk_frames
+    got = ndarray(array[...])
+    assert got.dtype == bool
+    np.testing.assert_array_equal(got, ds.pixel_array.astype(bool))
 
 
 @pytest.mark.parametrize("name", PROBES)

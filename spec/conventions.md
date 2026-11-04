@@ -264,7 +264,7 @@ below. The conventions that say otherwise:
 | FITS | have, for tile-compressed images, the codec `refkv.fits_tiles` ([fits §3.3](zarrify/fits.md#33-tile-compressed-images)) |
 | GRIB | are defined by the convention itself ([grib §3](zarrify/grib.md#3-the-hierarchy)): a variable has the codec `refkv.grib` and a `float64` coordinate the `gzip` codec, both with the fill value `"NaN"` |
 | HDF5 | are defined by the convention itself ([hdf5 §3](zarrify/hdf5.md#3-datasets)), with the dataset's own chunks and filters, and `vlen-utf8` for strings |
-| NPY, safetensors | have the data type's zero as their fill value; NPY's, for a deflated `.npz` member, the codec `refkv.skip`; safetensors', for a data type of fewer than 8 bits, the codec `packbits` |
+| NPY, safetensors | have the data type's zero as their fill value; NPY's, for a deflated `.npz` member, the codec `refkv.skip`; safetensors', for a data type of fewer than 8 bits, the codec `packbits` (zarr-extensions' bit packing, not TIFF's PackBits) |
 | VSI | have, for a pyramid's levels, the background's first sample as their fill value ([vsi §4.1](zarrify/vsi.md#41-the-pyramid)) |
 
 The object:

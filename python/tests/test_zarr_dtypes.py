@@ -19,8 +19,8 @@ from refkv.zarr.codecs.packbits import PackBitsCodec, pack, unpack
 from refkv.zarr.dtypes import BFloat16, Float4E2M1FN, Float8E4M3FN, Float8E5M2, Float8E8M0FNU
 
 
-def packbits(padding: str) -> dict[str, JSON]:
-    return {"name": "packbits", "configuration": {"padding_encoding": padding}}
+def packbits(padding: str, **bits: int) -> dict[str, JSON]:
+    return {"name": "packbits", "configuration": {"padding_encoding": padding, **bits}}
 
 
 def test_reads_and_writes_fill_values_and_arrays():
@@ -57,10 +57,26 @@ def test_reads_and_writes_fill_values_and_arrays():
                               fill_value=0)
         a[...] = values
         np.testing.assert_array_equal(np.asarray(a[...]).view(np.uint8), values.view(np.uint8), err_msg=name)
+    # bool, and uint8 limited to some of its bits, written through zarr and read back
+    bits = np.array([True, False, True, True, False, False, True], dtype=bool)
+    a = zarr.create_array(MemoryStore(), shape=(7,), chunks=(5,), dtype="bool", serializer=packbits("none"),
+                          compressors=None, fill_value=False)
+    a[...] = bits
+    np.testing.assert_array_equal(a[...], bits)
+    nibbles = np.array([0, 1, 7, 8, 15, 3, 12], dtype=np.uint8)
+    for codec, written in [(packbits("none", last_bit=3), nibbles),
+                           (packbits("last_byte", first_bit=2, last_bit=5), nibbles << 2),
+                           (packbits("none"), nibbles)]:
+        a = zarr.create_array(MemoryStore(), shape=(7,), chunks=(5,), dtype="uint8", serializer=codec, compressors=None,
+                              fill_value=0)
+        a[...] = written
+        np.testing.assert_array_equal(a[...], written, err_msg=str(codec))
+    assert PackBitsCodec(last_bit=3).to_dict() == packbits("none", last_bit=3)
     # packbits' bit order: element i the bits [i k, (i + 1) k), least significant first
     assert pack(np.array([0x1, 0x2, 0xF], dtype=np.uint8), 4) == bytes([0x21, 0x0F])
     assert pack(np.array([0x3F, 0x00, 0x01, 0x2A], dtype=np.uint8), 6) == bytes([0x3F, 0x10, 0xA8])
     np.testing.assert_array_equal(unpack(bytes([0x3F, 0x10, 0xA8]), 4, 6), [0x3F, 0x00, 0x01, 0x2A])
+    np.testing.assert_array_equal(unpack(bytes([0b00000101]), 3, 1), [1, 0, 1])
 
 
 def test_refuses_a_value_the_type_has_not():
@@ -83,9 +99,20 @@ def test_refuses_a_zarr_v2_form():
         BFloat16().to_json(zarr_format=2)
 
 
-def test_packbits_refuses_a_bit_range():
-    with pytest.raises(ValueError, match="packbits: first_bit is not supported"):
-        PackBitsCodec.from_dict({"name": "packbits", "configuration": {"first_bit": 1}})
+def test_packbits_refuses_a_negative_first_bit():
+    with pytest.raises(ValueError, match="packbits: first_bit -1 is negative"):
+        PackBitsCodec.from_dict({"name": "packbits", "configuration": {"first_bit": -1}})
+
+
+def test_packbits_refuses_a_last_bit_before_the_first():
+    with pytest.raises(ValueError, match="packbits: last_bit 1 is less than first_bit 2"):
+        PackBitsCodec(first_bit=2, last_bit=1)
+
+
+def test_packbits_refuses_a_bit_past_the_data_type():
+    with pytest.raises(ValueError, match="packbits: the bits 0 to 3 are not all among the 1 of the data type"):
+        zarr.create_array(MemoryStore(), shape=(7,), chunks=(5,), dtype="bool", serializer=packbits("none", last_bit=3),
+                          compressors=None, fill_value=False)[...] = True
 
 
 def test_packbits_refuses_an_unknown_padding_encoding():
@@ -94,8 +121,8 @@ def test_packbits_refuses_an_unknown_padding_encoding():
 
 
 def test_packbits_refuses_a_data_type_it_does_not_pack():
-    a = zarr.create_array(MemoryStore(), shape=(4,), dtype="uint8", serializer={"name": "packbits"}, compressors=None)
-    with pytest.raises(ValueError, match="packbits: the data type 'uint8' is not one refkv packs"):
+    a = zarr.create_array(MemoryStore(), shape=(4,), dtype="uint16", serializer={"name": "packbits"}, compressors=None)
+    with pytest.raises(ValueError, match="packbits: the data type 'uint16' is not one refkv packs"):
         a[...] = 1
 
 
