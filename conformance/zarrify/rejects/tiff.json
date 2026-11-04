@@ -17,6 +17,11 @@
       "message": "PlanarConfiguration 3"
     },
     {
+      "test": "tiff_edge_reject_compression_unknown",
+      "input": "edge_reject_compression_unknown.tif",
+      "message": "unsupported compression 34661"
+    },
+    {
       "test": "tiff_edge_reject_cycle",
       "input": "edge_reject_cycle.tif",
       "message": "IFD offset 4136 read twice"
@@ -60,6 +65,16 @@
       "test": "tiff_edge_reject_jpeg_tables",
       "input": "edge_reject_jpeg_tables.tif",
       "message": "the IFD at 834 has malformed JPEGTables"
+    },
+    {
+      "test": "tiff_edge_reject_jpegxl_int16",
+      "input": "edge_reject_jpegxl_int16.tif",
+      "message": "unsupported JPEG XL: 16-bit, SampleFormat 2"
+    },
+    {
+      "test": "tiff_edge_reject_lerc_uint64",
+      "input": "edge_reject_lerc_uint64.tif",
+      "message": "unsupported LERC: 64-bit, SampleFormat 1"
     },
     {
       "test": "tiff_edge_reject_mm_foreign_MMStack_Pos0",
@@ -145,14 +160,34 @@
       "message": "planes of one pyramid level differ in size, tili"
     },
     {
+      "test": "tiff_edge_reject_predictor3_integer",
+      "input": "edge_reject_predictor3_integer.tif",
+      "message": "predictor 3 with SampleFormat 1"
+    },
+    {
+      "test": "tiff_edge_reject_predictor3_uncompressed",
+      "input": "edge_reject_predictor3_uncompressed.tif",
+      "message": "predictor 3 with compression 1"
+    },
+    {
       "test": "tiff_edge_reject_predictor_jpeg",
       "input": "edge_reject_predictor_jpeg.tif",
       "message": "predictor 2 with compression 7"
     },
     {
+      "test": "tiff_edge_reject_predictor_lerc",
+      "input": "edge_reject_predictor_lerc.tif",
+      "message": "predictor 2 with compression 34887"
+    },
+    {
       "test": "tiff_edge_reject_predictor_uncompressed",
       "input": "edge_reject_predictor_uncompressed.tif",
       "message": "predictor 2 with compression 1"
+    },
+    {
+      "test": "tiff_edge_reject_predictor_unknown",
+      "input": "edge_reject_predictor_unknown.tif",
+      "message": "unsupported predictor 4"
     },
     {
       "test": "tiff_edge_reject_sample_format",
@@ -226,6 +261,16 @@
       "host": "a TiffData names a file by its UUID alone (), with no FileName"
     },
     {
+      "test": "tiff_edge_reject_webp_gray",
+      "input": "edge_reject_webp_gray.tif",
+      "message": "unsupported WebP: 8-bit, SampleFormat 1, 1 samples"
+    },
+    {
+      "test": "tiff_edge_reject_webp_uint16",
+      "input": "edge_reject_webp_uint16.tif",
+      "message": "unsupported WebP: 16-bit"
+    },
+    {
       "test": "tiff_edge_reject_ycbcr_default",
       "input": "edge_reject_ycbcr_default.tif",
       "message": "the image at 12334 is YCbCr with subsampling [2,"
@@ -244,11 +289,6 @@
       "test": "tiff_unsupported_predictor_2_float",
       "input": "unsupported_predictor_2_float.tif",
       "message": "predictor 2 with SampleFormat 3"
-    },
-    {
-      "test": "tiff_unsupported_predictor_float",
-      "input": "unsupported_predictor_float.tif",
-      "message": "unsupported predictor 3"
     }
   ]
 }

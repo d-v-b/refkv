@@ -15,8 +15,8 @@ const text = (n) => new TextDecoder().decode(new Uint8Array(w.memory.buffer, w.v
 // The format's name, by the file's first bytes (`vz_sniff`, the core's `Format::sniff`); a file
 // of no format is tried as CZI, whose parser rejects it.
 function format(fd) {
-  const head = new Uint8Array(552);
-  const n = readSync(fd, head, 0, 552, 0);
+  const head = new Uint8Array(65600);
+  const n = readSync(fd, head, 0, head.length, 0);
   const r = Number(w.vz_sniff(put(head.subarray(0, n)), n));
   return r > 0 ? text(r) : "czi";
 }

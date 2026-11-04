@@ -175,7 +175,8 @@ HDF5 lists unpresented objects with a reason instead of rejecting the file.
 **The signature.** See [zarrify §1.2](../spec/zarrify.md#12-input), "Choosing
 the profile".
 - A test on the first `min(552, size)` bytes, with a precedence (`sniff`)
-  among the file profiles.
+  among the file profiles. A late signature, on `min(65600, size)` bytes, is
+  tested only when no other matches, as for an HDF5 file after a user block.
 - Or no signature, with `chosen_by` naming the profile whose reading chooses
   it, as TIFF chooses NDPI and QPTIFF.
 - A new parent profile can change a child's outputs: HDF5 had to revise IMS.
