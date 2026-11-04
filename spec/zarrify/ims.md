@@ -9,6 +9,9 @@ it reads, is the IMS profile, [Part 2](#part-2-the-profile) below.
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `5067a535-8261-4b25-a93c-1985ed333bde` ·
 Schema: [schema.json](ims/schema.json)
 
+Changed 2026-11-04: a file after a user block is read, its addresses relative to the superblock
+([§7.1](#71-hdf5-structures)).
+
 Changed 2026-11-01, with no change to any output: the rejections name the rounds of reads and
 the references' budget, which refkv already applied ([§7.7](#77-rejection)).
 
@@ -566,8 +569,9 @@ decodes those, so such files are rejected.
   where this section says so.
 
 **Superblock.** The file starts with the HDF5 signature `89 48 44 46 0D 0A
-1A 0A`; byte 8 is the superblock version. By the version, the bytes read and the fields'
-offsets in them:
+1A 0A`, or has it after a user block ([hdf5.md §8.2](hdf5.md#82-reading)), whose size every address
+below is then relative to; byte 8 is the superblock version. By the version, the bytes read and
+the fields' offsets in them:
 
 | version | bytes read | size of addresses, of lengths | base address (8 bytes) | root group's object header address (8 bytes) |
 |---|---|---|---|---|
@@ -577,8 +581,8 @@ offsets in them:
 
 Any other version rejects the input.
 
-Both sizes MUST be 8, the base address MUST be 0, and the root group's
-address MUST be defined.
+Both sizes MUST be 8, the base address MUST be the superblock's offset in the file, and the root
+group's address MUST be defined.
 
 ### 7.2 Object headers
 
