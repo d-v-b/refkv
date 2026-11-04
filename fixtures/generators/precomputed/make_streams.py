@@ -16,13 +16,13 @@ import base64
 import json
 from pathlib import Path
 
-import compresso
+import compresso  # pyrefly: ignore[missing-import]
 import crackle
-import fpzip
+import fpzip  # pyrefly: ignore[missing-import]
 import imagecodecs
 import numpy as np
-import zfpc
-from write_fixtures import (
+import zfpc  # pyrefly: ignore[missing-import]
+from write_fixtures import (  # pyrefly: ignore[missing-import]
     COMPRESSO_VOLUME,
     CRACKLE_VOLUME,
     FLOAT_VOLUME,
@@ -57,10 +57,10 @@ def kempressed(subvol: np.ndarray) -> bytes:
 
 def jxl(lo, hi, *, lossless: bool) -> bytes:
     """A gray image of width x and height y × z, as cloud-volume's encode_jpegxl gives one."""
-    v = labels(lo, hi, "u1", lambda x, y, z: value(x, y, z))
+    v = labels(lo, hi, "u1", value)
     image = v.T.reshape(v.shape[2] * v.shape[1], v.shape[0])
-    return imagecodecs.jpegxl_encode(image, photometric="GRAY", level=100 if lossless else 90, lossless=lossless,
-                                     effort=5, decodingspeed=0)
+    return bytes(imagecodecs.jpegxl_encode(image, photometric="GRAY", level=100 if lossless else 90, lossless=lossless,
+                                           effort=5, decodingspeed=0))
 
 
 def main() -> None:
