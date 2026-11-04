@@ -220,6 +220,17 @@ class ZarrStore(Store):
     async def exists(self, key: str) -> bool:
         return await self.reader.classify_async(key) != "missing"
 
+    @override
+    async def getsize(self, key: str) -> int:
+        """The size of `key`'s value, from its reference's ranges: zarr's default reads the whole
+        value, which is a shard's whole read for the size of the HTTP server's suffix range."""
+        if key == "zarr.json" or key.endswith("/zarr.json"):
+            return await super().getsize(key)  # rewritten when read
+        size = await self.reader._value_size(key)  # noqa: SLF001 (the reference store's size)
+        if size is None:
+            raise FileNotFoundError(key)
+        return size
+
     async def list(self) -> AsyncIterator[str]:
         async for k in self.reader.list_async(""):
             yield k
