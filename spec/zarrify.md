@@ -852,7 +852,9 @@ bytes call for it, for two reasons: a probe costs a request, and a browser canno
 CORS headers from a network failure, so asking for a file that is not there can fail the run.
 
 - A sibling the file names is **required**, and when it is absent the input is rejected: `the
-  <noun> "<key>" does not exist`.
+  <noun> "<key>" does not exist`. The exception is a format in which a name may dangle, as an HDF5
+  external link may: its profile says so, and records such a name, and one a written name's steps
+  reject, in place of presenting it, with nothing fetched.
 - A sibling a rule only suggests is **optional**, and the profile says what its absence means, and
   when a found one ends the search: a VSI stack's second candidate is not probed once the first is
   found, and GRIB's index files are optional.
@@ -908,7 +910,7 @@ read of what it named:
 |---|---|
 | form | always or on demand |
 | names | each key's rule, derived or written, with the steps a written name takes (`\`, percent-decoding, `..`, **Case**) |
-| probes | which keys, in which batches; required or optional; when a family ends |
+| probes | which keys, in which batches; required or optional; what is recorded for a name that dangles; when a family ends |
 | identity | what is checked in each sibling and the rejection's message, or that the format records nothing |
 | order | the sources' order, when not first use |
 | reads and mirror | the ranges read of each sibling, and how the mirror describes it |
