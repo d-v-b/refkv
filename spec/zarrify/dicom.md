@@ -1,7 +1,7 @@
 # DICOM
 
 The Zarr layout of a DICOM Part 10 file (PS3.10) with native, or JPEG,
-lossless JPEG or JPEG 2000 encapsulated pixel data, including whole-slide images, and the
+lossless JPEG, JPEG-LS, RLE, JPEG 2000 or HTJ2K encapsulated pixel data, including whole-slide images, and the
 translation of its File Meta Information and dataset into the DICOM JSON
 Model. What all of refkv's conventions share is in
 [spec/conventions.md](../conventions.md), cited here as "conventions §n". How
@@ -10,6 +10,14 @@ refkv produces this layout as a reference store is the DICOM profile,
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `acf17198-e5a5-48d3-8187-22ec4bb40ea5` ·
 Schema: [schema.json](dicom/schema.json)
+
+Changed 2026-11-04: RLE Lossless, JPEG-LS and HTJ2K are admitted ([§2.1](#21-transfer-syntax)), their
+frames chunks of `imagecodecs_dicomrle`, `imagecodecs_jpegls` and `imagecodecs_htj2k`
+([§4](#4-output)), an RLE frame's header and a JPEG-LS frame's markers read and checked
+([§7.5](#75-frames)). `PALETTE COLOR` is admitted, the indices with the lookup tables as an array of
+their own ([§4.1](#41-the-palette)), as are native `YBR_FULL`, its channels `Y`, `Cb` and `Cr` as
+stored ([§3](#3-the-image)), and JPEG 2000 frames of `YBR_FULL_422`, which decoders convert to RGB
+([§7.5](#75-frames)).
 
 Changed 2026-10-30: the JPEG Lossless transfer syntaxes, Process 14 and its selection value 1,
 are admitted ([§2.1](#21-transfer-syntax)), their frames chunks of `imagecodecs_ljpeg`
@@ -49,6 +57,8 @@ The hierarchy's entries ([conventions §11.5](../conventions.md#115-layout-table
 | `zarr.json#/attributes/refkv_zarrified` | attribute | [`RootProperty`](../conventions.md#type-rootproperty) | `profile` `"dicom"`, `version` `0`, `source.url` the file's URL |
 | `zarr.json#/attributes/refkv_zarrified/dicom` | attribute | [`DicomRoot`](#type-dicomroot) | the root's source metadata ([§5.1](#51-the-root)) |
 | `0/zarr.json` | array | [`DicomArray`](#type-dicomarray) | the pixels ([§4](#4-output)) |
+| `palette/zarr.json` | array | [`DicomPalette`](#type-dicompalette) | the lookup tables of a `PALETTE COLOR` image ([§4.1](#41-the-palette)) |
+| `palette/c/<k>/0` | chunk | a source range | table `k`, red, green or blue ([§4.1](#41-the-palette)) |
 | `0/c/<coords>` | chunk | [`DicomChunk`](#type-dicomchunk) | a frame, or one sample of it when planar; every chunk is present ([§4](#4-output), [§7.6](#76-chunk-references)) |
 | `refkv_source/**` | subtree | [the mirror's entries](../conventions.md#table-mirror) | the IR mirror ([§5.3](#53-the-ir-mirror)): its elements are [§5.4](#54-elements)'s |
 
@@ -98,15 +108,20 @@ says how they are read.)
   | `1.2.840.10008.1.2` | Implicit VR Little Endian | implicit, little | native |
   | `1.2.840.10008.1.2.1` | Explicit VR Little Endian | explicit, little | native |
   | `1.2.840.10008.1.2.2` | Explicit VR Big Endian (retired) | explicit, big | native |
+  | `1.2.840.10008.1.2.5` | RLE Lossless | explicit, little | encapsulated, `dicomrle` |
   | `1.2.840.10008.1.2.4.50` | JPEG Baseline (Process 1) | explicit, little | encapsulated, `jpeg` |
   | `1.2.840.10008.1.2.4.57` | JPEG Lossless, Non-Hierarchical (Process 14) | explicit, little | encapsulated, `ljpeg` |
   | `1.2.840.10008.1.2.4.70` | JPEG Lossless, Non-Hierarchical, First-Order Prediction (Process 14, Selection Value 1) | explicit, little | encapsulated, `ljpeg` |
+  | `1.2.840.10008.1.2.4.80` | JPEG-LS Lossless | explicit, little | encapsulated, `jpegls` |
+  | `1.2.840.10008.1.2.4.81` | JPEG-LS Near-Lossless | explicit, little | encapsulated, `jpegls` |
   | `1.2.840.10008.1.2.4.90` | JPEG 2000 (lossless only) | explicit, little | encapsulated, `jpeg2k` |
   | `1.2.840.10008.1.2.4.91` | JPEG 2000 | explicit, little | encapsulated, `jpeg2k` |
+  | `1.2.840.10008.1.2.4.201` | HTJ2K (lossless only) | explicit, little | encapsulated, `htj2k` |
+  | `1.2.840.10008.1.2.4.202` | HTJ2K with RPCL (lossless only) | explicit, little | encapsulated, `htj2k` |
+  | `1.2.840.10008.1.2.4.203` | HTJ2K | explicit, little | encapsulated, `htj2k` |
 
-  Any other value, including Deflated Explicit VR Little Endian, RLE
-  Lossless, the other JPEG processes (among them the lossy extended and
-  hierarchical ones), JPEG-LS and HTJ2K, rejects the input:
+  Any other value, including Deflated Explicit VR Little Endian and the other JPEG processes (among them
+  the lossy extended and hierarchical ones), rejects the input:
   their frames are not a single stream that a codec of [conventions §3](../conventions.md#3-arrays) decodes.
 
 ### 2.2 Attributes
@@ -136,6 +151,9 @@ Attributes elsewhere (in other items, or deeper) are not read.
 | `(0028,0102)` | High Bit | US | integer |
 | `(0028,0103)` | Pixel Representation | US | integer |
 | `(0028,1050)`, `(0028,1051)` | Window Center, Window Width | DS | decimals |
+| `(0028,1101)`, `(0028,1102)`, `(0028,1103)` | Red, Green, Blue Palette Color Lookup Table Descriptor | US or SS | [§4.1](#41-the-palette) |
+| `(0028,1201)`, `(0028,1202)`, `(0028,1203)` | Red, Green, Blue Palette Color Lookup Table Data | OW or OB | [§4.1](#41-the-palette) |
+| `(0028,1221)`, `(0028,1222)`, `(0028,1223)` | Segmented Red, Green, Blue Palette Color Lookup Table Data | any | whether it is present ([§4.1](#41-the-palette)) |
 | `(0028,1052)`, `(0028,1053)` | Rescale Intercept, Rescale Slope | DS | decimals |
 | `(0048,0006)`, `(0048,0007)` | Total Pixel Matrix Columns, Rows | UL | integer |
 | `(0048,0302)` | Number of Optical Paths | UL | integer |
@@ -181,9 +199,9 @@ unusable value in the item does not fall back to the top level.)
   (unsigned) or 1 (signed).
 - **Data type:** `uint` (Pixel Representation 0) or `int` (1), then Bits
   Allocated. Bits Allocated MUST be 8, 16 or 32 for native pixel data, 8
-  for `jpeg`, and 8 or 16 for `ljpeg` and `jpeg2k`. For `jpeg`, Bits Stored MUST be 8 and
+  for `jpeg`, 8, 16 or 32 for `dicomrle`, and 8 or 16 for `ljpeg`, `jpegls`, `jpeg2k` and `htj2k`. For `jpeg`, Bits Stored MUST be 8 and
   Pixel Representation 0. (For `ljpeg`, each frame's precision is checked
-  against Bits Allocated and Pixel Representation, [§7.5](#75-frames).)
+  against Bits Allocated and Pixel Representation, as is `jpegls`'s, [§7.5](#75-frames).)
 - **Cells:** native pixels are read as whole cells of Bits Allocated bits.
   When Bits Stored is less, the cells are not masked or sign-extended: the
   output equals the stored values only when the unused high bits are 0
@@ -192,17 +210,21 @@ unusable value in the item does not fall back to the top level.)
 
   | pixel data | `S` = 1 | `S` = 3 |
   |---|---|---|
-  | native | `MONOCHROME1`, `MONOCHROME2` | `RGB` |
+  | native | `MONOCHROME1`, `MONOCHROME2`, `PALETTE COLOR` | `RGB`, `YBR_FULL` |
+  | `dicomrle` | `MONOCHROME1`, `MONOCHROME2`, `PALETTE COLOR` | `RGB`, `YBR_FULL` |
   | `jpeg` | `MONOCHROME1`, `MONOCHROME2` | `RGB`, `YBR_FULL`, `YBR_FULL_422` |
-  | `ljpeg` | `MONOCHROME1`, `MONOCHROME2` | `RGB` |
-  | `jpeg2k` | `MONOCHROME1`, `MONOCHROME2` | `RGB`, `YBR_ICT`, `YBR_RCT` |
+  | `ljpeg` | `MONOCHROME1`, `MONOCHROME2`, `PALETTE COLOR` | `RGB` |
+  | `jpegls` | `MONOCHROME1`, `MONOCHROME2`, `PALETTE COLOR` | `RGB`, `YBR_FULL` |
+  | `jpeg2k` | `MONOCHROME1`, `MONOCHROME2`, `PALETTE COLOR` | `RGB`, `YBR_FULL_422`, `YBR_ICT`, `YBR_RCT` |
+  | `htj2k` | `MONOCHROME1`, `MONOCHROME2`, `PALETTE COLOR` | `RGB`, `YBR_ICT`, `YBR_RCT` |
 
-  Anything else is rejected: `PALETTE COLOR` (its values are indices into a
-  lookup table that no codec of [conventions §3](../conventions.md#3-arrays) applies), native `YBR_*` (YCbCr, or
-  subsampled, as stored), and the combinations a JPEG or JPEG 2000 decoder
-  does not turn into RGB, among them every one of lossless JPEG but `RGB`
-  (a lossless JPEG decoder applies no color transform). Every accepted
-  three-sample image decodes to RGB.
+  Anything else is rejected: subsampled native or RLE `YBR_*`, and the combinations a JPEG or
+  JPEG 2000 decoder does not turn into RGB, among them every one of lossless JPEG but `RGB`
+  (a lossless JPEG decoder applies no color transform). Three samples decode to RGB, but for
+  `YBR_FULL` of native, `dicomrle` and `jpegls` pixel data, whose samples are Y, Cb and Cr as
+  stored: no codec of [conventions §3](../conventions.md#3-arrays) converts them, and an image
+  keeps its stored values. `PALETTE COLOR` samples are indices, with the lookup tables as an array
+  of their own ([§4.1](#41-the-palette)).
 
 **Whole-slide images.** The file is a **whole-slide image** if its SOP Class
 UID is `1.2.840.10008.5.1.4.1.1.77.1.6` (VL Whole Slide Microscopy Image
@@ -238,7 +260,7 @@ array `"0"`.
 | `shape` | array of integer | required | 3 for `c`, `N` for the frame axis; then `H`, `W` for a whole-slide image, else Rows, Columns |
 | `data_type` | string | required | from [§3](#3-the-image) (**Data type**) |
 | `chunk_grid` | object | required | regular, its chunk shape: for `c`, 1 if the pixel data is native with Planar Configuration 1, else 3; 1 for the frame axis; then Rows, Columns |
-| `codecs` | array of object | required | ([conventions §3](../conventions.md#3-arrays)) `transpose` when `c` is present and its chunk size is 3 (interleaved, as every decoded JPEG, lossless JPEG and JPEG 2000 frame is); then `bytes` (with `endian` `little` or `big` by the encoding when Bits Allocated is above 8), `imagecodecs_jpeg`, `imagecodecs_ljpeg` or `imagecodecs_jpeg2k` |
+| `codecs` | array of object | required | ([conventions §3](../conventions.md#3-arrays)) `transpose` when `c` is present and its chunk size is 3 (interleaved, as every decoded JPEG, lossless JPEG, JPEG-LS, JPEG 2000 and HTJ2K frame is, and not an RLE frame, which decodes to planar samples); then `bytes` (with `endian` `little` or `big` by the encoding when Bits Allocated is above 8), `imagecodecs_jpeg`, `imagecodecs_ljpeg`, `imagecodecs_jpegls`, `imagecodecs_jpeg2k`, `imagecodecs_htj2k` (with the configuration `{"planar": false}` when `S` = 3: the decoder's default is planar for a stream without a color transform), or `imagecodecs_dicomrle` (with the configuration `{"dtype": D}`, `D` the data type as NumPy writes it, little endian: `"<u2"`, `"\|u1"`) |
 | `attributes` | object | required | `{}` ([§1](#1-declaration)) |
 
 **Scale and units.** Each axis's scale and unit:
@@ -265,8 +287,8 @@ there is no `c` axis).
 
 | member | type | presence | value |
 |---|---|---|---|
-| `label` | string | required | `S` = 1: `gray`; `S` = 3: `R`, `G`, `B` |
-| `color` | string | required | `S` = 1: `FFFFFF`; `S` = 3: `FF0000`, `00FF00`, `0000FF` |
+| `label` | string | required | `S` = 1: `gray`, or `index` for `PALETTE COLOR`; `S` = 3: `R`, `G`, `B`, or `Y`, `Cb`, `Cr` for `YBR_FULL` as stored ([§3](#3-the-image)) |
+| `color` | string | required | `S` = 1: `FFFFFF`; `S` = 3: `FF0000`, `00FF00`, `0000FF`, or `FFFFFF`, `0000FF`, `FF0000` for `Y`, `Cb`, `Cr` |
 | `active` | boolean | required | `true` |
 | `window` | [`Window`](../conventions.md#type-window) | required | `{"min": A, "max": Z, "start": a, "end": e}` (below) |
 | `inverted` | boolean | optional | `true`, present for `MONOCHROME1` |
@@ -292,9 +314,44 @@ for the frame axis, `f`; then the frame's tile row and column for a whole-slide
 image, else 0 and 0. Every chunk is present. A chunk holds the frame's
 pixel data: for native pixel data, its `Rows × Columns × S` cells (or one
 sample's, when planar); for encapsulated pixel data, the frame's
-fragments' data, concatenated, which is one JPEG, lossless JPEG or JPEG 2000 stream (a
+fragments' data, concatenated, which is one JPEG, lossless JPEG, JPEG-LS, RLE, JPEG 2000 or HTJ2K stream (a
 JPEG stream with three samples made explicit about its color transform,
 as [§7.5](#75-frames) says). Its ranges are a [`DicomChunk`](#type-dicomchunk).
+
+### 4.1 The palette
+
+A `PALETTE COLOR` image's array `0` holds the stored values, indices into three lookup tables,
+which no codec applies. The tables are the array `palette`, each entry a reference to the file.
+
+Each table has a descriptor, of 3 values: its entries `E` (0 means 65536), the stored value `m` that
+maps to its first entry, and its bits per entry `d`. A descriptor has the VR US or SS (`m` is then
+signed), and in implicit VR is read as US. A file with a segmented table `(0028,1221)`–`(0028,1223)`
+has no array `palette`: such a table's entries are commands, which a range of the file does not
+hold as entries, and all its tables stay in the mirror ([§5.3](#53-the-ir-mirror)). Otherwise the
+input is rejected unless all of these hold, in this order:
+
+- Bits Allocated is 8 or 16;
+- the three descriptors are present, of at least 3 values each, and equal;
+- `d` is 8 or 16;
+- the three tables `(0028,1201)`–`(0028,1203)` are present, of one length `n`, with `n ≥ E`.
+
+An entry has `b` bytes: 2 when `n ≥ 2E`, as most writers store them whatever `d` says, else 1.
+
+<a id="type-dicompalette"></a>**`DicomPalette`**, the array's `zarr.json`: an
+[`ArrayDocument`](../conventions.md#type-arraydocument) with these members:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `dimension_names` | array of string | required | `c`, `i` |
+| `shape` | array of integer | required | `[3, E]` |
+| `data_type` | string | required | `uint8` for `b` = 1, else `uint16` |
+| `chunk_grid` | object | required | regular, its chunk shape `[1, E]` |
+| `codecs` | array of object | required | `bytes`, with `endian` by the encoding when `b` is 2 |
+| `attributes` | object | required | `{"first_mapped": m, "bits": d}` |
+
+Chunk `palette/c/<k>/0` is the first `b × E` bytes of the value of table `k`, red, green then blue:
+one range of source 0. No chunk is copied. A stored value `v` is shown as the entries at
+`clamp(v − m, 0, E − 1)`, each scaled from `d` bits by the reader.
 
 ## 5. Source metadata
 
@@ -726,7 +783,7 @@ as [§7.3](#73-datasets-and-sequences) and **Sequences that the profile does not
 | `dataset/7FE00010/padding` | value | `bytes[1]` | native pixel data's one byte `00` past the frames |
 | `…/offset_table` | struct | | encapsulated pixel data's first item: `header` and `offsets` (`Eu4[k]`, or `bytes[n]` when its length is not a multiple of 4) |
 | `…/fragment_headers/<j>` | value | `{group:Eu2,element:Eu2,length:Eu4}` | the item header of fragment `j` (after the offset table), or, with an Extended Offset Table, of frame `j` when the frames' headers are item headers |
-| `dataset/7FE00010/fragments/<j>` | data | | fragment `j`'s data, when not empty (with an Extended Offset Table, frame `j`'s); its form's geometry is `{"rows", "columns", "samples", "bits_allocated", "pixel_representation", "photometric"}`, its codec `{"name": "bytes", "endian"}`, `{"name": "jpeg"}`, `{"name": "ljpeg"}` or `{"name": "jpeg2k"}`, its recipe the whole range |
+| `dataset/7FE00010/fragments/<j>` | data | | fragment `j`'s data, when not empty (with an Extended Offset Table, frame `j`'s); its form's geometry is `{"rows", "columns", "samples", "bits_allocated", "pixel_representation", "photometric"}`, its codec `{"name": "bytes", "endian"}`, `{"name": "jpeg"}`, `{"name": "ljpeg"}`, `{"name": "jpegls"}`, `{"name": "dicomrle"}`, `{"name": "jpeg2k"}` or `{"name": "htj2k"}`, its recipe the whole range |
 | `<d>/7FE00010/fragments/<j>` | value | `bytes[n]` | the fragments of Pixel Data nested in an item (an icon image) |
 | `…/end` | value | `{group:Eu2,element:Eu2,length:Eu4}` | the fragment sequence's delimiter |
 | `pixel_extra` | value | `bytes[n]` | native pixel data past the frames, when not one byte `00` |
@@ -1203,6 +1260,36 @@ first 512 bytes (or its first range, when shorter), then, for a walk that
 needs more, 512 bytes (or to its range's end) from where it stopped, until
 every walk ends.
 
+**JPEG-LS.** For `jpegls`, each frame's markers are read in the same way, the frame header being
+SOF55 (`FF F7`), and the first SOS giving `Ns`, then, after its `Ns` component specifications, the
+interleave mode `ILV` in the place of `Se`. The input is rejected if a stream ends, or is not a
+marker where one is due, before that SOS; or if:
+
+- the frame header is not SOF55;
+- `Nf` is not `S`;
+- its lines and columns are not Rows and Columns;
+- `P` is less than 2 or more than Bits Allocated, or, with Pixel Representation 1, not Bits
+  Allocated, as for lossless JPEG;
+- `ILV` is not 0 with `Ns` 1, or 1 or 2 with `Ns` equal to `S`;
+- `Al` is not 0.
+
+The decoder interleaves the samples whatever `ILV` is.
+
+**RLE.** For `dicomrle`, each frame's stream is its fragments, and starts with the header of
+PS3.5 [Annex G](https://dicom.nema.org/medical/dicom/current/output/chtml/part05/chapter_G.html): a
+`u32` number of segments, then `u32` offsets. Each frame's first 8 bytes are read, all in one batch.
+The input is rejected if a stream has fewer than 8 bytes, or its number of segments is not
+`S × Bits Allocated / 8`, or its first offset is not 64. A frame decodes to its samples in planar
+order, so the array has no `transpose`.
+
+**JPEG 2000 of `YBR_FULL_422`.** Such frames are not in the standard's list for this transfer
+syntax, and IDC's slides have them. The first frame's first 51 bytes are read. The input is rejected
+unless they start a codestream (`FF 4F FF 51`) whose SIZ gives three components, the first with
+`XRsiz` and `YRsiz` of 1 and the others with `XRsiz` 2 and `YRsiz` 1. OpenJPEG, which imagecodecs
+calls, takes that pattern for sYCC, upsamples the chroma and converts to RGB, and the Neuroglancer
+fork's decoder follows the same rule; a stream labeled so without that pattern would decode
+to its samples as stored. Later frames are not read.
+
 ### 7.6 Chunk references
 
 Frame `f` (or sample `s` of it) is the entry `0/c/<coords>` of
@@ -1229,9 +1316,15 @@ No chunk is copied: every chunk is a reference.
 
 These are deliberate, and follow from the rules above.
 
-- Only the transfer syntaxes of [the convention §2.1](#21-transfer-syntax). JPEG-LS, RLE, deflate
-  and HTJ2K are rejected, as is any file whose frames are not single
-  streams that a codec of [conventions §3](../conventions.md#3-arrays) decodes.
+- Only the transfer syntaxes of [the convention §2.1](#21-transfer-syntax). Deflate is rejected, as is
+  any file whose frames are not single streams that a codec of
+  [conventions §3](../conventions.md#3-arrays) decodes.
+- HTJ2K frames decode through zarr-python and `imagecodecs_htj2k`. The Neuroglancer fork has no HTJ2K
+  decoder yet, so the demo does not show them.
+- A signed JPEG-LS frame whose precision is less than Bits Allocated is rejected, as lossless JPEG's
+  is: a decoder gives its samples as unsigned.
+- A segmented palette has no array `palette` ([§4.1](#41-the-palette)): the indices are the array, and
+  the tables are in the mirror.
 - A lossless JPEG frame with a point transform or restart intervals is
   rejected, though its stream is valid, since the codec's decoder reads it
   wrongly ([§7.5](#75-frames)); so is a signed one whose precision is less
@@ -1252,7 +1345,7 @@ These are deliberate, and follow from the rules above.
 - Without an Extended Offset Table, every fragment's item header is read:
   on a large encapsulated file, that is many small reads.
 - No modality LUT, VOI LUT, palette or overlay is applied to the pixels;
-  only the omero window uses the VOI attributes.
+  only the omero window uses the VOI attributes. A palette's tables are their own array.
 
 A file whose preamble holds a TIFF header, as dual-personality files and
 some toolkits write it, is still read by this profile: [§1.2](../zarrify.md#12-input) tests for `DICM`
