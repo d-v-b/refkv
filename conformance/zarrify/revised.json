@@ -50,6 +50,8 @@
     "bilevel_lzw_strips_short.tif",
     "bilevel_g4.tif",
     "bilevel_g4_strips_no_bits.tif",
+    "bilevel_packbits_strips_short.tif",
+    "bilevel_g4_strips_short.tif",
     "uint12_strips.tif",
     "uint12_strips_short.tif",
     "uint12_be.tif",

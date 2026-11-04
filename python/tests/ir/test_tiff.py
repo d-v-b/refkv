@@ -209,11 +209,13 @@ STRIPS = {
 
 
 def inner_of(meta):
-    """(the chunk shape, the codecs) of a level's document: the inner chunks' when it is sharded."""
+    """(the chunk shape, the codecs) of a level's document: the inner chunks' when it is sharded, and a
+    `rectilinear` grid's chunk lengths for its shape."""
     if meta["codecs"][0]["name"] == "sharding_indexed":
         config = meta["codecs"][0]["configuration"]
         return config["chunk_shape"], config["codecs"]
-    return meta["chunk_grid"]["configuration"]["chunk_shape"], meta["codecs"]
+    grid = meta["chunk_grid"]["configuration"]
+    return grid.get("chunk_shape", grid.get("chunk_shapes")), meta["codecs"]
 
 
 def test_strips_and_lzw_are_the_images_pixels(tmp_path):
@@ -562,6 +564,8 @@ def patch_tag(path, tag: str, *, value: int | None = None, code: int | None = No
 RECTILINEAR = {
     # name: each level's chunk lengths along `y`, or the integer of a regular grid's chunk shape
     "strips_uint16_deflate_short.tif": [[[16, 4], 6]],
+    "bilevel_packbits_strips_short.tif": [[[16, 2], 8]],
+    "bilevel_g4_strips_short.tif": [[[16, 2], 8]],
     "strips_uint16_zstd_short.tif": [[[16, 4], 6]],
     "strips_uint16_deflate_be_predictor_short.tif": [[[16, 4], 6]],
     "strips_rgb_contig_jpeg_short.tif": [[[16, 4], 6]],
@@ -700,6 +704,8 @@ PACKED = {
     "bilevel_lzw_strips_short.tif": ("uint8", [packints(1, 45), LZW]),  # sharded, a tail on its last strip
     "bilevel_g4.tif": ("uint8", [G4]),
     "bilevel_g4_strips_no_bits.tif": ("uint8", [G4]),
+    "bilevel_packbits_strips_short.tif": ("uint8", [packints(1, 45), PACKBITS]),
+    "bilevel_g4_strips_short.tif": ("uint8", [G4]),
     "uint12_strips.tif": ("uint16", [packints(12, 51)]),
     "uint12_strips_short.tif": ("uint16", [packints(12, 51)]),
     "uint12_be.tif": ("uint16", [packints(12, 51)]),  # packed bits have one order, whatever the file's

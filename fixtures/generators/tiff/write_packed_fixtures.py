@@ -166,8 +166,26 @@ def main() -> None:
         16,
         [(259, SHORT, [5]), white_is_zero],
     )
-    # CCITT Group 4 (T.6), each strip its own, with and without tag 258, and whole strips.
+    # A short last strip of PackBits, which cannot be padded: the `rectilinear` grid.
+    write(
+        "bilevel_packbits_strips_short.tif",
+        45,
+        40,
+        [bytes(imagecodecs.packbits_encode(packed(s, 1))) for s in strips_of(b, 16)],
+        16,
+        [(259, SHORT, [32773]), white_is_zero],
+    )
+    # CCITT Group 4 (T.6), each strip its own, with and without tag 258, and whole strips; a short last
+    # strip has the `rectilinear` grid.
     write("bilevel_g4.tif", 45, 40, [g4(b)], 40, [(258, SHORT, [1]), (259, SHORT, [4]), white_is_zero])
+    write(
+        "bilevel_g4_strips_short.tif",
+        45,
+        40,
+        [g4(s) for s in strips_of(b, 16)],
+        16,
+        [(259, SHORT, [4]), white_is_zero],
+    )
     b48 = bilevel(48, 45)
     write(
         "bilevel_g4_strips_no_bits.tif",
