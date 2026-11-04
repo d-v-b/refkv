@@ -8,11 +8,11 @@
 // machinery.
 
 import { blockReader, type ByteReader, ImageError } from "./common.ts";
-import { type IrFormat, zarrifyIr } from "./ir/run.ts";
+import { type IrFormat, NamesSiblings, zarrifyIr } from "./ir/run.ts";
 import { ir, out, put } from "./ir/wasm.ts";
 import { type RangeSource, readerSource } from "./ir/source.ts";
 import { zarrifyStoreIr } from "./ir/store.ts";
-import { BESIDE, type BesideFormat, zarrifyVsi } from "./ir/vsi.ts";
+import { BESIDE, type BesideFormat, ON_DEMAND, zarrifyVsi } from "./ir/vsi.ts";
 import { chooseProfile, closeStore, objectUrl, openHttpStore, type Store } from "./store.ts";
 import type { Policy } from "../archive.ts";
 import { crc32c } from "../deflate.ts";
@@ -100,16 +100,22 @@ async function zarrifyWith(url: string, input: Input, pins: PinOptions): Promise
   // alone
   const format = await irFormat(await input.read(0, Math.min(552, input.size)));
   if (format === undefined) throw new ImageError(NOT_SUPPORTED);
-  if (format in BESIDE) {
-    const beside = format as BesideFormat;
+  const asStore = async (beside: BesideFormat): Promise<ImageDesc> => {
     const { store, ...desc } = await zarrifyVsi(url, input.source, pins.open ? { open: pins.open } : {}, beside);
     if (pins.checksums) {
       const keys = new Map([...store.objects.keys()].map((k) => [objectUrl(store.url, k), k]));
       await addChecksums(desc, (u, o, n) => store.readRange!(keys.get(u)!, o, n));
     }
     return { format: beside, ...desc };
+  };
+  if (format in BESIDE && !ON_DEMAND.has(format)) return asStore(format as BesideFormat);
+  let desc;
+  try {
+    desc = await zarrifyIr(format, url, input.source, { checksums: pins.checksums === true });
+  } catch (e) {
+    if (e instanceof NamesSiblings && e.format in BESIDE) return asStore(e.format as BesideFormat);
+    throw e;
   }
-  const desc = await zarrifyIr(format, url, input.source, { checksums: pins.checksums === true });
   const etag = pins.etag?.();
   desc.sources[0] = { ...desc.sources[0], size: BigInt(input.size), ...(etag !== undefined ? { etag } : {}) };
   if (pins.checksums) await addChecksums(desc, (_u, o, n) => (input.exact ?? input.read)(o, n));
