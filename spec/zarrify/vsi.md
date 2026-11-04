@@ -1080,7 +1080,9 @@ presented ([the convention §4.4](#44-ifd-images-that-are-not-presented)). The
 output's data sources are the distinct JPEG prefixes (one per IFD image
 with a prefix, shared when equal). The output's source table is one `url` source per object a
 reference uses (its object URL, with a `size` pin), in order of first use, then the data sources
-in order of first use (the references taken in the order of their keys).
+in order of first use (the references taken in the order of their keys). A file no reference uses,
+such as a `.vsi` file whose IFD images are all left out, has no source: the mirror's reader reads
+it at its object URL ([conventions §8.9](../conventions.md#89-stores)).
 
 <a id="type-vsitilechunk"></a>**`VsiTileChunk`**, a pyramid's chunk, `i` the `url` source of its
 tile file's object:
