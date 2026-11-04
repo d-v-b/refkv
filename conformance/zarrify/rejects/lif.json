@@ -37,9 +37,49 @@
       "message": "image 0 (plane): channel 0 is an unsupported float of 8 bits"
     },
     {
-      "test": "edge_reject_lif_lof",
-      "input": "edge_reject_lif_lof.lif",
-      "message": "a Leica object file (LOF): the profile reads LIF files only"
+      "test": "edge_reject_lif_lof_data_past_end",
+      "input": "edge_reject_lif_lof_data_past_end.lof",
+      "message": "the LOF's memory block of 1099511627776 bytes and its XML block run past the end of the"
+    },
+    {
+      "test": "edge_reject_lif_lof_magic",
+      "input": "edge_reject_lif_lof_magic.lof",
+      "message": "the LOF's magic bytes are 43, 42 and 42, not 42"
+    },
+    {
+      "test": "edge_reject_lif_lof_root",
+      "input": "edge_reject_lif_lof_root.lof",
+      "message": "the XML header's root element is Elsewhere, not LMSDataContainerHeader or LMSDataContainerEnhancedHeader"
+    },
+    {
+      "test": "edge_reject_lif_lof_short",
+      "input": "edge_reject_lif_lof_short.lof",
+      "message": "the 43-byte LOF is too short for its version fields and its memory block"
+    },
+    {
+      "test": "edge_reject_lif_lof_short_block",
+      "input": "edge_reject_lif_lof_short_block.lof",
+      "message": "image 0 (plane) reaches 12 bytes into memory block of the LOF, which holds 11"
+    },
+    {
+      "test": "edge_reject_lif_lof_two_images",
+      "input": "edge_reject_lif_lof_two_images.lof",
+      "message": "the LOF's XML has 2 images, not at most 1"
+    },
+    {
+      "test": "edge_reject_lif_lof_xml_block",
+      "input": "edge_reject_lif_lof_xml_block.lof",
+      "message": "the LOF's XML block's test value is 113 and its magic byte 42, not 112 and 42"
+    },
+    {
+      "test": "edge_reject_lif_lof_xml_past_end",
+      "input": "edge_reject_lif_lof_xml_past_end.lof",
+      "message": "the LOF's XML of 1048576 characters runs past the end of the"
+    },
+    {
+      "test": "edge_reject_lif_lof_xml_utf16",
+      "input": "edge_reject_lif_lof_xml_utf16.lof",
+      "message": "the XML header is not well-formed UTF-16"
     },
     {
       "test": "edge_reject_lif_missing_block",
@@ -99,7 +139,7 @@
     {
       "test": "edge_reject_lif_root",
       "input": "edge_reject_lif_root.lif",
-      "message": "the XML header's root element is LMSDataContainerEnhancedHeader, not LMSDataContainerHeader"
+      "message": "the XML header's root element is LMSDataContainer, not LMSDataContainerHeader or LMSDataContainerEnhancedHeader"
     },
     {
       "test": "edge_reject_lif_rows_overlap",

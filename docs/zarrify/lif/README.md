@@ -2,7 +2,8 @@
 
 refkv turns an image file into an OME-Zarr dataset by writing a small archive
 of references to the file's bytes, without copying the pixels
-([overview](../README.md)). This page is about Leica LIF files.
+([overview](../README.md)). This page is about Leica LIF files, and the object
+files (LOF) and extension files (LIFEXT) that LAS X writes.
 
 ## Who this is for
 
@@ -50,8 +51,12 @@ in the order the XML lists them (`0`, `1`, ...), each with one array, `0`.
   `refkv_source` by the Rust core's IR mirror, from which it is rebuilt byte for
   byte.
 
-**What is not read.** LOF files (one image of an XLEF project) and LIFEXT files
-are rejected, and XLEF, XLIF and XLCF projects (XML naming image files beside
+A LOF is one image with this layout, and a LIFEXT file (pyramid levels and
+histograms of a LIF file's images) its images with this layout, each with the
+`MemoryBlockID` of the image of the LIF file it is of, as its `parent`. A LIF file
+and its LIFEXT file do not name each other, so each is an input of its own.
+
+**What is not read.** XLEF, XLIF and XLCF projects (XML naming image files beside
 them) are not LIF files. FLIM raw data (photon histograms) has no image; its
 block is kept in the mirror.
 [spec/zarrify/lif.md §7.5](../../../spec/zarrify/lif.md#75-what-the-profile-does-not-read)
@@ -112,12 +117,13 @@ Supported:
 
 - LIF files with their XML header and memory blocks, every image of the file's tree, tile
   scans (each tile an image) and other field dimensions.
+- LOF files, with LAS X's XML or the bare `Data` element of older writers, and LIFEXT files.
 - Every bit depth the XML describes in whole bytes, as `uint8` to `uint64`, and `float16` to
   `float64`; planar and interleaved (RGB) channels.
 
 Rejected:
 
-- LOF and LIFEXT files; XLEF, XLIF and XLCF projects are not LIF files and match no format.
+- XLEF, XLIF and XLCF projects are not LIF files and match no format.
 - Bit-packed data, other data types, an image whose channels differ in type, and channels that
   are neither planar nor interleaved
   ([spec §7.6](../../../spec/zarrify/lif.md#76-decisions)).

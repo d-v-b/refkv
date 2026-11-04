@@ -1,6 +1,6 @@
 """The LIF IR: the Rust parser and its schema, the image projection (spec/zarrify/lif.md)
-against liffile's reading of every synthetic file, the mirror's rebuild, and the bands of a plane
-past 2^24 bytes. LIF has no frozen Python reference: liffile is the independent reader. The
+against liffile's reading of every synthetic LIF, LOF and LIFEXT file, the mirror's rebuild, and the
+bands of a plane past 2^24 bytes. LIF has no frozen Python reference: liffile is the independent reader. The
 inputs the profile rejects are conformance/zarrify/rejects/lif.json's (test_rejects.py)."""
 
 import json
@@ -16,9 +16,9 @@ from refkv._narrow import at, integer, mapping, ndarray, number, sequence, strin
 
 sys.path.insert(0, str(ROOT / "fixtures" / "generators" / "lif"))
 # pyrefly: ignore[missing-import]  # on sys.path above; the config's search-path lacks fixtures/generators
-from write_fixtures import Img, Lif  # the fixtures' writer, for a file too large to commit
+from write_fixtures import Img, Lif, Lof, accepted_lifext  # the fixtures' writer, for a file too large to commit
 
-LIFS = sorted((FIXTURES / "lif").glob("lif_*.lif"))
+LIFS = sorted(p for s in ("lif", "lof", "lifext") for p in (FIXTURES / "lif").glob(f"lif_*.{s}"))
 # liffile's dimension codes as axes; any other is a field dimension
 AXIS = {"T": "t", "C": "c", "S": "c", "Z": "z", "Y": "y", "X": "x"}
 
@@ -58,7 +58,8 @@ def test_matches_liffile_and_rebuilds(path, tmp_path):
     series = [string(s) for s in sequence(at(root.get_group("OME").attrs, "ome", "series"))] if "OME" in root else []
     with liffile.LifFile(path) as f:
         images = list(f.images)
-        assert meta == {"version": f.version}
+        kind = {".lif": {}, ".lof": {"file": "lof"}, ".lifext": {"file": "lifext"}}[path.suffix]
+        assert meta == {"version": f.version, **kind}
         assert out.summary["images"] == len(images)
         s = 0
         for k, im in enumerate(images):
@@ -70,10 +71,14 @@ def test_matches_liffile_and_rebuilds(path, tmp_path):
                 arr = group.get_array("0")
                 own = mapping(at(group.attrs, "refkv_zarrified", "lif"))
                 assert own["image"] == k
-                assert own["attributes"] == dict(im.xml_element.attrib)
+                # liffile gives the element of an older LOF's XML the file's name; it has none
+                attributes = {} if path.name == "lif_lof_data.lof" else dict(im.xml_element.attrib)
+                assert own["attributes"] == attributes
                 assert own["dimensions"] == dims
                 assert own["channels"] == channels
-                assert own["memory"] == elements(im, "./Memory")[0]
+                assert own.get("memory") == next(iter(elements(im, "./Memory")), None)
+                # liffile's path of a LIFEXT image starts with the MemoryBlockID it belongs to
+                assert own.get("parent") == (im.path.split("/")[0] if path.suffix == ".lifext" else None)
                 assert ("field" in own) == (len(want) > 1)
                 got = ndarray(arr[...])
                 assert got.dtype == want.dtype
@@ -99,6 +104,35 @@ def test_matches_liffile_and_rebuilds(path, tmp_path):
                     assert own["tile"] == dict(tiles[field].attrib)
                 s += 1
         assert s == len(series) == out.summary["series"]
+
+
+def test_a_lifext_file_presents_the_images_of_every_parent(tmp_path):
+    """Each `ChildrenOf` of a LIFEXT file (spec/zarrify/lif.md §2.6
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#26-lifext-files>) gives images, each
+    with its parent's `MemoryBlockID`. liffile reads only the first, so the writer's arrays are the
+    expected ones."""
+    path = FIXTURES / "lif" / "edge_lif_lifext_two_parents.lifext"
+    _, root, _ = zarrified(path, tmp_path, "lif")
+    lifext = accepted_lifext()["edge_lif_lifext_two_parents"]
+    for s, (parent, im) in enumerate((parent, im) for parent, images in lifext.children.items() for im in images):
+        group = root.get_group(str(s))
+        assert at(group.attrs, "refkv_zarrified", "lif", "parent") == parent
+        assert at(group.attrs, "refkv_zarrified", "lif", "path") == [im.name]
+        assert np.array_equal(ndarray(group.get_array("0")[...]), im.array())
+
+
+def test_a_lof_reads_its_parts_not_its_pixels(tmp_path):
+    """A LOF's XML, after the data (spec/zarrify/lif.md §7.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#72-reading>), is read in one more
+    read, of the file's end, however large the data is; the mirror's description of the file then
+    rebuilds it."""
+    big = tmp_path / "big.lof"
+    big.write_bytes(Lof(Img("big", "xy", {"x": 2048, "y": 2048})).build())
+    out, root, _ = zarrified(big, tmp_path, "lif")
+    assert at(out.summary, "planner", "batches") == 2
+    assert integer(at(out.summary, "planner", "bytes")) < (1 << 16) + (1 << 14)
+    with liffile.LifFile(big) as f:
+        assert np.array_equal(ndarray(root.get_array("0/0")[...]), f.images[0].asarray())
 
 
 def test_bands_bound_a_chunk(tmp_path):

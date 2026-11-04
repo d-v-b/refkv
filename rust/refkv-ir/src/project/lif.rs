@@ -49,7 +49,11 @@ fn image_name(name: &J, field: Option<(&str, usize)>) -> J {
 pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     let series = n(&facts["series"]);
     let mut out = Out::new(url);
-    bioformats2raw(&mut out, "lif", url, json!({"version": facts["version"]}), series as usize, series > 0);
+    let mut own = json!({"version": facts["version"]});
+    if let Some(file) = facts["file"].as_str() {
+        own["file"] = json!(file);
+    }
+    bioformats2raw(&mut out, "lif", url, own, series as usize, series > 0);
     let blocks = block_data(ir);
     let mut refs = Refs::new(ir, out);
     let mut s = 0u64;

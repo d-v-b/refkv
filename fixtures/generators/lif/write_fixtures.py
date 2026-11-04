@@ -1,13 +1,16 @@
-"""Writes the synthetic LIF fixtures in fixtures/lif/ (spec/zarrify/lif.md).
+"""Writes the synthetic LIF, LOF and LIFEXT fixtures in fixtures/lif/ (spec/zarrify/lif.md).
 
-No library writes LIF files, so a small writer (`Lif`) builds them byte for byte: the header
-block (test value 0x70, its length, the magic byte 0x2A, the XML's characters and the XML in
+No library writes these files, so small writers build them byte for byte. A LIF file (`Lif`) is the
+header block (test value 0x70, its length, the magic byte 0x2A, the XML's characters and the XML in
 UTF-16), then one memory block per `Memory` element (version 2: a 64-bit data size; version 1:
-32-bit). Each image is an `Img`: its axes from the fastest, `c` where its channels are (`c`
-first: interleaved), with the BytesInc of each packed in that order, as LAS X writes them.
-Every accepted fixture is read once here by liffile, which must give each image's array, as
-the generator laid it out. Rejected fixtures (`edge_reject_lif_*`) each break one rule the
-profile rejects.
+32-bit). A LOF (`Lof`) is a header block whose text is `LMS_Object_File`, its version fields, its
+one memory block, which has no ID, and its XML in a block after the data. A LIFEXT file (`Lifext`)
+is a LIF file whose root is `LMSDataContainerEnhancedHeader`, whose images lie under `ChildrenOf`
+elements and whose blocks have 64-bit sizes whatever its `Version`. Each image is an `Img`: its axes
+from the fastest, `c` where its channels are (`c` first: interleaved), with the BytesInc of each
+packed in that order, as LAS X writes them. Every accepted fixture is read once here by liffile,
+which must give each image's array, as the generator laid it out. Rejected fixtures
+(`edge_reject_lif_*`) each break one rule the profile rejects.
 
 Usage: uv run python fixtures/generators/lif/write_fixtures.py
 """
@@ -191,6 +194,79 @@ def block(id_: str, data: bytes, version: int = 2) -> bytes:
     return struct.pack("<IIBQBI", TEST, 1 + 8 + 1 + 4 + len(i), MAGIC, len(data), MAGIC, len(i) // 2) + i + data
 
 
+@dataclass
+class Lof:
+    """A Leica object file of one element: `item` an image, or another element's XML and its data
+    (the writer's own `Element` XML, or a tuple of it and the data); `old`, the XML is only the
+    image's `Data`, as an older writer's is; `xml`, this XML in place of the element's."""
+
+    item: Img | tuple[str, bytes]
+    old: bool = False
+    tail: bytes = b""
+    xml: str | None = None
+
+    def data(self) -> bytes:
+        return self.item.data() if isinstance(self.item, Img) else self.item[1]
+
+    def text(self) -> str:
+        if self.xml is not None:
+            return self.xml
+        if isinstance(self.item, Img):
+            self.item.memory = self.item.memory or "MemBlock_541"
+            element = self.item.xml(len(self.data()))
+        else:
+            element = self.item[0]
+        if self.old:
+            return element[element.index("<Data>"):element.index("</Data>") + len("</Data>")]
+        return f"<LMSDataContainerHeader{attrs(Version=2)}>{element}</LMSDataContainerHeader>"
+
+    def build(self) -> bytes:
+        return lof_bytes(self.data(), self.text(), self.tail)
+
+
+def lof_bytes(data: bytes, xml: str, tail: bytes = b"", *, versions: tuple[int, int] = (1, 0), magic: int = MAGIC,
+              xml_test: int = TEST) -> bytes:
+    """A LOF's bytes: the header block, its version fields, its memory block, its XML block."""
+    head = utf16("LMS_Object_File")
+    x = utf16(xml)
+    return (struct.pack("<IIBI", TEST, len(head) + 5, MAGIC, len(head) // 2) + head
+            + struct.pack("<BIBI", magic, versions[0], MAGIC, versions[1])
+            + struct.pack("<BQ", MAGIC, len(data)) + data
+            + struct.pack("<IIBI", xml_test, len(x) + 5, MAGIC, len(x) // 2) + x + tail)
+
+
+@dataclass
+class Lifext:
+    """A LIFEXT file: for each MemoryBlockID of its parent LIF, the images it adds, each an `Img`
+    with its own block, written with 64-bit sizes under a root of `Version` 1, as LAS X writes."""
+
+    children: dict[str, list[Img]]
+    version: int = 1
+
+    def images(self) -> list[Img]:
+        return [im for images in self.children.values() for im in images]
+
+    def build(self) -> bytes:
+        out = []
+        blocks = []
+        n = 0
+        for parent, images in self.children.items():
+            xml = []
+            for im in images:
+                n += 1
+                im.memory = f"MemBlock_{n + 100}"
+                data = im.data()
+                blocks.append((im.memory, data))
+                xml.append(im.xml(len(data)))
+            out.append(f"<ChildrenOf{attrs(MemoryBlockID=parent)}>{''.join(xml)}</ChildrenOf>")
+        root = "LMSDataContainerEnhancedHeader"
+        x = utf16(f"<{root}{attrs(Version=self.version)}>{''.join(out)}</{root}>")
+        file = bytearray(struct.pack("<IIBI", TEST, len(x) + 5, MAGIC, len(x) // 2) + x)
+        for id_, data in blocks:
+            file += block(id_, data, 2)
+        return bytes(file)
+
+
 MICRON = 1e-6
 
 
@@ -247,6 +323,37 @@ def accepted() -> dict[str, Lif]:
     }
 
 
+def accepted_lof() -> dict[str, Lof]:
+    yx = {"x": 15 * MICRON, "y": 11 * MICRON}
+    frame_properties = ('<Element Name="FrameProperties" Visibility="2" CopyOption="1" UniqueID="f8b4a296">'
+                        '<Data><SimpleListInMemory/></Data><Memory Size="13" MemoryBlockID="MemBlock_541"/>'
+                        "<Children/></Element>")
+    return {
+        "lif_lof": Lof(Img("series", "xycz", {"x": 6, "y": 5, "c": 2, "z": 3}, "<u2", 12, lengths=yx,
+                           luts=["Red", "Green"])),
+        "lif_lof_rgb": Lof(Img("rgb", "cxy", {"c": 3, "x": 5, "y": 4}, tags=[3, 2, 1], lengths=yx), tail=bytes(5)),
+        # an older writer's XML, only the image's Data: an element with no Name or UniqueID
+        "lif_lof_data": Lof(Img("old", "xy", {"x": 7, "y": 4}), old=True),
+        # a LOF of no image, as LAS X writes beside each frame image
+        "lif_lof_no_image": Lof((frame_properties, bytes(13))),
+    }
+
+
+def accepted_lifext() -> dict[str, Lifext]:
+    return {
+        # a pyramid level and a histogram of an image of the parent LIF, as LAS X writes
+        "lif_lifext": Lifext({
+            "MemBlock_504": [Img("Position 3_pmd_0", "xyc", {"x": 8, "y": 6, "c": 2}, luts=["Red", "Green"]),
+                             Img("Position 3_histo", "xy", {"x": 16, "y": 2}, "<u2")],
+        }),
+        # of two images: liffile reads the first ChildrenOf alone, so its check sees one image
+        "edge_lif_lifext_two_parents": Lifext({
+            "MemBlock_504": [Img("Position 3_pmd_0", "xy", {"x": 4, "y": 3})],
+            "MemBlock_510": [Img("Position 2_pmd_0", "xyz", {"x": 4, "y": 3, "z": 2})],
+        }),
+    }
+
+
 def swap(lif: Lif, old: str, new: str) -> bytes:
     """The file of `lif` with the first `old` of its XML written `new` (as long, in UTF-16)."""
     return lif.build().replace(utf16(old), utf16(new), 1)
@@ -263,8 +370,34 @@ def pair() -> Lif:
     return Lif("s.lif", [Img("a", "xy", {"x": 4, "y": 3}), Img("b", "xy", {"x": 4, "y": 3})])
 
 
+def rejected_lof() -> dict[str, bytes]:
+    """The LOFs the profile rejects, each breaking one rule of its parts."""
+    im = Img("plane", "xy", {"x": 4, "y": 3})
+    good = Lof(im).build()
+    data = im.data()
+    head = utf16("LMS_Object_File")
+    two = (f"<LMSDataContainerHeader{attrs(Version=2)}>"
+           f"{Img('a', 'xy', {'x': 2, 'y': 1}, memory='A').xml(2)}{Img('b', 'xy', {'x': 2, 'y': 1}, memory='B').xml(2)}"
+           "</LMSDataContainerHeader>")
+    return {
+        # the header block's text and nothing after it
+        "short": struct.pack("<IIBI", TEST, len(head) + 5, MAGIC, len(head) // 2) + head,
+        "magic": lof_bytes(data, Lof(im).text(), magic=0x2B),
+        # a memory block of more bytes than the file has
+        "data_past_end": good[:54] + struct.pack("<Q", 1 << 40) + good[62:],
+        "xml_block": lof_bytes(data, Lof(im).text(), xml_test=0x71),
+        # an XML block of more characters than the file has
+        "xml_past_end": good[:62 + len(data) + 9] + struct.pack("<I", 1 << 20) + good[62 + len(data) + 13:],
+        # an XML block of "<" and a lone high surrogate
+        "xml_utf16": lof_bytes(data, "")[:-13] + struct.pack("<IIBI", TEST, 9, MAGIC, 2) + b"<\x00\x00\xd8",
+        "two_images": lof_bytes(bytes(4), two),
+        # an image that reaches past the block
+        "short_block": Lof((Img("plane", "xy", {"x": 4, "y": 3}, memory="A").xml(12), bytes(11))).build(),
+        "root": lof_bytes(data, "<Elsewhere/>"),
+    }
+
+
 def rejected() -> dict[str, bytes]:
-    lof = utf16("LMS_Object_File")
     two = pair().build()
     first = two.rindex(utf16("MemBlock_1")) - 22  # the first image's block
     block_id = 'MemoryBlockID="MemBlock_1"'
@@ -274,8 +407,7 @@ def rejected() -> dict[str, bytes]:
         "xml_past_end": (b := plane().build())[:9] + struct.pack("<I", 1 << 20) + b[13:],
         # "<" and a lone high surrogate
         "xml_utf16": struct.pack("<IIBI", TEST, 9, MAGIC, 2) + b"<\x00\x00\xd8",
-        "lof": struct.pack("<IIBI", TEST, len(lof) + 5, MAGIC, len(lof) // 2) + lof,
-        "root": Lif("v.lif", [Img("plane", "xy", {"x": 4, "y": 3})], root="LMSDataContainerEnhancedHeader").build(),
+        "root": Lif("v.lif", [Img("plane", "xy", {"x": 4, "y": 3})], root="LMSDataContainer").build(),
         "version_3": swap(plane(), 'Version="2"', 'Version="3"'),
         "no_memory": swap(plane(), block_id, 'MemoryBlockId="MemBlock_1"'),
         "missing_block": swap(plane(), block_id, 'MemoryBlockID="MemBlock_9"'),
@@ -310,9 +442,14 @@ def rejected() -> dict[str, bytes]:
     }
 
 
-def liffile_check(path: Path, lif: Lif) -> str:
+def liffile_check(path: Path, lif: Lif | Lof | Lifext) -> str:
     """liffile's reading of every image: its array, as the writer laid it out."""
-    want = [it for it in lif.items if isinstance(it, Img)]
+    if isinstance(lif, Lof):
+        want = [lif.item] if isinstance(lif.item, Img) else []
+    elif isinstance(lif, Lifext):
+        want = next(iter(lif.children.values()))  # liffile reads the first ChildrenOf alone
+    else:
+        want = [it for it in lif.items if isinstance(it, Img)]
     with liffile.LifFile(path) as f:
         images = list(f.images)
         if len(images) != len(want):
@@ -330,14 +467,18 @@ def liffile_check(path: Path, lif: Lif) -> str:
 
 def main() -> int:
     OUT.mkdir(parents=True, exist_ok=True)
-    for old in OUT.glob("*.lif"):
-        old.unlink()
-    for name, lif in accepted().items():
-        path = OUT / f"{name}.lif"
-        path.write_bytes(lif.build())
-        print(f"{name}: liffile {liffile_check(path, lif)}")
+    for suffix in ("lif", "lof", "lifext"):
+        for old in OUT.glob(f"*.{suffix}"):
+            old.unlink()
+    for suffix, files in (("lif", accepted()), ("lof", accepted_lof()), ("lifext", accepted_lifext())):
+        for name, lif in files.items():
+            path = OUT / f"{name}.{suffix}"
+            path.write_bytes(lif.build())
+            print(f"{name}: liffile {liffile_check(path, lif)}")
     for name, data in rejected().items():
         (OUT / f"edge_reject_lif_{name}.lif").write_bytes(data)
+    for name, data in rejected_lof().items():
+        (OUT / f"edge_reject_lif_lof_{name}.lof").write_bytes(data)
     return 0
 
 

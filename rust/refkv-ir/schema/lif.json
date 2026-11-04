@@ -1,7 +1,7 @@
 {
   "source_model": "lif",
   "version": 1,
-  "about": "The source model of a Leica LIF file (spec/zarrify/lif.md §5.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#54-elements>): the elements a parser emits, and the roles the file, its header block, its XML header, an image, a dimension, a channel, an image's layout, its memory block and the series play, each with the constraints a file must meet to have the LIF convention's layout (spec/zarrify/lif.md §7.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#73-rejection>). The parser checks them in this order, the images in document order; projections read a valid IR and check nothing.",
+  "about": "The source model of a Leica LIF, LOF or LIFEXT file (spec/zarrify/lif.md §5.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#54-elements>): the elements a parser emits, and the roles the file, its header block, a LOF's parts, its XML header, an image, a dimension, a channel, an image's layout, its memory block and the series play, each with the constraints a file must meet to have the LIF convention's layout (spec/zarrify/lif.md §7.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#73-rejection>). The parser checks them in this order, the images in document order; projections read a valid IR and check nothing.",
   "limits": {
     "max_safe": 9007199254740991,
     "head": 13,
@@ -12,15 +12,19 @@
     "max_series": 65536
   },
   "elements": {
-    "about": "The IR of a LIF file. n is the XML header's length in bytes (twice its characters), i a memory block's index in file order, H its fixed part (18 bytes for version 1, 22 for version 2), m its ID's length in bytes, D its data's size.",
+    "about": "The IR of a LIF, LOF or LIFEXT file. n is the XML header's length in bytes (twice its characters), i a memory block's index in file order, H its fixed part (18 bytes for a LIF file of version 1, 22 for any other, 9 for a LOF's), m its ID's length in bytes, D its data's size, and x a LOF's XML's length in bytes.",
     "header": {"kind": "struct", "extent": "(0, 13 + n): the header block"},
     "header/fields": {"kind": "value", "type": "{test:<u4,length:<u4,magic:u1,characters:<u4}", "extent": "(0, 13)"},
     "header/xml": {"kind": "value", "type": "utf16[n]", "extent": "(13, n), when n > 0: the XML header"},
+    "versions": {"kind": "value", "type": "{magic:u1,version:<u4,magic2:u1,version2:<u4}", "extent": "(13 + n, 10): a LOF's version fields"},
     "blocks/<i>": {"kind": "struct", "extent": "the block: its fixed part, its ID and its data"},
-    "blocks/<i>/fields": {"kind": "value", "type": "{test:<u4,length:<u4,magic:u1,size:<u4,magic2:u1,characters:<u4} (version 1) or {test:<u4,length:<u4,magic:u1,size:<u8,magic2:u1,characters:<u4} (version 2)", "extent": "the fixed part, H bytes"},
+    "blocks/<i>/fields": {"kind": "value", "type": "{test:<u4,length:<u4,magic:u1,size:<u4,magic2:u1,characters:<u4} (a LIF file of version 1), {test:<u4,length:<u4,magic:u1,size:<u8,magic2:u1,characters:<u4} (any other) or {magic:u1,size:<u8} (a LOF)", "extent": "the fixed part, H bytes"},
     "blocks/<i>/id": {"kind": "value", "type": "utf16[m]", "extent": "the ID, when m > 0"},
     "blocks/<i>/data": {"kind": "data or value", "form": "{geometry: {image}, codec: {endian: little}, recipe: [[src, 0, null]]} for the block of an image; else a value of type bytes[D]", "extent": "the data, when D > 0"},
-    "tail": {"kind": "value", "type": "bytes[k]", "about": "the bytes from where the walk ends to the end of the file"}
+    "description": {"kind": "struct", "extent": "(the end of the data, 13 + x): a LOF's XML block"},
+    "description/fields": {"kind": "value", "type": "{test:<u4,length:<u4,magic:u1,characters:<u4}", "extent": "its fixed part, 13 bytes"},
+    "description/xml": {"kind": "value", "type": "utf16[x]", "extent": "the XML, when x > 0"},
+    "tail": {"kind": "value", "type": "bytes[k]", "about": "the bytes from where the walk ends, or from the end of a LOF's XML, to the end of the file"}
   },
   "roles": {
     "file": {
@@ -40,12 +44,36 @@
     },
     "xml": {
       "about": "the XML header (spec/zarrify/lif.md §2.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#22-the-xml-header>)",
-      "given": {"utf16": "its bytes are well-formed UTF-16", "lof": "its text is LMS_Object_File", "root": "the root element's name", "version": "the root's Version, an integer or its text"},
+      "given": {"utf16": "its bytes are well-formed UTF-16", "root": "the root element's name", "version": "the root's Version, an integer or its text"},
       "constraints": [
         {"require": "utf16", "message": "the XML header is not well-formed UTF-16"},
-        {"require": "!lof", "message": "a Leica object file (LOF): the profile reads LIF files only"},
-        {"require": "root == 'LMSDataContainerHeader'", "message": "the XML header's root element is {root}, not LMSDataContainerHeader"},
+        {"require": "root == 'LMSDataContainerHeader' || root == 'LMSDataContainerEnhancedHeader'", "message": "the XML header's root element is {root}, not LMSDataContainerHeader or LMSDataContainerEnhancedHeader"},
         {"require": "in(version, [1, 2])", "message": "unsupported LIF version {version}: the XML header's Version is not 1 or 2"}
+      ]
+    },
+    "object": {
+      "about": "a LOF's version fields and memory block's fixed part (spec/zarrify/lif.md §2.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#25-leica-object-files>)",
+      "given": {"parts": "where they end, the block's data's offset", "size": "the file's size", "magic": "the first version field's magic byte", "magic2": "the second's", "magic3": "the memory block's", "data": "the block's data size", "xml_at": "where the XML block's fixed part ends"},
+      "constraints": [
+        {"require": "parts <= size", "message": "the {size}-byte LOF is too short for its version fields and its memory block"},
+        {"require": "magic == 42 && magic2 == 42 && magic3 == 42", "message": "the LOF's magic bytes are {magic}, {magic2} and {magic3}, not 42"},
+        {"require": "data <= max_safe && xml_at <= size", "message": "the LOF's memory block of {data} bytes and its XML block run past the end of the {size}-byte file"}
+      ]
+    },
+    "object_xml": {
+      "about": "a LOF's XML block's fixed part (spec/zarrify/lif.md §2.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#25-leica-object-files>)",
+      "given": {"test": "its test value", "magic": "its magic byte", "chars": "the XML's characters", "at": "the block's offset", "size": "the file's size"},
+      "constraints": [
+        {"require": "test == 112 && magic == 42", "message": "the LOF's XML block's test value is {test} and its magic byte {magic}, not 112 and 42"},
+        {"require": "at + head + 2 * chars <= size", "message": "the LOF's XML of {chars} characters runs past the end of the {size}-byte file"},
+        {"require": "2 * chars <= max_xml", "message": "the LOF's XML of {chars} characters is longer than 2^27 bytes"}
+      ]
+    },
+    "object_images": {
+      "about": "the images of a LOF, which has one memory block (spec/zarrify/lif.md §2.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#25-leica-object-files>)",
+      "given": {"count": "the file's image elements"},
+      "constraints": [
+        {"require": "count <= 1", "message": "the LOF's XML has {count} images, not at most 1"}
       ]
     },
     "image": {
