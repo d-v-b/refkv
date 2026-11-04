@@ -114,7 +114,8 @@ def gzip_files() -> None:
             dmax=150.0, wrap=lambda b: member(b, b"emd.map"))
     gzipped("mrc_gzip_be_extended", ".mrc", (3, 2, 4), 1, order=">", ispg=401, mz=2, extended=bytes(range(80)))
     gzipped("mrc_gzip_int4", ".mrc", (4, 3, 2), INT4, data=nibbles((4, 3, 2), 104), dmin=0.0, dmax=15.0)
-    gzipped("mrc_gzip_complex_int16_be", ".mrc", (3, 2, 2), COMPLEX_INT16, order=">", data=complex_ints((3, 2, 2), ">", 5))
+    gzipped("mrc_gzip_complex_int16_be", ".mrc", (3, 2, 2), COMPLEX_INT16, order=">",
+            data=complex_ints((3, 2, 2), ">", 5))
     gzipped("mrc_reject_gzip_int4_odd_width", ".mrc", (3, 2, 2), INT4, data=nibbles((3, 2, 2), 106))
     gzipped("mrc_reject_gzip_trailing", ".mrc", (3, 2, 2), 2, stream=lambda b: b + b"TRAILER!")
     gzipped("mrc_reject_gzip_members", ".mrc", (3, 2, 2), 2, wrap=lambda b: member(b[:1100]) + member(b[1100:]))
