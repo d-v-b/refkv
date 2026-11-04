@@ -17,6 +17,11 @@
       "message": "PlanarConfiguration 3"
     },
     {
+      "test": "tiff_edge_reject_compression_unknown",
+      "input": "edge_reject_compression_unknown.tif",
+      "message": "unsupported compression 34661"
+    },
+    {
       "test": "tiff_edge_reject_cycle",
       "input": "edge_reject_cycle.tif",
       "message": "IFD offset 4136 read twice"
@@ -62,6 +67,16 @@
       "message": "the IFD at 834 has malformed JPEGTables"
     },
     {
+      "test": "tiff_edge_reject_jpegxl_int16",
+      "input": "edge_reject_jpegxl_int16.tif",
+      "message": "unsupported JPEG XL: 16-bit, SampleFormat 2"
+    },
+    {
+      "test": "tiff_edge_reject_lerc_uint64",
+      "input": "edge_reject_lerc_uint64.tif",
+      "message": "unsupported LERC: 64-bit, SampleFormat 1"
+    },
+    {
       "test": "tiff_edge_reject_multifile",
       "input": "edge_reject_multifile.tif",
       "message": "multi-file OME-TIFF is not supported"
@@ -105,6 +120,11 @@
       "test": "tiff_edge_reject_predictor_jpeg",
       "input": "edge_reject_predictor_jpeg.tif",
       "message": "predictor 2 with compression 7"
+    },
+    {
+      "test": "tiff_edge_reject_predictor_lerc",
+      "input": "edge_reject_predictor_lerc.tif",
+      "message": "predictor 2 with compression 34887"
     },
     {
       "test": "tiff_edge_reject_predictor_uncompressed",
@@ -185,6 +205,16 @@
       "test": "tiff_edge_reject_uuid_self_closing",
       "input": "edge_reject_uuid_self_closing.tif",
       "message": "multi-file OME-TIFF is not supported"
+    },
+    {
+      "test": "tiff_edge_reject_webp_gray",
+      "input": "edge_reject_webp_gray.tif",
+      "message": "unsupported WebP: 8-bit, SampleFormat 1, 1 samples"
+    },
+    {
+      "test": "tiff_edge_reject_webp_uint16",
+      "input": "edge_reject_webp_uint16.tif",
+      "message": "unsupported WebP: 16-bit"
     },
     {
       "test": "tiff_edge_reject_ycbcr_default",

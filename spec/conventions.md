@@ -28,7 +28,8 @@ output: [§2](#2-attributes), [§3](#3-arrays) and [§7](#7-source-values-as-arr
 formats' documents already say of their attributes, arrays, codecs and fill values. Changed
 2026-11-04, with no change to any output: a node's attributes may hold other conventions'
 members, such as [spec/provenance.md](provenance.md)'s on the root, which each convention's JSON
-Schema accepts ([§2](#2-attributes)).)
+Schema accepts ([§2](#2-attributes)). Changed 2026-11-04: imagecodecs-zarr's `imagecodecs_lerc`,
+`imagecodecs_webp`, `imagecodecs_jpegxl` and `imagecodecs_lzma` decode a chunk ([§3](#3-arrays)).)
 
 <!-- profiles:conventions-table -->
 | format | convention | UUID |
@@ -332,14 +333,19 @@ of each step, and always one of step 3.
 | 3 | `{"name": "imagecodecs_jpeg2k"}` | JPEG 2000: one codestream per chunk, decoding to the chunk's `[y, x]`, or, when interleaved, to `[y, x, c]`, after which `transpose` applies |
 | 3 | `{"name": "imagecodecs_jpeg"}` | JPEG: one complete JPEG stream per chunk, ISO/IEC 10918-1 with the JFIF/Adobe color conventions, decoding to the chunk's `[y, x]` or `[y, x, c]` like JPEG 2000 |
 | 3 | `{"name": "imagecodecs_ljpeg"}` | lossless JPEG: one complete JPEG stream per chunk, ISO/IEC 10918-1's lossless process (SOF3, predictors 1 to 7), its samples stored without a color transform, decoding to the chunk's `[y, x]` or `[y, x, c]` like JPEG 2000 |
+| 3 | `{"name": "imagecodecs_lerc"}` | LERC: one stream per chunk, in Deflate or zstd or not, decoding to the chunk's `[y, x]` or `[y, x, c]` like JPEG 2000 |
+| 3 | `{"name": "imagecodecs_webp", "configuration": {"hasalpha": h}}` | WebP: one stream per chunk, decoding to the chunk's `[y, x, c]` of 4 samples when `h` and 3 otherwise |
+| 3 | `{"name": "imagecodecs_jpegxl"}` | JPEG XL: one stream per chunk, decoding to the chunk's `[y, x]` or `[y, x, c]` like JPEG 2000 |
 | 4 | `{"name": "numcodecs.zlib", "configuration": {"level": 1}}` | the bytes are zlib streams (RFC 1950) |
 | 4 | `{"name": "zstd", "configuration": {"level": 0, "checksum": false}}` | the bytes are Zstandard frames |
+| 4 | `{"name": "imagecodecs_lzma"}` | the bytes are xz streams |
 
 **Codec names.** Every codec a convention names is one that a reader of Zarr v3 finds by its
 name: zarr-python's own (`bytes`, `transpose`, `gzip`, `zstd`, `blosc`, `sharding_indexed`, `vlen-utf8`, and
 `numcodecs.zlib`, `numcodecs.shuffle` and `numcodecs.delta`, its names for numcodecs' codecs),
 imagecodecs-zarr's (`imagecodecs_jpeg`, `imagecodecs_jpeg2k`, `imagecodecs_jpegxr`,
-`imagecodecs_ljpeg`, `imagecodecs_delta`), the
+`imagecodecs_ljpeg`, `imagecodecs_delta`, `imagecodecs_lerc`, `imagecodecs_webp`, `imagecodecs_jpegxl`,
+`imagecodecs_lzma`), the
 zarr-extensions registry's (`n5_default`, `packbits`), or refkv's own, which are named `refkv.<codec>`
 (`refkv.stream`, [§10](#10-coded-streams); `refkv.fits_tiles`,
 [fits §3.3](zarrify/fits.md#33-tile-compressed-images); `refkv.tiff_lzw`,
