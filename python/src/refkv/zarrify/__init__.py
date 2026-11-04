@@ -266,10 +266,7 @@ async def _zarrify_async(location: str, url: str | None = None, *, checksums: bo
     names = layout_names(layouts, fmt) if fmt is not None else None
     transport = await asyncio.to_thread(open_transport, location, policy)
     if fmt is None:
-        want = min(552, transport.size)
-        held = transport.head[1]
-        head = held[:want] if want <= len(held) else await asyncio.to_thread(transport.get, 0, want)
-        fmt = ir.sniff(head)
+        fmt = await ir.sniffed(transport)
         if fmt is None:
             raise Rejected(NOT_SUPPORTED)
         names = layout_names(layouts, fmt)

@@ -29,11 +29,11 @@ who each one is for, what you get, and how to run it.
 | LIF | Leica LIF, LOF and LIFEXT files, and LAS X projects (`.lif`, `.lof`, `.lifext`, `.xlef`, `.xlcf`, `.xlif`, `.xllf`) | [lif](lif/README.md) | [lif.md §7](../../spec/zarrify/lif.md#7-lif-profile) |
 | MP3 | MP3 audio files, as an array of samples (`.mp3`) | [mp3](mp3/README.md) | [mp3.md §8](../../spec/zarrify/mp3.md#8-mp3-profile) |
 | MP4 | MP4 and QuickTime video and audio, as arrays of planes and samples (`.mp4`, `.m4a`, `.m4v`, `.mov`) | [mp4](mp4/README.md) | [mp4.md §8](../../spec/zarrify/mp4.md#8-mp4-profile) |
-| MRC | MRC2014 maps, image stacks, volumes and volume stacks (`.mrc`, `.map`) | [mrc](mrc/README.md) | [mrc.md §8](../../spec/zarrify/mrc.md#8-mrc-profile) |
+| MRC | MRC2014 maps, image stacks, volumes and volume stacks (`.mrc`, `.map`, gzipped or not) | [mrc](mrc/README.md) | [mrc.md §8](../../spec/zarrify/mrc.md#8-mrc-profile) |
 | N5 | N5 containers on S3 | [n5](n5/README.md) | [n5.md §8](../../spec/zarrify/n5.md#8-n5-profile) |
 | ND2 | Nikon NIS-Elements ND2 files | [nd2](nd2/README.md) | [nd2.md §7](../../spec/zarrify/nd2.md#7-nd2-profile) |
 | NDPI | Hamamatsu NDPI whole-slide images | [ndpi](ndpi/README.md) | [ndpi.md §7](../../spec/zarrify/ndpi.md#7-ndpi-profile) |
-| NIfTI | NIfTI-1 and NIfTI-2 volumes (`.nii`) | [nifti](nifti/README.md) | [nifti.md §7](../../spec/zarrify/nifti.md#7-nifti-profile) |
+| NIfTI | NIfTI-1 and NIfTI-2 volumes (`.nii`, `.nii.gz`) | [nifti](nifti/README.md) | [nifti.md §7](../../spec/zarrify/nifti.md#7-nifti-profile) |
 | NumPy | NumPy arrays: `.npy` files, and the arrays of `.npz` archives, stored or deflated | [npy](npy/README.md) | [npy.md §8](../../spec/zarrify/npy.md#8-numpy-profile) |
 | NRRD | NRRD volumes, attached or detached, raw or gzip (`.nrrd`, `.nhdr`) | [nrrd](nrrd/README.md) | [nrrd.md §8](../../spec/zarrify/nrrd.md#8-nrrd-profile) |
 | OME-Zarr | OME-Zarr 0.4 hierarchies, migrated to OME-Zarr 0.5 in place | [ome-zarr](ome-zarr/README.md) | [ome-zarr.md §11](../../spec/zarrify/ome-zarr.md#11-ome-zarr-profile) |
@@ -145,12 +145,12 @@ Policy`). A local file or directory needs neither.
 
 Read the archive in Python with `refkv.zarr` and zarr-python
 (`pip install 'refkv[zarr]'`, or `refkv[images]` for the JPEG, JPEG 2000,
-JPEG XR, PNG, BMP, LERC, WebP, JPEG XL, LZMA and LZW decoders and TIFF's horizontal predictor). zarr-python finds the codecs that some formats need by
+JPEG XR, PNG, BMP, LERC, WebP, JPEG XL, LZMA, CCITT, EER, PackBits and LZW decoders, packed integers and TIFF's horizontal and floating-point predictors). zarr-python finds the codecs that some formats need by
 the names the archive gives: refkv's own (`refkv.stream`, `refkv.grib`, `refkv.fits_tiles`,
 `refkv.tiff_lzw`, `refkv.skip`, `refkv.precomputed`, and `n5_default`) through refkv's `zarr.codecs` entry points,
 with no `import refkv.zarr` in your code (zarr imports the codec modules, which are
 under `refkv.zarr`, itself), imagecodecs-zarr's (`imagecodecs_jpeg`,
-`imagecodecs_jpeg2k`, `imagecodecs_jpegxr`, `imagecodecs_ljpeg`, `imagecodecs_lzw`, `imagecodecs_jpegls`, `imagecodecs_dicomrle`, `imagecodecs_htj2k`, `imagecodecs_png`, `imagecodecs_bmp`, `imagecodecs_delta`, `imagecodecs_lerc`, `imagecodecs_webp`, `imagecodecs_jpegxl`, `imagecodecs_lzma`), which `refkv[images]` installs, and
+`imagecodecs_jpeg2k`, `imagecodecs_jpegxr`, `imagecodecs_ljpeg`, `imagecodecs_lzw`, `imagecodecs_jpegls`, `imagecodecs_dicomrle`, `imagecodecs_htj2k`, `imagecodecs_png`, `imagecodecs_bmp`, `imagecodecs_delta`, `imagecodecs_floatpred`, `imagecodecs_lerc`, `imagecodecs_webp`, `imagecodecs_jpegxl`, `imagecodecs_lzma`, `imagecodecs_packints`, `imagecodecs_packbits`, `imagecodecs_ccittfax4`, `imagecodecs_eer`), which `refkv[images]` installs, and
 zarr-python's own (`numcodecs.zlib`, `numcodecs.shuffle`, `numcodecs.delta`). So a
 copy of an archive's arrays (in a directory, or in another store) reads with zarr
 alone, except that an array on the zarr-extensions `rectilinear` chunk grid (a
