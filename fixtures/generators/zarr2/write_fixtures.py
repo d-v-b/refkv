@@ -35,6 +35,7 @@ from typing import Literal
 
 import numcodecs
 import numpy as np
+from numcodecs.compat import ensure_bytes
 
 
 def pinned_gzip(data: bytes, level: int = 9) -> bytes:
@@ -134,7 +135,8 @@ def store(name: str) -> Path:
     return d
 
 
-LZMA_CHUNK = base64.b64decode("/Td6WFoAAATm1rRGAgAhARYAAAB0L+WjAQALAAABAAIAAwAEAAUAANUEJ4YmoKqbAAEkDKYY2NgftvN9AQAAAAAEWVo=")
+LZMA_CHUNK = base64.b64decode("/Td6WFoAAATm1rRGAgAhARYAAAB0L+WjAQALAAABAAIAAwAEAAUAANUEJ4Ym"
+                              "oKqbAAEkDKYY2NgftvN9AQAAAAAEWVo=")
 ZLIB = {"id": "zlib", "level": 1}
 GZIP = {"id": "gzip", "level": 5}
 ZSTD = {"id": "zstd", "level": 1, "checksum": False}
@@ -170,7 +172,8 @@ def types() -> None:
     grid = np.array([[b"ab", b"cd", b"ef"], [b"gh", b"ij", b"kl"]], dtype="|S2")
     stored(d, "bytes_f_nested", {"shape": [2, 3], "chunks": [2, 3], "dtype": "|S2", "order": "F",
                                  "dimension_separator": "/"}, {"0/0": grid.tobytes(order="F")})
-    stored(d, "bytes_fill", {"shape": [2], "chunks": [1], "dtype": "|S2", "fill_value": base64.b64encode(b"  ").decode()},
+    stored(d, "bytes_fill", {"shape": [2], "chunks": [1], "dtype": "|S2",
+                             "fill_value": base64.b64encode(b"  ").decode()},
            {"1": b"zz"})
     stored(d, "bytes_empty_fill", {"shape": [2], "chunks": [2], "dtype": "|S2", "fill_value": ""}, {})
     stored(d, "void", {"shape": [2], "chunks": [2], "dtype": "|V2"}, {"0": b"\x01\x02\x03\x04"})
@@ -209,7 +212,7 @@ def codecs() -> None:
                        ("lz4_extra", {"id": "lz4", "acceleration": 1, "writer": "x"})):
         known = {k: v for k, v in comp.items() if k != "writer"}
         stored(d, name, {"shape": [2, 3], "chunks": [2, 3], "dtype": "<u2", "compressor": comp},
-               {"0.0": numcodecs.get_codec(known).encode(plain.tobytes())})
+               {"0.0": ensure_bytes(numcodecs.get_codec(known).encode(plain.tobytes()))})
     # liblzma's output is not the same in all its versions: the bytes of numcodecs.LZMA().encode
     stored(d, "lzma", {"shape": [2, 3], "chunks": [2, 3], "dtype": "<u2", "compressor": {
         "id": "lzma", "format": 1, "check": -1, "preset": None, "filters": None}}, {"0.0": LZMA_CHUNK})
@@ -220,24 +223,26 @@ def codecs() -> None:
     fso = {"id": "fixedscaleoffset", "scale": 4, "offset": 1, "dtype": "<f8", "astype": "<i2"}
     enc = numcodecs.get_codec(fso)
     stored(d, "fixedscaleoffset", {"shape": [3, 4], "chunks": [3, 4], "dtype": "<f8", "filters": [fso]},
-           {"0.0": enc.encode(x).tobytes()})
-    stored(d, "fixedscaleoffset_f_zlib", {"shape": [3, 4], "chunks": [3, 4], "dtype": "<f8", "order": "F", "filters": [fso],
+           {"0.0": ensure_bytes(enc.encode(x))})
+    stored(d, "fixedscaleoffset_f_zlib", {"shape": [3, 4], "chunks": [3, 4], "dtype": "<f8", "order": "F",
+                                          "filters": [fso],
                                           "compressor": ZLIB},
-           {"0.0": codec(ZLIB).encode(enc.encode(np.asfortranarray(x)).tobytes())})
+           {"0.0": codec(ZLIB).encode(ensure_bytes(enc.encode(np.asfortranarray(x))))})
     # the blosc shuffle of what the filter gives: u1 is a bitshuffle, as numcodecs' automatic one
     to_u1 = {"id": "fixedscaleoffset", "scale": 1, "offset": 0, "dtype": "<f8", "astype": "|u1"}
     stored(d, "fixedscaleoffset_u1_blosc", {"shape": [3, 4], "chunks": [3, 4], "dtype": "<f8", "filters": [to_u1],
                                             "compressor": blosc("lz4", 5, -1)},
-           {"0.0": codec(blosc("lz4", 5, -1)).encode(numcodecs.get_codec(to_u1).encode(x).tobytes())})
+           {"0.0": codec(blosc("lz4", 5, -1)).encode(ensure_bytes(numcodecs.get_codec(to_u1).encode(x)))})
     be = {"id": "fixedscaleoffset", "scale": 10, "offset": 0, "dtype": ">f4", "astype": ">i4"}
     stored(d, "fixedscaleoffset_be", {"shape": [2], "chunks": [2], "dtype": ">f4", "filters": [be]},
-           {"0": numcodecs.get_codec(be).encode(np.array([0.5, 1.5], dtype=">f4")).tobytes()})
+           {"0": ensure_bytes(numcodecs.get_codec(be).encode(np.array([0.5, 1.5], dtype=">f4")))})
     q = {"id": "quantize", "digits": 2, "dtype": "<f8", "astype": "<f8"}
     stored(d, "quantize", {"shape": [3, 4], "chunks": [3, 4], "dtype": "<f8", "filters": [q], "compressor": ZSTD},
-           {"0.0": codec(ZSTD).encode(numcodecs.get_codec(q).encode(x).tobytes())})
+           {"0.0": codec(ZSTD).encode(ensure_bytes(numcodecs.get_codec(q).encode(x)))})
     q_then_fso = {"id": "fixedscaleoffset", "scale": 8, "offset": 0, "dtype": "<f8", "astype": "<i4"}
-    stored(d, "quantize_then_fixedscaleoffset", {"shape": [3, 4], "chunks": [3, 4], "dtype": "<f8", "filters": [q, q_then_fso]},
-           {"0.0": numcodecs.get_codec(q_then_fso).encode(numcodecs.get_codec(q).encode(x)).tobytes()})
+    stored(d, "quantize_then_fixedscaleoffset", {"shape": [3, 4], "chunks": [3, 4], "dtype": "<f8", "filters": [q,
+                                                                                                                q_then_fso]},
+           {"0.0": ensure_bytes(numcodecs.get_codec(q_then_fso).encode(numcodecs.get_codec(q).encode(x)))})
 
     vlen = numcodecs.VLenUTF8()
     names = np.array(["CD4", "é", "", "B cell"], dtype=object)
@@ -246,7 +251,8 @@ def codecs() -> None:
            {"0": codec(blosc()).encode(vlen.encode(names))}, attrs={"encoding-type": "string-array"})
     stored(d, "strings_null_fill", {"shape": [4], "chunks": [2], "dtype": "|O", "filters": [{"id": "vlen-utf8"}]},
            {"0": vlen.encode(names[:2])})
-    stored(d, "strings_f_fill", {"shape": [2, 2], "chunks": [2, 2], "dtype": "|O", "order": "F", "filters": [{"id": "vlen-utf8"}],
+    stored(d, "strings_f_fill", {"shape": [2, 2], "chunks": [2, 2], "dtype": "|O", "order": "F",
+                                 "filters": [{"id": "vlen-utf8"}],
                                  "fill_value": "none", "compressor": ZLIB},
            {"0.0": codec(ZLIB).encode(vlen.encode(np.asfortranarray(names.reshape(2, 2))))})
 
@@ -399,18 +405,24 @@ def main() -> None:
         """Inputs the frozen reference rejects and the profile presents since it froze
         (conformance/zarrify/revised.json), with no chunk."""
         d = store(f"zarr2_accepted_{name}")
-        write_json(d / ".zarray", {"zarr_format": 2, "shape": [4, 4], "chunks": [2, 2], "dtype": "<u2", "compressor": None,
+        write_json(d / ".zarray", {"zarr_format": 2, "shape": [4, 4], "chunks": [2, 2], "dtype": "<u2",
+                                   "compressor": None,
                                    "fill_value": 0, "order": "C", "filters": None, **kw})
 
     reject("filters", filters=[{"id": "delta", "dtype": "<u2"}])
     reject("filters_not_list", filters={"id": "delta"})
     reject("filter_no_id", filters=[{"dtype": "<u2"}])
-    reject("filter_member", filters=[{"id": "fixedscaleoffset", "scale": 1, "offset": 0, "dtype": "<u2", "astype": "|u1",
+    reject("filter_member", filters=[{"id": "fixedscaleoffset", "scale": 1, "offset": 0, "dtype": "<u2",
+                                      "astype": "|u1",
                                       "writer": "x"}])
-    reject("filter_numbers", filters=[{"id": "fixedscaleoffset", "scale": "1", "offset": 0, "dtype": "<u2", "astype": "|u1"}])
-    reject("filter_dtype", filters=[{"id": "fixedscaleoffset", "scale": 1, "offset": 0, "dtype": "<f8", "astype": "|u1"}])
-    reject("filter_dtype_kind", filters=[{"id": "fixedscaleoffset", "scale": 1, "offset": 0, "dtype": "<M8[s]", "astype": "|u1"}])
-    reject("filter_astype", filters=[{"id": "fixedscaleoffset", "scale": 1, "offset": 0, "dtype": "<u2", "astype": "<c8"}])
+    reject("filter_numbers", filters=[{"id": "fixedscaleoffset", "scale": "1", "offset": 0, "dtype": "<u2",
+                                       "astype": "|u1"}])
+    reject("filter_dtype", filters=[{"id": "fixedscaleoffset", "scale": 1, "offset": 0, "dtype": "<f8",
+                                     "astype": "|u1"}])
+    reject("filter_dtype_kind", filters=[{"id": "fixedscaleoffset", "scale": 1, "offset": 0, "dtype": "<M8[s]",
+                                          "astype": "|u1"}])
+    reject("filter_astype", filters=[{"id": "fixedscaleoffset", "scale": 1, "offset": 0, "dtype": "<u2",
+                                      "astype": "<c8"}])
     reject("quantize_integer", filters=[{"id": "quantize", "digits": 2, "dtype": "<u2", "astype": "<u2"}])
     reject("quantize_digits", dtype="<f8", filters=[{"id": "quantize", "digits": "2", "dtype": "<f8", "astype": "<f8"}])
     # zarr-python's numcodecs.quantize does not give the bytes codec its astype

@@ -19,7 +19,7 @@ from zarr.storage import LocalStore
 
 import refkv.zarr
 from refkv import _core
-from refkv._narrow import at, mapping, ndarray
+from refkv._narrow import at, mapping, ndarray, sequence, string
 from refkv.ir.store import StoreIrOutput
 from refkv.policy import Policy
 from refkv.zarrify import _zarrify as zarrify  # the profile output, not the store
@@ -362,8 +362,8 @@ def test_an_array_that_cannot_be_presented_is_left_out_and_recorded(tmp_path):
     name = "zarr2_left_out"
     _, out = zarrify(str(FIXTURES / name), url=URL.format(name))
     assert isinstance(out, StoreIrOutput)
-    own = at(out.docs, "zarr.json", "attributes", "refkv_zarrified", "zarr2")
-    reasons = {r["path"]: r["reason"] for r in mapping({"r": own}, "o")["r"]["not_presented"]}
+    left_out = sequence(at(out.docs, "zarr.json", "attributes", "refkv_zarrified", "zarr2", "not_presented"))
+    reasons = {string(at(r, "path")): string(at(r, "reason")) for r in left_out}
     assert list(reasons) == sorted(reasons)
     assert {p: r.split(":")[0] for p, r in reasons.items()} == {
         "a/filtered": "filter delta is not supported",
@@ -383,7 +383,8 @@ def test_an_array_that_cannot_be_presented_is_left_out_and_recorded(tmp_path):
     # the chunks are other objects, and the documents read are the mirror's, whatever they hold
     others = {k for k, _ in out.chunks if k.startswith("refkv_source/objects/")}
     assert others == {f"refkv_source/objects/{k}" for k in (
-        "pickled/0", "pickled/inside/.zgroup~", "a/filtered/0", "shapeless/0", "not_json/0", "empty_doc/0", "bad_attrs/0.0")}
+        "pickled/0", "pickled/inside/.zgroup~", "a/filtered/0", "shapeless/0", "not_json/0", "empty_doc/0",
+        "bad_attrs/0.0")}
     sizes = listing(out, tmp_path)
     assert sizes["not_json/.zarray"] == (9, b"{not json")
     assert sizes["empty_doc/.zarray"] == (0, None)
@@ -392,7 +393,7 @@ def test_an_array_that_cannot_be_presented_is_left_out_and_recorded(tmp_path):
 
 
 def test_a_root_array_that_cannot_be_presented_rejects_the_store():
-    with pytest.raises(Exception, match="dtype .O is not supported"):
+    with pytest.raises(Exception, match=r"dtype \|O is not supported"):
         zarrify(str(FIXTURES / "zarr2_reject_dtype_object"), url=URL.format("o"))
 
 

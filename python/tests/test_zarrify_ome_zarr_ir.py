@@ -29,7 +29,8 @@ FIXTURES = Path(__file__).parents[2] / "fixtures" / "ome-zarr"
 URL = "https://data.test/ome-zarr/{}/"
 STORES = sorted(p for p in FIXTURES.iterdir() if p.is_dir())
 # The stores whose verdict the profile changed after the freeze (conformance/zarrify/revised.json).
-REVISED = set(json.loads((Path(__file__).parents[2] / "conformance" / "zarrify" / "revised.json").read_text())["fixtures"])
+REVISED_JSON = Path(__file__).parents[2] / "conformance" / "zarrify" / "revised.json"
+REVISED = set(json.loads(REVISED_JSON.read_text())["fixtures"])
 
 
 def whole_object(parts) -> str:

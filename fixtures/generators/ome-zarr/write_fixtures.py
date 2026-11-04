@@ -479,8 +479,8 @@ def not_ome() -> None:
     ms = multiscale("yx", 1)
     rows, cols = ["A"], ["1", "2"]
     wells = [{"path": f"A/{c}", "rowIndex": 0, "columnIndex": j} for j, c in enumerate(cols)]
-    group(d, "", {"plate": {"version": "0.4", "rows": [{"name": r} for r in rows], "columns": [{"name": c} for c in cols],
-                            "wells": wells, "field_count": 1}})
+    group(d, "", {"plate": {"version": "0.4", "rows": [{"name": r} for r in rows],
+                            "columns": [{"name": c} for c in cols], "wells": wells, "field_count": 1}})
     for i, w in enumerate(wells):
         group(d, w["path"], {"well": {"version": "0.4", "images": [{"path": "0"}]}})
         group(d, f"{w['path']}/0", {"multiscales": [ms]})
