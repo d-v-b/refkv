@@ -40,8 +40,10 @@ One OME-Zarr 0.5 image at the archive root, with one array, `0`.
 - **Scale:** the voxel size, `cella / mx` and so on, in angstroms, where the
   cell and the grid give a positive finite one.
 - **Translation:** the header's `origin` (angstroms), for a volume, when it
-  is finite and not all zero. An image's origin is a phase origin in pixels
-  and is not applied.
+  is finite and not all zero. IMOD's older files store the origin with the
+  opposite sign and say so with IMOD's stamp and flags, so those volumes are
+  placed at `-origin`; `header` keeps the stored value. An image's origin is a
+  phase origin in pixels and is not applied.
 - **Header:** every field of the MRC header, under
   `refkv_zarrified.mrc.header`, with the kind of file, the data type,
   whether the axis map was applied and the voxel size beside it. The whole

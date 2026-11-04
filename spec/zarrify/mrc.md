@@ -9,6 +9,12 @@ accepts, is the MRC profile, [Part 2](#part-2-the-profile) below.
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `2aacd010-2ed1-4748-bc3c-5dd5e840bbce` ·
 Schema: [schema.json](mrc/schema.json)
 
+Changed 2026-11-04: the translation of a volume with IMOD's stamp follows IMOD's flag for the
+origin's sign ([§4.2](#42-scales-units-and-position)): a file with the stamp, bit 2 of IMOD's flags
+clear and no standard `nversion` is placed at `-origin`. The layout took such a file's `origin` as
+it stands, which put a subvolume on the wrong side of its parent's first pixel. The dataset
+layout's coordinates change with it. `header` still holds `origin` as stored.
+
 Changed 2026-11-04: modes 3 and 101 are admitted ([§3](#3-data-types)): mode 3 as a `struct` of two
 `int16`, mode 101 as `uint8` through zarr-extensions' bit-packing `packbits`, its chunks cut where
 values start on a byte ([§4.1](#41-the-array)).
@@ -156,7 +162,8 @@ byte order; the 41st byte of `extra2`) is 1146047817 (IMOD's stamp, `IMOD`
 as a little-endian integer) and bit 0 of the `i32` at byte 156 (IMOD's
 flags) is set, the data type is `uint8`, `b = 1`. Reading such a file as
 `int8` would make every value over 127 negative. (The other flag bits, and
-the stamp without the flag or the flag without the stamp, change nothing.)
+the stamp without the flag or the flag without the stamp, do not change the
+data type; bit 2 is the origin's sign, [§4.2](#42-scales-units-and-position).)
 A `complex64` value is its real part, then its imaginary part, each a
 binary32 in the file's byte order.
 
@@ -261,12 +268,41 @@ An axis without a valid voxel size has no voxel size.
 
 **Translation.** For a volume or a volume stack (`ispg` not 0), when the
 three `origin` values are finite and at least one is not 0, the image has a
-translation ([conventions §5](../conventions.md#5-units)): `origin[0]` for
-`x`, `origin[1]` for `y`, `origin[2]` for `z`, and 0 for `t` (each only for
-the axes present). Otherwise it has none: an image's or an image stack's
+translation ([conventions §5](../conventions.md#5-units)): the position of
+the first value, `p[0]` for `x`, `p[1]` for `y`, `p[2]` for `z`, and 0 for `t`
+(each only for the axes present). Otherwise it has none: an image's or an image stack's
 `origin` is a phase origin in pixels, not a position, and `nxstart`,
 `nystart` and `nzstart`, which crystallographic writers use to place a map
 in its unit cell, are not applied ([§7](#7-what-the-layout-does-not-express)); all are in `header`.
+
+**The origin's sign.** The position `p` is `origin`, each 0 written `0` and
+not `-0`, except in a file whose origin has IMOD's sign, where it is
+`-origin`. A file's origin has IMOD's sign when all of these hold:
+
+- the `i32` at byte 152 is IMOD's stamp ([§3](#3-data-types));
+- bit 2 (the value 4) of the `i32` at byte 156, IMOD's flags, is clear;
+- `nversion` is not a standard version, at least 20140 and below 21000.
+
+| stamp | bit 2 | `nversion` | `p` | who writes it |
+|---|---|---|---|---|
+| yes | set | any | `origin` | IMOD since 4.11 |
+| yes | clear | not standard | `-origin` | IMOD before 4.11 |
+| yes | clear | standard | `origin` | other writers that keep IMOD's header words |
+| no | any | any | `origin` | every other writer |
+
+MRC2014 ([note 10](https://www.ccpem.ac.uk/mrc_format/mrc2014.php)) gives the
+position of a subvolume's first pixel in its parent: `origin` is 100, 120 for a
+subvolume cut 100 and 120 in. IMOD defines it the other way, as the position
+of the parent's origin relative to the first pixel, so that a subvolume has
+negative values, and bit 2 says a file is stored with that sign inverted
+([IMOD's MRC format](https://bio3d.colorado.edu/imod/doc/mrc_format.txt)).
+The first three rows are what IMOD's own reader does, in `mrc_head_read`. It
+reads a standard `nversion` with bit 2 clear as the standard's, since IMOD
+writes that version only with bit 2 set; its upper limit follows the clock, and
+the limit here is fixed so that a file's output does not depend on the day.
+The last row departs from IMOD's reader, which gives a file without the stamp
+and without a standard version IMOD's sign. That file may be from any writer,
+and UCSF ChimeraX, like MRC2014, reads it as stored.
 
 ### 4.3 Channels
 
@@ -467,7 +503,9 @@ reader that needs them must read them there.
   hierarchy has one translation; the layout applies `origin` for volumes
   only ([§4.2](#42-scales-units-and-position)), as MRC2014 directs for EM
   data, and applies the starts never. A map that an older writer placed by
-  its starts alone is shown at the origin.
+  its starts alone is shown at the origin. A file IMOD wrote before it had
+  a stamp, whose origin has IMOD's sign and nothing to say so, is placed on
+  the other side of its first pixel ([§4.2](#42-scales-units-and-position)).
 - **What a stack's index means**. The sections of an image stack (`ispg`
   0) are independent images, such as micrographs, a tilt series or
   particles, and the volumes of a volume stack are independent volumes; the
@@ -482,7 +520,8 @@ reader that needs them must read them there.
   position.
 - **The statistics** `dmean` and `rms`, the labels, the format version
   `nversion`, and the extra space (IMOD's own fields among them, except the
-  unsigned-byte flag, [§3](#3-data-types)).
+  unsigned-byte flag, [§3](#3-data-types), and the origin's sign,
+  [§4.2](#42-scales-units-and-position)).
 - **Half-complex transforms**. A mode 4 file is usually a Fourier transform
   of a real volume holding half the spectrum (`nx = N / 2 + 1`); the layout
   gives the data type, `complex64`, not the meaning.

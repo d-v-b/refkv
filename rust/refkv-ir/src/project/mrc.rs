@@ -158,7 +158,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
         })
         .collect();
     // the origin places a volume, in angstroms; an image's is a phase origin in pixels
-    let origin: Vec<f64> = h.values("origin").iter().map(|v| v.f()).collect();
+    let origin = crate::mrc::position(&h);
     let placed = h.get("ispg").i() != 0 && origin.iter().all(|v| v.is_finite()) && origin.iter().any(|&v| v != 0.0);
     let index = |a: &str| match a {
         "x" => 0,

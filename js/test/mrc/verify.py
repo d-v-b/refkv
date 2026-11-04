@@ -115,6 +115,17 @@ def load(path: Path):
     return header, data
 
 
+def position(header):
+    """The position of a file's first value along x, y and z: mrcfile gives the origin as stored,
+    and a file with IMOD's stamp, bit 2 of its flags clear and no standard version has IMOD's
+    sign (spec/zarrify/mrc.md §4.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#42-scales-units-and-position>)."""
+    order = "<" if header.mode.dtype.byteorder in "<=" else ">"
+    stamp, flags = struct.unpack(order + "ii", header.extra2.tobytes()[40:48])
+    imod_sign = stamp == IMOD and not flags & 4 and not 20140 <= int(header.nversion) < 21000
+    return [(-float(header.origin[a]) if imod_sign else float(header.origin[a])) + 0.0 for a in "xyz"]
+
+
 def problems_of(path: Path, out: Path) -> list[str]:
     header, want = load(path)
     root = zarr.open_group(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
@@ -149,7 +160,7 @@ def problems_of(path: Path, out: Path) -> list[str]:
         if axis not in ds.coords:
             continue
         cella, grid = float(header.cella[axis]), int(header[f"m{axis}"])
-        origin = [float(header.origin[a]) for a in "xyz"]
+        origin = position(header)
         placed = int(header.ispg) != 0 and all(np.isfinite(origin)) and any(o != 0 for o in origin)
         o = origin["xyz".index(axis)] if placed else 0.0
         expected = o + np.arange(ds.sizes[axis], dtype=np.float64) * (cella / grid)
