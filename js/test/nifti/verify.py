@@ -22,6 +22,7 @@ Usage: uv run python js/test/nifti/verify.py [<dir of .nii files>]
 from __future__ import annotations
 
 import base64
+import gzip
 import io
 import json
 import math
@@ -43,7 +44,7 @@ sys.path.insert(0, str(ROOT / "conformance" / "vzip"))
 
 import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store)
 from refkv import _core  # noqa: E402
-from refkv._narrow import JSON, at, mapping, ndarray  # noqa: E402
+from refkv._narrow import JSON, at, mapping, ndarray, sequence  # noqa: E402
 
 sys.path.insert(0, str(HERE.parent))
 from ir_mirror import mirror_problems  # noqa: E402
@@ -94,12 +95,18 @@ def load(nii: Path, tmp: str):
     return load_copy(nii, tmp)
 
 
-def load_copy(nii: Path, tmp: str):
+def file_bytes(nii: Path) -> bytes:
+    """The NIfTI file's bytes, a gzipped file's decompressed."""
     data = nii.read_bytes()
+    return gzip.decompress(data) if nii.name.endswith(".gz") else data
+
+
+def load_copy(nii: Path, tmp: str):
+    data = file_bytes(nii)
     hdr = raw_header(data)
     if not (math.isfinite(float(hdr["scl_inter"]))):
         hdr["scl_inter"] = 0
-    copy = Path(tmp) / nii.name
+    copy = Path(tmp) / nii.name.removesuffix(".gz")
     block = hdr.binaryblock
     copy.write_bytes(block + b"\0" + data[len(block) + 1:])
     return nib.load(copy)
@@ -156,7 +163,7 @@ def header_problems(nii: Path, meta: Mapping[str, JSON], out: Path) -> list[str]
     """Every recorded header field against nibabel's reading of the raw header; the file
     rebuilt from the mirror; and the extender and extensions the view shows against the
     file's chain, and nibabel's."""
-    data = nii.read_bytes()
+    data = file_bytes(nii)
     two = data[4:7] in (b"n+2", b"ni2")
     raw = raw_header(data)
     want = {}
@@ -186,9 +193,15 @@ def header_problems(nii: Path, meta: Mapping[str, JSON], out: Path) -> list[str]
         return problems
     problems += mirror_problems(out, nii)
 
+    extender, chain, _, _ = region(data, raw)
+    if "gzip" in meta:  # the mirror does not show what a gzip stream holds: the root does
+        gzipped = mapping(meta["gzip"], "gzip")
+        recorded = [(at(e, "ecode"), at(e, "esize")) for e in sequence(gzipped["extensions"])]
+        if gzipped["extender"] != list(extender) or recorded != [(code, len(d) + 8) for code, d in chain]:
+            problems.append(f"gzip {gzipped} != the stream's {list(extender)} and {[c for c, _ in chain]}")
+        return problems
     with zipfile.ZipFile(out) as z:
         view = json.loads(z.read("refkv_source/tree/zarr.json"))["attributes"]["refkv_zarrified"]["nifti"]
-    extender, chain, _, _ = region(data, raw)
     if view.get("extender") != list(extender):
         problems.append(f"extender {view.get('extender')} != {list(extender)}")
     shown = {k: v for k, v in view.items() if k.startswith("extensions/")}
@@ -264,7 +277,7 @@ def check(nii: Path, out: Path, _) -> tuple[list, str]:
 
 
 def main(fixtures: Path) -> int:
-    paths = sorted(p for p in fixtures.iterdir() if p.suffix in (".nii", ".hdr", ".HDR"))
+    paths = sorted(p for p in fixtures.iterdir() if p.suffix in (".nii", ".hdr", ".HDR") or p.name.endswith(".nii.gz"))
     return run(paths, check, url=serve(paths))
 
 

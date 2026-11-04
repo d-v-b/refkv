@@ -8,11 +8,12 @@
   "chosen_by": null,
   "suffixes": [
     ".nii",
+    ".nii.gz",
     ".hdr",
     ".HDR"
   ],
   "reference": 25,
   "source": "NIfTI-1 and NIfTI-2",
-  "inputs": "NIfTI-1 and NIfTI-2 single files (`.nii`) and header-and-image pairs (`.hdr`, `.img`)",
-  "for": "NIfTI-1 and NIfTI-2 volumes (`.nii`, `.hdr` and `.img`)"
+  "inputs": "NIfTI-1 and NIfTI-2 single files (`.nii`, `.nii.gz`) and header-and-image pairs (`.hdr`, `.img`)",
+  "for": "NIfTI-1 and NIfTI-2 volumes (`.nii`, `.nii.gz`, `.hdr` and `.img`)"
 }

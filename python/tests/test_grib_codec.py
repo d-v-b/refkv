@@ -55,8 +55,11 @@ def eccodes_fields(path: Path) -> list[np.ndarray]:
                 eccodes.codes_set(h, "missingValue", 1e300)  # no field holds it
                 v = np.array(eccodes.codes_get_values(h), dtype=np.float64)
                 v[v == 1e300] = np.nan
-                ni, nj, scan = (eccodes.codes_get_long(h, k) for k in ("Ni", "Nj", "scanningMode"))
-                out.append(ordered(v, ni, nj, scan))
+                if eccodes.codes_get_string(h, "gridType") in ("reduced_gg", "reduced_ll", "unstructured_grid"):
+                    out.append(v)  # no rows: its points, in the file's order
+                else:
+                    ni, nj, scan = (eccodes.codes_get_long(h, k) for k in ("Ni", "Nj", "scanningMode"))
+                    out.append(ordered(v, ni, nj, scan))
                 eccodes.codes_release(h)
     finally:
         eccodes.codes_grib_multi_support_off()
@@ -96,7 +99,7 @@ def test_every_field_decodes_to_eccodes_values(tmp_path):
             got32 = read(path, {"field": k}, want.shape, "float32", tmp_path / f"{name}.{k}.f4")
             np.testing.assert_array_equal(got32, want.astype(np.float32), err_msg=f"{name} field {k}", strict=True)
             checked += 1
-    assert checked == 57
+    assert checked == 79
 
 
 def test_rejects_a_packing_it_does_not_decode(tmp_path):

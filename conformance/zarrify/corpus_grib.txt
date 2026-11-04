@@ -4,8 +4,10 @@
 # spatial differencing, bitmaps, a repeated field), HRRR CONUS (Lambert conformal, south to north),
 # GEFS 0.5 deg (an ensemble member), NAM, NBM CONUS (rows in alternate directions, missing values in
 # complex packing, probabilities and percentiles), ECMWF IFS 0.25 deg on its Google Cloud mirror (CCSDS), and
-# RAP 13 km, whose fields are all JPEG 2000 (lossless, as JasPer writes it). NOAA's data are public
-# domain; ECMWF's open data are CC BY 4.0.
+# RAP 13 km, whose fields are all JPEG 2000 (lossless, as JasPer writes it). The 2026-10-01 00z runs
+# are the other grids: GFS's and GDAS's fluxes and CFSv2's (Gaussian, 3.40), HRRR Alaska and NBM Alaska
+# (polar stereographic, 3.20), and NBM Hawaii (Mercator, 3.10). NOAA's data are public domain; ECMWF's
+# open data are CC BY 4.0.
 https://noaa-gfs-bdp-pds.s3.amazonaws.com/gfs.20261029/00/atmos/gfs.t00z.pgrb2.0p25.f006|gfs_0p25_f006|no-ref|ends-sha256=1a8059588483cd9bd641adf85fd255a9e7221a40ae12f28fefeb0f01d1f1dec3
 https://noaa-hrrr-bdp-pds.s3.amazonaws.com/hrrr.20261029/conus/hrrr.t00z.wrfsfcf06.grib2|hrrr_conus_sfc_f06|no-ref|ends-sha256=2bc69440c8e4452bf0f92767b83b2d49ad1b2f1e8a2a0a16045fc1cd6b17eaa5
 https://noaa-gefs-pds.s3.amazonaws.com/gefs.20261029/00/atmos/pgrb2ap5/gep01.t00z.pgrb2a.0p50.f006|gefs_gep01_0p50_f006|no-ref|ends-sha256=e40b389bb6b67236a4c2601251223dbaf2437dc580e25ffd3d66c264d0af3a52
@@ -13,3 +15,9 @@ https://noaa-nam-pds.s3.amazonaws.com/nam.20261029/nam.t00z.awphys06.tm00.grib2|
 https://noaa-nbm-grib2-pds.s3.amazonaws.com/blend.20261029/00/core/blend.t00z.core.f006.co.grib2|nbm_conus_f006|no-ref|ends-sha256=a5f139c220c398ea58cffb331c7852c7e034e71ee0a9e9b81233f8da01e69955
 https://storage.googleapis.com/ecmwf-open-data/20261029/00z/ifs/0p25/oper/20261029000000-6h-oper-fc.grib2|ecmwf_ifs_0p25_6h|no-ref|ends-sha256=5f5b326636dbf6f6a0c8e1e810422390cf6361b01b9585695d6bba610f8dcb55
 https://noaa-rap-pds.s3.amazonaws.com/rap.20261029/rap.t00z.awp130pgrbf06.grib2|rap_130_f06|no-ref|ends-sha256=423f32e8e221b6a8ebfbb531f5af5f4b084dee5c3c885e25e1f757f81bb9eb58
+https://noaa-gfs-bdp-pds.s3.amazonaws.com/gfs.20261001/00/atmos/gfs.t00z.sfluxgrbf006.grib2|gfs_sflux_f006|no-ref|ends-sha256=022b2177b1b8919658493540037868c2c44dd32cc9a4931cb6a8301f335ecddc
+https://noaa-gfs-bdp-pds.s3.amazonaws.com/gdas.20261001/00/atmos/gdas.t00z.sfluxgrbf006.grib2|gdas_sflux_f006|no-ref|ends-sha256=f4271c7a9c33687b5d01a0861ff02413ea2fa7354f381741d3427eef8065578c
+https://noaa-cfs-pds.s3.amazonaws.com/cfs.20261001/00/6hrly_grib_01/flxf2026100106.01.2026100100.grb2|cfs_flx_f006|no-ref|ends-sha256=cbd75364f722375956f04bfffa5bdda77a13c1666cefad0ab517d8eb36e12a3f
+https://noaa-hrrr-bdp-pds.s3.amazonaws.com/hrrr.20261001/alaska/hrrr.t00z.wrfsfcf01.ak.grib2|hrrr_ak_sfc_f01|no-ref|ends-sha256=dc7c31007e84533998503d25aa3257853d23fb2c4c48d68c4ff298ae6b78192c
+https://noaa-nbm-grib2-pds.s3.amazonaws.com/blend.20261001/00/core/blend.t00z.core.f006.ak.grib2|nbm_ak_f006|no-ref|ends-sha256=0f03f6f480ef6f2e7905cef5399e95eab0847c3cb8601e94e8957fc76605cd50
+https://noaa-nbm-grib2-pds.s3.amazonaws.com/blend.20261001/00/core/blend.t00z.core.f006.hi.grib2|nbm_hi_f006|no-ref|ends-sha256=e870cd55b0bbde9274cf3bc44db3fd379f4ef3bf19ee7170cd4d4858b3527df6

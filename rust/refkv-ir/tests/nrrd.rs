@@ -147,7 +147,7 @@ fn accepted_inputs_are_valid_store_irs_whose_mirrors_rebuild_their_files() {
         assert_eq!(files.len(), if name.ends_with(".nhdr") { 2 } else { 1 }, "{name}");
         n += 1;
     }
-    assert_eq!(n, 40);
+    assert_eq!(n, 41);
 }
 
 /// An axis-aligned orientation is applied: the scales are the directions' diagonal, the

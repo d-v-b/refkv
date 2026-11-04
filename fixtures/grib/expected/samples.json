@@ -106,5 +106,65 @@
    "nan": 5672,
    "fnv1a64": "e6934554b3e36004"
   }
+ ],
+ "grib_cfs_flux_land.grib2": [
+  {
+   "shape": [
+    190,
+    384
+   ],
+   "nan": 0,
+   "fnv1a64": "eae1209839653125"
+  }
+ ],
+ "grib_gfs_flux_land.grib2": [
+  {
+   "shape": [
+    1536,
+    3072
+   ],
+   "nan": 0,
+   "fnv1a64": "1a8c42f86c278965"
+  }
+ ],
+ "grib_hrrr_ak_massden.grib2": [
+  {
+   "shape": [
+    919,
+    1299
+   ],
+   "nan": 0,
+   "fnv1a64": "44ae12cf060b001e"
+  }
+ ],
+ "grib_nbm_ak_frzspr.grib2": [
+  {
+   "shape": [
+    1105,
+    1649
+   ],
+   "nan": 746023,
+   "fnv1a64": "1ab5fe33fed83b98"
+  }
+ ],
+ "grib_nbm_hi_vis.grib2": [
+  {
+   "shape": [
+    561,
+    625
+   ],
+   "nan": 0,
+   "fnv1a64": "8a292b76080d0ad8"
+  }
+ ],
+ "grib_seaice_south.grib2": [
+  {
+   "shape": [
+    710,
+    690
+   ],
+   "nan": 0,
+   "fnv1a64": "5806d8e95c9361f9"
+  }
  ]
 }

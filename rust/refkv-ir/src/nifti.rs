@@ -9,8 +9,15 @@
 //! its `esize`, `ecode` and data, text for the text codes), the voxel data (one
 //! `data` element) and gaps for the rest (padding, bytes the chain does not hold,
 //! bytes after the voxels).
+//!
+//! A file gzipped whole (§7.4
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#74-gzipped-files>) takes
+//! other rounds: the start of the stream, inflated as far as the header (and as much of the
+//! chain as `SCAN` holds), and its trailer. Its IR is one `data` element, the whole file; what the
+//! stream's start holds is in the facts, as the file's bytes do not show it.
 
 use crate::fed::{Fed, Word};
+use crate::gz;
 use crate::ir::*;
 use crate::nd2::Step;
 use crate::record::{Field, Header, Num};
@@ -28,6 +35,8 @@ pub fn set_copy_threshold(n: Option<usize>) {
     crate::out::set_copy_threshold(n);
 }
 
+/// The bytes a run reads first, of the file or of a gzipped file's stream.
+const HEAD: u64 = 552;
 /// The bytes of the chain read at a time.
 const SCAN: u64 = 1 << 20;
 /// The largest value the view shows, which the parser keeps (conventions §8.7
@@ -194,6 +203,7 @@ pub(crate) fn chain_values(ir: &mut Ir, parent: u32, block: &[u8], q: u64, end: 
 enum Phase {
     Start,
     Head,
+    Gzip,
     Chain,
     Done,
 }
@@ -210,6 +220,9 @@ pub struct Nifti {
     q: u64,
     chaining: bool,
     k: u64,
+    /// a gzipped file's reads, and how much of its stream a read asks for
+    gzip: Option<gz::Reader>,
+    want: u64,
     facts: J,
 }
 
@@ -226,6 +239,8 @@ impl Nifti {
             q: 0,
             chaining: false,
             k: 0,
+            gzip: None,
+            want: HEAD,
             facts: J::Null,
         }
     }
@@ -239,15 +254,34 @@ impl Nifti {
             match self.phase {
                 Phase::Start => {
                     self.phase = Phase::Head;
-                    return Ok(Step::Read(vec![(0, self.size.min(552))]));
+                    return Ok(Step::Read(vec![(0, self.size.min(HEAD))]));
                 }
                 Phase::Head => {
-                    let got = self.fed.get(0, self.size.min(552)).ok_or("internal: no header")?;
-                    if detect_pair(got).is_some() {
+                    let got = self.fed.get(0, self.size.min(HEAD)).ok_or("internal: no header")?.to_vec();
+                    if detect_pair(&got).is_some() {
                         return Ok(Step::Beside);
                     }
-                    self.head()?;
-                    self.phase = Phase::Chain;
+                    if gz::is_member(&got) {
+                        self.gzip = Some(gz::Reader::new(self.size));
+                        self.phase = Phase::Gzip;
+                    } else {
+                        self.head(&got, None)?;
+                        self.phase = Phase::Chain;
+                    }
+                }
+                Phase::Gzip => {
+                    let reader = self.gzip.as_mut().ok_or("internal: no gzip reader")?;
+                    let inflated = match reader.inflate(&self.fed, self.want) {
+                        Ok(inflated) => inflated,
+                        Err(reads) => return Ok(reads),
+                    };
+                    let want = stream_wanted(&inflated.bytes);
+                    if want > self.want {
+                        self.want = want;
+                        continue;
+                    }
+                    self.head(&inflated.bytes, Some(inflated.isize))?;
+                    self.phase = Phase::Done;
                 }
                 Phase::Chain => {
                     if !self.chaining || self.q + 8 > self.vox {
@@ -270,20 +304,47 @@ impl Nifti {
 
     /// The header and its checks (spec/zarrify/nifti.md §7.1
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#71-header>), then the
-    /// elements of the header, the extender and the voxel data.
-    fn head(&mut self) -> Res<()> {
-        let got = self.fed.get(0, self.size.min(552)).ok_or("internal: no header")?.to_vec();
-        let version = detect(&got).ok_or("not a NIfTI-1 or NIfTI-2 single file")?;
-        let Checked { length, h, dtype, samples, vox, total, .. } = check_header(self.rules, &got, version, self.size, |length| length + 4)?;
+    /// elements of the header, the extender and the voxel data. `got` is the file's first bytes,
+    /// or those a gzipped file's stream holds, with its trailer's size (§7.4
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#74-gzipped-files>): a
+    /// stream's size is checked against the trailer, so no file's size bounds the voxel data.
+    fn head(&mut self, got: &[u8], isize: Option<u32>) -> Res<()> {
+        let version = detect(got).ok_or("not a NIfTI-1 or NIfTI-2 single file")?;
+        let size = if isize.is_some() { got.len() as u64 } else { self.size };
+        let Checked { length, h, dtype, samples, vox, total, .. } = check_header(self.rules, got, version, size, |length| length + 4)?;
         self.rules.check(
             "voxel_data",
             rules::env([
                 ("total", num(total as f64)),
                 ("vox", num(vox as f64)),
-                ("size", num(self.size as f64)),
+                ("size", num(if isize.is_some() { self.rules.limit("max_safe") } else { self.size as f64 })),
                 ("total_shown", text(&total.to_string())),
             ]),
         )?;
+        if let Some(isize) = isize {
+            let stream = vox as u128 + total;
+            self.rules.check(
+                "gzip_stream",
+                rules::env([
+                    ("inflated", num(got.len() as f64)),
+                    ("first", num((length + 4) as f64)),
+                    ("stream", num(gz::recorded(stream) as f64)),
+                    ("stream_shown", text(&stream.to_string())),
+                    ("isize", num(isize as f64)),
+                ]),
+            )?;
+            let endian = if h.little { "little" } else { "big" };
+            let form = json!({"geometry": {"data_type": dtype, "samples": samples},
+                              "codec": {"encoding": "gzip", "endian": endian, "skip": vox},
+                              "recipe": [["src", 0, null]]});
+            let voxels = self.ir.data(0, "voxels", NO_INDEX, 0, (0, self.size), &form.to_string())?;
+            let extender = got[length as usize..length as usize + 4].to_vec();
+            let extensions = if extender[0] != 0 { extensions_in(got, length as usize + 4, vox, h.little) } else { Vec::new() };
+            self.facts = json!({"version": version, "voxels": voxels, "extended": extender[0] != 0,
+                                "gzip": {"skip": vox, "head": gz::head(&got[..length as usize]), "extender": extender, "extensions": extensions},
+                                "copy_threshold": crate::out::copy_threshold()});
+            return Ok(());
+        }
         // the extender lies within the file, before the voxel data (vox >= L + 4)
         let ext = got[length as usize..length as usize + 4].to_vec();
         let header = self.ir.value(0, "header", NO_INDEX, &h.record_type(), 0, (0, length), Some(h.raw))?;
@@ -316,6 +377,45 @@ impl Nifti {
     }
 }
 
+/// How many of a gzipped file's stream's bytes its first `got` ask for: its first bytes, and when
+/// its extender says it has extensions, its chain as far as `SCAN` from where the chain starts, or
+/// the voxel data if that is first.
+fn stream_wanted(got: &[u8]) -> u64 {
+    let Some(version) = detect(got) else { return HEAD };
+    let length = if version == 1 { 348 } else { 540 };
+    if got.len() < length + 4 || got[length] == 0 {
+        return HEAD;
+    }
+    let vox = match header(got, version).get("vox_offset") {
+        Num::Float(v) if v.is_finite() && v > 0.0 => v as u64,
+        Num::Int(v) if v > 0 => v as u64,
+        _ => return HEAD,
+    };
+    (length as u64 + 4 + SCAN).min(vox).max(HEAD)
+}
+
+/// The extensions of a gzipped file's chain that `got` holds, from `start`, for the root's source
+/// metadata: each one's `esize` and `ecode`, and its text when a text code's of at most `SHOWN`
+/// bytes. The chain stops as `Nifti::chain` says, and where `got` does.
+fn extensions_in(got: &[u8], start: usize, vox: u64, little: bool) -> Vec<J> {
+    let mut found = Vec::new();
+    let mut p = start;
+    while p + 8 <= got.len() {
+        let (esize, ecode) = (i32::at(got, p, little), i32::at(got, p + 4, little));
+        if esize < 8 || p as u64 + esize as u64 > vox {
+            break;
+        }
+        let end = p + esize as usize;
+        let mut extension = json!({"esize": esize, "ecode": ecode});
+        if TEXT_CODES.contains(&ecode) && esize as u64 <= SHOWN && end <= got.len() {
+            extension["data"] = crate::project::json_text(&got[p + 8..end]);
+        }
+        found.push(extension);
+        p = end;
+    }
+    found
+}
+
 /// A binary64 as Python's `str` writes it, for messages.
 fn py_float(v: f64) -> String {
     if v.is_nan() {
@@ -336,6 +436,11 @@ impl crate::run::FileProfile for Profile {
     /// A NIfTI-1 or NIfTI-2 single-file header (`detect`), or a pair's (`detect_pair`).
     fn detect(&self, head: &[u8]) -> bool {
         detect(head).is_some() || detect_pair(head).is_some()
+    }
+    /// A NIfTI file gzipped whole (§7.4
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#74-gzipped-files>).
+    fn detect_gzipped(&self, inflated: &[u8]) -> bool {
+        detect(inflated).is_some()
     }
     fn parser(&self, size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::of::<Nifti>(size)

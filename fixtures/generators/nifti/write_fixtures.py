@@ -15,6 +15,7 @@ Usage: uv run python fixtures/generators/nifti/write_fixtures.py
 
 from __future__ import annotations
 
+import gzip
 import math
 import struct
 from pathlib import Path
@@ -138,6 +139,43 @@ def pairs() -> None:
     pair("nifti_reject_pair_vox_negative", [3, 3, 2, 2], 2, vox_offset=-16.0)
 
 
+def member(data: bytes, name: bytes = b"") -> bytes:
+    """`data` as one gzip member, of no time, with the original file's name when given (as gzip
+    writes one), its OS byte at 255, "unknown": zlib writes its build's OS code there, so that
+    fixtures would differ between platforms."""
+    plain = gzip.compress(data, compresslevel=6, mtime=0)
+    if not name:
+        return plain[:9] + b"\xff" + plain[10:]
+    return plain[:3] + b"\x08" + plain[4:9] + b"\xff" + name + b"\0" + plain[10:]
+
+
+def gzipped(name: str, dims, datatype: int = 2, *, stream=None, wrap=member, **fields) -> None:
+    """A NIfTI file gzipped whole, `<name>.nii.gz`: `nifti`'s file, through `stream` when given
+    (what the gzip stream holds, of the file's bytes), then `wrap`."""
+    nifti(name, dims, datatype, **fields)
+    path = OUT / f"{name}.nii"
+    content = path.read_bytes()
+    path.unlink()
+    (OUT / f"{name}.nii.gz").write_bytes(wrap(stream(content) if stream else content))
+
+
+def gzip_files() -> None:
+    """Files gzipped whole (spec/zarrify/nifti.md §7.4
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#74-gzipped-files>): with the
+    original file's name in the member, as gzip writes one; a chain of extensions; a transposed
+    array in a padded file; and the streams a chunk cannot decode."""
+    gzipped("nifti_gzip_n1_le_int16_named", [3, 5, 4, 3], 4, pixdim=[1, 2.0, 3.0, 4.0, 1, 1, 1, 1],
+            sform_code=2, srow=AXIS_ALIGNED, wrap=lambda b: member(b, b"t1w.nii"))
+    gzipped("nifti_gzip_n1_be_ext", [4, 4, 3, 2, 2], 4, order=">", extension=b"a comment in the stream",
+            scl_slope=0.5, scl_inter=-20.0, cal_min=-30.0, cal_max=10.0)
+    gzipped("nifti_gzip_n2_le_5d_padded", [5, 3, 2, 2, 2, 3], 16, version=2, vox_offset=1024, cal_min=0.0, cal_max=9.0)
+    gzipped("nifti_gzip_n2_be_rgb24", [3, 3, 2, 2], 128, version=2, order=">")
+    gzipped("nifti_gzip_n1_le_complex64", [3, 4, 3, 2], 32)
+    gzipped("nifti_reject_gzip_trailing", [3, 3, 2, 2], 2, stream=lambda b: b + b"TRAILER!")
+    gzipped("nifti_reject_gzip_members", [3, 3, 2, 2], 2, wrap=lambda b: member(b[:400]) + member(b[400:]))
+    gzipped("nifti_reject_gzip_header_cut", [3, 3, 2, 2], 2, stream=lambda b: b[:350])
+
+
 def quaternion_b(radians: float) -> list[float]:
     """A rotation about x: quatern_b, c, d."""
     return [math.sin(radians / 2), 0.0, 0.0]
@@ -167,7 +205,8 @@ def by_nibabel() -> None:
 
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
-    for p in [*OUT.glob("*.nii"), *OUT.glob("*.hdr"), *OUT.glob("*.HDR"), *OUT.glob("*.img"), *OUT.glob("*.IMG")]:
+    for p in [*OUT.glob("*.nii"), *OUT.glob("*.nii.gz"), *OUT.glob("*.hdr"), *OUT.glob("*.HDR"), *OUT.glob("*.img"),
+              *OUT.glob("*.IMG")]:
         p.unlink()
     by_nibabel()
 
@@ -406,6 +445,7 @@ def packed_extensions() -> None:
 if __name__ == "__main__":
     main()
     pairs()
+    gzip_files()
     reconstruction()
     blocks_and_regions()
     chunks_and_extensions()
