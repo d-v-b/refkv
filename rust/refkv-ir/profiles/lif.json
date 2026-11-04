@@ -7,10 +7,16 @@
   "sniff": 55,
   "chosen_by": null,
   "suffixes": [
-    ".lif"
+    ".lif",
+    ".lifext",
+    ".lof",
+    ".xlcf",
+    ".xlef",
+    ".xlif",
+    ".xllf"
   ],
   "reference": null,
   "source": "Leica LIF",
-  "inputs": "Leica LIF files (LAS X and LAS AF, versions 1 and 2): every image of the file's element tree, with interleaved or planar channels, z-stacks, time series and mosaics, uncompressed",
-  "for": "Leica LIF files (`.lif`)"
+  "inputs": "Leica LIF files (LAS X and LAS AF, versions 1 and 2), its object files (LOF) and extension files (LIFEXT), and LAS X projects of XLEF, XLCF, XLIF and XLLF documents and LOFs: every image of the element tree, with interleaved or planar channels, z-stacks, time series and mosaics, uncompressed",
+  "for": "Leica LIF, LOF and LIFEXT files, and LAS X projects (`.lif`, `.lof`, `.lifext`, `.xlef`, `.xlcf`, `.xlif`, `.xllf`)"
 }

@@ -41,15 +41,27 @@ CLI = ["node", str(HERE.parents[1] / "conformance" / "zarrify_file.ts")]
 AXIS = {"T": "t", "C": "c", "S": "c", "Z": "z", "Y": "y", "X": "x"}
 
 
-def expected_levels(path: Path) -> list[tuple[np.ndarray, str]]:
+def expected_levels(path: Path, group: zarr.Group) -> list[tuple[np.ndarray, str]]:
     with tifffile.TiffFile(path) as tf:
         series = tf.series[0]
         if path.name.startswith("svs_like"):
             return [(tf.pages[i].asarray(), "YX") for i in (0, 2)]
-        if path.suffix == ".ndpi":  # the levels: pages with a positive magnification (65421)
-            levels = [p.asarray() for p in map(tiff_page, tf.pages) if p.tags[65421].value > 0]
-            # a single channel (JPEG XR's grayscale) is the c axis of length 1
-            return [(a if a.ndim == 3 else a[..., None], "YXS") for a in levels]
+        if path.suffix == ".ndpi":
+            # the levels: pages with a positive magnification (65421), but those the output says
+            # it left out, one level per magnification, and its planes by focal offset (65424)
+            own = mapping(mapping(group.attrs["refkv_zarrified"]).get("ndpi", {}))
+            left_out = {at(e, "ifd") for e in sequence(own.get("LeftOut", []))}
+            by_magnification: dict[float, list] = {}
+            for i, p in enumerate(map(tiff_page, tf.pages)):
+                if p.tags[65421].value > 0 and i not in left_out:
+                    by_magnification.setdefault(p.tags[65421].value, []).append(p)
+            levels = []
+            for pages in by_magnification.values():
+                ordered = sorted(pages, key=lambda p: p.tags[65424].value) if len(pages) > 1 else pages
+                # a single channel (JPEG XR's grayscale) is the c axis of length 1
+                arrays = [a if a.ndim == 3 else a[..., None] for a in (p.asarray() for p in ordered)]
+                levels.append((np.stack(arrays), "ZYXS") if len(arrays) > 1 else (arrays[0], "YXS"))
+            return levels
         return [(level.asarray(), series.axes) for level in series.levels]
 
 
@@ -303,7 +315,7 @@ def main(fixtures: Path = HERE.parents[2] / "fixtures" / "tiff") -> int:
             names = [string(at(a, "name")) for a in sequence(ms["axes"])]
             datasets = sequence(ms["datasets"])
             problems = []
-            want = expected_levels(tiff)
+            want = expected_levels(tiff, group)
             if len(want) != len(datasets):
                 problems.append(f"{len(datasets)} levels, tifffile has {len(want)}")
             for (level, axes), d in zip(want, datasets, strict=False):
