@@ -304,16 +304,28 @@ def names_and_attributes():
 
 def netcdf4():
     """A netCDF-4 file (h5netcdf): dimension scales, whose DIMENSION_LIST and REFERENCE_LIST
-    attributes are sequences of references and compounds with a reference member (not presented)."""
+    attributes are sequences of references and compounds with a reference member (not presented);
+    a dimension with no variable (x), a variable named as a dimension it is not the coordinate of
+    (depth), fixed-length strings, and a dimension of the parent group's."""
     path = OUT / "hdf5_netcdf4.h5"
     with h5netcdf.File(path, "w", track_order=False) as f:
-        f.dimensions = {"time": 4, "x": 3}
+        f.dimensions = {"time": 4, "x": 3, "depth": 2}
         t = f.create_variable("time", ("time",), "f8")
         t[:] = np.arange(4.0)
         t.attrs["units"] = "days since 2000-01-01"
         v = f.create_variable("sst", ("time", "x"), "f4", chunks=(2, 3), compression="gzip", shuffle=True)
         v[:] = ramp((4, 3), "<f4")
         v.attrs["long_name"] = "sea surface temperature"
+        f.create_variable("depth", ("time", "depth"), "f4", data=ramp((4, 2), "<f4"))
+        v.attrs["_FillValue"] = np.array([-1.5], dtype="<f4")
+        v.attrs["scale_factor"] = np.array([0.5], dtype="<f4")
+        counts = f.create_variable("counts", ("time",), "i2", data=np.arange(4, dtype="<i2"))
+        counts.attrs["_FillValue"] = np.int16(-9)
+        f.create_variable("label", ("x",), "S4", data=np.array([b"a", b"bb", b"ccc"], dtype="S4"))
+        g = f.create_group("inner")
+        g.dimensions = {"y": 2}
+        g.create_variable("y", ("y",), "i4", data=np.arange(2, dtype="<i4"))
+        g.create_variable("anomaly", ("time", "y"), "f8", data=ramp((4, 2), "<f8"))
 
 
 def deep():
