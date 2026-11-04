@@ -28,8 +28,9 @@ output: [§2](#2-attributes), [§3](#3-arrays) and [§7](#7-source-values-as-arr
 formats' documents already say of their attributes, arrays, codecs and fill values. Changed
 2026-11-04, with no change to any output: a node's attributes may hold other conventions'
 members, such as [spec/provenance.md](provenance.md)'s on the root, which each convention's JSON
-Schema accepts ([§2](#2-attributes)). Changed 2026-11-04: imagecodecs-zarr's `imagecodecs_png` and
-`imagecodecs_bmp` decode a chunk that is one PNG or BMP file ([§3](#3-arrays)).)
+Schema accepts ([§2](#2-attributes)). Changed 2026-11-04: a TIFF level whose short last strip cannot be
+padded has the `rectilinear` chunk grid ([§3](#3-arrays)). Changed 2026-11-04: imagecodecs-zarr's
+`imagecodecs_png` and `imagecodecs_bmp` decode a chunk that is one PNG or BMP file ([§3](#3-arrays)).)
 
 <!-- profiles:conventions-table -->
 | format | convention | UUID |
@@ -257,6 +258,7 @@ below. The conventions that say otherwise:
 | Neuroglancer precomputed | have the codec `refkv.precomputed`, a chunk being one chunk object or a whole shard ([precomputed §3.1](zarrify/precomputed.md#31-the-array)) |
 | CZI | have, for clipped levels, the zarr-extensions `rectilinear` chunk grid, and may have the codecs `imagecodecs_jpegxr` and `numcodecs.shuffle` |
 | NDPI | have, for JPEG XR levels, the codec `imagecodecs_jpegxr` |
+| TIFF | have, for a level whose short last strip cannot be padded, the `rectilinear` chunk grid ([tiff §4.5](zarrify/tiff.md#45-strips)) |
 | QPTIFF | have, for LZW tiles and strips, the codec `refkv.tiff_lzw` ([qptiff §4.1](zarrify/qptiff.md#41-data-types-and-codecs)) |
 | MP3, MP4, FLAC | have the codec `refkv.stream` of [§10](#10-coded-streams), and dimension names of their own |
 | MP4 | have, for video planes whose chunks differ in length, the `rectilinear` chunk grid; a track's `time` array has the `gzip` codec |
