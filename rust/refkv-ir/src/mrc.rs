@@ -7,8 +7,14 @@
 //! the profile's order. The IR is the header (one record value), the extended header
 //! (one opaque value, when the file has one; never read), the data (one `data` element)
 //! and a gap for the bytes after it.
+//!
+//! A file gzipped whole (§8.4
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#84-gzipped-files>) takes other
+//! rounds: the start of the stream, inflated as far as the header, and its trailer. Its IR is one
+//! `data` element, the whole file; the header is in the facts, as the file's bytes do not show it.
 
 use crate::fed::Fed;
+use crate::gz;
 use crate::ir::*;
 use crate::nd2::Step;
 use crate::record::{Field, Header};
@@ -19,13 +25,17 @@ use serde_json::{Value as J, json};
 /// The header's length.
 pub const HEADER: u64 = 1024;
 /// IMOD's stamp (`IMOD` as a little-endian i32) at byte 152 of the header, and its flags at
-/// 156, whose bit 0 says a mode 0 file's bytes are unsigned.
+/// 156, whose bit 0 says a mode 0 file's bytes are signed when set and unsigned when clear.
 pub const IMOD_STAMP: usize = 152;
 pub const IMOD_FLAGS: usize = 156;
 pub const IMOD: i64 = 1146047817;
 /// The bit of IMOD's flags that says the origin is stored inverted from IMOD's own sign, which
 /// makes it the standard's.
 pub const IMOD_INVERTED_ORIGIN: i64 = 4;
+/// The NVERSION values that declare the MRC standard: 10 times its year plus a version, from 2014.
+/// IMOD's own test ends at the current year plus 2; a fixed end keeps the output the same whenever
+/// a file is zarrified, and still leaves out the values old SerialEM files hold there.
+pub const NVERSION_STANDARD: std::ops::Range<i64> = 20140..21000;
 
 /// The header's fields (`i4`, `f4`, `u1`, `b` for opaque bytes, `c` for text, or `l` for the
 /// ten 80-byte labels), in the standard's order
@@ -61,7 +71,7 @@ pub fn header(raw: &[u8]) -> Header<'_> {
 /// Adding 0 makes a stored or negated zero `0`, not `-0`.
 pub fn position(h: &Header) -> Vec<f64> {
     let stamped = h.number(IMOD_STAMP, "i4").i() == IMOD;
-    let standard = (20140..21000).contains(&h.get("nversion").i());
+    let standard = NVERSION_STANDARD.contains(&h.get("nversion").i());
     let imod_sign = stamped && h.number(IMOD_FLAGS, "i4").i() & IMOD_INVERTED_ORIGIN == 0 && !standard;
     h.values("origin").iter().map(|v| if imod_sign { -v.f() } else { v.f() } + 0.0).collect()
 }
@@ -70,6 +80,7 @@ pub fn position(h: &Header) -> Vec<f64> {
 enum Phase {
     Start,
     Head,
+    Gzip,
     Done,
 }
 
@@ -79,12 +90,14 @@ pub struct Mrc {
     fed: Fed,
     ir: Ir,
     rules: &'static Rules,
+    /// a gzipped file's reads
+    gzip: Option<gz::Reader>,
     facts: J,
 }
 
 impl Mrc {
     pub fn new(size: u64) -> Self {
-        Mrc { size, phase: Phase::Start, fed: Fed::default(), ir: Ir::new(size), rules: rules::of("mrc"), facts: J::Null }
+        Mrc { size, phase: Phase::Start, fed: Fed::default(), ir: Ir::new(size), rules: rules::of("mrc"), gzip: None, facts: J::Null }
     }
 
     pub fn feed(&mut self, offset: u64, data: Vec<u8>) {
@@ -98,7 +111,23 @@ impl Mrc {
                 Ok(Step::Read(vec![(0, self.size.min(HEADER))]))
             }
             Phase::Head => {
-                self.head()?;
+                let got = self.fed.get(0, self.size.min(HEADER)).ok_or("internal: no header")?.to_vec();
+                if gz::is_member(&got) {
+                    self.gzip = Some(gz::Reader::new(self.size));
+                    self.phase = Phase::Gzip;
+                    return self.step();
+                }
+                self.head(&got, None)?;
+                self.phase = Phase::Done;
+                Ok(Step::Done)
+            }
+            Phase::Gzip => {
+                let reader = self.gzip.as_mut().ok_or("internal: no gzip reader")?;
+                let inflated = match reader.inflate(&self.fed, HEADER) {
+                    Ok(inflated) => inflated,
+                    Err(reads) => return Ok(reads),
+                };
+                self.head(&inflated.bytes, Some(inflated.isize))?;
                 self.phase = Phase::Done;
                 Ok(Step::Done)
             }
@@ -108,17 +137,20 @@ impl Mrc {
 
     /// The header and its checks (spec/zarrify/mrc.md §8.1
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#81-header>), then the
-    /// elements of the header, the extended header and the data.
-    fn head(&mut self) -> Res<()> {
-        let got = self.fed.get(0, self.size.min(HEADER)).ok_or("internal: no header")?.to_vec();
-        if !detect(&got) {
+    /// elements of the header, the extended header and the data. `got` is the file's first bytes,
+    /// or those a gzipped file's stream holds, with its trailer's size (§8.4
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#84-gzipped-files>): a
+    /// stream's size is checked against the trailer, so no file's size bounds the data.
+    fn head(&mut self, got: &[u8], isize: Option<u32>) -> Res<()> {
+        if !detect(got) {
             return Err("not an MRC file".into());
         }
-        self.rules.check("file", rules::env([("size", num(self.size as f64))]))?;
+        let size = if isize.is_some() { self.rules.limit("max_safe") } else { self.size as f64 };
+        self.rules.check("file", rules::env([("size", num(if isize.is_some() { got.len() as f64 } else { self.size as f64 }))]))?;
         let stamp = &got[212..216];
         let shown = stamp.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" ");
         self.rules.check("byte_order", rules::env([("stamp", num(stamp[0] as f64)), ("shown", text(&shown))]))?;
-        let h = header(&got);
+        let h = header(got);
         let mut dims = [0i64; 3];
         for (k, name) in ["nx", "ny", "nz"].iter().enumerate() {
             let d = h.get(name).i();
@@ -129,12 +161,19 @@ impl Mrc {
         self.rules.check("mode", rules::env([("code", num(code as f64))]))?;
         let spec = &self.rules.table("modes")[code.to_string()];
         let bytes = spec["bytes"].as_u64().unwrap_or(1);
-        // IMOD marks a mode 0 file whose bytes are unsigned (spec/zarrify/mrc.md §3
+        // In a file with IMOD's stamp, mode 0 is signed when bit 0 of IMOD's flags is set ("1 =
+        // bytes are stored as signed (the default as of IMOD 4.9)", imodFlags in
+        // <https://bio3d.colorado.edu/imod/doc/mrc_format.txt>) or NVERSION declares the standard
+        // (the same document: "the best way to indicate that a byte file is signed"); otherwise
+        // it is unsigned (spec/zarrify/mrc.md §3
         // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#3-data-types>)
-        let imod_unsigned = code == 0 && h.number(IMOD_STAMP, "i4").i() == IMOD && h.number(IMOD_FLAGS, "i4").i() & 1 == 1;
+        let imod_unsigned = code == 0
+            && h.number(IMOD_STAMP, "i4").i() == IMOD
+            && h.number(IMOD_FLAGS, "i4").i() & 1 == 0
+            && !NVERSION_STANDARD.contains(&h.get("nversion").i());
         let dtype = if imod_unsigned { "uint8" } else { spec["dtype"].as_str().unwrap_or("int8") };
         let nsymbt = h.get("nsymbt").i();
-        self.rules.check("extended_header", rules::env([("nsymbt", num(nsymbt as f64)), ("size", num(self.size as f64))]))?;
+        self.rules.check("extended_header", rules::env([("nsymbt", num(nsymbt as f64)), ("size", num(size))]))?;
         let (ispg, mz) = (h.get("ispg").i(), h.get("mz").i());
         if ispg >= 401 {
             self.rules.check(
@@ -154,18 +193,39 @@ impl Mrc {
                 ("total", num(total as f64)),
                 ("total_shown", text(&total.to_string())),
                 ("offset", num(offset as f64)),
-                ("size", num(self.size as f64)),
+                ("size", num(size)),
             ]),
         )?;
-        let header = self.ir.value(0, "header", NO_INDEX, &h.record_type(), 0, (0, HEADER), Some(h.raw))?;
-        if nsymbt > 0 {
-            self.ir.value(0, "extended", NO_INDEX, &format!("bytes[{nsymbt}]"), 0, (HEADER, nsymbt as u64), None)?;
-        }
         let endian = if h.little { "little" } else { "big" };
         let geometry = match bits {
             Some(k) => json!({"data_type": dtype, "samples": 1, "bits": k}),
             None => json!({"data_type": dtype, "samples": 1}),
         };
+        if let Some(isize) = isize {
+            let stream = offset as u128 + total;
+            self.rules.check(
+                "gzip_stream",
+                rules::env([
+                    ("stream", num(gz::recorded(stream) as f64)),
+                    ("stream_shown", text(&stream.to_string())),
+                    ("isize", num(isize as f64)),
+                ]),
+            )?;
+            if let Some(k) = bits {
+                self.rules.check("gzip_packed", rules::env([("nx", num(dims[0] as f64)), ("bits", num(k as f64))]))?;
+            }
+            let form = json!({"geometry": geometry,
+                              "codec": {"encoding": "gzip", "endian": endian, "skip": offset},
+                              "recipe": [["src", 0, null]]});
+            let data = self.ir.data(0, "data", NO_INDEX, 0, (0, self.size), &form.to_string())?;
+            self.facts = json!({"data": data, "data_type": dtype, "gzip": {"skip": offset, "head": gz::head(h.raw)},
+                                "copy_threshold": crate::out::copy_threshold()});
+            return Ok(());
+        }
+        let header = self.ir.value(0, "header", NO_INDEX, &h.record_type(), 0, (0, HEADER), Some(h.raw))?;
+        if nsymbt > 0 {
+            self.ir.value(0, "extended", NO_INDEX, &format!("bytes[{nsymbt}]"), 0, (HEADER, nsymbt as u64), None)?;
+        }
         let form = json!({"geometry": geometry, "codec": {"endian": endian}, "recipe": [["src", 0, null]]});
         let data = self.ir.data(0, "data", NO_INDEX, 0, (offset, total as u64), &form.to_string())?;
         // the payload past which the projection copies an edge chunk, read once per run
@@ -187,6 +247,11 @@ impl crate::run::FileProfile for Profile {
     /// `MAP` at byte 208 (`detect`).
     fn detect(&self, head: &[u8]) -> bool {
         detect(head)
+    }
+    /// An MRC file gzipped whole (§8.4
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#84-gzipped-files>).
+    fn detect_gzipped(&self, inflated: &[u8]) -> bool {
+        detect(inflated)
     }
     fn parser(&self, size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::of::<Mrc>(size)

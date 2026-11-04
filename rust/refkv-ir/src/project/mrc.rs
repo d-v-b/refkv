@@ -6,12 +6,14 @@
 //! `data` element.
 
 use super::{contiguous, header_json, json_text, n, Copied};
+use crate::gz;
 use crate::ir::Ir;
 use crate::mrc::header;
 use crate::record::Header;
-use crate::out::{array_json, bytes_codec, declared_group, full_window, grid_chunks, gzip_array, image_ome, omero_channel, omero_json, root_json, Chunk, Out, Part};
+use crate::out::{array_json, bytes_codec, declared_group, full_window, grid_chunks, gzip_array, gzip_codecs, image_ome, omero_channel, omero_json, root_json, Chunk, Out, Part, GZIP_LEVEL};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
+use std::borrow::Cow;
 
 /// The most bytes of a chunk of the image (spec/zarrify/mrc.md §4.1
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#41-the-array>).
@@ -56,7 +58,7 @@ struct Cut {
     chunks: Vec<(Vec<u64>, Chunk)>,
 }
 
-fn cut(h: &Header, offset: u64, facts: &J) -> Result<Cut, String> {
+fn cut(h: &Header, (offset, length): (u64, u64), facts: &J) -> Result<Cut, String> {
     let (nx, ny, nz) = (h.get("nx").i() as u64, h.get("ny").i() as u64, h.get("nz").i() as u64);
     let (ispg, mz) = (h.get("ispg").i(), h.get("mz").i());
     let spec = &crate::rules::of("mrc").table("modes")[h.get("mode").i().to_string()];
@@ -82,6 +84,7 @@ fn cut(h: &Header, offset: u64, facts: &J) -> Result<Cut, String> {
     let bits = spec["bits"].as_u64();
     let threshold = contiguous::threshold(facts);
     let cut = match bits {
+        _ if facts["gzip"].is_object() => Some(contiguous::whole_stream(&shape, (offset, length))),
         Some(k) => contiguous::packed_chunks(offset, &shape, k, CHUNK_BYTES, threshold).filter(|_| (nx * k).is_multiple_of(8)).or_else(|| Some(row_chunks(offset, &shape, k))),
         None => grid_chunks(offset, &shape, item, CHUNK_BYTES, threshold),
     };
@@ -119,17 +122,21 @@ fn complex_int16() -> J {
     ]}})
 }
 
-/// The header and the data's element.
-fn parts<'a>(ir: &'a Ir, facts: &J) -> Result<(Header<'a>, u32), String> {
-    let raw = ir.value_bytes(n(&facts["header"]) as u32).ok_or("internal: the header is not held")?;
-    Ok((header(raw), n(&facts["data"]) as u32))
+/// The header's bytes (in the facts, of a gzipped file) and the data's element.
+fn parts<'a>(ir: &'a Ir, facts: &J) -> Result<(Cow<'a, [u8]>, u32), String> {
+    let raw = match gz::head_of(facts) {
+        Some(head) => Cow::Owned(head),
+        None => Cow::Borrowed(ir.value_bytes(n(&facts["header"]) as u32).ok_or("internal: the header is not held")?),
+    };
+    Ok((raw, n(&facts["data"]) as u32))
 }
 
 /// The source's ranges of the edge chunks the projection copies (§8.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#82-chunks>).
 pub fn reads(ir: &Ir, facts: &J) -> Result<Vec<(u64, u64)>, String> {
-    let (h, data) = parts(ir, facts)?;
-    let c = cut(&h, ir.start[data as usize], facts)?;
+    let (raw, data) = parts(ir, facts)?;
+    let h = header(&raw);
+    let c = cut(&h, (ir.start[data as usize], ir.len[data as usize]), facts)?;
     Ok(contiguous::copy_reads(&c.chunks).collect())
 }
 
@@ -138,7 +145,8 @@ fn valid(v: f64) -> bool {
 }
 
 pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, String> {
-    let (h, data) = parts(ir, facts)?;
+    let (raw, data) = parts(ir, facts)?;
+    let h = header(&raw);
     let (offset, form) = (ir.start[data as usize], ir.form_id(data).ok_or("internal: the data has no form")?);
     let length = ir.len[data as usize];
     let mode = h.get("mode").i();
@@ -167,7 +175,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     };
 
     // the array (§4.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#41-the-array>)
-    let Cut { kind, axes, names, mapped, shape, item, bits, grid, chunks } = cut(&h, offset, facts)?;
+    let Cut { kind, axes, names, mapped, shape, item, bits, grid, chunks } = cut(&h, (offset, length), facts)?;
     let mut units: Map<String, J> = Map::new();
     let scales: Vec<J> = axes
         .iter()
@@ -205,6 +213,10 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     if voxel.iter().all(|v| v.is_some()) {
         own.insert("voxel_size".into(), json!({"x": voxel[0], "y": voxel[1], "z": voxel[2]}));
     }
+    let gzip = &facts["gzip"];
+    if gzip.is_object() {
+        own.insert("gzip".into(), json!({"skip": gzip["skip"]}));
+    }
     // the dataset layout, unless the run's layouts leave it out (spec/zarrify/mrc.md §8
     // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#8-mrc-profile>)
     let dataset = facts["layouts"].as_array().is_none_or(|l| l.iter().any(|v| v == DATASET));
@@ -216,11 +228,14 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
         root["attributes"]["refkv_zarrified"] = insert_after(&root["attributes"]["refkv_zarrified"], "source", "layouts", json!({DATASET: DATASET}));
     }
     out.json("zarr.json", &root);
-    let codecs = match bits {
+    let mut codecs = match bits {
         // zarr-extensions' `packbits`, bit packing (not TIFF's PackBits), of each value's low bits
         Some(k) => vec![json!({"name": "packbits", "configuration": {"padding_encoding": "none", "last_bit": k - 1}})],
         None => vec![bytes_codec(item, endian)],
     };
+    if gzip.is_object() {
+        codecs.extend(gzip_codecs(n(&gzip["skip"]), GZIP_LEVEL));
+    }
     let mut array = array_json(&shape, data_type, json!(grid), J::Array(codecs), &axes);
     if data_type == "complex64" {
         // a complex fill value is its real and imaginary parts (Zarr v3)
@@ -269,13 +284,17 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
         gzip_array(&mut out, &format!("{DATASET}/{a}"), "uint32", shape[k], COORD_CHUNK, a, filters, attributes, |q, c| index_chunk(q * c, c));
     }
     let sizes: Map<String, J> = axes.iter().zip(&shape).map(|(a, s)| (a.to_string(), json!(s))).collect();
-    out.summary = json!({
+    let mut summary = json!({
         "kind": kind, "byteOrder": endian, "mode": mode, "dataType": data_type, "sizes": sizes,
         "chunkShape": grid, "chunks": count,
         "voxelSize": if voxel.iter().all(|v| v.is_some()) { json!(voxel) } else { J::Null },
         "translation": placed, "axisMap": mapped, "extendedHeader": nsymbt,
         "extendedType": json_text(h.bytes("exttyp")), "layouts": if dataset { json!([DATASET]) } else { json!([]) },
     });
+    if gzip.is_object() {
+        summary["gzip"] = json!(true);
+    }
+    out.summary = summary;
     Ok(out)
 }
 

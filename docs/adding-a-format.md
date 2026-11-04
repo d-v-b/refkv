@@ -104,8 +104,9 @@ de facto readers, and record the decision with a dated change note:
   dropped the video of all 88 DANDI `.mov` files
   ([#153](https://github.com/d-v-b/refkv/pull/153)).
 - MRC went the other way: it refuses mrcfile's permissive fallback to little
-  endian ([#83](https://github.com/d-v-b/refkv/pull/83)). IMOD's unsigned-byte
-  flag, which mrcfile ignores, decides int8 against uint8.
+  endian ([#83](https://github.com/d-v-b/refkv/pull/83)). IMOD's signed-byte
+  flag, which mrcfile ignores, decides int8 against uint8: in a file with
+  IMOD's stamp, bit 0 set or a standard `nversion` is int8, and otherwise uint8.
 
 **Expect reference readers to disagree, and choose the oracle explicitly:**
 

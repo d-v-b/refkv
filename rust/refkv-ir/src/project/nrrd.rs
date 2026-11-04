@@ -9,7 +9,7 @@ use super::{arr, contiguous, image_axes, key, n, translation, with_counts};
 use super::vsi::object_url;
 use crate::ir::Ir;
 use crate::nrrd::CHUNK_BYTES;
-use crate::out::{array_json, bytes_codec, full_window, grid_chunks, image_ome, omero_channel, omero_json, root_json, Chunk, Out, Part, RGBA};
+use crate::out::{array_json, bytes_codec, full_window, grid_chunks, gzip_codecs, image_ome, omero_channel, omero_json, root_json, Chunk, Out, Part, RGBA};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 
@@ -177,10 +177,10 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     codecs.push(bytes_codec(item, endian));
     let gzip = encoding == "gzip";
     if gzip {
-        codecs.push(json!({"name": "gzip", "configuration": {"level": 1}}));
+        codecs.extend(gzip_codecs(n(&a["byte_skip"]), 1));
     }
     let (grid, chunks) = if gzip {
-        (stored_shape.clone(), vec![(vec![0; stored.len()], Chunk::Ranges(vec![Part::Src(start, length)]))])
+        contiguous::whole_stream(&stored_shape, (start, length))
     } else {
         let threshold = facts["copy_threshold"].as_u64().map_or(crate::out::MAX_PAYLOAD, |t| t as usize);
         grid_chunks(start, &stored_shape, item, CHUNK_BYTES, threshold).ok_or("internal: the data cannot be cut into chunks")?

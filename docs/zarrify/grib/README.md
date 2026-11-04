@@ -27,7 +27,9 @@ xarray opens (`xr.open_zarr(store, group="grid0")`), with:
   (a percentile).
 - **Dimensions:** `time` (the reference time), `step`, the level (named by its type, such as
   `isobaric` in Pa or `heightAboveGround` in m) when the fields have one, `number` for an
-  ensemble member, then the grid: `latitude` and `longitude`, or `y` and `x` for a Lambert grid.
+  ensemble member, then the grid: `latitude` and `longitude` (regular or Gaussian), `rlat` and
+  `rlon` (rotated), `y` and `x` (Lambert, polar stereographic or Mercator), or `point` (reduced
+  and unstructured grids, one dimension of points).
   `time` and `step` are always there, of length 1 for a single forecast hour, so that the files of
   a forecast run line up.
 - **Values:** `float64`, as ecCodes decodes them (refkv's decoder matches ecCodes value for value
@@ -35,9 +37,11 @@ xarray opens (`xr.open_zarr(store, group="grid0")`), with:
   rows are in the file's order: GFS and ECMWF run north to south, HRRR south to north.
 - **Coordinates:** `time`, `step` and `valid_time` (CF units, which xarray decodes), the levels,
   and the grid's positions as CF `scale_factor` and `add_offset` over an index (a few kilobytes
-  whatever the grid's size).
+  whatever the grid's size). A Gaussian grid's latitudes are listed, as are the `latitude` and
+  `longitude` of a reduced grid's points. An unstructured grid's `point` has no positions: its
+  group names the grid file that does, by its UUID.
 - **Georeferencing:** the GeoZarr `proj:wkt2` (the CRS, on the file's Earth shape) and
-  `spatial:transform`, as for Sentinel-2.
+  `spatial:transform`, as for Sentinel-2, where the grid's points are evenly spaced.
 - **Source metadata:** the count of messages and fields, the index the run used, and the fields
   that are not presented, with their reasons, under `refkv_zarrified.grib`. Every message's
   sections are in the IR mirror on `refkv_source`, from which the file is rebuilt byte for byte.
@@ -46,8 +50,7 @@ xarray opens (`xr.open_zarr(store, group="grid0")`), with:
 floats (5.4), JPEG 2000 (5.40, which NOAA's RAP uses), PNG (5.41) and CCSDS (5.42, ECMWF's).
 
 **Not presented.** A field is listed with its reason, rather than rejecting the file, when its
-grid is not a regular latitude/longitude or Lambert conformal grid, its packing is not one of the
-above, its product template has dimensions refkv does not name yet, or its bitmap is predefined.
+grid is not one of those below, its packing is not one of the above, its product template has dimensions refkv does not name yet, or its bitmap is predefined.
 
 **Indexes.** NOAA publishes `<file>.idx` beside each file, and ECMWF `<file>.index`. refkv
 reads one when it is there and asks for every message's header at once, rather than walking the
@@ -60,12 +63,16 @@ Supported:
 
 - GRIB edition 2 files of one or more messages, a message holding one field or several, with
   NOAA's `.idx` or ECMWF's `.index` beside the file or without one.
-- Regular latitude/longitude and Lambert conformal grids.
+- Regular latitude/longitude (3.0), rotated (3.1), Gaussian (3.40, as GFS's and GDAS's fluxes and
+  CFS use), Lambert conformal (3.30), polar stereographic (3.20, as HRRR Alaska and NBM Alaska use),
+  Mercator (3.10, as NBM Hawaii uses) and unstructured (3.101, as ICON uses) grids.
+- Reduced grids (3.0 and 3.40 with a list of each parallel's points, as ERA5's native fields) that
+  go round the Earth, as one dimension of points. A sub-area of a reduced grid is not presented.
 - Simple, complex, complex with spatial differencing, IEEE, PNG and CCSDS packing, bitmaps in
   the message or reused from an earlier field of the same message.
 
-Not presented, each field listed with its reason under `refkv_zarrified.grib`: other grids,
-other packings, product templates with dimensions refkv does not name yet, and
+Not presented, each field listed with its reason under `refkv_zarrified.grib`: other grids
+(such as the spectral 3.50, and NCEP's rotated E and B grids 3.32768 and 3.32769), other packings, product templates with dimensions refkv does not name yet, and
 predefined bitmaps.
 
 Rejected:
