@@ -37,6 +37,7 @@ const STORE_FORMATS: Record<StoreProfile, string | undefined> = {
   nifti: "NIfTI",
   grib: "GRIB",
   safetensors: "safetensors",
+  lif: "LIF",
   tiff: "TIFF",
 };
 

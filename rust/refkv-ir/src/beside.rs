@@ -104,9 +104,94 @@ pub fn written_key(name: &[u8], dir: &str, how: Written) -> Option<String> {
     (!key.is_empty()).then(|| key.join("/"))
 }
 
+/// A name under Unicode's simple case folding (the section's **Case**), as the hosts all compare
+/// names: each character's single-character uppercase, then that one's single-character
+/// lowercase. Dotless `ı`, which folds only under the Turkic rules, stays itself.
+pub fn folded(name: &str) -> String {
+    let one = |mut it: std::vec::IntoIter<char>, or: char| match (it.next(), it.next()) {
+        (Some(c), None) => c,
+        _ => or,
+    };
+    name.chars()
+        .map(|c| {
+            if c == '\u{131}' {
+                return c;
+            }
+            let up = one(c.to_uppercase().collect::<Vec<_>>().into_iter(), c);
+            one(up.to_lowercase().collect::<Vec<_>>().into_iter(), up)
+        })
+        .collect()
+}
+
+/// The key a host that can list finds for the written key `key` (the section's **Case**): `list`
+/// gives the entries of the directory at a key (empty for the store's root), or None when there is
+/// no such directory. Each segment is the entry equal to it, else the only one equal to it under
+/// [`folded`]. None when one has neither, and the two keys when one has two such entries.
+pub fn found_key(key: &str, mut list: impl FnMut(&str) -> Option<Vec<String>>) -> Result<Option<String>, (String, String)> {
+    let mut at = String::new();
+    let joined = |at: &str, name: &str| if at.is_empty() { name.to_string() } else { format!("{at}/{name}") };
+    for segment in key.split('/') {
+        let Some(entries) = list(&at) else { return Ok(None) };
+        let name = if entries.iter().any(|e| e == segment) {
+            segment.to_string()
+        } else {
+            let wanted = folded(segment);
+            let mut matching: Vec<&String> = entries.iter().filter(|e| folded(e) == wanted).collect();
+            matching.sort();
+            match matching.as_slice() {
+                [] => return Ok(None),
+                [one] => (*one).clone(),
+                [a, b, ..] => return Err((joined(&at, a), joined(&at, b))),
+            }
+        };
+        at = joined(&at, &name);
+    }
+    Ok(Some(at))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The directories of a store, listed.
+    fn listing(tree: &[(&str, &[&str])]) -> impl FnMut(&str) -> Option<Vec<String>> {
+        let tree: HashMap<String, Vec<String>> =
+            tree.iter().map(|(d, e)| (d.to_string(), e.iter().map(|s| s.to_string()).collect())).collect();
+        move |d| tree.get(d).cloned()
+    }
+
+    #[test]
+    fn a_key_is_found_by_listing_each_segment() {
+        let tree: &[(&str, &[&str])] = &[
+            ("", &["Metadata", "Series010.lof", "both.lof", "BOTH.lof"]),
+            ("Metadata", &["Series010.xlif", "stra\u{df}e", "\u{c9}.xlif", "\u{131}.xlif"]),
+        ];
+        let cases = [
+            ("Series010.lof", Some("Series010.lof")),
+            ("series010.lof", Some("Series010.lof")),
+            ("metadata/series010.xlif", Some("Metadata/Series010.xlif")),
+            ("METADATA/SERIES010.XLIF", Some("Metadata/Series010.xlif")),
+            ("Metadata/\u{e9}.xlif", Some("Metadata/\u{c9}.xlif")),
+            // an exact match is taken, though another entry matches ignoring case
+            ("both.lof", Some("both.lof")),
+            ("BOTH.lof", Some("BOTH.lof")),
+            // ß folds to no two letters, and dotless ı to no i: simple folding
+            ("Metadata/strasse", None),
+            ("Metadata/i.xlif", None),
+            ("absent.lof", None),
+            ("Series010.lof/x", None),
+            ("Elsewhere/a", None),
+        ];
+        for (key, want) in cases {
+            assert_eq!(found_key(key, listing(tree)), Ok(want.map(str::to_string)), "{key}");
+        }
+    }
+
+    #[test]
+    fn two_entries_that_match_ignoring_case_are_an_error() {
+        let tree: &[(&str, &[&str])] = &[("", &["Dir"]), ("Dir", &["A.lof", "a.LOF"])];
+        assert_eq!(found_key("dir/a.lof", listing(tree)), Err(("Dir/A.lof".to_string(), "Dir/a.LOF".to_string())));
+    }
 
     const PLAIN: Written = Written { percent: false, windows: false, parents: false };
     const LEICA: Written = Written { percent: true, windows: true, parents: true };

@@ -424,9 +424,10 @@ def store_mirror_problem(path: Path, view: dict, fetch=None) -> str | None:
     url = prop.get("source", {}).get("url") if isinstance(prop, dict) else None
     if not isinstance(prop, dict) or not isinstance(url, str):
         return "no store URL on the root"
-    if prop.get("profile") in ("vsi", "nrrd", "grib", "tiff", "nifti"):
-        # a VSI root names the .vsi file, a NRRD root and a NIfTI pair's the header file and a GRIB
-        # root the GRIB file; the store's URL is its directory (spec/zarrify/vsi.md §9
+    if prop.get("profile") in ("vsi", "nrrd", "grib", "tiff", "lif", "nifti"):
+        # a VSI root names the .vsi file, a NRRD root and a NIfTI pair's the header file, a GRIB root
+        # the GRIB file and a LAS X project's the named document; the store's URL is its directory
+        # (spec/zarrify/vsi.md §9
         # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#9-vsi-profile>,
         # spec/zarrify/nrrd.md §8 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#8-nrrd-profile>,
         # spec/zarrify/grib.md §8 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#8-grib-profile>)
@@ -668,7 +669,7 @@ def corpus(proxy: Proxy, fixtures: Path, quick: bool, local_only: bool, large: b
     def name(p: Path) -> str:
         return p.stem if stems[p.stem] == 1 else p.relative_to(fixtures).as_posix().replace("/", "__")
 
-    items = [(f"fixture-{name(p)}", proxy.local(p.relative_to(fixtures).as_posix()),
+    items = [(f"fixture-{name(p)}", proxy.local(urllib.parse.quote(p.relative_to(fixtures).as_posix())),
               *(["no-ref"] if FILE_SUFFIXES[p.suffix]["reference"] is None
                 or unmutated(p.name) in REVISED else []))
              for p in files]

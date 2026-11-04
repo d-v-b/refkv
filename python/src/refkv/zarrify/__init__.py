@@ -157,11 +157,15 @@ def _zarrify_store(location: str, url: str | None = None, *, max_objects: int | 
 # The file profiles whose input is read with the files beside it, as a store run that probes for
 # them: (the format's title, the named file) as a rejection names them.
 BESIDE = {"vsi": ("VSI", ".vsi file"), "nrrd": ("NRRD", "header file"), "grib": ("GRIB", "GRIB file"),
-          "tiff": ("TIFF", "TIFF file"), "nifti": ("NIfTI", "header file")}
-# Those of them that read a file with the files beside it only when it names some (spec/zarrify.md
-# §1.9 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>):
+          "tiff": ("TIFF", "TIFF file"), "lif": ("LIF", "named document"),
+          "nifti": ("NIfTI", "header file")}
+# Those of them that read a file with the files beside it only when it names some, or for some of
+# their files (spec/zarrify.md §1.9
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>):
 # a file run finds out, and starts over (`ir.NamesSiblingsError`).
-ON_DEMAND = {"tiff", "nifti"}
+ON_DEMAND = {"tiff", "lif", "nifti"}
+# Those whose writers name files in another case than they have (the same section's **Case**).
+CASE = {"lif"}
 
 
 async def _zarrify_beside_async(fmt: str, location: str, url: str | None, transport: Transport, *,
@@ -177,7 +181,8 @@ async def _zarrify_beside_async(fmt: str, location: str, url: str | None, transp
     (`refkv.zarrify.store.beside.VsiFiles`). `url`, when given, is the URL of the named file's
     directory (ending in `/`), the store URL the output's object URLs are made from."""
     title, noun = BESIDE[fmt]
-    store = VsiFiles(location, url, policy=policy, workers=connections, transport=transport, title=title, noun=noun)
+    store = VsiFiles(location, url, policy=policy, workers=connections, transport=transport, title=title, noun=noun,
+                     case=fmt in CASE)
     try:
         out = (await run_store_async(store, fmt))[0]
     finally:
