@@ -19,7 +19,7 @@ use serde_json::{Value as J, json};
 /// The header's length.
 pub const HEADER: u64 = 1024;
 /// IMOD's stamp (`IMOD` as a little-endian i32) at byte 152 of the header, and its flags at
-/// 156, whose bit 0 says a mode 0 file's bytes are unsigned.
+/// 156, whose bit 0 says a mode 0 file's bytes are signed when set and unsigned when clear.
 pub const IMOD_STAMP: usize = 152;
 pub const IMOD_FLAGS: usize = 156;
 pub const IMOD: i64 = 1146047817;
@@ -115,9 +115,12 @@ impl Mrc {
         self.rules.check("mode", rules::env([("code", num(code as f64))]))?;
         let spec = &self.rules.table("modes")[code.to_string()];
         let bytes = spec["bytes"].as_u64().unwrap_or(1);
-        // IMOD marks a mode 0 file whose bytes are unsigned (spec/zarrify/mrc.md §3
+        // In a file with IMOD's stamp, bit 0 of IMOD's flags says mode 0 is signed ("1 = bytes
+        // are stored as signed (the default as of IMOD 4.9)", imodFlags in
+        // <https://bio3d.colorado.edu/imod/doc/mrc_format.txt>); a stamped file without it is
+        // unsigned (spec/zarrify/mrc.md §3
         // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#3-data-types>)
-        let imod_unsigned = code == 0 && h.number(IMOD_STAMP, "i4").i() == IMOD && h.number(IMOD_FLAGS, "i4").i() & 1 == 1;
+        let imod_unsigned = code == 0 && h.number(IMOD_STAMP, "i4").i() == IMOD && h.number(IMOD_FLAGS, "i4").i() & 1 == 0;
         let dtype = if imod_unsigned { "uint8" } else { spec["dtype"].as_str().unwrap_or("int8") };
         let nsymbt = h.get("nsymbt").i();
         self.rules.check("extended_header", rules::env([("nsymbt", num(nsymbt as f64)), ("size", num(self.size as f64))]))?;

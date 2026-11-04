@@ -29,8 +29,9 @@ One OME-Zarr 0.5 image at the archive root, with one array, `0`.
   are named by the header's axis map (`mapc`, `mapr`, `maps`) when it is a
   permutation of x, y and z; the values are never reordered.
 - **Data types:** `int8`, `int16`, `uint16`, `float16`, `float32` and
-  `complex64` (modes 0, 1, 6, 12, 2 and 4); `uint8` for a mode 0 file that
-  IMOD marks as unsigned.
+  `complex64` (modes 0, 1, 6, 12, 2 and 4); `uint8` for a mode 0 file with
+  IMOD's stamp and bit 0 of IMOD's flags clear (unsigned bytes, IMOD's
+  default before 4.9).
 - **Chunks:** the values as the file stores them, cut into equal runs of at
   most 1 MiB along the outermost axis that allows it.
 - **Codecs:** `bytes` in the file's byte order. No compression: the file

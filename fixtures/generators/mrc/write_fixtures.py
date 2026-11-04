@@ -152,14 +152,18 @@ def main() -> None:
     # An image stack's origin is a phase origin in pixels: no translation.
     mrc("mrc_edge_origin_image_stack", (3, 3, 2), 2, ispg=0, origin=[1.0, 2.0, 0.0])
     mrc("mrc_edge_origin_image", (3, 3, 1), 2, ispg=0, origin=[1.0, 2.0, 0.0])
-    # IMOD's stamp and flags at bytes 152 and 156: bit 0 makes mode 0 unsigned.
+    # IMOD's stamp and flags at bytes 152 and 156. In a stamped file bit 0 of the flags says
+    # the bytes are signed ("1 = bytes are stored as signed (the default as of IMOD 4.9)",
+    # imodFlags in <https://bio3d.colorado.edu/imod/doc/mrc_format.txt>); when that bit is clear,
+    # the bytes are unsigned (IMOD's default before 4.9).
     def imod(flags):
         return bytes(40) + struct.pack("<ii", 1146047817, flags) + bytes(36)
-    mrc("mrc_imod_uint8", (4, 3, 2), 0, extra2=imod(1), dmin=0.0, dmax=255.0)
-    mrc("mrc_imod_uint8_other_flags", (4, 3, 2), 0, extra2=imod(7))
-    mrc("mrc_imod_int8", (4, 3, 2), 0, extra2=imod(2))
+    mrc("mrc_imod_signed_int8", (4, 3, 2), 0, extra2=imod(1))
+    mrc("mrc_imod_signed_other_flags", (4, 3, 2), 0, extra2=imod(7))
+    mrc("mrc_imod_unsigned_uint8", (4, 3, 2), 0, extra2=imod(2), dmin=0.0, dmax=255.0)
     mrc("mrc_imod_flag_no_stamp", (4, 3, 2), 0, extra2=bytes(44) + struct.pack("<i", 1) + bytes(36))
-    mrc("mrc_imod_uint8_be", (4, 3, 2), 0, order=">", extra2=bytes(40) + struct.pack(">ii", 1146047817, 1) + bytes(36))
+    mrc("mrc_imod_signed_int8_be", (4, 3, 2), 0, order=">",
+        extra2=bytes(40) + struct.pack(">ii", 1146047817, 1) + bytes(36))
     mrc("mrc_edge_volume_stack_one", (3, 2, 3), 2, ispg=401, mz=3)
     mrc("mrc_edge_ispg_230", (3, 2, 2), 2, ispg=230)
     mrc("mrc_edge_ispg_negative", (3, 2, 2), 2, ispg=-1)

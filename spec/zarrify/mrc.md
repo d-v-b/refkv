@@ -9,6 +9,10 @@ accepts, is the MRC profile, [Part 2](#part-2-the-profile) below.
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `2aacd010-2ed1-4748-bc3c-5dd5e840bbce` ·
 Schema: [schema.json](mrc/schema.json)
 
+Changed 2026-11-04: a mode 0 file with IMOD's stamp is `uint8` when bit 0 of IMOD's flags is
+clear and `int8` when it is set ([§3](#3-data-types)); the earlier rule read the bit inverted,
+against IMOD's documentation, so a stamped mode 0 file's data type changes.
+
 Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
 [Layout](#layout) and its types in type tables
 ([conventions §11.5](../conventions.md#115-layout-tables)), and the text says, as refkv already
@@ -144,13 +148,18 @@ fastest, then the row, then the section.
 | 6 | UINT16 | `uint16` | 2 |
 | 12 | FLOAT16 | `float16` | 2 |
 
-Mode 0 is signed, as the MRC2014 standard says, except in a file IMOD
-marks as unsigned: when `mode` is 0, the `i32` at byte 152 (in the file's
-byte order; the 41st byte of `extra2`) is 1146047817 (IMOD's stamp, `IMOD`
-as a little-endian integer) and bit 0 of the `i32` at byte 156 (IMOD's
-flags) is set, the data type is `uint8`, `b = 1`. Reading such a file as
-`int8` would make every value over 127 negative. (The other flag bits, and
-the stamp without the flag or the flag without the stamp, change nothing.)
+Mode 0 is `int8`, as the MRC2014 standard says, except in a file IMOD
+marks as unsigned. When `mode` is 0 and the `i32` at byte 152 (in the
+file's byte order; the 41st byte of `extra2`) is 1146047817 (IMOD's stamp,
+`IMOD` as a little-endian integer), bit 0 of the `i32` at byte 156 (IMOD's
+flags) says the bytes are signed: set, the data type is `int8`; when that
+bit is clear, the bytes are unsigned (IMOD's default before 4.9), and the
+data type is `uint8`, `b = 1` ("1 = bytes are stored as signed (the default
+as of IMOD 4.9)", `imodFlags` in
+[IMOD's MRC format](https://bio3d.colorado.edu/imod/doc/mrc_format.txt)).
+Reading a stamped file with the bit clear as `int8` would make every value over 127 negative.
+(The other flag bits change nothing, and neither does the flag without the
+stamp.)
 A `complex64` value is its real part, then its imaginary part, each a
 binary32 in the file's byte order.
 
@@ -266,7 +275,7 @@ Everything the file holds is on `refkv_source`, the file's **IR mirror**
 |---|---|---|---|
 | `byte_order` | string | required | `"little"` or `"big"` |
 | `kind` | string | required | `"image"`, `"image_stack"`, `"volume"` or `"volume_stack"` ([§4.1](#41-the-array)) |
-| `data_type` | string | required | the Zarr data type of [§3](#3-data-types) (`uint8` for a mode 0 file IMOD marks as unsigned) |
+| `data_type` | string | required | the Zarr data type of [§3](#3-data-types) (`uint8` for a mode 0 file IMOD's stamp marks as unsigned) |
 | `header` | [`MrcHeader`](#type-mrcheader) | required | every field of the header |
 | `axis_map` | [`MrcAxisMap`](#type-mrcaxismap) | required | whether the axis map named the axes ([§4.1](#41-the-array)) |
 | `voxel_size` | [`MrcVoxelSize`](#type-mrcvoxelsize) | optional | the voxel size in angstroms ([§4.2](#42-scales-units-and-position)), present when every axis has one |
@@ -456,7 +465,7 @@ reader that needs them must read them there.
   position.
 - **The statistics** `dmean` and `rms`, the labels, the format version
   `nversion`, and the extra space (IMOD's own fields among them, except the
-  unsigned-byte flag, [§3](#3-data-types)).
+  signed-byte flag, [§3](#3-data-types)).
 - **Half-complex transforms**. A mode 4 file is usually a Fourier transform
   of a real volume holding half the spectrum (`nx = N / 2 + 1`); the layout
   gives the data type, `complex64`, not the meaning.

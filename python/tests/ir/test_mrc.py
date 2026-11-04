@@ -63,9 +63,9 @@ IMOD = 1146047817
 
 def load(path):
     """mrcfile's reading (its warnings, such as a zero grid size, are not failures). mrcfile
-    does not read IMOD's unsigned-byte flag (spec/zarrify/mrc.md §3
+    does not read IMOD's signed-byte flag (spec/zarrify/mrc.md §3
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#3-data-types>): a mode 0
-    file with IMOD's stamp and bit 0 of its flags is its bytes as uint8."""
+    file with IMOD's stamp and bit 0 of its flags clear is its bytes as uint8."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         with mrcfile.open(path, permissive=False) as f:
@@ -74,7 +74,7 @@ def load(path):
     raw = path.read_bytes()
     order = "<" if header.mode.dtype.byteorder in "<=" else ">"
     stamp, flags = struct.unpack(order + "ii", raw[152:160])
-    if int(header.mode) == 0 and stamp == IMOD and flags & 1:
+    if int(header.mode) == 0 and stamp == IMOD and not flags & 1:
         data = data.view(np.uint8)
     return header, data
 
@@ -217,12 +217,14 @@ CASES = {
     # an image's origin is a phase origin in pixels: no translation
     "mrc_edge_origin_image_stack": ({"kind": "image_stack", "translation": False}, None, None, None, None, None, None),
     "mrc_edge_origin_image": ({"kind": "image", "translation": False}, None, None, None, None, None, None),
-    # IMOD's unsigned-byte flag: mode 0 as uint8, with the stamp and bit 0 of the flags alone
-    "mrc_imod_uint8": ({"mode": 0, "dataType": "uint8"}, None, None, None, {"data_type": "uint8"},
-                       {"min": 0, "max": 255, "start": 0, "end": 255}, ("0/c/0/0/0", [(1024, 24)])),
-    "mrc_imod_uint8_other_flags": ({"dataType": "uint8"}, None, None, None, None, None, None),
-    "mrc_imod_uint8_be": ({"dataType": "uint8", "byteOrder": "big"}, None, None, None, None, None, None),
-    "mrc_imod_int8": ({"dataType": "int8"}, None, None, None, None, None, None),
+    # IMOD's signed-byte flag: with the stamp, bit 0 of the flags set is int8 and clear is uint8
+    # (unsigned, IMOD's default before 4.9); without the stamp the flag changes nothing
+    "mrc_imod_signed_int8": ({"mode": 0, "dataType": "int8"}, None, None, None, {"data_type": "int8"},
+                             None, ("0/c/0/0/0", [(1024, 24)])),
+    "mrc_imod_signed_other_flags": ({"dataType": "int8"}, None, None, None, None, None, None),
+    "mrc_imod_unsigned_uint8": ({"dataType": "uint8"}, None, None, None, {"data_type": "uint8"},
+                                {"min": 0, "max": 255, "start": 0, "end": 255}, None),
+    "mrc_imod_signed_int8_be": ({"dataType": "int8", "byteOrder": "big"}, None, None, None, None, None, None),
     "mrc_imod_flag_no_stamp": ({"dataType": "int8"}, None, None, None, None, None, None),
     "mrc_edge_volume_stack_one": ({"kind": "volume_stack", "sizes": {"t": 1, "z": 3, "y": 2, "x": 3}},
                                   None, None, None, None, None, None),
