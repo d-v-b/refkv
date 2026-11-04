@@ -60,6 +60,15 @@ def main() -> None:
                      photometric="minisblack")
     tifffile.imwrite(OUT / "lzma_predictor_uint16_be.tif", image((64, 48), np.uint16), byteorder=">", rowsperstrip=16,
                      compression="lzma", predictor=True, photometric="minisblack")
+    # A short last strip of each, which cannot be padded: the `rectilinear` grid.
+    tifffile.imwrite(OUT / "lerc_float32_strips_short.tif", lerc_floats[:56], rowsperstrip=16, compression="lerc",
+                     photometric="minisblack")
+    tifffile.imwrite(OUT / "webp_rgb_strips_short.tif", webp_rgb[:56], rowsperstrip=16, compression="webp",
+                     photometric="rgb", planarconfig="contig", compressionargs={"lossless": True})
+    tifffile.imwrite(OUT / "jpegxl_uint16_strips_short.tif", wide[:56, :48], rowsperstrip=16, compression="jpegxl",
+                     photometric="minisblack", compressionargs={"lossless": True})
+    tifffile.imwrite(OUT / "lzma_uint16_strips_short.tif", wide[:56, :48], rowsperstrip=16, compression="lzma",
+                     photometric="minisblack")
     for name, data, compression in (
         ("edge_reject_webp_gray", small, 50001),
         ("edge_reject_webp_uint16", wide, 50001),
