@@ -11,6 +11,12 @@ below.
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `bbe3f6b9-488d-4d8d-85ce-60a1649dd27e` ·
 Schema: [schema.json](mp4/schema.json)
 
+Changed 2026-11-04: a fragmented file is zarrified, where it was rejected: a track's samples are its
+tables' and then its track fragments', in the file's order ([§3](#3-tracks-and-samples)), and the
+moof boxes are parsed ([§2](#2-boxes), [§5.3](#53-elements)). A track's `duration` runs to where its
+last sample ends when its fragments do ([§5.2](#52-the-tracks)). The moof boxes together are at most
+64 MiB, and a traf box needs a tfhd box and a track with a trex box ([§8.1](#81-boxes)).
+
 Changed 2026-11-03, with no change to any output: the elements table lists the structs `samples` and `samples/<T>`, as refkv already wrote them.
 
 Changed 2026-11-01, with no change to any output: the checks say that a zarrifier MUST reject
@@ -126,7 +132,9 @@ all, header included. A `size` of 1 is followed by a 64-bit `largesize`,
 the box's size, so the header is 16 bytes; a `size` of 0 makes the box run
 to the end of its parent (of the file, for a top-level box). The boxes
 whose payload is boxes, the **containers**, are `moov`, `trak`, `mdia`,
-`minf`, `stbl`, `edts`, `dinf` and `tref`. A full box's payload starts with
+`minf`, `stbl`, `edts`, `dinf`, `tref`, `mvex`, a top-level `moof` and a
+`traf` in one. Any other box in a `moof` box than `traf`, and any other in a
+`traf` box than `tfhd`, `tfdt` and `trun`, is opaque. A full box's payload starts with
 a byte of version and 3 bytes of flags. All numbers are big-endian.
 
 The convention reads these boxes. Types are those of
@@ -147,6 +155,10 @@ count, from the box's fields.
 | `stsz` | `{version:u1,flags:u1[3],sample_size:>u4,sample_count:>u4}` | `>u4[n]` when `sample_size` is 0, `n` the sample count |
 | `stco`, `co64`, `stss` | `{version:u1,flags:u1[3],entry_count:>u4}` | `>u4[n]`, `>u8[n]`, `>u4[n]` |
 | `stsd` | the same | the sample entries, boxes |
+| `trex` | `{version:u1,flags:u1[3],track_id:>u4,default_sample_description_index:>u4,default_sample_duration:>u4,default_sample_size:>u4,default_sample_flags:>u4}` | |
+| `tfhd` | `{version:u1,flags:u1[3],track_id:>u4}`, then, each when its flag is set in this order, `base_data_offset:>u8` (0x1), `sample_description_index:>u4` (0x2), `default_sample_duration:>u4` (0x8), `default_sample_size:>u4` (0x10) and `default_sample_flags:>u4` (0x20), in one record | |
+| `tfdt` | version 1: `{version:u1,flags:u1[3],base_media_decode_time:>u8}`; any other: the time `>u4` | |
+| `trun` | `{version:u1,flags:u1[3],sample_count:>u4}`, then, each when its flag is set, `data_offset:>i4` (0x1) and `first_sample_flags:>u4` (0x4), in one record | a record of those of `sample_duration:>u4` (0x100), `sample_size:>u4` (0x200), `sample_flags:>u4` (0x400) and `sample_composition_time_offset:>i4` (0x800) whose flags are set, in that order, `[sample_count]`; none when none is |
 
 A **sample entry** of a video track (its handler is `vide`) has the fields
 `{reserved:u1[6],data_reference_index:>u2,pre_defined:>u2,reserved2:>u2,pre_defined2:>u4[3],width:>u2,height:>u2,horizresolution:>u4,vertresolution:>u4,reserved3:>u4,frame_count:>u2,compressorname:bytes[32],depth:>u2,pre_defined3:>i2}`,
@@ -181,7 +193,34 @@ media timescale. The offset is signed in either version of the box, as
 QuickTime's are and as Apple's encoder writes them, negative ones in a
 version 0 box, where ISO/IEC 14496-12 §8.6.1.3 has version 0's unsigned.
 The **sync samples** are the samples `stss` names (its entries, less 1), or
-every sample when the track has no `stss` box.
+every sample of the tables when the track has no `stss` box.
+
+**Fragments.** In a fragmented file the samples go on in `moof` boxes, each
+holding `traf` boxes, a **track fragment** of the track whose ID its `tfhd`
+box names (ISO/IEC 14496-12 §8.8). A track's samples after those of its tables are its
+track fragments', in the file's order, each's in the order of its `trun`
+boxes and their tables. Of a sample of a track fragment:
+
+- Its **size**, **duration** and **flags** are, of the first that has one, its entry
+  in the `trun` box's table (for the flags of a run's first sample, the run's
+  `first_sample_flags` before that); the `tfhd` box's default; and the `trex` box's whose
+  `track_id` is the track's, the first of them. Its composition **offset** is its entry's, or 0, and signed
+  in either version of the box, as in `ctts`.
+- Its **offset** in the file: a track fragment's **base** is the `tfhd` box's `base_data_offset`
+  when it has one; else, when its flags have `default-base-is-moof` (0x020000),
+  the start of the `moof` box; else the start of the `moof` box for the first track fragment
+  of a `moof` box, and where the data of the track fragment before ended for
+  another. A run's data starts at the base plus its `data_offset`, or, without one, at the base for
+  the first run of a track fragment and where the run before ended for another. Its samples follow each
+  other from there. (ffmpeg's demuxer starts a run without a `data_offset` at the base, whichever run it is;
+  this document follows ISO/IEC 14496-12 §8.8.8.3.)
+- Its **decode time**: the first sample's is the `tfdt` box's `base_media_decode_time`
+  when the track fragment has one, and else follows the sample before, as every other
+  does: the decode time of the sample before plus its duration. Its **presentation time** is its decode
+  time plus its offset.
+- It is a **sync sample** unless its flags have `sample_is_non_sync_sample`
+  (0x00010000) set or `sample_depends_on` (bits 24 and 25) equal to 1, as ffmpeg's demuxer has
+  it: a writer may set the one and not the other.
 
 ## 4. The layout
 
@@ -336,7 +375,7 @@ are the same up to `frames` and at the end, `chunk_frames`.
 | `codec` | string | required | its sample entry's type |
 | `format` | string | required | `"h264"` or `"hevc"` |
 | `timescale` | integer | required | the media's timescale |
-| `duration` | [`Integer`](../conventions.md#type-integer) | required | the media's duration |
+| `duration` | [`Integer`](../conventions.md#type-integer) | required | the media's duration: its `mdhd` box's, or, when the decode time past its last fragment's sample is greater, that |
 | `edits` | array of [`Mp4Edit`](#type-mp4edit) | required | its `elst` box's entries |
 | `frames` | integer | required | its sample count `N` |
 | `width` | integer | required | `W` ([§4.1](#41-video-tracks)) |
@@ -356,7 +395,7 @@ are the same up to `frames` and at the end, `chunk_frames`.
 | `codec` | string | required | its sample entry's type |
 | `format` | string | required | `"aac"` or `"mp3"` |
 | `timescale` | integer | required | the media's timescale |
-| `duration` | [`Integer`](../conventions.md#type-integer) | required | the media's duration |
+| `duration` | [`Integer`](../conventions.md#type-integer) | required | the media's duration, as an [`Mp4VideoTrack`](#type-mp4videotrack)'s |
 | `edits` | array of [`Mp4Edit`](#type-mp4edit) | required | its `elst` box's entries |
 | `frames` | integer | required | its sample count `N` |
 | `sample_rate` | integer | required | its sample rate ([§8.2](#82-tracks)) |
@@ -490,12 +529,15 @@ tracks are zarrified.
 
 ### 8.1 Boxes
 
-The input is an MP4 or QuickTime file, which its **signature** ([spec/zarrify.md §1.2](../zarrify.md#12-input), tested at the precedence of
+The input is an MP4 or QuickTime file, fragmented or not, which its **signature** ([spec/zarrify.md §1.2](../zarrify.md#12-input), tested at the precedence of
 [profiles/mp4.json](profiles/mp4.json), before MRC's) chose: bytes 0–3 of `H` are a
 32-bit big-endian size of at least 8, or 1, and bytes 4–7 are `ftyp`, `moov`,
 `mdat`, `wide`, `free` or `skip`. A zarrifier reads the
-top-level boxes' headers, then the whole `moov` box (and the `ftyp` box); it
-never reads the media data.
+top-level boxes' headers, then the whole `moov` box and each whole `moof` box (and the `ftyp`
+box). It does not read the media data, though a read for a box's header may run into it (from the
+first read and, once the file has shown a `moof` box, 4 KiB from each box whose header is not yet
+read, which holds most `moof` boxes and the `mdat` header after them, so that a fragment takes one
+read).
 
 **Checks.** A zarrifier MUST reject the input unless all of these hold. They are checked
 as the boxes are met, the top-level boxes first, in the file's order, then
@@ -514,14 +556,17 @@ that fails.
   bytes, too few for its 8 bytes of fields`. The first `ftyp` box of at
   most 4096 bytes is read, for its fields, its brands and `brand`
   ([§5.1](#51-the-root)); any other is opaque.
-- **Not fragmented:** the file has no `moof` box at its top level and no
-  `mvex` box in its `moov` box.
+- **Fragments' size:** the file's `moof` boxes together are at most 64 MiB.
 - **One movie:** the file has exactly one `moov` box, of at most 64 MiB.
 - **Tables:** in every `stsd`, `stsz`, `elst`, `stts`, `ctts`, `stsc`,
-  `stco`, `co64` and `stss` box, the fields fit in the payload, and the
-  table's `n` entries in the bytes after them. (An `mvhd`, `tkhd`, `mdhd` or
+  `stco`, `co64`, `stss`, `trex`, `tfhd`, `tfdt` and `trun` box, the fields fit in the payload, and
+  the table's `n` entries in the bytes after them. (An `mvhd`, `tkhd`, `mdhd` or
   `hdlr` box too short for its fields is opaque instead.)
-- **Samples:** for every track with an `stsz` box: at most 2^24 samples; its
+- **Track fragments:** in the file's order, every `traf` box has a `tfhd` box, whose
+  track ID is a track's of the `moov` box with a `trex` box; and every `trun` box's data starts
+  within the file (from its start to its end).
+- **Samples:** for every track: at most 2^24 samples, with its track fragments'; and for one
+  with an `stsz` box: its
   `stts` box, its `ctts` box (when it has one) and its sample-to-chunk
   layout count as many samples as its `stsz` box; its `stsc` table is not
   empty (when it has samples), starts at chunk 1, its `first_chunk`s
@@ -544,7 +589,8 @@ and the track is kept in the mirror but has no group:
 - its handler is neither `vide` nor `soun` (`a text track`);
 - its sample sizes are in an `stz2` box;
 - it has no samples;
-- its `stsd` box has more than one sample entry, or an `stsc` entry names
+- its `stsd` box has more than one sample entry, or an `stsc` entry or a track fragment
+  (its `tfhd` box's `sample_description_index`, or by default its `trex` box's) names
   another;
 - its media timescale is 0;
 - **video:** its sample entry is none of `avc1`, `hvc1` and `hev1`; or, for
