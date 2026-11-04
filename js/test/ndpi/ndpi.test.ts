@@ -49,6 +49,19 @@ test("the values of an IFD that is not a level are not checked", async () => {
   assert.deepEqual((out.summary as { levels: number[][] }).levels, [[3, 48, 64]]);
 });
 
+test("an NDPI's focal planes are a z axis, what is left out listed with its reason", async () => {
+  // spec/zarrify/ndpi.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#3-levels>
+  const out = await zarrifyFixture("ndpi_focal_planes.ndpi");
+  assert.deepEqual((out.summary as { axes: string[] }).axes, ["c", "z", "y", "x"]);
+  assert.deepEqual((out.summary as { levels: number[][] }).levels, [[3, 3, 1040, 1152], [3, 3, 192, 256]]);
+  const root = json(out, "zarr.json").attributes;
+  assert.deepEqual(root.refkv_zarrified.ndpi, {
+    FocalOffsets: [-2000, 0, 2000],
+    LeftOut: [{ ifd: 2, magnification: 1.25, width: 64, height: 48, reason: "offsets", offset: 0 }],
+  });
+  assert.ok(out.entries.some((e) => e.key === "0/c/0/2/1/1"));
+});
+
 function json(out: Awaited<ReturnType<typeof zarrifyFixture>>, key: string) {
   const e = out.entries.find((x) => x.key === key);
   assert.ok(e && "bytes" in e, key);

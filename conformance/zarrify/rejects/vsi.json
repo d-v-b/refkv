@@ -152,9 +152,14 @@
       "message": "_vsi_reject_ets_samples_/stack10002/frame_t.ets: 2 samples per pixel"
     },
     {
-      "test": "reject_ets_compression_png",
-      "input": "vsi_reject_ets_compression_png.vsi",
-      "message": "_vsi_reject_ets_compression_png_/stack10002/frame_t.ets: unsupported ETS compression 8 (PNG)"
+      "test": "reject_ets_png_pixel_type",
+      "input": "vsi_reject_ets_png_pixel_type.vsi",
+      "message": "_vsi_reject_ets_png_pixel_type_/stack10002/frame_t.ets: PNG tiles of the pixel type 9, which is not uint8 or uint16"
+    },
+    {
+      "test": "reject_ets_bmp_pixel_type",
+      "input": "vsi_reject_ets_bmp_pixel_type.vsi",
+      "message": "_vsi_reject_ets_bmp_pixel_type_/stack10002/frame_t.ets: BMP tiles of the pixel type 4, which is not uint8"
     },
     {
       "test": "reject_ets_compression_unknown",
@@ -210,46 +215,6 @@
       "test": "reject_tile_raw_size",
       "input": "vsi_reject_tile_raw_size.vsi",
       "message": "_vsi_reject_tile_raw_size_/stack10002/frame_t.ets: raw tile 2 has 63 bytes, not 64"
-    },
-    {
-      "test": "reject_ifd_image_size",
-      "input": "vsi_reject_ifd_image_size.vsi",
-      "message": "IFD 0 (macro image) is 0 × 8"
-    },
-    {
-      "test": "reject_ifd_image_compression",
-      "input": "vsi_reject_ifd_image_compression.vsi",
-      "message": "IFD 0 (macro image) has compression 5"
-    },
-    {
-      "test": "reject_ifd_image_samples",
-      "input": "vsi_reject_ifd_image_samples.vsi",
-      "message": "IFD 0 (macro image) has 2 samples per pixel"
-    },
-    {
-      "test": "reject_ifd_image_bits",
-      "input": "vsi_reject_ifd_image_bits.vsi",
-      "message": "IFD 0 (macro image) has 16 bits per sample"
-    },
-    {
-      "test": "reject_ifd_image_planar",
-      "input": "vsi_reject_ifd_image_planar.vsi",
-      "message": "IFD 0 (macro image) has PlanarConfiguration 2"
-    },
-    {
-      "test": "reject_ifd_image_format",
-      "input": "vsi_reject_ifd_image_format.vsi",
-      "message": "IFD 0 (macro image) has SampleFormat 3"
-    },
-    {
-      "test": "reject_ifd_image_strips",
-      "input": "vsi_reject_ifd_image_strips.vsi",
-      "message": "IFD 0 (macro image) has 2 strips"
-    },
-    {
-      "test": "reject_ifd_strip_outside",
-      "input": "vsi_reject_ifd_strip_outside.vsi",
-      "message": "IFD 0 (macro image): a strip"
     }
   ]
 }

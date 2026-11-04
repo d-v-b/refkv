@@ -43,7 +43,7 @@ counts the requests and the bytes of the ranges it answers. Each reader then fin
   from its IFDs, then `write_fsspec` per level (kerchunk's path);
 - **nd2** 0.12.0: `ND2File`, every frame's offset;
 - **czifile** 2026.8.16: `CziFile`, every subblock's data offset and size;
-- **h5py** 3.16.0 (IMS): `h5py.File`, `get_chunk_info` of every chunk.
+- **h5py** 3.16.0 (IMS): `h5py.File`, `chunk_iter` over every chunked dataset.
 
 The packages read a file object, and how that object fetches bytes decides their I/O, so each
 package ran through seven: fsspec 2026.9.0's HTTP file with no cache, read-ahead, or an LRU
@@ -164,7 +164,7 @@ either way.)
 | NIfTI | nibabel | yes: `vox_offset` | MIT | 8.6 MB, pure Python | not measured |
 | MRC | mrcfile | yes: header and extended header size | BSD-3-Clause | 0.1 MB, pure Python | not measured |
 | FITS | astropy | uncompressed HDUs: data offsets; tile-compressed: astropy decompresses, the heap descriptors are not exposed | BSD-3-Clause | 24 MB native, plus pyerfa, PyYAML | partial |
-| IMS (HDF5) | h5py | yes: `get_chunk_info` | BSD-3-Clause | 10.5 MB native (libhdf5) | read all 18 rejected fixtures: valid HDF5 whose Imaris layout the profile rejects, so the Imaris layer would remain refkv's |
+| IMS (HDF5) | h5py | yes: `chunk_iter` | BSD-3-Clause | 10.5 MB native (libhdf5) | read all 18 rejected fixtures: valid HDF5 whose Imaris layout the profile rejects, so the Imaris layer would remain refkv's |
 | NRRD | pynrrd | yes: the header's data offset or detached file | MIT | 0.1 MB, pure Python | not measured |
 | VSI | Bio-Formats (bioio-bioformats) | no: a JVM reader that decodes tiles | GPL-2.0 (Bio-Formats) | a JVM | no |
 | MP3, FLAC, MP4 | PyAV (ffmpeg) | demuxed packets' positions, by reading the stream | BSD-3-Clause (PyAV), LGPL/GPL (ffmpeg) | 46 MB native | no |

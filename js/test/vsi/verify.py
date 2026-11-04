@@ -32,7 +32,7 @@ sys.path.insert(0, str(ROOT / "conformance" / "vzip"))
 
 import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store)
 from refkv import _core  # noqa: E402
-from refkv._narrow import at, ndarray  # noqa: E402
+from refkv._narrow import at, mapping, ndarray  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # js/test, for verify_common
 from verify_common import LOOPBACK_SOURCES, run, serve  # noqa: E402
@@ -74,7 +74,8 @@ def problems_of(path: Path, out: Path, summary: dict, Reader) -> list[str]:
             problems.append(f"{im['name']}: {got.shape} {got.dtype} != expected {want.shape} {want.dtype}")
         elif not np.array_equal(got, want):
             problems.append(f"{im['name']}: values differ from the generator's")
-    if Reader is not None:
+    # a slide that leaves an IFD image out has fewer images than Bio-Formats, which reads what it can
+    if Reader is not None and "not_presented" not in mapping(at(root.attrs, "refkv_zarrified", "vsi")):
         try:
             r = Reader(str(path))
         except Exception:  # noqa: BLE001 - a slide Bio-Formats does not open (odd metadata): known pixels only

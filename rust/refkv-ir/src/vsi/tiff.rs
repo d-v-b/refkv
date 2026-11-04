@@ -7,6 +7,7 @@
 
 use crate::fed::Word;
 use crate::ir::{GAP, Ir, NO_INDEX, Res};
+use crate::out::Part;
 use crate::rules::{self, Rules, num};
 use crate::tiff::{jpeg_frame, tile_forms, type_size};
 use serde_json::json;
@@ -173,8 +174,23 @@ fn jpeg_prefix(ifd: &Ifd, b: &[u8], samples: u64, photometric: u64) -> Vec<u8> {
     p
 }
 
+/// The ranges of an uncompressed image's chunk (spec/zarrify/vsi.md §9.4
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#94-chunks>): its strips
+/// (offset, length) in order, one range of the object `key` per run of contiguous strips.
+pub fn runs(key: &str, strips: impl IntoIterator<Item = (u64, u64)>) -> Vec<Part> {
+    let mut parts: Vec<Part> = Vec::new();
+    for (o, n) in strips {
+        match parts.last_mut() {
+            Some(Part::Obj(_, po, pn)) if *po + *pn == o => *pn += n,
+            _ => parts.push(Part::Obj(key.to_string(), o, n)),
+        }
+    }
+    parts
+}
+
 /// IFD `index` of the chain as an image the layout projects, checked (`ifd_image`): `what` names
-/// it in a rejection.
+/// it in the error, which is the reason the image is not presented (§4.4
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#44-ifd-images-that-are-not-presented>).
 pub fn image(rules: &Rules, b: &[u8], ifd: &Ifd, what: &str) -> Res<Image> {
     let g = |t: u16| ifd.int(b, t);
     let (width, height) = (g(256).unwrap_or(0), g(257).unwrap_or(0));
