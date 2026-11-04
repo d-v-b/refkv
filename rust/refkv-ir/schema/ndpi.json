@@ -113,7 +113,7 @@
       "constraints": [{"require": "levels >= 1", "message": "no NDPI levels"}]
     },
     "level": {
-      "about": "a main-chain IFD whose Magnification is positive (spec/zarrify/ndpi.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#3-levels>)",
+      "about": "a main-chain IFD whose Magnification is positive, an image (spec/zarrify/ndpi.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#3-levels>)",
       "given": {
         "compression": "(default 1)",
         "first_compression": "the first level's (its own for the first)",
@@ -122,8 +122,7 @@
         "bits": "BitsPerSample's values (empty when absent)",
         "one_strip": "StripOffsets and StripByteCounts have one value each",
         "tiled": "TileWidth and TileLength are at least 1, and TileOffsets and TileByteCounts are present",
-        "smaller": "strictly smaller than the level before in both sizes (true for the first)",
-        "new_magnification": "no earlier level has its Magnification",
+        "smaller": "the first image of a Magnification: strictly smaller than the first image of the Magnification before, in both sizes; true for the first image, and for another image of a Magnification",
         "width": "",
         "height": ""
       },
@@ -137,7 +136,6 @@
         {"require": "compression != 7 || one_strip", "message": "an NDPI level does not have exactly one strip"},
         {"require": "compression != 22610 || tiled || one_strip", "message": "an NDPI JPEG XR level has neither tiles nor exactly one strip"},
         {"require": "smaller", "message": "NDPI levels do not decrease in size"},
-        {"require": "new_magnification", "message": "NDPI focal planes (two levels with one magnification) are not supported"},
         {"require": "width >= 1 && height >= 1", "message": "an NDPI level is empty"}
       ]
     },
@@ -265,5 +263,5 @@
       "constraints": [{"require": "finite(x) && finite(y)", "message": "a translation is not finite"}]
     }
   },
-  "about_builtins": "What the parser's code computes and the roles above check: the JPEG XR first stream's container header (its PixelFormat GUID, ImageWidth and ImageHeight) and the tiles' extents with their high bytes; detection (spec/zarrify/ndpi.md §7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>: a little-endian magic-42 TIFF whose IFD at the u64 at bytes 4-11 has tag 65420 among its entries; it never rejects); the main chain in NDPI's IFD layout (each next offset, a u64, until 0); each value with its high word; the levels (main-chain IFDs whose Magnification is positive, every IFD's Magnification read); the strip's JPEG header (its marker segments, SOF0's sampling factors, DRI's restart interval); the intervals and the chunk size a × b (b the largest within the payload limit)."
+  "about_builtins": "What the parser's code computes and the roles above check: the JPEG XR first stream's container header (its PixelFormat GUID, ImageWidth and ImageHeight) and the tiles' extents with their high bytes; detection (spec/zarrify/ndpi.md §7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>: a little-endian magic-42 TIFF whose IFD at the u64 at bytes 4-11 has tag 65420 among its entries; it never rejects); the main chain in NDPI's IFD layout (each next offset, a u64, until 0); each value with its high word; the images (main-chain IFDs whose Magnification is positive, every IFD's Magnification read), and the levels they make, with their focal planes and what is left out (spec/zarrify/ndpi.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#3-levels>); the strip's JPEG header (its marker segments, SOF0's sampling factors, DRI's restart interval); the intervals and the chunk size a × b (b the largest within the payload limit)."
 }

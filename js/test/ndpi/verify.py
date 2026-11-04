@@ -43,7 +43,9 @@ def jpegxr_problems(path: Path, out: Path) -> list[str]:
     problems = []
     root = zarr.open_group(refkv.zarr.open(str(out), policy=tiff_verify.LOOPBACK_SOURCES), mode="r", zarr_format=3)
     with tifffile.TiffFile(path) as tf, path.open("rb") as f:
-        levels = [p for p in map(tiff_verify.tiff_page, tf.pages) if p.tags[65421].value > 0]
+        images = [p for p in map(tiff_verify.tiff_page, tf.pages) if p.tags[65421].value > 0]
+        # one level per magnification: each plane of a level has the first image's streams
+        levels = list({p.tags[65421].value: p for p in reversed(images)}.values())[::-1]
         for li, page in enumerate(levels):
             j = next(i for i, n in enumerate(page.databytecounts) if n > 0)
             f.seek(page.dataoffsets[j])
@@ -52,11 +54,12 @@ def jpegxr_problems(path: Path, out: Path) -> list[str]:
             a = root.get_array(str(li))
             if (a.dtype, a.shape[0]) != (stream.dtype, samples):
                 problems.append(f"level {li}: {a.dtype} × {a.shape[0]}, its streams {stream.dtype} × {samples}")
-            if a.chunks[1:] != stream.shape[:2]:
+            if a.chunks[-2:] != stream.shape[:2]:
                 problems.append(f"level {li}: chunks {a.chunks}, its first stream {stream.shape}")
         tags = levels[0].tags
         want = {name: tags[code].value for code, name in ACQUISITION.items() if code in tags}
-        got = dict(mapping(mapping(root.attrs["refkv_zarrified"]).get("ndpi", {})))
+        own = mapping(mapping(root.attrs["refkv_zarrified"]).get("ndpi", {}))
+        got = {name: own[name] for name in ACQUISITION.values() if name in own}
         if got != want:
             problems.append(f"source metadata {got}, the tags {want}")
         channels = sequence(at(root.attrs, "ome", "omero", "channels"))
