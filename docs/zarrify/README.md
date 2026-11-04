@@ -277,8 +277,7 @@ Two limits apply:
   display. Of a hierarchy that is not an OME-Zarr image (an HDF5 file, a
   Zarr v2 or N5 store without one), the page shows the arrays Neuroglancer
   can: two or more axes, a data type it has (not `float64` or `int64`) and
-  codecs the fork decodes (not `numcodecs.zlib`, an HDF5 file's deflated
-  datasets); an HDF5 file's images first. A local build of the demo (`just
+  codecs the fork decodes; an HDF5 file's images first. A local build of the demo (`just
   js::build && node demo/serve.mjs 8080`; the build compiles the Rust core
   to WebAssembly first, `dist/refkv_ir.wasm`, so it needs a Rust toolchain
   with the `wasm32` target) shows a change before it is deployed.
