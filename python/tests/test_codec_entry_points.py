@@ -32,8 +32,9 @@ FIXTURES = Path(__file__).resolve().parents[2] / "fixtures"
 
 # For every codec an archive of refkv's names, a fixture whose zarrified array (at the path given)
 # names it: refkv's own (its entry points), zarr-python's `numcodecs.zlib` and imagecodecs-zarr's
-# image codecs, its LZMA and `imagecodecs_delta`. The LZW fixture's final code is one bit too narrow, which
-# imagecodecs-zarr's `imagecodecs_lzw` would decode to too many bytes: it reads only through `refkv.tiff_lzw`.
+# image codecs, its LZMA, `imagecodecs_delta` and `imagecodecs_floatpred`. The LZW fixture's final code is one
+# bit too narrow, which imagecodecs-zarr's `imagecodecs_lzw` would decode to too many bytes: it reads only through
+# `refkv.tiff_lzw`.
 EVERY_CODEC = {
     "refkv.tiff_lzw": ("qptiff/qptiff_fl_lzw_narrow_eoi.qptiff", "0"),
     "refkv.stream": ("mp3/mp3_single_frame.mp3", "samples"),
@@ -54,6 +55,7 @@ EVERY_CODEC = {
     "imagecodecs_png": ("vsi/vsi_png.vsi", "0/0"),
     "imagecodecs_bmp": ("vsi/vsi_bmp.vsi", "0/0"),
     "imagecodecs_delta": ("tiff/predictor_lzw_uint16.tif", "0"),
+    "imagecodecs_floatpred": ("tiff/predictor3_deflate_float32.tif", "0"),
     "imagecodecs_lerc": ("tiff/lerc_uint16.tif", "0"),
     "imagecodecs_webp": ("tiff/webp_rgb.tif", "0"),
     "imagecodecs_jpegxl": ("tiff/jpegxl_uint16.tif", "0"),
