@@ -43,6 +43,11 @@ fn accepted_fixtures_are_valid_irs_that_rebuild() {
             let file = path.file_name().unwrap().to_string_lossy().into_owned();
             let rejected = file.contains("reject") || file.starts_with("unsupported");
             let data = std::fs::read(&path).unwrap();
+            // a LAS X document, read as a store run, or a file of a project the profile rejects:
+            // tests/lif.rs drives them with their files
+            if refkv_ir::xlef::detect(&data[..data.len().min(552)]) || path.to_string_lossy().contains("_edge_reject_") {
+                continue;
+            }
             match run_bytes(f, &data) {
                 Ok((ir, _, _)) => {
                     assert!(!rejected, "{path:?} was accepted");

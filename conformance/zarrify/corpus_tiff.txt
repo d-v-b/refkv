@@ -16,3 +16,6 @@ https://openslide.cs.cmu.edu/download/openslide-testdata/Hamamatsu/Hamamatsu-2.n
 # The frozen reference has no JPEG XR levels (no-ref).
 https://downloads.openmicroscopy.org/images/Hamamatsu-NDPI/hamamatsu/DM0014%20-%202020-04-02%2010.25.21.ndpi|ndpi-DM0014-10.25.21-fluorescence|no-ref|ends-sha256=21205ab87de094b738152668145e35021d0b10ee8ac55658ade2ac60d7b76f84
 https://downloads.openmicroscopy.org/images/Hamamatsu-NDPI/hamamatsu/DM0014%20-%202020-04-02%2011.10.47.ndpi|ndpi-DM0014-11.10.47|no-ref|ends-sha256=15ce1e08e01fa9525845255c8da85baa06685a0b9147ed543677970e7d7e62ea
+# A Hamamatsu NDPI slide with 3 focal planes of 7 levels, from OME's sample images ((c) Mike Wicks,
+# CC BY 4.0, as the readme.txt beside it says; 5.8 GB). The frozen reference rejects focal planes (no-ref).
+https://downloads.openmicroscopy.org/images/Hamamatsu-NDPI/imagesc-86248/SR1274-908A.ndpi|ndpi-SR1274-908A-focal-planes|no-ref|ends-sha256=1ff03c40fb982e1018c67e860ada732dac4a563af7652c25ebc92add41650b15
