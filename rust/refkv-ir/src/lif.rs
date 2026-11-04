@@ -1,13 +1,14 @@
-//! A sans-IO parser of Leica LIF files into the IR (spec/zarrify/lif.md §7
+//! A sans-IO parser of Leica LIF, LOF and LIFEXT files into the IR (spec/zarrify/lif.md §7
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#7-lif-profile>, and the source
 //! model of §5.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#54-elements>).
 //!
 //! Rounds: (1) the file's first 64 KiB, the header block and usually its whole XML; (2) the rest
 //! of the XML, when it is longer; (3) the walk over the memory blocks, a batch of block headers
 //! at a time, at the offsets the XML's `Memory` elements predict, so that blocks written in the
-//! document's order take one round. The XML is read into a tree of its tags; the images, their
-//! checks (`schema/lif.json`) and their layout are derived after the walk, and the IR is
-//! emitted then. No byte of a block's data is read.
+//! document's order take one round. A LOF, whose one memory block comes first and whose XML comes
+//! after it, reads the XML block at the end of the data instead of a walk. The XML is read into a
+//! tree of its tags; the images, their checks (`schema/lif.json`) and their layout are derived
+//! after the walk, and the IR is emitted then. No byte of a block's data is read.
 
 use crate::fed::{Fed, Word};
 use crate::ir::*;
@@ -27,12 +28,22 @@ const BLOCK_TYPES: [&str; 2] = [
     "{test:<u4,length:<u4,magic:u1,size:<u4,magic2:u1,characters:<u4}",
     "{test:<u4,length:<u4,magic:u1,size:<u8,magic2:u1,characters:<u4}",
 ];
+/// A LOF's version fields and its memory block's fixed part (spec/zarrify/lif.md §2.5
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#25-leica-object-files>).
+const OBJECT_VERSIONS: u64 = 10;
+const OBJECT_VERSIONS_TYPE: &str = "{magic:u1,version:<u4,magic2:u1,version2:<u4}";
+const OBJECT_BLOCK: u64 = 9;
+const OBJECT_BLOCK_TYPE: &str = "{magic:u1,size:<u8}";
+/// The header block's XML text in a LOF.
+const OBJECT_FILE: &str = "LMS_Object_File";
 /// The test value and the magic byte (spec/zarrify/lif.md §2.1
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#21-blocks>).
 pub const TEST: u32 = 0x70;
 pub const MAGIC: u8 = 0x2A;
 /// The first read: the header block and, usually, its XML.
 const FIRST: u64 = 1 << 16;
+/// What a LOF's second read asks for, from the end of the block's data: its XML, usually whole.
+const OBJECT_XML: u64 = 1 << 20;
 /// The block headers a walk round asks for, and the ID bytes it reads with a header it guesses.
 const PREDICT: usize = 4096;
 const ID_GUESS: u64 = 256;
@@ -67,7 +78,7 @@ struct Node<'a> {
 /// §2.7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#27-the-metadata-xml>): a
 /// start tag that is not self-closing opens an element, an end tag closes the innermost open
 /// element of its name and every element opened after it, and one that matches none is ignored.
-struct Tree<'a> {
+pub struct Tree<'a> {
     x: &'a str,
     nodes: Vec<Node<'a>>,
     /// the first element at depth 0, and the end of its subtree (the next element at depth 0)
@@ -75,7 +86,7 @@ struct Tree<'a> {
 }
 
 impl<'a> Tree<'a> {
-    fn build(x: &'a str) -> Tree<'a> {
+    pub fn build(x: &'a str) -> Tree<'a> {
         let mut nodes: Vec<Node<'a>> = Vec::new();
         let mut open: Vec<u32> = Vec::new();
         let mut counts: HashMap<&'a str, u32> = HashMap::new();
@@ -122,17 +133,22 @@ impl<'a> Tree<'a> {
         Tree { x, nodes, root: root.map(|(r, e)| (r, e.min(n))) }
     }
 
-    fn name(&self, n: u32) -> &'a str {
+    /// The root: the first element at depth 0.
+    pub fn root(&self) -> Option<u32> {
+        self.root.map(|r| r.0)
+    }
+
+    pub fn name(&self, n: u32) -> &'a str {
         self.nodes[n as usize].tag.name
     }
 
     /// The first attribute `name`, references decoded.
-    fn attr(&self, n: u32, name: &str) -> Option<String> {
+    pub fn attr(&self, n: u32, name: &str) -> Option<String> {
         self.nodes[n as usize].tag.attr(self.x, name).map(|a| a.0)
     }
 
     /// Every attribute, references decoded, in order; of a repeated name the first.
-    fn attrs(&self, n: u32) -> Map<String, J> {
+    pub fn attrs(&self, n: u32) -> Map<String, J> {
         let mut out = Map::new();
         for (k, v, _) in self.nodes[n as usize].tag.attrs(self.x) {
             if !out.contains_key(&k) {
@@ -142,7 +158,7 @@ impl<'a> Tree<'a> {
         out
     }
 
-    fn children(&self, n: u32) -> impl Iterator<Item = u32> + '_ {
+    pub fn children(&self, n: u32) -> impl Iterator<Item = u32> + '_ {
         let mut c = self.nodes[n as usize].first;
         std::iter::from_fn(move || {
             (c != NONE).then(|| {
@@ -153,23 +169,23 @@ impl<'a> Tree<'a> {
         })
     }
 
-    fn named(&self, n: u32, name: &'a str) -> impl Iterator<Item = u32> + '_ {
+    pub fn named(&self, n: u32, name: &'a str) -> impl Iterator<Item = u32> + '_ {
         self.children(n).filter(move |&c| self.name(c) == name)
     }
 
-    fn child(&self, n: u32, name: &'a str) -> Option<u32> {
+    pub fn child(&self, n: u32, name: &'a str) -> Option<u32> {
         self.named(n, name).next()
     }
 
     /// The first child along each step of `path`.
-    fn at(&self, n: u32, path: &[&'a str]) -> Option<u32> {
+    pub fn at(&self, n: u32, path: &[&'a str]) -> Option<u32> {
         path.iter().try_fold(n, |m, step| self.child(m, step))
     }
 }
 
 /// An attribute's integer: its text, whitespace trimmed, is one or more digits of a value at most
 /// 2^53 - 1.
-fn integer(v: Option<&str>) -> Option<u64> {
+pub fn integer(v: Option<&str>) -> Option<u64> {
     let t = v?.trim_matches([' ', '\t', '\r', '\n']);
     if t.is_empty() || !t.bytes().all(|c| c.is_ascii_digit()) || t.trim_start_matches('0').len() > 16 {
         return None;
@@ -183,7 +199,7 @@ fn decimal(v: Option<&str>) -> Option<f64> {
 }
 
 /// An integer attribute as a role's given: its value, its text when not an integer, else absent.
-fn given(v: &Option<String>) -> crate::expr::V {
+pub fn given(v: &Option<String>) -> crate::expr::V {
     match (v, integer(v.as_deref())) {
         (_, Some(x)) => num(x as f64),
         (Some(t), None) => text(t),
@@ -281,7 +297,45 @@ enum Phase {
     Head,
     Xml,
     Walk,
+    /// a LOF's version fields and memory block's fixed part
+    Object,
+    /// a LOF's XML block's fixed part
+    ObjectHead,
+    /// a LOF's XML
+    ObjectXml,
     Done,
+}
+
+/// Which file of the family this is (spec/zarrify/lif.md §2.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#22-the-xml-header>).
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum File {
+    Lif,
+    Lof,
+    Lifext,
+}
+
+impl File {
+    /// The root's member `file`, when it is not a LIF file.
+    fn name(self) -> Option<&'static str> {
+        match self {
+            File::Lif => None,
+            File::Lof => Some("lof"),
+            File::Lifext => Some("lifext"),
+        }
+    }
+}
+
+/// A LOF's parts that a LIF file does not have (spec/zarrify/lif.md §2.5
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#25-leica-object-files>): its
+/// version fields, and its XML block, at `at`.
+#[derive(Default)]
+struct Object {
+    versions: Vec<u8>,
+    at: u64,
+    head: Vec<u8>,
+    chars: u64,
+    xml: Vec<u8>,
 }
 
 pub struct Lif {
@@ -297,7 +351,13 @@ pub struct Lif {
     /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#87-the-view>)
     xml: Vec<u8>,
     images: Vec<Image>,
-    /// 1 or 2: the width of a block's data size
+    file: File,
+    object: Object,
+    /// of a LOF of a set, where its image starts in the block's data (`Lif::in_set`)
+    offset: u64,
+    /// the `UniqueID` of the first `Element` of its XML
+    unique: Option<String>,
+    /// the root's Version: of a LIF file, the width of a block's data size
     version: u64,
     predicted: Vec<Predicted>,
     next_predicted: usize,
@@ -320,6 +380,10 @@ impl Lif {
             head: Vec::new(),
             xml: Vec::new(),
             images: Vec::new(),
+            file: File::Lif,
+            object: Object::default(),
+            offset: 0,
+            unique: None,
             version: 2,
             predicted: Vec::new(),
             next_predicted: 0,
@@ -329,6 +393,18 @@ impl Lif {
             facts: J::Null,
             asked: sans::Asked::default(),
         }
+    }
+
+    /// A parser of a LOF that a document names, whose `Block` has the `Offset` `offset`
+    /// (spec/zarrify/lif.md §8.4
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#84-the-images>).
+    pub fn in_set(size: u64, offset: u64) -> Self {
+        Lif { offset, ..Lif::new(size) }
+    }
+
+    /// Whether the file is a LOF, once its XML is read.
+    pub fn is_lof(&self) -> bool {
+        self.file == File::Lof
     }
 
     pub fn feed(&mut self, offset: u64, data: Vec<u8>) {
@@ -343,6 +419,10 @@ impl Lif {
                     return Ok(self.asked.ask(vec![(0, self.size.min(FIRST))]));
                 }
                 Phase::Head => {
+                    // a LAS X document: its input is a store run's (`crate::xlef`)
+                    if self.fed.get(0, self.size.min(552)).is_some_and(crate::xlef::detect) {
+                        return Ok(Step::Beside);
+                    }
                     self.header()?;
                     self.phase = Phase::Xml;
                     let end = HEAD + 2 * self.chars;
@@ -352,9 +432,36 @@ impl Lif {
                 }
                 Phase::Xml => {
                     self.read_xml()?;
+                    if self.file == File::Lof {
+                        self.phase = Phase::Object;
+                        continue;
+                    }
                     self.fed.clear();
                     self.at = HEAD + 2 * self.chars;
                     self.phase = Phase::Walk;
+                }
+                Phase::Object => {
+                    self.object_parts()?;
+                    self.phase = Phase::ObjectHead;
+                    let at = self.object.at;
+                    if !self.fed.has(at, HEAD) {
+                        return Ok(self.asked.ask(vec![(at, (self.size - at).min(OBJECT_XML))]));
+                    }
+                }
+                Phase::ObjectHead => {
+                    self.object_head()?;
+                    self.phase = Phase::ObjectXml;
+                    let (at, n) = (self.object.at + HEAD, 2 * self.object.chars);
+                    if !self.fed.has(at, n) {
+                        return Ok(self.asked.ask(vec![(at, n)]));
+                    }
+                }
+                Phase::ObjectXml => {
+                    self.object_xml()?;
+                    self.fed.clear();
+                    self.layout()?;
+                    self.phase = Phase::Done;
+                    return Ok(Step::Done);
                 }
                 Phase::Walk => {
                     if let Some(ask) = self.walk() {
@@ -402,21 +509,104 @@ impl Lif {
             self.xml = xml.to_vec();
         }
         let x = String::from_utf16(&units).ok();
-        let lof = x.as_deref() == Some("LMS_Object_File");
-        let tree = x.as_deref().map(Tree::build);
+        if x.as_deref() == Some(OBJECT_FILE) {
+            self.file = File::Lof;
+            return Ok(());
+        }
+        self.document(x.as_deref())
+    }
+
+    /// A LOF's parts after its header block (spec/zarrify/lif.md §2.5
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#25-leica-object-files>): its
+    /// version fields, its memory block's fixed part and where its XML block is. The memory block
+    /// is the file's one, whatever its XML says of it.
+    fn object_parts(&mut self) -> Res<()> {
+        let start = HEAD + 2 * self.chars;
+        let (versions, block) = (start + OBJECT_VERSIONS, start + OBJECT_VERSIONS + OBJECT_BLOCK);
+        let h = self.fed.get(start, OBJECT_VERSIONS + OBJECT_BLOCK).map(|h| h.to_vec());
+        let byte = |at: usize| h.as_ref().map_or(0, |h| h[at]);
+        let data_size = h.as_ref().map_or(0, |h| u64::le_at(h, OBJECT_VERSIONS as usize + 1));
+        let end = block as u128 + data_size as u128 + HEAD as u128;
+        self.rules.check(
+            "object",
+            rules::env([
+                ("parts", num(block as f64)),
+                ("size", num(self.size as f64)),
+                ("magic", num(byte(0))),
+                ("magic2", num(byte(5))),
+                ("magic3", num(byte(OBJECT_VERSIONS as usize))),
+                ("data", num(data_size as f64)),
+                ("xml_at", num(end as f64)),
+            ]),
+        )?;
+        let h = h.ok_or("internal: no object parts")?;
+        self.object.versions = h[..OBJECT_VERSIONS as usize].to_vec();
+        self.blocks.push(Block { start: versions, fields: h[OBJECT_VERSIONS as usize..].to_vec(), id: Vec::new(), size: data_size, image: None });
+        self.object.at = block + data_size;
+        Ok(())
+    }
+
+    /// A LOF's XML block's fixed part.
+    fn object_head(&mut self) -> Res<()> {
+        let h = self.fed.get(self.object.at, HEAD).ok_or("internal: no XML block")?.to_vec();
+        let chars = u32::le_at(&h, 9) as u64;
+        self.rules.check(
+            "object_xml",
+            rules::env([
+                ("test", num(u32::le_at(&h, 0))),
+                ("magic", num(h[8])),
+                ("chars", num(chars as f64)),
+                ("at", num(self.object.at as f64)),
+                ("size", num(self.size as f64)),
+            ]),
+        )?;
+        self.object.chars = chars;
+        self.object.head = h;
+        Ok(())
+    }
+
+    /// A LOF's XML: LAS X's, as a LIF file's XML header, or an older writer's, whose root is the
+    /// image element's `Data` and is read as if it were that of `LMSDataContainerHeader` and an
+    /// `Element` that has no attributes (spec/zarrify/lif.md §2.5
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#25-leica-object-files>).
+    fn object_xml(&mut self) -> Res<()> {
+        let n = 2 * self.object.chars;
+        let xml = self.fed.get(self.object.at + HEAD, n).ok_or("internal: no XML")?;
+        let units: Vec<u16> = xml.chunks_exact(2).map(|c| u16::le_at(c, 0)).collect();
+        if n <= SHOWN {
+            self.object.xml = xml.to_vec();
+        }
+        let x = String::from_utf16(&units).ok();
+        let x = x.map(|x| {
+            if x.starts_with("<Data>") {
+                format!("<LMSDataContainerHeader Version=\"2\"><Element>{x}</Element></LMSDataContainerHeader>")
+            } else {
+                x
+            }
+        });
+        self.document(x.as_deref())
+    }
+
+    /// The XML of the file: its root and version, the `Memory` elements the walk predicts, and
+    /// its images.
+    fn document(&mut self, x: Option<&str>) -> Res<()> {
+        let tree = x.map(Tree::build);
         let root = tree.as_ref().and_then(|t| t.root.map(|r| t.name(r.0).to_string()));
         let version = tree.as_ref().and_then(|t| t.root.and_then(|r| t.attr(r.0, "Version")));
         self.rules.check(
             "xml",
             rules::env([
                 ("utf16", flag(x.is_some())),
-                ("lof", flag(lof)),
                 ("root", root.as_deref().map_or(crate::expr::V::Absent, text)),
                 ("version", given(&version)),
             ]),
         )?;
         self.version = integer(version.as_deref()).unwrap_or(2);
+        if root.as_deref() == Some("LMSDataContainerEnhancedHeader") {
+            self.file = File::Lifext;
+        }
         let tree = tree.ok_or("internal: no XML tree")?;
+        self.unique = tree.root().and_then(|r| tree.child(r, "Element")).and_then(|e| tree.attr(e, "UniqueID"));
         // the file's own element's block, then the blocks of data, each ID once: LAS X names
         // empty and repeated IDs it writes no block for
         let (r, end) = tree.root.ok_or("internal: no root")?;
@@ -436,8 +626,15 @@ impl Lif {
         Ok(())
     }
 
+    /// A memory block's data size is 32 bits wide only in a LIF file of version 1 (spec/zarrify/lif.md
+    /// §2.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#21-blocks>): a LIFEXT
+    /// file of `Version` 1 has 64-bit sizes.
+    fn narrow(&self) -> bool {
+        self.version == 1 && self.file == File::Lif
+    }
+
     fn fixed(&self) -> u64 {
-        if self.version == 1 { 18 } else { 22 }
+        if self.narrow() { 18 } else { 22 }
     }
 
     /// Walks the blocks from `at` while their headers are held (spec/zarrify/lif.md §7.2
@@ -457,8 +654,8 @@ impl Lif {
             let Some(h) = self.fed.get(at, fixed).map(|h| h.to_vec()) else {
                 return Some(self.predict(at, None));
             };
-            let size = if self.version == 1 { u32::le_at(&h, 9) as u64 } else { u64::le_at(&h, 9) };
-            let w = if self.version == 1 { 4 } else { 8 };
+            let size = if self.narrow() { u32::le_at(&h, 9) as u64 } else { u64::le_at(&h, 9) };
+            let w = if self.narrow() { 4 } else { 8 };
             let chars = u32::le_at(&h, 10 + w) as u64;
             let id_end = at + fixed + 2 * chars;
             let ok = u32::le_at(&h, 0) == TEST
@@ -515,16 +712,21 @@ impl Lif {
         let mut named: Vec<Option<usize>> = vec![None; self.blocks.len()];
         let mut facts = Vec::new();
         let mut series = 0u64;
+        if self.file == File::Lof {
+            self.rules.check("object_images", rules::env([("count", num(images.len() as f64))]))?;
+        }
         for (k, im) in images.iter().enumerate() {
             let shown = im.name.clone().unwrap_or_default();
             let mut f = self.image(k, &shown, im)?;
-            let id = im.memory.clone().unwrap_or_default();
+            // a LOF's one block has no ID: its XML's MemoryBlockID, if it has one, names nothing
+            let lof = self.file == File::Lof;
+            let id = if lof { "of the LOF".to_string() } else { im.memory.clone().unwrap_or_default() };
             let key: Vec<u8> = id.encode_utf16().flat_map(|u| u.to_le_bytes()).collect();
-            let found = by_id.get(key.as_slice()).cloned().unwrap_or_default();
+            let found = if lof { vec![0] } else { by_id.get(key.as_slice()).cloned().unwrap_or_default() };
             let block = found.first().copied();
             let other = block.and_then(|b| named[b]);
             let held = block.map_or(0, |b| self.blocks[b].size);
-            let need = f.end;
+            let need = f.end + self.offset as u128;
             self.rules.check(
                 "memory",
                 rules::env([
@@ -541,13 +743,15 @@ impl Lif {
             let b = block.ok_or("internal: no block")?;
             named[b] = Some(k);
             self.blocks[b].image = Some(k);
-            f.place(self.blocks[b].data(), b);
+            f.place(self.blocks[b].data() + self.offset, b);
             series += f.fields.len() as u64;
             self.rules.check("series", rules::env([("count", num(series as f64))]))?;
             facts.push(image_facts(im, &f, k));
         }
         self.emit()?;
-        let mut facts = json!({"version": self.version, "blocks": self.blocks.len(), "images": facts, "series": series});
+        let held = self.blocks.first().map_or(0, |b| b.size);
+        let mut facts = json!({"version": self.version, "file": self.file.name(), "blocks": self.blocks.len(), "images": facts, "series": series,
+                               "unique": self.unique, "held": held});
         self.asked.put(&mut facts);
         self.facts = facts;
         Ok(())
@@ -566,7 +770,7 @@ impl Lif {
         self.rules.check(
             "image",
             base(vec![
-                ("memory", flag(im.memory.is_some())),
+                ("memory", flag(im.memory.is_some() || self.file == File::Lof)),
                 ("dimensions", num(im.dims.len() as f64)),
                 ("channels", num(im.channels.len() as f64)),
             ]),
@@ -626,7 +830,11 @@ impl Lif {
             let shown = (xml_len <= SHOWN).then_some(self.xml.as_slice());
             self.ir.value(header, "xml", NO_INDEX, &format!("utf16[{xml_len}]"), 0, (HEAD, xml_len), shown)?;
         }
-        let ty = BLOCK_TYPES[(self.version == 2) as usize];
+        let ty = if self.file == File::Lof { OBJECT_BLOCK_TYPE } else { BLOCK_TYPES[!self.narrow() as usize] };
+        if self.file == File::Lof {
+            let o = self.object.versions.as_slice();
+            self.ir.value(0, "versions", NO_INDEX, OBJECT_VERSIONS_TYPE, 0, (HEAD + xml_len, OBJECT_VERSIONS), Some(o))?;
+        }
         for (i, b) in self.blocks.iter().enumerate() {
             let s = self.ir.struct_(0, "blocks/", i as u64, 0, Some((b.start, b.header() + b.size)))?;
             self.ir.value(s, "fields", NO_INDEX, ty, 0, (b.start, b.fields.len() as u64), Some(&b.fields))?;
@@ -645,6 +853,19 @@ impl Lif {
                 None => {
                     self.ir.value(s, "data", NO_INDEX, &format!("bytes[{}]", b.size), 0, (b.data(), b.size), None)?;
                 }
+            }
+        }
+        if self.file == File::Lof {
+            let (at, n) = (self.object.at, 2 * self.object.chars);
+            let x = self.ir.struct_(0, "description", NO_INDEX, 0, Some((at, HEAD + n)))?;
+            self.ir.value(x, "fields", NO_INDEX, HEAD_TYPE, 0, (at, HEAD), Some(&self.object.head))?;
+            if n > 0 {
+                let shown = (n <= SHOWN).then_some(self.object.xml.as_slice());
+                self.ir.value(x, "xml", NO_INDEX, &format!("utf16[{n}]"), 0, (at + HEAD, n), shown)?;
+            }
+            let end = at + HEAD + n;
+            if end < self.size {
+                self.tail = Some((end, self.size - end));
             }
         }
         if let Some((o, n)) = self.tail {
@@ -669,10 +890,15 @@ fn read_image(t: &Tree, n: u32) -> Image {
     };
     let (dims, channels) = (list("Dimensions", "DimensionDescription"), list("Channels", "ChannelDescription"));
     let mut path = Vec::new();
+    // in a LIFEXT file, the memory block in the parent LIF of the image this image is of
+    // (spec/zarrify/lif.md §2.6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#26-lifext-files>)
+    let mut parent = None;
     let mut e = n;
     while e != NONE {
         if t.name(e) == "Element" {
             path.push(t.attr(e, "Name").map_or(J::Null, J::String));
+        } else if t.name(e) == "ChildrenOf" {
+            parent = t.attr(e, "MemoryBlockID");
         }
         e = t.nodes[e as usize].parent;
     }
@@ -680,6 +906,9 @@ fn read_image(t: &Tree, n: u32) -> Image {
     let memory = t.child(n, "Memory");
     let mut meta = Map::new();
     meta.insert("path".into(), J::Array(path));
+    if let Some(parent) = parent {
+        meta.insert("parent".into(), J::String(parent));
+    }
     meta.insert("attributes".into(), J::Object(t.attrs(n)));
     if let Some(m) = memory {
         meta.insert("memory".into(), J::Object(t.attrs(m)));
@@ -960,7 +1189,7 @@ fn image_facts(im: &Image, f: &Layout, k: usize) -> J {
         "interleaved": f.interleaved, "axes": f.axes, "shape": f.shape, "chunk_shape": f.chunk_shape,
         "offsets": f.offsets, "order": f.order, "colors": colors, "resolution": f.resolution,
         "t": [f.t.0, f.t.1], "z": [f.z.0, f.z.1], "rows": f.rows, "row": f.row, "y_stride": f.y_stride,
-        "band": f.band, "base": f.base, "block": f.block,
+        "band": f.band, "base": f.base, "block": f.block, "end": f.end as u64,
         "field_dims": f.field_dims.iter().map(|d| d.1).collect::<Vec<_>>(),
         "fields": f.fields.iter().map(|(i, o)| json!([i, o])).collect::<Vec<_>>(),
         "tiles": tiles,
@@ -972,9 +1201,10 @@ fn image_facts(im: &Image, f: &Layout, k: usize) -> J {
 pub struct Profile;
 
 impl crate::run::FileProfile for Profile {
-    /// The test value at byte 0 and the magic byte at byte 8 (`detect`).
+    /// The test value at byte 0 and the magic byte at byte 8 (`detect`), or a LAS X document
+    /// (`crate::xlef::detect`), whose file run finds that it is one and starts over as a store run.
     fn detect(&self, head: &[u8]) -> bool {
-        detect(head)
+        detect(head) || crate::xlef::detect(head)
     }
     fn parser(&self, size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::of::<Lif>(size)

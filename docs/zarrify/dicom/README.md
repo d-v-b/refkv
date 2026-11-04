@@ -20,11 +20,38 @@ JPEG, lossless JPEG, JPEG 2000 or raw as stored. A 60 MB whole-slide level from 
 became a 704 KB archive (at spec/zarrify.md revision 16, before the archive
 kept every element of the file).
 
+## A series
+
+A CT or MR series, or a slide's pyramid, is many files. Give refkv the prefix that holds them, in
+Python or with `python -m refkv.zarrify`, and it zarrifies each `.dcm` file there and joins them with
+`refkv.compose`, into one group per Series Instance UID:
+
+```python
+from refkv.zarrify import zarrify
+
+store = zarrify("https://storage.googleapis.com/idc-open-data/96d032cf-ab4f-45c1-ba51-d9523d076747/")
+store.save_vzip("series.vzip")
+```
+
+- **Slices** become one `z`, `y`, `x` array, sorted by position along the slice normal, or by
+  Instance Number when a file has none. `z` has a scale in millimeters when the gaps are uniform.
+- **A whole-slide image** becomes multiscales, `0` the largest level; thumbnails and labels stay
+  out of them.
+- **Each file stays too**, under `instances/<j>`, with its own attributes and mirror. Nothing is
+  copied: both views reference the same bytes.
+
+A series that cannot be joined keeps its files under `instances/` with its `reason`: positions that
+repeat (a 4D series), files of different shapes, or a slide's optical paths in files of their own.
+A file that is not a DICOM image is listed with its reason, and does not fail the store.
+
+The form is Python-only, because `refkv.compose` is. The CLI of the Rust binding and the browser code
+reject a store of DICOM files.
+
 ## What you get
 
 One OME-Zarr 0.5 image at the archive root, with one array, `0`. A DICOM
 file is one level: a whole-slide pyramid is one file per level, and each file
-gives its own archive.
+gives its own archive, unless you zarrify their prefix ([a series](#a-series)).
 
 - **Axes:** `c` for RGB; for a multi-frame image that is not a slide, its
   frames along `t` when the Frame Increment Pointer names Frame Time or
@@ -33,9 +60,19 @@ gives its own archive.
 - **Whole-slide images** (VL Whole Slide Microscopy, `TILED_FULL`): the
   frames are the tiles of the total pixel matrix, so the array has the full
   slide's shape and one tile per chunk.
+- **Palette images** (`PALETTE COLOR`): `0` holds the stored indices, and the array
+  `palette` the red, green and blue lookup tables, shape `[3, entries]`, with the
+  first mapped value in the root's `refkv_zarrified.dicom.palette`, unless the tables are segmented: they then
+  stay in the mirror. No color is applied.
+- **Native and RLE `YBR_FULL`:** channels `Y`, `Cb` and `Cr`, as stored, not converted.
 - **Data types:** `uint8`, `int8`, `uint16`, `int16`, `uint32`, `int32` (the
-  stored cells, not rescaled).
-- **Codecs:** `bytes` (either byte order) for native pixel data,
+  stored cells, not rescaled), and `bool` for Bits Allocated 1, as
+  segmentations store them.
+- **Codecs:** `bytes` (either byte order) for native pixel data, `packbits`
+  (zarr-extensions' bit packing, not TIFF's PackBits) for Bits Allocated 1,
+  `imagecodecs_dicomrle` for RLE Lossless, `imagecodecs_jpegls` for JPEG-LS,
+  `imagecodecs_htj2k` for HTJ2K (readable in Python; the Neuroglancer fork has no
+  decoder for it yet),
   `imagecodecs_jpeg` for JPEG Baseline, `imagecodecs_ljpeg` for JPEG
   Lossless, `imagecodecs_jpeg2k` for JPEG 2000; `transpose` first for
   interleaved RGB. JPEG frames get a color marker
@@ -162,16 +199,18 @@ Supported:
 
 Rejected, with the message the command prints:
 
-- Other transfer syntaxes, among them JPEG-LS and RLE:
-  `unsupported transfer syntax 1.2.840.10008.1.2.4.80` (JPEG-LS lossless),
-  `... 1.2.840.10008.1.2.5` (RLE). Deflate and HTJ2K are rejected the same
-  way.
+- Other transfer syntaxes, among them deflate: `unsupported transfer syntax
+  1.2.840.10008.1.2.1.99`.
+- Signed JPEG-LS frames whose precision is less than Bits Allocated, as for
+  JPEG Lossless below.
+- RLE frames whose segments are not one per byte of each sample.
 - JPEG Lossless frames with a point transform or restart intervals, which
   the `imagecodecs_ljpeg` codec's decoder reads wrongly (`frame 0 has the
   point transform 1`, `frame 0 has the restart interval 8`), and signed ones
   whose precision is less than Bits Allocated. None of the public JPEG
   Lossless files refkv was checked with has these.
-- `PALETTE COLOR` and native `YBR_*` images.
+- Subsampled native `YBR_*` images.
+- JPEG 2000 frames labeled `YBR_FULL_422` whose chroma is not half width.
 - `TILED_SPARSE` slides, and slides with several focal planes or optical
   paths.
 - Encapsulated multi-frame files with an empty offset table and neither one
@@ -186,14 +225,14 @@ LUTs, palettes and overlays. The values are the stored ones.
 The browser code ([js/](../../../js/README.md)) reads DICOM (Part 10 files):
 
 - Native pixel data in implicit or explicit VR, little or big endian, and
-  JPEG Baseline, JPEG Lossless or JPEG 2000 frames, including frames split over several
+  RLE, JPEG Baseline, JPEG Lossless, JPEG-LS, JPEG 2000 or HTJ2K frames, including frames split over several
   fragments, with or without a Basic or Extended Offset Table.
 - Multi-frame images along `z`, or `t` for a cine (Frame Time or Frame Time Vector); whole-slide images (TILED_FULL) as one
   pyramid level per file, with frames as tiles.
 - Pixel spacing as scale; window center and width in `omero`.
 
-Not supported, and refused with HTTP 422: other transfer syntaxes (JPEG-LS,
-RLE, deflate, HTJ2K), palette color, TILED_SPARSE slides, and
+Not supported, and refused with HTTP 422: other transfer syntaxes (deflate),
+TILED_SPARSE slides, and
 slides with several focal planes or optical paths.
 
 ## Performance

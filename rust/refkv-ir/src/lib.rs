@@ -4,7 +4,9 @@
 //! source model schema. The core has no I/O and builds for wasm32; the Python
 //! bindings are a crate of their own (rust/refkv-python/src/lib.rs, the module `refkv._core`).
 
+pub mod beside;
 pub mod canon;
+pub mod tiff_set;
 pub mod transform;
 pub mod check;
 pub mod coding;
@@ -30,6 +32,7 @@ pub mod shard;
 pub mod store;
 pub mod text;
 pub mod types;
+pub mod xlef;
 pub mod xml;
 pub mod zip;
 
@@ -86,6 +89,7 @@ pub fn parse_bytes<P: Parser>(data: &[u8]) -> Result<(ir::Ir, serde_json::Value)
                     p.feed(o, data[o as usize..(o + n) as usize].to_vec());
                 }
             }
+            nd2::Step::Beside => return Err("the file names siblings, which its bytes alone cannot give".into()),
             nd2::Step::Done => break,
         }
     }

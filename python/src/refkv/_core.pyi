@@ -182,6 +182,10 @@ class Run:
     @multirange.setter
     def multirange(self, v: bool | None) -> None: ...
     @property
+    def beside(self) -> bool:
+        """Whether the file names siblings, once `poll` gave None: the run has no output, and
+        the host starts over with a store run of `format`."""
+    @property
     def format(self) -> str:
         """The run's format: "tiff" becomes "ndpi" once its parser finds the file is NDPI."""
     def stats(self) -> str:
@@ -218,6 +222,9 @@ class StoreRun:
         exist) before polling again."""
     def found(self, size: int | None) -> None:
         """The answer to the next probe of the batch: the key's size, or None when it does not exist."""
+    def found_as(self, size: int, key: str) -> None:
+        """The answer to the next probe of the batch, found at another key by listing
+        (`StoreRun::found_as`): its size and that key."""
     def ignore(self, keys: Sequence[str], folders: Sequence[str] = ...) -> None:
         """The keys the listing ignores, before the first poll (`StoreRun::ignore`): `keys`, the
         relative keys the store reader ignored and recorded (`Store.ignored`), which the
