@@ -88,6 +88,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     let spec = &crate::rules::of("nifti").table("datatypes")[h.get("datatype").i().to_string()];
     let (data_type, samples) = (spec["dtype"].as_str().unwrap_or("uint8"), n(&spec["samples"]));
     let color = samples > 1;
+    let complex = data_type.starts_with("complex");
     let f = |name: &str| h.get(name).f();
 
     // value scaling (§4.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#42-value-scaling>)
@@ -151,7 +152,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     if color {
         let window = full_window(json!(0), json!(255));
         channels = Some(RGBA[..samples as usize].iter().map(|(l, k)| omero_channel(l, *k, Some(&window))).collect::<Vec<J>>());
-    } else {
+    } else if !complex {
         let (mut lo, mut hi) = (f("cal_min"), f("cal_max"));
         if lo.is_finite() && hi.is_finite() && hi > lo && (c as i64) <= MAX_CHANNELS {
             if let Some((s, i)) = scaling {
@@ -198,7 +199,12 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
         codecs.push(json!({"name": "transpose", "configuration": {"order": order}}));
     }
     codecs.push(bytes_codec(item, endian));
-    out.json("0/zarr.json", &array_json(&shape, data_type, json!(chunk_shape), J::Array(codecs), &axes));
+    let mut array = array_json(&shape, data_type, json!(chunk_shape), J::Array(codecs), &axes);
+    if complex {
+        // a complex fill value is its real and imaginary parts (Zarr v3)
+        array["fill_value"] = json!([0, 0]);
+    }
+    out.json("0/zarr.json", &array);
     let count = chunks.len();
     let mut refs = Refs::new(ir, out);
     let mut zeros = contiguous::Zeros::of(&chunks);
