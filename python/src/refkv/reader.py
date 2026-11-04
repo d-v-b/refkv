@@ -21,6 +21,7 @@ import builtins
 import contextlib
 import datetime as dt
 import email.utils
+import errno
 import functools
 import http.client
 import math
@@ -30,6 +31,7 @@ import socket
 import threading
 import urllib.error
 import urllib.request
+from collections import OrderedDict
 from collections.abc import AsyncIterator, Buffer, Callable, Coroutine, Iterable, Mapping
 from concurrent.futures import Executor, ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -300,29 +302,182 @@ class _Got:
         return self._data
 
 
+MAX_OPEN_FILES = 64
+"""How many descriptors `LocalFiles` keeps open, in all, in one process."""
+
+
+class _Open:
+    """A descriptor that `_FdCache` holds open: the file's size when it was opened,
+    how many reads hold it now, and whether it has left the cache, to be closed when
+    the last of them lets it go."""
+
+    __slots__ = ("evicted", "fd", "refs", "size")
+
+    def __init__(self, fd: int, size: int) -> None:
+        self.fd = fd
+        self.size = size
+        self.refs = 1
+        self.evicted = False
+
+
+def _close(fd: int) -> None:
+    """Close `fd`; an error closing a read-only descriptor loses nothing, and the
+    cache's bookkeeping must not depend on it."""
+    with contextlib.suppress(OSError):
+        os.close(fd)
+
+
+def _pread(fd: int, offset: int, n: int) -> bytes:
+    """Up to `n` bytes at `offset`, fewer only at the end of the file."""
+    parts: list[bytes] = []
+    while n > 0 and (got := os.pread(fd, n, offset)):
+        parts.append(got)
+        offset += len(got)
+        n -= len(got)
+    return b"".join(parts)
+
+
+class _FdCache:
+    """The descriptors that every `LocalFiles` reads through, as the class docstring
+    says. Descriptors are closed after the lock is released, so a slow close (a
+    round trip to an NFSv4 server) does not hold up other reads; an entry is closed
+    by whoever takes it out of the cache with no read holding it, or by the read
+    that lets it go last after it left, so once and never under a read."""
+
+    def __init__(self) -> None:
+        self._entries: OrderedDict[tuple[str, int, int, int, int], _Open] = OrderedDict()
+        self._lock = threading.Lock()
+
+    def acquire(self, path: str) -> _Open:
+        st = os.stat(path)  # noqa: PTH116 (Path(path).stat() doubles it: 8.5 against 4.1 µs on NFS)
+        key = (path, st.st_size, st.st_mtime_ns, st.st_ino, st.st_dev)
+        with self._lock:
+            if (entry := self._entries.get(key)) is not None:
+                self._entries.move_to_end(key)
+                entry.refs += 1
+                return entry
+        try:
+            fd = os.open(path, os.O_RDONLY)
+        except OSError as e:
+            if e.errno not in (errno.EMFILE, errno.ENFILE):
+                raise
+            self.close_idle()
+            fd = os.open(path, os.O_RDONLY)
+        try:
+            size = os.fstat(fd).st_size
+        except BaseException:
+            _close(fd)
+            raise
+        doomed: list[int] = []
+        with self._lock:
+            if (entry := self._entries.get(key)) is not None:  # opened by another read meanwhile
+                doomed.append(fd)
+                self._entries.move_to_end(key)
+                entry.refs += 1
+            else:
+                self._entries[key] = entry = _Open(fd, size)
+                while len(self._entries) > MAX_OPEN_FILES:
+                    _, old = self._entries.popitem(last=False)
+                    old.evicted = True
+                    if old.refs == 0:
+                        doomed.append(old.fd)
+        for d in doomed:
+            _close(d)
+        return entry
+
+    def release(self, entry: _Open) -> None:
+        with self._lock:
+            entry.refs -= 1
+            last = entry.refs == 0 and entry.evicted
+        if last:
+            _close(entry.fd)
+
+    def close_idle(self) -> None:
+        """Close every descriptor that no read holds."""
+        with self._lock:
+            idle = [key for key, entry in self._entries.items() if entry.refs == 0]
+            doomed = [self._entries.pop(key) for key in idle]
+            for entry in doomed:
+                entry.evicted = True
+        for entry in doomed:
+            _close(entry.fd)
+
+
+_fds = _FdCache()
+
+
 class LocalFiles:
     """Local files, by OS path, with the methods of an obspec store that the reader
     calls on a store it makes itself. obstore's LocalStore takes `/`-separated
     paths under one root, which cannot name a Windows drive letter or a UNC path;
     this takes the path that `refkv.uri.file_path` maps a `file:` URL to, on every
-    system."""
+    system.
 
-    @staticmethod
-    def _range(path: str, start: int, end: int) -> bytes:
-        with open(path, "rb") as fh:
-            size = os.fstat(fh.fileno()).st_size
-            if start > size:
-                raise ValueError(f"the range starts at {start}, past the end of the "
-                                 f"{size}-byte file")
-            fh.seek(start)
-            return fh.read(end - start)
+    Where there is `os.pread`, it reads through descriptors kept open in one
+    least-recently-used cache for the whole process, rather than opening the file
+    for every read. On NFS an open is a round trip to the server: a 64 KiB read of
+    a file there took 264 µs when it opened, read and closed the file, and takes
+    7.8 µs through a descriptor kept open, against 2.8 µs for `os.pread` alone
+    (design/experiments/local_files_bench.py). Every `LocalFiles` (one per
+    `Resolver`, so per store) shares the cache and its budget, `MAX_OPEN_FILES` (64),
+    because the limit on descriptors is per process: a cache per store let a few
+    stores hold enough idle descriptors between them that an unrelated `open` in
+    the process failed. A descriptor is keyed by `(path, st_size, st_mtime_ns,
+    st_ino, st_dev)`, from a stat on every read, so a file replaced, or rewritten
+    with a new size or modification time, is opened again; on NFS a replacement
+    by another client is seen once this client's attribute cache shows the
+    change, since without an open per read there is no close-to-open
+    revalidation. An entry whose file was replaced or deleted keeps the old
+    descriptor until it is evicted, so on NFS a deleted source may linger as a
+    `.nfsXXXX` file. Each read holds its descriptor until it is done, and one
+    that leaves the cache is closed when the last read holding it lets it go,
+    never under a read, whose descriptor number could otherwise be reused for
+    another file. If the process runs out of descriptors anyway, an open closes
+    every idle one, whichever store opened it, and tries once more; `close()`
+    closes every idle one too.
 
-    @staticmethod
-    def _suffix(path: str, n: int) -> _Got:
-        with open(path, "rb") as fh:
-            size = os.fstat(fh.fileno()).st_size
-            fh.seek(max(0, size - n))
-            return _Got(fh.read(), size)
+    Windows has no `os.pread`, and there a file that is open cannot be replaced or
+    deleted, so a descriptor kept open would stop a source being replaced, which a
+    reader must notice. There it opens the file for every read, and holds nothing."""
+
+    def close(self) -> None:
+        """Close every descriptor in the shared cache that no read holds, whichever
+        store opened it."""
+        _fds.close_idle()
+
+    if hasattr(os, "pread"):
+        def _range(self, path: str, start: int, end: int) -> bytes:
+            entry = _fds.acquire(path)
+            try:
+                if start > entry.size:
+                    raise ValueError(f"the range starts at {start}, past the end of the "
+                                     f"{entry.size}-byte file")
+                return _pread(entry.fd, start, end - start)
+            finally:
+                _fds.release(entry)
+
+        def _suffix(self, path: str, n: int) -> _Got:
+            entry = _fds.acquire(path)
+            try:
+                start = max(0, entry.size - n)
+                return _Got(_pread(entry.fd, start, entry.size - start), entry.size)
+            finally:
+                _fds.release(entry)
+    else:  # Windows: open for every read, as the class docstring says
+        def _range(self, path: str, start: int, end: int) -> bytes:
+            with open(path, "rb") as fh:
+                size = os.fstat(fh.fileno()).st_size
+                if start > size:
+                    raise ValueError(f"the range starts at {start}, past the end of the "
+                                     f"{size}-byte file")
+                fh.seek(start)
+                return fh.read(end - start)
+
+        def _suffix(self, path: str, n: int) -> _Got:
+            with open(path, "rb") as fh:
+                size = os.fstat(fh.fileno()).st_size
+                fh.seek(max(0, size - n))
+                return _Got(fh.read(), size)
 
     async def get_range_async(self, path: str, *, start: int, end: int) -> bytes:
         return await asyncio.to_thread(self._range, path, start, end)
