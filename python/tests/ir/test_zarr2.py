@@ -8,15 +8,26 @@ zarr-python's Zarr v2 reader by js/test/zarr2/verify.py.
 """
 
 import json
+import sys
 import zipfile
 from pathlib import Path
 
+import numpy as np
+import pytest
+import zarr
+from zarr.storage import LocalStore
+
+import refkv.zarr
 from refkv import _core
-from refkv._narrow import at, mapping
+from refkv._narrow import at, mapping, ndarray
 from refkv.ir.store import StoreIrOutput
+from refkv.policy import Policy
 from refkv.zarrify import _zarrify as zarrify  # the profile output, not the store
 from refkv.zarrify.common import declare
 from refkv.zarrify.store import object_url
+
+sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "zarrify"))
+from proxy import Proxy
 
 FIXTURES = Path(__file__).parents[3] / "fixtures" / "zarr2"
 URL = "https://data.test/zarr2/{}/"
@@ -34,8 +45,63 @@ def blosc(cname, clevel, shuffle, typesize, blocksize=0):
                                                "typesize": typesize, "blocksize": blocksize}}
 
 
+def named(name, **configuration):
+    return {"name": name, "configuration": configuration}
+
+
+FSO = named("numcodecs.fixedscaleoffset", scale=4, offset=1, dtype="<f8", astype="<i2")
+QUANTIZE = named("numcodecs.quantize", digits=2, dtype="<f8", astype="<f8")
+VLEN = {"name": "vlen-utf8"}
+LZMA = named("numcodecs.lzma", format=1, check=-1, preset=None, filters=None)
+FIELDS = named("struct", fields=[{"name": "a", "data_type": "uint16"}, {"name": "b", "data_type": "float32"}])
+UTF32 = lambda n: named("fixed_length_utf32", length_bytes=n)  # noqa: E731
+DATETIME = lambda u, k: named("numpy.datetime64", unit=u, scale_factor=k)  # noqa: E731
+
 # store: {array path: (data type, codecs, separator, fill value)}, summary members
 CASES = {
+    "zarr2_types": ({
+        "crs": ("uint8", [ONE], ".", 0),
+        "gage_id": ("uint8", [ONE, blosc("lz4", 5, "shuffle", 1)], ".", 0),
+        "bytes_f_nested": ("uint8", [{"name": "transpose", "configuration": {"order": [1, 0, 2]}}, ONE], "/", 0),
+        "bytes_fill": ("uint8", [ONE], ".", 32),
+        "bytes_empty_fill": ("uint8", [ONE], ".", 0),
+        "void": ("uint8", [ONE], ".", 0),
+        "unicode_le": (UTF32(12), [LE], ".", "n/a"),
+        "unicode_be": (UTF32(8), [BE], ".", ""),
+        "complex64": ("complex64", [LE], ".", [1.5, "0x80000000"]),
+        "complex128_be": ("complex128", [BE], ".", ["NaN", "Infinity"]),
+        "complex_number_fill": ("complex128", [LE], ".", [0, 0]),
+        "complex_null_fill": ("complex64", [LE], ".", [0, 0]),
+        "datetime_nat": (DATETIME("ns", 1), [LE], ".", -9223372036854775808),
+        "timedelta_be": (named("numpy.timedelta64", unit="s", scale_factor=10), [BE], ".", 7),
+        "datetime_word": (DATETIME("D", 1), [LE], ".", "NaT"),
+        "struct": (FIELDS, [LE], ".", {"a": 0, "b": 0}),
+        "struct_nested": (named("struct", fields=[
+            {"name": "p", "data_type": named("struct", fields=[{"name": "x", "data_type": "int16"}])},
+            {"name": "q", "data_type": "uint8"}]), [BE], ".", {"p": {"x": 0}, "q": 0}),
+    }, {"arrays": 17, "chunks": 13}),
+    "zarr2_codecs": ({
+        "lz4": ("uint16", [LE, named("numcodecs.lz4", acceleration=1)], ".", 0),
+        "lz4_default": ("uint16", [LE, named("numcodecs.lz4", acceleration=1)], ".", 0),
+        "lz4_extra": ("uint16", [LE, named("numcodecs.lz4", acceleration=1)], ".", 0),
+        "bz2": ("uint16", [LE, named("numcodecs.bz2", level=1)], ".", 0),
+        "bz2_default": ("uint16", [LE, named("numcodecs.bz2", level=1)], ".", 0),
+        "lzma": ("uint16", [LE, LZMA], ".", 0),
+        "lzma_default": ("uint16", [LE, LZMA], ".", 0),
+        "fixedscaleoffset": ("float64", [FSO, LE], ".", 0),
+        "fixedscaleoffset_f_zlib": ("float64", [T2, FSO, LE, ZLIB], ".", 0),
+        "fixedscaleoffset_u1_blosc": ("float64", [
+            named("numcodecs.fixedscaleoffset", scale=1, offset=0, dtype="<f8", astype="|u1"), ONE,
+            blosc("lz4", 5, "bitshuffle", 1)], ".", 0),
+        "fixedscaleoffset_be": ("float32", [
+            named("numcodecs.fixedscaleoffset", scale=10, offset=0, dtype=">f4", astype=">i4"), BE], ".", 0),
+        "quantize": ("float64", [QUANTIZE, LE, named("zstd", level=1, checksum=False)], ".", 0),
+        "quantize_then_fixedscaleoffset": ("float64", [
+            QUANTIZE, named("numcodecs.fixedscaleoffset", scale=8, offset=0, dtype="<f8", astype="<i4"), LE], ".", 0),
+        "strings_anndata": ("string", [VLEN, blosc("lz4", 5, "shuffle", 1)], ".", ""),
+        "strings_null_fill": ("string", [VLEN], ".", ""),
+        "strings_f_fill": ("string", [T2, VLEN, ZLIB], ".", "none"),
+    }, {"arrays": 16, "chunks": 16}),
     "zarr2_compressors": ({
         "raw_c": ("int16", [LE], ".", 0),
         "zlib_f": ("uint16", [T3, LE, ZLIB], ".", 0),
@@ -223,6 +289,111 @@ def test_zarrifies_the_synthetic_stores(tmp_path):
     out.write(str(archive))
     with zipfile.ZipFile(archive) as z:
         assert b'"fill_value":9007199254740993' in z.read("h/zarr.json")
+
+
+def test_a_trailing_axis_adds_to_the_shape_and_the_chunk_keys():
+    """`|S<n>` and `|V<n>` (spec/zarrify/zarr2.md §3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#3-arrays>, §3.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#32-chunks>): each chunk's entry
+    has one more index than its object's key, but for a scalar's."""
+    _, out = zarrify(str(FIXTURES / "zarr2_types"), url=URL.format("t"))
+    assert isinstance(out, StoreIrOutput)
+    for path, shape, chunk_shape, entry, origin in (
+            ("crs", [1], [1], "crs/0", "crs/0"),
+            ("gage_id", [3, 15], [3, 15], "gage_id/0.0", "gage_id/0"),
+            ("bytes_f_nested", [2, 3, 2], [2, 3, 2], "bytes_f_nested/0/0/0", "bytes_f_nested/0/0"),
+            ("bytes_fill", [2, 2], [1, 2], "bytes_fill/1.0", "bytes_fill/1")):
+        doc = mapping(out.docs[key(path)], path)
+        assert (doc["shape"], at(doc, "chunk_grid", "configuration", "chunk_shape")) == (shape, chunk_shape), path
+        assert entry in {k for k, _ in out.chunks}, path
+        assert out.origins.get(entry, entry) == origin, path
+    # M keeps what the Zarr metadata does not give back (§4
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#4-source-metadata>).
+    metadata = lambda p: at(out.docs, key(p), "attributes", "refkv_zarrified", "zarr2", "metadata")  # noqa: E731
+    assert metadata("void") == {"dtype": "|V2", "fill_value": None}
+    assert metadata("bytes_fill") == {"dtype": "|S2", "fill_value": "ICA="}
+    assert metadata("complex_number_fill") == {"fill_value": 0}
+    assert metadata("struct") == {"fill_value": "AAAAAAAA"}
+
+
+@pytest.mark.parametrize("name", ["zarr2_types", "zarr2_codecs"])
+def test_the_arrays_read_as_zarr_python_reads_the_zarr_v2_store(name, tmp_path):
+    """Each array, through the core's Zarr v3 hierarchy and zarr-python's codecs, against
+    zarr-python's own Zarr v2 reading of the store."""
+    base = Proxy(FIXTURES.parent, tmp_path).base
+    policy = Policy(allow_private_hosts=True)
+    _, out = zarrify(f"{base}f/zarr2/{name}/", policy=policy)
+    assert isinstance(out, StoreIrOutput)
+    root = zarr.open_group(refkv.zarr.store(out.to_store(policy=policy)), mode="r", zarr_format=3)
+    copy = tmp_path / name
+    (copy).mkdir()
+    for f in (FIXTURES / name).rglob("*"):
+        if f.is_file():
+            to = copy / f.relative_to(FIXTURES / name)
+            to.parent.mkdir(parents=True, exist_ok=True)
+            to.write_bytes(f.read_bytes())
+            if to.name == ".zarray" and to.parent.name == "lz4_extra":
+                # numcodecs takes no member it does not know, and it does not change how chunks decode
+                z = json.loads(to.read_text())
+                del z["compressor"]["writer"]
+                to.write_text(json.dumps(z))
+    for path, array in root.arrays():
+        # zarr-python 3 refuses a complex fill of one number, which zarr-python 2 reads; no chunks here
+        if path in ("refkv_source", "complex_number_fill"):
+            continue
+        got = ndarray(array[...])
+        if path == "struct_nested":  # zarr-python's Zarr v2 reader does not take a nested structure
+            want = np.frombuffer((copy / path / "0").read_bytes(), dtype=[("p", [("x", ">i2")]), ("q", "u1")])
+        else:
+            want = ndarray(zarr.open_array(LocalStore(copy, read_only=True), path=path, mode="r", zarr_format=2)[...])
+        if want.dtype.kind in "SV" and not want.dtype.names:  # its bytes, as a last axis
+            want = np.frombuffer(want.tobytes(), "u1").reshape(got.shape)
+        if got.dtype.kind in "TO":  # zarr-python's own string types
+            got, want = got.astype(object), want.astype(object)
+        assert got.shape == want.shape, path
+        assert got.dtype.names == want.dtype.names, path
+        assert np.array_equal(got, want, equal_nan=got.dtype.kind in "fcmM"), path
+
+
+def test_an_array_that_cannot_be_presented_is_left_out_and_recorded(tmp_path):
+    """Each failure leaves its array out, the rest of the hierarchy written, and every byte kept
+    (spec/zarrify/zarr2.md §3.4
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#34-arrays-that-are-not-presented>)."""
+    name = "zarr2_left_out"
+    _, out = zarrify(str(FIXTURES / name), url=URL.format(name))
+    assert isinstance(out, StoreIrOutput)
+    own = at(out.docs, "zarr.json", "attributes", "refkv_zarrified", "zarr2")
+    reasons = {r["path"]: r["reason"] for r in mapping({"r": own}, "o")["r"]["not_presented"]}
+    assert list(reasons) == sorted(reasons)
+    assert {p: r.split(":")[0] for p, r in reasons.items()} == {
+        "a/filtered": "filter delta is not supported",
+        "bad_attrs": "bad_attrs/.zattrs is not a JSON object",
+        "empty_doc": "empty_doc/.zarray",
+        "fill": "fill_value AAE= is not a |S2",
+        "not_json": "not_json/.zarray",
+        "pickled": "dtype |O is not supported",
+        "shapeless": "shapeless",
+    }
+    assert out.summary["notPresented"] == 7
+    assert out.summary["arrays"] == 1
+    for path in reasons:
+        assert key(path) not in out.docs, path
+    assert key("kept") in out.docs
+    assert key("a") in out.docs  # its ancestor is still a group
+    # the chunks are other objects, and the documents read are the mirror's, whatever they hold
+    others = {k for k, _ in out.chunks if k.startswith("refkv_source/objects/")}
+    assert others == {f"refkv_source/objects/{k}" for k in (
+        "pickled/0", "pickled/inside/.zgroup~", "a/filtered/0", "shapeless/0", "not_json/0", "empty_doc/0", "bad_attrs/0.0")}
+    sizes = listing(out, tmp_path)
+    assert sizes["not_json/.zarray"] == (9, b"{not json")
+    assert sizes["empty_doc/.zarray"] == (0, None)
+    assert sizes["pickled/empty"] == (0, None)
+    assert sizes["pickled/.zattrs"][1] == (FIXTURES / name / "pickled/.zattrs").read_bytes()
+
+
+def test_a_root_array_that_cannot_be_presented_rejects_the_store():
+    with pytest.raises(Exception, match="dtype .O is not supported"):
+        zarrify(str(FIXTURES / "zarr2_reject_dtype_object"), url=URL.format("o"))
 
 
 def test_root_array_keeps_other_objects_without_a_group(tmp_path):

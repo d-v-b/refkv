@@ -25,11 +25,16 @@ A Zarr v3 hierarchy with a node at the path of every Zarr v2 group and
 array.
 
 - **Arrays:** the same shape, chunks and data type (`bool`, `int8` to
-  `int64`, `uint8` to `uint64`, `float16`, `float32`, `float64`, either byte
-  order); `fill_value` carried over (`null` becomes 0 or `false`).
-- **Codecs:** `transpose` for `order: "F"`, `bytes` with the byte order,
-  then the compressor: `numcodecs.zlib` (for `zlib`), `gzip`, `zstd` or `blosc` (any of blosc's
-  internal compressors, including `lz4`).
+  `int64`, `uint8` to `uint64`, `float16`, `float32`, `float64`, `complex64`,
+  `complex128`, date-times and timedeltas, fixed-length Unicode, structures,
+  either byte order; `|O` strings with `vlen-utf8` as `string`; `|S<n>` and
+  `|V<n>` as `uint8` with a last axis of `n`, as
+  [NPY's](../../../spec/zarrify/npy.md#3-data-types) are); `fill_value`
+  carried over (`null` becomes the type's zero).
+- **Codecs:** `transpose` for `order: "F"`, the filters (`vlen-utf8`,
+  `numcodecs.fixedscaleoffset`, `numcodecs.quantize`), `bytes` with the byte order, then the
+  compressor: `numcodecs.zlib` (for `zlib`), `gzip`, `zstd`, `blosc` (any of blosc's
+  internal compressors, including `lz4`), `numcodecs.lz4`, `numcodecs.bz2` or `numcodecs.lzma`.
 - **Chunk keys:** the `v2` encoding with the array's own separator (`.` or
   `/`), so the keys are unchanged.
 - **Attributes:** each node's `.zattrs`, whole and unchanged, under
@@ -121,14 +126,19 @@ Supported:
 - Zarr v2 groups and arrays of 0 to 32 dimensions, C or F order, `.` or `/`
   separators, on any S3-compatible host that answers `ListObjectsV2`
   anonymously, or in a local directory (with `--url`).
-- `zlib`, `gzip`, `zstd` and `blosc` compressors, or none.
+- `zlib`, `gzip`, `zstd`, `blosc`, `lz4`, `bz2` and `lzma` compressors, or none, and the filters
+  `vlen-utf8`, `fixedscaleoffset` and `quantize`.
+
+Left out: an array this profile cannot present (other filters, such as `delta`; other compressors;
+pickled `|O` arrays; long doubles; fill values the data type cannot hold, such as a `|S15` fill
+of mixed bytes), when the store's root is a group. The rest of the hierarchy is written, the
+reason is under `refkv_zarrified.zarr2.not_presented` on the root, and the array's chunks are
+kept, referenced in place, under `refkv_source/objects/`.
 
 Rejected:
 
-- Filters (a nonempty `filters` list).
-- Other compressors: `lz4`, `bz2`, `lzma`, `delta`, ...
-- String, object, structured, complex and date-time data types, and fill
-  values the data type cannot hold.
+- A store whose root is an array that cannot be presented, for the same reasons.
+- A group's own documents that are not valid.
 - A group and an array at the same path.
 - A store URL whose server has no listing operation (a plain web server).
 
@@ -162,6 +172,20 @@ Notes:
   entry per chunk. Zarrify the arrays or groups you need.
 - **The browser stops at 100000 listed objects** (HTTP 507).
 - Reading a chunk is one GET of one chunk object.
+
+## What the Neuroglancer fork shows
+
+zarr-python reads every array above. The [fork](https://github.com/d-v-b/neuroglancer) has fewer
+data types and decoders, so some arrays are in the archive and are not shown:
+
+| in the array | the fork |
+|---|---|
+| `numcodecs.lz4`, `numcodecs.quantize` | decoded |
+| `numcodecs.fixedscaleoffset` | decoded; a `float64` array is shown as `float32`, rounded to nearest |
+| `numcodecs.bz2`, `numcodecs.lzma` | not shown: no decoder in the browser bundle |
+| `vlen-utf8` (`string`) | not shown: no data type for strings |
+| `\|S<n>`, `\|V<n>` | shown as `uint8`, with the bytes as an axis |
+| `complex64`, `complex128`, `numpy.datetime64`, `numpy.timedelta64`, `fixed_length_utf32`, `struct` | not shown: no such data type |
 
 ## How it's verified
 

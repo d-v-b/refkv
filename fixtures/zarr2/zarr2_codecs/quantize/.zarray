@@ -1,0 +1,27 @@
+{
+  "zarr_format": 2,
+  "compressor": {
+    "id": "zstd",
+    "level": 1,
+    "checksum": false
+  },
+  "fill_value": null,
+  "order": "C",
+  "filters": [
+    {
+      "id": "quantize",
+      "digits": 2,
+      "dtype": "<f8",
+      "astype": "<f8"
+    }
+  ],
+  "shape": [
+    3,
+    4
+  ],
+  "chunks": [
+    3,
+    4
+  ],
+  "dtype": "<f8"
+}

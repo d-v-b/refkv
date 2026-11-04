@@ -58,7 +58,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # js/test, for ver
 from verify_common import LOOPBACK_SOURCES, run  # noqa: E402
 
 NUMCODECS = {"blosc": {"id", "cname", "clevel", "shuffle", "blocksize"}, "zlib": {"id", "level"},
-             "gzip": {"id", "level"}, "zstd": {"id", "level", "checksum"}}
+             "gzip": {"id", "level"}, "zstd": {"id", "level", "checksum"}, "lz4": {"id", "acceleration"},
+             "bz2": {"id", "level"}, "lzma": {"id", "format", "check", "preset", "filters"}}
 
 
 def arrays_of(out: Path) -> list[str]:
@@ -74,8 +75,12 @@ def zarrify(url: str, out: Path) -> subprocess.CompletedProcess:
 
 
 def same(got, want) -> bool:
+    if want.dtype.kind in "SV" and not want.dtype.names:  # its bytes, as a last axis
+        want = np.frombuffer(want.tobytes(), "u1").reshape(got.shape)
+    if got.dtype.kind in "TO":  # zarr-python's own string types
+        got, want = got.astype(object), want.astype(object)
     return (got.dtype == want.dtype.newbyteorder("=") and got.shape == want.shape
-            and np.array_equal(got, want, equal_nan=got.dtype.kind == "f"))
+            and np.array_equal(got, want, equal_nan=got.dtype.kind in "fcmM"))
 
 
 # A last segment escaped with ~ (spec/zarrify/zarr2.md §5
@@ -179,14 +184,23 @@ def check_store(store_dir: Path, out: Path, tmp: str) -> list[str]:
     problems = []
     vz = refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES)
     for path in arrays_of(out):
+        # zarr-python 3 refuses this fill, which zarr-python 2 reads, and its Zarr v2 reader a nested
+        # structure (python/tests/ir/test_zarr2.py reads that one's bytes)
+        if path in ("complex_number_fill", "struct_nested"):
+            continue
         got_arr = zarr.open_array(vz, path=path, mode="r", zarr_format=3)
         want_arr = zarr.open_array(LocalStore(copy, read_only=True), path=path, mode="r", zarr_format=2)
         got, want = ndarray(got_arr[...]), ndarray(want_arr[...])
         if not same(got, want):
             problems.append(f"{path}: {got.dtype}{got.shape} differs from Zarr v2's {want.dtype}{want.shape}")
         fv, wf = got_arr.metadata.fill_value, want_arr.metadata.fill_value
-        if wf is not None and not (fv == wf or (np.isnan(ndarray(fv)) and np.isnan(wf))
-                                   if got.dtype.kind == "f" else fv == wf):
+        if got.dtype.kind in "fc":
+            agree = wf is None or fv == wf or (np.isnan(ndarray(fv)) and np.isnan(wf))
+        elif want.dtype.kind in "SVTOmM":  # a last axis's byte, or a fill that zarr-python 2 did not use
+            agree = True
+        else:
+            agree = wf is None or fv == wf
+        if not agree:
             problems.append(f"{path}: fill value {fv} != {wf}")
     return problems + objects_problems(store_dir, out)
 

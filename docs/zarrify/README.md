@@ -151,7 +151,8 @@ the names the archive gives: refkv's own (`refkv.stream`, `refkv.grib`, `refkv.f
 with no `import refkv.zarr` in your code (zarr imports the codec modules, which are
 under `refkv.zarr`, itself), imagecodecs-zarr's (`imagecodecs_jpeg`,
 `imagecodecs_jpeg2k`, `imagecodecs_jpegxr`, `imagecodecs_ljpeg`, `imagecodecs_delta`), which `refkv[images]` installs, and
-zarr-python's own (`numcodecs.zlib`, `numcodecs.shuffle`, `numcodecs.delta`). So a
+zarr-python's own (`numcodecs.zlib`, `numcodecs.shuffle`, `numcodecs.delta`, `numcodecs.lz4`,
+`numcodecs.bz2`, `numcodecs.lzma`, `numcodecs.fixedscaleoffset`, `numcodecs.quantize`). So a
 copy of an archive's arrays (in a directory, or in another store) reads with zarr
 alone, except that an array on the zarr-extensions `rectilinear` chunk grid (a
 clipped CZI level, an MP4 video plane whose chunks differ in length) also needs

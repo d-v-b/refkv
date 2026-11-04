@@ -1,0 +1,30 @@
+{
+  "zarr_format": 2,
+  "compressor": null,
+  "fill_value": null,
+  "order": "C",
+  "filters": [
+    {
+      "id": "quantize",
+      "digits": 2,
+      "dtype": "<f8",
+      "astype": "<f8"
+    },
+    {
+      "id": "fixedscaleoffset",
+      "scale": 8,
+      "offset": 0,
+      "dtype": "<f8",
+      "astype": "<i4"
+    }
+  ],
+  "shape": [
+    3,
+    4
+  ],
+  "chunks": [
+    3,
+    4
+  ],
+  "dtype": "<f8"
+}
