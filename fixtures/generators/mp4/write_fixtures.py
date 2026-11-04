@@ -8,7 +8,7 @@ open groups (CRA pictures and their RASL pictures), RADL pictures, and in a Quic
 AAC and MP3 audio, alone and beside video; the moov box before and after the media data, a
 64-bit mdat size and an mdat that runs to the end of the file; fragmented files, as ffmpeg's muxer
 writes them and with each way a track fragment can say where its samples are; tracks the profile
-does not zarrify (10-bit H.264, 4:2:2 HEVC) beside ones it does; and the inputs it rejects
+does not zarrify (4:2:2 H.264, 4:4:4 HEVC and VP9) beside ones it does; and the inputs it rejects
 (`mp4_reject_*`). The byte-crafted edge
 cases are write_edge_fixtures.py's.
 
@@ -189,19 +189,38 @@ def main() -> None:
     write("mp4_frag_aac.mp4", ffmpeg(*audio(44100, 2, 2), *AAC, "-movflags", "empty_moov+frag_custom+frag_every_frame"))
     write("mp4_frag_offsets.mp4",
           refragmented(ffmpeg(*video(), *audio(), *X264, "-g", "7", "-bf", "2", *AAC, *empty)))
-    # tracks the profile does not zarrify, beside one it does
+    # 10-bit H.264, HEVC of each subsampling and bit depth, AV1 (SVT-AV1 writes Main profile alone,
+    # of at least 64 pixels a side) and VP9's four profiles
     write("mp4_h264_10bit_aac.mp4", ffmpeg(*video(), *audio(), "-c:v", "libx264", "-threads", "1",
                                            "-pix_fmt", "yuv420p10le", "-g", "10", *AAC))
     write("mp4_hevc_422_aac.mp4", ffmpeg(*video(), *audio(), *x265("keyint=10", "yuv422p10le"), *AAC))
+    short = video(seconds=1)
+    write("mp4_hevc_422_8bit.mp4", ffmpeg(*short, *x265("keyint=4:min-keyint=4", "yuv422p")))
+    write("mp4_hevc_12bit.mp4", ffmpeg(*short, *x265("keyint=4:min-keyint=4", "yuv420p12le")))
+    write("mp4_hevc_422_12bit.mp4", ffmpeg(*short, *x265("keyint=4:min-keyint=4", "yuv422p12le")))
+    square = video("64x64", seconds=1)
+    svt = ("-c:v", "libsvtav1", "-preset", "12", "-g", "4")
+    write("mp4_av1_aac.mp4", ffmpeg(*square, *audio(16000, 1), *svt, "-pix_fmt", "yuv420p", *AAC))
+    write("mp4_av1_10bit.mp4", ffmpeg(*square, *svt, "-pix_fmt", "yuv420p10le"))
+    vpx = ("-c:v", "libvpx-vp9", "-threads", "1", "-cpu-used", "8", "-g", "4")
+    write("mp4_vp9_aac.mp4", ffmpeg(*short, *audio(16000, 1), *vpx, "-pix_fmt", "yuv420p", *AAC))
+    write("mp4_vp9_422.mp4", ffmpeg(*short, *vpx, "-pix_fmt", "yuv422p"))
+    write("mp4_vp9_10bit.mp4", ffmpeg(*short, *vpx, "-pix_fmt", "yuv420p10le"))
+    write("mp4_vp9_422_12bit.mp4", ffmpeg(*short, *vpx, "-pix_fmt", "yuv422p12le"))
+    # tracks the profile does not zarrify, beside one it does
+    write("mp4_hevc_444_aac.mp4", ffmpeg(*video(), *audio(), *x265("keyint=10", "yuv444p"), *AAC))
+    write("mp4_h264_422_aac.mp4", ffmpeg(*video(), *audio(), "-c:v", "libx264", "-threads", "1",
+                                         "-pix_fmt", "yuv422p", "-g", "10", *AAC))
+    write("mp4_vp9_444_aac.mp4", ffmpeg(*short, *audio(16000, 1), *vpx, "-pix_fmt", "yuv444p", *AAC))
 
-    # rejected: no moov box (cut before it), only tracks it does not zarrify (4:2:2 HEVC),
+    # rejected: no moov box (cut before it), only tracks it does not zarrify (4:4:4 HEVC),
     # a box past the end of the file, a box smaller than its header, a second moov box, a
     # sample past the end of the file, tables that disagree on the sample count, and a fragmented
     # file with no trex box, a traf box with no tfhd box, a trun box whose table does not fit, a
     # trun box whose data starts before the file, and a fragment's sample past the end of the file
     o, _, _ = find(plain, "/moov")
     write("mp4_reject_no_moov.mp4", plain[:o])
-    write("mp4_reject_hevc_422_only.mp4", ffmpeg(*video(), *x265("keyint=10", "yuv422p")))
+    write("mp4_reject_hevc_444_only.mp4", ffmpeg(*video(), *x265("keyint=10", "yuv444p")))
     o, _, n = find(fast, "/moov")
     write("mp4_reject_box_outside.mp4", fast[:o] + struct.pack(">I", n + len(fast)) + fast[o + 4:])
     _f, _, fn = find(fast, "/ftyp")

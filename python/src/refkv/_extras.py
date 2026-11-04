@@ -18,7 +18,7 @@ zarrifies image files and stores, without Zarr. The extras add:
   `imagecodecs_floatpred` those of TIFFs with a horizontal or floating-point predictor, and
   imagecodecs, whose LZW decoder `refkv.tiff_lzw` calls, with the `zarr` extra;
 - `media`: the decoders of the `refkv.stream` codec, which reads zarrified MP3,
-  FLAC and MP4 files: ffmpeg's MP3, AAC, FLAC and H.264 decoders, through PyAV,
+  FLAC and MP4 files: ffmpeg's MP3, AAC, FLAC, H.264, HEVC, AV1 and VP9 decoders, through PyAV,
   with the `zarr` extra;
 - `precomputed`: the decoders of the `refkv.precomputed` codec's `compresso`, `crackle`, `fpzip`
   and `kempressed` encodings, with the `zarr` extra;

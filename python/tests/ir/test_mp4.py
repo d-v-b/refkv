@@ -55,9 +55,9 @@ def decoded(path, index):
 
 
 def plane(f, k):
-    """Plane `k` of a decoded picture: uint8 for 8 bits a sample, uint16 for 10."""
+    """Plane `k` of a decoded picture: uint8 for 8 bits a sample, uint16 for more."""
     p = f.planes[k]
-    dtype = np.dtype("<u2") if f.format.name.endswith("10le") else np.dtype(np.uint8)
+    dtype = np.dtype("<u2") if f.format.name.endswith(("10le", "12le")) else np.dtype(np.uint8)
     return np.frombuffer(p, dtype).reshape(p.height, p.line_size // dtype.itemsize)[:, :p.width]
 
 
@@ -86,11 +86,13 @@ def test_tracks_are_ffmpegs_decoding(path, chunk_frames, tmp_path):
         g = root.get_group(string(track["path"]))
         tm = mapping(at(g.attrs, "refkv_zarrified", "mp4"))
         assert tm["id"] == track["id"]
-        assert tm["format"] in ("h264", "hevc", "aac", "mp3")
+        assert tm["format"] in ("h264", "hevc", "av1", "vp9", "aac", "mp3")
         kind, frames, pts = decoded(path, integer(track["id"]) - 1)
         if kind == "video":
             assert tm["frames"] == len(frames)
             assert tm["width"] == frames[0].width
+            assert tm["chroma"] == ("4:2:2" if "422" in frames[0].format.name else "4:2:0")
+            assert tm["bit_depth"] == {"10le": 10, "12le": 12}.get(frames[0].format.name[-4:], 8)
             for k, p in enumerate("yuv"):
                 want = np.stack([plane(f, k) for f in frames])
                 got = ndarray(g.get_array(p)[...])
@@ -286,8 +288,13 @@ def test_the_codec_keeps_each_plane_once_within_its_limit():
 TRACKS = [
     ("mp4_hevc_aac.mp4", ["tracks/1", "tracks/2"], {}),
     ("mov_hevc_main10_aac.mov", ["tracks/1", "tracks/2"], {}),
-    ("mp4_hevc_422_aac.mp4", ["tracks/2"], {1: "HEVC with chroma format 2 and bit depth 10 is not supported"}),
-    ("mp4_h264_10bit_aac.mp4", ["tracks/2"], {1: "H.264 with chroma format 1 and bit depth 10 is not supported"}),
+    ("mp4_hevc_422_aac.mp4", ["tracks/1", "tracks/2"], {}),
+    ("mp4_h264_10bit_aac.mp4", ["tracks/1", "tracks/2"], {}),
+    ("mp4_av1_aac.mp4", ["tracks/1", "tracks/2"], {}),
+    ("mp4_vp9_aac.mp4", ["tracks/1", "tracks/2"], {}),
+    ("mp4_hevc_444_aac.mp4", ["tracks/2"], {1: "HEVC with chroma format 3 and bit depth 8 is not supported"}),
+    ("mp4_h264_422_aac.mp4", ["tracks/2"], {1: "H.264 with chroma format 2 and bit depth 8 is not supported"}),
+    ("mp4_vp9_444_aac.mp4", ["tracks/2"], {1: "VP9 with chroma format 3 and bit depth 8 is not supported"}),
     ("mp4_h264_aac.mp4", ["tracks/1", "tracks/2"], {}),
     ("mov_h264_aac.mov", ["tracks/1", "tracks/2"], {}),
     ("mov_h264_negative_ctts_aac.mov", ["tracks/1", "tracks/2"], {}),
