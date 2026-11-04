@@ -1592,7 +1592,8 @@ from frame to frame, so a chunk's noise bands differ from those of a
 decoder of the whole stream; every other value is the same. So does HE-AAC's SBR, whose added noise
 and tones run on likewise, in every band it fills: the top half of the spectrum. A chunk's values
 are its own there, of the stream's level, and the low band's are the stream's less the error the
-SBR's filter banks leave (about 70 dB below a tone, measured with ffmpeg's decoder).
+SBR's filter banks leave (about 70 dB below a tone, measured with ffmpeg's decoder, a lead-in of
+at least 32 frames reaching HE-AAC v2's parametric stereo headers).
 
 **Producing a chunk.** A convention says which frames are a chunk's own,
 where each one's output goes, and which frames before them are its

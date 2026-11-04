@@ -13,7 +13,7 @@ Schema: [schema.json](mp4/schema.json)
 
 Changed 2026-11-04: an HE-AAC or HE-AAC v2 track is zarrified, where it was recorded with a reason
 or, signaled backward-compatibly, declared at half its rate: its frames decode to 2048 samples
-([§4.2](#42-audio-tracks), [§8.2](#82-tracks)), a chunk's lead-in is 16 frames
+([§4.2](#42-audio-tracks), [§8.2](#82-tracks)), a chunk's lead-in is 64 frames
 ([§8.3](#83-chunks)), and its noise is a chunk's own
 ([conventions §10](../conventions.md#10-coded-streams)).
 
@@ -744,9 +744,10 @@ each other in the file:
   `l` to `b − 1`, frame `j`'s position −1 when `j < a` and `(j − a) × S`
   otherwise. `l = a` for the first chunk; otherwise, for AAC, `l = a − 1`
   (the frame before the chunk, whose overlap its first frame needs), for HE-AAC
-  `l = max(0, a − 16)` (SBR decodes only after its header, which encoders repeat about every half a
-  second, 16 frames being about 740 ms at a 22.05 kHz core; the profile, reading no sample, does
-  not see where one is, and a chunk whose lead-in holds none has no SBR up to the next), and for
+  `l = max(0, a − 64)` (SBR and parametric stereo decode only after their headers, which
+  AudioToolbox's streams were measured to need up to 32 frames to reach, 64 frames being about 3
+  seconds at a 22.05 kHz core; the profile, reading no sample, does not see where one is, and a chunk
+  whose lead-in holds none lacks them up to the next), and for
   MP3, `l` is the greatest index at most `a − 2` such that frames `l` to
   `a − 3` hold at least 511 bytes of main data, counting each frame's size
   less 38 bytes (its header, CRC and side information are at most that), or

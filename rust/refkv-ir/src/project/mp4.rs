@@ -21,9 +21,9 @@ const TIME_CHUNK: u64 = 1 << 17;
 /// side information are at most 38 bytes), and the reservoir its lead-in holds (MPEG-1's).
 const MP3_OVERHEAD: u64 = 38;
 const MP3_RESERVOIR: u64 = 511;
-/// The frames before an HE-AAC chunk it decodes first, at about 46 ms each: SBR decodes only after
-/// its header, which an encoder repeats about every half a second, and from its own frame before.
-const SBR_LEAD: usize = 16;
+/// The frames before an HE-AAC chunk it decodes first, at about 46 ms each: SBR and parametric stereo
+/// decode only after their headers, which AudioToolbox's streams need up to 32 frames to reach.
+const SBR_LEAD: usize = 64;
 /// A PCM chunk's frames for each frame of an AAC chunk's: 1024, an AAC frame's samples, so that a
 /// chunk of `samples` holds as many samples whichever the track's coding.
 const PCM_FRAMES: u64 = 1024;
@@ -396,7 +396,7 @@ mod tests {
         assert_eq!(audio_lead(0, "aac", 1024, &sizes), 0);
         assert_eq!(audio_lead(8, "aac", 1024, &sizes), 7);
         assert_eq!(audio_lead(8, "aac", 2048, &sizes), 0);
-        assert_eq!(audio_lead(20, "aac", 2048, &vec![0; 40]), 4);
+        assert_eq!(audio_lead(80, "aac", 2048, &vec![0; 100]), 16);
         // 106 bytes of main data a frame at least: 5 frames hold 530
         assert_eq!(audio_lead(12, "mp3", 1152, &sizes), 5);
     }
