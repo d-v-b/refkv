@@ -12,6 +12,11 @@ https://data.sdss.org/sas/dr17/sdss/spectro/redux/26/spectra/lite/0266/spec-0266
 https://alasky.cds.unistra.fr/Pan-STARRS/DR1/g/Norder3/Dir0/Npix0.fits|hips_ps1_g_tile|no-ref|ends-sha256=66034c26b2f80619f1e1398911ff6cabbbefe9c0a4d4637d9e450b81691a7fa6
 https://portal.nersc.gov/cfs/cosmo/data/legacysurvey/dr10/south/coadd/000/0001m002/legacysurvey-0001m002-image-g.fits.fz|legacysurvey_brick_g|no-ref|ends-sha256=e0c9b9e8a4e33799d88ae07a64191ef4d341b414054a31fe658660971d93bb69
 https://ps1images.stsci.edu/rings.v3.skycell/1405/053/rings.v3.skycell.1405.053.stk.g.unconv.fits|ps1_skycell_g|no-ref|ends-sha256=646d0ab77f87f887c5781fa5da78dfd6aef5a9d78923dd767289e6e2eba71096
+# whole files in bzip2 and gzip (spec/zarrify/fits.md §2.1
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#21-a-compressed-file>): an SDSS frame (two
+# images and two binary tables), and an SDSS mask file, a .fit.gz of eleven tables with heaps
+https://data.sdss.org/sas/dr17/eboss/photoObj/frames/301/1000/1/frame-g-001000-1-0027.fits.bz2|sdss_frame_bz2|no-ref|ends-sha256=43dc5e51daf58c7fc70f69bb86ac5b4bd6ad7ea6555807bf966db947c646006f
+https://data.sdss.org/sas/dr17/eboss/photo/redux/301/1000/objcs/1/fpM-001000-g1-0027.fit.gz|sdss_mask_gz|no-ref|ends-sha256=a2f3135f3f9ff591e22a2aa3ca1063ab87b5406747907a32da1217d428d90fd4
 # a ZTF science image (plain float32), left out: IRSA answers a range request with the whole
 # file (200, not 206; seen 2026-10-27), so no zarrifier can read it by range
 # https://irsa.ipac.caltech.edu/ibe/data/ztf/products/sci/2018/0411/467847/ztf_20180411467847_000535_zr_c11_o_q3_sciimg.fits|ztf_sciimg|no-ref

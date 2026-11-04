@@ -54,6 +54,16 @@ def decoded(path, index):
     return s.type, frames, sorted(p.pts for p in packets)
 
 
+def pcm(path, index):
+    """ffmpeg's decoding of the PCM stream `index`, [frames, channels] of the stream's samples:
+    ffmpeg's decoder gives 8-bit signed ones as unsigned, 128 more."""
+    c = av.open(str(path))
+    s = c.streams[index]
+    a = np.concatenate([f.to_ndarray().T if f.format.is_planar else f.to_ndarray().reshape(f.samples, -1)
+                        for f in c.decode(s)])
+    return (a.astype(np.int16) - 128).astype(np.int8) if s.codec_context.name == "pcm_s8" else a
+
+
 def plane(f, k):
     """Plane `k` of a decoded picture: uint8 for 8 bits a sample, uint16 for more."""
     p = f.planes[k]
@@ -86,7 +96,16 @@ def test_tracks_are_ffmpegs_decoding(path, chunk_frames, tmp_path):
         g = root.get_group(string(track["path"]))
         tm = mapping(at(g.attrs, "refkv_zarrified", "mp4"))
         assert tm["id"] == track["id"]
-        assert tm["format"] in ("h264", "hevc", "av1", "vp9", "aac", "mp3")
+        assert tm["format"] in ("h264", "hevc", "av1", "vp9", "aac", "mp3", "pcm")
+        if tm["format"] == "pcm":
+            want = pcm(path, integer(track["id"]) - 1)
+            got = ndarray(g.get_array("samples")[...])
+            assert got.shape == want.shape
+            assert got.dtype == want.dtype.newbyteorder("=")
+            assert np.array_equal(got, want)
+            assert tm["samples"] == tm["frames"] == len(got)
+            assert tm["samples_per_frame"] == 1
+            continue
         kind, frames, pts = decoded(path, integer(track["id"]) - 1)
         if kind == "video":
             assert tm["frames"] == len(frames)
@@ -300,9 +319,15 @@ TRACKS = [
     ("mov_h264_negative_ctts_aac.mov", ["tracks/1", "tracks/2"], {}),
     ("mp4_h264_two_tracks.mp4", ["tracks/1", "tracks/2"], {}),
     ("edge_mp4_duplicate_track_id.mp4", ["tracks/1"], {1: "its track ID 1 is an earlier zarrified track's"}),
+    ("mov_pcm_s16le_h264.mov", ["tracks/1", "tracks/2"], {}),
+    ("mov_h264_pcm_s24.mov", ["tracks/1"], {2: "24-bit PCM is not supported"}),
+    ("mov_h264_pcm_odd_size.mov", ["tracks/1"], {2: "PCM samples of 3 bytes, not a whole number of 2-byte frames"}),
+    ("mov_h264_lpcm_not_interleaved.mov", ["tracks/1"], {2: "PCM whose channels are not interleaved is not supported"}),
     ("mp4_frag_h264_aac.mp4", ["tracks/1", "tracks/2"], {}),
     ("mp4_frag_hevc_moof_base.mp4", ["tracks/1", "tracks/2"], {}),
     ("mp4_frag_aac.mp4", ["tracks/1"], {}),
+    ("mp4_frag_pcm_h264.mp4", ["tracks/1", "tracks/2"], {}),
+    ("mov_frag_pcm_s32be.mov", ["tracks/1"], {}),
 ]
 
 
@@ -343,6 +368,59 @@ def test_reads_the_movie_and_track_metadata(tmp_path):
     times = ndarray(root.get_array("tracks/1/time")[...])
     assert at(root["tracks/1"].attrs, "refkv_zarrified", "mp4", "timescale") == 1000
     assert len(set(np.diff(times).tolist())) > 1  # the steps differ
+
+
+def test_a_pcm_track_is_the_file_s_bytes(tmp_path):
+    """A PCM track's chunks are its samples' own bytes through the `bytes` codec, a range per run of
+    them in the file (spec/zarrify/mp4.md §4.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#42-audio-tracks>), beside video
+    the chunks' ranges split where the video is; with 7168 frames a chunk (7 x 1024), the short
+    last chunk of the 8000 frames is the `rectilinear` grid's. Each sample entry's data type and
+    byte order is its own; QuickTime's sample size of 1 reads as one frame."""
+    # (file, data type, the bytes codec's byte order, channels)
+    cases = [
+        ("mov_pcm_s16le_h264.mov", "int16", "little", 1),
+        ("mov_pcm_s16be_stereo.mov", "int16", "big", 2),
+        ("mov_pcm_u8.mov", "uint8", None, 1),
+        ("mov_pcm_s8.mov", "int8", None, 1),
+        ("mov_pcm_s32le.mov", "int32", "little", 2),
+        ("mov_pcm_s32be.mov", "int32", "big", 1),
+        ("mov_pcm_f32le.mov", "float32", "little", 1),
+        ("mov_pcm_f64be.mov", "float64", "big", 1),
+        ("mov_pcm_96k_lpcm.mov", "int16", "little", 2),
+        ("mp4_pcm_s16le.mp4", "int16", "little", 1),
+        ("mp4_pcm_f32be.mp4", "float32", "big", 2),
+        ("mov_pcm_sample_size_1.mov", "int16", "little", 1),
+        ("mp4_frag_pcm_h264.mp4", "int16", "little", 1),
+        ("mov_frag_pcm_s32be.mov", "int32", "big", 1),
+    ]
+    for name, data_type, endian, channels in cases:
+        out, root = zarrified(FIXTURES / "mp4" / name, tmp_path, 7)
+        tracks = sequence(at(root.attrs, "refkv_zarrified", "mp4", "tracks"))
+        track = next(t for t in tracks if at(t, "handler") == "soun")
+        path = string(at(track, "path"))
+        doc = json.loads(out.bytes_entries[f"{path}/samples/zarr.json"])
+        assert doc["data_type"] == data_type, name
+        assert doc["shape"][1] == channels, name
+        want = {"name": "bytes", "configuration": {"endian": endian}} if endian else {"name": "bytes"}
+        assert doc["codecs"] == [want], name
+        assert doc["dimension_names"] == ["time", "channel"], name
+        frames = doc["shape"][0]
+        if frames % 7168:
+            shapes = doc["chunk_grid"]["configuration"]["chunk_shapes"]
+            assert shapes == [[[7168, frames // 7168], frames % 7168], channels], name
+        tm = mapping(at(root[path].attrs, "refkv_zarrified", "mp4"))
+        assert tm["chunk_frames"] == 7168, name
+    out, _root = zarrified(FIXTURES / "mp4" / "mov_pcm_s16le_h264.mov", tmp_path)
+    parts = out.refs["tracks/2/samples/c/0/0"]
+    assert len(parts) > 1, "the video between the audio's chunks"
+    assert sum(p[1] for p in parts if isinstance(p, tuple)) == 8000 * 2
+    meta = json.loads(out.bytes_entries["tracks/2/samples/zarr.json"])
+    assert meta["chunk_grid"]["configuration"]["chunk_shape"] == [8000, 1]
+    # a version 2 sound description's rate and channels are its own fields
+    _, root = zarrified(FIXTURES / "mp4" / "mov_pcm_96k_lpcm.mov", tmp_path)
+    tm = mapping(at(root["tracks/1"].attrs, "refkv_zarrified", "mp4"))
+    assert (tm["sample_rate"], tm["channels"], tm["codec"], tm["format"]) == (96000, 2, "lpcm", "pcm")
 
 
 def test_reads_a_fragmented_file_s_tracks(tmp_path):
