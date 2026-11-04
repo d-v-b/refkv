@@ -53,7 +53,7 @@ group.)
 | Imaris IMS | [ims](zarrify/ims.md) | `5067a535-8261-4b25-a93c-1985ed333bde` |
 | Leica LIF | [lif](zarrify/lif.md) | `b099ab1f-f9d4-4276-9006-9ff1193a34b2` |
 | MP3 (MPEG Layer III audio) | [mp3](zarrify/mp3.md) | `b6cb0047-9448-4fdc-b03e-10dd3d6aa829` |
-| MP4 and QuickTime (H.264 and HEVC video, AAC and MP3 audio) | [mp4](zarrify/mp4.md) | `bbe3f6b9-488d-4d8d-85ce-60a1649dd27e` |
+| MP4 and QuickTime (H.264 and HEVC video, AAC, MP3 and PCM audio) | [mp4](zarrify/mp4.md) | `bbe3f6b9-488d-4d8d-85ce-60a1649dd27e` |
 | MRC2014 | [mrc](zarrify/mrc.md) | `2aacd010-2ed1-4748-bc3c-5dd5e840bbce` |
 | MRC2014, as a dataset ([§9](#9-dataset-layouts)) | [mrc-dataset](zarrify/mrc-dataset.md) | `f139bf4e-7bab-4c3c-9b2d-66ba747f9b93` |
 | N5 | [n5](zarrify/n5.md) | `ad5d4c39-c69e-48f7-a3ef-4cc8c607d416` |
