@@ -20,8 +20,8 @@ refkv reads the headers (and, for a tile-compressed image, its table of
 tile descriptors), never the data, and writes an archive in which every HDU
 is a node: an image is an array whose chunks are byte ranges of the file,
 a tile-compressed image an array whose chunks are runs of its compressed
-tiles, decoded by the `refkv.fits_tiles` codec, and a table its rows and heap as
-bytes. Every header's cards come along.
+tiles, decoded by the `refkv.fits_tiles` codec, and a binary table an array of
+`struct` rows, with its heap as bytes. Every header's cards come along.
 
 ## What you get
 
@@ -45,10 +45,16 @@ system cards describe for astropy and the viewers.
   Each chunk is one byte range of the heap (tiles are stored one after the
   other) behind a small prefix that carries every tile's length, scale and
   zero, so the codec needs nothing but the chunk's bytes.
-- **Tables** (`BINTABLE`, `TABLE`): a group with the arrays `rows`
-  (`[NAXIS2, NAXIS1]` of `uint8`) and `heap` (the variable-length arrays),
-  and the column definitions in the group's metadata. Any FITS table
-  reader decodes the bytes; columns are not arrays yet.
+- **Tables** (`BINTABLE`, `TABLE`): a group with the arrays `rows` and `heap`
+  (the variable-length arrays, as bytes), and the column definitions in the
+  group's metadata. A binary table's `rows` is one `struct` per row, a field
+  per column, so `g["1/rows"][:10]["FLUX"]` reads a column of ten rows; a
+  `5E` column is a nested `struct` of the fields `0` to `4`. A variable-length
+  column's field holds its `(n, o)` descriptor into the heap: its values are of
+  a different length in every row, which no fixed-size element holds. An ASCII
+  table's rows, and a binary table's whose columns cannot be written as a
+  `struct`, are `[NAXIS2, NAXIS1]` of `uint8`, with the reason in the node's
+  `not_struct`.
 - **Empty HDUs** (`NAXIS = 0`, the empty primary of a multi-extension file):
   a group with the header's cards.
 - **Cards:** every HDU's node carries its header as `[keyword, value,
@@ -61,7 +67,8 @@ system cards describe for astropy and the viewers.
 
 **What is not expressed.** The world coordinate system is kept as cards,
 not interpreted (astropy.wcs reads them from the node's metadata); value
-scaling is recorded, not applied; table columns are bytes.
+scaling, in images and in table columns, is recorded, not applied; a column is
+a field of its table's rows, not an array of its own.
 [spec/zarrify/fits.md §8](../../../spec/zarrify/fits.md#8-what-the-layout-does-not-express)
 lists them.
 
@@ -133,7 +140,7 @@ Supported:
   `SUBTRACTIVE_DITHER_2`, `ZBLANK` as a card or a column, tiles stored as
   gzip fallbacks, absent tiles, unused heap bytes between tiles, `P` and
   `Q` descriptors.
-- Binary and ASCII tables, as bytes.
+- Binary tables as `struct` rows, ASCII tables as bytes.
 
 Rejected:
 

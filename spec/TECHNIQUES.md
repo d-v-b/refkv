@@ -72,7 +72,7 @@ own with a standard codec. The same few techniques recur:
 | units lie at arbitrary positions, overlapping (stage tile scans) | one array per position, holding all its planes, and recording where it lies; repeated planes at one position in further arrays | CZI tiles |
 | samples are interleaved, or the order is Fortran | a `transpose` codec | TIFF, ND2, NIfTI RGB, Zarr v2 `order: F` |
 | byte order | the `bytes` codec's `endian` | everywhere |
-| elements narrower than a byte (4- and 6-bit floats), packed least significant bit first | the zarr-extensions `packbits` codec in place of `bytes`, and chunks cut where a run of elements starts on a byte (else one chunk) | safetensors `F4`, `F6_*` |
+| elements narrower than a byte (1- and 4-bit values, 4- and 6-bit floats), packed least significant bit first | the zarr-extensions `packbits` codec (bit packing, not TIFF's PackBits) in place of `bytes`, and chunks cut where a run of elements starts on a byte (else one chunk) | safetensors `F4`, `F6_*`; DICOM Bits Allocated 1; MRC mode 101 |
 | edge units are truncated or padded | a codec that tolerates it (N5), or stores matching Zarr's whole-edge rule (HDF5); chunks wholly outside the image are dropped | N5, IMS |
 | units are missing | no entry: the chunk reads as the fill value | ND2 missing frames, HDF5 unallocated chunks, sparse Zarr |
 | the source's key scheme | a chunk key encoding that reproduces it | Zarr v2 and N5 via the `v2` encoding |

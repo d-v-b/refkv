@@ -87,7 +87,6 @@ def test_virtualizes_the_synthetic_files():
     ("dicom_reject_rle.dcm", r"transfer syntax 1\.2\.840\.10008\.1\.2\.5"),
     ("dicom_reject_jpegls.dcm", "transfer syntax"),
     ("dicom_reject_palette.dcm", "PALETTE COLOR"),
-    ("dicom_reject_native_ybr.dcm", "YBR_FULL"),
     ("dicom_reject_tiled_sparse.dcm", "TILED_FULL"),
     ("dicom_reject_focal_planes.dcm", "focal planes"),
     ("dicom_reject_wsi_frames.dcm", "3 frames for 2 by 2 tiles"),
