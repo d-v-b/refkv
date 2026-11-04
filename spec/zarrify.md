@@ -2,6 +2,14 @@
 
 Profiles version: 0 (**draft**)
 
+Changed 2026-11-04: the TIFF profile reads an image across files, on demand
+([tiff.md §7.4](zarrify/tiff.md#74-several-files)); a file that names none has the output it had.
+
+Changed 2026-11-04: a file's siblings have one set of rules, how a profile names, probes, pins and
+bounds them ([§1.9](#19-sources-beside-the-input)). The bounds are new, and reject an input that
+names more than 2^16 files; no input that VSI, NRRD or GRIB accepted names so many, and no other
+output changes.
+
 Changed 2026-11-04, with no change to any output: the root's `refkv_provenance` member and its CMO
 ([spec/provenance.md](provenance.md)) are not part of the output ([§1.1](#11-output-and-equivalence)).
 
@@ -92,7 +100,7 @@ The table, generated from the registry, lists them:
 | [QPTIFF](zarrify/qptiff.md#part-2-the-profile) | file | Akoya (PerkinElmer) Vectra QPTIFF slides and inForm component data, a TIFF with an XML description per image, in LZW, JPEG or uncompressed tiles or strips |
 | [Sentinel-2 SAFE](zarrify/safe.md#part-2-the-profile) | file or store | Sentinel-2 Level-1C and Level-2A products: a `.SAFE` directory (a store) or a `.SAFE.zip` file |
 | [safetensors](zarrify/safetensors.md#part-2-the-profile) | file or store | safetensors files of a model's tensors (`model.safetensors`), in every data type the library defines, `BF16`, `F8_*`, `F4` and `F6_*` included; and stores of them, such as a model's repository of shards with its index |
-| [TIFF](zarrify/tiff.md#part-2-the-profile) | file | TIFF and BigTIFF, including OME-TIFF and JPEG-tiled slides such as Aperio SVS |
+| [TIFF](zarrify/tiff.md#part-2-the-profile) | file | TIFF and BigTIFF, including OME-TIFF across files, Micro-Manager stacks and JPEG-tiled slides such as Aperio SVS |
 | [VSI](zarrify/vsi.md#part-2-the-profile) | file | Olympus cellSens VSI slides: a `.vsi` file and the tile files beside it, probed by key (uncompressed, JPEG, JPEG 2000 and lossless JPEG tiles) |
 | [Zarr v2](zarrify/zarr2.md#part-2-the-profile) | store | Zarr v2 hierarchies |
 <!-- /profiles -->
@@ -747,8 +755,10 @@ The VSI ([vsi.md §9](zarrify/vsi.md#9-vsi-profile)), NRRD
 ([grib.md §8](zarrify/grib.md#8-grib-profile)) profiles are chosen by a file input's signature
 ([§1.2](#12-input)), and read the file and the files beside it (a slide's tile files, a
 detached header's data file, a GRIB file's index files) as a store
-([§1.4](#14-store-inputs)). Such a **file read as a store** is read as follows; the profile's
-document says which keys it probes, how it reads each object, and the order of its sources.
+([§1.4](#14-store-inputs)), and so does the TIFF profile, for an input that names other files
+([tiff.md §7.4](zarrify/tiff.md#74-several-files)). Such a **file read as a store** is read as follows; the profile's
+document says which keys it probes, how it reads each object, and the order of its sources, under
+the rules of [§1.9](#19-sources-beside-the-input).
 
 - **The store URL and the key.** `U` MUST have no query and no fragment component, or the
   input is rejected (`<format> input <U> has a query or a fragment`). The **store URL** is `U`
@@ -775,6 +785,135 @@ document says which keys it probes, how it reads each object, and the order of i
 - **Rejection.** [§1.4](#14-store-inputs)'s rejection and failure rules apply to every object
   read, and [§1.2](#12-input)'s **References stay in the file** to every range, within its
   object.
+
+### 1.9 Sources beside the input
+
+A **sibling** is an object of a file read as a store ([§1.8](#18-files-read-as-stores)) other than
+the named file: a slide's tile file, a detached header's data file, a part of a split image. Every
+profile that reads siblings follows this section, and its document gives the **sibling table**
+below. A store input ([§1.4](#14-store-inputs)) has no siblings, since a listing finds its objects,
+but its profile follows **Pins**, **Identity** and **Bounds** for the objects one object names.
+
+**When an input is read as a store.** A profile says which of two forms it has:
+
+- **Always:** every input is a file read as a store, as VSI, NRRD and GRIB are, and its mirror is a
+  store IR even when the named file is the only object.
+- **On demand:** an input whose bytes name no sibling is a file input ([§1.2](#12-input)): source 0
+  is `U`, and its mirror is a file IR. An input that names one is a file read as a store. So a file
+  that names only itself, such as an OME-TIFF whose `TiffData` elements give its own file name, has
+  the output it would have had if it named none. A zarrifier MAY read the named file again when it
+  finds a sibling: requests are not part of the output.
+
+**Naming.** A profile gets a sibling's key in one of two ways:
+
+- **Derived:** a rule on the named file's key, or on a value it holds, gives the key:
+  `_<base>_/stack<id>/frame_t.ets` for a VSI stack, `<base>(<p>).czi` for part `p` of a CZI. A
+  derived name is not checked further, since its pieces are the key's own and values the rule
+  writes in decimal, but the rule MUST NOT copy other text from the file into a key.
+- **Written:** the file holds the name as text: NRRD's `data file`, OME-TIFF's `FileName`, LIF's
+  `File`. A written name becomes a key by these steps, whose rejection message is the profile's
+  (NRRD's: `the data file "<name>" is not a path below the header's directory`):
+
+  1. It MUST be valid UTF-8 (the profile says how the format's text decodes to it), at most 1024
+     bytes long.
+  2. A profile whose format percent-encodes says so, and its names are percent-decoded once; one
+     whose format writes paths on Windows says so, and its names then have each `\` replaced by
+     `/`. So LIF's `..%5Cseries010.lof` is `../series010.lof`. No other rewriting takes place, and
+     case is kept (but see **Case**, below).
+  3. It MUST NOT start with `/`, hold a `\` or a `:` (a Windows path, a drive, a URL's scheme), or
+     have an empty segment (the parts between `/`). So it can name no other host and no absolute
+     path.
+  4. It is relative to the directory of the file that holds it. Starting from that directory's
+     segments below the store URL (none, for the named file), a segment `.` is dropped, and any
+     other is appended. A segment `..` removes the last one, and the name is rejected when none is
+     left to remove, or when the profile does not allow `..`; the profile allows it only when its
+     format's writers use it. The result MUST have a segment. Those segments, joined by `/`, are
+     the **key**.
+
+Every sibling is therefore below the store URL: the object URL
+([§1.4](#14-store-inputs), **Object URLs**) of its key, under the same reader policy
+([spec/refkv.md §6.7](refkv.md#67-reader-policy)) as the named file. Nothing in a file can make a
+zarrifier or a reader fetch from elsewhere. A file that names a sibling in a parent directory of the
+named file is rejected, and the input to give is the file at the top of the set.
+
+**Case.** A file written on a case-insensitive file system can name a sibling in another case than
+the file has: LAS X writes `metadata/series010.xlif` for the file `Metadata/Series010.xlif`. A profile
+whose format's writers do this says so, and for it a host that can list the store's directories
+(a local directory, or a store [§1.5](#15-listing-a-store) lists) resolves a key it finds absent, one
+segment at a time: the entry of the directory equal to the segment, else the only one equal to it
+ignoring case (by Unicode's simple case folding). The found key, not the written one, is the object's
+key, in the mirror and in its URL. Two such entries reject the input: `the <noun> "<key>" matches
+both "<a>" and "<b>"`. A host that cannot list (a plain web server) finds such a sibling absent, and
+the input is rejected as **Probing** says. This listing is the only one a file input is ever read
+with.
+
+**Probing.** A key is probed as [§1.8](#18-files-read-as-stores) says, and only when the input's own
+bytes call for it, for two reasons: a probe costs a request, and a browser cannot tell a 404 without
+CORS headers from a network failure, so asking for a file that is not there can fail the run.
+
+- A sibling the file names is **required**, and when it is absent the input is rejected: `the
+  <noun> "<key>" does not exist`. The exception is a format in which a name may dangle, as an HDF5
+  external link may: its profile says so, and records such a name, and one a written name's steps
+  reject, in place of presenting it, with nothing fetched.
+- A sibling a rule only suggests is **optional**, and the profile says what its absence means, and
+  when a found one ends the search: a VSI stack's second candidate is not probed once the first is
+  found, and GRIB's index files are optional.
+- A family of numbered siblings is probed up to the highest number the file names. A format may
+  record no such number, as CZI records none; its profile then probes the family only when the
+  named file shows that it is incomplete, says how it shows that, and stops at the first absent
+  member. So a complete file costs no probe.
+- An input that names the wrong member of a set is rejected and its message names the right one,
+  where the file records which that is: `name(1).czi is part 1 of the file name.czi: zarrify that
+  one`.
+
+**Sources and order.** Each sibling a reference uses is a `url` source
+([§1.8](#18-files-read-as-stores), **Sources**), and the named file is one only when a reference
+uses it. The order of the sources is a function of the bytes alone, never of when a probe or a read
+completed. A profile uses the order of **first use** unless its document says otherwise: walk the
+output's reference entries in the order its chunk tables give, and number each object as it first
+appears.
+
+**Pins.** A sibling is pinned as source 0 of a file input is ([§1.2](#12-input)): a `size` pin, and
+an `etag` pin when every response received for it had an `ETag` with the same strong value. Every
+sibling is an object of the mirror's store IR ([conventions §8.9](conventions.md#89-stores)), at its
+key. What the profile read of it is **described in place**, so that a mirror records each file's own
+metadata as a single file's mirror does, and a sibling of which it read nothing is **referenced**.
+The root's source metadata records every sibling's key.
+
+**Identity.** The size and the ETag pin the file a key named when the input was read, but do not say
+that it was the right file. Where a format records which files belong together, the profile MUST
+read that record from each sibling and reject one that does not match, `the <noun> "<key>" is not
+part of this <set>`, rather than present another file's bytes as this image. CZI's `PrimaryFileGuid`
+and `FilePart` are such a record, and so is an OME-TIFF's `UUID` beside the `UUID` of the file it
+names, when that file holds an OME-XML document. Where a format records none (a NIfTI pair, NRRD's
+data file, an HDF5 external file), the profile says so, and checks what it can: that every range
+lies within its object.
+
+**Bounds.** Whoever writes a small file chooses what it names, so these hold before anything is
+read of what it named:
+
+- **Files:** a run probes at most 2^16 distinct keys, the named file not counted, else `budget: the
+  input names more than 65536 files`. A key already known is not probed or read again, so a file
+  that names itself or an earlier file adds nothing, and that also ends a cycle of documents.
+- **Depth:** documents that name documents (an XLEF that names an XLIF that names a LOF) go at most
+  16 levels deep, the named file being level 1, else `budget: documents name documents more than 16
+  levels deep`.
+- **Reads:** the budget of a store run holds, each object found adding to it as a listed one does
+  ([conventions §8.9](conventions.md#89-stores)). A profile reads from a sibling only the ranges its
+  document gives, and a document it reads whole has a size limit of its own.
+- **References** stay within their objects: every reference's `offset + length` is at most the
+  `size` its object's pin records ([§1.2](#12-input), **References stay in the file**).
+
+**The sibling table.** A profile's document says, for its siblings:
+
+| what | it says |
+|---|---|
+| form | always or on demand |
+| names | each key's rule, derived or written, with the steps a written name takes (`\`, percent-decoding, `..`, **Case**) |
+| probes | which keys, in which batches; required or optional; what is recorded for a name that dangles; when a family ends |
+| identity | what is checked in each sibling and the rejection's message, or that the format records nothing |
+| order | the sources' order, when not first use |
+| reads and mirror | the ranges read of each sibling, and how the mirror describes it |
 
 ## 2. The Zarr layout
 
