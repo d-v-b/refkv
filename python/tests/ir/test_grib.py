@@ -291,7 +291,7 @@ def test_a_south_polar_grid_holds_antarctica_and_its_sea_ice():
 
     def at(lat: float, lon: float) -> float:
         px, py = to_projected.transform(lon, lat)
-        return float(ice[int(round((py - y[0]) / (y[1] - y[0]))), int(round((px - x[0]) / (x[1] - x[0])))])
+        return float(ice[round((py - y[0]) / (y[1] - y[0])), round((px - x[0]) / (x[1] - x[0]))])
 
     assert (round((0.0 - y[0]) / (y[1] - y[0])), round((0.0 - x[0]) / (x[1] - x[0]))) == (360, 300)
     assert at(-68.0, -40.0) > 0.5  # the Weddell Sea
@@ -325,33 +325,6 @@ def test_a_projected_grids_first_point_is_where_its_crs_puts_it(name):
     assert abs(py - y[0]) < 1e-3
 
 
-def test_an_unstructured_grid_is_points_and_names_its_grid():
-    """A 3.101 field's variable has one dimension of points and no positions; its group names the
-    grid that holds them."""
-    path = GRIB / "grib_unstructured.grib2"
-    _, root = zarrified(path)
-    group = root["grid0"]
-    assert isinstance(group, zarr.Group)
-    assert dict(group.attrs) == {"GRIB_numberOfGridUsed": 26, "GRIB_numberOfGridInReference": 1,
-                                 "GRIB_uuidOfHGrid": "a27b8de618c411e4820ab5b098c6a5c0"}
-    arrays = dict(group.arrays())
-    assert "latitude" not in arrays and "point" not in arrays
-    (var,) = [a for a in arrays.values() if (a.metadata.dimension_names or ("",))[-1] == "point"]
-    assert var.shape[-1] == 192
-
-
-def test_a_gaussian_grid_has_no_affine_transform():
-    """A Gaussian grid's latitudes are not evenly spaced: its group gives their values, and its
-    transform is left out."""
-    _, root = zarrified(GRIB / "grib_gfs_flux_land.grib2")
-    group = root["grid0"]
-    assert isinstance(group, zarr.Group)
-    assert "spatial:transform" not in group.attrs
-    assert group.attrs["spatial:dimensions"] == ["latitude", "longitude"]
-    assert group.attrs["spatial:shape"] == [1536, 3072]
-    assert group.get_array("latitude").dtype == np.float64
-
-
 @needs_eccodes
 @pytest.mark.parametrize("name", ["grib_reduced_gg", "grib_reduced_bitmap", "grib_reduced_ll"])
 def test_reduced_grids_are_points_at_eccodes_positions(name):
@@ -382,8 +355,10 @@ def test_an_unstructured_grid_is_points_and_names_its_grid():
     assert dict(group.attrs) == {"GRIB_numberOfGridUsed": 26, "GRIB_numberOfGridInReference": 1,
                                  "GRIB_uuidOfHGrid": "a27b8de618c411e4820ab5b098c6a5c0"}
     arrays = dict(group.arrays())
-    assert "latitude" not in arrays and "point" not in arrays
-    (var,) = [a for k, a in arrays.items() if a.metadata.dimension_names[-1] == "point" and k != "valid_time"]
+    assert "latitude" not in arrays
+    assert "point" not in arrays
+    (var,) = [a for k, a in arrays.items()
+              if sequence(at(a.metadata.to_dict(), "dimension_names"))[-1] == "point" and k != "valid_time"]
     assert var.shape[-1] == 192
 
 

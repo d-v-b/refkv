@@ -613,12 +613,14 @@ def main() -> None:
         "latitudeOfFirstGridPointInDegrees": rows[10], "latitudeOfLastGridPointInDegrees": rows[21]}))
 
     # rotated latitude/longitude (3.1): the rotated frame's 16 × 12 points 0.5° apart
-    rotated = {"Ni": NI, "Nj": NJ, "iDirectionIncrementInDegrees": 0.5, "jDirectionIncrementInDegrees": 0.5,
-               "latitudeOfFirstGridPointInDegrees": 3.0, "latitudeOfLastGridPointInDegrees": -2.5,
-               "longitudeOfFirstGridPointInDegrees": 356.0, "longitudeOfLastGridPointInDegrees": 3.5,
-               "latitudeOfSouthernPoleInDegrees": -35.0, "longitudeOfSouthernPoleInDegrees": 10.0}
+    rotated: dict[str, object] = {
+        "Ni": NI, "Nj": NJ, "iDirectionIncrementInDegrees": 0.5, "jDirectionIncrementInDegrees": 0.5,
+        "latitudeOfFirstGridPointInDegrees": 3.0, "latitudeOfLastGridPointInDegrees": -2.5,
+        "longitudeOfFirstGridPointInDegrees": 356.0, "longitudeOfLastGridPointInDegrees": 3.5,
+        "latitudeOfSouthernPoleInDegrees": -35.0, "longitudeOfSouthernPoleInDegrees": 10.0}
     write("grib_rotated", grid_message("rotated_ll_sfc_grib2", field(23), rotated))
-    write("grib_rotated_angle", grid_message("rotated_ll_sfc_grib2", field(24), {**rotated, "angleOfRotationInDegrees": 15.0}))
+    write("grib_rotated_angle",
+          grid_message("rotated_ll_sfc_grib2", field(24), {**rotated, "angleOfRotationInDegrees": 15.0}))
 
     # polar stereographic (3.20): 16 × 12 points 25 km apart
     polar = {"Nx": NI, "Ny": NJ, "DxInMetres": 25000, "DyInMetres": 25000}
@@ -662,7 +664,8 @@ def main() -> None:
     write("grib_reduced_gg", grid_message("reduced_gg_pl_32_grib2", field(29, ni=points, nj=1), {}))
     masked = field(30, ni=points, nj=1)
     masked[100:400] = 9999.0
-    write("grib_reduced_bitmap", grid_message("reduced_gg_pl_32_grib2", masked, {"bitmapPresent": 1, "missingValue": 9999.0}))
+    write("grib_reduced_bitmap",
+          grid_message("reduced_gg_pl_32_grib2", masked, {"bitmapPresent": 1, "missingValue": 9999.0}))
     counts = [4, 8, 12, 16, 16, 16, 16, 16, 16, 12, 8, 4]
     write("grib_reduced_ll", grid_message("reduced_ll_sfc_grib2", field(31, ni=sum(counts), nj=1), {
         "Nj": NJ, "latitudeOfFirstGridPointInDegrees": 55.0, "latitudeOfLastGridPointInDegrees": -55.0,
@@ -672,7 +675,8 @@ def main() -> None:
     # unstructured (3.101), as ICON's: the grid's numbers and UUID alone
     h = ec.codes_grib_new_from_samples("regular_ll_sfc_grib2")
     ec.codes_set(h, "gridDefinitionTemplateNumber", 101)
-    for k, v in {"shapeOfTheEarth": 6, "numberOfGridUsed": 26, "numberOfGridInReference": 1, "numberOfDataPoints": NI * NJ,
+    for k, v in {"shapeOfTheEarth": 6, "numberOfGridUsed": 26, "numberOfGridInReference": 1,
+                 "numberOfDataPoints": NI * NJ,
                  "packingType": "grid_simple", "bitsPerValue": 12}.items():
         ec.codes_set(h, k, v)
     ec.codes_set_string(h, "uuidOfHGrid", "a27b8de6-18c4-11e4-820a-b5b098c6a5c0".replace("-", ""))
