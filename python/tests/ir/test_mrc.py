@@ -316,9 +316,10 @@ def test_zarrifies_the_synthetic_files(tmp_path):
             assert [(a["name"], a.get("unit")) for a in ms["axes"]] == axes, name
         if scale is not None:
             assert transforms[0]["scale"] == scale, name
-        assert (transforms[1]["translation"] if len(transforms) > 1 else None) == translation, name
+        placed = transforms[1]["translation"] if len(transforms) > 1 else None
+        assert placed == translation, name
         # a zero of the translation is 0, not the -0 that negating one or IMOD's writer gives
-        assert all(math.copysign(1.0, v) > 0 for v in (translation and transforms[1]["translation"]) or [] if v == 0), name
+        assert not any(v == 0 and math.copysign(1.0, v) < 0 for v in placed or []), name
         assert set(attributes) == {"ome", "zarr_conventions", "refkv_zarrified"}, name
         meta = attributes["refkv_zarrified"]["mrc"]
         assert list(meta) == ["byte_order", "kind", "data_type", "header", "axis_map"] + (
