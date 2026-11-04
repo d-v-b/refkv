@@ -155,6 +155,8 @@ def timestamps(times: int, start: str = "2021-03-04 05:06:07", step: float = 2.5
 
 def user_block() -> None:
     # An Imaris file after a user block, which the HDF5 profile reads and chooses IMS for.
+    # Its own seed: a writer that draws from the shared stream changes every file written after it.
+    rng.bit_generator.state = np.random.default_rng(1).bit_generator.state
     with h5py.File(OUT / "ims_user_block.ims", "w", libver="earliest", userblock_size=1024) as f:
         imaris(f, [{"size": (3, 6, 7), "dims": (4, 8, 8), "chunks": (2, 4, 4)}], compression="gzip",
                image=extents((3, 6, 7)))
@@ -827,9 +829,9 @@ if __name__ == "__main__":
     OUT.mkdir(parents=True, exist_ok=True)
     # With arguments, only those writers run, and the other files are kept (h5py
     # does not write the same bytes twice, so regenerating them all changes them).
-    writers = {"accepted": accepted, "user_block": user_block, "rejected": rejected, "reconstruction": reconstruction,
-               "review": review, "indexes": indexes, "review2": review2, "review3": review3, "review4": review4,
-               "table_color": table_color, "global_heaps": global_heaps}
+    writers = {"accepted": accepted, "rejected": rejected, "reconstruction": reconstruction, "review": review,
+               "indexes": indexes, "review2": review2, "review3": review3, "review4": review4,
+               "table_color": table_color, "global_heaps": global_heaps, "user_block": user_block}
     if len(sys.argv) == 1:
         for p in OUT.glob("ims_*.ims"):
             p.unlink()

@@ -23,6 +23,8 @@ SCHEMA = {"anyOf": [
         "properties": {
             "address": {"type": "integer", "minimum": 0, "description": "Its object header's address"},
             "superblock": {"enum": [0, 1, 2, 3], "description": "The root's: the superblock's version"},
+            "user_block": {"type": "integer", "minimum": 512,
+                           "description": "The root's, when the file has one: the user block's size"},
             "attributes": _TYPES,
             "unpresented_attributes": _NOT,
             "unpresented": _NOT,
