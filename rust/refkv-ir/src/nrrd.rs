@@ -690,7 +690,9 @@ impl Nrrd {
         let (key, size) = self.keys[self.data].clone();
         let total = f.sizes.iter().fold(f.item as u128, |a, &s| a.saturating_mul(s as u128));
         let gzip = f.encoding == "gzip";
+        // the gzip encoding's byte skip counts decompressed bytes (a `refkv.skip` codec passes them)
         let start = match f.byte_skip {
+            _ if gzip => self.base,
             -1 => (size as u128).checked_sub(total).map_or(0, |s| s as u64),
             k => self.base + k as u64,
         };
@@ -738,6 +740,9 @@ impl Nrrd {
         if let Some(l) = f.little {
             codec.insert("endian".into(), json!(if l { "little" } else { "big" }));
         }
+        if f.encoding == "gzip" && f.byte_skip > 0 {
+            codec.insert("skip".into(), json!(f.byte_skip));
+        }
         let form = json!({"geometry": {"data_type": f.data_type, "shape": self.stored_shape()}, "codec": codec, "recipe": [["src", 0, null]]});
         ir.data(o, "data", NO_INDEX, 0, (self.start, self.length), &form.to_string())?;
         claimed[self.data].push((self.start, self.length));
@@ -765,7 +770,7 @@ impl Nrrd {
             "data_key": self.keys[self.data].0,
             "own": own(&h, &f, &self.axes, (self.data != 0).then(|| self.keys[self.data].0.as_str())),
             "array": {
-                "data_type": f.data_type, "item": f.item, "encoding": f.encoding,
+                "data_type": f.data_type, "item": f.item, "encoding": f.encoding, "byte_skip": f.byte_skip,
                 "endian": f.little.map(|l| if l { "little" } else { "big" }),
                 "sizes": f.sizes, "axes": self.axes, "start": self.start, "length": self.length,
                 "directions": f.directions.as_ref().map(|d| d.iter().map(|v| v.as_deref().map(finite)).collect::<Vec<_>>()),

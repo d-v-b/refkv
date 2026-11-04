@@ -10,6 +10,9 @@ use crate::project::Copied;
 use crate::Parser;
 use serde_json::Value as J;
 
+/// The bytes of a file a signature's test takes, and of a gzipped file's stream.
+const SNIFFED_BYTES: u64 = 552;
+
 // `Format`: one variant per file profile of the registry (profiles/; build.rs)
 include!(concat!(env!("OUT_DIR"), "/formats.rs"));
 
@@ -26,10 +29,14 @@ impl Format {
     }
 
     /// The format a file's first bytes give, if one of these: the first, in the registry's
-    /// `sniff` order, whose profile's `detect` takes them (spec/zarrify.md §1.2
+    /// `sniff` order, whose profile's `detect` takes them; else, of a gzip member, the first whose
+    /// `detect_gzipped` takes what they inflate to (spec/zarrify.md §1.2
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>).
     pub fn sniff(head: &[u8]) -> Option<Format> {
-        Format::SNIFFED.iter().copied().find(|f| f.profile().detect(head))
+        Format::SNIFFED.iter().copied().find(|f| f.profile().detect(head)).or_else(|| {
+            let inflated = crate::gz::start(head, SNIFFED_BYTES)?;
+            Format::SNIFFED.iter().copied().find(|f| f.profile().detect_gzipped(&inflated))
+        })
     }
 }
 
@@ -41,6 +48,12 @@ pub trait FileProfile: Sync {
     /// of a profile the registry gives a `sniff` precedence.
     fn detect(&self, head: &[u8]) -> bool {
         let _ = head;
+        false
+    }
+    /// Whether the first bytes (up to 552 of them) a gzip member inflates to are the profile's
+    /// signature, for a profile that reads a file gzipped whole.
+    fn detect_gzipped(&self, inflated: &[u8]) -> bool {
+        let _ = inflated;
         false
     }
     /// A parser of a file of `size` bytes.

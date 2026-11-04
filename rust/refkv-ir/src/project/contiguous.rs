@@ -17,6 +17,12 @@ pub fn threshold(facts: &J) -> usize {
     facts["copy_threshold"].as_u64().map_or(MAX_PAYLOAD, |t| t as usize)
 }
 
+/// The one chunk of an array of `shape` that a compressed stream `(start, length)` holds whole:
+/// its grid, and the chunk.
+pub fn whole_stream(shape: &[u64], (start, length): (u64, u64)) -> (Vec<u64>, Vec<(Vec<u64>, Chunk)>) {
+    (shape.to_vec(), vec![(vec![0; shape.len()], Chunk::Ranges(vec![Part::Src(start, length)]))])
+}
+
 /// The source's ranges of the chunks a projection copies (`Chunk::Copy`), which the run reads
 /// after the parser.
 pub fn copy_reads(chunks: &[(Vec<u64>, Chunk)]) -> impl Iterator<Item = (u64, u64)> + '_ {

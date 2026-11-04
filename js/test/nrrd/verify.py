@@ -24,6 +24,7 @@ from __future__ import annotations
 import math
 import re
 import sys
+import tempfile
 import warnings
 import zipfile
 from pathlib import Path
@@ -152,9 +153,22 @@ def placement(header: dict) -> tuple[list[str], dict[str, float], dict[str, floa
     return names, scale, translation
 
 
+def pynrrd_read(path: Path, tmp: str):
+    """pynrrd's reading. With the gzip encoding and a byte skip it skips the bytes of the decompressed
+    data, as the NRRD definition says, but first seeks as far into the compressed stream: it reads a
+    copy with as many bytes before the stream."""
+    if path.name != "nrrd_gzip_byte_skip.nrrd":
+        return nrrd.read(str(path), index_order="C")  # the header's last axis first
+    end = path.read_bytes().index(b"\n\n") + 2
+    copy = Path(tmp) / path.name
+    copy.write_bytes(path.read_bytes()[:end] + bytes(4) + path.read_bytes()[end:])
+    return nrrd.read(str(copy), index_order="C")
+
+
 def problems_of(path: Path, out: Path) -> list[str]:
     problems = []
-    data, header = nrrd.read(str(path), index_order="C")  # the header's last axis first
+    with tempfile.TemporaryDirectory() as tmp:
+        data, header = pynrrd_read(path, tmp)
     root = zarr.open_group(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
     arr = root.get_array("0")
     names = [str(n) for n in metadata_v3(arr).dimension_names or []]

@@ -11,6 +11,7 @@ pub mod coding;
 pub mod cxml;
 pub mod expr;
 pub mod fed;
+pub mod gz;
 pub mod ir;
 pub mod json;
 pub mod lv;

@@ -631,6 +631,11 @@ STORE_FORMATS = tuple(string(e["name"]) for e in REGISTRY if e["kind"] in ("stor
 FILE_SUFFIXES = {string(s): e for e in REGISTRY for s in sequence(e["suffixes"])}
 
 
+def entry_of(path: Path):
+    """The registry entry of a fixture file, by the suffix its name ends in (`.nii.gz` has two)."""
+    return next(e for s, e in FILE_SUFFIXES.items() if path.name.endswith(s))
+
+
 def store_fixtures(fixtures: Path) -> list[Path]:
     """The synthetic stores: each directory directly under a store profile's <fixtures>/<p>."""
     return sorted(d for f in STORE_FORMATS if (fixtures / f).is_dir() for d in (fixtures / f).iterdir() if d.is_dir())
@@ -665,7 +670,7 @@ def corpus(proxy: Proxy, fixtures: Path, quick: bool, local_only: bool, large: b
         return p.stem if stems[p.stem] == 1 else p.relative_to(fixtures).as_posix().replace("/", "__")
 
     items = [(f"fixture-{name(p)}", proxy.local(p.relative_to(fixtures).as_posix()),
-              *(["no-ref"] if FILE_SUFFIXES[p.suffix]["reference"] is None
+              *(["no-ref"] if entry_of(p)["reference"] is None
                 or unmutated(p.name) in REVISED else []))
              for p in files]
     registry = {string(e["name"]): e for e in REGISTRY}

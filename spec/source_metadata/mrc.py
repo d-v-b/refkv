@@ -43,6 +43,14 @@ SCHEMA = {"anyOf": [{
             "required": ["x", "y", "z"],
             "additionalProperties": False,
         },
+        "gzip": {
+            "type": "object",
+            "description": "A file gzipped whole: where the data starts in its stream "
+                           "(spec/zarrify/mrc.md §8.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#84-gzipped-files>)",
+            "properties": {"skip": {"type": "integer", "minimum": 0}},
+            "required": ["skip"],
+            "additionalProperties": False,
+        },
     },
     "required": ["byte_order", "kind", "data_type", "header", "axis_map"],
     "additionalProperties": False,
