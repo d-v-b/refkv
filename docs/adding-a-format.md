@@ -404,8 +404,14 @@ each reads the registry. Python needs only the generated classes.
 
 A file read as a store run (`store_run()`,
 [zarrify §1.8](../spec/zarrify.md#18-files-read-as-stores), as NRRD's detached
-headers, VSI's tiles and GRIB's index files are) is still registered by hand in
-several places:
+headers, VSI's tiles and GRIB's index files are) follows
+[zarrify §1.9](../spec/zarrify.md#19-sources-beside-the-input), and its document gives that
+section's sibling table. `refkv_ir::beside::written_key` turns a written name into a key. A
+profile whose file may name no sibling reads it **on demand**: its file parser returns
+`Step::Beside` on finding one, each host then starts over with a store run of the format, and a
+file that names none keeps its file run's output. The on-demand form does not set `store_run()`.
+
+Either form is still registered by hand in several places:
 - `StoreFormat` and its matches in `rust/refkv-ir/src/store.rs`;
 - `StoreFormat` in `js/src/zarrify/ir/store.ts`;
 - `BESIDE` in `js/src/zarrify/ir/vsi.ts` and `python/src/refkv/zarrify/__init__.py`;
