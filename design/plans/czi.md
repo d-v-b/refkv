@@ -286,8 +286,9 @@ clipped levels; the Bgr24 Axioscan test files give tiles almost everywhere.
 6. **No JSON subset** of the metadata XML: it is kept as referenced bytes.
 7. **Embedded Label and SlidePreview CZIs** are attachment bytes, not
    virtualized recursively.
-8. **Unsupported compressions** (LZW, lossless JPEG, chunked, camera and
-   system raw) reject the file, as in the other profiles.
+8. **Unsupported compressions** (chunked, camera and system raw) reject the
+   file, as in the other profiles. LZW and lossless JPEG were among them until
+   2026-11-04 ([§3.1](../../spec/zarrify/czi.md#31-pixel-types-and-codecs)).
 9. **The directory** stays copied typed columns.
 10. **Time scale:** none is derived from TimeStamps when
     `Interval/Increment` is absent.

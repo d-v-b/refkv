@@ -188,7 +188,7 @@ fn build(ir: &Ir, facts: &J, url: &str, source: &str, copied: &Copied) -> Result
             Some("none") if store.get("chunk").is_some() => shape_of(&store["chunk"]),
             _ => whole,
         };
-        let doc = json!({
+        let mut doc = json!({
             "zarr_format": 3,
             "node_type": "array",
             "shape": shape,
@@ -199,6 +199,9 @@ fn build(ir: &Ir, facts: &J, url: &str, source: &str, copied: &Copied) -> Result
             "codecs": a["codecs"],
             "attributes": declare(attributes, PROFILE, None, Some(own)),
         });
+        if !a["dimension_names"].is_null() {
+            doc["dimension_names"] = a["dimension_names"].clone();
+        }
         docs.push((doc_key, doc));
     }
     for (k, d) in docs {

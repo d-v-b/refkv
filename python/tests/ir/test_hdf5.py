@@ -12,10 +12,12 @@ import warnings
 import h5py
 import numpy as np
 import pytest
+import xarray as xr
 import zarr
 from hdmf_zarr.nwb import NWBZarrIO
 from ir_helpers import FIXTURES
 from pynwb import NWBHDF5IO
+from zarr.core.metadata import ArrayV3Metadata
 
 import refkv.zarr
 from refkv._narrow import mapping, number, sequence
@@ -33,6 +35,7 @@ UNPRESENTED = {
                          "linked_references": "external_reference",
                          "linked_group/references": "external_reference"},
     "hdf5_filters.h5": {"fletcher32": "filter", "lzf": "filter"},
+    "hdf5_netcdf4.h5": {"depth": "dimension_only", "x": "dimension_only"},
     "hdf5_links_earliest.h5": {"region": "datatype"},
     "hdf5_links_latest.h5": {"region": "datatype"},
 }
@@ -260,3 +263,60 @@ def test_a_linked_file_follows_no_further():
 
 def test_a_file_that_names_no_sibling_stays_a_file_input():
     assert "siblings" not in own(opened(FIXTURES / "hdf5" / "hdf5_numbers.h5")[0])
+
+
+def test_a_netcdf4_file_reads_as_its_dimensions_and_coordinates():
+    path = FIXTURES / "hdf5" / "hdf5_netcdf4.h5"
+    store = refkv.zarr.store(zarrify(str(path)))
+    for group in (None, "inner"):
+        want = xr.open_dataset(path, engine="h5netcdf", group=group, decode_cf=False)
+        got = xr.open_zarr(store, group=group, consolidated=False, zarr_format=3, decode_cf=False)
+        renamed = {str(n): str(n).removeprefix("_nc4_non_coord_") for n in got.variables}
+        got = got.rename_vars(renamed)
+        assert set(got.variables) == set(want.variables)
+        assert set(got.indexes) == set(want.indexes)
+        for name, variable in want.variables.items():
+            assert got[name].dims[:variable.ndim] == variable.dims, name
+            if variable.dtype.kind != "S":
+                assert np.array_equal(got[name].values, variable.values), name
+                assert got[name].attrs.get("_FillValue") == variable.attrs.get("_FillValue"), name
+
+
+def test_a_netcdf4_file_decodes_as_xarray_decodes_it():
+    path = FIXTURES / "hdf5" / "hdf5_netcdf4.h5"
+    want = xr.open_dataset(path, engine="h5netcdf")
+    got = xr.open_zarr(refkv.zarr.store(zarrify(str(path))), consolidated=False, zarr_format=3)
+    for name in ("sst", "counts", "time"):
+        if name == "time":
+            assert np.array_equal(got[name].values, want[name].values), name
+        else:  # JSON keeps no float32, so that a scaled variable may decode as float64
+            assert np.allclose(got[name].values, want[name].values, equal_nan=True), name
+
+
+def test_a_netcdf4_dimension_without_a_variable_is_not_presented():
+    root, _ = opened(FIXTURES / "hdf5" / "hdf5_netcdf4.h5")
+    assert own(root)["unpresented"]["x"] == "dimension_only"
+    assert "x" not in root
+
+
+@pytest.mark.parametrize(("name", "want"), [
+    ("sst", ["time", "x"]),
+    ("time", ["time"]),
+    ("_nc4_non_coord_depth", ["time", "depth"]),
+    ("label", ["x", None]),
+    ("inner/anomaly", ["time", "y"]),
+    ("inner/y", ["y"]),
+])
+def test_dimension_names_come_from_the_scales(name, want):
+    root, _ = opened(FIXTURES / "hdf5" / "hdf5_netcdf4.h5")
+    array = root[name]
+    assert isinstance(array, zarr.Array)
+    assert isinstance(array.metadata, ArrayV3Metadata)
+    assert list(array.metadata.dimension_names or []) == want
+
+
+def test_a_dataset_without_scales_has_no_dimension_names():
+    root, _ = opened(FIXTURES / "hdf5" / "hdf5_numbers.h5")
+    for _, array in root.arrays():
+        assert isinstance(array.metadata, ArrayV3Metadata)
+        assert array.metadata.dimension_names is None

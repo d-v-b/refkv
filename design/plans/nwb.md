@@ -651,8 +651,10 @@ the corpus.
 ([conventions §9](../../spec/conventions.md#9-dataset-layouts)) is for a
 labeled-array view of the same bytes, which neither hdmf-zarr nor the
 generic tree is. An `hdf5-dataset` layout would serve xarray in two cases.
-For netCDF-4 and CF files, it would name dimensions from `DIMENSION_LIST`
-and turn dimension scales into coordinates. For NWB, each `TimeSeries`
+For netCDF-4 and CF files, the generic tree has since come to name dimensions
+from `DIMENSION_LIST`, with dimension scales as coordinates
+([spec/zarrify/hdf5.md §3](../../spec/zarrify/hdf5.md#3-datasets)), so no
+layout is needed. For NWB, each `TimeSeries`
 would become a dataset with `timestamps` (or `starting_time` and `rate`)
 as its time coordinate. That is a convention of its own, not version 0.
 
