@@ -149,7 +149,7 @@ differ only in the built-in layouts they ask for give a plugin the same `Base`.
   returns it today, and `zarrify` drops it).
 - `base.keys()`, and `base.document(key)`, a JSON document (a `zarr.json`) as
   a dict: the attributes as the base wrote them. An HDF5 attribute that JSON
-  cannot hold is written as conventions §6 says (`"NaN"`, a hex float, an
+  cannot hold is written as [conventions §6](../../spec/conventions.md#6-source-metadata-as-json) says (`"NaN"`, a hex float, an
   integer beyond 2^53 as its digits); `refkv.zarr` decodes HDF5's floats, and
   a plugin that copies attributes decodes what it needs.
 - `base.array(path)`: an array's document, as a dict, and its chunks, a
@@ -187,7 +187,7 @@ copying, by rules spec/layout.md states, so that two producers copy alike: it
 returns an array's entries, keys relative to the array, its `zarr.json` among
 them. Its document is the
 base's with `attributes` as given (`{}` by default: the base's attributes are
-written in conventions §6's encodings, which only the base's declarations
+written in [conventions §6](../../spec/conventions.md#6-source-metadata-as-json)'s encodings, which only the base's declarations
 decode, so a plugin that keeps some decodes them first) and
 `dimension_names` as given (else the base's). Given `order`, a permutation of
 the array's axes as integers, as `numpy.transpose` takes it (the copy's axis
@@ -334,7 +334,7 @@ built-in layouts hold. A `LayoutRejected` refuses the layout request, which
 depends on the input (a sniffed file's profile is not known in advance), so it
 is a rejection, and like every rejection writes no output; asking for
 `Dataset()` of a format that has none is, in Python, a `ValueError` today,
-which zarrify §1.7 calls rejecting the request too.
+which [zarrify §1.7](../../spec/zarrify.md#17-named-inputs-and-layouts) calls rejecting the request too.
 
 ### Names, identity, versions and equivalence
 
@@ -428,7 +428,7 @@ The implementation adds, as normative text:
 - **[conventions §9](../../spec/conventions.md#9-dataset-layouts) and
   [§11.5](../../spec/conventions.md#115-layout-tables)**: a plugin layout is a
   second layout like a dataset layout, but below `refkv_layouts` and under its
-  own conventions; §11.5 says, once for every format, that `refkv_layouts/**`
+  own conventions; [§11.5](../../spec/conventions.md#115-layout-tables) says, once for every format, that `refkv_layouts/**`
   is the `subtree` of spec/layout.md's table, so no format's own table
   changes.
 - **[zarrify §1.9](../../spec/zarrify.md#19-sources-beside-the-input)**: the
