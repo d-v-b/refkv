@@ -4,6 +4,7 @@
   "uuid": "23e0c600-8da6-40f1-81e7-ab246e948e88",
   "version": 0,
   "kind": "file",
+  "store_run": {"form": "always", "named": "header file", "section": "8-nrrd-profile"},
   "sniff": 95,
   "chosen_by": null,
   "suffixes": [

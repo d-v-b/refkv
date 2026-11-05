@@ -11,7 +11,7 @@ import { blockReader, type ByteReader, ImageError } from "./common.ts";
 import { type IrFormat, NamesSiblings, zarrifyIr } from "./ir/run.ts";
 import { ir, out, put } from "./ir/wasm.ts";
 import { type RangeSource, readerSource } from "./ir/source.ts";
-import { zarrifyStoreIr } from "./ir/store.ts";
+import { type StoreProfile, zarrifyStoreIr } from "./ir/store.ts";
 import { BESIDE, type BesideFormat, ON_DEMAND, zarrifyVsi } from "./ir/vsi.ts";
 import { chooseProfile, closeStore, objectUrl, openHttpStore, type Store } from "./store.ts";
 import type { Policy } from "../archive.ts";
@@ -157,7 +157,7 @@ export function isStoreUrl(url: string): boolean {
 export async function zarrifyStore(
   input: Store | string,
   options: PinOptions & { policy?: Policy; headers?: Record<string, string> } = {},
-): Promise<ArchiveDesc & { format: "n5" | "zarr2" | "ome-zarr" | "safe" | "precomputed" | "safetensors"; summary: object }> {
+): Promise<ArchiveDesc & { format: StoreProfile; summary: object }> {
   if (typeof input !== "string" && (options.policy !== undefined || options.headers !== undefined)) {
     // a listed store was opened under its policy already
     throw new TypeError("zarrifyStore: a policy applies to a store URL; pass it to openHttpStore for an opened store");
@@ -179,7 +179,7 @@ export async function zarrifyStore(
 
 async function zarrifyStoreProfile(
   store: Store,
-): Promise<ArchiveDesc & { format: "n5" | "zarr2" | "ome-zarr" | "safe" | "precomputed" | "safetensors"; summary: object }> {
+): Promise<ArchiveDesc & { format: StoreProfile; summary: object }> {
   try {
     const chosen = chooseProfile(store);
     if (chosen === "safe") return { format: "safe", ...(await zarrifyStoreIr("safe", store)) };

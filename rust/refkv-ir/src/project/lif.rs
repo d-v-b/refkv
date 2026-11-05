@@ -208,3 +208,8 @@ fn images(ir: &Ir, facts: &J, refs: &mut Refs) -> Result<u64, String> {
     }
     Ok(chunks)
 }
+
+/// The projection of the profile's store run (`StoreFormat`; crate::store).
+pub fn store_project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
+    project_set(ir, facts, url)
+}

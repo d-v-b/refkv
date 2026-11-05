@@ -12,28 +12,7 @@ this layout as a reference store, and the subset of HDF5 that it reads, is the H
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `6c006834-424b-451b-b786-f8c502ec32af` ·
 Schema: [schema.json](hdf5/schema.json)
 
-Changed 2026-11-04: a file that names siblings is read as a store: an external link presents what
-it names, one level deep, and external storage is presented when its files are there
-([§8.6](#86-external-files)).
-
-Changed 2026-11-04: a dataset with Fletcher32, LZF, Blosc, zstd, LZ4 or bitshuffle is presented
-([§3.1](#31-data-types), [§3.4](#34-the-codec-refkvh5_bitshuffle)), and a chunk an optional filter
-skipped is read in that filter's literal form ([§3.2](#32-chunks)), so that `filter` and
-`filter_mask` name only what remains.
-
-Changed 2026-11-04: a file after a user block is read, its addresses relative to the superblock
-([§8](#8-hdf5-profile), [§8.2](#82-reading)), and the root records the block's size
-([§7.1](#71-groups)).
-
-Changed 2026-11-04: an array has `dimension_names` from its `DIMENSION_LIST`, or from itself as a
-dimension scale, a netCDF-4 dimension without a variable is not presented
-([§3](#3-datasets)), and such a dataset's attribute of one element is a scalar and any dataset's
-`_FillValue` in the form xarray reads ([§6](#6-attributes)).
-
-Changed 2026-11-01, with no change to any output: the checks list every rejection and limit,
-among them the datatypes' nesting, the rounds of reads and the references' budget, and say that
-a datatype that does not decode rejects the input, where they said that none did
-([§8.2](#82-reading), [§8.3](#83-checks)).
+Changes: [changes/hdf5/](changes/hdf5/), one file per change.
 
 Added 2026-10-29.
 

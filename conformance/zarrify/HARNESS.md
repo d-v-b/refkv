@@ -151,7 +151,7 @@ include:
 `mutate.py` writes them): a store is a directory directly under `<dir>/<p>/`, for each profile
 `<p>` of the registry whose kind is `store` or `both`. `--large` adds the corpus
 inputs marked `py-only`, which every implementation but the browser's runs. A mutant of a
-fixture in `revised.json` compares as its fixture does: without the frozen reference.
+fixture in [`revised/`](revised/README.md) compares as its fixture does: without the frozen reference.
 
 When a remote server does not serve an input (a timeout, a reset connection, an HTTP error
 after the proxy's retries, or a 404 for the input itself), the proxy answers the request
@@ -177,7 +177,7 @@ with the first's:
   (its registry entry's `reference` is null, spec/zarrify/profiles/) was
   never implemented outside the core, so it has no reference: its inputs
   (`no-ref` in the corpus) compare `py` with `web` alone. So do the fixtures whose
-  layout or verdict a profile changed after the freeze (`revised.json`), the stores
+  layout or verdict a profile changed after the freeze ([`revised/`](revised/README.md)), the stores
   listed the Hub's way, and an input the reference rejects that the others zarrify
   with a profile it never had.
 - `py`: `python -m refkv.zarrify --allow-private-hosts`.
@@ -255,7 +255,7 @@ So these are the only differences it does not report, outside `refkv_source`: th
 number, the names the reference keeps (below), those members, that `omero`, the padding's
 form, and the sources no compared entry uses, with the order of the url sources (above). A
 profile added since (such as MRC) has no reference, and compares `py` with `web` alone, as
-does a fixture of `revised.json`.
+does a fixture of [`revised/`](revised/README.md).
 
 **Stores, since revision 26,** are on the core too (its `zarr2`, `n5` and `safe` store
 formats), and compared as TIFF, ND2 and CZI are. `ref` runs the frozen store dispatch

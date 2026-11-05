@@ -5,41 +5,7 @@ N5 store, ...) looks like any other Zarr hierarchy. These conventions make
 it describe itself: which source it presents, which format that source is
 in, and everything the source's own header or metadata says. There is one
 convention per source format, each specified in `zarrify/<format>.md` next to
-its JSON Schema `zarrify/<format>/schema.json`. (Changed 2026-10-25: the property is
-`refkv_zarrified`, in place of `refkv_virtualized`, [§2](#2-attributes). Changed 2026-10-26,
-with no change to any output: the shared types are defined in type tables, and each format's
-document tabulates its layout, as [§11.5](#115-layout-tables) says; the mirror's
-`ir/shared/data` is said to be absent when the shared sources total no byte, as refkv already
-wrote it ([§8.2](#82-the-table)); and each convention's JSON Schema requires every member of its
-CMO ([§1](#1-conventions)). Changed 2026-10-27: a zlib stream's codec is `numcodecs.zlib`, in
-place of `zlib`, and every codec's name is zarr-python's, imagecodecs-zarr's, the zarr-extensions
-registry's or refkv's own `refkv.<codec>`, [§3](#3-arrays) (d-v-b/refkv#90). Changed
-2026-10-27: imagecodecs-zarr's `imagecodecs_delta` sums back differences along `x`, a step of its
-own between `transpose` and `bytes`, [§3](#3-arrays). Changed 2026-10-28: the `refkv.stream`
-format `"hevc"` codes HEVC access units, its setup the HEVCDecoderConfigurationRecord
-([§10](#10-coded-streams)). Changed 2026-10-30: imagecodecs-zarr's `imagecodecs_ljpeg` decodes
-a lossless JPEG chunk ([§3](#3-arrays)); refkv's `refkv.skip` drops the NPY header a deflated
-`.npz` member inflates to ([§3](#3-arrays)). Changed 2026-10-30: the codec `refkv.grib`
-decodes a GRIB field's message ([§12](#12-grib-messages)). Changed 2026-10-31: `refkv.grib`
-decodes packing 5.40, JPEG 2000 of the reversible 5/3 transform, where it was an error
-([§12](#12-grib-messages)). Changed 2026-11-01, with no change to any output:
-the document cites its own sections as `§n` links. Changed 2026-11-03, with no change to any
-output: [§2](#2-attributes), [§3](#3-arrays) and [§7](#7-source-values-as-arrays) name what the
-formats' documents already say of their attributes, arrays, codecs and fill values. Changed
-2026-11-04, with no change to any output: a node's attributes may hold other conventions'
-members, such as [spec/provenance.md](provenance.md)'s on the root, which each convention's JSON
-Schema accepts ([§2](#2-attributes)). Changed 2026-11-04: imagecodecs-zarr's `imagecodecs_floatpred`
-undoes TIFF's floating-point predictor, in the place of `bytes` ([§3](#3-arrays)). Changed 2026-11-04:
-imagecodecs-zarr's `imagecodecs_lerc`, `imagecodecs_webp`, `imagecodecs_jpegxl` and `imagecodecs_lzma`
-decode a chunk ([§3](#3-arrays)). Changed 2026-11-04: imagecodecs-zarr's `imagecodecs_packints`,
-`imagecodecs_packbits`, `imagecodecs_ccittfax4` and `imagecodecs_eer` decode a chunk ([§3](#3-arrays)).
-Changed 2026-11-04: a TIFF level whose short last strip cannot be
-padded has the `rectilinear` chunk grid ([§3](#3-arrays)). Changed 2026-11-04: imagecodecs-zarr's
-`imagecodecs_png` and `imagecodecs_bmp` decode a chunk that is one PNG or BMP file, and its
-`imagecodecs_lzw` decodes an LZW chunk that holds exactly the chunk's bytes, as CZI's LZW subblocks
-do ([§3](#3-arrays)). Changed 2026-11-04: [§12](#12-grib-messages) decodes reduced grids and template
-3.101 as one line of points, and [§2](#2-attributes) places the numbers that name a 3.101 grid on its
-group.)
+its JSON Schema `zarrify/<format>/schema.json`. Its changes are in [zarrify/changes/conventions/](zarrify/changes/conventions/), one file per change.
 
 <!-- profiles:conventions-table -->
 | format | convention | UUID |
@@ -360,20 +326,62 @@ of each step, and always one of step 3.
 | 4 | `{"name": "imagecodecs_lzma"}` | the bytes are xz streams |
 
 **Codec names.** Every codec a convention names is one that a reader of Zarr v3 finds by its
-name: zarr-python's own (`bytes`, `transpose`, `gzip`, `zstd`, `blosc`, `sharding_indexed`, `vlen-utf8`, and
-`numcodecs.zlib`, `numcodecs.shuffle` and `numcodecs.delta`, its names for numcodecs' codecs),
-imagecodecs-zarr's (`imagecodecs_jpeg`, `imagecodecs_jpeg2k`, `imagecodecs_jpegxr`,
-`imagecodecs_ljpeg`, `imagecodecs_lzw`, `imagecodecs_png`, `imagecodecs_bmp`, `imagecodecs_delta`, `imagecodecs_floatpred`, `imagecodecs_lerc`,
-`imagecodecs_webp`, `imagecodecs_jpegxl`, `imagecodecs_lzma`, `imagecodecs_packints`, `imagecodecs_packbits`,
-`imagecodecs_ccittfax4`, `imagecodecs_eer`, `imagecodecs_lzf`, `imagecodecs_lz4h5`), the
-zarr-extensions registry's (`n5_default`, `packbits`), or refkv's own, which are named `refkv.<codec>`
-(`refkv.stream`, [§10](#10-coded-streams); `refkv.fits_tiles`,
-[fits §3.3](zarrify/fits.md#33-tile-compressed-images); `refkv.tiff_lzw`,
-[qptiff §4.1](zarrify/qptiff.md#41-data-types-and-codecs); `refkv.skip`,
-[npy §4.4](zarrify/npy.md#44-the-refkvskip-codec); `refkv.grib`, [§12](#12-grib-messages);
-`refkv.precomputed`, [precomputed §6](zarrify/precomputed.md#6-the-codec-refkvprecomputed);
-`refkv.h5_bitshuffle`, [hdf5 §3.4](zarrify/hdf5.md#34-the-codec-refkvh5_bitshuffle)). refkv names a
-codec of its own only where none of the others decodes the chunks as the convention says (QPTIFF's
+name: zarr-python's own (and its names for numcodecs' codecs), imagecodecs-zarr's, the
+zarr-extensions registry's, or refkv's own, which are named `refkv.<codec>`. This table lists them,
+one row per codec, by name; `spec/tools/test_codecs.py` checks that it names every codec the Rust
+core writes:
+
+| codec | whose name | its Python package | specified in |
+|---|---|---|---|
+| `blosc` | zarr-python | zarr-python |  |
+| `bytes` | zarr-python | zarr-python |  |
+| `crc32c` | zarr-python | zarr-python |  |
+| `gzip` | zarr-python | zarr-python |  |
+| `imagecodecs_bmp` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_ccittfax4` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_delta` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_dicomrle` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_eer` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_floatpred` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_htj2k` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_jpeg` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_jpeg2k` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_jpegls` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_jpegxl` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_jpegxr` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_lerc` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_ljpeg` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_lz4h5` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_lzf` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_lzma` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_lzw` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_packbits` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_packints` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_png` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_webp` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `n5_default` | zarr-extensions | refkv |  |
+| `numcodecs.bz2` | zarr-python | zarr-python |  |
+| `numcodecs.delta` | zarr-python | zarr-python |  |
+| `numcodecs.fixedscaleoffset` | zarr-python | zarr-python |  |
+| `numcodecs.lz4` | zarr-python | zarr-python |  |
+| `numcodecs.lzma` | zarr-python | zarr-python |  |
+| `numcodecs.quantize` | zarr-python | zarr-python |  |
+| `numcodecs.shuffle` | zarr-python | zarr-python |  |
+| `numcodecs.zlib` | zarr-python | zarr-python |  |
+| `packbits` | zarr-extensions | refkv |  |
+| `refkv.fits_tiles` | refkv | refkv | [fits §3.3](zarrify/fits.md#33-tile-compressed-images) |
+| `refkv.grib` | refkv | refkv | [§12](#12-grib-messages) |
+| `refkv.h5_bitshuffle` | refkv | refkv | [hdf5 §3.4](zarrify/hdf5.md#34-the-codec-refkvh5_bitshuffle) |
+| `refkv.precomputed` | refkv | refkv | [precomputed §6](zarrify/precomputed.md#6-the-codec-refkvprecomputed) |
+| `refkv.skip` | refkv | refkv | [npy §4.4](zarrify/npy.md#44-the-refkvskip-codec) |
+| `refkv.stream` | refkv | refkv | [§10](#10-coded-streams) |
+| `refkv.tiff_lzw` | refkv | refkv | [qptiff §4.1](zarrify/qptiff.md#41-data-types-and-codecs) |
+| `sharding_indexed` | zarr-python | zarr-python |  |
+| `transpose` | zarr-python | zarr-python |  |
+| `vlen-utf8` | zarr-python | zarr-python |  |
+| `zstd` | zarr-python | zarr-python |  |
+
+refkv names a codec of its own only where none of the others decodes the chunks as the convention says (QPTIFF's
 LZW streams can run past their tile, which `imagecodecs_lzw` does not allow; no codec of the
 others drops the NPY header a deflated `.npz` member inflates to). refkv's Python
 package provides its own codecs to zarr-python through the `zarr.codecs` entry points, and the

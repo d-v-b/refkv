@@ -1,0 +1,11 @@
+# An HDF5 file that is not an Imaris file, which the IMS profile rejected and the HDF5 profile,
+# which chooses IMS, now zarrifies (spec/zarrify/ims.md §7
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#7-ims-profile>), and the files
+# whose filters or user block the profile reads since the freeze.
+ims_fletcher32.ims
+ims_lz4.ims
+ims_reject_not_imaris.ims
+ims_shuffle_deflate.ims
+ims_shuffle_deflate_fletcher32.ims
+ims_shuffle_lz4.ims
+ims_user_block.ims

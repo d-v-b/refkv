@@ -2224,6 +2224,11 @@ pub fn show_bytes(b: &[u8]) -> String {
     }
 }
 
+/// The parser of the profile's store run (`StoreFormat`; crate::store).
+pub fn store_parser(ir: crate::ir::Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> crate::ir::Res<Box<dyn crate::store::StoreParser>> {
+    Ok(Box::new(store::Hdf5Store::new(ir, objects, keys)?))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

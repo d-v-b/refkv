@@ -21,21 +21,6 @@ use refkv_ir::store::{StoreFormat, StoreRun};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-/// The title a rejection names the input's format by, and its named file: a VSI, NRRD or GRIB
-/// input.
-fn titles(format: StoreFormat) -> (&'static str, &'static str) {
-    match format {
-        StoreFormat::Nrrd => ("NRRD", "header file"),
-        StoreFormat::Grib => ("GRIB", "GRIB file"),
-        StoreFormat::Lif => ("LIF", "named document"),
-        StoreFormat::Tiff => ("TIFF", "TIFF file"),
-        StoreFormat::Hdf5 => ("HDF5", "HDF5 file"),
-        StoreFormat::Czi => ("CZI", "CZI file"),
-        StoreFormat::Nifti => ("NIfTI", "header file"),
-        _ => ("VSI", ".vsi file"),
-    }
-}
-
 /// (the directory, the named file's key) of an input of the format `title` names (VSI, NRRD):
 /// for an http(s) URL the URL up to its last `/` and the last segment, percent-decoded; for a
 /// local path, its directory (empty for a bare name) and its file name.
@@ -90,7 +75,7 @@ impl Files {
     /// The input at `location` of the store format `format`, its named file opened as `t`; `url`,
     /// when given, is the URL the named file is named by, whose directory is the store URL.
     pub fn open(location: &str, url: Option<&str>, t: Transport, client: &Arc<Client>, format: StoreFormat) -> Result<Files, Fail> {
-        let (title, noun) = titles(format);
+        let (title, noun) = (format.title(), format.named().unwrap_or("file"));
         let (dir, key) = split_input(location, title)?;
         let remote = t.remote();
         let url = match url {
@@ -112,7 +97,7 @@ impl Files {
         };
         let mut sizes = HashMap::new();
         sizes.insert(key.clone(), t.size());
-        let case = format == StoreFormat::Lif && !remote;
+        let case = format.case() && !remote;
         Ok(Files { location: dir, url, remote, client: client.clone(), keys: vec![key], transports: vec![t], sizes, requests: 0, title, case,
                    listed: HashMap::new() })
     }
