@@ -180,3 +180,8 @@ pub fn project_store(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     out.summary = json!({"shards": summary, "unpresented": unpresented, "chunks": chunks_total, "others": arr(&facts["others"]).len()});
     Ok(out)
 }
+
+/// The projection of the profile's store run (`StoreFormat`; crate::store).
+pub fn store_project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
+    project_store(ir, facts, url)
+}

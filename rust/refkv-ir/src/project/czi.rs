@@ -246,3 +246,8 @@ fn project_named(ir: &Ir, facts: &J, url: &str, named: &str) -> Result<Out, Stri
     out.summary = json!({"subblocks": facts["subblocks"], "images": summary_images, "tiles": tiles.len()});
     Ok(out)
 }
+
+/// The projection of the profile's store run (`StoreFormat`; crate::store).
+pub fn store_project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
+    project_set(ir, facts, url)
+}

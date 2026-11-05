@@ -273,3 +273,8 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     out.summary = summary;
     Ok(out)
 }
+
+/// The projection of the profile's store run (`StoreFormat`; crate::store).
+pub fn store_project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
+    project_pair(ir, facts, url)
+}

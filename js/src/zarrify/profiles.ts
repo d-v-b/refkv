@@ -14,6 +14,9 @@ export interface ProfileEntry {
   uuid: string;
   version: number;
   kind: "file" | "store" | "both" | "layout";
+  /** The profile's store run in the core, or null: a store a listing finds, or a file read with the
+   * files beside it, always or on demand (spec/tools/profiles.py). */
+  store_run: { form: "listed" } | { form: "always" | "on_demand"; named: string; section: string; case?: true } | null;
   /** Where the file profile's signature is tested among the others (lower first; ties by name),
    * or null for one a file's first bytes never select. */
   sniff: number | null;

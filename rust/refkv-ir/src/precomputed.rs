@@ -288,3 +288,8 @@ impl StoreParser for Precomputed {
         Ok((ir, json!({})))
     }
 }
+
+/// The parser of the profile's store run (`StoreFormat`; crate::store).
+pub fn store_parser(ir: crate::ir::Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> crate::ir::Res<Box<dyn crate::store::StoreParser>> {
+    Ok(Box::new(Precomputed::new(ir, objects, keys)))
+}

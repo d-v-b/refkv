@@ -68,6 +68,7 @@ from refkv.zarrify import profile_classes
 from refkv.zarrify.common import Output, Rejected
 from refkv.zarrify.dicom_series import SeriesOutput, zarrify_series_async
 from refkv.zarrify.profile_classes import *  # noqa: F403 (one class per profile: profile_classes.__all__)
+from refkv.zarrify.profiles import BESIDE, CASE, ON_DEMAND
 from refkv.zarrify.sources import Dataset, Image, Source, Store, layout_names
 from refkv.zarrify.store import (
     WORKERS,
@@ -184,21 +185,6 @@ def _zarrify_store(location: str, url: str | None = None, *, max_objects: int | 
     if isinstance(out, SeriesOutput):
         raise TypeError("a store of DICOM files has no IR output: zarrify it with zarrify_store")
     return fmt, out
-
-
-# The file profiles whose input is read with the files beside it, as a store run that probes for
-# them: (the format's title, the named file) as a rejection names them.
-BESIDE = {"vsi": ("VSI", ".vsi file"), "nrrd": ("NRRD", "header file"), "grib": ("GRIB", "GRIB file"),
-          "tiff": ("TIFF", "TIFF file"), "lif": ("LIF", "named document"),
-          "czi": ("CZI", "CZI file"),
-          "nifti": ("NIfTI", "header file"), "hdf5": ("HDF5", "HDF5 file")}
-# Those of them that read a file with the files beside it only when it names some, or for some of
-# their files (spec/zarrify.md §1.9
-# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>):
-# a file run finds out, and starts over (`ir.NamesSiblingsError`).
-ON_DEMAND = {"tiff", "lif", "czi", "nifti", "hdf5"}
-# Those whose writers name files in another case than they have (the same section's **Case**).
-CASE = {"lif"}
 
 
 async def _zarrify_beside_async(fmt: str, location: str, url: str | None, transport: Transport, *,
