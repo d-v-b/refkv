@@ -7,8 +7,8 @@ which refkv writes."""
 
 _HDF5 = "https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md"
 _REASONS = ["name", "reserved", "named_datatype", "object", "datatype", "filter", "filter_mask", "edge_chunks",
-            "layout", "external_storage", "dimension_only", "null_dataspace", "fill_value", "size", "shared",
-            "budget"]
+            "layout", "external_storage", "external_reference", "dimension_only", "null_dataspace", "fill_value",
+            "size", "shared", "budget"]
 _DATATYPE = {"type": "object", "properties": {"class": {"type": "string"}, "size": {"type": "integer", "minimum": 0}},
              "required": ["class", "size"],
              "description": f"An HDF5 datatype, described ({_HDF5}#7-source-metadata)"}
@@ -16,6 +16,9 @@ _TYPES = {"type": "object", "additionalProperties": {"$ref": "#/$defs/hdf5Dataty
           "description": "Each attribute's HDF5 datatype, by name"}
 _NOT = {"type": "object", "additionalProperties": {"enum": _REASONS},
         "description": "What the hierarchy does not present, by name, each with the reason"}
+
+_EXTERNAL = {"type": "object", "properties": {"file": {"type": "string"}, "path": {"type": "string"}},
+             "description": "The key and path an external link named, on the node it presents"}
 
 SCHEMA = {"anyOf": [
     {
@@ -29,6 +32,9 @@ SCHEMA = {"anyOf": [
             "attributes": _TYPES,
             "unpresented_attributes": _NOT,
             "unpresented": _NOT,
+            "siblings": {"type": "array", "items": {"type": "string"},
+                         "description": "The root's, of a file read as a store: every sibling's key"},
+            "external": _EXTERNAL,
             "external_links": {"type": "array", "items": {
                 "type": "object",
                 "properties": {"name": {"type": "string"}, "type": {"type": "integer"},
@@ -52,6 +58,9 @@ SCHEMA = {"anyOf": [
             "index": {"enum": ["btree1", "single", "implicit", "fixed_array", "extensible_array", "btree2", "none"]},
             "filters": {"type": "array", "items": {"type": "integer", "minimum": 0}},
             "fill_value": {"type": "string", "description": "The fill value message's bytes, in base64"},
+            "external": _EXTERNAL,
+            "external_storage": {"type": "array", "items": {"type": "array", "minItems": 3, "maxItems": 3},
+                                 "description": "Its ranges in external files: [key, offset, length]"},
             "attributes": _TYPES,
             "unpresented_attributes": _NOT,
         },

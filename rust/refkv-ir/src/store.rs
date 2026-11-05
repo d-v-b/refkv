@@ -100,6 +100,10 @@ pub enum StoreFormat {
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md>): the header file, listed
     /// alone, and a detached header's data file, which the run probes for.
     Nrrd,
+    /// An HDF5 file that names siblings (`hdf5/store.rs`; spec/zarrify/hdf5.md §8.6
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#86-external-files>): the named
+    /// file, listed alone, and the files its external links and external storage name.
+    Hdf5,
     /// A NIfTI header-and-image pair (`nifti_pair.rs`; spec/zarrify/nifti.md §7.5
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#75-header-and-image-pairs>): the
     /// `.hdr` file, listed alone, and the `.img` file, which the run probes for.
@@ -136,6 +140,7 @@ impl StoreFormat {
             "n5" => Some(StoreFormat::N5),
             "vsi" => Some(StoreFormat::Vsi),
             "nrrd" => Some(StoreFormat::Nrrd),
+            "hdf5" => Some(StoreFormat::Hdf5),
             "nifti" => Some(StoreFormat::Nifti),
             "grib" => Some(StoreFormat::Grib),
             "safetensors" => Some(StoreFormat::Safetensors),
@@ -153,6 +158,7 @@ impl StoreFormat {
             StoreFormat::N5 => "n5",
             StoreFormat::Vsi => "vsi",
             StoreFormat::Nrrd => "nrrd",
+            StoreFormat::Hdf5 => "hdf5",
             StoreFormat::Nifti => "nifti",
             StoreFormat::Grib => "grib",
             StoreFormat::Safetensors => "safetensors",
@@ -170,6 +176,7 @@ impl StoreFormat {
             StoreFormat::N5 => "n5",
             StoreFormat::Vsi => "vsi",
             StoreFormat::Nrrd => "nrrd",
+            StoreFormat::Hdf5 => "hdf5",
             StoreFormat::Nifti => "nifti",
             StoreFormat::Grib => "grib",
             StoreFormat::Safetensors => "safetensors",
@@ -186,6 +193,7 @@ impl StoreFormat {
             StoreFormat::N5 => Ok(Box::new(crate::n5::N5::new(ir, objects, keys))),
             StoreFormat::Vsi => Ok(Box::new(crate::vsi::Vsi::new(ir, objects, keys)?)),
             StoreFormat::Nrrd => Ok(Box::new(crate::nrrd::Nrrd::new(ir, objects, keys)?)),
+            StoreFormat::Hdf5 => Ok(Box::new(crate::hdf5::store::Hdf5Store::new(ir, objects, keys)?)),
             StoreFormat::Nifti => Ok(Box::new(crate::nifti_pair::NiftiPair::new(ir, objects, keys)?)),
             StoreFormat::Grib => Ok(Box::new(crate::grib::Grib::new(ir, objects, keys)?)),
             StoreFormat::Safetensors => Ok(Box::new(crate::safetensors::store::SafetensorsStore::new(ir, objects, keys)?)),
@@ -558,6 +566,7 @@ pub fn store_output(format: StoreFormat, ir: &Ir, facts: &J, stats: J, url: &str
         StoreFormat::N5 => crate::project::n5::project(ir, facts, url)?,
         StoreFormat::Vsi => crate::project::vsi::project(ir, facts, url, &Default::default())?,
         StoreFormat::Nrrd => crate::project::nrrd::project(ir, facts, url)?,
+        StoreFormat::Hdf5 => crate::project::hdf5::project_store(ir, facts, url)?,
         StoreFormat::Nifti => crate::project::nifti::project_pair(ir, facts, url)?,
         StoreFormat::Grib => crate::project::grib::project(ir, facts, url)?,
         StoreFormat::Safetensors => crate::project::safetensors::project_store(ir, facts, url)?,
