@@ -1,0 +1,27 @@
+{
+  "zarr_format": 2,
+  "compressor": {
+    "id": "zlib",
+    "level": 1
+  },
+  "fill_value": null,
+  "order": "F",
+  "filters": [
+    {
+      "id": "fixedscaleoffset",
+      "scale": 4,
+      "offset": 1,
+      "dtype": "<f8",
+      "astype": "<i2"
+    }
+  ],
+  "shape": [
+    3,
+    4
+  ],
+  "chunks": [
+    3,
+    4
+  ],
+  "dtype": "<f8"
+}

@@ -161,9 +161,10 @@ fn track_json(t: &J, chunk: u64) -> J {
     }
     m.insert("frames".into(), frames.clone());
     match t["format"].as_str() {
-        Some("h264" | "hevc") => {
+        Some("h264" | "hevc" | "av1" | "vp9") => {
             m.insert("width".into(), t["geometry"]["width"].clone());
             m.insert("height".into(), t["geometry"]["height"].clone());
+            m.insert("chroma".into(), t["geometry"]["chroma"].clone());
             m.insert("bit_depth".into(), t["bit_depth"].clone());
             m.insert("profile".into(), t["profile"].clone());
             m.insert("level".into(), t["level"].clone());
@@ -239,7 +240,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
                 let Some(&Part::Src(o, len)) = parts.first() else { return Err("internal: a PCM chunk has no bytes".into()) };
                 refs.chunk(format!("{dir}/samples/c/{q}/0"), o, len, form, Some(parts), q)?;
             }
-        } else if format == "h264" || format == "hevc" {
+        } else if matches!(format, "h264" | "hevc" | "av1" | "vp9") {
             // the planes of the pictures, in presentation order (§4.1
             // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#41-video-tracks>):
             // uint8 for 8 bits a sample, uint16 for more
@@ -260,7 +261,9 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
             let lengths = video_lengths(count, chunk as usize, &presented);
             let along = grid_lengths(&lengths);
             refs.out.json(&format!("{dir}/zarr.json"), &declared_group(Map::new(), "mp4", None, Some(track_json(t, chunk))));
-            let planes = [("y", w, h), ("u", w.div_ceil(2), h.div_ceil(2)), ("v", w.div_ceil(2), h.div_ceil(2))];
+            // a 4:2:2 picture's chroma is half the width alone
+            let ch = if t["geometry"]["chroma"] == "4:2:2" { h } else { h.div_ceil(2) };
+            let planes = [("y", w, h), ("u", w.div_ceil(2), ch), ("v", w.div_ceil(2), ch)];
             for (p, pw, ph) in planes {
                 let doc = rectilinear_array_json(&[count as u64, ph, pw], data_type, &json!([along, ph, pw]), stream_codec(format, &t["setup"], Some(p)), &["time", "y", "x"]);
                 refs.out.json(&format!("{dir}/{p}/zarr.json"), &doc);

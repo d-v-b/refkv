@@ -34,9 +34,6 @@ const OWN: [&str; 9] = ["header", "fields", "fields_v1", "fields_v2", "entries",
 const AAC_RATES: [u32; 13] = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350];
 /// The H.264 profiles whose SPS carries the chroma format and bit depths (ITU-T H.264 §7.3.2.1.1).
 const HIGH_PROFILES: [u8; 13] = [100, 110, 122, 244, 44, 83, 86, 118, 128, 138, 139, 134, 135];
-/// The bit depths of the HEVC tracks the profile zarrifies: Main and Main 10 (and Main Still
-/// Picture), as a camera records them.
-const HEVC_DEPTHS: [u64; 2] = [8, 10];
 
 /// Whether a file's first bytes are an MP4 or QuickTime file's (spec/zarrify.md §1.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>): a box of at least 8
@@ -1127,21 +1124,37 @@ impl Mp4 {
                     b"avc1" => {
                         let avcc = e.child(b"avcC").ok_or("an avc1 sample entry without an avcC box")?;
                         let sps = h264_sps(avcc).ok_or("an avcC box without a parameter set the profile reads")?;
-                        if sps.chroma != 1 || sps.luma != 8 || sps.chroma_depth != 8 {
-                            return Err(format!("H.264 with chroma format {} and bit depth {} is not supported: only 8-bit 4:2:0 is", sps.chroma, sps.luma));
+                        if sps.chroma != 1 || sps.luma != sps.chroma_depth || !matches!(sps.luma, 8 | 10) {
+                            return Err(format!("H.264 with chroma format {} and bit depth {} is not supported: only 4:2:0 of 8 or 10 bits is", sps.chroma, sps.luma));
                         }
                         ("h264", avcc, sps)
                     }
                     b"hvc1" | b"hev1" => {
                         let hvcc = e.child(b"hvcC").ok_or_else(|| format!("an {} sample entry without an hvcC box", codec.trim()))?;
                         let sps = hevc_sps(hvcc).ok_or("an hvcC box without a VPS, SPS and PPS the profile reads")?;
-                        if sps.chroma != 1 || sps.luma != sps.chroma_depth || !HEVC_DEPTHS.contains(&sps.luma) {
+                        if !matches!(sps.chroma, 1 | 2) || sps.luma != sps.chroma_depth || !matches!(sps.luma, 8 | 10 | 12) {
                             let depth = if sps.luma == sps.chroma_depth { format!("bit depth {}", sps.luma) } else { format!("bit depths {} and {}", sps.luma, sps.chroma_depth) };
-                            return Err(format!("HEVC with chroma format {} and {depth} is not supported: only 4:2:0 of 8 or 10 bits is", sps.chroma));
+                            return Err(format!("HEVC with chroma format {} and {depth} is not supported: only 4:2:0 or 4:2:2 of 8, 10 or 12 bits is", sps.chroma));
                         }
                         ("hevc", hvcc, sps)
                     }
-                    _ => return Err(format!("{} video is not supported: only H.264 (avc1) and HEVC (hvc1, hev1) are", codec.trim())),
+                    b"av01" => {
+                        let av1c = e.child(b"av1C").ok_or("an av01 sample entry without an av1C box")?;
+                        let sps = av1_config(av1c).ok_or("an av1C box the profile cannot read")?;
+                        if sps.chroma != 1 || !matches!(sps.luma, 8 | 10) {
+                            return Err(format!("AV1 with chroma format {} and bit depth {} is not supported: only 4:2:0 of 8 or 10 bits is", sps.chroma, sps.luma));
+                        }
+                        ("av1", av1c, sps)
+                    }
+                    b"vp09" => {
+                        let vpcc = e.child(b"vpcC").ok_or("a vp09 sample entry without a vpcC box")?;
+                        let sps = vp9_config(vpcc).ok_or("a vpcC box the profile cannot read")?;
+                        if !matches!(sps.chroma, 1 | 2) || !matches!(sps.luma, 8 | 10 | 12) {
+                            return Err(format!("VP9 with chroma format {} and bit depth {} is not supported: only 4:2:0 or 4:2:2 of 8, 10 or 12 bits is", sps.chroma, sps.luma));
+                        }
+                        ("vp9", vpcc, sps)
+                    }
+                    _ => return Err(format!("{} video is not supported: only H.264 (avc1), HEVC (hvc1, hev1), AV1 (av01) and VP9 (vp09) are", codec.trim())),
                 };
                 if e.width == 0 || e.height == 0 {
                     return Err("a sample entry of width or height 0".into());
@@ -1153,7 +1166,8 @@ impl Mp4 {
                 gops(&pts, &sync)?;
                 f["format"] = json!(format);
                 let data_type = if sps.luma > 8 { "uint16" } else { "uint8" };
-                f["geometry"] = json!({"width": e.width, "height": e.height, "planes": 3, "data_type": data_type});
+                let chroma = if sps.chroma == 2 { "4:2:2" } else { "4:2:0" };
+                f["geometry"] = json!({"width": e.width, "height": e.height, "planes": 3, "data_type": data_type, "chroma": chroma});
                 f["setup"] = json!(crate::mirror::base64(setup));
                 f["profile"] = json!(sps.profile);
                 f["level"] = json!(sps.level);
@@ -1536,6 +1550,42 @@ pub fn esds_config(esds: &[u8]) -> Option<(u8, Vec<u8>)> {
     Some((oti, asc))
 }
 
+/// The fields of an av1C box's payload the profile reads, as an SPS's (AV1-ISOBMFF section 2.3.3): its
+/// seq_profile and seq_level_idx_0, its bit depth, and its subsampling as chroma_format_idc's values.
+pub fn av1_config(av1c: &[u8]) -> Option<Sps> {
+    if av1c.len() < 4 || av1c[0] != 0x81 {
+        return None;
+    }
+    let (profile, level, f) = (av1c[1] >> 5, av1c[1] & 0x1F, av1c[2]);
+    let bit = |k: u8| f >> k & 1 != 0;
+    let depth = if !bit(6) { 8 } else if bit(5) { 12 } else { 10 };
+    let chroma = match (bit(4), bit(3), bit(2)) {
+        (true, _, _) => 0,
+        (_, true, true) => 1,
+        (_, true, false) => 2,
+        (_, false, false) => 3,
+        _ => return None,
+    };
+    Some(Sps { profile, level, chroma, luma: depth, chroma_depth: depth })
+}
+
+/// The fields of a vpcC box's payload the profile reads, as an SPS's (the VP Codec ISOBMFF Binding,
+/// section 2.2): its profile and level, its bit depth, and its subsampling as chroma_format_idc's values.
+pub fn vp9_config(vpcc: &[u8]) -> Option<Sps> {
+    let (&version, &[profile, level, f, ..]) = (vpcc.first()?, vpcc.get(4..)?) else { return None };
+    if version != 1 {
+        return None;
+    }
+    let chroma = match f >> 1 & 7 {
+        0 | 1 => 1,
+        2 => 2,
+        3 => 3,
+        _ => return None,
+    };
+    let depth = (f >> 4) as u64;
+    Some(Sps { profile, level, chroma, luma: depth, chroma_depth: depth })
+}
+
 /// The fields of an AudioSpecificConfig the profile reads (ISO/IEC 14496-3 §1.6.2.1).
 #[derive(Debug, PartialEq)]
 pub struct Asc {
@@ -1730,9 +1780,38 @@ mod tests {
         assert_eq!(aac_config(&[0x14, 0x08]), Some(Asc { aot: 2, rate: 16000, channels: 1, short: false }));
     }
 
+    /// SVT-AV1's and libvpx's boxes (the fixtures mp4_av1_aac.mp4 and mp4_vp9_10bit.mp4), and each
+    /// bit depth and subsampling of the others' flags.
+    #[test]
+    fn av1c_and_vpcc_boxes_give_the_format() {
+        let sps = |profile, level, chroma, depth| Some(Sps { profile, level, chroma, luma: depth, chroma_depth: depth });
+        let av1 = |flags: u8| [0x81, 0x41, flags, 0];
+        assert_eq!(av1_config(&[0x81, 0, 0x0C, 0]), sps(0, 0, 1, 8));
+        assert_eq!(av1_config(&av1(0x4C)), sps(2, 1, 1, 10));
+        assert_eq!(av1_config(&av1(0x68)), sps(2, 1, 2, 12));
+        assert_eq!(av1_config(&av1(0x40)), sps(2, 1, 3, 10));
+        assert_eq!(av1_config(&av1(0x1C)), sps(2, 1, 0, 8));
+        let vp9 = |f: u8| [1, 0, 0, 0, 3, 10, f, 2, 2, 2, 0, 0];
+        assert_eq!(vp9_config(&[1, 0, 0, 0, 2, 10, 0xA2, 2, 2, 2, 0, 0]), sps(2, 10, 1, 10));
+        assert_eq!(vp9_config(&vp9(0x80)), sps(3, 10, 1, 8));
+        assert_eq!(vp9_config(&vp9(0xC4)), sps(3, 10, 2, 12));
+        assert_eq!(vp9_config(&vp9(0x86)), sps(3, 10, 3, 8));
+    }
+
+    /// Too short a box, another version of it, and a subsampling no format has.
+    #[test]
+    fn av1c_and_vpcc_boxes_the_profile_cannot_read_fail() {
+        assert_eq!(av1_config(&[0x81, 0, 0x0C]), None);
+        assert_eq!(av1_config(&[0x82, 0, 0x0C, 0]), None);
+        assert_eq!(av1_config(&[0x81, 0, 0x04, 0]), None);
+        assert_eq!(vp9_config(&[1, 0, 0, 0, 2, 10]), None);
+        assert_eq!(vp9_config(&[0, 0, 0, 0, 2, 10, 0x82]), None);
+        assert_eq!(vp9_config(&[1, 0, 0, 0, 2, 10, 0x88]), None);
+    }
+
     /// x265's hvcC boxes: Main, 8-bit, with three temporal sub-layers (so that the SPS's
     /// profile_tier_level has sub-layer flags); Main 10 (the fixture mp4_hevc_main10.mp4); and
-    /// 4:2:2 8-bit, a range extensions profile (mp4_reject_hevc_422_only.mp4).
+    /// 4:2:2 8-bit, a range extensions profile (mp4_hevc_422_8bit.mp4).
     const HVCC_SUB_LAYERS: [u8; 120] = [
         0x01, 0x01, 0x60, 0x00, 0x00, 0x00, 0x90, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1E, 0xF0, 0x00, 0xFC, 0xFD, 0xF8, 0xF8, 0x00, 0x00, 0x1B,
         0x03, 0xA0, 0x00, 0x01, 0x00, 0x1E, 0x40, 0x01, 0x0C, 0x04, 0xFF, 0xFF, 0x01, 0x60, 0x00, 0x00, 0x03, 0x00, 0x90, 0x00, 0x00, 0x03,

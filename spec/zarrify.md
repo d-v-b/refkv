@@ -5,6 +5,10 @@ Profiles version: 0 (**draft**)
 Changed 2026-11-04: a profile may state a late signature, which a host reads further for
 ([§1.2](#12-input)), as the HDF5 profile's does for a file after a user block.
 
+Changed 2026-11-04: the CZI profile reads an image across numbered files, on demand
+([czi.md §7.9](zarrify/czi.md#79-several-files)); a file whose bytes call for no part has the output
+it had.
+
 Changed 2026-11-04: the TIFF profile reads an image across files, on demand
 ([tiff.md §7.4](zarrify/tiff.md#74-several-files)); a file that names none has the output it had.
 
@@ -88,7 +92,7 @@ The table, generated from the registry, lists them:
 <!-- profiles:spec-table -->
 | profile | input | inputs |
 |---|---|---|
-| [CZI](zarrify/czi.md#part-2-the-profile) | file | Zeiss CZI files (ZISRAW, file version 1), with uncompressed, JPEG, JPEG XR and Zstd subblocks, mosaics and pyramids |
+| [CZI](zarrify/czi.md#part-2-the-profile) | file | Zeiss CZI files (ZISRAW, file version 1), with uncompressed, JPEG, JPEG XR and Zstd subblocks, mosaics and pyramids, in one file or across numbered files |
 | [DICOM](zarrify/dicom.md#part-2-the-profile) | file | DICOM Part 10 files with native, JPEG, lossless JPEG, JPEG-LS, RLE, JPEG 2000 or HTJ2K pixel data, including whole-slide images |
 | [FITS](zarrify/fits.md#part-2-the-profile) | file | FITS files: images, multi-extension files, binary and ASCII tables |
 | [FLAC](zarrify/flac.md#part-2-the-profile) | file | FLAC files (`.flac`) of a fixed block size, with their metadata blocks and ID3v2 and ID3v1 tags; one sharded array of integer samples, not an image |
@@ -97,7 +101,7 @@ The table, generated from the registry, lists them:
 | [IMS](zarrify/ims.md#part-2-the-profile) | file | Imaris IMS files (HDF5) |
 | [LIF](zarrify/lif.md#part-2-the-profile) | file | Leica LIF files (LAS X and LAS AF, versions 1 and 2), its object files (LOF) and extension files (LIFEXT), and LAS X projects of XLEF, XLCF, XLIF and XLLF documents and LOFs: every image of the element tree, with interleaved or planar channels, z-stacks, time series and mosaics, uncompressed |
 | [MP3](zarrify/mp3.md#part-2-the-profile) | file | MPEG-1, MPEG-2 and MPEG-2.5 Layer III audio files (`.mp3`), with their ID3v2, ID3v1 and APE tags; one array of samples, not an image |
-| [MP4](zarrify/mp4.md#part-2-the-profile) | file | MP4 and QuickTime files (`.mp4`, `.m4a`, `.m4v`, `.mov`) with H.264 or HEVC video and AAC, MP3 or PCM audio tracks; a group per track, not an image |
+| [MP4](zarrify/mp4.md#part-2-the-profile) | file | MP4 and QuickTime files (`.mp4`, `.m4a`, `.m4v`, `.mov`) with H.264, HEVC, AV1 or VP9 video and AAC, MP3 or PCM audio tracks; a group per track, not an image |
 | [MRC](zarrify/mrc.md#part-2-the-profile) | file | MRC2014 files (CCP4 maps, image stacks, volumes and volume stacks), gzipped or not |
 | [N5](zarrify/n5.md#part-2-the-profile) | store | N5 containers, default-mode blocks |
 | [ND2](zarrify/nd2.md#part-2-the-profile) | file | Nikon ND2, format version 3 and later |
@@ -774,7 +778,8 @@ The VSI ([vsi.md §9](zarrify/vsi.md#9-vsi-profile)), NRRD
 ([§1.2](#12-input)), and read the file and the files beside it (a slide's tile files, a
 detached header's data file, a GRIB file's index files, a project's documents and LOFs) as a store
 ([§1.4](#14-store-inputs)), and so do the TIFF profile, for an input that names other files
-([tiff.md §7.4](zarrify/tiff.md#74-several-files)), and the NIfTI profile, for a header-and-image pair
+([tiff.md §7.4](zarrify/tiff.md#74-several-files)), the CZI profile, for an input with parts
+([czi.md §7.9](zarrify/czi.md#79-several-files)), and the NIfTI profile, for a header-and-image pair
 ([nifti.md §7.5](zarrify/nifti.md#75-header-and-image-pairs)). Such a **file read as a store** is read as follows; the profile's
 document says which keys it probes, how it reads each object, and the order of its sources, under
 the rules of [§1.9](#19-sources-beside-the-input).
@@ -903,7 +908,9 @@ The root's source metadata records every sibling's key.
 that it was the right file. Where a format records which files belong together, the profile MUST
 read that record from each sibling and reject one that does not match, `the <noun> "<key>" is not
 part of this <set>`, rather than present another file's bytes as this image. CZI's `PrimaryFileGuid`
-and `FilePart` are such a record, and so is an OME-TIFF's `UUID` beside the `UUID` of the file it
+and `FilePart` are such a record, as are, in the files one of its writers makes, each attachment
+entry's `FilePart` and the document named in the XML ([czi.md §7.9](zarrify/czi.md#79-several-files)),
+and so is an OME-TIFF's `UUID` beside the `UUID` of the file it
 names, when that file holds an OME-XML document. Where a format records none (a NIfTI pair, NRRD's
 data file, an HDF5 external file), the profile says so, and checks what it can: that every range
 lies within its object.

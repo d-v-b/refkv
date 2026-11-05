@@ -2,9 +2,16 @@
   "about": "The inputs the czi profile rejects, each with the start of its message (the Rust tests' prefix, or what each store test's message contains), and, where the Python host rejects it earlier, the host's message. rust/refkv-ir/build.rs writes a Rust test per case into tests/czi.rs; python/tests/ir/test_rejects.py checks each through the host and that every rejected fixture is listed here.",
   "cases": [
     {
+      "test": "czi_parts_stranger",
+      "input": "czi_parts_stranger.czi",
+      "message": "the file names siblings",
+      "host": "the file \"czi_parts_stranger(1).czi\" is not part of this image"
+    },
+    {
       "test": "czi_reject_attachment_file_part",
       "input": "czi_reject_attachment_file_part.czi",
-      "message": "attachment entry 0 is in FilePart 1"
+      "message": "the file names siblings",
+      "host": "czi_reject_attachment_file_part.czi is part 1 of another file: zarrify that one"
     },
     {
       "test": "czi_reject_attachment_id",
@@ -94,7 +101,8 @@
     {
       "test": "czi_reject_entry_file_part",
       "input": "czi_reject_entry_file_part.czi",
-      "message": "directory entry 0 is in FilePart 1"
+      "message": "the file names siblings",
+      "host": "the file \"czi_reject_entry_file_part(1).czi\" does not exist"
     },
     {
       "test": "czi_reject_extent",
@@ -104,7 +112,8 @@
     {
       "test": "czi_reject_file_part",
       "input": "czi_reject_file_part.czi",
-      "message": "FilePart 1: a CZI split over several files is no"
+      "message": "the file names siblings",
+      "host": "czi_reject_file_part.czi is part 1 of another file: zarrify that one"
     },
     {
       "test": "czi_reject_jpeg_bgr48",
@@ -150,6 +159,71 @@
       "test": "czi_reject_no_directory",
       "input": "czi_reject_no_directory.czi",
       "message": "the subblock directory at 0 is not a ZISRAWDIREC"
+    },
+    {
+      "test": "czi_reject_parts_absent",
+      "input": "czi_reject_parts_absent.czi",
+      "message": "the file names siblings",
+      "host": "the file \"czi_reject_parts_absent(1).czi\" does not exist"
+    },
+    {
+      "test": "czi_reject_parts_document",
+      "input": "czi_reject_parts_document.czi",
+      "message": "the file names siblings",
+      "host": "the file \"czi_reject_parts_document(1).czi\" is not part of this image"
+    },
+    {
+      "test": "czi_reject_parts_document_part",
+      "input": "czi_reject_parts_document(1).czi",
+      "message": "the file names siblings",
+      "host": "czi_reject_parts_document(1).czi is part 1 of the file czi_reject_parts_document.czi: zarrify that one"
+    },
+    {
+      "test": "czi_reject_parts_entry_part",
+      "input": "czi_reject_parts_entry_part.czi",
+      "message": "the file names siblings",
+      "host": "czi_reject_parts_entry_part(1).czi: directory entry 0 is in FilePart 3"
+    },
+    {
+      "test": "czi_reject_parts_entry_part_part",
+      "input": "czi_reject_parts_entry_part(1).czi",
+      "message": "the file names siblings",
+      "host": "czi_reject_parts_entry_part(1).czi is part 1 of the file czi_reject_parts_entry_part.czi: zarrify that one"
+    },
+    {
+      "test": "czi_reject_parts_file_part",
+      "input": "czi_reject_parts_file_part.czi",
+      "message": "the file names siblings",
+      "host": "the file \"czi_reject_parts_file_part(1).czi\" is not part of this image"
+    },
+    {
+      "test": "czi_reject_parts_file_part_part",
+      "input": "czi_reject_parts_file_part(1).czi",
+      "message": "the file names siblings",
+      "host": "czi_reject_parts_file_part(1).czi is part 2 of the file czi_reject_parts_file_part.czi: zarrify that one"
+    },
+    {
+      "test": "czi_reject_parts_guid",
+      "input": "czi_reject_parts_guid.czi",
+      "message": "the file names siblings",
+      "host": "the file \"czi_reject_parts_guid(1).czi\" is not part of this image"
+    },
+    {
+      "test": "czi_reject_parts_guid_part",
+      "input": "czi_reject_parts_guid(1).czi",
+      "message": "the file names siblings",
+      "host": "czi_reject_parts_guid(1).czi is part 1 of the file czi_reject_parts_guid.czi: zarrify that one"
+    },
+    {
+      "test": "czi_reject_parts_input",
+      "input": "czi_reject_parts_input(1).czi",
+      "message": "the file names siblings",
+      "host": "czi_reject_parts_input(1).czi is part 1 of the file czi_reject_parts_input.czi: zarrify that one"
+    },
+    {
+      "test": "czi_reject_parts_negative",
+      "input": "czi_reject_parts_negative.czi",
+      "message": "FilePart -1 is negative"
     },
     {
       "test": "czi_reject_pixel_type_unknown",

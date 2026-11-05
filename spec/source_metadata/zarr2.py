@@ -9,6 +9,12 @@ SCHEMA = {"anyOf": [
             "attributes": {"type": "object", "minProperties": 1, "description": "The node's .zattrs, as copied"},
             "metadata": {"type": "object", "minProperties": 1,
                          "description": "The members of .zarray or .zgroup the Zarr metadata does not reproduce"},
+            "not_presented": {"type": "array", "minItems": 1, "items": {
+                "type": "object",
+                "properties": {"path": {"type": "string"}, "reason": {"type": "string"}},
+                "required": ["path", "reason"],
+                "additionalProperties": False,
+            }, "description": "The root's: the arrays left out, and why"},
         },
         "minProperties": 1,
         "additionalProperties": False,

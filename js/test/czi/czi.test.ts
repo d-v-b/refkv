@@ -105,7 +105,7 @@ test("zarrifies the synthetic CZI files", async () => {
 });
 
 test("rejects each czi_reject_ fixture with CziError", async () => {
-  const names = fs.readdirSync(FIXTURES).filter((f) => f.startsWith("czi_reject_"));
+  const names = fs.readdirSync(FIXTURES).filter((f) => f.startsWith("czi_reject_") && !f.startsWith("czi_reject_parts_"));
   assert.ok(names.length > 30);
   for (const name of names) await assert.rejects(zarrify(name), CziError, name);
 });

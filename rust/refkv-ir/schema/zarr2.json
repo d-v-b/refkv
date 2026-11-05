@@ -9,148 +9,11 @@
   },
   "tables": {
     "about": {
-      "dtypes": "The dtypes of spec/zarrify/zarr2.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#3-arrays>: the Zarr v3 data type, its size b, and the byte order character",
       "int_ranges": "the values of each integer data type, for its fill value",
       "float_max": "the largest finite value of each float data type but float64, by size b, compared as binary64",
       "compressors": "spec/zarrify/zarr2.md §3.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#31-compressors>: each id's levels (lo, hi) and the level numcodecs uses when the member is absent, and the members its codec carries",
-      "zarray_read": "the members of .zarray that §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#3-arrays> reads; the others are kept in the source metadata M (§4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#4-source-metadata>)"
-    },
-    "dtypes": {
-      "|b1": {
-        "data_type": "bool",
-        "b": 1,
-        "order": "|"
-      },
-      "<b1": {
-        "data_type": "bool",
-        "b": 1,
-        "order": "<"
-      },
-      ">b1": {
-        "data_type": "bool",
-        "b": 1,
-        "order": ">"
-      },
-      "|i1": {
-        "data_type": "int8",
-        "b": 1,
-        "order": "|"
-      },
-      "<i1": {
-        "data_type": "int8",
-        "b": 1,
-        "order": "<"
-      },
-      ">i1": {
-        "data_type": "int8",
-        "b": 1,
-        "order": ">"
-      },
-      "|u1": {
-        "data_type": "uint8",
-        "b": 1,
-        "order": "|"
-      },
-      "<u1": {
-        "data_type": "uint8",
-        "b": 1,
-        "order": "<"
-      },
-      ">u1": {
-        "data_type": "uint8",
-        "b": 1,
-        "order": ">"
-      },
-      "<i2": {
-        "data_type": "int16",
-        "b": 2,
-        "order": "<"
-      },
-      ">i2": {
-        "data_type": "int16",
-        "b": 2,
-        "order": ">"
-      },
-      "<u2": {
-        "data_type": "uint16",
-        "b": 2,
-        "order": "<"
-      },
-      ">u2": {
-        "data_type": "uint16",
-        "b": 2,
-        "order": ">"
-      },
-      "<f2": {
-        "data_type": "float16",
-        "b": 2,
-        "order": "<"
-      },
-      ">f2": {
-        "data_type": "float16",
-        "b": 2,
-        "order": ">"
-      },
-      "<i4": {
-        "data_type": "int32",
-        "b": 4,
-        "order": "<"
-      },
-      ">i4": {
-        "data_type": "int32",
-        "b": 4,
-        "order": ">"
-      },
-      "<u4": {
-        "data_type": "uint32",
-        "b": 4,
-        "order": "<"
-      },
-      ">u4": {
-        "data_type": "uint32",
-        "b": 4,
-        "order": ">"
-      },
-      "<f4": {
-        "data_type": "float32",
-        "b": 4,
-        "order": "<"
-      },
-      ">f4": {
-        "data_type": "float32",
-        "b": 4,
-        "order": ">"
-      },
-      "<i8": {
-        "data_type": "int64",
-        "b": 8,
-        "order": "<"
-      },
-      ">i8": {
-        "data_type": "int64",
-        "b": 8,
-        "order": ">"
-      },
-      "<u8": {
-        "data_type": "uint64",
-        "b": 8,
-        "order": "<"
-      },
-      ">u8": {
-        "data_type": "uint64",
-        "b": 8,
-        "order": ">"
-      },
-      "<f8": {
-        "data_type": "float64",
-        "b": 8,
-        "order": "<"
-      },
-      ">f8": {
-        "data_type": "float64",
-        "b": 8,
-        "order": ">"
-      }
+      "zarray_read": "the members of .zarray that §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#3-arrays> reads; the others are kept in the source metadata M (§4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#4-source-metadata>)",
+      "filters": "spec/zarrify/zarr2.md §3.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#33-filters>: the members each filter's codec takes"
     },
     "int_ranges": {
       "int8": [
@@ -232,6 +95,30 @@
           "shuffle",
           "blocksize"
         ]
+      },
+      "bz2": {
+        "lo": 1,
+        "hi": 9,
+        "default": 1,
+        "carried": [
+          "id",
+          "level"
+        ]
+      },
+      "lz4": {
+        "carried": [
+          "id",
+          "acceleration"
+        ]
+      },
+      "lzma": {
+        "carried": [
+          "id",
+          "format",
+          "check",
+          "preset",
+          "filters"
+        ]
       }
     },
     "blosc_names": [
@@ -258,7 +145,31 @@
       "filters",
       "fill_value",
       "dimension_separator"
-    ]
+    ],
+    "lzma_formats": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "filters": {
+      "vlen-utf8": [
+        "id"
+      ],
+      "fixedscaleoffset": [
+        "id",
+        "scale",
+        "offset",
+        "dtype",
+        "astype"
+      ],
+      "quantize": [
+        "id",
+        "digits",
+        "dtype",
+        "astype"
+      ]
+    }
   },
   "elements": {
     "about": "spec/zarrify/zarr2.md §4.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#41-elements>: the store's directories and objects (conventions §8.9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>), and in each node document read, a value per top-level member"
@@ -274,8 +185,8 @@
         "chunks": "",
         "dtype": "",
         "order": "",
-        "filters": "",
-        "dimension_separator": ""
+        "dimension_separator": "",
+        "dtype_problem": "why the dtype has no Zarr data type (absent when it has one)"
       },
       "derive": {
         "n": "len(shape)"
@@ -298,16 +209,12 @@
           "message": "{path}: chunks {chunks} is not {n} chunk sizes"
         },
         {
-          "require": "kind(dtype) == 'string' && present(at(dtypes, dtype))",
-          "message": "dtype {dtype} is not supported"
+          "require": "!present(dtype_problem)",
+          "message": "dtype {dtype} is not supported: {dtype_problem}"
         },
         {
           "require": "in(order, ['C', 'F'])",
           "message": "{path}: order {order} is not C or F"
-        },
-        {
-          "require": "!present(filters) || (kind(filters) == 'list' && len(filters) == 0)",
-          "message": "{path}: filters are not supported"
         },
         {
           "require": "!present(dimension_separator) || in(dimension_separator, ['.', '/'])",
@@ -315,18 +222,78 @@
         }
       ]
     },
+    "filters": {
+      "about": "an array's filters (spec/zarrify/zarr2.md §3.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#33-filters>): list, the member is null, absent or an array of objects with a string id",
+      "given": {
+        "path": "",
+        "list": ""
+      },
+      "constraints": [
+        {
+          "require": "list",
+          "message": "{path}: filters is not null or an array of objects with a string id"
+        }
+      ]
+    },
+    "filter": {
+      "about": "one filter (spec/zarrify/zarr2.md §3.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#33-filters>), given what it is applied to",
+      "given": {
+        "path": "",
+        "id": "",
+        "members": "it has only the members its codec takes",
+        "alone": "for vlen-utf8: it is the array's only filter, on dtype |O",
+        "numbers": "for fixedscaleoffset: scale and offset are finite numbers; for quantize: digits is an integer",
+        "dtype": "the member dtype",
+        "before": "the type it is applied to",
+        "dtype_ok": "dtype is that type",
+        "dtype_kind": "dtype is a type the filter takes",
+        "astype": "the member astype",
+        "astype_ok": "astype is a type the filter takes (for quantize, dtype itself)"
+      },
+      "constraints": [
+        {
+          "require": "present(at(filters, id))",
+          "message": "filter {id} is not supported"
+        },
+        {
+          "require": "members",
+          "message": "filter {id} has a member its codec does not take"
+        },
+        {
+          "require": "alone",
+          "message": "filter vlen-utf8 is not the only filter of a dtype |O"
+        },
+        {
+          "require": "numbers",
+          "message": "filter {id}'s numbers are not valid"
+        },
+        {
+          "require": "dtype_kind",
+          "message": "filter {id} does not take dtype {dtype}"
+        },
+        {
+          "require": "dtype_ok",
+          "message": "filter {id} has dtype {dtype} and is applied to {before}"
+        },
+        {
+          "require": "astype_ok",
+          "message": "filter {id} does not take astype {astype}"
+        }
+      ]
+    },
     "fill": {
-      "about": "an array's fill_value (spec/zarrify/zarr2.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#3-arrays>), given its data type",
+      "about": "an array's fill_value (spec/zarrify/zarr2.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#3-arrays>), given its data type; ok: the parser's verdict for the families the table of limits does not cover",
       "given": {
         "path": "",
         "fill": "the member (absent when null)",
         "data_type": "",
         "b": "",
-        "family": "bool, int or float"
+        "family": "bool, int, float, or complex, time, text, bytes, struct or string",
+        "ok": "the fill value is one the family takes, for the last six"
       },
       "constraints": [
         {
-          "require": "!present(fill) || (family == 'bool' && kind(fill) == 'bool') || (family == 'int' && int(fill, first(at(int_ranges, data_type)), at(at(int_ranges, data_type), 1))) || (family == 'float' && (in(fill, float_words) || (kind(fill) == 'number' && (b == 8 || abs(fill) <= at(float_max, b)))))",
+          "require": "!present(fill) || (family == 'bool' && kind(fill) == 'bool') || (family == 'int' && int(fill, first(at(int_ranges, data_type)), at(at(int_ranges, data_type), 1))) || (family == 'float' && (in(fill, float_words) || (kind(fill) == 'number' && (b == 8 || abs(fill) <= at(float_max, b)))) || (in(family, ['complex', 'time', 'text', 'bytes', 'struct', 'string']) && ok))",
           "message": "fill_value {fill} is not a {data_type}"
         }
       ]
@@ -338,7 +305,11 @@
         "compressor": "the member (absent when null)",
         "has_level": "",
         "has_checksum": "",
-        "has_blocksize": ""
+        "has_blocksize": "",
+        "has_acceleration": "",
+        "has_format": "",
+        "has_check": "",
+        "has_preset": ""
       },
       "derive": {
         "lo": "at(at(compressors, compressor.id), 'lo')",
@@ -354,7 +325,7 @@
           "message": "compressor {compressor.id} is not supported"
         },
         {
-          "require": "!in(compressor.id, ['zlib', 'gzip', 'zstd']) || !has_level || int(compressor.level, lo, hi)",
+          "require": "!in(compressor.id, ['zlib', 'gzip', 'zstd', 'bz2']) || !has_level || int(compressor.level, lo, hi)",
           "message": "{compressor.id} level {compressor.level} is not an integer from {lo} to {hi}"
         },
         {
@@ -376,6 +347,26 @@
         {
           "require": "!in(compressor.id, ['blosc']) || !has_blocksize || int(compressor.blocksize, 0, max_block)",
           "message": "blosc blocksize {compressor.blocksize} is not supported"
+        },
+        {
+          "require": "!in(compressor.id, ['lz4']) || !has_acceleration || int(compressor.acceleration)",
+          "message": "lz4 acceleration {compressor.acceleration} is not an integer"
+        },
+        {
+          "require": "!in(compressor.id, ['lzma']) || !has_format || (int(compressor.format) && in(compressor.format, lzma_formats))",
+          "message": "lzma format {compressor.format} is not supported"
+        },
+        {
+          "require": "!in(compressor.id, ['lzma']) || !has_check || int(compressor.check)",
+          "message": "lzma check {compressor.check} is not an integer"
+        },
+        {
+          "require": "!in(compressor.id, ['lzma']) || !present(compressor.preset) || int(compressor.preset)",
+          "message": "lzma preset {compressor.preset} is not an integer"
+        },
+        {
+          "require": "!in(compressor.id, ['lzma']) || !present(compressor.filters) || kind(compressor.filters) == 'list'",
+          "message": "lzma filters {compressor.filters} is not null or an array"
         }
       ]
     },

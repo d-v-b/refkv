@@ -28,6 +28,9 @@ from refkv_reference.legacy import StoreOutput, current_names
 FIXTURES = Path(__file__).parents[2] / "fixtures" / "ome-zarr"
 URL = "https://data.test/ome-zarr/{}/"
 STORES = sorted(p for p in FIXTURES.iterdir() if p.is_dir())
+# The stores whose verdict the profile changed after the freeze (conformance/zarrify/revised.json).
+REVISED_JSON = Path(__file__).parents[2] / "conformance" / "zarrify" / "revised.json"
+REVISED = set(json.loads(REVISED_JSON.read_text())["fixtures"])
 
 
 def whole_object(parts) -> str:
@@ -55,7 +58,8 @@ def reference_hierarchy(out) -> dict:
     return {"docs": docs, "refs": {current(k): out.origins.get(k, k) for k, _ in out.chunks}}
 
 
-@pytest.mark.parametrize("store", STORES, ids=[p.name for p in STORES])
+@pytest.mark.parametrize("store", [p for p in STORES if p.name not in REVISED],
+                         ids=[p.name for p in STORES if p.name not in REVISED])
 def test_the_ir_gives_the_reference_hierarchy(store):
     url = URL.format(store.name)
     try:
@@ -101,11 +105,76 @@ def test_a_rejection_names_the_profile_the_store_was_decided_to_be(tmp_path):
 
     store = tmp_path / "s"
     shutil.copytree(FIXTURES / "ome_zarr_image_2d", store)
-    z = json.loads((store / "0" / ".zarray").read_text())
-    (store / "0" / ".zarray").write_text(json.dumps({**z, "dtype": "<c8"}))
-    with pytest.raises(Rejected, match="dtype") as e:
+    (store / "bad").mkdir()
+    (store / "bad" / ".zgroup").write_text(json.dumps({"zarr_format": 3}))
+    with pytest.raises(Rejected, match="zarr_format") as e:
         zarrify(str(store), URL.format("c"))
     assert e.value.format == "ome-zarr"
     with pytest.raises(Rejected) as e:
-        zarrify(str(FIXTURES.parent / "zarr2" / "zarr2_reject_dtype_complex"), "https://data.test/z/")
+        zarrify(str(FIXTURES.parent / "zarr2" / "zarr2_reject_dtype_object"), "https://data.test/z/")
     assert e.value.format == "zarr2"
+
+
+def own_metadata(out, path: str = "zarr.json") -> dict:
+    return json.loads(out.entries[path])["attributes"][CONVENTION_KEY]["ome-zarr"]
+
+
+def test_an_array_that_is_no_level_is_left_out_of_an_image():
+    """The image is migrated, and the array recorded, its chunk kept (spec/zarrify/ome-zarr.md §2.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ome-zarr.md#21-groups-that-are-not-ome>)."""
+    _, out = zarrify(str(FIXTURES / "ome_zarr_left_out"), URL.format("l"))
+    assert isinstance(out, StoreIrOutput)
+    assert json.loads(out.entries["zarr.json"])["attributes"]["ome"]["version"] == "0.5"
+    assert "table/zarr.json" not in out.entries
+    assert "refkv_source/objects/table/0.0" in {k for k, _ in out.chunks}
+    assert [r["path"] for r in own_metadata(out)["not_presented"]] == ["table"]
+    assert "not_ome" not in own_metadata(out)
+    assert out.summary["notPresented"] == 1
+
+
+def test_a_group_that_needs_an_array_left_out_is_not_ome():
+    """What names such an image is not OME either, up to the collection; what does not stays OME
+    (spec/zarrify/ome-zarr.md §2.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ome-zarr.md#21-groups-that-are-not-ome>)."""
+    _, out = zarrify(str(FIXTURES / "ome_zarr_not_ome"), URL.format("n"))
+    assert isinstance(out, StoreIrOutput)
+    own = own_metadata(out)
+    assert [r["path"] for r in own["not_presented"]] == ["0/1"]
+    assert {r["path"]: r["reason"] for r in own["not_ome"]} == {
+        "": "its image 0 is not OME",
+        "0": "its level 0/1: it is not presented: dtype |O is not supported: an object array has no data type "
+             "without the one filter vlen-utf8",
+        "OME": "its image 0 is not OME",
+        "bytes": "its level bytes/0: it has a trailing axis of bytes",
+        "bytes/labels": "its label image bytes/labels/named is not OME",
+        "bytes/labels/named": "its source image bytes is not OME",
+    }
+    attrs = lambda p: json.loads(out.entries[f"{p}/zarr.json"])["attributes"]  # noqa: E731
+    # Not OME: its attributes are its source metadata, whole, and its level a plain array.
+    assert "ome" not in attrs("0")
+    assert "multiscales" in attrs("0")[CONVENTION_KEY]["ome-zarr"]["attributes"]
+    assert "dimension_names" not in json.loads(out.entries["0/0/zarr.json"])
+    assert "ome" not in attrs("bytes")
+    # A level of bytes is presented, as a plain array.
+    assert json.loads(out.entries["bytes/0/zarr.json"])["shape"] == [2, 2, 1]
+    # Still OME: an image of no collection now, and a label image whose source image is only
+    # 0.4's default, which it does not name.
+    for p in ("1", "fine", "0/labels/cells"):
+        assert attrs(p)["ome"]["version"] == "0.5", p
+    assert "dimension_names" in json.loads(out.entries["fine/0/zarr.json"])
+    # The labels groups still name images; the OME-XML is an other object, as its collection is gone.
+    assert attrs("0/labels")["ome"]["labels"] == ["cells"]
+    assert "refkv_source/objects/OME/METADATA.ome.xml" in {k for k, _ in out.chunks}
+    assert out.summary["notOme"] == 6
+
+
+def test_a_plate_with_a_field_left_out_is_not_ome():
+    _, out = zarrify(str(FIXTURES / "ome_zarr_not_ome_plate"), URL.format("p"))
+    assert isinstance(out, StoreIrOutput)
+    assert {r["path"]: r["reason"] for r in own_metadata(out)["not_ome"]} == {
+        "": "its well A/1 is not OME",
+        "A/1": "its field A/1/0 is not OME",
+        "A/1/0": "its level A/1/0/0: it is not presented: dtype |O is not supported: an object array has no data "
+                 "type without the one filter vlen-utf8",
+    }
+    assert json.loads(out.entries["A/2/zarr.json"])["attributes"]["ome"]["version"] == "0.5"

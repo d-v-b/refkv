@@ -6,8 +6,9 @@ each compressor (none, zlib, gzip, zstd, blosc with each shuffle), fill
 values (numbers, "NaN", "Infinity", "-Infinity", null), 0-d arrays, missing
 and empty chunks, implicit groups, nodes inside arrays, stale consolidated
 metadata, OME-NGFF attributes below a root that does not declare
-OME-NGFF 0.4 (copied unchanged), and the inputs the profile rejects
-(`zarr2_reject_*`, one per rejection rule).
+OME-NGFF 0.4 (copied unchanged), the data types of NPY's table, the filters and
+the other compressors, arrays that are left out, and the inputs the profile
+rejects (`zarr2_reject_*`, one per rejection rule).
 
 Most arrays are one chunk, so that each store is a handful of objects; only
 the arrays that test the chunk grid have two or three chunks (a partial edge
@@ -25,6 +26,7 @@ Usage: uv run python fixtures/generators/zarr2/write_fixtures.py
 
 from __future__ import annotations
 
+import base64
 import gzip
 import json
 import shutil
@@ -33,6 +35,7 @@ from typing import Literal
 
 import numcodecs
 import numpy as np
+from numcodecs.compat import ensure_bytes
 
 
 def pinned_gzip(data: bytes, level: int = 9) -> bytes:
@@ -132,6 +135,8 @@ def store(name: str) -> Path:
     return d
 
 
+LZMA_CHUNK = base64.b64decode("/Td6WFoAAATm1rRGAgAhARYAAAB0L+WjAQALAAABAAIAAwAEAAUAANUEJ4Ym"
+                              "oKqbAAEkDKYY2NgftvN9AQAAAAAEWVo=")
 ZLIB = {"id": "zlib", "level": 1}
 GZIP = {"id": "gzip", "level": 5}
 ZSTD = {"id": "zstd", "level": 1, "checksum": False}
@@ -139,6 +144,140 @@ ZSTD = {"id": "zstd", "level": 1, "checksum": False}
 
 def blosc(cname="lz4", clevel=5, shuffle=1, blocksize=0):
     return {"id": "blosc", "cname": cname, "clevel": clevel, "shuffle": shuffle, "blocksize": blocksize}
+
+
+def stored(root: Path, path: str, doc: dict, chunks: dict[str, bytes], attrs=None) -> None:
+    """An array whose `.zarray` is the defaults below with `doc` set over them, and whose chunk
+    objects are given, for what `array` does not encode: strings, filters and other types."""
+    d = root / path if path else root
+    write_json(d / ".zarray", {"zarr_format": 2, "compressor": None, "fill_value": None, "order": "C", "filters": None,
+                               **doc})
+    if attrs is not None:
+        write_json(d / ".zattrs", attrs)
+    for key, data in chunks.items():
+        put(d / key, data)
+
+
+def types() -> None:
+    """The data types of NPY's table (spec/zarrify/zarr2.md §3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#3-arrays>), each with what
+    its fill value may be. The NOAA NWM retrospective stores' two forms come first: a scalar
+    `|S1` with no chunk encoding, and a blosc `|S15`."""
+    d = store("zarr2_types")
+    group(d, "")
+    stored(d, "crs", {"shape": [], "chunks": [], "dtype": "|S1"}, {"0": b"x"}, attrs={"grid_mapping_name": "lcc"})
+    ids = np.array([b"01010000", b"02010000", b"14316700"], dtype="|S15")
+    stored(d, "gage_id", {"shape": [3], "chunks": [3], "dtype": "|S15", "compressor": blosc()},
+           {"0": codec(blosc()).encode(ids.tobytes())})
+    grid = np.array([[b"ab", b"cd", b"ef"], [b"gh", b"ij", b"kl"]], dtype="|S2")
+    stored(d, "bytes_f_nested", {"shape": [2, 3], "chunks": [2, 3], "dtype": "|S2", "order": "F",
+                                 "dimension_separator": "/"}, {"0/0": grid.tobytes(order="F")})
+    stored(d, "bytes_fill", {"shape": [2], "chunks": [1], "dtype": "|S2",
+                             "fill_value": base64.b64encode(b"  ").decode()},
+           {"1": b"zz"})
+    stored(d, "bytes_empty_fill", {"shape": [2], "chunks": [2], "dtype": "|S2", "fill_value": ""}, {})
+    stored(d, "void", {"shape": [2], "chunks": [2], "dtype": "|V2"}, {"0": b"\x01\x02\x03\x04"})
+    stored(d, "unicode_le", {"shape": [2], "chunks": [2], "dtype": "<U3", "fill_value": "n/a"},
+           {"0": np.array(["ab", "é"], dtype="<U3").tobytes()})
+    stored(d, "unicode_be", {"shape": [2], "chunks": [2], "dtype": ">U2", "fill_value": ""},
+           {"0": np.array(["x", "yz"], dtype=">U2").tobytes()})
+    stored(d, "complex64", {"shape": [2], "chunks": [2], "dtype": "<c8", "fill_value": [1.5, -0.0]},
+           {"0": np.array([1 + 2j, 3j], dtype="<c8").tobytes()})
+    stored(d, "complex128_be", {"shape": [2], "chunks": [1], "dtype": ">c16", "fill_value": ["NaN", "Infinity"]},
+           {"0": np.array([1 + 2j], dtype=">c16").tobytes()})
+    stored(d, "complex_number_fill", {"shape": [1], "chunks": [1], "dtype": "<c16", "fill_value": 0}, {})
+    stored(d, "complex_null_fill", {"shape": [1], "chunks": [1], "dtype": "<c8"}, {})
+    stored(d, "datetime_nat", {"shape": [2], "chunks": [2], "dtype": "<M8[ns]", "fill_value": -9223372036854775808},
+           {"0": np.array(["2020-01-01", "NaT"], dtype="<M8[ns]").tobytes()})
+    stored(d, "timedelta_be", {"shape": [1], "chunks": [1], "dtype": ">m8[10s]", "fill_value": 7},
+           {"0": np.array([5], dtype=">m8[10s]").tobytes()})
+    stored(d, "datetime_word", {"shape": [1], "chunks": [1], "dtype": "<M8[D]", "fill_value": "NaT"}, {})
+    fields = [["a", "<u2"], ["b", "<f4"]]
+    stored(d, "struct", {"shape": [2], "chunks": [2], "dtype": fields, "fill_value": "AAAAAAAA"},
+           {"0": np.array([(1, 0.5), (2, 1.5)], dtype=[("a", "<u2"), ("b", "<f4")]).tobytes()})
+    stored(d, "struct_nested", {"shape": [1], "chunks": [1], "dtype": [["p", [["x", ">i2"]]], ["q", "|u1"]]},
+           {"0": b"\x00\x01\x02"})
+
+
+def codecs() -> None:
+    """The filters and the other compressors (spec/zarrify/zarr2.md §3.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#31-compressors>, §3.3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#33-filters>), with an
+    AnnData store's strings: `|O`, `vlen-utf8`, blosc and a `fill_value` of 0."""
+    d = store("zarr2_codecs")
+    group(d, "")
+    plain = np.arange(6, dtype="<u2").reshape(2, 3)
+    for name, comp in (("lz4", {"id": "lz4", "acceleration": 1}), ("lz4_default", {"id": "lz4"}),
+                       ("bz2", {"id": "bz2", "level": 1}), ("bz2_default", {"id": "bz2"}),
+                       ("lz4_extra", {"id": "lz4", "acceleration": 1, "writer": "x"})):
+        known = {k: v for k, v in comp.items() if k != "writer"}
+        stored(d, name, {"shape": [2, 3], "chunks": [2, 3], "dtype": "<u2", "compressor": comp},
+               {"0.0": ensure_bytes(numcodecs.get_codec(known).encode(plain.tobytes()))})
+    # liblzma's output is not the same in all its versions: the bytes of numcodecs.LZMA().encode
+    stored(d, "lzma", {"shape": [2, 3], "chunks": [2, 3], "dtype": "<u2", "compressor": {
+        "id": "lzma", "format": 1, "check": -1, "preset": None, "filters": None}}, {"0.0": LZMA_CHUNK})
+    stored(d, "lzma_default", {"shape": [2, 3], "chunks": [2, 3], "dtype": "<u2", "compressor": {"id": "lzma"}},
+           {"0.0": LZMA_CHUNK})
+
+    x = np.arange(12, dtype="<f8").reshape(3, 4) / 4
+    fso = {"id": "fixedscaleoffset", "scale": 4, "offset": 1, "dtype": "<f8", "astype": "<i2"}
+    enc = numcodecs.get_codec(fso)
+    stored(d, "fixedscaleoffset", {"shape": [3, 4], "chunks": [3, 4], "dtype": "<f8", "filters": [fso]},
+           {"0.0": ensure_bytes(enc.encode(x))})
+    stored(d, "fixedscaleoffset_f_zlib", {"shape": [3, 4], "chunks": [3, 4], "dtype": "<f8", "order": "F",
+                                          "filters": [fso],
+                                          "compressor": ZLIB},
+           {"0.0": codec(ZLIB).encode(ensure_bytes(enc.encode(np.asfortranarray(x))))})
+    # the blosc shuffle of what the filter gives: u1 is a bitshuffle, as numcodecs' automatic one
+    to_u1 = {"id": "fixedscaleoffset", "scale": 1, "offset": 0, "dtype": "<f8", "astype": "|u1"}
+    stored(d, "fixedscaleoffset_u1_blosc", {"shape": [3, 4], "chunks": [3, 4], "dtype": "<f8", "filters": [to_u1],
+                                            "compressor": blosc("lz4", 5, -1)},
+           {"0.0": codec(blosc("lz4", 5, -1)).encode(ensure_bytes(numcodecs.get_codec(to_u1).encode(x)))})
+    be = {"id": "fixedscaleoffset", "scale": 10, "offset": 0, "dtype": ">f4", "astype": ">i4"}
+    stored(d, "fixedscaleoffset_be", {"shape": [2], "chunks": [2], "dtype": ">f4", "filters": [be]},
+           {"0": ensure_bytes(numcodecs.get_codec(be).encode(np.array([0.5, 1.5], dtype=">f4")))})
+    q = {"id": "quantize", "digits": 2, "dtype": "<f8", "astype": "<f8"}
+    stored(d, "quantize", {"shape": [3, 4], "chunks": [3, 4], "dtype": "<f8", "filters": [q], "compressor": ZSTD},
+           {"0.0": codec(ZSTD).encode(ensure_bytes(numcodecs.get_codec(q).encode(x)))})
+    q_then_fso = {"id": "fixedscaleoffset", "scale": 8, "offset": 0, "dtype": "<f8", "astype": "<i4"}
+    stored(d, "quantize_then_fixedscaleoffset", {"shape": [3, 4], "chunks": [3, 4], "dtype": "<f8", "filters": [q,
+                                                                                                                q_then_fso]},
+           {"0.0": ensure_bytes(numcodecs.get_codec(q_then_fso).encode(numcodecs.get_codec(q).encode(x)))})
+
+    vlen = numcodecs.VLenUTF8()
+    names = np.array(["CD4", "é", "", "B cell"], dtype=object)
+    stored(d, "strings_anndata", {"shape": [4], "chunks": [4], "dtype": "|O", "filters": [{"id": "vlen-utf8"}],
+                                  "fill_value": 0, "compressor": blosc()},
+           {"0": codec(blosc()).encode(vlen.encode(names))}, attrs={"encoding-type": "string-array"})
+    stored(d, "strings_null_fill", {"shape": [4], "chunks": [2], "dtype": "|O", "filters": [{"id": "vlen-utf8"}]},
+           {"0": vlen.encode(names[:2])})
+    stored(d, "strings_f_fill", {"shape": [2, 2], "chunks": [2, 2], "dtype": "|O", "order": "F",
+                                 "filters": [{"id": "vlen-utf8"}],
+                                 "fill_value": "none", "compressor": ZLIB},
+           {"0.0": codec(ZLIB).encode(vlen.encode(np.asfortranarray(names.reshape(2, 2))))})
+
+
+def left_out() -> None:
+    """A store with one array of each kind that is left out (spec/zarrify/zarr2.md §3.4
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#34-arrays-that-are-not-presented>),
+    among arrays that are presented, its chunks and nested documents other objects."""
+    d = store("zarr2_left_out")
+    group(d, "", {"title": "left out"})
+    level = np.arange(4, dtype="|u1").reshape(2, 2)  # no RNG: the stores after these keep their bytes
+    array(d, "kept", level, [2, 2])
+    stored(d, "pickled", {"shape": [2], "chunks": [2], "dtype": "|O", "filters": [{"id": "pickle"}]}, {"0": b"pickle"},
+           attrs={"units": "kept in the mirror"})
+    stored(d, "a/filtered", {"shape": [2], "chunks": [2], "dtype": "<u2", "filters": [{"id": "delta", "dtype": "<u2"}]},
+           {"0": b"\x01\x00\x01\x00"})  # a/ is an implicit group, with nothing in it
+    stored(d, "shapeless", {"shape": "2", "chunks": [2], "dtype": "<u2"}, {"0": b"\x00\x00"})
+    stored(d, "fill", {"shape": [1], "chunks": [1], "dtype": "|S2", "fill_value": "AAE="}, {})
+    put(d / "not_json/.zarray", b"{not json")
+    put(d / "not_json/0", b"x")
+    put(d / "empty_doc/.zarray", b"")
+    put(d / "empty_doc/0", b"x")
+    array(d, "bad_attrs", level, [2, 2], attrs=["not", "an", "object"])
+    group(d, "pickled/inside")  # inside an array that is left out: not a node either
+    put(d / "pickled/empty", b"")
 
 
 def main() -> None:
@@ -262,20 +401,71 @@ def main() -> None:
         else:
             write_json(d / ".zarray", {k: v for k, v in doc.items() if v != "DROP"})
 
+    def accepted(name: str, **kw):
+        """Inputs the frozen reference rejects and the profile presents since it froze
+        (conformance/zarrify/revised.json), with no chunk."""
+        d = store(f"zarr2_accepted_{name}")
+        write_json(d / ".zarray", {"zarr_format": 2, "shape": [4, 4], "chunks": [2, 2], "dtype": "<u2",
+                                   "compressor": None,
+                                   "fill_value": 0, "order": "C", "filters": None, **kw})
+
     reject("filters", filters=[{"id": "delta", "dtype": "<u2"}])
-    reject("compressor_lz4", compressor={"id": "lz4", "acceleration": 1})
-    reject("compressor_bz2", compressor={"id": "bz2", "level": 1})
+    reject("filters_not_list", filters={"id": "delta"})
+    reject("filter_no_id", filters=[{"dtype": "<u2"}])
+    reject("filter_member", filters=[{"id": "fixedscaleoffset", "scale": 1, "offset": 0, "dtype": "<u2",
+                                      "astype": "|u1",
+                                      "writer": "x"}])
+    reject("filter_numbers", filters=[{"id": "fixedscaleoffset", "scale": "1", "offset": 0, "dtype": "<u2",
+                                       "astype": "|u1"}])
+    reject("filter_dtype", filters=[{"id": "fixedscaleoffset", "scale": 1, "offset": 0, "dtype": "<f8",
+                                     "astype": "|u1"}])
+    reject("filter_dtype_kind", filters=[{"id": "fixedscaleoffset", "scale": 1, "offset": 0, "dtype": "<M8[s]",
+                                          "astype": "|u1"}])
+    reject("filter_astype", filters=[{"id": "fixedscaleoffset", "scale": 1, "offset": 0, "dtype": "<u2",
+                                      "astype": "<c8"}])
+    reject("quantize_integer", filters=[{"id": "quantize", "digits": 2, "dtype": "<u2", "astype": "<u2"}])
+    reject("quantize_digits", dtype="<f8", filters=[{"id": "quantize", "digits": "2", "dtype": "<f8", "astype": "<f8"}])
+    # zarr-python's numcodecs.quantize does not give the bytes codec its astype
+    reject("quantize_astype", dtype="<f8", filters=[{"id": "quantize", "digits": 2, "dtype": "<f8", "astype": "<f4"}])
+    reject("vlen_not_object", filters=[{"id": "vlen-utf8"}])
+    reject("vlen_not_alone", dtype="|O", filters=[{"id": "vlen-utf8"}, {"id": "zlib"}])
+    reject("vlen_bytes", dtype="|O", filters=[{"id": "vlen-bytes"}])
+    accepted("compressor_lz4", compressor={"id": "lz4", "acceleration": 1})
+    accepted("compressor_bz2", compressor={"id": "bz2", "level": 1})
     reject("compressor_no_id", compressor={"level": 1})
+    reject("lz4_acceleration", compressor={"id": "lz4", "acceleration": "1"})
+    reject("bz2_level", compressor={"id": "bz2", "level": 0})
+    reject("lzma_format", compressor={"id": "lzma", "format": 4})
+    reject("lzma_check", compressor={"id": "lzma", "check": "crc"})
+    reject("lzma_preset", compressor={"id": "lzma", "preset": "6"})
+    reject("lzma_filters", compressor={"id": "lzma", "filters": {"id": 3}})
     reject("blosc_cname", compressor=blosc("snappy2"))
     reject("blosc_shuffle", compressor=blosc(shuffle=3))
     reject("blosc_clevel", compressor={"id": "blosc", "cname": "lz4", "shuffle": 1})
-    reject("dtype_unicode", dtype="<U4")
-    reject("dtype_bytes", dtype="|S8")
+    accepted("dtype_unicode", dtype="<U4", fill_value="")
+    accepted("dtype_bytes", dtype="|S8", fill_value=None)
     reject("dtype_object", dtype="|O")
-    reject("dtype_complex", dtype="<c8")
-    reject("dtype_datetime", dtype="<M8[ns]")
-    reject("dtype_structured", dtype=[["a", "<u2"], ["b", "<f4"]])
+    accepted("dtype_complex", dtype="<c8", fill_value=[0, 0])
+    accepted("dtype_datetime", dtype="<M8[ns]")
+    accepted("dtype_structured", dtype=[["a", "<u2"], ["b", "<f4"]], fill_value=None)
     reject("dtype_no_byteorder", dtype="|u2")
+    reject("dtype_long_double", dtype="<f16")
+    reject("dtype_field_of_shape", dtype=[["a", "<u2", [2]]])
+    reject("dtype_two_byte_orders", dtype=[["a", "<u2"], ["b", ">u2"]])
+    reject("dtype_no_unit", dtype="<M8")
+    reject("fill_bytes_mixed", dtype="|S2", fill_value="AAE=")
+    reject("fill_bytes_base64", dtype="|S2", fill_value="not base64")
+    reject("fill_bytes_long", dtype="|S1", fill_value="AAA=")
+    reject("fill_bytes_number", dtype="|S2", fill_value=0)
+    reject("fill_complex_word", dtype="<c8", fill_value="x")
+    reject("fill_complex_overflow", dtype="<c8", fill_value=[1e39, 0])
+    reject("fill_complex_length", dtype="<c8", fill_value=[0, 0, 0])
+    reject("fill_time_fraction", dtype="<M8[s]", fill_value=1.5)
+    reject("fill_time_word", dtype="<M8[s]", fill_value="never")
+    reject("fill_text_long", dtype="<U1", fill_value="ab")
+    reject("fill_text_number", dtype="<U1", fill_value=0)
+    reject("fill_struct_nonzero", dtype=[["a", "|u1"]], fill_value="AQ==")
+    reject("fill_string_number", dtype="|O", filters=[{"id": "vlen-utf8"}], fill_value=1)
     reject("order", order="A")
     reject("order_missing", order="DROP")
     reject("fill_out_of_range", dtype="|u1", fill_value=300)
@@ -301,7 +491,8 @@ def main() -> None:
     group(d, "")
     d = store("zarr2_reject_zattrs_not_object")  # below the root, so that the message names the node
     group(d, "")
-    array(d, "x", arr((2, 2), "|u1"), [2, 2], attrs=["not", "an", "object"], write_chunks=False)
+    group(d, "x", ["not", "an", "object"])  # a group's: an array's leaves that array out
+    arr((2, 2), "|u1")  # the array this store had: the stores after it keep their bytes
     d = store("zarr2_reject_zgroup_format")
     write_json(d / ".zgroup", {"zarr_format": "2"})
     d = store("zarr2_reject_no_root_metadata")
@@ -365,6 +556,10 @@ def main() -> None:
     group(d, "")
     group(d, "refkv_source")
     put(d / "README.md", b"x")
+
+    types()
+    codecs()
+    left_out()
 
     total = sum(f.stat().st_size for f in OUT.rglob("*") if f.is_file())
     print(f"{sum(1 for _ in OUT.iterdir())} stores, {total} bytes")

@@ -1,0 +1,19 @@
+{
+  "zarr_format": 2,
+  "compressor": {
+    "id": "bz2",
+    "level": 1
+  },
+  "fill_value": null,
+  "order": "C",
+  "filters": null,
+  "shape": [
+    2,
+    3
+  ],
+  "chunks": [
+    2,
+    3
+  ],
+  "dtype": "<u2"
+}

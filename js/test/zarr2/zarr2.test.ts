@@ -122,9 +122,9 @@ test("zarrifies the synthetic Zarr v2 stores", async () => {
 
 for (const [name, message] of [
   ["zarr2_reject_filters", /filters/],
-  ["zarr2_reject_compressor_lz4", /compressor "lz4"/],
-  ["zarr2_reject_dtype_unicode", /dtype "<U4"/],
-  ["zarr2_reject_dtype_complex", /dtype "<c8"/],
+  ["zarr2_accepted_compressor_lz4", /compressor "lz4"/],
+  ["zarr2_accepted_dtype_unicode", /dtype "<U4"/],
+  ["zarr2_accepted_dtype_complex", /dtype "<c8"/],
   ["zarr2_reject_order", /order "A"/],
   ["zarr2_reject_fill_out_of_range", /fill_value 300/],
   ["zarr2_reject_fill_uint64_max", /is not a uint64/],

@@ -40,6 +40,7 @@ const STORE_FORMATS: Record<StoreProfile, string | undefined> = {
   lif: "LIF",
   hdf5: "HDF5",
   tiff: "TIFF",
+  czi: "CZI",
 };
 
 export const ARCHIVE_KEY = "__vz__/archive.vzip";

@@ -140,6 +140,11 @@ ADDED = {"tiff": ("omero",), "ndpi": ("omero",)}
 # freeze, which the frozen reference does not give: they and their mutants compare py with web
 # alone (revised.json says which, and why).
 REVISED = set(json.loads((HERE / "revised.json").read_text())["fixtures"])
+# The store profiles whose mutants all compare py with web alone: a mutated `.zarray` below the root
+# leaves its array out since the freeze, where the frozen reference rejects the store
+# (spec/zarrify/zarr2.md §3.4
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#34-arrays-that-are-not-presented>).
+REVISED_MUTANTS = ("zarr2", "ome-zarr")
 
 
 def unmutated(name: str) -> str:
@@ -424,7 +429,7 @@ def store_mirror_problem(path: Path, view: dict, fetch=None) -> str | None:
     url = prop.get("source", {}).get("url") if isinstance(prop, dict) else None
     if not isinstance(prop, dict) or not isinstance(url, str):
         return "no store URL on the root"
-    if prop.get("profile") in ("vsi", "nrrd", "grib", "tiff", "lif", "nifti", "hdf5"):
+    if prop.get("profile") in ("vsi", "nrrd", "grib", "tiff", "lif", "czi", "nifti", "hdf5"):
         # a VSI root names the .vsi file, a NRRD root and a NIfTI pair's the header file, a GRIB root
         # the GRIB file and a LAS X project's the named document; the store's URL is its directory
         # (spec/zarrify/vsi.md §9
@@ -680,7 +685,8 @@ def corpus(proxy: Proxy, fixtures: Path, quick: bool, local_only: bool, large: b
              for p in files]
     registry = {string(e["name"]): e for e in REGISTRY}
     items += [(f"fixture-{s.name}", proxy.local_store(s.relative_to(fixtures).as_posix()),
-               *(["no-ref"] if registry[s.parent.name]["reference"] is None or unmutated(s.name) in REVISED else []))
+               *(["no-ref"] if registry[s.parent.name]["reference"] is None or unmutated(s.name) in REVISED
+                 or (s.parent.name in REVISED_MUTANTS and unmutated(s.name) != s.name) else []))
               for s in stores]
     # each store profile's largest synthetic store that it does not reject, listed the Hub's way
     # too (spec/zarrify.md §1.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>),

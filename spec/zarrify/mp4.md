@@ -11,6 +11,11 @@ below.
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `bbe3f6b9-488d-4d8d-85ce-60a1649dd27e` ·
 Schema: [schema.json](mp4/schema.json)
 
+Changed 2026-11-04: AV1 (`av01`) and VP9 (`vp09`) tracks are zarrified, through the `refkv.stream`
+formats `"av1"` and `"vp9"`, and so are 10-bit H.264 and HEVC of 4:2:2 or of 12 bits, where each was
+recorded with a reason ([§4.1](#41-video-tracks), [§8.2](#82-tracks)). A video track's source
+metadata has the member `chroma` ([§5.2](#52-the-tracks)).
+
 Changed 2026-11-04: a PCM audio track is zarrified, where it was recorded with a reason: its samples
 are the file's own bytes, through the `bytes` codec, with the sample entries `sowt`, `twos`, `raw `,
 `NONE`, `in32`, `fl32`, `fl64`, `ipcm`, `fpcm` and `lpcm` ([§4.2](#42-audio-tracks),
@@ -73,7 +78,7 @@ Added 2026-10-23.
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
 An MP4 file is not an image. The hierarchy holds each track it zarrifies
-as a group: an H.264 or HEVC video track as the Y, U and V planes of its pictures
+as a group: an H.264, HEVC, AV1 or VP9 video track as the Y, U and V planes of its pictures
 and their presentation times, an AAC, MP3 or PCM audio track as its samples. The
 pictures and samples stay in the file as coded frames; the arrays' codec,
 `refkv.stream` ([conventions §10](../conventions.md#10-coded-streams)),
@@ -246,15 +251,16 @@ metadata, and its arrays below. Every array's `zarr.json` is
 
 ### 4.1 Video tracks
 
-An H.264 or HEVC track of `N` samples, `W × H` pixels (its sample entry's
-`width` and `height`), of `D` bits a sample (its SPS's bit depth, [§8.2](#82-tracks)), holds
+An H.264, HEVC, AV1 or VP9 track of `N` samples, `W × H` pixels (its sample entry's
+`width` and `height`), of `D` bits a sample (its SPS's bit depth, or that of its `av1C` or `vpcC`
+box, [§8.2](#82-tracks)), holds
 its pictures in **presentation order**: picture `p` is
 the sample with the `p`-th smallest presentation time. Its arrays are `y`, `u` and `v`, the
 planes of the pictures, and `time`, the pictures' presentation times.
 
 **Chunks.** A chunk holds at most
 `F = min(256, max(1, floor(2^25 / (W × H × B))))` pictures, `B` the bytes of a sample (1 for
-`D` = 8, 2 for 10): at most 32 MiB of luma (16 pictures at 1920 × 1080 of 8 bits, 8 of 10),
+`D` = 8, 2 for more): at most 32 MiB of luma (16 pictures at 1920 × 1080 of 8 bits, 8 of 10),
 since a chunk decodes whole. The
 chunks are cut at the sync samples' presentation indexes: chunk `q` holds
 the pictures `a_q` to `a_{q+1} − 1`, from `a_0 = 0`, where `a_{q+1}` is
@@ -271,8 +277,8 @@ of chunk `q`:
 
 | member | type | presence | value |
 |---|---|---|---|
-| `shape` | array of integer | required | `[N, H, W]` for `y` and `[N, ceil(H / 2), ceil(W / 2)]` for `u` and `v` |
-| `data_type` | string | required | `"uint8"` when `D` is 8, `"uint16"` when it is 10 (the decoder's samples, from 0 to 2^D − 1) |
+| `shape` | array of integer | required | `[N, H, W]` for `y`; for `u` and `v`, `[N, ceil(H / 2), ceil(W / 2)]` of a 4:2:0 picture and `[N, H, ceil(W / 2)]` of a 4:2:2 one |
+| `data_type` | string | required | `"uint8"` when `D` is 8, `"uint16"` when it is 10 or 12 (the decoder's samples, from 0 to 2^D − 1) |
 | `chunk_grid` | object | required | when every `L_q` but the last is `L_0` and the last at most `L_0`, the regular grid of chunk shape `[L_0, H, W]` (or the chroma planes' sizes); otherwise the zarr-extensions `rectilinear` grid ([chunk-grids/rectilinear](https://github.com/zarr-developers/zarr-extensions/tree/main/chunk-grids/rectilinear)), exactly `{"name": "rectilinear", "configuration": {"kind": "inline", "chunk_shapes": [T, H, W]}}` (or the chroma planes' sizes), `T` the lengths in order, each run of `r > 1` equal lengths `L` written `[L, r]`, as the CZI convention writes a clipped axis ([zarrify/czi.md §4.3](czi.md#43-image-arrays)) |
 | `codecs` | array of object | required | `[{"name": "refkv.stream", "configuration": {"format": V, "setup": S, "plane": P}}]`, a [`StreamConfiguration`](../conventions.md#type-streamconfiguration), `V` `"h264"` for H.264 and `"hevc"` for HEVC, `S` the base64 of the payload of the sample entry's `avcC` box (H.264) or `hvcC` box (HEVC), and `P` the array's name |
 | `dimension_names` | array of string | required | `["time", "y", "x"]` |
@@ -408,9 +414,10 @@ are the same up to `frames` and at the end, `chunk_frames`.
 | `frames` | integer | required | its sample count `N` |
 | `width` | integer | required | `W` ([§4.1](#41-video-tracks)) |
 | `height` | integer | required | `H` |
-| `bit_depth` | integer | required | `D`: 8 or 10 |
-| `profile` | integer | required | the SPS's `profile_idc` (H.264) or `general_profile_idc` (HEVC: 1 Main, 2 Main 10) |
-| `level` | integer | required | the SPS's `level_idc` (H.264) or `general_level_idc` (HEVC: 30 times the level) |
+| `chroma` | string | required | the chroma planes' subsampling: `"4:2:0"` or `"4:2:2"` |
+| `bit_depth` | integer | required | `D`: 8, 10 or 12 |
+| `profile` | integer | required | the SPS's `profile_idc` (H.264) or `general_profile_idc` (HEVC: 1 Main, 2 Main 10, 4 range extensions), the `av1C` box's `seq_profile` or the `vpcC` box's `profile` |
+| `level` | integer | required | the SPS's `level_idc` (H.264) or `general_level_idc` (HEVC: 30 times the level), the `av1C` box's `seq_level_idx_0` or the `vpcC` box's `level` |
 | `sync_samples` | integer | required | the count of its sync samples |
 | `chunk_frames` | integer | required | the most frames a chunk holds: `F` |
 
@@ -459,7 +466,7 @@ the IR's root, whose path is `""`
 | `<box>/rest` | value | `bytes[k]` | bytes of a box that are none of its fields, table or boxes |
 | `samples` | struct | | the samples of the file's tracks |
 | `samples/<T>` | struct | | track `T`'s samples |
-| `samples/<T>/<j>` | data | | sample `j` of track `T`, `(offset, size)`, or, for a PCM track of one sample size, the samples of its table's chunk `j` together, and of a `trun` box with no table of its track fragments; its form's geometry is `{"width", "height", "planes": 3, "data_type"}` for a video track, its data type the planes' (`"uint8"` or `"uint16"`), `{"samples", "channels", "data_type": "float32"}` for an audio track and `{"channels", "data_type"}` for a PCM one (null for a track the profile does not zarrify), its codec `{"name": E, "format": F}` (`F` null for such a track), its recipe `[["src", 0, null]]` |
+| `samples/<T>/<j>` | data | | sample `j` of track `T`, `(offset, size)`, or, for a PCM track of one sample size, the samples of its table's chunk `j` together, and of a `trun` box with no table of its track fragments; its form's geometry is `{"width", "height", "planes": 3, "data_type", "chroma"}` for a video track, its data type the planes' (`"uint8"` or `"uint16"`), `{"samples", "channels", "data_type": "float32"}` for an audio track and `{"channels", "data_type"}` for a PCM one (null for a track the profile does not zarrify), its codec `{"name": E, "format": F}` (`F` null for such a track), its recipe `[["src", 0, null]]` |
 | `gaps/<offset>` | gap | | bytes no other element claims: the media data in no sample, and fewer than 8 bytes after the last box |
 
 A box is named by its type: printable ASCII as it is but for `/`, `~`, `%`
@@ -539,8 +546,8 @@ This section is informative.
 - **Orientation.** The `tkhd` box's matrix, which turns a phone's portrait
   video upright on the movie's display, is in the mirror, not applied: the
   planes are as coded.
-- **Other tracks and codecs.** AV1, Dolby Vision's own sample entries
-  (`dvh1`, `dvhe`), 10-bit or 4:2:2 H.264, 4:2:2, 4:4:4 or 12-bit HEVC,
+- **Other tracks and codecs.** AV1 of the Professional and High profiles, Dolby Vision's own sample
+  entries (`dvh1`, `dvhe`), 4:2:2 H.264, 4:4:4 H.264, HEVC and VP9,
   24-bit PCM, which `bytes` has no data type for, other audio codecs, timecode, text, chapter and metadata tracks are
   recorded in `tracks` with the reason the profile does not zarrify them,
   and kept whole in the mirror.
@@ -603,8 +610,8 @@ that fails.
   chunk; and every sample ends within the file.
 - **A track:** the profile zarrifies at least one track ([§8.2](#82-tracks)).
   Without one, the input is rejected with each track's reason: `no track can
-  be zarrified: track 1 (hvc1): HEVC with chroma format 2 and bit depth 8 is
-  not supported: only 4:2:0 of 8 or 10 bits is`.
+  be zarrified: track 1 (hvc1): HEVC with chroma format 3 and bit depth 8 is
+  not supported: only 4:2:0 or 4:2:2 of 8, 10 or 12 bits is`.
 
 A box that is not well formed but within a box the profile does not parse
 is not checked: its payload is opaque.
@@ -622,15 +629,18 @@ and the track is kept in the mirror but has no group:
   (its `tfhd` box's `sample_description_index`, or by default its `trex` box's) names
   another;
 - its media timescale is 0;
-- **video:** its sample entry is none of `avc1`, `hvc1` and `hev1`; or, for
+- **video:** its sample entry is none of `avc1`, `hvc1`, `hev1`, `av01` and `vp09`; or, for
   `avc1`, its `avcC` box is absent, holds no SPS, or an SPS the profile
-  cannot read, or the SPS is not 8-bit 4:2:0 (`chroma_format_idc` 1 and both
-  bit depths 8; profiles below High are); or, for `hvc1` and `hev1`, its
+  cannot read, or the SPS is not 4:2:0 of 8 or 10 bits (`chroma_format_idc` 1 and both
+  bit depths 8 or both 10; profiles below High are 8-bit 4:2:0); or, for `av01`, its `av1C` box is
+  absent or cannot be read, or is not 4:2:0 of 8 or 10 bits (AV1's Main profile); or, for `vp09`,
+  its `vpcC` box is absent or cannot be read, or is not 4:2:0 or 4:2:2 of 8, 10 or 12 bits; or, for
+  `hvc1` and `hev1`, its
   `hvcC` box is absent, does not hold a VPS, an SPS and a PPS, gives NAL unit
   lengths of 3 bytes (`lengthSizeMinusOne` 2, which ISO/IEC 14496-15 does not
   allow), or its first SPS cannot be read to its bit depths (ITU-T H.265
-  §7.3.2.2), or the SPS is not 4:2:0 of 8 or 10 bits (`chroma_format_idc` 1
-  and both bit depths 8, or both 10: Main and Main 10); or its width or
+  §7.3.2.2), or the SPS is not 4:2:0 or 4:2:2 of 8, 10 or 12 bits (`chroma_format_idc` 1 or 2 and
+  both bit depths 8, both 10 or both 12: Main, Main 10 and range extensions); or its width or
   height is 0; or its first sample is not a sync
   sample; or its sync samples do not increase, or one is past its last
   sample; or two samples share a presentation time; or two sync samples

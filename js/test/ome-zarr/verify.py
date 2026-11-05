@@ -183,7 +183,12 @@ def main(argv: list[str]) -> int:
                 continue
             fmt = json.loads(p.stdout)["format"]
             problems = [f"format {fmt}"] if fmt != "ome-zarr" else []
-            problems += [f"input not valid 0.4: {x}" for x in in_problems]
+            # the 0.4 models cannot open what the output records as left out or not OME (spec/zarrify/ome-zarr.md §2.1
+            # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ome-zarr.md#21-groups-that-are-not-ome>)
+            root = json.loads(zipfile.ZipFile(out).read("zarr.json"))
+            own = root["attributes"]["refkv_zarrified"].get("ome-zarr", {})
+            if "not_ome" not in own:
+                problems += [f"input not valid 0.4: {x}" for x in in_problems]
             out_problems, notes, n = v05_check(out)
             problems += [f"output not valid 0.5: {x}" for x in out_problems]
             problems += zarr2_verify.check_store(store_dir, out, tmp)

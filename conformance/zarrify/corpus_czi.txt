@@ -2,7 +2,11 @@
 # <https://github.com/d-v-b/refkv/blob/main/design/plans/czi.md#6-corpus>).
 # OME sample images (idr0011 subset, (c) Ledesma-Fernández et al.; zenodo-10577186, (c) Stephan
 # Wagner-Conrad; zenodo-14968770, (c) Jürgen Bohl), and Zenodo records 19047136, 7015307, 10708864,
-# 8321543, 10724935, 8358320 (CC-BY-4.0) and 5823010 (CC0).
+# 8321543, 10724935, 8358320 (CC-BY-4.0) and 5823010 (CC0). image1_parts is the master of a set of
+# four files (spec/zarrify/czi.md §7.9
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#79-several-files>), read with the others
+# beside it, at a URL under which the proxy forwards them too: the frozen reference reads the master
+# alone, so it compares py with web alone.
 https://downloads.openmicroscopy.org/images/Zeiss-CZI/idr0011/Plate1-Blue-A_TS-Stinger/Plate1-Blue-A-02-Scene-1-P2-E1-01.czi|idr0011_A02_S1|ends-sha256=bd682f8eafd78737edccc11329d9f0a5d48fe1622deabbe55a6c4957f00ffcd2
 https://downloads.openmicroscopy.org/images/Zeiss-CZI/idr0011/Plate1-Blue-A_TS-Stinger/Plate1-Blue-A-03-Scene-1-P1-D1-01.czi|idr0011_A03_S1|ends-sha256=ced7b822a7b7dd581cfff72db7fc6e7d896d5bcf10b6dee156dbbeb26ab98e0b
 https://downloads.openmicroscopy.org/images/Zeiss-CZI/zenodo-10577186/2023_11_30__RecognizedCode-27.czi|axioscan_recognizedcode27|ends-sha256=b3a285af3b9c7d00a7653603925f55197c2bcd15d6b3216c1194ce24646a143b
@@ -12,7 +16,7 @@ https://downloads.openmicroscopy.org/images/Zeiss-CZI/zenodo-14968770/2025_01_27
 https://zenodo.org/api/records/19047136/files/xt-scan-lsm980.czi/content|lsm980_xt|ends-sha256=4ffb95044a2db212baa1bd668f9532a9b9c072bc5cbe28536e76413d35fccf7f
 https://zenodo.org/api/records/19047136/files/xz-scan-lsm980.czi/content|lsm980_xz|ends-sha256=2307384ef48443c80c83857edf503f277e4df30b828a3e906bfab61d810d9bc8
 https://zenodo.org/api/records/19047136/files/xzt-scan-lsm980.czi/content|lsm980_xzt|ends-sha256=206a9190d68a94468b0e3071bf4a4696ab1ed33eba8df3595b8d6c07d963a9ae
-https://zenodo.org/api/records/19047136/files/Image_1_2023_08_18__14_32_31_964.czi/content|image1_all_dims|ends-sha256=3a1846d436eef1f91f83d8277c10df6ac5cf2872fe98d32c0855fbc9fe2222a3
+https://zenodo.org/records/19047136/files/Image_1_2023_08_18__14_32_31_964.czi|image1_parts|no-ref|ends-sha256=3a1846d436eef1f91f83d8277c10df6ac5cf2872fe98d32c0855fbc9fe2222a3
 https://zenodo.org/api/records/19047136/files/test_gray.czi/content|test_gray_tiles|ends-sha256=d0f013d55a5ace7c81c3715586938f63a973e5578597237b0a08cd4a2779e75c
 https://zenodo.org/api/records/19047136/files/ZeissLLS7Demo-Max.czi/content|lls7_demo_max|ends-sha256=8cd87aff24091a4ab0bca9da114d75cdffaa26bba7d4034a56fbb1bde2c44f5b
 https://zenodo.org/api/records/7015307/files/S%3D2_2x2_Z%3D4_CH%3D1.czi/content|testcam_S2_2x2_Z4|ends-sha256=e71413527180f24421e424a410d582822cc7a086ca65309fab1496e3ab6a3ae2
