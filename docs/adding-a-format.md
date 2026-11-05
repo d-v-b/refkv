@@ -339,7 +339,7 @@ document. `uv run python spec/generate_schemas.py` writes
 Copy an existing entry, such as
 [profiles/nrrd.json](../spec/zarrify/profiles/nrrd.json), to
 `spec/zarrify/profiles/<p>.json`:
-- Keep its twelve members in `FIELDS` order (`spec/tools/profiles.py`).
+- Keep its thirteen members in `FIELDS` order (`spec/tools/profiles.py`).
 - Give it a fresh UUID and version 0.
 - Set `reference` to `null`, since there is no frozen twin.
 
@@ -366,8 +366,7 @@ registry. Add:
 
 - `src/<m>.rs` (where `<m>` is the name with `-` as `_`):
   - a `pub struct Profile` implementing `FileProfile` (`src/run.rs`: `detect`,
-    `parser`, `project`, and optionally `reads`, `mirrored`, `whole`,
-    `store_run`);
+    `parser`, `project`, and optionally `reads`, `mirrored`, `whole`);
   - a sans-IO parser with `new(size)`, `step`, `feed` and `finish`;
 - `src/project/<m>.rs`, the projection to the Zarr layout;
 - `schema/<p>.json`, the source model;
@@ -408,32 +407,27 @@ can loop forever or ask for a whole file:
 A plain file profile needs no change in Python, the browser code or the CLI:
 each reads the registry. Python needs only the generated classes.
 
-A file read as a store run (`store_run()`,
-[zarrify §1.8](../spec/zarrify.md#18-files-read-as-stores), as NRRD's detached
+A file read as a store run ([zarrify §1.8](../spec/zarrify.md#18-files-read-as-stores), as NRRD's detached
 headers, VSI's tiles and GRIB's index files are) follows
 [zarrify §1.9](../spec/zarrify.md#19-sources-beside-the-input), and its document gives that
 section's sibling table. `refkv_ir::beside::written_key` turns a written name into a key. A
 profile whose file may name no sibling reads it **on demand**: its file parser returns
 `Step::Beside` on finding one, each host then starts over with a store run of the format, and a
-file that names none keeps its file run's output. The on-demand form does not set `store_run()`.
+file that names none keeps its file run's output.
 
-Either form is still registered by hand in several places:
-- `StoreFormat` and its matches in `rust/refkv-ir/src/store.rs`;
-- `StoreFormat` in `js/src/zarrify/ir/store.ts`;
-- `BESIDE` in `js/src/zarrify/ir/vsi.ts` and `python/src/refkv/zarrify/__init__.py`;
-- `titles` in `rust/refkv-cli/src/vsi.rs`;
-- `STORE_FORMATS` in `js/src/server.ts`;
-- the profiles in `store_mirror_problem` (`conformance/zarrify/compare.py`) whose root
-  names the file rather than the store;
-- the list of profiles in [zarrify §1.8](../spec/zarrify.md#18-files-read-as-stores).
+Either form, and a store input ([§5.6](#56-a-store-input)), is a member of the registry entry,
+`store_run`, which the hosts read: `{"form": "listed"}` for a store a listing finds, and for a file read as a
+store `{"form": "always" or "on_demand", "named": ..., "section": ...}`, where `named` is the named file as a
+rejection names it and `section` is the anchor of the section of the profile's document that specifies it.
+`just profiles` lists it in the table of [zarrify §1.8](../spec/zarrify.md#18-files-read-as-stores). Then
+add two functions, which `build.rs` calls from the `StoreFormat` it generates:
 
-The rest of each host finds the format through these. The CLI asks
-`store_run()` (`beside_format` in `rust/refkv-cli/src/run.rs`), and Python and the
-browser code ask `BESIDE`.
+- `pub fn store_parser(ir, objects, keys)` in `src/<m>.rs`;
+- `pub fn store_project(ir, facts, url)` in `src/project/<m>.rs`.
 
-A format whose writers name files in another case than they have (LIF's XLEF documents) also lists
-a local directory for its files: `CASE` in `python/src/refkv/zarrify/__init__.py` and `case` in
-`rust/refkv-cli/src/vsi.rs`, which answer a probe with `StoreRun::found_as`.
+A format whose writers name files in another case than they have (LIF's XLEF documents) adds
+`"case": true`, and each host that can list a local directory then answers a probe with
+`StoreRun::found_as`.
 
 [#119](https://github.com/d-v-b/refkv/pull/119) added the first of these, and
 [#170](https://github.com/d-v-b/refkv/pull/170) is the shortest list, GRIB's. Every read of
@@ -518,10 +512,10 @@ In the core, and in place of
 
 - a type implementing `StoreParser` (`rust/refkv-ir/src/store.rs`: `step`, `feed`,
   `finish`), built from the IR and the listing's objects and keys;
-- `StoreFormat` and its matches in the same file: `from_name`, `name`, `profile`,
-  `parser`, and the projection;
-- the projection in `src/project/<m>.rs`, and in `kept` (`src/project/store.rs`) the
-  members it records beside the mirror.
+- `{"form": "listed"}` as the entry's `store_run`, which adds it to the `StoreFormat` that `build.rs`
+  generates, and `store_parser` in `src/<m>.rs` ([§5.3](#53-the-hosts));
+- the projection in `src/project/<m>.rs`, with `store_project`, and in `kept`
+  (`src/project/store.rs`) the members it records beside the mirror.
 
 Decide what each object is in the IR: **held**, with its bytes in the mirror, as for
 a document the profile reads; **described in place**, as for a file whose bytes stay
@@ -539,8 +533,6 @@ The hosts register it by hand:
   The message changes the reject tables' entries of the other store profiles;
 - its dispatch: `zarrifyStoreProfile` in `js/src/zarrify/index.ts`, and `zarrify_store`
   in `rust/refkv-cli/src/store.rs`;
-- `StoreFormat` in `js/src/zarrify/ir/store.ts`, and `STORE_FORMATS` in
-  `js/src/server.ts`;
 - the usage text: `STORES` in `python/src/refkv/zarrify/__main__.py`, and
   `rust/refkv-cli/src/main.rs`;
 - `conformance/zarrify/reference/ts/store.ts`, which uses the shipped chooser, so must

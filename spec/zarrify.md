@@ -712,16 +712,24 @@ zarrifiers wrote the same layouts.
 
 ### 1.8 Files read as stores
 
-The VSI ([vsi.md §9](zarrify/vsi.md#9-vsi-profile)), NRRD
-([nrrd.md §8](zarrify/nrrd.md#8-nrrd-profile)) and GRIB
-([grib.md §8](zarrify/grib.md#8-grib-profile)) profiles, and the LIF profile for a LAS X document
-([lif.md §8](zarrify/lif.md#8-las-x-documents)), are chosen by a file input's signature
-([§1.2](#12-input)), and read the file and the files beside it (a slide's tile files, a
-detached header's data file, a GRIB file's index files, a project's documents and LOFs) as a store
-([§1.4](#14-store-inputs)), and so do the TIFF profile, for an input that names other files
-([tiff.md §7.4](zarrify/tiff.md#74-several-files)), the CZI profile, for an input with parts
-([czi.md §7.9](zarrify/czi.md#79-several-files)), and the NIfTI profile, for a header-and-image pair
-([nifti.md §7.5](zarrify/nifti.md#75-header-and-image-pairs)). Such a **file read as a store** is read as follows; the profile's
+The profiles of this table are chosen by a file input's signature ([§1.2](#12-input)), and read the
+file and the files beside it (a slide's tile files, a detached header's data file, a GRIB file's index
+files, a project's documents and LOFs) as a store ([§1.4](#14-store-inputs)).
+
+<!-- profiles:beside-table -->
+| profile | read as a store | the named file | specified in |
+|---|---|---|---|
+| CZI | on demand | CZI file | [czi.md §7.9](zarrify/czi.md#79-several-files) |
+| GRIB | always | GRIB file | [grib.md §8](zarrify/grib.md#8-grib-profile) |
+| HDF5 | on demand | HDF5 file | [hdf5.md §8.6](zarrify/hdf5.md#86-external-files) |
+| LIF | on demand | named document | [lif.md §8](zarrify/lif.md#8-las-x-documents) |
+| NIfTI | on demand | header file | [nifti.md §7.5](zarrify/nifti.md#75-header-and-image-pairs) |
+| NRRD | always | header file | [nrrd.md §8](zarrify/nrrd.md#8-nrrd-profile) |
+| TIFF | on demand | TIFF file | [tiff.md §7.4](zarrify/tiff.md#74-several-files) |
+| VSI | always | .vsi file | [vsi.md §9](zarrify/vsi.md#9-vsi-profile) |
+<!-- /profiles -->
+
+Such a **file read as a store** is read as follows; the profile's
 document says which keys it probes, how it reads each object, and the order of its sources, under
 the rules of [§1.9](#19-sources-beside-the-input).
 
@@ -759,10 +767,11 @@ profile that reads siblings follows this section, and its document gives the **s
 below. A store input ([§1.4](#14-store-inputs)) has no siblings, since a listing finds its objects,
 but its profile follows **Pins**, **Identity** and **Bounds** for the objects one object names.
 
-**When an input is read as a store.** A profile says which of two forms it has:
+**When an input is read as a store.** A profile says which of two forms it has, as the table of
+[§1.8](#18-files-read-as-stores) lists:
 
-- **Always:** every input is a file read as a store, as VSI, NRRD and GRIB are, and its mirror is a
-  store IR even when the named file is the only object.
+- **Always:** every input is a file read as a store, and its mirror is a store IR even when the named
+  file is the only object.
 - **On demand:** an input whose bytes name no sibling is a file input ([§1.2](#12-input)): source 0
   is `U`, and its mirror is a file IR. An input that names one is a file read as a store. So a file
   that names only itself, such as an OME-TIFF whose `TiffData` elements give its own file name, has

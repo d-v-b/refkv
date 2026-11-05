@@ -405,6 +405,11 @@ fn build(ir: &Ir, facts: &J, url: &str, source: &str, copied: &Copied) -> Result
     Ok(out)
 }
 
+/// The projection of the profile's store run (`StoreFormat`; crate::store).
+pub fn store_project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
+    project_store(ir, facts, url)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
