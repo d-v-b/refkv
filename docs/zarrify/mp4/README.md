@@ -42,7 +42,7 @@ A group at the archive root, and a group per track refkv zarrifies, at
 - **Motion JPEG:** `pictures`, `uint8`, `[time, y, x, c]` in RGB (`[time, y, x]` for a gray
   stream), the JPEG decoder's output, a picture a chunk, in presentation order, and `time`
   as above.
-- **Audio (AAC-LC, MP3):** `samples`, `float32`, `[time, channel]`, the
+- **Audio (AAC-LC, HE-AAC, MP3):** `samples`, `float32`, `[time, channel]`, the
   decoder's output, in chunks of 256 frames.
 - **Audio (PCM):** `samples`, `[time, channel]`, in the file's own data type
   (`uint8`, `int8`, `int16`, `int32`, `float32` or `float64`) and byte order, in
@@ -170,13 +170,14 @@ Supported:
   recorded, not applied).
 - Motion JPEG tracks, one component or three, 8-bit baseline, extended or progressive: the
   sample entries `jpeg`, `mjpa`, `dmb1`, and `mp4v` as ffmpeg's MP4 muxer writes it.
-- AAC-LC and MP3 audio tracks, mono or stereo, in either container.
+- AAC-LC, HE-AAC, HE-AAC v2 and MP3 audio tracks, mono or stereo, in either container. An HE-AAC
+  chunk's high band is its own, not the whole stream's: SBR's noise runs on from frame to frame.
 
 Not zarrified (listed with the reason, and kept in the mirror): AV1's Professional
 and High profiles, Motion JPEG B and other video codecs, interlaced or 12-bit Motion JPEG,
 Dolby Vision's own sample entries (`dvh1`, `dvhe`),
 `avc3` (parameter sets in the stream), 4:2:2 and 4:4:4 H.264, 4:4:4 HEVC and VP9,
-groups of more than 1024 pictures, HE-AAC, 24-bit PCM
+groups of more than 1024 pictures, 24-bit PCM
 (`bytes` has no data type for it) and other audio codecs, timecode, text and
 metadata tracks.
 

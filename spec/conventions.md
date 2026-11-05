@@ -53,7 +53,7 @@ group.)
 | Imaris IMS | [ims](zarrify/ims.md) | `5067a535-8261-4b25-a93c-1985ed333bde` |
 | Leica LIF | [lif](zarrify/lif.md) | `b099ab1f-f9d4-4276-9006-9ff1193a34b2` |
 | MP3 (MPEG Layer III audio) | [mp3](zarrify/mp3.md) | `b6cb0047-9448-4fdc-b03e-10dd3d6aa829` |
-| MP4 and QuickTime (H.264, HEVC, AV1, VP9 and Motion JPEG video, AAC, MP3 and PCM audio) | [mp4](zarrify/mp4.md) | `bbe3f6b9-488d-4d8d-85ce-60a1649dd27e` |
+| MP4 and QuickTime (H.264, HEVC, AV1, VP9 and Motion JPEG video, AAC, HE-AAC, MP3 and PCM audio) | [mp4](zarrify/mp4.md) | `bbe3f6b9-488d-4d8d-85ce-60a1649dd27e` |
 | MRC2014 | [mrc](zarrify/mrc.md) | `2aacd010-2ed1-4748-bc3c-5dd5e840bbce` |
 | MRC2014, as a dataset ([§9](#9-dataset-layouts)) | [mrc-dataset](zarrify/mrc-dataset.md) | `f139bf4e-7bab-4c3c-9b2d-66ba747f9b93` |
 | N5 | [n5](zarrify/n5.md) | `ad5d4c39-c69e-48f7-a3ef-4cc8c607d416` |
@@ -1528,7 +1528,7 @@ array-to-bytes codec `refkv.stream` decodes such a chunk.
 | member | type | presence | value |
 |---|---|---|---|
 | `format` | string | required | the coding of the frames: `"mp3"` (MPEG-1, 2 or 2.5 Layer III frames), `"aac"` (raw AAC frames, without ADTS headers), `"flac"` (FLAC frames, [RFC 9639 §9](https://www.rfc-editor.org/rfc/rfc9639#section-9)), `"h264"` (H.264 access units as an MP4 file holds them: each NAL unit preceded by its length, in the length's size the setup gives), `"hevc"` (HEVC access units, the same way), `"av1"` (AV1 temporal units as an MP4 file holds them: OBUs with their sizes) or `"vp9"` (VP9 frames or superframes) |
-| `setup` | string | optional | when the format has one: the decoder's configuration, base64 ([RFC 4648 §4](https://www.rfc-editor.org/rfc/rfc4648#section-4)): for `"aac"` the AudioSpecificConfig (ISO/IEC 14496-3 §1.6.2.1), for `"flac"` `fLaC` and the stream's STREAMINFO block, header included (42 bytes: the form ffmpeg's decoder and WebCodecs' `description` take), for `"h264"` the AVCDecoderConfigurationRecord (an MP4 file's avcC box, ISO/IEC 14496-15 §5.3.3.1), which holds the parameter sets, for `"hevc"` the HEVCDecoderConfigurationRecord (an MP4 file's hvcC box, ISO/IEC 14496-15 §8.3.3.1), which holds the VPS, SPS and PPS and the NAL unit lengths' size (the form WebCodecs' `description` takes for both) |
+| `setup` | string | optional | when the format has one: the decoder's configuration, base64 ([RFC 4648 §4](https://www.rfc-editor.org/rfc/rfc4648#section-4)): for `"aac"` the AudioSpecificConfig (ISO/IEC 14496-3 §1.6.2.1), HE-AAC's and HE-AAC v2's with it, for `"flac"` `fLaC` and the stream's STREAMINFO block, header included (42 bytes: the form ffmpeg's decoder and WebCodecs' `description` take), for `"h264"` the AVCDecoderConfigurationRecord (an MP4 file's avcC box, ISO/IEC 14496-15 §5.3.3.1), which holds the parameter sets, for `"hevc"` the HEVCDecoderConfigurationRecord (an MP4 file's hvcC box, ISO/IEC 14496-15 §8.3.3.1), which holds the VPS, SPS and PPS and the NAL unit lengths' size (the form WebCodecs' `description` takes for both) |
 | `plane` | string | optional | for `"h264"`, `"hevc"`, `"av1"` and `"vp9"` only: the plane of a decoded picture the array holds, `"y"`, `"u"` or `"v"` |
 
 There are no other members.
@@ -1589,7 +1589,11 @@ MP3, FLAC, H.264, HEVC, AV1 and VP9, to the values a decoder of the whole stream
 on no other, so it needs no lead-in). AAC's perceptual noise substitution
 fills a band with noise from a pseudo-random generator whose state runs on
 from frame to frame, so a chunk's noise bands differ from those of a
-decoder of the whole stream; every other value is the same.
+decoder of the whole stream; every other value is the same. So does HE-AAC's SBR, whose added noise
+and tones run on likewise, in every band it fills: the top half of the spectrum. A chunk's values
+are its own there, of the stream's level, and the low band's are the stream's less the error the
+SBR's filter banks leave (about 70 dB below a tone, measured with ffmpeg's decoder, a lead-in of
+at least 32 frames reaching HE-AAC v2's parametric stereo headers).
 
 **Producing a chunk.** A convention says which frames are a chunk's own,
 where each one's output goes, and which frames before them are its
