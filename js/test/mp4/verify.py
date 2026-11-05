@@ -62,9 +62,9 @@ def decoded(path: Path, index: int):
 
 
 def plane(frame, k: int) -> np.ndarray:
-    """Plane `k` of a decoded picture: uint8 for 8 bits a sample, uint16 for 10."""
+    """Plane `k` of a decoded picture: uint8 for 8 bits a sample, uint16 for more."""
     p = frame.planes[k]
-    dtype = np.dtype("<u2") if frame.format.name.endswith("10le") else np.dtype(np.uint8)
+    dtype = np.dtype("<u2") if frame.format.name.endswith(("10le", "12le")) else np.dtype(np.uint8)
     return np.frombuffer(p, dtype).reshape(p.height, p.line_size // dtype.itemsize)[:, :p.width]
 
 
@@ -77,6 +77,16 @@ def problems_of(path: Path, out: Path) -> list[str]:
             continue
         g = root.get_group(string(track["path"]))
         tm = mapping(at(g.attrs, "refkv_zarrified", "mp4"))
+        if tm["format"] == "pcm":
+            c = av.open(str(path))
+            s = next(a for a in c.streams.audio if a.index == integer(track["id"]) - 1)
+            want = np.concatenate([f.to_ndarray().T if f.format.is_planar else f.to_ndarray().reshape(f.samples, -1)
+                                   for f in c.decode(s)])
+            if s.codec_context.name == "pcm_s8":  # ffmpeg's decoder gives these as unsigned, 128 more
+                want = (want.astype(np.int16) - 128).astype(np.int8)
+            if not np.array_equal(ndarray(g.get_array("samples")[...]), want):
+                problems.append(f"track {track['id']}'s PCM samples differ from ffmpeg's")
+            continue
         kind, frames, pts = decoded(path, integer(track["id"]) - 1)
         if kind == "video":
             for k, name in enumerate("yuv"):

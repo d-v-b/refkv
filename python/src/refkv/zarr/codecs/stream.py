@@ -39,7 +39,7 @@ def _av() -> ModuleType:
     try:
         import av  # noqa: PLC0415 (the media extra)
     except ImportError as e:
-        raise missing("media", "Reading MP3, AAC, FLAC, H.264 and HEVC chunks", e) from e
+        raise missing("media", "Reading MP3, AAC, FLAC, H.264, HEVC, AV1 and VP9 chunks", e) from e
     return av
 
 
@@ -49,12 +49,12 @@ class StreamCodec(ArrayBytesCodec):
     frames depend on earlier ones (conventions §10
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#10-coded-streams>): a header
     that gives each frame's size and output position, then the frames. The frames are decoded
-    in one pass by ffmpeg's decoder of `format` (through PyAV: MP3, AAC, FLAC, H.264 or HEVC), each
+    in one pass by ffmpeg's decoder of `format` (through PyAV: MP3, AAC, FLAC, H.264, HEVC, AV1 or VP9), each
     frame's output placed at its position in the chunk as the decoder gives it, a frame with
     position -1 (the chunk's lead-in) decoded and dropped at once, so that a chunk holds no
     more than its own values and the decoder's reference frames; what no frame fills is zero.
     `setup` is the decoder's configuration (AAC's AudioSpecificConfig, FLAC's STREAMINFO block,
-    H.264's avcC, HEVC's hvcC), `plane` the plane of a video frame the array holds ("y", "u" or
+    H.264's avcC, HEVC's hvcC, AV1's av1C, VP9's vpcC), `plane` the plane of a video frame the array holds ("y", "u" or
     "v"). A video chunk's three planes
     are one chunk's bytes: decoding one keeps the other two (`SHARED`), so that reading a
     picture's Y, U and V decodes it once."""
@@ -238,15 +238,18 @@ def _flac_frames(codec: StreamCodec, units: list[bytes], positions: list[int]) -
 
 
 PLANES = {"y": 0, "u": 1, "v": 2}
-# the 4:2:0 pixel formats of ffmpeg's video decoders, by the type of their samples: 8 bits in a
-# byte, 10 in the low bits of a little-endian 16-bit word
-PIXEL_FORMATS = {"yuv420p": np.dtype(np.uint8), "yuvj420p": np.dtype(np.uint8), "yuv420p10le": np.dtype("<u2")}
+# the 4:2:0 and 4:2:2 pixel formats of ffmpeg's video decoders, by the type of their samples: 8 bits
+# in a byte, 10 or 12 in the low bits of a little-endian 16-bit word
+PIXEL_FORMATS = {
+    **dict.fromkeys(("yuv420p", "yuvj420p", "yuv422p", "yuvj422p"), np.dtype(np.uint8)),
+    **dict.fromkeys(("yuv420p10le", "yuv422p10le", "yuv420p12le", "yuv422p12le"), np.dtype("<u2")),
+}
 
 
 def _video_frames(name: str, title: str) -> Decoder:
     """The decoder of a video format: (frame index, {plane: [1, height, width]}) per picture
-    PyAV's decoder `name` outputs, the Y, U and V planes of the 4:2:0 picture, uint8 for 8 bits
-    and uint16 for 10."""
+    PyAV's decoder `name` outputs, the Y, U and V planes of the picture, uint8 for 8 bits and
+    uint16 for more."""
 
     def decode(codec: StreamCodec, units: list[bytes], positions: list[int]) -> Iterator[tuple[int | None, Planes]]:
         for k, frame in _av_frames(codec, units, positions, name):
@@ -257,7 +260,7 @@ def _video_frames(name: str, title: str) -> Decoder:
             dtype = PIXEL_FORMATS.get(f.format.name)
             if dtype is None:
                 raise ValueError(f"refkv.stream: an {title} frame decodes to {f.format.name}, "
-                                 "not 4:2:0 of 8 or 10 bits")
+                                 "not 4:2:0 or 4:2:2 of 8, 10 or 12 bits")
             planes: Planes = {}
             for plane, i in PLANES.items():
                 p = f.planes[i]
@@ -270,6 +273,8 @@ def _video_frames(name: str, title: str) -> Decoder:
 
 _h264_frames = _video_frames("h264", "H.264")
 _hevc_frames = _video_frames("hevc", "HEVC")
+_av1_frames = _video_frames("libdav1d", "AV1")
+_vp9_frames = _video_frames("vp9", "VP9")
 
 
 class Shared:
@@ -322,7 +327,8 @@ class Shared:
 SHARED = Shared(1 << 26)
 
 
-VIDEO_FORMATS: dict[str, Decoder] = {"h264": _h264_frames, "hevc": _hevc_frames}
+VIDEO_FORMATS: dict[str, Decoder] = {"h264": _h264_frames, "hevc": _hevc_frames, "av1": _av1_frames,
+                                     "vp9": _vp9_frames}
 STREAM_FORMATS: dict[str, Decoder] = {
     "mp3": _audio_frames("mp3float", np.float32), "aac": _audio_frames("aac", np.float32), "flac": _flac_frames,
     **VIDEO_FORMATS}

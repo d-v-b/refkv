@@ -9,6 +9,9 @@ accepts, is the NumPy profile, [Part 2](#part-2-the-profile) below.
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `62b1d1ba-8eb3-465c-a333-75e096fce519` ·
 Schema: [schema.json](npy/schema.json)
 
+Changed 2026-11-04, with no change to any output of this convention: the `refkv.skip` codec may stop
+after the bytes it keeps, for a compressed FITS file ([§4.4](#44-the-refkvskip-codec)).
+
 Added 2026-10-30.
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
@@ -210,8 +213,10 @@ it; a value of a trailing axis is a byte of its element.
 ### 4.4 The `refkv.skip` codec
 
 <a id="codec-refkv-skip"></a>`refkv.skip` is a bytes-to-bytes codec, configuration
-`{"length": k}`, `k` a non-negative integer. Decoding drops the first `k` bytes of its input,
-which MUST have at least `k`; encoding puts `k` zero bytes before its input. A deflated
+`{"length": k}`, or `{"length": k, "keep": n}`, `k` and `n` non-negative integers. Decoding drops the first `k` bytes of its input,
+which MUST have at least `k`, and, with `keep`, any after the `n` that follow them, which it
+MUST have too; encoding puts `k` zero bytes before its input. (A compressed FITS file's arrays use
+`keep`, [fits §2.1](fits.md#21-a-compressed-file): what its stream decodes to goes on past the array.) A deflated
 member's chunk is its stream as a gzip member ([§8.4](#84-chunks)): `gzip` decodes it to the
 stream, the NPY preamble and header and then the data, and `refkv.skip`, with `k` the `p + n`
 bytes of the preamble and header, leaves the data, which `bytes` decodes. (No codec of

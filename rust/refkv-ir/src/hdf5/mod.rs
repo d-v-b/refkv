@@ -47,6 +47,19 @@ pub const HINT_MAX: u64 = 1 << 16;
 /// table node's (leaf), a group node's (internal) and a chunk node's (indexed storage).
 pub const DEFAULT_K: (u64, u64, u64) = (4, 16, 32);
 
+// The filters a profile presents (spec/zarrify/hdf5.md §3.1
+// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#31-data-types>), by identifier.
+pub const DEFLATE: u64 = 1;
+pub const SHUFFLE: u64 = 2;
+pub const FLETCHER32: u64 = 3;
+pub const LZF: u64 = 32000;
+pub const BLOSC: u64 = 32001;
+pub const LZ4: u64 = 32004;
+pub const BITSHUFFLE: u64 = 32008;
+pub const ZSTD: u64 = 32015;
+/// The bytes of a Fletcher32 checksum, after the rest of a chunk.
+pub const CHECKSUM: u64 = 4;
+
 // Message types (§7.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#72-object-headers>).
 pub const NIL: u16 = 0x00;
 pub const DATASPACE: u16 = 0x01;
@@ -317,8 +330,9 @@ pub fn parse_dataspace(d: &[u8]) -> R<Dataspace> {
     Ok(Dataspace { dims: if kind == 2 { None } else { Some(dims) }, maxdims })
 }
 
-/// The filter identifiers of a filter pipeline message, in pipeline order.
-pub fn parse_filters(d: Option<&[u8]>) -> R<Vec<u64>> {
+/// The filters of a filter pipeline message, in pipeline order: each identifier and its client
+/// data values.
+pub fn parse_filters(d: Option<&[u8]>) -> R<Vec<(u64, Vec<u32>)>> {
     let Some(d) = d else { return Ok(Vec::new()) };
     let (version, count) = (le(d, 0, 1)?, le(d, 1, 1)?);
     if version != 1 && version != 2 {
@@ -339,11 +353,16 @@ pub fn parse_filters(d: Option<&[u8]>) -> R<Vec<u64>> {
         let values = le(d, p as usize + 2, 2)?;
         p += 4;
         p += if version == 1 { pad8(name_length) } else { name_length };
+        let cd = p;
         p += 4 * values + if version == 1 && values % 2 == 1 { 4 } else { 0 };
         if p > d.len() as u64 {
             return bad("truncated filter pipeline message");
         }
-        ids.push(fid);
+        let mut client = Vec::with_capacity(values as usize);
+        for k in 0..values {
+            client.push(le(d, (cd + 4 * k) as usize, 4)? as u32);
+        }
+        ids.push((fid, client));
     }
     Ok(ids)
 }
@@ -669,6 +688,8 @@ pub struct Dataset {
     pub chunk: Vec<u64>,
     pub grid: Vec<u64>,
     pub filters: Vec<u64>,
+    /// each filter's client data values, as `filters`
+    pub client_data: Vec<Vec<u32>>,
     pub index: Option<Index>,
     pub index_address: Option<u64>,
     pub single_size: Option<u64>,
@@ -1601,7 +1622,7 @@ impl H5 {
         };
         let datatype = parse_datatype(&type_message)?;
         let fill_message = h.message(FILL_VALUE, false)?.map(|d| d.to_vec());
-        let filters = parse_filters(h.message(FILTERS, false)?)?;
+        let (filters, client_data): (Vec<u64>, Vec<Vec<u32>>) = parse_filters(h.message(FILTERS, false)?)?.into_iter().unzip();
         let layout = h.message(LAYOUT, true)?.unwrap().to_vec();
         let layout_at = h.messages().find(|m| m.ty == LAYOUT).map(|m| m.at).unwrap_or(0);
         let mut fill = match &fill_message {
@@ -1624,6 +1645,7 @@ impl H5 {
             chunk: vec![],
             grid: vec![],
             filters: filters.clone(),
+            client_data: client_data.clone(),
             index: None,
             index_address: None,
             single_size: None,

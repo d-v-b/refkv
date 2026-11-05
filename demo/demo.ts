@@ -362,7 +362,7 @@ const SHOWN_TYPES = ["uint8", "int8", "uint16", "int16", "uint32", "int32", "uin
 
 /** The codecs the Neuroglancer fork decodes (src/datasource/zarr/codec/ there). */
 const DECODED_CODECS = [
-  "bytes", "transpose", "crc32c", "blosc", "zstd", "gzip", "zlib", "numcodecs.zlib", "sharding_indexed", "numcodecs.shuffle",
+  "bytes", "transpose", "crc32c", "blosc", "zstd", "gzip", "zlib", "numcodecs.zlib", "numcodecs.bz2", "sharding_indexed", "numcodecs.shuffle",
   "n5_default", "imagecodecs_delta", "imagecodecs_jpeg", "imagecodecs_jpeg2k", "imagecodecs_jpegxr", "imagecodecs_ljpeg",
   "imagecodecs_lzw", "refkv.fits_tiles", "refkv.grib", "refkv.skip", "refkv.stream", "refkv.tiff_lzw",
 ];
@@ -391,18 +391,18 @@ const showable = (meta: ArrayMeta) =>
 const AUDIO = ["mp3", "flac"];
 
 /** The sample entries of the video tracks the fork's `refkv.stream` codec decodes. */
-const DECODED_VIDEO = ["avc1", "hvc1", "hev1"];
+const DECODED_VIDEO = ["avc1", "hvc1", "hev1", "av01", "vp09"];
 
 /**
- * The views of an MP4 file: each 8-bit H.264 or HEVC track's luma (its Y
+ * The views of an MP4 file: each 8-bit H.264, HEVC, AV1 or VP9 track's luma (its Y
  * plane), scrolled over time. Neuroglancer shows one array per layer, and a
  * picture's color needs all three planes, the chroma at half size; the U and
  * V planes are in the archive beside Y. The fork's `refkv.stream` codec
  * decodes HEVC where the browser's WebCodecs has a decoder for it that gives
  * the stream's own pictures, and says why in the layer's error where not. A
- * 10-bit HEVC track (`uint16` planes) is named in a note, not opened: no
- * browser measured gives its pictures unconverted (Chrome's cannot be copied,
- * WebKit's are 8-bit).
+ * track of more than 8 bits (`uint16` planes) is named in a note, not opened: only
+ * Chrome gives those of H.264, AV1 and VP9 unconverted, and no browser measured
+ * those of HEVC (Chrome's cannot be copied, WebKit's are 8-bit).
  */
 async function videoViews(zarrUrl: string, mp4: { tracks?: { path: string | null; handler: string; codec: string }[] }): Promise<View[]> {
   const video = (mp4.tracks ?? []).filter((t) => t.path !== null && t.handler === "vide");
@@ -412,9 +412,9 @@ async function videoViews(zarrUrl: string, mp4: { tracks?: { path: string | null
   }));
   const shown = planes.filter((p) => p.meta?.data_type === "uint8");
   const others = planes.filter((p) => p.meta?.data_type !== "uint8")
-    .map(({ t, meta }) => `${t.path} (${t.codec}${meta === undefined ? "" : ", 10-bit"})`);
+    .map(({ t, meta }) => `${t.path} (${t.codec}${meta === undefined ? "" : ", more than 8 bits"})`);
   if (shown.length === 0 && others.length > 0) {
-    throw new Error(`no 8-bit H.264 or HEVC track to show: Neuroglancer does not decode ${others.join(", ")}, which the archive holds`);
+    throw new Error(`no 8-bit H.264, HEVC, AV1 or VP9 track to show: Neuroglancer does not decode ${others.join(", ")}, which the archive holds`);
   }
   return shown.map(({ t, url, meta }) => {
     const view = arrayView(url, `${t.path}/y`, meta);

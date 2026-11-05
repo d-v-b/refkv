@@ -53,7 +53,7 @@ group.)
 | Imaris IMS | [ims](zarrify/ims.md) | `5067a535-8261-4b25-a93c-1985ed333bde` |
 | Leica LIF | [lif](zarrify/lif.md) | `b099ab1f-f9d4-4276-9006-9ff1193a34b2` |
 | MP3 (MPEG Layer III audio) | [mp3](zarrify/mp3.md) | `b6cb0047-9448-4fdc-b03e-10dd3d6aa829` |
-| MP4 and QuickTime (H.264 and HEVC video, AAC and MP3 audio) | [mp4](zarrify/mp4.md) | `bbe3f6b9-488d-4d8d-85ce-60a1649dd27e` |
+| MP4 and QuickTime (H.264, HEVC, AV1 and VP9 video, AAC, MP3 and PCM audio) | [mp4](zarrify/mp4.md) | `bbe3f6b9-488d-4d8d-85ce-60a1649dd27e` |
 | MRC2014 | [mrc](zarrify/mrc.md) | `2aacd010-2ed1-4748-bc3c-5dd5e840bbce` |
 | MRC2014, as a dataset ([§9](#9-dataset-layouts)) | [mrc-dataset](zarrify/mrc-dataset.md) | `f139bf4e-7bab-4c3c-9b2d-66ba747f9b93` |
 | N5 | [n5](zarrify/n5.md) | `ad5d4c39-c69e-48f7-a3ef-4cc8c607d416` |
@@ -276,7 +276,7 @@ below. The conventions that say otherwise:
 | FITS | have, for tile-compressed images, the codec `refkv.fits_tiles` ([fits §3.3](zarrify/fits.md#33-tile-compressed-images)) |
 | GRIB | are defined by the convention itself ([grib §3](zarrify/grib.md#3-the-hierarchy)): a variable has the codec `refkv.grib` and a `float64` coordinate the `gzip` codec, both with the fill value `"NaN"` |
 | HDF5 | are defined by the convention itself ([hdf5 §3](zarrify/hdf5.md#3-datasets)), with the dataset's own chunks and filters, and `vlen-utf8` for strings |
-| NPY, safetensors | have the data type's zero as their fill value; NPY's, for a deflated `.npz` member, the codec `refkv.skip`; safetensors', for a data type of fewer than 8 bits, the codec `packbits` (zarr-extensions' bit packing, not TIFF's PackBits) |
+| NPY, safetensors | have the data type's zero as their fill value; NPY's, for a deflated `.npz` member, the codec `refkv.skip` (which a compressed FITS file's arrays use too, [fits §2.1](zarrify/fits.md#21-a-compressed-file)); safetensors', for a data type of fewer than 8 bits, the codec `packbits` (zarr-extensions' bit packing, not TIFF's PackBits) |
 | VSI | have, for a pyramid's levels, the background's first sample as their fill value ([vsi §4.1](zarrify/vsi.md#41-the-pyramid)) |
 
 The object:
@@ -365,13 +365,14 @@ name: zarr-python's own (`bytes`, `transpose`, `gzip`, `zstd`, `blosc`, `shardin
 imagecodecs-zarr's (`imagecodecs_jpeg`, `imagecodecs_jpeg2k`, `imagecodecs_jpegxr`,
 `imagecodecs_ljpeg`, `imagecodecs_lzw`, `imagecodecs_png`, `imagecodecs_bmp`, `imagecodecs_delta`, `imagecodecs_floatpred`, `imagecodecs_lerc`,
 `imagecodecs_webp`, `imagecodecs_jpegxl`, `imagecodecs_lzma`, `imagecodecs_packints`, `imagecodecs_packbits`,
-`imagecodecs_ccittfax4`, `imagecodecs_eer`), the
+`imagecodecs_ccittfax4`, `imagecodecs_eer`, `imagecodecs_lzf`, `imagecodecs_lz4h5`), the
 zarr-extensions registry's (`n5_default`, `packbits`), or refkv's own, which are named `refkv.<codec>`
 (`refkv.stream`, [§10](#10-coded-streams); `refkv.fits_tiles`,
 [fits §3.3](zarrify/fits.md#33-tile-compressed-images); `refkv.tiff_lzw`,
 [qptiff §4.1](zarrify/qptiff.md#41-data-types-and-codecs); `refkv.skip`,
 [npy §4.4](zarrify/npy.md#44-the-refkvskip-codec); `refkv.grib`, [§12](#12-grib-messages);
-`refkv.precomputed`, [precomputed §6](zarrify/precomputed.md#6-the-codec-refkvprecomputed)). refkv names a
+`refkv.precomputed`, [precomputed §6](zarrify/precomputed.md#6-the-codec-refkvprecomputed);
+`refkv.h5_bitshuffle`, [hdf5 §3.4](zarrify/hdf5.md#34-the-codec-refkvh5_bitshuffle)). refkv names a
 codec of its own only where none of the others decodes the chunks as the convention says (QPTIFF's
 LZW streams can run past their tile, which `imagecodecs_lzw` does not allow; no codec of the
 others drops the NPY header a deflated `.npz` member inflates to). refkv's Python
@@ -1243,12 +1244,13 @@ byte for byte. The validator also rebuilds the view (8.7) from the table and
 the source: each shown value's bytes from source 0 at its extent, or, in a
 derived space, from that space's bytes, which it derives again by the
 derived element's transform (`nd2-lv-zlib`: the record inflated;
-`xml-variant`: the chunk; an `xml` value is then its span with its
+`gunzip`, `bunzip2`: the file decoded; `xml-variant`: the chunk; an `xml` value is then its span with its
 references decoded); it compares the rebuilt view with the stored one group
 by group and member by member, and flags the first group or member missing,
 extra or different. So **a derived transform may hold shown values only if
 validators can derive it again** from source 0: of the transforms the
-parsers emit, `nd2-lv-zlib` and `xml-variant` can, and `gzip` (a CZI's
+parsers emit, `nd2-lv-zlib`, `xml-variant`, and `gunzip` and `bunzip2` (a compressed FITS file,
+[fits §2.1](zarrify/fits.md#21-a-compressed-file): the file decoded) can, and `gzip` (a CZI's
 compressed attachment) and `deflate` (a SAFE zip entry's raw deflate stream),
 whose spaces hold nothing, may hold none. A new
 transform that would hold shown values comes with its re-derivation, in a
@@ -1525,9 +1527,9 @@ array-to-bytes codec `refkv.stream` decodes such a chunk.
 
 | member | type | presence | value |
 |---|---|---|---|
-| `format` | string | required | the coding of the frames: `"mp3"` (MPEG-1, 2 or 2.5 Layer III frames), `"aac"` (raw AAC frames, without ADTS headers), `"flac"` (FLAC frames, [RFC 9639 §9](https://www.rfc-editor.org/rfc/rfc9639#section-9)), `"h264"` (H.264 access units as an MP4 file holds them: each NAL unit preceded by its length, in the length's size the setup gives) or `"hevc"` (HEVC access units, the same way) |
+| `format` | string | required | the coding of the frames: `"mp3"` (MPEG-1, 2 or 2.5 Layer III frames), `"aac"` (raw AAC frames, without ADTS headers), `"flac"` (FLAC frames, [RFC 9639 §9](https://www.rfc-editor.org/rfc/rfc9639#section-9)), `"h264"` (H.264 access units as an MP4 file holds them: each NAL unit preceded by its length, in the length's size the setup gives), `"hevc"` (HEVC access units, the same way), `"av1"` (AV1 temporal units as an MP4 file holds them: OBUs with their sizes) or `"vp9"` (VP9 frames or superframes) |
 | `setup` | string | optional | when the format has one: the decoder's configuration, base64 ([RFC 4648 §4](https://www.rfc-editor.org/rfc/rfc4648#section-4)): for `"aac"` the AudioSpecificConfig (ISO/IEC 14496-3 §1.6.2.1), for `"flac"` `fLaC` and the stream's STREAMINFO block, header included (42 bytes: the form ffmpeg's decoder and WebCodecs' `description` take), for `"h264"` the AVCDecoderConfigurationRecord (an MP4 file's avcC box, ISO/IEC 14496-15 §5.3.3.1), which holds the parameter sets, for `"hevc"` the HEVCDecoderConfigurationRecord (an MP4 file's hvcC box, ISO/IEC 14496-15 §8.3.3.1), which holds the VPS, SPS and PPS and the NAL unit lengths' size (the form WebCodecs' `description` takes for both) |
-| `plane` | string | optional | for `"h264"` and `"hevc"` only: the plane of a decoded picture the array holds, `"y"`, `"u"` or `"v"` |
+| `plane` | string | optional | for `"h264"`, `"hevc"`, `"av1"` and `"vp9"` only: the plane of a decoded picture the array holds, `"y"`, `"u"` or `"v"` |
 
 There are no other members.
 
@@ -1563,9 +1565,9 @@ are the decoder's own samples, with no conversion: `float32` for MP3 and
 AAC, the stream's integer samples for FLAC (of the bits per sample the
 setup gives, in the array's signed integer type: a decoder that gives them
 in the high bits of a wider integer is shifted back), and the planes of a
-4:2:0 picture for H.264 and HEVC (`u` and `v` half the size of `y` along each
-axis, rounded up), `uint8` for 8 bits a sample and `uint16` for 10, the
-sample's value (from 0 to 1023, not scaled to the type's range).
+4:2:0 or 4:2:2 picture for H.264, HEVC, AV1 and VP9 (`u` and `v` half the size of `y` along each
+axis, or along `x` alone for 4:2:2, rounded up), `uint8` for 8 bits a sample and `uint16` for 10 or
+12, the sample's value (from 0 to 2^bits − 1, not scaled to the type's range).
 
 The outputs are placed by the frame each comes from, whatever order the
 decoder gives them in: an H.264 or HEVC decoder outputs pictures in
@@ -1578,12 +1580,12 @@ bounded run of the frames before it, such as ffmpeg's fixed-point MP3
 decoder, which carries its rounding error from frame to frame, so a chunk
 it decodes from the lead-in differs from the stream by a unit here and
 there. ffmpeg's float MP3 decoder, its AAC decoder, its FLAC decoder, its
-H.264 decoder and its HEVC decoder (the implementations' decoders, through
+H.264, HEVC and VP9 decoders and libdav1d for AV1 (the implementations' decoders, through
 PyAV) decode it.
 
 **Determinism.** A chunk decodes to the same values every time, and, for
-MP3, FLAC, H.264 and HEVC, to the values a decoder of the whole stream gives
-(FLAC, H.264 and HEVC decoding is exact by their standards; a FLAC frame depends
+MP3, FLAC, H.264, HEVC, AV1 and VP9, to the values a decoder of the whole stream gives
+(FLAC, H.264, HEVC, AV1 and VP9 decoding is exact by their standards; a FLAC frame depends
 on no other, so it needs no lead-in). AAC's perceptual noise substitution
 fills a band with noise from a pseudo-random generator whose state runs on
 from frame to frame, so a chunk's noise bands differ from those of a

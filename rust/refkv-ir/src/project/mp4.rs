@@ -3,12 +3,12 @@
 //! metadata of §5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#5-source-metadata>)
 //! from a valid IR: a group per track the profile zarrifies, with the planes of an H.264 or
 //! HEVC track's pictures and their presentation times, or an audio track's samples, each chunk a
-//! `refkv.stream` chunk of the track's samples (spec/zarrify/mp4.md §8.3
-//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#83-chunks>).
+//! `refkv.stream` chunk of the track's samples, or a PCM track's own bytes (spec/zarrify/mp4.md
+//! §8.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#83-chunks>).
 
 use super::{arr, audio, n, Copied};
 use crate::ir::Ir;
-use crate::out::{array_json, declared_group, group_doc, gzip_array, rectilinear_array_json, stream_parts, Out};
+use crate::out::{array_json, bytes_codec, declared_group, group_doc, gzip_array, rectilinear_array_json, stream_parts, Out, Part};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 
@@ -21,6 +21,9 @@ const TIME_CHUNK: u64 = 1 << 17;
 /// side information are at most 38 bytes), and the reservoir its lead-in holds (MPEG-1's).
 const MP3_OVERHEAD: u64 = 38;
 const MP3_RESERVOIR: u64 = 511;
+/// A PCM chunk's frames for each frame of an AAC chunk's: 1024, an AAC frame's samples, so that a
+/// chunk of `samples` holds as many samples whichever the track's coding.
+const PCM_FRAMES: u64 = 1024;
 
 /// The most pictures of a video chunk: the profile's limit, and at most `CHUNK_LUMA` bytes of
 /// luma, `bytes` a sample.
@@ -109,6 +112,32 @@ pub fn audio_lead(a: usize, format: &str, sizes: &[u64]) -> usize {
     audio::reservoir_lead(a, MP3_RESERVOIR, |l| sizes[l].saturating_sub(MP3_OVERHEAD))
 }
 
+/// The source ranges of the PCM frames `[a, b)` of `frame` bytes each, the track's samples being
+/// `runs` (offset, bytes) in order: each sample's frames, split at the chunk's ends, the ranges
+/// that meet merged. `at` is the index of the sample to start from and its first frame, kept from
+/// one chunk to the next.
+pub fn pcm_parts(a: u64, b: u64, frame: u64, runs: &[(u64, u64)], at: &mut (usize, u64)) -> Vec<Part> {
+    let mut parts: Vec<Part> = Vec::new();
+    let mut from = a;
+    while from < b && at.0 < runs.len() {
+        let (o, n) = runs[at.0];
+        let frames = n / frame;
+        let upto = (at.1 + frames).min(b);
+        if upto > from {
+            let (start, len) = (o + (from - at.1) * frame, (upto - from) * frame);
+            match parts.last_mut() {
+                Some(Part::Src(po, pn)) if *po + *pn == start => *pn += len,
+                _ => parts.push(Part::Src(start, len)),
+            }
+            from = upto;
+        }
+        if at.1 + frames <= b {
+            *at = (at.0 + 1, at.1 + frames);
+        }
+    }
+    parts
+}
+
 fn stream_codec(format: &str, setup: &J, plane: Option<&str>) -> J {
     let mut c = Map::new();
     c.insert("format".into(), json!(format));
@@ -125,13 +154,17 @@ fn stream_codec(format: &str, setup: &J, plane: Option<&str>) -> J {
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#52-the-tracks>).
 fn track_json(t: &J, chunk: u64) -> J {
     let mut m = Map::new();
-    for k in ["id", "handler", "codec", "format", "timescale", "duration", "edits", "count"] {
-        m.insert(if k == "count" { "frames".into() } else { k.into() }, t[k].clone());
+    // a PCM track's frames are its bytes', not its elements'
+    let frames = if t["format"] == "pcm" { t["frames"].clone() } else { t["count"].clone() };
+    for k in ["id", "handler", "codec", "format", "timescale", "duration", "edits"] {
+        m.insert(k.into(), t[k].clone());
     }
+    m.insert("frames".into(), frames.clone());
     match t["format"].as_str() {
-        Some("h264" | "hevc") => {
+        Some("h264" | "hevc" | "av1" | "vp9") => {
             m.insert("width".into(), t["geometry"]["width"].clone());
             m.insert("height".into(), t["geometry"]["height"].clone());
+            m.insert("chroma".into(), t["geometry"]["chroma"].clone());
             m.insert("bit_depth".into(), t["bit_depth"].clone());
             m.insert("profile".into(), t["profile"].clone());
             m.insert("level".into(), t["level"].clone());
@@ -141,7 +174,7 @@ fn track_json(t: &J, chunk: u64) -> J {
             m.insert("sample_rate".into(), t["sample_rate"].clone());
             m.insert("channels".into(), t["channels"].clone());
             m.insert("samples_per_frame".into(), t["spf"].clone());
-            m.insert("samples".into(), json!(n(&t["count"]) * n(&t["spf"])));
+            m.insert("samples".into(), json!(n(&frames) * n(&t["spf"])));
         }
     }
     m.insert("chunk_frames".into(), json!(chunk));
@@ -179,7 +212,35 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
         let sample = |j: usize| (ir.start[first + j], ir.len[first + j]);
         let chunks;
         let chunk;
-        if format == "h264" || format == "hevc" {
+        if format == "pcm" {
+            // the samples, in chunks of the file's own bytes (§4.2
+            // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#42-audio-tracks>)
+            let channels = n(&t["channels"]);
+            let frame = channels * n(&t["bytes"]);
+            let frames = n(&t["frames"]);
+            let data_type = t["geometry"]["data_type"].as_str().unwrap_or("int16");
+            chunk = limit * PCM_FRAMES;
+            chunks = frames.div_ceil(chunk) as usize;
+            // a short last chunk is the rectilinear grid's: the bytes codec's chunk is its shape
+            let last = frames - chunk * (chunks.max(1) as u64 - 1);
+            let along = if chunks > 1 && last < chunk {
+                json!([[chunk, chunks - 1], last])
+            } else {
+                json!(if chunks > 1 { chunk } else { frames })
+            };
+            refs.out.json(&format!("{dir}/zarr.json"), &declared_group(Map::new(), "mp4", None, Some(track_json(t, chunk))));
+            let codecs = J::Array(vec![bytes_codec(n(&t["bytes"]), t["endian"].as_str().unwrap_or("little"))]);
+            let doc = rectilinear_array_json(&[frames, channels], data_type, &json!([along, channels]), codecs, &["time", "channel"]);
+            refs.out.json(&format!("{dir}/samples/zarr.json"), &doc);
+            let runs: Vec<(u64, u64)> = (0..count).map(sample).collect();
+            let mut at = (0, 0);
+            for q in 0..chunks as u64 {
+                let (a, b) = (q * chunk, ((q + 1) * chunk).min(frames));
+                let parts = pcm_parts(a, b, frame, &runs, &mut at);
+                let Some(&Part::Src(o, len)) = parts.first() else { return Err("internal: a PCM chunk has no bytes".into()) };
+                refs.chunk(format!("{dir}/samples/c/{q}/0"), o, len, form, Some(parts), q)?;
+            }
+        } else if matches!(format, "h264" | "hevc" | "av1" | "vp9") {
             // the planes of the pictures, in presentation order (§4.1
             // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#41-video-tracks>):
             // uint8 for 8 bits a sample, uint16 for more
@@ -200,7 +261,9 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
             let lengths = video_lengths(count, chunk as usize, &presented);
             let along = grid_lengths(&lengths);
             refs.out.json(&format!("{dir}/zarr.json"), &declared_group(Map::new(), "mp4", None, Some(track_json(t, chunk))));
-            let planes = [("y", w, h), ("u", w.div_ceil(2), h.div_ceil(2)), ("v", w.div_ceil(2), h.div_ceil(2))];
+            // a 4:2:2 picture's chroma is half the width alone
+            let ch = if t["geometry"]["chroma"] == "4:2:2" { h } else { h.div_ceil(2) };
+            let planes = [("y", w, h), ("u", w.div_ceil(2), ch), ("v", w.div_ceil(2), ch)];
             for (p, pw, ph) in planes {
                 let doc = rectilinear_array_json(&[count as u64, ph, pw], data_type, &json!([along, ph, pw]), stream_codec(format, &t["setup"], Some(p)), &["time", "y", "x"]);
                 refs.out.json(&format!("{dir}/{p}/zarr.json"), &doc);
@@ -236,7 +299,8 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
             let sizes: Vec<u64> = (0..count).map(|j| sample(j).1).collect();
             chunks = audio::chunks(&mut refs, ir, &format!("{dir}/samples"), first, count, chunk as usize, spf, form, |a| audio_lead(a, format, &sizes))?;
         }
-        summary.push(json!({"id": id, "format": format, "path": dir, "frames": count, "chunkFrames": chunk, "chunks": chunks}));
+        let frames = if format == "pcm" { n(&t["frames"]) } else { count as u64 };
+        summary.push(json!({"id": id, "format": format, "path": dir, "frames": frames, "chunkFrames": chunk, "chunks": chunks}));
     }
     let mut out = refs.out;
     let skipped: Vec<J> = tracks.iter().filter(|t| !t["reason"].is_null()).map(|t| json!({"id": t["id"], "codec": t["codec"], "reason": t["reason"]})).collect();
@@ -309,6 +373,19 @@ mod tests {
         assert_eq!(grid_lengths(&[7, 3, 7, 3]), json!([7, 3, 7, 3]));
         assert_eq!(grid_lengths(&[7, 2, 7, 7, 7, 7, 3, 7, 7, 6]), json!([7, 2, [7, 4], 3, [7, 2], 6]));
         assert_eq!(grid_lengths(&[5, 9]), json!([5, 9]));
+    }
+
+    /// PCM chunks of 10 frames of 4 bytes, samples of 4, 16 and 40 bytes, one sample following the
+    /// next in the file and one apart: a chunk's ranges split the samples at its ends and merge
+    /// where they meet.
+    #[test]
+    fn a_pcm_chunk_is_its_samples_ranges() {
+        let runs = [(100, 16), (116, 16), (200, 40)];
+        let mut at = (0, 0);
+        assert_eq!(pcm_parts(0, 10, 4, &runs, &mut at), vec![Part::Src(100, 32), Part::Src(200, 8)]);
+        assert_eq!(at, (2, 8));
+        assert_eq!(pcm_parts(10, 18, 4, &runs, &mut at), vec![Part::Src(208, 32)]);
+        assert_eq!(at, (3, 18));
     }
 
     /// AAC's lead-in is the frame before the chunk; MP3's holds the reservoir before the two
