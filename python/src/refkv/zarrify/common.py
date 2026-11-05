@@ -22,8 +22,9 @@ import urllib.request
 from collections import OrderedDict
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from email.message import Message
+from pathlib import Path
 
 from refkv._files import replacing
 from refkv._narrow import integer, string
@@ -32,7 +33,8 @@ from refkv.pb import Concat, Range, Source
 from refkv.policy import Policy
 from refkv.reader import _check_http_url, _send, new_connection
 from refkv.refstore import ReferenceStore, bulk
-from refkv.uri import is_uri_reference
+from refkv.uri import file_uri, is_uri_reference
+from refkv.uri import resolve as resolve_reference
 from refkv.vzip.archive import VZipWriter
 from refkv.zarrify.profiles import REGISTRY
 
@@ -201,7 +203,23 @@ def reference_store(refs: Iterable[tuple[str, list[Range]]], entries: Iterable[t
             mapping[key] = data
             (late if is_late else compressed).append(key)
         return ReferenceStore(mapping, sources, read_at_open=late, compressed=compressed, page_size=PAGE_SIZE,
-                              policy=policy, info=info)
+                              policy=reading_own_files(policy, sources), info=info)
+
+
+def reading_own_files(policy: Policy | None, sources: Iterable[Source]) -> Policy:
+    """`policy` (default `Policy()`), which also lets the store a zarrifier just built read local
+    files, when it names some: its source table is fixed, and holds the input its caller named and
+    the files that input led it to, each below the input's directory (spec/zarrify.md §1.9
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>).
+    A saved store does not keep this: whoever opens it chooses (spec/refkv.md §6.7
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 1)."""
+    policy = policy or Policy()
+    if policy.prefixes is not None:
+        return policy
+    base = file_uri(Path.cwd()) + "/"
+    if any(s.url is not None and resolve_reference(base, s.url).lower().startswith("file:") for s in sources):
+        return replace(policy, schemes=frozenset(policy.schemes) | {"file"})
+    return policy
 
 
 MAX_PAYLOAD = 65519
@@ -709,7 +727,7 @@ def follow[M: Message | None](base: str, url: str, send: Callable[[str], tuple[i
     most 5 redirects: the policy checks `url`, and each redirect's target before it
     is requested, for the input at `base`. `send` does not follow redirects."""
     for hop in range(6):
-        policy.check(base, url)
+        policy.check(url)
         status, msg, body = send(url)
         if status not in REDIRECTS:
             return url, status, msg, body

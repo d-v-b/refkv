@@ -250,7 +250,8 @@ def test_value_given_up_leaves_the_others(server):
 def test_a_local_file_is_read_at_once(tmp_path):
     (tmp_path / "blob.bin").write_bytes(BLOB)
     store = ReferenceStore({"a": Range(source=0, offset=0, length=10), "b": Range(source=0, offset=10, length=10)},
-                           sources=[Source(url="blob.bin")], url=str(tmp_path) + "/")
+                           sources=[Source(url="blob.bin")], url=str(tmp_path) + "/",
+                           policy=Policy(prefixes=(tmp_path.as_uri() + "/",)))
     assert run(_gather(store, "a", "b")) == [BLOB[:10], BLOB[10:20]]
     assert store.stats.external_requests == 2
     assert store._merging is None  # nothing waited

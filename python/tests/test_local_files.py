@@ -6,16 +6,17 @@ it: an archive on a UNC path reads itself, and its sources need allow_file_hosts
 import functools
 import ntpath
 import posixpath
+from types import SimpleNamespace
 
 import pytest
 
 import refkv
-from refkv import reader
+from refkv import policy, reader
 from refkv._sync import run
 from refkv.errors import ResolutionError
 from refkv.pb import Range, Source
 from refkv.reader import LocalFiles
-from refkv.uri import file_path
+from refkv.uri import file_path, file_uri
 
 
 def test_local_files_reads_ranges_and_suffixes(tmp_path):
@@ -52,9 +53,12 @@ def test_local_files_refuses_a_missing_file(tmp_path):
 
 @pytest.fixture
 def windows_reads(monkeypatch):
-    """The reader maps file: URLs as on Windows, and records the paths it reads."""
+    """The reader and its policy map file: URLs as on Windows, and the paths it reads are recorded."""
     seen = []
     monkeypatch.setattr(reader, "file_path", functools.partial(file_path, pathmod=ntpath))
+    monkeypatch.setattr(policy, "file_path", functools.partial(file_path, pathmod=ntpath))
+    monkeypatch.setattr(policy, "file_uri", functools.partial(file_uri, pathmod=ntpath))
+    monkeypatch.setattr(policy, "os", SimpleNamespace(path=ntpath))
     monkeypatch.setattr(LocalFiles, "_range",
                         staticmethod(lambda path, start, end: seen.append(path) or b"x" * (end - start)))
     return seen
@@ -67,10 +71,16 @@ def _store(policy=None):
 
 
 def test_an_archive_on_a_unc_path_reads_itself_and_allowed_sources(windows_reads):
-    store = _store(refkv.Policy(allow_file_hosts=True))
+    store = _store(refkv.Policy(allow_file_hosts=True, prefixes=("file://server/share/",)))
     assert run(store._read(store.url, 0, 2, external=False)) == b"xx"
     assert store.get("k") == b"xx"
     assert windows_reads == ["\\\\server\\share\\a.vzip", "\\\\server\\share\\b.bin"]
+
+
+@pytest.mark.usefixtures("windows_reads")
+def test_a_file_host_a_prefix_names_is_allowed():
+    policy = refkv.Policy(allow_file_hosts=True, prefixes=("file://other/share/",))
+    policy.check("file://other/share/b.bin")
 
 
 def test_an_archive_on_a_unc_path_reads_itself_without_allow_file_hosts(windows_reads):

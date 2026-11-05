@@ -532,7 +532,7 @@ def test_a_read_through_a_shard_reads_its_strips_alone(region, requests, strips,
     _, out, _ = via_ir(str(path), None)
     out.to_store().save_vzip(archive)
     stats = refkv.Stats()
-    policy = refkv.Policy(allow_file_hosts=True)
+    policy = refkv.Policy(allow_file_hosts=True, prefixes=(tmp_path.as_uri() + "/",))
     a = zarr.open_array(refkv.zarr.open(archive, stats=stats, policy=policy), path="0", mode="r")
     assert np.array_equal(ndarray(a[region]), data[region])
     assert stats.external_requests == requests

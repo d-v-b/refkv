@@ -115,9 +115,8 @@ class VZipStore(ReferenceReader):
     - `policy`: which sources may be resolved, and the reader's limits (spec
       §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>). The
       default, `Policy()`, lets every archive read `http` and `https` sources on
-      public hosts, not through a proxy, and a local archive also read `file`
-      sources; it refuses every other scheme, and loopback, private and special
-      addresses.
+      public hosts, not through a proxy; it refuses `file` sources, for a local
+      archive too, every other scheme, and loopback, private and special addresses.
     - `registry`, `stats`, `max_concurrency`: as for every reference store
       (`ReferenceReader`): the application's object stores, such as the
       `ObjectStoreRegistry` given to VirtualiZarr; a count of the requests;

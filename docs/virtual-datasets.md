@@ -205,10 +205,25 @@ store.save_vzip("private.vzip", policy=refkv.Policy(schemes={"s3"}))
 ds = xr.open_zarr(refkv.zarr.open("private.vzip", registry=registry))
 ```
 
-By default, refkv reads `http(s)` URLs (and local files, from a local
-archive), and never builds an `s3://`, `gs://` or `az://` store itself, so it
-cannot pick up your cloud credentials by accident. For a private bucket,
-register its store, as above; that allows its URLs. The rules are in
+By default, refkv reads `http(s)` URLs, and never builds an `s3://`, `gs://` or
+`az://` store itself, so it cannot pick up your cloud credentials by accident.
+For a private bucket, register its store, as above; that allows its URLs.
+
+A store's `file:` sources are refused too, even when you open it from a local
+path, since a store's location says nothing about who wrote it, and a store from
+someone else could otherwise read your files. To read a store's local files, name
+them, or allow the scheme for a store you trust:
+
+```python
+store = refkv.open("sidecar.vzip", policy=refkv.Policy(prefixes=("file:///data/",)))
+store = refkv.open("sidecar.vzip", policy=refkv.Policy(schemes={"file"}))
+```
+
+A prefix list replaces the default, so add `"https://"` to it if the store also
+reads the web. A file a symbolic link leads to must be under the prefix too.
+`schemes={"file"}` allows every file you can read. A store
+`refkv.zarrify.zarrify` has just built reads the files it found without either;
+once saved, it needs one. The rules are in
 [spec §6.7, Reader policy](../spec/refkv.md#67-reader-policy).
 
 ## Troubleshooting
@@ -238,6 +253,9 @@ register its store, as above; that allows its URLs. The rules are in
 - **`no store is registered for s3://...`.** The policy allows the scheme,
   but no store serves the URL; pass `registry={"s3://bucket": S3Store(...)}`,
   with obstore's `S3Store` (`refkv[obstore]`).
+- **`an archive reads a local file only when it is allowed`.** The store names a
+  `file:` source, which no store reads by default, however it was opened. Pass
+  one of the policies the message gives, if you trust the store with those files.
 - **`the host is a loopback address`** (or private, link-local, special),
   opening an archive or reading a source. refkv refuses requests to
   addresses on your machine and network by default, an archive's own

@@ -112,9 +112,8 @@ class Resolver:
 
     - rule 2: a `Policy(prefixes=...)` list replaces rule 1, registration
       included, so a URL outside the list is refused;
-    - rule 1's `file` rule: an archive opened from a URL still may not read
-      `file:` sources, whatever is registered, unless the policy has the
-      unsafe `allow_files_from_remote_archives`;
+    - rule 1's `file` rule: an archive reads no `file:` source, whatever is
+      registered, unless the policy's `schemes` has `file`;
     - rule 3 (private hosts): refkv checks an `http(s)` source URL's host as
       written, so an IP literal or `localhost` of a non-public class is
       refused. It cannot check the addresses a registered store connects to,
@@ -1012,6 +1011,7 @@ class ReferenceReader:
         self._is_open = False
         self._opening: dict[asyncio.AbstractEventLoop, asyncio.Task[None]] = {}  # loop -> the task opening
         self._sources: list[Source] = []
+        self._files_checked: set[str] = set()  # the file: URLs `Policy.check_file` allowed
         self._semaphore: tuple[asyncio.AbstractEventLoop, asyncio.Semaphore] | None = None
         self._merging: tuple[asyncio.AbstractEventLoop, _Merging] | None = None
         self._threads: ThreadPoolExecutor | None = None
@@ -1143,16 +1143,30 @@ class ReferenceReader:
             raise ValueError(f"{url} is shorter than {end} bytes")
         return data
 
+    def _check_file(self, url: str) -> None:
+        try:
+            self.policy.check_file(url)
+        # a file: URL that breaks the rules of spec §5
+        # <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>
+        except ValueError as e:
+            raise ResolutionError(f"{url}: {e}") from None
+
     async def _url_bytes(self, src: Source, start: int, end: int) -> bytes:
         """Bytes [start, end) of a url source, checking its pins (spec §5.1
         <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#51-pins>)."""
         url = resolve_reference(self.url, cast("str", src.url))  # a url source's
         registered = self.resolver.registered(url) is not None
-        allow: Callable[[str], None] = lambda u: self.policy.check(self.url, u, registered=registered)  # noqa: E731
+        allow: Callable[[str], None] = lambda u: self.policy.check(u, registered=registered)  # noqa: E731
         # spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule
         # 3: check every address, unless the application allows them all
         address = None if self.policy.allow_private_hosts else self.policy.check_address
-        allow(url)  # spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>
+        # spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>
+        if urlparse(url).scheme.lower() != "file":
+            allow(url)
+        elif url not in self._files_checked:  # a source is checked once, as the policy does not change
+            allow(url)
+            await asyncio.get_running_loop().run_in_executor(self._executor(), self._check_file, url)
+            self._files_checked.add(url)
         # spec §5.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#52-reading-over-http>, pinned or not
         if urlparse(url).scheme.lower() in ("http", "https") and not registered:
             async with self._limit():

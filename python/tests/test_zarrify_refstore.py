@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 import refkv
+from refkv.errors import ResolutionError
 from refkv.pb import Range, Source
 from refkv.policy import Policy
 from refkv.uri import is_uri_reference
@@ -74,7 +75,8 @@ def test_zarrify_returns_the_store_it_saves(proxy, tmp_path, name, is_store, che
     out.write(str(tmp_path / "old.vzip"))
     assert (tmp_path / "new.vzip").read_bytes() == (tmp_path / "old.vzip").read_bytes()
 
-    saved = refkv.open(str(tmp_path / "new.vzip"), policy=policy)
+    reading = policy or Policy(prefixes=((FIXTURES / name).parent.as_uri() + "/",))
+    saved = refkv.open(str(tmp_path / "new.vzip"), policy=reading)
     keys = store.list()
     assert keys == saved.list()
     assert any(store.classify(k) == "reference" for k in keys)
@@ -111,13 +113,28 @@ def test_a_local_input_is_named_by_its_percent_encoded_path(tmp_path, monkeypatc
         want = zarrify(str(fixture))
         assert all(is_uri_reference(s.url or "") for s in store.sources), (dirname, name)
         store.save_vzip(tmp_path / f"{i}.vzip")
-        saved = refkv.open(str(tmp_path / f"{i}.vzip"))
+        saved = refkv.open(str(tmp_path / f"{i}.vzip"), policy=Policy(schemes=frozenset({"file"})))
         keys = want.list()
         assert store.list() == saved.list() == keys
         for k in keys:  # the metadata names the source, so only the data matches the fixture's
             assert store.get(k) == saved.get(k), (dirname, name, k)
             if want.classify(k) == "reference":
                 assert store.get(k) == want.get(k), (dirname, name, k)
+
+
+def test_a_zarrified_store_reads_its_files_and_its_saved_archive_needs_a_policy(tmp_path):
+    """The store `zarrify` returns reads its input with no policy argument. Whoever opens what it
+    saved names the files (spec §6.7
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 1)."""
+    path = FIXTURES / "nifti" / "nifti_block_x_split.nii"
+    store = zarrify(str(path))
+    key = next(k for k in store.list() if store.classify(k) == "reference")
+    data = store.get(key)
+    assert data
+    store.save_vzip(tmp_path / "a.vzip")
+    with pytest.raises(ResolutionError, match="reads a local file only when it is allowed"):
+        refkv.open(tmp_path / "a.vzip").get(key)
+    assert refkv.open(tmp_path / "a.vzip", policy=Policy(prefixes=(path.parent.as_uri() + "/",))).get(key) == data
 
 
 @pytest.mark.parametrize("entries", [[("a", b"x", False)], []], ids=["entry", "reference"])

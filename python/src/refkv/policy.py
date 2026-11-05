@@ -5,6 +5,7 @@ of spec §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>.
 from __future__ import annotations
 
 import ipaddress
+import os
 import re
 from dataclasses import dataclass
 from urllib.parse import urlsplit
@@ -12,6 +13,7 @@ from urllib.parse import urlsplit
 from refkv import _core
 from refkv._extras import OBSTORE_HINT
 from refkv.errors import ResolutionError
+from refkv.uri import file_path, file_uri
 
 # The defaults of spec §6.7
 # <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>'s table.
@@ -134,16 +136,17 @@ class Policy:
     <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>).
 
     - `schemes`: schemes allowed besides those rule 1 allows by default
-      (`http` and `https` for every archive, `file` for a local one), such as
-      `s3`. It may not name `file`: see `allow_files_from_remote_archives`.
+      (`http` and `https`), such as `s3`, or `file`, which lets the archive read
+      every local file this process can, `/proc/self/environ` included: for an
+      archive you did not write, name its files in `prefixes` instead.
       A reader needs a store for such a URL anyway (`registry=`), and a
       URL under a registered prefix is allowed without it; so `schemes`
       matters most to `ReferenceStore.save_vzip`, which checks the sources it
       writes against the policy of the archive's future readers.
     - `prefixes`: if given, a URL is allowed if and only if it matches one of
-      them (rule 2), whatever its scheme. Rule 3 still applies.
-    - `allow_files_from_remote_archives`: UNSAFE. Lets an archive opened from
-      a URL name `file:` sources, that is, read the reader's local files.
+      them (rule 2), whatever its scheme. Rule 3 still applies. The real path of
+      a file under a `file:` prefix, symbolic links followed, must also be under
+      the prefix's.
     - `allow_file_hosts`: UNSAFE. Lets a `file:` URL name a host
       (`file://server/share/x`), which on Windows is the UNC path
       `\\\\server\\share\\x`: reading it connects to that server over the
@@ -189,7 +192,6 @@ class Policy:
 
     schemes: frozenset[str] = frozenset()
     prefixes: tuple[str, ...] | None = None
-    allow_files_from_remote_archives: bool = False
     allow_file_hosts: bool = False
     allow_private_hosts: bool = False
     allow_unchecked_proxy: bool = False
@@ -197,36 +199,40 @@ class Policy:
     max_reads: int = MAX_READS
     max_format_entry: int = MAX_FORMAT_ENTRY
 
-    def __post_init__(self) -> None:
-        if any(s.lower() == "file" for s in self.schemes):
-            raise ValueError("Policy.schemes may not name 'file': a local archive reads files "
-                             "already, and a remote one needs the unsafe "
-                             "allow_files_from_remote_archives=True")
-
-    def check(self, base: str, url: str, *, registered: bool = False) -> None:
-        """Raise ResolutionError unless rules 1 and 2 allow `url` for an archive at `base`,
-        and rule 3 allows its host as written (an IP literal, or `localhost`).
+    def check(self, url: str, *, registered: bool = False) -> None:
+        """Raise ResolutionError unless rules 1 and 2 allow `url`, and rule 3 allows its host as
+        written (an IP literal, or `localhost`).
 
         `registered`: the application registered a store for a prefix of `url`
         (`registry=`), which allows it under rule 1 whatever its scheme, except
-        a `file:` URL for a remote archive. A prefix list (rule 2) still decides
-        alone, and rule 3, and the refusal of a `file:` URL's host without
+        a `file:` URL, which needs `file` in `schemes`. A prefix list (rule 2) still
+        decides alone, and rule 3, and the refusal of a `file:` URL's host without
         `allow_file_hosts`, still apply."""
+        self.check_file_host(url)
         if self.prefixes is not None:
             if not any(matches_prefix(url, p) for p in self.prefixes):
                 raise ResolutionError(f"{url}: not under an allowed URL prefix (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)")
         else:
-            s, local = _scheme(url), _scheme(base) == "file"
+            s = _scheme(url)
+            allowed = {_scheme(x + ":") for x in self.schemes}
             if s == "file":
-                if not (local or self.allow_files_from_remote_archives):
+                if s not in allowed:
+                    directory = url.rpartition("/")[0] + "/"
                     raise ResolutionError(
-                        f"{url}: an archive opened from a URL may not read local files "
+                        f"{url}: an archive reads a local file only when it is allowed: pass "
+                        f"policy=refkv.Policy(prefixes=({directory!r}, 'https://')) for these files, or "
+                        f"schemes={{'file'}} for every local file "
                         f"(spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)")
-            elif s != "http" and not registered and s not in {_scheme(x + ":") for x in self.schemes}:
+            elif s != "http" and not registered and s not in allowed:
                 raise ResolutionError(
                     f"{url}: the scheme {s!r} is not allowed "
                     f"(spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>). "
                     + scheme_remedy(url))
+        self.check_host(url)
+
+    def check_file_host(self, url: str) -> None:
+        """Raise ResolutionError if `url` is a `file:` URL whose host `allow_file_hosts` does not
+        allow (spec §5 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>)."""
         if _scheme(url) == "file" and not self.allow_file_hosts:
             try:
                 host = urlsplit(url).netloc
@@ -237,7 +243,22 @@ class Policy:
                     f"{url}: a file: URL with the host {host!r} (a UNC path) reads over the "
                     f"network, which the reader does not do without allow_file_hosts=True "
                     f"(spec §5 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>)")
-        self.check_host(url)
+
+    def check_file(self, url: str) -> None:
+        """Raise ResolutionError unless the file a `file:` `url` that `check` allowed reads is under
+        an allowed prefix once symbolic links are followed (spec §6.7
+        <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 2). Without a
+        prefix list, there is nothing to stay under."""
+        if self.prefixes is None:
+            return
+        real = file_uri(os.path.realpath(file_path(url, allow_host=self.allow_file_hosts)))
+        for prefix in (p for p in self.prefixes if _scheme(p) == "file"):
+            target = file_uri(os.path.realpath(file_path(prefix, allow_host=self.allow_file_hosts)))
+            if matches_prefix(real, target + "/" if prefix.endswith("/") and not target.endswith("/") else target):
+                return
+        raise ResolutionError(
+            f"{url}: its real path {real} is not under an allowed prefix "
+            f"(spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)")
 
     def check_host(self, url: str) -> None:
         """Raise ResolutionError unless rule 3 allows the host of an http(s) `url` as

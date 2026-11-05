@@ -152,12 +152,16 @@ def test_combining_keeps_each_store_from_reading_what_its_own_policy_refuses(tmp
     for local_url in (f"{tmp_path.as_uri()}/", "FILE:///tmp/"):
         combined = overlay(ReferenceStore({"a": b"a"}, url=local_url), remote)
         assert combined.url == "https://h.test/archive/"
-        with pytest.raises(ResolutionError, match="may not read local files"):
+        with pytest.raises(ResolutionError, match="reads a local file only when it is allowed"):
             combined.get("b")
-    # beside a remote store with no file sources, the local store's base loosens nothing
+    # no base URL lets a store read a file, the first store's being a local one or not
     web = ReferenceStore({"b": Range(source=0, length=1)}, [Source(url="https://h.test/b.bin")], url="https://h.test/")
     disk = ReferenceStore({"a": Range(source=0, length=4)}, [Source(url="a.bin")], url=f"{tmp_path.as_uri()}/")
-    assert overlay(web, disk).url.startswith("file:")
+    assert overlay(web, disk).url == "https://h.test/"
+    assert overlay(disk, web).url == f"{tmp_path.as_uri()}/"
+    for combined in (overlay(web, disk), overlay(disk, remote), overlay(remote, disk)):
+        with pytest.raises(ResolutionError, match="reads a local file only when it is allowed"):
+            combined.get("a")
     # a store that reads nothing outside itself, such as a header, takes no part
     header = ReferenceStore({"h": b"h"}, policy=Policy(allow_private_hosts=True))
     assert overlay(header, web).url == "https://h.test/"
@@ -246,7 +250,9 @@ def test_a_stack_of_zarrified_tiffs_reads_as_one_array(tmp_path):
     stack = union(header, *(shift_chunks(s, "0", (i, 0, 0), new_axes=1) for i, s in enumerate(stores)))
     assert len(stack.sources) == 3
     stack.save(tmp_path / "stack.vzip", relative_to=f"{tmp_path.as_uri()}/")
-    data = np.asarray(zarr.open_group(refkv.zarr.open(str(tmp_path / "stack.vzip")), mode="r").get_array("0")[...])
+    policy = Policy(prefixes=(f"{tmp_path.as_uri()}/",))
+    zs = refkv.zarr.open(str(tmp_path / "stack.vzip"), policy=policy)
+    data = np.asarray(zarr.open_group(zs, mode="r").get_array("0")[...])
     assert data.shape == (3, 40, 30)
     assert [int(data[z].min()) for z in range(3)] == [1, 2, 3]
 
@@ -289,15 +295,6 @@ def test_combining_refuses_an_internal_reference_to_a_key_another_store_answers(
     e = ReferenceStore({"hdr": b"HEAD", "v": Range(source=0, length=2)}, [Source(key="hdr")])
     with pytest.raises(ValueError, match="store 0 has a reference to its own key 'hdr'"):
         overlay(e, ReferenceStore({"hdr": b"other"}))
-
-
-def test_combining_refuses_a_base_url_that_would_let_a_store_read_local_files(tmp_path):
-    (tmp_path / "a.bin").write_bytes(b"AAAA")
-    remote = ReferenceStore({"b": Range(source=0, length=4)}, [Source(url=(tmp_path / "a.bin").as_uri())],
-                            url="https://h.test/archive/")
-    local = ReferenceStore({"a": Range(source=0, length=4)}, [Source(url="a.bin")], url=f"{tmp_path.as_uri()}/")
-    with pytest.raises(ValueError, match="a remote store has file: sources"):
-        overlay(local, remote)
 
 
 def test_combining_refuses_stores_with_different_policies():
@@ -504,7 +501,8 @@ def test_operators_keep_bounds_hidden_flags_and_meaning_through_every_step(tmp_p
     (tmp_path / "d.bin").write_bytes(b"DATA")
     (tmp_path / "other").mkdir()
     (tmp_path / "other" / "d.bin").write_bytes(b"ELSE")
-    rel = ReferenceStore({"v": Range(source=0, length=4)}, [Source(url="d.bin")], url=f"{tmp_path.as_uri()}/")
+    rel = ReferenceStore({"v": Range(source=0, length=4)}, [Source(url="d.bin")], url=f"{tmp_path.as_uri()}/",
+                         policy=Policy(prefixes=(f"{tmp_path.as_uri()}/",)))
     assert mount(rel, "m", url=f"{(tmp_path / 'other').as_uri()}/").get("m/v") == b"DATA"
     assert map_keys(rel, lambda k: k, url=f"{(tmp_path / 'other').as_uri()}/").get("v") == b"DATA"
     # a store with nothing in it takes no part in the result's options
@@ -852,3 +850,16 @@ def test_lenient_listings_deep_keys_rank_zero_boxes_and_huge_indexes():
     # an index too long to be a chunk's is no chunk key
     junk = ReferenceStore({"a/c/0": b"x", "a/c/" + "1" * 5000: b"junk"})
     assert "a/c/0" not in overlay(junk, ReferenceStore({}, bounds=[ChunkBox("a", (0,), (1,))])).mapping
+
+
+def test_combining_refuses_to_let_a_store_read_a_file_only_another_policy_allows(tmp_path):
+    (tmp_path / "own.bin").write_bytes(b"OWN!")
+    (tmp_path / "secret.bin").write_bytes(b"SECRET")
+    allowed = Policy(schemes=frozenset({"file"}))
+    own = ReferenceStore({"a": Range(source=0, length=4)}, [Source(url=(tmp_path / "own.bin").as_uri())],
+                         policy=allowed)
+    other = ReferenceStore({"b": Range(source=0, length=6)}, [Source(url=(tmp_path / "secret.bin").as_uri())],
+                           url="https://h.test/archive/")
+    with pytest.raises(ValueError, match="different reader policies"):
+        overlay(own, other)
+    assert overlay(own, other, policy=allowed).get("b") == b"SECRET"
