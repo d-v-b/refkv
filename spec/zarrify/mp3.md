@@ -10,21 +10,7 @@ is the MP3 profile, [Part 2](#part-2-the-profile) below.
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `b6cb0047-9448-4fdc-b03e-10dd3d6aa829` ·
 Schema: [schema.json](mp3/schema.json)
 
-Changed 2026-11-03, with no change to any output: the introduction no longer calls MP3 the one source that is not an image.
-
-Changed 2026-11-01, with no change to any output: the checks say that a zarrifier MUST reject
-an input that fails one, in RFC 2119's words.
-
-Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
-[Layout](#layout) and its types in type tables
-([conventions §11.5](../conventions.md#115-layout-tables)); the header's values, the tags'
-fields and the summary are tables too.
-
-Changed 2026-10-23: the array's codec is `refkv.stream`
-([conventions §10](../conventions.md#10-coded-streams)), which MP4 tracks share, in place of
-this convention's own `mp3`; its data type is `float32`, the decoder's own samples, in place of
-`int16`; a chunk's header gives each frame's size and output position, in place of the count of
-samples to keep ([§4.1](#41-the-array), [§8.2](#82-chunks)).
+Changes: [changes/mp3/](changes/mp3/), one file per change.
 
 Added 2026-10-21.
 

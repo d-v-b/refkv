@@ -13,13 +13,7 @@ cited here as "conventions §n"; "the MRC convention §n" is a section of
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `f139bf4e-7bab-4c3c-9b2d-66ba747f9b93` ·
 Schema: [schema.json](mrc-dataset/schema.json)
 
-Changed 2026-11-04: `o` is the first value's position, which is `-origin` for a volume whose
-origin has IMOD's sign ([the MRC convention §4.2](mrc.md#42-scales-units-and-position)).
-
-Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
-[Layout](#layout) and its types in type tables
-([conventions §11.5](../conventions.md#115-layout-tables)), and the stack example gives its
-fixture's `cella` ([§5](#5-example)).
+Changes: [changes/mrc-dataset/](changes/mrc-dataset/), one file per change.
 
 Changes before 2026-10-22 are recorded in
 [the revision log of VIRTUALIZE.md](../history/virtualize/REVISIONS.md), this document's earlier

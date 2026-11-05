@@ -10,36 +10,7 @@ How refkv produces this layout as a reference store is the NDPI profile,
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `6cac71ef-dbb2-4acd-b60c-00389aa4238a` ·
 Schema: [schema.json](ndpi/schema.json)
 
-Changed 2026-11-04: images of one Magnification are a level's focal planes, presented as a `z` axis
-ordered by their focal offset, tag 65424, and no longer rejected ([§2](#2-the-source),
-[§3](#3-levels), [§4](#4-the-image)); every kept level has the same offsets, those whose levels hold
-the most pixels, and every other image is left out with its reason, in the root's source metadata
-with the offsets ([§5](#5-source-metadata)); a level's planes share one chunk grid
-([§7](#7-ndpi-profile)).
-
-Changed 2026-10-27: an ASCII value is never in line, whatever its size, and is at its 64-bit
-offset ([§5.1](#51-elements), [§7](#7-ndpi-profile)); McuStartsHighBytes, like the tile tables'
-high bytes, holds the 32-bit values it stores, and McuStarts of one in-line LONG, whose value
-has its entry's high word, MUST have that word in McuStartsHighBytes, which is not added to it
-([§7](#7-ndpi-profile)).
-
-Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
-[Layout](#layout) and its types in type tables
-([conventions §11.5](../conventions.md#115-layout-tables)).
-
-Changed 2026-10-25: a level may be JPEG XR (Compression 22610), tiled or in one strip, each tile
-or strip a chunk, its data type and samples from the JPEG XR stream header and not the tags
-([§3](#3-levels), [§4](#4-the-image)); the tile tables' high bytes (65324, 65325) extend them
-([§7](#7-ndpi-profile)); the root has the source metadata of [§5](#5-source-metadata), the
-fluorescence filter, wavelength and exposure time, and a single channel's `omero` label is its
-filter's name (d-v-b/refkv#123).
-
-Changed 2026-10-24: a level without McuStarts whose strip's frame header is not the level's size
-has the level's size spliced into the frame header when it needs the same MCU rows and columns,
-and is otherwise not a level (rejected when it is level 0) ([§3](#3-levels),
-[§4](#4-the-image)); the profile reads such a strip's header ([§7](#7-ndpi-profile)).
-
-Changed 2026-10-22: the image has an `omero` member ([§4](#4-the-image)).
+Changes: [changes/ndpi/](changes/ndpi/), one file per change.
 
 Changes before 2026-10-22 are recorded in
 [the revision log of VIRTUALIZE.md](../history/virtualize/REVISIONS.md), this document's earlier

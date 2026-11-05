@@ -10,16 +10,7 @@ accepts, is the FLAC profile, [Part 2](#part-2-the-profile) below.
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `e9108d07-b24b-432f-a8ce-09d80c8073b4` ·
 Schema: [schema.json](flac/schema.json)
 
-Changed 2026-11-01, with no change to any output: the checks say that a zarrifier MUST reject
-an input that fails one, in RFC 2119's words.
-
-Changed 2026-10-26: a cue sheet's `lead_in` and its tracks' and index points' `offset`s past
-2^53 − 1 are the strings of their digits, as
-[conventions §6](../conventions.md#6-source-metadata-as-json) writes an integer, where they were
-JSON numbers ([§5.1](#51-the-root)). The layout is tabulated, its entries in [Layout](#layout)
-and its types in type tables ([conventions §11.5](../conventions.md#115-layout-tables)); the
-metadata blocks' and the frame header's fields and the summary are tables too, and the seek
-table's `points` is said, as refkv already wrote it, not to count the placeholders.
+Changes: [changes/flac/](changes/flac/), one file per change.
 
 Added 2026-10-25.
 

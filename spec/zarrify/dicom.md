@@ -11,33 +11,7 @@ refkv produces this layout as a reference store is the DICOM profile,
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `acf17198-e5a5-48d3-8187-22ec4bb40ea5` ·
 Schema: [schema.json](dicom/schema.json)
 
-Changed 2026-11-04: a store of DICOM files has a form of its own ([§9](#9-the-store-form)): one group per
-series, its files stacked by position, or a slide's levels as multiscales.
-
-Changed 2026-11-04: RLE Lossless, JPEG-LS and HTJ2K are admitted ([§2.1](#21-transfer-syntax)), their
-frames chunks of `imagecodecs_dicomrle`, `imagecodecs_jpegls` and `imagecodecs_htj2k`
-([§4](#4-output)), an RLE frame's header and a JPEG-LS frame's markers read and checked
-([§7.5](#75-frames)). `PALETTE COLOR` is admitted, the indices with the lookup tables as an array of
-their own ([§4.1](#41-the-palette)), as are native `YBR_FULL`, its channels `Y`, `Cb` and `Cr` as
-stored ([§3](#3-the-image)), and JPEG 2000 frames of `YBR_FULL_422`, which decoders convert to RGB
-([§7.5](#75-frames)).
-
-Changed 2026-11-04: Bits Allocated 1 is admitted for native pixel data
-([§3](#3-the-image)), its array `bool` through zarr-extensions' bit-packing `packbits`
-([§4](#4-output)), each frame a chunk where every frame starts on a byte, else one chunk
-([§7.5](#75-frames)).
-
-Changed 2026-10-30: the JPEG Lossless transfer syntaxes, Process 14 and its selection value 1,
-are admitted ([§2.1](#21-transfer-syntax)), their frames chunks of `imagecodecs_ljpeg`
-([§4](#4-output)), each frame's markers up to its first scan read and checked
-([§7.5](#75-frames), **Lossless JPEG**).
-
-Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
-[Layout](#layout) and its types in type tables
-([conventions §11.5](../conventions.md#115-layout-tables)), among them the datasets as JSON
-([`DicomDataset`](#type-dicomdataset), [`DicomAttribute`](#type-dicomattribute)) and a chunk's
-ranges ([`DicomChunk`](#type-dicomchunk)); and the text says, as refkv already wrote it, that
-`S` always has `meta` and `dataset` ([§5.1](#51-the-root)).
+Changes: [changes/dicom/](changes/dicom/), one file per change.
 
 Changes before 2026-10-22 are recorded in
 [the revision log of VIRTUALIZE.md](../history/virtualize/REVISIONS.md), this document's earlier

@@ -10,31 +10,7 @@ is the CZI profile, [Part 2](#part-2-the-profile) below, cited as
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `7a0733c7-d4be-4482-a64f-6904d9354ea5` ·
 Schema: [schema.json](czi/schema.json)
 
-Changed 2026-11-04: subblocks in LZW have a layout, their codecs `bytes` and `imagecodecs_lzw`, and
-so do Gray8 and Gray16 subblocks in lossless JPEG, `imagecodecs_ljpeg`, whether under Compression 3
-or JpgFile, and Gray16 subblocks of 12-bit JPEG, `imagecodecs_jpeg`
-([§3.1](#31-pixel-types-and-codecs)). Any other stream under those Compressions has no coded size,
-so a Gray16 subblock of 8-bit JPEG, which rejected the input, is unplaced ([§3.2](#32-conforming-and-unplaced-subblocks)). Lossless JPEG with Bgr24 or Bgr48, JPEG with
-Bgr48 and raw data are still rejected. No output of a file accepted before changed.
-
-Changed 2026-11-04: an image across numbered files is read ([§7.9](#79-several-files)), where a
-FilePart other than 0 was rejected; a file whose XML says it has more planes or tiles than its
-directory holds is probed for its parts and read as a store, and so is the one file of the public
-corpus it finds, `Image_1_2023_08_18__14_32_31_964.czi`, which is a set of four; the root has `parts`
-in that case ([§5.1](#51-the-root)). Every other file's output is what it was.
-
-Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
-[Layout](#layout) and its types in type tables
-([conventions §11.5](../conventions.md#115-layout-tables)), and the source's structures, the
-values read from the metadata XML, the codecs and the cases of a coded size are tables; the
-prose also states what refkv already wrote and it left unsaid: when the largest divisor band of
-a large uncompressed tile holds less than 2^20 bytes, its bands are short bands of the most rows
-within 2^24 bytes, and the level's or tile array's grid is rectilinear
-([§4.3](#43-image-arrays), [§4.4](#44-tiles)); and it drops the per-element arrays under
-`refkv_source` that the IR mirror replaced in
-[revision 21](../history/virtualize/REVISIONS.md#revision-21-the-ir-mirror-is-the-source-metadata-of-tiff-nd2-and-czi)
-([§7.5](#75-chunk-references)), and names the subblock segment `ZISRAWSUBBLOCK`
-([§5.3](#53-elements)).
+Changes: [changes/czi/](changes/czi/), one file per change.
 
 Changes before 2026-10-22 are recorded in
 [the revision log of VIRTUALIZE.md](../history/virtualize/REVISIONS.md), this document's earlier

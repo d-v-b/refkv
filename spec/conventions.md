@@ -5,45 +5,7 @@ N5 store, ...) looks like any other Zarr hierarchy. These conventions make
 it describe itself: which source it presents, which format that source is
 in, and everything the source's own header or metadata says. There is one
 convention per source format, each specified in `zarrify/<format>.md` next to
-its JSON Schema `zarrify/<format>/schema.json`. (Changed 2026-10-25: the property is
-`refkv_zarrified`, in place of `refkv_virtualized`, [§2](#2-attributes). Changed 2026-10-26,
-with no change to any output: the shared types are defined in type tables, and each format's
-document tabulates its layout, as [§11.5](#115-layout-tables) says; the mirror's
-`ir/shared/data` is said to be absent when the shared sources total no byte, as refkv already
-wrote it ([§8.2](#82-the-table)); and each convention's JSON Schema requires every member of its
-CMO ([§1](#1-conventions)). Changed 2026-10-27: a zlib stream's codec is `numcodecs.zlib`, in
-place of `zlib`, and every codec's name is zarr-python's, imagecodecs-zarr's, the zarr-extensions
-registry's or refkv's own `refkv.<codec>`, [§3](#3-arrays) (d-v-b/refkv#90). Changed
-2026-10-27: imagecodecs-zarr's `imagecodecs_delta` sums back differences along `x`, a step of its
-own between `transpose` and `bytes`, [§3](#3-arrays). Changed 2026-10-28: the `refkv.stream`
-format `"hevc"` codes HEVC access units, its setup the HEVCDecoderConfigurationRecord
-([§10](#10-coded-streams)). Changed 2026-10-30: imagecodecs-zarr's `imagecodecs_ljpeg` decodes
-a lossless JPEG chunk ([§3](#3-arrays)); refkv's `refkv.skip` drops the NPY header a deflated
-`.npz` member inflates to ([§3](#3-arrays)). Changed 2026-10-30: the codec `refkv.grib`
-decodes a GRIB field's message ([§12](#12-grib-messages)). Changed 2026-10-31: `refkv.grib`
-decodes packing 5.40, JPEG 2000 of the reversible 5/3 transform, where it was an error
-([§12](#12-grib-messages)). Changed 2026-11-01, with no change to any output:
-the document cites its own sections as `§n` links. Changed 2026-11-03, with no change to any
-output: [§2](#2-attributes), [§3](#3-arrays) and [§7](#7-source-values-as-arrays) name what the
-formats' documents already say of their attributes, arrays, codecs and fill values. Changed
-2026-11-04, with no change to any output: a node's attributes may hold other conventions'
-members, such as [spec/provenance.md](provenance.md)'s on the root, which each convention's JSON
-Schema accepts ([§2](#2-attributes)). Changed 2026-11-04: imagecodecs-zarr's `imagecodecs_floatpred`
-undoes TIFF's floating-point predictor, in the place of `bytes` ([§3](#3-arrays)). Changed 2026-11-04:
-imagecodecs-zarr's `imagecodecs_lerc`, `imagecodecs_webp`, `imagecodecs_jpegxl` and `imagecodecs_lzma`
-decode a chunk ([§3](#3-arrays)). Changed 2026-11-04: imagecodecs-zarr's `imagecodecs_packints`,
-`imagecodecs_packbits`, `imagecodecs_ccittfax4` and `imagecodecs_eer` decode a chunk ([§3](#3-arrays)).
-Changed 2026-11-04: a TIFF level whose short last strip cannot be
-padded has the `rectilinear` chunk grid ([§3](#3-arrays)). Changed 2026-11-04: imagecodecs-zarr's
-`imagecodecs_png` and `imagecodecs_bmp` decode a chunk that is one PNG or BMP file, and its
-`imagecodecs_lzw` decodes an LZW chunk that holds exactly the chunk's bytes, as CZI's LZW subblocks
-do ([§3](#3-arrays)). Changed 2026-11-04: [§12](#12-grib-messages) decodes reduced grids and template
-3.101 as one line of points, and [§2](#2-attributes) places the numbers that name a 3.101 grid on its
-group. Changed 2026-11-05, with no change to any output: [§3](#3-arrays)'s codec table and codec names
-are generated from the codec registry, and the names list the codecs the formats' documents already
-gave and the list left out: `crc32c`, `imagecodecs_jpegls`, `imagecodecs_dicomrle`,
-`imagecodecs_htj2k`, `numcodecs.lz4`, `numcodecs.bz2`, `numcodecs.lzma`,
-`numcodecs.fixedscaleoffset` and `numcodecs.quantize`.)
+its JSON Schema `zarrify/<format>/schema.json`. Its changes are in [zarrify/changes/conventions/](zarrify/changes/conventions/), one file per change.
 
 <!-- profiles:conventions-table -->
 | format | convention | UUID |
