@@ -34,6 +34,7 @@ const STORE_FORMATS: Record<StoreProfile, string | undefined> = {
   safe: undefined,
   vsi: "VSI",
   nrrd: "NRRD",
+  nifti: "NIfTI",
   grib: "GRIB",
   safetensors: "safetensors",
   lif: "LIF",

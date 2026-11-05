@@ -8,6 +8,9 @@ Changed 2026-11-04: a profile may state a late signature, which a host reads fur
 Changed 2026-11-04: the TIFF profile reads an image across files, on demand
 ([tiff.md §7.4](zarrify/tiff.md#74-several-files)); a file that names none has the output it had.
 
+Changed 2026-11-04: a NIfTI header-and-image pair is a file read as a store
+([§1.8](#18-files-read-as-stores)), where the NIfTI profile rejected it.
+
 Changed 2026-11-04: a file's siblings have one set of rules, how a profile names, probes, pins and
 bounds them ([§1.9](#19-sources-beside-the-input)). The bounds are new, and reject an input that
 names more than 2^16 files; no input that VSI, NRRD or GRIB accepted names so many, and no other
@@ -99,7 +102,7 @@ The table, generated from the registry, lists them:
 | [N5](zarrify/n5.md#part-2-the-profile) | store | N5 containers, default-mode blocks |
 | [ND2](zarrify/nd2.md#part-2-the-profile) | file | Nikon ND2, format version 3 and later |
 | [NDPI](zarrify/ndpi.md#part-2-the-profile) | file | Hamamatsu NDPI slides, a TIFF variant with 64-bit offsets |
-| [NIfTI](zarrify/nifti.md#part-2-the-profile) | file | NIfTI-1 and NIfTI-2 single files (`.nii`, `.nii.gz`) |
+| [NIfTI](zarrify/nifti.md#part-2-the-profile) | file | NIfTI-1 and NIfTI-2 single files (`.nii`, `.nii.gz`) and header-and-image pairs (`.hdr`, `.img`) |
 | [NumPy](zarrify/npy.md#part-2-the-profile) | file | NumPy `.npy` files, and `.npz` archives of them (`np.savez`, `np.savez_compressed`), whose stored and deflated members it presents |
 | [NRRD](zarrify/nrrd.md#part-2-the-profile) | file | NRRD files (`.nrrd`) and detached headers with one data file (`.nhdr`), raw or gzip-encoded |
 | [OME-Zarr](zarrify/ome-zarr.md#part-2-the-profile) | store | OME-Zarr 0.4 hierarchies on Zarr v2, migrated to OME-Zarr 0.5 |
@@ -770,8 +773,9 @@ The VSI ([vsi.md §9](zarrify/vsi.md#9-vsi-profile)), NRRD
 ([lif.md §8](zarrify/lif.md#8-las-x-documents)), are chosen by a file input's signature
 ([§1.2](#12-input)), and read the file and the files beside it (a slide's tile files, a
 detached header's data file, a GRIB file's index files, a project's documents and LOFs) as a store
-([§1.4](#14-store-inputs)), and so does the TIFF profile, for an input that names other files
-([tiff.md §7.4](zarrify/tiff.md#74-several-files)). Such a **file read as a store** is read as follows; the profile's
+([§1.4](#14-store-inputs)), and so do the TIFF profile, for an input that names other files
+([tiff.md §7.4](zarrify/tiff.md#74-several-files)), and the NIfTI profile, for a header-and-image pair
+([nifti.md §7.5](zarrify/nifti.md#75-header-and-image-pairs)). Such a **file read as a store** is read as follows; the profile's
 document says which keys it probes, how it reads each object, and the order of its sources, under
 the rules of [§1.9](#19-sources-beside-the-input).
 
