@@ -19,3 +19,10 @@ https://s3.amazonaws.com/janelia-cosem-datasets/jrc_cos7-11/jrc_cos7-11.zarr/rec
 # subset of NASA JPL's MUR SST analysis (500 objects). The frozen reference lists no Hub store
 # (no-ref).
 https://huggingface.co/datasets/KokosDev/mur-sst-ml-benchmark-Zarr/tree/715e1970c7099cae22fe672020acb6b706121385/pacific_sst.zarr/|hub_mur_sst_pacific|no-ref|listing-sha256=7bf7b1e40905c666fa1548abfdcd1a2c26d36618964c944d7d1495c9eedd271b
+# Arrays the Zarr v2 profile presents since the frozen reference froze, which it rejects (no-ref): a scalar
+# |S1 and a blosc |S15 of the NOAA National Water Model 2.1 retrospective (public on AWS Open Data), and the
+# observations of Vitessce's AnnData demo store of Habib et al. 2017, whose strings are |O with vlen-utf8.
+# The NOAA stores hold millions of chunks, so these are single arrays of one, not the stores.
+https://noaa-nwm-retrospective-2-1-zarr-pds.s3.amazonaws.com/chrtout.zarr/crs/|nwm_chrtout_crs|no-ref|listing-sha256=d368aefcc020c6024310ba54261967791f942036eacc346803c485fc2f860d8e
+https://noaa-nwm-retrospective-2-1-zarr-pds.s3.amazonaws.com/chrtout.zarr/gage_id/|nwm_chrtout_gage_id|no-ref|listing-sha256=fedddc5f6a2e627c4685942f4a6a19fca46e1606502638e45a422705edcc7792
+https://storage.googleapis.com/vitessce-demo-data/habib-2017/habib17.processed.h5ad.zarr/obs/|anndata_habib17_obs|no-ref|listing-sha256=3d16d1c12e30974920e34fda03b721f871a8d42af7be07a9b5d6a814b5e5b25d

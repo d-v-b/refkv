@@ -54,7 +54,7 @@ fn accepted_stores_mirror_and_rebuild_their_documents() {
             }
         }
     }
-    assert_eq!(accepted, 13);
+    assert_eq!(accepted, 16);
 }
 
 #[test]
@@ -139,6 +139,28 @@ fn probe_many_multiscales_naming_one_array_is_accepted_quickly() {
     objects[1] = doc(".zattrs", serde_json::json!({"multiscales": ms}));
     let (r, t) = output_of(&objects);
     assert!(r.is_ok(), "{:?}", r.err());
+    assert!(t.as_secs() < 10, "{t:?}");
+}
+
+#[test]
+fn probe_a_long_chain_of_groups_that_are_not_ome_is_quick() {
+    // amplification: 5000 label images, each the source of the next, the first with a level left
+    // out: each group is found once
+    let n = 5000;
+    let mut objects = vec![doc(".zgroup", serde_json::json!({"zarr_format": 2}))];
+    objects.push(doc(".zattrs", serde_json::json!({"multiscales": [{"version": "0.4",
+        "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}],
+        "datasets": [{"path": "0", "coordinateTransformations": [{"type": "scale", "scale": [1, 1]}]}]}]})));
+    objects.push(doc("0/.zarray", serde_json::json!({"zarr_format": 2, "shape": [4, 4], "chunks": [2, 2], "dtype": "|O",
+        "order": "C", "compressor": null, "fill_value": 0, "filters": null})));
+    for i in 0..n {
+        objects.push(doc(&format!("x{i}/.zgroup"), serde_json::json!({"zarr_format": 2})));
+        let source = if i == 0 { "../".to_string() } else { format!("../x{}", i - 1) };
+        objects.push(doc(&format!("x{i}/.zattrs"), serde_json::json!({"image-label": {"source": {"image": source}}, "multiscales": []})));
+    }
+    let (r, t) = output_of(&objects);
+    let out = r.unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(out.summary["notOme"], n + 1, "{}", out.summary);
     assert!(t.as_secs() < 10, "{t:?}");
 }
 

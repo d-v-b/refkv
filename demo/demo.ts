@@ -365,13 +365,14 @@ const DECODED_CODECS = [
   "bytes", "transpose", "crc32c", "blosc", "zstd", "gzip", "zlib", "numcodecs.zlib", "numcodecs.bz2", "sharding_indexed", "numcodecs.shuffle",
   "n5_default", "imagecodecs_delta", "imagecodecs_jpeg", "imagecodecs_jpeg2k", "imagecodecs_jpegxr", "imagecodecs_ljpeg",
   "imagecodecs_lzw", "refkv.fits_tiles", "refkv.grib", "refkv.skip", "refkv.stream", "refkv.tiff_lzw",
+  "numcodecs.lz4", "numcodecs.fixedscaleoffset", "numcodecs.quantize",
 ];
 
 /**
  * The codecs whose float64 arrays the fork shows, as float32: they decode a
- * chunk to float32 values (a GRIB field's are rounded to nearest).
+ * chunk to float32 values (a GRIB field's and a scaled integer's are rounded to nearest).
  */
-const FLOAT64_CODECS = ["refkv.grib"];
+const FLOAT64_CODECS = ["refkv.grib", "numcodecs.fixedscaleoffset"];
 
 /** The names of the codecs of `codecs`, and of those a sharding codec among them holds. */
 const codecNames = (codecs: { name: string; configuration?: any }[]): string[] =>

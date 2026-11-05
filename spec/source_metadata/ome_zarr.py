@@ -13,6 +13,18 @@ SCHEMA = {"anyOf": [
             "unversioned": {"type": "array", "minItems": 1, "uniqueItems": True,
                             "items": {"enum": ["multiscales", "omero", "image-label", "plate", "well"]},
                             "description": "The OME members that had no version, which ome gives back as they are"},
+            "not_presented": {"type": "array", "minItems": 1, "items": {
+                "type": "object",
+                "properties": {"path": {"type": "string"}, "reason": {"type": "string"}},
+                "required": ["path", "reason"],
+                "additionalProperties": False,
+            }, "description": "The root's: the arrays left out, and why"},
+            "not_ome": {"type": "array", "minItems": 1, "items": {
+                "type": "object",
+                "properties": {"path": {"type": "string"}, "reason": {"type": "string"}},
+                "required": ["path", "reason"],
+                "additionalProperties": False,
+            }, "description": "The root's: the groups that are not OME, and why"},
         },
         "minProperties": 1,
         "additionalProperties": False,

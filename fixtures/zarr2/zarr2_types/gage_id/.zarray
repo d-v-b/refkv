@@ -1,0 +1,20 @@
+{
+  "zarr_format": 2,
+  "compressor": {
+    "id": "blosc",
+    "cname": "lz4",
+    "clevel": 5,
+    "shuffle": 1,
+    "blocksize": 0
+  },
+  "fill_value": null,
+  "order": "C",
+  "filters": null,
+  "shape": [
+    3
+  ],
+  "chunks": [
+    3
+  ],
+  "dtype": "|S15"
+}

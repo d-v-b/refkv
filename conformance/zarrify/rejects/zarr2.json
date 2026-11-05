@@ -22,34 +22,9 @@
       "message": "chunks [2, 0] is not 2 chunk sizes"
     },
     {
-      "test": "zarr2_reject_compressor_bz2",
-      "input": "zarr2_reject_compressor_bz2",
-      "message": "compressor bz2 is not supported"
-    },
-    {
-      "test": "zarr2_reject_compressor_lz4",
-      "input": "zarr2_reject_compressor_lz4",
-      "message": "compressor lz4 is not supported"
-    },
-    {
       "test": "zarr2_reject_compressor_no_id",
       "input": "zarr2_reject_compressor_no_id",
       "message": "compressor is not null or an object with a string id"
-    },
-    {
-      "test": "zarr2_reject_dtype_bytes",
-      "input": "zarr2_reject_dtype_bytes",
-      "message": "dtype |S8 is not supported"
-    },
-    {
-      "test": "zarr2_reject_dtype_complex",
-      "input": "zarr2_reject_dtype_complex",
-      "message": "dtype <c8 is not supported"
-    },
-    {
-      "test": "zarr2_reject_dtype_datetime",
-      "input": "zarr2_reject_dtype_datetime",
-      "message": "dtype <M8[ns] is not supported"
     },
     {
       "test": "zarr2_reject_dtype_no_byteorder",
@@ -60,16 +35,6 @@
       "test": "zarr2_reject_dtype_object",
       "input": "zarr2_reject_dtype_object",
       "message": "dtype |O is not supported"
-    },
-    {
-      "test": "zarr2_reject_dtype_structured",
-      "input": "zarr2_reject_dtype_structured",
-      "message": "dtype [[a, <u2], [b, <f4]] is not supported"
-    },
-    {
-      "test": "zarr2_reject_dtype_unicode",
-      "input": "zarr2_reject_dtype_unicode",
-      "message": "dtype <U4 is not supported"
     },
     {
       "test": "zarr2_reject_fill_base64",
@@ -114,7 +79,7 @@
     {
       "test": "zarr2_reject_filters",
       "input": "zarr2_reject_filters",
-      "message": "filters are not supported"
+      "message": "filter delta is not supported"
     },
     {
       "test": "zarr2_reject_gzip_level",
@@ -201,6 +166,186 @@
       "test": "zarr2_reject_zstd_level",
       "input": "zarr2_reject_zstd_level",
       "message": "zstd level 23 is not an integer from -131072 to 22"
+    },
+    {
+      "test": "zarr2_reject_bz2_level",
+      "input": "zarr2_reject_bz2_level",
+      "message": "bz2 level 0 is not an integer from 1 to 9"
+    },
+    {
+      "test": "zarr2_reject_dtype_field_of_shape",
+      "input": "zarr2_reject_dtype_field_of_shape",
+      "message": "dtype [[a, <u2, [2]]] is not supported: a field of shape"
+    },
+    {
+      "test": "zarr2_reject_dtype_long_double",
+      "input": "zarr2_reject_dtype_long_double",
+      "message": "dtype <f16 is not supported: a long double has no Zarr data type"
+    },
+    {
+      "test": "zarr2_reject_dtype_no_unit",
+      "input": "zarr2_reject_dtype_no_unit",
+      "message": "dtype <M8 is not supported: a datetime or timedelta without a unit"
+    },
+    {
+      "test": "zarr2_reject_dtype_two_byte_orders",
+      "input": "zarr2_reject_dtype_two_byte_orders",
+      "message": "dtype [[a, <u2], [b, >u2]] is not supported: fields of two byte orders"
+    },
+    {
+      "test": "zarr2_reject_fill_bytes_base64",
+      "input": "zarr2_reject_fill_bytes_base64",
+      "message": "fill_value not base64 is not a |S2"
+    },
+    {
+      "test": "zarr2_reject_fill_bytes_long",
+      "input": "zarr2_reject_fill_bytes_long",
+      "message": "fill_value AAA= is not a |S1"
+    },
+    {
+      "test": "zarr2_reject_fill_bytes_mixed",
+      "input": "zarr2_reject_fill_bytes_mixed",
+      "message": "fill_value AAE= is not a |S2"
+    },
+    {
+      "test": "zarr2_reject_fill_bytes_number",
+      "input": "zarr2_reject_fill_bytes_number",
+      "message": "fill_value 0 is not a |S2"
+    },
+    {
+      "test": "zarr2_reject_fill_complex_length",
+      "input": "zarr2_reject_fill_complex_length",
+      "message": "fill_value [0, 0, 0] is not a complex64"
+    },
+    {
+      "test": "zarr2_reject_fill_complex_overflow",
+      "input": "zarr2_reject_fill_complex_overflow",
+      "message": "fill_value [1000000000000000000000000000000000000000, 0] is not a complex64"
+    },
+    {
+      "test": "zarr2_reject_fill_complex_word",
+      "input": "zarr2_reject_fill_complex_word",
+      "message": "fill_value x is not a complex64"
+    },
+    {
+      "test": "zarr2_reject_fill_string_number",
+      "input": "zarr2_reject_fill_string_number",
+      "message": "fill_value 1 is not a string"
+    },
+    {
+      "test": "zarr2_reject_fill_struct_nonzero",
+      "input": "zarr2_reject_fill_struct_nonzero",
+      "message": "fill_value AQ== is not a struct"
+    },
+    {
+      "test": "zarr2_reject_fill_text_long",
+      "input": "zarr2_reject_fill_text_long",
+      "message": "fill_value ab is not a fixed_length_utf32"
+    },
+    {
+      "test": "zarr2_reject_fill_text_number",
+      "input": "zarr2_reject_fill_text_number",
+      "message": "fill_value 0 is not a fixed_length_utf32"
+    },
+    {
+      "test": "zarr2_reject_fill_time_fraction",
+      "input": "zarr2_reject_fill_time_fraction",
+      "message": "fill_value 1.5 is not a numpy.datetime64"
+    },
+    {
+      "test": "zarr2_reject_fill_time_word",
+      "input": "zarr2_reject_fill_time_word",
+      "message": "fill_value never is not a numpy.datetime64"
+    },
+    {
+      "test": "zarr2_reject_filter_astype",
+      "input": "zarr2_reject_filter_astype",
+      "message": "filter fixedscaleoffset does not take astype <c8"
+    },
+    {
+      "test": "zarr2_reject_filter_dtype",
+      "input": "zarr2_reject_filter_dtype",
+      "message": "filter fixedscaleoffset has dtype <f8 and is applied to <u2"
+    },
+    {
+      "test": "zarr2_reject_filter_dtype_kind",
+      "input": "zarr2_reject_filter_dtype_kind",
+      "message": "filter fixedscaleoffset does not take dtype <M8[s]"
+    },
+    {
+      "test": "zarr2_reject_filter_member",
+      "input": "zarr2_reject_filter_member",
+      "message": "filter fixedscaleoffset has a member its codec does not take"
+    },
+    {
+      "test": "zarr2_reject_filter_no_id",
+      "input": "zarr2_reject_filter_no_id",
+      "message": "/: filters is not null or an array of objects with a string id"
+    },
+    {
+      "test": "zarr2_reject_filter_numbers",
+      "input": "zarr2_reject_filter_numbers",
+      "message": "filter fixedscaleoffset's numbers are not valid"
+    },
+    {
+      "test": "zarr2_reject_filters_not_list",
+      "input": "zarr2_reject_filters_not_list",
+      "message": "/: filters is not null or an array of objects with a string id"
+    },
+    {
+      "test": "zarr2_reject_lz4_acceleration",
+      "input": "zarr2_reject_lz4_acceleration",
+      "message": "lz4 acceleration 1 is not an integer"
+    },
+    {
+      "test": "zarr2_reject_lzma_check",
+      "input": "zarr2_reject_lzma_check",
+      "message": "lzma check crc is not an integer"
+    },
+    {
+      "test": "zarr2_reject_lzma_filters",
+      "input": "zarr2_reject_lzma_filters",
+      "message": "lzma filters {\"id\":3.0} is not null or an array"
+    },
+    {
+      "test": "zarr2_reject_lzma_format",
+      "input": "zarr2_reject_lzma_format",
+      "message": "lzma format 4 is not supported"
+    },
+    {
+      "test": "zarr2_reject_lzma_preset",
+      "input": "zarr2_reject_lzma_preset",
+      "message": "lzma preset 6 is not an integer"
+    },
+    {
+      "test": "zarr2_reject_quantize_astype",
+      "input": "zarr2_reject_quantize_astype",
+      "message": "filter quantize does not take astype <f4"
+    },
+    {
+      "test": "zarr2_reject_quantize_digits",
+      "input": "zarr2_reject_quantize_digits",
+      "message": "filter quantize's numbers are not valid"
+    },
+    {
+      "test": "zarr2_reject_quantize_integer",
+      "input": "zarr2_reject_quantize_integer",
+      "message": "filter quantize does not take dtype <u2"
+    },
+    {
+      "test": "zarr2_reject_vlen_bytes",
+      "input": "zarr2_reject_vlen_bytes",
+      "message": "dtype |O is not supported: an object array has no data type without the one filter vlen-utf8"
+    },
+    {
+      "test": "zarr2_reject_vlen_not_alone",
+      "input": "zarr2_reject_vlen_not_alone",
+      "message": "dtype |O is not supported: an object array has no data type without the one filter vlen-utf8"
+    },
+    {
+      "test": "zarr2_reject_vlen_not_object",
+      "input": "zarr2_reject_vlen_not_object",
+      "message": "filter vlen-utf8 is not the only filter of a dtype |O"
     }
   ]
 }
