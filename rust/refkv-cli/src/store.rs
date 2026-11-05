@@ -778,9 +778,7 @@ impl Store {
     /// The store profile the root keys select (spec/zarrify.md §1.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>).
     pub fn choose_profile(&self) -> Result<&'static str, Fail> {
         let o = &self.listing().objects;
-        if o.contains_key("zarr.json") {
-            Ok("zarr3")
-        } else if o.contains_key(".zarray") || o.contains_key(".zgroup") {
+        if o.contains_key(".zarray") || o.contains_key(".zgroup") {
             Ok("zarr2")
         } else if o.contains_key("attributes.json") {
             Ok("n5")
@@ -788,6 +786,8 @@ impl Store {
             Ok("safe")
         } else if o.contains_key("info") {
             Ok("precomputed")
+        } else if o.contains_key("zarr.json") {
+            Ok("zarr3")
         } else if o.keys().any(|k| k.ends_with(".safetensors")) {
             Ok("safetensors")
         } else {

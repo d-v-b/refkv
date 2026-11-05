@@ -44,7 +44,7 @@ who each one is for, what you get, and how to run it.
 | TIFF | OME-TIFF, plain TIFF (tiled or in strips), and JPEG-tiled slides such as Aperio SVS | [tiff](tiff/README.md) | [tiff.md §7](../../spec/zarrify/tiff.md#7-tiff-profile) |
 | VSI | Olympus cellSens whole-slide images (`.vsi` with its tile files) | [vsi](vsi/README.md) | [vsi.md §9](../../spec/zarrify/vsi.md#9-vsi-profile) |
 | Zarr v2 | Zarr v2 hierarchies on S3 | [zarr2](zarr2/README.md) | [zarr2.md §7](../../spec/zarrify/zarr2.md#7-zarr-v2-profile) |
-| Zarr v3 | Zarr v3 hierarchies, listed or zipped, as references to their own chunks | [convention](../../spec/zarrify/zarr3.md) | [zarr3.md §7](../../spec/zarrify/zarr3.md#7-zarr-v3-profile) |
+| Zarr v3 | Zarr v3 hierarchies, listed or zipped, as references to their own chunks | [zarr3](zarr3/README.md) | [zarr3.md §7](../../spec/zarrify/zarr3.md#7-zarr-v3-profile) |
 <!-- /profiles -->
 
 A format that reads a file takes a URL, or a local path. One that reads a
@@ -419,6 +419,10 @@ each format's metadata is:
   configuration as written. Its mirror is a store's: shards described in place,
   indexes and configurations held, and every other object referenced whole under
   `refkv_source/objects/`.
+- **Zarr v3:** none beside the store's own: each node's attributes stay in place, and only an
+  attribute `refkv_zarrified`, or a `zarr_conventions` that is not a list of other conventions'
+  CMOs, moves under `refkv_zarrified.zarr3.attributes`; the root lists the nodes left out.
+  `refkv_source` is the store's IR mirror, or, for a zip file, the zip file's.
 - **Neuroglancer precomputed:** the `info` document, every member, and each array's scale;
   the scales it does not present, with the reason each.
 - **N5, Zarr v2 and OME-Zarr:** each node's own attributes and the layout

@@ -206,7 +206,7 @@ fn nodes_that_fail_below_the_root_are_left_out_with_their_reasons() {
         ("shape", "shape: shape [-1] is not up to 32 sizes"),
         ("format", "format/zarr.json: zarr_format is not 3"),
         ("node_type", "node_type/zarr.json: node_type folder is not array or group"),
-        ("attributes", "attributes: attributes is not an object"),
+        ("attributes", "attributes/zarr.json: attributes is not an object"),
         ("empty_doc", "empty_doc/zarr.json: invalid JSON: an empty document"),
         ("not_json", "not_json/zarr.json: invalid JSON"),
     ] {

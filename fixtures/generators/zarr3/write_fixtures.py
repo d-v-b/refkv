@@ -8,8 +8,8 @@ out, and, in the zip form, a rewritten `zarr.json` (superseded), deflated docume
 chunks, directory entries and the inputs the profile rejects (`zarr3_reject_*`, one per
 rejection rule).
 
-Documents and chunks are written by zarr-python, so that js/test/zarr3/verify.py reads them back
-with zarr-python itself; documents the profile must refuse are written by hand. The zip files are
+Documents and chunks are written by zarr-python, so that python/tests/ir/test_zarr3.py reads them
+back with zarr-python itself; documents the profile must refuse are written by hand. The zip files are
 written here, not by zarr-python's ZipStore, which stamps each entry with the time it was written:
 every entry is dated 1980-01-01, and a deflated entry is deflate's stored blocks, which no
 platform's zlib changes. Codecs are zarr-python's but `gzip`, whose zlib output differs between
@@ -24,6 +24,7 @@ import json
 import shutil
 import struct
 import zlib
+from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
@@ -100,7 +101,7 @@ def tree(d: Path) -> list[tuple[str, bytes]]:
     return sorted(files, key=lambda f: (f[0] != "zarr.json", f[0]))
 
 
-def zipped(name: str, d: Path, *, first: list[tuple[str, bytes, int]] = (), method=lambda key: 0) -> None:
+def zipped(name: str, d: Path, *, first: Sequence[tuple[str, bytes, int]] = (), method=lambda _: 0) -> None:
     """The directory `d` zipped as fixtures/zarr3/<name>.zip, after the entries `first` (earlier
     versions of its documents, as zarr-python's ZipStore leaves them), each entry's method
     `method(key)`."""
@@ -228,7 +229,7 @@ def left_out() -> Path:
     for name, doc in cases.items():
         write_json(d / f"{name}/zarr.json", doc)
         put(d / f"{name}/c/0", b"\x01\x02")
-    put(d / "not_json/zarr.json", b"{\"zarr_format\": 3,")
+    put(d / "not_json/zarr.json", b'{"zarr_format": 3,')
     put(d / "not_json/c/0", b"\x01\x02")
     put(d / "empty_doc/zarr.json", b"")
     write_json(d / "grid/inner/zarr.json", group_doc())  # below a node left out: not a node
@@ -277,7 +278,7 @@ def rejects() -> None:
     }.items():
         write_json(store(name) / "zarr.json", doc)
     put(store("zarr3_reject_root_empty") / "zarr.json", b"")
-    put(store("zarr3_reject_root_not_json") / "zarr.json", b"{\"zarr_format\": 3, }")
+    put(store("zarr3_reject_root_not_json") / "zarr.json", b'{"zarr_format": 3, }')
     d = store("zarr3_reject_no_root")
     write_json(d / "a/zarr.json", group_doc())
     d = store("zarr3_reject_objects_collision")

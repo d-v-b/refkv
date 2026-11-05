@@ -13,7 +13,7 @@ vzip archive ([spec/bindings/vzip.md](bindings/vzip.md)) that presents its data 
 hierarchy, in the layout of the format's convention ([§2](#2-the-zarr-layout)):
 - an image as an OME-Zarr dataset (an OME-Zarr 0.4 store as an OME-Zarr 0.5 one; a Sentinel-2
   SAFE product as a GeoZarr one);
-- a Zarr v2 or N5 store as a Zarr v3 hierarchy;
+- a Zarr v2 or N5 store as a Zarr v3 hierarchy, and a Zarr v3 store, listed or zipped, as itself;
 - the formats that are not images as arrays with no OME-NGFF metadata: MP3's and FLAC's audio
   samples, MP4's tracks, GRIB's fields (georeferenced with GeoZarr), HDF5's groups and datasets
   (in hdmf-zarr's form) and NumPy's arrays.
@@ -354,6 +354,7 @@ decide, by the first row that matches:
 | `attributes.json` | N5 profile ([n5.md §8](zarrify/n5.md#8-n5-profile)) |
 | `manifest.safe` | SAFE profile ([safe.md §8](zarrify/safe.md#8-safe-profile)), directory form |
 | `info` | Neuroglancer precomputed profile ([precomputed.md §11](zarrify/precomputed.md#11-neuroglancer-precomputed-profile)) |
+| `zarr.json`, and none of the keys above | Zarr v3 profile ([zarr3.md §7](zarrify/zarr3.md#7-zarr-v3-profile)), listed form. (A root with `.zarray` or `.zgroup` too is Zarr v2's, whose convention keeps the `zarr.json` as an other object.) |
 | none of these, and a key at any depth that ends in `.safetensors` | safetensors profile ([safetensors.md §9](zarrify/safetensors.md#9-the-store-form)), store form |
 | none of these, and a key at any depth that ends in `.dcm` | DICOM profile ([dicom.md §9](zarrify/dicom.md#9-the-store-form)), store form, in the Python binding alone: other implementations reject such a store |
 | anything else, including an empty store | rejected |
@@ -425,7 +426,7 @@ objects** of each array: objects whose keys are chunk keys of the array,
 and the other objects it references whole ([ome-zarr.md §11.2](zarrify/ome-zarr.md#112-chunks-and-ome-xml), the only one that does).
 Of these, an object of size 0 is not used: it has no entry (so the chunk
 reads as the fill value) and no source, and the store conventions keep its
-key (with the empty objects' keys, or, for the Zarr v2, N5 and OME-Zarr profiles,
+key (with the empty objects' keys, or, for the Zarr v2, Zarr v3, N5 and OME-Zarr profiles,
 as an object of size 0 of the store's IR mirror,
 [the Zarr v2 convention §4.1](zarrify/zarr2.md#41-elements),
 [the N5 convention §5.2](zarrify/n5.md#52-elements)). Every other chunk object `k` gives

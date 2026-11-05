@@ -56,7 +56,7 @@
     "node": {
       "about": "a node's zarr.json (spec/zarrify/zarr3.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr3.md#2-nodes>)",
       "given": {
-        "path": "the node's path (/ for the root)",
+        "key": "the key of its zarr.json",
         "object": "the document is a JSON object",
         "zarr_format": "",
         "node_type": "",
@@ -65,19 +65,19 @@
       "constraints": [
         {
           "require": "object",
-          "message": "{path}/zarr.json is not a JSON object"
+          "message": "{key} is not a JSON object"
         },
         {
           "require": "int(zarr_format) && zarr_format == 3",
-          "message": "{path}/zarr.json: zarr_format is not 3"
+          "message": "{key}: zarr_format is not 3"
         },
         {
           "require": "in(node_type, node_types)",
-          "message": "{path}/zarr.json: node_type {node_type} is not array or group"
+          "message": "{key}: node_type {node_type} is not array or group"
         },
         {
           "require": "attributes_ok",
-          "message": "{path}: attributes is not an object"
+          "message": "{key}: attributes is not an object"
         }
       ]
     },

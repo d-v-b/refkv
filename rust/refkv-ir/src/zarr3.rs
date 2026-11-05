@@ -189,10 +189,10 @@ pub struct ArrayInfo {
 /// §2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr3.md#2-nodes>,
 /// §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr3.md#3-arrays>): an array's
 /// chunk keys, or None for a group.
-fn check(shown: &str, d: &Jv) -> Res<Option<ArrayInfo>> {
+fn check(shown: &str, key: &str, d: &Jv) -> Res<Option<ArrayInfo>> {
     let s = schema();
     let mut env = Vars::default();
-    env.insert("path", rules::text(shown));
+    env.insert("key", rules::text(key));
     env.insert("object", rules::flag(d.is_obj()));
     env.insert("zarr_format", d.get("zarr_format").map(Jv::to_v).unwrap_or(crate::expr::V::Absent));
     env.insert("node_type", d.get("node_type").map(Jv::to_v).unwrap_or(crate::expr::V::Absent));
@@ -292,7 +292,7 @@ fn classify(cands: &[String], docs: &HashMap<String, Result<Vec<u8>, String>>) -
             let d = json::parse(&b).map_err(|e| format!("{key}: {e}"));
             c.held.insert(p.clone(), d.as_ref().map(|d| d.members.clone()).unwrap_or_default());
             let d = d?;
-            Ok((check(shown, &d.value)?, d.value))
+            Ok((check(shown, &key, &d.value)?, d.value))
         });
         match checked {
             Ok((array, d)) => {

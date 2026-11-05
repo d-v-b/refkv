@@ -14,7 +14,7 @@
     {
       "test": "zarr3_reject_root_attributes",
       "input": "zarr3_reject_root_attributes",
-      "message": "/: attributes is not an object"
+      "message": "zarr.json: attributes is not an object"
     },
     {
       "test": "zarr3_reject_root_codecs",
@@ -54,7 +54,7 @@
     {
       "test": "zarr3_reject_root_node_type",
       "input": "zarr3_reject_root_node_type",
-      "message": "//zarr.json: node_type folder is not array or group"
+      "message": "zarr.json: node_type folder is not array or group"
     },
     {
       "test": "zarr3_reject_root_not_json",
@@ -64,7 +64,7 @@
     {
       "test": "zarr3_reject_root_not_object",
       "input": "zarr3_reject_root_not_object",
-      "message": "//zarr.json is not a JSON object"
+      "message": "zarr.json is not a JSON object"
     },
     {
       "test": "zarr3_reject_root_rectilinear",
@@ -89,7 +89,7 @@
     {
       "test": "zarr3_reject_root_zarr_format",
       "input": "zarr3_reject_root_zarr_format",
-      "message": "//zarr.json: zarr_format is not 3"
+      "message": "zarr.json: zarr_format is not 3"
     },
     {
       "test": "zarr3_reject_zip_no_eocd",

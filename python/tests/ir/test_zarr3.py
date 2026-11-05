@@ -23,7 +23,7 @@ import zarr
 from zarr.storage import LocalStore
 
 import refkv.zarr
-from refkv._narrow import ndarray
+from refkv._narrow import mapping, ndarray
 from refkv.policy import Policy
 from refkv.zarrify import _zarrify as zarrify
 
@@ -69,9 +69,11 @@ def test_the_arrays_read_as_zarr_python_reads_the_store(name, tmp_path):
     for path in paths:
         a = zarr.open_array(got, path=path, mode="r", zarr_format=3)
         b = zarr.open_array(want, path=path, mode="r", zarr_format=3)
-        assert (a.shape, a.dtype, a.metadata.chunk_grid, a.metadata.codecs) == \
-               (b.shape, b.dtype, b.metadata.chunk_grid, b.metadata.codecs), path
-        assert {k: v for k, v in a.attrs.items() if k not in DECLARATION} == dict(b.attrs), path
+        # every member as the store has it, but the attributes, which gain the declaration
+        got_doc, want_doc = a.metadata.to_dict(), b.metadata.to_dict()
+        assert {k: v for k, v in mapping(got_doc.pop("attributes")).items() if k not in DECLARATION} == \
+               want_doc.pop("attributes"), path
+        assert got_doc == want_doc, path
         x, y = ndarray(a[...]), ndarray(b[...])
         if x.dtype.kind in "TO":
             x, y = x.astype(object), y.astype(object)
