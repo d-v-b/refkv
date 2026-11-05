@@ -63,9 +63,9 @@ def decoded(path: Path, index: int):
 
 
 def plane(frame, k: int) -> np.ndarray:
-    """Plane `k` of a decoded picture: uint8 for 8 bits a sample, uint16 for 10."""
+    """Plane `k` of a decoded picture: uint8 for 8 bits a sample, uint16 for more."""
     p = frame.planes[k]
-    dtype = np.dtype("<u2") if frame.format.name.endswith("10le") else np.dtype(np.uint8)
+    dtype = np.dtype("<u2") if frame.format.name.endswith(("10le", "12le")) else np.dtype(np.uint8)
     return np.frombuffer(p, dtype).reshape(p.height, p.line_size // dtype.itemsize)[:, :p.width]
 
 

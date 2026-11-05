@@ -3,7 +3,8 @@
   "version": 1,
   "about": "The source model of a NIfTI-1 or NIfTI-2 single file (spec/zarrify/nifti.md §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#53-elements>): the elements a parser emits, the table of data types, and the roles the file, its dimensions, its data type, its voxel offset and its voxel data play, each with the constraints a file must meet to have the NIfTI convention's layout (spec/zarrify/nifti.md §7.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#71-header>). The parser checks them in this order; the extension chain never rejects; projections read a valid IR and check nothing.",
   "limits": {
-    "max_safe": 9007199254740991
+    "max_safe": 9007199254740991,
+    "max_header": 16777216
   },
   "tables": {
     "datatypes": {
@@ -36,7 +37,7 @@
     "extender": {"kind": "value", "type": "u1[4]", "extent": "(L, 4)"},
     "extensions/<i>": {"kind": "value", "type": "{esize:Ei4,ecode:Ei4,data:cstr[d]} for a text ecode (4, 6, 8, 32, 44), {esize:Ei4,ecode:Ei4,data:bytes[d]} otherwise, {esize:Ei4,ecode:Ei4} when d is 0 (d = esize - 8)", "extent": "the extension, when the extender's first byte is not 0, in chain order"},
     "voxels": {"kind": "data", "form": "{geometry: {data_type, samples}, codec: {endian}, recipe: [[src, 0, null]]}; of a gzipped file, codec: {encoding: gzip, endian, skip: v}", "extent": "(v, B); of a gzipped file, the whole file, and no other element"},
-    "gaps/<offset>": {"kind": "gap", "about": "padding, bytes the chain does not hold, bytes after the voxel data"}
+    "gaps/<offset>": {"kind": "gap", "about": "padding, bytes the chain does not hold, bytes after the voxel data; of a header-and-image pair, whose elements lie in the objects of a store IR, the bytes after the chain, and those before and after the voxels"}
   },
   "roles": {
     "file": {
@@ -74,8 +75,7 @@
       ]
     },
     "voxel_offset": {
-      "given": {"vox": "vox_offset", "integral": "finite and integral (always, for NIfTI-2)", "shown": "vox_offset as text", "length": "L"},
-      "derive": {"first": "length + 4"},
+      "given": {"vox": "vox_offset", "integral": "finite and integral (always, for NIfTI-2)", "shown": "vox_offset as text", "first": "L + 4, or 0 for a pair"},
       "constraints": [
         {"require": "integral", "message": "vox_offset {shown} is not an integer"},
         {"require": "vox >= first && vox <= max_safe", "message": "vox_offset {shown} is not from {first} to 2^53 - 1"}
@@ -85,6 +85,30 @@
       "given": {"total": "B = X Y Z T C b, exactly", "total_shown": "B in decimal", "vox": "v", "size": "the file's size"},
       "constraints": [
         {"require": "total <= max_safe && vox + total <= size", "message": "the {total_shown}-byte voxel data at {vox} is outside the {size}-byte file"}
+      ]
+    },
+    "pair_name": {
+      "given": {"key": "the header file's key", "named": "whether its name ends in .hdr or .HDR"},
+      "constraints": [
+        {"require": "named", "message": "the header file \"{key}\" of a NIfTI pair is not named .hdr, which is how its image file's name is found"}
+      ]
+    },
+    "pair_header": {
+      "given": {"key": "the header file's key", "size": "its size"},
+      "constraints": [
+        {"require": "size <= max_header", "message": "the header file \"{key}\" of {size} bytes is more than 16777216, which the mirror holds"}
+      ]
+    },
+    "voxel_size": {
+      "given": {"total": "B, exactly", "total_shown": "B in decimal"},
+      "constraints": [
+        {"require": "total <= max_safe", "message": "the {total_shown}-byte voxel data is more than 2^53 - 1 bytes"}
+      ]
+    },
+    "pair_image": {
+      "given": {"key": "the image file's key", "found": "whether it exists"},
+      "constraints": [
+        {"require": "found", "message": "the image file \"{key}\" does not exist"}
       ]
     },
     "gzip_stream": {

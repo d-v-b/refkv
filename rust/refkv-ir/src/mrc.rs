@@ -29,6 +29,9 @@ pub const HEADER: u64 = 1024;
 pub const IMOD_STAMP: usize = 152;
 pub const IMOD_FLAGS: usize = 156;
 pub const IMOD: i64 = 1146047817;
+/// The bit of IMOD's flags that says the origin is stored inverted from IMOD's own sign, which
+/// makes it the standard's.
+pub const IMOD_INVERTED_ORIGIN: i64 = 4;
 /// The NVERSION values that declare the MRC standard: 10 times its year plus a version, from 2014.
 /// IMOD's own test ends at the current year plus 2; a fixed end keeps the output the same whenever
 /// a file is zarrified, and still leaves out the values old SerialEM files hold there.
@@ -60,6 +63,17 @@ pub fn detect(head: &[u8]) -> bool {
 /// (0x11: big-endian; else little-endian).
 pub fn header(raw: &[u8]) -> Header<'_> {
     Header { raw: &raw[..HEADER as usize], little: raw[212] != 0x11, fields: &FIELDS }
+}
+
+/// The position of a file's first value along x, y and z: `origin`, negated in a file whose
+/// origin has IMOD's sign (spec/zarrify/mrc.md §4.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#42-scales-units-and-position>).
+/// Adding 0 makes a stored or negated zero `0`, not `-0`.
+pub fn position(h: &Header) -> Vec<f64> {
+    let stamped = h.number(IMOD_STAMP, "i4").i() == IMOD;
+    let standard = NVERSION_STANDARD.contains(&h.get("nversion").i());
+    let imod_sign = stamped && h.number(IMOD_FLAGS, "i4").i() & IMOD_INVERTED_ORIGIN == 0 && !standard;
+    h.values("origin").iter().map(|v| if imod_sign { -v.f() } else { v.f() } + 0.0).collect()
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]

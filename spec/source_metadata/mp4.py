@@ -16,8 +16,8 @@ _MP4_TRACK_COMMON = {
     "id": {"type": "integer", "minimum": 0, "description": "The track's ID (its tkhd box's)"},
     "handler": {"type": "string", "description": "The handler type of its mdia box's hdlr box: vide or soun"},
     "codec": {"type": "string",
-              "description": ("Its sample entry's type: avc1, hvc1, hev1, jpeg, mjpa, dmb1, mp4v, mp4a, .mp3 "
-                              "or a PCM entry")},
+              "description": ("Its sample entry's type: avc1, hvc1, hev1, av01, vp09, jpeg, mjpa, dmb1, mp4v, "
+                              "mp4a, .mp3 or a PCM entry")},
     "timescale": {"type": "integer", "minimum": 1, "description": "The media timescale: time units a second"},
     "duration": {**_U64, "description": "The media duration, in the timescale"},
     "edits": _MP4_EDITS,
@@ -52,15 +52,21 @@ SCHEMA = {"anyOf": [
         "description": "A video track's group (spec/zarrify/mp4.md §5.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#52-the-tracks>)",
         "properties": {
             **_MP4_TRACK_COMMON,
-            "format": {"enum": ["h264", "hevc"]},
+            "format": {"enum": ["h264", "hevc", "av1", "vp9"]},
             "width": {"type": "integer", "minimum": 1}, "height": {"type": "integer", "minimum": 1},
-            "bit_depth": {"enum": [8, 10], "description": "The bits of a sample: uint8 planes for 8, uint16 for 10"},
+            "chroma": {"enum": ["4:2:0", "4:2:2"], "description": "The chroma planes' subsampling"},
+            "bit_depth": {"enum": [8, 10, 12],
+                          "description": "The bits of a sample: uint8 planes for 8, uint16 for more"},
             "profile": {"type": "integer",
-                        "description": "The SPS's profile_idc (H.264) or general_profile_idc (HEVC)"},
-            "level": {"type": "integer", "description": "The SPS's level_idc (H.264) or general_level_idc (HEVC)"},
+                        "description": ("The SPS's profile_idc (H.264), general_profile_idc (HEVC), "
+                                        "or its av1C or vpcC box's")},
+            "level": {"type": "integer",
+                      "description": ("The SPS's level_idc (H.264), general_level_idc (HEVC), "
+                                      "or its av1C or vpcC box's")},
             "sync_samples": {"type": "integer", "minimum": 1, "description": "The keyframes"},
         },
-        "required": [*_MP4_TRACK_COMMON, "format", "width", "height", "bit_depth", "profile", "level", "sync_samples"],
+        "required": [*_MP4_TRACK_COMMON, "format", "width", "height", "chroma", "bit_depth", "profile", "level",
+                     "sync_samples"],
         "additionalProperties": False,
     },
     {
