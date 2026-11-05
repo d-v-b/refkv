@@ -382,3 +382,8 @@ impl crate::run::FileProfile for Profile {
         crate::project::safetensors::reads(ir, facts)
     }
 }
+
+/// The parser of the profile's store run (`StoreFormat`; crate::store).
+pub fn store_parser(ir: crate::ir::Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> crate::ir::Res<Box<dyn crate::store::StoreParser>> {
+    Ok(Box::new(store::SafetensorsStore::new(ir, objects, keys)?))
+}

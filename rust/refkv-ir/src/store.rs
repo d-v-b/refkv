@@ -80,128 +80,13 @@ pub trait StoreParser: Send + Sync {
     }
 }
 
-/// The store formats the core reads (the store profiles move onto the IR one by one).
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum StoreFormat {
-    /// A Zarr v2 store (`zarr2.rs`; spec/zarrify/zarr2.md
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md>).
-    Zarr2,
-    /// A Sentinel-2 SAFE product's directory (`safe/`; spec/zarrify/safe.md
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md>).
-    Safe,
-    /// An N5 container (`n5.rs`; spec/zarrify/n5.md
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md>).
-    N5,
-    /// An Olympus VSI slide (`vsi/`; spec/zarrify/vsi.md
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md>): the `.vsi` file, listed
-    /// alone, and the tile files the run probes for.
-    Vsi,
-    /// A NRRD input (`nrrd.rs`; spec/zarrify/nrrd.md
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md>): the header file, listed
-    /// alone, and a detached header's data file, which the run probes for.
-    Nrrd,
-    /// An HDF5 file that names siblings (`hdf5/store.rs`; spec/zarrify/hdf5.md §8.6
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#86-external-files>): the named
-    /// file, listed alone, and the files its external links and external storage name.
-    Hdf5,
-    /// A NIfTI header-and-image pair (`nifti_pair.rs`; spec/zarrify/nifti.md §7.5
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#75-header-and-image-pairs>): the
-    /// `.hdr` file, listed alone, and the `.img` file, which the run probes for.
-    Nifti,
-    /// A store of safetensors files, such as a model's shards (`safetensors/store.rs`;
-    /// spec/zarrify/safetensors.md <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md>).
-    Safetensors,
-    /// A GRIB file (`grib/`; spec/zarrify/grib.md
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md>): the GRIB file, listed
-    /// alone, and its index, which the run probes for.
-    Grib,
-    /// A Neuroglancer precomputed volume (`precomputed.rs`; spec/zarrify/precomputed.md
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/precomputed.md>).
-    Precomputed,
-    /// A LAS X project (`xlef.rs`; spec/zarrify/lif.md §8
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#8-las-x-documents>): its named
-    /// document, listed alone, and the documents and LOFs the run probes for.
-    Lif,
-    /// A TIFF image across files (`tiff_set.rs`; spec/zarrify/tiff.md §7.4
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#74-several-files>): the named
-    /// file, listed alone, and the files it names, which the run probes for.
-    Tiff,
-    /// A CZI image across numbered files (`czi_set.rs`; spec/zarrify/czi.md §7.9
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#79-several-files>): the named
-    /// file, listed alone, and its parts, which the run probes for.
-    Czi,
-}
+// `StoreFormat`: one variant per profile of the registry with a store run (profiles/; build.rs)
+include!(concat!(env!("OUT_DIR"), "/store_formats.rs"));
 
 impl StoreFormat {
-    pub fn from_name(s: &str) -> Option<StoreFormat> {
-        match s {
-            "zarr2" => Some(StoreFormat::Zarr2),
-            "safe" => Some(StoreFormat::Safe),
-            "n5" => Some(StoreFormat::N5),
-            "vsi" => Some(StoreFormat::Vsi),
-            "nrrd" => Some(StoreFormat::Nrrd),
-            "hdf5" => Some(StoreFormat::Hdf5),
-            "nifti" => Some(StoreFormat::Nifti),
-            "grib" => Some(StoreFormat::Grib),
-            "safetensors" => Some(StoreFormat::Safetensors),
-            "precomputed" => Some(StoreFormat::Precomputed),
-            "lif" => Some(StoreFormat::Lif),
-            "tiff" => Some(StoreFormat::Tiff),
-            "czi" => Some(StoreFormat::Czi),
-            _ => None,
-        }
-    }
-    pub fn name(self) -> &'static str {
-        match self {
-            StoreFormat::Zarr2 => "zarr2",
-            StoreFormat::Safe => "safe",
-            StoreFormat::N5 => "n5",
-            StoreFormat::Vsi => "vsi",
-            StoreFormat::Nrrd => "nrrd",
-            StoreFormat::Hdf5 => "hdf5",
-            StoreFormat::Nifti => "nifti",
-            StoreFormat::Grib => "grib",
-            StoreFormat::Safetensors => "safetensors",
-            StoreFormat::Precomputed => "precomputed",
-            StoreFormat::Lif => "lif",
-            StoreFormat::Tiff => "tiff",
-            StoreFormat::Czi => "czi",
-        }
-    }
     /// The convention the mirror declares.
     pub fn profile(self) -> &'static str {
-        match self {
-            StoreFormat::Zarr2 => "zarr2",
-            StoreFormat::Safe => "safe",
-            StoreFormat::N5 => "n5",
-            StoreFormat::Vsi => "vsi",
-            StoreFormat::Nrrd => "nrrd",
-            StoreFormat::Hdf5 => "hdf5",
-            StoreFormat::Nifti => "nifti",
-            StoreFormat::Grib => "grib",
-            StoreFormat::Safetensors => "safetensors",
-            StoreFormat::Precomputed => "precomputed",
-            StoreFormat::Lif => "lif",
-            StoreFormat::Tiff => "tiff",
-            StoreFormat::Czi => "czi",
-        }
-    }
-    fn parser(self, ir: Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> Res<Box<dyn StoreParser>> {
-        match self {
-            StoreFormat::Zarr2 => Ok(Box::new(crate::zarr2::Zarr2::new(ir, objects, keys)?)),
-            StoreFormat::Safe => Ok(Box::new(crate::safe::Safe::new_store(ir, objects, keys))),
-            StoreFormat::N5 => Ok(Box::new(crate::n5::N5::new(ir, objects, keys))),
-            StoreFormat::Vsi => Ok(Box::new(crate::vsi::Vsi::new(ir, objects, keys)?)),
-            StoreFormat::Nrrd => Ok(Box::new(crate::nrrd::Nrrd::new(ir, objects, keys)?)),
-            StoreFormat::Hdf5 => Ok(Box::new(crate::hdf5::store::Hdf5Store::new(ir, objects, keys)?)),
-            StoreFormat::Nifti => Ok(Box::new(crate::nifti_pair::NiftiPair::new(ir, objects, keys)?)),
-            StoreFormat::Grib => Ok(Box::new(crate::grib::Grib::new(ir, objects, keys)?)),
-            StoreFormat::Safetensors => Ok(Box::new(crate::safetensors::store::SafetensorsStore::new(ir, objects, keys)?)),
-            StoreFormat::Precomputed => Ok(Box::new(crate::precomputed::Precomputed::new(ir, objects, keys))),
-            StoreFormat::Lif => Ok(Box::new(crate::xlef::Xlef::new(ir, objects, keys)?)),
-            StoreFormat::Tiff => Ok(Box::new(crate::tiff_set::TiffSet::new(ir, objects, keys)?)),
-            StoreFormat::Czi => Ok(Box::new(crate::czi_set::CziSet::new(ir, objects, keys)?)),
-        }
+        self.name()
     }
 }
 
@@ -560,21 +445,7 @@ impl StoreRun {
 /// IR's object count) and what the mirror's table folded. Then the ignored keys (and a SAFE
 /// directory's empty directories) beside the mirror (`record_ignored`).
 pub fn store_output(format: StoreFormat, ir: &Ir, facts: &J, stats: J, url: &str, mirror: bool) -> Res<crate::out::Out> {
-    let mut out = match format {
-        StoreFormat::Zarr2 => crate::project::zarr2::project(ir, facts, url)?,
-        StoreFormat::Safe => crate::project::safe::project(ir, facts, url)?,
-        StoreFormat::N5 => crate::project::n5::project(ir, facts, url)?,
-        StoreFormat::Vsi => crate::project::vsi::project(ir, facts, url, &Default::default())?,
-        StoreFormat::Nrrd => crate::project::nrrd::project(ir, facts, url)?,
-        StoreFormat::Hdf5 => crate::project::hdf5::project_store(ir, facts, url)?,
-        StoreFormat::Nifti => crate::project::nifti::project_pair(ir, facts, url)?,
-        StoreFormat::Grib => crate::project::grib::project(ir, facts, url)?,
-        StoreFormat::Safetensors => crate::project::safetensors::project_store(ir, facts, url)?,
-        StoreFormat::Precomputed => crate::project::precomputed::project(ir, facts, url)?,
-        StoreFormat::Lif => crate::project::lif::project_set(ir, facts, url)?,
-        StoreFormat::Tiff => crate::project::tiff::project_set(ir, facts, url)?,
-        StoreFormat::Czi => crate::project::czi::project_set(ir, facts, url)?,
-    };
+    let mut out = format.project(ir, facts, url)?;
     crate::shard::refuse(&out)?;
     let mut summary = std::mem::take(&mut out.summary);
     if let Some(m) = summary.as_object_mut() {

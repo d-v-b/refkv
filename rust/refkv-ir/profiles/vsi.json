@@ -4,6 +4,7 @@
   "uuid": "c0a1d4e6-5b7f-4f3a-9c2d-8e1f6a7b3c45",
   "version": 0,
   "kind": "file",
+  "store_run": {"form": "always", "named": ".vsi file", "section": "9-vsi-profile"},
   "sniff": 30,
   "chosen_by": null,
   "suffixes": [

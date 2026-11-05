@@ -104,7 +104,7 @@ from refkv._narrow import mapping, sequence, string  # noqa: E402
 from refkv.ir.cmirror import Archive, canonical_problem, load, view_problem  # noqa: E402
 from refkv.pb import Concat, Range, Source, decode_source_table  # noqa: E402
 from refkv.zarrify.common import CONVENTION_KEY, SOURCE_NODE, same  # noqa: E402
-from refkv.zarrify.profiles import REGISTRY  # noqa: E402
+from refkv.zarrify.profiles import BESIDE, REGISTRY  # noqa: E402
 from refkv.zarrify.store import object_url  # noqa: E402
 
 IDR = "https://ftp.ebi.ac.uk/pub/databases/IDR/idr0096-tratwal-marrowquant/20210609-ftp-ome-tiffs/"
@@ -429,7 +429,7 @@ def store_mirror_problem(path: Path, view: dict, fetch=None) -> str | None:
     url = prop.get("source", {}).get("url") if isinstance(prop, dict) else None
     if not isinstance(prop, dict) or not isinstance(url, str):
         return "no store URL on the root"
-    if prop.get("profile") in ("vsi", "nrrd", "grib", "tiff", "lif", "czi", "nifti", "hdf5"):
+    if prop.get("profile") in BESIDE:
         # a VSI root names the .vsi file, a NRRD root and a NIfTI pair's the header file, a GRIB root
         # the GRIB file and a LAS X project's the named document; the store's URL is its directory
         # (spec/zarrify/vsi.md §9

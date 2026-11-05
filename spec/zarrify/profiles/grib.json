@@ -4,6 +4,7 @@
   "uuid": "c9bbe039-8dfa-49f9-a655-756f822a42d6",
   "version": 0,
   "kind": "file",
+  "store_run": {"form": "always", "named": "GRIB file", "section": "8-grib-profile"},
   "sniff": 65,
   "chosen_by": null,
   "suffixes": [

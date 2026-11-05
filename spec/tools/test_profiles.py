@@ -39,7 +39,12 @@ def test_the_registry_is_validated():
                          ({"uuid": "x"}, "not a UUID"), ({"name": "Tiff"}, "not a profile name"),
                          ({"chosen_by": "tiff"}, "names the profile that chooses it"),
                          ({"sniff": None}, "names the profile that chooses it"),
-                         ({"sniff": None, "chosen_by": "ndpi"}, "not a profile with a signature")):
+                         ({"sniff": None, "chosen_by": "ndpi"}, "not a profile with a signature"),
+                         ({"store_run": {"form": "sometimes"}}, "must be null"),
+                         ({"store_run": {"form": "listed"}}, "a listed store run"),
+                         ({"store_run": {"form": "always"}}, "has `named` and `section`"),
+                         ({"store_run": {"form": "always", "named": "x", "section": "y", "case": False}},
+                          "`case` is only ever true")):
         entries = profiles.load()
         entries[0].update(bad)
         with pytest.raises(ValueError, match=message):

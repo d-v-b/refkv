@@ -652,3 +652,8 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     }), facts);
     Ok(out)
 }
+
+/// The projection of the profile's store run (`StoreFormat`; crate::store).
+pub fn store_project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
+    project(ir, facts, url)
+}
