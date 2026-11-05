@@ -30,6 +30,7 @@ fn titles(format: StoreFormat) -> (&'static str, &'static str) {
         StoreFormat::Lif => ("LIF", "named document"),
         StoreFormat::Tiff => ("TIFF", "TIFF file"),
         StoreFormat::Hdf5 => ("HDF5", "HDF5 file"),
+        StoreFormat::Nifti => ("NIfTI", "header file"),
         _ => ("VSI", ".vsi file"),
     }
 }

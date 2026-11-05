@@ -8,13 +8,15 @@ file's bytes, and every node's cards astropy's reading of the header
 (spec/zarrify/fits.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#5-source-metadata>).
 The file must be rebuilt byte for byte from the archive's IR mirror (refkv_source, §6
 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#6-the-ir-mirror>).
-`fits_reject_*` files must be rejected.
+`fits_reject_*` files must be rejected. A `.fits.gz` or `.fits.bz2` file's bytes are what it decodes to.
 
 Usage: uv run python js/test/fits/verify.py [<dir of .fits files>]
 """
 
 from __future__ import annotations
 
+import bz2
+import gzip
 import sys
 import warnings
 from pathlib import Path
@@ -104,6 +106,7 @@ def pixel_problems(ours, theirs, table) -> list[str]:
 
 def problems_of(path: Path, out: Path) -> list[str]:
     raw = path.read_bytes()
+    raw = gzip.decompress(raw) if path.suffix == ".gz" else bz2.decompress(raw) if path.suffix == ".bz2" else raw
     root = zarr.open_group(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
     meta = mapping(at(root.attrs, "refkv_zarrified", "fits"))
     hdus = sequence(meta["hdus"])
@@ -163,7 +166,7 @@ def problems_of(path: Path, out: Path) -> list[str]:
 
 def main(fixtures: Path) -> int:
     paths = sorted(p for p in fixtures.iterdir()
-                   if p.name.endswith((".fits", ".fz")) and p.name not in NOT_READ_BY_ASTROPY)
+                   if p.name.endswith((".fits", ".fz", ".fits.gz", ".fits.bz2")) and p.name not in NOT_READ_BY_ASTROPY)
     return run(paths, lambda path, out, _: problems_of(path, out), url=serve(paths))
 
 

@@ -10,6 +10,7 @@
     "max_hdus": 65536,
     "max_table": 67108864,
     "max_dither": 10000,
+    "max_stream": 2147483648,
     "max_row_fields": 4096,
     "max_row_bytes": 1048576
   },
@@ -81,6 +82,11 @@
     }
   },
   "elements": {
+    "stream": {
+      "kind": "derived",
+      "form": "{transform: gunzip or bunzip2, size: the bytes it decodes to}",
+      "extent": "(0, size): a compressed file, whole; every element below is under it, in its space"
+    },
     "about": "The IR of a FITS file: one struct per HDU, in file order. k is the HDU's header blocks, D its data bytes, p its padding to the block boundary (shorter at a truncated end of file), N1 and N2 a table's NAXIS1 and NAXIS2, g the bytes between the rows and the heap (THEAP - N1 * N2), H the heap's bytes.",
     "hdus/<i>": {
       "kind": "struct",
@@ -132,6 +138,43 @@
     }
   },
   "roles": {
+    "stream_size": {
+      "given": {
+        "size": "the compressed file's size",
+        "method": "its compression"
+      },
+      "constraints": [
+        {
+          "require": "size <= max_stream",
+          "message": "a {method} file of {size} bytes, over the {max_stream} a reader would have to hold to read any of it"
+        }
+      ]
+    },
+    "stream": {
+      "given": {
+        "method": "the file's compression",
+        "ok": "whether the whole file decodes",
+        "reason": "the decoder's error"
+      },
+      "constraints": [
+        {
+          "require": "ok",
+          "message": "the {method} stream does not decode: {reason}"
+        }
+      ]
+    },
+    "stream_tiles": {
+      "given": {
+        "hdu": "the HDU's index",
+        "compressed": "whether the file is compressed"
+      },
+      "constraints": [
+        {
+          "require": "!compressed",
+          "message": "HDU {hdu}: a tile-compressed image in a compressed file: its tiles have no byte ranges to reference"
+        }
+      ]
+    },
     "file": {
       "given": {
         "size": "the file's size"
