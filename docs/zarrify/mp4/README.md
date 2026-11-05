@@ -28,10 +28,10 @@ needs: back to the keyframe before it, for video. The archive's
 A group at the archive root, and a group per track refkv zarrifies, at
 `tracks/<id>`.
 
-- **Video (H.264 8-bit 4:2:0, HEVC 8- or 10-bit 4:2:0):** three arrays,
-  `y`, `u` and `v`, the decoder's planes, `[time, y, x]` (the chroma planes
-  half the size along each axis), in presentation order: `uint8` for 8
-  bits, `uint16` for 10 (values from 0 to 1023); and `time`, each
+- **Video (H.264 and AV1 4:2:0 of 8 or 10 bits; HEVC and VP9 4:2:0 or 4:2:2 of 8, 10 or 12):** three
+  arrays, `y`, `u` and `v`, the decoder's planes, `[time, y, x]` (the chroma planes
+  half the size along each axis, or along `x` alone for 4:2:2), in presentation order: `uint8` for 8
+  bits, `uint16` for more (values from 0 to 2^bits − 1); and `time`, each
   picture's presentation time in the track's timescale (`int64`). Each
   chunk is whole groups of pictures from a keyframe, up to 256 pictures
   and at most 32 MiB of luma (16 pictures at 1080p, 8 of 10 bits); only a
@@ -48,8 +48,8 @@ A group at the archive root, and a group per track refkv zarrifies, at
   decodes with ffmpeg's decoders through PyAV (the `media` extra).
 - **Metadata:** under `refkv_zarrified.mp4` on the root, the brands, the
   movie's timescale and duration, and every track: its codec, its path,
-  or why it is not zarrified (`av01 video is not supported: only H.264
-  (avc1) and HEVC (hvc1, hev1) are`). Each track's group holds its
+  or why it is not zarrified (`mp2v video is not supported: only H.264 (avc1),
+  HEVC (hvc1, hev1), AV1 (av01) and VP9 (vp09) are`). Each track's group holds its
   timescale, edit list, dimensions, bit depth, profile and level, or its
   sample rate and channel count. The whole file (every box, field by field, every sample, and the
   media data in no sample) is described on `refkv_source` by the Rust
@@ -166,10 +166,10 @@ Supported:
   recorded, not applied).
 - AAC-LC and MP3 audio tracks, mono or stereo, in either container.
 
-Not zarrified (listed with the reason, and kept in the mirror): AV1 and
-other video codecs, Dolby Vision's own sample entries (`dvh1`, `dvhe`),
-`avc3` (parameter sets in the stream), 10-bit, 4:2:2 and 4:4:4 H.264, 4:2:2,
-4:4:4 and 12-bit HEVC, groups of more than 1024 pictures, HE-AAC, 24-bit PCM
+Not zarrified (listed with the reason, and kept in the mirror): AV1's Professional
+and High profiles, other video codecs, Dolby Vision's own sample entries (`dvh1`, `dvhe`),
+`avc3` (parameter sets in the stream), 4:2:2 and 4:4:4 H.264, 4:4:4 HEVC and VP9,
+groups of more than 1024 pictures, HE-AAC, 24-bit PCM
 (`bytes` has no data type for it) and other audio codecs, timecode, text and
 metadata tracks.
 
