@@ -274,3 +274,8 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
     out.summary = with_counts(json!({"images": summaries, "notPresented": not_presented.len(), "chunks": chunks, "dataSources": out.data.len()}), facts);
     Ok(out)
 }
+
+/// The projection of the profile's store run (`StoreFormat`; crate::store).
+pub fn store_project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
+    project(ir, facts, url, &Default::default())
+}

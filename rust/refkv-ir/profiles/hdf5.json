@@ -4,6 +4,7 @@
   "uuid": "6c006834-424b-451b-b786-f8c502ec32af",
   "version": 0,
   "kind": "file",
+  "store_run": {"form": "on_demand", "named": "HDF5 file", "section": "86-external-files"},
   "sniff": 70,
   "chosen_by": null,
   "suffixes": [

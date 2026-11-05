@@ -20,12 +20,6 @@ pub const SNIFF_LATE: usize = 65_600;
 include!(concat!(env!("OUT_DIR"), "/formats.rs"));
 
 impl Format {
-    /// Whether the format's input, a file, is zarrified by a store run rather than a file
-    /// run (`FileProfile::store_run`).
-    pub fn store_run(self) -> bool {
-        self.profile().store_run()
-    }
-
     /// The format of a profile's name, if a file profile's.
     pub fn from_name(s: &str) -> Option<Format> {
         Format::ALL.iter().copied().find(|f| f.name() == s)
@@ -79,11 +73,6 @@ pub trait FileProfile: Sync {
     /// exactly the ranges it asked for.
     fn whole(&self) -> bool {
         true
-    }
-    /// Whether the input, a file, is zarrified by a store run rather than a file run (a file
-    /// run of it only rejects, so a host hands it to its store run).
-    fn store_run(&self) -> bool {
-        false
     }
     /// The image projection: today's hierarchy, without `refkv_source`. `copied` holds the
     /// bytes of the ranges `reads` gives.

@@ -33,7 +33,8 @@ feasibility.
 5. **Implement.** See [§5](../../../docs/adding-a-format.md#5-implement-it).
    - The registry file, then `just profiles`.
    - The Rust module, its projection and its source model.
-   - The hosts, only for a file read as a store.
+   - For a file read as a store, or a store input: the registry's `store_run`,
+     `store_parser` and `store_project`. The hosts read the rest from the registry.
    - A codec, only if none fits. Every codec the profile writes, even another
      package's, has a file in `spec/zarrify/codecs/`; `just profiles` writes the lists.
 6. **Fixtures, tests and verification.** See

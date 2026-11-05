@@ -814,3 +814,8 @@ impl StoreParser for Zarr2 {
         Ok((ir, facts))
     }
 }
+
+/// The parser of the profile's store run (`StoreFormat`; crate::store).
+pub fn store_parser(ir: crate::ir::Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> crate::ir::Res<Box<dyn crate::store::StoreParser>> {
+    Ok(Box::new(Zarr2::new(ir, objects, keys)?))
+}

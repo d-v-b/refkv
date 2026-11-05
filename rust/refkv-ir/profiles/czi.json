@@ -4,6 +4,7 @@
   "uuid": "7a0733c7-d4be-4482-a64f-6904d9354ea5",
   "version": 0,
   "kind": "file",
+  "store_run": {"form": "on_demand", "named": "CZI file", "section": "79-several-files"},
   "sniff": 50,
   "chosen_by": null,
   "suffixes": [

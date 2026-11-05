@@ -1863,3 +1863,8 @@ impl crate::run::FileProfile for Profile {
         crate::project::czi::project(ir, facts, url)
     }
 }
+
+/// The parser of the profile's store run (`StoreFormat`; crate::store).
+pub fn store_parser(ir: crate::ir::Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> crate::ir::Res<Box<dyn crate::store::StoreParser>> {
+    Ok(Box::new(crate::czi_set::CziSet::new(ir, objects, keys)?))
+}
