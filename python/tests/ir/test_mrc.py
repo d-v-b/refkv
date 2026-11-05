@@ -100,6 +100,17 @@ def load(path):
     return header, data
 
 
+def position(header):
+    """The position of a file's first value along x, y and z: mrcfile gives the origin as stored,
+    and a file with IMOD's stamp, bit 2 of its flags clear and no standard version has IMOD's
+    sign (spec/zarrify/mrc.md §4.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#42-scales-units-and-position>)."""
+    order = "<" if header.mode.dtype.byteorder in "<=" else ">"
+    stamp, flags = struct.unpack(order + "ii", header.extra2.tobytes()[40:48])
+    imod_sign = stamp == IMOD and not flags & 4 and not 20140 <= int(header.nversion) < 21000
+    return [(-float(header.origin[a]) if imod_sign else float(header.origin[a])) + 0.0 for a in "xyz"]
+
+
 def zarrified(path, tmp_path):
     """(the output, the hierarchy's root group); the archive rebuilds the file
     (ir_helpers.zarrified)."""
@@ -165,7 +176,7 @@ def dataset_is_the_file(out, root, header, want, kind, meta):
         if axis not in dims or voxel is None:
             assert axis not in ds.coords, axis
             continue
-        origin = [float(header.origin[a]) for a in "xyz"]
+        origin = position(header)
         placed = int(header.ispg) != 0 and all(np.isfinite(origin)) and any(o != 0 for o in origin)
         o = origin["xyz".index(axis)] if placed else 0.0
         n = ds.sizes[axis]
@@ -252,6 +263,19 @@ CASES = {
     "mrc_imod_clear_standard_int8": ({"dataType": "int8"}, None, None, None, None, None, None),
     "mrc_imod_clear_past_standard_uint8": ({"dataType": "uint8"}, None, None, None, None, None, None),
     "mrc_imod_flag_no_stamp": ({"dataType": "int8"}, None, None, None, None, None, None),
+    # the origin's sign: as stored with bit 2 of IMOD's flags, a standard version or no stamp;
+    # negated with the stamp alone, and a version outside the standard's is no version
+    "mrc_imod_origin_inverted": ({"translation": True}, None, None, [7.25, 0, 1.5], None, None, None),
+    "mrc_imod_origin_inverted_old_version": ({"translation": True}, None, None, [7.25, 2, 1.5], None, None, None),
+    "mrc_imod_origin_clear": ({"translation": True}, None, None, [-7.25, 0, 1.5], None, None, None),
+    "mrc_imod_origin_clear_be": ({"translation": True, "byteOrder": "big"}, None, None, [7.25, 2, 1.5], None, None,
+                                 None),
+    "mrc_imod_origin_clear_standard": ({"translation": True}, None, None, [7.25, 2, 1.5], None, None, None),
+    "mrc_imod_origin_clear_version_low": ({"translation": True}, None, None, [7.25, 2, 1.5], None, None, None),
+    "mrc_imod_origin_clear_version_high": ({"translation": True}, None, None, [7.25, 2, 1.5], None, None, None),
+    "mrc_imod_origin_no_stamp": ({"translation": True}, None, None, [7.25, 2, 1.5], None, None, None),
+    "mrc_imod_origin_flag_no_stamp": ({"translation": True}, None, None, [7.25, 2, 1.5], None, None, None),
+    "mrc_imod_origin_image_stack": ({"kind": "image_stack", "translation": False}, None, None, None, None, None, None),
     "mrc_edge_volume_stack_one": ({"kind": "volume_stack", "sizes": {"t": 1, "z": 3, "y": 2, "x": 3}},
                                   None, None, None, None, None, None),
     "mrc_edge_ispg_230": ({"kind": "volume"}, None, None, None, None, None, None),
@@ -292,7 +316,10 @@ def test_zarrifies_the_synthetic_files(tmp_path):
             assert [(a["name"], a.get("unit")) for a in ms["axes"]] == axes, name
         if scale is not None:
             assert transforms[0]["scale"] == scale, name
-        assert (transforms[1]["translation"] if len(transforms) > 1 else None) == translation, name
+        placed = transforms[1]["translation"] if len(transforms) > 1 else None
+        assert placed == translation, name
+        # a zero of the translation is 0, not the -0 that negating one or IMOD's writer gives
+        assert not any(v == 0 and math.copysign(1.0, v) < 0 for v in placed or []), name
         assert set(attributes) == {"ome", "zarr_conventions", "refkv_zarrified"}, name
         meta = attributes["refkv_zarrified"]["mrc"]
         assert list(meta) == ["byte_order", "kind", "data_type", "header", "axis_map"] + (
