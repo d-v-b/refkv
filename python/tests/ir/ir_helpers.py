@@ -23,11 +23,16 @@ FIXTURES = Path(__file__).parents[3] / "fixtures"
 ROOT = Path(__file__).parents[3]
 # the frozen reference twins the IR is compared against (refkv_reference)
 sys.path.insert(0, str(ROOT / "conformance" / "zarrify" / "reference"))
+sys.path.append(str(ROOT / "conformance" / "zarrify"))
 from refkv_reference import virtualize as reference  # noqa: E402  (the frozen reference)
 from refkv_reference.legacy import SOURCE_NODE as LEGACY_NODE  # noqa: E402
 from refkv_reference.legacy import current_names  # noqa: E402  (a frozen twin's documents with the current names)
 from refkv_reference.revision import DICOM_REVISION, IMS_REVISION, REVISION_25  # noqa: E402
 from refkv_reference.revision import REVISION as FROZEN  # noqa: E402
+
+# The fixtures whose layout the profile changed after the freeze, which the frozen reference
+# does not give (conformance/zarrify/revised/README.md, compare.py's REVISED).
+from revised_fixtures import REVISED as REVISED  # noqa: E402, PLC0414 (the test modules import it from here)
 
 
 def assert_rebuilds(out, data: bytes, tmp_path, name: str = "a.vzip") -> None:
@@ -90,9 +95,6 @@ MIRRORED = {"nifti": ("header_rest", "extender", "extensions", "extensions_trunc
 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#44-arrays>, spec/zarrify/ndpi.md §4
 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#4-the-image>).
 ADDED = {"tiff": ("omero",), "ndpi": ("omero",)}
-# The fixtures whose layout the profile changed after the freeze, which the frozen reference
-# does not give (conformance/zarrify/revised.json, compare.py's REVISED).
-REVISED = set(json.loads((ROOT / "conformance" / "zarrify" / "revised.json").read_text())["fixtures"])
 # The profiles whose edge chunks' zero padding is a range of the output's zero data source since
 # the freeze, where the frozen reference pads with a literal range (conformance/zarrify/compare.py's
 # ZERO_PADDED; spec/zarrify/nifti.md §7.2

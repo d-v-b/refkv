@@ -8,12 +8,10 @@ import { boundedHead, jpegFrame, jpegxrSize, zstd1Header, zstdContentSize } from
 import { layer, rowBand } from "../../../conformance/zarrify/reference/ts/czi/layout.ts";
 import { guid } from "../../../conformance/zarrify/reference/ts/czi/segments.ts";
 import { CziError } from "../../../conformance/zarrify/reference/ts/czi/virtualize.ts";
+import { REVISED } from "../revised.ts";
 
 const FIXTURES = fileURLToPath(new URL("../../../fixtures/czi/", import.meta.url));
 const utf8 = new TextDecoder();
-// What the profile reads since the reference froze (conformance/zarrify/revised.json).
-const REVISED = new Set<string>(JSON.parse(fs.readFileSync(new URL("../../../conformance/zarrify/revised.json",
-  import.meta.url), "utf8")).fixtures);
 
 async function zarrify(name: string) {
   const bytes = new Uint8Array(fs.readFileSync(FIXTURES + name));

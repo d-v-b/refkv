@@ -1,0 +1,6 @@
+# A Zarr v2 array that is not presented, which the profile leaves out where the frozen reference
+# rejected the store (spec/zarrify/ome-zarr.md §2.1
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ome-zarr.md#21-groups-that-are-not-ome>).
+ome_zarr_left_out
+ome_zarr_not_ome
+ome_zarr_not_ome_plate

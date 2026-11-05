@@ -403,7 +403,7 @@ def main() -> None:
 
     def accepted(name: str, **kw):
         """Inputs the frozen reference rejects and the profile presents since it froze
-        (conformance/zarrify/revised.json), with no chunk."""
+        (conformance/zarrify/revised/zarr2.txt), with no chunk."""
         d = store(f"zarr2_accepted_{name}")
         write_json(d / ".zarray", {"zarr_format": 2, "shape": [4, 4], "chunks": [2, 2], "dtype": "<u2",
                                    "compressor": None,
