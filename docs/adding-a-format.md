@@ -297,7 +297,11 @@ the payload limit ([precomputed](../spec/zarrify/precomputed.md)).
 good models.
 
 - **The header line**: `Convention version: 0 · UUID: … · Schema: …`, then
-  dated "Changed" notes, including changes "with no change to any output".
+  `Changes: [changes/<p>/](changes/<p>/), one file per change.` and `Added <date>.`
+  Each later change to the document is a new file,
+  `spec/zarrify/changes/<p>/<date>-<slug>.md`, holding one paragraph: `Changed <date>: …`, or
+  `Changed <date>, with no change to any output: …`. A file per change keeps two PRs on one
+  document from editing one paragraph ([zarrify, Profiles](../spec/zarrify.md#profiles)).
   Version 0 until release. A draft names what it covers and links its plan.
 - **Part 1, the convention:**
   - the unnumbered `## Layout` table of entries;

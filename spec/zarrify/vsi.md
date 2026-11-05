@@ -10,30 +10,7 @@ store, which files it reads and which inputs it rejects, is the VSI profile,
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `c0a1d4e6-5b7f-4f3a-9c2d-8e1f6a7b3c45` ·
 Schema: [schema.json](vsi/schema.json)
 
-Changed 2026-11-04: an IFD image the layout cannot present (a macro image of another kind, or a
-stack's focus map or mask) is left out and recorded in the root's `not_presented`, where it
-rejected the slide ([§4.4](#44-ifd-images-that-are-not-presented)); and a tile file's tiles may be
-PNG (compression 8) or BMP (compression 9), each tile a chunk of the codec `imagecodecs_png` or
-`imagecodecs_bmp`, where such a file was rejected ([§3](#3-the-tile-files), [§4.1](#41-the-pyramid)).
-
-Changed 2026-11-03, with no change to any output: a level's scale is written `sx × (W / w_l)`, in the order refkv computes it.
-
-Changed 2026-11-01, with no change to any output: the slide is read as a file read as a store,
-by the rules [spec/zarrify.md §1.8](../zarrify.md#18-files-read-as-stores) now states for the
-VSI, NRRD and GRIB profiles ([§9](#9-vsi-profile)).
-
-Changed 2026-10-30: a tile file's tiles may be lossless JPEG (compression 5), each tile a chunk
-of the codec `imagecodecs_ljpeg`, where such a file was rejected; and an ETS header of version
-0x30003, whose `dimensions` is 0 and which lists no sizes, is read, every coordinate but the
-column, the row and the level of size 1 ([§3](#3-the-tile-files), [§4.1](#41-the-pyramid)); a stack's second tile
-file name, `frame_t_0.ets`, is probed only when its first, `frame_t.ets`, is absent, in a
-second batch ([§9.2](#92-the-tile-files)).
-
-Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
-[Layout](#layout) and its types in type tables
-([conventions §11.5](../conventions.md#115-layout-tables)), which also state what refkv already
-wrote: a value field's empty data is opaque, `""` ([§6.1](#61-the-root)), and an IFD image's
-summary has no `sizes`, `grids` or `tilesOutside` ([§9.5](#95-summary)).
+Changes: [changes/vsi/](changes/vsi/), one file per change.
 
 Added 2026-10-21.
 

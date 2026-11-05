@@ -13,22 +13,7 @@ from 1.
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `c9bbe039-8dfa-49f9-a655-756f822a42d6` ·
 Schema: [schema.json](grib/schema.json)
 
-Changed 2026-11-04: fields on Gaussian (3.40), rotated (3.1), polar stereographic (3.20), Mercator
-(3.10) and unstructured (3.101) grids, and reduced grids (of 3.0 and 3.40), which were not
-presented, are ([§2.4](#24-grids), [§3.1](#31-variables), [§4](#4-georeferencing)), with the new
-reasons `gaussian` and `projection` ([§2.6](#26-what-is-not-presented)).
-
-Changed 2026-11-03, with no change to any output: the time, step and member coordinates' `long_name`s, `number`'s `units`, and the
-`float64` coordinates' fill value are said, as refkv already wrote them ([§3.3](#33-coordinates)).
-
-Changed 2026-11-01: the root's `index` names the index whose offsets the run used, where it
-named the first index read even when another one's offsets were used, and the run tries each
-index in turn ([§5.1](#51-the-root), [§8.2](#82-finding-the-messages)). With no other change to
-any output, the text states what refkv already did: the names' tables are data files of this
-convention ([§3.2](#32-names)); the Earth's shapes, the Lambert projection and the rejections are
-written out ([§2.4](#24-grids), [§4](#4-georeferencing), [§8.4](#84-checks-and-rejection)); every
-index read is held ([§5.2](#52-the-ir-mirror)); and the file is read as a store as
-[spec/zarrify.md §1.8](../zarrify.md#18-files-read-as-stores) says ([§8](#8-grib-profile)).
+Changes: [changes/grib/](changes/grib/), one file per change.
 
 Added 2026-10-30.
 

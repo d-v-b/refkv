@@ -46,7 +46,8 @@ feasibility.
 - **Real files over the standard.** Headers and tags lie, and writers deviate
   from standards. Derive facts from the coded stream. Follow de facto
   readers where they differ from the standard, and record that with a dated
-  change note.
+  change note, a new file `spec/zarrify/changes/<p>/<date>-<slug>.md`, never a
+  paragraph in the document.
 - **Pick the oracle.** Reference readers disagree with each other: name the
   one you compare against, and the cases it gets wrong. Use third-party
   readers to check the output, never to produce it.

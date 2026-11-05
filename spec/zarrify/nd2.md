@@ -9,16 +9,7 @@ ND2 profile, [Part 2](#part-2-the-profile) below.
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `59612f14-e314-4207-ba00-8f422ba71490` ·
 Schema: [schema.json](nd2/schema.json)
 
-Changed 2026-11-03, with no change to any output: a placed frame's `pixels` form is given, with
-its recipe's `rows` part ([conventions §8.5](../conventions.md#85-forms-and-recipes)), and row
-padding, which `pixels` claims, is no longer listed under `gaps`.
-
-Changed 2026-10-27: a zlib stream's codec is `numcodecs.zlib`, zarr-python's name for it, in
-place of `zlib` ([conventions §3](../conventions.md#3-arrays), d-v-b/refkv#90).
-
-Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
-[Layout](#layout) and its types in type tables
-([conventions §11.5](../conventions.md#115-layout-tables)).
+Changes: [changes/nd2/](changes/nd2/), one file per change.
 
 Changes before 2026-10-22 are recorded in
 [the revision log of VIRTUALIZE.md](../history/virtualize/REVISIONS.md), this document's earlier
