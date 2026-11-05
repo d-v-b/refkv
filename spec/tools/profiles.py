@@ -55,7 +55,7 @@ import json
 import re
 import sys
 import textwrap
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 REGISTRY_DIR = ROOT / "spec" / "zarrify" / "profiles"
@@ -66,17 +66,6 @@ CONVENTION_KEY = "refkv_zarrified"
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 # A flat JSON object with a member "uuid", as a CMO is written (its members are strings).
 CMO_TEXT = re.compile(r'\{[^{}]*"uuid"\s*:[^{}]*\}')
-# The codec registry, spec/zarrify/codecs/<name>.json (one file per codec name an archive may give):
-# whose name it is (`named_by`), the Python package that decodes it and refkv's extra that installs
-# it, what it decodes (for the docs), the section that specifies it (a path from spec/ and an
-# anchor; null for none of refkv's), and its rows of the codec table of conventions §3
-# <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#3-arrays> (its step, the codec's
-# object and when it applies, whose section references are written as in code, `§n <URL>`).
-CODECS_DIR = ROOT / "spec" / "zarrify" / "codecs"
-CODEC_FIELDS = ("name", "named_by", "package", "extra", "decodes", "section", "rows")
-NAMED_BY = ("zarr-python", "imagecodecs-zarr", "zarr-extensions", "refkv")
-PACKAGES = ("zarr-python", "imagecodecs-zarr", "refkv")
-EXTRAS = ("zarr", "images", "media", "precomputed")
 FIELDS = ("name", "title", "uuid", "version", "kind", "store_run", "sniff", "chosen_by", "suffixes", "reference",
           "source", "inputs", "for")
 
@@ -119,69 +108,6 @@ def validate(entries: list[dict]) -> list[dict]:
         if len(set(values)) != len(values):
             raise ValueError(f"two entries share a {key}")
     return entries
-
-
-def load_codecs() -> list[dict]:
-    """The codec registry's entries, by name, validated."""
-    out = []
-    for path in sorted(CODECS_DIR.glob("*.json")):
-        c = json.loads(path.read_text(encoding="utf-8"))
-        if tuple(c) != CODEC_FIELDS or c["name"] != path.stem:
-            raise ValueError(f"{path.name}: the members must be {CODEC_FIELDS}, in that order, and name the file")
-        if c["named_by"] not in NAMED_BY or c["package"] not in PACKAGES or c["extra"] not in EXTRAS:
-            raise ValueError(f"{c['name']}: named_by, package or extra is not one of {NAMED_BY}, {PACKAGES}, {EXTRAS}")
-        if (c["named_by"] == "refkv") != (c["section"] is not None):
-            raise ValueError(f"{c['name']}: refkv's own codecs, and only they, name their section")
-        if (c["named_by"] == "refkv") != c["name"].startswith("refkv."):
-            raise ValueError(f"{c['name']}: refkv's own codecs, and only they, are named refkv.<codec>")
-        for row in c["rows"]:
-            if set(row) != {"step", "codec", "when"} or row["step"] not in (1, 2, 3, 4):
-                raise ValueError(f"{c['name']}: a row has a step of 1 to 4, a codec and when it applies")
-        out.append(c)
-    return out
-
-
-def doc_link(target: str, base: str) -> str:
-    """A link from a document at `base` (its path below spec/) to `target` (a path below spec/ and an
-    anchor), its text the section's number, and the document's name when it is another."""
-    path, anchor = target.split("#")
-    text = (ROOT / "spec" / path).read_text(encoding="utf-8")
-    heading = next((h for h in re.findall(r"^#+ (.+)$", text, re.MULTILINE) if slug(h) == anchor), None)
-    if heading is None:
-        raise ValueError(f"spec/{path} has no heading with the anchor {anchor!r}")
-    number = heading.split()[0].rstrip(".")
-    if path == base:
-        return f"[§{number}](#{anchor})"
-    rel = Path(path).relative_to(Path(base).parent) if path.startswith(str(Path(base).parent)) else path
-    return f"[{Path(path).stem} §{number}]({PurePosixPath(rel).as_posix()}#{anchor})"
-
-
-def code_links(text: str, base: str) -> str:
-    """`text` with each section reference written as in code, `<name> §n <URL>`, as a link from `base`."""
-    url = re.escape("https://github.com/d-v-b/refkv/blob/main/spec/")
-    return re.sub(rf"[\w.-]+ §[\d.]+ <{url}([^>]+)>", lambda m: doc_link(m.group(1), base), text)
-
-
-def codec_table(codecs: list[dict]) -> str:
-    rows = ["| step | codec | when |", "|---|---|---|"]
-    rows += [f"| {r['step']} | {r['codec']} | {code_links(r['when'], 'conventions.md')} |"
-             for r in sorted((r for c in codecs for r in c["rows"]), key=lambda r: r["step"])]
-    return "\n".join(rows)
-
-
-def codec_names(codecs: list[dict]) -> str:
-    """One row per codec, so that two codecs added at once conflict only when their names sort next
-    to each other."""
-    rows = ["| codec | whose name | specified in |", "|---|---|---|"]
-    rows += [f"| `{c['name']}` | {c['named_by']} | {doc_link(c['section'], 'conventions.md') if c['section'] else ''} |"
-             for c in codecs]
-    return "\n".join(rows)
-
-
-def docs_codec_table(codecs: list[dict]) -> str:
-    rows = ["| codec | decodes | from | install |", "|---|---|---|---|"]
-    rows += [f"| `{c['name']}` | {c['decodes']} | {c['package']} | `refkv[{c['extra']}]` |" for c in codecs]
-    return "\n".join(rows)
 
 
 def validate_store_run(e: dict) -> None:
@@ -331,10 +257,8 @@ def classes_module(entries: list[dict]) -> str:
 BLOCKS = {
     "spec/zarrify.md": {"spec-table": spec_table, "sniff-table": sniff_table, "spec-list": spec_list,
                         "beside-table": beside_table},
-    "spec/conventions.md": {"conventions-table": conventions_table,
-                            "codec-table": lambda _: codec_table(load_codecs()),
-                            "codec-names": lambda _: codec_names(load_codecs())},
-    "docs/zarrify/README.md": {"docs-table": docs_table, "codec-list": lambda _: docs_codec_table(load_codecs())},
+    "spec/conventions.md": {"conventions-table": conventions_table},
+    "docs/zarrify/README.md": {"docs-table": docs_table},
 }
 # the files written whole
 FILES = {"python/src/refkv/zarrify/profile_classes.py": classes_module}

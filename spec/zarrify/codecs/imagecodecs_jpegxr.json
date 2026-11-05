@@ -1,9 +1,0 @@
-{
-  "name": "imagecodecs_jpegxr",
-  "named_by": "imagecodecs-zarr",
-  "package": "imagecodecs-zarr",
-  "extra": "images",
-  "decodes": "JPEG XR",
-  "section": null,
-  "rows": []
-}

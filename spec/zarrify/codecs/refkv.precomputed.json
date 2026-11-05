@@ -1,9 +1,0 @@
-{
-  "name": "refkv.precomputed",
-  "named_by": "refkv",
-  "package": "refkv",
-  "extra": "zarr",
-  "decodes": "Neuroglancer precomputed chunks",
-  "section": "zarrify/precomputed.md#6-the-codec-refkvprecomputed",
-  "rows": []
-}

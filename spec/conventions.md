@@ -301,88 +301,85 @@ always present; the format's convention says when the others are.
 **Codecs.** `codecs` is built from these, in the order of their step: at most one codec
 of each step, and always one of step 3.
 
-<!-- profiles:codec-table -->
 | step | codec | when |
 |---|---|---|
 | 1 | `{"name": "transpose", "configuration": {"order": [...]}}` | a chunk's bytes hold the channel axis last ("interleaved"). `order` lists the array's axis indices in stored order: every axis except `c` in array order, then `c` |
 | 2 | `{"name": "imagecodecs_delta", "configuration": {"axis": a, "dist": 1}}` | the chunk's bytes hold an integer data type's values as differences along `x` (**Delta**, below). `a` is the index of `x` in stored order: the last axis, or the one before last when `codecs` has `transpose` |
 | 3 | `{"name": "bytes"}` (no `configuration`) | a 1-byte data type |
 | 3 | `{"name": "bytes", "configuration": {"endian": "little"}}`, or `"big"` | a larger data type |
+| 3 | `{"name": "imagecodecs_floatpred", "configuration": {"axis": a, "dist": 1}}` | the chunk's bytes hold a float data type's values through TIFF's floating-point predictor (**Floatpred**, below). `a` is as for `imagecodecs_delta` |
+| 3 | `{"name": "imagecodecs_jpeg2k"}` | JPEG 2000: one codestream per chunk, decoding to the chunk's `[y, x]`, or, when interleaved, to `[y, x, c]`, after which `transpose` applies |
+| 3 | `{"name": "imagecodecs_jpeg"}` | JPEG: one complete JPEG stream per chunk, ISO/IEC 10918-1 with the JFIF/Adobe color conventions, decoding to the chunk's `[y, x]` or `[y, x, c]` like JPEG 2000 |
+| 3 | `{"name": "imagecodecs_ljpeg"}` | lossless JPEG: one complete JPEG stream per chunk, ISO/IEC 10918-1's lossless process (SOF3, predictors 1 to 7), its samples stored without a color transform, decoding to the chunk's `[y, x]` or `[y, x, c]` like JPEG 2000 |
+| 3 | `{"name": "imagecodecs_png"}` | PNG: one complete PNG file per chunk, of `uint8` or `uint16`, its samples as the file says, decoding to the chunk's `[y, x]` or `[y, x, c]` like JPEG 2000 |
 | 3 | `{"name": "imagecodecs_bmp"}` | BMP: one complete BMP file per chunk, of `uint8`, its rows and samples as the file says (bottom up, blue first), decoding to the chunk's `[y, x]`, or to `[y, x, c]` red first, like JPEG 2000 |
+| 3 | `{"name": "imagecodecs_lerc"}` | LERC: one stream per chunk, in Deflate or zstd or not, decoding to the chunk's `[y, x]` or `[y, x, c]` like JPEG 2000 |
+| 3 | `{"name": "imagecodecs_webp", "configuration": {"hasalpha": h}}` | WebP: one stream per chunk, decoding to the chunk's `[y, x, c]` of 4 samples when `h` and 3 otherwise |
+| 3 | `{"name": "imagecodecs_jpegxl"}` | JPEG XL: one stream per chunk, decoding to the chunk's `[y, x]` or `[y, x, c]` like JPEG 2000 |
+| 3 | `{"name": "imagecodecs_packints", "configuration": {"bitspersample": b, "runlen": n}}` | samples of `b` bits, most significant first, in rows of `n` samples each starting on a whole byte, into the data type |
 | 3 | `{"name": "imagecodecs_ccittfax4"}` | CCITT Group 4 (ITU-T T.6): one stream per chunk, decoding to the chunk's `[y, x]`, a coded black run 1 and a white one 0 |
 | 3 | `{"name": "imagecodecs_eer", "configuration": {"shape": [h, w], "skipbits": s, "horzbits": a, "vertbits": b}}` | Electron Event Representation: one frame per chunk, of that shape, decoding to one bit a pixel |
-| 3 | `{"name": "imagecodecs_floatpred", "configuration": {"axis": a, "dist": 1}}` | the chunk's bytes hold a float data type's values through TIFF's floating-point predictor (**Floatpred**, below). `a` is as for `imagecodecs_delta` |
-| 3 | `{"name": "imagecodecs_jpeg"}` | JPEG: one complete JPEG stream per chunk, ISO/IEC 10918-1 with the JFIF/Adobe color conventions, decoding to the chunk's `[y, x]` or `[y, x, c]` like JPEG 2000 |
-| 3 | `{"name": "imagecodecs_jpeg2k"}` | JPEG 2000: one codestream per chunk, decoding to the chunk's `[y, x]`, or, when interleaved, to `[y, x, c]`, after which `transpose` applies |
-| 3 | `{"name": "imagecodecs_jpegxl"}` | JPEG XL: one stream per chunk, decoding to the chunk's `[y, x]` or `[y, x, c]` like JPEG 2000 |
-| 3 | `{"name": "imagecodecs_lerc"}` | LERC: one stream per chunk, in Deflate or zstd or not, decoding to the chunk's `[y, x]` or `[y, x, c]` like JPEG 2000 |
-| 3 | `{"name": "imagecodecs_ljpeg"}` | lossless JPEG: one complete JPEG stream per chunk, ISO/IEC 10918-1's lossless process (SOF3, predictors 1 to 7), its samples stored without a color transform, decoding to the chunk's `[y, x]` or `[y, x, c]` like JPEG 2000 |
-| 3 | `{"name": "imagecodecs_packints", "configuration": {"bitspersample": b, "runlen": n}}` | samples of `b` bits, most significant first, in rows of `n` samples each starting on a whole byte, into the data type |
-| 3 | `{"name": "imagecodecs_png"}` | PNG: one complete PNG file per chunk, of `uint8` or `uint16`, its samples as the file says, decoding to the chunk's `[y, x]` or `[y, x, c]` like JPEG 2000 |
-| 3 | `{"name": "imagecodecs_webp", "configuration": {"hasalpha": h}}` | WebP: one stream per chunk, decoding to the chunk's `[y, x, c]` of 4 samples when `h` and 3 otherwise |
-| 4 | `{"name": "imagecodecs_lzma"}` | the bytes are xz streams |
-| 4 | `{"name": "imagecodecs_lzw"}` | the bytes are TIFF LZW streams (TIFF 6.0 §13: codes packed most significant bit first, with the "early change"), each decoding whole to exactly the chunk's bytes |
 | 4 | `{"name": "imagecodecs_packbits"}` | the bytes are TIFF PackBits streams ([tiff §4.3](zarrify/tiff.md#43-data-types-and-codecs)), run-length coded, unlike the zarr-extensions' `packbits` |
 | 4 | `{"name": "numcodecs.zlib", "configuration": {"level": 1}}` | the bytes are zlib streams (RFC 1950) |
+| 4 | `{"name": "imagecodecs_lzw"}` | the bytes are TIFF LZW streams (TIFF 6.0 §13: codes packed most significant bit first, with the "early change"), each decoding whole to exactly the chunk's bytes |
 | 4 | `{"name": "zstd", "configuration": {"level": 0, "checksum": false}}` | the bytes are Zstandard frames |
-<!-- /profiles -->
+| 4 | `{"name": "imagecodecs_lzma"}` | the bytes are xz streams |
 
 **Codec names.** Every codec a convention names is one that a reader of Zarr v3 finds by its
 name: zarr-python's own (and its names for numcodecs' codecs), imagecodecs-zarr's, the
-zarr-extensions registry's, or refkv's own, which are named `refkv.<codec>`. The codec registry,
-`spec/zarrify/codecs/<name>.json`, lists them:
+zarr-extensions registry's, or refkv's own, which are named `refkv.<codec>`. This table lists them,
+one row per codec, by name; `spec/tools/test_codecs.py` checks that it names every codec the Rust
+core writes:
 
-<!-- profiles:codec-names -->
-| codec | whose name | specified in |
-|---|---|---|
-| `blosc` | zarr-python |  |
-| `bytes` | zarr-python |  |
-| `crc32c` | zarr-python |  |
-| `gzip` | zarr-python |  |
-| `imagecodecs_bmp` | imagecodecs-zarr |  |
-| `imagecodecs_ccittfax4` | imagecodecs-zarr |  |
-| `imagecodecs_delta` | imagecodecs-zarr |  |
-| `imagecodecs_dicomrle` | imagecodecs-zarr |  |
-| `imagecodecs_eer` | imagecodecs-zarr |  |
-| `imagecodecs_floatpred` | imagecodecs-zarr |  |
-| `imagecodecs_htj2k` | imagecodecs-zarr |  |
-| `imagecodecs_jpeg` | imagecodecs-zarr |  |
-| `imagecodecs_jpeg2k` | imagecodecs-zarr |  |
-| `imagecodecs_jpegls` | imagecodecs-zarr |  |
-| `imagecodecs_jpegxl` | imagecodecs-zarr |  |
-| `imagecodecs_jpegxr` | imagecodecs-zarr |  |
-| `imagecodecs_lerc` | imagecodecs-zarr |  |
-| `imagecodecs_ljpeg` | imagecodecs-zarr |  |
-| `imagecodecs_lz4h5` | imagecodecs-zarr |  |
-| `imagecodecs_lzf` | imagecodecs-zarr |  |
-| `imagecodecs_lzma` | imagecodecs-zarr |  |
-| `imagecodecs_lzw` | imagecodecs-zarr |  |
-| `imagecodecs_packbits` | imagecodecs-zarr |  |
-| `imagecodecs_packints` | imagecodecs-zarr |  |
-| `imagecodecs_png` | imagecodecs-zarr |  |
-| `imagecodecs_webp` | imagecodecs-zarr |  |
-| `n5_default` | zarr-extensions |  |
-| `numcodecs.bz2` | zarr-python |  |
-| `numcodecs.delta` | zarr-python |  |
-| `numcodecs.fixedscaleoffset` | zarr-python |  |
-| `numcodecs.lz4` | zarr-python |  |
-| `numcodecs.lzma` | zarr-python |  |
-| `numcodecs.quantize` | zarr-python |  |
-| `numcodecs.shuffle` | zarr-python |  |
-| `numcodecs.zlib` | zarr-python |  |
-| `packbits` | zarr-extensions |  |
-| `refkv.fits_tiles` | refkv | [fits §3.3](zarrify/fits.md#33-tile-compressed-images) |
-| `refkv.grib` | refkv | [§12](#12-grib-messages) |
-| `refkv.h5_bitshuffle` | refkv | [hdf5 §3.4](zarrify/hdf5.md#34-the-codec-refkvh5_bitshuffle) |
-| `refkv.precomputed` | refkv | [precomputed §6](zarrify/precomputed.md#6-the-codec-refkvprecomputed) |
-| `refkv.skip` | refkv | [npy §4.4](zarrify/npy.md#44-the-refkvskip-codec) |
-| `refkv.stream` | refkv | [§10](#10-coded-streams) |
-| `refkv.tiff_lzw` | refkv | [qptiff §4.1](zarrify/qptiff.md#41-data-types-and-codecs) |
-| `sharding_indexed` | zarr-python |  |
-| `transpose` | zarr-python |  |
-| `vlen-utf8` | zarr-python |  |
-| `zstd` | zarr-python |  |
-<!-- /profiles -->
+| codec | whose name | its Python package | specified in |
+|---|---|---|---|
+| `blosc` | zarr-python | zarr-python |  |
+| `bytes` | zarr-python | zarr-python |  |
+| `crc32c` | zarr-python | zarr-python |  |
+| `gzip` | zarr-python | zarr-python |  |
+| `imagecodecs_bmp` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_ccittfax4` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_delta` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_dicomrle` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_eer` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_floatpred` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_htj2k` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_jpeg` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_jpeg2k` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_jpegls` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_jpegxl` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_jpegxr` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_lerc` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_ljpeg` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_lz4h5` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_lzf` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_lzma` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_lzw` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_packbits` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_packints` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_png` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `imagecodecs_webp` | imagecodecs-zarr | imagecodecs-zarr |  |
+| `n5_default` | zarr-extensions | refkv |  |
+| `numcodecs.bz2` | zarr-python | zarr-python |  |
+| `numcodecs.delta` | zarr-python | zarr-python |  |
+| `numcodecs.fixedscaleoffset` | zarr-python | zarr-python |  |
+| `numcodecs.lz4` | zarr-python | zarr-python |  |
+| `numcodecs.lzma` | zarr-python | zarr-python |  |
+| `numcodecs.quantize` | zarr-python | zarr-python |  |
+| `numcodecs.shuffle` | zarr-python | zarr-python |  |
+| `numcodecs.zlib` | zarr-python | zarr-python |  |
+| `packbits` | zarr-extensions | refkv |  |
+| `refkv.fits_tiles` | refkv | refkv | [fits §3.3](zarrify/fits.md#33-tile-compressed-images) |
+| `refkv.grib` | refkv | refkv | [§12](#12-grib-messages) |
+| `refkv.h5_bitshuffle` | refkv | refkv | [hdf5 §3.4](zarrify/hdf5.md#34-the-codec-refkvh5_bitshuffle) |
+| `refkv.precomputed` | refkv | refkv | [precomputed §6](zarrify/precomputed.md#6-the-codec-refkvprecomputed) |
+| `refkv.skip` | refkv | refkv | [npy §4.4](zarrify/npy.md#44-the-refkvskip-codec) |
+| `refkv.stream` | refkv | refkv | [§10](#10-coded-streams) |
+| `refkv.tiff_lzw` | refkv | refkv | [qptiff §4.1](zarrify/qptiff.md#41-data-types-and-codecs) |
+| `sharding_indexed` | zarr-python | zarr-python |  |
+| `transpose` | zarr-python | zarr-python |  |
+| `vlen-utf8` | zarr-python | zarr-python |  |
+| `zstd` | zarr-python | zarr-python |  |
 
 refkv names a codec of its own only where none of the others decodes the chunks as the convention says (QPTIFF's
 LZW streams can run past their tile, which `imagecodecs_lzw` does not allow; no codec of the

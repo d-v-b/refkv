@@ -8,10 +8,10 @@ zarrifies image files and stores, without Zarr. The extras add:
   zarrified image files and stores use and zarr-python lacks
   (`refkv.zarr.codecs`), which zarr finds through refkv's `zarr.codecs` entry
   points;
-- `images`: imagecodecs-zarr, whose codecs the archives of JPEG, JPEG 2000 and other images name
-  (docs/zarrify/README.md's table of codecs lists them, from the codec registry,
-  spec/zarrify/codecs/), and imagecodecs, whose LZW decoder `refkv.tiff_lzw` calls, with the `zarr`
-  extra;
+- `images`: imagecodecs-zarr, whose codecs (the `imagecodecs_*` rows of the codec table of
+  spec/conventions.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#3-arrays>)
+  the archives of JPEG, JPEG 2000 and other coded images name, and imagecodecs, whose LZW decoder
+  `refkv.tiff_lzw` calls, with the `zarr` extra;
 - `media`: the decoders of the `refkv.stream` codec, which reads zarrified MP3,
   FLAC and MP4 files: ffmpeg's MP3, AAC, FLAC, H.264, HEVC, AV1 and VP9 decoders, through PyAV,
   with the `zarr` extra;

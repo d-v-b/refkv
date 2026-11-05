@@ -1,9 +1,0 @@
-{
-  "name": "refkv.grib",
-  "named_by": "refkv",
-  "package": "refkv",
-  "extra": "zarr",
-  "decodes": "GRIB messages",
-  "section": "conventions.md#12-grib-messages",
-  "rows": []
-}

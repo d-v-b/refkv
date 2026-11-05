@@ -1,9 +1,0 @@
-{
-  "name": "numcodecs.lz4",
-  "named_by": "zarr-python",
-  "package": "zarr-python",
-  "extra": "zarr",
-  "decodes": "LZ4",
-  "section": null,
-  "rows": []
-}

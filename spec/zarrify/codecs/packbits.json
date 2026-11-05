@@ -1,9 +1,0 @@
-{
-  "name": "packbits",
-  "named_by": "zarr-extensions",
-  "package": "refkv",
-  "extra": "zarr",
-  "decodes": "bits packed into bytes",
-  "section": null,
-  "rows": []
-}

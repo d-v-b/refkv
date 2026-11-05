@@ -1,9 +1,0 @@
-{
-  "name": "refkv.skip",
-  "named_by": "refkv",
-  "package": "refkv",
-  "extra": "zarr",
-  "decodes": "a deflated NPY member's header",
-  "section": "zarrify/npy.md#44-the-refkvskip-codec",
-  "rows": []
-}

@@ -1,9 +1,0 @@
-{
-  "name": "refkv.stream",
-  "named_by": "refkv",
-  "package": "refkv",
-  "extra": "zarr",
-  "decodes": "coded audio and video",
-  "section": "conventions.md#10-coded-streams",
-  "rows": []
-}

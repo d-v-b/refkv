@@ -1,9 +1,0 @@
-{
-  "name": "numcodecs.lzma",
-  "named_by": "zarr-python",
-  "package": "zarr-python",
-  "extra": "zarr",
-  "decodes": "LZMA",
-  "section": null,
-  "rows": []
-}

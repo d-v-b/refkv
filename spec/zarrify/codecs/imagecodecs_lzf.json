@@ -1,9 +1,0 @@
-{
-  "name": "imagecodecs_lzf",
-  "named_by": "imagecodecs-zarr",
-  "package": "imagecodecs-zarr",
-  "extra": "images",
-  "decodes": "LZF",
-  "section": null,
-  "rows": []
-}

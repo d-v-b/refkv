@@ -1,9 +1,0 @@
-{
-  "name": "imagecodecs_jpegls",
-  "named_by": "imagecodecs-zarr",
-  "package": "imagecodecs-zarr",
-  "extra": "images",
-  "decodes": "JPEG-LS",
-  "section": null,
-  "rows": []
-}
