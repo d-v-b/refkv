@@ -1,0 +1,6 @@
+{
+  "write:js:reserved_names_are_ordinary": "js/src/phkv.ts's writer rejects the keys __vz__/sources and __vz__/index, which are ordinary keys in a phkv store (spec/bindings/phkv.md \u00c2\u00a716)",
+  "read:js:http_*": "js/src/archive.ts follows 6 redirects; a reader follows at most 5 (spec/refkv.md \u00c2\u00a75.2)",
+  "cross:*->js:http_*": "js/src/archive.ts follows 6 redirects; a reader follows at most 5 (spec/refkv.md \u00c2\u00a75.2)",
+  "read:js:http/request_accounting": "js sends the Accept-Encoding header twice ('identity, identity'); a reader sends the value identity (spec/refkv.md \u00a75.2)"
+}
