@@ -435,7 +435,62 @@ def exact_members() -> None:
 
 
 
+def not_ome() -> None:
+    """One array that cannot be presented does not reject an OME-Zarr store
+    (spec/zarrify/ome-zarr.md §2.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ome-zarr.md#21-groups-that-are-not-ome>).
+    An array that is no level, an image with a level left out and one with a level of bytes, each
+    with what names it: a labels group, a label image whose source it is, a well, then a plate
+    and a collection. Fixed data, no RNG."""
+    level = np.arange(4, dtype="|u1").reshape(2, 2)
+    bad = {"zarr_format": 2, "shape": [2, 2], "chunks": [2, 2], "dtype": "|O", "compressor": None, "fill_value": None,
+           "order": "C", "filters": [{"id": "pickle"}]}
+    plain = {k: v for k, v in bad.items() if k != "filters"} | {"dtype": "|S1", "filters": None}
+
+    d = store("ome_zarr_left_out")
+    group(d, "", {"multiscales": [multiscale("yx", 1)]})
+    array(d, "0", level, [2, 2], sep="/")
+    write_json(d / "table/.zarray", bad)  # no level: only the array is left out
+    put(d / "table/0.0", b"x")
+
+    d = store("ome_zarr_not_ome")
+    group(d, "", {"note": "a root group", "bioformats2raw.layout": 3})
+    group(d, "OME", {"series": ["0", "1"]})
+    put(d / "OME/METADATA.ome.xml", b"<OME/>")
+    group(d, "0", {"multiscales": [multiscale("yx", 2)]})  # an image with a level left out
+    array(d, "0/0", level, [2, 2], sep="/")
+    write_json(d / "0/1/.zarray", bad)
+    put(d / "0/1/0.0", b"x")
+    group(d, "0/labels", {"labels": ["cells"]})
+    group(d, "0/labels/cells", {"multiscales": [multiscale("yx", 1)], "image-label": {"version": "0.4"}})
+    array(d, "0/labels/cells/0", level, [2, 2], sep="/")
+    group(d, "1", {"multiscales": [multiscale("yx", 1)]})  # still an image of a collection that is not OME
+    array(d, "1/0", level, [2, 2], sep="/")
+    group(d, "bytes", {"multiscales": [multiscale("yx", 1)]})  # a level with a trailing axis: presented, no level
+    write_json(d / "bytes/0/.zarray", plain)
+    group(d, "bytes/labels", {"labels": ["named"]})  # names an image that is not OME
+    group(d, "bytes/labels/named", {"multiscales": [multiscale("yx", 1)],
+                                    "image-label": {"version": "0.4", "source": {"image": "../../"}}})
+    array(d, "bytes/labels/named/0", level, [2, 2], sep="/")
+    group(d, "fine", {"multiscales": [multiscale("yx", 1)]})
+    array(d, "fine/0", level, [2, 2], sep="/")
+
+    d = store("ome_zarr_not_ome_plate")
+    ms = multiscale("yx", 1)
+    rows, cols = ["A"], ["1", "2"]
+    wells = [{"path": f"A/{c}", "rowIndex": 0, "columnIndex": j} for j, c in enumerate(cols)]
+    group(d, "", {"plate": {"version": "0.4", "rows": [{"name": r} for r in rows],
+                            "columns": [{"name": c} for c in cols], "wells": wells, "field_count": 1}})
+    for i, w in enumerate(wells):
+        group(d, w["path"], {"well": {"version": "0.4", "images": [{"path": "0"}]}})
+        group(d, f"{w['path']}/0", {"multiscales": [ms]})
+        if i == 0:
+            write_json(d / w["path"] / "0/0/.zarray", bad)
+        else:
+            array(d, f"{w['path']}/0/0", level, [2, 2], sep="/")
+
 
 if __name__ == "__main__":
     main()
+    not_ome()
     exact_members()

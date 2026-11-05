@@ -47,9 +47,9 @@
       "message": "the trun box at "
     },
     {
-      "test": "mp4_reject_hevc_422_only",
-      "input": "mp4_reject_hevc_422_only.mp4",
-      "message": "no track can be zarrified: track 1 (hvc1): HEVC with chroma format 2 and bit depth 8 is not supported: only 4:2:0 of 8 or 10 bits is"
+      "test": "mp4_reject_hevc_444_only",
+      "input": "mp4_reject_hevc_444_only.mp4",
+      "message": "no track can be zarrified: track 1 (hvc1): HEVC with chroma format 3 and bit depth 8 is not supported: only 4:2:0 or 4:2:2 of 8, 10 or 12 bits is"
     },
     {
       "test": "mp4_reject_moov_twice",

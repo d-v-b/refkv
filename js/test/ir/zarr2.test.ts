@@ -18,6 +18,10 @@ import { StoreError } from "../../src/zarrify/store.ts";
 import type { ArchiveDesc } from "../../src/writer.ts";
 
 const FIXTURES = fileURLToPath(new URL("../../../fixtures/zarr2/", import.meta.url));
+// The stores whose verdict the profile changed after the freeze, which the twin does not give
+// (conformance/zarrify/revised.json).
+const REVISED = new Set<string>(JSON.parse(fs.readFileSync(new URL("../../../conformance/zarrify/revised.json",
+  import.meta.url), "utf8")).fixtures);
 
 /** The entries outside refkv_source/ (the frozen twin's, given `legacy`, outside its vzip_source/,
  * its documents read with the current names): documents parsed (the frozen root's revision read
@@ -46,6 +50,7 @@ function hierarchy(desc: ArchiveDesc, legacy = false): Map<string, unknown> {
 test("the core zarrifies every Zarr v2 fixture store as the frozen twin does, and mirrors it", async () => {
   let accepted = 0;
   for (const name of fs.readdirSync(FIXTURES).sort()) {
+    if (REVISED.has(name)) continue;
     const url = `https://data.test/zarr2/${name}/`;
     const ref = await referenceStore(directoryStore(FIXTURES + name, url)).catch((e: Error) => e);
     const ir = await zarrifyStore(directoryStore(FIXTURES + name, url)).catch((e: Error) => e);
