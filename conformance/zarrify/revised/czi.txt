@@ -1,0 +1,39 @@
+# CZI's LZW, lossless JPEG and 12-bit JPEG subblocks (spec/zarrify/czi.md §3.1
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#31-pixel-types-and-codecs>), which
+# the frozen reference rejects. A CZI image across numbered files (spec/zarrify/czi.md §7.9
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#79-several-files>), which the
+# frozen reference rejects or reads as its named file alone.
+czi_codec_unplaced.czi
+czi_jpeg_12bit.czi
+czi_ljpeg.czi
+czi_lzw.czi
+czi_parts_both(1).czi
+czi_parts_both.czi
+czi_parts_cover(1).czi
+czi_parts_cover.czi
+czi_parts_own(1).czi
+czi_parts_own(2).czi
+czi_parts_own.czi
+czi_parts_primary(1).czi
+czi_parts_primary.czi
+czi_parts_spaced (1).czi
+czi_parts_spaced.czi
+czi_parts_stopped.czi
+czi_parts_stranger(1).czi
+czi_parts_stranger.czi
+czi_parts_walk(1).czi
+czi_parts_walk.czi
+czi_reject_attachment_file_part.czi
+czi_reject_entry_file_part.czi
+czi_reject_file_part.czi
+czi_reject_parts_absent.czi
+czi_reject_parts_document(1).czi
+czi_reject_parts_document.czi
+czi_reject_parts_entry_part(1).czi
+czi_reject_parts_entry_part.czi
+czi_reject_parts_file_part(1).czi
+czi_reject_parts_file_part.czi
+czi_reject_parts_guid(1).czi
+czi_reject_parts_guid.czi
+czi_reject_parts_input(1).czi
+czi_reject_parts_negative.czi

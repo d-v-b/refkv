@@ -21,16 +21,17 @@ from refkv.zarrify import _zarrify as zarrify  # the profile output, not the sto
 from refkv.zarrify.common import CONVENTION_KEY
 
 sys.path.insert(0, str(Path(__file__).parents[2] / "conformance" / "zarrify" / "reference"))
+sys.path.append(str(Path(__file__).parents[2] / "conformance" / "zarrify"))
 from refkv_reference import virtualize as reference
 from refkv_reference.legacy import SOURCE_NODE as LEGACY_NODE
 from refkv_reference.legacy import StoreOutput, current_names
 
+# The stores whose verdict the profile changed after the freeze (conformance/zarrify/revised/README.md).
+from revised_fixtures import REVISED
+
 FIXTURES = Path(__file__).parents[2] / "fixtures" / "ome-zarr"
 URL = "https://data.test/ome-zarr/{}/"
 STORES = sorted(p for p in FIXTURES.iterdir() if p.is_dir())
-# The stores whose verdict the profile changed after the freeze (conformance/zarrify/revised.json).
-REVISED_JSON = Path(__file__).parents[2] / "conformance" / "zarrify" / "revised.json"
-REVISED = set(json.loads(REVISED_JSON.read_text())["fixtures"])
 
 
 def whole_object(parts) -> str:
