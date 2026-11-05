@@ -34,10 +34,13 @@ const STORE_FORMATS: Record<StoreProfile, string | undefined> = {
   safe: undefined,
   vsi: "VSI",
   nrrd: "NRRD",
+  nifti: "NIfTI",
   grib: "GRIB",
   safetensors: "safetensors",
   lif: "LIF",
+  hdf5: "HDF5",
   tiff: "TIFF",
+  czi: "CZI",
 };
 
 export const ARCHIVE_KEY = "__vz__/archive.vzip";

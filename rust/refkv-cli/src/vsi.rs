@@ -29,6 +29,9 @@ fn titles(format: StoreFormat) -> (&'static str, &'static str) {
         StoreFormat::Grib => ("GRIB", "GRIB file"),
         StoreFormat::Lif => ("LIF", "named document"),
         StoreFormat::Tiff => ("TIFF", "TIFF file"),
+        StoreFormat::Hdf5 => ("HDF5", "HDF5 file"),
+        StoreFormat::Czi => ("CZI", "CZI file"),
+        StoreFormat::Nifti => ("NIfTI", "header file"),
         _ => ("VSI", ".vsi file"),
     }
 }
@@ -123,12 +126,22 @@ impl Files {
         p
     }
 
+    /// Whether the local file or directory at `key` is below the named file's directory, symbolic
+    /// links followed (spec/zarrify.md §1.9
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>).
+    fn below(&self, key: &str) -> bool {
+        match (self.path(key).canonicalize(), self.path("").canonicalize()) {
+            (Ok(p), Ok(root)) => p.starts_with(root),
+            _ => false,
+        }
+    }
+
     /// The entries of the local directory at the key `key`, or None when there is none.
     fn listdir(&mut self, key: &str) -> Option<Vec<String>> {
         if let Some(l) = self.listed.get(key) {
             return l.clone();
         }
-        let got = std::fs::read_dir(self.path(key)).ok().map(|d| {
+        let got = self.below(key).then(|| std::fs::read_dir(self.path(key)).ok()).flatten().map(|d| {
             d.filter_map(|e| e.ok().and_then(|e| e.file_name().into_string().ok())).collect::<Vec<String>>()
         });
         self.listed.insert(key.to_string(), got.clone());
@@ -158,7 +171,7 @@ impl Files {
             }
         } else {
             let p = self.path(key);
-            if !p.is_file() {
+            if !p.is_file() || !self.below(key) {
                 return Ok(None);
             }
             Transport::open(p.to_str().ok_or_else(|| Fail::Other(format!("{key}: not a path")))?, &self.client)?
@@ -224,4 +237,77 @@ pub fn zarrify_vsi(location: &str, url: Option<&str>, t: Transport, client: &Arc
         m.insert("listingRequests".into(), files.requests.into());
     }
     Ok((out, files))
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::symlink;
+    use std::path::{Path, PathBuf};
+    use std::time::Duration;
+
+    /// A directory with a named file, its files and links, beside a directory with a secret.
+    fn upload(name: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!("refkv-cli-beside-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let (outside, upload) = (root.join("outside"), root.join("upload"));
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::create_dir_all(upload.join("sub")).unwrap();
+        std::fs::write(outside.join("secret.bin"), b"secret").unwrap();
+        std::fs::write(upload.join("a.nhdr"), b"named").unwrap();
+        std::fs::write(upload.join("plain.bin"), b"plain").unwrap();
+        std::fs::write(upload.join("sub/plain.bin"), b"plain").unwrap();
+        symlink("plain.bin", upload.join("link_inside.bin")).unwrap();
+        symlink("sub", upload.join("dir_inside")).unwrap();
+        symlink(outside.join("secret.bin"), upload.join("link_outside.bin")).unwrap();
+        symlink(&outside, upload.join("dir_outside")).unwrap();
+        symlink(&upload, root.join("linked")).unwrap();
+        upload
+    }
+
+    fn files(dir: &Path, format: StoreFormat) -> Files {
+        let client = Client::new(crate::policy::Policy::default(), Duration::from_secs(5));
+        let named = dir.join("a.nhdr");
+        let named = named.to_str().unwrap();
+        let t = Transport::open(named, &client).ok().unwrap();
+        Files::open(named, None, t, &client, format).ok().unwrap()
+    }
+
+    fn found(files: &mut Files, key: &str) -> Option<u64> {
+        files.probe(key).ok().unwrap().map(|(n, _)| n)
+    }
+
+    #[test]
+    fn a_sibling_below_the_directory_is_found() {
+        let dir = upload("found");
+        for named in [dir.clone(), dir.parent().unwrap().join("linked")] {
+            for format in [StoreFormat::Nrrd, StoreFormat::Lif] {
+                for key in ["plain.bin", "sub/plain.bin", "link_inside.bin", "dir_inside/plain.bin"] {
+                    assert_eq!(found(&mut files(&named, format), key), Some(5), "{key} from {named:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_link_to_a_file_outside_is_absent() {
+        let dir = upload("file");
+        for format in [StoreFormat::Nrrd, StoreFormat::Lif] {
+            assert_eq!(found(&mut files(&dir, format), "link_outside.bin"), None);
+        }
+    }
+
+    #[test]
+    fn a_key_through_a_link_to_a_directory_outside_is_absent() {
+        let dir = upload("key");
+        for format in [StoreFormat::Nrrd, StoreFormat::Lif] {
+            assert_eq!(found(&mut files(&dir, format), "dir_outside/secret.bin"), None);
+        }
+    }
+
+    #[test]
+    fn a_directory_outside_is_not_listed() {
+        let dir = upload("list");
+        assert_eq!(files(&dir, StoreFormat::Lif).listdir("dir_outside"), None);
+    }
 }

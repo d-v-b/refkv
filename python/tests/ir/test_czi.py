@@ -21,7 +21,7 @@ from refkv.ir.planner import HttpTransport
 from refkv.policy import Policy
 from refkv.zarrify import Rejected
 
-CZIS = sorted((FIXTURES / "czi").iterdir())
+CZIS = sorted(p for p in (FIXTURES / "czi").iterdir() if p.name not in REVISED)
 
 
 @pytest.mark.parametrize("path", [p for p in CZIS if p.name not in REVISED], ids=lambda p: p.name)

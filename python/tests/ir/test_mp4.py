@@ -9,6 +9,7 @@ import json
 import av
 import numpy as np
 import pytest
+from imagecodecs import jpeg_decode
 from ir_helpers import FIXTURES, core_setting
 from ir_helpers import zarrified as shared_zarrified
 from zarr.core.metadata import ArrayV3Metadata
@@ -55,6 +56,14 @@ def decoded(path, index):
     return s.type, frames, sorted(p.pts for p in packets)
 
 
+def jpeg_samples(path, index):
+    """The samples of Motion JPEG stream `index`, by ffmpeg's demuxer, in presentation order: (their
+    bytes, their times)."""
+    c = av.open(str(path))
+    packets = sorted((p for p in c.demux(c.streams[index]) if p.size), key=lambda p: p.pts)
+    return [bytes(p) for p in packets], [p.pts for p in packets]
+
+
 def pcm(path, index):
     """ffmpeg's decoding of the PCM stream `index`, [frames, channels] of the stream's samples:
     ffmpeg's decoder gives 8-bit signed ones as unsigned, 128 more."""
@@ -66,9 +75,9 @@ def pcm(path, index):
 
 
 def plane(f, k):
-    """Plane `k` of a decoded picture: uint8 for 8 bits a sample, uint16 for 10."""
+    """Plane `k` of a decoded picture: uint8 for 8 bits a sample, uint16 for more."""
     p = f.planes[k]
-    dtype = np.dtype("<u2") if f.format.name.endswith("10le") else np.dtype(np.uint8)
+    dtype = np.dtype("<u2") if f.format.name.endswith(("10le", "12le")) else np.dtype(np.uint8)
     return np.frombuffer(p, dtype).reshape(p.height, p.line_size // dtype.itemsize)[:, :p.width]
 
 
@@ -97,7 +106,7 @@ def test_tracks_are_ffmpegs_decoding(path, chunk_frames, tmp_path):
         g = root.get_group(string(track["path"]))
         tm = mapping(at(g.attrs, "refkv_zarrified", "mp4"))
         assert tm["id"] == track["id"]
-        assert tm["format"] in ("h264", "hevc", "aac", "mp3", "pcm")
+        assert tm["format"] in ("h264", "hevc", "av1", "vp9", "mjpeg", "aac", "mp3", "pcm")
         if tm["format"] == "pcm":
             want = pcm(path, integer(track["id"]) - 1)
             got = ndarray(g.get_array("samples")[...])
@@ -108,9 +117,27 @@ def test_tracks_are_ffmpegs_decoding(path, chunk_frames, tmp_path):
             assert tm["samples_per_frame"] == 1
             continue
         kind, frames, pts = decoded(path, integer(track["id"]) - 1)
-        if kind == "video":
+        if tm["format"] == "mjpeg":
+            streams, times = jpeg_samples(path, integer(track["id"]) - 1)
+            got = ndarray(g.get_array("pictures")[...])
+            assert got.dtype == np.uint8
+            assert tm["frames"] == len(streams) == len(frames)
+            assert np.array_equal(got, np.stack([jpeg_decode(b) for b in streams]))
+            # the decoder's RGB is that of ffmpeg's conversion, near enough to be the same picture
+            gray = tm["channels"] == 1
+            rgb = np.stack([f.to_ndarray(format="gray" if gray else "rgb24") for f in frames])
+            assert np.mean(np.abs(got.astype(np.int16) - rgb)) < 8
+            assert ndarray(g.get_array("time")[...]).tolist() == times
+            meta = g.get_array("pictures").metadata
+            assert isinstance(meta, ArrayV3Metadata)
+            assert meta.dimension_names == (("time", "y", "x") if gray else ("time", "y", "x", "c"))
+            doc = json.loads(out.bytes_entries[f"{track['path']}/pictures/zarr.json"])
+            assert doc["chunk_grid"]["configuration"]["chunk_shape"][0] == 1
+        elif kind == "video":
             assert tm["frames"] == len(frames)
             assert tm["width"] == frames[0].width
+            assert tm["chroma"] == ("4:2:2" if "422" in frames[0].format.name else "4:2:0")
+            assert tm["bit_depth"] == {"10le": 10, "12le": 12}.get(frames[0].format.name[-4:], 8)
             for k, p in enumerate("yuv"):
                 want = np.stack([plane(f, k) for f in frames])
                 got = ndarray(g.get_array(p)[...])
@@ -306,8 +333,13 @@ def test_the_codec_keeps_each_plane_once_within_its_limit():
 TRACKS = [
     ("mp4_hevc_aac.mp4", ["tracks/1", "tracks/2"], {}),
     ("mov_hevc_main10_aac.mov", ["tracks/1", "tracks/2"], {}),
-    ("mp4_hevc_422_aac.mp4", ["tracks/2"], {1: "HEVC with chroma format 2 and bit depth 10 is not supported"}),
-    ("mp4_h264_10bit_aac.mp4", ["tracks/2"], {1: "H.264 with chroma format 1 and bit depth 10 is not supported"}),
+    ("mp4_hevc_422_aac.mp4", ["tracks/1", "tracks/2"], {}),
+    ("mp4_h264_10bit_aac.mp4", ["tracks/1", "tracks/2"], {}),
+    ("mp4_av1_aac.mp4", ["tracks/1", "tracks/2"], {}),
+    ("mp4_vp9_aac.mp4", ["tracks/1", "tracks/2"], {}),
+    ("mp4_hevc_444_aac.mp4", ["tracks/2"], {1: "HEVC with chroma format 3 and bit depth 8 is not supported"}),
+    ("mp4_h264_422_aac.mp4", ["tracks/2"], {1: "H.264 with chroma format 2 and bit depth 8 is not supported"}),
+    ("mp4_vp9_444_aac.mp4", ["tracks/2"], {1: "VP9 with chroma format 3 and bit depth 8 is not supported"}),
     ("mp4_h264_aac.mp4", ["tracks/1", "tracks/2"], {}),
     ("mov_h264_aac.mov", ["tracks/1", "tracks/2"], {}),
     ("mov_h264_negative_ctts_aac.mov", ["tracks/1", "tracks/2"], {}),
@@ -323,6 +355,12 @@ TRACKS = [
     ("mp4_he_aac_h264.mp4", ["tracks/1", "tracks/2"], {}),
     ("mp4_he_aac_low_sbr_h264.mp4", ["tracks/1"], {2: "HE-AAC of SBR at 48000 Hz over a core at 22050 Hz"}),
     ("mp4_aac_ssr_h264.mp4", ["tracks/1"], {2: "AAC object type 3 is not supported"}),
+    ("mov_mjpeg.mov", ["tracks/1"], {}),
+    ("mp4_mjpeg_aac.mp4", ["tracks/1", "tracks/2"], {}),
+    ("mov_mjpb_aac.mov", ["tracks/2"], {1: "mjpb video is not supported"}),
+    ("mov_mjpeg_fields_aac.mov", ["tracks/2"], {1: "JPEG pictures of 64x48 in a sample entry of 64x96"}),
+    ("mov_mjpeg_12bit_aac.mov", ["tracks/2"], {1: "JPEG of marker 0xC0 and 12 bits is not supported"}),
+    ("mov_mjpeg_no_header_aac.mov", ["tracks/2"], {1: "a first sample without a JPEG frame header"}),
     ("mp4_frag_pcm_h264.mp4", ["tracks/1", "tracks/2"], {}),
     ("mov_frag_pcm_s32be.mov", ["tracks/1"], {}),
 ]

@@ -120,9 +120,19 @@ fn zstd_content_size(h: &Head, at: u64) -> Result<Option<u64>, Need> {
     Ok(Some(if n == 2 { v + 256 } else { v }))
 }
 
-/// (width, height) of a JPEG stream's frame header, when `admits` its marker and precision and
-/// it has `p` components.
-fn jpeg_frame(h: &Head, p: u64, admits: impl Fn(u8, u8) -> bool) -> Result<Option<(u64, u64)>, Need> {
+/// A JPEG stream's frame header (ITU T.81 B.2.2).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct JpegFrame {
+    pub marker: u8,
+    pub precision: u8,
+    pub height: u64,
+    pub width: u64,
+    pub components: u8,
+}
+
+/// The frame header of a JPEG stream: None when the data does not start with one, or it ends or
+/// has its scan first.
+pub fn jpeg_frame_header(h: &Head) -> Result<Option<JpegFrame>, Need> {
     let Some(b) = h.get(0, 2)? else { return Ok(None) };
     if b != [0xFF, 0xD8] {
         return Ok(None);
@@ -153,15 +163,18 @@ fn jpeg_frame(h: &Head, p: u64, admits: impl Fn(u8, u8) -> bool) -> Result<Optio
         }
         if (0xC0..=0xCF).contains(&m) && !matches!(m, 0xC4 | 0xC8 | 0xCC) {
             let Some(f) = h.get(pos + 2, 6)? else { return Ok(None) };
-            let (precision, height, width, count) =
-                (f[0], u16::be_at(f, 1) as u64, u16::be_at(f, 3) as u64, f[5]);
-            if admits(m, precision) && height >= 1 && width >= 1 && count as u64 == p {
-                return Ok(Some((width, height)));
-            }
-            return Ok(None);
+            return Ok(Some(JpegFrame { marker: m, precision: f[0], height: u16::be_at(f, 1) as u64, width: u16::be_at(f, 3) as u64, components: f[5] }));
         }
         pos += length;
     }
+}
+
+/// (width, height) of a JPEG stream's frame header, when `admits` its marker and precision and
+/// it has `p` components.
+fn jpeg_frame(h: &Head, p: u64, admits: impl Fn(u8, u8) -> bool) -> Result<Option<(u64, u64)>, Need> {
+    let Some(f) = jpeg_frame_header(h)? else { return Ok(None) };
+    let fits = admits(f.marker, f.precision) && f.height >= 1 && f.width >= 1 && f.components as u64 == p;
+    Ok(fits.then_some((f.width, f.height)))
 }
 
 /// (width, height) of a lossless JPEG stream of one component whose samples decode to values of

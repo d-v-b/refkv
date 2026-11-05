@@ -241,6 +241,28 @@ def main() -> None:
     mrc("mrc_imod_unsigned_uint8_be", (4, 3, 2), 0, order=">",
         extra2=bytes(40) + struct.pack(">ii", 1146047817, 0) + bytes(36), nversion=0)
     mrc("mrc_edge_volume_stack_one", (3, 2, 3), 2, ispg=401, mz=3)
+    # The origin's sign (spec/zarrify/mrc.md §4.2
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#42-scales-units-and-position>),
+    # with the flags real files carry: 13 sets bit 2, the -0 is what IMOD writes for a zero, and
+    # 9 is the IMOD tutorial's cryoSubvol.rec, whose bit 2 is clear.
+    placed = [1.5, 2.0, 7.25]
+    negated = [-1.5, -2.0, -7.25]
+    mrc("mrc_imod_origin_inverted", (3, 3, 2), 2, extra2=imod(13), origin=[1.5, -0.0, 7.25])
+    mrc("mrc_imod_origin_inverted_old_version", (3, 3, 2), 2, nversion=0, extra2=imod(4), origin=placed)
+    mrc("mrc_imod_origin_clear", (3, 3, 2), 2, nversion=0, extra2=imod(9), origin=[-1.5, 0.0, 7.25])
+    mrc("mrc_imod_origin_clear_be", (3, 3, 2), 2, order=">", nversion=0, origin=negated,
+        extra2=bytes(40) + struct.pack(">ii", 1146047817, 9) + bytes(36))
+    # A standard version makes the origin the standard's with bit 2 clear, as IMOD's reader does;
+    # a value outside the versions is not one.
+    mrc("mrc_imod_origin_clear_standard", (3, 3, 2), 2, nversion=20141, extra2=imod(9), origin=placed)
+    mrc("mrc_imod_origin_clear_version_low", (3, 3, 2), 2, nversion=20139, extra2=imod(9), origin=negated)
+    mrc("mrc_imod_origin_clear_version_high", (3, 3, 2), 2, nversion=21000, extra2=imod(9), origin=negated)
+    # Without the stamp the origin is as stored, whatever the version and byte 156 hold.
+    mrc("mrc_imod_origin_no_stamp", (3, 3, 2), 2, nversion=0, origin=placed)
+    mrc("mrc_imod_origin_flag_no_stamp", (3, 3, 2), 2, nversion=0, origin=placed,
+        extra2=bytes(44) + struct.pack("<i", 9) + bytes(36))
+    # An image stack's origin is no position, whatever its sign.
+    mrc("mrc_imod_origin_image_stack", (3, 3, 2), 2, ispg=0, nversion=0, extra2=imod(9), origin=negated)
     mrc("mrc_edge_ispg_230", (3, 2, 2), 2, ispg=230)
     mrc("mrc_edge_ispg_negative", (3, 2, 2), 2, ispg=-1)
     mrc("mrc_edge_version_old", (3, 2, 2), 2, nversion=0, map=b"MAP\0")

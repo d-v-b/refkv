@@ -13,6 +13,11 @@
 //! (`schema/czi.json`) is checked as the profile meets each role: a file that
 //! fails is rejected there, and nowhere else. The layout (series, levels, tiles,
 //! row bands) is derived at the end, and checked there.
+//!
+//! An image across numbered files (spec/zarrify/czi.md §7.9
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#79-several-files>) has a parser
+//! of this kind per file, driven by the store run of `czi_set.rs`. A file run's parser finds out
+//! after round 3 that its file has siblings, and ends the run (`Step::Beside`).
 
 use crate::coding::{self, Head};
 use crate::cxml;
@@ -23,7 +28,7 @@ use crate::rules::{self, Rules, flag, num, text};
 use crate::sans;
 use crate::types;
 use serde_json::{Value as J, json};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 const HEADER: &str = "{id:cstr[16],allocated_size:<i8,used_size:<i8}";
 const FILE_HEADER: &str = "{major:<i4,minor:<i4,reserved:bytes[8],primary_file_guid:guid,file_guid:guid,file_part:<i4,directory_position:<i8,metadata_position:<i8,update_pending:<i4,attachment_directory_position:<i8}";
@@ -38,6 +43,7 @@ const SERIES: &[u8] = b"SBHIRV";
 const FIRST_HEAD: u64 = 1024; // the first bytes of a JPEG or JPEG XR subblock's data read for its codec header
 const ZSTD_HEAD: u64 = 32; // and of an LZW subblock's
 const SEGMENT_HEAD: u64 = 2048; // the bytes read at a compressed subblock's segment: its header, and often its codec header
+const SCAN_HEAD: u64 = 1024; // the bytes read at a segment of a part with no directory: its header and its subblock's entry
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Phase {
@@ -45,6 +51,7 @@ enum Phase {
     FileHeader,
     Heads,
     Bodies,
+    Scan,
     Directory,
     SubHeads,
     SubLong,
@@ -88,8 +95,13 @@ struct Seg {
 }
 
 #[derive(Clone, Default)]
-struct Entry {
+pub(crate) struct Entry {
     pos: i64,
+    /// the FilePart it names
+    part: i32,
+    /// its bytes, when its file's IR has no element of them: the master's entry of a part's
+    /// subblock, or the copy in a subblock its directory-less part's walk found
+    raw: Option<Vec<u8>>,
     pt: i32,
     comp: i32,
     /// (letter, start, size, stored)
@@ -121,8 +133,8 @@ struct Sub {
     resolved: bool,
 }
 
-struct Placed {
-    index: usize,
+pub(crate) struct Placed {
+    pub(crate) index: usize,
     series: Vec<(u8, i64)>,
     plane: (i64, i64, i64),
     x: i64,
@@ -135,7 +147,7 @@ struct Placed {
     ch: u64,
     form: (i32, i32, bool),
     layer: Option<(u32, u32)>,
-    el: u32,
+    pub(crate) el: u32,
 }
 
 impl Placed {
@@ -155,9 +167,76 @@ struct Level {
     cells: Vec<(usize, i64, i64)>, // (placed, column, row)
 }
 
+/// What the file is to its run.
+enum Role {
+    /// a file run's input, which has no name: one with siblings ends the run
+    Alone,
+    /// a store run's named file
+    Named(String),
+    /// part `part` of the image `of`, at `key`
+    Part { key: String, part: i32, of: Master },
+}
+
+/// What a part is checked against: its master's FileGuid, and the XML's document.
+#[derive(Clone)]
+pub(crate) struct Master {
+    guid: Vec<u8>,
+    document: [Option<String>; 2],
+}
+
+/// The planes and tiles an image's XML says it has, and those its directories have
+/// (spec/zarrify/czi.md §7.9
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#79-several-files>).
+pub(crate) struct Planes {
+    letters: Vec<u8>,
+    expected: u128,
+    tiles: u64,
+    found: HashSet<Vec<i32>>,
+    found_tiles: HashSet<i32>,
+}
+
+impl Planes {
+    fn add(&mut self, entries: &[Entry]) {
+        for e in entries {
+            let whole = |l: u8| e.dim(l).is_some_and(|d| d.1 == d.2);
+            if !(whole(b'X') && whole(b'Y')) {
+                continue;
+            }
+            self.found.insert(self.letters.iter().map(|&l| e.dim(l).map_or(0, |d| d.0)).collect());
+            if let Some(m) = e.dim(b'M') {
+                self.found_tiles.insert(m.0);
+            }
+        }
+    }
+
+    /// Whether every plane and tile the XML says the image has is found.
+    pub(crate) fn complete(&self) -> bool {
+        self.found.len() as u128 >= self.expected && self.found_tiles.len() as u64 >= self.tiles
+    }
+}
+
+/// The message that rejects `key`, part `part` of an image, as an input.
+fn part_of_message(key: &str, part: i32) -> String {
+    match crate::czi_set::master_key(key) {
+        Some(m) => format!("{key} is part {part} of the file {m}: zarrify that one"),
+        None => format!("{key} is part {part} of another file: zarrify that one"),
+    }
+}
+
 pub struct Czi {
     size: u64,
     phase: Phase,
+    role: Role,
+    /// the entries a part was given (they come first), not of its own directory
+    given: usize,
+    /// the highest FilePart this file's entries name
+    highest: i32,
+    /// a part with no directory: whether its subblocks are looked for, where the walk stands, how
+    /// many segments it has passed, and the positions the given entries already name
+    scans: bool,
+    scan_at: u64,
+    scanned: u64,
+    known: HashSet<i64>,
     fed: Fed,
     pub ir: Ir,
     rules: &'static Rules,
@@ -222,6 +301,13 @@ impl Czi {
         Czi {
             size,
             phase: Phase::Start,
+            role: Role::Alone,
+            given: 0,
+            highest: 0,
+            scans: false,
+            scan_at: 0,
+            scanned: 0,
+            known: HashSet::new(),
             fed: Fed::default(),
             ir: Ir::new(size),
             rules: rules::of("czi"),
@@ -250,6 +336,116 @@ impl Czi {
             asked: sans::Asked::default(),
             held_max: 0,
         }
+    }
+
+    /// The named file of a store run.
+    pub fn named(size: u64, key: &str) -> Self {
+        Czi { role: Role::Named(key.to_string()), ..Czi::new(size) }
+    }
+
+    /// Part `part` of the image `of`, at `key`, with the entries the master's directory has of it.
+    /// `complete`: those entries are all the image lacks, so that a part with no directory need
+    /// not be walked for more, a read a segment.
+    pub(crate) fn part(size: u64, key: &str, part: i32, of: Master, given: Vec<Entry>, complete: bool) -> Self {
+        Czi {
+            role: Role::Part { key: key.to_string(), part, of },
+            given: given.len(),
+            scans: given.is_empty() || !complete,
+            known: given.iter().map(|e| e.pos).collect(),
+            entries: given,
+            ..Czi::new(size)
+        }
+    }
+
+    /// This file's part number: 0 but for a part.
+    fn own_part(&self) -> i32 {
+        match self.role {
+            Role::Part { part, .. } => part,
+            _ => 0,
+        }
+    }
+
+    /// The highest FilePart this file's entries name.
+    pub(crate) fn highest(&self) -> i32 {
+        self.highest
+    }
+
+    /// What a part of this image is checked against.
+    pub(crate) fn master(&self) -> Res<Master> {
+        let (_, _, _, file, ..) = self.fields.as_ref().ok_or("internal: no file header")?;
+        Ok(Master { guid: file.clone(), document: self.values.document.clone() })
+    }
+
+    /// The master's entries of the subblocks in part `p`.
+    pub(crate) fn given_to(&self, p: i32) -> Vec<Entry> {
+        let of_part = (0..self.entries.len()).filter(|&i| self.entries[i].part == p);
+        of_part.map(|i| Entry { raw: Some(self.entry_bytes(i)), el: 0, dims_el: None, ..self.entries[i].clone() }).collect()
+    }
+
+    /// What the XML says the image has, and what this file's directory holds of it.
+    pub(crate) fn planes(&self) -> Planes {
+        let size = |l: u8| self.values.sizes.iter().find(|s| s.0 == l).map(|s| s.1);
+        let letters: Vec<u8> = cxml::SIZES.iter().copied().filter(|&l| l != b'M' && size(l).is_some()).collect();
+        let expected = if letters.is_empty() { 0 } else { letters.iter().fold(1u128, |a, &l| a.saturating_mul(size(l).unwrap_or(1) as u128)) };
+        let mut p = Planes { letters, expected, tiles: size(b'M').unwrap_or(0), found: HashSet::new(), found_tiles: HashSet::new() };
+        p.add(&self.entries);
+        p
+    }
+
+    /// Adds what this file's entries hold.
+    pub(crate) fn add_planes(&self, planes: &mut Planes) {
+        planes.add(&self.entries);
+    }
+
+    /// The file's IR, the subblocks to place, the entries it has (their indexes in `Placed`) and
+    /// how many of them are subblocks of this file, once its parse is done.
+    pub(crate) fn take_file(&mut self) -> Res<(Ir, Vec<Placed>, usize, usize)> {
+        let placed = self.placed();
+        let own = self.entries.iter().filter(|e| !self.elsewhere(e)).count();
+        let ir = std::mem::replace(&mut self.ir, Ir::new(0));
+        let (ir, _) = sans::finish(self.phase == Phase::Done, ir, J::Null)?;
+        Ok((ir, placed, self.entries.len(), own))
+    }
+
+    pub(crate) fn is_done(&self) -> bool {
+        self.phase == Phase::Done
+    }
+
+    /// Whether the entry's subblock is in another file than this one.
+    fn elsewhere(&self, e: &Entry) -> bool {
+        e.part != 0 && e.part != self.own_part()
+    }
+
+    /// The identity of a part, as far as its file header gives it (the sibling table of
+    /// spec/zarrify/czi.md §7.9
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#79-several-files>).
+    fn check_part_header(&self, primary: &[u8], file: &[u8], file_part: i32) -> Res<()> {
+        let Role::Part { key, part, of } = &self.role else { return Ok(()) };
+        let names_master = primary == of.guid && file_part == *part;
+        let own_primary = primary == file && file_part == 0;
+        if !(names_master || own_primary) {
+            return Err(format!("the file \"{key}\" is not part of this image"));
+        }
+        Ok(())
+    }
+
+    /// A part that is its own primary says which part it is in its attachment entries, and its
+    /// XML's document is the master's, where both have one.
+    fn check_part_entries(&self, parts: &[i32]) -> Res<()> {
+        let Role::Part { key, part, of } = &self.role else { return Ok(()) };
+        let (_, _, primary, _, file_part, ..) = self.fields.as_ref().ok_or("internal: no file header")?;
+        if *primary == of.guid && file_part == part {
+            return Ok(());
+        }
+        let named = !parts.is_empty() && parts.iter().all(|p| p == part);
+        let same = |k: usize| {
+            let (a, b) = (&self.values.document[k], &of.document[k]);
+            a.is_none() || b.is_none() || a == b
+        };
+        if !(named && same(0) && same(1)) {
+            return Err(format!("the file \"{key}\" is not part of this image"));
+        }
+        Ok(())
     }
 
     pub fn feed(&mut self, offset: u64, data: Vec<u8>) {
@@ -330,6 +526,17 @@ impl Czi {
                         "file_header",
                         rules::env([("major", num(major)), ("minor", num(minor)), ("file_part", num(file_part))]),
                     )?;
+                    if file_part != 0 {
+                        match &self.role {
+                            Role::Alone => {
+                                self.phase = Phase::Done;
+                                return Ok(Step::Beside);
+                            }
+                            Role::Named(key) => return Err(part_of_message(key, file_part)),
+                            Role::Part { .. } => {}
+                        }
+                    }
+                    self.check_part_header(field("primary_file_guid"), field("file_guid"), file_part)?;
                     let (dir, meta) = (i64::le_at(field("directory_position"), 0), i64::le_at(field("metadata_position"), 0));
                     let (upd, att) = (i32::le_at(field("update_pending"), 0), i64::le_at(field("attachment_directory_position"), 0));
                     let (primary, file) = (field("primary_file_guid").to_vec(), field("file_guid").to_vec());
@@ -342,7 +549,7 @@ impl Czi {
                             r.push((p as u64, (n as u64).min(self.size - p as u64)));
                         }
                     }
-                    if dir == 0 && self.within(0, 160) {
+                    if dir == 0 && self.within(0, 160) && self.own_part() == 0 {
                         r.push((0, 160));
                     }
                     self.phase = Phase::Heads;
@@ -351,22 +558,24 @@ impl Czi {
                 Phase::Heads => {
                     let (.., dir, meta, _, att) = self.fields.clone().unwrap();
                     let mut r = Vec::new();
-                    // the directory
-                    let (s, _) = self.segment(0, "directory", NO_INDEX, "the subblock directory", Kind::Directory, dir, 32)?;
-                    self.within_check("the directory's EntryCount", dir + 32, 4)?;
-                    let p = dir as u64;
-                    let c = self.fed.get(p + 32, 4).unwrap().to_vec();
-                    self.ir.value(s, "entry_count", NO_INDEX, "<i4", 0, (p + 32, 4), Some(&c))?;
-                    let count = i32::le_at(&c, 0) as i64;
-                    self.rules.check(
-                        "entry_count",
-                        rules::env([("what", text("the directory")), ("count", num(count as f64)), ("maximum", num(self.rules.limit("max_entries")))]),
-                    )?;
-                    let seg = &self.segs[&p];
-                    let used = if seg.used != 0 { seg.used } else { seg.allocated };
-                    let end = p + 32 + used as u64;
-                    self.dir = Some((p, s, end, count));
-                    self.dir_at = p + 160;
+                    // the directory, which a part may not have
+                    if dir != 0 || self.own_part() == 0 {
+                        let (s, _) = self.segment(0, "directory", NO_INDEX, "the subblock directory", Kind::Directory, dir, 32)?;
+                        self.within_check("the directory's EntryCount", dir + 32, 4)?;
+                        let p = dir as u64;
+                        let c = self.fed.get(p + 32, 4).unwrap().to_vec();
+                        self.ir.value(s, "entry_count", NO_INDEX, "<i4", 0, (p + 32, 4), Some(&c))?;
+                        let count = i32::le_at(&c, 0) as i64;
+                        self.rules.check(
+                            "entry_count",
+                            rules::env([("what", text("the directory")), ("count", num(count as f64)), ("maximum", num(self.rules.limit("max_entries")))]),
+                        )?;
+                        let seg = &self.segs[&p];
+                        let used = if seg.used != 0 { seg.used } else { seg.allocated };
+                        let end = p + 32 + used as u64;
+                        self.dir = Some((p, s, end, count));
+                        self.dir_at = p + 160;
+                    }
                     // the metadata segment
                     if meta != 0 {
                         let (m, alias) = self.segment(0, "metadata", NO_INDEX, "the metadata segment", Kind::Metadata, meta, 32)?;
@@ -435,6 +644,7 @@ impl Czi {
                             }
                         }
                     }
+                    let mut parts = Vec::new();
                     if let Some((ap, a, k)) = self.att {
                         let raw = self.fed.get(ap + 288, 128 * k as u64).ok_or("internal: no attachment entries")?.to_vec();
                         let alias = self.ir.kind[a as usize] == ALIAS;
@@ -446,16 +656,43 @@ impl Czi {
                             }
                             if a1 {
                                 let n = e[40..48].iter().position(|&c| c == 0).unwrap_or(8);
-                                self.a1.push((i, i64::le_at(e, 12), e[40..40 + n].to_vec()));
-                                self.rules.check("attachment_entry", rules::env([("k", num(i as f64)), ("file_part", num(i32::le_at(e, 20)))]))?;
+                                let file_part = i32::le_at(e, 20);
+                                self.rules.check("attachment_entry", rules::env([("k", num(i as f64)), ("file_part", num(file_part)), ("part", num(self.own_part()))]))?;
+                                parts.push(file_part);
+                                // an attachment in another part: that part's walk describes it
+                                if file_part == 0 || file_part == self.own_part() {
+                                    self.a1.push((i, i64::le_at(e, 12), e[40..40 + n].to_vec()));
+                                }
                             }
                         }
+                    }
+                    // a file whose attachment entries all name one part is that part
+                    let says = parts.first().copied().filter(|&p| p > 0 && parts.iter().all(|&x| x == p));
+                    match (&self.role, says) {
+                        (Role::Alone, Some(_)) => {
+                            self.phase = Phase::Done;
+                            return Ok(Step::Beside);
+                        }
+                        (Role::Named(key), Some(p)) => return Err(part_of_message(key, p)),
+                        (Role::Part { .. }, _) => self.check_part_entries(&parts)?,
+                        _ => self.highest = parts.iter().copied().fold(self.highest, i32::max),
+                    }
+                    self.phase = if self.dir.is_some() { Phase::Directory } else { Phase::Scan };
+                }
+                Phase::Scan => {
+                    if let Some(s) = self.scan()? {
+                        return Ok(s);
                     }
                     self.phase = Phase::Directory;
                 }
                 Phase::Directory => {
                     if let Some(s) = self.directory()? {
                         return Ok(s);
+                    }
+                    // a file with siblings: those its entries name, or what its XML says it lacks
+                    if matches!(self.role, Role::Alone) && (self.highest > 0 || !self.planes().complete()) {
+                        self.phase = Phase::Done;
+                        return Ok(Step::Beside);
                     }
                     self.subs = vec![Sub::default(); self.entries.len()];
                     self.group = (0, 0);
@@ -492,7 +729,9 @@ impl Czi {
                     if let Some(s) = self.walk()? {
                         return Ok(s);
                     }
-                    self.facts = Some(self.layout()?);
+                    if matches!(self.role, Role::Alone) {
+                        self.facts = Some(self.layout()?);
+                    }
                     self.phase = Phase::Done;
                 }
                 Phase::Done => return Ok(Step::Done),
@@ -510,9 +749,9 @@ impl Czi {
 
     /// Parses the entries the fed windows hold; asks for the next window, or None when done.
     fn directory(&mut self) -> Res<Option<Step>> {
-        let (_, s, end, count) = self.dir.unwrap();
-        while (self.entries.len() as i64) < count {
-            let i = self.entries.len();
+        let Some((_, s, end, count)) = self.dir else { return Ok(None) };
+        while ((self.entries.len() - self.given) as i64) < count {
+            let i = self.entries.len() - self.given;
             let at = self.dir_at;
             let head = self.fed.get(at, 32).map(|b| b.to_vec());
             let ends = at + 32 <= end;
@@ -526,20 +765,19 @@ impl Czi {
                 ("ends", flag(ends)),
                 ("within", flag(at + 32 <= self.size)),
                 ("schema", text("")),
-                ("file_part", num(0)),
                 ("pixel_type", num(-1)),
                 ("compression", num(-1)),
                 ("dimension_count", num(0)),
             ]);
             if let Some(h) = &head {
                 env.insert("schema", text(&String::from_utf8_lossy(&h[..2])));
-                env.insert("file_part", num(i32::le_at(h, 14)));
                 env.insert("pixel_type", num(i32::le_at(h, 2)));
                 env.insert("compression", num(i32::le_at(h, 18)));
                 env.insert("dimension_count", num(i32::le_at(h, 28)));
             }
             self.rules.check("entry", &mut env)?;
             let h = head.unwrap();
+            let part = self.entry_part(i, i32::le_at(&h, 14))?;
             let d = i32::le_at(&h, 28) as u64;
             let body_at = at + 32;
             let bends = body_at + 20 * d <= end;
@@ -557,47 +795,120 @@ impl Czi {
                     ("ends", flag(bends)),
                     ("within", flag(body_at + 20 * d <= self.size)),
                     ("schema", text("DV")),
-                    ("file_part", num(0)),
                     ("pixel_type", num(i32::le_at(&h, 2))),
                     ("compression", num(i32::le_at(&h, 18))),
                     ("dimension_count", num(d as f64)),
                 ]),
             )?;
             let body = body.unwrap();
-            let mut dims = Vec::new();
-            for k in 0..d as usize {
-                let b = &body[20 * k..20 * k + 20];
-                let letter = if b[1..4] == [0, 0, 0] && b[0].is_ascii_uppercase() { Some(b[0]) } else { None };
-                let shown = match letter {
-                    Some(l) => (l as char).to_string(),
-                    None => format!("{:?}", &b[..4]),
-                };
-                let repeated = letter.is_some_and(|l| dims.iter().any(|x: &(u8, i32, i32, i32)| x.0 == l));
-                self.rules.check(
-                    "dimension",
-                    rules::env([
-                        ("i", num(i as f64)),
-                        ("letter", if letter.is_some_and(|l| LETTERS.contains(&l)) { text(&shown) } else { text(&format!("'{shown}'")) }),
-                        ("repeated", flag(repeated)),
-                        ("size", num(i32::le_at(b, 8))),
-                        ("stored", num(i32::le_at(b, 16))),
-                    ]),
-                )?;
-                dims.push((letter.unwrap(), i32::le_at(b, 4), i32::le_at(b, 8), i32::le_at(b, 16)));
-            }
-            let has = |l: u8| dims.iter().any(|x| x.0 == l);
-            self.rules.check("entry_dimensions", rules::env([("i", num(i as f64)), ("x", flag(has(b'X'))), ("y", flag(has(b'Y')))]))?;
+            let dims = self.dimensions(i, &body, d)?;
             let el = self.ir.value(s, "entries/", i as u64, ENTRY, 0, (at, 32), Some(&h))?;
             let dims_el = if d > 0 {
                 Some(self.ir.value(s, "dimensions/", i as u64, &format!("{DIMENSION}[{d}]"), 0, (body_at, 20 * d), Some(&body))?)
             } else {
                 None
             };
-            self.entries.push(Entry { pos: i64::le_at(&h, 6), pt: i32::le_at(&h, 2), comp: i32::le_at(&h, 18), dims, el, dims_el });
+            self.entries.push(Entry { pos: i64::le_at(&h, 6), part, raw: None, pt: i32::le_at(&h, 2), comp: i32::le_at(&h, 18), dims, el, dims_el });
             self.dir_at = body_at + 20 * d;
         }
         self.fed.clear();
         Ok(None)
+    }
+
+    /// The part an entry of this file's is in, from the FilePart it names (its own, when it names
+    /// 0 in a part: the field may be reserved).
+    fn entry_part(&mut self, i: usize, file_part: i32) -> Res<i32> {
+        let own = self.own_part();
+        self.rules.check("entry_part", rules::env([("i", num(i as f64)), ("file_part", num(file_part)), ("part", num(own))]))?;
+        self.highest = self.highest.max(file_part);
+        Ok(if file_part == 0 { own } else { file_part })
+    }
+
+    /// The `d` dimension entries of entry `i`, checked.
+    fn dimensions(&self, i: usize, body: &[u8], d: u64) -> Res<Vec<(u8, i32, i32, i32)>> {
+        let mut dims = Vec::new();
+        for k in 0..d as usize {
+            let b = &body[20 * k..20 * k + 20];
+            let letter = if b[1..4] == [0, 0, 0] && b[0].is_ascii_uppercase() { Some(b[0]) } else { None };
+            let shown = match letter {
+                Some(l) => (l as char).to_string(),
+                None => format!("{:?}", &b[..4]),
+            };
+            let repeated = letter.is_some_and(|l| dims.iter().any(|x: &(u8, i32, i32, i32)| x.0 == l));
+            self.rules.check(
+                "dimension",
+                rules::env([
+                    ("i", num(i as f64)),
+                    ("letter", if letter.is_some_and(|l| LETTERS.contains(&l)) { text(&shown) } else { text(&format!("'{shown}'")) }),
+                    ("repeated", flag(repeated)),
+                    ("size", num(i32::le_at(b, 8))),
+                    ("stored", num(i32::le_at(b, 16))),
+                ]),
+            )?;
+            dims.push((letter.unwrap(), i32::le_at(b, 4), i32::le_at(b, 8), i32::le_at(b, 16)));
+        }
+        let has = |l: u8| dims.iter().any(|x| x.0 == l);
+        self.rules.check("entry_dimensions", rules::env([("i", num(i as f64)), ("x", flag(has(b'X'))), ("y", flag(has(b'Y')))]))?;
+        Ok(dims)
+    }
+
+    // ---- a part with no directory (spec/zarrify/czi.md §7.9
+    // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#79-several-files>)
+
+    /// The subblocks of a part with no directory, from the segment headers in file order, one read
+    /// each: each subblock's copy of its entry is its entry. None when the segments end.
+    fn scan(&mut self) -> Res<Option<Step>> {
+        let max_walk = self.rules.limit("max_walk") as u64;
+        while self.scans {
+            let o = self.scan_at;
+            if o + 32 > self.size || self.scanned >= max_walk {
+                break;
+            }
+            let n = SCAN_HEAD.min(self.size - o);
+            let Some(h) = self.fed.get(o, n).map(|b| b.to_vec()) else {
+                self.fed.clear();
+                return Ok(Some(self.ask(vec![(o, n)])));
+            };
+            let (a, u) = (i64::le_at(&h, 16), i64::le_at(&h, 24));
+            if !walkable_id(&h[..16]) || a < 0 || u < 0 || !self.within(o as i64 + 32, a) {
+                break;
+            }
+            if seg_id(&h[..16]) == Kind::Subblock.id() && a >= 256 && n >= 288 && !self.known.contains(&(o as i64)) {
+                self.scanned_subblock(o, &h)?;
+            }
+            self.scan_at = o + 32 + a as u64;
+            self.scanned += 1;
+        }
+        self.fed.clear();
+        Ok(None)
+    }
+
+    /// The subblock whose first bytes at `o` are `h`, an entry of its part.
+    fn scanned_subblock(&mut self, o: u64, h: &[u8]) -> Res<()> {
+        let i = self.entries.len();
+        let (pt, comp, d) = (i32::le_at(h, 50), i32::le_at(h, 66), i32::le_at(h, 76));
+        self.rules.check(
+            "entry",
+            rules::env([
+                ("i", num(i as f64)),
+                ("ends", flag(true)),
+                ("within", flag(true)),
+                ("schema", text(&String::from_utf8_lossy(&h[48..50]))),
+                ("pixel_type", num(pt)),
+                ("compression", num(comp)),
+                ("dimension_count", num(d)),
+            ]),
+        )?;
+        let part = self.entry_part(i, i32::le_at(h, 62))?;
+        let end = 80 + 20 * d as usize;
+        self.within_check(&format!("subblock {i}'s header"), o as i64, end as i64)?;
+        if end > h.len() {
+            return Err(format!("subblock {i}'s header is outside the segment"));
+        }
+        let raw = h[48..end].to_vec();
+        let dims = self.dimensions(i, &raw[32..], d as u64)?;
+        self.entries.push(Entry { pos: o as i64, part, raw: Some(raw), pt, comp, dims, el: 0, dims_el: None });
+        Ok(())
     }
 
     // ---- the subblocks, a group at a time
@@ -615,7 +926,7 @@ impl Czi {
         let mut asked = std::collections::HashSet::new();
         for i in start..end {
             let o = self.entries[i].pos;
-            if o >= 0 && !self.segs.contains_key(&(o as u64)) && self.within(o, 288) && asked.insert(o) {
+            if !self.elsewhere(&self.entries[i]) && o >= 0 && !self.segs.contains_key(&(o as u64)) && self.within(o, 288) && asked.insert(o) {
                 // a compressed subblock's codec header usually follows its header and
                 // metadata closely: read them in one range (as today's profile does); an
                 // uncompressed one's header and its metadata when short (the view shows it)
@@ -632,6 +943,9 @@ impl Czi {
         let (g0, g1) = self.group;
         let mut long = Vec::new();
         for i in g0..g1 {
+            if self.elsewhere(&self.entries[i]) {
+                continue;
+            }
             let o = self.entries[i].pos;
             let what = format!("subblock {i}");
             let (s, alias) = self.segment(0, "subblocks/", i as u64, &what, Kind::Subblock, o, 288)?;
@@ -714,7 +1028,7 @@ impl Czi {
             let Some(s) = sub.el else { continue };
             let d = i32::le_at(self.fed.get(o, 80).ok_or("internal: no subblock header")?, 76) as u64;
             let copy = self.fed.get(o + 48, 32 + 20 * d).ok_or("internal: no subblock copy")?.to_vec();
-            let agrees = copy == self.entry_bytes(i);
+            let agrees = self.agrees(&copy, self.entry_bytes(i));
             self.subs[i].agrees = agrees;
             let d = (copy.len() as u64 - 32) / 20;
             if d > 0 {
@@ -769,8 +1083,21 @@ impl Czi {
         self.sub_codec()
     }
 
+    /// Whether a subblock's copy of its entry is the entry: in a part, whatever FilePart each
+    /// names (the field may be reserved), since the part is already known.
+    fn agrees(&self, copy: &[u8], entry: Vec<u8>) -> bool {
+        const FILE_PART: std::ops::Range<usize> = 14..18;
+        if self.own_part() == 0 || copy.len() != entry.len() || copy.len() < FILE_PART.end {
+            return copy == entry;
+        }
+        copy[..FILE_PART.start] == entry[..FILE_PART.start] && copy[FILE_PART.end..] == entry[FILE_PART.end..]
+    }
+
     fn entry_bytes(&self, i: usize) -> Vec<u8> {
         let e = &self.entries[i];
+        if let Some(raw) = &e.raw {
+            return raw.clone();
+        }
         let mut out = self.ir.value_bytes(e.el).unwrap().to_vec();
         if let Some(d) = e.dims_el {
             out.extend_from_slice(self.ir.value_bytes(d).unwrap());
@@ -1280,12 +1607,10 @@ impl Czi {
             .collect()
     }
 
-    fn layout(&self) -> Res<J> {
-        let max_band = self.rules.limit("max_band") as u64;
-        let floor = self.rules.limit("band_floor") as u64;
-        // placement (spec/zarrify/czi.md §3.2
-        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#32-conforming-and-unplaced-subblocks>):
-        // an entry that read its subblock, whose copy agrees, with a coded size
+    /// Placement (spec/zarrify/czi.md §3.2
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#32-conforming-and-unplaced-subblocks>):
+    /// an entry that read its subblock, whose copy agrees, with a coded size.
+    fn placed(&self) -> Vec<Placed> {
         let mut ps: Vec<Placed> = Vec::new();
         for (i, e) in self.entries.iter().enumerate() {
             let sub = &self.subs[i];
@@ -1310,6 +1635,18 @@ impl Czi {
                 el,
             });
         }
+        ps
+    }
+
+    fn layout(&self) -> Res<J> {
+        self.layout_of(self.placed(), self.entries.len())
+    }
+
+    /// The facts of an image of the subblocks `ps` placed, of `subblocks` subblocks in all: this
+    /// file's header and XML are the image's.
+    pub(crate) fn layout_of(&self, ps: Vec<Placed>, subblocks: usize) -> Res<J> {
+        let max_band = self.rules.limit("max_band") as u64;
+        let floor = self.rules.limit("band_floor") as u64;
         // series, layers and levels (§3.3
         // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#33-series>–§3.5
         // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#35-regular-levels>)
@@ -1493,7 +1830,7 @@ impl Czi {
         Ok(json!({
             "root": {"version": [major, minor], "primary_file_guid": guid(&primary), "file_guid": guid(&file),
                      "file_part": file_part, "update_pending": update},
-            "subblocks": self.entries.len(),
+            "subblocks": subblocks,
             "images": images_json,
             "tiles": tiles_json,
             "values": self.values.to_json(),

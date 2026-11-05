@@ -1,0 +1,17 @@
+{
+  "zarr_format": 2,
+  "compressor": null,
+  "fill_value": [
+    "NaN",
+    "Infinity"
+  ],
+  "order": "C",
+  "filters": null,
+  "shape": [
+    2
+  ],
+  "chunks": [
+    1
+  ],
+  "dtype": ">c16"
+}

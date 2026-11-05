@@ -149,12 +149,19 @@ class VsiFiles(Store):
             return None
         return FileTransport(str(path))
 
+    def _below(self, key: str) -> bool:
+        """Whether the local file or directory at the key `key` is below the named file's directory,
+        symbolic links followed (spec/zarrify.md §1.9
+        <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>)."""
+        root = self.location or os.curdir
+        return Path(os.path.realpath(Path(root, *key.split("/")))).is_relative_to(os.path.realpath(root))
+
     def _listdir(self, key: str) -> list[str] | None:
         """The entries of the local directory at the key `key`, or None when there is none."""
         if key not in self.dirs:
             path = Path(self.location or os.curdir, *key.split("/"))
             try:
-                self.dirs[key] = [p.name for p in path.iterdir()]
+                self.dirs[key] = [p.name for p in path.iterdir()] if self._below(key) else None
             except (FileNotFoundError, NotADirectoryError):
                 self.dirs[key] = None
         return self.dirs[key]
@@ -174,6 +181,8 @@ class VsiFiles(Store):
         with self._lock:
             if key in self.objects:
                 return self.objects[key]
+        if not self.remote and not self._below(key):
+            return None
         t = self._open(key)
         if t is None:
             return None

@@ -18,12 +18,12 @@ import { zarrifyStoreIr } from "./store.ts";
 
 /** The formats whose input is read with the files beside it: each one's title, as a rejection
  * names it. */
-export const BESIDE = { vsi: "VSI", nrrd: "NRRD", grib: "GRIB", tiff: "TIFF", lif: "LIF" } as const;
+export const BESIDE = { vsi: "VSI", nrrd: "NRRD", grib: "GRIB", tiff: "TIFF", lif: "LIF", czi: "CZI", nifti: "NIfTI", hdf5: "HDF5" } as const;
 export type BesideFormat = keyof typeof BESIDE;
 /** Those that read a file with the files beside it only when it names some, or for some of their files (spec/zarrify.md §1.9
  * <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>): a file
  * run finds out, and starts over (`NamesSiblings`). */
-export const ON_DEMAND: ReadonlySet<string> = new Set<BesideFormat>(["tiff", "lif"]);
+export const ON_DEMAND: ReadonlySet<string> = new Set<BesideFormat>(["tiff", "lif", "czi", "nifti", "hdf5"]);
 
 /** [the directory's URL (ending in `/`), the named file's key (its last segment,
  * percent-decoded)] of an input of the format `title` names (VSI, NRRD). */
@@ -71,6 +71,8 @@ export function vsiFiles(url: string, source: RangeSource, options: VsiOptions =
   const sources = new Map<string, RangeSource>([[key, source]]);
   const open = options.open ?? ((k: string) => {
     if (!/^https?:\/\//.test(dir)) {
+      // an HDF5 file's names may dangle: where no file beside it can be opened, each of them does
+      if (format === "hdf5") return Promise.resolve(undefined);
       return Promise.reject(new ImageError(`${title} input ${JSON.stringify(url)}: the files beside it can only be opened at an http(s) URL`));
     }
     return probeHttp(objectUrl(dir, k), options.http ?? (source instanceof HttpSource ? source.options : {}));

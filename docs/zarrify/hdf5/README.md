@@ -146,6 +146,8 @@ Supported:
 
 Rejected:
 
+- External files that are not there, or that do not hold what a dataset's
+  slots say, leave the link or dataset recorded rather than rejected.
 - Offsets or lengths of other than 8 bytes, a base address other than where
   the superblock is.
 - Structures that do not read: truncated files, chunks outside the file, a

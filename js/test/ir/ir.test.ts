@@ -251,3 +251,9 @@ test("a file the core refuses is an ImageError", async () => {
   await assert.rejects(zarrifyImage("https://data.test/x.nd2", async (o, n) => bytes.subarray(o, o + n), bytes.length),
     (e) => e instanceof ImageError && e.message.length > 0);
 });
+
+test("an HDF5 file's names dangle where nothing beside it can be opened", async () => {
+  const desc = await zarrifySource("file:///nowhere/links.h5", bytesSource(fixture("hdf5/hdf5_links_earliest.h5")));
+  const named = desc.entries.some((e) => "bytes" in e && new TextDecoder().decode(e.bytes).includes('"other.h5"'));
+  assert.ok(named, "the link stays recorded");
+});

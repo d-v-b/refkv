@@ -9,7 +9,7 @@ about Zeiss CZI files; the convention and the profile are
 
 ### In the browser
 
-The browser code ([js/](../../../js/README.md)) reads Zeiss CZI (file version 1, one file):
+The browser code ([js/](../../../js/README.md)) reads Zeiss CZI (file version 1):
 
 - Every series (scene, block, ...) as an image of a bioformats2raw layout,
   its pyramid levels found from the subblocks; subblocks in no level kept as
@@ -17,9 +17,15 @@ The browser code ([js/](../../../js/README.md)) reads Zeiss CZI (file version 1,
 - Subblocks uncompressed, JPEG, JPEG XR, LZW, lossless JPEG or zstd, as the
   table below says, of every ZISRAW pixel type the table lists: gray, BGR and
   BGRA; integer, float and complex.
+- An image across numbered files (`name.czi`, `name(1).czi` or `name (1).czi`, ...). Give it the first
+  file: it is read with the others beside it when its entries name them, or when its metadata says it
+  holds fewer planes or tiles than the image has. A later file given as the input is refused, with
+  the name of the first. Each file is a source of the archive. A file that lacks planes with no later
+  file beside it, such as an acquisition that stopped early, costs a probe or two and is read
+  all the same.
 
 Not supported, and refused with HTTP 422: camera and system raw subblocks,
-lossless JPEG with a color pixel type, and CZI files split over several files.
+and lossless JPEG with a color pixel type.
 A subblock whose stream does not fit its pixel type, as 8-bit JPEG under Gray16,
 is kept as bytes and has no array.
 

@@ -6,6 +6,7 @@
 
 pub mod beside;
 pub mod canon;
+pub mod czi_set;
 pub mod tiff_set;
 pub mod transform;
 pub mod check;
@@ -14,6 +15,7 @@ pub mod cxml;
 pub mod expr;
 pub mod fed;
 pub mod gz;
+pub mod nifti_pair;
 pub mod ir;
 pub mod json;
 pub mod lv;

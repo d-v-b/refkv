@@ -1,0 +1,19 @@
+{
+  "zarr_format": 2,
+  "compressor": null,
+  "fill_value": null,
+  "order": "C",
+  "filters": [
+    {
+      "id": "delta",
+      "dtype": "<u2"
+    }
+  ],
+  "shape": [
+    2
+  ],
+  "chunks": [
+    2
+  ],
+  "dtype": "<u2"
+}

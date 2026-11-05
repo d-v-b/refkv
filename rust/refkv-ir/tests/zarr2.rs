@@ -38,7 +38,10 @@ fn doc(out: &Out, key: &str) -> serde_json::Value {
 
 #[test]
 fn the_fixture_stores_have_their_hierarchies_and_mirrors() {
-    let cases: [(&str, serde_json::Value); 8] = [
+    let cases: [(&str, serde_json::Value); 11] = [
+        ("zarr2_types", serde_json::json!({"arrays": 17, "chunks": 13})),
+        ("zarr2_codecs", serde_json::json!({"arrays": 16, "chunks": 16})),
+        ("zarr2_left_out", serde_json::json!({"arrays": 1, "notPresented": 7, "otherObjects": 7})),
         ("zarr2_compressors", serde_json::json!({"arrays": 10, "groups": 1, "chunks": 12})),
         ("zarr2_dtypes", serde_json::json!({"arrays": 14})),
         ("zarr2_fill_values", serde_json::json!({"emptyChunks": 1, "chunks": 10})),
