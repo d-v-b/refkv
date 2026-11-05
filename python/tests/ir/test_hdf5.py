@@ -378,16 +378,17 @@ def test_dimension_names_are_h5netcdfs(path):
 
 
 def test_a_linked_dataset_is_numbered_in_the_linking_group(monkeypatch):
-    """What an external link presents counts among the linking group's members, as h5netcdf counts
-    it (which refuses this file for its dangling links): the root's lengths 4 (absent_file, counted
-    though not presented), 5, 3 and 12, then the linked group's own."""
+    """What an external link reaches counts among the linking group's members, as h5netcdf counts
+    it (which refuses this file for its dangling links), presented or not: the root's lengths 4
+    (absent_file), 5, 3, 1 (linked_references) and 12, then the linked group's 6, 4, 1 (references)
+    and 2."""
     path = FIXTURES / "hdf5" / "hdf5_external.h5"
     monkeypatch.chdir(path.parent)
     root, _ = opened(path)
     want = {
         "linked_dataset": ["phony_dim_1", "phony_dim_2"], "own": ["phony_dim_2"],
-        "spread": ["phony_dim_3", "phony_dim_0"], "linked_group/chunked": ["phony_dim_4", "phony_dim_5"],
-        "linked_group/strings": ["phony_dim_6"],
+        "spread": ["phony_dim_4", "phony_dim_0"], "linked_group/chunked": ["phony_dim_5", "phony_dim_6"],
+        "linked_group/strings": ["phony_dim_8"],
     }
     for name, names in want.items():
         array = root[name]

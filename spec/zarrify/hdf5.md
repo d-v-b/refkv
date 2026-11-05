@@ -146,7 +146,7 @@ is not presented, with the reason [§7.4](#74-what-is-not-presented) gives.
 - **Phony names:** an unscaled dataset's axes are named as h5netcdf names them with
   `phony_dims="sort"`, which follows netCDF-C. A group's **members** are the datasets whose
   canonical path ([§2.2](#22-paths)) is in it, presented or not, and the dataset an external link
-  of it presents ([§8.6](#86-external-files)). A group whose link info message has flag bit 0 set
+  of it names, presented or not ([§8.6](#86-external-files)). A group whose link info message has flag bit 0 set
   (it tracks creation order) and whose every link message gives a creation order takes its
   members and its subgroups in that order, as h5py iterates them; any other group in ascending
   byte order of their link names. The hierarchy's groups are taken depth first from the root in
