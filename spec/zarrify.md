@@ -856,9 +856,14 @@ but its profile follows **Pins**, **Identity** and **Bounds** for the objects on
 
 Every sibling is therefore below the store URL: the object URL
 ([§1.4](#14-store-inputs), **Object URLs**) of its key, under the same reader policy
-([spec/refkv.md §6.7](refkv.md#67-reader-policy)) as the named file. Nothing in a file can make a
+([spec/refkv.md §6.7](refkv.md#67-reader-policy)) as the named file. Nothing a file writes can make a
 zarrifier or a reader fetch from elsewhere. A file that names a sibling in a parent directory of the
 named file is rejected, and the input to give is the file at the top of the set.
+
+A local file system can lead elsewhere by itself, through a symbolic link or a Windows junction. So a
+zarrifier reading a local directory MUST find a key absent, and list no directory for **Case**, when
+its file or directory, links followed, is not below the named file's directory, links followed. A
+link that stays below that directory is followed. A hard link cannot be told from the file it names.
 
 **Case.** A file written on a case-insensitive file system can name a sibling in another case than
 the file has: LAS X writes `metadata/series010.xlif` for the file `Metadata/Series010.xlif`. A profile
