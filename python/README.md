@@ -41,7 +41,9 @@ store that xarray opens ([example](https://github.com/d-v-b/refkv/blob/main/docs
 A reference store can be kept in a vzip archive (`refkv.vzip`, `store.save_vzip(path)`) or in a phkv
 store (`refkv.phkv`, `store.save_phkv(path)`); `refkv.open(url)` reads the first, and
 `refkv.open(url, binding="phkv")` the second. Both read through the same policy, registry and
-`Stats`, and both open as zarr stores with `refkv.zarr.open`.
+`Stats`, and both open as zarr stores with `refkv.zarr.open`. `refkv.vzip_to_phkv(src, dst)` and
+`refkv.phkv_to_vzip(src, dst)` convert a saved store from one to the other without reading what its
+references point to (`refkv convert src.vzip dst.phkv` on the command line).
 
 | | vzip | phkv, standalone | phkv, hybrid |
 |---|---|---|---|

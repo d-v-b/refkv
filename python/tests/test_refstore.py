@@ -605,7 +605,8 @@ def test_mapping_cannot_be_changed():
 def test_public_api():
     assert set(refkv.__all__) == {
         "Concat", "OffsetRequest", "Policy", "Range", "RangeRequest", "ReferenceStore",
-        "Source", "Stats", "SuffixRequest", "Summary", "open", "public_s3_url"}
+        "Source", "Stats", "SuffixRequest", "Summary", "open", "phkv_to_vzip", "public_s3_url",
+        "vzip_to_phkv"}
     assert all(hasattr(refkv, name) for name in refkv.__all__)
     assert set(refkv.vzip.__all__) == {"VZipStore", "VZipWriter", "open"}
     assert all(hasattr(refkv.vzip, name) for name in refkv.vzip.__all__)

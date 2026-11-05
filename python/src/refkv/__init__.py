@@ -17,6 +17,8 @@ writes.
 - `open(url)`: a saved store, as a store that reads the same values: with the ZIP
   binding (the default), a `refkv.vzip.VZipStore`, and with the perfect-hash binding
   (`binding="phkv"`, `store.save_phkv(path)` writes one), a `refkv.phkv.PhkvStore`.
+- `vzip_to_phkv(src, dst)` and `phkv_to_vzip(src, dst)` convert a saved store from one binding
+  to the other.
 - Both have the operations of spec/refkv.md §6.2
   <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#62-operations>: `get(key)`,
   or `get(key, RangeRequest(start, end))` (also `OffsetRequest`, `SuffixRequest`),
@@ -43,8 +45,9 @@ virtual-dataset workflow; `help(refkv.refstore)` has its details.
 from __future__ import annotations
 
 import importlib
+import os
 from importlib.metadata import PackageNotFoundError, version
-from types import ModuleType
+from types import EllipsisType, ModuleType
 from typing import TYPE_CHECKING, Any, Literal, TypedDict, Unpack, overload
 
 from refkv import phkv, vzip
@@ -105,6 +108,46 @@ def open(url: str, *, binding: str = "vzip", **kwargs: Any) -> VZipStore | PhkvS
     raise ValueError(f"no binding {binding!r}: refkv reads stores with {', '.join(map(repr, BINDINGS))}")
 
 
+def vzip_to_phkv(
+    src: str | os.PathLike[str],
+    dst: str | os.PathLike[str],
+    *,
+    inline_max: int = 4096,
+    page_size: int = 4096,
+    relative_to: str | None = None,
+    policy: Policy | None = None,
+) -> Summary:
+    """Convert the vzip archive `src` (a local path or an `http(s)` URL) to a phkv store at the
+    local path `dst`, and return the `Summary` of the store written. The keys, bytes values and
+    references are the same, and no reference is resolved: the sources are not read. The options
+    are `ReferenceStore.save_phkv`'s; what the copy leaves behind is listed in
+    `ReferenceStore.from_store`, which reads the whole directory of the archive into memory.
+    `dst` is written only once it is complete, and replaces a file there."""
+    return ReferenceStore.from_store(vzip.open(os.fspath(src))).save_phkv(
+        dst, inline_max=inline_max, page_size=page_size, relative_to=relative_to, policy=policy)
+
+
+def phkv_to_vzip(
+    src: str | os.PathLike[str],
+    dst: str | os.PathLike[str],
+    *,
+    page_size: int | EllipsisType | None = ...,
+    mirror_refs: bool = True,
+    relative_to: str | None = None,
+    policy: Policy | None = None,
+) -> Summary:
+    """Convert the phkv store `src` (a local path or an `http(s)` URL) to a vzip archive at the
+    local path `dst`, and return the `Summary` of the archive written. The keys, bytes values and
+    references are the same, and no reference is resolved: the sources are not read. The options
+    are `ReferenceStore.save_vzip`'s, whose `page_size` default writes no page index: a store of
+    many keys may want `page_size=65536`. What the copy leaves behind is listed in
+    `ReferenceStore.from_store`, which reads the whole store into memory. A key under
+    `__vz__/`, which a vzip archive reserves, is a hidden key in the archive. `dst` is written
+    only once it is complete, and replaces a file there."""
+    return ReferenceStore.from_store(phkv.open(os.fspath(src))).save_vzip(
+        dst, page_size=page_size, mirror_refs=mirror_refs, relative_to=relative_to, policy=policy)
+
+
 def __getattr__(name: str) -> ModuleType:
     # `import refkv` then `refkv.zarr.open(...)`: the adapter is imported on first use,
     # so that `import refkv` imports no zarr
@@ -125,5 +168,7 @@ __all__ = [
     "SuffixRequest",
     "Summary",
     "open",
+    "phkv_to_vzip",
     "public_s3_url",
+    "vzip_to_phkv",
 ]
