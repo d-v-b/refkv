@@ -489,6 +489,29 @@ impl Hdf5 {
         Ok(names.iter().any(|n| !n.is_null()).then_some(names))
     }
 
+    /// What each dataset of rank 1 or more counts as among its group's dimensions, by address
+    /// ([`name_axes`]): `{"scale": [name, length]}` for a dimension scale, `{"unscaled": sizes}`
+    /// for a dataset no `DIMENSION_LIST` attaches a scale to.
+    fn axes_hints(&mut self) -> R<HashMap<u64, J>> {
+        let mut out = HashMap::new();
+        for (at, segs) in self.order.clone() {
+            let Some(h) = lenient(self.h.header(at))? else { continue };
+            let (Some(name), true) = (segs.last(), h.has(super::LAYOUT)) else { continue };
+            if h.has(super::SYMBOL_TABLE) || h.has(super::LINK_INFO) {
+                continue;
+            }
+            let space = h.message(super::DATASPACE, true).and_then(|m| super::parse_dataspace(m.unwrap_or_default()));
+            let Some(dims) = lenient(space)?.and_then(|s| s.dims).filter(|d| !d.is_empty()) else { continue };
+            let hint = match lenient(self.h.attributes(at))?.as_deref() {
+                Some(a) if fixed_attribute(a, b"CLASS").is_some_and(|c| c == b"DIMENSION_SCALE") => json!({"scale": [dimension_name(name), dims[0]]}),
+                Some(a) if !attaches_none(a) => continue,
+                _ => json!({"unscaled": dims}),
+            };
+            out.insert(at, hint);
+        }
+        Ok(out)
+    }
+
     /// What the hierarchy holds of the object at `at`, whose name is `name` (None for the root).
     fn decide(&mut self, at: u64, name: Option<&[u8]>) -> R<Decision> {
         if let Some(n) = name {
@@ -783,6 +806,8 @@ impl Hdf5 {
         let mut link_counts = [0u64; 3];
         let order = self.order.clone();
         let segs_of: HashMap<u64, &Vec<Vec<u8>>> = order.iter().map(|(a, s)| (*a, s)).collect();
+        let mut hints = self.axes_hints()?;
+        let mut unpresented_axes: HashMap<Vec<Vec<u8>>, Vec<J>> = HashMap::new();
         let parent_ok = |segs: &Vec<Vec<u8>>, presented: &HashSet<Vec<Vec<u8>>>| segs.len() <= 1 || presented.contains(&segs[..segs.len() - 1].to_vec());
         let mut presented_paths: HashSet<Vec<Vec<u8>>> = HashSet::new();
         let mut unpresented_of: HashMap<Vec<Vec<u8>>, Map<String, J>> = HashMap::new();
@@ -798,6 +823,9 @@ impl Hdf5 {
             let key = segs.iter().map(|s| utf8_or_latin1(s)).collect::<Vec<_>>().join("/");
             if let Decision::Not(why) = d {
                 let parent = segs[..segs.len().saturating_sub(1)].to_vec();
+                if let Some(hint) = hints.remove(at) {
+                    unpresented_axes.entry(parent.clone()).or_default().push(json!([utf8_or_latin1(&segs[segs.len() - 1]), hint]));
+                }
                 unpresented_of.entry(parent).or_default().insert(utf8_or_latin1(segs.last().map_or(&[][..], |s| s)), json!(why));
                 *not_counts.entry(why.to_string()).or_default() += 1;
                 continue;
@@ -971,8 +999,11 @@ impl Hdf5 {
                     let mut shape = ds.dims.clone();
                     if let Some(n) = trailing {
                         shape.push(n);
+                        if ds.dims.is_empty() {
+                            dimension_names = Some(Vec::new());
+                        }
                         if let Some(names) = &mut dimension_names {
-                            names.push(J::Null);
+                            names.push(json!(format!("string{n}")));
                         }
                     }
                     own.insert("datatype".into(), describe(&dt));
@@ -1011,10 +1042,17 @@ impl Hdf5 {
                     nodes.push(json!({"path": key, "segments": segs.len(), "attributes": attrs, "own": own,
                                       "array": {"shape": shape, "data_type": data_type, "fill_value": fill, "codecs": codecs, "store": store,
                                                 "dimension_names": dimension_names}}));
+                    if let Some(hint) = hints.remove(at) {
+                        nodes.last_mut().unwrap()["axes"] = hint;
+                    }
                 }
                 Decision::Not(_) => unreachable!(),
             }
         }
+        let axes_by_key: HashMap<String, Vec<J>> = unpresented_axes
+            .into_iter()
+            .map(|(segs, a)| (segs.iter().map(|s| utf8_or_latin1(s)).collect::<Vec<_>>().join("/"), a))
+            .collect();
         // each group's children that are not nodes, by the group's path
         let by_key: HashMap<String, Map<String, J>> = unpresented_of
             .into_iter()
@@ -1026,6 +1064,9 @@ impl Hdf5 {
             }
             if let Some(m) = node["path"].as_str().and_then(|k| by_key.get(k)) {
                 node["own"]["unpresented"] = J::Object(m.clone());
+            }
+            if let Some(a) = node["path"].as_str().and_then(|k| axes_by_key.get(k)) {
+                node["axes"] = J::Array(a.clone());
             }
         }
         let root_attrs = nodes.first().map(|n| n["attributes"].clone()).unwrap_or(J::Null);
@@ -1056,6 +1097,7 @@ impl Hdf5 {
             }
             summary["nwb"] = json!({"version": root_attrs["nwb_version"], "namespaces": namespaces});
         }
+        name_axes(&mut nodes);
         self.facts = Some(json!({"nodes": nodes, "copy_threshold": crate::out::copy_threshold(), "summary": summary}));
         Ok(())
     }
@@ -1283,6 +1325,91 @@ fn fixed_attribute(attrs: &super::Attrs, name: &[u8]) -> Option<Vec<u8>> {
         return None;
     }
     Some(data.split(|&b| b == 0).next().unwrap_or(&[]).to_vec())
+}
+
+/// Names the axes of each unscaled array of `nodes` as h5netcdf's `phony_dims="sort"` does
+/// (spec/zarrify/hdf5.md §3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#3-datasets>), from the
+/// `axes` of each array and group ([`File::axes_hints`]). Groups are taken in canonical order, the
+/// order of their paths' segments; a group's dimensions are its dimension scales, then as many
+/// `phony_dim_<n>` of each length as one unscaled dataset of it has axes of that length, `n`
+/// counting the hierarchy's dimensions before it; an unscaled array's axes take its group's
+/// dimensions of their lengths in turn.
+pub(super) fn name_axes(nodes: &mut [J]) {
+    let segments = |p: &str| -> Vec<String> { if p.is_empty() { Vec::new() } else { p.split('/').map(str::to_string).collect() } };
+    // each group's members, by its path: (link name, hint, the array's node when presented)
+    let mut members: HashMap<String, Vec<(String, J, Option<usize>)>> = HashMap::new();
+    let mut groups: Vec<Vec<String>> = Vec::new();
+    for (k, node) in nodes.iter().enumerate() {
+        let path = node["path"].as_str().unwrap_or("");
+        if node.get("array").is_none() {
+            groups.push(segments(path));
+            for m in node["axes"].as_array().into_iter().flatten() {
+                members.entry(path.to_string()).or_default().push((m[0].as_str().unwrap_or("").to_string(), m[1].clone(), None));
+            }
+        } else if let Some(hint) = node.get("axes") {
+            let (parent, name) = path.rsplit_once('/').unwrap_or(("", path));
+            members.entry(parent.to_string()).or_default().push((name.to_string(), hint.clone(), Some(k)));
+        }
+    }
+    groups.sort();
+    let lengths = |v: &J| -> Vec<u64> { v.as_array().into_iter().flatten().filter_map(J::as_u64).collect() };
+    let mut next = 0u64;
+    for g in groups {
+        let Some(mut list) = members.remove(&g.join("/")) else { continue };
+        list.sort_by(|a, b| a.0.as_bytes().cmp(b.0.as_bytes()));
+        // the group's dimensions of each length: its scales', then its phony ones
+        let mut of_length: HashMap<u64, Vec<J>> = HashMap::new();
+        for (_, hint, _) in &list {
+            if let Some(s) = hint.get("scale") {
+                of_length.entry(s[1].as_u64().unwrap_or(0)).or_default().push(s[0].clone());
+                next += 1;
+            }
+        }
+        // the most axes of each length one unscaled dataset has, in order of first appearance
+        let mut most: Vec<(u64, usize)> = Vec::new();
+        for (_, hint, _) in &list {
+            let dims = lengths(&hint["unscaled"]);
+            for &n in &dims {
+                let c = dims.iter().filter(|&&d| d == n).count();
+                match most.iter_mut().find(|e| e.0 == n) {
+                    Some(e) => e.1 = e.1.max(c),
+                    None => most.push((n, c)),
+                }
+            }
+        }
+        for (n, c) in most {
+            let names = of_length.entry(n).or_default();
+            while names.len() < c {
+                names.push(json!(format!("phony_dim_{next}")));
+                next += 1;
+            }
+        }
+        for (_, hint, k) in list {
+            let (Some(k), Some(dims)) = (k, hint.get("unscaled").map(lengths)) else { continue };
+            let mut taken: HashMap<u64, usize> = HashMap::new();
+            let mut names: Vec<J> = dims
+                .iter()
+                .map(|n| {
+                    let t = taken.entry(*n).or_default();
+                    *t += 1;
+                    of_length[n][*t - 1].clone()
+                })
+                .collect();
+            let array = &mut nodes[k]["array"];
+            // the trailing axis of a fixed-length string
+            if let Some(n) = array["shape"].get(dims.len()).and_then(J::as_u64) {
+                names.push(json!(format!("string{n}")));
+            }
+            array["dimension_names"] = J::Array(names);
+        }
+    }
+}
+
+/// Whether the object has no `DIMENSION_LIST`, or one that attaches no scale to any axis.
+fn attaches_none(attrs: &super::Attrs) -> bool {
+    let Some(a) = attrs.list.iter().find(|a| a.name == b"DIMENSION_LIST") else { return true };
+    super::attribute_parts(&a.data).is_ok_and(|(_, _, data)| data.len() % 16 == 0 && data.chunks(16).all(|e| e[..4] == [0; 4]))
 }
 
 /// The value of the `_FillValue` attribute, of one number, of a dataset of the numeric datatype

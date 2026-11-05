@@ -329,6 +329,31 @@ def netcdf4():
         g.create_variable("anomaly", ("time", "y"), "f8", data=ramp((4, 2), "<f8"))
 
 
+def phony_dims():
+    """An HDF5 file whose datasets have no dimension scales, which h5netcdf's phony_dims="sort"
+    names: axes of one length shared within a group and numbered across the file, groups before
+    and after the root's datasets, a scalar, fixed-length strings, and a group with a dimension
+    scale beside an unscaled dataset and one whose scale was detached."""
+    with open_file("hdf5_phony_dims.h5") as f:
+        f["a"] = ramp((3, 4), "<f4")
+        f["b"] = ramp((4, 4), "<i2")
+        f.create_dataset("c", data=ramp((5,), "<f8"), chunks=(2,), compression="gzip")
+        f["scalar"] = np.int32(7)
+        f["text"] = np.array([b"a", b"bb", b"ccc"], dtype="S4")
+        f["z"] = ramp((7,), "<u1")
+        g = f.create_group("g")
+        g["d"] = ramp((3, 4), "<f8")
+        g["e"] = ramp((4,), "<i4")
+        g.create_group("h")["f"] = ramp((2, 2), "<i8")
+        s = f.create_group("scaled")
+        s["x"] = np.arange(3, dtype="<i4")
+        s["x"].make_scale("x")
+        s["u"] = ramp((3, 3), "<f4")
+        s["w"] = ramp((3,), "<f4")
+        s["w"].dims[0].attach_scale(s["x"])
+        s["w"].dims[0].detach_scale(s["x"])
+
+
 def external_files():
     """A file that names siblings: external links to a group and a dataset of another file, and to
     what cannot be followed, and external storage in two raw files (a chunk across them), and in
@@ -511,6 +536,7 @@ def main():
     filter_masks()
     names_and_attributes()
     netcdf4()
+    phony_dims()
     nwb_files()
     external_files()
     user_blocks()

@@ -4,7 +4,7 @@
 //! each file an external link names. The hierarchy is the named file's, with what each link names
 //! at the link's path, one level deep, and the mirror each file's IR at its object.
 
-use super::file::{node_name, Hdf5};
+use super::file::{name_axes, node_name, Hdf5};
 use crate::beside::{written_key, Tree, Written};
 use crate::ir::{Ir, Res};
 use crate::nd2::Step;
@@ -249,6 +249,8 @@ impl StoreParser for Hdf5Store {
                 root["own"]["siblings"] = json!(keys[1..].iter().map(|k| &k.0).collect::<Vec<_>>());
             }
             nodes.extend(added);
+            // a linked object is a member of the group that links it
+            name_axes(nodes);
         }
         facts["named_key"] = json!(keys[0].0);
         // no edge chunk is copied: the run's reads have ended, and its padding is the zero data source's

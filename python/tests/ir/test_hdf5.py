@@ -9,6 +9,7 @@ import json
 import math
 import warnings
 
+import h5netcdf
 import h5py
 import hdf5plugin  # noqa: F401  (h5py reads the fixtures' third-party filters through it)
 import numpy as np
@@ -18,6 +19,7 @@ import zarr
 from hdmf_zarr.nwb import NWBZarrIO
 from ir_helpers import FIXTURES
 from pynwb import NWBHDF5IO
+from virtualizarr.manifests import ChunkManifest, ManifestArray, ManifestGroup
 from zarr.core.metadata import ArrayV3Metadata
 
 import refkv.zarr
@@ -327,7 +329,7 @@ def test_a_netcdf4_dimension_without_a_variable_is_not_presented():
     ("sst", ["time", "x"]),
     ("time", ["time"]),
     ("_nc4_non_coord_depth", ["time", "depth"]),
-    ("label", ["x", None]),
+    ("label", ["x", "string4"]),
     ("inner/anomaly", ["time", "y"]),
     ("inner/y", ["y"]),
 ])
@@ -339,8 +341,72 @@ def test_dimension_names_come_from_the_scales(name, want):
     assert list(array.metadata.dimension_names or []) == want
 
 
-def test_a_dataset_without_scales_has_no_dimension_names():
-    root, _ = opened(FIXTURES / "hdf5" / "hdf5_numbers.h5")
-    for _, array in root.arrays():
+# the accepted fixtures h5netcdf cannot open: a name or link h5py cannot resolve
+H5NETCDF_REFUSES = {"hdf5_attributes.h5", "hdf5_external.h5", "hdf5_external_target.h5",
+                    "hdf5_links_earliest.h5", "hdf5_links_latest.h5"}
+
+
+def groups(root: zarr.Group) -> list[tuple[str, zarr.Group]]:
+    """The hierarchy's groups but the IR mirror, by path."""
+    out, stack = [], [("", root)]
+    while stack:
+        path, g = stack.pop()
+        out.append((path, g))
+        stack.extend((f"{path}/{n}".lstrip("/"), c) for n, c in g.groups() if n != "refkv_source")
+    return out
+
+
+@pytest.mark.parametrize("path", [p for p in ACCEPTED if p.name not in H5NETCDF_REFUSES], ids=lambda p: p.name)
+def test_dimension_names_are_h5netcdfs(path):
+    """Every array has the dimension names h5netcdf gives its variable with phony_dims="sort",
+    then a fixed-length string's trailing axis."""
+    root, _ = opened(path)
+    with h5netcdf.File(path, "r", phony_dims="sort") as f:
+        stack = [f]
+        while stack:
+            g = stack.pop()
+            stack.extend(g.groups.values())
+            for v in g.variables.values():
+                name = v.name.lstrip("/")
+                if name in UNPRESENTED.get(path.name, {}) or name not in root:  # not presented, or a link
+                    continue
+                array = root[name]
+                assert isinstance(array, zarr.Array)
+                assert isinstance(array.metadata, ArrayV3Metadata)
+                want = [*v.dimensions, *([f"string{v.dtype.itemsize}"] if v.dtype.kind == "S" else [])]
+                assert list(array.metadata.dimension_names or []) == want, name
+
+
+def test_unscaled_datasets_share_names_by_length_within_a_group():
+    root, _ = opened(FIXTURES / "hdf5" / "hdf5_phony_dims.h5")
+    want = {
+        "a": ["phony_dim_0", "phony_dim_1"], "b": ["phony_dim_1", "phony_dim_2"], "c": ["phony_dim_3"],
+        "text": ["phony_dim_0", "string4"], "z": ["phony_dim_4"], "g/d": ["phony_dim_5", "phony_dim_6"],
+        "g/e": ["phony_dim_6"], "g/h/f": ["phony_dim_7", "phony_dim_8"], "scaled/x": ["x"],
+        "scaled/u": ["x", "phony_dim_10"], "scaled/w": ["x"],
+    }
+    for name, names in want.items():
+        array = root[name]
         assert isinstance(array.metadata, ArrayV3Metadata)
-        assert array.metadata.dimension_names is None
+        assert list(array.metadata.dimension_names or []) == names, name
+    assert isinstance(root["scalar"].metadata, ArrayV3Metadata)
+    assert root["scalar"].metadata.dimension_names is None
+
+
+@pytest.mark.parametrize("path", ACCEPTED, ids=lambda p: p.name)
+def test_every_array_is_a_variable_of_xarray_and_virtualizarr(path, monkeypatch):
+    """Each group opens as an xarray dataset whose variables are its arrays, by their dimension
+    names, and as a VirtualiZarr virtual dataset, whose variables need dimension names."""
+    monkeypatch.chdir(path.parent)
+    store = refkv.zarr.store(zarrify(str(path)))
+    for name, group in groups(zarr.open_group(store, mode="r")):
+        arrays = dict(group.arrays())
+        ds = xr.open_zarr(store, group=name or None, consolidated=False, zarr_format=3, decode_cf=False)
+        assert set(ds.variables) == set(arrays), name
+        manifests = {}
+        for k, array in arrays.items():
+            assert isinstance(array.metadata, ArrayV3Metadata)
+            assert ds[k].dims == tuple(array.metadata.dimension_names or ()), f"{name}/{k}"
+            empty = ChunkManifest(entries={}, shape=array.cdata_shape)
+            manifests[k] = ManifestArray(metadata=array.metadata, chunkmanifest=empty)
+        assert set(ManifestGroup(arrays=manifests, attributes={}).to_virtual_dataset().variables) == set(arrays), name

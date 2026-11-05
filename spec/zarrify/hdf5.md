@@ -131,13 +131,36 @@ is not presented, with the reason [§7.4](#74-what-is-not-presented) gives.
   its fill value. A fill value the data type has no JSON form of is not presented
   (`fill_value`).
 - **Dimension names:** when the dataset has a `DIMENSION_LIST` attribute, a sequence of object
-  references per axis, an axis's name is the name of the first dataset of its sequence, by its
-  link name in the hierarchy ([§2.2](#22-paths)) without a leading `_nc4_non_coord_`, and `null` when
-  its sequence is empty or names no object the walk reached. A dataset of rank 1 with no such
-  attribute and a `CLASS` attribute of `DIMENSION_SCALE` has its own name, the same way. Any
-  trailing axis of a fixed-length string is `null`. A dataset with neither, or with every axis
-  `null`, has no `dimension_names`. So a netCDF-4 file's variables have their dimensions and its
-  coordinate variables are arrays named as theirs, which is what xarray reads as coordinates.
+  references per axis, that attaches a scale to some axis, an axis's name is the name of the first
+  dataset of its sequence, by its link name in the hierarchy ([§2.2](#22-paths)) without a leading
+  `_nc4_non_coord_`, and `null` when its sequence is empty or names no object the walk reached. A
+  dataset of rank 1 with no such attribute and a `CLASS` attribute of `DIMENSION_SCALE` (a
+  **dimension scale**) has its own name, the same way. An **unscaled** dataset, of rank 1 or more,
+  not a dimension scale, whose `DIMENSION_LIST` is absent or attaches no scale to any axis, has
+  phony names (below). Any trailing axis of a fixed-length string of `n` bytes is `string<n>`,
+  `<n>` in decimal, the name xarray gives such an axis; a scalar has no `dimension_names` but for a
+  fixed-length string's, `["string<n>"]`. A dataset whose axes this leaves every one `null` has
+  no `dimension_names`. So a netCDF-4 file's variables have their dimensions and its coordinate
+  variables are arrays named as theirs, which is what xarray reads as coordinates, and xarray
+  reads every array of a plain HDF5 file as a variable.
+- **Phony names:** an unscaled dataset's axes are named as h5netcdf names them with
+  `phony_dims="sort"`, which follows netCDF-C. The hierarchy's groups are taken in canonical order
+  ([§2.2](#22-paths)); a group's **members** are the datasets whose canonical path is in it,
+  presented or not, and the dataset an external link of it presents ([§8.6](#86-external-files)).
+  A group's **dimensions** are, in order:
+  1. each member that is a dimension scale, by its name above, of the length of its axis;
+  2. for each length, in the order an axis of it first appears among the group's unscaled
+     members, as many more as the most axes of that length one unscaled member has, less the
+     group's dimension scales of that length, each named `phony_dim_<n>`: `<n>`, in decimal, is the
+     number of dimensions of the groups before it and of those before it in its group.
+
+  Members are taken in ascending byte order of their link names, axes in order. The first axis of
+  a length of an unscaled array takes the first of its group's dimensions of that length, the
+  second the second, and so on. So axes of one length share a name across a group's arrays but not
+  within one, and no two of a group's arrays give one name two lengths, which xarray refuses.
+  VirtualiZarr's `HDFParser` names the `k`-th axis of every such dataset `phony_dim_<k>`, which
+  gives axes of different lengths one name. A group the hierarchy does not present, and what is
+  below it, has no dimensions here, though h5netcdf counts them.
 - **A dimension without a variable:** a dimension scale whose `NAME` attribute is a fixed-length
   string starting `This is a netCDF dimension but not a netCDF variable` is not presented
   (`dimension_only`): netCDF-4 writes it for the dimension alone, and its values are not data.
@@ -327,7 +350,8 @@ order of the attributes' names, its value as JSON
 | an object reference | [§5](#5-object-references) |
 | a compound | an object of its members' values, by name |
 
-**On a dataset with `dimension_names`** ([§3](#3-datasets)), an attribute that is an array of one
+**On a dataset named by its dimension scales** ([§3](#3-datasets): its `DIMENSION_LIST`, or
+itself a dimension scale), an attribute that is an array of one
 element is that element's value, as netCDF-4 reads such an attribute: netCDF-4 writes its
 numbers so, and xarray takes `scale_factor` for a list otherwise.
 
