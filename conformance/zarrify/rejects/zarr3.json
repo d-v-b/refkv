@@ -1,0 +1,115 @@
+{
+  "cases": [
+    {
+      "test": "zarr3_reject_no_root",
+      "input": "zarr3_reject_no_root",
+      "message": "not a Zarr v3 store: the root has no zarr.json",
+      "host": "not a Zarr v3, Zarr v2, N5, SAFE, Neuroglancer precomputed or safetensors store: the root has no zarr.json, .zarray, .zgroup, attributes.json, manifest.safe or info, and no key ends in .safetensors"
+    },
+    {
+      "test": "zarr3_reject_objects_collision",
+      "input": "zarr3_reject_objects_collision",
+      "message": "the node refkv_source is where the store's source metadata goes (refkv_source/)"
+    },
+    {
+      "test": "zarr3_reject_root_attributes",
+      "input": "zarr3_reject_root_attributes",
+      "message": "/: attributes is not an object"
+    },
+    {
+      "test": "zarr3_reject_root_codecs",
+      "input": "zarr3_reject_root_codecs",
+      "message": "/: codecs is not a nonempty array"
+    },
+    {
+      "test": "zarr3_reject_root_data_type",
+      "input": "zarr3_reject_root_data_type",
+      "message": "/: zarr.json has no data_type"
+    },
+    {
+      "test": "zarr3_reject_root_empty",
+      "input": "zarr3_reject_root_empty",
+      "message": "zarr.json: invalid JSON: an empty document"
+    },
+    {
+      "test": "zarr3_reject_root_encoding",
+      "input": "zarr3_reject_root_encoding",
+      "message": "/: chunk key encoding hashed is not supported"
+    },
+    {
+      "test": "zarr3_reject_root_fill_value",
+      "input": "zarr3_reject_root_fill_value",
+      "message": "/: zarr.json has no fill_value"
+    },
+    {
+      "test": "zarr3_reject_root_grid",
+      "input": "zarr3_reject_root_grid",
+      "message": "/: chunk grid irregular is not supported"
+    },
+    {
+      "test": "zarr3_reject_root_grid_dims",
+      "input": "zarr3_reject_root_grid_dims",
+      "message": "/: chunk grid regular is not one of 1 dimensions"
+    },
+    {
+      "test": "zarr3_reject_root_node_type",
+      "input": "zarr3_reject_root_node_type",
+      "message": "//zarr.json: node_type folder is not array or group"
+    },
+    {
+      "test": "zarr3_reject_root_not_json",
+      "input": "zarr3_reject_root_not_json",
+      "message": "zarr.json: invalid JSON"
+    },
+    {
+      "test": "zarr3_reject_root_not_object",
+      "input": "zarr3_reject_root_not_object",
+      "message": "//zarr.json is not a JSON object"
+    },
+    {
+      "test": "zarr3_reject_root_rectilinear",
+      "input": "zarr3_reject_root_rectilinear",
+      "message": "/: chunk grid rectilinear is not one of 1 dimensions"
+    },
+    {
+      "test": "zarr3_reject_root_separator",
+      "input": "zarr3_reject_root_separator",
+      "message": "/: separator | is not . or /"
+    },
+    {
+      "test": "zarr3_reject_root_shape",
+      "input": "zarr3_reject_root_shape",
+      "message": "/: shape [2, 1.5] is not up to 32 sizes"
+    },
+    {
+      "test": "zarr3_reject_root_transformers",
+      "input": "zarr3_reject_root_transformers",
+      "message": "/: storage_transformers is not empty"
+    },
+    {
+      "test": "zarr3_reject_root_zarr_format",
+      "input": "zarr3_reject_root_zarr_format",
+      "message": "//zarr.json: zarr_format is not 3"
+    },
+    {
+      "test": "zarr3_reject_zip_no_eocd",
+      "input": "zarr3_reject_zip_no_eocd.zip",
+      "message": "not a zip file: no end of central directory record"
+    },
+    {
+      "test": "zarr3_reject_zip_no_root",
+      "input": "zarr3_reject_zip_no_root.zip",
+      "message": "not a Zarr v3 store: the root has no zarr.json"
+    },
+    {
+      "test": "zarr3_reject_zip_root_chunk",
+      "input": "zarr3_reject_zip_root_chunk.zip",
+      "message": "/: chunk c is compressed in the zip file (method 8)"
+    },
+    {
+      "test": "zarr3_reject_zip_root_method",
+      "input": "zarr3_reject_zip_root_method.zip",
+      "message": "zarr.json: the zip entry has the compression method 12"
+    }
+  ]
+}

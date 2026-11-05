@@ -36,6 +36,7 @@ its JSON Schema `zarrify/<format>/schema.json`. Its changes are in [zarrify/chan
 | TIFF, OME-TIFF, Aperio SVS | [tiff](zarrify/tiff.md) | `48e9ac4e-1156-4a62-955e-20467d9c2700` |
 | Olympus VSI | [vsi](zarrify/vsi.md) | `c0a1d4e6-5b7f-4f3a-9c2d-8e1f6a7b3c45` |
 | Zarr v2 | [zarr2](zarrify/zarr2.md) | `8e792619-d671-4687-ab51-752885dd3ee6` |
+| Zarr v3 | [zarr3](zarrify/zarr3.md) | `95203d0a-6586-426a-b920-3db2f4f1e97e` |
 <!-- /profiles -->
 
 A format's convention specifies the hierarchy's whole **Zarr layout**: which

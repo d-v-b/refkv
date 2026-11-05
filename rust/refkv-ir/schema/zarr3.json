@@ -1,0 +1,202 @@
+{
+  "source_model": "zarr3",
+  "version": 1,
+  "about": "The source model of a Zarr v3 store, listed or zipped (spec/zarrify/zarr3.md §7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr3.md#7-zarr-v3-profile>): the roles a node's zarr.json plays, an array's members among them, and, in the zip form, the zip file's end records, entries and documents, each with the constraints a store must meet to have the convention's layout. The parser reads the listing or the zip file's central directory, then every candidate's zarr.json (JSON by spec/zarrify.md §1.6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#16-json-documents>), and checks this schema for each node, from the root down; the projection reads a valid IR and checks nothing.",
+  "limits": {
+    "max_safe": 9007199254740991,
+    "max_dims": 32,
+    "max_document": 16777216,
+    "max_inflated": 134217728
+  },
+  "tables": {
+    "about": {
+      "node_types": "the values of node_type",
+      "grids": "the chunk grids whose chunk keys the convention computes (spec/zarrify/zarr3.md §3.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr3.md#31-chunk-grids-and-chunk-keys>)",
+      "encodings": "the chunk key encodings, by name: the separator when the configuration gives none",
+      "separators": "the separators a chunk key encoding takes"
+    },
+    "node_types": [
+      "array",
+      "group"
+    ],
+    "grids": [
+      "regular",
+      "rectilinear"
+    ],
+    "encodings": {
+      "default": "/",
+      "v2": "."
+    },
+    "separators": [
+      ".",
+      "/"
+    ]
+  },
+  "elements": {
+    "about": "The IR of a Zarr v3 store. Names in angle brackets are variables.",
+    "store form": {
+      "about": "spec/zarrify/zarr3.md §4.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr3.md#41-elements>: the store's directories and objects (conventions §8.9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>), and in each node document read, a value per top-level member"
+    },
+    "zip form": {
+      "entries/<i>": "struct: the local header and data of central directory entry i, for each object that is not empty",
+      "entries/<i>/local_header": "{signature:<u4,version:<u2,flags:<u2,method:<u2,time:<u2,date:<u2,crc32:<u4,compressed_size:<u4,size:<u4,name_length:<u2,extra_length:<u2}",
+      "entries/<i>/name": "ascii[n]",
+      "entries/<i>/extra": "bytes[n]",
+      "entries/<i>/data": "a node document read (ascii[n] when stored, derived {\"transform\":\"deflate\"} when deflated), or any other object (bytes[n] of its data as stored: its compressed bytes when compressed)",
+      "central_directory": "struct: the central directory",
+      "central_directory/entries/<i>": "struct: header {signature:<u4,version_made:<u2,version_needed:<u2,flags:<u2,method:<u2,time:<u2,date:<u2,crc32:<u4,compressed_size:<u4,size:<u4,name_length:<u2,extra_length:<u2,comment_length:<u2,disk:<u2,internal:<u2,external:<u4,local_header_offset:<u4}, name ascii[n], extra bytes[n], comment ascii[n]",
+      "zip64_end": "{signature:<u4,size:<u8,version_made:<u2,version_needed:<u2,disk:<u4,cd_disk:<u4,entries_here:<u8,entries:<u8,cd_size:<u8,cd_offset:<u8}",
+      "zip64_locator": "{signature:<u4,cd_disk:<u4,record_offset:<u8,disks:<u4}",
+      "end": "{signature:<u4,disk:<u2,cd_disk:<u2,entries_here:<u2,entries:<u2,cd_size:<u4,cd_offset:<u4,comment_length:<u2}",
+      "end_comment": "ascii[n]",
+      "gaps/<offset>": "gap: bytes no element claims (the local headers and data of empty, ignored and superseded entries, data descriptors)"
+    }
+  },
+  "roles": {
+    "node": {
+      "about": "a node's zarr.json (spec/zarrify/zarr3.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr3.md#2-nodes>)",
+      "given": {
+        "path": "the node's path (/ for the root)",
+        "object": "the document is a JSON object",
+        "zarr_format": "",
+        "node_type": "",
+        "attributes_ok": "attributes is absent or an object"
+      },
+      "constraints": [
+        {
+          "require": "object",
+          "message": "{path}/zarr.json is not a JSON object"
+        },
+        {
+          "require": "int(zarr_format) && zarr_format == 3",
+          "message": "{path}/zarr.json: zarr_format is not 3"
+        },
+        {
+          "require": "in(node_type, node_types)",
+          "message": "{path}/zarr.json: node_type {node_type} is not array or group"
+        },
+        {
+          "require": "attributes_ok",
+          "message": "{path}: attributes is not an object"
+        }
+      ]
+    },
+    "array": {
+      "about": "an array's zarr.json (spec/zarrify/zarr3.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr3.md#3-arrays>): the members the convention reads; shape_ok, grid_ok and the other flags are the parser's verdicts on the members' forms",
+      "given": {
+        "path": "",
+        "shape": "",
+        "shape_ok": "shape is an array of at most 32 integers from 0 to 2^53 - 1",
+        "n": "the length of shape",
+        "grid": "chunk_grid's name",
+        "grid_ok": "chunk_grid's configuration is that grid's for n dimensions",
+        "encoding": "chunk_key_encoding's name",
+        "encoding_ok": "chunk_key_encoding is an object with a string name and, if any, an object configuration",
+        "separator": "the separator the configuration gives",
+        "transformers": "storage_transformers is absent or empty",
+        "data_type": "data_type is present",
+        "fill_value": "fill_value is present",
+        "codecs": "codecs is a nonempty array"
+      },
+      "constraints": [
+        {
+          "require": "shape_ok",
+          "message": "{path}: shape {shape} is not up to 32 sizes"
+        },
+        {
+          "require": "in(grid, grids)",
+          "message": "{path}: chunk grid {grid} is not supported"
+        },
+        {
+          "require": "grid_ok",
+          "message": "{path}: chunk grid {grid} is not one of {n} dimensions"
+        },
+        {
+          "require": "encoding_ok && present(at(encodings, encoding))",
+          "message": "{path}: chunk key encoding {encoding} is not supported"
+        },
+        {
+          "require": "!present(separator) || in(separator, separators)",
+          "message": "{path}: separator {separator} is not . or /"
+        },
+        {
+          "require": "transformers",
+          "message": "{path}: storage_transformers is not empty"
+        },
+        {
+          "require": "data_type",
+          "message": "{path}: zarr.json has no data_type"
+        },
+        {
+          "require": "fill_value",
+          "message": "{path}: zarr.json has no fill_value"
+        },
+        {
+          "require": "codecs",
+          "message": "{path}: codecs is not a nonempty array"
+        }
+      ]
+    },
+    "zip_end": {
+      "given": {
+        "disks": "its disk numbers are 0",
+        "counts": "its two entry counts are equal"
+      },
+      "constraints": [
+        {
+          "require": "disks",
+          "message": "a zip file that spans several disks"
+        },
+        {
+          "require": "counts",
+          "message": "a zip file's entry counts differ"
+        }
+      ]
+    },
+    "zip_entry": {
+      "given": {
+        "disk": "",
+        "encrypted": "flag bit 0 or 6",
+        "utf8": "its name is UTF-8"
+      },
+      "constraints": [
+        {
+          "require": "disk == 0",
+          "message": "a zip entry on another disk"
+        },
+        {
+          "require": "!encrypted",
+          "message": "a zip entry is encrypted"
+        },
+        {
+          "require": "utf8",
+          "message": "a zip entry's name is not UTF-8"
+        }
+      ]
+    },
+    "zip_stored": {
+      "about": "a stored object (spec/zarrify/zarr3.md §7.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr3.md#74-the-zip-form>)",
+      "given": {
+        "key": "",
+        "same_size": "cs = us"
+      },
+      "constraints": [
+        {
+          "require": "same_size",
+          "message": "the stored zip entry {key} has a compressed size other than its size"
+        }
+      ]
+    },
+    "zip_inflated": {
+      "given": {
+        "total": "the sizes of the deflated documents read"
+      },
+      "constraints": [
+        {
+          "require": "total <= max_inflated",
+          "message": "the deflated documents are larger than 2^27 bytes together"
+        }
+      ]
+    }
+  }
+}

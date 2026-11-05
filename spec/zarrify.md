@@ -58,6 +58,7 @@ The table, generated from the registry, lists them:
 | [TIFF](zarrify/tiff.md#part-2-the-profile) | file | TIFF and BigTIFF, including OME-TIFF across files, Micro-Manager stacks and JPEG-tiled slides such as Aperio SVS |
 | [VSI](zarrify/vsi.md#part-2-the-profile) | file | Olympus cellSens VSI slides: a `.vsi` file and the tile files beside it, probed by key (uncompressed, JPEG, JPEG 2000, lossless JPEG, PNG and BMP tiles) |
 | [Zarr v2](zarrify/zarr2.md#part-2-the-profile) | store | Zarr v2 hierarchies |
+| [Zarr v3](zarrify/zarr3.md#part-2-the-profile) | file or store | Zarr v3 hierarchies: a store (a URL or a directory) or a zipped store (`.zip`) |
 <!-- /profiles -->
 
 The table says which profiles read a single file (a **file input**), which a store of many
@@ -237,6 +238,7 @@ profile name:
 | safetensors ([safetensors.md §8](zarrify/safetensors.md#8-safetensors-profile)) | 35 |
 | TIFF ([tiff.md §7](zarrify/tiff.md#7-tiff-profile)) | 40 |
 | VSI ([vsi.md §9](zarrify/vsi.md#9-vsi-profile)) | 30 |
+| Zarr v3 ([zarr3.md §7](zarrify/zarr3.md#7-zarr-v3-profile)) | 78 |
 <!-- /profiles -->
 
 **Rejection.** A zarrifier MUST reject an input the profile does not
@@ -1042,7 +1044,8 @@ else. The profiles, generated from the registry:
 - the safetensors profile: [spec/zarrify/safetensors.md §8](zarrify/safetensors.md#8-safetensors-profile);
 - the TIFF profile: [spec/zarrify/tiff.md §7](zarrify/tiff.md#7-tiff-profile);
 - the VSI profile: [spec/zarrify/vsi.md §9](zarrify/vsi.md#9-vsi-profile);
-- the Zarr v2 profile: [spec/zarrify/zarr2.md §7](zarrify/zarr2.md#7-zarr-v2-profile).
+- the Zarr v2 profile: [spec/zarrify/zarr2.md §7](zarrify/zarr2.md#7-zarr-v2-profile);
+- the Zarr v3 profile: [spec/zarrify/zarr3.md §7](zarrify/zarr3.md#7-zarr-v3-profile).
 <!-- /profiles -->
 
 A profile's Part 2 starts by naming its section and the profiles it builds on.

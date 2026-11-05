@@ -537,6 +537,8 @@ def open_store(location: str, url: str | None = None, *, max_objects: int | None
 def choose_profile(store: Store) -> str:
     """The store profile that the root keys select (§1.4
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>)."""
+    if "zarr.json" in store.objects:
+        return "zarr3"
     if ".zarray" in store.objects or ".zgroup" in store.objects:
         return "zarr2"
     if "attributes.json" in store.objects:
@@ -549,5 +551,5 @@ def choose_profile(store: Store) -> str:
         return "safetensors"
     if any(k.endswith(".dcm") for k in store.objects):
         return "dicom"
-    raise Rejected("not an N5, Zarr v2, SAFE, Neuroglancer precomputed or safetensors store: the root has no "
-                   ".zarray, .zgroup, attributes.json, manifest.safe or info, and no key ends in .safetensors")
+    raise Rejected("not a Zarr v3, Zarr v2, N5, SAFE, Neuroglancer precomputed or safetensors store: the root has "
+                   "no zarr.json, .zarray, .zgroup, attributes.json, manifest.safe or info, and no key ends in .safetensors")

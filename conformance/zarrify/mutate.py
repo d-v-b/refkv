@@ -30,7 +30,7 @@ import sys
 from pathlib import Path
 
 FIXTURES = Path(__file__).resolve().parents[2] / "fixtures"
-STORE_FORMATS = ("n5", "zarr2", "ome-zarr", "safe")
+STORE_FORMATS = ("n5", "zarr2", "zarr3", "ome-zarr", "safe")
 METADATA = ("attributes.json", ".zarray", ".zgroup", ".zattrs")
 
 

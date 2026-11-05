@@ -44,6 +44,7 @@ who each one is for, what you get, and how to run it.
 | TIFF | OME-TIFF, plain TIFF (tiled or in strips), and JPEG-tiled slides such as Aperio SVS | [tiff](tiff/README.md) | [tiff.md §7](../../spec/zarrify/tiff.md#7-tiff-profile) |
 | VSI | Olympus cellSens whole-slide images (`.vsi` with its tile files) | [vsi](vsi/README.md) | [vsi.md §9](../../spec/zarrify/vsi.md#9-vsi-profile) |
 | Zarr v2 | Zarr v2 hierarchies on S3 | [zarr2](zarr2/README.md) | [zarr2.md §7](../../spec/zarrify/zarr2.md#7-zarr-v2-profile) |
+| Zarr v3 | Zarr v3 hierarchies, listed or zipped, as references to their own chunks | [convention](../../spec/zarrify/zarr3.md) | [zarr3.md §7](../../spec/zarrify/zarr3.md#7-zarr-v3-profile) |
 <!-- /profiles -->
 
 A format that reads a file takes a URL, or a local path. One that reads a

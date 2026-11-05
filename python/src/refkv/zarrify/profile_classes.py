@@ -228,6 +228,22 @@ class Zarr2Store(Store):
     profile: ClassVar[str] = "zarr2"
 
 
+@dataclass(frozen=True)
+class Zarr3Source(Source):
+    """Zarr v3: a file the `zarr3` profile reads, its first bytes untested (`Source` lists its
+    read options)."""
+
+    profile: ClassVar[str] = "zarr3"
+
+
+@dataclass(frozen=True)
+class Zarr3Store(Store):
+    """Zarr v3: a store the `zarr3` profile reads, its root's keys untested (`Store` lists its
+    read options)."""
+
+    profile: ClassVar[str] = "zarr3"
+
+
 # each class, by its name
 CLASSES: dict[str, type[Source | Store]] = {
     "CziSource": CziSource,
@@ -257,6 +273,8 @@ CLASSES: dict[str, type[Source | Store]] = {
     "TiffSource": TiffSource,
     "VsiSource": VsiSource,
     "Zarr2Store": Zarr2Store,
+    "Zarr3Source": Zarr3Source,
+    "Zarr3Store": Zarr3Store,
 }
 
 __all__ = [
@@ -287,4 +305,6 @@ __all__ = [
     "TiffSource",
     "VsiSource",
     "Zarr2Store",
+    "Zarr3Source",
+    "Zarr3Store",
 ]
