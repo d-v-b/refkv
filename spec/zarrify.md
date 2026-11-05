@@ -101,7 +101,7 @@ The table, generated from the registry, lists them:
 | [IMS](zarrify/ims.md#part-2-the-profile) | file | Imaris IMS files (HDF5) |
 | [LIF](zarrify/lif.md#part-2-the-profile) | file | Leica LIF files (LAS X and LAS AF, versions 1 and 2), its object files (LOF) and extension files (LIFEXT), and LAS X projects of XLEF, XLCF, XLIF and XLLF documents and LOFs: every image of the element tree, with interleaved or planar channels, z-stacks, time series and mosaics, uncompressed |
 | [MP3](zarrify/mp3.md#part-2-the-profile) | file | MPEG-1, MPEG-2 and MPEG-2.5 Layer III audio files (`.mp3`), with their ID3v2, ID3v1 and APE tags; one array of samples, not an image |
-| [MP4](zarrify/mp4.md#part-2-the-profile) | file | MP4 and QuickTime files (`.mp4`, `.m4a`, `.m4v`, `.mov`) with H.264, HEVC, AV1, VP9 or Motion JPEG video and AAC, MP3 or PCM audio tracks; a group per track, not an image |
+| [MP4](zarrify/mp4.md#part-2-the-profile) | file | MP4 and QuickTime files (`.mp4`, `.m4a`, `.m4v`, `.mov`) with H.264, HEVC, AV1, VP9 or Motion JPEG video and AAC, HE-AAC, MP3 or PCM audio tracks; a group per track, not an image |
 | [MRC](zarrify/mrc.md#part-2-the-profile) | file | MRC2014 files (CCP4 maps, image stacks, volumes and volume stacks), gzipped or not |
 | [N5](zarrify/n5.md#part-2-the-profile) | store | N5 containers, default-mode blocks |
 | [ND2](zarrify/nd2.md#part-2-the-profile) | file | Nikon ND2, format version 3 and later |
@@ -856,9 +856,14 @@ but its profile follows **Pins**, **Identity** and **Bounds** for the objects on
 
 Every sibling is therefore below the store URL: the object URL
 ([§1.4](#14-store-inputs), **Object URLs**) of its key, under the same reader policy
-([spec/refkv.md §6.7](refkv.md#67-reader-policy)) as the named file. Nothing in a file can make a
+([spec/refkv.md §6.7](refkv.md#67-reader-policy)) as the named file. Nothing a file writes can make a
 zarrifier or a reader fetch from elsewhere. A file that names a sibling in a parent directory of the
 named file is rejected, and the input to give is the file at the top of the set.
+
+A local file system can lead elsewhere by itself, through a symbolic link or a Windows junction. So a
+zarrifier reading a local directory MUST find a key absent, and list no directory for **Case**, when
+its file or directory, links followed, is not below the named file's directory, links followed. A
+link that stays below that directory is followed. A hard link cannot be told from the file it names.
 
 **Case.** A file written on a case-insensitive file system can name a sibling in another case than
 the file has: LAS X writes `metadata/series010.xlif` for the file `Metadata/Series010.xlif`. A profile

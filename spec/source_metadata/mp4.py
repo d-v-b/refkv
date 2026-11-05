@@ -89,7 +89,7 @@ SCHEMA = {"anyOf": [
             "format": {"enum": ["aac", "mp3", "pcm"]},
             "sample_rate": {"type": "integer", "minimum": 1},
             "channels": {"type": "integer", "minimum": 1},
-            "samples_per_frame": {"enum": [1, 576, 1024, 1152]},
+            "samples_per_frame": {"enum": [1, 576, 1024, 1152, 2048]},
             "samples": {"type": "integer", "minimum": 1, "description": "frames * samples_per_frame"},
         },
         "required": [*_MP4_TRACK_COMMON, "format", "sample_rate", "channels", "samples_per_frame", "samples"],

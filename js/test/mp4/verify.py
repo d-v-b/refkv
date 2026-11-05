@@ -38,7 +38,8 @@ from ir_mirror import mirror_problems  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # js/test, for verify_common
 from verify_common import LOOPBACK_SOURCES, run, serve  # noqa: E402
 
-NOISE = {"mp4_aac_pns.mp4"}
+NOISE = {"mp4_aac_pns.mp4", "mp4_he_aac.mp4", "mp4_he_aac_v2.mp4", "mp4_he_aac_hierarchical.mp4",
+         "mp4_he_aac_v2_hierarchical.mp4", "mp4_he_aac_h264.mp4", "mp4_he_aac_v2_long.mp4"}
 # A trun box of negative composition offsets: ffmpeg's demuxer adds the largest of them to every
 # time (its dts_shift), where a sample's presentation time is its decode time plus its offset
 SHIFTED = {"mp4_frag_dash.mp4"}

@@ -38,6 +38,7 @@ const STORE_FORMATS: Record<StoreProfile, string | undefined> = {
   grib: "GRIB",
   safetensors: "safetensors",
   lif: "LIF",
+  hdf5: "HDF5",
   tiff: "TIFF",
   czi: "CZI",
 };

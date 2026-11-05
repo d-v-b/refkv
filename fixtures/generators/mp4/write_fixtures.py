@@ -8,7 +8,7 @@ open groups (CRA pictures and their RASL pictures), RADL pictures, and in a Quic
 AAC and MP3 audio, alone and beside video; the moov box before and after the media data, a
 64-bit mdat size and an mdat that runs to the end of the file; fragmented files, as ffmpeg's muxer
 writes them and with each way a track fragment can say where its samples are; Motion JPEG of each
-sample entry; PCM audio of each kind of sample entry; tracks the profile does not zarrify (4:2:2
+sample entry; HE-AAC; PCM audio of each kind of sample entry; tracks the profile does not zarrify (4:2:2
 H.264, 4:4:4 HEVC and VP9) beside ones it does; and the inputs it rejects (`*_reject_*`). The byte-crafted edge
 cases are write_edge_fixtures.py's.
 
@@ -175,6 +175,22 @@ def main() -> None:
     write("mov_hevc_main10_aac.mov",
           ffmpeg(*video(), *audio(), *x265(f"{OPEN_GOP}:{HLG}", "yuv420p10le"), *AAC, fmt="mov"))
     write("mov_hevc_aac.mov", ffmpeg(*video(), *audio(), *x265(OPEN_GOP), *AAC, fmt="mov"))
+    # HE-AAC and HE-AAC v2, as AudioToolbox writes them (macOS only), and the same streams with the
+    # hierarchical signaling; SBR that does not double the rate, and another AAC object type
+    he = ("-c:a", "aac_at", "-profile:a", "4", "-b:a", "32k")
+    he2 = ("-c:a", "aac_at", "-profile:a", "28", "-b:a", "24k")
+    tone = audio(44100, 1.5, 2)
+    he_aac = ffmpeg(*tone, *he)
+    he_aac_v2 = ffmpeg(*tone, *he2)
+    write("mp4_he_aac.mp4", he_aac)
+    write("mp4_he_aac_v2.mp4", he_aac_v2)
+    write("mp4_he_aac_v2_long.mp4", ffmpeg(*audio(44100, 10, 2), *he2))
+    write("mp4_he_aac_hierarchical.mp4", audio_config(he_aac, bytes.fromhex("2b92088000")))
+    write("mp4_he_aac_v2_hierarchical.mp4", audio_config(he_aac_v2, bytes.fromhex("eb8a0880000000")))
+    beside_he = ffmpeg(*video(), *audio(44100, 1.5, 2), *X264, "-g", "10", *he)
+    write("mp4_he_aac_h264.mp4", beside_he)
+    write("mp4_he_aac_low_sbr_h264.mp4", audio_config(beside_he, bytes.fromhex("139056e598")))
+    write("mp4_aac_ssr_h264.mp4", audio_config(beside_he, bytes.fromhex("1b9056e5a0")))
     # Motion JPEG: each sample entry; gray, progressive and CMYK streams, which ffmpeg's encoder does
     # not write; a first picture with its frame header past the first read; in fragments; and what
     # the profile does not read, beside AAC
@@ -289,6 +305,17 @@ def main() -> None:
     write("mp4_reject_frag_trun_table.mp4", frag[:o + h + 4] + struct.pack(">I", 1 << 20) + frag[o + h + 8:])
     write("mp4_reject_frag_trun_before.mp4", frag[:o + h + 8] + struct.pack(">i", -(1 << 30)) + frag[o + h + 12:])
     write("mp4_reject_frag_sample_outside.mp4", frag_sample_outside(frag))
+
+
+def audio_config(data: bytes, config: bytes) -> bytes:
+    """The file with its AudioSpecificConfig replaced by `config`, of the same length."""
+    o = data.index(b"esds")
+    at = data.index(b"\x05\x80", o)  # the descriptor's tag, then its length's bytes
+    while data[at + 1] & 0x80:
+        at += 1
+    start = at + 2
+    assert data[start - 1] == len(config), (data[start - 1], len(config))
+    return data[:start] + config + data[start + len(config):]
 
 
 def jpegs(mode: str, **options: object) -> list[bytes]:
