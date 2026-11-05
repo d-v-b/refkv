@@ -186,6 +186,11 @@ def rectilinear() -> Path:
         for j in range(2):
             put(d / f"r/c/{i}/{j}", bytes([i * 2 + j] * (rows * 4)))
     put(d / "r/c/3/0", b"beyond the grid's three chunks")
+    # a list of more sizes than the axis needs: its chunks are the first seven, as zarr-python counts
+    over = {"name": "rectilinear", "configuration": {"kind": "inline", "chunk_shapes": [[[1, 100]]]}}
+    write_json(d / "over/zarr.json", array_doc([7], None, chunk_grid=over))
+    for i in (0, 6, 7):
+        put(d / f"over/c/{i}", bytes([i]))
     return d
 
 
@@ -203,6 +208,10 @@ def conventions() -> Path:
     write_json(d / "empty/zarr.json", group_doc({"zarr_conventions": []}))
     ours = {"uuid": "95203d0a-6586-426a-b920-3db2f4f1e97e", "name": "refkv_zarrified"}
     write_json(d / "ours/zarr.json", group_doc({"zarr_conventions": [ours]}))
+    # a refkv hierarchy zarrified again: its own convention's CMO moves with its member
+    tiff = {"uuid": "48e9ac4e-0000-4000-8000-000000000000", "name": "refkv_zarrified"}
+    write_json(d / "again/zarr.json", group_doc({"zarr_conventions": [tiff, proj],
+                                                 "refkv_zarrified": {"profile": "tiff"}}))
     write_json(d / "bare/zarr.json", {"zarr_format": 3, "node_type": "group"})
     return d
 
@@ -218,6 +227,10 @@ def left_out() -> Path:
         "grid_dims": array_doc([2, 2], [2]),
         "encoding": array_doc([2], [2], chunk_key_encoding={"name": "hashed"}),
         "separator": array_doc([2], [2], chunk_key_encoding={"name": "default", "configuration": {"separator": "-"}}),
+        "separator_null": array_doc([2], [2], chunk_key_encoding={"name": "default",
+                                                                  "configuration": {"separator": None}}),
+        "short_grid": array_doc([100], None, chunk_grid={"name": "rectilinear", "configuration": {
+            "kind": "inline", "chunk_shapes": [[2]]}}),
         "transformers": array_doc([2], [2], storage_transformers=[{"name": "foo"}]),
         "no_codecs": array_doc([2], [2], codecs=[]),
         "no_fill": array_doc([2], [2], fill_value=None),

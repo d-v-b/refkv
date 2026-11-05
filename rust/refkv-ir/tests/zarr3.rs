@@ -79,9 +79,9 @@ fn the_fixtures_have_their_hierarchies_and_mirrors() {
         ("zarr3_hierarchy.zip", json!({"arrays": 7, "groups": 4, "chunks": 12, "emptyChunks": 1, "superseded": 2, "form": "zip"})),
         ("zarr3_scalar_root", json!({"arrays": 1, "groups": 0, "chunks": 1, "otherObjects": 1})),
         ("zarr3_codecs", json!({"arrays": 6, "groups": 1, "chunks": 6})),
-        ("zarr3_rectilinear", json!({"arrays": 1, "chunks": 6, "otherObjects": 1})),
-        ("zarr3_conventions", json!({"groups": 7})),
-        ("zarr3_left_out", json!({"arrays": 1, "groups": 1, "chunks": 1, "notPresented": 13})),
+        ("zarr3_rectilinear", json!({"arrays": 2, "chunks": 8, "otherObjects": 2})),
+        ("zarr3_conventions", json!({"groups": 8})),
+        ("zarr3_left_out", json!({"arrays": 1, "groups": 1, "chunks": 1, "notPresented": 15})),
         ("zarr3_deflated_documents.zip", json!({"arrays": 1, "groups": 1, "chunks": 2})),
         ("zarr3_compressed_chunks.zip", json!({"arrays": 1, "chunks": 2, "notPresented": 1})),
     ];
@@ -164,6 +164,8 @@ fn documents_pass_through_with_the_declaration() {
     // the rectilinear grid's chunks, and not the one beyond it
     let rect = refs(&run("zarr3_rectilinear").unwrap()).keys().map(|k| k.to_string()).collect::<Vec<_>>();
     assert!(rect.contains(&"r/c/2/1".into()) && rect.contains(&"refkv_source/objects/r/c/3/0".into()), "{rect:?}");
+    // a list of more sizes than the axis needs: the chunks that cover it, and no more
+    assert!(rect.contains(&"over/c/6".into()) && rect.contains(&"refkv_source/objects/over/c/7".into()), "{rect:?}");
 }
 
 #[test]
@@ -185,7 +187,10 @@ fn attributes_stay_in_place_but_the_convention_s_own() {
     assert_eq!(own("object"), json!({"attributes": {"zarr_conventions": {"not": "a list"}}}));
     assert_eq!(own("empty"), json!({"attributes": {"zarr_conventions": []}}));
     assert_eq!(own("ours")["attributes"]["zarr_conventions"][0]["uuid"], UUID);
-    for p in ["nested", "object", "empty", "ours"] {
+    // a refkv hierarchy's own convention moves with its member, so none is declared without it
+    assert_eq!(own("again")["attributes"]["zarr_conventions"][1], proj);
+    assert_eq!(own("again")["attributes"]["refkv_zarrified"], json!({"profile": "tiff"}));
+    for p in ["nested", "object", "empty", "ours", "again"] {
         assert_eq!(attrs(p)["zarr_conventions"].as_array().map(Vec::len), Some(1), "{p}");
     }
 }
@@ -200,6 +205,8 @@ fn nodes_that_fail_below_the_root_are_left_out_with_their_reasons() {
         ("grid_dims", "grid_dims: chunk grid regular is not one of 2 dimensions"),
         ("encoding", "encoding: chunk key encoding hashed is not supported"),
         ("separator", "separator: separator - is not . or /"),
+        ("separator_null", "separator_null: separator null is not . or /"),
+        ("short_grid", "short_grid: chunk grid rectilinear is not one of 1 dimensions"),
         ("transformers", "transformers: storage_transformers is not empty"),
         ("no_codecs", "no_codecs: codecs is not a nonempty array"),
         ("no_fill", "no_fill: zarr.json has no fill_value"),
@@ -212,7 +219,7 @@ fn nodes_that_fail_below_the_root_are_left_out_with_their_reasons() {
     ] {
         assert!(left[path].starts_with(why), "{path}: {}", left[path]);
     }
-    assert_eq!(left.len(), 13);
+    assert_eq!(left.len(), 15);
     // a node left out has no zarr.json, a candidate below it is not a node, and its objects are kept
     assert!(!out.entries.iter().any(|e| e.0 == "grid/zarr.json" || e.0 == "grid/inner/zarr.json"));
     let r = refs(&out);

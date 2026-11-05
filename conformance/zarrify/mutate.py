@@ -7,10 +7,10 @@ Each fixture file under 256 KiB gets `count` mutants: a byte set to a random
 value near the start or end of the file (where headers, IFDs and chunk maps
 are), a byte anywhere, or a truncation.
 
-Each synthetic store (a directory under fixtures/n5, zarr2, ome-zarr or
+Each synthetic store (a directory under fixtures/n5, zarr2, zarr3, ome-zarr or
 safe, but the SAFE products made to be rejected) gets `count` mutants, copied to
 <out dir>/<format>/<name>.m<k>/, each with one change: a metadata document
-(attributes.json, .zarray, .zgroup, .zattrs, or a SAFE product's XML) mutated as
+(attributes.json, zarr.json, .zarray, .zgroup, .zattrs, or a SAFE product's XML) mutated as
 bytes, or as JSON (a member's value replaced by a value of
 another type or an edge value, or the member removed); a chunk object
 truncated, emptied, deleted or changed; an object deleted; or a stray
@@ -31,7 +31,7 @@ from pathlib import Path
 
 FIXTURES = Path(__file__).resolve().parents[2] / "fixtures"
 STORE_FORMATS = ("n5", "zarr2", "zarr3", "ome-zarr", "safe")
-METADATA = ("attributes.json", ".zarray", ".zgroup", ".zattrs")
+METADATA = ("attributes.json", "zarr.json", ".zarray", ".zgroup", ".zattrs")
 
 
 def is_metadata(p: Path) -> bool:
@@ -133,7 +133,7 @@ def main(argv: list[str]) -> int:
                     if d.is_dir() and not d.name.startswith("safe_reject_"))
     for p in sorted([*FIXTURES.rglob("*.tif"), *FIXTURES.rglob("*.ndpi"), *FIXTURES.rglob("*.nd2"),
                      *FIXTURES.rglob("*.dcm"), *FIXTURES.rglob("*.nii"), *FIXTURES.rglob("*.ims"),
-                     *FIXTURES.rglob("*.SAFE.zip")]):
+                     *FIXTURES.rglob("*.SAFE.zip"), *FIXTURES.glob("zarr3/*.zip")]):
         if any(p.is_relative_to(s) for s in stores) or p.name.startswith("safe_reject_"):
             continue
         data = p.read_bytes()

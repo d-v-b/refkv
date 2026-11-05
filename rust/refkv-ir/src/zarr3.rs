@@ -126,7 +126,8 @@ fn size(v: &Jv) -> Option<u64> {
 
 /// The chunks along each axis of an array of `shape` whose chunk grid is `grid` (`name` its
 /// name, `conf` its configuration), or None when the configuration is not that grid's for
-/// `shape.len()` dimensions.
+/// `shape.len()` dimensions. A rectilinear axis's chunks are those its list needs to cover the
+/// axis, in order (none for an axis of 0), and a list that does not cover it is not the grid's.
 fn counts(name: &str, conf: Option<&Jv>, shape: &[u64]) -> Option<Vec<u64>> {
     let conf = conf?;
     let per_axis: &[Jv] = match name {
@@ -148,14 +149,20 @@ fn counts(name: &str, conf: Option<&Jv>, shape: &[u64]) -> Option<Vec<u64>> {
             return None;
         }
         let items = v.items().filter(|a| !a.is_empty())?;
-        let mut n = 0u64;
+        let (mut n, mut left) = (0u64, s);
         for x in items {
-            let k = match x.items() {
-                Some([s, c]) => size(s).and(size(c))?,
+            let (size, run) = match x.items() {
+                Some([a, r]) => (size(a)?, size(r)?),
                 Some(_) => return None,
-                None => size(x).map(|_| 1)?,
+                None => (size(x)?, 1),
             };
-            n = n.checked_add(k).filter(|&n| n <= MAX_SAFE as u64)?;
+            // the chunks of this run the axis still needs
+            let k = run.min(left.div_ceil(size));
+            n += k;
+            left = left.saturating_sub(size.saturating_mul(k));
+        }
+        if left > 0 {
+            return None;
         }
         out.push(n);
     }
@@ -220,7 +227,8 @@ fn check(shown: &str, key: &str, d: &Jv) -> Res<Option<ArrayInfo>> {
     env.insert("grid_ok", rules::flag(counts.is_some()));
     env.insert("encoding", rules::text(&encoding));
     env.insert("encoding_ok", rules::flag(encoding_ok));
-    env.insert("separator", separator.map(Jv::to_v).unwrap_or(crate::expr::V::Absent));
+    // a separator written as null is not one of the two, nor absent
+    env.insert("separator", separator.map(|v| if *v == Jv::Null { rules::text("null") } else { v.to_v() }).unwrap_or(crate::expr::V::Absent));
     env.insert("transformers", rules::flag(d.get("storage_transformers").is_none_or(|t| t.items().is_some_and(<[Jv]>::is_empty))));
     env.insert("data_type", rules::flag(d.has("data_type")));
     env.insert("fill_value", rules::flag(d.has("fill_value")));
@@ -244,10 +252,12 @@ fn uuid() -> String {
 /// members in order but `consolidated_metadata`, with `attributes` the attributes kept in
 /// place (appended when it has none). `refkv_zarrified` moves, and so does `zarr_conventions`
 /// unless it is a nonempty array of which no element is an object whose `uuid` is the
-/// convention's.
+/// convention's or whose `name` is `refkv_zarrified` (another refkv convention's CMO, whose
+/// member moves).
 fn rewrite(d: &Jv) -> (Jv, Jv) {
     let id = uuid();
-    let follows = |v: &Jv| v.items().is_some_and(|a| !a.is_empty() && !a.iter().any(|c| c.get("uuid").and_then(Jv::as_str) == Some(id.as_str())));
+    let refkv = |c: &Jv| c.get("uuid").and_then(Jv::as_str) == Some(id.as_str()) || c.get("name").and_then(Jv::as_str) == Some(crate::out::CONVENTION_KEY);
+    let follows = |v: &Jv| v.items().is_some_and(|a| !a.is_empty() && !a.iter().any(refkv));
     let (mut kept, mut moved) = (Vec::new(), Vec::new());
     for (k, v) in d.get("attributes").map(Jv::members).unwrap_or(&[]) {
         let plain = k.lone.is_empty();
@@ -485,6 +495,8 @@ pub struct Zarr3Zip {
     entries: Vec<zip::Entry>,
     raw: HashMap<&'static str, Vec<u8>>,
     asked: Vec<(u64, u64)>,
+    /// the ranges of the batch asked last, which `feed` takes
+    asking: HashSet<(u64, u64)>,
     got: HashMap<(u64, u64), Vec<u8>>,
     /// the store's objects: key -> entry (the last of its name), in key order
     objects: BTreeMap<String, usize>,
@@ -506,7 +518,7 @@ impl Zarr3Zip {
     pub fn new(size: u64) -> Zarr3Zip {
         Zarr3Zip {
             size, phase: Phase::Tail, begun: false, end: zip::End::default(), entries: Vec::new(), raw: HashMap::new(),
-            asked: Vec::new(), got: HashMap::new(), objects: BTreeMap::new(), ignored: Vec::new(), superseded: 0,
+            asked: Vec::new(), asking: HashSet::new(), got: HashMap::new(), objects: BTreeMap::new(), ignored: Vec::new(), superseded: 0,
             cands: Vec::new(), docs: HashMap::new(), reading: Vec::new(),
         }
     }
@@ -689,6 +701,7 @@ impl Zarr3Zip {
             if !self.asked.is_empty() {
                 self.asked.sort_unstable();
                 self.asked.dedup();
+                self.asking = self.asked.iter().copied().collect();
                 return Ok(Step::Read(self.asked.clone()));
             }
         }
@@ -696,7 +709,7 @@ impl Zarr3Zip {
 
     pub fn feed(&mut self, offset: u64, data: Vec<u8>) {
         let key = (offset, data.len() as u64);
-        if self.asked.contains(&key) {
+        if self.asking.contains(&key) {
             self.got.insert(key, data);
         }
     }

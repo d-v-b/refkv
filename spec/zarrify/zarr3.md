@@ -173,13 +173,14 @@ The array's **chunks along axis `k`**, `m[k]`, by its chunk grid:
 | `chunk_grid` | MUST be | `m[k]` |
 |---|---|---|
 | `regular` | a configuration whose member `chunk_shape` is an array of `n` integers, each from 1 to 2^53 − 1 | `ceil(shape[k] / chunk_shape[k])` |
-| `rectilinear` (zarr-extensions) | a configuration whose member `kind` is `"inline"` and whose member `chunk_shapes` is an array of `n` entries; each an integer from 1 to 2^53 − 1, or a nonempty array whose items are each an integer from 1 to 2^53 − 1 or a pair `[s, r]` of such integers | an integer entry `c`: `ceil(shape[k] / c)`; an array: one per integer item and `r` per pair, which MUST total at most 2^53 − 1 |
+| `rectilinear` (zarr-extensions) | a configuration whose member `kind` is `"inline"` and whose member `chunk_shapes` is an array of `n` entries; each an integer from 1 to 2^53 − 1, or a nonempty array whose items are each an integer from 1 to 2^53 − 1 or a pair `[s, r]` of such integers | an integer entry `c`: `ceil(shape[k] / c)`; an array, whose sizes (an integer item one size, a pair `r` sizes `s`) MUST total at least `shape[k]`: the number of its sizes, in order, that reach `shape[k]` (sizes past them are not chunks, as zarr-python counts them) |
 
-Any other grid, or a configuration that does not meet its row, means the array is not presented.
+Any other grid, or a configuration that does not meet its row, means the array is not presented
+(the message `chunk grid <name> is not one of <n> dimensions` names both).
 (`m[k]` is 0 when `shape[k]` is 0: such an array has no chunk keys.)
 
 The **chunk key encoding** is `default` or `v2`, with the separator `s` that its configuration's
-member `separator` gives, which MUST be `"."` or `"/"`; without one, `s` is `"/"` for `default`
+member `separator` gives, which MUST be `"."` or `"/"` (`null` is neither); without the member, `s` is `"/"` for `default`
 and `"."` for `v2`. Any other encoding means the array is not presented. The **chunk keys** of the
 array at path `D` are `D/` (nothing at the root) followed by:
 
@@ -254,11 +255,13 @@ with the declaration, and **move** into the source metadata:
 - `refkv_zarrified`, always: a store that is itself a refkv hierarchy nests its own record, as
   [conventions §2](../conventions.md#2-attributes) says;
 - `zarr_conventions`, unless it is a nonempty array of which no element is an object whose member
-  `uuid` is `C`'s. Such an array lists other conventions' CMOs, which stay in place: on a node that
-  declares the convention they follow `C` in its `zarr_conventions`
-  ([conventions §2](../conventions.md#2-attributes), "Other attributes"), and on any other node
-  `zarr_conventions` is as written. Any other value (an object, an empty array, an array that
-  already names this convention) moves.
+  `uuid` is `C`'s or whose member `name` is `"refkv_zarrified"`. Such an array lists other
+  conventions' CMOs, which stay in place: on a node that declares the convention they follow `C`
+  in its `zarr_conventions` ([conventions §2](../conventions.md#2-attributes), "Other
+  attributes"), and on any other node `zarr_conventions` is as written. Any other value (an
+  object, an empty array, an array that names this convention or another refkv convention, whose
+  member `refkv_zarrified` moves with it) moves, so that the output declares no convention whose
+  member it does not hold.
 
 A node's source metadata `S` ([conventions §2](../conventions.md#2-attributes)) is the object of
 these members, each present only when its value is not empty; the node has source metadata only
@@ -437,8 +440,11 @@ A Zarr v3 store is read in one of two forms:
 | **zipped** | a file input ([spec/zarrify.md §1.2](../zarrify.md#12-input)) | the zip file's URL | its entries ([§7.4](#74-the-zip-form)) |
 
 The two forms give the same hierarchy for the same store, but for `source.url`, the chunks'
-sources, the other objects and `refkv_source` (the IR mirror of a store or of a file,
-[§4.1](#41-elements)): every other document is the same, and every chunk holds the same bytes.
+sources, the other objects, `refkv_source` (the IR mirror of a store or of a file,
+[§4.1](#41-elements)), and the nodes only a zip file leaves out: an array with a compressed chunk,
+and a node whose `zarr.json` is compressed with a method other than deflate
+([§7.4](#74-the-zip-form)). Every other document is the same, and every chunk holds the same
+bytes.
 
 **Numbers.** The documents' integer literals are kept exactly where the convention copies them
 ([its §4](#4-source-metadata)), beyond 2^53 − 1 too, in place of
