@@ -144,23 +144,27 @@ is not presented, with the reason [§7.4](#74-what-is-not-presented) gives.
   variables are arrays named as theirs, which is what xarray reads as coordinates, and xarray
   reads every array of a plain HDF5 file as a variable.
 - **Phony names:** an unscaled dataset's axes are named as h5netcdf names them with
-  `phony_dims="sort"`, which follows netCDF-C. The hierarchy's groups are taken in canonical order
-  ([§2.2](#22-paths)); a group's **members** are the datasets whose canonical path is in it,
-  presented or not, and the dataset an external link of it presents ([§8.6](#86-external-files)).
-  A group's **dimensions** are, in order:
+  `phony_dims="sort"`, which follows netCDF-C. A group's **members** are the datasets whose
+  canonical path ([§2.2](#22-paths)) is in it, presented or not, and the dataset an external link
+  of it presents ([§8.6](#86-external-files)). A group whose link info message has flag bit 0 set
+  (it tracks creation order) and whose every link message gives a creation order takes its
+  members and its subgroups in that order, as h5py iterates them; any other group in ascending
+  byte order of their link names. The hierarchy's groups are taken depth first from the root in
+  that order. A group's **dimensions** are, in order:
   1. each member that is a dimension scale, by its name above, of the length of its axis;
   2. for each length, in the order an axis of it first appears among the group's unscaled
      members, as many more as the most axes of that length one unscaled member has, less the
      group's dimension scales of that length, each named `phony_dim_<n>`: `<n>`, in decimal, is the
      number of dimensions of the groups before it and of those before it in its group.
 
-  Members are taken in ascending byte order of their link names, axes in order. The first axis of
-  a length of an unscaled array takes the first of its group's dimensions of that length, the
-  second the second, and so on. So axes of one length share a name across a group's arrays but not
+  Members are taken in their order, axes in order. The first axis of a length of an unscaled
+  array takes the first of its group's dimensions of that length, the second the second, and so
+  on. So axes of one length share a name across a group's arrays but not
   within one, and no two of a group's arrays give one name two lengths, which xarray refuses.
   VirtualiZarr's `HDFParser` names the `k`-th axis of every such dataset `phony_dim_<k>`, which
-  gives axes of different lengths one name. A group the hierarchy does not present, and what is
-  below it, has no dimensions here, though h5netcdf counts them.
+  gives axes of different lengths one name. Two things h5netcdf counts are not counted here: a
+  group the hierarchy does not present, with what is below it, and a dataset that a soft link or
+  a second hard link puts in a group.
 - **A dimension without a variable:** a dimension scale whose `NAME` attribute is a fixed-length
   string starting `This is a netCDF dimension but not a netCDF variable` is not presented
   (`dimension_only`): netCDF-4 writes it for the dimension alone, and its values are not data.

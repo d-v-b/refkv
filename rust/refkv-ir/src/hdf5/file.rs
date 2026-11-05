@@ -887,6 +887,10 @@ impl Hdf5 {
                         attrs.insert("_LINKS".into(), J::Array(links_json));
                     }
                     nodes.push(json!({"path": key, "segments": segs.len(), "attributes": attrs, "own": own}));
+                    if let Some(created) = &links.created {
+                        let order: Map<String, J> = created.iter().map(|(n, c)| (utf8_or_latin1(n), json!(c))).collect();
+                        nodes.last_mut().unwrap()["link_order"] = J::Object(order);
+                    }
                 }
                 Decision::Dataset(ds, dt, p) => {
                     *counts.entry("arrays").or_default() += 1;
@@ -1330,20 +1334,31 @@ fn fixed_attribute(attrs: &super::Attrs, name: &[u8]) -> Option<Vec<u8>> {
 /// Names the axes of each unscaled array of `nodes` as h5netcdf's `phony_dims="sort"` does
 /// (spec/zarrify/hdf5.md §3
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#3-datasets>), from the
-/// `axes` of each array and group ([`File::axes_hints`]). Groups are taken in canonical order, the
-/// order of their paths' segments; a group's dimensions are its dimension scales, then as many
+/// `axes` of each array and group ([`File::axes_hints`]). A group's members and subgroups are
+/// taken in the creation order of their links when its `link_order` records it, as h5py iterates
+/// them, else in ascending byte order of their names, and groups depth first in that order; a
+/// group's dimensions are its dimension scales, then as many
 /// `phony_dim_<n>` of each length as one unscaled dataset of it has axes of that length, `n`
 /// counting the hierarchy's dimensions before it; an unscaled array's axes take its group's
 /// dimensions of their lengths in turn.
 pub(super) fn name_axes(nodes: &mut [J]) {
     let segments = |p: &str| -> Vec<String> { if p.is_empty() { Vec::new() } else { p.split('/').map(str::to_string).collect() } };
+    // each tracking group's links' creation order, by its path
+    let created: HashMap<String, Map<String, J>> = nodes
+        .iter()
+        .filter_map(|n| Some((n["path"].as_str()?.to_string(), n.get("link_order")?.as_object()?.clone())))
+        .collect();
+    let rank = |group: &str, name: &str| -> (u64, String) {
+        (created.get(group).and_then(|m| m.get(name)).and_then(J::as_u64).unwrap_or(0), name.to_string())
+    };
     // each group's members, by its path: (link name, hint, the array's node when presented)
     let mut members: HashMap<String, Vec<(String, J, Option<usize>)>> = HashMap::new();
-    let mut groups: Vec<Vec<String>> = Vec::new();
+    let mut groups: Vec<Vec<(u64, String)>> = Vec::new();
     for (k, node) in nodes.iter().enumerate() {
         let path = node["path"].as_str().unwrap_or("");
         if node.get("array").is_none() {
-            groups.push(segments(path));
+            let segs = segments(path);
+            groups.push(segs.iter().enumerate().map(|(k, s)| rank(&segs[..k].join("/"), s)).collect());
             for m in node["axes"].as_array().into_iter().flatten() {
                 members.entry(path.to_string()).or_default().push((m[0].as_str().unwrap_or("").to_string(), m[1].clone(), None));
             }
@@ -1356,8 +1371,9 @@ pub(super) fn name_axes(nodes: &mut [J]) {
     let lengths = |v: &J| -> Vec<u64> { v.as_array().into_iter().flatten().filter_map(J::as_u64).collect() };
     let mut next = 0u64;
     for g in groups {
-        let Some(mut list) = members.remove(&g.join("/")) else { continue };
-        list.sort_by(|a, b| a.0.as_bytes().cmp(b.0.as_bytes()));
+        let path = g.iter().map(|s| s.1.as_str()).collect::<Vec<_>>().join("/");
+        let Some(mut list) = members.remove(&path) else { continue };
+        list.sort_by_cached_key(|m| rank(&path, &m.0));
         // the group's dimensions of each length: its scales', then its phony ones
         let mut of_length: HashMap<u64, Vec<J>> = HashMap::new();
         for (_, hint, _) in &list {
