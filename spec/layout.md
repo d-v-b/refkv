@@ -11,8 +11,7 @@ which says what the layout is.
 Convention version: 0 (draft) · UUID: `372e9a9f-06b1-4ea1-8829-e206c05e03e6` ·
 Schema: [schema.json](layout/schema.json)
 
-Added 2026-11-06. The design and its reviews are in
-[design/proposals/profile-plugins.md](../design/proposals/profile-plugins.md).
+Added 2026-11-06. The design and its reviews are in d-v-b/refkv#278.
 
 The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are to be interpreted as described in
 RFC 2119.
@@ -102,18 +101,25 @@ it, with no exception.
 A plugin layout's entries, keys relative to its node, are checked; a failed check is the plugin's
 failure, and no output is written:
 
-- Every key is a valid key ([spec/refkv.md §2](refkv.md#2-data-model)), with no empty, `.` or
-  `..` segment and no segment that starts with `__`.
+- Every key is a valid key ([spec/refkv.md §2](refkv.md#2-data-model)), valid UTF-8, with no
+  empty, `.` or `..` segment, no segment that starts with `__`, and `zarr.json` only as its last
+  segment.
+- Every document is strict JSON in UTF-8 (RFC 8259): no byte order mark, no `NaN` or infinity,
+  no member twice in one object, no lone surrogate; an array's document holds `shape`,
+  `data_type`, `chunk_grid`, `chunk_key_encoding`, `codecs` and `fill_value`.
 - `zarr.json` is a group. Every other key is a node's `zarr.json` whose parent node's `zarr.json`
   is a group of the layout, or a key below an array's `zarr.json`; no node is inside an array.
 - Every reference entry's ranges are, as [spec/zarrify.md §1.1](zarrify.md#11-output-and-equivalence)
   compares them (checksums apart), those of a reference entry of the base: a layout copies the
   base's references and makes none, so it reads only bytes the base reads, under the base's
-  pins and reader policy.
-- No document holds `consolidated_metadata`, the member `refkv_zarrified` or `refkv_layout`, or a
-  CMO with the UUID of a refkv convention: a profile's, a dataset layout's, or this one. A CMO
-  with the plugin's convention's UUID equals the one the plugin's description makes. The
-  plugin's key holds an object without `version`.
+  pins and reader policy. Each is written as the base holds it, its checksums included,
+  whatever checksums the plugin's value has.
+- No document holds `consolidated_metadata`, the member `refkv_zarrified`, `refkv_layout` or
+  `refkv_provenance`, or, in `zarr_conventions` (a list of objects), a CMO with the UUID (in any
+  case), the `name` or the URLs of a refkv convention: a profile's, a dataset layout's,
+  provenance's or this one. A CMO with the plugin's convention's UUID equals the one the
+  plugin's description makes. In every document, the plugin's key holds an object without
+  `version`.
 
 The layout's node is `refkv_layouts/<path>`. The output is then the built-in output the call asked
 for, its entries unchanged but the root's, with:
@@ -164,7 +170,8 @@ when the plugin gives none, and each chunk key's indexes (in the array's chunk k
   whose first segment starts with `refkv` is refkv's. A layout's path is one key segment of
   `[a-z0-9_-]+`, not starting with `__`.
 - **Keys.** A layout's key, the `name` of its convention's CMO, is its name with `.` and `-` as
-  `_`; it is never `refkv_zarrified` or `refkv_layout`.
+  `_`; it is never `zarr_conventions`, `refkv_zarrified`, `refkv_layout` or `refkv_provenance`,
+  and a name whose key would be one is refused.
 - **Identity.** A layout is its convention's UUID; names and keys are for people. A reader that
   finds a key whose UUID it does not know ignores it.
 - **Versions.** A plugin's convention says what its version numbers mean and increases its

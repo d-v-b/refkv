@@ -41,6 +41,8 @@ def _layouts(args: list[str]) -> list[Layout]:
     paths: dict[str, str] = {}
     for given in _take_all(args, "--layout-options"):
         name, _, text = given.partition("=")
+        if name in options:
+            raise LayoutUsageError(f"--layout-options {name} given twice")
         try:
             value = json.loads(text)
         except ValueError as e:
@@ -50,6 +52,8 @@ def _layouts(args: list[str]) -> list[Layout]:
         options[name] = value
     for given in _take_all(args, "--layout-path"):
         name, _, path = given.partition("=")
+        if name in paths:
+            raise LayoutUsageError(f"--layout-path {name} given twice")
         paths[name] = path
     for name in (*options, *paths):
         if name not in names:

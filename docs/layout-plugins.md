@@ -6,7 +6,8 @@ bytes, written in Python, in a package of your own, without forking refkv. refkv
 with its built-in profile, hands the plugin that profile's output, and writes the plugin's layout
 below `refkv_layouts/` in the same archive, beside refkv's own. The plugin decides only what the
 layout looks like: it copies the base's references, so it reads nothing refkv did not, and every
-chunk still comes from the source file. The rules are [spec/layout.md](../spec/layout.md).
+chunk it copies still comes from the source file. (It may also write small arrays of its own, such
+as coordinates, as bytes.) The rules are [spec/layout.md](../spec/layout.md).
 
 ## How it works
 

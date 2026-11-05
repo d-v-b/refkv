@@ -11,7 +11,7 @@ layout's name, with these attributes:
 - `formats`: the base profiles it reads, each with the versions of its convention it reads
   (`{"tiff": {0}, "hdf5": {0}}`); names this refkv has no file profile of are ignored;
 - `convention`: its convention, a `ConventionInfo`;
-- `options(given)`: the options in canonical form, or ValueError;
+- `options(given)`: the options in canonical form, a JSON object, or ValueError;
 - `write(base, options)`: the layout's entries, keys relative to its node, built from `base`
   (a `Base`), most often with `copy`; it raises `refkv.zarrify.Rejected` for an input it cannot
   present.
@@ -21,6 +21,9 @@ layout's name, with these attributes:
 
     store = zarrify("image.ome.tif", plugins=[Layout("acme-ome.ome06")])
     store.mapping["refkv_layouts/ome06/zarr.json"]
+
+The checks guard against a plugin's mistakes, not against a hostile plugin, which is code
+running in the caller's process.
 """
 
 from __future__ import annotations
@@ -29,17 +32,18 @@ import dataclasses
 import importlib.metadata
 import json
 import re
+import uuid as uuids
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 
 from refkv.pb import Concat, Range
-from refkv.refstore import ReferenceStore
 from refkv.zarrify.common import PROFILES, Rejected, reference_store
 from refkv.zarrify.profiles import REGISTRY
 
 if TYPE_CHECKING:
     from refkv.ir import Ir
+    from refkv.refstore import ReferenceStore
 
 __all__ = ["Base", "ConventionInfo", "Layout", "LayoutFailed", "LayoutRejected", "LayoutUsageError", "Plugin",
            "copy"]
@@ -59,9 +63,13 @@ CMO = {
     "name": KEY,
     "description": "A layout of a zarrified source that a plugin wrote, and what it was written from",
 }
-# The conventions refkv defines, which no plugin layout's documents may declare.
-REFKV_UUIDS = frozenset([UUID, *(str(e["uuid"]) for e in REGISTRY)])
+# What only refkv declares: its conventions' UUIDs, CMO names and URLs, and the members it writes.
+REFKV_UUIDS = frozenset([UUID, *(str(e["uuid"]).lower() for e in REGISTRY)])
+REFKV_NAMES = frozenset(["refkv_zarrified", KEY, "refkv_provenance"])
+REFKV_URLS = ("https://raw.githubusercontent.com/d-v-b/refkv/", "https://github.com/d-v-b/refkv/")
+RESERVED_KEYS = frozenset(["zarr_conventions", *REFKV_NAMES])
 FILE_PROFILES = frozenset(str(e["name"]) for e in REGISTRY if e["kind"] in ("file", "both"))
+ARRAY_MEMBERS = ("shape", "data_type", "chunk_grid", "chunk_key_encoding", "codecs", "fill_value")
 
 NAME = re.compile(r"[a-z0-9-]+(?:\.[a-z0-9-]+)+")
 PATH = re.compile(r"[a-z0-9_-]+")
@@ -69,8 +77,9 @@ PATH = re.compile(r"[a-z0-9_-]+")
 
 class LayoutUsageError(ValueError):
     """A plugin layout asked for wrongly: a name no plugin has, a plugin that fails to load or
-    breaks the rules of spec/layout.md §2, options it refuses, two layouts of one name, path or
-    key, or a layout on a store input."""
+    breaks the rules of spec/layout.md §2
+    <https://github.com/d-v-b/refkv/blob/main/spec/layout.md#2-plugins>, options it refuses, two
+    layouts of one name, path, key or UUID, or a layout on a store input."""
 
 
 class LayoutRejected(Rejected):
@@ -134,53 +143,76 @@ def _entry_points() -> Sequence[importlib.metadata.EntryPoint]:
     return tuple(importlib.metadata.entry_points(group=GROUP))
 
 
-def load(name: str) -> Plugin:
+def _usage(name: str, why: str) -> LayoutUsageError:
+    return LayoutUsageError(f"{name}: {why}")
+
+
+def load(name: str) -> tuple[Plugin, dict[str, frozenset[int]]]:
     """The plugin named `name`, loaded and checked (spec/layout.md §2
-    <https://github.com/d-v-b/refkv/blob/main/spec/layout.md#2-plugins>), or LayoutUsageError."""
-    if NAME.fullmatch(name) is None:
+    <https://github.com/d-v-b/refkv/blob/main/spec/layout.md#2-plugins>), and the formats it reads;
+    or LayoutUsageError."""
+    if not isinstance(name, str) or NAME.fullmatch(name) is None:
         raise LayoutUsageError(f"{name!r} is not a layout's name, <distribution>.<layout> in [a-z0-9-]")
     first = name.split(".", 1)[0]
     if first.startswith("refkv"):
-        raise LayoutUsageError(f"{name!r}: names whose first segment starts with refkv are refkv's")
+        raise _usage(name, "names whose first segment starts with refkv are refkv's")
+    if key_of(name) in RESERVED_KEYS:
+        raise _usage(name, f"its key {key_of(name)} is a member refkv writes")
     found = [e for e in _entry_points() if e.name == name]
     if not found:
         raise LayoutUsageError(f"no layout plugin is named {name!r} (the entry points of {GROUP!r})")
     if len(found) > 1:
-        raise LayoutUsageError(f"{len(found)} entry points provide the layout {name!r}")
+        raise _usage(name, f"{len(found)} entry points provide it")
     entry = found[0]
     dist = entry.dist
     if dist is None or _normalized(dist.name) != first:
         given = "no distribution" if dist is None else f"the distribution {dist.name!r}"
-        raise LayoutUsageError(f"{name!r} is provided by {given}: a layout's name starts with its distribution's")
+        raise _usage(name, f"it is provided by {given}: a layout's name starts with its distribution's")
     try:
         plugin = entry.load()
     except Exception as e:
-        raise LayoutUsageError(f"the layout plugin {name!r} failed to load: {e}") from e
-    _check_plugin(name, plugin)
-    return plugin
+        raise _usage(name, f"the plugin failed to load: {e}") from e
+    return plugin, _check_plugin(name, plugin)
 
 
-def _check_plugin(name: str, plugin: Plugin) -> None:
+def _check_plugin(name: str, plugin: Plugin) -> dict[str, frozenset[int]]:
     """Checks a loaded plugin's attributes against spec/layout.md §2
-    <https://github.com/d-v-b/refkv/blob/main/spec/layout.md#2-plugins>."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/layout.md#2-plugins>, and returns the formats
+    it reads."""
     if getattr(plugin, "name", None) != name:
         raise LayoutUsageError(f"the layout plugin {name!r} names itself {getattr(plugin, 'name', None)!r}")
     path = getattr(plugin, "path", None)
     if not isinstance(path, str) or not _path_ok(path):
-        raise LayoutUsageError(f"{name}: its path {path!r} is not one key segment of [a-z0-9_-]")
+        raise _usage(name, f"its path {path!r} is not one key segment of [a-z0-9_-]")
     convention = getattr(plugin, "convention", None)
     if not isinstance(convention, ConventionInfo):
-        raise LayoutUsageError(f"{name}: its convention is not a ConventionInfo")
-    if convention.uuid in REFKV_UUIDS:
-        raise LayoutUsageError(f"{name}: its convention's UUID is a refkv convention's")
-    if not isinstance(convention.version, int) or convention.version < 0:
-        raise LayoutUsageError(f"{name}: its convention's version is not a natural number")
+        raise _usage(name, "its convention is not a ConventionInfo")
+    try:
+        uuid = str(uuids.UUID(convention.uuid))
+    except (TypeError, ValueError, AttributeError) as e:
+        raise _usage(name, f"its convention's UUID {convention.uuid!r} is not a UUID") from e
+    if uuid != convention.uuid:
+        raise _usage(name, f"its convention's UUID is written {uuid}, in lower case with hyphens")
+    if uuid in REFKV_UUIDS:
+        raise _usage(name, "its convention's UUID is a refkv convention's")
+    if type(convention.version) is not int or convention.version < 0:
+        raise _usage(name, "its convention's version is not a natural number")
+    for member in ("schema_url", "spec_url", "description"):
+        value = getattr(convention, member)
+        if not isinstance(value, str) or not value:
+            raise _usage(name, f"its convention's {member} is not a string")
+        if member != "description" and value.startswith(REFKV_URLS):
+            raise _usage(name, f"its convention's {member} is refkv's")
     formats = getattr(plugin, "formats", None)
-    if not isinstance(formats, Mapping) or not all(
-            isinstance(k, str) and all(isinstance(v, int) for v in vs) for k, vs in formats.items()):
-        raise LayoutUsageError(f"{name}: formats is not a mapping of profile names to convention versions")
+    try:
+        read = {str(k): frozenset(vs) for k, vs in formats.items()}  # type: ignore[union-attr]
+    except (AttributeError, TypeError) as e:
+        raise _usage(name, "formats is not a mapping of profile names to convention versions") from e
+    if not all(isinstance(k, str) and all(type(v) is int for v in vs) for k, vs in read.items()):
+        raise _usage(name, "formats is not a mapping of profile names to convention versions")
     if not callable(getattr(plugin, "options", None)) or not callable(getattr(plugin, "write", None)):
-        raise LayoutUsageError(f"{name}: a layout plugin has options() and write()")
+        raise _usage(name, "a layout plugin has options() and write()")
+    return read
 
 
 def _path_ok(path: str) -> bool:
@@ -189,12 +221,18 @@ def _path_ok(path: str) -> bool:
 
 @dataclass(frozen=True)
 class Planned:
-    """A layout asked for: its plugin loaded, its options canonical, and its node's path."""
+    """A layout asked for: its plugin loaded, the formats it reads, its options in canonical form
+    (as JSON text, so that nothing a plugin does changes what is recorded), and its node's path."""
 
     layout: Layout
     plugin: Plugin
-    options: Mapping[str, object]
+    formats: Mapping[str, frozenset[int]]
+    options: str
     path: str
+
+    def fresh_options(self) -> dict[str, Any]:
+        """The canonical options, a new copy."""
+        return json.loads(self.options)
 
 
 def plan(layouts: Sequence[Layout]) -> list[Planned]:
@@ -204,33 +242,54 @@ def plan(layouts: Sequence[Layout]) -> list[Planned]:
     for layout in layouts:
         if not isinstance(layout, Layout):
             raise LayoutUsageError(f"plugins holds Layout values, not {layout!r}")
-        plugin = load(layout.name)
+        if layout.options is not None and not isinstance(layout.options, Mapping):
+            raise _usage(layout.name, f"its options are a mapping (a JSON object), not {type(layout.options).__name__}")
+        if layout.path is not None and not isinstance(layout.path, str):
+            raise _usage(layout.name, f"its path is a string, not {type(layout.path).__name__}")
+        plugin, formats = load(layout.name)
         path = plugin.path if layout.path is None else layout.path
         if not _path_ok(path):
-            raise LayoutUsageError(f"{layout.name}: the path {path!r} is not one key segment of [a-z0-9_-]")
+            raise _usage(layout.name, f"the path {path!r} is not one key segment of [a-z0-9_-]")
         try:
-            options = dict(plugin.options(dict(layout.options or {})))
-        except ValueError as e:
-            raise LayoutUsageError(f"{layout.name}: its options are refused: {e}") from e
-        try:  # canonical options are JSON as they are: no NaN, no tuples
-            same = json.loads(json.dumps(options, allow_nan=False)) == options
+            given = json.loads(json.dumps(dict(layout.options or {}), allow_nan=False))
         except (TypeError, ValueError) as e:
-            raise LayoutUsageError(f"{layout.name}: its canonical options are not a JSON object: {e}") from e
+            raise _usage(layout.name, f"its options are not a JSON object: {e}") from e
+        try:
+            options = plugin.options(given)
+        except Exception as e:
+            raise _usage(layout.name, f"its options are refused: {e}") from e
+        if not isinstance(options, Mapping):
+            raise _usage(layout.name, "its options() returned no mapping")
+        try:  # canonical options are JSON as they are: no NaN, no tuples
+            text = json.dumps(dict(options), allow_nan=False, sort_keys=False)
+            same = json.loads(text) == dict(options)
+        except (TypeError, ValueError) as e:
+            raise _usage(layout.name, f"its canonical options are not a JSON object: {e}") from e
         if not same:
-            raise LayoutUsageError(f"{layout.name}: its canonical options change in a JSON round trip")
-        planned.append(Planned(layout, plugin, options, path))
+            raise _usage(layout.name, "its canonical options change in a JSON round trip")
+        planned.append(Planned(layout, plugin, formats, text, path))
     for what, seen in (("name", [p.layout.name for p in planned]), ("path", [p.path for p in planned]),
-                       ("key", [key_of(p.layout.name) for p in planned])):
+                       ("key", [key_of(p.layout.name) for p in planned]),
+                       ("UUID", [p.plugin.convention.uuid for p in planned])):
         if len(seen) != len(set(seen)):
             raise LayoutUsageError(f"two plugin layouts have one {what}")
     return planned
 
 
 def _without_checksum(value: Range | Concat) -> Range | Concat:
-    """A reference value as spec/zarrify.md §1.1 compares it: its ranges without checksums."""
+    """A reference value as spec/zarrify.md §1.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#11-output-and-equivalence> compares
+    it: its ranges without checksums."""
     if isinstance(value, Range):
         return dataclasses.replace(value, crc32c=None)
     return Concat(tuple(dataclasses.replace(r, crc32c=None) for r in value.parts))
+
+
+def _is_reference(value: object) -> bool:
+    """Whether `value` is a reference value: a Range, or a Concat of Ranges, of those very types."""
+    if type(value) is Range:
+        return True
+    return type(value) is Concat and all(type(r) is Range for r in value.parts)  # type: ignore[union-attr]
 
 
 def _is_document(key: str) -> bool:
@@ -248,7 +307,8 @@ def _root(store: ReferenceStore) -> dict[str, Any]:
 class Base:
     """The built-in profile's output as a plugin sees it (spec/layout.md §2
     <https://github.com/d-v-b/refkv/blob/main/spec/layout.md#2-plugins>): its image layout and
-    `refkv_source`, without a dataset layout, its root without `layouts`. Read only.
+    `refkv_source`, without a dataset layout, its root without `layouts`. Read only: each
+    plugin is given one of its own.
 
     - `profile`, `version`, `uuid`: the profile that read the input (a TIFF the parser found to
       be NDPI is `ndpi`), and its convention's version and UUID;
@@ -261,15 +321,30 @@ class Base:
         prop = dict(root["attributes"]["refkv_zarrified"])
         layouts = prop.pop("layouts", {})
         root["attributes"]["refkv_zarrified"] = prop
-        self.profile: str = prop["profile"]
-        self.version: int = prop["version"]
-        self.uuid: str = PROFILES[self.profile][0]
-        self.ir = ir
+        self._profile: str = prop["profile"]
+        self._version: int = prop["version"]
+        self._ir = ir
         hidden = tuple(f"{p}/" for p in layouts.values())
         self._values = {k: v for k, v in store.mapping.items() if not k.startswith(hidden)}
-        self._root = root
-        self._references = frozenset(_without_checksum(v) for v in self._values.values()
-                                     if isinstance(v, (Range, Concat)))
+        self._root = json.dumps(root)
+        # each reference value without its checksum, to the value itself: what a layout may copy
+        self._references = {_without_checksum(v): v for v in self._values.values() if isinstance(v, (Range, Concat))}
+
+    @property
+    def profile(self) -> str:
+        return self._profile
+
+    @property
+    def version(self) -> int:
+        return self._version
+
+    @property
+    def uuid(self) -> str:
+        return PROFILES[self._profile][0]
+
+    @property
+    def ir(self) -> Ir | None:
+        return self._ir
 
     def keys(self) -> list[str]:
         """The base's keys, sorted."""
@@ -278,25 +353,31 @@ class Base:
     def document(self, key: str) -> dict[str, Any]:
         """The JSON document at `key` (a `zarr.json`), parsed: a new dict on each call."""
         if key == "zarr.json":
-            return json.loads(json.dumps(self._root))
+            return json.loads(self._root)
         value = self._values.get(key)
         if not _is_document(key) or not isinstance(value, bytes):
             raise KeyError(key)
         return json.loads(value)
 
     def array(self, path: str) -> tuple[dict[str, Any], dict[str, bytes | Range | Concat]]:
-        """The array at `path`: its document, and its chunks by key relative to the array."""
+        """The array at `path`: its document, and its chunks by key relative to the array; a
+        KeyError naming `path` if there is none."""
         prefix = f"{path}/" if path else ""
-        doc = self.document(f"{prefix}zarr.json")
+        try:
+            doc = self.document(f"{prefix}zarr.json")
+        except KeyError:
+            raise KeyError(f"no array {path!r} in the base") from None
         if doc.get("node_type") != "array":
-            raise KeyError(f"{path!r} is not an array")
+            raise KeyError(f"{path!r} is a group of the base, not an array")
         chunks = {k[len(prefix):]: v for k, v in self._values.items()
                   if k.startswith(prefix) and not _is_document(k[len(prefix):])}
         return doc, chunks
 
-    def references(self) -> frozenset[Range | Concat]:
-        """The base's reference values, without checksums: those a layout may copy."""
-        return self._references
+    def base_value(self, value: object) -> Range | Concat | None:
+        """The base's reference value equal to `value` but for checksums, or None."""
+        if not _is_reference(value):
+            return None
+        return self._references.get(_without_checksum(value))  # type: ignore[arg-type]
 
 
 def _inverse(order: Sequence[int]) -> list[int]:
@@ -328,9 +409,9 @@ def _permuted_key(key: str, order: Sequence[int], doc: Mapping[str, object]) -> 
     if name == "default":
         sep = sep or "/"
         head, _, rest = key.partition(sep)
-        if head != "c" or not rest:
+        if head != "c":
             raise ValueError(f"{key!r} is not a chunk key of the default encoding")
-        idx = rest.split(sep)
+        idx = rest.split(sep) if rest else []
         return sep.join(["c", *(idx[o] for o in order)])
     if name == "v2":
         sep = sep or "."
@@ -341,28 +422,32 @@ def _permuted_key(key: str, order: Sequence[int], doc: Mapping[str, object]) -> 
 
 def copy(base: Base, path: str, order: Sequence[int] | None = None, attributes: Mapping[str, object] | None = None,
          dimension_names: Sequence[str | None] | None = None) -> dict[str, bytes | Range | Concat]:
-    """The entries of the array at `path` of `base`, keys relative to the array, by the rules of
-    spec/layout.md §4 <https://github.com/d-v-b/refkv/blob/main/spec/layout.md#4-copying-an-array>:
-    its document with `attributes` as given (`{}` by default) and `dimension_names` as given
-    (else the base's), and its chunks' values as they are. With `order`, a permutation of its
-    axes (new axis `i` is the base's axis `order[i]`), the array transposed: its shape, chunk
-    grid, dimension names and chunk keys permuted, and a `transpose` codec of the inverse order
-    first (for a sharded array, first in the shard's inner and index codecs), so that it decodes
-    to the base's values, transposed."""
+    """The entries of the array at `path` of `base`, keys relative to the array, its `zarr.json`
+    among them, by the rules of spec/layout.md §4
+    <https://github.com/d-v-b/refkv/blob/main/spec/layout.md#4-copying-an-array>: its document with
+    `attributes` as given (`{}` by default) and `dimension_names` as given, in the copy's axis
+    order (else the base's), and its chunks' values as they are. With `order`, a permutation of
+    its axes as `numpy.transpose` takes one (the copy's axis `i` is the base's axis `order[i]`),
+    the array transposed: its shape, chunk grid, dimension names and chunk keys permuted, and a
+    `transpose` codec of the inverse order first (for a sharded array, first in the shard's inner
+    and index codecs), so that it decodes to the base's values, transposed."""
     doc, chunks = base.array(path)
+    n = len(doc["shape"])
     names = doc.get("dimension_names") if dimension_names is None else list(dimension_names)
+    if dimension_names is not None and len(names) != n:  # type: ignore[arg-type]
+        raise ValueError(f"{len(names)} dimension names for an array of {n} dimensions")  # type: ignore[arg-type]
     if order is not None:
-        n = len(doc["shape"])  # type: ignore[arg-type]
         order = [int(o) for o in order]
         if sorted(order) != list(range(n)):
             raise ValueError(f"order {order} is not a permutation of the array's {n} axes")
+    if order is not None and order != list(range(n)):
         inverse = _inverse(order)
-        doc["shape"] = [doc["shape"][o] for o in order]  # type: ignore[index]
-        grid = doc["chunk_grid"]["configuration"]  # type: ignore[index]
+        doc["shape"] = [doc["shape"][o] for o in order]
+        grid = doc["chunk_grid"]["configuration"]
         for member in ("chunk_shape", "chunk_shapes"):
             if member in grid:
-                grid[member] = [grid[member][o] for o in order]  # type: ignore[index]
-        codecs = list(doc["codecs"])  # type: ignore[call-overload]
+                grid[member] = [grid[member][o] for o in order]
+        codecs = list(doc["codecs"])
         if codecs and codecs[0].get("name") == "sharding_indexed":
             config = codecs[0]["configuration"]
             config["chunk_shape"] = [config["chunk_shape"][o] for o in order]
@@ -371,11 +456,11 @@ def copy(base: Base, path: str, order: Sequence[int] | None = None, attributes: 
         else:
             doc["codecs"] = _with_transpose(codecs, inverse)
         if names is not None and dimension_names is None:
-            names = [names[o] for o in order]  # type: ignore[index]
+            names = [names[o] for o in order]
         chunks = {_permuted_key(k, order, doc): v for k, v in chunks.items()}
     doc["attributes"] = dict(attributes or {})
     if names is not None:
-        doc["dimension_names"] = list(names)  # type: ignore[call-overload]
+        doc["dimension_names"] = list(names)
     else:
         doc.pop("dimension_names", None)
     return {"zarr.json": dump(doc), **dict(sorted(chunks.items()))}
@@ -383,37 +468,103 @@ def copy(base: Base, path: str, order: Sequence[int] | None = None, attributes: 
 
 def dump(doc: object) -> bytes:
     """A document as zarrify writes one: compact JSON, in UTF-8."""
-    return json.dumps(doc, separators=(",", ":"), ensure_ascii=False).encode()
+    return json.dumps(doc, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode()
 
 
-def _segments_ok(key: str) -> bool:
-    return bool(key) and all(s and s not in (".", "..") and not s.startswith("__") for s in key.split("/"))
+def _key_ok(key: object) -> bool:
+    """Whether `key` is a key a layout may hold: relative, valid UTF-8, with no empty, `.` or `..`
+    segment, none that starts with `__`, and `zarr.json` only as its last."""
+    if not isinstance(key, str) or not key:
+        return False
+    try:
+        key.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    segments = key.split("/")
+    return all(s and s not in (".", "..") and not s.startswith("__") for s in segments) and \
+        "zarr.json" not in segments[:-1]
 
 
-def _check(name: str, entries: Mapping[str, object], base: Base, key: str) -> dict[str, dict[str, object]]:
+def _no_constant(name: str) -> object:
+    raise ValueError(f"{name} is not JSON")
+
+
+def _no_duplicates(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    keys = [k for k, _ in pairs]
+    if len(keys) != len(set(keys)):
+        raise ValueError(f"an object holds a member twice: {min(k for k in keys if keys.count(k) > 1)!r}")
+    return dict(pairs)
+
+
+def _strings_ok(value: object) -> bool:
+    """Whether every string in a parsed document encodes as UTF-8 (no lone surrogate)."""
+    if isinstance(value, str):
+        try:
+            value.encode("utf-8")
+        except UnicodeEncodeError:
+            return False
+        return True
+    if isinstance(value, dict):
+        return all(_strings_ok(k) and _strings_ok(v) for k, v in value.items())
+    if isinstance(value, list):
+        return all(_strings_ok(v) for v in value)
+    return True
+
+
+def _parsed(value: bytes | bytearray) -> object:
+    """A document, parsed as strict JSON in UTF-8: no byte order mark, no NaN or infinities, no
+    member twice, no lone surrogate."""
+    text = bytes(value).decode("utf-8")  # strict: a UnicodeDecodeError, a ValueError, for other bytes
+    if text.startswith("﻿"):
+        raise ValueError("a byte order mark")
+    doc = json.loads(text, parse_constant=_no_constant, object_pairs_hook=_no_duplicates)
+    if not _strings_ok(doc):
+        raise ValueError("a string that is not valid Unicode")
+    return doc
+
+
+def _check_cmos(where: str, cmos: object, plugin: dict[str, str]) -> None:
+    """Checks a document's `zarr_conventions`: a list of objects, none declaring a refkv
+    convention, and the plugin's equal to the one its ConventionInfo makes."""
+    if not isinstance(cmos, list) or not all(isinstance(c, dict) for c in cmos):
+        raise ValueError(f"{where}: zarr_conventions is not a list of objects")
+    for cmo in cmos:
+        uuid = str(cmo.get("uuid", "")).lower()
+        urls = [str(cmo.get(m, "")) for m in ("schema_url", "spec_url")]
+        if uuid in REFKV_UUIDS or cmo.get("name") in REFKV_NAMES or any(u.startswith(REFKV_URLS) for u in urls):
+            raise ValueError(f"{where} declares a refkv convention, which refkv alone writes")
+        if uuid == plugin["uuid"] and cmo != plugin:
+            raise ValueError(f"{where} declares the layout's convention otherwise than its ConventionInfo")
+
+
+def _check(name: str, entries: Mapping[Any, object], base: Base, plugin: dict[str, str]) -> dict[str, dict[str, Any]]:
     """Checks a layout's entries against spec/layout.md §3
     <https://github.com/d-v-b/refkv/blob/main/spec/layout.md#3-the-entries>, and returns its
     documents, parsed, by key; LayoutFailed otherwise."""
     def fail(why: str) -> LayoutFailed:
         return LayoutFailed(f"{name}: {why}")
 
-    docs: dict[str, dict[str, object]] = {}
+    key = key_of(name)
+    docs: dict[str, dict[str, Any]] = {}
     for k, v in entries.items():
-        if not isinstance(k, str) or not _segments_ok(k):
-            raise fail(f"{k!r} is not a key of a layout (relative, with no empty, '.', '..' or '__' segment)")
-        if _is_document(k):
+        if not _key_ok(k):
+            raise fail(f"{k!r} is not a key of a layout (relative, valid UTF-8, with no empty, '.', '..' or "
+                       "'__' segment, and zarr.json only last)")
+        if _is_document(k):  # type: ignore[arg-type]
             if not isinstance(v, (bytes, bytearray)):
                 raise fail(f"{k}: a document is bytes")
             try:
-                doc = json.loads(v)
+                doc = _parsed(v)
             except ValueError as e:
-                raise fail(f"{k} is not JSON: {e}") from e
+                raise fail(f"{k} is not strict JSON in UTF-8: {e}") from e
             if not isinstance(doc, dict) or doc.get("zarr_format") != 3 or doc.get("node_type") not in ("group",
                                                                                                          "array"):
                 raise fail(f"{k} is not a Zarr v3 group or array document")
-            docs[k] = doc
+            if doc["node_type"] == "array" and any(m not in doc for m in ARRAY_MEMBERS):
+                raise fail(f"{k}: an array's document holds {', '.join(ARRAY_MEMBERS)}")
+            docs[k] = doc  # type: ignore[index]
         elif isinstance(v, (Range, Concat)):
-            if _without_checksum(v) not in base.references():
+            if base.base_value(v) is None:
                 raise fail(f"{k}: a reference that is not one of the base's (a layout copies references, makes none)")
         elif not isinstance(v, (bytes, bytearray)):
             raise fail(f"{k}: a value is bytes, a Range or a Concat")
@@ -428,7 +579,7 @@ def _check(name: str, entries: Mapping[str, object], base: Base, key: str) -> di
     for k in entries:
         if k in docs:
             continue
-        holder = k.rpartition("/")[0]
+        holder = k.rpartition("/")[0]  # type: ignore[union-attr]
         while holder and holder not in nodes:
             holder = holder.rpartition("/")[0]
         if nodes.get(holder) != "array":
@@ -439,14 +590,15 @@ def _check(name: str, entries: Mapping[str, object], base: Base, key: str) -> di
             raise fail(f"{k} holds consolidated_metadata")
         if not isinstance(attrs, dict):
             raise fail(f"{k}: attributes is not an object")
-        for member in ("refkv_zarrified", KEY):
+        for member in REFKV_NAMES:
             if member in attrs:
                 raise fail(f"{k} holds {member}, which refkv writes")
         if key in attrs and (not isinstance(attrs[key], dict) or "version" in attrs[key]):
-            raise fail(f"{k}: the layout's key {key} holds an object without version, which refkv writes")
-        for cmo in attrs.get("zarr_conventions", []):
-            if isinstance(cmo, dict) and cmo.get("uuid") in REFKV_UUIDS:
-                raise fail(f"{k} declares a refkv convention, {cmo.get('uuid')}")
+            raise fail(f"{k}: the layout's key {key} holds an object, without version, which refkv writes")
+        try:
+            _check_cmos(k, attrs.get("zarr_conventions", []), plugin)
+        except ValueError as e:
+            raise fail(str(e)) from e
     return docs
 
 
@@ -456,22 +608,23 @@ def _cmo(name: str, convention: ConventionInfo) -> dict[str, str]:
             "name": key_of(name), "description": convention.description}
 
 
-def _declared(name: str, p: Planned, node: dict[str, object], base: Base, source: object) -> dict[str, object]:
+def _declared(p: Planned, node: dict[str, Any], base: tuple[str, int], source: object) -> dict[str, Any]:
     """The layout node's document, declared (spec/layout.md §3
     <https://github.com/d-v-b/refkv/blob/main/spec/layout.md#3-the-entries>): the refkv_layout CMO,
-    then the plugin's, then the others it wrote; its key; and the layout property."""
-    mine = _cmo(name, p.plugin.convention)
-    attrs = dict(node.get("attributes", {}))  # type: ignore[call-overload]
-    others = [c for c in attrs.pop("zarr_conventions", [])
-              if not (isinstance(c, dict) and c.get("uuid") == mine["uuid"])]
+    then the plugin's, then the others it wrote; its key, holding the plugin's version; and the
+    layout property, with the canonical options taken before the plugin ran."""
+    name, convention = p.layout.name, p.plugin.convention
+    mine = _cmo(name, convention)
+    attrs = dict(node.get("attributes", {}))
+    others = [c for c in attrs.pop("zarr_conventions", []) if c.get("uuid") != mine["uuid"]]
     key = key_of(name)
-    own = {"version": p.plugin.convention.version, **attrs.pop(key, {})}
+    own = {"version": convention.version, **attrs.pop(key, {})}
     node["attributes"] = {"zarr_conventions": [CMO, mine, *others], **attrs, key: own, KEY: {
         "version": VERSION,
-        "layout": {"name": name, "uuid": p.plugin.convention.uuid, "version": p.plugin.convention.version},
+        "layout": {"name": name, "uuid": convention.uuid, "version": convention.version},
         "source": source,
-        "base": {"uuid": base.uuid, "version": base.version},
-        "options": dict(p.options),
+        "base": {"uuid": base[0], "version": base[1]},
+        "options": p.fresh_options(),
     }}
     return node
 
@@ -479,38 +632,42 @@ def _declared(name: str, p: Planned, node: dict[str, object], base: Base, source
 def join(store: ReferenceStore, ir: Ir | None, planned: Sequence[Planned]) -> ReferenceStore:
     """`store`, a built-in profile's output, with the plugin layouts `planned` added
     (spec/layout.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/layout.md#3-the-entries>):
-    each plugin's `write` run, one at a time, its entries checked, placed under
+    each plugin's `write` run, one at a time on a `Base` of its own, its entries checked, its
+    references replaced by the base's own values (checksums included), placed under
     `refkv_layouts/<path>/`, declared and named in the root's `layouts`. Raises LayoutRejected or
     LayoutFailed."""
     if any(k.startswith(f"{NODE}/") for k in store.mapping):
         raise LayoutRejected(f"the base holds {NODE}/, which plugin layouts take")
-    base = Base(store, ir)
     root = _root(store)
     prop = root["attributes"]["refkv_zarrified"]
+    profile, version = str(prop["profile"]), int(prop["version"])
+    declared_base = (PROFILES[profile][0], version)
     added: dict[str, bytes | Range | Concat] = {}
     names: dict[str, str] = {}
     for p in planned:
         name = p.layout.name
-        versions = p.plugin.formats.get(base.profile) if base.profile in FILE_PROFILES else None
-        if versions is None or base.version not in set(versions):
-            reads = ", ".join(sorted(k for k in p.plugin.formats if k in FILE_PROFILES)) or "no profile"
-            raise LayoutRejected(f"{name} does not read the {base.profile} profile's convention, version "
-                                 f"{base.version} (it reads {reads})")
+        versions = p.formats.get(profile) if profile in FILE_PROFILES else None
+        if versions is None or version not in versions:
+            reads = ", ".join(sorted(k for k in p.formats if k in FILE_PROFILES)) or "no profile"
+            raise LayoutRejected(f"{name} does not read the {profile} profile's convention, version "
+                                 f"{version} (it reads {reads})")
+        base = Base(store, ir)
         try:
-            entries = dict(p.plugin.write(base, p.options))
+            entries = dict(p.plugin.write(base, p.fresh_options()))
         except Rejected as e:
             raise LayoutRejected(f"{name}: {e}") from e
         except Exception as e:
             raise LayoutFailed(f"{name}: {type(e).__name__}: {e}") from e
-        docs = _check(name, entries, base, key_of(name))
-        mine = _cmo(name, p.plugin.convention)
-        for k, doc in docs.items():
-            for cmo in doc.get("attributes", {}).get("zarr_conventions", []):  # type: ignore[union-attr]
-                if isinstance(cmo, dict) and cmo.get("uuid") == mine["uuid"] and cmo != mine:
-                    raise LayoutFailed(f"{name}: {k} declares its convention otherwise than its ConventionInfo")
-        entries["zarr.json"] = dump(_declared(name, p, docs["zarr.json"], base, prop["source"]))
+        docs = _check(name, entries, base, _cmo(name, p.plugin.convention))
+        try:
+            node = dump(_declared(p, docs["zarr.json"], declared_base, prop["source"]))
+        except (TypeError, ValueError) as e:
+            raise LayoutFailed(f"{name}: its node's document cannot be written: {e}") from e
         prefix = f"{NODE}/{p.path}"
-        added |= {f"{prefix}/{k}": v for k, v in entries.items()}
+        for k, v in entries.items():
+            # a reference is written as the base holds it, checksums and all
+            added[f"{prefix}/{k}"] = base.base_value(v) or v  # type: ignore[assignment]
+        added[f"{prefix}/zarr.json"] = node
         names[name] = prefix
     added[f"{NODE}/zarr.json"] = dump({"zarr_format": 3, "node_type": "group",
                                        "attributes": {"zarr_conventions": [CMO], KEY: {"version": VERSION}}})

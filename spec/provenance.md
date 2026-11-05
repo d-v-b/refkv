@@ -71,7 +71,7 @@ convention's, and the member `refkv_provenance`, a
 | member | type | presence | value |
 |---|---|---|---|
 | `layout` | string | required | the layout's name |
-| `distribution` | string | required | the Python distribution that provides the plugin, as its metadata names it |
+| `distribution` | string | required | the Python distribution that provides the plugin, its name normalized as PEP 503 says |
 | `version` | string | required | that distribution's version |
 
 There are no other members, in any of these objects. (Changed 2026-11-06: `plugins`, a plugin
