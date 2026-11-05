@@ -4,18 +4,57 @@ from pathlib import Path
 
 from refkv.errors import ResolutionError
 from refkv.policy import Policy
-from refkv.zarrify import Rejected, zarrify
+from refkv.zarrify import Image, Rejected, zarrify
+from refkv.zarrify.layouts import Layout, LayoutFailed, LayoutUsageError
 from refkv.zarrify.store import WORKERS
 
 # the store kinds, in the words of `vzip convert`'s usage (rust/refkv-cli/src/main.rs)
 STORES = ("an N5, Zarr v2 or OME-Zarr 0.4 store, a Neuroglancer precomputed volume, a Sentinel-2 .SAFE directory, "
           "or a store of safetensors files")
 USAGE = ("usage: refkv zarrify <url or path> <out.vzip> [--url <source url>] [--checksums]"
-         " [--allow-private-hosts] [--connections N] [--byte-cost SECONDS_PER_MB] [--workers N]\n"
+         " [--allow-private-hosts] [--connections N] [--byte-cost SECONDS_PER_MB] [--workers N]"
+         " [--no-dataset] [--layout NAME [--layout-options NAME=JSON] [--layout-path NAME=PATH]]...\n"
          f"(a URL ending in / or a directory is {STORES}; a directory needs --url;\n"
          "a Hugging Face Hub URL https://huggingface.co/<owner>/<repo>/tree/<rev>/ is listed at its commit,\n"
          "at HF_ENDPOINT's Hub if set;\n"
-         f"a store's documents are read by up to N requests at a time, default {WORKERS})")
+         f"a store's documents are read by up to N requests at a time, default {WORKERS};\n"
+         "--layout adds the layout a plugin writes, under refkv_layouts/ (spec/layout.md))")
+
+
+def _take_all(args: list[str], flag: str) -> list[str]:
+    """The values of every `flag VALUE` in `args`, removed from it."""
+    values = []
+    while flag in args:
+        i = args.index(flag)
+        if i + 1 >= len(args):
+            raise LayoutUsageError(f"{flag} needs a value")
+        values.append(args[i + 1])
+        del args[i:i + 2]
+    return values
+
+
+def _layouts(args: list[str]) -> list[Layout]:
+    """The plugin layouts `--layout`, `--layout-options` and `--layout-path` ask for, removed
+    from `args`."""
+    names = _take_all(args, "--layout")
+    options: dict[str, dict[str, object]] = {}
+    paths: dict[str, str] = {}
+    for given in _take_all(args, "--layout-options"):
+        name, _, text = given.partition("=")
+        try:
+            value = json.loads(text)
+        except ValueError as e:
+            raise LayoutUsageError(f"--layout-options {name}: not JSON: {e}") from e
+        if not isinstance(value, dict):
+            raise LayoutUsageError(f"--layout-options {name}: not a JSON object")
+        options[name] = value
+    for given in _take_all(args, "--layout-path"):
+        name, _, path = given.partition("=")
+        paths[name] = path
+    for name in (*options, *paths):
+        if name not in names:
+            raise LayoutUsageError(f"{name}: options or a path for a layout that --layout does not name")
+    return [Layout(n, options.get(n), paths.get(n)) for n in names]
 
 
 def main(argv: list[str]) -> int:
@@ -55,6 +94,14 @@ def main(argv: list[str]) -> int:
         i = args.index("--workers")
         workers = int(args[i + 1])
         del args[i : i + 2]
+    no_dataset = "--no-dataset" in args
+    if no_dataset:
+        args.remove("--no-dataset")
+    try:
+        plugins = _layouts(args)
+    except LayoutUsageError as e:
+        print(f"usage error: {e}", file=sys.stderr)
+        return 2
     if len(args) != 2:
         print(USAGE, file=sys.stderr)
         return 2
@@ -65,7 +112,14 @@ def main(argv: list[str]) -> int:
     policy = Policy(allow_private_hosts=private)
     try:
         store = zarrify(args[0], url, checksums=checksums, policy=policy,
-                           connections=connections, byte_cost=byte_cost, workers=workers)
+                        connections=connections, byte_cost=byte_cost, workers=workers,
+                        layouts=[Image()] if no_dataset else None, plugins=plugins)
+    except LayoutUsageError as e:
+        print(f"usage error: {e}", file=sys.stderr)
+        return 2
+    except LayoutFailed as e:  # the plugin's error, not the input's
+        print(f"error: {e}", file=sys.stderr)
+        return 1
     except Rejected as e:
         print(f"rejected: {e}", file=sys.stderr)
         return 3

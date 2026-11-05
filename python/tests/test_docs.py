@@ -29,6 +29,7 @@ def test_pages_quote_their_examples_verbatim():
             found[example.relative_to(DOCS).as_posix()] = page.name
     assert found.get("examples/oisst.py") == "virtual-datasets.md"
     assert found.get("examples/tiff_stack.py") == "tiff-stack.md"
+    assert found.get("examples/ome_zarr_06.py") == "layout-plugins.md"
 
 
 def test_tiff_stack_example_runs(tmp_path, monkeypatch, capsys):

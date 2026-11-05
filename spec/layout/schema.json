@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/layout/schema.json",
+  "title": "refkv layout convention, version 0",
+  "description": "The zarr.json of a node that declares the refkv layout convention (https://github.com/d-v-b/refkv/blob/main/spec/layout.md): the layouts' group, refkv_layouts, or a layout's node below it",
+  "type": "object",
+  "properties": {
+    "zarr_format": {"type": "integer", "const": 3},
+    "node_type": {"type": "string", "const": "group"},
+    "attributes": {
+      "type": "object",
+      "properties": {
+        "zarr_conventions": {
+          "type": "array",
+          "prefixItems": [{"$ref": "#/$defs/conventionMetadata"}],
+          "minItems": 1
+        },
+        "refkv_layout": {"oneOf": [{"$ref": "#/$defs/layoutsGroup"}, {"$ref": "#/$defs/layoutProperty"}]}
+      },
+      "required": ["zarr_conventions", "refkv_layout"],
+      "additionalProperties": true
+    }
+  },
+  "required": ["zarr_format", "node_type", "attributes"],
+  "$defs": {
+    "conventionMetadata": {
+      "description": "The layout convention's metadata object, first in zarr_conventions",
+      "type": "object",
+      "properties": {
+        "uuid": {"const": "372e9a9f-06b1-4ea1-8829-e206c05e03e6"},
+        "schema_url": {"const": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/layout/schema.json"},
+        "spec_url": {"const": "https://github.com/d-v-b/refkv/blob/main/spec/layout.md"},
+        "name": {"const": "refkv_layout"},
+        "description": {"const": "A layout of a zarrified source that a plugin wrote, and what it was written from"}
+      },
+      "required": ["uuid", "schema_url", "spec_url", "name", "description"],
+      "additionalProperties": false
+    },
+    "layoutsGroup": {
+      "type": "object",
+      "properties": {"version": {"const": 0}},
+      "required": ["version"],
+      "additionalProperties": false
+    },
+    "layoutProperty": {
+      "type": "object",
+      "properties": {
+        "version": {"const": 0},
+        "layout": {
+          "type": "object",
+          "properties": {
+            "name": {"type": "string", "pattern": "^[a-z0-9-]+(\\.[a-z0-9-]+)+$"},
+            "uuid": {"type": "string", "minLength": 1},
+            "version": {"type": "integer", "minimum": 0}
+          },
+          "required": ["name", "uuid", "version"],
+          "additionalProperties": false
+        },
+        "source": {"type": "object"},
+        "base": {
+          "type": "object",
+          "properties": {"uuid": {"type": "string", "minLength": 1}, "version": {"type": "integer", "minimum": 0}},
+          "required": ["uuid", "version"],
+          "additionalProperties": false
+        },
+        "options": {"type": "object"}
+      },
+      "required": ["version", "layout", "source", "base", "options"],
+      "additionalProperties": false
+    }
+  }
+}

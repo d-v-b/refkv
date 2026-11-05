@@ -40,8 +40,9 @@ enum Phase {
     Done,
 }
 
-/// The names a node of the hierarchy may not take at the root (the mirror's node).
-const RESERVED_ROOT: &[&str] = &["refkv_source"];
+/// The names a node of the hierarchy may not take at the root (the mirror's node, and the node of
+/// the layouts plugins write).
+const RESERVED_ROOT: &[&str] = &[crate::out::SOURCE_NODE, crate::out::LAYOUTS_NODE];
 /// The attribute names the hierarchy writes itself (spec/zarrify/hdf5.md §2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#2-the-hierarchy>).
 const RESERVED_ATTRIBUTES: &[&str] = &["zarr_conventions", "refkv_zarrified", "_LINKS", "_DTYPE", "_REFERENCE_FIELDS"];

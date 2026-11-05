@@ -15,6 +15,10 @@ machinery (§1.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-st
 
     python -m refkv.zarrify <url or path> <out.vzip> [--url <source url>] [--checksums]
         [--allow-private-hosts] [--connections N] [--byte-cost SECONDS_PER_MB] [--workers N]
+        [--no-dataset] [--layout NAME [--layout-options NAME=JSON] [--layout-path NAME=PATH]]...
+
+`--layout` adds a layout a plugin writes (`refkv.zarrify.layouts`; spec/layout.md
+<https://github.com/d-v-b/refkv/blob/main/spec/layout.md>), under `refkv_layouts/`.
 
 Exits with status 3 if the input is rejected, with status 2 on a usage error (such as a
 local directory without `--url`), and with status 1 if the reader policy
@@ -53,7 +57,7 @@ in `/`, or a local directory, is a store input.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 
 # the package, not its names: refkv.ir imports refkv.zarrify.common, so it is still loading when
@@ -67,6 +71,7 @@ from refkv.refstore import ReferenceStore
 from refkv.zarrify import profile_classes
 from refkv.zarrify.common import Output, Rejected
 from refkv.zarrify.dicom_series import SeriesOutput, zarrify_series_async
+from refkv.zarrify.layouts import Layout, LayoutUsageError, Planned, join, plan
 from refkv.zarrify.profile_classes import *  # noqa: F403 (one class per profile: profile_classes.__all__)
 from refkv.zarrify.profiles import BESIDE, CASE, ON_DEMAND
 from refkv.zarrify.sources import Dataset, Image, Source, Store, layout_names
@@ -86,7 +91,7 @@ from refkv.zarrify.store.stores import DirStore
 
 NOT_SUPPORTED = "not a file of any supported format"
 
-__all__ = ["Dataset", "Image", "ListingFailed", "Rejected", "Source", "Store", "StoreLimit", "zarrify",
+__all__ = ["Dataset", "Image", "Layout", "ListingFailed", "Rejected", "Source", "Store", "StoreLimit", "zarrify",
            "zarrify_async", "zarrify_store", "zarrify_store_async"]
 __all__ += profile_classes.__all__  # the source and store classes, one per profile
 
@@ -203,9 +208,10 @@ async def _zarrify_beside_async(fmt: str, location: str, url: str | None, transp
     store = VsiFiles(location, url, policy=policy, workers=connections, transport=transport, title=title, noun=noun,
                      case=fmt in CASE)
     try:
-        out = (await run_store_async(store, fmt))[0]
+        out, ir_, _ = await run_store_async(store, fmt)
     finally:
         store.close()
+    out.ir = ir_
     if checksums:
         keys = {object_url(store.url, k): k for k in store.objects}
         out.checksum = lambda u, offset, length: crc32c(store.read_range(keys[u], offset, length))
@@ -285,10 +291,32 @@ def _zarrify(location: str, url: str | None = None, *, checksums: bool = False,
     return fmt, out
 
 
+def _with_plugins(out: Output | StoreIrOutput | SeriesOutput, fmt: str, policy: Policy | None,
+                  planned: Sequence[Planned]) -> ReferenceStore:
+    """The output as a `refkv.ReferenceStore`, with the plugin layouts `planned` joined to it
+    (`refkv.zarrify.layouts.join`): on a thread, which each plugin's `write` runs on."""
+    store = out.to_store(policy=policy, info={"format": fmt, **out.summary})
+    if not planned:
+        return store
+    if isinstance(out, SeriesOutput):  # a store input's, which _planned refused
+        raise TypeError("a store of DICOM files takes no plugin layouts")
+    return join(store, None if out.ir is None else ir.Ir(out.ir), planned)
+
+
+def _planned(plugins: Sequence[Layout] | None, store: bool) -> list[Planned]:
+    """The plugin layouts asked for, loaded and checked before the input is opened."""
+    if not plugins:
+        return []
+    if store:
+        raise LayoutUsageError("a store input takes no plugin layouts yet: name a file")
+    return plan(list(plugins))
+
+
 async def zarrify_async(location: str | Source | Store, url: str | None = None, *, checksums: bool | None = None,
                         policy: Policy | None = None, connections: int | None = None,
                         byte_cost: float | None = None, workers: int | None = None,
-                        layouts: Iterable[Image | Dataset] | None = None) -> ReferenceStore:
+                        layouts: Iterable[Image | Dataset] | None = None,
+                        plugins: Sequence[Layout] | None = None) -> ReferenceStore:
     """The file at `location` (a local path or an http(s) URL), by its first bytes, or
     the store at `location` (a URL ending in `/`, or a directory), zarrified
     (spec/zarrify.md <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md>), as a
@@ -328,6 +356,10 @@ async def zarrify_async(location: str | Source | Store, url: str | None = None, 
     - `layouts`: the layouts the hierarchy holds, `[Image()]` or `[Image(), Dataset()]`
       (`refkv.zarrify.sources`); by default, the image and every dataset layout the format
       has (conventions §9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>).
+    - `plugins`: layouts that plugins write, `[Layout("acme-ome.ome06")]`
+      (`refkv.zarrify.layouts`; spec/layout.md
+      <https://github.com/d-v-b/refkv/blob/main/spec/layout.md>), each under `refkv_layouts/`,
+      for a file input.
 
     `location` may instead be a source or store class's instance, such as
     `TiffSource(url)` or `Zarr2Store(url)` (`refkv.zarrify.sources`), which names the profile,
@@ -350,7 +382,11 @@ async def zarrify_async(location: str | Source | Store, url: str | None = None, 
       `max_objects` objects.
     - `ValueError`: a local directory without `url`, or an argument out of range.
     - `TypeError`: a read option passed beside a source or store instance.
-    - `NotImplementedError`: a layout the profile cannot write."""
+    - `NotImplementedError`: a layout the profile cannot write.
+    - `refkv.zarrify.layouts.LayoutUsageError` (a `ValueError`), `LayoutRejected` (a
+      `Rejected`) and `LayoutFailed`: a plugin layout asked for wrongly, refused for this
+      input, or failed."""
+    planned = _planned(plugins, isinstance(location, Store) or (isinstance(location, str) and is_store(location)))
     if isinstance(location, (Source, Store)):
         given = {"url": url, "checksums": checksums, "policy": policy, "connections": connections,
                  "byte_cost": byte_cost, "workers": workers}
@@ -366,22 +402,23 @@ async def zarrify_async(location: str | Source | Store, url: str | None = None, 
             fmt, out = await _zarrify_async(source.location, source.url, checksums=source.checksums,
                                             policy=source.policy, connections=source.connections,
                                             byte_cost=source.byte_cost, fmt=source.profile, layouts=layouts)
-        return await asyncio.to_thread(out.to_store, policy=source.policy, info={"format": fmt, **out.summary})
+        return await asyncio.to_thread(_with_plugins, out, fmt, source.policy, planned)
     fmt, out = await _zarrify_async(location, url, checksums=bool(checksums), policy=policy,
                                     connections=connections, byte_cost=byte_cost,
                                     workers=WORKERS if workers is None else workers, layouts=layouts)
-    return await asyncio.to_thread(out.to_store, policy=policy, info={"format": fmt, **out.summary})
+    return await asyncio.to_thread(_with_plugins, out, fmt, policy, planned)
 
 
 def zarrify(location: str | Source | Store, url: str | None = None, *, checksums: bool | None = None,
             policy: Policy | None = None, connections: int | None = None,
             byte_cost: float | None = None, workers: int | None = None,
-            layouts: Iterable[Image | Dataset] | None = None) -> ReferenceStore:
+            layouts: Iterable[Image | Dataset] | None = None,
+            plugins: Sequence[Layout] | None = None) -> ReferenceStore:
     """`zarrify_async`, the caller's thread waiting for it: the same arguments, result and errors.
     Called from a coroutine on refkv's own event loop, it raises RuntimeError (await
     `zarrify_async` there)."""
     return _sync.run(zarrify_async(location, url, checksums=checksums, policy=policy, connections=connections,
-                                   byte_cost=byte_cost, workers=workers, layouts=layouts))
+                                   byte_cost=byte_cost, workers=workers, layouts=layouts, plugins=plugins))
 
 
 async def zarrify_store_async(location: str, url: str | None = None, *, max_objects: int | None = None,

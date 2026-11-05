@@ -180,7 +180,7 @@ is the root's child of that name, and `encoder/conv/kernel` the array `kernel` o
 
 - its name is not a path of node names: a part between two `/` (or before the first, or after
   the last) is empty, `.` or `..`, starts with `__`, or is `zarr.json` (reason `name`);
-- its path's first node name is `refkv_source` (reason `reserved`);
+- its path's first node name is `refkv_source` or `refkv_layouts` (reason `reserved`);
 - its path is a proper prefix, ending before a `/`, of another tensor's name, which makes it a
   group (reason `path`).
 
@@ -461,7 +461,7 @@ A shard is presented unless:
 
 - its header fails one of [§8.2](#82-checks)'s checks: its reason is the check's message;
 - a segment of its key starts with `__` or is `zarr.json`, or its first segment is
-  `refkv_source`: its reason starts `name:` or `reserved:`;
+  `refkv_source` or `refkv_layouts`: its reason starts `name:` or `reserved:`;
 - its key is another shard's directory (a store may hold the keys `a` and `a/b`): its reason
   starts `path:`.
 

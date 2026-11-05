@@ -297,7 +297,8 @@ store IR, its objects' total size), with the message `budget: more than N refs`,
 2^20 repeats, with the message `budget: more than 1048576 repeats` (`N` in decimal). The
 budget applies to the CZI, DICOM, FITS, FLAC, HDF5, IMS, LIF, MP3, MP4, MRC, NDPI, NIfTI,
 NumPy, NRRD, QPTIFF, safetensors (both its forms), TIFF and VSI profiles; the GRIB, ND2 and
-SAFE profiles and the store profiles bound their outputs by their own rules.
+SAFE profiles and the store profiles bound their outputs by their own rules. The references a
+plugin layout copies ([spec/layout.md §3](layout.md#3-the-entries)) are not counted.
 
 ### 1.3 Arithmetic
 
@@ -703,12 +704,20 @@ holds. Neither changes what a profile accepts or what it writes for a layout.
 - **Layouts.** The image layout ([§2](#2-the-zarr-layout)) is the hierarchy's root and is
   always written. A format's dataset layout ([conventions §9](conventions.md#9-dataset-layouts))
   is written unless the zarrifier is told to leave it out: the output then has no
-  dataset node, and its root's property no `layouts` member
+  dataset node, and its root's property no `layouts` member, or one without `dataset`
   ([conventions §2](conventions.md#2-attributes)). A zarrifier told to write a dataset
   layout for a format that has none rejects the request.
+- **Plugin layouts.** A zarrifier of a file input MAY also be told the layouts plugins write, by
+  name and options: each is written below the root's child `refkv_layouts` from the profile's
+  output, as [spec/layout.md](layout.md) says, and changes nothing else in the output. A
+  plugin layout refused for an input, because the plugin does not read the profile's convention
+  or because the plugin refuses the input, rejects the request; the profile still accepts the
+  input. An implementation that cannot load plugins (the browser, the Rust CLI) refuses the
+  request.
 
 Two outputs of one input are equivalent ([§1.1](#11-output-and-equivalence)) when their
-zarrifiers wrote the same layouts.
+zarrifiers wrote the same layouts, plugin layouts included
+([spec/layout.md §5](layout.md#5-names-identity-and-versions)).
 
 ### 1.8 Files read as stores
 
@@ -850,7 +859,8 @@ CORS headers from a network failure, so asking for a file that is not there can 
 uses it. The order of the sources is a function of the bytes alone, never of when a probe or a read
 completed. A profile uses the order of **first use** unless its document says otherwise: walk the
 output's reference entries in the order its chunk tables give, and number each object as it first
-appears.
+appears; a plugin layout's entries, which reuse sources the profile's own entries name, are not
+walked ([spec/layout.md §3](layout.md#3-the-entries)).
 
 **Pins.** A sibling is pinned as source 0 of a file input is ([§1.2](#12-input)): a `size` pin, and
 an `etag` pin when every response received for it had an `ETag` with the same strong value. Every

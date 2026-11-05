@@ -115,9 +115,12 @@ development branch instead: `.../refs/heads/main/spec/zarrify/<p>/schema.json`
 and `.../blob/main/spec/zarrify/<p>.md`. `T` is the format's title, the `title` of its
 entry in the profile registry ([zarrify/profiles/](zarrify/profiles/)`<p>.json`: `TIFF`,
 `Zarr v2`, `Sentinel-2 SAFE`, ...). The UUID is the same for every version; the version is in
-the URLs. All conventions nest their property under one key, `refkv_zarrified`, which is
-also their `name`: the framework asks a nesting convention's `name` to be
-its key, and a key without a colon is not mistaken for a namespace prefix.
+the URLs. All the format conventions nest their property under one key, `refkv_zarrified`,
+which is also their `name`: the framework asks a nesting convention's `name` to be
+its key, and a key without a colon is not mistaken for a namespace prefix. refkv's other
+conventions have keys of their own: [provenance's](provenance.md), `refkv_provenance`, and
+[the layout convention's](layout.md), `refkv_layout` (UUID
+`372e9a9f-06b1-4ea1-8829-e206c05e03e6`), as has each plugin layout's convention.
 
 <a id="type-conventionmetadata"></a>**`ConventionMetadata`**, the CMO ([§11.5](#115-layout-tables) says how to read this and the
 other type tables):
@@ -160,7 +163,7 @@ node, translated by [§6](#6-source-metadata-as-json).
 | `profile` | string | required | `p`, the format |
 | `version` | integer | required | `N`, the version of the format's convention |
 | `source` | [`Source`](#type-source) | required | the source |
-| `layouts` | object of string | optional | present only when the archive also holds the source under another layout ([§9](#9-dataset-layouts)), after `source`: its keys name the layouts (`"dataset"`) and its values are the paths of their nodes below the root, without a trailing `/` |
+| `layouts` | object of string | optional | present only when the archive also holds the source under another layout ([§9](#9-dataset-layouts), or a plugin's, [spec/layout.md](layout.md)), after `source`: its keys name the layouts (`"dataset"`, or a plugin layout's name), in code point order, and its values are the paths of their nodes below the root, without a trailing `/`; a reader knows a plugin layout's node by its CMOs |
 | `"<p>"` | object | optional | `S`, the root's source metadata; present only when `S` has at least one member |
 
 <a id="type-nodeproperty"></a>**`NodeProperty`**, any other node's `refkv_zarrified`:
@@ -205,7 +208,8 @@ kept as arrays, are outside it, under the root's `pictures` ([flac §4.2](zarrif
 
 **Nothing else.** Outside `refkv_zarrified`, a node's attributes hold only
 members that the hierarchy's target formats define, where the format's
-convention places them:
+convention places them (but at and below the root's child `refkv_layouts`, which
+[spec/layout.md](layout.md) and each plugin layout's convention govern):
 
 | member | defined by | on |
 |---|---|---|
@@ -1437,7 +1441,9 @@ holds what every dataset layout shares.
 
 **The node.** The dataset is a child group of the root, at the path the
 dataset convention gives (`dataset` unless it says otherwise). The root
-names it in `layouts` ([§2](#2-attributes)). The group declares the dataset
+names it in `layouts` ([§2](#2-attributes)), as it names a plugin's layout, which is a second
+presentation of the same bytes too, but below `refkv_layouts` and under conventions of its own
+([spec/layout.md](layout.md)). The group declares the dataset
 convention as a root declares its format's ([§2](#2-attributes)): its
 `refkv_zarrified` has `profile` (`<p>-dataset`), `version`,
 `source` and the source metadata member `"<p>-dataset"`, so that the group
@@ -1693,7 +1699,10 @@ Every entry the format writes matches exactly one row of type `group`, `array`, 
 subtree `refkv_source/**` and rows of their own, which say what they are. The mirror is one
 row, `refkv_source/**`, a subtree, which links [the mirror's entries](#table-mirror)
 ([§8.2](#82-the-table)); a collection's entries are [§4](#4-images)'s
-[table](#table-collection).
+[table](#table-collection). Every format's table also holds, without listing it, the subtree
+`refkv_layouts/**` of [spec/layout.md's table](layout.md#table-layout), the layouts plugins write
+for a file input; a format document's sentence that its archive has no other entries leaves it
+aside.
 
 **Type tables.** A structured value (a node's document, an attribute, an object of the
 source metadata) is defined once, by a **type table**: a line naming the type in bold,

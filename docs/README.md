@@ -57,3 +57,5 @@ The Python package `refkv` stores a [VirtualiZarr](https://virtualizarr.readthed
 ## A stack of TIFF files
 
 [tiff-stack.md](tiff-stack.md) zarrifies a directory of TIFF files, one per plane, and stacks them into one `(z, y, x)` array saved as a vzip sidecar beside the files, with source URLs relative to the sidecar ([examples/tiff_stack.py](examples/tiff_stack.py)).
+
+[layout-plugins.md](layout-plugins.md) writes a layout of your own beside refkv's, in a Python package: an OME-Zarr 0.6 image of a TIFF or an HDF5 file, its chunks the same references ([examples/ome_zarr_06.py](examples/ome_zarr_06.py)).

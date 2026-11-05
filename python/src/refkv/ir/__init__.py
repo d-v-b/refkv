@@ -27,6 +27,29 @@ from refkv.zarrify.profiles import REGISTRY
 TIFF_VARIANTS = {e["name"]: e["title"] for e in REGISTRY if e["chosen_by"] == "tiff"}
 
 
+class Ir:
+    """A source's IR (spec/conventions.md §8
+    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#8-the-ir-mirror>): the elements of
+    `refkv._core.Ir`, each with its path, kind, type, extent, value and children, and `at(path)`,
+    an element's index by its path. The IR a plugin's layout is given (`refkv.zarrify.layouts`)."""
+
+    def __init__(self, core: _core.Ir) -> None:
+        self._core = core
+        self._paths: dict[str, int] | None = None
+
+    def __len__(self) -> int:
+        return len(self._core)
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self._core, name)
+
+    def at(self, path: str) -> int | None:
+        """The index of the element at `path`, or None."""
+        if self._paths is None:
+            self._paths = {self._core.path(i): i for i in range(len(self._core))}
+        return self._paths.get(path)
+
+
 def sniff(head: bytes) -> str | None:
     """The IR format a file's first bytes (up to 65,600 of them) give, if any: the Rust core's
     `Format::sniff`, which tests each file profile's signature in the registry's `sniff` order
@@ -104,6 +127,7 @@ async def zarrify_async(location: str, url: str | None = None, mirror: bool = Tr
 
     # the projection, and its output's conversion, on a thread: both grow with the chunks
     out, ir = await asyncio.to_thread(output)
+    out.ir = ir
     out.size = transport.size
     out.etag = transport.etag() if url in (None, location) else None
     return fmt, out, ir
