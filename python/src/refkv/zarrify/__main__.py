@@ -11,8 +11,10 @@ from refkv.zarrify.store import WORKERS
 STORES = ("an N5, Zarr v2 or OME-Zarr 0.4 store, a Neuroglancer precomputed volume, a Sentinel-2 .SAFE directory, "
           "or a store of safetensors files")
 USAGE = ("usage: refkv zarrify <url or path> <out.vzip> [--url <source url>] [--checksums]"
-         " [--allow-private-hosts] [--connections N] [--byte-cost SECONDS_PER_MB] [--workers N]\n"
-         f"(a URL ending in / or a directory is {STORES}; a directory needs --url;\n"
+         " [--allow-private-hosts] [--connections N] [--byte-cost SECONDS_PER_MB] [--workers N]"
+         " [--format vzip|phkv]\n"
+         "(--format chooses the container: a vzip archive, the default, or a phkv store, the draft binding;\n"
+         f"a URL ending in / or a directory is {STORES}; a directory needs --url;\n"
          "a Hugging Face Hub URL https://huggingface.co/<owner>/<repo>/tree/<rev>/ is listed at its commit,\n"
          "at HF_ENDPOINT's Hub if set;\n"
          f"a store's documents are read by up to N requests at a time, default {WORKERS})")
@@ -50,6 +52,14 @@ def main(argv: list[str]) -> int:
         i = args.index("--url")
         url = args[i + 1]
         del args[i : i + 2]
+    fmt = "vzip"
+    if "--format" in args:
+        i = args.index("--format")
+        fmt = args[i + 1] if i + 1 < len(args) else ""
+        del args[i : i + 2]
+        if fmt not in ("vzip", "phkv"):
+            print(f"unknown --format {fmt!r}: vzip or phkv\n{USAGE}", file=sys.stderr)
+            return 2
     workers = WORKERS
     if "--workers" in args:
         i = args.index("--workers")
@@ -73,7 +83,7 @@ def main(argv: list[str]) -> int:
         print(f"error: {e}", file=sys.stderr)
         return 1
     try:  # the archive's sources are checked against the policy the input was read under
-        store.save_vzip(args[1], policy=policy)
+        (store.save_phkv if fmt == "phkv" else store.save_vzip)(args[1], policy=policy)
     except ResolutionError as e:  # a source a reader under that policy could not read
         print(f"error: {e}", file=sys.stderr)
         return 1
