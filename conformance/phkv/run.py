@@ -67,9 +67,11 @@ def _matches(result: dict, accept: list[dict]) -> bool:
     return False
 
 
-vzip_run._matches = _matches
+vzip_run.__dict__["_matches"] = _matches  # grade, in vzip's runner, uses it
 
-# a store that is not valid: opening it must fail with an archive error (spec §22.1 and §22.3)
+# a store that is not valid: opening it must fail with an archive error
+# (spec <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#221-opening>
+# and <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#223-errors>)
 STORE_SUFFIX = ".phkv"
 
 
@@ -209,7 +211,8 @@ def main() -> int:
             report["reject"][f"{impl}:queries/{name}"] = {
                 "ok": p.returncode != 0, "exit": p.returncode, "file_left": False, "stderr": p.stderr.strip()[-200:]}
 
-    # 1c. http profile: request accounting (spec §5.2), one query per CLI run
+    # 1c. http profile: request accounting, one query per CLI run
+    # (spec <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#52-reading-over-http>)
     if "http_basic" in vectors:
         arc = vectors["http_basic"]["archive"]
         for impl, cli in impls.items():

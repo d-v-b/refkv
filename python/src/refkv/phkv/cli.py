@@ -40,7 +40,7 @@ def _answer(store: PhkvStore, q: Mapping[str, object]) -> dict[str, object]:
         return {"ok": True, "kind": store.classify(string(q["key"], "key"))}
     if q["op"] in ("get", "get_raw"):
         key = string(q["key"], "key")
-        value = store.get(key, _request(q.get("range"))) if q["op"] == "get" else store.raw(key)
+        value = store.get(key, _request(q.get("range"))) if q["op"] == "get" else store.raw(key)  # type: ignore[arg-type]
         return {"ok": True, "value": None if value is None else value.hex()}
     if q["op"] == "list":
         return {"ok": True, "keys": store.list(string(q["prefix"], "prefix"))}
@@ -73,14 +73,12 @@ def write(desc_path: str, out: str, section_codec: CodecName = "zstd") -> None:
     with open(desc_path, encoding="utf-8") as f:
         desc = json.load(f, object_pairs_hook=_no_duplicates)
     _reject_nulls(desc)
-    kwargs: dict[str, int] = {}
-    for name in ("page_size", "inline_max"):
-        if name in desc:
-            v = _int(desc[name], name)
-            if name == "page_size" and v < 1:
-                raise ValueError(f"page_size must be an integer >= 1, not {v!r}")
-            kwargs[name] = v
-    with replacing(out) as f, PhkvWriter(f, section_codec=section_codec, **kwargs) as w:
+    page_size = _int(desc["page_size"], "page_size") if "page_size" in desc else 4096
+    if page_size < 1:
+        raise ValueError(f"page_size must be an integer >= 1, not {page_size!r}")
+    inline_max = _int(desc["inline_max"], "inline_max") if "inline_max" in desc else 4096
+    with replacing(out) as f, PhkvWriter(
+            f, section_codec=section_codec, page_size=page_size, inline_max=inline_max) as w:
         for src in desc.get("sources", []):
             w.source(_source(src))
         for e in desc["entries"]:

@@ -18,6 +18,7 @@ import builtins
 import sys
 import zlib
 from pathlib import Path
+from typing import override
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "vzip"))
 
@@ -32,6 +33,7 @@ class PhkvModel(vzip_model.Model):
         super().__init__(desc, store_path, http)
         self.revision = None
 
+    @override
     def _source_bytes(self, idx: int) -> bytes:
         """As the vzip model's, but a `key` source may name any bytes entry: `__vz__/sources` and
         `__vz__/index` are ordinary keys here."""
@@ -42,11 +44,13 @@ class PhkvModel(vzip_model.Model):
             return bytes.fromhex(e["bytes"])
         return super()._source_bytes(idx)
 
+    @override
     def kind(self, key: str) -> str:
         if key not in self.entries:
             return "missing"
         return "reference" if "ranges" in self.entries[key] else "bytes"
 
+    @override
     def get_raw(self, key: str) -> builtins.list[dict]:
         e = self.entries.get(key)
         if e is None:
@@ -58,6 +62,7 @@ class PhkvModel(vzip_model.Model):
             return [{"ok": True, "value": e["bytes"]}, {"ok": True, "deflates_to": e["bytes"]}]
         return [{"ok": True, "value": e["bytes"]}]
 
+    @override
     def list(self, prefix: str) -> builtins.list[dict]:
         keys = sorted((k for k in self.entries if k.startswith(prefix)), key=_utf8_key)
         return [{"ok": True, "keys": keys}]

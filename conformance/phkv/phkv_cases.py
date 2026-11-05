@@ -2,7 +2,8 @@
 
 A description is the one of conformance/vzip/HARNESS.md less `mirror` and `pinned`, which are
 vzip's, and with `inline_max`: a phkv store has no reserved names, so a key such as `__vz__/hdr`
-is an ordinary key, and `page_size` has the meaning of spec/bindings/phkv.md §19.4.
+is an ordinary key, and `page_size` has the meaning of spec/bindings/phkv.md
+<https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#194-page-index>.
 """
 
 from __future__ import annotations
@@ -66,7 +67,7 @@ def _self_contained() -> dict[str, dict]:
         "selfcontained_pages_of_one_key": {**paged, "page_size": 1, "entries": paged_entries[:80]},
         "selfcontained_inline_none": {**paged, "inline_max": 0},
         "selfcontained_inline_all": {**paged, "inline_max": 1 << 20},
-        # the names vzip reserves are ordinary keys in a phkv store (spec/bindings/phkv.md §16)
+        # the names vzip reserves are ordinary keys in a phkv store (spec/bindings/phkv.md <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#16-what-the-phkv-binding-defines>)
         "reserved_names_are_ordinary": {"sources": [{"key": "__vz__/sources"}], "entries": [
             {"key": "__vz__/sources", "bytes": H(b"not a source table")},
             {"key": "__vz__/index", "bytes": H(b"not an index"), "compress": True},
@@ -74,7 +75,8 @@ def _self_contained() -> dict[str, dict]:
             {"key": "r", "ranges": [{"source": 0, "offset": 4, "length": 5}]}]},
         "empty": {"sources": [], "entries": []},
         "empty_paged": {"sources": [], "entries": [], "page_size": 100},
-        # payloads past vzip's 65,519-byte limit (a ZIP extra field's), up to phkv's 2^24 (§19.3)
+        # payloads past vzip's 65,519-byte limit (a ZIP extra field's), up to phkv's 2^24
+        # (<https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#193-reference-records>)
         "large_payloads": {"sources": [], "entries": [
             {"key": "many_ranges", "ranges": [{"data": H(bytes([i % 256]) * 8)} for i in range(7000)]},
             {"key": "one_big_literal", "ranges": [{"data": "ab" * 65_516}]},

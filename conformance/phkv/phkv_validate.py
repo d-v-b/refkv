@@ -20,7 +20,7 @@ import pbref
 MAGIC = b"PHKV"
 SOURCES, RECORDS, PAGES, PTRHASH, SLOTS, PROPERTY, METADATA = range(1, 8)
 ONE_PER_STORE = (SOURCES, RECORDS, PAGES, PTRHASH, SLOTS)
-STORED_ONLY = (RECORDS, SLOTS)  # codec 0 only (§17.4)
+STORED_ONLY = (RECORDS, SLOTS)  # codec 0 only (<https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#174-sections>)
 
 _CRC_TABLE = []
 for _i in range(256):
@@ -85,8 +85,8 @@ def _check_sources(table_bytes: bytes, desc: dict, problems: list) -> None:
         for i, (got, want) in enumerate(zip(table.sources, want_all, strict=True)):
             kind = got.WhichOneof("kind")
             expected_kind = next(k for k in ("url", "key", "data") if k in want)
-            value = getattr(got, kind) if kind else None
-            value = value.hex() if kind == "data" else value
+            raw_value = getattr(got, kind) if kind else None
+            value = raw_value.hex() if kind == "data" and raw_value is not None else raw_value
             if kind != expected_kind or value != want[expected_kind]:
                 problems.append(f"source {i}: {kind} {value!r}, expected {expected_kind} {want[expected_kind]!r}")
             problems.extend(
@@ -110,7 +110,8 @@ def _check_records(records: bytes, desc: dict, key_count: int, problems: list) -
             kind, rflags = records[p], records[p + 1]
             p += 2
             r, p = _varint(records, p)
-            codec = size = stored_len = crc = None
+            codec = size = stored_len = plen = 0
+            crc = None
             if kind == 0:
                 codec = records[p]
                 p += 1
@@ -180,7 +181,7 @@ def _check_pages(pages: bytes, records_length: int, problems: list) -> None:
             first_length, q = _varint(pages, q)
             first = pages[q:q + first_length]
             q += first_length
-            _, q = _varint(pages, q)  # the page's offset: absolute (§19.4)
+            _, q = _varint(pages, q)  # the page's offset: absolute (<https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#194-page-index>)
             length, q = _varint(pages, q)
             if first_length < 1 or length < 1:
                 problems.append("a page with an empty first key or length")
