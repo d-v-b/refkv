@@ -593,6 +593,9 @@ valid inputs, comparing every value, and one test per error case.
   fix that read in-line values said this would have caught its first finding.
 - **Check that a new test fails on the old code.** Several fixes say so: "run
   against the unfixed parser, both tests fail."
+- **A profile with a frozen reference that changes a fixture's layout or verdict** adds the fixture's name to
+  `conformance/zarrify/revised/<p>.txt`, in sorted order, and says why in the file's top comment. See
+  [its README](../conformance/zarrify/revised/README.md).
 
 ### Verification against an independent reader
 

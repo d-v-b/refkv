@@ -1,0 +1,18 @@
+# A store with a node at refkv_source, which the profile rejects whether or not the store has
+# other objects, since the IR's mirror is always there (spec/zarrify/zarr2.md §5
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#5-other-objects>), where the
+# frozen reference rejected it only when there were other objects to keep. An array that is not
+# presented, which the profile leaves out where the frozen reference rejected the store, and the
+# data types, filters and compressors it reads since the freeze (spec/zarrify/zarr2.md §3.4
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#34-arrays-that-are-not-presented>).
+zarr2_accepted_compressor_bz2
+zarr2_accepted_compressor_lz4
+zarr2_accepted_dtype_bytes
+zarr2_accepted_dtype_complex
+zarr2_accepted_dtype_datetime
+zarr2_accepted_dtype_structured
+zarr2_accepted_dtype_unicode
+zarr2_codecs
+zarr2_left_out
+zarr2_reject_objects_collision
+zarr2_types

@@ -51,6 +51,8 @@ feasibility.
   readers to check the output, never to produce it.
 - **Record, don't reject.** A track, level or object the profile can't
   present is listed with a reason. Rejecting it loses science.
+- **Fixtures a frozen reference no longer gives.** List them in
+  `conformance/zarrify/revised/<p>.txt`, sorted, with the reason in its top comment.
 - **Never panic.** The wasm build must reject malformed input. Read with
   `.get()` and checked arithmetic, and give every loop and read a stated
   bound.

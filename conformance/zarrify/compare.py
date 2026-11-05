@@ -95,6 +95,11 @@ sys.path.insert(0, str(ROOT / "conformance" / "impls" / "python"))
 from corpus_hash import entries as corpus_entries  # noqa: E402
 from proxy import HUB, Proxy  # noqa: E402
 from refkv_reference import legacy  # noqa: E402
+
+# The fixtures (by file or store name) whose layout or verdict the profile changed after the
+# freeze, which the frozen reference does not give: they and their mutants compare py with web
+# alone (revised/<format>.txt says which, and why).
+from revised_fixtures import REVISED  # noqa: E402
 from validate import validate  # noqa: E402
 from vzip_impl import reader as strict_reader  # noqa: E402
 from vzip_impl.errors import VzError  # noqa: E402
@@ -136,10 +141,6 @@ MIRRORED = {"nifti": ("header_rest", "extender", "extensions", "extensions_trunc
 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#44-arrays>, spec/zarrify/ndpi.md §4
 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#4-the-image>).
 ADDED = {"tiff": ("omero",), "ndpi": ("omero",)}
-# The fixtures (by file or store name) whose layout or verdict the profile changed after the
-# freeze, which the frozen reference does not give: they and their mutants compare py with web
-# alone (revised.json says which, and why).
-REVISED = set(json.loads((HERE / "revised.json").read_text())["fixtures"])
 # The store profiles whose mutants all compare py with web alone: a mutated `.zarray` below the root
 # leaves its array out since the freeze, where the frozen reference rejects the store
 # (spec/zarrify/zarr2.md §3.4
