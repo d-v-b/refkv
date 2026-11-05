@@ -45,7 +45,7 @@ def _stores(tmp_path):
     for page_size in [None, 64]:
         path = tmp_path / f"{page_size}.vzip"
         store.save_vzip(path, page_size=page_size)
-        out[f"archive, page_size={page_size}"] = refkv.open(path)
+        out[f"archive, page_size={page_size}"] = refkv.open(path, binding="vzip")
     return out
 
 
