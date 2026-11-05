@@ -46,6 +46,7 @@ import importlib
 from importlib.metadata import PackageNotFoundError, version
 from types import ModuleType
 from typing import TYPE_CHECKING, Any, Literal, TypedDict, Unpack, overload
+from urllib.parse import urlsplit
 
 from refkv import phkv, vzip
 from refkv.pb import Concat, Range, Source
@@ -80,16 +81,23 @@ BINDINGS = ("vzip", "phkv")
 binding, `"phkv"`."""
 
 
+def _binding_of(url: str) -> str:
+    """The binding a name suggests: `"phkv"` for a path that ends in `.phkv` (a query string or
+    fragment aside), `"vzip"` otherwise."""
+    return "phkv" if urlsplit(url).path.lower().endswith(".phkv") else "vzip"
+
+
 @overload
-def open(url: str, *, binding: Literal["vzip"] = "vzip", **kwargs: Unpack[VZipOptions]) -> VZipStore: ...  # noqa: A001 (refkv.open, the public name)
+def open(url: str, *, binding: Literal["vzip"], **kwargs: Unpack[VZipOptions]) -> VZipStore: ...  # noqa: A001 (refkv.open, the public name)
 @overload
 def open(url: str, *, binding: Literal["phkv"], **kwargs: Unpack[PhkvOptions]) -> PhkvStore: ...  # noqa: A001
 @overload
-def open(url: str, *, binding: str, **kwargs: Unpack[VZipOptions]) -> VZipStore | PhkvStore: ...  # noqa: A001
-def open(url: str, *, binding: str = "vzip", **kwargs: Any) -> VZipStore | PhkvStore:  # noqa: A001 (refkv.open, the public name)
+def open(url: str, *, binding: str | None = None, **kwargs: Unpack[VZipOptions]) -> VZipStore | PhkvStore: ...  # noqa: A001
+def open(url: str, *, binding: str | None = None, **kwargs: Any) -> VZipStore | PhkvStore:  # noqa: A001 (refkv.open, the public name)
     """Open the store saved at `url` (a local path or an `http(s)` URL, presigned or with
-    a query string, of any name) as a read-only store, with the binding `binding`. The
-    ZIP binding, `"vzip"` (the default), opens a vzip archive as a `refkv.vzip.VZipStore`:
+    a query string) as a read-only store, with the binding `binding`. Without one, a name that
+    ends in `.phkv` is opened with `"phkv"` and any other with `"vzip"`; nothing is read to decide.
+    The ZIP binding, `"vzip"`, opens a vzip archive as a `refkv.vzip.VZipStore`:
     `refkv.open("data.vzip").get("zarr.json")`. The perfect-hash binding, `"phkv"`, opens a phkv
     store as a `refkv.phkv.PhkvStore` (it has no `resolve` option). For zarr and
     xarray, `refkv.zarr.open(url)` takes the same arguments and wraps the store.
@@ -98,6 +106,8 @@ def open(url: str, *, binding: str = "vzip", **kwargs: Any) -> VZipStore | PhkvS
     to read sources with, such as an `obspec_utils` `ObjectStoreRegistry` or a mapping
     `{"s3://bucket": S3Store(...)}`), `stats`, `max_concurrency` (8 by default; None for
     no cap), and `resolve`. A binding not in `BINDINGS` is a ValueError."""
+    if binding is None:
+        binding = _binding_of(str(url))
     if binding == "vzip":
         return vzip.open(str(url), **kwargs)
     if binding == "phkv":

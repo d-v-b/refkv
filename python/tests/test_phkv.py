@@ -454,3 +454,17 @@ def test_save_phkv_skips_hidden_values_unless_a_key_source_reads_one(tmp_path):
     assert asyncio.run(s.get_async("r")) == b"0123"
     assert asyncio.run(s.get_async("__vz__/s")) == b"0123456789"  # needed by "r", so kept
     assert asyncio.run(s.get_async("__vz__/h")) is None
+
+
+def test_open_chooses_the_binding_from_the_name(tmp_path):
+    store = refkv.ReferenceStore({"zarr.json": b"{}"}, [])
+    store.save_phkv(tmp_path / "s.phkv")
+    store.save_phkv(tmp_path / "S2.PHKV")
+    store.save_vzip(tmp_path / "s.vzip")
+    store.save_phkv(tmp_path / "odd.bin")
+    assert isinstance(refkv.open(str(tmp_path / "s.phkv")), PhkvStore)
+    assert isinstance(refkv.open(str(tmp_path / "S2.PHKV")), PhkvStore)
+    assert type(refkv.open(str(tmp_path / "s.vzip"))).__name__ == "VZipStore"
+    assert isinstance(refkv.open(str(tmp_path / "odd.bin"), binding="phkv"), PhkvStore)  # an explicit binding wins
+    zs = refkv.zarr.open(str(tmp_path / "s.phkv"))  # the adapter follows the name too
+    assert isinstance(zs, refkv.zarr.ZarrStore)

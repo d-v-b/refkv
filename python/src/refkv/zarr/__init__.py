@@ -295,8 +295,8 @@ def store(reader: ReferenceReader) -> ZarrStore:
 
 def open(url: str, **kwargs: Unpack[OpenOptions]) -> ZarrStore:  # noqa: A001 (refkv.zarr.open, the public name)
     """The store saved at `url` (a local path or an `http(s)` URL), opened by `refkv.open`
-    (by default with the ZIP binding), as a read-only zarr store:
-    `xr.open_zarr(refkv.zarr.open("data.vzip"))`.
+    (with the binding its name suggests: phkv for `.phkv`, the ZIP binding otherwise), as a
+    read-only zarr store: `xr.open_zarr(refkv.zarr.open("data.vzip"))`.
 
     Keyword arguments go to `refkv.open`: `binding`, `policy`, `registry`, `stats`,
     `max_concurrency` (8 by default; None for no cap) and `resolve`."""
