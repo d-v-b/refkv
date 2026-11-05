@@ -161,10 +161,7 @@
       "given": {"major": "", "minor": "", "file_part": ""},
       "constraints": [
         {"require": "major == 1", "message": "CZI file version {major}.{minor} (Major MUST be 1)"},
-        {
-          "require": "file_part == 0",
-          "message": "FilePart {file_part}: a CZI split over several files is not supported"
-        }
+        {"require": "file_part >= 0", "message": "FilePart {file_part} is negative"}
       ]
     },
     "entry_count": {
@@ -183,7 +180,6 @@
         "ends": "it ends within the directory's used bytes",
         "within": "and within the file",
         "schema": "",
-        "file_part": "",
         "pixel_type": "",
         "compression": "",
         "dimension_count": ""
@@ -193,7 +189,6 @@
         {"require": "ends", "message": "directory entry {i} does not end within the directory's used bytes"},
         {"require": "within", "message": "a directory entry is outside the file"},
         {"require": "schema == 'DV'", "message": "directory entry {i} has schema {schema}, not DV"},
-        {"require": "file_part == 0", "message": "directory entry {i} is in FilePart {file_part}"},
         {
           "require": "present(at(pixel_types, pixel_type))",
           "message": "directory entry {i} has an unsupported PixelType {pixel_type}"
@@ -209,6 +204,16 @@
         {
           "require": "dimension_count >= 2 && dimension_count <= 12",
           "message": "directory entry {i} has DimensionCount {dimension_count}, not 2 to 12"
+        }
+      ]
+    },
+    "entry_part": {
+      "about": "the FilePart a directory entry names (spec/zarrify/czi.md §7.9 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#79-several-files>)",
+      "given": {"i": "", "file_part": "", "part": "the file's own part: 0 for the named file"},
+      "constraints": [
+        {
+          "require": "file_part >= 0 && (part == 0 || file_part == 0 || file_part == part)",
+          "message": "directory entry {i} is in FilePart {file_part}"
         }
       ]
     },
@@ -274,8 +279,13 @@
     },
     "attachment_entry": {
       "about": "an A1 attachment entry",
-      "given": {"k": "", "file_part": ""},
-      "constraints": [{"require": "file_part == 0", "message": "attachment entry {k} is in FilePart {file_part}"}]
+      "given": {"k": "", "file_part": "", "part": "the file's own part: 0 for the named file"},
+      "constraints": [
+        {
+          "require": "file_part >= 0 && (part == 0 || file_part == 0 || file_part == part)",
+          "message": "attachment entry {k} is in FilePart {file_part}"
+        }
+      ]
     },
     "attachment": {
       "given": {"k": "", "data_size": ""},
