@@ -10,6 +10,7 @@
 //! media data no sample claims is gaps. The schema (`schema/mp4.json`) holds the checks that reject a file; whether a
 //! track is zarrified is decided here, and recorded with the reason when it is not.
 
+use crate::coding::{Head, JpegFrame, jpeg_frame_header};
 use crate::expr::V;
 use crate::fed::{Fed, Word, uint};
 use crate::ir::*;
@@ -26,6 +27,10 @@ const HEAD: u64 = 1 << 16;
 /// enough to hold most moof boxes and the mdat header after them, so that a fragment takes one
 /// read (spec/zarrify/mp4.md §8.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#81-boxes>).
 const FRAGMENT_READ: u64 = 1 << 12;
+/// The bytes of a Motion JPEG track's first sample read first, which hold most frame headers, and
+/// the most read for one: 16 markers of 64 KiB of application data.
+const JPEG_READ: u64 = 1 << 12;
+const JPEG_HEAD: u64 = 1 << 20;
 /// The boxes whose payload is boxes.
 const CONTAINERS: [&[u8; 4]; 9] = [b"moov", b"trak", b"mdia", b"minf", b"stbl", b"edts", b"dinf", b"tref", b"mvex"];
 /// The names of a box struct's own values, which a child box's name must not take.
@@ -85,6 +90,17 @@ struct Entry {
     lpcm_flags: u64,
     lpcm_packet: u64,
     children: Vec<([u8; 4], Vec<u8>)>,
+}
+
+/// Whether a sample entry stores each sample as a JPEG stream: QuickTime's `jpeg`, Motion JPEG A's
+/// `mjpa`, OpenDML's `dmb1`, or MPEG-4's `mp4v` of object type indication 0x6C (ISO/IEC 10918-1).
+/// Motion JPEG B's `mjpb` has no markers in its streams.
+fn is_mjpeg(e: &Entry) -> bool {
+    match &e.typ {
+        b"jpeg" | b"mjpa" | b"dmb1" => true,
+        b"mp4v" => e.child(b"esds").and_then(esds_config).is_some_and(|c| c.0 == 0x6C),
+        _ => false,
+    }
 }
 
 /// How a PCM track's samples are stored: their data type's name and bytes, and their byte order.
@@ -228,6 +244,8 @@ struct Track {
     /// sample description
     frag_end: Option<i64>,
     frag_other_entry: bool,
+    /// a Motion JPEG track's first sample's frame header, once read
+    jpeg: Option<Option<JpegFrame>>,
 }
 
 /// A trex box: a track's defaults for its fragments' samples.
@@ -293,6 +311,7 @@ fn sample_is_sync(flags: u64) -> bool {
 enum Phase {
     Start,
     Walk,
+    Probe,
     Done,
 }
 
@@ -358,6 +377,17 @@ impl Mp4 {
                 Some(r) => Ok(Step::Read(vec![r])),
                 None => {
                     self.build()?;
+                    let mut tracks = std::mem::take(&mut self.tracks);
+                    self.fragments(&mut tracks)?;
+                    self.tracks = tracks;
+                    self.phase = Phase::Probe;
+                    self.step()
+                }
+            },
+            Phase::Probe => match self.probe()? {
+                Some(r) => Ok(Step::Read(vec![r])),
+                None => {
+                    self.samples()?;
                     self.phase = Phase::Done;
                     Ok(Step::Done)
                 }
@@ -482,7 +512,33 @@ impl Mp4 {
         if self.p < self.size {
             // fewer than 8 bytes after the last box: a gap
         }
-        self.samples()
+        Ok(())
+    }
+
+    /// The frame header of the first sample of each Motion JPEG track, the one thing the profile
+    /// reads of a track's media data (spec/zarrify/mp4.md §8.1
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#81-boxes>): the range to read
+    /// next, or None when each is known.
+    fn probe(&mut self) -> Res<Option<(u64, u64)>> {
+        for k in 0..self.tracks.len() {
+            let t = &self.tracks[k];
+            if t.jpeg.is_some() || !t.entries.first().is_some_and(is_mjpeg) {
+                continue;
+            }
+            let (offsets, sizes) = self.layout(t)?;
+            let (o, n) = (offsets.first().copied().unwrap_or(0), sizes.first().copied().unwrap_or(0));
+            let bound = n.min(JPEG_HEAD).min(self.size.saturating_sub(o));
+            let mut have = bound.min(JPEG_READ);
+            let frame = loop {
+                let Some(data) = self.fed.get(o, have) else { return Ok(Some((o, have))) };
+                match jpeg_frame_header(&Head { have: data, bound }) {
+                    Ok(frame) => break frame,
+                    Err(need) => have = (need + JPEG_READ).min(bound),
+                }
+            };
+            self.tracks[k].jpeg = Some(frame);
+        }
+        Ok(None)
     }
 
     /// The bytes `[from, to)` of a box that are none of its values: a `rest` value.
@@ -846,8 +902,7 @@ impl Mp4 {
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#82-tracks>), as `data`
     /// elements; whether the profile zarrifies it, and the facts its projection reads.
     fn samples(&mut self) -> Res<()> {
-        let mut tracks = std::mem::take(&mut self.tracks);
-        self.fragments(&mut tracks)?;
+        let tracks = std::mem::take(&mut self.tracks);
         let mut samples_struct = None;
         let mut facts = Vec::new();
         let mut reasons = Vec::new();
@@ -1119,7 +1174,30 @@ impl Mp4 {
                 return Err("a media timescale of 0".into());
             }
             let e = entry.unwrap();
-            if kind == "video" {
+            if is_mjpeg(e) {
+                let frame = t.jpeg.flatten().ok_or("a first sample without a JPEG frame header")?;
+                if e.width == 0 || e.height == 0 {
+                    return Err("a sample entry of width or height 0".into());
+                }
+                if !matches!(frame.marker, 0xC0..=0xC2) || frame.precision != 8 {
+                    return Err(format!("JPEG of marker 0x{:02X} and {} bits is not supported: only 8-bit baseline, extended and progressive JPEG is", frame.marker, frame.precision));
+                }
+                if !matches!(frame.components, 1 | 3) {
+                    return Err(format!("JPEG of {} components is not supported: only 1 or 3 is", frame.components));
+                }
+                if (frame.width, frame.height) != (e.width, e.height) {
+                    return Err(format!("JPEG pictures of {}x{} in a sample entry of {}x{}, as an interlaced picture's fields are", frame.width, frame.height, e.width, e.height));
+                }
+                let pts = presentation(t);
+                let mut sorted = pts.clone();
+                sorted.sort_unstable();
+                if sorted.windows(2).any(|w| w[0] == w[1]) {
+                    return Err("two samples share a presentation time".into());
+                }
+                f["format"] = json!("mjpeg");
+                f["geometry"] = json!({"width": e.width, "height": e.height, "channels": frame.components, "data_type": "uint8"});
+                f["pts"] = json!(pts);
+            } else if kind == "video" {
                 let (format, setup, sps) = match &e.typ {
                     b"avc1" => {
                         let avcc = e.child(b"avcC").ok_or("an avc1 sample entry without an avcC box")?;
@@ -1154,7 +1232,7 @@ impl Mp4 {
                         }
                         ("vp9", vpcc, sps)
                     }
-                    _ => return Err(format!("{} video is not supported: only H.264 (avc1), HEVC (hvc1, hev1), AV1 (av01) and VP9 (vp09) are", codec.trim())),
+                    _ => return Err(format!("{} video is not supported: only H.264 (avc1), HEVC (hvc1, hev1), AV1 (av01), VP9 (vp09) and Motion JPEG (jpeg, mjpa, dmb1) are", codec.trim())),
                 };
                 if e.width == 0 || e.height == 0 {
                     return Err("a sample entry of width or height 0".into());

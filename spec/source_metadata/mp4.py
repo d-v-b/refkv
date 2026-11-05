@@ -16,7 +16,8 @@ _MP4_TRACK_COMMON = {
     "id": {"type": "integer", "minimum": 0, "description": "The track's ID (its tkhd box's)"},
     "handler": {"type": "string", "description": "The handler type of its mdia box's hdlr box: vide or soun"},
     "codec": {"type": "string",
-              "description": "Its sample entry's type: avc1, hvc1, hev1, av01, vp09, mp4a, .mp3 or a PCM entry"},
+              "description": ("Its sample entry's type: avc1, hvc1, hev1, av01, vp09, jpeg, mjpa, dmb1, mp4v, "
+                              "mp4a, .mp3 or a PCM entry")},
     "timescale": {"type": "integer", "minimum": 1, "description": "The media timescale: time units a second"},
     "duration": {**_U64, "description": "The media duration, in the timescale"},
     "edits": _MP4_EDITS,
@@ -66,6 +67,18 @@ SCHEMA = {"anyOf": [
         },
         "required": [*_MP4_TRACK_COMMON, "format", "width", "height", "chroma", "bit_depth", "profile", "level",
                      "sync_samples"],
+        "additionalProperties": False,
+    },
+    {
+        "type": "object",
+        "description": "A Motion JPEG track's group (spec/zarrify/mp4.md §5.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#52-the-tracks>)",
+        "properties": {
+            **_MP4_TRACK_COMMON,
+            "format": {"const": "mjpeg"},
+            "width": {"type": "integer", "minimum": 1}, "height": {"type": "integer", "minimum": 1},
+            "channels": {"enum": [1, 3], "description": "A picture's components"},
+        },
+        "required": [*_MP4_TRACK_COMMON, "format", "width", "height", "channels"],
         "additionalProperties": False,
     },
     {

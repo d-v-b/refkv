@@ -23,6 +23,7 @@ from pathlib import Path
 import av
 import numpy as np
 import zarr
+from imagecodecs import jpeg_decode
 
 HERE = Path(__file__).parent
 ROOT = HERE.parents[2]
@@ -77,6 +78,16 @@ def problems_of(path: Path, out: Path) -> list[str]:
             continue
         g = root.get_group(string(track["path"]))
         tm = mapping(at(g.attrs, "refkv_zarrified", "mp4"))
+        if tm["format"] == "mjpeg":
+            c = av.open(str(path))
+            stream = next(v for v in c.streams.video if v.index == integer(track["id"]) - 1)
+            packets = sorted((p for p in c.demux(stream) if p.size), key=lambda p: p.pts or 0)
+            want = np.stack([jpeg_decode(bytes(p)) for p in packets])
+            if not np.array_equal(ndarray(g.get_array("pictures")[...]), want):
+                problems.append(f"track {track['id']}'s pictures differ from the samples' JPEG decoding")
+            if ndarray(g.get_array("time")[...]).tolist() != [p.pts for p in packets]:
+                problems.append(f"track {track['id']}'s times differ from ffmpeg's")
+            continue
         if tm["format"] == "pcm":
             c = av.open(str(path))
             s = next(a for a in c.streams.audio if a.index == integer(track["id"]) - 1)
