@@ -53,7 +53,7 @@ group.)
 | Imaris IMS | [ims](zarrify/ims.md) | `5067a535-8261-4b25-a93c-1985ed333bde` |
 | Leica LIF | [lif](zarrify/lif.md) | `b099ab1f-f9d4-4276-9006-9ff1193a34b2` |
 | MP3 (MPEG Layer III audio) | [mp3](zarrify/mp3.md) | `b6cb0047-9448-4fdc-b03e-10dd3d6aa829` |
-| MP4 and QuickTime (H.264 and HEVC video, AAC and MP3 audio) | [mp4](zarrify/mp4.md) | `bbe3f6b9-488d-4d8d-85ce-60a1649dd27e` |
+| MP4 and QuickTime (H.264 and HEVC video, AAC, MP3 and PCM audio) | [mp4](zarrify/mp4.md) | `bbe3f6b9-488d-4d8d-85ce-60a1649dd27e` |
 | MRC2014 | [mrc](zarrify/mrc.md) | `2aacd010-2ed1-4748-bc3c-5dd5e840bbce` |
 | MRC2014, as a dataset ([§9](#9-dataset-layouts)) | [mrc-dataset](zarrify/mrc-dataset.md) | `f139bf4e-7bab-4c3c-9b2d-66ba747f9b93` |
 | N5 | [n5](zarrify/n5.md) | `ad5d4c39-c69e-48f7-a3ef-4cc8c607d416` |
@@ -276,7 +276,7 @@ below. The conventions that say otherwise:
 | FITS | have, for tile-compressed images, the codec `refkv.fits_tiles` ([fits §3.3](zarrify/fits.md#33-tile-compressed-images)) |
 | GRIB | are defined by the convention itself ([grib §3](zarrify/grib.md#3-the-hierarchy)): a variable has the codec `refkv.grib` and a `float64` coordinate the `gzip` codec, both with the fill value `"NaN"` |
 | HDF5 | are defined by the convention itself ([hdf5 §3](zarrify/hdf5.md#3-datasets)), with the dataset's own chunks and filters, and `vlen-utf8` for strings |
-| NPY, safetensors | have the data type's zero as their fill value; NPY's, for a deflated `.npz` member, the codec `refkv.skip`; safetensors', for a data type of fewer than 8 bits, the codec `packbits` (zarr-extensions' bit packing, not TIFF's PackBits) |
+| NPY, safetensors | have the data type's zero as their fill value; NPY's, for a deflated `.npz` member, the codec `refkv.skip` (which a compressed FITS file's arrays use too, [fits §2.1](zarrify/fits.md#21-a-compressed-file)); safetensors', for a data type of fewer than 8 bits, the codec `packbits` (zarr-extensions' bit packing, not TIFF's PackBits) |
 | VSI | have, for a pyramid's levels, the background's first sample as their fill value ([vsi §4.1](zarrify/vsi.md#41-the-pyramid)) |
 
 The object:
@@ -1244,12 +1244,13 @@ byte for byte. The validator also rebuilds the view (8.7) from the table and
 the source: each shown value's bytes from source 0 at its extent, or, in a
 derived space, from that space's bytes, which it derives again by the
 derived element's transform (`nd2-lv-zlib`: the record inflated;
-`xml-variant`: the chunk; an `xml` value is then its span with its
+`gunzip`, `bunzip2`: the file decoded; `xml-variant`: the chunk; an `xml` value is then its span with its
 references decoded); it compares the rebuilt view with the stored one group
 by group and member by member, and flags the first group or member missing,
 extra or different. So **a derived transform may hold shown values only if
 validators can derive it again** from source 0: of the transforms the
-parsers emit, `nd2-lv-zlib` and `xml-variant` can, and `gzip` (a CZI's
+parsers emit, `nd2-lv-zlib`, `xml-variant`, and `gunzip` and `bunzip2` (a compressed FITS file,
+[fits §2.1](zarrify/fits.md#21-a-compressed-file): the file decoded) can, and `gzip` (a CZI's
 compressed attachment) and `deflate` (a SAFE zip entry's raw deflate stream),
 whose spaces hold nothing, may hold none. A new
 transform that would hold shown values comes with its re-derivation, in a

@@ -241,7 +241,7 @@
             },
             "codec": {
               "type": "string",
-              "description": "Its sample entry's type: avc1, hvc1, hev1, mp4a or .mp3"
+              "description": "Its sample entry's type: avc1, hvc1, hev1, mp4a, .mp3 or a PCM entry"
             },
             "timescale": {
               "type": "integer",
@@ -381,7 +381,7 @@
             },
             "codec": {
               "type": "string",
-              "description": "Its sample entry's type: avc1, hvc1, hev1, mp4a or .mp3"
+              "description": "Its sample entry's type: avc1, hvc1, hev1, mp4a, .mp3 or a PCM entry"
             },
             "timescale": {
               "type": "integer",
@@ -455,7 +455,8 @@
             "format": {
               "enum": [
                 "aac",
-                "mp3"
+                "mp3",
+                "pcm"
               ]
             },
             "sample_rate": {
@@ -468,6 +469,7 @@
             },
             "samples_per_frame": {
               "enum": [
+                1,
                 576,
                 1024,
                 1152
