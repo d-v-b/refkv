@@ -608,6 +608,12 @@ class ReferenceStore(ReferenceReader):
         return "missing" if v is None else "bytes" if isinstance(v, bytes) else "reference"
 
     @override
+    async def reference_async(self, key: str) -> Reference | None:
+        """The reference `key` holds, as the store holds it; None for bytes or a missing key."""
+        v = self._visible(key)
+        return v if isinstance(v, (Range, Concat)) else None
+
+    @override
     async def raw_async(self, key: str) -> bytes | None:
         """A bytes value, a hidden key's included; a reference's payload, as `save_vzip`
         writes it (spec §4.4

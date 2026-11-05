@@ -60,6 +60,9 @@ def test_reads_what_it_was_saved_from(tmp_path):
     assert _everything(phkv) == _everything(store) == _everything(refkv.open(tmp_path / "s.vzip"))
     assert phkv.sources == tuple(store.sources)
     assert phkv.get("c") == b"<" + DATA[4000:4096] + b"123"
+    keys = ["r/0003", "c", "b/0007", "nothing"]
+    expected = [_mapping()["r/0003"], _mapping()["c"], None, None]
+    assert [phkv.reference(k) for k in keys] == [store.reference(k) for k in keys] == expected
     assert phkv.get("nothing") is None
     assert phkv.classify("nothing") == "missing"
     assert phkv.revision is not None

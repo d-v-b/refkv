@@ -922,14 +922,17 @@ class ReferenceReader:
     before and after it is saved.
 
     The operations are those of spec §6.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#62-operations>, each
-    as a method that returns at once and as a coroutine:
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#62-operations>, and
+    `reference`, which the spec does not name, each as a method that returns at
+    once and as a coroutine:
 
     - `get(key, request=None)`: the value, or the part of it a `RangeRequest`,
       `OffsetRequest` or `SuffixRequest` selects; None if the key is missing.
     - `classify(key)`: `"bytes"`, `"reference"` or `"missing"`.
     - `raw(key)`: what the backend holds under the key, references not
       followed, hidden keys included; None if it holds nothing.
+    - `reference(key)`: the reference the key holds, decoded; None for bytes
+      or a missing key.
     - `list(prefix="")`: the keys that start with `prefix`, sorted.
     - `list_dir(prefix="")`: the distinct next path segments of the keys
       under `prefix` ("a/b" lists "c" for the key "a/b/c/d").
@@ -1031,6 +1034,10 @@ class ReferenceReader:
         """`raw`, as a coroutine."""
         raise NotImplementedError
 
+    async def reference_async(self, key: str) -> Reference | None:
+        """`reference`, as a coroutine."""
+        raise NotImplementedError
+
     async def _value_size(self, key: str) -> int | None:
         """The size of `key`'s value, None if the key is missing, without reading a reference's
         sources: its ranges' sizes say it."""
@@ -1061,6 +1068,13 @@ class ReferenceReader:
         too (spec §6.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#62-operations>).
         None if it holds nothing."""
         return run(self.raw_async(key))
+
+    def reference(self, key: str) -> Reference | None:
+        """The reference `key` holds, decoded (a `Range` or a `Concat`), without reading its
+        sources; None if the key is missing or holds bytes. Unlike `raw`, it does not depend on
+        how the binding stores the payload: a vzip archive's reference entry need not mirror it
+        in its body."""
+        return run(self.reference_async(key))
 
     def list(self, prefix: str = "") -> list[str]:
         """Every key that starts with `prefix`, sorted (hidden keys are not listed)."""

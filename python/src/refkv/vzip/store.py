@@ -464,6 +464,18 @@ class VZipStore(ReferenceReader):
             raise PayloadError(f"{key!r}: {exc}") from None
 
     @override
+    async def reference_async(self, key: str) -> Reference | None:
+        """The reference of `key`'s entry, decoded from its central directory record, whether
+        or not its body mirrors the payload."""
+        await self._ensure_open()
+        if await self.classify_async(key) != "reference":
+            return None
+        try:
+            return self._entries[key].ref
+        except ValueError as exc:
+            raise PayloadError(f"{key!r}: {exc}") from None
+
+    @override
     async def raw_async(self, key: str) -> bytes | None:
         """The inflated body of `key`'s entry, whatever it is: a reference
         entry's body (its payload, or empty if the writer did not mirror it), a

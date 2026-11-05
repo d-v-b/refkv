@@ -111,6 +111,19 @@ def test_operations(tmp_path):
         assert (store.raw("__vz__/sources") is None) == (name == "memory"), name
 
 
+def test_reference_is_the_decoded_reference_of_every_store_kind(tmp_path):
+    stores = _stores(tmp_path)
+    refkv.ReferenceStore(_mapping(), stores["memory"].sources).save_vzip(tmp_path / "unmirrored.vzip",
+                                                                        mirror_refs=False)
+    stores["archive, unmirrored"] = refkv.open(tmp_path / "unmirrored.vzip")
+    for name, store in stores.items():
+        assert store.reference("b") == Range(source=0, offset=8, length=4), name
+        assert store.reference("c") == _mapping()["c"], name
+        assert run(store.reference_async("d/f/g")) == Range(source=0, offset=0, length=2), name
+        for key in ["a", "missing", "__vz__/shared"]:
+            assert store.reference(key) is None, (name, key)
+
+
 def test_get_refuses_start_after_end(tmp_path):
     for store in _stores(tmp_path).values():
         for key in ["a", "b", "nope"]:

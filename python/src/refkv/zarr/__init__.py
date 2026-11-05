@@ -32,6 +32,10 @@ serves each as the float zarr-python and hdmf-zarr write (the literal `NaN`), so
 `NWBZarrIO` reads a `rate` of NaN as a number; a string attribute `"NaN"` stays a string.
 Every other value is the archive's, as it is; `reader` gives the archive's own bytes.
 
+An array of contiguous values (a file's pixels in row-major order, zarrified as slabs) can be
+read on another chunk grid, such as cubes for a viewer: `refkv.zarr.contiguous(store)` finds
+them, and `refkv.zarr.blocks(store, {path: shape})` serves them so.
+
 Zarr asks for each chunk with a `get` of its own, at most `async.concurrency` at once. The chunks
 waiting at the same time share requests, under the reference store (`ReferenceReader`), so raising
 that setting reads many small chunks in few requests, and no more connections than the store's
@@ -303,4 +307,12 @@ def open(url: str, **kwargs: Unpack[OpenOptions]) -> ZarrStore:  # noqa: A001 (r
     return ZarrStore(refkv.open(url, **kwargs))
 
 
-__all__ = ["ZarrStore", "open", "store"]
+from refkv.zarr.blocks import (  # noqa: E402 (needs ZarrStore, defined above)
+    BlocksStore,
+    Contiguous,
+    blocks,
+    contiguous,
+    contiguous_async,
+)
+
+__all__ = ["BlocksStore", "Contiguous", "ZarrStore", "blocks", "contiguous", "contiguous_async", "open", "store"]

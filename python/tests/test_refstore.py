@@ -614,7 +614,8 @@ def test_public_api():
         assert isinstance(refkv.open(url), refkv.vzip.VZipStore), url
         assert isinstance(refkv.open(url, binding="vzip"), refkv.vzip.VZipStore), url
     assert isinstance(refkv.vzip.open("x.zip"), refkv.vzip.VZipStore)
-    assert set(refkv.zarr.__all__) == {"ZarrStore", "open", "store"}
+    assert set(refkv.zarr.__all__) == {"BlocksStore", "Contiguous", "ZarrStore", "blocks", "contiguous",
+                                      "contiguous_async", "open", "store"}
     assert isinstance(refkv.zarr.open("x.vzip"), refkv.zarr.ZarrStore)
     assert refkv.zarr.open("x.vzip").reader == refkv.open("x.vzip")
     store = refkv.ReferenceStore({})
