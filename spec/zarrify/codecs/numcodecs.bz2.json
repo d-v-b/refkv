@@ -1,0 +1,9 @@
+{
+  "name": "numcodecs.bz2",
+  "named_by": "zarr-python",
+  "package": "zarr-python",
+  "extra": "zarr",
+  "decodes": "bzip2",
+  "section": null,
+  "rows": []
+}

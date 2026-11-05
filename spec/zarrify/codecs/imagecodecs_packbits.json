@@ -1,0 +1,15 @@
+{
+  "name": "imagecodecs_packbits",
+  "named_by": "imagecodecs-zarr",
+  "package": "imagecodecs-zarr",
+  "extra": "images",
+  "decodes": "PackBits",
+  "section": null,
+  "rows": [
+    {
+      "step": 4,
+      "codec": "`{\"name\": \"imagecodecs_packbits\"}`",
+      "when": "the bytes are TIFF PackBits streams (tiff §4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>), run-length coded, unlike the zarr-extensions' `packbits`"
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "name": "imagecodecs_eer",
+  "named_by": "imagecodecs-zarr",
+  "package": "imagecodecs-zarr",
+  "extra": "images",
+  "decodes": "EER",
+  "section": null,
+  "rows": [
+    {
+      "step": 3,
+      "codec": "`{\"name\": \"imagecodecs_eer\", \"configuration\": {\"shape\": [h, w], \"skipbits\": s, \"horzbits\": a, \"vertbits\": b}}`",
+      "when": "Electron Event Representation: one frame per chunk, of that shape, decoding to one bit a pixel"
+    }
+  ]
+}

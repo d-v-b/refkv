@@ -1,0 +1,9 @@
+{
+  "name": "numcodecs.fixedscaleoffset",
+  "named_by": "zarr-python",
+  "package": "zarr-python",
+  "extra": "zarr",
+  "decodes": "fixed scale and offset",
+  "section": null,
+  "rows": []
+}

@@ -1,0 +1,9 @@
+{
+  "name": "n5_default",
+  "named_by": "zarr-extensions",
+  "package": "refkv",
+  "extra": "zarr",
+  "decodes": "an N5 block's header",
+  "section": null,
+  "rows": []
+}

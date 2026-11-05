@@ -1,0 +1,9 @@
+{
+  "name": "imagecodecs_htj2k",
+  "named_by": "imagecodecs-zarr",
+  "package": "imagecodecs-zarr",
+  "extra": "images",
+  "decodes": "HTJ2K",
+  "section": null,
+  "rows": []
+}

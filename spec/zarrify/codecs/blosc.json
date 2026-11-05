@@ -1,0 +1,9 @@
+{
+  "name": "blosc",
+  "named_by": "zarr-python",
+  "package": "zarr-python",
+  "extra": "zarr",
+  "decodes": "Blosc",
+  "section": null,
+  "rows": []
+}

@@ -1,0 +1,9 @@
+{
+  "name": "imagecodecs_lz4h5",
+  "named_by": "imagecodecs-zarr",
+  "package": "imagecodecs-zarr",
+  "extra": "images",
+  "decodes": "HDF5's LZ4",
+  "section": null,
+  "rows": []
+}

@@ -1,0 +1,20 @@
+{
+  "name": "bytes",
+  "named_by": "zarr-python",
+  "package": "zarr-python",
+  "extra": "zarr",
+  "decodes": "a chunk's bytes as the array's values",
+  "section": null,
+  "rows": [
+    {
+      "step": 3,
+      "codec": "`{\"name\": \"bytes\"}` (no `configuration`)",
+      "when": "a 1-byte data type"
+    },
+    {
+      "step": 3,
+      "codec": "`{\"name\": \"bytes\", \"configuration\": {\"endian\": \"little\"}}`, or `\"big\"`",
+      "when": "a larger data type"
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "name": "imagecodecs_jpegxl",
+  "named_by": "imagecodecs-zarr",
+  "package": "imagecodecs-zarr",
+  "extra": "images",
+  "decodes": "JPEG XL",
+  "section": null,
+  "rows": [
+    {
+      "step": 3,
+      "codec": "`{\"name\": \"imagecodecs_jpegxl\"}`",
+      "when": "JPEG XL: one stream per chunk, decoding to the chunk's `[y, x]` or `[y, x, c]` like JPEG 2000"
+    }
+  ]
+}

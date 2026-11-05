@@ -1,0 +1,15 @@
+{
+  "name": "imagecodecs_bmp",
+  "named_by": "imagecodecs-zarr",
+  "package": "imagecodecs-zarr",
+  "extra": "images",
+  "decodes": "BMP",
+  "section": null,
+  "rows": [
+    {
+      "step": 3,
+      "codec": "`{\"name\": \"imagecodecs_bmp\"}`",
+      "when": "BMP: one complete BMP file per chunk, of `uint8`, its rows and samples as the file says (bottom up, blue first), decoding to the chunk's `[y, x]`, or to `[y, x, c]` red first, like JPEG 2000"
+    }
+  ]
+}

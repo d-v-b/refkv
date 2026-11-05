@@ -8,15 +8,10 @@ zarrifies image files and stores, without Zarr. The extras add:
   zarrified image files and stores use and zarr-python lacks
   (`refkv.zarr.codecs`), which zarr finds through refkv's `zarr.codecs` entry
   points;
-- `images`: imagecodecs-zarr, whose `imagecodecs_jpeg`, `imagecodecs_jpeg2k`,
-  `imagecodecs_jpegxr`, `imagecodecs_ljpeg`, `imagecodecs_png` and `imagecodecs_bmp` codecs the
-  archives of JPEG, JPEG 2000, JPEG XR, lossless JPEG, PNG and BMP images and MP4's Motion JPEG name, whose
-  `imagecodecs_lerc`, `imagecodecs_webp`, `imagecodecs_jpegxl` and `imagecodecs_lzma` those of TIFFs
-  in LERC, WebP, JPEG XL and LZMA, whose `imagecodecs_packints`, `imagecodecs_packbits`,
-  `imagecodecs_ccittfax4` and `imagecodecs_eer` those of TIFFs of packed samples, PackBits, CCITT and
-  EER, whose `imagecodecs_lzw` those of CZI's LZW subblocks, and whose `imagecodecs_delta` and
-  `imagecodecs_floatpred` those of TIFFs with a horizontal or floating-point predictor, and
-  imagecodecs, whose LZW decoder `refkv.tiff_lzw` calls, with the `zarr` extra;
+- `images`: imagecodecs-zarr, whose codecs the archives of JPEG, JPEG 2000 and other images name
+  (docs/zarrify/README.md's table of codecs lists them, from the codec registry,
+  spec/zarrify/codecs/), and imagecodecs, whose LZW decoder `refkv.tiff_lzw` calls, with the `zarr`
+  extra;
 - `media`: the decoders of the `refkv.stream` codec, which reads zarrified MP3,
   FLAC and MP4 files: ffmpeg's MP3, AAC, FLAC, H.264, HEVC, AV1 and VP9 decoders, through PyAV,
   with the `zarr` extra;

@@ -1,0 +1,9 @@
+{
+  "name": "numcodecs.delta",
+  "named_by": "zarr-python",
+  "package": "zarr-python",
+  "extra": "zarr",
+  "decodes": "differences",
+  "section": null,
+  "rows": []
+}

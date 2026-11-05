@@ -1,0 +1,9 @@
+{
+  "name": "crc32c",
+  "named_by": "zarr-python",
+  "package": "zarr-python",
+  "extra": "zarr",
+  "decodes": "a shard index's checksum",
+  "section": null,
+  "rows": []
+}

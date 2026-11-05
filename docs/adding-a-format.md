@@ -459,6 +459,17 @@ reaches:
 - the wasm export, for the browser;
 - a section in `spec/conventions.md`.
 
+Every codec an archive may name, refkv's own or another's, has a file in the codec registry,
+`spec/zarrify/codecs/<name>.json`. Copy an existing one, such as
+[imagecodecs_lzma.json](../spec/zarrify/codecs/imagecodecs_lzma.json), and keep its members in
+`CODEC_FIELDS` order (`spec/tools/profiles.py`): whose name it is, the Python package that decodes it,
+the extra that installs it, what it decodes, its section (refkv's own only, a path below `spec/` and
+an anchor), and its rows of the codec table of
+[conventions §3](../spec/conventions.md#3-arrays). `just profiles` regenerates that table, the list of
+codec names below it and the table of codecs in `docs/zarrify/README.md`, so no PR edits a shared
+list of codecs. `spec/tools/test_codecs.py` fails when the core writes a codec name the registry
+lacks, or when refkv's `zarr.codecs` entry points and the registry's codecs from refkv differ.
+
 Make each chunk self-describing. FITS puts every tile's parameters in a
 literal prefix, so "the decoder never needs the chunk's position". For a
 dependent stream, decode with bounded memory: MP4's streaming decode cut peak

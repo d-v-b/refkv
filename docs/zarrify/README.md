@@ -144,15 +144,64 @@ policy=Policy(allow_private_hosts=True))` (`from refkv.policy import
 Policy`). A local file or directory needs neither.
 
 Read the archive in Python with `refkv.zarr` and zarr-python
-(`pip install 'refkv[zarr]'`, or `refkv[images]` for the JPEG, JPEG 2000,
-JPEG XR, PNG, BMP, LERC, WebP, JPEG XL, LZMA, CCITT, EER, PackBits and LZW decoders, packed integers and TIFF's horizontal and floating-point predictors). zarr-python finds the codecs that some formats need by
-the names the archive gives: refkv's own (`refkv.stream`, `refkv.grib`, `refkv.fits_tiles`,
-`refkv.tiff_lzw`, `refkv.skip`, `refkv.precomputed`, `refkv.h5_bitshuffle`, and `n5_default`) through refkv's `zarr.codecs` entry points,
-with no `import refkv.zarr` in your code (zarr imports the codec modules, which are
-under `refkv.zarr`, itself), imagecodecs-zarr's (`imagecodecs_jpeg`,
-`imagecodecs_jpeg2k`, `imagecodecs_jpegxr`, `imagecodecs_ljpeg`, `imagecodecs_lzw`, `imagecodecs_jpegls`, `imagecodecs_dicomrle`, `imagecodecs_htj2k`, `imagecodecs_png`, `imagecodecs_bmp`, `imagecodecs_delta`, `imagecodecs_floatpred`, `imagecodecs_lerc`, `imagecodecs_webp`, `imagecodecs_jpegxl`, `imagecodecs_lzma`, `imagecodecs_packints`, `imagecodecs_packbits`, `imagecodecs_ccittfax4`, `imagecodecs_eer`, `imagecodecs_lzf`, `imagecodecs_lz4h5`), which `refkv[images]` installs, and
-zarr-python's own (`numcodecs.zlib`, `numcodecs.shuffle`, `numcodecs.delta`, `numcodecs.lz4`,
-`numcodecs.bz2`, `numcodecs.lzma`, `numcodecs.fixedscaleoffset`, `numcodecs.quantize`). So a
+(`pip install 'refkv[zarr]'`, or the extra the table below gives for a codec). zarr-python finds
+every codec of the table by the name the archive gives: refkv's own through refkv's `zarr.codecs`
+entry points, with no `import refkv.zarr` in your code (zarr imports the codec modules, which are
+under `refkv.zarr`, itself), and the others in the package that the table names.
+
+<!-- profiles:codec-list -->
+| codec | decodes | from | install |
+|---|---|---|---|
+| `blosc` | Blosc | zarr-python | `refkv[zarr]` |
+| `bytes` | a chunk's bytes as the array's values | zarr-python | `refkv[zarr]` |
+| `crc32c` | a shard index's checksum | zarr-python | `refkv[zarr]` |
+| `gzip` | gzip | zarr-python | `refkv[zarr]` |
+| `imagecodecs_bmp` | BMP | imagecodecs-zarr | `refkv[images]` |
+| `imagecodecs_ccittfax4` | CCITT Group 4 | imagecodecs-zarr | `refkv[images]` |
+| `imagecodecs_delta` | TIFF's horizontal predictor | imagecodecs-zarr | `refkv[images]` |
+| `imagecodecs_dicomrle` | DICOM RLE | imagecodecs-zarr | `refkv[images]` |
+| `imagecodecs_eer` | EER | imagecodecs-zarr | `refkv[images]` |
+| `imagecodecs_floatpred` | TIFF's floating-point predictor | imagecodecs-zarr | `refkv[images]` |
+| `imagecodecs_htj2k` | HTJ2K | imagecodecs-zarr | `refkv[images]` |
+| `imagecodecs_jpeg` | JPEG | imagecodecs-zarr | `refkv[images]` |
+| `imagecodecs_jpeg2k` | JPEG 2000 | imagecodecs-zarr | `refkv[images]` |
+| `imagecodecs_jpegls` | JPEG-LS | imagecodecs-zarr | `refkv[images]` |
+| `imagecodecs_jpegxl` | JPEG XL | imagecodecs-zarr | `refkv[images]` |
+| `imagecodecs_jpegxr` | JPEG XR | imagecodecs-zarr | `refkv[images]` |
+| `imagecodecs_lerc` | LERC | imagecodecs-zarr | `refkv[images]` |
+| `imagecodecs_ljpeg` | lossless JPEG | imagecodecs-zarr | `refkv[images]` |
+| `imagecodecs_lz4h5` | HDF5's LZ4 | imagecodecs-zarr | `refkv[images]` |
+| `imagecodecs_lzf` | LZF | imagecodecs-zarr | `refkv[images]` |
+| `imagecodecs_lzma` | LZMA (xz) | imagecodecs-zarr | `refkv[images]` |
+| `imagecodecs_lzw` | LZW | imagecodecs-zarr | `refkv[images]` |
+| `imagecodecs_packbits` | PackBits | imagecodecs-zarr | `refkv[images]` |
+| `imagecodecs_packints` | packed integers | imagecodecs-zarr | `refkv[images]` |
+| `imagecodecs_png` | PNG | imagecodecs-zarr | `refkv[images]` |
+| `imagecodecs_webp` | WebP | imagecodecs-zarr | `refkv[images]` |
+| `n5_default` | an N5 block's header | refkv | `refkv[zarr]` |
+| `numcodecs.bz2` | bzip2 | zarr-python | `refkv[zarr]` |
+| `numcodecs.delta` | differences | zarr-python | `refkv[zarr]` |
+| `numcodecs.fixedscaleoffset` | fixed scale and offset | zarr-python | `refkv[zarr]` |
+| `numcodecs.lz4` | LZ4 | zarr-python | `refkv[zarr]` |
+| `numcodecs.lzma` | LZMA | zarr-python | `refkv[zarr]` |
+| `numcodecs.quantize` | quantized floats | zarr-python | `refkv[zarr]` |
+| `numcodecs.shuffle` | byte shuffling | zarr-python | `refkv[zarr]` |
+| `numcodecs.zlib` | zlib | zarr-python | `refkv[zarr]` |
+| `packbits` | bits packed into bytes | refkv | `refkv[zarr]` |
+| `refkv.fits_tiles` | FITS tile compression | refkv | `refkv[zarr]` |
+| `refkv.grib` | GRIB messages | refkv | `refkv[zarr]` |
+| `refkv.h5_bitshuffle` | HDF5's bitshuffle | refkv | `refkv[zarr]` |
+| `refkv.precomputed` | Neuroglancer precomputed chunks | refkv | `refkv[zarr]` |
+| `refkv.skip` | a deflated NPY member's header | refkv | `refkv[zarr]` |
+| `refkv.stream` | coded audio and video | refkv | `refkv[zarr]` |
+| `refkv.tiff_lzw` | TIFF LZW that runs past its tile | refkv | `refkv[zarr]` |
+| `sharding_indexed` | shards | zarr-python | `refkv[zarr]` |
+| `transpose` | interleaved samples | zarr-python | `refkv[zarr]` |
+| `vlen-utf8` | strings | zarr-python | `refkv[zarr]` |
+| `zstd` | Zstandard | zarr-python | `refkv[zarr]` |
+<!-- /profiles -->
+
+So a
 copy of an archive's arrays (in a directory, or in another store) reads with zarr
 alone, except that an array on the zarr-extensions `rectilinear` chunk grid (a
 clipped CZI level, an MP4 video plane whose chunks differ in length, a TIFF level whose compressed last

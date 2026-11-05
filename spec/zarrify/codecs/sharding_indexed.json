@@ -1,0 +1,9 @@
+{
+  "name": "sharding_indexed",
+  "named_by": "zarr-python",
+  "package": "zarr-python",
+  "extra": "zarr",
+  "decodes": "shards",
+  "section": null,
+  "rows": []
+}

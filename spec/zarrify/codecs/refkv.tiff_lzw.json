@@ -1,0 +1,9 @@
+{
+  "name": "refkv.tiff_lzw",
+  "named_by": "refkv",
+  "package": "refkv",
+  "extra": "zarr",
+  "decodes": "TIFF LZW that runs past its tile",
+  "section": "zarrify/qptiff.md#41-data-types-and-codecs",
+  "rows": []
+}

@@ -1,0 +1,15 @@
+{
+  "name": "zstd",
+  "named_by": "zarr-python",
+  "package": "zarr-python",
+  "extra": "zarr",
+  "decodes": "Zstandard",
+  "section": null,
+  "rows": [
+    {
+      "step": 4,
+      "codec": "`{\"name\": \"zstd\", \"configuration\": {\"level\": 0, \"checksum\": false}}`",
+      "when": "the bytes are Zstandard frames"
+    }
+  ]
+}

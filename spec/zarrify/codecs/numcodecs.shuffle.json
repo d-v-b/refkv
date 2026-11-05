@@ -1,0 +1,9 @@
+{
+  "name": "numcodecs.shuffle",
+  "named_by": "zarr-python",
+  "package": "zarr-python",
+  "extra": "zarr",
+  "decodes": "byte shuffling",
+  "section": null,
+  "rows": []
+}

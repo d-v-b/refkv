@@ -1,0 +1,9 @@
+{
+  "name": "numcodecs.quantize",
+  "named_by": "zarr-python",
+  "package": "zarr-python",
+  "extra": "zarr",
+  "decodes": "quantized floats",
+  "section": null,
+  "rows": []
+}

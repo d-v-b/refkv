@@ -1,0 +1,9 @@
+{
+  "name": "refkv.h5_bitshuffle",
+  "named_by": "refkv",
+  "package": "refkv",
+  "extra": "zarr",
+  "decodes": "HDF5's bitshuffle",
+  "section": "zarrify/hdf5.md#34-the-codec-refkvh5_bitshuffle",
+  "rows": []
+}

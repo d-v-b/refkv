@@ -1,0 +1,15 @@
+{
+  "name": "imagecodecs_jpeg",
+  "named_by": "imagecodecs-zarr",
+  "package": "imagecodecs-zarr",
+  "extra": "images",
+  "decodes": "JPEG",
+  "section": null,
+  "rows": [
+    {
+      "step": 3,
+      "codec": "`{\"name\": \"imagecodecs_jpeg\"}`",
+      "when": "JPEG: one complete JPEG stream per chunk, ISO/IEC 10918-1 with the JFIF/Adobe color conventions, decoding to the chunk's `[y, x]` or `[y, x, c]` like JPEG 2000"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "name": "refkv.fits_tiles",
+  "named_by": "refkv",
+  "package": "refkv",
+  "extra": "zarr",
+  "decodes": "FITS tile compression",
+  "section": "zarrify/fits.md#33-tile-compressed-images",
+  "rows": []
+}

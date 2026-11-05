@@ -1,0 +1,9 @@
+{
+  "name": "vlen-utf8",
+  "named_by": "zarr-python",
+  "package": "zarr-python",
+  "extra": "zarr",
+  "decodes": "strings",
+  "section": null,
+  "rows": []
+}
