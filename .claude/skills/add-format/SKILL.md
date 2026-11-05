@@ -35,7 +35,9 @@ feasibility.
    - The Rust module, its projection and its source model.
    - For a file read as a store, or a store input: the registry's `store_run`,
      `store_parser` and `store_project`. The hosts read the rest from the registry.
-   - A codec, only if none fits.
+   - A codec, only if none fits. Every codec the profile writes, even another
+     package's, needs a row in the codec names table of
+     [conventions §3](../../../spec/conventions.md#3-arrays).
 6. **Fixtures, tests and verification.** See
    [§6](../../../docs/adding-a-format.md#6-fixtures-tests-and-verification).
 7. **Docs and the demo.** See [§7](../../../docs/adding-a-format.md#7-docs-and-the-demo).

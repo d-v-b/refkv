@@ -457,6 +457,12 @@ reaches:
 - the wasm export, for the browser;
 - a section in `spec/conventions.md`.
 
+Every codec an archive may name, refkv's own or another package's, is a row of the table of codec
+names in [conventions §3](../spec/conventions.md#3-arrays), sorted by name; a codec the profile
+decodes chunks with also gets a row of that section's codec table. `spec/tools/test_codecs.py` fails
+when the Rust core writes a codec name the table lacks, or when refkv's `zarr.codecs` entry points
+and the table's codecs of the package refkv differ.
+
 Make each chunk self-describing. FITS puts every tile's parameters in a
 literal prefix, so "the decoder never needs the chunk's position". For a
 dependent stream, decode with bounded memory: MP4's streaming decode cut peak
