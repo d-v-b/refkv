@@ -9,22 +9,7 @@ accepts, is the NIfTI profile, [Part 2](#part-2-the-profile) below.
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `06e5809d-4d54-4b72-afd0-6bf61a7b4c85` ·
 Schema: [schema.json](nifti/schema.json)
 
-Changed 2026-11-04: COMPLEX64 and COMPLEX128 voxels are `complex64` and `complex128` arrays
-([§3](#3-data-types)), where the profile rejected them; COMPLEX256 is still rejected.
-
-Changed 2026-11-04: a file gzipped whole (`.nii.gz`) is read, as one chunk of the whole stream
-([§7.4](#74-gzipped-files)), where the profile rejected it.
-
-Changed 2026-11-04: a header-and-image pair is read, its image file found beside its header file
-([§7.5](#75-header-and-image-pairs)), where the profile rejected it.
-
-Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
-[Layout](#layout) and its types in type tables
-([conventions §11.5](../conventions.md#115-layout-tables)).
-
-Changed 2026-10-25: an edge chunk's zero padding is a range of the output's one zero data
-source, not a literal range of each reference, so that the archive holds the zeros once
-([§7.2](#72-chunks)); no chunk's values change, nor which chunks are copied.
+Changes: [changes/nifti/](changes/nifti/), one file per change.
 
 Changes before 2026-10-22 are recorded in
 [the revision log of VIRTUALIZE.md](../history/virtualize/REVISIONS.md), this document's earlier

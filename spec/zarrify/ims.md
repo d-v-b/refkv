@@ -9,25 +9,7 @@ it reads, is the IMS profile, [Part 2](#part-2-the-profile) below.
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `5067a535-8261-4b25-a93c-1985ed333bde` ·
 Schema: [schema.json](ims/schema.json)
 
-Changed 2026-11-04: a dataset with shuffle, LZ4 or Fletcher32 is presented
-([§2.2](#22-the-imaris-layout), [§4](#4-output), [§7.8](#78-chunk-references)).
-
-Changed 2026-11-04: a file after a user block is read, its addresses relative to the superblock
-([§7.1](#71-hdf5-structures)).
-
-Changed 2026-11-01, with no change to any output: the rejections name the rounds of reads and
-the references' budget, which refkv already applied ([§7.7](#77-rejection)).
-
-Changed 2026-10-28, with no change to any output: the HDF5 profile chooses this one
-([§7](#7-ims-profile)).
-
-Changed 2026-10-27: a zlib stream's codec is `numcodecs.zlib`, zarr-python's name for it, in
-place of `zlib` ([conventions §3](../conventions.md#3-arrays), d-v-b/refkv#90).
-
-Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
-[Layout](#layout) and its types in type tables
-([conventions §11.5](../conventions.md#115-layout-tables)), and the HDF5 structures' fields and
-cases in tables.
+Changes: [changes/ims/](changes/ims/), one file per change.
 
 Changes before 2026-10-22 are recorded in
 [the revision log of VIRTUALIZE.md](../history/virtualize/REVISIONS.md), this document's earlier

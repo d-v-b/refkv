@@ -10,13 +10,7 @@ How refkv produces this layout as a reference store is the SAFE profile,
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `ef81346c-19e8-42ad-93b0-a279ccaf44c1` ·
 Schema: [schema.json](safe/schema.json)
 
-Changed 2026-11-03, with no change to any output: the radiometric offsets and quantification values are said to be on each spectral
-band, not on `TCI`, as [§6.2](#62-band-arrays) has it.
-
-Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
-[Layout](#layout) and its types in type tables
-([conventions §11.5](../conventions.md#115-layout-tables)), the GeoZarr attributes of the root
-and the resolution groups among them.
+Changes: [changes/safe/](changes/safe/), one file per change.
 
 Changes before 2026-10-22 are recorded in
 [the revision log of VIRTUALIZE.md](../history/virtualize/REVISIONS.md), this document's earlier

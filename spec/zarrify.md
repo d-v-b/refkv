@@ -2,66 +2,7 @@
 
 Profiles version: 0 (**draft**)
 
-Changed 2026-11-04: a profile may state a late signature, which a host reads further for
-([§1.2](#12-input)), as the HDF5 profile's does for a file after a user block.
-
-Changed 2026-11-04: the CZI profile reads an image across numbered files, on demand
-([czi.md §7.9](zarrify/czi.md#79-several-files)); a file whose bytes call for no part has the output
-it had.
-
-Changed 2026-11-04: the TIFF profile reads an image across files, on demand
-([tiff.md §7.4](zarrify/tiff.md#74-several-files)); a file that names none has the output it had.
-
-Changed 2026-11-04: a NIfTI header-and-image pair is a file read as a store
-([§1.8](#18-files-read-as-stores)), where the NIfTI profile rejected it.
-
-Changed 2026-11-04: a file's siblings have one set of rules, how a profile names, probes, pins and
-bounds them ([§1.9](#19-sources-beside-the-input)). The bounds are new, and reject an input that
-names more than 2^16 files; no input that VSI, NRRD or GRIB accepted names so many, and no other
-output changes.
-
-Changed 2026-11-04: a file that no signature matches and that is a gzip member is tested again, by
-what it inflates to, for the profiles that read a file gzipped whole, NIfTI and MRC
-([§1.2](#12-input), **Choosing the profile**); it was rejected.
-
-Changed 2026-11-04, with no change to any output: the root's `refkv_provenance` member and its CMO
-([spec/provenance.md](provenance.md)) are not part of the output ([§1.1](#11-output-and-equivalence)).
-
-Changed 2026-11-03: a store whose root has `info` is a Neuroglancer precomputed volume
-([§1.4](#14-store-inputs)), the first store profile whose chunk entries are not at their objects' keys.
-
-Changed 2026-11-01, with no change to any output: the text states what refkv already did: the
-references' budget ([§1.2](#12-input)), the rules of a file read as a store, which the VSI, NRRD
-and GRIB profiles cite ([§1.8](#18-files-read-as-stores)), and the profiles that define data
-sources ([§1.2](#12-input)); the introduction names the outputs that are not OME-Zarr
-([§1](#1-introduction)); and the format documents' changelogs have one form, which defines a
-profile revision ([Profiles](#profiles)).
-
-Changed 2026-10-29: the HDF5 profile has the signature that was the IMS profile's, at its
-precedence, 70, and its reading chooses the IMS profile for an Imaris file
-([§1.2](#12-input), [hdf5.md §8.1](zarrify/hdf5.md#81-choosing-the-profile)); an Imaris file's
-output does not change, and an HDF5 file that is not one is the HDF5 profile's, where the IMS
-profile rejected it.
-
-Changed 2026-10-26, with no change to any output: a reference's ranges ([§1.1](#11-output-and-equivalence))
-and a virtual shard's document and reference ([§2.1](#21-virtual-shards)) are defined in type
-tables, which each profile's chunk tables use
-([conventions §11.5](conventions.md#115-layout-tables)).
-
-Changed 2026-10-25: the NIfTI, MRC, FITS and NRRD profiles pad an edge chunk's reference with a range
-of the output's one **zero data source**, a data source a reference names a prefix of, in place
-of a literal range per reference ([§1.2](#12-input)); an output that still pads with literal
-ranges is not equivalent to theirs ([§1.1](#11-output-and-equivalence)).
-
-Changed 2026-10-25: this document, its profiles and the conventions say **zarrify** for what
-they called virtualize, and the conventions' property is `refkv_zarrified`, in place of
-`refkv_virtualized` ([conventions §2](conventions.md#2-attributes)); nothing else in any output
-changes.
-
-Changed 2026-10-24, with no change to any output: each profile's document is numbered on its
-own and cited by its name ([Profiles](#profiles)), not as a section of this one, and each file
-profile's signature is in its own document, tested in the registry's order
-([§1.2](#12-input)).
+Changes: [zarrify/changes/zarrify/](zarrify/changes/zarrify/), one file per change.
 
 ## 1. Introduction
 
@@ -1097,18 +1038,21 @@ else. The profiles, generated from the registry:
 
 A profile's Part 2 starts by naming its section and the profiles it builds on.
 
-**Changelogs and profile revisions.** Each format's document records its own changes, in the
-paragraphs after its version line, its **changelog**: one paragraph per entry, newest first.
-An entry is `Changed <date>: ` and what changed, with links to the sections it changed, or
+**Changelogs and profile revisions.** Each format's document records its own changes, one file
+per change, in its **changelog**, `spec/zarrify/changes/<name>/`, which the paragraph after its
+version line points to. A change's file is named `<date>-<slug>.md`, and holds one paragraph:
+`Changed <date>: ` and what changed, with links to the sections it changed, or
 `Changed <date>, with no change to any output: ` for a change that no output shows (a
-clarification, a table that states what refkv already wrote); the last entry is
-`Added <date>.`, or, for a document that predates its changelog, the pointer to the log of the
+clarification, a table that states what refkv already wrote). After the pointer the document says
+`Added <date>.`, or, for a document that predates its changelog, points to the log of the
 revisions of VIRTUALIZE.md, this document's earlier name, which records its changes up to
 2026-10-21. A change to a document's text outside its changelog (but for the blocks
-generated from the registry) adds an entry, which `spec/tools/changelog.py` checks. A
-**profile revision** is a profile's document as of an entry's date: two zarrifiers conform to
+generated from the registry) adds a file, which `spec/tools/changelog.py` checks. A
+**profile revision** is a profile's document as of a change's date: two zarrifiers conform to
 the same profile revision ([§1.1](#11-output-and-equivalence)) when they follow the document
-as of the same date. This document's own changes are recorded at its top, in the same form. [§1](#1-introduction) and [§2](#2-the-zarr-layout)
+as of the same date. This document's own changes, and those of
+[spec/conventions.md](conventions.md), are recorded in the same form, in
+`spec/zarrify/changes/zarrify/` and `spec/zarrify/changes/conventions/`. [§1](#1-introduction) and [§2](#2-the-zarr-layout)
 apply to every profile, and to a store input's in particular the store input rules of
 [§1.4](#14-store-inputs)–[§1.6](#16-json-documents). The output has the convention's layout
 for the input ([§2](#2-the-zarr-layout)); the profile says how the input is read, which inputs

@@ -11,22 +11,7 @@ conventions share is in [spec/conventions.md](../conventions.md), cited here as 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `b099ab1f-f9d4-4276-9006-9ff1193a34b2` ·
 Schema: [schema.json](lif/schema.json)
 
-Changed 2026-11-04: a LAS X project is accepted ([§8](#8-las-x-documents)), where its documents matched
-no signature. Its input is a file read as a store: the second signature of [§7.1](#71-detection), the
-sibling table of [§8.2](#82-the-siblings), and the root's source metadata has the members `files` and
-`not_presented`, and a `file` of `"set"`. The output of a LIF, LOF or LIFEXT file does not change.
-
-Changed 2026-11-04: a LOF ([§2.5](#25-leica-object-files)) and a LIFEXT file
-([§2.6](#26-lifext-files)) are accepted, where they were rejected; a LIF file's output does not
-change. The root's source metadata has a member `file` for them, an image's a member `parent`, and
-an image of a LOF need not have a `memory`.
-
-Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
-[Layout](#layout) and its types in type tables
-([conventions §11.5](../conventions.md#115-layout-tables)), and the blocks' fields, the
-dimensions' and channels' attributes, the data types and the channels' colors are tables; the
-prose also gives an image's source metadata members in the order refkv already wrote them,
-`tile_scan` before `field` and `tile` ([§5.2](#52-the-images)).
+Changes: [changes/lif/](changes/lif/), one file per change.
 
 Added 2026-10-25.
 
