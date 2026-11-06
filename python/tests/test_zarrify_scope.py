@@ -24,7 +24,7 @@ from refkv.zarrify import (
     VsiSource,
     zarrify,
 )
-from refkv.zarrify.store.beside import Scope, VsiFiles
+from refkv.zarrify.store.beside import Scope, VsiFiles, scope_keys
 
 FIXTURES = Path(__file__).parents[2] / "fixtures"
 GRIB = FIXTURES / "grib" / "grib_simple.grib2"
@@ -120,9 +120,17 @@ def test_a_scope_outside_the_input_directory_is_refused(tmp_path: Path, scope: s
         zarrify(str(tmp_path / "d" / "a.nhdr"), scope=str(tmp_path / "d" / scope) if scope.startswith(".") else scope)
 
 
-def test_a_scope_outside_a_remote_input_directory_is_refused():
+@pytest.mark.parametrize("base", ["https://data.test", "s3://bucket"])
+def test_a_remote_scope_gives_keys_below_the_input_directory(base: str):
+    """An input at a URL of any scheme, as a registered store reads it, has its scope as URLs."""
+    keys = scope_keys(f"{base}/d/a.nhdr", [f"{base}/d/a.nhdr", f"{base}/d/f/", f"{base}/d/b%20c.raw"])
+    assert keys == ["f/", "b c.raw"]
+
+
+@pytest.mark.parametrize("base", ["https://data.test", "s3://bucket"])
+def test_a_scope_outside_a_remote_input_directory_is_refused(base: str):
     with pytest.raises(ValueError, match="is not the input's directory"):
-        zarrify("https://data.test/d/a.nhdr", scope="https://data.test/e/")
+        zarrify(f"{base}/d/a.nhdr", scope=f"{base}/e/")
 
 
 def test_a_store_input_takes_no_scope():

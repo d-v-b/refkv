@@ -36,6 +36,10 @@ address is refused unless the policy has `allow_private_hosts`
 and a store's listing and object reads, each redirect target checked before it is
 requested.
 
+A URL under a prefix the application registered a store for (`registry=`, as `refkv.open` takes
+it), such as an `s3://` bucket's, is read with that store: a file with its `head`, `get_range` and
+`get_ranges`, a store listed with its `list`, and the result reads its sources with it too.
+
 Every url source pins its size, and the input file's source its ETag when
 every response for it gave the same strong one (spec/zarrify.md §1.2
 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>, §1.4
@@ -60,9 +64,10 @@ from pathlib import Path
 # refkv.ir is imported first
 from refkv import _sync, ir
 from refkv._narrow import string
-from refkv.ir.planner import Transport, open_transport
+from refkv.ir.planner import Transport, open_transport, url_scheme
 from refkv.ir.store import StoreIrOutput, run_store_async
 from refkv.policy import Policy, crc32c
+from refkv.reader import Registry, Resolver
 from refkv.refstore import ReferenceStore
 from refkv.zarrify import profile_classes
 from refkv.zarrify.common import Output, Rejected
@@ -103,13 +108,15 @@ async def _zarrify_store_async(location: str, url: str | None = None, *, max_obj
                                checksums: bool = False, workers: int = WORKERS, policy: Policy | None = None,
                                fmt: str | None = None,
                                layouts: Iterable[Image | Dataset] | None = None,
+                               registry: Resolver | None = None,
                                ) -> tuple[str, StoreIrOutput | SeriesOutput]:
     """(format, output) for the store at `location` (§1.4
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>), its documents
     read by up to `workers` requests at a time; with `checksums`, the output's ranges
     carry the CRC-32C of their bytes (spec/refkv.md §4.2
     <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>). A store at an http(s) URL
-    is listed and read under the reader policy `policy` (default: `Policy()`). The store
+    is listed and read under the reader policy `policy` (default: `Policy()`), and one under a
+    prefix of `registry` with the store registered for it. The store
     profile is `fmt`, when given, else the one its root keys select (§1.7
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#17-named-inputs-and-layouts>);
     `layouts` the layouts it writes (`refkv.zarrify.sources.layout_names`)."""
@@ -119,7 +126,8 @@ async def _zarrify_store_async(location: str, url: str | None = None, *, max_obj
 
     def listed() -> tuple[Listed, str]:
         """The store listed, and its profile; on a thread, whose connections are closed after."""
-        store = open_store(location, url, max_objects=max_objects, workers=workers, policy=policy)
+        store = open_store(location, url, max_objects=max_objects, workers=workers, policy=policy,
+                           registry=registry)
         try:
             return store, named or choose_profile(store)
         except BaseException:
@@ -132,7 +140,7 @@ async def _zarrify_store_async(location: str, url: str | None = None, *, max_obj
     if fmt == "dicom":
         try:
             return fmt, await _zarrify_dicom_store(store, location, url, checksums=checksums, policy=policy,
-                                                   workers=workers)
+                                                   workers=workers, registry=registry)
         finally:
             store.close()
     try:
@@ -156,7 +164,7 @@ async def _zarrify_store_async(location: str, url: str | None = None, *, max_obj
 
 
 async def _zarrify_dicom_store(store: Listed, location: str, url: str | None, *, checksums: bool,
-                               policy: Policy | None, workers: int) -> SeriesOutput:
+                               policy: Policy | None, workers: int, registry: Resolver | None) -> SeriesOutput:
     """The DICOM store form (spec/zarrify/dicom.md §9
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#9-the-store-form>): each key
     ending in `.dcm` zarrified as a file, the others recorded."""
@@ -168,8 +176,10 @@ async def _zarrify_dicom_store(store: Listed, location: str, url: str | None, *,
         local = isinstance(store, DirStore)
         where = str(Path(location) / key) if local else object_url(location, key)
         named = object_url(store.url, key) if local or url is not None else None
-        fmt, out = await _zarrify_async(where, named, checksums=checksums, policy=policy, fmt="dicom")
-        return await asyncio.to_thread(out.to_store, policy=policy, info={"format": fmt, **out.summary})
+        fmt, out = await _zarrify_async(where, named, checksums=checksums, policy=policy, fmt="dicom",
+                                        registry=registry)
+        return await asyncio.to_thread(out.to_store, policy=policy, registry=registry,
+                                       info={"format": fmt, **out.summary})
 
     return await zarrify_series_async(keys, others, store.url, read, workers=workers)
 
@@ -190,7 +200,8 @@ def _zarrify_store(location: str, url: str | None = None, *, max_objects: int | 
 async def _zarrify_beside_async(fmt: str, location: str, url: str | None, transport: Transport, *,
                                 checksums: bool = False, policy: Policy | None = None,
                                 connections: int | None = None,
-                                scope: list[str] | None = None) -> tuple[str, StoreIrOutput]:
+                                scope: list[str] | None = None,
+                                registry: Resolver | None = None) -> tuple[str, StoreIrOutput]:
     """(format, output) for the input at `location` of a profile of `BESIDE`, a file (opened as
     `transport`) read with the files beside it: a VSI slide's `.vsi` file, whose tile files lie
     beside it (spec/zarrify/vsi.md §9.2
@@ -205,7 +216,7 @@ async def _zarrify_beside_async(fmt: str, location: str, url: str | None, transp
     **Scope**; `scope_keys`): no file outside it is opened."""
     title, noun = BESIDE[fmt]
     store = VsiFiles(location, url, policy=policy, workers=connections, transport=transport, title=title, noun=noun,
-                     case=fmt in CASE)
+                     case=fmt in CASE, registry=registry)
     try:
         out = (await run_store_async(store, fmt, scope=scope))[0]
     finally:
@@ -218,9 +229,9 @@ async def _zarrify_beside_async(fmt: str, location: str, url: str | None, transp
 
 def is_store(location: str) -> bool:
     """Whether `location` is a store input (§1.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>): an http(s) URL whose path
-    ends in `/`, or a local directory."""
-    if location.startswith(("http://", "https://")):
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>): a URL (not a `file:` one)
+    whose path ends in `/`, or a local directory."""
+    if url_scheme(location) not in (None, "file"):
         return location.split("?", 1)[0].split("#", 1)[0].endswith("/")
     return Path(location).is_dir()
 
@@ -229,6 +240,7 @@ async def _zarrify_async(location: str, url: str | None = None, *, checksums: bo
                          policy: Policy | None = None, connections: int | None = None,
                          byte_cost: float | None = None, workers: int = WORKERS, fmt: str | None = None,
                          layouts: Iterable[Image | Dataset] | None = None, scope: Scope | None = None,
+                         registry: Resolver | None = None,
                          ) -> tuple[str, Output | StoreIrOutput | SeriesOutput]:
     """(format, output) for the file at `location`, by its first bytes, or for
     the store at `location` (a URL ending in `/`, or a directory); for the file at `location`
@@ -242,7 +254,7 @@ async def _zarrify_async(location: str, url: str | None = None, *, checksums: bo
     bytes (spec/refkv.md §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>),
     which reads them. `policy` is the reader policy a file
     or store at an http(s) URL is read under (default: `Policy()`, private hosts
-    refused).
+    refused), and a URL under a prefix of `registry` is read with the store registered for it.
     For a file input, `connections` is how many requests run at a time to a
     remote source (default 8), and `byte_cost` the seconds of wall time the read
     planner charges a byte fetched beyond those asked (default 0.1 s per MB).
@@ -254,14 +266,14 @@ async def _zarrify_async(location: str, url: str | None = None, *, checksums: bo
         if scope is not None:
             raise ValueError("a store input reads the objects its listing gives: scope is for a file input")
         return await _zarrify_store_async(location, url, checksums=checksums, workers=workers, policy=policy,
-                                          layouts=layouts)
+                                          layouts=layouts, registry=registry)
     within = None if scope is None else scope_keys(location, scope)
     # a Hub tree's web page (§1.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>)
     if location.startswith(("http://", "https://")) and hub_page(location, hub_endpoint()):
         raise Rejected(f"{location} is a Hub repository's page, not a file: end it in / to zarrify the repository")
     # the names, before the file is read when the profile is named (once: `layouts` may be an iterator)
     names = layout_names(layouts, fmt) if fmt is not None else None
-    transport = await asyncio.to_thread(open_transport, location, policy)
+    transport = await asyncio.to_thread(open_transport, location, policy, registry)
     if fmt is None:
         fmt = await ir.sniffed(transport)
         if fmt is None:
@@ -269,13 +281,13 @@ async def _zarrify_async(location: str, url: str | None = None, *, checksums: bo
         names = layout_names(layouts, fmt)
     if fmt in BESIDE and fmt not in ON_DEMAND:
         return await _zarrify_beside_async(fmt, location, url, transport, checksums=checksums, policy=policy,
-                                           connections=connections, scope=within)
+                                           connections=connections, scope=within, registry=registry)
     try:
         found, out, _ = await ir.zarrify_async(location, url, transport=transport, connections=connections,
                                                byte_cost=byte_cost, fmt=fmt, layouts=names, checksums=checksums)
     except ir.NamesSiblingsError as e:
         return await _zarrify_beside_async(e.args[0], location, url, transport, checksums=checksums, policy=policy,
-                                           connections=connections, scope=within)
+                                           connections=connections, scope=within, registry=registry)
     if checksums:
         out.checksum = lambda _u, offset, length: crc32c(transport.get(offset, offset + length))
     return found, out
@@ -300,8 +312,10 @@ async def zarrify_async(location: str | Source | Store, url: str | None = None, 
                         policy: Policy | None = None, connections: int | None = None,
                         byte_cost: float | None = None, workers: int | None = None,
                         layouts: Iterable[Image | Dataset] | None = None,
-                        scope: Scope | None = None) -> ReferenceStore:
-    """The file at `location` (a local path or an http(s) URL), by its first bytes, or
+                        scope: Scope | None = None,
+                        registry: Registry | None = None) -> ReferenceStore:
+    """The file at `location` (a local path, an http(s) URL, or a URL under a prefix of
+    `registry`), by its first bytes, or
     the store at `location` (a URL ending in `/`, or a directory), zarrified
     (spec/zarrify.md <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md>), as a
     `refkv.ReferenceStore`: the Zarr hierarchy, each chunk a reference to the
@@ -343,17 +357,27 @@ async def zarrify_async(location: str | Source | Store, url: str | None = None, 
     - `scope`: what a file input may read besides itself, when it names files beside it (spec/zarrify.md
       §1.9 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>),
       such as an HDF5 file's external storage or a detached NRRD header's data file: a path, or
-      several, written as `location` is (local paths, or http(s) URLs), each the input's
+      several, written as `location` is (local paths, or URLs), each the input's
       directory or a file or directory below it (default: the input's directory). A file the input
       needs outside it is not opened, and the input is rejected, naming it (`out of scope: the input
       names the file "<key>"`); `scope=location` reads the input alone. Give one for an untrusted
       file in a directory that holds files it must not reach, such as other users' uploads. A
       store input takes none: its objects are its listing's.
+    - `registry`: the application's object stores by URL prefix, as `refkv.open` takes them
+      (`refkv.reader.Resolver`): an obspec_utils `ObjectStoreRegistry` (VirtualiZarr's), or a
+      mapping such as `{"s3://my-bucket": S3Store("my-bucket", ...)}`. A file or a store under a
+      registered prefix is read with its store (`head`, `get_range` and `get_ranges`; a store
+      listed with `list`), which makes its own connections with its own credentials; the
+      returned store reads its sources with the registry too. Registering a prefix allows its
+      URLs under the policy's rule 1, as for `refkv.open`.
+
+            registry = {"s3://my-bucket": S3Store("my-bucket", region="us-east-1")}
+            store = zarrify("s3://my-bucket/data/file.nc", registry=registry)
 
     `location` may instead be a source or store class's instance, such as
     `TiffSource(url)` or `Zarr2Store(url)` (`refkv.zarrify.sources`), which names the profile,
     so that the input is not tested for one, and holds the read options: `url`,
-    `checksums`, `policy`, `connections`, `byte_cost`, `workers` and `scope` are then its own, and
+    `checksums`, `policy`, `connections`, `byte_cost`, `workers`, `scope` and `registry` are then its own, and
     passing one beside it with any value but None raises `TypeError`.
 
     Errors:
@@ -362,70 +386,81 @@ async def zarrify_async(location: str | Source | Store, url: str | None = None, 
       that reads it finds what its specification rejects (spec/zarrify.md §1.2
       <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>).
     - `refkv.errors.ResolutionError`: the reader policy refuses the input, or a request for it
-      (a host, an address it resolves to, a redirect target).
+      (a host, an address it resolves to, a redirect target), or the input is a URL of another
+      scheme than http(s) that `registry` has no store for.
     - `FileNotFoundError`: a local path that does not exist.
     - `OSError`: the input could not be read, such as an HTTP status no retry mends, a
       response of the wrong length, or a local file that changed while it was read.
       `ListingFailed` and `StoreLimit` (`refkv.zarrify`) are the two of a store: its listing
       could not be read (a network error, or a 408, 429 or 5xx status), or it lists more than
-      `max_objects` objects.
+      `max_objects` objects. A registered store raises its own errors, as it raises them.
     - `ValueError`: a local directory without `url`, or an argument out of range.
     - `TypeError`: a read option passed beside a source or store instance.
     - `NotImplementedError`: a layout the profile cannot write."""
     if isinstance(location, (Source, Store)):
         given = {"url": url, "checksums": checksums, "policy": policy, "connections": connections,
-                 "byte_cost": byte_cost, "workers": workers, "scope": scope}
+                 "byte_cost": byte_cost, "workers": workers, "scope": scope, "registry": registry}
         if any(v is not None for v in given.values()):
             options = ", ".join(k for k, v in given.items() if v is not None)
             raise TypeError(f"{options}: a source's read options are its own, {type(location).__name__}(location, ...)")
         source = location
+        resolver = Resolver(source.registry)
         if isinstance(source, Store):
             fmt, out = await _zarrify_store_async(source.store_url, source.url, max_objects=source.max_objects,
                                                   checksums=source.checksums, workers=source.workers,
-                                                  policy=source.policy, fmt=source.profile, layouts=layouts)
+                                                  policy=source.policy, fmt=source.profile, layouts=layouts,
+                                                  registry=resolver)
         else:
             fmt, out = await _zarrify_async(source.location, source.url, checksums=source.checksums,
                                             policy=source.policy, connections=source.connections,
                                             byte_cost=source.byte_cost, fmt=source.profile, layouts=layouts,
-                                            scope=source.scope)
-        return await asyncio.to_thread(out.to_store, policy=source.policy, info={"format": fmt, **out.summary})
+                                            scope=source.scope, registry=resolver)
+        return await asyncio.to_thread(out.to_store, policy=source.policy, registry=resolver,
+                                       info={"format": fmt, **out.summary})
+    resolver = Resolver(registry)
     fmt, out = await _zarrify_async(location, url, checksums=bool(checksums), policy=policy,
                                     connections=connections, byte_cost=byte_cost,
                                     workers=WORKERS if workers is None else workers, layouts=layouts,
-                                    scope=scope)
-    return await asyncio.to_thread(out.to_store, policy=policy, info={"format": fmt, **out.summary})
+                                    scope=scope, registry=resolver)
+    return await asyncio.to_thread(out.to_store, policy=policy, registry=resolver,
+                                   info={"format": fmt, **out.summary})
 
 
 def zarrify(location: str | Source | Store, url: str | None = None, *, checksums: bool | None = None,
             policy: Policy | None = None, connections: int | None = None,
             byte_cost: float | None = None, workers: int | None = None,
-            layouts: Iterable[Image | Dataset] | None = None, scope: Scope | None = None) -> ReferenceStore:
+            layouts: Iterable[Image | Dataset] | None = None, scope: Scope | None = None,
+            registry: Registry | None = None) -> ReferenceStore:
     """`zarrify_async`, the caller's thread waiting for it: the same arguments, result and errors.
     Called from a coroutine on refkv's own event loop, it raises RuntimeError (await
     `zarrify_async` there)."""
     return _sync.run(zarrify_async(location, url, checksums=checksums, policy=policy, connections=connections,
-                                   byte_cost=byte_cost, workers=workers, layouts=layouts, scope=scope))
+                                   byte_cost=byte_cost, workers=workers, layouts=layouts, scope=scope,
+                                   registry=registry))
 
 
 async def zarrify_store_async(location: str, url: str | None = None, *, max_objects: int | None = None,
                               checksums: bool = False, workers: int = WORKERS, policy: Policy | None = None,
-                              layouts: Iterable[Image | Dataset] | None = None) -> ReferenceStore:
+                              layouts: Iterable[Image | Dataset] | None = None,
+                              registry: Registry | None = None) -> ReferenceStore:
     """The store at `location` (§1.4
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>), zarrified: what
     `zarrify_async` does for a store, with the same `url` (needed for a local directory),
-    `checksums`, `policy`, `workers` and `layouts`, and the same errors; `max_objects` caps how
+    `checksums`, `policy`, `workers`, `layouts` and `registry`, and the same errors; `max_objects` caps how
     many objects the store may list (beyond it, `StoreLimit`). `workers`, `max_objects` and
     `policy` apply to a store at an http(s) URL: a local directory is read one document at a
     time, without them."""
+    resolver = Resolver(registry)
     fmt, out = await _zarrify_store_async(location, url, max_objects=max_objects, checksums=checksums,
-                                          workers=workers, policy=policy, layouts=layouts)
-    return await asyncio.to_thread(out.to_store, policy=policy, info={"format": fmt, **out.summary})
+                                          workers=workers, policy=policy, layouts=layouts, registry=resolver)
+    return await asyncio.to_thread(out.to_store, policy=policy, registry=resolver,
+                                   info={"format": fmt, **out.summary})
 
 
 def zarrify_store(location: str, url: str | None = None, *, max_objects: int | None = None,
                   checksums: bool = False, workers: int = WORKERS, policy: Policy | None = None,
-                  layouts: Iterable[Image | Dataset] | None = None) -> ReferenceStore:
+                  layouts: Iterable[Image | Dataset] | None = None, registry: Registry | None = None) -> ReferenceStore:
     """`zarrify_store_async`, the caller's thread waiting for it, as `zarrify` waits for
     `zarrify_async`."""
     return _sync.run(zarrify_store_async(location, url, max_objects=max_objects, checksums=checksums,
-                                         workers=workers, policy=policy, layouts=layouts))
+                                         workers=workers, policy=policy, layouts=layouts, registry=registry))

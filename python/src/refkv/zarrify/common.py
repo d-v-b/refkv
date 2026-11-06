@@ -30,7 +30,7 @@ from refkv._narrow import integer, string
 from refkv.errors import ResolutionError
 from refkv.pb import Concat, Range, Source
 from refkv.policy import Policy
-from refkv.reader import _check_http_url, _send, new_connection
+from refkv.reader import Registry, _check_http_url, _send, new_connection
 from refkv.refstore import ReferenceStore, bulk
 from refkv.uri import is_uri_reference
 from refkv.vzip.archive import VZipWriter
@@ -142,7 +142,8 @@ class Output:
                 w.add_bytes(key, self.bytes_entries[key], compress=not late, late=late)
             w.close()
 
-    def to_store(self, *, policy: Policy | None = None, info: dict[str, object] | None = None) -> ReferenceStore:
+    def to_store(self, *, policy: Policy | None = None, registry: Registry | None = None,
+                 info: dict[str, object] | None = None) -> ReferenceStore:
         """The output as a `refkv.ReferenceStore`, which `save_vzip` writes as the archive
         `write` writes, byte for byte (`reference_store`)."""
         sources = [Source(url=self.url, size=self.size, etag=self.etag)]
@@ -162,7 +163,8 @@ class Output:
         entries = [(key, self.bytes_entries[key],
                     key.endswith("zarr.json") and not key.startswith(self.lazy))
                    for key in sorted(self.bytes_entries)]
-        return reference_store(refs, entries, sources, checksum=self.checksum, policy=policy, info=info)
+        return reference_store(refs, entries, sources, checksum=self.checksum, policy=policy, registry=registry,
+                               info=info)
 
 
 PAGE_SIZE = 1 << 16  # the page index of a zarrified archive (spec/bindings/vzip.md §12
@@ -171,7 +173,8 @@ PAGE_SIZE = 1 << 16  # the page index of a zarrified archive (spec/bindings/vzip
 
 def reference_store(refs: Iterable[tuple[str, list[Range]]], entries: Iterable[tuple[str, bytes, bool]],
                     sources: list[Source], *, checksum: Callable[[str, int, int], int] | None = None,
-                    policy: Policy | None = None, info: dict[str, object] | None = None) -> ReferenceStore:
+                    policy: Policy | None = None, registry: Registry | None = None,
+                    info: dict[str, object] | None = None) -> ReferenceStore:
     """A profile output as a `refkv.ReferenceStore`, in the layout every output's
     `write` gives its archive: the references (key, ranges) first, then the bytes
     entries (key, bytes, late), in the order given; a late entry is read when the
@@ -179,7 +182,7 @@ def reference_store(refs: Iterable[tuple[str, list[Range]]], entries: Iterable[t
     `checksum(url, offset, length)`, each range of a url source carries the CRC-32C
     of its bytes (spec/refkv.md §4.2
     <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>). The store
-    reads its sources under `policy`."""
+    reads its sources under `policy`, with the stores of `registry`."""
     def checked(r: Range) -> Range:
         if checksum is None or r.data is not None or r.crc32c is not None:
             return r
@@ -201,7 +204,7 @@ def reference_store(refs: Iterable[tuple[str, list[Range]]], entries: Iterable[t
             mapping[key] = data
             (late if is_late else compressed).append(key)
         return ReferenceStore(mapping, sources, read_at_open=late, compressed=compressed, page_size=PAGE_SIZE,
-                              policy=policy, info=info)
+                              policy=policy, registry=registry, info=info)
 
 
 MAX_PAYLOAD = 65519

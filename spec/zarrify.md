@@ -155,6 +155,13 @@ file. (An implementation MAY also accept a local file or directory, with `U`
 the URL it will be served from: a directory is a store input, listed as
 [§1.5](#15-listing-a-store) says.)
 
+**Registered stores.** An implementation MAY read `U` with an **object store** the
+application provides for a prefix of `U` (as [spec/refkv.md §6.7](refkv.md#67-reader-policy)'s
+registered stores are), such as the store of an S3 bucket for `s3://bucket/`: it reads a file's
+size and ranges with that store, and lists a store input with it
+([§1.5](#15-listing-a-store)). `U` may then have any scheme the application provides a store
+for. Such a file's `etag` pin is the strong entity tag that the store gives for the object, if any.
+
 For a file input, the output's source table is source 0, a `url` source
 whose value is `U` as given, followed by the output's **data sources**, if
 its profile defines any (a file read as a store has the sources of
@@ -326,7 +333,8 @@ whose objects are the objects under `U`.
 case), an authority without userinfo, and no query or fragment component
 (not even an empty `?` or `#`); otherwise the input is rejected. (An
 implementation that reads a local directory uses the URL the directory will
-be served from, which MUST satisfy the same rules.)
+be served from, which MUST satisfy the same rules. A store read with a
+[registered store](#12-input) may have that store's scheme.)
 
 **The objects.** The store is listed as [§1.5](#15-listing-a-store) says. Each listed key `K`
 begins with the prefix `P` ([§1.5](#15-listing-a-store)); its **relative key** is `K` without
@@ -463,6 +471,11 @@ says which listing responses reject the input.
 its regular files, at any depth, with keys the relative paths joined by `/`
 and sizes the file sizes. Symbolic links and files whose names are not
 valid UTF-8 are not objects. `P` is empty.
+
+**Registered stores.** A store read with an object store the application provides
+([§1.2](#12-input)) is listed with that store's listing of the objects under `U`'s path in
+it, by whole path segments: its objects are the listed objects, with their listed paths as keys
+and listed sizes. `P` is that path followed by `/`, or empty when `U` is the store's root.
 
 **Hub repositories.** A repository of the Hugging Face Hub, at a revision,
 is listed with the Hub's API, not with S3's. The Hub's **endpoint** `E` is
