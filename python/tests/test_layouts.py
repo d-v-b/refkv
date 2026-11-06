@@ -541,7 +541,9 @@ def test_a_write_that_returns_no_mapping_is_a_failure():
         zarrify(TIFF, layout=Layout(Plugin(lambda _b: [("zarr.json", group())])))
 
 
-@pytest.mark.parametrize("key", ["", "__vz__/x", "x" * 65536, "\ud800", 5])
+# the ids are short: pytest puts a test's id in an environment variable, which Windows bounds
+@pytest.mark.parametrize("key", ["", "__vz__/x", "x" * 65536, "\ud800", 5],
+                         ids=["empty", "reserved", "long", "surrogate", "int"])
 def test_a_key_the_archive_cannot_hold_is_a_failure(key):
     with pytest.raises(LayoutFailed, match="key"):
         zarrify(TIFF, layout=Layout(Plugin(lambda b: {**images(b), key: b"1"})))
