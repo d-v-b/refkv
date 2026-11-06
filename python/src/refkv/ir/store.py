@@ -291,16 +291,17 @@ def from_rust(t: tuple[str, list[tuple[str, bytes]], list[tuple[str, list[StoreP
     return out
 
 
-async def run_store_async(store: Store, fmt: str = "zarr2",
-                          mirror: bool = True) -> tuple[StoreIrOutput, _core.Ir, dict[str, object]]:
+async def run_store_async(store: Store, fmt: str = "zarr2", mirror: bool = True, *,
+                          siblings: bool = True) -> tuple[StoreIrOutput, _core.Ir, dict[str, object]]:
     """(output, IR, run counts) of the listed `store`, parsed by the core's store format `fmt`:
     the keys its listing ignores given to the run (the recorded ignored keys, which the
     projection records, and the empty `d/` keys, a SAFE directory's directories), its objects
     read at most `store.workers` at a time, and the summary's `listingRequests` the store's
     requests. With `mirror` false the output has no `refkv_source` mirror, and so no record of
     the ignored keys either. A rejection names `fmt` (`Rejected.format`), or, for one of the
-    output's checks, the profile the run decided (`ome-zarr` once the 0.4 test passed). The
-    calls that block (the core's, on a listing of millions of objects) run on a thread."""
+    output's checks, the profile the run decided (`ome-zarr` once the 0.4 test passed). Without
+    `siblings` the run refuses every sibling (`StoreRun.refuse_siblings`), so `store` is asked
+    to probe no key. The calls that block (the core's, on a listing of millions of objects) run on a thread."""
 
     def start() -> _core.StoreRun:
         if store._prefetch is not None:  # noqa: SLF001 (the store's reads)
@@ -310,6 +311,8 @@ async def run_store_async(store: Store, fmt: str = "zarr2",
         try:
             run = _core.StoreRun(fmt, listing(store), max(1, store.workers))
             run.ignore(list(getattr(store, "ignored", [])), list(getattr(store, "folders", [])))
+            if not siblings:
+                run.refuse_siblings()
         except _core.Rejected as e:
             raise Rejected(str(e), format=fmt) from None
         return run

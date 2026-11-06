@@ -518,7 +518,9 @@ once; with none, or from the first offset where the file and the index disagree,
 file: 64 KiB from where the last message ended, a message's length taking it to the next. Every
 message is read and checked ([§8.4](#84-checks-and-rejection)) whichever way it was found, so an
 index changes the reads and not the output, but for [§5.1](#51-the-root)'s `index` and the
-mirror's held files.
+mirror's held files. The index files are optional siblings
+([spec/zarrify.md §1.9](../zarrify.md#19-sources-beside-the-input)): with siblings refused, each is
+absent, and the run walks the file.
 
 Bytes where a message is due that do not start with `GRIB` are padding: the bytes to the next
 `GRIB`, or to the file's end, which MUST be at most 4096 bytes ([§8.4](#84-checks-and-rejection)).

@@ -78,6 +78,13 @@ pub trait StoreParser: Send + Sync {
         let _ = (written, key);
         Err("internal: this store format's keys are found as written".into())
     }
+    /// Whether the probed key `key` is a sibling whose absence the profile reads as the named
+    /// file having none (GRIB's index files): a run that refuses siblings
+    /// ([`StoreRun::refuse_siblings`]) answers such a probe absent, and rejects any other.
+    fn optional(&self, key: &str) -> bool {
+        let _ = key;
+        false
+    }
 }
 
 // `StoreFormat`: one variant per profile of the registry with a store run (profiles/; build.rs)
@@ -136,6 +143,8 @@ pub struct StoreRun {
     probed: u64,
     /// the keys of the objects so far
     known: std::collections::HashSet<String>,
+    /// whether the host is asked to probe (false: [`StoreRun::refuse_siblings`])
+    siblings: bool,
 }
 
 impl StoreRun {
@@ -173,7 +182,22 @@ impl StoreRun {
             probes: Vec::new(),
             answered: 0,
             probed: 0,
+            siblings: true,
         })
+    }
+
+    /// Refuses every sibling (spec/zarrify.md §1.9
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>,
+    /// **Refusing siblings**), before the first poll: the host is asked to probe no key, so the run
+    /// reads nothing but the listing's objects. A probe of a sibling the profile calls optional
+    /// ([`StoreParser::optional`]) is answered absent by the run itself, and any other rejects the
+    /// input, `siblings refused: the input names the file "<key>"`.
+    pub fn refuse_siblings(&mut self) -> Res<()> {
+        if self.stats.batches > 0 || self.done {
+            return Err("internal: siblings refused after the first poll".into());
+        }
+        self.siblings = false;
+        Ok(())
     }
 
     /// The keys the listing ignores (spec/zarrify.md §1.4
@@ -207,6 +231,24 @@ impl StoreRun {
     /// a batch of probes ([`StoreRun::probes`]): the host answers each with [`StoreRun::found`],
     /// then polls again.
     pub fn poll(&mut self) -> Res<Option<Vec<ObjectRequest>>> {
+        loop {
+            let got = self.step()?;
+            // a batch of probes the run answered itself, siblings being refused: the next step
+            if self.siblings || got.as_ref().is_none_or(|g| !g.is_empty()) {
+                return Ok(got);
+            }
+            let p = self.parser.as_ref().ok_or("internal: no parser")?;
+            if let Some(k) = self.probes.iter().find(|k| !p.optional(k)) {
+                return Err(format!("siblings refused: the input names the file \"{k}\""));
+            }
+            for _ in 0..self.probes.len() {
+                self.found(None)?;
+            }
+        }
+    }
+
+    /// One step of [`StoreRun::poll`].
+    fn step(&mut self) -> Res<Option<Vec<ObjectRequest>>> {
         if self.done {
             return Ok(None);
         }
@@ -486,14 +528,27 @@ pub fn run_store(format: StoreFormat, keys: Vec<(String, u64)>, read: &dyn Fn(us
 mod tests {
     use super::*;
 
-    /// A parser that probes `batch` new keys each step, forever.
-    struct Prober { batch: usize, next: usize, ir: Option<Ir> }
+    /// A parser that probes `batch` new keys each step, forever, or for `until` steps (then done);
+    /// the keys it calls optional are those `optional` holds.
+    struct Prober { batch: usize, next: usize, ir: Option<Ir>, until: usize, optional: &'static [&'static str] }
+
+    impl Prober {
+        fn new(batch: usize, ir: Ir) -> Prober {
+            Prober { batch, next: 0, ir: Some(ir), until: usize::MAX, optional: &[] }
+        }
+    }
 
     impl StoreParser for Prober {
         fn step(&mut self) -> Res<StoreStep> {
+            if self.next >= self.until.saturating_mul(self.batch) {
+                return Ok(StoreStep::Done);
+            }
             let keys = (self.next..self.next + self.batch).map(|i| format!("k{i}")).collect();
             self.next += self.batch;
             Ok(StoreStep::Probe(keys))
+        }
+        fn optional(&self, key: &str) -> bool {
+            self.optional.contains(&key)
         }
         fn feed(&mut self, _: usize, _: u64, _: &[u8]) {}
         fn found(&mut self, _: &str, _: usize, _: Option<u64>) -> Res<Option<u32>> {
@@ -507,12 +562,42 @@ mod tests {
     #[test]
     fn a_run_probes_at_most_the_bound_on_files() {
         let mut run = StoreRun::with(StoreFormat::Nrrd, vec![("a".into(), 1)], 1, &|ir, _, _| {
-            Ok(Box::new(Prober { batch: crate::beside::MAX_FILES as usize, next: 0, ir: Some(ir) }))
+            Ok(Box::new(Prober::new(crate::beside::MAX_FILES as usize, ir)))
         }).unwrap();
         assert!(run.poll().unwrap().is_some());
         for _ in 0..crate::beside::MAX_FILES {
             run.found(None).unwrap();
         }
         assert_eq!(run.poll().err().as_deref(), Some("budget: the input names more than 65536 files"));
+    }
+
+    /// A run of a parser that probes two keys a step for two steps, `optional` of them optional.
+    fn refusing(optional: &'static [&'static str]) -> StoreRun {
+        let mut run = StoreRun::with(StoreFormat::Nrrd, vec![("a".into(), 1)], 1, &|ir, _, _| {
+            Ok(Box::new(Prober { optional, until: 2, ..Prober::new(2, ir) }))
+        }).unwrap();
+        run.refuse_siblings().unwrap();
+        run
+    }
+
+    #[test]
+    fn a_run_that_refuses_siblings_answers_optional_probes_itself() {
+        let mut run = refusing(&["k0", "k1", "k2", "k3"]);
+        assert_eq!(run.poll().unwrap(), None);
+        assert!(run.probes().is_empty());
+    }
+
+    #[test]
+    fn a_run_that_refuses_siblings_rejects_a_required_probe() {
+        let mut run = refusing(&["k0", "k1", "k2"]);
+        assert_eq!(run.poll().err().as_deref(), Some("siblings refused: the input names the file \"k3\""));
+    }
+
+    #[test]
+    fn siblings_are_refused_before_the_first_poll() {
+        let mut run = StoreRun::with(StoreFormat::Nrrd, vec![("a".into(), 1)], 1, &|ir, _, _| Ok(Box::new(Prober::new(1, ir))))
+            .unwrap();
+        assert!(run.poll().unwrap().is_some());
+        assert_eq!(run.refuse_siblings().err().as_deref(), Some("internal: siblings refused after the first poll"));
     }
 }

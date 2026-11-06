@@ -3,8 +3,14 @@
 //!
 //! ```text
 //! vzip convert <url or path> <out.vzip> [--url <source url>] [--checksums] [--allow-private-hosts]
-//!     [--connections N] [--byte-cost SECONDS_PER_MB] [--workers N] [--format vzip|phkv|hybrid]
+//!     [--no-siblings] [--connections N] [--byte-cost SECONDS_PER_MB] [--workers N] [--format vzip|phkv|hybrid]
 //! ```
+//!
+//! `--no-siblings` reads no file but the input: a file that names another beside it (an HDF5
+//! file's external storage, a detached NRRD header's data file) is rejected, naming that file
+//! (spec/zarrify.md §1.9
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>,
+//! **Refusing siblings**). Give it when the input is untrusted and its directory holds others' files.
 //!
 //! `--format` chooses the container: a vzip archive (the default), a standalone phkv store, or a
 //! vzip archive that also carries a phkv container (spec/bindings/phkv.md §16.2
@@ -58,7 +64,7 @@ pub enum Fail {
 
 // the store kinds, in the words of `python -m refkv.zarrify`'s usage (python/src/refkv/zarrify/__main__.py)
 const USAGE: &str = "usage: vzip convert <url or path> <out.vzip> [--url <source url>] [--checksums] \
-[--allow-private-hosts] [--connections N] [--byte-cost SECONDS_PER_MB] [--workers N] [--format vzip|phkv|hybrid]\n\
+[--allow-private-hosts] [--no-siblings] [--connections N] [--byte-cost SECONDS_PER_MB] [--workers N] [--format vzip|phkv|hybrid]\n\
 (a URL ending in / or a directory is a Zarr v3, Zarr v2, OME-Zarr 0.4 or N5 store, a Neuroglancer precomputed volume, a Sentinel-2 .SAFE directory, \
 or a store of safetensors files; a directory needs --url;\n\
 a Hugging Face Hub URL https://huggingface.co/<owner>/<repo>/tree/<rev>/ is listed at its commit,\n\
@@ -84,6 +90,8 @@ struct Args {
     url: Option<String>,
     checksums: bool,
     allow_private_hosts: bool,
+    /// read no file beside the input (`--no-siblings`)
+    no_siblings: bool,
     connections: Option<usize>,
     byte_cost: Option<f64>,
     workers: usize,
@@ -120,6 +128,7 @@ fn parse(argv: &[String]) -> Result<Args, Fail> {
     let mut args = argv.to_vec();
     let checksums = flag(&mut args, "--checksums");
     let allow_private_hosts = flag(&mut args, "--allow-private-hosts");
+    let no_siblings = flag(&mut args, "--no-siblings");
     // requests at a time to a remote file (default 8); 0 is the default
     let connections = match take(&mut args, "--connections")? {
         None => None,
@@ -138,7 +147,7 @@ fn parse(argv: &[String]) -> Result<Args, Fail> {
         Some(f) => output::Container::parse(&f).ok_or_else(|| Fail::Usage(format!("--format {f:?} is not vzip, phkv or hybrid")))?,
     };
     let [input, out] = <[String; 2]>::try_from(args).map_err(|_| Fail::Usage(USAGE.into()))?;
-    Ok(Args { input, out, url, checksums, allow_private_hosts, connections, byte_cost, workers: workers.max(1) as usize, format })
+    Ok(Args { input, out, url, checksums, allow_private_hosts, no_siblings, connections, byte_cost, workers: workers.max(1) as usize, format })
 }
 
 /// Zarrifies the input, and writes the archive; the summary.
@@ -147,7 +156,7 @@ fn parse(argv: &[String]) -> Result<Args, Fail> {
 /// are the files some reference uses, their sizes pinned.
 fn zarrify_beside(a: &Args, client: &std::sync::Arc<http::Client>, beside: refkv_ir::store::StoreFormat) -> Result<(String, serde_json::Value, output::Archive), Fail> {
     let t = transport::Transport::open(&a.input, client)?;
-    let (out, files) = vsi::zarrify_vsi(&a.input, a.url.as_deref(), t, client, a.connections, beside)?;
+    let (out, files) = vsi::zarrify_vsi(&a.input, a.url.as_deref(), t, client, a.connections, beside, !a.no_siblings)?;
     let summary = out.summary.clone();
     let (mut archive, objects) = output::store_archive(out, &files.sizes)?;
     if a.checksums {
@@ -252,13 +261,14 @@ mod tests {
             Args { input: "in.tif".into(), out: "out.vzip".into(), workers: 16, ..Default::default() }
         );
         assert_eq!(
-            parse(&args("--checksums d/ --url http://h/s/ o.vzip --allow-private-hosts --connections 3 --byte-cost 2 --workers 0")).unwrap(),
+            parse(&args("--checksums d/ --url http://h/s/ o.vzip --allow-private-hosts --no-siblings --connections 3 --byte-cost 2 --workers 0")).unwrap(),
             Args {
                 input: "d/".into(),
                 out: "o.vzip".into(),
                 url: Some("http://h/s/".into()),
                 checksums: true,
                 allow_private_hosts: true,
+                no_siblings: true,
                 connections: Some(3),
                 byte_cost: Some(2e-6),
                 workers: 1,

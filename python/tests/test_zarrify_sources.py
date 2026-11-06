@@ -150,7 +150,7 @@ def test_a_file_of_another_profile_is_rejected():
 
 # a read option beside a source, even a falsy value or the default
 @pytest.mark.parametrize("option", [{"checksums": True}, {"checksums": False}, {"url": ""}, {"connections": 0},
-                                    {"byte_cost": 0.0}, {"workers": WORKERS}], ids=str)
+                                    {"byte_cost": 0.0}, {"workers": WORKERS}, {"siblings": True}], ids=str)
 @pytest.mark.parametrize("source", [TiffSource(TIFF), Zarr2Store(str(FIXTURES / "zarr2/zarr2_hierarchy"))],
                          ids=["source", "store"])
 def test_a_read_option_beside_a_source_is_rejected(source, option):

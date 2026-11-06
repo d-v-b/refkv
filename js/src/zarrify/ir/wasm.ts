@@ -26,6 +26,7 @@ export interface IrExports {
   vz_run_free(p: number): void;
   vz_store_new(format: number, nf: number, listing: number, nl: number, concurrency: number): bigint;
   vz_store_ignore(p: number, json: number, n: number): bigint;
+  vz_store_refuse_siblings(p: number): bigint;
   vz_store_profile(p: number): bigint;
   vz_store_poll(p: number): bigint;
   vz_store_probes(p: number): bigint;

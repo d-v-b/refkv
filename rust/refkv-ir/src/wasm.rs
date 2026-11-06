@@ -509,6 +509,19 @@ pub unsafe extern "C" fn vz_store_ignore(p: *mut StoreRun, json: *mut u8, n: usi
     }
 }
 
+/// Refuses every sibling, before the first poll (`StoreRun::refuse_siblings`): the run asks for
+/// no probe. 0, or minus the length of a rejection's message.
+///
+/// # Safety
+/// `p` from `vz_store_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vz_store_refuse_siblings(p: *mut StoreRun) -> i64 {
+    match unsafe { &mut *p }.refuse_siblings() {
+        Ok(()) => 0,
+        Err(e) => err_out(e),
+    }
+}
+
 /// The keys of a pending batch of probes (`StoreRun::probes`; `vz_store_poll` gave a count of
 /// 0): a JSON array of keys at `vz_out()`, its length. The host answers each, in order, with
 /// `vz_store_found`, then polls again.

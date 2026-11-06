@@ -11,7 +11,7 @@ from refkv.zarrify.store import WORKERS
 STORES = ("a Zarr v3, Zarr v2, OME-Zarr 0.4 or N5 store, a Neuroglancer precomputed volume, a Sentinel-2 .SAFE "
           "directory, or a store of safetensors files")
 USAGE = ("usage: refkv zarrify <url or path> <out.vzip> [--url <source url>] [--checksums]"
-         " [--allow-private-hosts] [--connections N] [--byte-cost SECONDS_PER_MB] [--workers N]\n"
+         " [--allow-private-hosts] [--no-siblings] [--connections N] [--byte-cost SECONDS_PER_MB] [--workers N]\n"
          f"(a URL ending in / or a directory is {STORES}; a directory needs --url;\n"
          "a Hugging Face Hub URL https://huggingface.co/<owner>/<repo>/tree/<rev>/ is listed at its commit,\n"
          "at HF_ENDPOINT's Hub if set;\n"
@@ -37,6 +37,12 @@ def main(argv: list[str]) -> int:
     private = "--allow-private-hosts" in args
     if private:
         args.remove("--allow-private-hosts")
+    # spec/zarrify.md §1.9
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>,
+    # Refusing siblings: no file but the input is read
+    siblings = "--no-siblings" not in args
+    if not siblings:
+        args.remove("--no-siblings")
     connections = byte_cost = None
     if "--connections" in args:  # requests at a time to a remote file (default 8)
         i = args.index("--connections")
@@ -64,8 +70,8 @@ def main(argv: list[str]) -> int:
         return 2
     policy = Policy(allow_private_hosts=private)
     try:
-        store = zarrify(args[0], url, checksums=checksums, policy=policy,
-                           connections=connections, byte_cost=byte_cost, workers=workers)
+        store = zarrify(args[0], url, checksums=checksums, policy=policy, connections=connections,
+                        byte_cost=byte_cost, workers=workers, siblings=siblings)
     except Rejected as e:
         print(f"rejected: {e}", file=sys.stderr)
         return 3

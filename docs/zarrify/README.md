@@ -120,6 +120,8 @@ store by the objects at its root. Options:
   archive references (off by default);
 - `--allow-private-hosts`: let a file or store at an http(s) URL be read
   from a loopback, private or link-local host (below; unsafe);
+- `--no-siblings`: read no file but the input, and reject one that names
+  another file beside it (below);
 - `--connections N` and `--byte-cost SECONDS_PER_MB`: for a file input,
   how many requests the read planner runs at a time (default 8), and how
   much wall time it charges for a megabyte read beyond those asked (default
@@ -143,6 +145,21 @@ an archive applies the same policy to its sources, so an archive that refers
 to such a host opens only with `refkv.zarr.open(path,
 policy=Policy(allow_private_hosts=True))` (`from refkv.policy import
 Policy`). A local file or directory needs neither.
+
+**Untrusted files.** Some files name other files beside them, which
+zarrifying reads too: an HDF5 file's external storage and external links, a
+detached NRRD header's data file, the other files of an OME-TIFF, CZI, LIF or
+NIfTI set, a VSI slide's tile files. Those names stay below the input's
+directory ([spec](../../spec/zarrify.md#19-sources-beside-the-input)), but a
+server that saves uploads into a shared directory and zarrifies them would let
+one upload read another: an HDF5 file with `external=[("other-user/session.txt",
+0, 40)]` puts that file's bytes in its archive. To zarrify a file without
+reading any other, pass `--no-siblings` (or `siblings=False` in Python, and
+`siblings: false` in the browser's `zarrifySource` and
+`zarrifyToArchive`). An input that needs another file is then rejected, naming
+it: `siblings refused: the input names the file "other-user/session.txt"`. A
+GRIB file's index files are optional, so a GRIB file is read without them
+instead. A store input is read from its listing either way.
 
 Read the archive in Python with `refkv.zarr` and zarr-python
 (`pip install 'refkv[zarr]'`, or `refkv[images]` for imagecodecs-zarr's codecs). zarr-python
@@ -187,7 +204,7 @@ store.save_vzip("CMU-1-Small-Region.vzip")
 `zarrify` takes the input's local path or URL, and the command's options as
 keyword arguments: `url` (the URL the archive names the source by),
 `checksums`, `policy`, `connections`, `byte_cost` (in seconds per byte, not
-per MB) and `workers`. It raises `refkv.zarrify.Rejected` when no profile
+per MB), `workers` and `siblings`. It raises `refkv.zarrify.Rejected` when no profile
 accepts the input, `refkv.errors.ResolutionError` when the reader policy
 refuses the input or a source (such as a URL on a private host), and `OSError`
 when the input cannot be read (`FileNotFoundError` for a missing local file,
@@ -207,8 +224,8 @@ per profile in the registry. `<Name>Source` is for a file (`TiffSource`,
 `Mp4Source`, `NdpiSource`, ...). `<Name>Store` is for a store (`Zarr2Store`,
 `OmeZarrStore`, `N5Store`, `PrecomputedStore`, `SafetensorsStore`). SAFE has both, `SafeSource` for a `.SAFE.zip` file
 and `SafeStore` for a `.SAFE` directory. The input's read options belong to the
-class (`url`, `checksums`, `policy`, and `connections` and `byte_cost` for a
-file, or `workers` and `max_objects` for a store), so `zarrify` raises
+class (`url`, `checksums`, `policy`, and `connections`, `byte_cost` and
+`siblings` for a file, or `workers` and `max_objects` for a store), so `zarrify` raises
 `TypeError` when one is also passed beside it:
 
 ```python

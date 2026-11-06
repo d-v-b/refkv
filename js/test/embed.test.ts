@@ -10,6 +10,7 @@ import { test } from "node:test";
 import { Archive } from "../src/archive.ts";
 import { decodeFitsTiles, decodeGrib, type FileInput, zarrifyToArchive } from "../src/embed.ts";
 import { ImageError } from "../src/zarrify/common.ts";
+import { StoreError } from "../src/zarrify/store.ts";
 import { zarrifySource } from "../src/zarrify/index.ts";
 import { bytesSource } from "../src/zarrify/ir/source.ts";
 import { writeVzip } from "../src/writer.ts";
@@ -62,6 +63,25 @@ test("zarrifies a file the host reads, with or without its size pins", async () 
     const unpinned = await Archive.open(bare.archive, `https://data.test/${path}`);
     assert.ok(unpinned.sources.every((s) => s.size === undefined && s.etag === undefined), path);
     assert.deepEqual(unpinned.keys(), archive.keys(), path);
+  }
+});
+
+test("rejects a file that names a sibling when siblings are refused, opening none", async () => {
+  for (const [path, key] of [
+    ["hdf5/hdf5_external.h5", "hdf5_external_a.bin"],
+    ["nrrd/nrrd_detached_raw.nhdr", "nrrd_detached_raw.raw"],
+    ["nifti/nifti_pair_nibabel.hdr", "nifti_pair_nibabel.img"],
+    ["tiff/ome_set_a.ome.tif", "ome_set_b.ome.tif"],
+    ["vsi/vsi_raw_gray_pyramid.vsi", "_vsi_raw_gray_pyramid_/stack10002/frame_t.ets"],
+  ] as const) {
+    const opened: string[] = [];
+    const file = { ...input(path), open: async (k: string) => void opened.push(k) };
+    await assert.rejects(
+      zarrifyToArchive(file, { siblings: false }),
+      (e: Error) => e instanceof StoreError && e.message === `siblings refused: the input names the file "${key}"`,
+      path,
+    );
+    assert.deepEqual(opened, [], path);
   }
 });
 

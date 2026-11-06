@@ -35,6 +35,12 @@ export interface PinOptions {
    * directory), or undefined when it does not exist (ir/vsi.ts); by default the files are read
    * at the input URL's directory over http(s), with the named file's options. */
   open?: (key: string) => Promise<RangeSource | undefined>;
+  /** Whether a file input may be read with the files it names beside it (spec/zarrify.md §1.9
+   * <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>),
+   * default true. false reads no file but the input, `open` is never called, and an input that
+   * needs another file is rejected, naming it: for an untrusted file beside files it must not
+   * reach. */
+  siblings?: boolean;
 }
 
 /**
@@ -105,7 +111,8 @@ async function zarrifyWith(url: string, input: Input, pins: PinOptions): Promise
     (input.size > 552 ? await irFormat(await input.read(0, Math.min(65600, input.size))) : undefined);
   if (format === undefined) throw new ImageError(NOT_SUPPORTED);
   const asStore = async (beside: BesideFormat): Promise<ImageDesc> => {
-    const { store, ...desc } = await zarrifyVsi(url, input.source, pins.open ? { open: pins.open } : {}, beside);
+    const options = { ...(pins.open ? { open: pins.open } : {}), siblings: pins.siblings !== false };
+    const { store, ...desc } = await zarrifyVsi(url, input.source, options, beside);
     if (pins.checksums) {
       const keys = new Map([...store.objects.keys()].map((k) => [objectUrl(store.url, k), k]));
       await addChecksums(desc, (u, o, n) => store.readRange!(keys.get(u)!, o, n));

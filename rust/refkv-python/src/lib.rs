@@ -710,6 +710,11 @@ impl PyStoreRun {
     fn ignore(&mut self, keys: Vec<String>, folders: Vec<String>) -> PyResult<()> {
         self.get()?.ignore(keys, folders).map_err(Rejected::new_err)
     }
+    /// Refuses every sibling, before the first poll (`StoreRun::refuse_siblings`): the run asks
+    /// for no probe, and rejects an input that names a sibling it needs.
+    fn refuse_siblings(&mut self) -> PyResult<()> {
+        self.get()?.refuse_siblings().map_err(Rejected::new_err)
+    }
     /// The profile the run's store is decided to be so far (`StoreRun::profile`).
     fn profile(&mut self) -> PyResult<String> {
         Ok(self.get()?.profile().to_string())

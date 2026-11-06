@@ -189,13 +189,17 @@ impl Files {
 
 /// (the output, the files) of the VSI or NRRD input at `location` (`format`), its named file
 /// opened as `t`: a store run of the core's `format` over the files, probed as the run asks for
-/// them, read `connections` at a time when remote.
+/// them, read `connections` at a time when remote. Without `siblings`, the run refuses every
+/// sibling (`StoreRun::refuse_siblings`), so no file but the named one is opened.
 pub fn zarrify_vsi(location: &str, url: Option<&str>, t: Transport, client: &Arc<Client>, connections: Option<usize>,
-                   format: StoreFormat) -> Result<(Out, Files), Fail> {
+                   format: StoreFormat, siblings: bool) -> Result<(Out, Files), Fail> {
     let workers = concurrency(&t, connections)?;
     let mut files = Files::open(location, url, t, client, format)?;
     let listing = vec![(files.keys[0].clone(), files.sizes[&files.keys[0]])];
     let mut run = StoreRun::new(format, listing, workers).map_err(Fail::Rejected)?;
+    if !siblings {
+        run.refuse_siblings().map_err(Fail::Rejected)?;
+    }
     while let Some(reqs) = run.poll().map_err(Fail::Rejected)? {
         if reqs.is_empty() {
             // a batch of probes: each key answered with its size, or None when it does not exist
@@ -294,5 +298,16 @@ mod tests {
     fn a_directory_outside_is_not_listed() {
         let dir = upload("list");
         assert_eq!(files(&dir, StoreFormat::Lif).listdir("dir_outside"), None);
+    }
+
+    #[test]
+    fn a_detached_header_with_siblings_refused_is_rejected() {
+        let client = Client::new(crate::policy::Policy::default(), Duration::from_secs(5));
+        let named = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/nrrd/nrrd_detached_raw.nhdr");
+        let t = Transport::open(named, &client).ok().unwrap();
+        let Err(Fail::Rejected(m)) = zarrify_vsi(named, None, t, &client, None, StoreFormat::Nrrd, false) else {
+            panic!("not rejected");
+        };
+        assert_eq!(m, "siblings refused: the input names the file \"nrrd_detached_raw.raw\"");
     }
 }

@@ -888,6 +888,17 @@ read of what it named:
 - **References** stay within their objects: every reference's `offset + length` is at most the
   `size` its object's pin records ([§1.2](#12-input), **References stay in the file**).
 
+**Refusing siblings.** An application MAY zarrify an input with siblings refused, when the input is
+untrusted and its directory holds files it must not reach (a server that keeps every user's uploads
+in one directory). A zarrifier then opens no object but the named file, and lists no directory for
+**Case**. A key the profile would probe is answered absent, without a request, when the profile calls
+it optional and its absence means only that the named file has none (GRIB's index files); for any
+other key the input is rejected before anything else is read: `siblings refused: the input names the
+file "<key>"`, the key as the naming steps give it. That includes a name that may dangle, such as an
+HDF5 external link's: recorded in place, it would say that the link names no file when it may name
+one. A file input whose bytes name no sibling, and a store input, are read as they are without the
+option, with the same output.
+
 **The sibling table.** A profile's document says, for its siblings:
 
 | what | it says |
