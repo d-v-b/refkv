@@ -450,6 +450,20 @@ class VZipStore(ReferenceReader):
         return await self._body(e, start, end)
 
     @override
+    async def value_async(self, key: str) -> bytes | Reference | None:
+        await self._ensure_open()
+        kind = await self.classify_async(key)  # hidden, lookup, entry error, as for `get`
+        if kind == "missing":
+            return None
+        e = self._entries[key]
+        if kind == "reference":
+            try:
+                return cast("Reference", e.ref)  # a reference entry's
+            except ValueError as exc:
+                raise PayloadError(f"{key!r}: {exc}") from None
+        return await self._body(e, 0, e.size)
+
+    @override
     async def _value_size(self, key: str) -> int | None:
         await self._ensure_open()
         kind = await self.classify_async(key)

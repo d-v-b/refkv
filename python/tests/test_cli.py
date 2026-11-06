@@ -60,3 +60,32 @@ def test_vzip_write_failing_on_a_new_path_leaves_nothing(tmp_path):
     assert p.returncode != 0, p.stderr
     assert "duplicate key" in p.stderr
     assert list(out.iterdir()) == []
+
+
+def test_convert_round_trip(tmp_path):
+    """`refkv convert` takes the binding from the names, or from --from and --to."""
+    import refkv  # noqa: PLC0415
+
+    refkv.ReferenceStore({"k": b"v", "r": refkv.Range(data=b"abc")}).save_vzip(tmp_path / "a.vzip")
+    p = _run("refkv", "convert", str(tmp_path / "a.vzip"), str(tmp_path / "b.phkv"))
+    assert p.returncode == 0, p.stderr
+    assert refkv.open(tmp_path / "b.phkv", binding="phkv").get("r") == b"abc"
+    p = _run("refkv", "convert", str(tmp_path / "b.phkv"), str(tmp_path / "c.vzip"))
+    assert p.returncode == 0, p.stderr
+    assert refkv.open(tmp_path / "c.vzip").get("k") == b"v"
+    (tmp_path / "x").write_bytes((tmp_path / "b.phkv").read_bytes())  # a name that says nothing
+    p = _run("refkv", "convert", "--from", "phkv", str(tmp_path / "x"), str(tmp_path / "d.zip"))
+    assert p.returncode == 0, p.stderr
+
+
+def test_convert_refuses_what_it_cannot_do(tmp_path):
+    (tmp_path / "a.vzip").write_bytes(b"not an archive")
+    for args in (["one"], ["a.vzip", "b.vzip"], ["a", "b.phkv", "--to"], ["a", "b", "--from", "kv"], ["a", "b", "-x"]):
+        p = _run("refkv", "convert", *args)
+        assert p.returncode == 2, (args, p.stderr)
+        assert p.stderr, args
+    p = _run("refkv", "convert", str(tmp_path / "a.vzip"), str(tmp_path / "b.phkv"))
+    assert p.returncode == 1
+    assert "ArchiveError" in p.stderr
+    assert not (tmp_path / "b.phkv").exists()
+    assert _run("refkv", "convert", "--help").stdout.startswith("usage: refkv convert")
