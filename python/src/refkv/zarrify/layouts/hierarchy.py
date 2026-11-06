@@ -146,8 +146,8 @@ def _under(to: str | None, entries: dict[str, Value]) -> dict[str, Value]:
     """`entries`, keys below the path `to` (keys relative to it), or as they are without one."""
     if to is None:
         return entries
-    if not isinstance(to, str) or to.startswith("/") or to.endswith("/"):
-        raise ValueError(f"to {to!r} is a path from the output's root, with no leading or trailing /")
+    if not isinstance(to, str) or (to and any(s in ("", ".", "..") for s in to.split("/"))):
+        raise ValueError(f"to {to!r} is a path from the output's root: segments, none empty, `.` or `..`")
     return {f"{to}/{k}" if to else k: v for k, v in entries.items()}
 
 
@@ -389,11 +389,11 @@ def _models_equal(a: Mapping[str, Any], b: Mapping[str, Any]) -> bool:
         return False
 
 
-def _copy_of(base: Base, doc: Mapping[str, Any], references: Mapping[str, Range | Concat],
+def _copy_of(base: Base, doc: Mapping[str, Any], held: Mapping[str, Value], references: Mapping[str, Range | Concat],
              copies: dict[tuple[str, tuple[int, ...]], tuple[dict[str, Any], dict[str, Value]]]) -> bool:
-    """Whether the array `doc`, holding `references` (by key relative to it), is a `copy` of a
-    base array that holds the same references, each at the key `copy` gives it, attributes and
-    dimension names aside."""
+    """Whether the array `doc`, holding the chunks `held` (by key relative to it; its references
+    among them), is a `copy` of a base array: every chunk at the key `copy` gives it, and none
+    left out, attributes and dimension names aside."""
     first = next(iter(references.values()))
     for path in base._arrays_holding(first):  # noqa: SLF001 (the package's own Base)
         base_doc = base.array(path)[0]
@@ -407,8 +407,8 @@ def _copy_of(base: Base, doc: Mapping[str, Any], references: Mapping[str, Range 
                 document = json.loads(entries.pop("zarr.json"))  # type: ignore[arg-type]
                 copies[path, candidate] = (document, entries)
             made, chunks = copies[path, candidate]
-            if _models_equal(made, doc) and all(k in chunks and chunks[k] == _without_checksum(v)  # type: ignore[arg-type]
-                                                for k, v in references.items()):
+            plain = {k: v if isinstance(v, bytes) else _without_checksum(v) for k, v in held.items()}
+            if _models_equal(made, doc) and plain == chunks:
                 return True
     return False
 
@@ -524,6 +524,8 @@ def check(base: Base, written: Mapping[str, object] | Written) -> list[Problem]:
             problems.append(Problem(k, "zarr", why))
         if any(s.startswith("__") for s in node.split("/") if s):
             problems.append(Problem(k, "zarr", "a node's name starts with __, which Zarr v3 reserves"))
+        if any(s in ("", ".", "..") for s in node.split("/")) and node:
+            problems.append(Problem(k, "zarr", "a node's path has an empty, `.` or `..` segment, which Zarr refuses"))
     for node, _kind in sorted(nodes.items()):
         if not node:
             continue
@@ -582,7 +584,7 @@ def check(base: Base, written: Mapping[str, object] | Written) -> list[Problem]:
                 if got != want:
                     problems.append(Problem(where, "size", f"it holds {got} bytes of a chunk of {want}"))
         if is_v3 and references and all(base.base_value(v) is not None for v in references.values()) \
-                and not _copy_of(base, v3, references, copies):  # type: ignore[arg-type] (is_v3: v3 is a dict)
+                and not _copy_of(base, v3, chunks, references, copies):  # type: ignore[arg-type] (is_v3: v3 is a dict)
             problems.append(Problem(holder or "zarr.json", "copy", "its references are not a copy of a base array's, "
                                                                    "each at the key copy() gives it"))
     problems += _refkv_problems(base, values, docs)

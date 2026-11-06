@@ -231,6 +231,9 @@ class XarrayV2:
         datatype = (base.source_metadata(path) or {}).get("datatype", {})
         fixed = datatype.get("class") == "string" and doc["data_type"] == "uint8" and shape[-1:] == [datatype["size"]]
         if fixed:  # a fixed-length string: its trailing axis of bytes is the dtype's
+            if chunk_shape[-1] != shape[-1]:  # the base cut a string's bytes across chunks
+                raise NoV2(f"a string of {shape[-1]} bytes cut into chunks of {chunk_shape[-1]}, which a Zarr v2 "
+                           "string type cannot hold")
             dtype: object = f"|S{shape.pop()}"
             chunk_shape.pop()
             names.pop()

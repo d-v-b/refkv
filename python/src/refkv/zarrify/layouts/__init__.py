@@ -692,6 +692,7 @@ class Base:
         i = self._element(i)
         path = self.ir.path(i)
         if member is not None:  # an alias's members are its target's
+            self._source_space(self._target(i))
             start, length, form_id = self._member(self._target(i), member)
             text: str | None = self.ir.forms()[form_id]
         elif self.ir.kind(i) == ALIAS:  # its own extent, read by its own form
@@ -792,10 +793,23 @@ class Base:
         is its own bytes, without the tables its `reference` splices in). ValueError for an
         element that holds no bytes of a source."""
         i = self._element(i)
-        start, end = self._span_end(self._target(i) if member is not None else i, member)
-        if member is None and (self.ir.kind(i) == DERIVED or self.ir.space(i) != 0):
-            raise ValueError(f"{self.ir.path(i)!r} is in a derived space: no range of a source reads it")
+        if member is not None:  # an alias's members are its target's
+            t = self._target(i)
+            self._source_space(t)
+            start, length, _ = self._member(t, member)
+            return Range(self.source_of(i), start, length)
+        self._source_space(i)
+        if self.ir.kind(i) not in (DATA, VALUE, ALIAS):
+            raise ValueError(f"{self.ir.path(i)!r} is not data or a value: it holds no bytes of its own")
+        start, end = self._span_end(i, None)
         return Range(self.source_of(i), start, end - start)
+
+    def _source_space(self, i: int) -> None:
+        """ValueError for an element in a derived space (its extent in the inflated bytes of
+        another), or a derived one, whose bytes and members no range of a source reads."""
+        if self.ir.kind(i) == DERIVED or self.ir.space(i) != 0:
+            raise ValueError(f"{self.ir.path(i)!r} is in a derived space (the inflated bytes of another element): "
+                             "no range of a source reads it")
 
     def _span_end(self, i: int, member: int | None) -> tuple[int, int]:
         """(start, end) of element `i`'s bytes, or of its data member `member`'s."""

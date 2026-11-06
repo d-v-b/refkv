@@ -705,3 +705,28 @@ def test_values_refkv_encodes_decode_to_python_values():
     assert hdf5_attributes(base(str(FIXTURES / "hdf5" / "hdf5_attributes.h5")), "attrs")["latin1"] == "café"
     assert fill_value({"data_type": "float8_e8m0fnu", "fill_value": "NaN"}) != fill_value(
         {"data_type": "float8_e8m0fnu", "fill_value": "NaN"})  # a NaN: unequal to itself
+
+
+def test_a_member_in_a_derived_space_has_no_reference():
+    """A struct's members inside an inflated stream (a FITS file in gzip) are no bytes of the
+    file: `reference` and `span` refuse them, as they refuse the struct."""
+    b = base(str(FIXTURES / "fits" / "fits_gzip_mef.fits.gz"))
+    hdu = b.ir.index("stream/hdus/1")
+    for read in (b.reference, b.span):
+        with pytest.raises(ValueError, match="derived space"):
+            read(hdu, 0)
+
+
+def test_check_reports_a_copy_that_leaves_a_chunk_out_and_a_dot_node():
+    b = base(str(FIXTURES / "tiff" / "bilevel_tiled.tif"))
+    full = copy(b, "0", to="img")
+    assert {p.code for p in check(b, {"zarr.json": group(), **{k: v for k, v in full.items()
+                                                               if k != "img/c/1/1"}})} == {"copy"}
+    assert "zarr" in {p.code for p in check(b, {"zarr.json": group(), "a/../zarr.json": group()})}
+
+
+@pytest.mark.parametrize(("member", "error"), [(-1, KeyError), (999, KeyError), (None, ValueError)])
+def test_span_refuses_what_has_no_bytes_of_its_own(member, error):
+    b = base(str(FIXTURES / "tiff" / "bilevel_tiled.tif"))
+    with pytest.raises(error):
+        b.span(b.ir.index("ifds/0/tiles"), member)  # a struct, whose members have bytes
