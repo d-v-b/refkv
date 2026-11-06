@@ -977,73 +977,96 @@ hands what no dissector claims to its generic `data` dissector as raw bytes;
 [fq](https://github.com/wader/fq/blob/master/doc/dev.md) tells format authors
 to "decode only ranges you know what they are", and adds "gap" fields for the
 rest itself, as the IR's gaps do; [Kaitai Struct](https://doc.kaitai.io/user_guide.html)
-yields a raw byte array for a field with no type, or a switch with no
-matching case; [ExifTool](https://exiftool.org/exiftool_pod.html) prints
-unknown tags under generated names (`-u`) and copies blocks it does not
-understand whole when it writes. [Construct](https://construct.readthedocs.io/en/latest/misc.html)'s
+yields a raw byte array for a field with a `size` and no type, or a switch
+with no matching case; [ExifTool](https://exiftool.org/exiftool_pod.html)
+prints unknown tags under generated names (`-u`) and copies maker notes as
+one block when it writes. [Construct](https://construct.readthedocs.io/en/latest/misc.html)'s
 `RawCopy` gives a parsed field's value, its raw bytes and its start and end
 offsets together, the three ways a caller reaches an element here
-(`ir.value`, `parsed.bytes`, `span`). The closest precedent in microscopy is
-[Bio-Formats](https://javadoc.scijava.org/Bio-Formats/loci/formats/IFormatReader.html):
-a reader fills the OME model, its known, through a `MetadataStore`, and keeps
-the rest as "original metadata", tables of key and value strings
-(`getGlobalMetadata`, `getSeriesMetadata`). That split is lossy: an unknown
-there has no bytes and no place in the file. refkv's unknown keeps both, so a
-caller can decode what refkv's model does not.
+(`ir.value`, `parsed.bytes`, `span`). For TIFF,
+[tifffile](https://pypi.org/project/tifffile/), the independent reader this
+note tests against, does the same for every tag, known or not: a `TiffTag`
+has its value, its offset and its value's offset. In microscopy,
+[Bio-Formats](https://javadoc.scijava.org/Bio-Formats/loci/formats/IFormatReader.html)
+draws the line between known and unknown as this note does: a reader fills
+the OME model, its known, through a `MetadataStore`, and keeps the rest as
+"original metadata", tables of named values (`getGlobalMetadata`,
+`getSeriesMetadata`). Its unknown has no bytes and no place in the file;
+refkv's keeps both, across every format it reads, so a caller can decode what
+refkv's model does not.
 
 **A specified description of a format.** [DFDL](https://daffodil.apache.org/)
-(an Open Grid Forum standard, implemented by Apache Daffodil) and Kaitai
-Struct describe a format's layout in a machine-readable language from which a
-parser is generated. refkv specifies its source models in prose with JSON
-Schemas for the IR's rules (`rust/refkv-ir/schema/`), and this note adds a
-JSON Schema for each description, not a generated parser: the parsers stay
-hand-written for their budgets and their checks. A machine-readable source
-model could later let a description's tests be generated from it.
+(an Open Grid Forum standard, which Apache Daffodil compiles to a parser it
+runs) and Kaitai Struct (whose compiler writes a parser's source code)
+describe a format's layout in a machine-readable language. refkv's source
+models are partly machine-readable already: `rust/refkv-ir/schema/<format>.json`
+gives each format's elements, limits and constraints as `require`
+expressions, which the parsers' checks apply. The parsers themselves stay
+hand-written, for their budgets and their reading order. The description
+extends that model with what the known structures mean, as a JSON Schema
+beside the source model's rules, and its tests check it against tifffile,
+NumPy or h5py.
 
 **Building outputs of references.** [GDAL's VRT](https://gdal.org/en/stable/drivers/raster/vrt.html)
 is the oldest widely used format of this kind: XML datasets made of other
 datasets, its `VRTRawRasterBand` a strided view of another file's bytes.
 [kerchunk](https://fsspec.github.io/kerchunk/spec.html) references a key's
-bytes as one `[url, offset, length]` or inline data;
+bytes as one `[url, offset, length]` or inline data, and builds them from
+each library's model of a file: its TIFF reader from tifffile's (whose
+`ZarrTiffStore.write_fsspec` writes the references,
+[kerchunk/tiff.py](https://github.com/fsspec/kerchunk/blob/main/kerchunk/tiff.py)),
+its HDF5 reader from h5py's, through HDF5's chunk queries
+(`H5Dget_chunk_info`, `H5Dchunk_iter`), which give each chunk's offset, size
+and filter mask as `parsed.chunks` does.
 [VirtualiZarr](https://virtualizarr.readthedocs.io/en/stable/explanation/custom_parsers.html)'s
 parsers are callables from a URL and an object-store registry to a
-`ManifestStore` of chunk manifests. Both go straight from a file to its
-manifests, with no IR beneath and no shared routines between parsers, which
-is the gap this note fills for refkv; their manifests and refkv's `Array` are
-close kin. Within one format, HDF5's chunk queries (`H5Dget_chunk_info`,
-`H5Dchunk_iter`) give each chunk's offset, size and filter mask, the
-information `parsed.chunks` gives, and kerchunk's HDF5 reader is built on
-them through h5py.
+`ManifestStore` of chunk manifests. Each of these goes from a library's
+model of one format to its manifests: there is no byte-complete IR beneath,
+no description shared across formats, and no routines a parser and a caller
+both call, which is the gap this note fills for refkv. Their manifests and
+refkv's `Array` are close kin.
 
-**Vouching for references.** GDAL bounds what a VRT may read with
-`GDAL_VRT_RAWRASTERBAND_ALLOWED_SOURCE`, by default a path relative to the
-VRT and without `..`, because a server that accepts uploaded VRTs could
-otherwise be made to read local files; it warns that its `ONLY_REMOTE`
-setting can still reach a local network. refkv's reader policy and pins play
-that part, checked when a source is opened and again when it is read.
-VirtualiZarr's guide asks a parser to extract each chunk's byte ranges, and
-says nothing of checking them against the file's size; `seal` checks every
-range against the size `read` found, every payload and the archive's limits
-before anything is written, which neither kerchunk nor VirtualiZarr does.
+**Vouching for references.** [Icechunk](https://icechunk.io/en/stable/reference/migration/)
+requires a repository's virtual chunk containers to be declared, and refuses
+to resolve chunks under a URL prefix a reader has not authorized
+(`authorize_virtual_chunk_access`), much as refkv's reader policy bounds what
+a source may name; refkv's pins already follow Icechunk's checks of a
+chunk's object ([spec/refkv.md §5.1](../../spec/refkv.md#51-pins)). GDAL
+bounds what a VRT may read with `GDAL_VRT_RAWRASTERBAND_ALLOWED_SOURCE`, by
+default a path relative to the VRT and without `..`, because a server that
+accepts uploaded VRTs could otherwise be made to read local files; it warns
+that its `ONLY_REMOTE` setting can still reach a local network. Both check
+when a chunk is read. `seal` checks when an output is written: every range
+against the size `read` found, every payload and the archive's limits.
+VirtualiZarr's guide asks a parser to extract each chunk's byte ranges and
+says nothing of checking them against the file's size, and kerchunk's
+specification nothing either.
 
 **Sans-I/O reading.** [h11](https://h11.readthedocs.io/en/latest/) is the
 model of a protocol with no I/O of its own: a state machine fed bytes by its
 host. Parsers of byte streams have the same shape (nom's streaming parsers
-return `Incomplete` with the bytes they need; Spicy yields to its host when
-input runs out). refkv's parsers and plans ask for ranges, not a stream's
-next bytes, in counted rounds, which lets the host batch, merge and bound
-reads. The I/O hooks of libtiff (`TIFFClientOpen`), libavformat
-(`avio_alloc_context`) and HDF5 (its virtual file drivers, ROS3 among them)
-are blocking callbacks the library calls, which a host can neither batch nor
-bound.
+return `Incomplete`, with how many more bytes they need when known; Spicy
+yields to its host when input runs out). The closest precedent for random
+access is arrow-rs's [Parquet push decoder](https://arrow.apache.org/rust/parquet/arrow/push_decoder/struct.ParquetPushDecoder.html),
+which returns `NeedsData` with the byte ranges it needs, and is given their
+bytes, as refkv's parsers and plans ask for ranges in rounds; refkv adds
+counted rounds and per-convention bounds, which let the host batch, merge
+and bound every read. The I/O hooks of libtiff (`TIFFClientOpen`),
+libavformat (`avio_alloc_context`) and HDF5 (its virtual file drivers, ROS3
+among them) are pull-style callbacks the library drives, so a host cannot
+see or shape the whole read plan; HDF5's vector reads (`read_vector`, since
+1.14) batch some of them.
 
 **Registries.** Python's entry points carry most plugin registries refkv's
-users meet: numcodecs' codecs, zarr-python's codecs and data types, xarray's
-backends. numcodecs lets a registered codec replace another of the same id
-without a word; refkv refuses a second plugin of a taken name. Format
-detection (libmagic, Apache Tika's detectors, Bio-Formats' ordered reader
-list, FFmpeg's probe scores) is what parser plugins, left out of this note,
-would need.
+users meet, and they treat a taken name differently: numcodecs lets a
+registered codec replace another of the same id without a word; xarray warns
+of a duplicate engine name and keeps the first; zarr-python keeps every
+implementation of a name and chooses one by its configuration, warning when
+the choice is ambiguous. refkv refuses a second plugin of a taken name, since
+a layout's name is what an archive's maker chooses by. Format detection
+(libmagic, Apache Tika's detectors, Bio-Formats' ordered reader list,
+FFmpeg's probe scores) is what parser plugins, left out of this note, would
+need.
 
 ## Alternatives considered
 
