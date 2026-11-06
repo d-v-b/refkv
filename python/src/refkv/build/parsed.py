@@ -25,6 +25,7 @@ from refkv.reader import Registry, Resolver
 from refkv.uri import path_reference
 from refkv.zarrify import _zarrify_async
 from refkv.zarrify.common import Output
+from refkv.zarrify.layouts import MERGE_GAP
 from refkv.zarrify.store.urls import object_url
 
 from .values import Part, Ref, Shared, Value
@@ -54,7 +55,12 @@ class Parsed:
         self.registry_given = registry_given
         # a store's objects are read under this URL, where `read` opened them (the URL the output names
         # them by, `out.url`, may be another, given as `url`)
-        self._read_base = read_base if read_base is not None else out.url
+        # where the sources are read, made absolute now: a relative path is the working directory's
+        # when `read` ran, not when the bytes are read
+        cwd = path_reference(str(Path.cwd())) + "/"
+        base = read_base if read_base is not None else out.url
+        self._read_base = base if "://" in base or base.startswith("/") or _drive(base) else cwd + base
+        self._file_place = location if "://" in location else path_reference(str(Path(location).absolute()))
         self.checksums = checksums
         self.max_bytes = max_bytes
         self._read = 0  # bytes `bytes` has read from sources
@@ -259,6 +265,7 @@ class Parsed:
 
     def _space_index(self, source: int) -> tuple[list[int], list[tuple[int, int, int, int | None]]]:
         if self._index is None:
+            self._reach: dict[int, list[int]] = {}
             ir = self._ir
             by: dict[int, list[tuple[int, int, int, int | None]]] = {}
             covered: set[tuple[int, int, int]] = set()
@@ -284,6 +291,12 @@ class Parsed:
             for s, spans in by.items():
                 spans.sort(key=lambda t: (t[0], -t[1]))  # the inner of two spans of one start last
                 self._index[s] = ([t[0] for t in spans], spans)
+                ends: list[int] = []
+                top = -1
+                for t in spans:  # the furthest end of any span at or before each one, for element_at
+                    top = max(top, t[1])
+                    ends.append(top)
+                self._reach[s] = ends
         return self._index.get(source, ([], []))
 
     def element_at(self, source: int, offset: int) -> tuple[int, int | None] | None:
@@ -293,13 +306,12 @@ class Parsed:
         if type(source) is not int or not 0 <= source < len(self.sources):
             raise KeyError(f"no source {source!r} among the input's")
         starts, spans = self._space_index(source)
+        reach = self._reach.get(source, [])
         k = bisect.bisect_right(starts, offset) - 1
-        while k >= 0:
+        while k >= 0 and reach[k] > offset:  # some span at or before k may still hold the byte
             s, e, i, member = spans[k]
             if s <= offset < e:
                 return i, member
-            if e <= offset and (k == 0 or spans[k - 1][1] <= offset):
-                break
             k -= 1
         return None
 
@@ -310,7 +322,7 @@ class Parsed:
         given it, which may differ from the URL its output names."""
         if self._objects:
             return object_url(self._read_base, self._objects[source])
-        return self._location if "://" in self._location else path_reference(str(Path(self._location).absolute()))
+        return self._file_place
 
     def _readable(self) -> tuple[Source, ...]:
         """The sources as they are read (`_read_place`), with their pins."""
@@ -362,6 +374,8 @@ class Parsed:
         wanted: list[tuple[int, int, int]] = []
         for item in items:
             if isinstance(item, tuple):
+                if len(item) != 3 or not all(type(x) is int for x in item):
+                    raise TypeError(f"a range is (source, offset, length), each an int, not {item!r}")
                 wanted.append(item)
                 out.append(None)
                 continue
@@ -373,13 +387,40 @@ class Parsed:
             ref = self.span(i)
             wanted.append((ref.source, ref.offset, ref.length))
             out.append(None)
-        total = sum(n for _, _, n in wanted)
+        total = _fetched(wanted)
         if self._read + total > self.max_bytes:
-            raise ValueError(f"reading {total} more bytes would pass the input's max_bytes of {self.max_bytes}")
+            raise ValueError(f"reading {total} more bytes (ranges as the reader merges them) would pass the input's "
+                             f"max_bytes of {self.max_bytes}")
         got = iter(self._read_ranges(wanted))
         self._read += total
         done = [b if b is not None else next(got) for b in out]
         return done[0] if len(items) == 1 else done
+
+
+def _drive(ref: str) -> bool:
+    """Whether a URI reference is a Windows path's (`C:/...`), which is absolute."""
+    return len(ref) > 1 and ref[1] == ":" and ref[0].isalpha()
+
+
+def _fetched(ranges: list[tuple[int, int, int]]) -> int:
+    """The bytes a reader fetches for `ranges` read together: those of each source at most
+    `MERGE_GAP` apart merged into one read, the bytes between them included."""
+    by: dict[int, list[tuple[int, int]]] = {}
+    for source, offset, length in ranges:
+        if length > 0:
+            by.setdefault(source, []).append((offset, offset + length))
+    total = 0
+    for spans in by.values():
+        spans.sort()
+        start, end = spans[0]
+        for a, b in spans[1:]:
+            if a > end + MERGE_GAP:
+                total += end - start
+                start, end = a, b
+            else:
+                end = max(end, b)
+        total += end - start
+    return total
 
 
 async def read_async(location: str | os.PathLike[str], url: str | None = None, *, policy: Policy | None = None,

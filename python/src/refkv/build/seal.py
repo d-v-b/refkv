@@ -37,13 +37,14 @@ __all__ = ["CODES", "SealError", "seal"]
 # the reader policy's rule 5, which bounds the reads of one value
 READ_RULE = "spec/refkv.md §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>"
 # what a SealError's code names
-CODES = frozenset({"key", "range", "payload", "checksums", "reads", "copy", "inputs", "open", "archive"})
+CODES = frozenset({"key", "value", "range", "payload", "checksums", "reads", "copy", "inputs", "open", "archive"})
 
 
 class SealError(ValueError):
-    """Why `seal` refuses an output: `code` is one of `CODES` (`key`, `range`, `payload`,
-    `checksums`, `reads`, `copy`, `inputs`, `open` for a placement, `archive`), and `key` the
-    entry's key, or None for the output as a whole."""
+    """Why `seal` refuses an output: `code` is one of `CODES` (`key`; `value`, an entry or part
+    of the wrong type; `range`; `payload`; `checksums`; `reads`; `copy`; `inputs`, including
+    arguments that do not go with them; `open`, a placement; `archive`), and `key` the entry's
+    key, or None for the output as a whole."""
 
     def __init__(self, code: str, key: str | None, message: str) -> None:
         super().__init__(f"{key}: {message}" if key else message)
@@ -64,12 +65,18 @@ def seal(written: Mapping[str, Any], inputs: Sequence[Parsed], *, policy: Policy
     readers merge them, unless it carries a check of refkv's whose rule lifts that and whose
     binding holds where it is written. Every payload is at most 65519 bytes, with its checksums
     when the inputs were read with them."""
+    if not isinstance(written, Mapping):
+        raise SealError("value", None, f"an output is a mapping of keys to entries, not {type(written).__name__}")
+    if policy is not None and not isinstance(policy, Policy):
+        raise SealError("inputs", None, f"a policy is a refkv.Policy, not {type(policy).__name__}")
+    if info is not None and not isinstance(info, Mapping):
+        raise SealError("inputs", None, f"info is a mapping, not {type(info).__name__}")
     inputs = list(inputs)
     _check_inputs(inputs, policy, registry)
     try:
         entries = written if isinstance(written, Written) else Written(written)
-    except (TypeError, ValueError) as e:
-        raise SealError("range", None, f"an entry is bytes or a value: {e}") from e
+    except (TypeError, ValueError, AttributeError) as e:
+        raise SealError("value", None, f"an entry is bytes or a value: {e}") from e
     for k in entries:
         why = _key_problem(k)
         if why:
@@ -94,6 +101,8 @@ def seal(written: Mapping[str, Any], inputs: Sequence[Parsed], *, policy: Policy
         raise SealError("archive", None, f"{len(sources)} sources, more than an output's {MAX_SOURCES}")
 
     checksums = bool(inputs) and inputs[0].checksums
+    used = policy if policy is not None else (inputs[0].policy if inputs else None)
+    max_reads = min(MAX_READS, (used or Policy()).max_reads)  # the store's reader allows no more
     mapping: dict[str, bytes | Range | Concat] = {}
     for k in keys:
         if k not in values:
@@ -102,9 +111,9 @@ def seal(written: Mapping[str, Any], inputs: Sequence[Parsed], *, policy: Policy
         ranges = [table.range(k, p) for p in val.parts]
         if not _read_rule_lifted(val, k, entries):
             reads = _reads(ranges, sources)
-            if reads > MAX_READS:
-                raise SealError("reads", k, f"it reads {reads} ranges, more than the {MAX_READS} a reader makes for "
-                                            f"one value by default ({READ_RULE})")
+            if reads > max_reads:
+                raise SealError("reads", k, f"it reads {reads} ranges, more than the {max_reads} its reader makes for "
+                                            f"one value ({READ_RULE})")
         bare = _encoded(ranges)
         if len(bare) > MAX_PAYLOAD:
             raise SealError("payload", k, f"a payload of {len(bare)} bytes, more than {MAX_PAYLOAD}")
@@ -133,10 +142,13 @@ def seal(written: Mapping[str, Any], inputs: Sequence[Parsed], *, policy: Policy
     if opened > MAX_OPEN:
         raise SealError("open", None, f"{opened} bytes read at open, more than {MAX_OPEN}")
 
-    store = ReferenceStore(mapping, sources, read_at_open=sorted(at_open), compressed=sorted(compressed),
-                           page_size=PAGE_SIZE, policy=policy if policy is not None else _first(inputs, "policy"),
-                           registry=registry if registry is not None else _first(inputs, "registry_given"),
-                           info=dict(info or {}))
+    try:
+        store = ReferenceStore(mapping, sources, read_at_open=sorted(at_open), compressed=sorted(compressed),
+                               page_size=PAGE_SIZE, policy=used,
+                               registry=registry if registry is not None else _first(inputs, "registry_given"),
+                               info=dict(info or {}))
+    except (TypeError, ValueError, AttributeError) as e:
+        raise SealError("inputs", None, f"the store cannot be made with these arguments: {e}") from e
     _check_archive(store, sources, mapping)
     return store
 
@@ -211,14 +223,14 @@ class _Table:
             if not (type(p.source) is int and 0 <= p.source < len(p.parsed.sources)):
                 raise SealError("range", key, f"source {p.source!r} is not among the input's")
             if not (_natural(p.offset) and _natural(p.length)):
-                raise SealError("range", key, "a Ref's offset and length are natural numbers")
+                raise SealError("value", key, "a Ref's offset and length are natural numbers")
             self._url(p.parsed, p.source, key)
         elif isinstance(p, (Shared, Data)):
             if type(p.data) is not bytes:
-                raise SealError("range", key, f"a {type(p).__name__} part's data is bytes, not {type(p.data).__name__}")
+                raise SealError("value", key, f"a {type(p).__name__} part's data is bytes, not {type(p.data).__name__}")
             if isinstance(p, Data):
                 if not (_natural(p.offset) and (p.length is None or _natural(p.length))):
-                    raise SealError("range", key, "a Data part's offset and length are natural numbers")
+                    raise SealError("value", key, "a Data part's offset and length are natural numbers")
                 if p.offset > len(p.data) or p.offset + p.size > len(p.data):
                     raise SealError("range", key, "a Data part's bytes lie outside its data")
             if p.data not in self.data:
@@ -226,14 +238,14 @@ class _Table:
                 self.order.append(("data", p.data))
         elif isinstance(p, Zeros):
             if not _natural(p.length):
-                raise SealError("range", key, "Zeros of a natural number of bytes")
+                raise SealError("value", key, "Zeros of a natural number of bytes")
             if not self.zero_used:
                 self.zero_used = True
                 self.order.append(("zero", None))
             self.zeros = max(self.zeros, p.length)
         elif isinstance(p, Literal):
             if type(p.data) is not bytes:
-                raise SealError("range", key, f"a Literal's data is bytes, not {type(p.data).__name__}")
+                raise SealError("value", key, f"a Literal's data is bytes, not {type(p.data).__name__}")
 
     def sources(self) -> list[Source]:
         out = [Source(url=url, size=size, etag=etag) for (url, size, etag) in self.urls]

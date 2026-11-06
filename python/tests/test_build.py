@@ -247,6 +247,8 @@ def test_written_keeps_its_placements():
     assert both.stored == {"x/zarr.json"}
     a |= {"z": Literal(b"z")}
     assert a["z"] == Value((Literal(b"z"),))
+    both["y"] = Literal(b"now a value")
+    assert "y" not in both.at_open
     plain = dict(both)
     assert set(plain) == {"x/zarr.json", "y"}
 
@@ -392,8 +394,11 @@ def test_seal_refuses_one_file_read_with_two_sizes(tmp_path):
 
 
 def test_seal_refuses_a_placement_of_no_bytes_entry(tmp_path):
-    with read(_npy(tmp_path)) as p, pytest.raises(SealError) as e:
-        seal(Written({"v": Ref(p, 0, 0, 4)}, at_open={"v": True}), [p])
+    with read(_npy(tmp_path)) as p:
+        w = Written({"v": Ref(p, 0, 0, 4)})
+        w.at_open["v"] = True  # placed after it was set: a placement of no bytes entry
+        with pytest.raises(SealError) as e:
+            seal(w, [p])
     assert e.value.code == "open"
 
 
@@ -448,7 +453,7 @@ def test_seal_refuses_a_closed_input_read_with_checksums(tmp_path):
 def test_seal_refuses_a_malformed_part(tmp_path):
     with read(_npy(tmp_path)) as p, pytest.raises(SealError) as e:
         seal(Written({"v": Zeros(-1)}), [p])
-    assert e.value.code == "range"
+    assert e.value.code == "value"
 
 
 def test_seal_refuses_a_copy_of_an_issued_check(tmp_path):
@@ -468,7 +473,7 @@ def test_seal_refuses_a_copy_of_an_issued_check(tmp_path):
 def test_seal_refuses_an_entry_that_is_not_bytes_or_a_value(tmp_path):
     with read(_npy(tmp_path)) as p, pytest.raises(SealError) as e:
         seal({"v": 5}, [p])
-    assert e.value.code == "range"
+    assert e.value.code == "value"
 
 
 def test_seal_refuses_a_source_the_input_does_not_have(tmp_path):
@@ -486,7 +491,7 @@ def test_seal_refuses_a_data_part_outside_its_data(tmp_path):
 def test_seal_refuses_data_that_is_not_bytes(tmp_path):
     with read(_npy(tmp_path)) as p, pytest.raises(SealError) as e:
         seal(Written({"v": Literal("abc")}), [p])  # type: ignore[arg-type]
-    assert e.value.code == "range"
+    assert e.value.code == "value"
 
 
 def test_seal_refuses_a_source_of_unknown_size(tmp_path):
@@ -543,6 +548,69 @@ def test_a_store_named_by_a_url_is_read_where_it_was_opened(tmp_path):
         assert p.bytes((k, 0, 16)) == (tmp_path / "nrrd_detached_raw.raw").read_bytes()[:16]
 
 
+def test_seal_refuses_a_value_of_more_reads_than_its_policy_allows(tmp_path):
+    with read(_npy(tmp_path, n=40 << 17), policy=Policy(max_reads=10)) as p, pytest.raises(SealError) as e:
+        seal(Written({"v": concat(*(Ref(p, 0, k << 17, 1) for k in range(20)))}), [p])
+    assert e.value.code == "reads"
+
+
+def test_seal_refuses_an_output_that_is_not_a_mapping(tmp_path):
+    with read(_npy(tmp_path)) as p, pytest.raises(SealError) as e:
+        seal([("v", b"x")], [p])  # type: ignore[arg-type]
+    assert e.value.code == "value"
+
+
+def test_seal_refuses_a_policy_that_is_not_a_policy(tmp_path):
+    with read(_npy(tmp_path)) as p, pytest.raises(SealError) as e:
+        seal(Written({"v": b"x"}), [p], policy="x")  # type: ignore[arg-type]
+    assert e.value.code == "inputs"
+
+
+def test_seal_refuses_info_that_is_not_a_mapping(tmp_path):
+    with read(_npy(tmp_path)) as p, pytest.raises(SealError) as e:
+        seal(Written({"v": b"x"}), [p], info=[1])  # type: ignore[arg-type]
+    assert e.value.code == "inputs"
+
+
+def test_seal_refuses_a_ref_of_no_natural_offset(tmp_path):
+    with read(_npy(tmp_path)) as p, pytest.raises(SealError) as e:
+        seal(Written({"v": Ref(p, 0, -1, 4)}), [p])
+    assert e.value.code == "value"
+
+
+def test_seal_refuses_more_sources_than_an_output_holds(tmp_path, monkeypatch):
+    monkeypatch.setattr(seal_module, "MAX_SOURCES", 1)
+    with read(_npy(tmp_path)) as p, pytest.raises(SealError) as e:
+        seal(Written({"v": concat(Ref(p, 0, 0, 1), Data(b"x"))}), [p])
+    assert e.value.code == "archive"
+
+
+def test_seal_refuses_a_source_table_past_what_a_reader_reads(tmp_path, monkeypatch):
+    monkeypatch.setattr(seal_module, "MAX_OPEN", 8)
+    with read(_npy(tmp_path)) as p, pytest.raises(SealError) as e:
+        seal(Written({"v": Ref(p, 0, 0, 1)}), [p])
+    assert e.value.code == "archive"
+
+
+def test_a_relative_input_reads_the_file_read_opened(tmp_path, monkeypatch):
+    """An input read by a relative path reads that file after the working directory changes, and
+    two inputs of one relative path in two directories are two sources."""
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    np.save(tmp_path / "a" / "x.npy", np.full(64, 1, dtype=np.uint8))
+    np.save(tmp_path / "b" / "x.npy", np.full(64, 2, dtype=np.uint8))
+    monkeypatch.chdir(tmp_path / "a")
+    p = read("x.npy")
+    monkeypatch.chdir(tmp_path / "b")
+    q = read("x.npy")
+    assert p.bytes((0, 130, 1)) == b"\x01"
+    with pytest.raises(SealError) as e:  # one URL naming two files
+        seal(Written({"a": Ref(p, 0, 130, 1), "b": Ref(q, 0, 130, 1)}), [p, q])
+    assert e.value.code == "inputs"
+    p.close()
+    q.close()
+
+
 # ---- what the other tools refuse: one test each
 
 def test_element_at_refuses_a_source_the_input_does_not_have(tmp_path):
@@ -578,6 +646,33 @@ def test_reference_refuses_a_chunk_whose_form_skips_filters():
 def test_bytes_refuses_an_element_in_a_derived_space():
     with read(FIXTURES / "fits/fits_gzip_image.fits.gz") as p, pytest.raises(ValueError, match="derived space"):
         p.bytes(p.ir.index("stream/hdus/0/data"))  # in the inflated stream, its bytes not kept
+
+
+def test_bytes_counts_what_the_reader_fetches(tmp_path):
+    """Ranges read together count against max_bytes as the reader merges them, the bytes between
+    them included."""
+    with read(_npy(tmp_path, n=1 << 17), max_bytes=1000) as p, pytest.raises(ValueError, match="max_bytes"):
+        p.bytes((0, 200, 1), (0, 60000, 1))
+
+
+def test_bytes_refuses_a_malformed_range(tmp_path):
+    with read(_npy(tmp_path)) as p, pytest.raises(TypeError):
+        p.bytes((0, 1.5, 2))  # type: ignore[arg-type]
+
+
+def test_bytes_refuses_a_range_past_its_source(tmp_path):
+    with read(_npy(tmp_path), max_bytes=1 << 31) as p, pytest.raises(ValueError, match="past its"):
+        p.bytes((0, 0, 1 << 30))
+
+
+def test_reference_refuses_a_member_the_element_does_not_have():
+    with read(FIXTURES / "tiff/strips_uint8.tif") as p, pytest.raises(KeyError):
+        p.reference(p.ir.index("ifds/0/strips"), member=10**6)
+
+
+def test_an_array_of_a_type_whose_zero_is_unknown_needs_its_fill_value():
+    with pytest.raises(ValueError, match="no zero"):
+        Array([2], "string", [2], [{"name": "vlen-utf8"}], {}).document()
 
 
 def test_bytes_refuses_past_max_bytes(tmp_path):

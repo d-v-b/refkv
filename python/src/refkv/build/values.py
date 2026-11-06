@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Self
 
 from refkv import Range
+from refkv.policy import MAX_SOURCES
 from refkv.zarrify.layouts import MAX_PAYLOAD, chunk_key
 
 if TYPE_CHECKING:
@@ -20,10 +21,9 @@ if TYPE_CHECKING:
 __all__ = ["Array", "Binding", "Check", "Copy", "Data", "Literal", "Part", "Ref", "Shared", "Value", "Written",
            "Zeros", "concat", "cut", "fits", "payload_size", "value"]
 
-# the most sources an output's table holds: spec/refkv.md §6.7
-# <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>'s default `max_sources`,
-# which a source index is measured against before `seal` numbers the table
-MAX_SOURCES = 1 << 22
+# MAX_SOURCES, the most sources an output's table holds (spec/refkv.md §6.7
+# <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>'s default `max_sources`),
+# is what a source index is measured against before `seal` numbers the table
 CRC_FIELD = 6  # the most bytes a range's crc32c field takes: a tag, and a varint of 32 bits
 
 
@@ -318,7 +318,9 @@ def _zero(data_type: object) -> object:
         return 0.0
     if data_type.startswith("r") and data_type[1:].isdigit():  # raw bits: one zero per byte
         return [0] * (int(data_type[1:]) // 8)
-    return 0
+    if data_type.startswith(("int", "uint")):
+        return 0
+    raise ValueError(f"the data type {data_type!r} has no zero this knows: give the Array its fill_value")
 
 
 def _canonical(x: object) -> str:
@@ -407,7 +409,12 @@ class Written(MutableMapping[str, "bytes | Value"]):
         return self._entries[key]
 
     def __setitem__(self, key: str, v: bytes | bytearray | memoryview | Value | Part | Sequence[Part]) -> None:
-        self._entries[key] = bytes(v) if isinstance(v, (bytes, bytearray, memoryview)) else value(v)
+        if isinstance(v, (bytes, bytearray, memoryview)):
+            self._entries[key] = bytes(v)
+            return
+        self._entries[key] = value(v)
+        self.at_open.pop(key, None)  # a placement is of a bytes entry
+        self.stored.discard(key)
 
     def __delitem__(self, key: str) -> None:
         del self._entries[key]
