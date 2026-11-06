@@ -65,8 +65,12 @@ class Ome06:
                     raise ValueError(f"{name!r} is not an image's name")
                 if sorted(order) != sorted(dims) or [a["name"] for a in axes] != order or len(scale) != len(dims):
                     raise ValueError(f"{name}: order, axes and scale give each of dims {dims} once")
-                if any(a.get("type") not in AXIS_TYPES for a in axes):
-                    raise ValueError(f"{name}: an axis's type is time, channel or space")
+                types = [a.get("type") for a in axes]
+                if any(t not in AXIS_TYPES for t in types) or types != sorted(types, key=AXIS_TYPES.index) \
+                        or not 2 <= len(types) <= 5 or not 2 <= types.count("space") <= 3:
+                    raise ValueError(f"{name}: 2 to 5 axes, time, then channel, then 2 or 3 of space")
+                if name in [i["name"] for i in images]:
+                    raise ValueError(f"two images are named {name}")
                 images.append({"name": name, "array": array, "dims": dims, "order": order, "axes": axes,
                                "scale": scale})
         except (KeyError, TypeError, AttributeError) as e:

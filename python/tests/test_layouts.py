@@ -6,7 +6,7 @@ import dataclasses
 import json
 import runpy
 from pathlib import Path
-from typing import ClassVar
+from typing import Any, ClassVar
 
 import h5py
 import jsonschema
@@ -525,3 +525,345 @@ def test_the_cli_exits_3_for_a_rejected_layout(monkeypatch, tmp_path):
 def test_the_cli_exits_1_for_a_failed_layout(monkeypatch, tmp_path):
     install(monkeypatch, Entry(Writes.name, Writes(error=RuntimeError("bug"))))
     assert main([str(FIXTURES / "tiff/strips_uint8.tif"), str(tmp_path / "o.vzip"), "--layout", Writes.name]) == 1
+
+
+TIF = str(FIXTURES / "tiff/strips_uint8.tif")
+
+
+def doc_bytes(attributes=None, **members):
+    """A group's document, or with `node_type` and the members given, another one."""
+    return json.dumps({"zarr_format": 3, "node_type": "group", "attributes": attributes or {}, **members}).encode()
+
+
+def fails(monkeypatch, entries, match):
+    """Runs a plugin whose write returns `entries(base)`, and expects LayoutFailed matching `match`."""
+    install(monkeypatch, Entry(Writes.name, Writes(entries)))
+    with pytest.raises(LayoutFailed, match=match):
+        zarrify(TIF, plugins=[Layout(Writes.name)])
+
+
+def variant(**attributes) -> Any:
+    """The example plugin with some attributes changed."""
+    return type("Variant", (Ome06,), attributes)
+
+
+def refused(monkeypatch, plugin, match, plugins=None):
+    """Asks for `plugin`'s layout (or `plugins`), and expects LayoutUsageError matching `match`."""
+    install(monkeypatch, Entry(plugin.name, plugin))
+    with pytest.raises(LayoutUsageError, match=match):
+        zarrify(TIF, plugins=plugins if plugins is not None else [Layout(plugin.name)])
+
+
+def convention(**changed):
+    return dataclasses.replace(Ome06.convention, **changed)
+
+
+def test_a_plugin_sees_one_base_whatever_else_the_call_asks_for(monkeypatch):
+    """Base hides the dataset layout, the root's layouts and the ranges' checksums: a plugin sees
+    the same keys, root and values with or without the dataset layout and checksums; and the
+    output keeps the CMOs and key members the plugin wrote, reads its documents at open, and
+    declares the convention planned, whatever the plugin did to its own."""
+    seen = []
+
+    class Records(WithMrc):
+        def write(self, base, options):
+            seen.append((base.keys(), base.document("zarr.json"), dict(base.array("0")[1])))
+            self.convention = convention(uuid="11111111-1111-4111-8111-111111111111")
+            out = super().write(base, options)
+            extra = {"uuid": "22222222-2222-4222-8222-222222222222", "name": "other", "schema_url": "s",
+                     "spec_url": "p", "description": "d"}
+            node = json.loads(out["zarr.json"])
+            node["attributes"] |= {"zarr_conventions": [extra], "acme_ome_mrc": {"note": 1}}
+            return {**out, "zarr.json": json.dumps(node).encode()}
+
+    install(monkeypatch, Entry(Records.name, Records))
+    mrc = str(FIXTURES / "mrc/mrc_mode_int4_image.mrc")
+    store = zarrify(mrc, plugins=[Layout(Records.name)])
+    zarrify(mrc, plugins=[Layout(Records.name)], layouts=[Image()], checksums=True)
+    assert seen[0] == seen[1]
+    assert not any(k.startswith("dataset/") for k in seen[0][0])
+    assert "layouts" not in seen[0][1]["attributes"]["refkv_zarrified"]
+    attrs = document(store, "refkv_layouts/ome06/zarr.json")["attributes"]
+    assert [c["uuid"] for c in attrs["zarr_conventions"]] == [layouts.UUID, Ome06.convention.uuid,
+                                                              "22222222-2222-4222-8222-222222222222"]
+    assert attrs["acme_ome_mrc"] == {"version": 0, "note": 1}
+    assert {"refkv_layouts/zarr.json", "refkv_layouts/ome06/zarr.json"} <= set(store.read_at_open)
+
+
+def transposed(t, shape=(2, 3, 4)):
+    """A base of one array, stored transposed by `t` (its first codec a transpose), and its values."""
+    values = np.arange(int(np.prod(shape)), dtype="<u2").reshape(shape)
+    stored = np.transpose(values, t)
+    array = {"zarr_format": 3, "node_type": "array", "shape": list(shape), "data_type": "uint16",
+             "chunk_grid": {"name": "regular", "configuration": {"chunk_shape": list(shape)}},
+             "chunk_key_encoding": {"name": "default"}, "fill_value": 0, "dimension_names": ["a", "b", "c"],
+             "codecs": [{"name": "transpose", "configuration": {"order": list(t)}},
+                        {"name": "bytes", "configuration": {"endian": "little"}}], "attributes": {}}
+    root = {"zarr_format": 3, "node_type": "group",
+            "attributes": {"refkv_zarrified": {"profile": "tiff", "version": 0, "source": {"url": "x.tif"}}}}
+    store = refkv.ReferenceStore({"zarr.json": json.dumps(root).encode(), "a/zarr.json": json.dumps(array).encode(),
+                                  "a/c/0/0/0": np.ascontiguousarray(stored).tobytes()})
+    return store, values
+
+
+@pytest.mark.parametrize(("t", "order"), [([1, 2, 0], [2, 0, 1]), ([1, 2, 0], [1, 0, 2]), ([2, 0, 1], [0, 2, 1]),
+                                          ([1, 0, 2], [1, 0, 2])])
+def test_copy_composes_its_transpose_with_the_base_s(t, order):
+    """A copy of an array that starts with a transpose decodes to the base's values transposed, for
+    orders that do not commute with it, and drops the transpose when the two cancel; its
+    dimension names are permuted with it."""
+    store, values = transposed(t)
+    entries = copy(Base(store, None), "a", order=order)
+    copied = refkv.ReferenceStore(entries)
+    assert np.array_equal(read(copied, ""), np.transpose(values, order))
+    doc = document(refkv.ReferenceStore(entries), "zarr.json")
+    assert doc["dimension_names"] == [["a", "b", "c"][o] for o in order]
+    composed = [_inverse_of(order)[i] for i in t]
+    assert doc["codecs"][0]["name"] == ("bytes" if composed == [0, 1, 2] else "transpose")
+
+
+def _inverse_of(order):
+    out = [0] * len(order)
+    for i, o in enumerate(order):
+        out[o] = i
+    return out
+
+
+def test_copy_refuses_an_order_that_is_no_permutation():
+    with pytest.raises(ValueError, match="not a permutation"):
+        copy(Base(transposed([0, 1, 2])[0], None), "a", order=[0, 0, 1])
+
+
+def test_copy_refuses_an_order_of_names():
+    with pytest.raises(ValueError, match="axis indexes"):
+        copy(Base(transposed([0, 1, 2])[0], None), "a", order=["a", "b", "c"])  # type: ignore[arg-type]
+
+
+def test_copy_refuses_an_unknown_chunk_key_encoding():
+    store, _ = transposed([0, 1, 2])
+    doc = document(store, "a/zarr.json") | {"chunk_key_encoding": {"name": "other"}}
+    mapping = {**store.mapping, "a/zarr.json": json.dumps(doc).encode()}
+    with pytest.raises(ValueError, match="not one copy can permute"):
+        copy(Base(refkv.ReferenceStore(mapping), None), "a", order=[1, 0, 2])
+
+
+def test_copy_refuses_a_key_that_is_no_chunk_key():
+    store, _ = transposed([0, 1, 2])
+    mapping = {k: v for k, v in store.mapping.items() if k != "a/c/0/0/0"} | {"a/x/0/0/0": store.mapping["a/c/0/0/0"]}
+    with pytest.raises(ValueError, match="not a chunk key"):
+        copy(Base(refkv.ReferenceStore(mapping), None), "a", order=[1, 0, 2])
+
+
+def test_a_plugin_s_unread_version_is_rejected_by_name(monkeypatch):
+    install(monkeypatch, Entry(NAME, variant(formats={"tiff": {1}})))
+    with pytest.raises(LayoutRejected, match=r"at version 0 \(it reads tiff v1\)"):
+        zarrify(TIF, plugins=[Layout(NAME)])
+
+
+def test_a_bad_name_is_a_usage_error(monkeypatch):
+    refused(monkeypatch, Ome06, "not a layout's name", [Layout("NoDot")])
+
+
+def test_a_refkv_name_is_a_usage_error(monkeypatch):
+    refused(monkeypatch, Ome06, "starts with refkv", [Layout("refkv-x.y")])
+
+
+def test_two_entry_points_of_one_name_are_a_usage_error(monkeypatch):
+    install(monkeypatch, Entry(NAME, Ome06), Entry(NAME, Ome06))
+    with pytest.raises(LayoutUsageError, match="2 entry points"):
+        zarrify(TIF, plugins=[Layout(NAME)])
+
+
+def test_a_bad_plugin_path_is_a_usage_error(monkeypatch):
+    refused(monkeypatch, variant(path="a/b"), "its path")
+
+
+def test_a_convention_that_is_no_conventioninfo_is_a_usage_error(monkeypatch):
+    refused(monkeypatch, variant(convention={"uuid": "x"}), "not a ConventionInfo")
+
+
+def test_a_convention_uuid_that_is_no_uuid_is_a_usage_error(monkeypatch):
+    refused(monkeypatch, variant(convention=convention(uuid="nope")), "is not a UUID")
+
+
+def test_a_convention_uuid_in_upper_case_is_a_usage_error(monkeypatch):
+    refused(monkeypatch, variant(convention=convention(uuid=Ome06.convention.uuid.upper())), "in lower case")
+
+
+def test_a_refkv_convention_uuid_is_a_usage_error(monkeypatch):
+    refused(monkeypatch, variant(convention=convention(uuid=layouts.UUID)), "a refkv convention's")
+
+
+def test_a_convention_version_that_is_no_natural_number_is_a_usage_error(monkeypatch):
+    refused(monkeypatch, variant(convention=convention(version=True)), "not a natural number")
+
+
+def test_a_refkv_schema_url_is_a_usage_error(monkeypatch):
+    url = "HTTP://www.GitHub.com:443/d-v-b/refkv"
+    refused(monkeypatch, variant(convention=convention(schema_url=url)), "schema_url is refkv's")
+
+
+def test_an_empty_description_is_a_usage_error(monkeypatch):
+    refused(monkeypatch, variant(convention=convention(description="")), "description is not a string")
+
+
+def test_a_convention_with_a_lone_surrogate_is_a_usage_error(monkeypatch):
+    refused(monkeypatch, variant(convention=convention(description="\ud800")), "not valid Unicode")
+
+
+def test_a_negative_version_in_formats_is_a_usage_error(monkeypatch):
+    refused(monkeypatch, variant(formats={"tiff": {-1}}), "formats is not a mapping")
+
+
+def test_a_plugin_without_write_is_a_usage_error(monkeypatch):
+    refused(monkeypatch, variant(write=None), "has options\\(\\) and write\\(\\)")
+
+
+def test_a_value_that_is_no_layout_is_a_usage_error(monkeypatch):
+    refused(monkeypatch, Ome06, "holds Layout values", [NAME])
+
+
+def test_options_that_are_no_mapping_are_a_usage_error(monkeypatch):
+    refused(monkeypatch, Ome06, "a mapping", [Layout(NAME, '{"images": []}')])  # type: ignore[arg-type]
+
+
+def test_a_path_that_is_no_string_is_a_usage_error(monkeypatch):
+    refused(monkeypatch, Ome06, "its path is a string", [Layout(NAME, path=5)])  # type: ignore[arg-type]
+
+
+def test_an_invalid_layout_path_is_a_usage_error(monkeypatch):
+    refused(monkeypatch, Ome06, "one key segment", [Layout(NAME, path="__x")])
+
+
+def test_options_that_return_no_mapping_are_a_usage_error(monkeypatch):
+    refused(monkeypatch, variant(options=lambda _self, _given: [1]), "not a mapping")
+
+
+def test_canonical_options_that_are_no_json_are_a_usage_error(monkeypatch):
+    refused(monkeypatch, variant(options=lambda _self, _given: {"a": (1, 2)}), "not JSON as they are")
+
+
+def test_options_nested_too_deep_are_a_usage_error(monkeypatch):
+    deep: dict = {}
+    for _ in range(100000):
+        deep = {"a": deep}
+    refused(monkeypatch, Ome06, "RecursionError", [Layout(NAME, deep)])
+
+
+def test_two_layouts_of_one_key_are_a_usage_error(monkeypatch):
+    one, two = variant(name="acme-ome.a-b"), variant(name="acme-ome.a.b", path="other",
+                                                      convention=convention(uuid="33333333-3333-4333-8333-333333333333"))
+    install(monkeypatch, Entry(one.name, one), Entry(two.name, two))
+    with pytest.raises(LayoutUsageError, match="one key"):
+        zarrify(TIF, plugins=[Layout(one.name), Layout(two.name)])
+
+
+def test_two_layouts_of_one_name_are_a_usage_error(monkeypatch):
+    refused(monkeypatch, Ome06, "one name", [Layout(NAME), Layout(NAME, path="other")])
+
+
+def test_a_write_that_returns_no_mapping_fails(monkeypatch):
+    fails(monkeypatch, lambda _base: None, "not a mapping of keys")
+
+
+def test_a_mid_key_zarr_json_segment_is_a_failure(monkeypatch):
+    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes(), "a/zarr.json/zarr.json": doc_bytes()},
+          "not a key of a layout")
+
+
+def test_a_key_longer_than_an_archive_holds_is_a_failure(monkeypatch):
+    fails(monkeypatch, lambda base: {"zarr.json": doc_bytes(), **array_entries(base), "0/" + "a" * 70000: b"x"},
+          "more than an archive's")
+
+
+def test_a_document_that_is_no_bytes_is_a_failure(monkeypatch):
+    fails(monkeypatch, lambda _base: {"zarr.json": {"zarr_format": 3}}, "a document is bytes")
+
+
+def test_a_document_with_a_byte_order_mark_is_a_failure(monkeypatch):
+    fails(monkeypatch, lambda _base: {"zarr.json": "﻿".encode() + doc_bytes()}, "byte order mark")
+
+
+def test_a_document_with_a_member_twice_is_a_failure(monkeypatch):
+    twice = b'{"zarr_format":3,"node_type":"group","attributes":{},"attributes":{}}'
+    fails(monkeypatch, lambda _base: {"zarr.json": twice}, "a member twice")
+
+
+def test_a_document_with_a_lone_surrogate_is_a_failure(monkeypatch):
+    lone = b'{"zarr_format":3,"node_type":"group","attributes":{"a":"\\ud800"}}'
+    fails(monkeypatch, lambda _base: {"zarr.json": lone}, "not valid Unicode")
+
+
+def test_a_document_with_an_infinite_number_is_a_failure(monkeypatch):
+    big = b'{"zarr_format":3,"node_type":"group","attributes":{"a":1e400}}'
+    fails(monkeypatch, lambda _base: {"zarr.json": big}, "beyond binary64")
+
+
+def test_a_document_whose_zarr_format_is_no_integer_is_a_failure(monkeypatch):
+    fails(monkeypatch, lambda _base: {"zarr.json": b'{"zarr_format":3.0,"node_type":"group"}'}, "Zarr v3 group")
+
+
+def test_a_document_of_another_node_type_is_a_failure(monkeypatch):
+    fails(monkeypatch, lambda _base: {"zarr.json": b'{"zarr_format":3,"node_type":"other"}'}, "Zarr v3 group")
+
+
+def test_an_array_document_without_its_members_is_a_failure(monkeypatch):
+    bare = b'{"zarr_format":3,"node_type":"array"}'
+    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes(), "a/zarr.json": bare}, "an array's document holds")
+
+
+def test_a_layout_node_that_is_an_array_is_a_failure(monkeypatch):
+    fails(monkeypatch, lambda base: {k.removeprefix("0/"): v for k, v in array_entries(base).items()}, "not a group")
+
+
+def test_a_node_inside_an_array_is_a_failure(monkeypatch):
+    fails(monkeypatch, lambda base: {"zarr.json": doc_bytes(), **array_entries(base), "0/x/zarr.json": doc_bytes()},
+          "is not a group of the layout")
+
+
+def test_attributes_that_are_no_object_are_a_failure(monkeypatch):
+    fails(monkeypatch, lambda _base: {"zarr.json": b'{"zarr_format":3,"node_type":"group","attributes":[]}'},
+          "attributes is not an object")
+
+
+def test_a_refkv_layout_member_is_a_failure(monkeypatch):
+    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes({"refkv_layout": {}})}, "holds refkv_layout")
+
+
+def test_a_refkv_provenance_member_is_a_failure(monkeypatch):
+    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes({"refkv_provenance": {}})}, "holds refkv_provenance")
+
+
+def test_a_plugin_key_that_is_no_object_is_a_failure(monkeypatch):
+    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes({"acme_ome_writes": 1})}, "does not hold an object")
+
+
+def test_a_plugin_key_holding_version_is_a_failure(monkeypatch):
+    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes({"acme_ome_writes": {"version": 1}})},
+          "must not hold version")
+
+
+def test_zarr_conventions_that_are_no_list_are_a_failure(monkeypatch):
+    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes({"zarr_conventions": {"uuid": "x"}})},
+          "not a list of objects")
+
+
+def test_a_cmo_name_that_is_no_string_is_a_failure(monkeypatch):
+    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes({"zarr_conventions": [{"uuid": "x", "name": ["n"]}]})},
+          "name is not a string")
+
+
+def test_a_cmo_with_refkv_s_url_is_a_failure(monkeypatch):
+    cmo = {"uuid": "44444444-4444-4444-8444-444444444444", "schema_url": "git+https://github.com/d-v-b/refkv/x"}
+    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes({"zarr_conventions": [cmo]})}, "declares a refkv")
+
+
+def test_a_cmo_named_as_the_plugin_s_key_is_a_failure(monkeypatch):
+    cmo = {"uuid": "44444444-4444-4444-8444-444444444444", "name": "acme_ome_writes"}
+    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes({"zarr_conventions": [cmo]})},
+          "otherwise than its ConventionInfo")
+
+
+def test_the_cli_exits_2_for_options_without_a_name(monkeypatch, tmp_path):
+    install(monkeypatch, Entry(NAME, Ome06))
+    assert main([TIF, str(tmp_path / "o.vzip"), "--layout", NAME, "--layout-options", "{}"]) == 2

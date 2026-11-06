@@ -86,11 +86,17 @@ its other members.
 A plugin is given the built-in output as a read-only **base**: the image layout and
 `refkv_source`, without a dataset layout, its root without `layouts`, and its ranges without
 checksums (which are of the source's bytes), so that what it writes does not depend on which
-built-in layouts the call asked for, or on whether it asked for checksums. It is given the base's IR, and the
-options the caller gave, in its canonical form. It returns the layout's entries, keys relative to
-its node, and refkv writes them as [§3](#3-the-entries) says. A plugin names the base profiles it
-reads, each with the versions of its convention, and a base that is not one of them refuses the
-layout request.
+built-in layouts the call asked for, or on the checksums' values. (A profile may cut a reference
+into more ranges when the call asks for checksums,
+[spec/zarrify.md §2.1](zarrify.md#21-virtual-shards); a plugin sees the ranges as they are.) It
+is given the base's IR, and the options the caller gave, in its canonical form. It returns the
+layout's entries, keys relative to its node, and refkv writes them as [§3](#3-the-entries) says.
+
+A plugin names the base profiles it reads, each with the natural numbers of the convention
+versions it reads, and a base that is not one of them refuses the layout request. Names that are
+no file profile of the implementation are ignored, so that a plugin written for a later one loads,
+but a plugin that names none is refused when it is loaded, as is one whose attributes break
+[§5](#5-names-identity-and-versions)'s rules.
 
 **Structure only.** A plugin's layout is a function of the base's structure (its documents and
 bytes entries, and its IR) and its options: it MUST NOT depend on the bytes the base's
@@ -104,22 +110,26 @@ failure, and no output is written:
 
 - Every key is a valid key ([spec/refkv.md §2](refkv.md#2-data-model)), valid UTF-8, with no
   empty, `.` or `..` segment, no segment that starts with `__`, and `zarr.json` only as its last
-  segment.
+  segment; with `refkv_layouts/<path>/` before it, it is at most 65535 bytes, as a ZIP archive's
+  keys are.
 - Every document is strict JSON in UTF-8 (RFC 8259): no byte order mark, no `NaN` or infinity,
   no member twice in one object, no lone surrogate; an array's document holds `shape`,
   `data_type`, `chunk_grid`, `chunk_key_encoding`, `codecs` and `fill_value`.
 - `zarr.json` is a group. Every other key is a node's `zarr.json` whose parent node's `zarr.json`
   is a group of the layout, or a key below an array's `zarr.json`; no node is inside an array.
 - Every reference entry's ranges are, as [spec/zarrify.md §1.1](zarrify.md#11-output-and-equivalence)
-  compares them (checksums apart), those of a reference entry of the base: a layout copies the
+  compares them (checksums apart), those of a reference entry of the base, in the same form (one
+  range, or a concatenation of the same ranges, as the base holds it): a layout copies the
   base's references and makes none, so it reads only bytes the base reads, under the base's
   pins and reader policy. Each is written as the base holds it, its checksums included,
   whatever checksums the plugin's value has.
-- No document holds `consolidated_metadata`, the member `refkv_zarrified`, `refkv_layout` or
-  `refkv_provenance`, or, in `zarr_conventions` (a list of objects), a CMO with the UUID (in any
-  case), the `name` or the URLs of a refkv convention: a profile's, a dataset layout's,
-  provenance's or this one; a URL is refkv's when, its scheme and case aside, it is under
-  `github.com/d-v-b/refkv/` or `raw.githubusercontent.com/d-v-b/refkv/`. A CMO with the plugin's
+- No document holds `consolidated_metadata`, the top-level attribute `refkv_zarrified`,
+  `refkv_layout` or `refkv_provenance`, or, in `zarr_conventions` (a list of objects), a CMO with
+  the UUID, the `name` or a URL of a refkv convention: a profile's, a dataset layout's,
+  provenance's or this one. A UUID is refkv's as RFC 9562 reads it (case, braces, hyphens and a
+  `urn:uuid:` prefix aside); a URL is refkv's when its host, `www.`, port and case aside, is
+  `github.com` or `raw.githubusercontent.com` and its path is `/d-v-b/refkv` or below it, whatever
+  its scheme. A CMO's `name`, when it has one, is a string. A CMO with the plugin's
   convention's UUID, or its key as `name`, equals the one the plugin's description makes. In every document, the plugin's key holds an object without
   `version`.
 

@@ -16,19 +16,31 @@ as coordinates, as bytes.) The rules are [spec/layout.md](../spec/layout.md).
   first part your distribution's name, normalized); refkv makes an instance of a class it is
   given. Its `formats` names the profiles it reads, by name: `tiff`, `ndpi`, `qptiff`, `ims`,
   `hdf5`, and the rest of [docs/zarrify/README.md](zarrify/README.md)'s.
+- **What a plugin has.** `name` (the entry point's key), `path` (its node's default path),
+  `formats` (each profile it reads, mapped to a set of its convention's versions: `{"tiff": {0}}`;
+  every convention is at version 0 until refkv 1.0), `convention` (a `ConventionInfo`: its UUID,
+  version, schema and spec URLs and description), `options(given)` (the options in canonical
+  form, or a `ValueError`) and `write(base, options)`.
 - **What it is given.** `write(base, options)` gets the built-in output as a read-only `Base`:
-  `base.profile` (`"tiff"`, `"hdf5"`, ...), `base.document(key)` for a `zarr.json`,
-  `base.array(path)` for an array's document and chunks, and `base.ir`, the parsed source. A
-  plugin never reads pixel data.
+  `base.profile` (`"tiff"`, `"hdf5"`, ...), `base.version` and `base.uuid` (its convention's),
+  `base.keys()`, `base.document(key)` for a `zarr.json`, `base.array(path)` for an array's
+  document and chunks, and `base.ir`, the parsed source. A plugin never reads pixel data.
 - **What it returns.** The layout's entries, keys relative to its node: documents it writes, and
-  references it copies with `copy(base, path, order=...)`, which can also transpose an array (a
-  channel-last image into OME's time, channel, space order) without touching its chunks.
+  references it copies with `copy(base, path, order=..., attributes=..., dimension_names=...)`,
+  which can also transpose an array (`order` as `numpy.transpose` takes it: a channel-last image
+  into OME's time, channel, space order) without touching its chunks. A copy has no attributes
+  unless you give them (the base's are in refkv's encodings), and its dimension names are the
+  base's, permuted, unless you give them, in the copy's order.
 - **What refkv does.** It checks the entries (every reference must be one of the base's), puts
   them under `refkv_layouts/<path>/`, declares the layout with the `refkv_layout` convention and
   your plugin's own, and names it in the root's `layouts`.
 - **Asking for it.** `zarrify(path, plugins=[Layout(name, options)])`, or `python -m
   refkv.zarrify <in> <out.vzip> --layout NAME --layout-options NAME=JSON`. A reader opens the
   layout's path, `refkv_layouts/ome06`, not the archive's root.
+- **Errors.** `LayoutUsageError` (a `ValueError`; exit status 2): the layout asked for wrongly,
+  or a plugin that breaks the rules. `LayoutRejected` (a `Rejected`; exit status 3): this input's
+  base is one the plugin does not read, or the plugin raised `Rejected` for it. `LayoutFailed`
+  (exit status 1): `write` raised, or its entries broke a rule; the message says which.
 
 A TIFF (and an NDPI, QPTIFF or IMS file) is already an OME-Zarr 0.5 image in refkv's own layout,
 so the example copies its levels and writes 0.6 metadata over them. For an HDF5 file, which
@@ -120,8 +132,12 @@ class Ome06:
                     raise ValueError(f"{name!r} is not an image's name")
                 if sorted(order) != sorted(dims) or [a["name"] for a in axes] != order or len(scale) != len(dims):
                     raise ValueError(f"{name}: order, axes and scale give each of dims {dims} once")
-                if any(a.get("type") not in AXIS_TYPES for a in axes):
-                    raise ValueError(f"{name}: an axis's type is time, channel or space")
+                types = [a.get("type") for a in axes]
+                if any(t not in AXIS_TYPES for t in types) or types != sorted(types, key=AXIS_TYPES.index) \
+                        or not 2 <= len(types) <= 5 or not 2 <= types.count("space") <= 3:
+                    raise ValueError(f"{name}: 2 to 5 axes, time, then channel, then 2 or 3 of space")
+                if name in [i["name"] for i in images]:
+                    raise ValueError(f"two images are named {name}")
                 images.append({"name": name, "array": array, "dims": dims, "order": order, "axes": axes,
                                "scale": scale})
         except (KeyError, TypeError, AttributeError) as e:

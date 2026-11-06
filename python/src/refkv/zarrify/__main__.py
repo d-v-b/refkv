@@ -40,12 +40,14 @@ def _layouts(args: list[str]) -> list[Layout]:
     options: dict[str, dict[str, object]] = {}
     paths: dict[str, str] = {}
     for given in _take_all(args, "--layout-options"):
-        name, _, text = given.partition("=")
+        name, eq, text = given.partition("=")
+        if not eq:
+            raise LayoutUsageError(f"--layout-options {given}: expected NAME=JSON")
         if name in options:
             raise LayoutUsageError(f"--layout-options {name} given twice")
         try:
             value = json.loads(text)
-        except ValueError as e:
+        except (ValueError, RecursionError) as e:
             raise LayoutUsageError(f"--layout-options {name}: not JSON: {e}") from e
         if not isinstance(value, dict):
             raise LayoutUsageError(f"--layout-options {name}: not a JSON object")
