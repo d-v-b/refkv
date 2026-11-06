@@ -445,6 +445,16 @@ pub fn parse_link(d: &[u8]) -> R<(Vec<u8>, Target)> {
     }
 }
 
+/// A link message's creation order, when it records one.
+fn link_creation_order(d: &[u8]) -> Option<u64> {
+    let flags = le(d, 1, 1).ok()?;
+    let p = 2 + if flags & 8 != 0 { 1 } else { 0 };
+    if flags & 4 == 0 {
+        return None;
+    }
+    le(d, p, 8).ok()
+}
+
 /// (flags, name size, datatype size, dataspace size, name start) of an attribute message.
 fn attribute_layout(d: &[u8]) -> R<(u64, u64, u64, u64, u64)> {
     let version = le(d, 0, 1)?;
@@ -638,6 +648,8 @@ pub struct Links {
     pub list: Vec<(Vec<u8>, Target)>,
     pub by_name: HashMap<Vec<u8>, usize>,
     pub storage: LinkStorage,
+    /// each link's creation order, by name, of a group whose link info says it tracks it
+    pub created: Option<HashMap<Vec<u8>, u64>>,
 }
 
 impl Links {
@@ -1071,6 +1083,7 @@ impl H5 {
             Ok(())
         };
         let storage;
+        let mut created: Option<HashMap<Vec<u8>, u64>> = None;
         if let Some(table) = table {
             let (btree, heap) = (address(le(&table, 0, 8)?)?, address(le(&table, 8, 8)?)?);
             let (Some(btree), Some(heap)) = (btree, heap) else { return bad("symbol table with an undefined address") };
@@ -1133,7 +1146,9 @@ impl H5 {
             if le(&info, 0, 1)? != 0 {
                 return bad("unsupported link info message version");
             }
-            let p = 2 + if le(&info, 1, 1)? & 1 != 0 { 8 } else { 0 };
+            let tracked = le(&info, 1, 1)? & 1 != 0;
+            let p = 2 + if tracked { 8 } else { 0 };
+            let mut order: HashMap<Vec<u8>, u64> = HashMap::new();
             let (heap, btree) = (address(le(&info, p, 8)?)?, address(le(&info, p + 8, 8)?)?);
             match heap {
                 None => {
@@ -1143,6 +1158,9 @@ impl H5 {
                                 return bad("shared link message");
                             }
                             let (n, t) = parse_link(&m.data)?;
+                            if let Some(c) = link_creation_order(&m.data) {
+                                order.insert(n.clone(), c);
+                            }
                             add(n, t, &mut list)?;
                         }
                     }
@@ -1173,16 +1191,20 @@ impl H5 {
                     let mut objects = Vec::new();
                     for (o, n, d) in got {
                         let (name, t) = parse_link(&d)?;
+                        if let Some(c) = link_creation_order(&d) {
+                            order.insert(name.clone(), c);
+                        }
                         add(name, t, &mut list)?;
                         objects.push((o, n));
                     }
                     storage = LinkStorage::Dense { heap, index: (*tree).clone(), objects };
                 }
             }
+            created = (tracked && order.len() == list.len()).then_some(order);
         } else {
             return bad(format!("object at {at} is not a group"));
         }
-        Ok(Links { list, by_name, storage })
+        Ok(Links { list, by_name, storage, created })
     }
 
     /// The object header that the link `name` of a group leads to (§7.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#73-groups-and-links>).

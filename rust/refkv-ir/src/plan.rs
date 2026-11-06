@@ -498,15 +498,14 @@ impl Planner {
             return;
         }
         let mut refused = false;
+        let mut spans = Vec::new();
         for (req, g) in round.iter().zip(got) {
             match g.unwrap() {
                 Some(parts) => {
                     if req.spans.len() > 1 {
                         self.multirange = Some(true);
                     }
-                    for (s, b) in req.spans.iter().zip(parts) {
-                        self.accept(*s, b);
-                    }
+                    spans.extend(req.spans.iter().copied().zip(parts));
                 }
                 None => {
                     self.multirange = Some(false);
@@ -514,11 +513,54 @@ impl Planner {
                 }
             }
         }
+        self.accept_all(spans);
         if refused && self.stage == Stage::Done {
             // a pack the server refused: plan what is left as single ranges
             self.stage = Stage::Main;
         }
         self.next_stage();
+    }
+
+    /// A round's spans' bytes, in the order fetched: the ranges asked that each holds are done,
+    /// as [`Planner::accept`] does one span after another. Spans that do not overlap, as a plan's
+    /// are, are swept in order of their starts, once over the ranges asked, so that a batch of
+    /// many ranges (a zip file's local headers, one per entry) costs no more than their sort;
+    /// any others go one at a time.
+    fn accept_all(&mut self, spans: Vec<((u64, u64), Vec<u8>)>) {
+        let mut order: Vec<usize> = (0..spans.len()).collect();
+        order.sort_by_key(|&k| spans[k].0);
+        let disjoint = order.windows(2).all(|w| spans[w[0]].0 .1 <= spans[w[1]].0 .0);
+        if !disjoint {
+            for (s, b) in spans {
+                self.accept(s, b);
+            }
+            return;
+        }
+        let mut used = vec![false; spans.len()];
+        let mut left = Vec::with_capacity(self.todo.len());
+        for &(o, n) in &self.todo {
+            // the last span starting at or before o is the only one that can hold the range
+            let at = order.partition_point(|&k| spans[k].0 .0 <= o);
+            let holder = at.checked_sub(1).map(|i| order[i]).filter(|&k| o + n <= spans[k].0 .1);
+            match holder {
+                Some(k) => {
+                    used[k] = true;
+                    if !self.whole {
+                        let (s, b) = (spans[k].0 .0, &spans[k].1);
+                        self.out.insert((o, n), b[(o - s) as usize..(o - s + n) as usize].to_vec());
+                    }
+                }
+                None => left.push((o, n)),
+            }
+        }
+        self.todo = left;
+        if self.whole {
+            for (k, ((s, _), b)) in spans.into_iter().enumerate() {
+                if used[k] {
+                    self.responses.push((s, b));
+                }
+            }
+        }
     }
 
     /// A span's bytes: the ranges asked that it holds are done.

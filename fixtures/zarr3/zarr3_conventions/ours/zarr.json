@@ -1,0 +1,12 @@
+{
+  "zarr_format": 3,
+  "node_type": "group",
+  "attributes": {
+    "zarr_conventions": [
+      {
+        "uuid": "95203d0a-6586-426a-b920-3db2f4f1e97e",
+        "name": "refkv_zarrified"
+      }
+    ]
+  }
+}
