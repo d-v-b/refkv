@@ -38,8 +38,8 @@ IMAGE_MEMBERS = frozenset(["name", "array", "dims", "order", "axes", "scale"])
 def axis(given: Mapping[str, Any]) -> dict[str, Any]:
     """An OME-Zarr 0.6 axis: its name and type, and its unit, long name and discreteness if given,
     each of its JSON type."""
-    if set(given) - {"name", "type", "unit", "longName", "discrete"}:
-        raise ValueError(f"an axis has name, type, unit, longName and discrete, not {sorted(given)}")
+    if not isinstance(given, Mapping) or set(given) - {"name", "type", "unit", "longName", "discrete"}:
+        raise ValueError(f"an axis is an object of name, type, unit, longName and discrete: {given!r}")
     if given.get("type") not in AXIS_TYPES:
         raise ValueError(f"an axis's type is time, channel or space, not {given.get('type')!r}")
     if not all(isinstance(given.get(m, ""), str) for m in ("name", "unit", "longName")) or not given.get("name") \
@@ -76,7 +76,8 @@ class Ome06:
         """The images of an HDF5 file, each one image group of the layout: its `name`, the
         `array` that holds it, the names of the array's dimensions in the file (`dims`), their
         `order` in the image (time, then channel, then space; default: `dims`), the image's
-        `axes`, named as `order` names them, and a positive `scale` per axis (default 1)."""
+        `axes`, named as `order` names them, and a positive `scale` per axis, in `order`'s order
+        (default 1)."""
         if set(given) - {"images"}:
             raise ValueError(f"the options hold images, not {sorted(set(given) - {'images'})}")
         if not isinstance(given.get("images", []), list):
@@ -91,9 +92,10 @@ class Ome06:
             if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9_.-]*", name) \
                     or name == "zarr.json" or name.startswith("__"):
                 raise ValueError(f"{name!r} is not an image's name, a key segment")
-            if not isinstance(array, str) or not all(isinstance(d, str) for d in (*dims, *order)) \
-                    or isinstance(dims, str) or isinstance(order, str):
-                raise ValueError(f"{name}: array is a string, and dims and order lists of strings")
+            lists = (dims, order, image["axes"], image.get("scale", []))
+            if not isinstance(array, str) or not all(isinstance(v, list) for v in lists) \
+                    or not all(isinstance(d, str) for d in (*dims, *order)):
+                raise ValueError(f"{name}: array is a string, dims and order lists of strings, axes and scale lists")
             axes = [axis(a) for a in image["axes"]]
             scale = [number(v) for v in image.get("scale", [1.0] * len(dims))]
             if len(set(dims)) != len(dims) or sorted(order) != sorted(dims) \
@@ -157,7 +159,8 @@ class Ome06:
             try:
                 doc, _ = base.array(image["array"])
             except KeyError:
-                raise Rejected(f"{image['array']} is not an array of the file") from None
+                raise Rejected(f"{image['array']} is not an array of the base (refkv leaves some datasets "
+                               "unpresented)") from None
             if len(doc["shape"]) != len(image["dims"]):
                 raise Rejected(f"{image['array']} has {len(doc['shape'])} dimensions, not {len(image['dims'])}")
             order = [image["dims"].index(d) for d in image["order"]]

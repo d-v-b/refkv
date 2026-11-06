@@ -708,7 +708,8 @@ holds. Neither changes what a profile accepts or what it writes for a layout.
   ([conventions §2](conventions.md#2-attributes)). A zarrifier told to write a dataset
   layout for a format that has none rejects the request.
 - **Plugin layouts.** A zarrifier of a file input MAY also be told the layouts plugins write, by
-  name and options: each is written below the root's child `refkv_layouts` from the profile's
+  name, options and, optionally, a path that replaces the plugin's own: each is written below
+  the root's child `refkv_layouts` from the profile's
   output, as [spec/layout.md](layout.md) says, and changes nothing else in the output. A
   plugin layout refused for an input, because the plugin does not read the profile's convention
   or because the plugin refuses the input, rejects the request; the profile still accepts the

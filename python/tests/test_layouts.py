@@ -360,10 +360,16 @@ def test_a_plugin_that_fails_to_load_is_a_usage_error(monkeypatch):
         zarrify(str(FIXTURES / "tiff/strips_uint8.tif"), plugins=[Layout(NAME)])
 
 
-def test_options_the_plugin_refuses_are_a_usage_error(monkeypatch):
+IMAGE = {"name": "x", "array": "a", "dims": ["y", "x"], "axes": [{"name": "y", "type": "space"},
+                                                                   {"name": "x", "type": "space"}]}
+
+
+@pytest.mark.parametrize("image", [{"name": "x"}, IMAGE | {"axes": [5, 6]}, IMAGE | {"dims": None},
+                                   IMAGE | {"scale": 1.0}, IMAGE | {"order": "yx"}])
+def test_options_the_plugin_refuses_are_a_usage_error(monkeypatch, image):
     install(monkeypatch, Entry(NAME, Ome06()))
-    with pytest.raises(LayoutUsageError, match="options are refused"):
-        zarrify(str(FIXTURES / "tiff/strips_uint8.tif"), plugins=[Layout(NAME, {"images": [{"name": "x"}]})])
+    with pytest.raises(LayoutUsageError, match="options are refused: ValueError"):
+        zarrify(str(FIXTURES / "tiff/strips_uint8.tif"), plugins=[Layout(NAME, {"images": [image]})])
 
 
 def test_two_layouts_at_one_path_are_a_usage_error(monkeypatch):
@@ -641,6 +647,12 @@ def test_copy_refuses_an_order_of_names():
         copy(Base(transposed([0, 1, 2])[0], None), "a", order=["a", "b", "c"])  # type: ignore[arg-type]
 
 
+@pytest.mark.parametrize("attributes", [{0: "x"}, {"a": {None: "y"}}, {"a": [{1.5: "z"}]}])
+def test_copy_refuses_attributes_not_named_by_strings(attributes):
+    with pytest.raises(ValueError, match="by strings"):
+        copy(Base(transposed([0, 1, 2])[0], None), "a", attributes=attributes)
+
+
 def test_copy_refuses_an_unknown_chunk_key_encoding():
     store, _ = transposed([0, 1, 2])
     doc = document(store, "a/zarr.json") | {"chunk_key_encoding": {"name": "other"}}
@@ -673,6 +685,15 @@ def test_a_refkv_name_is_a_usage_error(monkeypatch):
 def test_two_entry_points_of_one_name_are_a_usage_error(monkeypatch):
     install(monkeypatch, Entry(NAME, Ome06), Entry(NAME, Ome06))
     with pytest.raises(LayoutUsageError, match="2 entry points"):
+        zarrify(TIF, plugins=[Layout(NAME)])
+
+
+def test_unreadable_entry_points_are_a_usage_error(monkeypatch):
+    def broken():
+        raise TypeError("Pair.__new__() missing 1 required positional argument: 'value'")
+
+    monkeypatch.setattr(layouts, "_entry_points", broken)
+    with pytest.raises(LayoutUsageError, match=r"entry points of 'refkv\.layouts' cannot be read"):
         zarrify(TIF, plugins=[Layout(NAME)])
 
 

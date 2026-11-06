@@ -189,7 +189,11 @@ def load(name: str) -> tuple[Plugin, dict[str, frozenset[int]]]:
         raise _usage(name, "names whose first segment starts with refkv are refkv's")
     if key_of(name) in RESERVED_KEYS:
         raise _usage(name, f"its key {key_of(name)} is a member refkv writes")
-    points = list(_entry_points())
+    try:  # importlib.metadata reads every distribution's entry_points.txt, and one malformed raises
+        points = list(_entry_points())
+    except Exception as e:
+        raise LayoutUsageError(f"the installed entry points of {GROUP!r} cannot be read: "
+                               f"{type(e).__name__}: {e}") from e
     found = [e for e in points if e.name == name]
     if not found:
         installed = ", ".join(sorted(str(e.name) for e in points)) or "none"
@@ -521,6 +525,9 @@ def copy(base: Base, path: str, order: Sequence[int] | None = None, attributes: 
     if isinstance(dimension_names, str):
         raise ValueError("dimension_names is a list of names, each a string or None, not a string")  # noqa: TRY004 (as copy's other refusals)
     given = None if dimension_names is None else list(dimension_names)  # each argument read once
+    attributes = dict(attributes or {})
+    if not _str_keys(attributes):
+        raise ValueError("attributes names its members, and those of the objects in it, by strings")
     if given is not None and not all(g is None or isinstance(g, str) for g in given):
         raise ValueError("dimension_names is a list of names, each a string or None")
     if given is not None and len(given) != n:
@@ -556,7 +563,7 @@ def copy(base: Base, path: str, order: Sequence[int] | None = None, attributes: 
         if names is not None and given is None:
             names = [names[o] for o in order]
         chunks = {_permuted_key(k, order, doc): v for k, v in chunks.items()}
-    doc["attributes"] = dict(attributes or {})
+    doc["attributes"] = attributes
     if names is not None:
         doc["dimension_names"] = list(names)
     else:

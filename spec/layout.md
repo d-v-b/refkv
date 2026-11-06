@@ -94,6 +94,11 @@ strings at every depth), in its canonical form, which nests at
 most 253 deep, so that the layout's node, which holds it, nests at most 256. It returns the
 layout's entries, keys relative to its node, and refkv writes them as [§3](#3-the-entries) says.
 
+A plugin provides the layout's name, its default path, the base profiles it reads, and its
+convention's description: its version, a natural number, and the members of its CMO, each a
+non-empty string, but for `uuid` and `name`, which [§5](#5-names-identity-and-versions) fixes. A call that asks for the layout gives
+its name, its options and, optionally, a path, which replaces the plugin's.
+
 A plugin names the base profiles it reads, each with the natural numbers of the convention
 versions it reads (a profile mapped to none reads no version of it), and a base that is not one
 of them refuses the layout request. Every name's versions are natural numbers; names that are no
@@ -123,7 +128,7 @@ failure, and no output is written:
   bound. Its `zarr_format` is 3, written as an integer (no fraction, no exponent), and its
   `node_type` `group` or `array`; an array's
   document holds `shape`, `data_type`, `chunk_grid`, `chunk_key_encoding`, `codecs` and
-  `fill_value`, its `shape` a list.
+  `fill_value`, its `shape` a list, and its `attributes`, where present, an object.
 - `zarr.json` is a group. Every other key is a node's `zarr.json` whose parent node's `zarr.json`
   is a group of the layout, or a key below an array's `zarr.json`; no node is inside an array.
 - Every reference entry's ranges are, as [spec/zarrify.md §1.1](zarrify.md#11-output-and-equivalence)
@@ -197,7 +202,8 @@ when the plugin gives none, and each chunk key's indexes (in the array's chunk k
 - **One of each.** Two plugin layouts of one call never share a name, a path, a key or a
   convention's UUID; such a call is refused before the input is read.
 - **Identity.** A layout is its convention's UUID, written in RFC 9562's form, lower-case
-  hexadecimal digits with hyphens; names and keys are for people. A reader that
+  hexadecimal digits with hyphens; names and keys are for people. It is never the UUID of a
+  refkv convention, and a plugin whose convention has one is refused when it is loaded. A reader that
   finds a key whose UUID it does not know ignores it.
 - **Versions.** A plugin's convention says what its version numbers mean and increases its
   version whenever its layout changes for some input; its `schema_url` SHOULD differ from one
