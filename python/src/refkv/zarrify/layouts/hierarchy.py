@@ -5,11 +5,11 @@ and `check`, which a plugin's tests call on its output. It needs the `layouts` e
 (`pip install refkv[layouts]`).
 
     from refkv.zarrify.layouts import base
-    from refkv.zarrify.layouts.hierarchy import check, copy
+    from refkv.zarrify.layouts.hierarchy import check, copy, group
 
     b = base("image.ome.tif")
-    out = {f"0/{k}": v for k, v in copy(b, "0").items()}
-    assert not [p for p in check(b, out) if p.code != "orphan"]
+    out = {"zarr.json": group(), **copy(b, "0", to="0")}
+    assert check(b, out) == []
 """
 
 from __future__ import annotations
@@ -289,10 +289,16 @@ def _refkv_declared(attrs: object) -> bool:
 
 
 def _item_size(data_type: object) -> int | None:
-    """The bytes of an element of a Zarr v3 data type: a numeric type's, `bool`'s, or a
-    `struct`'s fields' summed; None for one whose size this does not know."""
+    """The bytes of an element of a Zarr v3 data type: a numeric type's, `bool`'s, a datetime's or
+    timedelta's 8, a fixed-length UTF-32 string's, or a `struct`'s fields' summed; None for one
+    whose size this does not know."""
     if data_type == "bool":
         return 1
+    if isinstance(data_type, dict) and data_type.get("name") in ("numpy.datetime64", "numpy.timedelta64"):
+        return 8
+    if isinstance(data_type, dict) and data_type.get("name") == "fixed_length_utf32":
+        length = (data_type.get("configuration") or {}).get("length_bytes")
+        return length if isinstance(length, int) else None
     if isinstance(data_type, dict) and data_type.get("name") == "struct":
         fields = (data_type.get("configuration") or {}).get("fields")
         sizes = [_item_size(f.get("data_type")) for f in fields] if isinstance(fields, list) and all(
@@ -361,6 +367,8 @@ def _fixed_size(doc: Mapping[str, Any]) -> bool:
 
 
 def _v2_item_size(dtype: object) -> int | None:
+    if isinstance(dtype, str) and len(dtype) >= 3 and dtype[0] in "<>|" and dtype[1] in "Mm" and dtype[2] == "8":
+        return 8  # a datetime64 or timedelta64, `M8[ns]`
     if isinstance(dtype, str) and len(dtype) >= 3 and dtype[0] in "<>|" and dtype[2:].isdigit():
         return int(dtype[2:]) * (4 if dtype[1] == "U" else 1)
     if isinstance(dtype, list):
@@ -388,41 +396,55 @@ def _copy_of(base: Base, doc: Mapping[str, Any], references: Mapping[str, Range 
     dimension names aside."""
     first = next(iter(references.values()))
     for path in base._arrays_holding(first):  # noqa: SLF001 (the package's own Base)
-        base_shape = base.array(path)[0]["shape"]
-        shape = doc.get("shape")
-        orders = {tuple(range(len(base_shape)))}
-        if isinstance(shape, list) and len(shape) == len(base_shape):
-            orders |= {tuple(o) for o in _orders(base_shape, shape)}
-        for order in sorted(orders):
-            if (path, order) not in copies:
+        base_doc = base.array(path)[0]
+        order = _order_of(base_doc, doc)
+        for candidate in sorted({tuple(range(len(base_doc["shape"]))), *([order] if order else [])}):
+            if (path, candidate) not in copies:
                 try:
-                    entries = copy(base, path, order=list(order))
+                    entries = copy(base, path, order=list(candidate))
                 except (ValueError, KeyError, TypeError):
                     continue
                 document = json.loads(entries.pop("zarr.json"))  # type: ignore[arg-type]
-                copies[path, order] = (document, entries)
-            made, chunks = copies[path, order]
+                copies[path, candidate] = (document, entries)
+            made, chunks = copies[path, candidate]
             if _models_equal(made, doc) and all(k in chunks and chunks[k] == _without_checksum(v)  # type: ignore[arg-type]
                                                 for k, v in references.items()):
                 return True
     return False
 
 
-def _orders(base_shape: Sequence[int], shape: Sequence[int]) -> list[list[int]]:
-    """The permutations of a base array's axes that give `shape`, at most 64."""
-    out: list[list[int]] = []
+def _leading_transpose(doc: Mapping[str, Any]) -> list[int] | None:
+    """The order of the transpose an array's codecs (a sharded array's inner codecs) start with,
+    or None."""
+    codecs = doc.get("codecs")
+    if isinstance(codecs, list) and codecs and isinstance(codecs[0], dict) \
+            and codecs[0].get("name") == "sharding_indexed" and isinstance(codecs[0].get("configuration"), dict):
+        codecs = codecs[0]["configuration"].get("codecs")
+    if isinstance(codecs, list) and codecs and isinstance(codecs[0], dict) and codecs[0].get("name") == "transpose" \
+            and isinstance(codecs[0].get("configuration"), dict):
+        order = codecs[0]["configuration"].get("order")
+        return order if isinstance(order, list) and all(type(i) is int for i in order) else None
+    return None
 
-    def walk(prefix: list[int]) -> None:
-        if len(out) >= 64:
-            return
-        if len(prefix) == len(shape):
-            out.append(list(prefix))
-            return
-        for a in range(len(base_shape)):
-            if a not in prefix and base_shape[a] == shape[len(prefix)]:
-                walk([*prefix, a])
-    walk([])
-    return out
+
+def _order_of(base_doc: Mapping[str, Any], doc: Mapping[str, Any]) -> tuple[int, ...] | None:
+    """The `order` `copy` would have been given to make `doc` of the base's array `base_doc`, read
+    from their leading transposes (copy composes its inverse with the base's), or None."""
+    n = len(base_doc.get("shape") or [])
+    identity = list(range(n))
+    t = _leading_transpose(base_doc) or identity
+    r = _leading_transpose(doc)
+    if sorted(t) != identity:
+        return None
+    if r is None:
+        inverse = _inverse(t)  # copy left out an identity: its inverse undid the base's transpose
+    elif sorted(r) == identity:
+        inverse = [0] * n
+        for i, ti in enumerate(t):
+            inverse[ti] = r[i]
+    else:
+        return None
+    return tuple(_inverse(inverse))
 
 
 def _lenient(value: bytes) -> object:

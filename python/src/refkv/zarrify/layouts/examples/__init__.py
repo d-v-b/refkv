@@ -1,7 +1,8 @@
 """Example layout plugins that ship with refkv (spec/layout.md
 <https://github.com/d-v-b/refkv/blob/main/spec/layout.md>), one module each, registered under the
-names `refkv.example.<name>` (`python -m refkv.zarrify --layout refkv.example.bare in.tif
-out.vzip`). Each module imports only the standard library and refkv's public API, so that a
+names `refkv.example.<name>`, `<name>` the module's with `-` for `_`
+(`refkv.example.ome-zarr-06`; `python -m refkv.zarrify in.tif out.vzip --layout
+refkv.example.bare`). Each module imports only the standard library and refkv's public API, so that a
 user can copy one into a package of their own, rename it, and change it. They are examples, not
 refkv's layouts: refkv's conventions do not specify their output.
 

@@ -371,7 +371,9 @@ def test_the_coding_routines_give_the_base_s_codecs():
                        row_length=96) == doc["codecs"][1:]
     assert tiff_codecs({259: [65001], 258: [1]}, little_endian=True, x_axis=1, row_length=8, chunk_shape=[4, 8]) == [
         {"name": "imagecodecs_eer", "configuration": {"shape": [4, 8], "skipbits": 7, "horzbits": 2, "vertbits": 2}}]
-    assert hdf5_attributes(base(NETCDF), "sst")["_FillValue"] == -1.5  # hdf5.md §6's Base64 binary64, undone
+    # a netCDF _FillValue's Base64 binary64, undone (spec/zarrify/hdf5.md §6
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes>)
+    assert hdf5_attributes(base(NETCDF), "sst")["_FillValue"] == -1.5
 
 
 def test_fits_says_why_refkv_would_not_write_a_value():
@@ -646,13 +648,25 @@ def test_check_reports_malformed_documents_rather_than_raising(extra):
 def test_a_chunk_is_its_elements_bytes():
     """`elements` names every element a part runs across (strips the profile joined into one
     range), and the references of those bytes, joined, are the base's chunk; `reference` reads a
-    recipe's `rows` step (an ND2 frame's padded rows) as conventions §8.5 says."""
+    recipe's `rows` step (an ND2 frame's padded rows) as spec/conventions.md §8.5
+    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#85-forms-and-recipes> says."""
     b = base(str(FIXTURES / "tiff" / "bilevel_strips_short.tif"))
     value = b.array("0")[1]["c/0/0"]
     assert isinstance(value, Range)
     pieces = [part(item) for item in b.elements("0")["c/0/0"]]
     assert len(pieces) > 1
-    assert concat(*(cut(b.reference(i, m), a, z) for i, m, a, z in pieces), merge=True) == value
+    assert concat(*(cut(b.span(i, m), a, z) for i, m, a, z in pieces), merge=True) == value
+    j = base(TIFF)  # a JPEG tile's span is its own bytes, where its reference splices in the tables
+    jpeg = j.array("0")[1]["c/0/0/0"]
+    assert isinstance(jpeg, Concat)
+    rebuilt: list[Range | Concat] = []
+    for item, lit in zip(j.elements("0")["c/0/0/0"], jpeg.parts, strict=True):
+        if item is None:  # the tables, a data source
+            rebuilt.append(lit)
+        else:
+            i, m, a, z = part(item)
+            rebuilt.append(cut(j.span(i, m), a, z))
+    assert concat(*rebuilt) == jpeg
     n = base(str(FIXTURES / "nd2" / "nd2_padded_rgb.nd2"))
     frame, _, _, _ = part(n.elements("0/0")["c/0/0/0/0"][0])
     assert n.reference(frame) == n.array("0/0")[1]["c/0/0/0/0"]
@@ -674,3 +688,20 @@ def test_check_reports_a_chunk_a_reader_does_not_read(key, value):
 def test_fill_value_reads_bfloat16_bits_as_a_float32_s_high_half():
     assert fill_value({"data_type": "bfloat16", "fill_value": "0x3f80"}) == 1.0
     assert fill_value({"data_type": "float32", "fill_value": "0x3f800000"}) == 1.0
+
+
+def test_check_finds_a_copy_by_its_transposes():
+    """A copy of an array of axes of one length (all 2s) is found by its transposes, not by
+    trying permutations, and a datetime array's chunks are sized by its element's 8 bytes."""
+    n = base(str(FIXTURES / "nifti" / "nifti_n2_le_complex128_5d.nii"))
+    assert check(n, {"zarr.json": group(), **copy(n, "0", order=[4, 1, 3, 0, 2], to="x")}) == []
+    dt = {"name": "numpy.datetime64", "configuration": {"unit": "ns", "scale_factor": 1}}
+    out = {"zarr.json": group(), **array([4], dt, [4], [{"name": "bytes", "configuration": {"endian": "little"}}],
+                                         {(0,): bytes(16)}, to="a")}
+    assert {p.code for p in check(base(TIFF), out)} == {"size"}
+
+
+def test_values_refkv_encodes_decode_to_python_values():
+    assert hdf5_attributes(base(str(FIXTURES / "hdf5" / "hdf5_attributes.h5")), "attrs")["latin1"] == "café"
+    assert fill_value({"data_type": "float8_e8m0fnu", "fill_value": "NaN"}) != fill_value(
+        {"data_type": "float8_e8m0fnu", "fill_value": "NaN"})  # a NaN: unequal to itself

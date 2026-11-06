@@ -32,7 +32,7 @@ What xarray needs of Zarr v2, made from the base:
   without netCDF-4's bookkeeping, which xarray's netCDF-4 readers hide (`CLASS`, `NAME`,
   `DIMENSION_LIST`, `REFERENCE_LIST`, `_Netcdf4Dimid`, ...), and an array of one value as that
   value, as netCDF-4 reads it. A NaN or infinity is written as a bare `NaN` or `Infinity` token
-  (`dump(..., allow_nan=True)`), as zarr-python writes v2 attributes, or kept as §6's text with
+  (`dump(..., allow_nan=True)`), as zarr-python writes v2 attributes, or kept as that text with
   the option `{"nonfinite": "text"}`.
 
 `check` finds no problem on its output but `json`, at a `.zattrs` and the `.zmetadata` that hold a
@@ -115,7 +115,7 @@ def v2_coding(doc: Mapping[str, Any]) -> tuple[str, bool, list[dict[str, Any]]]:
 # ---- values
 
 def finite_or_text(value: object, original: object) -> object:
-    """`value`, but where it holds a NaN or infinity, `original` (hdf5.md §6's text) instead."""
+    """`value`, but where it holds a NaN or infinity, `original` (the base's text for it) instead."""
     if isinstance(value, float) and not math.isfinite(value):
         return original
     if isinstance(value, list):
@@ -155,7 +155,7 @@ class XarrayV2:
     def options(self, given: Mapping[str, object]) -> dict[str, object]:
         """`{"unsupported": "reject", "nonfinite": "token"}` by default: whether an array with no
         Zarr v2 form rejects the input or is left out (`"skip"`), and whether a non-finite float
-        attribute is a bare JSON token or hdf5.md §6's text (`"text"`)."""
+        attribute is a bare JSON token or the base's text for it (`"text"`)."""
         unknown = sorted(set(given) - {"unsupported", "nonfinite"})
         if unknown:
             raise ValueError(f"unknown options {unknown}: {self.name} takes unsupported and nonfinite")
@@ -207,7 +207,7 @@ class XarrayV2:
     def attributes(self, base: Base, path: str, options: Mapping[str, object]) -> dict[str, Any]:
         """A node's attributes as the source holds them (`hdf5_attributes`), without netCDF-4's
         bookkeeping, an array of one value as that value."""
-        written = base.attributes(path)  # hdf5.md §6's text, for the option "text"
+        written = base.attributes(path)  # the base's text for a NaN or infinity, for the option "text"
         out = {}
         for name, value in hdf5_attributes(base, path).items():
             if name in HIDDEN:
@@ -244,7 +244,7 @@ class XarrayV2:
         data_type = doc["data_type"] if isinstance(doc["data_type"], str) else None
         number = data_type in DTYPES and not fixed
         mine: Any = hdf5_value(doc["fill_value"], {"class": "float", "size": FLOATS[data_type]}) \
-            if data_type in FLOATS else doc["fill_value"]  # a float fill value is §6's float value
+            if data_type in FLOATS else doc["fill_value"]  # a float fill value as the base writes it
         nc_fill = attrs.get("_FillValue")
         fill: object = None
         if number and isinstance(nc_fill, (int, float)) and not isinstance(nc_fill, bool):

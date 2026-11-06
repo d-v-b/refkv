@@ -136,6 +136,14 @@ class Written:
     stored: Iterable[str] = ()
 
 
+def _text(e: BaseException) -> str:
+    """An exception's message, or `described(e)` when its `str()` raises."""
+    try:
+        return str(e)
+    except BaseException:  # noqa: BLE001 (a plugin's exception, whatever its __str__ does)
+        return described(e)
+
+
 def described(e: BaseException) -> str:
     """An exception as a message names it, `Type: text`, even one whose `str()` raises."""
     try:
@@ -322,14 +330,20 @@ def plan(layout: object) -> Planned:
         raise _usage(given_plugin, f"its name {name!r} is not <distribution>.<layout> in [a-z0-9-]")
     if from_entry and name != given_plugin:
         raise _usage(given_plugin, f"the plugin names itself {name!r}: set its name to the entry point's key")
-    read = _formats(name, formats)
+    try:  # a plugin's own mapping, or iterables, may raise anything as they are read
+        read = _formats(name, formats)
+    except LayoutUsageError:
+        raise
+    except BaseException as e:
+        raise _usage(name, f"its formats cannot be read: {described(e)}") from e
     if not callable(options_of) or not callable(write):
         raise _usage(name, "a layout plugin has options() and write()")
     try:  # first, as it refuses a cycle, which a walk of the members would follow for ever
         given = json.loads(json.dumps(dict(layout.options or {}), allow_nan=False))
-    except (TypeError, ValueError, RecursionError) as e:
+        named = _str_keys(layout.options or {})
+    except Exception as e:  # the caller's mapping, whatever it raises as it is read
         raise _usage(name, f"its options are not a JSON object: {described(e)}") from e
-    if not _str_keys(layout.options or {}):
+    if not named:
         raise _usage(name, "its options' members are named by strings, at every depth")
     try:
         options = options_of(given)
@@ -478,7 +492,7 @@ class Base:
             path = k[: -len("zarr.json")].rstrip("/")
             if not any(path == p or path.startswith(f"{p}/") for p in left):
                 out.append(path)
-        return out
+        return sorted(out)
 
     def node_type(self, path: str) -> str | None:
         """`"group"` or `"array"` for the base's node at `path`, None for a path it has no node at."""
@@ -703,7 +717,8 @@ class Base:
             return Range(source, start, length)
         shared = self.ir.shared()
         parts: list[Range] = []
-        for step in recipe:  # spec/conventions.md §8.5's parts
+        # spec/conventions.md §8.5's parts <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#85-forms-and-recipes>
+        for step in recipe:
             if step[0] == "src":
                 o, n = int(step[1]), step[2]
                 parts.append(Range(source, start + o, length - o if n is None else int(n)))
@@ -766,6 +781,18 @@ class Base:
             k -= 1
         return None
 
+    def span(self, i: int, member: int | None = None) -> Range:
+        """The bytes element `i` (or its data member `member`) spans in its source, as one Range,
+        no recipe applied: what `elements`' offsets are offsets into, so that `cut(base.span(i,
+        m), start, stop)` reads a part's bytes whatever the element's form (a JPEG tile's span
+        is its own bytes, without the tables its `reference` splices in). ValueError for an
+        element that holds no bytes of a source."""
+        i = self._element(i)
+        start, end = self._span_end(self._target(i) if member is not None else i, member)
+        if member is None and (self.ir.kind(i) == DERIVED or self.ir.space(i) != 0):
+            raise ValueError(f"{self.ir.path(i)!r} is in a derived space: no range of a source reads it")
+        return Range(self.source_of(i), start, end - start)
+
     def _span_end(self, i: int, member: int | None) -> tuple[int, int]:
         """(start, end) of element `i`'s bytes, or of its data member `member`'s."""
         if member is not None:
@@ -777,7 +804,8 @@ class Base:
     def elements(self, path: str) -> dict[str, tuple[tuple[int, int | None, int, int] | Range | None, ...]]:
         """For every chunk of the base's array at `path` (keys relative to the array), the bytes its
         value reads, in order, by the element that holds them: (element, member, start, stop), the
-        bytes of it read, half open, offsets within the element (or member), one item for each
+        bytes of it read, half open, offsets within the element's (or member's) own bytes, its
+        `span` (not its `reference`, which a recipe may change), one item for each
         element a part runs across (a chunk of strips the profile joined is several); None for a
         literal part or a part of a data source; a Range, of the part, for bytes of a url source
         that no data element holds (an HDF5 dataset's external storage)."""
@@ -953,17 +981,22 @@ def payload_size(value: Range | Concat, *, checksums: bool = False) -> int:
 
 def fill_value(doc: Mapping[str, Any]) -> object:
     """A Zarr v3 array document's `fill_value` as a Python value: a float data type's `"NaN"`,
-    `"Infinity"`, `"-Infinity"` or `"0x…"` bits as a float, a complex one's pair as a complex,
-    other values as JSON has them (Zarr v3 data types, permitted fill values)."""
+    `"Infinity"`, `"-Infinity"` or `"0x…"` bits as a float (the bits of a float type Python has no
+    float of, such as `float8_e4m3fn`, stay as they are), a complex one's pair as a complex, other
+    values as JSON has them (Zarr v3 data types, permitted fill values)."""
     value, data_type = doc.get("fill_value"), doc.get("data_type")
     if isinstance(data_type, str) and data_type.startswith("complex") and isinstance(value, list) and len(value) == 2:
         size = int(data_type[len("complex"):]) // 16
         return complex(_float(value[0], size), _float(value[1], size))
-    if data_type == "bfloat16" and isinstance(value, str) and value.startswith("0x") and len(value) == 6:
+    if not isinstance(value, str) or not isinstance(data_type, str):
+        return value
+    if value in _NONFINITE and data_type.startswith(("float", "bfloat")):  # float8_*, float6_* and float4_* too
+        return _NONFINITE[value]
+    if data_type == "bfloat16" and value.startswith("0x") and len(value) == 6:
         return struct.unpack(">f", (int(value, 16) << 16).to_bytes(4, "big"))[0]  # a float32's high half
-    if isinstance(data_type, str) and data_type.startswith(("float", "bfloat")) and isinstance(value, str):
-        return _float(value, 2 if data_type == "bfloat16" else int(data_type[len("float"):]) // 8)
-    return value
+    if data_type in ("float16", "float32", "float64"):
+        return _float(value, int(data_type[len("float"):]) // 8)
+    return value  # the bits of a type Python has no float of (float8_*, ...), as Zarr writes them
 
 
 _NONFINITE = {"NaN": math.nan, "Infinity": math.inf, "-Infinity": -math.inf}
@@ -1229,10 +1262,16 @@ def store_of(base: Base, prepared: Prepared, *, policy: Policy | None, info: Map
     checksums; `archive`, what the writer refuses or a reader would)."""
     problems: list[Problem] = []
     sources = list(base.sources)
+    added = len(sources)  # the index of the zero data source `Base.zeros` names
     zeros = max((r.offset + r.length for v in prepared.values.values() if not isinstance(v, bytes)
-                 for r in _parts(v) if r.data is None and r.source == len(sources)), default=None)
-    if zeros is not None:  # the zero data source `Base.zeros` names, as long as the output reads
-        sources.append(Source(data=bytes(zeros)))
+                 for r in _parts(v) if r.data is None and r.source == added), default=None)
+    zero_at = added
+    if zeros is not None:  # as long as the output reads, or the base's own when that is long enough
+        own = base.zero_source
+        if own is not None and own[1] >= zeros:
+            zero_at = own[0]
+        else:
+            sources.append(Source(data=bytes(zeros)))
 
     def checked(r: Range) -> Range:
         if checksum is None or r.data is not None:
@@ -1244,7 +1283,8 @@ def store_of(base: Base, prepared: Prepared, *, policy: Policy | None, info: Map
     for k in sorted(k for k, v in prepared.values.items() if not isinstance(v, bytes)):
         v = prepared.values[k]
         if k in prepared.fresh:
-            done = tuple(checked(r) for r in _parts(v))  # type: ignore[arg-type]
+            done = tuple(checked(dataclasses.replace(r, source=zero_at) if r.data is None and r.source == added
+                                 else r) for r in _parts(v))  # type: ignore[arg-type]
             v = done[0] if len(done) == 1 else Concat(done)
             if payload_size(v) > MAX_PAYLOAD:
                 problems.append(Problem(k, "reference", f"a payload of {payload_size(v)} bytes with its checksums, "
@@ -1298,7 +1338,7 @@ def apply(out: Output | StoreIrOutput, fmt: str, policy: Policy | None, planned:
         written = planned.plugin.write(base, planned.fresh_options())
         prepared, problems = prepare(base, written)
     except Rejected as e:
-        raise LayoutRejected(f"{name}: {e}") from e
+        raise LayoutRejected(f"{name}: {_text(e)}") from e
     except BaseException as e:  # any of a plugin's, made a failure
         raise LayoutFailed(f"{name}: {described(e)}") from e
     if problems:

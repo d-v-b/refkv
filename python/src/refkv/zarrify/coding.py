@@ -119,9 +119,11 @@ def tiff_codecs(tags: Mapping[int, Value | None], *, little_endian: bool, x_axis
 
 
 def czi_codecs(pixel_type: int, compression: int, *, flag: bool) -> list[dict[str, Any]]:
-    """The codecs of a CZI subblock form after any `transpose` (spec/zarrify/czi.md §3.1
+    """The codecs of a CZI subblock form after any `transpose` (a subblock's IR form holds them
+    already, in its `codec`, which a plugin can take as they are) (spec/zarrify/czi.md §3.1
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#31-pixel-types-and-codecs>):
-    `flag` is the form's (Zstd1's hi-lo packing, a JpgFile stream's being lossless)."""
+    `flag` is Zstd1's hi-lo packing, or a JpgFile stream's being lossless, which the subblock's data
+    tells and its form's `codec` records."""
     return list(_call("czi_codecs", pixel_type=pixel_type, compression=compression, flag=flag))
 
 
@@ -156,8 +158,9 @@ def hdf5_value(value: object, datatype: Mapping[str, Any] | None) -> object:
     undone by its described datatype (§7.2
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#72-datasets>): a float value
     (`"NaN"`, `"Infinity"`, a NaN's or −0's bits in hex) as a Python float, an integer past 2^53
-    written as its digits as an int, a compound's members each by theirs. ValueError for a value
-    its datatype does not take."""
+    written as its digits as an int, a string that is not UTF-8 (`{"latin1": T}`) as `T`, its
+    bytes read as Latin-1, a compound's members each by theirs. ValueError for a value its
+    datatype does not take."""
     if not datatype:
         return value
     if isinstance(value, list):
@@ -172,6 +175,8 @@ def hdf5_value(value: object, datatype: Mapping[str, Any] | None) -> object:
         raise ValueError(f"{value!r} is not a float value of hdf5.md §6")
     if kind in ("integer", "bitfield", "enum") and isinstance(value, str):
         return int(value)
+    if kind in ("string", "vlen_string") and isinstance(value, dict) and set(value) == {"latin1"}:
+        return str(value["latin1"])  # text that is not UTF-8, each byte its Latin-1 character (conventions §6)
     if kind == "compound" and isinstance(value, dict):
         members = {m.get("name"): m.get("datatype") for m in datatype.get("members", []) if isinstance(m, dict)}
         return {k: hdf5_value(v, members.get(k)) for k, v in value.items()}
@@ -180,14 +185,16 @@ def hdf5_value(value: object, datatype: Mapping[str, Any] | None) -> object:
 
 def hdf5_attributes(base: Base, path: str) -> dict[str, Any]:
     """The HDF5 attributes of the node at `path`, as the source holds them (`base.attributes` with
-    spec/zarrify/hdf5.md §6's encodings undone, by the node's source metadata, §7
-    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#7-source-metadata>): floats
-    and big integers as numbers, and a netCDF `_FillValue` of a float dataset, which §6 writes
-    as the Base64 of its binary64, as that float. An attribute of one element that the base
-    wrote as its value, on a dataset with `dimension_names`, stays that value: the source
-    metadata does not say which it was. The values are for computing with: NaN and the
-    infinities are floats, which strict JSON (`dump`) does not write, so a plugin that writes
-    attributes writes `base.attributes`' encoded form, or chooses an encoding of its own."""
+    spec/zarrify/hdf5.md §6
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes>'s encodings
+    undone, by the node's source metadata, §7
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#7-source-metadata>): floats and
+    big integers as numbers, and a netCDF `_FillValue` of a float dataset, which §6 writes as the
+    Base64 of its binary64, as that float. An attribute of one element that the base wrote as its
+    value, on a dataset with `dimension_names`, stays that value: the source metadata does not say
+    which it was. The values are for computing with: NaN and the infinities are floats, which
+    strict JSON (`dump`) does not write, so a plugin that writes attributes writes
+    `base.attributes`' encoded form, or chooses an encoding of its own."""
     metadata = base.source_metadata(path) or {}
     described = metadata.get("attributes", {}) if isinstance(metadata, dict) else {}
     float_dataset = isinstance(metadata, dict) and (metadata.get("datatype") or {}).get("class") == "float"

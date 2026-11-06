@@ -32,7 +32,7 @@ does not read is a rejection of the layout request ([§6](#6-errors)).
 
 A plugin has **options**: the call gives a JSON object (`{}` when it gives none); the plugin puts
 it in canonical form, a JSON object as it is (no `NaN`, no lone surrogate, nothing but objects,
-arrays, strings, numbers and booleans), or refuses it, before the input is opened. Each `write`
+arrays, strings, numbers, booleans and null), or refuses it, before the input is opened. Each `write`
 is given a copy of the canonical options of its own.
 
 A plugin's **write** returns the output: its entries, keys from the output's root ([§3](#3-the-output)).

@@ -55,7 +55,7 @@ from refkv.zarrify.layouts import MIRROR, Base, EntryValue, concat, cut
 from refkv.zarrify.layouts.hierarchy import array, copy, group
 
 Value = Range | Concat
-Out = dict[str, EntryValue]  # entries being built (`layouts.Entries` is a read-only Mapping)
+Out = dict[str, EntryValue]  # entries being built
 EDGES = ("pad", "rectilinear")
 OPTIONS = frozenset(["chunks", "default", "edge"])
 
