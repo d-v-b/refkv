@@ -285,7 +285,10 @@ store input. A `zarrify` call's `checksums=None` is `False` here too.
   element each part of its value runs across (a range of strips the profile
   joined is one item a strip), in order: `(i, member, start, stop)`, the element (as
   `element_at`) and the bytes of it the part reads, `start` to `stop`
-  half-open, offsets within the element (or member), or `None` for a literal
+  half-open, offsets within the element's (or member's) **span**,
+  `base.span(i, member=None)`, the one range of a source its own bytes take,
+  no recipe applied (`cut(base.span(i, m), start, stop)` reads them; a JPEG
+  tile's `reference` splices its tables in, and so has other offsets), or `None` for a literal
   part or one of a data source (an HDF5 edge slab is its data's range and a
   prefix of the zero data source; a variable-length string's chunk is
   literal bytes and a heap object's), or the part itself, a `Range`, for bytes
