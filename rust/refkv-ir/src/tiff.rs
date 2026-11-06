@@ -7,11 +7,12 @@
 //!
 //! Rounds: (1) the header; (2) the main chain, one IFD a round (each IFD names
 //! the next); (3) the out-of-line values of the chain's IFDs that the profile
-//! reads, or that are small; (4) the SubIFDs, a depth a round, with their values;
-//! (5) the values the layout needs that were not read yet (each level's tile
-//! tables), as the layout asks for them; (6) the IFDs other pointer tags lead to,
-//! for the IR only. The schema (`schema/tiff.json`) is checked as the profile
-//! meets each role: a file that fails is rejected there, and nowhere else.
+//! reads, their tile and strip tables (whatever their size: the IR lists every IFD's
+//! tiles), and those that are small; (4) the SubIFDs, a depth a round, with their values;
+//! (5) the values the layout needs that were not read yet, as the layout asks for them;
+//! (6) the IFDs other pointer tags lead to, with their values, for the IR only. The
+//! schema (`schema/tiff.json`) is checked as the profile meets each role: a file that
+//! fails is rejected there, and nowhere else.
 //!
 //! **The QPTIFF variant** (spec/zarrify/qptiff.md
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md>). After the header (and
@@ -418,6 +419,18 @@ pub struct Tiff {
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>).
 fn row_size(w: u64, bits: u64, samples: u64) -> u128 {
     (w as u128 * bits as u128 * samples as u128).div_ceil(8)
+}
+
+/// An EER compression's skip, horizontal and vertical bits (spec/zarrify/tiff.md §4.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>): 8, 2
+/// and 2 for 65000; 7, 2 and 2 for 65001; and tags 65007 to 65009 for 65002, `tag(t, default)`
+/// giving each, 7, 2 and 2 without its tag.
+pub fn eer_bits(compression: u64, tag: impl Fn(u16, u64) -> u64) -> (u64, u64, u64) {
+    match compression {
+        65000 => (8, 2, 2),
+        65001 => (7, 2, 2),
+        _ => (tag(65007, 7), tag(65008, 2), tag(65009, 2)),
+    }
 }
 
 /// Whether a compression is EER's (spec/zarrify/tiff.md §4.3
@@ -972,9 +985,8 @@ impl Tiff {
         )
     }
 
-    /// The values the layout read whole (tile and strip tables past the eager budget)
-    /// become their elements' values, as smaller ones are: the mirror reads the
-    /// tiles' extents from them.
+    /// The values the layout read whole (past the eager budget, such as a long
+    /// ImageDescription) become their elements' values, as smaller ones are.
     fn keep_tables(&mut self) {
         let mut put = Vec::new();
         for f in &self.ifds {
@@ -1200,6 +1212,22 @@ impl Tiff {
         self.heads.get(&(e.off, n)).cloned()
     }
 
+    /// The tags of an IFD's tile and strip tables that `emit_ifd_data` reads: TileOffsets and
+    /// TileByteCounts (with an NDPI's high tables), and StripOffsets and StripByteCounts, each
+    /// pair when the IFD has both of unsigned types.
+    fn data_tables(&self, f: &Ifd) -> Vec<u16> {
+        let mut tags = Vec::new();
+        for (o, c) in [(324u16, 325u16), (273, 279)] {
+            if [o, c].iter().all(|&t| f.field(t).is_some_and(|e| unsigned(e.typ))) {
+                tags.extend([o, c]);
+                if self.ndpi && o == 324 {
+                    tags.extend([65324, 65325]);
+                }
+            }
+        }
+        tags
+    }
+
     fn ints(&self, e: &Ent, first: bool) -> Option<Vec<u64>> {
         let z = type_size(e.typ)?;
         let n = if first { 1.min(e.count) } else { e.count };
@@ -1221,8 +1249,11 @@ impl Tiff {
     }
 
     /// Asks for the out-of-line values of the IFDs read since the last time: those
-    /// the profile reads whatever their size, and others up to 64 KiB (within the
-    /// eager budget). None when there are none to read, or once they are read.
+    /// the profile reads whatever their size, every IFD's tile and strip tables (the
+    /// source metadata lists the tiles of every IFD with both tables, spec/zarrify/tiff.md §5.1
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#51-elements>), and
+    /// others up to 64 KiB (within the eager budget). None when there are none to read, or
+    /// once they are read.
     fn read_values(&mut self) -> Res<Option<Step>> {
         if !self.asked_values.is_empty() {
             let asked = std::mem::take(&mut self.asked_values);
@@ -1251,6 +1282,7 @@ impl Tiff {
             if f.entries.iter().all(|e| e.val.is_none() || e.inline) {
                 continue;
             }
+            let tables = self.data_tables(f);
             for e in &f.entries {
                 let Some(v) = e.val else { continue };
                 if e.inline || self.ir.value_bytes(v).is_some() {
@@ -1263,7 +1295,7 @@ impl Tiff {
                         continue;
                     }
                 }
-                let required = e.tag == 330 && f.tree && f.depth < 4 && !e.dup;
+                let required = (e.tag == 330 && f.tree && f.depth < 4 && !e.dup) || (!e.dup && tables.contains(&e.tag));
                 let describe = !e.dup && (self.table(e.tag) || self.layout_tag(e.tag) || self.is_pointer(e.tag, e.typ));
                 let eager = describe && n <= max_decode && (want.contains_key(&(e.off, n)) || self.eager + n <= eager_limit);
                 // every numeric value of at most 1024 bytes is held, whatever its tag: the
@@ -2117,15 +2149,10 @@ impl Tiff {
     /// its compression, but for 65002's, from tags 65007 to 65009, each 7, 2 and 2 without its tag.
     /// A tag of another field type counts as absent: these are outside the table, and read only here.
     fn eer_bits(&self, k: usize, compression: u64) -> (u64, u64, u64) {
-        let tag = |t: u16, default: u64| {
+        eer_bits(compression, |t, default| {
             let value = self.ifds[k].field(t).filter(|e| unsigned(e.typ)).and_then(|e| self.ints(e, true));
             value.and_then(|v| v.first().copied()).unwrap_or(default)
-        };
-        match compression {
-            65000 => (8, 2, 2),
-            65001 => (7, 2, 2),
-            _ => (tag(65007, 7), tag(65008, 2), tag(65009, 2)),
-        }
+        })
     }
 
     fn tiled(&self, k: usize) -> bool {

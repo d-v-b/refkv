@@ -19,19 +19,7 @@ pub const MAX_NAME: usize = 256;
 /// The data type of the samples (spec/zarrify/tiff.md §4.3
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>).
 pub fn data_type(facts: &J) -> Result<String, String> {
-    let kind = match n(&facts["sample_format"]) {
-        1 => "uint",
-        2 => "int",
-        3 => "float",
-        f => return Err(format!("internal: sample format {f}")),
-    };
-    // packed samples are held in the smallest type that takes them
-    let bits = match n(&facts["bits"]) {
-        1 => 8,
-        12 => 16,
-        bits => bits,
-    };
-    Ok(format!("{kind}{bits}"))
+    crate::routines::tiff_data_type_of(n(&facts["sample_format"]), n(&facts["bits"]))
 }
 
 /// Whether the samples are packed, of 1 or 12 bits, so that their type's range is not theirs, and
