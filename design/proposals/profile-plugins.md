@@ -282,7 +282,8 @@ store input. A `zarrify` call's `checksums=None` is `False` here too.
   chunk, and reads it whole with `base.reference`.
 - `base.elements(path)`: for every chunk of the base's array at `path`, keys
   relative to the array as `base.array` gives them, a tuple with one item per
-  part of its value: `(i, member, start, stop)`, the element (as
+  element each part of its value runs across (a range of strips the profile
+  joined is one item a strip), in order: `(i, member, start, stop)`, the element (as
   `element_at`) and the bytes of it the part reads, `start` to `stop`
   half-open, offsets within the element (or member), or `None` for a literal
   part or one of a data source (an HDF5 edge slab is its data's range and a
@@ -993,9 +994,9 @@ as its first users, each covering what the others do not:
 | example | formats | what it exercises |
 |---|---|---|
 | `ome-zarr-06` | TIFF, NDPI, QPTIFF, IMS, HDF5 | [the test case](#the-test-case-ome-zarr-06-from-tiff-and-hdf5): `copy`, transposes, attributes, options, keeping the mirror |
-| `tiff-pages` | TIFF | every main-chain IFD of a TIFF, with its SubIFDs as its pyramid, as an image of its own, built from the IR with `tiff_tags`, `tiff_data_type`, `tiff_codecs`, `base.form`, `base.reference`, `array` and `group`, without `copy`; an IFD whose tile tables the IR does not hold is `Rejected`, naming it |
+| `tiff-pages` | TIFF | every main-chain IFD of a TIFF, with its SubIFDs as its pyramid, as an image of its own, built from the IR with `tiff_tags`, `tiff_data_type`, `tiff_codecs` (EER's for its chunk shape), `tiff_byte_order`, `base.members`, `base.reference`, `array` and `group`, without `copy`; an IFD whose tile tables the IR does not hold is `Rejected`, naming it |
 | `hdf5-rechunk` | HDF5 | contiguous datasets re-tiled into chunks of a shape the options give, from `base.elements`, `base.reference`, `cut`, `concat(merge=True)`, `base.zeros` and `base.fits`, with the codecs of the base's array; `check`'s `size` |
-| `xarray-v2` | HDF5 | an HDF5 or NetCDF-4 file as Zarr v2 with consolidated metadata and `_ARRAY_DIMENSIONS`, for xarray: a hierarchy that is not Zarr v3, with only `.zmetadata` and the root's documents read at open (`Written.read_at_open`, and `Written.stored` for chunks it keeps uncompressed), and its own translation of the base's Zarr v3 codecs into v2's `compressor` and `filters`, rejecting an array whose codecs have none |
+| `xarray-v2` | HDF5 | an HDF5 or NetCDF-4 file as Zarr v2 with consolidated metadata and `_ARRAY_DIMENSIONS`, for xarray: a hierarchy that is not Zarr v3, with only `.zmetadata` and the root's documents read at open (`Written.read_at_open`; `Written.stored` has no use here, since HDF5 gives no bytes chunks), and its own translation of the base's Zarr v3 codecs into v2's `compressor` and `filters`, rejecting an array whose codecs have none |
 | `bare` | every file profile (`"*"`) | refkv's image layout with none of refkv's declarations and no mirror: the smallest plugin |
 
 What the agents find hard to do with the API is changed in the API before it
