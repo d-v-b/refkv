@@ -51,7 +51,8 @@ as coordinates, as bytes.) The rules are [spec/layout.md](../spec/layout.md).
   (exit status 1): `write` raised, or its entries broke a rule; the message says which.
 
 A TIFF (and an NDPI, QPTIFF or IMS file) is already an OME-Zarr 0.5 image in refkv's own layout,
-so the example copies its levels and writes 0.6 metadata over them. For an HDF5 file, which
+so the example copies its levels and writes 0.6 metadata over them, moving each level by half its
+pixel, since refkv places a level's corner where 0.6 places a pixel's center. For an HDF5 file, which
 datasets are images is the file's convention's business (NWB's, BigDataViewer's), so the options
 name them:
 
@@ -187,22 +188,31 @@ class Ome06:
     def write(self, base: Base, options: Mapping[str, Any]) -> Entries:
         if base.profile == "hdf5":
             return self.write_hdf5(base, options)
+        if options["images"]:
+            raise Rejected(f"images name an HDF5 file's arrays; a {base.profile} file's image is its own")
         return self.write_image(base)
 
     def write_image(self, base: Base) -> Entries:
-        """A 0.5 image's levels, copied, under 0.6 metadata: each level's scale and translation,
-        the image's name and its omero channels kept."""
+        """A 0.5 image's levels, copied, under 0.6 metadata, the image's name and its omero channels
+        kept. refkv's translation places each level's corner (spec/conventions.md, Translations),
+        and OME-Zarr 0.6 places a pixel's center at the origin, so on the space axes each level is
+        moved by half its own pixel."""
         ome = base.document("zarr.json")["attributes"]["ome"]
         ms = ome["multiscales"][0]
+        space = [a.get("type") == "space" for a in ms["axes"]]
         out: Entries = {}
         datasets = []
         for level in ms["datasets"]:
             p = level["path"]
             out |= {f"{p}/{k}": v for k, v in copy(base, p).items()}
             steps = level["coordinateTransformations"]
-            transform = steps[0] if len(steps) == 1 else {"type": "sequence", "transformations": steps}
-            datasets.append({"path": p, "coordinateTransformations": [
-                {**transform, "input": {"path": p}, "output": {"name": "physical"}}]})
+            scale = next(t["scale"] for t in steps if t["type"] == "scale")
+            corner = next((t["translation"] for t in steps if t["type"] == "translation"), [0.0] * len(scale))
+            center = [c + s / 2 if is_space else c for c, s, is_space in zip(corner, scale, space, strict=True)]
+            datasets.append({"path": p, "coordinateTransformations": [{
+                "type": "sequence", "input": {"path": p}, "output": {"name": "physical"},
+                "transformations": [{"type": "scale", "scale": scale},
+                                    {"type": "translation", "translation": center}]}]})
         image = {"name": ms.get("name", "image"),
                  "coordinateSystems": [{"name": "physical", "axes": ms["axes"]}], "datasets": datasets}
         out_ome = {"version": "0.6", "multiscales": [image], **({"omero": ome["omero"]} if "omero" in ome else {})}

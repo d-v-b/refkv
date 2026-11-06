@@ -700,11 +700,6 @@ def test_a_convention_version_that_is_no_natural_number_is_a_usage_error(monkeyp
     refused(monkeypatch, variant(convention=convention(version=True)), "not a natural number")
 
 
-def test_a_refkv_schema_url_is_a_usage_error(monkeypatch):
-    url = "HTTP://www.GitHub.com:443/d-v-b/refkv"
-    refused(monkeypatch, variant(convention=convention(schema_url=url)), "schema_url is refkv's")
-
-
 def test_an_empty_description_is_a_usage_error(monkeypatch):
     refused(monkeypatch, variant(convention=convention(description="")), "description is not a string")
 
@@ -855,11 +850,6 @@ def test_a_cmo_name_that_is_no_string_is_a_failure(monkeypatch):
           "name is not a string")
 
 
-def test_a_cmo_with_refkv_s_url_is_a_failure(monkeypatch):
-    cmo = {"uuid": "44444444-4444-4444-8444-444444444444", "schema_url": "git+https://github.com/d-v-b/refkv/x"}
-    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes({"zarr_conventions": [cmo]})}, "declares a refkv")
-
-
 def test_a_cmo_named_as_the_plugin_s_key_is_a_failure(monkeypatch):
     cmo = {"uuid": "44444444-4444-4444-8444-444444444444", "name": "acme_ome_writes"}
     fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes({"zarr_conventions": [cmo]})},
@@ -879,7 +869,7 @@ def test_a_layout_holds_what_its_checks_allow(monkeypatch):
     included), a bytearray document (written as bytes), a CMO whose URL only resembles refkv's, a
     plugin that writes its own CMO on its node (written once), a numpy order, and a distribution
     whose name normalizes to the layout's first segment."""
-    longest = "0/" + "a" * (layouts.MAX_KEY - len(PREFIX.encode()) - 2)
+    longest = "0/" + "a" * (65535 - len(PREFIX.encode()) - 2)  # 65535 bytes with its prefix
     near = {"uuid": "55555555-5555-4555-8555-555555555555", "schema_url": "https://github.com/d-v-b/refkvx/s"}
 
     class Edges(Writes):
@@ -990,7 +980,7 @@ def test_a_key_with_a_lone_surrogate_is_a_failure(monkeypatch):
 
 
 def test_a_key_one_byte_longer_than_an_archive_holds_is_a_failure(monkeypatch):
-    key = "0/" + "a" * (layouts.MAX_KEY - len(PREFIX.encode()) - 1)
+    key = "0/" + "a" * (65535 - len(PREFIX.encode()) - 1)  # 65536 bytes with its prefix
     fails(monkeypatch, lambda base: {"zarr.json": doc_bytes(), **array_entries(base), key: b"x"},
           "more than an archive's")
 
@@ -1022,11 +1012,6 @@ def test_a_refkv_uuid_in_another_form_is_a_failure(monkeypatch):
     fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes({"zarr_conventions": [cmo]})}, "declares a refkv")
 
 
-def test_a_refkv_spec_url_is_a_failure(monkeypatch):
-    cmo = {"uuid": "66666666-6666-4666-8666-666666666666", "spec_url": "RAW.githubusercontent.com/d-v-b/refkv/x"}
-    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes({"zarr_conventions": [cmo]})}, "declares a refkv")
-
-
 def test_a_range_subclass_is_a_failure(monkeypatch):
     class Mine(Range):
         pass
@@ -1044,7 +1029,7 @@ def test_a_missing_node_document_is_a_failure(monkeypatch):
 
 
 def test_dimension_names_as_a_string_are_refused():
-    with pytest.raises(ValueError, match="not a string"):
+    with pytest.raises(ValueError, match="a list of names"):
         copy(Base(zarrify(TIF), None), "0", dimension_names="yx")
 
 
@@ -1092,7 +1077,7 @@ def test_a_one_segment_name_is_a_usage_error(monkeypatch):
 
 
 def test_a_key_of_more_bytes_than_an_archive_holds_is_a_failure(monkeypatch):
-    key = "0/" + "é" * ((layouts.MAX_KEY - len(PREFIX)) // 2)  # fewer characters than bytes allowed
+    key = "0/" + "é" * ((65535 - len(PREFIX)) // 2)  # fewer characters than bytes allowed
     fails(monkeypatch, lambda base: {"zarr.json": doc_bytes(), **array_entries(base), key: b"x"},
           "more than an archive's")
 
@@ -1136,11 +1121,6 @@ def test_an_array_document_whose_shape_is_no_list_is_a_failure(monkeypatch):
 
 def test_a_dataset_layout_s_cmo_is_a_failure(monkeypatch):
     cmo = {"uuid": PROFILES["mrc-dataset"][0]}
-    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes({"zarr_conventions": [cmo]})}, "declares a refkv")
-
-
-def test_a_refkv_url_in_another_case_is_a_failure(monkeypatch):
-    cmo = {"uuid": "77777777-7777-4777-8777-777777777777", "spec_url": "https://github.com/D-V-B/refkv/x"}
     fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes({"zarr_conventions": [cmo]})}, "declares a refkv")
 
 
@@ -1209,21 +1189,6 @@ def test_canonical_options_with_infinity_are_a_usage_error(monkeypatch):
     refused(monkeypatch, variant(options=lambda _self, _given: {"a": float("inf")}), "not a JSON object")
 
 
-def test_a_refkv_spec_url_in_a_convention_is_a_usage_error(monkeypatch):
-    refused(monkeypatch, variant(convention=convention(spec_url="https://github.com/d-v-b/refkv/blob/main/x")),
-            "spec_url is refkv's")
-
-
-def test_a_refkv_url_with_white_space_around_it_is_a_failure(monkeypatch):
-    cmo = {"uuid": "88888888-8888-4888-8888-888888888888", "spec_url": " https://github.com/d-v-b/refkv \n"}
-    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes({"zarr_conventions": [cmo]})}, "declares a refkv")
-
-
-def test_a_schemeless_refkv_url_with_a_url_in_its_query_is_a_failure(monkeypatch):
-    cmo = {"uuid": "88888888-8888-4888-8888-888888888888", "spec_url": "github.com/d-v-b/refkv/x?u=http://y"}
-    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes({"zarr_conventions": [cmo]})}, "declares a refkv")
-
-
 def test_a_refkv_uuid_with_a_uuid_prefix_is_a_failure(monkeypatch):
     cmo = {"uuid": "uuid:" + layouts.UUID}
     fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes({"zarr_conventions": [cmo]})}, "declares a refkv")
@@ -1261,3 +1226,65 @@ def test_copy_reads_a_v2_key_s_default_separator():
     entries = copy(Base(refkv.ReferenceStore(mapping), None), "a", order=[2, 1, 0])
     assert set(entries) == {"zarr.json", "0.0.0"}
     assert "dimension_names" not in document(refkv.ReferenceStore({"zarr.json": entries["zarr.json"]}), "zarr.json")
+
+
+
+def test_options_253_deep_are_planned(monkeypatch):
+    """Canonical options nest up to 253 deep, the node holding them then 256."""
+    deep: dict = {}
+    for _ in range(252):
+        deep = {"a": deep}
+    install(monkeypatch, Entry(NAME, variant(options=lambda _self, _given: deep)))
+    assert layouts.plan([Layout(NAME)])[0].fresh_options() == deep
+
+
+def test_options_254_deep_are_a_usage_error(monkeypatch):
+    deep: dict = {}
+    for _ in range(253):
+        deep = {"a": deep}
+    refused(monkeypatch, variant(options=lambda _self, _given: deep), "nest deeper than 253")
+
+
+def test_an_array_document_without_its_chunk_key_encoding_is_a_failure(monkeypatch):
+    def partial(base):
+        doc = document(refkv.ReferenceStore({"zarr.json": copy(base, "0")["zarr.json"]}), "zarr.json")
+        del doc["chunk_key_encoding"]
+        return {"zarr.json": doc_bytes(), "0/zarr.json": json.dumps(doc).encode()}
+    fails(monkeypatch, partial, "an array's document holds")
+
+
+def test_an_entry_point_of_no_distribution_is_a_usage_error(monkeypatch):
+    entry = Entry(NAME, Ome06)
+    entry.dist = None  # type: ignore[assignment] (broken metadata)
+    install(monkeypatch, entry)
+    with pytest.raises(LayoutUsageError, match="provided by no distribution"):
+        zarrify(TIF, plugins=[Layout(NAME)])
+
+
+def test_an_entry_point_that_names_a_module_is_a_usage_error(monkeypatch):
+    install(monkeypatch, Entry(NAME, json))
+    with pytest.raises(LayoutUsageError, match="names the module json"):
+        zarrify(TIF, plugins=[Layout(NAME)])
+
+
+def test_options_with_a_member_not_named_by_a_string_are_a_usage_error(monkeypatch):
+    refused(monkeypatch, Ome06, "named by strings", [Layout(NAME, {"a": {1: "b"}})])
+
+
+def test_dimension_names_that_are_no_strings_are_refused():
+    with pytest.raises(ValueError, match="each a string or None"):
+        copy(Base(zarrify(TIF), None), "0", dimension_names=[0, 1])  # type: ignore[list-item]
+
+
+def test_a_chunk_key_is_no_document_of_the_base():
+    with pytest.raises(KeyError, match="no document '0/c/0/0'"):
+        Base(zarrify(TIF), None).document("0/c/0/0")
+
+
+def test_a_refkv_uuid_in_braces_twice_is_no_refkv_uuid():
+    """A UUID is read with at most one prefix and one pair of braces, so a twice-braced refkv UUID
+    is not refkv's (nor any UUID), and a non-ASCII one is none either."""
+    assert layouts._uuid_form("{{" + layouts.UUID + "}}") is None
+    assert layouts._uuid_form("uuid:uuid:" + layouts.UUID) is None
+    assert layouts._uuid_form("{uuid:" + layouts.UUID.upper() + "}") == layouts.UUID
+    assert layouts._uuid_form(layouts.UUID.replace("e", "\u212a")) is None

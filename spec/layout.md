@@ -89,7 +89,8 @@ checksums (which are of the source's bytes), so that what it writes does not dep
 built-in layouts the call asked for, or on the checksums' values. (A profile may cut a reference
 into more ranges when the call asks for checksums,
 [spec/zarrify.md §2.1](zarrify.md#21-virtual-shards); a plugin sees the ranges as they are.) It
-is given the base's IR, and the options the caller gave, in its canonical form, which nests at
+is given the base's IR, and the options the caller gave (a JSON object, its members named by
+strings at every depth), in its canonical form, which nests at
 most 253 deep, so that the layout's node, which holds it, nests at most 256. It returns the
 layout's entries, keys relative to its node, and refkv writes them as [§3](#3-the-entries) says.
 
@@ -115,11 +116,13 @@ failure, and no output is written:
   segment; with `refkv_layouts/<path>/` before it, it is at most 65535 bytes, as a ZIP archive's
   keys are.
 - Every document is strict JSON in UTF-8 (RFC 8259): no byte order mark, no `NaN` or infinity,
-  no number with a fraction or an exponent beyond binary64's range, no integer of more than 4300
-  digits (an integer is kept exactly, as [spec/zarrify.md §1.6](zarrify.md#16-json-documents)
-  keeps it), no member twice in one object, no lone surrogate, and no nesting deeper than 256,
-  [§1.6](zarrify.md#16-json-documents)'s bound; an array's document holds `shape`,
-  `data_type`, `chunk_grid`, `chunk_key_encoding`, `codecs` and `fill_value`, its `shape` a list.
+  no number with a fraction or an exponent whose binary64 value is infinite, no integer of more
+  than 4300 digits (an integer is kept exactly, as
+  [spec/zarrify.md §1.6](zarrify.md#16-json-documents) keeps it), no member twice in one object,
+  no lone surrogate, and no nesting deeper than 256, [§1.6](zarrify.md#16-json-documents)'s
+  bound. Its `zarr_format` is the integer 3 and its `node_type` `group` or `array`; an array's
+  document holds `shape`, `data_type`, `chunk_grid`, `chunk_key_encoding`, `codecs` and
+  `fill_value`, its `shape` a list.
 - `zarr.json` is a group. Every other key is a node's `zarr.json` whose parent node's `zarr.json`
   is a group of the layout, or a key below an array's `zarr.json`; no node is inside an array.
 - Every reference entry's ranges are, as [spec/zarrify.md §1.1](zarrify.md#11-output-and-equivalence)
@@ -128,17 +131,13 @@ failure, and no output is written:
   base's references and makes none, so it reads only bytes the base reads, under the base's
   pins and reader policy. Each is written as the base holds it, its checksums included,
   whatever checksums the plugin's value has.
-- No document holds the top-level member `consolidated_metadata`, the top-level attribute `refkv_zarrified`,
-  `refkv_layout` or `refkv_provenance`, or, in `zarr_conventions` (a list of objects), a CMO with
-  the UUID, the `name` or a URL of a refkv convention: a profile's, a dataset layout's,
-  provenance's or this one. A CMO's UUID is refkv's when, lower-cased, without a `urn:uuid:` or
-  `uuid:` prefix and enclosing braces (in either order) and without hyphens, it is the 32
-  hexadecimal digits of one, and the plugin's in the same reading; its `schema_url` or `spec_url`
-  is refkv's when, lower-cased and with JSON's white space around it removed (and read as if it had
-  a scheme when it does not start with one, `[a-z][a-z0-9+.-]*://`), its host without `www.` or a
-  port is
-  `github.com` or `raw.githubusercontent.com` and its path is `/d-v-b/refkv` or starts with
-  `/d-v-b/refkv/`, its percent-escapes not decoded. A CMO that has a `name` has a string there. A CMO with the plugin's
+- No document holds the top-level member `consolidated_metadata`, the top-level attribute
+  `refkv_zarrified`, `refkv_layout` or `refkv_provenance`, or, in `zarr_conventions` (a list of
+  objects), a CMO with the UUID or the `name` of a refkv convention: a profile's, a dataset
+  layout's, provenance's or this one. A CMO's UUID is read, ASCII lower-cased, with at most one
+  `urn:uuid:` or `uuid:` prefix and one pair of enclosing braces (in either order) aside, and its
+  hyphens aside, as the 32 hexadecimal digits of a UUID, both to tell refkv's and the plugin's. A
+  CMO that has a `name` has a string there. A CMO with the plugin's
   convention's UUID, or its key as `name`, equals the one the plugin's description makes. Where a document holds the plugin's key, it is an
   object without `version`.
 
@@ -168,7 +167,8 @@ source object of that name, with the reason `reserved`, so that none does.
 An array of the base is copied by these rules, so that two producers copy one alike. The copy's
 document is the base's, its `attributes` those the plugin gives (`{}` by default: the base's are
 in [conventions §6](conventions.md#6-source-metadata-as-json)'s encodings, which the base's
-declarations decode), its `dimension_names` those the plugin gives, in the copy's axis order, or
+declarations decode), its `dimension_names` those the plugin gives (each a string or null), in
+the copy's axis order, or
 else the base's; its chunks are the base's entries, as they are.
 
 A copy may be **transposed** by a permutation `order` of the array's `n` axes, as

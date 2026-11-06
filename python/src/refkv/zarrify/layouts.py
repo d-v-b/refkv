@@ -35,7 +35,7 @@ import json
 import math
 import operator
 import re
-import urllib.parse
+import types
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
@@ -70,7 +70,6 @@ CMO = {
 PROVENANCE_UUID = "7ffd0ef7-df19-408c-a4df-c91623b4c3db"  # spec/provenance.md's convention
 REFKV_UUIDS = frozenset([UUID, PROVENANCE_UUID, *(str(e["uuid"]).lower() for e in REGISTRY)])
 REFKV_NAMES = frozenset(["refkv_zarrified", KEY, "refkv_provenance"])
-REFKV_HOSTS = frozenset(["github.com", "raw.githubusercontent.com"])
 RESERVED_KEYS = frozenset(["zarr_conventions", *REFKV_NAMES])
 FILE_PROFILES = frozenset(str(e["name"]) for e in REGISTRY if e["kind"] in ("file", "both"))
 ARRAY_MEMBERS = ("shape", "data_type", "chunk_grid", "chunk_key_encoding", "codecs", "fill_value")
@@ -152,37 +151,27 @@ def _entry_points() -> Sequence[importlib.metadata.EntryPoint]:
     return tuple(importlib.metadata.entry_points(group=GROUP))
 
 
-def _is_refkv_url(url: object) -> bool:
-    """Whether `url` is under refkv's repository, `d-v-b/refkv` on GitHub, whatever its scheme,
-    case, `www.`, port or trailing slash."""
-    if not isinstance(url, str):
-        return False
-    text = url.strip(" \t\n\r").lower()  # JSON's white space
-    parts = urllib.parse.urlsplit(text if re.match(r"[a-z][a-z0-9+.-]*://", text) else "//" + text)
-    host = (parts.hostname or "").removeprefix("www.")
-    return host in REFKV_HOSTS and (parts.path.rstrip("/") + "/").startswith("/d-v-b/refkv/")
+UUID_TEXT = re.compile(r"(?:urn:uuid:|uuid:)?(\{)?([0-9a-f-]+)(?(1)\})|\{(?:urn:uuid:|uuid:)([0-9a-f-]+)\}")
+
+
+def _uuid_form(text: object) -> str | None:
+    """A UUID's RFC 9562 form (lower case, hyphenated), read from `text` lower-cased (ASCII), with
+    at most one `urn:uuid:` or `uuid:` prefix and one pair of enclosing braces, in either order,
+    and its hyphens aside; None if it is no UUID."""
+    if not isinstance(text, str) or not text.isascii():
+        return None
+    m = UUID_TEXT.fullmatch(text.lower())
+    if m is None:
+        return None
+    t = (m.group(2) or m.group(3)).replace("-", "")
+    if len(t) != 32:
+        return None
+    return f"{t[:8]}-{t[8:12]}-{t[12:16]}-{t[16:20]}-{t[20:]}"
 
 
 def _utf8(value: object) -> bool:
     """Whether every string in `value` encodes as UTF-8 (no lone surrogate)."""
     return _strings_ok(value)
-
-
-def _uuid_form(text: object) -> str | None:
-    """A UUID's RFC 9562 form (lower case, hyphenated), read from `text` with its case, braces,
-    hyphens and a `urn:uuid:` or `uuid:` prefix aside; None if it is no UUID."""
-    if not isinstance(text, str):
-        return None
-    t = text.lower()
-    for _ in range(2):  # a prefix and enclosing braces, in either order
-        for prefix in ("urn:uuid:", "uuid:"):
-            t = t.removeprefix(prefix)
-        if t.startswith("{") and t.endswith("}"):
-            t = t[1:-1]
-    t = t.replace("-", "")
-    if re.fullmatch(r"[0-9a-f]{32}", t) is None:
-        return None
-    return f"{t[:8]}-{t[8:12]}-{t[12:16]}-{t[16:20]}-{t[20:]}"
 
 
 def _usage(name: str, why: str) -> LayoutUsageError:
@@ -219,6 +208,8 @@ def load(name: str) -> tuple[Plugin, dict[str, frozenset[int]]]:
             plugin = plugin()
     except BaseException as e:  # any of a plugin's, made a usage error
         raise _usage(name, f"the plugin failed to load: {type(e).__name__}: {e}") from e
+    if isinstance(plugin, types.ModuleType):
+        raise _usage(name, f"the entry point names the module {plugin.__name__}: name the plugin's class")
     if callable(plugin) and not hasattr(plugin, "name"):
         raise _usage(name, f"the entry point names {plugin!r}: name the plugin's class, or an instance of it")
     try:
@@ -257,8 +248,6 @@ def _check_plugin(name: str, plugin: Plugin) -> dict[str, frozenset[int]]:
         value = getattr(convention, member)
         if not isinstance(value, str) or not value:
             raise _usage(name, f"its convention's {member} is not a string")
-        if member != "description" and _is_refkv_url(value):
-            raise _usage(name, f"its convention's {member} is refkv's")
     formats = getattr(plugin, "formats", None)
     try:
         read = {k: frozenset(vs) for k, vs in formats.items()}  # type: ignore[union-attr]
@@ -272,6 +261,20 @@ def _check_plugin(name: str, plugin: Plugin) -> dict[str, frozenset[int]]:
     if not callable(getattr(plugin, "options", None)) or not callable(getattr(plugin, "write", None)):
         raise _usage(name, "a layout plugin has options() and write()")
     return read
+
+
+def _str_keys(value: object) -> bool:
+    """Whether every mapping in `value` names its members by strings, walked without recursion."""
+    stack = [value]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, Mapping):
+            if not all(isinstance(k, str) for k in item):
+                return False
+            stack.extend(item.values())
+        elif isinstance(item, (list, tuple)):
+            stack.extend(item)
+    return True
 
 
 def _path_ok(path: str) -> bool:
@@ -313,6 +316,8 @@ def plan(layouts: Sequence[Layout]) -> list[Planned]:
         path = str(plugin.path) if layout.path is None else layout.path
         if not _path_ok(path):
             raise _usage(layout.name, f"the path {path!r} is not one key segment of [a-z0-9_-]")
+        if not _str_keys(layout.options or {}):
+            raise _usage(layout.name, "its options' members are named by strings, at every depth")
         try:
             given = json.loads(json.dumps(dict(layout.options or {}), allow_nan=False))
         except (TypeError, ValueError, RecursionError) as e:
@@ -516,8 +521,9 @@ def copy(base: Base, path: str, order: Sequence[int] | None = None, attributes: 
     names = doc.get("dimension_names") if dimension_names is None else list(dimension_names)
     if dimension_names is not None and len(names) != n:  # type: ignore[arg-type]
         raise ValueError(f"{len(names)} dimension names for an array of {n} dimensions")  # type: ignore[arg-type]
-    if dimension_names is not None and isinstance(dimension_names, str):
-        raise ValueError("dimension_names is a list of names, not a string")
+    if dimension_names is not None and (isinstance(dimension_names, str)
+                                        or not all(n is None or isinstance(n, str) for n in dimension_names)):
+        raise ValueError("dimension_names is a list of names, each a string or None")
     if order is not None:
         try:
             indexes = [operator.index(o) for o in order]
@@ -618,6 +624,15 @@ def _depth(value: object) -> int:
     return deepest
 
 
+MAX_DIGITS = 4300  # an integer's digits a document may hold, whatever the interpreter's own limit
+
+
+def _bounded_int(text: str) -> int:
+    if len(text.lstrip("-")) > MAX_DIGITS:
+        raise ValueError(f"an integer of more than {MAX_DIGITS} digits")
+    return int(text)
+
+
 def _parsed(value: bytes) -> object:
     """A document, parsed as strict JSON in UTF-8: no byte order mark, no NaN or infinities, no
     member twice, no lone surrogate, nesting within Python's recursion limit."""
@@ -625,7 +640,8 @@ def _parsed(value: bytes) -> object:
     if text.startswith("\ufeff"):
         raise ValueError("a byte order mark")
     try:
-        doc = json.loads(text, parse_constant=_no_constant, parse_float=_finite, object_pairs_hook=_no_duplicates)
+        doc = json.loads(text, parse_constant=_no_constant, parse_float=_finite, parse_int=_bounded_int,
+                         object_pairs_hook=_no_duplicates)
         if not _strings_ok(doc):
             raise ValueError("a string that is not valid Unicode")
     except RecursionError:
@@ -645,8 +661,7 @@ def _check_cmos(where: str, cmos: object, plugin: dict[str, str]) -> None:
         name = cmo.get("name")
         if "name" in cmo and not isinstance(name, str):
             raise TypeError(f"{where}: a CMO's name is not a string")
-        if uuid in REFKV_UUIDS or name in REFKV_NAMES or any(_is_refkv_url(cmo.get(m))
-                                                             for m in ("schema_url", "spec_url")):
+        if uuid in REFKV_UUIDS or name in REFKV_NAMES:
             raise ValueError(f"{where} declares a refkv convention, which refkv alone writes")
         if (uuid == plugin["uuid"] or name == plugin["name"]) and cmo != plugin:
             raise ValueError(f"{where} declares the layout's convention otherwise than its ConventionInfo")
