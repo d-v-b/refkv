@@ -5,8 +5,8 @@ from pathlib import Path
 
 from refkv.errors import ResolutionError
 from refkv.policy import Policy
-from refkv.zarrify import Image, Rejected, zarrify
-from refkv.zarrify.layouts import Layout, LayoutFailed, LayoutUsageError, no_duplicates
+from refkv.zarrify import Rejected, zarrify
+from refkv.zarrify.layouts import Layout, LayoutFailed, LayoutUsageError
 from refkv.zarrify.store import WORKERS
 
 # the store kinds, in the words of `vzip convert`'s usage (rust/refkv-cli/src/main.rs)
@@ -14,54 +14,51 @@ STORES = ("an N5, Zarr v2 or OME-Zarr 0.4 store, a Neuroglancer precomputed volu
           "or a store of safetensors files")
 USAGE = ("usage: refkv zarrify <url or path> <out.vzip> [--url <source url>] [--checksums]"
          " [--allow-private-hosts] [--connections N] [--byte-cost SECONDS_PER_MB] [--workers N]"
-         " [--no-dataset] [--layout NAME [--layout-options NAME=JSON] [--layout-path NAME=PATH]]...\n"
+         " [--layout NAME [--layout-options JSON]]\n"
          f"(a URL ending in / or a directory is {STORES}; a directory needs --url;\n"
          "a Hugging Face Hub URL https://huggingface.co/<owner>/<repo>/tree/<rev>/ is listed at its commit,\n"
          "at HF_ENDPOINT's Hub if set;\n"
          f"a store's documents are read by up to N requests at a time, default {WORKERS};\n"
-         "--layout adds the layout a plugin writes, under refkv_layouts/ (spec/layout.md))")
+         "--layout names a plugin, which writes the whole output (spec/layout.md))")
 
 
-def _take_all(args: list[str], flag: str) -> list[str]:
-    """The values of every `flag VALUE` in `args`, removed from it."""
-    values = []
-    while flag in args:
-        i = args.index(flag)
-        if i + 1 >= len(args):
-            raise LayoutUsageError(f"{flag} needs a value")
-        values.append(args[i + 1])
-        del args[i:i + 2]
-    return values
+def _take(args: list[str], flag: str) -> str | None:
+    """The value of `flag VALUE` in `args`, removed from it; None without one."""
+    if flag not in args:
+        return None
+    i = args.index(flag)
+    if i + 1 >= len(args):
+        raise LayoutUsageError(f"{flag} needs a value")
+    value = args[i + 1]
+    del args[i:i + 2]
+    if flag in args:
+        raise LayoutUsageError(f"{flag} given twice: a call names one plugin layout")
+    return value
 
 
-def _layouts(args: list[str]) -> list[Layout]:
-    """The plugin layouts `--layout`, `--layout-options` and `--layout-path` ask for, removed
-    from `args`."""
-    names = _take_all(args, "--layout")
-    options: dict[str, dict[str, object]] = {}
-    paths: dict[str, str] = {}
-    for given in _take_all(args, "--layout-options"):
-        name, eq, text = given.partition("=")
-        if not eq:
-            raise LayoutUsageError(f"--layout-options {given}: expected NAME=JSON")
-        if name in options:
-            raise LayoutUsageError(f"--layout-options {name} given twice")
-        try:
-            value = json.loads(text, object_pairs_hook=no_duplicates)
-        except (ValueError, RecursionError) as e:
-            raise LayoutUsageError(f"--layout-options {name}: not JSON: {e}") from e
-        if not isinstance(value, dict):
-            raise LayoutUsageError(f"--layout-options {name}: not a JSON object")
-        options[name] = value
-    for given in _take_all(args, "--layout-path"):
-        name, _, path = given.partition("=")
-        if name in paths:
-            raise LayoutUsageError(f"--layout-path {name} given twice")
-        paths[name] = path
-    for name in (*options, *paths):
-        if name not in names:
-            raise LayoutUsageError(f"{name}: options or a path for a layout that --layout does not name")
-    return [Layout(n, options.get(n), paths.get(n)) for n in names]
+def _no_duplicates(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    """An object of JSON's members, refusing one named twice (json.loads's object_pairs_hook)."""
+    keys = [k for k, _ in pairs]
+    if len(keys) != len(set(keys)):
+        raise ValueError(f"an object holds a member twice: {min(k for k in keys if keys.count(k) > 1)!r}")
+    return dict(pairs)
+
+
+def _layout(args: list[str]) -> Layout | None:
+    """The plugin layout `--layout` and `--layout-options` ask for, removed from `args`."""
+    name = _take(args, "--layout")
+    text = _take(args, "--layout-options")
+    if text is None:
+        return None if name is None else Layout(name)
+    if name is None:
+        raise LayoutUsageError("--layout-options without --layout")
+    try:
+        value = json.loads(text, object_pairs_hook=_no_duplicates)
+    except (ValueError, RecursionError) as e:
+        raise LayoutUsageError(f"--layout-options: not JSON: {e}") from e
+    if not isinstance(value, dict):
+        raise LayoutUsageError("--layout-options: not a JSON object")
+    return Layout(name, value)
 
 
 def main(argv: list[str]) -> int:
@@ -101,11 +98,8 @@ def main(argv: list[str]) -> int:
         i = args.index("--workers")
         workers = int(args[i + 1])
         del args[i : i + 2]
-    no_dataset = "--no-dataset" in args
-    if no_dataset:
-        args.remove("--no-dataset")
     try:
-        plugins = _layouts(args)
+        layout = _layout(args)
     except LayoutUsageError as e:
         print(f"usage error: {e}", file=sys.stderr)
         return 2
@@ -120,7 +114,7 @@ def main(argv: list[str]) -> int:
     try:
         store = zarrify(args[0], url, checksums=checksums, policy=policy,
                         connections=connections, byte_cost=byte_cost, workers=workers,
-                        layouts=[Image()] if no_dataset else None, plugins=plugins)
+                        layout=layout)
     except LayoutUsageError as e:
         print(f"usage error: {e}", file=sys.stderr)
         return 2

@@ -110,7 +110,7 @@ fn first_string(v: &[u8]) -> &[u8] {
 }
 
 /// A transfer syntax's (encoding, codec), from the schema's table.
-fn syntax(rules: &Rules, uid: &[u8]) -> Option<(Enc, &'static str)> {
+pub fn syntax(rules: &Rules, uid: &[u8]) -> Option<(Enc, &'static str)> {
     let s = rules.table("syntaxes").get(latin1(uid))?;
     let codec = match s["codec"].as_str()? {
         "jpeg" => "jpeg",

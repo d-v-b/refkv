@@ -131,7 +131,7 @@ fn tensor_path(name: &str) -> Result<String, &'static str> {
     if parts.iter().any(|p| p.is_empty() || *p == "." || *p == ".." || p.starts_with("__") || *p == "zarr.json") {
         return Err("name");
     }
-    if parts[0] == crate::out::SOURCE_NODE || parts[0] == crate::out::LAYOUTS_NODE {
+    if parts[0] == crate::out::SOURCE_NODE {
         return Err("reserved");
     }
     Ok(name.to_string())

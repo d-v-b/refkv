@@ -1,290 +1,128 @@
-# A layout of your own: OME-Zarr 0.6 from TIFF and HDF5
+# Writing a layout plugin
 
-refkv's profiles write one layout per format: an OME-Zarr 0.5 image for a TIFF, the file's own
-groups and datasets for an HDF5 file. A **layout plugin** adds another presentation of the same
-bytes, written in Python, in a package of your own, without forking refkv. refkv reads the file
-with its built-in profile, hands the plugin that profile's output, and writes the plugin's layout
-below `refkv_layouts/` in the same archive, beside refkv's own. The plugin decides only what the
-layout looks like: it copies the base's references, so it reads nothing refkv did not, and every
-chunk it copies still comes from the source file. (It may also write small arrays of its own, such
-as coordinates, as bytes.) The rules are [spec/layout.md](../spec/layout.md).
+refkv's profiles read a file and write its Zarr hierarchy in one layout, refkv's. A **layout
+plugin** is a Python package that writes the whole hierarchy of the output instead: an OME-Zarr
+0.6 image of a TIFF, a TIFF's every page, an HDF5 file re-tiled into 2-D chunks, a Zarr v2
+hierarchy that xarray opens. refkv reads the file as it always does, hands the plugin what it
+read, and writes exactly what the plugin returns. The rules are [spec/layout.md](../spec/layout.md).
 
-## How it works
+refkv ships five plugins as examples, in
+[refkv.zarrify.layouts.examples](../python/src/refkv/zarrify/layouts/examples/): `bare`,
+`ome_zarr_06`, `tiff_pages`, `hdf5_rechunk` and `xarray_v2`. Each imports only refkv's public API,
+so the quickest start is to copy the one closest to what you want into a package of your own.
 
-- **Registration.** A plugin is a class (or an instance of one) your package registers under the
-  entry-point group `refkv.layouts`, its key the layout's name, `<distribution>.<layout>` (the
-  first part your distribution's name, normalized); refkv makes an instance of a class it is
-  given. Its `formats` names the profiles it reads, by name: `tiff`, `ndpi`, `qptiff`, `ims`,
-  `hdf5`, and the rest of [docs/zarrify/README.md](zarrify/README.md)'s.
-- **What a plugin has.** `name` (the entry point's key), `path` (its node's default path),
-  `formats` (each profile it reads, mapped to a set of its convention's versions: `{"tiff": {0}}`;
-  every convention is at version 0 until refkv 1.0), `convention` (a `ConventionInfo`: its UUID,
-  version, schema and spec URLs and description), `options(given)` (the options in canonical
-  form, or a `ValueError`) and `write(base, options)`.
-- **What it is given.** `write(base, options)` gets the built-in output as a read-only `Base`:
-  `base.profile` (`"tiff"`, `"hdf5"`, ...), `base.version` and `base.uuid` (its convention's),
-  `base.keys()`, `base.document(key)` for a `zarr.json`, `base.array(path)` for an array's
-  document and chunks, and `base.ir`, the parsed source. A plugin never reads pixel data.
-- **What it returns.** The layout's entries, keys relative to its node: documents it writes, and
-  references it copies with `copy(base, path, order=..., attributes=..., dimension_names=...)`,
-  which can also transpose an array (`order` as `numpy.transpose` takes it: a channel-last image
-  into OME's time, channel, space order) without touching its chunks. A copy has no attributes
-  unless you give them (the base's are in refkv's encodings), and its dimension names are the
-  base's, permuted, unless you give them, in the copy's order. A reference is accepted only where
-  `copy` puts it: under a copy's document (attributes and dimension names yours to give), at the
-  copy's key, so that a copy decodes as the base's array does; a copy you edit (its shape, its
-  chunk grid, a chunk moved or put under an array of your own) is refused. An array of your own,
-  such as coordinates, holds bytes: any Zarr v3 document (its top-level members Zarr v3's;
-  yours go under `attributes`), each chunk below its `zarr.json`. refkv checks the
-  document's member types, not that zarr knows its data type, codecs and fill value, and does
-  not decode those chunks, so open your whole layout with zarr in a test
-  (`zarr.open_group(...).members(max_depth=None)`) and read it back. Every node's parent, up to the layout's
-  `zarr.json`, needs a group document of its own (Zarr v3's implicit groups are refused), and a
-  copy may leave out chunks you do not want (they read as the fill value); give a copy's
-  attributes with `copy(..., attributes=...)`.
-- **What refkv does.** It checks the entries ([spec/layout.md](../spec/layout.md#3-the-entries)
-  lists the checks; the layout's `zarr.json` is a group), puts them under
-  `refkv_layouts/<path>/`, declares the layout with the `refkv_layout` convention and your
-  plugin's own, and names it in the root's `refkv_zarrified.layouts`. Your convention's
-  attribute key is the layout's name with `.` and `-` as `_` (`acme_ome_ome06`): refkv writes
-  `version` there, and you may write other members there, and other conventions'
-  `zarr_conventions` entries, on any node.
-- **Asking for it.** `zarrify(path, plugins=[Layout(name, options)])`, or `python -m
-  refkv.zarrify <in> <out.vzip> --layout NAME --layout-options NAME=JSON`. The layout's node is at
-  `refkv_layouts/<path>`, the plugin's `path` (one key segment of `[a-z0-9_-]`) unless the call
-  gives another, `Layout(name, options, path="other")` or `--layout-path NAME=PATH`, for two
-  plugins whose default paths are one. A reader opens the
-  layout's path, `refkv_layouts/ome06`, not the archive's root (for the example's HDF5 images,
-  `refkv_layouts/ome06/<name>`), as a hierarchy of its own: the root holds refkv's OME-Zarr 0.5
-  image, and OME-Zarr 0.6 asks one hierarchy to hold one version. Give a local file by an absolute
-  path, or give `url`, since the archive names its source by what you give.
-- **What a base looks like.** For a TIFF (NDPI, QPTIFF, IMS), the root's `ome` holds OME-Zarr 0.5
-  `multiscales`, its levels arrays `0`, `1`, ...; for an HDF5 file, the file's groups and datasets
-  are groups and arrays at their own paths, with no dimension names unless the file has them.
-  `base.keys()` and `base.document(key)` show the rest.
-- **Errors.** `LayoutUsageError` (a `ValueError`; exit status 2): the layout asked for wrongly
-  (`options()` raised `ValueError`), or a plugin that breaks the rules. `LayoutRejected` (a
-  `Rejected`; exit status 3): this input's base is one the plugin does not read, or the plugin
-  raised `Rejected` for it. `LayoutFailed` (exit status 1): `options()` raised anything else, or
-  `write` raised, or its entries broke a rule; the message says which, and `python -m
-  refkv.zarrify` prints your plugin's traceback.
-- **Trying it out.** refkv finds a plugin only by its entry point, so install your package
-  while you work on it, `pip install -e .` (or `uv pip install -e .`) in its directory, and its
-  entry point is there with each edit; a test can then call `zarrify(..., plugins=[...])`.
-
-A TIFF (and an NDPI, QPTIFF or IMS file) is already an OME-Zarr 0.5 image in refkv's own layout,
-so the example copies its levels and writes 0.6 metadata over them, moving each level by half its
-pixel in y and x (and z, for IMS), since refkv places a level's corner there where 0.6 places a
-pixel's center. For an HDF5 file, which
-datasets are images is the file's convention's business (NWB's, BigDataViewer's), so the options
-name them:
-
-```python
-zarrify("/data/ophys.nwb", plugins=[Layout("acme-ome.ome06", {"images": [{
-    "name": "movie", "array": "stimulus/templates/movie/data",
-    "dims": ["t", "x", "y"], "order": ["t", "y", "x"], "scale": [0.033, 0.5, 0.5],
-    "axes": [{"name": "t", "type": "time", "unit": "second"},
-             {"name": "y", "type": "space", "unit": "micrometer"},
-             {"name": "x", "type": "space", "unit": "micrometer"}]}]})])
+```sh
+pip install "refkv[layouts]"   # zarr-metadata, for copy, array, group and check
+python -m refkv.zarrify image.ome.tif out.vzip --layout refkv.example.ome-zarr-06
+python -m refkv.zarrify ophys.nwb out.vzip --layout refkv.example.ome-zarr-06 \
+    --layout-options '{"images": [{"name": "movie", "array": "stimulus/templates/movie/data",
+                       "dims": ["t", "x", "y"], "order": ["t", "y", "x"]}]}'
 ```
 
-NWB stores an `ImageSeries` as `(frame, x, y)`, so the movie is copied in `t, y, x` order. The
-example writes what OME-Zarr 0.6 requires; its strict schema also wants each multiscale's `type` and
-`metadata`, which a plugin of your own may add.
+## A plugin
 
-## The example
+A plugin is an object with a `name`, the `formats` it reads, `options(given)` and
+`write(base, options)`:
 
-[examples/ome_zarr_06.py](examples/ome_zarr_06.py), the plugin refkv's tests run over TIFF, NDPI,
-QPTIFF, IMS and HDF5 fixtures:
-
-<!-- include: examples/ome_zarr_06.py -->
 ```python
-"""An OME-Zarr 0.6 layout of TIFF and HDF5 files, as a refkv layout plugin (spec/layout.md).
-
-A package registers the plugin in its pyproject.toml, under the layout's name:
-
-    [project.entry-points."refkv.layouts"]
-    "acme-ome.ome06" = "acme_ome:Ome06"
-
-and its users ask for the layout by that name:
-
-    from refkv.zarrify import zarrify
-    from refkv.zarrify.layouts import Layout
-
-    store = zarrify("image.ome.tif", plugins=[Layout("acme-ome.ome06")])
-    store.mapping["refkv_layouts/ome06/zarr.json"]  # the OME-Zarr 0.6 image
-
-A TIFF (and an NDPI, QPTIFF or IMS file) is already an OME-Zarr 0.5 image in refkv's own
-layout, so the plugin copies its levels and writes 0.6 metadata over them. An HDF5 file's
-groups and datasets are the file's own, and which of them are images is the file's convention's
-business (NWB's, BigDataViewer's), so the options name them.
-"""
-
-import json
-import math
-import re
-from collections.abc import Mapping
-from typing import Any, ClassVar
-
-from refkv import Concat, Range
-from refkv.zarrify import Rejected
-from refkv.zarrify.layouts import Base, ConventionInfo, copy
-
-Entries = dict[str, bytes | Range | Concat]
-IMAGES = ("tiff", "ndpi", "qptiff", "ims")  # the profiles whose image layout is OME-Zarr 0.5
-AXIS_TYPES = ("time", "channel", "space")  # stricter than 0.6, which allows other types in the channel slot
-IMAGE_MEMBERS = frozenset(["name", "array", "dims", "order", "axes", "scale"])
+from refkv.zarrify.layouts import Base, dump
 
 
-def axis(given: Mapping[str, Any]) -> dict[str, Any]:
-    """An OME-Zarr 0.6 axis: its name and type, and its unit, long name and discreteness if given,
-    each of its JSON type."""
-    if not isinstance(given, Mapping) or set(given) - {"name", "type", "unit", "longName", "discrete"}:
-        raise ValueError(f"an axis is an object of name, type, unit, longName and discrete: {given!r}")
-    if given.get("type") not in AXIS_TYPES:
-        raise ValueError(f"an axis's type is time, channel or space, not {given.get('type')!r}")
-    if not all(isinstance(given.get(m, ""), str) for m in ("name", "unit", "longName")) or not given.get("name") \
-            or not isinstance(given.get("discrete", False), bool):
-        raise ValueError(f"an axis's name, unit and longName are strings, and discrete a boolean: {dict(given)}")
-    return dict(given)
+class Bare:
+    """refkv's image layout, without refkv's declarations or the IR mirror."""
 
+    name = "acme.bare"  # <distribution>.<layout>
+    formats = "*"  # every file profile; or {"tiff": {0}, "hdf5": {0}}
 
-def number(given: object) -> float:
-    """A scale: a finite, positive number."""
-    if isinstance(given, bool) or not isinstance(given, (int, float)) or not math.isfinite(given) or given <= 0:
-        raise ValueError(f"a scale is a finite, positive number, not {given!r}")
-    return float(given)
+    def options(self, given):
+        return {}  # the options in canonical form; raise ValueError to refuse them
 
-
-def group(attributes: Mapping[str, object]) -> bytes:
-    """A Zarr v3 group's document."""
-    return json.dumps({"zarr_format": 3, "node_type": "group", "attributes": attributes}).encode()
-
-
-class Ome06:
-    name = "acme-ome.ome06"
-    path = "ome06"
-    formats: ClassVar[dict[str, set[int]]] = {p: {0} for p in (*IMAGES, "hdf5")}
-    convention = ConventionInfo(
-        uuid="5f0c2a3e-8d1b-4c7e-9a64-2b1f0e9d7c55",
-        version=0,
-        schema_url="https://raw.githubusercontent.com/acme/acme-ome/refs/tags/v0/schema.json",
-        spec_url="https://github.com/acme/acme-ome/blob/v0/spec.md",
-        description="An OME-Zarr 0.6 image of a source zarrified by refkv",
-    )
-
-    def options(self, given: Mapping[str, Any]) -> dict[str, Any]:
-        """The images of an HDF5 file, each one image group of the layout: its `name`, the
-        `array` that holds it, the names of the array's dimensions in the file (`dims`), their
-        `order` in the image (time, then channel, then space; default: `dims`), the image's
-        `axes`, named as `order` names them, and a positive `scale` per axis, in `order`'s order
-        (default 1)."""
-        if set(given) - {"images"}:
-            raise ValueError(f"the options hold images, not {sorted(set(given) - {'images'})}")
-        if not isinstance(given.get("images", []), list):
-            raise ValueError("images is a list of images")  # noqa: TRY004 (options() refuses with ValueError)
-        images = []
-        for image in given.get("images", []):
-            if not isinstance(image, Mapping) or set(image) - IMAGE_MEMBERS or not {"name", "array", "dims",
-                                                                                    "axes"} <= set(image):
-                raise ValueError(f"an image holds name, array, dims, axes, and order and scale if given: {image!r}")
-            name, array, dims = image["name"], image["array"], image["dims"]
-            order = image.get("order", dims)
-            if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9_.-]*", name) \
-                    or name == "zarr.json" or name.startswith("__"):
-                raise ValueError(f"{name!r} is not an image's name, a key segment")
-            lists = (dims, order, image["axes"], image.get("scale", []))
-            if not isinstance(array, str) or not all(isinstance(v, list) for v in lists) \
-                    or not all(isinstance(d, str) for d in (*dims, *order)):
-                raise ValueError(f"{name}: array is a string, dims and order lists of strings, axes and scale lists")
-            axes = [axis(a) for a in image["axes"]]
-            scale = [number(v) for v in image.get("scale", [1.0] * len(dims))]
-            if len(set(dims)) != len(dims) or sorted(order) != sorted(dims) \
-                    or [a["name"] for a in axes] != list(order) or len(scale) != len(dims):
-                raise ValueError(f"{name}: order, axes and scale give each of dims {dims} once")
-            types = [a["type"] for a in axes]
-            if types != sorted(types, key=AXIS_TYPES.index) or not 2 <= len(types) <= 5 \
-                    or not 2 <= types.count("space") <= 3 or types.count("time") > 1 or types.count("channel") > 1:
-                raise ValueError(f"{name}: 2 to 5 axes: a time, then a channel, then 2 or 3 of space")
-            if name in [i["name"] for i in images]:
-                raise ValueError(f"two images are named {name}")
-            images.append({"name": name, "array": array, "dims": list(dims), "order": list(order), "axes": axes,
-                           "scale": scale})
-        return {"images": images}
-
-    def write(self, base: Base, options: Mapping[str, Any]) -> Entries:
-        if base.profile == "hdf5":
-            return self.write_hdf5(base, options)
-        if options["images"]:
-            raise Rejected(f"images name an HDF5 file's arrays; a {base.profile} file's image is its own")
-        return self.write_image(base)
-
-    def write_image(self, base: Base) -> Entries:
-        """A 0.5 image's levels, copied, under 0.6 metadata, the image's name and its omero channels
-        kept. refkv's translation places each level's upper-left corner in y and x
-        (spec/conventions.md, Translations), and an IMS image's corner in z too, while an NDPI
-        file's z names a plane's own position; OME-Zarr 0.6 places a pixel's center at the origin,
-        so each level is moved by half its own pixel on the axes refkv places by a corner."""
-        ome = base.document("zarr.json")["attributes"]["ome"]
-        ms = ome["multiscales"][0]
-        cornered = {"y", "x", *({"z"} if base.profile == "ims" else ())}
-        space = [a.get("name") in cornered for a in ms["axes"]]
-        out: Entries = {}
-        datasets = []
-        for level in ms["datasets"]:
-            p = level["path"]
-            out |= {f"{p}/{k}": v for k, v in copy(base, p).items()}
-            steps = level["coordinateTransformations"]
-            scale = next(t["scale"] for t in steps if t["type"] == "scale")
-            corner = next((t["translation"] for t in steps if t["type"] == "translation"), [0.0] * len(scale))
-            center = [c + s / 2 if is_space else c for c, s, is_space in zip(corner, scale, space, strict=True)]
-            datasets.append({"path": p, "coordinateTransformations": [{
-                "type": "sequence", "input": {"path": p}, "output": {"name": "physical"},
-                "transformations": [{"type": "scale", "scale": scale},
-                                    {"type": "translation", "translation": center}]}]})
-        image = {"name": ms.get("name", "image"),
-                 "coordinateSystems": [{"name": "physical", "axes": ms["axes"]}], "datasets": datasets}
-        out_ome = {"version": "0.6", "multiscales": [image], **({"omero": ome["omero"]} if "omero" in ome else {})}
-        out["zarr.json"] = group({"ome": out_ome})
-        return out
-
-    def write_hdf5(self, base: Base, options: Mapping[str, Any]) -> Entries:
-        """The images the options name, each an array of the file transposed into the image's
-        axis order, under its own 0.6 group."""
-        images = options["images"]
-        if not images:
-            raise Rejected("an HDF5 file's images are named by the layout's options (images)")
-        out: Entries = {"zarr.json": group({})}
-        for image in images:
-            name = image["name"]
-            try:
-                doc, _ = base.array(image["array"])
-            except KeyError:
-                raise Rejected(f"{image['array']} is not an array of the base (refkv leaves some datasets "
-                               "unpresented)") from None
-            if len(doc["shape"]) != len(image["dims"]):
-                raise Rejected(f"{image['array']} has {len(doc['shape'])} dimensions, not {len(image['dims'])}")
-            order = [image["dims"].index(d) for d in image["order"]]
-            out |= {f"{name}/0/{k}": v
-                    for k, v in copy(base, image["array"], order=order, dimension_names=image["order"]).items()}
-            scale = {"type": "scale", "scale": image["scale"], "input": {"path": "0"}, "output": {"name": "physical"}}
-            ome = {"version": "0.6", "multiscales": [{
-                "name": name, "coordinateSystems": [{"name": "physical", "axes": image["axes"]}],
-                "datasets": [{"path": "0", "coordinateTransformations": [scale]}]}]}
-            out[f"{name}/zarr.json"] = group({"ome": ome})
+    def write(self, base: Base, options):
+        out = {}
+        for key in base.keys():
+            if key.startswith("refkv_source/"):
+                continue
+            value = base.entries(key)[key]
+            if key.endswith("zarr.json"):
+                doc = base.document(key)
+                doc["attributes"] = base.attributes(key[: -len("zarr.json")].rstrip("/"))
+                value = dump(doc)
+            out[key] = value
         return out
 ```
 
-## Limits
+`write` returns the output's entries, keys from its root: bytes (documents among them) and
+reference values (`refkv.Range`, `refkv.Concat`). The output has exactly those keys. A plugin may
+instead return `Written(entries, read_at_open=..., stored=...)` to say which documents a reader is
+given when it opens the archive, and which entries stay uncompressed.
 
-- Only file inputs take plugin layouts; a store input (a directory, or a URL ending in `/`) does
-  not yet.
-- A plugin cannot read the source: metadata a format keeps in small datasets (an NWB file's
-  `imaging_rate` or `grid_spacing`) is given in the options.
-- A plugin presents what the base presents: an OME-TIFF's other series, which refkv's TIFF profile
-  does not present, cannot become images.
-- A copy keeps its base array's shape, but for a transpose: a plugin cannot add or drop
-  size-1 axes (to pad an image to OME-Zarr 0.4's five dimensions, say), or crop a copy to a
-  region of its chunks, since either would change how the chunks decode.
-- A layout is Zarr v3: no Zarr v2 documents (`.zgroup`, `.zattrs`), so no OME-Zarr 0.4 proper.
-- The browser and the Rust CLI cannot load Python plugins.
+Register it under the entry-point group `refkv.layouts`, the key its name:
+
+```toml
+[project.entry-points."refkv.layouts"]
+"acme.bare" = "acme:Bare"
+```
+
+and ask for it by name, `zarrify("image.tif", layout=Layout("acme.bare"))` or `--layout acme.bare`.
+A notebook or a test can skip the entry point: `Layout(Bare())`.
+
+## What a plugin is given
+
+`base` is refkv's own output with every layout the format has, and the IR it was built from
+(`refkv.zarrify.layouts.Base`):
+
+- **The output.** `base.keys()`, `base.document(key)`, `base.array(path)` (a document and its
+  chunks), `base.entries(prefix)`, `base.attributes(path)` (without refkv's declarations) and
+  `base.source_metadata(path)` (what refkv read of the node's header). `copy(base, path,
+  order=...)` copies an array, transposed if you ask; `base.entries("refkv_source/")` keeps the
+  IR mirror, so that the source can be rebuilt from the output.
+- **The IR.** `base.ir` is every structure the parser read, with its byte extent, type and value
+  (a TIFF's tags, an HDF5 file's object headers). `base.reference(i, member)` is the reference that
+  reads an element's bytes as refkv's profile would (a JPEG tile with its file's tables spliced
+  in); `base.elements(path)` says which elements a base array's chunks read; `cut` and `concat`
+  build references of parts of them. A plugin makes references of its own this way: re-tiled
+  chunks, an IFD refkv's TIFF layout leaves out.
+- **The routines** of `refkv.zarrify.coding` turn a format's coding parameters into the codecs and
+  data type refkv writes, by the code refkv's profiles call: `tiff_codecs(tiff_tags(base, i),
+  ...)` gives a TIFF IFD's codecs, predictors and packed samples included, so that a plugin does
+  not redo the step most likely to go silently wrong.
+
+A plugin reads no bytes of the source itself: what the parser read is structure, and every
+reference refkv writes is checked to lie within a source refkv opened.
+
+## What refkv checks
+
+refkv writes the output only when every key is one the archive can hold and every reference reads
+bytes of the base's sources, within them, with a payload a reader takes; anything else, a Zarr v3
+document that is not one included, is the plugin's to get right. `check(base, output)`, in
+`refkv.zarrify.layouts.hierarchy`, is how a plugin's tests find out: it returns `Problem(key, code,
+message)` for what `zarrify` refuses (`key`, `reference`, `open`, `archive`) and for what a reader
+would trip on (`document`, `orphan`, `json`, `zarr`, `parent`, `copy`, `size`, `refkv`). A test
+gets a base from a file with `layouts.base(path)`:
+
+```python
+from refkv.zarrify.layouts import base
+from refkv.zarrify.layouts.hierarchy import check
+
+
+def test_bare():
+    b = base("tests/data/image.tif")
+    assert check(b, Bare().write(b, {})) == []
+```
+
+## When a layout is refused
+
+| what | error | `python -m refkv.zarrify` |
+|---|---|---|
+| a name no plugin has, a plugin that fails to load, options it refuses, `layout=` beside `layouts=`, a store input | `LayoutUsageError` (a `ValueError`) | exit 2 |
+| a base the plugin does not read, a `Rejected` its `write` raises | `LayoutRejected` (a `Rejected`) | exit 3 |
+| any other exception from `write`, or an output refkv does not write | `LayoutFailed` | exit 1, with the plugin's traceback |
+
+No output is written in any of them.
+
+## Determinism
+
+Two runs with the same refkv release, input, options and plugin release write the same archive
+only if the plugin's output depends on nothing else: not on set or dict iteration order that
+`PYTHONHASHSEED` changes, nor on the time or the machine. The examples' tests run `write` twice in
+processes of different hash seeds and compare the outputs.

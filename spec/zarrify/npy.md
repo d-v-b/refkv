@@ -176,7 +176,7 @@ its **name**, when:
 
 - its file name ends with `.npy`, and `K` is the file name without it;
 - `K` is a Zarr node name: it is not empty, has no `/`, is not `.` or `..`, does not start
-  with `__`, and is not `zarr.json`; and it is not `refkv_source` or `refkv_layouts`;
+  with `__`, and is not `zarr.json`; and it is not `refkv_source`;
 - it is stored (method 0) or deflated (method 8), its preamble and header are those of
   [§2](#2-the-npy-format), its data type is one of [§3](#3-data-types)'s, and its data lies
   within its stored bytes; a deflated member's preamble, header and data are its **stream**,
@@ -258,7 +258,7 @@ is rebuilt byte for byte.
 | `size` | integer | required | its size, uncompressed |
 | `compressed_size` | integer | required | its size as stored |
 | `path` | string | when presented | `K`, its array's path |
-| `reason` | string | when not presented | why ([§4.2](#42-an-npz-archive)): `not_npy` (its file name does not end with `.npy`), `name` (`K` is not a node name), `reserved` (`K` is `refkv_source` or `refkv_layouts`), `method` (it is neither stored nor deflated), `header` (its preamble or header is not [§2](#2-the-npy-format)'s, or its deflate data ends or is invalid before its header does), `datatype` (its data type is not [§3](#3-data-types)'s), `size` (its data does not lie within its stored bytes, or does not end its stream) |
+| `reason` | string | when not presented | why ([§4.2](#42-an-npz-archive)): `not_npy` (its file name does not end with `.npy`), `name` (`K` is not a node name), `reserved` (`K` is `refkv_source`), `method` (it is neither stored nor deflated), `header` (its preamble or header is not [§2](#2-the-npy-format)'s, or its deflate data ends or is invalid before its header does), `datatype` (its data type is not [§3](#3-data-types)'s), `size` (its data does not lie within its stored bytes, or does not end its stream) |
 | `header` | [`NpyHeader`](#type-npyheader) | when it was read | its header: a stored or deflated `.npy` member whose header is [§2](#2-the-npy-format)'s, presented or not |
 
 ### 5.2 The IR mirror

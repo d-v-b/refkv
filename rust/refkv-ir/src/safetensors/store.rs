@@ -35,15 +35,14 @@ fn dir_of(key: &str) -> &str {
 }
 
 /// The path of a shard's group, its key, or why it has none: a key segment that is not a Zarr
-/// node name, or a first segment `refkv_source` or `refkv_layouts` (spec/zarrify/safetensors.md §9.1
+/// node name, or a first segment `refkv_source` (spec/zarrify/safetensors.md §9.1
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md#91-the-hierarchy>).
 fn shard_path(key: &str) -> Result<String, String> {
     if key.split('/').any(|p| p.starts_with("__") || p == "zarr.json") {
         return Err("name: a segment of its key is not a Zarr node name".into());
     }
-    let first = key.split('/').next();
-    if first == Some(crate::out::SOURCE_NODE) || first == Some(crate::out::LAYOUTS_NODE) {
-        return Err(format!("reserved: its key starts with {}", first.unwrap_or_default()));
+    if key.split('/').next() == Some(crate::out::SOURCE_NODE) {
+        return Err(format!("reserved: its key starts with {}", crate::out::SOURCE_NODE));
     }
     Ok(key.to_string())
 }

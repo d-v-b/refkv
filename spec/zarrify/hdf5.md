@@ -95,7 +95,7 @@ is a link ([§2.3](#23-links)), and object references name it by its canonical p
 
 An object is a node only when its link name is a **node name**: valid UTF-8, not empty, not
 `.` or `..`, and not starting with `__` (which Zarr v3 reserves); and, at the root, not
-`refkv_source` or `refkv_layouts` (reason `reserved`). An object whose name is not one is not presented (reason
+`refkv_source` (reason `reserved`). An object whose name is not one is not presented (reason
 `name`), nor is anything below it. A link name that is not valid UTF-8 is read as ISO 8859-1
 where it is written as text ([conventions §6](../conventions.md#6-source-metadata-as-json),
 `Name`).
@@ -421,7 +421,7 @@ the file.
 | reason | what |
 |---|---|
 | `name` | a link name that is not a node name ([§2.2](#22-paths)) |
-| `reserved` | a root link `refkv_source` or `refkv_layouts`; an attribute named as a member the hierarchy writes |
+| `reserved` | a root link `refkv_source`; an attribute named as a member the hierarchy writes |
 | `named_datatype`, `object` | a named datatype; an object that is neither a group nor a dataset |
 | `datatype` | a dataset's or attribute's datatype outside [§3.1](#31-data-types) or [§6](#6-attributes) |
 | `filter`, `filter_mask`, `edge_chunks` | a filter outside [§3.1](#31-data-types)'s, or a dataset of strings, references or records with one beyond deflate, shuffle and Fletcher32; a chunk with no form its codecs read ([§3.2](#32-chunks)); unfiltered partial edge chunks |

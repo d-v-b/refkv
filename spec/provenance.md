@@ -56,7 +56,6 @@ convention's, and the member `refkv_provenance`, a
 | `producer` | [`Producer`](#type-producer) | required | the program that wrote the root |
 | `operation` | string | optional | what the program did to make the hierarchy: `"zarrify"` (one input, [spec/zarrify.md](zarrify.md)), `"compose"` (a combination of stores), `"virtualizarr"` (a VirtualiZarr dataset), or another value the program documents |
 | `created` | string | optional | when, in UTC, as RFC 3339 with a `Z` offset and whole seconds: `2026-11-04T09:30:00Z` |
-| `plugins` | array of [`Plugin`](#type-plugin) | optional | the plugins that wrote the hierarchy's plugin layouts ([spec/layout.md](layout.md)), one each, in the order of the root's `layouts` |
 
 <a id="type-producer"></a>**`Producer`**:
 
@@ -66,16 +65,7 @@ convention's, and the member `refkv_provenance`, a
 | `version` | string | required | the program's version as it reports it: for refkv's Python package, `refkv.__version__` (`"0.2.0"`) |
 | `implementation` | string | optional | which of the program's implementations wrote it, when it has several: for refkv, `"python"`, `"javascript"` or `"rust"` |
 
-<a id="type-plugin"></a>**`Plugin`**:
-
-| member | type | presence | value |
-|---|---|---|---|
-| `layout` | string | required | the layout's name |
-| `distribution` | string | required | the Python distribution that provides the plugin, its name normalized as PEP 503 says |
-| `version` | string | required | that distribution's version |
-
-There are no other members, in any of these objects. (Changed 2026-11-06: `plugins`, a plugin
-being no program that wrote the root, which `Producer` names.)
+There are no other members, in either object.
 
 Example: the root of a TIFF zarrified by refkv 0.2.0's Python package.
 

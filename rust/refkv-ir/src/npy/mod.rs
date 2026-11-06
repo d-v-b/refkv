@@ -254,7 +254,7 @@ fn member_path(name: &str) -> Result<String, &'static str> {
     if k.is_empty() || k.contains('/') || k == "." || k == ".." || k.starts_with("__") || k == "zarr.json" {
         return Err("name");
     }
-    if k == crate::out::SOURCE_NODE || k == crate::out::LAYOUTS_NODE {
+    if k == crate::out::SOURCE_NODE {
         return Err("reserved");
     }
     Ok(k.to_string())

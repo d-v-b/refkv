@@ -50,9 +50,6 @@ pub fn copy_threshold() -> usize {
     COPY_THRESHOLD.load(std::sync::atomic::Ordering::Relaxed)
 }
 pub const SOURCE_NODE: &str = "refkv_source";
-/// The root's child that holds the layouts plugins write (spec/layout.md
-/// <https://github.com/d-v-b/refkv/blob/main/spec/layout.md>), which a source's own names never take.
-pub const LAYOUTS_NODE: &str = "refkv_layouts";
 
 #[derive(Default)]
 pub struct Out {

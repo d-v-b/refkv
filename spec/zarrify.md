@@ -84,7 +84,7 @@ a reference entry, is one of:
 
 | range | written | its bytes |
 |---|---|---|
-| a source range | `(i, offset, length)` | `length` bytes of source `i`, from `offset`: of a `url` source: the input, source 0, for a file input; for a store input, an object, in the order [§1.4](#14-store-inputs) gives (the SAFE document and the safetensors store form give their own order, and so does each profile that reads a file as a store, [§1.8](#18-files-read-as-stores), whose source 0 need not be the input), or of a data source ([§1.2](#12-input)), whole, or a zero data source's first `length` bytes |
+| a source range | `(i, offset, length)` | `length` bytes of source `i`, from `offset`: of a `url` source: the input, source 0, for a file input; for a store input, an object, in the order [§1.4](#14-store-inputs) gives (the SAFE document and the safetensors store form give their own order, and so does each profile that reads a file as a store, [§1.8](#18-files-read-as-stores), whose source 0 need not be the input), or of a data source ([§1.2](#12-input)), whole, or a zero data source's first `length` bytes; in a plugin's output ([spec/layout.md](layout.md)), any `length` bytes within a data source, from `offset` |
 | a literal range | a literal of `d` | the bytes `d`, which the entry carries ([spec/refkv.md §4.2](refkv.md#42-range)) |
 
 A format's chunk tables ([conventions §11.5](conventions.md#115-layout-tables)) give each
@@ -99,7 +99,8 @@ sources with identical bytes), the same set of keys, and for every key:
   of given bytes ([spec/refkv.md §4.2](refkv.md#42-range)), and two ranges are the same only if both are
   source ranges with equal sources, offsets and lengths, or both are literal
   ranges with identical bytes;
-- **JSON documents** (keys ending in `zarr.json`): equal JSON values.
+- **JSON documents** (keys ending in `zarr.json`): equal JSON values; in a plugin's output, a
+  `zarr.json` that is not JSON is compared by its bytes.
   Objects compare by key and arrays by order; whitespace and key order do
   not matter. Numbers compare by value:
   - a number written as an integer (an optional `-` and digits, with no
@@ -256,7 +257,9 @@ listing and object reads ([§1.4](#14-store-inputs), [§1.5](#15-listing-a-store
 is requested. A request the policy refuses is a failure, not a rejection
 ([Appendix A](#appendix-a-conformance) gives the implementations' defaults).
 
-**Structure only.** The output MUST NOT depend on the file's pixel data.
+**Structure only.** The output MUST NOT depend on the file's pixel data. A plugin layout
+([spec/layout.md](layout.md)) is bound by this too, with no exception beyond the checksums below:
+the coding parameters it reads from the IR are structure, as they are for the profile.
 (Reading blocks that happen to include pixel bytes is fine.) Coding
 parameters are structure, not pixel data, and an output may copy them: the
 data sources and literals of the TIFF and NDPI profiles hold JPEG markers
@@ -275,7 +278,10 @@ in the output.
 **References stay in the file.** Every range of source 0 MUST lie within
 the file (`offset + length ≤` the file's size; a range of a data source is
 the whole source), and every reference entry's
-payload MUST be at most 65519 bytes; otherwise the input is rejected. The
+payload MUST be at most 65519 bytes; otherwise the input is rejected. Both hold for every
+reference of a plugin's output ([spec/layout.md §4](layout.md#4-writing-the-output)), where a
+range of a data source may be any bytes within it, and one that breaks them is a failure of the
+call, not a rejection of the input. The
 payload ([spec/refkv.md §4.4](refkv.md#44-reference-payloads), [§4](refkv.md#4-messages)) of a single range is its `Range` message: for a
 source range `(i, o, n)`, `0x08 varint(i)` if `i > 0`, then `0x18 varint(o)`
 if `o > 0`, then `0x20 varint(n)` if `n > 0` (fields 1, 3 and 4); for a
@@ -294,11 +300,11 @@ pieces) is also one **repeat**, as when two chunks name one element that two str
 (an alias, [conventions §8.1](conventions.md#81-elements)). A zarrifier MUST reject an input
 whose output would have more than `2^22 + 4 × Z` references, `Z` the source's size (for a
 store IR, its objects' total size), with the message `budget: more than N refs`, or more than
-2^20 repeats, with the message `budget: more than 1048576 repeats` (`N` in decimal). The
+2^20 repeats, with the message `budget: more than 1048576 repeats` (`N` in decimal). The budget bounds the base a plugin layout is built from, not the plugin's
+output, which may put one reference at many keys and make references of its own. The
 budget applies to the CZI, DICOM, FITS, FLAC, HDF5, IMS, LIF, MP3, MP4, MRC, NDPI, NIfTI,
 NumPy, NRRD, QPTIFF, safetensors (both its forms), TIFF and VSI profiles; the GRIB, ND2 and
-SAFE profiles and the store profiles bound their outputs by their own rules. The references a
-plugin layout copies ([spec/layout.md §3](layout.md#3-the-entries)) are not counted.
+SAFE profiles and the store profiles bound their outputs by their own rules.
 
 ### 1.3 Arithmetic
 
@@ -690,7 +696,8 @@ binary64 value.
 ### 1.7 Named inputs and layouts
 
 A zarrifier MAY be told, with its input, the input's profile, and the layouts its output
-holds. Neither changes what a profile accepts or what it writes for a layout.
+holds, or a plugin layout in their place. None changes what a profile accepts; the first two do
+not change what it writes for a layout.
 
 - **A named profile.** The input is read by the named profile without the test that would
   otherwise choose one: a file's signature ([§1.2](#12-input)) or a store's root keys
@@ -704,21 +711,21 @@ holds. Neither changes what a profile accepts or what it writes for a layout.
 - **Layouts.** The image layout ([§2](#2-the-zarr-layout)) is the hierarchy's root and is
   always written. A format's dataset layout ([conventions §9](conventions.md#9-dataset-layouts))
   is written unless the zarrifier is told to leave it out: the output then has no
-  dataset node, and its root's property no `layouts` member, or one without `dataset`
+  dataset node, and its root's property no `layouts` member
   ([conventions §2](conventions.md#2-attributes)). A zarrifier told to write a dataset
   layout for a format that has none rejects the request.
-- **Plugin layouts.** A zarrifier of a file input MAY also be told the layouts plugins write, by
-  name, options and, optionally, a path that replaces the plugin's own: each is written below
-  the root's child `refkv_layouts` from the profile's
-  output, as [spec/layout.md](layout.md) says, and changes nothing else in the output. A
-  plugin layout refused for an input, because the plugin does not read the profile's convention
-  or because the plugin refuses the input, rejects the request; the profile still accepts the
-  input. An implementation that cannot load plugins (the browser, the Rust CLI) refuses the
-  request.
+- **A plugin layout.** A zarrifier MAY be told a plugin's layout, by its name and options,
+  in place of the layouts above, for a file input ([spec/layout.md](layout.md)). Its output is
+  then the plugin's, built from the output the profile writes with every layout the format has
+  (the base), and the sentences above that the image layout is always written, and that a
+  layout request changes nothing in what the profile writes, hold for an output without a
+  plugin. A layout request refused for an input ([spec/layout.md §6](layout.md#6-errors)) is not
+  a change to what the profile accepts. An implementation that cannot load plugins (the browser
+  one, the Rust CLI) conforms without them, and refuses a plugin's name.
 
 Two outputs of one input are equivalent ([§1.1](#11-output-and-equivalence)) when their
-zarrifiers wrote the same layouts, plugin layouts included
-([spec/layout.md §5](layout.md#5-names-identity-and-versions)).
+zarrifiers wrote the same layouts, or the same plugin layout with the same options from the same
+base.
 
 ### 1.8 Files read as stores
 
@@ -860,8 +867,10 @@ CORS headers from a network failure, so asking for a file that is not there can 
 uses it. The order of the sources is a function of the bytes alone, never of when a probe or a read
 completed. A profile uses the order of **first use** unless its document says otherwise: walk the
 output's reference entries in the order its chunk tables give, and number each object as it first
-appears; a plugin layout's entries, which reuse sources the profile's own entries name, are not
-walked ([spec/layout.md §3](layout.md#3-the-entries)).
+appears. A plugin's output ([spec/layout.md](layout.md)) keeps the base's source table, in the
+base's order, sources it does not use included, and after them, at most one zero data source
+([spec/layout.md §4](layout.md#4-writing-the-output)): the numbering by first use, and the rule that a
+`url` source is one a reference uses, hold for an output without a plugin.
 
 **Pins.** A sibling is pinned as source 0 of a file input is ([§1.2](#12-input)): a `size` pin, and
 an `etag` pin when every response received for it had an `ETag` with the same strong value. Every
@@ -923,7 +932,8 @@ metadata as JSON).
 
 A zarrifier MUST produce exactly the layout the input format's convention
 specifies for the input, at the convention's version that the profile
-states, with:
+states (for an output without a plugin layout, [§1.7](#17-named-inputs-and-layouts); a plugin's
+output has the entries [spec/layout.md](layout.md) says), with:
 
 - `source.url` ([conventions §2](conventions.md#2-attributes)) the input URL `U` as given ([§1.2](#12-input)): for a
   file input the URL of source 0, for a store input the store URL ([§1.4](#14-store-inputs)), but

@@ -14,6 +14,7 @@ import asyncio
 import json
 
 from refkv import _core, _sync
+from refkv.ir.kind import Kind as Kind  # re-exported: refkv.ir.Kind
 from refkv.ir.output import from_rust
 from refkv.ir.planner import Transport, drive, drive_async, new_run, open_transport
 from refkv.policy import Policy
@@ -25,6 +26,10 @@ from refkv.zarrify.profiles import REGISTRY
 # registry entries' `chosen_by`; spec/zarrify.md §1.2
 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>)
 TIFF_VARIANTS = {e["name"]: e["title"] for e in REGISTRY if e["chosen_by"] == "tiff"}
+
+
+# A decoded IR value (`Ir.value`), as `refkv._core` gives it.
+type Value = int | float | str | bytes | list[Value] | dict[str, Value]
 
 
 class Ir:
@@ -43,11 +48,77 @@ class Ir:
     def __getattr__(self, name: str) -> object:
         return getattr(self._core, name)
 
+    # the per-element reads, typed (refkv/_core.pyi says what each gives); a ValueError for no element `i`
+    def kind(self, i: int) -> int:
+        """The element's kind, a `Kind`."""
+        return self._core.kind(i)
+
+    def parent(self, i: int) -> int:
+        return self._core.parent(i)
+
+    def name(self, i: int) -> str:
+        return self._core.name(i)
+
+    def path(self, i: int) -> str:
+        return self._core.path(i)
+
+    def type(self, i: int) -> str:
+        return self._core.type(i)
+
+    def space(self, i: int) -> int:
+        return self._core.space(i)
+
+    def extent(self, i: int) -> tuple[int, int]:
+        return self._core.extent(i)
+
+    def form(self, i: int) -> str | None:
+        return self._core.form(i)
+
+    def forms(self) -> list[str]:
+        return self._core.forms()
+
+    def target(self, i: int) -> int:
+        """What an alias names, or -1."""
+        return self._core.target(i)
+
+    def raw(self, i: int) -> bytes | None:
+        return self._core.raw(i)
+
+    def value(self, i: int) -> Value | None:
+        return self._core.value(i)
+
+    def children(self, i: int) -> list[int]:
+        return self._core.children(i)
+
+    def child(self, i: int, name: str) -> int | None:
+        return self._core.child(i, name)
+
+    def members(self, i: int) -> tuple[list[int], list[int], list[int], list[int]]:
+        """The data members of element `i`, runs expanded: (name index, start, length, form id)."""
+        return self._core.members(i)
+
+    def columns(self) -> dict[str, bytes]:
+        """The dense columns as little-endian bytes (refkv/_core.pyi)."""
+        return self._core.columns()
+
+    def shared(self) -> list[bytes]:
+        return self._core.shared()
+
+    def object_bases(self) -> list[tuple[str, int, int]]:
+        return self._core.object_bases()
+
     def at(self, path: str) -> int | None:
         """The index of the element at `path`, or None."""
         if self._paths is None:
             self._paths = {self._core.path(i): i for i in range(len(self._core))}
         return self._paths.get(path)
+
+    def index(self, path: str) -> int:
+        """The index of the element at `path`; KeyError for a path the IR has no element at."""
+        i = self.at(path)
+        if i is None:
+            raise KeyError(f"no element at {path!r} in the IR")
+        return i
 
 
 def sniff(head: bytes) -> str | None:

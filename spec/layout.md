@@ -1,198 +1,137 @@
-# refkv's layout convention
+# Layouts written by plugins
 
-A **plugin layout** is a presentation of a zarrified source that a program other than refkv's
-profiles writes: a Python package's plugin adds it to the hierarchy a built-in profile wrote
-([spec/zarrify.md §1.7](zarrify.md#17-named-inputs-and-layouts)), beside the image layout and
-any dataset layout ([conventions §9](conventions.md#9-dataset-layouts)), and built from that
-profile's output. This convention, `refkv_layout`, says where such a layout is, what it may hold,
-and what it was written from. Each plugin layout also follows a convention of the plugin's own,
-which says what the layout is.
+A **plugin layout** is the whole output of a zarrify call, written by a program other than
+refkv's profiles: a Python package's plugin, named by the call
+([spec/zarrify.md §1.7](zarrify.md#17-named-inputs-and-layouts)), builds it from what a built-in
+profile read, that profile's output (the **base**) and the IR it was projected from
+([conventions §8](conventions.md#8-the-ir-mirror)). The plugin has total control over the
+output's hierarchy: refkv writes exactly the entries the plugin returns, once it has checked that
+every reference reads bytes of a source refkv opened, within it, and that the archive can hold
+the output. This document is not a convention: nothing it specifies is declared in an output, and
+an output a plugin wrote declares whatever the plugin wrote.
 
-Convention version: 0 (draft) · UUID: `372e9a9f-06b1-4ea1-8829-e206c05e03e6` ·
-Schema: [schema.json](layout/schema.json)
-
-Added 2026-11-06. The design and its reviews are in d-v-b/refkv#278.
+Added 2026-11-06. The design and its reviews are in d-v-b/refkv#278 (design/proposals/profile-plugins.md).
 
 The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are to be interpreted as described in
 RFC 2119.
 
-## 1. Declaration
+## 1. Plugins
 
-The convention follows the [Zarr conventions
-framework](https://github.com/zarr-conventions/zarr-conventions-spec) and nests its property
-under one key, `refkv_layout`, which is also its `name`. At version `N` it is declared by the
-Convention Metadata Object (CMO)
+A plugin has a **name**, `<distribution>.<layout>`: segments of `[a-z0-9-]+` joined by `.`. A
+plugin found by its name (a Python entry point of the group `refkv.layouts`, its key the name) is
+provided by the distribution whose normalized name ([PEP
+503](https://peps.python.org/pep-0503/)) is the first segment; names whose first segment is
+`refkv` are refkv's, for its examples. A plugin given as an object is checked against the pattern
+alone. A name is for choosing a plugin and is not written in the output.
 
-```json
-{
-  "uuid": "372e9a9f-06b1-4ea1-8829-e206c05e03e6",
-  "schema_url": "https://raw.githubusercontent.com/d-v-b/refkv/refs/tags/layout-v<N>/spec/layout/schema.json",
-  "spec_url": "https://github.com/d-v-b/refkv/blob/layout-v<N>/spec/layout.md",
-  "name": "refkv_layout",
-  "description": "A layout of a zarrified source that a plugin wrote, and what it was written from"
-}
-```
+A plugin has **formats**: `"*"`, every file profile at every version of its convention, or a map
+from file profile names (exactly: `ndpi` is not `tiff`) to the versions of that profile's
+convention it reads. Names a refkv's registry has no file profile of are ignored, and at least
+one of the names must be one it has. A call whose base is of a profile or version the plugin
+does not read is a rejection of the layout request (§6).
 
-with no other members. Versions follow [conventions §1](conventions.md#1-conventions), tagged
-`layout-v<N>`: at version 0, which has no tag, the URLs name the development branch,
-`.../refs/heads/main/spec/layout/schema.json` and `.../blob/main/spec/layout.md`.
+A plugin has **options**: the call gives a JSON object (`{}` when it gives none); the plugin puts
+it in canonical form, a JSON object as it is (no `NaN`, no lone surrogate, nothing but objects,
+arrays, strings, numbers and booleans), or refuses it, before the input is opened. Each `write`
+is given a copy of the canonical options of its own.
 
-Two kinds of node declare it:
+A plugin's **write** returns the output: its entries, keys from the output's root (§3).
 
-- **The layouts' group**, the root's child `refkv_layouts`, a group whose attributes are this
-  CMO in `zarr_conventions` and <a id="type-layoutsgroup"></a>**`LayoutsGroup`** under
-  `refkv_layout`:
+## 2. The base
 
-  | member | type | presence | value |
-  |---|---|---|---|
-  | `version` | integer | required | `N`, this convention's version |
+The base is the built-in profile's output with every layout the format has (the image layout,
+any dataset layout, and `refkv_source`), its root as refkv writes it, without checksums or
+provenance. It depends on the input, the refkv release, the source URL and whether the call
+asks for checksums, which changes how a profile joins a shard's ranges
+([zarrify §2.1](zarrify.md#21-virtual-shards)), and on nothing else the call asks for. A plugin is
+given, read only:
 
-  and nothing else. A reader knows the group by this CMO, not by its name.
-- **A layout's node**, a child group `refkv_layouts/<path>` of it, whose attributes hold, in
-  `zarr_conventions`, this CMO first and the plugin's convention's CMO second, and under
-  `refkv_layout` a <a id="type-layoutproperty"></a>**`LayoutProperty`**:
+- the base's entries, documents and arrays, a node's attributes without refkv's declarations
+  (`refkv_zarrified`, `refkv_provenance` and the CMOs of refkv's conventions), and its source
+  metadata (the member of its `refkv_zarrified` named after the profile,
+  [conventions §2](conventions.md#2-attributes));
+- the base's source table, in its order, each url source with its size as refkv found it, and
+  its zero data source ([zarrify §1.2](zarrify.md#12-input)), if any;
+- the IR, its elements' paths, kinds, types, extents, values, forms
+  ([conventions §8.5](conventions.md#85-forms-and-recipes)), targets and data members;
+- the **reference** of an IR element (or of a data member of one): a range of the source that
+  holds its bytes (source 0 for a file IR; for a store IR the source of the object that holds it,
+  [conventions §8.9](conventions.md#89-stores)), or, when its form has a recipe, the parts of the
+  recipe, a part that names a shared data source being the base's data source of those bytes when
+  its table has one and those bytes as a literal otherwise. An alias is read by its own extent and
+  form, and its data members are its target's. An element in a derived space, a derived element,
+  an element of a store IR's object the base does not reference, and one whose form changes how
+  it decodes from its siblings' (an HDF5 chunk whose filter mask skips a filter) have none;
+- for a byte of a source, the innermost data element that holds it, or the struct whose data
+  member holds it; and for each chunk of a base array, each part's element and the bytes of it the
+  part reads. For a store IR, an element's extent is in its object ([conventions
+  §8.9](conventions.md#89-stores)), and its source is that object's;
+- **zero bytes**: a range of a zero data source of any length, the base's when it is long
+  enough, else one the output's table gains (§4).
 
-  | member | type | presence | value |
-  |---|---|---|---|
-  | `version` | integer | required | `N`, this convention's version |
-  | `layout` | [`LayoutName`](#type-layoutname) | required | the plugin's layout |
-  | `source` | object | required | the root's `refkv_zarrified.source`, as it is |
-  | `base` | [`LayoutBase`](#type-layoutbase) | required | the built-in convention the layout was written from |
-  | `options` | object | required | the layout's options, in the canonical form its convention gives |
+**Structure only** ([zarrify §1.2](zarrify.md#12-input)) binds a plugin, with no exception beyond
+the checksums §1.2 already allows: the base gives no way to read a source's bytes, and the values
+the IR holds are the structure the parser read. The parser's facts are not given.
 
-  <a id="type-layoutname"></a>**`LayoutName`**:
+## 3. The output
 
-  | member | type | presence | value |
-  |---|---|---|---|
-  | `name` | string | required | the layout's name ([§5](#5-names-identity-and-versions)) |
-  | `uuid` | string | required | its convention's UUID |
-  | `version` | integer | required | its convention's version |
+The output is a map from keys to values. A value is bytes, or a **reference value**: a `Range`
+([spec/refkv.md §4.2](refkv.md#42-range)) or a `Concat` of them ([§4.3](refkv.md#43-concat)). The
+output has exactly these entries: refkv writes no node, path or attribute the plugin did not
+return. A plugin may write any hierarchy, Zarr v3 or v2 or neither.
 
-  <a id="type-layoutbase"></a>**`LayoutBase`**:
+A plugin may also say which bytes entries a vzip reader is given at open (`read_at_open`) and
+which are kept uncompressed (`stored`); each such key MUST be a bytes entry of the output. These
+are placement choices of the vzip binding ([vzip §14.2](bindings/vzip.md#142-recommended-layout-informative));
+a phkv store places entries by its own size threshold and ignores both.
 
-  | member | type | presence | value |
-  |---|---|---|---|
-  | `uuid` | string | required | the UUID of the convention the root declares (the profile's) |
-  | `version` | integer | required | that convention's version |
+## 4. Writing the output
 
-A reader tells the two apart by the member `layout`, which only a layout's node has. The
-layout's node also holds, under the plugin's key ([§5](#5-names-identity-and-versions)), an
-object whose member `version` is the plugin's convention's version, so that a reader that knows
-only the plugin's convention finds its version without this one; the plugin's convention gives
-its other members.
+A zarrifier writes a plugin's output in these steps; a check that fails is a failure of the call
+(§6), and no output is written.
 
-## 2. Plugins
+1. **Values.** A reference value equal to one of the base's, checksums aside, is replaced by the
+   base's own value, checksums included. Every other range has its checksum dropped, and a
+   `Concat` of one part is written as that part's `Range`
+   ([spec/refkv.md §4.4](refkv.md#44-reference-payloads)).
+2. **Keys.** Every key MUST be a string, non-empty, valid UTF-8, of at most 65535 bytes, and MUST
+   NOT begin with `__vz__/` ([spec/refkv.md §2.1](refkv.md#21-keys),
+   [vzip §10.3](bindings/vzip.md#103-file-names), [§11.4](bindings/vzip.md#114-hidden-entries)).
+   Keys are otherwise the plugin's: `a/../b` is an ordinary key.
+3. **References.** Every range MUST be a literal (bytes, with source, offset and length 0 and no
+   checksum) or a range of a source in the base's table, with natural numbers for source, offset
+   and length, `offset + length` at most 2^64 − 1 and within the source: within a url source's
+   size, or within a data source's bytes. A range of the zero data source the plugin asked for
+   (§2) lies within it. A `key` source is never referenced (the base's table has none). A value's ranges total at most 2^64 − 1 bytes. Every reference's payload, as
+   written (its `crc32c` fields included, when the call asks for checksums), MUST be at most 65519
+   bytes ([zarrify §1.2](zarrify.md#12-input), [vzip §11.3](bindings/vzip.md#113-reference-entries)).
+   A reference that is not the base's MUST read at most 1024 url ranges, ranges of one source at
+   most 64 KiB apart counted as one ([spec/refkv.md §6.7](refkv.md#67-reader-policy) rule 5's
+   default; the base's own values are not held to it). The references that are not the base's are
+   given checksums, when the call asks for them, by reading their ranges as the base's are read.
+4. **Placement.** The entries read at open are those `read_at_open` names; without it, a bytes
+   entry equal to the base's at the same key is read at open when the base's is, and any other
+   bytes entry when its key's last segment is `zarr.json`, `.zgroup`, `.zarray`, `.zattrs` or
+   `.zmetadata`. A bytes entry is compressed unless it is read at open, is in `stored`, or its
+   DEFLATE stream could reach 0xFFFFFFFF bytes (zlib's worst-case bound,
+   [vzip §14.1](bindings/vzip.md#141-requirements)). The bytes entries read at open total at most
+   256 MiB. The references come first, by key, then the bytes entries, by key.
+5. **The archive.** The archive's source table is the base's, in its order, sources the output
+   does not use included, with nothing added but one zero data source after them, as long as the
+   most zero bytes the plugin asked for, when the base has none that long and the output
+   references it. Its structure MUST be one the writer accepts, and its
+   source table and page index each at most 256 MiB, the default `max_format_entry` of
+   [spec/refkv.md §6.7](refkv.md#67-reader-policy) ([vzip §13.1](bindings/vzip.md#131-opening)).
 
-A plugin is given the built-in output as a read-only **base**: the image layout and
-`refkv_source`, without a dataset layout, its root without `layouts`, and its ranges without
-checksums (which are of the source's bytes), so that what it writes does not depend on which
-built-in layouts the call asked for, or on the checksums' values. (A profile may cut a reference
-into more ranges when the call asks for checksums,
-[spec/zarrify.md §2.1](zarrify.md#21-virtual-shards); a plugin sees the ranges as they are.) It
-is given the base's IR, and the options the caller gave (a JSON object, its members named by
-strings at every depth), in its canonical form, which nests at
-most 253 deep, so that the layout's node, which holds it, nests at most 256. It returns the
-layout's entries, keys relative to its node, and refkv writes them as [§3](#3-the-entries) says.
+These checks guard against a plugin's mistakes, not against a hostile plugin, which runs in the
+caller's process and can do anything the caller can.
 
-A plugin provides the layout's name, its default path, the base profiles it reads, and its
-convention's description: its version, a natural number, and the members of its CMO, each a
-non-empty string, but for `uuid` and `name`, which [§5](#5-names-identity-and-versions) fixes. A call that asks for the layout gives
-its name, its options and, optionally, a path, which replaces the plugin's.
+## 5. Helpers
 
-A plugin names the base profiles it reads, each with the natural numbers of the convention
-versions it reads (a profile mapped to none reads no version of it), and a base that is not one
-of them refuses the layout request. Every name's versions are natural numbers; names that are no
-file profile of the implementation are otherwise ignored, so that a plugin written for a later one
-loads, but a plugin that names none is refused when it is loaded, as is one whose attributes break
-[§5](#5-names-identity-and-versions)'s rules.
-
-**Structure only.** A plugin's layout is a function of the base's structure (its documents and
-bytes entries, and its IR) and its options: it MUST NOT depend on the bytes the base's
-references name, so [spec/zarrify.md §1.2](zarrify.md#12-input)'s **Structure only** holds for
-it, with no exception.
-
-## 3. The entries
-
-A plugin layout's entries, keys relative to its node, are checked; a failed check is the plugin's
-failure, and no output is written:
-
-- Every key is a valid key ([spec/refkv.md §2](refkv.md#2-data-model)), valid UTF-8, with no
-  empty, `.` or `..` segment, no segment that starts with `__`, and `zarr.json` only as its last
-  segment; with `refkv_layouts/<path>/` before it, it is at most 65535 bytes, as a ZIP archive's
-  keys are.
-- Every document is strict JSON in UTF-8 (RFC 8259): no byte order mark, no `NaN` or infinity,
-  no number with a fraction or an exponent whose binary64 value is infinite, no integer of more
-  than 4300 digits (an integer is kept exactly, as
-  [spec/zarrify.md §1.6](zarrify.md#16-json-documents) keeps it), no member twice in one object,
-  no lone surrogate, and no nesting deeper than 256, [§1.6](zarrify.md#16-json-documents)'s
-  bound. Its `zarr_format` is 3, written as an integer (no fraction, no exponent), and its
-  `node_type` `group` or `array`; an array's
-  document holds `shape`, `data_type`, `chunk_grid`, `chunk_key_encoding`, `codecs` and
-  `fill_value`, its `shape` a list of natural numbers, its `data_type` a string or an object,
-  its `chunk_grid` and `chunk_key_encoding` objects with a string `name` and, where present, a
-  `configuration` object, a `regular` grid's `chunk_shape` one positive integer per axis, its
-  `codecs` a non-empty list of objects with a string `name`, its `dimension_names`, where present, one string or null per
-  axis, and its `attributes`, where present, an object. A document has no top-level member
-  but Zarr v3's for its node type (a group's `zarr_format`, `node_type` and `attributes`, an
-  array's also `dimension_names` and `storage_transformers`), not even an object whose
-  `must_understand` is `false`, which zarr-python refuses. These checks are of the members'
-  JSON types only: that a document of the plugin's own names a data type, a chunk grid, a chunk
-  key encoding, codecs and a fill value a Zarr v3 reader knows is the plugin's to ensure, as its
-  bytes chunks are; a copy's document is [§4](#4-copying-an-array)'s, as the next rule checks.
-- `zarr.json` is a group. Every other key is a node's `zarr.json` whose parent node's `zarr.json`
-  is a group of the layout, or a key below an array's `zarr.json`; no node is inside an array.
-- Every reference entry's ranges are, as [spec/zarrify.md §1.1](zarrify.md#11-output-and-equivalence)
-  compares them (checksums apart), those of a reference entry of the base, in the same form (one
-  range, or a concatenation of the same ranges, as the base holds it): a layout copies the
-  base's references and makes none, so it reads only bytes the base reads, under the base's
-  pins and reader policy. Each is written as the base holds it, its checksums included,
-  whatever checksums the plugin's value has. It is a chunk of a copy
-  ([§4](#4-copying-an-array)) of a base array that holds it: the layout's array above it has the
-  document [§4](#4-copying-an-array) gives that array for some `order`, attributes and dimension
-  names aside, and each reference below that array is at the key [§4](#4-copying-an-array) gives
-  it there, so that each chunk it copies decodes as the base's does, transposed. A copy MAY
-  leave chunks out, which read as its fill value, and MAY hold bytes chunks of the plugin's
-  own; a layout's array that holds no reference is the plugin's own, its chunks bytes. refkv
-  does not decode a layout's bytes chunks: that they fit their array is the plugin's to ensure.
-- No document holds the top-level member `consolidated_metadata`, the top-level attribute
-  `refkv_zarrified`, `refkv_layout` or `refkv_provenance`, or, in `zarr_conventions` (a list of
-  objects), a CMO with the UUID or the `name` of a refkv convention: a profile's, a dataset
-  layout's, provenance's or this one. A CMO's UUID is read, ASCII lower-cased, with at most one
-  `urn:uuid:` or `uuid:` prefix and one pair of enclosing braces (in either order) aside, and its
-  hyphens aside, as the 32 hexadecimal digits of a UUID, both to tell refkv's and the plugin's. A
-  CMO that has a `name` has a string there. A CMO with the plugin's
-  convention's UUID, or its key as `name`, equals the one the plugin's description makes. Where a document holds the plugin's key, it is an
-  object without `version`.
-
-The layout's node is `refkv_layouts/<path>`. The output is then the built-in output the call asked
-for, its entries unchanged but the root's, with:
-
-1. `refkv_layouts/zarr.json`, [§1](#1-declaration)'s group;
-2. the layout's entries under `refkv_layouts/<path>/`, its node's document declared as
-   [§1](#1-declaration) says: `zarr_conventions` this CMO, the plugin's, then any other the
-   plugin wrote, and the plugin's key holding `version` with the members the plugin wrote;
-3. the root's `refkv_zarrified.layouts` ([conventions §2](conventions.md#2-attributes)), after
-   `source`, naming each plugin layout, `"<name>": "refkv_layouts/<path>"`, beside `"dataset"`
-   when a dataset layout is written, in code point order of the names.
-
-The references a layout copies are not counted against
-[the references' budget](zarrify.md#12-input), and they come after the base's sources are
-numbered: a reference under `refkv_layouts` names a source the base already uses. The layout's
-documents, and `refkv_layouts/zarr.json`, are read when the archive opens; its other bytes entries
-are compressed.
-
-A base that holds a key under `refkv_layouts/` refuses the layout request; the bases of file inputs
-that present the source's own names at the root (HDF5, NumPy `.npz` and safetensors) leave out a
-source object of that name, with the reason `reserved`, so that none does.
-
-## 4. Copying an array
-
-An array of the base is copied by these rules, so that two producers copy one alike. The copy's
-document is the base's, its `attributes` those the plugin gives (`{}` by default: the base's are
-in [conventions §6](conventions.md#6-source-metadata-as-json)'s encodings, which the base's
-declarations decode), its `dimension_names` those the plugin gives (each a string or null), in
-the copy's axis order, or
-else the base's; its chunks are the base's entries, as they are.
+**Copying an array.** An array of the base is copied by these rules, so that two producers copy
+one alike. The copy's document is the base's, its `attributes` those the plugin gives (`{}` by
+default), its `dimension_names` those the plugin gives (each a string or null), in the copy's axis
+order and not permuted, or else the base's; its chunks are the base's entries, as they are.
 
 A copy may be **transposed** by a permutation `order` of the array's `n` axes, as
 `numpy.transpose` takes one: the copy's axis `i` is the base's axis `order[i]`. Then its shape,
@@ -207,47 +146,43 @@ when the plugin gives none, and each chunk key's indexes (in the array's chunk k
   codecs get the transpose of order `q` first and its index codecs one of order `q + [n]`, each
   composed with a transpose they start with in the same way.
 
-## 5. Names, identity and versions
+**An array by hand** is a Zarr v3 array document with a `regular` chunk grid, or a `rectilinear`
+one (`{"kind": "inline", "chunk_shapes": ...}`) when an axis's chunk lengths are given as a list
+(each a length or a `[length, count]` run), the `default` chunk key encoding with the separator
+`/`, and the fill value 0 of its data type unless given; its chunks are at the keys that encoding
+gives their coordinates. **A group by hand** is a Zarr v3 group
+document.
 
-- **Names.** A layout's name is `<distribution>.<layout>`: segments of `[a-z0-9-]+` joined by `.`,
-  the first the normalized name (PEP 503) of the Python distribution that provides it. A name
-  whose first segment starts with `refkv` is refkv's. A layout's path is one key segment of
-  `[a-z0-9_-]+`, not starting with `__`, short enough that `refkv_layouts/<path>/zarr.json` is
-  at most 65535 bytes.
-- **Keys.** A layout's key, the `name` of its convention's CMO, is its name with `.` and `-` as
-  `_`; it is never `zarr_conventions`, `refkv_zarrified`, `refkv_layout` or `refkv_provenance`,
-  and a name whose key would be one is refused.
-- **One of each.** Two plugin layouts of one call never share a name, a path, a key or a
-  convention's UUID; such a call is refused before the input is read.
-- **Identity.** A layout is its convention's UUID, written in RFC 9562's form, lower-case
-  hexadecimal digits with hyphens; names and keys are for people. It is never the UUID of a
-  refkv convention, and a plugin whose convention has one is refused when it is loaded. A reader that
-  finds a key whose UUID it does not know ignores it.
-- **Versions.** A plugin's convention says what its version numbers mean and increases its
-  version whenever its layout changes for some input; its `schema_url` SHOULD differ from one
-  version to the next. Until refkv 1.0 every built-in convention is at version 0, which
-  promises nothing, so a refkv release can change a base, and the layouts written from it, with
-  no version to tell them apart.
-- **Determinism.** A layout is a function of the base and its canonical options alone, and its
-  convention fixes the exact bytes of every bytes entry it writes. Its options MUST NOT hold
-  local paths, user or host names, or anything else private: they are written in the output.
-- **Equivalence.** Two outputs of one input are equivalent
-  ([spec/zarrify.md §1.1](zarrify.md#11-output-and-equivalence)) only if they hold the same
-  plugin layouts (the same names, paths, UUIDs, versions and canonical options), and then entry
-  for entry, a layout's subtree included.
+**Coding routines.** These give the codecs, after any `transpose`, and the data types the
+built-in profiles write, and add no rule: each is the table or rule of the section it names, with
+the checks the profile applies to those parameters (its source model's rule roles), and refuses
+parameters the section rejects.
 
-## 6. Readers
+| routine | section |
+|---|---|
+| a TIFF IFD's data type, from SampleFormat and BitsPerSample | [tiff.md §4.3](zarrify/tiff.md#43-data-types-and-codecs) (the `format` and `image` roles) |
+| a TIFF IFD's codecs | [tiff.md §4.3](zarrify/tiff.md#43-data-types-and-codecs) (`format`, `image`, `samples`, `predictor`); EER's for a chunk shape the plugin gives, as its codec decodes one |
+| a TIFF IFD's byte order, its own file's header's | [tiff.md §5.1](zarrify/tiff.md#51-elements) |
+| a CZI subblock form's codecs | [czi.md §3.1](zarrify/czi.md#31-pixel-types-and-codecs) |
+| a VSI tile file's codec | [vsi.md §4.1](zarrify/vsi.md#41-the-pyramid) |
+| a DICOM frame's codec, by its transfer syntax | [dicom.md §2.1](zarrify/dicom.md#21-transfer-syntax) |
+| gzip, after `refkv.skip` of an inflated stream's first bytes | [npy.md §4.4](zarrify/npy.md#44-the-refkvskip-codec) |
+| an HDF5 node's attributes, the encodings JSON needed undone by their described datatypes | [hdf5.md §6](zarrify/hdf5.md#6-attributes), [§7](zarrify/hdf5.md#7-source-metadata) |
 
-A reader of a base convention skips the root's child whose `zarr.json` declares this convention,
-as it skips a dataset layout. A reader of a plugin layout opens the path the root's `layouts`
-names, not the root, and knows the layout by its node's CMOs. A copied array keeps its codecs:
-it reads with whatever codecs the base's array needs.
+## 6. Errors
 
-<a id="table-layout"></a>**The layouts' entries** ([conventions §11.5](conventions.md#115-layout-tables)
-says how to read a table of entries):
+A layout request that is wrong whatever the input (a name no plugin has, a plugin that fails to
+load or whose attributes break §1, options the plugin refuses, a plugin layout beside built-in
+layouts, a store input) is a **usage error**. A base the plugin does not read, or a refusal the
+plugin's `write` raises for its input, is a **rejection** of the layout request: the input is one
+the profile accepts, but the call writes no output. Anything else a plugin raises, and an output
+that breaks §3 or §4, is a **failure**. None writes an output.
 
-| key | type | structure | description |
-|---|---|---|---|
-| `refkv_layouts/zarr.json` | group | attributes: `zarr_conventions` and [`LayoutsGroup`](#type-layoutsgroup) | the layouts' group ([§1](#1-declaration)) |
-| `refkv_layouts/<path>/zarr.json` | group | attributes: `zarr_conventions`, the plugin's key, [`LayoutProperty`](#type-layoutproperty), and the plugin convention's members | a layout's node ([§1](#1-declaration), [§3](#3-the-entries)) |
-| `refkv_layouts/<path>/**` | subtree | the plugin's convention | the layout's other entries ([§3](#3-the-entries)) |
+## 7. Determinism
+
+A plugin's output MUST be a function of its base, its canonical options and the plugin's code
+(its release, and the versions of what it imports), and not of set or dict iteration order that
+hashing changes; the plugin fixes the exact bytes of every bytes entry it writes. Then two runs
+with the same refkv release, input, source URL, checksums choice, plugin code and options write
+the same output, compared entry for entry ([zarrify §1.1](zarrify.md#11-output-and-equivalence)).
+A zarrifier cannot check this; the plugin promises it.

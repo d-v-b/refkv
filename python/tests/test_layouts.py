@@ -1,17 +1,13 @@
-"""Layouts plugins write (spec/layout.md; refkv.zarrify.layouts): docs/examples/ome_zarr_06.py's
-OME-Zarr 0.6 layout over TIFF-family, MRC and HDF5 inputs, `copy`, and each way a plugin layout
-is refused or fails."""
+"""Layouts plugins write (spec/layout.md; refkv.zarrify.layouts): the output a plugin returns,
+written as it is; the base and its IR; `cut`, `concat` and `payload_size`; `copy`, `array`, `group`
+and `check`; the coding routines; and each way a layout request is refused or fails. The shipped
+examples have tests of their own (test_example_*.py)."""
 
-import asyncio
-import dataclasses
+import ast
 import json
-import runpy
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any, ClassVar, override
+from typing import Any, override
 
-import h5py
-import jsonschema
 import numpy as np
 import pytest
 import zarr
@@ -19,26 +15,44 @@ import zarr.storage
 
 import refkv
 import refkv.zarr
-from refkv import Range
-from refkv.zarrify import Image, layouts, zarrify
+from refkv import Concat, Range
+from refkv.zarrify import Image, Rejected, layouts, zarrify
 from refkv.zarrify.__main__ import main
-from refkv.zarrify.common import PROFILES
+from refkv.zarrify.coding import NoCodec, hdf5_attributes, tiff_byte_order, tiff_codecs, tiff_data_type, tiff_tags
 from refkv.zarrify.layouts import (
     Base,
     Layout,
     LayoutFailed,
     LayoutRejected,
     LayoutUsageError,
-    copy,
+    Written,
+    base,
+    concat,
+    cut,
+    dump,
+    encode_entries,
+    payload_size,
 )
+from refkv.zarrify.layouts.hierarchy import array, check, chunk_coords, chunk_key, copy, group, node_name
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / "fixtures"
-LAYOUT_SCHEMA = json.loads((ROOT / "spec" / "layout" / "schema.json").read_text())
-Ome06 = runpy.run_path(str(ROOT / "docs" / "examples" / "ome_zarr_06.py"))["Ome06"]
-NAME = "acme-ome.ome06"
-MOVIE = {"name": "movie", "array": "stimulus/templates/movie/data", "dims": ["t", "x", "y"], "order": ["t", "y", "x"],
-         "axes": [{"name": "t", "type": "time"}, {"name": "y", "type": "space"}, {"name": "x", "type": "space"}]}
+TIFF = str(FIXTURES / "tiff" / "jpeg_aperio_rgb.tif")
+NWB = str(FIXTURES / "hdf5" / "nwb_ophys.nwb")
+NETCDF = str(FIXTURES / "hdf5" / "hdf5_netcdf4.h5")
+
+
+class Plugin:
+    """A plugin whose write returns `make(base)`."""
+
+    def __init__(self, make, name="acme.test", formats="*"):
+        self.name, self.formats, self.make = name, formats, make
+
+    def options(self, given):
+        return dict(given)
+
+    def write(self, b, options):  # noqa: ARG002 (the plugin protocol's signature)
+        return self.make(b)
 
 
 class Dist:
@@ -53,7 +67,7 @@ class Entry:
         self.name, self._plugin, self.dist = name, plugin, Dist(dist or name.split(".")[0])
 
     def load(self):
-        if isinstance(self._plugin, Exception):
+        if isinstance(self._plugin, BaseException):
             raise self._plugin
         return self._plugin
 
@@ -63,181 +77,137 @@ def install(monkeypatch, *entries):
     monkeypatch.setattr(layouts, "_entry_points", lambda: entries)
 
 
-class WithMrc(Ome06):
-    """The example, reading MRC too, whose output also has a dataset layout."""
-
-    name = "acme-ome.mrc"
-    formats: ClassVar[dict[str, set[int]]] = {**Ome06.formats, "mrc": {0}}
+def read(store, path=""):
+    """The values of the array at `path` of a store."""
+    return zarr.open_array(refkv.zarr.store(store), path=path, mode="r")[...]
 
 
-class Writes(Ome06):
-    """A plugin whose write returns what the test sets."""
-
-    name = "acme-ome.writes"
-
-    def __init__(self, entries=None, error=None):
-        self.entries, self.error = entries, error
-
-    def write(self, base, _options):
-        if self.error is not None:
-            raise self.error
-        assert self.entries is not None
-        return self.entries(base)
+def images(b):
+    """The base's image arrays, copied to the same paths, under a root group of the plugin's."""
+    out: dict[str, Any] = {"zarr.json": group({"by": "acme"})}
+    for k in b.keys():  # noqa: SIM118 (Base.keys, not a dict's)
+        if k.endswith("/zarr.json") and not k.startswith("refkv_source/") and b.document(k)["node_type"] == "array":
+            path = k[:-len("/zarr.json")]
+            out |= {f"{path}/{kk}": v for kk, v in copy(b, path).items()}
+    return out
 
 
-def document(store, key):
-    """A JSON document of `store`, parsed."""
-    value = store.mapping[key]
+def one(value):
+    """A TIFF tag's one value, as `tiff_tags` gives it: a list of one."""
+    assert isinstance(value, list)
+    return int(value[0])
+
+
+def doc_of(value):
+    """A document entry, parsed."""
     assert isinstance(value, bytes)
     return json.loads(value)
 
 
-def read(store, path):
-    return zarr.open_array(refkv.zarr.store(store), path=path, mode="r")[...]
+def part(item):
+    """An `elements` item that names an element: (element, member, start, stop)."""
+    assert isinstance(item, tuple)
+    return item
 
 
-def channel_last(tmp_path):
-    """An HDF5 file holding a chunked, compressed (y, x, c) image."""
-    path = tmp_path / "rgb.h5"
-    with h5py.File(path, "w") as f:
-        f.create_dataset("image", data=np.arange(6 * 5 * 3, dtype="uint16").reshape(6, 5, 3), chunks=(4, 3, 3),
-                         compression="gzip", shuffle=True)
-    return path
+def tiles_from_ir(b):
+    """The TIFF base's level 0 rebuilt from its IR: its tiles' references, its tags' codecs."""
+    ifd = b.ir.index("ifds/0")
+    tags = tiff_tags(b, ifd)
+    tiles = b.ir.index("ifds/0/tiles")
+    form = b.form(tiles, 0)
+    assert form is not None
+    shape = form["geometry"]["shape"]
+    width, length, spp = one(tags[256]), one(tags[257]), one(tags[277])
+    across = -(-width // shape[1])
+    codecs = [{"name": "transpose", "configuration": {"order": [1, 2, 0]}},
+              *tiff_codecs(tags, little_endian=True, x_axis=1, row_length=shape[1] * spp)]
+    numbers = b.ir.members(tiles)[0]
+    chunks = {(0, j // across, j % across): b.reference(tiles, k) for k, j in enumerate(numbers)}
+    return {f"img/{k}": v for k, v in array([spp, length, width], tiff_data_type(tags), [spp, *shape], codecs,
+                                             chunks).items()} | {"zarr.json": group()}
 
 
-RGB = {"name": "rgb", "array": "image", "dims": ["y", "x", "c"], "order": ["c", "y", "x"], "scale": [1, 0.5, 0.5],
-       "axes": [{"name": "c", "type": "channel"}, {"name": "y", "type": "space", "unit": "micrometer"},
-                {"name": "x", "type": "space", "unit": "micrometer"}]}
-
-
-@pytest.mark.parametrize(("source", "plugin", "options", "extra"), [
-    ("tiff/float32_uncompressed_be.ome.tif", Ome06, None, {}),  # tiled, big-endian
-    ("tiff/strips_uint8.tif", Ome06, None, {"checksums": True}),
-    ("tiff/bilevel_lzw_strips_short.tif", Ome06, None, {}),  # sharded strips
-    ("tiff/strips_rgb_contig_deflate_short.tif", Ome06, None, {}),  # rectilinear, starts with a transpose
-    ("ndpi/ndpi_jpegxr_cy5.ndpi", Ome06, None, {}),
-    ("qptiff/qptiff_fl_lzw_predictor.qptiff", Ome06, None, {}),
-    ("ims/ims_latest_extensible.ims", Ome06, None, {}),
-    ("mrc/mrc_mode_int4_image.mrc", WithMrc, None, {}),  # a dataset layout beside it
-    ("mrc/mrc_mode_int4_image.mrc", WithMrc, None, {"layouts": [Image()]}),
-    ("hdf5/nwb_ophys.nwb", Ome06, {"images": [MOVIE]}, {}),
-    ("rgb.h5", Ome06, {"images": [RGB]}, {"path": "rgb"}),
+@pytest.mark.parametrize(("source", "make", "checksums"), [
+    (TIFF, images, False),
+    (TIFF, lambda b: b.entries(), False),  # refkv's whole output, as it is
+    (TIFF, tiles_from_ir, False),
+    (TIFF, tiles_from_ir, True),  # the plugin's own ranges get checksums
+    (NWB, lambda b: {"zarr.json": group(), **{f"m/{k}": v for k, v in copy(
+        b, "stimulus/templates/movie/data", order=[0, 2, 1], attributes=b.attributes(
+            "stimulus/templates/movie/data")).items()}}, False),
+    (TIFF, lambda b: Written(images(b), read_at_open=["zarr.json"], stored=["0/zarr.json"]), False),
+    (TIFF, lambda b: images(b) | {"z": concat(b.zeros(70000), b.zeros(10))}, False),  # a zero source refkv adds
 ])
-def test_a_plugin_layout_presents_the_base_s_arrays(monkeypatch, tmp_path, source, plugin, options, extra):
-    """A plugin's layout sits under refkv_layouts/<path>, declared and named on the root; it
-    reads back equal to the base's arrays (transposed as the options say); the base's entries
-    are those of the same call without the plugin; and the archive saves and reopens."""
-    install(monkeypatch, Entry(plugin.name, plugin))  # the class, as a real entry point loads it
-    path = channel_last(tmp_path) if source == "rgb.h5" else FIXTURES / source
-    node = extra.pop("path", None)
-    store = zarrify(str(path), plugins=[Layout(plugin.name, options, node)], **extra)
-    base = zarrify(str(path), **extra)
-    where = f"refkv_layouts/{node or plugin.path}"
-
-    mine = {k: v for k, v in store.mapping.items() if not k.startswith("refkv_layouts/") and k != "zarr.json"}
-    assert mine == {k: v for k, v in base.mapping.items() if k != "zarr.json"}
-    root = document(base, "zarr.json")["attributes"]["refkv_zarrified"]
-    whole, expected = document(store, "zarr.json"), document(base, "zarr.json")
-    prop = whole["attributes"]["refkv_zarrified"]
-    named = prop.pop("layouts")
-    assert named == {**expected["attributes"]["refkv_zarrified"].pop("layouts", {}), plugin.name: where}
-    assert list(named) == sorted(named)
-    assert whole == expected  # the root is the base's but for its layouts
-    keys = list(document(store, "zarr.json")["attributes"]["refkv_zarrified"])
-    assert keys[keys.index("source") + 1] == "layouts"
-    group = document(store, "refkv_layouts/zarr.json")["attributes"]
-    assert group == {"zarr_conventions": [layouts.CMO], "refkv_layout": {"version": 0}}
-
-    attrs = document(store, f"{where}/zarr.json")["attributes"]
-    assert [c["uuid"] for c in attrs["zarr_conventions"]] == [layouts.UUID, Ome06.convention.uuid]
-    assert attrs["acme_ome_" + plugin.name.split(".")[1]] == {"version": 0}
-    assert attrs["refkv_layout"] == {
-        "version": 0, "layout": {"name": plugin.name, "uuid": Ome06.convention.uuid, "version": 0},
-        "source": root["source"], "base": {"uuid": PROFILES[root["profile"]][0], "version": 0},
-        "options": {"images": []} if options is None else plugin().options(options)}
-    jsonschema.validate(document(store, "refkv_layouts/zarr.json"), LAYOUT_SCHEMA)
-    jsonschema.validate(document(store, f"{where}/zarr.json"), LAYOUT_SCHEMA)
-    profile_schema = json.loads((ROOT / "spec" / "zarrify" / root["profile"] / "schema.json").read_text())
-    jsonschema.validate(document(store, "zarr.json"), profile_schema)
-    image_node = where if options is None else f"{where}/{options['images'][0]['name']}"
-    ome = document(store, f"{image_node}/zarr.json")["attributes"]["ome"]
-    assert ome["version"] == "0.6"
-
-    if options is None:
-        for level in ome["multiscales"][0]["datasets"]:
-            assert np.array_equal(read(store, f"{where}/{level['path']}"), read(base, level["path"]))
+def test_a_plugin_writes_the_whole_output(source, make, checksums):
+    """The output is exactly what the plugin returns: its keys, its documents, the base's
+    references (checksums and all) and its own from the IR, which read the base's values; its
+    entries read at open are those it names, or its documents; `info` names the layout."""
+    written = make(base(source, checksums=checksums))
+    entries = written.entries if isinstance(written, Written) else written
+    store = zarrify(source, checksums=checksums, layout=Layout(Plugin(make)))
+    assert set(store.mapping) == set(entries)
+    assert store.info["layouts"] == ["acme.test"]
+    plain = zarrify(source)
+    for k, v in store.mapping.items():
+        if isinstance(v, bytes):
+            assert v == entries[k]
+        else:
+            for r in (v.parts if isinstance(v, Concat) else (v,)):
+                url = r.data is None and store._sources[r.source].url is not None
+                assert (r.crc32c is not None) == (checksums and url)
+    if make is tiles_from_ir:
+        assert np.array_equal(read(store, "img"), read(plain, "0"))
+    if isinstance(written, Written):
+        assert store.read_at_open == frozenset(["zarr.json"])
+        assert "0/zarr.json" not in store.compressed
     else:
-        image = options["images"][0]
-        order = [image["dims"].index(d) for d in image["order"]]
-        expected = np.transpose(read(base, image["array"]), order)
-        assert np.array_equal(read(store, f"{where}/{image['name']}/0"), expected)
-    saved = tmp_path / "out.vzip"
-    store.save_vzip(saved)
-    reopened = refkv.open(str(saved))
-    assert reopened.get(f"{where}/zarr.json") == store.mapping[f"{where}/zarr.json"]
+        documents = {k for k in entries if k.endswith("zarr.json") and not k.startswith("refkv_source/")}
+        assert documents <= store.read_at_open
+    if "z" in entries:  # the zero data source the plugin asked for, after the base's sources
+        assert store._sources[:-1] == plain._sources
+        assert store._sources[-1].data == bytes(70000)
+        assert store.get("z") == bytes(70010)
+    else:
+        assert store._sources == plain._sources
 
 
-@pytest.mark.parametrize(("source", "array", "order"), [
+@pytest.mark.parametrize(("source", "array_path", "order"), [
     ("tiff/bilevel_lzw_strips_short.tif", "0", [1, 0]),  # sharded
     ("tiff/strips_rgb_contig_deflate_short.tif", "0", [1, 2, 0]),  # rectilinear, a transpose first
     ("tiff/strips_rgb_contig_deflate_short.tif", "0", [0, 1, 2]),
     ("hdf5/nwb_ophys.nwb", "stimulus/templates/movie/data", [2, 0, 1]),
-    ("hdf5/hdf5_filters.h5", None, None),  # every array of rank 2 or more, reversed
 ])
-def test_copy_transposes_an_array_to_the_same_values(source, array, order):
+def test_copy_transposes_an_array_to_the_same_values(source, array_path, order):
     """`copy` with `order` decodes to the base's values transposed by `order`, as numpy.transpose
-    takes it, for sharded, rectilinear and transposed arrays alike; without it, to the same
-    values, with no attributes."""
+    takes it, for sharded, rectilinear and transposed arrays alike, and `check` finds a copy one."""
+    b = base(str(FIXTURES / source))
     store = zarrify(str(FIXTURES / source))
-    base = Base(store, None)
-    arrays = [(array, order)] if array is not None else [
-        (k[:-len("/zarr.json")], list(range(len(d["shape"])))[::-1])
-        for k in base.keys()  # noqa: SIM118 (Base.keys, not a dict's)
-        if k.endswith("/zarr.json") and not k.startswith("refkv_source/")
-        and (d := base.document(k))["node_type"] == "array" and len(d["shape"]) >= 2]
-    assert arrays
-    for path, perm in arrays:
-        copied = refkv.ReferenceStore(copy(base, path, order=perm), store._sources)
-        assert np.array_equal(read(copied, ""), np.transpose(read(store, path), perm)), path
-        assert document(copied, "zarr.json")["attributes"] == {}
-        n = len(document(copied, "zarr.json")["shape"])
-        for given in ({}, {"attributes": {"a": 1}, "dimension_names": [f"d{i}" for i in range(n)]}):
-            entries = {f"x/{k}": v for k, v in copy(base, path, order=perm, **given).items()}  # type: ignore[arg-type]
-            layouts._check(NAME, {"zarr.json": doc_bytes(), **entries}, base, {})  # the check passes a copy
+    entries = copy(b, array_path, order=order)
+    copied = refkv.ReferenceStore(entries, store._sources)
+    assert np.array_equal(read(copied), np.transpose(read(store, array_path), order))
+    assert doc_of(entries["zarr.json"])["attributes"] == {}
+    out = {"zarr.json": group(), **copy(b, array_path, order=order, to="x")}
+    assert out.keys() == {"zarr.json", *(f"x/{k}" for k in entries)}
+    assert check(b, out) == []
 
 
-def reserved_file(tmp_path, kind):
-    """A file of `kind` whose root holds an object named refkv_layouts, beside one named x."""
-    if kind == "h5":
-        path = tmp_path / "reserved.h5"
-        with h5py.File(path, "w") as f:
-            f.create_group("refkv_layouts").create_dataset("x", data=[1, 2])
-            f.create_dataset("x", data=[3, 4])
-    elif kind == "npz":
-        path = tmp_path / "reserved.npz"
-        np.savez(path, refkv_layouts=np.arange(2), x=np.arange(3))
-    else:
-        path = tmp_path / "reserved.safetensors"
-        header = json.dumps({"refkv_layouts/w": {"dtype": "F32", "shape": [2], "data_offsets": [0, 8]},
-                             "x": {"dtype": "F32", "shape": [2], "data_offsets": [8, 16]}}).encode()
-        path.write_bytes(len(header).to_bytes(8, "little") + header + np.arange(4, dtype="<f4").tobytes())
-    return path
+def synthetic(doc, chunks):
+    """A base of one array `a` of document `doc` and `chunks` (key -> bytes), built by hand."""
+    root = {"zarr_format": 3, "node_type": "group",
+            "attributes": {"refkv_zarrified": {"profile": "tiff", "version": 0, "source": {"url": "x.tif"}}}}
+    return Base(refkv.ReferenceStore({"zarr.json": json.dumps(root).encode(), "a/zarr.json": json.dumps(doc).encode(),
+                                      **{f"a/{k}": v for k, v in chunks.items()}}), None)
 
 
-@pytest.mark.parametrize("kind", ["h5", "npz", "safetensors"])
-def test_a_source_name_refkv_layouts_is_reserved(tmp_path, kind):
-    """A root object named refkv_layouts, in an HDF5, .npz or safetensors file, is not presented,
-    with the reason reserved, as one named refkv_source is not; its sibling x is."""
-    store = zarrify(str(reserved_file(tmp_path, kind)))
-    assert not any(k.startswith("refkv_layouts") for k in store.mapping)
-    assert "x/zarr.json" in store.mapping
-    prop = document(store, "zarr.json")["attributes"]["refkv_zarrified"]
-    if kind == "h5":
-        assert prop["hdf5"]["unpresented"]["refkv_layouts"] == "reserved"
-    else:
-        records = prop["npy"]["members"] if kind == "npz" else prop["safetensors"]["tensors"]
-        assert {r["name"]: r.get("reason") for r in records}[
-            "refkv_layouts.npy" if kind == "npz" else "refkv_layouts/w"] == "reserved"
+def plain_array(shape, chunk, encoding=None, codecs=None, names=None):
+    doc = {"zarr_format": 3, "node_type": "array", "shape": shape, "data_type": "uint16",
+           "chunk_grid": {"name": "regular", "configuration": {"chunk_shape": chunk}},
+           "chunk_key_encoding": encoding or {"name": "default"}, "fill_value": 0,
+           "codecs": codecs or [{"name": "bytes", "configuration": {"endian": "little"}}], "attributes": {}}
+    if names:
+        doc["dimension_names"] = names
+    return doc
 
 
 @pytest.mark.parametrize(("encoding", "shape", "keys", "order"), [
@@ -245,1335 +215,397 @@ def test_a_source_name_refkv_layouts_is_reserved(tmp_path, kind):
     ({"name": "default", "configuration": {"separator": "."}}, [2, 3], ["c.0.0", "c.1.0"], [1, 0]),
     ({"name": "v2", "configuration": {"separator": "."}}, [2, 3], ["0.0", "1.0"], [1, 0]),
     ({"name": "v2", "configuration": {"separator": "/"}}, [2, 3], ["0/0", "1/0"], [1, 0]),
-    ({"name": "default", "configuration": {"separator": "/"}}, [], ["c"], []),  # a scalar
 ])
 def test_copy_follows_the_array_s_chunk_key_encoding(encoding, shape, keys, order):
-    """`copy` permutes a chunk key's indexes in the array's own encoding and separator, and copies
-    a scalar, whose only permutation is [], as it is."""
-    chunk = [1, *shape[1:]] if shape else []
+    """`copy` permutes a chunk key's indexes in the array's own encoding and separator."""
     values = np.arange(int(np.prod(shape)), dtype="<u2").reshape(shape)
-    array = {"zarr_format": 3, "node_type": "array", "shape": shape, "data_type": "uint16",
-             "chunk_grid": {"name": "regular", "configuration": {"chunk_shape": chunk}},
-             "chunk_key_encoding": encoding, "fill_value": 0,
-             "codecs": [{"name": "bytes", "configuration": {"endian": "little"}}], "attributes": {}}
-    root = {"zarr_format": 3, "node_type": "group",
-            "attributes": {"refkv_zarrified": {"profile": "tiff", "version": 0, "source": {"url": "x.tif"}}}}
-    rows = [values[i].tobytes() for i in range(shape[0])] if shape else [values.tobytes()]
-    store = refkv.ReferenceStore({"zarr.json": json.dumps(root).encode(), "a/zarr.json": json.dumps(array).encode(),
-                                  **{f"a/{k}": row for k, row in zip(keys, rows, strict=True)}})
-    copied = refkv.ReferenceStore(copy(Base(store, None), "a", order=order))
-    assert np.array_equal(read(copied, ""), np.transpose(values, order))
-
-
-def sharded():
-    """A sharded array of 2x2 inner chunks per shard, as zarr-python writes one, in a base."""
-    values = np.arange(4 * 6, dtype="<u2").reshape(4, 6)
-    written = zarr.storage.MemoryStore()
-    a = zarr.create_array(written, shape=(4, 6), shards=(4, 6), chunks=(2, 3), dtype="uint16", fill_value=0,
-                          compressors=None)
-    a[...] = values
-    entries = {k: v.to_bytes() for k, v in written._store_dict.items() if not k.endswith("zarr.json")}
-    doc = json.loads(written._store_dict["zarr.json"].to_bytes())
-    root = {"zarr_format": 3, "node_type": "group",
-            "attributes": {"refkv_zarrified": {"profile": "tiff", "version": 0, "source": {"url": "x.tif"}}}}
-    store = refkv.ReferenceStore({"zarr.json": json.dumps(root).encode(), "a/zarr.json": json.dumps(doc).encode(),
-                                  **{f"a/{k}": v for k, v in entries.items()}})
-    return store, values
-
-
-@pytest.mark.parametrize("order", [[1, 0], [0, 1]])
-def test_copy_transposes_a_shard_s_inner_chunks_and_index(order):
-    """`copy` transposes a sharded array of several inner chunks per shard (whose index a missing
-    index transpose would read wrong) to the base's values, transposed."""
-    store, values = sharded()
-    copied = refkv.ReferenceStore(copy(Base(store, None), "a", order=order))
-    assert np.array_equal(read(copied, ""), np.transpose(values, order))
-
-
-def test_copied_references_are_the_base_s_and_options_are_recorded_as_planned(monkeypatch):
-    """A layout's reference is written as the base holds it, checksums included, whatever the
-    plugin's value carried, and its recorded options are the canonical ones, whatever write did
-    to its copy."""
-    def tampered(base, options):
-        options["path"] = "/home/me"
-        entries = {f"0/{k}": v for k, v in copy(base, "0").items()}
-        assert all(v.crc32c is None for v in entries.values() if isinstance(v, Range))  # a plugin sees no checksums
-        return {"zarr.json": group(), **{k: dataclasses.replace(v, crc32c=12345) if isinstance(v, Range) else v
-                                        for k, v in entries.items()}}
-    install(monkeypatch, Entry(Writes.name, Writes(error=None, entries=None)))
-    monkeypatch.setattr(Writes, "write", lambda _self, base, options: tampered(base, options))
-    store = zarrify(str(FIXTURES / "tiff/strips_uint8.tif"), checksums=True,
-                    plugins=[Layout(Writes.name, path="writes")])
-    copied = {k: v for k, v in store.mapping.items() if k.startswith("refkv_layouts/") and isinstance(v, Range)}
-    assert copied
-    for k, v in copied.items():
-        assert v == store.mapping[k.removeprefix("refkv_layouts/writes/")]
-        assert v.crc32c is not None
-        assert v.crc32c != 12345
-    assert document(store, "refkv_layouts/writes/zarr.json")["attributes"]["refkv_layout"]["options"] == {"images": []}
-    assert np.array_equal(read(store, "refkv_layouts/writes/0"), read(store, "0"))
-
-
-def test_an_unknown_plugin_is_a_usage_error(monkeypatch):
-    install(monkeypatch)
-    with pytest.raises(LayoutUsageError, match="no layout plugin"):
-        zarrify(str(FIXTURES / "tiff/strips_uint8.tif"), plugins=[Layout(NAME)])
-
-
-def test_a_name_whose_key_refkv_writes_is_a_usage_error(monkeypatch):
-    install(monkeypatch, Entry("zarr.conventions", Ome06(), dist="zarr"))
-    with pytest.raises(LayoutUsageError, match="a member refkv writes"):
-        zarrify(str(FIXTURES / "tiff/strips_uint8.tif"), plugins=[Layout("zarr.conventions")])
-
-
-def test_two_layouts_of_one_convention_are_a_usage_error(monkeypatch):
-    install(monkeypatch, Entry(NAME, Ome06()), Entry(WithMrc.name, WithMrc()))
-    with pytest.raises(LayoutUsageError, match="one UUID"):
-        zarrify(str(FIXTURES / "tiff/strips_uint8.tif"), plugins=[Layout(NAME), Layout(WithMrc.name, path="mrc")])
-
-
-def test_formats_of_no_profile_of_this_refkv_are_a_usage_error(monkeypatch):
-    class Typo(Ome06):
-        formats: ClassVar[dict[str, set[int]]] = {"tif": {0}}
-    install(monkeypatch, Entry(NAME, Typo))
-    with pytest.raises(LayoutUsageError, match="names no file profile"):
-        zarrify(str(FIXTURES / "tiff/strips_uint8.tif"), plugins=[Layout(NAME)])
-
-
-def test_plugins_that_is_not_a_list_is_a_usage_error(monkeypatch):
-    install(monkeypatch, Entry(NAME, Ome06))
-    with pytest.raises(LayoutUsageError, match="a list of Layout"):
-        zarrify(str(FIXTURES / "tiff/strips_uint8.tif"), plugins=Layout(NAME))  # type: ignore[arg-type] (the mistake under test)
-
-
-def test_a_name_not_of_its_distribution_is_a_usage_error(monkeypatch):
-    install(monkeypatch, Entry(NAME, Ome06(), dist="other"))
-    with pytest.raises(LayoutUsageError, match="starts with its distribution"):
-        zarrify(str(FIXTURES / "tiff/strips_uint8.tif"), plugins=[Layout(NAME)])
-
-
-def test_a_plugin_that_names_itself_otherwise_is_a_usage_error(monkeypatch):
-    install(monkeypatch, Entry("acme-ome.other", Ome06()))
-    with pytest.raises(LayoutUsageError, match="names itself"):
-        zarrify(str(FIXTURES / "tiff/strips_uint8.tif"), plugins=[Layout("acme-ome.other")])
-
-
-def test_a_plugin_that_fails_to_load_is_a_usage_error(monkeypatch):
-    install(monkeypatch, Entry(NAME, ImportError("no module acme_ome")))
-    with pytest.raises(LayoutUsageError, match="failed to load"):
-        zarrify(str(FIXTURES / "tiff/strips_uint8.tif"), plugins=[Layout(NAME)])
-
-
-IMAGE = {"name": "x", "array": "a", "dims": ["y", "x"], "axes": [{"name": "y", "type": "space"},
-                                                                   {"name": "x", "type": "space"}]}
-
-
-@pytest.mark.parametrize("image", [{"name": "x"}, IMAGE | {"axes": [5, 6]}, IMAGE | {"dims": None},
-                                   IMAGE | {"scale": 1.0}, IMAGE | {"order": "yx"}])
-def test_options_the_plugin_refuses_are_a_usage_error(monkeypatch, image):
-    install(monkeypatch, Entry(NAME, Ome06()))
-    with pytest.raises(LayoutUsageError, match="options are refused: ValueError"):
-        zarrify(str(FIXTURES / "tiff/strips_uint8.tif"), plugins=[Layout(NAME, {"images": [image]})])
-
-
-def test_two_layouts_at_one_path_are_a_usage_error(monkeypatch):
-    install(monkeypatch, Entry(NAME, Ome06()), Entry(WithMrc.name, WithMrc()))
-    with pytest.raises(LayoutUsageError, match="one path"):
-        zarrify(str(FIXTURES / "tiff/strips_uint8.tif"), plugins=[Layout(NAME), Layout(WithMrc.name, path="ome06")])
-
-
-def test_a_plugin_layout_on_a_store_input_is_a_usage_error(monkeypatch):
-    install(monkeypatch, Entry(NAME, Ome06()))
-    with pytest.raises(LayoutUsageError, match="store input"):
-        zarrify(str(FIXTURES / "zarr2" / "zarr2_hierarchy") + "/", plugins=[Layout(NAME)])
-
-
-def test_a_base_the_plugin_does_not_read_is_rejected(monkeypatch):
-    install(monkeypatch, Entry(NAME, Ome06()))
-    with pytest.raises(LayoutRejected, match="does not read the mrc profile"):
-        zarrify(str(FIXTURES / "mrc/mrc_mode_int4_image.mrc"), plugins=[Layout(NAME)])
-
-
-def test_a_plugin_s_rejection_rejects_the_layout_request(monkeypatch):
-    install(monkeypatch, Entry(NAME, Ome06()))
-    with pytest.raises(LayoutRejected, match="named by the layout's options"):
-        zarrify(str(FIXTURES / "hdf5/nwb_ophys.nwb"), plugins=[Layout(NAME)])
-
-
-def test_a_plugin_s_exception_is_a_failure(monkeypatch):
-    install(monkeypatch, Entry(Writes.name, Writes(error=KeyError("ome"))))
-    with pytest.raises(LayoutFailed, match="KeyError"):
-        zarrify(str(FIXTURES / "tiff/strips_uint8.tif"), plugins=[Layout(Writes.name)])
-
-
-def group():
-    return json.dumps({"zarr_format": 3, "node_type": "group", "attributes": {}}).encode()
-
-
-def array_entries(base):
-    return {f"0/{k}": v for k, v in copy(base, "0").items()}
-
-
-def test_a_reference_the_base_does_not_hold_is_a_failure(monkeypatch):
-    def made(base):
-        return {"zarr.json": group(), **array_entries(base), "0/c/0/0": Range(source=0, offset=0, length=8)}
-    install(monkeypatch, Entry(Writes.name, Writes(made)))
-    with pytest.raises(LayoutFailed, match="one of the base's references"):
-        zarrify(str(FIXTURES / "tiff/strips_uint8.tif"), plugins=[Layout(Writes.name)])
-
-
-def test_a_refkv_declaration_in_a_layout_is_a_failure(monkeypatch):
-    def declared(_base):
-        doc = {"zarr_format": 3, "node_type": "group", "attributes": {"refkv_zarrified": {"tiff": {}}}}
-        return {"zarr.json": json.dumps(doc).encode()}
-    install(monkeypatch, Entry(Writes.name, Writes(declared)))
-    with pytest.raises(LayoutFailed, match="refkv_zarrified"):
-        zarrify(str(FIXTURES / "tiff/strips_uint8.tif"), plugins=[Layout(Writes.name)])
-
-
-def test_a_key_with_a_dotdot_segment_is_a_failure(monkeypatch):
-    install(monkeypatch, Entry(Writes.name, Writes(lambda _base: {"zarr.json": group(), "../x": b"1"})))
-    with pytest.raises(LayoutFailed, match="not a key of a layout"):
-        zarrify(str(FIXTURES / "tiff/strips_uint8.tif"), plugins=[Layout(Writes.name)])
-
-
-def test_an_entry_outside_any_array_is_a_failure(monkeypatch):
-    install(monkeypatch, Entry(Writes.name, Writes(lambda _base: {"zarr.json": group(), "stray": b"1"})))
-    with pytest.raises(LayoutFailed, match="not below an array"):
-        zarrify(str(FIXTURES / "tiff/strips_uint8.tif"), plugins=[Layout(Writes.name)])
-
-
-def test_a_node_without_a_parent_group_is_a_failure(monkeypatch):
-    install(monkeypatch, Entry(Writes.name, Writes(lambda base: {"zarr.json": group(), **{
-        f"a/{k}": v for k, v in array_entries(base).items()}})))
-    with pytest.raises(LayoutFailed, match="is not a group of the layout"):
-        zarrify(str(FIXTURES / "tiff/strips_uint8.tif"), plugins=[Layout(Writes.name)])
-
-
-def test_a_plugin_that_changes_its_base_fails(monkeypatch):
-    def forge(base):
-        base.uuid = "forged"
-        return {"zarr.json": group()}
-    install(monkeypatch, Entry(Writes.name, Writes(forge)))
-    with pytest.raises(LayoutFailed, match="AttributeError"):
-        zarrify(str(FIXTURES / "tiff/strips_uint8.tif"), plugins=[Layout(Writes.name)])
-
-
-def test_a_plugin_that_exits_fails(monkeypatch):
-    install(monkeypatch, Entry(Writes.name, Writes(error=SystemExit(3))))
-    with pytest.raises(LayoutFailed, match="SystemExit"):
-        zarrify(str(FIXTURES / "tiff/strips_uint8.tif"), plugins=[Layout(Writes.name)])
-
-
-def test_a_provenance_cmo_is_a_failure(monkeypatch):
-    cmo = {"uuid": layouts.PROVENANCE_UUID.upper(), "name": "other", "schema_url": "x", "spec_url": "y",
-           "description": "z"}
-    doc = {"zarr_format": 3, "node_type": "group", "attributes": {"zarr_conventions": [cmo]}}
-    install(monkeypatch, Entry(Writes.name, Writes(lambda _base: {"zarr.json": json.dumps(doc).encode()})))
-    with pytest.raises(LayoutFailed, match="declares a refkv convention"):
-        zarrify(str(FIXTURES / "tiff/strips_uint8.tif"), plugins=[Layout(Writes.name)])
-
-
-def test_a_document_with_nan_is_a_failure(monkeypatch):
-    nan = b'{"zarr_format":3,"node_type":"group","attributes":{"x":NaN}}'
-    install(monkeypatch, Entry(Writes.name, Writes(lambda _base: {"zarr.json": nan})))
-    with pytest.raises(LayoutFailed, match="strict JSON"):
-        zarrify(str(FIXTURES / "tiff/strips_uint8.tif"), plugins=[Layout(Writes.name)])
-
-
-def test_consolidated_metadata_is_a_failure(monkeypatch):
-    doc = {"zarr_format": 3, "node_type": "group", "attributes": {}, "consolidated_metadata": {}}
-    install(monkeypatch, Entry(Writes.name, Writes(lambda _base: {"zarr.json": json.dumps(doc).encode()})))
-    with pytest.raises(LayoutFailed, match="consolidated_metadata"):
-        zarrify(str(FIXTURES / "tiff/strips_uint8.tif"), plugins=[Layout(Writes.name)])
-
-
-def test_a_cmo_named_as_refkv_s_is_a_failure(monkeypatch):
-    cmo = {"uuid": "00000000-0000-4000-8000-000000000000", "name": "refkv_layout", "schema_url": "x",
-           "spec_url": "y", "description": "z"}
-    doc = {"zarr_format": 3, "node_type": "group", "attributes": {"zarr_conventions": [cmo]}}
-    install(monkeypatch, Entry(Writes.name, Writes(lambda _base: {"zarr.json": json.dumps(doc).encode()})))
-    with pytest.raises(LayoutFailed, match="declares a refkv convention"):
-        zarrify(str(FIXTURES / "tiff/strips_uint8.tif"), plugins=[Layout(Writes.name)])
-
-
-def test_a_cmo_unlike_the_plugin_s_convention_is_a_failure(monkeypatch):
-    cmo = {"uuid": Ome06.convention.uuid, "name": "other", "schema_url": "x", "spec_url": "y", "description": "z"}
-    doc = {"zarr_format": 3, "node_type": "group", "attributes": {"zarr_conventions": [cmo]}}
-    install(monkeypatch, Entry(Writes.name, Writes(lambda _base: {"zarr.json": json.dumps(doc).encode()})))
-    with pytest.raises(LayoutFailed, match="otherwise than its ConventionInfo"):
-        zarrify(str(FIXTURES / "tiff/strips_uint8.tif"), plugins=[Layout(Writes.name)])
-
-
-def test_a_key_with_a_dunder_segment_is_a_failure(monkeypatch):
-    install(monkeypatch, Entry(Writes.name, Writes(lambda _base: {"zarr.json": group(), "__x/zarr.json": group()})))
-    with pytest.raises(LayoutFailed, match="not a key of a layout"):
-        zarrify(str(FIXTURES / "tiff/strips_uint8.tif"), plugins=[Layout(Writes.name)])
-
-
-def test_dimension_names_of_another_rank_are_refused():
-    base = Base(zarrify(str(FIXTURES / "tiff/strips_uint8.tif")), None)
-    with pytest.raises(ValueError, match="dimension names for an array of 2"):
-        copy(base, "0", dimension_names=["y"])
-
-
-def test_the_cli_writes_a_plugin_layout(monkeypatch, tmp_path, capsys):
-    install(monkeypatch, Entry(NAME, Ome06()))
-    out = tmp_path / "out.vzip"
-    assert main([str(FIXTURES / "tiff/strips_uint8.tif"), str(out), "--layout", NAME]) == 0
-    assert json.loads(capsys.readouterr().out)["layouts"] == [NAME]
-
-
-def test_the_cli_exits_2_for_an_unknown_layout(monkeypatch, tmp_path):
-    install(monkeypatch)
-    assert main([str(FIXTURES / "tiff/strips_uint8.tif"), str(tmp_path / "o.vzip"), "--layout", NAME]) == 2
-
-
-def test_the_cli_exits_3_for_a_rejected_layout(monkeypatch, tmp_path):
-    install(monkeypatch, Entry(NAME, Ome06()))
-    assert main([str(FIXTURES / "mrc/mrc_mode_int4_image.mrc"), str(tmp_path / "o.vzip"), "--layout", NAME]) == 3
-
-
-def test_the_cli_exits_1_for_a_failed_layout(monkeypatch, tmp_path):
-    install(monkeypatch, Entry(Writes.name, Writes(error=RuntimeError("bug"))))
-    assert main([str(FIXTURES / "tiff/strips_uint8.tif"), str(tmp_path / "o.vzip"), "--layout", Writes.name]) == 1
-
-
-TIF = str(FIXTURES / "tiff/strips_uint8.tif")
-
-
-def doc_bytes(attributes=None, **members):
-    """A group's document, or with `node_type` and the members given, another one."""
-    return json.dumps({"zarr_format": 3, "node_type": "group", "attributes": attributes or {}, **members}).encode()
-
-
-def fails(monkeypatch, entries, match):
-    """Runs a plugin whose write returns `entries(base)`, and expects LayoutFailed matching `match`."""
-    install(monkeypatch, Entry(Writes.name, Writes(entries)))
-    with pytest.raises(LayoutFailed, match=match):
-        zarrify(TIF, plugins=[Layout(Writes.name)])
-
-
-def variant(**attributes) -> Any:
-    """The example plugin with some attributes changed."""
-    return type("Variant", (Ome06,), attributes)
-
-
-def refused(monkeypatch, plugin, match, plugins=None):
-    """Asks for `plugin`'s layout (or `plugins`), and expects LayoutUsageError matching `match`."""
-    install(monkeypatch, Entry(plugin.name, plugin))
-    with pytest.raises(LayoutUsageError, match=match):
-        zarrify(TIF, plugins=plugins if plugins is not None else [Layout(plugin.name)])
-
-
-def convention(**changed):
-    return dataclasses.replace(Ome06.convention, **changed)
-
-
-def test_a_plugin_sees_one_base_whatever_else_the_call_asks_for(monkeypatch):
-    """Base hides the dataset layout, the root's layouts and the ranges' checksums: a plugin sees
-    the same keys, root and values with or without the dataset layout and checksums; and the
-    output keeps the CMOs and key members the plugin wrote, reads its documents at open, and
-    declares the convention planned, whatever the plugin did to its own."""
-    seen = []
-
-    class Records(WithMrc):
-        def write(self, base, options):
-            seen.append((base.keys(), base.document("zarr.json"), dict(base.array("0")[1])))
-            self.convention = convention(uuid="11111111-1111-4111-8111-111111111111")
-            out = super().write(base, options)
-            extra = {"uuid": "22222222-2222-4222-8222-222222222222", "name": "other", "schema_url": "s",
-                     "spec_url": "p", "description": "d"}
-            node = json.loads(out["zarr.json"])
-            node["attributes"] |= {"zarr_conventions": [extra], "acme_ome_mrc": {"note": 1}}
-            return {**out, "zarr.json": json.dumps(node).encode()}
-
-    install(monkeypatch, Entry(Records.name, Records))
-    mrc = str(FIXTURES / "mrc/mrc_mode_int4_image.mrc")
-    store = zarrify(mrc, plugins=[Layout(Records.name)])
-    zarrify(mrc, plugins=[Layout(Records.name)], layouts=[Image()], checksums=True)
-    assert seen[0] == seen[1]
-    assert not any(k.startswith("dataset/") for k in seen[0][0])
-    assert "layouts" not in seen[0][1]["attributes"]["refkv_zarrified"]
-    attrs = document(store, "refkv_layouts/ome06/zarr.json")["attributes"]
-    assert [c["uuid"] for c in attrs["zarr_conventions"]] == [layouts.UUID, Ome06.convention.uuid,
-                                                              "22222222-2222-4222-8222-222222222222"]
-    assert attrs["acme_ome_mrc"] == {"version": 0, "note": 1}
-    assert {"refkv_layouts/zarr.json", "refkv_layouts/ome06/zarr.json"} <= set(store.read_at_open)
-
-
-def transposed(t, shape=(2, 3, 4)):
-    """A base of one array, stored transposed by `t` (its first codec a transpose), and its values."""
-    values = np.arange(int(np.prod(shape)), dtype="<u2").reshape(shape)
-    stored = np.transpose(values, t)
-    array = {"zarr_format": 3, "node_type": "array", "shape": list(shape), "data_type": "uint16",
-             "chunk_grid": {"name": "regular", "configuration": {"chunk_shape": list(shape)}},
-             "chunk_key_encoding": {"name": "default"}, "fill_value": 0, "dimension_names": ["a", "b", "c"],
-             "codecs": [{"name": "transpose", "configuration": {"order": list(t)}},
-                        {"name": "bytes", "configuration": {"endian": "little"}}], "attributes": {}}
-    root = {"zarr_format": 3, "node_type": "group",
-            "attributes": {"refkv_zarrified": {"profile": "tiff", "version": 0, "source": {"url": "x.tif"}}}}
-    store = refkv.ReferenceStore({"zarr.json": json.dumps(root).encode(), "a/zarr.json": json.dumps(array).encode(),
-                                  "a/c/0/0/0": np.ascontiguousarray(stored).tobytes()})
-    return store, values
+    rows = [values[i].tobytes() for i in range(shape[0])]
+    b = synthetic(plain_array(shape, [1, *shape[1:]], encoding), dict(zip(keys, rows, strict=True)))
+    assert np.array_equal(read(refkv.ReferenceStore(copy(b, "a", order=order))), np.transpose(values, order))
 
 
 @pytest.mark.parametrize(("t", "order"), [([1, 2, 0], [2, 0, 1]), ([1, 2, 0], [1, 0, 2]), ([2, 0, 1], [0, 2, 1]),
                                           ([1, 0, 2], [1, 0, 2])])
 def test_copy_composes_its_transpose_with_the_base_s(t, order):
-    """A copy of an array that starts with a transpose decodes to the base's values transposed, for
-    orders that do not commute with it, and drops the transpose when the two cancel; its
-    dimension names are permuted with it."""
-    store, values = transposed(t)
-    entries = copy(Base(store, None), "a", order=order)
-    copied = refkv.ReferenceStore(entries)
-    assert np.array_equal(read(copied, ""), np.transpose(values, order))
-    doc = document(refkv.ReferenceStore(entries), "zarr.json")
+    """A copy of an array that starts with a transpose decodes to the base's values transposed, and
+    drops the transpose when the two cancel; its dimension names are permuted with it."""
+    values = np.arange(24, dtype="<u2").reshape(2, 3, 4)
+    codecs = [{"name": "transpose", "configuration": {"order": t}},
+              {"name": "bytes", "configuration": {"endian": "little"}}]
+    b = synthetic(plain_array([2, 3, 4], [2, 3, 4], codecs=codecs, names=["a", "b", "c"]),
+                  {"c/0/0/0": np.ascontiguousarray(np.transpose(values, t)).tobytes()})
+    entries = copy(b, "a", order=order)
+    assert np.array_equal(read(refkv.ReferenceStore(entries)), np.transpose(values, order))
+    doc = doc_of(entries["zarr.json"])
     assert doc["dimension_names"] == [["a", "b", "c"][o] for o in order]
-    composed = [_inverse_of(order)[i] for i in t]
-    assert doc["codecs"][0]["name"] == ("bytes" if composed == [0, 1, 2] else "transpose")
+    inverse = [order.index(i) for i in range(3)]
+    assert doc["codecs"][0]["name"] == ("bytes" if [inverse[i] for i in t] == [0, 1, 2] else "transpose")
 
 
-def _inverse_of(order):
-    out = [0] * len(order)
-    for i, o in enumerate(order):
-        out[o] = i
-    return out
+def test_copy_transposes_a_shard_s_inner_chunks_and_index():
+    """`copy` transposes a sharded array of several inner chunks per shard to the base's values."""
+    values = np.arange(24, dtype="<u2").reshape(4, 6)
+    written = zarr.storage.MemoryStore()
+    a = zarr.create_array(written, shape=(4, 6), shards=(4, 6), chunks=(2, 3), dtype="uint16", fill_value=0,
+                          compressors=None)
+    a[...] = values
+    doc = json.loads(written._store_dict["zarr.json"].to_bytes())
+    b = synthetic(doc, {k: v.to_bytes() for k, v in written._store_dict.items() if k != "zarr.json"})
+    assert np.array_equal(read(refkv.ReferenceStore(copy(b, "a", order=[1, 0]))), values.T)
 
 
-def test_copy_refuses_an_order_that_is_no_permutation():
-    with pytest.raises(ValueError, match="not a permutation"):
-        copy(Base(transposed([0, 1, 2])[0], None), "a", order=[0, 0, 1])
+def test_the_base_bridges_its_output_and_its_ir():
+    """`reference` reads an element (a JPEG tile, with its tables) as the base's chunk does;
+    `elements` maps each part of a chunk to the bytes of an element it reads; `element_at` finds
+    an element from a byte; `attributes` drops refkv's declarations; `source_metadata` gives the
+    node's own; `form` the element's geometry."""
+    b = base(TIFF)
+    tiles = b.ir.index("ifds/0/tiles")
+    _, chunks = b.array("0")
+    first = chunks["c/0/0/0"]
+    assert isinstance(first, Concat)
+    assert b.reference(tiles, 0) == first
+    assert b.reference(b.ir.index("ifds/0/tiles/0")) == first
+    parts = b.elements("0")["c/0/0/0"]
+    assert parts[1] is None  # the JPEG tables, a data source
+    assert part(parts[0])[0] == part(parts[2])[0] == (b.element_at(0, first.parts[0].offset) or (None,))[0]
+    assert (b.form(tiles, 0) or {})["geometry"]["shape"] == [32, 32]
+    assert "refkv_zarrified" not in b.attributes("")
+    assert b.source_metadata("") is not None
+    h = base(NETCDF)
+    (item,) = h.elements("sst")["c/0/0"]
+    i, member, start, stop = part(item)
+    assert h.reference(i, member) == cut(h.reference(i, member), start, stop)
+    assert h.zero_source is None
+    assert h.checksums is False
+    assert b.members(tiles)[0] == (0, first.parts[0].offset, b.ir.extent(b.ir.index("ifds/0/tiles/0"))[1])
+    assert (b.datasets, b.mirror, b.node_type("0")) == ({}, "refkv_source", "array")
+    assert "0" in b.nodes()
+    assert "refkv_source" not in b.nodes()
+    assert "refkv_source" in b.nodes(mirror=True)
+    assert not any(k.startswith("refkv_source/") for k in b.entries(mirror=False))
+    assert b.zeros(10) == base(TIFF).zeros(10) == Range(len(b.sources), 0, 10)  # whatever Base made it
+    assert "refkv_zarrified" not in doc_of(b.entries("zarr.json", declarations=False)["zarr.json"])["attributes"]
+    assert "0/zarr.json" in b
+    assert "nope" not in b
+    s = base(str(FIXTURES / "tiff" / "ome_set_a.ome.tif"))  # a set read as a store: each file its own source
+    strips = s.ir.index("ome_set_b.ome.tif/ifds/0/strips")
+    assert s.source_of(strips) == 1
+    assert s.reference(strips, 0) in s.array("0")[1].values()
+    x = base(str(FIXTURES / "hdf5" / "hdf5_external.h5"))  # an external link's target, in a file of its own
+    (item,) = x.elements("linked_dataset")["c/0/0"]
+    j, m, a, z = part(item)
+    assert cut(x.reference(j, m), a, z) == x.array("linked_dataset")[1]["c/0/0"]
 
 
-def test_copy_refuses_an_order_of_names():
-    with pytest.raises(ValueError, match="axis indexes"):
-        copy(Base(transposed([0, 1, 2])[0], None), "a", order=["a", "b", "c"])  # type: ignore[arg-type]
+@pytest.mark.parametrize(("value", "start", "stop", "want"), [
+    (Range(0, 10, 5), 1, 3, Range(0, 11, 2)),
+    (Concat((Range(0, 10, 5), Range(data=b"abc"), Range(1, 0, 4))), 4, 9, Concat((Range(0, 14, 1), Range(data=b"abc"),
+                                                                                   Range(1, 0, 1)))),
+    (Concat((Range(0, 10, 5), Range(1, 0, 4))), 5, 9, Range(1, 0, 4)),
+])
+def test_cut_concat_and_payload_size(value, start, stop, want):
+    """`cut` keeps the bytes asked for, parts of a data source as ranges of it; `concat` joins
+    values flat; `payload_size` is the encoded size, with room for each source range's checksum."""
+    got = cut(value, start, stop)
+    assert got == want
+    assert concat(cut(value, 0, start), got, cut(value, stop, value.size)).size == value.size
+    assert payload_size(Range(0, 1, 2)) == len(Range(0, 1, 2).encode())
+    assert payload_size(got, checksums=True) == payload_size(got) + 6 * sum(r.data is None for r in (
+        got.parts if isinstance(got, Concat) else (got,)))
 
 
-@pytest.mark.parametrize("attributes", [{0: "x"}, {"a": {None: "y"}}, {"a": [{1.5: "z"}]}])
-def test_copy_refuses_attributes_not_named_by_strings(attributes):
-    with pytest.raises(ValueError, match="by strings"):
-        copy(Base(transposed([0, 1, 2])[0], None), "a", attributes=attributes)
+@pytest.mark.parametrize("source", [TIFF, NWB, NETCDF, str(FIXTURES / "hdf5" / "hdf5_filters.h5"),
+                                    str(FIXTURES / "tiff" / "strips_rgb_contig_deflate_short.tif")])
+def test_check_finds_nothing_in_the_base_s_own_output(source):
+    assert check(base(source), base(source).entries()) == []
 
 
-def test_copy_refuses_an_unknown_chunk_key_encoding():
-    store, _ = transposed([0, 1, 2])
-    doc = document(store, "a/zarr.json") | {"chunk_key_encoding": {"name": "other"}}
-    mapping = {**store.mapping, "a/zarr.json": json.dumps(doc).encode()}
-    with pytest.raises(ValueError, match="not one copy can permute"):
-        copy(Base(refkv.ReferenceStore(mapping), None), "a", order=[1, 0, 2])
+def bad(b):
+    """Outputs of the base `b`, each with one problem, by the code check gives it."""
+    entries = images(b)
+    chunk = next(k for k in entries if k.startswith("0/c/"))
+    doc = json.loads(entries["0/zarr.json"])
+    return {
+        "key": {**entries, "__vz__/x": b"1"},
+        "reference": {**entries, "x": Range(0, 0, 10 ** 9)},
+        "open": Written(entries, read_at_open=[chunk]),
+        "document": {**entries, "y/zarr.json": entries[chunk]},
+        "orphan": {**entries, "z/c/0": b"1"},
+        "json": {**entries, "j/zarr.json": b'{"a": NaN}'},
+        "zarr": {**entries, "q/zarr.json": dump({"zarr_format": 3, "node_type": "group", "attributes": {}, "x": 1})},
+        "parent": {**entries, "p/q/zarr.json": group()},
+        "copy": {**entries, "0/zarr.json": dump(doc | {"shape": [d + 1 for d in doc["shape"]]})},
+        "refkv": {**entries, "zarr.json": dump({"zarr_format": 3, "node_type": "group", "attributes": {
+            "refkv_zarrified": {"profile": "tiff"}}})},
+        "chunk": {**entries, "0/c/9/9/9": entries[chunk]},
+        "consolidated": {**entries, "v/.zgroup": dump({"zarr_format": 2}),
+                         "v/.zmetadata": dump({"zarr_consolidated_format": 1, "metadata": {}})},
+    }
 
 
-def test_copy_refuses_a_key_that_is_no_chunk_key():
-    store, _ = transposed([0, 1, 2])
-    mapping = {k: v for k, v in store.mapping.items() if k != "a/c/0/0/0"} | {"a/x/0/0/0": store.mapping["a/c/0/0/0"]}
-    with pytest.raises(ValueError, match="not a chunk key"):
-        copy(Base(refkv.ReferenceStore(mapping), None), "a", order=[1, 0, 2])
+@pytest.mark.parametrize("code", ["key", "reference", "open", "document", "orphan", "json", "zarr", "parent", "copy",
+                                  "refkv", "chunk", "consolidated"])
+def test_check_reports_each_problem_by_its_code(code):
+    b = base(TIFF)
+    assert code in {p.code for p in check(b, bad(b)[code])}
 
 
-def test_a_plugin_s_unread_version_is_rejected_by_name(monkeypatch):
-    install(monkeypatch, Entry(NAME, variant(formats={"tiff": {1}})))
-    with pytest.raises(LayoutRejected, match=r"at version 0 \(it reads tiff v1\)"):
-        zarrify(TIF, plugins=[Layout(NAME)])
+def test_check_reports_a_chunk_of_the_wrong_size():
+    b = base(NETCDF)
+    (item,) = b.elements("counts")["c/0"]
+    i, member, _, _ = part(item)
+    doc = doc_of(copy(b, "counts")["zarr.json"])
+    whole = b.reference(i, member)
+    out = {"zarr.json": group(), "s/zarr.json": dump(doc), "s/c/0": cut(whole, 0, whole.size - 1)}
+    assert "size" in {p.code for p in check(b, out)}
 
 
-def test_a_bad_name_is_a_usage_error(monkeypatch):
-    refused(monkeypatch, Ome06, "not a layout's name", [Layout("NoDot")])
+def test_the_coding_routines_give_the_base_s_codecs():
+    b = base(TIFF)
+    tags = tiff_tags(b, b.ir.index("ifds/0"))
+    doc = b.document("0/zarr.json")
+    assert tiff_data_type(tags) == doc["data_type"]
+    assert tiff_codecs(tags, little_endian=tiff_byte_order(b, b.ir.index("ifds/0")), x_axis=1,
+                       row_length=96) == doc["codecs"][1:]
+    assert tiff_codecs({259: [65001], 258: [1]}, little_endian=True, x_axis=1, row_length=8, chunk_shape=[4, 8]) == [
+        {"name": "imagecodecs_eer", "configuration": {"shape": [4, 8], "skipbits": 7, "horzbits": 2, "vertbits": 2}}]
+    assert hdf5_attributes(base(NETCDF), "sst")["_FillValue"] == -1.5  # hdf5.md §6's Base64 binary64, undone
 
 
-def test_a_refkv_name_is_a_usage_error(monkeypatch):
-    refused(monkeypatch, Ome06, "starts with refkv", [Layout("refkv-x.y")])
+def test_fits_says_why_refkv_would_not_write_a_value():
+    b = base(TIFF)
+    assert b.fits(b.array("0")[1]["c/0/0/0"]) is None
+    assert b.fits(Range(0, 0, 4)) is None
+    assert "past" in (b.fits(Range(0, 0, 10 ** 9)) or "")
+    assert "payload" in (b.fits(Concat(tuple(Range(data=b"ab") for _ in range(20000)))) or "")
+
+
+def test_chunk_keys_node_names_and_encoded_entries():
+    """`chunk_key` and `chunk_coords` are inverse in an array's encoding; `node_name` takes a
+    Zarr v3 node's name; `encode_entries` is one encoding of entries, checksums aside."""
+    for encoding, coords, key in [({"name": "default"}, [1, 2], "c/1/2"),
+                                  ({"name": "v2", "configuration": {"separator": "."}}, [1, 2], "1.2"),
+                                  ({"name": "default", "configuration": {"separator": "."}}, [], "c")]:
+        doc = {"chunk_key_encoding": encoding}
+        assert chunk_key(coords, doc) == key
+        assert chunk_coords(key, doc) == coords
+    node_name("image-0")
+    one = {"a": b"1", "b": Range(0, 0, 4)}
+    assert encode_entries(one) == encode_entries({"b": Range(0, 0, 4, crc32c=5), "a": b"1"})
+    assert encode_entries(one) != encode_entries({"a": b"1", "b": Concat((Range(0, 0, 4),))})
+
+
+@pytest.mark.parametrize("name", ["", "a/b", ".", "..", "__x", "zarr.json", 5])
+def test_a_name_that_is_no_node_s_is_refused(name):
+    with pytest.raises(ValueError, match="node's name"):
+        node_name(name)  # type: ignore[arg-type]
+
+
+def test_a_coding_routine_refuses_what_the_profile_rejects():
+    with pytest.raises(NoCodec, match="unsupported compression 6"):
+        tiff_codecs({259: [6], 258: [8]}, little_endian=True, x_axis=1, row_length=8)
+
+
+def test_examples_import_only_refkv_s_public_api():
+    """Each shipped example imports only the standard library, refkv's public modules and their
+    public names, so that it can be copied out of refkv and changed."""
+    public = {"refkv", "refkv.ir", "refkv.zarrify", "refkv.zarrify.layouts", "refkv.zarrify.layouts.hierarchy",
+              "refkv.zarrify.coding"}
+    for path in (ROOT / "python" / "src" / "refkv" / "zarrify" / "layouts" / "examples").glob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text())):
+            if isinstance(node, ast.ImportFrom) and node.module and node.module.split(".")[0] == "refkv":
+                assert node.module in public, f"{path.name}: {node.module}"
+                assert not any(a.name.startswith("_") for a in node.names), f"{path.name}: {node.module}"
+            elif isinstance(node, ast.Import):
+                for a in node.names:
+                    assert a.name.split(".")[0] != "refkv" or a.name in public, f"{path.name}: {a.name}"
+
+
+# ---- the errors: one test each
+
+def test_an_unknown_plugin_is_a_usage_error(monkeypatch):
+    install(monkeypatch)
+    with pytest.raises(LayoutUsageError, match="no layout plugin is named"):
+        zarrify(TIFF, layout=Layout("acme.none"))
+
+
+def test_a_name_not_of_its_distribution_is_a_usage_error(monkeypatch):
+    install(monkeypatch, Entry("acme.x", Plugin(images, name="acme.x"), dist="other"))
+    with pytest.raises(LayoutUsageError, match="starts with its distribution"):
+        zarrify(TIFF, layout=Layout("acme.x"))
+
+
+def test_a_plugin_that_names_itself_otherwise_is_a_usage_error(monkeypatch):
+    install(monkeypatch, Entry("acme.x", Plugin(images, name="acme.y")))
+    with pytest.raises(LayoutUsageError, match="set its name"):
+        zarrify(TIFF, layout=Layout("acme.x"))
+
+
+def test_a_plugin_that_fails_to_load_is_a_usage_error(monkeypatch):
+    install(monkeypatch, Entry("acme.x", ImportError("no zarr_metadata: pip install refkv[layouts]")))
+    with pytest.raises(LayoutUsageError, match="refkv\\[layouts\\]"):
+        zarrify(TIFF, layout=Layout("acme.x"))
 
 
 def test_two_entry_points_of_one_name_are_a_usage_error(monkeypatch):
-    install(monkeypatch, Entry(NAME, Ome06), Entry(NAME, Ome06))
+    install(monkeypatch, Entry("acme.x", Plugin(images, name="acme.x")), Entry("acme.x", Plugin(images, name="acme.x")))
     with pytest.raises(LayoutUsageError, match="2 entry points"):
-        zarrify(TIF, plugins=[Layout(NAME)])
+        zarrify(TIFF, layout=Layout("acme.x"))
 
 
-def test_unreadable_entry_points_are_a_usage_error(monkeypatch):
-    def broken():
-        raise TypeError("Pair.__new__() missing 1 required positional argument: 'value'")
+@pytest.mark.parametrize("formats", [["tiff"], {"tiff": ["0"]}, {"nope": {0}}, "tiff"])
+def test_formats_that_are_not_formats_are_a_usage_error(formats):
+    with pytest.raises(LayoutUsageError, match="formats"):
+        zarrify(TIFF, layout=Layout(Plugin(images, formats=formats)))
 
-    monkeypatch.setattr(layouts, "_entry_points", broken)
-    with pytest.raises(LayoutUsageError, match=r"entry points of 'refkv\.layouts' cannot be read"):
-        zarrify(TIF, plugins=[Layout(NAME)])
 
+def test_a_bad_name_is_a_usage_error():
+    with pytest.raises(LayoutUsageError, match=r"not <distribution>\.<layout>"):
+        zarrify(TIFF, layout=Layout(Plugin(images, name="Acme")))
 
-def test_a_bad_plugin_path_is_a_usage_error(monkeypatch):
-    refused(monkeypatch, variant(path="a/b"), "its path")
 
+def test_options_the_plugin_refuses_are_a_usage_error():
+    class Refusing(Plugin):
+        @override
+        def options(self, given):
+            raise ValueError("no")
+    with pytest.raises(LayoutUsageError, match="refused"):
+        zarrify(TIFF, layout=Layout(Refusing(images)))
 
-def test_a_convention_that_is_no_conventioninfo_is_a_usage_error(monkeypatch):
-    refused(monkeypatch, variant(convention={"uuid": "x"}), "not a ConventionInfo")
 
+def test_options_that_are_not_json_are_a_usage_error():
+    with pytest.raises(LayoutUsageError, match="not a JSON object"):
+        zarrify(TIFF, layout=Layout(Plugin(images), {"x": float("nan")}))
 
-def test_a_convention_uuid_that_is_no_uuid_is_a_usage_error(monkeypatch):
-    refused(monkeypatch, variant(convention=convention(uuid="nope")), "is not a UUID")
 
+def test_canonical_options_that_are_not_json_are_a_usage_error():
+    class Tuples(Plugin):
+        @override
+        def options(self, given):
+            return {"t": (1, 2)}
+    with pytest.raises(LayoutUsageError, match="not JSON as they are"):
+        zarrify(TIFF, layout=Layout(Tuples(images)))
 
-def test_a_convention_uuid_in_upper_case_is_a_usage_error(monkeypatch):
-    refused(monkeypatch, variant(convention=convention(uuid=Ome06.convention.uuid.upper())), "in lower case")
 
+def test_options_that_raise_otherwise_are_a_failure():
+    class Broken(Plugin):
+        @override
+        def options(self, given):
+            raise KeyError("bug")
+    with pytest.raises(LayoutFailed, match="options\\(\\) raised"):
+        zarrify(TIFF, layout=Layout(Broken(images)))
 
-def test_a_refkv_convention_uuid_is_a_usage_error(monkeypatch):
-    refused(monkeypatch, variant(convention=convention(uuid=layouts.UUID)), "a refkv convention's")
 
+def test_a_layout_beside_built_in_layouts_is_a_usage_error():
+    with pytest.raises(LayoutUsageError, match="not both"):
+        zarrify(TIFF, layouts=[Image()], layout=Layout(Plugin(images)))
 
-def test_a_convention_version_that_is_no_natural_number_is_a_usage_error(monkeypatch):
-    refused(monkeypatch, variant(convention=convention(version=True)), "not a natural number")
 
+def test_a_layout_that_is_not_a_layout_is_a_usage_error():
+    with pytest.raises(LayoutUsageError, match="one Layout"):
+        zarrify(TIFF, layout=[Layout(Plugin(images))])  # type: ignore[arg-type]
 
-def test_an_empty_description_is_a_usage_error(monkeypatch):
-    refused(monkeypatch, variant(convention=convention(description="")), "description is not a string")
 
+def test_a_layout_on_a_store_input_is_a_usage_error(tmp_path):
+    with pytest.raises(LayoutUsageError, match="store input"):
+        zarrify(str(tmp_path), "https://example.org/x/", layout=Layout(Plugin(images)))
 
-def test_a_convention_with_a_lone_surrogate_is_a_usage_error(monkeypatch):
-    refused(monkeypatch, variant(convention=convention(description="\ud800")), "not valid Unicode")
 
+def test_a_base_the_plugin_does_not_read_is_rejected():
+    with pytest.raises(LayoutRejected, match="does not read the tiff"):
+        zarrify(TIFF, layout=Layout(Plugin(images, formats={"hdf5": {0}})))
 
-def test_a_negative_version_in_formats_is_a_usage_error(monkeypatch):
-    refused(monkeypatch, variant(formats={"tiff": {-1}}), "formats is not a mapping")
 
+def test_a_plugin_s_rejection_rejects_the_layout_request():
+    def rejects(_b):
+        raise Rejected("not this one")
+    with pytest.raises(LayoutRejected, match="not this one"):
+        zarrify(TIFF, layout=Layout(Plugin(rejects)))
 
-def test_a_plugin_without_write_is_a_usage_error(monkeypatch):
-    refused(monkeypatch, variant(write=None), "has options\\(\\) and write\\(\\)")
 
-
-def test_a_value_that_is_no_layout_is_a_usage_error(monkeypatch):
-    refused(monkeypatch, Ome06, "holds Layout values", [NAME])
-
-
-def test_options_that_are_no_mapping_are_a_usage_error(monkeypatch):
-    refused(monkeypatch, Ome06, "a mapping", [Layout(NAME, '{"images": []}')])  # type: ignore[arg-type]
-
-
-def test_a_path_that_is_no_string_is_a_usage_error(monkeypatch):
-    refused(monkeypatch, Ome06, "its path is a string", [Layout(NAME, path=5)])  # type: ignore[arg-type]
-
-
-def test_an_invalid_layout_path_is_a_usage_error(monkeypatch):
-    refused(monkeypatch, Ome06, "one key segment", [Layout(NAME, path="__x")])
-
-
-def test_options_that_return_no_mapping_are_a_usage_error(monkeypatch):
-    refused(monkeypatch, variant(options=lambda _self, _given: [1]), "not a mapping")
-
-
-def test_canonical_options_that_are_no_json_are_a_usage_error(monkeypatch):
-    refused(monkeypatch, variant(options=lambda _self, _given: {"a": (1, 2)}), "not JSON as they are")
-
-
-def test_options_nested_too_deep_are_a_usage_error(monkeypatch):
-    deep: dict = {}
-    for _ in range(100000):
-        deep = {"a": deep}
-    refused(monkeypatch, Ome06, "RecursionError", [Layout(NAME, deep)])
-
-
-def test_two_layouts_of_one_key_are_a_usage_error(monkeypatch):
-    one, two = variant(name="acme-ome.a-b"), variant(name="acme-ome.a.b", path="other",
-                                                      convention=convention(uuid="33333333-3333-4333-8333-333333333333"))
-    install(monkeypatch, Entry(one.name, one), Entry(two.name, two))
-    with pytest.raises(LayoutUsageError, match="one key"):
-        zarrify(TIF, plugins=[Layout(one.name), Layout(two.name)])
-
-
-def test_two_layouts_of_one_name_are_a_usage_error(monkeypatch):
-    refused(monkeypatch, Ome06, "one name", [Layout(NAME), Layout(NAME, path="other")])
-
-
-def test_a_write_that_returns_no_mapping_fails(monkeypatch):
-    fails(monkeypatch, lambda _base: None, "not a mapping of keys")
-
-
-def test_a_mid_key_zarr_json_segment_is_a_failure(monkeypatch):
-    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes(), "a/zarr.json/zarr.json": doc_bytes()},
-          "not a key of a layout")
-
-
-def test_a_key_longer_than_an_archive_holds_is_a_failure(monkeypatch):
-    fails(monkeypatch, lambda base: {"zarr.json": doc_bytes(), **array_entries(base), "0/" + "a" * 70000: b"x"},
-          "more than an archive's")
-
-
-def test_a_document_that_is_no_bytes_is_a_failure(monkeypatch):
-    fails(monkeypatch, lambda _base: {"zarr.json": {"zarr_format": 3}}, "a document is bytes")
-
-
-def test_a_document_with_a_byte_order_mark_is_a_failure(monkeypatch):
-    fails(monkeypatch, lambda _base: {"zarr.json": "﻿".encode() + doc_bytes()}, "byte order mark")
-
-
-def test_a_document_with_a_member_twice_is_a_failure(monkeypatch):
-    twice = b'{"zarr_format":3,"node_type":"group","attributes":{},"attributes":{}}'
-    fails(monkeypatch, lambda _base: {"zarr.json": twice}, "a member twice")
-
-
-def test_a_document_with_a_lone_surrogate_is_a_failure(monkeypatch):
-    lone = b'{"zarr_format":3,"node_type":"group","attributes":{"a":"\\ud800"}}'
-    fails(monkeypatch, lambda _base: {"zarr.json": lone}, "not valid Unicode")
-
-
-def test_a_document_with_an_infinite_number_is_a_failure(monkeypatch):
-    big = b'{"zarr_format":3,"node_type":"group","attributes":{"a":1e400}}'
-    fails(monkeypatch, lambda _base: {"zarr.json": big}, "beyond binary64")
-
-
-def test_a_document_whose_zarr_format_is_no_integer_is_a_failure(monkeypatch):
-    fails(monkeypatch, lambda _base: {"zarr.json": b'{"zarr_format":3.0,"node_type":"group"}'}, "Zarr v3 group")
-
-
-def test_a_document_of_another_node_type_is_a_failure(monkeypatch):
-    fails(monkeypatch, lambda _base: {"zarr.json": b'{"zarr_format":3,"node_type":"other"}'}, "Zarr v3 group")
-
-
-def test_an_array_document_without_its_members_is_a_failure(monkeypatch):
-    bare = b'{"zarr_format":3,"node_type":"array"}'
-    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes(), "a/zarr.json": bare}, "an array's document holds")
-
-
-def test_a_layout_node_that_is_an_array_is_a_failure(monkeypatch):
-    fails(monkeypatch, lambda base: {k.removeprefix("0/"): v for k, v in array_entries(base).items()}, "not a group")
-
-
-def test_a_node_inside_an_array_is_a_failure(monkeypatch):
-    fails(monkeypatch, lambda base: {"zarr.json": doc_bytes(), **array_entries(base), "0/x/zarr.json": doc_bytes()},
-          "is not a group of the layout")
-
-
-def test_attributes_that_are_no_object_are_a_failure(monkeypatch):
-    fails(monkeypatch, lambda _base: {"zarr.json": b'{"zarr_format":3,"node_type":"group","attributes":[]}'},
-          "attributes is not an object")
-
-
-def test_a_refkv_layout_member_is_a_failure(monkeypatch):
-    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes({"refkv_layout": {}})}, "holds refkv_layout")
-
-
-def test_a_refkv_provenance_member_is_a_failure(monkeypatch):
-    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes({"refkv_provenance": {}})}, "holds refkv_provenance")
-
-
-def test_a_plugin_key_that_is_no_object_is_a_failure(monkeypatch):
-    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes({"acme_ome_writes": 1})}, "does not hold an object")
-
-
-def test_a_plugin_key_holding_version_is_a_failure(monkeypatch):
-    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes({"acme_ome_writes": {"version": 1}})},
-          "must not hold version")
-
-
-def test_zarr_conventions_that_are_no_list_are_a_failure(monkeypatch):
-    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes({"zarr_conventions": {"uuid": "x"}})},
-          "not a list of objects")
-
-
-def test_a_cmo_name_that_is_no_string_is_a_failure(monkeypatch):
-    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes({"zarr_conventions": [{"uuid": "x", "name": ["n"]}]})},
-          "name is not a string")
-
-
-def test_a_cmo_named_as_the_plugin_s_key_is_a_failure(monkeypatch):
-    cmo = {"uuid": "44444444-4444-4444-8444-444444444444", "name": "acme_ome_writes"}
-    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes({"zarr_conventions": [cmo]})},
-          "otherwise than its ConventionInfo")
-
-
-def test_the_cli_exits_2_for_options_without_a_name(monkeypatch, tmp_path):
-    install(monkeypatch, Entry(NAME, Ome06))
-    assert main([TIF, str(tmp_path / "o.vzip"), "--layout", NAME, "--layout-options", "{}"]) == 2
-
-
-PREFIX = "refkv_layouts/ome06/"
-
-
-def test_a_layout_holds_what_its_checks_allow(monkeypatch):
-    """At the edges the checks allow: a key exactly as long as an archive holds (its prefix
-    included), a bytearray document (written as bytes), a CMO whose URL only resembles refkv's, a
-    plugin that writes its own CMO on its node (written once), a numpy order, and a distribution
-    whose name normalizes to the layout's first segment."""
-    longest = "0/" + "a" * (65535 - len(PREFIX.encode()) - 2)  # 65535 bytes with its prefix
-    near = {"uuid": "55555555-5555-4555-8555-555555555555", "schema_url": "https://github.com/d-v-b/refkvx/s"}
-
-    class Edges(Writes):
-        def write(self, base, _options):
-            mine = layouts._cmo(self.name, self.convention)
-            node = doc_bytes({"zarr_conventions": [near, mine]})
-            order: Any = np.array([1, 0])  # a numpy order, as numpy.transpose takes
-            return {"zarr.json": bytearray(node), **{f"0/{k}": v for k, v in copy(base, "0", order=order).items()},
-                    longest: b"x"}
-
-    install(monkeypatch, Entry(Writes.name, Edges(), dist="Acme_Ome"))
-    store = zarrify(TIF, plugins=[Layout(Writes.name)])
-    assert store.mapping[PREFIX + longest] == b"x"
-    node = store.mapping[PREFIX + "zarr.json"]
-    assert type(node) is bytes
-    uuids = [c["uuid"] for c in json.loads(node)["attributes"]["zarr_conventions"]]
-    assert uuids == [layouts.UUID, Ome06.convention.uuid, near["uuid"]]
-    assert np.array_equal(read(store, PREFIX + "0"), read(store, "0").T)
-
-
-def test_the_base_s_view_hides_checksums_in_concatenations_and_refuses_unknown_paths():
-    """Base strips every checksum, inside a Concat too, and names what is missing."""
-    store = zarrify(str(FIXTURES / "tiff/strips_uint16_lzw_short.tif"), checksums=True)
-    base = Base(store, None)
-    values = base.array("0")[1].values()
-    concats = [v for v in values if isinstance(v, refkv.Concat)]
-    assert concats
-    assert all(r.crc32c is None for v in concats for r in v.parts)
-    with pytest.raises(KeyError, match="no document '0'"):
-        base.document("0")
-    with pytest.raises(KeyError, match="no array 'missing'"):
-        base.array("missing")
-
-
-def test_a_group_is_no_array_of_the_base():
-    base = Base(zarrify(str(FIXTURES / "hdf5/nwb_ophys.nwb")), None)
-    with pytest.raises(KeyError, match="a group of the base"):
-        base.array("stimulus")
-
-
-def test_a_base_that_holds_refkv_layouts_is_rejected():
-    store = zarrify(TIF)
-    held = refkv.ReferenceStore({**store.mapping, "refkv_layouts/x": b"1"}, store._sources)
-    with pytest.raises(LayoutRejected, match="holds refkv_layouts"):
-        layouts.join(held, None, [])
-
-
-def test_a_plugin_that_exits_while_it_loads_is_a_usage_error(monkeypatch):
-    class Exits(Ome06):
-        def __init__(self):
-            raise SystemExit(2)
-    refused(monkeypatch, Exits, "failed to load: SystemExit")
-
-
-def test_an_entry_point_that_names_a_function_is_a_usage_error(monkeypatch):
-    def make():
-        return Ome06()
-    install(monkeypatch, Entry(NAME, make))
-    with pytest.raises(LayoutUsageError, match="name the plugin's class"):
-        zarrify(TIF, plugins=[Layout(NAME)])
-
-
-def test_a_plugin_attribute_that_raises_is_a_usage_error(monkeypatch):
-    class Raises(Ome06):
-        @property
-        def formats(self):
-            raise RuntimeError("no")
-    refused(monkeypatch, Raises, "cannot be read: RuntimeError")
-
-
-def test_a_negative_convention_version_is_a_usage_error(monkeypatch):
-    refused(monkeypatch, variant(convention=convention(version=-1)), "not a natural number")
-
-
-def test_a_boolean_format_version_is_a_usage_error(monkeypatch):
-    refused(monkeypatch, variant(formats={"tiff": {True}}), "formats is not a mapping")
-
-
-def test_a_format_name_that_is_no_string_is_a_usage_error(monkeypatch):
-    refused(monkeypatch, variant(formats={1: {0}}), "formats is not a mapping")
-
-
-def test_options_with_a_lone_surrogate_are_a_usage_error(monkeypatch):
-    refused(monkeypatch, variant(options=lambda _self, _given: {"a": "\ud800"}), "not JSON as they are")
-
-
-def test_options_that_cannot_be_written_are_a_usage_error(monkeypatch):
-    refused(monkeypatch, variant(options=lambda _self, _given: {"a": {1}}), "not a JSON object")
-
-
-def test_options_that_exit_are_a_failure(monkeypatch):
-    def exits(_self, _given):
-        raise SystemExit(1)
-    install(monkeypatch, Entry(NAME, variant(options=exits)))
-    with pytest.raises(LayoutFailed, match=r"options\(\) raised SystemExit"):
-        zarrify(TIF, plugins=[Layout(NAME)])
-
-
-def test_options_that_raise_no_valueerror_are_a_failure(monkeypatch):
-    def buggy(_self, given):
-        return given["missing"]
-    install(monkeypatch, Entry(NAME, variant(options=buggy)))
-    with pytest.raises(LayoutFailed, match=r"options\(\) raised KeyError"):
-        zarrify(TIF, plugins=[Layout(NAME)])
-
-
-SHORT = str(FIXTURES / "tiff/strips_rgb_contig_deflate_short.tif")  # two chunks, 0/c/0/0/0 and 0/c/0/1/0
-
-
-def misplaced(edit):
-    """A plugin layout of the base's level 0, copied, then its entries changed by `edit`."""
-    def write(base):
-        entries = {f"0/{k}": v for k, v in copy(base, "0").items()}
-        doc = json.loads(entries["0/zarr.json"])  # type: ignore[arg-type]
-        return {"zarr.json": doc_bytes(), **edit(entries, doc)}
-    return write
-
-
-OWN = {"zarr_format": 3, "node_type": "array", "shape": [2], "data_type": "uint8",
-       "chunk_grid": {"name": "regular", "configuration": {"chunk_shape": [2]}},
-       "chunk_key_encoding": {"name": "default"}, "codecs": [{"name": "bytes"}], "fill_value": 0}
-
-
-@pytest.mark.parametrize("node", [
-    {"zarr_format": 3, "node_type": "group", "attrs": {}},
-    {"zarr_format": 3, "node_type": "group", "foo": 1},
-    OWN | {"dimension_name": ["x"]},
-    OWN | {"shape": ["x"]},
-    OWN | {"shape": [-1]},
-    OWN | {"data_type": 5},
-    OWN | {"chunk_grid": "regular"},
-    OWN | {"codecs": []},
-    OWN | {"dimension_names": ["x", "y"]},
-    {"zarr_format": 3, "node_type": "group", "acme": {"must_understand": False}},
-    OWN | {"chunk_grid": {"name": "regular", "configuration": {"chunk_shape": [2.0]}}},
-    OWN | {"chunk_grid": {"name": "regular"}},
-    OWN | {"chunk_key_encoding": {"name": "default", "configuration": "/"}},
-])
-def test_a_document_of_members_not_zarr_v3_s_is_a_failure(monkeypatch, node):
-    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes(), "n/zarr.json": json.dumps(node).encode()},
-          "member of a Zarr v3|natural numbers|data_type|with a name|dimension_names|chunk_shape")
-
-
-def test_an_array_of_the_plugin_s_own_is_written(monkeypatch):
-    install(monkeypatch, Entry(Writes.name, Writes(lambda _base: {
-        "zarr.json": doc_bytes(), "n/zarr.json": json.dumps(OWN).encode(), "n/c/0": b"\x01\x02"})))
-    store = zarrify(TIF, plugins=[Layout(Writes.name)])
-    assert read(store, "refkv_layouts/ome06/n").tolist() == [1, 2]
-
-
-def test_a_path_too_long_for_a_key_is_a_usage_error(monkeypatch):
-    refused(monkeypatch, Ome06, "more than an archive's 65535", [Layout(NAME, path="a" * 65530)])
-
-
-def test_each_plugin_is_given_an_ir_of_its_own(monkeypatch):
-    seen = []
-
-    class Marks(Writes):
-        def write(self, base, _options):
-            seen.append(getattr(base.ir, "mark", None))
-            base.ir.mark = self.name
-            return {"zarr.json": doc_bytes()}
-
-    class Other(Marks):
-        name, path = "acme-ome.other", "other"
-        convention = dataclasses.replace(Marks.convention, uuid="5f0c2a3e-8d1b-4c7e-9a64-2b1f0e9d7c56")
-
-    install(monkeypatch, Entry(Marks.name, Marks()), Entry(Other.name, Other()))
-    zarrify(TIF, plugins=[Layout(Marks.name), Layout(Other.name)])
-    assert seen == [None, None]
-
-
-def test_a_reference_under_a_hand_shaped_copy_is_a_failure(monkeypatch):
-    def reshaped(entries, doc):
-        doc["shape"] = doc["shape"][::-1]
-        return entries | {"0/zarr.json": json.dumps(doc).encode()}
-    install(monkeypatch, Entry(Writes.name, Writes(misplaced(reshaped))))
-    with pytest.raises(LayoutFailed, match="not a copy of a base array's"):
-        zarrify(SHORT, plugins=[Layout(Writes.name)])
-
-
-def test_a_reference_under_an_array_of_the_plugin_s_own_is_a_failure(monkeypatch):
-    def own(entries, _doc):
-        doc = {"zarr_format": 3, "node_type": "array", "shape": [5], "data_type": "float64",
-               "chunk_grid": {"name": "regular", "configuration": {"chunk_shape": [5]}},
-               "chunk_key_encoding": {"name": "default"}, "codecs": [{"name": "bytes"}], "fill_value": 0}
-        return {"own/zarr.json": json.dumps(doc).encode(), "own/c/0": entries["0/c/0/0/0"]}
-    install(monkeypatch, Entry(Writes.name, Writes(misplaced(own))))
-    with pytest.raises(LayoutFailed, match="not a copy of a base array's"):
-        zarrify(SHORT, plugins=[Layout(Writes.name)])
-
-
-def floats(value):
-    """`value` with each of its integers a float."""
-    if isinstance(value, dict):
-        return {k: floats(v) for k, v in value.items()}
-    if isinstance(value, list):
-        return [floats(v) for v in value]
-    return float(value) if type(value) is int else value
-
-
-@pytest.mark.parametrize("edit", [
-    lambda d: d["codecs"].insert(0, {"name": "transpose", "configuration": {"order": [1.0, 0.0, 2.0]}}),
-    lambda d: d["codecs"].insert(0, {"name": "transpose", "configuration": {"order": [0, "a", 1]}}),
-    lambda d: d["codecs"].insert(0, {"name": "transpose", "configuration": "0,1,2"}),
-    lambda d: d["codecs"].insert(0, {"name": "sharding_indexed", "configuration": []}),
-    lambda d: d.__setitem__("chunk_grid", floats(d["chunk_grid"])),  # 64.0 for 64: equal in Python, not in JSON
-    lambda d: d.__setitem__("fill_value", False),
-])
-def test_a_copy_s_document_changed_in_any_way_is_a_failure(monkeypatch, edit):
-    def changed(entries, doc):
-        edit(doc)
-        return entries | {"0/zarr.json": json.dumps(doc).encode()}
-    install(monkeypatch, Entry(Writes.name, Writes(misplaced(changed))))
-    with pytest.raises(LayoutFailed, match="not a copy of a base array's"):
-        zarrify(SHORT, plugins=[Layout(Writes.name)])
-
-
-class Loose(Writes):
-    """A plugin that puts a base reference held by no array of the base under an array of its own."""
-
-    formats: ClassVar[dict[str, set[int]]] = {"lif": {0}}
-
-    def write(self, base, _options):
-        loose = next(v for k in base.keys()  # noqa: SIM118 (Base.keys, not a dict's)
-                     if isinstance(v := base._values[k], (Range, refkv.Concat)) and not base._arrays_holding(v))
-        return {"zarr.json": doc_bytes(), "n/zarr.json": json.dumps(OWN).encode(), "n/c/0": loose}
-
-
-class Unprintable(Exception):  # noqa: N818 (a plugin's own)
-    @override
-    def __str__(self):
-        raise RuntimeError("no message")
-
-
-@pytest.mark.parametrize("where", ["options", "write"])
-def test_an_exception_whose_message_raises_is_a_failure(monkeypatch, where):
-    def raises(*_args):
-        raise Unprintable
-    install(monkeypatch, Entry(NAME, variant(**{where: raises})))
-    with pytest.raises(LayoutFailed, match=r"Unprintable: \(its message cannot be read\)"):
-        bounded(lambda: zarrify(TIF, plugins=[Layout(NAME)]))
-
-
-def test_a_base_reference_outside_every_array_is_a_failure(monkeypatch):
-    install(monkeypatch, Entry(Loose.name, Loose()))
-    with pytest.raises(LayoutFailed, match="not a copy of a base array's"):
-        zarrify(str(FIXTURES / "lif/lif_xlef_tree.xlef"), plugins=[Layout(Loose.name)])
-
-
-def test_a_reference_at_another_chunk_s_key_is_a_failure(monkeypatch):
-    def swapped(entries, _doc):
-        return entries | {"0/c/0/0/0": entries["0/c/0/1/0"], "0/c/0/1/0": entries["0/c/0/0/0"]}
-    install(monkeypatch, Entry(Writes.name, Writes(misplaced(swapped))))
-    with pytest.raises(LayoutFailed, match="not a copy of a base array's"):
-        zarrify(SHORT, plugins=[Layout(Writes.name)])
-
-
-def test_a_dot_segment_is_a_failure(monkeypatch):
-    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes(), "./zarr.json": doc_bytes()}, "not a key of a layout")
-
-
-def test_an_empty_segment_is_a_failure(monkeypatch):
-    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes(), "a//zarr.json": doc_bytes()}, "not a key of a layout")
-
-
-def test_a_key_with_a_lone_surrogate_is_a_failure(monkeypatch):
-    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes(), "\ud800/zarr.json": doc_bytes()},
-          "not a key of a layout")
-
-
-def test_a_key_one_byte_longer_than_an_archive_holds_is_a_failure(monkeypatch):
-    key = "0/" + "a" * (65535 - len(PREFIX.encode()) - 1)  # 65536 bytes with its prefix
-    fails(monkeypatch, lambda base: {"zarr.json": doc_bytes(), **array_entries(base), key: b"x"},
-          "more than an archive's")
-
-
-def test_an_array_document_without_its_codecs_is_a_failure(monkeypatch):
-    def partial(base):
-        doc = document(refkv.ReferenceStore({"zarr.json": copy(base, "0")["zarr.json"]}), "zarr.json")
-        del doc["codecs"]
-        return {"zarr.json": doc_bytes(), "0/zarr.json": json.dumps(doc).encode()}
-    fails(monkeypatch, partial, "an array's document holds")
-
-
-def test_a_member_name_with_a_lone_surrogate_is_a_failure(monkeypatch):
-    lone = b'{"zarr_format":3,"node_type":"group","attributes":{"\\ud800":1}}'
-    fails(monkeypatch, lambda _base: {"zarr.json": lone}, "not valid Unicode")
-
-
-def test_a_document_nested_too_deep_is_a_failure(monkeypatch):
-    deep = b'{"zarr_format":3,"node_type":"group","attributes":{"a":' + b"[" * 300 + b"]" * 300 + b"}}"
-    fails(monkeypatch, lambda _base: {"zarr.json": deep}, "nested deeper than 256")
-
-
-def test_zarr_conventions_holding_no_objects_are_a_failure(monkeypatch):
-    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes({"zarr_conventions": ["x"]})}, "not a list of objects")
-
-
-def test_a_refkv_uuid_in_another_form_is_a_failure(monkeypatch):
-    cmo = {"uuid": "urn:uuid:" + layouts.UUID.upper()}
-    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes({"zarr_conventions": [cmo]})}, "declares a refkv")
-
-
-def test_a_range_subclass_is_a_failure(monkeypatch):
-    class Mine(Range):
-        pass
-
-    def subclassed(base):
-        entries = array_entries(base)
-        k, v = next((k, v) for k, v in entries.items() if isinstance(v, Range))
-        assert isinstance(v, Range)
-        return {"zarr.json": doc_bytes(), **entries, k: Mine(v.source, v.offset, v.length, v.data, v.crc32c)}
-    fails(monkeypatch, subclassed, "one of the base's references")
-
-
-def test_a_missing_node_document_is_a_failure(monkeypatch):
-    fails(monkeypatch, array_entries, "has no zarr.json")
-
-
-def test_dimension_names_as_a_string_are_refused():
-    with pytest.raises(ValueError, match="a list of names"):
-        copy(Base(zarrify(TIF), None), "0", dimension_names="yx")
-
-
-def nested(depth):
-    """A group's document whose attribute `a` nests arrays to make the document `depth` deep."""
-    return b'{"zarr_format":3,"node_type":"group","attributes":{"a":' + b"[" * (depth - 2) + b"]" * (depth - 2) + b"}}"
-
-
-def test_plugins_that_call_zarrify_run_many_at_once(monkeypatch):
-    """A plugin may call zarrify itself, from many calls at once: each plugin runs on a thread of
-    its own, not on the event loop's executor, which nested calls would use up."""
-    class Nests(Ome06):
-        def write(self, base, options):
-            zarrify(str(FIXTURES / "tiff/strips_uint16_short.tif"))
-            return super().write(base, options)
-
-    install(monkeypatch, Entry(NAME, Nests))
-    with ThreadPoolExecutor(24) as pool:
-        stores = list(pool.map(lambda _: zarrify(TIF, plugins=[Layout(NAME)]), range(24)))
-    assert all(s.mapping == stores[0].mapping for s in stores)
-
-
-def test_documents_at_the_bounds_are_written(monkeypatch):
-    """A document nested exactly 256 deep, and an integer of 400 digits, kept exactly, are
-    written; dimension names given with an order are the copy's own, not permuted again; a
-    document read twice from the base is two dicts."""
-    big = b'{"zarr_format":3,"node_type":"group","attributes":{"n":' + b"9" * 400 + b"}}"
-
-    def edges(base):
-        root = base.document("zarr.json")
-        root["attributes"].clear()
-        assert base.document("zarr.json")["attributes"]
-        copied = copy(base, "0", order=[1, 0], dimension_names=["x", "y"])
-        assert document(refkv.ReferenceStore({"zarr.json": copied["zarr.json"]}), "zarr.json")["dimension_names"] == [
-            "x", "y"]
-        return {"zarr.json": nested(256), "big/zarr.json": big}
-
-    install(monkeypatch, Entry(Writes.name, Writes(edges)))
-    store = zarrify(TIF, plugins=[Layout(Writes.name)])
-    assert document(store, PREFIX + "big/zarr.json")["attributes"]["n"] == int("9" * 400)
-
-
-def test_a_one_segment_name_is_a_usage_error(monkeypatch):
-    refused(monkeypatch, Ome06, "not a layout's name", [Layout("nodot")])
-
-
-def test_a_key_of_more_bytes_than_an_archive_holds_is_a_failure(monkeypatch):
-    key = "0/" + "é" * ((65535 - len(PREFIX)) // 2)  # fewer characters than bytes allowed
-    fails(monkeypatch, lambda base: {"zarr.json": doc_bytes(), **array_entries(base), key: b"x"},
-          "more than an archive's")
-
-
-def test_a_document_nested_one_deeper_than_256_is_a_failure(monkeypatch):
-    fails(monkeypatch, lambda _base: {"zarr.json": nested(257)}, "nested deeper than 256")
-
-
-def test_a_document_nested_past_python_s_recursion_is_a_failure(monkeypatch):
-    fails(monkeypatch, lambda _base: {"zarr.json": nested(100000)}, "nested deeper than 256")
-
-
-def test_an_integer_of_too_many_digits_is_a_failure(monkeypatch):
-    many = b'{"zarr_format":3,"node_type":"group","attributes":{"n":' + b"9" * 5000 + b"}}"
-    fails(monkeypatch, lambda _base: {"zarr.json": many}, "not strict JSON")
-
-
-def test_a_zarr_v2_document_is_a_failure(monkeypatch):
-    fails(monkeypatch, lambda _base: {"zarr.json": b'{"zarr_format":2,"node_type":"group"}'}, "Zarr v3 group")
-
-
-def test_a_document_that_is_no_object_is_a_failure(monkeypatch):
-    fails(monkeypatch, lambda _base: {"zarr.json": b"[1, 2]"}, "Zarr v3 group")
-
-
-def test_an_array_document_without_its_fill_value_is_a_failure(monkeypatch):
-    def partial(base):
-        doc = document(refkv.ReferenceStore({"zarr.json": copy(base, "0")["zarr.json"]}), "zarr.json")
-        del doc["fill_value"]
-        return {"zarr.json": doc_bytes(), "0/zarr.json": json.dumps(doc).encode()}
-    fails(monkeypatch, partial, "an array's document holds")
-
-
-def test_an_array_document_whose_shape_is_no_list_is_a_failure(monkeypatch):
-    def partial(base):
-        doc = document(refkv.ReferenceStore({"zarr.json": copy(base, "0")["zarr.json"]}), "zarr.json")
-        doc["shape"] = "64x64"
-        return {"zarr.json": doc_bytes(), "0/zarr.json": json.dumps(doc).encode()}
-    fails(monkeypatch, partial, "its shape a list")
-
-
-def test_a_dataset_layout_s_cmo_is_a_failure(monkeypatch):
-    cmo = {"uuid": PROFILES["mrc-dataset"][0]}
-    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes({"zarr_conventions": [cmo]})}, "declares a refkv")
-
-
-def test_a_cmo_name_that_is_null_is_a_failure(monkeypatch):
-    cmo = {"uuid": "77777777-7777-4777-8777-777777777777", "name": None}
-    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes({"zarr_conventions": [cmo]})}, "name is not a string")
-
-
-def test_a_key_that_is_no_string_is_a_failure(monkeypatch):
-    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes(), 5: b"x"}, "not a key of a layout")
-
-
-def test_copy_refuses_a_boolean_order():
-    with pytest.raises(ValueError, match="axis indexes"):
-        copy(Base(zarrify(TIF), None), "0", order=[True, False])
-
-
-def bounded(f, seconds=60):
-    """`f()`'s result or its exception, failing the test if it has not returned in `seconds`: a
-    plugin's exception that went unhandled would hang the call it was run for."""
-    with ThreadPoolExecutor(1) as pool:
-        future = pool.submit(f)
-        try:
-            return future.result(timeout=seconds)
-        except TimeoutError:
-            pytest.fail(f"no answer in {seconds} s: the call hangs")
-
-
-@pytest.mark.parametrize("error", [KeyboardInterrupt(), asyncio.CancelledError(), GeneratorExit()])
-def test_a_plugin_s_base_exception_in_write_fails(monkeypatch, error):
-    install(monkeypatch, Entry(Writes.name, Writes(error=error)))
+@pytest.mark.parametrize("error", [KeyError("bug"), SystemExit(1)])
+def test_a_plugin_s_exception_is_a_failure(error):
+    def raises(_b):
+        raise error
     with pytest.raises(LayoutFailed, match=type(error).__name__):
-        bounded(lambda: zarrify(TIF, plugins=[Layout(Writes.name)]))
+        zarrify(TIFF, layout=Layout(Plugin(raises)))
 
 
-def test_a_plugin_s_base_exception_in_options_is_a_failure(monkeypatch):
-    def cancels(_self, _given):
-        raise asyncio.CancelledError
-    install(monkeypatch, Entry(NAME, variant(options=cancels)))
-    with pytest.raises(LayoutFailed, match="CancelledError"):
-        bounded(lambda: zarrify(TIF, plugins=[Layout(NAME)]))
+def test_a_write_that_returns_no_mapping_is_a_failure():
+    with pytest.raises(LayoutFailed, match="not a mapping"):
+        zarrify(TIFF, layout=Layout(Plugin(lambda _b: [("zarr.json", group())])))
 
 
-def test_a_plugin_that_exits_while_its_attributes_are_read_is_a_usage_error(monkeypatch):
-    class Exits(Ome06):
-        @property
-        def path(self):
-            raise SystemExit(2)
-    install(monkeypatch, Entry(NAME, Exits))
-    with pytest.raises(LayoutUsageError, match="SystemExit"):
-        bounded(lambda: zarrify(TIF, plugins=[Layout(NAME)]))
+@pytest.mark.parametrize("key", ["", "__vz__/x", "x" * 65536, "\ud800", 5])
+def test_a_key_the_archive_cannot_hold_is_a_failure(key):
+    with pytest.raises(LayoutFailed, match="key"):
+        zarrify(TIFF, layout=Layout(Plugin(lambda b: {**images(b), key: b"1"})))
 
 
-def test_options_that_nest_the_node_past_256_are_a_usage_error(monkeypatch):
-    deep: dict = {}
-    for _ in range(260):
-        deep = {"a": deep}
-    refused(monkeypatch, variant(options=lambda _self, _given: deep), "nest deeper than 253")
+@pytest.mark.parametrize("value", [
+    Range(0, 0, 10 ** 9),  # past the file
+    Range(7, 0, 1),  # no such source
+    Range(0, -1, 2),
+    Range(True, 0, 1),
+    Range(data=b"x", offset=1),
+    Concat([Range(0, 0, 1)]),  # type: ignore[arg-type] (parts not a tuple)
+    "text",
+])
+def test_a_reference_refkv_does_not_write_is_a_failure(value):
+    with pytest.raises(LayoutFailed, match="x:"):
+        zarrify(TIFF, layout=Layout(Plugin(lambda b: {**images(b), "x": value})))
 
 
-def test_given_options_with_nan_are_a_usage_error(monkeypatch):
-    refused(monkeypatch, Ome06, "not a JSON object", [Layout(NAME, {"a": float("nan")})])
+def test_a_payload_past_the_limit_is_a_failure():
+    big = Concat(tuple(Range(data=b"ab") for _ in range(20000)))
+    with pytest.raises(LayoutFailed, match="payload"):
+        zarrify(TIFF, layout=Layout(Plugin(lambda b: {**images(b), "x": big})))
 
 
-def test_canonical_options_with_infinity_are_a_usage_error(monkeypatch):
-    refused(monkeypatch, variant(options=lambda _self, _given: {"a": float("inf")}), "not a JSON object")
+def test_a_reference_of_too_many_reads_is_a_failure(monkeypatch):
+    monkeypatch.setattr(layouts, "MERGE_GAP", 0)
+    monkeypatch.setattr(layouts, "MAX_READS", 2)
+    spread = Concat((Range(0, 0, 1), Range(0, 100, 1), Range(0, 200, 1)))
+    with pytest.raises(LayoutFailed, match="reads 3"):
+        zarrify(TIFF, layout=Layout(Plugin(lambda b: {**images(b), "x": spread})))
 
 
-def test_a_refkv_uuid_with_a_uuid_prefix_is_a_failure(monkeypatch):
-    cmo = {"uuid": "uuid:" + layouts.UUID}
-    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes({"zarr_conventions": [cmo]})}, "declares a refkv")
+def test_read_at_open_naming_no_bytes_entry_is_a_failure():
+    with pytest.raises(LayoutFailed, match="not a bytes entry"):
+        zarrify(TIFF, layout=Layout(Plugin(lambda b: Written(images(b), read_at_open=["nope"]))))
 
 
-def test_a_refkv_uuid_in_braces_is_a_failure(monkeypatch):
-    cmo = {"uuid": "{urn:uuid:" + layouts.UUID + "}"}
-    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes({"zarr_conventions": [cmo]})}, "declares a refkv")
+def test_more_read_at_open_than_a_reader_reads_is_a_failure(monkeypatch):
+    monkeypatch.setattr(layouts, "MAX_OPEN", 10)
+    with pytest.raises(LayoutFailed, match="read at open"):
+        zarrify(TIFF, layout=Layout(Plugin(images)))
 
 
-def test_zarr_conventions_that_are_an_object_are_a_failure(monkeypatch):
-    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes({"zarr_conventions": {}})}, "not a list of objects")
+def test_the_cli_writes_a_plugin_s_output(monkeypatch, tmp_path, capsys):
+    install(monkeypatch, Entry("acme.test", Plugin(images)))
+    assert main([TIFF, str(tmp_path / "o.vzip"), "--layout", "acme.test", "--layout-options", "{}"]) == 0
+    assert json.loads(capsys.readouterr().out)["layouts"] == ["acme.test"]
+    assert refkv.open(str(tmp_path / "o.vzip")).get("0/zarr.json") is not None
 
 
-def test_a_range_of_unhashable_data_is_a_failure(monkeypatch):
-    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes(), "0/zarr.json": doc_bytes(),
-                                      "0/c": Range(data=bytearray(b"x"))},  # type: ignore[arg-type] (the mistake)
-          "one of the base's references")
+@pytest.mark.parametrize(("args", "status"), [
+    (["--layout", "acme.none"], 2),
+    (["--layout-options", "{}"], 2),
+    (["--layout", "acme.test", "--layout", "acme.test"], 2),
+    (["--layout", "acme.test", "--layout-options", '{"a": 1, "a": 2}'], 2),
+    (["--layout", "acme.test", "--layout-options", "[]"], 2),
+])
+def test_the_cli_exits_2_for_a_layout_asked_for_wrongly(monkeypatch, tmp_path, args, status):
+    install(monkeypatch, Entry("acme.test", Plugin(images)))
+    assert main([TIFF, str(tmp_path / "o.vzip"), *args]) == status
 
 
-def test_a_key_of_a_str_subclass_is_a_failure(monkeypatch):
-    class Text(str):
-        __slots__ = ()
-    fails(monkeypatch, lambda _base: {Text("zarr.json"): doc_bytes()}, "keys are str, not Text")
+def test_the_cli_exits_3_for_a_rejected_layout(monkeypatch, tmp_path):
+    install(monkeypatch, Entry("acme.test", Plugin(images, formats={"hdf5": {0}})))
+    assert main([TIFF, str(tmp_path / "o.vzip"), "--layout", "acme.test"]) == 3
 
 
-def test_copy_reads_a_v2_key_s_default_separator():
-    """A v2 chunk key encoding without a separator separates by `.`, and a copy of an array
-    without dimension names has none."""
-    store, _ = transposed([0, 1, 2])
-    doc = document(store, "a/zarr.json") | {"chunk_key_encoding": {"name": "v2"}}
-    doc.pop("dimension_names")
-    mapping = {"zarr.json": store.mapping["zarr.json"], "a/zarr.json": json.dumps(doc).encode(),
-               "a/0.0.0": store.mapping["a/c/0/0/0"]}
-    entries = copy(Base(refkv.ReferenceStore(mapping), None), "a", order=[2, 1, 0])
-    assert set(entries) == {"zarr.json", "0.0.0"}
-    assert "dimension_names" not in document(refkv.ReferenceStore({"zarr.json": entries["zarr.json"]}), "zarr.json")
-
-
-
-def test_options_253_deep_are_planned(monkeypatch):
-    """Canonical options nest up to 253 deep, the node holding them then 256."""
-    deep: dict = {}
-    for _ in range(252):
-        deep = {"a": deep}
-    install(monkeypatch, Entry(NAME, variant(options=lambda _self, _given: deep)))
-    assert layouts.plan([Layout(NAME)])[0].fresh_options() == deep
-
-
-def test_options_254_deep_are_a_usage_error(monkeypatch):
-    deep: dict = {}
-    for _ in range(253):
-        deep = {"a": deep}
-    refused(monkeypatch, variant(options=lambda _self, _given: deep), "nest deeper than 253")
-
-
-def test_an_array_document_without_its_chunk_key_encoding_is_a_failure(monkeypatch):
-    def partial(base):
-        doc = document(refkv.ReferenceStore({"zarr.json": copy(base, "0")["zarr.json"]}), "zarr.json")
-        del doc["chunk_key_encoding"]
-        return {"zarr.json": doc_bytes(), "0/zarr.json": json.dumps(doc).encode()}
-    fails(monkeypatch, partial, "an array's document holds")
-
-
-def test_an_entry_point_of_no_distribution_is_a_usage_error(monkeypatch):
-    entry = Entry(NAME, Ome06)
-    entry.dist = None  # type: ignore[assignment] (broken metadata)
-    install(monkeypatch, entry)
-    with pytest.raises(LayoutUsageError, match="provided by no distribution"):
-        zarrify(TIF, plugins=[Layout(NAME)])
-
-
-def test_an_entry_point_that_names_a_module_is_a_usage_error(monkeypatch):
-    install(monkeypatch, Entry(NAME, json))
-    with pytest.raises(LayoutUsageError, match="names the module json"):
-        zarrify(TIF, plugins=[Layout(NAME)])
-
-
-def test_options_with_a_member_not_named_by_a_string_are_a_usage_error(monkeypatch):
-    refused(monkeypatch, Ome06, "named by strings", [Layout(NAME, {"a": {1: "b"}})])
-
-
-def test_dimension_names_that_are_no_strings_are_refused():
-    with pytest.raises(ValueError, match="each a string or None"):
-        copy(Base(zarrify(TIF), None), "0", dimension_names=[0, 1])  # type: ignore[list-item]
-
-
-def test_a_chunk_key_is_no_document_of_the_base():
-    with pytest.raises(KeyError, match="no document '0/c/0/0'"):
-        Base(zarrify(TIF), None).document("0/c/0/0")
-
-
-def test_a_refkv_uuid_in_braces_twice_is_no_refkv_uuid():
-    """A UUID is read with at most one prefix and one pair of braces, so a twice-braced refkv UUID
-    is not refkv's (nor any UUID), and a non-ASCII one is none either."""
-    assert layouts._uuid_form("{{" + layouts.UUID + "}}") is None
-    assert layouts._uuid_form("uuid:uuid:" + layouts.UUID) is None
-    assert layouts._uuid_form("{uuid:" + layouts.UUID.upper() + "}") == layouts.UUID
-    assert layouts._uuid_form(layouts.UUID.replace("e", "\u212a")) is None
-
-
-def test_the_example_places_ndpi_planes_and_ims_volumes_by_their_pixel_centers(monkeypatch):
-    """The example's 0.6 levels move by half a pixel in y and x, and in z for IMS (whose z refkv
-    places by a corner), but not in z for NDPI (whose z names a plane's own position)."""
-    install(monkeypatch, Entry(NAME, Ome06))
-    for source, z_moves in (("ndpi/ndpi_focal_planes.ndpi", False), ("ims/ims_latest_extensible.ims", True)):
-        store = zarrify(str(FIXTURES / source), plugins=[Layout(NAME)])
-        ms = document(store, "zarr.json")["attributes"]["ome"]["multiscales"][0]
-        names = [a["name"] for a in ms["axes"]]
-        level = ms["datasets"][0]
-        scale = next(t["scale"] for t in level["coordinateTransformations"] if t["type"] == "scale")
-        corner = next((t["translation"] for t in level["coordinateTransformations"] if t["type"] == "translation"),
-                      [0.0] * len(names))
-        steps = document(store, PREFIX + "zarr.json")["attributes"]["ome"]["multiscales"][0]["datasets"][0][
-            "coordinateTransformations"][0]["transformations"]
-        center = steps[1]["translation"]
-        for name, c, s, got in zip(names, corner, scale, center, strict=True):
-            moved = name in ("y", "x") or (name == "z" and z_moves)
-            assert got == (c + s / 2 if moved else c), (source, name)
-
-
-def test_copy_reads_its_arguments_once():
-    """A generator of dimension names, or of an order, is read once and checked as read."""
-    base = Base(zarrify(TIF), None)
-    with pytest.raises(ValueError, match="each a string or None"):
-        copy(base, "0", dimension_names=(n for n in [1, 2]))  # type: ignore[misc]
-    with pytest.raises(ValueError, match="axis indexes"):
-        copy(base, "0", order=(o for o in [True, False]))  # type: ignore[arg-type] (the mistake)
-
-
-def test_cyclic_options_are_a_usage_error(monkeypatch):
-    cyclic: dict = {"a": []}
-    cyclic["a"].append(cyclic)
-    refused(monkeypatch, Ome06, "not a JSON object", [Layout(NAME, cyclic)])
-
-
-def test_a_plugin_reads_a_profile_of_both_kinds(monkeypatch, tmp_path):
-    """A profile of both kinds, file and store (safetensors), is a file profile a plugin reads."""
-    class Tensors(Writes):
-        formats: ClassVar[dict[str, set[int]]] = {"safetensors": {0}}
-    install(monkeypatch, Entry(Writes.name, Tensors(lambda _base: {"zarr.json": doc_bytes()})))
-    store = zarrify(str(reserved_file(tmp_path, "safetensors")), plugins=[Layout(Writes.name)])
-    assert PREFIX + "zarr.json" in store.mapping
-
-
-@pytest.mark.parametrize("member", ["data_type", "chunk_grid"])
-def test_an_array_document_without_a_member_is_a_failure(monkeypatch, member):
-    def partial(base):
-        doc = document(refkv.ReferenceStore({"zarr.json": copy(base, "0")["zarr.json"]}), "zarr.json")
-        del doc[member]
-        return {"zarr.json": doc_bytes(), "0/zarr.json": json.dumps(doc).encode()}
-    fails(monkeypatch, partial, "an array's document holds")
-
-
-def test_names_paths_and_segments_at_their_rules_edges():
-    """A distribution's dots normalize as PEP 503's hyphens; a UUID's groups are 32 digits in
-    all; a later name segment allows no `_`; a path is no `.` or `..`; a key segment may start
-    with one `_`; `zarr.json` may only end a key; integers of 4300 digits (negative too) are kept,
-    of 4301 refused; the depth counts the deepest branch, wherever it is."""
-    assert layouts._normalized("Acme.Ome") == "acme-ome"
-    assert layouts._uuid_form("372e9a9f-06b1-4ea1-8829-e206c05e03e61") is None
-    assert layouts.NAME.fullmatch("acme.a_b") is None
-    assert not layouts._path_ok(".")
-    assert not layouts._path_ok("..")
-    assert layouts._key_ok("_x/zarr.json")
-    assert not layouts._key_ok("zarr.json/x")
-    assert layouts._parsed(b'{"n":' + b"9" * 4300 + b"}") == {"n": int("9" * 4300)}
-    assert layouts._parsed(b'{"n":-' + b"9" * 4300 + b"}") == {"n": -int("9" * 4300)}
-    with pytest.raises(ValueError, match="4300 digits"):
-        layouts._parsed(b'{"n":' + b"9" * 4301 + b"}")
-    assert layouts._depth([[[[]]], {}]) == 4
-    assert layouts._depth([{}, [[[]]]]) == 4
-
-
-def test_tuples_in_options_are_walked_for_their_member_names(monkeypatch):
-    refused(monkeypatch, Ome06, "named by strings", [Layout(NAME, {"a": ({1: 2},)})])
-
-
-def test_the_plugin_s_uuid_in_another_form_is_its_own(monkeypatch):
-    cmo = {"uuid": "{" + Ome06.convention.uuid.upper() + "}", "name": "other"}
-    entries = {"zarr.json": doc_bytes({"zarr_conventions": [cmo]})}
-    install(monkeypatch, Entry(Writes.name, Writes(lambda _base: entries)))
-    with pytest.raises(LayoutFailed, match="otherwise than its ConventionInfo"):
-        zarrify(TIF, plugins=[Layout(Writes.name)])
-
-
-def test_a_refkv_cmo_in_a_nested_document_is_a_failure(monkeypatch):
-    cmo = {"uuid": layouts.UUID}
-    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes(), "a/zarr.json": doc_bytes({"zarr_conventions": [cmo]})},
-          "declares a refkv")
-
-
-def test_a_memoryview_entry_is_a_failure(monkeypatch):
-    fails(monkeypatch, lambda base: {"zarr.json": doc_bytes(), **array_entries(base), "0/extra": memoryview(b"x")},
-          "neither bytes nor one of the base's references")
-
-
-def test_the_cli_refuses_options_with_a_member_twice(monkeypatch, tmp_path):
-    install(monkeypatch, Entry(NAME, Ome06))
-    assert main([TIF, str(tmp_path / "o.vzip"), "--layout", NAME,
-                 "--layout-options", NAME + '={"images": [], "images": []}']) == 2
+def test_the_cli_exits_1_for_a_failed_layout(monkeypatch, tmp_path):
+    install(monkeypatch, Entry("acme.test", Plugin(lambda _b: {"x": "text"})))
+    assert main([TIFF, str(tmp_path / "o.vzip"), "--layout", "acme.test"]) == 1
