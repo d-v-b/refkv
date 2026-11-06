@@ -134,7 +134,10 @@ other type tables):
 ## 2. Attributes
 
 **Which nodes.** The root node of the hierarchy (the document `zarr.json`)
-always declares its format's convention. Any other node declares it when,
+always declares its format's convention, in an output refkv's profiles write. In an output a
+plugin wrote ([spec/layout.md](layout.md)) the root is the plugin's, and a declaration a node of
+it holds, one kept from the base among them, is the plugin's claim, which refkv neither checks nor
+vouches for. Any other node declares it when,
 and only when, the node has source metadata (below). A node that declares
 it has, in its attributes, the members of a <a id="type-declaration"></a>**`Declaration`**:
 
