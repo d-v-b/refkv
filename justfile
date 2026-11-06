@@ -124,6 +124,21 @@ conformance out="conformance/results/latest": impls::build
     uv run python conformance/vzip/run.py --out {{out}} \
         --impl rust=conformance/impls/rust/vzip --impl typescript=conformance/impls/typescript/vzip --impl python=conformance/impls/python/vzip
 
+# Run the spec/bindings/phkv.md conformance suite (conformance/phkv/HARNESS.md): the reference
+# implementation (the Rust core, through Python) and the JavaScript one, which reads only HTTP
+# sources and not Zstandard sections, so the reference writes stored sections for it; then the
+# reference alone, with Zstandard sections. Known gaps are in conformance/phkv/known_gaps.json.
+# (On Windows, add --no-files to the first run: the oracle's file: URLs are POSIX's.)
+conformance-phkv out="conformance/results/phkv":
+    uv run python conformance/phkv/run.py --out {{out}}/stored --known-gaps conformance/phkv/known_gaps.json \
+        --ref "uv run python -m refkv.phkv.cli --allow-private-hosts --section-codec none" \
+        --impl ref="uv run python -m refkv.phkv.cli --allow-private-hosts --section-codec none" \
+        --impl js="node --no-warnings conformance/phkv/impls/js/cli.ts --allow-private-hosts" \
+        --no-file-sources js
+    uv run python conformance/phkv/run.py --out {{out}}/zstd \
+        --ref "uv run python -m refkv.phkv.cli --allow-private-hosts" \
+        --impl ref="uv run python -m refkv.phkv.cli --allow-private-hosts"
+
 # Regenerate the synthetic files and stores in fixtures/<format>: every generator
 # fixtures/generators/<format>/write_*.py but those with a line `# fixtures: on demand`, which need
 # the network or other tools (the line says which): `just fixtures-of <format>` runs those
