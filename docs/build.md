@@ -3,7 +3,7 @@
 `refkv.build` gives a Python caller the tools refkv's own outputs are built with, so that an output
 refkv does not write (one TIFF made of several, an OME-Zarr 0.6 image) can be built from what refkv
 read, and checked as refkv checks its own. It is the first step of the design in
-[design/proposals/profile-plugins.md](../design/proposals/profile-plugins.md): reading an input,
+[d-v-b/refkv#278](https://github.com/d-v-b/refkv/pull/278) (design/proposals/profile-plugins.md there): reading an input,
 values that name the bytes they read, and `seal`, which checks an output and makes it a store. A
 format's description, its plan and the routines that build on them come in later steps.
 
@@ -48,13 +48,15 @@ only when the output is sealed:
 | `Literal(data)` | bytes in the reference itself |
 | `Copy(ref)` | bytes to be copied into the output, filled with `parsed.bytes` |
 
-`cut(value, start, stop)` and `concat(*values, merge=False)` make new values; `fits(value)` says
-whether a value's payload stays within 65519 bytes whatever its sources are numbered.
+`cut(value, start, stop)` and `concat(*values, merge=False)` make new values; `fits(value)` gives
+why `seal` might refuse a value's payload (more than `MAX_PAYLOAD`, 65519 bytes, whatever its
+sources are numbered, with the checksums its inputs were read with), or None.
 
 `Array` is a Zarr v3 array (shape, data type, chunk shape, codecs, chunks by coordinates, fill
 value, dimension names), and `array.entries(to=...)` its entries. `Written` is an output's entries
-with their placement: which bytes entries a vzip reader reads at open, and which are stored
-uncompressed.
+with their placement: `at_open`, the bytes entries placed explicitly (True, read at open by a vzip
+reader; False, kept for later; any other follows refkv's default, a Zarr document read at open), and
+`stored`, those kept uncompressed. It merges with `|` and `|=`, keeping placements.
 
 ## Sealing
 
@@ -68,10 +70,13 @@ uncompressed.
 - the inputs go together: one reader policy and registry, all read with checksums or none, and a
   file read twice with the same pins.
 
-A failure is a `SealError`, whose `code` says which rule. A chunk refkv's own output holds is
-**checked**: it carries the rule of the convention it was built under, which `seal` holds it to
-where it is written (as built, or under a leading `transpose` codec), and not the read rule a
-caller's own values meet.
+A failure is a `SealError`, whose `code` (one of `CODES`) says which rule. A chunk refkv's own
+output holds is **checked**: it carries the rule of the convention it was built under, which `seal`
+holds it to where it is written (in the array it was built in, or under a leading `transpose`
+codec), in place of the read rule a caller's own values meet. Only refkv's routines make checks;
+`seal` honors no other. Today's one rule, `"builtin"`, lifts the read rule inside a sharded array,
+whose shards a reader reads in parts; a built-in value outside one meets the read rule like any
+other.
 
 `refkv.build.project(p)` is the output `zarrify` writes for the input, as checked values:
 `seal(project(p).written, [p])` reads what `zarrify` writes.

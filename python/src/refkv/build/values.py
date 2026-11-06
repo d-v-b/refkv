@@ -1,4 +1,4 @@
-"""The values an output built with `refkv.build` holds (design/proposals/profile-plugins.md, "References
+"""The values an output built with `refkv.build` holds (the design of d-v-b/refkv#278, "References
 and values"): parts that name what they read, so that numbering the source table is left to `seal`;
 `Value`, a sequence of parts with the check a routine built it under; `Array`; and `Written`, an
 output's entries with their placement."""
@@ -114,13 +114,27 @@ class Binding:
 
 @dataclass(frozen=True)
 class Check:
-    """The rule of a convention a chunk was built under, which `seal` holds it to instead of a
-    caller's, where its binding holds: `"builtin"` for a value of a built-in output (`project`),
-    which the reader's rule of 1024 reads does not bind, as the base's values are not bound by it
-    (spec/layout.md §4 <https://github.com/d-v-b/refkv/blob/main/spec/layout.md#4-writing-the-output>)."""
+    """The rule of a convention a chunk was built under, which `seal` holds it to, where its binding
+    holds, in place of the read rule a caller's values meet. Only refkv's routines make checks
+    (`project` today, its rule `"builtin"`, a value of a built-in output): `seal` honors a check
+    it issued and no other, so a caller cannot make one to escape the read rule."""
 
     rule: str
     binding: Binding
+    issuer: object = field(default=None, compare=False, repr=False)
+
+    @property
+    def issued(self) -> bool:
+        """Whether a routine of refkv made the check."""
+        return self.issuer is _ISSUER
+
+
+_ISSUER = object()  # what marks a check refkv's routines made
+
+
+def _issue(rule: str, binding: Binding) -> Check:
+    """A check made by a routine of refkv, which `seal` honors."""
+    return Check(rule, binding, _ISSUER)
 
 
 @dataclass(frozen=True)
@@ -242,21 +256,19 @@ def _range_at_largest(p: Part) -> Range:
     return Range(largest, 0, _size(p))
 
 
-def payload_size(v: Value | Part | Sequence[Part], *, checksums: bool = False) -> int:
+def payload_size(v: Value | Part | Sequence[Part], *, checksums: bool | None = None) -> int:
     """The most a value's payload may be once sealed (spec/zarrify.md §1.2
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>): every source index at its
-    largest, and with `checksums` every url range's crc32c at its largest."""
+    largest, and every url range's crc32c at its largest when `checksums`, which is by default
+    whether the value's inputs were read with them."""
     val = value(v)
-    ranges = [_range_at_largest(p) for p in val.parts]
-    crc = CRC_FIELD * sum(isinstance(p, Ref) for p in val.parts) if checksums else 0
-    if len(ranges) == 1:
-        return len(ranges[0].encode()) + crc
-    # a Concat: each range as `0x0A varint(len(r)) r`
-    total = 0
-    for r in ranges:
-        n = len(r.encode())
-        total += 1 + len(_varint(n)) + n
-    return total + crc
+    if checksums is None:
+        checksums = any(isinstance(p, Ref) and p.parsed.checksums for p in val.parts)
+    sizes = [len(_range_at_largest(p).encode()) + (CRC_FIELD if checksums and isinstance(p, Ref) else 0)
+             for p in val.parts]
+    if len(sizes) == 1:
+        return sizes[0]
+    return sum(1 + len(_varint(n)) + n for n in sizes)  # a Concat: each range as `0x0A varint(len(r)) r`
 
 
 def _varint(n: int) -> bytes:
@@ -271,9 +283,10 @@ def _varint(n: int) -> bytes:
             return bytes(out)
 
 
-def fits(v: Value | Part | Sequence[Part], *, checksums: bool = False) -> str | None:
+def fits(v: Value | Part | Sequence[Part], *, checksums: bool | None = None) -> str | None:
     """Why `seal` might not write `v`, measured before the sources are numbered, or None: its
-    payload with every source index at its largest. It may refuse a value `seal` would write, never
+    payload with every source index at its largest, with checksums as `payload_size` counts them.
+    It may refuse a value `seal` would write, never
     the other way; the reads a value makes are checked by `seal`, which merges them as readers do."""
     n = payload_size(v, checksums=checksums)
     if n > MAX_PAYLOAD:
@@ -362,6 +375,8 @@ class Written(MutableMapping[str, "bytes | Value"]):
 
     def __delitem__(self, key: str) -> None:
         del self._entries[key]
+        self.at_open.pop(key, None)
+        self.stored.discard(key)
 
     def __iter__(self) -> Iterator[str]:
         return iter(self._entries)
@@ -378,6 +393,11 @@ class Written(MutableMapping[str, "bytes | Value"]):
         if isinstance(other, Written):
             self.at_open |= other.at_open
             self.stored |= other.stored
+
+    def __ror__(self, other: Mapping[str, Any]) -> Written:
+        out = Written(other)
+        out._merge(self)
+        return out
 
     def __or__(self, other: Mapping[str, Any]) -> Written:
         out = Written(self, at_open=self.at_open, stored=self.stored)

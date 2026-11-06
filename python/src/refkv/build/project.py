@@ -1,5 +1,5 @@
-"""`project`: the built-in output of an input `read` read, as checked values (design/proposals/
-profile-plugins.md, "The built-in output"). In this first step it is the output the run already
+"""`project`: the built-in output of an input `read` read, as checked values (the design of
+d-v-b/refkv#278, "The built-in output"). In this first step it is the output the run already
 made, which `refkv.zarrify.layouts.Base` holds."""
 
 from __future__ import annotations
@@ -12,14 +12,14 @@ from refkv.ir.store import StoreIrOutput
 from refkv.zarrify.layouts import Base, base_of, chunk_coords
 
 from .parsed import Parsed
-from .values import Array, Binding, Check, Literal, Part, Ref, Shared, Value, Written, Zeros
+from .values import Array, Binding, Literal, Part, Ref, Shared, Value, Written, Zeros, _issue
 
 __all__ = ["Projected", "project"]
 
 
 class Projected:
-    """The built-in output of an input: `written`, its entries with their placement, its
-    references as values checked under the rule `"builtin"`; `array(path)`, an array of it; and
+    """The built-in output of an input: `written`, its entries with their placement, the chunks of
+    its arrays as values checked under the rule `"builtin"`; `array(path)`, an array of it; and
     `base`, the `refkv.zarrify.layouts.Base` it was made from (for `hierarchy.copy`, a node's
     attributes and source metadata)."""
 
@@ -82,7 +82,7 @@ class Projected:
             if doc is None:
                 continue
             coords = chunk_coords(key[len(path) + 1:] if path else key, doc)
-            return Value(parts, Check("builtin", Binding.of(doc, coords)))
+            return Value(parts, _issue("builtin", Binding.of(doc, coords)))
         return Value(parts)
 
     def array(self, path: str) -> Array:

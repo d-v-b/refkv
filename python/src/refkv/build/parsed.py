@@ -1,6 +1,6 @@
 """Reading an input for an output built with `refkv.build`: `read`, and the `Parsed` it returns, with
-the IR's accessors that `refkv.zarrify.layouts.Base` had (design/proposals/profile-plugins.md,
-"Reading" and "References and values").
+accessors of the IR like those of `refkv.zarrify.layouts.Base`, which keeps its own until the plugin
+layer moves onto `Parsed` (the design of d-v-b/refkv#278, "Reading" and "References and values").
 
 In this first step `read` runs the whole `zarrify` path, so that sniffing, siblings, pins, the
 reader policy and the object stores are exactly `zarrify`'s, and keeps the IR and the sources it
@@ -77,7 +77,7 @@ class Parsed:
 
     @property
     def description(self) -> None:
-        """The format's description: None until it is specified (design/proposals/profile-plugins.md,
+        """The format's description: None until it is specified (the design of d-v-b/refkv#278,
         "The description")."""
         return None
 
@@ -176,11 +176,8 @@ class Parsed:
             start, length, form_id = self._member(self._target(i), member)
             text: str | None = self._ir.forms()[form_id]
         elif self._ir.kind(i) == ALIAS:
-            start, length = self._ir.extent(i)
+            start, length = self._alias_extent(i, (DATA, VALUE))
             t = self._target(i)
-            ts, tn = self._ir.extent(t)
-            if t == i or not (ts <= start and start + length <= ts + tn):
-                raise ValueError(f"{path!r} is an alias whose extent is not within its target's")
             text = self._ir.form(i) or self._ir.form(t)
         else:
             self._source_space(i)
@@ -222,11 +219,28 @@ class Parsed:
             self._source_space(t)
             start, length, _ = self._member(t, member)
             return Ref(self, self.source_of(i), start, length)
+        if self._ir.kind(i) == ALIAS:
+            start, length = self._alias_extent(i, (DATA, VALUE, GAP))
+            return Ref(self, self.source_of(i), start, length)
         self._source_space(i)
-        if self._ir.kind(i) not in (DATA, VALUE, ALIAS, GAP):
+        if self._ir.kind(i) not in (DATA, VALUE, GAP):
             raise ValueError(f"{self._ir.path(i)!r} is not data or a value: it holds no bytes of its own")
         start, length = self._ir.extent(i)
         return Ref(self, self.source_of(i), start, length)
+
+    def _alias_extent(self, i: int, kinds: tuple[Kind, ...]) -> tuple[int, int]:
+        """An alias's own extent, which lies within its target's, a target of one of `kinds` in a
+        source's space: ValueError otherwise (an alias of a struct, which holds no bytes of its own)."""
+        path = self._ir.path(i)
+        t = self._target(i)
+        if t == i or self._ir.kind(t) not in kinds:
+            raise ValueError(f"{path!r} is an alias of {self._ir.path(t)!r}, which holds no bytes of its own")
+        self._source_space(t)
+        start, length = self._ir.extent(i)
+        ts, tn = self._ir.extent(t)
+        if not (ts <= start and start + length <= ts + tn):
+            raise ValueError(f"{path!r} is an alias whose extent is not within its target's")
+        return start, length
 
     def gaps(self) -> list[Ref]:
         """The IR's gaps, bytes of a source no element claims, as ranges of their sources."""
@@ -281,21 +295,26 @@ class Parsed:
 
     # ---- bytes
 
-    def _readable(self) -> tuple[Source, ...]:
-        """The sources as they are read: a store's objects as listed, and a file as `read` was
+    def _read_place(self, source: int) -> str:
+        """Where source `source` is read from: a store's object at its URL, a file as `read` was
         given it, which may differ from the URL its output names."""
+        if self._objects:
+            return self.sources[source].url or ""
+        return self._location if "://" in self._location else path_reference(str(Path(self._location).absolute()))
+
+    def _readable(self) -> tuple[Source, ...]:
+        """The sources as they are read (`_read_place`), with their pins."""
         if self.closed:
             raise ValueError("the input is closed")
         if self._sources_read is None:
             if self._objects:
                 self._sources_read = self.sources
             else:
-                local = path_reference(str(Path(self._location).absolute()))
-                where = self._location if "://" in self._location else local
-                self._sources_read = (Source(url=where, size=self.sources[0].size, etag=self.sources[0].etag),)
+                self._sources_read = (Source(url=self._read_place(0), size=self.sources[0].size,
+                                             etag=self.sources[0].etag),)
         return self._sources_read
 
-    def read_ranges(self, ranges: list[tuple[int, int, int]]) -> list[bytes]:
+    def _read_ranges(self, ranges: list[tuple[int, int, int]]) -> list[bytes]:
         """The bytes of each range `(source, offset, length)` of the input's sources, read together
         under their pins and the reader policy, without counting against `max_bytes` (as `seal`
         reads them for checksums)."""
@@ -340,7 +359,7 @@ class Parsed:
         total = sum(n for _, _, n in wanted)
         if self._read + total > self.max_bytes:
             raise ValueError(f"reading {total} more bytes would pass the input's max_bytes of {self.max_bytes}")
-        got = iter(self.read_ranges(wanted))
+        got = iter(self._read_ranges(wanted))
         self._read += total
         done = [b if b is not None else next(got) for b in out]
         return done[0] if len(items) == 1 else done

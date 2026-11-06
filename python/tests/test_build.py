@@ -1,4 +1,4 @@
-"""refkv.build, the tools to build an output from the IR (design/proposals/profile-plugins.md): `read`
+"""refkv.build, the tools to build an output from the IR (the design of d-v-b/refkv#278): `read`
 and `Parsed`, values, `Array` and `Written`, `seal` and `project`."""
 
 import io
@@ -13,6 +13,7 @@ import tifffile
 
 import refkv
 from refkv.build import (
+    MAX_PAYLOAD,
     Array,
     Binding,
     Check,
@@ -34,8 +35,9 @@ from refkv.build import (
     seal,
 )
 from refkv.build.seal import _binding_holds
+from refkv.build.values import _issue
+from refkv.policy import Policy
 from refkv.zarrify import zarrify
-from refkv.zarrify.layouts import MAX_PAYLOAD
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / "fixtures"
@@ -158,7 +160,7 @@ def test_a_stack_of_tiffs_built_from_the_ir(tmp_path, byteorder):
     its pages read back equal to the files', in both byte orders, across strips, tiles, zlib with
     a predictor, RGB, floats, and an OME-TIFF of several pages. A file of pages without OME-XML
     is not among them: until TIFF's plan lands, `read` still raises the image layout's rejection
-    of it (design/proposals/profile-plugins.md, "What a caller writes")."""
+    of it (the design of d-v-b/refkv#278, "What a caller writes")."""
     rng = np.random.default_rng(0)
     plane = rng.integers(0, 4000, (64, 96), dtype=np.uint16)
     inputs: dict[str, tuple[np.ndarray, dict[str, Any]]] = {
@@ -219,6 +221,10 @@ def test_values(tmp_path):
         assert fits(many) is not None
         assert fits(Ref(p, 0, 0, 1)) is None
         sealed = seal(Written({"small": concat(*(Ref(p, 0, 2 * k, 1) for k in range(100)))}), [p])
+        with read(tmp_path / "x.npy", checksums=True) as q:  # fits counts the checksums its input takes
+            crcs = concat(*(Ref(q, 0, k, 1) for k in range(4096)))
+            assert fits(crcs) is not None
+            assert fits(crcs, checksums=False) is None
         small = sealed.mapping["small"]
         assert not isinstance(small, bytes)
         assert len(small.encode()) <= payload_size(
@@ -267,31 +273,49 @@ def test_parsed(tmp_path):
             assert 0 <= gap.offset < size
 
 
-def test_a_check_holds_under_a_leading_transpose(tmp_path):
-    """A checked chunk keeps its check where it was built, and under Zarr's transpose codec put first
-    with the shape, grid and key permuted to match; anywhere else it is unchecked, and held to the
-    read rule."""
+SHARDED = [{"name": "sharding_indexed", "configuration": {
+    "chunk_shape": [2, 3], "codecs": [{"name": "bytes"}],
+    "index_codecs": [{"name": "bytes", "configuration": {"endian": "little"}}, {"name": "crc32c"}]}}]
+COPIED = [{"name": "sharding_indexed", "configuration": {  # as hierarchy.copy transposes a sharded array
+    "chunk_shape": [3, 2], "codecs": [{"name": "transpose", "configuration": {"order": [1, 0]}}, {"name": "bytes"}],
+    "index_codecs": [{"name": "transpose", "configuration": {"order": [1, 0, 2]}},
+                     {"name": "bytes", "configuration": {"endian": "little"}}, {"name": "crc32c"}]}}]
+INNER_ONLY = [{"name": "sharding_indexed", "configuration": {  # an inner transpose alone: another array
+    "chunk_shape": [3, 2], "codecs": [{"name": "transpose", "configuration": {"order": [1, 0]}}, {"name": "bytes"}],
+    "index_codecs": [{"name": "bytes", "configuration": {"endian": "little"}}, {"name": "crc32c"}]}}]
+TRANSPOSE = {"name": "transpose", "configuration": {"order": [1, 0]}}
+
+
+@pytest.mark.parametrize(("built", "written", "expected"), [
+    # (the array a chunk was built in, the array it is written under, what _binding_holds says)
+    (([4, 6], [4, 6], [{"name": "bytes"}], 0), ([4, 6], [4, 6], [{"name": "bytes"}], 0), False),
+    (([4, 6], [4, 6], [{"name": "bytes"}], 0), ([6, 4], [6, 4], [TRANSPOSE, {"name": "bytes"}], 0), False),
+    (([4, 6], [4, 6], SHARDED, 0), ([4, 6], [4, 6], SHARDED, 0), True),
+    (([4, 6], [4, 6], SHARDED, 0), ([6, 4], [6, 4], [TRANSPOSE, *SHARDED], 0), True),
+    (([4, 6], [4, 6], SHARDED, 0), ([6, 4], [6, 4], COPIED, 0), True),
+    (([4, 6], [4, 6], SHARDED, 0), ([6, 4], [6, 4], INNER_ONLY, 0), None),
+    (([4, 6], [4, 6], [{"name": "bytes"}], 0), ([4, 7], [4, 7], [{"name": "bytes"}], 0), None),
+    (([4, 6], [4, 6], [{"name": "bytes"}], {"b": 0, "a": 1}), ([4, 6], [4, 6], [{"name": "bytes"}], {"a": 1, "b": 0}),
+     False),  # a struct's fill value, its members in another order
+    (([4, 6], [4, 6], [{"name": "bytes"}], 0), ([4, 6], [4, 6], [{"name": "bytes"}], 0.0), None),
+], ids=["as-built", "transposed", "sharded", "sharded-transposed", "copy-of-sharded", "inner-transpose-only",
+        "other-shape", "struct-fill", "other-fill"])
+def test_where_a_check_holds(tmp_path, built, written, expected):
+    """A checked chunk's binding holds in the array it was built in, and under Zarr's transpose codec
+    put first (outside a shard, or as `copy` writes it inside one) with the shape, grid and key
+    permuted to match: True in a sharded array, where its rule lifts the read rule, False in another;
+    None anywhere else."""
     np.save(tmp_path / "x.npy", np.zeros((4, 6), dtype=np.uint8))
     with read(tmp_path / "x.npy") as p:
-        doc = {"shape": [4, 6], "data_type": "uint8", "codecs": [{"name": "bytes"}], "fill_value": 0,
-               "chunk_grid": {"name": "regular", "configuration": {"chunk_shape": [4, 6]}}}
-        checked = Value((Ref(p, 0, 0, 1),), Check("builtin", Binding.of(doc, (0, 0))))
-        as_built = Array([4, 6], "uint8", [4, 6], [{"name": "bytes"}], {(0, 0): checked}).entries(to="a")
-        order = [1, 0]
-        moved = Array([6, 4], "uint8", [6, 4], [{"name": "transpose", "configuration": {"order": order}},
-                                                 {"name": "bytes"}], {(0, 0): checked}).entries(to="b")
-        other = Array([4, 7], "uint8", [4, 7], [{"name": "bytes"}], {(0, 0): checked}).entries(to="c")
-        out = as_built | moved | other
-        assert _holds(out, "a/c/0/0")
-        assert _holds(out, "b/c/0/0")
-        assert not _holds(out, "c/c/0/0")
-
-
-def _holds(out, key):
-    """Whether the checked value at `key` keeps its check there."""
-    v = out[key]
-    assert isinstance(v, Value)
-    return _binding_holds(v, key, out)
+        shape, chunks, codecs, fill = built
+        doc = {"shape": shape, "data_type": "uint8", "codecs": codecs, "fill_value": fill,
+               "chunk_grid": {"name": "regular", "configuration": {"chunk_shape": chunks}}}
+        checked = Value((Ref(p, 0, 0, 1),), _issue("builtin", Binding.of(doc, (0, 0))))
+        shape, chunks, codecs, fill = written
+        out = Array(shape, "uint8", chunks, codecs, {(0, 0): checked}, fill).entries(to="a")
+        v = out["a/c/0/0"]
+        assert isinstance(v, Value)
+        assert _binding_holds(v, "a/c/0/0", out) is expected
 
 
 # ---- what seal refuses: one test each
@@ -367,7 +391,76 @@ def test_seal_refuses_a_placement_of_no_bytes_entry(tmp_path):
     assert e.value.code == "open"
 
 
+def test_seal_refuses_a_payload_past_the_limit_with_its_checksums(tmp_path):
+    with read(_npy(tmp_path, n=20000), checksums=True) as p, pytest.raises(SealError) as e:
+        seal(Written({"v": concat(*(Ref(p, 0, 2 * k, 1) for k in range(7000)))}), [p])
+    assert e.value.code == "checksums"
+
+
+def test_seal_refuses_a_check_it_did_not_issue(tmp_path):
+    """A caller's Check, however it is bound, lifts no read rule."""
+    with read(_npy(tmp_path, n=1100 * (1 << 17))) as p:
+        doc = {"shape": [4, 6], "data_type": "uint8", "codecs": SHARDED, "fill_value": 0,
+               "chunk_grid": {"name": "regular", "configuration": {"chunk_shape": [4, 6]}}}
+        far = concat(*(Ref(p, 0, k << 17, 1) for k in range(1025)))
+        forged = Value(far.parts, Check("builtin", Binding.of(doc, (0, 0))))
+        out = Array([4, 6], "uint8", [4, 6], SHARDED, {(0, 0): forged}).entries(to="a")
+        with pytest.raises(SealError) as e:
+            seal(out, [p])
+    assert e.value.code == "reads"
+
+
+def test_seal_refuses_inputs_read_under_different_policies(tmp_path):
+    with read(_npy(tmp_path)) as p, read(_npy(tmp_path, "y.npy"), policy=Policy(max_reads=10)) as q, \
+            pytest.raises(SealError) as e:
+        seal(Written({"v": Ref(p, 0, 0, 4)}), [p, q])
+    assert e.value.code == "inputs"
+
+
+def test_seal_refuses_inputs_read_with_different_registries(tmp_path):
+    with read(_npy(tmp_path)) as p, read(_npy(tmp_path, "y.npy"), registry={}) as q, \
+            pytest.raises(SealError) as e:
+        seal(Written({"v": Ref(p, 0, 0, 4)}), [p, q])
+    assert e.value.code == "inputs"
+
+
+def test_seal_refuses_two_files_named_by_one_url(tmp_path):
+    url = "https://example.org/f.npy"
+    with read(_npy(tmp_path), url) as p, read(_npy(tmp_path, "y.npy"), url) as q, pytest.raises(SealError) as e:
+        seal(Written({"v": Ref(p, 0, 0, 4), "w": Ref(q, 0, 0, 4)}), [p, q])
+    assert e.value.code == "inputs"
+
+
+def test_seal_refuses_a_closed_input_read_with_checksums(tmp_path):
+    p = read(_npy(tmp_path), checksums=True)
+    p.close()
+    with pytest.raises(SealError) as e:
+        seal(Written({"v": Ref(p, 0, 0, 4)}), [p])
+    assert e.value.code == "inputs"
+
+
+def test_seal_refuses_a_malformed_part(tmp_path):
+    with read(_npy(tmp_path)) as p, pytest.raises(SealError) as e:
+        seal(Written({"v": Zeros(-1)}), [p])
+    assert e.value.code == "range"
+
+
 # ---- what the other tools refuse: one test each
+
+def test_reference_refuses_an_alias_of_a_struct():
+    with read(FIXTURES / "tiff/edge_shared_tables.tif") as p, pytest.raises(ValueError, match="no bytes of its own"):
+        p.reference(p.ir.index("ifds/2/strips"))
+
+
+def test_reference_refuses_a_chunk_whose_form_skips_filters():
+    with read(FIXTURES / "hdf5/hdf5_masks.h5") as p, pytest.raises(ValueError, match="skips filters"):
+        p.reference(p.ir.index("objects/2/chunks/0"))
+
+
+def test_bytes_refuses_an_element_in_a_derived_space():
+    with read(FIXTURES / "fits/fits_gzip_image.fits.gz") as p, pytest.raises(ValueError, match="derived space"):
+        p.bytes(p.ir.index("stream/hdus/0/data"))  # in the inflated stream, its bytes not kept
+
 
 def test_bytes_refuses_past_max_bytes(tmp_path):
     with read(_npy(tmp_path), max_bytes=10) as p, pytest.raises(ValueError, match="max_bytes"):
@@ -406,7 +499,7 @@ def test_a_value_holds_parts_only():
         Value((b"bytes",))  # type: ignore[arg-type]
 
 
-def test_documents_are_json():
+def test_documents_are_json():  # a valid case, of Array.entries
     """`Array.entries` writes a Zarr v3 document a reader parses."""
     doc = json.loads(Array([2], "uint8", [2], [{"name": "bytes"}], {}).entries()["zarr.json"])  # type: ignore[arg-type]
     assert doc["node_type"] == "array"
