@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 from typing import Any, override
 
+import h5py
 import numpy as np
 import pytest
 import zarr
@@ -730,3 +731,24 @@ def test_span_refuses_what_has_no_bytes_of_its_own(member, error):
     b = base(str(FIXTURES / "tiff" / "bilevel_tiled.tif"))
     with pytest.raises(error):
         b.span(b.ir.index("ifds/0/tiles"), member)  # a struct, whose members have bytes
+
+
+def test_a_text_fill_value_stays_text(tmp_path):
+    """Only a numeric `_FillValue` of a float dataset is the Base64 of a binary64; a string one
+    is the text it is."""
+    path = tmp_path / "fill.h5"
+    with h5py.File(path, "w") as f:
+        f.create_dataset("x", data=np.arange(4.0)).attrs["_FillValue"] = "AAAAAAAA8D8="
+    assert hdf5_attributes(base(path), "x")["_FillValue"] == "AAAAAAAA8D8="
+
+
+def test_check_reports_a_node_of_the_other_zarr_version():
+    v2 = {"zarr_format": 2, "shape": [4], "chunks": [4], "dtype": "|u1", "compressor": None, "fill_value": 0,
+          "order": "C", "filters": None}
+    out = {"zarr.json": group(), "a/.zarray": dump(v2), "a/0": bytes(4)}
+    assert "parent" in {p.code for p in check(base(TIFF), out)}
+
+
+def test_array_needs_the_fill_value_of_a_type_without_a_known_zero():
+    with pytest.raises(ValueError, match="fill_value"):
+        array([4], {"name": "raw_bytes", "configuration": {"length_bytes": 2}}, [4], [{"name": "bytes"}], {})

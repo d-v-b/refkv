@@ -1,3 +1,4 @@
+import contextlib
 import json
 import sys
 import traceback
@@ -120,7 +121,8 @@ def main(argv: list[str]) -> int:
         return 2
     except LayoutFailed as e:  # the plugin's error, not the input's
         if e.__cause__ is not None:  # the plugin's own frames, for its author
-            traceback.print_exception(e.__cause__, file=sys.stderr)
+            with contextlib.suppress(Exception):  # an exception type whose attributes raise: the line below suffices
+                traceback.print_exception(e.__cause__, file=sys.stderr)
         print(f"error: {e}", file=sys.stderr)
         return 1
     except Rejected as e:

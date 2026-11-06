@@ -83,6 +83,7 @@ MERGE_GAP = 1 << 16  # ranges of one source this close are one read, as refkv's 
 # <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#141-requirements>)
 STORED = 0xFFFFFFFF
 MAX_OFFSET = (1 << 64) - 1
+PAGE_ENTRY = 16  # the most a phkv page index's entry takes beside its first key: three varints, and room
 CRC_FIELD = 6  # the most bytes a range's crc32c field takes: a tag, and a varint of 32 bits
 # the documents a Zarr reader parses as JSON, by a key's last segment
 DOCUMENTS = frozenset(["zarr.json", ".zgroup", ".zarray", ".zattrs", ".zmetadata"])
@@ -144,17 +145,26 @@ def _text(e: BaseException) -> str:
         return described(e)
 
 
+def _type_name(value: object) -> str:
+    """The name of `value`'s type, even one whose metaclass's `__name__` raises."""
+    try:
+        return str(type(value).__name__)
+    except BaseException:  # noqa: BLE001 (a plugin's metaclass, whatever it does)
+        return str(type.__dict__["__name__"].__get__(type(value)))
+
+
+def _shown_value(value: object) -> str:
+    """`repr(value)` of a str, or the name of `value`'s type: a plugin's object's repr is its code."""
+    return repr(value) if type(value) is str else f"a {_type_name(value)}"
+
+
 def described(e: BaseException) -> str:
     """An exception as a message names it, `Type: text`, even one whose `str()` raises."""
     try:
         text = str(e)
     except BaseException:  # noqa: BLE001 (a plugin's exception, whatever its __str__ does)
         text = "(its message cannot be read)"
-    try:
-        kind = str(type(e).__name__)
-    except BaseException:  # noqa: BLE001 (a metaclass's __name__, whatever it does)
-        kind = type.__dict__["__name__"].__get__(type(e))
-    return f"{kind}: {text}"
+    return f"{_type_name(e)}: {text}"
 
 
 def dump(doc: object, *, allow_nan: bool = False) -> bytes:
@@ -319,21 +329,23 @@ def plan(layout: object) -> Planned:
                                f"{type(layout.options).__name__}")
     given_plugin = layout.plugin
     if isinstance(given_plugin, str):
-        plugin = _instance(given_plugin, load(given_plugin))
+        shown = given_plugin
+        plugin = _instance(shown, load(given_plugin))
         from_entry = True
-    else:
-        plugin = _instance(given_plugin, given_plugin)
+    else:  # named by its class in messages: its own str() is the plugin's code
+        shown = f"the plugin object of {_type_name(given_plugin)}"
+        plugin = _instance(shown, given_plugin)
         from_entry = False
     try:
         name = getattr(plugin, "name", None)
         formats = getattr(plugin, "formats", None)
         options_of, write = getattr(plugin, "options", None), getattr(plugin, "write", None)
     except BaseException as e:  # an attribute that raises when read
-        raise _usage(given_plugin, f"the plugin's attributes cannot be read: {described(e)}") from e
+        raise _usage(shown, f"the plugin's attributes cannot be read: {described(e)}") from e
     if not isinstance(name, str) or NAME.fullmatch(name) is None:
-        raise _usage(given_plugin, f"its name {name!r} is not <distribution>.<layout> in [a-z0-9-]")
+        raise _usage(shown, f"its name {_shown_value(name)} is not <distribution>.<layout> in [a-z0-9-]")
     if from_entry and name != given_plugin:
-        raise _usage(given_plugin, f"the plugin names itself {name!r}: set its name to the entry point's key")
+        raise _usage(shown, f"the plugin names itself {_shown_value(name)}: set its name to the entry point's key")
     try:  # a plugin's own mapping, or iterables, may raise anything as they are read
         read = _formats(name, formats)
     except LayoutUsageError:
@@ -1324,10 +1336,11 @@ def store_of(base: Base, prepared: Prepared, *, policy: Policy | None, info: Map
             problems.extend(Problem(None, "archive", f"its {key} would be {sizes[key]} bytes, more than the "
                                                      f"{MAX_OPEN} a reader reads by default")
                             for key in (SOURCES_KEY, INDEX_KEY) if sizes.get(key, 0) > MAX_OPEN)
-            keys = sum(len(k.encode()) for k in mapping)  # a phkv store's page index can hold every key
+            # a phkv store's page index can hold every key, each with its page's three varints
+            keys = sum(len(k.encode()) + PAGE_ENTRY for k in mapping)
             if keys > MAX_OPEN:
-                problems.append(Problem(None, "archive", f"its keys total {keys} bytes, more than the {MAX_OPEN} a "
-                                                         "phkv reader reads at open in its page index"))
+                problems.append(Problem(None, "archive", f"its keys and their page entries total {keys} bytes, "
+                                                         f"more than the {MAX_OPEN} a phkv reader reads at open"))
     return store, problems
 
 

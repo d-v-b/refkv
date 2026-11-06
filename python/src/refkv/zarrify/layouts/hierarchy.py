@@ -164,6 +164,15 @@ def _valid_array(doc: Mapping[str, Any]) -> bytes:
 # ---- documents written by hand
 
 def _zero(data_type: object) -> object:
+    """A data type's zero, as a Zarr v3 fill value; ValueError for one whose zero this does not
+    know (`array` is then given `fill_value`)."""
+    if isinstance(data_type, dict):
+        name = data_type.get("name")
+        if name in ("numpy.datetime64", "numpy.timedelta64"):
+            return 0
+        if name == "fixed_length_utf32":
+            return ""
+        raise ValueError(f"the data type {name!r} has no zero this knows: give array() its fill_value")
     if data_type == "bool":
         return False
     if isinstance(data_type, str) and data_type.startswith("complex"):
@@ -296,7 +305,8 @@ def _item_size(data_type: object) -> int | None:
         return 1
     if isinstance(data_type, dict) and data_type.get("name") in ("numpy.datetime64", "numpy.timedelta64"):
         return 8
-    if isinstance(data_type, dict) and data_type.get("name") == "fixed_length_utf32":
+    if isinstance(data_type, dict) and data_type.get("name") in ("fixed_length_utf32", "raw_bytes",
+                                                                  "null_terminated_bytes"):
         length = (data_type.get("configuration") or {}).get("length_bytes")
         return length if isinstance(length, int) else None
     if isinstance(data_type, dict) and data_type.get("name") == "struct":
@@ -491,6 +501,7 @@ def check(base: Base, written: Mapping[str, object] | Written) -> list[Problem]:
             except (ValueError, RecursionError):
                 continue
     nodes: dict[str, str] = {}  # node path -> "group" or "array", Zarr v3 or v2
+    versions: dict[str, int] = {}  # node path -> its Zarr version, by its documents
     for k, doc in docs.items():
         last, node = k.rpartition("/")[2], _dir(k)
         why = None
@@ -502,6 +513,7 @@ def check(base: Base, written: Mapping[str, object] | Written) -> list[Problem]:
                 if model.extra_fields:
                     why = f"members Zarr v3 does not define: {', '.join(sorted(model.extra_fields))}"
                 nodes[node] = str(kind)
+                versions[node] = 3
             elif last == ".zarray":
                 v2 = ZarrV2ArrayMetadata.from_json(doc)
                 if getattr(v2, "extra_fields", None):
@@ -510,9 +522,11 @@ def check(base: Base, written: Mapping[str, object] | Written) -> list[Problem]:
                 if isinstance(chunks, list) and not all(isinstance(c, int) and c > 0 for c in chunks):
                     why = f"its chunks {chunks} are not positive"
                 nodes[node] = "array"
+                versions[node] = 2
             elif last == ".zgroup":
                 ZarrV2GroupMetadata.from_json(doc)
                 nodes.setdefault(node, "group")
+                versions.setdefault(node, 2)
             elif last == ".zattrs" and not isinstance(doc, dict):
                 why = f".zattrs is an object, not {type(doc).__name__}"
             elif last == ".zmetadata":
@@ -537,6 +551,9 @@ def check(base: Base, written: Mapping[str, object] | Written) -> list[Problem]:
             problems.append(Problem(node, "parent", f"{node} is inside the array {holder or '(the root)'}"))
         elif nodes.get(parent) != "group":
             problems.append(Problem(node, "parent", f"{node}'s parent {parent or '(the root)'} has no group document"))
+        elif versions.get(parent) != versions.get(node):  # a reader of one version does not see the other's
+            problems.append(Problem(node, "parent", f"{node} is Zarr v{versions.get(node)}, its parent "
+                                                    f"{parent or '(the root)'} Zarr v{versions.get(parent)}"))
     held: dict[str, dict[str, Value]] = {}
     for k in sorted(values):
         if k.rpartition("/")[2] in DOCUMENTS:

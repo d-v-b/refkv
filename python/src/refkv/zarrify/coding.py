@@ -200,7 +200,9 @@ def hdf5_attributes(base: Base, path: str) -> dict[str, Any]:
     float_dataset = isinstance(metadata, dict) and (metadata.get("datatype") or {}).get("class") == "float"
     out: dict[str, Any] = {}
     for name, value in base.attributes(path).items():
-        if name == "_FillValue" and float_dataset and isinstance(value, str):
+        kind = (described.get(name) or {}).get("class") if isinstance(described, dict) else None
+        numeric = kind in ("integer", "float")  # hdf5.md §6 writes only such a _FillValue as Base64
+        if name == "_FillValue" and float_dataset and numeric and isinstance(value, str):
             try:
                 raw = base64.b64decode(value, validate=True)
             except ValueError:

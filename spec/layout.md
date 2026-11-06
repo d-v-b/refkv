@@ -123,8 +123,8 @@ A zarrifier writes a plugin's output in these steps; a check that fails is a fai
    references it. Its structure MUST be one the writer accepts, and its
    source table and page index each at most 256 MiB, the default `max_format_entry` of
    [spec/refkv.md §6.7](refkv.md#67-reader-policy) ([vzip §13.1](bindings/vzip.md#131-opening)). The output's
-   keys total at most 256 MiB, as a phkv store's page index can hold every key and a reader reads
-   it at open ([phkv](bindings/phkv.md)).
+   keys, each with 16 bytes for its page entry, total at most 256 MiB, as a phkv store's page
+   index can hold every key and a reader reads it at open ([phkv](bindings/phkv.md)).
 
 These checks guard against a plugin's mistakes, not against a hostile plugin, which runs in the
 caller's process and can do anything the caller can.
