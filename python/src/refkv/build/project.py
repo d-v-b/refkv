@@ -12,7 +12,7 @@ from refkv.ir.store import StoreIrOutput
 from refkv.zarrify.layouts import Base, base_of, chunk_coords
 
 from .parsed import Parsed
-from .values import Array, Binding, Literal, Part, Ref, Shared, Value, Written, Zeros, _issue
+from .values import MODELED, Array, Binding, Literal, Part, Ref, Shared, Value, Written, Zeros, _issue
 
 __all__ = ["Projected", "project"]
 
@@ -81,7 +81,10 @@ class Projected:
             doc = self._doc(path)
             if doc is None:
                 continue
-            coords = chunk_coords(key[len(path) + 1:] if path else key, doc)
+            try:
+                coords = chunk_coords(key[len(path) + 1:] if path else key, doc)
+            except (ValueError, KeyError, TypeError):
+                return Value(parts)  # under an array but no chunk of it (a root array's mirror): unchecked
             return Value(parts, _issue("builtin", Binding.of(doc, coords), parts))
         return Value(parts)
 
@@ -95,7 +98,7 @@ class Projected:
                      list(doc["codecs"]),
                      {tuple(chunk_coords(k, doc)): self.written[f"{prefix}{k}"] for k in chunks},  # type: ignore[misc]
                      doc.get("fill_value"), doc.get("dimension_names"), dict(doc.get("attributes") or {}),
-                     doc.get("chunk_key_encoding"))
+                     doc.get("chunk_key_encoding"), {k: v for k, v in doc.items() if k not in MODELED})
 
 
 def project(parsed: Parsed) -> Projected:

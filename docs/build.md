@@ -29,7 +29,8 @@ The IR's elements become values through the `Parsed`:
 - `p.bytes(i)`, `p.bytes((source, offset, length))`: the bytes themselves, from the IR where the
   parser kept them and otherwise read from the source, several together, within `max_bytes`
   (64 MiB by default); an element in a derived space (inside a gzip stream, say) gives the
-  inflated bytes the parser kept, or raises;
+  inflated bytes the parser kept, or raises where it kept none, or kept a decoded value
+  (`p.ir.value(i)`) instead;
 - `p.members(i)`, `p.form(i)`, `p.element_at(source, offset)`, `p.source_of(i)` and `p.gaps()`.
 
 A structure refkv's model of the format does not interpret is still an element, whose typed value
@@ -54,14 +55,17 @@ why `seal` might refuse a value's payload (more than `MAX_PAYLOAD`, 65519 bytes,
 sources are numbered, with the checksums its inputs were read with), or None.
 
 `Array` is a Zarr v3 array (shape, data type, chunk shape, codecs, chunks by coordinates, fill
-value, dimension names), and `array.entries(to=...)` its entries. `Written` is an output's entries
+value, dimension names, attributes, chunk key encoding), and `array.entries(to=...)` its entries;
+a fill value left None is the data type's zero. `Written` is an output's entries
 with their placement: `at_open`, the bytes entries placed explicitly (True, read at open by a vzip
 reader; False, kept for later; any other follows refkv's default, a Zarr document read at open), and
 `stored`, those kept uncompressed. It merges with `|` and `|=`, keeping placements.
 
 ## Sealing
 
-`refkv.build.seal(written, inputs)` checks an output and returns a `refkv.ReferenceStore`:
+`refkv.build.seal(written, inputs, *, policy=None, registry=None, info=None)` checks an output and
+returns a `refkv.ReferenceStore`, read under `policy` and `registry` (the inputs' by default) with
+`info` as its own:
 
 - the source table is numbered by first use over the references in key order, the url sources
   first, then the data sources;
@@ -69,7 +73,9 @@ reader; False, kept for later; any other follows refkv's default, a Zarr documen
   every payload is at most 65519 bytes (with checksums, when the inputs were read with them), and
   a value reads at most 1024 ranges, counted as readers merge them;
 - the inputs go together: one reader policy and registry, all read with checksums or none, and a
-  file read twice with the same pins.
+  file read twice with the same pins;
+- the store's reader policy allows it: its url sources (rules 1 to 3), and no more sources, reads
+  per value or format-entry bytes than the policy's limits.
 
 A failure is a `SealError`, whose `code` (one of `CODES`) says which rule. A chunk refkv's own
 output holds is **checked**: it carries the rule of the convention it was built under, which `seal`

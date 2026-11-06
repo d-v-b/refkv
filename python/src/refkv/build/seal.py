@@ -7,12 +7,14 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 from typing import Any, BinaryIO, cast
 
 from refkv import Concat, Range, ReferenceStore, Source
 from refkv.errors import ResolutionError
 from refkv.policy import Policy, crc32c
-from refkv.reader import Registry
+from refkv.reader import Registry, Resolver
+from refkv.uri import file_uri, resolve
 from refkv.vzip.names import INDEX_KEY, SOURCES_KEY
 from refkv.zarrify.common import PAGE_SIZE
 from refkv.zarrify.layouts import (
@@ -71,7 +73,10 @@ def seal(written: Mapping[str, Any], inputs: Sequence[Parsed], *, policy: Policy
         raise SealError("inputs", None, f"a policy is a refkv.Policy, not {type(policy).__name__}")
     if info is not None and not isinstance(info, Mapping):
         raise SealError("inputs", None, f"info is a mapping, not {type(info).__name__}")
-    inputs = list(inputs)
+    try:
+        inputs = list(inputs)
+    except TypeError as e:
+        raise SealError("inputs", None, f"inputs are a sequence of what refkv.build.read returns: {e}") from e
     _check_inputs(inputs, policy, registry)
     try:
         entries = written if isinstance(written, Written) else Written(written)
@@ -96,13 +101,16 @@ def seal(written: Mapping[str, Any], inputs: Sequence[Parsed], *, policy: Policy
     if table.zeros > MAX_OPEN:
         raise SealError("archive", None, f"a zero data source of {table.zeros} bytes, more than the {MAX_OPEN} "
                                          "of a source table")
+    used = policy if policy is not None else (inputs[0].policy if inputs else None)
+    rules = used or Policy()  # what the store's reader allows: refkv's limits, or fewer
     sources = table.sources()
-    if len(sources) > MAX_SOURCES:
-        raise SealError("archive", None, f"{len(sources)} sources, more than an output's {MAX_SOURCES}")
+    most = min(MAX_SOURCES, rules.max_sources)
+    if len(sources) > most:
+        raise SealError("archive", None, f"{len(sources)} sources, more than the {most} its reader allows")
+    _check_policy(sources, rules, registry if registry is not None else _first(inputs, "registry_given"))
 
     checksums = bool(inputs) and inputs[0].checksums
-    used = policy if policy is not None else (inputs[0].policy if inputs else None)
-    max_reads = min(MAX_READS, (used or Policy()).max_reads)  # the store's reader allows no more
+    max_reads = min(MAX_READS, rules.max_reads)
     mapping: dict[str, bytes | Range | Concat] = {}
     for k in keys:
         if k not in values:
@@ -149,8 +157,27 @@ def seal(written: Mapping[str, Any], inputs: Sequence[Parsed], *, policy: Policy
                                info=dict(info or {}))
     except (TypeError, ValueError, AttributeError) as e:
         raise SealError("inputs", None, f"the store cannot be made with these arguments: {e}") from e
-    _check_archive(store, sources, mapping)
+    _check_archive(store, sources, mapping, min(MAX_OPEN, rules.max_format_entry))
     return store
+
+
+def _check_policy(sources: Sequence[Source], rules: Policy, registry: object) -> None:
+    """That the store's reader policy allows every url source (spec/refkv.md §6.7
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rules 1 to 3), as
+    `save_vzip` checks them: an absolute URL as it is, a local path's as a `file:` URL."""
+    try:
+        resolver = registry if isinstance(registry, Resolver) else Resolver(registry)  # type: ignore[arg-type]
+    except (TypeError, ValueError, AttributeError) as e:
+        raise SealError("inputs", None, f"a registry is a mapping of URL prefixes to object stores: {e}") from e
+    base = file_uri(str(Path.cwd())) + "/"
+    for s in sources:
+        if s.url is None:
+            continue
+        url = resolve(base, s.url)
+        try:
+            rules.check(base, url, registered=resolver.registered(url) is not None)
+        except (ResolutionError, ValueError) as e:
+            raise SealError("inputs", None, f"the store's reader policy refuses a source: {e}") from e
 
 
 def _first(inputs: Sequence[Parsed], name: str) -> Any:  # noqa: ANN401 (a Parsed's attribute, by name)
@@ -447,8 +474,9 @@ def _same_array(doc: Mapping[str, Any], coords: Sequence[int], b: Binding) -> bo
     return sharded if same else None
 
 
-def _check_archive(store: ReferenceStore, sources: list[Source], mapping: Mapping[str, object]) -> None:
-    """The archive's structure, built once as `save_vzip` would build it, and its limits."""
+def _check_archive(store: ReferenceStore, sources: list[Source], mapping: Mapping[str, object], most: int) -> None:
+    """The archive's structure, built once as `save_vzip` would build it, and its limits: a
+    format entry of at most `most` bytes, as its reader reads them."""
     try:
         sink = cast("BinaryIO", _Counting())
         _, _, sizes = store._write_vzip(sink, sources, mirror_refs=True, page_size=PAGE_SIZE,  # noqa: SLF001
@@ -456,9 +484,9 @@ def _check_archive(store: ReferenceStore, sources: list[Source], mapping: Mappin
     except ValueError as e:
         raise SealError("archive", None, f"the archive cannot be written: {e}") from e
     for key in (SOURCES_KEY, INDEX_KEY):
-        if sizes.get(key, 0) > MAX_OPEN:
-            raise SealError("archive", None, f"its {key} would be {sizes[key]} bytes, more than the {MAX_OPEN} a "
-                                             "reader reads by default")
+        if sizes.get(key, 0) > most:
+            raise SealError("archive", None, f"its {key} would be {sizes[key]} bytes, more than the {most} its "
+                                             "reader reads")
     keys = sum(len(k.encode()) + PAGE_ENTRY for k in mapping)
     if keys > MAX_OPEN:
         raise SealError("archive", None, f"its keys and their page entries total {keys} bytes, more than the "

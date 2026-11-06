@@ -156,7 +156,8 @@ async def _zarrify_store_async(location: str, url: str | None = None, *, max_obj
             _no_store_layouts(layouts, fmt)  # a named profile's were checked before the store was listed
         # the core's store formats: N5, a SAFE directory, and Zarr v2, which the core decides is
         # OME-Zarr 0.4's or not (its summary's `format`)
-        out = (await run_store_async(store, {"ome-zarr": "zarr2"}.get(fmt, fmt)))[0]
+        out, store_ir, _ = await run_store_async(store, {"ome-zarr": "zarr2"}.get(fmt, fmt))
+        out.ir = store_ir  # for refkv.build, which reads a store's IR as a file's
         if fmt in ("zarr2", "ome-zarr"):
             found = string(out.summary["format"], "summary.format")
             if named == "ome-zarr" and found != "ome-zarr":

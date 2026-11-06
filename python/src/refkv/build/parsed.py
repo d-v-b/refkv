@@ -14,16 +14,16 @@ import bisect
 import json
 import os
 from pathlib import Path
-from typing import Any, Self, overload
+from typing import Any, Self, cast, overload
 
-from refkv import Range, ReferenceStore, Source, _sync
+from refkv import Range, ReferenceStore, Source, _core, _sync
 from refkv.ir import Ir
 from refkv.ir.kind import Kind
 from refkv.ir.store import StoreIrOutput
 from refkv.policy import Policy
 from refkv.reader import Registry, Resolver
 from refkv.uri import path_reference
-from refkv.zarrify import _zarrify_async
+from refkv.zarrify import _zarrify_async, is_store
 from refkv.zarrify.common import Output
 from refkv.zarrify.layouts import MERGE_GAP
 from refkv.zarrify.store.urls import object_url
@@ -45,8 +45,6 @@ class Parsed:
     def __init__(self, fmt: str, out: Output | StoreIrOutput, location: str, *, policy: Policy | None,
                  registry: Resolver, checksums: bool, max_bytes: int, registry_given: Registry | None = None,
                  read_base: str | None = None) -> None:
-        if out.ir is None:
-            raise ValueError(f"{location}: its run kept no IR")
         self._fmt = fmt
         self._out = out
         self._location = location
@@ -64,7 +62,7 @@ class Parsed:
         self.checksums = checksums
         self.max_bytes = max_bytes
         self._read = 0  # bytes `bytes` has read from sources
-        self._ir = Ir(out.ir)
+        self._ir = Ir(cast("_core.Ir", out.ir))  # read_async keeps only a run with an IR
         entries = out.entries if isinstance(out, StoreIrOutput) else out.bytes_entries
         prop = json.loads(entries["zarr.json"])["attributes"]["refkv_zarrified"]
         self.profile: str = prop["profile"]
@@ -347,13 +345,22 @@ class Parsed:
             size = self.sources[source].size
             if size is not None and offset + length > size:
                 raise ValueError(f"bytes {offset} to {offset + length} of source {source}, past its {size}")
-        mapping = {str(k): Range(s, o, n) for k, (s, o, n) in enumerate(ranges) if n}
+        runs = _runs(ranges)  # each source's ranges merged, as the reader would merge them: each read once
+        mapping = {str(k): Range(src, a, b - a) for k, (src, a, b) in enumerate(runs)}
         store = ReferenceStore(mapping, self._readable(), policy=self.policy, registry=self.registry)
 
-        async def each() -> list[bytes | None]:  # together, so that the reader merges and overlaps them
+        async def each() -> list[bytes | None]:  # together
             return list(await asyncio.gather(*(store.get_async(k) for k in mapping)))
-        got = dict(zip(mapping, _sync.run(each()), strict=True))
-        return [got.get(str(k)) or b"" for k in range(len(ranges))]
+        got = [b or b"" for b in _sync.run(each())]
+        out = []
+        for src, offset, length in ranges:
+            if not length:
+                out.append(b"")
+                continue
+            k = next(k for k, (s2, a, b) in enumerate(runs) if s2 == src and a <= offset and offset + length <= b)
+            start = offset - runs[k][1]
+            out.append(got[k][start:start + length])
+        return out
 
     @overload
     def bytes(self, item: int | tuple[int, int, int], /) -> bytes: ...
@@ -364,8 +371,9 @@ class Parsed:
         """The bytes of each item, an element (by index) or a range `(source, offset, length)` (a
         gap's, say): an element's own extent, from the IR where the parser kept them and otherwise
         read through the input's sources. An element in a derived space gives its bytes there (the
-        inflated stream's, as the parser kept them), and a ValueError where the parser kept none,
-        since no range of a source holds them. Several items are read together. What is read from
+        inflated stream's) where the parser kept them, and a ValueError where it kept none or kept
+        a decoded value of another length (`ir.value` gives that), since no range of a source holds
+        them. Several items are read together. What is read from
         the sources counts against `max_bytes`; ValueError past it, and for an element with no
         bytes of its own (a node, a derived element)."""
         if not items:
@@ -381,9 +389,9 @@ class Parsed:
                 continue
             i = self._element(item)
             raw = self._ir.raw(i)
-            if raw is not None and self._ir.kind(i) != ALIAS:
-                out.append(bytes(raw))
-                continue
+            if raw is not None and self._ir.kind(i) != ALIAS and len(raw) == self._ir.extent(i)[1]:
+                out.append(bytes(raw))  # the element's own bytes, as the parser kept them
+                continue  # (bytes of another length are a decoded value, ir.value's, not the element's)
             ref = self.span(i)
             wanted.append((ref.source, ref.offset, ref.length))
             out.append(None)
@@ -402,25 +410,30 @@ def _drive(ref: str) -> bool:
     return len(ref) > 1 and ref[1] == ":" and ref[0].isalpha()
 
 
-def _fetched(ranges: list[tuple[int, int, int]]) -> int:
-    """The bytes a reader fetches for `ranges` read together: those of each source at most
-    `MERGE_GAP` apart merged into one read, the bytes between them included."""
+def _runs(ranges: list[tuple[int, int, int]]) -> list[tuple[int, int, int]]:
+    """`ranges` of each source at most `MERGE_GAP` apart merged into runs `(source, start, end)`,
+    overlapping and repeated ranges once, the bytes between them included: what is read."""
     by: dict[int, list[tuple[int, int]]] = {}
     for source, offset, length in ranges:
         if length > 0:
             by.setdefault(source, []).append((offset, offset + length))
-    total = 0
-    for spans in by.values():
+    out = []
+    for source, spans in sorted(by.items()):
         spans.sort()
         start, end = spans[0]
         for a, b in spans[1:]:
             if a > end + MERGE_GAP:
-                total += end - start
+                out.append((source, start, end))
                 start, end = a, b
             else:
                 end = max(end, b)
-        total += end - start
-    return total
+        out.append((source, start, end))
+    return out
+
+
+def _fetched(ranges: list[tuple[int, int, int]]) -> int:
+    """The bytes reading `ranges` together reads (`_runs`)."""
+    return sum(b - a for _, a, b in _runs(ranges))
 
 
 async def read_async(location: str | os.PathLike[str], url: str | None = None, *, policy: Policy | None = None,
@@ -435,8 +448,12 @@ async def read_async(location: str | os.PathLike[str], url: str | None = None, *
     if not isinstance(out, (Output, StoreIrOutput)) or out.ir is None:
         raise ValueError(f"{location}: its run keeps no IR, so refkv.build cannot read it")
     read_base = None
-    if isinstance(out, StoreIrOutput) and url is not None:
-        # the objects as `read` opens them: the output names them under `url`, which may be elsewhere
+    if isinstance(out, StoreIrOutput) and url is not None and is_store(location):
+        # a store's objects lie under it, where `read` opened them; the output names them under `url`
+        read_base = location if "://" in location else path_reference(os.path.abspath(location))  # noqa: PTH100, ASYNC240 (no I/O: the path made absolute)
+        read_base = read_base if read_base.endswith("/") else read_base + "/"
+    elif isinstance(out, StoreIrOutput) and url is not None:
+        # a file read as a store, its objects found beside it: read again as `read` opened them
         _, local = await _zarrify_async(location, None, policy=policy, registry=resolver)
         if not isinstance(local, StoreIrOutput) or sorted(local.sizes.items()) != sorted(out.sizes.items()):
             raise ValueError(f"{location}: its objects, read at {location} and named under {url}, differ")

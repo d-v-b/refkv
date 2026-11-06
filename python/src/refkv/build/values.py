@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any, Self
 
 from refkv import Range
 from refkv.policy import MAX_SOURCES
-from refkv.zarrify.layouts import MAX_PAYLOAD, chunk_key
+from refkv.zarrify.layouts import CRC_FIELD, MAX_PAYLOAD, chunk_key
 
 if TYPE_CHECKING:
     from refkv.build.parsed import Parsed
@@ -24,7 +24,6 @@ __all__ = ["Array", "Binding", "Check", "Copy", "Data", "Literal", "Part", "Ref"
 # MAX_SOURCES, the most sources an output's table holds (spec/refkv.md §6.7
 # <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>'s default `max_sources`),
 # is what a source index is measured against before `seal` numbers the table
-CRC_FIELD = 6  # the most bytes a range's crc32c field takes: a tag, and a varint of 32 bits
 
 
 @dataclass(frozen=True)
@@ -328,16 +327,20 @@ def _canonical(x: object) -> str:
 
 
 type ArrayChunk = Value | Part | Sequence[Part] | bytes
+# the members of a Zarr v3 array document that `Array` models; `extra` holds the others
+MODELED = frozenset({"zarr_format", "node_type", "shape", "data_type", "chunk_grid", "chunk_key_encoding",
+                     "fill_value", "codecs", "attributes", "dimension_names"})
 
 
 @dataclass
 class Array:
     """A Zarr v3 array: its shape, data type, chunk shape (an int per axis for a regular grid, or an
     axis's lengths for a rectilinear one), codecs, fill value and dimension names, and its chunks by
-    coordinates, each a value or bytes; and its attributes and chunk key encoding (the `default` one,
-    with `/`, when None). The fill value, when None, is the data type's zero (an error for a type
-    whose zero this does not know). The chunks a routine returns are checked, and keep their checks
-    in an `Array` a caller builds around them; a value a caller makes is not checked."""
+    coordinates, each a value or bytes; and its attributes, chunk key encoding (the `default` one,
+    with `/`, when None) and `extra`, the document's other members, kept as they are. The fill
+    value, when None, is the data type's zero (an error for a type whose zero this does not know).
+    The chunks a routine returns are checked, and keep their checks in an `Array` a caller builds
+    around them; a value a caller makes is not checked."""
 
     shape: list[int]
     data_type: str | dict[str, Any]
@@ -348,6 +351,7 @@ class Array:
     dimension_names: list[str | None] | None = None
     attributes: dict[str, Any] | None = None
     chunk_key_encoding: dict[str, Any] | None = None
+    extra: dict[str, Any] | None = None  # the document's other members, kept (storage_transformers)
 
     def grid(self) -> dict[str, Any]:
         """The chunk grid: `regular`, or `rectilinear` when an axis's lengths are given as a list
@@ -370,6 +374,8 @@ class Array:
             "codecs": list(self.codecs),
             "attributes": dict(attributes if attributes is not None else (self.attributes or {})),
         }
+        for k, v in (self.extra or {}).items():
+            doc.setdefault(k, v)
         names = dimension_names if dimension_names is not None else self.dimension_names
         if names is not None:
             doc["dimension_names"] = list(names)
@@ -404,6 +410,9 @@ class Written(MutableMapping[str, "bytes | Value"]):
         self.stored: set[str] = set(stored or ())
         for k, v in (entries or {}).items():
             self[k] = v
+        if isinstance(entries, Written):  # a Written's own placements come with its entries
+            self.at_open = {**entries.at_open, **self.at_open}
+            self.stored |= entries.stored
 
     def __getitem__(self, key: str) -> bytes | Value:
         return self._entries[key]

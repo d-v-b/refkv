@@ -50,6 +50,11 @@ FIXTURES = ROOT / "fixtures"
 # a fixture or two of each file profile (and files read as stores), and whether the call asks for checksums
 CASES = [
     ("czi/czi_gray16_tczyx.czi", False),
+    ("mp3/mp3_abr_xing.mp3", False),
+    ("nifti/nifti_block_rows_edge_rgba.nii", False),
+    ("zarr2/zarr2_codecs/", False),  # a store, named under a URL it is served from
+    ("n5/n5_compressions/", False),
+    ("zarr2/zarr2_root_array_objects/", False),  # a root array, its mirror's objects below it
     ("dicom/dicom_bigendian_mono16.dcm", False),
     ("fits/fits_gzip_image.fits.gz", False),
     ("flac/flac_mono_16.flac", False),
@@ -77,13 +82,18 @@ CASES = [
 def test_seal_of_the_built_in_output_reads_what_zarrify_writes(name, checksums):
     """`seal` of `project`'s output holds every key `zarrify` writes, each reading the same bytes:
     the values the built-in projection made, as checked values of the input's sources."""
-    path = str(FIXTURES / name)
-    with read(path, checksums=checksums) as p:
+    path = str(FIXTURES / name) + ("/" if name.endswith("/") else "")
+    url = f"https://example.invalid/{name}" if name.endswith("/") else None  # a local store needs one
+    with read(path, url, checksums=checksums) as p:
         store = seal(project(p).written, [p])
-        built = zarrify(path, checksums=checksums)
+        built = zarrify(path, url, checksums=checksums)
         assert sorted(store.mapping) == sorted(built.mapping)
         for k in built.mapping:
-            assert store.get(k) == built.get(k), k
+            if url is None:
+                assert store.get(k) == built.get(k), k
+            else:  # its sources are under the URL, which this test cannot read: the same entries
+                assert store.mapping[k] == built.mapping[k], k
+        assert [s.url for s in store.sources] == [s.url for s in built.sources] or url is None
         assert sorted(store.read_at_open) == sorted(built.read_at_open)
 
 
@@ -271,6 +281,8 @@ def test_parsed(tmp_path):
         assert p.span(strip) == Ref(p, 0, page.dataoffsets[1], page.databytecounts[1])
         assert p.element_at(0, page.dataoffsets[1] + 3) == (strip, None)
         assert p.bytes(p.ir.index("ifds/0/tags/305/value")).startswith(b"tifffile")
+        whole = path.read_bytes()
+        assert p.bytes((0, 0, 8), (0, 4, 8), (0, 0, 8)) == [whole[0:8], whole[4:12], whole[0:8]]  # read once
         head, raw = p.bytes((0, 0, 4), strip)
         assert head == b"II*\0"
         assert len(raw) == page.databytecounts[1]
@@ -611,6 +623,56 @@ def test_a_relative_input_reads_the_file_read_opened(tmp_path, monkeypatch):
     q.close()
 
 
+def test_seal_refuses_a_registry_the_store_cannot_take(tmp_path):
+    with read(_npy(tmp_path)) as p, pytest.raises(SealError) as e:
+        seal(Written({"v": b"x"}), [p], registry="x")  # type: ignore[arg-type]
+    assert e.value.code == "inputs"
+
+
+def test_seal_refuses_a_data_part_of_no_natural_offset(tmp_path):
+    with read(_npy(tmp_path)) as p, pytest.raises(SealError) as e:
+        seal(Written({"v": Data(b"abc", -1, 1)}), [p])
+    assert e.value.code == "value"
+
+
+def test_seal_refuses_shared_data_that_is_not_bytes(tmp_path):
+    with read(_npy(tmp_path)) as p, pytest.raises(SealError) as e:
+        seal(Written({"v": Shared("abc")}), [p])  # type: ignore[arg-type]
+    assert e.value.code == "value"
+
+
+def test_seal_refuses_keys_past_what_a_reader_reads_at_open(monkeypatch):
+    monkeypatch.setattr(seal_module, "MAX_OPEN", 8)
+    w = Written({"a-long-key": b"x"}, at_open={"a-long-key": False})
+    with pytest.raises(SealError) as e:
+        seal(w, [])
+    assert e.value.code == "archive"
+
+
+def test_seal_refuses_more_sources_than_its_policy_allows(tmp_path):
+    with read(_npy(tmp_path), policy=Policy(max_sources=2)) as p, pytest.raises(SealError) as e:
+        seal(Written({"v": concat(Ref(p, 0, 0, 1), Shared(b"a"), Shared(b"b"))}), [p])
+    assert e.value.code == "archive"
+
+
+def test_seal_refuses_a_source_table_past_its_policys_format_entry(tmp_path):
+    with read(_npy(tmp_path), policy=Policy(max_format_entry=4096)) as p, pytest.raises(SealError) as e:
+        seal(Written({"v": Shared(bytes(range(256)) * 64)}), [p])
+    assert e.value.code == "archive"
+
+
+def test_seal_refuses_a_source_its_policy_refuses(tmp_path):
+    with read(_npy(tmp_path)) as p, pytest.raises(SealError) as e:
+        seal(Written({"v": Ref(p, 0, 0, 4)}), [p], policy=Policy(prefixes=("https://data.example/",)))
+    assert e.value.code == "inputs"
+
+
+def test_seal_refuses_inputs_that_are_not_a_sequence():
+    with pytest.raises(SealError) as e:
+        seal(Written({"v": b"x"}), 5)  # type: ignore[arg-type]
+    assert e.value.code == "inputs"
+
+
 # ---- what the other tools refuse: one test each
 
 def test_element_at_refuses_a_source_the_input_does_not_have(tmp_path):
@@ -680,6 +742,28 @@ def test_bytes_refuses_past_max_bytes(tmp_path):
         p.bytes((0, 0, 11))
 
 
+def test_span_refuses_a_node(tmp_path):
+    with read(_npy(tmp_path)) as p, pytest.raises(ValueError, match="no bytes of its own"):
+        p.span(0)
+
+
+def test_an_array_of_a_data_type_that_is_neither_a_name_nor_an_object():
+    with pytest.raises(TypeError, match="data type"):
+        Array([2], 5, [2], [{"name": "bytes"}], {}).document()  # type: ignore[arg-type]
+
+
+def test_read_refuses_an_input_whose_run_keeps_no_ir():
+    with pytest.raises(ValueError, match="keeps no IR"):
+        read(str(min(p for p in (FIXTURES / "dicom_series").iterdir() if p.is_dir())) + "/",
+             "https://example.invalid/series/")
+
+
+def test_bytes_refuses_a_decoded_value_in_a_derived_space():
+    """An element whose kept bytes are a decoded value (unescaped XML text), not its own, has no bytes."""
+    with read(FIXTURES / "nd2/nd2_streams.nd2") as p, pytest.raises(ValueError, match="derived space"):
+        p.bytes(p.ir.index("chunks/CustomDataVar|AppInfo_V1_0!/xml/variant/no_name/Version"))
+
+
 def test_reference_refuses_a_node(tmp_path):
     with read(_npy(tmp_path)) as p, pytest.raises(ValueError, match="no bytes of its own"):
         p.reference(0)
@@ -726,6 +810,8 @@ def test_project_arrays_keep_their_documents(path, attributes, separator):
             assert attributes.items() <= doc["attributes"].items()
         assert doc["chunk_key_encoding"]["configuration"]["separator"] == separator
         assert {k for k in again if k != f"{path}/zarr.json"} <= set(pr.written)
+        assert {k: v for k, v in doc.items() if k != "attributes"} == {
+            k: v for k, v in original.items() if k != "attributes"}  # every member, storage_transformers too
 
 
 @pytest.mark.parametrize(("data_type", "zero"), [("uint8", 0), ("float32", 0.0), ("complex64", [0.0, 0.0]),
