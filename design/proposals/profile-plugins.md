@@ -965,6 +965,86 @@ and changing an output is a cost only to the fixtures.
 - **Reading a file without the files it names**, such as one file of an
   OME-TIFF set alone: `read` of one file of a set reads the set.
 
+## Prior art
+
+Each idea here has precedents among file-format parsers and the tools that
+reference data in place. What refkv takes from them, and where it differs:
+
+**Known and unknown.** Parsers that expose a file as a tree of fields mostly
+handle the bytes they do not understand the way this note does.
+[Wireshark](https://github.com/wireshark/wireshark/blob/master/epan/dissectors/packet-data.c)
+hands what no dissector claims to its generic `data` dissector as raw bytes;
+[fq](https://github.com/wader/fq/blob/master/doc/dev.md) tells format authors
+to "decode only ranges you know what they are", and adds "gap" fields for the
+rest itself, as the IR's gaps do; [Kaitai Struct](https://doc.kaitai.io/user_guide.html)
+yields a raw byte array for a field with no type, or a switch with no
+matching case; [ExifTool](https://exiftool.org/exiftool_pod.html) prints
+unknown tags under generated names (`-u`) and copies blocks it does not
+understand whole when it writes. [Construct](https://construct.readthedocs.io/en/latest/misc.html)'s
+`RawCopy` gives a parsed field's value, its raw bytes and its start and end
+offsets together, the three ways a caller reaches an element here
+(`ir.value`, `parsed.bytes`, `span`). The closest precedent in microscopy is
+[Bio-Formats](https://javadoc.scijava.org/Bio-Formats/loci/formats/IFormatReader.html):
+a reader fills the OME model, its known, through a `MetadataStore`, and keeps
+the rest as "original metadata", tables of key and value strings
+(`getGlobalMetadata`, `getSeriesMetadata`). That split is lossy: an unknown
+there has no bytes and no place in the file. refkv's unknown keeps both, so a
+caller can decode what refkv's model does not.
+
+**A specified description of a format.** [DFDL](https://daffodil.apache.org/)
+(an Open Grid Forum standard, implemented by Apache Daffodil) and Kaitai
+Struct describe a format's layout in a machine-readable language from which a
+parser is generated. refkv specifies its source models in prose with JSON
+Schemas for the IR's rules (`rust/refkv-ir/schema/`), and this note adds a
+JSON Schema for each description, not a generated parser: the parsers stay
+hand-written for their budgets and their checks. A machine-readable source
+model could later let a description's tests be generated from it.
+
+**Building outputs of references.** [GDAL's VRT](https://gdal.org/en/stable/drivers/raster/vrt.html)
+is the oldest widely used format of this kind: XML datasets made of other
+datasets, its `VRTRawRasterBand` a strided view of another file's bytes.
+[kerchunk](https://fsspec.github.io/kerchunk/spec.html) references a key's
+bytes as one `[url, offset, length]` or inline data;
+[VirtualiZarr](https://virtualizarr.readthedocs.io/en/stable/explanation/custom_parsers.html)'s
+parsers are callables from a URL and an object-store registry to a
+`ManifestStore` of chunk manifests. Both go straight from a file to its
+manifests, with no IR beneath and no shared routines between parsers, which
+is the gap this note fills for refkv; their manifests and refkv's `Array` are
+close kin. Within one format, HDF5's chunk queries (`H5Dget_chunk_info`,
+`H5Dchunk_iter`) give each chunk's offset, size and filter mask, the
+information `parsed.chunks` gives, and kerchunk's HDF5 reader is built on
+them through h5py.
+
+**Vouching for references.** GDAL bounds what a VRT may read with
+`GDAL_VRT_RAWRASTERBAND_ALLOWED_SOURCE`, by default a path relative to the
+VRT and without `..`, because a server that accepts uploaded VRTs could
+otherwise be made to read local files; it warns that its `ONLY_REMOTE`
+setting can still reach a local network. refkv's reader policy and pins play
+that part, checked when a source is opened and again when it is read.
+VirtualiZarr's guide asks a parser to extract each chunk's byte ranges, and
+says nothing of checking them against the file's size; `seal` checks every
+range against the size `read` found, every payload and the archive's limits
+before anything is written, which neither kerchunk nor VirtualiZarr does.
+
+**Sans-I/O reading.** [h11](https://h11.readthedocs.io/en/latest/) is the
+model of a protocol with no I/O of its own: a state machine fed bytes by its
+host. Parsers of byte streams have the same shape (nom's streaming parsers
+return `Incomplete` with the bytes they need; Spicy yields to its host when
+input runs out). refkv's parsers and plans ask for ranges, not a stream's
+next bytes, in counted rounds, which lets the host batch, merge and bound
+reads. The I/O hooks of libtiff (`TIFFClientOpen`), libavformat
+(`avio_alloc_context`) and HDF5 (its virtual file drivers, ROS3 among them)
+are blocking callbacks the library calls, which a host can neither batch nor
+bound.
+
+**Registries.** Python's entry points carry most plugin registries refkv's
+users meet: numcodecs' codecs, zarr-python's codecs and data types, xarray's
+backends. numcodecs lets a registered codec replace another of the same id
+without a word; refkv refuses a second plugin of a taken name. Format
+detection (libmagic, Apache Tika's detectors, Bio-Formats' ordered reader
+list, FFmpeg's probe scores) is what parser plugins, left out of this note,
+would need.
+
 ## Alternatives considered
 
 - **Plugins given the base** (this note's previous version, on main). It
@@ -1008,6 +1088,14 @@ and changing an output is a cost only to the fixtures.
    different join) uses `shard`, `tiff_array` and `cut` today; options of
    the plan for the parameters a convention states may serve better, once a
    caller asks.
-3. **An OME-TIFF's other series in refkv's own output.** The plan holds every
+3. **Local sources reached through symbolic links.** refkv makes a local
+   path absolute without resolving symbolic links
+   ([spec/refkv.md §5](../../spec/refkv.md#5-source-table)), so a source a
+   reader policy's prefix admits may be a link to a file outside it, the
+   case GDAL's VRT rule warns of. `seal` checks what `read` opened; whether
+   the policy should resolve links first is a question for
+   [spec/refkv.md §6.7](../../spec/refkv.md#67-reader-policy), which this note
+   does not change.
+4. **An OME-TIFF's other series in refkv's own output.** The plan holds every
    `Image`; refkv's convention presents the first. Presenting the others is a
    change to the convention, which a caller need not wait for.
