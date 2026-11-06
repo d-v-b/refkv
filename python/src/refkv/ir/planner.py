@@ -22,6 +22,9 @@ performs the requests a run asks for and reports each one's bytes and time:
   (`multipart/byteranges`) when the run asks; a server that answers otherwise
   is closed before its body is read, and the run plans single ranges. It
   records every response's ETag, for the source's `etag` pin.
+- `ObjectTransport`: an object of a store the application registered for a prefix of its
+  URL (`registry=`, `refkv.reader.Resolver`), such as an `s3://` bucket's, read with that
+  store's own methods.
 - `drive_async(run, transport)`: the loop, at most `concurrency` requests at a time, as a
   coroutine; `drive(run, transport)` waits for it.
 """
@@ -37,22 +40,68 @@ import random
 import re
 import socket
 import time
-from collections.abc import Callable
+from collections.abc import Buffer, Callable, Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from email.message import Message
 from typing import Protocol, cast
 from urllib.parse import urljoin, urlparse
 
 from refkv import _core, _sync
+from refkv._narrow import integer
 from refkv.errors import ResolutionError
 from refkv.policy import Policy
-from refkv.reader import _POOL, Check, _check_http_url, _connect, _proxy
+from refkv.reader import _POOL, Check, Resolver, _check_http_url, _connect, _proxy
 from refkv.reader import _send as reader_send
 from refkv.zarrify.common import UA, EtagLog, Rejected
 
 RETRY = (429, 500, 502, 503, 504)
 REDIRECTS = (301, 302, 303, 307, 308)
 OPEN = 1 << 16  # the bytes the request that opens a remote source reads
+_SCHEME = re.compile(r"([A-Za-z][A-Za-z0-9+.-]*)://")
+
+
+def url_scheme(location: str) -> str | None:
+    """The scheme, in lower case, of a `location` that is a URL with an authority (`s3://b/k`,
+    `https://h/p`), else None: a local path, `C:\\data` on Windows among them."""
+    m = _SCHEME.match(location)
+    return m[1].lower() if m else None
+
+
+def registered(location: str, registry: Resolver | None, policy: Policy | None) -> tuple[Objects, str] | None:
+    """The store `registry` has for a prefix of the URL `location`, and the object's path in
+    it, once the reader policy `policy` (default `Policy()`) allows the URL as a registered one
+    (spec/refkv.md §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>);
+    None for a local path or an http(s) URL that it has no store for. A URL of another scheme
+    that it has none for raises `refkv.errors.ResolutionError`, which says how to register one."""
+    scheme = url_scheme(location)
+    if scheme is None:
+        return None
+    found = registry.registered(location) if registry is not None else None
+    if found is None:
+        if scheme not in ("http", "https", "file"):
+            (registry or Resolver()).resolve(location)  # raises: no store for the scheme
+        return None
+    (policy or Policy()).check(location, registered=True)
+    return cast("Objects", found[0]), found[1]
+
+
+class Objects(Protocol):
+    """The methods of an obspec store (such as obstore's) that zarrify calls on a
+    registered store: the blocking ones, as zarrify's reads run on threads of their own."""
+
+    def head(self, path: str) -> Mapping[str, object]: ...
+
+    def get_range(self, path: str, *, start: int, end: int) -> Buffer: ...
+
+    def get_ranges(self, path: str, *, starts: Sequence[int], ends: Sequence[int]) -> Sequence[Buffer]: ...
+
+    def list(self, prefix: str | None = None) -> Iterator[Sequence[Mapping[str, object]]]: ...
+
+
+def absent(e: Exception) -> bool:
+    """Whether a registered store's error says the object does not exist: `FileNotFoundError`,
+    or obstore's `NotFoundError` (named, since refkv does not import obstore)."""
+    return isinstance(e, FileNotFoundError) or type(e).__name__ == "NotFoundError"
 
 
 class FileTransport:
@@ -72,6 +121,44 @@ class FileTransport:
 
     def fetch(self, spans: list[tuple[int, int]]) -> tuple[list[bytes], float]:
         return [self.get(a, b) for a, b in spans], 0.0
+
+
+class ObjectTransport:
+    """The object at `path` of a store the application registered for a prefix of `url`
+    (`registry=`, `refkv.reader.Resolver`), read with the store's own `head`, `get_range` and
+    `get_ranges`. The store makes its own connections, with its own credentials and retries, so
+    the reader policy's rule 3 is not applied to the addresses it connects to (spec/refkv.md
+    §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>). The source's
+    `etag` pin is the strong ETag that `head` gives, if any."""
+
+    remote = True
+
+    def __init__(self, url: str, store: Objects, path: str) -> None:
+        self.url, self.store, self.path = url, store, path
+        t = time.perf_counter()
+        meta = store.head(path)
+        self.size = integer(meta.get("size"), "size")
+        self.head = (0, self.get(0, min(OPEN, self.size)), time.perf_counter() - t)
+        tag = meta.get("e_tag")
+        pin = tag if isinstance(tag, str) and tag.startswith('"') else None  # a weak one starts with W/
+        self.etag: Callable[[], str | None] = lambda: pin
+
+    def get(self, start: int, end: int) -> bytes:
+        if start == end:
+            return b""
+        data = bytes(self.store.get_range(self.path, start=start, end=end))
+        if len(data) != end - start:
+            raise OSError(f"{self.url}: {len(data)} bytes for [{start}, {end})")
+        return data
+
+    def fetch(self, spans: list[tuple[int, int]]) -> tuple[list[bytes] | None, float]:
+        t = time.perf_counter()
+        got = [bytes(b) for b in self.store.get_ranges(self.path, starts=[a for a, _ in spans],
+                                                       ends=[b for _, b in spans])]
+        for (a, b), data in zip(spans, got, strict=True):
+            if len(data) != b - a:
+                raise OSError(f"{self.url}: {len(data)} bytes for [{a}, {b})")
+        return got, time.perf_counter() - t
 
 
 class HttpTransport:
@@ -304,12 +391,18 @@ class Transport(Protocol):
         ...
 
 
-def open_transport(location: str, policy: Policy | None = None) -> FileTransport | HttpTransport:
-    """The transport of the source at `location`: an `HttpTransport` for an http(s) URL, read
+def open_transport(location: str, policy: Policy | None = None,
+                   registry: Resolver | None = None) -> FileTransport | HttpTransport | ObjectTransport:
+    """The transport of the source at `location`: an `ObjectTransport` for a URL under a prefix
+    `registry` has a store for (`registered`); an `HttpTransport` for another http(s) URL, read
     under the reader policy `policy` (default `Policy()`), which requests its first bytes now;
     otherwise a `FileTransport`, the local file at that path mapped into memory. Raises
-    `refkv.errors.ResolutionError` when the policy refuses the URL, `FileNotFoundError` for a
-    path that does not exist, and `OSError` when the first bytes cannot be read."""
+    `refkv.errors.ResolutionError` when the policy refuses the URL, or for a URL of another scheme
+    that `registry` has no store for; `FileNotFoundError` for a path that does not exist; and
+    `OSError` when the first bytes cannot be read (or what a registered store raises)."""
+    found = registered(location, registry, policy)
+    if found is not None:
+        return ObjectTransport(location, *found)
     if location.startswith(("http://", "https://")):
         return HttpTransport(location, policy)
     return FileTransport(location)
