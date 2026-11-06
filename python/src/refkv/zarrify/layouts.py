@@ -31,6 +31,7 @@ from __future__ import annotations
 import dataclasses
 import importlib.metadata
 import json
+import math
 import re
 import uuid as uuids
 from collections.abc import Iterable, Mapping, Sequence
@@ -64,9 +65,10 @@ CMO = {
     "description": "A layout of a zarrified source that a plugin wrote, and what it was written from",
 }
 # What only refkv declares: its conventions' UUIDs, CMO names and URLs, and the members it writes.
-REFKV_UUIDS = frozenset([UUID, *(str(e["uuid"]).lower() for e in REGISTRY)])
+PROVENANCE_UUID = "7ffd0ef7-df19-408c-a4df-c91623b4c3db"  # spec/provenance.md's convention
+REFKV_UUIDS = frozenset([UUID, PROVENANCE_UUID, *(str(e["uuid"]).lower() for e in REGISTRY)])
 REFKV_NAMES = frozenset(["refkv_zarrified", KEY, "refkv_provenance"])
-REFKV_URLS = ("https://raw.githubusercontent.com/d-v-b/refkv/", "https://github.com/d-v-b/refkv/")
+REFKV_URLS = ("raw.githubusercontent.com/d-v-b/refkv/", "github.com/d-v-b/refkv/")  # schemes and case aside
 RESERVED_KEYS = frozenset(["zarr_conventions", *REFKV_NAMES])
 FILE_PROFILES = frozenset(str(e["name"]) for e in REGISTRY if e["kind"] in ("file", "both"))
 ARRAY_MEMBERS = ("shape", "data_type", "chunk_grid", "chunk_key_encoding", "codecs", "fill_value")
@@ -164,15 +166,23 @@ def load(name: str) -> tuple[Plugin, dict[str, frozenset[int]]]:
     if len(found) > 1:
         raise _usage(name, f"{len(found)} entry points provide it")
     entry = found[0]
-    dist = entry.dist
-    if dist is None or _normalized(dist.name) != first:
-        given = "no distribution" if dist is None else f"the distribution {dist.name!r}"
+    dist = getattr(entry, "dist", None)
+    dist_name = getattr(dist, "name", None)
+    if not isinstance(dist_name, str) or _normalized(dist_name) != first:
+        given = "no distribution" if not isinstance(dist_name, str) else f"the distribution {dist_name!r}"
         raise _usage(name, f"it is provided by {given}: a layout's name starts with its distribution's")
     try:
         plugin = entry.load()
+        if isinstance(plugin, type):  # the entry point names the plugin's class: refkv makes the instance
+            plugin = plugin()
     except Exception as e:
-        raise _usage(name, f"the plugin failed to load: {e}") from e
-    return plugin, _check_plugin(name, plugin)
+        raise _usage(name, f"the plugin failed to load: {type(e).__name__}: {e}") from e
+    try:
+        return plugin, _check_plugin(name, plugin)
+    except LayoutUsageError:
+        raise
+    except Exception as e:  # an attribute that raises when read
+        raise _usage(name, f"the plugin's attributes cannot be read: {type(e).__name__}: {e}") from e
 
 
 def _check_plugin(name: str, plugin: Plugin) -> dict[str, frozenset[int]]:
@@ -201,7 +211,7 @@ def _check_plugin(name: str, plugin: Plugin) -> dict[str, frozenset[int]]:
         value = getattr(convention, member)
         if not isinstance(value, str) or not value:
             raise _usage(name, f"its convention's {member} is not a string")
-        if member != "description" and value.startswith(REFKV_URLS):
+        if member != "description" and re.sub(r"^[a-z]+://", "", value.lower()).startswith(REFKV_URLS):
             raise _usage(name, f"its convention's {member} is refkv's")
     formats = getattr(plugin, "formats", None)
     try:
@@ -210,6 +220,9 @@ def _check_plugin(name: str, plugin: Plugin) -> dict[str, frozenset[int]]:
         raise _usage(name, "formats is not a mapping of profile names to convention versions") from e
     if not all(isinstance(k, str) and all(type(v) is int for v in vs) for k, vs in read.items()):
         raise _usage(name, "formats is not a mapping of profile names to convention versions")
+    if not set(read) & FILE_PROFILES:  # a later refkv's names are ignored, but one must be this one's
+        raise _usage(name, f"formats names no file profile of this refkv ({', '.join(sorted(read)) or 'none'}); "
+                           f"they are {', '.join(sorted(FILE_PROFILES))}")
     if not callable(getattr(plugin, "options", None)) or not callable(getattr(plugin, "write", None)):
         raise _usage(name, "a layout plugin has options() and write()")
     return read
@@ -229,6 +242,7 @@ class Planned:
     formats: Mapping[str, frozenset[int]]
     options: str
     path: str
+    convention: ConventionInfo  # as checked, whatever the plugin does to its own after
 
     def fresh_options(self) -> dict[str, Any]:
         """The canonical options, a new copy."""
@@ -238,6 +252,8 @@ class Planned:
 def plan(layouts: Sequence[Layout]) -> list[Planned]:
     """The plugin layouts of a call, loaded and checked before the input is opened, or
     LayoutUsageError."""
+    if isinstance(layouts, Layout) or not isinstance(layouts, Sequence):
+        raise LayoutUsageError("plugins is a list of Layout values")
     planned: list[Planned] = []
     for layout in layouts:
         if not isinstance(layout, Layout):
@@ -247,7 +263,8 @@ def plan(layouts: Sequence[Layout]) -> list[Planned]:
         if layout.path is not None and not isinstance(layout.path, str):
             raise _usage(layout.name, f"its path is a string, not {type(layout.path).__name__}")
         plugin, formats = load(layout.name)
-        path = plugin.path if layout.path is None else layout.path
+        convention: ConventionInfo = plugin.convention
+        path = str(plugin.path) if layout.path is None else layout.path
         if not _path_ok(path):
             raise _usage(layout.name, f"the path {path!r} is not one key segment of [a-z0-9_-]")
         try:
@@ -256,23 +273,26 @@ def plan(layouts: Sequence[Layout]) -> list[Planned]:
             raise _usage(layout.name, f"its options are not a JSON object: {e}") from e
         try:
             options = plugin.options(given)
-        except Exception as e:
+        except KeyError as e:
+            raise _usage(layout.name, f"its options are refused: a missing member {e}") from e
+        except (Exception, SystemExit) as e:
             raise _usage(layout.name, f"its options are refused: {e}") from e
         if not isinstance(options, Mapping):
             raise _usage(layout.name, "its options() returned no mapping")
         try:  # canonical options are JSON as they are: no NaN, no tuples
             text = json.dumps(dict(options), allow_nan=False, sort_keys=False)
             same = json.loads(text) == dict(options)
-        except (TypeError, ValueError) as e:
+        except Exception as e:
             raise _usage(layout.name, f"its canonical options are not a JSON object: {e}") from e
         if not same:
             raise _usage(layout.name, "its canonical options change in a JSON round trip")
-        planned.append(Planned(layout, plugin, formats, text, path))
+        planned.append(Planned(layout, plugin, formats, text, path, convention))
     for what, seen in (("name", [p.layout.name for p in planned]), ("path", [p.path for p in planned]),
                        ("key", [key_of(p.layout.name) for p in planned]),
-                       ("UUID", [p.plugin.convention.uuid for p in planned])):
-        if len(seen) != len(set(seen)):
-            raise LayoutUsageError(f"two plugin layouts have one {what}")
+                       ("UUID", [p.convention.uuid for p in planned])):
+        twice = sorted({v for v in seen if seen.count(v) > 1})
+        if twice:
+            raise LayoutUsageError(f"two plugin layouts have one {what}, {twice[0]!r}")
     return planned
 
 
@@ -289,7 +309,8 @@ def _is_reference(value: object) -> bool:
     """Whether `value` is a reference value: a Range, or a Concat of Ranges, of those very types."""
     if type(value) is Range:
         return True
-    return type(value) is Concat and all(type(r) is Range for r in value.parts)  # type: ignore[union-attr]
+    parts = getattr(value, "parts", None)
+    return type(value) is Concat and isinstance(parts, tuple) and all(type(r) is Range for r in parts)
 
 
 def _is_document(key: str) -> bool:
@@ -325,10 +346,12 @@ class Base:
         self._version: int = prop["version"]
         self._ir = ir
         hidden = tuple(f"{p}/" for p in layouts.values())
-        self._values = {k: v for k, v in store.mapping.items() if not k.startswith(hidden)}
+        kept = {k: v for k, v in store.mapping.items() if not k.startswith(hidden)}
+        # each reference value without its checksum (a plugin sees none: they are of the source's
+        # bytes), to the base's own value, which refkv writes
+        self._references = {_without_checksum(v): v for v in kept.values() if isinstance(v, (Range, Concat))}
+        self._values = {k: _without_checksum(v) if isinstance(v, (Range, Concat)) else v for k, v in kept.items()}
         self._root = json.dumps(root)
-        # each reference value without its checksum, to the value itself: what a layout may copy
-        self._references = {_without_checksum(v): v for v in self._values.values() if isinstance(v, (Range, Concat))}
 
     @property
     def profile(self) -> str:
@@ -356,7 +379,7 @@ class Base:
             return json.loads(self._root)
         value = self._values.get(key)
         if not _is_document(key) or not isinstance(value, bytes):
-            raise KeyError(key)
+            raise KeyError(f"no document {key!r} in the base (a document's key ends in zarr.json)")
         return json.loads(value)
 
     def array(self, path: str) -> tuple[dict[str, Any], dict[str, bytes | Range | Concat]]:
@@ -377,7 +400,10 @@ class Base:
         """The base's reference value equal to `value` but for checksums, or None."""
         if not _is_reference(value):
             return None
-        return self._references.get(_without_checksum(value))  # type: ignore[arg-type]
+        try:
+            return self._references.get(_without_checksum(value))  # type: ignore[arg-type]
+        except (TypeError, ValueError):  # a Range of unhashable members
+            return None
 
 
 def _inverse(order: Sequence[int]) -> list[int]:
@@ -474,7 +500,7 @@ def dump(doc: object) -> bytes:
 def _key_ok(key: object) -> bool:
     """Whether `key` is a key a layout may hold: relative, valid UTF-8, with no empty, `.` or `..`
     segment, none that starts with `__`, and `zarr.json` only as its last."""
-    if not isinstance(key, str) or not key:
+    if type(key) is not str or not key:
         return False
     try:
         key.encode("utf-8")
@@ -511,15 +537,25 @@ def _strings_ok(value: object) -> bool:
     return True
 
 
-def _parsed(value: bytes | bytearray) -> object:
+def _finite(text: str) -> float:
+    value = float(text)
+    if not math.isfinite(value):
+        raise ValueError(f"{text} is beyond binary64")
+    return value
+
+
+def _parsed(value: bytes) -> object:
     """A document, parsed as strict JSON in UTF-8: no byte order mark, no NaN or infinities, no
-    member twice, no lone surrogate."""
-    text = bytes(value).decode("utf-8")  # strict: a UnicodeDecodeError, a ValueError, for other bytes
-    if text.startswith("﻿"):
+    member twice, no lone surrogate, nesting within Python's recursion limit."""
+    text = value.decode("utf-8")  # strict: a UnicodeDecodeError, a ValueError, for other bytes
+    if text.startswith("\ufeff"):
         raise ValueError("a byte order mark")
-    doc = json.loads(text, parse_constant=_no_constant, object_pairs_hook=_no_duplicates)
-    if not _strings_ok(doc):
-        raise ValueError("a string that is not valid Unicode")
+    try:
+        doc = json.loads(text, parse_constant=_no_constant, parse_float=_finite, object_pairs_hook=_no_duplicates)
+        if not _strings_ok(doc):
+            raise ValueError("a string that is not valid Unicode")
+    except RecursionError:
+        raise ValueError("nested too deep") from None
     return doc
 
 
@@ -527,17 +563,23 @@ def _check_cmos(where: str, cmos: object, plugin: dict[str, str]) -> None:
     """Checks a document's `zarr_conventions`: a list of objects, none declaring a refkv
     convention, and the plugin's equal to the one its ConventionInfo makes."""
     if not isinstance(cmos, list) or not all(isinstance(c, dict) for c in cmos):
-        raise ValueError(f"{where}: zarr_conventions is not a list of objects")
+        raise TypeError(f"{where}: zarr_conventions is not a list of objects")
     for cmo in cmos:
-        uuid = str(cmo.get("uuid", "")).lower()
-        urls = [str(cmo.get(m, "")) for m in ("schema_url", "spec_url")]
-        if uuid in REFKV_UUIDS or cmo.get("name") in REFKV_NAMES or any(u.startswith(REFKV_URLS) for u in urls):
+        try:
+            uuid = str(uuids.UUID(str(cmo.get("uuid"))))
+        except ValueError:
+            uuid = str(cmo.get("uuid", "")).lower()
+        name = cmo.get("name")
+        urls = [re.sub(r"^[a-z]+://", "", str(cmo.get(m, "")).lower()) for m in ("schema_url", "spec_url")]
+        if not isinstance(name, str):
+            raise TypeError(f"{where}: a CMO's name is not a string")
+        if uuid in REFKV_UUIDS or name in REFKV_NAMES or any(u.startswith(REFKV_URLS) for u in urls):
             raise ValueError(f"{where} declares a refkv convention, which refkv alone writes")
-        if uuid == plugin["uuid"] and cmo != plugin:
+        if (uuid == plugin["uuid"] or name == plugin["name"]) and cmo != plugin:
             raise ValueError(f"{where} declares the layout's convention otherwise than its ConventionInfo")
 
 
-def _check(name: str, entries: Mapping[Any, object], base: Base, plugin: dict[str, str]) -> dict[str, dict[str, Any]]:
+def _check(name: str, entries: dict[Any, Any], base: Base, plugin: dict[str, str]) -> dict[str, dict[str, Any]]:
     """Checks a layout's entries against spec/layout.md §3
     <https://github.com/d-v-b/refkv/blob/main/spec/layout.md#3-the-entries>, and returns its
     documents, parsed, by key; LayoutFailed otherwise."""
@@ -546,28 +588,28 @@ def _check(name: str, entries: Mapping[Any, object], base: Base, plugin: dict[st
 
     key = key_of(name)
     docs: dict[str, dict[str, Any]] = {}
-    for k, v in entries.items():
+    for k, given in list(entries.items()):
         if not _key_ok(k):
             raise fail(f"{k!r} is not a key of a layout (relative, valid UTF-8, with no empty, '.', '..' or "
                        "'__' segment, and zarr.json only last)")
-        if _is_document(k):  # type: ignore[arg-type]
-            if not isinstance(v, (bytes, bytearray)):
+        v = bytes(given) if type(given) in (bytes, bytearray) else given  # the very bytes checked are written
+        entries[k] = v
+        if _is_document(k):
+            if type(v) is not bytes:
                 raise fail(f"{k}: a document is bytes")
             try:
                 doc = _parsed(v)
             except ValueError as e:
                 raise fail(f"{k} is not strict JSON in UTF-8: {e}") from e
-            if not isinstance(doc, dict) or doc.get("zarr_format") != 3 or doc.get("node_type") not in ("group",
-                                                                                                         "array"):
+            if not isinstance(doc, dict) or type(doc.get("zarr_format")) is not int or doc["zarr_format"] != 3 \
+                    or doc.get("node_type") not in ("group", "array"):
                 raise fail(f"{k} is not a Zarr v3 group or array document")
-            if doc["node_type"] == "array" and any(m not in doc for m in ARRAY_MEMBERS):
-                raise fail(f"{k}: an array's document holds {', '.join(ARRAY_MEMBERS)}")
-            docs[k] = doc  # type: ignore[index]
-        elif isinstance(v, (Range, Concat)):
-            if base.base_value(v) is None:
-                raise fail(f"{k}: a reference that is not one of the base's (a layout copies references, makes none)")
-        elif not isinstance(v, (bytes, bytearray)):
-            raise fail(f"{k}: a value is bytes, a Range or a Concat")
+            if doc["node_type"] == "array" and (any(m not in doc for m in ARRAY_MEMBERS)
+                                                 or not isinstance(doc["shape"], list)):
+                raise fail(f"{k}: an array's document holds {', '.join(ARRAY_MEMBERS)}, its shape a list")
+            docs[k] = doc
+        elif type(v) is not bytes and base.base_value(v) is None:
+            raise fail(f"{k}: neither bytes nor one of the base's references (a layout copies references, makes none)")
     if docs.get("zarr.json", {}).get("node_type") != "group":
         raise fail("the layout's node, zarr.json, is not a group")
     nodes = {k[: -len("zarr.json")].rstrip("/"): str(d["node_type"]) for k, d in docs.items()}
@@ -593,11 +635,13 @@ def _check(name: str, entries: Mapping[Any, object], base: Base, plugin: dict[st
         for member in REFKV_NAMES:
             if member in attrs:
                 raise fail(f"{k} holds {member}, which refkv writes")
-        if key in attrs and (not isinstance(attrs[key], dict) or "version" in attrs[key]):
-            raise fail(f"{k}: the layout's key {key} holds an object, without version, which refkv writes")
+        if key in attrs and not isinstance(attrs[key], dict):
+            raise fail(f"{k}: the plugin's key {key} does not hold an object")
+        if key in attrs and "version" in attrs[key]:
+            raise fail(f"{k}: the plugin's key {key} must not hold version: refkv writes it")
         try:
             _check_cmos(k, attrs.get("zarr_conventions", []), plugin)
-        except ValueError as e:
+        except (TypeError, ValueError) as e:
             raise fail(str(e)) from e
     return docs
 
@@ -613,7 +657,7 @@ def _declared(p: Planned, node: dict[str, Any], base: tuple[str, int], source: o
     <https://github.com/d-v-b/refkv/blob/main/spec/layout.md#3-the-entries>): the refkv_layout CMO,
     then the plugin's, then the others it wrote; its key, holding the plugin's version; and the
     layout property, with the canonical options taken before the plugin ran."""
-    name, convention = p.layout.name, p.plugin.convention
+    name, convention = p.layout.name, p.convention
     mine = _cmo(name, convention)
     attrs = dict(node.get("attributes", {}))
     others = [c for c in attrs.pop("zarr_conventions", []) if c.get("uuid") != mine["uuid"]]
@@ -653,12 +697,12 @@ def join(store: ReferenceStore, ir: Ir | None, planned: Sequence[Planned]) -> Re
                                  f"{version} (it reads {reads})")
         base = Base(store, ir)
         try:
-            entries = dict(p.plugin.write(base, p.fresh_options()))
+            entries: dict[Any, Any] = dict(p.plugin.write(base, p.fresh_options()))
         except Rejected as e:
             raise LayoutRejected(f"{name}: {e}") from e
-        except Exception as e:
+        except (Exception, SystemExit) as e:  # SystemExit too: it would stop refkv's event loop thread
             raise LayoutFailed(f"{name}: {type(e).__name__}: {e}") from e
-        docs = _check(name, entries, base, _cmo(name, p.plugin.convention))
+        docs = _check(name, entries, base, _cmo(name, p.convention))
         try:
             node = dump(_declared(p, docs["zarr.json"], declared_base, prop["source"]))
         except (TypeError, ValueError) as e:

@@ -13,6 +13,7 @@ import jsonschema
 import numpy as np
 import pytest
 import zarr
+import zarr.storage
 
 import refkv
 import refkv.zarr
@@ -124,7 +125,7 @@ def test_a_plugin_layout_presents_the_base_s_arrays(monkeypatch, tmp_path, sourc
     """A plugin's layout sits under refkv_layouts/<path>, declared and named on the root; it
     reads back equal to the base's arrays (transposed as the options say); the base's entries
     are those of the same call without the plugin; and the archive saves and reopens."""
-    install(monkeypatch, Entry(plugin.name, plugin()))
+    install(monkeypatch, Entry(plugin.name, plugin))  # the class, as a real entry point loads it
     path = channel_last(tmp_path) if source == "rgb.h5" else FIXTURES / source
     node = extra.pop("path", None)
     store = zarrify(str(path), plugins=[Layout(plugin.name, options, node)], **extra)
@@ -224,7 +225,13 @@ def test_a_source_name_refkv_layouts_is_reserved(tmp_path, kind):
     store = zarrify(str(reserved_file(tmp_path, kind)))
     assert not any(k.startswith("refkv_layouts") for k in store.mapping)
     assert "x/zarr.json" in store.mapping
-    assert "reserved" in json.dumps([document(store, k) for k in store.mapping if k.endswith("zarr.json")])
+    prop = document(store, "zarr.json")["attributes"]["refkv_zarrified"]
+    if kind == "h5":
+        assert prop["hdf5"]["unpresented"]["refkv_layouts"] == "reserved"
+    else:
+        records = prop["npy"]["members"] if kind == "npz" else prop["safetensors"]["tensors"]
+        assert {r["name"]: r.get("reason") for r in records}[
+            "refkv_layouts.npy" if kind == "npz" else "refkv_layouts/w"] == "reserved"
 
 
 @pytest.mark.parametrize(("encoding", "shape", "keys", "order"), [
@@ -252,6 +259,31 @@ def test_copy_follows_the_array_s_chunk_key_encoding(encoding, shape, keys, orde
     assert np.array_equal(read(copied, ""), np.transpose(values, order))
 
 
+def sharded():
+    """A sharded array of 2x2 inner chunks per shard, as zarr-python writes one, in a base."""
+    values = np.arange(4 * 6, dtype="<u2").reshape(4, 6)
+    written = zarr.storage.MemoryStore()
+    a = zarr.create_array(written, shape=(4, 6), shards=(4, 6), chunks=(2, 3), dtype="uint16", fill_value=0,
+                          compressors=None)
+    a[...] = values
+    entries = {k: v.to_bytes() for k, v in written._store_dict.items() if not k.endswith("zarr.json")}
+    doc = json.loads(written._store_dict["zarr.json"].to_bytes())
+    root = {"zarr_format": 3, "node_type": "group",
+            "attributes": {"refkv_zarrified": {"profile": "tiff", "version": 0, "source": {"url": "x.tif"}}}}
+    store = refkv.ReferenceStore({"zarr.json": json.dumps(root).encode(), "a/zarr.json": json.dumps(doc).encode(),
+                                  **{f"a/{k}": v for k, v in entries.items()}})
+    return store, values
+
+
+@pytest.mark.parametrize("order", [[1, 0], [0, 1]])
+def test_copy_transposes_a_shard_s_inner_chunks_and_index(order):
+    """`copy` transposes a sharded array of several inner chunks per shard (whose index a missing
+    index transpose would read wrong) to the base's values, transposed."""
+    store, values = sharded()
+    copied = refkv.ReferenceStore(copy(Base(store, None), "a", order=order))
+    assert np.array_equal(read(copied, ""), np.transpose(values, order))
+
+
 def test_copied_references_are_the_base_s_and_options_are_recorded_as_planned(monkeypatch):
     """A layout's reference is written as the base holds it, checksums included, whatever the
     plugin's value carried, and its recorded options are the canonical ones, whatever write did
@@ -259,6 +291,7 @@ def test_copied_references_are_the_base_s_and_options_are_recorded_as_planned(mo
     def tampered(base, options):
         options["path"] = "/home/me"
         entries = {f"0/{k}": v for k, v in copy(base, "0").items()}
+        assert all(v.crc32c is None for v in entries.values() if isinstance(v, Range))  # a plugin sees no checksums
         return {"zarr.json": group(), **{k: dataclasses.replace(v, crc32c=12345) if isinstance(v, Range) else v
                                         for k, v in entries.items()}}
     install(monkeypatch, Entry(Writes.name, Writes(error=None, entries=None)))
@@ -291,6 +324,20 @@ def test_two_layouts_of_one_convention_are_a_usage_error(monkeypatch):
     install(monkeypatch, Entry(NAME, Ome06()), Entry(WithMrc.name, WithMrc()))
     with pytest.raises(LayoutUsageError, match="one UUID"):
         zarrify(str(FIXTURES / "tiff/strips_uint8.tif"), plugins=[Layout(NAME), Layout(WithMrc.name, path="mrc")])
+
+
+def test_formats_of_no_profile_of_this_refkv_are_a_usage_error(monkeypatch):
+    class Typo(Ome06):
+        formats: ClassVar[dict[str, set[int]]] = {"tif": {0}}
+    install(monkeypatch, Entry(NAME, Typo))
+    with pytest.raises(LayoutUsageError, match="names no file profile"):
+        zarrify(str(FIXTURES / "tiff/strips_uint8.tif"), plugins=[Layout(NAME)])
+
+
+def test_plugins_that_is_not_a_list_is_a_usage_error(monkeypatch):
+    install(monkeypatch, Entry(NAME, Ome06))
+    with pytest.raises(LayoutUsageError, match="a list of Layout"):
+        zarrify(str(FIXTURES / "tiff/strips_uint8.tif"), plugins=Layout(NAME))  # type: ignore[arg-type] (the mistake under test)
 
 
 def test_a_name_not_of_its_distribution_is_a_usage_error(monkeypatch):
@@ -359,7 +406,7 @@ def test_a_reference_the_base_does_not_hold_is_a_failure(monkeypatch):
     def made(base):
         return {"zarr.json": group(), **array_entries(base), "0/c/0/0": Range(source=0, offset=0, length=8)}
     install(monkeypatch, Entry(Writes.name, Writes(made)))
-    with pytest.raises(LayoutFailed, match="not one of the base's"):
+    with pytest.raises(LayoutFailed, match="one of the base's references"):
         zarrify(str(FIXTURES / "tiff/strips_uint8.tif"), plugins=[Layout(Writes.name)])
 
 
@@ -397,6 +444,21 @@ def test_a_plugin_that_changes_its_base_fails(monkeypatch):
         return {"zarr.json": group()}
     install(monkeypatch, Entry(Writes.name, Writes(forge)))
     with pytest.raises(LayoutFailed, match="AttributeError"):
+        zarrify(str(FIXTURES / "tiff/strips_uint8.tif"), plugins=[Layout(Writes.name)])
+
+
+def test_a_plugin_that_exits_fails(monkeypatch):
+    install(monkeypatch, Entry(Writes.name, Writes(error=SystemExit(3))))
+    with pytest.raises(LayoutFailed, match="SystemExit"):
+        zarrify(str(FIXTURES / "tiff/strips_uint8.tif"), plugins=[Layout(Writes.name)])
+
+
+def test_a_provenance_cmo_is_a_failure(monkeypatch):
+    cmo = {"uuid": layouts.PROVENANCE_UUID.upper(), "name": "other", "schema_url": "x", "spec_url": "y",
+           "description": "z"}
+    doc = {"zarr_format": 3, "node_type": "group", "attributes": {"zarr_conventions": [cmo]}}
+    install(monkeypatch, Entry(Writes.name, Writes(lambda _base: {"zarr.json": json.dumps(doc).encode()})))
+    with pytest.raises(LayoutFailed, match="declares a refkv convention"):
         zarrify(str(FIXTURES / "tiff/strips_uint8.tif"), plugins=[Layout(Writes.name)])
 
 

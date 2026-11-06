@@ -20,8 +20,9 @@ machinery (§1.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-st
 `--layout` adds a layout a plugin writes (`refkv.zarrify.layouts`; spec/layout.md
 <https://github.com/d-v-b/refkv/blob/main/spec/layout.md>), under `refkv_layouts/`.
 
-Exits with status 3 if the input is rejected, with status 2 on a usage error (such as a
-local directory without `--url`), and with status 1 if the reader policy
+Exits with status 3 if the input is rejected (or a plugin layout refused for it), with status 2 on
+a usage error (such as a local directory without `--url`, or a layout no plugin provides), and with
+status 1 if a plugin layout failed, if the reader policy
 refuses the input, or a source the archive would name (such as a `--url` on a private
 host without `--allow-private-hosts`): the archive is checked against the policy the
 input is read under, and is not written.
@@ -309,7 +310,7 @@ def _planned(plugins: Sequence[Layout] | None, store: bool) -> list[Planned]:
         return []
     if store:
         raise LayoutUsageError("a store input takes no plugin layouts yet: name a file")
-    return plan(list(plugins))
+    return plan(plugins)
 
 
 async def zarrify_async(location: str | Source | Store, url: str | None = None, *, checksums: bool | None = None,

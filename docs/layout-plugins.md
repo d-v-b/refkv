@@ -11,9 +11,11 @@ as coordinates, as bytes.) The rules are [spec/layout.md](../spec/layout.md).
 
 ## How it works
 
-- **Registration.** A plugin is an object your package registers under the entry-point group
-  `refkv.layouts`, its key the layout's name, `<distribution>.<layout>` (the first part your
-  distribution's name, normalized).
+- **Registration.** A plugin is a class (or an instance of one) your package registers under the
+  entry-point group `refkv.layouts`, its key the layout's name, `<distribution>.<layout>` (the
+  first part your distribution's name, normalized); refkv makes an instance of a class it is
+  given. Its `formats` names the profiles it reads, by name: `tiff`, `ndpi`, `qptiff`, `ims`,
+  `hdf5`, and the rest of [docs/zarrify/README.md](zarrify/README.md)'s.
 - **What it is given.** `write(base, options)` gets the built-in output as a read-only `Base`:
   `base.profile` (`"tiff"`, `"hdf5"`, ...), `base.document(key)` for a `zarr.json`,
   `base.array(path)` for an array's document and chunks, and `base.ir`, the parsed source. A

@@ -84,8 +84,9 @@ its other members.
 ## 2. Plugins
 
 A plugin is given the built-in output as a read-only **base**: the image layout and
-`refkv_source`, without a dataset layout, and its root without `layouts`, so that what it writes
-does not depend on which built-in layouts the call asked for. It is given the base's IR, and the
+`refkv_source`, without a dataset layout, its root without `layouts`, and its ranges without
+checksums (which are of the source's bytes), so that what it writes does not depend on which
+built-in layouts the call asked for, or on whether it asked for checksums. It is given the base's IR, and the
 options the caller gave, in its canonical form. It returns the layout's entries, keys relative to
 its node, and refkv writes them as [§3](#3-the-entries) says. A plugin names the base profiles it
 reads, each with the versions of its convention, and a base that is not one of them refuses the
@@ -117,8 +118,9 @@ failure, and no output is written:
 - No document holds `consolidated_metadata`, the member `refkv_zarrified`, `refkv_layout` or
   `refkv_provenance`, or, in `zarr_conventions` (a list of objects), a CMO with the UUID (in any
   case), the `name` or the URLs of a refkv convention: a profile's, a dataset layout's,
-  provenance's or this one. A CMO with the plugin's convention's UUID equals the one the
-  plugin's description makes. In every document, the plugin's key holds an object without
+  provenance's or this one; a URL is refkv's when, its scheme and case aside, it is under
+  `github.com/d-v-b/refkv/` or `raw.githubusercontent.com/d-v-b/refkv/`. A CMO with the plugin's
+  convention's UUID, or its key as `name`, equals the one the plugin's description makes. In every document, the plugin's key holds an object without
   `version`.
 
 The layout's node is `refkv_layouts/<path>`. The output is then the built-in output the call asked
@@ -134,9 +136,9 @@ for, its entries unchanged but the root's, with:
 
 The references a layout copies are not counted against
 [the references' budget](zarrify.md#12-input), and they come after the base's sources are
-numbered: a reference under `refkv_layouts` names a source the base already uses. Bytes entries are
-written as every output's are: documents read when the archive opens, every other bytes entry
-compressed.
+numbered: a reference under `refkv_layouts` names a source the base already uses. The layout's
+documents, and `refkv_layouts/zarr.json`, are read when the archive opens; its other bytes entries
+are compressed.
 
 A base that holds a key under `refkv_layouts/` refuses the layout request; the bases of file inputs
 that present the source's own names at the root (HDF5, NumPy `.npz` and safetensors) leave out a
@@ -145,7 +147,7 @@ source object of that name, with the reason `reserved`, so that none does.
 ## 4. Copying an array
 
 An array of the base is copied by these rules, so that two producers copy one alike. The copy's
-document is the base's, its `attributes` those the plugin gives (none by default: the base's are
+document is the base's, its `attributes` those the plugin gives (`{}` by default: the base's are
 in [conventions §6](conventions.md#6-source-metadata-as-json)'s encodings, which the base's
 declarations decode), its `dimension_names` those the plugin gives, in the copy's axis order, or
 else the base's; its chunks are the base's entries, as they are.
@@ -172,6 +174,8 @@ when the plugin gives none, and each chunk key's indexes (in the array's chunk k
 - **Keys.** A layout's key, the `name` of its convention's CMO, is its name with `.` and `-` as
   `_`; it is never `zarr_conventions`, `refkv_zarrified`, `refkv_layout` or `refkv_provenance`,
   and a name whose key would be one is refused.
+- **One of each.** Two plugin layouts of one call never share a name, a path, a key or a
+  convention's UUID; such a call is refused before the input is read.
 - **Identity.** A layout is its convention's UUID; names and keys are for people. A reader that
   finds a key whose UUID it does not know ignores it.
 - **Versions.** A plugin's convention says what its version numbers mean and increases its
