@@ -18,12 +18,6 @@ def netcdf_files(tmp_path):
 
 
 # TEMPORARY (CI diagnosis): name each test on stderr, unbuffered, before it runs
-def pytest_runtest_logstart(nodeid):
-    capture = _config.pluginmanager.getplugin("capturemanager")
-    with capture.global_and_fixture_disabled():
-        os.write(2, f"\n>>> {nodeid}\n".encode())
-
-
-def pytest_configure(config):
-    global _config  # noqa: PLW0603
-    _config = config
+def pytest_runtest_protocol(item):
+    with item.config.pluginmanager.getplugin("capturemanager").global_and_fixture_disabled():
+        os.write(2, f"\n>>> {item.nodeid}\n".encode())
