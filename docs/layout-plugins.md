@@ -30,7 +30,8 @@ as coordinates, as bytes.) The rules are [spec/layout.md](../spec/layout.md).
   which can also transpose an array (`order` as `numpy.transpose` takes it: a channel-last image
   into OME's time, channel, space order) without touching its chunks. A copy has no attributes
   unless you give them (the base's are in refkv's encodings), and its dimension names are the
-  base's, permuted, unless you give them, in the copy's order.
+  base's, permuted, unless you give them, in the copy's order. Never edit a copied array's shape
+  or chunk grid by hand: its chunks would then decode as another array, and no check can see it.
 - **What refkv does.** It checks the entries (every reference must be one of the base's), puts
   them under `refkv_layouts/<path>/`, declares the layout with the `refkv_layout` convention and
   your plugin's own, and names it in the root's `layouts`.

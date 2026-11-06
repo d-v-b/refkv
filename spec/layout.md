@@ -112,8 +112,9 @@ failure, and no output is written:
   empty, `.` or `..` segment, no segment that starts with `__`, and `zarr.json` only as its last
   segment; with `refkv_layouts/<path>/` before it, it is at most 65535 bytes, as a ZIP archive's
   keys are.
-- Every document is strict JSON in UTF-8 (RFC 8259): no byte order mark, no `NaN` or infinity,
-  no member twice in one object, no lone surrogate; an array's document holds `shape`,
+- Every document is strict JSON in UTF-8 (RFC 8259): no byte order mark, no `NaN` or infinity
+  (nor a number beyond binary64's range), no member twice in one object, no lone surrogate, and
+  no nesting deeper than 256, the bound of [spec/zarrify.md §1.6](zarrify.md#16-json-documents); an array's document holds `shape`,
   `data_type`, `chunk_grid`, `chunk_key_encoding`, `codecs` and `fill_value`.
 - `zarr.json` is a group. Every other key is a node's `zarr.json` whose parent node's `zarr.json`
   is a group of the layout, or a key below an array's `zarr.json`; no node is inside an array.
@@ -123,7 +124,7 @@ failure, and no output is written:
   base's references and makes none, so it reads only bytes the base reads, under the base's
   pins and reader policy. Each is written as the base holds it, its checksums included,
   whatever checksums the plugin's value has.
-- No document holds `consolidated_metadata`, the top-level attribute `refkv_zarrified`,
+- No document holds the top-level member `consolidated_metadata`, the top-level attribute `refkv_zarrified`,
   `refkv_layout` or `refkv_provenance`, or, in `zarr_conventions` (a list of objects), a CMO with
   the UUID, the `name` or a URL of a refkv convention: a profile's, a dataset layout's,
   provenance's or this one. A UUID is refkv's as RFC 9562 reads it (case, braces, hyphens and a
@@ -186,7 +187,8 @@ when the plugin gives none, and each chunk key's indexes (in the array's chunk k
   and a name whose key would be one is refused.
 - **One of each.** Two plugin layouts of one call never share a name, a path, a key or a
   convention's UUID; such a call is refused before the input is read.
-- **Identity.** A layout is its convention's UUID; names and keys are for people. A reader that
+- **Identity.** A layout is its convention's UUID, written in RFC 9562's form, lower-case
+  hexadecimal digits with hyphens; names and keys are for people. A reader that
   finds a key whose UUID it does not know ignores it.
 - **Versions.** A plugin's convention says what its version numbers mean and increases its
   version whenever its layout changes for some input; its `schema_url` SHOULD differ from one

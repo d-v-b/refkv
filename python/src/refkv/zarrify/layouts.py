@@ -32,6 +32,7 @@ import dataclasses
 import importlib.metadata
 import json
 import math
+import operator
 import re
 import urllib.parse
 import uuid as uuids
@@ -75,6 +76,9 @@ FILE_PROFILES = frozenset(str(e["name"]) for e in REGISTRY if e["kind"] in ("fil
 ARRAY_MEMBERS = ("shape", "data_type", "chunk_grid", "chunk_key_encoding", "codecs", "fill_value")
 
 MAX_KEY = 65535  # bytes of a key's UTF-8 the ZIP binding holds (spec/bindings/vzip.md)
+# a document's nesting, as spec/zarrify.md §1.6
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#16-json-documents> bounds a zarrifier's
+MAX_DEPTH = 256
 
 NAME = re.compile(r"[a-z0-9-]+(?:\.[a-z0-9-]+)+")
 PATH = re.compile(r"[a-z0-9_-]+")
@@ -191,17 +195,19 @@ def load(name: str) -> tuple[Plugin, dict[str, frozenset[int]]]:
     if not isinstance(dist_name, str) or _normalized(dist_name) != first:
         given = "no distribution" if not isinstance(dist_name, str) else f"the distribution {dist_name!r}"
         raise _usage(name, f"it is provided by {given}: a layout's name starts with its distribution's")
-    try:
+    try:  # SystemExit too (an argparse at import, say): it would stop refkv's event loop thread
         plugin = entry.load()
         if isinstance(plugin, type):  # the entry point names the plugin's class: refkv makes the instance
             plugin = plugin()
-    except Exception as e:
+    except (Exception, SystemExit) as e:
         raise _usage(name, f"the plugin failed to load: {type(e).__name__}: {e}") from e
+    if callable(plugin) and not hasattr(plugin, "name"):
+        raise _usage(name, f"the entry point names {plugin!r}: name the plugin's class, or an instance of it")
     try:
         return plugin, _check_plugin(name, plugin)
     except LayoutUsageError:
         raise
-    except Exception as e:  # an attribute that raises when read
+    except (Exception, SystemExit) as e:  # an attribute that raises when read
         raise _usage(name, f"the plugin's attributes cannot be read: {type(e).__name__}: {e}") from e
 
 
@@ -238,7 +244,7 @@ def _check_plugin(name: str, plugin: Plugin) -> dict[str, frozenset[int]]:
             raise _usage(name, f"its convention's {member} is refkv's")
     formats = getattr(plugin, "formats", None)
     try:
-        read = {str(k): frozenset(vs) for k, vs in formats.items()}  # type: ignore[union-attr]
+        read = {k: frozenset(vs) for k, vs in formats.items()}  # type: ignore[union-attr]
     except (AttributeError, TypeError) as e:
         raise _usage(name, "formats is not a mapping of profile names to convention versions") from e
     if not all(isinstance(k, str) and all(type(v) is int and v >= 0 for v in vs) for k, vs in read.items()):
@@ -486,10 +492,17 @@ def copy(base: Base, path: str, order: Sequence[int] | None = None, attributes: 
     names = doc.get("dimension_names") if dimension_names is None else list(dimension_names)
     if dimension_names is not None and len(names) != n:  # type: ignore[arg-type]
         raise ValueError(f"{len(names)} dimension names for an array of {n} dimensions")  # type: ignore[arg-type]
+    if dimension_names is not None and isinstance(dimension_names, str):
+        raise ValueError("dimension_names is a list of names, not a string")
     if order is not None:
-        if not all(type(o) is int for o in order):
-            raise ValueError(f"order {list(order)} holds the base's axis indexes, integers (as numpy.transpose takes)")
-        order = list(order)
+        try:
+            indexes = [operator.index(o) for o in order]
+        except TypeError:
+            indexes = None
+        if indexes is None or any(isinstance(o, bool) for o in order):
+            raise ValueError(f"order {list(order)} holds the base's axis indexes, integers (as numpy.transpose "
+                             "takes)")
+        order = indexes
         if sorted(order) != list(range(n)):
             raise ValueError(f"order {order} is not a permutation of the array's {n} axes")
     if order is not None and order != list(range(n)):
@@ -570,6 +583,17 @@ def _finite(text: str) -> float:
     return value
 
 
+def _depth(value: object) -> int:
+    """How deep `value`'s arrays and objects nest, walked without recursion."""
+    deepest, stack = 0, [(value, 1)]
+    while stack:
+        item, d = stack.pop()
+        if isinstance(item, (dict, list)):
+            deepest = max(deepest, d)
+            stack.extend((v, d + 1) for v in (item.values() if isinstance(item, dict) else item))
+    return deepest
+
+
 def _parsed(value: bytes) -> object:
     """A document, parsed as strict JSON in UTF-8: no byte order mark, no NaN or infinities, no
     member twice, no lone surrogate, nesting within Python's recursion limit."""
@@ -581,7 +605,9 @@ def _parsed(value: bytes) -> object:
         if not _strings_ok(doc):
             raise ValueError("a string that is not valid Unicode")
     except RecursionError:
-        raise ValueError("nested too deep") from None
+        raise ValueError(f"nested deeper than {MAX_DEPTH}") from None
+    if _depth(doc) > MAX_DEPTH:
+        raise ValueError(f"nested deeper than {MAX_DEPTH}")
     return doc
 
 
@@ -625,7 +651,7 @@ def _check(name: str, entries: dict[Any, Any], base: Base, plugin: dict[str, str
         entries[k] = v
         if _is_document(k):
             if type(v) is not bytes:
-                raise fail(f"{k}: a document is bytes")
+                raise fail(f"{k}: a document is bytes, not {type(v).__name__} (json.dumps(doc).encode())")
             try:
                 doc = _parsed(v)
             except ValueError as e:
@@ -639,7 +665,11 @@ def _check(name: str, entries: dict[Any, Any], base: Base, plugin: dict[str, str
             docs[k] = doc
         elif type(v) is not bytes and base.base_value(v) is None:
             raise fail(f"{k}: neither bytes nor one of the base's references (a layout copies references, makes none)")
-    if docs.get("zarr.json", {}).get("node_type") != "group":
+    if "zarr.json" not in docs:
+        hint = " (keys are relative to the layout's node: drop the prefix)" if entries and all(
+            k.startswith(f"{NODE}/") for k in entries) else ""
+        raise fail(f"the layout has no zarr.json: return its node's group document at the key zarr.json{hint}")
+    if docs["zarr.json"].get("node_type") != "group":
         raise fail("the layout's node, zarr.json, is not a group")
     nodes = {k[: -len("zarr.json")].rstrip("/"): str(d["node_type"]) for k, d in docs.items()}
     for node in nodes:
@@ -654,7 +684,8 @@ def _check(name: str, entries: dict[Any, Any], base: Base, plugin: dict[str, str
         while holder and holder not in nodes:
             holder = holder.rpartition("/")[0]
         if nodes.get(holder) != "array":
-            raise fail(f"{k} is not below an array of the layout")
+            raise fail(f"{k} is not below an array of the layout (copy the array's zarr.json too: "
+                       "copy(base, path) returns both)")
     for k, doc in docs.items():
         attrs = doc.get("attributes", {})
         if "consolidated_metadata" in doc:
