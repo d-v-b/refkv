@@ -30,16 +30,24 @@ as coordinates, as bytes.) The rules are [spec/layout.md](../spec/layout.md).
   which can also transpose an array (`order` as `numpy.transpose` takes it: a channel-last image
   into OME's time, channel, space order) without touching its chunks. A copy has no attributes
   unless you give them (the base's are in refkv's encodings), and its dimension names are the
-  base's, permuted, unless you give them, in the copy's order. Never edit a copied array's shape
-  or chunk grid by hand: its chunks would then decode as another array, and no check can see it.
-- **What refkv does.** It checks the entries (every reference must be one of the base's), puts
-  them under `refkv_layouts/<path>/`, declares the layout with the `refkv_layout` convention and
-  your plugin's own, and names it in the root's `layouts`.
+  base's, permuted, unless you give them, in the copy's order. A reference is accepted only where
+  `copy` puts it: under a copy's document (attributes and dimension names yours to give), at the
+  copy's key, so that a copy decodes as the base's array does; a copy you edit (its shape, its
+  chunk grid, a chunk moved or put under an array of your own) is refused. An array of your own,
+  such as coordinates, holds bytes: any Zarr v3 document (its top-level members Zarr v3's;
+  yours go under `attributes`), each chunk below its `zarr.json`.
+- **What refkv does.** It checks the entries ([spec/layout.md](../spec/layout.md#3-the-entries)
+  lists the checks; the layout's `zarr.json` is a group), puts them under
+  `refkv_layouts/<path>/`, declares the layout with the `refkv_layout` convention and your
+  plugin's own, and names it in the root's `refkv_zarrified.layouts`. Your convention's
+  attribute key is the layout's name with `.` and `-` as `_` (`acme_ome_ome06`): refkv writes
+  `version` there, and you may write other members there, and other conventions'
+  `zarr_conventions` entries, on any node.
 - **Asking for it.** `zarrify(path, plugins=[Layout(name, options)])`, or `python -m
   refkv.zarrify <in> <out.vzip> --layout NAME --layout-options NAME=JSON`. The layout's node is at
-  `refkv_layouts/<path>`, the plugin's `path` unless the call gives another, `Layout(name, options,
-  path="other")` or `--layout-path NAME=PATH`, so that two layouts of one plugin need not share
-  one. A reader opens the
+  `refkv_layouts/<path>`, the plugin's `path` (one key segment of `[a-z0-9_-]`) unless the call
+  gives another, `Layout(name, options, path="other")` or `--layout-path NAME=PATH`, for two
+  plugins whose default paths are one. A reader opens the
   layout's path, `refkv_layouts/ome06`, not the archive's root (for the example's HDF5 images,
   `refkv_layouts/ome06/<name>`), as a hierarchy of its own: the root holds refkv's OME-Zarr 0.5
   image, and OME-Zarr 0.6 asks one hierarchy to hold one version. Give a local file by an absolute
@@ -48,10 +56,15 @@ as coordinates, as bytes.) The rules are [spec/layout.md](../spec/layout.md).
   `multiscales`, its levels arrays `0`, `1`, ...; for an HDF5 file, the file's groups and datasets
   are groups and arrays at their own paths, with no dimension names unless the file has them.
   `base.keys()` and `base.document(key)` show the rest.
-- **Errors.** `LayoutUsageError` (a `ValueError`; exit status 2): the layout asked for wrongly,
-  or a plugin that breaks the rules. `LayoutRejected` (a `Rejected`; exit status 3): this input's
-  base is one the plugin does not read, or the plugin raised `Rejected` for it. `LayoutFailed`
-  (exit status 1): `write` raised, or its entries broke a rule; the message says which.
+- **Errors.** `LayoutUsageError` (a `ValueError`; exit status 2): the layout asked for wrongly
+  (`options()` raised `ValueError`), or a plugin that breaks the rules. `LayoutRejected` (a
+  `Rejected`; exit status 3): this input's base is one the plugin does not read, or the plugin
+  raised `Rejected` for it. `LayoutFailed` (exit status 1): `options()` raised anything else, or
+  `write` raised, or its entries broke a rule; the message says which, and `python -m
+  refkv.zarrify` prints your plugin's traceback.
+- **Trying it out.** refkv finds a plugin only by its entry point, so install your package
+  while you work on it, `pip install -e .` (or `uv pip install -e .`) in its directory, and its
+  entry point is there with each edit; a test can then call `zarrify(..., plugins=[...])`.
 
 A TIFF (and an NDPI, QPTIFF or IMS file) is already an OME-Zarr 0.5 image in refkv's own layout,
 so the example copies its levels and writes 0.6 metadata over them, moving each level by half its

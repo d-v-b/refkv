@@ -200,6 +200,10 @@ def test_copy_transposes_an_array_to_the_same_values(source, array, order):
         copied = refkv.ReferenceStore(copy(base, path, order=perm), store._sources)
         assert np.array_equal(read(copied, ""), np.transpose(read(store, path), perm)), path
         assert document(copied, "zarr.json")["attributes"] == {}
+        n = len(document(copied, "zarr.json")["shape"])
+        for given in ({}, {"attributes": {"a": 1}, "dimension_names": [f"d{i}" for i in range(n)]}):
+            entries = {f"x/{k}": v for k, v in copy(base, path, order=perm, **given).items()}  # type: ignore[arg-type]
+            layouts._check(NAME, {"zarr.json": doc_bytes(), **entries}, base, {})  # the check passes a copy
 
 
 def reserved_file(tmp_path, kind):
@@ -981,10 +985,112 @@ def test_options_that_cannot_be_written_are_a_usage_error(monkeypatch):
     refused(monkeypatch, variant(options=lambda _self, _given: {"a": {1}}), "not a JSON object")
 
 
-def test_options_that_exit_are_a_usage_error(monkeypatch):
+def test_options_that_exit_are_a_failure(monkeypatch):
     def exits(_self, _given):
         raise SystemExit(1)
-    refused(monkeypatch, variant(options=exits), "options are refused")
+    install(monkeypatch, Entry(NAME, variant(options=exits)))
+    with pytest.raises(LayoutFailed, match=r"options\(\) raised SystemExit"):
+        zarrify(TIF, plugins=[Layout(NAME)])
+
+
+def test_options_that_raise_no_valueerror_are_a_failure(monkeypatch):
+    def buggy(_self, given):
+        return given["missing"]
+    install(monkeypatch, Entry(NAME, variant(options=buggy)))
+    with pytest.raises(LayoutFailed, match=r"options\(\) raised KeyError"):
+        zarrify(TIF, plugins=[Layout(NAME)])
+
+
+SHORT = str(FIXTURES / "tiff/strips_rgb_contig_deflate_short.tif")  # two chunks, 0/c/0/0/0 and 0/c/0/1/0
+
+
+def misplaced(edit):
+    """A plugin layout of the base's level 0, copied, then its entries changed by `edit`."""
+    def write(base):
+        entries = {f"0/{k}": v for k, v in copy(base, "0").items()}
+        doc = json.loads(entries["0/zarr.json"])  # type: ignore[arg-type]
+        return {"zarr.json": doc_bytes(), **edit(entries, doc)}
+    return write
+
+
+OWN = {"zarr_format": 3, "node_type": "array", "shape": [2], "data_type": "uint8",
+       "chunk_grid": {"name": "regular", "configuration": {"chunk_shape": [2]}},
+       "chunk_key_encoding": {"name": "default"}, "codecs": [{"name": "bytes"}], "fill_value": 0}
+
+
+@pytest.mark.parametrize("node", [
+    {"zarr_format": 3, "node_type": "group", "attrs": {}},
+    {"zarr_format": 3, "node_type": "group", "foo": 1},
+    OWN | {"dimension_name": ["x"]},
+    OWN | {"shape": ["x"]},
+    OWN | {"shape": [-1]},
+    OWN | {"data_type": 5},
+    OWN | {"chunk_grid": "regular"},
+    OWN | {"codecs": []},
+    OWN | {"dimension_names": ["x", "y"]},
+])
+def test_a_document_of_members_not_zarr_v3_s_is_a_failure(monkeypatch, node):
+    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes(), "n/zarr.json": json.dumps(node).encode()},
+          "member of a Zarr v3|natural numbers|data_type|with a name|dimension_names")
+
+
+def test_a_member_of_its_own_that_need_not_be_understood_is_written(monkeypatch):
+    own = OWN | {"acme": {"must_understand": False, "x": 1}}
+    install(monkeypatch, Entry(Writes.name, Writes(lambda _base: {
+        "zarr.json": doc_bytes(), "n/zarr.json": json.dumps(own).encode(), "n/c/0": b"\x01\x02"})))
+    store = zarrify(TIF, plugins=[Layout(Writes.name)])
+    assert document(store, "refkv_layouts/ome06/n/zarr.json")["acme"] == {"must_understand": False, "x": 1}
+    assert read(store, "refkv_layouts/ome06/n").tolist() == [1, 2]
+
+
+def test_a_path_too_long_for_a_key_is_a_usage_error(monkeypatch):
+    refused(monkeypatch, Ome06, "more than an archive's 65535", [Layout(NAME, path="a" * 65530)])
+
+
+def test_each_plugin_is_given_an_ir_of_its_own(monkeypatch):
+    seen = []
+
+    class Marks(Writes):
+        def write(self, base, _options):
+            seen.append(getattr(base.ir, "mark", None))
+            base.ir.mark = self.name
+            return {"zarr.json": doc_bytes()}
+
+    class Other(Marks):
+        name, path = "acme-ome.other", "other"
+        convention = dataclasses.replace(Marks.convention, uuid="5f0c2a3e-8d1b-4c7e-9a64-2b1f0e9d7c56")
+
+    install(monkeypatch, Entry(Marks.name, Marks()), Entry(Other.name, Other()))
+    zarrify(TIF, plugins=[Layout(Marks.name), Layout(Other.name)])
+    assert seen == [None, None]
+
+
+def test_a_reference_under_a_hand_shaped_copy_is_a_failure(monkeypatch):
+    def reshaped(entries, doc):
+        doc["shape"] = doc["shape"][::-1]
+        return entries | {"0/zarr.json": json.dumps(doc).encode()}
+    install(monkeypatch, Entry(Writes.name, Writes(misplaced(reshaped))))
+    with pytest.raises(LayoutFailed, match="not a copy of a base array's"):
+        zarrify(SHORT, plugins=[Layout(Writes.name)])
+
+
+def test_a_reference_under_an_array_of_the_plugin_s_own_is_a_failure(monkeypatch):
+    def own(entries, _doc):
+        doc = {"zarr_format": 3, "node_type": "array", "shape": [5], "data_type": "float64",
+               "chunk_grid": {"name": "regular", "configuration": {"chunk_shape": [5]}},
+               "chunk_key_encoding": {"name": "default"}, "codecs": [{"name": "bytes"}], "fill_value": 0}
+        return {"own/zarr.json": json.dumps(doc).encode(), "own/c/0": entries["0/c/0/0/0"]}
+    install(monkeypatch, Entry(Writes.name, Writes(misplaced(own))))
+    with pytest.raises(LayoutFailed, match="not a copy of a base array's"):
+        zarrify(SHORT, plugins=[Layout(Writes.name)])
+
+
+def test_a_reference_at_another_chunk_s_key_is_a_failure(monkeypatch):
+    def swapped(entries, _doc):
+        return entries | {"0/c/0/0/0": entries["0/c/0/1/0"], "0/c/0/1/0": entries["0/c/0/0/0"]}
+    install(monkeypatch, Entry(Writes.name, Writes(misplaced(swapped))))
+    with pytest.raises(LayoutFailed, match="not a copy of a base array's"):
+        zarrify(SHORT, plugins=[Layout(Writes.name)])
 
 
 def test_a_dot_segment_is_a_failure(monkeypatch):
@@ -1177,11 +1283,11 @@ def test_a_plugin_s_base_exception_in_write_fails(monkeypatch, error):
         bounded(lambda: zarrify(TIF, plugins=[Layout(Writes.name)]))
 
 
-def test_a_plugin_s_base_exception_in_options_is_a_usage_error(monkeypatch):
+def test_a_plugin_s_base_exception_in_options_is_a_failure(monkeypatch):
     def cancels(_self, _given):
         raise asyncio.CancelledError
     install(monkeypatch, Entry(NAME, variant(options=cancels)))
-    with pytest.raises(LayoutUsageError, match="CancelledError"):
+    with pytest.raises(LayoutFailed, match="CancelledError"):
         bounded(lambda: zarrify(TIF, plugins=[Layout(NAME)]))
 
 

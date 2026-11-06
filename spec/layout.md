@@ -128,7 +128,14 @@ failure, and no output is written:
   bound. Its `zarr_format` is 3, written as an integer (no fraction, no exponent), and its
   `node_type` `group` or `array`; an array's
   document holds `shape`, `data_type`, `chunk_grid`, `chunk_key_encoding`, `codecs` and
-  `fill_value`, its `shape` a list, and its `attributes`, where present, an object.
+  `fill_value`, its `shape` a list of natural numbers, its `data_type` a string or an object,
+  its `chunk_grid` and `chunk_key_encoding` objects with a string `name`, its `codecs` a
+  non-empty list of such objects, its `dimension_names`, where present, one string or null per
+  axis, and its `attributes`, where present, an object. A document's other top-level members
+  are Zarr v3's for its node type (a group's `zarr_format`, `node_type` and `attributes`, an
+  array's also `dimension_names` and `storage_transformers`), or objects whose
+  `must_understand` is `false`, which Zarr v3 lets a reader ignore, so that a reader that walks
+  the whole archive can parse every node.
 - `zarr.json` is a group. Every other key is a node's `zarr.json` whose parent node's `zarr.json`
   is a group of the layout, or a key below an array's `zarr.json`; no node is inside an array.
 - Every reference entry's ranges are, as [spec/zarrify.md §1.1](zarrify.md#11-output-and-equivalence)
@@ -136,7 +143,12 @@ failure, and no output is written:
   range, or a concatenation of the same ranges, as the base holds it): a layout copies the
   base's references and makes none, so it reads only bytes the base reads, under the base's
   pins and reader policy. Each is written as the base holds it, its checksums included,
-  whatever checksums the plugin's value has.
+  whatever checksums the plugin's value has. It is a chunk of a copy
+  ([§4](#4-copying-an-array)) of a base array that holds it: the layout's array above it has the
+  document [§4](#4-copying-an-array) gives that array for some `order`, attributes and dimension
+  names aside, and each reference below that array is at the key [§4](#4-copying-an-array) gives
+  it there, so that a layout's array decodes as the base's does, transposed. A layout's array
+  that holds no reference is the plugin's own, its chunks bytes.
 - No document holds the top-level member `consolidated_metadata`, the top-level attribute
   `refkv_zarrified`, `refkv_layout` or `refkv_provenance`, or, in `zarr_conventions` (a list of
   objects), a CMO with the UUID or the `name` of a refkv convention: a profile's, a dataset
@@ -195,7 +207,8 @@ when the plugin gives none, and each chunk key's indexes (in the array's chunk k
 - **Names.** A layout's name is `<distribution>.<layout>`: segments of `[a-z0-9-]+` joined by `.`,
   the first the normalized name (PEP 503) of the Python distribution that provides it. A name
   whose first segment starts with `refkv` is refkv's. A layout's path is one key segment of
-  `[a-z0-9_-]+`, not starting with `__`.
+  `[a-z0-9_-]+`, not starting with `__`, short enough that `refkv_layouts/<path>/zarr.json` is
+  at most 65535 bytes.
 - **Keys.** A layout's key, the `name` of its convention's CMO, is its name with `.` and `-` as
   `_`; it is never `zarr_conventions`, `refkv_zarrified`, `refkv_layout` or `refkv_provenance`,
   and a name whose key would be one is refused.

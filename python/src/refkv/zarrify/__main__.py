@@ -1,5 +1,6 @@
 import json
 import sys
+import traceback
 from pathlib import Path
 
 from refkv.errors import ResolutionError
@@ -124,6 +125,8 @@ def main(argv: list[str]) -> int:
         print(f"usage error: {e}", file=sys.stderr)
         return 2
     except LayoutFailed as e:  # the plugin's error, not the input's
+        if e.__cause__ is not None:  # the plugin's own frames, for its author
+            traceback.print_exception(e.__cause__, file=sys.stderr)
         print(f"error: {e}", file=sys.stderr)
         return 1
     except Rejected as e:

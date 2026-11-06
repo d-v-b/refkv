@@ -73,6 +73,8 @@ REFKV_NAMES = frozenset(["refkv_zarrified", KEY, "refkv_provenance"])
 RESERVED_KEYS = frozenset(["zarr_conventions", *REFKV_NAMES])
 FILE_PROFILES = frozenset(str(e["name"]) for e in REGISTRY if e["kind"] in ("file", "both"))
 ARRAY_MEMBERS = ("shape", "data_type", "chunk_grid", "chunk_key_encoding", "codecs", "fill_value")
+GROUP_MEMBERS = frozenset(["zarr_format", "node_type", "attributes"])  # Zarr v3's, which readers parse
+OPTIONAL_ARRAY_MEMBERS = frozenset(["dimension_names", "storage_transformers"])
 
 MAX_KEY = 65535  # bytes of a key's UTF-8 the ZIP binding holds (spec/bindings/vzip.md)
 # a document's nesting, as spec/zarrify.md §1.6
@@ -320,6 +322,9 @@ def plan(layouts: Sequence[Layout]) -> list[Planned]:
         path = str(plugin.path) if layout.path is None else layout.path
         if not _path_ok(path):
             raise _usage(layout.name, f"the path {path!r} is not one key segment of [a-z0-9_-]")
+        if len(f"{NODE}/{path}/zarr.json") > MAX_KEY:
+            raise _usage(layout.name, f"the path is {len(path)} bytes: its node's key would be more than an "
+                                      f"archive's {MAX_KEY}")
         try:  # first, as it refuses a cycle, which a walk of the members would follow for ever
             given = json.loads(json.dumps(dict(layout.options or {}), allow_nan=False))
         except (TypeError, ValueError, RecursionError) as e:
@@ -328,10 +333,10 @@ def plan(layouts: Sequence[Layout]) -> list[Planned]:
             raise _usage(layout.name, "its options' members are named by strings, at every depth")
         try:
             options = plugin.options(given)
-        except KeyError as e:
-            raise _usage(layout.name, f"its options are refused: a missing member {e}") from e
-        except BaseException as e:  # any of a plugin's, made a usage error
+        except ValueError as e:  # the plugin's refusal of the caller's options
             raise _usage(layout.name, f"its options are refused: {type(e).__name__}: {e}") from e
+        except BaseException as e:  # any other of a plugin's (a bug in options(), not the caller's)
+            raise LayoutFailed(f"{layout.name}: options() raised {type(e).__name__}: {e}") from e
         if not isinstance(options, Mapping):
             raise _usage(layout.name, f"its options() returned {type(options).__name__}, not a mapping")
         try:  # canonical options are JSON as they are: no NaN, no tuples, no lone surrogate
@@ -411,6 +416,7 @@ class Base:
         self._values = {k: _without_checksum(v) if isinstance(v, (Range, Concat)) else v for k, v in kept.items()}
         self._sorted = sorted(self._values)  # for an array's keys, found by prefix
         self._root = json.dumps(root)
+        self._holders: dict[Range | Concat, list[str]] | None = None
 
     @property
     def profile(self) -> str:
@@ -458,6 +464,23 @@ class Base:
             if not _is_document(k[len(prefix):]):
                 chunks[k[len(prefix):]] = self._values[k]
         return doc, chunks
+
+    def _arrays_holding(self, value: Range | Concat) -> list[str]:
+        """The paths of the base's arrays that hold the reference `value` (without checksums)."""
+        if self._holders is None:
+            arrays = {k[: -len("zarr.json")].rstrip("/") for k in self._sorted if _is_document(k) and k != "zarr.json"
+                      and json.loads(self._values[k]).get("node_type") == "array"}  # type: ignore[arg-type]
+            holders: dict[Range | Concat, list[str]] = {}
+            for k, v in self._values.items():
+                if isinstance(v, (Range, Concat)):
+                    holder = k.rpartition("/")[0]
+                    while holder and holder not in arrays:
+                        holder = holder.rpartition("/")[0]
+                    paths = holders.setdefault(v, [])
+                    if holder not in paths:
+                        paths.append(holder)
+            self._holders = holders
+        return self._holders.get(_without_checksum(value), [])
 
     def base_value(self, value: object) -> Range | Concat | None:
         """The base's reference value equal to `value` but for checksums, or None."""
@@ -678,6 +701,73 @@ def _check_cmos(where: str, cmos: object, plugin: dict[str, str]) -> None:
             raise ValueError(f"{where} declares the layout's convention otherwise than its ConventionInfo")
 
 
+def _members_wrong(doc: Mapping[str, Any]) -> str | None:
+    """Why a Zarr v3 document's top-level members are not Zarr v3's, or None: a member Zarr v3
+    does not define is an object with `must_understand` false, and an array's `shape`, `data_type`,
+    `chunk_grid`, `chunk_key_encoding`, `codecs` and `dimension_names` have their types."""
+    known = GROUP_MEMBERS | (frozenset(ARRAY_MEMBERS) | OPTIONAL_ARRAY_MEMBERS if doc["node_type"] == "array"
+                             else frozenset())
+    for member, value in doc.items():
+        if member not in known and not (isinstance(value, dict) and value.get("must_understand") is False):
+            return (f"{member} is not a member of a Zarr v3 {doc['node_type']} (a member of its own is an object "
+                    "with must_understand false; attributes go under attributes)")
+    if doc["node_type"] != "array":
+        return None
+    shape = doc["shape"]
+    if not all(type(d) is int and d >= 0 for d in shape):
+        return f"its shape {shape} is not a list of natural numbers"
+    if not isinstance(doc["data_type"], (str, dict)):
+        return "its data_type is not a name or an object"
+    for member in ("chunk_grid", "chunk_key_encoding"):
+        if not isinstance(doc[member], dict) or not isinstance(doc[member].get("name"), str):
+            return f"its {member} is not an object with a name"
+    codecs = doc["codecs"]
+    if not isinstance(codecs, list) or not codecs or not all(
+            isinstance(c, dict) and isinstance(c.get("name"), str) for c in codecs):
+        return "its codecs are not a non-empty list of objects, each with a name"
+    names = doc.get("dimension_names")
+    if names is not None and (not isinstance(names, list) or len(names) != len(shape)
+                              or not all(m is None or isinstance(m, str) for m in names)):
+        return "its dimension_names are not one string or null per axis"
+    return None
+
+
+def _leading_transpose(doc: Mapping[str, Any]) -> object:
+    """The order of the transpose an array's codecs (a sharded array's inner codecs) start with,
+    or None."""
+    codecs = doc.get("codecs")
+    if isinstance(codecs, list) and codecs and isinstance(codecs[0], dict) \
+            and codecs[0].get("name") == "sharding_indexed":
+        codecs = (codecs[0].get("configuration") or {}).get("codecs")
+    if isinstance(codecs, list) and codecs and isinstance(codecs[0], dict) and codecs[0].get("name") == "transpose":
+        return (codecs[0].get("configuration") or {}).get("order")
+    return None
+
+
+def _copied_chunks(base: Base, path: str, doc: Mapping[str, Any]) -> dict[str, object] | None:
+    """The chunks of the copy of the base's array at `path` whose document is `doc`, attributes
+    and dimension names aside, by the copy's keys; None if `doc` is the document of no copy of it."""
+    base_doc, _ = base.array(path)
+    n = len(base_doc["shape"])
+    t, r = _leading_transpose(base_doc), _leading_transpose(doc)
+    identity = list(range(n))
+    t = t if isinstance(t, list) and sorted(t) == identity else identity
+    if r is None:  # copy left out an identity: the inverse undid the base's own transpose
+        inverse = _inverse(t)
+    elif isinstance(r, list) and sorted(r) == identity:  # r is [inverse[t[i]] for each i]
+        inverse = [0] * n
+        for i, ti in enumerate(t):
+            inverse[ti] = r[i]
+    else:
+        return None
+    entries = copy(base, path, order=_inverse(inverse))
+    copied = json.loads(entries.pop("zarr.json"))  # type: ignore[arg-type]
+    aside = ("attributes", "dimension_names")
+    if {k: v for k, v in copied.items() if k not in aside} != {k: v for k, v in doc.items() if k not in aside}:
+        return None
+    return dict(entries)
+
+
 def _check(name: str, entries: dict[Any, Any], base: Base, plugin: dict[str, str], prefix: str = "",
            ) -> dict[str, dict[str, Any]]:
     """Checks a layout's entries against spec/layout.md §3
@@ -711,6 +801,9 @@ def _check(name: str, entries: dict[Any, Any], base: Base, plugin: dict[str, str
             if doc["node_type"] == "array" and (any(m not in doc for m in ARRAY_MEMBERS)
                                                  or not isinstance(doc["shape"], list)):
                 raise fail(f"{k}: an array's document holds {', '.join(ARRAY_MEMBERS)}, its shape a list")
+            why = _members_wrong(doc)
+            if why:
+                raise fail(f"{k}: {why}")
             docs[k] = doc
         elif type(v) is not bytes and base.base_value(v) is None:
             raise fail(f"{k}: neither bytes nor one of the base's references (a layout copies references, makes none)")
@@ -726,7 +819,8 @@ def _check(name: str, entries: dict[Any, Any], base: Base, plugin: dict[str, str
             parent = node.rpartition("/")[0]
             if nodes.get(parent) != "group":
                 raise fail(f"{node}/zarr.json: its parent {parent or '(the node)'} is not a group of the layout")
-    for k in entries:
+    references: dict[str, list[str]] = {}  # by the layout's array that holds them
+    for k, value in entries.items():
         if k in docs:
             continue
         holder = k.rpartition("/")[0]  # type: ignore[union-attr]
@@ -735,6 +829,18 @@ def _check(name: str, entries: dict[Any, Any], base: Base, plugin: dict[str, str
         if nodes.get(holder) != "array":
             raise fail(f"{k} is not below an array of the layout (copy the array's zarr.json too: "
                        "copy(base, path) returns both)")
+        if type(value) is not bytes:
+            references.setdefault(holder, []).append(k)
+    for holder, keys in references.items():
+        # a reference decodes as the base's array does only in a copy of that array, at its key there
+        doc, start = docs[f"{holder}/zarr.json"], len(holder) + 1
+        for path in base._arrays_holding(entries[keys[0]]):  # noqa: SLF001 (the module's own Base)
+            chunks = _copied_chunks(base, path, doc)
+            if chunks is not None and all(chunks.get(k[start:]) == _without_checksum(entries[k]) for k in keys):
+                break
+        else:
+            raise fail(f"{holder}: its references are not a copy of a base array's, each at the key copy() gives it "
+                       "(an array's document is copy()'s, attributes and dimension names aside)")
     for k, doc in docs.items():
         attrs = doc.get("attributes", {})
         if "consolidated_metadata" in doc:
@@ -805,7 +911,8 @@ def join(store: ReferenceStore, ir: Ir | None, planned: Sequence[Planned]) -> Re
                               if k in FILE_PROFILES and vs)
             raise LayoutRejected(f"{name} does not read the {profile} profile's convention at version {version} "
                                  f"(it reads {reads or 'no version of any'})")
-        base = Base(store, ir)
+        # a Base of its own, and an IR wrapper of its own, so that no plugin sees what another set
+        base = Base(store, None if ir is None else type(ir)(ir._core))  # noqa: SLF001 (refkv.ir's own Ir)
         try:
             written = p.plugin.write(base, p.fresh_options())
             entries: dict[Any, Any] = dict(written) if isinstance(written, Mapping) else {}
