@@ -52,7 +52,9 @@ def netcdf(path: Path) -> Path:
         g = f.create_group("sub")
         g.dimensions = {"z": 2}
         g.create_variable("z", ("z",), "i2")[:] = [10, 20]
-        d = g.create_variable("depth", ("time", "z"), "f8", chunks=(3, 2), compression="lzf")
+        # chunked and uncompressed, not LZF: h5py's LZF filter crashes on x86-64 Linux in a process
+        # where a JVM runs (bioio-bioformats', started by the VSI tests); hdf5_filters.h5 has LZF
+        d = g.create_variable("depth", ("time", "z"), "f8", chunks=(3, 2))
         d[:] = np.arange(12.0).reshape(6, 2)
     return path
 
