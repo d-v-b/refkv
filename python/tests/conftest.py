@@ -1,3 +1,5 @@
+import os
+
 import pytest
 import xarray as xr
 import zarr
@@ -13,3 +15,8 @@ def netcdf_files(tmp_path):
     paths = [tmp_path / f"f{i}.nc" for i in range(3)]
     expected = xr.concat([make_netcdf(p, 4 * i) for i, p in enumerate(paths)], dim="time")
     return paths, expected
+
+
+# TEMPORARY (CI diagnosis): name each test on stderr, unbuffered, before it runs
+def pytest_runtest_setup(item):
+    os.write(2, f"\n>>> {item.nodeid}\n".encode())
