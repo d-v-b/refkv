@@ -5,6 +5,7 @@ is refused or fails."""
 import dataclasses
 import json
 import runpy
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -1044,3 +1045,113 @@ def test_a_missing_node_document_is_a_failure(monkeypatch):
 def test_dimension_names_as_a_string_are_refused():
     with pytest.raises(ValueError, match="not a string"):
         copy(Base(zarrify(TIF), None), "0", dimension_names="yx")
+
+
+def nested(depth):
+    """A group's document whose attribute `a` nests arrays to make the document `depth` deep."""
+    return b'{"zarr_format":3,"node_type":"group","attributes":{"a":' + b"[" * (depth - 2) + b"]" * (depth - 2) + b"}}"
+
+
+def test_plugins_that_call_zarrify_run_many_at_once(monkeypatch):
+    """A plugin may call zarrify itself, from many calls at once: each plugin runs on a thread of
+    its own, not on the event loop's executor, which nested calls would use up."""
+    class Nests(Ome06):
+        def write(self, base, options):
+            zarrify(str(FIXTURES / "tiff/strips_uint16_short.tif"))
+            return super().write(base, options)
+
+    install(monkeypatch, Entry(NAME, Nests))
+    with ThreadPoolExecutor(24) as pool:
+        stores = list(pool.map(lambda _: zarrify(TIF, plugins=[Layout(NAME)]), range(24)))
+    assert all(s.mapping == stores[0].mapping for s in stores)
+
+
+def test_documents_at_the_bounds_are_written(monkeypatch):
+    """A document nested exactly 256 deep, and an integer of 400 digits, kept exactly, are
+    written; dimension names given with an order are the copy's own, not permuted again; a
+    document read twice from the base is two dicts."""
+    big = b'{"zarr_format":3,"node_type":"group","attributes":{"n":' + b"9" * 400 + b"}}"
+
+    def edges(base):
+        root = base.document("zarr.json")
+        root["attributes"].clear()
+        assert base.document("zarr.json")["attributes"]
+        copied = copy(base, "0", order=[1, 0], dimension_names=["x", "y"])
+        assert document(refkv.ReferenceStore({"zarr.json": copied["zarr.json"]}), "zarr.json")["dimension_names"] == [
+            "x", "y"]
+        return {"zarr.json": nested(256), "big/zarr.json": big}
+
+    install(monkeypatch, Entry(Writes.name, Writes(edges)))
+    store = zarrify(TIF, plugins=[Layout(Writes.name)])
+    assert document(store, PREFIX + "big/zarr.json")["attributes"]["n"] == int("9" * 400)
+
+
+def test_a_one_segment_name_is_a_usage_error(monkeypatch):
+    refused(monkeypatch, Ome06, "not a layout's name", [Layout("nodot")])
+
+
+def test_a_key_of_more_bytes_than_an_archive_holds_is_a_failure(monkeypatch):
+    key = "0/" + "é" * ((layouts.MAX_KEY - len(PREFIX)) // 2)  # fewer characters than bytes allowed
+    fails(monkeypatch, lambda base: {"zarr.json": doc_bytes(), **array_entries(base), key: b"x"},
+          "more than an archive's")
+
+
+def test_a_document_nested_one_deeper_than_256_is_a_failure(monkeypatch):
+    fails(monkeypatch, lambda _base: {"zarr.json": nested(257)}, "nested deeper than 256")
+
+
+def test_a_document_nested_past_python_s_recursion_is_a_failure(monkeypatch):
+    fails(monkeypatch, lambda _base: {"zarr.json": nested(100000)}, "nested deeper than 256")
+
+
+def test_an_integer_of_too_many_digits_is_a_failure(monkeypatch):
+    many = b'{"zarr_format":3,"node_type":"group","attributes":{"n":' + b"9" * 5000 + b"}}"
+    fails(monkeypatch, lambda _base: {"zarr.json": many}, "not strict JSON")
+
+
+def test_a_zarr_v2_document_is_a_failure(monkeypatch):
+    fails(monkeypatch, lambda _base: {"zarr.json": b'{"zarr_format":2,"node_type":"group"}'}, "Zarr v3 group")
+
+
+def test_a_document_that_is_no_object_is_a_failure(monkeypatch):
+    fails(monkeypatch, lambda _base: {"zarr.json": b"[1, 2]"}, "Zarr v3 group")
+
+
+def test_an_array_document_without_its_fill_value_is_a_failure(monkeypatch):
+    def partial(base):
+        doc = document(refkv.ReferenceStore({"zarr.json": copy(base, "0")["zarr.json"]}), "zarr.json")
+        del doc["fill_value"]
+        return {"zarr.json": doc_bytes(), "0/zarr.json": json.dumps(doc).encode()}
+    fails(monkeypatch, partial, "an array's document holds")
+
+
+def test_an_array_document_whose_shape_is_no_list_is_a_failure(monkeypatch):
+    def partial(base):
+        doc = document(refkv.ReferenceStore({"zarr.json": copy(base, "0")["zarr.json"]}), "zarr.json")
+        doc["shape"] = "64x64"
+        return {"zarr.json": doc_bytes(), "0/zarr.json": json.dumps(doc).encode()}
+    fails(monkeypatch, partial, "its shape a list")
+
+
+def test_a_dataset_layout_s_cmo_is_a_failure(monkeypatch):
+    cmo = {"uuid": PROFILES["mrc-dataset"][0]}
+    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes({"zarr_conventions": [cmo]})}, "declares a refkv")
+
+
+def test_a_refkv_url_in_another_case_is_a_failure(monkeypatch):
+    cmo = {"uuid": "77777777-7777-4777-8777-777777777777", "spec_url": "https://github.com/D-V-B/refkv/x"}
+    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes({"zarr_conventions": [cmo]})}, "declares a refkv")
+
+
+def test_a_cmo_name_that_is_null_is_a_failure(monkeypatch):
+    cmo = {"uuid": "77777777-7777-4777-8777-777777777777", "name": None}
+    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes({"zarr_conventions": [cmo]})}, "name is not a string")
+
+
+def test_a_key_that_is_no_string_is_a_failure(monkeypatch):
+    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes(), 5: b"x"}, "not a key of a layout")
+
+
+def test_copy_refuses_a_boolean_order():
+    with pytest.raises(ValueError, match="axis indexes"):
+        copy(Base(zarrify(TIF), None), "0", order=[True, False])

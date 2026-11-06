@@ -37,7 +37,13 @@ as coordinates, as bytes.) The rules are [spec/layout.md](../spec/layout.md).
   your plugin's own, and names it in the root's `layouts`.
 - **Asking for it.** `zarrify(path, plugins=[Layout(name, options)])`, or `python -m
   refkv.zarrify <in> <out.vzip> --layout NAME --layout-options NAME=JSON`. A reader opens the
-  layout's path, `refkv_layouts/ome06`, not the archive's root.
+  layout's path, `refkv_layouts/ome06`, not the archive's root (for the example's HDF5 images,
+  `refkv_layouts/ome06/<name>`). Give a local file by an absolute path, or give `url`, since the
+  archive names its source by what you give.
+- **What a base looks like.** For a TIFF (NDPI, QPTIFF, IMS), the root's `ome` holds OME-Zarr 0.5
+  `multiscales`, its levels arrays `0`, `1`, ...; for an HDF5 file, the file's groups and datasets
+  are groups and arrays at their own paths, with no dimension names unless the file has them.
+  `base.keys()` and `base.document(key)` show the rest.
 - **Errors.** `LayoutUsageError` (a `ValueError`; exit status 2): the layout asked for wrongly,
   or a plugin that breaks the rules. `LayoutRejected` (a `Rejected`; exit status 3): this input's
   base is one the plugin does not read, or the plugin raised `Rejected` for it. `LayoutFailed`
@@ -88,6 +94,8 @@ business (NWB's, BigDataViewer's), so the options name them.
 """
 
 import json
+import math
+import re
 from collections.abc import Mapping
 from typing import Any, ClassVar
 
@@ -98,6 +106,26 @@ from refkv.zarrify.layouts import Base, ConventionInfo, copy
 Entries = dict[str, bytes | Range | Concat]
 IMAGES = ("tiff", "ndpi", "qptiff", "ims")  # the profiles whose image layout is OME-Zarr 0.5
 AXIS_TYPES = ("time", "channel", "space")
+
+
+def axis(given: Mapping[str, Any]) -> dict[str, Any]:
+    """An OME-Zarr 0.6 axis: its name and type, and its unit, long name and discreteness if given,
+    each of its JSON type."""
+    if set(given) - {"name", "type", "unit", "longName", "discrete"}:
+        raise ValueError(f"an axis has name, type, unit, longName and discrete, not {sorted(given)}")
+    if given.get("type") not in AXIS_TYPES:
+        raise ValueError(f"an axis's type is time, channel or space, not {given.get('type')!r}")
+    if not all(isinstance(given.get(m, ""), str) for m in ("name", "unit", "longName")) or "name" not in given \
+            or not isinstance(given.get("discrete", False), bool):
+        raise ValueError(f"an axis's name, unit and longName are strings, and discrete a boolean: {dict(given)}")
+    return dict(given)
+
+
+def number(given: object) -> float:
+    """A scale: a finite number."""
+    if isinstance(given, bool) or not isinstance(given, (int, float)) or not math.isfinite(given):
+        raise ValueError(f"a scale is a finite number, not {given!r}")
+    return float(given)
 
 
 def group(attributes: Mapping[str, object]) -> bytes:
@@ -127,16 +155,17 @@ class Ome06:
             for image in given.get("images", []):
                 name, array, dims = str(image["name"]), str(image["array"]), [str(d) for d in image["dims"]]
                 order = [str(d) for d in image.get("order", dims)]
-                axes = [{k: str(v) for k, v in a.items()} for a in image["axes"]]
-                scale = [float(s) for s in image.get("scale", [1.0] * len(dims))]
-                if not name.isidentifier():
-                    raise ValueError(f"{name!r} is not an image's name")
-                if sorted(order) != sorted(dims) or [a["name"] for a in axes] != order or len(scale) != len(dims):
+                axes = [axis(a) for a in image["axes"]]
+                scale = [number(s) for s in image.get("scale", [1.0] * len(dims))]
+                if not re.fullmatch(r"[A-Za-z0-9_.-]+", name) or name.startswith("__"):
+                    raise ValueError(f"{name!r} is not an image's name, a key segment")
+                if len(set(dims)) != len(dims) or sorted(order) != sorted(dims) \
+                        or [a["name"] for a in axes] != order or len(scale) != len(dims):
                     raise ValueError(f"{name}: order, axes and scale give each of dims {dims} once")
-                types = [a.get("type") for a in axes]
-                if any(t not in AXIS_TYPES for t in types) or types != sorted(types, key=AXIS_TYPES.index) \
-                        or not 2 <= len(types) <= 5 or not 2 <= types.count("space") <= 3:
-                    raise ValueError(f"{name}: 2 to 5 axes, time, then channel, then 2 or 3 of space")
+                types = [a["type"] for a in axes]
+                if types != sorted(types, key=AXIS_TYPES.index) or not 2 <= len(types) <= 5 \
+                        or not 2 <= types.count("space") <= 3 or types.count("time") > 1 or types.count("channel") > 1:
+                    raise ValueError(f"{name}: 2 to 5 axes: a time, then a channel, then 2 or 3 of space")
                 if name in [i["name"] for i in images]:
                     raise ValueError(f"two images are named {name}")
                 images.append({"name": name, "array": array, "dims": dims, "order": order, "axes": axes,

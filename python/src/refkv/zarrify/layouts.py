@@ -28,6 +28,7 @@ running in the caller's process.
 
 from __future__ import annotations
 
+import bisect
 import dataclasses
 import importlib.metadata
 import json
@@ -35,7 +36,6 @@ import math
 import operator
 import re
 import urllib.parse
-import uuid as uuids
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
@@ -157,7 +157,8 @@ def _is_refkv_url(url: object) -> bool:
     case, `www.`, port or trailing slash."""
     if not isinstance(url, str):
         return False
-    parts = urllib.parse.urlsplit(url.strip().lower() if "://" in url else "//" + url.strip().lower())
+    text = url.strip().lower()
+    parts = urllib.parse.urlsplit(text if "://" in text else "//" + text)
     host = (parts.hostname or "").removeprefix("www.")
     return host in REFKV_HOSTS and (parts.path.rstrip("/") + "/").startswith("/d-v-b/refkv/")
 
@@ -165,6 +166,22 @@ def _is_refkv_url(url: object) -> bool:
 def _utf8(value: object) -> bool:
     """Whether every string in `value` encodes as UTF-8 (no lone surrogate)."""
     return _strings_ok(value)
+
+
+def _uuid_form(text: object) -> str | None:
+    """A UUID's RFC 9562 form (lower case, hyphenated), read from `text` with its case, braces,
+    hyphens and a `urn:uuid:` or `uuid:` prefix aside; None if it is no UUID."""
+    if not isinstance(text, str):
+        return None
+    t = text.lower()
+    for prefix in ("urn:uuid:", "uuid:"):
+        t = t.removeprefix(prefix)
+    if t.startswith("{") and t.endswith("}"):
+        t = t[1:-1]
+    t = t.replace("-", "")
+    if re.fullmatch(r"[0-9a-f]{32}", t) is None:
+        return None
+    return f"{t[:8]}-{t[8:12]}-{t[12:16]}-{t[16:20]}-{t[20:]}"
 
 
 def _usage(name: str, why: str) -> LayoutUsageError:
@@ -226,10 +243,9 @@ def _check_plugin(name: str, plugin: Plugin) -> dict[str, frozenset[int]]:
         raise _usage(name, "its convention is not a ConventionInfo")
     if not _utf8([convention.uuid, convention.schema_url, convention.spec_url, convention.description]):
         raise _usage(name, "its convention holds a string that is not valid Unicode")
-    try:
-        uuid = str(uuids.UUID(convention.uuid))
-    except (TypeError, ValueError, AttributeError) as e:
-        raise _usage(name, f"its convention's UUID {convention.uuid!r} is not a UUID") from e
+    uuid = _uuid_form(convention.uuid)
+    if uuid is None:
+        raise _usage(name, f"its convention's UUID {convention.uuid!r} is not a UUID")
     if uuid != convention.uuid:
         raise _usage(name, f"its convention's UUID is written {uuid}, in lower case with hyphens")
     if uuid in REFKV_UUIDS:
@@ -381,6 +397,7 @@ class Base:
         # bytes), to the base's own value, which refkv writes
         self._references = {_without_checksum(v): v for v in kept.values() if isinstance(v, (Range, Concat))}
         self._values = {k: _without_checksum(v) if isinstance(v, (Range, Concat)) else v for k, v in kept.items()}
+        self._sorted = sorted(self._values)  # for an array's keys, found by prefix
         self._root = json.dumps(root)
 
     @property
@@ -401,7 +418,7 @@ class Base:
 
     def keys(self) -> list[str]:
         """The base's keys, sorted."""
-        return sorted(self._values)
+        return list(self._sorted)
 
     def document(self, key: str) -> dict[str, Any]:
         """The JSON document at `key` (a `zarr.json`), parsed: a new dict on each call."""
@@ -422,8 +439,12 @@ class Base:
             raise KeyError(f"no array {path!r} in the base") from None
         if doc.get("node_type") != "array":
             raise KeyError(f"{path!r} is a group of the base, not an array")
-        chunks = {k[len(prefix):]: v for k, v in self._values.items()
-                  if k.startswith(prefix) and not _is_document(k[len(prefix):])}
+        chunks: dict[str, bytes | Range | Concat] = {}
+        for k in self._sorted[bisect.bisect_left(self._sorted, prefix):]:
+            if not k.startswith(prefix):
+                break
+            if not _is_document(k[len(prefix):]):
+                chunks[k[len(prefix):]] = self._values[k]
         return doc, chunks
 
     def base_value(self, value: object) -> Range | Concat | None:
@@ -617,12 +638,9 @@ def _check_cmos(where: str, cmos: object, plugin: dict[str, str]) -> None:
     if not isinstance(cmos, list) or not all(isinstance(c, dict) for c in cmos):
         raise TypeError(f"{where}: zarr_conventions is not a list of objects")
     for cmo in cmos:
-        try:
-            uuid = str(uuids.UUID(str(cmo.get("uuid")).strip()))
-        except ValueError:
-            uuid = str(cmo.get("uuid", "")).strip().lower()
+        uuid = _uuid_form(cmo.get("uuid")) or str(cmo.get("uuid", "")).lower()
         name = cmo.get("name")
-        if name is not None and not isinstance(name, str):
+        if "name" in cmo and not isinstance(name, str):
             raise TypeError(f"{where}: a CMO's name is not a string")
         if uuid in REFKV_UUIDS or name in REFKV_NAMES or any(_is_refkv_url(cmo.get(m))
                                                              for m in ("schema_url", "spec_url")):

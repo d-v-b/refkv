@@ -93,9 +93,10 @@ is given the base's IR, and the options the caller gave, in its canonical form. 
 layout's entries, keys relative to its node, and refkv writes them as [§3](#3-the-entries) says.
 
 A plugin names the base profiles it reads, each with the natural numbers of the convention
-versions it reads, and a base that is not one of them refuses the layout request. Names that are
-no file profile of the implementation are ignored, so that a plugin written for a later one loads,
-but a plugin that names none is refused when it is loaded, as is one whose attributes break
+versions it reads (a profile mapped to none reads no version of it), and a base that is not one
+of them refuses the layout request. Every name's versions are natural numbers; names that are no
+file profile of the implementation are otherwise ignored, so that a plugin written for a later one
+loads, but a plugin that names none is refused when it is loaded, as is one whose attributes break
 [§5](#5-names-identity-and-versions)'s rules.
 
 **Structure only.** A plugin's layout is a function of the base's structure (its documents and
@@ -112,9 +113,11 @@ failure, and no output is written:
   empty, `.` or `..` segment, no segment that starts with `__`, and `zarr.json` only as its last
   segment; with `refkv_layouts/<path>/` before it, it is at most 65535 bytes, as a ZIP archive's
   keys are.
-- Every document is strict JSON in UTF-8 (RFC 8259): no byte order mark, no `NaN` or infinity
-  (nor a number beyond binary64's range), no member twice in one object, no lone surrogate, and
-  no nesting deeper than 256, the bound of [spec/zarrify.md §1.6](zarrify.md#16-json-documents); an array's document holds `shape`,
+- Every document is strict JSON in UTF-8 (RFC 8259): no byte order mark, no `NaN` or infinity,
+  no number with a fraction or an exponent beyond binary64's range, no integer of more than 4300
+  digits (an integer is kept exactly, as [spec/zarrify.md §1.6](zarrify.md#16-json-documents)
+  keeps it), no member twice in one object, no lone surrogate, and no nesting deeper than 256,
+  [§1.6](zarrify.md#16-json-documents)'s bound; an array's document holds `shape`,
   `data_type`, `chunk_grid`, `chunk_key_encoding`, `codecs` and `fill_value`.
 - `zarr.json` is a group. Every other key is a node's `zarr.json` whose parent node's `zarr.json`
   is a group of the layout, or a key below an array's `zarr.json`; no node is inside an array.
@@ -127,12 +130,14 @@ failure, and no output is written:
 - No document holds the top-level member `consolidated_metadata`, the top-level attribute `refkv_zarrified`,
   `refkv_layout` or `refkv_provenance`, or, in `zarr_conventions` (a list of objects), a CMO with
   the UUID, the `name` or a URL of a refkv convention: a profile's, a dataset layout's,
-  provenance's or this one. A UUID is refkv's as RFC 9562 reads it (case, braces, hyphens and a
-  `urn:uuid:` prefix aside); a URL is refkv's when its host, `www.`, port and case aside, is
-  `github.com` or `raw.githubusercontent.com` and its path is `/d-v-b/refkv` or below it, whatever
-  its scheme. A CMO's `name`, when it has one, is a string. A CMO with the plugin's
-  convention's UUID, or its key as `name`, equals the one the plugin's description makes. In every document, the plugin's key holds an object without
-  `version`.
+  provenance's or this one. A CMO's UUID is refkv's when, lower-cased, without a `urn:uuid:` or
+  `uuid:` prefix, without enclosing braces and without hyphens, it is the 32 hexadecimal digits of
+  one; its `schema_url` or `spec_url` is refkv's when, lower-cased and with surrounding white space
+  removed (and read as if it had a scheme when it has none), its host without `www.` or a port is
+  `github.com` or `raw.githubusercontent.com` and its path is `/d-v-b/refkv` or starts with
+  `/d-v-b/refkv/`, its percent-escapes not decoded. A CMO that has a `name` has a string there. A CMO with the plugin's
+  convention's UUID, or its key as `name`, equals the one the plugin's description makes. Where a document holds the plugin's key, it is an
+  object without `version`.
 
 The layout's node is `refkv_layouts/<path>`. The output is then the built-in output the call asked
 for, its entries unchanged but the root's, with:

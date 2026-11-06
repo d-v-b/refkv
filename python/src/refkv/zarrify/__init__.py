@@ -58,7 +58,8 @@ in `/`, or a local directory, is a store input.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Iterable, Sequence
+import threading
+from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
 
 # the package, not its names: refkv.ir imports refkv.zarrify.common, so it is still loading when
@@ -304,6 +305,33 @@ def _with_plugins(out: Output | StoreIrOutput | SeriesOutput, fmt: str, policy: 
     return join(store, None if out.ir is None else ir.Ir(out.ir), planned)
 
 
+async def _on_own_thread[T](f: Callable[..., T], *args: object) -> T:
+    """`f(*args)`, run on a thread of its own: a plugin's code may call refkv's blocking API,
+    zarrify itself among it, which needs the event loop's executor that `asyncio.to_thread` would
+    have it hold (spec/layout.md <https://github.com/d-v-b/refkv/blob/main/spec/layout.md>)."""
+    loop = asyncio.get_running_loop()
+    done: asyncio.Future[T] = loop.create_future()
+
+    def settle(result: T | None, error: BaseException | None) -> None:
+        if done.cancelled():
+            return
+        if error is not None:
+            done.set_exception(error)
+        else:
+            done.set_result(result)  # type: ignore[arg-type]
+
+    def run() -> None:
+        try:
+            result = f(*args)
+        except Exception as e:  # noqa: BLE001 (handed to the caller)
+            loop.call_soon_threadsafe(settle, None, e)
+        else:
+            loop.call_soon_threadsafe(settle, result, None)
+
+    threading.Thread(target=run, name="refkv-layouts", daemon=True).start()
+    return await done
+
+
 def _planned(plugins: Sequence[Layout] | None, store: bool) -> list[Planned]:
     """The plugin layouts asked for, loaded and checked before the input is opened."""
     if not plugins:
@@ -387,7 +415,8 @@ async def zarrify_async(location: str | Source | Store, url: str | None = None, 
     - `refkv.zarrify.layouts.LayoutUsageError` (a `ValueError`), `LayoutRejected` (a
       `Rejected`) and `LayoutFailed`: a plugin layout asked for wrongly, refused for this
       input, or failed."""
-    planned = _planned(plugins, isinstance(location, Store) or (isinstance(location, str) and is_store(location)))
+    planned = await _on_own_thread(
+        _planned, plugins, isinstance(location, Store) or (isinstance(location, str) and is_store(location)))
     if isinstance(location, (Source, Store)):
         given = {"url": url, "checksums": checksums, "policy": policy, "connections": connections,
                  "byte_cost": byte_cost, "workers": workers}
@@ -403,11 +432,11 @@ async def zarrify_async(location: str | Source | Store, url: str | None = None, 
             fmt, out = await _zarrify_async(source.location, source.url, checksums=source.checksums,
                                             policy=source.policy, connections=source.connections,
                                             byte_cost=source.byte_cost, fmt=source.profile, layouts=layouts)
-        return await asyncio.to_thread(_with_plugins, out, fmt, source.policy, planned)
+        return await _on_own_thread(_with_plugins, out, fmt, source.policy, planned)
     fmt, out = await _zarrify_async(location, url, checksums=bool(checksums), policy=policy,
                                     connections=connections, byte_cost=byte_cost,
                                     workers=WORKERS if workers is None else workers, layouts=layouts)
-    return await asyncio.to_thread(_with_plugins, out, fmt, policy, planned)
+    return await _on_own_thread(_with_plugins, out, fmt, policy, planned)
 
 
 def zarrify(location: str | Source | Store, url: str | None = None, *, checksums: bool | None = None,
