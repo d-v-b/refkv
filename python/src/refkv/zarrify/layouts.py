@@ -477,7 +477,7 @@ class Base:
                     while holder and holder not in arrays:
                         holder = holder.rpartition("/")[0]
                     paths = holders.setdefault(v, [])
-                    if holder not in paths:
+                    if holder in arrays and holder not in paths:  # a reference outside every array is no chunk
                         paths.append(holder)
             self._holders = holders
         return self._holders.get(_without_checksum(value), [])
@@ -702,15 +702,15 @@ def _check_cmos(where: str, cmos: object, plugin: dict[str, str]) -> None:
 
 
 def _members_wrong(doc: Mapping[str, Any]) -> str | None:
-    """Why a Zarr v3 document's top-level members are not Zarr v3's, or None: a member Zarr v3
-    does not define is an object with `must_understand` false, and an array's `shape`, `data_type`,
-    `chunk_grid`, `chunk_key_encoding`, `codecs` and `dimension_names` have their types."""
+    """Why a Zarr v3 document's top-level members are not Zarr v3's, or None: it has no member
+    Zarr v3 does not define (zarr-python refuses one, even with `must_understand` false), and an
+    array's `shape`, `data_type`, `chunk_grid`, `chunk_key_encoding`, `codecs` and
+    `dimension_names` have their types, a regular grid's chunk shape one positive integer per axis."""
     known = GROUP_MEMBERS | (frozenset(ARRAY_MEMBERS) | OPTIONAL_ARRAY_MEMBERS if doc["node_type"] == "array"
                              else frozenset())
-    for member, value in doc.items():
-        if member not in known and not (isinstance(value, dict) and value.get("must_understand") is False):
-            return (f"{member} is not a member of a Zarr v3 {doc['node_type']} (a member of its own is an object "
-                    "with must_understand false; attributes go under attributes)")
+    for member in doc:
+        if member not in known:
+            return f"{member} is not a member of a Zarr v3 {doc['node_type']} (members of your own go under attributes)"
     if doc["node_type"] != "array":
         return None
     shape = doc["shape"]
@@ -719,8 +719,15 @@ def _members_wrong(doc: Mapping[str, Any]) -> str | None:
     if not isinstance(doc["data_type"], (str, dict)):
         return "its data_type is not a name or an object"
     for member in ("chunk_grid", "chunk_key_encoding"):
-        if not isinstance(doc[member], dict) or not isinstance(doc[member].get("name"), str):
-            return f"its {member} is not an object with a name"
+        if not isinstance(doc[member], dict) or not isinstance(doc[member].get("name"), str) \
+                or not isinstance(doc[member].get("configuration", {}), dict):
+            return f"its {member} is not an object with a name, and a configuration object if any"
+    grid = doc["chunk_grid"]
+    if grid["name"] == "regular":
+        chunks = grid.get("configuration", {}).get("chunk_shape")
+        if not isinstance(chunks, list) or len(chunks) != len(shape) or not all(
+                type(c) is int and c > 0 for c in chunks):
+            return f"its regular chunk grid's chunk_shape {chunks} is not one positive integer per axis"
     codecs = doc["codecs"]
     if not isinstance(codecs, list) or not codecs or not all(
             isinstance(c, dict) and isinstance(c.get("name"), str) for c in codecs):
@@ -737,10 +744,11 @@ def _leading_transpose(doc: Mapping[str, Any]) -> object:
     or None."""
     codecs = doc.get("codecs")
     if isinstance(codecs, list) and codecs and isinstance(codecs[0], dict) \
-            and codecs[0].get("name") == "sharding_indexed":
-        codecs = (codecs[0].get("configuration") or {}).get("codecs")
-    if isinstance(codecs, list) and codecs and isinstance(codecs[0], dict) and codecs[0].get("name") == "transpose":
-        return (codecs[0].get("configuration") or {}).get("order")
+            and codecs[0].get("name") == "sharding_indexed" and isinstance(codecs[0].get("configuration"), dict):
+        codecs = codecs[0]["configuration"].get("codecs")
+    if isinstance(codecs, list) and codecs and isinstance(codecs[0], dict) and codecs[0].get("name") == "transpose" \
+            and isinstance(codecs[0].get("configuration"), dict):
+        return codecs[0]["configuration"].get("order")
     return None
 
 
@@ -754,7 +762,7 @@ def _copied_chunks(base: Base, path: str, doc: Mapping[str, Any]) -> dict[str, o
     t = t if isinstance(t, list) and sorted(t) == identity else identity
     if r is None:  # copy left out an identity: the inverse undid the base's own transpose
         inverse = _inverse(t)
-    elif isinstance(r, list) and sorted(r) == identity:  # r is [inverse[t[i]] for each i]
+    elif isinstance(r, list) and all(type(i) is int for i in r) and sorted(r) == identity:  # [inverse[t[i]]]
         inverse = [0] * n
         for i, ti in enumerate(t):
             inverse[ti] = r[i]
@@ -763,7 +771,10 @@ def _copied_chunks(base: Base, path: str, doc: Mapping[str, Any]) -> dict[str, o
     entries = copy(base, path, order=_inverse(inverse))
     copied = json.loads(entries.pop("zarr.json"))  # type: ignore[arg-type]
     aside = ("attributes", "dimension_names")
-    if {k: v for k, v in copied.items() if k not in aside} != {k: v for k, v in doc.items() if k not in aside}:
+
+    def text(d: Mapping[str, Any]) -> str:  # as JSON: 1, 1.0 and true are three values
+        return json.dumps({k: v for k, v in d.items() if k not in aside}, sort_keys=True)
+    if text(copied) != text(doc):
         return None
     return dict(entries)
 
@@ -827,15 +838,19 @@ def _check(name: str, entries: dict[Any, Any], base: Base, plugin: dict[str, str
         while holder and holder not in nodes:
             holder = holder.rpartition("/")[0]
         if nodes.get(holder) != "array":
-            raise fail(f"{k} is not below an array of the layout (copy the array's zarr.json too: "
-                       "copy(base, path) returns both)")
+            raise fail(f"{k} is not below an array of the layout: a key other than a node's zarr.json is a chunk "
+                       "of an array of the layout (copy(base, path) returns an array's zarr.json with its chunks; "
+                       "Zarr v2 documents such as .zgroup cannot be written)")
         if type(value) is not bytes:
             references.setdefault(holder, []).append(k)
     for holder, keys in references.items():
         # a reference decodes as the base's array does only in a copy of that array, at its key there
         doc, start = docs[f"{holder}/zarr.json"], len(holder) + 1
         for path in base._arrays_holding(entries[keys[0]]):  # noqa: SLF001 (the module's own Base)
-            chunks = _copied_chunks(base, path, doc)
+            try:
+                chunks = _copied_chunks(base, path, doc)
+            except (TypeError, ValueError, KeyError, IndexError, AttributeError):  # a document copy() never makes
+                chunks = None
             if chunks is not None and all(chunks.get(k[start:]) == _without_checksum(entries[k]) for k in keys):
                 break
         else:
@@ -844,7 +859,8 @@ def _check(name: str, entries: dict[Any, Any], base: Base, plugin: dict[str, str
     for k, doc in docs.items():
         attrs = doc.get("attributes", {})
         if "consolidated_metadata" in doc:
-            raise fail(f"{k} holds consolidated_metadata")
+            raise fail(f"{k} holds consolidated_metadata: a layout's documents are its only metadata, which "
+                       "consolidated metadata would repeat and a reader trust over them")
         if not isinstance(attrs, dict):
             raise fail(f"{k}: attributes is not an object")
         for member in REFKV_NAMES:

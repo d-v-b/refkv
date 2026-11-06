@@ -1028,18 +1028,20 @@ OWN = {"zarr_format": 3, "node_type": "array", "shape": [2], "data_type": "uint8
     OWN | {"chunk_grid": "regular"},
     OWN | {"codecs": []},
     OWN | {"dimension_names": ["x", "y"]},
+    {"zarr_format": 3, "node_type": "group", "acme": {"must_understand": False}},
+    OWN | {"chunk_grid": {"name": "regular", "configuration": {"chunk_shape": [2.0]}}},
+    OWN | {"chunk_grid": {"name": "regular"}},
+    OWN | {"chunk_key_encoding": {"name": "default", "configuration": "/"}},
 ])
 def test_a_document_of_members_not_zarr_v3_s_is_a_failure(monkeypatch, node):
     fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes(), "n/zarr.json": json.dumps(node).encode()},
-          "member of a Zarr v3|natural numbers|data_type|with a name|dimension_names")
+          "member of a Zarr v3|natural numbers|data_type|with a name|dimension_names|chunk_shape")
 
 
-def test_a_member_of_its_own_that_need_not_be_understood_is_written(monkeypatch):
-    own = OWN | {"acme": {"must_understand": False, "x": 1}}
+def test_an_array_of_the_plugin_s_own_is_written(monkeypatch):
     install(monkeypatch, Entry(Writes.name, Writes(lambda _base: {
-        "zarr.json": doc_bytes(), "n/zarr.json": json.dumps(own).encode(), "n/c/0": b"\x01\x02"})))
+        "zarr.json": doc_bytes(), "n/zarr.json": json.dumps(OWN).encode(), "n/c/0": b"\x01\x02"})))
     store = zarrify(TIF, plugins=[Layout(Writes.name)])
-    assert document(store, "refkv_layouts/ome06/n/zarr.json")["acme"] == {"must_understand": False, "x": 1}
     assert read(store, "refkv_layouts/ome06/n").tolist() == [1, 2]
 
 
@@ -1083,6 +1085,49 @@ def test_a_reference_under_an_array_of_the_plugin_s_own_is_a_failure(monkeypatch
     install(monkeypatch, Entry(Writes.name, Writes(misplaced(own))))
     with pytest.raises(LayoutFailed, match="not a copy of a base array's"):
         zarrify(SHORT, plugins=[Layout(Writes.name)])
+
+
+def floats(value):
+    """`value` with each of its integers a float."""
+    if isinstance(value, dict):
+        return {k: floats(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [floats(v) for v in value]
+    return float(value) if type(value) is int else value
+
+
+@pytest.mark.parametrize("edit", [
+    lambda d: d["codecs"].insert(0, {"name": "transpose", "configuration": {"order": [1.0, 0.0, 2.0]}}),
+    lambda d: d["codecs"].insert(0, {"name": "transpose", "configuration": {"order": [0, "a", 1]}}),
+    lambda d: d["codecs"].insert(0, {"name": "transpose", "configuration": "0,1,2"}),
+    lambda d: d["codecs"].insert(0, {"name": "sharding_indexed", "configuration": []}),
+    lambda d: d.__setitem__("chunk_grid", floats(d["chunk_grid"])),  # 64.0 for 64: equal in Python, not in JSON
+    lambda d: d.__setitem__("fill_value", False),
+])
+def test_a_copy_s_document_changed_in_any_way_is_a_failure(monkeypatch, edit):
+    def changed(entries, doc):
+        edit(doc)
+        return entries | {"0/zarr.json": json.dumps(doc).encode()}
+    install(monkeypatch, Entry(Writes.name, Writes(misplaced(changed))))
+    with pytest.raises(LayoutFailed, match="not a copy of a base array's"):
+        zarrify(SHORT, plugins=[Layout(Writes.name)])
+
+
+class Loose(Writes):
+    """A plugin that puts a base reference held by no array of the base under an array of its own."""
+
+    formats: ClassVar[dict[str, set[int]]] = {"lif": {0}}
+
+    def write(self, base, _options):
+        loose = next(v for k in base.keys()  # noqa: SIM118 (Base.keys, not a dict's)
+                     if isinstance(v := base._values[k], (Range, refkv.Concat)) and not base._arrays_holding(v))
+        return {"zarr.json": doc_bytes(), "n/zarr.json": json.dumps(OWN).encode(), "n/c/0": loose}
+
+
+def test_a_base_reference_outside_every_array_is_a_failure(monkeypatch):
+    install(monkeypatch, Entry(Loose.name, Loose()))
+    with pytest.raises(LayoutFailed, match="not a copy of a base array's"):
+        zarrify(str(FIXTURES / "lif/lif_xlef_tree.xlef"), plugins=[Layout(Loose.name)])
 
 
 def test_a_reference_at_another_chunk_s_key_is_a_failure(monkeypatch):

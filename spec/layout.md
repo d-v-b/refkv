@@ -129,13 +129,14 @@ failure, and no output is written:
   `node_type` `group` or `array`; an array's
   document holds `shape`, `data_type`, `chunk_grid`, `chunk_key_encoding`, `codecs` and
   `fill_value`, its `shape` a list of natural numbers, its `data_type` a string or an object,
-  its `chunk_grid` and `chunk_key_encoding` objects with a string `name`, its `codecs` a
-  non-empty list of such objects, its `dimension_names`, where present, one string or null per
-  axis, and its `attributes`, where present, an object. A document's other top-level members
-  are Zarr v3's for its node type (a group's `zarr_format`, `node_type` and `attributes`, an
-  array's also `dimension_names` and `storage_transformers`), or objects whose
-  `must_understand` is `false`, which Zarr v3 lets a reader ignore, so that a reader that walks
-  the whole archive can parse every node.
+  its `chunk_grid` and `chunk_key_encoding` objects with a string `name` and, where present, a
+  `configuration` object, a `regular` grid's `chunk_shape` one positive integer per axis, its
+  `codecs` a non-empty list of objects with a string `name`, its `dimension_names`, where present, one string or null per
+  axis, and its `attributes`, where present, an object. A document has no top-level member
+  but Zarr v3's for its node type (a group's `zarr_format`, `node_type` and `attributes`, an
+  array's also `dimension_names` and `storage_transformers`), not even an object whose
+  `must_understand` is `false`, which zarr-python refuses, so that a reader that walks the whole
+  archive can parse every node's document.
 - `zarr.json` is a group. Every other key is a node's `zarr.json` whose parent node's `zarr.json`
   is a group of the layout, or a key below an array's `zarr.json`; no node is inside an array.
 - Every reference entry's ranges are, as [spec/zarrify.md §1.1](zarrify.md#11-output-and-equivalence)
@@ -147,8 +148,10 @@ failure, and no output is written:
   ([§4](#4-copying-an-array)) of a base array that holds it: the layout's array above it has the
   document [§4](#4-copying-an-array) gives that array for some `order`, attributes and dimension
   names aside, and each reference below that array is at the key [§4](#4-copying-an-array) gives
-  it there, so that a layout's array decodes as the base's does, transposed. A layout's array
-  that holds no reference is the plugin's own, its chunks bytes.
+  it there, so that each chunk it copies decodes as the base's does, transposed. A copy MAY
+  leave chunks out, which read as its fill value, and MAY hold bytes chunks of the plugin's
+  own; a layout's array that holds no reference is the plugin's own, its chunks bytes. refkv
+  does not decode a layout's bytes chunks: that they fit their array is the plugin's to ensure.
 - No document holds the top-level member `consolidated_metadata`, the top-level attribute
   `refkv_zarrified`, `refkv_layout` or `refkv_provenance`, or, in `zarr_conventions` (a list of
   objects), a CMO with the UUID or the `name` of a refkv convention: a profile's, a dataset

@@ -35,7 +35,11 @@ as coordinates, as bytes.) The rules are [spec/layout.md](../spec/layout.md).
   copy's key, so that a copy decodes as the base's array does; a copy you edit (its shape, its
   chunk grid, a chunk moved or put under an array of your own) is refused. An array of your own,
   such as coordinates, holds bytes: any Zarr v3 document (its top-level members Zarr v3's;
-  yours go under `attributes`), each chunk below its `zarr.json`.
+  yours go under `attributes`), each chunk below its `zarr.json`. refkv does not decode those
+  chunks, so read your layout back with zarr in a test. Every node's parent, up to the layout's
+  `zarr.json`, needs a group document of its own (Zarr v3's implicit groups are refused), and a
+  copy may leave out chunks you do not want (they read as the fill value); give a copy's
+  attributes with `copy(..., attributes=...)`.
 - **What refkv does.** It checks the entries ([spec/layout.md](../spec/layout.md#3-the-entries)
   lists the checks; the layout's `zarr.json` is a group), puts them under
   `refkv_layouts/<path>/`, declares the layout with the `refkv_layout` convention and your
@@ -277,4 +281,8 @@ class Ome06:
   `imaging_rate` or `grid_spacing`) is given in the options.
 - A plugin presents what the base presents: an OME-TIFF's other series, which refkv's TIFF profile
   does not present, cannot become images.
+- A copy keeps its base array's shape, but for a transpose: a plugin cannot add or drop
+  size-1 axes (to pad an image to OME-Zarr 0.4's five dimensions, say), or crop a copy to a
+  region of its chunks, since either would change how the chunks decode.
+- A layout is Zarr v3: no Zarr v2 documents (`.zgroup`, `.zattrs`), so no OME-Zarr 0.4 proper.
 - The browser and the Rust CLI cannot load Python plugins.
