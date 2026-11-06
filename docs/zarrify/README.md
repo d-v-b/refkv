@@ -44,6 +44,7 @@ who each one is for, what you get, and how to run it.
 | TIFF | OME-TIFF, plain TIFF (tiled or in strips), and JPEG-tiled slides such as Aperio SVS | [tiff](tiff/README.md) | [tiff.md §7](../../spec/zarrify/tiff.md#7-tiff-profile) |
 | VSI | Olympus cellSens whole-slide images (`.vsi` with its tile files) | [vsi](vsi/README.md) | [vsi.md §9](../../spec/zarrify/vsi.md#9-vsi-profile) |
 | Zarr v2 | Zarr v2 hierarchies on S3 | [zarr2](zarr2/README.md) | [zarr2.md §7](../../spec/zarrify/zarr2.md#7-zarr-v2-profile) |
+| Zarr v3 | Zarr v3 hierarchies, listed or zipped, as references to their own chunks | [zarr3](zarr3/README.md) | [zarr3.md §7](../../spec/zarrify/zarr3.md#7-zarr-v3-profile) |
 <!-- /profiles -->
 
 A format that reads a file takes a URL, or a local path. One that reads a
@@ -144,15 +145,12 @@ policy=Policy(allow_private_hosts=True))` (`from refkv.policy import
 Policy`). A local file or directory needs neither.
 
 Read the archive in Python with `refkv.zarr` and zarr-python
-(`pip install 'refkv[zarr]'`, or `refkv[images]` for the JPEG, JPEG 2000,
-JPEG XR, PNG, BMP, LERC, WebP, JPEG XL, LZMA, CCITT, EER, PackBits and LZW decoders, packed integers and TIFF's horizontal and floating-point predictors). zarr-python finds the codecs that some formats need by
-the names the archive gives: refkv's own (`refkv.stream`, `refkv.grib`, `refkv.fits_tiles`,
-`refkv.tiff_lzw`, `refkv.skip`, `refkv.precomputed`, `refkv.h5_bitshuffle`, and `n5_default`) through refkv's `zarr.codecs` entry points,
-with no `import refkv.zarr` in your code (zarr imports the codec modules, which are
-under `refkv.zarr`, itself), imagecodecs-zarr's (`imagecodecs_jpeg`,
-`imagecodecs_jpeg2k`, `imagecodecs_jpegxr`, `imagecodecs_ljpeg`, `imagecodecs_lzw`, `imagecodecs_jpegls`, `imagecodecs_dicomrle`, `imagecodecs_htj2k`, `imagecodecs_png`, `imagecodecs_bmp`, `imagecodecs_delta`, `imagecodecs_floatpred`, `imagecodecs_lerc`, `imagecodecs_webp`, `imagecodecs_jpegxl`, `imagecodecs_lzma`, `imagecodecs_packints`, `imagecodecs_packbits`, `imagecodecs_ccittfax4`, `imagecodecs_eer`, `imagecodecs_lzf`, `imagecodecs_lz4h5`), which `refkv[images]` installs, and
-zarr-python's own (`numcodecs.zlib`, `numcodecs.shuffle`, `numcodecs.delta`, `numcodecs.lz4`,
-`numcodecs.bz2`, `numcodecs.lzma`, `numcodecs.fixedscaleoffset`, `numcodecs.quantize`). So a
+(`pip install 'refkv[zarr]'`, or `refkv[images]` for imagecodecs-zarr's codecs). zarr-python
+finds every codec an archive names, which
+[conventions §3](../../spec/conventions.md#3-arrays) lists in a table with the package of each:
+refkv's own through refkv's `zarr.codecs` entry points, with no `import refkv.zarr` in your code
+(zarr imports the codec modules, which are under `refkv.zarr`, itself), imagecodecs-zarr's with
+`refkv[images]`, and zarr-python's own with zarr. So a
 copy of an archive's arrays (in a directory, or in another store) reads with zarr
 alone, except that an array on the zarr-extensions `rectilinear` chunk grid (a
 clipped CZI level, an MP4 video plane whose chunks differ in length, a TIFF level whose compressed last
@@ -425,6 +423,10 @@ each format's metadata is:
   configuration as written. Its mirror is a store's: shards described in place,
   indexes and configurations held, and every other object referenced whole under
   `refkv_source/objects/`.
+- **Zarr v3:** none beside the store's own: each node's attributes stay in place, and only an
+  attribute `refkv_zarrified`, or a `zarr_conventions` that is not a list of other conventions'
+  CMOs, moves under `refkv_zarrified.zarr3.attributes`; the root lists the nodes left out.
+  `refkv_source` is the store's IR mirror, or, for a zip file, the zip file's.
 - **Neuroglancer precomputed:** the `info` document, every member, and each array's scale;
   the scales it does not present, with the reason each.
 - **N5, Zarr v2 and OME-Zarr:** each node's own attributes and the layout

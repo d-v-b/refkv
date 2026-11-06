@@ -10,18 +10,7 @@ OME-Zarr profile, [Part 2](#part-2-the-profile) below.
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `b74ea302-65bb-49ae-b81f-f9bb52cd4eed` ·
 Schema: [schema.json](ome-zarr/schema.json)
 
-Changed 2026-11-04: an array that cannot be presented is left out where it rejected the store, as
-[the Zarr v2 convention](zarr2.md#34-arrays-that-are-not-presented) now says, and a group that needs
-one to be OME is not OME, and is recorded ([§2.1](#21-groups-that-are-not-ome)).
-
-Changed 2026-11-03, with no change to any output: two citations of OME-NGFF's text no longer link to refkv's conventions.
-
-Changed 2026-10-27: a zlib stream's codec is `numcodecs.zlib`, zarr-python's name for it, in
-place of `zlib` ([conventions §3](../conventions.md#3-arrays), d-v-b/refkv#90).
-
-Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
-[Layout](#layout) and its types in type tables
-([conventions §11.5](../conventions.md#115-layout-tables)).
+Changes: [changes/ome-zarr/](changes/ome-zarr/), one file per change.
 
 Changes before 2026-10-22 are recorded in
 [the revision log of VIRTUALIZE.md](../history/virtualize/REVISIONS.md), this document's earlier

@@ -4,6 +4,7 @@
   "uuid": "6cac71ef-dbb2-4acd-b60c-00389aa4238a",
   "version": 0,
   "kind": "file",
+  "store_run": null,
   "sniff": null,
   "chosen_by": "tiff",
   "suffixes": [

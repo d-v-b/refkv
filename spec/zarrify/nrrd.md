@@ -12,19 +12,7 @@ profile, [Part 2](#part-2-the-profile) below. The format is Teem's
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `23e0c600-8da6-40f1-81e7-ab246e948e88` ·
 Schema: [schema.json](nrrd/schema.json)
 
-Changed 2026-11-04: `byte skip` with the gzip encoding is read, as the bytes a `refkv.skip` codec
-passes over in the decompressed data ([§4.1](#41-the-array)), where the profile rejected it; −1
-stays rejected ([§8.2](#82-the-fields)).
-
-Changed 2026-11-01, with no change to any output: the header file is read as a file read as a
-store, by the rules [spec/zarrify.md §1.8](../zarrify.md#18-files-read-as-stores) now states
-for the VSI, NRRD and GRIB profiles ([§8](#8-nrrd-profile)).
-
-Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
-[Layout](#layout) and its types in type tables
-([conventions §11.5](../conventions.md#115-layout-tables)), each chunk's composition in
-[`NrrdChunk`](#type-nrrdchunk) and [`NrrdGzipChunk`](#type-nrrdgzipchunk), and the output's
-sources in [§8.5](#85-chunks)'s table.
+Changes: [changes/nrrd/](changes/nrrd/), one file per change.
 
 Added 2026-10-25.
 

@@ -9,36 +9,7 @@ accepts, is the MRC profile, [Part 2](#part-2-the-profile) below.
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `2aacd010-2ed1-4748-bc3c-5dd5e840bbce` ·
 Schema: [schema.json](mrc/schema.json)
 
-Changed 2026-11-04: the translation of a volume with IMOD's stamp follows IMOD's flag for the
-origin's sign ([§4.2](#42-scales-units-and-position)): a file with the stamp, bit 2 of IMOD's flags
-clear and no standard `nversion` is placed at `-origin`. The layout took such a file's `origin` as
-it stands, which put a subvolume on the wrong side of its parent's first pixel. The dataset
-layout's coordinates change with it. `header` still holds `origin` as stored.
-
-Changed 2026-11-04: a mode 0 file with IMOD's stamp is `int8` when bit 0 of IMOD's flags is set
-or `nversion` declares the standard, and `uint8` otherwise ([§3](#3-data-types)); the earlier
-rule read the bit inverted, against IMOD's documentation, so a stamped mode 0 file's data type
-changes.
-
-Changed 2026-11-04: modes 3 and 101 are admitted ([§3](#3-data-types)): mode 3 as a `struct` of two
-`int16`, mode 101 as `uint8` through zarr-extensions' bit-packing `packbits`, its chunks cut where
-values start on a byte ([§4.1](#41-the-array)).
-
-Changed 2026-11-04: a file gzipped whole (`.map.gz`, `.mrc.gz`) is read, as one chunk of the whole
-stream ([§8.4](#84-gzipped-files)), where the profile rejected it.
-
-Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
-[Layout](#layout) and its types in type tables
-([conventions §11.5](../conventions.md#115-layout-tables)), and the text says, as refkv already
-wrote it, that any one-byte data type, IMOD's `uint8` too, has the codec `bytes` without a byte
-order ([§4.1](#41-the-array)).
-
-Changed 2026-10-25: an edge chunk's zero padding is a range of the output's one zero data
-source, not a literal range of each reference, so that the archive holds the zeros once
-([§8.2](#82-chunks)); no chunk's values change, nor which chunks are copied.
-
-Changed 2026-10-25: a zarrifier may leave the dataset layout out ([§1](#1-declaration),
-[spec/zarrify.md §1.7](../zarrify.md#17-named-inputs-and-layouts)).
+Changes: [changes/mrc/](changes/mrc/), one file per change.
 
 Changes before 2026-10-22 are recorded in
 [the revision log of VIRTUALIZE.md](../history/virtualize/REVISIONS.md), this document's earlier

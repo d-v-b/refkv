@@ -1,0 +1,80 @@
+# DICOM's lossless JPEG files (transfer syntaxes 1.2.840.10008.1.2.4.57 and
+# 1.2.840.10008.1.2.4.70), whose frames the profile reads since the freeze, and those it rejects
+# for their headers (spec/zarrify/dicom.md §7.5
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#75-frames>), which the frozen
+# reference rejects as an unsupported transfer syntax. DICOM's 1-bit images (spec/zarrify/dicom.md
+# §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#3-the-image>), which the
+# frozen reference rejects for their Bits Allocated. DICOM's RLE, JPEG-LS and HTJ2K files, its
+# palette images and native YBR_FULL ones (spec/zarrify/dicom.md §3
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#3-the-image>), and JPEG 2000
+# frames of YBR_FULL_422, which the frozen reference rejects, and those the profile rejects for
+# what they hold.
+dicom_bits1_big_endian_ob.dcm
+dicom_bits1_frames_off_bytes.dcm
+dicom_bits1_frames_on_bytes.dcm
+dicom_bits1_inverted_implicit.dcm
+dicom_bits1_one_frame.dcm
+dicom_htj2k_mono16_bot.dcm
+dicom_htj2k_rgb_ict.dcm
+dicom_htj2k_rgb_no_transform.dcm
+dicom_htj2k_rgb_rct.dcm
+dicom_htj2k_signed16.dcm
+dicom_j2k_ybr_422.dcm
+dicom_jpegls_mono16_bot.dcm
+dicom_jpegls_near_mono8.dcm
+dicom_jpegls_rgb.dcm
+dicom_jpegls_signed16.dcm
+dicom_jpegls_ybr_full.dcm
+dicom_ljpeg_mono16_bot.dcm
+dicom_ljpeg_mono8_split_header.dcm
+dicom_ljpeg_rgb_fragments_bot.dcm
+dicom_ljpeg_signed16_eot.dcm
+dicom_palette_entries_of_bytes.dcm
+dicom_palette_first_mapped.dcm
+dicom_palette_native8.dcm
+dicom_palette_rle.dcm
+dicom_palette_segmented.dcm
+dicom_reject_bits1_big_endian_ow.dcm
+dicom_reject_bits1_jpeg2k.dcm
+dicom_reject_bits1_samples.dcm
+dicom_reject_bits1_short.dcm
+dicom_reject_bits1_short_off_bytes.dcm
+dicom_reject_bits1_signed.dcm
+dicom_reject_bits1_whole_slide.dcm
+dicom_reject_j2k_ybr_422_not_subsampled.dcm
+dicom_reject_jpegls.dcm
+dicom_reject_jpegls_baseline.dcm
+dicom_reject_jpegls_components.dcm
+dicom_reject_jpegls_no_scan.dcm
+dicom_reject_jpegls_precision.dcm
+dicom_reject_jpegls_shape.dcm
+dicom_reject_jpegls_signed_precision.dcm
+dicom_reject_ljpeg_baseline.dcm
+dicom_reject_ljpeg_components.dcm
+dicom_reject_ljpeg_no_scan.dcm
+dicom_reject_ljpeg_point_transform.dcm
+dicom_reject_ljpeg_precision.dcm
+dicom_reject_ljpeg_predictor.dcm
+dicom_reject_ljpeg_restart.dcm
+dicom_reject_ljpeg_signed_precision.dcm
+dicom_reject_ljpeg_ybr.dcm
+dicom_reject_palette.dcm
+dicom_reject_palette_bits.dcm
+dicom_reject_palette_depth.dcm
+dicom_reject_palette_descriptors_differ.dcm
+dicom_reject_palette_lengths_differ.dcm
+dicom_reject_palette_no_tables.dcm
+dicom_reject_palette_short.dcm
+dicom_reject_rle.dcm
+dicom_reject_rle_first_offset.dcm
+dicom_reject_rle_no_header.dcm
+dicom_reject_rle_segments.dcm
+dicom_rle_mono16_bot.dcm
+dicom_rle_mono32.dcm
+dicom_rle_mono8_fragments.dcm
+dicom_rle_rgb16.dcm
+dicom_rle_rgb8_frames.dcm
+dicom_rle_signed16.dcm
+dicom_rle_ybr_full.dcm
+dicom_ybr_full_native.dcm
+dicom_ybr_full_planar_frames.dcm

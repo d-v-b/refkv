@@ -95,6 +95,11 @@ sys.path.insert(0, str(ROOT / "conformance" / "impls" / "python"))
 from corpus_hash import entries as corpus_entries  # noqa: E402
 from proxy import HUB, Proxy  # noqa: E402
 from refkv_reference import legacy  # noqa: E402
+
+# The fixtures (by file or store name) whose layout or verdict the profile changed after the
+# freeze, which the frozen reference does not give: they and their mutants compare py with web
+# alone (revised/<format>.txt says which, and why).
+from revised_fixtures import REVISED  # noqa: E402
 from validate import validate  # noqa: E402
 from vzip_impl import reader as strict_reader  # noqa: E402
 from vzip_impl.errors import VzError  # noqa: E402
@@ -104,7 +109,7 @@ from refkv._narrow import mapping, sequence, string  # noqa: E402
 from refkv.ir.cmirror import Archive, canonical_problem, load, view_problem  # noqa: E402
 from refkv.pb import Concat, Range, Source, decode_source_table  # noqa: E402
 from refkv.zarrify.common import CONVENTION_KEY, SOURCE_NODE, same  # noqa: E402
-from refkv.zarrify.profiles import REGISTRY  # noqa: E402
+from refkv.zarrify.profiles import BESIDE, REGISTRY  # noqa: E402
 from refkv.zarrify.store import object_url  # noqa: E402
 
 IDR = "https://ftp.ebi.ac.uk/pub/databases/IDR/idr0096-tratwal-marrowquant/20210609-ftp-ome-tiffs/"
@@ -136,10 +141,6 @@ MIRRORED = {"nifti": ("header_rest", "extender", "extensions", "extensions_trunc
 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#44-arrays>, spec/zarrify/ndpi.md §4
 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#4-the-image>).
 ADDED = {"tiff": ("omero",), "ndpi": ("omero",)}
-# The fixtures (by file or store name) whose layout or verdict the profile changed after the
-# freeze, which the frozen reference does not give: they and their mutants compare py with web
-# alone (revised.json says which, and why).
-REVISED = set(json.loads((HERE / "revised.json").read_text())["fixtures"])
 # The store profiles whose mutants all compare py with web alone: a mutated `.zarray` below the root
 # leaves its array out since the freeze, where the frozen reference rejects the store
 # (spec/zarrify/zarr2.md §3.4
@@ -429,13 +430,9 @@ def store_mirror_problem(path: Path, view: dict, fetch=None) -> str | None:
     url = prop.get("source", {}).get("url") if isinstance(prop, dict) else None
     if not isinstance(prop, dict) or not isinstance(url, str):
         return "no store URL on the root"
-    if prop.get("profile") in ("vsi", "nrrd", "grib", "tiff", "lif", "czi", "nifti", "hdf5"):
-        # a VSI root names the .vsi file, a NRRD root and a NIfTI pair's the header file, a GRIB root
-        # the GRIB file and a LAS X project's the named document; the store's URL is its directory
-        # (spec/zarrify/vsi.md §9
-        # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#9-vsi-profile>,
-        # spec/zarrify/nrrd.md §8 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#8-nrrd-profile>,
-        # spec/zarrify/grib.md §8 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#8-grib-profile>)
+    if prop.get("profile") in BESIDE:
+        # the root of a file read as a store names the file, and the store's URL is its directory
+        # (spec/zarrify.md §1.8 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#18-files-read-as-stores>)
         url = url[:url.rfind("/") + 1]
     pins = {s.url: s.size for s in decode_source_table(zipfile.ZipFile(path).read("__vz__/sources"))
             if s.url is not None}

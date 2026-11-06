@@ -9,8 +9,7 @@ accepts, is the NumPy profile, [Part 2](#part-2-the-profile) below.
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `62b1d1ba-8eb3-465c-a333-75e096fce519` ·
 Schema: [schema.json](npy/schema.json)
 
-Changed 2026-11-04, with no change to any output of this convention: the `refkv.skip` codec may stop
-after the bytes it keeps, for a compressed FITS file ([§4.4](#44-the-refkvskip-codec)).
+Changes: [changes/npy/](changes/npy/), one file per change.
 
 Added 2026-10-30.
 

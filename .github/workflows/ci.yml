@@ -345,8 +345,8 @@ jobs:
           repo: casey/just
       - run: uv sync --all-groups --locked --no-install-package refkv
       # every "§n" is a link to its heading, and every such link resolves (spec/tools/sections.py);
-      # on a pull request, each format document it changes records the change in its changelog
-      # (spec/tools/changelog.py)
+      # on a pull request, each format document it changes records the change with a file of its changelog,
+      # spec/zarrify/changes/<name>/ (spec/tools/changelog.py)
       - if: github.event_name != 'pull_request'
         run: just sections
       - if: github.event_name == 'pull_request'

@@ -8,7 +8,12 @@ derives from it.
 The registry is the one place a profile's identity is written, one file per profile so that
 two profiles added at once never touch the same file: its name (the file's), its convention's
 title, UUID and version, its kind (a file input, a store input, both, or a dataset layout,
-which is a convention but no profile), the precedence of its signature among the file
+which is a convention but no profile), its store run in the Rust core (`store_run`: null for none;
+`form` "listed" for a store a listing finds, or, for a file read with the files beside it
+(spec/zarrify.md §1.8 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#18-files-read-as-stores>),
+"always" or "on_demand", with `named`, the named file as a rejection names it, `section`, the anchor of
+the section of its document that specifies this, and `case` true where its writers name files in another
+case than they have), the precedence of its signature among the file
 profiles' (`sniff`, lower first, ties by name; null for none), for a file profile with none the
 profile whose reading chooses it (`chosen_by`: the TIFF profile's chooses NDPI and QPTIFF), the
 suffixes of its fixture files, the revision its frozen reference twin records (null: none), and
@@ -56,12 +61,13 @@ ROOT = Path(__file__).resolve().parents[2]
 REGISTRY_DIR = ROOT / "spec" / "zarrify" / "profiles"
 COPY_DIR = ROOT / "rust" / "refkv-ir" / "profiles"
 KINDS = ("file", "store", "both", "layout")
+STORE_RUN_FORMS = ("listed", "always", "on_demand")
 CONVENTION_KEY = "refkv_zarrified"
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 # A flat JSON object with a member "uuid", as a CMO is written (its members are strings).
 CMO_TEXT = re.compile(r'\{[^{}]*"uuid"\s*:[^{}]*\}')
-FIELDS = ("name", "title", "uuid", "version", "kind", "sniff", "chosen_by", "suffixes", "reference", "source", "inputs",
-          "for")
+FIELDS = ("name", "title", "uuid", "version", "kind", "store_run", "sniff", "chosen_by", "suffixes", "reference",
+          "source", "inputs", "for")
 
 
 def load() -> list[dict]:
@@ -92,6 +98,7 @@ def validate(entries: list[dict]) -> list[dict]:
             raise ValueError(f"{e['name']}: a file input has suffixes, a store or layout none")
         if not UUID.fullmatch(e["uuid"]):
             raise ValueError(f"{e['name']}: {e['uuid']!r} is not a UUID")
+        validate_store_run(e)
     signed = {e["name"] for e in entries if e["sniff"] is not None}
     for e in entries:
         if e["chosen_by"] is not None and e["chosen_by"] not in signed:
@@ -101,6 +108,22 @@ def validate(entries: list[dict]) -> list[dict]:
         if len(set(values)) != len(values):
             raise ValueError(f"two entries share a {key}")
     return entries
+
+
+def validate_store_run(e: dict) -> None:
+    run = e["store_run"]
+    if run is None:
+        return
+    if not isinstance(run, dict) or run.get("form") not in STORE_RUN_FORMS:
+        raise ValueError(f"{e['name']}: store_run must be null, or have a form of {STORE_RUN_FORMS}")
+    if run["form"] == "listed":
+        if set(run) != {"form"} or e["kind"] not in ("store", "both"):
+            raise ValueError(f"{e['name']}: a listed store run is a store input's, with no other member")
+    else:
+        if set(run) - {"form", "named", "section", "case"} or not {"named", "section"} <= set(run):
+            raise ValueError(f"{e['name']}: a store run of a file has `named` and `section`, and may have `case`")
+        if e["kind"] != "file" or run.get("case", True) is not True:
+            raise ValueError(f"{e['name']}: a store run of a file is a file profile's, and `case` is only ever true")
 
 
 def profiles(entries: list[dict]) -> list[dict]:
@@ -153,6 +176,24 @@ def sniff_table(entries: list[dict]) -> str:
 
 def slug(text: str) -> str:
     return re.sub(r"[^\w\- ]", "", text.lower()).replace(" ", "-")
+
+
+def section_link(e: dict, anchor: str) -> str:
+    """A link from spec/zarrify.md to the heading of the profile's document with this anchor."""
+    text = (ROOT / "spec" / "zarrify" / f"{e['name']}.md").read_text(encoding="utf-8")
+    for heading in re.findall(r"^#+ (.+)$", text, re.MULTILINE):
+        if slug(heading) == anchor:
+            return f"[{e['name']}.md §{heading.split()[0].rstrip('.')}](zarrify/{e['name']}.md#{anchor})"
+    raise ValueError(f"{e['name']}: spec/zarrify/{e['name']}.md has no heading with the anchor {anchor!r}")
+
+
+def beside_table(entries: list[dict]) -> str:
+    """The profiles that read a file with the files beside it."""
+    rows = ["| profile | read as a store | the named file | specified in |", "|---|---|---|---|"]
+    forms = {"always": "always", "on_demand": "on demand"}
+    rows += [f"| {e['title']} | {forms[run['form']]} | {run['named']} | {section_link(e, run['section'])} |"
+             for e in entries if (run := e["store_run"]) is not None and run["form"] != "listed"]
+    return "\n".join(rows)
 
 
 def conventions_table(entries: list[dict]) -> str:
@@ -214,7 +255,8 @@ def classes_module(entries: list[dict]) -> str:
 
 
 BLOCKS = {
-    "spec/zarrify.md": {"spec-table": spec_table, "sniff-table": sniff_table, "spec-list": spec_list},
+    "spec/zarrify.md": {"spec-table": spec_table, "sniff-table": sniff_table, "spec-list": spec_list,
+                        "beside-table": beside_table},
     "spec/conventions.md": {"conventions-table": conventions_table},
     "docs/zarrify/README.md": {"docs-table": docs_table},
 }
