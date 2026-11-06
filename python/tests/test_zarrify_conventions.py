@@ -145,8 +145,10 @@ def test_every_output_declares_its_profile_where_the_convention_says():
                     geo |= set(attrs) & DATASET_ATTRS
                 # an HDF5 node's attributes are the source's own, as hdmf-zarr's convention places
                 # them (spec/zarrify/hdf5.md §2.1
-                # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#21-declaration-and-attributes>)
-                if fmt == "hdf5" and not key.startswith("refkv_source/"):
+                # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#21-declaration-and-attributes>),
+                # and so are a Zarr v3 node's (spec/zarrify/zarr3.md §4
+                # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr3.md#4-source-metadata>)
+                if fmt in ("hdf5", "zarr3") and not key.startswith("refkv_source/"):
                     geo |= set(attrs) - {"zarr_conventions", CONVENTION_KEY}
                 assert set(attrs) - geo <= {"ome", "zarr_conventions", CONVENTION_KEY}, (impl, path.name, key)
                 for name in {n for p, n in GEOZARR.items() for m in geo if m.startswith(p)}:

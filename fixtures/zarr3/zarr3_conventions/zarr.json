@@ -1,0 +1,17 @@
+{
+  "zarr_format": 3,
+  "node_type": "group",
+  "attributes": {
+    "zarr_conventions": [
+      {
+        "uuid": "f17cb550-5864-4468-aeb7-f3180cfb622f",
+        "name": "proj:",
+        "description": "a GeoZarr convention"
+      }
+    ],
+    "proj:code": "EPSG:4326",
+    "ome": {
+      "version": "0.5"
+    }
+  }
+}

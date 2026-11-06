@@ -36,6 +36,7 @@ its JSON Schema `zarrify/<format>/schema.json`. Its changes are in [zarrify/chan
 | TIFF, OME-TIFF, Aperio SVS | [tiff](zarrify/tiff.md) | `48e9ac4e-1156-4a62-955e-20467d9c2700` |
 | Olympus VSI | [vsi](zarrify/vsi.md) | `c0a1d4e6-5b7f-4f3a-9c2d-8e1f6a7b3c45` |
 | Zarr v2 | [zarr2](zarrify/zarr2.md) | `8e792619-d671-4687-ab51-752885dd3ee6` |
+| Zarr v3 | [zarr3](zarrify/zarr3.md) | `95203d0a-6586-426a-b920-3db2f4f1e97e` |
 <!-- /profiles -->
 
 A format's convention specifies the hierarchy's whole **Zarr layout**: which
@@ -219,8 +220,9 @@ taken from the source goes under the key, on the node it belongs to,
 including attributes a source store had (and the conventions they
 declare), so it can neither collide with nor masquerade as the target
 formats' metadata. A source that is itself such a hierarchy therefore
-nests its own record. The HDF5 convention departs from this: a node's attributes are the source's
-own, beside the key ([hdf5 §2.1](zarrify/hdf5.md#21-declaration-and-attributes)).
+nests its own record. The HDF5 and Zarr v3 conventions depart from this: a node's attributes are
+the source's own, beside the key ([hdf5 §2.1](zarrify/hdf5.md#21-declaration-and-attributes),
+[zarr3 §4](zarrify/zarr3.md#4-source-metadata)).
 
 ## 3. Arrays
 
@@ -229,7 +231,7 @@ below. The conventions that say otherwise:
 
 | convention | its arrays |
 |---|---|
-| N5, Zarr v2, OME-Zarr (the store conventions) | are defined by the convention itself |
+| N5, Zarr v2, Zarr v3, OME-Zarr (the store conventions) | are defined by the convention itself; Zarr v3's are the store's own, every codec, data type, fill value and chunk grid passed through ([zarr3 §3](zarrify/zarr3.md#3-arrays)) |
 | Neuroglancer precomputed | have the codec `refkv.precomputed`, a chunk being one chunk object or a whole shard ([precomputed §3.1](zarrify/precomputed.md#31-the-array)) |
 | CZI | have, for clipped levels, the zarr-extensions `rectilinear` chunk grid, and may have the codecs `imagecodecs_jpegxr` and `numcodecs.shuffle` |
 | NDPI | have, for JPEG XR levels, the codec `imagecodecs_jpegxr` |
