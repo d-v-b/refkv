@@ -762,8 +762,9 @@ def test_a_name_that_is_no_plain_string_is_a_usage_error():
 
 
 def test_an_integer_fill_value_past_2_53_is_exact(tmp_path):
-    """hdf5.md §3: an integer fill value is a JSON integer whatever its magnitude, so a copy of
-    the dataset is valid Zarr v3 and its fill value is the number."""
+    """hdf5.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#3-datasets>: an integer fill value is a
+    JSON integer whatever its magnitude, so a copy of the dataset is valid Zarr v3 and its fill
+    value is the number."""
     path = tmp_path / "big.h5"
     with h5py.File(path, "w") as f:
         f.create_dataset("count", shape=(4,), dtype="u8", chunks=(2,), fillvalue=np.uint64(2**63 + 5))[:2] = [1, 2]

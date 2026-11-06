@@ -48,6 +48,7 @@ from refkv.ir.kind import Kind
 from refkv.ir.store import StoreIrOutput
 from refkv.pb import Concat, Range, Source
 from refkv.policy import Policy
+from refkv.reader import Registry, Resolver
 from refkv.refstore import ReferenceStore
 from refkv.vzip.names import INDEX_KEY, RESERVED_PREFIX, SOURCES_KEY
 from refkv.zarrify.common import MAX_PAYLOAD, PAGE_SIZE, PROFILES, Output, Rejected
@@ -687,7 +688,7 @@ class Base:
         key = self.ir.path(o)
         if key not in self._objects:
             raise ValueError(f"the object {key!r} is not in the base's table, which references none of its bytes "
-                             "(spec/zarrify.md §1.9)")
+                             "(spec/zarrify.md §1.9 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>)")
         return self._objects.index(key)
 
     def _data_part(self, data: bytes) -> Range:
@@ -734,7 +735,7 @@ class Base:
             return Range(source, start, length)
         shared = self.ir.shared()
         parts: list[Range] = []
-        # spec/conventions.md §8.5's parts <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#85-forms-and-recipes>
+        # the parts of spec/conventions.md §8.5 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#85-forms-and-recipes>
         for step in recipe:
             if step[0] == "src":
                 o, n = int(step[1]), step[2]
@@ -1231,7 +1232,7 @@ def prepare(base: Base, written: object) -> tuple[Prepared, list[Problem]]:
         if _reads(value, base) > MAX_READS:
             problems.append(Problem(k, "reference", f"it reads {_reads(value, base)} ranges, more than the "
                                                     f"{MAX_READS} a reader makes for one value by default "
-                                                    "(spec/refkv.md §6.7)"))
+                                                    "(spec/refkv.md §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)"))
         if payload_size(value) > MAX_PAYLOAD and not base.checksums:
             problems.append(Problem(k, "reference", f"a payload of {payload_size(value)} bytes, more than "
                                                     f"{MAX_PAYLOAD}"))
@@ -1285,6 +1286,7 @@ class _Counting(io.RawIOBase):
 
 
 def store_of(base: Base, prepared: Prepared, *, policy: Policy | None, info: Mapping[str, object],
+             registry: Registry | None = None,
              checksum: Callable[[str, int, int], int] | None = None) -> tuple[ReferenceStore, list[Problem]]:
     """The output as a `refkv.ReferenceStore`, references first and then bytes entries, each by
     key, the plugin's own ranges checksummed with `checksum(url, offset, length)` when given; and
@@ -1323,7 +1325,8 @@ def store_of(base: Base, prepared: Prepared, *, policy: Policy | None, info: Map
     for k in sorted(k for k, v in prepared.values.items() if isinstance(v, bytes)):
         mapping[k] = prepared.values[k]
     store = ReferenceStore(mapping, sources, read_at_open=sorted(prepared.read_at_open),
-                           compressed=sorted(prepared.compressed), page_size=PAGE_SIZE, policy=policy, info=info)
+                           compressed=sorted(prepared.compressed), page_size=PAGE_SIZE, policy=policy,
+                           registry=registry, info=info)
     if not problems:
         try:
             # the structure only: compression makes it no larger
@@ -1344,9 +1347,11 @@ def store_of(base: Base, prepared: Prepared, *, policy: Policy | None, info: Map
     return store, problems
 
 
-def base_of(out: Output | StoreIrOutput, fmt: str, policy: Policy | None) -> tuple[Base, ReferenceStore]:
-    """The `Base` of a file input's output, and the output as a store."""
-    store = out.to_store(policy=policy, info={"format": fmt, **out.summary})
+def base_of(out: Output | StoreIrOutput, fmt: str, policy: Policy | None,
+            registry: Registry | None = None) -> tuple[Base, ReferenceStore]:
+    """The `Base` of a file input's output, and the output as a store (reading its sources under
+    `policy`, with the object stores of `registry`)."""
+    store = out.to_store(policy=policy, registry=registry, info={"format": fmt, **out.summary})
     if out.ir is None:
         raise TypeError("an output without an IR takes no layout")
     if isinstance(out, StoreIrOutput):
@@ -1358,10 +1363,11 @@ def base_of(out: Output | StoreIrOutput, fmt: str, policy: Policy | None) -> tup
     return Base(store, refkv.ir.Ir(out.ir), checksums=out.checksum is not None, objects=objects, sizes=sizes), store
 
 
-def apply(out: Output | StoreIrOutput, fmt: str, policy: Policy | None, planned: Planned) -> ReferenceStore:
+def apply(out: Output | StoreIrOutput, fmt: str, policy: Policy | None, planned: Planned,
+          registry: Registry | None = None) -> ReferenceStore:
     """The output of a call that names a plugin layout (spec/layout.md): the plugin's `write`
     run on its base, checked and written. Raises LayoutRejected or LayoutFailed."""
-    base, store = base_of(out, fmt, policy)
+    base, store = base_of(out, fmt, policy, registry)
     name = planned.name
     if not planned.reads(base.profile, base.version):
         reads = "every file profile" if isinstance(planned.formats, frozenset) else ", ".join(
@@ -1379,7 +1385,7 @@ def apply(out: Output | StoreIrOutput, fmt: str, policy: Policy | None, planned:
     if problems:
         raise LayoutFailed(_failure(name, problems))
     info = {**store.info, "layouts": [name]}
-    result, problems = store_of(base, prepared, policy=policy, info=info, checksum=out.checksum)
+    result, problems = store_of(base, prepared, policy=policy, info=info, checksum=out.checksum, registry=registry)
     if problems:
         raise LayoutFailed(_failure(name, problems))
     return result
@@ -1394,20 +1400,24 @@ def _failure(name: str, problems: Sequence[Problem]) -> str:
 # ---- a base for tests and notebooks
 
 async def base_async(location: str | os.PathLike[str], url: str | None = None, *, checksums: bool = False,
-                     policy: Policy | None = None) -> Base:
+                     policy: Policy | None = None, registry: Registry | None = None) -> Base:
     """The `Base` a plugin is given for the file at `location`, read as `zarrify` reads it: for
     a plugin's tests, and a notebook. Raises what `zarrify` raises for the input, and
-    LayoutUsageError for a store input."""
+    LayoutUsageError for a store input. `registry` is the application's object stores by URL prefix,
+    as `zarrify` takes them."""
     location = os.fspath(location)
     if _zarrify.is_store(location):
         raise LayoutUsageError(f"{location} is a store: a store input takes no layout")
-    fmt, out = await _zarrify._zarrify_async(location, url, checksums=checksums, policy=policy)  # noqa: SLF001
+    resolver = Resolver(registry)
+    fmt, out = await _zarrify._zarrify_async(location, url, checksums=checksums, policy=policy,  # noqa: SLF001
+                                             registry=resolver)
     if not isinstance(out, (Output, StoreIrOutput)) or out.ir is None:
         raise LayoutUsageError(f"{location}: its output has no IR, so it takes no layout")
-    return base_of(out, fmt, policy)[0]
+    return base_of(out, fmt, policy, resolver)[0]
 
 
 def base(location: str | os.PathLike[str], url: str | None = None, *, checksums: bool = False,
-         policy: Policy | None = None) -> Base:
+         policy: Policy | None = None, registry: Registry | None = None) -> Base:
     """`base_async`, the caller's thread waiting for it."""
-    return _zarrify._sync.run(base_async(location, url, checksums=checksums, policy=policy))  # noqa: SLF001
+    return _zarrify._sync.run(base_async(location, url, checksums=checksums, policy=policy,  # noqa: SLF001
+                                         registry=registry))

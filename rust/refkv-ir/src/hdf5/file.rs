@@ -1529,8 +1529,9 @@ fn fill_json(dt: &Dt, p: &Present, f: &[u8]) -> Option<J> {
     match p {
         Present::Strings | Present::References | Present::Records(_) => Some(json!("")),
         Present::Bytes { .. } => f.iter().all(|&b| b == f[0]).then(|| json!(f.first().copied().unwrap_or(0))),
-        // an integer's exact value, as Zarr v3 writes one, whatever its magnitude (§6's digits
-        // past 2^53 are an attribute's form, not a fill value's)
+        // an integer's exact value, as Zarr v3 writes one, whatever its magnitude (the digits past
+        // 2^53 of spec/zarrify/hdf5.md §6
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes> are an attribute's form, not a fill value's)
         Present::Fixed { .. } => match &dt.kind {
             Kind::Int { big, signed, .. } if types::number(dt).is_some() && f.len() as u64 == dt.size => {
                 Some(exact_int(types::int_of(f, *big, *signed)))

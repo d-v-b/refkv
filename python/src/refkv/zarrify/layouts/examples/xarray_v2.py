@@ -11,8 +11,8 @@ the base's chunk keys with `chunk_coords`, so it runs without the `layouts` extr
 What xarray needs of Zarr v2, made from the base:
 
 - `_ARRAY_DIMENSIONS`, every array's: the base's `dimension_names` (NetCDF-4's dimension scales,
-  [hdf5.md §3](https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#3-datasets)), and for
-  an axis without one a `phony_dim_<n>`, one per size and use in a group, numbered across the file.
+  hdf5.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#3-datasets>), and for an
+  axis without one a `phony_dim_<n>`, one per size and use in a group, numbered across the file.
   NetCDF-4's `_nc4_non_coord_<name>` is presented as `<name>`, as netCDF-4 reads it.
 - dtype, `compressor` and `filters`: this module's own translation of the base array's Zarr v3
   data type and codecs (`bytes` -> the byte order; `numcodecs.<id>`, `zstd`, `gzip`, `blosc` and
@@ -27,7 +27,7 @@ What xarray needs of Zarr v2, made from the base:
   file, unless chunks are missing and the dataset's fill value is not zero, when it is that fill
   value, so that the values are right (and xarray masks it).
 - attributes: the source's, as `coding.hdf5_attributes` gives them (the encodings of
-  [hdf5.md §6](https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes)
+  hdf5.md §6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes>
   undone: big integers, NaN, infinities and a float dataset's Base64 `_FillValue` as numbers),
   without netCDF-4's bookkeeping, which xarray's netCDF-4 readers hide (`CLASS`, `NAME`,
   `DIMENSION_LIST`, `REFERENCE_LIST`, `_Netcdf4Dimid`, ...), and an array of one value as that

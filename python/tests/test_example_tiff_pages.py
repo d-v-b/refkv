@@ -50,7 +50,7 @@ CASES = [
 ]
 
 # tifffile reads these pages' strips as one contiguous run across the absent strip, shifting the
-# rows after it; the base reads each strip at its offset, as spec/zarrify/tiff.md §4.4 says
+# rows after it; the base reads each strip at its offset, as it says in spec/zarrify/tiff.md §4.4
 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#44-arrays>: compared with the base
 TIFFFILE_DIFFERS = {"edge_strips_absent.tif"}
 # tifffile has no EER decoder: these pages are compared with the base's frames, page n its plane n

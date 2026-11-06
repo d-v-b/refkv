@@ -41,8 +41,8 @@ NoCodec = _core.NoCodec
 # PhotometricInterpretation, FillOrder, SamplesPerPixel, PlanarConfiguration, Predictor,
 # SampleFormat, YCbCrSubSampling, and EER's ImageLength, TileWidth and bits
 _CODING_TAGS = (257, 258, 259, 262, 266, 277, 284, 317, 322, 339, 530, 65007, 65008, 65009)
-# the text spec/zarrify/hdf5.md §6 gives a float that JSON has no number for
-# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes>
+# the text that spec/zarrify/hdf5.md §6
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes> gives a float JSON has no number for
 _NONFINITE = {"NaN": math.nan, "Infinity": math.inf, "-Infinity": -math.inf}
 
 
@@ -172,11 +172,13 @@ def hdf5_value(value: object, datatype: Mapping[str, Any] | None) -> object:
         size = int(datatype.get("size", 8))
         if value.startswith("0x") and len(value) == 2 + 2 * size and size in (2, 4, 8):
             return struct.unpack(">" + {2: "e", 4: "f", 8: "d"}[size], int(value, 16).to_bytes(size, "big"))[0]
-        raise ValueError(f"{value!r} is not a float value of hdf5.md §6")
+        raise ValueError(f"{value!r} is not a float value of hdf5.md §6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes>")
     if kind in ("integer", "bitfield", "enum") and isinstance(value, str):
         return int(value)
     if kind in ("string", "vlen_string") and isinstance(value, dict) and set(value) == {"latin1"}:
-        return str(value["latin1"])  # text that is not UTF-8, each byte its Latin-1 character (conventions §6)
+        # text that is not UTF-8, each byte its Latin-1 character (spec/conventions.md §6
+        # <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>)
+        return str(value["latin1"])
     if kind == "compound" and isinstance(value, dict):
         members = {m.get("name"): m.get("datatype") for m in datatype.get("members", []) if isinstance(m, dict)}
         return {k: hdf5_value(v, members.get(k)) for k, v in value.items()}
@@ -189,19 +191,22 @@ def hdf5_attributes(base: Base, path: str) -> dict[str, Any]:
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes>'s encodings
     undone, by the node's source metadata, §7
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#7-source-metadata>): floats and
-    big integers as numbers, and a netCDF `_FillValue` of a float dataset, which §6 writes as the
-    Base64 of its binary64, as that float. An attribute of one element that the base wrote as its
-    value, on a dataset with `dimension_names`, stays that value: the source metadata does not say
-    which it was. The values are for computing with: NaN and the infinities are floats, which
-    strict JSON (`dump`) does not write, so a plugin that writes attributes writes
-    `base.attributes`' encoded form, or chooses an encoding of its own."""
+    big integers as numbers, and a netCDF `_FillValue` of a float dataset, which hdf5.md §6
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes> writes as the Base64 of
+    its binary64, as that float. An attribute of one element that the base wrote as its value, on a dataset with
+    `dimension_names`, stays that value: the source metadata does not say which it was. The values
+    are for computing with: NaN and the infinities are floats, which strict JSON (`dump`) does not
+    write, so a plugin that writes attributes writes `base.attributes`' encoded form, or chooses an
+    encoding of its own."""
     metadata = base.source_metadata(path) or {}
     described = metadata.get("attributes", {}) if isinstance(metadata, dict) else {}
     float_dataset = isinstance(metadata, dict) and (metadata.get("datatype") or {}).get("class") == "float"
     out: dict[str, Any] = {}
     for name, value in base.attributes(path).items():
         kind = (described.get(name) or {}).get("class") if isinstance(described, dict) else None
-        numeric = kind in ("integer", "float")  # hdf5.md §6 writes only such a _FillValue as Base64
+        # hdf5.md §6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes>
+        # writes only such a _FillValue as Base64
+        numeric = kind in ("integer", "float")
         if name == "_FillValue" and float_dataset and numeric and isinstance(value, str):
             try:
                 raw = base64.b64decode(value, validate=True)

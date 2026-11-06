@@ -134,7 +134,8 @@ def test_files_as_zarr_v2_for_xarray(tmp_path, name, options, codes, netcdf4, le
         assert got.shape == want.shape, a
         assert np.array_equal(got, want, equal_nan=got.dtype.kind in "fc"), a
 
-    # spec/zarrify/hdf5.md §6's encodings undone <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes>
+    # the encodings of spec/zarrify/hdf5.md §6
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes>, undone
     if name == "hdf5_attributes.h5":
         attrs = document(entries, "attrs/.zattrs")
         assert attrs["uint64_big"] == 9223372036854775813

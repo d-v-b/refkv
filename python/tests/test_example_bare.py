@@ -58,6 +58,7 @@ CASES = [
     ("tiff/bilevel_tiled.tif", None, False),
     ("tiff/strips_uint8.tif", None, False),
     ("vsi/vsi_png.vsi", "imagecodecs", False),
+    ("zarr3/zarr3_hierarchy.zip", None, False),  # a zipped Zarr v3 store
     ("tiff/strips_uint8.tif", None, True),
     ("mrc/mrc_chunk_rows.mrc", None, True),
 ]
