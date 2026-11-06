@@ -85,8 +85,7 @@ the entries it wants.
   convention specifies (its `omero` windows, sampled from decoded chunks).
 - **Written**: an output's entries together with their placement (which
   bytes entries a vzip reader reads at open, and which are stored
-  uncompressed, [spec/layout.md §3](../../spec/layout.md#3-the-output)) and
-  the bindings of its checked values ([References](#2-references-and-values)).
+  uncompressed, [spec/layout.md §3](../../spec/layout.md#3-the-output)).
 - **Rejected**: the error that refuses an input, `refkv.zarrify.Rejected`.
 
 ## The gap
@@ -177,8 +176,8 @@ two kinds:
   ([§4](../../spec/zarrify/hdf5.md#4-variable-length-strings),
   [§5](../../spec/zarrify/hdf5.md#5-object-references)). The interpreted
   result is the format's **description**.
-- **Unknown**: everything else the parser keeps: a TIFF tag the table does
-  not list (a private tag, an UNDEFINED one), an HDF5 message type the document does not decode, a CZI attachment,
+- **Unknown**: everything else in the source: a TIFF tag the table does
+  not list (a private tag, an UNDEFINED one), an HDF5 message type the document does not decode, a CZI attachment of a schema [czi.md](../../spec/zarrify/czi.md) does not decode,
   an MRC extended header. An unknown structure is never interpreted into an
   array or an attribute of an output; it is in the IR mirror like every
   element. A caller gets its typed value (`ir.value(i)`) where its type has
@@ -207,7 +206,8 @@ still there.
 The description of a format is its known structures, interpreted: specified
 in the profile's document beside the rules that interpret them, with a JSON
 Schema in `spec/zarrify/<format>/description.json`, versioned with the
-convention. It names a structure by its IR path where it has one
+profile's source model (which today shares one version with its
+convention). It names a structure by its IR path where it has one
 ([tiff.md §5.1](../../spec/zarrify/tiff.md#51-elements)), and gives its
 extent where it may lie past the room. Where a known structure is large,
 such as an HDF5 dataset's chunk index, the parser walks and checks it as
@@ -245,14 +245,18 @@ decision a built-in output makes is a rule its convention must already
 state ([zarrify §2](../../spec/zarrify.md#2-the-zarr-layout) requires the
 exact layout the convention specifies); one it does not is stated in the
 same change. Once a format's items are sorted, its facts are gone: its plan
-is a Rust function of the description, of the IR's elements the description
-names (their paths, extents and forms, through a view of the IR limited to
-them), of the bytes it reads, and of the run's options (`checksums`, the
-test-only setting below), and nothing else. It reaches the known only
+is a Rust function of the description (with `parsed.chunks`, the part of it
+kept apart), of the IR's elements the description names (their paths,
+extents and forms, through a view of the IR limited to them), of the
+sources' sizes, of the bytes it reads, and of the run's options
+(`checksums`, the test-only setting below), and nothing else. It reaches the known only
 through the description, so a plan cannot depend on what is not specified,
 nor on an unknown element; a test of each format's plan checks that every
-range it reads lies in an extent the description names, or was located from
-bytes it already read of one (a heap collection an HDF5 string names). The facts'
+range it reads lies in an extent the description names or a chunk of
+`parsed.chunks` (an `omero` sample, a masked chunk's Adler-32), or was located
+from bytes it already read of one (a heap collection an HDF5 string names).
+For a zarr3 or SAFE store, the keys its mirror records as ignored, which
+today sit in the facts, are part of the description. The facts'
 test hook, `copy_threshold` (in the facts of every format whose projection
 copies edge chunks, overriding `MAX_PAYLOAD` of `rust/refkv-ir/src/out.rs`),
 becomes a test-only setting of the plan.
@@ -361,7 +365,9 @@ element) has no `span`, which is a range of a source.
 kept them (`ir.raw`), otherwise read through the input's transport, and for
 an element in a derived space, inflated from the element that holds it. It
 takes any element with bytes, known or not, pixels included, within
-`max_bytes`; decoding an unknown structure needs its bytes, and whether an
+`max_bytes` (bytes the IR already holds do not count against it);
+`parsed.bytes(*indexes)` reads several in one round. Decoding an unknown
+structure needs its bytes, and whether an
 output may depend on what it reads is the output's rule, not the tool's
 ([Building and writing](#4-building-and-writing)).
 
@@ -372,7 +378,7 @@ the source table is left to `seal`:
   `source` an index of `parsed.sources`;
 - `Shared(data)`: a byte string the convention names as shared (a JPEG
   tile's tables), which `seal` makes a data source read whole, one per
-  distinct string;
+  distinct string; routines make them, and a caller may too;
 - `Zeros(n)`: zero bytes, of the zero data source;
 - `Data(data)`: a data source of the caller's own, of which a value may take
   any range: `cut(Data(blob), a, b)` is bytes `a` to `b` of that one source;
@@ -381,12 +387,13 @@ the source table is left to `seal`:
 A value is one part or a sequence of them, in order. `cut`, `concat`
 (`merge=True` joins ranges that continue one another) and `fits` take
 values. Where a decision or a check needs a payload before `seal` has
-numbered the sources, it measures every source index above 0 as 5 bytes,
-its field tag and the varint of 2^22 − 1, the most sources an output's
-table may hold, a constant [zarrify §1.2](../../spec/zarrify.md#12-input)
-states (it is the default `max_sources` of
-[spec/refkv.md §6.7](../../spec/refkv.md#67-reader-policy), and `seal`
-refuses a larger table whatever the policy), and the checksums at their
+numbered the sources, it measures every url source index, 0 included (with
+several inputs, `seal` may number a file's source above 0), and every data
+source index as 5 bytes: its field tag and the varint of 2^22 − 1, an output's
+table holding at most 2^22 sources, a constant
+[zarrify §1.2](../../spec/zarrify.md#12-input) gains (it is the default
+`max_sources` of [spec/refkv.md §6.7](../../spec/refkv.md#67-reader-policy),
+and `seal` refuses a larger table whatever the policy); and the checksums at their
 largest when the input was read with them: `fits` does, and so does every decision of a plan sized by
 a payload (an edge chunk's copy, an HDF5 strings chunk's items, an LZF
 chunk's framing, a shared JPEG table's reference). It may refuse a value
@@ -406,16 +413,21 @@ payload rule and to no read rule. A check travels with the chunk's value,
 bound to the array it was built in as stored: that array's shape, data type,
 chunk grid, codecs and fill value, and the chunk's key in it, not its
 attributes or dimension names. `seal` reads the binding back from the
-document the chunk is written under: it undoes a `transpose` codec the
-caller put first (outside any `sharding_indexed`, and composed with one the
-array already had, such as a NumPy file's in Fortran order), permuting the
-shape, grid and key back, and honors the check if the binding then holds,
-and nowhere else. `hierarchy.array` and `copy` keep a check; a chunk under
+document the chunk is written under: it undoes one leading `transpose`
+codec, the caller's composed with any the array already had into one (as
+`copy` composes them for a NumPy file in Fortran order), whether it sits
+first outside a `sharding_indexed` codec or, as `copy` writes it for a
+sharded array, first in its inner and index codecs; it permutes the shape,
+grid and key back, and honors the check if the binding then holds, and
+nowhere else. `hierarchy.array` and `copy` keep a check; a chunk under
 another document or key, and any `cut` or `concat` of one, are unchecked.
+Every array a routine returns (the plan's, `grid`'s, `tiff_array`'s,
+`hdf5_array`'s, `project`'s) is checked; a caller's own `Array` is not.
 
 `hierarchy.array`'s `dimension_names`, when given, replace the `Array`'s.
 A caller that presents an array's axes in another order uses Zarr's
-`transpose` codec: it puts one in front of the array's codecs, and writes the
+`transpose` codec: it puts one in front of the array's codecs (merged with one
+already first), and writes the
 shape, the chunk grid and the chunk keys in the new order, as Zarr v3 defines
 the codec (its `order` names, for each stored axis, the presented axis it
 holds, so it is the inverse of the permutation that takes the stored axes to
@@ -423,10 +435,10 @@ the presented ones). That is Zarr's rule, not refkv's, and the chunks keep
 their values and their checks.
 
 `Written` is a mutable mapping of keys to bytes or values, with the
-placements and bindings of what it holds: `written[key] = value` adds an
-entry, and `written | other` and `written |= other` (another `Written` or a
-plain mapping) keep every placement and binding. A plain `dict` updated with
-a `Written` keeps the entries and drops the rest, so an output starts as a
+placements of what it holds: `written[key] = value` adds an entry, and
+`written | other` and `written |= other` (another `Written` or a plain
+mapping) keep every placement. Checks travel with the values, so a plain
+`dict` loses only placements; an output that sets any starts as a
 `Written()`.
 
 ### 3. Planning: `plan`
@@ -463,7 +475,7 @@ today (the run reads one batch it declares, `reads` in
 masked chunks' Adler-32, LZW heads, HDF5 strings, each under its
 convention's bounds (one `omero` sample per channel of at most 2^26 bytes; at
 most 2^26 bytes of a dataset's masked chunks; an LZW strip's head of at most
-3 × rows × B + 64 bytes, [tiff.md §7.1](../../spec/zarrify/tiff.md#71-reading);
+3 × rows × B + 64 bytes ([tiff.md §7.1](../../spec/zarrify/tiff.md#71-reading), B the bytes of one row of a strip, [§4.5](../../spec/zarrify/tiff.md#45-strips));
 HDF5's 4096 rounds, counted from the parser's). Python, the Rust CLI and the
 browser drive the same machine. A caller cannot widen those bounds, and
 pays for all of them: a plan is of the whole input, so a caller that wants
@@ -524,39 +536,51 @@ Rust function the built-in projection calls:
   cut as [conventions §7](../../spec/conventions.md#7-source-values-as-arrays)
   cuts it (`out::grid_chunks`): the chunk shape it chooses, of whole
   trailing slabs, at most `limit` bytes, and its chunks, an edge chunk padded
-  with `Zeros` (a copy is the plan's, which reads). A caller that wants
+  with `Zeros`, or, where the padded reference would not fit, a `Copy` of
+  the edge chunk's range, which the caller fills with `parsed.bytes` (the
+  plan fills its own). A caller that wants
   another chunk shape builds it with `cut` and `concat`, as the
   `hdf5-rechunk` example does, within `fits`.
 - **`shard(array, shard_shape)`**: an `Array` as virtual shards of a shape
   the caller chooses, as [zarrify §2.1](../../spec/zarrify.md#21-virtual-shards)
   builds them (`shard.rs`), joined as its chunks' input was read
   (`checksums`): its codecs become `sharding_indexed`, and its chunks the
-  shards, checked.
-- **`tiff_array(parsed, ifds)`**: the `Array` of a sequence of IFDs of one
+  shards, checked only if every inner chunk was checked under the same
+  binding, and otherwise unchecked.
+- **`tiff_array(parsed, ifds)`**: the `Array` of a sequence of IFDs (their IR
+  paths, `ifds/<n>`) of one
   format, as planes along a new leading axis, their strips joined and padded
   as [tiff.md §4.3](../../spec/zarrify/tiff.md#43-data-types-and-codecs) to
   [§4.5](../../spec/zarrify/tiff.md#45-strips) say, without the image
   layout's mapping or its rejections. It runs as a plan does, a step machine
   reading its IFDs' LZW heads under [§7.1](../../spec/zarrify/tiff.md#71-reading)'s
-  bound, its rounds counted on its own, not the plan's, and raises
+  bound and against `max_bytes`, its rounds counted on its own, not the
+  plan's, and raises
   `ValueError`, naming
   the check, when one of [§2](../../spec/zarrify/tiff.md#2-the-source)'s or [§4.5](../../spec/zarrify/tiff.md#45-strips)'s fails for its IFDs. A caller
-  presenting what the layout refuses (the ImageJ stack of strips above)
+  presenting what the layout refuses (a multi-page TIFF in strips without
+  OME-XML, [§4.2](../../spec/zarrify/tiff.md#42-pyramid-levels))
   takes its arrays from here.
-- **`hdf5_array(parsed, path)`**: the `Array` of a dataset the convention
-  does not present for a reason of the output (a budget), built as
+- **`hdf5_array(plan, path)`**: the `Array` of a dataset the plan leaves out
+  for its one reason of the output, `filter_mask` (masked chunks past the
+  2^26 bytes a dataset's Adler-32 reads may take,
+  [hdf5.md §3.2](../../spec/zarrify/hdf5.md#32-chunks)), built as
   [hdf5.md §3](../../spec/zarrify/hdf5.md#3-datasets) builds a presented
-  one's, its phony dimensions numbered after the plan's. A reason of the
-  file (`datatype`, `fill_value` with no JSON form, `edge_chunks` stored
+  one's, its Adler-32 reads against `max_bytes` instead. Its phony
+  dimensions are the plan's, which numbers them for every dataset, presented
+  or not, so they do not depend on what a caller asks for. Any other reason
+  (`datatype`, a `fill_value` with no JSON form, `edge_chunks` stored
   unfiltered, a filter with no codec) leaves no array one chain of codecs
-  reads, and raises `ValueError`. It runs as `tiff_array` does.
+  reads, and raises `ValueError`, as does a refused plan. It runs as
+  `tiff_array` does.
 - **`ome_image(plan, image, paths)`** and **`omero(plan, image)`**: the
   OME-Zarr 0.5 `multiscales` and `omero` the image layouts write
   (`out::image_ome`, `out::omero_json`), for an image's levels written at
   `paths`.
 - **`mirror(parsed)`**, **`declaration(parsed, plan, layouts)`** and
   **`source_metadata(plan, path)`**: the IR mirror's entries
-  (`_core.mirror`), a root's `refkv_zarrified` naming the layouts it holds,
+  (`_core.mirror`), a root's `refkv_zarrified` (the declaration of refkv's convention,
+  [conventions §2](../../spec/conventions.md#2-attributes)) naming the layouts it holds,
   and a node's source metadata (built by each projection today, and
   wrapped with its declarations by `out::declare`), for an output that keeps
   refkv's conventions. A declaration is of one input.
@@ -585,7 +609,8 @@ number of inputs and without a base, as a function of the core. `seal`:
    `python/src/refkv/ir/store.py`): the url sources first, then the data
    sources (each distinct `Shared` and `Data` byte string, and the zero data
    source, as long as the most `Zeros` any value holds). With one input that
-   is a plain file, the file is source 0 whether or not a value uses it, as
+   is a plain file (not a store, and with one entry in `parsed.sources`),
+   the file is source 0 whether or not a value uses it, as
    [zarrify §1.2](../../spec/zarrify.md#12-input) says; with several inputs,
    or a store, there is no such source 0, and a source no value uses is not
    in the table. Equal url sources (URL and pins) are one; one URL with
@@ -604,9 +629,10 @@ number of inputs and without a base, as a function of the core. `seal`:
 3. **Places** the entries: as the `Written` says, and otherwise every Zarr
    document is read at open.
 4. **Checksums** the ranges, when the inputs were read with checksums
-   (inputs read with and without them are refused together), through the
-   inputs' transports. Without checksums, `seal` reads nothing, and an input
-   may already be closed: its sources' sizes and pins are known.
+   (inputs read with and without them are refused together), reading them as
+   a step machine, as the plan does, driven through the inputs' transports.
+   Without checksums, `seal` reads nothing, and an input may already be
+   closed: its sources' sizes and pins are known.
 
 The inputs must have been read under the same policy and registry, unless
 `policy` and `registry` are given, which the store then keeps, as
@@ -655,14 +681,17 @@ from refkv.build import Written, plan, read, seal
 from refkv.zarrify.layouts.hierarchy import array, group
 
 with read("image.ome.tif") as p:
-    image = plan(p).images[0]                        # name, axes, levels, position
+    pl = plan(p)
+    if pl.refused:                                   # then it holds no images
+        raise ValueError(pl.refused)
+    image = pl.images[0]                             # name, axes, levels, position
     if image.reason:
         raise ValueError(image.reason)
     out, datasets = Written(), []
     for n, level in enumerate(image.levels):
         out |= array(level.array, dimension_names=[a.name for a in image.axes], to=str(n))
         datasets.append({"path": str(n), "coordinateTransformations": [{
-            "type": "scale", "scale": level.scale}]})  # physical; and a translation: image.position.corner + level.scale / 2
+            "type": "scale", "scale": level.scale}]})  # physical; and, where image.position.corner is not None, a translation of it + level.scale / 2
     ome = {"version": "0.6", "multiscales": [{"name": image.name, "coordinateSystems": [...],
                                               "datasets": datasets}]}
     out["zarr.json"] = group({"ome": ome})
@@ -699,7 +728,8 @@ It needs no plan: writing a TIFF file is its own output's format, so encoding
 IFDs is the caller's code, not a restated rule of refkv's. For each page it
 walks the IFD's entries, a tag's repeats (`tags/<tag>~<k>`) included
 ([tiff.md §5.1](../../spec/zarrify/tiff.md#51-elements)), taking each
-entry's tag, type and count from `ir.value`. Most tags are of unknown meaning
+entry's tag, type and count from `ir.value` (a tag's first entry is the one
+[tiff.md §2](../../spec/zarrify/tiff.md#2-the-source) reads). Most tags are of unknown meaning
 to it and are copied uninterpreted, their values' bytes from `parsed.bytes`
 into the header blob (each input's `max_bytes` set for one file's tags), so
 that the value of `stack.tif` is one `Data` part and a `Ref` per contiguous
@@ -707,19 +737,19 @@ run of strips (`concat(..., merge=True)`), as the example's is. The strip and
 tile tables (273, 279, 324, 325), which it rewrites, are known, so it takes
 them from the description once TIFF's lands, and from `ir.value` of
 `…/tags/273/value` and the others until then (tiff.md
-[§5.3](../../spec/zarrify/tiff.md#53-values) keeps the tables whole): the IR has a `strips/<j>` element only for a
-strip of nonzero length within the file, so the tables, not the elements,
-say where each strip goes, and a strip outside the file is one with no
-element. A page whose `tiles` is an alias of an earlier IFD's is a node
-whose target (`ir.target`) holds the strips, each of which it `span`s. It leaves out what points elsewhere in the old file
+[§5.3](../../spec/zarrify/tiff.md#53-values) keeps the tables whole). It
+builds each strip's `Ref` from the tables, its offset and byte count checked
+against the file's size (`parsed.sources[0].size`), not from the IR's
+`strips/<j>` elements, which exist only for a strip of nonzero length within
+the file. It leaves out what points elsewhere in the old file
 (SubIFDs, Exif, GPS and Interoperability IFDs, free space: 330, 34665, 34853,
 40965, 288, 289) and entries whose value's size cannot be told (a field type
-the model does not know) or that lie outside the file. It refuses what the
-example refuses: an old-style JPEG's offset (513), a BigTIFF or mixed byte
-orders (`header/magic`, `header/byte_order`), a strip outside the file, and a
-stack of 4 GiB or more; and it lets `seal` refuse a value that reads more
-than 1024 ranges, rather than counting files. The strips are `span`s, not
-`reference`s, since a JPEG strip's reference splices in tables the copied
+the model does not know) or that lie outside the file. It refuses an
+old-style JPEG's offset (513), a BigTIFF or mixed byte orders
+(`header/magic`, `header/byte_order`), a page without strips or tiles, a
+strip outside the file, and a stack of 4 GiB or more; and it lets `seal`
+refuse a value that reads more than 1024 ranges, rather than counting
+files. The strips are ranges of the file, not `reference`s, since a JPEG strip's reference splices in tables the copied
 JPEGTables tag already gives. Without checksums each input can be closed
 once its pages are walked.
 
@@ -754,7 +784,8 @@ other. The names, options and errors of [spec/layout.md](../../spec/layout.md)
 stay; its determinism rule is restated over the inputs (their descriptions
 and IRs, every byte read through them, by `bytes`, a plan, `tiff_array` or
 `hdf5_array`, their run
-options, the canonical options and the plugin's code), and its section on what a plugin is given
+options, the plugin's options in their canonical form
+([spec/layout.md §1](../../spec/layout.md#1-plugins)) and the plugin's code), and its section on what a plugin is given
 becomes a pointer to the tools.
 
 ## Testing that the tools suffice
@@ -781,7 +812,8 @@ caller writes](#what-a-caller-writes) become shipped examples, each built
 without `project` and without code that restates a rule of refkv's
 conventions (a mapping of OME planes, a strip join, a shard size, a codec
 table, a position conversion); a caller's own output format (the TIFF the
-stack writes, 0.6's metadata) is its own. Each is tested over its formats'
+stack writes, 0.6's metadata) is its own. The list is closed, and the
+examples' review checks them against it. Each is tested over its formats'
 fixtures by reading every array, or every page, back and comparing it with
 tifffile's or h5py's values. A tool too coarse for one of them, so that a
 caller must restate a rule to get past it, is split until it is not. The
@@ -824,7 +856,8 @@ them, and a Python projection is the test of the tools, not a replacement.
   plane mapping, out of the IR into the plan.
 - **Rewritten**: the `ome-zarr-06`, `tiff-pages`, `hdf5-rechunk` and
   `xarray-v2` examples, over the tools; `ome-zarr-06` moves off `project`
-  format by format as each plan lands (IMS last, with the other formats).
+  format by format as each plan lands (IMS's with the other formats', after
+  TIFF's and HDF5's).
 - **New**: `refkv.build` (`read`, `Parsed`, the values, `Array`, `Written`,
   `plan`, `grid`, `shard`, `tiff_array`, `hdf5_array`, `ome_image`,
   `omero`, `mirror`,
@@ -840,7 +873,8 @@ them, and a Python projection is the test of the tools, not a replacement.
   may be copied, split or framed where it was not; an HDF5 mirror past its
   room holds fewer storage elements, and no global heap collections read
   only for a dataset's strings or records; the references budget counts a repeat by its
-  source range; an HDF5 run whose attributes' and datasets' collections were
+  source range; every OME-TIFF's mirror loses its `ome/planes/<p>` aliases;
+  an HDF5 run whose attributes' and datasets' collections were
   read together now reads them in more rounds, so an input near the 4096
   rounds may be newly rejected.
 - **Specification**: spec/layout.md splits in two. The checks `seal` applies
@@ -886,7 +920,9 @@ and changing an output is a cost only to the fixtures.
    its facts, adds the routines it needs, and adds its tests, which pass
    before it merges.
    The 0.6 examples move onto TIFF's and HDF5's plans as they land.
-4. **The other formats**, the same way.
+4. **The other formats**, the same way, the store profiles and those whose
+   IR is a store's (Zarr v2 and v3, N5, precomputed, DICOM's and SAFE's store
+   forms), GRIB and ND2 among them; each has a description and a plan.
 
 ## Not in this proposal
 
