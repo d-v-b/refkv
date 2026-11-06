@@ -1,0 +1,413 @@
+"""refkv.build, the tools to build an output from the IR (design/proposals/profile-plugins.md): `read`
+and `Parsed`, values, `Array` and `Written`, `seal` and `project`."""
+
+import io
+import json
+import struct
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import pytest
+import tifffile
+
+import refkv
+from refkv.build import (
+    Array,
+    Binding,
+    Check,
+    Copy,
+    Data,
+    Literal,
+    Ref,
+    SealError,
+    Shared,
+    Value,
+    Written,
+    Zeros,
+    concat,
+    cut,
+    fits,
+    payload_size,
+    project,
+    read,
+    seal,
+)
+from refkv.build.seal import _binding_holds
+from refkv.zarrify import zarrify
+from refkv.zarrify.layouts import MAX_PAYLOAD
+
+ROOT = Path(__file__).resolve().parents[2]
+FIXTURES = ROOT / "fixtures"
+
+# a fixture or two of each file profile (and files read as stores), and whether the call asks for checksums
+CASES = [
+    ("czi/czi_gray16_tczyx.czi", False),
+    ("dicom/dicom_bigendian_mono16.dcm", False),
+    ("fits/fits_gzip_image.fits.gz", False),
+    ("flac/flac_mono_16.flac", False),
+    ("grib/grib_complex.grib2", False),
+    ("hdf5/hdf5_compounds.h5", False),
+    ("ims/ims_2d_no_metadata.ims", False),
+    ("lif/lif_xlef_tree.xlef", False),
+    ("mp4/mov_h264_aac.mov", False),
+    ("mrc/mrc_chunk_rows.mrc", True),
+    ("nd2/nd2_padded_rgb.nd2", False),
+    ("ndpi/ndpi_levels.ndpi", False),
+    ("npy/npy_c_float64.npy", False),
+    ("nrrd/nrrd_detached_raw.nhdr", False),
+    ("qptiff/qptiff_fl_uint8_lzw.qptiff", False),
+    ("safe/safe_l1c.SAFE.zip", False),
+    ("safetensors/st_dtypes.safetensors", False),
+    ("tiff/bilevel_tiled.tif", False),
+    ("tiff/strips_uint8.tif", True),
+    ("vsi/vsi_png.vsi", False),
+    ("zarr3/zarr3_hierarchy.zip", False),
+]
+
+
+@pytest.mark.parametrize(("name", "checksums"), CASES, ids=[n for n, _ in CASES])
+def test_seal_of_the_built_in_output_reads_what_zarrify_writes(name, checksums):
+    """`seal` of `project`'s output holds every key `zarrify` writes, each reading the same bytes:
+    the values the built-in projection made, as checked values of the input's sources."""
+    path = str(FIXTURES / name)
+    with read(path, checksums=checksums) as p:
+        store = seal(project(p).written, [p])
+        built = zarrify(path, checksums=checksums)
+        assert sorted(store.mapping) == sorted(built.mapping)
+        for k in built.mapping:
+            assert store.get(k) == built.get(k), k
+        assert sorted(store.read_at_open) == sorted(built.read_at_open)
+
+
+# ---- the TIFF stack, built from the IR: one TIFF file of every page of several (test case 2)
+
+OFFSETS = {273: 279, 324: 325}  # StripOffsets, TileOffsets, by their byte counts
+LEFT_OUT = {330, 34665, 34853, 40965, 288, 289, 400}  # tags that point elsewhere in the old file
+SIZES = {1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 6: 1, 7: 1, 8: 2, 9: 4, 10: 8, 11: 4, 12: 8}
+
+
+def _pages(p):
+    """Each page of `p`'s main IFD chain: its entries (tag, type, count, value bytes), and its strips
+    or tiles as (offset, length), from the IR: tags by `ir.value`, their values by `bytes`."""
+    ir, out, n = p.ir, [], 0
+    while ir.at(f"ifds/{n}") is not None:
+        entries, parts = [], None
+        tags = sorted({int(path.split("/")[3]) for i in range(len(ir))
+                       if (path := ir.path(i)).startswith(f"ifds/{n}/tags/") and "~" not in path.split("/")[3]})
+        for tag in tags:
+            entry = ir.value(ir.index(f"ifds/{n}/tags/{tag}/entry"))
+            held = ir.at(f"ifds/{n}/tags/{tag}/value")
+            if tag in LEFT_OUT or tag in OFFSETS.values() or held is None or entry["type"] not in SIZES:
+                continue
+            if tag in OFFSETS:
+                counts = ir.value(ir.index(f"ifds/{n}/tags/{OFFSETS[tag]}/value"))
+                parts = (tag, list(zip(ir.value(held), counts, strict=True)))
+                continue
+            entries.append((tag, entry["type"], entry["count"], p.bytes(held)))
+        assert parts is not None
+        out.append((entries, *parts))
+        n += 1
+    return out
+
+
+def stack(inputs):
+    """`stack.tif`: the pages of `inputs`, in order, as one classic TIFF, a header and new IFDs as a
+    `Data` part, then every strip or tile as a range of its file."""
+    order = {p.ir.value(p.ir.index("header/byte_order")) for p in inputs}
+    assert len(order) == 1
+    bo = "<" if order.pop() == "II" else ">"
+    pages = [(p, *page) for p in inputs for page in _pages(p)]
+
+    def entries(tags, code, parts, offsets):
+        n = len(parts)
+        return sorted([*tags, (code, 4, n, struct.pack(f"{bo}{n}I", *offsets)),
+                       (OFFSETS[code], 4, n, struct.pack(f"{bo}{n}I", *(m for _, m in parts)))])
+
+    ifd_at, at = [], 8
+    for _, tags, code, parts in pages:
+        ifd_at.append(at)
+        es = entries(tags, code, parts, [0] * len(parts))
+        at += 2 + 12 * len(es) + 4 + sum(len(v) + len(v) % 2 for *_, v in es if len(v) > 4)
+    head = bytearray((b"II*\0" if bo == "<" else b"MM\0*") + struct.pack(bo + "I", ifd_at[0]))
+    strips, cursor = [], at
+    for k, (p, tags, code, parts) in enumerate(pages):
+        offsets = []
+        for offset, length in parts:
+            offsets.append(cursor)
+            cursor += length
+            strips.append(Ref(p, 0, offset, length))
+        es = entries(tags, code, parts, offsets)
+        values_at = ifd_at[k] + 2 + 12 * len(es) + 4
+        ifd, values = bytearray(struct.pack(bo + "H", len(es))), bytearray()
+        for c, t, n, v in es:
+            if len(v) <= 4:
+                field = v.ljust(4, b"\0")
+            else:
+                field = struct.pack(bo + "I", values_at + len(values))
+                values += v + b"\0" * (len(v) % 2)
+            ifd += struct.pack(bo + "HHI", c, t, n) + field
+        ifd += struct.pack(bo + "I", ifd_at[k + 1] if k + 1 < len(pages) else 0)
+        head += ifd + values
+    return concat(Data(bytes(head)), *strips, merge=True)
+
+
+@pytest.mark.parametrize("byteorder", ["<", ">"])
+def test_a_stack_of_tiffs_built_from_the_ir(tmp_path, byteorder):
+    """One TIFF of the pages of several, every tag but the pointers copied from the IR's bytes:
+    its pages read back equal to the files', in both byte orders, across strips, tiles, zlib with
+    a predictor, RGB, floats, and an OME-TIFF of several pages. A file of pages without OME-XML
+    is not among them: until TIFF's plan lands, `read` still raises the image layout's rejection
+    of it (design/proposals/profile-plugins.md, "What a caller writes")."""
+    rng = np.random.default_rng(0)
+    plane = rng.integers(0, 4000, (64, 96), dtype=np.uint16)
+    inputs: dict[str, tuple[np.ndarray, dict[str, Any]]] = {
+        "a": (plane, {}),
+        "b": (plane, {"rowsperstrip": 7, "compression": "zlib", "predictor": True}),
+        "c": (plane, {"tile": (32, 32)}),
+        "d": (rng.integers(0, 255, (64, 96, 3), dtype=np.uint8), {"photometric": "rgb", "compression": "zlib"}),
+        "e": (rng.random((3, 64, 96), dtype=np.float32), {"ome": True}),  # three planes, as OME-XML maps them
+    }
+    paths = []
+    for name, (array, options) in inputs.items():
+        paths.append(tmp_path / f"{name}.tif")
+        kwargs: dict[str, Any] = {"photometric": "minisblack", **options}
+        tifffile.imwrite(paths[-1], array, byteorder=byteorder, **kwargs)
+
+    parsed = [read(p) for p in paths]
+    store = seal(Written({"stack.tif": stack(parsed)}), parsed)
+    for p in parsed:
+        p.close()  # without checksums, sealing and saving read nothing more of an input
+    store.save_vzip(tmp_path / "stack.vzip")
+    data = refkv.open(str(tmp_path / "stack.vzip")).get("stack.tif")
+    expected = []
+    for path in paths:
+        with tifffile.TiffFile(path) as tf:
+            expected += [page.asarray() for page in tf.pages]
+    assert data is not None
+    with tifffile.TiffFile(io.BytesIO(data)) as tf:
+        assert tf.byteorder == byteorder
+        got = [page.asarray() for page in tf.pages]
+    assert len(got) == len(expected) == 7
+    for g, e in zip(got, expected, strict=True):
+        np.testing.assert_array_equal(g, e)
+    assert len(store.sources) == len(paths) + 1  # each file, then the header's data source
+
+
+# ---- values
+
+def test_values(tmp_path):
+    """`cut`, `concat` and `payload_size` over every kind of part: what they read, and a payload
+    measured with every source index at its largest, so that `fits` never passes a value `seal`
+    refuses."""
+    np.save(tmp_path / "x.npy", np.zeros(512))
+    with read(tmp_path / "x.npy") as p:
+        blob = b"header!!"
+        v = concat(Literal(b"ab"), Ref(p, 0, 10, 20), Data(blob), Zeros(5), Shared(b"tables"))
+        assert v.size == 2 + 20 + 8 + 5 + 6
+        assert cut(v, 0, 2).parts == (Literal(b"ab"),)
+        assert cut(v, 5, 12).parts == (Ref(p, 0, 13, 7),)
+        assert cut(v, 25, 30).parts == (Data(blob, 3, 5),)
+        assert cut(v, 30, 33).parts == (Zeros(3),)
+        assert cut(v, 36, 38).parts == (Data(b"tables", 1, 2),)
+        assert concat(Ref(p, 0, 0, 4), Ref(p, 0, 4, 4), merge=True).parts == (Ref(p, 0, 0, 8),)
+        assert concat(Data(blob, 0, 3), Data(blob, 3, 5), merge=True).parts == (Data(blob, 0, 8),)
+        assert concat(Ref(p, 0, 0, 4), Ref(p, 0, 4, 4)).parts == (Ref(p, 0, 0, 4), Ref(p, 0, 4, 4))
+        assert payload_size(Ref(p, 0, 1, 1)) == 1 + 4 + 1 + 1 + 1 + 1  # source at its largest: 5 bytes
+        assert payload_size(Ref(p, 0, 1, 1), checksums=True) == payload_size(Ref(p, 0, 1, 1)) + 6
+        many = concat(*(Ref(p, 0, 2 * k, 1) for k in range(7000)))
+        assert fits(many) is not None
+        assert fits(Ref(p, 0, 0, 1)) is None
+        sealed = seal(Written({"small": concat(*(Ref(p, 0, 2 * k, 1) for k in range(100)))}), [p])
+        small = sealed.mapping["small"]
+        assert not isinstance(small, bytes)
+        assert len(small.encode()) <= payload_size(
+            concat(*(Ref(p, 0, 2 * k, 1) for k in range(100))))
+
+
+def test_written_keeps_its_placements():
+    """`Written` merges entries and placements with `|` and `|=`; a plain dict update keeps the
+    entries alone."""
+    a = Written({"x/zarr.json": b"{}"}, at_open={"x/zarr.json": False}, stored={"x/zarr.json"})
+    b = Written({"y": b"y"}, at_open={"y": True})
+    both = a | b
+    assert set(both) == {"x/zarr.json", "y"}
+    assert both.at_open == {"x/zarr.json": False, "y": True}
+    assert both.stored == {"x/zarr.json"}
+    a |= {"z": Literal(b"z")}
+    assert a["z"] == Value((Literal(b"z"),))
+    plain = dict(both)
+    assert set(plain) == {"x/zarr.json", "y"}
+
+
+def test_parsed(tmp_path):
+    """The accessors `read` gives over a TIFF's IR: a strip's reference and span, a tag's bytes
+    from the IR and a range's from the file, the element at a byte, and the gaps."""
+    path = tmp_path / "a.tif"
+    tifffile.imwrite(path, np.arange(64 * 96, dtype=np.uint16).reshape(64, 96), photometric="minisblack",
+                     rowsperstrip=16, compression="zlib")
+    with read(path) as p, tifffile.TiffFile(path) as tf:
+        page = tf.pages[0]
+        assert p.profile == "tiff"
+        assert p.version == 0
+        assert p.plain_file
+        assert p.description is None
+        assert p.sources[0].size == path.stat().st_size
+        strip = p.ir.index("ifds/0/strips/1")
+        assert p.reference(strip) == Value((Ref(p, 0, page.dataoffsets[1], page.databytecounts[1]),))
+        assert p.span(strip) == Ref(p, 0, page.dataoffsets[1], page.databytecounts[1])
+        assert p.element_at(0, page.dataoffsets[1] + 3) == (strip, None)
+        assert p.bytes(p.ir.index("ifds/0/tags/305/value")).startswith(b"tifffile")
+        head, raw = p.bytes((0, 0, 4), strip)
+        assert head == b"II*\0"
+        assert len(raw) == page.databytecounts[1]
+        size = p.sources[0].size
+        assert size is not None
+        for gap in p.gaps():
+            assert 0 <= gap.offset < size
+
+
+def test_a_check_holds_under_a_leading_transpose(tmp_path):
+    """A checked chunk keeps its check where it was built, and under Zarr's transpose codec put first
+    with the shape, grid and key permuted to match; anywhere else it is unchecked, and held to the
+    read rule."""
+    np.save(tmp_path / "x.npy", np.zeros((4, 6), dtype=np.uint8))
+    with read(tmp_path / "x.npy") as p:
+        doc = {"shape": [4, 6], "data_type": "uint8", "codecs": [{"name": "bytes"}], "fill_value": 0,
+               "chunk_grid": {"name": "regular", "configuration": {"chunk_shape": [4, 6]}}}
+        checked = Value((Ref(p, 0, 0, 1),), Check("builtin", Binding.of(doc, (0, 0))))
+        as_built = Array([4, 6], "uint8", [4, 6], [{"name": "bytes"}], {(0, 0): checked}).entries(to="a")
+        order = [1, 0]
+        moved = Array([6, 4], "uint8", [6, 4], [{"name": "transpose", "configuration": {"order": order}},
+                                                 {"name": "bytes"}], {(0, 0): checked}).entries(to="b")
+        other = Array([4, 7], "uint8", [4, 7], [{"name": "bytes"}], {(0, 0): checked}).entries(to="c")
+        out = as_built | moved | other
+        assert _holds(out, "a/c/0/0")
+        assert _holds(out, "b/c/0/0")
+        assert not _holds(out, "c/c/0/0")
+
+
+def _holds(out, key):
+    """Whether the checked value at `key` keeps its check there."""
+    v = out[key]
+    assert isinstance(v, Value)
+    return _binding_holds(v, key, out)
+
+
+# ---- what seal refuses: one test each
+
+def _npy(tmp_path, name="x.npy", n=4096):
+    """A NumPy file of `n` zero bytes, written sparse."""
+    path = tmp_path / name
+    with path.open("wb") as f:
+        np.lib.format.write_array_header_1_0(f, {"descr": "|u1", "fortran_order": False, "shape": (n,)})
+        f.truncate(f.tell() + n)
+    return path
+
+
+def test_seal_refuses_a_key_the_archive_cannot_hold(tmp_path):
+    with read(_npy(tmp_path)) as p, pytest.raises(SealError) as e:
+        seal(Written({"__vz__/x": b"x"}), [p])
+    assert e.value.code == "key"
+
+
+def test_seal_refuses_a_range_past_its_source(tmp_path):
+    with read(_npy(tmp_path)) as p:
+        size = p.sources[0].size
+        assert size is not None
+        with pytest.raises(SealError) as e:
+            seal(Written({"v": Ref(p, 0, size - 1, 2)}), [p])
+    assert e.value.code == "range"
+
+
+def test_seal_refuses_a_payload_past_the_limit(tmp_path):
+    with read(_npy(tmp_path)) as p, pytest.raises(SealError) as e:
+        seal(Written({"v": Literal(bytes(MAX_PAYLOAD))}), [p])
+    assert e.value.code == "payload"
+
+
+def test_seal_refuses_a_value_of_more_reads_than_a_reader_makes(tmp_path):
+    with read(_npy(tmp_path, n=1100 * (1 << 17))) as p, pytest.raises(SealError) as e:
+        seal(Written({"v": concat(*(Ref(p, 0, k << 17, 1) for k in range(1025)))}), [p])
+    assert e.value.code == "reads"
+
+
+def test_seal_refuses_a_copy_left_unfilled(tmp_path):
+    with read(_npy(tmp_path)) as p, pytest.raises(SealError) as e:
+        seal(Written({"v": Copy(Ref(p, 0, 0, 4))}), [p])
+    assert e.value.code == "copy"
+
+
+def test_seal_refuses_a_ref_to_an_input_it_was_not_given(tmp_path):
+    with read(_npy(tmp_path)) as p, read(_npy(tmp_path, "y.npy")) as q, pytest.raises(SealError) as e:
+        seal(Written({"v": Ref(q, 0, 0, 4)}), [p])
+    assert e.value.code == "inputs"
+
+
+def test_seal_refuses_inputs_read_with_and_without_checksums(tmp_path):
+    with read(_npy(tmp_path)) as p, read(_npy(tmp_path, "y.npy"), checksums=True) as q, \
+            pytest.raises(SealError) as e:
+        seal(Written({"v": Ref(p, 0, 0, 4)}), [p, q])
+    assert e.value.code == "inputs"
+
+
+def test_seal_refuses_one_file_read_with_two_sizes(tmp_path):
+    path = _npy(tmp_path)
+    p = read(path)
+    _npy(tmp_path, n=8192)  # the file changes between two reads of it
+    q = read(path)
+    with pytest.raises(SealError) as e:
+        seal(Written({"v": concat(Ref(p, 0, 0, 4), Ref(q, 0, 0, 4))}), [p, q])
+    assert e.value.code == "inputs"
+
+
+def test_seal_refuses_a_placement_of_no_bytes_entry(tmp_path):
+    with read(_npy(tmp_path)) as p, pytest.raises(SealError) as e:
+        seal(Written({"v": Ref(p, 0, 0, 4)}, at_open={"v": True}), [p])
+    assert e.value.code == "open"
+
+
+# ---- what the other tools refuse: one test each
+
+def test_bytes_refuses_past_max_bytes(tmp_path):
+    with read(_npy(tmp_path), max_bytes=10) as p, pytest.raises(ValueError, match="max_bytes"):
+        p.bytes((0, 0, 11))
+
+
+def test_reference_refuses_a_node(tmp_path):
+    with read(_npy(tmp_path)) as p, pytest.raises(ValueError, match="no bytes of its own"):
+        p.reference(0)
+
+
+def test_an_element_the_ir_does_not_have_is_a_key_error(tmp_path):
+    with read(_npy(tmp_path)) as p, pytest.raises(KeyError):
+        p.span(len(p.ir))
+
+
+def test_a_closed_input_reads_nothing(tmp_path):
+    p = read(_npy(tmp_path))
+    p.close()
+    with pytest.raises(ValueError, match="closed"):
+        p.bytes((0, 0, 1))
+
+
+def test_cut_refuses_bounds_outside_the_value():
+    with pytest.raises(ValueError, match="not within"):
+        cut(Literal(b"abc"), 1, 4)
+
+
+def test_concat_refuses_no_values():
+    with pytest.raises(ValueError, match="no values"):
+        concat()
+
+
+def test_a_value_holds_parts_only():
+    with pytest.raises(TypeError, match="parts"):
+        Value((b"bytes",))  # type: ignore[arg-type]
+
+
+def test_documents_are_json():
+    """`Array.entries` writes a Zarr v3 document a reader parses."""
+    doc = json.loads(Array([2], "uint8", [2], [{"name": "bytes"}], {}).entries()["zarr.json"])  # type: ignore[arg-type]
+    assert doc["node_type"] == "array"
+    assert doc["chunk_grid"]["configuration"]["chunk_shape"] == [2]
