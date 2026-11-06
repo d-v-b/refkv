@@ -30,6 +30,7 @@ from refkv._narrow import string
 from refkv.policy import Policy
 from refkv.zarrify.profiles import REGISTRY
 from refkv.zarrify.store import WORKERS
+from refkv.zarrify.store.beside import Scope
 
 
 @dataclass(frozen=True)
@@ -57,8 +58,8 @@ class Source:
     - `connections`: requests at a time to a remote file (default 8).
     - `byte_cost`: the seconds of wall time the read planner charges a byte fetched beyond
       those asked (default 0.1 s per MB).
-    - `siblings`: the file may be read with the files it names beside it (default True); False
-      reads no file but this one (spec/zarrify.md §1.9
+    - `scope`: what the file may read besides itself, a path or several (default: its directory;
+      `zarrify` says more, spec/zarrify.md §1.9
       <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>)."""
 
     profile: ClassVar[str] = ""  # the registry's name, set by each class
@@ -68,7 +69,7 @@ class Source:
     policy: Policy | None = field(default=None, compare=False)
     connections: int | None = None
     byte_cost: float | None = None
-    siblings: bool = True
+    scope: Scope | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True)

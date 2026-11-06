@@ -37,11 +37,11 @@ export interface EmbedOptions {
    * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>; default: private
    * and special hosts refused). */
   policy?: Policy;
-  /** Whether a file input may be read with the files it names beside it, through its `open`
-   * (spec/zarrify.md §1.9
-   * <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>),
-   * default true; false reads no file but the input, and rejects one that needs another. */
-  siblings?: boolean;
+  /** What a file input may read besides itself through its `open` (spec/zarrify.md §1.9
+   * <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>):
+   * URLs, each the input URL's directory (the default) or a file or directory below it; `[url]`
+   * reads the input alone, and rejects one that needs another file. */
+  scope?: readonly string[];
 }
 
 export interface Zarrified {
@@ -67,9 +67,8 @@ export async function zarrifyToArchive(input: FileInput | string, options: Embed
   } else {
     const source: RangeSource = readerSource((o, n) => input.read(o, n), input.size, { concurrency: READS_AT_ONCE });
     const open = input.open;
-    const siblings = options.siblings !== false;
     desc = await zarrifySource(input.url, source, {
-      siblings,
+      ...(options.scope !== undefined ? { scope: options.scope } : {}),
       ...(open ? {
         open: async (key: string) => {
           const file = await open(key);

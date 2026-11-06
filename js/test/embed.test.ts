@@ -66,7 +66,7 @@ test("zarrifies a file the host reads, with or without its size pins", async () 
   }
 });
 
-test("rejects a file that names a sibling when siblings are refused, opening none", async () => {
+test("rejects a file that names a sibling out of its scope, opening none", async () => {
   for (const [path, key] of [
     ["hdf5/hdf5_external.h5", "hdf5_external_a.bin"],
     ["nrrd/nrrd_detached_raw.nhdr", "nrrd_detached_raw.raw"],
@@ -77,12 +77,25 @@ test("rejects a file that names a sibling when siblings are refused, opening non
     const opened: string[] = [];
     const file = { ...input(path), open: async (k: string) => void opened.push(k) };
     await assert.rejects(
-      zarrifyToArchive(file, { siblings: false }),
-      (e: Error) => e instanceof StoreError && e.message === `siblings refused: the input names the file "${key}"`,
+      zarrifyToArchive(file, { scope: [file.url] }),
+      (e: Error) => e instanceof StoreError && e.message === `out of scope: the input names the file "${key}"`,
       path,
     );
     assert.deepEqual(opened, [], path);
   }
+});
+
+test("reads a sibling in its scope", async () => {
+  const path = "nrrd/nrrd_detached_raw.nhdr";
+  const scoped = await zarrifyToArchive(input(path), { scope: [`https://data.test/nrrd/nrrd_detached_raw.raw`] });
+  assert.deepEqual(scoped.archive, (await zarrifyToArchive(input(path))).archive);
+});
+
+test("rejects a scope outside the input's directory", async () => {
+  await assert.rejects(
+    zarrifyToArchive(input("nrrd/nrrd_detached_raw.nhdr"), { scope: ["https://data.test/other/"] }),
+    (e: Error) => e instanceof RangeError && e.message.startsWith('scope "https://data.test/other/" is not'),
+  );
 });
 
 test("rejects a file of no supported format", async () => {

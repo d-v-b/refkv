@@ -888,16 +888,22 @@ read of what it named:
 - **References** stay within their objects: every reference's `offset + length` is at most the
   `size` its object's pin records ([§1.2](#12-input), **References stay in the file**).
 
-**Refusing siblings.** An application MAY zarrify an input with siblings refused, when the input is
-untrusted and its directory holds files it must not reach (a server that keeps every user's uploads
-in one directory). A zarrifier then opens no object but the named file, and lists no directory for
-**Case**. A key the profile would probe is answered absent, without a request, when the profile calls
-it optional and its absence means only that the named file has none (GRIB's index files); for any
-other key the input is rejected before anything else is read: `siblings refused: the input names the
-file "<key>"`, the key as the naming steps give it. That includes a name that may dangle, such as an
-HDF5 external link's: recorded in place, it would say that the link names no file when it may name
-one. A file input whose bytes name no sibling, and a store input, are read as they are without the
-option, with the same output.
+**Scope.** The **scope** of an input is the part of the store URL's directory a zarrifier may read
+besides the named file. The application gives it, as files and directories at or below the store
+URL, each a key, or a directory's key followed by `/` (every key below it). By default it is the
+whole directory, so every key the naming steps give is in it. An application gives a narrower one
+when the input is untrusted and its directory holds files it must not reach (a server that keeps
+every user's uploads in one directory); a scope of no key reads the named file alone. A key is in
+the scope when it is one of its keys or below one of its directories, compared as written.
+
+A zarrifier probes no key outside the scope, and lists no directory for **Case** to resolve one. The
+profile's optional sibling (one whose absence means only that the named file has none, as GRIB's
+index files) outside it is absent, without a request. Any other key outside it rejects the input
+before anything else of the batch is read: `out of scope: the input names the file "<key>"`, the key
+as the naming steps give it. So does a key **Case** finds outside the scope, naming the found key. A
+name that may dangle, such as an HDF5 external link's, is rejected too: recorded in place, it would
+say that the link names no file when it may name one. A store input has no scope, its objects being
+the ones its listing gives.
 
 **The sibling table.** A profile's document says, for its siblings:
 

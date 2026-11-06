@@ -120,8 +120,8 @@ store by the objects at its root. Options:
   archive references (off by default);
 - `--allow-private-hosts`: let a file or store at an http(s) URL be read
   from a loopback, private or link-local host (below; unsafe);
-- `--no-siblings`: read no file but the input, and reject one that names
-  another file beside it (below);
+- `--scope PATH`: what a file input may read besides itself, repeated for
+  several paths (below; default: the input's directory);
 - `--connections N` and `--byte-cost SECONDS_PER_MB`: for a file input,
   how many requests the read planner runs at a time (default 8), and how
   much wall time it charges for a megabyte read beyond those asked (default
@@ -153,13 +153,14 @@ NIfTI set, a VSI slide's tile files. Those names stay below the input's
 directory ([spec](../../spec/zarrify.md#19-sources-beside-the-input)), but a
 server that saves uploads into a shared directory and zarrifies them would let
 one upload read another: an HDF5 file with `external=[("other-user/session.txt",
-0, 40)]` puts that file's bytes in its archive. To zarrify a file without
-reading any other, pass `--no-siblings` (or `siblings=False` in Python, and
-`siblings: false` in the browser's `zarrifySource` and
-`zarrifyToArchive`). An input that needs another file is then rejected, naming
-it: `siblings refused: the input names the file "other-user/session.txt"`. A
-GRIB file's index files are optional, so a GRIB file is read without them
-instead. A store input is read from its listing either way.
+0, 40)]` puts that file's bytes in its archive. To say what a file may read, give its scope:
+`--scope PATH`, repeated for several, or `scope=` in Python (a path or a list of them), and
+`scope` in the browser's `zarrifySource` and `zarrifyToArchive` (URLs). Each entry is the
+input's directory, the default, or a file or directory below it, written as the input is.
+`--scope <the input>` reads the input alone. An input that needs a file outside its scope is
+rejected before that file is opened, naming it:
+`out of scope: the input names the file "other-user/session.txt"`. A GRIB file's index files are
+optional, so a GRIB file is read without one that is out of scope instead. A store input, read from its listing, takes no scope.
 
 Read the archive in Python with `refkv.zarr` and zarr-python
 (`pip install 'refkv[zarr]'`, or `refkv[images]` for imagecodecs-zarr's codecs). zarr-python
@@ -204,7 +205,7 @@ store.save_vzip("CMU-1-Small-Region.vzip")
 `zarrify` takes the input's local path or URL, and the command's options as
 keyword arguments: `url` (the URL the archive names the source by),
 `checksums`, `policy`, `connections`, `byte_cost` (in seconds per byte, not
-per MB), `workers` and `siblings`. It raises `refkv.zarrify.Rejected` when no profile
+per MB), `workers` and `scope`. It raises `refkv.zarrify.Rejected` when no profile
 accepts the input, `refkv.errors.ResolutionError` when the reader policy
 refuses the input or a source (such as a URL on a private host), and `OSError`
 when the input cannot be read (`FileNotFoundError` for a missing local file,
@@ -225,7 +226,7 @@ per profile in the registry. `<Name>Source` is for a file (`TiffSource`,
 `OmeZarrStore`, `N5Store`, `PrecomputedStore`, `SafetensorsStore`). SAFE has both, `SafeSource` for a `.SAFE.zip` file
 and `SafeStore` for a `.SAFE` directory. The input's read options belong to the
 class (`url`, `checksums`, `policy`, and `connections`, `byte_cost` and
-`siblings` for a file, or `workers` and `max_objects` for a store), so `zarrify` raises
+`scope` for a file, or `workers` and `max_objects` for a store), so `zarrify` raises
 `TypeError` when one is also passed beside it:
 
 ```python

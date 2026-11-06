@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import os
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import override
 from urllib.parse import unquote
@@ -86,6 +86,45 @@ def split_input(location: str, title: str = "VSI") -> tuple[str, str]:
             raise Rejected(f"{title} input {location!r} names no file")
         return d + "/", key
     return os.path.split(location)
+
+
+type Scope = str | os.PathLike[str] | Iterable[str | os.PathLike[str]]
+
+
+def scope_keys(location: str, scope: Scope) -> list[str] | None:
+    """The scope of the file input at `location` (spec/zarrify.md §1.9
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>,
+    **Scope**) as the keys `StoreRun.scope` takes: `scope` is a path or URL, or several, written
+    as `location` is (local paths, or http(s) URLs), each the input's directory or a file or
+    directory below it. A directory's key ends in `/`; the input itself, always in scope, adds no
+    key. None when the scope holds the input's directory, every key being in it."""
+    entries = [scope] if isinstance(scope, (str, os.PathLike)) else list(scope)
+    keys: list[str] = []
+    if location.startswith(("http://", "https://")):
+        d, named = split_input(location, "the")
+        for e in (os.fspath(x) for x in entries):
+            if not e.startswith(d):
+                raise ValueError(f'scope "{e}" is not the input\'s directory "{d}" or below it')
+            key = unquote(e[len(d):])
+            if key == "":
+                return None
+            if key != named:
+                keys.append(key)
+        return keys
+    # absolute and with `.` and `..` taken out, links not followed (as the Rust CLI's `lexical`)
+    named = Path(os.path.normpath(Path(location).absolute()))
+    for e in entries:
+        at = Path(os.path.normpath(Path(e).absolute()))
+        try:
+            rel = at.relative_to(named.parent)
+        except ValueError:
+            d = named.parent
+            raise ValueError(f'scope "{os.fspath(e)}" is not the input\'s directory "{d}" or below it') from None
+        if rel == Path():
+            return None
+        if at != named:
+            keys.append(rel.as_posix() + ("/" if at.is_dir() else ""))
+    return keys
 
 
 class VsiFiles(Store):

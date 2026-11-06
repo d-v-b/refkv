@@ -79,8 +79,8 @@ pub trait StoreParser: Send + Sync {
         Err("internal: this store format's keys are found as written".into())
     }
     /// Whether the probed key `key` is a sibling whose absence the profile reads as the named
-    /// file having none (GRIB's index files): a run that refuses siblings
-    /// ([`StoreRun::refuse_siblings`]) answers such a probe absent, and rejects any other.
+    /// file having none (GRIB's index files): a run given a scope ([`StoreRun::scope`]) answers
+    /// such a probe outside it absent, and rejects any other.
     fn optional(&self, key: &str) -> bool {
         let _ = key;
         false
@@ -143,8 +143,10 @@ pub struct StoreRun {
     probed: u64,
     /// the keys of the objects so far
     known: std::collections::HashSet<String>,
-    /// whether the host is asked to probe (false: [`StoreRun::refuse_siblings`])
-    siblings: bool,
+    /// the keys the host may be asked to probe ([`StoreRun::scope`]); None: every key
+    scope: Option<Vec<String>>,
+    /// for each probe of the pending batch, whether it is outside the scope (the run answers it)
+    outside: Vec<bool>,
 }
 
 impl StoreRun {
@@ -182,22 +184,36 @@ impl StoreRun {
             probes: Vec::new(),
             answered: 0,
             probed: 0,
-            siblings: true,
+            scope: None,
+            outside: Vec::new(),
         })
     }
 
-    /// Refuses every sibling (spec/zarrify.md §1.9
+    /// The scope of the input (spec/zarrify.md §1.9
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>,
-    /// **Refusing siblings**), before the first poll: the host is asked to probe no key, so the run
-    /// reads nothing but the listing's objects. A probe of a sibling the profile calls optional
-    /// ([`StoreParser::optional`]) is answered absent by the run itself, and any other rejects the
-    /// input, `siblings refused: the input names the file "<key>"`.
-    pub fn refuse_siblings(&mut self) -> Res<()> {
+    /// **Scope**), before the first poll: the keys besides the listing's the host may be asked to
+    /// probe, each a key or a directory's key followed by `/` (every key below it); none, the
+    /// listing's objects alone. A run without a scope probes any key. A probed key outside it is
+    /// not given to the host: the run answers it absent when the profile calls it optional
+    /// ([`StoreParser::optional`]), and rejects the input otherwise, `out of scope: the input
+    /// names the file "<key>"`, as it does a key the host found by listing (**Case**) outside it.
+    pub fn scope(&mut self, within: Vec<String>) -> Res<()> {
         if self.stats.batches > 0 || self.done {
-            return Err("internal: siblings refused after the first poll".into());
+            return Err("internal: the scope given after the first poll".into());
         }
-        self.siblings = false;
+        for e in &within {
+            let key = e.strip_suffix('/').unwrap_or(e);
+            if key.is_empty() || key.split('/').any(|s| s.is_empty() || s == "." || s == "..") {
+                return Err(format!("internal: the scope's {e:?} is not a key or a directory's"));
+            }
+        }
+        self.scope = Some(within);
         Ok(())
+    }
+
+    /// Whether the key `key` is in the scope.
+    fn within(&self, key: &str) -> bool {
+        self.scope.as_ref().is_none_or(|w| w.iter().any(|e| e == key || (e.ends_with('/') && key.starts_with(e.as_str()))))
     }
 
     /// The keys the listing ignores (spec/zarrify.md §1.4
@@ -233,16 +249,20 @@ impl StoreRun {
     pub fn poll(&mut self) -> Res<Option<Vec<ObjectRequest>>> {
         loop {
             let got = self.step()?;
-            // a batch of probes the run answered itself, siblings being refused: the next step
-            if self.siblings || got.as_ref().is_none_or(|g| !g.is_empty()) {
+            // (a batch of empty ranges alone is an empty list too, with no probes)
+            if got.as_ref().is_none_or(|g| !g.is_empty()) || self.probes.is_empty() {
                 return Ok(got);
             }
+            // a batch of probes: those outside the scope are the run's to answer, and the host is
+            // given the batch only when one is in it
             let p = self.parser.as_ref().ok_or("internal: no parser")?;
-            if let Some(k) = self.probes.iter().find(|k| !p.optional(k)) {
-                return Err(format!("siblings refused: the input names the file \"{k}\""));
+            self.outside = self.probes.iter().map(|k| !self.within(k)).collect();
+            if let Some((k, _)) = self.probes.iter().zip(&self.outside).find(|&(k, &o)| o && !p.optional(k)) {
+                return Err(format!("out of scope: the input names the file \"{k}\""));
             }
-            for _ in 0..self.probes.len() {
-                self.found(None)?;
+            self.skip()?;
+            if self.answered < self.probes.len() {
+                return Ok(got);
             }
         }
     }
@@ -256,6 +276,7 @@ impl StoreRun {
             return Err("poll before every probe of the batch was answered".into());
         }
         self.probes.clear();
+        self.outside.clear();
         self.answered = 0;
         // a batch is pending until served, even one of empty ranges only (no request)
         if !self.round.is_empty() || !self.asked.is_empty() {
@@ -289,6 +310,7 @@ impl StoreRun {
                     return Err(format!("budget: the input names more than {} files", crate::beside::MAX_FILES));
                 }
                 self.stats.batches += 1;
+                self.outside = vec![false; keys.len()];
                 self.probes = keys;
                 self.answered = 0;
                 Ok(Some(Vec::new()))
@@ -296,16 +318,25 @@ impl StoreRun {
         }
     }
 
-    /// The keys of the pending batch of probes, in the order the host answers them.
-    pub fn probes(&self) -> &[String] {
-        &self.probes
+    /// The keys of the pending batch of probes the host answers, in order: those in the scope.
+    pub fn probes(&self) -> Vec<String> {
+        self.probes.iter().zip(&self.outside).filter(|&(_, &o)| !o).map(|(k, _)| k.clone()).collect()
     }
 
     /// The answer to the next probe of the batch (in order): the key's size when it exists,
     /// None when it does not. A found key becomes an object of the run, its reads budgeted
     /// like a listed one's.
     pub fn found(&mut self, size: Option<u64>) -> Res<()> {
-        self.answer(size, None)
+        self.answer(size, None)?;
+        self.skip()
+    }
+
+    /// Answers absent the probes outside the scope that come next in the batch.
+    fn skip(&mut self) -> Res<()> {
+        while self.outside.get(self.answered) == Some(&true) {
+            self.answer(None, None)?;
+        }
+        Ok(())
     }
 
     /// The answer to the next probe of the batch when the host found it at another key, by listing
@@ -316,7 +347,11 @@ impl StoreRun {
         if key.is_empty() || key.split('/').any(|s| s.is_empty() || s == "." || s == "..") {
             return Err(format!("internal: the key {key:?} a probe was found at is not a key"));
         }
-        self.answer(Some(size), Some(key))
+        if !self.within(key) {
+            return Err(format!("out of scope: the input names the file \"{key}\""));
+        }
+        self.answer(Some(size), Some(key))?;
+        self.skip()
     }
 
     fn answer(&mut self, size: Option<u64>, at: Option<&str>) -> Res<()> {
@@ -571,33 +606,80 @@ mod tests {
         assert_eq!(run.poll().err().as_deref(), Some("budget: the input names more than 65536 files"));
     }
 
-    /// A run of a parser that probes two keys a step for two steps, `optional` of them optional.
-    fn refusing(optional: &'static [&'static str]) -> StoreRun {
+    /// A run of a parser that probes two keys a step for two steps (`k0` to `k3`), `optional` of
+    /// them optional, within `scope`.
+    fn scoped(scope: &[&str], optional: &'static [&'static str]) -> StoreRun {
         let mut run = StoreRun::with(StoreFormat::Nrrd, vec![("a".into(), 1)], 1, &|ir, _, _| {
             Ok(Box::new(Prober { optional, until: 2, ..Prober::new(2, ir) }))
         }).unwrap();
-        run.refuse_siblings().unwrap();
+        run.scope(scope.iter().map(|s| s.to_string()).collect()).unwrap();
         run
     }
 
     #[test]
-    fn a_run_that_refuses_siblings_answers_optional_probes_itself() {
-        let mut run = refusing(&["k0", "k1", "k2", "k3"]);
-        assert_eq!(run.poll().unwrap(), None);
-        assert!(run.probes().is_empty());
+    #[allow(clippy::type_complexity)]
+    fn a_scoped_run_gives_the_host_the_probes_in_its_scope() {
+        // (scope, optional keys, the batches the host is given)
+        let cases: &[(&[&str], &'static [&'static str], &[&[&str]])] = &[
+            (&["k0", "k1", "k2", "k3"], &[], &[&["k0", "k1"], &["k2", "k3"]]),
+            (&["k1", "k2"], &["k0", "k3"], &[&["k1"], &["k2"]]),
+            (&["k0", "k1"], &["k2", "k3"], &[&["k0", "k1"]]),
+            (&[], &["k0", "k1", "k2", "k3"], &[]),
+        ];
+        for &(scope, optional, want) in cases {
+            let mut run = scoped(scope, optional);
+            let mut given = Vec::new();
+            while run.poll().unwrap().is_some() {
+                let keys = run.probes();
+                for _ in &keys {
+                    run.found(None).unwrap();
+                }
+                given.push(keys);
+            }
+            assert_eq!(given, want, "{scope:?}");
+        }
     }
 
     #[test]
-    fn a_run_that_refuses_siblings_rejects_a_required_probe() {
-        let mut run = refusing(&["k0", "k1", "k2"]);
-        assert_eq!(run.poll().err().as_deref(), Some("siblings refused: the input names the file \"k3\""));
+    fn a_key_below_a_directory_of_the_scope_is_in_it() {
+        let mut run = StoreRun::with(StoreFormat::Nrrd, vec![("a".into(), 1)], 1, &|ir, _, _| Ok(Box::new(Prober::new(1, ir))))
+            .unwrap();
+        run.scope(vec!["d/".into(), "k".into()]).unwrap();
+        for (key, want) in [("d/x", true), ("d/e/x", true), ("k", true), ("d", false), ("dx", false), ("k/x", false), ("x", false)] {
+            assert_eq!(run.within(key), want, "{key}");
+        }
     }
 
     #[test]
-    fn siblings_are_refused_before_the_first_poll() {
+    fn a_required_probe_outside_the_scope_is_rejected() {
+        let mut run = scoped(&["k0", "k1", "k2"], &[]);
+        assert!(run.poll().unwrap().is_some());
+        run.found(None).unwrap();
+        run.found(None).unwrap();
+        assert_eq!(run.poll().err().as_deref(), Some("out of scope: the input names the file \"k3\""));
+    }
+
+    #[test]
+    fn a_key_found_by_listing_outside_the_scope_is_rejected() {
+        let mut run = scoped(&["k0", "k1"], &[]);
+        assert!(run.poll().unwrap().is_some());
+        assert_eq!(run.found_as(1, "K0").err().as_deref(), Some("out of scope: the input names the file \"K0\""));
+    }
+
+    #[test]
+    fn the_scope_is_given_before_the_first_poll() {
         let mut run = StoreRun::with(StoreFormat::Nrrd, vec![("a".into(), 1)], 1, &|ir, _, _| Ok(Box::new(Prober::new(1, ir))))
             .unwrap();
         assert!(run.poll().unwrap().is_some());
-        assert_eq!(run.refuse_siblings().err().as_deref(), Some("internal: siblings refused after the first poll"));
+        assert_eq!(run.scope(Vec::new()).err().as_deref(), Some("internal: the scope given after the first poll"));
+    }
+
+    #[test]
+    fn a_scope_of_no_key_is_refused() {
+        let mut run = StoreRun::with(StoreFormat::Nrrd, vec![("a".into(), 1)], 1, &|ir, _, _| Ok(Box::new(Prober::new(1, ir))))
+            .unwrap();
+        for bad in ["", "/", "a//b", "../a", "./a/"] {
+            assert!(run.scope(vec![bad.into()]).is_err(), "{bad:?}");
+        }
     }
 }
