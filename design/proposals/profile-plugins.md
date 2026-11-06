@@ -8,7 +8,7 @@ wheel and WebAssembly module. This note proposes **layout plugins**: Python
 packages, found the way zarr finds codecs, that add a layout of their own to
 the hierarchy a built-in profile writes, built from what that profile read: its
 output and its IR. It is a design note. d-v-b/refkv#279 implements it, after
-nine rounds of adversarial review, and its rules are normative there in
+twelve rounds of adversarial review, and its rules are normative there in
 spec/layout.md and the amendments
 [The specification changes](#the-specification-changes) lists; where this
 note and spec/layout.md differ, spec/layout.md is the rule. That PR's guide,
@@ -198,9 +198,12 @@ array keeps `sharding_indexed` first, with its shard shape permuted, its inner
 `chunk_shape` permuted, `transpose(inverse)` first in its inner codecs and
 `transpose(inverse + [n])` first in its index codecs, `n` the rank. A
 channel-last HDF5 image then becomes an OME-Zarr image in time, channel, space
-order and decodes to the same values. A plugin that writes an array's document
-itself owns its correctness: refkv checks the references, not whether the
-documents decode them as the plugin meant.
+order and decodes to the same values. A copy keeps its base array's shape but
+for the transpose: refkv accepts a reference only where `copy` puts it
+(below), so a plugin cannot reshape, pad or crop a copy. An array of the
+plugin's own holds bytes, and its correctness is the plugin's: refkv checks
+its document's member types, not that a Zarr reader knows its data type,
+codecs and fill value, and does not decode its chunks.
 
 `write` is a plain function. refkv runs it, as it runs a plugin's loading and
 `options()`, on a thread of its own, one plugin at a time, so it does not hold
@@ -221,14 +224,26 @@ not stop a `write` already running. Whatever a plugin raises, `SystemExit` and
      twice in one object or lone surrogate, no integer of more than 4300
      digits, and nesting at most 256 deep. Its `zarr_format` is the integer 3
      and its `node_type` `group` or `array`; an array's holds the members Zarr
-     v3 requires, and `attributes`, where present, is an object.
+     v3 requires, each of its JSON type (a `regular` grid's `chunk_shape` one
+     positive integer per axis), and `attributes`, where present, is an
+     object. It has no other top-level member, not even one whose
+     `must_understand` is `false`, which zarr-python refuses: a stray member
+     (`attrs` for `attributes`) would stop a reader that walks the whole
+     archive.
    - The node's `zarr.json` is a group. Every other key is a node's
      `zarr.json`, whose parent node's `zarr.json` is a group of the layout, or
      a chunk below an array's `zarr.json`; no node is inside an array.
    - Every reference value is **equal to a reference value of `Base`**,
      ranges compared as [zarrify §1.1](../../spec/zarrify.md#11-output-and-equivalence)
      compares them (a checksum is no part of it), and written as the base
-     holds it, checksums included. A plugin reuses the base's references and makes none, so its layout reads only
+     holds it, checksums included. It is a chunk of a **copy** of a base array
+     that holds it: the layout's array above it has the document `copy`
+     gives that array for some order (compared as JSON, attributes and
+     dimension names aside), and the reference is at the key `copy` gives it
+     there, so a hand-edited shape, a chunk moved, or one put under an array
+     of the plugin's own is refused rather than decoding wrong. A copy may
+     leave chunks out, which read as its fill value. A plugin reuses the
+     base's references and makes none, so its layout reads only
      bytes the base reads: under the same pins and reader policy, within the
      file and the payload limit
      ([zarrify §1.2](../../spec/zarrify.md#12-input), **References stay in the
@@ -326,9 +341,9 @@ rejects an input that needs them from `write`.
 
 | what goes wrong | error | CLI exit |
 |---|---|---|
-| no entry point of the name, installed entry points that cannot be read, a plugin that fails to load or whose attributes break the rules below (its `name` other than the entry point's key, say), options the plugin refuses, two layouts of one name, path or key, a layout on a store input | `LayoutUsageError` (a `ValueError`) | 2 |
+| no entry point of the name, installed entry points that cannot be read, a plugin that fails to load or whose attributes break the rules below (its `name` other than the entry point's key, say), options the plugin refuses (a `ValueError` from `options()`), two layouts of one name, path or key, a path too long for a key, a layout on a store input | `LayoutUsageError` (a `ValueError`) | 2 |
 | a base profile or version the plugin does not read, a `Rejected` from `write` | `LayoutRejected` (a `Rejected`) | 3 |
-| a failed check, or any other exception from `write`, `SystemExit` included (its cause chained) | `LayoutFailed` | 1 |
+| a failed check, any other exception from `options()`, or any exception from `write`, `SystemExit` included (its cause chained; the CLI prints its traceback) | `LayoutFailed` | 1 |
 
 A layout on a store input (a directory, or a URL ending in `/`) is a usage
 error for now; a file read as a store (VSI, NRRD, GRIB, an HDF5 file with
@@ -540,6 +555,11 @@ lines with its option checks, and its tests run it over the fixtures.
   member and `refkv_zarrified` declaration are the image layout's.
 - **Layouts on store inputs**, whose output is joined in more than one place
   (the DICOM store form among them).
+- **Reshaped copies**: a copy with size-1 axes added or dropped (an image
+  padded to OME-Zarr 0.4's five dimensions) or cropped to a region of its
+  chunks. Either changes the shape a chunk decodes to, so `copy` would need
+  the option and refkv's own codecs the extra axes; the reference check would
+  then compare with that copy.
 - **Rust plugins.** An installed wheel cannot load a profile written in Rust.
 
 ## Alternatives considered
