@@ -150,7 +150,11 @@ def described(e: BaseException) -> str:
         text = str(e)
     except BaseException:  # noqa: BLE001 (a plugin's exception, whatever its __str__ does)
         text = "(its message cannot be read)"
-    return f"{type(e).__name__}: {text}"
+    try:
+        kind = str(type(e).__name__)
+    except BaseException:  # noqa: BLE001 (a metaclass's __name__, whatever it does)
+        kind = type.__dict__["__name__"].__get__(type(e))
+    return f"{kind}: {text}"
 
 
 def dump(doc: object, *, allow_nan: bool = False) -> bytes:
@@ -1306,6 +1310,10 @@ def store_of(base: Base, prepared: Prepared, *, policy: Policy | None, info: Map
             problems.extend(Problem(None, "archive", f"its {key} would be {sizes[key]} bytes, more than the "
                                                      f"{MAX_OPEN} a reader reads by default")
                             for key in (SOURCES_KEY, INDEX_KEY) if sizes.get(key, 0) > MAX_OPEN)
+            keys = sum(len(k.encode()) for k in mapping)  # a phkv store's page index can hold every key
+            if keys > MAX_OPEN:
+                problems.append(Problem(None, "archive", f"its keys total {keys} bytes, more than the {MAX_OPEN} a "
+                                                         "phkv reader reads at open in its page index"))
     return store, problems
 
 
