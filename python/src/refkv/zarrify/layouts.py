@@ -138,6 +138,15 @@ class Plugin(Protocol):
     def write(self, base: Base, options: Mapping[str, Any]) -> Mapping[str, bytes | Range | Concat]: ...
 
 
+def described(e: BaseException) -> str:
+    """An exception as a message names it, `Type: text`, even one whose `str()` raises."""
+    try:
+        text = str(e)
+    except BaseException:  # noqa: BLE001 (a plugin's exception, whatever its __str__ does)
+        text = "(its message cannot be read)"
+    return f"{type(e).__name__}: {text}"
+
+
 def key_of(name: str) -> str:
     """A layout's key, its CMO's `name`: its name with `.` and `-` as `_`."""
     return name.replace(".", "_").replace("-", "_")
@@ -195,7 +204,7 @@ def load(name: str) -> tuple[Plugin, dict[str, frozenset[int]]]:
         points = list(_entry_points())
     except Exception as e:
         raise LayoutUsageError(f"the installed entry points of {GROUP!r} cannot be read: "
-                               f"{type(e).__name__}: {e}") from e
+                               f"{described(e)}") from e
     found = [e for e in points if e.name == name]
     if not found:
         installed = ", ".join(sorted(str(e.name) for e in points)) or "none"
@@ -213,7 +222,7 @@ def load(name: str) -> tuple[Plugin, dict[str, frozenset[int]]]:
         if isinstance(plugin, type):  # the entry point names the plugin's class: refkv makes the instance
             plugin = plugin()
     except BaseException as e:  # any of a plugin's, made a usage error
-        raise _usage(name, f"the plugin failed to load: {type(e).__name__}: {e}") from e
+        raise _usage(name, f"the plugin failed to load: {described(e)}") from e
     if isinstance(plugin, types.ModuleType):
         raise _usage(name, f"the entry point names the module {plugin.__name__}: name the plugin's class")
     if callable(plugin) and not hasattr(plugin, "name"):
@@ -223,7 +232,7 @@ def load(name: str) -> tuple[Plugin, dict[str, frozenset[int]]]:
     except LayoutUsageError:
         raise
     except BaseException as e:  # an attribute that raises when read
-        raise _usage(name, f"the plugin's attributes cannot be read: {type(e).__name__}: {e}") from e
+        raise _usage(name, f"the plugin's attributes cannot be read: {described(e)}") from e
 
 
 def _check_plugin(name: str, plugin: Plugin) -> dict[str, frozenset[int]]:
@@ -328,22 +337,22 @@ def plan(layouts: Sequence[Layout]) -> list[Planned]:
         try:  # first, as it refuses a cycle, which a walk of the members would follow for ever
             given = json.loads(json.dumps(dict(layout.options or {}), allow_nan=False))
         except (TypeError, ValueError, RecursionError) as e:
-            raise _usage(layout.name, f"its options are not a JSON object: {type(e).__name__}: {e}") from e
+            raise _usage(layout.name, f"its options are not a JSON object: {described(e)}") from e
         if not _str_keys(layout.options or {}):
             raise _usage(layout.name, "its options' members are named by strings, at every depth")
         try:
             options = plugin.options(given)
         except ValueError as e:  # the plugin's refusal of the caller's options
-            raise _usage(layout.name, f"its options are refused: {type(e).__name__}: {e}") from e
+            raise _usage(layout.name, f"its options are refused: {described(e)}") from e
         except BaseException as e:  # any other of a plugin's (a bug in options(), not the caller's)
-            raise LayoutFailed(f"{layout.name}: options() raised {type(e).__name__}: {e}") from e
+            raise LayoutFailed(f"{layout.name}: options() raised {described(e)}") from e
         if not isinstance(options, Mapping):
             raise _usage(layout.name, f"its options() returned {type(options).__name__}, not a mapping")
         try:  # canonical options are JSON as they are: no NaN, no tuples, no lone surrogate
             text = json.dumps(dict(options), allow_nan=False, sort_keys=False)
             same = json.loads(text) == dict(options) and _utf8(dict(options))
         except Exception as e:
-            raise _usage(layout.name, f"its canonical options are not a JSON object: {type(e).__name__}: {e}") from e
+            raise _usage(layout.name, f"its canonical options are not a JSON object: {described(e)}") from e
         if same and _depth(dict(options)) > MAX_DEPTH - 3:  # under attributes.refkv_layout.options
             raise _usage(layout.name, f"its canonical options nest deeper than {MAX_DEPTH - 3}")
         if not same:
@@ -752,10 +761,13 @@ def _leading_transpose(doc: Mapping[str, Any]) -> object:
     return None
 
 
-def _copied_chunks(base: Base, path: str, doc: Mapping[str, Any]) -> dict[str, object] | None:
+def _copied_chunks(base: Base, path: str, doc: Mapping[str, Any],
+                   copies: dict[tuple[str, tuple[int, ...]], tuple[str, dict[str, object]]],
+                   ) -> dict[str, object] | None:
     """The chunks of the copy of the base's array at `path` whose document is `doc`, attributes
-    and dimension names aside, by the copy's keys; None if `doc` is the document of no copy of it."""
-    base_doc, _ = base.array(path)
+    and dimension names aside, by the copy's keys; None if `doc` is the document of no copy of it.
+    `copies` keeps each copy made, by path and order, for the check's other arrays."""
+    base_doc = base.document(f"{path}/zarr.json" if path else "zarr.json")  # its chunks come with its copy
     n = len(base_doc["shape"])
     t, r = _leading_transpose(base_doc), _leading_transpose(doc)
     identity = list(range(n))
@@ -768,15 +780,16 @@ def _copied_chunks(base: Base, path: str, doc: Mapping[str, Any]) -> dict[str, o
             inverse[ti] = r[i]
     else:
         return None
-    entries = copy(base, path, order=_inverse(inverse))
-    copied = json.loads(entries.pop("zarr.json"))  # type: ignore[arg-type]
     aside = ("attributes", "dimension_names")
 
     def text(d: Mapping[str, Any]) -> str:  # as JSON: 1, 1.0 and true are three values
         return json.dumps({k: v for k, v in d.items() if k not in aside}, sort_keys=True)
-    if text(copied) != text(doc):
-        return None
-    return dict(entries)
+    order = tuple(_inverse(inverse))
+    if (path, order) not in copies:
+        entries: dict[str, object] = dict(copy(base, path, order=list(order)))
+        copies[path, order] = (text(json.loads(entries.pop("zarr.json"))), entries)  # type: ignore[arg-type]
+    copied, chunks = copies[path, order]
+    return chunks if copied == text(doc) else None
 
 
 def _check(name: str, entries: dict[Any, Any], base: Base, plugin: dict[str, str], prefix: str = "",
@@ -843,12 +856,13 @@ def _check(name: str, entries: dict[Any, Any], base: Base, plugin: dict[str, str
                        "Zarr v2 documents such as .zgroup cannot be written)")
         if type(value) is not bytes:
             references.setdefault(holder, []).append(k)
+    copies: dict[tuple[str, tuple[int, ...]], tuple[str, dict[str, object]]] = {}
     for holder, keys in references.items():
         # a reference decodes as the base's array does only in a copy of that array, at its key there
         doc, start = docs[f"{holder}/zarr.json"], len(holder) + 1
         for path in base._arrays_holding(entries[keys[0]]):  # noqa: SLF001 (the module's own Base)
             try:
-                chunks = _copied_chunks(base, path, doc)
+                chunks = _copied_chunks(base, path, doc, copies)
             except (TypeError, ValueError, KeyError, IndexError, AttributeError):  # a document copy() never makes
                 chunks = None
             if chunks is not None and all(chunks.get(k[start:]) == _without_checksum(entries[k]) for k in keys):
@@ -935,7 +949,7 @@ def join(store: ReferenceStore, ir: Ir | None, planned: Sequence[Planned]) -> Re
         except Rejected as e:
             raise LayoutRejected(f"{name}: {e}") from e
         except BaseException as e:  # any of a plugin's, made a failure
-            raise LayoutFailed(f"{name}: {type(e).__name__}: {e}") from e
+            raise LayoutFailed(f"{name}: {described(e)}") from e
         if not isinstance(written, Mapping):
             raise LayoutFailed(f"{name}: write() returned {type(written).__name__}, not a mapping of keys to entries")
         docs = _check(name, entries, base, _cmo(name, p.convention), f"{NODE}/{p.path}/")

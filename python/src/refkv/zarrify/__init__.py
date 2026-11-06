@@ -74,7 +74,7 @@ from refkv.refstore import ReferenceStore
 from refkv.zarrify import profile_classes
 from refkv.zarrify.common import Output, Rejected
 from refkv.zarrify.dicom_series import SeriesOutput, zarrify_series_async
-from refkv.zarrify.layouts import Layout, LayoutFailed, LayoutUsageError, Planned, join, plan
+from refkv.zarrify.layouts import Layout, LayoutFailed, LayoutUsageError, Planned, described, join, plan
 from refkv.zarrify.profile_classes import *  # noqa: F403 (one class per profile: profile_classes.__all__)
 from refkv.zarrify.profiles import BESIDE, CASE, ON_DEMAND
 from refkv.zarrify.sources import Dataset, Image, Source, Store, layout_names
@@ -327,7 +327,7 @@ async def _on_own_thread[T](f: Callable[..., T], *args: object) -> T:
         except Exception as e:  # noqa: BLE001 (handed to the caller)
             outcome: tuple[T | None, BaseException | None] = (None, e)
         except BaseException as e:  # noqa: BLE001 (handed on as a failure: the caller's future must settle)
-            outcome = (None, LayoutFailed(f"{type(e).__name__}: {e}"))
+            outcome = (None, LayoutFailed(described(e)))
         else:
             outcome = (result, None)
         with contextlib.suppress(RuntimeError):  # the loop is closed: nobody waits for it

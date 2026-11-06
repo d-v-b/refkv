@@ -35,8 +35,10 @@ as coordinates, as bytes.) The rules are [spec/layout.md](../spec/layout.md).
   copy's key, so that a copy decodes as the base's array does; a copy you edit (its shape, its
   chunk grid, a chunk moved or put under an array of your own) is refused. An array of your own,
   such as coordinates, holds bytes: any Zarr v3 document (its top-level members Zarr v3's;
-  yours go under `attributes`), each chunk below its `zarr.json`. refkv does not decode those
-  chunks, so read your layout back with zarr in a test. Every node's parent, up to the layout's
+  yours go under `attributes`), each chunk below its `zarr.json`. refkv checks the
+  document's member types, not that zarr knows its data type, codecs and fill value, and does
+  not decode those chunks, so open your whole layout with zarr in a test
+  (`zarr.open_group(...).members(max_depth=None)`) and read it back. Every node's parent, up to the layout's
   `zarr.json`, needs a group document of its own (Zarr v3's implicit groups are refused), and a
   copy may leave out chunks you do not want (they read as the fill value); give a copy's
   attributes with `copy(..., attributes=...)`.

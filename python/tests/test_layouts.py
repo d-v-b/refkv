@@ -8,7 +8,7 @@ import json
 import runpy
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, override
 
 import h5py
 import jsonschema
@@ -1122,6 +1122,21 @@ class Loose(Writes):
         loose = next(v for k in base.keys()  # noqa: SIM118 (Base.keys, not a dict's)
                      if isinstance(v := base._values[k], (Range, refkv.Concat)) and not base._arrays_holding(v))
         return {"zarr.json": doc_bytes(), "n/zarr.json": json.dumps(OWN).encode(), "n/c/0": loose}
+
+
+class Unprintable(Exception):  # noqa: N818 (a plugin's own)
+    @override
+    def __str__(self):
+        raise RuntimeError("no message")
+
+
+@pytest.mark.parametrize("where", ["options", "write"])
+def test_an_exception_whose_message_raises_is_a_failure(monkeypatch, where):
+    def raises(*_args):
+        raise Unprintable
+    install(monkeypatch, Entry(NAME, variant(**{where: raises})))
+    with pytest.raises(LayoutFailed, match=r"Unprintable: \(its message cannot be read\)"):
+        bounded(lambda: zarrify(TIF, plugins=[Layout(NAME)]))
 
 
 def test_a_base_reference_outside_every_array_is_a_failure(monkeypatch):

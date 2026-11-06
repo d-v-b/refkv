@@ -135,8 +135,10 @@ failure, and no output is written:
   axis, and its `attributes`, where present, an object. A document has no top-level member
   but Zarr v3's for its node type (a group's `zarr_format`, `node_type` and `attributes`, an
   array's also `dimension_names` and `storage_transformers`), not even an object whose
-  `must_understand` is `false`, which zarr-python refuses, so that a reader that walks the whole
-  archive can parse every node's document.
+  `must_understand` is `false`, which zarr-python refuses. These checks are of the members'
+  JSON types only: that a document of the plugin's own names a data type, a chunk grid, a chunk
+  key encoding, codecs and a fill value a Zarr v3 reader knows is the plugin's to ensure, as its
+  bytes chunks are; a copy's document is [§4](#4-copying-an-array)'s, as the next rule checks.
 - `zarr.json` is a group. Every other key is a node's `zarr.json` whose parent node's `zarr.json`
   is a group of the layout, or a key below an array's `zarr.json`; no node is inside an array.
 - Every reference entry's ranges are, as [spec/zarrify.md §1.1](zarrify.md#11-output-and-equivalence)
