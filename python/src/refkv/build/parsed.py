@@ -9,6 +9,7 @@ comes with the plan."""
 
 from __future__ import annotations
 
+import asyncio
 import bisect
 import json
 import os
@@ -41,7 +42,8 @@ class Parsed:
     needs to read its sources until it is closed (a context manager)."""
 
     def __init__(self, fmt: str, out: Output | StoreIrOutput, location: str, *, policy: Policy | None,
-                 registry: Resolver, checksums: bool, max_bytes: int, registry_given: Registry | None = None) -> None:
+                 registry: Resolver, checksums: bool, max_bytes: int, registry_given: Registry | None = None,
+                 read_base: str | None = None) -> None:
         if out.ir is None:
             raise ValueError(f"{location}: its run kept no IR")
         self._fmt = fmt
@@ -49,7 +51,10 @@ class Parsed:
         self._location = location
         self.policy = policy
         self.registry = registry
-        self.registry_given = registry_given  # what the caller gave read, which seal compares across inputs
+        self.registry_given = registry_given
+        # a store's objects are read under this URL, where `read` opened them (the URL the output names
+        # them by, `out.url`, may be another, given as `url`)
+        self._read_base = read_base if read_base is not None else out.url
         self.checksums = checksums
         self.max_bytes = max_bytes
         self._read = 0  # bytes `bytes` has read from sources
@@ -127,11 +132,16 @@ class Parsed:
             raise KeyError(f"element {i} ({self._ir.path(i)!r}) has no data member {member!r}")
         return starts[member], lengths[member], forms[member]
 
+    def _form_text(self, form_id: int) -> str | None:
+        """A form by its id, or None for the id of no form (the core's u32::MAX)."""
+        forms = self._ir.forms()
+        return forms[form_id] if 0 <= form_id < len(forms) else None
+
     def form(self, i: int, member: int | None = None) -> dict[str, Any] | None:
         """The form of element `i` (or of its data member `member`), parsed, or None (spec/conventions.md
         §8.5 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#85-forms-and-recipes>)."""
         i = self._element(i)
-        text = self._ir.form(i) if member is None else self._ir.forms()[self._member(i, member)[2]]
+        text = self._ir.form(i) if member is None else self._form_text(self._member(i, member)[2])
         return None if text is None else json.loads(text)
 
     def _object(self, i: int) -> int | None:
@@ -174,7 +184,7 @@ class Parsed:
         if member is not None:
             self._source_space(self._target(i))
             start, length, form_id = self._member(self._target(i), member)
-            text: str | None = self._ir.forms()[form_id]
+            text: str | None = self._form_text(form_id)
         elif self._ir.kind(i) == ALIAS:
             start, length = self._alias_extent(i, (DATA, VALUE))
             t = self._target(i)
@@ -272,7 +282,7 @@ class Parsed:
                             by.setdefault(s, []).append((a, a + n, i, k))
             self._index = {}
             for s, spans in by.items():
-                spans.sort(key=lambda t: (t[0], t[1]))
+                spans.sort(key=lambda t: (t[0], -t[1]))  # the inner of two spans of one start last
                 self._index[s] = ([t[0] for t in spans], spans)
         return self._index.get(source, ([], []))
 
@@ -299,7 +309,7 @@ class Parsed:
         """Where source `source` is read from: a store's object at its URL, a file as `read` was
         given it, which may differ from the URL its output names."""
         if self._objects:
-            return self.sources[source].url or ""
+            return object_url(self._read_base, self._objects[source])
         return self._location if "://" in self._location else path_reference(str(Path(self._location).absolute()))
 
     def _readable(self) -> tuple[Source, ...]:
@@ -308,7 +318,8 @@ class Parsed:
             raise ValueError("the input is closed")
         if self._sources_read is None:
             if self._objects:
-                self._sources_read = self.sources
+                self._sources_read = tuple(Source(url=self._read_place(k), size=s.size, etag=s.etag)
+                                           for k, s in enumerate(self.sources))
             else:
                 self._sources_read = (Source(url=self._read_place(0), size=self.sources[0].size,
                                              etag=self.sources[0].etag),)
@@ -326,7 +337,11 @@ class Parsed:
                 raise ValueError(f"bytes {offset} to {offset + length} of source {source}, past its {size}")
         mapping = {str(k): Range(s, o, n) for k, (s, o, n) in enumerate(ranges) if n}
         store = ReferenceStore(mapping, self._readable(), policy=self.policy, registry=self.registry)
-        return [store.get(str(k)) or b"" if n else b"" for k, (_, _, n) in enumerate(ranges)]
+
+        async def each() -> list[bytes | None]:  # together, so that the reader merges and overlaps them
+            return list(await asyncio.gather(*(store.get_async(k) for k in mapping)))
+        got = dict(zip(mapping, _sync.run(each()), strict=True))
+        return [got.get(str(k)) or b"" for k in range(len(ranges))]
 
     @overload
     def bytes(self, item: int | tuple[int, int, int], /) -> bytes: ...
@@ -336,9 +351,11 @@ class Parsed:
     def bytes(self, *items: int | tuple[int, int, int]) -> bytes | list[bytes]:
         """The bytes of each item, an element (by index) or a range `(source, offset, length)` (a
         gap's, say): an element's own extent, from the IR where the parser kept them and otherwise
-        read through the input's sources. Several items are read together. What is read from the
-        sources counts against `max_bytes`; ValueError past it, and for an element with no bytes
-        of a source (a node, a derived element, one in a derived space)."""
+        read through the input's sources. An element in a derived space gives its bytes there (the
+        inflated stream's, as the parser kept them), and a ValueError where the parser kept none,
+        since no range of a source holds them. Several items are read together. What is read from
+        the sources counts against `max_bytes`; ValueError past it, and for an element with no
+        bytes of its own (a node, a derived element)."""
         if not items:
             raise TypeError("bytes() of nothing")
         out: list[bytes | None] = []
@@ -376,8 +393,15 @@ async def read_async(location: str | os.PathLike[str], url: str | None = None, *
     fmt, out = await _zarrify_async(location, url, checksums=checksums, policy=policy, registry=resolver)
     if not isinstance(out, (Output, StoreIrOutput)) or out.ir is None:
         raise ValueError(f"{location}: its run keeps no IR, so refkv.build cannot read it")
+    read_base = None
+    if isinstance(out, StoreIrOutput) and url is not None:
+        # the objects as `read` opens them: the output names them under `url`, which may be elsewhere
+        _, local = await _zarrify_async(location, None, policy=policy, registry=resolver)
+        if not isinstance(local, StoreIrOutput) or sorted(local.sizes.items()) != sorted(out.sizes.items()):
+            raise ValueError(f"{location}: its objects, read at {location} and named under {url}, differ")
+        read_base = local.url
     return Parsed(fmt, out, location, policy=policy, registry=resolver, checksums=checksums, max_bytes=max_bytes,
-                  registry_given=registry)
+                  registry_given=registry, read_base=read_base)
 
 
 def read(location: str | os.PathLike[str], url: str | None = None, *, policy: Policy | None = None,

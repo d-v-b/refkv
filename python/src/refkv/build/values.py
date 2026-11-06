@@ -6,6 +6,7 @@ output's entries with their placement."""
 from __future__ import annotations
 
 import json
+import weakref
 from collections.abc import Iterator, Mapping, MutableMapping, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Self
@@ -116,25 +117,29 @@ class Binding:
 class Check:
     """The rule of a convention a chunk was built under, which `seal` holds it to, where its binding
     holds, in place of the read rule a caller's values meet. Only refkv's routines make checks
-    (`project` today, its rule `"builtin"`, a value of a built-in output): `seal` honors a check
-    it issued and no other, so a caller cannot make one to escape the read rule."""
+    (`project` today, its rule `"builtin"`, a value of a built-in output), each for the parts of
+    one value: `seal` honors a check one of them issued, on the very parts it was issued for, and
+    no other, so a caller cannot make one, copy one or move one to other parts to escape the read
+    rule."""
 
     rule: str
     binding: Binding
-    issuer: object = field(default=None, compare=False, repr=False)
+    parts: tuple[Part, ...] = field(default=(), compare=False, repr=False)
 
-    @property
-    def issued(self) -> bool:
-        """Whether a routine of refkv made the check."""
-        return self.issuer is _ISSUER
-
-
-_ISSUER = object()  # what marks a check refkv's routines made
+    def issued_for(self, parts: tuple[Part, ...]) -> bool:
+        """Whether a routine of refkv issued this very check, for `parts`."""
+        return _ISSUED.get(id(self)) is self and self.parts == parts
 
 
-def _issue(rule: str, binding: Binding) -> Check:
-    """A check made by a routine of refkv, which `seal` honors."""
-    return Check(rule, binding, _ISSUER)
+# the checks refkv's routines issued, by identity: a copy (dataclasses.replace) is not among them
+_ISSUED: weakref.WeakValueDictionary[int, Check] = weakref.WeakValueDictionary()
+
+
+def _issue(rule: str, binding: Binding, parts: tuple[Part, ...]) -> Check:
+    """A check made by a routine of refkv for `parts`, which `seal` honors on them."""
+    check = Check(rule, binding, parts)
+    _ISSUED[id(check)] = check
+    return check
 
 
 @dataclass(frozen=True)
@@ -294,6 +299,28 @@ def fits(v: Value | Part | Sequence[Part], *, checksums: bool | None = None) -> 
     return None
 
 
+def _zero(data_type: object) -> object:
+    """A data type's zero, as a Zarr v3 fill value; ValueError for one whose zero this does not know."""
+    if isinstance(data_type, dict):
+        name = data_type.get("name")
+        if name in ("numpy.datetime64", "numpy.timedelta64"):
+            return 0
+        if name == "fixed_length_utf32":
+            return ""
+        raise ValueError(f"the data type {name!r} has no zero this knows: give the Array its fill_value")
+    if not isinstance(data_type, str):
+        raise TypeError(f"a data type is a name or an object, not {type(data_type).__name__}")
+    if data_type == "bool":
+        return False
+    if data_type.startswith("complex"):
+        return [0.0, 0.0]
+    if data_type.startswith(("float", "bfloat")):
+        return 0.0
+    if data_type.startswith("r") and data_type[1:].isdigit():  # raw bits: one zero per byte
+        return [0] * (int(data_type[1:]) // 8)
+    return 0
+
+
 def _canonical(x: object) -> str:
     return json.dumps(x, sort_keys=True, separators=(",", ":"))
 
@@ -303,17 +330,22 @@ type ArrayChunk = Value | Part | Sequence[Part] | bytes
 
 @dataclass
 class Array:
-    """A Zarr v3 array: its shape, data type, chunk shape (a regular grid), codecs, fill value and
-    dimension names, and its chunks by coordinates, each a value or bytes. The chunks a routine
-    returns are checked; a value a caller makes is not."""
+    """A Zarr v3 array: its shape, data type, chunk shape (an int per axis for a regular grid, or an
+    axis's lengths for a rectilinear one), codecs, fill value and dimension names, and its chunks by
+    coordinates, each a value or bytes; and its attributes and chunk key encoding (the `default` one,
+    with `/`, when None). The fill value, when None, is the data type's zero (an error for a type
+    whose zero this does not know). The chunks a routine returns are checked, and keep their checks
+    in an `Array` a caller builds around them; a value a caller makes is not checked."""
 
     shape: list[int]
     data_type: str | dict[str, Any]
     chunk_shape: list[Any]  # an int per axis (a regular grid), or an axis's lengths as a list (rectilinear)
     codecs: list[dict[str, Any]]
     chunks: dict[tuple[int, ...], ArrayChunk]
-    fill_value: Any = 0
+    fill_value: Any = None
     dimension_names: list[str | None] | None = None
+    attributes: dict[str, Any] | None = None
+    chunk_key_encoding: dict[str, Any] | None = None
 
     def grid(self) -> dict[str, Any]:
         """The chunk grid: `regular`, or `rectilinear` when an axis's lengths are given as a list
@@ -326,12 +358,15 @@ class Array:
 
     def document(self, *, attributes: Mapping[str, Any] | None = None,
                  dimension_names: Sequence[str | None] | None = None) -> dict[str, Any]:
-        """The array's `zarr.json`, as a dict: the `default` chunk key encoding with `/`."""
+        """The array's `zarr.json`, as a dict; `attributes` and `dimension_names`, when given, replace
+        the array's."""
         doc: dict[str, Any] = {
             "zarr_format": 3, "node_type": "array", "shape": list(self.shape), "data_type": self.data_type,
             "chunk_grid": self.grid(),
-            "chunk_key_encoding": {"name": "default", "configuration": {"separator": "/"}},
-            "fill_value": self.fill_value, "codecs": list(self.codecs), "attributes": dict(attributes or {}),
+            "chunk_key_encoding": self.chunk_key_encoding or {"name": "default", "configuration": {"separator": "/"}},
+            "fill_value": _zero(self.data_type) if self.fill_value is None else self.fill_value,
+            "codecs": list(self.codecs),
+            "attributes": dict(attributes if attributes is not None else (self.attributes or {})),
         }
         names = dimension_names if dimension_names is not None else self.dimension_names
         if names is not None:
@@ -341,7 +376,8 @@ class Array:
     def entries(self, *, to: str = "", attributes: Mapping[str, Any] | None = None,
                 dimension_names: Sequence[str | None] | None = None) -> Written:
         """The array's entries at path `to` (`""` for the root): its `zarr.json`, and its chunks at
-        their keys. `dimension_names`, when given, replace the array's."""
+        their keys in its chunk key encoding. `attributes` and `dimension_names`, when given,
+        replace the array's."""
         prefix = f"{to.strip('/')}/" if to.strip("/") else ""
         doc = self.document(attributes=attributes, dimension_names=dimension_names)
         out = Written()

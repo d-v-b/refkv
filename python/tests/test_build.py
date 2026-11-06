@@ -1,6 +1,8 @@
 """refkv.build, the tools to build an output from the IR (the design of d-v-b/refkv#278): `read`
 and `Parsed`, values, `Array` and `Written`, `seal` and `project`."""
 
+import dataclasses
+import importlib
 import io
 import json
 import struct
@@ -33,12 +35,15 @@ from refkv.build import (
     project,
     read,
     seal,
+    value,
 )
 from refkv.build.seal import _binding_holds
 from refkv.build.values import _issue
 from refkv.policy import Policy
 from refkv.zarrify import zarrify
 
+# the module, which the package's `seal` function shadows as an attribute
+seal_module = importlib.import_module("refkv.build.seal")
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / "fixtures"
 
@@ -310,7 +315,8 @@ def test_where_a_check_holds(tmp_path, built, written, expected):
         shape, chunks, codecs, fill = built
         doc = {"shape": shape, "data_type": "uint8", "codecs": codecs, "fill_value": fill,
                "chunk_grid": {"name": "regular", "configuration": {"chunk_shape": chunks}}}
-        checked = Value((Ref(p, 0, 0, 1),), _issue("builtin", Binding.of(doc, (0, 0))))
+        parts = (Ref(p, 0, 0, 1),)
+        checked = Value(parts, _issue("builtin", Binding.of(doc, (0, 0)), parts))
         shape, chunks, codecs, fill = written
         out = Array(shape, "uint8", chunks, codecs, {(0, 0): checked}, fill).entries(to="a")
         v = out["a/c/0/0"]
@@ -445,7 +451,119 @@ def test_seal_refuses_a_malformed_part(tmp_path):
     assert e.value.code == "range"
 
 
+def test_seal_refuses_a_copy_of_an_issued_check(tmp_path):
+    """A check refkv issued, copied with dataclasses.replace onto other parts, lifts no read rule."""
+    with read(_npy(tmp_path, n=1100 * (1 << 17))) as p:
+        issued = next(v.check for v in project(p).written.values() if isinstance(v, Value) and v.check)
+        doc = {"shape": [4, 6], "data_type": "uint8", "codecs": SHARDED, "fill_value": 0,
+               "chunk_grid": {"name": "regular", "configuration": {"chunk_shape": [4, 6]}}}
+        far = concat(*(Ref(p, 0, k << 17, 1) for k in range(1025)))
+        moved = Value(far.parts, dataclasses.replace(issued, binding=Binding.of(doc, (0, 0)), parts=far.parts))
+        out = Array([4, 6], "uint8", [4, 6], SHARDED, {(0, 0): moved}).entries(to="a")
+        with pytest.raises(SealError) as e:
+            seal(out, [p])
+    assert e.value.code == "reads"
+
+
+def test_seal_refuses_an_entry_that_is_not_bytes_or_a_value(tmp_path):
+    with read(_npy(tmp_path)) as p, pytest.raises(SealError) as e:
+        seal({"v": 5}, [p])
+    assert e.value.code == "range"
+
+
+def test_seal_refuses_a_source_the_input_does_not_have(tmp_path):
+    with read(_npy(tmp_path)) as p, pytest.raises(SealError) as e:
+        seal(Written({"v": Ref(p, 1, 0, 4)}), [p])
+    assert e.value.code == "range"
+
+
+def test_seal_refuses_a_data_part_outside_its_data(tmp_path):
+    with read(_npy(tmp_path)) as p, pytest.raises(SealError) as e:
+        seal(Written({"v": Data(b"abc", 10)}), [p])
+    assert e.value.code == "range"
+
+
+def test_seal_refuses_data_that_is_not_bytes(tmp_path):
+    with read(_npy(tmp_path)) as p, pytest.raises(SealError) as e:
+        seal(Written({"v": Literal("abc")}), [p])  # type: ignore[arg-type]
+    assert e.value.code == "range"
+
+
+def test_seal_refuses_a_source_of_unknown_size(tmp_path):
+    with read(_npy(tmp_path)) as p:
+        p.sources = (dataclasses.replace(p.sources[0], size=None),)
+        with pytest.raises(SealError) as e:
+            seal(Written({"v": Ref(p, 0, 0, 4)}), [p])
+    assert e.value.code == "range"
+
+
+def test_seal_refuses_an_input_that_is_not_parsed():
+    with pytest.raises(SealError) as e:
+        seal(Written({"v": b"x"}), [object()])  # type: ignore[list-item]
+    assert e.value.code == "inputs"
+
+
+def test_seal_refuses_an_input_given_twice(tmp_path):
+    with read(_npy(tmp_path)) as p, pytest.raises(SealError) as e:
+        seal(Written({"v": Ref(p, 0, 0, 4)}), [p, p])
+    assert e.value.code == "inputs"
+
+
+def test_seal_refuses_more_than_a_reader_reads_at_open(tmp_path, monkeypatch):
+    monkeypatch.setattr(seal_module, "MAX_OPEN", 8)
+    with read(_npy(tmp_path)) as p, pytest.raises(SealError) as e:
+        seal(Written({"zarr.json": b"{" + b" " * 16 + b"}"}), [p])
+    assert e.value.code == "open"
+
+
+def test_seal_refuses_a_zero_source_past_a_source_table(tmp_path, monkeypatch):
+    monkeypatch.setattr(seal_module, "MAX_OPEN", 8)
+    with read(_npy(tmp_path)) as p, pytest.raises(SealError) as e:
+        seal(Written({"v": Zeros(9)}), [p])
+    assert e.value.code == "archive"
+
+
+def test_seal_refuses_a_range_it_cannot_read_to_checksum(tmp_path):
+    path = _npy(tmp_path)
+    with read(path, checksums=True) as p:
+        path.write_bytes(path.read_bytes()[:64])  # the file shrinks after it was read
+        with pytest.raises(SealError) as e:
+            seal(Written({"v": Ref(p, 0, 100, 4)}), [p])
+    assert e.value.code == "checksums"
+
+
+def test_a_store_named_by_a_url_is_read_where_it_was_opened(tmp_path):
+    """A file read with its siblings, named under another URL, reads them where `read` opened them."""
+    for f in (FIXTURES / "nrrd").glob("nrrd_detached_raw.*"):
+        (tmp_path / f.name).write_bytes(f.read_bytes())
+    nhdr = tmp_path / "nrrd_detached_raw.nhdr"
+    with read(nhdr, "https://example.invalid/data/nrrd_detached_raw.nhdr") as p:
+        assert (p.sources[0].url or "").startswith("https://example.invalid/")  # how the output names them
+        k = next(k for k, s in enumerate(p.sources) if (s.url or "").endswith(".raw"))
+        assert p.bytes((k, 0, 16)) == (tmp_path / "nrrd_detached_raw.raw").read_bytes()[:16]
+
+
 # ---- what the other tools refuse: one test each
+
+def test_element_at_refuses_a_source_the_input_does_not_have(tmp_path):
+    with read(_npy(tmp_path)) as p, pytest.raises(KeyError):
+        p.element_at(5, 0)
+
+
+def test_bytes_of_nothing_is_a_type_error(tmp_path):
+    with read(_npy(tmp_path)) as p, pytest.raises(TypeError):
+        p.bytes()  # type: ignore[call-overload]
+
+
+def test_a_value_has_parts():
+    with pytest.raises(ValueError, match="at least one part"):
+        Value(())
+
+
+def test_a_value_is_made_of_parts():
+    with pytest.raises(TypeError, match="parts"):
+        value(5)  # type: ignore[arg-type]
+
 
 def test_reference_refuses_an_alias_of_a_struct():
     with read(FIXTURES / "tiff/edge_shared_tables.tif") as p, pytest.raises(ValueError, match="no bytes of its own"):
@@ -497,6 +615,28 @@ def test_concat_refuses_no_values():
 def test_a_value_holds_parts_only():
     with pytest.raises(TypeError, match="parts"):
         Value((b"bytes",))  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(("path", "attributes", "separator"), [("a", {"units": "m"}, "/"), ("g/dot", None, ".")])
+def test_project_arrays_keep_their_documents(path, attributes, separator):
+    """An array of the built-in output, written again from `Projected.array`, keeps its attributes
+    and its chunk key encoding, so its chunks keep their keys."""
+    with read(FIXTURES / "zarr3/zarr3_hierarchy.zip") as p:
+        pr = project(p)
+        original = json.loads(pr.written[f"{path}/zarr.json"])  # type: ignore[arg-type]
+        again = pr.array(path).entries(to=path)
+        doc = json.loads(again[f"{path}/zarr.json"])  # type: ignore[arg-type]
+        assert doc["attributes"] == original["attributes"]
+        if attributes is not None:
+            assert attributes.items() <= doc["attributes"].items()
+        assert doc["chunk_key_encoding"]["configuration"]["separator"] == separator
+        assert {k for k in again if k != f"{path}/zarr.json"} <= set(pr.written)
+
+
+@pytest.mark.parametrize(("data_type", "zero"), [("uint8", 0), ("float32", 0.0), ("complex64", [0.0, 0.0]),
+                                                 ("bool", False), ("r16", [0, 0])])
+def test_an_array_fills_with_its_types_zero(data_type, zero):
+    assert Array([2], data_type, [2], [{"name": "bytes"}], {}).document()["fill_value"] == zero
 
 
 def test_documents_are_json():  # a valid case, of Array.entries

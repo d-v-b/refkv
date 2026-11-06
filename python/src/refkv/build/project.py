@@ -82,18 +82,20 @@ class Projected:
             if doc is None:
                 continue
             coords = chunk_coords(key[len(path) + 1:] if path else key, doc)
-            return Value(parts, _issue("builtin", Binding.of(doc, coords)))
+            return Value(parts, _issue("builtin", Binding.of(doc, coords), parts))
         return Value(parts)
 
     def array(self, path: str) -> Array:
-        """The array at `path`, its chunks checked."""
+        """The array at `path`, its chunks checked, with its attributes (refkv's declarations among
+        them, as the base's document holds them) and chunk key encoding."""
         doc, chunks = self.base.array(path)
         grid = doc["chunk_grid"]["configuration"]
         prefix = f"{path}/" if path else ""
         return Array(list(doc["shape"]), doc["data_type"], list(grid.get("chunk_shape", grid.get("chunk_shapes"))),
                      list(doc["codecs"]),
                      {tuple(chunk_coords(k, doc)): self.written[f"{prefix}{k}"] for k in chunks},  # type: ignore[misc]
-                     doc.get("fill_value"), doc.get("dimension_names"))
+                     doc.get("fill_value"), doc.get("dimension_names"), dict(doc.get("attributes") or {}),
+                     doc.get("chunk_key_encoding"))
 
 
 def project(parsed: Parsed) -> Projected:

@@ -27,8 +27,9 @@ The IR's elements become values through the `Parsed`:
   tile's tables spliced in);
 - `p.span(i)`: its own bytes, as one `Ref`;
 - `p.bytes(i)`, `p.bytes((source, offset, length))`: the bytes themselves, from the IR where the
-  parser kept them and otherwise read from the source, several at once, within `max_bytes`
-  (64 MiB by default);
+  parser kept them and otherwise read from the source, several together, within `max_bytes`
+  (64 MiB by default); an element in a derived space (inside a gzip stream, say) gives the
+  inflated bytes the parser kept, or raises;
 - `p.members(i)`, `p.form(i)`, `p.element_at(source, offset)`, `p.source_of(i)` and `p.gaps()`.
 
 A structure refkv's model of the format does not interpret is still an element, whose typed value

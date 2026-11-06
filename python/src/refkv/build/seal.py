@@ -17,7 +17,6 @@ from refkv.vzip.names import INDEX_KEY, SOURCES_KEY
 from refkv.zarrify.common import PAGE_SIZE
 from refkv.zarrify.layouts import (
     DOCUMENTS,
-    MAX_OFFSET,
     MAX_OPEN,
     MAX_PAYLOAD,
     MAX_READS,
@@ -31,7 +30,7 @@ from refkv.zarrify.layouts import (
 )
 
 from .parsed import Parsed
-from .values import MAX_SOURCES, Binding, Copy, Data, Literal, Part, Ref, Shared, Value, Written, Zeros, value
+from .values import MAX_SOURCES, Binding, Check, Copy, Data, Literal, Part, Ref, Shared, Value, Written, Zeros, value
 
 __all__ = ["CODES", "SealError", "seal"]
 
@@ -67,7 +66,10 @@ def seal(written: Mapping[str, Any], inputs: Sequence[Parsed], *, policy: Policy
     when the inputs were read with them."""
     inputs = list(inputs)
     _check_inputs(inputs, policy, registry)
-    entries = written if isinstance(written, Written) else Written(written)
+    try:
+        entries = written if isinstance(written, Written) else Written(written)
+    except (TypeError, ValueError) as e:
+        raise SealError("range", None, f"an entry is bytes or a value: {e}") from e
     for k in entries:
         why = _key_problem(k)
         if why:
@@ -98,8 +100,6 @@ def seal(written: Mapping[str, Any], inputs: Sequence[Parsed], *, policy: Policy
             continue
         val = values[k]
         ranges = [table.range(k, p) for p in val.parts]
-        if sum(r.size for r in ranges) > MAX_OFFSET:
-            raise SealError("range", k, "its ranges total more than 2^64 - 1 bytes")
         if not _read_rule_lifted(val, k, entries):
             reads = _reads(ranges, sources)
             if reads > MAX_READS:
@@ -115,7 +115,7 @@ def seal(written: Mapping[str, Any], inputs: Sequence[Parsed], *, policy: Policy
                 raise SealError("checksums", k, f"a payload of {n} bytes with its checksums, more than {MAX_PAYLOAD}")
         mapping[k] = ranges[0] if len(ranges) == 1 else Concat(tuple(ranges))
 
-    for k in list(entries.at_open) + sorted(entries.stored):
+    for k in [*entries.at_open, *entries.stored]:
         if not isinstance(entries.get(k), bytes):
             raise SealError("open", k, "a placement names a key that is not a bytes entry of the output")
     at_open: set[str] = set()
@@ -162,7 +162,8 @@ def _check_inputs(inputs: Sequence[Parsed], policy: object, registry: object) ->
         if any((p.policy or Policy()) != first for p in inputs):
             raise SealError("inputs", None, "inputs read under different reader policies: give seal the policy")
     if registry is None and len({id(p.registry_given) for p in inputs}) > 1:
-        raise SealError("inputs", None, "inputs read with different object stores: give seal the registry")
+        raise SealError("inputs", None, "inputs read with registries that are not one object: give seal the "
+                                        "registry")
 
 
 def _natural(x: object) -> bool:
@@ -182,7 +183,6 @@ class _Table:
         self.zero_used = False
         self.zero_at = -1
         self.order: list[tuple[str, bytes | None]] = []  # ("data", bytes) or ("zero", None), by first use
-        self._sources: list[Source] = []
         if len(inputs) == 1 and inputs[0].plain_file:
             self._url(inputs[0], 0, None)
 
@@ -216,9 +216,11 @@ class _Table:
         elif isinstance(p, (Shared, Data)):
             if type(p.data) is not bytes:
                 raise SealError("range", key, f"a {type(p).__name__} part's data is bytes, not {type(p.data).__name__}")
-            if isinstance(p, Data) and not (_natural(p.offset) and (p.length is None or _natural(p.length))
-                                            and p.offset + p.size <= len(p.data)):
-                raise SealError("range", key, "a Data part's bytes lie outside its data")
+            if isinstance(p, Data):
+                if not (_natural(p.offset) and (p.length is None or _natural(p.length))):
+                    raise SealError("range", key, "a Data part's offset and length are natural numbers")
+                if p.offset > len(p.data) or p.offset + p.size > len(p.data):
+                    raise SealError("range", key, "a Data part's bytes lie outside its data")
             if p.data not in self.data:
                 self.data[p.data] = -1
                 self.order.append(("data", p.data))
@@ -232,8 +234,6 @@ class _Table:
         elif isinstance(p, Literal):
             if type(p.data) is not bytes:
                 raise SealError("range", key, f"a Literal's data is bytes, not {type(p.data).__name__}")
-        else:
-            raise SealError("range", key, f"a part is a Ref, Shared, Data, Zeros or Literal, not {type(p).__name__}")
 
     def sources(self) -> list[Source]:
         out = [Source(url=url, size=size, etag=etag) for (url, size, etag) in self.urls]
@@ -244,7 +244,6 @@ class _Table:
             else:
                 self.zero_at = len(out)
                 out.append(Source(data=bytes(self.zeros)))
-        self._sources = out
         return out
 
     def range(self, key: str, p: Part) -> Range:
@@ -264,9 +263,9 @@ class _Table:
             return Range(self.data[p.data], 0, len(p.data))
         if isinstance(p, Data):
             return Range(self.data[p.data], p.offset, p.size)
-        if isinstance(p, Zeros):
-            return Range(self.zero_at, 0, p.length)
-        raise SealError("range", key, f"a part of {type(p).__name__}")
+        if not isinstance(p, Zeros):  # a Copy, which `use` refused
+            raise SealError("copy", key, "a Copy left unfilled: fill it with parsed.bytes")
+        return Range(self.zero_at, 0, p.length)
 
     def checksummed(self, key: str, parts: Sequence[Part], ranges: list[Range]) -> list[Range]:
         """`ranges` with the CRC-32C of each url range, read through the input of its own part."""
@@ -380,12 +379,12 @@ def _canonical(x: object) -> str:
 
 def _read_rule_lifted(val: Value, key: str, entries: Mapping[str, Any]) -> bool:
     """Whether checked value `val`, written at `key`, is exempt from the read rule: its check is
-    refkv's (`Check.issued`), its rule lifts the read rule there, and its binding holds. Rule
+    refkv's for its very parts (`Check.issued_for`), its rule lifts the read rule there, and its binding holds. Rule
     `"builtin"` lifts it inside a sharded array alone, whose shards a reader reads in parts
     (spec/zarrify.md §2.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#21-virtual-shards>);
     any other value of a built-in output is read whole, and meets the rule as a caller's does."""
     check = val.check
-    if check is None or not check.issued or check.rule != "builtin":
+    if not isinstance(check, Check) or not check.issued_for(val.parts) or check.rule != "builtin":
         return False
     return _binding_holds(val, key, entries) is True
 
@@ -410,7 +409,7 @@ def _binding_holds(val: Value, key: str, entries: Mapping[str, Any]) -> bool | N
                 return None
             coords = chunk_coords(key[len(prefix) + 1:] if prefix else key, doc)
             return _same_array(doc, coords, b)
-        except (ValueError, KeyError, TypeError, AttributeError, IndexError):
+        except (ValueError, KeyError, TypeError, AttributeError, IndexError, RecursionError):
             return None  # a document that cannot be read holds no binding
     return None
 
