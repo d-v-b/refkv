@@ -1,30 +1,39 @@
-"""TEMPORARY (CI diagnosis): the xarray-v2 example's made.nc case crashes the Linux job only after
-earlier tests. Two subprocesses with faulthandler, their output written to the log: (a) the suite
-without the tests that start a JVM, which hides faulthandler's report; (b) those tests, then the
-case."""
+"""TEMPORARY (CI diagnosis): the xarray-v2 example's made.nc case crashes the Linux job once a JVM
+has started (bioio-bioformats', in the VSI tests), and the JVM hides faulthandler's report. A
+subprocess starts the JVM, then runs the case, writing each line of the test it executes to the
+log: the last is the one that crashes."""
 
 import os
 import subprocess
 import sys
 from pathlib import Path
 
-import pytest
-
 ROOT = Path(__file__).resolve().parents[2]
 CASE = ("python/tests/test_example_xarray_v2.py::"
         "test_files_as_zarr_v2_for_xarray[made.nc-options1-codes1-True-left_out1]")
-JVM = ["python/tests/ir/test_vsi.py", "python/tests/reference/test_virtualize_ome_zarr.py"]
-RUNS = {
-    "without-jvm": ["python/tests", "-x", "--ignore=python/tests/test_aa_diagnosis.py",
-                    *(f"--ignore={p}" for p in JVM)],
-    "jvm-then-case": [*JVM, CASE],
-}
+SCRIPT = f"""
+import os, sys
+from bioio_bioformats import Reader
+Reader({str(ROOT / "fixtures/vsi/vsi_no_stacks.vsi")!r})
+os.write(2, b">>> JVM started\\n")
+
+def trace(frame, event, arg):
+    name = frame.f_code.co_filename
+    if name.endswith(("test_example_xarray_v2.py", "examples/xarray_v2.py")):
+        if event == "line":
+            os.write(2, f">>> {{os.path.basename(name)}}:{{frame.f_lineno}}\\n".encode())
+        return trace
+    return None
+
+sys.settrace(trace)
+import pytest
+sys.exit(pytest.main(["-q", "-s", "-p", "no:cacheprovider", {CASE!r}]))
+"""
 
 
-@pytest.mark.parametrize("name", list(RUNS))
-def test_the_crash_in_a_subprocess(capsys, name):
-    run = subprocess.run([sys.executable, "-X", "faulthandler", "-m", "pytest", "-q", "-p", "no:cacheprovider",
-                          *RUNS[name]], cwd=ROOT, capture_output=True, text=True, check=False)
+def test_the_crash_after_a_jvm(capsys):
+    run = subprocess.run([sys.executable, "-X", "faulthandler", "-c", SCRIPT], cwd=ROOT, capture_output=True,
+                         text=True, check=False)
     with capsys.disabled():
-        os.write(2, f"\n>>> DIAGNOSIS {name} exit {run.returncode}\n{run.stdout[-6000:]}\n"
-                    f"{run.stderr[-30000:]}\n>>> END {name}\n".encode())
+        os.write(2, f"\n>>> DIAGNOSIS exit {run.returncode}\n{run.stdout[-4000:]}\n"
+                    f"{run.stderr[-12000:]}\n>>> END\n".encode())
