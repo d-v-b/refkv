@@ -58,6 +58,7 @@ in `/`, or a local directory, is a store input.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import threading
 from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
@@ -73,7 +74,7 @@ from refkv.refstore import ReferenceStore
 from refkv.zarrify import profile_classes
 from refkv.zarrify.common import Output, Rejected
 from refkv.zarrify.dicom_series import SeriesOutput, zarrify_series_async
-from refkv.zarrify.layouts import Layout, LayoutUsageError, Planned, join, plan
+from refkv.zarrify.layouts import Layout, LayoutFailed, LayoutUsageError, Planned, join, plan
 from refkv.zarrify.profile_classes import *  # noqa: F403 (one class per profile: profile_classes.__all__)
 from refkv.zarrify.profiles import BESIDE, CASE, ON_DEMAND
 from refkv.zarrify.sources import Dataset, Image, Source, Store, layout_names
@@ -324,9 +325,13 @@ async def _on_own_thread[T](f: Callable[..., T], *args: object) -> T:
         try:
             result = f(*args)
         except Exception as e:  # noqa: BLE001 (handed to the caller)
-            loop.call_soon_threadsafe(settle, None, e)
+            outcome: tuple[T | None, BaseException | None] = (None, e)
+        except BaseException as e:  # noqa: BLE001 (handed on as a failure: the caller's future must settle)
+            outcome = (None, LayoutFailed(f"{type(e).__name__}: {e}"))
         else:
-            loop.call_soon_threadsafe(settle, result, None)
+            outcome = (result, None)
+        with contextlib.suppress(RuntimeError):  # the loop is closed: nobody waits for it
+            loop.call_soon_threadsafe(settle, *outcome)
 
     threading.Thread(target=run, name="refkv-layouts", daemon=True).start()
     return await done

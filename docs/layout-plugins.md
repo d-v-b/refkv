@@ -38,8 +38,9 @@ as coordinates, as bytes.) The rules are [spec/layout.md](../spec/layout.md).
 - **Asking for it.** `zarrify(path, plugins=[Layout(name, options)])`, or `python -m
   refkv.zarrify <in> <out.vzip> --layout NAME --layout-options NAME=JSON`. A reader opens the
   layout's path, `refkv_layouts/ome06`, not the archive's root (for the example's HDF5 images,
-  `refkv_layouts/ome06/<name>`). Give a local file by an absolute path, or give `url`, since the
-  archive names its source by what you give.
+  `refkv_layouts/ome06/<name>`), as a hierarchy of its own: the root holds refkv's OME-Zarr 0.5
+  image, and OME-Zarr 0.6 asks one hierarchy to hold one version. Give a local file by an absolute
+  path, or give `url`, since the archive names its source by what you give.
 - **What a base looks like.** For a TIFF (NDPI, QPTIFF, IMS), the root's `ome` holds OME-Zarr 0.5
   `multiscales`, its levels arrays `0`, `1`, ...; for an HDF5 file, the file's groups and datasets
   are groups and arrays at their own paths, with no dimension names unless the file has them.
@@ -55,7 +56,7 @@ datasets are images is the file's convention's business (NWB's, BigDataViewer's)
 name them:
 
 ```python
-zarrify("ophys.nwb", plugins=[Layout("acme-ome.ome06", {"images": [{
+zarrify("/data/ophys.nwb", plugins=[Layout("acme-ome.ome06", {"images": [{
     "name": "movie", "array": "stimulus/templates/movie/data",
     "dims": ["t", "x", "y"], "order": ["t", "y", "x"], "scale": [0.033, 0.5, 0.5],
     "axes": [{"name": "t", "type": "time", "unit": "second"},
@@ -63,7 +64,9 @@ zarrify("ophys.nwb", plugins=[Layout("acme-ome.ome06", {"images": [{
              {"name": "x", "type": "space", "unit": "micrometer"}]}]})])
 ```
 
-NWB stores an `ImageSeries` as `(frame, x, y)`, so the movie is copied in `t, y, x` order.
+NWB stores an `ImageSeries` as `(frame, x, y)`, so the movie is copied in `t, y, x` order. The
+example writes what OME-Zarr 0.6 requires; its strict schema also wants each multiscale's `type` and
+`metadata`, which a plugin of your own may add.
 
 ## The example
 
@@ -105,7 +108,8 @@ from refkv.zarrify.layouts import Base, ConventionInfo, copy
 
 Entries = dict[str, bytes | Range | Concat]
 IMAGES = ("tiff", "ndpi", "qptiff", "ims")  # the profiles whose image layout is OME-Zarr 0.5
-AXIS_TYPES = ("time", "channel", "space")
+AXIS_TYPES = ("time", "channel", "space")  # stricter than 0.6, which allows other types in the channel slot
+IMAGE_MEMBERS = frozenset(["name", "array", "dims", "order", "axes", "scale"])
 
 
 def axis(given: Mapping[str, Any]) -> dict[str, Any]:
@@ -115,16 +119,16 @@ def axis(given: Mapping[str, Any]) -> dict[str, Any]:
         raise ValueError(f"an axis has name, type, unit, longName and discrete, not {sorted(given)}")
     if given.get("type") not in AXIS_TYPES:
         raise ValueError(f"an axis's type is time, channel or space, not {given.get('type')!r}")
-    if not all(isinstance(given.get(m, ""), str) for m in ("name", "unit", "longName")) or "name" not in given \
+    if not all(isinstance(given.get(m, ""), str) for m in ("name", "unit", "longName")) or not given.get("name") \
             or not isinstance(given.get("discrete", False), bool):
         raise ValueError(f"an axis's name, unit and longName are strings, and discrete a boolean: {dict(given)}")
     return dict(given)
 
 
 def number(given: object) -> float:
-    """A scale: a finite number."""
-    if isinstance(given, bool) or not isinstance(given, (int, float)) or not math.isfinite(given):
-        raise ValueError(f"a scale is a finite number, not {given!r}")
+    """A scale: a finite, positive number."""
+    if isinstance(given, bool) or not isinstance(given, (int, float)) or not math.isfinite(given) or given <= 0:
+        raise ValueError(f"a scale is a finite, positive number, not {given!r}")
     return float(given)
 
 
@@ -149,29 +153,35 @@ class Ome06:
         """The images of an HDF5 file, each one image group of the layout: its `name`, the
         `array` that holds it, the names of the array's dimensions in the file (`dims`), their
         `order` in the image (time, then channel, then space; default: `dims`), the image's
-        `axes`, named as `order` names them, and a `scale` per axis (default 1)."""
+        `axes`, named as `order` names them, and a positive `scale` per axis (default 1)."""
+        if set(given) - {"images"}:
+            raise ValueError(f"the options hold images, not {sorted(set(given) - {'images'})}")
         images = []
-        try:
-            for image in given.get("images", []):
-                name, array, dims = str(image["name"]), str(image["array"]), [str(d) for d in image["dims"]]
-                order = [str(d) for d in image.get("order", dims)]
-                axes = [axis(a) for a in image["axes"]]
-                scale = [number(s) for s in image.get("scale", [1.0] * len(dims))]
-                if not re.fullmatch(r"[A-Za-z0-9_.-]+", name) or name.startswith("__"):
-                    raise ValueError(f"{name!r} is not an image's name, a key segment")
-                if len(set(dims)) != len(dims) or sorted(order) != sorted(dims) \
-                        or [a["name"] for a in axes] != order or len(scale) != len(dims):
-                    raise ValueError(f"{name}: order, axes and scale give each of dims {dims} once")
-                types = [a["type"] for a in axes]
-                if types != sorted(types, key=AXIS_TYPES.index) or not 2 <= len(types) <= 5 \
-                        or not 2 <= types.count("space") <= 3 or types.count("time") > 1 or types.count("channel") > 1:
-                    raise ValueError(f"{name}: 2 to 5 axes: a time, then a channel, then 2 or 3 of space")
-                if name in [i["name"] for i in images]:
-                    raise ValueError(f"two images are named {name}")
-                images.append({"name": name, "array": array, "dims": dims, "order": order, "axes": axes,
-                               "scale": scale})
-        except (KeyError, TypeError, AttributeError) as e:
-            raise ValueError(f"images: {e!r}") from e
+        for image in given.get("images", []):
+            if not isinstance(image, Mapping) or set(image) - IMAGE_MEMBERS or not {"name", "array", "dims",
+                                                                                    "axes"} <= set(image):
+                raise ValueError(f"an image holds name, array, dims, axes, and order and scale if given: {image!r}")
+            name, array, dims = image["name"], image["array"], image["dims"]
+            order = image.get("order", dims)
+            if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9_.-]*", name) \
+                    or name == "zarr.json" or name.startswith("__"):
+                raise ValueError(f"{name!r} is not an image's name, a key segment")
+            if not isinstance(array, str) or not all(isinstance(d, str) for d in (*dims, *order)) \
+                    or isinstance(dims, str) or isinstance(order, str):
+                raise ValueError(f"{name}: array is a string, and dims and order lists of strings")
+            axes = [axis(a) for a in image["axes"]]
+            scale = [number(v) for v in image.get("scale", [1.0] * len(dims))]
+            if len(set(dims)) != len(dims) or sorted(order) != sorted(dims) \
+                    or [a["name"] for a in axes] != list(order) or len(scale) != len(dims):
+                raise ValueError(f"{name}: order, axes and scale give each of dims {dims} once")
+            types = [a["type"] for a in axes]
+            if types != sorted(types, key=AXIS_TYPES.index) or not 2 <= len(types) <= 5 \
+                    or not 2 <= types.count("space") <= 3 or types.count("time") > 1 or types.count("channel") > 1:
+                raise ValueError(f"{name}: 2 to 5 axes: a time, then a channel, then 2 or 3 of space")
+            if name in [i["name"] for i in images]:
+                raise ValueError(f"two images are named {name}")
+            images.append({"name": name, "array": array, "dims": list(dims), "order": list(order), "axes": axes,
+                           "scale": scale})
         return {"images": images}
 
     def write(self, base: Base, options: Mapping[str, Any]) -> Entries:

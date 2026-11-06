@@ -89,7 +89,8 @@ checksums (which are of the source's bytes), so that what it writes does not dep
 built-in layouts the call asked for, or on the checksums' values. (A profile may cut a reference
 into more ranges when the call asks for checksums,
 [spec/zarrify.md §2.1](zarrify.md#21-virtual-shards); a plugin sees the ranges as they are.) It
-is given the base's IR, and the options the caller gave, in its canonical form. It returns the
+is given the base's IR, and the options the caller gave, in its canonical form, which nests at
+most 253 deep, so that the layout's node, which holds it, nests at most 256. It returns the
 layout's entries, keys relative to its node, and refkv writes them as [§3](#3-the-entries) says.
 
 A plugin names the base profiles it reads, each with the natural numbers of the convention
@@ -118,7 +119,7 @@ failure, and no output is written:
   digits (an integer is kept exactly, as [spec/zarrify.md §1.6](zarrify.md#16-json-documents)
   keeps it), no member twice in one object, no lone surrogate, and no nesting deeper than 256,
   [§1.6](zarrify.md#16-json-documents)'s bound; an array's document holds `shape`,
-  `data_type`, `chunk_grid`, `chunk_key_encoding`, `codecs` and `fill_value`.
+  `data_type`, `chunk_grid`, `chunk_key_encoding`, `codecs` and `fill_value`, its `shape` a list.
 - `zarr.json` is a group. Every other key is a node's `zarr.json` whose parent node's `zarr.json`
   is a group of the layout, or a key below an array's `zarr.json`; no node is inside an array.
 - Every reference entry's ranges are, as [spec/zarrify.md §1.1](zarrify.md#11-output-and-equivalence)
@@ -131,9 +132,11 @@ failure, and no output is written:
   `refkv_layout` or `refkv_provenance`, or, in `zarr_conventions` (a list of objects), a CMO with
   the UUID, the `name` or a URL of a refkv convention: a profile's, a dataset layout's,
   provenance's or this one. A CMO's UUID is refkv's when, lower-cased, without a `urn:uuid:` or
-  `uuid:` prefix, without enclosing braces and without hyphens, it is the 32 hexadecimal digits of
-  one; its `schema_url` or `spec_url` is refkv's when, lower-cased and with surrounding white space
-  removed (and read as if it had a scheme when it has none), its host without `www.` or a port is
+  `uuid:` prefix and enclosing braces (in either order) and without hyphens, it is the 32
+  hexadecimal digits of one, and the plugin's in the same reading; its `schema_url` or `spec_url`
+  is refkv's when, lower-cased and with JSON's white space around it removed (and read as if it had
+  a scheme when it does not start with one, `[a-z][a-z0-9+.-]*://`), its host without `www.` or a
+  port is
   `github.com` or `raw.githubusercontent.com` and its path is `/d-v-b/refkv` or starts with
   `/d-v-b/refkv/`, its percent-escapes not decoded. A CMO that has a `name` has a string there. A CMO with the plugin's
   convention's UUID, or its key as `name`, equals the one the plugin's description makes. Where a document holds the plugin's key, it is an

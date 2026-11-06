@@ -2,6 +2,7 @@
 OME-Zarr 0.6 layout over TIFF-family, MRC and HDF5 inputs, `copy`, and each way a plugin layout
 is refused or fails."""
 
+import asyncio
 import dataclasses
 import json
 import runpy
@@ -1155,3 +1156,108 @@ def test_a_key_that_is_no_string_is_a_failure(monkeypatch):
 def test_copy_refuses_a_boolean_order():
     with pytest.raises(ValueError, match="axis indexes"):
         copy(Base(zarrify(TIF), None), "0", order=[True, False])
+
+
+def bounded(f, seconds=60):
+    """`f()`'s result or its exception, failing the test if it has not returned in `seconds`: a
+    plugin's exception that went unhandled would hang the call it was run for."""
+    with ThreadPoolExecutor(1) as pool:
+        future = pool.submit(f)
+        try:
+            return future.result(timeout=seconds)
+        except TimeoutError:
+            pytest.fail(f"no answer in {seconds} s: the call hangs")
+
+
+@pytest.mark.parametrize("error", [KeyboardInterrupt(), asyncio.CancelledError(), GeneratorExit()])
+def test_a_plugin_s_base_exception_in_write_fails(monkeypatch, error):
+    install(monkeypatch, Entry(Writes.name, Writes(error=error)))
+    with pytest.raises(LayoutFailed, match=type(error).__name__):
+        bounded(lambda: zarrify(TIF, plugins=[Layout(Writes.name)]))
+
+
+def test_a_plugin_s_base_exception_in_options_is_a_usage_error(monkeypatch):
+    def cancels(_self, _given):
+        raise asyncio.CancelledError
+    install(monkeypatch, Entry(NAME, variant(options=cancels)))
+    with pytest.raises(LayoutUsageError, match="CancelledError"):
+        bounded(lambda: zarrify(TIF, plugins=[Layout(NAME)]))
+
+
+def test_a_plugin_that_exits_while_its_attributes_are_read_is_a_usage_error(monkeypatch):
+    class Exits(Ome06):
+        @property
+        def path(self):
+            raise SystemExit(2)
+    install(monkeypatch, Entry(NAME, Exits))
+    with pytest.raises(LayoutUsageError, match="SystemExit"):
+        bounded(lambda: zarrify(TIF, plugins=[Layout(NAME)]))
+
+
+def test_options_that_nest_the_node_past_256_are_a_usage_error(monkeypatch):
+    deep: dict = {}
+    for _ in range(260):
+        deep = {"a": deep}
+    refused(monkeypatch, variant(options=lambda _self, _given: deep), "nest deeper than 253")
+
+
+def test_given_options_with_nan_are_a_usage_error(monkeypatch):
+    refused(monkeypatch, Ome06, "not a JSON object", [Layout(NAME, {"a": float("nan")})])
+
+
+def test_canonical_options_with_infinity_are_a_usage_error(monkeypatch):
+    refused(monkeypatch, variant(options=lambda _self, _given: {"a": float("inf")}), "not a JSON object")
+
+
+def test_a_refkv_spec_url_in_a_convention_is_a_usage_error(monkeypatch):
+    refused(monkeypatch, variant(convention=convention(spec_url="https://github.com/d-v-b/refkv/blob/main/x")),
+            "spec_url is refkv's")
+
+
+def test_a_refkv_url_with_white_space_around_it_is_a_failure(monkeypatch):
+    cmo = {"uuid": "88888888-8888-4888-8888-888888888888", "spec_url": " https://github.com/d-v-b/refkv \n"}
+    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes({"zarr_conventions": [cmo]})}, "declares a refkv")
+
+
+def test_a_schemeless_refkv_url_with_a_url_in_its_query_is_a_failure(monkeypatch):
+    cmo = {"uuid": "88888888-8888-4888-8888-888888888888", "spec_url": "github.com/d-v-b/refkv/x?u=http://y"}
+    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes({"zarr_conventions": [cmo]})}, "declares a refkv")
+
+
+def test_a_refkv_uuid_with_a_uuid_prefix_is_a_failure(monkeypatch):
+    cmo = {"uuid": "uuid:" + layouts.UUID}
+    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes({"zarr_conventions": [cmo]})}, "declares a refkv")
+
+
+def test_a_refkv_uuid_in_braces_is_a_failure(monkeypatch):
+    cmo = {"uuid": "{urn:uuid:" + layouts.UUID + "}"}
+    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes({"zarr_conventions": [cmo]})}, "declares a refkv")
+
+
+def test_zarr_conventions_that_are_an_object_are_a_failure(monkeypatch):
+    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes({"zarr_conventions": {}})}, "not a list of objects")
+
+
+def test_a_range_of_unhashable_data_is_a_failure(monkeypatch):
+    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes(), "0/zarr.json": doc_bytes(),
+                                      "0/c": Range(data=bytearray(b"x"))},  # type: ignore[arg-type] (the mistake)
+          "one of the base's references")
+
+
+def test_a_key_of_a_str_subclass_is_a_failure(monkeypatch):
+    class Text(str):
+        __slots__ = ()
+    fails(monkeypatch, lambda _base: {Text("zarr.json"): doc_bytes()}, "keys are str, not Text")
+
+
+def test_copy_reads_a_v2_key_s_default_separator():
+    """A v2 chunk key encoding without a separator separates by `.`, and a copy of an array
+    without dimension names has none."""
+    store, _ = transposed([0, 1, 2])
+    doc = document(store, "a/zarr.json") | {"chunk_key_encoding": {"name": "v2"}}
+    doc.pop("dimension_names")
+    mapping = {"zarr.json": store.mapping["zarr.json"], "a/zarr.json": json.dumps(doc).encode(),
+               "a/0.0.0": store.mapping["a/c/0/0/0"]}
+    entries = copy(Base(refkv.ReferenceStore(mapping), None), "a", order=[2, 1, 0])
+    assert set(entries) == {"zarr.json", "0.0.0"}
+    assert "dimension_names" not in document(refkv.ReferenceStore({"zarr.json": entries["zarr.json"]}), "zarr.json")

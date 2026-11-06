@@ -157,8 +157,8 @@ def _is_refkv_url(url: object) -> bool:
     case, `www.`, port or trailing slash."""
     if not isinstance(url, str):
         return False
-    text = url.strip().lower()
-    parts = urllib.parse.urlsplit(text if "://" in text else "//" + text)
+    text = url.strip(" \t\n\r").lower()  # JSON's white space
+    parts = urllib.parse.urlsplit(text if re.match(r"[a-z][a-z0-9+.-]*://", text) else "//" + text)
     host = (parts.hostname or "").removeprefix("www.")
     return host in REFKV_HOSTS and (parts.path.rstrip("/") + "/").startswith("/d-v-b/refkv/")
 
@@ -174,10 +174,11 @@ def _uuid_form(text: object) -> str | None:
     if not isinstance(text, str):
         return None
     t = text.lower()
-    for prefix in ("urn:uuid:", "uuid:"):
-        t = t.removeprefix(prefix)
-    if t.startswith("{") and t.endswith("}"):
-        t = t[1:-1]
+    for _ in range(2):  # a prefix and enclosing braces, in either order
+        for prefix in ("urn:uuid:", "uuid:"):
+            t = t.removeprefix(prefix)
+        if t.startswith("{") and t.endswith("}"):
+            t = t[1:-1]
     t = t.replace("-", "")
     if re.fullmatch(r"[0-9a-f]{32}", t) is None:
         return None
@@ -216,7 +217,7 @@ def load(name: str) -> tuple[Plugin, dict[str, frozenset[int]]]:
         plugin = entry.load()
         if isinstance(plugin, type):  # the entry point names the plugin's class: refkv makes the instance
             plugin = plugin()
-    except (Exception, SystemExit) as e:
+    except BaseException as e:  # any of a plugin's, made a usage error
         raise _usage(name, f"the plugin failed to load: {type(e).__name__}: {e}") from e
     if callable(plugin) and not hasattr(plugin, "name"):
         raise _usage(name, f"the entry point names {plugin!r}: name the plugin's class, or an instance of it")
@@ -224,7 +225,7 @@ def load(name: str) -> tuple[Plugin, dict[str, frozenset[int]]]:
         return plugin, _check_plugin(name, plugin)
     except LayoutUsageError:
         raise
-    except (Exception, SystemExit) as e:  # an attribute that raises when read
+    except BaseException as e:  # an attribute that raises when read
         raise _usage(name, f"the plugin's attributes cannot be read: {type(e).__name__}: {e}") from e
 
 
@@ -320,8 +321,8 @@ def plan(layouts: Sequence[Layout]) -> list[Planned]:
             options = plugin.options(given)
         except KeyError as e:
             raise _usage(layout.name, f"its options are refused: a missing member {e}") from e
-        except (Exception, SystemExit) as e:
-            raise _usage(layout.name, f"its options are refused: {e}") from e
+        except BaseException as e:  # any of a plugin's, made a usage error
+            raise _usage(layout.name, f"its options are refused: {type(e).__name__}: {e}") from e
         if not isinstance(options, Mapping):
             raise _usage(layout.name, f"its options() returned {type(options).__name__}, not a mapping")
         try:  # canonical options are JSON as they are: no NaN, no tuples, no lone surrogate
@@ -329,6 +330,8 @@ def plan(layouts: Sequence[Layout]) -> list[Planned]:
             same = json.loads(text) == dict(options) and _utf8(dict(options))
         except Exception as e:
             raise _usage(layout.name, f"its canonical options are not a JSON object: {type(e).__name__}: {e}") from e
+        if same and _depth(dict(options)) > MAX_DEPTH - 3:  # under attributes.refkv_layout.options
+            raise _usage(layout.name, f"its canonical options nest deeper than {MAX_DEPTH - 3}")
         if not same:
             raise _usage(layout.name, "its canonical options are not JSON as they are (a tuple, say, or a lone "
                                       "surrogate): options() returns lists, dicts, strings, numbers and booleans")
@@ -660,6 +663,8 @@ def _check(name: str, entries: dict[Any, Any], base: Base, plugin: dict[str, str
     key = key_of(name)
     docs: dict[str, dict[str, Any]] = {}
     for k, given in list(entries.items()):
+        if isinstance(k, str) and type(k) is not str:
+            raise fail(f"{k!r}: keys are str, not {type(k).__name__}")
         if not _key_ok(k):
             raise fail(f"{k!r} is not a key of a layout (relative, valid UTF-8, with no empty, '.', '..' or "
                        "'__' segment, and zarr.json only last)")
@@ -780,7 +785,7 @@ def join(store: ReferenceStore, ir: Ir | None, planned: Sequence[Planned]) -> Re
             entries: dict[Any, Any] = dict(written) if isinstance(written, Mapping) else {}
         except Rejected as e:
             raise LayoutRejected(f"{name}: {e}") from e
-        except (Exception, SystemExit) as e:  # SystemExit too: it would stop refkv's event loop thread
+        except BaseException as e:  # any of a plugin's, made a failure
             raise LayoutFailed(f"{name}: {type(e).__name__}: {e}") from e
         if not isinstance(written, Mapping):
             raise LayoutFailed(f"{name}: write() returned {type(written).__name__}, not a mapping of keys to entries")
