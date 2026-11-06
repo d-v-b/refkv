@@ -59,7 +59,7 @@ pub enum Fail {
 // the store kinds, in the words of `python -m refkv.zarrify`'s usage (python/src/refkv/zarrify/__main__.py)
 const USAGE: &str = "usage: vzip convert <url or path> <out.vzip> [--url <source url>] [--checksums] \
 [--allow-private-hosts] [--connections N] [--byte-cost SECONDS_PER_MB] [--workers N] [--format vzip|phkv|hybrid]\n\
-(a URL ending in / or a directory is an N5, Zarr v2 or OME-Zarr 0.4 store, a Neuroglancer precomputed volume, a Sentinel-2 .SAFE directory, \
+(a URL ending in / or a directory is a Zarr v3, Zarr v2, OME-Zarr 0.4 or N5 store, a Neuroglancer precomputed volume, a Sentinel-2 .SAFE directory, \
 or a store of safetensors files; a directory needs --url;\n\
 a Hugging Face Hub URL https://huggingface.co/<owner>/<repo>/tree/<rev>/ is listed at its commit,\n\
 at HF_ENDPOINT's Hub if set;\n\

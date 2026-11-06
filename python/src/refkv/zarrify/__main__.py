@@ -11,8 +11,8 @@ from refkv.zarrify.layouts import Layout, LayoutFailed, LayoutUsageError
 from refkv.zarrify.store import WORKERS
 
 # the store kinds, in the words of `vzip convert`'s usage (rust/refkv-cli/src/main.rs)
-STORES = ("an N5, Zarr v2 or OME-Zarr 0.4 store, a Neuroglancer precomputed volume, a Sentinel-2 .SAFE directory, "
-          "or a store of safetensors files")
+STORES = ("a Zarr v3, Zarr v2, OME-Zarr 0.4 or N5 store, a Neuroglancer precomputed volume, a Sentinel-2 .SAFE "
+          "directory, or a store of safetensors files")
 USAGE = ("usage: refkv zarrify <url or path> <out.vzip> [--url <source url>] [--checksums]"
          " [--allow-private-hosts] [--connections N] [--byte-cost SECONDS_PER_MB] [--workers N]"
          " [--layout NAME [--layout-options JSON]]\n"

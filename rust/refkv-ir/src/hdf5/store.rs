@@ -4,7 +4,7 @@
 //! each file an external link names. The hierarchy is the named file's, with what each link names
 //! at the link's path, one level deep, and the mirror each file's IR at its object.
 
-use super::file::{node_name, Hdf5};
+use super::file::{name_axes, node_name, Hdf5};
 use crate::beside::{written_key, Tree, Written};
 use crate::ir::{Ir, Res};
 use crate::nd2::Step;
@@ -92,8 +92,9 @@ fn holds_reference(v: &J) -> bool {
 }
 
 /// The nodes of a file at and below `target` (an HDF5 path) moved to the path `at`, without what
-/// names paths of their file; and the paths left out (`at` itself, or below it).
-fn linked_nodes(nodes: &[J], target: &str, at: &str) -> (Vec<J>, Vec<String>) {
+/// names paths of their file; and the paths left out (`at` itself, or below it), each with the
+/// `axes` it counts among its group's members by.
+fn linked_nodes(nodes: &[J], target: &str, at: &str) -> (Vec<J>, Vec<(String, Option<J>)>) {
     let target = target.trim_matches('/');
     let (mut moved, mut left_out) = (Vec::new(), Vec::new());
     for node in nodes {
@@ -111,7 +112,7 @@ fn linked_nodes(nodes: &[J], target: &str, at: &str) -> (Vec<J>, Vec<String>) {
         let references = node.get("array").is_some_and(|a| a["store"]["kind"] == "references")
             || node["attributes"].get("_REFERENCE_FIELDS").is_some();
         if references {
-            left_out.push(new);
+            left_out.push((new, node.get("axes").cloned()));
             continue;
         }
         let mut node = node.clone();
@@ -229,12 +230,18 @@ impl StoreParser for Hdf5Store {
                 let Some(source) = files.get(&key) else { continue };
                 let at = if path.is_empty() { name.to_string() } else { format!("{path}/{name}") };
                 let (mut moved, left_out) = linked_nodes(source["nodes"].as_array().map_or(&[], |n| n), target, &at);
-                for out in left_out {
+                for (out, axes) in left_out {
                     let (parent, child) = out.rsplit_once('/').unwrap_or(("", &out));
-                    if out == at {
-                        group["own"]["unpresented"][child] = json!(EXTERNAL_REFERENCE);
-                    } else if let Some(n) = moved.iter_mut().find(|n| n["path"] == parent) {
+                    let holder = if out == at { Some(&mut *group) } else { moved.iter_mut().find(|n| n["path"] == parent) };
+                    if let Some(n) = holder {
                         n["own"]["unpresented"][child] = json!(EXTERNAL_REFERENCE);
+                        // still a member of its group, as an unpresented dataset is
+                        if let Some(a) = axes {
+                            if !n["axes"].is_array() {
+                                n["axes"] = json!([]);
+                            }
+                            n["axes"].as_array_mut().unwrap().push(json!([child, a]));
+                        }
                     }
                 }
                 if let Some(top) = moved.iter_mut().find(|n| n["path"] == at.as_str()) {
@@ -249,6 +256,8 @@ impl StoreParser for Hdf5Store {
                 root["own"]["siblings"] = json!(keys[1..].iter().map(|k| &k.0).collect::<Vec<_>>());
             }
             nodes.extend(added);
+            // a linked object is a member of the group that links it
+            name_axes(nodes);
         }
         facts["named_key"] = json!(keys[0].0);
         // no edge chunk is copied: the run's reads have ended, and its padding is the zero data source's

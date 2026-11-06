@@ -884,8 +884,10 @@ row:
 [profiles/safe.json](profiles/safe.json)): bytes 0–3 of `H` are
 `50 4B 03 04`, a ZIP local file header.
 
-A zip file that is not a SAFE product is rejected by [§8.4](#84-the-zip-form) or by the
-convention.
+The Zarr v3 profile's zip form is tested first, and takes a zip file whose first local header's
+name does not start with a segment ending in `.SAFE` ([zarr3.md §7.1](zarr3.md#71-choosing-the-profile)),
+so a zip file reaches this profile when its first entry is under a `.SAFE` directory. A zip file
+that is not a SAFE product is rejected by [§8.4](#84-the-zip-form) or by the convention.
 
 ### 8.2 Objects and reading
 

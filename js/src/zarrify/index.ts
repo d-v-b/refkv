@@ -184,6 +184,7 @@ async function zarrifyStoreProfile(
     const chosen = chooseProfile(store);
     if (chosen === "safe") return { format: "safe", ...(await zarrifyStoreIr("safe", store)) };
     if (chosen === "safetensors") return { format: "safetensors", ...(await zarrifyStoreIr("safetensors", store)) };
+    if (chosen === "zarr3") return { format: "zarr3", ...(await zarrifyStoreIr("zarr3", store)) };
     if (chosen === "n5") return { format: "n5", ...(await zarrifyStoreIr("n5", store)) };
     if (chosen === "precomputed") return { format: "precomputed", ...(await zarrifyStoreIr("precomputed", store)) };
     // the core decides between Zarr v2 and OME-Zarr 0.4 (its summary's `format`)
