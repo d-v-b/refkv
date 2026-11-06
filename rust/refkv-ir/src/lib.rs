@@ -28,6 +28,7 @@ pub mod plan;
 pub mod project;
 pub mod record;
 pub mod refs;
+pub mod routines;
 pub mod rules;
 pub mod run;
 pub mod sans;

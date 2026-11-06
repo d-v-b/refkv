@@ -18,6 +18,7 @@ use std::sync::Mutex;
 
 pyo3::create_exception!(refkv._core, Rejected, PyException);
 pyo3::create_exception!(refkv._core, Violation, PyException);
+pyo3::create_exception!(refkv._core, NoCodec, PyValueError);
 
 fn bytes_of<T: Copy, const N: usize>(v: &[T], f: impl Fn(T) -> [u8; N]) -> Vec<u8> {
     let mut out = Vec::with_capacity(v.len() * N);
@@ -889,6 +890,20 @@ fn grib_decode<'py>(py: Python<'py>, chunk: &[u8], config: &str, chunk_shape: Ve
     Ok(PyBytes::new(py, &bytes_of(&out, f64::to_le_bytes)))
 }
 
+/// A coding routine of `refkv.zarrify.coding` (spec/layout.md
+/// <https://github.com/d-v-b/refkv/blob/main/spec/layout.md>): the routine `name` of the
+/// parameters `params` (JSON), its result as JSON. Raises NoCodec for parameters the format's
+/// section rejects, ValueError for parameters that are not the routine's.
+#[pyfunction]
+fn coding(name: &str, params: &str) -> PyResult<String> {
+    let p: serde_json::Value = serde_json::from_str(params).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    match refkv_ir::routines::call(name, &p) {
+        Ok(v) => Ok(v.to_string()),
+        Err(refkv_ir::routines::Refused::NoCodec(m)) => Err(NoCodec::new_err(m)),
+        Err(refkv_ir::routines::Refused::Bad(m)) => Err(PyValueError::new_err(m)),
+    }
+}
+
 /// For tests: the reference payload past which a NIfTI or MRC edge chunk is copied (None:
 /// the payload limit), so that small files reach the copy (spec/zarrify/nifti.md §7.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#72-chunks>,
@@ -939,6 +954,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(fits_tiles_decode, m)?)?;
     m.add_function(wrap_pyfunction!(h5_bitshuffle_decode, m)?)?;
     m.add_function(wrap_pyfunction!(grib_decode, m)?)?;
+    m.add_function(wrap_pyfunction!(coding, m)?)?;
     m.add_function(wrap_pyfunction!(_set_copy_threshold, m)?)?;
     m.add_function(wrap_pyfunction!(_set_chunk_frames, m)?)?;
     m.add_function(wrap_pyfunction!(_set_shard_frames, m)?)?;
@@ -952,6 +968,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(czi_bands, m)?)?;
     m.add("Rejected", m.py().get_type::<Rejected>())?;
     m.add("Violation", m.py().get_type::<Violation>())?;
+    m.add("NoCodec", m.py().get_type::<NoCodec>())?;
     phkv::register(m)?;
     Ok(())
 }

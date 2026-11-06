@@ -24,6 +24,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from email.message import Message
+from typing import TYPE_CHECKING
 
 from refkv._files import replacing
 from refkv._narrow import integer, string
@@ -35,6 +36,9 @@ from refkv.refstore import ReferenceStore, bulk
 from refkv.uri import is_uri_reference
 from refkv.vzip.archive import VZipWriter
 from refkv.zarrify.profiles import REGISTRY
+
+if TYPE_CHECKING:
+    from refkv import _core
 
 
 class Rejected(Exception):  # noqa: N818 (public name)
@@ -105,6 +109,9 @@ class Output:
     size: int | None = None
     etag: str | None = None
     checksum: Callable[[str, int, int], int] | None = None
+    # The IR the output was projected from, which a plugin's layout is given (spec/layout.md
+    # <https://github.com/d-v-b/refkv/blob/main/spec/layout.md>); set by refkv.ir.
+    ir: _core.Ir | None = None
 
     def json(self, key: str, value: object) -> None:
         # UTF-8, not \u escapes: the documents are the size the budgets count, as JSON.stringify writes them.

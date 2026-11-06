@@ -3473,6 +3473,9 @@ images = [
     { name = "ml-dtypes" },
     { name = "zarr" },
 ]
+layouts = [
+    { name = "zarr-metadata" },
+]
 media = [
     { name = "av" },
     { name = "ml-dtypes" },
@@ -3516,8 +3519,9 @@ requires-dist = [
     { name = "refkv", extras = ["zarr", "obstore"], marker = "extra == 'virtualizarr'", editable = "python" },
     { name = "virtualizarr", marker = "extra == 'virtualizarr'", specifier = ">=2.7.3" },
     { name = "zarr", marker = "extra == 'zarr'", specifier = ">=3.4.0" },
+    { name = "zarr-metadata", marker = "extra == 'layouts'", specifier = ">=0.6.0" },
 ]
-provides-extras = ["images", "media", "obstore", "precomputed", "virtualizarr", "zarr"]
+provides-extras = ["images", "layouts", "media", "obstore", "precomputed", "virtualizarr", "zarr"]
 
 [[package]]
 name = "refkv-workspace"
@@ -3561,7 +3565,7 @@ dev = [
     { name = "pyrefly" },
     { name = "pytest" },
     { name = "rasterio" },
-    { name = "refkv", extra = ["images", "media", "obstore", "precomputed", "virtualizarr", "zarr"] },
+    { name = "refkv", extra = ["images", "layouts", "media", "obstore", "precomputed", "virtualizarr", "zarr"] },
     { name = "ruff" },
     { name = "safetensors" },
     { name = "soundfile" },
@@ -3611,7 +3615,7 @@ dev = [
     { name = "pyrefly", specifier = ">=1.4.0" },
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "rasterio", specifier = ">=1.5.2" },
-    { name = "refkv", extras = ["zarr", "images", "media", "precomputed", "virtualizarr", "obstore"], editable = "python" },
+    { name = "refkv", extras = ["zarr", "images", "media", "precomputed", "virtualizarr", "obstore", "layouts"], editable = "python" },
     { name = "ruff", specifier = ">=0.17.2" },
     { name = "safetensors", specifier = ">=0.8.0" },
     { name = "soundfile", specifier = ">=0.14.0" },
@@ -4356,6 +4360,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/ae/29/6330391bab511e2428c2409fc15f6f32e4def9b2ee5eec4e95b8300304be/zarr-3.4.0.tar.gz", hash = "sha256:b68676576a6fc42683dfcc0daeb3c0e994f71e1680696990bde056bd3acf3542", size = 829693, upload-time = "2026-09-15T20:58:38.216Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/2b/6c/7c9cf79cb2122f7c94a36c0456b476515fa01c1343705d5411b3e8c1a1e9/zarr-3.4.0-py3-none-any.whl", hash = "sha256:0a5e6c9b5c4139759e612556c7fb32c8ee4e4877a46b3556244093413eb72395", size = 376931, upload-time = "2026-09-15T20:58:36.565Z" },
+]
+
+[[package]]
+name = "zarr-metadata"
+version = "0.6.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "annotated-types" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/5f/a3/4526430215c09ed45d47886a7c8b439218622a4f05e6ce1198147961ca64/zarr_metadata-0.6.0.tar.gz", hash = "sha256:4462dc91cdb8c19c370bcd548096125591359579586f42de789dc495a33119d0", size = 519797, upload-time = "2026-10-26T13:55:27.086Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/20/b2/c70c528d438bbf656873e8da51949c50efff866b85c6ee3335ba81bf1142/zarr_metadata-0.6.0-py3-none-any.whl", hash = "sha256:ab1f9f33d18094ffac020c2c975aa32f8737f36a0dfa8543b6c6d717a3469d1e", size = 274628, upload-time = "2026-10-26T13:55:25.798Z" },
 ]
 
 [[package]]

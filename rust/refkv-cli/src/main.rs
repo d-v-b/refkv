@@ -126,7 +126,8 @@ fn number<T: std::str::FromStr>(flag: &str, v: &str) -> Result<T, Fail> {
     v.trim().parse().map_err(|_| Fail::Other(format!("{flag} {v:?} is not a number")))
 }
 
-/// `convert`'s arguments, the flags anywhere, as python -m refkv.zarrify reads them.
+/// `convert`'s arguments, the flags anywhere, as python -m refkv.zarrify reads them (but its
+/// `--layout` and `--layout-options`: plugin layouts are Python's).
 fn parse(argv: &[String]) -> Result<Args, Fail> {
     let mut args = argv.to_vec();
     let checksums = flag(&mut args, "--checksums");
