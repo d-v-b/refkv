@@ -752,3 +752,22 @@ def test_check_reports_a_node_of_the_other_zarr_version():
 def test_array_needs_the_fill_value_of_a_type_without_a_known_zero():
     with pytest.raises(ValueError, match="fill_value"):
         array([4], {"name": "raw_bytes", "configuration": {"length_bytes": 2}}, [4], [{"name": "bytes"}], {})
+
+
+def test_a_name_that_is_no_plain_string_is_a_usage_error():
+    class Text(str):
+        __slots__ = ()
+    with pytest.raises(LayoutUsageError, match="not <distribution>"):
+        zarrify(TIFF, layout=Layout(Plugin(images, name=Text("acme.x"))))
+
+
+def test_an_integer_fill_value_past_2_53_is_exact(tmp_path):
+    """hdf5.md §3: an integer fill value is a JSON integer whatever its magnitude, so a copy of
+    the dataset is valid Zarr v3 and its fill value is the number."""
+    path = tmp_path / "big.h5"
+    with h5py.File(path, "w") as f:
+        f.create_dataset("count", shape=(4,), dtype="u8", chunks=(2,), fillvalue=np.uint64(2**63 + 5))[:2] = [1, 2]
+    b = base(path)
+    assert fill_value(b.document("count/zarr.json")) == 2**63 + 5
+    assert check(b, b.entries()) == []
+    assert check(b, {"zarr.json": group(), **copy(b, "count", to="c")}) == []

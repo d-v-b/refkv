@@ -342,7 +342,7 @@ def plan(layout: object) -> Planned:
         options_of, write = getattr(plugin, "options", None), getattr(plugin, "write", None)
     except BaseException as e:  # an attribute that raises when read
         raise _usage(shown, f"the plugin's attributes cannot be read: {described(e)}") from e
-    if not isinstance(name, str) or NAME.fullmatch(name) is None:
+    if type(name) is not str or NAME.fullmatch(name) is None:  # a str subclass's methods are the plugin's code
         raise _usage(shown, f"its name {_shown_value(name)} is not <distribution>.<layout> in [a-z0-9-]")
     if from_entry and name != given_plugin:
         raise _usage(shown, f"the plugin names itself {_shown_value(name)}: set its name to the entry point's key")

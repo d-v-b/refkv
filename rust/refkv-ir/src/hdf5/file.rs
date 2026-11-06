@@ -1386,7 +1386,26 @@ fn fill_json(dt: &Dt, p: &Present, f: &[u8]) -> Option<J> {
     match p {
         Present::Strings | Present::References | Present::Records(_) => Some(json!("")),
         Present::Bytes { .. } => f.iter().all(|&b| b == f[0]).then(|| json!(f.first().copied().unwrap_or(0))),
-        Present::Fixed { .. } => types::value_json(dt, f, &NoLookup),
+        // an integer's exact value, as Zarr v3 writes one, whatever its magnitude (§6's digits
+        // past 2^53 are an attribute's form, not a fill value's)
+        Present::Fixed { .. } => match &dt.kind {
+            Kind::Int { big, signed, .. } if types::number(dt).is_some() && f.len() as u64 == dt.size => {
+                Some(exact_int(types::int_of(f, *big, *signed)))
+            }
+            Kind::Bitfield { big, .. } if types::number(dt).is_some() && f.len() as u64 == dt.size => {
+                Some(exact_int(types::int_of(f, *big, false)))
+            }
+            _ => types::value_json(dt, f, &NoLookup),
+        },
+    }
+}
+
+/// An integer as a JSON number, exact: an i64's or a u64's.
+fn exact_int(v: i128) -> J {
+    match (i64::try_from(v), u64::try_from(v)) {
+        (Ok(i), _) => json!(i),
+        (_, Ok(u)) => json!(u),
+        _ => json!(v.to_string()),
     }
 }
 
