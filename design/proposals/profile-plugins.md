@@ -259,7 +259,7 @@ store input. A `zarrify` call's `checksums=None` is `False` here too.
   and a plugin leaves its chunk out. It raises `KeyError` for an index or
   member the IR does not have, and `ValueError`, naming why, for an element
   that holds no bytes of a source: a node; an element in a derived space (its
-  extent in the inflated bytes of another element, conventions §8.1), or a
+  extent in the inflated bytes of another element, [conventions §8.1](../../spec/conventions.md#81-elements)), or a
   derived element, which no range of a source reads; an element of an object
   of a file read as a store that the base does not reference (whose file
   [zarrify §1.9](../../spec/zarrify.md#19-sources-beside-the-input) leaves out
@@ -800,7 +800,7 @@ The implementation adds, as normative text:
   input" holds for an output without a plugin; a plugin's output has the entries
   spec/layout.md says.
 - **[zarrify §1.2](../../spec/zarrify.md#12-input)**: **Structure only** binds a
-  plugin, with no exception beyond the checksums §1.2 already allows (refkv
+  plugin, with no exception beyond the checksums [§1.2](../../spec/zarrify.md#12-input) already allows (refkv
   reads a plugin's ranges to checksum them, as it does the base's), and the
   rules on references (**References stay in the file**, the payload limit)
   hold for every reference of its output; a plugin's output that breaks
@@ -812,13 +812,13 @@ The implementation adds, as normative text:
   itself. The coding parameters a plugin reads from the IR are structure, as
   they are for the profile.
 - **[zarrify §1.9](../../spec/zarrify.md#19-sources-beside-the-input) and
-  §1.2**: a plugin's output keeps the base's source table, in the base's
+  [§1.2](../../spec/zarrify.md#12-input)**: a plugin's output keeps the base's source table, in the base's
   order, sources it does not use included, not one numbered by first use
   over the plugin's keys; that a url source is one "a reference uses", and
   the numbering of url and data sources by first use, hold for an output
   without a plugin.
 - **[zarrify §1.1](../../spec/zarrify.md#11-output-and-equivalence) and
-  §1.2**: a reference of a plugin's output may name any range within a data
+  [§1.2](../../spec/zarrify.md#12-input)**: a reference of a plugin's output may name any range within a data
   source, as [spec/refkv.md §6.3](../../spec/refkv.md#63-resolving-a-reference)
   lets a reader resolve it, where refkv's own outputs name a data source
   whole or a prefix of the zero data source.
@@ -865,12 +865,13 @@ earlier design is taken back, as none of it is needed when refkv writes
 nothing into a plugin's output:
 
 - **Specifications.** spec/layout.md's `refkv_layout` convention, replaced
-  whole, and `spec/layout/schema.json`; conventions §1, §2, §9 and §11.5 on
+  whole, and `spec/layout/schema.json`; conventions [§1](../../spec/conventions.md#1-conventions), [§2](../../spec/conventions.md#2-attributes), [§9](../../spec/conventions.md#9-dataset-layouts) and [§11.5](../../spec/conventions.md#115-layout-tables) on
   `refkv_layouts`; the reserved name `refkv_layouts` in hdf5.md, npy.md and
   safetensors.md; provenance's `plugins` member and its schema; zarrify
-  §1.7's root "without `dataset`", its equivalence sentence and its link to
-  spec/layout.md's old §5, §1.2's "not counted", and §1.9's keys "not
-  walked"; and the five changelog fragments that record those.
+  [§1.7](../../spec/zarrify.md#17-named-inputs-and-layouts)'s root "without `dataset`", its
+  equivalence sentence and its link into the old spec/layout.md,
+  [§1.2](../../spec/zarrify.md#12-input)'s "not counted", and
+  [§1.9](../../spec/zarrify.md#19-sources-beside-the-input)'s keys "not walked"; and the five changelog fragments that record those.
 - **Rust.** The reserved name in the HDF5, NumPy and safetensors parsers and
   `rust/refkv-ir/src/out.rs`. `rust/refkv-cli/src/main.rs`'s comment and
   `docs/README.md`'s first hunk are reworded, not reverted: `vzip convert`
@@ -1027,7 +1028,7 @@ is merged, and the PR records each change and the report behind it.
 - **An OME-TIFF's other series.** The TIFF profile reads an OME-XML's first
   `Image` only (`read_ome` in `rust/refkv-ir/src/tiff.rs`), and its IR holds
   the tile tables of an IFD the base does not present only when the parser
-  read them (tiff.md §5.1 lists an IFD's `tiles` whenever it has both
+  read them ([tiff.md §5.1](../../spec/zarrify/tiff.md#51-elements) lists an IFD's `tiles` whenever it has both
   tables, which the parser does not do for large tables outside the image it
   presents). A plugin presenting every series needs the parser to read
   every `Image`'s planes and every IFD's tables, deterministically, as a
