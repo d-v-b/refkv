@@ -162,8 +162,9 @@ Four modules are new:
   Python helper over `Base`. It needs nothing beyond refkv either; the
   built-in profiles call the same code. Its error is `NoCodec`.
 - `refkv.zarrify.layouts.hierarchy`: `copy`, `array`, `group`, `check`,
-  `Problem`, `chunk_coords` and `chunk_key` (a chunk key in an array's
-  encoding, and back), and `node_name` (Zarr v3's rule for a node's name, for
+  `Problem`, `chunk_coords` and `chunk_key` (`refkv.zarrify.layouts`' own,
+  which need no extra: a chunk key in an array's encoding, Zarr v3's or a v2
+  `.zarray`'s, and back), and `node_name` (Zarr v3's rule for a node's name, for
   checking names an `options()` is given before any base exists), the
   routines that build and check Zarr documents. They lean on
   Zarr's metadata rules throughout, so they use
@@ -197,9 +198,12 @@ The options a call gives are a `Mapping` (`{}` when the call gives none; the
 CLI's `--layout-options` is a JSON object, refused when a member repeats);
 `options()` returns them in canonical form, a `Mapping` the plugin chooses
 the shape of, and each `write` is given a deep copy of it, so that one
-`write` cannot change what the next sees. `dump(value)` is the JSON refkv itself writes:
-compact, UTF-8, and a `ValueError` for `NaN`, infinities and anything else
-strict JSON cannot hold, which `json.dumps` writes without complaint.
+`write` cannot change what the next sees. `dump(value, *, allow_nan=False)` is the JSON refkv
+itself writes: compact, UTF-8, and a `ValueError` for `NaN`, infinities and anything else
+strict JSON cannot hold, which `json.dumps` writes without complaint (with `allow_nan`, it
+writes them bare, as zarr-python writes a Zarr v2 `.zattrs`, and `check` reports `json`).
+`fill_value(doc)` is a Zarr v3 array document's fill value as a Python value (a float's
+`"NaN"` or bits in hex as a float).
 
 ### What it is given: `Base`
 
@@ -283,7 +287,9 @@ store input. A `zarrify` call's `checksums=None` is `False` here too.
   half-open, offsets within the element (or member), or `None` for a literal
   part or one of a data source (an HDF5 edge slab is its data's range and a
   prefix of the zero data source; a variable-length string's chunk is
-  literal bytes and a heap object's). `base.ir.parent(i)` then gives the node
+  literal bytes and a heap object's), or the part itself, a `Range`, for bytes
+  of a url source no data element holds (an HDF5 dataset's external storage).
+  `base.ir.parent(i)` then gives the node
   above (a TIFF level's `ifds/<n>`, an HDF5 dataset's `objects/<n>`).
 - `base.sources`: the base's source table, a tuple of `refkv.Source`, in its
   order, each url source with its `size`, so that a plugin can tell where a
@@ -291,9 +297,11 @@ store input. A `zarrify` call's `checksums=None` is `False` here too.
   a store, it need not be ([zarrify §1.8](../../spec/zarrify.md#18-files-read-as-stores)).
   `base.zero_source` is `(index, length)` of the base's zero data source, or
   `None`; `base.zeros(n)` is a range of `n` zero bytes, of that source when it
-  is long enough and otherwise of one refkv adds to the output's table, as
-  long as the most zero bytes the plugin asked for, so that a plugin can pad
-  a regular grid's edge chunks of any size.
+  is long enough and otherwise of source `len(base.sources)`, the zero data
+  source refkv adds after the table's when the output references it, as long
+  as the most bytes the output reads of it (at most 256 MiB, a source table's
+  bound), so that a plugin can pad a regular grid's edge chunks of any size;
+  a range of it is the same whatever `Base` made it.
 - `base.source_of(i)`: the index in the table of the source that holds
   element `i` (for a store IR, its object's: an element's extent is in its
   object, [conventions §8.9](../../spec/conventions.md#89-stores)), and
@@ -304,11 +312,13 @@ store input. A `zarrify` call's `checksums=None` is `False` here too.
   it](#what-refkv-does-with-it), with the most checksums can add when the
   call asks for them), or `None`, so that a plugin can choose a chunk shape
   that fits before it returns.
-- `base.layouts`: the base's layouts other than the image layout, by name,
-  each its node's path (a dataset layout as the root names it, and `"source"`
-  for the IR mirror), and `base.nodes(*, mirror=False, datasets=True)`, its
-  nodes' paths, the root `""`, without the mirror's or the dataset layouts' as
-  asked.
+- `base.datasets`: the base's dataset layouts, by the name the root gives
+  each, each its node's path; `base.mirror`: the IR mirror's path,
+  `"refkv_source"`, or `None`; `base.nodes(*, mirror=False, datasets=False)`:
+  its nodes' paths, the root `""`, the image layout's, and the mirror's and
+  the dataset layouts' as asked; `base.node_type(path)`: `"group"`,
+  `"array"`, or `None` for no node; `base.base_value(value)`: the base's own
+  value equal to `value` but for checksums, or `None`.
 - `base.keys()`, sorted, and `base.document(key)`, a JSON document (a
   `zarr.json`) as a dict.
 - `base.attributes(path)`: a node's attributes without refkv's declarations,
@@ -340,11 +350,12 @@ store input. A `zarrify` call's `checksums=None` is `False` here too.
 - `base.array(path)`: an array's document, as a dict, and its chunks, a
   mapping from chunk key (relative to the array) to value, each a `Range`,
   `Concat` or bytes of the base.
-- `base.entries(prefix="", *, declarations=True)`: a new `dict` of the base's
+- `base.entries(prefix="", *, declarations=True, mirror=True, datasets=True)`: a new `dict` of the base's
   entries whose keys start with `prefix`, keys as the base holds them and
   references without checksums, as everywhere in `Base`; without
   `declarations`, each `zarr.json` with its node's `attributes` as
-  `base.attributes` gives them. `out |= base.entries()` keeps the whole of
+  `base.attributes` gives them; without `mirror` or `datasets`, the IR
+  mirror's or the dataset layouts' entries left out. `out |= base.entries()` keeps the whole of
   refkv's output; `out |= base.entries("refkv_source/")` keeps the IR mirror,
   so that the source can still be rebuilt from the output. `key in base` asks
   whether the base has an entry.
@@ -375,12 +386,15 @@ bytes a source range: a `crc32c` field is 2 to 6 bytes, known only once the
 bytes are read), so that a plugin can keep a `Concat` of many cuts within
 the limit whatever the checksums turn out to be; an array whose last chunk on an axis is short
 takes a `rectilinear` grid there rather than padding it with literal zeros,
-which count against the payload. A plugin may instead pad with ranges of
-the base's **zero data source** (the source of zero bytes some profiles pad
-short chunks with, [zarrify §1.2](../../spec/zarrify.md#12-input)), as many
-as the padding needs (a right-edge tile pads every row), each no longer
-than the source. This is advice, not a rule refkv checks: `check`'s `size`
-finds an edge chunk of a `regular` grid that is not padded.
+which count against the payload. A plugin may instead pad with `base.zeros(n)`,
+ranges of a **zero data source** (the source of zero bytes some profiles pad
+short chunks with, [zarrify §1.2](../../spec/zarrify.md#12-input), or the one
+refkv adds), as many as the padding needs (a right-edge tile pads every row).
+`base.fits(value)` says whether a value so built is one refkv writes. Which a
+plugin does is its choice, not a rule refkv checks: `check`'s `size` finds an
+edge chunk of a `regular` grid that is not padded. `concat(*values,
+merge=False)` raises `ValueError` for no values; with `merge`, it joins
+ranges that continue one another.
 
 ### What it returns
 
@@ -405,7 +419,7 @@ entries kept uncompressed (an entry already compressed, say)
 `read_at_open=None` keeps the default rule of step 2 below; a key either
 names that is not a bytes entry of `entries` is `LayoutFailed`.
 
-`copy(base, path, order=None, attributes=None, dimension_names=None)` copies
+`copy(base, path, order=None, attributes=None, dimension_names=None, *, to=None)` copies
 an array, by rules spec/layout.md states, so that two producers copy alike:
 it returns an array's entries, keys relative to the array, its `zarr.json`
 among them. Its document is the base's with `attributes` as given (`{}` by
@@ -483,9 +497,9 @@ has no data type routine: the base presents every array its IR describes, with i
 |---|---|
 | `tiff_tags(base, i: int) -> dict[int, Value]`: the tags of the IFD that is IR element `i` (`ifds/<n>`, `ifds/<n>/subifds/<j>`, an Exif IFD) by number, each the IR's value as it is (`Value` is `refkv.ir.Value`: `int`, `float`, `str`, `bytes`, or a `list` or `dict` of them; a count-1 tag is a one-item list, as the IR holds it; a rational a pair), `None` for a value the IR does not keep (text of more than 1024 bytes, a value outside the file), and only a tag's first entry (the profile reads the first; later ones are `tags/<tag>~<k>` in the IR) | [tiff.md §5.1](../../spec/zarrify/tiff.md#51-elements), [§5.3](../../spec/zarrify/tiff.md#53-values) |
 | `tiff_data_type(tags) -> str`: from SampleFormat and BitsPerSample, packed samples held in the smallest type that takes them | [tiff.md §4.3](../../spec/zarrify/tiff.md#43-data-types-and-codecs) |
-| `tiff_codecs(tags, *, little_endian: bool, x_axis: int, row_length: int, chunk_shape=None) -> list[dict]`: from Compression, Predictor, BitsPerSample, SamplesPerPixel, PlanarConfiguration, PhotometricInterpretation and ExtraSamples; `x_axis` the index of `x` in the chunk as stored (after any `transpose`), `row_length` the samples in a stored row of a chunk (its width, times SamplesPerPixel when they are interleaved), which packed samples need, and `chunk_shape` a chunk's `[rows, columns]`, which EER's codec decodes one shape of. For an RGB image of interleaved samples, stored `(y, x, s)` and presented `(c, y, x)` after a `transpose`, `x_axis` is 1, the index in the stored order | [tiff.md §4.3](../../spec/zarrify/tiff.md#43-data-types-and-codecs) (TIFF, NDPI, QPTIFF) |
+| `tiff_codecs(tags, *, little_endian: bool, x_axis: int, row_length: int, chunk_shape=None) -> list[dict]`: from Compression, Predictor, BitsPerSample, SampleFormat, SamplesPerPixel, PlanarConfiguration, PhotometricInterpretation, FillOrder and YCbCrSubSampling (and, for EER, ImageLength, TileWidth and tags 65007 to 65009); `x_axis` the index of `x` in the chunk as stored (after any `transpose`), `row_length` the samples in a stored row of a chunk (its width, times SamplesPerPixel when they are interleaved), which packed samples need, and `chunk_shape` a chunk's `[rows, columns]`, which EER's codec decodes one shape of. For an RGB image of interleaved samples, stored `(y, x, s)` and presented `(c, y, x)` after a `transpose`, `x_axis` is 1, the index in the stored order | [tiff.md §4.3](../../spec/zarrify/tiff.md#43-data-types-and-codecs) (TIFF, NDPI, QPTIFF) |
 | `tiff_byte_order(base, i: int) -> bool`: whether the file that holds IR element `i` is little-endian, its own header's (a set read as a store may mix them) | [tiff.md §5.1](../../spec/zarrify/tiff.md#51-elements) |
-| `vsi_codecs(codec: str, item_size: int, samples: int) -> list[dict]`: a tile file's codec by its name | [vsi.md §4.1](../../spec/zarrify/vsi.md#41-the-pyramid) |
+| `vsi_codecs(codec: str, item_size: int) -> list[dict]`: a tile file's codec by its name | [vsi.md §4.1](../../spec/zarrify/vsi.md#41-the-pyramid) |
 | `czi_codecs(pixel_type: int, compression: int, *, flag: bool) -> list[dict]`: `flag` the form's (Zstd1's hi-lo packing, a JPEG stream's being lossless), which `base.form` gives; the chain after `transpose`, which `project/czi.rs`'s `codecs` puts first for several samples and which is split off for the routine | [czi.md §3.1](../../spec/zarrify/czi.md#31-pixel-types-and-codecs) |
 | `dicom_codecs(transfer_syntax: str, data_type: str, *, samples: int) -> list[dict]`: the codec after any `transpose` (which 3 interleaved samples take, but for RLE, whose frames decode to planar ones), the byte order the transfer syntax's; `data_type` the base array's | [dicom.md §2.1](../../spec/zarrify/dicom.md#21-transfer-syntax) |
 | `gzip_codecs(skip: int, level: int) -> list[dict]`: `gzip` of compression level `level` (the NRRD profile's 1, the others' 6), with `refkv.skip` of the first `skip` bytes of the inflated stream (a NumPy file's preamble and header) before it when `skip` is not 0 | [npy.md §4.4](../../spec/zarrify/npy.md#44-the-refkvskip-codec) |
@@ -622,7 +636,8 @@ caller can.
 
 `check(base, entries)` (or `check(base, written)`), in
 `refkv.zarrify.layouts.hierarchy`, returns the problems it finds, a list of
-`Problem(key, code, message)`, `code` one of:
+`Problem(key, code, message)` (`key` `None` for a problem of the output as a
+whole: what `write` returned, the bytes read at open, the archive), `code` one of:
 
 | code | the problem |
 |---|---|
@@ -635,7 +650,7 @@ caller can.
 | `consolidated` | a `.zmetadata` whose entries differ from the Zarr v2 documents below it, leave one out, or name one the output does not hold |
 | `parent` | a node whose parent has no group document, or a node inside an array |
 | `copy` | a Zarr v3 array whose references are all the base's is not a `copy` of the base array that holds them, each reference at the key `copy` gives it, attributes and dimension names aside: a hand-edited shape, a chunk moved |
-| `size` | a Zarr v3 array whose codecs leave a chunk's size fixed (`transpose`, then `bytes`, and nothing after) has a chunk whose reference reads more or fewer bytes than the chunk holds, its shape's product times the element's size (for a `rectilinear` grid, that chunk's own shape): a slab cut at the wrong place, an edge chunk of a `regular` grid not padded |
+| `size` | an array whose codecs leave a chunk's size fixed (Zarr v3: `transpose`, then `bytes`, and nothing after; Zarr v2: no compressor and no filters) has a chunk whose reference reads more or fewer bytes than the chunk holds, its shape's product times the element's size (for a `rectilinear` grid, that chunk's own shape): a slab cut at the wrong place, an edge chunk of a `regular` grid not padded |
 | `refkv` | refkv's members (`refkv_zarrified`, `refkv_provenance`, refkv's CMOs) on a node, in a Zarr v3 or v2 document or in consolidated metadata, other than the base's at that key; or a node that keeps them whose subtree is not the base's, entry for entry, with nothing added |
 
 `check(base, base.entries())` finds nothing, which the implementation's
@@ -701,9 +716,10 @@ like every rejection writes no output.
   `.`, the first the normalized name ([PEP 503](https://peps.python.org/pep-0503/))
   of the distribution that provides the entry point, which refkv checks, so
   that independent authors need no registry and one package cannot take
-  another's name. Names whose first segment starts with `refkv` are refkv's,
-  for its [examples](#examples-shipped-with-refkv): an entry point of
-  another distribution may not take one. A plugin object `Layout` is given
+  another's name. Names whose first segment is `refkv` are refkv's, for its
+  [examples](#examples-shipped-with-refkv): an entry point of another
+  distribution may not take one, since its first segment is its own
+  distribution's name. A plugin object `Layout` is given
   has no entry point to collide with, so its name is checked against the
   pattern alone (an example's class, given as an object, keeps its name). A
   name is for choosing a plugin, and appears in
@@ -713,7 +729,8 @@ like every rejection writes no output.
   iterables of `int`, the versions of that profile's convention the plugin
   reads. Names this refkv's registry does not have as a
   file profile are ignored, so a plugin written for a later refkv loads in an
-  earlier one. A profile a later refkv adds is read by no plugin until the
+  earlier one, as long as one name is a profile this refkv has (otherwise
+  `LayoutUsageError`). A profile a later refkv adds is read by no plugin until the
   plugin names it. Until refkv 1.0 every built-in convention is at version 0,
   which promises nothing ([conventions §1](../../spec/conventions.md#1-conventions)):
   a refkv release can change a base, and with it a plugin's output, so
@@ -756,8 +773,9 @@ The implementation adds, as normative text:
 
 - **spec/layout.md**, a short document and not a convention (it has no UUID,
   CMO or schema, since nothing it specifies is declared in an output): what a
-  plugin is given (all of `Base`), what it returns (`Written` and its
-  values), `cut`, `concat`, `payload_size` and `dump`, the checks and the
+  plugin is given (what `Base` gives, in general terms: the output, the IR,
+  references of elements, the zero data source), what it returns (`Written`
+  and its values), the checks and the
   writing of [What refkv does with it](#what-refkv-does-with-it), the rules
   of `copy`, `array` and `group`, names, `formats` and its versions, options
   (canonical, and copied for each `write`), the three errors and what each
@@ -976,7 +994,7 @@ as its first users, each covering what the others do not:
 |---|---|---|
 | `ome-zarr-06` | TIFF, NDPI, QPTIFF, IMS, HDF5 | [the test case](#the-test-case-ome-zarr-06-from-tiff-and-hdf5): `copy`, transposes, attributes, options, keeping the mirror |
 | `tiff-pages` | TIFF | every main-chain IFD of a TIFF, with its SubIFDs as its pyramid, as an image of its own, built from the IR with `tiff_tags`, `tiff_data_type`, `tiff_codecs`, `base.form`, `base.reference`, `array` and `group`, without `copy`; an IFD whose tile tables the IR does not hold is `Rejected`, naming it |
-| `hdf5-rechunk` | HDF5 | contiguous datasets re-tiled into chunks of a shape the options give, from `base.elements`, `base.reference`, `cut`, `concat`, `payload_size` and `base.zero_source`, with the codecs of the base's array; `check`'s `size` |
+| `hdf5-rechunk` | HDF5 | contiguous datasets re-tiled into chunks of a shape the options give, from `base.elements`, `base.reference`, `cut`, `concat(merge=True)`, `base.zeros` and `base.fits`, with the codecs of the base's array; `check`'s `size` |
 | `xarray-v2` | HDF5 | an HDF5 or NetCDF-4 file as Zarr v2 with consolidated metadata and `_ARRAY_DIMENSIONS`, for xarray: a hierarchy that is not Zarr v3, with only `.zmetadata` and the root's documents read at open (`Written.read_at_open`, and `Written.stored` for chunks it keeps uncompressed), and its own translation of the base's Zarr v3 codecs into v2's `compressor` and `filters`, rejecting an array whose codecs have none |
 | `bare` | every file profile (`"*"`) | refkv's image layout with none of refkv's declarations and no mirror: the smallest plugin |
 
