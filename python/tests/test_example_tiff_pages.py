@@ -152,6 +152,24 @@ def test_a_second_process_writes_the_same_entries():
     assert json.loads(done.stdout) == here
 
 
+def test_a_page_of_a_large_tile_table_reads_as_tifffile_reads_it(tmp_path):
+    """Page 1, which the base does not present, has tile tables of more than 64 KiB (16641
+    tiles): the IR holds them, as it does every IFD's (spec/zarrify/tiff.md §5.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#51-elements>), and the layout
+    presents the page."""
+    path = tmp_path / "large.tif"
+    values = (np.arange(2064 * 2064) % 251).astype(np.uint8).reshape(2064, 2064)
+    with tifffile.TiffWriter(path) as w:
+        w.write(np.zeros((16, 16), np.uint8))
+        w.write(values, tile=(16, 16), compression="zlib")
+    b = base(str(path))
+    held = b.ir.raw(b.ir.index("ifds/1/tags/324/value"))
+    assert held is not None
+    assert len(held) > 65536
+    store = zarrify(str(path), layout=Layout(TiffPages()))
+    np.testing.assert_array_equal(zarr.open_array(refkv.zarr.store(store), path="1/0", mode="r")[...], values)
+
+
 # ---- the errors: one test each
 
 def two_pages(tmp_path, **second):
@@ -179,15 +197,6 @@ def patch(path, tag, value, index=0, count=False):
 def rejected(path, match, options=None):
     with pytest.raises(Rejected, match=match):
         zarrify(str(path), layout=Layout(TiffPages(), options))
-
-
-def test_an_ifd_whose_tables_the_ir_does_not_hold_is_rejected(tmp_path):
-    """Page 1's tile tables, of more than 2^14 tiles, are past the parser's eager budget."""
-    path = tmp_path / "large.tif"
-    with tifffile.TiffWriter(path) as w:
-        w.write(np.zeros((16, 16), np.uint8))
-        w.write(np.zeros((2064, 2064), np.uint8), tile=(16, 16), compression="zlib")
-    rejected(path, r"ifds/1: the IR does not hold its TileOffsets and TileByteCounts")
 
 
 def test_an_ifd_without_tables_is_rejected():

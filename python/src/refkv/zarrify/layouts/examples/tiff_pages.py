@@ -15,8 +15,8 @@ It writes no OME-Zarr metadata: a TIFF's pages need not be one image (an SVS fil
 macro are pages beside its pyramid), nor its SubIFDs a pyramid of known scales, and an axis
 type or unit would be a guess; `ome-zarr-06` is the example that declares them.
 
-An IFD it cannot present (no image size; tables the IR does not hold, which the parser leaves
-unread for a large IFD outside the image it presents; a tile outside the file; codings that
+An IFD it cannot present (no image size; tables the IR does not hold, which lie outside the
+file or are not of an integer type; a tile outside the file; codings that
 `refkv.zarrify.coding` refuses; EER in strips whose last is short, which its codec's one chunk
 shape does not decode) is `Rejected`, naming it, unless the option
 `skip` is true: then it is left out, and the root's attribute `skipped` maps its IR path to why.

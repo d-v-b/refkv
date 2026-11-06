@@ -732,7 +732,8 @@ alias.
 An entry's value is an element when it lies within the file. Its bytes are
 in the source; the view shows it when it is a number, a record, a GUID or
 text (ASCII) of at most 1024 bytes ([conventions §8.7](../conventions.md#87-the-view)), and a producer reads
-every such value.
+every such value. A producer also reads every IFD's tile and strip tables whose tiles or strips
+it lists ([§5.1](#51-elements)), whatever their size, and holds them as their elements' values.
 
 ### 5.4 Equivalence
 
