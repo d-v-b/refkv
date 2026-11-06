@@ -1,0 +1,20 @@
+{
+  "zarr_format": 3,
+  "node_type": "group",
+  "attributes": {
+    "zarr_conventions": [
+      {
+        "uuid": "48e9ac4e-0000-4000-8000-000000000000",
+        "name": "refkv_zarrified"
+      },
+      {
+        "uuid": "f17cb550-5864-4468-aeb7-f3180cfb622f",
+        "name": "proj:",
+        "description": "a GeoZarr convention"
+      }
+    ],
+    "refkv_zarrified": {
+      "profile": "tiff"
+    }
+  }
+}

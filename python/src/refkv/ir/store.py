@@ -47,6 +47,7 @@ from refkv import _core, _sync
 from refkv._files import replacing
 from refkv.pb import Range, Source
 from refkv.policy import Policy
+from refkv.reader import Registry
 from refkv.refstore import ReferenceStore
 from refkv.vzip.archive import VZipWriter
 from refkv.zarrify.common import Rejected, reference_store
@@ -260,7 +261,8 @@ class StoreIrOutput:
                 w.add_bytes(key, self.entries[key], compress=not late, late=late)
             w.close()
 
-    def to_store(self, *, policy: Policy | None = None, info: dict[str, object] | None = None) -> ReferenceStore:
+    def to_store(self, *, policy: Policy | None = None, registry: Registry | None = None,
+                 info: dict[str, object] | None = None) -> ReferenceStore:
         """The output as a `refkv.ReferenceStore`, which `save_vzip` writes as the archive
         `write` writes, byte for byte (`refkv.zarrify.common.reference_store`)."""
         objects, data, table = self._numbered()
@@ -270,7 +272,8 @@ class StoreIrOutput:
                        for r in ranges]) for key, ranges in table.items()]
         entries = [(key, self.entries[key], key.endswith("zarr.json") and not key.startswith(self.lazy))
                    for key in sorted(self.entries)]
-        return reference_store(refs, entries, sources, checksum=self.checksum, policy=policy, info=info)
+        return reference_store(refs, entries, sources, checksum=self.checksum, policy=policy, registry=registry,
+                               info=info)
 
 
 def _length(p: StorePart) -> int:

@@ -13,7 +13,7 @@ vzip archive ([spec/bindings/vzip.md](bindings/vzip.md)) that presents its data 
 hierarchy, in the layout of the format's convention ([§2](#2-the-zarr-layout)):
 - an image as an OME-Zarr dataset (an OME-Zarr 0.4 store as an OME-Zarr 0.5 one; a Sentinel-2
   SAFE product as a GeoZarr one);
-- a Zarr v2 or N5 store as a Zarr v3 hierarchy;
+- a Zarr v2 or N5 store as a Zarr v3 hierarchy, and a Zarr v3 store, listed or zipped, as itself;
 - the formats that are not images as arrays with no OME-NGFF metadata: MP3's and FLAC's audio
   samples, MP4's tracks, GRIB's fields (georeferenced with GeoZarr), HDF5's groups and datasets
   (in hdmf-zarr's form) and NumPy's arrays.
@@ -58,6 +58,7 @@ The table, generated from the registry, lists them:
 | [TIFF](zarrify/tiff.md#part-2-the-profile) | file | TIFF and BigTIFF, including OME-TIFF across files, Micro-Manager stacks and JPEG-tiled slides such as Aperio SVS |
 | [VSI](zarrify/vsi.md#part-2-the-profile) | file | Olympus cellSens VSI slides: a `.vsi` file and the tile files beside it, probed by key (uncompressed, JPEG, JPEG 2000, lossless JPEG, PNG and BMP tiles) |
 | [Zarr v2](zarrify/zarr2.md#part-2-the-profile) | store | Zarr v2 hierarchies |
+| [Zarr v3](zarrify/zarr3.md#part-2-the-profile) | file or store | Zarr v3 hierarchies: a store (a URL or a directory) or a zipped store (`.zip`) |
 <!-- /profiles -->
 
 The table says which profiles read a single file (a **file input**), which a store of many
@@ -154,6 +155,13 @@ file. (An implementation MAY also accept a local file or directory, with `U`
 the URL it will be served from: a directory is a store input, listed as
 [§1.5](#15-listing-a-store) says.)
 
+**Registered stores.** An implementation MAY read `U` with an **object store** the
+application provides for a prefix of `U` (as [spec/refkv.md §6.7](refkv.md#67-reader-policy)'s
+registered stores are), such as the store of an S3 bucket for `s3://bucket/`: it reads a file's
+size and ranges with that store, and lists a store input with it
+([§1.5](#15-listing-a-store)). `U` may then have any scheme the application provides a store
+for. Such a file's `etag` pin is the strong entity tag that the store gives for the object, if any.
+
 For a file input, the output's source table is source 0, a `url` source
 whose value is `U` as given, followed by the output's **data sources**, if
 its profile defines any (a file read as a store has the sources of
@@ -237,6 +245,7 @@ profile name:
 | safetensors ([safetensors.md §8](zarrify/safetensors.md#8-safetensors-profile)) | 35 |
 | TIFF ([tiff.md §7](zarrify/tiff.md#7-tiff-profile)) | 40 |
 | VSI ([vsi.md §9](zarrify/vsi.md#9-vsi-profile)) | 30 |
+| Zarr v3 ([zarr3.md §7](zarrify/zarr3.md#7-zarr-v3-profile)) | 78 |
 <!-- /profiles -->
 
 **Rejection.** A zarrifier MUST reject an input the profile does not
@@ -324,7 +333,8 @@ whose objects are the objects under `U`.
 case), an authority without userinfo, and no query or fragment component
 (not even an empty `?` or `#`); otherwise the input is rejected. (An
 implementation that reads a local directory uses the URL the directory will
-be served from, which MUST satisfy the same rules.)
+be served from, which MUST satisfy the same rules. A store read with a
+[registered store](#12-input) may have that store's scheme.)
 
 **The objects.** The store is listed as [§1.5](#15-listing-a-store) says. Each listed key `K`
 begins with the prefix `P` ([§1.5](#15-listing-a-store)); its **relative key** is `K` without
@@ -352,6 +362,7 @@ decide, by the first row that matches:
 | `attributes.json` | N5 profile ([n5.md §8](zarrify/n5.md#8-n5-profile)) |
 | `manifest.safe` | SAFE profile ([safe.md §8](zarrify/safe.md#8-safe-profile)), directory form |
 | `info` | Neuroglancer precomputed profile ([precomputed.md §11](zarrify/precomputed.md#11-neuroglancer-precomputed-profile)) |
+| `zarr.json`, and none of the keys above | Zarr v3 profile ([zarr3.md §7](zarrify/zarr3.md#7-zarr-v3-profile)), listed form. (A root with `.zarray` or `.zgroup` too is Zarr v2's, whose convention keeps the `zarr.json` as an other object.) |
 | none of these, and a key at any depth that ends in `.safetensors` | safetensors profile ([safetensors.md §9](zarrify/safetensors.md#9-the-store-form)), store form |
 | none of these, and a key at any depth that ends in `.dcm` | DICOM profile ([dicom.md §9](zarrify/dicom.md#9-the-store-form)), store form, in the Python binding alone: other implementations reject such a store |
 | anything else, including an empty store | rejected |
@@ -423,7 +434,7 @@ objects** of each array: objects whose keys are chunk keys of the array,
 and the other objects it references whole ([ome-zarr.md §11.2](zarrify/ome-zarr.md#112-chunks-and-ome-xml), the only one that does).
 Of these, an object of size 0 is not used: it has no entry (so the chunk
 reads as the fill value) and no source, and the store conventions keep its
-key (with the empty objects' keys, or, for the Zarr v2, N5 and OME-Zarr profiles,
+key (with the empty objects' keys, or, for the Zarr v2, Zarr v3, N5 and OME-Zarr profiles,
 as an object of size 0 of the store's IR mirror,
 [the Zarr v2 convention §4.1](zarrify/zarr2.md#41-elements),
 [the N5 convention §5.2](zarrify/n5.md#52-elements)). Every other chunk object `k` gives
@@ -460,6 +471,11 @@ says which listing responses reject the input.
 its regular files, at any depth, with keys the relative paths joined by `/`
 and sizes the file sizes. Symbolic links and files whose names are not
 valid UTF-8 are not objects. `P` is empty.
+
+**Registered stores.** A store read with an object store the application provides
+([§1.2](#12-input)) is listed with that store's listing of the objects under `U`'s path in
+it, by whole path segments: its objects are the listed objects, with their listed paths as keys
+and listed sizes. `P` is that path followed by `/`, or empty when `U` is the store's root.
 
 **Hub repositories.** A repository of the Hugging Face Hub, at a revision,
 is listed with the Hub's API, not with S3's. The Hub's **endpoint** `E` is
@@ -1042,7 +1058,8 @@ else. The profiles, generated from the registry:
 - the safetensors profile: [spec/zarrify/safetensors.md §8](zarrify/safetensors.md#8-safetensors-profile);
 - the TIFF profile: [spec/zarrify/tiff.md §7](zarrify/tiff.md#7-tiff-profile);
 - the VSI profile: [spec/zarrify/vsi.md §9](zarrify/vsi.md#9-vsi-profile);
-- the Zarr v2 profile: [spec/zarrify/zarr2.md §7](zarrify/zarr2.md#7-zarr-v2-profile).
+- the Zarr v2 profile: [spec/zarrify/zarr2.md §7](zarrify/zarr2.md#7-zarr-v2-profile);
+- the Zarr v3 profile: [spec/zarrify/zarr3.md §7](zarrify/zarr3.md#7-zarr-v3-profile).
 <!-- /profiles -->
 
 A profile's Part 2 starts by naming its section and the profiles it builds on.

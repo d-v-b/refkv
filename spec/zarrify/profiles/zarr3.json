@@ -1,0 +1,17 @@
+{
+  "name": "zarr3",
+  "title": "Zarr v3",
+  "uuid": "95203d0a-6586-426a-b920-3db2f4f1e97e",
+  "version": 0,
+  "kind": "both",
+  "store_run": {"form": "listed"},
+  "sniff": 78,
+  "chosen_by": null,
+  "suffixes": [
+    ".zip"
+  ],
+  "reference": null,
+  "source": "Zarr v3",
+  "inputs": "Zarr v3 hierarchies: a store (a URL or a directory) or a zipped store (`.zip`)",
+  "for": "Zarr v3 hierarchies, listed or zipped, as references to their own chunks"
+}

@@ -70,7 +70,7 @@ pub fn check_key(key: &str) -> Result<(), String> {
 /// The mirror check sets these aside, and only these.
 pub fn kept(profile: &str) -> &'static [&'static str] {
     match profile {
-        "zarr2" | "ome-zarr" | "n5" | "precomputed" => &["ignored"],
+        "zarr2" | "zarr3" | "ome-zarr" | "n5" | "precomputed" => &["ignored"],
         "safe" => &["empty_dirs", "ignored"],
         "vsi" => &[],
         _ => &[],

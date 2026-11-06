@@ -205,6 +205,18 @@ store.save_vzip("private.vzip", policy=refkv.Policy(schemes={"s3"}))
 ds = xr.open_zarr(refkv.zarr.open("private.vzip", registry=registry))
 ```
 
+`refkv.zarrify.zarrify` takes the same `registry=`, to read the input itself
+from the bucket: a file, the files it names beside it, or a store (a URL
+ending in `/`), each read with the registered store. The result reads its
+sources with that registry too.
+
+```python
+from refkv.zarrify import zarrify
+
+store = zarrify("s3://my-bucket/oisst/oisst-avhrr-v02r01.20240101.nc", registry=registry)
+store.save_vzip("oisst.vzip", policy=refkv.Policy(schemes={"s3"}))
+```
+
 By default, refkv reads `http(s)` URLs (and local files, from a local
 archive), and never builds an `s3://`, `gs://` or `az://` store itself, so it
 cannot pick up your cloud credentials by accident. For a private bucket,
