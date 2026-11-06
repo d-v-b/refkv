@@ -63,8 +63,9 @@ given, read only:
   an element of a store IR's object the base does not reference, and one whose form changes how
   it decodes from its siblings' (an HDF5 chunk whose filter mask skips a filter) have none;
 - for a byte of a source, the innermost data element that holds it, or the struct whose data
-  member holds it; and for each chunk of a base array, the elements its parts run across and the
-  bytes of each they read. For a store IR, an element's extent is in its object ([conventions
+  member holds it; for each chunk of a base array, the elements its parts run across and the
+  bytes of each they read, as offsets into the element's **span**, the range of a source its own
+  bytes take, no recipe applied. For a store IR, an element's extent is in its object ([conventions
   §8.9](conventions.md#89-stores)), and its source is that object's;
 - **zero bytes**: a range of a zero data source of any length, the base's when it is long
   enough, else one the output's table gains ([§4](#4-writing-the-output)).
