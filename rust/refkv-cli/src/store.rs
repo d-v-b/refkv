@@ -786,10 +786,12 @@ impl Store {
             Ok("safe")
         } else if o.contains_key("info") {
             Ok("precomputed")
+        } else if o.contains_key("zarr.json") {
+            Ok("zarr3")
         } else if o.keys().any(|k| k.ends_with(".safetensors")) {
             Ok("safetensors")
         } else {
-            rejected("not an N5, Zarr v2, SAFE, Neuroglancer precomputed or safetensors store: the root has no .zarray, .zgroup, attributes.json, manifest.safe or info, and no key ends in .safetensors")
+            rejected("not a Zarr v3, Zarr v2, N5, SAFE, Neuroglancer precomputed or safetensors store: the root has no zarr.json, .zarray, .zgroup, attributes.json, manifest.safe or info, and no key ends in .safetensors")
         }
     }
 
@@ -835,6 +837,7 @@ pub fn run_store(store: &Store, fmt: &str) -> Result<refkv_ir::out::Out, Fail> {
 pub fn zarrify_store(store: &Store) -> Result<(String, refkv_ir::out::Out), Fail> {
     let fmt = store.choose_profile()?;
     let out = run_store(store, match fmt {
+        "zarr3" => "zarr3",
         "n5" => "n5",
         "safe" => "safe",
         "safetensors" => "safetensors",
