@@ -41,7 +41,8 @@ NoCodec = _core.NoCodec
 # PhotometricInterpretation, FillOrder, SamplesPerPixel, PlanarConfiguration, Predictor,
 # SampleFormat, YCbCrSubSampling, and EER's ImageLength, TileWidth and bits
 _CODING_TAGS = (257, 258, 259, 262, 266, 277, 284, 317, 322, 339, 530, 65007, 65008, 65009)
-# hdf5.md §6's text for a float value that JSON has no number for
+# the text spec/zarrify/hdf5.md §6 gives a float that JSON has no number for
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes>
 _NONFINITE = {"NaN": math.nan, "Infinity": math.inf, "-Infinity": -math.inf}
 
 
@@ -141,19 +142,22 @@ def dicom_codecs(transfer_syntax: str, data_type: str, *, samples: int) -> list[
 
 
 def gzip_codecs(skip: int, level: int) -> list[dict[str, Any]]:
-    """`gzip` of compression level `level` (the NRRD profile's 1, the others' 6), after
-    `refkv.skip` of the first `skip` bytes of the inflated stream when `skip` is not 0 (a NumPy
-    file's preamble and header; spec/zarrify/npy.md §4.4
+    """The codecs after `bytes` of a chunk that is a gzip stream (they are bytes-to-bytes: an
+    array's chain is `bytes` and then these): `gzip` of compression level `level` (the NRRD
+    profile's 1, the others' 6), after `refkv.skip` of the first `skip` bytes of the inflated
+    stream when `skip` is not 0 (a NumPy file's preamble and header; spec/zarrify/npy.md §4.4
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/npy.md#44-the-refkvskip-codec>)."""
     return list(_call("gzip_codecs", skip=skip, level=level))
 
 
 def hdf5_value(value: object, datatype: Mapping[str, Any] | None) -> object:
     """An HDF5 attribute's value as the base writes it (spec/zarrify/hdf5.md §6
-    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes>), its
-    encodings undone by its described datatype (§7.2): a float value (`"NaN"`, `"Infinity"`, a
-    NaN's or −0's bits in hex) as a Python float, an integer past 2^53 written as its digits as an
-    int, a compound's members each by theirs. ValueError for a value its datatype does not take."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes>), its encodings
+    undone by its described datatype (§7.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#72-datasets>): a float value
+    (`"NaN"`, `"Infinity"`, a NaN's or −0's bits in hex) as a Python float, an integer past 2^53
+    written as its digits as an int, a compound's members each by theirs. ValueError for a value
+    its datatype does not take."""
     if not datatype:
         return value
     if isinstance(value, list):
@@ -175,14 +179,15 @@ def hdf5_value(value: object, datatype: Mapping[str, Any] | None) -> object:
 
 
 def hdf5_attributes(base: Base, path: str) -> dict[str, Any]:
-    """The HDF5 attributes of the node at `path`, as the source holds them (`base.attributes`
-    with hdf5.md §6's encodings undone, by the node's source metadata, §7): floats and big
-    integers as numbers, and a netCDF `_FillValue` of a float dataset, which §6 writes as the
-    Base64 of its binary64, as that float. An attribute of one element that the base wrote as
-    its value, on a dataset with `dimension_names`, stays that value: the source metadata does
-    not say which it was. The values are for computing with: NaN and the infinities are floats,
-    which strict JSON (`dump`) does not write, so a plugin that writes attributes writes
-    `base.attributes`' encoded form, or chooses an encoding of its own."""
+    """The HDF5 attributes of the node at `path`, as the source holds them (`base.attributes` with
+    spec/zarrify/hdf5.md §6's encodings undone, by the node's source metadata, §7
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#7-source-metadata>): floats
+    and big integers as numbers, and a netCDF `_FillValue` of a float dataset, which §6 writes
+    as the Base64 of its binary64, as that float. An attribute of one element that the base
+    wrote as its value, on a dataset with `dimension_names`, stays that value: the source
+    metadata does not say which it was. The values are for computing with: NaN and the
+    infinities are floats, which strict JSON (`dump`) does not write, so a plugin that writes
+    attributes writes `base.attributes`' encoded form, or chooses an encoding of its own."""
     metadata = base.source_metadata(path) or {}
     described = metadata.get("attributes", {}) if isinstance(metadata, dict) else {}
     float_dataset = isinstance(metadata, dict) and (metadata.get("datatype") or {}).get("class") == "float"

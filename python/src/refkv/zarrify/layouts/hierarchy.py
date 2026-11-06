@@ -46,6 +46,7 @@ from refkv.zarrify.layouts import (
     _without_checksum,
     chunk_coords,
     chunk_key,
+    described,
     dump,
     prepare,
     store_of,
@@ -461,11 +462,11 @@ def check(base: Base, written: Mapping[str, object] | Written) -> list[Problem]:
             continue
         try:
             docs[k] = _strict(v)
-        except ValueError as e:  # a UnicodeError among them
-            problems.append(Problem(k, "json", f"not strict JSON in UTF-8: {e}"))
+        except (ValueError, RecursionError) as e:  # a UnicodeError among them; arrays nested past the stack
+            problems.append(Problem(k, "json", f"not strict JSON in UTF-8: {described(e)}"))
             try:  # what it says is still checked, as a reader that takes NaN reads it
                 docs[k] = _lenient(v)
-            except ValueError:
+            except (ValueError, RecursionError):
                 continue
     nodes: dict[str, str] = {}  # node path -> "group" or "array", Zarr v3 or v2
     for k, doc in docs.items():
@@ -521,7 +522,9 @@ def check(base: Base, written: Mapping[str, object] | Written) -> list[Problem]:
             holder = _dir(holder)
         if nodes.get(holder) != "array":
             if k.startswith(f"{MIRROR}/") and base_values.get(k) == _plain(values[k]):
-                continue  # the mirror's objects, as the base holds them (conventions §8.9)
+                # the mirror's objects, as the base holds them (spec/conventions.md §8.9
+                # <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>)
+                continue
             problems.append(Problem(k, "orphan", "a chunk without its array's document above it"))
             continue
         held.setdefault(holder, {})[k[len(holder) + 1:] if holder else k] = values[k]
@@ -540,17 +543,22 @@ def check(base: Base, written: Mapping[str, object] | Written) -> list[Problem]:
             where = f"{holder}/{k}" if holder else k
             try:
                 coords = chunk_coords(k, doc)
+                canonical = chunk_key(coords, doc)
             except ValueError as e:
                 problems.append(Problem(where, "chunk", f"not a chunk key of its array: {e}"))
+                continue
+            if canonical != k:  # a key the encoding does not give: a reader asks for the other one
+                problems.append(Problem(where, "chunk", f"its array's encoding writes this chunk's key {canonical!r}"))
                 continue
             if grid is not None and (len(coords) != len(grid) or any(c >= len(g) for c, g in zip(coords, grid,
                                                                                                 strict=False))):
                 problems.append(Problem(where, "chunk", f"chunk {coords} is outside the array's grid"))
                 continue
-            if grid is not None and size is not None and _fixed_size(doc) and not isinstance(v, bytes):
+            if grid is not None and size is not None and _fixed_size(doc):
                 want = math.prod(g[c] for c, g in zip(coords, grid, strict=True)) * size
-                if v.size != want:
-                    problems.append(Problem(where, "size", f"it reads {v.size} bytes of a chunk of {want}"))
+                got = len(v) if isinstance(v, bytes) else v.size
+                if got != want:
+                    problems.append(Problem(where, "size", f"it holds {got} bytes of a chunk of {want}"))
         if is_v3 and references and all(base.base_value(v) is not None for v in references.values()) \
                 and not _copy_of(base, v3, references, copies):  # type: ignore[arg-type] (is_v3: v3 is a dict)
             problems.append(Problem(holder or "zarr.json", "copy", "its references are not a copy of a base array's, "
@@ -598,7 +606,8 @@ def _refkv_problems(base: Base, values: Mapping[str, Value], docs: Mapping[str, 
         elif last == ".zmetadata" and isinstance(doc, dict) and isinstance(doc.get("metadata"), dict):
             found += [(f"{_dir(k)}/{m}".lstrip("/"), d) for m, d in doc["metadata"].items()]
         if isinstance(doc, dict) and isinstance(doc.get("consolidated_metadata"), dict):
-            for m, d in (doc["consolidated_metadata"].get("metadata") or {}).items():
+            listed = doc["consolidated_metadata"].get("metadata")
+            for m, d in (listed if isinstance(listed, dict) else {}).items():
                 found.append((f"{m}/zarr.json", d.get("attributes") if isinstance(d, dict) else None))
         for at, attrs in found:
             if not _refkv_declared(attrs):

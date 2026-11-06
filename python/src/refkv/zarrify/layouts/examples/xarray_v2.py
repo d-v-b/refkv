@@ -4,7 +4,7 @@ hierarchy that `xarray.open_zarr(store, consolidated=True)` opens. Each group is
 array a `.zarray` around the base's chunk references at v2's chunk keys (`0.1`), each node's
 attributes a `.zattrs`, and the root's `.zmetadata` consolidates them all; a vzip reader is given
 only `.zmetadata` and the root's documents at open. It writes its documents with `dump`, and reads
-the base's chunk keys with `hierarchy.chunk_coords`, so it needs the `layouts` extra.
+the base's chunk keys with `chunk_coords`, so it runs without the `layouts` extra.
 
     python -m refkv.zarrify data.nc out.vzip --layout refkv.example.xarray-v2
 

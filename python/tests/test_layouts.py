@@ -31,6 +31,7 @@ from refkv.zarrify.layouts import (
     cut,
     dump,
     encode_entries,
+    fill_value,
     payload_size,
 )
 from refkv.zarrify.layouts.hierarchy import array, check, chunk_coords, chunk_key, copy, group, node_name
@@ -609,3 +610,67 @@ def test_the_cli_exits_3_for_a_rejected_layout(monkeypatch, tmp_path):
 def test_the_cli_exits_1_for_a_failed_layout(monkeypatch, tmp_path):
     install(monkeypatch, Entry("acme.test", Plugin(lambda _b: {"x": "text"})))
     assert main([TIFF, str(tmp_path / "o.vzip"), "--layout", "acme.test"]) == 1
+
+
+def _lazy_failure():
+    yield "zarr.json"
+    raise ValueError("lazy bug")
+
+
+def _lazy_rejection():
+    yield "zarr.json"
+    raise Rejected("not this one")
+
+
+@pytest.mark.parametrize(("make", "error"), [
+    (lambda b: Written(b.entries(), read_at_open=_lazy_failure()), LayoutFailed),
+    (lambda b: Written(b.entries(), stored=_lazy_rejection()), LayoutRejected),
+])
+def test_plugin_code_refkv_runs_after_write_is_the_plugin_s(make, error):
+    """A generator or mapping `write` returns runs the plugin's code when refkv reads it: what it
+    raises is the plugin's failure, or its rejection, as from `write` itself."""
+    with pytest.raises(error):
+        zarrify(TIFF, layout=Layout(Plugin(make)))
+
+
+@pytest.mark.parametrize("extra", [
+    {"g/zarr.json": dump({"zarr_format": 3, "node_type": "group", "consolidated_metadata": {"metadata": "ab"}})},
+    {"g/zarr.json": group(), "g/a/zarr.json": dump({"node_type": "array", "chunk_key_encoding": "x"}), "g/a/c/0": b"1"},
+    {"a/zarr.json": b"[" * 100000 + b"]" * 100000},
+])
+def test_check_reports_malformed_documents_rather_than_raising(extra):
+    b = base(TIFF)
+    assert {p.code for p in check(b, b.entries(mirror=False) | extra)} & {"zarr", "json", "chunk"}
+
+
+def test_a_chunk_is_its_elements_bytes():
+    """`elements` names every element a part runs across (strips the profile joined into one
+    range), and the references of those bytes, joined, are the base's chunk; `reference` reads a
+    recipe's `rows` step (an ND2 frame's padded rows) as conventions §8.5 says."""
+    b = base(str(FIXTURES / "tiff" / "bilevel_strips_short.tif"))
+    value = b.array("0")[1]["c/0/0"]
+    assert isinstance(value, Range)
+    pieces = [part(item) for item in b.elements("0")["c/0/0"]]
+    assert len(pieces) > 1
+    assert concat(*(cut(b.reference(i, m), a, z) for i, m, a, z in pieces), merge=True) == value
+    n = base(str(FIXTURES / "nd2" / "nd2_padded_rgb.nd2"))
+    frame, _, _, _ = part(n.elements("0/0")["c/0/0/0/0"][0])
+    assert n.reference(frame) == n.array("0/0")[1]["c/0/0/0/0"]
+
+
+@pytest.mark.parametrize(("key", "value"), [("c/01/0", None), ("c/1/0", b"12")])
+def test_check_reports_a_chunk_a_reader_does_not_read(key, value):
+    """A key the encoding does not give (`c/01/0`, read by no reader) is `chunk`; a bytes chunk of
+    a fixed-size array short of its bytes is `size`."""
+    b = base(TIFF)
+    rows = {(0, 0): bytes(8), (1, 0): bytes(8)}
+    a = array([2, 4], "uint16", [1, 4], [{"name": "bytes", "configuration": {"endian": "little"}}], rows, to="a")
+    out = {"zarr.json": group(), "a/zarr.json": a["a/zarr.json"], "a/c/0/0": a["a/c/0/0"],
+           f"a/{key}": value if value is not None else a["a/c/1/0"]}
+    codes = {p.code for p in check(b, out)}
+    assert codes == ({"chunk"} if value is None else {"size"})
+
+
+def test_fill_value_reads_bfloat16_bits_as_a_float32_s_high_half():
+    assert fill_value({"data_type": "bfloat16", "fill_value": "0x3f80"}) == 1.0
+    assert fill_value({"data_type": "float32", "fill_value": "0x3f800000"}) == 1.0

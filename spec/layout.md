@@ -28,14 +28,14 @@ A plugin has **formats**: `"*"`, every file profile at every version of its conv
 from file profile names (exactly: `ndpi` is not `tiff`) to the versions of that profile's
 convention it reads. Names a refkv's registry has no file profile of are ignored, and at least
 one of the names must be one it has. A call whose base is of a profile or version the plugin
-does not read is a rejection of the layout request (§6).
+does not read is a rejection of the layout request ([§6](#6-errors)).
 
 A plugin has **options**: the call gives a JSON object (`{}` when it gives none); the plugin puts
 it in canonical form, a JSON object as it is (no `NaN`, no lone surrogate, nothing but objects,
 arrays, strings, numbers and booleans), or refuses it, before the input is opened. Each `write`
 is given a copy of the canonical options of its own.
 
-A plugin's **write** returns the output: its entries, keys from the output's root (§3).
+A plugin's **write** returns the output: its entries, keys from the output's root ([§3](#3-the-output)).
 
 ## 2. The base
 
@@ -63,14 +63,14 @@ given, read only:
   an element of a store IR's object the base does not reference, and one whose form changes how
   it decodes from its siblings' (an HDF5 chunk whose filter mask skips a filter) have none;
 - for a byte of a source, the innermost data element that holds it, or the struct whose data
-  member holds it; and for each chunk of a base array, each part's element and the bytes of it the
-  part reads. For a store IR, an element's extent is in its object ([conventions
+  member holds it; and for each chunk of a base array, the elements its parts run across and the
+  bytes of each they read. For a store IR, an element's extent is in its object ([conventions
   §8.9](conventions.md#89-stores)), and its source is that object's;
 - **zero bytes**: a range of a zero data source of any length, the base's when it is long
-  enough, else one the output's table gains (§4).
+  enough, else one the output's table gains ([§4](#4-writing-the-output)).
 
 **Structure only** ([zarrify §1.2](zarrify.md#12-input)) binds a plugin, with no exception beyond
-the checksums §1.2 already allows: the base gives no way to read a source's bytes, and the values
+the checksums [§1.2](zarrify.md#12-input) already allows: the base gives no way to read a source's bytes, and the values
 the IR holds are the structure the parser read. The parser's facts are not given.
 
 ## 3. The output
@@ -88,7 +88,7 @@ a phkv store places entries by its own size threshold and ignores both.
 ## 4. Writing the output
 
 A zarrifier writes a plugin's output in these steps; a check that fails is a failure of the call
-(§6), and no output is written.
+([§6](#6-errors)), and no output is written.
 
 1. **Values.** A reference value equal to one of the base's, checksums aside, is replaced by the
    base's own value, checksums included. Every other range has its checksum dropped, and a
@@ -102,8 +102,8 @@ A zarrifier writes a plugin's output in these steps; a check that fails is a fai
    checksum) or a range of a source in the base's table, with natural numbers for source, offset
    and length, `offset + length` at most 2^64 − 1 and within the source: within a url source's
    size, or within a data source's bytes. A range of the zero data source the plugin asked for
-   (§2) lies within it. A `key` source is never referenced (the base's table has none). A value's ranges total at most 2^64 − 1 bytes. Every reference's payload, as
-   written (its `crc32c` fields included, when the call asks for checksums), MUST be at most 65519
+   ([§2](#2-the-base)) lies within it. A `key` source is never referenced (the base's table has
+   none). A value's ranges total at most 2^64 − 1 bytes. Every reference's payload, as written (its `crc32c` fields included, when the call asks for checksums), MUST be at most 65519
    bytes ([zarrify §1.2](zarrify.md#12-input), [vzip §11.3](bindings/vzip.md#113-reference-entries)).
    A reference that is not the base's MUST read at most 1024 url ranges, ranges of one source at
    most 64 KiB apart counted as one ([spec/refkv.md §6.7](refkv.md#67-reader-policy) rule 5's
@@ -166,17 +166,17 @@ parameters the section rejects.
 | a CZI subblock form's codecs | [czi.md §3.1](zarrify/czi.md#31-pixel-types-and-codecs) |
 | a VSI tile file's codec | [vsi.md §4.1](zarrify/vsi.md#41-the-pyramid) |
 | a DICOM frame's codec, by its transfer syntax | [dicom.md §2.1](zarrify/dicom.md#21-transfer-syntax) |
-| gzip, after `refkv.skip` of an inflated stream's first bytes | [npy.md §4.4](zarrify/npy.md#44-the-refkvskip-codec) |
+| gzip, after `refkv.skip` of an inflated stream's first bytes (the codecs after `bytes`) | [npy.md §4.4](zarrify/npy.md#44-the-refkvskip-codec) |
 | an HDF5 node's attributes, the encodings JSON needed undone by their described datatypes | [hdf5.md §6](zarrify/hdf5.md#6-attributes), [§7](zarrify/hdf5.md#7-source-metadata) |
 
 ## 6. Errors
 
 A layout request that is wrong whatever the input (a name no plugin has, a plugin that fails to
-load or whose attributes break §1, options the plugin refuses, a plugin layout beside built-in
+load or whose attributes break [§1](#1-plugins), options the plugin refuses, a plugin layout beside built-in
 layouts, a store input) is a **usage error**. A base the plugin does not read, or a refusal the
 plugin's `write` raises for its input, is a **rejection** of the layout request: the input is one
 the profile accepts, but the call writes no output. Anything else a plugin raises, and an output
-that breaks §3 or §4, is a **failure**. None writes an output.
+that breaks [§3](#3-the-output) or [§4](#4-writing-the-output), is a **failure**. None writes an output.
 
 ## 7. Determinism
 

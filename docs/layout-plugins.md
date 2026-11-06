@@ -16,7 +16,9 @@ pip install "refkv[layouts]"   # zarr-metadata, for copy, array, group and check
 python -m refkv.zarrify image.ome.tif out.vzip --layout refkv.example.ome-zarr-06
 python -m refkv.zarrify ophys.nwb out.vzip --layout refkv.example.ome-zarr-06 \
     --layout-options '{"images": [{"name": "movie", "array": "stimulus/templates/movie/data",
-                       "dims": ["t", "x", "y"], "order": ["t", "y", "x"]}]}'
+                       "dims": ["t", "x", "y"], "order": ["t", "y", "x"],
+                       "axes": [{"name": "t", "type": "time"}, {"name": "y", "type": "space"},
+                                {"name": "x", "type": "space"}]}]}'
 ```
 
 ## A plugin
@@ -25,11 +27,11 @@ A plugin is an object with a `name`, the `formats` it reads, `options(given)` an
 `write(base, options)`:
 
 ```python
-from refkv.zarrify.layouts import Base, dump
+from refkv.zarrify.layouts import Base, Entries
 
 
 class Bare:
-    """refkv's image layout, without refkv's declarations or the IR mirror."""
+    """refkv's image layout, without refkv's declarations, the IR mirror or dataset layouts."""
 
     name = "acme.bare"  # <distribution>.<layout>
     formats = "*"  # every file profile; or {"tiff": {0}, "hdf5": {0}}
@@ -37,18 +39,8 @@ class Bare:
     def options(self, given):
         return {}  # the options in canonical form; raise ValueError to refuse them
 
-    def write(self, base: Base, options):
-        out = {}
-        for key in base.keys():
-            if key.startswith("refkv_source/"):
-                continue
-            value = base.entries(key)[key]
-            if key.endswith("zarr.json"):
-                doc = base.document(key)
-                doc["attributes"] = base.attributes(key[: -len("zarr.json")].rstrip("/"))
-                value = dump(doc)
-            out[key] = value
-        return out
+    def write(self, base: Base, options) -> Entries:
+        return base.entries(declarations=False, mirror=False, datasets=False)
 ```
 
 `write` returns the output's entries, keys from its root: bytes (documents among them) and
@@ -97,7 +89,8 @@ bytes of the base's sources, within them, with a payload a reader takes; anythin
 document that is not one included, is the plugin's to get right. `check(base, output)`, in
 `refkv.zarrify.layouts.hierarchy`, is how a plugin's tests find out: it returns `Problem(key, code,
 message)` for what `zarrify` refuses (`key`, `reference`, `open`, `archive`) and for what a reader
-would trip on (`document`, `orphan`, `json`, `zarr`, `parent`, `copy`, `size`, `refkv`). A test
+would trip on (`document`, `orphan`, `chunk`, `json`, `zarr`, `consolidated`, `parent`, `copy`, `size`,
+`refkv`). A test
 gets a base from a file with `layouts.base(path)`:
 
 ```python

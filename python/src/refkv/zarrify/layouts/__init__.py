@@ -65,17 +65,23 @@ type EntryValue = bytes | Range | Concat  # a value of an output's entry
 type Entries = dict[str, EntryValue]  # an output's entries, keys from its root, as a plugin builds them
 
 GROUP = "refkv.layouts"  # the entry points' group
-MIRROR = "refkv_source"  # the base's IR mirror's node (spec/conventions.md §8)
+# the base's IR mirror's node (spec/conventions.md §8 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#8-the-ir-mirror>)
+MIRROR = "refkv_source"
 FILE_PROFILES = frozenset(str(e["name"]) for e in REGISTRY if e["kind"] in ("file", "both"))
 REFKV_UUIDS = frozenset(str(e["uuid"]).lower() for e in REGISTRY)
 REFKV_MEMBERS = ("refkv_zarrified", "refkv_provenance")  # what refkv declares on a node
 NAME = re.compile(r"[a-z0-9-]+(?:\.[a-z0-9-]+)+")
 
-MAX_KEY = 65535  # bytes of a key's UTF-8 the ZIP binding holds (spec/bindings/vzip.md §10.3)
+# bytes of a key's UTF-8 the ZIP binding holds (spec/bindings/vzip.md §10.3 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#103-file-names>)
+MAX_KEY = 65535
 MAX_OPEN = 256 << 20  # bytes read at open, and of a format entry: the default max_format_entry
-MAX_READS = 1024  # url ranges of one value: the default reads per `get` (spec/refkv.md §6.7 rule 5)
+# url ranges of one value: the default reads per `get` (spec/refkv.md §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>
+# rule 5)
+MAX_READS = 1024
 MERGE_GAP = 1 << 16  # ranges of one source this close are one read, as refkv's readers merge them
-STORED = 0xFFFFFFFF  # a DEFLATE stream that could reach this is not written (vzip §14.1)
+# a DEFLATE stream that could reach this is not written (spec/bindings/vzip.md §14.1
+# <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#141-requirements>)
+STORED = 0xFFFFFFFF
 MAX_OFFSET = (1 << 64) - 1
 CRC_FIELD = 6  # the most bytes a range's crc32c field takes: a tag, and a varint of 32 bits
 # the documents a Zarr reader parses as JSON, by a key's last segment
@@ -148,10 +154,10 @@ def dump(doc: object, *, allow_nan: bool = False) -> bytes:
 
 
 def encode_entries(entries: Mapping[str, EntryValue], *, checksums: bool = False) -> bytes:
-    """An output's entries as bytes, one way only (keys sorted, each value tagged and encoded):
-    for comparing two outputs entry for entry, as a plugin's determinism test does across
-    processes (spec/layout.md §7). Checksums are left out, as outputs are compared, unless
-    `checksums`."""
+    """An output's entries as bytes, one way only (keys sorted, each value tagged and encoded): for
+    comparing two outputs entry for entry, as a plugin's determinism test does across processes
+    (spec/layout.md §7 <https://github.com/d-v-b/refkv/blob/main/spec/layout.md#7-determinism>).
+    Checksums are left out, as outputs are compared, unless `checksums`."""
     out = bytearray()
     for k in sorted(entries):
         v = entries[k]
@@ -453,7 +459,8 @@ class Base:
 
     @property
     def mirror(self) -> str | None:
-        """The path of the base's IR mirror (spec/conventions.md §8), `MIRROR`, or None."""
+        """The path of the base's IR mirror (spec/conventions.md §8
+        <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#8-the-ir-mirror>), `MIRROR`, or None."""
         return MIRROR if f"{MIRROR}/zarr.json" in self._values else None
 
     def _left_out(self, mirror: bool, datasets: bool) -> list[str]:
@@ -509,11 +516,14 @@ class Base:
         return attrs
 
     def source_metadata(self, path: str) -> Any:  # noqa: ANN401 (JSON the format's convention specifies)
-        """The source metadata the node at `path` declares: the member named after the profile in
-        its `refkv_zarrified` (spec/conventions.md §2
+        """The source metadata the node at `path` declares: the member named after the profile its
+        `refkv_zarrified` names (the base's, or a dataset layout's own) (spec/conventions.md §2
         <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>), or None."""
         prop = self._node(path).get("attributes", {}).get("refkv_zarrified")
-        return prop.get(self._profile) if isinstance(prop, dict) else None
+        if not isinstance(prop, dict):
+            return None
+        # a node of a dataset layout declares its own profile (`mrc-dataset`), and so names its member
+        return prop.get(prop.get("profile", self._profile))
 
     def array(self, path: str) -> tuple[dict[str, Any], dict[str, bytes | Range | Concat]]:
         """The array at `path`: its document, and its chunks by key relative to the array."""
@@ -619,7 +629,8 @@ class Base:
         return i
 
     def _object(self, i: int) -> int | None:
-        """The object element (a file of a file read as a store, conventions §8.9) that holds
+        """The object element (a file of a file read as a store, spec/conventions.md §8.9
+        <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>) that holds
         element `i`, or None for a file IR."""
         if not self.ir.object_bases():
             return None
@@ -633,9 +644,11 @@ class Base:
         return None
 
     def source_of(self, i: int) -> int:
-        """The index in the base's table of the source that holds element `i`'s bytes: 0 for a
-        file IR, the source of its object for a store IR. ValueError for an object the base
-        references no byte of, which zarrify.md §1.9 leaves out of the table."""
+        """The index in the base's table of the source that holds element `i`'s bytes: 0 for a file
+        IR, the source of its object for a store IR. ValueError for an object the base
+        references no byte of, which spec/zarrify.md §1.9
+        <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>
+        leaves out of the table."""
         o = self._object(self._target(self._element(i)))
         if o is None:
             if self.ir.object_bases():
@@ -690,12 +703,17 @@ class Base:
             return Range(source, start, length)
         shared = self.ir.shared()
         parts: list[Range] = []
-        for step in recipe:
+        for step in recipe:  # spec/conventions.md §8.5's parts
             if step[0] == "src":
                 o, n = int(step[1]), step[2]
                 parts.append(Range(source, start + o, length - o if n is None else int(n)))
-            else:
+            elif step[0] == "rows":  # c runs of n bytes, the first at o, each s after the one before
+                o, stride, n, c = (int(x) for x in step[1:5])
+                parts += [Range(source, start + o + k * stride, n) for k in range(c)]
+            elif step[0] == "shared":
                 parts.append(self._data_part(bytes(shared[int(step[1])])))
+            else:
+                raise ValueError(f"{path!r}: its recipe has a part {step[0]!r} this refkv does not read")
         return parts[0] if len(parts) == 1 else Concat(tuple(parts))
 
     def _space_index(self, source: int) -> tuple[list[int], list[tuple[int, int, int, int | None]]]:
@@ -748,12 +766,21 @@ class Base:
             k -= 1
         return None
 
+    def _span_end(self, i: int, member: int | None) -> tuple[int, int]:
+        """(start, end) of element `i`'s bytes, or of its data member `member`'s."""
+        if member is not None:
+            _, starts, lengths, _ = self.ir.members(i)
+            return starts[member], starts[member] + lengths[member]
+        a, n = self.ir.extent(i)
+        return a, a + n
+
     def elements(self, path: str) -> dict[str, tuple[tuple[int, int | None, int, int] | Range | None, ...]]:
-        """For every chunk of the base's array at `path` (keys relative to the array), one item a
-        part of its value: (element, member, start, stop), the bytes of it the part reads, half
-        open, offsets within the element (or member); None for a literal part or a part of a data
-        source; the part itself, a Range, for bytes of a url source that no data element holds
-        (an HDF5 dataset's external storage, say)."""
+        """For every chunk of the base's array at `path` (keys relative to the array), the bytes its
+        value reads, in order, by the element that holds them: (element, member, start, stop), the
+        bytes of it read, half open, offsets within the element (or member), one item for each
+        element a part runs across (a chunk of strips the profile joined is several); None for a
+        literal part or a part of a data source; a Range, of the part, for bytes of a url source
+        that no data element holds (an HDF5 dataset's external storage)."""
         _, chunks = self.array(path)
         out: dict[str, tuple[tuple[int, int | None, int, int] | Range | None, ...]] = {}
         for key, value in chunks.items():
@@ -762,22 +789,33 @@ class Base:
                 if r.data is not None or self._sources[r.source].url is None:
                     items.append(None)
                     continue
-                at = self.element_at(r.source, r.offset)
-                if at is None:
-                    items.append(r)
-                    continue
-                i, member = at
-                begin = self.ir.members(i)[1][member] if member is not None else self.ir.extent(i)[0]
-                items.append((i, member, r.offset - begin, r.offset - begin + r.length))
+                at, end = r.offset, r.offset + r.length
+                while True:
+                    held = self.element_at(r.source, at)
+                    if held is None:  # bytes no data element holds, up to the next one that does
+                        starts, _ = self._space_index(r.source)
+                        k = bisect.bisect_right(starts, at)
+                        stop = min(end, starts[k]) if k < len(starts) else end
+                        items.append(Range(r.source, at, max(stop - at, 0)))
+                    else:
+                        i, member = held
+                        begin, finish = self._span_end(i, member)
+                        stop = min(end, finish)
+                        items.append((i, member, at - begin, stop - begin))
+                    if stop >= end:
+                        break
+                    at = stop
             out[key] = tuple(items)
         return out
 
     def zeros(self, n: int) -> Range:
         """A range of `n` zero bytes of a data source: the base's zero data source when it is at
-        least that long, else of source `len(base.sources)`, the zero data source refkv adds after
-        the table's sources when the output references it, as long as the most bytes the output
-        reads of it (spec/layout.md §4), for padding a chunk at an array's edge. A range of that
-        source is the same whatever `Base` made it."""
+        least that long, else of source `len(base.sources)`, the zero data source refkv adds
+        after the table's sources when the output references it, as long as the most bytes the
+        output reads of it (spec/layout.md §4
+        <https://github.com/d-v-b/refkv/blob/main/spec/layout.md#4-writing-the-output>), for
+        padding a chunk at an array's edge. A range of that source is the same whatever `Base`
+        made it."""
         if type(n) is not int or n < 0:
             raise ValueError(f"{n!r} zero bytes: a natural number of them")
         zero = self.zero_source
@@ -786,7 +824,8 @@ class Base:
         return Range(len(self._sources), 0, n)  # the source after the table's: refkv adds it
 
     def fits(self, value: object) -> str | None:
-        """Why refkv would not write `value` in this base's output (spec/layout.md §4), or None:
+        """Why refkv would not write `value` in this base's output (spec/layout.md §4
+        <https://github.com/d-v-b/refkv/blob/main/spec/layout.md#4-writing-the-output>), or None:
         a reference value whose ranges lie outside the base's sources, whose payload could pass
         65519 bytes once checksummed, or that a reader would read in more than 1024 reads."""
         why = _value_problem(value, self)
@@ -808,8 +847,11 @@ def _encoding(doc: Mapping[str, Any]) -> tuple[str, str]:
     if doc.get("zarr_format") == 2:
         return "v2", str(doc.get("dimension_separator") or ".")
     encoding = doc.get("chunk_key_encoding") or {"name": "default"}
+    config = encoding.get("configuration") or {} if isinstance(encoding, dict) else None
+    if not isinstance(encoding, dict) or not isinstance(config, dict):
+        raise ValueError(f"the chunk key encoding {encoding!r} is not an object with a configuration object")  # noqa: TRY004 (a document's, as chunk_coords' other refusals)
     name = encoding.get("name")
-    sep = (encoding.get("configuration") or {}).get("separator")
+    sep = config.get("separator")
     if name == "default":
         return name, sep or "/"
     if name == "v2":
@@ -818,8 +860,9 @@ def _encoding(doc: Mapping[str, Any]) -> tuple[str, str]:
 
 
 def _index(text: str, key: str) -> int:
-    if not text.isascii() or not text.isdigit():
-        raise ValueError(f"{key!r} is not a chunk key: {text!r} is no index")
+    """A chunk key's index, written as Zarr writes one: digits, with no leading zero."""
+    if not text.isascii() or not text.isdigit() or (len(text) > 1 and text[0] == "0"):
+        raise ValueError(f"{key!r} is not a chunk key: {text!r} is no index as Zarr writes one")
     return int(text)
 
 
@@ -916,6 +959,8 @@ def fill_value(doc: Mapping[str, Any]) -> object:
     if isinstance(data_type, str) and data_type.startswith("complex") and isinstance(value, list) and len(value) == 2:
         size = int(data_type[len("complex"):]) // 16
         return complex(_float(value[0], size), _float(value[1], size))
+    if data_type == "bfloat16" and isinstance(value, str) and value.startswith("0x") and len(value) == 6:
+        return struct.unpack(">f", (int(value, 16) << 16).to_bytes(4, "big"))[0]  # a float32's high half
     if isinstance(data_type, str) and data_type.startswith(("float", "bfloat")) and isinstance(value, str):
         return _float(value, 2 if data_type == "bfloat16" else int(data_type[len("float"):]) // 8)
     return value
@@ -948,7 +993,7 @@ def _payload(value: Range | Concat, base: Base, checksums: bool) -> int:
 
 def without_checksums(value: Range | Concat) -> Range | Concat:
     """`value` with no checksum on any range: as `Base` gives values, and as outputs are
-    compared (spec/zarrify.md §1.1)."""
+    compared (spec/zarrify.md §1.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#11-output-and-equivalence>)."""
     return _without_checksum(value)
 
 
@@ -1249,13 +1294,13 @@ def apply(out: Output | StoreIrOutput, fmt: str, policy: Policy | None, planned:
             if k in FILE_PROFILES and vs) or "no version of any"
         raise LayoutRejected(f"{name} does not read the {base.profile} profile's convention at version "
                              f"{base.version} (it reads {reads})")
-    try:
+    try:  # prepare reads what write returned, a plugin's mapping or generators among it: its code too
         written = planned.plugin.write(base, planned.fresh_options())
+        prepared, problems = prepare(base, written)
     except Rejected as e:
         raise LayoutRejected(f"{name}: {e}") from e
     except BaseException as e:  # any of a plugin's, made a failure
         raise LayoutFailed(f"{name}: {described(e)}") from e
-    prepared, problems = prepare(base, written)
     if problems:
         raise LayoutFailed(_failure(name, problems))
     info = {**store.info, "layouts": [name]}
