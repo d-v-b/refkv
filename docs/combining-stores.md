@@ -78,8 +78,11 @@ A combination never lets a store read what its own options refuse:
 - **Policy and registry.** It takes the stores' reader policy and registry, and
   raises if they differ, unless you pass `policy=` or `registry=`. So combining
   never lets a store read what its own policy refuses: a zarrified store, whose
-  policy allows local files, combined with a store from elsewhere raises until
-  you say which files the result reads.
+  policy allows the files in its input's directory, combined with a store from
+  elsewhere raises until you say which files the result reads. So do two
+  zarrified stores of inputs in different directories: pass
+  `policy=refkv.Policy(prefixes=(a, b))`, with `a` and `b` their directories'
+  `file:` URLs.
 - **Base URL.** It takes the first store's, unless you pass `url=`. Any operator
   given `url=` first resolves relative source URLs against the store's old base,
   so every reference still reads the same object.

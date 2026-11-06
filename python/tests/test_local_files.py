@@ -59,8 +59,9 @@ def windows_reads(monkeypatch):
     monkeypatch.setattr(policy, "file_path", functools.partial(file_path, pathmod=ntpath))
     monkeypatch.setattr(policy, "file_uri", functools.partial(file_uri, pathmod=ntpath))
     monkeypatch.setattr(policy, "os", SimpleNamespace(path=ntpath))
-    monkeypatch.setattr(LocalFiles, "_range",
-                        staticmethod(lambda path, start, end: seen.append(path) or b"x" * (end - start)))
+    monkeypatch.setattr(policy, "_FD_PATH", False)  # as on Windows, which gives no open file's path
+    monkeypatch.setattr(LocalFiles, "_range", staticmethod(
+        lambda path, start, end, _opened=None: seen.append(path) or b"x" * (end - start)))
     return seen
 
 

@@ -33,7 +33,7 @@ from refkv.pb import Concat, Range, Source
 from refkv.policy import Policy
 from refkv.reader import _check_http_url, _send, new_connection
 from refkv.refstore import ReferenceStore, bulk
-from refkv.uri import file_uri, is_uri_reference
+from refkv.uri import file_path, file_uri, is_uri_reference
 from refkv.uri import resolve as resolve_reference
 from refkv.vzip.archive import VZipWriter
 from refkv.zarrify.profiles import REGISTRY
@@ -207,19 +207,28 @@ def reference_store(refs: Iterable[tuple[str, list[Range]]], entries: Iterable[t
 
 
 def reading_own_files(policy: Policy | None, sources: Iterable[Source]) -> Policy:
-    """`policy` (default `Policy()`), which also lets the store a zarrifier just built read local
-    files, when it names some: its source table is fixed, and holds the input its caller named and
-    the files that input led it to, each below the input's directory (spec/zarrify.md §1.9
+    """`policy` (default `Policy()`), which also lets the store a zarrifier just built read the
+    local files it names: the input its caller named and the files that input led it to, each
+    below the input's directory (spec/zarrify.md §1.9
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>).
-    A saved store does not keep this: whoever opens it chooses (spec/refkv.md §6.7
-    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 1)."""
+    It allows the directory that holds them all, as a prefix, so that a file replaced by a link
+    after the store was built is not read through it (spec/refkv.md §6.7
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 2); a store
+    that also names other sources allows the `file` scheme, as no prefix list keeps rule 1's.
+    A saved store does not keep this: whoever opens it chooses (rule 1)."""
     policy = policy or Policy()
     if policy.prefixes is not None:
         return policy
     base = file_uri(Path.cwd()) + "/"
-    if any(s.url is not None and resolve_reference(base, s.url).lower().startswith("file:") for s in sources):
+    urls = [resolve_reference(base, s.url) for s in sources if s.url is not None]
+    files = [u for u in urls if u.lower().startswith("file:")]
+    if not files:
+        return policy
+    if len(files) < len(urls):
         return replace(policy, schemes=frozenset(policy.schemes) | {"file"})
-    return policy
+    paths = [file_path(u, allow_host=policy.allow_file_hosts) for u in files]
+    directory = file_uri(os.path.commonpath([str(Path(p).parent) for p in paths]))
+    return replace(policy, prefixes=(directory.rstrip("/") + "/",))
 
 
 MAX_PAYLOAD = 65519

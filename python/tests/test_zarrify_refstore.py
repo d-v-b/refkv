@@ -137,6 +137,25 @@ def test_a_zarrified_store_reads_its_files_and_its_saved_archive_needs_a_policy(
     assert refkv.open(tmp_path / "a.vzip", policy=Policy(prefixes=(path.parent.as_uri() + "/",))).get(key) == data
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="making a symbolic link takes a privilege")
+def test_a_zarrified_store_refuses_a_link_put_in_place_of_its_file(tmp_path):
+    """The store `zarrify` returns allows its input's directory as a prefix, not every local file,
+    so a file replaced after zarrifying by a link out of that directory is refused (spec §6.7
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 1)."""
+    (tmp_path / "in").mkdir()
+    path = tmp_path / "in" / "x.nii"
+    shutil.copy(FIXTURES / "nifti" / "nifti_block_x_split.nii", path)
+    store = zarrify(str(path))
+    assert store.policy.prefixes == (f"{(tmp_path / 'in').as_uri()}/",)
+    key = next(k for k in store.list() if store.classify(k) == "reference")
+    assert store.get(key)
+    shutil.copy(path, tmp_path / "outside.nii")
+    path.unlink()
+    path.symlink_to(tmp_path / "outside.nii")
+    with pytest.raises(ResolutionError, match="not under an allowed prefix"):
+        store.get(key)
+
+
 @pytest.mark.parametrize("entries", [[("a", b"x", False)], []], ids=["entry", "reference"])
 def test_reference_store_rejects_a_duplicate_key(entries):
     ref = ("a", [Range(source=0, offset=0, length=1)])

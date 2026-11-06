@@ -976,9 +976,10 @@ it; the other limits are resource limits ([§6.4](#64-errors)).
 
    This binds a reader, not a writer. A store a zarrifier has just built, not
    yet saved, MAY read the files that zarrifier found for the input its caller
-   named ([spec/zarrify.md §1.9](zarrify.md#19-sources-beside-the-input)), and a
-   writer MUST NOT refuse a `file` source for want of what its future readers
-   allow, which it cannot know.
+   named ([spec/zarrify.md §1.9](zarrify.md#19-sources-beside-the-input)), as
+   if the application had given the directory that holds them all as its one
+   prefix (rule 2), and a writer MUST NOT refuse a `file` source for want of
+   what its future readers allow, which it cannot know.
 2. **Prefixes.** An application MAY give a list of URL **prefixes**. When it
    does, the list replaces rule 1: a URL is allowed if and only if it
    matches one of the prefixes. A URL `u` matches a prefix `p` if `u` starts
@@ -995,6 +996,9 @@ it; the other limits are resource limits ([§6.4](#64-errors)).
    does not lift rule 3. A reader MUST also follow symbolic links, and on
    Windows junctions, in the path of a file it will read and of a `file:`
    prefix, and refuse a file whose resolved path is not under a resolved prefix.
+   It MUST resolve the path of the file it reads at each read, after opening
+   it where the system can give an open file's path, so that a link put in
+   place of a file after a check is not followed.
 3. **Hosts.** An IP address belongs to the first of these classes that
    contains it:
 

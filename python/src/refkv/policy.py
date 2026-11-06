@@ -7,13 +7,18 @@ from __future__ import annotations
 import ipaddress
 import os
 import re
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 from urllib.parse import urlsplit
 
 from refkv import _core
 from refkv._extras import OBSTORE_HINT
 from refkv.errors import ResolutionError
 from refkv.uri import file_path, file_uri
+
+if sys.platform != "win32":
+    import fcntl
 
 # The defaults of spec §6.7
 # <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>'s table.
@@ -22,6 +27,38 @@ MAX_READS = 1024
 MAX_FORMAT_ENTRY = 256 << 20
 
 _ENCODED = re.compile(r"%(2[eEfF]|5[cC])")
+# Whether the system gives an open file's real path: /proc/self/fd's links on Linux, F_GETPATH on macOS
+_PROC_FD = Path("/proc/self/fd").is_dir()
+_FD_PATH = sys.platform == "darwin" or _PROC_FD
+
+
+def _fd_path(fd: int) -> str:
+    """The real path of the file open as `fd`, as the system gives it (`_FD_PATH`)."""
+    if sys.platform == "darwin":
+        return os.fsdecode(fcntl.fcntl(fd, fcntl.F_GETPATH, bytes(1024)).split(b"\0", 1)[0])
+    return str(Path(f"/proc/self/fd/{fd}").readlink())
+
+
+def _real_path(path: str, fd: int | None = None) -> str:
+    """The real path of the file open as `fd`, or else of the file or directory at `path`. Where
+    the system gives an open file's (`_FD_PATH`), it is that, which also spells each name as its
+    directory does where names ignore case; elsewhere `os.path.realpath(path)`, which must then
+    be the file open as `fd`."""
+    if not _FD_PATH:
+        real = os.path.realpath(path)
+        if fd is not None and not os.path.samestat(os.fstat(fd), Path(real).stat()):
+            raise ResolutionError(f"{path} changed while it was checked")
+        return real
+    if fd is not None:
+        return _fd_path(fd)
+    try:
+        fd = os.open(path, os.O_RDONLY)
+    except OSError:  # nothing there to read, so the reading fails, not this
+        return os.path.realpath(path)
+    try:
+        return _fd_path(fd)
+    finally:
+        os.close(fd)
 
 
 def crc32c(data: bytes) -> int:
@@ -146,7 +183,7 @@ class Policy:
     - `prefixes`: if given, a URL is allowed if and only if it matches one of
       them (rule 2), whatever its scheme. Rule 3 still applies. The real path of
       a file under a `file:` prefix, symbolic links followed, must also be under
-      the prefix's.
+      the prefix's, for the file opened at each read.
     - `allow_file_hosts`: UNSAFE. Lets a `file:` URL name a host
       (`file://server/share/x`), which on Windows is the UNC path
       `\\\\server\\share\\x`: reading it connects to that server over the
@@ -244,16 +281,20 @@ class Policy:
                     f"network, which the reader does not do without allow_file_hosts=True "
                     f"(spec §5 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>)")
 
-    def check_file(self, url: str) -> None:
+    def check_file(self, url: str, fd: int | None = None) -> None:
         """Raise ResolutionError unless the file a `file:` `url` that `check` allowed reads is under
         an allowed prefix once symbolic links are followed (spec §6.7
         <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 2). Without a
-        prefix list, there is nothing to stay under."""
+        prefix list, there is nothing to stay under.
+
+        `fd`: the file the reader opened at `url`, which is the file checked, so that a link
+        swapped in after a check is not followed. Its real path is the system's for it, where the
+        system says (macOS, Linux); elsewhere it must be the file at the real path of `url`."""
         if self.prefixes is None:
             return
-        real = file_uri(os.path.realpath(file_path(url, allow_host=self.allow_file_hosts)))
+        real = file_uri(_real_path(file_path(url, allow_host=self.allow_file_hosts), fd))
         for prefix in (p for p in self.prefixes if _scheme(p) == "file"):
-            target = file_uri(os.path.realpath(file_path(prefix, allow_host=self.allow_file_hosts)))
+            target = file_uri(_real_path(file_path(prefix, allow_host=self.allow_file_hosts)))
             if matches_prefix(real, target + "/" if prefix.endswith("/") and not target.endswith("/") else target):
                 return
         raise ResolutionError(

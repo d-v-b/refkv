@@ -17,6 +17,7 @@ from typing import override
 
 import pytest
 
+import refkv.policy
 import refkv.reader
 from refkv._sync import run
 from refkv.errors import ArchiveError, BodyError, RequestError, ResolutionError
@@ -276,6 +277,39 @@ def test_refuses_a_file_source_outside_the_prefixes(tmp_path):
         arc = _archive(tmp_path / f"{i}.vzip", [Source(url=url)], {"r": [Range(source=0, offset=0, length=4)]})
         with pytest.raises(ResolutionError, match="not under an allowed URL prefix"):
             _get(VZipStore(arc, policy=policy), "r")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="making a symbolic link takes a privilege")
+def test_refuses_a_link_put_in_place_of_a_file_after_a_read(tmp_path):
+    """A file read under a prefix, then replaced by a link out of it, is refused at the next read
+    of the same store: the check is of the file each read opens, not of a path resolved once
+    (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 2)."""
+    data, outside = tmp_path / "data", tmp_path / "outside"
+    data.mkdir()
+    outside.mkdir()
+    (outside / "blob.bin").write_bytes(BLOB[::-1])
+    (data / "file.bin").write_bytes(BLOB)
+    arc = _archive(tmp_path / "a.vzip", [Source(url=(data / "file.bin").as_uri())],
+                   {"r": [Range(source=0, offset=0, length=4)]})
+    store = VZipStore(arc, policy=Policy(prefixes=(f"{data.as_uri()}/",)))
+    assert _get(store, "r") == BLOB[:4]
+    (data / "file.bin").unlink()
+    (data / "file.bin").symlink_to(outside / "blob.bin")
+    with pytest.raises(ResolutionError, match="not under an allowed prefix"):
+        _get(store, "r")
+
+
+def test_refuses_an_open_file_that_is_not_the_one_at_its_real_path(tmp_path, monkeypatch):
+    """Where the system does not give an open file's path, the file open must be the one at the
+    real path checked, or the path changed between the opening and the check."""
+    monkeypatch.setattr(refkv.policy, "_FD_PATH", False)
+    (tmp_path / "a.bin").write_bytes(BLOB)
+    (tmp_path / "b.bin").write_bytes(BLOB)
+    policy = Policy(prefixes=(f"{tmp_path.as_uri()}/",))
+    with open(tmp_path / "a.bin", "rb") as fh:
+        policy.check_file((tmp_path / "a.bin").as_uri(), fh.fileno())
+        with pytest.raises(ResolutionError, match="changed while it was checked"):
+            policy.check_file((tmp_path / "b.bin").as_uri(), fh.fileno())
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="making a symbolic link takes a privilege")
