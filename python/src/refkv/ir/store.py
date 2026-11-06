@@ -163,6 +163,9 @@ class StoreIrOutput:
     # (spec/refkv.md §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>);
     # set by refkv.zarrify._zarrify_store.
     checksum: Callable[[str, int, int], int] | None = None
+    # The IR the output was projected from, for the layouts plugins write (spec/layout.md
+    # <https://github.com/d-v-b/refkv/blob/main/spec/layout.md>).
+    ir: _core.Ir | None = None
 
     @property
     def docs(self) -> dict[str, object]:

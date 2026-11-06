@@ -41,7 +41,7 @@ ir-test *args: ir-rust-test ir-build
 
 # Test the IR core's Rust crate, and build its Python bindings' crate (rust/refkv-python) alone
 ir-rust-test:
-    cargo test --release --manifest-path rust/refkv-ir/Cargo.toml
+    cargo test --release --features zarrs --manifest-path rust/refkv-ir/Cargo.toml
     just python::cargo-test
 
 # Test the vzip archive writer (rust/refkv-vzip), the phkv store's reader and writers

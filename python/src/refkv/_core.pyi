@@ -38,6 +38,15 @@ class Violation(Exception):  # noqa: N818 (the core's name)
     """An IR broke an invariant (conventions §8.1
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>)."""
 
+class NoCodec(ValueError):  # noqa: N818 (the core's name)
+    """No codec undoes the coding parameters a routine was given (`coding`)."""
+
+def coding(name: str, params: str) -> str:
+    """A coding routine of `refkv.zarrify.coding` (spec/layout.md
+    <https://github.com/d-v-b/refkv/blob/main/spec/layout.md>): the routine `name` of the
+    parameters `params` (JSON), its result as JSON. Raises NoCodec for parameters the format's
+    section rejects, ValueError for parameters that are not the routine's."""
+
 class Ir:
     """An IR: its columns, tables and per-element reads. A per-element read raises ValueError
     for no element `i`."""
