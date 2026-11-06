@@ -1288,3 +1288,105 @@ def test_a_refkv_uuid_in_braces_twice_is_no_refkv_uuid():
     assert layouts._uuid_form("uuid:uuid:" + layouts.UUID) is None
     assert layouts._uuid_form("{uuid:" + layouts.UUID.upper() + "}") == layouts.UUID
     assert layouts._uuid_form(layouts.UUID.replace("e", "\u212a")) is None
+
+
+def test_the_example_places_ndpi_planes_and_ims_volumes_by_their_pixel_centers(monkeypatch):
+    """The example's 0.6 levels move by half a pixel in y and x, and in z for IMS (whose z refkv
+    places by a corner), but not in z for NDPI (whose z names a plane's own position)."""
+    install(monkeypatch, Entry(NAME, Ome06))
+    for source, z_moves in (("ndpi/ndpi_focal_planes.ndpi", False), ("ims/ims_latest_extensible.ims", True)):
+        store = zarrify(str(FIXTURES / source), plugins=[Layout(NAME)])
+        ms = document(store, "zarr.json")["attributes"]["ome"]["multiscales"][0]
+        names = [a["name"] for a in ms["axes"]]
+        level = ms["datasets"][0]
+        scale = next(t["scale"] for t in level["coordinateTransformations"] if t["type"] == "scale")
+        corner = next((t["translation"] for t in level["coordinateTransformations"] if t["type"] == "translation"),
+                      [0.0] * len(names))
+        steps = document(store, PREFIX + "zarr.json")["attributes"]["ome"]["multiscales"][0]["datasets"][0][
+            "coordinateTransformations"][0]["transformations"]
+        center = steps[1]["translation"]
+        for name, c, s, got in zip(names, corner, scale, center, strict=True):
+            moved = name in ("y", "x") or (name == "z" and z_moves)
+            assert got == (c + s / 2 if moved else c), (source, name)
+
+
+def test_copy_reads_its_arguments_once():
+    """A generator of dimension names, or of an order, is read once and checked as read."""
+    base = Base(zarrify(TIF), None)
+    with pytest.raises(ValueError, match="each a string or None"):
+        copy(base, "0", dimension_names=(n for n in [1, 2]))  # type: ignore[misc]
+    with pytest.raises(ValueError, match="axis indexes"):
+        copy(base, "0", order=(o for o in [True, False]))  # type: ignore[arg-type] (the mistake)
+
+
+def test_cyclic_options_are_a_usage_error(monkeypatch):
+    cyclic: dict = {"a": []}
+    cyclic["a"].append(cyclic)
+    refused(monkeypatch, Ome06, "not a JSON object", [Layout(NAME, cyclic)])
+
+
+def test_a_plugin_reads_a_profile_of_both_kinds(monkeypatch, tmp_path):
+    """A profile of both kinds, file and store (safetensors), is a file profile a plugin reads."""
+    class Tensors(Writes):
+        formats: ClassVar[dict[str, set[int]]] = {"safetensors": {0}}
+    install(monkeypatch, Entry(Writes.name, Tensors(lambda _base: {"zarr.json": doc_bytes()})))
+    store = zarrify(str(reserved_file(tmp_path, "safetensors")), plugins=[Layout(Writes.name)])
+    assert PREFIX + "zarr.json" in store.mapping
+
+
+@pytest.mark.parametrize("member", ["data_type", "chunk_grid"])
+def test_an_array_document_without_a_member_is_a_failure(monkeypatch, member):
+    def partial(base):
+        doc = document(refkv.ReferenceStore({"zarr.json": copy(base, "0")["zarr.json"]}), "zarr.json")
+        del doc[member]
+        return {"zarr.json": doc_bytes(), "0/zarr.json": json.dumps(doc).encode()}
+    fails(monkeypatch, partial, "an array's document holds")
+
+
+def test_names_paths_and_segments_at_their_rules_edges():
+    """A distribution's dots normalize as PEP 503's hyphens; a UUID's groups are 32 digits in
+    all; a later name segment allows no `_`; a path is no `.` or `..`; a key segment may start
+    with one `_`; `zarr.json` may only end a key; integers of 4300 digits (negative too) are kept,
+    of 4301 refused; the depth counts the deepest branch, wherever it is."""
+    assert layouts._normalized("Acme.Ome") == "acme-ome"
+    assert layouts._uuid_form("372e9a9f-06b1-4ea1-8829-e206c05e03e61") is None
+    assert layouts.NAME.fullmatch("acme.a_b") is None
+    assert not layouts._path_ok(".")
+    assert not layouts._path_ok("..")
+    assert layouts._key_ok("_x/zarr.json")
+    assert not layouts._key_ok("zarr.json/x")
+    assert layouts._parsed(b'{"n":' + b"9" * 4300 + b"}") == {"n": int("9" * 4300)}
+    assert layouts._parsed(b'{"n":-' + b"9" * 4300 + b"}") == {"n": -int("9" * 4300)}
+    with pytest.raises(ValueError, match="4300 digits"):
+        layouts._parsed(b'{"n":' + b"9" * 4301 + b"}")
+    assert layouts._depth([[[[]]], {}]) == 4
+    assert layouts._depth([{}, [[[]]]]) == 4
+
+
+def test_tuples_in_options_are_walked_for_their_member_names(monkeypatch):
+    refused(monkeypatch, Ome06, "named by strings", [Layout(NAME, {"a": ({1: 2},)})])
+
+
+def test_the_plugin_s_uuid_in_another_form_is_its_own(monkeypatch):
+    cmo = {"uuid": "{" + Ome06.convention.uuid.upper() + "}", "name": "other"}
+    entries = {"zarr.json": doc_bytes({"zarr_conventions": [cmo]})}
+    install(monkeypatch, Entry(Writes.name, Writes(lambda _base: entries)))
+    with pytest.raises(LayoutFailed, match="otherwise than its ConventionInfo"):
+        zarrify(TIF, plugins=[Layout(Writes.name)])
+
+
+def test_a_refkv_cmo_in_a_nested_document_is_a_failure(monkeypatch):
+    cmo = {"uuid": layouts.UUID}
+    fails(monkeypatch, lambda _base: {"zarr.json": doc_bytes(), "a/zarr.json": doc_bytes({"zarr_conventions": [cmo]})},
+          "declares a refkv")
+
+
+def test_a_memoryview_entry_is_a_failure(monkeypatch):
+    fails(monkeypatch, lambda base: {"zarr.json": doc_bytes(), **array_entries(base), "0/extra": memoryview(b"x")},
+          "neither bytes nor one of the base's references")
+
+
+def test_the_cli_refuses_options_with_a_member_twice(monkeypatch, tmp_path):
+    install(monkeypatch, Entry(NAME, Ome06))
+    assert main([TIF, str(tmp_path / "o.vzip"), "--layout", NAME,
+                 "--layout-options", NAME + '={"images": [], "images": []}']) == 2

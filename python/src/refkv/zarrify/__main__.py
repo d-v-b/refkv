@@ -5,7 +5,7 @@ from pathlib import Path
 from refkv.errors import ResolutionError
 from refkv.policy import Policy
 from refkv.zarrify import Image, Rejected, zarrify
-from refkv.zarrify.layouts import Layout, LayoutFailed, LayoutUsageError
+from refkv.zarrify.layouts import Layout, LayoutFailed, LayoutUsageError, no_duplicates
 from refkv.zarrify.store import WORKERS
 
 # the store kinds, in the words of `vzip convert`'s usage (rust/refkv-cli/src/main.rs)
@@ -46,7 +46,7 @@ def _layouts(args: list[str]) -> list[Layout]:
         if name in options:
             raise LayoutUsageError(f"--layout-options {name} given twice")
         try:
-            value = json.loads(text)
+            value = json.loads(text, object_pairs_hook=no_duplicates)
         except (ValueError, RecursionError) as e:
             raise LayoutUsageError(f"--layout-options {name}: not JSON: {e}") from e
         if not isinstance(value, dict):

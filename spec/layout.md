@@ -120,7 +120,8 @@ failure, and no output is written:
   than 4300 digits (an integer is kept exactly, as
   [spec/zarrify.md §1.6](zarrify.md#16-json-documents) keeps it), no member twice in one object,
   no lone surrogate, and no nesting deeper than 256, [§1.6](zarrify.md#16-json-documents)'s
-  bound. Its `zarr_format` is the integer 3 and its `node_type` `group` or `array`; an array's
+  bound. Its `zarr_format` is 3, written as an integer (no fraction, no exponent), and its
+  `node_type` `group` or `array`; an array's
   document holds `shape`, `data_type`, `chunk_grid`, `chunk_key_encoding`, `codecs` and
   `fill_value`, its `shape` a list.
 - `zarr.json` is a group. Every other key is a node's `zarr.json` whose parent node's `zarr.json`

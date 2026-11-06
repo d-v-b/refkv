@@ -79,6 +79,8 @@ class Ome06:
         `axes`, named as `order` names them, and a positive `scale` per axis (default 1)."""
         if set(given) - {"images"}:
             raise ValueError(f"the options hold images, not {sorted(set(given) - {'images'})}")
+        if not isinstance(given.get("images", []), list):
+            raise ValueError("images is a list of images")  # noqa: TRY004 (options() refuses with ValueError)
         images = []
         for image in given.get("images", []):
             if not isinstance(image, Mapping) or set(image) - IMAGE_MEMBERS or not {"name", "array", "dims",
@@ -116,12 +118,14 @@ class Ome06:
 
     def write_image(self, base: Base) -> Entries:
         """A 0.5 image's levels, copied, under 0.6 metadata, the image's name and its omero channels
-        kept. refkv's translation places each level's corner (spec/conventions.md, Translations),
-        and OME-Zarr 0.6 places a pixel's center at the origin, so on the space axes each level is
-        moved by half its own pixel."""
+        kept. refkv's translation places each level's upper-left corner in y and x
+        (spec/conventions.md, Translations), and an IMS image's corner in z too, while an NDPI
+        file's z names a plane's own position; OME-Zarr 0.6 places a pixel's center at the origin,
+        so each level is moved by half its own pixel on the axes refkv places by a corner."""
         ome = base.document("zarr.json")["attributes"]["ome"]
         ms = ome["multiscales"][0]
-        space = [a.get("type") == "space" for a in ms["axes"]]
+        cornered = {"y", "x", *({"z"} if base.profile == "ims" else ())}
+        space = [a.get("name") in cornered for a in ms["axes"]]
         out: Entries = {}
         datasets = []
         for level in ms["datasets"]:

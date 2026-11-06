@@ -316,12 +316,12 @@ def plan(layouts: Sequence[Layout]) -> list[Planned]:
         path = str(plugin.path) if layout.path is None else layout.path
         if not _path_ok(path):
             raise _usage(layout.name, f"the path {path!r} is not one key segment of [a-z0-9_-]")
-        if not _str_keys(layout.options or {}):
-            raise _usage(layout.name, "its options' members are named by strings, at every depth")
-        try:
+        try:  # first, as it refuses a cycle, which a walk of the members would follow for ever
             given = json.loads(json.dumps(dict(layout.options or {}), allow_nan=False))
         except (TypeError, ValueError, RecursionError) as e:
             raise _usage(layout.name, f"its options are not a JSON object: {type(e).__name__}: {e}") from e
+        if not _str_keys(layout.options or {}):
+            raise _usage(layout.name, "its options' members are named by strings, at every depth")
         try:
             options = plugin.options(given)
         except KeyError as e:
@@ -518,13 +518,16 @@ def copy(base: Base, path: str, order: Sequence[int] | None = None, attributes: 
     and index codecs), so that it decodes to the base's values, transposed."""
     doc, chunks = base.array(path)
     n = len(doc["shape"])
-    names = doc.get("dimension_names") if dimension_names is None else list(dimension_names)
-    if dimension_names is not None and len(names) != n:  # type: ignore[arg-type]
-        raise ValueError(f"{len(names)} dimension names for an array of {n} dimensions")  # type: ignore[arg-type]
-    if dimension_names is not None and (isinstance(dimension_names, str)
-                                        or not all(n is None or isinstance(n, str) for n in dimension_names)):
+    if isinstance(dimension_names, str):
+        raise ValueError("dimension_names is a list of names, each a string or None, not a string")  # noqa: TRY004 (as copy's other refusals)
+    given = None if dimension_names is None else list(dimension_names)  # each argument read once
+    if given is not None and not all(g is None or isinstance(g, str) for g in given):
         raise ValueError("dimension_names is a list of names, each a string or None")
+    if given is not None and len(given) != n:
+        raise ValueError(f"{len(given)} dimension names for an array of {n} dimensions")
+    names = doc.get("dimension_names") if given is None else given
     if order is not None:
+        order = list(order)
         try:
             indexes = [operator.index(o) for o in order]
         except TypeError:
@@ -550,7 +553,7 @@ def copy(base: Base, path: str, order: Sequence[int] | None = None, attributes: 
             config["index_codecs"] = _with_transpose(list(config["index_codecs"]), [*inverse, n])
         else:
             doc["codecs"] = _with_transpose(codecs, inverse)
-        if names is not None and dimension_names is None:
+        if names is not None and given is None:
             names = [names[o] for o in order]
         chunks = {_permuted_key(k, order, doc): v for k, v in chunks.items()}
     doc["attributes"] = dict(attributes or {})
@@ -584,7 +587,8 @@ def _no_constant(name: str) -> object:
     raise ValueError(f"{name} is not JSON")
 
 
-def _no_duplicates(pairs: list[tuple[str, object]]) -> dict[str, object]:
+def no_duplicates(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    """An object of JSON's members, refusing one named twice (json.loads's object_pairs_hook)."""
     keys = [k for k, _ in pairs]
     if len(keys) != len(set(keys)):
         raise ValueError(f"an object holds a member twice: {min(k for k in keys if keys.count(k) > 1)!r}")
@@ -641,7 +645,7 @@ def _parsed(value: bytes) -> object:
         raise ValueError("a byte order mark")
     try:
         doc = json.loads(text, parse_constant=_no_constant, parse_float=_finite, parse_int=_bounded_int,
-                         object_pairs_hook=_no_duplicates)
+                         object_pairs_hook=no_duplicates)
         if not _strings_ok(doc):
             raise ValueError("a string that is not valid Unicode")
     except RecursionError:
