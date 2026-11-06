@@ -7,10 +7,13 @@ cannot add one without forking the repository and building their own core,
 wheel and WebAssembly module. This note proposes **layout plugins**: Python
 packages, found the way zarr finds codecs, that add a layout of their own to
 the hierarchy a built-in profile writes, built from what that profile read: its
-output and its IR. It is a design note; the rules it gives that decide what is
-written become normative text in the specifications it names
-([The specification changes](#the-specification-changes)) when it is
-implemented.
+output and its IR. It is a design note. d-v-b/refkv#279 implements it, after
+nine rounds of adversarial review, and its rules are normative there in
+spec/layout.md and the amendments
+[The specification changes](#the-specification-changes) lists; where this
+note and spec/layout.md differ, spec/layout.md is the rule. That PR's guide,
+docs/layout-plugins.md, walks through the OME-Zarr 0.6 example in full
+(docs/examples/ome_zarr_06.py).
 
 New formats (parser plugins) are a larger question, left for later
 ([Not in this proposal](#not-in-this-proposal)).
@@ -124,12 +127,15 @@ class Ome06:
 convention metadata object (CMO), is its name with `.` and `-` as `_`:
 `acme_ome_ome06`. refkv writes the CMO from the `ConventionInfo` with the five members the
 framework allows: `uuid`, `schema_url`, `spec_url`, `name` (the key) and
-`description`. The version is not one of them: the layout property's
-`layout.version` (below) is the normative one, and `schema_url` SHOULD differ
-from one version to the next, as the framework advises. A plugin's schema
-accepts its key holding `{}`, which refkv writes when the plugin writes
-nothing there. Two names that map to one key are refused together, though
-only the UUID identifies a layout.
+`description`. The version is not one of them. refkv writes it under the
+plugin's key on the layout node, `{"version": 0, ...}` with any members the
+plugin wrote there, so that a reader that knows only the plugin's convention
+finds it, and in the layout property's `layout.version` (below); `schema_url`
+SHOULD differ from one version to the next, as the framework advises. A
+plugin that writes its key writes an object without `version`. Two names that
+map to one key are refused together, though only the UUID identifies a layout,
+and a convention whose UUID is a refkv convention's is refused when the plugin
+is loaded.
 
 ### What it is given: `Base`
 
@@ -156,23 +162,12 @@ differ only in the built-in layouts they ask for give a plugin the same `Base`.
   mapping from chunk key (relative to the array) to value, each a `Range`,
   `Concat` or bytes of the base.
 
-- `base.values(path)`: the decoded values of a small array, as a NumPy array:
-  an array of the image layout whose chunks are at most 64 KiB stored in all,
-  and whose codecs are lossless (`bytes`, `transpose`, `numcodecs.zlib`,
-  `gzip`, `zstd`, `numcodecs.shuffle`, `crc32c`), such as an NWB file's
-  `imaging_rate` or `grid_spacing`, or a pyramid's `resolutions`. refkv reads
-  the bytes through the run's own transport, the one the input was read
-  through and whose pins the output records, not through the URL the output
-  names; a larger array, another codec, or a file read as a store (whose files
-  are closed by then) raises `LayoutFailed`. It needs zarr-python, the
-  `zarr` extra.
-
-`base.values` is the one way a plugin reads the source, and it is a named,
-bounded exception to **Structure only**
-([zarrify §1.2](../../spec/zarrify.md#12-input)), as checksums are: a plugin's
-specification lists the arrays it reads (the metadata a format keeps in small
-datasets), and its layout MUST NOT depend on pixel data. `Base` has no other
-way to read a chunk.
+`Base` has no way to read a chunk, and **Structure only**
+([zarrify §1.2](../../spec/zarrify.md#12-input)) binds a plugin with no
+exception. An earlier draft gave plugins `base.values`, a bounded read of
+small metadata arrays (an NWB `ImagingPlane`'s `grid_spacing`); review dropped
+it, and the options give such values instead
+([Not in this proposal](#not-in-this-proposal)).
 
 The facts are not in `Base`. They are the built-in projection's private input
 and change whenever it does.
@@ -207,26 +202,33 @@ order and decodes to the same values. A plugin that writes an array's document
 itself owns its correctness: refkv checks the references, not whether the
 documents decode them as the plugin meant.
 
-`write` is a plain function, which refkv runs in a worker thread, one plugin
-at a time, so it does not hold up the caller's event loop and may call
-refkv's blocking API. Cancelling `zarrify_async` does not stop a `write`
-already running.
+`write` is a plain function. refkv runs it, as it runs a plugin's loading and
+`options()`, on a thread of its own, one plugin at a time, so it does not hold
+up the caller's event loop and may call refkv's blocking API, `zarrify`
+included, without exhausting a shared pool. Cancelling `zarrify_async` does
+not stop a `write` already running. Whatever a plugin raises, `SystemExit` and
+`KeyboardInterrupt` included, ends the call with one of the errors below.
 
 ### What refkv does with it
 
 1. **Checks the entries.** A failed check is the plugin's error,
    `LayoutFailed`.
    - Every key is a valid key ([spec/refkv.md §2](../../spec/refkv.md#2-data-model)),
-     relative, with no empty, `.` or `..` segment, and no segment that starts
-     with `__`, which Zarr v3 reserves.
+     relative, valid UTF-8, with no empty, `.` or `..` segment, no segment
+     that starts with `__`, which Zarr v3 reserves, and `zarr.json` only last;
+     with its prefix it is at most 65535 bytes, as a ZIP archive's keys are.
+   - Every document is strict JSON: no byte order mark, `NaN`, infinity, member
+     twice in one object or lone surrogate, no integer of more than 4300
+     digits, and nesting at most 256 deep. Its `zarr_format` is the integer 3
+     and its `node_type` `group` or `array`; an array's holds the members Zarr
+     v3 requires, and `attributes`, where present, is an object.
    - The node's `zarr.json` is a group. Every other key is a node's
      `zarr.json`, whose parent node's `zarr.json` is a group of the layout, or
      a chunk below an array's `zarr.json`; no node is inside an array.
    - Every reference value is **equal to a reference value of `Base`**,
      ranges compared as [zarrify §1.1](../../spec/zarrify.md#11-output-and-equivalence)
-     compares them (a checksum is no part of it), and
-     the layout has at most as many reference entries as `Base`. A plugin
-     reuses the base's references and makes none, so its layout reads only
+     compares them (a checksum is no part of it), and written as the base
+     holds it, checksums included. A plugin reuses the base's references and makes none, so its layout reads only
      bytes the base reads: under the same pins and reader policy, within the
      file and the payload limit
      ([zarrify §1.2](../../spec/zarrify.md#12-input), **References stay in the
@@ -234,12 +236,14 @@ already running.
      references are not counted against
      [the references' budget](../../spec/zarrify.md#12-input), as a dataset
      layout's copies are not.
-   - No document holds `consolidated_metadata`, the member `refkv_zarrified`
-     or `refkv_layout`, or a CMO whose UUID is a refkv convention's (a
-     profile's, a dataset layout's, `refkv_layout`'s). The plugin's key, as an
-     object, and its CMO may be on any node of the layout, the CMO equal to the
-     one refkv makes from its `ConventionInfo`; refkv writes both on the layout
-     node, once, the key as `{}` if the plugin did not.
+   - No document holds `consolidated_metadata`, the attribute
+     `refkv_zarrified`, `refkv_layout` or `refkv_provenance`, or a CMO with the
+     UUID or the name of a refkv convention (a profile's, a dataset layout's,
+     provenance's, `refkv_layout`'s), its UUID compared with case, hyphens,
+     braces and a `urn:uuid:` prefix aside. The plugin's key, as an object without `version`, and its
+     CMO may be on any node of the layout, the CMO equal to the one refkv makes
+     from its `ConventionInfo`; refkv writes both on the layout node, once, the
+     key with `version` added.
 2. **Places the node** at `refkv_layouts/<path>`, `path` the plugin's or the
    caller's, below the group `refkv_layouts/zarr.json`, which refkv writes
    declaring `refkv_layout` (its CMO, and `{"refkv_layout": {"version": 0}}`):
@@ -322,9 +326,9 @@ rejects an input that needs them from `write`.
 
 | what goes wrong | error | CLI exit |
 |---|---|---|
-| no entry point of the name, a plugin that fails to load or whose attributes break the rules below (its `name` other than the entry point's key, say), options the plugin refuses, two layouts of one name, path or key, a layout on a store input | `LayoutUsageError` (a `ValueError`) | 2 |
+| no entry point of the name, installed entry points that cannot be read, a plugin that fails to load or whose attributes break the rules below (its `name` other than the entry point's key, say), options the plugin refuses, two layouts of one name, path or key, a layout on a store input | `LayoutUsageError` (a `ValueError`) | 2 |
 | a base profile or version the plugin does not read, a `Rejected` from `write` | `LayoutRejected` (a `Rejected`) | 3 |
-| a failed check, or any other exception from `write` (its cause chained) | `LayoutFailed` | 1 |
+| a failed check, or any other exception from `write`, `SystemExit` included (its cause chained) | `LayoutFailed` | 1 |
 
 A layout on a store input (a directory, or a URL ending in `/`) is a usage
 error for now; a file read as a store (VSI, NRRD, GRIB, an HDF5 file with
@@ -407,8 +411,8 @@ The implementation adds, as normative text:
   root has "no `layouts` member" without the dataset layout becomes "no
   `dataset` member".
 - **[zarrify §1.2](../../spec/zarrify.md#12-input)**: **Structure only** binds a
-  plugin layout, with `base.values` its one named exception, bounded as above;
-  references under `refkv_layouts/` are not counted against the budget.
+  plugin layout, with no exception; references under `refkv_layouts/` are not
+  counted against the budget.
 - **[zarrify §1.1](../../spec/zarrify.md#11-output-and-equivalence) and
   [Appendix A](../../spec/zarrify.md#appendix-a-conformance)**: equivalence as
   above; an implementation that cannot load plugins (the browser, the Rust
@@ -450,7 +454,10 @@ The implementation adds, as normative text:
 For a TIFF (and an NDPI, QPTIFF or IMS file), the base's root is OME-Zarr 0.5:
 it holds the `multiscales`, and its levels are arrays `0`, `1`, .... The plugin
 copies each level and writes 0.6 metadata over the copies, keeping each
-level's scale and translation, the image's name and its `omero` channels:
+level's scale, the image's name and its `omero` channels. refkv's translation
+places a level's upper-left corner in y and x (and z, for IMS; an NDPI file's
+z is a plane's own position), where 0.6 places a pixel's center, so each level
+moves by half its own pixel on those axes:
 
 ```python
 def write(self, base: Base, options: Mapping[str, object]) -> dict[str, bytes | Range | Concat]:
@@ -458,15 +465,21 @@ def write(self, base: Base, options: Mapping[str, object]) -> dict[str, bytes | 
         return self.write_hdf5(base, options)
     ome = base.document("zarr.json")["attributes"]["ome"]
     ms = ome["multiscales"][0]
+    cornered = {"y", "x", *({"z"} if base.profile == "ims" else ())}
+    space = [a.get("name") in cornered for a in ms["axes"]]
     out: dict[str, bytes | Range | Concat] = {}
     datasets = []
     for level in ms["datasets"]:
         p = level["path"]
         out |= {f"{p}/{k}": v for k, v in copy(base, p).items()}
         steps = level["coordinateTransformations"]
-        transform = steps[0] if len(steps) == 1 else {"type": "sequence", "transformations": steps}
-        datasets.append({"path": p, "coordinateTransformations": [
-            {**transform, "input": {"path": p}, "output": {"name": "physical"}}]})
+        scale = next(t["scale"] for t in steps if t["type"] == "scale")
+        corner = next((t["translation"] for t in steps if t["type"] == "translation"), [0.0] * len(scale))
+        center = [c + s / 2 if is_space else c for c, s, is_space in zip(corner, scale, space, strict=True)]
+        datasets.append({"path": p, "coordinateTransformations": [{
+            "type": "sequence", "input": {"path": p}, "output": {"name": "physical"},
+            "transformations": [{"type": "scale", "scale": scale},
+                                {"type": "translation", "translation": center}]}]})
     image = {"name": ms.get("name", "image"),
              "coordinateSystems": [{"name": "physical", "axes": ms["axes"]}], "datasets": datasets}
     out_ome = {"version": "0.6", "multiscales": [image], **({"omero": ome["omero"]} if "omero" in ome else {})}
@@ -495,21 +508,21 @@ NWB writes an `ImageSeries` as `(frame, x, y)`, so the plugin copies the array
 with `copy(base, array, order=[0, 2, 1])` (the positions in `dims` of the
 names in `order`) into time, `y`, `x` order, at `<name>/0` below the layout
 node, writes the 0.6 group `<name>/zarr.json` over it, and the layout node's
-own group `zarr.json`; it reads an `ImagingPlane`'s `grid_spacing` and
-`imaging_rate` with `base.values` when the options name them in place of
-numbers. Missing `images`, an option that names no array of the
+own group `zarr.json`. Missing `images`, an option that names no array of the
 base, or an array whose rank does not match its dimensions is `Rejected`.
 Neither case needs the facts, a codec table, or a read of the source. The
 base holds an NWB file's attributes, `neurodata_type` and an `ImageSeries`'s
 `starting_time` `rate` among them, so a plugin could find the image series
-without being told. The implementation's tests hold this plugin in full, run
-over these fixtures.
+without being told. The implementation holds this plugin in full, about 170
+lines with its option checks, and its tests run it over the fixtures.
 
 ## Not in this proposal
 
-- **Reading more of the source**: `base.values` for a file read as a store,
-  whose files are closed before the output returns, and reads beyond small
-  metadata arrays.
+- **Reading the source**: a plugin reads no chunk, not even a small metadata
+  array (an NWB `ImagingPlane`'s `grid_spacing`, a pyramid's `resolutions`),
+  whose values its options give today. A bounded read would have to go
+  through the run's own transport and pins, and a file read as a store has
+  closed its files by the time a plugin runs.
 - **Parser plugins**, for formats no built-in parser reads. Each would need a
   place in the signature order of [zarrify §1.2](../../spec/zarrify.md#12-input)
   (on `H` or `L`, before or after the gzip retry, and what a tie between two
