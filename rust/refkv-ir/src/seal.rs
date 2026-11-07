@@ -427,7 +427,8 @@ pub fn seal(urls: &[Url], data: &[Vec<u8>], first: Option<usize>, documents: &[S
 /// each key's size); its data strings are `out.data`. A built-in value is held to the bounds its
 /// profile's document states, not to the reader's read rule (spec/refkv.md §6.7
 /// <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 5), which
-/// zarrify's §1.2 does not impose and some conventions' chunks pass; `refkv.build.seal`, which
+/// spec/zarrify.md §1.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input> does
+/// not impose and some conventions' chunks pass; `refkv.build.seal`, which
 /// vouches for a store its reader reads, lifts it for refkv's values in sharded arrays alone. On
 /// success `out.data` holds only the data sources a reference uses, renumbered in `seal`'s order
 /// (from 1, the hosts' numbering), and its references name them so. A refusal may leave `out`
