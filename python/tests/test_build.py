@@ -7,7 +7,7 @@ import io
 import json
 import struct
 from pathlib import Path
-from typing import Any
+from typing import Any, override
 
 import numpy as np
 import pytest
@@ -303,23 +303,24 @@ TRANSPOSE = {"name": "transpose", "configuration": {"order": [1, 0]}}
 
 
 @pytest.mark.parametrize(("built", "written", "expected"), [
-    # (the array a chunk was built in, the array it is written under, whether its binding holds)
-    (([4, 6], [4, 6], [{"name": "bytes"}], 0), ([4, 6], [4, 6], [{"name": "bytes"}], 0), True),
-    (([4, 6], [4, 6], [{"name": "bytes"}], 0), ([6, 4], [6, 4], [TRANSPOSE, {"name": "bytes"}], 0), True),
+    # (the array a chunk was built in, the array it is written under, what _binding_holds says)
+    (([4, 6], [4, 6], [{"name": "bytes"}], 0), ([4, 6], [4, 6], [{"name": "bytes"}], 0), False),
+    (([4, 6], [4, 6], [{"name": "bytes"}], 0), ([6, 4], [6, 4], [TRANSPOSE, {"name": "bytes"}], 0), False),
     (([4, 6], [4, 6], SHARDED, 0), ([4, 6], [4, 6], SHARDED, 0), True),
     (([4, 6], [4, 6], SHARDED, 0), ([6, 4], [6, 4], [TRANSPOSE, *SHARDED], 0), True),
     (([4, 6], [4, 6], SHARDED, 0), ([6, 4], [6, 4], COPIED, 0), True),
-    (([4, 6], [4, 6], SHARDED, 0), ([6, 4], [6, 4], INNER_ONLY, 0), False),
-    (([4, 6], [4, 6], [{"name": "bytes"}], 0), ([4, 7], [4, 7], [{"name": "bytes"}], 0), False),
+    (([4, 6], [4, 6], SHARDED, 0), ([6, 4], [6, 4], INNER_ONLY, 0), None),
+    (([4, 6], [4, 6], [{"name": "bytes"}], 0), ([4, 7], [4, 7], [{"name": "bytes"}], 0), None),
     (([4, 6], [4, 6], [{"name": "bytes"}], {"b": 0, "a": 1}), ([4, 6], [4, 6], [{"name": "bytes"}], {"a": 1, "b": 0}),
-     True),  # a struct's fill value, its members in another order
-    (([4, 6], [4, 6], [{"name": "bytes"}], 0), ([4, 6], [4, 6], [{"name": "bytes"}], 0.0), False),
+     False),  # a struct's fill value, its members in another order
+    (([4, 6], [4, 6], [{"name": "bytes"}], 0), ([4, 6], [4, 6], [{"name": "bytes"}], 0.0), None),
 ], ids=["as-built", "transposed", "sharded", "sharded-transposed", "copy-of-sharded", "inner-transpose-only",
         "other-shape", "struct-fill", "other-fill"])
 def test_where_a_check_holds(tmp_path, built, written, expected):
     """A checked chunk's binding holds in the array it was built in, and under Zarr's transpose codec
     put first (outside a shard, or as `copy` writes it inside one) with the shape, grid and key
-    permuted to match, sharded or not; nowhere else."""
+    permuted to match: True in a sharded array, where its rule lifts the read rule, False in another;
+    None anywhere else."""
     np.save(tmp_path / "x.npy", np.zeros((4, 6), dtype=np.uint8))
     with read(tmp_path / "x.npy") as p:
         shape, chunks, codecs, fill = built
@@ -333,7 +334,7 @@ def test_where_a_check_holds(tmp_path, built, written, expected):
         assert isinstance(v, Value)
         assert _binding_holds(v, "a/c/0/0", out) is expected
         out["a/zarr.json"] = Data(out["a/zarr.json"])  # type: ignore[arg-type]  # the nearest document, not bytes
-        assert _binding_holds(v, "a/c/0/0", out) is False
+        assert _binding_holds(v, "a/c/0/0", out) is None
 
 
 # ---- what seal refuses: one test each
@@ -418,6 +419,17 @@ def test_seal_refuses_a_payload_past_the_limit_with_its_checksums(tmp_path):
     assert e.value.code == "checksums"
 
 
+def test_seal_refuses_before_it_fails(tmp_path):
+    """A value past the limit only with its checksums fails the call only when no check refuses the
+    output: a placement of no bytes entry is the refusal."""
+    with read(_npy(tmp_path, n=20000), checksums=True) as p:
+        w = Written({"v": concat(*(Ref(p, 0, 2 * k, 1) for k in range(7000)))})
+        w.at_open["v"] = True
+        with pytest.raises(SealError) as e:
+            seal(w, [p])
+    assert e.value.code == "open"
+
+
 def test_seal_refuses_the_built_in_output_past_the_limit_with_its_checksums():
     """`read` with checksums reads an input whose built-in output passes the limit only with them,
     which `zarrify` fails: a caller may build another output, and `seal` refuses that one."""
@@ -448,6 +460,31 @@ def test_seal_refuses_a_check_it_did_not_issue(tmp_path):
         far = concat(*(Ref(p, 0, k << 17, 1) for k in range(1025)))
         forged = Value(far.parts, Check("builtin", Binding.of(doc, (0, 0))))
         out = Array([4, 6], "uint8", [4, 6], SHARDED, {(0, 0): forged}).entries(to="a")
+        with pytest.raises(SealError) as e:
+            seal(out, [p])
+    assert e.value.code == "reads"
+
+
+class _EqualToAll(tuple):
+    """Parts that say they equal any others."""
+
+    __slots__ = ()
+
+    @override
+    def __eq__(self, other: object) -> bool:
+        return True
+
+    __hash__ = tuple.__hash__
+
+
+def test_seal_refuses_parts_that_only_say_they_are_an_issued_checks(tmp_path):
+    """An issued check holds for its very parts, not for parts whose comparison says so."""
+    with read(_npy(tmp_path, n=1100 * (1 << 17))) as p:
+        doc = {"shape": [4, 6], "data_type": "uint8", "codecs": SHARDED, "fill_value": 0,
+               "chunk_grid": {"name": "regular", "configuration": {"chunk_shape": [4, 6]}}}
+        issued = _issue("builtin", Binding.of(doc, (0, 0)), (Ref(p, 0, 0, 1),))
+        far = _EqualToAll(Ref(p, 0, k << 17, 1) for k in range(1025))
+        out = Array([4, 6], "uint8", [4, 6], SHARDED, {(0, 0): Value(far, issued)}).entries(to="a")
         with pytest.raises(SealError) as e:
             seal(out, [p])
     assert e.value.code == "reads"

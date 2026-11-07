@@ -9,3 +9,7 @@ documents that gave another order now say so. A payload over 65519 bytes only wi
 counts each checksum at its largest, 6 bytes, so an output fails, and is not written, whatever the
 bytes' checksums. A repeat of the references' budget is a reference to the ranges of an earlier
 one, whatever elements they are cut from.
+Unused data sources are left out of the table. A file input's output key of more than 65535 bytes,
+or one starting with `__vz__/`, rejects the input, as a store input's did; it was a failure to
+write. A chunk that joins strips is one reference of the budget for each strip, as before, which
+the text now says.

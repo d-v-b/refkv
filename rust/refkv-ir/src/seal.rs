@@ -47,6 +47,8 @@ pub enum Code {
     Inputs,
     /// a table or source past an archive's limits
     Archive,
+    /// a built-in output no projection should make: a failure, not a rejection
+    Internal,
 }
 
 impl Code {
@@ -60,6 +62,7 @@ impl Code {
             Code::Reads => "reads",
             Code::Inputs => "inputs",
             Code::Archive => "archive",
+            Code::Internal => "internal",
         }
     }
 }
@@ -105,7 +108,7 @@ impl From<String> for Refusal {
 impl From<SealError> for Refusal {
     fn from(e: SealError) -> Refusal {
         match e.code {
-            Code::Checksums => Refusal::Failed(e.to_string()),
+            Code::Checksums | Code::Internal => Refusal::Failed(e.to_string()),
             _ => Refusal::Rejected(e.to_string()),
         }
     }
@@ -425,45 +428,80 @@ pub fn seal(urls: &[Url], data: &[Vec<u8>], first: Option<usize>, documents: &[S
 /// convention that built it, not to the read rule a caller's values meet (spec/zarrify.md §1.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>). On success `out.data`
 /// holds only the data sources a reference uses, renumbered in `seal`'s order (from 1, the hosts'
-/// numbering), and its references name them so.
+/// numbering), and its references name them so. A refusal leaves `out` without its references.
 pub fn out(out: &mut Out, size: Option<u64>, objects: &HashMap<String, u64>, checksums: bool) -> Result<(), SealError> {
+    let internal = |k: &str, m: String| SealError::new(Code::Internal, Some(k), format!("internal: {m}"));
     let mut urls: Vec<Url> = Vec::new();
-    let mut object_at: HashMap<&str, usize> = HashMap::new();
+    let mut object_at: HashMap<String, usize> = HashMap::new();
     let first = size.map(|n| {
         urls.push(Url { url: out.url.clone(), size: Some(n), etag: None });
         0
     });
-    let mut values = Vec::with_capacity(out.refs.len());
-    for (k, parts) in &out.refs {
+    // the references are moved into the request and back, not copied: an output may hold millions
+    let refs = std::mem::take(&mut out.refs);
+    let mut values = Vec::with_capacity(refs.len());
+    for (k, parts) in refs {
         let mut pieces = Vec::with_capacity(parts.len());
         for p in parts {
             pieces.push(match p {
                 Part::Src(o, n) => match first {
-                    Some(f) => Piece::Url(f, *o, *n),
-                    None => return Err(SealError::new(Code::Value, Some(k), "internal: a range of source 0 in a store's output".into())),
+                    Some(f) => Piece::Url(f, o, n),
+                    None => return Err(internal(&k, "a range of source 0 in a store's output".into())),
                 },
                 Part::Obj(key, o, n) => {
-                    let i = *object_at.entry(key.as_str()).or_insert_with(|| {
-                        urls.push(Url { url: key.clone(), size: objects.get(key).copied(), etag: None });
-                        urls.len() - 1
-                    });
-                    Piece::Url(i, *o, *n)
+                    let i = match object_at.get(&key) {
+                        Some(&i) => i,
+                        None => {
+                            let Some(&size) = objects.get(&key) else {
+                                return Err(internal(&k, format!("{key} is no object of the IR")));
+                            };
+                            urls.push(Url { url: key.clone(), size: Some(size), etag: None });
+                            object_at.insert(key, urls.len() - 1);
+                            urls.len() - 1
+                        }
+                    };
+                    Piece::Url(i, o, n)
                 }
-                Part::Data(0, ..) => return Err(SealError::new(Code::Value, Some(k), "internal: data source 0".into())),
-                Part::Data(i, o, n) => Piece::Data(*i as usize - 1, *o, *n),
-                Part::Lit(b) => Piece::Lit(b.clone()),
+                Part::Data(0, ..) => return Err(internal(&k, "data source 0".into())),
+                Part::Data(i, o, n) => Piece::Data(i as usize - 1, o, n),
+                Part::Lit(b) => Piece::Lit(b),
             });
         }
-        values.push(Value { key: k.clone(), pieces, lifted: true });
+        values.push(Value { key: k, pieces, lifted: true });
     }
+    // `seal` gives the values in key order; the output keeps its own
+    let mut at: Vec<usize> = (0..values.len()).collect();
+    at.sort_unstable_by(|&a, &b| values[a].key.as_bytes().cmp(values[b].key.as_bytes()));
     let documents: Vec<String> = out.entries.iter().map(|e| e.0.clone()).collect();
     let limits = Limits { checksums, ..Limits::default() };
-    let sealed = seal(&urls, &out.data, first, &documents, values, &limits)?;
-    let order: Vec<usize> = sealed.sources.iter().filter_map(|s| match s {
-        Source::Data(i) => Some(*i),
-        _ => None,
-    }).collect();
-    out.renumber_data(&order);
+    let Sealed { sources, values: sealed } = seal(&urls, &out.data, first, &documents, values, &limits)?;
+    let mut old: Vec<Option<Vec<u8>>> = std::mem::take(&mut out.data).into_iter().map(Some).collect();
+    let mut data = Vec::new();
+    let mut rank = vec![0u32; sources.len()];
+    for (t, s) in sources.iter().enumerate() {
+        if let Source::Data(i) = s {
+            data.push(old[*i].take().unwrap_or_default());
+            rank[t] = data.len() as u32;
+        }
+    }
+    let mut placed: Vec<Option<(String, Vec<Part>)>> = (0..sealed.len()).map(|_| None).collect();
+    for (j, (k, ranges)) in sealed.into_iter().enumerate() {
+        let mut parts = Vec::with_capacity(ranges.len());
+        for r in ranges {
+            parts.push(match r {
+                Range::Lit(b) => Part::Lit(b),
+                Range::Src(s, o, n) => match &sources[s as usize] {
+                    Source::Url(i) if Some(*i) == first => Part::Src(o, n),
+                    Source::Url(i) => Part::Obj(urls[*i].url.clone(), o, n),
+                    Source::Data(_) => Part::Data(rank[s as usize], o, n),
+                    Source::Zeros(_) => return Err(internal(&k, "zero bytes of no data string".into())),
+                },
+            });
+        }
+        placed[at[j]] = Some((k, parts));
+    }
+    out.refs = placed.into_iter().flatten().collect();
+    out.set_data(data);
     // a summary that counts the data sources counts those the table keeps
     if let Some(n) = out.summary.get_mut("dataSources") {
         *n = out.data.len().into();
@@ -610,6 +648,16 @@ mod tests {
     }
 
     #[test]
+    fn fails_a_built_in_output_no_projection_should_make() {
+        // a store output's range of an object the IR does not hold: the projection's mistake
+        let mut o = Out::new("https://data.test/s/");
+        o.refs("a/c/0", vec![Part::Obj("missing".into(), 0, 4)]);
+        let e = out(&mut o, None, &HashMap::new(), false).unwrap_err();
+        assert_eq!((e.code, e.key.as_deref()), (Code::Internal, Some("a/c/0")));
+        assert!(matches!(Refusal::from(e), Refusal::Failed(_)));
+    }
+
+    #[test]
     fn rejects_before_it_fails() {
         // "a" passes the limit only with its checksums, "b" the read rule: the rejection, whatever
         // the keys' order
@@ -635,6 +683,8 @@ mod tests {
         o.refs("s/c/0", (0..1500).map(|k| Part::Src(k * (1 << 17), 1)).collect());
         out(&mut o, Some(1 << 40), &HashMap::new(), false).unwrap();
         assert_eq!(o.data, vec![b"early".to_vec(), b"late".to_vec()]);
+        // the references keep the output's order
+        assert_eq!(o.refs.iter().map(|r| r.0.as_str()).collect::<Vec<_>>(), ["b", "a", "s/c/0"]);
         assert_eq!(o.reference("a").unwrap()[0], Part::Data(1, 0, 5));
         assert_eq!(o.reference("b").unwrap()[1], Part::Data(2, 0, 4));
         // a built-in value meets its convention's bounds, not the read rule, sharded or not

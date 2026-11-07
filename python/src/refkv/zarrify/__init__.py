@@ -149,7 +149,7 @@ async def _zarrify_store_async(location: str, url: str | None = None, *, max_obj
     if fmt == "dicom":
         try:
             return fmt, await _zarrify_dicom_store(store, location, url, checksums=checksums, policy=policy,
-                                                   workers=workers, registry=registry)
+                                                   workers=workers, registry=registry, written=written)
         finally:
             store.close()
     try:
@@ -175,7 +175,8 @@ async def _zarrify_store_async(location: str, url: str | None = None, *, max_obj
 
 
 async def _zarrify_dicom_store(store: Listed, location: str, url: str | None, *, checksums: bool,
-                               policy: Policy | None, workers: int, registry: Resolver | None) -> SeriesOutput:
+                               policy: Policy | None, workers: int, registry: Resolver | None,
+                               written: bool = True) -> SeriesOutput:
     """The DICOM store form (spec/zarrify/dicom.md §9
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#9-the-store-form>): each key
     ending in `.dcm` zarrified as a file, the others recorded."""
@@ -188,7 +189,7 @@ async def _zarrify_dicom_store(store: Listed, location: str, url: str | None, *,
         where = str(Path(location) / key) if local else object_url(location, key)
         named = object_url(store.url, key) if local or url is not None else None
         fmt, out = await _zarrify_async(where, named, checksums=checksums, policy=policy, fmt="dicom",
-                                        registry=registry)
+                                        registry=registry, written=written)
         return await asyncio.to_thread(out.to_store, policy=policy, registry=registry,
                                        info={"format": fmt, **out.summary})
 

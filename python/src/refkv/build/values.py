@@ -126,8 +126,10 @@ class Check:
     parts: tuple[Part, ...] = field(default=(), compare=False, repr=False)
 
     def issued_for(self, parts: tuple[Part, ...]) -> bool:
-        """Whether a routine of refkv issued this very check, for `parts`."""
-        return _ISSUED.get(id(self)) is self and self.parts == parts
+        """Whether a routine of refkv issued this very check, for `parts`: a tuple of the very
+        parts, each of refkv's own class (a subclass's comparison is the caller's)."""
+        return (_ISSUED.get(id(self)) is self and type(parts) is tuple and len(parts) == len(self.parts)
+                and all(type(a) is type(b) and a == b for a, b in zip(self.parts, parts, strict=True)))
 
 
 # the checks refkv's routines issued, by identity: a copy (dataclasses.replace) is not among them

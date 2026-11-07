@@ -182,9 +182,11 @@ a `url` source the CRC-32C of its bytes ([spec/refkv.md §4.2](refkv.md#42-range
 byte the output references, pixel data included, so it is off by default;
 it is the one exception to "Structure only" below, and changes nothing else
 in the output. An output whose payload exceeds 65519 bytes only because of
-its checksums is a failure, not a rejection: each range of a `url` source counted with the
-most bytes its `crc32c` field takes, 6 (a tag, and a varint of 32 bits), so whether it fails
-depends on the output's ranges, never on the bytes they read. A data source is a `data` source
+its checksums is a failure, not a rejection: for an output a profile writes without a plugin,
+each range of a `url` source is counted with the most bytes its `crc32c` field takes, 6 (a tag,
+and a varint of 32 bits), so whether it fails depends on the output's ranges, never on the bytes
+they read (a plugin's output is measured as [spec/layout.md §4](layout.md#4-writing-the-output)
+says). A data source is a `data` source
 ([spec/refkv.md §5](refkv.md#5-source-table)) holding a byte string that a profile names as **shared**: one
 that many references would otherwise each read from the file, or each carry
 as a literal, such as a JPEG header. The data sources are the distinct
@@ -194,8 +196,9 @@ and within a reference in order of its ranges, the first range that uses a byte 
 not yet in the table adds it as the next source. Every output a profile writes without a plugin
 is numbered by this one rule, its `url` sources first, by their first use, then its data
 sources, from the first index after them: a store input's ([§1.4](#14-store-inputs)), a file read
-as a store's ([§1.8](#18-files-read-as-stores)), and an output built with `refkv.build`, whose
-source 0 is the input only when that is one plain file. Two outputs are numbered otherwise: a
+as a store's ([§1.8](#18-files-read-as-stores)); so is an output a caller builds with
+`refkv.build` (docs/build.md), whose source 0 is its input only when it has one input, a file
+read as a file input. Two outputs are numbered otherwise: a
 plugin's ([§1.9](#19-sources-beside-the-input), **Sources and order**), and the DICOM store form's
 ([dicom.md §9](zarrify/dicom.md#9-the-store-form)), whose table this document does not fix. A range that uses a shared
 byte string `d` in data source `i` is `(i, 0, len(d))`, the whole source,
@@ -295,7 +298,9 @@ in the output.
 **References stay in the file.** Every range of source 0 MUST lie within
 the file (`offset + length ≤` the file's size; a range of a data source is
 the whole source), every reference entry's
-payload MUST be at most 65519 bytes; otherwise the input is rejected. Both hold for every
+payload MUST be at most 65519 bytes, and every key MUST be at most 65535 bytes in UTF-8 and MUST
+NOT start with `__vz__/` (the ZIP binding's own, [spec/bindings/vzip.md](bindings/vzip.md));
+otherwise the input is rejected. The first two hold for every
 reference of a plugin's output ([spec/layout.md §4](layout.md#4-writing-the-output)), where a
 range of a data source may be any bytes within it, and one that breaks them is a failure of the
 call, not a rejection of the input. The
@@ -311,10 +316,11 @@ encoding (1 byte below 2^7, 2 below 2^14, and so on).
 ([conventions §8](conventions.md#8-the-ir-mirror)) bounds how many references it writes,
 so that a small input cannot make a large output. Each chunk it references is one
 **reference** (for a sharded array, each inner chunk, counted before the chunks are put in
-shards, [§2.1](#21-virtual-shards)), and so is each strip a chunk joins
-([tiff.md §7.3](zarrify/tiff.md#73-chunks)); a reference whose ranges of the file (or of the
-store's objects) are, in order, an earlier reference's, whatever elements or pieces of elements
-they are cut from, is also one **repeat** (a reference of no such range is none), as when two chunks name one element that two structures share
+shards, [§2.1](#21-virtual-shards)), but for a chunk that joins strips
+([tiff.md §7.3](zarrify/tiff.md#73-chunks)) each strip it joins is one, and the chunk none of its
+own; a reference whose ranges of the file (or of the store's objects) are, in order,
+an earlier reference's, whatever elements or pieces of elements they are cut from, is also one
+**repeat** (a reference of no such range is none), as when two chunks name one element that two structures share
 (an alias, [conventions §8.1](conventions.md#81-elements)). A zarrifier MUST reject an input
 whose output would have more than `2^22 + 4 × Z` references, `Z` the source's size (for a
 store IR, its objects' total size), with the message `budget: more than N refs`, or more than
@@ -1140,8 +1146,7 @@ entries. The Python reference has no limit of its own beyond the store IR's 2^24
 ([conventions §8.9](conventions.md#89-stores)), past which every zarrifier rejects the store;
 its run on a 470000-chunk OpenOrganelle level is recorded in
 `spec/history/virtualize/REVISIONS.md` (revision 12). Store profiles do not shard
-([§2.1](#21-virtual-shards)) because the hosts of a store input's zarrifier do not tell the pass
-that joins ranges whether they record checksums.
+([§2.1](#21-virtual-shards)): no store convention asks for shards.
 
 Implementations written from this document alone, round by round, are in
 `conformance/impls/zarrify/`; `spec/history/virtualize/REVISIONS.md` records what each

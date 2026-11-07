@@ -103,52 +103,63 @@ def seal(written: Mapping[str, Any], inputs: Sequence[Parsed], *, policy: Policy
     max_sources = min(_limit("max_sources", rules.max_sources), MAX_SOURCES)
     max_reads = _limit("max_reads", rules.max_reads)
     checksums = bool(inputs) and inputs[0].checksums
-    try:
-        got, sealed = _core.seal(
-            table.urls, table.data, table.first, [k for k in keys if k not in values],
-            [(k, [table.piece(p) for p in val.parts], _read_rule_lifted(val, k, entries)) for k, val in values.items()],
-            max_sources, max_reads, checksums)
-    except _core.SealRefused as e:
-        code, key, message = e.args
-        raise SealError(code, key, message) from None
+    request = (table.urls, table.data, table.first, [k for k in keys if k not in values],
+               [(k, [table.piece(p) for p in val.parts], _read_rule_lifted(val, k, entries))
+                for k, val in values.items()], max_sources, max_reads)
+    # every check that refuses the output runs before the checksums' measure, which fails the call
+    # instead: what a refusal is never depends on the order of the checks
+    got, sealed = _core_seal(*request, False)
     sources = [Source(url=table.urls[i][0], size=table.urls[i][1], etag=table.urls[i][2]) if kind == "url"
                else Source(data=table.data[i] if kind == "data" else bytes(i)) for kind, i in got]
-    _check_policy(sources, rules, registry if registry is not None else _first(inputs, "registry_given"))
-
-    mapping: dict[str, bytes | Range | Concat] = {}
-    for k, raw in sealed:
-        ranges = [Range(data=r) if isinstance(r, bytes) else Range(*r) for r in raw]
-        if checksums:
-            ranges = _checksummed(k, values[k].parts, ranges)
-        mapping[k] = ranges[0] if len(ranges) == 1 else Concat(tuple(ranges))
-
+    resolver = registry if registry is not None else _first(inputs, "registry_given")
+    _check_policy(sources, rules, resolver)
     for k in [*entries.at_open, *entries.stored]:
         if not isinstance(entries.get(k), bytes):
             raise SealError("open", k, "a placement names a key that is not a bytes entry of the output")
+    documents: dict[str, bytes] = {}
     at_open: set[str] = set()
     compressed: set[str] = set()
     for k in keys:
         v = entries[k]
         if not isinstance(v, bytes):
             continue
-        mapping[k] = v
+        documents[k] = v
         if entries.at_open.get(k, k.rpartition("/")[2] in DOCUMENTS):
             at_open.add(k)
         elif k not in entries.stored and _deflate_bound(len(v)) < STORED:
             compressed.add(k)
-    opened = sum(len(mapping[k]) for k in at_open)  # type: ignore[arg-type]
+    opened = sum(len(documents[k]) for k in at_open)
     if opened > MAX_OPEN:
         raise SealError("open", None, f"{opened} bytes read at open, more than {MAX_OPEN}")
+    most = min(MAX_OPEN, _limit("max_format_entry", rules.max_format_entry))
 
+    def store_of(ranges_of: list[tuple[str, list[Range]]]) -> ReferenceStore:
+        mapping: dict[str, bytes | Range | Concat] = {
+            k: r[0] if len(r) == 1 else Concat(tuple(r)) for k, r in ranges_of}
+        mapping.update(documents)
+        try:
+            store = ReferenceStore(mapping, sources, read_at_open=sorted(at_open), compressed=sorted(compressed),
+                                   page_size=PAGE_SIZE, policy=used, registry=resolver, info=dict(info or {}))
+        except (TypeError, ValueError, AttributeError) as e:
+            raise SealError("inputs", None, f"the store cannot be made with these arguments: {e}") from e
+        _check_archive(store, sources, mapping, most)
+        return store
+
+    ranges = [(k, [Range(data=r) if isinstance(r, bytes) else Range(*r) for r in raw]) for k, raw in sealed]
+    store = store_of(ranges)
+    if not checksums:
+        return store
+    _core_seal(*request, True)
+    return store_of([(k, _checksummed(k, values[k].parts, r)) for k, r in ranges])
+
+
+def _core_seal(*request: Any) -> tuple[list[tuple[str, int]], list[tuple[str, list[tuple[int, int, int] | bytes]]]]:  # noqa: ANN401
+    """The core's seal of `request` (`refkv._core.seal`'s arguments), its refusal a SealError."""
     try:
-        store = ReferenceStore(mapping, sources, read_at_open=sorted(at_open), compressed=sorted(compressed),
-                               page_size=PAGE_SIZE, policy=used,
-                               registry=registry if registry is not None else _first(inputs, "registry_given"),
-                               info=dict(info or {}))
-    except (TypeError, ValueError, AttributeError) as e:
-        raise SealError("inputs", None, f"the store cannot be made with these arguments: {e}") from e
-    _check_archive(store, sources, mapping, min(MAX_OPEN, _limit("max_format_entry", rules.max_format_entry)))
-    return store
+        return _core.seal(*request)
+    except _core.SealRefused as e:
+        code, key, message = e.args
+        raise SealError(code, key, message) from None
 
 
 def _check_policy(sources: Sequence[Source], rules: Policy, registry: object) -> None:
@@ -315,9 +326,9 @@ def _named(codec: object, name: str) -> bool:
     return isinstance(codec, dict) and codec.get("name") == name
 
 
-def _lead(codecs: object, n: int) -> tuple[list[int], list[Any]] | None:
+def _lead(codecs: object, n: int) -> tuple[list[int], list[Any], bool] | None:
     """The leading transpose of an array's codecs as an order (the identity when there is none),
-    and the codecs without it; None for codecs that cannot be read.
+    the codecs without it, and whether the array is sharded; None for codecs that cannot be read.
     The transpose sits first outside any `sharding_indexed` codec, or, as `copy` writes it for a
     sharded array, first in its inner codecs with `transpose([*order, n])` first in its index
     codecs, the inner chunk shape then put back in stored order."""
@@ -328,7 +339,8 @@ def _lead(codecs: object, n: int) -> tuple[list[int], list[Any]] | None:
         order = _order(codecs[0], n)
         if order is None:
             return None
-        return order, codecs[1:]
+        rest = codecs[1:]
+        return order, rest, bool(rest) and _named(rest[0], "sharding_indexed")
     if codecs and _named(codecs[0], "sharding_indexed"):
         conf = codecs[0].get("configuration")
         if not isinstance(conf, dict):
@@ -340,7 +352,7 @@ def _lead(codecs: object, n: int) -> tuple[list[int], list[Any]] | None:
         inner_first = bool(inner) and _named(inner[0], "transpose")
         index_first = bool(index) and _named(index[0], "transpose")
         if not inner_first and not index_first:
-            return identity, codecs
+            return identity, codecs, True
         if not (inner_first and index_first):
             return None  # an inner transpose without its index's, or the other way: not copy's form
         order, index_order = _order(inner[0], n), _order(index[0], n + 1)
@@ -351,8 +363,8 @@ def _lead(codecs: object, n: int) -> tuple[list[int], list[Any]] | None:
             return None
         conf["codecs"], conf["index_codecs"] = inner[1:], index[1:]
         conf["chunk_shape"] = [chunk[order[i]] for i in range(n)]
-        return order, [{**codecs[0], "configuration": conf}, *codecs[1:]]
-    return identity, codecs
+        return order, [{**codecs[0], "configuration": conf}, *codecs[1:]], True
+    return identity, codecs, False
 
 
 def _stored(x: Sequence[Any], order: Sequence[int]) -> list[Any]:
@@ -373,22 +385,23 @@ def _canonical(x: object) -> str:
 
 def _read_rule_lifted(val: Value, key: str, entries: Mapping[str, Any]) -> bool:
     """Whether checked value `val`, written at `key`, is exempt from the read rule: its check is
-    refkv's for its very parts (`Check.issued_for`), its rule lifts the read rule, and its binding
-    holds. Rule `"builtin"` holds a value to the bounds of the convention that built it, as `zarrify`
-    does, in place of the read rule (spec/zarrify.md §1.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>), in the array it was built in."""
+    refkv's for its very parts (`Check.issued_for`), its rule lifts the read rule there, and its binding holds. Rule
+    `"builtin"` lifts it inside a sharded array alone, whose shards a reader reads in parts
+    (spec/zarrify.md §2.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#21-virtual-shards>);
+    any other value of a built-in output is read whole, and meets the rule as a caller's does."""
     check = val.check
     if not isinstance(check, Check) or not check.issued_for(val.parts) or check.rule != "builtin":
         return False
-    return _binding_holds(val, key, entries)
+    return _binding_holds(val, key, entries) is True
 
 
-def _binding_holds(val: Value, key: str, entries: Mapping[str, Any]) -> bool:
-    """Whether checked value `val`, written at `key`, sits in the array of the output its binding
-    names: the nearest array document above `key`, whose shape, data type, chunk grid, codecs and
-    fill value are the binding's, leading transposes undone, with `key` its chunk key there."""
+def _binding_holds(val: Value, key: str, entries: Mapping[str, Any]) -> bool | None:
+    """Whether checked value `val`, written at `key`, sits in a sharded array of the output that its
+    binding names (True), in an unsharded one it names (False), or neither (None): the array
+    document above `key` whose shape, data type, chunk grid, codecs and fill value are the
+    binding's, leading transposes undone, with `key` its chunk key there."""
     if val.check is None:
-        return False
+        return None
     b: Binding = val.check.binding
     segments = key.split("/")
     for cut in range(len(segments) - 1, -1, -1):
@@ -398,36 +411,37 @@ def _binding_holds(val: Value, key: str, entries: Mapping[str, Any]) -> bool:
             continue
         raw = entries[doc_key]
         if not isinstance(raw, bytes):
-            return False  # the nearest document is no document a reader parses: it holds no binding
+            return None  # the nearest document is no document a reader parses: it holds no binding
         try:
             doc = json.loads(raw)
             if not isinstance(doc, dict) or doc.get("node_type") != "array":
-                return False
+                return None
             coords = chunk_coords(key[len(prefix) + 1:] if prefix else key, doc)
             return _same_array(doc, coords, b)
         except (ValueError, KeyError, TypeError, AttributeError, IndexError, RecursionError):
-            return False  # a document that cannot be read holds no binding
-    return False
+            return None  # a document that cannot be read holds no binding
+    return None
 
 
-def _same_array(doc: Mapping[str, Any], coords: Sequence[int], b: Binding) -> bool:
-    """Whether `doc` is the binding's array, at `coords` the binding's chunk."""
+def _same_array(doc: Mapping[str, Any], coords: Sequence[int], b: Binding) -> bool | None:
+    """True or False as for `_binding_holds`, when `doc` is the binding's array at `coords`; else None."""
     n = len(b.shape)
     shape = doc.get("shape")
     if not isinstance(shape, list) or len(shape) != n or len(coords) != n:
-        return False
+        return None
     d, bb = _lead(doc.get("codecs"), n), _lead(json.loads(b.codecs), n)
     d_grid, b_grid = _grid(doc), _grid({"chunk_grid": json.loads(b.chunk_grid)})
     if d is None or bb is None or d_grid is None or b_grid is None or len(d_grid) != n or len(b_grid) != n:
-        return False
-    (d_order, d_codecs), (b_order, b_codecs) = d, bb
-    return (_canonical(doc.get("data_type")) == b.data_type
+        return None
+    (d_order, d_codecs, sharded), (b_order, b_codecs, _) = d, bb
+    same = (_canonical(doc.get("data_type")) == b.data_type
             and _canonical(doc.get("fill_value")) == b.fill_value
             and _canonical(d_codecs) == _canonical(b_codecs)
             and (doc.get("chunk_grid") or {}).get("name") == json.loads(b.chunk_grid).get("name")
             and _stored(shape, d_order) == _stored(list(b.shape), b_order)
             and _stored(d_grid, d_order) == _stored(b_grid, b_order)
             and _stored(list(coords), d_order) == _stored(list(b.key), b_order))
+    return sharded if same else None
 
 
 def _check_archive(store: ReferenceStore, sources: list[Source], mapping: Mapping[str, object], most: int) -> None:
