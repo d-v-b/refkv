@@ -303,24 +303,23 @@ TRANSPOSE = {"name": "transpose", "configuration": {"order": [1, 0]}}
 
 
 @pytest.mark.parametrize(("built", "written", "expected"), [
-    # (the array a chunk was built in, the array it is written under, what _binding_holds says)
-    (([4, 6], [4, 6], [{"name": "bytes"}], 0), ([4, 6], [4, 6], [{"name": "bytes"}], 0), False),
-    (([4, 6], [4, 6], [{"name": "bytes"}], 0), ([6, 4], [6, 4], [TRANSPOSE, {"name": "bytes"}], 0), False),
+    # (the array a chunk was built in, the array it is written under, whether its binding holds)
+    (([4, 6], [4, 6], [{"name": "bytes"}], 0), ([4, 6], [4, 6], [{"name": "bytes"}], 0), True),
+    (([4, 6], [4, 6], [{"name": "bytes"}], 0), ([6, 4], [6, 4], [TRANSPOSE, {"name": "bytes"}], 0), True),
     (([4, 6], [4, 6], SHARDED, 0), ([4, 6], [4, 6], SHARDED, 0), True),
     (([4, 6], [4, 6], SHARDED, 0), ([6, 4], [6, 4], [TRANSPOSE, *SHARDED], 0), True),
     (([4, 6], [4, 6], SHARDED, 0), ([6, 4], [6, 4], COPIED, 0), True),
-    (([4, 6], [4, 6], SHARDED, 0), ([6, 4], [6, 4], INNER_ONLY, 0), None),
-    (([4, 6], [4, 6], [{"name": "bytes"}], 0), ([4, 7], [4, 7], [{"name": "bytes"}], 0), None),
+    (([4, 6], [4, 6], SHARDED, 0), ([6, 4], [6, 4], INNER_ONLY, 0), False),
+    (([4, 6], [4, 6], [{"name": "bytes"}], 0), ([4, 7], [4, 7], [{"name": "bytes"}], 0), False),
     (([4, 6], [4, 6], [{"name": "bytes"}], {"b": 0, "a": 1}), ([4, 6], [4, 6], [{"name": "bytes"}], {"a": 1, "b": 0}),
-     False),  # a struct's fill value, its members in another order
-    (([4, 6], [4, 6], [{"name": "bytes"}], 0), ([4, 6], [4, 6], [{"name": "bytes"}], 0.0), None),
+     True),  # a struct's fill value, its members in another order
+    (([4, 6], [4, 6], [{"name": "bytes"}], 0), ([4, 6], [4, 6], [{"name": "bytes"}], 0.0), False),
 ], ids=["as-built", "transposed", "sharded", "sharded-transposed", "copy-of-sharded", "inner-transpose-only",
         "other-shape", "struct-fill", "other-fill"])
 def test_where_a_check_holds(tmp_path, built, written, expected):
     """A checked chunk's binding holds in the array it was built in, and under Zarr's transpose codec
     put first (outside a shard, or as `copy` writes it inside one) with the shape, grid and key
-    permuted to match: True in a sharded array, where its rule lifts the read rule, False in another;
-    None anywhere else."""
+    permuted to match, sharded or not; nowhere else."""
     np.save(tmp_path / "x.npy", np.zeros((4, 6), dtype=np.uint8))
     with read(tmp_path / "x.npy") as p:
         shape, chunks, codecs, fill = built
@@ -334,7 +333,7 @@ def test_where_a_check_holds(tmp_path, built, written, expected):
         assert isinstance(v, Value)
         assert _binding_holds(v, "a/c/0/0", out) is expected
         out["a/zarr.json"] = Data(out["a/zarr.json"])  # type: ignore[arg-type]  # the nearest document, not bytes
-        assert _binding_holds(v, "a/c/0/0", out) is None
+        assert _binding_holds(v, "a/c/0/0", out) is False
 
 
 # ---- what seal refuses: one test each

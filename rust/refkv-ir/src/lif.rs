@@ -14,7 +14,6 @@ use crate::fed::{Fed, Word};
 use crate::ir::*;
 use crate::nd2::Step;
 use crate::out::MAX_PAYLOAD;
-use crate::seal::{MAX_READS, MERGE_GAP};
 use crate::rules::{self, Rules, flag, num, text};
 use crate::sans;
 use crate::xml::{self, Ev, TagRef};
@@ -1138,9 +1137,7 @@ impl Layout {
         let most = (BAND / row.max(1)).clamp(1, ny);
         self.band = (1..=most)
             .rev()
-            .find(|&b| ny % b == 0 && (sy == row || (rows_payload(far + (ny - b) * sy, sy, row, b) <= MAX_PAYLOAD as u64
-                // rows further apart than a reader merges are a read each (`seal`'s read rule)
-                && (sy - row <= MERGE_GAP || b <= MAX_READS as u64))))
+            .find(|&b| ny % b == 0 && (sy == row || rows_payload(far + (ny - b) * sy, sy, row, b) <= MAX_PAYLOAD as u64))
             .unwrap_or(1);
         let n = self.chunk_shape.len();
         self.chunk_shape[n - 2] = self.band;

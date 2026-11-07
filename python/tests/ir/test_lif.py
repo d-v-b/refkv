@@ -309,18 +309,13 @@ def test_a_file_run_of_a_document_starts_over_as_a_store_run():
 
 def test_bands_bound_a_chunk(tmp_path):
     """A band is the most rows, a divisor of the height, within 2^24 bytes, and for padded rows a
-    reference payload of at most 65519 bytes and, rows more than 64 KiB apart, at most 1024 rows, each
-    a read (spec/zarrify/lif.md §3.4
+    reference payload of at most 65519 bytes (spec/zarrify/lif.md §3.4
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#34-rows-and-bands>); the run
     reads the structure, not the pixels."""
     big = tmp_path / "big.lif"
     # 4097 rows of 4097 bytes: 16.8 MB, a plane past 2^24 bytes; 4097 = 17 x 241
     big.write_bytes(Lif("big.lif", [Img("big", "xy", {"x": 4097, "y": 4097})]).build())
-    # 1040 rows of 6 line-interleaved channels of 16000 bytes: rows 80000 bytes apart, a band of 520
-    lines = tmp_path / "lines.lif"
-    lines.write_bytes(Lif("lines.lif", [Img("lines", "xcy", {"x": 8000, "c": 6, "y": 1040}, "<u2")]).build())
-    cases = [(big, [241, 4097], 17), (FIXTURES / "lif" / "lif_rgb_padded_tall.lif", [3, 4096, 2], 4),
-             (lines, [1, 520, 8000], 12)]
+    cases = [(big, [241, 4097], 17), (FIXTURES / "lif" / "lif_rgb_padded_tall.lif", [3, 4096, 2], 4)]
     for path, chunk_shape, chunks in cases:
         out, root, _ = zarrified(path, tmp_path, "lif")
         doc = json.loads(out.bytes_entries["0/0/zarr.json"])

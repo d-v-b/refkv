@@ -6,7 +6,6 @@
 //! the ranges' checksums after it, and it measures each checksum at its largest.
 
 use crate::out::{Out, Part, MAX_PAYLOAD};
-use serde_json::Value as J;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
@@ -396,42 +395,37 @@ pub fn seal(urls: &[Url], data: &[Vec<u8>], first: Option<usize>, documents: &[S
                      §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)")));
             }
         }
-        let mut sizes: Vec<usize> = ranges.iter().map(range_size).collect();
-        let bare = payload(&sizes);
+        let bare = payload(&ranges.iter().map(range_size).collect::<Vec<_>>());
         if bare > MAX_PAYLOAD {
             return Err(SealError::new(Code::Payload, key, format!("a payload of {bare} bytes, more than {MAX_PAYLOAD}")));
         }
-        if limits.checksums {
-            for (n, r) in sizes.iter_mut().zip(&ranges) {
-                if matches!(r, Range::Src(s, ..) if url[*s as usize]) {
-                    *n += CRC_FIELD;
-                }
-            }
+        sealed.push((v.key, ranges));
+    }
+    // a failure only once no check that refuses the output is left: what refuses never depends on
+    // which key comes first
+    if limits.checksums {
+        for (key, ranges) in &sealed {
+            let sizes: Vec<usize> = ranges.iter().map(|r| range_size(r) + match r {
+                Range::Src(s, ..) if url[*s as usize] => CRC_FIELD,
+                _ => 0,
+            }).collect();
             let most = payload(&sizes);
             if most > MAX_PAYLOAD {
-                return Err(SealError::new(Code::Checksums, key, format!(
+                return Err(SealError::new(Code::Checksums, Some(key), format!(
                     "a payload of up to {most} bytes with its checksums, more than {MAX_PAYLOAD}")));
             }
         }
-        sealed.push((v.key, ranges));
     }
     Ok(Sealed { sources, values: sealed })
 }
 
-/// Whether the array document `doc` shards its chunks (`sharding_indexed`, after any transpose).
-fn sharded(doc: &[u8]) -> bool {
-    let Ok(v) = serde_json::from_slice::<J>(doc) else { return false };
-    v["node_type"] == "array"
-        && v["codecs"].as_array().is_some_and(|cs| cs.iter().any(|c| c["name"] == "sharding_indexed"))
-}
-
 /// Seals a built-in output, as every host writes it: its url sources are the file (source 0, of
 /// `size` bytes) for a file run, and for a store run the objects its references use (`objects`,
-/// each key's size); its data strings are `out.data`. A chunk of a sharded array is read in parts
-/// (spec/zarrify.md §2.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#21-virtual-shards>),
-/// so the read rule is lifted for the references under an array document that shards; every
-/// other reference meets it. On success `out.data` holds only the data sources a reference uses,
-/// renumbered in `seal`'s order (from 1, the hosts' numbering), and its references name them so.
+/// each key's size); its data strings are `out.data`. A built-in value is held to the bounds of the
+/// convention that built it, not to the read rule a caller's values meet (spec/zarrify.md §1.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>). On success `out.data`
+/// holds only the data sources a reference uses, renumbered in `seal`'s order (from 1, the hosts'
+/// numbering), and its references name them so.
 pub fn out(out: &mut Out, size: Option<u64>, objects: &HashMap<String, u64>, checksums: bool) -> Result<(), SealError> {
     let mut urls: Vec<Url> = Vec::new();
     let mut object_at: HashMap<&str, usize> = HashMap::new();
@@ -439,22 +433,6 @@ pub fn out(out: &mut Out, size: Option<u64>, objects: &HashMap<String, u64>, che
         urls.push(Url { url: out.url.clone(), size: Some(n), etag: None });
         0
     });
-    let mut docs: HashMap<&str, bool> = HashMap::new();
-    for (k, b) in &out.entries {
-        if k == "zarr.json" || k.ends_with("/zarr.json") {
-            docs.insert(k.strip_suffix("zarr.json").unwrap_or(k), sharded(b));
-        }
-    }
-    let lifted = |key: &str| -> bool {
-        let mut at = key.len();
-        while let Some(cut) = key[..at].rfind('/') {
-            if let Some(&s) = docs.get(&key[..cut + 1]) {
-                return s;
-            }
-            at = cut;
-        }
-        docs.get("").copied().unwrap_or(false)
-    };
     let mut values = Vec::with_capacity(out.refs.len());
     for (k, parts) in &out.refs {
         let mut pieces = Vec::with_capacity(parts.len());
@@ -476,7 +454,7 @@ pub fn out(out: &mut Out, size: Option<u64>, objects: &HashMap<String, u64>, che
                 Part::Lit(b) => Piece::Lit(b.clone()),
             });
         }
-        values.push(Value { key: k.clone(), pieces, lifted: lifted(k) });
+        values.push(Value { key: k.clone(), pieces, lifted: true });
     }
     let documents: Vec<String> = out.entries.iter().map(|e| e.0.clone()).collect();
     let limits = Limits { checksums, ..Limits::default() };
@@ -632,13 +610,26 @@ mod tests {
     }
 
     #[test]
+    fn rejects_before_it_fails() {
+        // "a" passes the limit only with its checksums, "b" the read rule: the rejection, whatever
+        // the keys' order
+        let urls = [url("u", Some(1 << 40), None)];
+        let over: Vec<Piece> = (0..6000).map(|k| Piece::Url(0, (1 << 30) + k * 3, 1)).collect();
+        let far: Vec<Piece> = (0..1025).map(|k| Piece::Url(0, k * (1 << 17), 1)).collect();
+        let limits = Limits { checksums: true, ..Limits::default() };
+        for (first, second) in [("a", "b"), ("b", "a")] {
+            let values = vec![Value { key: first.into(), pieces: over.clone(), lifted: true }, value(second, far.clone())];
+            assert_eq!(refused(seal(&urls, &[], None, &[], values, &limits)), (Code::Reads, Some(second.into())));
+        }
+    }
+
+    #[test]
     fn seals_a_built_in_output_renumbering_its_data() {
         let mut o = Out::new("https://data.test/f");
         // data strings in the order the projection used them, not the keys' order
         let late = o.shared(b"late");
         let early = o.shared(b"early");
         o.shared(b"unused");
-        o.json("s/zarr.json", &serde_json::json!({"node_type": "array", "codecs": [{"name": "sharding_indexed"}]}));
         o.refs("b", vec![Part::Src(0, 4), late.clone()]);
         o.refs("a", vec![early, Part::Lit(b"x".to_vec())]);
         o.refs("s/c/0", (0..1500).map(|k| Part::Src(k * (1 << 17), 1)).collect());
@@ -646,8 +637,8 @@ mod tests {
         assert_eq!(o.data, vec![b"early".to_vec(), b"late".to_vec()]);
         assert_eq!(o.reference("a").unwrap()[0], Part::Data(1, 0, 5));
         assert_eq!(o.reference("b").unwrap()[1], Part::Data(2, 0, 4));
-        // the same reference outside a sharded array passes the read rule
+        // a built-in value meets its convention's bounds, not the read rule, sharded or not
         o.refs("u/c/0", (0..1500).map(|k| Part::Src(k * (1 << 17), 1)).collect());
-        assert_eq!(out(&mut o, Some(1 << 40), &HashMap::new(), false).unwrap_err().code, Code::Reads);
+        assert!(out(&mut o, Some(1 << 40), &HashMap::new(), false).is_ok());
     }
 }

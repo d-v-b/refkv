@@ -308,9 +308,7 @@ A chunk holds a **band** of `b` rows of one plane. `b` is the largest divisor of
 `b × R ≤ 2^24` and, for padded rows, a band of `b` rows (`b` ranges of `R` bytes, `s_y` apart)
 starting at the farthest band's offset ([the profile §7.4](#74-chunk-references): the last band
 of the plane of the last time, channel, depth and field) has a reference payload of at most
-65519 bytes ([spec/zarrify.md §1.2](../zarrify.md#12-input)) and, when rows lie more than 65536
-bytes apart (`s_y − R > 65536`), `b ≤ 1024`, so that a chunk meets
-[§1.2](../zarrify.md#12-input)'s read rule; at least 1. So every chunk is one
+65519 bytes ([spec/zarrify.md §1.2](../zarrify.md#12-input)); at least 1. So every chunk is one
 range of its block, or for padded rows the ranges of its rows, and holds at most 16 MiB
 (or one row).
 

@@ -89,9 +89,9 @@ the archive. A chunk refkv's own
 output holds is **checked**: it carries the rule of the convention it was built under, which `seal`
 holds it to where it is written (in the array it was built in, or under a leading `transpose`
 codec), in place of the read rule a caller's own values meet. Only refkv's routines make checks;
-`seal` honors no other. Today's one rule, `"builtin"`, lifts the read rule inside a sharded array,
-whose shards a reader reads in parts; a built-in value outside one meets the read rule like any
-other.
+`seal` honors no other. Today's one rule, `"builtin"`, holds a value to the bounds of the
+convention that built it, as `zarrify` does, so the read rule is lifted for it in the array it was
+built in.
 
 `refkv.build.project(p)` is the output `zarrify` writes for the input, as checked values:
 `seal(project(p).written, [p])` reads what `zarrify` writes.

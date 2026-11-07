@@ -147,7 +147,7 @@ def seal(written: Mapping[str, Any], inputs: Sequence[Parsed], *, policy: Policy
                                info=dict(info or {}))
     except (TypeError, ValueError, AttributeError) as e:
         raise SealError("inputs", None, f"the store cannot be made with these arguments: {e}") from e
-    _check_archive(store, sources, mapping, min(MAX_OPEN, rules.max_format_entry))
+    _check_archive(store, sources, mapping, min(MAX_OPEN, _limit("max_format_entry", rules.max_format_entry)))
     return store
 
 
@@ -264,6 +264,9 @@ class _Table:
         elif isinstance(p, Zeros):
             if not _natural(p.length):
                 raise SealError("value", key, "Zeros of a natural number of bytes")
+            if p.length > MAX_OPEN:  # the core's limit, said here of a length it cannot take
+                raise SealError("archive", None, f"a zero data source of {p.length} bytes, more than the {MAX_OPEN} "
+                                                 "of a source table")
         elif isinstance(p, Literal):
             if type(p.data) is not bytes:
                 raise SealError("value", key, f"a Literal's data is bytes, not {type(p.data).__name__}")
@@ -279,7 +282,7 @@ class _Table:
         if isinstance(p, Data):
             return (1, self.data_at[p.data], p.offset, p.size)
         if isinstance(p, Zeros):
-            return (2, min(p.length, U64))  # the core refuses any past an archive's zero source
+            return (2, p.length)
         raise TypeError(f"no piece of {type(p).__name__}")  # `use` took every other part
 
 
@@ -312,9 +315,9 @@ def _named(codec: object, name: str) -> bool:
     return isinstance(codec, dict) and codec.get("name") == name
 
 
-def _lead(codecs: object, n: int) -> tuple[list[int], list[Any], bool] | None:
+def _lead(codecs: object, n: int) -> tuple[list[int], list[Any]] | None:
     """The leading transpose of an array's codecs as an order (the identity when there is none),
-    the codecs without it, and whether the array is sharded; None for codecs that cannot be read.
+    and the codecs without it; None for codecs that cannot be read.
     The transpose sits first outside any `sharding_indexed` codec, or, as `copy` writes it for a
     sharded array, first in its inner codecs with `transpose([*order, n])` first in its index
     codecs, the inner chunk shape then put back in stored order."""
@@ -325,8 +328,7 @@ def _lead(codecs: object, n: int) -> tuple[list[int], list[Any], bool] | None:
         order = _order(codecs[0], n)
         if order is None:
             return None
-        rest = codecs[1:]
-        return order, rest, bool(rest) and _named(rest[0], "sharding_indexed")
+        return order, codecs[1:]
     if codecs and _named(codecs[0], "sharding_indexed"):
         conf = codecs[0].get("configuration")
         if not isinstance(conf, dict):
@@ -338,7 +340,7 @@ def _lead(codecs: object, n: int) -> tuple[list[int], list[Any], bool] | None:
         inner_first = bool(inner) and _named(inner[0], "transpose")
         index_first = bool(index) and _named(index[0], "transpose")
         if not inner_first and not index_first:
-            return identity, codecs, True
+            return identity, codecs
         if not (inner_first and index_first):
             return None  # an inner transpose without its index's, or the other way: not copy's form
         order, index_order = _order(inner[0], n), _order(index[0], n + 1)
@@ -349,8 +351,8 @@ def _lead(codecs: object, n: int) -> tuple[list[int], list[Any], bool] | None:
             return None
         conf["codecs"], conf["index_codecs"] = inner[1:], index[1:]
         conf["chunk_shape"] = [chunk[order[i]] for i in range(n)]
-        return order, [{**codecs[0], "configuration": conf}, *codecs[1:]], True
-    return identity, codecs, False
+        return order, [{**codecs[0], "configuration": conf}, *codecs[1:]]
+    return identity, codecs
 
 
 def _stored(x: Sequence[Any], order: Sequence[int]) -> list[Any]:
@@ -371,23 +373,22 @@ def _canonical(x: object) -> str:
 
 def _read_rule_lifted(val: Value, key: str, entries: Mapping[str, Any]) -> bool:
     """Whether checked value `val`, written at `key`, is exempt from the read rule: its check is
-    refkv's for its very parts (`Check.issued_for`), its rule lifts the read rule there, and its binding holds. Rule
-    `"builtin"` lifts it inside a sharded array alone, whose shards a reader reads in parts
-    (spec/zarrify.md §2.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#21-virtual-shards>);
-    any other value of a built-in output is read whole, and meets the rule as a caller's does."""
+    refkv's for its very parts (`Check.issued_for`), its rule lifts the read rule, and its binding
+    holds. Rule `"builtin"` holds a value to the bounds of the convention that built it, as `zarrify`
+    does, in place of the read rule (spec/zarrify.md §1.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>), in the array it was built in."""
     check = val.check
     if not isinstance(check, Check) or not check.issued_for(val.parts) or check.rule != "builtin":
         return False
-    return _binding_holds(val, key, entries) is True
+    return _binding_holds(val, key, entries)
 
 
-def _binding_holds(val: Value, key: str, entries: Mapping[str, Any]) -> bool | None:
-    """Whether checked value `val`, written at `key`, sits in a sharded array of the output that its
-    binding names (True), in an unsharded one it names (False), or neither (None): the array
-    document above `key` whose shape, data type, chunk grid, codecs and fill value are the
-    binding's, leading transposes undone, with `key` its chunk key there."""
+def _binding_holds(val: Value, key: str, entries: Mapping[str, Any]) -> bool:
+    """Whether checked value `val`, written at `key`, sits in the array of the output its binding
+    names: the nearest array document above `key`, whose shape, data type, chunk grid, codecs and
+    fill value are the binding's, leading transposes undone, with `key` its chunk key there."""
     if val.check is None:
-        return None
+        return False
     b: Binding = val.check.binding
     segments = key.split("/")
     for cut in range(len(segments) - 1, -1, -1):
@@ -397,37 +398,36 @@ def _binding_holds(val: Value, key: str, entries: Mapping[str, Any]) -> bool | N
             continue
         raw = entries[doc_key]
         if not isinstance(raw, bytes):
-            return None  # the nearest document is no document a reader parses: it holds no binding
+            return False  # the nearest document is no document a reader parses: it holds no binding
         try:
             doc = json.loads(raw)
             if not isinstance(doc, dict) or doc.get("node_type") != "array":
-                return None
+                return False
             coords = chunk_coords(key[len(prefix) + 1:] if prefix else key, doc)
             return _same_array(doc, coords, b)
         except (ValueError, KeyError, TypeError, AttributeError, IndexError, RecursionError):
-            return None  # a document that cannot be read holds no binding
-    return None
+            return False  # a document that cannot be read holds no binding
+    return False
 
 
-def _same_array(doc: Mapping[str, Any], coords: Sequence[int], b: Binding) -> bool | None:
-    """True or False as for `_binding_holds`, when `doc` is the binding's array at `coords`; else None."""
+def _same_array(doc: Mapping[str, Any], coords: Sequence[int], b: Binding) -> bool:
+    """Whether `doc` is the binding's array, at `coords` the binding's chunk."""
     n = len(b.shape)
     shape = doc.get("shape")
     if not isinstance(shape, list) or len(shape) != n or len(coords) != n:
-        return None
+        return False
     d, bb = _lead(doc.get("codecs"), n), _lead(json.loads(b.codecs), n)
     d_grid, b_grid = _grid(doc), _grid({"chunk_grid": json.loads(b.chunk_grid)})
     if d is None or bb is None or d_grid is None or b_grid is None or len(d_grid) != n or len(b_grid) != n:
-        return None
-    (d_order, d_codecs, sharded), (b_order, b_codecs, _) = d, bb
-    same = (_canonical(doc.get("data_type")) == b.data_type
+        return False
+    (d_order, d_codecs), (b_order, b_codecs) = d, bb
+    return (_canonical(doc.get("data_type")) == b.data_type
             and _canonical(doc.get("fill_value")) == b.fill_value
             and _canonical(d_codecs) == _canonical(b_codecs)
             and (doc.get("chunk_grid") or {}).get("name") == json.loads(b.chunk_grid).get("name")
             and _stored(shape, d_order) == _stored(list(b.shape), b_order)
             and _stored(d_grid, d_order) == _stored(b_grid, b_order)
             and _stored(list(coords), d_order) == _stored(list(b.key), b_order))
-    return sharded if same else None
 
 
 def _check_archive(store: ReferenceStore, sources: list[Source], mapping: Mapping[str, object], most: int) -> None:
