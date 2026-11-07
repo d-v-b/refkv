@@ -1304,10 +1304,11 @@ combines fewer reads instead, and the readers here close the narrowest gaps firs
 **coalescing gap** their policy sets (64 KiB by default; 0 combines only reads that touch). How many
 bytes the reads of different `get`s fetch to save requests, 4 times what they ask for plus that gap,
 is a setting of the policy too, its read amplification; a shared read never joins two reads of one
-`get` that its own coalescing kept apart, nor makes a request of more than the bytes per `get`. A
-`key` source's value that the reader holds whole to read a range of it is fetched once a `get`,
-whether or not the reader already holds it, and each range cut from it is built from each time;
-which values those are is each reader's.
+`get` that its own coalescing kept apart into a new request, nor makes a request of more than the
+bytes per `get` but for a read longer than that, a request of its own. A `key` source's value that
+the reader holds whole to read a range of it counts as fetched once a `get`, the bytes the reader
+reads to hold it, whether or not it already holds the value, and each range cut from it is built
+from each time; which values those are is each reader's.
 Rule 5 also says what a writer does with these limits: nothing. They are each reader's, which a
 reader of a trusted store may raise, so a writer does not hold a store to them; refkv's writers no
 longer refuse a value of more than 1024 reads. The limits are implementation-defined, as rule 5's

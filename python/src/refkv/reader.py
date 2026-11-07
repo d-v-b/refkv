@@ -1370,16 +1370,17 @@ class ReferenceReader:
         the lookups not yet done cancelled. A key the reader cannot look up fails the value as a
         resolution error: what it takes is unknown."""
         tasks = {asyncio.ensure_future(self._key_held_whole(k)): k for k in keys}
-        pending = set(tasks)
+        finished: asyncio.Queue[asyncio.Future[Held | None]] = asyncio.Queue()  # each lookup as it ends
+        for t in tasks:
+            t.add_done_callback(finished.put_nowait)
         whole: dict[str, Held] = {}
         try:
-            while pending:
-                done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
-                for t in done:
-                    if (h := t.result()) is not None:
-                        whole[tasks[t]] = h
-                        fetched += h.read
-                self._check_get_bytes(fetched)
+            for _ in tasks:
+                t = await finished.get()
+                if (h := t.result()) is not None:
+                    whole[tasks[cast("asyncio.Task[Held | None]", t)]] = h
+                    fetched += h.read
+                    self._check_get_bytes(fetched)
         except (RequestError, ResolutionError):
             raise
         except Exception as exc:  # noqa: BLE001 - spec §6.4 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#64-errors>: failures resolving a range

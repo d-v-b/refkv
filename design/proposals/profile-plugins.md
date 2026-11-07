@@ -423,7 +423,7 @@ shape, the chunk grid and the chunk keys in the new order, as Zarr v3 defines
 the codec (its `order` names, for each stored axis, the presented axis it
 holds, so it is the inverse of the permutation that takes the stored axes to
 the presented ones). That is Zarr's rule, not refkv's, and the chunks keep
-their values and their checks.
+their values.
 
 `Written` is a mutable mapping of keys to bytes or values, with the
 placements of what it holds: `written[key] = value` adds an entry, and
