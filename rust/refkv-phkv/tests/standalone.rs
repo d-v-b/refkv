@@ -743,3 +743,40 @@ fn a_repeated_range_of_a_held_value_counts_each_time() {
     assert_eq!(limited(8000).get("r", Request::Whole, &NoUrls).unwrap().unwrap(), vec![9u8; 8000]);
     assert_eq!(limited(7999).get("r", Request::Whole, &NoUrls).unwrap_err().class, Class::Request);
 }
+
+/// A file whose reads covering one offset fail.
+struct Failing(Vec<u8>, u64);
+
+impl refkv_phkv::ReadAt for Failing {
+    fn size(&self) -> std::io::Result<u64> {
+        self.0.size()
+    }
+
+    fn read_at(&self, offset: u64, buf: &mut [u8]) -> std::io::Result<()> {
+        if offset <= self.1 && self.1 < offset + buf.len() as u64 {
+            return Err(std::io::Error::other("the read failed"));
+        }
+        self.0.read_at(offset, buf)
+    }
+}
+
+/// A key source whose record cannot be read fails a get as a resolution error: what it takes is
+/// unknown, so the reader neither counts only its range nor reads it.
+#[test]
+fn a_key_source_that_cannot_be_looked_up_fails_the_get() {
+    let b = write(Options::default(), |w| {
+        w.add_bytes_with("z", &vec![9u8; 100_000], Codec::Deflate).unwrap();
+        let z = w.internal("z").unwrap();
+        w.add_ranges("r", &[Range::of(z, 0, 3)]).unwrap();
+    });
+    // the last read of a lookup of "z" is its record, outside a short tail read at open
+    let limits = refkv_phkv::Limits { tail: 256, ..Default::default() };
+    let logged = Store::open_with(Logging(b.clone(), Default::default()), limits.clone()).unwrap();
+    logged.get("r", Request::Whole, &NoUrls).unwrap();
+    let before = logged.reader().1.borrow().len();
+    logged.key_held_whole("z").unwrap();
+    let record = *logged.reader().1.borrow().get(before..).and_then(<[_]>::last).expect("z's record read");
+    let s = Store::open_with(Failing(b, record.0), limits).unwrap();
+    assert_eq!(s.key_held_whole("z").unwrap_err().class, Class::Resolution);
+    assert_eq!(s.get("r", Request::Whole, &NoUrls).unwrap_err().class, Class::Resolution);
+}
