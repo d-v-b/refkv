@@ -58,4 +58,6 @@ The Python package `refkv` stores a [VirtualiZarr](https://virtualizarr.readthed
 
 [tiff-stack.md](tiff-stack.md) zarrifies a directory of TIFF files, one per plane, and stacks them into one `(z, y, x)` array saved as a vzip sidecar beside the files, with source URLs relative to the sidecar ([examples/tiff_stack.py](examples/tiff_stack.py)).
 
+[build.md](build.md) builds an output from refkv's IR with `refkv.build`: an input read as `zarrify` reads it, values that name the bytes they read, and `seal`, which checks the output against the sources refkv opened.
+
 [layout-plugins.md](layout-plugins.md) writes the whole output yourself, in a Python package, from what refkv read: an OME-Zarr 0.6 image of a TIFF or an HDF5 file, a TIFF's every page, re-tiled HDF5 datasets, a Zarr v2 hierarchy for xarray; refkv ships these as examples ([refkv.zarrify.layouts.examples](../python/src/refkv/zarrify/layouts/examples/)).
