@@ -14,9 +14,10 @@ use std::fmt;
 /// <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>'s default
 /// `max_format_entry`).
 pub const MAX_OPEN: u64 = 256 << 20;
-/// The sources of a table a reader opens (spec/refkv.md §6.7's `max_sources`).
+/// The sources of a table a reader opens (`max_sources` of spec/refkv.md §6.7
+/// <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>).
 pub const MAX_SOURCES: usize = 1 << 22;
-/// The url reads of one value (spec/refkv.md §6.7 rule 5).
+/// The url reads of one value (spec/refkv.md §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 5).
 pub const MAX_READS: usize = 1024;
 /// Ranges of one source this close are one read, as refkv's readers merge them.
 pub const MERGE_GAP: u64 = 1 << 16;
@@ -254,7 +255,8 @@ enum Slot {
 
 /// Seals an output: `documents` are the keys of its bytes entries and `values` its reference
 /// entries, whose url pieces name `urls` and data pieces `data`; `first`, a url that is source 0
-/// whether or not a value uses it (one input that is a plain file, spec/zarrify.md §1.2).
+/// whether or not a value uses it (one input that is a plain file, spec/zarrify.md §1.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>).
 ///
 /// The table is numbered by first use over the values in the order of their keys (UTF-8), within
 /// a value in the order of its pieces: the url sources first, then the data sources (each distinct
