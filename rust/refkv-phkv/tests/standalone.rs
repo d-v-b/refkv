@@ -96,12 +96,16 @@ fn values_references_and_listing() {
     let small = Store::open_with(s.reader().clone(), refkv_phkv::Limits { request_bytes: 50, ..Default::default() }).unwrap();
     assert_eq!(small.get("r/crc", Request::Range(1, 2), &objects).unwrap_err().class, Class::Request);
     assert_eq!(small.get("r/one", Request::Whole, &objects).unwrap().unwrap(), object[10..30]);
-    // a range of a compressed key source counts the value, decoded whole, once a get: 6 + 2 + its size
-    assert_eq!(s.key_decoded_whole("a/c/2").unwrap(), Some(big.len() as u64));
-    assert_eq!(s.key_decoded_whole("a/c/0").unwrap(), None);
+    // a compressed key source's value, decoded whole, is fetched once a get: the value's size, more
+    // than the 16 bytes the value is built from
+    let Some(EntryInfo::Bytes { stored_length, .. }) = s.entry_info("a/c/2").unwrap() else { panic!() };
+    assert_eq!(s.key_held_whole("a/c/2").unwrap(), Some((big.len() as u64, big.len() as u64)));
+    assert!(stored_length < big.len() as u64);
+    assert_eq!(s.key_held_whole("a/c/0").unwrap(), None);
+    assert_eq!(s.key_held_whole("a/c/3").unwrap().map(|(size, _)| size), Some(4)); // inline
     let decoded = |request_bytes| Store::open_with(s.reader().clone(), refkv_phkv::Limits { request_bytes, ..Default::default() }).unwrap();
-    assert_eq!(decoded(big.len() as u64 + 8).get("r/concat", Request::Whole, &NoUrls).unwrap().unwrap(), concat);
-    assert_eq!(decoded(big.len() as u64 + 7).get("r/concat", Request::Whole, &NoUrls).unwrap_err().class, Class::Request);
+    assert_eq!(decoded(big.len() as u64).get("r/concat", Request::Whole, &NoUrls).unwrap().unwrap(), concat);
+    assert_eq!(decoded(big.len() as u64 - 1).get("r/concat", Request::Whole, &NoUrls).unwrap_err().class, Class::Request);
     // a url source without a resolver is a resolution error, for the requests that need it
     assert_eq!(s.get("r/one", Request::Whole, &NoUrls).unwrap_err().class, Class::Resolution);
     assert_eq!(s.get("a/c/0", Request::Range(5, 4), &NoUrls).unwrap_err().class, Class::Request);
@@ -723,4 +727,19 @@ fn a_compressed_key_source_is_decoded_once_a_get() {
     let (one, (many, n)) = (bodies("one"), bodies("many"));
     assert_eq!((one.0, many), (big[..3].to_vec(), want));
     assert_eq!(n, one.1);
+}
+
+/// A reference that repeats a range of a key source the reader holds whole counts each range it
+/// builds the value from, however few bytes it fetches.
+#[test]
+fn a_repeated_range_of_a_held_value_counts_each_time() {
+    let value = vec![9u8; 1000];
+    let b = write(Options::default(), |w| {
+        w.add_bytes_with("z", &value, Codec::Deflate).unwrap();
+        let z = w.internal("z").unwrap();
+        w.add_ranges("r", &vec![Range::of(z, 0, 1000); 8]).unwrap();
+    });
+    let limited = |request_bytes| Store::open_with(b.clone(), refkv_phkv::Limits { request_bytes, ..Default::default() }).unwrap();
+    assert_eq!(limited(8000).get("r", Request::Whole, &NoUrls).unwrap().unwrap(), vec![9u8; 8000]);
+    assert_eq!(limited(7999).get("r", Request::Whole, &NoUrls).unwrap_err().class, Class::Request);
 }

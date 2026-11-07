@@ -1180,10 +1180,11 @@ class ReferenceReader:
         <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>)."""
         raise NotImplementedError
 
-    async def _key_held_whole(self, key: str) -> int | None:  # noqa: ARG002 (a binding's)
-        """The size of the value at `key` when `_key_bytes` holds it whole to read any range of it,
-        which rule 5 (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)
-        counts whole, once a get, cached or not; None when it reads only the range."""
+    async def _key_held_whole(self, key: str) -> tuple[int, int] | None:  # noqa: ARG002 (a binding's)
+        """The size of the value at `key`, and the bytes the reader reads to hold it, when
+        `_key_bytes` holds it whole to read any range of it, which rule 5 (spec §6.7
+        <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>) counts as fetched
+        once a get, cached or not; None when it reads only the range."""
         return None
 
     async def _read(
@@ -1374,10 +1375,8 @@ class ReferenceReader:
         # `cuts` says which part of each piece the window takes, and which checksum it must have.
         pieces: list[bytes | tuple[int, int, int] | _DataPiece | _KeyPiece] = []
         cuts: list[tuple[int, int, int | None]] = []
-        taken = 0  # the bytes the value is built from: a range with a crc32c whole
-        # each key source's ranges, their bytes and the longest: until the reader says whether it
-        # holds the key's value whole, `taken` counts the longest, which either count is at least
-        keyed: dict[str, tuple[int, int]] = {}
+        built = 0  # the bytes the value is built from, each range's each time: a range with a crc32c whole
+        keys: dict[str, None] = {}  # the key sources it reads, in order
         pos = 0
         for r in parts(ref):
             lo, hi = max(start, pos), min(end, pos + r.size)
@@ -1385,7 +1384,7 @@ class ReferenceReader:
                 if r.data is not None:
                     pieces.append(r.data[lo - pos : hi - pos])
                     cuts.append((0, hi - lo, None))
-                    taken += hi - lo
+                    built += hi - lo
                     pos += r.size
                     continue
                 if r.crc32c is None:
@@ -1394,18 +1393,14 @@ class ReferenceReader:
                 else:
                     a, b = r.offset, r.offset + r.length
                     cuts.append((lo - pos, hi - pos, r.crc32c))
-                src = self._sources[r.source]
-                if src.key is None:
-                    taken += b - a
-                else:
-                    total, longest = keyed.get(src.key, (0, 0))
-                    keyed[src.key] = (total + b - a, max(longest, b - a))
-                    taken += max(b - a - longest, 0)
-                if taken > self.policy.max_get_bytes:  # rule 5, refused below: nothing is read
+                built += b - a
+                if built > self.policy.max_get_bytes:  # rule 5, refused below: nothing is read
                     break
+                src = self._sources[r.source]
                 if src.data is not None:
                     pieces.append(_DataPiece(r.source, a, b))  # taken once the value passes rule 5
                 elif src.key is not None:
+                    keys[src.key] = None
                     pieces.append(_KeyPiece(src.key, a, b))
                 else:
                     pieces.append((r.source, a, b))
@@ -1417,24 +1412,21 @@ class ReferenceReader:
         # spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 5, before any
         # read: the bytes it is built from, and those it fetches, the bytes between coalesced ranges included
         fetched_bytes = sum(b - a for _, a, b in runs)
-        self._check_get_bytes(max(taken, fetched_bytes))
+        self._check_get_bytes(max(built, fetched_bytes))
         if len(runs) > self.policy.max_reads:
             raise RequestError(f"the value needs {len(runs)} reads; this reader allows "
                                f"{self.policy.max_reads} ("
                                f"spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)")
-        # a key's value the reader holds whole to read a range of it counts whole, once; else its
-        # ranges count. A key the reader cannot look up fails the value: its count is unknown.
+        # a key's value the reader holds whole to read a range of it is fetched once, the bytes it
+        # reads to hold it; a key the reader cannot look up fails the value: what it takes is unknown
         try:
-            sizes = await asyncio.gather(*(self._key_held_whole(k) for k in keyed))
+            sizes = await asyncio.gather(*(self._key_held_whole(k) for k in keys))
         except ResolutionError:
             raise
         except Exception as exc:  # noqa: BLE001 - spec §6.4 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#64-errors>: failures resolving a range
             raise ResolutionError(f"{type(exc).__name__}: {exc}") from None
-        held = dict(zip(keyed, sizes, strict=True))
-        for k, n in held.items():
-            total, longest = keyed[k]
-            taken += (total if n is None else max(n, longest)) - longest
-        self._check_get_bytes(taken)
+        whole = {k: n for k, n in zip(keys, sizes, strict=True) if n is not None}
+        self._check_get_bytes(fetched_bytes + sum(read for _, read in whole.values()))
         for i, p in enumerate(pieces):
             if isinstance(p, _DataPiece):
                 data = cast("bytes", self._sources[p.source].data)
@@ -1442,10 +1434,9 @@ class ReferenceReader:
                     raise ResolutionError(f"data source {p.source} is shorter than {p.end} bytes")
                 pieces[i] = data[p.start:p.end]
         owner = object()  # this value's reads, which the shared reads keep apart
-        # a key's value counted whole is read whole once, and its ranges are cut from it
-        whole = {k: n for k, n in held.items() if n is not None}
+        # a key's value held whole is read whole once, and its ranges are cut from it
         ranged = [p for p in pieces if isinstance(p, _KeyPiece) and p.key not in whole]
-        coros = [self._key_bytes(k, 0, n) for k, n in whole.items()]
+        coros = [self._key_bytes(k, 0, n) for k, (n, _) in whole.items()]
         coros += [self._key_bytes(p.key, p.start, p.end) for p in ranged]
         coros += [self._shared_read(s, a, b, owner) for s, a, b in runs]
         try:

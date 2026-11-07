@@ -637,15 +637,20 @@ impl<R: ReadAt> Store<R> {
         self.source_bytes(&Source::key(key), start, end.saturating_sub(start), &NoUrls)
     }
 
-    /// The size of the value at `key` when [`Store::key_bytes`] decodes it whole to read any range of
-    /// it (a compressed value), which rule 5 (spec/refkv.md §6.7
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>) counts whole, once a
-    /// get; None when it reads only the range (a codec-0 value), or the key is missing or a
-    /// reference, which `key_bytes` refuses. A failed lookup is a resolution error: the value's
-    /// count is unknown.
-    pub fn key_decoded_whole(&self, key: &str) -> Result<Option<u64>, ReadError> {
+    /// The size of the value at `key`, and the bytes read to hold it, when [`Store::key_bytes`] holds
+    /// it whole to read any range of it (a compressed value, decoded whole, or an inline one, read
+    /// with its record), which rule 5 (spec/refkv.md §6.7
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>) counts as fetched
+    /// once a get; None when it reads only the range (a codec-0 value stored apart), or the key is
+    /// missing or a reference, which `key_bytes` refuses. A failed lookup is a resolution error: what
+    /// the value takes is unknown.
+    pub fn key_held_whole(&self, key: &str) -> Result<Option<(u64, u64)>, ReadError> {
         match self.lookup(key) {
-            Ok(Some(Record { value: Value::Bytes { codec, size, .. }, .. })) if codec != Codec::None => Ok(Some(size)),
+            Ok(Some(Record { value: Value::Bytes { codec, stored, stored_length, size, .. }, .. }))
+                if codec != Codec::None || matches!(stored, Stored::Inline(_)) =>
+            {
+                Ok(Some((size, size.max(stored_length))))
+            }
             Ok(_) => Ok(None),
             Err(e) => err(Class::Resolution, format!("key source {key:?}: {}", e.message)),
         }
@@ -760,26 +765,25 @@ impl<R: ReadAt> Store<R> {
         if url_reads > self.limits.url_reads {
             return err(Class::Request, format!("{url_reads} url reads, more than the limit of {}", self.limits.url_reads));
         }
-        // rule 5, before any read: the bytes the parts take, a range with a checksum read whole, and
-        // a key source's value decoded whole counted whole, once
-        let mut held: HashMap<&str, Option<u64>> = HashMap::new(); // each key looked up once a get
-        let mut taken = 0u64;
+        // rule 5, before any read: the bytes the value is built from, each range's each time (a range
+        // with a checksum read whole), and the bytes it fetches: its reads of url sources, and once
+        // a get the bytes read to hold a key source's value whole
+        let mut held: HashMap<&str, Option<(u64, u64)>> = HashMap::new(); // each key looked up once a get
+        let (mut built, mut fetched) = (0u64, 0u64);
         for &(r, i, j) in &parts {
             let range = if r.data.is_none() && r.crc32c.is_some() { r.length } else { j - i };
-            let bytes = match (r.data.is_none()).then(|| &self.sources[r.source as usize].kind) {
-                Some(SourceKind::Key(k)) => match held.get(k.as_str()) {
-                    Some(Some(_)) => 0,
-                    Some(None) => range,
-                    None => {
-                        let whole = self.key_decoded_whole(k)?;
-                        held.insert(k.as_str(), whole);
-                        whole.map_or(range, |size| size.max(range))
-                    }
-                },
-                _ => range,
-            };
-            taken = taken.saturating_add(bytes);
+            built = built.saturating_add(range);
+            match (r.data.is_none()).then(|| &self.sources[r.source as usize].kind) {
+                Some(SourceKind::Key(k)) if !held.contains_key(k.as_str()) => {
+                    let whole = self.key_held_whole(k)?;
+                    held.insert(k.as_str(), whole);
+                    fetched = fetched.saturating_add(whole.map_or(0, |(_, read)| read));
+                }
+                Some(SourceKind::Url(_)) => fetched = fetched.saturating_add(range),
+                _ => {}
+            }
         }
+        let taken = built.max(fetched);
         if taken > self.limits.request_bytes {
             return err(Class::Request, format!("the value takes {taken} bytes, more than the limit of {}", self.limits.request_bytes));
         }
@@ -794,7 +798,7 @@ impl<R: ReadAt> Store<R> {
             let (ri, rj) = if r.crc32c.is_some() { (0, r.length) } else { (i, j) };
             let src = &self.sources[r.source as usize];
             let whole = match &src.kind {
-                SourceKind::Key(k) => held.get(k.as_str()).copied().flatten(),
+                SourceKind::Key(k) => held.get(k.as_str()).copied().flatten().map(|(size, _)| size),
                 _ => None,
             };
             let bytes = match (&src.kind, whole) {

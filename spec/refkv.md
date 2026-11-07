@@ -1075,12 +1075,12 @@ it; the other limits are resource limits ([§6.4](#64-errors)).
    ([§6.3](#63-resolving-a-reference)), with each read counting once however
    many redirects it follows, and a maximum number of bytes one `get` may take, which
    bounds both the bytes it fetches, its reads of `url` sources after coalescing (the
-   bytes between the ranges a read covers included), and the bytes it builds its value
-   from, those of each range it resolves (a range with a `crc32c` whole, and a range of a
-   `key` source whose value the reader holds whole to read it, that value whole, once a
-   `get`), taken
+   bytes between the ranges a read covers included) and, once a `get`, the bytes it reads to
+   hold whole the value of a `key` source that it holds whole to read a range of it, and the
+   bytes it builds its value from, those of each range it resolves each time it resolves it
+   (a range with a `crc32c` whole), taken
    from a `url`, `data` or `key` source or a literal range. A `get` that would need more of
-   either is a request error, reported before any of its reads is made. The count is of
+   either is a request error, reported before any of its sources is read. The count is of
    the reads the `get` needs by itself: sharing them with other `get`s
    ([§6.3](#63-resolving-a-reference)) does not change it, and neither does
    making one on its own after a shared read fails. These limits are the reader's: a
@@ -1115,7 +1115,7 @@ Rust phkv reader, which bounds the bytes of one `get` at 2^32 and combines no re
 | proxies while rule 3 applies | refused |
 | sources per store | 4,194,304 (2^22) |
 | reads per `get` | 1024 |
-| bytes per `get` | 2^31; a `key` source's value counts whole when it is compressed or hidden (the Python vzip reader), compressed (the Python and Rust phkv readers), or always (the TypeScript readers, which read every such value whole) |
+| bytes per `get` | 2^31; a `key` source's value is fetched whole, the larger of its size and its stored bytes, when it is compressed or hidden (the Python vzip reader), compressed or inline (the Python and Rust phkv readers), or always (the TypeScript readers, which read every such value whole) |
 | coalescing gap ([§6.3](#63-resolving-a-reference)) | 64 KiB |
 | read amplification of shared reads ([§6.3](#63-resolving-a-reference)) | 4 |
 | the source table, or auxiliary data (in a vzip archive, a format entry, inflated) | 256 MiB |

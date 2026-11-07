@@ -174,10 +174,10 @@ impl PyPhkvStore {
         })
     }
 
-    /// The size of the value at `key` when `key_bytes` decodes it whole to read a range of it (a
-    /// compressed value), else None (`Store::key_decoded_whole`); a failed lookup raises.
-    fn key_decoded_whole(&self, py: Python<'_>, key: &str) -> PyResult<Option<u64>> {
-        py.detach(|| self.store.key_decoded_whole(key)).map_err(read_err)
+    /// The size of the value at `key`, and the bytes read to hold it, when `key_bytes` holds it whole
+    /// to read a range of it, else None (`Store::key_held_whole`); a failed lookup raises.
+    fn key_held_whole(&self, py: Python<'_>, key: &str) -> PyResult<Option<(u64, u64)>> {
+        py.detach(|| self.store.key_held_whole(key)).map_err(read_err)
     }
 
     /// Bytes `[start, end)` of the bytes value at `key`, hidden or not (a `key` source).

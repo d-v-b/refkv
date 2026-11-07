@@ -379,6 +379,34 @@ test("counts a key source's value whole, once a read, cached or not", async () =
   }
 });
 
+test("counts a repeated range of a key source's value each time it builds the value from it", async () => {
+  // 8 copies of the whole of a 1000-byte value: 8000 bytes built from 1000 fetched
+  const desc: ArchiveDesc = {
+    sources: [{ key: "k" }],
+    entries: [
+      { key: "k", bytes: new Uint8Array(1000).fill(9), compress: true },
+      { key: "r", ranges: Array.from({ length: 8 }, () => ({ source: 0, offset: 0n, length: 1000n })) },
+    ],
+  };
+  assert.deepEqual(await (await open(desc, { maxGetBytes: 8000 })).archive.read("r"), new Uint8Array(8000).fill(9));
+  await assert.rejects((await open(desc, { maxGetBytes: 7999 })).archive.read("r"), isError("request", /more than 7999 bytes/));
+});
+
+test("reports a key source whose entry cannot be read as a resolution error", async () => {
+  const desc: ArchiveDesc = {
+    sources: [{ key: "k" }],
+    entries: [{ key: "k", bytes: new Uint8Array(10) }, { key: "r", ranges: [{ source: 0, offset: 0n, length: 1n }] }],
+  };
+  const { archive } = await open(desc, {});
+  const target = archive as unknown as { entryFor: (key: string) => unknown };
+  const entryFor = target.entryFor.bind(archive);
+  target.entryFor = (key) => {
+    if (key === "k") throw new RefkvError("entry", "its slot is outside RECORDS");
+    return entryFor(key);
+  };
+  await assert.rejects(archive.read("r"), isError("resolution", /slot is outside RECORDS/));
+});
+
 test("refuses limits that are no natural numbers, and an amplification that is no finite number", async () => {
   const bytes = await writeVzip({ sources: [], entries: [] });
   for (const policy of [{ maxGetBytes: -1 }, { maxGetBytes: 1.5 }, { maxGetBytes: undefined }, { maxReads: Number.NaN }]) {

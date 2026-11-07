@@ -266,9 +266,10 @@ class PhkvStore(ReferenceReader):
         return await self._blocking(self._store.key_bytes, key, start, end)
 
     @override
-    async def _key_held_whole(self, key: str) -> int | None:
-        """The size of a compressed value, which the core decodes whole to read a range of it."""
-        return await self._blocking(self._store.key_decoded_whole, key)
+    async def _key_held_whole(self, key: str) -> tuple[int, int] | None:
+        """The size of a compressed or inline value, which the core holds whole to read a range of
+        it, and the bytes it reads to hold it."""
+        return await self._blocking(self._store.key_held_whole, key)
 
     @override
     async def classify_async(self, key: str) -> Kind:

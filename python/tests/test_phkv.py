@@ -155,6 +155,19 @@ def test_looks_up_a_key_source_once_a_get(tmp_path, monkeypatch):
     assert looked_up == ["k"]
 
 
+def test_counts_an_inline_key_value_held_whole(tmp_path):
+    """An inline value, which the reader reads whole with its record, is fetched whole once a get:
+    64 one-byte ranges of a 1 MiB inline value are refused under a bound of 1 MiB less one."""
+    path = tmp_path / "w.phkv"
+    with open(path, "wb") as f, PhkvWriter(f, inline_max=2 << 20) as w:
+        w.add_bytes("k", bytes(1 << 20), codec="none")
+        k = w.internal("k")
+        w.add_ranges("r", [Range(source=k, offset=i, length=1) for i in range(64)])
+    assert refkv.phkv.open(path, policy=Policy(max_get_bytes=1 << 20)).get("r") == bytes(64)
+    with pytest.raises(RequestError):
+        refkv.phkv.open(path, policy=Policy(max_get_bytes=(1 << 20) - 1)).get("r")
+
+
 def test_decodes_a_compressed_key_source_once_a_get(tmp_path, monkeypatch):
     """50 ranges of one compressed key source read its value whole once, and cut the ranges from it."""
     value = bytes(range(250)) * 40

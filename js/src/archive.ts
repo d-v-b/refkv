@@ -1000,8 +1000,10 @@ export class Archive {
     const parts: (Promise<Uint8Array> | Read | { local: Read })[] = [];
     const cuts: { lo: number; hi: number; crc?: number }[] = [];
     let at = 0;
-    let taken = 0; // the bytes the value is built from: a range with a crc32c whole
-    const held = new Set<string>(); // the keys whose value is counted whole, once
+    let taken = 0; // the bytes the value is built from, each range's each time: a range with a crc32c whole
+    // the bytes read to hold each key's value whole, which `source` does once a read to read a
+    // range of it: fetched once
+    const held = new Map<string, number>();
     for (const r of this.ranges(entry)) {
       if (taken > this.policy.maxGetBytes) break; // rule 5, refused below: nothing is read
       const n = Number(rangeSize(r));
@@ -1024,16 +1026,16 @@ export class Archive {
           }
           taken += Number(read.length);
           const key = this.sources[r.source].key;
-          // a key's value, which `source` reads whole, once a read, to read a range of it, counts
-          // whole, once
-          const target = key === undefined ? undefined : this.entryFor(key);
-          if (target !== undefined && target.reference === undefined && !target.error) {
-            if (held.has(key!)) {
-              taken -= Number(read.length);
-            } else {
-              held.add(key!);
-              taken += Math.max(target.size - Number(read.length), 0);
+          if (key !== undefined && !held.has(key)) {
+            let target: Entry | undefined;
+            try {
+              target = this.entryFor(key);
+            } catch (e) {
+              // spec §6.4 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#64-errors>: a range of a broken entry
+              throw new RefkvError("resolution", `key ${JSON.stringify(key)}: ${(e as Error).message}`);
             }
+            const whole = target !== undefined && target.reference === undefined && !target.error;
+            held.set(key, whole ? Math.max(target!.size, target!.csize) : 0);
           }
           if (taken > this.policy.maxGetBytes) break;
           parts.push(this.sources[r.source].url !== undefined ? read : { local: read });
@@ -1061,7 +1063,8 @@ export class Archive {
     // spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 5,
     // before any read: the bytes it is built from, and those it fetches, the bytes between
     // coalesced ranges included
-    const fetched = runs.reduce((n, run) => n + Number(run.end - run.offset), 0);
+    let fetched = runs.reduce((n, run) => n + Number(run.end - run.offset), 0);
+    for (const n of held.values()) fetched += n;
     if (Math.max(taken, fetched) > this.policy.maxGetBytes) {
       throw new RefkvError(
         "request",
