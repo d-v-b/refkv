@@ -909,7 +909,10 @@ export class Archive {
       const share = bytes / BigInt(MERGE_CONNECTIONS);
       const floor = BigInt(MERGE_MIN_RUN);
       const ceiling = BigInt(MERGE_MAX_RUN);
-      const longest = share < floor ? floor : share > ceiling ? ceiling : share;
+      const clamped = share < floor ? floor : share > ceiling ? ceiling : share;
+      // a shared request fetches no more than one value's read may take (a longer read alone does)
+      const budget = BigInt(this.policy.maxGetBytes);
+      const longest = clamped < budget ? clamped : budget;
       const gap = BigInt(this.policy.maxCoalesceGap);
       const held: Waiting[] = [];
       for (const run of mergedRuns(reads, longest, this.policy.maxReadAmplification, this.policy.maxCoalesceGap)) {
@@ -995,6 +998,7 @@ export class Archive {
     const cuts: { lo: number; hi: number; crc?: number }[] = [];
     let at = 0;
     let taken = 0; // the bytes the value is built from: a range with a crc32c whole
+    const held = new Set<string>(); // the keys whose value is counted whole, once
     for (const r of this.ranges(entry)) {
       if (taken > this.policy.maxGetBytes) break; // rule 5, refused below: nothing is read
       const n = Number(rangeSize(r));
@@ -1016,6 +1020,13 @@ export class Archive {
             cuts.push({ lo: a - at, hi: b - at, crc: r.crc32c });
           }
           taken += Number(read.length);
+          const key = this.sources[r.source].key;
+          if (key !== undefined && !this.keyValues.has(key) && !held.has(key)) {
+            held.add(key);
+            // a key's value inflated whole to read a range of it counts whole
+            const target = this.entryFor(key);
+            if (target?.method === 8 && target.size > Number(read.length)) taken += target.size - Number(read.length);
+          }
           if (taken > this.policy.maxGetBytes) break;
           parts.push(this.sources[r.source].url !== undefined ? read : { local: read });
         }

@@ -256,6 +256,28 @@ def test_the_policy_sets_how_much_shared_reads_may_amplify(server):
         assert len(state["ranges"]) == ranges
 
 
+def test_a_shared_request_fetches_no_more_than_a_get_may_take(server):
+    """Reads of different values combine only into requests of at most the policy's
+    `max_get_bytes`: two 4 KiB reads 64 KiB apart are two requests under a budget of 4 KiB."""
+    url, state = server
+    refs = {"a": (0, 4096), "b": (GAP, 4096)}
+    store = _store(url, refs, policy=Policy(allow_private_hosts=True, max_get_bytes=4096))
+    assert run(_gather(store, *refs)) == [BLOB[:4096], BLOB[GAP:GAP + 4096]]
+    assert sorted(state["ranges"]) == [(0, 4096), (GAP, GAP + 4096)]
+
+
+def test_a_short_data_source_is_read_only_once_the_value_passes_rule_5(server):
+    """The byte limit refuses a value before any of its reads, a data source's included: its
+    first range runs past a short data source, its second past the budget."""
+    url, state = server
+    mapping = {"r": Concat((Range(source=0, offset=0, length=10), Range(source=1, offset=0, length=1 << 20)))}
+    store = ReferenceStore(mapping, sources=[Source(data=b"abcd"), Source(url=url)], url="https://store.test/",
+                           policy=Policy(allow_private_hosts=True, max_get_bytes=1 << 10))
+    with pytest.raises(RequestError, match="more than 1024 bytes"):
+        store.get("r")
+    assert state["ranges"] == []
+
+
 def test_too_many_reads_for_one_value_is_refused_before_any_read(server):
     """Rule 5 counts one value's reads after its own coalescing, whatever other values would
     merge with them."""

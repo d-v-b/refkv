@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import bisect
+import dataclasses
 import json
 import os
 from pathlib import Path
@@ -348,7 +349,11 @@ class Parsed:
                 raise ValueError(f"bytes {offset} to {offset + length} of source {source}, past its {size}")
         runs = _runs(ranges)  # each source's ranges merged, as the reader would merge them: each read once
         mapping = {str(k): Range(src, a, b - a) for k, (src, a, b) in enumerate(runs)}
-        store = ReferenceStore(mapping, self._readable(), policy=self.policy, registry=self.registry)
+        # the input's own bytes, which `max_bytes` bounds, not a reader's `get` (rule 5 is a reader's)
+        rules = self.policy or Policy()
+        longest = max((b - a for _, a, b in runs), default=0)
+        policy = dataclasses.replace(rules, max_get_bytes=max(rules.max_get_bytes, longest))
+        store = ReferenceStore(mapping, self._readable(), policy=policy, registry=self.registry)
 
         async def each() -> list[bytes | None]:  # together
             return list(await asyncio.gather(*(store.get_async(k) for k in mapping)))

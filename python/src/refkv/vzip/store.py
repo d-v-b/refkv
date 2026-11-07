@@ -378,6 +378,18 @@ class VZipStore(ReferenceReader):
         return await self._entry_bytes(e, start, end)
 
     @override
+    async def _key_cost(self, key: str, start: int, end: int) -> int:
+        """The bytes `_key_bytes` takes: the range's, or the whole value's where it inflates or
+        caches the entry whole to read the range (a hidden or a DEFLATE entry not yet held)."""
+        if key in self._key_cache:
+            return end - start
+        await self._lookup(key)
+        e = self._entries.get(key)
+        if e is None or e.error or e.is_ref or (not key.startswith(RESERVED_PREFIX) and e.method == 0):
+            return end - start  # range-read, or refused by `_key_bytes`
+        return max(e.size, end - start)
+
+    @override
     async def _key_bytes(self, key: str, start: int, end: int) -> bytes:
         """Bytes [start, end) of another entry's value (a `key` source, spec §5
         <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>).

@@ -133,9 +133,8 @@ Four gaps follow from it.
   elements are in the IR depends on the output.
 - **Nothing vouches for a store a caller builds.** `ReferenceStore(mapping,
   sources)` checks source indexes and key types, not that a range lies
-  within its source, that a payload fits, or how many reads a value takes.
-  `prepare` and `store_of` check all of that, but only for a plugin's output
-  against one base.
+  within its source or that a payload fits. `prepare` and `store_of` check
+  that, but only for a plugin's output against one base.
 - **One input at a time.** A base is one file's. The TIFF stack of
   d-v-b/refkv#282 (docs/tiff-concat.md there) needs several, and so re-reads
   every IFD with tifffile, which refkv had already parsed.

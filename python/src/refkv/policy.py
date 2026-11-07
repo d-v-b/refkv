@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import ipaddress
 import math
+import numbers
 import re
 from dataclasses import dataclass
 from urllib.parse import urlsplit
@@ -222,10 +223,15 @@ class Policy:
                              "allow_files_from_remote_archives=True")
         for name in ("max_sources", "max_reads", "max_get_bytes", "max_coalesce_gap", "max_format_entry"):
             limit = getattr(self, name)
-            if type(limit) is not int or limit < 0:
-                raise ValueError(f"Policy.{name} is a natural number, not {limit!r}")
+            if isinstance(limit, bool) or not isinstance(limit, numbers.Integral) or not 0 <= int(limit) < 1 << 63:
+                raise ValueError(f"Policy.{name} is a natural number below 2^63, not {limit!r}")
         amplification = self.max_read_amplification
-        if type(amplification) not in (int, float) or not math.isfinite(amplification) or amplification < 0:
+        try:
+            finite = (not isinstance(amplification, bool) and isinstance(amplification, numbers.Real)
+                      and math.isfinite(float(amplification)) and amplification >= 0)
+        except OverflowError:  # an int past a float's range
+            finite = False
+        if not finite:
             raise ValueError(f"Policy.max_read_amplification is a finite number of at least 0, not {amplification!r}")
 
     def check(self, base: str, url: str, *, registered: bool = False) -> None:

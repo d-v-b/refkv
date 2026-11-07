@@ -17,6 +17,7 @@ store as a read-only zarr store.
 from __future__ import annotations
 
 import asyncio
+import bisect
 import builtins
 import contextlib
 import datetime as dt
@@ -866,6 +867,15 @@ UNCAPPED_THREADS = 64
 """The threads a store with `max_concurrency=None` reads over HTTP with."""
 
 
+@dataclass(frozen=True)
+class _DataPiece:
+    """Bytes [start, end) of a `data` source, taken once the value passes rule 5."""
+
+    source: int
+    start: int
+    end: int
+
+
 @dataclass(eq=False)
 class _Waiting:
     """A read of bytes [start, end) of a url source, which `future` gets, waiting to be served
@@ -1006,8 +1016,9 @@ class ReferenceReader:
       is the same on every machine: it doesn't depend on the CPU count, as
       asyncio's shared default thread pool does.
 
-    Values read at the same time share requests: reads of one source less than
-    64 KiB apart merge into one request, whichever values they are for, while
+    Values read at the same time share requests: reads of one source at most the
+    policy's `max_coalesce_gap` apart (64 KiB by default) merge into one request,
+    whichever values they are for, while
     they wait 2 ms (`MERGE_WINDOW`), or for a connection when all of them are
     busy. Zarr asks for at most `async.concurrency` chunks at once, so that
     setting, not this reader, limits how many merge: raise it to read many small
@@ -1160,6 +1171,12 @@ class ReferenceReader:
         <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>)."""
         raise NotImplementedError
 
+    async def _key_cost(self, key: str, start: int, end: int) -> int:  # noqa: ARG002 (a binding's)
+        """The bytes `_key_bytes(key, start, end)` takes, for rule 5 (spec §6.7
+        <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>): the range's,
+        or the whole value's where the reader holds the value whole to read it."""
+        return end - start
+
     async def _read(
         self, url: str, start: int, end: int, *, external: bool, exact: bool = True
     ) -> bytes:
@@ -1285,6 +1302,8 @@ class ReferenceReader:
             reads = [r for r in merging.waiting.pop(source) if not r.future.done()]
             longest = sum(r.end - r.start for r in reads) // (self.max_concurrency or DEFAULT_CONCURRENCY)
             longest = min(max(longest, self.MERGE_MIN_RUN), self.MERGE_MAX_RUN)
+            # a shared request fetches no more than one `get` may take (a longer read alone does)
+            longest = min(longest, self.policy.max_get_bytes)
             runs = _merged(reads, gap=self.policy.max_coalesce_gap, amplification=self.policy.max_read_amplification,
                            longest=longest)
             while runs and free > 0:
@@ -1336,9 +1355,10 @@ class ReferenceReader:
         # with a crc32c is read whole and checked (spec §6.3
         # <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#63-resolving-a-reference>);
         # `cuts` says which part of each piece the window takes, and which checksum it must have.
-        pieces: list[bytes | tuple[int, int, int] | Coroutine[object, object, bytes]] = []
+        pieces: list[bytes | tuple[int, int, int] | _DataPiece | Coroutine[object, object, bytes]] = []
         cuts: list[tuple[int, int, int | None]] = []
         taken = 0  # the bytes the value is built from: a range with a crc32c whole
+        held: set[str] = set()  # the keys whose value is counted whole
         pos = 0
         for r in parts(ref):
             lo, hi = max(start, pos), min(end, pos + r.size)
@@ -1360,10 +1380,12 @@ class ReferenceReader:
                     break
                 src = self._sources[r.source]
                 if src.data is not None:
-                    if b > len(src.data):
-                        raise ResolutionError(f"data source {r.source} is shorter than {b} bytes")
-                    pieces.append(src.data[a:b])
+                    pieces.append(_DataPiece(r.source, a, b))  # taken once the value passes rule 5
                 elif src.key is not None:
+                    # a key's value the reader holds whole to read a range of it counts whole, once
+                    if src.key not in held:
+                        held.add(src.key)
+                        taken += await self._key_cost(src.key, a, b) - (b - a)
                     pieces.append(self._key_bytes(src.key, a, b))
                 else:
                     pieces.append((r.source, a, b))
@@ -1372,7 +1394,7 @@ class ReferenceReader:
         # them apart.
         reads = {p for p in pieces if isinstance(p, tuple)}
         runs = _coalesced(reads, gap=self.policy.max_coalesce_gap, budget=self.policy.max_get_bytes)
-        coros = [p for p in pieces if not isinstance(p, (bytes, tuple))]
+        coros = [p for p in pieces if not isinstance(p, (bytes, tuple, _DataPiece))]
         # spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 5, before any
         # read: the bytes it is built from, and those it fetches, the bytes between coalesced ranges included
         fetched_bytes = sum(b - a for _, a, b in runs)
@@ -1388,6 +1410,14 @@ class ReferenceReader:
             raise RequestError(f"the value needs {len(runs)} reads; this reader allows "
                                f"{self.policy.max_reads} ("
                                f"spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)")
+        for i, p in enumerate(pieces):
+            if isinstance(p, _DataPiece):
+                data = cast("bytes", self._sources[p.source].data)
+                if p.end > len(data):
+                    for c in coros:
+                        c.close()
+                    raise ResolutionError(f"data source {p.source} is shorter than {p.end} bytes")
+                pieces[i] = data[p.start:p.end]
         owner = object()  # this value's reads, which the shared reads keep apart
         coros += [self._shared_read(s, a, b, owner) for s, a, b in runs]
         try:
@@ -1399,11 +1429,13 @@ class ReferenceReader:
         other = iter(done[: len(done) - len(runs)])
         fetched = list(zip(runs, done[len(done) - len(runs):], strict=True))
 
+        starts = [(s, ra) for (s, ra, _), _ in fetched]  # in order of source and offset
+
         def from_runs(source: int, a: int, b: int) -> bytes:
-            for (s, ra, rb), data in fetched:
-                if s == source and ra <= a and b <= rb:
-                    return data[a - ra : b - ra]
-            raise AssertionError("read not covered by a run")
+            (s, ra, rb), data = fetched[bisect.bisect_right(starts, (source, a)) - 1]
+            if not (s == source and ra <= a and b <= rb):
+                raise AssertionError("read not covered by a run")
+            return data[a - ra : b - ra]
 
         out = []
         for p, (lo, hi, crc) in zip(pieces, cuts, strict=True):

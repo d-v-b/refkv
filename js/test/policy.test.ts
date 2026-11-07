@@ -334,6 +334,35 @@ test("coalesces a value's ranges within the bytes it may take", async () => {
   }
 });
 
+test("a shared request fetches no more than a value's read may take", async () => {
+  // two 4 KiB reads 64 KiB apart, read together: one request by default, two under a budget of 4 KiB
+  const desc: ArchiveDesc = {
+    sources: [{ url: "blob.bin" }],
+    entries: [
+      { key: "a", ranges: [{ source: 0, offset: 0n, length: 4096n }] },
+      { key: "b", ranges: [{ source: 0, offset: 65536n, length: 4096n }] },
+    ],
+  };
+  const body = Uint8Array.from({ length: 65536 + 4096 }, (_, i) => i % 251);
+  for (const [policy, requests] of [[{}, 1], [{ maxGetBytes: 4096 }, 2]] as const) {
+    const { archive, log } = await open(desc, policy, body);
+    const [a, b] = await Promise.all([archive.read("a"), archive.read("b")]);
+    assert.deepEqual([a, b], [body.subarray(0, 4096), body.subarray(65536, 65536 + 4096)]);
+    assert.equal(log.requests, requests, JSON.stringify(policy));
+  }
+});
+
+test("counts a key source's inflated value whole, once a read", async () => {
+  // 64 ranges of a 1 MiB DEFLATE entry: read under a budget of 2 MiB, refused under 512 KiB
+  const ranges = Array.from({ length: 64 }, (_, k) => ({ source: 0, offset: BigInt(k), length: 1n }));
+  const desc: ArchiveDesc = {
+    sources: [{ key: "__vz__/blob" }],
+    entries: [{ key: "__vz__/blob", bytes: new Uint8Array(1 << 20), compress: true }, { key: "r", ranges }],
+  };
+  assert.deepEqual(await (await open(desc, { maxGetBytes: 2 << 20 })).archive.read("r"), new Uint8Array(64));
+  await assert.rejects((await open(desc, { maxGetBytes: 512 << 10 })).archive.read("r"), isError("request", /more than 524288 bytes/));
+});
+
 test("refuses limits that are no natural numbers, and an amplification that is no finite number", async () => {
   const bytes = await writeVzip({ sources: [], entries: [] });
   for (const policy of [{ maxGetBytes: -1 }, { maxGetBytes: 1.5 }, { maxGetBytes: undefined }, { maxReads: Number.NaN }]) {

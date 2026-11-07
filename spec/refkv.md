@@ -860,8 +860,9 @@ same source value and lie close together into one read that also covers the
 bytes between them, and take each range's bytes from that read. Otherwise a
 reference made of many short ranges of one object, such as one range per row
 of an image whose rows are padded, costs one request per range. The bytes
-between the ranges are read but never returned, so a reader MUST NOT let them take a `get` past
-its bytes per `get` ([§6.7](#67-reader-policy) rule 5): it combines fewer reads instead. How close
+between the ranges are read but never returned, so a reader MUST NOT let its coalescing of one
+`get`'s reads take that `get` past its bytes per `get` ([§6.7](#67-reader-policy) rule 5): it
+combines fewer reads instead. How close
 counts as "close" is up to the reader. The Python and TypeScript readers in the specification's
 repository take it from their policy (the **coalescing gap**, 64 KiB by default), and close the
 narrowest gaps first, only while what the `get` fetches stays within its bytes per `get`, so that
@@ -891,11 +892,13 @@ them it fetches to save a request; a `get` made alone should not wait long for
 company. The implementations in the specification's repository wait 2 ms. The
 Python reader also waits for a connection when the store's are all busy. The JS
 reader, which has no limit of its own on connections, also waits up to 1 s while 16
-requests to the source are in flight, if one of them lies within 64 KiB of the read,
+requests to the source are in flight, if one of them lies within the coalescing gap of the read,
 and takes a read wholly inside a request in flight from that request. They fetch at
 most a number of times the bytes a shared read asks for, plus the coalescing gap, that the
 reader's policy sets (its **read amplification**, [§6.7](#67-reader-policy), 4 by default), and
-never combine two reads of one `get` that its own coalescing kept apart. A `multipart/byteranges`
+never combine two reads of one `get` that its own coalescing kept apart, nor reads into a request of
+more than the bytes per `get` (a read longer than that is a request of its own). Rule 5 counts each
+`get`'s own reads and bytes, as if it were alone. A `multipart/byteranges`
 response is still an error ([§5.2](#52-reading-over-http)), so reads too far apart
 to combine this way remain separate requests.
 
@@ -1073,8 +1076,10 @@ it; the other limits are resource limits ([§6.4](#64-errors)).
    many redirects it follows, and a maximum number of bytes one `get` may take, which
    bounds both the bytes it fetches, its reads of `url` sources after coalescing (the
    bytes between the ranges a read covers included), and the bytes it builds its value
-   from, those of each range it resolves (a range with a `crc32c` whole), taken from a
-   `url`, `data` or `key` source or a literal range. A `get` that would need more of
+   from, those of each range it resolves (a range with a `crc32c` whole, and a range of a
+   `key` source whose value the reader holds whole to read it, that value whole, once a
+   `get`), taken
+   from a `url`, `data` or `key` source or a literal range. A `get` that would need more of
    either is a request error, reported before any of its reads is made. The count is of
    the reads the `get` needs by itself: sharing them with other `get`s
    ([§6.3](#63-resolving-a-reference)) does not change it, and neither does
@@ -1095,7 +1100,8 @@ it; the other limits are resource limits ([§6.4](#64-errors)).
    permission, such a pin fails ([§5.1](#51-pins)).
 
 The limits of rules 4–6 are implementation-defined, and readers MUST
-document them. The Python and TypeScript readers in the specification's repository use these
+document them. The Rust phkv reader in the specification's repository bounds the bytes of one
+`get` at 2^32 and combines no reads; the Python and TypeScript readers use these
 defaults:
 
 | | default |
@@ -1188,7 +1194,9 @@ A binding adds the reasons that come from its backend
   store takes to open.
 - Keys are not file names. Tools that extract a store to disk MUST NOT
   trust keys such as `../x` or `/etc/passwd`.
-- A reference can describe a value of up to 2^64 − 1 bytes. Readers bound the bytes one
+- A reference can describe a value of up to 2^64 − 1 bytes. Readers SHOULD bound the memory a
+  single request can use, a binding's own reads included, and document the bound; a request beyond
+  it is a request error. Readers bound the bytes one
   `get` takes ([§6.7](#67-reader-policy) rule 5) and document the bound; a request beyond it
   is a request error. A store whose value passes a reader's bound, such as a zarrified file
   presented as one chunk of more than 2 GiB, is read by raising it.

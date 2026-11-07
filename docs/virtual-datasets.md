@@ -167,7 +167,8 @@ What each step does:
   flight, and `max_concurrency=None` removes the cap. Respect the host's
   limits.
 - **Many small chunks.** Chunks read at the same time share requests when they lie
-  less than 64 KiB apart in one source file, but zarr asks for only
+  at most the policy's coalescing gap apart in one source file (`Policy.max_coalesce_gap`, 64 KiB
+  by default), but zarr asks for only
   `async.concurrency` chunks at once (10 by default), which limits how many can
   share one. Raising it makes both fewer requests and a faster read, and opens no
   more connections, since `max_concurrency` bounds those. The setting is zarr's, and

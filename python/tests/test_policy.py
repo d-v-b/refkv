@@ -346,6 +346,20 @@ def test_refuses_too_many_bytes(tmp_path, server):
     assert state["requests"] == 0
 
 
+def test_counts_a_key_sources_inflated_value_whole_once(tmp_path):
+    """A key source whose entry the reader inflates whole counts that entry whole, once per get:
+    64 ranges of a 1 MiB DEFLATE entry read under a budget of 2 MiB, and not under one of 512 KiB."""
+    path = tmp_path / "a.vzip"
+    ranges = [Range(source=0, offset=k, length=1) for k in range(64)]
+    with open(path, "wb") as f, VZipWriter(f) as w:
+        w.source(Source(key="blob"))
+        w.add_bytes("blob", bytes(1 << 20), compress=True)
+        w.add_ranges("r", ranges)
+    assert _get(VZipStore(str(path), policy=Policy(max_get_bytes=2 << 20)), "r") == bytes(64)
+    with pytest.raises(RequestError, match="more than 524288 bytes"):
+        _get(VZipStore(str(path), policy=Policy(max_get_bytes=512 << 10)), "r")
+
+
 @pytest.mark.parametrize("given", [{"max_get_bytes": -1}, {"max_get_bytes": 1.5}, {"max_get_bytes": None},
                                    {"max_reads": "1024"}, {"max_sources": True}, {"max_format_entry": -1}])
 def test_refuses_a_limit_that_is_no_natural_number(given):
