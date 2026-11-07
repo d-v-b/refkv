@@ -8,7 +8,7 @@ use pyo3::exceptions::{PyException, PyOSError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyList};
 use pyo3::{PyTraverseError, PyVisit};
-use refkv_phkv::{Class, Codec, EntryInfo, Error, Fetched, Kind, Limits, Options, Prop, ReadAt, ReadError, Request, Store, Writer};
+use refkv_phkv::{Class, Codec, EntryInfo, Error, Fetched, Held, Kind, Limits, Options, Prop, ReadAt, ReadError, Request, Store, Writer};
 use refkv_vzip::pb::{Range, Source};
 use std::io;
 use std::sync::{Arc, Mutex};
@@ -174,10 +174,17 @@ impl PyPhkvStore {
         })
     }
 
-    /// The size of the value at `key`, and the bytes read to hold it, when `key_bytes` holds it whole
-    /// to read a range of it, else None (`Store::key_held_whole`); a failed lookup raises.
-    fn key_held_whole(&self, py: Python<'_>, key: &str) -> PyResult<Option<(u64, u64)>> {
-        py.detach(|| self.store.key_held_whole(key)).map_err(read_err)
+    /// The value at `key` when the store holds it whole to read a range of it, else None
+    /// (`Store::key_held_whole`): its size, the bytes read to hold it, and the record its lookup
+    /// read, which `held_bytes` reads it from. A failed lookup raises.
+    fn key_held_whole(&self, py: Python<'_>, key: &str) -> PyResult<Option<PyHeld>> {
+        Ok(py.detach(|| self.store.key_held_whole(key)).map_err(read_err)?.map(PyHeld))
+    }
+
+    /// The whole value `key_held_whole` found (`Store::held_bytes`).
+    fn held_bytes<'py>(&self, py: Python<'py>, held: &PyHeld) -> PyResult<Bound<'py, PyBytes>> {
+        let b = py.detach(|| self.store.held_bytes(&held.0)).map_err(read_err)?;
+        Ok(PyBytes::new(py, &b))
     }
 
     /// Bytes `[start, end)` of the bytes value at `key`, hidden or not (a `key` source).
@@ -228,6 +235,25 @@ impl io::Write for PyWrite {
 
 fn codec(c: u8) -> PyResult<Codec> {
     Codec::from_u8(c).ok_or_else(|| PyValueError::new_err(format!("no codec {c}")))
+}
+
+/// A value a store holds whole to read a range of it (`PhkvStore.key_held_whole`).
+#[pyclass(name = "PhkvHeld", module = "refkv._core", frozen)]
+pub struct PyHeld(Held);
+
+#[pymethods]
+impl PyHeld {
+    /// The value's size.
+    #[getter]
+    fn size(&self) -> u64 {
+        self.0.size
+    }
+
+    /// The bytes read to hold it: the larger of its size and its stored bytes.
+    #[getter]
+    fn read(&self) -> u64 {
+        self.0.read
+    }
 }
 
 #[pyclass(name = "PhkvWriter", module = "refkv._core")]
@@ -321,6 +347,7 @@ impl PyPhkvWriter {
 
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyPhkvStore>()?;
+    m.add_class::<PyHeld>()?;
     m.add_class::<PyPhkvWriter>()?;
     m.add("PhkvReadError", m.py().get_type::<PhkvReadError>())?;
     Ok(())

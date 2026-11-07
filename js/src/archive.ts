@@ -16,7 +16,7 @@ import {
   type Source,
 } from "./protobuf.ts";
 import { getScheme, resolveReference } from "./uri.ts";
-import { CONCAT_ID, RANGE_ID, SOURCES_KEY } from "./writer.ts";
+import { CONCAT_ID, INDEX_KEY, RANGE_ID, SOURCES_KEY } from "./writer.ts";
 
 /**
  * The six classes of error (spec §6.4 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#64-errors>),
@@ -820,6 +820,7 @@ export class Archive {
       return s.data.subarray(Number(start), Number(end));
     }
     if (s.key !== undefined) {
+      if (s.key === SOURCES_KEY || s.key === INDEX_KEY) fail(`key ${JSON.stringify(s.key)} names a format entry`);
       const target = this.entryFor(s.key);
       if (target === undefined || target.reference !== undefined || target.error) {
         fail(`key ${JSON.stringify(s.key)} is not a bytes entry`);
@@ -829,7 +830,13 @@ export class Archive {
         pending = this.body(target!);
         keyValues.set(s.key, pending);
       }
-      const value = await pending;
+      let value: Uint8Array;
+      try {
+        value = await pending;
+      } catch (e) {
+        // spec §6.4 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#64-errors>: a range of a broken entry
+        return fail(`key ${JSON.stringify(s.key)}: ${(e as Error).message}`);
+      }
       if (end > BigInt(value.length)) fail("range past the end of the key's value");
       return value.subarray(Number(start), Number(end));
     }
@@ -1034,7 +1041,8 @@ export class Archive {
               // spec §6.4 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#64-errors>: a range of a broken entry
               throw new RefkvError("resolution", `key ${JSON.stringify(key)}: ${(e as Error).message}`);
             }
-            const whole = target !== undefined && target.reference === undefined && !target.error;
+            const whole = target !== undefined && target.reference === undefined && !target.error &&
+              key !== SOURCES_KEY && key !== INDEX_KEY;
             held.set(key, whole ? Math.max(target!.size, target!.csize) : 0);
           }
           if (taken > this.policy.maxGetBytes) break;
@@ -1043,13 +1051,15 @@ export class Archive {
       }
       at += n;
     }
-    // Combine nearby reads of each url source into runs within what the value may fetch, fetch
-    // each run once, and slice the reads back out of it.
+    // Combine nearby reads of each url source into runs within what the value may fetch besides
+    // the key values it holds whole, fetch each run once, and slice the reads back out of it.
     const reads = parts.filter((p): p is Read => !(p instanceof Promise) && !("local" in p));
+    let heldBytes = 0;
+    for (const n of held.values()) heldBytes += n;
     const runs: { source: number; offset: bigint; end: bigint; data?: Promise<Uint8Array> }[] = coalescedRuns(
       reads.map((r) => ({ source: r.source, offset: r.offset, end: r.offset + r.length })),
       this.policy.maxCoalesceGap,
-      this.policy.maxGetBytes,
+      Math.max(this.policy.maxGetBytes - heldBytes, 0),
     );
     // each read's run: runs and reads both in order of source and offset
     const runOf = new Map<Read, (typeof runs)[number]>();
@@ -1063,8 +1073,7 @@ export class Archive {
     // spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 5,
     // before any read: the bytes it is built from, and those it fetches, the bytes between
     // coalesced ranges included
-    let fetched = runs.reduce((n, run) => n + Number(run.end - run.offset), 0);
-    for (const n of held.values()) fetched += n;
+    const fetched = runs.reduce((n, run) => n + Number(run.end - run.offset), heldBytes);
     if (Math.max(taken, fetched) > this.policy.maxGetBytes) {
       throw new RefkvError(
         "request",

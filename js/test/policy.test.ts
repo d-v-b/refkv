@@ -407,6 +407,40 @@ test("reports a key source whose entry cannot be read as a resolution error", as
   await assert.rejects(archive.read("r"), isError("resolution", /slot is outside RECORDS/));
 });
 
+test("coalesces only within the bytes the key values a read holds whole leave", async () => {
+  // two url ranges 70 bytes apart and a 100-byte key value: 120 bytes fetched in two requests under a
+  // bound of 150, not refused for a coalesced request of 90 bytes
+  const desc: ArchiveDesc = {
+    sources: [{ url: "blob.bin" }, { key: "k" }],
+    entries: [
+      { key: "k", bytes: new Uint8Array(100), compress: true },
+      { key: "r", ranges: [{ source: 0, offset: 0n, length: 10n }, { source: 0, offset: 80n, length: 10n }, { source: 1, offset: 0n, length: 10n }] },
+    ],
+  };
+  const { archive, log } = await open(desc, { maxGetBytes: 150 });
+  const want = new Uint8Array([...BLOB.subarray(0, 10), ...BLOB.subarray(80, 90), ...new Uint8Array(10)]);
+  assert.deepEqual(await archive.read("r"), want);
+  assert.equal(log.requests, 2);
+  await assert.rejects((await open(desc, { maxGetBytes: 119 })).archive.read("r"), isError("request", /more than 119 bytes/));
+});
+
+test("reports a key source whose entry's body is broken, or that names a format entry, as a resolution error", async () => {
+  const desc: ArchiveDesc = {
+    sources: [{ key: "k" }],
+    entries: [{ key: "k", bytes: new Uint8Array(10), compress: true }, { key: "r", ranges: [{ source: 0, offset: 0n, length: 1n }] }],
+  };
+  const { archive } = await open(desc);
+  const target = archive as unknown as { body: (e: unknown) => Promise<Uint8Array> };
+  target.body = async () => {
+    throw new RefkvError("body", "k: invalid code lengths set");
+  };
+  await assert.rejects(archive.read("r"), isError("resolution", /invalid code lengths set/));
+  // a writer refuses such a source: point the opened archive's at the source table
+  const { archive: named } = await open(desc, { maxGetBytes: 1 });
+  (named as unknown as { sources: { key?: string }[] }).sources[0] = { key: "__vz__/sources" };
+  await assert.rejects(named.read("r"), isError("resolution", /names a format entry/));
+});
+
 test("refuses limits that are no natural numbers, and an amplification that is no finite number", async () => {
   const bytes = await writeVzip({ sources: [], entries: [] });
   for (const policy of [{ maxGetBytes: -1 }, { maxGetBytes: 1.5 }, { maxGetBytes: undefined }, { maxReads: Number.NaN }]) {

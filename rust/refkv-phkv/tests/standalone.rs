@@ -99,10 +99,12 @@ fn values_references_and_listing() {
     // a compressed key source's value, decoded whole, is fetched once a get: the value's size, more
     // than the 16 bytes the value is built from
     let Some(EntryInfo::Bytes { stored_length, .. }) = s.entry_info("a/c/2").unwrap() else { panic!() };
-    assert_eq!(s.key_held_whole("a/c/2").unwrap(), Some((big.len() as u64, big.len() as u64)));
+    let held = s.key_held_whole("a/c/2").unwrap().unwrap();
+    assert_eq!((held.size, held.read), (big.len() as u64, big.len() as u64));
+    assert_eq!(s.held_bytes(&held).unwrap(), big);
     assert!(stored_length < big.len() as u64);
-    assert_eq!(s.key_held_whole("a/c/0").unwrap(), None);
-    assert_eq!(s.key_held_whole("a/c/3").unwrap().map(|(size, _)| size), Some(4)); // inline
+    assert!(s.key_held_whole("a/c/0").unwrap().is_none());
+    assert_eq!(s.key_held_whole("a/c/3").unwrap().map(|h| h.size), Some(4)); // inline
     let decoded = |request_bytes| Store::open_with(s.reader().clone(), refkv_phkv::Limits { request_bytes, ..Default::default() }).unwrap();
     assert_eq!(decoded(big.len() as u64).get("r/concat", Request::Whole, &NoUrls).unwrap().unwrap(), concat);
     assert_eq!(decoded(big.len() as u64 - 1).get("r/concat", Request::Whole, &NoUrls).unwrap_err().class, Class::Request);
@@ -779,4 +781,30 @@ fn a_key_source_that_cannot_be_looked_up_fails_the_get() {
     let s = Store::open_with(Failing(b, record.0), limits).unwrap();
     assert_eq!(s.key_held_whole("z").unwrap_err().class, Class::Resolution);
     assert_eq!(s.get("r", Request::Whole, &NoUrls).unwrap_err().class, Class::Resolution);
+}
+
+/// An inline key source's value is read once a get, with the record its lookup reads, and not
+/// before the get passes the bytes it is built from.
+#[test]
+fn an_inline_key_value_is_read_once_a_get() {
+    let value = vec![5u8; 100_000];
+    let b = write(Options { inline_max: 1 << 20, codec: Codec::None, ..Options::default() }, |w| {
+        for i in 0..200 {
+            w.add_bytes(&format!("p/{i:03}"), &[1u8; 600]).unwrap(); // keeps the record out of the tail
+        }
+        w.add_bytes("z", &value).unwrap();
+        let z = w.internal("z").unwrap();
+        w.add_ranges("r", &(0..64).map(|k| Range::of(z, k, 1)).collect::<Vec<_>>()).unwrap();
+        w.add_ranges("big", &vec![Range::of(z, 0, 100_000); 2]).unwrap();
+    });
+    let limits = refkv_phkv::Limits { tail: 256, request_bytes: 150_000, ..Default::default() };
+    let s = Store::open_with(Logging(b, Default::default()), limits).unwrap();
+    let long = |from: usize| s.reader().1.borrow()[from..].iter().filter(|r| r.1 >= 100_000).count();
+    let before = s.reader().1.borrow().len();
+    assert_eq!(s.get("r", Request::Whole, &NoUrls).unwrap().unwrap(), vec![5u8; 64]);
+    assert_eq!(long(before), 1);
+    // 200,000 bytes built: refused before the key is looked up
+    let before = s.reader().1.borrow().len();
+    assert_eq!(s.get("big", Request::Whole, &NoUrls).unwrap_err().class, Class::Request);
+    assert_eq!(long(before), 0);
 }

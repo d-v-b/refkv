@@ -38,6 +38,7 @@ from refkv.policy import Policy
 from refkv.reader import (
     DEFAULT_CONCURRENCY,
     UNCAPPED_THREADS,
+    Held,
     Kind,
     OffsetRequest,
     RangeRequest,
@@ -266,10 +267,13 @@ class PhkvStore(ReferenceReader):
         return await self._blocking(self._store.key_bytes, key, start, end)
 
     @override
-    async def _key_held_whole(self, key: str) -> tuple[int, int] | None:
-        """The size of a compressed or inline value, which the core holds whole to read a range of
-        it, and the bytes it reads to hold it."""
-        return await self._blocking(self._store.key_held_whole, key)
+    async def _key_held_whole(self, key: str) -> Held | None:
+        """A compressed or inline value, which the core holds whole to read a range of it, read
+        whole from the record its lookup read."""
+        held = await self._blocking(self._store.key_held_whole, key)
+        if held is None:
+            return None
+        return Held(held.size, held.read, lambda: self._blocking(self._store.held_bytes, held))
 
     @override
     async def classify_async(self, key: str) -> Kind:

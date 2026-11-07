@@ -1080,7 +1080,8 @@ it; the other limits are resource limits ([§6.4](#64-errors)).
    bytes it builds its value from, those of each range it resolves each time it resolves it
    (a range with a `crc32c` whole), taken
    from a `url`, `data` or `key` source or a literal range. A `get` that would need more of
-   either is a request error, reported before any of its sources is read. The count is of
+   either is a request error, reported before any of its sources is read but for looking up
+   the entry a `key` source names, which may hold its value. The count is of
    the reads the `get` needs by itself: sharing them with other `get`s
    ([§6.3](#63-resolving-a-reference)) does not change it, and neither does
    making one on its own after a shared read fails. These limits are the reader's: a

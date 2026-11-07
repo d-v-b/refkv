@@ -31,7 +31,7 @@ import socket
 import threading
 import urllib.error
 import urllib.request
-from collections.abc import AsyncIterator, Buffer, Callable, Iterable, Mapping
+from collections.abc import AsyncIterator, Awaitable, Buffer, Callable, Iterable, Mapping
 from concurrent.futures import Executor, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from email.message import Message
@@ -877,6 +877,16 @@ class _DataPiece:
 
 
 @dataclass(frozen=True)
+class Held:
+    """A `key` source's value a reader holds whole to read a range of it: its size, the bytes the
+    reader reads to hold it, and `load()`, which reads it whole."""
+
+    size: int
+    read: int
+    load: Callable[[], Awaitable[bytes]]
+
+
+@dataclass(frozen=True)
 class _KeyPiece:
     """Bytes [start, end) of a `key` source's value, read once the value passes rule 5."""
 
@@ -1180,11 +1190,10 @@ class ReferenceReader:
         <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>)."""
         raise NotImplementedError
 
-    async def _key_held_whole(self, key: str) -> tuple[int, int] | None:  # noqa: ARG002 (a binding's)
-        """The size of the value at `key`, and the bytes the reader reads to hold it, when
-        `_key_bytes` holds it whole to read any range of it, which rule 5 (spec §6.7
-        <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>) counts as fetched
-        once a get, cached or not; None when it reads only the range."""
+    async def _key_held_whole(self, key: str) -> Held | None:  # noqa: ARG002 (a binding's)
+        """The value at `key` when the reader holds it whole to read any range of it, which rule 5
+        (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>) counts
+        as fetched once a get, cached or not; None when `_key_bytes` reads only the range."""
         return None
 
     async def _read(
@@ -1353,6 +1362,13 @@ class ReferenceReader:
             if not r.future.done():
                 r.future.set_result(data[r.start - start : r.end - start])
 
+    def _check_reads(self, n: int) -> None:
+        """Refuse a `get` that makes `n` reads, past the policy's reads per `get` (spec §6.7
+        <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 5)."""
+        if n > self.policy.max_reads:
+            raise RequestError(f"the value needs {n} reads; this reader allows {self.policy.max_reads} ("
+                               f"spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)")
+
     def _check_get_bytes(self, n: int) -> None:
         """Refuse a `get` that takes `n` bytes, past the policy's bytes per `get` (spec §6.7
         <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 5)."""
@@ -1405,28 +1421,31 @@ class ReferenceReader:
                 else:
                     pieces.append((r.source, a, b))
             pos += r.size
-        # Combine nearby reads of each url source within what the value may fetch, then slice
-        # them apart.
-        reads = {p for p in pieces if isinstance(p, tuple)}
-        runs = _coalesced(reads, gap=self.policy.max_coalesce_gap, budget=self.policy.max_get_bytes)
         # spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 5, before any
-        # read: the bytes it is built from, and those it fetches, the bytes between coalesced ranges included
-        fetched_bytes = sum(b - a for _, a, b in runs)
-        self._check_get_bytes(max(built, fetched_bytes))
-        if len(runs) > self.policy.max_reads:
-            raise RequestError(f"the value needs {len(runs)} reads; this reader allows "
-                               f"{self.policy.max_reads} ("
-                               f"spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)")
+        # source is read: the bytes it is built from, the bytes it fetches (its url reads, the bytes
+        # between coalesced ranges included, and the key values it holds whole), and its reads.
+        # What needs no lookup is checked first: the fewest reads coalescing can give, and the
+        # bytes of the url reads with no gap closed.
+        reads = {p for p in pieces if isinstance(p, tuple)}
+        gap, most = self.policy.max_coalesce_gap, self.policy.max_get_bytes
+        self._check_reads(len(_coalesced(reads, gap=gap, budget=most)))
+        exact = sum(b - a for _, a, b in _coalesced(reads, gap=0, budget=most))
+        self._check_get_bytes(max(built, exact))
         # a key's value the reader holds whole to read a range of it is fetched once, the bytes it
         # reads to hold it; a key the reader cannot look up fails the value: what it takes is unknown
         try:
-            sizes = await asyncio.gather(*(self._key_held_whole(k) for k in keys))
+            found = await asyncio.gather(*(self._key_held_whole(k) for k in keys))
         except ResolutionError:
             raise
         except Exception as exc:  # noqa: BLE001 - spec §6.4 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#64-errors>: failures resolving a range
             raise ResolutionError(f"{type(exc).__name__}: {exc}") from None
-        whole = {k: n for k, n in zip(keys, sizes, strict=True) if n is not None}
-        self._check_get_bytes(fetched_bytes + sum(read for _, read in whole.values()))
+        whole = {k: h for k, h in zip(keys, found, strict=True) if h is not None}
+        held = sum(h.read for h in whole.values())
+        self._check_get_bytes(exact + held)
+        # combine nearby reads of each url source within what the value may fetch besides the key
+        # values, then slice them apart
+        runs = _coalesced(reads, gap=gap, budget=most - held)
+        self._check_reads(len(runs))
         for i, p in enumerate(pieces):
             if isinstance(p, _DataPiece):
                 data = cast("bytes", self._sources[p.source].data)
@@ -1436,7 +1455,7 @@ class ReferenceReader:
         owner = object()  # this value's reads, which the shared reads keep apart
         # a key's value held whole is read whole once, and its ranges are cut from it
         ranged = [p for p in pieces if isinstance(p, _KeyPiece) and p.key not in whole]
-        coros = [self._key_bytes(k, 0, n) for k, (n, _) in whole.items()]
+        coros = [h.load() for h in whole.values()]
         coros += [self._key_bytes(p.key, p.start, p.end) for p in ranged]
         coros += [self._shared_read(s, a, b, owner) for s, a, b in runs]
         try:

@@ -497,6 +497,25 @@ def test_counts_the_stored_bytes_of_a_held_value_when_they_are_more(tmp_path):
         _get(VZipStore(str(path), policy=Policy(max_get_bytes=csize - 1)), "r")
 
 
+def test_coalesces_within_what_the_held_key_values_leave(tmp_path):
+    """Coalescing closes gaps only within the bytes per get that the key values a get holds whole
+    leave: two url ranges 70 bytes apart and a 100-byte DEFLATE key read under a bound of 150 in two
+    requests, not refused for a coalesced read of 90 bytes."""
+    (tmp_path / "blob.bin").write_bytes(BLOB)
+    path = tmp_path / "a.vzip"
+    with open(path, "wb") as f, VZipWriter(f) as w:
+        w.source(Source(url="blob.bin"))
+        w.source(Source(key="k"))
+        w.add_bytes("k", bytes(100), compress=True)
+        w.add_ranges("r", [Range(source=0, offset=0, length=10), Range(source=0, offset=80, length=10),
+                           Range(source=1, offset=0, length=10)])
+    store = VZipStore(str(path), policy=Policy(max_get_bytes=150))
+    assert _get(store, "r") == BLOB[:10] + BLOB[80:90] + bytes(10)
+    assert store.stats.external_requests == 2
+    with pytest.raises(RequestError, match="more than 119 bytes"):
+        _get(VZipStore(str(path), policy=Policy(max_get_bytes=119)), "r")
+
+
 def test_inflates_a_key_sources_entry_once(tmp_path, monkeypatch):
     """64 ranges of one DEFLATE entry, read at once, inflate it once."""
     path = tmp_path / "a.vzip"
