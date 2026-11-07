@@ -8,7 +8,7 @@ import ipaddress
 import os
 import re
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -183,7 +183,9 @@ class Policy:
     - `prefixes`: if given, a URL is allowed if and only if it matches one of
       them (rule 2), whatever its scheme. Rule 3 still applies. The real path of
       a file under a `file:` prefix, symbolic links followed, must also be under
-      the prefix's, for the file opened at each read.
+      the prefix's, for the file opened at each read. A `file:` prefix's real
+      path is resolved once, when the policy is made, so a link put in place of
+      the prefix later does not move it.
     - `allow_file_hosts`: UNSAFE. Lets a `file:` URL name a host
       (`file://server/share/x`), which on Windows is the UNC path
       `\\\\server\\share\\x`: reading it connects to that server over the
@@ -235,6 +237,21 @@ class Policy:
     max_sources: int = MAX_SOURCES
     max_reads: int = MAX_READS
     max_format_entry: int = MAX_FORMAT_ENTRY
+    # each `file:` prefix's real path, or None for one that has no local path
+    _real_prefixes: tuple[str | None, ...] = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "_real_prefixes", tuple(
+            self._real_prefix(p) for p in self.prefixes or () if _scheme(p) == "file"))
+
+    def _real_prefix(self, prefix: str) -> str | None:
+        """The real path of a `file:` `prefix`, as a prefix: links followed, with its trailing `/`
+        kept. None if it names a host that `allow_file_hosts` does not allow, so nothing matches it."""
+        try:
+            target = file_uri(_real_path(file_path(prefix, allow_host=self.allow_file_hosts)))
+        except ValueError:
+            return None
+        return target + "/" if prefix.endswith("/") and not target.endswith("/") else target
 
     def check(self, url: str, *, registered: bool = False) -> None:
         """Raise ResolutionError unless rules 1 and 2 allow `url`, and rule 3 allows its host as
@@ -293,10 +310,8 @@ class Policy:
         if self.prefixes is None:
             return
         real = file_uri(_real_path(file_path(url, allow_host=self.allow_file_hosts), fd))
-        for prefix in (p for p in self.prefixes if _scheme(p) == "file"):
-            target = file_uri(_real_path(file_path(prefix, allow_host=self.allow_file_hosts)))
-            if matches_prefix(real, target + "/" if prefix.endswith("/") and not target.endswith("/") else target):
-                return
+        if any(t is not None and matches_prefix(real, t) for t in self._real_prefixes):
+            return
         raise ResolutionError(
             f"{url}: its real path {real} is not under an allowed prefix "
             f"(spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)")

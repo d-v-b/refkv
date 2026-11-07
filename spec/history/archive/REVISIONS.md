@@ -1295,8 +1295,9 @@ to read and return, as [an HDF5 file's external storage did in an incident the H
 described](https://www.hdfgroup.org/2026/07/31/when-an-hdf5-file-points-outside-itself/). `file` is now
 a scheme like any other, refused for every store unless the application allows it, and a `file:` prefix
 (rule 2) also binds the file's path with symbolic links followed, checked at each read for the file
-opened. The separate setting that let a remote store read every file is gone. A store a zarrifier has
-just built may still read the files it found, as if its one prefix were their directory, and a writer
+opened against the prefix's path as resolved once, when the prefix was given. The separate setting that let a remote store read every file is gone. A store a zarrifier has
+just built may still read the files it found, as if its prefixes were their directory and the URLs of
+its other sources, and a writer
 does not refuse a `file` source. The conformance
 runner allows `file` for the reference reader; the three implementations, which were built
 from revision 7 and have no policy, are unchanged.

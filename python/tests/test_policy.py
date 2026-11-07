@@ -299,6 +299,35 @@ def test_refuses_a_link_put_in_place_of_a_file_after_a_read(tmp_path):
         _get(store, "r")
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="making a symbolic link takes a privilege")
+def test_refuses_a_link_put_in_place_of_a_prefix(tmp_path):
+    """A prefix's real path is resolved when the policy is made, so a link put in place of the
+    prefix later does not move it: a file prefix swapped for a link out of its directory, or a
+    directory prefix swapped for a link to `/` (spec §6.7
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 2)."""
+    data, outside = tmp_path / "data", tmp_path / "outside"
+    data.mkdir()
+    outside.mkdir()
+    (outside / "secret").write_bytes(BLOB[::-1])
+    (data / "blob.bin").write_bytes(BLOB)
+    file_url = (data / "blob.bin").as_uri()
+    file_policy = Policy(prefixes=(file_url,))
+    file_policy.check_file(file_url)
+    (data / "blob.bin").unlink()
+    (data / "blob.bin").symlink_to(outside / "secret")
+    with pytest.raises(ResolutionError, match="not under an allowed prefix"):
+        file_policy.check_file(file_url)
+
+    (tmp_path / "dir").mkdir()
+    dir_policy = Policy(prefixes=(f"{(tmp_path / 'dir').as_uri()}/",))
+    (tmp_path / "dir").rmdir()
+    (tmp_path / "dir").symlink_to("/", target_is_directory=True)
+    url = f"{(tmp_path / 'dir').as_uri()}{outside / 'secret'}"
+    dir_policy.check(url)
+    with pytest.raises(ResolutionError, match="not under an allowed prefix"):
+        dir_policy.check_file(url)
+
+
 def test_refuses_an_open_file_that_is_not_the_one_at_its_real_path(tmp_path, monkeypatch):
     """Where the system does not give an open file's path, the file open must be the one at the
     real path checked, or the path changed between the opening and the check."""

@@ -998,7 +998,10 @@ it; the other limits are resource limits ([§6.4](#64-errors)).
    prefix, and refuse a file whose resolved path is not under a resolved prefix.
    It MUST resolve the path of the file it reads at each read, after opening
    it where the system can give an open file's path, so that a link put in
-   place of a file after a check is not followed.
+   place of a file after a check is not followed. It MUST resolve a prefix's
+   path once, when it is given the prefix, so that a link put in place of the
+   prefix later does not move it. A hard link cannot be told from the file it
+   names, so a hard link under a prefix to a file outside it is read.
 3. **Hosts.** An IP address belongs to the first of these classes that
    contains it:
 

@@ -224,8 +224,9 @@ def reading_own_files(policy: Policy | None, sources: Iterable[Source]) -> Polic
     It allows the directory that holds them all, as a prefix, so that a file replaced by a link
     after the store was built is not read through it (spec/refkv.md §6.7
     <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 2); a store
-    that also names other sources allows the `file` scheme, as no prefix list keeps rule 1's.
-    A saved store does not keep this: whoever opens it chooses (rule 1)."""
+    that also names other sources allows each of them by its URL as well, since a prefix list
+    replaces rule 1, which allowed them. A saved store does not keep this: whoever opens it
+    chooses (rule 1)."""
     policy = policy or Policy()
     if policy.prefixes is not None:
         return policy
@@ -234,11 +235,12 @@ def reading_own_files(policy: Policy | None, sources: Iterable[Source]) -> Polic
     files = [u for u in urls if u.lower().startswith("file:")]
     if not files:
         return policy
-    if len(files) < len(urls):
-        return replace(policy, schemes=frozenset(policy.schemes) | {"file"})
     paths = [file_path(u, allow_host=policy.allow_file_hosts) for u in files]
     directory = file_uri(os.path.commonpath([str(Path(p).parent) for p in paths]))
-    return replace(policy, prefixes=(directory.rstrip("/") + "/",))
+    if not directory.endswith("/"):  # a root's URL ends with one already: file:///
+        directory += "/"
+    others = dict.fromkeys(u for u in urls if not u.lower().startswith("file:"))
+    return replace(policy, prefixes=(directory, *others))
 
 
 MAX_PAYLOAD = 65519

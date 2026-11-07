@@ -15,7 +15,7 @@ from refkv.pb import Range, Source
 from refkv.policy import Policy
 from refkv.uri import is_uri_reference
 from refkv.zarrify import _zarrify, zarrify
-from refkv.zarrify.common import Output, reference_store
+from refkv.zarrify.common import Output, reading_own_files, reference_store
 
 sys.path.insert(0, str(Path(__file__).parents[2] / "conformance" / "zarrify"))
 from proxy import Proxy
@@ -154,6 +154,24 @@ def test_a_zarrified_store_refuses_a_link_put_in_place_of_its_file(tmp_path):
     path.symlink_to(tmp_path / "outside.nii")
     with pytest.raises(ResolutionError, match="not under an allowed prefix"):
         store.get(key)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a file: URL with no drive has no Windows path")
+def test_a_zarrified_store_allows_its_files_directory_and_its_other_sources():
+    """A just-built store's policy allows the directory of its files, a root's with its own `/`,
+    and each other source by its URL, not every local file; a caller's prefix list is kept."""
+    https, s3 = "https://data.example/a.bin", "s3://bucket/b.bin"
+    cases = [
+        ([https], None, None),
+        (["file:///d/in/x.bin", "file:///d/in/sub/y.bin"], None, ("file:///d/in/",)),
+        (["file:///a/x.bin", "file:///b/y.bin"], None, ("file:///",)),
+        (["file:///d/x.bin", https, s3, https], None, ("file:///d/", https, s3)),
+        (["file:///d/x.bin"], ("https://h.example/",), ("https://h.example/",)),
+    ]
+    for urls, given, prefixes in cases:
+        policy = reading_own_files(Policy(prefixes=given), [Source(url=u) for u in urls])
+        assert policy.prefixes == prefixes, urls
+        assert policy.schemes == frozenset(), urls
 
 
 @pytest.mark.parametrize("entries", [[("a", b"x", False)], []], ids=["entry", "reference"])
