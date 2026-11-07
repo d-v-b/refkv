@@ -1410,7 +1410,7 @@ async def base_async(location: str | os.PathLike[str], url: str | None = None, *
         raise LayoutUsageError(f"{location} is a store: a store input takes no layout")
     resolver = Resolver(registry)
     fmt, out = await _zarrify._zarrify_async(location, url, checksums=checksums, policy=policy,  # noqa: SLF001
-                                             registry=resolver)
+                                             registry=resolver, written=False)
     if not isinstance(out, (Output, StoreIrOutput)) or out.ir is None:
         raise LayoutUsageError(f"{location}: its output has no IR, so it takes no layout")
     return base_of(out, fmt, policy, resolver)[0]

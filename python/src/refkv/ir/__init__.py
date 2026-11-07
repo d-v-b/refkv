@@ -163,7 +163,8 @@ class NamesSiblingsError(Exception):
 async def zarrify_async(location: str, url: str | None = None, mirror: bool = True, policy: Policy | None = None,
                         transport: Transport | None = None, connections: int | None = None,
                         byte_cost: float | None = None, fmt: str | None = None,
-                        layouts: list[str] | None = None, checksums: bool = False) -> tuple[str, Output, _core.Ir]:
+                        layouts: list[str] | None = None, checksums: bool = False,
+                        written: bool = True) -> tuple[str, Output, _core.Ir]:
     """(format, output, IR): the source read through the read planner, parsed by the
     Rust parser of its format (`fmt`, else the one its first bytes give; a TIFF variant's
     file, rejected unless the TIFF parser finds that variant), projected and
@@ -173,7 +174,9 @@ async def zarrify_async(location: str, url: str | None = None, mirror: bool = Tr
     byte fetched (default 0.1 s per MB); `layouts`: the layouts the projection writes beside
     the image ("dataset"; default: every one the format has); `checksums`: the host will record
     the ranges' checksums, so that a sharded array's ranges are not joined across inner chunks
-    (spec/zarrify.md §2.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#21-virtual-shards>)."""
+    (spec/zarrify.md §2.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#21-virtual-shards>),
+    and, when `written` (the output is written as it is, not only built from), a payload over the
+    limit only with them is `refkv._core.Failed`."""
     transport = transport or await asyncio.to_thread(open_transport, location, policy)
     if fmt is None:
         fmt = await sniffed(transport)
@@ -191,7 +194,7 @@ async def zarrify_async(location: str, url: str | None = None, mirror: bool = Tr
     def output() -> tuple[Output, _core.Ir]:
         try:
             t, ir = run.output(url or (location if transport.remote else path_reference(location)),
-                               mirror, layouts, checksums)
+                               mirror, layouts, bool(checksums), written)
         except _core.Rejected as e:
             raise Rejected(str(e)) from None
         return from_rust(t), ir

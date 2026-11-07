@@ -31,6 +31,13 @@ export function rejection(w: IrExports, r: number): ImageError {
   return new ImageError(text(out(w, -r)));
 }
 
+/** The core's refusal of an output: a rejection (`reject`), or a failure of the zarrifier, such as
+ * a payload over the limit only with its checksums (spec/zarrify.md §1.2
+ * <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>), which is no rejection. */
+export function refusal<E extends Error>(w: IrExports, r: number, reject: (w: IrExports, r: number) => E): Error {
+  return w.vz_failed() !== 0 ? new Error(text(out(w, -r))) : reject(w, r);
+}
+
 /** Zarrifies `source` (the file at `url`) as `format`; the output's format is the run's
  * (a TIFF the core finds to be NDPI is "ndpi", or QPTIFF "qptiff"). A file the core refuses is an
  * ImageError; a source that cannot be read, its own error. */
@@ -79,7 +86,7 @@ export async function zarrifyIr(
     // bit 0: mirror; bit 1: the ranges will carry checksums, so a shard's are not joined
     const flags = (options.mirror === false ? 0 : 1) | (options.checksums ? 2 : 0);
     const n = Number(w.vz_run_output(p, put(w, u), u.length, flags));
-    if (n < 0) throw rejection(w, n);
+    if (n < 0) throw refusal(w, n, rejection);
     const o = decodeOutput(out(w, n));
     return { format: (o.summary.format as IrFormat | undefined) ?? format, ...o };
   } finally {

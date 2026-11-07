@@ -253,7 +253,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
             let tail = if channels == 1 { "0/0" } else { "0/0/0" };
             for (q, &d) in order.iter().enumerate() {
                 let (o, len) = sample(d);
-                refs.chunk(format!("{dir}/pictures/c/{q}/{tail}"), o, len, form, None, q as u64)?;
+                refs.chunk(format!("{dir}/pictures/c/{q}/{tail}"), o, len, form, None)?;
             }
             time_array(&mut refs.out, &dir, &order, &pts);
         } else if format == "pcm" {
@@ -282,7 +282,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
                 let (a, b) = (q * chunk, ((q + 1) * chunk).min(frames));
                 let parts = pcm_parts(a, b, frame, &runs, &mut at);
                 let Some(&Part::Src(o, len)) = parts.first() else { return Err("internal: a PCM chunk has no bytes".into()) };
-                refs.chunk(format!("{dir}/samples/c/{q}/0"), o, len, form, Some(parts), q)?;
+                refs.chunk(format!("{dir}/samples/c/{q}/0"), o, len, form, Some(parts))?;
             }
         } else if matches!(format, "h264" | "hevc" | "av1" | "vp9") {
             // the planes of the pictures, in presentation order (§4.1
@@ -321,7 +321,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
                     .into_iter().map(|(d, pos)| { let (o, len) = sample(d); (o, len, pos) }).collect();
                 let parts = stream_parts(&units);
                 let (o, len) = sample(order[a]);
-                refs.chunk(format!("{dir}/y/c/{q}/0/0"), o, len, form, Some(parts.clone()), q as u64)?;
+                refs.chunk(format!("{dir}/y/c/{q}/0/0"), o, len, form, Some(parts.clone()))?;
                 refs.out.refs(&format!("{dir}/u/c/{q}/0/0"), parts.clone());
                 refs.out.refs(&format!("{dir}/v/c/{q}/0/0"), parts);
             }

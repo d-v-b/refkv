@@ -7,7 +7,7 @@ import io
 import json
 import struct
 from pathlib import Path
-from typing import Any
+from typing import Any, override
 
 import numpy as np
 import pytest
@@ -81,20 +81,16 @@ CASES = [
 
 @pytest.mark.parametrize(("name", "checksums"), CASES, ids=[n for n, _ in CASES])
 def test_seal_of_the_built_in_output_reads_what_zarrify_writes(name, checksums):
-    """`seal` of `project`'s output holds every key `zarrify` writes, each reading the same bytes:
-    the values the built-in projection made, as checked values of the input's sources."""
+    """`seal` of `project`'s output is the store `zarrify` writes: the same source table, numbered
+    by the core's one rule for both, and the same entries, the values the built-in projection made
+    as checked values of the input's sources."""
     path = str(FIXTURES / name) + ("/" if name.endswith("/") else "")
     url = f"https://example.invalid/{name}" if name.endswith("/") else None  # a local store needs one
     with read(path, url, checksums=checksums) as p:
         store = seal(project(p).written, [p])
         built = zarrify(path, url, checksums=checksums)
-        assert sorted(store.mapping) == sorted(built.mapping)
-        for k in built.mapping:
-            if url is None:
-                assert store.get(k) == built.get(k), k
-            else:  # its sources are under the URL, which this test cannot read: the same entries
-                assert store.mapping[k] == built.mapping[k], k
-        assert [s.url for s in store.sources] == [s.url for s in built.sources] or url is None
+        assert store.sources == built.sources
+        assert store.mapping == built.mapping
         assert sorted(store.read_at_open) == sorted(built.read_at_open)
 
 
@@ -423,6 +419,39 @@ def test_seal_refuses_a_payload_past_the_limit_with_its_checksums(tmp_path):
     assert e.value.code == "checksums"
 
 
+def test_seal_refuses_before_it_fails(tmp_path):
+    """A value past the limit only with its checksums fails the call only when no check refuses the
+    output: a placement of no bytes entry is the refusal."""
+    with read(_npy(tmp_path, n=20000), checksums=True) as p:
+        w = Written({"v": concat(*(Ref(p, 0, 2 * k, 1) for k in range(7000)))})
+        w.at_open["v"] = True
+        with pytest.raises(SealError) as e:
+            seal(w, [p])
+    assert e.value.code == "open"
+
+
+def test_seal_refuses_the_built_in_output_past_the_limit_with_its_checksums():
+    """`read` with checksums reads an input whose built-in output passes the limit only with them,
+    which `zarrify` fails: a caller may build another output, and `seal` refuses that one."""
+    with read(str(FIXTURES / "nd2" / "nd2_edge_tall_padded.nd2"), checksums=True) as p:
+        assert seal(Written({"v": Ref(p, 0, 0, 16)}), [p]).sources[0].size == p.sources[0].size
+        with pytest.raises(SealError) as e:
+            seal(project(p).written, [p])
+    assert (e.value.code, e.value.key) == ("checksums", "0/0/c/0/0")
+
+
+def test_seal_refuses_a_ref_past_the_largest_range(tmp_path):
+    with read(_npy(tmp_path)) as p, pytest.raises(SealError) as e:
+        seal(Written({"v": Ref(p, 0, 1 << 63, 1 << 63)}), [p])
+    assert e.value.code == "range"
+
+
+def test_seal_refuses_a_policy_limit_that_is_no_int(tmp_path):
+    with read(_npy(tmp_path), policy=Policy(max_reads=1.5)) as p, pytest.raises(SealError) as e:  # type: ignore[arg-type]
+        seal(Written({"v": Ref(p, 0, 0, 1)}), [p])
+    assert e.value.code == "inputs"
+
+
 def test_seal_refuses_a_check_it_did_not_issue(tmp_path):
     """A caller's Check, however it is bound, lifts no read rule."""
     with read(_npy(tmp_path, n=1100 * (1 << 17))) as p:
@@ -431,6 +460,31 @@ def test_seal_refuses_a_check_it_did_not_issue(tmp_path):
         far = concat(*(Ref(p, 0, k << 17, 1) for k in range(1025)))
         forged = Value(far.parts, Check("builtin", Binding.of(doc, (0, 0))))
         out = Array([4, 6], "uint8", [4, 6], SHARDED, {(0, 0): forged}).entries(to="a")
+        with pytest.raises(SealError) as e:
+            seal(out, [p])
+    assert e.value.code == "reads"
+
+
+class _EqualToAll(tuple):
+    """Parts that say they equal any others."""
+
+    __slots__ = ()
+
+    @override
+    def __eq__(self, other: object) -> bool:
+        return True
+
+    __hash__ = tuple.__hash__
+
+
+def test_seal_refuses_parts_that_only_say_they_are_an_issued_checks(tmp_path):
+    """An issued check holds for its very parts, not for parts whose comparison says so."""
+    with read(_npy(tmp_path, n=1100 * (1 << 17))) as p:
+        doc = {"shape": [4, 6], "data_type": "uint8", "codecs": SHARDED, "fill_value": 0,
+               "chunk_grid": {"name": "regular", "configuration": {"chunk_shape": [4, 6]}}}
+        issued = _issue("builtin", Binding.of(doc, (0, 0)), (Ref(p, 0, 0, 1),))
+        far = _EqualToAll(Ref(p, 0, k << 17, 1) for k in range(1025))
+        out = Array([4, 6], "uint8", [4, 6], SHARDED, {(0, 0): Value(far, issued)}).entries(to="a")
         with pytest.raises(SealError) as e:
             seal(out, [p])
     assert e.value.code == "reads"
@@ -536,10 +590,10 @@ def test_seal_refuses_more_than_a_reader_reads_at_open(tmp_path, monkeypatch):
     assert e.value.code == "open"
 
 
-def test_seal_refuses_a_zero_source_past_a_source_table(tmp_path, monkeypatch):
-    monkeypatch.setattr(seal_module, "MAX_OPEN", 8)
+@pytest.mark.parametrize("n", [(256 << 20) + 1, 1 << 70])
+def test_seal_refuses_a_zero_source_past_a_source_table(tmp_path, n):
     with read(_npy(tmp_path)) as p, pytest.raises(SealError) as e:
-        seal(Written({"v": Zeros(9)}), [p])
+        seal(Written({"v": Zeros(n)}), [p])
     assert e.value.code == "archive"
 
 
@@ -591,13 +645,6 @@ def test_seal_refuses_a_ref_of_no_natural_offset(tmp_path):
     with read(_npy(tmp_path)) as p, pytest.raises(SealError) as e:
         seal(Written({"v": Ref(p, 0, -1, 4)}), [p])
     assert e.value.code == "value"
-
-
-def test_seal_refuses_more_sources_than_an_output_holds(tmp_path, monkeypatch):
-    monkeypatch.setattr(seal_module, "MAX_SOURCES", 1)
-    with read(_npy(tmp_path)) as p, pytest.raises(SealError) as e:
-        seal(Written({"v": concat(Ref(p, 0, 0, 1), Data(b"x"))}), [p])
-    assert e.value.code == "archive"
 
 
 def test_seal_refuses_a_source_table_past_what_a_reader_reads(tmp_path, monkeypatch):

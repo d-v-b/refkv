@@ -300,7 +300,7 @@ fn build(ir: &Ir, facts: &J, url: &str, source: &str, copied: &Copied) -> Result
                 let ranges = arr(&store["ranges"]);
                 let total: u64 = ranges.iter().map(|r| n(&r[2])).sum();
                 count += chunks.len() as u64;
-                for (piece, (c, chunk)) in chunks.into_iter().enumerate() {
+                for (c, chunk) in chunks {
                     let Chunk::Ranges(parts) = chunk else { return Err("internal: an external chunk is not a range".into()) };
                     let mut placed = Vec::new();
                     for part in contiguous::padded(parts, &mut zeros, &mut refs.out)? {
@@ -309,7 +309,7 @@ fn build(ir: &Ir, facts: &J, url: &str, source: &str, copied: &Copied) -> Result
                             part => placed.push(part),
                         }
                     }
-                    refs.chunk(chunk_key(path, &c), n(&store["address"]), total, 0, Some(placed), piece as u64)?;
+                    refs.chunk(chunk_key(path, &c), n(&store["address"]), total, 0, Some(placed))?;
                 }
             }
             Some("chunked") => {
@@ -334,7 +334,7 @@ fn build(ir: &Ir, facts: &J, url: &str, source: &str, copied: &Copied) -> Result
                         None if trim > 0 => Some(vec![Part::Src(start, length - trim)]),
                         None => None,
                     };
-                    refs.chunk(chunk_key(path, &coords), start, length, form, parts, 0)?;
+                    refs.chunk(chunk_key(path, &coords), start, length, form, parts)?;
                     count += 1;
                 }
             }
@@ -347,7 +347,7 @@ fn build(ir: &Ir, facts: &J, url: &str, source: &str, copied: &Copied) -> Result
                 if shape.is_empty() {
                     for (c, chunk) in chunks {
                         let Chunk::Ranges(parts) = chunk else { return Err("internal: a scalar's chunk is not a range".into()) };
-                        refs.chunk(chunk_key(path, &c), start, length, form, Some(parts), 0)?;
+                        refs.chunk(chunk_key(path, &c), start, length, form, Some(parts))?;
                     }
                 } else {
                     let prefix = if path.is_empty() { "c/".to_string() } else { format!("{path}/c/") };
@@ -360,17 +360,17 @@ fn build(ir: &Ir, facts: &J, url: &str, source: &str, copied: &Copied) -> Result
                     continue;
                 }
                 let coords = vec![0u64; shape.len()];
-                refs.chunk(chunk_key(path, &coords), o, len, 0, Some(vec![Part::Src(o, len)]), 0)?;
+                refs.chunk(chunk_key(path, &coords), o, len, 0, Some(vec![Part::Src(o, len)]))?;
                 count += 1;
             }
             Some("strings") => {
                 let spans: Vec<(u64, u64)> = arr(&store["spans"]).chunks(2).map(|p| (n(&p[0]), n(&p[1]))).collect();
                 let Some((_, chunks)) = grid_chunks(0, &shape, STRING_ITEM, STRING_LIMIT, usize::MAX) else { continue };
                 let first = spans.iter().find(|s| s.1 > 0).map_or((0, 0), |s| *s);
-                for (piece, (c, chunk)) in chunks.into_iter().enumerate() {
+                for (c, chunk) in chunks {
                     let (k, m, pad) = run_of(&chunk, STRING_ITEM);
                     let parts = string_parts(&spans[k as usize..(k + m) as usize], pad);
-                    refs.chunk(chunk_key(path, &c), first.0, first.1, 0, Some(parts), piece as u64)?;
+                    refs.chunk(chunk_key(path, &c), first.0, first.1, 0, Some(parts))?;
                     count += 1;
                 }
             }

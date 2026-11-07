@@ -85,7 +85,7 @@ a reference entry, is one of:
 
 | range | written | its bytes |
 |---|---|---|
-| a source range | `(i, offset, length)` | `length` bytes of source `i`, from `offset`: of a `url` source: the input, source 0, for a file input; for a store input, an object, in the order [§1.4](#14-store-inputs) gives (the SAFE document and the safetensors store form give their own order, and so does each profile that reads a file as a store, [§1.8](#18-files-read-as-stores), whose source 0 need not be the input), or of a data source ([§1.2](#12-input)), whole, or a zero data source's first `length` bytes; in a plugin's output ([spec/layout.md](layout.md)), any `length` bytes within a data source, from `offset` |
+| a source range | `(i, offset, length)` | `length` bytes of source `i`, from `offset`: of a `url` source: the input, source 0, for a file input; for a store input or a file read as a store ([§1.8](#18-files-read-as-stores), whose source 0 need not be the input), an object, in order of first use ([§1.2](#12-input); the DICOM store form's, [dicom.md §9](zarrify/dicom.md#9-the-store-form), aside), or of a data source ([§1.2](#12-input)), whole, or a zero data source's first `length` bytes; in a plugin's output ([spec/layout.md](layout.md)), any `length` bytes within a data source, from `offset` |
 | a literal range | a literal of `d` | the bytes `d`, which the entry carries ([spec/refkv.md §4.2](refkv.md#42-range)) |
 
 A format's chunk tables ([conventions §11.5](conventions.md#115-layout-tables)) give each
@@ -182,14 +182,25 @@ a `url` source the CRC-32C of its bytes ([spec/refkv.md §4.2](refkv.md#42-range
 byte the output references, pixel data included, so it is off by default;
 it is the one exception to "Structure only" below, and changes nothing else
 in the output. An output whose payload exceeds 65519 bytes only because of
-its checksums is a failure, not a rejection. A data source is a `data` source
+its checksums is a failure, not a rejection: for an output a profile writes without a plugin,
+each range of a `url` source is counted with the most bytes its `crc32c` field takes, 6 (a tag,
+and a varint of 32 bits), so whether it fails depends on the output's ranges, never on the bytes
+they read (a plugin's output is measured as [spec/layout.md §4](layout.md#4-writing-the-output)
+says). A data source is a `data` source
 ([spec/refkv.md §5](refkv.md#5-source-table)) holding a byte string that a profile names as **shared**: one
 that many references would otherwise each read from the file, or each carry
 as a literal, such as a JPEG header. The data sources are the distinct
-shared byte strings of the output, numbered from 1 **in order of first
-use**: in the order in which the profile lists the references, and within a
-reference in order of its ranges, the first range that uses a byte string
-not yet in the table adds it as the next source. A range that uses a shared
+shared byte strings of the output, numbered after source 0, from 1, **in order of first
+use**: over the reference entries in the order of their keys, compared as UTF-8 byte strings,
+and within a reference in order of its ranges, the first range that uses a byte string
+not yet in the table adds it as the next source. Every output a profile writes without a plugin
+is numbered by this one rule, its `url` sources first, by their first use, then its data
+sources, from the first index after them: a store input's ([§1.4](#14-store-inputs)), a file read
+as a store's ([§1.8](#18-files-read-as-stores)); so is an output a caller builds with
+`refkv.build` (docs/build.md), whose source 0 is its input only when it has one input, a file
+read as a file input. Two outputs are numbered otherwise: a
+plugin's ([§1.9](#19-sources-beside-the-input), **Sources and order**), and the DICOM store form's
+([dicom.md §9](zarrify/dicom.md#9-the-store-form)), whose table this document does not fix. A range that uses a shared
 byte string `d` in data source `i` is `(i, 0, len(d))`, the whole source,
 but for a **zero data source**: `n` zero bytes, `n` the most zero padding
 any reference of the output holds, of which a reference padded with `p`
@@ -286,8 +297,10 @@ in the output.
 
 **References stay in the file.** Every range of source 0 MUST lie within
 the file (`offset + length ≤` the file's size; a range of a data source is
-the whole source), and every reference entry's
-payload MUST be at most 65519 bytes; otherwise the input is rejected. Both hold for every
+the whole source), every reference entry's
+payload MUST be at most 65519 bytes, and every key MUST be at most 65535 bytes in UTF-8 and MUST
+NOT start with `__vz__/` (the ZIP binding's own, [spec/bindings/vzip.md](bindings/vzip.md));
+otherwise the input is rejected. The first two hold for every
 reference of a plugin's output ([spec/layout.md §4](layout.md#4-writing-the-output)), where a
 range of a data source may be any bytes within it, and one that breaks them is a failure of the
 call, not a rejection of the input. The
@@ -303,9 +316,11 @@ encoding (1 byte below 2^7, 2 below 2^14, and so on).
 ([conventions §8](conventions.md#8-the-ir-mirror)) bounds how many references it writes,
 so that a small input cannot make a large output. Each chunk it references is one
 **reference** (for a sharded array, each inner chunk, counted before the chunks are put in
-shards, [§2.1](#21-virtual-shards)); a chunk that references the same bytes of the same element
-as an earlier one (the same extent of the IR, and the same piece of it, where a profile cuts an element into
-pieces) is also one **repeat**, as when two chunks name one element that two structures share
+shards, [§2.1](#21-virtual-shards)), but for a chunk that joins strips
+([tiff.md §7.3](zarrify/tiff.md#73-chunks)) each strip it joins is one, and the chunk none of its
+own; a reference whose ranges of the file (or of the store's objects) are, in order,
+an earlier reference's, whatever elements or pieces of elements they are cut from, is also one
+**repeat** (a reference of no such range is none), as when two chunks name one element that two structures share
 (an alias, [conventions §8.1](conventions.md#81-elements)). A zarrifier MUST reject an input
 whose output would have more than `2^22 + 4 × Z` references, `Z` the source's size (for a
 store IR, its objects' total size), with the message `budget: more than N refs`, or more than
@@ -461,10 +476,11 @@ follow them, and its references are ranges within objects
 ([safe.md §8.8](zarrify/safe.md#88-the-source-table)). The safetensors profile's store form is
 another, in the same way ([safetensors.md §9.4](zarrify/safetensors.md#94-chunks-and-sources)).
 
-These rules replace [§1.2](#12-input)'s **References stay in the file** (but for the
-SAFE profile, whose payloads are checked as [§1.2](#12-input) says): each range lies
-within its object by construction, and its payload is far below 65519
-bytes. An output key MUST be at most 65535 bytes in UTF-8 and MUST NOT
+These rules replace [§1.2](#12-input)'s **References stay in the file** for the store profiles of
+this section (but for the SAFE profile and the safetensors store form, whose payloads are checked
+as [§1.2](#12-input) says): each range lies within its object by construction, and its payload is
+far below 65519 bytes, with its checksum too. The DICOM store form's references are its files'
+([dicom.md §9](zarrify/dicom.md#9-the-store-form)), each checked as its file's output is. An output key MUST be at most 65535 bytes in UTF-8 and MUST NOT
 start with `__vz__/`; otherwise the input is rejected.
 
 **Rejection and failure.** [§1.2](#12-input)'s rejection rule applies to every object a
@@ -763,8 +779,8 @@ files, a project's documents and LOFs) as a store ([§1.4](#14-store-inputs)).
 <!-- /profiles -->
 
 Such a **file read as a store** is read as follows; the profile's
-document says which keys it probes, how it reads each object, and the order of its sources, under
-the rules of [§1.9](#19-sources-beside-the-input).
+document says which keys it probes and how it reads each object, under the rules of
+[§1.9](#19-sources-beside-the-input); its sources are numbered as [§1.2](#12-input) says.
 
 - **The store URL and the key.** `U` MUST have no query and no fragment component, or the
   input is rejected (`<format> input <U> has a query or a fragment`). The **store URL** is `U`
@@ -782,8 +798,8 @@ the rules of [§1.9](#19-sources-beside-the-input).
   requested length is a failure.
 - **Sources.** The output's `url` sources are the object URLs
   ([§1.4](#14-store-inputs), **Object URLs**) of the objects its references use, each with a
-  `size` pin, in the order the profile's document gives, followed by its data sources
-  ([§1.2](#12-input)). Source 0 need not be the named file.
+  `size` pin, in order of first use ([§1.2](#12-input)), followed by its data sources. Source 0
+  need not be the named file.
 - **`source.url`** ([§2](#2-the-zarr-layout)) is the named file's object URL, the store URL
   followed by the key encoded as [§1.4](#14-store-inputs) says. It is not `U` as given when
   `U` encodes the key otherwise (`%7E` for `~`, or lowercase hex digits).
@@ -881,8 +897,8 @@ CORS headers from a network failure, so asking for a file that is not there can 
 **Sources and order.** Each sibling a reference uses is a `url` source
 ([§1.8](#18-files-read-as-stores), **Sources**), and the named file is one only when a reference
 uses it. The order of the sources is a function of the bytes alone, never of when a probe or a read
-completed. A profile uses the order of **first use** unless its document says otherwise: walk the
-output's reference entries in the order its chunk tables give, and number each object as it first
+completed. Every profile uses the order of **first use** ([§1.2](#12-input)): walk the
+output's reference entries in the order of their keys, and number each object as it first
 appears. A plugin's output ([spec/layout.md](layout.md)) keeps the base's source table, in the
 base's order, sources it does not use included, and after them, at most one zero data source
 ([spec/layout.md §4](layout.md#4-writing-the-output)): the numbering by first use, and the rule that a
@@ -929,7 +945,7 @@ read of what it named:
 | names | each key's rule, derived or written, with the steps a written name takes (`\`, percent-decoding, `..`, **Case**) |
 | probes | which keys, in which batches; required or optional; what is recorded for a name that dangles; when a family ends |
 | identity | what is checked in each sibling and the rejection's message, or that the format records nothing |
-| order | the sources' order, when not first use |
+| order | first use ([§1.2](#12-input)), and what it makes source 0 or 1 when the document names it |
 | reads and mirror | the ranges read of each sibling, and how the mirror describes it |
 
 ## 2. The Zarr layout
@@ -1130,8 +1146,7 @@ entries. The Python reference has no limit of its own beyond the store IR's 2^24
 ([conventions §8.9](conventions.md#89-stores)), past which every zarrifier rejects the store;
 its run on a 470000-chunk OpenOrganelle level is recorded in
 `spec/history/virtualize/REVISIONS.md` (revision 12). Store profiles do not shard
-([§2.1](#21-virtual-shards)) because the hosts of a store input's zarrifier do not tell the pass
-that joins ranges whether they record checksums.
+([§2.1](#21-virtual-shards)): no store convention asks for shards.
 
 Implementations written from this document alone, round by round, are in
 `conformance/impls/zarrify/`; `spec/history/virtualize/REVISIONS.md` records what each

@@ -158,7 +158,7 @@ pub fn zarrify_file(location: &str, url: Option<&str>, t: &Transport, connection
         None if t.remote() => location.to_string(),
         None => refkv_vzip::uri::path_reference(location).map_err(Fail::Other)?,
     };
-    let out = run.into_output(&name, true, checksums).map_err(Fail::Rejected)?;
+    let out = run.into_output(&name, true, checksums)?;
     Ok(Zarrified::File(fmt, out))
 }
 

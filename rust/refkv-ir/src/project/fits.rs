@@ -318,7 +318,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
         summary_arrays.push(json!({"path": path, "shape": shape, "dataType": data_type, "chunkShape": c["chunk_shape"], "compression": c["type"]}));
         let table = h["elements"]["table"].as_u64().and_then(|t| ir.value_bytes(t as u32)).unwrap_or(&[]);
         let records = tile_records(c, table)?;
-        for (piece, ch) in c["chunks"].as_array().into_iter().flatten().enumerate() {
+        for ch in c["chunks"].as_array().into_iter().flatten() {
             let Some(e) = ch["element"].as_u64() else { continue };
             let (first, n) = (ch["first"].as_u64().unwrap_or(0) as usize, ch["count"].as_u64().unwrap_or(0) as usize);
             let (start, length, form) = (ir.start[e as usize], ir.len[e as usize], ir.form_id(e as u32).ok_or("internal: a heap chunk has no form")?);
@@ -326,7 +326,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
             parts.insert(0, Part::Lit(prefix(first as u64, &records[first..first + n])));
             let coords = ch["coords"].as_array().into_iter().flatten().map(super::n);
             count += 1;
-            refs.chunk(key(&format!("{path}/c/"), coords), start, length, form, Some(parts), piece as u64)?;
+            refs.chunk(key(&format!("{path}/c/"), coords), start, length, form, Some(parts))?;
         }
     }
     let mut out = refs.out;
