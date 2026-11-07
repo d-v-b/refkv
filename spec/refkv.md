@@ -1084,7 +1084,9 @@ it; the other limits are resource limits ([§6.4](#64-errors)).
    the reads the `get` needs by itself: sharing them with other `get`s
    ([§6.3](#63-resolving-a-reference)) does not change it, and neither does
    making one on its own after a shared read fails. These limits are the reader's: a
-   writer does not hold a store to them, since another reader may allow more.
+   writer does not hold a store to them, since another reader may allow more. Which `key`
+   sources' values a reader holds whole is the reader's too, and so one `get` may be within
+   one reader's bound and past another's with the same limits.
 6. **Data read at open.** A reader MUST have a maximum size for the source
    table and for each piece of the binding's auxiliary data, and MUST stop
    reading or decompressing either as soon as its output passes that size,
@@ -1113,7 +1115,7 @@ Rust phkv reader, which bounds the bytes of one `get` at 2^32 and combines no re
 | proxies while rule 3 applies | refused |
 | sources per store | 4,194,304 (2^22) |
 | reads per `get` | 1024 |
-| bytes per `get` | 2^31 |
+| bytes per `get` | 2^31; a `key` source's value counts whole when it is compressed or hidden (the Python vzip reader), compressed (the Python and Rust phkv readers), or always (the TypeScript readers, which read every such value whole) |
 | coalescing gap ([§6.3](#63-resolving-a-reference)) | 64 KiB |
 | read amplification of shared reads ([§6.3](#63-resolving-a-reference)) | 4 |
 | the source table, or auxiliary data (in a vzip archive, a format entry, inflated) | 256 MiB |
@@ -1194,7 +1196,7 @@ A binding adds the reasons that come from its backend
 - Keys are not file names. Tools that extract a store to disk MUST NOT
   trust keys such as `../x` or `/etc/passwd`.
 - A reference can describe a value of up to 2^64 − 1 bytes. Readers SHOULD bound the memory a
-  single request can use, a binding's own reads included, and document the bound; a request beyond
+  single request can use, and document the bound; a request beyond
   it is a request error. Readers bound the bytes one
   `get` takes ([§6.7](#67-reader-policy) rule 5) and document the bound; a request beyond it
   is a request error. A store whose value passes a reader's bound, such as a zarrified file

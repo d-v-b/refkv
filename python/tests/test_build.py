@@ -437,6 +437,17 @@ def test_seal_refuses_the_built_in_output_past_the_limit_with_its_checksums():
     assert (e.value.code, e.value.key) == ("checksums", "0/0/c/0/0")
 
 
+def test_build_reads_its_inputs_past_a_readers_get_limits(tmp_path):
+    """`Parsed.bytes` and `seal`'s checksums read the input under its policy's pins and hosts, but
+    not its limits on one `get`: those are a reader's (spec §6.7
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 5)."""
+    data = _npy(tmp_path).read_bytes()
+    with read(tmp_path / "x.npy", checksums=True, policy=Policy(max_reads=0, max_get_bytes=16)) as p:
+        assert p.bytes((0, 0, 4000)) == data[:4000]
+        sealed = seal(Written({"v": Ref(p, 0, 0, 4000)}), [p], policy=Policy())
+    assert sealed.get("v") == data[:4000]
+
+
 def test_seal_refuses_a_ref_past_the_largest_range(tmp_path):
     with read(_npy(tmp_path)) as p, pytest.raises(SealError) as e:
         seal(Written({"v": Ref(p, 0, 1 << 63, 1 << 63)}), [p])

@@ -356,6 +356,7 @@ class PhkvStore:
         read: Callable[[int, int], bytes],
         sources: int | None = None,
         open_bytes: int | None = None,
+        request_bytes: int | None = None,
     ) -> None: ...
     @staticmethod
     def tail() -> int: ...

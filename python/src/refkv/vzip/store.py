@@ -389,9 +389,17 @@ class VZipStore(ReferenceReader):
         except Exception:  # noqa: BLE001 - `_key_bytes` reports it, as a resolution error
             return None
         e = self._entries.get(key)
-        if e is None or e.error or e.is_ref or (not key.startswith(RESERVED_PREFIX) and e.method == 0):
+        if e is None or key in (SOURCES_KEY, INDEX_KEY) or e.error or e.is_ref \
+                or (not key.startswith(RESERVED_PREFIX) and e.method == 0):
             return None
         return e.size
+
+    def _key_loaded(self, loop: asyncio.AbstractEventLoop, key: str, task: asyncio.Task[bytes]) -> None:
+        """Keep a value read whole for key ranges, even when every range waiting on it was
+        cancelled, before any later range can start another read."""
+        self._key_loading.pop((loop, key), None)
+        if not task.cancelled() and task.exception() is None:
+            self._key_cache.setdefault(key, task.result())
 
     @override
     async def _key_bytes(self, key: str, start: int, end: int) -> bytes:
@@ -420,9 +428,9 @@ class VZipStore(ReferenceReader):
             loading = self._key_loading.get((loop, key))
             if loading is None:
                 loading = self._key_loading[(loop, key)] = loop.create_task(self._body(e, 0, e.size))
-                loading.add_done_callback(lambda _: self._key_loading.pop((loop, key), None))
-            value = await asyncio.shield(loading)
-            self._key_cache.setdefault(key, value)
+                loading.add_done_callback(lambda t: self._key_loaded(loop, key, t))
+            # the task may have finished before `_key_loaded` ran: keep its value here too
+            self._key_cache.setdefault(key, await asyncio.shield(loading))
         data = self._key_cache[key]
         if end > len(data):
             raise ResolutionError(f"key source {key!r} is shorter than {end} bytes")

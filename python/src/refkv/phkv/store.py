@@ -235,7 +235,9 @@ class PhkvStore(ReferenceReader):
         await super()._open()
 
     def _open_core(self) -> None:
-        core = _core.PhkvStore(self._size_of, self._read_at, self.policy.max_sources, self.policy.max_format_entry)
+        # the core bounds a value it reads or decodes at 2^32 bytes, or at a larger `max_get_bytes`
+        core = _core.PhkvStore(self._size_of, self._read_at, self.policy.max_sources, self.policy.max_format_entry,
+                               self.policy.max_get_bytes)
         self._sources = [Source.decode(s) for s in core.sources()]
         self._revision = core.revision
         self._metadata = dict(core.metadata())

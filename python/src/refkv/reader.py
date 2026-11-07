@@ -31,7 +31,7 @@ import socket
 import threading
 import urllib.error
 import urllib.request
-from collections.abc import AsyncIterator, Buffer, Callable, Coroutine, Iterable, Mapping
+from collections.abc import AsyncIterator, Buffer, Callable, Iterable, Mapping
 from concurrent.futures import Executor, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from email.message import Message
@@ -876,6 +876,15 @@ class _DataPiece:
     end: int
 
 
+@dataclass(frozen=True)
+class _KeyPiece:
+    """Bytes [start, end) of a `key` source's value, read once the value passes rule 5."""
+
+    key: str
+    start: int
+    end: int
+
+
 @dataclass(eq=False)
 class _Waiting:
     """A read of bytes [start, end) of a url source, which `future` gets, waiting to be served
@@ -1350,15 +1359,15 @@ class ReferenceReader:
             if r.data is None and r.source >= len(self._sources):
                 raise PayloadError(f"range uses source {r.source}; the table has "
                                    f"{len(self._sources)}")
-        # Each piece is the bytes of a range overlapping the window: literal bytes, a
-        # coroutine (a key source), or a (source, a, b) read of a url source. A range
+        # Each piece is the bytes of a range overlapping the window: literal bytes, a data or a key
+        # source's bytes, or a (source, a, b) read of a url source. A range
         # with a crc32c is read whole and checked (spec §6.3
         # <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#63-resolving-a-reference>);
         # `cuts` says which part of each piece the window takes, and which checksum it must have.
-        pieces: list[bytes | tuple[int, int, int] | _DataPiece | Coroutine[object, object, bytes]] = []
+        pieces: list[bytes | tuple[int, int, int] | _DataPiece | _KeyPiece] = []
         cuts: list[tuple[int, int, int | None]] = []
         taken = 0  # the bytes the value is built from: a range with a crc32c whole
-        held: set[str] = set()  # the keys whose value is counted whole
+        held: dict[str, int | None] = {}  # each key's whole size, where its value counts whole
         pos = 0
         for r in parts(ref):
             lo, hi = max(start, pos), min(end, pos + r.size)
@@ -1376,19 +1385,20 @@ class ReferenceReader:
                     a, b = r.offset, r.offset + r.length
                     cuts.append((lo - pos, hi - pos, r.crc32c))
                 src = self._sources[r.source]
-                if src.key is None or src.key not in held:
+                if src.key is None:
                     taken += b - a
-                # a key's value the reader holds whole to read a range of it counts whole, once
-                if src.key is not None and src.key not in held \
-                        and (whole := await self._key_held_whole(src.key)) is not None:
-                    held.add(src.key)
-                    taken += max(whole - (b - a), 0)
+                elif src.key not in held:
+                    # a key's value the reader holds whole to read a range of it counts whole, once
+                    whole = held[src.key] = await self._key_held_whole(src.key)
+                    taken += b - a if whole is None else max(whole, b - a)
+                elif held[src.key] is None:
+                    taken += b - a
                 if taken > self.policy.max_get_bytes:  # rule 5, refused below: nothing is read
                     break
                 if src.data is not None:
                     pieces.append(_DataPiece(r.source, a, b))  # taken once the value passes rule 5
                 elif src.key is not None:
-                    pieces.append(self._key_bytes(src.key, a, b))
+                    pieces.append(_KeyPiece(src.key, a, b))
                 else:
                     pieces.append((r.source, a, b))
             pos += r.size
@@ -1396,19 +1406,14 @@ class ReferenceReader:
         # them apart.
         reads = {p for p in pieces if isinstance(p, tuple)}
         runs = _coalesced(reads, gap=self.policy.max_coalesce_gap, budget=self.policy.max_get_bytes)
-        coros = [p for p in pieces if not isinstance(p, (bytes, tuple, _DataPiece))]
         # spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 5, before any
         # read: the bytes it is built from, and those it fetches, the bytes between coalesced ranges included
         fetched_bytes = sum(b - a for _, a, b in runs)
         if max(taken, fetched_bytes) > self.policy.max_get_bytes:
-            for c in coros:
-                c.close()
             raise RequestError(f"the value needs more than {self.policy.max_get_bytes} bytes; this reader "
                                f"allows {self.policy.max_get_bytes} ("
                                f"spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)")
         if len(runs) > self.policy.max_reads:
-            for c in coros:
-                c.close()
             raise RequestError(f"the value needs {len(runs)} reads; this reader allows "
                                f"{self.policy.max_reads} ("
                                f"spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)")
@@ -1416,11 +1421,10 @@ class ReferenceReader:
             if isinstance(p, _DataPiece):
                 data = cast("bytes", self._sources[p.source].data)
                 if p.end > len(data):
-                    for c in coros:
-                        c.close()
                     raise ResolutionError(f"data source {p.source} is shorter than {p.end} bytes")
                 pieces[i] = data[p.start:p.end]
         owner = object()  # this value's reads, which the shared reads keep apart
+        coros = [self._key_bytes(p.key, p.start, p.end) for p in pieces if isinstance(p, _KeyPiece)]
         coros += [self._shared_read(s, a, b, owner) for s, a, b in runs]
         try:
             done = await asyncio.gather(*coros)

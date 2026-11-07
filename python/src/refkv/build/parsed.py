@@ -349,10 +349,13 @@ class Parsed:
                 raise ValueError(f"bytes {offset} to {offset + length} of source {source}, past its {size}")
         runs = _runs(ranges, (self.policy or Policy()).max_coalesce_gap)  # as the reader merges them: each read once
         mapping = {str(k): Range(src, a, b - a) for k, (src, a, b) in enumerate(runs)}
-        # the input's own bytes, which `max_bytes` bounds, not a reader's `get` (rule 5 is a reader's)
+        # the input's own bytes, read one run a get: a reader's limits on a `get` (rule 5) are not
+        # build's, and `bytes` bounds what it reads by `max_bytes`; `seal`'s checksums read the
+        # ranges its values name, however many
         rules = self.policy or Policy()
         longest = max((b - a for _, a, b in runs), default=0)
-        policy = dataclasses.replace(rules, max_get_bytes=max(rules.max_get_bytes, longest))
+        policy = dataclasses.replace(rules, max_get_bytes=max(rules.max_get_bytes, longest),
+                                     max_reads=max(rules.max_reads, 1))
         store = ReferenceStore(mapping, self._readable(), policy=policy, registry=self.registry)
 
         async def each() -> list[bytes | None]:  # together

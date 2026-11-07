@@ -1297,8 +1297,8 @@ range with a `crc32c` whole, and a `key` source's value the reader holds whole t
 value whole, once a `get`), refused as a request error before any read: 2^31 in the Python and
 TypeScript readers of the specification's repository, 2^32 in its Rust phkv reader. The
 conformance suite's three implementations bound a `get`'s window and an entry's inflated body at
-1 GiB, but count neither a checksummed range whole nor the bytes between coalesced ranges, so they
-do not yet meet this rule; the suite does not test it. Coalescing
+1 GiB, but bound neither the reads nor the bytes a `get` takes, so they do not meet rule 5; the
+suite does not test it. Coalescing
 ([§6.3](../../refkv.md#63-resolving-a-reference)) MUST NOT take a `get` past that bound: the reader
 combines fewer reads instead, and the readers here close the narrowest gaps first, within a
 **coalescing gap** their policy sets (64 KiB by default; 0 combines only reads that touch). How many

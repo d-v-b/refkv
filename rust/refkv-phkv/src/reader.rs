@@ -760,18 +760,19 @@ impl<R: ReadAt> Store<R> {
         }
         // rule 5, before any read: the bytes the parts take, a range with a checksum read whole, and
         // a key source's value decoded whole counted whole, once
-        let mut held: Vec<&str> = Vec::new();
+        let mut held: HashMap<&str, Option<u64>> = HashMap::new(); // each key looked up once a get
         let mut taken = 0u64;
         for &(r, i, j) in &parts {
             let range = if r.data.is_none() && r.crc32c.is_some() { r.length } else { j - i };
             let bytes = match (r.data.is_none()).then(|| &self.sources[r.source as usize].kind) {
-                Some(SourceKind::Key(k)) => match self.key_decoded_whole(k) {
-                    Some(_) if held.contains(&k.as_str()) => 0,
-                    Some(size) => {
-                        held.push(k.as_str());
-                        size.max(range)
+                Some(SourceKind::Key(k)) => match held.get(k.as_str()) {
+                    Some(Some(_)) => 0,
+                    Some(None) => range,
+                    None => {
+                        let whole = self.key_decoded_whole(k);
+                        held.insert(k.as_str(), whole);
+                        whole.map_or(range, |size| size.max(range))
                     }
-                    None => range,
                 },
                 _ => range,
             };

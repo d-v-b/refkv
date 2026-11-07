@@ -84,13 +84,14 @@ impl PyPhkvStore {
     /// §22.1 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#221-opening>): every
     /// failure is an archive error. `sources` and `open_bytes` are the reader policy's limits of
     /// spec/refkv.md §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>
-    /// rules 4 and 6.
+    /// rules 4 and 6; `request_bytes` raises the bytes one read or decode may take, never lowers it.
     #[new]
-    #[pyo3(signature = (size, read, sources=None, open_bytes=None))]
-    fn new(py: Python<'_>, size: Py<PyAny>, read: Py<PyAny>, sources: Option<usize>, open_bytes: Option<u64>) -> PyResult<Self> {
+    #[pyo3(signature = (size, read, sources=None, open_bytes=None, request_bytes=None))]
+    fn new(py: Python<'_>, size: Py<PyAny>, read: Py<PyAny>, sources: Option<usize>, open_bytes: Option<u64>, request_bytes: Option<u64>) -> PyResult<Self> {
         let mut limits = Limits::default();
         limits.sources = sources.unwrap_or(limits.sources);
         limits.open_bytes = open_bytes.unwrap_or(limits.open_bytes);
+        limits.request_bytes = limits.request_bytes.max(request_bytes.unwrap_or(0));
         let callbacks = Arc::new(Callbacks { size, read });
         let at = PyReadAt(callbacks.clone());
         let store = py.detach(|| Store::open_with(at, limits)).map_err(read_err)?;

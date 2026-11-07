@@ -7,6 +7,7 @@ import gc
 import io
 import subprocess
 import sys
+import warnings
 import weakref
 
 import pytest
@@ -133,6 +134,53 @@ def test_counts_a_compressed_key_sources_value_whole_once(tmp_path):
         value[2:10] + value[20:28]
     with pytest.raises(RequestError, match=f"more than {len(value) - 1} bytes"):
         refkv.phkv.open(tmp_path / "s.phkv", policy=Policy(max_get_bytes=len(value) - 1)).get("r")
+
+
+def test_looks_up_a_key_source_once_a_get(tmp_path, monkeypatch):
+    """200 ranges of one stored key source look its value up once, to count it for rule 5."""
+    value = bytes(range(250)) * 40
+    ranges = Concat(tuple(Range(source=0, offset=k, length=1) for k in range(200)))
+    store = refkv.ReferenceStore({"k": value, "r": ranges}, [Source(key="k")])
+    store.save_phkv(tmp_path / "s.phkv")
+    phkv = refkv.phkv.open(tmp_path / "s.phkv")
+    looked_up = []
+    held_whole = phkv._key_held_whole
+
+    async def counted(key):
+        looked_up.append(key)
+        return await held_whole(key)
+
+    monkeypatch.setattr(phkv, "_key_held_whole", counted)
+    assert phkv.get("r") == value[:200]
+    assert looked_up == ["k"]
+
+
+def test_cancelling_a_get_leaves_no_key_read_unawaited(tmp_path, monkeypatch):
+    """A get cancelled while it counts its key sources, after counting one, has made no read of
+    them, so none is left never awaited."""
+    ranges = Concat((Range(source=0, offset=0, length=1), Range(source=1, offset=2, length=1)))
+    store = refkv.ReferenceStore({"k": b"abcdef", "j": b"ghijkl", "r": ranges}, [Source(key="k"), Source(key="j")])
+    store.save_phkv(tmp_path / "s.phkv")
+    phkv = refkv.phkv.open(tmp_path / "s.phkv")
+
+    async def stuck(key):
+        if key == "j":
+            await asyncio.Event().wait()
+
+    monkeypatch.setattr(phkv, "_key_held_whole", stuck)
+
+    async def cancelled():
+        task = asyncio.ensure_future(phkv.get_async("r"))
+        await asyncio.sleep(0.05)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        asyncio.run(cancelled())
+        gc.collect()
+    assert not [w for w in caught if "never awaited" in str(w.message)]
 
 
 def test_writer(tmp_path):
