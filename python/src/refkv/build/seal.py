@@ -13,7 +13,7 @@ from typing import Any, BinaryIO, cast
 
 from refkv import Concat, Range, ReferenceStore, Source, _core
 from refkv.errors import ResolutionError
-from refkv.policy import Policy, crc32c
+from refkv.policy import MAX_SOURCES, Policy, crc32c
 from refkv.reader import Registry, Resolver
 from refkv.uri import file_uri, resolve
 from refkv.vzip.names import INDEX_KEY, SOURCES_KEY
@@ -33,6 +33,7 @@ from .values import Binding, Check, Copy, Data, Literal, Part, Ref, Shared, Valu
 
 __all__ = ["CODES", "SealError", "seal"]
 
+U64 = (1 << 64) - 1  # the largest offset or length a range holds
 # what a SealError's code names
 CODES = frozenset({"key", "value", "range", "payload", "checksums", "reads", "copy", "inputs", "open", "archive"})
 
@@ -99,12 +100,13 @@ def seal(written: Mapping[str, Any], inputs: Sequence[Parsed], *, policy: Policy
         values[k] = val
     used = policy if policy is not None else (inputs[0].policy if inputs else None)
     rules = used or Policy()  # what the store's reader allows: refkv's limits, or fewer
+    limits = [min(_limit("max_sources", rules.max_sources), MAX_SOURCES), _limit("max_reads", rules.max_reads)]
     checksums = bool(inputs) and inputs[0].checksums
     try:
         got, sealed = _core.seal(
             table.urls, table.data, table.first, [k for k in keys if k not in values],
             [(k, [table.piece(p) for p in val.parts], _read_rule_lifted(val, k, entries)) for k, val in values.items()],
-            rules.max_sources, rules.max_reads, checksums)
+            *limits, checksums)
     except _core.SealRefused as e:
         code, key, message = e.args
         raise SealError(code, key, message) from None
@@ -196,6 +198,14 @@ def _natural(x: object) -> bool:
     return type(x) is int and x >= 0
 
 
+def _limit(name: str, x: object) -> int:
+    """A reader policy's limit as the core takes it: an int, none below 0 or past 2^63 - 1, which
+    are refkv's limits or fewer, as the core counts them."""
+    if type(x) is not int:
+        raise SealError("inputs", None, f"the policy's {name} is an int, not {type(x).__name__}")
+    return max(0, min(x, (1 << 63) - 1))
+
+
 class _Table:
     """What the core's `seal` numbers: each input source a value uses, as a url (url, size, etag),
     and each data string, with the parts as the core's pieces."""
@@ -236,6 +246,8 @@ class _Table:
                 raise SealError("range", key, f"source {p.source!r} is not among the input's")
             if not (_natural(p.offset) and _natural(p.length)):
                 raise SealError("value", key, "a Ref's offset and length are natural numbers")
+            if p.offset + p.length > U64:
+                raise SealError("range", key, f"bytes {p.offset} to {p.offset + p.length}, past 2^64 - 1")
             self._url(p.parsed, p.source, key)
         elif isinstance(p, (Shared, Data)):
             if type(p.data) is not bytes:
@@ -266,7 +278,7 @@ class _Table:
         if isinstance(p, Data):
             return (1, self.data_at[p.data], p.offset, p.size)
         if isinstance(p, Zeros):
-            return (2, p.length)
+            return (2, min(p.length, U64))  # the core refuses any past an archive's zero source
         raise TypeError(f"no piece of {type(p).__name__}")  # `use` took every other part
 
 

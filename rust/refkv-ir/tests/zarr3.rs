@@ -35,7 +35,7 @@ fn directory(files: &BTreeMap<String, Vec<u8>>) -> Result<Out, String> {
 /// The zip file's output, mirrored, and its IR.
 fn zip(data: &[u8]) -> Result<(Out, refkv_ir::ir::Ir), String> {
     let (ir, facts, stats) = run_bytes(Format::Zarr3, data)?;
-    Ok((output(Format::Zarr3, &ir, &facts, stats, "https://data.test/s.zip", true, &Default::default())?, ir))
+    Ok((output(Format::Zarr3, &ir, &facts, stats, "https://data.test/s.zip", true, &Default::default(), true)?, ir))
 }
 
 fn run(name: &str) -> Result<Out, String> {

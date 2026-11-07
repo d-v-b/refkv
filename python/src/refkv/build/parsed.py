@@ -450,7 +450,9 @@ async def read_async(location: str | os.PathLike[str], url: str | None = None, *
     for an input whose run keeps no IR (a store of DICOM files)."""
     location = os.fspath(location)
     resolver = Resolver(registry)
-    fmt, out = await _zarrify_async(location, url, checksums=checksums, policy=policy, registry=resolver)
+    # the built-in output is only built from here: `seal` holds what is written to the limits
+    fmt, out = await _zarrify_async(location, url, checksums=checksums, policy=policy, registry=resolver,
+                                    written=False)
     if not isinstance(out, (Output, StoreIrOutput)) or out.ir is None:
         raise ValueError(f"{location}: its run keeps no IR, so refkv.build cannot read it")
     read_base = None

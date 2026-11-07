@@ -350,9 +350,13 @@ pub fn unread_shown(ir: &Ir, profile: &str) -> Vec<(u32, u64, u64)> {
 /// is true: the host records checksums), the mirror under `refkv_source` when `mirror`, and a
 /// summary with the planner's counts, the IR's element count and what the mirror's table
 /// folded. `copied` holds the bytes of the ranges the projection copies (`project::reads`). Last,
-/// the output is sealed (`seal::out`), the file its source 0.
+/// the output is sealed (`seal::out`), the file its source 0: with its checksums when the host
+/// records them and `written`, the host writing this output as it is; an output a host only builds
+/// another from (`refkv.build.read`, a plugin's base) is not held to the payload limit with
+/// checksums, which the output it writes is.
+#[allow(clippy::too_many_arguments)]
 pub fn output(format: Format, ir: &Ir, facts: &serde_json::Value, stats: serde_json::Value, url: &str, mirror: bool,
-              copied: &crate::project::Copied) -> Result<crate::out::Out, crate::seal::Refusal> {
+              copied: &crate::project::Copied, written: bool) -> Result<crate::out::Out, crate::seal::Refusal> {
     let checksums = facts["checksums"].as_bool().unwrap_or(false);
     let mut out = crate::project::project(format, ir, facts, url, copied)?;
     crate::shard::apply_all(&mut out, !checksums)?;
@@ -368,7 +372,7 @@ pub fn output(format: Format, ir: &Ir, facts: &serde_json::Value, stats: serde_j
         }
         format.profile().mirrored(&mut out, facts)?;
     }
-    crate::seal::out(&mut out, Some(ir.size), &Default::default(), checksums)?;
+    crate::seal::out(&mut out, Some(ir.size), &Default::default(), checksums && written)?;
     Ok(out)
 }
 
@@ -379,7 +383,7 @@ impl Run {
         let format = self.format;
         let (ir, mut facts, stats, copied) = self.finish_copied()?;
         facts["checksums"] = checksums.into();
-        output(format, &ir, &facts, stats, url, mirror, &copied)
+        output(format, &ir, &facts, stats, url, mirror, &copied, true)
     }
 }
 

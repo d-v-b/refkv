@@ -33,6 +33,8 @@ pub struct Refs<'a> {
     sources: Option<crate::ir::Sources>,
     /// the object the ranges being added are of, and its virtual offset
     object: Option<(String, u64)>,
+    /// of a store IR: each object's virtual offset, by key (for the parts that name one)
+    bases: Option<std::collections::HashMap<String, u64>>,
 }
 
 const WHAT: [&str; 2] = ["refs", "repeats"];
@@ -61,6 +63,7 @@ impl<'a> Refs<'a> {
             spent: [0, 0],
             sources: None,
             object: None,
+            bases: None,
         }
     }
 
@@ -119,14 +122,27 @@ impl<'a> Refs<'a> {
         Ok(out)
     }
 
-    /// `parts`' ranges of the source (of the object `in_object_of` names), at their virtual
-    /// offsets: what a repeat compares.
-    fn ranges(&self, parts: &[Part]) -> Vec<(u64, u64)> {
+    /// `parts`' ranges of the source (of the object `in_object_of` names, or of the object a part
+    /// names), at their virtual offsets: what a repeat compares.
+    fn ranges(&mut self, parts: &[Part]) -> Vec<(u64, u64)> {
         let base = self.base();
-        parts.iter().filter_map(|p| match p {
-            Part::Src(o, n) => Some((base.wrapping_add(*o), *n)),
-            _ => None,
-        }).collect()
+        let mut out = Vec::new();
+        for p in parts {
+            match p {
+                Part::Src(o, n) => out.push((base.wrapping_add(*o), *n)),
+                Part::Obj(k, o, n) => {
+                    let ir = self.ir;
+                    let bases = self.bases.get_or_insert_with(|| {
+                        let s = ir.sources();
+                        s.objects.iter().map(|&o| (ir.key(o), s.base[o as usize])).collect()
+                    });
+                    // an object of no IR's (none is made) is a range of its own offset space
+                    out.push((bases.get(k).copied().unwrap_or(u64::MAX).wrapping_add(*o), *n));
+                }
+                _ => {}
+            }
+        }
+        out
     }
 
     /// Charges a reference to `parts`, and a repeat when an earlier one had its source ranges.
@@ -206,6 +222,10 @@ mod tests {
         assert_eq!(refs.out.refs, vec![("a".into(), whole.clone()), ("b".into(), vec![Part::Src(10, 5)]), ("c".into(), whole),
                                        ("d".into(), vec![Part::Src(10, 5)])]);
         assert_eq!(refs.out.data, vec![b"tail".to_vec()]);
+        // a chunk of an object's ranges, named again, is a repeat too
+        refs.chunk("e".into(), 0, 4, 0, Some(vec![Part::Obj("x".into(), 1, 2)])).unwrap();
+        refs.chunk("f".into(), 0, 4, 0, Some(vec![Part::Obj("x".into(), 1, 2)])).unwrap();
+        assert_eq!(refs.spent, [6, 3]);
     }
 
     #[test]

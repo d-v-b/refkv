@@ -41,7 +41,7 @@ function rejection(w: IrExports, r: number, format: StoreProfile): StoreError {
 export async function zarrifyStoreIr(
   format: StoreFormat,
   store: Store,
-  options: { mirror?: boolean; concurrency?: number } = {},
+  options: { mirror?: boolean; concurrency?: number; checksums?: boolean } = {},
 ): Promise<ArchiveDesc & { summary: Record<string, unknown> }> {
   const w = await ir();
   // documents read ahead (choosing the profile does): the run takes those read, and reads the
@@ -89,7 +89,9 @@ export async function zarrifyStoreIr(
     const decided: StoreProfile = said === "ome-zarr" || said === format ? said : format;
     live = false; // vz_store_output consumes the run
     const u = utf8.encode(store.url);
-    const n = Number(w.vz_store_output(p, put(w, u), u.length, options.mirror === false ? 0 : 1));
+    // bit 0: mirror; bit 1: the ranges will carry checksums, which the core's seal measures
+    const flags = (options.mirror === false ? 0 : 1) | (options.checksums ? 2 : 0);
+    const n = Number(w.vz_store_output(p, put(w, u), u.length, flags));
     if (n < 0) throw refusal(w, n, (w, r) => rejection(w, r, decided));
     const raw = decodeRaw(out(w, n));
     return { ...storeDesc(raw, new Map(listing)), summary: { ...raw.summary, listingRequests: store.requests } };

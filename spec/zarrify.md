@@ -85,7 +85,7 @@ a reference entry, is one of:
 
 | range | written | its bytes |
 |---|---|---|
-| a source range | `(i, offset, length)` | `length` bytes of source `i`, from `offset`: of a `url` source: the input, source 0, for a file input; for a store input, an object, in the order [§1.4](#14-store-inputs) gives (the SAFE document and the safetensors store form give their own order, and so does each profile that reads a file as a store, [§1.8](#18-files-read-as-stores), whose source 0 need not be the input), or of a data source ([§1.2](#12-input)), whole, or a zero data source's first `length` bytes; in a plugin's output ([spec/layout.md](layout.md)), any `length` bytes within a data source, from `offset` |
+| a source range | `(i, offset, length)` | `length` bytes of source `i`, from `offset`: of a `url` source: the input, source 0, for a file input; for a store input or a file read as a store ([§1.8](#18-files-read-as-stores), whose source 0 need not be the input), an object, in order of first use ([§1.2](#12-input)), or of a data source ([§1.2](#12-input)), whole, or a zero data source's first `length` bytes; in a plugin's output ([spec/layout.md](layout.md)), any `length` bytes within a data source, from `offset` |
 | a literal range | a literal of `d` | the bytes `d`, which the entry carries ([spec/refkv.md §4.2](refkv.md#42-range)) |
 
 A format's chunk tables ([conventions §11.5](conventions.md#115-layout-tables)) give each
@@ -191,10 +191,13 @@ as a literal, such as a JPEG header. The data sources are the distinct
 shared byte strings of the output, numbered from 1 **in order of first
 use**: over the reference entries in the order of their keys, compared as UTF-8 byte strings,
 and within a reference in order of its ranges, the first range that uses a byte string
-not yet in the table adds it as the next source. Every output's sources are numbered by this
-one rule, its `url` sources first, by their first use, then its data sources: a store input's
-([§1.4](#14-store-inputs)), a file read as a store's ([§1.8](#18-files-read-as-stores)), and an
-output built with `refkv.build`, whose source 0 is the input only when that is one plain file. A range that uses a shared
+not yet in the table adds it as the next source. Every output a profile writes without a plugin
+is numbered by this one rule, its `url` sources first, by their first use, then its data
+sources: a store input's ([§1.4](#14-store-inputs)), a file read as a store's
+([§1.8](#18-files-read-as-stores)), and an output built with `refkv.build`, whose source 0 is the
+input only when that is one plain file. Two outputs keep orders of their own: a plugin's
+([§1.9](#19-sources-beside-the-input), **Sources and order**), and the DICOM store form's
+([dicom.md §9](zarrify/dicom.md#9-the-store-form)), joined from its files' outputs. A range that uses a shared
 byte string `d` in data source `i` is `(i, 0, len(d))`, the whole source,
 but for a **zero data source**: `n` zero bytes, `n` the most zero padding
 any reference of the output holds, of which a reference padded with `p`
@@ -292,13 +295,15 @@ in the output.
 **References stay in the file.** Every range of source 0 MUST lie within
 the file (`offset + length ≤` the file's size; a range of a data source is
 the whole source), every reference entry's
-payload MUST be at most 65519 bytes, and every reference entry but a chunk of a sharded array
-([§2.1](#21-virtual-shards), whose shards a reader reads in parts) MUST read at most 1024 ranges of
-`url` sources, ranges of one source at most 65536 bytes apart counted as one, as refkv's readers
-merge them ([spec/refkv.md §6.7](refkv.md#67-reader-policy) rule 5); otherwise the input is rejected. Both hold for every
+payload MUST be at most 65519 bytes; otherwise the input is rejected. Both hold for every
 reference of a plugin's output ([spec/layout.md §4](layout.md#4-writing-the-output)), where a
 range of a data source may be any bytes within it, and one that breaks them is a failure of the
-call, not a rejection of the input. The
+call, not a rejection of the input. Every reference entry but a chunk of a sharded array
+([§2.1](#21-virtual-shards), whose shards a reader reads in parts) MUST also read at most 1024
+ranges of `url` sources, ranges of one source at most 65536 bytes apart counted as one, as
+refkv's readers merge them ([spec/refkv.md §6.7](refkv.md#67-reader-policy) rule 5); otherwise the
+input is rejected (a plugin's output is held to its own read rule, [spec/layout.md
+§4](layout.md#4-writing-the-output)). The
 payload ([spec/refkv.md §4.4](refkv.md#44-reference-payloads), [§4](refkv.md#4-messages)) of a single range is its `Range` message: for a
 source range `(i, o, n)`, `0x08 varint(i)` if `i > 0`, then `0x18 varint(o)`
 if `o > 0`, then `0x20 varint(n)` if `n > 0` (fields 1, 3 and 4); for a
@@ -312,8 +317,8 @@ encoding (1 byte below 2^7, 2 below 2^14, and so on).
 so that a small input cannot make a large output. Each chunk it references is one
 **reference** (for a sharded array, each inner chunk, counted before the chunks are put in
 shards, [§2.1](#21-virtual-shards)); a chunk that references the same bytes of the same element
-as an earlier one (the same ranges of the same sources, in order, whatever
-elements or pieces of elements they are cut from) is also one **repeat**, as when two chunks name one element that two structures share
+as an earlier one (the same ranges of the file, or of the same objects, in order, whatever
+elements or pieces of elements they are cut from; a chunk of no such range is none) is also one **repeat**, as when two chunks name one element that two structures share
 (an alias, [conventions §8.1](conventions.md#81-elements)). A zarrifier MUST reject an input
 whose output would have more than `2^22 + 4 × Z` references, `Z` the source's size (for a
 store IR, its objects' total size), with the message `budget: more than N refs`, or more than
@@ -470,9 +475,9 @@ follow them, and its references are ranges within objects
 another, in the same way ([safetensors.md §9.4](zarrify/safetensors.md#94-chunks-and-sources)).
 
 These rules replace [§1.2](#12-input)'s **References stay in the file** (but for the
-SAFE profile, whose payloads are checked as [§1.2](#12-input) says): each range lies
-within its object by construction, and its payload is far below 65519
-bytes. An output key MUST be at most 65535 bytes in UTF-8 and MUST NOT
+SAFE profile and the safetensors store form, whose payloads and reads are checked as
+[§1.2](#12-input) says): each range lies within its object by construction, its payload is far
+below 65519 bytes, with its checksum too, and it reads one range. An output key MUST be at most 65535 bytes in UTF-8 and MUST NOT
 start with `__vz__/`; otherwise the input is rejected.
 
 **Rejection and failure.** [§1.2](#12-input)'s rejection rule applies to every object a
@@ -937,7 +942,7 @@ read of what it named:
 | names | each key's rule, derived or written, with the steps a written name takes (`\`, percent-decoding, `..`, **Case**) |
 | probes | which keys, in which batches; required or optional; what is recorded for a name that dangles; when a family ends |
 | identity | what is checked in each sibling and the rejection's message, or that the format records nothing |
-| order | the sources' order, when not first use |
+| order | first use ([§1.2](#12-input)), and what it makes source 0 or 1 when the document names it |
 | reads and mirror | the ranges read of each sibling, and how the mirror describes it |
 
 ## 2. The Zarr layout

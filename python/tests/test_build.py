@@ -419,6 +419,28 @@ def test_seal_refuses_a_payload_past_the_limit_with_its_checksums(tmp_path):
     assert e.value.code == "checksums"
 
 
+def test_seal_refuses_the_built_in_output_past_the_limit_with_its_checksums():
+    """`read` with checksums reads an input whose built-in output passes the limit only with them,
+    which `zarrify` fails: a caller may build another output, and `seal` refuses that one."""
+    with read(str(FIXTURES / "nd2" / "nd2_edge_tall_padded.nd2"), checksums=True) as p:
+        assert seal(Written({"v": Ref(p, 0, 0, 16)}), [p]).sources[0].size == p.sources[0].size
+        with pytest.raises(SealError) as e:
+            seal(project(p).written, [p])
+    assert (e.value.code, e.value.key) == ("checksums", "0/0/c/0/0")
+
+
+def test_seal_refuses_a_ref_past_the_largest_range(tmp_path):
+    with read(_npy(tmp_path)) as p, pytest.raises(SealError) as e:
+        seal(Written({"v": Ref(p, 0, 1 << 63, 1 << 63)}), [p])
+    assert e.value.code == "range"
+
+
+def test_seal_refuses_a_policy_limit_that_is_no_int(tmp_path):
+    with read(_npy(tmp_path), policy=Policy(max_reads=1.5)) as p, pytest.raises(SealError) as e:  # type: ignore[arg-type]
+        seal(Written({"v": Ref(p, 0, 0, 1)}), [p])
+    assert e.value.code == "inputs"
+
+
 def test_seal_refuses_a_check_it_did_not_issue(tmp_path):
     """A caller's Check, however it is bound, lifts no read rule."""
     with read(_npy(tmp_path, n=1100 * (1 << 17))) as p:
@@ -532,9 +554,10 @@ def test_seal_refuses_more_than_a_reader_reads_at_open(tmp_path, monkeypatch):
     assert e.value.code == "open"
 
 
-def test_seal_refuses_a_zero_source_past_a_source_table(tmp_path):
+@pytest.mark.parametrize("n", [(256 << 20) + 1, 1 << 70])
+def test_seal_refuses_a_zero_source_past_a_source_table(tmp_path, n):
     with read(_npy(tmp_path)) as p, pytest.raises(SealError) as e:
-        seal(Written({"v": Zeros((256 << 20) + 1)}), [p])
+        seal(Written({"v": Zeros(n)}), [p])
     assert e.value.code == "archive"
 
 

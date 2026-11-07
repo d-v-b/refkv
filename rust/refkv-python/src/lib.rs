@@ -638,9 +638,11 @@ impl PyRun {
     /// default, every one. `checksums`: the host records the ranges' checksums, so that a
     /// sharded array's ranges are not joined across inner chunks (spec/zarrify.md §2.1
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#21-virtual-shards>).
-    #[pyo3(signature = (url, mirror=true, layouts=None, checksums=false))]
-    fn output<'py>(&mut self, py: Python<'py>, url: &str, mirror: bool, layouts: Option<Vec<String>>, checksums: bool)
-        -> PyResult<(Bound<'py, PyAny>, PyIr)> {
+    /// `written`: the host writes this output as it is; false for one it only builds another from,
+    /// which is not held to the payload limit with checksums (`run::output`).
+    #[pyo3(signature = (url, mirror=true, layouts=None, checksums=false, written=true))]
+    fn output<'py>(&mut self, py: Python<'py>, url: &str, mirror: bool, layouts: Option<Vec<String>>, checksums: bool,
+                   written: bool) -> PyResult<(Bound<'py, PyAny>, PyIr)> {
         let r = self.r.take().ok_or_else(|| PyValueError::new_err("finished"))?;
         let format = r.format;
         let (o, ir) = py
@@ -650,7 +652,7 @@ impl PyRun {
                     facts["layouts"] = serde_json::json!(l);
                 }
                 facts["checksums"] = checksums.into();
-                Ok((refkv_ir::run::output(format, &ir, &facts, stats, url, mirror, &copied)?, ir))
+                Ok((refkv_ir::run::output(format, &ir, &facts, stats, url, mirror, &copied, written)?, ir))
             })
             .map_err(refused)?;
         Ok((out_py(py, &o)?, PyIr::new(ir)))

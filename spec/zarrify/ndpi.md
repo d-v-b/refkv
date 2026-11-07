@@ -640,8 +640,8 @@ and are held once, in data sources, so that reading a chunk reads only its
 intervals from the file. They sit at the start of the strip, far from most
 intervals, so as ranges of the file they would cost a reader a separate
 request per chunk. By [§1.2](../zarrify.md#12-input)'s order of first use, the pieces 1 and 3 of the
-first chunk, in the order of the keys, of a McuStarts level are sources 1 and 2; another level adds a
-source only for a piece whose bytes differ from every earlier one, as does another plane. (In CMU-1.ndpi every level
+McuStarts level whose chunk key sorts first are sources 1 and 2; another level adds a source only
+for a piece whose bytes differ from every earlier one, as does another plane. (In CMU-1.ndpi every level
 shares piece 1, its quantization and Huffman tables, and piece 3, DRI and
 SOS, differs by its restart interval.) Both are JPEG markers and tables, not
 pixel data ([§1.2](../zarrify.md#12-input), **Structure only**).
@@ -682,8 +682,7 @@ TileWidth and TileLength (tiled) or `W` and `H` (one strip).
 **Chunks of a JPEG XR level.** Chunk `<level>/c/0/<row>/<column>` (with `<k>/` before `<row>` when
 there is a `z` axis) is the single range of tile `j = row × ceil(W / TileWidth) + column`, or, for a level
 in one strip, `<level>/c/0/0/0` the single range of `S`. A tile of byte count
-0 has no reference. The references are listed level by level, within a
-level by plane, and within a plane by `j`.
+0 has no reference.
 
 <a id="type-ndpijpegxrchunk"></a>**`NdpiJpegXrChunk`**, a chunk of a JPEG XR level, its stream
 as it is:

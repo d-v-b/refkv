@@ -14,7 +14,7 @@ use std::fmt;
 /// <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>'s default
 /// `max_format_entry`).
 pub const MAX_OPEN: u64 = 256 << 20;
-/// The sources of a table a reader opens (`max_sources` of spec/refkv.md §6.7
+/// The sources of a table a reader opens by default (`max_sources` of spec/refkv.md §6.7
 /// <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>).
 pub const MAX_SOURCES: usize = 1 << 22;
 /// The url reads of one value (spec/refkv.md §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 5).
@@ -147,8 +147,9 @@ pub struct Value {
     pub lifted: bool,
 }
 
-/// What the store's reader allows (refkv's limits, or fewer), and whether the hosts record the
-/// ranges' checksums.
+/// What the store's reader allows, and whether the hosts record the ranges' checksums. A
+/// built-in output's table has no limit of its own (the IR's objects bound it); a caller's is
+/// held to its reader policy's `max_sources`, `MAX_SOURCES` by default.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Limits {
     pub max_sources: usize,
@@ -158,7 +159,7 @@ pub struct Limits {
 
 impl Default for Limits {
     fn default() -> Limits {
-        Limits { max_sources: MAX_SOURCES, max_reads: MAX_READS, checksums: false }
+        Limits { max_sources: usize::MAX, max_reads: MAX_READS, checksums: false }
     }
 }
 
@@ -369,7 +370,7 @@ pub fn seal(urls: &[Url], data: &[Vec<u8>], first: Option<usize>, documents: &[S
             Slot::Zeros => Source::Zeros(zeros),
         });
     }
-    let most = limits.max_sources.min(MAX_SOURCES);
+    let most = limits.max_sources;
     if sources.len() > most {
         return Err(SealError::new(Code::Archive, None, format!(
             "{} sources, more than the {most} its reader allows", sources.len())));
@@ -470,7 +471,8 @@ pub fn out(out: &mut Out, size: Option<u64>, objects: &HashMap<String, u64>, che
                     });
                     Piece::Url(i, *o, *n)
                 }
-                Part::Data(i, o, n) => Piece::Data((*i as usize).wrapping_sub(1), *o, *n),
+                Part::Data(0, ..) => return Err(SealError::new(Code::Value, Some(k), "internal: data source 0".into())),
+                Part::Data(i, o, n) => Piece::Data(*i as usize - 1, *o, *n),
                 Part::Lit(b) => Piece::Lit(b.clone()),
             });
         }
@@ -484,6 +486,10 @@ pub fn out(out: &mut Out, size: Option<u64>, objects: &HashMap<String, u64>, che
         _ => None,
     }).collect();
     out.renumber_data(&order);
+    // a summary that counts the data sources counts those the table keeps
+    if let Some(n) = out.summary.get_mut("dataSources") {
+        *n = out.data.len().into();
+    }
     Ok(())
 }
 

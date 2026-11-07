@@ -207,7 +207,7 @@ class Run:
     def stats(self) -> str:
         """The planner's counts and model (JSON)."""
     def output(self, url: str, mirror: bool = True, layouts: list[str] | None = None,
-               checksums: bool = False) -> tuple[Out[FilePart], Ir]:
+               checksums: bool = False, written: bool = True) -> tuple[Out[FilePart], Ir]:
         """Finishes, projects and (with `mirror`) mirrors: (the output in `out_py`'s form,
         the IR). `layouts`, when given, names the layouts the projection writes beside the
         image (a format's dataset layout, "dataset"; conventions §9

@@ -82,7 +82,8 @@ returns a `refkv.ReferenceStore`, read under `policy` and `registry` (the inputs
 
 A failure is a `SealError`, whose `code` (one of `CODES`) says which rule. The numbering and the
 checks of keys, ranges, payloads and reads are the core's (`refkv._core.seal`), the same function
-every output of `zarrify` passes through, from Python, the CLI or the browser; `seal` adds what
+every output of a core run passes through, from Python, the CLI or the browser (every output of
+`zarrify` but a plugin's and the DICOM store form's); `seal` adds what
 only Python knows: the caller's objects, the inputs, the policy's URL rules, the placements and
 the archive. A chunk refkv's own
 output holds is **checked**: it carries the rule of the convention it was built under, which `seal`
