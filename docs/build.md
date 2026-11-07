@@ -30,7 +30,9 @@ The IR's elements become values through the `Parsed`:
   parser kept them and otherwise read from the source, several together, within `max_bytes`
   (64 MiB by default); an element in a derived space (inside a gzip stream, say) gives the
   inflated bytes the parser kept, or raises where it kept none, or kept a decoded value
-  (`p.ir.value(i)`) instead;
+  (`p.ir.value(i)`) instead; a range of no source of the input, or a negative one, is a
+  `KeyError`, and one past its source a `ValueError`. It blocks: call it from a thread, not
+  from refkv's own event loop;
 - `p.members(i)`, `p.form(i)`, `p.element_at(source, offset)`, `p.source_of(i)` and `p.gaps()`.
 
 A structure refkv's model of the format does not interpret is still an element, whose typed value
@@ -86,7 +88,9 @@ whose shards a reader reads in parts; a built-in value outside one meets the rea
 other.
 
 `refkv.build.project(p)` is the output `zarrify` writes for the input, as checked values:
-`seal(project(p).written, [p])` reads what `zarrify` writes.
+`seal(project(p).written, [p])` reads what `zarrify` writes, but where `zarrify` writes a value whose
+payload passes 65519 bytes only with its checksums, which `seal` refuses and `zarrify` should
+refuse too (an ND2 file of tall padded frames, read with checksums, today).
 
 ## A TIFF made of several
 

@@ -161,7 +161,8 @@ class Parsed:
     def source_of(self, i: int) -> int:
         """The index in `sources` of the source that holds element `i`'s bytes: 0 for a file IR, its
         object's for a store IR (spec/conventions.md §8.9
-        <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>)."""
+        <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>). ValueError for an
+        element of a store IR in no object (its root, say), or in an object the run did not list."""
         o = self._object(self._target(self._element(i)))
         if o is None:
             if self._ir.object_bases():
@@ -351,7 +352,11 @@ class Parsed:
 
         async def each() -> list[bytes | None]:  # together
             return list(await asyncio.gather(*(store.get_async(k) for k in mapping)))
-        got = [b or b"" for b in _sync.run(each())]
+        try:
+            got = [b or b"" for b in _sync.run(each())]
+        except RuntimeError as e:  # called on refkv's own event loop, which this blocking read would stall
+            raise RuntimeError("Parsed.bytes and seal's checksums block: call them from a thread, not from "
+                               "refkv's event loop") from e
         out = []
         for src, offset, length in ranges:
             if not length:
@@ -375,7 +380,8 @@ class Parsed:
         a decoded value of another length (`ir.value` gives that), since no range of a source holds
         them. Several items are read together. What is read from
         the sources counts against `max_bytes`; ValueError past it, and for an element with no
-        bytes of its own (a node, a derived element)."""
+        bytes of its own (a node, a derived element); TypeError for a range that is not three ints,
+        and KeyError for one of no source of the input, or of a negative offset or length."""
         if not items:
             raise TypeError("bytes() of nothing")
         out: list[bytes | None] = []

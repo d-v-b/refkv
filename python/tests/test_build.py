@@ -14,6 +14,7 @@ import pytest
 import tifffile
 
 import refkv
+from refkv import _sync
 from refkv.build import (
     MAX_PAYLOAD,
     Array,
@@ -336,6 +337,8 @@ def test_where_a_check_holds(tmp_path, built, written, expected):
         v = out["a/c/0/0"]
         assert isinstance(v, Value)
         assert _binding_holds(v, "a/c/0/0", out) is expected
+        out["a/zarr.json"] = Data(out["a/zarr.json"])  # type: ignore[arg-type]  # the nearest document, not bytes
+        assert _binding_holds(v, "a/c/0/0", out) is None
 
 
 # ---- what seal refuses: one test each
@@ -673,6 +676,23 @@ def test_seal_refuses_inputs_that_are_not_a_sequence():
     assert e.value.code == "inputs"
 
 
+def test_seal_holds_a_built_in_value_to_a_stricter_policy():
+    """Under a policy that allows fewer reads than refkv's default, no check lifts the read rule."""
+    with read(FIXTURES / "tiff/strips_uint8.tif", policy=Policy(max_reads=0)) as p, pytest.raises(SealError) as e:
+        seal(project(p).written, [p])
+    assert e.value.code == "reads"
+
+
+def test_seal_refuses_a_checksum_it_cannot_read_on_refkvs_own_loop(tmp_path):
+    """seal blocks to checksum; on refkv's own event loop that is a SealError, not a hang."""
+    with read(_npy(tmp_path), checksums=True) as p:
+        async def sealing():
+            return seal(Written({"v": Ref(p, 0, 0, 4)}), [p])
+        with pytest.raises(SealError) as e:
+            _sync.run(sealing())
+    assert e.value.code == "checksums"
+
+
 # ---- what the other tools refuse: one test each
 
 def test_element_at_refuses_a_source_the_input_does_not_have(tmp_path):
@@ -764,6 +784,22 @@ def test_bytes_refuses_a_decoded_value_in_a_derived_space():
         p.bytes(p.ir.index("chunks/CustomDataVar|AppInfo_V1_0!/xml/variant/no_name/Version"))
 
 
+def test_bytes_refuses_a_range_of_no_source(tmp_path):
+    with read(_npy(tmp_path)) as p, pytest.raises(KeyError):
+        p.bytes((5, 0, 1))
+
+
+def test_source_of_refuses_an_element_in_no_object():
+    url = "https://example.invalid/zarr2_codecs/"
+    with read(str(FIXTURES / "zarr2/zarr2_codecs") + "/", url) as p, pytest.raises(ValueError, match="no object"):
+        p.source_of(0)
+
+
+def test_an_array_of_an_object_data_type_whose_zero_is_unknown_needs_its_fill_value():
+    with pytest.raises(ValueError, match="no zero"):
+        Array([2], {"name": "foo"}, [2], [{"name": "bytes"}], {}).document()
+
+
 def test_reference_refuses_a_node(tmp_path):
     with read(_npy(tmp_path)) as p, pytest.raises(ValueError, match="no bytes of its own"):
         p.reference(0)
@@ -796,32 +832,39 @@ def test_a_value_holds_parts_only():
         Value((b"bytes",))  # type: ignore[arg-type]
 
 
-@pytest.mark.parametrize(("path", "attributes", "separator"), [("a", {"units": "m"}, "/"), ("g/dot", None, ".")])
-def test_project_arrays_keep_their_documents(path, attributes, separator):
+@pytest.mark.parametrize(("fixture", "path", "attributes", "separator"), [
+    ("zarr3/zarr3_hierarchy.zip", "a", {"units": "m"}, "/"),
+    ("zarr3/zarr3_hierarchy.zip", "g/dot", None, "."),
+    ("zarr2/zarr2_root_array_objects/", "", None, "."),  # a root array, the IR mirror below it
+])
+def test_project_arrays_keep_their_documents(fixture, path, attributes, separator):
     """An array of the built-in output, written again from `Projected.array`, keeps its attributes
-    and its chunk key encoding, so its chunks keep their keys."""
-    with read(FIXTURES / "zarr3/zarr3_hierarchy.zip") as p:
+    and its chunk key encoding, so its chunks keep their keys; a root array's chunks are its own."""
+    url = f"https://example.invalid/{fixture}" if fixture.endswith("/") else None
+    with read(str(FIXTURES / fixture) + ("/" if url else ""), url) as p:
         pr = project(p)
-        original = json.loads(pr.written[f"{path}/zarr.json"])  # type: ignore[arg-type]
+        doc_key = f"{path}/zarr.json" if path else "zarr.json"
+        original = json.loads(pr.written[doc_key])  # type: ignore[arg-type]
         again = pr.array(path).entries(to=path)
-        doc = json.loads(again[f"{path}/zarr.json"])  # type: ignore[arg-type]
+        doc = json.loads(again[doc_key])  # type: ignore[arg-type]
         assert doc["attributes"] == original["attributes"]
         if attributes is not None:
             assert attributes.items() <= doc["attributes"].items()
         assert doc["chunk_key_encoding"]["configuration"]["separator"] == separator
-        assert {k for k in again if k != f"{path}/zarr.json"} <= set(pr.written)
+        assert {k for k in again if k != doc_key} <= set(pr.written)
+        assert not any(k.startswith("refkv_source/") for k in again)
         assert {k: v for k, v in doc.items() if k != "attributes"} == {
             k: v for k, v in original.items() if k != "attributes"}  # every member, storage_transformers too
 
 
 @pytest.mark.parametrize(("data_type", "zero"), [("uint8", 0), ("float32", 0.0), ("complex64", [0.0, 0.0]),
                                                  ("bool", False), ("r16", [0, 0])])
-def test_an_array_fills_with_its_types_zero(data_type, zero):
-    assert Array([2], data_type, [2], [{"name": "bytes"}], {}).document()["fill_value"] == zero
-
-
-def test_documents_are_json():  # a valid case, of Array.entries
-    """`Array.entries` writes a Zarr v3 document a reader parses."""
-    doc = json.loads(Array([2], "uint8", [2], [{"name": "bytes"}], {}).entries()["zarr.json"])  # type: ignore[arg-type]
+def test_array_documents(data_type, zero):
+    """`Array.document` and `entries` write a Zarr v3 document a reader parses, its fill value the
+    data type's zero when none is given, and its chunks at their keys."""
+    a = Array([2], data_type, [2], [{"name": "bytes"}], {(0,): Literal(b"..")})
+    doc = json.loads(a.entries(to="x")["x/zarr.json"])  # type: ignore[arg-type]
     assert doc["node_type"] == "array"
     assert doc["chunk_grid"]["configuration"]["chunk_shape"] == [2]
+    assert doc["fill_value"] == zero
+    assert "x/c/0" in a.entries(to="x")

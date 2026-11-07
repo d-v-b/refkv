@@ -62,7 +62,7 @@ def seal(written: Mapping[str, Any], inputs: Sequence[Parsed], *, policy: Policy
 
     The source table is numbered by first use over the references in key order (UTF-8), the url
     sources first, then the data sources (each distinct `Shared` and `Data` byte string, and one
-    zero data source, as long as the most zeros a value holds); one input that is a plain file is
+    zero data source, as long as the largest `Zeros` part); one input that is a plain file is
     source 0 whether or not a value uses it. A value reads at most 1024 url ranges, counted as
     readers merge them, unless it carries a check of refkv's whose rule lifts that and whose
     binding holds where it is written. Every payload is at most 65519 bytes, with its checksums
@@ -117,7 +117,7 @@ def seal(written: Mapping[str, Any], inputs: Sequence[Parsed], *, policy: Policy
             continue
         val = values[k]
         ranges = [table.range(k, p) for p in val.parts]
-        if not _read_rule_lifted(val, k, entries):
+        if max_reads < MAX_READS or not _read_rule_lifted(val, k, entries):  # a stricter policy lifts nothing
             reads = _reads(ranges, sources)
             if reads > max_reads:
                 raise SealError("reads", k, f"it reads {reads} ranges, more than the {max_reads} its reader makes for "
@@ -315,7 +315,7 @@ class _Table:
                 continue
             try:
                 data = p.parsed._read_ranges([(p.source, p.offset, p.length)])[0]  # noqa: SLF001 (seal's reads)
-            except (ResolutionError, OSError, ValueError) as e:
+            except (ResolutionError, OSError, ValueError, RuntimeError) as e:
                 raise SealError("checksums", key, f"reading a range to checksum it: {e}") from e
             out.append(Range(r.source, r.offset, r.length, crc32c=crc32c(data)))
         return out
@@ -439,9 +439,12 @@ def _binding_holds(val: Value, key: str, entries: Mapping[str, Any]) -> bool | N
     segments = key.split("/")
     for cut in range(len(segments) - 1, -1, -1):
         prefix = "/".join(segments[:cut])
-        raw = entries.get(f"{prefix}/zarr.json" if prefix else "zarr.json")
-        if not isinstance(raw, bytes):
+        doc_key = f"{prefix}/zarr.json" if prefix else "zarr.json"
+        if doc_key not in entries:
             continue
+        raw = entries[doc_key]
+        if not isinstance(raw, bytes):
+            return None  # the nearest document is no document a reader parses: it holds no binding
         try:
             doc = json.loads(raw)
             if not isinstance(doc, dict) or doc.get("node_type") != "array":

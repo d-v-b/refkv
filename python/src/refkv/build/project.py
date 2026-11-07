@@ -96,9 +96,19 @@ class Projected:
         prefix = f"{path}/" if path else ""
         return Array(list(doc["shape"]), doc["data_type"], list(grid.get("chunk_shape", grid.get("chunk_shapes"))),
                      list(doc["codecs"]),
-                     {tuple(chunk_coords(k, doc)): self.written[f"{prefix}{k}"] for k in chunks},  # type: ignore[misc]
+                     {coords: self.written[f"{prefix}{k}"] for k in chunks  # type: ignore[misc]
+                      if (coords := _coords(k, doc)) is not None},
                      doc.get("fill_value"), doc.get("dimension_names"), dict(doc.get("attributes") or {}),
                      doc.get("chunk_key_encoding"), {k: v for k, v in doc.items() if k not in MODELED})
+
+
+def _coords(key: str, doc: dict[str, Any]) -> tuple[int, ...] | None:
+    """The chunk coordinates of `key` in the array `doc`, or None for a key under the array that is
+    no chunk of it (a root array's IR mirror)."""
+    try:
+        return tuple(chunk_coords(key, doc))
+    except (ValueError, KeyError, TypeError):
+        return None
 
 
 def project(parsed: Parsed) -> Projected:
