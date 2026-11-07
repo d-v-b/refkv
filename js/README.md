@@ -183,11 +183,11 @@ limit of this implementation, [spec/zarrify.md Appendix A](../spec/zarrify.md#ap
   `https://app.example/data/x.vzip` could name `https://app.example/api/export` as a source, and
   the reader would read it with the user's session and hand the bytes to whoever reads the store.
   An application whose sources need the user's session sets the unsafe
-  `allowSourceCredentials: true` in its reader policy
-  ([spec/refkv.md §6.7](../spec/refkv.md#67-reader-policy)). The archive's own URL, and the
-  files and stores the worker zarrifies, are the application's choice, and are fetched with the
-  browser's default; the sources of an archive the worker zarrifies are still read anonymously,
-  so an input behind the page's login needs `allowSourceCredentials` in the handler's `policy`.
+  `allowSourceCredentials: true` in its reader policy (`Policy` in `src/archive.ts`). The
+  archive's own URL, and the files and stores the worker zarrifies, are the application's choice,
+  and are fetched with the browser's default; the sources of an archive the worker zarrifies are
+  still read anonymously, so an input behind the page's login needs `allowSourceCredentials` in
+  the handler's `policy`.
 - **Cross-origin isolation.** On a cross-origin-isolated page (`Cross-Origin-Embedder-Policy:
   require-corp`), every cross-origin source must send `Cross-Origin-Resource-Policy:
   cross-origin` or allow the page by CORS, which range reads need anyway.
