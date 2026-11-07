@@ -173,7 +173,7 @@ fn cell_refs(refs: &mut Refs, path: &str, axes: &[&str], compression: i32, q: u6
         for (k, (o, len)) in pieces.into_iter().enumerate() {
             let y = row * per + k as u64;
             let coords = axes.iter().map(|a| along(a, [t, c, z, y, col]));
-            refs.chunk(key(&prefix, coords), start, length, 0, Some(vec![Part::Src(o, len)]), k as u64)?;
+            refs.chunk(key(&prefix, coords), start, length, 0, Some(vec![Part::Src(o, len)]))?;
         }
     }
     Ok(())

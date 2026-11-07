@@ -26,7 +26,7 @@ fn zarrify(files: &BTreeMap<String, Vec<u8>>, ignored: &[&str]) -> Result<(Out, 
     r.ignore(ignored.iter().map(|s| s.to_string()).collect(), Vec::new())?;
     drive(&mut r, &bytes)?;
     let (ir, facts, stats) = r.finish()?;
-    Ok((store_output(StoreFormat::N5, &ir, &facts, stats, "https://example.org/c.n5/", true)?, ir))
+    Ok((store_output(StoreFormat::N5, &ir, &facts, stats, "https://example.org/c.n5/", true, false)?, ir))
 }
 
 fn entry(out: &Out) -> impl Fn(&str) -> Option<Vec<u8>> + '_ {

@@ -189,7 +189,7 @@ fn image(refs: &mut Refs, k: usize, im: &J, vsi_key: &str) -> Result<J, String> 
                 return Err(format!("internal: no element {el}"));
             };
             let coords = axes.iter().map(|a| along(a, [ti, if samples > 1 { 0 } else { ci }, zi, y, x]));
-            refs.chunk(key(&format!("{path}/{l}/c/"), coords), start, length, 0, Some(vec![Part::Obj(key_ets.clone(), start, length)]), 0)?;
+            refs.chunk(key(&format!("{path}/{l}/c/"), coords), start, length, 0, Some(vec![Part::Obj(key_ets.clone(), start, length)]))?;
             count += 1;
         }
         summary = json!({"name": name, "kind": "stack", "source": "tiles", "id": im["id"], "dataType": data_type, "samples": samples, "codec": codec,
@@ -244,7 +244,7 @@ fn image(refs: &mut Refs, k: usize, im: &J, vsi_key: &str) -> Result<J, String> 
         }
         let (el, start, length) = (n(&strips[0][0]), n(&strips[0][1]), n(&strips[0][2]));
         let _ = el;
-        refs.chunk(key(&format!("{path}/0/c/"), vec![0; axes.len()]), start, length, 0, Some(parts), 0)?;
+        refs.chunk(key(&format!("{path}/0/c/"), vec![0; axes.len()]), start, length, 0, Some(parts))?;
         summary = json!({"name": name, "kind": im["kind"], "source": "ifd", "id": im["id"], "dataType": data_type, "samples": samples, "codec": if compression == 7 { "jpeg" } else { "raw" },
                          "axes": axes, "levels": [[w, h]], "chunks": 1});
     }

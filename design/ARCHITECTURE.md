@@ -209,8 +209,8 @@ These invariants give, for every format at once:
   array, or a link), instead of silently multiplying. That check was not built, so
   the class is bounded rather than ended. `Refs`
   ([rust/refkv-ir/src/refs.rs](../rust/refkv-ir/src/refs.rs)) counts references, up
-  to 2^22 + 4 × size, and exact repeats, up to 2^20: a repeat has the element start,
-  length and piece of an earlier reference. It does not consult aliases, and a
+  to 2^22 + 4 × size, and exact repeats, up to 2^20: a repeat has the source ranges
+  of an earlier reference. It does not consult aliases, and a
   reference that overlaps another without equaling it is not a repeat. The
   projections of ND2, SAFE, GRIB, N5, Zarr v2, OME-Zarr and Neuroglancer precomputed
   do not use `Refs`: they write their references to the output directly.

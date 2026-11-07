@@ -114,7 +114,11 @@ async function zarrifyWith(url: string, input: Input, pins: PinOptions): Promise
     (input.size > 552 ? await irFormat(await input.read(0, Math.min(65600, input.size))) : undefined);
   if (format === undefined) throw new ImageError(NOT_SUPPORTED);
   const asStore = async (beside: BesideFormat): Promise<ImageDesc> => {
-    const options = { ...(pins.open ? { open: pins.open } : {}), ...(within !== undefined ? { scope: within } : {}) };
+    const options = {
+      ...(pins.open ? { open: pins.open } : {}),
+      ...(within !== undefined ? { scope: within } : {}),
+      checksums: pins.checksums === true,
+    };
     const { store, ...desc } = await zarrifyVsi(url, input.source, options, beside);
     if (pins.checksums) {
       const keys = new Map([...store.objects.keys()].map((k) => [objectUrl(store.url, k), k]));
@@ -176,7 +180,7 @@ export async function zarrifyStore(
     ? await openHttpStore(input, { policy: options.policy ?? {}, headers: options.headers ?? {} })
     : input;
   const pins = options;
-  const desc = await zarrifyStoreProfile(store);
+  const desc = await zarrifyStoreProfile(store, pins.checksums === true);
   if (pins.checksums) {
     const keys = new Map([...store.objects.keys()].map((k) => [objectUrl(store.url, k), k]));
     await addChecksums(desc, async (u, o, n) => {
@@ -189,16 +193,18 @@ export async function zarrifyStore(
 
 async function zarrifyStoreProfile(
   store: Store,
+  checksums = false,
 ): Promise<ArchiveDesc & { format: StoreProfile; summary: object }> {
+  const options = { checksums };
   try {
     const chosen = chooseProfile(store);
-    if (chosen === "safe") return { format: "safe", ...(await zarrifyStoreIr("safe", store)) };
-    if (chosen === "safetensors") return { format: "safetensors", ...(await zarrifyStoreIr("safetensors", store)) };
-    if (chosen === "zarr3") return { format: "zarr3", ...(await zarrifyStoreIr("zarr3", store)) };
-    if (chosen === "n5") return { format: "n5", ...(await zarrifyStoreIr("n5", store)) };
-    if (chosen === "precomputed") return { format: "precomputed", ...(await zarrifyStoreIr("precomputed", store)) };
+    if (chosen === "safe") return { format: "safe", ...(await zarrifyStoreIr("safe", store, options)) };
+    if (chosen === "safetensors") return { format: "safetensors", ...(await zarrifyStoreIr("safetensors", store, options)) };
+    if (chosen === "zarr3") return { format: "zarr3", ...(await zarrifyStoreIr("zarr3", store, options)) };
+    if (chosen === "n5") return { format: "n5", ...(await zarrifyStoreIr("n5", store, options)) };
+    if (chosen === "precomputed") return { format: "precomputed", ...(await zarrifyStoreIr("precomputed", store, options)) };
     // the core decides between Zarr v2 and OME-Zarr 0.4 (its summary's `format`)
-    const desc = await zarrifyStoreIr("zarr2", store);
+    const desc = await zarrifyStoreIr("zarr2", store, options);
     return { format: desc.summary.format === "ome-zarr" ? "ome-zarr" : "zarr2", ...desc };
   } finally {
     closeStore(store);

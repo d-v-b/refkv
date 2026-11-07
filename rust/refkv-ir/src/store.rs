@@ -508,11 +508,12 @@ impl StoreRun {
     }
 
     /// Finishes and mirrors: the output (the format's projection, and the mirror under
-    /// `refkv_source` when `mirror`).
-    pub fn into_output(self, url: &str, mirror: bool) -> Res<crate::out::Out> {
+    /// `refkv_source` when `mirror`), sealed for a host that records the ranges' checksums when
+    /// `checksums`.
+    pub fn into_output(self, url: &str, mirror: bool, checksums: bool) -> Result<crate::out::Out, crate::seal::Refusal> {
         let format = self.format;
         let (ir, facts, stats) = self.finish()?;
-        store_output(format, &ir, &facts, stats, url, mirror)
+        store_output(format, &ir, &facts, stats, url, mirror, checksums)
     }
 }
 
@@ -520,8 +521,11 @@ impl StoreRun {
 /// `mirror`, and a summary: the projection's, with the run's counts, the IR's element count
 /// (and, but for SAFE, whose projection counts its objects itself, the format's name and the
 /// IR's object count) and what the mirror's table folded. Then the ignored keys (and a SAFE
-/// directory's empty directories) beside the mirror (`record_ignored`).
-pub fn store_output(format: StoreFormat, ir: &Ir, facts: &J, stats: J, url: &str, mirror: bool) -> Res<crate::out::Out> {
+/// directory's empty directories) beside the mirror (`record_ignored`). Last, the output is sealed
+/// (`seal::out`), its url sources the objects of the IR its references use, for a host that
+/// records the ranges' checksums when `checksums`.
+pub fn store_output(format: StoreFormat, ir: &Ir, facts: &J, stats: J, url: &str, mirror: bool, checksums: bool)
+                    -> Result<crate::out::Out, crate::seal::Refusal> {
     let mut out = format.project(ir, facts, url)?;
     crate::shard::refuse(&out)?;
     let mut summary = std::mem::take(&mut out.summary);
@@ -543,6 +547,9 @@ pub fn store_output(format: StoreFormat, ir: &Ir, facts: &J, stats: J, url: &str
         out.summary["folded"] = folded.json();
     }
     crate::project::store::record_ignored(&mut out, facts, profile)?;
+    let objects: std::collections::HashMap<String, u64> =
+        ir.sources().objects.iter().map(|&o| (ir.key(o), ir.len[o as usize])).collect();
+    crate::seal::out(&mut out, None, &objects, checksums)?;
     Ok(out)
 }
 

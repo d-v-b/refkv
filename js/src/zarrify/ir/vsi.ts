@@ -64,6 +64,8 @@ export interface VsiOptions {
   open?: (key: string) => Promise<RangeSource | undefined>;
   http?: HttpSourceOptions;
   mirror?: boolean;
+  /** The ranges will carry checksums (the core's seal measures them). */
+  checksums?: boolean;
   /** The keys of the input's scope (`scopeKeys`): no file outside it is opened, and an input
    * that needs one is rejected, naming it. */
   scope?: string[];
@@ -143,6 +145,7 @@ export async function zarrifyVsi(url: string, source: RangeSource, options: VsiO
   const desc = await zarrifyStoreIr(format, store, {
     mirror: options.mirror ?? true,
     concurrency: source.concurrency,
+    checksums: options.checksums === true,
     ...(options.scope !== undefined ? { scope: options.scope } : {}),
   });
   return { ...desc, store };

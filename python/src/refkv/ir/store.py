@@ -297,7 +297,8 @@ def from_rust(t: tuple[str, list[tuple[str, bytes]], list[tuple[str, list[StoreP
     return out
 
 
-async def run_store_async(store: Store, fmt: str = "zarr2", mirror: bool = True, *,
+async def run_store_async(store: Store, fmt: str = "zarr2", mirror: bool = True, checksums: bool = False,
+                          written: bool = True, *,
                           scope: Sequence[str] | None = None) -> tuple[StoreIrOutput, _core.Ir, dict[str, object]]:
     """(output, IR, run counts) of the listed `store`, parsed by the core's store format `fmt`:
     the keys its listing ignores given to the run (the recorded ignored keys, which the
@@ -305,7 +306,10 @@ async def run_store_async(store: Store, fmt: str = "zarr2", mirror: bool = True,
     read at most `store.workers` at a time, and the summary's `listingRequests` the store's
     requests. With `mirror` false the output has no `refkv_source` mirror, and so no record of
     the ignored keys either. A rejection names `fmt` (`Rejected.format`), or, for one of the
-    output's checks, the profile the run decided (`ome-zarr` once the 0.4 test passed). `scope`,
+    output's checks, the profile the run decided (`ome-zarr` once the 0.4 test passed). The output
+    is sealed for ranges that carry checksums when `checksums` and `written` (the output is written
+    as it is, not only built from: `refkv._core.Failed` for a payload over the limit only with
+    them). `scope`,
     when given, is the input's scope (`StoreRun.scope`): `store` is asked to probe no key outside
     it. The calls that block (the core's, on a listing of millions of objects) run on a thread."""
 
@@ -327,7 +331,7 @@ async def run_store_async(store: Store, fmt: str = "zarr2", mirror: bool = True,
         stats = json.loads(run.stats())
         profile = run.profile()  # the output's checks are the decided profile's (OME-Zarr's, say)
         try:
-            t, ir = run.output(store.url, mirror)
+            t, ir = run.output(store.url, mirror, bool(checksums) and written)
         except _core.Rejected as e:
             raise Rejected(str(e), format=profile) from None
         # the objects' sizes, from the IR: the listing's, and a VSI input's files probed into it
@@ -340,10 +344,10 @@ async def run_store_async(store: Store, fmt: str = "zarr2", mirror: bool = True,
     return await asyncio.to_thread(finish, run)
 
 
-def run_store(store: Store, fmt: str = "zarr2",
-              mirror: bool = True) -> tuple[StoreIrOutput, _core.Ir, dict[str, object]]:
+def run_store(store: Store, fmt: str = "zarr2", mirror: bool = True, checksums: bool = False,
+              written: bool = True) -> tuple[StoreIrOutput, _core.Ir, dict[str, object]]:
     """`run_store_async`, the caller's thread waiting for it (`refkv._sync.run`)."""
-    return _sync.run(run_store_async(store, fmt, mirror))
+    return _sync.run(run_store_async(store, fmt, mirror, checksums, written))
 
 
 def zarrify_store(location: str, url: str | None = None, fmt: str = "zarr2", mirror: bool = True,

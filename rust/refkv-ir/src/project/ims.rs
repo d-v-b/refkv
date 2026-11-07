@@ -50,7 +50,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
             // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#78-chunk-references>)
             let trim = n(&level["trim"]);
             let parts = (trim > 0).then(|| vec![Part::Src(start, length.saturating_sub(trim))]);
-            refs.chunk(k, start, length, form, parts, 0)?;
+            refs.chunk(k, start, length, form, parts)?;
             count += 1;
         }
     }

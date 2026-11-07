@@ -248,10 +248,11 @@ impl Files {
 
 /// (the output, the files) of the VSI or NRRD input at `location` (`format`), its named file
 /// opened as `t`: a store run of the core's `format` over the files, probed as the run asks for
-/// them, read `connections` at a time when remote. `scope`, when given, is the keys of the input's
-/// scope (`scope_keys`): no file outside it is opened.
+/// them, read `connections` at a time when remote; sealed for ranges that carry checksums when
+/// `checksums`. `scope`, when given, is the keys of the input's scope (`scope_keys`): no file
+/// outside it is opened.
 pub fn zarrify_vsi(location: &str, url: Option<&str>, t: Transport, client: &Arc<Client>, connections: Option<usize>,
-                   format: StoreFormat, scope: Option<Vec<String>>) -> Result<(Out, Files), Fail> {
+                   format: StoreFormat, checksums: bool, scope: Option<Vec<String>>) -> Result<(Out, Files), Fail> {
     let workers = concurrency(&t, connections)?;
     let mut files = Files::open(location, url, t, client, format)?;
     let listing = vec![(files.keys[0].clone(), files.sizes[&files.keys[0]])];
@@ -280,7 +281,7 @@ pub fn zarrify_vsi(location: &str, url: Option<&str>, t: Transport, client: &Arc
             run.complete(k, parts?).map_err(Fail::Rejected)?;
         }
     }
-    let mut out = run.into_output(&files.url, true).map_err(Fail::Rejected)?;
+    let mut out = run.into_output(&files.url, true, checksums)?;
     if let Some(m) = out.summary.as_object_mut() {
         m.insert("listingRequests".into(), files.requests.into());
     }
@@ -363,7 +364,7 @@ mod tests {
         let client = Client::new(crate::policy::Policy::default(), Duration::from_secs(5));
         let named = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/nrrd/nrrd_detached_raw.nhdr");
         let t = Transport::open(named, &client).ok().unwrap();
-        let Err(Fail::Rejected(m)) = zarrify_vsi(named, None, t, &client, None, StoreFormat::Nrrd, Some(Vec::new())) else {
+        let Err(Fail::Rejected(m)) = zarrify_vsi(named, None, t, &client, None, StoreFormat::Nrrd, false, Some(Vec::new())) else {
             panic!("not rejected");
         };
         assert_eq!(m, "out of scope: the input names the file \"nrrd_detached_raw.raw\"");
