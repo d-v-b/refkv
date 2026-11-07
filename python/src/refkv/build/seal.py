@@ -1,6 +1,6 @@
 """`seal`: the check that vouches for an output built with `refkv.build`, and the store it makes
 (the design of d-v-b/refkv#278, "Building and writing"). The core numbers the source table and
-checks every key, range, payload and read count (`refkv._core.seal`, the function every built-in
+checks every key, range and payload (`refkv._core.seal`, the function every built-in
 output passes through); this module checks what only the host knows (the caller's objects, the
 inputs, the reader policy's URL rules, the placements and the archive) and reads the checksums."""
 
@@ -100,7 +100,7 @@ def seal(written: Mapping[str, Any], inputs: Sequence[Parsed], *, policy: Policy
         values[k] = val
     used = policy if policy is not None else (inputs[0].policy if inputs else None)
     rules = used or Policy()  # what the store's reader allows: refkv's limits, or fewer
-    max_sources = min(_limit("max_sources", rules.max_sources), MAX_SOURCES)
+    max_sources = min(rules.max_sources, MAX_SOURCES)
     checksums = bool(inputs) and inputs[0].checksums
     request = (table.urls, table.data, table.first, [k for k in keys if k not in values],
                [(k, [table.piece(p) for p in val.parts]) for k, val in values.items()], max_sources)
@@ -129,7 +129,7 @@ def seal(written: Mapping[str, Any], inputs: Sequence[Parsed], *, policy: Policy
     opened = sum(len(documents[k]) for k in at_open)
     if opened > MAX_OPEN:
         raise SealError("open", None, f"{opened} bytes read at open, more than {MAX_OPEN}")
-    most = min(MAX_OPEN, _limit("max_format_entry", rules.max_format_entry))
+    most = min(MAX_OPEN, rules.max_format_entry)
 
     def store_of(ranges_of: list[tuple[str, list[Range]]]) -> tuple[ReferenceStore, dict[str, Any]]:
         mapping: dict[str, bytes | Range | Concat] = {
@@ -213,14 +213,6 @@ def _check_inputs(inputs: Sequence[Parsed], policy: object, registry: object) ->
 
 def _natural(x: object) -> bool:
     return type(x) is int and x >= 0
-
-
-def _limit(name: str, x: object) -> int:
-    """A reader policy's limit as the core takes it: an int, none below 0 or past 2^63 - 1, which
-    are refkv's limits or fewer, as the core counts them."""
-    if type(x) is not int:
-        raise SealError("inputs", None, f"the policy's {name} is an int, not {type(x).__name__}")
-    return max(0, min(x, (1 << 63) - 1))
 
 
 class _Table:

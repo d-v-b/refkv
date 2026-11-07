@@ -92,6 +92,10 @@ fn values_references_and_listing() {
     assert_eq!(whole(&s, "r/concat").unwrap(), concat);
     assert_eq!(s.get("r/concat", Request::Range(5, 9), &NoUrls).unwrap().unwrap(), concat[5..9]);
     assert_eq!(s.get("r/crc", Request::Range(1, 2), &objects).unwrap().unwrap(), object[101..102]);
+    // a range with a checksum is read whole, which a get's byte limit counts, before any read
+    let small = Store::open_with(s.reader().clone(), refkv_phkv::Limits { request_bytes: 50, ..Default::default() }).unwrap();
+    assert_eq!(small.get("r/crc", Request::Range(1, 2), &objects).unwrap_err().class, Class::Request);
+    assert_eq!(small.get("r/one", Request::Whole, &objects).unwrap().unwrap(), object[10..30]);
     // a url source without a resolver is a resolution error, for the requests that need it
     assert_eq!(s.get("r/one", Request::Whole, &NoUrls).unwrap_err().class, Class::Resolution);
     assert_eq!(s.get("a/c/0", Request::Range(5, 4), &NoUrls).unwrap_err().class, Class::Request);

@@ -1301,7 +1301,7 @@ class ReferenceReader:
         # `cuts` says which part of each piece the window takes, and which checksum it must have.
         pieces: list[bytes | tuple[int, int, int] | Coroutine[object, object, bytes]] = []
         cuts: list[tuple[int, int, int | None]] = []
-        taken = 0  # the bytes the pieces take: a range with a crc32c whole
+        taken = 0  # the bytes the value is built from: a range with a crc32c whole
         pos = 0
         for r in parts(ref):
             lo, hi = max(start, pos), min(end, pos + r.size)
@@ -1319,7 +1319,7 @@ class ReferenceReader:
                     a, b = r.offset, r.offset + r.length
                     cuts.append((lo - pos, hi - pos, r.crc32c))
                 taken += b - a
-                if taken > self.policy.max_get_bytes:  # the policy's rule 5, checked below: read nothing
+                if taken > self.policy.max_get_bytes:  # rule 5, refused below: nothing is read
                     break
                 src = self._sources[r.source]
                 if src.data is not None:
@@ -1340,8 +1340,10 @@ class ReferenceReader:
             else:
                 runs.append([source, a, b])
         coros = [p for p in pieces if not isinstance(p, (bytes, tuple))]
-        # spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 5, before any read
-        if taken > self.policy.max_get_bytes:
+        # spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 5, before any
+        # read: the bytes it is built from, and those it fetches, the bytes between coalesced ranges included
+        fetched = sum(b - a for _, a, b in runs)
+        if max(taken, fetched) > self.policy.max_get_bytes:
             for c in coros:
                 c.close()
             raise RequestError(f"the value needs more than {self.policy.max_get_bytes} bytes; this reader "

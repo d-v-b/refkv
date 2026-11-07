@@ -906,7 +906,7 @@ There are six classes of error. Each says which operations it makes fail.
 | **body error** | the bytes the store holds under the key cannot be read as the binding requires ([§13.3](bindings/vzip.md#133-errors) for ZIP). This applies to `bytes` keys for get and raw, and to references for raw. | get and raw of that key fail; a range of a `key` source naming it fails with a resolution error |
 | **payload error** | the reference payload is malformed ([§4.4](#44-reference-payloads)) | get fails for that key |
 | **resolution error** | [§5](#5-source-table), [§5.1](#51-pins), [§6.3](#63-resolving-a-reference) step 3, a URL the reader's policy refuses ([§6.7](#67-reader-policy)) | get fails for the requests that need the range |
-| **request error** | `start > end`; a request exceeding a resource limit the reader documents ([§6.7](#67-reader-policy), [§8](#8-security-considerations)), such as the requests one get may make | that operation fails |
+| **request error** | `start > end`; a request exceeding a resource limit the reader documents ([§6.7](#67-reader-policy), [§8](#8-security-considerations)), such as the reads or bytes one `get` may take | that operation fails |
 
 The names are the same in every binding, and are the ones readers report
 ([§6.5](#65-error-reporting)). They come from the ZIP binding, in which the
@@ -1066,9 +1066,11 @@ it; the other limits are resource limits ([§6.4](#64-errors)).
 5. **Requests and bytes per value.** A reader MUST have a maximum number of reads of
    `url` sources that one `get` may make, counted after coalescing
    ([§6.3](#63-resolving-a-reference)), with each read counting once however
-   many redirects it follows, and a maximum number of bytes one `get` may take: the
-   bytes of each range it resolves, those read (a range with a `crc32c` whole) or taken
-   from a `data` or `key` source or a literal range. A `get` that would need more of
+   many redirects it follows, and a maximum number of bytes one `get` may take, which
+   bounds both the bytes it fetches, its reads of `url` sources after coalescing (the
+   bytes between the ranges a read covers included), and the bytes it builds its value
+   from, those of each range it resolves (a range with a `crc32c` whole), taken from a
+   `url`, `data` or `key` source or a literal range. A `get` that would need more of
    either is a request error, reported before any of its reads is made. The count is of
    the reads the `get` needs by itself: sharing them with other `get`s
    ([§6.3](#63-resolving-a-reference)) does not change it, and neither does
@@ -1089,7 +1091,7 @@ it; the other limits are resource limits ([§6.4](#64-errors)).
    permission, such a pin fails ([§5.1](#51-pins)).
 
 The limits of rules 4–6 are implementation-defined, and readers MUST
-document them. The readers in the specification's repository use these
+document them. The Python and TypeScript readers in the specification's repository use these
 defaults:
 
 | | default |
@@ -1177,12 +1179,14 @@ A binding adds the reasons that come from its backend
   prefix list ([§6.7](#67-reader-policy) rule 2).
 - One reference can name thousands of ranges, and a source table millions
   of sources; the limits of [§6.7](#67-reader-policy) bound the requests one
-  `get` makes and the memory a store takes to open.
+  `get` makes, the bytes it fetches and builds its value from, and the memory a
+  store takes to open.
 - Keys are not file names. Tools that extract a store to disk MUST NOT
   trust keys such as `../x` or `/etc/passwd`.
-- A reference can describe a value of up to 2^64 − 1 bytes. Readers SHOULD
-  bound the memory a single request can use, and document the bound; a
-  request beyond it is a request error.
+- A reference can describe a value of up to 2^64 − 1 bytes. Readers bound the bytes one
+  `get` takes ([§6.7](#67-reader-policy) rule 5) and document the bound; a request beyond it
+  is a request error. A store whose value passes a reader's bound, such as a zarrified file
+  presented as one chunk of more than 2 GiB, is read by raising it.
 - Pins ([§5.1](#51-pins)) and range checksums ([§4.2](#42-range)) detect
   accidental replacement of a referenced object, not tampering: the store
   itself is not signed, a `modified_not_after` pin cannot see a rewrite

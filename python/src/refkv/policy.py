@@ -5,6 +5,7 @@ of spec §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>.
 from __future__ import annotations
 
 import ipaddress
+import math
 import re
 from dataclasses import dataclass
 from urllib.parse import urlsplit
@@ -169,7 +170,8 @@ class Policy:
       which DNS rebinding gets past. Without it, a request that would go
       through a proxy is refused.
     - `max_sources`, `max_reads`, `max_get_bytes`, `max_format_entry`: rules 4 to 6 (rule 5
-      bounds both the reads and the bytes one `get` takes).
+      bounds the reads one `get` makes, and the bytes it takes: those it fetches, the bytes
+      between coalesced ranges included, and those it builds its value from).
     - `max_read_amplification`: how many times the bytes they ask for the reads of different
       values combined into one request may fetch, plus 64 KiB (spec §6.3
       <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#63-resolving-a-reference>,
@@ -211,6 +213,13 @@ class Policy:
             raise ValueError("Policy.schemes may not name 'file': a local archive reads files "
                              "already, and a remote one needs the unsafe "
                              "allow_files_from_remote_archives=True")
+        for name in ("max_sources", "max_reads", "max_get_bytes", "max_format_entry"):
+            limit = getattr(self, name)
+            if type(limit) is not int or limit < 0:
+                raise ValueError(f"Policy.{name} is a natural number, not {limit!r}")
+        amplification = self.max_read_amplification
+        if type(amplification) not in (int, float) or not math.isfinite(amplification) or amplification < 0:
+            raise ValueError(f"Policy.max_read_amplification is a finite number of at least 0, not {amplification!r}")
 
     def check(self, base: str, url: str, *, registered: bool = False) -> None:
         """Raise ResolutionError unless rules 1 and 2 allow `url` for an archive at `base`,

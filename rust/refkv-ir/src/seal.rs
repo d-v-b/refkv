@@ -383,11 +383,9 @@ pub fn seal(urls: &[Url], data: &[Vec<u8>], first: Option<usize>, documents: &[S
 /// Seals a built-in output, as every host writes it: its url sources are the file (source 0, of
 /// `size` bytes) for a file run, and for a store run the objects its references use (`objects`,
 /// each key's size); its data strings are `out.data`. A built-in value is held to the bounds its
-/// profile's document states, not to the reader's read rule (spec/refkv.md §6.7
-/// <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 5), which
-/// spec/zarrify.md §1.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input> does
-/// not impose and some conventions' chunks pass; `refkv.build.seal`, which
-/// vouches for a store its reader reads, lifts it for refkv's values in sharded arrays alone. On
+/// profile's document states; how many reads or bytes it takes is each reader's limit
+/// (spec/refkv.md §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>
+/// rule 5), which `seal` does not hold a store to. On
 /// success `out.data` holds only the data sources a reference uses, renumbered in `seal`'s order
 /// (from 1, the hosts' numbering), and its references name them so. A refusal may leave `out`
 /// without its references.
@@ -655,7 +653,7 @@ mod tests {
         assert_eq!(o.refs.iter().map(|r| r.0.as_str()).collect::<Vec<_>>(), ["b", "a", "s/c/0"]);
         assert_eq!(o.reference("a").unwrap()[0], Part::Data(1, 0, 5));
         assert_eq!(o.reference("b").unwrap()[1], Part::Data(2, 0, 4));
-        // a built-in value meets its convention's bounds, not the read rule, sharded or not
+        // a value of many reads is sealed: its reads are its reader's to bound
         o.refs("u/c/0", (0..1500).map(|k| Part::Src(k * (1 << 17), 1)).collect());
         assert!(out(&mut o, Some(1 << 40), &HashMap::new(), false).is_ok());
     }

@@ -322,6 +322,25 @@ test("refuses too many bytes", async () => {
   assert.equal(log.requests, 0);
 });
 
+test("refuses too many bytes fetched", async () => {
+  // one-byte ranges 64 KiB apart coalesce into one read of the bytes between them
+  const ranges = [0, 1, 2, 3].map((k) => ({ source: 0, offset: BigInt(k << 16), length: 1n }));
+  const desc: ArchiveDesc = { sources: [{ url: "blob.bin" }], entries: [{ key: "r", ranges }] };
+  const { archive, log } = await open(desc, { maxGetBytes: 1 << 17 });
+  await assert.rejects(archive.read("r"), isError("request", /more than 131072 bytes/));
+  assert.equal(log.requests, 0);
+});
+
+test("refuses limits that are no natural numbers, and an amplification that is no finite number", async () => {
+  const bytes = await writeVzip({ sources: [], entries: [] });
+  for (const policy of [{ maxGetBytes: -1 }, { maxGetBytes: 1.5 }, { maxGetBytes: undefined }, { maxReads: Number.NaN }]) {
+    await assert.rejects(Archive.open(bytes, BASE, undefined, policy), TypeError, JSON.stringify(policy));
+  }
+  for (const maxReadAmplification of [-1, Number.NaN, Infinity]) {
+    await assert.rejects(Archive.open(bytes, BASE, undefined, { maxReadAmplification }), TypeError);
+  }
+});
+
 test("refuses an inflation bomb in the source table", async () => {
   const bytes = await writeVzip({ sources: [{ data: new Uint8Array(4 << 20) }], entries: [] });
   await assert.rejects(Archive.open(bytes, BASE, undefined, { maxFormatEntry: 1 << 20 }), isError("archive", /inflates to more than/));

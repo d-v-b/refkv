@@ -1291,8 +1291,11 @@ Format version 0, specification revision 11.6. **Status: provisional.** No store
 [§6.7](../../refkv.md#67-reader-policy) rule 5 bounded the reads of one `get` and nothing else, so a
 store of a few bytes could name a range of terabytes, or a data source of 256 MiB thousands of
 times, and a reader would fetch or build all of it. A reader MUST now also have a maximum number of
-bytes one `get` takes (the bytes of each range it resolves, a range with a `crc32c` whole), 2^31 in
-the readers of the specification's repository, refused as a request error before any read. How many
+bytes one `get` takes, which bounds both the bytes it fetches, its coalesced reads with the bytes
+between their ranges, and the bytes it builds its value from (the bytes of each range it resolves, a
+range with a `crc32c` whole), 2^31 in the readers of the specification's repository, refused as a
+request error before any read (in the Python and TypeScript readers; the conformance suite's
+implementations bound neither). How many
 bytes the reads of different `get`s fetch to save requests ([§6.3](../../refkv.md#63-resolving-a-reference)),
 4 times what they ask for plus 64 KiB, is now a setting of the reader's policy, its read amplification.
 Rule 5 also says what a writer does with these limits: nothing. They are each reader's, which a

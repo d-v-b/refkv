@@ -8,7 +8,7 @@
 // an entry that uses it reads as an entry error), PROPERTY sections (skipped), and `list(prefix)`
 // through the page index (`keys()` reads the pages whole). It is a port of rust/refkv-phkv.
 
-import { Archive, type Entry, type Policy, type RangeFetcher, DEFAULT_POLICY, RefkvError } from "./archive.ts";
+import { Archive, type Entry, type Policy, type RangeFetcher, DEFAULT_POLICY, RefkvError, validatePolicy } from "./archive.ts";
 import { crc32c, inflateRaw } from "./deflate.ts";
 import { readHttpRange } from "./http.ts";
 import { build, hash, slot, type Params } from "./ptrhash.ts";
@@ -342,6 +342,7 @@ export class PhkvArchive extends Archive {
     fetchRange?: RangeFetcher,
     policy: Policy = {},
   ): Promise<PhkvArchive> {
+    validatePolicy(policy);
     const rules = { ...DEFAULT_POLICY, ...policy };
     const sb = findSuperblock(bytes);
     if (sb === undefined) return fail("archive", "not a phkv store");

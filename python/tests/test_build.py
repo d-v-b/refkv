@@ -9,6 +9,7 @@ import struct
 from pathlib import Path
 from typing import Any, BinaryIO, cast
 
+import h5py
 import numpy as np
 import pytest
 import tifffile
@@ -82,7 +83,7 @@ CASES = [
 def test_seal_of_the_built_in_output_reads_what_zarrify_writes(name, checksums):
     """`seal` of `project`'s output is the store `zarrify` writes: the same source table, numbered
     by the core's one rule for both, and the same entries, the values the built-in projection made
-    as checked values of the input's sources."""
+    as values of the input's sources."""
     path = str(FIXTURES / name) + ("/" if name.endswith("/") else "")
     url = f"https://example.invalid/{name}" if name.endswith("/") else None  # a local store needs one
     with read(path, url, checksums=checksums) as p:
@@ -303,6 +304,24 @@ def test_a_value_of_many_reads_is_its_readers_to_read(tmp_path):
         assert allowing.get("v") == bytes(data[k << 17] for k in range(1025))
 
 
+def test_a_built_in_chunk_past_a_readers_reads_is_sealed_as_zarrify_writes_it(tmp_path):
+    """An HDF5 string array whose strings lie far apart gives a chunk of more than 1024 reads:
+    `seal(project(p).written, [p])` is `zarrify`'s store, and the default reader refuses that `get`."""
+    path = tmp_path / "far.h5"
+    with h5py.File(path, "w", libver="earliest") as f:
+        strings = f.create_dataset("s", (1100,), dtype=h5py.string_dtype())
+        for i in range(1100):
+            strings[i] = f"v{i}" * 3000  # each its own heap collection
+            f.create_dataset(f"pad{i}", (70000,), "u1", fillvalue=0, track_times=False)[0] = 1
+    built = zarrify(str(path))
+    with read(path) as p:
+        store = seal(project(p).written, [p])
+    assert store.sources == built.sources
+    assert store.mapping == built.mapping
+    with pytest.raises(RequestError, match="1100 reads"):
+        store.get("s/c/0")
+
+
 # ---- what seal refuses: one test each
 
 def _npy(tmp_path, name="x.npy", n=4096):
@@ -422,12 +441,6 @@ def test_seal_refuses_a_ref_past_the_largest_range(tmp_path):
     with read(_npy(tmp_path)) as p, pytest.raises(SealError) as e:
         seal(Written({"v": Ref(p, 0, 1 << 63, 1 << 63)}), [p])
     assert e.value.code == "range"
-
-
-def test_seal_refuses_a_policy_limit_that_is_no_int(tmp_path):
-    with read(_npy(tmp_path), policy=Policy(max_sources=1.5)) as p, pytest.raises(SealError) as e:  # type: ignore[arg-type]
-        seal(Written({"v": Ref(p, 0, 0, 1)}), [p])
-    assert e.value.code == "inputs"
 
 
 def test_seal_refuses_inputs_read_under_different_policies(tmp_path):

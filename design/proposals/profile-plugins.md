@@ -645,7 +645,7 @@ The inputs must have been read under the same policy and registry, unless
 `policy` and `registry` are given, which the store then keeps, as
 `refkv.compose` treats its operands. A failed check is a `ValueError`
 naming the key and the rule, with a code (`range`, `payload`, `checksums`,
-`reads`, `key`, `archive`, and `inputs` for inputs that do not go together:
+`key`, `archive`, and `inputs` for inputs that do not go together:
 one URL with different pins, a `Ref` to a `Parsed` not given, inputs read
 with and without checksums); the built-in projection, which seals its output
 the same way, turns `range` and `payload` into the `Rejected` [zarrify

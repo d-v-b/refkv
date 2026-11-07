@@ -107,8 +107,9 @@ export type RangeFetcher = (
  *   proxy that `NODE_USE_ENV_PROXY` and `HTTP_PROXY` / `HTTPS_PROXY` ask
  *   for while rule 3 applies; the reader then checks only what the name
  *   resolves to locally. Without it, such a request is refused.
- * - `maxSources`, `maxReads`, `maxGetBytes`, `maxFormatEntry`: rules 4 to 6 (rule 5 bounds both
- *   the reads and the bytes one read of a value takes).
+ * - `maxSources`, `maxReads`, `maxGetBytes`, `maxFormatEntry`: rules 4 to 6 (rule 5 bounds the
+ *   reads one read of a value makes, and the bytes it takes: those it fetches, the bytes between
+ *   coalesced ranges included, and those it builds the value from).
  * - `maxReadAmplification`: how many times the bytes they ask for the reads of different values
  *   combined into one request may fetch, plus `MERGE_GAP` (spec §6.3
  *   <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#63-resolving-a-reference>,
@@ -286,6 +287,16 @@ export function validatePolicy(policy: Policy): void {
       "Policy.schemes may not name 'file': a local archive reads files already, and a remote " +
         "one needs the unsafe allowFilesFromRemoteArchives: true",
     );
+  }
+  for (const name of ["maxSources", "maxReads", "maxGetBytes", "maxFormatEntry"] as const) {
+    const v = policy[name];
+    if (name in policy && !(Number.isSafeInteger(v) && (v as number) >= 0)) {
+      throw new TypeError(`Policy.${name} is a natural number, not ${String(v)}`);
+    }
+  }
+  const a = policy.maxReadAmplification;
+  if ("maxReadAmplification" in policy && !(typeof a === "number" && Number.isFinite(a) && a >= 0)) {
+    throw new TypeError(`Policy.maxReadAmplification is a finite number of at least 0, not ${String(a)}`);
   }
 }
 
@@ -470,6 +481,9 @@ export class Archive {
   private waiting = new Map<number, Waiting[]>();
   /** The requests in flight, by source. */
   private serving = new Map<number, Set<Serving>>();
+  /** The values of the bytes entries `key` sources name, each inflated once (spec §5
+   * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>). */
+  private keyValues = new Map<string, Promise<Uint8Array>>();
   private flushPending = false;
   /** Set while some reads whose window has ended wait for a request to end. */
   private release: ReturnType<typeof setTimeout> | undefined;
@@ -746,7 +760,13 @@ export class Archive {
       if (target === undefined || target.reference !== undefined || target.error) {
         fail(`key ${JSON.stringify(s.key)} is not a bytes entry`);
       }
-      const value = await this.body(target!);
+      let pending = this.keyValues.get(s.key);
+      if (pending === undefined) {
+        pending = this.body(target!);
+        this.keyValues.set(s.key, pending);
+        pending.catch(() => this.keyValues.delete(s.key!));
+      }
+      const value = await pending;
       if (end > BigInt(value.length)) fail("range past the end of the key's value");
       return value.subarray(Number(start), Number(end));
     }
@@ -910,12 +930,13 @@ export class Archive {
     // a crc32c is read whole and checked (spec §6.3
     // <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#63-resolving-a-reference>); `cuts`
     // says which part of each part's bytes the request takes, and which checksum they must have.
-    const parts: (Promise<Uint8Array> | Read)[] = [];
+    // a read of a data or key source is made only once the value passes rule 5, as a url read is
+    const parts: (Promise<Uint8Array> | Read | { local: Read })[] = [];
     const cuts: { lo: number; hi: number; crc?: number }[] = [];
     let at = 0;
-    let taken = 0; // the bytes the parts take: a range with a crc32c whole
+    let taken = 0; // the bytes the value is built from: a range with a crc32c whole
     for (const r of this.ranges(entry)) {
-      if (taken > this.policy.maxGetBytes) break; // rule 5, checked below: nothing is read
+      if (taken > this.policy.maxGetBytes) break; // rule 5, refused below: nothing is read
       const n = Number(rangeSize(r));
       const a = Math.max(start, at);
       const b = Math.min(end, at + n);
@@ -936,14 +957,14 @@ export class Archive {
           }
           taken += Number(read.length);
           if (taken > this.policy.maxGetBytes) break;
-          parts.push(this.sources[r.source].url !== undefined ? read : this.source(read));
+          parts.push(this.sources[r.source].url !== undefined ? read : { local: read });
         }
       }
       at += n;
     }
     // Combine nearby reads of each url source into runs, fetch each run once,
     // and slice the reads back out of it.
-    const reads = parts.filter((p): p is Read => !(p instanceof Promise));
+    const reads = parts.filter((p): p is Read => !(p instanceof Promise) && !("local" in p));
     const sorted = [...reads].sort((x, y) =>
       x.source - y.source || (x.offset < y.offset ? -1 : x.offset > y.offset ? 1 : 0));
     const runs: { source: number; offset: bigint; end: bigint; data?: Promise<Uint8Array> }[] = [];
@@ -958,19 +979,17 @@ export class Archive {
       }
       runOf.set(read, runs[runs.length - 1]);
     }
-    if (taken > this.policy.maxGetBytes) {
-      // spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule
-      // 5: before any read. The other parts read no url source.
-      for (const p of parts) if (p instanceof Promise) p.catch(() => {});
+    // spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 5,
+    // before any read: the bytes it is built from, and those it fetches, the bytes between
+    // coalesced ranges included
+    const fetched = runs.reduce((n, run) => n + Number(run.end - run.offset), 0);
+    if (Math.max(taken, fetched) > this.policy.maxGetBytes) {
       throw new RefkvError(
         "request",
         `the value needs more than ${this.policy.maxGetBytes} bytes; this reader allows ${this.policy.maxGetBytes} (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)`,
       );
     }
     if (runs.length > this.policy.maxReads) {
-      // spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule
-      // 5: before any read. The other parts read no url source.
-      for (const p of parts) if (p instanceof Promise) p.catch(() => {});
       throw new RefkvError(
         "request",
         `the value needs ${runs.length} reads; this reader allows ${this.policy.maxReads} (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)`,
@@ -982,6 +1001,7 @@ export class Archive {
     const whole = await Promise.all(
       parts.map(async (p) => {
         if (p instanceof Promise) return p;
+        if ("local" in p) return this.source(p.local);
         const run = runOf.get(p)!;
         const from = Number(p.offset - run.offset);
         return (await run.data!).subarray(from, from + Number(p.length));

@@ -76,8 +76,6 @@ NAME = re.compile(r"[a-z0-9-]+(?:\.[a-z0-9-]+)+")
 # bytes of a key's UTF-8 the ZIP binding holds (spec/bindings/vzip.md §10.3 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#103-file-names>)
 MAX_KEY = 65535
 MAX_OPEN = 256 << 20  # bytes read at open, and of a format entry: the default max_format_entry
-# url ranges of one value: the default reads per `get` (spec/refkv.md §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>
-# rule 5)
 MERGE_GAP = 1 << 16  # ranges of one source this close are one read, as refkv's readers merge them
 # a DEFLATE stream that could reach this is not written (spec/bindings/vzip.md §14.1
 # <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#141-requirements>)

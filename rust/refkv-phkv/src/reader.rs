@@ -136,7 +136,8 @@ pub struct Limits {
     pub url_reads: usize,
     /// each section read at open, stored and decoded (rule 6)
     pub open_bytes: u64,
-    /// the bytes one get or raw may hold in memory, a value decoded whole included
+    /// the bytes one get or raw may hold in memory, a value decoded whole included, and the bytes
+    /// a get of a reference takes (rule 5): each range's it resolves, a range with a checksum whole
     pub request_bytes: u64,
     /// the bytes read at a record's offset at first, by default enough for a record whose value is
     /// inline at the writer's default `inline_max` (4 KiB), its key and header: a longer record takes
@@ -744,6 +745,13 @@ impl<R: ReadAt> Store<R> {
         let url_reads = parts.iter().filter(|(r, ..)| r.data.is_none() && matches!(self.sources[r.source as usize].kind, SourceKind::Url(_))).count();
         if url_reads > self.limits.url_reads {
             return err(Class::Request, format!("{url_reads} url reads, more than the limit of {}", self.limits.url_reads));
+        }
+        // rule 5, before any read: the bytes the parts take, a range with a checksum read whole
+        let taken = parts.iter().fold(0u64, |n, &(r, i, j)| {
+            n.saturating_add(if r.data.is_none() && r.crc32c.is_some() { r.length } else { j - i })
+        });
+        if taken > self.limits.request_bytes {
+            return err(Class::Request, format!("the value takes {taken} bytes, more than the limit of {}", self.limits.request_bytes));
         }
         let mut out = Vec::with_capacity((b - a) as usize);
         for (r, i, j) in parts {
