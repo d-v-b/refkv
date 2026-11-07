@@ -182,14 +182,19 @@ a `url` source the CRC-32C of its bytes ([spec/refkv.md §4.2](refkv.md#42-range
 byte the output references, pixel data included, so it is off by default;
 it is the one exception to "Structure only" below, and changes nothing else
 in the output. An output whose payload exceeds 65519 bytes only because of
-its checksums is a failure, not a rejection. A data source is a `data` source
+its checksums is a failure, not a rejection: each range of a `url` source counted with the
+most bytes its `crc32c` field takes, 6 (a tag, and a varint of 32 bits), so whether it fails
+depends on the output's ranges, never on the bytes they read. A data source is a `data` source
 ([spec/refkv.md §5](refkv.md#5-source-table)) holding a byte string that a profile names as **shared**: one
 that many references would otherwise each read from the file, or each carry
 as a literal, such as a JPEG header. The data sources are the distinct
 shared byte strings of the output, numbered from 1 **in order of first
-use**: in the order in which the profile lists the references, and within a
-reference in order of its ranges, the first range that uses a byte string
-not yet in the table adds it as the next source. A range that uses a shared
+use**: over the reference entries in the order of their keys, compared as UTF-8 byte strings,
+and within a reference in order of its ranges, the first range that uses a byte string
+not yet in the table adds it as the next source. Every output's sources are numbered by this
+one rule, its `url` sources first, by their first use, then its data sources: a store input's
+([§1.4](#14-store-inputs)), a file read as a store's ([§1.8](#18-files-read-as-stores)), and an
+output built with `refkv.build`, whose source 0 is the input only when that is one plain file. A range that uses a shared
 byte string `d` in data source `i` is `(i, 0, len(d))`, the whole source,
 but for a **zero data source**: `n` zero bytes, `n` the most zero padding
 any reference of the output holds, of which a reference padded with `p`
@@ -286,8 +291,11 @@ in the output.
 
 **References stay in the file.** Every range of source 0 MUST lie within
 the file (`offset + length ≤` the file's size; a range of a data source is
-the whole source), and every reference entry's
-payload MUST be at most 65519 bytes; otherwise the input is rejected. Both hold for every
+the whole source), every reference entry's
+payload MUST be at most 65519 bytes, and every reference entry but a chunk of a sharded array
+([§2.1](#21-virtual-shards), whose shards a reader reads in parts) MUST read at most 1024 ranges of
+`url` sources, ranges of one source at most 65536 bytes apart counted as one, as refkv's readers
+merge them ([spec/refkv.md §6.7](refkv.md#67-reader-policy) rule 5); otherwise the input is rejected. Both hold for every
 reference of a plugin's output ([spec/layout.md §4](layout.md#4-writing-the-output)), where a
 range of a data source may be any bytes within it, and one that breaks them is a failure of the
 call, not a rejection of the input. The
@@ -304,8 +312,8 @@ encoding (1 byte below 2^7, 2 below 2^14, and so on).
 so that a small input cannot make a large output. Each chunk it references is one
 **reference** (for a sharded array, each inner chunk, counted before the chunks are put in
 shards, [§2.1](#21-virtual-shards)); a chunk that references the same bytes of the same element
-as an earlier one (the same extent of the IR, and the same piece of it, where a profile cuts an element into
-pieces) is also one **repeat**, as when two chunks name one element that two structures share
+as an earlier one (the same ranges of the same sources, in order, whatever
+elements or pieces of elements they are cut from) is also one **repeat**, as when two chunks name one element that two structures share
 (an alias, [conventions §8.1](conventions.md#81-elements)). A zarrifier MUST reject an input
 whose output would have more than `2^22 + 4 × Z` references, `Z` the source's size (for a
 store IR, its objects' total size), with the message `budget: more than N refs`, or more than
@@ -782,8 +790,8 @@ the rules of [§1.9](#19-sources-beside-the-input).
   requested length is a failure.
 - **Sources.** The output's `url` sources are the object URLs
   ([§1.4](#14-store-inputs), **Object URLs**) of the objects its references use, each with a
-  `size` pin, in the order the profile's document gives, followed by its data sources
-  ([§1.2](#12-input)). Source 0 need not be the named file.
+  `size` pin, in order of first use ([§1.2](#12-input)), followed by its data sources. Source 0
+  need not be the named file.
 - **`source.url`** ([§2](#2-the-zarr-layout)) is the named file's object URL, the store URL
   followed by the key encoded as [§1.4](#14-store-inputs) says. It is not `U` as given when
   `U` encodes the key otherwise (`%7E` for `~`, or lowercase hex digits).
@@ -881,8 +889,8 @@ CORS headers from a network failure, so asking for a file that is not there can 
 **Sources and order.** Each sibling a reference uses is a `url` source
 ([§1.8](#18-files-read-as-stores), **Sources**), and the named file is one only when a reference
 uses it. The order of the sources is a function of the bytes alone, never of when a probe or a read
-completed. A profile uses the order of **first use** unless its document says otherwise: walk the
-output's reference entries in the order its chunk tables give, and number each object as it first
+completed. Every profile uses the order of **first use** ([§1.2](#12-input)): walk the
+output's reference entries in the order of their keys, and number each object as it first
 appears. A plugin's output ([spec/layout.md](layout.md)) keeps the base's source table, in the
 base's order, sources it does not use included, and after them, at most one zero data source
 ([spec/layout.md §4](layout.md#4-writing-the-output)): the numbering by first use, and the rule that a

@@ -127,12 +127,11 @@ pub fn padded(mut parts: Vec<Part>, zeros: &mut Zeros, out: &mut Out) -> Result<
 
 /// Writes `chunks`, cut from the element `(start, length, form)`: the i-th at the key of each of
 /// `prefixes` and `coords` of its coordinates (`project::key`). A chunk of ranges is a reference,
-/// charged to the budget as piece i at the first key and the same ranges, not charged, at the
-/// others, its zero padding a range of the output's zero data source `zeros`; a copied chunk is
+/// charged to the budget at the first key and the same ranges, not charged, at the others, its zero padding a range of the output's zero data source `zeros`; a copied chunk is
 /// its bytes of `copied` then its zero padding, and a chunk of bytes its bytes, at every key.
 pub fn emit(refs: &mut Refs, chunks: Vec<(Vec<u64>, Chunk)>, (start, length, form): (u64, u64, u32), copied: &Copied,
             prefixes: &[&str], coords: impl Fn(Vec<u64>) -> Vec<u64>, zeros: &mut Zeros) -> Result<(), String> {
-    for (piece, (c, chunk)) in chunks.into_iter().enumerate() {
+    for (c, chunk) in chunks {
         let c = coords(c);
         let keys: Vec<String> = prefixes.iter().map(|p| key(p, c.iter().copied())).collect();
         let Some((first, rest)) = keys.split_first() else { return Err("internal: a chunk without a key".into()) };
@@ -140,7 +139,7 @@ pub fn emit(refs: &mut Refs, chunks: Vec<(Vec<u64>, Chunk)>, (start, length, for
             Chunk::Ranges(parts) => {
                 let parts = padded(parts, zeros, &mut refs.out)?;
                 let same = (!rest.is_empty()).then(|| parts.clone());
-                refs.chunk(first.clone(), start, length, form, Some(parts), piece as u64)?;
+                refs.chunk(first.clone(), start, length, form, Some(parts))?;
                 for k in rest {
                     refs.out.refs(k, same.clone().unwrap_or_default());
                 }

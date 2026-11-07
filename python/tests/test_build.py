@@ -81,20 +81,16 @@ CASES = [
 
 @pytest.mark.parametrize(("name", "checksums"), CASES, ids=[n for n, _ in CASES])
 def test_seal_of_the_built_in_output_reads_what_zarrify_writes(name, checksums):
-    """`seal` of `project`'s output holds every key `zarrify` writes, each reading the same bytes:
-    the values the built-in projection made, as checked values of the input's sources."""
+    """`seal` of `project`'s output is the store `zarrify` writes: the same source table, numbered
+    by the core's one rule for both, and the same entries, the values the built-in projection made
+    as checked values of the input's sources."""
     path = str(FIXTURES / name) + ("/" if name.endswith("/") else "")
     url = f"https://example.invalid/{name}" if name.endswith("/") else None  # a local store needs one
     with read(path, url, checksums=checksums) as p:
         store = seal(project(p).written, [p])
         built = zarrify(path, url, checksums=checksums)
-        assert sorted(store.mapping) == sorted(built.mapping)
-        for k in built.mapping:
-            if url is None:
-                assert store.get(k) == built.get(k), k
-            else:  # its sources are under the URL, which this test cannot read: the same entries
-                assert store.mapping[k] == built.mapping[k], k
-        assert [s.url for s in store.sources] == [s.url for s in built.sources] or url is None
+        assert store.sources == built.sources
+        assert store.mapping == built.mapping
         assert sorted(store.read_at_open) == sorted(built.read_at_open)
 
 
@@ -536,10 +532,9 @@ def test_seal_refuses_more_than_a_reader_reads_at_open(tmp_path, monkeypatch):
     assert e.value.code == "open"
 
 
-def test_seal_refuses_a_zero_source_past_a_source_table(tmp_path, monkeypatch):
-    monkeypatch.setattr(seal_module, "MAX_OPEN", 8)
+def test_seal_refuses_a_zero_source_past_a_source_table(tmp_path):
     with read(_npy(tmp_path)) as p, pytest.raises(SealError) as e:
-        seal(Written({"v": Zeros(9)}), [p])
+        seal(Written({"v": Zeros((256 << 20) + 1)}), [p])
     assert e.value.code == "archive"
 
 
@@ -591,13 +586,6 @@ def test_seal_refuses_a_ref_of_no_natural_offset(tmp_path):
     with read(_npy(tmp_path)) as p, pytest.raises(SealError) as e:
         seal(Written({"v": Ref(p, 0, -1, 4)}), [p])
     assert e.value.code == "value"
-
-
-def test_seal_refuses_more_sources_than_an_output_holds(tmp_path, monkeypatch):
-    monkeypatch.setattr(seal_module, "MAX_SOURCES", 1)
-    with read(_npy(tmp_path)) as p, pytest.raises(SealError) as e:
-        seal(Written({"v": concat(Ref(p, 0, 0, 1), Data(b"x"))}), [p])
-    assert e.value.code == "archive"
 
 
 def test_seal_refuses_a_source_table_past_what_a_reader_reads(tmp_path, monkeypatch):

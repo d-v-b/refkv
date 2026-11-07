@@ -157,6 +157,21 @@ impl Out {
         Part::Data(i, 0, value.len() as u64)
     }
 
+    /// Keeps only the data sources `order` names (indexes into `data`), in that order, and
+    /// renames the references' data ranges to match, from 1 (`seal::out`).
+    pub fn renumber_data(&mut self, order: &[usize]) {
+        let old = std::mem::take(&mut self.data);
+        self.data = order.iter().map(|&i| old[i].clone()).collect();
+        self.data_at = self.data.iter().enumerate().map(|(i, d)| (d.clone(), i as u32 + 1)).collect();
+        for (_, parts) in &mut self.refs {
+            for p in parts {
+                if let Part::Data(i, ..) = p {
+                    *i = self.data_at[&old[*i as usize - 1]];
+                }
+            }
+        }
+    }
+
     /// The whole output as one buffer (little-endian; strings and byte strings are a
     /// u32 length and the bytes): "VZO1", the url, the summary's JSON, the lazy
     /// prefixes, the data sources, the entries (key, bytes), and the references

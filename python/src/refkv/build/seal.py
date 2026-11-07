@@ -1,7 +1,8 @@
 """`seal`: the check that vouches for an output built with `refkv.build`, and the store it makes
-(the design of d-v-b/refkv#278, "Building and writing"). It numbers the source table, checks every key
-and reference against the inputs `read` opened, and places the entries. In this first step it is
-Python; the design moves it into the core."""
+(the design of d-v-b/refkv#278, "Building and writing"). The core numbers the source table and
+checks every key, range, payload and read count (`refkv._core.seal`, the function every built-in
+output passes through); this module checks what only the host knows (the caller's objects, the
+inputs, the reader policy's URL rules, the placements and the archive) and reads the checksums."""
 
 from __future__ import annotations
 
@@ -10,7 +11,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, BinaryIO, cast
 
-from refkv import Concat, Range, ReferenceStore, Source
+from refkv import Concat, Range, ReferenceStore, Source, _core
 from refkv.errors import ResolutionError
 from refkv.policy import Policy, crc32c
 from refkv.reader import Registry, Resolver
@@ -20,24 +21,18 @@ from refkv.zarrify.common import PAGE_SIZE
 from refkv.zarrify.layouts import (
     DOCUMENTS,
     MAX_OPEN,
-    MAX_PAYLOAD,
-    MAX_READS,
-    MERGE_GAP,
     PAGE_ENTRY,
     STORED,
     _Counting,
     _deflate_bound,
-    _key_problem,
     chunk_coords,
 )
 
 from .parsed import Parsed
-from .values import MAX_SOURCES, Binding, Check, Copy, Data, Literal, Part, Ref, Shared, Value, Written, Zeros, value
+from .values import Binding, Check, Copy, Data, Literal, Part, Ref, Shared, Value, Written, Zeros, value
 
 __all__ = ["CODES", "SealError", "seal"]
 
-# the reader policy's rule 5, which bounds the reads of one value
-READ_RULE = "spec/refkv.md §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>"
 # what a SealError's code names
 CODES = frozenset({"key", "value", "range", "payload", "checksums", "reads", "copy", "inputs", "open", "archive"})
 
@@ -65,8 +60,9 @@ def seal(written: Mapping[str, Any], inputs: Sequence[Parsed], *, policy: Policy
     zero data source, as long as the largest `Zeros` part); one input that is a plain file is
     source 0 whether or not a value uses it. A value reads at most 1024 url ranges, counted as
     readers merge them, unless it carries a check of refkv's whose rule lifts that and whose
-    binding holds where it is written. Every payload is at most 65519 bytes, with its checksums
-    when the inputs were read with them."""
+    binding holds where it is written. Every payload is at most 65519 bytes, and when the inputs
+    were read with checksums, with each url range's checksum at its largest (6 bytes), so that
+    whether an output is sealed never depends on its bytes."""
     if not isinstance(written, Mapping):
         raise SealError("value", None, f"an output is a mapping of keys to entries, not {type(written).__name__}")
     if policy is not None and not isinstance(policy, Policy):
@@ -83,9 +79,12 @@ def seal(written: Mapping[str, Any], inputs: Sequence[Parsed], *, policy: Policy
     except (TypeError, ValueError, AttributeError) as e:
         raise SealError("value", None, f"an entry is bytes or a value: {e}") from e
     for k in entries:
-        why = _key_problem(k)
-        if why:
-            raise SealError("key", k if isinstance(k, str) else repr(k), why)
+        if type(k) is not str:
+            raise SealError("key", repr(k), f"keys are str, not {type(k).__name__}")
+        try:
+            k.encode("utf-8")
+        except UnicodeEncodeError:
+            raise SealError("key", repr(k), "a key is valid UTF-8 (it holds a lone surrogate)") from None
     keys = sorted(entries, key=lambda k: k.encode())
 
     table = _Table(inputs)
@@ -98,38 +97,26 @@ def seal(written: Mapping[str, Any], inputs: Sequence[Parsed], *, policy: Policy
         for p in val.parts:
             table.use(k, p)
         values[k] = val
-    if table.zeros > MAX_OPEN:
-        raise SealError("archive", None, f"a zero data source of {table.zeros} bytes, more than the {MAX_OPEN} "
-                                         "of a source table")
     used = policy if policy is not None else (inputs[0].policy if inputs else None)
     rules = used or Policy()  # what the store's reader allows: refkv's limits, or fewer
-    sources = table.sources()
-    most = min(MAX_SOURCES, rules.max_sources)
-    if len(sources) > most:
-        raise SealError("archive", None, f"{len(sources)} sources, more than the {most} its reader allows")
+    checksums = bool(inputs) and inputs[0].checksums
+    try:
+        got, sealed = _core.seal(
+            table.urls, table.data, table.first, [k for k in keys if k not in values],
+            [(k, [table.piece(p) for p in val.parts], _read_rule_lifted(val, k, entries)) for k, val in values.items()],
+            rules.max_sources, rules.max_reads, checksums)
+    except _core.SealRefused as e:
+        code, key, message = e.args
+        raise SealError(code, key, message) from None
+    sources = [Source(url=table.urls[i][0], size=table.urls[i][1], etag=table.urls[i][2]) if kind == "url"
+               else Source(data=table.data[i] if kind == "data" else bytes(i)) for kind, i in got]
     _check_policy(sources, rules, registry if registry is not None else _first(inputs, "registry_given"))
 
-    checksums = bool(inputs) and inputs[0].checksums
-    max_reads = min(MAX_READS, rules.max_reads)
     mapping: dict[str, bytes | Range | Concat] = {}
-    for k in keys:
-        if k not in values:
-            continue
-        val = values[k]
-        ranges = [table.range(k, p) for p in val.parts]
-        if max_reads < MAX_READS or not _read_rule_lifted(val, k, entries):  # a stricter policy lifts nothing
-            reads = _reads(ranges, sources)
-            if reads > max_reads:
-                raise SealError("reads", k, f"it reads {reads} ranges, more than the {max_reads} its reader makes for "
-                                            f"one value ({READ_RULE})")
-        bare = _encoded(ranges)
-        if len(bare) > MAX_PAYLOAD:
-            raise SealError("payload", k, f"a payload of {len(bare)} bytes, more than {MAX_PAYLOAD}")
+    for k, raw in sealed:
+        ranges = [Range(data=r) if isinstance(r, bytes) else Range(*r) for r in raw]
         if checksums:
-            ranges = table.checksummed(k, val.parts, ranges)
-            n = len(_encoded(ranges))
-            if n > MAX_PAYLOAD:
-                raise SealError("checksums", k, f"a payload of {n} bytes with its checksums, more than {MAX_PAYLOAD}")
+            ranges = _checksummed(k, values[k].parts, ranges)
         mapping[k] = ranges[0] if len(ranges) == 1 else Concat(tuple(ranges))
 
     for k in [*entries.at_open, *entries.stored]:
@@ -210,35 +197,33 @@ def _natural(x: object) -> bool:
 
 
 class _Table:
-    """The output's source table, numbered by first use: url sources, then data sources."""
+    """What the core's `seal` numbers: each input source a value uses, as a url (url, size, etag),
+    and each data string, with the parts as the core's pieces."""
 
     def __init__(self, inputs: Sequence[Parsed]) -> None:
         self.inputs = list(inputs)
-        self.urls: dict[tuple[str, int | None, str | None], int] = {}
+        self.urls: list[tuple[str, int | None, str | None]] = []
+        self.url_at: dict[tuple[int, int], int] = {}  # (input id, source) -> index into urls
         self.read_from: dict[tuple[str, int | None, str | None], str] = {}  # each source's place, as read
-        self.where: dict[tuple[int, int], tuple[str, int | None, str | None]] = {}  # (input id, source) -> url key
-        self.data: dict[bytes, int] = {}
-        self.zeros = 0
-        self.zero_used = False
-        self.zero_at = -1
-        self.order: list[tuple[str, bytes | None]] = []  # ("data", bytes) or ("zero", None), by first use
+        self.data: list[bytes] = []
+        self.data_at: dict[bytes, int] = {}
+        self.first: int | None = None
         if len(inputs) == 1 and inputs[0].plain_file:
-            self._url(inputs[0], 0, None)
+            self.first = self._url(inputs[0], 0, None)
 
-    def _url(self, parsed: Parsed, source: int, key: str | None) -> tuple[str, int | None, str | None]:
+    def _url(self, parsed: Parsed, source: int, key: str | None) -> int:
+        at = self.url_at.get((id(parsed), source))
+        if at is not None:
+            return at
         s = parsed.sources[source]
         ident = (s.url or "", s.size, s.etag)
-        for url, size, etag in self.urls:
-            if url == ident[0] and (size, etag) != (ident[1], ident[2]):
-                raise SealError("inputs", key, f"{url} with different pins in two inputs: the file changed "
-                                               "between two reads")
         place = parsed._read_place(source)  # noqa: SLF001 (where the input reads it)
         if self.read_from.setdefault(ident, place) != place:
             raise SealError("inputs", key, f"{ident[0]} names two different files ({self.read_from[ident]} and "
                                            f"{place}) in two inputs")
-        self.urls.setdefault(ident, len(self.urls))
-        self.where[(id(parsed), source)] = ident
-        return ident
+        self.urls.append(ident)
+        self.url_at[(id(parsed), source)] = len(self.urls) - 1
+        return len(self.urls) - 1
 
     def use(self, key: str, p: Part) -> None:
         """Registers what part `p`, of the value at `key`, reads, refusing a malformed part."""
@@ -260,89 +245,44 @@ class _Table:
                     raise SealError("value", key, "a Data part's offset and length are natural numbers")
                 if p.offset > len(p.data) or p.offset + p.size > len(p.data):
                     raise SealError("range", key, "a Data part's bytes lie outside its data")
-            if p.data not in self.data:
-                self.data[p.data] = -1
-                self.order.append(("data", p.data))
+            if p.data not in self.data_at:
+                self.data_at[p.data] = len(self.data)
+                self.data.append(p.data)
         elif isinstance(p, Zeros):
             if not _natural(p.length):
                 raise SealError("value", key, "Zeros of a natural number of bytes")
-            if not self.zero_used:
-                self.zero_used = True
-                self.order.append(("zero", None))
-            self.zeros = max(self.zeros, p.length)
         elif isinstance(p, Literal):
             if type(p.data) is not bytes:
                 raise SealError("value", key, f"a Literal's data is bytes, not {type(p.data).__name__}")
 
-    def sources(self) -> list[Source]:
-        out = [Source(url=url, size=size, etag=etag) for (url, size, etag) in self.urls]
-        for kind, data in self.order:
-            if kind == "data" and data is not None:
-                self.data[data] = len(out)
-                out.append(Source(data=data))
-            else:
-                self.zero_at = len(out)
-                out.append(Source(data=bytes(self.zeros)))
-        return out
-
-    def range(self, key: str, p: Part) -> Range:
+    def piece(self, p: Part) -> bytes | tuple[int, ...]:
+        """Part `p`, which `use` took, as the core's piece."""
         if isinstance(p, Literal):
-            return Range(data=p.data)
+            return p.data
         if isinstance(p, Ref):
-            ident = self.where[(id(p.parsed), p.source)]
-            size = ident[1]
-            if size is None:
-                raise SealError("range", key, f"source {p.source}'s size is not known, so a range of it cannot be "
-                                              "checked")
-            if p.offset + p.length > size:
-                raise SealError("range", key, f"bytes {p.offset} to {p.offset + p.length} of {ident[0]}, past its "
-                                              f"{size}")
-            return Range(self.urls[ident], p.offset, p.length)
+            return (0, self.url_at[(id(p.parsed), p.source)], p.offset, p.length)
         if isinstance(p, Shared):
-            return Range(self.data[p.data], 0, len(p.data))
+            return (1, self.data_at[p.data], 0, len(p.data))
         if isinstance(p, Data):
-            return Range(self.data[p.data], p.offset, p.size)
-        if not isinstance(p, Zeros):  # a Copy, which `use` refused
-            raise SealError("copy", key, "a Copy left unfilled: fill it with parsed.bytes")
-        return Range(self.zero_at, 0, p.length)
-
-    def checksummed(self, key: str, parts: Sequence[Part], ranges: list[Range]) -> list[Range]:
-        """`ranges` with the CRC-32C of each url range, read through the input of its own part."""
-        out = []
-        for p, r in zip(parts, ranges, strict=True):
-            if not isinstance(p, Ref) or not r.length:
-                out.append(r)
-                continue
-            try:
-                data = p.parsed._read_ranges([(p.source, p.offset, p.length)])[0]  # noqa: SLF001 (seal's reads)
-            except (ResolutionError, OSError, ValueError, RuntimeError) as e:
-                raise SealError("checksums", key, f"reading a range to checksum it: {e}") from e
-            out.append(Range(r.source, r.offset, r.length, crc32c=crc32c(data)))
-        return out
+            return (1, self.data_at[p.data], p.offset, p.size)
+        if isinstance(p, Zeros):
+            return (2, p.length)
+        raise TypeError(f"no piece of {type(p).__name__}")  # `use` took every other part
 
 
-def _encoded(ranges: list[Range]) -> bytes:
-    """A value's payload, as written (spec/refkv.md §4.4
-    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#44-reference-payloads>)."""
-    return ranges[0].encode() if len(ranges) == 1 else Concat(tuple(ranges)).encode()
-
-
-def _reads(ranges: list[Range], sources: list[Source]) -> int:
-    """The reads of url sources ranges make, ranges of one source at most `MERGE_GAP` apart
-    counted once, as refkv's readers merge them."""
-    spans: dict[int, list[tuple[int, int]]] = {}
-    for r in ranges:
-        if r.data is None and sources[r.source].url is not None and r.length:
-            spans.setdefault(r.source, []).append((r.offset, r.offset + r.length))
-    n = 0
-    for got in spans.values():
-        got.sort()
-        end = -MERGE_GAP - 1
-        for a, b in got:
-            if a > end + MERGE_GAP:
-                n += 1
-            end = max(end, b)
-    return n
+def _checksummed(key: str, parts: Sequence[Part], ranges: list[Range]) -> list[Range]:
+    """`ranges` with the CRC-32C of each url range, read through the input of its own part."""
+    out = []
+    for p, r in zip(parts, ranges, strict=True):
+        if not isinstance(p, Ref):
+            out.append(r)
+            continue
+        try:
+            data = p.parsed._read_ranges([(p.source, p.offset, p.length)])[0] if p.length else b""  # noqa: SLF001
+        except (ResolutionError, OSError, ValueError, RuntimeError) as e:
+            raise SealError("checksums", key, f"reading a range to checksum it: {e}") from e
+        out.append(Range(r.source, r.offset, r.length, crc32c=crc32c(data)))
+    return out
 
 
 def _order(codec: object, n: int) -> list[int] | None:

@@ -156,7 +156,7 @@ async def _zarrify_store_async(location: str, url: str | None = None, *, max_obj
             _no_store_layouts(layouts, fmt)  # a named profile's were checked before the store was listed
         # the core's store formats: N5, a SAFE directory, and Zarr v2, which the core decides is
         # OME-Zarr 0.4's or not (its summary's `format`)
-        out, store_ir, _ = await run_store_async(store, {"ome-zarr": "zarr2"}.get(fmt, fmt))
+        out, store_ir, _ = await run_store_async(store, {"ome-zarr": "zarr2"}.get(fmt, fmt), checksums=checksums)
         out.ir = store_ir  # for refkv.build, which reads a store's IR as a file's
         if fmt in ("zarr2", "ome-zarr"):
             found = string(out.summary["format"], "summary.format")
@@ -223,7 +223,7 @@ async def _zarrify_beside_async(fmt: str, location: str, url: str | None, transp
     store = VsiFiles(location, url, policy=policy, workers=connections, transport=transport, title=title, noun=noun,
                      case=fmt in CASE, registry=registry)
     try:
-        out, ir_, _ = await run_store_async(store, fmt)
+        out, ir_, _ = await run_store_async(store, fmt, checksums=checksums)
     finally:
         store.close()
     out.ir = ir_

@@ -17,6 +17,18 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 pyo3::create_exception!(refkv._core, Rejected, PyException);
+pyo3::create_exception!(refkv._core, Failed, PyValueError);
+pyo3::create_exception!(refkv._core, SealRefused, PyValueError);
+
+/// The core's refusal of an output: Rejected, or Failed for a failure of the zarrifier, such as a
+/// payload over the limit only with its checksums (spec/zarrify.md §1.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>).
+fn refused(r: refkv_ir::seal::Refusal) -> PyErr {
+    match r {
+        refkv_ir::seal::Refusal::Rejected(e) => Rejected::new_err(e),
+        refkv_ir::seal::Refusal::Failed(e) => Failed::new_err(e),
+    }
+}
 pyo3::create_exception!(refkv._core, Violation, PyException);
 pyo3::create_exception!(refkv._core, NoCodec, PyValueError);
 
@@ -632,7 +644,7 @@ impl PyRun {
         let r = self.r.take().ok_or_else(|| PyValueError::new_err("finished"))?;
         let format = r.format;
         let (o, ir) = py
-            .detach(|| -> Result<_, String> {
+            .detach(|| -> Result<_, refkv_ir::seal::Refusal> {
                 let (ir, mut facts, stats, copied) = r.finish_copied()?;
                 if let Some(l) = layouts {
                     facts["layouts"] = serde_json::json!(l);
@@ -640,7 +652,7 @@ impl PyRun {
                 facts["checksums"] = checksums.into();
                 Ok((refkv_ir::run::output(format, &ir, &facts, stats, url, mirror, &copied)?, ir))
             })
-            .map_err(Rejected::new_err)?;
+            .map_err(refused)?;
         Ok((out_py(py, &o)?, PyIr::new(ir)))
     }
     fn finish(&mut self, py: Python<'_>) -> PyResult<(PyIr, String, String)> {
@@ -715,16 +727,18 @@ impl PyStoreRun {
     fn profile(&mut self) -> PyResult<String> {
         Ok(self.get()?.profile().to_string())
     }
-    #[pyo3(signature = (url, mirror=true))]
-    fn output<'py>(&mut self, py: Python<'py>, url: &str, mirror: bool) -> PyResult<(Bound<'py, PyAny>, PyIr)> {
+    /// Finishes, projects and mirrors (when `mirror`): the output, sealed for a host that records
+    /// the ranges' checksums when `checksums`, and the IR; Rejected or Failed (`refused`).
+    #[pyo3(signature = (url, mirror=true, checksums=false))]
+    fn output<'py>(&mut self, py: Python<'py>, url: &str, mirror: bool, checksums: bool) -> PyResult<(Bound<'py, PyAny>, PyIr)> {
         let r = self.r.take().ok_or_else(|| PyValueError::new_err("finished"))?;
         let format = r.format;
         let (o, ir) = py
-            .detach(|| -> Result<_, String> {
+            .detach(|| -> Result<_, refkv_ir::seal::Refusal> {
                 let (ir, facts, stats) = r.finish()?;
-                Ok((refkv_ir::store::store_output(format, &ir, &facts, stats, url, mirror)?, ir))
+                Ok((refkv_ir::store::store_output(format, &ir, &facts, stats, url, mirror, checksums)?, ir))
             })
-            .map_err(Rejected::new_err)?;
+            .map_err(refused)?;
         Ok((out_py(py, &o)?, PyIr::new(ir)))
     }
     fn finish(&mut self, py: Python<'_>) -> PyResult<(PyIr, String, String)> {
@@ -820,6 +834,66 @@ fn view_problem(keys: Vec<String>, get: Bound<'_, PyAny>, read: Bound<'_, PyAny>
         read.call1((o, n)).map_err(|e| e.to_string())?.extract::<Vec<u8>>().map_err(|e| e.to_string())
     };
     refkv_ir::mirror::view_problem(&keys, &g, &mut rd)
+}
+
+/// A part of a value for `seal`: bytes (literal), (0, url, offset, length), (1, data, offset,
+/// length) or (2, length) of zero bytes.
+fn piece(p: &Bound<'_, PyAny>) -> PyResult<refkv_ir::seal::Piece> {
+    use refkv_ir::seal::Piece;
+    if let Ok(b) = p.cast::<PyBytes>() {
+        return Ok(Piece::Lit(b.as_bytes().to_vec()));
+    }
+    let t: Vec<u64> = p.extract()?;
+    match t.as_slice() {
+        [0, i, o, n] => Ok(Piece::Url(*i as usize, *o, *n)),
+        [1, i, o, n] => Ok(Piece::Data(*i as usize, *o, *n)),
+        [2, n] => Ok(Piece::Zeros(*n)),
+        _ => Err(PyValueError::new_err(format!("internal: a part {t:?} is no piece"))),
+    }
+}
+
+/// The core's `seal` (`refkv_ir::seal::seal`) of the output whose bytes entries' keys are
+/// `documents` and whose values are `values`, each (key, parts (`piece`), lifted): `urls` are
+/// (url, size, etag), `data` byte strings, `first` the url that is source 0. Returns (the table,
+/// each source ("url", index), ("data", index) or ("zeros", length); the values in key order,
+/// each (key, ranges), a range (source, offset, length) or bytes). Raises SealRefused with
+/// (code, key, message).
+#[pyfunction]
+#[pyo3(signature = (urls, data, first, documents, values, max_sources, max_reads, checksums))]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+fn seal<'py>(py: Python<'py>, urls: Vec<(String, Option<u64>, Option<String>)>, data: Vec<Vec<u8>>, first: Option<usize>,
+             documents: Vec<String>, values: Vec<(String, Bound<'py, PyList>, bool)>, max_sources: usize, max_reads: usize,
+             checksums: bool) -> PyResult<(Bound<'py, PyList>, Bound<'py, PyList>)> {
+    use refkv_ir::seal::{Limits, Range, Source, Url, Value};
+    let urls: Vec<Url> = urls.into_iter().map(|(url, size, etag)| Url { url, size, etag }).collect();
+    let mut vs = Vec::with_capacity(values.len());
+    for (key, parts, lifted) in values {
+        let pieces = parts.iter().map(|p| piece(&p)).collect::<PyResult<Vec<_>>>()?;
+        vs.push(Value { key, pieces, lifted });
+    }
+    let limits = Limits { max_sources, max_reads, checksums };
+    let sealed = py.detach(|| refkv_ir::seal::seal(&urls, &data, first, &documents, vs, &limits))
+        .map_err(|e| SealRefused::new_err((e.code.name(), e.key, e.message)))?;
+    let table = PyList::empty(py);
+    for s in &sealed.sources {
+        match s {
+            Source::Url(i) => table.append(("url", *i))?,
+            Source::Data(i) => table.append(("data", *i))?,
+            Source::Zeros(n) => table.append(("zeros", *n))?,
+        }
+    }
+    let out = PyList::empty(py);
+    for (k, ranges) in &sealed.values {
+        let rs = PyList::empty(py);
+        for r in ranges {
+            match r {
+                Range::Src(s, o, n) => rs.append((*s, *o, *n))?,
+                Range::Lit(b) => rs.append(PyBytes::new(py, b))?,
+            }
+        }
+        out.append((k.as_str(), rs))?;
+    }
+    Ok((table, out))
 }
 
 /// CRC-32C (Castagnoli, RFC 3720 §B.4) of `data`: a range's checksum (spec §4.2
@@ -944,6 +1018,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(rebuild_store, m)?)?;
     m.add_function(wrap_pyfunction!(plan_spans, m)?)?;
     m.add_function(wrap_pyfunction!(range_crc32c, m)?)?;
+    m.add_function(wrap_pyfunction!(seal, m)?)?;
     m.add_function(wrap_pyfunction!(sniff, m)?)?;
     m.add_function(wrap_pyfunction!(registry, m)?)?;
     m.add_function(wrap_pyfunction!(fits_tiles_decode, m)?)?;
@@ -962,6 +1037,8 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(czi_xml_values, m)?)?;
     m.add_function(wrap_pyfunction!(czi_bands, m)?)?;
     m.add("Rejected", m.py().get_type::<Rejected>())?;
+    m.add("Failed", m.py().get_type::<Failed>())?;
+    m.add("SealRefused", m.py().get_type::<SealRefused>())?;
     m.add("Violation", m.py().get_type::<Violation>())?;
     m.add("NoCodec", m.py().get_type::<NoCodec>())?;
     phkv::register(m)?;

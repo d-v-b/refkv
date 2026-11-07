@@ -13,7 +13,7 @@ import type { Range, Source } from "../../protobuf.ts";
 import type { ArchiveDesc, EntryDesc } from "../../writer.ts";
 import type { Profile } from "../profiles.ts";
 import { compareKeys, objectUrl, type Store, StoreError } from "../store.ts";
-import { bytesEntry, decodeRaw, type RawOutput } from "./run.ts";
+import { bytesEntry, decodeRaw, type RawOutput, refusal } from "./run.ts";
 import { ir, type IrExports, out, put } from "./wasm.ts";
 
 /** A store format of the core: a profile with a `store_run` in the registry (spec/zarrify/profiles/). */
@@ -90,7 +90,7 @@ export async function zarrifyStoreIr(
     live = false; // vz_store_output consumes the run
     const u = utf8.encode(store.url);
     const n = Number(w.vz_store_output(p, put(w, u), u.length, options.mirror === false ? 0 : 1));
-    if (n < 0) throw rejection(w, n, decided);
+    if (n < 0) throw refusal(w, n, (w, r) => rejection(w, r, decided));
     const raw = decodeRaw(out(w, n));
     return { ...storeDesc(raw, new Map(listing)), summary: { ...raw.summary, listingRequests: store.requests } };
   } finally {
