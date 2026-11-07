@@ -1,5 +1,100 @@
 # Changelog
 
+## [0.3.0](https://github.com/d-v-b/refkv/compare/v0.2.0...v0.3.0) (2026-11-07)
+
+
+### Features
+
+* **build:** add refkv.build, to read an input and seal an output built from its IR ([#283](https://github.com/d-v-b/refkv/issues/283)) ([0a62324](https://github.com/d-v-b/refkv/commit/0a623248e2aafe36cc095a775893a1bcac49d49a))
+* **compose:** combine reference stores by the keys each answers for ([#197](https://github.com/d-v-b/refkv/issues/197)) ([0fda325](https://github.com/d-v-b/refkv/commit/0fda32570db5094fbf190f505b6d0a1290442af4))
+* **czi:** read an image across its numbered files ([#251](https://github.com/d-v-b/refkv/issues/251)) ([86e3c9e](https://github.com/d-v-b/refkv/commit/86e3c9e756416a8fb5da79a47196283f7cfd6dfb))
+* **czi:** read LZW, lossless JPEG and 12-bit JPEG subblocks ([#241](https://github.com/d-v-b/refkv/issues/241)) ([62e3cc4](https://github.com/d-v-b/refkv/commit/62e3cc48818c0c8218318411f6d8891ffabf7990))
+* **demo:** add a phkv variant of the image-to-Zarr demo ([#194](https://github.com/d-v-b/refkv/issues/194)) ([3d736d6](https://github.com/d-v-b/refkv/commit/3d736d6d48f9bf4ebb0357d36fae6404f0195826))
+* **demo:** highlight the Python script's syntax with highlight.js ([#176](https://github.com/d-v-b/refkv/issues/176)) ([7a7f8be](https://github.com/d-v-b/refkv/commit/7a7f8bee8e116678d5c0e204cc8e47459cde40f1))
+* **demo:** show the result above the examples, and say why a read failed ([#181](https://github.com/d-v-b/refkv/issues/181)) ([20f46c9](https://github.com/d-v-b/refkv/commit/20f46c9580c7515f5a81899f1b4c06855b5a27fc))
+* **dicom,mrc:** zarrify 1-bit DICOM images and MRC modes 3 and 101 ([#228](https://github.com/d-v-b/refkv/issues/228)) ([00f6f9f](https://github.com/d-v-b/refkv/commit/00f6f9fe96625ef5e15eb604db25c89e92e45dbf))
+* **dicom:** join a store of DICOM files into one group per series ([#236](https://github.com/d-v-b/refkv/issues/236)) ([8c81e07](https://github.com/d-v-b/refkv/commit/8c81e07ef2a46a0a3e9bc6ce41f2260be2df9930))
+* **dicom:** zarrify RLE, JPEG-LS and HTJ2K frames, and palette and YBR images ([#237](https://github.com/d-v-b/refkv/issues/237)) ([e7f0b94](https://github.com/d-v-b/refkv/commit/e7f0b949ff2e18dfccae4d24f69cfcfa6db8a171))
+* **fits:** present binary tables as struct arrays over their rows ([#227](https://github.com/d-v-b/refkv/issues/227)) ([1950214](https://github.com/d-v-b/refkv/commit/19502146229735a631cab6a262582d22f38ff213))
+* **fits:** zarrify whole files in gzip and bzip2 ([#242](https://github.com/d-v-b/refkv/issues/242)) ([9b067ef](https://github.com/d-v-b/refkv/commit/9b067ef43b928ec452f8b6be83e7ff0c829f3dcc))
+* **grib:** present Gaussian, rotated, polar, Mercator, reduced and unstructured grids ([#248](https://github.com/d-v-b/refkv/issues/248)) ([e7d2c8f](https://github.com/d-v-b/refkv/commit/e7d2c8f0decf5b2eb29a1a61534e31ccff78acb7))
+* **hdf5:** follow external links and external storage to files beside the input ([#258](https://github.com/d-v-b/refkv/issues/258)) ([484a76a](https://github.com/d-v-b/refkv/commit/484a76a86494a39e11b58bf3c35ea46c1fb2e805))
+* **hdf5:** name dimensions from netCDF-4's dimension scales ([#252](https://github.com/d-v-b/refkv/issues/252)) ([c57eb25](https://github.com/d-v-b/refkv/commit/c57eb254bc5fae5342fcb815058a3cf7038c259a))
+* **hdf5:** name the axes of datasets without dimension scales ([#276](https://github.com/d-v-b/refkv/issues/276)) ([395fabd](https://github.com/d-v-b/refkv/commit/395fabdcc4f57ce5574e9175e4abe3f1b8f3feb1))
+* **hdf5:** present Fletcher32, third-party filters and skipped chunks ([#243](https://github.com/d-v-b/refkv/issues/243)) ([d148d3f](https://github.com/d-v-b/refkv/commit/d148d3f806c1de9cbbe9eb3db513997fea7a787d))
+* **hdf5:** read files after a user block ([#249](https://github.com/d-v-b/refkv/issues/249)) ([8243214](https://github.com/d-v-b/refkv/commit/82432147d6b736bd0168ea90bd86cf01f3bbf2f5))
+* **js:** save the archives the demo's worker zarrifies in Cache Storage ([#180](https://github.com/d-v-b/refkv/issues/180)) ([ba8970e](https://github.com/d-v-b/refkv/commit/ba8970e1e59d4edd3f06bc45d056f954fa7beb67))
+* **lif:** read LAS X projects as stores ([#253](https://github.com/d-v-b/refkv/issues/253)) ([4844c03](https://github.com/d-v-b/refkv/commit/4844c03bb19a0422b9383418bc47ec0331e634ae))
+* **mp4:** zarrify AV1, VP9, 10-bit H.264 and 4:2:2 and 12-bit HEVC ([#262](https://github.com/d-v-b/refkv/issues/262)) ([ade6af8](https://github.com/d-v-b/refkv/commit/ade6af89fd4aaca8b5d9c3c0e9e86ec64c18afe4))
+* **mp4:** zarrify fragmented files by parsing moof boxes ([#231](https://github.com/d-v-b/refkv/issues/231)) ([54b8f14](https://github.com/d-v-b/refkv/commit/54b8f144e88e16e9b4ac4a4078688968087813ec))
+* **mp4:** zarrify HE-AAC and HE-AAC v2 tracks ([#264](https://github.com/d-v-b/refkv/issues/264)) ([b5eae81](https://github.com/d-v-b/refkv/commit/b5eae81bfbfc421d2c974122945404c232cc1d34))
+* **mp4:** zarrify Motion JPEG tracks through imagecodecs_jpeg ([#261](https://github.com/d-v-b/refkv/issues/261)) ([e8a1721](https://github.com/d-v-b/refkv/commit/e8a17215bb9e14fb88231be477b61d914874c258))
+* **mp4:** zarrify PCM audio tracks through the bytes codec ([#260](https://github.com/d-v-b/refkv/issues/260)) ([d0fea2b](https://github.com/d-v-b/refkv/commit/d0fea2b7ba5d554a0bebc6860f1107b9174dbae1))
+* **ndpi:** present focal planes as a z axis ([#229](https://github.com/d-v-b/refkv/issues/229)) ([91a6b45](https://github.com/d-v-b/refkv/commit/91a6b45479b18cbca9331a12b281a19bd6b3aeb8))
+* **nifti,mrc,nrrd:** read gzipped single-array files as one chunk of the whole stream ([#247](https://github.com/d-v-b/refkv/issues/247)) ([784e5e4](https://github.com/d-v-b/refkv/commit/784e5e462190b9e429bc87c099085068dee6c735))
+* **nifti:** present COMPLEX64 and COMPLEX128 voxels as complex arrays ([#232](https://github.com/d-v-b/refkv/issues/232)) ([7ce91ca](https://github.com/d-v-b/refkv/commit/7ce91cadb8b5d8c21d1e3ba46f55f7a4dc903dc6))
+* **nifti:** read header-and-image pairs, the image file found beside the header ([#250](https://github.com/d-v-b/refkv/issues/250)) ([95dbd6f](https://github.com/d-v-b/refkv/commit/95dbd6feb19c63a2e723db50075b960de432f276))
+* **precomputed:** add compresso, crackle, jxl, fpzip, zfpc and kempressed ([#230](https://github.com/d-v-b/refkv/issues/230)) ([08ef7ca](https://github.com/d-v-b/refkv/commit/08ef7ca76b5d24c743633b9ac7820110f68cfa4f))
+* **python:** read and write phkv stores (refkv.phkv, ReferenceStore.save_phkv) ([#141](https://github.com/d-v-b/refkv/issues/141)) ([1f0b598](https://github.com/d-v-b/refkv/commit/1f0b5989a852e992d9d7900c49f89d4135f5f415))
+* **reader:** merge nearby reads of different keys into one request ([#213](https://github.com/d-v-b/refkv/issues/213)) ([0710ae3](https://github.com/d-v-b/refkv/commit/0710ae39a517b15b39f2971bd146b47c6c3aa638))
+* **reader:** wait for a request in flight when a source is busy ([#225](https://github.com/d-v-b/refkv/issues/225)) ([138d269](https://github.com/d-v-b/refkv/commit/138d269253e8a640b13050d9f1fe1b8cd19b21fe))
+* **refstore:** deprecate `save` in favor of `save_vzip` ([#199](https://github.com/d-v-b/refkv/issues/199)) ([5d1a84e](https://github.com/d-v-b/refkv/commit/5d1a84e42ac571993e8a89e9d6ad191905301c5f))
+* **safetensors:** zarrify a store of safetensors files as one group, a group per shard ([#189](https://github.com/d-v-b/refkv/issues/189)) ([5d4de4b](https://github.com/d-v-b/refkv/commit/5d4de4b65e7f799445ebf2bb4943a2eea6f1046b))
+* **safetensors:** zarrify safetensors files, each tensor a Zarr array ([#186](https://github.com/d-v-b/refkv/issues/186)) ([743764c](https://github.com/d-v-b/refkv/commit/743764ca74bc6554dc0e74f4f3805e372d07e5ee))
+* **store:** list a Hugging Face Hub repository at a pinned commit ([#188](https://github.com/d-v-b/refkv/issues/188)) ([240cc19](https://github.com/d-v-b/refkv/commit/240cc19429863a256eef2b4c56ff47be829f8996))
+* **tiff:** give a short last compressed strip a rectilinear grid ([#233](https://github.com/d-v-b/refkv/issues/233)) ([d48834c](https://github.com/d-v-b/refkv/commit/d48834c79458f615b071fc45b104b72ad0caede2))
+* **tiff:** join uncompressed strips into larger chunks ([#214](https://github.com/d-v-b/refkv/issues/214)) ([dec9a3a](https://github.com/d-v-b/refkv/commit/dec9a3ac0330fee36f1aea6c67ab23499ea75458))
+* **tiff:** read an OME-TIFF across files and Micro-Manager stacks ([#244](https://github.com/d-v-b/refkv/issues/244)) ([e02cd52](https://github.com/d-v-b/refkv/commit/e02cd52eb0eb7dc203b0ee3840389e4b4c5a5e8e))
+* **tiff:** shard LZW, Deflate and zstd strips ([#217](https://github.com/d-v-b/refkv/issues/217)) ([7617ce2](https://github.com/d-v-b/refkv/commit/7617ce25232395bf0cfc76c02da6294a4d108a37))
+* **tiff:** zarrify LERC, WebP, JPEG XL and LZMA through imagecodecs ([#234](https://github.com/d-v-b/refkv/issues/234)) ([bd7d041](https://github.com/d-v-b/refkv/commit/bd7d041066de9d1bf58290f6f1f7456b453da8d9))
+* **tiff:** zarrify packed samples, PackBits, CCITT Group 4 and EER ([#235](https://github.com/d-v-b/refkv/issues/235)) ([a0021da](https://github.com/d-v-b/refkv/commit/a0021daae51c7617eae26d8be4aeca7fb9f7b14b))
+* **tiff:** zarrify Predictor 3 images through imagecodecs_floatpred ([#240](https://github.com/d-v-b/refkv/issues/240)) ([91ee04e](https://github.com/d-v-b/refkv/commit/91ee04e0180c44de0de85bf4b556c6cb82725146))
+* **vsi:** leave out a macro image of the wrong kind, and read PNG and BMP tiles ([#226](https://github.com/d-v-b/refkv/issues/226)) ([9606274](https://github.com/d-v-b/refkv/commit/960627486215527ce563b4050778dd23218ef747))
+* **zarr2:** leave out arrays that cannot be presented, and read NPY's data types and more codecs ([#238](https://github.com/d-v-b/refkv/issues/238)) ([bf6f788](https://github.com/d-v-b/refkv/commit/bf6f7889c0bbdeed6d05d79e553d92569004be82))
+* **zarr3:** zarrify Zarr v3 stores, listed or zipped ([#277](https://github.com/d-v-b/refkv/issues/277)) ([fde5f47](https://github.com/d-v-b/refkv/commit/fde5f4724f0b25af9f3a9a6dd69eb2b16dbd07a4))
+* **zarrify:** read inputs through the application's object stores ([#275](https://github.com/d-v-b/refkv/issues/275)) ([25018f9](https://github.com/d-v-b/refkv/commit/25018f980844e957cdea2f7634ed641b3596eac0)), closes [#271](https://github.com/d-v-b/refkv/issues/271)
+* **zarrify:** zarrify Neuroglancer precomputed volumes as one reference per object ([#203](https://github.com/d-v-b/refkv/issues/203)) ([e10e93e](https://github.com/d-v-b/refkv/commit/e10e93eda1e2ec93857533e66c3d1665ea844ff7))
+
+
+### Bug fixes
+
+* **demo:** list every codec the Neuroglancer fork decodes ([#218](https://github.com/d-v-b/refkv/issues/218)) ([9dcbc49](https://github.com/d-v-b/refkv/commit/9dcbc4956e6e04679f3bf348d1450a0306668996))
+* **ir:** accept left-out derived spaces and alias targets in a stored table ([#202](https://github.com/d-v-b/refkv/issues/202)) ([7851649](https://github.com/d-v-b/refkv/commit/785164946e30d737550d4557de047960fc862f3b))
+* **js:** answer a zarrify that outlasts a minute as pending, so the page asks again ([#178](https://github.com/d-v-b/refkv/issues/178)) ([d2fb777](https://github.com/d-v-b/refkv/commit/d2fb777fa3bccfa8c8fe931a73e29741d76468df))
+* **mrc:** place IMOD's negated origins at the first voxel's position ([#263](https://github.com/d-v-b/refkv/issues/263)) ([f32a612](https://github.com/d-v-b/refkv/commit/f32a61260b5e1aa4452e9982a22e4b0e53197159))
+* **mrc:** read IMOD's flag bit 0 as signed bytes, and a stamped file without it as unsigned ([#254](https://github.com/d-v-b/refkv/issues/254)) ([b7816e9](https://github.com/d-v-b/refkv/commit/b7816e9998e862d0daae7690b3ec521fa231fccd))
+* **python:** keep the existing file when an archive write fails ([#212](https://github.com/d-v-b/refkv/issues/212)) ([faf8d57](https://github.com/d-v-b/refkv/commit/faf8d5710a91901d8d7c57c2d378612706e79708))
+* **reader:** open a store once for concurrent first reads ([#211](https://github.com/d-v-b/refkv/issues/211)) ([1068a66](https://github.com/d-v-b/refkv/commit/1068a661fa79be8ab0902b81d40632b5409d956a))
+* **refstore:** keep the existing file when save_vzip fails ([#210](https://github.com/d-v-b/refkv/issues/210)) ([dc1ffbc](https://github.com/d-v-b/refkv/commit/dc1ffbc3b2eb46fd558128be59402a256fa0e49c))
+* **spec:** restore the npy schema's offset description in its source, and check schemas are current ([#187](https://github.com/d-v-b/refkv/issues/187)) ([54d72de](https://github.com/d-v-b/refkv/commit/54d72de6b61c2eadabe889f6590b881760b59514))
+* **tiff:** keep every IFD's tile and strip tables in the IR ([#281](https://github.com/d-v-b/refkv/issues/281)) ([3b09168](https://github.com/d-v-b/refkv/commit/3b09168fc373b461c050417a31223bb175d06313))
+* **vzip:** check the source table before VZipWriter.close writes, and fill the API docs' gaps ([#184](https://github.com/d-v-b/refkv/issues/184)) ([04cec13](https://github.com/d-v-b/refkv/commit/04cec13fbb5aade5ff2e1b2661bd1ce948b177ed))
+* **zarrify:** find a sibling absent when a symbolic link leads outside the input's directory ([#265](https://github.com/d-v-b/refkv/issues/265)) ([e76fc55](https://github.com/d-v-b/refkv/commit/e76fc55c15120250bf604cf1a958c6a8074d3e29))
+
+
+### Performance
+
+* **phkv:** list reads the pages a prefix needs in one request ([#190](https://github.com/d-v-b/refkv/issues/190)) ([d4c759d](https://github.com/d-v-b/refkv/commit/d4c759de78058d94a85f77930a26a6f7dcb483f4))
+
+
+### Documentation
+
+* **design:** measure the shard index an HDF5 file already holds ([#144](https://github.com/d-v-b/refkv/issues/144)) ([d213a92](https://github.com/d-v-b/refkv/commit/d213a92372ff5bfd972ad3122d801c2e03662c22))
+* **design:** plan vzip and phkv as separate packages ([#150](https://github.com/d-v-b/refkv/issues/150)) ([abb673f](https://github.com/d-v-b/refkv/commit/abb673fc89866b81ea9008ea059ab5dcbb38ebc3))
+* **design:** propose public tools to build an output from the IR ([#278](https://github.com/d-v-b/refkv/issues/278)) ([ee095ae](https://github.com/d-v-b/refkv/commit/ee095aebb8401f510a614e0fee6dc5ab3f9e3934))
+* **design:** propose store operators and key bounds ([#193](https://github.com/d-v-b/refkv/issues/193)) ([7b6ec6c](https://github.com/d-v-b/refkv/commit/7b6ec6ccb924f15f7c2a9297203dcf9f73317c77))
+* install refkv from PyPI, and bring the docs up to the release and the worker ([#182](https://github.com/d-v-b/refkv/issues/182)) ([640dcc2](https://github.com/d-v-b/refkv/commit/640dcc26755fb4603b4c729a933e26a06c20603e))
+* **ir:** bring the IR design and contributor docs up to date with the code ([#205](https://github.com/d-v-b/refkv/issues/205)) ([0960d5f](https://github.com/d-v-b/refkv/commit/0960d5f793a8f147b01fd12bb7ef498fefdb632b))
+* **readme:** lead with zarrifying a file, and read its result back ([#183](https://github.com/d-v-b/refkv/issues/183)) ([7fffa1c](https://github.com/d-v-b/refkv/commit/7fffa1c2ce4034dc86bc00bf3c6f8916aab647d7))
+* **readme:** link the live demo under the introduction ([#179](https://github.com/d-v-b/refkv/issues/179)) ([7fb7973](https://github.com/d-v-b/refkv/commit/7fb79736da870a6b0aad0c74754a444c67cdb27d))
+* **spec:** correct the IR spec to what the producers write ([#204](https://github.com/d-v-b/refkv/issues/204)) ([e0f15b4](https://github.com/d-v-b/refkv/commit/e0f15b42e824d13befa8712aa2a09851df4357f5))
+* **spec:** draft a provenance convention that names the program that wrote a hierarchy ([#216](https://github.com/d-v-b/refkv/issues/216)) ([f33a3a8](https://github.com/d-v-b/refkv/commit/f33a3a82fda71bf33689273c82f8b23cb8a50faa))
+* **spec:** list codec names in a table, one row per codec ([#274](https://github.com/d-v-b/refkv/issues/274)) ([962e19d](https://github.com/d-v-b/refkv/commit/962e19d500f69eba66cbdc5ce5f1dcb30d56455a))
+* stack a directory of TIFF files as one array in a vzip sidecar ([#192](https://github.com/d-v-b/refkv/issues/192)) ([689902e](https://github.com/d-v-b/refkv/commit/689902efa33ca9c5be6451f4fb78ce625b015b5a))
+* **zarrify:** correct the specs and READMEs to what the examples produce ([#200](https://github.com/d-v-b/refkv/issues/200)) ([c307b0f](https://github.com/d-v-b/refkv/commit/c307b0f0618aad4a9770d2e98d3a2b50d067da3f))
+* **zarrify:** describe the MP3 browser path as float32 and refkv.stream ([#198](https://github.com/d-v-b/refkv/issues/198)) ([e26dc27](https://github.com/d-v-b/refkv/commit/e26dc273f63d1b8e855e0da5d616651fe07de99f))
+* **zarrify:** specify what only the code defined, and give every profile changelog one form ([#185](https://github.com/d-v-b/refkv/issues/185)) ([d7abf64](https://github.com/d-v-b/refkv/commit/d7abf64b93023ba427f8793d51f1af6241546ba1))
+
 ## [0.2.0](https://github.com/d-v-b/refkv/compare/v0.1.0...v0.2.0) (2026-10-31)
 
 
