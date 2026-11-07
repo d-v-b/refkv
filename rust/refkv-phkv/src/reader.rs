@@ -782,6 +782,7 @@ impl<R: ReadAt> Store<R> {
             return err(Class::Request, format!("the value takes {taken} bytes, more than the limit of {}", self.limits.request_bytes));
         }
         let mut out = Vec::with_capacity((b - a) as usize);
+        let mut decoded: HashMap<&str, Vec<u8>> = HashMap::new(); // each value decoded whole, once a get
         for (r, i, j) in parts {
             if let Some(d) = &r.data {
                 out.extend_from_slice(&d[i as usize..j as usize]);
@@ -789,7 +790,25 @@ impl<R: ReadAt> Store<R> {
             }
             // a range with a checksum is read whole, and checked before any of it is used
             let (ri, rj) = if r.crc32c.is_some() { (0, r.length) } else { (i, j) };
-            let bytes = self.source_bytes(&self.sources[r.source as usize], r.offset + ri, rj - ri, resolver)?;
+            let src = &self.sources[r.source as usize];
+            let whole = match &src.kind {
+                SourceKind::Key(k) => held.get(k.as_str()).copied().flatten(),
+                _ => None,
+            };
+            let bytes = match (&src.kind, whole) {
+                (SourceKind::Key(k), Some(size)) => {
+                    let (start, end) = (r.offset + ri, r.offset + rj);
+                    if !decoded.contains_key(k.as_str()) {
+                        decoded.insert(k.as_str(), self.source_bytes(src, 0, size, resolver)?);
+                    }
+                    let value = &decoded[k.as_str()];
+                    if end > value.len() as u64 {
+                        return err(Class::Resolution, format!("a range ends at {end}, past the {} bytes of key source {k:?}", value.len()));
+                    }
+                    value[start as usize..end as usize].to_vec()
+                }
+                _ => self.source_bytes(src, r.offset + ri, rj - ri, resolver)?,
+            };
             if let Some(c) = r.crc32c
                 && format::crc32c(&bytes) != c
             {

@@ -1424,7 +1424,11 @@ class ReferenceReader:
                     raise ResolutionError(f"data source {p.source} is shorter than {p.end} bytes")
                 pieces[i] = data[p.start:p.end]
         owner = object()  # this value's reads, which the shared reads keep apart
-        coros = [self._key_bytes(p.key, p.start, p.end) for p in pieces if isinstance(p, _KeyPiece)]
+        # a key's value counted whole is read whole once, and its ranges are cut from it
+        whole = {k: n for k, n in held.items() if n is not None}
+        ranged = [p for p in pieces if isinstance(p, _KeyPiece) and p.key not in whole]
+        coros = [self._key_bytes(k, 0, n) for k, n in whole.items()]
+        coros += [self._key_bytes(p.key, p.start, p.end) for p in ranged]
         coros += [self._shared_read(s, a, b, owner) for s, a, b in runs]
         try:
             done = await asyncio.gather(*coros)
@@ -1432,7 +1436,8 @@ class ReferenceReader:
             raise
         except Exception as exc:  # noqa: BLE001 - spec §6.4 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#64-errors>: failures resolving a range
             raise ResolutionError(f"{type(exc).__name__}: {exc}") from None
-        other = iter(done[: len(done) - len(runs)])
+        values = dict(zip(whole, done[: len(whole)], strict=True))
+        other = iter(done[len(whole) : len(done) - len(runs)])
         fetched = list(zip(runs, done[len(done) - len(runs):], strict=True))
 
         starts = [(s, ra) for (s, ra, _), _ in fetched]  # in order of source and offset
@@ -1449,6 +1454,10 @@ class ReferenceReader:
                 data = p
             elif isinstance(p, tuple):
                 data = from_runs(*p)
+            elif isinstance(p, _KeyPiece) and p.key in values:
+                if p.end > len(values[p.key]):
+                    raise ResolutionError(f"key source {p.key!r} is shorter than {p.end} bytes")
+                data = values[p.key][p.start : p.end]
             else:
                 data = next(other)
             # spec §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>: the source changed

@@ -155,6 +155,25 @@ def test_looks_up_a_key_source_once_a_get(tmp_path, monkeypatch):
     assert looked_up == ["k"]
 
 
+def test_decodes_a_compressed_key_source_once_a_get(tmp_path, monkeypatch):
+    """50 ranges of one compressed key source read its value whole once, and cut the ranges from it."""
+    value = bytes(range(250)) * 40
+    ranges = Concat(tuple(Range(source=0, offset=k * 100, length=3) for k in range(50)))
+    store = refkv.ReferenceStore({"k": value, "r": ranges}, [Source(key="k")], compressed=["k"])
+    store.save_phkv(tmp_path / "s.phkv")
+    phkv = refkv.phkv.open(tmp_path / "s.phkv")
+    reads = []
+    key_bytes = phkv._key_bytes
+
+    async def counted(key, start, end):
+        reads.append((key, start, end))
+        return await key_bytes(key, start, end)
+
+    monkeypatch.setattr(phkv, "_key_bytes", counted)
+    assert phkv.get("r") == b"".join(value[k * 100 : k * 100 + 3] for k in range(50))
+    assert reads == [("k", 0, len(value))]
+
+
 def test_cancelling_a_get_leaves_no_key_read_unawaited(tmp_path, monkeypatch):
     """A get cancelled while it counts its key sources, after counting one, has made no read of
     them, so none is left never awaited."""

@@ -700,3 +700,27 @@ fn record_blocks_serve_neighbouring_records_with_the_same_values() {
     // alone: a read per record (and the slot blocks); in blocks: a read per 4 KiB of RECORDS instead
     assert!(blocks * 3 < alone, "{blocks} reads in blocks against {alone} alone");
 }
+
+/// A reference of many ranges of one compressed key source decodes its value once a get: it reads
+/// the value's stored bytes as often as a reference of one range of it does.
+#[test]
+fn a_compressed_key_source_is_decoded_once_a_get() {
+    let big: Vec<u8> = (0..100_000u32).map(|i| (i % 251) as u8).collect();
+    let b = write(Options::default(), |w| {
+        w.add_bytes_with("z", &big, Codec::Deflate).unwrap();
+        let z = w.internal("z").unwrap();
+        w.add_ranges("one", &[Range::of(z, 0, 3)]).unwrap();
+        w.add_ranges("many", &(0..50).map(|k| Range::of(z, k * 1000, 3)).collect::<Vec<_>>()).unwrap();
+    });
+    let s = Store::open_with(Logging(b, Default::default()), refkv_phkv::Limits::default()).unwrap();
+    let Some(EntryInfo::Bytes { stored_length, .. }) = s.entry_info("z").unwrap() else { panic!() };
+    let bodies = |key: &str| {
+        let before = s.reader().1.borrow().len();
+        let got = s.get(key, Request::Whole, &NoUrls).unwrap().unwrap();
+        (got, s.reader().1.borrow()[before..].iter().filter(|r| r.1 >= stored_length).count())
+    };
+    let want: Vec<u8> = (0..50).flat_map(|k| big[k * 1000..k * 1000 + 3].to_vec()).collect();
+    let (one, (many, n)) = (bodies("one"), bodies("many"));
+    assert_eq!((one.0, many), (big[..3].to_vec(), want));
+    assert_eq!(n, one.1);
+}
