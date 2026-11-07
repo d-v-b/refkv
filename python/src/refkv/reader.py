@@ -874,6 +874,7 @@ class _Waiting:
     start: int
     end: int
     future: asyncio.Future[bytes]
+    owner: object = None  # the value it reads for: its reads are already coalesced (`_coalesced`)
 
 
 @dataclass(eq=False)
@@ -885,24 +886,61 @@ class _Merging:
     held: bool = False  # whether reads whose window has passed wait for a connection
 
 
+def _coalesced(reads: Iterable[tuple[int, int, int]], *, gap: int, budget: int) -> list[list[int]]:
+    """The reads (source, start, end) of one value as the runs [source, start, end] that one
+    request each serves, in order: reads that overlap or touch are one run, and of the gaps between
+    runs of one source at most `gap` bytes, the narrowest are closed first, while the runs fetch at
+    most `budget` bytes, so that the value makes as few requests as its budget allows (spec §6.3
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#63-resolving-a-reference>,
+    **Coalescing**)."""
+    runs: list[list[int]] = []
+    for source, a, b in sorted(reads):
+        if runs and runs[-1][0] == source and a <= runs[-1][2]:
+            runs[-1][2] = max(runs[-1][2], b)
+        else:
+            runs.append([source, a, b])
+    fetched = sum(b - a for _, a, b in runs)
+    gaps = sorted((runs[i + 1][1] - runs[i][2], i) for i in range(len(runs) - 1)
+                  if runs[i][0] == runs[i + 1][0] and runs[i + 1][1] - runs[i][2] <= gap)
+    closed: set[int] = set()
+    for width, i in gaps:
+        if fetched + width > budget:
+            break
+        fetched += width
+        closed.add(i)
+    out: list[list[int]] = []
+    for i, (source, a, b) in enumerate(runs):
+        if i - 1 in closed:
+            out[-1][2] = b
+        else:
+            out.append([source, a, b])
+    return out
+
+
 def _merged(reads: Iterable[_Waiting], *, gap: int, amplification: float, longest: int) -> list[list[_Waiting]]:
     """`reads` of one source, as the runs that one request each serves, in order of offset.
 
     A read joins the run before it if it starts at most `gap` bytes after the run's end, and the
     run then fetches at most `amplification` times the bytes its reads ask for, plus `gap`, and
-    at most `longest` bytes. A read is never cut, so a longer one is a run of its own."""
+    at most `longest` bytes; never a run that holds a read of the same value, whose reads its own
+    coalescing kept apart, within what it may fetch. A read is never cut, so a longer one is a run
+    of its own."""
     runs: list[list[_Waiting]] = []
+    owners: set[object] = set()
     start = end = asked = 0
     for read in sorted(reads, key=lambda r: (r.start, r.end)):
         new = read.end - max(read.start, end)
-        if (runs and read.start - end <= gap
+        if (runs and read.start - end <= gap and (read.owner is None or read.owner not in owners)
                 and (span := max(end, read.end) - start) <= longest
                 and span <= amplification * (asked + max(new, 0)) + gap):
             runs[-1].append(read)
         else:
             runs.append([read])
+            owners = set()
             start, end, asked = read.start, read.start, 0
             new = read.end - read.start
+        if read.owner is not None:
+            owners.add(read.owner)
         end = max(end, read.end)
         asked += max(new, 0)
     return runs
@@ -1199,13 +1237,12 @@ class ReferenceReader:
             raise ResolutionError(f"{url} is shorter than {end} bytes")
         return data
 
-    # Reads of the same url source closer than this are combined into one
-    # request (spec §5.2
+    # Reads of the same url source at most the policy's `max_coalesce_gap` apart are combined into
+    # one request (spec §5.2
     # <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#52-reading-over-http> allows it): a
-    # Concat of many short ranges, such as
-    # one per image row, would otherwise cost one request per range.
-    MERGE_GAP = 1 << 16
-    # The reads of different values that wait at the same time merge as well, under that gap
+    # Concat of many short ranges, such as one per image row, would otherwise cost one request per
+    # range (`_coalesced`). The reads of different values that wait at the same time merge as
+    # well, under that gap
     # (`_shared_read`). They only gain speed, where one value's reads must also stay within
     # `max_reads`, so a run has limits of its own: the policy's `max_read_amplification` times the
     # bytes it asks for, plus a gap, and the bytes waiting over `max_concurrency`, between these
@@ -1216,7 +1253,7 @@ class ReferenceReader:
     # between values.
     MERGE_WINDOW: float | None = 0.002
 
-    async def _shared_read(self, source: int, start: int, end: int) -> bytes:
+    async def _shared_read(self, source: int, start: int, end: int, owner: object = None) -> bytes:
         """Bytes [start, end) of a url source, read with the reads of other values waiting at the
         same time (spec §6.3
         <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#63-resolving-a-reference>). A read
@@ -1233,7 +1270,7 @@ class ReferenceReader:
         merging = current[1]
         if not merging.waiting:
             loop.call_later(self.MERGE_WINDOW, self._flush, merging)
-        read = _Waiting(start, end, loop.create_future())
+        read = _Waiting(start, end, loop.create_future(), owner)
         merging.waiting.setdefault(source, []).append(read)
         return await read.future
 
@@ -1248,7 +1285,7 @@ class ReferenceReader:
             reads = [r for r in merging.waiting.pop(source) if not r.future.done()]
             longest = sum(r.end - r.start for r in reads) // (self.max_concurrency or DEFAULT_CONCURRENCY)
             longest = min(max(longest, self.MERGE_MIN_RUN), self.MERGE_MAX_RUN)
-            runs = _merged(reads, gap=self.MERGE_GAP, amplification=self.policy.max_read_amplification,
+            runs = _merged(reads, gap=self.policy.max_coalesce_gap, amplification=self.policy.max_read_amplification,
                            longest=longest)
             while runs and free > 0:
                 task = asyncio.get_running_loop().create_task(self._serve(source, runs.pop(0)))
@@ -1331,19 +1368,15 @@ class ReferenceReader:
                 else:
                     pieces.append((r.source, a, b))
             pos += r.size
-        # Combine nearby reads of each url source, then slice them apart.
-        reads = sorted({p for p in pieces if isinstance(p, tuple)}, key=lambda t: (t[0], t[1]))
-        runs: list[list[int]] = []  # [source, a, b]
-        for source, a, b in reads:
-            if runs and runs[-1][0] == source and a - runs[-1][2] <= self.MERGE_GAP:
-                runs[-1][2] = max(runs[-1][2], b)
-            else:
-                runs.append([source, a, b])
+        # Combine nearby reads of each url source within what the value may fetch, then slice
+        # them apart.
+        reads = {p for p in pieces if isinstance(p, tuple)}
+        runs = _coalesced(reads, gap=self.policy.max_coalesce_gap, budget=self.policy.max_get_bytes)
         coros = [p for p in pieces if not isinstance(p, (bytes, tuple))]
         # spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 5, before any
         # read: the bytes it is built from, and those it fetches, the bytes between coalesced ranges included
-        fetched = sum(b - a for _, a, b in runs)
-        if max(taken, fetched) > self.policy.max_get_bytes:
+        fetched_bytes = sum(b - a for _, a, b in runs)
+        if max(taken, fetched_bytes) > self.policy.max_get_bytes:
             for c in coros:
                 c.close()
             raise RequestError(f"the value needs more than {self.policy.max_get_bytes} bytes; this reader "
@@ -1355,7 +1388,8 @@ class ReferenceReader:
             raise RequestError(f"the value needs {len(runs)} reads; this reader allows "
                                f"{self.policy.max_reads} ("
                                f"spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)")
-        coros += [self._shared_read(s, a, b) for s, a, b in runs]
+        owner = object()  # this value's reads, which the shared reads keep apart
+        coros += [self._shared_read(s, a, b, owner) for s, a, b in runs]
         try:
             done = await asyncio.gather(*coros)
         except ResolutionError:

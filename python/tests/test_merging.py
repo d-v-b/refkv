@@ -14,7 +14,7 @@ from refkv._sync import run
 from refkv.errors import RequestError, ResolutionError
 from refkv.pb import Concat, Range, Source
 from refkv.policy import Policy, crc32c
-from refkv.reader import RangeRequest, _merged, _Waiting
+from refkv.reader import RangeRequest, _coalesced, _merged, _Waiting
 from refkv.refstore import ReferenceStore
 
 BLOB = bytes(range(256)) * 4096  # 1 MiB
@@ -99,6 +99,38 @@ def _spans(reads, *, gap=GAP, amplification=4, longest=1 << 20):
 ])
 def test_merged_runs(reads, runs):
     assert _spans(reads, longest=1 << 20) == runs
+
+
+@pytest.mark.parametrize(("reads", "gap", "budget", "runs"), [
+    # reads that overlap or touch are one run, whatever the budget
+    ([(0, 0, 10), (0, 10, 20), (0, 5, 8)], GAP, 0, [[0, 0, 20]]),
+    # a gap within the limit is closed while the runs fetch at most the budget
+    ([(0, 0, 1), (0, 100, 101)], GAP, 1 << 20, [[0, 0, 101]]),
+    ([(0, 0, 1), (0, 100, 101)], GAP, 100, [[0, 0, 1], [0, 100, 101]]),
+    # the narrowest gaps first: of 10 and 5 bytes, a budget of 8 closes only the 5
+    ([(0, 0, 1), (0, 11, 12), (0, 17, 18)], GAP, 8, [[0, 0, 1], [0, 11, 18]]),
+    # a gap past the limit is never closed, nor one between two sources
+    ([(0, 0, 1), (0, 2 + GAP, 3 + GAP)], GAP, 1 << 30, [[0, 0, 1], [0, 2 + GAP, 3 + GAP]]),
+    ([(0, 0, 1), (1, 1, 2)], GAP, 1 << 30, [[0, 0, 1], [1, 1, 2]]),
+    # a limit of 0 combines only reads that touch
+    ([(0, 0, 1), (0, 1, 2), (0, 3, 4)], 0, 1 << 30, [[0, 0, 2], [0, 3, 4]]),
+])
+def test_coalesced(reads, gap, budget, runs):
+    assert _coalesced(reads, gap=gap, budget=budget) == runs
+
+
+def test_a_value_coalesces_within_the_bytes_it_may_take(server):
+    """One value's ranges are combined, closest first, only while what it fetches stays within the
+    policy's `max_get_bytes`, and never across more than `max_coalesce_gap`; the shared reads keep
+    its runs apart."""
+    url, state = server
+    refs = {"r": [Range(source=0, offset=k << 16, length=1) for k in range(4)]}
+    for policy, requests in ((SERVED, 1), (Policy(allow_private_hosts=True, max_get_bytes=1 << 17), 3),
+                             (Policy(allow_private_hosts=True, max_coalesce_gap=0), 4)):
+        state["ranges"].clear()
+        store = _store(url, refs, policy=policy)
+        assert store.get("r") == bytes(BLOB[k << 16] for k in range(4))
+        assert len(state["ranges"]) == requests, policy
 
 
 def test_values_read_at_once_share_requests(server):

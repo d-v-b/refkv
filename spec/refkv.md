@@ -860,9 +860,12 @@ same source value and lie close together into one read that also covers the
 bytes between them, and take each range's bytes from that read. Otherwise a
 reference made of many short ranges of one object, such as one range per row
 of an image whose rows are padded, costs one request per range. The bytes
-between the ranges are read but never returned. How close counts as "close"
-is up to the reader; the implementations in the specification's repository
-combine reads at most 64 KiB apart.
+between the ranges are read but never returned, so a reader MUST NOT let them take a `get` past
+its bytes per `get` ([§6.7](#67-reader-policy) rule 5): it combines fewer reads instead. How close
+counts as "close" is up to the reader. The Python and TypeScript readers in the specification's
+repository take it from their policy (the **coalescing gap**, 64 KiB by default), and close the
+narrowest gaps first, only while what the `get` fetches stays within its bytes per `get`, so that
+a value makes as few requests as that bound allows; a gap of 0 combines only reads that touch.
 
 Coalescing never changes the result of a `get`: a combined read ends at the
 end of one of the ranges it covers, so it fails only where that range's own
@@ -890,8 +893,9 @@ Python reader also waits for a connection when the store's are all busy. The JS
 reader, which has no limit of its own on connections, also waits up to 1 s while 16
 requests to the source are in flight, if one of them lies within 64 KiB of the read,
 and takes a read wholly inside a request in flight from that request. They fetch at
-most a number of times the bytes a shared read asks for, plus 64 KiB, that the reader's policy
-sets (its **read amplification**, [§6.7](#67-reader-policy), 4 by default). A `multipart/byteranges`
+most a number of times the bytes a shared read asks for, plus the coalescing gap, that the
+reader's policy sets (its **read amplification**, [§6.7](#67-reader-policy), 4 by default), and
+never combine two reads of one `get` that its own coalescing kept apart. A `multipart/byteranges`
 response is still an error ([§5.2](#52-reading-over-http)), so reads too far apart
 to combine this way remain separate requests.
 
@@ -1105,6 +1109,7 @@ defaults:
 | sources per store | 4,194,304 (2^22) |
 | reads per `get` | 1024 |
 | bytes per `get` | 2^31 |
+| coalescing gap ([§6.3](#63-resolving-a-reference)) | 64 KiB |
 | read amplification of shared reads ([§6.3](#63-resolving-a-reference)) | 4 |
 | the source table, or auxiliary data (in a vzip archive, a format entry, inflated) | 256 MiB |
 | unverifiable pins | fail |

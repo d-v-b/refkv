@@ -1295,9 +1295,13 @@ bytes one `get` takes, which bounds both the bytes it fetches, its coalesced rea
 between their ranges, and the bytes it builds its value from (the bytes of each range it resolves, a
 range with a `crc32c` whole), 2^31 in the readers of the specification's repository, refused as a
 request error before any read (in the Python and TypeScript readers; the conformance suite's
-implementations bound neither). How many
-bytes the reads of different `get`s fetch to save requests ([§6.3](../../refkv.md#63-resolving-a-reference)),
-4 times what they ask for plus 64 KiB, is now a setting of the reader's policy, its read amplification.
+implementations bound neither). Coalescing
+([§6.3](../../refkv.md#63-resolving-a-reference)) MUST NOT take a `get` past that bound: the reader
+combines fewer reads instead, and the readers here close the narrowest gaps first, within a
+**coalescing gap** their policy sets (64 KiB by default; 0 combines only reads that touch). How many
+bytes the reads of different `get`s fetch to save requests, 4 times what they ask for plus that gap,
+is a setting of the policy too, its read amplification, and a shared read never joins two reads of
+one `get` that its own coalescing kept apart.
 Rule 5 also says what a writer does with these limits: nothing. They are each reader's, which a
 reader of a trusted store may raise, so a writer does not hold a store to them; refkv's writers no
 longer refuse a value of more than 1024 reads. The limits are implementation-defined, as rule 5's

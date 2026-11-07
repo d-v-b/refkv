@@ -110,10 +110,14 @@ export type RangeFetcher = (
  * - `maxSources`, `maxReads`, `maxGetBytes`, `maxFormatEntry`: rules 4 to 6 (rule 5 bounds the
  *   reads one read of a value makes, and the bytes it takes: those it fetches, the bytes between
  *   coalesced ranges included, and those it builds the value from).
- * - `maxReadAmplification`: how many times the bytes they ask for the reads of different values
- *   combined into one request may fetch, plus `MERGE_GAP` (spec §6.3
+ * - `maxCoalesceGap`: the most bytes between two ranges of a source that the reader combines into
+ *   one read, which it then fetches but returns to no value (spec §6.3
  *   <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#63-resolving-a-reference>,
- *   **Coalescing**): more saves requests, and fetches bytes no value returns.
+ *   **Coalescing**). Within one read of a value the closest ranges are combined first, and only
+ *   while what it fetches stays within `maxGetBytes`; 0 combines only ranges that touch.
+ * - `maxReadAmplification`: how many times the bytes they ask for the reads of different values
+ *   combined into one request may fetch, plus `maxCoalesceGap`: more saves requests, and fetches
+ *   bytes no value returns.
  * - `unverifiablePins`: skip pins whose headers a cross-origin response hides
  *   (rule 7). Range checksums are still checked.
  */
@@ -127,6 +131,7 @@ export interface Policy {
   maxReads?: number;
   maxGetBytes?: number;
   maxReadAmplification?: number;
+  maxCoalesceGap?: number;
   maxFormatEntry?: number;
   unverifiablePins?: boolean;
 }
@@ -140,6 +145,7 @@ export const DEFAULT_POLICY: Required<Omit<Policy, "prefixes">> & Pick<Policy, "
   maxReads: 1024,
   maxGetBytes: 2 ** 31,
   maxReadAmplification: 4,
+  maxCoalesceGap: 1 << 16,
   maxFormatEntry: 256 << 20,
   unverifiablePins: false,
 };
@@ -288,7 +294,7 @@ export function validatePolicy(policy: Policy): void {
         "one needs the unsafe allowFilesFromRemoteArchives: true",
     );
   }
-  for (const name of ["maxSources", "maxReads", "maxGetBytes", "maxFormatEntry"] as const) {
+  for (const name of ["maxSources", "maxReads", "maxGetBytes", "maxCoalesceGap", "maxFormatEntry"] as const) {
     const v = policy[name];
     if (name in policy && !(Number.isSafeInteger(v) && (v as number) >= 0)) {
       throw new TypeError(`Policy.${name} is a natural number, not ${String(v)}`);
@@ -346,8 +352,8 @@ export function checkAddress(policy: Policy, url: string, address: string): void
 }
 
 /**
- * Reads of the same url source at most this far apart are combined into one
- * request (spec §5.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#52-reading-over-http>
+ * The default of the policy's `maxCoalesceGap`: reads of the same url source at most this far
+ * apart are combined into one request (spec §5.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#52-reading-over-http>
  * allows it). A Concat of many short ranges, such as one
  * per image row, would otherwise cost one request per range.
  */
@@ -387,21 +393,71 @@ type Waiting = {
   reject: (reason: unknown) => void;
   /** When it began to wait, in milliseconds. */
   since: number;
+  /** The value it reads for, whose reads its own coalescing already combined (`coalescedRuns`). */
+  owner?: object;
 };
 
 /** A request in flight, and the reads it serves. */
 type Serving = { offset: bigint; end: bigint; reads: Waiting[] };
 
 /**
- * `reads` of one source, as the runs that one request each serves, in order of offset. A read
- * joins the run before it if it starts at most `MERGE_GAP` bytes after the run's end, and the run
- * then fetches at most `amplification` times the bytes its reads ask for, plus `MERGE_GAP`, and at
- * most `longest` bytes. A read is never cut, so a longer one is a run of its own.
+ * The reads of one value, as the runs that one request each serves, in order of source and
+ * offset: reads that overlap or touch are one run, and of the gaps between runs of one source at
+ * most `gap` bytes, the narrowest are closed first, while the runs fetch at most `budget` bytes, so
+ * that the value makes as few requests as its budget allows (spec §6.3
+ * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#63-resolving-a-reference>,
+ * **Coalescing**).
  */
-export function mergedRuns<T extends { offset: bigint; end: bigint }>(
+export function coalescedRuns(
+  reads: { source: number; offset: bigint; end: bigint }[],
+  gap: number,
+  budget: number,
+): { source: number; offset: bigint; end: bigint }[] {
+  const sorted = [...reads].sort((x, y) =>
+    x.source - y.source || (x.offset < y.offset ? -1 : x.offset > y.offset ? 1 : 0));
+  const runs: { source: number; offset: bigint; end: bigint }[] = [];
+  for (const r of sorted) {
+    const last = runs[runs.length - 1];
+    if (last && last.source === r.source && r.offset <= last.end) {
+      if (r.end > last.end) last.end = r.end;
+    } else {
+      runs.push({ ...r });
+    }
+  }
+  let fetched = runs.reduce((n, run) => n + Number(run.end - run.offset), 0);
+  const gaps: [number, number][] = [];
+  for (let i = 0; i + 1 < runs.length; i++) {
+    const width = Number(runs[i + 1].offset - runs[i].end);
+    if (runs[i].source === runs[i + 1].source && width <= gap) gaps.push([width, i]);
+  }
+  gaps.sort((x, y) => x[0] - y[0] || x[1] - y[1]);
+  const closed = new Set<number>();
+  for (const [width, i] of gaps) {
+    if (fetched + width > budget) break;
+    fetched += width;
+    closed.add(i);
+  }
+  const out: { source: number; offset: bigint; end: bigint }[] = [];
+  runs.forEach((run, i) => {
+    if (closed.has(i - 1)) out[out.length - 1].end = run.end;
+    else out.push({ ...run });
+  });
+  return out;
+}
+
+/**
+ * `reads` of one source, as the runs that one request each serves, in order of offset. A read
+ * joins the run before it if it starts at most `gap` bytes after the run's end, and the run then
+ * fetches at most `amplification` times the bytes its reads ask for, plus `gap`, and at most
+ * `longest` bytes; never a run that holds a read of the same value (`owner`), whose reads its own
+ * coalescing kept apart within what it may fetch. A read is never cut, so a longer one is a run of
+ * its own.
+ */
+export function mergedRuns<T extends { offset: bigint; end: bigint; owner?: object }>(
   reads: T[],
   longest: bigint,
   amplification: number = DEFAULT_POLICY.maxReadAmplification,
+  gap: number = DEFAULT_POLICY.maxCoalesceGap,
 ): T[][] {
   const big = (v: bigint, w: bigint) => (v > w ? v : w);
   const sorted = [...reads].sort((x, y) =>
@@ -410,24 +466,28 @@ export function mergedRuns<T extends { offset: bigint; end: bigint }>(
   let start = 0n;
   let end = 0n;
   let asked = 0n;
+  let owners = new Set<object>();
   for (const read of sorted) {
     const fresh = big(read.end - big(read.offset, end), 0n);
     const span = big(end, read.end) - start;
     if (
       runs.length > 0 &&
-      read.offset - end <= BigInt(MERGE_GAP) &&
+      (read.owner === undefined || !owners.has(read.owner)) &&
+      read.offset - end <= BigInt(gap) &&
       span <= longest &&
-      Number(span - BigInt(MERGE_GAP)) <= amplification * Number(asked + fresh)
+      Number(span - BigInt(gap)) <= amplification * Number(asked + fresh)
     ) {
       runs[runs.length - 1].push(read);
       asked += fresh;
       end = big(end, read.end);
     } else {
       runs.push([read]);
+      owners = new Set();
       start = read.offset;
       end = read.end;
       asked = read.end - read.offset;
     }
+    if (read.owner !== undefined) owners.add(read.owner);
   }
   return runs;
 }
@@ -812,7 +872,7 @@ export class Archive {
    * Bytes of a url source, read with the reads of other values waiting at the same time (spec §6.3
    * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#63-resolving-a-reference>).
    */
-  private sharedRead(source: number, offset: bigint, end: bigint): Promise<Uint8Array> {
+  private sharedRead(source: number, offset: bigint, end: bigint, owner?: object): Promise<Uint8Array> {
     return new Promise((resolve, reject) => {
       if (!this.flushPending) {
         this.flushPending = true;
@@ -822,7 +882,7 @@ export class Archive {
         }, MERGE_WINDOW);
       }
       const reads = this.waiting.get(source);
-      const read = { offset, end, resolve, reject, since: Date.now() };
+      const read = { offset, end, resolve, reject, since: Date.now(), owner };
       if (reads) reads.push(read);
       else this.waiting.set(source, [read]);
     });
@@ -850,9 +910,9 @@ export class Archive {
       const floor = BigInt(MERGE_MIN_RUN);
       const ceiling = BigInt(MERGE_MAX_RUN);
       const longest = share < floor ? floor : share > ceiling ? ceiling : share;
-      const gap = BigInt(MERGE_GAP);
+      const gap = BigInt(this.policy.maxCoalesceGap);
       const held: Waiting[] = [];
-      for (const run of mergedRuns(reads, longest, this.policy.maxReadAmplification)) {
+      for (const run of mergedRuns(reads, longest, this.policy.maxReadAmplification, this.policy.maxCoalesceGap)) {
         const offset = run[0].offset;
         const end = run.reduce((e, r) => (r.end > e ? r.end : e), offset);
         const near = serving.some((s) => s.offset - end <= gap && offset - s.end <= gap);
@@ -962,22 +1022,22 @@ export class Archive {
       }
       at += n;
     }
-    // Combine nearby reads of each url source into runs, fetch each run once,
-    // and slice the reads back out of it.
+    // Combine nearby reads of each url source into runs within what the value may fetch, fetch
+    // each run once, and slice the reads back out of it.
     const reads = parts.filter((p): p is Read => !(p instanceof Promise) && !("local" in p));
-    const sorted = [...reads].sort((x, y) =>
-      x.source - y.source || (x.offset < y.offset ? -1 : x.offset > y.offset ? 1 : 0));
-    const runs: { source: number; offset: bigint; end: bigint; data?: Promise<Uint8Array> }[] = [];
+    const runs: { source: number; offset: bigint; end: bigint; data?: Promise<Uint8Array> }[] = coalescedRuns(
+      reads.map((r) => ({ source: r.source, offset: r.offset, end: r.offset + r.length })),
+      this.policy.maxCoalesceGap,
+      this.policy.maxGetBytes,
+    );
+    // each read's run: runs and reads both in order of source and offset
     const runOf = new Map<Read, (typeof runs)[number]>();
-    for (const read of sorted) {
-      const last = runs[runs.length - 1];
-      const readEnd = read.offset + read.length;
-      if (last && last.source === read.source && read.offset - last.end <= BigInt(MERGE_GAP)) {
-        if (readEnd > last.end) last.end = readEnd;
-      } else {
-        runs.push({ source: read.source, offset: read.offset, end: readEnd });
-      }
-      runOf.set(read, runs[runs.length - 1]);
+    const ordered = [...reads].sort((x, y) =>
+      x.source - y.source || (x.offset < y.offset ? -1 : x.offset > y.offset ? 1 : 0));
+    let k = 0;
+    for (const read of ordered) {
+      while (runs[k].source !== read.source || runs[k].end < read.offset + read.length) k++;
+      runOf.set(read, runs[k]);
     }
     // spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 5,
     // before any read: the bytes it is built from, and those it fetches, the bytes between
@@ -995,8 +1055,9 @@ export class Archive {
         `the value needs ${runs.length} reads; this reader allows ${this.policy.maxReads} (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)`,
       );
     }
+    const owner = {}; // this value's reads, which the shared reads keep apart
     for (const run of runs) {
-      run.data = this.sharedRead(run.source, run.offset, run.end);
+      run.data = this.sharedRead(run.source, run.offset, run.end, owner);
     }
     const whole = await Promise.all(
       parts.map(async (p) => {

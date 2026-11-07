@@ -322,13 +322,16 @@ test("refuses too many bytes", async () => {
   assert.equal(log.requests, 0);
 });
 
-test("refuses too many bytes fetched", async () => {
-  // one-byte ranges 64 KiB apart coalesce into one read of the bytes between them
+test("coalesces a value's ranges within the bytes it may take", async () => {
+  // one-byte ranges 64 KiB apart: one read, three under a budget of 128 KiB, four with no gap
   const ranges = [0, 1, 2, 3].map((k) => ({ source: 0, offset: BigInt(k << 16), length: 1n }));
   const desc: ArchiveDesc = { sources: [{ url: "blob.bin" }], entries: [{ key: "r", ranges }] };
-  const { archive, log } = await open(desc, { maxGetBytes: 1 << 17 });
-  await assert.rejects(archive.read("r"), isError("request", /more than 131072 bytes/));
-  assert.equal(log.requests, 0);
+  const body = Uint8Array.from({ length: (3 << 16) + 1 }, (_, i) => (i >> 16) + 1);
+  for (const [policy, requests] of [[{}, 1], [{ maxGetBytes: 1 << 17 }, 3], [{ maxCoalesceGap: 0 }, 4]] as const) {
+    const { archive, log } = await open(desc, policy, body);
+    assert.deepEqual(await archive.read("r"), Uint8Array.of(1, 2, 3, 4));
+    assert.equal(log.requests, requests, JSON.stringify(policy));
+  }
 });
 
 test("refuses limits that are no natural numbers, and an amplification that is no finite number", async () => {

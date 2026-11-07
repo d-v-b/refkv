@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
-import { Archive, MERGE_BUSY, MERGE_GAP, MERGE_MAX_WAIT, MERGE_WINDOW, mergedRuns, RefkvError } from "../src/archive.ts";
+import { Archive, coalescedRuns, MERGE_BUSY, MERGE_GAP, MERGE_MAX_WAIT, MERGE_WINDOW, mergedRuns, RefkvError } from "../src/archive.ts";
 import { crc32c } from "../src/deflate.ts";
 import { type ArchiveDesc, writeVzip } from "../src/writer.ts";
 
@@ -61,6 +61,23 @@ const range = (offset: number, length: number) => ({ ranges: [{ source: 0, offse
 const spans = (reads: [number, number][], longest = 1 << 20, amplification = 4) =>
   mergedRuns(reads.map(([a, b]) => ({ offset: BigInt(a), end: BigInt(b) })), BigInt(longest), amplification).map((run) =>
     run.map((r) => [Number(r.offset), Number(r.end)]));
+
+test("coalescedRuns closes the narrowest gaps within the limit while the runs fit the budget", () => {
+  const g = Number(GAP);
+  const runs = (reads: [number, number, number][], gap: number, budget: number) =>
+    coalescedRuns(reads.map(([source, a, b]) => ({ source, offset: BigInt(a), end: BigInt(b) })), gap, budget).map(
+      (r) => [r.source, Number(r.offset), Number(r.end)]);
+  const cases: [[number, number, number][], number, number, number[][]][] = [
+    [[[0, 0, 10], [0, 10, 20], [0, 5, 8]], g, 0, [[0, 0, 20]]],
+    [[[0, 0, 1], [0, 100, 101]], g, 1 << 20, [[0, 0, 101]]],
+    [[[0, 0, 1], [0, 100, 101]], g, 100, [[0, 0, 1], [0, 100, 101]]],
+    [[[0, 0, 1], [0, 11, 12], [0, 17, 18]], g, 8, [[0, 0, 1], [0, 11, 18]]],
+    [[[0, 0, 1], [0, 2 + g, 3 + g]], g, 2 ** 30, [[0, 0, 1], [0, 2 + g, 3 + g]]],
+    [[[0, 0, 1], [1, 1, 2]], g, 2 ** 30, [[0, 0, 1], [1, 1, 2]]],
+    [[[0, 0, 1], [0, 1, 2], [0, 3, 4]], 0, 2 ** 30, [[0, 0, 2], [0, 3, 4]]],
+  ];
+  for (const [reads, gap, budget, want] of cases) assert.deepEqual(runs(reads, gap, budget), want);
+});
 
 test("mergedRuns groups reads by the gap, the amplification cap and the run's length", () => {
   const g = Number(GAP);

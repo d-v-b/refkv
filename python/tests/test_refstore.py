@@ -419,7 +419,7 @@ def test_max_concurrency_caps_requests_in_flight(counting_server, tmp_path):
     are in flight."""
     base, state = counting_server
     n = 32
-    apart = 2 * refkv.ReferenceStore.MERGE_GAP
+    apart = 2 * refkv.Policy().max_coalesce_gap
     state["files"]["/src.bin"] = b"".join(bytes([i]) * apart for i in range(n))
     mem = zarr.storage.MemoryStore()
     zarr.create_array(mem, name="x", shape=(n,), chunks=(1,), dtype="u1", compressors=None)

@@ -346,18 +346,6 @@ def test_refuses_too_many_bytes(tmp_path, server):
     assert state["requests"] == 0
 
 
-def test_refuses_too_many_bytes_fetched(tmp_path, server):
-    """Rule 5 counts the bytes a value fetches too: one-byte ranges 64 KiB apart coalesce into one
-    read of the bytes between them, which pass the limit though the ranges' own bytes do not."""
-    base, state = server
-    arc = _archive(tmp_path / "a.vzip", [Source(url=f"{base}/blob.bin")], {
-        "r": [Range(source=0, offset=k << 16, length=1) for k in range(4)]})
-    s = VZipStore(arc, policy=Policy(max_get_bytes=1 << 17, allow_private_hosts=True))
-    with pytest.raises(RequestError, match="more than 131072 bytes"):
-        _get(s, "r")
-    assert state["requests"] == 0
-
-
 @pytest.mark.parametrize("given", [{"max_get_bytes": -1}, {"max_get_bytes": 1.5}, {"max_get_bytes": None},
                                    {"max_reads": "1024"}, {"max_sources": True}, {"max_format_entry": -1}])
 def test_refuses_a_limit_that_is_no_natural_number(given):
