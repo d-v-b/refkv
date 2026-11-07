@@ -37,11 +37,14 @@ function rejection(w: IrExports, r: number, format: StoreProfile): StoreError {
  * decided: OME-Zarr's for a Zarr v2 store whose root declares OME-NGFF 0.4); an object that
  * cannot be read, its own error.
  * @param options.mirror false leaves `refkv_source`'s mirror out, and with it the source
- * metadata that records the listing's ignored keys: such an output keeps neither. */
+ * metadata that records the listing's ignored keys: such an output keeps neither.
+ * @param options.scope the keys of the input's scope (spec/zarrify.md §1.9
+ * <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>, Scope;
+ * `scopeKeys` in vsi.ts): the run asks `store` to probe no key outside it. */
 export async function zarrifyStoreIr(
   format: StoreFormat,
   store: Store,
-  options: { mirror?: boolean; concurrency?: number } = {},
+  options: { mirror?: boolean; concurrency?: number; scope?: string[] } = {},
 ): Promise<ArchiveDesc & { summary: Record<string, unknown> }> {
   const w = await ir();
   // documents read ahead (choosing the profile does): the run takes those read, and reads the
@@ -59,6 +62,11 @@ export async function zarrifyStoreIr(
     const ig = utf8.encode(JSON.stringify([store.ignored ?? [], store.folders ?? []]));
     const g = Number(w.vz_store_ignore(p, put(w, ig), ig.length));
     if (g < 0) throw rejection(w, g, format);
+    if (options.scope !== undefined) {
+      const sc = utf8.encode(JSON.stringify(options.scope));
+      const s = Number(w.vz_store_scope(p, put(w, sc), sc.length));
+      if (s < 0) throw rejection(w, s, format);
+    }
     for (;;) {
       const n = Number(w.vz_store_poll(p));
       if (n < 0) throw rejection(w, n, format);

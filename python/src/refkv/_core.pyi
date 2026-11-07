@@ -239,6 +239,9 @@ class StoreRun:
         relative keys the store reader ignored and recorded (`Store.ignored`), which the
         projection records as its convention says, and `folders`, its empty `d/` keys
         (`Store.folders`), which a SAFE directory's parser reads as directories."""
+    def scope(self, within: Sequence[str]) -> None:
+        """The scope of the input, before the first poll (`StoreRun::scope`): the keys besides the
+        listing's the host may be asked to probe, each a key or a directory's key followed by `/`."""
     def profile(self) -> str:
         """The profile the run's store is decided to be so far (`StoreRun::profile`)."""
     def output(self, url: str, mirror: bool = True) -> tuple[Out[StorePart], Ir]: ...

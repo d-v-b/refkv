@@ -691,7 +691,7 @@ impl PyStoreRun {
     /// list, and the host answers each key, in order, with `found(size)` (None: it does not
     /// exist) before polling again.
     fn probes(&mut self) -> PyResult<Vec<String>> {
-        Ok(self.get()?.probes().to_vec())
+        Ok(self.get()?.probes())
     }
     /// The answer to the next probe of the batch: the key's size, or None when it does not exist.
     #[pyo3(signature = (size))]
@@ -710,6 +710,11 @@ impl PyStoreRun {
     #[pyo3(signature = (keys, folders=Vec::new()))]
     fn ignore(&mut self, keys: Vec<String>, folders: Vec<String>) -> PyResult<()> {
         self.get()?.ignore(keys, folders).map_err(Rejected::new_err)
+    }
+    /// The scope of the input, before the first poll (`StoreRun::scope`): the keys besides the
+    /// listing's the host may be asked to probe, each a key or a directory's key followed by `/`.
+    fn scope(&mut self, within: Vec<String>) -> PyResult<()> {
+        self.get()?.scope(within).map_err(Rejected::new_err)
     }
     /// The profile the run's store is decided to be so far (`StoreRun::profile`).
     fn profile(&mut self) -> PyResult<String> {

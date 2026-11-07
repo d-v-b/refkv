@@ -6,15 +6,16 @@ from pathlib import Path
 
 from refkv.errors import ResolutionError
 from refkv.policy import Policy
-from refkv.zarrify import Rejected, zarrify
+from refkv.zarrify import Rejected, is_store, zarrify
 from refkv.zarrify.layouts import Layout, LayoutFailed, LayoutUsageError
 from refkv.zarrify.store import WORKERS
+from refkv.zarrify.store.beside import scope_keys
 
 # the store kinds, in the words of `vzip convert`'s usage (rust/refkv-cli/src/main.rs)
 STORES = ("a Zarr v3, Zarr v2, OME-Zarr 0.4 or N5 store, a Neuroglancer precomputed volume, a Sentinel-2 .SAFE "
           "directory, or a store of safetensors files")
 USAGE = ("usage: refkv zarrify <url or path> <out.vzip> [--url <source url>] [--checksums]"
-         " [--allow-private-hosts] [--connections N] [--byte-cost SECONDS_PER_MB] [--workers N]"
+         " [--allow-private-hosts] [--scope PATH ...] [--connections N] [--byte-cost SECONDS_PER_MB] [--workers N]"
          " [--layout NAME [--layout-options JSON]]\n"
          f"(a URL ending in / or a directory is {STORES}; a directory needs --url;\n"
          "a Hugging Face Hub URL https://huggingface.co/<owner>/<repo>/tree/<rev>/ is listed at its commit,\n"
@@ -81,6 +82,14 @@ def main(argv: list[str]) -> int:
     private = "--allow-private-hosts" in args
     if private:
         args.remove("--allow-private-hosts")
+    # spec/zarrify.md §1.9
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>,
+    # Scope: what the input may read besides itself, each --scope a path (the input: itself alone)
+    scope: list[str] | None = None
+    while "--scope" in args:
+        i = args.index("--scope")
+        scope = [*(scope or []), args[i + 1]]
+        del args[i:i + 2]
     connections = byte_cost = None
     if "--connections" in args:  # requests at a time to a remote file (default 8)
         i = args.index("--connections")
@@ -111,11 +120,20 @@ def main(argv: list[str]) -> int:
         print("a local directory needs --url, the store URL (ending in /) it is served from",
               file=sys.stderr)
         return 2
+    if scope is not None:  # before anything is read
+        if is_store(args[0]):
+            print("a store input reads the objects its listing gives: --scope is for a file input", file=sys.stderr)
+            return 2
+        try:
+            scope_keys(args[0], scope)
+        except ValueError as e:
+            print(e, file=sys.stderr)
+            return 2
     policy = Policy(allow_private_hosts=private)
     try:
         store = zarrify(args[0], url, checksums=checksums, policy=policy,
                         connections=connections, byte_cost=byte_cost, workers=workers,
-                        layout=layout)
+                        scope=scope, layout=layout)
     except LayoutUsageError as e:
         print(f"usage error: {e}", file=sys.stderr)
         return 2
