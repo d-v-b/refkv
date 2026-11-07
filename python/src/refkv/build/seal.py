@@ -100,13 +100,14 @@ def seal(written: Mapping[str, Any], inputs: Sequence[Parsed], *, policy: Policy
         values[k] = val
     used = policy if policy is not None else (inputs[0].policy if inputs else None)
     rules = used or Policy()  # what the store's reader allows: refkv's limits, or fewer
-    limits = [min(_limit("max_sources", rules.max_sources), MAX_SOURCES), _limit("max_reads", rules.max_reads)]
+    max_sources = min(_limit("max_sources", rules.max_sources), MAX_SOURCES)
+    max_reads = _limit("max_reads", rules.max_reads)
     checksums = bool(inputs) and inputs[0].checksums
     try:
         got, sealed = _core.seal(
             table.urls, table.data, table.first, [k for k in keys if k not in values],
             [(k, [table.piece(p) for p in val.parts], _read_rule_lifted(val, k, entries)) for k, val in values.items()],
-            *limits, checksums)
+            max_sources, max_reads, checksums)
     except _core.SealRefused as e:
         code, key, message = e.args
         raise SealError(code, key, message) from None
