@@ -637,6 +637,18 @@ impl<R: ReadAt> Store<R> {
         self.source_bytes(&Source::key(key), start, end.saturating_sub(start), &NoUrls)
     }
 
+    /// The size of the value at `key` when [`Store::key_bytes`] decodes it whole to read any range of
+    /// it (a compressed value), which rule 5 (spec/refkv.md §6.7
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>) counts whole, once a
+    /// get; None when it reads only the range (a codec-0 value), or the key is missing, a reference,
+    /// or cannot be looked up, which `key_bytes` refuses.
+    pub fn key_decoded_whole(&self, key: &str) -> Option<u64> {
+        match self.lookup(key) {
+            Ok(Some(Record { value: Value::Bytes { codec, size, .. }, .. })) if codec != Codec::None => Some(size),
+            _ => None,
+        }
+    }
+
     /// Bytes `[a, b)` of a bytes record's value: a codec-0 value is read only within the window, a
     /// compressed one is decoded whole; the CRC-32C is checked whenever the whole value is had.
     fn bytes_window(&self, rec: &Record, a: u64, b: u64) -> Result<Vec<u8>, ReadError> {
@@ -746,10 +758,25 @@ impl<R: ReadAt> Store<R> {
         if url_reads > self.limits.url_reads {
             return err(Class::Request, format!("{url_reads} url reads, more than the limit of {}", self.limits.url_reads));
         }
-        // rule 5, before any read: the bytes the parts take, a range with a checksum read whole
-        let taken = parts.iter().fold(0u64, |n, &(r, i, j)| {
-            n.saturating_add(if r.data.is_none() && r.crc32c.is_some() { r.length } else { j - i })
-        });
+        // rule 5, before any read: the bytes the parts take, a range with a checksum read whole, and
+        // a key source's value decoded whole counted whole, once
+        let mut held: Vec<&str> = Vec::new();
+        let mut taken = 0u64;
+        for &(r, i, j) in &parts {
+            let range = if r.data.is_none() && r.crc32c.is_some() { r.length } else { j - i };
+            let bytes = match (r.data.is_none()).then(|| &self.sources[r.source as usize].kind) {
+                Some(SourceKind::Key(k)) => match self.key_decoded_whole(k) {
+                    Some(_) if held.contains(&k.as_str()) => 0,
+                    Some(size) => {
+                        held.push(k.as_str());
+                        size.max(range)
+                    }
+                    None => range,
+                },
+                _ => range,
+            };
+            taken = taken.saturating_add(bytes);
+        }
         if taken > self.limits.request_bytes {
             return err(Class::Request, format!("the value takes {taken} bytes, more than the limit of {}", self.limits.request_bytes));
         }

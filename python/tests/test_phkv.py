@@ -20,7 +20,7 @@ from refkv import OffsetRequest, RangeRequest, SuffixRequest
 from refkv.errors import ArchiveError, BodyError, RefkvError, RequestError, ResolutionError
 from refkv.pb import Concat, Range, Source
 from refkv.phkv import PhkvStore, PhkvWriter
-from refkv.policy import crc32c
+from refkv.policy import Policy, crc32c
 
 N = 300  # enough keys for several pages and slot blocks
 DATA = BLOB * 4  # the object the references read: 16 KiB
@@ -119,6 +119,20 @@ def test_compressed_values(tmp_path):
     assert phkv.get("zarr.json", RangeRequest(10, 20)) == value[10:20]
     assert phkv.get("r") == value[2:10]
     assert len((tmp_path / "s.phkv").read_bytes()) < len(value)
+
+
+def test_counts_a_compressed_key_sources_value_whole_once(tmp_path):
+    """A range of a compressed key source counts the value whole, once a get, as the reader decodes
+    it whole: two ranges of 8 bytes read under a budget of the value's size, and not under one less."""
+    value = b"zarr.json " * 1000
+    two = Concat((Range(source=0, offset=2, length=8), Range(source=0, offset=20, length=8)))
+    store = refkv.ReferenceStore({"zarr.json": value, "r": two}, [Source(key="zarr.json")],
+                                 compressed=["zarr.json"])
+    store.save_phkv(tmp_path / "s.phkv")
+    assert refkv.phkv.open(tmp_path / "s.phkv", policy=Policy(max_get_bytes=len(value))).get("r") == \
+        value[2:10] + value[20:28]
+    with pytest.raises(RequestError, match=f"more than {len(value) - 1} bytes"):
+        refkv.phkv.open(tmp_path / "s.phkv", policy=Policy(max_get_bytes=len(value) - 1)).get("r")
 
 
 def test_writer(tmp_path):

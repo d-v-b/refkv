@@ -144,6 +144,8 @@ class VZipStore(ReferenceReader):
         self.is_vzip = False
         self._buf, self._buf_start = b"", 0  # bytes fetched while opening
         self._key_cache: dict[str, bytes] = {}  # values of hidden entries used by key ranges
+        # each value being read whole for key ranges, by loop: read once, however many ranges wait
+        self._key_loading: dict[tuple[asyncio.AbstractEventLoop, str], asyncio.Task[bytes]] = {}
         self._cd_offset = 0
         self._pages: list[Page] = []  # CdIndex pages, when the archive has one
         self._page_keys: list[str] = []
@@ -378,16 +380,18 @@ class VZipStore(ReferenceReader):
         return await self._entry_bytes(e, start, end)
 
     @override
-    async def _key_cost(self, key: str, start: int, end: int) -> int:
-        """The bytes `_key_bytes` takes: the range's, or the whole value's where it inflates or
-        caches the entry whole to read the range (a hidden or a DEFLATE entry not yet held)."""
-        if key in self._key_cache:
-            return end - start
-        await self._lookup(key)
+    async def _key_held_whole(self, key: str) -> int | None:
+        """The size of the entry `_key_bytes` reads whole to read a range of it (a hidden or a
+        DEFLATE entry, cached or not), else None: a STORED entry is range-read, and an entry it
+        refuses, or cannot look up, is refused when it is read."""
+        try:
+            await self._lookup(key)
+        except Exception:  # noqa: BLE001 - `_key_bytes` reports it, as a resolution error
+            return None
         e = self._entries.get(key)
         if e is None or e.error or e.is_ref or (not key.startswith(RESERVED_PREFIX) and e.method == 0):
-            return end - start  # range-read, or refused by `_key_bytes`
-        return max(e.size, end - start)
+            return None
+        return e.size
 
     @override
     async def _key_bytes(self, key: str, start: int, end: int) -> bytes:
@@ -412,7 +416,13 @@ class VZipStore(ReferenceReader):
                 raise ResolutionError(f"key source {key!r} is shorter than {end} bytes")
             if not key.startswith(RESERVED_PREFIX) and e.method == 0:
                 return await self._body(e, start, end)
-            self._key_cache[key] = await self._body(e, 0, e.size)
+            loop = asyncio.get_running_loop()
+            loading = self._key_loading.get((loop, key))
+            if loading is None:
+                loading = self._key_loading[(loop, key)] = loop.create_task(self._body(e, 0, e.size))
+                loading.add_done_callback(lambda _: self._key_loading.pop((loop, key), None))
+            value = await asyncio.shield(loading)
+            self._key_cache.setdefault(key, value)
         data = self._key_cache[key]
         if end > len(data):
             raise ResolutionError(f"key source {key!r} is shorter than {end} bytes")

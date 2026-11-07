@@ -1100,9 +1100,8 @@ it; the other limits are resource limits ([§6.4](#64-errors)).
    permission, such a pin fails ([§5.1](#51-pins)).
 
 The limits of rules 4–6 are implementation-defined, and readers MUST
-document them. The Rust phkv reader in the specification's repository bounds the bytes of one
-`get` at 2^32 and combines no reads; the Python and TypeScript readers use these
-defaults:
+document them. The readers in the specification's repository use these defaults, but for the
+Rust phkv reader, which bounds the bytes of one `get` at 2^32 and combines no reads:
 
 | | default |
 |---|---|

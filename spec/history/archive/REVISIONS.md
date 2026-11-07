@@ -1293,19 +1293,19 @@ store of a few bytes could name a range of terabytes, or a data source of 256 Mi
 times, and a reader would fetch or build all of it. A reader MUST now also have a maximum number of
 bytes one `get` takes, which bounds both the bytes it fetches, its coalesced reads with the bytes
 between their ranges, and the bytes it builds its value from (the bytes of each range it resolves, a
-range with a `crc32c` whole), 2^31 in the readers of the specification's repository, refused as a
-request error before any read: 2^31 in the Python and TypeScript readers of the specification's
-repository, 2^32 in its Rust phkv reader. The conformance suite's three implementations bound a
-`get`'s window and an entry's inflated body at 1 GiB, but count neither a checksummed range whole
-nor the bytes between coalesced ranges, so they do not yet meet this rule; the suite does not test
-it. Coalescing
+range with a `crc32c` whole, and a `key` source's value the reader holds whole to read it, that
+value whole, once a `get`), refused as a request error before any read: 2^31 in the Python and
+TypeScript readers of the specification's repository, 2^32 in its Rust phkv reader. The
+conformance suite's three implementations bound a `get`'s window and an entry's inflated body at
+1 GiB, but count neither a checksummed range whole nor the bytes between coalesced ranges, so they
+do not yet meet this rule; the suite does not test it. Coalescing
 ([§6.3](../../refkv.md#63-resolving-a-reference)) MUST NOT take a `get` past that bound: the reader
 combines fewer reads instead, and the readers here close the narrowest gaps first, within a
 **coalescing gap** their policy sets (64 KiB by default; 0 combines only reads that touch). How many
 bytes the reads of different `get`s fetch to save requests, 4 times what they ask for plus that gap,
 is a setting of the policy too, its read amplification; a shared read never joins two reads of one
 `get` that its own coalescing kept apart, nor makes a request of more than the bytes per `get`. A
-range of a `key` source whose value the reader inflates whole counts that value whole, once a `get`.
+range of a `key` source whose value the reader inflates whole counts that value whole, once a `get`, whether or not the reader already holds it.
 Rule 5 also says what a writer does with these limits: nothing. They are each reader's, which a
 reader of a trusted store may raise, so a writer does not hold a store to them; refkv's writers no
 longer refuse a value of more than 1024 reads. The limits are implementation-defined, as rule 5's

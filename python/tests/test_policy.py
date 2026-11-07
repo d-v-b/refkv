@@ -347,17 +347,46 @@ def test_refuses_too_many_bytes(tmp_path, server):
 
 
 def test_counts_a_key_sources_inflated_value_whole_once(tmp_path):
-    """A key source whose entry the reader inflates whole counts that entry whole, once per get:
-    64 ranges of a 1 MiB DEFLATE entry read under a budget of 2 MiB, and not under one of 512 KiB."""
+    """A key source whose entry the reader inflates whole counts that entry whole, once a get,
+    cached or not: two ranges of a 1000-byte DEFLATE entry read under a budget of 1000 bytes, and
+    not under one of 999, whether they cover 20 bytes of it or all of it, and before or after the
+    entry is read whole."""
     path = tmp_path / "a.vzip"
-    ranges = [Range(source=0, offset=k, length=1) for k in range(64)]
     with open(path, "wb") as f, VZipWriter(f) as w:
-        w.source(Source(key="blob"))
-        w.add_bytes("blob", bytes(1 << 20), compress=True)
-        w.add_ranges("r", ranges)
-    assert _get(VZipStore(str(path), policy=Policy(max_get_bytes=2 << 20)), "r") == bytes(64)
-    with pytest.raises(RequestError, match="more than 524288 bytes"):
-        _get(VZipStore(str(path), policy=Policy(max_get_bytes=512 << 10)), "r")
+        w.source(Source(key="k"))
+        w.add_bytes("k", bytes(range(250)) * 4, compress=True)
+        w.add_ranges("few", [Range(source=0, offset=0, length=10), Range(source=0, offset=10, length=10)])
+        w.add_ranges("all", [Range(source=0, offset=0, length=500), Range(source=0, offset=500, length=500)])
+    want = {"few": bytes(range(20)), "all": bytes(range(250)) * 4}
+    for warm in (False, True):
+        store = VZipStore(str(path), policy=Policy(max_get_bytes=1000))
+        tight = VZipStore(str(path), policy=Policy(max_get_bytes=999))
+        if warm:
+            assert _get(store, "k") == _get(tight, "k") == want["all"]
+        for key, value in want.items():
+            assert _get(store, key) == value
+            with pytest.raises(RequestError, match="more than 999 bytes"):
+                _get(tight, key)
+
+
+def test_inflates_a_key_sources_entry_once(tmp_path, monkeypatch):
+    """64 ranges of one DEFLATE entry, read at once, inflate it once."""
+    path = tmp_path / "a.vzip"
+    with open(path, "wb") as f, VZipWriter(f) as w:
+        w.source(Source(key="k"))
+        w.add_bytes("k", bytes(4096), compress=True)
+        w.add_ranges("r", [Range(source=0, offset=k, length=1) for k in range(64)])
+    store = VZipStore(str(path))
+    calls = []
+    body = store._body
+
+    async def counted(e, start, end):
+        calls.append((start, end))
+        return await body(e, start, end)
+
+    monkeypatch.setattr(store, "_body", counted)
+    assert _get(store, "r") == bytes(64)
+    assert calls == [(0, 4096)]
 
 
 @pytest.mark.parametrize("given", [{"max_get_bytes": -1}, {"max_get_bytes": 1.5}, {"max_get_bytes": None},

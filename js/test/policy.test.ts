@@ -352,15 +352,31 @@ test("a shared request fetches no more than a value's read may take", async () =
   }
 });
 
-test("counts a key source's inflated value whole, once a read", async () => {
-  // 64 ranges of a 1 MiB DEFLATE entry: read under a budget of 2 MiB, refused under 512 KiB
-  const ranges = Array.from({ length: 64 }, (_, k) => ({ source: 0, offset: BigInt(k), length: 1n }));
-  const desc: ArchiveDesc = {
-    sources: [{ key: "__vz__/blob" }],
-    entries: [{ key: "__vz__/blob", bytes: new Uint8Array(1 << 20), compress: true }, { key: "r", ranges }],
-  };
-  assert.deepEqual(await (await open(desc, { maxGetBytes: 2 << 20 })).archive.read("r"), new Uint8Array(64));
-  await assert.rejects((await open(desc, { maxGetBytes: 512 << 10 })).archive.read("r"), isError("request", /more than 524288 bytes/));
+test("counts a key source's value whole, once a read, cached or not", async () => {
+  // two ranges of a 1000-byte entry, which the reader reads whole: read under a budget of 1000
+  // bytes and refused under 999, whether they cover 20 bytes of it or all of it, before or after
+  // the entry is read whole, and whether it is stored or compressed
+  const value = Uint8Array.from({ length: 1000 }, (_, i) => i % 250);
+  const two = (n: bigint) => [{ source: 0, offset: 0n, length: n }, { source: 0, offset: n, length: n }];
+  for (const compress of [false, true]) {
+    const desc: ArchiveDesc = {
+      sources: [{ key: "k" }],
+      entries: [{ key: "k", bytes: value, compress }, { key: "few", ranges: two(10n) }, { key: "all", ranges: two(500n) }],
+    };
+    for (const warm of [false, true]) {
+      const { archive } = await open(desc, { maxGetBytes: 1000 });
+      const { archive: tight } = await open(desc, { maxGetBytes: 999 });
+      if (warm) {
+        assert.deepEqual(await archive.read("k"), value);
+        assert.deepEqual(await tight.read("k"), value);
+      }
+      assert.deepEqual(await archive.read("few"), value.subarray(0, 20));
+      assert.deepEqual(await archive.read("all"), value);
+      for (const key of ["few", "all"]) {
+        await assert.rejects(tight.read(key), isError("request", /more than 999 bytes/), `${key} ${compress} ${warm}`);
+      }
+    }
+  }
 });
 
 test("refuses limits that are no natural numbers, and an amplification that is no finite number", async () => {

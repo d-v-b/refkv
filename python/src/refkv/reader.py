@@ -1171,11 +1171,11 @@ class ReferenceReader:
         <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>)."""
         raise NotImplementedError
 
-    async def _key_cost(self, key: str, start: int, end: int) -> int:  # noqa: ARG002 (a binding's)
-        """The bytes `_key_bytes(key, start, end)` takes, for rule 5 (spec §6.7
-        <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>): the range's,
-        or the whole value's where the reader holds the value whole to read it."""
-        return end - start
+    async def _key_held_whole(self, key: str) -> int | None:  # noqa: ARG002 (a binding's)
+        """The size of the value at `key` when `_key_bytes` holds it whole to read any range of it,
+        which rule 5 (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)
+        counts whole, once a get, cached or not; None when it reads only the range."""
+        return None
 
     async def _read(
         self, url: str, start: int, end: int, *, external: bool, exact: bool = True
@@ -1375,17 +1375,19 @@ class ReferenceReader:
                 else:
                     a, b = r.offset, r.offset + r.length
                     cuts.append((lo - pos, hi - pos, r.crc32c))
-                taken += b - a
+                src = self._sources[r.source]
+                if src.key is None or src.key not in held:
+                    taken += b - a
+                # a key's value the reader holds whole to read a range of it counts whole, once
+                if src.key is not None and src.key not in held \
+                        and (whole := await self._key_held_whole(src.key)) is not None:
+                    held.add(src.key)
+                    taken += max(whole - (b - a), 0)
                 if taken > self.policy.max_get_bytes:  # rule 5, refused below: nothing is read
                     break
-                src = self._sources[r.source]
                 if src.data is not None:
                     pieces.append(_DataPiece(r.source, a, b))  # taken once the value passes rule 5
                 elif src.key is not None:
-                    # a key's value the reader holds whole to read a range of it counts whole, once
-                    if src.key not in held:
-                        held.add(src.key)
-                        taken += await self._key_cost(src.key, a, b) - (b - a)
                     pieces.append(self._key_bytes(src.key, a, b))
                 else:
                     pieces.append((r.source, a, b))

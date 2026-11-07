@@ -1021,11 +1021,16 @@ export class Archive {
           }
           taken += Number(read.length);
           const key = this.sources[r.source].key;
-          if (key !== undefined && !this.keyValues.has(key) && !held.has(key)) {
-            held.add(key);
-            // a key's value inflated whole to read a range of it counts whole
-            const target = this.entryFor(key);
-            if (target?.method === 8 && target.size > Number(read.length)) taken += target.size - Number(read.length);
+          // a key's value, which `source` reads whole to read a range of it, counts whole, once a
+          // read, cached or not
+          const target = key === undefined ? undefined : this.entryFor(key);
+          if (target !== undefined && target.reference === undefined && !target.error) {
+            if (held.has(key!)) {
+              taken -= Number(read.length);
+            } else {
+              held.add(key!);
+              taken += Math.max(target.size - Number(read.length), 0);
+            }
           }
           if (taken > this.policy.maxGetBytes) break;
           parts.push(this.sources[r.source].url !== undefined ? read : { local: read });
