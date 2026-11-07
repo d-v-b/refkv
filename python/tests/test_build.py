@@ -7,7 +7,7 @@ import io
 import json
 import struct
 from pathlib import Path
-from typing import Any, override
+from typing import Any, BinaryIO, cast, override
 
 import numpy as np
 import pytest
@@ -42,6 +42,8 @@ from refkv.build.seal import _binding_holds
 from refkv.build.values import _issue
 from refkv.policy import Policy
 from refkv.zarrify import zarrify
+from refkv.zarrify.common import PAGE_SIZE
+from refkv.zarrify.layouts import _Counting
 
 # the module, which the package's `seal` function shadows as an attribute
 seal_module = importlib.import_module("refkv.build.seal")
@@ -428,6 +430,24 @@ def test_seal_refuses_before_it_fails(tmp_path):
         with pytest.raises(SealError) as e:
             seal(w, [p])
     assert e.value.code == "open"
+
+
+def test_seal_fails_an_archive_past_its_limits_only_with_its_checksums(tmp_path):
+    """An archive within its policy's format entries without checksums, and past them with each
+    checksum at its largest, fails as a payload past the limit with them does."""
+    def written(p):
+        return Written({f"v{k}": Ref(p, 0, k % 4000, 1) for k in range(20000)})
+
+    with read(_npy(tmp_path)) as p:
+        store = seal(written(p), [p])
+        # its largest format entry without checksums, which the archive then just fits
+        _, _, sizes = store._write_vzip(cast("BinaryIO", _Counting()), store._sources, mirror_refs=True,
+                                        page_size=PAGE_SIZE, compress=False)
+        most = max(sizes.values())
+        seal(written(p), [p], policy=Policy(max_format_entry=most))
+    with read(_npy(tmp_path), checksums=True) as p, pytest.raises(SealError) as e:
+        seal(written(p), [p], policy=Policy(max_format_entry=most))
+    assert e.value.code == "checksums"
 
 
 def test_seal_refuses_the_built_in_output_past_the_limit_with_its_checksums():
