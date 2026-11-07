@@ -383,11 +383,8 @@ class VZipStore(ReferenceReader):
     async def _key_held_whole(self, key: str) -> int | None:
         """The size of the entry `_key_bytes` reads whole to read a range of it (a hidden or a
         DEFLATE entry, cached or not), else None: a STORED entry is range-read, and an entry it
-        refuses, or cannot look up, is refused when it is read."""
-        try:
-            await self._lookup(key)
-        except Exception:  # noqa: BLE001 - `_key_bytes` reports it, as a resolution error
-            return None
+        refuses is refused when it is read. A failed lookup raises: the entry's count is unknown."""
+        await self._lookup(key)
         e = self._entries.get(key)
         if e is None or key in (SOURCES_KEY, INDEX_KEY) or e.error or e.is_ref \
                 or (not key.startswith(RESERVED_PREFIX) and e.method == 0):

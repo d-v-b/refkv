@@ -198,9 +198,10 @@ class Policy:
         refs = refkv.ReferenceStore.from_virtualizarr(vds, registry=registry)
         refs.save_vzip("data.vzip", policy=refkv.Policy(schemes={"s3"}))
 
-    `ReferenceStore.save_vzip` checks the references it writes against a policy
-    too, `Policy()` by default, so an archive that the default reader cannot
-    read fails when it is written, not when it is read.
+    `ReferenceStore.save_vzip` checks the sources it writes against a policy's
+    URL rules too, `Policy()` by default, so an archive whose sources the default
+    reader refuses fails when it is written, not when it is read. The limits on one
+    `get` (rule 5) are each reader's: a writer does not hold a store to them.
     """
 
     schemes: frozenset[str] = frozenset()

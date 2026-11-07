@@ -640,12 +640,14 @@ impl<R: ReadAt> Store<R> {
     /// The size of the value at `key` when [`Store::key_bytes`] decodes it whole to read any range of
     /// it (a compressed value), which rule 5 (spec/refkv.md §6.7
     /// <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>) counts whole, once a
-    /// get; None when it reads only the range (a codec-0 value), or the key is missing, a reference,
-    /// or cannot be looked up, which `key_bytes` refuses.
-    pub fn key_decoded_whole(&self, key: &str) -> Option<u64> {
+    /// get; None when it reads only the range (a codec-0 value), or the key is missing or a
+    /// reference, which `key_bytes` refuses. A failed lookup is a resolution error: the value's
+    /// count is unknown.
+    pub fn key_decoded_whole(&self, key: &str) -> Result<Option<u64>, ReadError> {
         match self.lookup(key) {
-            Ok(Some(Record { value: Value::Bytes { codec, size, .. }, .. })) if codec != Codec::None => Some(size),
-            _ => None,
+            Ok(Some(Record { value: Value::Bytes { codec, size, .. }, .. })) if codec != Codec::None => Ok(Some(size)),
+            Ok(_) => Ok(None),
+            Err(e) => err(Class::Resolution, format!("key source {key:?}: {}", e.message)),
         }
     }
 
@@ -769,7 +771,7 @@ impl<R: ReadAt> Store<R> {
                     Some(Some(_)) => 0,
                     Some(None) => range,
                     None => {
-                        let whole = self.key_decoded_whole(k);
+                        let whole = self.key_decoded_whole(k)?;
                         held.insert(k.as_str(), whole);
                         whole.map_or(range, |size| size.max(range))
                     }

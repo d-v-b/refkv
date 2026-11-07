@@ -541,9 +541,6 @@ export class Archive {
   private waiting = new Map<number, Waiting[]>();
   /** The requests in flight, by source. */
   private serving = new Map<number, Set<Serving>>();
-  /** The values of the bytes entries `key` sources name, each inflated once (spec §5
-   * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>). */
-  private keyValues = new Map<string, Promise<Uint8Array>>();
   private flushPending = false;
   /** Set while some reads whose window has ended wait for a request to end. */
   private release: ReturnType<typeof setTimeout> | undefined;
@@ -804,7 +801,14 @@ export class Archive {
     return body;
   }
 
-  private async source(r: Extract<Range, { source: number }>): Promise<Uint8Array> {
+  /**
+   * The bytes of `r`. A `key` source's value is read whole, once a read: `keyValues` holds the
+   * values one read has read (spec §5 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>).
+   */
+  private async source(
+    r: Extract<Range, { source: number }>,
+    keyValues = new Map<string, Promise<Uint8Array>>(),
+  ): Promise<Uint8Array> {
     const s = this.sources[r.source];
     const start = r.offset;
     const end = r.offset + r.length;
@@ -820,11 +824,10 @@ export class Archive {
       if (target === undefined || target.reference !== undefined || target.error) {
         fail(`key ${JSON.stringify(s.key)} is not a bytes entry`);
       }
-      let pending = this.keyValues.get(s.key);
+      let pending = keyValues.get(s.key);
       if (pending === undefined) {
         pending = this.body(target!);
-        this.keyValues.set(s.key, pending);
-        pending.catch(() => this.keyValues.delete(s.key!));
+        keyValues.set(s.key, pending);
       }
       const value = await pending;
       if (end > BigInt(value.length)) fail("range past the end of the key's value");
@@ -1021,8 +1024,8 @@ export class Archive {
           }
           taken += Number(read.length);
           const key = this.sources[r.source].key;
-          // a key's value, which `source` reads whole to read a range of it, counts whole, once a
-          // read, cached or not
+          // a key's value, which `source` reads whole, once a read, to read a range of it, counts
+          // whole, once
           const target = key === undefined ? undefined : this.entryFor(key);
           if (target !== undefined && target.reference === undefined && !target.error) {
             if (held.has(key!)) {
@@ -1072,13 +1075,14 @@ export class Archive {
       );
     }
     const owner = {}; // this value's reads, which the shared reads keep apart
+    const keyValues = new Map<string, Promise<Uint8Array>>(); // each key's value, read once
     for (const run of runs) {
       run.data = this.sharedRead(run.source, run.offset, run.end, owner);
     }
     const whole = await Promise.all(
       parts.map(async (p) => {
         if (p instanceof Promise) return p;
-        if ("local" in p) return this.source(p.local);
+        if ("local" in p) return this.source(p.local, keyValues);
         const run = runOf.get(p)!;
         const from = Number(p.offset - run.offset);
         return (await run.data!).subarray(from, from + Number(p.length));

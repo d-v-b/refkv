@@ -97,8 +97,8 @@ fn values_references_and_listing() {
     assert_eq!(small.get("r/crc", Request::Range(1, 2), &objects).unwrap_err().class, Class::Request);
     assert_eq!(small.get("r/one", Request::Whole, &objects).unwrap().unwrap(), object[10..30]);
     // a range of a compressed key source counts the value, decoded whole, once a get: 6 + 2 + its size
-    assert_eq!(s.key_decoded_whole("a/c/2"), Some(big.len() as u64));
-    assert_eq!(s.key_decoded_whole("a/c/0"), None);
+    assert_eq!(s.key_decoded_whole("a/c/2").unwrap(), Some(big.len() as u64));
+    assert_eq!(s.key_decoded_whole("a/c/0").unwrap(), None);
     let decoded = |request_bytes| Store::open_with(s.reader().clone(), refkv_phkv::Limits { request_bytes, ..Default::default() }).unwrap();
     assert_eq!(decoded(big.len() as u64 + 8).get("r/concat", Request::Whole, &NoUrls).unwrap().unwrap(), concat);
     assert_eq!(decoded(big.len() as u64 + 7).get("r/concat", Request::Whole, &NoUrls).unwrap_err().class, Class::Request);

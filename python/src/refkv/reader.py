@@ -1352,6 +1352,14 @@ class ReferenceReader:
             if not r.future.done():
                 r.future.set_result(data[r.start - start : r.end - start])
 
+    def _check_get_bytes(self, n: int) -> None:
+        """Refuse a `get` that takes `n` bytes, past the policy's bytes per `get` (spec §6.7
+        <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 5)."""
+        if n > self.policy.max_get_bytes:
+            raise RequestError(f"the value needs more than {self.policy.max_get_bytes} bytes; this reader "
+                               f"allows {self.policy.max_get_bytes} ("
+                               f"spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)")
+
     async def _ref_bytes(self, ref: Reference, start: int, end: int) -> bytes:
         """Bytes [start, end) of the value described by `ref` (spec §6.3
         <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#63-resolving-a-reference>)."""
@@ -1367,7 +1375,9 @@ class ReferenceReader:
         pieces: list[bytes | tuple[int, int, int] | _DataPiece | _KeyPiece] = []
         cuts: list[tuple[int, int, int | None]] = []
         taken = 0  # the bytes the value is built from: a range with a crc32c whole
-        held: dict[str, int | None] = {}  # each key's whole size, where its value counts whole
+        # each key source's ranges, their bytes and the longest: until the reader says whether it
+        # holds the key's value whole, `taken` counts the longest, which either count is at least
+        keyed: dict[str, tuple[int, int]] = {}
         pos = 0
         for r in parts(ref):
             lo, hi = max(start, pos), min(end, pos + r.size)
@@ -1387,12 +1397,10 @@ class ReferenceReader:
                 src = self._sources[r.source]
                 if src.key is None:
                     taken += b - a
-                elif src.key not in held:
-                    # a key's value the reader holds whole to read a range of it counts whole, once
-                    whole = held[src.key] = await self._key_held_whole(src.key)
-                    taken += b - a if whole is None else max(whole, b - a)
-                elif held[src.key] is None:
-                    taken += b - a
+                else:
+                    total, longest = keyed.get(src.key, (0, 0))
+                    keyed[src.key] = (total + b - a, max(longest, b - a))
+                    taken += max(b - a - longest, 0)
                 if taken > self.policy.max_get_bytes:  # rule 5, refused below: nothing is read
                     break
                 if src.data is not None:
@@ -1409,14 +1417,24 @@ class ReferenceReader:
         # spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 5, before any
         # read: the bytes it is built from, and those it fetches, the bytes between coalesced ranges included
         fetched_bytes = sum(b - a for _, a, b in runs)
-        if max(taken, fetched_bytes) > self.policy.max_get_bytes:
-            raise RequestError(f"the value needs more than {self.policy.max_get_bytes} bytes; this reader "
-                               f"allows {self.policy.max_get_bytes} ("
-                               f"spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)")
+        self._check_get_bytes(max(taken, fetched_bytes))
         if len(runs) > self.policy.max_reads:
             raise RequestError(f"the value needs {len(runs)} reads; this reader allows "
                                f"{self.policy.max_reads} ("
                                f"spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)")
+        # a key's value the reader holds whole to read a range of it counts whole, once; else its
+        # ranges count. A key the reader cannot look up fails the value: its count is unknown.
+        try:
+            sizes = await asyncio.gather(*(self._key_held_whole(k) for k in keyed))
+        except ResolutionError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - spec §6.4 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#64-errors>: failures resolving a range
+            raise ResolutionError(f"{type(exc).__name__}: {exc}") from None
+        held = dict(zip(keyed, sizes, strict=True))
+        for k, n in held.items():
+            total, longest = keyed[k]
+            taken += (total if n is None else max(n, longest)) - longest
+        self._check_get_bytes(taken)
         for i, p in enumerate(pieces):
             if isinstance(p, _DataPiece):
                 data = cast("bytes", self._sources[p.source].data)

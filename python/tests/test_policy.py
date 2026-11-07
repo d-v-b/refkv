@@ -19,9 +19,10 @@ import pytest
 import refkv.reader
 from refkv._sync import run
 from refkv.errors import ArchiveError, BodyError, RequestError, ResolutionError
-from refkv.pb import Range, Source, decode_table
+from refkv.pb import Concat, Range, Source, decode_table
 from refkv.policy import Policy, address_class, crc32c, matches_prefix
 from refkv.reader import RangeRequest, http_range
+from refkv.refstore import ReferenceStore
 from refkv.vzip.archive import SPEC_REVISION, VZipWriter
 from refkv.vzip.store import VZipStore
 
@@ -367,6 +368,51 @@ def test_counts_a_key_sources_inflated_value_whole_once(tmp_path):
             assert _get(store, key) == value
             with pytest.raises(RequestError, match="more than 999 bytes"):
                 _get(tight, key)
+
+
+def test_a_key_source_that_cannot_be_looked_up_fails_the_get(tmp_path, monkeypatch):
+    """A key source whose entry the reader cannot look up fails the get as a resolution error: the
+    bytes it takes are unknown, so the reader neither counts only the range nor reads the entry."""
+    path = tmp_path / "a.vzip"
+    with open(path, "wb") as f, VZipWriter(f) as w:
+        w.source(Source(key="k"))
+        w.add_bytes("k", bytes(1 << 20), compress=True)
+        w.add_ranges("r", [Range(source=0, offset=0, length=10)])
+    store = VZipStore(str(path), policy=Policy(max_get_bytes=1000))
+    _get(store, "zarr.json")  # open it
+    lookup = store._lookup
+    failed = []
+
+    async def failing_once(key):
+        if key == "k" and not failed:
+            failed.append(key)
+            raise OSError("the page read failed")
+        await lookup(key)
+
+    monkeypatch.setattr(store, "_lookup", failing_once)
+    with pytest.raises(ResolutionError, match="the page read failed"):
+        _get(store, "r")
+    assert "k" not in store._key_cache
+    with pytest.raises(RequestError, match="more than 1000 bytes"):
+        _get(store, "r")
+
+
+def test_a_get_past_its_reads_looks_no_key_up(tmp_path, monkeypatch):
+    """A get refused for its reads is refused before the reader looks any key source up."""
+    (tmp_path / "blob.bin").write_bytes(BLOB)
+    ranges = Concat((Range(source=0, offset=0, length=1), Range(source=0, offset=1 << 13, length=1),
+                     Range(source=1, offset=0, length=1)))
+    store = ReferenceStore({"k": b"abc", "r": ranges}, sources=[Source(url="blob.bin"), Source(key="k")],
+                           url=str(tmp_path) + "/", policy=Policy(max_reads=1, max_coalesce_gap=0))
+    looked_up = []
+
+    async def recorded(key):
+        looked_up.append(key)
+
+    monkeypatch.setattr(store, "_key_held_whole", recorded)
+    with pytest.raises(RequestError, match="needs 2 reads"):
+        _get(store, "r")
+    assert looked_up == []
 
 
 def test_inflates_a_key_sources_entry_once(tmp_path, monkeypatch):
