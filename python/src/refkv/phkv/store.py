@@ -38,7 +38,7 @@ from refkv.policy import Policy
 from refkv.reader import (
     DEFAULT_CONCURRENCY,
     UNCAPPED_THREADS,
-    Held,
+    Found,
     Kind,
     OffsetRequest,
     RangeRequest,
@@ -267,13 +267,13 @@ class PhkvStore(ReferenceReader):
         return await self._blocking(self._store.key_bytes, key, start, end)
 
     @override
-    async def _key_held_whole(self, key: str) -> Held | None:
-        """A compressed or inline value, which the core holds whole to read a range of it, read
-        whole from the record its lookup read."""
-        held = await self._blocking(self._store.key_held_whole, key)
-        if held is None:
+    async def _key_found(self, key: str) -> Found | None:
+        """A bytes value, read from the record its lookup read: no second lookup. The core holds a
+        compressed or inline value whole to read a range of it."""
+        found = await self._blocking(self._store.key_found, key)
+        if found is None:
             return None
-        return Held(held.size, held.read, lambda: self._blocking(self._store.held_bytes, held))
+        return Found(found.size, found.held, lambda a, b: self._blocking(self._store.found_bytes, found, a, b))
 
     @override
     async def classify_async(self, key: str) -> Kind:

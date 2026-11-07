@@ -91,6 +91,11 @@ test("mergedRuns joins reads of one value only where they touch the run", () => 
   assert.deepEqual(runs([[0, 1000, y], [500, 510, x], [600, 610, x]]).length, 1);
   // two reads of one value a gap apart stay apart, as its own coalescing left them
   assert.deepEqual(runs([[0, 10, x], [100, 110, x]]), [[[0, 10]], [[100, 110]]]);
+  // a read within the gap of its value's last read, not touching the run, starts a run of its own
+  assert.deepEqual(runs([[0, 10, x], [10, 20, y], [30, 40, x]]).length, 2);
+  // one past the gap of its value's last read, which its value's coalescing could not combine, joins
+  const far = Number(MERGE_GAP) + 1;
+  assert.deepEqual(runs([[0, 10, x], [10, 10 + far, y], [20 + far, 30 + far, x]]).length, 1);
 });
 
 test("mergedRuns groups reads by the gap, the amplification cap and the run's length", () => {

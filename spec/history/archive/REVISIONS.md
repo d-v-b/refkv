@@ -1305,8 +1305,8 @@ combines fewer reads instead, and the readers here close the narrowest gaps firs
 **coalescing gap** their policy sets (64 KiB by default; 0 combines only reads that touch). How many
 bytes the reads of different `get`s fetch to save requests, 4 times what they ask for plus that gap,
 is a setting of the policy too, its read amplification; a shared read never joins a read to a run
-holding a read of the same `get` across a gap, which would combine reads its own coalescing kept
-apart, though a read that touches or overlaps such a run joins it, nor makes a request of more than
+within the coalescing gap of a read of the same `get` in it, unless it touches or overlaps the run,
+since those are reads that `get`'s own coalescing could have combined and kept apart; nor makes a request of more than
 the bytes per `get` but for a read longer than that, a request of its own. A `key` source's value that
 the reader holds whole to read a range of it counts as fetched once a `get`, the bytes the reader
 reads to hold it, whether or not it already holds the value, and each range cut from it is built

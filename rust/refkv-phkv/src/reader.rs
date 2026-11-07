@@ -221,14 +221,19 @@ struct PropertySection {
     values: u64,
 }
 
-/// A `key` source's value that a reader holds whole to read a range of it, found by
-/// [`Store::key_held_whole`]: its size, the bytes read to hold it (the larger of its size and its
-/// stored bytes), and the record that lookup read, which [`Store::held_bytes`] reads it from.
+/// A `key` source's bytes value, found by [`Store::key_found`]: its size; `held`, the bytes read to
+/// hold it when a reader holds it whole to read a range of it (the larger of its size and its stored
+/// bytes), else None; and the record that lookup read, which [`Store::found_bytes`] reads it from.
 #[derive(Clone, Debug)]
-pub struct Held {
+pub struct Found {
     pub size: u64,
-    pub read: u64,
+    pub held: Option<u64>,
     record: Record,
+}
+
+/// `e`, a failure reading key source `k`, saying so.
+fn in_key(k: &str, e: ReadError) -> ReadError {
+    ReadError { message: format!("key source {k:?}: {}", e.message), ..e }
 }
 
 /// An opened phkv store.
@@ -647,20 +652,18 @@ impl<R: ReadAt> Store<R> {
         self.source_bytes(&Source::key(key), start, end.saturating_sub(start), &NoUrls)
     }
 
-    /// The size of the value at `key`, and the bytes read to hold it, when [`Store::key_bytes`] holds
-    /// it whole to read any range of it (a compressed value, decoded whole, or an inline one, read
-    /// with its record), which rule 5 (spec/refkv.md §6.7
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>) counts as fetched
-    /// once a get; None when it reads only the range (a codec-0 value stored apart), or the key is
-    /// missing or a reference, which `key_bytes` refuses. A failed lookup is a resolution error: what
-    /// the value takes is unknown.
-    pub fn key_held_whole(&self, key: &str) -> Result<Option<Held>, ReadError> {
+    /// The bytes value at `key`, looked up once for rule 5 (spec/refkv.md §6.7
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>), which counts a
+    /// value held whole to read a range of it (a compressed value, decoded whole, or an inline one,
+    /// read with its record) as fetched once a get; None when the key is missing or a reference,
+    /// which `key_bytes` refuses. A failed lookup is a resolution error: what the value takes is
+    /// unknown.
+    pub fn key_found(&self, key: &str) -> Result<Option<Found>, ReadError> {
         match self.lookup(key) {
             Ok(Some(record)) => match record.value {
-                Value::Bytes { codec, ref stored, stored_length, size, .. }
-                    if codec != Codec::None || matches!(stored, Stored::Inline(_)) =>
-                {
-                    Ok(Some(Held { size, read: size.max(stored_length), record }))
+                Value::Bytes { codec, ref stored, stored_length, size, .. } => {
+                    let whole = codec != Codec::None || matches!(stored, Stored::Inline(_));
+                    Ok(Some(Found { size, held: whole.then(|| size.max(stored_length)), record }))
                 }
                 _ => Ok(None),
             },
@@ -669,10 +672,13 @@ impl<R: ReadAt> Store<R> {
         }
     }
 
-    /// The whole value [`Store::key_held_whole`] found, from the record it read: no second lookup,
-    /// and an inline value is not read again. Every failure is a resolution error.
-    pub fn held_bytes(&self, held: &Held) -> Result<Vec<u8>, ReadError> {
-        self.bytes_window(&held.record, 0, held.size).map_err(|e| ReadError { class: Class::Resolution, message: e.message })
+    /// Bytes `[a, b)` of the value [`Store::key_found`] found, from the record it read: no second
+    /// lookup, and an inline value is not read again. Every failure is a resolution error.
+    pub fn found_bytes(&self, found: &Found, a: u64, b: u64) -> Result<Vec<u8>, ReadError> {
+        if b > found.size {
+            return err(Class::Resolution, format!("a range ends at {b}, past the {} bytes of the key source", found.size));
+        }
+        self.bytes_window(&found.record, a, b).map_err(|e| ReadError { class: Class::Resolution, message: e.message })
     }
 
     /// Bytes `[a, b)` of a bytes record's value: a codec-0 value is read only within the window, a
@@ -803,14 +809,14 @@ impl<R: ReadAt> Store<R> {
         if built.max(fetched) > self.limits.request_bytes {
             return refuse(built.max(fetched));
         }
-        let mut held: HashMap<&str, Option<Held>> = HashMap::new(); // each key looked up once a get
+        let mut found: HashMap<&str, Option<Found>> = HashMap::new(); // each key looked up once a get
         for k in keys {
-            let whole = self.key_held_whole(k)?;
-            fetched = fetched.saturating_add(whole.as_ref().map_or(0, |h| h.read));
+            let f = self.key_found(k)?;
+            fetched = fetched.saturating_add(f.as_ref().and_then(|f| f.held).unwrap_or(0));
             if fetched > self.limits.request_bytes {
                 return refuse(fetched); // no more keys looked up, nor values held
             }
-            held.insert(k, whole);
+            found.insert(k, f);
         }
         let mut out = Vec::with_capacity((b - a) as usize);
         let mut decoded: HashMap<&str, Vec<u8>> = HashMap::new(); // each value decoded whole, once a get
@@ -822,16 +828,16 @@ impl<R: ReadAt> Store<R> {
             // a range with a checksum is read whole, and checked before any of it is used
             let (ri, rj) = if r.crc32c.is_some() { (0, r.length) } else { (i, j) };
             let src = &self.sources[r.source as usize];
-            let whole = match &src.kind {
-                SourceKind::Key(k) => held.get(k.as_str()).and_then(Option::as_ref),
+            let entry = match &src.kind {
+                SourceKind::Key(k) => found.get(k.as_str()).and_then(Option::as_ref),
                 _ => None,
             };
-            let bytes = match (&src.kind, whole) {
-                (SourceKind::Key(k), Some(h)) => {
+            let bytes = match (&src.kind, entry) {
+                (SourceKind::Key(k), Some(f)) if f.held.is_none() => self.found_bytes(f, r.offset + ri, r.offset + rj).map_err(|e| in_key(k, e))?,
+                (SourceKind::Key(k), Some(f)) => {
                     let (start, end) = (r.offset + ri, r.offset + rj);
                     if !decoded.contains_key(k.as_str()) {
-                        let value = self.held_bytes(h).map_err(|e| ReadError { message: format!("key source {k:?}: {}", e.message), ..e })?;
-                        decoded.insert(k.as_str(), value);
+                        decoded.insert(k.as_str(), self.found_bytes(f, 0, f.size).map_err(|e| in_key(k, e))?);
                     }
                     let value = &decoded[k.as_str()];
                     if end > value.len() as u64 {

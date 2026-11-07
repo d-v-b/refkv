@@ -27,7 +27,7 @@ from refkv.errors import (
 )
 from refkv.pb import Page, Pinned, Reference, decode_cd_index
 from refkv.policy import Policy
-from refkv.reader import DEFAULT_CONCURRENCY, Held, Kind, ReferenceReader, Registry, Request, Stats, _abs_range
+from refkv.reader import DEFAULT_CONCURRENCY, Found, Kind, ReferenceReader, Registry, Request, Stats, _abs_range
 from refkv.vzip.archive import (
     INDEX_KEY,
     LFH_SIZE,
@@ -380,7 +380,7 @@ class VZipStore(ReferenceReader):
         return await self._entry_bytes(e, start, end)
 
     @override
-    async def _key_held_whole(self, key: str) -> Held | None:
+    async def _key_found(self, key: str) -> Found | None:
         """The entry `_key_bytes` reads whole to read a range of it (a hidden or a DEFLATE entry,
         cached or not), the bytes it reads to hold it its stored bytes when they are more; else
         None: a STORED entry is range-read, and an entry it refuses is refused when it is read. A
@@ -390,7 +390,7 @@ class VZipStore(ReferenceReader):
         if e is None or key in (SOURCES_KEY, INDEX_KEY) or e.error or e.is_ref \
                 or (not key.startswith(RESERVED_PREFIX) and e.method == 0):
             return None
-        return Held(e.size, max(e.size, e.csize), lambda: self._key_bytes(key, 0, e.size))
+        return Found(e.size, max(e.size, e.csize), lambda a, b: self._key_bytes(key, a, b))
 
     def _key_loaded(self, loop: asyncio.AbstractEventLoop, key: str, task: asyncio.Task[bytes]) -> None:
         """Keep a value read whole for key ranges, even when every range waiting on it was

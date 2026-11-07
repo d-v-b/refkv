@@ -461,7 +461,7 @@ def test_a_get_past_its_reads_looks_no_key_up(tmp_path, monkeypatch):
     async def recorded(key):
         looked_up.append(key)
 
-    monkeypatch.setattr(store, "_key_held_whole", recorded)
+    monkeypatch.setattr(store, "_key_found", recorded)
     with pytest.raises(RequestError, match="needs 2 reads"):
         _get(store, "r")
     assert looked_up == []

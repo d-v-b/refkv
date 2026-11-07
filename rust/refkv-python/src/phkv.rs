@@ -8,7 +8,7 @@ use pyo3::exceptions::{PyException, PyOSError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyList};
 use pyo3::{PyTraverseError, PyVisit};
-use refkv_phkv::{Class, Codec, EntryInfo, Error, Fetched, Held, Kind, Limits, Options, Prop, ReadAt, ReadError, Request, Store, Writer};
+use refkv_phkv::{Class, Codec, EntryInfo, Error, Fetched, Found, Kind, Limits, Options, Prop, ReadAt, ReadError, Request, Store, Writer};
 use refkv_vzip::pb::{Range, Source};
 use std::io;
 use std::sync::{Arc, Mutex};
@@ -174,16 +174,16 @@ impl PyPhkvStore {
         })
     }
 
-    /// The value at `key` when the store holds it whole to read a range of it, else None
-    /// (`Store::key_held_whole`): its size, the bytes read to hold it, and the record its lookup
-    /// read, which `held_bytes` reads it from. A failed lookup raises.
-    fn key_held_whole(&self, py: Python<'_>, key: &str) -> PyResult<Option<PyHeld>> {
-        Ok(py.detach(|| self.store.key_held_whole(key)).map_err(read_err)?.map(PyHeld))
+    /// The bytes value at `key`, or None for a missing key or a reference (`Store::key_found`): its
+    /// size, the bytes read to hold it whole if the store does, and the record its lookup read,
+    /// which `found_bytes` reads it from. A failed lookup raises.
+    fn key_found(&self, py: Python<'_>, key: &str) -> PyResult<Option<PyFound>> {
+        Ok(py.detach(|| self.store.key_found(key)).map_err(read_err)?.map(PyFound))
     }
 
-    /// The whole value `key_held_whole` found (`Store::held_bytes`).
-    fn held_bytes<'py>(&self, py: Python<'py>, held: &PyHeld) -> PyResult<Bound<'py, PyBytes>> {
-        let b = py.detach(|| self.store.held_bytes(&held.0)).map_err(read_err)?;
+    /// Bytes `[start, end)` of the value `key_found` found (`Store::found_bytes`).
+    fn found_bytes<'py>(&self, py: Python<'py>, found: &PyFound, start: u64, end: u64) -> PyResult<Bound<'py, PyBytes>> {
+        let b = py.detach(|| self.store.found_bytes(&found.0, start, end)).map_err(read_err)?;
         Ok(PyBytes::new(py, &b))
     }
 
@@ -237,22 +237,23 @@ fn codec(c: u8) -> PyResult<Codec> {
     Codec::from_u8(c).ok_or_else(|| PyValueError::new_err(format!("no codec {c}")))
 }
 
-/// A value a store holds whole to read a range of it (`PhkvStore.key_held_whole`).
-#[pyclass(name = "PhkvHeld", module = "refkv._core", frozen)]
-pub struct PyHeld(Held);
+/// A bytes value a store looked up (`PhkvStore.key_found`).
+#[pyclass(name = "PhkvFound", module = "refkv._core", frozen)]
+pub struct PyFound(Found);
 
 #[pymethods]
-impl PyHeld {
+impl PyFound {
     /// The value's size.
     #[getter]
     fn size(&self) -> u64 {
         self.0.size
     }
 
-    /// The bytes read to hold it: the larger of its size and its stored bytes.
+    /// The bytes read to hold it whole, the larger of its size and its stored bytes, when the store
+    /// holds it whole to read a range of it; else None.
     #[getter]
-    fn read(&self) -> u64 {
-        self.0.read
+    fn held(&self) -> Option<u64> {
+        self.0.held
     }
 }
 
@@ -347,7 +348,7 @@ impl PyPhkvWriter {
 
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyPhkvStore>()?;
-    m.add_class::<PyHeld>()?;
+    m.add_class::<PyFound>()?;
     m.add_class::<PyPhkvWriter>()?;
     m.add("PhkvReadError", m.py().get_type::<PhkvReadError>())?;
     Ok(())

@@ -877,13 +877,14 @@ class _DataPiece:
 
 
 @dataclass(frozen=True)
-class Held:
-    """A `key` source's value a reader holds whole to read a range of it: its size, the bytes the
-    reader reads to hold it, and `load()`, which reads it whole."""
+class Found:
+    """A `key` source's bytes value, looked up: its size; `held`, the bytes the reader reads to hold
+    it when it holds it whole to read a range of it, else None; and `load(start, end)`, which reads
+    bytes [start, end) of it without another lookup."""
 
     size: int
-    read: int
-    load: Callable[[], Awaitable[bytes]]
+    held: int | None
+    load: Callable[[int, int], Awaitable[bytes]]
 
 
 @dataclass(frozen=True)
@@ -951,26 +952,27 @@ def _merged(reads: Iterable[_Waiting], *, gap: int, amplification: float, longes
 
     A read joins the run before it if it starts at most `gap` bytes after the run's end, and the
     run then fetches at most `amplification` times the bytes its reads ask for, plus `gap`, and
-    at most `longest` bytes. A read joins a run that holds a read of the same value only where it
-    touches or overlaps the run, which adds no bytes nobody asked for: across a gap it would join
-    reads its value's own coalescing kept apart, within what it may fetch. A read is never cut, so
-    a longer one is a run of its own."""
+    at most `longest` bytes. A read never joins a run within `gap` of the end of a read of the same
+    value in it, unless it touches or overlaps the run: those are reads its value's own coalescing
+    could have combined and kept apart, within what it may fetch. A read is never cut, so a longer
+    one is a run of its own."""
     runs: list[list[_Waiting]] = []
-    owners: set[object] = set()
+    owners: dict[object, int] = {}  # where each value's last read in the run ends
     start = end = asked = 0
     for read in sorted(reads, key=lambda r: (r.start, r.end)):
         new = read.end - max(read.start, end)
-        if (runs and read.start - end <= gap and (read.owner is None or read.owner not in owners or read.start <= end)
+        own = owners.get(read.owner) if read.owner is not None else None
+        if (runs and read.start - end <= gap and (own is None or read.start <= end or read.start - own > gap)
                 and (span := max(end, read.end) - start) <= longest
                 and span <= amplification * (asked + max(new, 0)) + gap):
             runs[-1].append(read)
         else:
             runs.append([read])
-            owners = set()
+            owners = {}
             start, end, asked = read.start, read.start, 0
             new = read.end - read.start
         if read.owner is not None:
-            owners.add(read.owner)
+            owners[read.owner] = max(owners.get(read.owner, 0), read.end)
         end = max(end, read.end)
         asked += max(new, 0)
     return runs
@@ -1038,8 +1040,8 @@ class ReferenceReader:
 
     Values read at the same time share requests: reads of one source at most the
     policy's `max_coalesce_gap` apart (64 KiB by default) merge into one request,
-    whichever values they are for (but across a gap, never two reads of one value that its own
-    coalescing kept apart), while
+    whichever values they are for (but never two reads of one value that its own coalescing could
+    have combined and kept apart), while
     they wait 2 ms (`MERGE_WINDOW`), or for a connection when all of them are
     busy. Zarr asks for at most `async.concurrency` chunks at once, so that
     setting, not this reader, limits how many merge: raise it to read many small
@@ -1192,10 +1194,11 @@ class ReferenceReader:
         <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>)."""
         raise NotImplementedError
 
-    async def _key_held_whole(self, key: str) -> Held | None:  # noqa: ARG002 (a binding's)
-        """The value at `key` when the reader holds it whole to read any range of it, which rule 5
-        (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>) counts
-        as fetched once a get, cached or not; None when `_key_bytes` reads only the range."""
+    async def _key_found(self, key: str) -> Found | None:  # noqa: ARG002 (a binding's)
+        """The value at `key`, looked up once a get for rule 5 (spec §6.7
+        <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>), which counts a
+        value the reader holds whole to read a range of it as fetched once a get, cached or not;
+        None when `_key_bytes` reads it, only by range."""
         return None
 
     async def _read(
@@ -1364,25 +1367,26 @@ class ReferenceReader:
             if not r.future.done():
                 r.future.set_result(data[r.start - start : r.end - start])
 
-    async def _held_values(self, keys: Iterable[str], fetched: int) -> dict[str, Held]:
-        """The values of `keys` the reader holds whole to read a range of them, each fetched once,
-        the bytes it reads to hold it, on top of `fetched` (spec §6.7
+    async def _found_keys(self, keys: Iterable[str], fetched: int) -> dict[str, Found]:
+        """The values of `keys` the reader looks up, each it holds whole to read a range of it
+        fetched once, the bytes it reads to hold it, on top of `fetched` (spec §6.7
         <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 5). The keys
         are looked up together, and the `get` is refused as soon as what it fetches passes its bound,
         the lookups not yet done cancelled. A key the reader cannot look up fails the value as a
         resolution error: what it takes is unknown."""
-        tasks = {asyncio.ensure_future(self._key_held_whole(k)): k for k in keys}
-        finished: asyncio.Queue[asyncio.Future[Held | None]] = asyncio.Queue()  # each lookup as it ends
+        tasks = {asyncio.ensure_future(self._key_found(k)): k for k in keys}
+        finished: asyncio.Queue[asyncio.Task[Found | None]] = asyncio.Queue()  # each lookup as it ends
         for t in tasks:
             t.add_done_callback(finished.put_nowait)
-        whole: dict[str, Held] = {}
+        found: dict[str, Found] = {}
         try:
             for _ in tasks:
                 t = await finished.get()
-                if (h := t.result()) is not None:
-                    whole[tasks[cast("asyncio.Task[Held | None]", t)]] = h
-                    fetched += h.read
-                    self._check_get_bytes(fetched)
+                if (f := t.result()) is not None:
+                    found[tasks[t]] = f
+                    if f.held is not None:
+                        fetched += f.held
+                        self._check_get_bytes(fetched)
         except (RequestError, ResolutionError):
             raise
         except Exception as exc:  # noqa: BLE001 - spec §6.4 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#64-errors>: failures resolving a range
@@ -1393,7 +1397,7 @@ class ReferenceReader:
                     t.cancel()
                 elif not t.cancelled():
                     t.exception()  # retrieved: a failure besides the one raised is not logged
-        return whole
+        return found
 
     def _check_reads(self, n: int) -> None:
         """Refuse a `get` that makes `n` reads, past the policy's reads per `get` (spec §6.7
@@ -1464,8 +1468,9 @@ class ReferenceReader:
         self._check_reads(len(_coalesced(reads, gap=gap, budget=most)))
         exact = sum(b - a for _, a, b in _coalesced(reads, gap=0, budget=most))
         self._check_get_bytes(max(built, exact))
-        whole = await self._held_values(keys, exact)
-        held = sum(h.read for h in whole.values())
+        found = await self._found_keys(keys, exact)
+        whole = {k: f for k, f in found.items() if f.held is not None}
+        held = sum(cast("int", f.held) for f in whole.values())
         # combine nearby reads of each url source within what the value may fetch besides the key
         # values, then slice them apart
         runs = _coalesced(reads, gap=gap, budget=most - held)
@@ -1477,10 +1482,12 @@ class ReferenceReader:
                     raise ResolutionError(f"data source {p.source} is shorter than {p.end} bytes")
                 pieces[i] = data[p.start:p.end]
         owner = object()  # this value's reads, which the shared reads keep apart
-        # a key's value held whole is read whole once, and its ranges are cut from it
+        # a key's value held whole is read whole once, and its ranges are cut from it; a range of
+        # any other is read from what its lookup found, or by `_key_bytes`
         ranged = [p for p in pieces if isinstance(p, _KeyPiece) and p.key not in whole]
-        coros = [h.load() for h in whole.values()]
-        coros += [self._key_bytes(p.key, p.start, p.end) for p in ranged]
+        coros = [f.load(0, f.size) for f in whole.values()]
+        coros += [found[p.key].load(p.start, p.end) if p.key in found else self._key_bytes(p.key, p.start, p.end)
+                  for p in ranged]
         coros += [self._shared_read(s, a, b, owner) for s, a, b in runs]
         try:
             done = await asyncio.gather(*coros)

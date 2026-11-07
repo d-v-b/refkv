@@ -99,12 +99,15 @@ fn values_references_and_listing() {
     // a compressed key source's value, decoded whole, is fetched once a get: the value's size, more
     // than the 16 bytes the value is built from
     let Some(EntryInfo::Bytes { stored_length, .. }) = s.entry_info("a/c/2").unwrap() else { panic!() };
-    let held = s.key_held_whole("a/c/2").unwrap().unwrap();
-    assert_eq!((held.size, held.read), (big.len() as u64, big.len() as u64));
-    assert_eq!(s.held_bytes(&held).unwrap(), big);
+    let found = s.key_found("a/c/2").unwrap().unwrap();
+    assert_eq!((found.size, found.held), (big.len() as u64, Some(big.len() as u64)));
+    assert_eq!(s.found_bytes(&found, 0, found.size).unwrap(), big);
     assert!(stored_length < big.len() as u64);
-    assert!(s.key_held_whole("a/c/0").unwrap().is_none());
-    assert_eq!(s.key_held_whole("a/c/3").unwrap().map(|h| h.size), Some(4)); // inline
+    let stored = s.key_found("a/c/0").unwrap().unwrap(); // a codec-0 value stored apart: read by range
+    assert_eq!((stored.held, s.found_bytes(&stored, 10, 20).unwrap()), (None, big[10..20].to_vec()));
+    assert_eq!(s.found_bytes(&stored, 0, big.len() as u64 + 1).unwrap_err().class, Class::Resolution);
+    assert!(s.key_found("r/one").unwrap().is_none()); // a reference
+    assert_eq!(s.key_found("a/c/3").unwrap().map(|f| (f.size, f.held.is_some())), Some((4, true))); // inline
     let decoded = |request_bytes| Store::open_with(s.reader().clone(), refkv_phkv::Limits { request_bytes, ..Default::default() }).unwrap();
     assert_eq!(decoded(big.len() as u64).get("r/concat", Request::Whole, &NoUrls).unwrap().unwrap(), concat);
     assert_eq!(decoded(big.len() as u64 - 1).get("r/concat", Request::Whole, &NoUrls).unwrap_err().class, Class::Request);
@@ -777,10 +780,10 @@ fn a_key_source_that_cannot_be_looked_up_fails_the_get() {
     let logged = Store::open_with(Logging(b.clone(), Default::default()), limits.clone()).unwrap();
     logged.get("r", Request::Whole, &NoUrls).unwrap();
     let before = logged.reader().1.borrow().len();
-    logged.key_held_whole("z").unwrap();
+    logged.key_found("z").unwrap();
     let record = *logged.reader().1.borrow().get(before..).and_then(<[_]>::last).expect("z's record read");
     let s = Store::open_with(Failing(b, record.0, Default::default()), limits).unwrap();
-    assert_eq!(s.key_held_whole("z").unwrap_err().class, Class::Resolution);
+    assert_eq!(s.key_found("z").unwrap_err().class, Class::Resolution);
     // the get fails at its one lookup of z: no second lookup, and no read of the value
     let before = s.reader().2.get();
     assert_eq!(s.get("r", Request::Whole, &NoUrls).unwrap_err().class, Class::Resolution);
@@ -832,4 +835,29 @@ fn held_values_past_the_bound_stop_the_lookups() {
     assert_eq!(s.get("r", Request::Whole, &NoUrls).unwrap_err().class, Class::Request);
     let held = s.reader().1.borrow()[before..].iter().filter(|r| r.1 >= 10_000).count();
     assert_eq!(held, 3, "the third value passes 25,000 bytes");
+}
+
+/// A codec-0 key source stored apart, read by range, is looked up once a get: the range is read
+/// from the record the count's lookup read.
+#[test]
+fn a_ranged_key_source_is_looked_up_once_a_get() {
+    let b = write(Options { inline_max: 0, codec: Codec::None, ..Options::default() }, |w| {
+        for i in 0..200 {
+            w.add_bytes(&format!("p/{i:03}"), &[1u8; 600]).unwrap(); // keeps the record out of the tail
+        }
+        w.add_bytes("z", &vec![5u8; 100_000]).unwrap();
+        let z = w.internal("z").unwrap();
+        w.add_ranges("r", &[Range::of(z, 10, 4)]).unwrap();
+    });
+    let limits = refkv_phkv::Limits { tail: 256, ..Default::default() };
+    let s = Store::open_with(Logging(b, Default::default()), limits).unwrap();
+    s.get("r", Request::Whole, &NoUrls).unwrap(); // looks "r" up
+    let before = s.reader().1.borrow().len();
+    s.key_found("z").unwrap();
+    let lookup = s.reader().1.borrow()[before..].to_vec();
+    let before = s.reader().1.borrow().len();
+    assert_eq!(s.get("r", Request::Whole, &NoUrls).unwrap().unwrap(), vec![5u8; 4]);
+    let get = s.reader().1.borrow()[before..].to_vec();
+    assert_eq!(get.iter().filter(|r| lookup.contains(r)).count(), lookup.len(), "z looked up once: {get:?}");
+    assert_eq!(get.iter().filter(|r| **r == *lookup.last().unwrap()).count(), 1, "{get:?}");
 }

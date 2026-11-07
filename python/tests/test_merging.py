@@ -268,6 +268,20 @@ def test_values_read_at_once_share_one_request_across_their_own_gaps(server):
     assert state["ranges"] == [(0, 12000)]
 
 
+def test_tiles_of_padded_rows_read_at_once_share_requests(server):
+    """Three tiles of a strip image whose rows are padded, read at once, share requests across the
+    rows: each tile's own pieces are more than the coalescing gap apart, so no tile's coalescing
+    could combine them, and the other tiles' pieces bridge them."""
+    url, state = server
+    stride, width = 25_000, 7_000  # 4,000 bytes of padding after each row of three tiles
+    tiles = {f"t{t}": [Range(source=0, offset=row * stride + t * width, length=width) for row in range(8)]
+             for t in range(3)}
+    store = _store(url, tiles, policy=Policy(allow_private_hosts=True, max_coalesce_gap=16_000))
+    want = [b"".join(BLOB[r.offset:r.offset + width] for r in v) for v in tiles.values()]
+    assert run(_gather(store, *tiles)) == want
+    assert len(state["ranges"]) < 8
+
+
 def test_a_shared_request_fetches_no_more_than_a_get_may_take(server):
     """Reads of different values combine only into requests of at most the policy's
     `max_get_bytes`: two 4 KiB reads 64 KiB apart are two requests under a budget of 4 KiB."""

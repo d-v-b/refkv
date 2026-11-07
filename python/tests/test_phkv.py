@@ -22,7 +22,7 @@ from refkv.errors import ArchiveError, BodyError, RefkvError, RequestError, Reso
 from refkv.pb import Concat, Range, Source
 from refkv.phkv import PhkvStore, PhkvWriter
 from refkv.policy import Policy, crc32c
-from refkv.reader import Held
+from refkv.reader import Found
 
 N = 300  # enough keys for several pages and slot blocks
 DATA = BLOB * 4  # the object the references read: 16 KiB
@@ -145,13 +145,13 @@ def test_looks_up_a_key_source_once_a_get(tmp_path, monkeypatch):
     store.save_phkv(tmp_path / "s.phkv")
     phkv = refkv.phkv.open(tmp_path / "s.phkv")
     looked_up = []
-    held_whole = phkv._key_held_whole
+    held_whole = phkv._key_found
 
     async def counted(key):
         looked_up.append(key)
         return await held_whole(key)
 
-    monkeypatch.setattr(phkv, "_key_held_whole", counted)
+    monkeypatch.setattr(phkv, "_key_found", counted)
     assert phkv.get("r") == value[:200]
     assert looked_up == ["k"]
 
@@ -181,48 +181,51 @@ def test_held_values_past_the_bound_stop_the_lookups(tmp_path, monkeypatch):
         w.add_ranges("r", ranges)
     phkv = refkv.phkv.open(path, policy=Policy(max_get_bytes=25_000), max_concurrency=4)
     looked_up = []
-    held_whole = phkv._key_held_whole
+    held_whole = phkv._key_found
 
     async def counted(key):
         held = await held_whole(key)
         looked_up.append(key)
         return held
 
-    monkeypatch.setattr(phkv, "_key_held_whole", counted)
+    monkeypatch.setattr(phkv, "_key_found", counted)
     with pytest.raises(RequestError, match="more than 25000 bytes"):
         phkv.get("r")
     assert 3 <= len(looked_up) < 20
 
 
-def test_decodes_a_compressed_key_source_once_a_get(tmp_path, monkeypatch):
-    """50 ranges of one compressed key source read its value whole once, from the record its lookup
-    read, and cut the ranges from it."""
+@pytest.mark.parametrize(("compressed", "loads"),
+                         [(["k"], [(0, 10_000)]), ([], [(k * 100, k * 100 + 3) for k in range(50)])])
+def test_reads_a_key_source_from_its_lookup(tmp_path, monkeypatch, compressed, loads):
+    """50 ranges of one key source are read from the record its one lookup read: a compressed value
+    whole once, its ranges cut from it, and a value stored apart by range; never by another lookup."""
     value = bytes(range(250)) * 40
     ranges = Concat(tuple(Range(source=0, offset=k * 100, length=3) for k in range(50)))
-    store = refkv.ReferenceStore({"k": value, "r": ranges}, [Source(key="k")], compressed=["k"])
-    store.save_phkv(tmp_path / "s.phkv")
+    store = refkv.ReferenceStore({"k": value, "r": ranges}, [Source(key="k")], compressed=compressed)
+    store.save_phkv(tmp_path / "s.phkv", inline_max=0)
     phkv = refkv.phkv.open(tmp_path / "s.phkv")
-    loads, ranged = [], []
-    held_whole, key_bytes = phkv._key_held_whole, phkv._key_bytes
+    looked_up, loaded, ranged = [], [], []
+    key_found, key_bytes = phkv._key_found, phkv._key_bytes
 
-    async def counted_held(key):
-        held = await held_whole(key)
-        assert held is not None
+    async def counted_found(key):
+        found = await key_found(key)
+        assert found is not None
+        looked_up.append(key)
 
-        async def load():
-            loads.append(key)
-            return await held.load()
+        async def load(start, end):
+            loaded.append((start, end))
+            return await found.load(start, end)
 
-        return Held(held.size, held.read, load)
+        return Found(found.size, found.held, load)
 
     async def counted_bytes(key, start, end):
         ranged.append((key, start, end))
         return await key_bytes(key, start, end)
 
-    monkeypatch.setattr(phkv, "_key_held_whole", counted_held)
+    monkeypatch.setattr(phkv, "_key_found", counted_found)
     monkeypatch.setattr(phkv, "_key_bytes", counted_bytes)
     assert phkv.get("r") == b"".join(value[k * 100 : k * 100 + 3] for k in range(50))
-    assert (loads, ranged) == (["k"], [])
+    assert (looked_up, sorted(loaded), ranged) == (["k"], loads, [])
 
 
 def test_cancelling_a_get_leaves_no_key_read_unawaited(tmp_path, monkeypatch):
@@ -237,7 +240,7 @@ def test_cancelling_a_get_leaves_no_key_read_unawaited(tmp_path, monkeypatch):
         if key == "j":
             await asyncio.Event().wait()
 
-    monkeypatch.setattr(phkv, "_key_held_whole", stuck)
+    monkeypatch.setattr(phkv, "_key_found", stuck)
 
     async def cancelled():
         task = asyncio.ensure_future(phkv.get_async("r"))
