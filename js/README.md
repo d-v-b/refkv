@@ -175,6 +175,29 @@ OME-Zarr 0.4 stores that break a rule of OME-NGFF 0.4 that 0.5 also has.
 A store that lists more than 100000 objects is refused with HTTP 507 (a
 limit of this implementation, [spec/zarrify.md Appendix A](../spec/zarrify.md#appendix-a-conformance)).
 
+## What a read sends
+
+- **Sources are read anonymously.** The reader fetches a store's `url` sources with
+  `credentials: "omit"`, so a source on the page's own origin gets no cookies or HTTP
+  authentication. Under the browser's default (`same-origin`), a store at
+  `https://app.example/data/x.vzip` could name `https://app.example/api/export` as a source, and
+  the reader would read it with the user's session and hand the bytes to whoever reads the store.
+  An application whose sources need the user's session sets the unsafe
+  `allowSourceCredentials: true` in its reader policy
+  ([spec/refkv.md §6.7](../spec/refkv.md#67-reader-policy)). The archive's own URL, and the
+  files and stores the worker zarrifies, are the application's choice, and are fetched with the
+  browser's default; the sources of an archive the worker zarrifies are still read anonymously,
+  so an input behind the page's login needs `allowSourceCredentials` in the handler's `policy`.
+- **Cross-origin isolation.** On a cross-origin-isolated page (`Cross-Origin-Embedder-Policy:
+  require-corp`), every cross-origin source must send `Cross-Origin-Resource-Policy:
+  cross-origin` or allow the page by CORS, which range reads need anyway.
+- **Servers can refuse.** The browser sends `Sec-Fetch-Site` (`same-origin`, `same-site` or
+  `cross-site`) and, on a CORS request, `Origin` with every read, so a source server can refuse
+  cross-site range reads itself, whatever the reader's policy.
+- **The Rust core does no I/O.** The wasm module (`wasm32-unknown-unknown`) has no file or
+  network access of its own: every URL it asks for is fetched by the JavaScript host, which checks
+  it with `checkPolicy` first.
+
 ## Limits
 
 - **Same origin only.** A service worker only controls pages from its own
