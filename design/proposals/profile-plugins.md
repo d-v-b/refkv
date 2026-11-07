@@ -408,29 +408,13 @@ chunk's framing, a shared JPEG table's reference). It may refuse a value
 `Array(shape, data_type, chunk_shape, codecs, chunks, fill_value=None,
 dimension_names=None)` is an array: chunks keyed by coordinate tuples, each a
 value or bytes (a copied edge chunk, an HDF5 record), `dimension_names` in the
-array's axis order. The plan's arrays, and every value `project` returns,
-are **checked**: each chunk carries the rule of the convention it was built
-under, as the base's values are exempt from a caller's rules today
-([spec/layout.md §4](../../spec/layout.md#4-writing-the-output)). Several
-conventions read more than 1024 ranges for one chunk (an HDF5 strings chunk,
-an MP4 stream's chunk of samples, a VSI image of many strips), and a virtual
-shard is held to [zarrify §2.1](../../spec/zarrify.md#21-virtual-shards)'s
-payload rule and to no read rule. A check lives only on a chunk's value,
-bound to the array it was built in as stored: that array's shape, data type,
-chunk grid, codecs and fill value, and the chunk's key within the array
-(wherever the array is written), not its
-attributes or dimension names. `seal` reads the binding back from the
-document the chunk is written under: it undoes one leading `transpose`
-codec, the caller's composed with any the array already had into one (as
-`copy` composes them for a NumPy file in Fortran order), whether it sits
-first outside a `sharding_indexed` codec or, as `copy` writes it for a
-sharded array, first in its inner and index codecs; it permutes the shape,
-grid and key back, and honors the check if the binding then holds, and
-nowhere else. `hierarchy.array` and `copy` keep a check; a chunk under
-another document or key, and any `cut` or `concat` of one, are unchecked.
-Every chunk a routine returns (the plan's, `grid`'s, `tiff_array`'s,
-`hdf5_array`'s, `project`'s) is checked, and keeps its check in an `Array` a
-caller builds around it; a value the caller makes is not checked.
+array's axis order. Values carry no rule of their own: how many reads or bytes
+one value may take is its reader's limit
+([spec/refkv.md §6.7](../../spec/refkv.md#67-reader-policy) rule 5, `max_reads`
+and `max_get_bytes`), not the writer's, since another reader may allow more.
+Several conventions read more than 1024 ranges for one chunk (an HDF5 strings
+chunk, an MP4 stream's chunk of samples, a VSI image of many strips); `seal`
+writes them, and a reader under the default policy refuses that one `get`.
 
 `hierarchy.array`'s `dimension_names`, when given, replace the `Array`'s.
 A caller that presents an array's axes in another order uses Zarr's
@@ -465,7 +449,7 @@ options today, becomes internal, and the read planner of
 
 ```python
 plan = refkv.build.plan(parsed)
-plan.arrays                                          # source path -> Array, checked
+plan.arrays                                          # source path -> Array
 plan.images                                          # TIFF, NDPI, QPTIFF: every image, below
 plan.groups                                          # HDF5: canonical path -> its links and members
 plan.unpresented                                     # source path -> reason (hdf5.md §7.4)
@@ -559,8 +543,7 @@ Rust function the built-in projection calls:
   the caller chooses, as [zarrify §2.1](../../spec/zarrify.md#21-virtual-shards)
   builds them (`shard.rs`), joined as its chunks' input was read
   (`checksums`): its codecs become `sharding_indexed`, and its chunks the
-  shards, checked only if every inner chunk was checked under the same
-  binding, and otherwise unchecked.
+  shards.
 - **`tiff_array(parsed, ifds)`**: the `Array` of a sequence of IFDs (their IR
   paths, `ifds/<n>`) of one
   format, as planes along a new leading axis, their strips joined and padded
@@ -646,10 +629,10 @@ number of inputs and without a base, as a function of the core. `seal`:
    and file runs' numbering of data sources change to this one rule, so a
    built-in table and a sealed one agree.
 2. **Checks**, after numbering: every key, every `Ref` against its source's
-   size as `read` found it, every payload, and the archive's limits. An
-   unchecked value reads at most 1024 url ranges, counted as readers merge
-   them ([spec/refkv.md §6.7](../../spec/refkv.md#67-reader-policy) rule 5);
-   a checked one is held to its rule.
+   size as `read` found it, every payload, and the archive's limits. How many
+   reads or bytes a value takes is its reader's limit
+   ([spec/refkv.md §6.7](../../spec/refkv.md#67-reader-policy) rule 5), which
+   `seal` does not check.
 3. **Places** the entries: as the `Written` says, and otherwise every Zarr
    document is read at open.
 4. **Checksums** the ranges, when the inputs were read with checksums
@@ -688,7 +671,7 @@ not keep refkv's declarations claims nothing of them, whatever it read.
 from the plan, with the mirror and the declarations, sealed. It returns what
 `Base` gives today (entries, documents, arrays, attributes without refkv's
 declarations, and `elements(path)`, which maps a built-in array's chunks to
-IR elements, or to chunk index entries), checked, with `copy` working on it
+IR elements, or to chunk index entries), as values, with `copy` working on it
 as now. A caller that keeps refkv's arrays and changes only their metadata
 copies them from it, as the `bare` example does.
 
@@ -776,9 +759,7 @@ or IFD8 (13, 18), that is, every tag with an `ifd_<tag>` child in the IR
 the model does not know) or that lie outside the file. It refuses an
 old-style JPEG's offset (513), a BigTIFF or mixed byte orders
 (`header/magic`, `header/byte_order`), a page without strips or tiles, a
-strip outside the file, and a stack of 4 GiB or more; and it lets `seal`
-refuse a value that reads more than 1024 ranges, rather than counting
-files. The strips are ranges of the file, not `reference`s, since a JPEG strip's reference splices in tables the copied
+strip outside the file, and a stack of 4 GiB or more. The strips are ranges of the file, not `reference`s, since a JPEG strip's reference splices in tables the copied
 JPEGTables tag already gives. Without checksums each input can be closed
 once its pages are walked.
 
@@ -932,8 +913,7 @@ and changing an output is a cost only to the fixtures.
 ## Order of work
 
 1. **The plumbing**, with no format's facts changed: `read` and `Parsed`
-   (with `StoreRun.finish` wrapped), the values, `Array`, `Written` and
-   checked values, `seal` in the core from `prepare` and `store_of` with the
+   (with `StoreRun.finish` wrapped), the values, `Array`, `Written`, `seal` in the core from `prepare` and `store_of` with the
    new numbering (and the built-in outputs changed to it, with the references
    budget's repeats by source range), the accessors
    moved from `Base`, `bytes`, `gaps`, and `project`. `parsed.description`

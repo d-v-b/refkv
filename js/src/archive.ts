@@ -107,7 +107,12 @@ export type RangeFetcher = (
  *   proxy that `NODE_USE_ENV_PROXY` and `HTTP_PROXY` / `HTTPS_PROXY` ask
  *   for while rule 3 applies; the reader then checks only what the name
  *   resolves to locally. Without it, such a request is refused.
- * - `maxSources`, `maxReads`, `maxFormatEntry`: rules 4 to 6.
+ * - `maxSources`, `maxReads`, `maxGetBytes`, `maxFormatEntry`: rules 4 to 6 (rule 5 bounds both
+ *   the reads and the bytes one read of a value takes).
+ * - `maxReadAmplification`: how many times the bytes they ask for the reads of different values
+ *   combined into one request may fetch, plus `MERGE_GAP` (spec §6.3
+ *   <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#63-resolving-a-reference>,
+ *   **Coalescing**): more saves requests, and fetches bytes no value returns.
  * - `unverifiablePins`: skip pins whose headers a cross-origin response hides
  *   (rule 7). Range checksums are still checked.
  */
@@ -119,6 +124,8 @@ export interface Policy {
   allowUncheckedProxy?: boolean;
   maxSources?: number;
   maxReads?: number;
+  maxGetBytes?: number;
+  maxReadAmplification?: number;
   maxFormatEntry?: number;
   unverifiablePins?: boolean;
 }
@@ -130,6 +137,8 @@ export const DEFAULT_POLICY: Required<Omit<Policy, "prefixes">> & Pick<Policy, "
   allowUncheckedProxy: false,
   maxSources: 1 << 22,
   maxReads: 1024,
+  maxGetBytes: 2 ** 31,
+  maxReadAmplification: 4,
   maxFormatEntry: 256 << 20,
   unverifiablePins: false,
 };
@@ -336,13 +345,9 @@ export const MERGE_GAP = 1 << 16;
 /**
  * The reads of different values that wait at the same time merge as well, under that gap. They
  * only gain speed, where one value's reads must also stay within `maxReads`, so a run has limits
- * of its own, the IR read planner's for a server of single ranges (rust/refkv-ir/src/plan.rs):
- * this many times the bytes it asks for, plus a gap...
- */
-export const MERGE_AMPLIFICATION = 4;
-/**
- * ...and the bytes waiting over this many connections, between these lengths, so that a batch
- * that reads much keeps connections busy.
+ * of its own: the policy's `maxReadAmplification` times the bytes it asks for, plus a gap, and
+ * the bytes waiting over this many connections, between these lengths, so that a batch that
+ * reads much keeps connections busy.
  */
 const MERGE_CONNECTIONS = 8;
 const MERGE_MIN_RUN = 1 << 20;
@@ -379,10 +384,14 @@ type Serving = { offset: bigint; end: bigint; reads: Waiting[] };
 /**
  * `reads` of one source, as the runs that one request each serves, in order of offset. A read
  * joins the run before it if it starts at most `MERGE_GAP` bytes after the run's end, and the run
- * then fetches at most `MERGE_AMPLIFICATION` times the bytes its reads ask for, plus `MERGE_GAP`,
- * and at most `longest` bytes. A read is never cut, so a longer one is a run of its own.
+ * then fetches at most `amplification` times the bytes its reads ask for, plus `MERGE_GAP`, and at
+ * most `longest` bytes. A read is never cut, so a longer one is a run of its own.
  */
-export function mergedRuns<T extends { offset: bigint; end: bigint }>(reads: T[], longest: bigint): T[][] {
+export function mergedRuns<T extends { offset: bigint; end: bigint }>(
+  reads: T[],
+  longest: bigint,
+  amplification: number = DEFAULT_POLICY.maxReadAmplification,
+): T[][] {
   const big = (v: bigint, w: bigint) => (v > w ? v : w);
   const sorted = [...reads].sort((x, y) =>
     x.offset < y.offset ? -1 : x.offset > y.offset ? 1 : x.end < y.end ? -1 : x.end > y.end ? 1 : 0);
@@ -397,7 +406,7 @@ export function mergedRuns<T extends { offset: bigint; end: bigint }>(reads: T[]
       runs.length > 0 &&
       read.offset - end <= BigInt(MERGE_GAP) &&
       span <= longest &&
-      span <= BigInt(MERGE_AMPLIFICATION) * (asked + fresh) + BigInt(MERGE_GAP)
+      Number(span - BigInt(MERGE_GAP)) <= amplification * Number(asked + fresh)
     ) {
       runs[runs.length - 1].push(read);
       asked += fresh;
@@ -823,7 +832,7 @@ export class Archive {
       const longest = share < floor ? floor : share > ceiling ? ceiling : share;
       const gap = BigInt(MERGE_GAP);
       const held: Waiting[] = [];
-      for (const run of mergedRuns(reads, longest)) {
+      for (const run of mergedRuns(reads, longest, this.policy.maxReadAmplification)) {
         const offset = run[0].offset;
         const end = run.reduce((e, r) => (r.end > e ? r.end : e), offset);
         const near = serving.some((s) => s.offset - end <= gap && offset - s.end <= gap);
@@ -904,7 +913,9 @@ export class Archive {
     const parts: (Promise<Uint8Array> | Read)[] = [];
     const cuts: { lo: number; hi: number; crc?: number }[] = [];
     let at = 0;
+    let taken = 0; // the bytes the parts take: a range with a crc32c whole
     for (const r of this.ranges(entry)) {
+      if (taken > this.policy.maxGetBytes) break; // rule 5, checked below: nothing is read
       const n = Number(rangeSize(r));
       const a = Math.max(start, at);
       const b = Math.min(end, at + n);
@@ -913,6 +924,7 @@ export class Archive {
         if ("data" in r) {
           parts.push(Promise.resolve(r.data.subarray(a - at, b - at)));
           cuts.push({ lo: 0, hi: b - a });
+          taken += b - a;
         } else {
           let read: Read;
           if (r.crc32c === undefined) {
@@ -922,6 +934,8 @@ export class Archive {
             read = { source: r.source, offset: r.offset, length: r.length };
             cuts.push({ lo: a - at, hi: b - at, crc: r.crc32c });
           }
+          taken += Number(read.length);
+          if (taken > this.policy.maxGetBytes) break;
           parts.push(this.sources[r.source].url !== undefined ? read : this.source(read));
         }
       }
@@ -943,6 +957,15 @@ export class Archive {
         runs.push({ source: read.source, offset: read.offset, end: readEnd });
       }
       runOf.set(read, runs[runs.length - 1]);
+    }
+    if (taken > this.policy.maxGetBytes) {
+      // spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule
+      // 5: before any read. The other parts read no url source.
+      for (const p of parts) if (p instanceof Promise) p.catch(() => {});
+      throw new RefkvError(
+        "request",
+        `the value needs more than ${this.policy.maxGetBytes} bytes; this reader allows ${this.policy.maxGetBytes} (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)`,
+      );
     }
     if (runs.length > this.policy.maxReads) {
       // spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule

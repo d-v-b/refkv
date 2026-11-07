@@ -1284,3 +1284,18 @@ shared read can fail where only one of its reads would: the reader then makes ea
 [§6.7](../../refkv.md#67-reader-policy) rule 5 still counts the reads of one `get` by itself. A reader
 that combines nothing across `get`s still conforms, so the conformance suite and its three
 implementations are unchanged.
+
+## Revision 11.6: the bytes of one value, and how much shared reads amplify
+
+Format version 0, specification revision 11.6. **Status: provisional.** No store's values change.
+[§6.7](../../refkv.md#67-reader-policy) rule 5 bounded the reads of one `get` and nothing else, so a
+store of a few bytes could name a range of terabytes, or a data source of 256 MiB thousands of
+times, and a reader would fetch or build all of it. A reader MUST now also have a maximum number of
+bytes one `get` takes (the bytes of each range it resolves, a range with a `crc32c` whole), 2^31 in
+the readers of the specification's repository, refused as a request error before any read. How many
+bytes the reads of different `get`s fetch to save requests ([§6.3](../../refkv.md#63-resolving-a-reference)),
+4 times what they ask for plus 64 KiB, is now a setting of the reader's policy, its read amplification.
+Rule 5 also says what a writer does with these limits: nothing. They are each reader's, which a
+reader of a trusted store may raise, so a writer does not hold a store to them; refkv's writers no
+longer refuse a value of more than 1024 reads. The limits are implementation-defined, as rule 5's
+were, so the conformance suite and its three implementations are unchanged.

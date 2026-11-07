@@ -266,11 +266,10 @@ def plan_spans(
 type SealPiece = bytes | tuple[int, ...]
 
 def seal(urls: list[tuple[str, int | None, str | None]], data: list[bytes], first: int | None,
-         documents: list[str], values: list[tuple[str, list[SealPiece], bool]], max_sources: int,
-         max_reads: int, checksums: bool,
+         documents: list[str], values: list[tuple[str, list[SealPiece]]], max_sources: int, checksums: bool,
          ) -> tuple[list[tuple[str, int]], list[tuple[str, list[tuple[int, int, int] | bytes]]]]:
     """The core's seal (rust/refkv-ir/src/seal.rs) of the output whose bytes entries' keys are
-    `documents` and whose values are (key, pieces, lifted), the pieces naming `urls` (url, size,
+    `documents` and whose values are (key, pieces), the pieces naming `urls` (url, size,
     etag) and `data`, `first` the url that is source 0: (its table, each source ("url", index),
     ("data", index) or ("zeros", length); its values in key order, each (key, ranges), a range
     (source, offset, length) or bytes). Raises SealRefused."""

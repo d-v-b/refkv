@@ -58,8 +58,8 @@ const fillers = (n: number) =>
   Array.from({ length: n }, (_, i) => ({ key: `filler${i}`, ...range(200_000 + i * 2 * MERGE_GAP, 10) }));
 
 const range = (offset: number, length: number) => ({ ranges: [{ source: 0, offset: BigInt(offset), length: BigInt(length) }] });
-const spans = (reads: [number, number][], longest = 1 << 20) =>
-  mergedRuns(reads.map(([a, b]) => ({ offset: BigInt(a), end: BigInt(b) })), BigInt(longest)).map((run) =>
+const spans = (reads: [number, number][], longest = 1 << 20, amplification = 4) =>
+  mergedRuns(reads.map(([a, b]) => ({ offset: BigInt(a), end: BigInt(b) })), BigInt(longest), amplification).map((run) =>
     run.map((r) => [Number(r.offset), Number(r.end)]));
 
 test("mergedRuns groups reads by the gap, the amplification cap and the run's length", () => {
@@ -76,6 +76,8 @@ test("mergedRuns groups reads by the gap, the amplification cap and the run's le
     [[[0, 2 << 20], [2 << 20, (2 << 20) + 1]], [[[0, 2 << 20]], [[2 << 20, (2 << 20) + 1]]]],
   ];
   for (const [reads, runs] of cases) assert.deepEqual(spans(reads), runs);
+  // the policy's maxReadAmplification sets the cap: a larger one makes one run of those small reads
+  assert.deepEqual(spans([[0, 4], [g, g + 4], [2 * g, 2 * g + 4]], 1 << 20, 10_000), [[[0, 4], [g, g + 4], [2 * g, 2 * g + 4]]]);
 });
 
 test("values read at once share requests, each with its own bytes", async () => {

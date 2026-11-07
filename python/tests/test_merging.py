@@ -211,6 +211,19 @@ def test_checksum_that_fails_fails_only_its_value(server):
     assert state["ranges"] == [(0, 20)]
 
 
+def test_the_policy_sets_how_much_shared_reads_may_amplify(server):
+    """Reads of different values combine into one request while it fetches at most the policy's
+    `max_read_amplification` times the bytes they ask for, plus a gap: small reads a gap apart are
+    two requests under the default, one under a larger cap."""
+    url, state = server
+    refs = {"a": (0, 4), "b": (GAP, 4), "c": (2 * GAP, 4)}
+    for amplification, ranges in ((4, 2), (10_000, 1)):
+        state["ranges"].clear()
+        store = _store(url, refs, policy=Policy(allow_private_hosts=True, max_read_amplification=amplification))
+        assert run(_gather(store, *refs)) == [BLOB[0:4], BLOB[GAP:GAP + 4], BLOB[2 * GAP:2 * GAP + 4]]
+        assert len(state["ranges"]) == ranges
+
+
 def test_too_many_reads_for_one_value_is_refused_before_any_read(server):
     """Rule 5 counts one value's reads after its own coalescing, whatever other values would
     merge with them."""

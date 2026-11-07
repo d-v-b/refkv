@@ -17,6 +17,8 @@ from refkv.errors import ResolutionError
 # <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>'s table.
 MAX_SOURCES = 1 << 22
 MAX_READS = 1024
+MAX_GET_BYTES = 1 << 31
+MAX_READ_AMPLIFICATION = 4
 MAX_FORMAT_ENTRY = 256 << 20
 
 _ENCODED = re.compile(r"%(2[eEfF]|5[cC])")
@@ -166,7 +168,12 @@ class Policy:
       the address it reaches; it checks what the name resolves to locally,
       which DNS rebinding gets past. Without it, a request that would go
       through a proxy is refused.
-    - `max_sources`, `max_reads`, `max_format_entry`: rules 4 to 6.
+    - `max_sources`, `max_reads`, `max_get_bytes`, `max_format_entry`: rules 4 to 6 (rule 5
+      bounds both the reads and the bytes one `get` takes).
+    - `max_read_amplification`: how many times the bytes they ask for the reads of different
+      values combined into one request may fetch, plus 64 KiB (spec §6.3
+      <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#63-resolving-a-reference>,
+      **Coalescing**): more saves requests, and fetches bytes no value returns.
 
     Rule 7 (unverifiable pins) has no option here: this reader always sees a
     response's headers, so every pin it is given can be checked.
@@ -195,6 +202,8 @@ class Policy:
     allow_unchecked_proxy: bool = False
     max_sources: int = MAX_SOURCES
     max_reads: int = MAX_READS
+    max_get_bytes: int = MAX_GET_BYTES
+    max_read_amplification: float = MAX_READ_AMPLIFICATION
     max_format_entry: int = MAX_FORMAT_ENTRY
 
     def __post_init__(self) -> None:

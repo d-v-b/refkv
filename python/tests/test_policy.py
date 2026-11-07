@@ -334,6 +334,18 @@ def test_refuses_too_many_reads(tmp_path, server):
     assert state["requests"] == 0
 
 
+def test_refuses_too_many_bytes(tmp_path, server):
+    """Rule 5 counts the bytes a value takes: a literal's, and a url range's, whole when it carries
+    a checksum, before any read."""
+    base, state = server
+    arc = _archive(tmp_path / "a.vzip", [Source(url=f"{base}/blob.bin")], {
+        "r": [Range(data=b"abc"), Range(source=0, offset=0, length=4)]})
+    s = VZipStore(arc, policy=Policy(max_get_bytes=6, allow_private_hosts=True))
+    with pytest.raises(RequestError, match="more than 6 bytes"):
+        _get(s, "r")
+    assert state["requests"] == 0
+
+
 def test_refuses_an_inflation_bomb(tmp_path):
     # a source table that inflates to 64 MiB from about 64 KiB
     path = tmp_path / "a.vzip"

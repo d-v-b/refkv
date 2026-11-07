@@ -1,6 +1,6 @@
 # refkv: a reference value type for key-value stores
 
-Format version: 0 (**provisional**) · Specification revision: 11.5
+Format version: 0 (**provisional**) · Specification revision: 11.6
 
 ## 1. Introduction
 
@@ -890,7 +890,8 @@ Python reader also waits for a connection when the store's are all busy. The JS
 reader, which has no limit of its own on connections, also waits up to 1 s while 16
 requests to the source are in flight, if one of them lies within 64 KiB of the read,
 and takes a read wholly inside a request in flight from that request. They fetch at
-most 4 times the bytes a shared read asks for, plus 64 KiB. A `multipart/byteranges`
+most a number of times the bytes a shared read asks for, plus 64 KiB, that the reader's policy
+sets (its **read amplification**, [§6.7](#67-reader-policy), 4 by default). A `multipart/byteranges`
 response is still an error ([§5.2](#52-reading-over-http)), so reads too far apart
 to combine this way remain separate requests.
 
@@ -1062,14 +1063,17 @@ it; the other limits are resource limits ([§6.4](#64-errors)).
    private one.
 4. **Sources.** A reader MUST have a maximum number of sources. Opening a
    store whose source table has more is an archive error.
-5. **Requests per value.** A reader MUST have a maximum number of reads of
+5. **Requests and bytes per value.** A reader MUST have a maximum number of reads of
    `url` sources that one `get` may make, counted after coalescing
    ([§6.3](#63-resolving-a-reference)), with each read counting once however
-   many redirects it follows. A `get` that would need more is a request
-   error, reported before any of its reads is made. The count is of the reads
-   the `get` needs by itself: sharing them with other `get`s
+   many redirects it follows, and a maximum number of bytes one `get` may take: the
+   bytes of each range it resolves, those read (a range with a `crc32c` whole) or taken
+   from a `data` or `key` source or a literal range. A `get` that would need more of
+   either is a request error, reported before any of its reads is made. The count is of
+   the reads the `get` needs by itself: sharing them with other `get`s
    ([§6.3](#63-resolving-a-reference)) does not change it, and neither does
-   making one on its own after a shared read fails.
+   making one on its own after a shared read fails. These limits are the reader's: a
+   writer does not hold a store to them, since another reader may allow more.
 6. **Data read at open.** A reader MUST have a maximum size for the source
    table and for each piece of the binding's auxiliary data, and MUST stop
    reading or decompressing either as soon as its output passes that size,
@@ -1098,6 +1102,8 @@ defaults:
 | proxies while rule 3 applies | refused |
 | sources per store | 4,194,304 (2^22) |
 | reads per `get` | 1024 |
+| bytes per `get` | 2^31 |
+| read amplification of shared reads ([§6.3](#63-resolving-a-reference)) | 4 |
 | the source table, or auxiliary data (in a vzip archive, a format entry, inflated) | 256 MiB |
 | unverifiable pins | fail |
 

@@ -238,18 +238,6 @@ def test_a_tile_past_the_payload_limit_is_rejected(tmp_path):
     rejected(path, {"narrow": [16384, 1]}, "payload")
 
 
-def test_a_tile_past_the_read_bound_is_rejected(tmp_path):
-    """A tile of 1025 rows, each more than 64 KiB past the last, makes 1025 reads."""
-    path = tmp_path / "far.h5"
-    with h5py.File(path, "w") as f:  # allocated, never written: the file is sparse
-        dcpl = h5py.h5p.create(h5py.h5p.DATASET_CREATE)
-        dcpl.set_layout(h5py.h5d.CONTIGUOUS)
-        dcpl.set_alloc_time(h5py.h5d.ALLOC_TIME_EARLY)
-        dcpl.set_fill_time(h5py.h5d.FILL_TIME_NEVER)
-        h5py.h5d.create(f.id, b"far", h5py.h5t.NATIVE_UINT8, h5py.h5s.create_simple((1025, 65600)), dcpl=dcpl)
-    rejected(path, {"far": [1025, 1]}, "1025 ranges")
-
-
 def test_an_input_of_another_profile_is_rejected():
     with pytest.raises(LayoutRejected, match="does not read the tiff"):
         zarrify(str(ROOT / "fixtures" / "tiff" / "strips_uint8.tif"), layout=Layout(Hdf5Rechunk()))

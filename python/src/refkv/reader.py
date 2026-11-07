@@ -885,7 +885,7 @@ class _Merging:
     held: bool = False  # whether reads whose window has passed wait for a connection
 
 
-def _merged(reads: Iterable[_Waiting], *, gap: int, amplification: int, longest: int) -> list[list[_Waiting]]:
+def _merged(reads: Iterable[_Waiting], *, gap: int, amplification: float, longest: int) -> list[list[_Waiting]]:
     """`reads` of one source, as the runs that one request each serves, in order of offset.
 
     A read joins the run before it if it starts at most `gap` bytes after the run's end, and the
@@ -1207,11 +1207,9 @@ class ReferenceReader:
     MERGE_GAP = 1 << 16
     # The reads of different values that wait at the same time merge as well, under that gap
     # (`_shared_read`). They only gain speed, where one value's reads must also stay within
-    # `max_reads`, so a run has limits of its own, the IR read planner's for a server of single
-    # ranges (rust/refkv-ir/src/plan.rs): this many times the bytes it asks for, plus a gap...
-    MERGE_AMPLIFICATION = 4
-    # ...and the bytes waiting over `max_concurrency`, between these lengths, so that a batch
-    # that reads much keeps every connection busy.
+    # `max_reads`, so a run has limits of its own: the policy's `max_read_amplification` times the
+    # bytes it asks for, plus a gap, and the bytes waiting over `max_concurrency`, between these
+    # lengths, so that a batch that reads much keeps every connection busy.
     MERGE_MIN_RUN = 1 << 20
     MERGE_MAX_RUN = 32 << 20
     # How long, in seconds, a read waits for the reads near it. None: no waiting and no merging
@@ -1250,7 +1248,8 @@ class ReferenceReader:
             reads = [r for r in merging.waiting.pop(source) if not r.future.done()]
             longest = sum(r.end - r.start for r in reads) // (self.max_concurrency or DEFAULT_CONCURRENCY)
             longest = min(max(longest, self.MERGE_MIN_RUN), self.MERGE_MAX_RUN)
-            runs = _merged(reads, gap=self.MERGE_GAP, amplification=self.MERGE_AMPLIFICATION, longest=longest)
+            runs = _merged(reads, gap=self.MERGE_GAP, amplification=self.policy.max_read_amplification,
+                           longest=longest)
             while runs and free > 0:
                 task = asyncio.get_running_loop().create_task(self._serve(source, runs.pop(0)))
                 merging.serving.add(task)
@@ -1302,6 +1301,7 @@ class ReferenceReader:
         # `cuts` says which part of each piece the window takes, and which checksum it must have.
         pieces: list[bytes | tuple[int, int, int] | Coroutine[object, object, bytes]] = []
         cuts: list[tuple[int, int, int | None]] = []
+        taken = 0  # the bytes the pieces take: a range with a crc32c whole
         pos = 0
         for r in parts(ref):
             lo, hi = max(start, pos), min(end, pos + r.size)
@@ -1309,6 +1309,7 @@ class ReferenceReader:
                 if r.data is not None:
                     pieces.append(r.data[lo - pos : hi - pos])
                     cuts.append((0, hi - lo, None))
+                    taken += hi - lo
                     pos += r.size
                     continue
                 if r.crc32c is None:
@@ -1317,6 +1318,9 @@ class ReferenceReader:
                 else:
                     a, b = r.offset, r.offset + r.length
                     cuts.append((lo - pos, hi - pos, r.crc32c))
+                taken += b - a
+                if taken > self.policy.max_get_bytes:  # the policy's rule 5, checked below: read nothing
+                    break
                 src = self._sources[r.source]
                 if src.data is not None:
                     if b > len(src.data):
@@ -1337,6 +1341,12 @@ class ReferenceReader:
                 runs.append([source, a, b])
         coros = [p for p in pieces if not isinstance(p, (bytes, tuple))]
         # spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 5, before any read
+        if taken > self.policy.max_get_bytes:
+            for c in coros:
+                c.close()
+            raise RequestError(f"the value needs more than {self.policy.max_get_bytes} bytes; this reader "
+                               f"allows {self.policy.max_get_bytes} ("
+                               f"spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)")
         if len(runs) > self.policy.max_reads:
             for c in coros:
                 c.close()

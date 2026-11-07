@@ -311,6 +311,17 @@ test("refuses too many reads", async () => {
   assert.equal(log.requests, 0);
 });
 
+test("refuses too many bytes", async () => {
+  // a literal's bytes and a url range's count, before any read
+  const desc: ArchiveDesc = {
+    sources: [{ url: "blob.bin" }],
+    entries: [{ key: "r", ranges: [{ data: new Uint8Array(3) }, { source: 0, offset: 0n, length: 4n }] }],
+  };
+  const { archive, log } = await open(desc, { maxGetBytes: 6 });
+  await assert.rejects(archive.read("r"), isError("request", /more than 6 bytes/));
+  assert.equal(log.requests, 0);
+});
+
 test("refuses an inflation bomb in the source table", async () => {
   const bytes = await writeVzip({ sources: [{ data: new Uint8Array(4 << 20) }], entries: [] });
   await assert.rejects(Archive.open(bytes, BASE, undefined, { maxFormatEntry: 1 << 20 }), isError("archive", /inflates to more than/));

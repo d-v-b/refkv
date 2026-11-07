@@ -32,8 +32,10 @@ Options:
 An axis's chunk length is at most the axis's length. A dataset cannot be re-tiled when it is not
 contiguous (chunked or compact), its codecs are more than `bytes` (a variable-length string),
 its bytes are not one data element of the IR (external storage), or a tile would break a rule
-every reference keeps (`base.fits`: a payload of at most 65519 bytes, at most 1024 reads). A
-chunk shape equal to the base's copies the array.
+every reference keeps (`base.fits`: a payload of at most 65519 bytes). How many reads a tile
+takes is its reader's limit (spec/refkv.md §6.7
+<https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 5). A chunk shape
+equal to the base's copies the array.
 
 Everything else is the base's: each group's document (its attributes without refkv's
 declarations), each other array a `copy` with its attributes, and the IR mirror,

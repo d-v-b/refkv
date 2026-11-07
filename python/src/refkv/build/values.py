@@ -1,12 +1,10 @@
 """The values an output built with `refkv.build` holds (the design of d-v-b/refkv#278, "References
 and values"): parts that name what they read, so that numbering the source table is left to `seal`;
-`Value`, a sequence of parts with the check a routine built it under; `Array`; and `Written`, an
-output's entries with their placement."""
+`Value`, a sequence of parts; `Array`; and `Written`, an output's entries with their placement."""
 
 from __future__ import annotations
 
 import json
-import weakref
 from collections.abc import Iterator, Mapping, MutableMapping, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Self
@@ -18,8 +16,8 @@ from refkv.zarrify.layouts import CRC_FIELD, MAX_PAYLOAD, chunk_key
 if TYPE_CHECKING:
     from refkv.build.parsed import Parsed
 
-__all__ = ["Array", "Binding", "Check", "Copy", "Data", "Literal", "Part", "Ref", "Shared", "Value", "Written",
-           "Zeros", "concat", "cut", "fits", "payload_size", "value"]
+__all__ = ["Array", "Copy", "Data", "Literal", "Part", "Ref", "Shared", "Value", "Written", "Zeros", "concat", "cut",
+           "fits", "payload_size", "value"]
 
 # MAX_SOURCES, the most sources an output's table holds (spec/refkv.md §6.7
 # <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>'s default `max_sources`),
@@ -93,62 +91,10 @@ type Part = Ref | Shared | Zeros | Data | Literal | Copy
 
 
 @dataclass(frozen=True)
-class Binding:
-    """The array a checked chunk was built in, as stored, and the chunk's key in it: what `seal`
-    reads back from the document the chunk is written under. JSON members are kept as their
-    canonical text, so that a binding compares by value."""
-
-    shape: tuple[int, ...]
-    data_type: str
-    chunk_grid: str
-    codecs: str
-    fill_value: str
-    key: tuple[int, ...]
-
-    @classmethod
-    def of(cls, doc: Mapping[str, Any], key: Sequence[int]) -> Binding:
-        """The binding of chunk `key` of the Zarr v3 array document `doc`."""
-        return cls(tuple(doc["shape"]), _canonical(doc["data_type"]), _canonical(doc["chunk_grid"]),
-                   _canonical(doc["codecs"]), _canonical(doc.get("fill_value")), tuple(key))
-
-
-@dataclass(frozen=True)
-class Check:
-    """The rule of a convention a chunk was built under, which `seal` holds it to, where its binding
-    holds, in place of the read rule a caller's values meet. Only refkv's routines make checks
-    (`project` today, its rule `"builtin"`, a value of a built-in output), each for the parts of
-    one value: `seal` honors a check one of them issued, on the very parts it was issued for, and
-    no other, so a caller cannot make one, copy one or move one to other parts to escape the read
-    rule."""
-
-    rule: str
-    binding: Binding
-    parts: tuple[Part, ...] = field(default=(), compare=False, repr=False)
-
-    def issued_for(self, parts: tuple[Part, ...]) -> bool:
-        """Whether a routine of refkv issued this very check, for `parts`: a tuple of the very
-        parts, each of refkv's own class (a subclass's comparison is the caller's)."""
-        return (_ISSUED.get(id(self)) is self and type(parts) is tuple and len(parts) == len(self.parts)
-                and all(type(a) is type(b) and a == b for a, b in zip(self.parts, parts, strict=True)))
-
-
-# the checks refkv's routines issued, by identity: a copy (dataclasses.replace) is not among them
-_ISSUED: weakref.WeakValueDictionary[int, Check] = weakref.WeakValueDictionary()
-
-
-def _issue(rule: str, binding: Binding, parts: tuple[Part, ...]) -> Check:
-    """A check made by a routine of refkv for `parts`, which `seal` honors on them."""
-    check = Check(rule, binding, parts)
-    _ISSUED[id(check)] = check
-    return check
-
-
-@dataclass(frozen=True)
 class Value:
-    """A reference value: its parts, in order, and the check it was built under, or None."""
+    """A reference value: its parts, in order."""
 
     parts: tuple[Part, ...]
-    check: Check | None = None
 
     def __post_init__(self) -> None:
         if not self.parts:
@@ -165,7 +111,7 @@ class Value:
 
 
 def value(v: Value | Part | Sequence[Part]) -> Value:
-    """`v` as a `Value`: a value as it is, a part or a sequence of parts unchecked."""
+    """`v` as a `Value`: a value as it is, a part or a sequence of parts."""
     if isinstance(v, Value):
         return v
     if isinstance(v, (Ref, Shared, Zeros, Data, Literal, Copy)):
@@ -203,7 +149,7 @@ def _cut_part(p: Part, a: int, b: int) -> Part:
 
 
 def cut(v: Value | Part | Sequence[Part], start: int, stop: int) -> Value:
-    """The value that reads bytes `start` to `stop` of what `v` reads, unchecked. ValueError for
+    """The value that reads bytes `start` to `stop` of what `v` reads. ValueError for
     bounds outside it."""
     val = value(v)
     if not (type(start) is int and type(stop) is int and 0 <= start < stop <= val.size):
@@ -232,7 +178,7 @@ def _continues(p: Part, q: Part) -> Part | None:
 
 
 def concat(*values: Value | Part | Sequence[Part], merge: bool = False) -> Value:
-    """The one value of the parts of `values`, in order, unchecked; with `merge`, parts that continue
+    """The one value of the parts of `values`, in order; with `merge`, parts that continue
     one another (ranges of one source, of one data blob, or zeros) are joined."""
     if not values:
         raise ValueError("concat of no values")
@@ -292,8 +238,10 @@ def _varint(n: int) -> bytes:
 def fits(v: Value | Part | Sequence[Part], *, checksums: bool | None = None) -> str | None:
     """Why `seal` might not write `v`, measured before the sources are numbered, or None: its
     payload with every source index at its largest, with checksums as `payload_size` counts them.
-    It may refuse a value `seal` would write, never
-    the other way; the reads a value makes are checked by `seal`, which merges them as readers do."""
+    It may refuse a value `seal` would write, never the other way. How many reads or bytes a value
+    takes is its reader's limit (spec/refkv.md §6.7
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 5), not
+    `seal`'s."""
     n = payload_size(v, checksums=checksums)
     if n > MAX_PAYLOAD:
         return f"a payload of up to {n} bytes, more than {MAX_PAYLOAD}"
@@ -324,10 +272,6 @@ def _zero(data_type: object) -> object:
     raise ValueError(f"the data type {data_type!r} has no zero this knows: give the Array its fill_value")
 
 
-def _canonical(x: object) -> str:
-    return json.dumps(x, sort_keys=True, separators=(",", ":"))
-
-
 type ArrayChunk = Value | Part | Sequence[Part] | bytes
 # the members of a Zarr v3 array document that `Array` models; `extra` holds the others
 MODELED = frozenset({"zarr_format", "node_type", "shape", "data_type", "chunk_grid", "chunk_key_encoding",
@@ -340,9 +284,7 @@ class Array:
     axis's lengths for a rectilinear one), codecs, fill value and dimension names, and its chunks by
     coordinates, each a value or bytes; and its attributes, chunk key encoding (the `default` one,
     with `/`, when None) and `extra`, the document's other members, kept as they are. The fill
-    value, when None, is the data type's zero (an error for a type whose zero this does not know).
-    The chunks a routine returns are checked, and keep their checks in an `Array` a caller builds
-    around them; a value a caller makes is not checked."""
+    value, when None, is the data type's zero (an error for a type whose zero this does not know)."""
 
     shape: list[int]
     data_type: str | dict[str, Any]
@@ -402,8 +344,7 @@ class Written(MutableMapping[str, "bytes | Value"]):
     `at_open`, the bytes entries placed explicitly, each read at open by a vzip reader (True) or kept
     for later (False), every other bytes entry following refkv's default (a Zarr document is read at
     open); and `stored`, those kept uncompressed. `written | other` and `written |= other` (another
-    `Written` or a plain mapping) keep every placement; checks travel with the values, so a plain
-    dict loses only placements."""
+    `Written` or a plain mapping) keep every placement; a plain dict loses them."""
 
     def __init__(self, entries: Mapping[str, bytes | Value | Part | Sequence[Part]] | None = None, *,
                  at_open: Mapping[str, bool] | None = None, stored: set[str] | None = None) -> None:
