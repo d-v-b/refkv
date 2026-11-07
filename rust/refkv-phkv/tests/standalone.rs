@@ -746,8 +746,8 @@ fn a_repeated_range_of_a_held_value_counts_each_time() {
     assert_eq!(limited(7999).get("r", Request::Whole, &NoUrls).unwrap_err().class, Class::Request);
 }
 
-/// A file whose reads covering one offset fail.
-struct Failing(Vec<u8>, u64);
+/// A file whose reads covering one offset fail, counted.
+struct Failing(Vec<u8>, u64, std::cell::Cell<usize>);
 
 impl refkv_phkv::ReadAt for Failing {
     fn size(&self) -> std::io::Result<u64> {
@@ -756,6 +756,7 @@ impl refkv_phkv::ReadAt for Failing {
 
     fn read_at(&self, offset: u64, buf: &mut [u8]) -> std::io::Result<()> {
         if offset <= self.1 && self.1 < offset + buf.len() as u64 {
+            self.2.set(self.2.get() + 1);
             return Err(std::io::Error::other("the read failed"));
         }
         self.0.read_at(offset, buf)
@@ -778,9 +779,12 @@ fn a_key_source_that_cannot_be_looked_up_fails_the_get() {
     let before = logged.reader().1.borrow().len();
     logged.key_held_whole("z").unwrap();
     let record = *logged.reader().1.borrow().get(before..).and_then(<[_]>::last).expect("z's record read");
-    let s = Store::open_with(Failing(b, record.0), limits).unwrap();
+    let s = Store::open_with(Failing(b, record.0, Default::default()), limits).unwrap();
     assert_eq!(s.key_held_whole("z").unwrap_err().class, Class::Resolution);
+    // the get fails at its one lookup of z: no second lookup, and no read of the value
+    let before = s.reader().2.get();
     assert_eq!(s.get("r", Request::Whole, &NoUrls).unwrap_err().class, Class::Resolution);
+    assert_eq!(s.reader().2.get() - before, 1);
 }
 
 /// An inline key source's value is read once a get, with the record its lookup reads, and not
@@ -807,4 +811,25 @@ fn an_inline_key_value_is_read_once_a_get() {
     let before = s.reader().1.borrow().len();
     assert_eq!(s.get("big", Request::Whole, &NoUrls).unwrap_err().class, Class::Request);
     assert_eq!(long(before), 0);
+}
+
+/// A get whose key values held whole pass its bound is refused as soon as they do: it looks up no
+/// more keys, nor holds their values.
+#[test]
+fn held_values_past_the_bound_stop_the_lookups() {
+    let b = write(Options { inline_max: 1 << 20, codec: Codec::None, ..Options::default() }, |w| {
+        let mut ranges = Vec::new();
+        for i in 0..50 {
+            let key = format!("k/{i:02}");
+            w.add_bytes(&key, &vec![1u8; 10_000]).unwrap();
+            ranges.push(Range::of(w.internal(&key).unwrap(), 0, 1));
+        }
+        w.add_ranges("r", &ranges).unwrap();
+    });
+    let limits = refkv_phkv::Limits { tail: 256, request_bytes: 25_000, ..Default::default() };
+    let s = Store::open_with(Logging(b, Default::default()), limits).unwrap();
+    let before = s.reader().1.borrow().len();
+    assert_eq!(s.get("r", Request::Whole, &NoUrls).unwrap_err().class, Class::Request);
+    let held = s.reader().1.borrow()[before..].iter().filter(|r| r.1 >= 10_000).count();
+    assert_eq!(held, 3, "the third value passes 25,000 bytes");
 }

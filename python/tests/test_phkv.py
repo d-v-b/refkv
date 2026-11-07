@@ -169,6 +169,31 @@ def test_counts_an_inline_key_value_held_whole(tmp_path):
         refkv.phkv.open(path, policy=Policy(max_get_bytes=(1 << 20) - 1)).get("r")
 
 
+def test_held_values_past_the_bound_stop_the_lookups(tmp_path, monkeypatch):
+    """A get whose key values held whole pass its bound is refused as soon as they do: the lookups
+    not yet done are cancelled, so far fewer than its 200 keys are looked up."""
+    path = tmp_path / "w.phkv"
+    with open(path, "wb") as f, PhkvWriter(f, inline_max=1 << 20) as w:
+        ranges = []
+        for i in range(200):
+            w.add_bytes(f"k/{i:03}", bytes(10_000), codec="none")
+            ranges.append(Range(source=w.internal(f"k/{i:03}"), offset=0, length=1))
+        w.add_ranges("r", ranges)
+    phkv = refkv.phkv.open(path, policy=Policy(max_get_bytes=25_000), max_concurrency=4)
+    looked_up = []
+    held_whole = phkv._key_held_whole
+
+    async def counted(key):
+        held = await held_whole(key)
+        looked_up.append(key)
+        return held
+
+    monkeypatch.setattr(phkv, "_key_held_whole", counted)
+    with pytest.raises(RequestError, match="more than 25000 bytes"):
+        phkv.get("r")
+    assert 3 <= len(looked_up) < 20
+
+
 def test_decodes_a_compressed_key_source_once_a_get(tmp_path, monkeypatch):
     """50 ranges of one compressed key source read its value whole once, from the record its lookup
     read, and cut the ranges from it."""

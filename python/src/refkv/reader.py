@@ -1362,6 +1362,36 @@ class ReferenceReader:
             if not r.future.done():
                 r.future.set_result(data[r.start - start : r.end - start])
 
+    async def _held_values(self, keys: Iterable[str], fetched: int) -> dict[str, Held]:
+        """The values of `keys` the reader holds whole to read a range of them, each fetched once,
+        the bytes it reads to hold it, on top of `fetched` (spec §6.7
+        <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 5). The keys
+        are looked up together, and the `get` is refused as soon as what it fetches passes its bound,
+        the lookups not yet done cancelled. A key the reader cannot look up fails the value as a
+        resolution error: what it takes is unknown."""
+        tasks = {asyncio.ensure_future(self._key_held_whole(k)): k for k in keys}
+        pending = set(tasks)
+        whole: dict[str, Held] = {}
+        try:
+            while pending:
+                done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+                for t in done:
+                    if (h := t.result()) is not None:
+                        whole[tasks[t]] = h
+                        fetched += h.read
+                self._check_get_bytes(fetched)
+        except (RequestError, ResolutionError):
+            raise
+        except Exception as exc:  # noqa: BLE001 - spec §6.4 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#64-errors>: failures resolving a range
+            raise ResolutionError(f"{type(exc).__name__}: {exc}") from None
+        finally:
+            for t in tasks:
+                if not t.done():
+                    t.cancel()
+                elif not t.cancelled():
+                    t.exception()  # retrieved: a failure besides the one raised is not logged
+        return whole
+
     def _check_reads(self, n: int) -> None:
         """Refuse a `get` that makes `n` reads, past the policy's reads per `get` (spec §6.7
         <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 5)."""
@@ -1431,17 +1461,8 @@ class ReferenceReader:
         self._check_reads(len(_coalesced(reads, gap=gap, budget=most)))
         exact = sum(b - a for _, a, b in _coalesced(reads, gap=0, budget=most))
         self._check_get_bytes(max(built, exact))
-        # a key's value the reader holds whole to read a range of it is fetched once, the bytes it
-        # reads to hold it; a key the reader cannot look up fails the value: what it takes is unknown
-        try:
-            found = await asyncio.gather(*(self._key_held_whole(k) for k in keys))
-        except ResolutionError:
-            raise
-        except Exception as exc:  # noqa: BLE001 - spec §6.4 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#64-errors>: failures resolving a range
-            raise ResolutionError(f"{type(exc).__name__}: {exc}") from None
-        whole = {k: h for k, h in zip(keys, found, strict=True) if h is not None}
+        whole = await self._held_values(keys, exact)
         held = sum(h.read for h in whole.values())
-        self._check_get_bytes(exact + held)
         # combine nearby reads of each url source within what the value may fetch besides the key
         # values, then slice them apart
         runs = _coalesced(reads, gap=gap, budget=most - held)

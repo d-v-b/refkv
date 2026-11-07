@@ -12,7 +12,7 @@ use crate::ptrhash::{self, Params};
 use refkv_vzip::pb::{self, Range, Source, SourceKind};
 use std::cell::RefCell;
 use std::io;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, OnceLock};
 
 /// Random access to the bytes of a store.
@@ -789,12 +789,12 @@ impl<R: ReadAt> Store<R> {
         // and once a get the bytes read to hold a key source's value whole, which only a lookup of
         // the key tells, so it is counted once the rest pass
         let (mut built, mut fetched) = (0u64, 0u64);
-        let mut keys: Vec<&str> = Vec::new();
+        let (mut keys, mut seen): (Vec<&str>, HashSet<&str>) = (Vec::new(), HashSet::new());
         for &(r, i, j) in &parts {
             let range = if r.data.is_none() && r.crc32c.is_some() { r.length } else { j - i };
             built = built.saturating_add(range);
             match (r.data.is_none()).then(|| &self.sources[r.source as usize].kind) {
-                Some(SourceKind::Key(k)) if !keys.contains(&k.as_str()) => keys.push(k.as_str()),
+                Some(SourceKind::Key(k)) if seen.insert(k.as_str()) => keys.push(k.as_str()),
                 Some(SourceKind::Url(_)) => fetched = fetched.saturating_add(range),
                 _ => {}
             }
@@ -807,10 +807,10 @@ impl<R: ReadAt> Store<R> {
         for k in keys {
             let whole = self.key_held_whole(k)?;
             fetched = fetched.saturating_add(whole.as_ref().map_or(0, |h| h.read));
+            if fetched > self.limits.request_bytes {
+                return refuse(fetched); // no more keys looked up, nor values held
+            }
             held.insert(k, whole);
-        }
-        if fetched > self.limits.request_bytes {
-            return refuse(fetched);
         }
         let mut out = Vec::with_capacity((b - a) as usize);
         let mut decoded: HashMap<&str, Vec<u8>> = HashMap::new(); // each value decoded whole, once a get

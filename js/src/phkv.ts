@@ -485,6 +485,11 @@ export class PhkvArchive extends Archive {
   }
 
   /** The record of `key`, found through the perfect hash (spec §19.5 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#195-lookup>), as an entry. */
+  /** A standalone phkv store reserves no names (spec/bindings/phkv.md). */
+  protected override namesFormatEntry(): boolean {
+    return false;
+  }
+
   protected override entryFor(key: string): Entry | undefined {
     const known = this.entries.get(key);
     if (known !== undefined || this.keyCount === 0) return known;

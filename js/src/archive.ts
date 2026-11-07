@@ -740,6 +740,11 @@ export class Archive {
     return entry;
   }
 
+  /** Whether `key` names a format entry, which no `key` source may name: vzip's (spec/bindings/vzip.md). */
+  protected namesFormatEntry(key: string): boolean {
+    return key === SOURCES_KEY || key === INDEX_KEY;
+  }
+
   /** The entry of `key` as the container has it, hidden or not: a binding finds keys here. */
   protected entryFor(key: string): Entry | undefined {
     return this.entries.get(key);
@@ -820,7 +825,7 @@ export class Archive {
       return s.data.subarray(Number(start), Number(end));
     }
     if (s.key !== undefined) {
-      if (s.key === SOURCES_KEY || s.key === INDEX_KEY) fail(`key ${JSON.stringify(s.key)} names a format entry`);
+      if (this.namesFormatEntry(s.key)) fail(`key ${JSON.stringify(s.key)} names a format entry`);
       const target = this.entryFor(s.key);
       if (target === undefined || target.reference !== undefined || target.error) {
         fail(`key ${JSON.stringify(s.key)} is not a bytes entry`);
@@ -1042,7 +1047,7 @@ export class Archive {
               throw new RefkvError("resolution", `key ${JSON.stringify(key)}: ${(e as Error).message}`);
             }
             const whole = target !== undefined && target.reference === undefined && !target.error &&
-              key !== SOURCES_KEY && key !== INDEX_KEY;
+              !this.namesFormatEntry(key);
             held.set(key, whole ? Math.max(target!.size, target!.csize) : 0);
           }
           if (taken > this.policy.maxGetBytes) break;

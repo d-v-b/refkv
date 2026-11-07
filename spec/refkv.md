@@ -896,8 +896,9 @@ requests to the source are in flight, if one of them lies within the coalescing 
 and takes a read wholly inside a request in flight from that request. They fetch at
 most a number of times the bytes a shared read asks for, plus the coalescing gap, that the
 reader's policy sets (its **read amplification**, [§6.7](#67-reader-policy), 4 by default), and
-never combine two reads of one `get` that its own coalescing kept apart, nor reads into a request of
-more than the bytes per `get` (a read longer than that is a request of its own). Rule 5 counts each
+never combine two reads of one `get` that its own coalescing kept apart into a new request, nor reads
+into a request of more than the bytes per `get` (a read longer than that is a request of its own);
+a read wholly inside a request already in flight is still taken from it, which fetches nothing more. Rule 5 counts each
 `get`'s own reads and bytes, as if it were alone. A `multipart/byteranges`
 response is still an error ([§5.2](#52-reading-over-http)), so reads too far apart
 to combine this way remain separate requests.
