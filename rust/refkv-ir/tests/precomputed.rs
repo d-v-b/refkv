@@ -26,7 +26,7 @@ fn zarrify(files: &BTreeMap<String, Vec<u8>>) -> Result<(Out, refkv_ir::ir::Ir),
     let mut r = refkv_ir::store::StoreRun::new(StoreFormat::Precomputed, keys, 4)?;
     drive(&mut r, &bytes)?;
     let (ir, facts, stats) = r.finish()?;
-    Ok((store_output(StoreFormat::Precomputed, &ir, &facts, stats, "https://example.org/v/", true)?, ir))
+    Ok((store_output(StoreFormat::Precomputed, &ir, &facts, stats, "https://example.org/v/", true, false)?, ir))
 }
 
 fn entry(out: &Out) -> impl Fn(&str) -> Option<Vec<u8>> + '_ {

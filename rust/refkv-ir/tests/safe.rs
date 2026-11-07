@@ -29,13 +29,13 @@ fn directory(files: &BTreeMap<String, Vec<u8>>) -> Result<(Out, Ir), String> {
     let keys = listing(&files);
     let bytes: Vec<&Vec<u8>> = files.values().collect();
     let (ir, facts, stats) = run_store(StoreFormat::Safe, keys, &|k| bytes[k].clone())?;
-    Ok((store_output(StoreFormat::Safe, &ir, &facts, stats, "https://example.org/p/", true)?, ir))
+    Ok((store_output(StoreFormat::Safe, &ir, &facts, stats, "https://example.org/p/", true, false)?, ir))
 }
 
 /// The zip form's output (mirrored), its IR, or the rejection.
 fn zip(data: &[u8]) -> Result<(Out, Ir), String> {
     let (ir, facts, stats) = run_bytes(Format::Safe, data)?;
-    Ok((output(Format::Safe, &ir, &facts, stats, "https://example.org/p.SAFE.zip", true, &Default::default())?, ir))
+    Ok((output(Format::Safe, &ir, &facts, stats, "https://example.org/p.SAFE.zip", true, &Default::default(), true)?, ir))
 }
 
 fn check_directory(path: &Path, files: &BTreeMap<String, Vec<u8>>, out: &Out, ir: &Ir) {

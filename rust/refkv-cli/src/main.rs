@@ -56,6 +56,18 @@ pub enum Fail {
     Other(String),
 }
 
+impl From<refkv_ir::seal::Refusal> for Fail {
+    /// The core's refusal of an output: a rejection, or a failure (status 1), such as a payload
+    /// over the limit only with its checksums (spec/zarrify.md §1.2
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>).
+    fn from(r: refkv_ir::seal::Refusal) -> Fail {
+        match r {
+            refkv_ir::seal::Refusal::Rejected(e) => Fail::Rejected(e),
+            refkv_ir::seal::Refusal::Failed(e) => Fail::Other(e),
+        }
+    }
+}
+
 // the store kinds, in the words of `python -m refkv.zarrify`'s usage (python/src/refkv/zarrify/__main__.py)
 const USAGE: &str = "usage: vzip convert <url or path> <out.vzip> [--url <source url>] [--checksums] \
 [--allow-private-hosts] [--connections N] [--byte-cost SECONDS_PER_MB] [--workers N] [--format vzip|phkv|hybrid]\n\
@@ -148,7 +160,7 @@ fn parse(argv: &[String]) -> Result<Args, Fail> {
 /// are the files some reference uses, their sizes pinned.
 fn zarrify_beside(a: &Args, client: &std::sync::Arc<http::Client>, beside: refkv_ir::store::StoreFormat) -> Result<(String, serde_json::Value, output::Archive), Fail> {
     let t = transport::Transport::open(&a.input, client)?;
-    let (out, files) = vsi::zarrify_vsi(&a.input, a.url.as_deref(), t, client, a.connections, beside)?;
+    let (out, files) = vsi::zarrify_vsi(&a.input, a.url.as_deref(), t, client, a.connections, beside, a.checksums)?;
     let summary = out.summary.clone();
     let (mut archive, objects) = output::store_archive(out, &files.sizes)?;
     if a.checksums {
@@ -167,7 +179,7 @@ fn convert(a: &Args) -> Result<serde_json::Value, Fail> {
     let hub = store::hub_endpoint(std::env::var("HF_ENDPOINT").ok().as_deref())?;
     let (fmt, summary, archive) = if store::is_store(&a.input) {
         let s = store::Store::open(&a.input, a.url.as_deref(), &client, a.workers, &hub)?;
-        let (fmt, out) = store::zarrify_store(&s)?;
+        let (fmt, out) = store::zarrify_store(&s, a.checksums)?;
         let summary = out.summary.clone();
         let (mut archive, objects) = output::store_archive(out, &s.listing().objects)?;
         if a.checksums {

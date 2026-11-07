@@ -918,9 +918,9 @@ entry `<level>/c/<coords>`, but for a level that shards its strips
 ([zarrify §2.1](../zarrify.md#21-virtual-shards)), each a [`Shard`](../zarrify.md#type-shard) whose
 inner chunks' ranges are their references here. Tile (strip) `k`, with TileByteCounts (StripByteCounts) `n > 0`,
 has the single range `(0, TileOffsets[k], n)` (`StripOffsets[k]`; for JPEG, for a short
-last strip, and for strips that a level joins, see below). The references
-are listed (for [§1.2](../zarrify.md#12-input)'s order of first use) level by level, within a level
-by `t`, then `c`, then `z`, and within a plane by `k`. Besides these and the
+last strip, and for strips that a level joins, see below). The sources are numbered by
+[§1.2](../zarrify.md#12-input)'s order of first use, over the references in the order of their
+keys. Besides the references and the
 root's and the arrays' `zarr.json`, the archive's entries are those of the
 source metadata node `refkv_source`, the file's IR mirror
 ([the convention §5](#5-source-metadata),
@@ -981,7 +981,7 @@ profile's sibling table:
 | names | written: each `FileName`, with none of the optional steps (no percent-decoding, no `\`, no `..`, case kept). Derived: a Micro-Manager stack's later files, `<stem>_<n>.ome.tif` |
 | probes | the document's files, all in one batch, in the order the `TiffData` elements first name them, each required: `the file "<key>" does not exist`. A Micro-Manager stack's, one at a time, from `n` = 1, while its index maps hold fewer planes than its summary says, ending at the first absent |
 | identity | OME-XML: a `UUID`'s text and the `UUID` attribute of the `OME` element of the file it names, when both are there, MUST be equal. A sibling with no OME-XML records nothing to compare. Micro-Manager: every file's summary MUST have the first's `UUID`. Else: `the file "<key>" is not part of this image` |
-| order | first use ([§7.3](#73-chunks) walks the planes in (t, c, z) order, each by its file) |
+| order | first use ([zarrify §1.2](../zarrify.md#12-input): the references in the order of their keys) |
 | reads and mirror | each file as [§7.1](#71-reading) reads a TIFF, its main chain and the tags of its IFDs, and the mirror describes each in place at its key, under its object as a file IR describes the file ([§5](#5-source-metadata)) |
 
 A `UUID` with a `FileName` names the file by that name, which is a written name: one that is not a

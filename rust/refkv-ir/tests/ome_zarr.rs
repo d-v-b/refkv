@@ -19,7 +19,7 @@ fn output(dir: &Path) -> Result<refkv_ir::out::Out, String> {
     let files = walk(dir);
     let bytes: Vec<&Vec<u8>> = files.values().collect();
     let (ir, facts, stats) = run_store(StoreFormat::Zarr2, listing(&files), &|k| bytes[k].clone())?;
-    store_output(StoreFormat::Zarr2, &ir, &facts, stats, "https://example.org/s/", true)
+    store_output(StoreFormat::Zarr2, &ir, &facts, stats, "https://example.org/s/", true, false).map_err(String::from)
 }
 
 fn stores(format: &str) -> Vec<PathBuf> {
@@ -108,7 +108,7 @@ fn output_of(objects: &[(String, Vec<u8>)]) -> (Result<refkv_ir::out::Out, Strin
     let k2 = keys.clone();
     let t = std::time::Instant::now();
     let r = run_store(StoreFormat::Zarr2, keys, &|k| by[k2[k].0.as_str()].clone())
-        .and_then(|(ir, facts, stats)| store_output(StoreFormat::Zarr2, &ir, &facts, stats, "https://example.org/s/", true));
+        .and_then(|(ir, facts, stats)| store_output(StoreFormat::Zarr2, &ir, &facts, stats, "https://example.org/s/", true, false).map_err(String::from));
     (r, t.elapsed())
 }
 
@@ -261,7 +261,7 @@ fn ignored_keys_are_refkv_source_metadata() {
     r.ignore(vec!["z/./a".into(), "donn\u{e9}es/./x".into()], Vec::new()).unwrap();
     let bytes: Vec<&[u8]> = objects.iter().map(|o| o.1.as_slice()).collect();
     drive(&mut r, &bytes).unwrap();
-    let out = r.into_output("https://example.org/s/", true).unwrap();
+    let out = r.into_output("https://example.org/s/", true, false).unwrap();
     assert!(!out.entries.iter().any(|e| e.0 == "refkv_source/ignored.json"));
     let doc: serde_json::Value = serde_json::from_slice(&out.entries.iter().find(|e| e.0 == "refkv_source/zarr.json").unwrap().1).unwrap();
     let own = &doc["attributes"]["refkv_zarrified"]["ome-zarr"];

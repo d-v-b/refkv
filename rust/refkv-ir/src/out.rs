@@ -157,6 +157,12 @@ impl Out {
         Part::Data(i, 0, value.len() as u64)
     }
 
+    /// Sets the data sources, from 1 (`seal::out`, whose references name them so).
+    pub fn set_data(&mut self, data: Vec<Vec<u8>>) {
+        self.data_at = data.iter().enumerate().map(|(i, d)| (d.clone(), i as u32 + 1)).collect();
+        self.data = data;
+    }
+
     /// The whole output as one buffer (little-endian; strings and byte strings are a
     /// u32 length and the bytes): "VZO1", the url, the summary's JSON, the lazy
     /// prefixes, the data sources, the entries (key, bytes), and the references

@@ -49,7 +49,7 @@ fn run_pair(key: &str, data: &[u8], beside: impl Fn(&str) -> Option<Vec<u8>>) ->
         }
     }
     let (ir, facts, stats) = run.finish()?;
-    refkv_ir::store::store_output(StoreFormat::Nifti, &ir, &facts, stats, "https://example.org/nifti/", true)
+    refkv_ir::store::store_output(StoreFormat::Nifti, &ir, &facts, stats, "https://example.org/nifti/", true, false).map_err(String::from)
 }
 
 include!(concat!(env!("OUT_DIR"), "/rejects_nifti.rs"));

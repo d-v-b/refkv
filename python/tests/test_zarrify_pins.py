@@ -12,6 +12,7 @@ from typing import Any, override
 
 import pytest
 
+from refkv import _core
 from refkv._narrow import string
 from refkv.pb import Concat, Range, Source, decode_table
 from refkv.policy import Policy, crc32c
@@ -150,3 +151,12 @@ def test_fails_when_the_etag_changes_while_reading(server):
     state["etag"] = lambda _path, n: f'"v{n}"'
     with pytest.raises(OSError, match="changed while it was read"):
         zarrify(f"{base}/tiff/{TIFF.name}", policy=LOOPBACK)
+
+
+def test_fails_a_payload_past_the_limit_only_with_its_checksums():
+    """A chunk of 6000 single-row ranges fits without checksums, and not with them: the zarrifier
+    fails (it does not reject), each checksum counted at its largest, before it reads one."""
+    nd2 = FIXTURES / "nd2" / "nd2_edge_tall_padded.nd2"
+    zarrify(str(nd2))
+    with pytest.raises(_core.Failed, match="with its checksums"):
+        zarrify(str(nd2), checksums=True)

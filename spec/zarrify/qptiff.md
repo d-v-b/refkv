@@ -417,9 +417,9 @@ TileByteCounts`[k]` (StripByteCounts`[k]`):
 
 A short last strip thus has, when uncompressed, the ranges `[(0, offset[k], n), Z]`, and
 when LZW, the ranges `[(0, offset[k], p), T]`; any other tile or strip but a JPEG one has the
-single range `(0, offset[k], n)`. The references are
-listed (for [§1.2](../zarrify.md#12-input)'s order of first use) level
-by level, within a level by channel, and within an image by `k`. Besides
-these and the root's and the arrays' `zarr.json`, the archive's entries are
+single range `(0, offset[k], n)`. The sources are numbered by
+[§1.2](../zarrify.md#12-input)'s order of first use, over the references in the order of their
+keys. Besides
+the references and the root's and the arrays' `zarr.json`, the archive's entries are
 those of the source metadata node `refkv_source`, the file's IR mirror
 ([the convention §5](#5-source-metadata), [conventions §8](../conventions.md#8-the-ir-mirror)).
