@@ -951,15 +951,16 @@ def _merged(reads: Iterable[_Waiting], *, gap: int, amplification: float, longes
 
     A read joins the run before it if it starts at most `gap` bytes after the run's end, and the
     run then fetches at most `amplification` times the bytes its reads ask for, plus `gap`, and
-    at most `longest` bytes; never a run that holds a read of the same value, whose reads its own
-    coalescing kept apart, within what it may fetch. A read is never cut, so a longer one is a run
-    of its own."""
+    at most `longest` bytes. A read joins a run that holds a read of the same value only where it
+    touches or overlaps the run, which adds no bytes nobody asked for: across a gap it would join
+    reads its value's own coalescing kept apart, within what it may fetch. A read is never cut, so
+    a longer one is a run of its own."""
     runs: list[list[_Waiting]] = []
     owners: set[object] = set()
     start = end = asked = 0
     for read in sorted(reads, key=lambda r: (r.start, r.end)):
         new = read.end - max(read.start, end)
-        if (runs and read.start - end <= gap and (read.owner is None or read.owner not in owners)
+        if (runs and read.start - end <= gap and (read.owner is None or read.owner not in owners or read.start <= end)
                 and (span := max(end, read.end) - start) <= longest
                 and span <= amplification * (asked + max(new, 0)) + gap):
             runs[-1].append(read)
@@ -1037,7 +1038,8 @@ class ReferenceReader:
 
     Values read at the same time share requests: reads of one source at most the
     policy's `max_coalesce_gap` apart (64 KiB by default) merge into one request,
-    whichever values they are for, while
+    whichever values they are for (but across a gap, never two reads of one value that its own
+    coalescing kept apart), while
     they wait 2 ms (`MERGE_WINDOW`), or for a connection when all of them are
     busy. Zarr asks for at most `async.concurrency` chunks at once, so that
     setting, not this reader, limits how many merge: raise it to read many small

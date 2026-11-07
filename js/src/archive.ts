@@ -449,9 +449,10 @@ export function coalescedRuns(
  * `reads` of one source, as the runs that one request each serves, in order of offset. A read
  * joins the run before it if it starts at most `gap` bytes after the run's end, and the run then
  * fetches at most `amplification` times the bytes its reads ask for, plus `gap`, and at most
- * `longest` bytes; never a run that holds a read of the same value (`owner`), whose reads its own
- * coalescing kept apart within what it may fetch. A read is never cut, so a longer one is a run of
- * its own.
+ * `longest` bytes. A read joins a run that holds a read of the same value (`owner`) only where it
+ * touches or overlaps the run, which adds no bytes nobody asked for: across a gap it would join reads
+ * its value's own coalescing kept apart, within what it may fetch. A read is never cut, so a longer
+ * one is a run of its own.
  */
 export function mergedRuns<T extends { offset: bigint; end: bigint; owner?: object }>(
   reads: T[],
@@ -472,7 +473,7 @@ export function mergedRuns<T extends { offset: bigint; end: bigint; owner?: obje
     const span = big(end, read.end) - start;
     if (
       runs.length > 0 &&
-      (read.owner === undefined || !owners.has(read.owner)) &&
+      (read.owner === undefined || !owners.has(read.owner) || read.offset <= end) &&
       read.offset - end <= BigInt(gap) &&
       span <= longest &&
       Number(span - BigInt(gap)) <= amplification * Number(asked + fresh)

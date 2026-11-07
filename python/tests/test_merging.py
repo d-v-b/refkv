@@ -256,6 +256,18 @@ def test_the_policy_sets_how_much_shared_reads_may_amplify(server):
         assert len(state["ranges"]) == ranges
 
 
+def test_values_read_at_once_share_one_request_across_their_own_gaps(server):
+    """Two values whose pieces interleave and touch, each one's pieces too far apart for its own
+    coalescing, are read together in one request, as a full-width read of a tiled image's chunks
+    is: the shared read fills each value's gaps with the other's pieces."""
+    url, state = server
+    x = [Range(source=0, offset=k * 4000, length=2000) for k in range(3)]
+    y = [Range(source=0, offset=k * 4000 + 2000, length=2000) for k in range(3)]
+    store = _store(url, {"x": x, "y": y}, policy=Policy(allow_private_hosts=True, max_coalesce_gap=1000))
+    assert run(_gather(store, "x", "y")) == [b"".join(BLOB[r.offset:r.offset + 2000] for r in v) for v in (x, y)]
+    assert state["ranges"] == [(0, 12000)]
+
+
 def test_a_shared_request_fetches_no_more_than_a_get_may_take(server):
     """Reads of different values combine only into requests of at most the policy's
     `max_get_bytes`: two 4 KiB reads 64 KiB apart are two requests under a budget of 4 KiB."""

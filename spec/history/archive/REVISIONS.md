@@ -1294,7 +1294,8 @@ times, and a reader would fetch or build all of it. A reader MUST now also have 
 bytes one `get` takes, which bounds both the bytes it fetches (its coalesced reads with the bytes
 between their ranges, and once a `get` a `key` source's value the reader holds whole to read it)
 and the bytes it builds its value from (the bytes of each range it resolves, each time, a range with
-a `crc32c` whole), refused as a request error before any source is read: 2^31 in the Python and
+a `crc32c` whole), refused as a request error before any source is read, but for looking up the
+entry a `key` source names: 2^31 in the Python and
 TypeScript readers of the specification's repository, 2^32 in its Rust phkv reader. The
 conformance suite's three implementations bound a `get`'s window and an entry's inflated body at
 1 GiB, but bound neither the reads nor the bytes a `get` takes, so they do not meet rule 5; the
@@ -1303,9 +1304,10 @@ suite does not test it. Coalescing
 combines fewer reads instead, and the readers here close the narrowest gaps first, within a
 **coalescing gap** their policy sets (64 KiB by default; 0 combines only reads that touch). How many
 bytes the reads of different `get`s fetch to save requests, 4 times what they ask for plus that gap,
-is a setting of the policy too, its read amplification; a shared read never joins two reads of one
-`get` that its own coalescing kept apart into a new request, nor makes a request of more than the
-bytes per `get` but for a read longer than that, a request of its own. A `key` source's value that
+is a setting of the policy too, its read amplification; a shared read never joins a read to a run
+holding a read of the same `get` across a gap, which would combine reads its own coalescing kept
+apart, though a read that touches or overlaps such a run joins it, nor makes a request of more than
+the bytes per `get` but for a read longer than that, a request of its own. A `key` source's value that
 the reader holds whole to read a range of it counts as fetched once a `get`, the bytes the reader
 reads to hold it, whether or not it already holds the value, and each range cut from it is built
 from each time; which values those are is each reader's.

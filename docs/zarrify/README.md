@@ -88,7 +88,7 @@ be measured again.
 ## Large chunks
 
 A chunk is as large as the input makes it. Several formats give one chunk for a whole stream,
-strip, frame or shard: a gzipped NIfTI, MRC, NRRD or FITS file, a compressed `.npz` member, an
+strip, frame or shard: a gzipped NIfTI, MRC or NRRD file, a compressed `.npz` member, an
 uncompressed TIFF strip kept whole, an ND2 frame, an HDF5 chunk, or a Zarr v3 shard read whole.
 A reader refuses a `get` of more bytes than its policy allows, 2 GiB by default
 ([refkv §6.7](../../spec/refkv.md#67-reader-policy) rule 5), so a chunk past that is read by

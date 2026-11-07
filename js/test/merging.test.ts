@@ -79,6 +79,20 @@ test("coalescedRuns closes the narrowest gaps within the limit while the runs fi
   for (const [reads, gap, budget, want] of cases) assert.deepEqual(runs(reads, gap, budget), want);
 });
 
+test("mergedRuns joins reads of one value only where they touch the run", () => {
+  const x = {};
+  const y = {};
+  const runs = (reads: [number, number, object][]) =>
+    mergedRuns(reads.map(([a, b, owner]) => ({ offset: BigInt(a), end: BigInt(b), owner })), 1n << 31n).map((run) =>
+      run.map((r) => [Number(r.offset), Number(r.end)]));
+  // interleaved pieces that touch: one run, each value's gaps filled by the other's pieces
+  assert.deepEqual(runs([[0, 10, x], [10, 20, y], [20, 30, x], [30, 40, y]]).length, 1);
+  // a read inside another value's run joins it
+  assert.deepEqual(runs([[0, 1000, y], [500, 510, x], [600, 610, x]]).length, 1);
+  // two reads of one value a gap apart stay apart, as its own coalescing left them
+  assert.deepEqual(runs([[0, 10, x], [100, 110, x]]), [[[0, 10]], [[100, 110]]]);
+});
+
 test("mergedRuns groups reads by the gap, the amplification cap and the run's length", () => {
   const g = Number(GAP);
   const cases: [[number, number][], number[][][]][] = [
