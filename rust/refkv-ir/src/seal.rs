@@ -437,6 +437,13 @@ pub fn out(out: &mut Out, size: Option<u64>, objects: &HashMap<String, u64>, che
         urls.push(Url { url: out.url.clone(), size: Some(n), etag: None });
         0
     });
+    // an empty key, or one both a document and a reference, is the projection's mistake
+    let documents: Vec<String> = out.entries.iter().map(|e| e.0.clone()).collect();
+    for (k, _) in &out.refs {
+        if k.is_empty() || out.has(k) {
+            return Err(internal(k, "a key that is empty, or both a document and a reference".into()));
+        }
+    }
     // the references are moved into the request and back, not copied: an output may hold millions
     let refs = std::mem::take(&mut out.refs);
     let mut values = Vec::with_capacity(refs.len());
@@ -462,8 +469,13 @@ pub fn out(out: &mut Out, size: Option<u64>, objects: &HashMap<String, u64>, che
                     };
                     Piece::Url(i, o, n)
                 }
-                Part::Data(0, ..) => return Err(internal(&k, "data source 0".into())),
-                Part::Data(i, o, n) => Piece::Data(i as usize - 1, o, n),
+                Part::Data(i, o, n) => {
+                    let held = (i as usize).checked_sub(1).and_then(|d| out.data.get(d));
+                    if held.is_none_or(|d| o.checked_add(n).is_none_or(|end| end > d.len() as u64)) {
+                        return Err(internal(&k, format!("bytes {o} to {} of data source {i}, which it lacks", o as u128 + n as u128)));
+                    }
+                    Piece::Data(i as usize - 1, o, n)
+                }
                 Part::Lit(b) => Piece::Lit(b),
             });
         }
@@ -472,7 +484,6 @@ pub fn out(out: &mut Out, size: Option<u64>, objects: &HashMap<String, u64>, che
     // `seal` gives the values in key order; the output keeps its own
     let mut at: Vec<usize> = (0..values.len()).collect();
     at.sort_unstable_by(|&a, &b| values[a].key.as_bytes().cmp(values[b].key.as_bytes()));
-    let documents: Vec<String> = out.entries.iter().map(|e| e.0.clone()).collect();
     let limits = Limits { checksums, ..Limits::default() };
     let Sealed { sources, values: sealed } = seal(&urls, &out.data, first, &documents, values, &limits)?;
     let mut old: Vec<Option<Vec<u8>>> = std::mem::take(&mut out.data).into_iter().map(Some).collect();
@@ -649,12 +660,24 @@ mod tests {
 
     #[test]
     fn fails_a_built_in_output_no_projection_should_make() {
-        // a store output's range of an object the IR does not hold: the projection's mistake
-        let mut o = Out::new("https://data.test/s/");
-        o.refs("a/c/0", vec![Part::Obj("missing".into(), 0, 4)]);
-        let e = out(&mut o, None, &HashMap::new(), false).unwrap_err();
-        assert_eq!((e.code, e.key.as_deref()), (Code::Internal, Some("a/c/0")));
-        assert!(matches!(Refusal::from(e), Refusal::Failed(_)));
+        // a range of an object the IR does not hold, a key both a document and a reference, an
+        // empty key, a range of a data source the output lacks or past its bytes: the projection's
+        // mistakes
+        let objects = HashMap::from([("held".to_string(), 8)]);
+        let cases = [("a/c/0", false, Part::Obj("missing".into(), 0, 4)), ("a/c/0", true, Part::Obj("held".into(), 0, 4)),
+                     ("", false, Part::Obj("held".into(), 0, 4)), ("a/c/0", false, Part::Data(2, 0, 1)),
+                     ("a/c/0", false, Part::Data(1, 2, 9))];
+        for (key, document, part) in cases {
+            let mut o = Out::new("https://data.test/s/");
+            o.shared(b"abcd");
+            if document {
+                o.bytes(key, b"{}".to_vec());
+            }
+            o.refs(key, vec![part]);
+            let e = out(&mut o, None, &objects, false).unwrap_err();
+            assert_eq!((e.code, e.key.as_deref()), (Code::Internal, Some(key)), "{key:?} {document}");
+            assert!(matches!(Refusal::from(e), Refusal::Failed(_)));
+        }
     }
 
     #[test]

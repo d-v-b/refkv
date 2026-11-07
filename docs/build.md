@@ -96,7 +96,8 @@ chunk of more than 1024 reads (a far-apart band of rows, a long run of strings),
 today, which its reader then refuses, and `seal` refuses it.
 
 `refkv.build.project(p)` is the output `zarrify` writes for the input, as checked values:
-`seal(project(p).written, [p])` reads what `zarrify` writes.
+`seal(project(p).written, [p])` reads what `zarrify` writes, but for a chunk past the read rule,
+which `seal` refuses as said above.
 
 ## A TIFF made of several
 

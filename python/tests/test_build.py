@@ -504,6 +504,12 @@ def test_seal_refuses_inputs_read_with_different_registries(tmp_path):
     assert e.value.code == "inputs"
 
 
+def test_seal_refuses_a_source_url_that_is_no_uri_reference(tmp_path):
+    with read(_npy(tmp_path), "https://example.org/a b.npy") as p, pytest.raises(SealError) as e:
+        seal(Written({"v": Ref(p, 0, 0, 1)}), [p])
+    assert e.value.code == "inputs"
+
+
 def test_seal_refuses_two_files_named_by_one_url(tmp_path):
     url = "https://example.org/f.npy"
     with read(_npy(tmp_path), url) as p, read(_npy(tmp_path, "y.npy"), url) as q, pytest.raises(SealError) as e:

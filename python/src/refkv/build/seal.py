@@ -34,6 +34,7 @@ from .values import Binding, Check, Copy, Data, Literal, Part, Ref, Shared, Valu
 __all__ = ["CODES", "SealError", "seal"]
 
 U64 = (1 << 64) - 1  # the largest offset or length a range holds
+LARGEST_CRC = (1 << 32) - 1  # the checksum whose field is the widest
 # what a SealError's code names
 CODES = frozenset({"key", "value", "range", "payload", "checksums", "reads", "copy", "inputs", "open", "archive"})
 
@@ -133,7 +134,7 @@ def seal(written: Mapping[str, Any], inputs: Sequence[Parsed], *, policy: Policy
         raise SealError("open", None, f"{opened} bytes read at open, more than {MAX_OPEN}")
     most = min(MAX_OPEN, _limit("max_format_entry", rules.max_format_entry))
 
-    def store_of(ranges_of: list[tuple[str, list[Range]]]) -> ReferenceStore:
+    def store_of(ranges_of: list[tuple[str, list[Range]]]) -> tuple[ReferenceStore, dict[str, Any]]:
         mapping: dict[str, bytes | Range | Concat] = {
             k: r[0] if len(r) == 1 else Concat(tuple(r)) for k, r in ranges_of}
         mapping.update(documents)
@@ -142,15 +143,22 @@ def seal(written: Mapping[str, Any], inputs: Sequence[Parsed], *, policy: Policy
                                    page_size=PAGE_SIZE, policy=used, registry=resolver, info=dict(info or {}))
         except (TypeError, ValueError, AttributeError) as e:
             raise SealError("inputs", None, f"the store cannot be made with these arguments: {e}") from e
-        _check_archive(store, sources, mapping, most)
-        return store
+        return store, mapping
 
     ranges = [(k, [Range(data=r) if isinstance(r, bytes) else Range(*r) for r in raw]) for k, raw in sealed]
-    store = store_of(ranges)
+    store, mapping = store_of(ranges)
+    _check_archive(store, sources, mapping, most)
     if not checksums:
         return store
     _core_seal(*request, True)
-    return store_of([(k, _checksummed(k, values[k].parts, r)) for k, r in ranges])
+    # the archive again, each url range's checksum at its largest: one past its limits only so
+    # fails as its payloads do, whatever the bytes
+    widest, mapping = store_of([(k, [_crc(r, sources, LARGEST_CRC) for r in rs]) for k, rs in ranges])
+    try:
+        _check_archive(widest, sources, mapping, most)
+    except SealError as e:
+        raise SealError("checksums", e.key, f"with its checksums, {e}") from e
+    return store_of([(k, _checksummed(k, values[k].parts, r)) for k, r in ranges])[0]
 
 
 def _core_seal(*request: Any) -> tuple[list[tuple[str, int]], list[tuple[str, list[tuple[int, int, int] | bytes]]]]:  # noqa: ANN401
@@ -174,8 +182,8 @@ def _check_policy(sources: Sequence[Source], rules: Policy, registry: object) ->
     for s in sources:
         if s.url is None:
             continue
-        url = resolve(base, s.url)
         try:
+            url = resolve(base, s.url)
             rules.check(base, url, registered=resolver.registered(url) is not None)
         except (ResolutionError, ValueError) as e:
             raise SealError("inputs", None, f"the store's reader policy refuses a source: {e}") from e
@@ -442,6 +450,13 @@ def _same_array(doc: Mapping[str, Any], coords: Sequence[int], b: Binding) -> bo
             and _stored(d_grid, d_order) == _stored(b_grid, b_order)
             and _stored(list(coords), d_order) == _stored(list(b.key), b_order))
     return sharded if same else None
+
+
+def _crc(r: Range, sources: Sequence[Source], crc: int) -> Range:
+    """`r` with checksum `crc`, when it is a range of a url source."""
+    if r.data is not None or sources[r.source].url is None:
+        return r
+    return Range(r.source, r.offset, r.length, crc32c=crc)
 
 
 def _check_archive(store: ReferenceStore, sources: list[Source], mapping: Mapping[str, object], most: int) -> None:

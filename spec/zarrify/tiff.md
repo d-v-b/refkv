@@ -920,7 +920,7 @@ inner chunks' ranges are their references here. Tile (strip) `k`, with TileByteC
 has the single range `(0, TileOffsets[k], n)` (`StripOffsets[k]`; for JPEG, for a short
 last strip, and for strips that a level joins, see below). The sources are numbered by
 [§1.2](../zarrify.md#12-input)'s order of first use, over the references in the order of their
-keys. Besides these and the
+keys. Besides the references and the
 root's and the arrays' `zarr.json`, the archive's entries are those of the
 source metadata node `refkv_source`, the file's IR mirror
 ([the convention §5](#5-source-metadata),

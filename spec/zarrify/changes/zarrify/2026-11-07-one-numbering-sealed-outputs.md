@@ -10,6 +10,7 @@ counts each checksum at its largest, 6 bytes, so an output fails, and is not wri
 bytes' checksums. A repeat of the references' budget is a reference to the ranges of an earlier
 one, whatever elements they are cut from.
 Unused data sources are left out of the table. A file input's output key of more than 65535 bytes,
-or one starting with `__vz__/`, rejects the input, as a store input's did; it was a failure to
+or one starting with `__vz__/`, rejects the input, as a store input's and a Zarr v3 or SAFE zip
+file's did; for the other file profiles (an HDF5 file of long group names) it was a failure to
 write. A chunk that joins strips is one reference of the budget for each strip, as before, which
 the text now says.

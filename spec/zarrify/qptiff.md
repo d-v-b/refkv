@@ -420,6 +420,6 @@ when LZW, the ranges `[(0, offset[k], p), T]`; any other tile or strip but a JPE
 single range `(0, offset[k], n)`. The sources are numbered by
 [§1.2](../zarrify.md#12-input)'s order of first use, over the references in the order of their
 keys. Besides
-these and the root's and the arrays' `zarr.json`, the archive's entries are
+the references and the root's and the arrays' `zarr.json`, the archive's entries are
 those of the source metadata node `refkv_source`, the file's IR mirror
 ([the convention §5](#5-source-metadata), [conventions §8](../conventions.md#8-the-ir-mirror)).
