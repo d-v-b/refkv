@@ -42,7 +42,9 @@ def test_tiff_stack_example_runs(tmp_path, monkeypatch, capsys):
     runpy.run_path(str(DOCS / "examples" / "tiff_stack.py"), run_name="__main__")
     assert "all 24 planes match their files" in capsys.readouterr().out
     (tmp_path / "tiff_stack").rename(tmp_path / "moved")
-    image = zarr.open_group(refkv.zarr.open(str(tmp_path / "moved" / "stack.vzip")), mode="r").get_array("0")
+    policy = refkv.Policy(prefixes=((tmp_path / "moved").as_uri() + "/",))
+    zs = refkv.zarr.open(str(tmp_path / "moved" / "stack.vzip"), policy=policy)
+    image = zarr.open_group(zs, mode="r").get_array("0")
     assert image.shape == (24, 256, 256)
     assert np.asarray(image[23]).any()
 

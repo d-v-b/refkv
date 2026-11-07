@@ -68,14 +68,12 @@ test("the policy allows these URLs", () => {
   const local = "file:///d/a.vzip";
   const remote = "https://h.example/a.vzip";
   const cases: [Policy, string, string][] = [
-    [{}, local, "file:///d/blob.bin"],
     [{}, local, "https://g.example/blob.bin"], // a local archive may read the web
     [{}, remote, "https://g.example/blob.bin"],
     [{}, remote, "http://g.example/blob.bin"], // http and https are one scheme
     [{}, "HTTP://h.example/a.vzip", "HTTPS://g.example/blob.bin"],
     [{ schemes: ["s3"] }, remote, "s3://bucket/blob.bin"],
     [{ schemes: ["S3"] }, local, "s3://bucket/blob.bin"],
-    [{ allowFilesFromRemoteArchives: true }, remote, "file:///d/blob.bin"],
     [{ prefixes: ["https://data.example/a/"] }, local, "https://data.example/a/x.bin"],
     [{ prefixes: ["https://data.example/a"] }, local, "https://data.example/a/x.bin"],
     [{ prefixes: ["https://data.example/a"] }, local, "https://data.example/a?x=1"],
@@ -201,13 +199,15 @@ test("the writer records the revision and rejects a checksum on a literal range"
   );
 });
 
-test("refuses a file source of a remote archive", async () => {
+test("refuses a file source, of a local archive too", async () => {
   for (const policy of [{}, { schemes: ["s3"] }]) {
-    assert.throws(() => checkPolicy(policy, BASE, "file:///etc/passwd"), isError("resolution", /may not read local files/));
+    for (const base of [BASE, "file:///d/a.vzip"]) {
+      assert.throws(() => checkPolicy(policy, base, "file:///etc/passwd"), isError("resolution", /reads no local file/));
+    }
   }
   const desc: ArchiveDesc = { sources: [{ url: "file:///etc/hosts" }], entries: [{ key: "r", ranges: [{ source: 0, offset: 0n, length: 4n }] }] };
   const { archive, log } = await open(desc);
-  await assert.rejects(archive.read("r"), isError("resolution", /may not read local files/));
+  await assert.rejects(archive.read("r"), isError("resolution", /reads no local file/));
   assert.equal(log.requests, 0);
 });
 
@@ -220,8 +220,8 @@ test("refuses an unlisted scheme", () => {
 });
 
 test("the policy refuses file in schemes", async () => {
-  assert.throws(() => checkPolicy({ schemes: ["FILE"] }, BASE, BLOB_URL), /allowFilesFromRemoteArchives/);
-  await assert.rejects(Archive.open(await writeVzip({ sources: [], entries: [] }), BASE, undefined, { schemes: ["file"] }), /allowFilesFromRemoteArchives/);
+  assert.throws(() => checkPolicy({ schemes: ["FILE"] }, BASE, BLOB_URL), /may not name 'file'/);
+  await assert.rejects(Archive.open(await writeVzip({ sources: [], entries: [] }), BASE, undefined, { schemes: ["file"] }), /may not name 'file'/);
 });
 
 test("refuses a private host written in the URL", async () => {

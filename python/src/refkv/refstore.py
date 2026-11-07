@@ -55,7 +55,7 @@ from refkv.bounds import Bound, derive
 from refkv.bounds import check as check_bounds
 from refkv.errors import ResolutionError
 from refkv.pb import Concat, Range, Reference, Source, parts
-from refkv.policy import Policy
+from refkv.policy import Policy, _scheme
 from refkv.reader import DEFAULT_CONCURRENCY, Kind, ReferenceReader, Registry, Request, Stats, _abs_range
 from refkv.uri import file_uri, is_uri_reference
 from refkv.uri import resolve as resolve_reference
@@ -173,8 +173,7 @@ class ReferenceStore(ReferenceReader):
 
     - `url`: the base URI that relative source URLs resolve against (spec §5
       <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>). The default,
-      the current directory, makes the store a local one for the reader policy:
-      it may read `file:` sources, like an archive opened from a local path.
+      the current directory.
     - `read_at_open`: the keys a reader fetches when it opens the store, which
       `save_vzip` places where an archive's opening request reads them. The default
       is every `zarr.json` document.
@@ -193,8 +192,8 @@ class ReferenceStore(ReferenceReader):
       the store reads, and `save` does not write them.
     - `registry`, `stats`, `policy`, `max_concurrency`: how references are
       resolved, as for every reference store (`refkv.reader.ReferenceReader`). The
-      default policy, `Policy()`, reads `http(s)` sources on public hosts and,
-      here, local files; it refuses other schemes, such as `s3`, except under
+      default policy, `Policy()`, reads `http(s)` sources on public hosts; it refuses
+      other schemes, such as `file` and `s3`, except `s3` and the like under
       a prefix the `registry` has a store for, such as the
       `ObjectStoreRegistry` given to VirtualiZarr. At most 8 requests are in
       flight by default (`max_concurrency=None` for no cap).
@@ -421,7 +420,12 @@ class ReferenceStore(ReferenceReader):
                     error = str(e)
                 else:
                     try:
-                        check.check(base, resolved)
+                        # A reader chooses whether it reads local files, which a writer cannot know:
+                        # of a file: source, only its host or a prefix list is decided here.
+                        if check.prefixes is None and _scheme(resolved) == "file":
+                            check.check_file_host(resolved)
+                        else:
+                            check.check(resolved)
                         error = None
                     except (ResolutionError, ValueError) as e:
                         error = str(e)

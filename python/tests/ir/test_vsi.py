@@ -332,7 +332,8 @@ def test_a_local_input_without_a_url_names_its_files_by_path(tmp_path):
     d = d if d.endswith("/") else d + "/"
     assert urls == [object_url(d, "_vsi_raw_bgr_/stack10000/frame_t.ets"), object_url(d, "vsi_raw_bgr.vsi")]
     out.write(str(tmp_path / "a.vzip"))
-    g = zarr.open_group(refkv.zarr.open(str(tmp_path / "a.vzip")), mode="r", zarr_format=3)
+    policy = Policy(prefixes=(VSI.as_uri() + "/",))
+    g = zarr.open_group(refkv.zarr.open(str(tmp_path / "a.vzip"), policy=policy), mode="r", zarr_format=3)
     want = expected_array("vsi_raw_bgr", 10000)
     assert want is not None
     assert np.array_equal(np.moveaxis(ndarray(g.get_array("0/0")[...]), 0, -1), want[0, 0, 0])

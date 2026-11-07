@@ -186,7 +186,7 @@ def test_copy_transposes_an_array_to_the_same_values(source, array_path, order):
     b = base(str(FIXTURES / source))
     store = zarrify(str(FIXTURES / source))
     entries = copy(b, array_path, order=order)
-    copied = refkv.ReferenceStore(entries, store._sources)
+    copied = refkv.ReferenceStore(entries, store._sources, policy=store.policy)
     assert np.array_equal(read(copied), np.transpose(read(store, array_path), order))
     assert doc_of(entries["zarr.json"])["attributes"] == {}
     out = {"zarr.json": group(), **copy(b, array_path, order=order, to="x")}

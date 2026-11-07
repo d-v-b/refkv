@@ -137,7 +137,9 @@ pub struct Policy {
 
 impl Policy {
     /// Refuses `url` unless rule 1 allows it for an archive at `base` (http and https always, `file`
-    /// for a local archive and with no host), and rule 3 its host as written.
+    /// for a local archive and with no host), and rule 3 its host as written. This tool writes `file`
+    /// sources and never reads one, and a writer does not refuse what a reader may allow (spec §6.7
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 1).
     pub fn check(&self, base: &str, url: &str) -> Result<(), String> {
         let s = scheme(url);
         if s == "file" {

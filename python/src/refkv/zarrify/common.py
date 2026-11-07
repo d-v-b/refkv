@@ -22,8 +22,9 @@ import urllib.request
 from collections import OrderedDict
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from email.message import Message
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from refkv._files import replacing
@@ -33,7 +34,8 @@ from refkv.pb import Concat, Range, Source
 from refkv.policy import Policy
 from refkv.reader import Registry, _check_http_url, _send, new_connection
 from refkv.refstore import ReferenceStore, bulk
-from refkv.uri import is_uri_reference
+from refkv.uri import file_path, file_uri, is_uri_reference
+from refkv.uri import resolve as resolve_reference
 from refkv.vzip.archive import VZipWriter
 from refkv.zarrify.profiles import REGISTRY
 
@@ -211,7 +213,34 @@ def reference_store(refs: Iterable[tuple[str, list[Range]]], entries: Iterable[t
             mapping[key] = data
             (late if is_late else compressed).append(key)
         return ReferenceStore(mapping, sources, read_at_open=late, compressed=compressed, page_size=PAGE_SIZE,
-                              policy=policy, registry=registry, info=info)
+                              policy=reading_own_files(policy, sources), registry=registry, info=info)
+
+
+def reading_own_files(policy: Policy | None, sources: Iterable[Source]) -> Policy:
+    """`policy` (default `Policy()`), which also lets the store a zarrifier just built read the
+    local files it names: the input its caller named and the files that input led it to, each
+    below the input's directory (spec/zarrify.md §1.9
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>).
+    It allows the directory that holds them all, as a prefix, so that a file replaced by a link
+    after the store was built is not read through it (spec/refkv.md §6.7
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 2); a store
+    that also names other sources allows each of them by its URL as well, since a prefix list
+    replaces rule 1, which allowed them. A saved store does not keep this: whoever opens it
+    chooses (rule 1)."""
+    policy = policy or Policy()
+    if policy.prefixes is not None:
+        return policy
+    base = file_uri(Path.cwd()) + "/"
+    urls = [resolve_reference(base, s.url) for s in sources if s.url is not None]
+    files = [u for u in urls if u.lower().startswith("file:")]
+    if not files:
+        return policy
+    paths = [file_path(u, allow_host=policy.allow_file_hosts) for u in files]
+    directory = file_uri(os.path.commonpath([str(Path(p).parent) for p in paths]))
+    if not directory.endswith("/"):  # a root's URL ends with one already: file:///
+        directory += "/"
+    others = dict.fromkeys(u for u in urls if not u.lower().startswith("file:"))
+    return replace(policy, prefixes=(directory, *others))
 
 
 MAX_PAYLOAD = 65519
@@ -719,7 +748,7 @@ def follow[M: Message | None](base: str, url: str, send: Callable[[str], tuple[i
     most 5 redirects: the policy checks `url`, and each redirect's target before it
     is requested, for the input at `base`. `send` does not follow redirects."""
     for hop in range(6):
-        policy.check(base, url)
+        policy.check(url)
         status, msg, body = send(url)
         if status not in REDIRECTS:
             return url, status, msg, body

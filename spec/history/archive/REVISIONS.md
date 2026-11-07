@@ -1284,3 +1284,20 @@ shared read can fail where only one of its reads would: the reader then makes ea
 [§6.7](../../refkv.md#67-reader-policy) rule 5 still counts the reads of one `get` by itself. A reader
 that combines nothing across `get`s still conforms, so the conformance suite and its three
 implementations are unchanged.
+
+## Revision 11.6: a store reads no local file unless the application allows it
+
+Format version 0, specification revision 11.6. **Status: provisional.** No store's values change, but
+a reader that followed revision 11.5 by default no longer conforms. [§6.7](../../refkv.md#67-reader-policy)
+rule 1 let a store opened from a local path read any `file` source. A store's location says nothing of
+who wrote it, so a service that downloaded a store and opened it by path gave that store its local files
+to read and return, as [an HDF5 file's external storage did in an incident the HDF Group
+described](https://www.hdfgroup.org/2026/07/31/when-an-hdf5-file-points-outside-itself/). `file` is now
+a scheme like any other, refused for every store unless the application allows it, and a `file:` prefix
+(rule 2) also binds the file's path with symbolic links followed, checked at each read for the file
+opened against the prefix's path as resolved once, when the prefix was given. The separate setting that let a remote store read every file is gone. A store a zarrifier has
+just built may still read the files it found, as if its prefixes were their directory and the URLs of
+its other sources, and a writer
+does not refuse a `file` source. The conformance
+runner allows `file` for the reference reader; the three implementations, which were built
+from revision 7 and have no policy, are unchanged.

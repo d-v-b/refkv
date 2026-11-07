@@ -158,13 +158,17 @@ strip is short) also needs
 `zarr.config.set({"array.rectilinear_chunks": True})`. Importing `refkv.zarr` sets
 it, and so does loading one of refkv's codecs, but zarr checks an array's chunk
 grid before it loads its codecs: set it yourself before opening such an array.
-`refkv.zarr` opens the archive itself:
+`refkv.zarr` opens the archive itself. An archive of a local file reads that file,
+which you allow by name, since a store cannot allow itself to read your files
+([spec §6.7](../../spec/refkv.md#67-reader-policy)):
 
 ```python
 import zarr
+import refkv
 import refkv.zarr
 
-g = zarr.open_group(refkv.zarr.open("out.vzip"), mode="r")
+policy = refkv.Policy(prefixes=("file:///data/",))
+g = zarr.open_group(refkv.zarr.open("out.vzip", policy=policy), mode="r")
 ```
 
 **From Python.** The command is a thin wrapper over
