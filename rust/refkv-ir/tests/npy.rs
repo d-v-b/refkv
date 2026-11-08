@@ -90,6 +90,44 @@ fn every_accepted_fixtures_arrays_are_described_as_its_facts_give_them() {
     assert!(described > 30 && ungridded > 0, "{described} described, {ungridded} with no grid");
 }
 
+/// Each array's description is found from the facts (spec/stored-array.md §2.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#21-keys>): a `.npy` file's at
+/// `header`; a `.npz` member's, presented or not, at `entries/<i>/data/header` for its position i
+/// in the facts' `own.members`, which a presented array's entry of `arrays` names by its `path`; a
+/// deflated member has none.
+#[test]
+fn every_fixtures_descriptions_are_found_from_its_facts() {
+    let dir = common::fixtures().join("npy");
+    let mut names: Vec<_> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().path()).collect();
+    names.sort();
+    let mut found = 0;
+    for path in names.iter().filter(|p| !p.file_name().unwrap().to_str().unwrap().contains("reject")) {
+        let at = path.display().to_string();
+        let (ir, facts) = refkv_ir::parse_bytes::<Npy>(&std::fs::read(path).unwrap()).unwrap();
+        let by_path: std::collections::HashMap<String, &refkv_ir::array::StoredArray> =
+            ir.stored.arrays.iter().map(|d| (ir.path(d.element), d)).collect();
+        let Some(members) = facts["own"].get("members").and_then(|m| m.as_array()) else {
+            assert_eq!(by_path.keys().collect::<Vec<_>>(), ["header"], "{at}");
+            assert!(by_path["header"].index.is_none(), "{at}");
+            found += 1;
+            continue;
+        };
+        for a in facts["arrays"].as_array().unwrap() {
+            let i = members.iter().position(|m| m.get("path") == Some(&a["path"])).unwrap();
+            let key = format!("entries/{i}/data/header");
+            assert_eq!(by_path.contains_key(&key), a.get("deflate").is_none(), "{at}: {key}");
+        }
+        for (i, m) in members.iter().enumerate() {
+            let key = format!("entries/{i}/data/header");
+            let described = m.get("header").is_some() && m["method"].as_u64() == Some(0);
+            assert_eq!(by_path.get(&key).map(|d| d.index), described.then_some(None), "{at}: {key}");
+            found += usize::from(described);
+        }
+        assert_eq!(by_path.len(), members.iter().filter(|m| m.get("header").is_some() && m["method"].as_u64() == Some(0)).count(), "{at}");
+    }
+    assert!(found > 40, "{found}");
+}
+
 /// A version 1.0 `.npy` file of the header `{'descr': <descr>, 'fortran_order': False, 'shape':
 /// <shape>, }`, and no data.
 fn npy_of(descr: &str, shape: &str) -> Vec<u8> {

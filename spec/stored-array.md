@@ -66,6 +66,12 @@ array's alone, and on each element either no description has an index or every o
 n − 1. Within a run, the id is what is computed on; the JSON form also gives the element's path
 ([§2.5](#25-the-json-form)).
 
+Each format's document says how a profile finds, from the facts its parser gives, the key of each
+array's description: the declaring element's IR path, the path the description's JSON form gives,
+and the index where the format's kind of element carries one. A profile so matches what its facts
+say of an array to the array's description, presented or not. A graft re-roots the path under the
+file's object as it re-roots the facts' element references (`placed()` of a store's facts).
+
 ### 2.2 Places and parameters
 
 A **place** is bytes of the source:
@@ -123,8 +129,9 @@ parser knows. The profile reads the declaring structure for the rest, or leaves 
   specification defines as zero bytes);
 - `given`: one decoded element's bytes, ceil(`item_bits` / 8) of them, as a parameter
   ([§2.2](#22-places-and-parameters)): a value, the bytes as a base64 string (RFC 4648 §4, with
-  padding), or the place that holds them (a range, an extent, or an element's whole extent). An element of fewer bits than whole bytes takes the
-  first bits of its bytes, packed as the array packs them.
+  padding), or the place that holds them (a range, an extent, or an element's whole extent). An
+  element of fewer bits than whole bytes takes the first bits of its bytes, packed as the array
+  packs them.
 
 ### 2.5 The JSON form
 
@@ -157,13 +164,14 @@ and ends with the elements' bytes:
 Every codec takes bytes to bytes. An array stored as is has one empty chain.
 
 The IR holds one table of distinct chains, and a description names its chains by their positions
-in it, each once. A unit's chain is the description's first, `chains[0]`, unless its row gives another
-position in the description's `chains` ([§4](#4-the-chunk-map)); every chain of an array ends in
-the same element bytes.
+in it, each once. A unit's chain is the description's first, `chains[0]`, unless its row gives
+another position in the description's `chains` ([§4](#4-the-chunk-map)); every chain of an array
+ends in the same element bytes.
 
 A unit parameter names parameter `name` of the codec at position `codec` of the description's
-chain `chain` (a position in its `chains`), and a description lists each once; each unit of that chain that does not skip the codec
-gives its value in the chunk map's column `p.<codec name>.<name>`. A parameter is given either in
+chain `chain` (a position in its `chains`), and a description lists each once; each unit of that
+chain that does not skip the codec gives its value in the chunk map's column
+`p.<codec name>.<name>`. A parameter is given either in
 its codec or as a column, never both; a codec whose parameter is a column appears once in its
 chain; and a codec sees only a unit's bytes and parameters, never its coordinates, so a parameter
 that depends on the unit's position is a column its parser computes.
@@ -346,7 +354,11 @@ neither, and compiles no Arrow code.
 
 **NumPy** ([spec/zarrify/npy.md](zarrify/npy.md)). A `.npy` file's array, and each stored
 (method 0) `.npz` member's whose header was read, is a stored array, keyed by its `header` element,
-with no index; that element is its one declaration (its `descr`, `fortran_order` and `shape`).
+with no index; that element is its one declaration (its `descr`, `fortran_order` and `shape`). The
+facts give its key's path: a `.npy` file's is `header`; the member at position i of the facts'
+`own.members` (the archive's central directory order), presented or not, has
+`entries/<i>/data/header`, and a presented member's entry of the facts' `arrays` is the one of
+`own.members` with its `path`.
 `shape` is the header's, reversed for a Fortran-order array of two or more axes, whose `axes` then
 give the header's order; `item_bits` is eight times the size of an element of its `descr` as NumPy
 lays it out, whether or not the profile presents the array: a type string (with its one-character
