@@ -682,6 +682,7 @@ impl Ir {
             return Err("internal: the IR's arrays described twice".into());
         }
         let mut stored = crate::array::Stored { arrays, chains, map, ..Default::default() };
+        stored.add_columns(crate::array::CODECS);
         let (d, r) = stored.weights();
         if let Some(b) = self.budget.as_mut() {
             b.describe(d, r)?;
@@ -779,19 +780,30 @@ impl Ir {
         if from.space.iter().any(|&s| s != 0) {
             return Err("internal: a graft of an IR with derived spaces".into());
         }
-        let added = from.len().saturating_sub(1) as u64;
-        if let Some(b) = self.budget.as_mut() {
-            b.spent_records += added;
-            b.spent_elements += added;
-            if b.spent_records > b.records {
-                return Err(format!("budget: more than {} IR records", b.records));
-            }
-            if b.spent_elements > b.elements {
-                return Err(format!("budget: more than {} IR elements", b.elements));
-            }
-        }
         let base = self.len() as u32;
         let at = |i: u32| if i == 0 { under } else { base + i - 1 };
+        // the stored arrays planned, and every budget checked, before anything is added: a graft
+        // that fails leaves the store as it was
+        let key = self.key(under);
+        let plan = if from.stored.is_empty() {
+            None
+        } else {
+            Arc::make_mut(&mut self.stored).index_chains();
+            Some(self.stored.plan_graft(&from.stored, &at, &key)?)
+        };
+        let added = from.len().saturating_sub(1) as u64;
+        if let Some(b) = self.budget.as_mut() {
+            if b.spent_records.saturating_add(added) > b.records {
+                return Err(format!("budget: more than {} IR records", b.records));
+            }
+            if b.spent_elements.saturating_add(added) > b.elements {
+                return Err(format!("budget: more than {} IR elements", b.elements));
+            }
+            let (d, r) = from.stored.weights();
+            b.describe(d, r)?;
+            b.spent_records += added;
+            b.spent_elements += added;
+        }
         let map: Vec<u32> = (0..from.len() as u32).map(at).collect();
         let shared: Vec<u32> = from.shared.iter().map(|b| self.share(b)).collect();
         for i in 1..from.len() {
@@ -818,13 +830,9 @@ impl Ir {
         self.targets.extend(from.targets.iter().map(|&(i, t)| (at(i), at(t))));
         self.was.extend(from.was.iter().map(|&(i, k)| (at(i), k)));
         self.runs.extend(from.runs.iter().map(|&(r, c, s)| (at(r), c, s)));
-        if !from.stored.is_empty() {
-            if let Some(b) = self.budget.as_mut() {
-                let (d, r) = from.stored.weights();
-                b.describe(d, r)?;
-            }
-            let key = self.key(under);
-            Arc::make_mut(&mut self.stored).graft(&from.stored, &at, &key)?;
+        if let Some(plan) = plan {
+            Arc::make_mut(&mut self.stored).graft(plan, &from.stored, &at, &key);
+            Arc::make_mut(&mut self.stored).add_columns(crate::array::CODECS);
         }
         Ok(map)
     }

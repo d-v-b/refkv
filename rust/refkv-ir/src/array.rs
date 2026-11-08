@@ -410,7 +410,7 @@ impl ChunkMap {
     /// `from`'s rows after these, their arrays `base` on, their elements renumbered by `at`, the
     /// parsed source's null key `key`, and each row's chain the position `locals[array]` gives its
     /// array's chain (a graft).
-    fn append(&mut self, from: &ChunkMap, base: u32, at: &dyn Fn(u32) -> u32, key: &str, locals: &[Vec<u32>]) -> Res<()> {
+    fn append(&mut self, from: &ChunkMap, base: u32, at: &dyn Fn(u32) -> u32, key: &str, locals: &[Vec<u32>]) {
         let n = self.len();
         let objects: Vec<u32> = from.objects.iter().map(|o| self.object(o)).collect();
         let before = self.objects.len();
@@ -442,15 +442,16 @@ impl ChunkMap {
             self.params.entry(name.clone()).or_insert_with(|| Column::of(col.kind(), n));
         }
         for (name, col) in self.params.iter_mut() {
+            // a column of one name is of one type (Stored::plan_graft): no push fails
             match from.params.get(name) {
                 Some(c) => {
                     for k in 0..from.len() {
-                        col.push(c.get(k))?;
+                        let _ = col.push(c.get(k));
                     }
                 }
                 None => {
                     for _ in 0..from.len() {
-                        col.push(None)?;
+                        let _ = col.push(None);
                     }
                 }
             }
@@ -461,7 +462,6 @@ impl ChunkMap {
                 self.object_index.0.remove(&o);
             }
         }
-        Ok(())
     }
 
     /// Each row's element and member as `f` moves them.
@@ -556,6 +556,16 @@ impl PartialEq for ChainIndex {
     fn eq(&self, _: &Self) -> bool {
         true
     }
+}
+
+/// What a graft adds to a store's stored arrays ([`Stored::plan_graft`]): the file's chains the
+/// table has not (with their texts), its arrays renumbered, and each one's chains' positions among
+/// its own chains in the store.
+#[derive(Debug)]
+pub struct GraftPlan {
+    added: Vec<(Chain, String)>,
+    arrays: Vec<StoredArray>,
+    locals: Vec<Vec<u32>>,
 }
 
 /// An IR's stored arrays: the descriptions, the chain table they name and the chunk map.
@@ -702,15 +712,23 @@ impl Stored {
         v
     }
 
-    /// The file IR's arrays `from` carried into this store's by a graft (spec/stored-array.md §6
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#6-in-the-ir>): their element
-    /// ids by `at`, their positions after these, their chains merged into this table, and the
-    /// parsed source's null key the file's key in the store, `key`.
-    pub fn graft(&mut self, from: &Stored, at: &dyn Fn(u32) -> u32, key: &str) -> Res<()> {
+    /// The chain index, made again where it does not hold the chain table's chains (it is
+    /// derived from them: refreshing it changes nothing a reader sees).
+    pub fn index_chains(&mut self) {
         if self.chain_index.0.len() != self.chains.len() {
             self.chain_index.0 = self.chains.iter().enumerate().map(|(k, c)| (chain_json(c).to_string(), k as u32)).collect();
         }
-        let index = &mut self.chain_index.0;
+    }
+
+    /// What a graft of the file IR's arrays `from` adds to these (spec/stored-array.md §6
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#6-in-the-ir>), or why it
+    /// cannot, with nothing changed: their element ids by `at`, the parsed source's null key the
+    /// file's key in the store, `key`, their chains looked up in this table's index (made current
+    /// by [`Stored::index_chains`]), each array's chains once each (two its chains the renumbering
+    /// makes one are one, and its rows and unit parameters name that one, so long as they give one
+    /// set of unit parameters), and the map's parameter columns of one name of one type.
+    pub fn plan_graft(&self, from: &Stored, at: &dyn Fn(u32) -> u32, key: &str) -> Res<GraftPlan> {
+        let mut added: Vec<(Chain, String)> = Vec::new();
         let mut chains = Vec::with_capacity(from.chains.len());
         for c in &from.chains {
             let mut c = c.clone();
@@ -718,20 +736,19 @@ impl Stored {
                 p.renumber(at, key);
             }
             let text = chain_json(&c).to_string();
-            let k = match index.get(&text) {
+            let k = match self.chain_index.0.get(&text) {
                 Some(&k) => k,
-                None => {
-                    self.chains.push(c);
-                    let k = (self.chains.len() - 1) as u32;
-                    index.insert(text, k);
-                    k
-                }
+                None => match added.iter().position(|a| a.1 == text) {
+                    Some(j) => (self.chains.len() + j) as u32,
+                    None => {
+                        added.push((c, text));
+                        (self.chains.len() + added.len() - 1) as u32
+                    }
+                },
             };
             chains.push(k);
         }
-        // an array's chains in this table, once each: two of its chains the renumbering makes one
-        // are one, and its rows and unit parameters name that one
-        let base = self.arrays.len() as u32;
+        let mut arrays = Vec::with_capacity(from.arrays.len());
         let mut locals = Vec::with_capacity(from.arrays.len());
         for a in &from.arrays {
             let mut a = a.clone();
@@ -778,29 +795,74 @@ impl Stored {
                 }
             });
             locals.push(local);
-            self.arrays.push(a);
+            arrays.push(a);
         }
-        self.map.append(&from.map, base, at, key, &locals)
+        for (name, col) in &from.map.params {
+            if let Some(mine) = self.map.params.get(name) {
+                if mine.kind() != col.kind() {
+                    return Err(format!("internal: a graft joins the parameter column {name:?} of type {:?} to one of {:?}", col.kind(), mine.kind()));
+                }
+            }
+        }
+        Ok(GraftPlan { added, arrays, locals })
+    }
+
+    /// The graft [`Stored::plan_graft`] planned, of the file's arrays `from` with the same `at`
+    /// and `key`: it cannot fail.
+    pub fn graft(&mut self, plan: GraftPlan, from: &Stored, at: &dyn Fn(u32) -> u32, key: &str) {
+        self.index_chains();
+        for (c, text) in plan.added {
+            self.chain_index.0.insert(text, self.chains.len() as u32);
+            self.chains.push(c);
+        }
+        let base = self.arrays.len() as u32;
+        self.arrays.extend(plan.arrays);
+        self.map.append(&from.map, base, at, key, &plan.locals);
+    }
+
+    /// A column, of its entry's type in `codecs`, for every parameter a description with a grid
+    /// lists as a unit parameter, whether or not a row gives it a value (spec/stored-array.md §4.1
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#41-the-arrow-schema>).
+    pub fn add_columns(&mut self, codecs: &[CodecEntry]) {
+        let n = self.map.len();
+        for a in self.arrays.iter().filter(|a| a.grid.is_some()) {
+            for u in &a.unit_parameters {
+                let codec = a.chains.get(u.chain as usize).and_then(|&c| self.chains.get(c as usize)).and_then(|c| c.get(u.codec as usize));
+                let Some(codec) = codec else { continue };
+                let t = codecs.iter().find(|e| e.name == codec.name).and_then(|e| e.parameters.iter().find(|p| p.name == u.name)).and_then(|p| p.column);
+                if let Some(t) = t {
+                    self.map.params.entry(format!("p.{}.{}", codec.name, u.name)).or_insert_with(|| Column::of(t, n));
+                }
+            }
+        }
     }
 
     /// What the budget counts of them (spec/stored-array.md §6
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#6-in-the-ir>): the
-    /// descriptions' entries (each description, its axes, its listed runs, its places, its chains
-    /// and unit parameters, and each chain and codec of the table), and the chunk map's (each row,
-    /// its coordinates and its ranges).
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#6-in-the-ir>): of the
+    /// descriptions, each description, each axis of its shape, each run of a listed axis, each of
+    /// its places (its declarations, and a fill given at a place), each of its chains and each unit
+    /// parameter; of the chain table, each chain, each codec and each place a codec's parameter
+    /// names; of the chunk map, each row, each of its coordinates and each of its ranges.
     pub fn weights(&self) -> (u64, u64) {
-        let runs = |g: &Grid| -> usize {
+        let listed = |g: &Grid| -> usize {
             g.axes.iter().map(|x| match x {
-                AxisUnits::Each(_) => 1,
-                AxisUnits::List(r) => r.len().max(1),
+                AxisUnits::Each(_) => 0,
+                AxisUnits::List(r) => r.len(),
             }).sum()
         };
         let d: usize = self
             .arrays
             .iter()
-            .map(|a| 1 + a.shape.len() + a.declarations.len() + a.chains.len() + a.unit_parameters.len() + a.grid.as_ref().map_or(0, runs))
+            .map(|a| {
+                let fill = usize::from(matches!(a.fill, Fill::Given(Param::Source(_))));
+                1 + a.shape.len() + a.grid.as_ref().map_or(0, listed) + a.declarations.len() + fill + a.chains.len() + a.unit_parameters.len()
+            })
             .sum::<usize>()
-            + self.chains.iter().map(|c| 1 + c.len()).sum::<usize>();
+            + self
+                .chains
+                .iter()
+                .map(|c| 1 + c.iter().map(|x| 1 + x.parameters.values().filter(|p| matches!(p, Param::Source(_))).count()).sum::<usize>())
+                .sum::<usize>();
         let r = self.map.len() + self.map.coords.len() + self.map.range_offset.len();
         (d as u64, r as u64)
     }
@@ -1166,6 +1228,16 @@ impl ChunkMap {
                 None => return Err(format!("internal: the chunk map's column {name:?} is no codec's parameter column")),
                 Some(t) if t != col.kind() => return Err(format!("internal: the chunk map's column {name:?} is a {:?}, not {t:?}", col.kind())),
                 _ => {}
+            }
+        }
+        // a column for every unit parameter a description with a grid lists
+        for d in arrays.iter().filter(|d| d.grid.is_some()) {
+            for u in &d.unit_parameters {
+                let codec = &chains[d.chains[u.chain as usize] as usize][u.codec as usize];
+                let name = format!("p.{}.{}", codec.name, u.name);
+                if !self.params.contains_key(&name) {
+                    return Err(format!("internal: the chunk map has no column {name:?}, which the stored array of {} gives", named(ctx.ir, d.element)));
+                }
             }
         }
         // the parameter columns each (array, chain) sets, with the codec each is of
@@ -1697,17 +1769,97 @@ mod tests {
 
     #[test]
     fn a_refused_description_refunds_the_budget_and_check_finish_leaves_the_ir_unfinished() {
+        // one fault: the description names an element the IR has not
+        let a = StoredArray { element: 99, index: None, ..valid().arrays[2].clone() };
         let mut ir = file_ir();
-        let s = valid();
-        // the IR's list has no `quantize`
-        ir.describe(s.arrays, s.chains, s.map).unwrap_err();
+        let e = ir.describe(vec![a.clone()], vec![], ChunkMap::default()).unwrap_err();
+        assert_eq!(e, "internal: the stored array of element 99: names element 99, which the IR has not");
         let b = ir.budget.as_ref().unwrap();
         assert_eq!((b.spent_descriptions, b.spent_rows), (0, 0));
         let mut store = Ir::new_store();
         let o = store.listing(&[("f.bin".into(), 100)]).unwrap();
-        store.graft(&with(valid()), o[0]).unwrap();
-        crate::check::finish(&mut store).unwrap_err();
+        store.graft(&file_ir(), o[0]).unwrap();
+        let a = StoredArray { element: 9999, ..a };
+        store.stored = std::sync::Arc::new(Stored { arrays: vec![a], ..Stored::default() });
+        let e = crate::check::finish(&mut store).unwrap_err();
+        assert_eq!(e, "internal: the stored array of element 9999: names element 9999, which the IR has not");
         assert!(!store.finished);
+    }
+
+    /// A store's failed graft, refused by its arrays' plan or by the budget, leaves it as it was.
+    #[test]
+    fn a_failed_graft_leaves_the_store_unchanged() {
+        let chain = |object: Option<&str>| vec![codec("quantize", &[("method", Param::Source(Place::Extent { object: object.map(String::from), offset: 0, length: 4 }))])];
+        let a = StoredArray {
+            element: 1, index: None, declarations: vec![], shape: vec![2], axes: None, item_bits: Some(8), pad_from: None,
+            grid: Some(Grid { axes: vec![AxisUnits::Each(1)], edge: Edge::Short }), chains: vec![0, 1], fill: Fill::Undefined,
+            unit_parameters: vec![UnitParameter { chain: 0, codec: 0, name: "scale".into() }],
+        };
+        let mut map = ChunkMap::default();
+        map.push(Row { array: 0, coords: vec![0], element: Some(1), params: vec![("p.quantize.scale".into(), Scalar::Float64(1.0))], ..Row::default() }).unwrap();
+        map.push(Row { array: 0, coords: vec![1], element: Some(4), chain: Some(1), ..Row::default() }).unwrap();
+        let refused = with(Stored { arrays: vec![a], chains: vec![chain(None), chain(Some("f.bin"))], map, ..Stored::default() });
+        let mut store = Ir::new_store();
+        let o = store.listing(&[("f.bin".into(), 100), ("g.bin".into(), 100)]).unwrap();
+        store.graft(&with(valid()), o[1]).unwrap();
+        let state = |s: &Ir| (s.len(), s.digest(), s.stored.as_ref().clone(), s.budget.as_ref().map(|b| (b.spent_records, b.spent_elements, b.spent_descriptions, b.spent_rows)));
+        let before = state(&store);
+        assert!(store.graft(&refused, o[0]).unwrap_err().contains("they give other unit parameters"));
+        assert!(state(&store) == before);
+        store.budget.as_mut().unwrap().descriptions = 0;
+        let before = state(&store);
+        assert_eq!(store.graft(&with(valid()), o[0]).unwrap_err(), "budget: more than 0 entries of stored arrays");
+        assert!(state(&store) == before);
+    }
+
+    /// An unfold that moves a chain's place clears the chain index, which the next graft makes
+    /// again from the chains as they are.
+    #[test]
+    fn a_graft_after_an_unfold_indexes_the_chains_as_they_are() {
+        let chain = vec![codec("source", &[("parameters", Param::Source(Place::Element { element: 3, member: Some(2), range: None }))])];
+        let file = with(Stored { chains: vec![chain], ..Stored::default() });
+        let mut store = Ir::new_store();
+        let o = store.listing(&[("f.bin".into(), 100), ("g.bin".into(), 100)]).unwrap();
+        let at = store.graft(&file, o[0]).unwrap();
+        let before = chain_json(&store.stored.chains[0]).to_string();
+        store.unfold(at[3]).unwrap();
+        assert_ne!(chain_json(&store.stored.chains[0]).to_string(), before);
+        assert!(store.stored.chain_index.0.is_empty());
+        store.graft(&file, o[1]).unwrap();
+        let s = &store.stored;
+        assert_eq!(s.chains.len(), 2);
+        for (k, c) in s.chains.iter().enumerate() {
+            assert_eq!(s.chain_index.0.get(&chain_json(c).to_string()), Some(&(k as u32)));
+        }
+        check_with(&store, TEST_CODECS).unwrap();
+    }
+
+    /// A column for every listed unit parameter, though every row skips its codec, or the map has
+    /// no rows.
+    #[test]
+    fn every_listed_unit_parameter_has_its_column() {
+        let mut s = valid();
+        s.map.params.clear();
+        s.map.skips[0] = Some(1);
+        s.map.skips[2] = Some(1);
+        s.add_columns(TEST_CODECS);
+        assert_eq!(s.map.params["p.quantize.scale"], Column::Float64(vec![None; 5]));
+        check_with(&with(s), TEST_CODECS).unwrap();
+        let mut s = valid();
+        s.arrays.truncate(1);
+        s.map = ChunkMap::default();
+        s.add_columns(TEST_CODECS);
+        assert_eq!(s.map.params["p.quantize.scale"], Column::Float64(vec![]));
+        check_with(&with(s), TEST_CODECS).unwrap();
+    }
+
+    #[test]
+    fn refuses_a_listed_unit_parameter_without_its_column() {
+        assert!(refusal(|s| {
+            s.map.params.clear();
+            s.map.skips[0] = Some(1);
+            s.map.skips[2] = Some(1);
+        }).contains("the chunk map has no column \"p.quantize.scale\""));
     }
 
     #[test]

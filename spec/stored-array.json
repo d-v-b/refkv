@@ -14,7 +14,7 @@
     "count": {"type": "integer", "minimum": 0},
     "length": {"type": "integer", "minimum": 1},
     "place": {
-      "description": "Bytes of the source: an IR element (member, for an element in a run's subtree; range, an (offset, length) within the bytes its recipe gives), or a range of an object by its key (null: the parsed source).",
+      "description": "Bytes of the source: an IR element (member, for an element in a run's subtree; range, an (offset, length) within the element's extent, its bytes in its own space), or a range of an object by its key (null: the parsed source).",
       "oneOf": [
         {
           "type": "object",

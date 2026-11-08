@@ -71,7 +71,8 @@ n − 1. Within a run, the id is what is computed on; the JSON form also gives t
 A **place** is bytes of the source:
 
 - an IR element (`element`), with `member`, for an element in a run's subtree, the position j of
-  the run's member it is in, and `range`, an (offset, length) within the element's bytes; or
+  the run's member it is in, and `range`, an (offset, length) within the element's extent (its
+  bytes in its own space); or
 - where no element holds them, a range of an object by its key (`object`; none for the parsed
   source itself), the `offset` counted from the object's start, and its `length`. In a store IR,
   an object is one of the store's objects, and an external file of a file IR is named by the
@@ -201,13 +202,13 @@ interface (`__arrow_c_array__` and `__arrow_c_stream__`), of this schema:
 | --- | --- | --- | --- |
 | `array` | `UInt32` | no | the array, by its position in the IR's descriptions |
 | `coords` | `LargeList<UInt64>` (items not null) | no | the unit's coordinates in the array's grid (empty for rank 0) |
-| `element` | `UInt32` | yes | the IR element holding the unit's bytes; its recipe gives them |
+| `element` | `UInt32` | yes | the IR element holding the unit's bytes: its recipe gives them, or, with `range`, the range of its extent (taken before any recipe) |
 | `member` | `UInt64` | yes | where `element` is in a run's subtree, the position j of the run's member it is in |
 | `range` | `Struct<offset: UInt64, length: UInt64>` | yes | where the unit is part of `element`: its offset and length within the element's bytes, the same form as a place's `range` ([§2.2](#22-places-and-parameters)) |
 | `ranges` | `LargeList<Struct<object: Dictionary<Int32, Utf8>, offset: UInt64, length: UInt64>>` (items not null; `object` null for the parsed source) | yes | where no element holds exactly the unit's bytes: its bytes, in order; `offset` counts from the object's start |
 | `chain` | `UInt32` | yes | the unit's chain, a position in its array's `chains`; null for the first |
 | `skips` | `UInt64` | yes | the codecs of its chain that the unit skips, a mask by codec position (bit i, codec i); null for none |
-| `p.<codec name>.<name>` | the codec's entry's | yes | one per parameter any array gives as a column, after the columns above in order of their names |
+| `p.<codec name>.<name>` | the codec's entry's | yes | one for every unit parameter a description with a grid lists, whether or not a row gives it a value, after the columns above in order of their names |
 
 The list columns are `LargeList`s, of 64-bit offsets, since a map the budget admits may hold
 more than 2^31 coordinates or ranges. The schema's metadata gives `refkv.chunk_map`, the schema's
@@ -306,13 +307,16 @@ each format's projection reads the descriptions.
 The mirror's canonical form ([conventions §8.8](conventions.md#88-canonical-form)) leaves the
 descriptions and the chunk map out.
 
-**Limits.** The IR's budget counts, apart from the IR's room, the descriptions' entries (each
-description, each of its axes, listed runs, places, chains and unit parameters, and each chain and
-codec of the table) and the chunk map's (each row, each of its coordinates and each of its ranges),
-each against a limit of its own: 2^22 plus one per 4 bytes of the source, growing with each object
-of a store as the store's other budgets do (4 plus one per 4 of its bytes). A map that would pass
-its limit rejects the run; it is never cut short, which a profile would read as units the source
-does not hold. Descriptions a check refuses spend none of it.
+**Limits.** The IR's budget counts, apart from the IR's room, the descriptions' entries and the
+chunk map's, each against a limit of its own. The descriptions' entries are each description, each
+axis of its shape, each run of a listed axis (an `Each` axis has none), each of its places (its
+declarations, and a fill given at a place), each of its chains and each unit parameter; and of the
+chain table, each chain, each codec and each place a codec's parameter names. The chunk map's are
+each row, each of its coordinates and each of its ranges. Each limit is 2^22 plus one per 4 bytes
+of the source, growing with each object of a store as the store's other budgets do (4 plus one per
+4 of its bytes). A map that would pass its limit rejects the run; it is never cut short, which a
+profile would read as units the source does not hold. Descriptions a check refuses spend none of
+it, and a graft that fails, on its budget or its arrays, adds nothing to the store.
 
 **Bindings.** Python's `refkv._core.Ir` gives the descriptions as the JSON document of
 [§2.5](#25-the-json-form) (`stored_arrays()`, read by `refkv.ir.stored`) and the chunk map as an

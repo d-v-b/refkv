@@ -19,7 +19,7 @@ from refkv._narrow import JSON, integer, mapping, sequence, string
 @dataclass(frozen=True)
 class ElementPlace:
     """Bytes of an IR element (`member`: for an element in a run's subtree, the run's member it is
-    in), or `range`, an (offset, length) within the bytes its recipe gives."""
+    in), or `range`, an (offset, length) within the element's extent (its bytes in its own space)."""
 
     element: int
     member: int | None
