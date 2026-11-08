@@ -259,7 +259,11 @@ pub fn parse_binary64(t: &str) -> Option<J> {
             in_string = c != b'"';
         } else if c == b'"' {
             in_string = true;
-        } else if c == b'-' && b.get(i + 1) == Some(&b'0') && !b.get(i + 2).is_some_and(|d| d.is_ascii_digit() || b".eE".contains(d)) {
+        } else if c == b'-'
+            && (i == 0 || b"[,: \t\r\n".contains(&b[i - 1])) // a `-` that starts a number, not an exponent's
+            && b.get(i + 1) == Some(&b'0')
+            && !b.get(i + 2).is_some_and(|d| d.is_ascii_digit() || b".eE".contains(d))
+        {
             out.extend_from_slice(b"-0.0");
             replaced = true;
             i += 2;
@@ -678,9 +682,9 @@ mod tests {
     /// floats by value, integers exact.
     #[test]
     fn text_parses_as_binary64() {
-        let j = parse_binary64(r#"{"a":-0,"b":[-0 ,-0.5,-5e1],"c":"-0","d":"\"-0","e":1.50,"f":18446744073709551616}"#);
+        let j = parse_binary64(r#"{"a":-0,"b":[-0 ,-0.5,-5e1],"c":"-0","d":"\"-0","e":1.50,"f":18446744073709551616,"g":1e-0,"h":[2.5E-0]}"#);
         assert_eq!(j.map(|j| crate::out::to_text(&j)).as_deref(),
-                   Some(r#"{"a":-0.0,"b":[-0.0,-0.5,-50.0],"c":"-0","d":"\"-0","e":1.5,"f":18446744073709551616}"#));
+                   Some(r#"{"a":-0.0,"b":[-0.0,-0.5,-50.0],"c":"-0","d":"\"-0","e":1.5,"f":18446744073709551616,"g":1.0,"h":[2.5]}"#));
     }
 
     /// Text that has the number token, or a number not finite, has no value.
