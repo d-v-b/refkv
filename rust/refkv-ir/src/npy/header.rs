@@ -452,15 +452,19 @@ fn type_size(t: &str) -> Option<u64> {
     }
 }
 
-/// A repeat count of a comma string's field (`3`, `2,3`, `(2,3)`, `(2,)`, with spaces about
-/// them): the product of its integers; None for a parenthesized single number with no comma
-/// (`(2)`, which NumPy refuses), or an empty one other than the last after a comma (`(2,,3)`).
+/// A repeat count of a comma string's field (`3`, `2,3`, `(2,3)`, `(2,)`, `()`, with spaces about
+/// them), as Python's `ast.literal_eval` reads it: the product of its integers (1 for `()`); None
+/// for a parenthesized single number with no comma (`(2)`, which NumPy refuses), an empty one
+/// other than the last after a comma (`(2,,3)`), or an integer of a leading zero (`02`) but zeros.
 fn repeats_count(r: &str) -> Option<u64> {
     let t = r.trim();
     let (inner, parenthesized) = match t.strip_prefix('(') {
         Some(i) => (i.strip_suffix(')')?, true),
         None => (t, false),
     };
+    if parenthesized && inner.trim().is_empty() {
+        return Some(1);
+    }
     if parenthesized && !inner.contains(',') {
         return None;
     }
@@ -472,6 +476,9 @@ fn repeats_count(r: &str) -> Option<u64> {
             if k + 1 == parts.len() && k > 0 {
                 continue;
             }
+            return None;
+        }
+        if p.len() > 1 && p.starts_with('0') && !p.bytes().all(|c| c == b'0') {
             return None;
         }
         count = count.checked_mul(p.parse().ok()?)?;
@@ -541,7 +548,9 @@ fn comma_size(s: &str) -> Option<u64> {
             }
         }
         let o = match (o1, o2) {
-            (Some(a), Some(c)) if a != c => return None,
+            // NumPy maps `=` to the reading machine's order before comparing: refkv takes a
+            // little-endian one's, as the table of NumPy's sizes was made on
+            (Some(a), Some(c)) if a != c && !matches!((a, c), (b'=', b'<') | (b'<', b'=')) => return None,
             (Some(a), _) | (None, Some(a)) => Some(a as char),
             (None, None) => None,
         };
@@ -851,6 +860,14 @@ mod tests {
             (r#"'S'"#, None),
             (r#"'(2,)<f4,<i2'"#, Some(10)),
             (r#"'<f8,<i4,'"#, Some(12)),
+            (r#"'()<f4'"#, Some(4)),
+            (r#"'() f4'"#, Some(4)),
+            (r#"'02f4'"#, None),
+            (r#"'(02,)f4'"#, None),
+            (r#"'2,03f4'"#, None),
+            (r#"'00f4'"#, None),
+            (r#"'=2<f4'"#, Some(8)),
+            (r#"'<2=f4'"#, Some(8)),
         ];
         for &(text, want) in cases {
             let descr = parse(&format!("{{'descr': {text}, 'fortran_order': False, 'shape': ()}}"), 64).unwrap().descr;
