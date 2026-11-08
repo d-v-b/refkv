@@ -56,7 +56,9 @@ type Param = Value | Source
 
 @dataclass(frozen=True)
 class Codec:
-    """A codec of the IR's list, by name, with its parameters."""
+    """A codec of the IR's list, by name, with its parameters. Its parameters are a dict, to read
+    and not to change: like a parameter's JSON value, they leave the codec unhashable, but it pickles
+    and copies as plain data."""
 
     name: str
     parameters: Mapping[str, Param]
