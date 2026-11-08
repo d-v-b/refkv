@@ -53,6 +53,22 @@ def test_differences():
     assert compare.differences(output({"shape": [1]}), other)
 
 
+def test_with_exact_integers():
+    """The frozen reference's digit strings of integers past 2^53 - 1, ND2's `{"int": digits}` tag
+    and the pairs of a record named `int` alone read as the shipped code's exact integers and
+    object where it has them; anything else stays as the reference wrote it, and still differs."""
+    big = 2**64 - 1
+    ref = output({"a": str(big), "b": [{"int": str(-big)}], "c": [["int", str(big)]], "d": "12",
+                  "e": str(big), "f": [["int", 5]], "g": {"int": "7"}})
+    ours = output({"a": big, "b": [-big], "c": {"int": big}, "d": 12, "e": str(big), "f": {"int": 5},
+                   "g": {"int": "7"}})
+    assert compare.with_exact_integers(ref, ours)["entries"]["zarr.json"][1] == {
+        "a": big, "b": [-big], "c": {"int": big}, "d": "12", "e": str(big), "f": {"int": 5}, "g": {"int": "7"}}
+    assert compare.with_exact_integers(ref, ours)["entries"]["0/c/0"] == ref["entries"]["0/c/0"]
+    # an integer within 2^53 - 1 the reference writes as a string differs
+    assert compare.differences(compare.with_exact_integers(ref, ours), ours) != []
+
+
 def archive(path: Path, build=None, *, doc: bytes = b'{"zarr_format":3,"node_type":"group"}') -> Path:
     """A zarrifier-like archive at `path`: a document and a reference; `build(w)` adds to it."""
     with open(path, "wb") as fh:

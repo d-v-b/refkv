@@ -3247,7 +3247,7 @@ impl Tiff {
             } else if e.typ == 12 {
                 self.bytes_of(e, n).map(|b| crate::project::float_json(u64::le_at(&b, 0), 8, f64::le_at(&b, 0)))
             } else {
-                self.ints(e, true).map(|v| if v[0] <= MAX_SAFE { json!(v[0]) } else { json!(v[0].to_string()) })
+                self.ints(e, true).map(|v| json!(v[0]))
             };
             match v {
                 Some(v) => {

@@ -156,7 +156,7 @@ def as_json(v):
     v = v.item() if hasattr(v, "item") else v
     if isinstance(v, float):
         return "NaN" if math.isnan(v) else "Infinity" if v == float("inf") else "-Infinity" if v == float("-inf") else v
-    return v if abs(v) <= 2**53 - 1 else str(v)
+    return v
 
 
 def header_problems(nii: Path, meta: Mapping[str, JSON], out: Path) -> list[str]:

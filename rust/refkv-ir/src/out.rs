@@ -412,10 +412,28 @@ pub fn rectilinear_array_json(shape: &[u64], data_type: &str, lengths: &J, codec
 
 /// An integer of the source as JSON (conventions §6
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>):
-/// a number when its magnitude is at most 2^53 − 1, else the string of its decimal digits.
+/// a JSON integer, exact whatever its magnitude (serde_json's `arbitrary_precision` keeps the
+/// digits of one past 64 bits).
 pub fn int_json(v: i128) -> J {
-    const MAX_SAFE: i128 = (1 << 53) - 1;
-    if (-MAX_SAFE..=MAX_SAFE).contains(&v) { json!(v as i64) } else { J::String(v.to_string()) }
+    J::Number(serde_json::Number::from_i128(v).expect("arbitrary_precision holds every i128"))
+}
+
+/// The most digits of an integer read from text that is a JSON integer (conventions §6
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>):
+/// Python's `json` refuses an integer literal of more by default.
+pub const MAX_INT_DIGITS: usize = 4300;
+
+/// An integer written in decimal as JSON, exact (conventions §6
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>):
+/// `digits` are ASCII digits, without leading zeros but for `0` itself, and `negative` its
+/// sign (not written for 0); None past [`MAX_INT_DIGITS`] digits.
+pub fn digits_json(negative: bool, digits: &str) -> Option<J> {
+    debug_assert!(!digits.is_empty() && digits.bytes().all(|c| c.is_ascii_digit()));
+    if digits.len() > MAX_INT_DIGITS {
+        return None;
+    }
+    let sign = if negative && digits != "0" { "-" } else { "" };
+    Some(J::Number(format!("{sign}{digits}").parse().expect("arbitrary_precision holds every integer")))
 }
 
 /// The `bytes` codec of elements of `item` bytes: with the byte order `endian` ("little" or
@@ -894,23 +912,38 @@ pub fn json_size(v: &J) -> usize {
 mod tests {
     use super::*;
 
-    /// An integer is a JSON number up to 2^53 − 1 in magnitude, and the string of its digits
-    /// past it (conventions §6
+    /// An integer is a JSON integer, exact whatever its magnitude, its digits as written
+    /// (conventions §6
     /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>).
     #[test]
-    fn an_integer_past_two_to_the_53_is_its_digits() {
+    fn an_integer_is_exact_whatever_its_magnitude() {
         let max = (1i128 << 53) - 1;
         for (v, want) in [
-            (0, json!(0)),
-            (max, json!(9007199254740991u64)),
-            (-max, json!(-9007199254740991i64)),
-            (max + 1, json!("9007199254740992")),
-            (-(max + 1), json!("-9007199254740992")),
-            (u64::MAX as i128, json!("18446744073709551615")),
-            (i128::MIN, json!("-170141183460469231731687303715884105728")),
+            (0, "0"),
+            (max, "9007199254740991"),
+            (-max, "-9007199254740991"),
+            (max + 1, "9007199254740992"),
+            (-(max + 1), "-9007199254740992"),
+            (u64::MAX as i128, "18446744073709551615"),
+            (i64::MIN as i128, "-9223372036854775808"),
+            (i128::MIN, "-170141183460469231731687303715884105728"),
         ] {
-            assert_eq!(int_json(v), want, "{v}");
+            assert_eq!(to_text(&int_json(v)), want, "{v}");
         }
+        let long = "9".repeat(MAX_INT_DIGITS);
+        for (negative, digits, want) in
+            [(false, "0", "0"), (true, "0", "0"), (true, "7", "-7"), (false, long.as_str(), long.as_str())]
+        {
+            assert_eq!(digits_json(negative, digits).map(|j| to_text(&j)).as_deref(), Some(want), "{negative} {digits}");
+        }
+        assert_eq!(to_text(&json!({"n": int_json(u64::MAX as i128 + 1)})), r#"{"n":18446744073709551616}"#);
+    }
+
+    /// An integer read from text of more than MAX_INT_DIGITS digits has no JSON integer: Python's
+    /// `json` refuses one by default.
+    #[test]
+    fn digits_past_the_limit_are_no_integer() {
+        assert_eq!(digits_json(true, &format!("1{}", "0".repeat(MAX_INT_DIGITS))), None);
     }
 
     /// Three 1-byte elements, at most 2 a chunk: the edge chunk is its byte and one byte

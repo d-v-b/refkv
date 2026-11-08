@@ -18,25 +18,15 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 const MAX_ROOT_JSON: usize = 1 << 14;
 /// The most JSON of the root's chunks.
 const MAX_ROOT_TOTAL: usize = 1 << 16;
-/// The largest integer JSON holds exactly.
-const MAX_SAFE: i128 = (1 << 53) - 1;
 /// The names of the tags (spec/zarrify/nd2.md §5.1
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#51-decoded-chunks>).
-const TAGS: [&str; 3] = ["utf16", "int", "float"];
+const TAGS: [&str; 2] = ["utf16", "float"];
 
-use crate::out::{js_string_size, json_size};
+use crate::out::{digits_json, int_json, js_string_size, json_size};
 
 // ---- values as JSON (spec/zarrify/nd2.md §5.1
 // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#51-decoded-chunks>)
 
-/// An integer as JSON: itself, or a tag when JSON cannot hold it exactly.
-fn int_json(v: i128) -> J {
-    if v.abs() <= MAX_SAFE {
-        json!(v as i64)
-    } else {
-        json!({"int": v.to_string()})
-    }
-}
 
 /// A binary64 as JSON: itself, or a tag for NaN, the infinities and -0.
 fn float_json(v: f64) -> J {
@@ -61,8 +51,8 @@ fn is_index(s: &str) -> bool {
 }
 
 /// Named values as an object, or as [name, value] pairs when a name repeats, a name
-/// is an array index, or the object would read as a tag (one member named utf16,
-/// int or float).
+/// is an array index, or the object would read as a tag (one member named utf16 or
+/// float).
 fn pairs_or_object(records: Vec<(String, J)>) -> J {
     let distinct: HashSet<&str> = records.iter().map(|r| r.0.as_str()).collect();
     if distinct.len() < records.len()
@@ -100,15 +90,8 @@ fn scalar(runtype: Option<&str>, value: &str) -> J {
     let unsigned = value.strip_prefix(['+', '-']).unwrap_or(value);
     match runtype {
         Some(rt) if INTS.contains(&rt) && !unsigned.is_empty() && unsigned.bytes().all(|c| c.is_ascii_digit()) => {
-            let sign = if value.starts_with('-') { "-" } else { "" };
             let digits = unsigned.trim_start_matches('0');
-            let digits = if digits.is_empty() { "0" } else { digits };
-            if digits.len() <= 20 {
-                let v: i128 = digits.parse().unwrap();
-                int_json(if sign == "-" { -v } else { v })
-            } else {
-                json!({"int": format!("{sign}{digits}")})
-            }
+            digits_json(value.starts_with('-'), if digits.is_empty() { "0" } else { digits }).unwrap_or_else(|| json!(value))
         }
         Some("double" | "float") if is_decimal(value) => float_json(value.parse().unwrap_or(f64::NAN)),
         Some("bool") if value == "true" || value == "false" => json!(value == "true"),

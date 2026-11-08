@@ -13,7 +13,6 @@ use crate::text::is_strict_decimal;
 use serde_json::{Map, Value as J, json};
 
 pub const MAX_XML: u64 = 1 << 24;
-const MAX_SAFE: u64 = (1 << 53) - 1;
 const MAX_RECORDS: usize = 64;
 const WS: &[char] = &[' ', '\t', '\r', '\n'];
 const GRANULE: &str = "General_Info/Product_Info/Product_Organisation/Granule_List/Granule";
@@ -313,7 +312,8 @@ fn float_json(v: f64) -> J {
     json!(v)
 }
 
-/// A text as a value: a decimal number as a JSON number, else the string.
+/// A text as a value: a decimal number as a JSON number (an integer exact, of at most
+/// MAX_INT_DIGITS digits), else the string.
 pub fn typed(t: &str) -> J {
     if !is_strict_decimal(t) {
         return json!(t);
@@ -321,14 +321,8 @@ pub fn typed(t: &str) -> J {
     if t.contains(['.', 'e', 'E']) {
         return float_json(t.parse::<f64>().unwrap());
     }
-    let sign = if t.starts_with('-') { "-" } else { "" };
     let d = t.trim_start_matches(['+', '-']).trim_start_matches('0');
-    let digits = if d.is_empty() { "0" } else { d };
-    if digits.len() > 16 || digits.parse::<u64>().is_ok_and(|v| v > MAX_SAFE) {
-        return json!(format!("{sign}{digits}"));
-    }
-    let v: i64 = digits.parse().unwrap();
-    json!(if sign == "-" { -v } else { v })
+    crate::out::digits_json(t.starts_with('-'), if d.is_empty() { "0" } else { d }).unwrap_or_else(|| json!(t))
 }
 
 /// The value of the one element of `els`, or None (absent).
@@ -476,8 +470,11 @@ mod tests {
 
     #[test]
     fn values() {
+        let long = "9".repeat(crate::out::MAX_INT_DIGITS + 1);
         for (t, want) in [("12", json!(12)), ("-0", json!(0)), ("+007", json!(7)), ("1.5", json!(1.5)), ("2E3", json!(2000.0)),
-                          ("9007199254740992", json!("9007199254740992")), ("-12345678901234567", json!("-12345678901234567")),
+                          ("9007199254740992", json!(9007199254740992u64)), ("-12345678901234567", json!(-12345678901234567i64)),
+                          ("-00012345678901234567890", crate::out::int_json(-12345678901234567890)),
+                          (long.as_str(), json!(long)),
                           ("1e999", json!("Infinity")), ("x", json!("x")), ("1.", json!("1.")), ("05.10", json!(5.1))] {
             assert_eq!(typed(t), want, "{t}");
         }

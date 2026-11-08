@@ -496,6 +496,32 @@ fn flags_a_value_shown_above_the_size_limit() {
     assert!(p.starts_with(r#"view tree: member ["big"] is [7,7,"#) && p.ends_with(r#"where the rebuilt view has {"$vz":"element","id":1}"#), "{p}");
 }
 
+/// Integers in the view (conventions §8.7
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#87-the-view>): exact JSON
+/// integers whatever their magnitude, as in §6
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>;
+/// and the validator's rebuild agrees.
+#[test]
+fn integers_show_exactly_whatever_their_magnitude() {
+    let mut data = Vec::new();
+    for v in [u64::MAX, i64::MIN as u64, (1 << 53) + 1, 7] {
+        data.extend(v.to_le_bytes());
+    }
+    let mut ir = Ir::new(data.len() as u64);
+    for (k, (name, ty)) in [("u", "u8"), ("i", "i8"), ("past", "u8"), ("small", "i8")].into_iter().enumerate() {
+        ir.value(0, name, u64::MAX, ty, 0, (8 * k as u64, 8), Some(&data[8 * k..8 * k + 8])).unwrap();
+    }
+    ir.finished = true;
+    ir.build_children();
+    let mut out = Out::new("u");
+    mirror(&ir, &mut out, "tiff").unwrap();
+    let text = String::from_utf8(entry(&out)("refkv_source/tree/zarr.json").unwrap()).unwrap();
+    assert!(text.contains(r#""tiff":{"u":18446744073709551615,"i":-9223372036854775808,"past":9007199254740993,"small":7}"#), "{text}");
+    let keys: Vec<String> = out.entries.iter().map(|e| e.0.clone()).collect();
+    let mut read = |o: u64, n: u64| Ok(data[o as usize..(o + n) as usize].to_vec());
+    assert_eq!(view_problem(&keys, &entry(&out), &mut read), None);
+}
+
 /// Text values in the view (conventions §8.7
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#87-the-view>): §6
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>'s text,

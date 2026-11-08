@@ -32,7 +32,7 @@
 
 use crate::fed::{Word, uint};
 use crate::ir::*;
-use crate::out::{declare, json_size, metadata_array, metadata_group, Chunk, Out, CONVENTION_KEY, SOURCE_NODE};
+use crate::out::{declare, int_json, json_size, metadata_array, metadata_group, Chunk, Out, CONVENTION_KEY, SOURCE_NODE};
 use crate::types::{self, Ty, Val};
 use serde_json::{json, Map, Value as J};
 use std::collections::{HashMap, HashSet};
@@ -731,7 +731,6 @@ const TOTAL: usize = 1 << 24; // bytes of all view documents
 /// The most bytes of a value the view shows (conventions §8.7
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#87-the-view>).
 pub const VIEW_VALUE: u64 = 1 << 10;
-const MAX_SAFE: i128 = (1 << 53) - 1;
 
 pub fn escape_key(k: &str) -> String {
     if k.starts_with('$') { format!("${k}") } else { k.to_string() }
@@ -773,13 +772,7 @@ pub fn base64(b: &[u8]) -> String {
 /// A decoded value as JSON, in the `$vz` vocabulary.
 pub fn tag_json(v: &Val) -> J {
     match v {
-        Val::Int(i) => {
-            if i.abs() <= MAX_SAFE {
-                json!(*i as i64)
-            } else {
-                json!({"$vz": "int", "v": i.to_string()})
-            }
-        }
+        Val::Int(i) => int_json(*i),
         Val::Float(f) => {
             if f.is_finite() {
                 json!(f)

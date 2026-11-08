@@ -33,7 +33,9 @@ bzip2 = "0.6"
 # (the GRIB profile's map projections, spec/zarrify/grib.md §4
 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#4-georeferencing>)
 libm = "0.2"
-serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+# arbitrary_precision: every integer refkv writes is an exact JSON integer, past 64 bits too
+# (spec/conventions.md §6 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>)
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip", "arbitrary_precision"] }
 # its Deserialize trait, for a safetensors header read with no member twice (src/safetensors.rs)
 serde = "1"
 # a pure-Rust JPEG 2000 decoder, for GRIB's template 5.40 (src/grib/codec/jpeg2000.rs): without

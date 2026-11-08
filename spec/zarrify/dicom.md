@@ -462,9 +462,10 @@ The translation:
     valid, else ISO 8859-1, so that its bytes are kept: Specific Character
     Set is not applied, and is in the dataset for a reader who decodes the
     bytes). An empty value is `null`. An `IS` value of the form
-    `[+-]?[0-9]+` is that integer ([conventions §6](../conventions.md#6-source-metadata-as-json)): with more than 16
-    digits without its sign and leading zeros, it is above 2^53 − 1, and
-    is the string of those digits (with a leading `-` if negative). A `DS` value that
+    `[+-]?[0-9]+` is that integer, exact (an
+    [`Integer`](../conventions.md#type-integer)), when it has at most 4300 digits
+    without its sign and leading zeros, and otherwise its text
+    ([conventions §6](../conventions.md#6-source-metadata-as-json)). A `DS` value that
     matches the pattern of [§2.2](#22-attributes) is a number when it is one exactly: its
     binary64 value `v` ([spec/zarrify.md §1.3](../zarrify.md#13-arithmetic))
     is finite, and the text's decimal value equals that of the shortest

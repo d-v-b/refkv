@@ -149,7 +149,7 @@ def test_attributes_and_links_are_hdmf_zarr_members():
     names = ("int", "uint64_big", "float", "array", "text", "texts", "fixed", "latin1", "bool", "empty",
              "compound", "nan_text")
     assert {k: a[k] for k in names} == {
-        "int": -3, "uint64_big": str(2**63 + 5), "float": 0.1, "array": [[0, 1, 2], [3, 4, 5]],
+        "int": -3, "uint64_big": 2**63 + 5, "float": 0.1, "array": [[0, 1, 2], [3, 4, 5]],
         "text": "vlen text", "texts": ["a", "é", ""], "fixed": "fixed", "latin1": {"latin1": "café"}, "bool": True,
         "empty": None, "compound": {"i": 1, "f": 2.5}, "nan_text": "NaN"}
     assert own(opened(FIXTURES / "hdf5" / "hdf5_attributes.h5")[0]["attrs"])["unpresented_attributes"] == {

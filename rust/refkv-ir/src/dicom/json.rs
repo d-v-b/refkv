@@ -9,7 +9,7 @@ use super::elements::*;
 use crate::fed::{Word, uint};
 use crate::mirror::base64;
 use crate::text::{is_decimal, latin1};
-use crate::out::{json_size, js_string_size, MAX_CHUNK, SOURCE_NODE};
+use crate::out::{digits_json, int_json, json_size, js_string_size, MAX_CHUNK, SOURCE_NODE};
 use serde_json::{json, Map, Value as J};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::OnceLock;
@@ -34,9 +34,7 @@ const MAX_PATHS: usize = 1024;
 const MAX_STRUCTURES: usize = 1 << 16;
 const MAX_COST: u64 = 16;
 const AS_BYTES: [&str; 3] = ["InlineBinary", "BulkDataURI", "Gathered"];
-const MAX_SAFE: i128 = (1 << 53) - 1;
 const MAX_EXPONENT_DIGITS: usize = 5;
-const MAX_INTEGER_DIGITS: usize = 16;
 
 pub fn is_text(vr: &str) -> bool {
     MULTI.contains(&vr) || matches!(vr, "LT" | "ST" | "UT" | "UR")
@@ -153,14 +151,6 @@ pub fn json_float(v: f64) -> J {
     }
 }
 
-pub fn json_int(v: i128) -> J {
-    if v.abs() <= MAX_SAFE {
-        if v < 0 { json!(v as i64) } else { json!(v as u64) }
-    } else {
-        json!(v.to_string())
-    }
-}
-
 
 /// `[+-]?[0-9]+`, whole.
 pub fn is_integer(t: &[u8]) -> bool {
@@ -234,15 +224,11 @@ pub fn ds_number(t: &str) -> Option<f64> {
     Some(v)
 }
 
-/// An IS value of the form [+-]?[0-9]+: a number up to 2^53 - 1, else the string of its digits.
-fn is_number(t: &str) -> J {
-    let negative = t.starts_with('-');
+/// An IS value of the form [+-]?[0-9]+: its integer, exactly; None past MAX_INT_DIGITS digits
+/// without its sign and leading zeros.
+fn is_number(t: &str) -> Option<J> {
     let digits = t.trim_start_matches(['+', '-']).trim_start_matches('0');
-    if digits.len() > MAX_INTEGER_DIGITS {
-        return json!(format!("{}{digits}", if negative { "-" } else { "" }));
-    }
-    let v: i128 = if digits.is_empty() { 0 } else { digits.parse().unwrap() };
-    json_int(if negative { -v } else { v })
+    digits_json(t.starts_with('-'), if digits.is_empty() { "0" } else { digits })
 }
 
 /// One string value: trimmed, decoded, then typed (PS3.18 §F.2.3).
@@ -261,7 +247,7 @@ fn text_value(vr: &str, b: &[u8]) -> J {
             if groups.is_empty() { J::Null } else { J::Object(groups) }
         }
         "DS" => ds_number(t).map(|v| json!(v)).unwrap_or_else(|| json!(t)),
-        "IS" if is_integer(b) => is_number(t),
+        "IS" if is_integer(b) => is_number(t).unwrap_or_else(|| json!(t)),
         _ => json!(t),
     }
 }
@@ -325,10 +311,10 @@ pub fn value_json(vr: &str, data: &[u8], little: bool, multibyte: bool) -> J {
                 match vr {
                     "FL" => json_float(f32::from_bits(u as u32) as f64),
                     "FD" => json_float(f64::from_bits(u)),
-                    "SL" => json_int(u as u32 as i32 as i128),
-                    "SS" => json_int(u as u16 as i16 as i128),
-                    "SV" => json_int(u as i64 as i128),
-                    _ => json_int(u as i128),
+                    "SL" => int_json(u as u32 as i32 as i128),
+                    "SS" => int_json(u as u16 as i16 as i128),
+                    "SV" => int_json(u as i64 as i128),
+                    _ => int_json(u as i128),
                 }
             })
             .collect();
@@ -889,6 +875,7 @@ fn move_large(meta: &mut Obj, dataset: &mut Obj) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::out::{to_text, MAX_INT_DIGITS};
 
     #[test]
     fn ds_numbers_are_exact() {
@@ -904,7 +891,12 @@ mod tests {
     fn text_values_are_trimmed_and_typed() {
         assert_eq!(text_value("DS", b" 2.50 "), json!(2.5));
         assert_eq!(text_value("IS", b"+0012"), json!(12));
-        assert_eq!(text_value("IS", b"-12345678901234567"), json!("-12345678901234567"));
+        assert_eq!(to_text(&text_value("IS", b"-12345678901234567")), "-12345678901234567");
+        assert_eq!(to_text(&text_value("IS", b"-000")), "0");
+        // past MAX_INT_DIGITS digits, but for its sign and leading zeros: the text
+        let (at, past) = (format!("-000{}", "9".repeat(MAX_INT_DIGITS)), format!("-{}", "9".repeat(MAX_INT_DIGITS + 1)));
+        assert_eq!(to_text(&text_value("IS", at.as_bytes())), at.replace("-000", "-"));
+        assert_eq!(text_value("IS", past.as_bytes()), json!(past));
         assert_eq!(text_value("LT", b" a \0"), json!(" a"));
         assert_eq!(text_value("PN", b"A^B==C"), json!({"Alphabetic": "A^B", "Phonetic": "C"}));
         assert_eq!(text_value("CS", b"  "), J::Null);
@@ -918,7 +910,8 @@ mod tests {
         assert_eq!(value_json("AT", &[0x18, 0, 0x63, 0x10], true, false), json!({"vr": "AT", "Value": ["00181063"]}));
         assert_eq!(value_json("UL", &[1, 2, 3], true, false), json!({"vr": "UL", "InlineBinary": "AQID"}));
         assert_eq!(value_json("FD", &f64::NAN.to_le_bytes(), true, false), json!({"vr": "FD", "Value": ["NaN"]}));
-        assert_eq!(value_json("UV", &u64::MAX.to_le_bytes(), true, false), json!({"vr": "UV", "Value": ["18446744073709551615"]}));
+        assert_eq!(value_json("UV", &u64::MAX.to_le_bytes(), true, false), json!({"vr": "UV", "Value": [u64::MAX]}));
+        assert_eq!(value_json("SV", &i64::MIN.to_le_bytes(), true, false), json!({"vr": "SV", "Value": [i64::MIN]}));
         assert_eq!(value_json("PN", b"a\\b", true, true), json!({"vr": "PN", "InlineBinary": "YVxi"}));
         assert_eq!(value_json("OB", &[], true, false), json!({"vr": "OB"}));
     }

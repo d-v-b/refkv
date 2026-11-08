@@ -125,8 +125,9 @@ is not presented, with the reason [§7.4](#74-what-is-not-presented) gives.
 - **Shape:** the dataspace's sizes (`[]` for a scalar), with a trailing axis of `n` for a
   fixed-length string of `n` bytes. A null dataspace is not presented (`null_dataspace`).
 - **Fill value:** the fill value message's value as the data type's JSON fill value (an
-  integer's as a JSON integer, exact whatever its magnitude, as Zarr v3 writes it, and not
-  [§6](#6-attributes)'s digits past 2^53; a float's as [§6](#6-attributes)'s float value, which is Zarr's
+  integer's, whether the data type's own or an enumeration's or a compound member's, as a JSON
+  integer, exact whatever its magnitude, as Zarr v3 writes it and [§6](#6-attributes) writes an
+  attribute's; a float's as [§6](#6-attributes)'s float value, which is Zarr's
   encoding), else the
   data type's zero (`0`, `0.0`, `false`, `""`, a struct's object of its fields' zeros). This
   departs from [conventions §3](../conventions.md#3-arrays)'s fill value 0: an unallocated chunk of an HDF5 dataset reads as
@@ -347,7 +348,7 @@ order of the attributes' names, its value as JSON
 
 | datatype | JSON |
 |---|---|
-| an integer, a bitfield | a number (exact; past 2^53 − 1 in magnitude, the string of its digits) |
+| an integer, a bitfield | a JSON integer, exact whatever its magnitude ([`Integer`](../conventions.md#type-integer)) |
 | an IEEE float | a **float value**: the Zarr v3 fill value of the value in the float data type of its size (below) |
 | h5py's `bool` | `true` or `false` |
 | another enumeration | its integer |

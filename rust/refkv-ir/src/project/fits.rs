@@ -41,7 +41,7 @@ const CHUNK_BYTES: u64 = 1 << 20;
 const CARDS_BUDGET: usize = 65536;
 
 /// A card's value as JSON (§5.3
-/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#53-cards>): an integer exactly, as a string past 2^53 − 1; a real as
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#53-cards>): an integer exactly, whatever its magnitude; a real as
 /// its binary64 value; a complex as `[re, im]`; no value as null.
 fn value_json(v: &Value) -> J {
     match v {
@@ -408,7 +408,7 @@ mod tests {
     }
 
     /// A table's `null` member is TNULLn as the card holds it: an ASCII table's string, a
-    /// binary table's integer, the string of its digits past 2^53 − 1 (spec/zarrify/fits.md §5.2
+    /// binary table's integer, exact whatever its magnitude (spec/zarrify/fits.md §5.2
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#52-an-hdus-node>).
     #[test]
     fn a_column_s_null_is_tnull_as_the_card_holds_it() {
@@ -423,8 +423,8 @@ mod tests {
         let columns = own["columns"].as_array().unwrap();
         assert_eq!(columns[0]["null"], json!("N/A"));
         assert_eq!(columns[1]["null"], json!(-99));
-        assert_eq!(columns[2]["null"], json!("-9223372036854775808"));
+        assert_eq!(columns[2]["null"], json!(i64::MIN));
         // i128::MIN, whose magnitude no i128 holds
-        assert_eq!(columns[3]["null"], json!("-170141183460469231731687303715884105728"));
+        assert_eq!(crate::out::to_text(&columns[3]["null"]), "-170141183460469231731687303715884105728");
     }
 }

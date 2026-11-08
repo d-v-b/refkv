@@ -250,10 +250,15 @@ code's NIfTI edge-chunk padding, a range of the output's zero data source since
 [nifti.md §7.2](../../spec/zarrify/nifti.md#72-chunks) changed, as the literal range of
 its bytes that the reference writes (`literal_padding`), so that the zero data source
 drops out with the sources no compared entry uses. It also leaves out of the shipped
-code's root image the `omero` of TIFF and NDPI, added after the freeze (`without_added`).
+code's root image the `omero` of TIFF and NDPI, added after the freeze (`without_added`). It
+reads the reference's integers past 2^53 − 1, which it writes as the strings of their digits (an
+ND2 integer as the tag `{"int": digits}`, which ND2 has no longer, and so a record named `int`
+alone as pairs), as the exact JSON integers the shipped code writes since
+[conventions §6](../../spec/conventions.md#6-source-metadata-as-json) made every integer one
+(`with_exact_integers`, `exact_integers.py`).
 So these are the only differences it does not report, outside `refkv_source`: the revision
 number, the names the reference keeps (below), those members, that `omero`, the padding's
-form, and the sources no compared entry uses, with the order of the url sources (above). A
+form, those integers, and the sources no compared entry uses, with the order of the url sources (above). A
 profile added since (such as MRC) has no reference, and compares `py` with `web` alone, as
 does a fixture of [`revised/`](revised/README.md).
 
