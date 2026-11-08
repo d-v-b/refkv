@@ -630,7 +630,7 @@ Each value has **typed values**, of a data type:
 | a numeric VR: `FL`, `FD`, `SL`, `SS`, `UL`, `US`, `SV`, `UV` | its values as `float32`, `float64`, `int32`, `int16`, `uint32`, `uint16`, `int64`, `uint64` respectively, in the byte order in which it is stored |
 | a binary VR: `OB`, `OD`, `OF`, `OL`, `OV`, `OW`, `UN` | its values as `uint8`, `float64`, `float32`, `uint32`, `uint64`, `uint16`, `uint8` respectively, in the byte order in which it is stored |
 | a `DS` value of at most 2^16 bytes whose every value (split and trimmed as above) is a number by the rule above | those numbers as `float64`, in little endian |
-| an `IS` value of at most 2^16 bytes whose every value is of the form `[+-]?[0-9]+` and from −2^63 to 2^63 − 1 | those integers as `int64`, in little endian |
+| an `IS` value of at most 2^16 bytes whose every value is a valid `IS`, which is an integer (above: of the form `[+-]?[0-9]+`, at most 12 characters, from −2^31 to 2^31 − 1) | those integers as `int64`, in little endian |
 | a value of another VR (text, `AT`, the bytes of a sequence), or whose length is not a multiple of its value size | its bytes as stored, as `uint8` |
 
 A

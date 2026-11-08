@@ -265,14 +265,9 @@ fn typed_values(vr: &str, data: &[u8]) -> Option<(&'static str, u64)> {
         let t = std::str::from_utf8(p).ok()?;
         if vr == "DS" {
             ds_number(t)?;
-        } else {
-            if !is_integer(p) || t.trim_start_matches(['+', '-']).trim_start_matches('0').len() > 19 {
-                return None;
-            }
-            let v: i128 = t.parse().ok()?;
-            if v < -(1i128 << 63) || v >= 1i128 << 63 {
-                return None;
-            }
+        } else if !is_integer(p) || is_number(t).is_none() {
+            // a valid IS only, which is an integer (as `text_value` reads it)
+            return None;
         }
         n += 1;
     }
@@ -885,6 +880,23 @@ mod tests {
         }
         for t in ["9007199254740993", "0.1000000000000000055511151231257827", "1e400", "1e123456", "abc", "", "1e", "."] {
             assert_eq!(ds_number(t), None, "{t}");
+        }
+    }
+
+    /// A DS or IS value's typed values, for the bounds of a gathered sequence: an IS value's
+    /// when every value is a valid IS, as int64.
+    #[test]
+    fn typed_values_of_numbers() {
+        assert_eq!(typed_values("IS", b" 12\\-2147483648\\+02147483647 "), Some(("int64", 24)));
+        assert_eq!(typed_values("DS", b"0.5\\2"), Some(("float64", 16)));
+    }
+
+    /// An IS value with a value that is no valid IS (more than 12 characters, or outside -2^31
+    /// to 2^31 - 1), which is text, has no typed values: its bytes as stored.
+    #[test]
+    fn an_is_value_past_its_limits_has_no_typed_values() {
+        for t in [&b"1\\2147483648"[..], b"1\\-2147483649", b"0000000000012", b"1\\x"] {
+            assert_eq!(typed_values("IS", t), None, "{}", String::from_utf8_lossy(t));
         }
     }
 
