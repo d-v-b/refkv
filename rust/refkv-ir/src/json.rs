@@ -212,15 +212,13 @@ pub struct Doc {
     pub members: Vec<(String, u64, u64)>,
 }
 
-/// The document `data` by spec/zarrify.md §1.6
-/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#16-json-documents>, or the reason it is rejected.
 /// A JSON number's literal `t` as serde_json reads it without `arbitrary_precision`, but for an
 /// integer literal, which keeps every digit (conventions §6
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>): any
-/// other number its binary64 value; None when that is not finite (`1e400`), which serde_json
-/// refuses as out of range.
+/// other number its binary64 value, and `-0` too (−0.0); None when that is not finite (`1e400`),
+/// which serde_json refuses as out of range.
 pub fn number_text(t: &str) -> Option<J> {
-    if t.bytes().any(|c| matches!(c, b'.' | b'e' | b'E')) {
+    if t.bytes().any(|c| matches!(c, b'.' | b'e' | b'E')) || t == "-0" {
         let x: f64 = t.parse().ok()?;
         return serde_json::Number::from_f64(x).map(J::Number);
     }
@@ -239,6 +237,78 @@ pub fn binary64(j: J) -> Option<J> {
     })
 }
 
+/// The JSON text `t` parsed as serde_json parses it without `arbitrary_precision`: its numbers as
+/// [`binary64`] reads them, and `-0` as −0.0, which serde_json with `arbitrary_precision` reads as
+/// the integer 0. None when it is not JSON, has [`NUMBER_TOKEN`] (which serde_json would read as a
+/// number), or a number not finite in binary64.
+pub fn parse_binary64(t: &str) -> Option<J> {
+    if has_number_token(t) {
+        return None;
+    }
+    // each literal -0 outside strings as -0.0
+    let b = t.as_bytes();
+    let (mut out, mut replaced, mut in_string, mut i) = (Vec::with_capacity(b.len()), false, false, 0);
+    while i < b.len() {
+        let c = b[i];
+        if in_string {
+            if c == b'\\' && i + 1 < b.len() {
+                out.extend_from_slice(&b[i..i + 2]);
+                i += 2;
+                continue;
+            }
+            in_string = c != b'"';
+        } else if c == b'"' {
+            in_string = true;
+        } else if c == b'-' && b.get(i + 1) == Some(&b'0') && !b.get(i + 2).is_some_and(|d| d.is_ascii_digit() || b".eE".contains(d)) {
+            out.extend_from_slice(b"-0.0");
+            replaced = true;
+            i += 2;
+            continue;
+        }
+        out.push(c);
+        i += 1;
+    }
+    let text = if replaced { String::from_utf8(out).ok()? } else { t.to_string() };
+    let text = text.as_str();
+    serde_json::from_str::<J>(text).ok().and_then(binary64)
+}
+
+/// The key of the map serde_json's `arbitrary_precision` makes of a number, which a document
+/// cannot hold: serde_json reads an object of it as a number.
+pub const NUMBER_TOKEN: &str = "$serde_json::private::Number";
+
+/// Whether the JSON text `t` has a string that is [`NUMBER_TOKEN`], escaped or not. (Text that is
+/// not JSON is left to its parser.)
+pub fn has_number_token(t: &str) -> bool {
+    let b = t.as_bytes();
+    let mut i = 0;
+    while let Some(k) = b[i..].iter().position(|&c| c == b'"') {
+        let start = i + k;
+        let mut j = start + 1;
+        let mut escaped = false;
+        while j < b.len() && b[j] != b'"' {
+            escaped |= b[j] == b'\\';
+            j += if b[j] == b'\\' { 2 } else { 1 };
+        }
+        let Some(literal) = t.get(start..(j + 1).min(t.len())) else { return false };
+        let found = if escaped {
+            serde_json::from_str::<String>(literal).is_ok_and(|s| s == NUMBER_TOKEN)
+        } else {
+            literal.get(1..literal.len().saturating_sub(1)) == Some(NUMBER_TOKEN)
+        };
+        if found {
+            return true;
+        }
+        i = j + 1;
+        if i >= b.len() {
+            break;
+        }
+    }
+    false
+}
+
+/// The document `data` by spec/zarrify.md §1.6
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#16-json-documents>, or the reason it is rejected.
 pub fn parse(data: &[u8]) -> Result<Doc, String> {
     parse_within(data, MAX_DEPTH)
 }
@@ -586,12 +656,38 @@ mod tests {
     /// literal, which keeps every digit.
     #[test]
     fn numbers_read_as_binary64_but_integers() {
-        for (t, want) in [("0.50", "0.5"), ("1E2", "100.0"), ("-0.0", "-0.0"), ("7", "7"),
+        for (t, want) in [("0.50", "0.5"), ("1E2", "100.0"), ("-0.0", "-0.0"), ("-0", "-0.0"), ("0", "0"), ("7", "7"),
                           ("-170141183460469231731687303715884105729", "-170141183460469231731687303715884105729")] {
             assert_eq!(number_text(t).map(|j| crate::out::to_text(&j)).as_deref(), Some(want), "{t}");
         }
         let j: J = serde_json::from_str(r#"{"a":[1.50,{"b":2e0}],"c":18446744073709551616}"#).unwrap();
         assert_eq!(crate::out::to_text(&binary64(j).unwrap()), r#"{"a":[1.5,{"b":2.0}],"c":18446744073709551616}"#);
+    }
+
+    /// A string that is serde_json's number token, escaped or not, is found; any other is not.
+    #[test]
+    fn the_number_token_is_found() {
+        assert!(has_number_token(r#"{"a":{"$serde_json::private::Number":"1"}}"#));
+        assert!(has_number_token(r#"{"\u0024serde_json::private::Number":"1"}"#));
+        for t in [r#"{"a":"$serde_json::private::Numbers","b":"\"$serde_json::private::Number"}"#, r#"{"a":1}"#, r#"""#] {
+            assert!(!has_number_token(t), "{t}");
+        }
+    }
+
+    /// JSON text as serde_json parses it without arbitrary_precision: -0 as -0.0 (not in a string),
+    /// floats by value, integers exact.
+    #[test]
+    fn text_parses_as_binary64() {
+        let j = parse_binary64(r#"{"a":-0,"b":[-0 ,-0.5,-5e1],"c":"-0","d":"\"-0","e":1.50,"f":18446744073709551616}"#);
+        assert_eq!(j.map(|j| crate::out::to_text(&j)).as_deref(),
+                   Some(r#"{"a":-0.0,"b":[-0.0,-0.5,-50.0],"c":"-0","d":"\"-0","e":1.5,"f":18446744073709551616}"#));
+    }
+
+    /// Text that has the number token, or a number not finite, has no value.
+    #[test]
+    fn text_with_the_token_or_1e400_has_none() {
+        assert_eq!(parse_binary64(r#"{"a":{"$serde_json::private::Number":"1"}}"#), None);
+        assert_eq!(parse_binary64(r#"[1e400]"#), None);
     }
 
     /// A number not finite in binary64 has no value.

@@ -1675,8 +1675,9 @@ impl Tiff {
             return Ok(None);
         }
         // its numbers as serde_json reads them without arbitrary_precision: a summary with a
-        // number not finite in binary64 (1e400) is not one
-        let summary = serde_json::from_slice::<J>(&self.at(40, length)?).ok().and_then(crate::json::binary64);
+        // number not finite in binary64 (1e400), or with serde_json's number token, is not one
+        let text = self.at(40, length)?;
+        let summary = std::str::from_utf8(&text).ok().and_then(crate::json::parse_binary64);
         let Some(summary @ J::Object(_)) = summary else { return Ok(None) };
         let h = self.at(index, 8)?;
         let n = word(&h, 4) as u64;

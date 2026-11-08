@@ -20,9 +20,6 @@ use serde::de::{self, Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde_json::{Map, Value as J, json};
 use std::collections::BTreeSet;
 
-/// The key of the map serde_json's arbitrary_precision gives a visitor for a number.
-const NUMBER_TOKEN: &str = "$serde_json::private::Number";
-
 /// The header's member that is not a tensor.
 const METADATA: &str = "__metadata__";
 
@@ -88,7 +85,7 @@ impl<'de> Visitor<'de> for StrictVisitor {
         while let Some(k) = map.next_key::<String>()? {
             // serde_json's arbitrary_precision hands a number that is no i64 or u64 (a float, an
             // integer past 64 bits) as a map of this one member, its literal
-            if m.is_empty() && k == NUMBER_TOKEN {
+            if m.is_empty() && k == crate::json::NUMBER_TOKEN {
                 let literal: String = map.next_value()?;
                 return crate::json::number_text(&literal).ok_or_else(|| de::Error::custom("number out of range"));
             }
@@ -101,6 +98,18 @@ impl<'de> Visitor<'de> for StrictVisitor {
         }
         Ok(J::Object(m))
     }
+}
+
+/// The header's JSON, each object's members once, or why it is none. A string that is serde_json's
+/// number token, which it reads as a number in an object's first key, is refused. The value is
+/// `json::parse_binary64`'s (`-0` as −0.0, which serde_json with arbitrary_precision reads as 0):
+/// `Strict` checks the members.
+fn parse_header(t: &str) -> Result<J, String> {
+    if crate::json::has_number_token(t) {
+        return Err(format!("it has the string {:?}, which this parser cannot read", crate::json::NUMBER_TOKEN));
+    }
+    serde_json::from_str::<Strict>(t).map_err(|e| e.to_string())?;
+    crate::json::parse_binary64(t).ok_or_else(|| "number out of range".into())
 }
 
 /// A tensor of the header, in its order: its entry's members, and, once checked, its data's
@@ -183,8 +192,8 @@ pub struct Header {
 pub fn check(r: &Rules, size: u64, n: u64, raw: Vec<u8>) -> Result<Header, String> {
     let header = std::str::from_utf8(&raw).ok();
     r.check("text", rules::env([("utf8", flag(header.is_some())), ("brace", flag(raw.first() == Some(&b'{')))]))?;
-    let parsed = serde_json::from_str::<Strict>(header.unwrap_or_default()).map(|s| s.0);
-    let problem = parsed.as_ref().err().map_or(crate::expr::V::Absent, |e| text(&e.to_string()));
+    let parsed = parse_header(header.unwrap_or_default());
+    let problem = parsed.as_ref().err().map_or(crate::expr::V::Absent, |e| text(e));
     r.check("json", rules::env([("problem", problem)]))?;
     let Ok(J::Object(members)) = parsed else { return Err("internal: the header is not an object".into()) };
     let metadata = members.get(METADATA).cloned();
@@ -406,9 +415,9 @@ mod tests {
     /// integer literal, which keeps every digit: a float, in an entry's other members too.
     #[test]
     fn a_header_s_numbers_are_numbers() {
-        let text = r#"{"t":{"dtype":"F32","shape":[1],"data_offsets":[0,4],"scale":0.50,"e":1E2,"big":18446744073709551616,"n":-3}}"#;
-        let Strict(j) = serde_json::from_str(text).unwrap();
-        assert_eq!(to_text(&j), r#"{"t":{"dtype":"F32","shape":[1],"data_offsets":[0,4],"scale":0.5,"e":100.0,"big":18446744073709551616,"n":-3}}"#);
+        let text = r#"{"t":{"dtype":"F32","shape":[1],"data_offsets":[0,4],"scale":0.50,"e":1E2,"big":18446744073709551616,"n":-3,"z":-0}}"#;
+        let j = parse_header(text).unwrap();
+        assert_eq!(to_text(&j), r#"{"t":{"dtype":"F32","shape":[1],"data_offsets":[0,4],"scale":0.5,"e":100.0,"big":18446744073709551616,"n":-3,"z":-0.0}}"#);
         let t = entry("t", &j["t"]).unwrap();
         assert_eq!(t.extra["scale"], json!(0.5));
     }
@@ -416,7 +425,15 @@ mod tests {
     /// A number out of binary64's range is no JSON the header may hold.
     #[test]
     fn a_number_out_of_range_is_refused() {
-        let e = serde_json::from_str::<Strict>(r#"{"t":{"x":1e400}}"#).err().unwrap();
-        assert!(e.to_string().starts_with("number out of range"), "{e}");
+        let e = parse_header(r#"{"t":{"x":1e400}}"#).err().unwrap();
+        assert!(e.starts_with("number out of range"), "{e}");
+    }
+
+    /// An object whose key is serde_json's number token, which it would read as a number, is
+    /// refused.
+    #[test]
+    fn the_number_token_is_refused() {
+        let e = parse_header(r#"{"t":{"$serde_json::private::Number":"0.5"}}"#).err().unwrap();
+        assert!(e.contains("$serde_json::private::Number"), "{e}");
     }
 }
