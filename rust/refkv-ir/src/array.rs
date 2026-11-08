@@ -1246,6 +1246,11 @@ impl ChunkMap {
         }
         // the parameter columns each (array, chain) sets, with the codec each is of
         let mut sets: HashMap<(u32, u32), Vec<(String, u32)>> = HashMap::new();
+        // each gridded array's units along each axis, counted once
+        let grid_units: Vec<Vec<u64>> = arrays
+            .iter()
+            .map(|d| d.grid.as_ref().map_or_else(Vec::new, |g| g.axes.iter().zip(&d.shape).map(|(a, &len)| units(a, len)).collect()))
+            .collect();
         for k in 0..n {
             let a = self.array[k];
             let Some(d) = arrays.get(a as usize) else {
@@ -1259,7 +1264,7 @@ impl ChunkMap {
             if c.len() != g.axes.len() {
                 return Err(row(format!("its coordinates {c:?} are not of the array's rank {}", g.axes.len())));
             }
-            if let Some(i) = (0..c.len()).find(|&i| c[i] >= units(&g.axes[i], d.shape[i])) {
+            if let Some(i) = (0..c.len()).find(|&i| c[i] >= grid_units[a as usize][i]) {
                 return Err(row(format!("its coordinates {c:?} are outside the grid on axis {i}")));
             }
             if k > 0 {
