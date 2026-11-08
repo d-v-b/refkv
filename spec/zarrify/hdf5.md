@@ -364,8 +364,8 @@ numbers so, and xarray takes `scale_factor` for a list otherwise.
 
 **`_FillValue`.** On a dataset of an integer or IEEE float datatype, an attribute named `_FillValue`
 of one integer or float, a scalar or an array of one element, is the form xarray's Zarr backend
-reads a member of that name in: for an integer dataset the number (a value that is not an integer
-of at most 2^53 − 1 in magnitude keeps the table's form), and for a float dataset the Base64 of the
+reads a member of that name in: for an integer dataset the integer, exactly, when it is a value of
+the dataset's integer type (any other value keeps the table's form), and for a float dataset the Base64 of the
 8 little-endian bytes of the value as a binary64. Every other attribute of netCDF-4's, such as
 `scale_factor`, keeps the table's form. The attribute's bytes stay in the IR mirror.
 

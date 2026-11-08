@@ -157,16 +157,23 @@ def big_fill_values():
     """Fill values past 2^53: of an int64, of an enumeration of a uint64 base, and of a compound's
     int64 member, each a JSON integer exact as Zarr v3 writes it (spec/zarrify/hdf5.md §3
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#3-datasets>). Each dataset's
-    second chunk is unallocated, so that it reads as the fill value."""
+    second chunk is unallocated, so that it reads as the fill value. And netCDF's `_FillValue`
+    attributes (§6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes>)."""
     with open_file("hdf5_big_fills.h5") as f:
         f.create_dataset("int64", shape=(4,), dtype="<i8", chunks=(2,), fillvalue=-(2**60))
         f["int64"][0:2] = [1, 2]
+        # netCDF's _FillValue of one element: an int64 dataset's past 2^53 is xarray's integer
+        f["int64"].attrs["_FillValue"] = np.array([-(2**60)], dtype="<i8")
         enum = h5py.enum_dtype({"zero": 0, "big": 2**60}, basetype="<u8")
         f.create_dataset("enum_u64", shape=(4,), dtype=enum, chunks=(2,), fillvalue=np.uint64(2**60))
         f["enum_u64"][0:2] = np.array([0, 2**60], dtype="<u8")
         pair = np.dtype([("i", "<i8"), ("f", "<f4")])
         f.create_dataset("compound", shape=(4,), dtype=pair, chunks=(2,), fillvalue=np.array((2**60, 1.5), dtype=pair))
         f["compound"][0:2] = np.array([(1, 0.5), (2, 2.5)], dtype=pair)
+    # and a uint8 dataset's of 300, no uint8, keeps the attribute's form (which xarray refuses)
+    with open_file("hdf5_fill_out_of_range.h5") as f:
+        f.create_dataset("uint8", data=np.arange(4, dtype="u1"))
+        f["uint8"].attrs["_FillValue"] = np.array([300], dtype="<i2")
 
 
 def references_and_links(name: str, libver: str):
