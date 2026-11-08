@@ -90,6 +90,39 @@ fn every_accepted_fixtures_arrays_are_described_as_its_facts_give_them() {
     assert!(described > 30 && ungridded > 0, "{described} described, {ungridded} with no grid");
 }
 
+/// A version 1.0 `.npy` file of the header `{'descr': <descr>, 'fortran_order': False, 'shape':
+/// <shape>, }`, and no data.
+fn npy_of(descr: &str, shape: &str) -> Vec<u8> {
+    let mut header = format!("{{'descr': '{descr}', 'fortran_order': False, 'shape': {shape}, }}");
+    while (10 + header.len() + 1) % 64 != 0 {
+        header.push(' ');
+    }
+    header.push('\n');
+    let mut out = b"\x93NUMPY\x01\x00".to_vec();
+    out.extend_from_slice(&(header.len() as u16).to_le_bytes());
+    out.extend_from_slice(header.as_bytes());
+    out
+}
+
+/// An array of no elements whose element's bits pass 2^64 parses and is presented as before the
+/// stored arrays (its facts' array, of no data), and is described with no grid: the general
+/// fallback, not a rejection.
+#[test]
+fn an_array_whose_element_bits_pass_2_to_the_64_is_described_with_no_grid() {
+    for (descr, item) in [("|V3000000000000000000", 3_000_000_000_000_000_000u64), ("<U1000000000000000000", 4_000_000_000_000_000_000)] {
+        let data = npy_of(descr, "(0,)");
+        let (ir, facts) = refkv_ir::parse_bytes::<Npy>(&data).unwrap_or_else(|e| panic!("{descr}: {e}"));
+        assert_eq!(common::rebuilt(&ir, &data), data, "{descr}");
+        let arrays = facts["arrays"].as_array().unwrap();
+        assert_eq!(arrays.len(), 1, "{descr}");
+        assert_eq!((arrays[0]["path"].as_str(), arrays[0]["item"].as_u64(), arrays[0]["length"].as_u64()), (Some("array"), Some(item), Some(0)), "{descr}");
+        let s = &ir.stored;
+        assert_eq!(s.arrays.len(), 1, "{descr}");
+        assert_eq!((s.arrays[0].shape.clone(), s.arrays[0].item_bits, s.arrays[0].grid.is_none(), s.arrays[0].chains.len()), (vec![0], None, true, 0), "{descr}");
+        assert!(s.chains.is_empty() && s.map.is_empty(), "{descr}");
+    }
+}
+
 // one test per case of conformance/zarrify/rejects/npy.json (build.rs), each the message its check gives
 macro_rules! reject {
     ($name:ident, $input:literal, $msg:literal) => {

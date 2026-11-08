@@ -207,7 +207,7 @@ impl Array {
     /// Its elements under `parent`: the preamble, the header and the data (presented, and not
     /// empty); the header's and the data's ids, and, when its header was read, what the
     /// description of its array is built from.
-    fn emit(&self, ir: &mut Ir, rules: &Rules, parent: u32) -> Result<(Option<u32>, Option<Reached>), String> {
+    fn emit(&self, ir: &mut Ir, parent: u32) -> Result<(Option<u32>, Option<Reached>), String> {
         let p = self.preamble.len() as u64;
         let ty = if p == 10 { "{magic:bytes[6],major:u1,minor:u1,header_length:<u2}" } else { "{magic:bytes[6],major:u1,minor:u1,header_length:<u4}" };
         ir.value(parent, "preamble", NO_INDEX, ty, 0, (self.base, p), Some(&self.preamble))?;
@@ -221,7 +221,7 @@ impl Array {
                 data: None,
                 shape: h.shape.clone(),
                 fortran_order: h.fortran_order,
-                item: header::dtype(rules, &h.descr).ok().map(|t| t.item),
+                item: header::item_size(&h.descr),
                 presented: self.reason.is_none() && self.data.is_some() && self.dtype.is_some(),
             }),
             _ => None,
@@ -261,8 +261,8 @@ impl Array {
 /// What a stored array's description is built from, at finish (spec/stored-array.md §2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#2-the-description>): its
 /// `header` element, which declares it, its `data` element (presented, and not empty), its
-/// header's shape and order, the size of an element of its `descr` (None for one that has no
-/// size, such as an object array's), and whether its data is presented.
+/// header's shape and order, the size of an element of its `descr`, whether or not it is
+/// presented (None for one that has none, an object array's), and whether its data is presented.
 #[derive(Clone, Debug)]
 struct Reached {
     header: u32,
@@ -276,7 +276,8 @@ struct Reached {
 /// The descriptions of the arrays reached, in order, with the chain table and the chunk map: a
 /// presented array is one unit, its data element, stored as is (chain 0, empty), its storage order
 /// a Fortran-order array's axes reversed; NumPy defines no fill value. An array whose data is not
-/// presented has no grid.
+/// presented has no grid, nor, by the general fallback, has one whose element's bits pass 2^64
+/// (an array of no elements may be of such a type).
 fn described(reached: &[Reached]) -> Result<(Vec<StoredArray>, Vec<Chain>, ChunkMap), String> {
     let mut arrays = Vec::with_capacity(reached.len());
     let mut map = ChunkMap::default();
@@ -284,12 +285,14 @@ fn described(reached: &[Reached]) -> Result<(Vec<StoredArray>, Vec<Chain>, Chunk
         let r = a.shape.len();
         let reversed = a.fortran_order && r >= 2;
         let shape: Vec<u64> = if reversed { a.shape.iter().rev().copied().collect() } else { a.shape.clone() };
+        let item_bits = a.item.and_then(|i| i.checked_mul(8));
+        let presented = a.presented && item_bits.is_some();
         // one unit of the whole array: an axis of length 0 has none, and declares no length
-        let grid = a.presented.then(|| Grid {
+        let grid = presented.then(|| Grid {
             axes: shape.iter().map(|&n| if n == 0 { AxisUnits::List(Vec::new()) } else { AxisUnits::Each(n) }).collect(),
             edge: Edge::Short,
         });
-        if let (true, Some(d)) = (a.presented, a.data) {
+        if let (true, Some(d)) = (presented, a.data) {
             map.push(Row { array: k as u32, coords: vec![0; r], element: Some(d), ..Row::default() })?;
         }
         arrays.push(StoredArray {
@@ -298,15 +301,15 @@ fn described(reached: &[Reached]) -> Result<(Vec<StoredArray>, Vec<Chain>, Chunk
             declarations: vec![Place::Element { element: a.header, member: None, range: None }],
             axes: reversed.then(|| (0..r as u32).rev().collect()),
             shape,
-            item_bits: a.item.and_then(|i| i.checked_mul(8)),
+            item_bits,
             pad_from: None,
-            chains: if a.presented { vec![0] } else { Vec::new() },
+            chains: if presented { vec![0] } else { Vec::new() },
             grid,
             fill: Fill::Undefined,
             unit_parameters: Vec::new(),
         });
     }
-    let chains = if reached.iter().any(|a| a.presented) { vec![Vec::new()] } else { Vec::new() };
+    let chains = if arrays.iter().any(|a| a.grid.is_some()) { vec![Vec::new()] } else { Vec::new() };
     Ok((arrays, chains, map))
 }
 
@@ -534,7 +537,7 @@ impl Npy {
         self.phase = Phase::Done;
         let mut arrays = Vec::new();
         let own = if let Some(a) = self.array.take() {
-            let (data, reached) = a.emit(&mut self.ir, self.rules, 0)?;
+            let (data, reached) = a.emit(&mut self.ir, 0)?;
             self.reached.extend(reached);
             arrays.push(a.facts("array", data, None));
             json!({"kind": "npy", "array": a.header_json()})
@@ -553,7 +556,7 @@ impl Npy {
                         Some(a) => {
                             let d = self.ir.struct_(s, "data", NO_INDEX, 0, Some((e.ds, e.cs)))?;
                             let reached;
-                            (data, reached) = a.emit(&mut self.ir, self.rules, d)?;
+                            (data, reached) = a.emit(&mut self.ir, d)?;
                             self.reached.extend(reached);
                         }
                         // its preamble and header, which the stream holds, are in the source metadata

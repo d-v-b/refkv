@@ -393,6 +393,60 @@ fn structure(rules: &Rules, fields: &[Lit]) -> Result<Dtype, String> {
     Ok(Dtype { zarr: json!({"name": "struct", "configuration": {"fields": out}}), item, little, trailing: None, fill: J::Object(fill) })
 }
 
+/// The size in bytes of an element of `descr` as NumPy lays it out, whether or not the profile
+/// presents it (spec/stored-array.md §7
+/// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>): a type
+/// string's (after its byte order: `U<n>`, 4n bytes; `M8` and `m8`, 8, with or without a unit; any
+/// other its digits), or a structure's, its fields' summed, a field of shape repeated over it and
+/// padding fields counted. None for an object, whose elements are pointers rather than bytes, and
+/// for a size of 0, one past 2^64, or a `descr` that is no NumPy type.
+pub fn item_size(descr: &Lit) -> Option<u64> {
+    match descr {
+        Lit::Str(s) => {
+            let t = s.strip_prefix(['<', '>', '|', '=']).unwrap_or(s);
+            let kind: String = t.chars().take_while(char::is_ascii_alphabetic).collect();
+            let rest = &t[kind.len()..];
+            let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+            let unit = &rest[digits.len()..];
+            let n: u64 = digits.parse().ok()?;
+            let size = match kind.as_str() {
+                "M" | "m" if n == 8 && (unit.is_empty() || unit.starts_with('[') && unit.ends_with(']')) => 8,
+                _ if !unit.is_empty() => return None,
+                "U" => n.checked_mul(4)?,
+                "b" | "i" | "u" | "f" | "c" | "S" | "a" | "V" => n,
+                _ => return None,
+            };
+            (size > 0).then_some(size)
+        }
+        Lit::List(fields) => {
+            let mut total = 0u64;
+            for f in fields {
+                let Lit::Tuple(parts) = f else { return None };
+                let (d, shape) = match &parts[..] {
+                    [_, d] => (d, None),
+                    [_, d, s] => (d, Some(s)),
+                    _ => return None,
+                };
+                let mut size = item_size(d)?;
+                match shape {
+                    None => {}
+                    Some(Lit::Int(k)) => size = size.checked_mul(u64::try_from(*k).ok()?)?,
+                    Some(Lit::Tuple(ks)) => {
+                        for k in ks {
+                            let Lit::Int(k) = k else { return None };
+                            size = size.checked_mul(u64::try_from(*k).ok()?)?;
+                        }
+                    }
+                    Some(_) => return None,
+                }
+                total = total.checked_add(size)?;
+            }
+            (total > 0).then_some(total)
+        }
+        _ => None,
+    }
+}
+
 /// A header's `descr` as a data type, or why it is not presented.
 pub fn dtype(rules: &Rules, descr: &Lit) -> Result<Dtype, String> {
     match descr {
@@ -502,6 +556,46 @@ mod tests {
         for (descr, zarr, item, little, trailing, fill) in cases {
             assert_eq!(dtype(rules(), &descr).unwrap(), Dtype { zarr, item, little, trailing, fill }, "{descr:?}");
         }
+    }
+
+    /// The element size of every `descr`, presented or not: NumPy's `itemsize` (for a structure,
+    /// with its padding fields and fields of shape).
+    #[test]
+    fn sizes_every_descr() {
+        let s = |x: &str| Lit::Str(x.into());
+        let field = |n: &str, d: Lit| Lit::Tuple(vec![s(n), d]);
+        let cases: Vec<(Lit, u64)> = vec![
+            (s("|b1"), 1),
+            (s("<f8"), 8),
+            (s("<f16"), 16),
+            (s("<f12"), 12),
+            (s("<c32"), 32),
+            (s("<c24"), 24),
+            (s("<M8"), 8),
+            (s("<M8[ns]"), 8),
+            (s(">m8[10s]"), 8),
+            (s("<U3"), 12),
+            (s("|S5"), 5),
+            (s("|V2"), 2),
+            (s("|V3000000000000000000"), 3_000_000_000_000_000_000),
+            (s("<U1000000000000000000"), 4_000_000_000_000_000_000),
+            (Lit::List(vec![field("a", s("<f4")), field("", s("|V4")), field("b", s(">i2"))]), 10),
+            (Lit::List(vec![Lit::Tuple(vec![Lit::Tuple(vec![s("title"), s("a")]), s("<u2")]), field("b", s("|S3"))]), 5),
+            (Lit::List(vec![Lit::Tuple(vec![s("a"), s("<f4"), Lit::Tuple(vec![Lit::Int(2), Lit::Int(3)])]), Lit::Tuple(vec![s("b"), s("|u1"), Lit::Int(4)])]), 28),
+            (Lit::List(vec![field("x", Lit::List(vec![field("y", s("<U2"))]))]), 8),
+        ];
+        for (descr, size) in cases {
+            assert_eq!(item_size(&descr), Some(size), "{descr:?}");
+        }
+    }
+
+    /// No size: an object, a size of 0, one past 2^64, a string that is no type.
+    #[test]
+    fn sizes_no_object_or_impossible_descr() {
+        for d in ["|O", "|O8", "|S0", "<U5000000000000000000", "<q8", "<f8[s]", "=x"] {
+            assert_eq!(item_size(&Lit::Str(d.into())), None, "{d}");
+        }
+        assert_eq!(item_size(&Lit::List(vec![Lit::Tuple(vec![Lit::Str("a".into()), Lit::Str("|O".into())])])), None);
     }
 
     #[test]

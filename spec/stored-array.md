@@ -316,9 +316,13 @@ neither, and compiles no Arrow code.
 (method 0) `.npz` member's whose header was read, is a stored array, keyed by its `header` element,
 with no index; that element is its one declaration (its `descr`, `fortran_order` and `shape`).
 `shape` is the header's, reversed for a Fortran-order array of two or more axes, whose `axes` then
-give the header's order; `item_bits` is eight times the size of an element of its `descr`. A
-presented array is one unit, its `data` element, in an empty chain: each axis is `Each` of its
-length, or an empty `List` for an axis of length 0 (which has no unit, and no row), under
-`short`. NumPy defines no fill value: `undefined`. An array whose data is not presented (its
-`descr` has no data type, or its data does not fit) has no grid. A deflated member's array is not
+give the header's order; `item_bits` is eight times the size of an element of its `descr` as NumPy
+lays it out (with a structure's padding fields and fields of shape), whether or not the profile
+presents the array, and is absent only for a `descr` of no size, an object array's. A presented
+array is one unit, its `data` element, in an empty chain: each axis is `Each` of its length, or an
+empty `List` for an axis of length 0 (which has no unit, and no row), under `short`. NumPy defines
+no fill value: `undefined`. An array whose data is not presented (its `descr` has no data type, or
+its data does not fit) has no grid, nor, by the general fallback ([§1](#1-stored-arrays)), has one
+whose element's bits would pass 2^64 (an array of no elements may be of such a type), whose
+`item_bits` is then absent too. A deflated member's array is not
 described yet: its header and data lie in its stream, which no element holds.
