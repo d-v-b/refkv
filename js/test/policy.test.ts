@@ -18,7 +18,7 @@ import {
   RefkvError,
 } from "../src/archive.ts";
 import { crc32c, inflateRaw } from "../src/deflate.ts";
-import { HttpResolutionError, readHttpRange } from "../src/http.ts";
+import { HttpResolutionError, openHttpFile, readHttpRange } from "../src/http.ts";
 import { decodeTable } from "../src/protobuf.ts";
 import { type ArchiveDesc, InvalidInputError, SPEC_REVISION, writeVzip } from "../src/writer.ts";
 
@@ -278,6 +278,54 @@ test("refuses a redirect to a private host", async () => {
       () => response(206, BLOB.subarray(0, 4), { "Content-Range": `bytes 0-3/${BLOB.length}` }, { redirected: true, url }),
       () => assert.rejects(readHttpRange(BLOB_URL, 0, 4, {}, undefined, { allow }), /is a (link-local|private) address/),
     );
+  }
+});
+
+test("reads sources without credentials unless the policy allows them", async () => {
+  // What each read passes to `fetch`: a source of the archive is read anonymously unless the
+  // policy has allowSourceCredentials; a file the application opens itself is read as fetch's
+  // default does.
+  const seen: (RequestCredentials | undefined)[] = [];
+  const saved = globalThis.fetch;
+  globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    seen.push(init?.credentials);
+    if (init?.method === "HEAD") return response(200, new Uint8Array(), { "Content-Length": String(BLOB.length) });
+    return response(206, BLOB.subarray(0, 4), { "Content-Range": `bytes 0-3/${BLOB.length}` });
+  }) as typeof fetch;
+  try {
+    const cases: [boolean | undefined, RequestCredentials][] = [
+      [undefined, "omit"],
+      [false, "omit"],
+      [true, "same-origin"],
+    ];
+    for (const [sendCredentials, want] of cases) {
+      seen.length = 0;
+      await readHttpRange(BLOB_URL, 0, 4, {}, undefined, sendCredentials === undefined ? {} : { sendCredentials });
+      assert.deepEqual(seen, [want], String(sendCredentials));
+    }
+    // openHttpFile: a HEAD request (fetch's default credentials), then a range read with them
+    seen.length = 0;
+    const file = await openHttpFile(BLOB_URL);
+    await file.read(0, 4);
+    assert.deepEqual(seen, [undefined, "same-origin"]);
+  } finally {
+    globalThis.fetch = saved;
+  }
+  const desc: ArchiveDesc = { sources: [{ url: "blob.bin" }], entries: [{ key: "r", ranges: [{ source: 0, offset: 0n, length: 4n }] }] };
+  const policies: [Policy, boolean][] = [
+    [{}, false],
+    [{ allowSourceCredentials: false }, false],
+    [{ allowSourceCredentials: true }, true],
+  ];
+  for (const [policy, want] of policies) {
+    const sent: (boolean | undefined)[] = [];
+    const fetcher: RangeFetcher = async (_url, start, end, _pins, options) => {
+      sent.push(options?.sendCredentials);
+      return { data: BLOB.slice(start, end), size: BLOB.length };
+    };
+    const archive = await Archive.open(await writeVzip(desc), BASE, fetcher, policy);
+    await archive.read("r");
+    assert.deepEqual(sent, [want], JSON.stringify(policy));
   }
 });
 

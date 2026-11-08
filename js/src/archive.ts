@@ -121,6 +121,12 @@ export type RangeFetcher = (
  *   bytes no value returns.
  * - `unverifiablePins`: skip pins whose headers a cross-origin response hides
  *   (rule 7). Range checksums are still checked.
+ * - `allowSourceCredentials`: UNSAFE. In a browser, reads `url` sources on the
+ *   page's own origin with the user's cookies and HTTP authentication
+ *   (`fetch`'s `credentials: "same-origin"`). Without it every source is read
+ *   as an anonymous client (`"omit"`): the store's author, not the user,
+ *   chose those URLs, and the bytes go to whoever reads the store. The
+ *   archive's own URL is the application's choice, and is read as it reads it.
  */
 export interface Policy {
   schemes?: string[];
@@ -135,6 +141,7 @@ export interface Policy {
   maxCoalesceGap?: number;
   maxFormatEntry?: number;
   unverifiablePins?: boolean;
+  allowSourceCredentials?: boolean;
 }
 
 export const DEFAULT_POLICY: Required<Omit<Policy, "prefixes">> & Pick<Policy, "prefixes"> = {
@@ -149,6 +156,7 @@ export const DEFAULT_POLICY: Required<Omit<Policy, "prefixes">> & Pick<Policy, "
   maxCoalesceGap: 1 << 16,
   maxFormatEntry: 256 << 20,
   unverifiablePins: false,
+  allowSourceCredentials: false,
 };
 
 /**
@@ -866,6 +874,7 @@ export class Archive {
         {
           allow: (u) => checkPolicy(this.policy, this.baseUrl, u),
           unverifiablePins: this.policy.unverifiablePins,
+          sendCredentials: this.policy.allowSourceCredentials,
           ...(this.netFetch ? { fetch: this.netFetch } : {}),
         },
       );
