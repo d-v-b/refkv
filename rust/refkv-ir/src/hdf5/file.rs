@@ -1431,8 +1431,9 @@ fn attaches_none(attrs: &super::Attrs) -> bool {
 /// The value of the `_FillValue` attribute, of one number, of a dataset of the numeric datatype
 /// `of`, as xarray's Zarr backend reads the member of that name (spec/zarrify/hdf5.md §6
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes>): for an integer
-/// dataset the integer, exactly, when it is one of the dataset's integer type; a float's the
-/// Base64 of its 8 little-endian bytes as a float64.
+/// dataset the integer, exactly, whatever its magnitude (one the dataset's type does not have
+/// too: xarray reads the number, where it refuses the attribute's list); a float's the Base64 of
+/// its 8 little-endian bytes as a float64.
 fn xarray_fill(attrs: &super::Attrs, of: &Dt) -> Option<J> {
     let a = attrs.list.iter().find(|a| a.name == b"_FillValue")?;
     let (t, dims, data) = super::attribute_parts(&a.data).ok()?;
@@ -1442,23 +1443,21 @@ fn xarray_fill(attrs: &super::Attrs, of: &Dt) -> Option<J> {
     }
     match of.kind {
         Kind::Float { .. } => Some(json!(crate::mirror::base64(&types::as_f64(&dt, &data)?.to_le_bytes()))),
-        Kind::Int { signed, .. } if types::number(of).is_some() => {
+        Kind::Int { .. } if types::number(of).is_some() => {
             // the attribute's integer, read exactly (an integer attribute's), or a float's value
             // when it is an integer
             let v: i128 = match dt.kind {
                 Kind::Int { big, signed, .. } if types::number(&dt).is_some() => types::int_of(&data, big, signed),
                 Kind::Float { .. } => {
                     let x = types::as_f64(&dt, &data)?;
-                    if x.fract() != 0.0 || x.abs() >= 2f64.powi(64) {
+                    if x.fract() != 0.0 || x.abs() >= 2f64.powi(127) {
                         return None;
                     }
                     x as i128
                 }
                 _ => return None,
             };
-            let bits = 8 * of.size as u32;
-            let (lo, hi) = if signed { (-(1i128 << (bits - 1)), (1i128 << (bits - 1)) - 1) } else { (0, (1i128 << bits) - 1) };
-            (lo..=hi).contains(&v).then(|| crate::out::int_json(v))
+            Some(crate::out::int_json(v))
         }
         _ => None,
     }

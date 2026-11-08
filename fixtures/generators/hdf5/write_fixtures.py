@@ -170,7 +170,7 @@ def big_fill_values():
         pair = np.dtype([("i", "<i8"), ("f", "<f4")])
         f.create_dataset("compound", shape=(4,), dtype=pair, chunks=(2,), fillvalue=np.array((2**60, 1.5), dtype=pair))
         f["compound"][0:2] = np.array([(1, 0.5), (2, 2.5)], dtype=pair)
-    # and a uint8 dataset's of 300, no uint8, keeps the attribute's form (which xarray refuses)
+    # and a uint8 dataset's of 300, no uint8, is xarray's integer too, as xarray reads it
     with open_file("hdf5_fill_out_of_range.h5") as f:
         f.create_dataset("uint8", data=np.arange(4, dtype="u1"))
         f["uint8"].attrs["_FillValue"] = np.array([300], dtype="<i2")

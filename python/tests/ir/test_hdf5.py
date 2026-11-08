@@ -195,21 +195,15 @@ def test_fill_values_past_2_to_the_53_are_exact_json_integers():
     assert fills == {"int64": -(2**60), "enum_u64": 2**60, "compound": {"i": 2**60, "f": 1.5}}
 
 
-def test_a_netcdf_fill_value_of_the_dataset_s_type_is_xarray_s_integer():
-    """A `_FillValue` attribute of one integer that is a value of the integer dataset's type is
-    xarray's integer, exactly, past 2^53 too (spec/zarrify/hdf5.md §6
+def test_a_netcdf_fill_value_is_xarray_s_integer():
+    """A `_FillValue` attribute of one integer of an integer dataset is xarray's integer, exactly,
+    past 2^53 too, and one the dataset's type does not have (300 of a uint8 dataset), which xarray
+    reads as it is, where it refuses the attribute's list (spec/zarrify/hdf5.md §6
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes>)."""
-    store = zarrify(str(FIXTURES / "hdf5" / "hdf5_big_fills.h5"))
-    attrs = mapping(mapping(json.loads(store.get("int64/zarr.json") or b"{}"))["attributes"])
-    assert attrs["_FillValue"] == -(2**60)
-
-
-def test_a_netcdf_fill_value_outside_the_dataset_s_type_keeps_its_form():
-    """One that is no value of the dataset's type (300 of a uint8 dataset) keeps the attribute's
-    form, its array of one integer."""
-    store = zarrify(str(FIXTURES / "hdf5" / "hdf5_fill_out_of_range.h5"))
-    attrs = mapping(mapping(json.loads(store.get("uint8/zarr.json") or b"{}"))["attributes"])
-    assert attrs["_FillValue"] == [300]
+    for name, key, want in [("hdf5_big_fills.h5", "int64", -(2**60)), ("hdf5_fill_out_of_range.h5", "uint8", 300)]:
+        store = zarrify(str(FIXTURES / "hdf5" / name))
+        attrs = mapping(mapping(json.loads(store.get(f"{key}/zarr.json") or b"{}"))["attributes"])
+        assert attrs["_FillValue"] == want, name
 
 
 @pytest.mark.parametrize("path", [p for p in ACCEPTED if p.suffix == ".nwb"], ids=lambda p: p.name)
@@ -440,11 +434,7 @@ def test_unscaled_datasets_share_names_by_length_within_a_group():
     assert root["scalar"].metadata.dimension_names is None
 
 
-# xarray refuses a `_FillValue` that is no value of its dataset's type, kept in the attribute's form
-XARRAY_REFUSES = {"hdf5_fill_out_of_range.h5"}
-
-
-@pytest.mark.parametrize("path", [p for p in ACCEPTED if p.name not in XARRAY_REFUSES], ids=lambda p: p.name)
+@pytest.mark.parametrize("path", ACCEPTED, ids=lambda p: p.name)
 def test_every_array_is_a_variable_of_xarray_and_virtualizarr(path, monkeypatch):
     """Each group opens as an xarray dataset whose variables are its arrays, by their dimension
     names, and as a VirtualiZarr virtual dataset, whose variables need dimension names."""
