@@ -718,6 +718,20 @@ impl Stored {
                     }
                 })
                 .collect();
+            // chains made one must give one set of unit parameters, or their rows' columns could
+            // not all be what the one chain's list says
+            let given = |old: usize| -> Vec<(u32, &str)> {
+                let mut v: Vec<(u32, &str)> = a.unit_parameters.iter().filter(|u| u.chain as usize == old).map(|u| (u.codec, u.name.as_str())).collect();
+                v.sort_unstable();
+                v
+            };
+            for (old, &new) in local.iter().enumerate() {
+                if let Some(first) = local.iter().position(|&n| n == new).filter(|&f| f < old) {
+                    if given(first) != given(old) {
+                        return Err(format!("internal: a graft makes chains {first} and {old} of the stored array of element {} one, and they give other unit parameters", a.element));
+                    }
+                }
+            }
             a.chains = mine;
             for u in a.unit_parameters.iter_mut() {
                 u.chain = local.get(u.chain as usize).copied().unwrap_or(u.chain);
@@ -1648,6 +1662,24 @@ mod tests {
         assert_eq!(store.stored.arrays[0].chains, [0]);
         assert_eq!(store.stored.map.chain, [None, None]);
         check_with(&store, TEST_CODECS).unwrap();
+    }
+
+    #[test]
+    fn refuses_a_graft_that_makes_chains_of_other_unit_parameters_one() {
+        let chain = |object: Option<&str>| vec![codec("quantize", &[("method", Param::Source(Place::Extent { object: object.map(String::from), offset: 0, length: 4 }))])];
+        let a = StoredArray {
+            element: 1, index: None, declarations: vec![], shape: vec![2], axes: None, item_bits: Some(8), pad_from: None,
+            grid: Some(Grid { axes: vec![AxisUnits::Each(1)], edge: Edge::Short }), chains: vec![0, 1], fill: Fill::Undefined,
+            unit_parameters: vec![UnitParameter { chain: 0, codec: 0, name: "scale".into() }],
+        };
+        let mut map = ChunkMap::default();
+        map.push(Row { array: 0, coords: vec![0], element: Some(1), params: vec![("p.quantize.scale".into(), Scalar::Float64(1.0))], ..Row::default() }).unwrap();
+        map.push(Row { array: 0, coords: vec![1], element: Some(4), chain: Some(1), ..Row::default() }).unwrap();
+        let file = with(Stored { arrays: vec![a], chains: vec![chain(None), chain(Some("f.bin"))], map });
+        check_with(&file, TEST_CODECS).unwrap();
+        let mut store = Ir::new_store();
+        let o = store.listing(&[("f.bin".into(), 100)]).unwrap();
+        assert!(store.graft(&file, o[0]).unwrap_err().contains("they give other unit parameters"));
     }
 
     #[test]

@@ -674,19 +674,19 @@ impl Ir {
     /// they are sorted here), described once from the finished IR (spec/stored-array.md §6
     /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#6-in-the-ir>): counted
     /// against the budget, and checked ([`crate::array::check`]); the IR keeps none it refuses.
-    pub fn describe(&mut self, arrays: Vec<crate::array::StoredArray>, chains: Vec<crate::array::Chain>, mut map: crate::array::ChunkMap) -> Res<()> {
+    pub fn describe(&mut self, arrays: Vec<crate::array::StoredArray>, chains: Vec<crate::array::Chain>, map: crate::array::ChunkMap) -> Res<()> {
         if !self.finished {
             return Err("internal: arrays described before the IR is finished".into());
         }
         if !self.stored.is_empty() {
             return Err("internal: the IR's arrays described twice".into());
         }
-        map.sort();
-        let stored = crate::array::Stored { arrays, chains, map };
+        let mut stored = crate::array::Stored { arrays, chains, map };
         let (d, r) = stored.weights();
         if let Some(b) = self.budget.as_mut() {
             b.describe(d, r)?;
         }
+        stored.map.sort();
         self.stored = Arc::new(stored);
         crate::array::check(self).inspect_err(|_| {
             self.stored = Default::default();
