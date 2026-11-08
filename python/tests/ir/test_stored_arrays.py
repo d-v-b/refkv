@@ -143,7 +143,10 @@ def test_npy_chunk_map_crosses_the_capsule_interface(path):
     assert batch.equals(pa.RecordBatchReader.from_stream(cm).read_next_batch())
     assert len(cm) == batch.num_rows
     assert batch.schema.metadata == {b"refkv.chunk_map": b"0"}
-    assert batch.schema.names == ["array", "coords", "element", "member", "ranges", "chain", "skips"]
+    assert batch.schema.names == ["array", "coords", "element", "member", "range", "ranges", "chain", "skips"]
+    assert batch.schema.field("range").type == pa.struct([
+        pa.field("offset", pa.uint64(), nullable=False), pa.field("length", pa.uint64(), nullable=False),
+    ])
     assert batch.schema.field("ranges").type == pa.list_(pa.field("item", pa.struct([
         pa.field("object", pa.dictionary(pa.int32(), pa.utf8())),
         pa.field("offset", pa.uint64(), nullable=False),
@@ -161,7 +164,7 @@ def test_npy_chunk_map_crosses_the_capsule_interface(path):
         r = rows[k]
         assert ir.extent(r["element"]) == (offset, size), d.path
         assert r["coords"] == [0] * len(shape), d.path
-        assert (r["member"], r["ranges"], r["chain"], r["skips"]) == (None, None, None, None), d.path
+        assert (r["member"], r["range"], r["ranges"], r["chain"], r["skips"]) == (None,) * 5, d.path
         units += 1
     assert units == batch.num_rows
 

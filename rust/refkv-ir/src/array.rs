@@ -75,9 +75,9 @@ pub enum Run {
 /// How a unit past an `Each` axis's end is stored, as the source declares its layout.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Edge {
-    /// at the full unit length, the part past the end filled
+    /// at the full unit length, the part past the end filled; `Each(n)` is the declared length
     Full,
-    /// cut to the axis
+    /// cut to the axis; `Each(n)` is the declared length clamped to the axis's
     Short,
 }
 
@@ -244,6 +244,8 @@ pub struct Row {
     pub coords: Vec<u64>,
     pub element: Option<u32>,
     pub member: Option<u64>,
+    /// where the unit is part of `element`: its (offset, length) within the element's bytes
+    pub range: Option<(u64, u64)>,
     /// its bytes, in order, as (object key, None for the parsed source; offset; length)
     pub ranges: Option<Vec<(Option<String>, u64, u64)>>,
     pub chain: Option<u32>,
@@ -273,6 +275,8 @@ pub struct ChunkMap {
     pub coords: Vec<u64>,
     pub element: Vec<Option<u32>>,
     pub member: Vec<Option<u64>>,
+    /// where the unit is part of its element: its (offset, length) within the element's bytes
+    pub range: Vec<Option<(u64, u64)>>,
     pub has_ranges: Vec<bool>,
     pub ranges_end: Vec<u64>,
     pub range_object: Vec<Option<u32>>,
@@ -333,6 +337,7 @@ impl ChunkMap {
         self.coords_end.push(self.coords.len() as u64);
         self.element.push(row.element);
         self.member.push(row.member);
+        self.range.push(row.range);
         self.has_ranges.push(row.ranges.is_some());
         for (o, offset, length) in row.ranges.into_iter().flatten() {
             let o = o.map(|k| self.object(&k));
@@ -368,6 +373,7 @@ impl ChunkMap {
             out.coords_end.push(out.coords.len() as u64);
             out.element.push(self.element[k]);
             out.member.push(self.member[k]);
+            out.range.push(self.range[k]);
             out.has_ranges.push(self.has_ranges[k]);
             if let Some(r) = self.ranges_of(k) {
                 out.range_object.extend_from_slice(&self.range_object[r.clone()]);
@@ -415,6 +421,7 @@ impl ChunkMap {
             self.coords_end.push(self.coords.len() as u64);
             self.element.push(from.element[k].map(at));
             self.member.push(from.member[k]);
+            self.range.push(from.range[k]);
             self.has_ranges.push(from.has_ranges[k]);
             if let Some(r) = from.ranges_of(k) {
                 for x in r {
@@ -468,7 +475,7 @@ impl ChunkMap {
 
     fn memory(&self) -> usize {
         let n = self.len();
-        n * (4 + 8 + 8 + 16 + 1 + 8 + 8 + 16)
+        n * (4 + 8 + 8 + 16 + 24 + 1 + 8 + 8 + 16)
             + self.coords.len() * 8
             + self.range_offset.len() * (8 + 8 + 8)
             + self.objects.iter().map(|o| o.len() + 48).sum::<usize>()
@@ -494,6 +501,14 @@ impl ChunkMap {
             }
             opt(eat, self.element[k].map(u64::from));
             opt(eat, self.member[k]);
+            match self.range[k] {
+                Some((o, n)) => {
+                    eat(&[1]);
+                    eat(&o.to_le_bytes());
+                    eat(&n.to_le_bytes());
+                }
+                None => eat(&[0]),
+            }
             match self.ranges_of(k) {
                 Some(r) => {
                     eat(&[1]);
@@ -1108,7 +1123,7 @@ impl ChunkMap {
         let n = self.len();
         // its schema: the columns of one length, the offsets in order, the parameter columns the
         // codecs' entries'
-        let lengths = [self.coords_end.len(), self.element.len(), self.member.len(), self.has_ranges.len(), self.ranges_end.len(), self.chain.len(), self.skips.len()];
+        let lengths = [self.coords_end.len(), self.element.len(), self.member.len(), self.range.len(), self.has_ranges.len(), self.ranges_end.len(), self.chain.len(), self.skips.len()];
         if lengths.iter().any(|&l| l != n) || self.params.values().any(|c| c.len() != n) {
             return Err("internal: the chunk map's columns are not all of one length".into());
         }
@@ -1161,10 +1176,24 @@ impl ChunkMap {
             match (self.element[k], self.ranges_of(k)) {
                 (Some(_), Some(_)) => return Err(row("both its element and its ranges are set".into())),
                 (None, None) => return Err(row("neither its element nor its ranges is set".into())),
-                (Some(e), None) => ctx.element(e, self.member[k]).map_err(|e| row(format!("it {e}")))?,
+                (Some(e), None) => {
+                    ctx.element(e, self.member[k]).map_err(|e| row(format!("it {e}")))?;
+                    if let Some((o, n)) = self.range[k] {
+                        if n == 0 {
+                            return Err(row(format!("its range at {o} of its element is 0 bytes long")));
+                        }
+                        let len = ctx.ir.len[e as usize];
+                        if o.checked_add(n).is_none_or(|end| end > len) {
+                            return Err(row(format!("its range at {o} of {n} bytes is past its element's {len} bytes")));
+                        }
+                    }
+                }
                 (None, Some(rs)) => {
                     if self.member[k].is_some() {
                         return Err(row("it has a member and no element".into()));
+                    }
+                    if self.range[k].is_some() {
+                        return Err(row("it has a range of an element and no element".into()));
                     }
                     if rs.is_empty() {
                         return Err(row("its ranges are empty".into()));
@@ -1273,6 +1302,10 @@ pub mod arrow {
     pub use arrow_array;
     pub use arrow_schema;
 
+    fn part_fields() -> Fields {
+        Fields::from(vec![Field::new("offset", DataType::UInt64, false), Field::new("length", DataType::UInt64, false)])
+    }
+
     fn range_fields() -> Fields {
         Fields::from(vec![
             Field::new("object", DataType::Dictionary(Box::new(DataType::Int32), Box::new(DataType::Utf8)), true),
@@ -1299,6 +1332,7 @@ pub mod arrow {
             Field::new("coords", DataType::List(Arc::new(Field::new("item", DataType::UInt64, false))), false),
             Field::new("element", DataType::UInt32, true),
             Field::new("member", DataType::UInt64, true),
+            Field::new("range", DataType::Struct(part_fields()), true),
             Field::new("ranges", DataType::List(Arc::new(Field::new("item", DataType::Struct(range_fields()), false))), true),
             Field::new("chain", DataType::UInt32, true),
             Field::new("skips", DataType::UInt64, true),
@@ -1332,12 +1366,19 @@ pub mod arrow {
             None,
         )?;
         let nulls = arrow_buffer::NullBuffer::from(map.has_ranges.clone());
-        let ranges = ListArray::try_new(item(schema.field(4)), offsets(&map.ranges_end)?, Arc::new(ranges), Some(nulls))?;
+        let ranges = ListArray::try_new(item(schema.field(5)), offsets(&map.ranges_end)?, Arc::new(ranges), Some(nulls))?;
+        let part = |f: fn(&(u64, u64)) -> u64| -> ArrayRef { Arc::new(UInt64Array::from(map.range.iter().map(|r| r.as_ref().map_or(0, f)).collect::<Vec<u64>>())) };
+        let range = StructArray::try_new(
+            part_fields(),
+            vec![part(|r| r.0), part(|r| r.1)],
+            Some(arrow_buffer::NullBuffer::from(map.range.iter().map(Option::is_some).collect::<Vec<bool>>())),
+        )?;
         let mut columns: Vec<ArrayRef> = vec![
             Arc::new(UInt32Array::from(map.array.clone())),
             Arc::new(coords),
             Arc::new(UInt32Array::from(map.element.clone())),
             Arc::new(UInt64Array::from(map.member.clone())),
+            Arc::new(range),
             Arc::new(ranges),
             Arc::new(UInt32Array::from(map.chain.clone())),
             Arc::new(UInt64Array::from(map.skips.clone())),
@@ -1459,7 +1500,7 @@ mod tests {
             Row { array: 0, coords: vec![1, 0], element: Some(3), member: Some(2), params: vec![("p.quantize.scale".into(), Scalar::Float64(0.5))], ..Row::default() },
             Row { array: 0, coords: vec![0, 0], element: Some(3), member: Some(0), params: vec![("p.quantize.scale".into(), Scalar::Float64(2.0))], ..Row::default() },
             Row { array: 0, coords: vec![2, 0], ranges: Some(vec![(None, 40, 4), (Some("beside.bin".into()), 0, 4)]), skips: Some(1), ..Row::default() },
-            Row { array: 0, coords: vec![0, 1], element: Some(1), chain: Some(1), ..Row::default() },
+            Row { array: 0, coords: vec![0, 1], element: Some(1), range: Some((2, 4)), chain: Some(1), ..Row::default() },
         ];
         for r in rows {
             map.push(r).unwrap();
@@ -1510,9 +1551,10 @@ mod tests {
         assert_eq!(b.num_rows(), 5);
         assert_eq!(b.schema().metadata()["refkv.chunk_map"], CHUNK_MAP_VERSION);
         let names: Vec<String> = b.schema().fields().iter().map(|f| f.name().clone()).collect();
-        assert_eq!(names, ["array", "coords", "element", "member", "ranges", "chain", "skips", "p.quantize.scale"]);
+        assert_eq!(names, ["array", "coords", "element", "member", "range", "ranges", "chain", "skips", "p.quantize.scale"]);
         assert_eq!(b.column(4).null_count(), 4);
-        assert_eq!(b.column(7).null_count(), 3);
+        assert_eq!(b.column(5).null_count(), 4);
+        assert_eq!(b.column(8).null_count(), 3);
     }
 
     #[test]
@@ -1532,6 +1574,7 @@ mod tests {
         assert_eq!(s.map.len(), 10);
         assert_eq!(s.map.array[5..], [4, 4, 4, 4, 5]);
         assert_eq!(s.map.element[0], Some(at[3]));
+        assert_eq!((s.map.element[1], s.map.range[1], s.map.range[6]), (Some(at[1]), Some((2, 4)), Some((2, 4))));
         let k = s.map.ranges_of(3).unwrap();
         let keys: Vec<&str> = s.map.range_object[k].iter().map(|o| s.map.objects[o.unwrap() as usize].as_str()).collect();
         assert_eq!(keys, ["a/f.bin", "beside.bin"]);
@@ -1546,6 +1589,7 @@ mod tests {
         // member 2 of the run (root 3, subtree [3, 4)) is the second copy
         assert_eq!((s.map.element[2], s.map.member[2]), (Some(before + 1), None));
         assert_eq!((s.map.element[0], s.map.member[0]), (Some(3), None));
+        assert_eq!(s.map.range[1], Some((2, 4)));
         assert_eq!(s.arrays[1].fill, Fill::Given(Param::Source(Place::Element { element: before, member: None, range: Some((0, 8)) })));
     }
 
@@ -2077,6 +2121,26 @@ mod tests {
     #[test]
     fn refuses_a_row_member_past_its_run() {
         assert!(refusal(|s| s.map.member[0] = Some(3)).contains("whose run has 3"));
+    }
+
+    #[test]
+    fn refuses_a_row_range_without_an_element() {
+        assert!(refusal(|s| s.map.range[3] = Some((0, 1))).contains("it has a range of an element and no element"));
+    }
+
+    #[test]
+    fn refuses_a_row_range_0_bytes_long() {
+        assert!(refusal(|s| s.map.range[1] = Some((2, 0))).contains("its range at 2 of its element is 0 bytes long"));
+    }
+
+    #[test]
+    fn refuses_a_row_range_past_its_element() {
+        assert!(refusal(|s| s.map.range[1] = Some((6, 4))).contains("its range at 6 of 4 bytes is past its element's 8 bytes"));
+    }
+
+    #[test]
+    fn refuses_a_row_range_past_2_to_the_64() {
+        assert!(refusal(|s| s.map.range[1] = Some((u64::MAX, 2))).contains("is past its element's 8 bytes"));
     }
 
     #[test]

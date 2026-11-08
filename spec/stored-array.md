@@ -100,8 +100,9 @@ A grid is in canonical form:
 
 - an axis is `Each(n)` when all its units are `n` long, except a last one the axis's end cuts;
   otherwise it is a `List`;
-- under `short`, `n` is at most the axis's length; under `full`, `n` is the declared length, which
-  may exceed it;
+- under `short`, `n` is the declared length clamped to the axis's length (a TIFF's RowsPerStrip
+  above ImageLength, often 2^32 − 1, is one strip of the image's rows); under `full`, `n` is the
+  declared length, which may exceed it;
 - a `List` sums to the axis's length, and its adjacent equal lengths form one run: `[n, c]` with
   `c` at least 2, or `n` alone;
 - lengths are at least 1. An axis of length 0 has no units: it is `Each` of the declared length,
@@ -201,6 +202,7 @@ interface (`__arrow_c_array__` and `__arrow_c_stream__`), of this schema:
 | `coords` | `List<UInt64>` (items not null) | no | the unit's coordinates in the array's grid (empty for rank 0) |
 | `element` | `UInt32` | yes | the IR element holding the unit's bytes; its recipe gives them |
 | `member` | `UInt64` | yes | where `element` is in a run's subtree, the position j of the run's member it is in |
+| `range` | `Struct<offset: UInt64, length: UInt64>` | yes | where the unit is part of `element`: its offset and length within the element's bytes, the same form as a place's `range` ([§2.2](#22-places-and-parameters)) |
 | `ranges` | `List<Struct<object: Dictionary<Int32, Utf8>, offset: UInt64, length: UInt64>>` (items not null; `object` null for the parsed source) | yes | where no element holds exactly the unit's bytes: its bytes, in order; `offset` counts from the object's start |
 | `chain` | `UInt32` | yes | the unit's chain, a position in its array's `chains`; null for the first |
 | `skips` | `UInt64` | yes | the codecs of its chain that the unit skips, a mask by codec position (bit i, codec i); null for none |
@@ -212,8 +214,10 @@ The schema's metadata gives `refkv.chunk_map`, the schema's version, `0`.
 
 - Rows are grouped by `array`, in order, and within an array are in row-major order of `coords`;
   a parser adds them in any order, and the IR sorts them.
-- Exactly one of `element` and `ranges` is set in each row. A unit inside a derived space is
-  always an element, since `ranges` address only objects. A row's ranges are at least one, each at
+- Exactly one of `element` and `ranges` is set in each row. `range` is set only with `element`,
+  where the unit is part of it (a FITS tile within its heap element), is at least one byte long,
+  and lies within the element's bytes. A unit inside a derived space is an element or a range of
+  one, since `ranges` address only objects. A row's ranges are at least one, each at
   least one byte long, and lie within their objects as a place's do
   ([§2.2](#22-places-and-parameters)).
 - Null is the only way to write the first chain and "skips nothing".
@@ -264,6 +268,8 @@ parser: an internal error naming the array's element.
   each at least one byte long;
 - `member` is set exactly when `element` is set and is in a run's subtree, and is below the
   run's count;
+- `range` is set only with `element`, at least one byte long, its end within the element's bytes
+  and below 2^64;
 - the first chain and no skips are written as null;
 - `chain` is a position in the array's `chains`, and `skips` names only codecs of the unit's
   chain;
