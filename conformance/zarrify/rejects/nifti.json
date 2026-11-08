@@ -12,9 +12,9 @@
       "message": "bitpix 8 does not match datatype 4"
     },
     {
-      "test": "nifti_reject_complex64",
-      "input": "nifti_reject_complex64.nii",
-      "message": "unsupported NIfTI datatype 32 (COMPLEX64)"
+      "test": "nifti_reject_complex256",
+      "input": "nifti_reject_complex256.nii",
+      "message": "unsupported NIfTI datatype 2048 (COMPLEX256)"
     },
     {
       "test": "nifti_reject_datatype_unknown",
@@ -79,8 +79,7 @@
     {
       "test": "nifti_reject_pair_magic",
       "input": "nifti_reject_pair_magic.nii",
-      "message": "not a NIfTI-1 or NIfTI-2 single file",
-      "host": "not a file of any supported format"
+      "message": "the header file \"nifti_reject_pair_magic.nii\" of a NIfTI pair is not named .hdr, which is how its image file's name is found"
     },
     {
       "test": "nifti_reject_rgb_5d",
@@ -111,6 +110,36 @@
       "test": "nifti_reject_vox_offset_zero",
       "input": "nifti_reject_vox_offset_zero.nii",
       "message": "vox_offset 0 is not from 352 to 2^53 - 1"
+    },
+    {
+      "test": "nifti_reject_pair_no_image",
+      "input": "nifti_reject_pair_no_image.hdr",
+      "message": "the image file \"nifti_reject_pair_no_image.img\" does not exist"
+    },
+    {
+      "test": "nifti_reject_pair_image_short",
+      "input": "nifti_reject_pair_image_short.hdr",
+      "message": "the 24-byte voxel data at 0 is outside the 23-byte file"
+    },
+    {
+      "test": "nifti_reject_pair_vox_negative",
+      "input": "nifti_reject_pair_vox_negative.hdr",
+      "message": "vox_offset -16 is not from 0 to 2^53 - 1"
+    },
+    {
+      "test": "nifti_reject_gzip_trailing",
+      "input": "nifti_reject_gzip_trailing.nii.gz",
+      "message": "the gzip trailer records a stream of 372 bytes modulo 2^32, not the 364 of the header and the voxel data"
+    },
+    {
+      "test": "nifti_reject_gzip_members",
+      "input": "nifti_reject_gzip_members.nii.gz",
+      "message": "the gzip trailer records a stream of"
+    },
+    {
+      "test": "nifti_reject_gzip_header_cut",
+      "input": "nifti_reject_gzip_header_cut.nii.gz",
+      "message": "the gzip stream ends or breaks in the header's first 352 bytes"
     }
   ]
 }

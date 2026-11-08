@@ -6,7 +6,9 @@
 //! store formats ask for those files by key (the probes of `refkv_ir::store::StoreRun`) rather
 //! than from a listing. The files are the objects of a store whose URL is the named file's
 //! directory, each read through a transport of its own (`transport.rs`); a probe opens the file,
-//! and one that does not exist (a missing local file, an HTTP 404) is absent. The twin of
+//! and one that does not exist (a missing local file, an HTTP 404) is absent. A LAS X project's files
+//! (spec/zarrify/lif.md §8 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#8-las-x-documents>)
+//! are named in another case than they have, so a local directory's are found by listing it. The twin of
 //! python/src/refkv/zarrify/store/beside.py.
 
 use crate::http::Client;
@@ -18,16 +20,6 @@ use refkv_ir::out::Out;
 use refkv_ir::store::{StoreFormat, StoreRun};
 use std::collections::HashMap;
 use std::sync::Arc;
-
-/// The title a rejection names the input's format by, and its named file: a VSI, NRRD or GRIB
-/// input.
-fn titles(format: StoreFormat) -> (&'static str, &'static str) {
-    match format {
-        StoreFormat::Nrrd => ("NRRD", "header file"),
-        StoreFormat::Grib => ("GRIB", "GRIB file"),
-        _ => ("VSI", ".vsi file"),
-    }
-}
 
 /// (the directory, the named file's key) of an input of the format `title` names (VSI, NRRD):
 /// for an http(s) URL the URL up to its last `/` and the last segment, percent-decoded; for a
@@ -72,13 +64,18 @@ pub struct Files {
     pub requests: u64,
     /// the format's title, which a rejection names
     title: &'static str,
+    /// a local directory's files are found by listing it (spec/zarrify.md §1.9
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>, **Case**)
+    case: bool,
+    /// the directories listed, by key
+    listed: HashMap<String, Option<Vec<String>>>,
 }
 
 impl Files {
     /// The input at `location` of the store format `format`, its named file opened as `t`; `url`,
     /// when given, is the URL the named file is named by, whose directory is the store URL.
     pub fn open(location: &str, url: Option<&str>, t: Transport, client: &Arc<Client>, format: StoreFormat) -> Result<Files, Fail> {
-        let (title, noun) = titles(format);
+        let (title, noun) = (format.title(), format.named().unwrap_or("file"));
         let (dir, key) = split_input(location, title)?;
         let remote = t.remote();
         let url = match url {
@@ -100,13 +97,56 @@ impl Files {
         };
         let mut sizes = HashMap::new();
         sizes.insert(key.clone(), t.size());
-        Ok(Files { location: dir, url, remote, client: client.clone(), keys: vec![key], transports: vec![t], sizes, requests: 0, title })
+        let case = format.case() && !remote;
+        Ok(Files { location: dir, url, remote, client: client.clone(), keys: vec![key], transports: vec![t], sizes, requests: 0, title, case,
+                   listed: HashMap::new() })
     }
 
-    /// The size of the file `key` once opened, or None when it does not exist.
-    fn probe(&mut self, key: &str) -> Result<Option<u64>, Fail> {
+    /// The path of the file or directory at `key`.
+    fn path(&self, key: &str) -> std::path::PathBuf {
+        let mut p = std::path::PathBuf::from(if self.location.is_empty() { "." } else { self.location.as_str() });
+        for seg in key.split('/').filter(|s| !s.is_empty()) {
+            p.push(seg);
+        }
+        p
+    }
+
+    /// Whether the local file or directory at `key` is below the named file's directory, symbolic
+    /// links followed (spec/zarrify.md §1.9
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>).
+    fn below(&self, key: &str) -> bool {
+        match (self.path(key).canonicalize(), self.path("").canonicalize()) {
+            (Ok(p), Ok(root)) => p.starts_with(root),
+            _ => false,
+        }
+    }
+
+    /// The entries of the local directory at the key `key`, or None when there is none.
+    fn listdir(&mut self, key: &str) -> Option<Vec<String>> {
+        if let Some(l) = self.listed.get(key) {
+            return l.clone();
+        }
+        let got = self.below(key).then(|| std::fs::read_dir(self.path(key)).ok()).flatten().map(|d| {
+            d.filter_map(|e| e.ok().and_then(|e| e.file_name().into_string().ok())).collect::<Vec<String>>()
+        });
+        self.listed.insert(key.to_string(), got.clone());
+        got
+    }
+
+    /// The size and key of the file `written` once opened, or None when it does not exist.
+    fn probe(&mut self, written: &str) -> Result<Option<(u64, String)>, Fail> {
+        let found = if self.case {
+            match refkv_ir::beside::found_key(written, |d| self.listdir(d)) {
+                Ok(Some(k)) => k,
+                Ok(None) => return Ok(None),
+                Err((a, b)) => return Err(Fail::Rejected(format!("the file \"{written}\" matches both \"{a}\" and \"{b}\""))),
+            }
+        } else {
+            written.to_string()
+        };
+        let key = found.as_str();
         if let Some(&n) = self.sizes.get(key) {
-            return Ok(Some(n));
+            return Ok(Some((n, found)));
         }
         let t = if self.remote {
             match Transport::open(&object_url(&self.location, key), &self.client) {
@@ -115,11 +155,8 @@ impl Files {
                 Err(e) => return Err(e),
             }
         } else {
-            let mut p = std::path::PathBuf::from(if self.location.is_empty() { "." } else { self.location.as_str() });
-            for seg in key.split('/') {
-                p.push(seg);
-            }
-            if !p.is_file() {
+            let p = self.path(key);
+            if !p.is_file() || !self.below(key) {
                 return Ok(None);
             }
             Transport::open(p.to_str().ok_or_else(|| Fail::Other(format!("{key}: not a path")))?, &self.client)?
@@ -129,7 +166,7 @@ impl Files {
         self.keys.push(key.to_string());
         self.transports.push(t);
         self.sizes.insert(key.to_string(), n);
-        Ok(Some(n))
+        Ok(Some((n, found)))
     }
 
     pub fn remote(&self) -> bool {
@@ -152,9 +189,10 @@ impl Files {
 
 /// (the output, the files) of the VSI or NRRD input at `location` (`format`), its named file
 /// opened as `t`: a store run of the core's `format` over the files, probed as the run asks for
-/// them, read `connections` at a time when remote.
+/// them, read `connections` at a time when remote; sealed for ranges that carry checksums when
+/// `checksums`.
 pub fn zarrify_vsi(location: &str, url: Option<&str>, t: Transport, client: &Arc<Client>, connections: Option<usize>,
-                   format: StoreFormat) -> Result<(Out, Files), Fail> {
+                   format: StoreFormat, checksums: bool) -> Result<(Out, Files), Fail> {
     let workers = concurrency(&t, connections)?;
     let mut files = Files::open(location, url, t, client, format)?;
     let listing = vec![(files.keys[0].clone(), files.sizes[&files.keys[0]])];
@@ -164,8 +202,12 @@ pub fn zarrify_vsi(location: &str, url: Option<&str>, t: Transport, client: &Arc
             // a batch of probes: each key answered with its size, or None when it does not exist
             let keys: Vec<String> = run.probes().to_vec();
             for k in keys {
-                let size = files.probe(&k)?;
-                run.found(size).map_err(Fail::Rejected)?;
+                match files.probe(&k)? {
+                    Some((size, key)) if key != k => run.found_as(size, &key),
+                    Some((size, _)) => run.found(Some(size)),
+                    None => run.found(None),
+                }
+                .map_err(Fail::Rejected)?;
             }
             continue;
         }
@@ -176,9 +218,82 @@ pub fn zarrify_vsi(location: &str, url: Option<&str>, t: Transport, client: &Arc
             run.complete(k, parts?).map_err(Fail::Rejected)?;
         }
     }
-    let mut out = run.into_output(&files.url, true).map_err(Fail::Rejected)?;
+    let mut out = run.into_output(&files.url, true, checksums)?;
     if let Some(m) = out.summary.as_object_mut() {
         m.insert("listingRequests".into(), files.requests.into());
     }
     Ok((out, files))
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::symlink;
+    use std::path::{Path, PathBuf};
+    use std::time::Duration;
+
+    /// A directory with a named file, its files and links, beside a directory with a secret.
+    fn upload(name: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!("refkv-cli-beside-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let (outside, upload) = (root.join("outside"), root.join("upload"));
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::create_dir_all(upload.join("sub")).unwrap();
+        std::fs::write(outside.join("secret.bin"), b"secret").unwrap();
+        std::fs::write(upload.join("a.nhdr"), b"named").unwrap();
+        std::fs::write(upload.join("plain.bin"), b"plain").unwrap();
+        std::fs::write(upload.join("sub/plain.bin"), b"plain").unwrap();
+        symlink("plain.bin", upload.join("link_inside.bin")).unwrap();
+        symlink("sub", upload.join("dir_inside")).unwrap();
+        symlink(outside.join("secret.bin"), upload.join("link_outside.bin")).unwrap();
+        symlink(&outside, upload.join("dir_outside")).unwrap();
+        symlink(&upload, root.join("linked")).unwrap();
+        upload
+    }
+
+    fn files(dir: &Path, format: StoreFormat) -> Files {
+        let client = Client::new(crate::policy::Policy::default(), Duration::from_secs(5));
+        let named = dir.join("a.nhdr");
+        let named = named.to_str().unwrap();
+        let t = Transport::open(named, &client).ok().unwrap();
+        Files::open(named, None, t, &client, format).ok().unwrap()
+    }
+
+    fn found(files: &mut Files, key: &str) -> Option<u64> {
+        files.probe(key).ok().unwrap().map(|(n, _)| n)
+    }
+
+    #[test]
+    fn a_sibling_below_the_directory_is_found() {
+        let dir = upload("found");
+        for named in [dir.clone(), dir.parent().unwrap().join("linked")] {
+            for format in [StoreFormat::Nrrd, StoreFormat::Lif] {
+                for key in ["plain.bin", "sub/plain.bin", "link_inside.bin", "dir_inside/plain.bin"] {
+                    assert_eq!(found(&mut files(&named, format), key), Some(5), "{key} from {named:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_link_to_a_file_outside_is_absent() {
+        let dir = upload("file");
+        for format in [StoreFormat::Nrrd, StoreFormat::Lif] {
+            assert_eq!(found(&mut files(&dir, format), "link_outside.bin"), None);
+        }
+    }
+
+    #[test]
+    fn a_key_through_a_link_to_a_directory_outside_is_absent() {
+        let dir = upload("key");
+        for format in [StoreFormat::Nrrd, StoreFormat::Lif] {
+            assert_eq!(found(&mut files(&dir, format), "dir_outside/secret.bin"), None);
+        }
+    }
+
+    #[test]
+    fn a_directory_outside_is_not_listed() {
+        let dir = upload("list");
+        assert_eq!(files(&dir, StoreFormat::Lif).listdir("dir_outside"), None);
+    }
 }

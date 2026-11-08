@@ -19,6 +19,7 @@ export interface IrExports {
   vz_run_multirange(p: number, v: number): void;
   vz_run_settings(p: number, byteCost: number, wholeBelow: bigint): void;
   vz_run_poll(p: number): bigint;
+  vz_run_beside(p: number): number;
   vz_run_complete(p: number, k: number, ok: number, data: number, n: number, seconds: number): bigint;
   vz_run_stats(p: number): bigint;
   vz_run_output(p: number, url: number, n: number, flags: number): bigint;
@@ -30,7 +31,8 @@ export interface IrExports {
   vz_store_probes(p: number): bigint;
   vz_store_found(p: number, size: bigint): bigint;
   vz_store_complete(p: number, k: number, data: number, n: number): bigint;
-  vz_store_output(p: number, url: number, n: number, mirror: number): bigint;
+  vz_store_output(p: number, url: number, n: number, flags: number): bigint;
+  vz_failed(): number;
   vz_store_free(p: number): void;
   vz_free(p: number, n: number): void;
   vz_fits_tiles_decode(chunk: number, n: number, config: number, nc: number, shape: number, rank: number): bigint;

@@ -7,6 +7,11 @@
       "message": "the ftyp box at 0 has 4 bytes, too few for its 8 bytes of fields"
     },
     {
+      "test": "mov_reject_pcm_s24_only",
+      "input": "mov_reject_pcm_s24_only.mov",
+      "message": "no track can be zarrified: track 1 (in24): 24-bit PCM is not supported: the bytes codec has no data type for it"
+    },
+    {
       "test": "mp4_reject_box_outside",
       "input": "mp4_reject_box_outside.mp4",
       "message": "the 7481-byte moov box at 32 is outside its parent, which ends at 6388"
@@ -17,14 +22,39 @@
       "message": "the free box at 32 is 4 bytes, less than its 8-byte header"
     },
     {
-      "test": "mp4_reject_fragmented",
-      "input": "mp4_reject_fragmented.mp4",
-      "message": "fragmented MP4 (the moof box at "
+      "test": "mp4_reject_frag_no_tfhd",
+      "input": "mp4_reject_frag_no_tfhd.mp4",
+      "message": "the traf box at "
     },
     {
-      "test": "mp4_reject_hevc_422_only",
-      "input": "mp4_reject_hevc_422_only.mp4",
-      "message": "no track can be zarrified: track 1 (hvc1): HEVC with chroma format 2 and bit depth 8 is not supported: only 4:2:0 of 8 or 10 bits is"
+      "test": "mp4_reject_frag_no_trex",
+      "input": "mp4_reject_frag_no_trex.mp4",
+      "message": "the traf box at "
+    },
+    {
+      "test": "mp4_reject_frag_sample_outside",
+      "input": "mp4_reject_frag_sample_outside.mp4",
+      "message": "track 1's sample 0 at "
+    },
+    {
+      "test": "mp4_reject_frag_trun_before",
+      "input": "mp4_reject_frag_trun_before.mp4",
+      "message": "the trun box at "
+    },
+    {
+      "test": "mp4_reject_frag_trun_table",
+      "input": "mp4_reject_frag_trun_table.mp4",
+      "message": "the trun box at "
+    },
+    {
+      "test": "mp4_reject_hevc_444_only",
+      "input": "mp4_reject_hevc_444_only.mp4",
+      "message": "no track can be zarrified: track 1 (hvc1): HEVC with chroma format 3 and bit depth 8 is not supported: only 4:2:0 or 4:2:2 of 8, 10 or 12 bits is"
+    },
+    {
+      "test": "mov_reject_mjpeg_cmyk",
+      "input": "mov_reject_mjpeg_cmyk.mov",
+      "message": "no track can be zarrified: track 1 (jpeg): JPEG of 4 components is not supported: only 1 or 3 is"
     },
     {
       "test": "mp4_reject_moov_twice",

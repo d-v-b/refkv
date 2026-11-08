@@ -24,7 +24,11 @@ chunks byte ranges of the file. The attributes, links and object references
 are in the form hdmf-zarr 0.14 writes and reads, so pynwb's `NWBZarrIO`
 opens a zarrified NWB file as an NWB file. Any other HDF5 file (a netCDF-4
 file, an instrument's output) gets the same hierarchy; an Imaris file is
-the [IMS profile](../ims/README.md)'s.
+the [IMS profile](../ims/README.md)'s. A netCDF-4 file's variables have their
+dimension names and its coordinate variables are arrays, so xarray opens the
+hierarchy with its dimensions and coordinates. xarray's Zarr backend keeps no
+attribute's float32, so a scaled variable may decode as float64 where it
+decodes as float32 from the file.
 
 ## What you get
 
@@ -40,7 +44,8 @@ A Zarr v3 hierarchy that mirrors the file's:
   - contiguous data cut into chunks of at most 1 MiB along the slowest axis;
   - compact data, one range in the object header;
   - chunked data, HDF5's own chunks, with `numcodecs.zlib` for deflate and
-    `numcodecs.shuffle` for shuffle.
+    `numcodecs.shuffle` for shuffle. A chunk of more than 2 GiB, which HDF5 allows, is past a
+    reader's default bytes per `get` ([refkv §6.7](../../../spec/refkv.md#67-reader-policy) rule 5): raise `max_get_bytes` to read it.
 - **Variable-length strings** are `string` arrays with the `vlen-utf8`
   codec, each chunk a list of byte ranges of the file's global heap behind
   literal lengths: no string is copied.
@@ -63,7 +68,7 @@ A Zarr v3 hierarchy that mirrors the file's:
 
 **What is not presented**, and recorded instead: region references, opaque,
 time, array and sequence datatypes, compounds with gaps, filters other than
-deflate and shuffle, chunks a filter skipped, virtual datasets, datasets in
+deflate, shuffle, Fletcher32, LZF, Blosc, zstd, LZ4 and bitshuffle (Szip, N-bit and scale-offset among them), chunks skipped by shuffle or bitshuffle, virtual datasets, datasets in
 external files, and external links (not followed).
 [spec/zarrify/hdf5.md §7.4](../../../spec/zarrify/hdf5.md#74-what-is-not-presented)
 lists them.
@@ -142,8 +147,10 @@ Supported:
 
 Rejected:
 
-- Offsets or lengths of other than 8 bytes, a base address other than 0, a
-  superblock after a user block.
+- External files that are not there, or that do not hold what a dataset's
+  slots say, leave the link or dataset recorded rather than rejected.
+- Offsets or lengths of other than 8 bytes, a base address other than where
+  the superblock is.
 - Structures that do not read: truncated files, chunks outside the file, a
   string that names no global heap object or one of another length.
 - More than 131,072 objects, objects more than 64 links deep, more than

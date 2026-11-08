@@ -7,6 +7,7 @@
 //! transform may hold shown values only if it can.
 
 use serde_json::Value as J;
+use std::io::Read;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Transform {
@@ -19,11 +20,16 @@ pub enum Transform {
     /// SAFE: a zip entry's raw deflate stream (an XML document of a `.SAFE.zip`), whose space
     /// holds nothing
     Deflate,
+    /// FITS: a whole file of gzip members, whose space holds the file it decodes to
+    Gunzip,
+    /// FITS: a whole file of bzip2 streams, whose space holds the file it decodes to
+    Bunzip2,
 }
 
 impl Transform {
     /// Every transform; `index` keeps it complete (each variant at its index).
-    pub const ALL: [Transform; 4] = [Transform::Nd2LvZlib, Transform::XmlVariant, Transform::Gzip, Transform::Deflate];
+    pub const ALL: [Transform; 6] =
+        [Transform::Nd2LvZlib, Transform::XmlVariant, Transform::Gzip, Transform::Deflate, Transform::Gunzip, Transform::Bunzip2];
 
     pub fn index(self) -> usize {
         match self {
@@ -31,6 +37,8 @@ impl Transform {
             Transform::XmlVariant => 1,
             Transform::Gzip => 2,
             Transform::Deflate => 3,
+            Transform::Gunzip => 4,
+            Transform::Bunzip2 => 5,
         }
     }
 
@@ -40,6 +48,8 @@ impl Transform {
             Transform::XmlVariant => "xml-variant",
             Transform::Gzip => "gzip",
             Transform::Deflate => "deflate",
+            Transform::Gunzip => "gunzip",
+            Transform::Bunzip2 => "bunzip2",
         }
     }
 
@@ -55,7 +65,7 @@ impl Transform {
     /// validator can derive its bytes again).
     pub fn may_hold_shown(self) -> bool {
         match self {
-            Transform::Nd2LvZlib | Transform::XmlVariant => true,
+            Transform::Nd2LvZlib | Transform::XmlVariant | Transform::Gunzip | Transform::Bunzip2 => true,
             Transform::Gzip | Transform::Deflate => false,
         }
     }
@@ -67,7 +77,22 @@ impl Transform {
             Transform::Nd2LvZlib if raw.len() < 12 => Some(Err("a compressed LV record of fewer than 12 bytes".into())),
             Transform::Nd2LvZlib => Some(crate::lv::inflate(raw, form["size"].as_u64())),
             Transform::XmlVariant => Some(Ok(raw.to_vec())),
+            Transform::Gunzip | Transform::Bunzip2 => {
+                let mut out = Vec::with_capacity(form["size"].as_u64().unwrap_or(0) as usize);
+                let decoded = self.reader(raw).read_to_end(&mut out);
+                Some(decoded.map(|_| out).map_err(|e| format!("a {} stream: {e}", self.name())))
+            }
             Transform::Gzip | Transform::Deflate => None,
+        }
+    }
+
+    /// The bytes a whole file of gzip members (`Gunzip`) or bzip2 streams decodes to, as they
+    /// decode; any other transform reads as nothing, since no file is one.
+    pub fn reader<'a, R: Read + Send + Sync + 'a>(self, raw: R) -> Box<dyn Read + Send + Sync + 'a> {
+        match self {
+            Transform::Gunzip => Box::new(flate2::read::MultiGzDecoder::new(raw)),
+            Transform::Bunzip2 => Box::new(bzip2::read::MultiBzDecoder::new(raw)),
+            _ => Box::new(std::io::empty()),
         }
     }
 }

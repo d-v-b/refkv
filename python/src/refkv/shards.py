@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Literal, cast
 import numpy as np
 
 from refkv._extras import missing
+from refkv._files import replacing
 
 if TYPE_CHECKING:
     import xarray as xr
@@ -105,6 +106,9 @@ def write_vzip_sharded(
     policy: an archive the default reader refuses (an `s3://` source, say) is
     written without complaint.
 
+    The archive replaces a file at `path` only once it is complete: a write that raises leaves
+    that file as it was.
+
     Raises ValueError when a shard's chunks lie in more than one file (choose a
     smaller shard), and NotImplementedError for a variable with inlined chunks.
     """
@@ -149,7 +153,7 @@ def write_vzip_sharded(
     update_attributes(group, vds.attrs, coords=vds.coords)
     consolidate(mem)
 
-    with open(path, "wb") as f, VZipWriter(f, page_size=page_size) as w:
+    with replacing(path) as f, VZipWriter(f, page_size=page_size) as w:
         for k, v in sorted(contents.items()):
             w.add_bytes(k, v.to_bytes(), late=read_at_open(k, vds))
         for k in sorted(refs):

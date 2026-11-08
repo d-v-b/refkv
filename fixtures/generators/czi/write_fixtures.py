@@ -80,6 +80,35 @@ def jpeg(a: np.ndarray) -> bytes:
     return cast("bytes", imagecodecs.jpeg8_encode(a, level=95))
 
 
+def jpeg12(a: np.ndarray) -> bytes:
+    """A stream of 12-bit samples (SOF1), a Gray16 subblock's JPEG."""
+    return cast("bytes", imagecodecs.jpeg8_encode(a, level=95, bitspersample=12))
+
+
+def lzw(a: np.ndarray) -> bytes:
+    return cast("bytes", imagecodecs.lzw_encode(raw(a)))
+
+
+def ljpeg(a: np.ndarray, bits: int | None = None) -> bytes:
+    return cast("bytes", imagecodecs.ljpeg_encode(a, bitspersample=bits or a.dtype.itemsize * 8))
+
+
+def ramp(pixel_type: int, w: int, h: int, k: int = 0) -> np.ndarray:
+    """Known pixels of a pixel type, [h, w] or [h, w, samples], as stored (B, G, R, A), which
+    the tests compute again, rather than decode, and which take no draw from RNG, so that a new
+    fixture leaves the others' bytes alone."""
+    dt, p = TYPES[pixel_type]
+    kind = np.dtype(dt)
+    v = np.arange(w * h * p, dtype=np.int64) * 37 + k * 101
+    if kind.kind == "c":
+        out = (v / 8 + 1j * v / 16).astype(kind)
+    elif kind.kind == "f":
+        out = (v / 8).astype(kind)
+    else:
+        out = (v % (int(np.iinfo(kind).max) + 1)).astype(kind)
+    return out.reshape((h, w) if p == 1 else (h, w, p))
+
+
 def set_jxr_format(b: bytes, guid: bytes) -> bytes:
     out = bytearray(b)
     ifd = struct.unpack_from("<I", out, 4)[0]
@@ -166,6 +195,12 @@ class Czi:
     attdir_count: int | None = None
     no_directory: bool = False
     offsets: dict = field(default_factory=dict)
+    # a file of an image across files (`parts`)
+    primary_guid: str | None = None
+    file_guid: str | None = None
+    more_entries: list[bytes] = field(default_factory=list)  # the directory's entries of another file's subblocks
+    omit_directory: bool = False  # no directory segment at all
+    entry_part: int = 0  # the FilePart its directory's entries name
 
     def build(self) -> bytes:
         out = bytearray(segment("ZISRAWFILE", bytes(512)))
@@ -177,7 +212,8 @@ class Czi:
             self.offsets[f"subblock{i}"] = at
             entry = dv_entry(sb.pixel_type, sb.compression, at, sb.dims, sb.pyramid, sb.spare)
             copy = sb.copy(entry) if sb.copy else entry
-            entries.append(sb.entry(entry) if sb.entry else entry)
+            named = dv_entry(sb.pixel_type, sb.compression, at, sb.dims, sb.pyramid, sb.spare, self.entry_part)
+            entries.append(sb.entry(named) if sb.entry else named)
             dims = struct.unpack_from("<i", copy, 28)[0] if len(copy) >= 32 else 0
             length = max(256, 48 + 20 * max(dims, 0))
             m, a, n = sb.sizes or (len(sb.metadata), len(sb.attachment), len(sb.data))
@@ -207,16 +243,21 @@ class Czi:
             attdir = len(out)
             count = len(att_entries) if self.attdir_count is None else self.attdir_count
             out += segment(self.attdir_id, struct.pack("<i", count).ljust(256, b"\0") + b"".join(att_entries))
-        directory = len(out)
-        body = b"".join(entries)
-        count = len(entries) if self.directory_count is None else self.directory_count
-        data = struct.pack("<i", count).ljust(128, b"\0") + body
-        out += segment(self.directory_id, data, used=self.directory_used)
+        directory = 0
+        if not self.omit_directory:
+            directory = len(out)
+            entries += self.more_entries
+            body = b"".join(entries)
+            count = len(entries) if self.directory_count is None else self.directory_count
+            data = struct.pack("<i", count).ljust(128, b"\0") + body
+            out += segment(self.directory_id, data, used=self.directory_used)
         for s in self.late:
             out += s
         out += self.tail
-        guid = uuid.UUID("9314a6f8-3e05-4ec9-bae0-bc7e96d18997").bytes_le
-        header = struct.pack("<ii", self.major, self.minor) + bytes(8) + guid + guid + struct.pack(
+        file_guid = self.file_guid or "9314a6f8-3e05-4ec9-bae0-bc7e96d18997"
+        guid = uuid.UUID(file_guid).bytes_le
+        primary = uuid.UUID(self.primary_guid or file_guid).bytes_le
+        header = struct.pack("<ii", self.major, self.minor) + bytes(8) + primary + guid + struct.pack(
             "<iqqiq", self.file_part, 0 if self.no_directory else directory, metadata, self.update_pending, attdir)
         out[32 : 32 + len(header)] = header
         self.offsets.update(directory=directory, metadata=metadata, attdir=attdir)
@@ -230,14 +271,15 @@ def plane(pixel_type: int, compression: int, x: int, y: int, w: int, h: int, *, 
     the other dimensions as keyword arguments (C=1, ...), its pixels random unless given."""
     a = pixels(pixel_type, w, h) if stored is None else stored
     if coded is None:
-        coded = {0: raw, 5: zstd0, 1: jpeg, 4: jxr}[compression](a) if compression != 6 else zstd1(a, hilo)
+        coders = {0: raw, 5: zstd0, 1: jpeg, 2: lzw, 3: ljpeg, 4: jxr}
+        coded = coders[compression](a) if compression != 6 else zstd1(a, hilo)
     letters = [("X", x, wl or w, w), ("Y", y, hl or h, h)]
     letters += [(letter, v, 1, 1) for letter, v in dims.items()]
     return Sb(pixel_type, compression, letters, coded)
 
 
 def xml(*, px=None, py=None, pz=None, increment=None, bits=None, channels=(), display=(), scenes=(), bom=False,
-        raw_text: str | None = None) -> bytes:
+        raw_text: str | None = None, sizes: dict | None = None, document: tuple[str, str] | None = None) -> bytes:
     """A metadata XML with the values spec/zarrify/czi.md §2.7
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#27-the-metadata-xml> reads."""
     if raw_text is not None:
@@ -254,7 +296,10 @@ def xml(*, px=None, py=None, pz=None, increment=None, bits=None, channels=(), di
     sc = "".join(f'<Scene Index="{i}" Name="{n}"/>' for i, n in scenes)
     t = (f"<T><Positions><Interval><Increment>{increment}</Increment></Interval></Positions></T>"
          if increment is not None else "")
-    text = ('<?xml version="1.0"?>\n<ImageDocument><Metadata><Information><Image>'
+    named = (f"<Document><Name>{document[0]}</Name><CreationDate>{document[1]}</CreationDate></Document>"
+             if document else "")
+    size = "".join(f"<Size{letter}>{v}</Size{letter}>" for letter, v in (sizes or {}).items())
+    text = (f'<?xml version="1.0"?>\n<ImageDocument><Metadata><Information>{named}<Image>{size}'
             + (f"<ComponentBitCount>{bits}</ComponentBitCount>" if bits is not None else "")
             + f"<Dimensions>{t}<Channels>{chans}</Channels><S><Scenes>{sc}</Scenes></S></Dimensions></Image>"
             + f"</Information><Scaling><Items>{items}</Items></Scaling>"
@@ -431,6 +476,46 @@ def accepted() -> dict[str, Czi]:
     f["czi_empty_directory"] = Czi([], xml())
     f["czi_spare_bytes"] = Czi([_spare(plane(0, 0, 0, 0, 4, 4, C=0), b"\x00\x00\x07\x00\x00"),
                                 _pyramid(plane(0, 0, 0, 0, 2, 2, wl=4, hl=4, C=0), 1)])
+    f.update(codec_fixtures())
+    return f
+
+
+def codec_fixtures() -> dict[str, Czi]:
+    """LZW, lossless JPEG and 12-bit JPEG subblocks (spec/zarrify/czi.md §3.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#31-pixel-types-and-codecs>), of
+    known pixels (`ramp`). Each `plane` is given its pixels, so that it takes no draw from RNG."""
+    f = {}
+    types = (0, 1, 2, 3, 4, 8, 9, 10, 11, 12, 13)
+    lattice = [plane(1, 2, 10 * i, 8 * j, 7 if i == 2 else 10, 5 if j == 1 else 8, S=len(types),
+                     stored=ramp(1, 7 if i == 2 else 10, 5 if j == 1 else 8, 100 + 10 * j + i))
+               for j in range(2) for i in range(3)]  # a clipped level
+    f["czi_lzw"] = Czi([plane(t, 2, 0, 0, 12, 8, S=k, stored=ramp(t, 12, 8, k)) for k, t in enumerate(types)] + lattice)
+    twelve = ramp(1, 12, 8, 2) % 4096
+    under8, under16 = ramp(0, 12, 8, 3), ramp(1, 12, 8, 4)
+    f["czi_ljpeg"] = Czi([plane(0, 3, 0, 0, 12, 8, S=0, stored=ramp(0, 12, 8, 0)),
+                          plane(1, 3, 0, 0, 12, 8, S=1, stored=ramp(1, 12, 8, 1)),
+                          plane(1, 3, 0, 0, 12, 8, S=2, stored=twelve, coded=ljpeg(twelve, 12)),
+                          # lossless under JpgFile, as Bio-Formats and czifile read it
+                          plane(0, 1, 0, 0, 12, 8, S=3, stored=under8, coded=ljpeg(under8)),
+                          plane(1, 1, 0, 0, 12, 8, S=4, stored=under16, coded=ljpeg(under16))])
+    # smooth, so that the lossy stream stays near it
+    smooth = (np.arange(32 * 16, dtype=np.uint16).reshape(16, 32) * 7).astype("<u2")
+    f["czi_jpeg_12bit"] = Czi([plane(1, 1, 32 * i, 0, 32, 16, stored=smooth, coded=jpeg12(smooth + 64 * i))
+                               for i in range(2)])
+    gray8, gray16 = ramp(0, 6, 4), ramp(1, 6, 4)
+    color = cast("bytes", imagecodecs.jpeg8_encode(ramp(3, 6, 4), lossless=True))
+    f["czi_codec_unplaced"] = Czi([
+        # starts as codes packed least significant bit first do
+        plane(0, 2, 0, 0, 6, 4, S=0, stored=gray8, coded=b"\x00\x01" + lzw(gray8)[2:]),
+        plane(0, 2, 0, 0, 6, 4, S=1, stored=gray8, coded=b"\x80"),  # too short for its first code
+        plane(0, 3, 0, 0, 6, 4, S=2, stored=gray8, coded=jpeg(gray8)),  # not lossless
+        plane(1, 3, 0, 0, 6, 4, S=3, stored=gray8, coded=ljpeg(gray8)),  # lossless, of 8 bits, for Gray16
+        plane(0, 3, 0, 0, 6, 4, S=4, stored=gray8, coded=ljpeg(gray16 % 4096, 12)),  # lossless, of 12 bits, for Gray8
+        plane(1, 1, 0, 0, 6, 4, S=5, stored=gray8, coded=jpeg(gray8)),  # 8 bits for Gray16: it would read as 0 to 255
+        plane(3, 1, 0, 0, 6, 4, S=6, stored=gray8, coded=color),  # lossless of 3 components, in no stated order
+        plane(0, 1, 0, 0, 6, 4, S=7, stored=gray8, coded=jpeg12(gray16 % 4096)),  # 12 bits for Gray8
+        plane(0, 0, 0, 0, 6, 4, S=8, stored=gray8),  # placed
+    ])
     return f
 
 
@@ -508,11 +593,12 @@ def rejected() -> dict[str, tuple[Czi, Patch | None]]:
         "subblock_copy_count": (sub(copy=lambda e: e[:28] + struct.pack("<i", 41) + e[32:]), None),
         "negative_sizes": (sub(sizes=(-1, 0, 16)), None),
         "pixel_type_unknown": (entry(lambda e: e[:2] + struct.pack("<i", 5) + e[6:]), None),
-        "compression_lzw": (entry(lambda e: e[:18] + struct.pack("<i", 2) + e[22:]), None),
+        "ljpeg_bgr24": (entry(lambda e: e[:2] + struct.pack("<ii", 3, 0) + e[10:18] + struct.pack("<i", 3) + e[22:]),
+                        None),
         "compression_chunked": (entry(lambda e: e[:18] + struct.pack("<i", 7) + e[22:]), None),
         "compression_raw_camera": (entry(lambda e: e[:18] + struct.pack("<i", 100) + e[22:]), None),
-        "jpeg_gray16": (entry(lambda e: e[:2] + struct.pack("<ii", 1, 0) + e[10:18] + struct.pack("<i", 1) + e[22:]),
-                        None),
+        "jpeg_bgr48": (entry(lambda e: e[:2] + struct.pack("<ii", 4, 0) + e[10:18] + struct.pack("<i", 1) + e[22:]),
+                       None),
         "metadata_id": (base(metadata_id="ZISRAWMETADATX"), None),
         "metadata_outside_file": (base(metadata_sizes=(1 << 30, 0)), None),
         "metadata_negative": (base(metadata_sizes=(-5, 0)), None),
@@ -525,6 +611,110 @@ def rejected() -> dict[str, tuple[Czi, Patch | None]]:
         "segment_negative": (base(), ("directory", lambda b, at: b[: at + 16] + struct.pack("<q", -1) + b[at + 24 :])),
     }
     return r
+
+
+# ---- an image across numbered files (spec/zarrify/czi.md §7.9
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#79-several-files>)
+
+MASTER = "6f1c3c52-0b7a-4c51-9d55-3a1f0e2b7c01"
+PART_1 = "6f1c3c52-0b7a-4c51-9d55-3a1f0e2b7c02"
+PART_2 = "6f1c3c52-0b7a-4c51-9d55-3a1f0e2b7c03"
+STRANGER = "0a0b0c0d-1111-4222-8333-444455556666"
+
+
+def part_plane(k: int) -> np.ndarray:
+    """Plane or tile `k`, 8 x 4 Gray16, a pattern no other has."""
+    y, x = np.mgrid[0:4, 0:8]
+    return (x * 3 + y * 5 + k * 257).astype("<u2")
+
+
+def in_time(*ts: int) -> list[Sb]:
+    return [plane(1, 0, 0, 0, 8, 4, stored=part_plane(t), T=t) for t in ts]
+
+
+def stamps() -> Att:
+    return Att("TimeStamps", "CZTIMS", time_stamps([0.0]))
+
+
+def master(*ts: int, planes: int, attachments: list[Att] | None = None,
+           more_entries: list[bytes] | None = None) -> Czi:
+    """A master that holds the planes `ts` of `planes`."""
+    return Czi(in_time(*ts), xml(px=2.5e-7, py=2.5e-7, sizes={"T": planes}), attachments=attachments,
+               file_guid=MASTER, more_entries=more_entries or [])
+
+
+def part(number: int, *ts: int, guid: str = PART_1, primary_guid: str = MASTER, entry_part: int = 0,
+         omit_directory: bool = False, early: tuple[bytes, ...] = ()) -> Czi:
+    """Part `number`, as its fields say, that holds the planes `ts`."""
+    return Czi(in_time(*ts), file_guid=guid, primary_guid=primary_guid, file_part=number, entry_part=entry_part,
+               omit_directory=omit_directory, early=list(early))
+
+
+def named_by_master(p: Czi, number: int, *which: int) -> list[bytes]:
+    """The master's directory entries of the subblocks `which` of the part `p`, built."""
+    return [dv_entry(1, 0, p.offsets[f"subblock{i}"], p.subblocks[i].dims, file_part=number) for i in which]
+
+
+def tile(k: int) -> Sb:
+    return plane(1, 0, 8 * k, 0, 8, 4, stored=part_plane(k), M=k)
+
+
+def own_primary(k: int, guid: str, *, document: tuple[str, str] = ("A", "2023-08-18T16:32:32"),
+                named: int | None = None) -> Czi:
+    """A file of a set that ZEN's Lightsheet writes (Zenodo record 19047136's
+    `Image_1_2023_08_18__14_32_31_964`): tile `k`, each file its own primary with a FilePart of 0, the
+    number in its attachment entries alone."""
+    atts = [Att("TimeStamps", "CZTIMS", time_stamps([0.0]), file_part=k if named is None else named)]
+    return Czi([tile(k)], xml(sizes={"M": 2}, document=document), attachments=atts, file_guid=guid)
+
+
+def parts() -> dict[str, bytes]:
+    """The files of the images across files, accepted and rejected, by name. They draw no random
+    numbers, so that the other fixtures stay as they are."""
+    out: dict[str, bytes] = {}
+
+    # the master's directory covers the part, which has none
+    p = part(1, 2, 3, omit_directory=True)
+    out["czi_parts_cover(1).czi"] = p.build()
+    out["czi_parts_cover.czi"] = master(0, 1, planes=4, attachments=[stamps()],
+                                        more_entries=named_by_master(p, 1, 0, 1)).build()
+    # each part has a directory, whose entries name 0 (reserved) or the part
+    out["czi_parts_own.czi"] = master(0, planes=4).build()
+    out["czi_parts_own(1).czi"] = part(1, 1, 2).build()
+    out["czi_parts_own(2).czi"] = part(2, 3, guid=PART_2, entry_part=2).build()
+    # a part with no directory, which only its master's XML shows
+    out["czi_parts_walk.czi"] = master(0, planes=2).build()
+    out["czi_parts_walk(1).czi"] = part(1, 1, omit_directory=True, early=(segment("DELETED", bytes(64)),)).build()
+    # the other spelling
+    out["czi_parts_spaced.czi"] = master(0, planes=2).build()
+    out["czi_parts_spaced (1).czi"] = part(1, 1).build()
+    # the master's directory and the part's own both name a subblock
+    p = part(1, 1, 2)
+    out["czi_parts_both(1).czi"] = p.build()
+    out["czi_parts_both.czi"] = master(0, planes=3, more_entries=named_by_master(p, 1, 0)).build()
+    # each file its own primary
+    out["czi_parts_primary.czi"] = own_primary(0, MASTER, named=0).build()
+    out["czi_parts_primary(1).czi"] = own_primary(1, PART_1).build()
+    # its XML says it lacks a plane, and there is no part
+    out["czi_parts_stopped.czi"] = master(0, 1, planes=3).build()
+    # a file of another image where a part would be: on its own, a file like any other
+    out["czi_parts_stranger.czi"] = master(0, planes=2).build()
+    out["czi_parts_stranger(1).czi"] = Czi(in_time(1), file_guid=STRANGER).build()
+
+    out["czi_reject_parts_guid.czi"] = master(0, planes=2).build()
+    out["czi_reject_parts_guid(1).czi"] = part(1, 1, primary_guid=STRANGER).build()
+    out["czi_reject_parts_file_part.czi"] = master(0, planes=2).build()
+    out["czi_reject_parts_file_part(1).czi"] = part(2, 1).build()
+    out["czi_reject_parts_input(1).czi"] = part(1, 1).build()
+    p = part(1, 1)
+    p.build()
+    out["czi_reject_parts_absent.czi"] = master(0, planes=2, more_entries=named_by_master(p, 1, 0)).build()
+    out["czi_reject_parts_entry_part.czi"] = master(0, planes=2).build()
+    out["czi_reject_parts_entry_part(1).czi"] = part(1, 1, entry_part=3).build()
+    out["czi_reject_parts_document.czi"] = own_primary(0, MASTER, named=0).build()
+    out["czi_reject_parts_document(1).czi"] = own_primary(1, PART_1, document=("B", "2023-08-18T16:32:32")).build()
+    out["czi_reject_parts_negative.czi"] = Czi(in_time(0), file_part=-1).build()
+    return out
 
 
 def too_many_series() -> Czi:
@@ -605,6 +795,8 @@ def main(argv: list[str]) -> int:
             key, fn = patch
             data = fn(data, czi.offsets[key])
         (OUT / f"czi_reject_{name}.czi").write_bytes(data)
+    for name, data in parts().items():
+        (OUT / name).write_bytes(data)
     return 0
 
 

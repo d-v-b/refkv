@@ -16,6 +16,7 @@ import { currentNames, SOURCE_NODE as LEGACY_NODE } from "../../../conformance/z
 import { zarrifyStore } from "../../src/zarrify/index.ts";
 import { StoreError } from "../../src/zarrify/store.ts";
 import type { ArchiveDesc } from "../../src/writer.ts";
+import { REVISED } from "../revised.ts";
 
 const FIXTURES = fileURLToPath(new URL("../../../fixtures/zarr2/", import.meta.url));
 
@@ -46,6 +47,7 @@ function hierarchy(desc: ArchiveDesc, legacy = false): Map<string, unknown> {
 test("the core zarrifies every Zarr v2 fixture store as the frozen twin does, and mirrors it", async () => {
   let accepted = 0;
   for (const name of fs.readdirSync(FIXTURES).sort()) {
+    if (REVISED.has(name)) continue;
     const url = `https://data.test/zarr2/${name}/`;
     const ref = await referenceStore(directoryStore(FIXTURES + name, url)).catch((e: Error) => e);
     const ir = await zarrifyStore(directoryStore(FIXTURES + name, url)).catch((e: Error) => e);

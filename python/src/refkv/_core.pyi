@@ -34,9 +34,25 @@ type Read = Callable[[int, int], bytes]
 class Rejected(Exception):  # noqa: N818 (the core's name)
     """A parser, a run or a projection rejected its input."""
 
+class SealRefused(ValueError):  # noqa: N818 (the core's name)
+    """`seal` refuses an output: `args` are (code, key or None, message)."""
+
+class Failed(ValueError):  # noqa: N818 (the core's name)
+    """A run's output is not written, by no fault of the input: a payload over the limit only with
+    its checksums (spec/zarrify.md §1.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>)."""
+
 class Violation(Exception):  # noqa: N818 (the core's name)
     """An IR broke an invariant (conventions §8.1
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>)."""
+
+class NoCodec(ValueError):  # noqa: N818 (the core's name)
+    """No codec undoes the coding parameters a routine was given (`coding`)."""
+
+def coding(name: str, params: str) -> str:
+    """A coding routine of `refkv.zarrify.coding` (spec/layout.md
+    <https://github.com/d-v-b/refkv/blob/main/spec/layout.md>): the routine `name` of the
+    parameters `params` (JSON), its result as JSON. Raises NoCodec for parameters the format's
+    section rejects, ValueError for parameters that are not the routine's."""
 
 class Ir:
     """An IR: its columns, tables and per-element reads. A per-element read raises ValueError
@@ -182,12 +198,16 @@ class Run:
     @multirange.setter
     def multirange(self, v: bool | None) -> None: ...
     @property
+    def beside(self) -> bool:
+        """Whether the file names siblings, once `poll` gave None: the run has no output, and
+        the host starts over with a store run of `format`."""
+    @property
     def format(self) -> str:
         """The run's format: "tiff" becomes "ndpi" once its parser finds the file is NDPI."""
     def stats(self) -> str:
         """The planner's counts and model (JSON)."""
     def output(self, url: str, mirror: bool = True, layouts: list[str] | None = None,
-               checksums: bool = False) -> tuple[Out[FilePart], Ir]:
+               checksums: bool = False, written: bool = True) -> tuple[Out[FilePart], Ir]:
         """Finishes, projects and (with `mirror`) mirrors: (the output in `out_py`'s form,
         the IR). `layouts`, when given, names the layouts the projection writes beside the
         image (a format's dataset layout, "dataset"; conventions §9
@@ -218,6 +238,9 @@ class StoreRun:
         exist) before polling again."""
     def found(self, size: int | None) -> None:
         """The answer to the next probe of the batch: the key's size, or None when it does not exist."""
+    def found_as(self, size: int, key: str) -> None:
+        """The answer to the next probe of the batch, found at another key by listing
+        (`StoreRun::found_as`): its size and that key."""
     def ignore(self, keys: Sequence[str], folders: Sequence[str] = ...) -> None:
         """The keys the listing ignores, before the first poll (`StoreRun::ignore`): `keys`, the
         relative keys the store reader ignored and recorded (`Store.ignored`), which the
@@ -225,7 +248,7 @@ class StoreRun:
         (`Store.folders`), which a SAFE directory's parser reads as directories."""
     def profile(self) -> str:
         """The profile the run's store is decided to be so far (`StoreRun::profile`)."""
-    def output(self, url: str, mirror: bool = True) -> tuple[Out[StorePart], Ir]: ...
+    def output(self, url: str, mirror: bool = True, checksums: bool = False) -> tuple[Out[StorePart], Ir]: ...
     def finish(self) -> tuple[Ir, str, str]: ...
 
 def rebuild_store(get: Get) -> list[tuple[str, int, bytes | None]]:
@@ -238,15 +261,34 @@ def plan_spans(
 ) -> list[tuple[int, int]]:
     """The planner's merge of ranges (offset, length) into requests (start, end), for a
     gap threshold, an amplification cap and a concurrency (the policy's core, for tests)."""
+# A part of a value for `seal`: literal bytes, (0, url, offset, length), (1, data, offset, length)
+# or (2, length) of zero bytes.
+type SealPiece = bytes | tuple[int, ...]
+
+def seal(urls: list[tuple[str, int | None, str | None]], data: list[bytes], first: int | None,
+         documents: list[str], values: list[tuple[str, list[SealPiece]]], max_sources: int, checksums: bool,
+         ) -> tuple[list[tuple[str, int]], list[tuple[str, list[tuple[int, int, int] | bytes]]]]:
+    """The core's seal (rust/refkv-ir/src/seal.rs) of the output whose bytes entries' keys are
+    `documents` and whose values are (key, pieces), the pieces naming `urls` (url, size,
+    etag) and `data`, `first` the url that is source 0: (its table, each source ("url", index),
+    ("data", index) or ("zeros", length); its values in key order, each (key, ranges), a range
+    (source, offset, length) or bytes). Raises SealRefused."""
+
 def crc32c(data: bytes) -> int:
     """CRC-32C (Castagnoli, RFC 3720 §B.4) of `data`: a range's checksum (spec §4.2
     <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>)."""
 def sniff(head: bytes) -> str | None:
-    """The format a file's first bytes (up to 552 of them) give (`Format::sniff`), if any: its
+    """The format a file's first bytes (up to 65,600 of them) give (`Format::sniff`), if any: its
     profile's name."""
 def registry() -> str:
     """The profile registry (spec/zarrify/profiles/, as the core holds it): its entries, by
     name, as a JSON array."""
+def h5_bitshuffle_decode(chunk: bytes, elementsize: int, block_size: int, lz4: bool) -> bytes:
+    """The `refkv.h5_bitshuffle` codec (spec/zarrify/hdf5.md §3.4
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#34-the-codec-refkvh5_bitshuffle>): a chunk's bytes
+    from HDF5's bitshuffle filter."""
+
+
 def fits_tiles_decode(chunk: bytes, config: str, chunk_shape: Sequence[int]) -> bytes:
     """The `refkv.fits_tiles` codec (spec/zarrify/fits.md §3.3
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#33-tile-compressed-images>): a
@@ -299,3 +341,66 @@ def czi_xml_values(data: bytes) -> str:
 def czi_bands(h: int, h2: int, r: int, w: int, q: int, uncompressed: bool) -> tuple[str, int, int]:
     """The y chunk lengths (JSON) and bands (rows a band holds, bands a tile row) of a
     CZI level of r tile rows of height h (the last h2), w pixels of q bytes wide."""
+
+# a phkv store could not be read: `.args` is (class, message), the class one of "archive", "entry",
+# "body", "payload", "resolution", "request", "property" and "io" (spec §6.4
+# <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#64-errors>)
+class PhkvReadError(Exception): ...
+
+# a bytes value a phkv store looked up, from `PhkvStore.key_found`
+class PhkvFound:
+    @property
+    def size(self) -> int: ...
+    @property
+    def held(self) -> int | None: ...
+
+# a phkv store (spec/bindings/phkv.md), read through `size()` and `read(offset, length)`; every
+# method blocks on those, so a host calls them from a thread
+class PhkvStore:
+    def __init__(
+        self,
+        size: Callable[[], int],
+        read: Callable[[int, int], bytes],
+        sources: int | None = None,
+        open_bytes: int | None = None,
+        request_bytes: int | None = None,
+    ) -> None: ...
+    @staticmethod
+    def tail() -> int: ...
+    @property
+    def revision(self) -> int | None: ...
+    @property
+    def key_count(self) -> int: ...
+    @property
+    def hybrid(self) -> bool: ...
+    def sources(self) -> list[bytes]: ...
+    def metadata(self) -> list[tuple[str, bytes]]: ...
+    def classify(self, key: str) -> Literal["bytes", "reference"] | None: ...
+    def entry(self, key: str) -> tuple[Literal["bytes", "reference"], int, bool] | None: ...
+    def fetch(
+        self, key: str, mode: int, a: int, b: int
+    ) -> tuple[Literal["bytes"], bytes] | tuple[Literal["reference"], int, bytes] | None: ...
+    def key_bytes(self, key: str, start: int, end: int) -> bytes: ...
+    def key_found(self, key: str) -> PhkvFound | None: ...
+    def found_bytes(self, found: PhkvFound, start: int, end: int) -> bytes: ...
+    def raw(self, key: str) -> bytes | None: ...
+    def list(self, prefix: str) -> list[str]: ...
+    def property(self, key: str, name: str) -> int | str | bytes | None: ...
+
+class PhkvWriter:
+    def __init__(
+        self,
+        f: object,
+        codec_: int = 0,
+        inline_max: int = 4096,
+        crc32c: bool = True,
+        section_codec: int = 2,
+        page_size: int = 4096,
+    ) -> None: ...
+    def source(self, message: bytes) -> int: ...
+    def add_bytes(self, key: str, data: bytes, codec_: int | None = None) -> None: ...
+    def add_file(self, key: str, path: str) -> None: ...
+    def add_ranges(self, key: str, ranges: Sequence[tuple[int, int, int, int | None] | bytes]) -> None: ...
+    def set_property(self, key: str, name: str, kind: str, value: int | str | bytes) -> None: ...
+    def set_metadata(self, name: str, value: bytes) -> None: ...
+    def close(self) -> None: ...

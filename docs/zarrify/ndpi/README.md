@@ -32,9 +32,19 @@ One OME-Zarr 0.5 image at the archive root, with one array per level.
 
 - **Axes:** `c`, `y`, `x`: `uint8` RGB for JPEG levels. For JPEG XR levels,
   what the streams hold: `uint16` with one channel for a fluorescence slide,
-  or `uint8` or `uint16`, gray or RGB.
-- **Levels:** every image of the file with a positive magnification, full
-  resolution first; the macro image and slide map are left out.
+  or `uint8` or `uint16`, gray or RGB. A slide with focal planes has `c`, `z`,
+  `y`, `x`.
+- **Levels:** one per magnification, full resolution first; the macro image and
+  slide map are left out.
+- **Focal planes:** the images of one magnification are the planes of that level,
+  along `z`, by their focal offset (tag 65424, in nanometers), each with chunks of
+  its own. `z` has a scale and a translation in micrometers when the offsets are
+  evenly spaced, and otherwise scale 1 and no unit. The offsets are always in the
+  root's `FocalOffsets`. Every level of the hierarchy has the same offsets, which
+  is what makes it a valid multiscale. A coarse level with fewer planes, often only
+  one, is left out, so that every plane of the finer levels is kept. More exactly,
+  the offsets kept are those whose levels hold the most pixels. An image left out
+  is listed in the root's `LeftOut` with its reason.
 - **Chunks:** with restart offsets (`McuStarts`), a level is cut into chunks
   of whole restart intervals, about 1024 pixels on a side (2048 × 1024 at
   CMU-1's level 0, where one interval is 2048 pixels wide). A level without
@@ -65,7 +75,7 @@ One OME-Zarr 0.5 image at the archive root, with one array per level.
   byte for byte, shown as JSON under `refkv_source/tree`. The root holds a
   fluorescence slide's filter, emission wavelength and exposure time
   (`Fluorescence`, `Wavelength`, `ExposureTime`), and nothing for a
-  brightfield one.
+  brightfield one of a single focal plane.
 
 ## Try it
 
@@ -138,6 +148,10 @@ Supported:
 - NDPI files of any size, including over 4 GB (64-bit offsets).
 - Every level with a positive magnification, each a single JPEG strip, with
   or without restart offsets.
+- Slides with several focal planes, such as SR1274-908A.ndpi of
+  [OME's sample images](https://downloads.openmicroscopy.org/images/Hamamatsu-NDPI/imagesc-86248/)
+  (5.8 GB, 3 planes of 7 levels, 0.1 µm apart by its tags). It zarrifies in 2 to 3 minutes over
+  HTTPS, on a host that closes connections under load, so a read may need retrying.
 - JPEG XR levels, tiled or in a single strip, of 8- or 16-bit gray or RGB, with tile offsets
   above 4 GiB (their high bytes). For example, the two NanoZoomer C13210 slides of
   [OME's sample images](https://downloads.openmicroscopy.org/images/Hamamatsu-NDPI/hamamatsu/)
@@ -146,8 +160,6 @@ Supported:
 
 Rejected:
 
-- Slides with several focal planes (two levels of the same
-  magnification).
 - Levels that are neither one baseline JPEG strip of 8-bit YCbCr nor JPEG
   XR, levels of both kinds in one slide, or levels that do not get strictly
   smaller.
@@ -165,8 +177,8 @@ The browser code ([js/](../../../js/README.md)) reads Hamamatsu NDPI:
   from byte ranges of the file and the strip's header, held once in the
   archive as `data` sources.
 - Pyramids of JPEG XR tiles or strips, each a chunk.
-
-Not supported, and refused with HTTP 422: NDPI focal planes.
+- Focal planes, along `z`. The Neuroglancer fork's decoders were not checked on chunks
+  with a `z` axis.
 
 ## Performance
 
@@ -177,7 +189,8 @@ A chunk is about 128 pieces of the file, one per row of JPEG blocks
 (branch `research/ndpi-access`) measured what that costs:
 
 - **Over-read or many requests.** Today's readers merge the ranges of a
-  chunk when they are less than 64 KiB apart. Where a strip row is smaller
+  chunk when they are at most their policy's coalescing gap apart (`max_coalesce_gap`, 64 KiB by
+  default). Where a strip row is smaller
   than that (all of CMU-1), every chunk read fetches the full strip width:
   reading 4 × 4 chunks of CMU-1's level 0 reads 89 MB for 1.4 MB of chunk
   data. Where a row is larger (the 6.9 GB Hamamatsu-1, levels 0–3), a chunk
@@ -192,7 +205,9 @@ A chunk is about 128 pieces of the file, one per row of JPEG blocks
   modeled views of CMU-1 at 20 ms and 50 Mbit/s, the study's prototype takes
   the total from 41 s to 14 s, and the Rust core's read planner, used per
   view, to 18 s (15 s with a cache of the fetched spans). Neither is the
-  default reader yet: the readers of archives still read chunk by chunk.
+  default reader yet: the readers of archives merge the reads of chunks read at
+  the same time ([spec §6.3](../../../spec/refkv.md#63-resolving-a-reference)), but
+  with a fixed gap, no cost model and no cache.
   ([design/IR_NOTES.md](../../../design/IR_NOTES.md#49-revision-26-ndpi-on-the-ir)
   has the table.)
 - **The header is free.** Since spec/zarrify.md revision 14 the JPEG header
@@ -206,7 +221,7 @@ requests.
 
 ## How it's verified
 
-`js/test/ndpi/verify.py` zarrifies the 9 synthetic NDPI files (including
+`js/test/ndpi/verify.py` zarrifies the synthetic NDPI files (including
 inputs to reject) with the browser code, reads every level back through `python/src/refkv`
 and zarr-python, compares the pixels with tifffile, and rebuilds each file
 from its mirror. `compare.py` checks that the Python and browser outputs are

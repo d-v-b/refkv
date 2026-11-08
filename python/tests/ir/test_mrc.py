@@ -59,24 +59,56 @@ def as_json(v):
 
 
 IMOD = 1146047817
+# The modes mrcfile does not read, whose values come from the file's bytes: complex int16, and
+# 4 bits, a row's first value in the low nibble of its first byte.
+UNREAD = {3, 101}
+
+
+def unread_mode(header, raw: bytes, order: str) -> np.ndarray:
+    """The data of a mode of UNREAD, in the array's shape (spec/zarrify/mrc.md §3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#3-data-types>)."""
+    nx, ny, nz = int(header.nx), int(header.ny), int(header.nz)
+    data = raw[1024 + int(header.nsymbt):]
+    shape = (ny, nx) if int(header.ispg) == 0 and nz == 1 else (nz, ny, nx)
+    if int(header.mode) == 3:
+        dtype = np.dtype([("real", order + "i2"), ("imag", order + "i2")])
+        return np.frombuffer(data, dtype, nz * ny * nx).astype(dtype.newbyteorder("=")).reshape(shape)
+    rows = np.frombuffer(data, np.uint8, nz * ny * ((nx + 1) // 2)).reshape(nz * ny, -1)
+    values = np.empty((nz * ny, 2 * rows.shape[1]), np.uint8)
+    values[:, ::2], values[:, 1::2] = rows & 15, rows >> 4
+    return values[:, :nx].reshape(shape)
 
 
 def load(path):
     """mrcfile's reading (its warnings, such as a zero grid size, are not failures). mrcfile
-    does not read IMOD's unsigned-byte flag (spec/zarrify/mrc.md §3
+    does not read IMOD's signed-byte flag (spec/zarrify/mrc.md §3
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#3-data-types>): a mode 0
-    file with IMOD's stamp and bit 0 of its flags is its bytes as uint8."""
+    file with IMOD's stamp, bit 0 of its flags clear and no standard NVERSION is its bytes as uint8."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        with mrcfile.open(path, permissive=False) as f:
+        with mrcfile.open(path, permissive=True) as f:
             # mrcfile is unannotated: pyrefly takes its header for None, as it is before a read
-            header, data = cast("np.recarray", f.header).copy(), np.array(f.data)
+            header, data = cast("np.recarray", f.header).copy(), f.data
     raw = path.read_bytes()
     order = "<" if header.mode.dtype.byteorder in "<=" else ">"
+    if int(header.mode) in UNREAD:
+        return header, unread_mode(header, raw, order)
+    data = np.array(data)
     stamp, flags = struct.unpack(order + "ii", raw[152:160])
-    if int(header.mode) == 0 and stamp == IMOD and flags & 1:
+    if int(header.mode) == 0 and stamp == IMOD and not flags & 1 and not 20140 <= int(header.nversion) < 21000:
         data = data.view(np.uint8)
     return header, data
+
+
+def position(header):
+    """The position of a file's first value along x, y and z: mrcfile gives the origin as stored,
+    and a file with IMOD's stamp, bit 2 of its flags clear and no standard version has IMOD's
+    sign (spec/zarrify/mrc.md §4.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#42-scales-units-and-position>)."""
+    order = "<" if header.mode.dtype.byteorder in "<=" else ">"
+    stamp, flags = struct.unpack(order + "ii", header.extra2.tobytes()[40:48])
+    imod_sign = stamp == IMOD and not flags & 4 and not 20140 <= int(header.nversion) < 21000
+    return [(-float(header.origin[a]) if imod_sign else float(header.origin[a])) + 0.0 for a in "xyz"]
 
 
 def zarrified(path, tmp_path):
@@ -87,8 +119,8 @@ def zarrified(path, tmp_path):
 
 @pytest.mark.parametrize("path", [p for p in MRCS if not p.name.startswith("mrc_reject")], ids=lambda p: p.name)
 def test_matches_mrcfile_and_rebuilds(path, tmp_path):
-    """The array is mrcfile's data, in its shape and type; every header field is mrcfile's
-    reading of it (spec/zarrify/mrc.md §5.1
+    """The array is mrcfile's data (for a mode mrcfile does not read, the file's bytes), in its
+    shape and type; every header field is mrcfile's reading of it (spec/zarrify/mrc.md §5.1
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#51-the-root>); the file is
     rebuilt from the mirror."""
     header, want = load(path)
@@ -105,7 +137,7 @@ def test_matches_mrcfile_and_rebuilds(path, tmp_path):
     for name in names:
         assert at(meta, "header", name) == as_json(header[name]), name
     assert meta["byte_order"] == ("little" if header.mode.dtype.byteorder in "<=" else "big")
-    assert meta["data_type"] == str(want.dtype.newbyteorder("="))
+    assert meta["data_type"] == ("struct" if want.dtype.names else str(want.dtype.newbyteorder("=")))
     kind = {2: "image", 4: "volume_stack"}.get(want.ndim, "image_stack" if header.ispg == 0 else "volume")
     assert meta["kind"] == kind
     assert out.summary["kind"] == kind
@@ -144,7 +176,7 @@ def dataset_is_the_file(out, root, header, want, kind, meta):
         if axis not in dims or voxel is None:
             assert axis not in ds.coords, axis
             continue
-        origin = [float(header.origin[a]) for a in "xyz"]
+        origin = position(header)
         placed = int(header.ispg) != 0 and all(np.isfinite(origin)) and any(o != 0 for o in origin)
         o = origin["xyz".index(axis)] if placed else 0.0
         n = ds.sizes[axis]
@@ -217,13 +249,33 @@ CASES = {
     # an image's origin is a phase origin in pixels: no translation
     "mrc_edge_origin_image_stack": ({"kind": "image_stack", "translation": False}, None, None, None, None, None, None),
     "mrc_edge_origin_image": ({"kind": "image", "translation": False}, None, None, None, None, None, None),
-    # IMOD's unsigned-byte flag: mode 0 as uint8, with the stamp and bit 0 of the flags alone
-    "mrc_imod_uint8": ({"mode": 0, "dataType": "uint8"}, None, None, None, {"data_type": "uint8"},
-                       {"min": 0, "max": 255, "start": 0, "end": 255}, ("0/c/0/0/0", [(1024, 24)])),
-    "mrc_imod_uint8_other_flags": ({"dataType": "uint8"}, None, None, None, None, None, None),
-    "mrc_imod_uint8_be": ({"dataType": "uint8", "byteOrder": "big"}, None, None, None, None, None, None),
-    "mrc_imod_int8": ({"dataType": "int8"}, None, None, None, None, None, None),
+    # IMOD's signed-byte flag: with the stamp, bit 0 of the flags set is int8, and clear is uint8
+    # (unsigned, IMOD's default before 4.9) unless NVERSION declares the standard; without the
+    # stamp the flag changes nothing
+    "mrc_imod_signed_int8": ({"mode": 0, "dataType": "int8"}, None, None, None, {"data_type": "int8"},
+                             None, ("0/c/0/0/0", [(1024, 24)])),
+    "mrc_imod_signed_other_flags": ({"dataType": "int8"}, None, None, None, None, None, None),
+    "mrc_imod_unsigned_uint8": ({"dataType": "uint8"}, None, None, None, {"data_type": "uint8"},
+                                {"min": 0, "max": 255, "start": 0, "end": 255}, ("0/c/0/0/0", [(1024, 24)])),
+    # the stamp and flags are read in the file's byte order: only this fixture fails if they aren't
+    "mrc_imod_unsigned_uint8_be": ({"dataType": "uint8", "byteOrder": "big"}, None, None, None, None, None, None),
+    "mrc_imod_signed_int8_be": ({"dataType": "int8", "byteOrder": "big"}, None, None, None, None, None, None),
+    "mrc_imod_clear_standard_int8": ({"dataType": "int8"}, None, None, None, None, None, None),
+    "mrc_imod_clear_past_standard_uint8": ({"dataType": "uint8"}, None, None, None, None, None, None),
     "mrc_imod_flag_no_stamp": ({"dataType": "int8"}, None, None, None, None, None, None),
+    # the origin's sign: as stored with bit 2 of IMOD's flags, a standard version or no stamp;
+    # negated with the stamp alone, and a version outside the standard's is no version
+    "mrc_imod_origin_inverted": ({"translation": True}, None, None, [7.25, 0, 1.5], None, None, None),
+    "mrc_imod_origin_inverted_old_version": ({"translation": True}, None, None, [7.25, 2, 1.5], None, None, None),
+    "mrc_imod_origin_clear": ({"translation": True}, None, None, [-7.25, 0, 1.5], None, None, None),
+    "mrc_imod_origin_clear_be": ({"translation": True, "byteOrder": "big"}, None, None, [7.25, 2, 1.5], None, None,
+                                 None),
+    "mrc_imod_origin_clear_standard": ({"translation": True}, None, None, [7.25, 2, 1.5], None, None, None),
+    "mrc_imod_origin_clear_version_low": ({"translation": True}, None, None, [7.25, 2, 1.5], None, None, None),
+    "mrc_imod_origin_clear_version_high": ({"translation": True}, None, None, [7.25, 2, 1.5], None, None, None),
+    "mrc_imod_origin_no_stamp": ({"translation": True}, None, None, [7.25, 2, 1.5], None, None, None),
+    "mrc_imod_origin_flag_no_stamp": ({"translation": True}, None, None, [7.25, 2, 1.5], None, None, None),
+    "mrc_imod_origin_image_stack": ({"kind": "image_stack", "translation": False}, None, None, None, None, None, None),
     "mrc_edge_volume_stack_one": ({"kind": "volume_stack", "sizes": {"t": 1, "z": 3, "y": 2, "x": 3}},
                                   None, None, None, None, None, None),
     "mrc_edge_ispg_230": ({"kind": "volume"}, None, None, None, None, None, None),
@@ -264,7 +316,10 @@ def test_zarrifies_the_synthetic_files(tmp_path):
             assert [(a["name"], a.get("unit")) for a in ms["axes"]] == axes, name
         if scale is not None:
             assert transforms[0]["scale"] == scale, name
-        assert (transforms[1]["translation"] if len(transforms) > 1 else None) == translation, name
+        placed = transforms[1]["translation"] if len(transforms) > 1 else None
+        assert placed == translation, name
+        # a zero of the translation is 0, not the -0 that negating one or IMOD's writer gives
+        assert not any(v == 0 and math.copysign(1.0, v) < 0 for v in placed or []), name
         assert set(attributes) == {"ome", "zarr_conventions", "refkv_zarrified"}, name
         meta = attributes["refkv_zarrified"]["mrc"]
         assert list(meta) == ["byte_order", "kind", "data_type", "header", "axis_map"] + (

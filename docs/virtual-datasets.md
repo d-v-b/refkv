@@ -154,9 +154,32 @@ What each step does:
   directory passes a few MB, tens of thousands of keys, save with
   `store.save_vzip("oisst.vzip", page_size=65536)`
   ([spec §12, Page index](../spec/bindings/vzip.md#12-page-index-optional)).
+- **The perfect-hash binding.** For a store of hundreds of thousands of keys,
+  `store.save_phkv("oisst.phkv")` writes the draft phkv binding instead
+  ([spec](../spec/bindings/phkv.md)): a perfect hash of the keys, so that opening
+  the file and reading the first key takes 3 requests of about 516 KiB at 10^5
+  and 10^6 keys, and each later key one or two, fewer than a paged archive takes
+  ([benchmarks](../rust/refkv-phkv/bench/RESULTS.md)).
+  `refkv.open("oisst.phkv", binding="phkv")` and
+  `refkv.zarr.open("oisst.phkv", binding="phkv")` read it with the same options
+  as an archive. It is not a ZIP file, so ZIP tools cannot open it.
 - **Requests.** `refkv.zarr.open(..., max_concurrency=16)` allows more requests in
   flight, and `max_concurrency=None` removes the cap. Respect the host's
   limits.
+- **Many small chunks.** Chunks read at the same time share requests when they lie
+  at most the policy's coalescing gap apart in one source file (`Policy.max_coalesce_gap`, 64 KiB
+  by default), but zarr asks for only
+  `async.concurrency` chunks at once (10 by default), which limits how many can
+  share one. Raising it makes both fewer requests and a faster read, and opens no
+  more connections, since `max_concurrency` bounds those. The setting is zarr's, and
+  applies to the other stores of the process too:
+
+  ```python
+  with zarr.config.set({"async.concurrency": 1024}):
+      plane = array[0]
+  ```
+
+  At the default, the requests fall by up to tenfold but the read takes about as long.
 
 ## Publishing
 
@@ -181,6 +204,18 @@ registry = {"s3://my-bucket": S3Store("my-bucket", region="us-west-2")}
 store = refkv.ReferenceStore.from_virtualizarr(vds, registry=registry)
 store.save_vzip("private.vzip", policy=refkv.Policy(schemes={"s3"}))
 ds = xr.open_zarr(refkv.zarr.open("private.vzip", registry=registry))
+```
+
+`refkv.zarrify.zarrify` takes the same `registry=`, to read the input itself
+from the bucket: a file, the files it names beside it, or a store (a URL
+ending in `/`), each read with the registered store. The result reads its
+sources with that registry too.
+
+```python
+from refkv.zarrify import zarrify
+
+store = zarrify("s3://my-bucket/oisst/oisst-avhrr-v02r01.20240101.nc", registry=registry)
+store.save_vzip("oisst.vzip", policy=refkv.Policy(schemes={"s3"}))
 ```
 
 By default, refkv reads `http(s)` URLs (and local files, from a local
@@ -228,6 +263,12 @@ register its store, as above; that allows its URLs. The rules are in
   a proxy (`http_proxy`, `https_proxy`) opening an `https://` archive fails
   too. Exempt the host with `no_proxy`, or pass
   `policy=refkv.Policy(allow_unchecked_proxy=True)`.
+- **`the value needs more than 2147483648 bytes ...`.** A reader refuses a
+  `get` of more bytes than its policy allows, 2 GiB by default
+  ([spec §6.7](../spec/refkv.md#67-reader-policy) rule 5). VirtualiZarr and
+  kerchunk present a contiguous HDF5 or netCDF variable as one chunk, which
+  can be larger. For a store you trust, pass
+  `policy=refkv.Policy(max_get_bytes=...)` with a larger bound.
 
 The docstrings say more: `help(refkv.ReferenceStore)`, `help(refkv.zarr.open)`
 and `help(refkv.vzip.VZipStore)` (its `registry=` and `max_concurrency=`), and

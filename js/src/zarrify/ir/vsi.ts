@@ -12,14 +12,21 @@
 import type { ArchiveDesc } from "../../writer.ts";
 import { HttpResolutionError } from "../../http.ts";
 import { ImageError } from "../common.ts";
+import { type Profile, REGISTRY } from "../profiles.ts";
 import { objectUrl, type Store, StoreError } from "../store.ts";
 import { HttpSource, type HttpSourceOptions, type RangeSource } from "./source.ts";
 import { zarrifyStoreIr } from "./store.ts";
 
 /** The formats whose input is read with the files beside it: each one's title, as a rejection
  * names it. */
-export const BESIDE = { vsi: "VSI", nrrd: "NRRD", grib: "GRIB" } as const;
-export type BesideFormat = keyof typeof BESIDE;
+export const BESIDE: Readonly<Record<Profile, string>> = Object.fromEntries(
+  REGISTRY.filter((e) => e.store_run !== null && e.store_run.form !== "listed").map((e) => [e.name, e.title]));
+export type BesideFormat = Profile;
+/** Those that read a file with the files beside it only when it names some, or for some of their files (spec/zarrify.md §1.9
+ * <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>): a file
+ * run finds out, and starts over (`NamesSiblings`). */
+export const ON_DEMAND: ReadonlySet<string> = new Set(
+  REGISTRY.filter((e) => e.store_run?.form === "on_demand").map((e) => e.name));
 
 /** [the directory's URL (ending in `/`), the named file's key (its last segment,
  * percent-decoded)] of an input of the format `title` names (VSI, NRRD). */
@@ -57,6 +64,8 @@ export interface VsiOptions {
   open?: (key: string) => Promise<RangeSource | undefined>;
   http?: HttpSourceOptions;
   mirror?: boolean;
+  /** The ranges will carry checksums (the core's seal measures them). */
+  checksums?: boolean;
 }
 
 /** The files of a VSI or NRRD input as a store the run probes: `objects` holds the named file
@@ -67,6 +76,8 @@ export function vsiFiles(url: string, source: RangeSource, options: VsiOptions =
   const sources = new Map<string, RangeSource>([[key, source]]);
   const open = options.open ?? ((k: string) => {
     if (!/^https?:\/\//.test(dir)) {
+      // an HDF5 file's names may dangle: where no file beside it can be opened, each of them does
+      if (format === "hdf5") return Promise.resolve(undefined);
       return Promise.reject(new ImageError(`${title} input ${JSON.stringify(url)}: the files beside it can only be opened at an http(s) URL`));
     }
     return probeHttp(objectUrl(dir, k), options.http ?? (source instanceof HttpSource ? source.options : {}));
@@ -105,6 +116,8 @@ export function vsiFiles(url: string, source: RangeSource, options: VsiOptions =
  * sources are the files some reference uses, their sizes pinned. */
 export async function zarrifyVsi(url: string, source: RangeSource, options: VsiOptions = {}, format: BesideFormat = "vsi"): Promise<ArchiveDesc & { summary: Record<string, unknown>; store: Store }> {
   const store = vsiFiles(url, source, options, format);
-  const desc = await zarrifyStoreIr(format, store, { mirror: options.mirror ?? true, concurrency: source.concurrency });
+  const desc = await zarrifyStoreIr(format, store, {
+    mirror: options.mirror ?? true, concurrency: source.concurrency, checksums: options.checksums === true,
+  });
   return { ...desc, store };
 }

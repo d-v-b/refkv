@@ -3,10 +3,14 @@
 through zarr and xarray (`refkv.zarr`)."""
 
 import dataclasses
+import os
+import stat
+import sys
 import threading
 import time
 import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any, override
 
 import numpy as np
@@ -409,16 +413,18 @@ def counting_server():
 @pytest.mark.usefixtures("no_proxy")
 def test_max_concurrency_caps_requests_in_flight(counting_server, tmp_path):
     """With zarr reading 32 chunks at once, each chunk a reference to its own range of
-    a served file, a store keeps at most `max_concurrency` requests in flight: the
-    in-memory store, and the saved archive read over HTTP, its own reads (tail,
-    pages) included: 8 by default. With None, more are in flight."""
+    a served file too far from the others to merge, a store keeps at most
+    `max_concurrency` requests in flight: the in-memory store, and the saved archive
+    read over HTTP, its own reads (tail, pages) included: 8 by default. With None, more
+    are in flight."""
     base, state = counting_server
     n = 32
-    state["files"]["/src.bin"] = bytes(range(n)) * 1024
+    apart = 2 * refkv.Policy().max_coalesce_gap
+    state["files"]["/src.bin"] = b"".join(bytes([i]) * apart for i in range(n))
     mem = zarr.storage.MemoryStore()
     zarr.create_array(mem, name="x", shape=(n,), chunks=(1,), dtype="u1", compressors=None)
     mapping: dict[str, bytes | Range] = {k: v.to_bytes() for k, v in mem._store_dict.items()}
-    mapping.update({f"x/c/{i}": Range(source=0, offset=1024 * i + i, length=1) for i in range(n)})
+    mapping.update({f"x/c/{i}": Range(source=0, offset=apart * i, length=1) for i in range(n)})
     sources = [Source(url=f"{base}/src.bin")]
     policy = refkv.Policy(allow_private_hosts=True)
     refkv.ReferenceStore(mapping, sources).save_vzip(tmp_path / "a.vzip", page_size=64, policy=policy)
@@ -631,3 +637,112 @@ def test_a_base_directory_keeps_its_trailing_slash(tmp_path):
         store = refkv.ReferenceStore({"k": Range(source=0, length=5)}, [Source(url="x.bin")], url=base)
         assert store.url.endswith("/run1/")
         assert store.get("k") == b"RIGHT"
+
+
+def _unsavable() -> refkv.ReferenceStore:
+    """A store the writer refuses when it closes: its key source names no key."""
+    return refkv.ReferenceStore({"k": Range(source=0, length=5)}, [Source(key="missing")])
+
+
+def _names(directory: Path) -> list[str]:
+    return [p.name for p in directory.iterdir()]
+
+
+def test_save_vzip_writes_a_new_file_and_replaces_an_old_one(tmp_path):
+    path = tmp_path / "a.vzip"
+    for value in (b"first", b"second"):
+        summary = refkv.ReferenceStore({"k": value}).save_vzip(path)
+        assert refkv.open(str(path)).get("k") == value
+        assert summary.bytes == path.stat().st_size
+        assert _names(tmp_path) == ["a.vzip"]
+
+
+def test_save_vzip_failing_keeps_the_previous_file(tmp_path):
+    path = tmp_path / "a.vzip"
+    refkv.ReferenceStore({"k": b"first"}).save_vzip(path)
+    previous = path.read_bytes()
+    with pytest.raises(ValueError, match="missing"):
+        _unsavable().save_vzip(path)
+    assert path.read_bytes() == previous
+    assert _names(tmp_path) == ["a.vzip"]
+
+
+def test_save_vzip_failing_on_a_new_path_leaves_nothing(tmp_path):
+    with pytest.raises(ValueError, match="missing"):
+        _unsavable().save_vzip(tmp_path / "a.vzip")
+    assert _names(tmp_path) == []
+
+
+def test_save_vzip_failing_to_replace_keeps_the_previous_file(tmp_path, monkeypatch):
+    path = tmp_path / "a.vzip"
+    path.write_bytes(b"previous")
+
+    def refuse(_src, dst):
+        raise PermissionError(dst)
+
+    monkeypatch.setattr(os, "replace", refuse)
+    with pytest.raises(PermissionError):
+        refkv.ReferenceStore({"k": b"v"}).save_vzip(path)
+    assert path.read_bytes() == b"previous"
+    assert _names(tmp_path) == ["a.vzip"]
+
+
+@pytest.mark.skipif(sys.platform == "win32" or os.geteuid() == 0,
+                    reason="Windows has no mode bits to compare; root writes a read-only file")
+def test_save_vzip_refuses_a_read_only_file(tmp_path):
+    path = tmp_path / "a.vzip"
+    path.write_bytes(b"previous")
+    path.chmod(0o444)
+    with pytest.raises(PermissionError):
+        refkv.ReferenceStore({"k": b"v"}).save_vzip(path)
+    assert path.read_bytes() == b"previous"
+    assert _names(tmp_path) == ["a.vzip"]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="POSIX replaces a file that is held open")
+def test_save_vzip_on_windows_refuses_a_file_held_open(tmp_path):
+    path = tmp_path / "a.vzip"
+    path.write_bytes(b"previous")
+    with open(path, "rb"), pytest.raises(PermissionError):
+        refkv.ReferenceStore({"k": b"v"}).save_vzip(path)
+    assert path.read_bytes() == b"previous"
+    assert _names(tmp_path) == ["a.vzip"]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows has no umask or mode bits to compare")
+def test_save_vzip_gives_the_mode_open_gives(tmp_path):
+    """A new file has the mode `open` gives under the umask, and a replaced one keeps its own."""
+    previous = os.umask(0o027)
+    try:
+        plain = tmp_path / "plain"
+        plain.write_bytes(b"")
+        new = tmp_path / "new.vzip"
+        refkv.ReferenceStore({"k": b"v"}).save_vzip(new)
+        assert stat.S_IMODE(new.stat().st_mode) == stat.S_IMODE(plain.stat().st_mode) == 0o640
+    finally:
+        os.umask(previous)
+    old = tmp_path / "old.vzip"
+    old.write_bytes(b"previous")
+    old.chmod(0o604)
+    refkv.ReferenceStore({"k": b"v"}).save_vzip(old)
+    assert stat.S_IMODE(old.stat().st_mode) == 0o604
+
+
+def test_save_vzip_writes_through_a_symlink(tmp_path):
+    (tmp_path / "real").mkdir()
+    target = tmp_path / "real" / "a.vzip"
+    target.write_bytes(b"previous")
+    link = tmp_path / "link.vzip"
+    try:
+        link.symlink_to(target)
+    except OSError:
+        pytest.skip("this system lets only an administrator make a symlink")
+    refkv.ReferenceStore({"k": b"v"}).save_vzip(link)
+    assert link.is_symlink()
+    assert refkv.open(str(target)).get("k") == b"v"
+    assert _names(tmp_path / "real") == ["a.vzip"]
+
+
+def test_save_vzip_writes_a_device_in_place():
+    assert refkv.ReferenceStore({"k": b"v"}).save_vzip(os.devnull).bytes == 0
+    assert not stat.S_ISREG(Path(os.devnull).stat().st_mode)

@@ -1,0 +1,17 @@
+{
+  "zarr_format": 2,
+  "compressor": null,
+  "fill_value": null,
+  "order": "F",
+  "filters": null,
+  "shape": [
+    2,
+    3
+  ],
+  "chunks": [
+    2,
+    3
+  ],
+  "dtype": "|S2",
+  "dimension_separator": "/"
+}

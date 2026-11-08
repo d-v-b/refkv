@@ -187,6 +187,26 @@ fn length_unit(s: &str) -> Option<&'static str> {
 }
 
 /// A JSON number: an integer when it is one (as Python writes an int), else a float.
+/// A level's image size, chunk shape and filters.
+type Level = ([u64; 3], [u64; 3], Vec<u64>);
+
+/// Whether a dataset's filters are among the pipelines the profile presents (spec/zarrify/ims.md §2.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#22-the-imaris-layout>): shuffle if
+/// any, then deflate or LZ4 if any, then Fletcher32 if any.
+fn pipeline_ok(filters: &[u64]) -> bool {
+    let mut rest = filters;
+    if rest.first() == Some(&hdf5::SHUFFLE) {
+        rest = &rest[1..];
+    }
+    if matches!(rest.first(), Some(&hdf5::DEFLATE | &hdf5::LZ4)) {
+        rest = &rest[1..];
+    }
+    if rest.first() == Some(&hdf5::FLETCHER32) {
+        rest = &rest[1..];
+    }
+    rest.is_empty()
+}
+
 fn jf(x: f64) -> J {
     json!(x)
 }
@@ -383,10 +403,10 @@ impl Ims {
         Ok(())
     }
 
-    /// Levels' (sizes, chunk, compressed), the data type, and each dataset's chunks.
+    /// Levels' (sizes, chunk, filters), the data type, and each dataset's chunks.
     #[allow(clippy::type_complexity)]
     fn datasets(&mut self, dataset: &Links, level0: &Rc<Links>, first_time: &Rc<Links>, levels: u64, times: u64, channels: u64)
-                -> R<(Vec<([u64; 3], [u64; 3], bool)>, (String, Option<&'static str>, Option<(i64, i64)>), Vec<Image>)> {
+                -> R<(Vec<Level>, (String, Option<&'static str>, Option<(i64, i64)>), Vec<Image>)> {
         let mut acc = Acc::default();
         let mut data_type: Option<(String, Option<&'static str>, Option<(i64, i64)>)> = None;
         let mut level_info = Vec::new();
@@ -398,7 +418,7 @@ impl Ims {
                 let x = self.opened(dataset, &format!("ResolutionLevel {r}")).map(|x| x.1);
                 acc.take(x)
             };
-            let mut info: Option<([u64; 3], [u64; 3], bool)> = None;
+            let mut info: Option<Level> = None;
             if let Some(links) = links {
                 for t in 0..times as usize {
                     let time_links = if r == 0 && t == 0 {
@@ -425,13 +445,14 @@ impl Ims {
                             };
                             let larger = sizes.iter().zip(&ds.dims).any(|(s, n)| s > n);
                             let this = if ds.dims.len() == 3 {
-                                Some(([sizes[0], sizes[1], sizes[2]], [ds.chunk[0], ds.chunk[1], ds.chunk[2]], !ds.filters.is_empty()))
+                                Some(([sizes[0], sizes[1], sizes[2]], [ds.chunk[0], ds.chunk[1], ds.chunk[2]], ds.filters.clone()))
                             } else {
                                 None
                             };
                             let same_type = data_type.as_ref().is_none_or(|d| *d == dt);
                             let same_level = info.is_none() || info == this;
                             let filters = V::List(ds.filters.iter().map(|&f| V::Num(f as f64)).collect());
+                            let pipeline = pipeline_ok(&ds.filters);
                             let r_ = self.check(
                                 "image",
                                 rules::env([
@@ -439,6 +460,7 @@ impl Ims {
                                     ("rank", num(ds.dims.len() as f64)),
                                     ("larger", flag(larger)),
                                     ("filters", filters),
+                                    ("pipeline", flag(pipeline)),
                                     ("same_type", flag(same_type)),
                                     ("same_level", flag(same_level)),
                                 ]),
@@ -465,7 +487,7 @@ impl Ims {
             if acc.stopped() {
                 break;
             }
-            level_info.push(info.unwrap_or(([1, 1, 1], [1, 1, 1], false)));
+            level_info.push(info.unwrap_or(([1, 1, 1], [1, 1, 1], Vec::new())));
         }
         acc.done()?;
         Ok((level_info, data_type.unwrap(), chunk_list))
@@ -634,7 +656,7 @@ impl Ims {
     }
 
     /// The facts the projection writes (spec/zarrify/ims.md §4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#4-output>).
-    fn output(&self, level_info: &[([u64; 3], [u64; 3], bool)], data_type: &(String, Option<&'static str>, Option<(i64, i64)>), meta: Meta,
+    fn output(&self, level_info: &[Level], data_type: &(String, Option<&'static str>, Option<(i64, i64)>), meta: Meta,
               levels: u64, times: u64, channels: u64) -> R<J> {
         let z0 = level_info[0].0[0];
         let has_z = z0 > 1 || level_info.iter().any(|i| i.1[0] > 1);
@@ -673,7 +695,7 @@ impl Ims {
         }
         let mut scales = Vec::new();
         let mut arrays = Vec::new();
-        for (sizes, chunk, compressed) in level_info {
+        for (sizes, chunk, filters) in level_info {
             let n = |a: &str| match a {
                 "z" => sizes[0],
                 "y" => sizes[1],
@@ -703,10 +725,17 @@ impl Ims {
                 Some(e) => json!({"name": "bytes", "configuration": {"endian": e}}),
                 None => json!({"name": "bytes"}),
             }];
-            if *compressed {
-                codecs.push(json!({"name": "numcodecs.zlib", "configuration": {"level": 1}}));
+            let item = data_type.1.map_or(1, |_| if data_type.0.ends_with("16") { 2 } else { 4 });
+            for f in filters {
+                match *f {
+                    hdf5::SHUFFLE => codecs.push(json!({"name": "numcodecs.shuffle", "configuration": {"elementsize": item}})),
+                    hdf5::DEFLATE => codecs.push(json!({"name": "numcodecs.zlib", "configuration": {"level": 1}})),
+                    hdf5::LZ4 => codecs.push(json!({"name": "imagecodecs_lz4h5"})),
+                    _ => {}
+                }
             }
-            arrays.push(json!({"shape": shape, "chunks": chunks, "codecs": codecs, "sizes": sizes, "chunk": chunk}));
+            let trim = if filters.contains(&hdf5::FLETCHER32) { hdf5::CHECKSUM } else { 0 };
+            arrays.push(json!({"shape": shape, "chunks": chunks, "codecs": codecs, "sizes": sizes, "chunk": chunk, "trim": trim}));
         }
         let translations = if spatial.iter().all(|a| extent.contains_key(a)) {
             let t: Vec<J> = axes
@@ -752,7 +781,7 @@ impl Ims {
                 "sizes": {"t": times, "c": channels, "z": level_info[0].0[0], "y": level_info[0].0[1], "x": level_info[0].0[2]},
                 "dataType": data_type.0,
                 "chunkShape": level_info[0].1,
-                "compressed": level_info.iter().map(|i| i.2).collect::<Vec<_>>(),
+                "compressed": level_info.iter().map(|i| !i.2.is_empty()).collect::<Vec<_>>(),
                 "channels": meta.labels,
             },
         }))
@@ -826,7 +855,7 @@ impl Ims {
         let size = self.h.size();
         let must: HashSet<u64> = self.image_sets.iter().map(|im| im.at).collect();
         let room = self.room.unwrap_or(self.rules.limit("walk_elements") as u64 + size / self.rules.limit("walk_bytes_per_element") as u64);
-        let mut e = Emit { ir: Ir::new(size), h: &self.h, chunks_of: HashMap::new(), data_of: HashMap::new(), room, must };
+        let mut e = Emit { ir: Ir::new(self.h.file_size()), h: &self.h, chunks_of: HashMap::new(), data_of: HashMap::new(), room, must };
         let sb = self.h.sb.clone().ok_or("internal: no superblock")?;
         e.superblock(&sb)?;
         if let Some(ext) = self.extension.take() {
@@ -941,6 +970,16 @@ impl crate::run::FileProfile for Profile {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pipelines_are_shuffle_then_a_compressor_then_a_checksum() {
+        for good in [&[][..], &[1], &[2], &[3], &[32004], &[2, 1], &[2, 32004], &[1, 3], &[32004, 3], &[2, 1, 3], &[2, 32004, 3]] {
+            assert!(pipeline_ok(good), "{good:?}");
+        }
+        for bad in [&[32001][..], &[1, 2], &[3, 1], &[1, 32004], &[2, 2], &[1, 1]] {
+            assert!(!pipeline_ok(bad), "{bad:?}");
+        }
+    }
 
     #[test]
     fn texts_read_as_numbers() {

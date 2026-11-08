@@ -1,0 +1,23 @@
+{
+  "zarr_format": 2,
+  "compressor": {
+    "id": "zlib",
+    "level": 1
+  },
+  "fill_value": "none",
+  "order": "F",
+  "filters": [
+    {
+      "id": "vlen-utf8"
+    }
+  ],
+  "shape": [
+    2,
+    2
+  ],
+  "chunks": [
+    2,
+    2
+  ],
+  "dtype": "|O"
+}

@@ -130,7 +130,13 @@ Rejected, because the output would not be valid OME-Zarr 0.5:
 - Label images with non-integer data, or with fewer levels than their image.
 - Plates and wells whose paths, indices or acquisitions do not match.
 - Everything the [Zarr v2 profile](../zarr2/README.md#supported-and-not-supported)
-  rejects (filters, other compressors, other data types).
+  rejects.
+
+An array the Zarr v2 profile leaves out does not reject the store. It is left out here too, and an
+image with a level left out, or with a level of `|S<n>` or `|V<n>` bytes, is not migrated: it stays
+a plain group whose attributes are kept, unchanged, and so does what lists it (a labels group, a
+well, a plate, a collection). The reasons are under `refkv_zarrified.ome-zarr.not_presented` and
+`not_ome` on the root.
 
 Not checked: what 0.4 only recommends (units, names, axis types beyond the
 order rule), and the OME-XML. A 0.4 group below a root that is not 0.4 is

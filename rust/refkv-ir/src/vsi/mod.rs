@@ -19,6 +19,7 @@ pub mod tree;
 
 use crate::fed::Word;
 use crate::ir::{Ir, NO_INDEX, Res, key_name};
+use crate::out::{MAX_PAYLOAD, payload_size};
 use crate::rules::{self, Rules, flag, num, text};
 use crate::store::{StoreParser, StoreStep};
 use serde_json::{Value as J, json};
@@ -438,10 +439,12 @@ impl Vsi {
     }
 
     /// The facts of the images (§4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#4-the-images>):
-    /// each stack with pixels (a tile file, or an IFD) in the tree's order, then the macro image.
-    fn images(&self, tiles_of: &[Vec<u32>], strips_of: &HashMap<usize, Vec<u32>>) -> Res<Vec<J>> {
-        let b = self.file.as_slice();
+    /// each stack with pixels (a tile file, or an IFD) in the tree's order, then the macro image;
+    /// and the IFD images that are not presented, in that order (§4.4
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#44-ifd-images-that-are-not-presented>).
+    fn images(&self, tiles_of: &[Vec<u32>], strips_of: &HashMap<usize, Vec<u32>>) -> Res<(Vec<J>, Vec<J>)> {
         let mut out = Vec::new();
+        let mut left_out = Vec::new();
         for s in &self.stacks {
             let mut im = json!({
                 "kind": "stack", "id": s.id, "name": s.name, "type": s.stack_type,
@@ -462,7 +465,13 @@ impl Vsi {
                 let file = &self.files[f];
                 im["ets"] = self.ets_facts(file, &tiles_of[f])?;
             } else if let Some(k) = s.default_ifd {
-                im["ifd"] = self.ifd_facts(k, &s.name, strips_of)?;
+                match self.ifd_facts(k, &s.name, strips_of) {
+                    Ok(ifd) => im["ifd"] = ifd,
+                    Err(reason) => {
+                        left_out.push(json!({"id": s.id, "name": s.name, "ifd": k, "reason": reason}));
+                        continue;
+                    }
+                }
             } else {
                 continue;
             }
@@ -473,18 +482,25 @@ impl Vsi {
         if let Some(coll) = root.volume(COLLECTION_VOLUME)
             && let Some(k) = coll.fields.iter().find(|x| x.tag == DEFAULT_SAMPLE_IFD && x.kind == Kind::TiffIfd).and_then(|x| x.tag2)
         {
-            let _ = b;
-            out.push(json!({"kind": "macro", "name": MACRO_NAME, "ifd": self.ifd_facts(k as usize, MACRO_NAME, strips_of)?}));
+            match self.ifd_facts(k as usize, MACRO_NAME, strips_of) {
+                Ok(ifd) => out.push(json!({"kind": "macro", "name": MACRO_NAME, "ifd": ifd})),
+                Err(reason) => left_out.push(json!({"id": null, "name": MACRO_NAME, "ifd": k, "reason": reason})),
+            }
         }
-        Ok(out)
+        Ok((out, left_out))
     }
 
+    /// The facts of IFD `k` as an image the layout can present, or the reason it cannot (§4.4
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#44-ifd-images-that-are-not-presented>).
     fn ifd_facts(&self, k: usize, what: &str, strips_of: &HashMap<usize, Vec<u32>>) -> Res<J> {
         let ifd = self.ifds.iter().find(|f| f.index == k && !f.exif).ok_or_else(|| format!("{what}: the .vsi file has no IFD {k}"))?;
         let im = tiff::image(self.rules, &self.file, ifd, what)?;
         let els = strips_of.get(&k).ok_or_else(|| format!("IFD {k} ({what}) is not inside the metadata tree"))?;
         if els.len() != im.strips.len() {
-            return Err(format!("internal: IFD {k} has {} strip elements for {} strips", els.len(), im.strips.len()));
+            return Err(format!("IFD {k} ({what}) has both strips and tiles"));
+        }
+        if im.compression != 7 && payload_size(&tiff::runs("", im.strips.iter().copied())) > MAX_PAYLOAD {
+            return Err(format!("IFD {k} ({what}): its strips do not fit in a reference of {MAX_PAYLOAD} bytes"));
         }
         Ok(json!({
             "index": k, "width": im.width, "height": im.height, "samples": im.samples, "bits": im.bits,
@@ -581,12 +597,13 @@ impl Vsi {
         }
         self.file = file;
         self.tree = Some(tree);
-        let images = self.images(&tiles_of, &strips_of)?;
+        let (images, not_presented) = self.images(&tiles_of, &strips_of)?;
         let tree = self.tree.as_ref().unwrap();
         let facts = json!({
             "vsi": {"key": self.keys[self.vsi].0, "size": self.keys[self.vsi].1, "ifds": self.ifds.iter().filter(|f| !f.exif).count()},
             "tree": tree::container_json(rules, &self.file, tree),
             "images": images,
+            "not_presented": not_presented,
             "stacks": self.stacks.iter().map(|s| json!({
                 "id": s.id, "name": s.name, "type": s.stack_type, "external": s.external, "width": s.width, "height": s.height,
                 "tile_file": s.file.map(|f| self.files[f].key.clone()),
@@ -767,10 +784,12 @@ impl crate::run::FileProfile for Profile {
     fn parser(&self, _size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::refused("a VSI file is zarrified as a store run, with its tile files")
     }
-    fn store_run(&self) -> bool {
-        true
-    }
     fn project(&self, _: &crate::ir::Ir, _: &serde_json::Value, _: &str, _: &crate::project::Copied) -> Result<crate::out::Out, String> {
         Err("a VSI input is zarrified as a store run".into())
     }
+}
+
+/// The parser of the profile's store run (`StoreFormat`; crate::store).
+pub fn store_parser(ir: crate::ir::Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> crate::ir::Res<Box<dyn crate::store::StoreParser>> {
+    Ok(Box::new(Vsi::new(ir, objects, keys)?))
 }

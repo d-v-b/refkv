@@ -8,7 +8,7 @@
 use super::{along, arr, key, n, obj, strs, translations};
 use crate::hdf5;
 use crate::ir::Ir;
-use crate::out::{array_json, image_ome, root_json, Out};
+use crate::out::{array_json, image_ome, root_json, Out, Part};
 use crate::refs::Refs;
 use serde_json::{json, Value as J};
 
@@ -46,7 +46,11 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
                 continue; // padding, wholly outside the image
             }
             let k = key(&format!("{r}/c/"), axes.iter().map(|a| along(a, [t, c, coords[0], coords[1], coords[2]])));
-            refs.chunk(k, start, length, form, None, 0)?;
+            // a Fletcher32 checksum, the chunk's last bytes, is left out (spec/zarrify/ims.md §7.8
+            // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#78-chunk-references>)
+            let trim = n(&level["trim"]);
+            let parts = (trim > 0).then(|| vec![Part::Src(start, length.saturating_sub(trim))]);
+            refs.chunk(k, start, length, form, parts)?;
             count += 1;
         }
     }

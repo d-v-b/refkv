@@ -22,6 +22,7 @@ import struct
 from pathlib import Path
 
 import h5py
+import hdf5plugin
 import numpy as np
 
 OUT = Path(__file__).parents[2] / "ims"
@@ -153,6 +154,15 @@ def timestamps(times: int, start: str = "2021-03-04 05:06:07", step: float = 2.5
     return out
 
 
+def user_block() -> None:
+    # An Imaris file after a user block, which the HDF5 profile reads and chooses IMS for.
+    # Its own seed: a writer that draws from the shared stream changes every file written after it.
+    rng.bit_generator.state = np.random.default_rng(1).bit_generator.state
+    with h5py.File(OUT / "ims_user_block.ims", "w", libver="earliest", userblock_size=1024) as f:
+        imaris(f, [{"size": (3, 6, 7), "dims": (4, 8, 8), "chunks": (2, 4, 4)}], compression="gzip",
+               image=extents((3, 6, 7)))
+
+
 def accepted() -> None:
     # Earliest format: superblock 0, version 1 object headers, symbol-table
     # groups, version 1 B-tree chunk indexes. Two levels, 2 time points, 2
@@ -247,14 +257,43 @@ def accepted() -> None:
             f[name] = h5py.SoftLink(f"/Workflows/InitialImages/{name}")
 
 
+def filtered() -> None:
+    """The pipelines beyond deflate: shuffle before deflate or LZ4, and Fletcher32 after any, and those
+    the profile rejects."""
+    # Its own seed: a writer that draws from the shared stream changes every file written after it.
+    rng.bit_generator.state = np.random.default_rng(2).bit_generator.state
+    level = [{"size": (2, 6, 7), "dims": (2, 8, 8), "chunks": (2, 4, 4)}]
+
+    with open_file("ims_shuffle_deflate_fletcher32", "latest") as f:
+        imaris(f, level, extras=False, compression="gzip", shuffle=True, fletcher32=True)
+    with open_file("ims_lz4", "latest") as f:
+        imaris(f, level, extras=False, **hdf5plugin.LZ4())
+    with open_file("ims_shuffle_lz4", "latest") as f:
+        imaris(f, level, extras=False, shuffle=True, **hdf5plugin.LZ4())
+    with open_file("ims_reject_blosc", "latest") as f:
+        imaris(f, level, extras=False, **hdf5plugin.Blosc())
+    with open_file("ims_reject_fletcher32_first", "latest") as f:
+        imaris(f, level, extras=False, skip={})
+        del f["DataSet"]
+        dcpl = h5py.h5p.create(h5py.h5p.DATASET_CREATE)
+        dcpl.set_chunk((2, 4, 4))
+        dcpl.set_fletcher32()
+        dcpl.set_deflate(1)
+        g = f.create_group("DataSet/ResolutionLevel 0/TimePoint 0/Channel 0")
+        g.attrs["ImageSizeX"], g.attrs["ImageSizeY"], g.attrs["ImageSizeZ"] = text("7"), text("6"), text("2")
+        space = h5py.h5s.create_simple((2, 8, 8))
+        h5py.h5d.create(g.id, b"Data", h5py.h5t.NATIVE_UINT16, space, dcpl)
+
+
 def rejected() -> None:
     level = [{"size": (2, 6, 7), "dims": (2, 8, 8), "chunks": (2, 4, 4)}]
 
     with h5py.File(OUT / "ims_reject_not_imaris.ims", "w") as f:
         f.create_dataset("data", data=np.arange(12, dtype="u1").reshape(3, 4), chunks=(3, 4))
-    with open_file("ims_reject_shuffle", "latest") as f:
+    # Accepted now, and written here still: they draw from the stream the files after them are written from.
+    with open_file("ims_shuffle_deflate", "latest") as f:
         imaris(f, level, extras=False, compression="gzip", shuffle=True)
-    with open_file("ims_reject_fletcher32", "latest") as f:
+    with open_file("ims_fletcher32", "latest") as f:
         imaris(f, level, extras=False, fletcher32=True)
     with open_file("ims_reject_fill_value", "latest") as f:
         imaris(f, level, extras=False, fillvalue=5)
@@ -822,7 +861,8 @@ if __name__ == "__main__":
     # does not write the same bytes twice, so regenerating them all changes them).
     writers = {"accepted": accepted, "rejected": rejected, "reconstruction": reconstruction, "review": review,
                "indexes": indexes, "review2": review2, "review3": review3, "review4": review4,
-               "table_color": table_color, "global_heaps": global_heaps}
+               "table_color": table_color, "global_heaps": global_heaps, "user_block": user_block,
+               "filtered": filtered}
     if len(sys.argv) == 1:
         for p in OUT.glob("ims_*.ims"):
             p.unlink()

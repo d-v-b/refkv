@@ -46,7 +46,7 @@
         "zarr_conventions",
         "refkv_zarrified"
       ],
-      "additionalProperties": false
+      "additionalProperties": true
     }
   },
   "required": [
@@ -385,7 +385,9 @@
             "reduced",
             "grid",
             "grid_size",
+            "gaussian",
             "earth",
+            "projection",
             "product",
             "statistic",
             "time",

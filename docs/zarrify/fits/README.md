@@ -6,7 +6,7 @@ references to the file's bytes, without copying the pixels
 
 ## Who this is for
 
-FITS (`.fits`, `.fz`) is the archive format of astronomy: HST and JWST
+FITS (`.fits`, `.fz`, `.fits.gz`, `.fits.bz2`) is the archive format of astronomy: HST and JWST
 exposures and mosaics, Rubin and Euclid images, DECam, Pan-STARRS, Legacy
 Surveys and ZTF survey products, spectra and light curves, and radio cubes.
 A file is a sequence of HDUs (header-data units), each a header of 80-byte
@@ -20,8 +20,8 @@ refkv reads the headers (and, for a tile-compressed image, its table of
 tile descriptors), never the data, and writes an archive in which every HDU
 is a node: an image is an array whose chunks are byte ranges of the file,
 a tile-compressed image an array whose chunks are runs of its compressed
-tiles, decoded by the `refkv.fits_tiles` codec, and a table its rows and heap as
-bytes. Every header's cards come along.
+tiles, decoded by the `refkv.fits_tiles` codec, and a binary table an array of
+`struct` rows, with its heap as bytes. Every header's cards come along.
 
 ## What you get
 
@@ -45,10 +45,22 @@ system cards describe for astropy and the viewers.
   Each chunk is one byte range of the heap (tiles are stored one after the
   other) behind a small prefix that carries every tile's length, scale and
   zero, so the codec needs nothing but the chunk's bytes.
-- **Tables** (`BINTABLE`, `TABLE`): a group with the arrays `rows`
-  (`[NAXIS2, NAXIS1]` of `uint8`) and `heap` (the variable-length arrays),
-  and the column definitions in the group's metadata. Any FITS table
-  reader decodes the bytes; columns are not arrays yet.
+- **Tables** (`BINTABLE`, `TABLE`): a group with the arrays `rows` and `heap`
+  (the variable-length arrays, as bytes), and the column definitions in the
+  group's metadata. A binary table's `rows` is one `struct` per row, a field
+  per column, so `g["1/rows"][:10]["FLUX"]` reads a column of ten rows; a
+  `5E` column is a nested `struct` of the fields `0` to `4`. A variable-length
+  column's field holds its `(n, o)` descriptor into the heap: its values are of
+  a different length in every row, which no fixed-size element holds. An ASCII
+  table's rows, and a binary table's whose columns cannot be written as a
+  `struct`, are `[NAXIS2, NAXIS1]` of `uint8`, with the reason in the node's
+  `not_struct`.
+- **Compressed files** (`.fits.gz`, `.fits.bz2`, SDSS's frames among them):
+  the same nodes and metadata, each array one chunk, the whole file. Its
+  codecs decode the file and keep the array's bytes (`gzip` or `numcodecs.bz2`,
+  then `refkv.skip`, then `bytes`). Reading any value fetches and decodes the
+  whole file, and a second array of the file does that again: for one chip of
+  a large mosaic, decompress the file first.
 - **Empty HDUs** (`NAXIS = 0`, the empty primary of a multi-extension file):
   a group with the header's cards.
 - **Cards:** every HDU's node carries its header as `[keyword, value,
@@ -61,7 +73,8 @@ system cards describe for astropy and the viewers.
 
 **What is not expressed.** The world coordinate system is kept as cards,
 not interpreted (astropy.wcs reads them from the node's metadata); value
-scaling is recorded, not applied; table columns are bytes.
+scaling, in images and in table columns, is recorded, not applied; a column is
+a field of its table's rows, not an array of its own.
 [spec/zarrify/fits.md §8](../../../spec/zarrify/fits.md#8-what-the-layout-does-not-express)
 lists them.
 
@@ -127,18 +140,23 @@ Supported:
 
 - Images of every `BITPIX`, multi-extension files, `NAXIS = 0` HDUs,
   special records after the last HDU, a truncated final block.
+- Whole files in gzip or bzip2, of any number of members or streams, but for a
+  tile-compressed image in one.
 - Tile-compressed images with `RICE_1` (`BLOCKSIZE` 16 or 32, `BYTEPIX` 1,
   2 or 4), `GZIP_1`, `GZIP_2` and `NOCOMPRESS`, tiles of any shape,
   quantized floats with `NO_DITHER`, `SUBTRACTIVE_DITHER_1` and
   `SUBTRACTIVE_DITHER_2`, `ZBLANK` as a card or a column, tiles stored as
   gzip fallbacks, absent tiles, unused heap bytes between tiles, `P` and
   `Q` descriptors.
-- Binary and ASCII tables, as bytes.
+- Binary tables as `struct` rows, ASCII tables as bytes.
 
 Rejected:
 
-- Whole-file gzip and bzip2 (`.fits.gz`, SDSS's `.fits.bz2`): a compressed
-  stream has no byte ranges to reference; decompress the file first.
+- A tile-compressed image inside a whole-file gzip or bzip2: its tiles have
+  no byte ranges to reference; decompress the file first, which leaves a `.fz`.
+- Whole-file compressed files over 2 GiB: zarrifying holds the file in memory
+  to decode it twice, and a reader would hold it, and all it decodes to, to
+  read any of it.
 - Non-conforming files (`SIMPLE = F`), files whose first card is
   `XTENSION`, random groups (`GROUPS = T`), tile-compressed tables
   (`ZTABLE = T`), `HCOMPRESS_1` and `PLIO_1` compression, the deprecated
@@ -155,6 +173,9 @@ Rejected:
   bytes per tile) in one range. A DECam exposure of 61 chips reads about
   10 MB of a 331 MB file; a plain multi-extension file reads its headers
   alone.
+- A compressed file is the exception: zarrifying reads it all and decodes it
+  twice, and a reader reads it all for any value. An SDSS frame of 4 MiB is
+  quick; a 2 GiB file is not.
 - Reading a chunk of an image is one range request of at most 1 MiB; of a
   tile-compressed image, one range of its tiles' streams (about 170 KB for
   128 DECam rows), decoded in Rust.

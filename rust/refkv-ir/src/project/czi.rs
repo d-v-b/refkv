@@ -7,7 +7,7 @@
 //! parser's band floor).
 
 use super::{along, arr, key, n, obj, strs, translations, truthy};
-use crate::coding::{pixel_type, JPEG, JPEGXR, UNCOMPRESSED, ZSTD0, ZSTD1};
+use crate::coding::{pixel_type, JPEG, JPEGXR, LJPEG, LZW, UNCOMPRESSED, ZSTD0, ZSTD1};
 use crate::ir::Ir;
 use crate::out::{bioformats2raw, bytes_codec, declare_array, declared_group, image_ome, item_size, metadata_group, omero_channel, omero_json, omero_window, rectilinear_array_json, transpose_codec, Out, Part, RGBA};
 use crate::refs::Refs;
@@ -21,8 +21,8 @@ const MAX_OMERO: u64 = 64;
 /// The most bytes of a channel name, in UTF-8.
 const MAX_NAME: usize = 256;
 
-/// A subblock form: (pixel type, compression, hi-lo packing).
-type Form = (i32, i32, bool);
+/// A subblock form: (pixel type, compression, hi-lo packing or a JpgFile stream's being lossless).
+pub type Form = (i32, i32, bool);
 
 fn form_of(v: &J) -> Result<(Form, &'static str, u64, u64), String> {
     let f = (v[0].as_i64().unwrap_or(-1) as i32, v[1].as_i64().unwrap_or(-1) as i32, v[2].as_bool().unwrap_or(false));
@@ -32,11 +32,25 @@ fn form_of(v: &J) -> Result<(Form, &'static str, u64, u64), String> {
 
 /// The codecs of a form (spec/zarrify/czi.md §3.1
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#31-pixel-types-and-codecs>):
-/// `transpose` for samples, then the compression's.
+/// `transpose` for samples, then the compression's (`chain`).
 fn codecs(form: Form, data_type: &str, p: u64, axes: &[&str]) -> J {
     let mut out = if p > 1 { vec![transpose_codec(axes)] } else { vec![] };
+    out.extend(chain(form, data_type));
+    J::Array(out)
+}
+
+/// The codecs of a form after any `transpose` (spec/zarrify/czi.md §3.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#31-pixel-types-and-codecs>):
+/// the compression's, for samples of `data_type`.
+pub fn chain(form: Form, data_type: &str) -> Vec<J> {
+    let mut out = Vec::new();
     match form.1 {
-        JPEG => out.push(json!({"name": "imagecodecs_jpeg"})),
+        JPEG if !form.2 => out.push(json!({"name": "imagecodecs_jpeg"})),
+        JPEG | LJPEG => out.push(json!({"name": "imagecodecs_ljpeg"})),
+        LZW => {
+            out.push(bytes_codec(item_size(data_type), "little"));
+            out.push(json!({"name": "imagecodecs_lzw"}));
+        }
         JPEGXR => out.push(json!({"name": "imagecodecs_jpegxr"})),
         ZSTD0 | ZSTD1 => {
             out.push(bytes_codec(item_size(data_type), "little"));
@@ -47,7 +61,7 @@ fn codecs(form: Form, data_type: &str, p: u64, axes: &[&str]) -> J {
         }
         _ => out.push(bytes_codec(item_size(data_type), "little")),
     }
-    J::Array(out)
+    out
 }
 
 /// The sample letters of a pixel's `p` samples (JPEG and JPEG XR decode to RGB order).
@@ -155,10 +169,11 @@ fn cell_refs(refs: &mut Refs, path: &str, axes: &[&str], compression: i32, q: u6
         } else {
             (0..h.div_ceil(rows)).map(|k| (start + k * rows * w * q, rows.min(h - k * rows) * w * q)).collect()
         };
+        refs.in_object_of(el as u32);
         for (k, (o, len)) in pieces.into_iter().enumerate() {
             let y = row * per + k as u64;
             let coords = axes.iter().map(|a| along(a, [t, c, z, y, col]));
-            refs.chunk(key(&prefix, coords), start, length, 0, Some(vec![Part::Src(o, len)]), k as u64)?;
+            refs.chunk(key(&prefix, coords), start, length, 0, Some(vec![Part::Src(o, len)]))?;
         }
     }
     Ok(())
@@ -167,12 +182,25 @@ fn cell_refs(refs: &mut Refs, path: &str, axes: &[&str], compression: i32, q: u6
 /// The CZI hierarchy: the root, an image group per series with an array per level,
 /// and the tile arrays under `tiles`.
 pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
+    project_named(ir, facts, url, url)
+}
+
+/// The image of the CZI store run (spec/zarrify/czi.md §7.9
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#79-several-files>): as `project`,
+/// its references ranges of the files that hold the subblocks, its root naming the named file.
+pub fn project_set(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
+    let named = super::vsi::object_url(url, facts["named_key"].as_str().unwrap_or(""));
+    project_named(ir, facts, url, &named)
+}
+
+/// The hierarchy at the store or file URL `url`, whose root names the input `named`.
+fn project_named(ir: &Ir, facts: &J, url: &str, named: &str) -> Result<Out, String> {
     let values = &facts["values"];
     let images = arr(&facts["images"]);
     let tiles = arr(&facts["tiles"]);
     let mut out = Out::new(url);
     out.lazy.push(format!("{TILES}/"));
-    bioformats2raw(&mut out, "czi", url, facts["root"].clone(), images.len(), !images.is_empty());
+    bioformats2raw(&mut out, "czi", named, facts["root"].clone(), images.len(), !images.is_empty());
     let mut refs = Refs::new(ir, out);
     for (k, im) in images.iter().enumerate() {
         let axes = strs(&im["axes"]);
@@ -226,4 +254,9 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
         .collect();
     out.summary = json!({"subblocks": facts["subblocks"], "images": summary_images, "tiles": tiles.len()});
     Ok(out)
+}
+
+/// The projection of the profile's store run (`StoreFormat`; crate::store).
+pub fn store_project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
+    project_set(ir, facts, url)
 }

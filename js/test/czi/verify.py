@@ -53,6 +53,7 @@ FIXTURES = ROOT / "fixtures" / "czi"
 sys.path.insert(0, str(ROOT / "conformance" / "vzip"))
 sys.path.insert(0, str(ROOT / "conformance" / "zarrify"))
 from http_server import Server  # noqa: E402
+from revised_fixtures import REVISED  # noqa: E402
 
 import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store)
 from refkv._narrow import at, integer, mapping, ndarray, sequence  # noqa: E402
@@ -70,6 +71,8 @@ SERIES = "SBHIRV"
 TYPES = {0: ("u1", 1), 1: ("<u2", 1), 2: ("<f4", 1), 3: ("u1", 3), 4: ("<u2", 3), 8: ("<f4", 3), 9: ("u1", 4),
          10: ("<c8", 1), 11: ("<c8", 3), 12: ("<i4", 1), 13: ("<f8", 1)}
 LIBCZI_TYPES = {0, 1, 2, 3, 4}  # pixel types libCZI composites
+
+
 
 
 def run(impl: str, url: str, out: Path) -> subprocess.CompletedProcess:
@@ -624,6 +627,9 @@ def main(argv: list[str]) -> int:
         paths.append(tmp / "big" / "czi_big_bands.czi")
     failures = 0
     for path in paths:
+        if path.name in REVISED:  # the frozen reference rejects it: python/tests/ir/test_czi.py reads its pixels
+            print(f"{path.name:44s} skipped (conformance/zarrify/revised/czi.txt)")
+            continue
         server = Server(path.parent)
         out = tmp / f"{path.stem}.vzip"
         p = run(impl, server.base + path.name, out)

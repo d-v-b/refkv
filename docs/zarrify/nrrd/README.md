@@ -24,7 +24,8 @@ One OME-Zarr 0.5 image at the archive root, with one array, `0`.
 - **Chunks:** raw data as the file stores it, cut into equal runs of at most 128 KiB, as for
   NIfTI. Gzip data is **one chunk** of the whole array: a gzip stream has no index to cut it by,
   so the chunk references the whole stream and the `gzip` codec decompresses it. Nothing is
-  copied, but reading any value decompresses the whole volume.
+  copied, but reading any value decompresses the whole volume, and a stream of more than 2 GiB is
+  past a reader's default bytes per `get` ([refkv §6.7](../../../spec/refkv.md#67-reader-policy) rule 5): raise `max_get_bytes` to read it.
 - **Codecs:** `transpose` when the axes are stored in another order (a color axis fastest),
   `bytes` in the header's byte order, and `gzip` for gzip data.
 - **Scale and translation:** from `space directions` and `space origin` when the directions are
@@ -85,14 +86,15 @@ Supported:
 - Attached headers (`.nrrd`) and detached headers with one data file (`.nhdr`), magics
   `NRRD0001` to `NRRD0005`.
 - The raw and gzip encodings, either byte order, `line skip`, and `byte skip` (including −1 for
-  raw data at the end of its file).
+  raw data at the end of its file; with gzip data, of the decompressed bytes, by a `refkv.skip`
+  codec).
 
 Rejected, each with a message that says why:
 
 - The ascii (`text`, `txt`) and hex encodings: their values are text, which no chunk can
   reference as binary.
 - The bzip2 encoding: no Zarr codec that both of refkv's readers decode.
-- `byte skip` with gzip data (it skips decompressed bytes, which no Zarr codec does).
+- `byte skip: -1` with gzip data (it counts back from an end only decompressing can find).
 - Detached headers with several data files (`LIST`, or a `%d` pattern), a data file outside the
   header's directory, or one that is missing.
 - The `block` type, and axes OME-NGFF cannot place: one spatial axis or more than three, or two

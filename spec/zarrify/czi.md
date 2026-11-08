@@ -10,18 +10,7 @@ is the CZI profile, [Part 2](#part-2-the-profile) below, cited as
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `7a0733c7-d4be-4482-a64f-6904d9354ea5` ·
 Schema: [schema.json](czi/schema.json)
 
-Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
-[Layout](#layout) and its types in type tables
-([conventions §11.5](../conventions.md#115-layout-tables)), and the source's structures, the
-values read from the metadata XML, the codecs and the cases of a coded size are tables; the
-prose also states what refkv already wrote and it left unsaid: when the largest divisor band of
-a large uncompressed tile holds less than 2^20 bytes, its bands are short bands of the most rows
-within 2^24 bytes, and the level's or tile array's grid is rectilinear
-([§4.3](#43-image-arrays), [§4.4](#44-tiles)); and it drops the per-element arrays under
-`refkv_source` that the IR mirror replaced in
-[revision 21](../history/virtualize/REVISIONS.md#revision-21-the-ir-mirror-is-the-source-metadata-of-tiff-nd2-and-czi)
-([§7.5](#75-chunk-references)), and names the subblock segment `ZISRAWSUBBLOCK`
-([§5.3](#53-elements)).
+Changes: [changes/czi/](changes/czi/), one file per change.
 
 Changes before 2026-10-22 are recorded in
 [the revision log of VIRTUALIZE.md](../history/virtualize/REVISIONS.md), this document's earlier
@@ -157,10 +146,8 @@ The `ZISRAWFILE` segment's data starts with these 80 bytes (the rest of the 512 
 | 68–71 | `i32` UpdatePending |
 | 72–79 | `i64` AttachmentDirectoryPosition |
 
-Major MUST be 1. FilePart MUST be 0: a CZI whose image is
-split over several files (`name.czi`, `name(1).czi`, ...) is rejected, both
-here and wherever a directory entry or attachment entry names a FilePart
-other than 0, since a reference reaches one file only.
+Major MUST be 1. FilePart is 0 but in a part of an image split over several files
+(`name.czi`, `name(1).czi`, ...), which [§7.9](#79-several-files) reads, and which is not an input.
 
 A **GUID** is written as text in the 36-character form whose first three
 groups are the `u32`, `u16` and `u16` at its bytes 0–3, 4–5 and 6–7 read
@@ -180,7 +167,7 @@ or of any other schema, rejects the input):
 | 0–1 | `DV` |
 | 2–5 | `i32` PixelType ([§3.1](#31-pixel-types-and-codecs)) |
 | 6–13 | `i64` FilePosition, the subblock segment's offset |
-| 14–17 | `i32` FilePart (MUST be 0) |
+| 14–17 | `i32` FilePart ([§7.9](#79-several-files)) |
 | 18–21 | `i32` Compression ([§3.1](#31-pixel-types-and-codecs)) |
 | 22–27 | 6 spare bytes; byte 22 is the **pyramid type** (0 none, 1 single subblock, 2 multi subblock) |
 | 28–31 | `i32` DimensionCount `d` |
@@ -272,7 +259,7 @@ An entry of schema `A1` (bytes 0–1) is:
 | 0–1 | `A1` |
 | 2–11 | 10 spare bytes |
 | 12–19 | `i64` FilePosition |
-| 20–23 | `i32` FilePart (MUST be 0) |
+| 20–23 | `i32` FilePart ([§7.9](#79-several-files)) |
 | 24–39 | 16 bytes ContentGuid |
 | 40–47 | 8 bytes ContentFileType |
 | 48–127 | 80 bytes Name |
@@ -367,14 +354,42 @@ the data type, little-endian.
 | Compression | name | pixel types | codecs after `transpose` ([conventions §3](../conventions.md#3-arrays)) | sample order |
 |---|---|---|---|---|
 | 0 | uncompressed | all | `bytes` | B, G, R, A |
-| 1 | JpgFile | Gray8, Bgr24 | `imagecodecs_jpeg` | R, G, B |
+| 1 | JpgFile | Gray8, Gray16, Bgr24 | `imagecodecs_jpeg`; `imagecodecs_ljpeg` for a lossless stream | R, G, B |
+| 2 | LZW | all | `bytes`, `imagecodecs_lzw` | B, G, R, A |
+| 3 | lossless JPEG | Gray8, Gray16 | `imagecodecs_ljpeg` | |
 | 4 | JpgXr | Gray8, Gray16, Gray32Float, Bgr24, Bgr48, Bgr96Float, Bgra32 | `imagecodecs_jpegxr` | R, G, B, A |
 | 5 | Zstd0 | all | `bytes`, `zstd` | B, G, R, A |
 | 6 | Zstd1 | all | `bytes`, `zstd`; with hi-lo packing `bytes`, `numcodecs.shuffle`, `zstd` | B, G, R, A |
 
-Any other Compression (2 LZW, 3 lossless JPEG, 7 chunked-extensible, 100 to
-999 camera raw, 1000 and up system raw, and unknown values), and a listed
-Compression with a pixel type its row does not list, rejects the input.
+Any other Compression (7 chunked-extensible, 100 to 999 camera raw, 1000 and up
+system raw, and unknown values), and a listed Compression with a pixel type its
+row does not list, rejects the input. Raw data is a camera's or a system's own
+coding, which no codec of [conventions §3](../conventions.md#3-arrays) decodes.
+
+Compression 2 is LZW in Bio-Formats and czifile, and libCZI does not read it. Compression 3 is
+named by czifile alone, as "JPEG lossless (undocumented)", without a decoder; Bio-Formats and libCZI
+have no such value, so no reader checks what the profile does with it. So what these subblocks hold
+is decided from their streams
+([§3.2](#32-conforming-and-unplaced-subblocks)):
+
+- **LZW** is TIFF's ([tiff §4.3](tiff.md#43-data-types-and-codecs)), as both readers decode it: codes
+  packed most significant bit first, a property of the stream and not of any byte order. It decodes
+  to the bytes an uncompressed subblock holds, little-endian and in stored sample order, as
+  Bio-Formats' own decoder reads them. No CZI writer is known to run on past a subblock, so the stock
+  codec fits, and not `refkv.tiff_lzw`.
+- **Lossless JPEG** has no color transform, so its components are in the order its writer gave them,
+  which nothing states. The profile would have to guess which channel is which, so Bgr24 and Bgr48
+  are rejected.
+- **JPEG with Gray16** can't hold 16-bit samples in its DCT process, which stops at 12 bits. No
+  document or public file says what a writer puts there, so the frame header decides:
+
+  | stream | what it reads as | layout |
+  |---|---|---|
+  | lossless (SOF3) | `uint16`, in Bio-Formats and czifile alike | `imagecodecs_ljpeg`, as under Compression 3; so too for Gray8 |
+  | DCT, 12-bit samples | `uint16` with its values as coded, in czifile; Bio-Formats does not read it | `imagecodecs_jpeg` |
+  | DCT, 8-bit samples | values from 0 to 255: `imagecodecs_jpeg` gives them, with no message, in an array that says it has 16 bits, and czifile gives `uint8`; Bio-Formats does not read it | none: it has no faithful `uint16` form, so it has no coded size |
+
+  Bgr48 stays rejected, as no reader has been checked on 12-bit color.
 
 Each codec's JSON form, exactly:
 
@@ -383,6 +398,8 @@ Each codec's JSON form, exactly:
 | `bytes` | `{"name": "bytes", "configuration": {"endian": "little"}}`, and `{"name": "bytes"}` (no configuration) for the 1-byte types `uint8` ([conventions §3](../conventions.md#3-arrays)) | |
 | `zstd` | `{"name": "zstd", "configuration": {"level": 0, "checksum": false}}` | the zarr-extensions `zstd` codec; level 0 is the encoder's default and does not affect decoding |
 | `imagecodecs_jpeg` | that of [conventions §3](../conventions.md#3-arrays) | one complete JPEG stream |
+| `imagecodecs_ljpeg` | that of [conventions §3](../conventions.md#3-arrays) | one complete lossless JPEG stream |
+| `imagecodecs_lzw` | that of [conventions §3](../conventions.md#3-arrays) | one complete LZW stream, decoding to the bytes `bytes` reads |
 | `imagecodecs_jpegxr` | `{"name": "imagecodecs_jpegxr"}`, with no configuration | an array-to-bytes codec, each chunk one JPEG XR file (ITU-T T.832 with its TIFF-like container, as the subblock holds it), decoding as `imagecodecs.jpegxr_decode` (jxrlib) does to `[y, x]`, or to `[y, x, c]` with the samples in the order jxrlib gives them (R, G, B, and A for `Bgra32`), after which `transpose` applies. Its encoded form is jxrlib's, so it needs nothing beyond the chunk's shape and data type. It is not in the zarr-extensions registry; imagecodecs-zarr provides it to zarr-python (refkv's `images` extra installs it), and its registration and a Neuroglancer decoder are a follow-up ([design/plans/czi.md §7](../../design/plans/czi.md#7-decisions-on-the-open-questions)) |
 | `numcodecs.shuffle` | `{"name": "numcodecs.shuffle", "configuration": {"elementsize": 2}}` | a bytes-to-bytes codec: numcodecs' `Shuffle` with element size 2, as zarr-python 3 names it (`zarr.codecs.numcodecs.Shuffle`). Its encoded bytes are byte 0 of every 2-byte element, then byte 1 of every element |
 
@@ -395,7 +412,7 @@ would replace the `numcodecs.` name; that is a follow-up,
 [design/plans/czi.md §7](../../design/plans/czi.md#7-decisions-on-the-open-questions).)
 
 **Sample order.** The `c` samples of a pixel are in the order the codec gives them: as
-stored (B, G, R, A) for uncompressed and Zstd data, and R, G, B (A) for JPEG and JPEG XR,
+stored (B, G, R, A) for uncompressed, LZW and Zstd data, and R, G, B (A) for JPEG and JPEG XR,
 which decode to RGB. Transpose reorders axes, not indices, so the order is kept, and named in
 `omero` ([§4.3](#43-image-arrays)).
 
@@ -407,14 +424,16 @@ subblock's data is the zstd frame.
 ### 3.2 Conforming and unplaced subblocks
 
 A subblock's **coded size** is the width and height its data holds, and its
-**codec form** is its PixelType, Compression and, for Zstd1, its hi-lo flag. Its coded size,
-by its Compression (`W`, `H` its stored width and height):
+**codec form** is its PixelType, Compression, for Zstd1 its hi-lo flag, and for JpgFile whether its
+stream is lossless. Its coded size, by its Compression (`W`, `H` its stored width and height):
 
 | Compression | coded size | when |
 |---|---|---|
 | uncompressed | its stored size | `n ≥ W × H × q`; the first `W × H × q` bytes are its pixels and the rest, if any, its **trailing bytes** |
 | Zstd0, Zstd1 | its stored size | its Zstd1 header (for Zstd1) is one of those of [§3.1](#31-pixel-types-and-codecs), hi-lo packing is only on Gray16 and Bgr48, and its zstd frame header declares a content size of `W × H × q` bytes and no dictionary ([the profile §7.4](#74-codec-headers)) |
-| JpgFile | the width and height of its JPEG frame header | SOF0, SOF1 or SOF2, 8-bit samples, `p` components |
+| JpgFile | the width and height of its JPEG frame header | SOF0, SOF1 or SOF2, `p` components, samples of 12 bits for Gray16 and of 8 bits otherwise; or, for Gray8 and Gray16, what lossless JPEG's row says |
+| LZW | its stored size | its stream starts with the Clear code ([the profile §7.4](#74-codec-headers)) |
+| lossless JPEG | the width and height of its JPEG frame header | SOF3, `p` components, samples of 2 to 8 bits for Gray8 and of 9 to 16 bits for Gray16 |
 | JpgXr | the `ImageWidth` and `ImageHeight` of its JPEG XR container | its `PixelFormat` is one this subblock's pixel type admits (the profile [§7.4](#74-codec-headers)) |
 
 A subblock is **unplaced** when its copy of its entry does not agree ([§2.4](#24-subblocks)),
@@ -423,7 +442,7 @@ codec header cannot be read or does not match). An unplaced subblock is in
 no image and is no tile: its data is kept as bytes ([§5.3](#53-elements)). Every other
 subblock is **placed**, and **conforming** when its coded size is its stored
 size. (Some writers store a pyramid edge tile of `ceil(N/2)` pixels in the
-directory but encode `floor(N/2)`; such a JPEG or JPEG XR subblock is placed
+directory but encode `floor(N/2)`; such a JPEG, lossless JPEG or JPEG XR subblock is placed
 but not conforming, and becomes a tile of its coded size, [§4.4](#44-tiles).)
 
 ### 3.3 Series
@@ -690,7 +709,7 @@ and row `j`, is the chunk at `t − lo_t`, `c − lo_c`, `z − lo_z` (each for
 its axis), `j`, `i'` (or its bands), a [`CziChunk`](#type-czichunk). The chunk holds the subblock's pixels
 as its codec form codes them: the first `W × H × q` bytes of its data for
 uncompressed (or a band's rows of them), the zstd frame after its Zstd1
-header, the JPEG stream, or the JPEG XR file, each being its whole data
+header, the LZW or JPEG stream, or the JPEG XR file, each being its whole data
 otherwise. Cells without a subblock have no chunk.
 
 ### 4.4 Tiles
@@ -789,6 +808,7 @@ scan has 1000 tile arrays, not 200000.)
 | `file_guid` | string | required | FileGuid, likewise |
 | `file_part` | integer | required | `0` |
 | `update_pending` | integer | required | UpdatePending |
+| `parts` | array of string | when the input is read as a store ([§7.9](#79-several-files)) | the key of each part, in order |
 
 Everything else is on `refkv_source`.
 
@@ -1026,9 +1046,16 @@ output may depend on ([spec/zarrify.md §1.2](../zarrify.md#12-input), structure
   bytes. The first `M` in `C0`–`CF` other than `C4`, `C8` and `CC` is the
   frame header: precision (1 byte), height and width (2 bytes each,
   big-endian) and the component count (1 byte). There is a coded size when
-  `M` is `C0`, `C1` or `C2`, the precision is 8, the height and width are at
-  least 1 and the component count is the pixel type's `p`; a start of scan
+  the height and width are at least 1, the component count is the pixel
+  type's `p`, and, for JpgFile, `M` is `C0`, `C1` or `C2` and the precision is
+  12 for Gray16 and 8 otherwise, or, for lossless JPEG and for JpgFile with
+  Gray8 or Gray16, `M` is `C3` and the precision is 2 to 8 for Gray8 and 9 to
+  16 for Gray16. A start of scan
   (`DA`) or end of image (`D9`) before the frame header gives none.
+- **LZW:** `D[0]` is `80` and the top bit of `D[1]` is clear, so that its first
+  code, of 9 bits, most significant bit first, is 256, Clear. Anything else, as
+  the other bit order some old TIFF writers used, gives no coded size. The
+  stream's decoded size is not stated anywhere short of decoding it.
 - **JPEG XR:** `D` starts with `49 49 BC 01`; the `u32` at byte 4 is the
   offset of the image directory: a `u16` count `e` and `e` entries of 12
   bytes (`u16` tag, `u16` type, `u32` count, `u32` value or offset). Of the
@@ -1065,7 +1092,7 @@ and is `n` bytes, of stored width `W` and height `H`: one range, by its codec fo
 | a band, uncompressed | source range `(0, P + k × b × W × q, min(b, H − k × b) × W × q)` | optional | with row bands of `b` rows ([the convention §4.3](#43-image-arrays)): band `k` of its rows, `b` rows but for the last band of short bands, which has `H − k × b` |
 | the zstd frame, Zstd0 | source range `(0, P, n)` | optional | for a Zstd0 subblock |
 | the zstd frame, Zstd1 | source range `(0, P + l, n − l)` | optional | for a Zstd1 subblock, `l` its header length |
-| the JPEG stream or JPEG XR file | source range `(0, P, n)` | optional | for a JPEG or JPEG XR subblock |
+| the LZW or JPEG stream or JPEG XR file | source range `(0, P, n)` | optional | for an LZW, JPEG, lossless JPEG or JPEG XR subblock |
 
 The references by kind:
 
@@ -1082,12 +1109,13 @@ The references by kind:
 
 ### 7.6 Equivalence notes
 
-The hi-lo flag, Zstd frame content size, JPEG frame header and JPEG XR
-directory decide whether a subblock is placed, so two producers read them
+The hi-lo flag, Zstd frame content size, JPEG frame header, first LZW code and
+JPEG XR directory decide whether a subblock is placed, so two producers read them
 alike, and only them: a producer MUST NOT decompress a subblock to decide
 anything (structure only). A zstd stream that, after a valid frame header,
 holds more than one frame or trailing bytes is placed all the same, and
-fails when a reader decodes it; a writer of such files is not known.
+fails when a reader decodes it; a writer of such files is not known. So is an
+LZW stream that does not decode to exactly `W × H × q` bytes.
 
 ### 7.7 Reading the output
 
@@ -1103,14 +1131,15 @@ The layout uses two things that are not in every Zarr reader:
   the last column and `H'` high in the last row; with row bands, it holds the
   band of column `i` that [§4.3](#43-image-arrays) numbers `j`, of the band's height
   (refkv's verifier, `js/test/czi/verify.py`, checks both ways).
-- **Codecs.** `imagecodecs_jpegxr` (JPEG XR subblocks) and
-  `numcodecs.shuffle` (Zstd1 with hi-lo packing) are not in the
-  zarr-extensions registry, nor in the Neuroglancer fork refkv's viewer uses.
-  zarr-python 3 has `numcodecs.shuffle`; imagecodecs-zarr (refkv's `images`
-  extra) has `imagecodecs_jpegxr`. Files with these codecs are accepted, not
-  rejected: their chunks are the subblocks' bytes, so the archive is
-  complete whatever a reader supports. Their registration, and decoders in
-  the Neuroglancer fork, are a follow-up.
+- **Codecs.** `imagecodecs_jpegxr` (JPEG XR subblocks), `imagecodecs_lzw`,
+  `imagecodecs_ljpeg` and `numcodecs.shuffle` (Zstd1 with hi-lo packing) are not
+  in the zarr-extensions registry. zarr-python 3 has `numcodecs.shuffle`;
+  imagecodecs-zarr (refkv's `images` extra) has the others. The Neuroglancer
+  fork refkv's viewer uses decodes them all, and `imagecodecs_jpeg` for `uint8`
+  alone, so it refuses a Gray16 array of 12-bit JPEG. Files with these codecs
+  are accepted, not rejected: their chunks are the subblocks' bytes, so the
+  archive is complete whatever a reader supports. Their registration is a
+  follow-up.
 
 ### 7.8 Measured cost
 
@@ -1123,3 +1152,78 @@ reads of up to 1 MiB), plus the metadata XML and the attachment headers:
 requests for a 5.9 MB line scan of 3575 subblocks. The archives are 29 KB
 to 1.7 MB; no document exceeds 1.9 KB. Details per file are in
 `spec/history/virtualize/REVISIONS.md` (revision 18).
+
+### 7.9 Several files
+
+An image may lie in several files, `name.czi` (the **master**) and `name(1).czi`, `name(2).czi`, ...
+(its **parts**). The format records neither the files' names nor how many there are, and a writer
+may say which part a file is in more than one way. The rules are those of
+[spec/zarrify.md §1.9](../zarrify.md#19-sources-beside-the-input), and this is the profile's sibling
+table:
+
+| what | it says |
+|---|---|
+| form | on demand. A file whose bytes call for no part is a file input with a file IR, whose output has no `parts` |
+| names | derived: for part `p` of `<base>.czi`, `<base>(<p>).czi`, then `<base> (<p>).czi` when that is absent. A key not ending in `.czi` (in any case) is all `<base>`, and its parts' keys end in `.czi` |
+| probes | one key at a time, from `p` = 1, each spelling in turn. Up to the highest part an entry of the master names, each required: `the file "<key>" does not exist`, the key in its first spelling. Past that, only while the file is **short** (below), ending at the first absent part, or when it no longer is. A file that is not short and names no part costs no probe |
+| identity | either the file's PrimaryFileGuid is the master's FileGuid and its FilePart is `p`, or it is **its own primary**, PrimaryFileGuid its own FileGuid and FilePart 0, with at least one `A1` attachment entry, all of them naming FilePart `p`, and with the `Name` and the `CreationDate` of the XML's `Information/Document` the master's, each where both have it. Else: `the file "<key>" is not part of this image` |
+| order | first use |
+| reads and mirror | each file as [§7.2](#72-structures-and-the-walk) reads a file, one after the other, and the mirror describes each in place at its key, under its object as a file IR describes the file ([§5.3](#53-elements)), the master's XML alone giving the image's values ([§2.7](#27-the-metadata-xml)) |
+
+**Short.** A file is short when its directory has fewer planes or tiles than its metadata XML says
+the image has, which reads `Information/Image`'s `SizeC`, `SizeZ`, `SizeT`, `SizeS`, `SizeB`,
+`SizeH`, `SizeI`, `SizeR`, `SizeV` and `SizeM`, the first of each. Of the entries with an X and a Y
+whose Size is their StoredSize (a pyramid's are not):
+
+- its **planes** are the distinct values of the Starts of the letters other than M whose size the XML
+  gives (0 for an entry without the letter), of which it says the product of those sizes;
+- its **tiles** are the distinct Starts of M, of which it says `SizeM`.
+
+XML that gives neither says nothing, and no such file is short, whatever is missing. The entries of
+the master and of the parts read so far all count. On the 24 files of the public corpus
+(`conformance/zarrify/corpus_czi.txt`) the one file this finds short is the master of a set of four,
+`Image_1_2023_08_18__14_32_31_964.czi` of [Zenodo record 19047136](https://zenodo.org/records/19047136),
+whose XML gives `SizeM` 4 and whose directory has M 0.
+
+A file short of planes with no parts, such as an acquisition that stopped early, is therefore
+probed for part 1 in both spellings, and is a file read as a store whose only object is the named
+file, with an empty `parts`: its image is the same, its source a `url` source, and its mirror a store
+IR.
+
+**Entries.** A directory entry of the master naming FilePart `p`, above 0, is of a subblock in part
+`p`, at its FilePosition there; entry `i`'s other checks ([§2.3](#23-the-subblock-directory)) are
+made in the master. A part's own directory, when its SubBlockDirectoryPosition is not 0, has entries
+of that part: a FilePart of 0 there means the part, since the field may be reserved, and any other but
+`p` is rejected, `directory entry <i> is in FilePart <n>`, as a negative one is anywhere. A subblock
+the master and the part both name is described once, the second name an alias, and placed once. A
+subblock's copy of its entry agrees ([§3.2](#32-conforming-and-unplaced-subblocks)) with an entry of a
+part or of the master naming it, whatever FilePart each names.
+
+A part with no directory has as its entries those the master names and, when it names none there or
+the file is still short, the subblocks a walk ([§7.2](#72-structures-and-the-walk), step 6) finds, one
+read of 1 KiB a segment: each `ZISRAWSUBBLOCK` segment of at least 256 bytes that no entry of the master
+names, its copy of its entry taken as the entry and held to the same checks. A
+`ZISRAWSUBBLOCK` segment in a file with a directory that no entry names is not placed, as in a file
+input.
+
+**Attachments.** An `A1` entry's FilePart has the same meaning in a part as a directory entry's. In a
+file with attachment entries that name other parts, each such attachment is not read, the part it
+names is required, and that part's walk describes the segment. A file whose `A1` entries, at least one,
+all name one part `p`, above 0, is that part, as ZEN's Lightsheet writes, even when its file header's
+FilePart is 0.
+
+**Placement.** The subblocks of all the files are placed as one image's
+([§3](#3-placement)), in the order of the master's entries, then each part's in turn, those the
+master named first. The hierarchy's `source.url` is the named file's object URL
+([conventions §2](../conventions.md#2-attributes)), and the root's `parts`
+([§5.1](#51-the-root)) lists every part's key, in order.
+
+**The input.** A file with a FilePart other than 0, or whose attachment entries say it is a part, is
+rejected as an input, its message naming the master from its own name:
+`name(1).czi is part 1 of the file name.czi: zarrify that one`. When its name has no number in
+parentheses the message says `of another file`. A negative FilePart is rejected: `FilePart -1 is
+negative`.
+
+**Bounds.** An entry naming a part above 2^16 is rejected before anything is probed: `budget: the
+input names more than 65536 files`. A part with no directory stops being walked at the limit of
+[§7.3](#73-rejection).

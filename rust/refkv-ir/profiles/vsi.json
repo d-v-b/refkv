@@ -4,6 +4,7 @@
   "uuid": "c0a1d4e6-5b7f-4f3a-9c2d-8e1f6a7b3c45",
   "version": 0,
   "kind": "file",
+  "store_run": {"form": "always", "named": ".vsi file", "section": "9-vsi-profile"},
   "sniff": 30,
   "chosen_by": null,
   "suffixes": [
@@ -11,6 +12,6 @@
   ],
   "reference": null,
   "source": "Olympus VSI",
-  "inputs": "Olympus cellSens VSI slides: a `.vsi` file and the tile files beside it, probed by key (uncompressed, JPEG, JPEG 2000 and lossless JPEG tiles)",
+  "inputs": "Olympus cellSens VSI slides: a `.vsi` file and the tile files beside it, probed by key (uncompressed, JPEG, JPEG 2000, lossless JPEG, PNG and BMP tiles)",
   "for": "Olympus cellSens whole-slide images (`.vsi` with its tile files)"
 }

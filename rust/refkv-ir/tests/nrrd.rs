@@ -40,7 +40,7 @@ fn run_files(key: &str, mut files: BTreeMap<String, Vec<u8>>) -> Result<Ran, Str
         }
     }
     let (ir, facts, stats) = run.finish()?;
-    let out = refkv_ir::store::store_output(StoreFormat::Nrrd, &ir, &facts, stats, "https://example.org/nrrd/", true)?;
+    let out = refkv_ir::store::store_output(StoreFormat::Nrrd, &ir, &facts, stats, "https://example.org/nrrd/", true, false)?;
     let objects: std::collections::HashSet<String> = ir.sources().objects.iter().map(|&o| ir.key(o)).collect();
     files.retain(|k, _| objects.contains(k));
     Ok((out, ir, files))
@@ -147,7 +147,7 @@ fn accepted_inputs_are_valid_store_irs_whose_mirrors_rebuild_their_files() {
         assert_eq!(files.len(), if name.ends_with(".nhdr") { 2 } else { 1 }, "{name}");
         n += 1;
     }
-    assert_eq!(n, 40);
+    assert_eq!(n, 41);
 }
 
 /// An axis-aligned orientation is applied: the scales are the directions' diagonal, the

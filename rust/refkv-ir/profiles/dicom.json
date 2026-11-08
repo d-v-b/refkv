@@ -4,6 +4,7 @@
   "uuid": "acf17198-e5a5-48d3-8187-22ec4bb40ea5",
   "version": 0,
   "kind": "file",
+  "store_run": null,
   "sniff": 10,
   "chosen_by": null,
   "suffixes": [
@@ -11,6 +12,6 @@
   ],
   "reference": 25,
   "source": "DICOM",
-  "inputs": "DICOM Part 10 files with native, JPEG, lossless JPEG or JPEG 2000 pixel data, including whole-slide images",
+  "inputs": "DICOM Part 10 files with native, JPEG, lossless JPEG, JPEG-LS, RLE, JPEG 2000 or HTJ2K pixel data, including whole-slide images",
   "for": "DICOM files, including whole-slide images"
 }

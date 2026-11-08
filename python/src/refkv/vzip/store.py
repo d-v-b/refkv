@@ -27,7 +27,7 @@ from refkv.errors import (
 )
 from refkv.pb import Page, Pinned, Reference, decode_cd_index
 from refkv.policy import Policy
-from refkv.reader import DEFAULT_CONCURRENCY, Kind, ReferenceReader, Registry, Request, Stats, _abs_range
+from refkv.reader import DEFAULT_CONCURRENCY, Found, Kind, ReferenceReader, Registry, Request, Stats, _abs_range
 from refkv.vzip.archive import (
     INDEX_KEY,
     LFH_SIZE,
@@ -144,6 +144,8 @@ class VZipStore(ReferenceReader):
         self.is_vzip = False
         self._buf, self._buf_start = b"", 0  # bytes fetched while opening
         self._key_cache: dict[str, bytes] = {}  # values of hidden entries used by key ranges
+        # each value being read whole for key ranges, by loop: read once, however many ranges wait
+        self._key_loading: dict[tuple[asyncio.AbstractEventLoop, str], asyncio.Task[bytes]] = {}
         self._cd_offset = 0
         self._pages: list[Page] = []  # CdIndex pages, when the archive has one
         self._page_keys: list[str] = []
@@ -378,6 +380,26 @@ class VZipStore(ReferenceReader):
         return await self._entry_bytes(e, start, end)
 
     @override
+    async def _key_found(self, key: str) -> Found | None:
+        """The entry `_key_bytes` reads whole to read a range of it (a hidden or a DEFLATE entry,
+        cached or not), the bytes it reads to hold it its stored bytes when they are more; else
+        None: a STORED entry is range-read, and an entry it refuses is refused when it is read. A
+        failed lookup raises: what the entry takes is unknown."""
+        await self._lookup(key)
+        e = self._entries.get(key)
+        if e is None or key in (SOURCES_KEY, INDEX_KEY) or e.error or e.is_ref \
+                or (not key.startswith(RESERVED_PREFIX) and e.method == 0):
+            return None
+        return Found(e.size, max(e.size, e.csize), lambda a, b: self._key_bytes(key, a, b))
+
+    def _key_loaded(self, loop: asyncio.AbstractEventLoop, key: str, task: asyncio.Task[bytes]) -> None:
+        """Keep a value read whole for key ranges, even when every range waiting on it was
+        cancelled, before any later range can start another read."""
+        self._key_loading.pop((loop, key), None)
+        if not task.cancelled() and task.exception() is None:
+            self._key_cache.setdefault(key, task.result())
+
+    @override
     async def _key_bytes(self, key: str, start: int, end: int) -> bytes:
         """Bytes [start, end) of another entry's value (a `key` source, spec §5
         <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>).
@@ -400,7 +422,13 @@ class VZipStore(ReferenceReader):
                 raise ResolutionError(f"key source {key!r} is shorter than {end} bytes")
             if not key.startswith(RESERVED_PREFIX) and e.method == 0:
                 return await self._body(e, start, end)
-            self._key_cache[key] = await self._body(e, 0, e.size)
+            loop = asyncio.get_running_loop()
+            loading = self._key_loading.get((loop, key))
+            if loading is None:
+                loading = self._key_loading[(loop, key)] = loop.create_task(self._body(e, 0, e.size))
+                loading.add_done_callback(lambda t: self._key_loaded(loop, key, t))
+            # the task may have finished before `_key_loaded` ran: keep its value here too
+            self._key_cache.setdefault(key, await asyncio.shield(loading))
         data = self._key_cache[key]
         if end > len(data):
             raise ResolutionError(f"key source {key!r} is shorter than {end} bytes")
@@ -448,6 +476,20 @@ class VZipStore(ReferenceReader):
             return await self._ref_bytes(ref, start, end)
         start, end = _abs_range(e.size, request)
         return await self._body(e, start, end)
+
+    @override
+    async def _value_size(self, key: str) -> int | None:
+        await self._ensure_open()
+        kind = await self.classify_async(key)
+        if kind == "missing":
+            return None
+        e = self._entries[key]
+        if kind == "bytes":
+            return e.size
+        try:
+            return cast("Reference", e.ref).size
+        except ValueError as exc:
+            raise PayloadError(f"{key!r}: {exc}") from None
 
     @override
     async def raw_async(self, key: str) -> bytes | None:

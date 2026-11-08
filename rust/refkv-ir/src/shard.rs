@@ -196,14 +196,19 @@ pub fn apply_all(out: &mut Out, merge: bool) -> Result<(), String> {
     for (path, shard) in requests {
         apply(out, &path, &shard, merge)?;
     }
+    let references = out.refs.len();
     if let Some(m) = out.summary.as_object_mut() {
         m.insert("joinRanges".into(), merge.into());
+        // a projection counted its inner chunks: the keys are the shards
+        if m.contains_key("references") {
+            m.insert("references".into(), references.into());
+        }
     }
     Ok(())
 }
 
-/// Fails when `out` asks for shards: a store run's hosts do not pass whether they record
-/// checksums, so a store profile cannot shard until they do.
+/// Fails when `out` asks for shards: no store profile's convention shards its arrays, so a
+/// request is a projection's mistake.
 pub fn refuse(out: &Out) -> Result<(), String> {
     match out.shards.first() {
         Some((path, _)) => Err(format!("internal: {path} asks to be sharded, which a store run does not do")),
@@ -267,6 +272,19 @@ mod tests {
         }
     }
 
+    #[test]
+    fn the_summary_counts_the_shards_a_projection_counted_as_inner_chunks() {
+        let mut out = Out::new("u");
+        out.json("a/zarr.json", &doc(&[4], &[1]));
+        for k in 0..4 {
+            out.refs(&format!("a/c/{k}"), vec![Part::Src(k, 1)]);
+        }
+        out.summary = json!({"references": 4});
+        out.shard("a", &[4]);
+        apply_all(&mut out, true).unwrap();
+        assert_eq!(out.summary["references"], 1);
+    }
+
     /// An output with the array `a` of `doc`'s grid and the chunk references `keys`, its shards
     /// of `shard` inner chunks applied.
     fn sharded(doc: J, keys: &[&str], shard: &[u64]) -> Result<(), String> {
@@ -281,6 +299,16 @@ mod tests {
 
     fn doc(shape: &[u64], chunks: &[u64]) -> J {
         array_json(shape, "uint8", json!(chunks), json!([{"name": "bytes"}]), &["y", "x"][2 - shape.len()..])
+    }
+
+    /// The worst a TIFF's shard of compressed strips can be (spec/zarrify/tiff.md §4.5
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>): 2^10 strips all
+    /// apart, at offsets and of lengths as large as a file can give, and an LZW tail.
+    #[test]
+    fn a_shard_of_1024_ranges_apart_fits_a_payload() {
+        let mut chunks: Vec<_> = (0..1024u64).map(|k| Some(vec![Part::Src((1 << 52) + 2 * k * (1 << 40), 1 << 40)])).collect();
+        chunks[1023] = Some(vec![Part::Src(1 << 52, 1 << 40), Part::Lit(vec![0; 8192])]);
+        assert!(payload_size(&shard_parts(&chunks, true)) <= MAX_PAYLOAD);
     }
 
     #[test]

@@ -49,7 +49,7 @@ fn run(path: &Path) -> Result<(Out, Ir, BTreeMap<String, Vec<u8>>), String> {
         }
     }
     let (ir, facts, stats) = run.finish()?;
-    let out = refkv_ir::store::store_output(StoreFormat::Vsi, &ir, &facts, stats, "https://example.org/slides/", true)?;
+    let out = refkv_ir::store::store_output(StoreFormat::Vsi, &ir, &facts, stats, "https://example.org/slides/", true, false)?;
     // the files of the input: those the run made objects (a second tile file name found beside
     // the first is neither read nor an object)
     let objects: std::collections::HashSet<String> = ir.sources().objects.iter().map(|&o| ir.key(o)).collect();
@@ -125,7 +125,7 @@ fn accepted_slides_are_valid_store_irs_whose_mirrors_rebuild_their_files() {
         assert_eq!(out.summary["format"], "vsi");
         n += 1;
     }
-    assert_eq!(n, 9);
+    assert_eq!(n, 25);
 }
 
 /// The brightfield-like fixture: its images (two JPEG pyramids, a focus map from an IFD, the
@@ -286,6 +286,106 @@ fn a_listing_of_more_than_the_vsi_file_is_refused() {
     assert!(r.err().unwrap().starts_with("a VSI run starts from the .vsi file alone"));
     let r = StoreRun::new(StoreFormat::Vsi, vec![("a.tif".into(), 100)], 1);
     assert!(r.err().unwrap().contains("is not the name of a .vsi file"));
+}
+
+/// PNG and BMP tiles are chunks of imagecodecs-zarr's codecs of those names (spec/zarrify/vsi.md
+/// §4.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#41-the-pyramid>), and each
+/// chunk is one tile, its samples named R, G, B whatever `component_order` says.
+#[test]
+fn png_and_bmp_tiles_are_chunks_of_their_imagecodecs_codecs() {
+    let transpose = serde_json::json!({"name": "transpose", "configuration": {"order": [1, 2, 0]}});
+    for (file, k, codecs, shape, chunk) in [
+        ("vsi_png.vsi", 0, serde_json::json!([transpose, {"name": "imagecodecs_png"}]), [3, 100, 150], [3, 64, 64]),
+        ("vsi_png.vsi", 2, serde_json::json!([transpose, {"name": "imagecodecs_png"}]), [4, 24, 40], [4, 16, 16]),
+        ("vsi_bmp.vsi", 0, serde_json::json!([transpose, {"name": "imagecodecs_bmp"}]), [3, 50, 70], [3, 20, 30]),
+    ] {
+        let (out, _, _) = run(&fixtures().join(file)).unwrap();
+        let get = entry(&out);
+        let doc = |key: &str| -> serde_json::Value { serde_json::from_slice(&get(key).unwrap()).unwrap() };
+        let a = doc(&format!("{k}/0/zarr.json"));
+        assert_eq!(a["codecs"], codecs, "{file} {k}");
+        assert_eq!(a["shape"], serde_json::json!(shape), "{file} {k}");
+        assert_eq!(a["chunk_grid"]["configuration"]["chunk_shape"], serde_json::json!(chunk), "{file} {k}");
+        let group = doc(&format!("{k}/zarr.json"));
+        assert_eq!(group["attributes"]["ome"]["omero"]["channels"][0]["label"], "R", "{file} {k}");
+        assert!(out.refs.iter().any(|r| r.0 == format!("{k}/0/c/0/0/0") && matches!(r.1.as_slice(), [Part::Obj(_, _, _)])), "{file} {k}");
+    }
+    // one sample: no transpose
+    for (file, k, name) in [("vsi_png.vsi", 1, "imagecodecs_png"), ("vsi_bmp.vsi", 1, "imagecodecs_bmp")] {
+        let (out, _, _) = run(&fixtures().join(file)).unwrap();
+        let a: serde_json::Value = serde_json::from_slice(&entry(&out)(&format!("{k}/0/zarr.json")).unwrap()).unwrap();
+        assert_eq!(a["codecs"], serde_json::json!([{"name": name}]), "{file} {k}");
+    }
+}
+
+/// A slide's IFD images the layout cannot present are left out, each recorded with its reason
+/// (spec/zarrify/vsi.md §4.4
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#44-ifd-images-that-are-not-presented>),
+/// and its pyramid is presented: its one image, `s`, at `0`.
+fn assert_left_out(file: &str, recorded: serde_json::Value) {
+    let (out, _, _) = run(&fixtures().join(file)).unwrap_or_else(|m| panic!("{file}: {m}"));
+    let get = entry(&out);
+    let doc = |k: &str| -> serde_json::Value { serde_json::from_slice(&get(k).unwrap_or_else(|| panic!("{file}: no {k}"))).unwrap() };
+    assert_eq!(doc("zarr.json")["attributes"]["refkv_zarrified"]["vsi"]["not_presented"], recorded, "{file}");
+    assert_eq!(out.summary["notPresented"], recorded.as_array().unwrap().len(), "{file}");
+    assert_eq!(doc("OME/zarr.json")["attributes"]["ome"]["series"], serde_json::json!(["0"]), "{file}");
+    assert_eq!(doc("0/zarr.json")["attributes"]["ome"]["multiscales"][0]["name"], "s", "{file}");
+    assert_eq!(doc("0/0/zarr.json")["shape"], serde_json::json!([16, 24]), "{file}");
+    assert!(get("1/zarr.json").is_none(), "{file}");
+}
+
+macro_rules! left_out_macro {
+    ($name:ident, $file:expr, $ifd:expr, $reason:expr) => {
+        #[test]
+        fn $name() {
+            assert_left_out($file, serde_json::json!([{"id": null, "name": "macro image", "ifd": $ifd, "reason": $reason}]));
+        }
+    };
+}
+
+left_out_macro!(a_macro_image_of_no_pixels_is_left_out, "vsi_left_out_macro_size.vsi", 0, "IFD 0 (macro image) is 0 × 8");
+left_out_macro!(a_macro_image_of_another_compression_is_left_out, "vsi_left_out_macro_compression.vsi", 0, "IFD 0 (macro image) has compression 5");
+left_out_macro!(a_macro_image_of_other_samples_is_left_out, "vsi_left_out_macro_samples.vsi", 0, "IFD 0 (macro image) has 2 samples per pixel");
+left_out_macro!(a_macro_image_of_other_bits_is_left_out, "vsi_left_out_macro_bits.vsi", 0, "IFD 0 (macro image) has 16 bits per sample");
+left_out_macro!(a_planar_macro_image_is_left_out, "vsi_left_out_macro_planar.vsi", 0, "IFD 0 (macro image) has PlanarConfiguration 2");
+left_out_macro!(a_macro_image_of_another_sample_format_is_left_out, "vsi_left_out_macro_format.vsi", 0, "IFD 0 (macro image) has SampleFormat 3");
+left_out_macro!(a_jpeg_macro_image_of_two_strips_is_left_out, "vsi_left_out_macro_strips.vsi", 0, "IFD 0 (macro image) has 2 strips");
+left_out_macro!(a_macro_image_with_strips_and_tiles_is_left_out, "vsi_left_out_macro_strips_and_tiles.vsi", 0, "IFD 0 (macro image) has both strips and tiles");
+left_out_macro!(a_macro_image_too_long_for_a_reference_is_left_out, "vsi_left_out_macro_reference.vsi", 0, "IFD 0 (macro image): its strips do not fit in a reference of 65519 bytes");
+left_out_macro!(a_macro_image_whose_strip_is_outside_the_file_is_left_out, "vsi_left_out_macro_strip_outside.vsi", 0, "IFD 0 (macro image): a strip (266 bytes at 2482) is outside the 2492-byte .vsi file");
+left_out_macro!(a_macro_image_the_chain_lacks_is_left_out, "vsi_left_out_macro_no_ifd.vsi", 9, "macro image: the .vsi file has no IFD 9");
+left_out_macro!(a_macro_image_outside_the_tree_is_left_out, "vsi_left_out_macro_outside_the_tree.vsi", 0, "IFD 0 (macro image) is not inside the metadata tree");
+
+#[test]
+fn a_stacks_ifd_image_is_left_out_as_the_macro_image_is_in_the_order_of_the_images() {
+    assert_left_out(
+        "vsi_left_out_stack_and_macro.vsi",
+        serde_json::json!([
+            {"id": 10003, "name": "20x FocusMap", "ifd": 2, "reason": "IFD 2 (20x FocusMap) has PlanarConfiguration 2"},
+            {"id": null, "name": "macro image", "ifd": 0, "reason": "IFD 0 (macro image) has compression 5"},
+        ]),
+    );
+}
+
+/// With the macro image the one image and left out, the slide has no image: the root has no
+/// `ome` and there is no `OME` group, and the rest is recorded.
+#[test]
+fn a_slide_whose_one_image_is_left_out_has_no_image() {
+    let (out, _, _) = run(&fixtures().join("vsi_left_out_only_image.vsi")).unwrap();
+    let get = entry(&out);
+    let root: serde_json::Value = serde_json::from_slice(&get("zarr.json").unwrap()).unwrap();
+    assert!(root["attributes"].get("ome").is_none());
+    assert!(get("OME/zarr.json").is_none());
+    assert_eq!(root["attributes"]["refkv_zarrified"]["vsi"]["not_presented"][0]["reason"], "IFD 0 (macro image) has compression 5");
+}
+
+/// A slide that leaves nothing out has no `not_presented` member.
+#[test]
+fn a_slide_that_leaves_nothing_out_records_nothing() {
+    let (out, _, _) = run(&fixtures().join("vsi_rgb_jpeg.vsi")).unwrap();
+    let root: serde_json::Value = serde_json::from_slice(&entry(&out)("zarr.json").unwrap()).unwrap();
+    assert!(root["attributes"]["refkv_zarrified"]["vsi"].get("not_presented").is_none());
+    assert_eq!(out.summary["notPresented"], 0);
 }
 
 macro_rules! reject {

@@ -70,90 +70,23 @@ pub trait StoreParser: Send + Sync {
         let _ = (key, index, size);
         Err("internal: this store format probes no keys".into())
     }
+    /// The host found the probed key `written` at the key `key` (spec/zarrify.md §1.9
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>,
+    /// **Case**), told before its [`StoreParser::found`]: `found`'s key is `key`, and is not called
+    /// when that key is an object already.
+    fn resolved(&mut self, written: &str, key: &str) -> Res<()> {
+        let _ = (written, key);
+        Err("internal: this store format's keys are found as written".into())
+    }
 }
 
-/// The store formats the core reads (the store profiles move onto the IR one by one).
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum StoreFormat {
-    /// A Zarr v2 store (`zarr2.rs`; spec/zarrify/zarr2.md
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md>).
-    Zarr2,
-    /// A Sentinel-2 SAFE product's directory (`safe/`; spec/zarrify/safe.md
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md>).
-    Safe,
-    /// An N5 container (`n5.rs`; spec/zarrify/n5.md
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md>).
-    N5,
-    /// An Olympus VSI slide (`vsi/`; spec/zarrify/vsi.md
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md>): the `.vsi` file, listed
-    /// alone, and the tile files the run probes for.
-    Vsi,
-    /// A NRRD input (`nrrd.rs`; spec/zarrify/nrrd.md
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md>): the header file, listed
-    /// alone, and a detached header's data file, which the run probes for.
-    Nrrd,
-    /// A store of safetensors files, such as a model's shards (`safetensors/store.rs`;
-    /// spec/zarrify/safetensors.md <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safetensors.md>).
-    Safetensors,
-    /// A GRIB file (`grib/`; spec/zarrify/grib.md
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md>): the GRIB file, listed
-    /// alone, and its index, which the run probes for.
-    Grib,
-    /// A Neuroglancer precomputed volume (`precomputed.rs`; spec/zarrify/precomputed.md
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/precomputed.md>).
-    Precomputed,
-}
+// `StoreFormat`: one variant per profile of the registry with a store run (profiles/; build.rs)
+include!(concat!(env!("OUT_DIR"), "/store_formats.rs"));
 
 impl StoreFormat {
-    pub fn from_name(s: &str) -> Option<StoreFormat> {
-        match s {
-            "zarr2" => Some(StoreFormat::Zarr2),
-            "safe" => Some(StoreFormat::Safe),
-            "n5" => Some(StoreFormat::N5),
-            "vsi" => Some(StoreFormat::Vsi),
-            "nrrd" => Some(StoreFormat::Nrrd),
-            "grib" => Some(StoreFormat::Grib),
-            "safetensors" => Some(StoreFormat::Safetensors),
-            "precomputed" => Some(StoreFormat::Precomputed),
-            _ => None,
-        }
-    }
-    pub fn name(self) -> &'static str {
-        match self {
-            StoreFormat::Zarr2 => "zarr2",
-            StoreFormat::Safe => "safe",
-            StoreFormat::N5 => "n5",
-            StoreFormat::Vsi => "vsi",
-            StoreFormat::Nrrd => "nrrd",
-            StoreFormat::Grib => "grib",
-            StoreFormat::Safetensors => "safetensors",
-            StoreFormat::Precomputed => "precomputed",
-        }
-    }
     /// The convention the mirror declares.
     pub fn profile(self) -> &'static str {
-        match self {
-            StoreFormat::Zarr2 => "zarr2",
-            StoreFormat::Safe => "safe",
-            StoreFormat::N5 => "n5",
-            StoreFormat::Vsi => "vsi",
-            StoreFormat::Nrrd => "nrrd",
-            StoreFormat::Grib => "grib",
-            StoreFormat::Safetensors => "safetensors",
-            StoreFormat::Precomputed => "precomputed",
-        }
-    }
-    fn parser(self, ir: Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> Res<Box<dyn StoreParser>> {
-        match self {
-            StoreFormat::Zarr2 => Ok(Box::new(crate::zarr2::Zarr2::new(ir, objects, keys)?)),
-            StoreFormat::Safe => Ok(Box::new(crate::safe::Safe::new_store(ir, objects, keys))),
-            StoreFormat::N5 => Ok(Box::new(crate::n5::N5::new(ir, objects, keys))),
-            StoreFormat::Vsi => Ok(Box::new(crate::vsi::Vsi::new(ir, objects, keys)?)),
-            StoreFormat::Nrrd => Ok(Box::new(crate::nrrd::Nrrd::new(ir, objects, keys)?)),
-            StoreFormat::Grib => Ok(Box::new(crate::grib::Grib::new(ir, objects, keys)?)),
-            StoreFormat::Safetensors => Ok(Box::new(crate::safetensors::store::SafetensorsStore::new(ir, objects, keys)?)),
-            StoreFormat::Precomputed => Ok(Box::new(crate::precomputed::Precomputed::new(ir, objects, keys))),
-        }
+        self.name()
     }
 }
 
@@ -199,6 +132,10 @@ pub struct StoreRun {
     /// the keys the parser asked the host to probe, not yet answered (`found`)
     probes: Vec<String>,
     answered: usize,
+    /// the keys probed so far, at most `beside::MAX_FILES`
+    probed: u64,
+    /// the keys of the objects so far
+    known: std::collections::HashSet<String>,
 }
 
 impl StoreRun {
@@ -218,6 +155,7 @@ impl StoreRun {
         let total: u64 = keys.iter().map(|k| k.1).fold(0u64, |a, b| a.saturating_add(b));
         Ok(StoreRun {
             format,
+            known: keys.iter().map(|k| k.0.clone()).collect(),
             read_any: vec![false; keys.len()],
             reads_limit: (1 << 20) + 4 * keys.len() as u64,
             bytes_limit: (1u64 << 24).saturating_add(total.saturating_mul(2)),
@@ -234,6 +172,7 @@ impl StoreRun {
             ignored: Vec::new(),
             probes: Vec::new(),
             answered: 0,
+            probed: 0,
         })
     }
 
@@ -303,6 +242,10 @@ impl StoreRun {
                         return Err(format!("internal: the probed key {k:?} is listed already, or is not a key"));
                     }
                 }
+                self.probed += keys.len() as u64;
+                if self.probed > crate::beside::MAX_FILES {
+                    return Err(format!("budget: the input names more than {} files", crate::beside::MAX_FILES));
+                }
                 self.stats.batches += 1;
                 self.probes = keys;
                 self.answered = 0;
@@ -320,16 +263,39 @@ impl StoreRun {
     /// None when it does not. A found key becomes an object of the run, its reads budgeted
     /// like a listed one's.
     pub fn found(&mut self, size: Option<u64>) -> Res<()> {
+        self.answer(size, None)
+    }
+
+    /// The answer to the next probe of the batch when the host found it at another key, by listing
+    /// (spec/zarrify.md §1.9
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>,
+    /// **Case**): `key` is the object's key, which may be an object of the run already.
+    pub fn found_as(&mut self, size: u64, key: &str) -> Res<()> {
+        if key.is_empty() || key.split('/').any(|s| s.is_empty() || s == "." || s == "..") {
+            return Err(format!("internal: the key {key:?} a probe was found at is not a key"));
+        }
+        self.answer(Some(size), Some(key))
+    }
+
+    fn answer(&mut self, size: Option<u64>, at: Option<&str>) -> Res<()> {
         let k = self.answered;
         if k >= self.probes.len() {
             return Err("a probe answered that was not asked".into());
         }
-        let key = self.probes[k].clone();
+        let written = self.probes[k].clone();
         self.answered += 1;
+        let key = at.map_or_else(|| written.clone(), str::to_string);
         let index = self.keys.len();
         let p = self.parser.as_mut().ok_or("internal: no parser")?;
+        if key != written {
+            p.resolved(&written, &key)?;
+        }
+        if size.is_some() && self.known.contains(&key) {
+            return Ok(());
+        }
         let e = p.found(&key, index, size)?;
         if let (Some(size), Some(e)) = (size, e) {
+            self.known.insert(key.clone());
             self.keys.push((key, size));
             self.objects.push(e);
             self.read_any.push(false);
@@ -465,11 +431,12 @@ impl StoreRun {
     }
 
     /// Finishes and mirrors: the output (the format's projection, and the mirror under
-    /// `refkv_source` when `mirror`).
-    pub fn into_output(self, url: &str, mirror: bool) -> Res<crate::out::Out> {
+    /// `refkv_source` when `mirror`), sealed for a host that records the ranges' checksums when
+    /// `checksums`.
+    pub fn into_output(self, url: &str, mirror: bool, checksums: bool) -> Result<crate::out::Out, crate::seal::Refusal> {
         let format = self.format;
         let (ir, facts, stats) = self.finish()?;
-        store_output(format, &ir, &facts, stats, url, mirror)
+        store_output(format, &ir, &facts, stats, url, mirror, checksums)
     }
 }
 
@@ -477,18 +444,12 @@ impl StoreRun {
 /// `mirror`, and a summary: the projection's, with the run's counts, the IR's element count
 /// (and, but for SAFE, whose projection counts its objects itself, the format's name and the
 /// IR's object count) and what the mirror's table folded. Then the ignored keys (and a SAFE
-/// directory's empty directories) beside the mirror (`record_ignored`).
-pub fn store_output(format: StoreFormat, ir: &Ir, facts: &J, stats: J, url: &str, mirror: bool) -> Res<crate::out::Out> {
-    let mut out = match format {
-        StoreFormat::Zarr2 => crate::project::zarr2::project(ir, facts, url)?,
-        StoreFormat::Safe => crate::project::safe::project(ir, facts, url)?,
-        StoreFormat::N5 => crate::project::n5::project(ir, facts, url)?,
-        StoreFormat::Vsi => crate::project::vsi::project(ir, facts, url, &Default::default())?,
-        StoreFormat::Nrrd => crate::project::nrrd::project(ir, facts, url)?,
-        StoreFormat::Grib => crate::project::grib::project(ir, facts, url)?,
-        StoreFormat::Safetensors => crate::project::safetensors::project_store(ir, facts, url)?,
-        StoreFormat::Precomputed => crate::project::precomputed::project(ir, facts, url)?,
-    };
+/// directory's empty directories) beside the mirror (`record_ignored`). Last, the output is sealed
+/// (`seal::out`), its url sources the objects of the IR its references use, for a host that
+/// records the ranges' checksums when `checksums`.
+pub fn store_output(format: StoreFormat, ir: &Ir, facts: &J, stats: J, url: &str, mirror: bool, checksums: bool)
+                    -> Result<crate::out::Out, crate::seal::Refusal> {
+    let mut out = format.project(ir, facts, url)?;
     crate::shard::refuse(&out)?;
     let mut summary = std::mem::take(&mut out.summary);
     if let Some(m) = summary.as_object_mut() {
@@ -509,6 +470,9 @@ pub fn store_output(format: StoreFormat, ir: &Ir, facts: &J, stats: J, url: &str
         out.summary["folded"] = folded.json();
     }
     crate::project::store::record_ignored(&mut out, facts, profile)?;
+    let objects: std::collections::HashMap<String, u64> =
+        ir.sources().objects.iter().map(|&o| (ir.key(o), ir.len[o as usize])).collect();
+    crate::seal::out(&mut out, None, &objects, checksums)?;
     Ok(out)
 }
 
@@ -523,4 +487,39 @@ pub fn run_store(format: StoreFormat, keys: Vec<(String, u64)>, read: &dyn Fn(us
         }
     }
     r.finish()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A parser that probes `batch` new keys each step, forever.
+    struct Prober { batch: usize, next: usize, ir: Option<Ir> }
+
+    impl StoreParser for Prober {
+        fn step(&mut self) -> Res<StoreStep> {
+            let keys = (self.next..self.next + self.batch).map(|i| format!("k{i}")).collect();
+            self.next += self.batch;
+            Ok(StoreStep::Probe(keys))
+        }
+        fn feed(&mut self, _: usize, _: u64, _: &[u8]) {}
+        fn found(&mut self, _: &str, _: usize, _: Option<u64>) -> Res<Option<u32>> {
+            Ok(None)
+        }
+        fn finish(mut self: Box<Self>) -> Res<(Ir, J)> {
+            Ok((self.ir.take().unwrap(), J::Null))
+        }
+    }
+
+    #[test]
+    fn a_run_probes_at_most_the_bound_on_files() {
+        let mut run = StoreRun::with(StoreFormat::Nrrd, vec![("a".into(), 1)], 1, &|ir, _, _| {
+            Ok(Box::new(Prober { batch: crate::beside::MAX_FILES as usize, next: 0, ir: Some(ir) }))
+        }).unwrap();
+        assert!(run.poll().unwrap().is_some());
+        for _ in 0..crate::beside::MAX_FILES {
+            run.found(None).unwrap();
+        }
+        assert_eq!(run.poll().err().as_deref(), Some("budget: the input names more than 65536 files"));
+    }
 }

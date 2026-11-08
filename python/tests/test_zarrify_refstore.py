@@ -14,7 +14,7 @@ from refkv.pb import Range, Source
 from refkv.policy import Policy
 from refkv.uri import is_uri_reference
 from refkv.zarrify import _zarrify, zarrify
-from refkv.zarrify.common import reference_store
+from refkv.zarrify.common import Output, reference_store
 
 sys.path.insert(0, str(Path(__file__).parents[2] / "conformance" / "zarrify"))
 from proxy import Proxy
@@ -145,3 +145,16 @@ def test_cli_refuses_to_read_an_input_its_policy_refuses(tmp_path, module):
     assert p.returncode == 1, p.stderr
     assert p.stderr.startswith("error: "), p.stderr
     assert not out.exists(), p.stderr
+
+
+def test_a_failed_write_keeps_the_previous_file(tmp_path):
+    def unreadable(_url, _offset, _length):
+        raise OSError("unreadable")
+
+    path = tmp_path / "o.vzip"
+    path.write_bytes(b"previous")
+    out = Output("http://h/a.bin", refs={"a": [(0, 4)]}, checksum=unreadable)
+    with pytest.raises(OSError, match="unreadable"):
+        out.write(str(path))
+    assert path.read_bytes() == b"previous"
+    assert [p.name for p in tmp_path.iterdir()] == ["o.vzip"]

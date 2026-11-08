@@ -41,7 +41,7 @@ ir-test *args: ir-rust-test ir-build
 
 # Test the IR core's Rust crate, and build its Python bindings' crate (rust/refkv-python) alone
 ir-rust-test:
-    cargo test --release --manifest-path rust/refkv-ir/Cargo.toml
+    cargo test --release --features zarrs --manifest-path rust/refkv-ir/Cargo.toml
     just python::cargo-test
 
 # Test the vzip archive writer (rust/refkv-vzip), the phkv store's reader and writers
@@ -104,6 +104,14 @@ lint:
 # preset for the package; the tests and scripts checked with what they leave unannotated as Any)
 typecheck:
     uv run pyrefly check
+
+# Run before every push what CI's `sections` job runs (.github/workflows/ci.yml): the section checks
+# against a freshly fetched origin/main, lint and typecheck
+preflight:
+    git fetch --no-tags origin main
+    just sections origin/main
+    just lint
+    just typecheck
 
 # Regenerate what derives from the profile registry, spec/zarrify/profiles/<name>.json (the one
 # place a profile's identity is written, one file per profile): the Rust core's copies, and the

@@ -201,7 +201,7 @@
     "skips": {
       "given": {"encoding": "raw or gzip", "byte_skip": "the byte skip"},
       "constraints": [
-        {"require": "encoding == 'raw' || byte_skip == 0", "message": "byte skip {byte_skip} with the gzip encoding skips decompressed bytes, which no Zarr codec does"}
+        {"require": "encoding == 'raw' || byte_skip >= 0", "message": "byte skip -1 with the gzip encoding: it counts back from a data end that only decompressing can find"}
       ]
     },
     "data_file": {

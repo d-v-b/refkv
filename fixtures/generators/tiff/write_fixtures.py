@@ -93,7 +93,7 @@ def main() -> None:
             rowsperstrip=16, compression="lzw", photometric="rgb", planarconfig="separate")
     pyramid(OUT / "strips_tcyx_uint16_lzw.ome.tif", image((2, 3, 70, 50), np.uint16), 1, axes="TCYX",
             rowsperstrip=16, compression="lzw", photometric="minisblack")
-    # two uncompressed levels whose last strips lack different rows: one zero data source
+    # two uncompressed levels whose short last strips are joined into chunks of the whole level
     pyramid(OUT / "strips_uint16_pyramid_short.ome.tif", image((70, 50), np.uint16), 1, axes="YX",
             rowsperstrip=16, photometric="minisblack")
 
@@ -102,15 +102,15 @@ def main() -> None:
     # which imagecodecs_delta sums back.
     tifffile.imwrite(OUT / "predictor_deflate_uint8.tif", small, tile=(32, 32),
                      compression="zlib", predictor=True)
-    # Rejected: Deflate strips whose last is short, which cannot be padded.
-    tifffile.imwrite(OUT / "edge_reject_strips_deflate_short.tif", tall, rowsperstrip=16, compression="zlib",
+    # Deflate strips whose last is short, which cannot be padded: a `rectilinear` grid.
+    tifffile.imwrite(OUT / "strips_uint16_deflate_short.tif", tall, rowsperstrip=16, compression="zlib",
                      photometric="minisblack")
 
     # More of Predictor 2 (written last, so that the fixtures above keep their pixels): uint16
     # whose differences wrap around, in LZW, Deflate and zstd, little- and big-endian; int16;
     # interleaved RGB of uint8 and uint16; LZW strips whose last is short, padded with a tail;
-    # and an OME-TIFF of several planes and a SubIFD level. Rejected: the floating-point
-    # predictor 3; Predictor 2 with a float type, with no compression, or with JPEG.
+    # and an OME-TIFF of several planes and a SubIFD level. Rejected: Predictor 2 with a float
+    # type, with no compression, or with JPEG.
     wide = image((64, 64), np.uint16) * 257
     tifffile.imwrite(OUT / "predictor_lzw_uint16.tif", wide, tile=(32, 32), compression="lzw",
                      predictor=True, photometric="minisblack")
@@ -128,7 +128,7 @@ def main() -> None:
     pyramid(OUT / "predictor_tcyx_uint16_lzw.ome.tif", image((2, 3, 64, 64), np.uint16) * 257, 1, axes="TCYX",
             tile=(32, 32), compression="lzw", predictor=True, photometric="minisblack")
     floats = image((64, 64), np.float32) / 7
-    tifffile.imwrite(OUT / "unsupported_predictor_float.tif", floats, tile=(32, 32), compression="zlib",
+    tifffile.imwrite(OUT / "predictor3_deflate_float32.tif", floats, tile=(32, 32), compression="zlib",
                      predictor=True, photometric="minisblack")  # tifffile's predictor of floats is 3
     tifffile.imwrite(OUT / "unsupported_predictor_2_float.tif", floats, tile=(32, 32), compression="zlib",
                      predictor=True, photometric="minisblack")
@@ -139,6 +139,13 @@ def main() -> None:
     tifffile.imwrite(OUT / "edge_reject_predictor_jpeg.tif", small, tile=(32, 32), compression="zlib",
                      predictor=True)
     patch_short(OUT / "edge_reject_predictor_jpeg.tif", "Compression", 7)
+    # one row a strip, as the OME-TIFF of d-v-b/refkv#195: each plane's strips join into one chunk
+    pyramid(OUT / "strips_one_row_tyx.ome.tif", image((3, 40, 16), np.uint8), 1, axes="TYX",
+            rowsperstrip=1, photometric="minisblack")
+    # and compressed, the file's strips the inner chunks of one shard a plane
+    for name, compression in (("lzw", "lzw"), ("deflate", "zlib"), ("zstd", "zstd")):
+        pyramid(OUT / f"strips_one_row_tyx_{name}.ome.tif", image((3, 40, 16), np.uint8), 1, axes="TYX",
+                rowsperstrip=1, compression=compression, photometric="minisblack")
     for p in sorted(OUT.glob("*.tif")):
         print(p.name, p.stat().st_size)
 

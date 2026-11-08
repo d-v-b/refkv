@@ -7,7 +7,7 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>), not a literal.
 
 use super::{key, Copied};
-use crate::out::{Chunk, Out, Part, MAX_PAYLOAD};
+use crate::out::{grid_chunks, payload_size, Chunk, Out, Part, MAX_PAYLOAD};
 use crate::refs::Refs;
 use serde_json::Value as J;
 
@@ -15,6 +15,41 @@ use serde_json::Value as J;
 /// `out::copy_threshold`), else MAX_PAYLOAD.
 pub fn threshold(facts: &J) -> usize {
     facts["copy_threshold"].as_u64().map_or(MAX_PAYLOAD, |t| t as usize)
+}
+
+/// The one chunk of an array of `shape` that a compressed stream `(start, length)` holds whole:
+/// its grid, and the chunk.
+pub fn whole_stream(shape: &[u64], (start, length): (u64, u64)) -> (Vec<u64>, Vec<(Vec<u64>, Chunk)>) {
+    (shape.to_vec(), vec![(vec![0; shape.len()], Chunk::Ranges(vec![Part::Src(start, length)]))])
+}
+
+/// The chunk shape and chunks of contiguous elements of `bits` bits each (fewer than 8) at
+/// `offset`, packed as the `packbits` codec reads them: cut by elements, each counted as a byte,
+/// then each run of elements `[s, s + m)` the bytes `[s k / 8, (s + m) k / 8)`, padded to the
+/// whole chunk's. `None` when a run does not start on a byte, or the data cannot be cut.
+pub fn packed_chunks(offset: u64, shape: &[u64], bits: u64, limit: u64, threshold: usize) -> Option<(Vec<u64>, Vec<(Vec<u64>, Chunk)>)> {
+    let (grid, chunks) = grid_chunks(0, shape, 1, limit, usize::MAX)?;
+    let per: u64 = grid.iter().product();
+    let full = (per * bits).div_ceil(8);
+    let runs: Option<Vec<(Vec<u64>, u64, u64)>> = chunks.into_iter().map(|(c, k)| match k {
+        Chunk::Ranges(parts) => match parts.first() {
+            Some(&Part::Src(s, m)) if (s * bits).is_multiple_of(8) => Some((c, s, m)),
+            _ => None,
+        },
+        _ => None,
+    }).collect();
+    let chunks = runs?.into_iter().map(|(c, s, m)| {
+        let (start, length) = (offset + s * bits / 8, (m * bits).div_ceil(8));
+        let pad = full - length;
+        let chunk = if pad == 0 {
+            Chunk::Ranges(vec![Part::Src(start, length)])
+        } else {
+            let parts = vec![Part::Src(start, length), Part::Lit(vec![0; pad as usize])];
+            if payload_size(&parts) > threshold { Chunk::Copy(start, length, pad) } else { Chunk::Ranges(parts) }
+        };
+        (c, chunk)
+    }).collect();
+    Some((grid, chunks))
 }
 
 /// The source's ranges of the chunks a projection copies (`Chunk::Copy`), which the run reads
@@ -92,12 +127,11 @@ pub fn padded(mut parts: Vec<Part>, zeros: &mut Zeros, out: &mut Out) -> Result<
 
 /// Writes `chunks`, cut from the element `(start, length, form)`: the i-th at the key of each of
 /// `prefixes` and `coords` of its coordinates (`project::key`). A chunk of ranges is a reference,
-/// charged to the budget as piece i at the first key and the same ranges, not charged, at the
-/// others, its zero padding a range of the output's zero data source `zeros`; a copied chunk is
+/// charged to the budget at the first key and the same ranges, not charged, at the others, its zero padding a range of the output's zero data source `zeros`; a copied chunk is
 /// its bytes of `copied` then its zero padding, and a chunk of bytes its bytes, at every key.
 pub fn emit(refs: &mut Refs, chunks: Vec<(Vec<u64>, Chunk)>, (start, length, form): (u64, u64, u32), copied: &Copied,
             prefixes: &[&str], coords: impl Fn(Vec<u64>) -> Vec<u64>, zeros: &mut Zeros) -> Result<(), String> {
-    for (piece, (c, chunk)) in chunks.into_iter().enumerate() {
+    for (c, chunk) in chunks {
         let c = coords(c);
         let keys: Vec<String> = prefixes.iter().map(|p| key(p, c.iter().copied())).collect();
         let Some((first, rest)) = keys.split_first() else { return Err("internal: a chunk without a key".into()) };
@@ -105,7 +139,7 @@ pub fn emit(refs: &mut Refs, chunks: Vec<(Vec<u64>, Chunk)>, (start, length, for
             Chunk::Ranges(parts) => {
                 let parts = padded(parts, zeros, &mut refs.out)?;
                 let same = (!rest.is_empty()).then(|| parts.clone());
-                refs.chunk(first.clone(), start, length, form, Some(parts), piece as u64)?;
+                refs.chunk(first.clone(), start, length, form, Some(parts))?;
                 for k in rest {
                     refs.out.refs(k, same.clone().unwrap_or_default());
                 }

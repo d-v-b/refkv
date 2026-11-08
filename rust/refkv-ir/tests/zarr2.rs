@@ -24,7 +24,7 @@ fn output(files: &BTreeMap<String, Vec<u8>>) -> Result<Out, String> {
     let keys = listing(&files);
     let bytes: Vec<&Vec<u8>> = files.values().collect();
     let (ir, facts, stats) = run_store(StoreFormat::Zarr2, keys, &|k| bytes[k].clone())?;
-    store_output(StoreFormat::Zarr2, &ir, &facts, stats, "https://data.test/s/", true)
+    store_output(StoreFormat::Zarr2, &ir, &facts, stats, "https://data.test/s/", true, false).map_err(String::from)
 }
 
 fn run(name: &str) -> Result<Out, String> {
@@ -38,7 +38,10 @@ fn doc(out: &Out, key: &str) -> serde_json::Value {
 
 #[test]
 fn the_fixture_stores_have_their_hierarchies_and_mirrors() {
-    let cases: [(&str, serde_json::Value); 8] = [
+    let cases: [(&str, serde_json::Value); 11] = [
+        ("zarr2_types", serde_json::json!({"arrays": 17, "chunks": 13})),
+        ("zarr2_codecs", serde_json::json!({"arrays": 16, "chunks": 16})),
+        ("zarr2_left_out", serde_json::json!({"arrays": 1, "notPresented": 7, "otherObjects": 7})),
         ("zarr2_compressors", serde_json::json!({"arrays": 10, "groups": 1, "chunks": 12})),
         ("zarr2_dtypes", serde_json::json!({"arrays": 14})),
         ("zarr2_fill_values", serde_json::json!({"emptyChunks": 1, "chunks": 10})),
@@ -168,7 +171,7 @@ fn the_ignored_keys_are_refkv_source_s_member_ignored_in_byte_order() {
         let mut r = StoreRun::new(StoreFormat::Zarr2, keys, 4).unwrap();
         r.ignore(ignored.clone(), Vec::new()).unwrap();
         drive(&mut r, &bytes).unwrap();
-        let out = r.into_output("https://data.test/h/", true).unwrap();
+        let out = r.into_output("https://data.test/h/", true, false).unwrap();
         let own = &doc(&out, "refkv_source/zarr.json")["attributes"]["refkv_zarrified"]["zarr2"];
         let mut sorted = ignored.clone();
         sorted.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
@@ -193,7 +196,7 @@ fn the_ignored_keys_are_refkv_source_s_member_ignored_in_byte_order() {
     let mut r = StoreRun::new(StoreFormat::Zarr2, keys, 4).unwrap();
     r.ignore(vec!["b//c".into(), "./x".into()], Vec::new()).unwrap();
     drive(&mut r, &bytes).unwrap();
-    let out = r.into_output("https://data.test/h/", false).unwrap();
+    let out = r.into_output("https://data.test/h/", false, false).unwrap();
     assert!(!out.entries.iter().any(|e| e.0 == "refkv_source/zarr.json"));
 }
 

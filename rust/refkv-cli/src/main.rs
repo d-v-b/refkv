@@ -56,10 +56,22 @@ pub enum Fail {
     Other(String),
 }
 
+impl From<refkv_ir::seal::Refusal> for Fail {
+    /// The core's refusal of an output: a rejection, or a failure (status 1), such as a payload
+    /// over the limit only with its checksums (spec/zarrify.md §1.2
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>).
+    fn from(r: refkv_ir::seal::Refusal) -> Fail {
+        match r {
+            refkv_ir::seal::Refusal::Rejected(e) => Fail::Rejected(e),
+            refkv_ir::seal::Refusal::Failed(e) => Fail::Other(e),
+        }
+    }
+}
+
 // the store kinds, in the words of `python -m refkv.zarrify`'s usage (python/src/refkv/zarrify/__main__.py)
 const USAGE: &str = "usage: vzip convert <url or path> <out.vzip> [--url <source url>] [--checksums] \
 [--allow-private-hosts] [--connections N] [--byte-cost SECONDS_PER_MB] [--workers N] [--format vzip|phkv|hybrid]\n\
-(a URL ending in / or a directory is an N5, Zarr v2 or OME-Zarr 0.4 store, a Neuroglancer precomputed volume, a Sentinel-2 .SAFE directory, \
+(a URL ending in / or a directory is a Zarr v3, Zarr v2, OME-Zarr 0.4 or N5 store, a Neuroglancer precomputed volume, a Sentinel-2 .SAFE directory, \
 or a store of safetensors files; a directory needs --url;\n\
 a Hugging Face Hub URL https://huggingface.co/<owner>/<repo>/tree/<rev>/ is listed at its commit,\n\
 at HF_ENDPOINT's Hub if set;\n\
@@ -115,7 +127,8 @@ fn number<T: std::str::FromStr>(flag: &str, v: &str) -> Result<T, Fail> {
     v.trim().parse().map_err(|_| Fail::Other(format!("{flag} {v:?} is not a number")))
 }
 
-/// `convert`'s arguments, the flags anywhere, as python -m refkv.zarrify reads them.
+/// `convert`'s arguments, the flags anywhere, as python -m refkv.zarrify reads them (but its
+/// `--layout` and `--layout-options`: plugin layouts are Python's).
 fn parse(argv: &[String]) -> Result<Args, Fail> {
     let mut args = argv.to_vec();
     let checksums = flag(&mut args, "--checksums");
@@ -142,6 +155,21 @@ fn parse(argv: &[String]) -> Result<Args, Fail> {
 }
 
 /// Zarrifies the input, and writes the archive; the summary.
+/// A file read with the files beside it, as a store (vsi.rs; spec/zarrify.md §1.8
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#18-files-read-as-stores>): its sources
+/// are the files some reference uses, their sizes pinned.
+fn zarrify_beside(a: &Args, client: &std::sync::Arc<http::Client>, beside: refkv_ir::store::StoreFormat) -> Result<(String, serde_json::Value, output::Archive), Fail> {
+    let t = transport::Transport::open(&a.input, client)?;
+    let (out, files) = vsi::zarrify_vsi(&a.input, a.url.as_deref(), t, client, a.connections, beside, a.checksums)?;
+    let summary = out.summary.clone();
+    let (mut archive, objects) = output::store_archive(out, &files.sizes)?;
+    if a.checksums {
+        let conc = if files.remote() { a.connections.filter(|&c| c > 0).unwrap_or(8) } else { 1 };
+        output::checksums(&mut archive, conc, |i, o, n| files.read_range(&objects[i], o, n))?;
+    }
+    Ok((beside.name().to_string(), summary, archive))
+}
+
 fn convert(a: &Args) -> Result<serde_json::Value, Fail> {
     if a.url.is_none() && std::path::Path::new(&a.input).is_dir() {
         return Err(Fail::Usage("a local directory needs --url, the store URL (ending in /) it is served from".into()));
@@ -151,7 +179,7 @@ fn convert(a: &Args) -> Result<serde_json::Value, Fail> {
     let hub = store::hub_endpoint(std::env::var("HF_ENDPOINT").ok().as_deref())?;
     let (fmt, summary, archive) = if store::is_store(&a.input) {
         let s = store::Store::open(&a.input, a.url.as_deref(), &client, a.workers, &hub)?;
-        let (fmt, out) = store::zarrify_store(&s)?;
+        let (fmt, out) = store::zarrify_store(&s, a.checksums)?;
         let summary = out.summary.clone();
         let (mut archive, objects) = output::store_archive(out, &s.listing().objects)?;
         if a.checksums {
@@ -162,29 +190,23 @@ fn convert(a: &Args) -> Result<serde_json::Value, Fail> {
         // a Hub tree's web page (spec/zarrify.md §1.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>)
         return Err(Fail::Rejected(format!("{} is a Hub repository's page, not a file: end it in / to zarrify the repository", a.input)));
     } else if let Some(beside) = run::beside_format(&transport::Transport::open(&a.input, &client)?)? {
-        // a VSI file is read with its tile files, and a NRRD header with its data file, as a store
-        // (vsi.rs): its sources are the files some reference uses, their sizes pinned
-        let t = transport::Transport::open(&a.input, &client)?;
-        let (out, files) = vsi::zarrify_vsi(&a.input, a.url.as_deref(), t, &client, a.connections, beside)?;
-        let summary = out.summary.clone();
-        let (mut archive, objects) = output::store_archive(out, &files.sizes)?;
-        if a.checksums {
-            let conc = if files.remote() { a.connections.filter(|&c| c > 0).unwrap_or(8) } else { 1 };
-            output::checksums(&mut archive, conc, |i, o, n| files.read_range(&objects[i], o, n))?;
-        }
-        (beside.name().to_string(), summary, archive)
+        zarrify_beside(a, &client, beside)?
     } else {
         let t = transport::Transport::open(&a.input, &client)?;
-        let (fmt, out) = run::zarrify_file(&a.input, a.url.as_deref(), &t, a.connections, a.byte_cost, a.checksums)?;
-        let summary = out.summary.clone();
-        // the ETag is pinned only when the archive names the URL that was read
-        let etag = if a.url.is_none() || a.url.as_deref() == Some(a.input.as_str()) { t.etag() } else { None };
-        let mut archive = output::file_archive(out, t.size(), etag)?;
-        if a.checksums {
-            let conc = run::concurrency(&t, a.connections)?;
-            output::checksums(&mut archive, conc, |_, o, n| t.get(o, o + n))?;
+        match run::zarrify_file(&a.input, a.url.as_deref(), &t, a.connections, a.byte_cost, a.checksums)? {
+            run::Zarrified::Beside(beside) => zarrify_beside(a, &client, beside)?,
+            run::Zarrified::File(fmt, out) => {
+                let summary = out.summary.clone();
+                // the ETag is pinned only when the archive names the URL that was read
+                let etag = if a.url.is_none() || a.url.as_deref() == Some(a.input.as_str()) { t.etag() } else { None };
+                let mut archive = output::file_archive(out, t.size(), etag)?;
+                if a.checksums {
+                    let conc = run::concurrency(&t, a.connections)?;
+                    output::checksums(&mut archive, conc, |_, o, n| t.get(o, o + n))?;
+                }
+                (fmt.name().to_string(), summary, archive)
+            }
         }
-        (fmt.name().to_string(), summary, archive)
     };
     output::save(&archive, &a.out, &policy, a.format)?;
     // {"format": fmt, **summary}: the summary's own format, if it has one, in the first place

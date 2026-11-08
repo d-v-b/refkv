@@ -46,7 +46,7 @@
         "zarr_conventions",
         "refkv_zarrified"
       ],
-      "additionalProperties": false
+      "additionalProperties": true
     }
   },
   "required": [
@@ -138,13 +138,57 @@
       "anyOf": [
         {
           "type": "object",
-          "description": "The root's: the file's version (spec/zarrify/lif.md §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#51-the-root>)",
+          "description": "The root's: the file's version, and which file of the family it is when not a LIF file (spec/zarrify/lif.md §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#51-the-root>)",
           "properties": {
             "version": {
               "enum": [
                 1,
                 2
               ]
+            },
+            "file": {
+              "enum": [
+                "lof",
+                "lifext",
+                "set"
+              ]
+            },
+            "files": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "A LAS X project's siblings: every document and LOF but the named file"
+            },
+            "not_presented": {
+              "type": "array",
+              "description": "The images of a LAS X project the output leaves out, each with its reason",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "array",
+                    "items": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "document": {
+                    "type": "string"
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path",
+                  "document",
+                  "reason"
+                ],
+                "additionalProperties": false
+              }
             }
           },
           "required": [
@@ -169,6 +213,10 @@
                 ]
               },
               "minItems": 1
+            },
+            "parent": {
+              "type": "string",
+              "description": "In a LIFEXT file, the MemoryBlockID in the parent LIF of the image it is of"
             },
             "attributes": {
               "type": "object",
@@ -239,7 +287,6 @@
             "image",
             "path",
             "attributes",
-            "memory",
             "dimensions",
             "channels"
           ],

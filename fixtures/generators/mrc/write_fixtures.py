@@ -14,6 +14,7 @@ Usage: uv run python fixtures/generators/mrc/write_fixtures.py
 
 from __future__ import annotations
 
+import gzip
 import math
 import struct
 from pathlib import Path
@@ -39,6 +40,8 @@ LAYOUT = {
 }
 # mode: (numpy type, bytes per voxel)
 MODES = {0: ("i1", 1), 1: ("i2", 2), 2: ("f4", 4), 4: ("c8", 8), 6: ("u2", 2), 12: ("f2", 2)}
+COMPLEX_INT16 = 3
+INT4 = 101
 MACHST = {"<": b"\x44\x44\0\0", ">": b"\x11\x11\0\0"}
 
 
@@ -82,6 +85,61 @@ def mrc(name: str, dims, mode: int = 2, *, order: str = "<", ispg: int = 1, data
     (OUT / f"{name}.mrc").write_bytes(content[: len(content) - truncate])
 
 
+def member(data: bytes, name: bytes = b"") -> bytes:
+    """`data` as one gzip member, of no time, with the original file's name when given (as gzip
+    writes one), its OS byte at 255, "unknown": zlib writes its build's OS code there, so that
+    fixtures would differ between platforms."""
+    plain = gzip.compress(data, compresslevel=6, mtime=0)
+    if not name:
+        return plain[:9] + b"\xff" + plain[10:]
+    return plain[:3] + b"\x08" + plain[4:9] + b"\xff" + name + b"\0" + plain[10:]
+
+
+def gzipped(name: str, suffix: str, dims, mode: int = 2, *, stream=None, wrap=member, **fields) -> None:
+    """An MRC file gzipped whole, `<name><suffix>.gz`: `mrc`'s file, through `stream` when given
+    (what the gzip stream holds, of the file's bytes), then `wrap`."""
+    mrc(name, dims, mode, **fields)
+    path = OUT / f"{name}.mrc"
+    content = path.read_bytes()
+    path.unlink()
+    (OUT / f"{name}{suffix}.gz").write_bytes(wrap(stream(content) if stream else content))
+
+
+def gzip_files() -> None:
+    """Files gzipped whole (spec/zarrify/mrc.md §8.4
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#84-gzipped-files>): with the
+    original file's name in the member, as EMDB's are; an extended header, in the other byte order;
+    and the streams a chunk cannot decode."""
+    gzipped("mrc_gzip_volume_named", ".map", (4, 3, 2), 2, cella=[8.0, 9.0, 10.0], origin=[1.0, 2.0, 3.0], dmin=-100.0,
+            dmax=150.0, wrap=lambda b: member(b, b"emd.map"))
+    gzipped("mrc_gzip_be_extended", ".mrc", (3, 2, 4), 1, order=">", ispg=401, mz=2, extended=bytes(range(80)))
+    gzipped("mrc_gzip_int4", ".mrc", (4, 3, 2), INT4, data=nibbles((4, 3, 2), 104), dmin=0.0, dmax=15.0)
+    gzipped("mrc_gzip_complex_int16_be", ".mrc", (3, 2, 2), COMPLEX_INT16, order=">",
+            data=complex_ints((3, 2, 2), ">", 5))
+    gzipped("mrc_reject_gzip_int4_odd_width", ".mrc", (3, 2, 2), INT4, data=nibbles((3, 2, 2), 106))
+    gzipped("mrc_reject_gzip_trailing", ".mrc", (3, 2, 2), 2, stream=lambda b: b + b"TRAILER!")
+    gzipped("mrc_reject_gzip_members", ".mrc", (3, 2, 2), 2, wrap=lambda b: member(b[:1100]) + member(b[1100:]))
+    gzipped("mrc_reject_gzip_header_cut", ".mrc", (3, 2, 2), 2, stream=lambda b: b[:500])
+
+
+def nibbles(dims, seed: int) -> bytes:
+    """Mode 101's data: random 4-bit values, the first of each byte in its low nibble, each row
+    starting on a byte (spec/zarrify/mrc.md §3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#3-data-types>)."""
+    nx, ny, nz = dims
+    rng = np.random.default_rng(seed)
+    rows = rng.integers(0, 16, size=(nz * ny, nx + nx % 2), dtype=np.uint8)
+    rows[:, nx:] = 0
+    return (rows[:, ::2] | rows[:, 1::2] << 4).tobytes()
+
+
+def complex_ints(dims, order: str, seed: int) -> bytes:
+    """Mode 3's data: a real and an imaginary int16 per value."""
+    nx, ny, nz = dims
+    rng = np.random.default_rng(seed)
+    return rng.integers(-30000, 30000, size=(nz, ny, nx, 2), dtype=np.int16).astype(order + "i2").tobytes()
+
+
 def ccp4_symmetry(ops: list[str]) -> bytes:
     """A CCP4 extended header: 80-byte records of symmetry operators, space-padded."""
     return b"".join(op.encode().ljust(80, b" ") for op in ops)
@@ -111,7 +169,7 @@ def by_mrcfile() -> None:
 
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
-    for p in OUT.glob("*.mrc"):
+    for p in [*OUT.glob("*.mrc"), *OUT.glob("*.gz")]:
         p.unlink()
     by_mrcfile()
 
@@ -152,15 +210,59 @@ def main() -> None:
     # An image stack's origin is a phase origin in pixels: no translation.
     mrc("mrc_edge_origin_image_stack", (3, 3, 2), 2, ispg=0, origin=[1.0, 2.0, 0.0])
     mrc("mrc_edge_origin_image", (3, 3, 1), 2, ispg=0, origin=[1.0, 2.0, 0.0])
-    # IMOD's stamp and flags at bytes 152 and 156: bit 0 makes mode 0 unsigned.
+    # Mode 101, packed 4-bit values: a width whose rows are one run of bits, cut as chunks; an
+    # odd width, whose rows each end on a padding nibble, one chunk a row; and an image
+    dims = (4, 3, 2)
+    mrc("mrc_mode_int4", dims, INT4, data=nibbles(dims, 101), cella=[4.0, 3.0, 2.0], dmin=0.0, dmax=15.0)
+    dims = (5, 3, 2)
+    mrc("mrc_mode_int4_odd_width", dims, INT4, data=nibbles(dims, 102), dmin=0.0, dmax=15.0)
+    dims = (6, 3, 1)
+    mrc("mrc_mode_int4_image", dims, INT4, ispg=0, data=nibbles(dims, 103))
+    # Mode 3, a real and an imaginary int16, in both byte orders
+    dims = (3, 2, 2)
+    mrc("mrc_mode_complex_int16", dims, COMPLEX_INT16, data=complex_ints(dims, "<", 3), dmin=-100.0, dmax=100.0)
+    mrc("mrc_mode_complex_int16_be", dims, COMPLEX_INT16, order=">", data=complex_ints(dims, ">", 4))
+    # IMOD's stamp and flags at bytes 152 and 156. In a stamped file bit 0 of the flags says
+    # the bytes are signed ("1 = bytes are stored as signed (the default as of IMOD 4.9)",
+    # imodFlags in <https://bio3d.colorado.edu/imod/doc/mrc_format.txt>). When that bit is clear,
+    # the bytes are unsigned (IMOD's default before 4.9) unless NVERSION declares the standard:
+    # "the best way to indicate that a byte file is signed is simply to conform with the standard
+    # and set the NVERSION field".
     def imod(flags):
         return bytes(40) + struct.pack("<ii", 1146047817, flags) + bytes(36)
-    mrc("mrc_imod_uint8", (4, 3, 2), 0, extra2=imod(1), dmin=0.0, dmax=255.0)
-    mrc("mrc_imod_uint8_other_flags", (4, 3, 2), 0, extra2=imod(7))
-    mrc("mrc_imod_int8", (4, 3, 2), 0, extra2=imod(2))
+    mrc("mrc_imod_signed_int8", (4, 3, 2), 0, extra2=imod(1))
+    mrc("mrc_imod_signed_other_flags", (4, 3, 2), 0, extra2=imod(7))
+    mrc("mrc_imod_unsigned_uint8", (4, 3, 2), 0, extra2=imod(2), nversion=0, dmin=0.0, dmax=255.0)
+    mrc("mrc_imod_clear_standard_int8", (4, 3, 2), 0, extra2=imod(0))
+    mrc("mrc_imod_clear_past_standard_uint8", (4, 3, 2), 0, extra2=imod(0), nversion=21000)
     mrc("mrc_imod_flag_no_stamp", (4, 3, 2), 0, extra2=bytes(44) + struct.pack("<i", 1) + bytes(36))
-    mrc("mrc_imod_uint8_be", (4, 3, 2), 0, order=">", extra2=bytes(40) + struct.pack(">ii", 1146047817, 1) + bytes(36))
+    mrc("mrc_imod_signed_int8_be", (4, 3, 2), 0, order=">",
+        extra2=bytes(40) + struct.pack(">ii", 1146047817, 1) + bytes(36))
+    mrc("mrc_imod_unsigned_uint8_be", (4, 3, 2), 0, order=">",
+        extra2=bytes(40) + struct.pack(">ii", 1146047817, 0) + bytes(36), nversion=0)
     mrc("mrc_edge_volume_stack_one", (3, 2, 3), 2, ispg=401, mz=3)
+    # The origin's sign (spec/zarrify/mrc.md §4.2
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#42-scales-units-and-position>),
+    # with the flags real files carry: 13 sets bit 2, the -0 is what IMOD writes for a zero, and
+    # 9 is the IMOD tutorial's cryoSubvol.rec, whose bit 2 is clear.
+    placed = [1.5, 2.0, 7.25]
+    negated = [-1.5, -2.0, -7.25]
+    mrc("mrc_imod_origin_inverted", (3, 3, 2), 2, extra2=imod(13), origin=[1.5, -0.0, 7.25])
+    mrc("mrc_imod_origin_inverted_old_version", (3, 3, 2), 2, nversion=0, extra2=imod(4), origin=placed)
+    mrc("mrc_imod_origin_clear", (3, 3, 2), 2, nversion=0, extra2=imod(9), origin=[-1.5, 0.0, 7.25])
+    mrc("mrc_imod_origin_clear_be", (3, 3, 2), 2, order=">", nversion=0, origin=negated,
+        extra2=bytes(40) + struct.pack(">ii", 1146047817, 9) + bytes(36))
+    # A standard version makes the origin the standard's with bit 2 clear, as IMOD's reader does;
+    # a value outside the versions is not one.
+    mrc("mrc_imod_origin_clear_standard", (3, 3, 2), 2, nversion=20141, extra2=imod(9), origin=placed)
+    mrc("mrc_imod_origin_clear_version_low", (3, 3, 2), 2, nversion=20139, extra2=imod(9), origin=negated)
+    mrc("mrc_imod_origin_clear_version_high", (3, 3, 2), 2, nversion=21000, extra2=imod(9), origin=negated)
+    # Without the stamp the origin is as stored, whatever the version and byte 156 hold.
+    mrc("mrc_imod_origin_no_stamp", (3, 3, 2), 2, nversion=0, origin=placed)
+    mrc("mrc_imod_origin_flag_no_stamp", (3, 3, 2), 2, nversion=0, origin=placed,
+        extra2=bytes(44) + struct.pack("<i", 9) + bytes(36))
+    # An image stack's origin is no position, whatever its sign.
+    mrc("mrc_imod_origin_image_stack", (3, 3, 2), 2, ispg=0, nversion=0, extra2=imod(9), origin=negated)
     mrc("mrc_edge_ispg_230", (3, 2, 2), 2, ispg=230)
     mrc("mrc_edge_ispg_negative", (3, 2, 2), 2, ispg=-1)
     mrc("mrc_edge_version_old", (3, 2, 2), 2, nversion=0, map=b"MAP\0")
@@ -198,8 +300,7 @@ def main() -> None:
     mrc("mrc_reject_nx_zero", (0, 2, 2), 2)
     mrc("mrc_reject_ny_negative", (3, -2, 2), 2, data=b"")
     mrc("mrc_reject_nz_zero", (3, 2, 0), 2)
-    mrc("mrc_reject_mode_complex_int16", (3, 2, 2), 3, data=bytes(48))
-    mrc("mrc_reject_mode_int4", (3, 2, 2), 101, data=bytes(6))
+    mrc("mrc_reject_mode_int4_short", (3, 2, 2), INT4, data=bytes(6))
     mrc("mrc_reject_mode_unknown", (3, 2, 2), 7, data=bytes(48))
     mrc("mrc_reject_mode_negative", (3, 2, 2), -1, data=bytes(48))
     mrc("mrc_reject_nsymbt_negative", (3, 2, 2), 2, nsymbt=-80)
@@ -213,3 +314,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+    gzip_files()

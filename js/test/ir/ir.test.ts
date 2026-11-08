@@ -18,6 +18,7 @@ import { zarrifyIr } from "../../src/zarrify/ir/run.ts";
 import { bytesSource, OPEN, openHttpSource } from "../../src/zarrify/ir/source.ts";
 import { IMS_REVISION, REVISION as FROZEN_REVISION } from "../../../conformance/zarrify/reference/ts/revision.ts";
 import { hierarchy } from "./compare.ts";
+import { REVISED } from "../revised.ts";
 
 const FIXTURES = new URL("../../../fixtures/", import.meta.url);
 const fixture = (path: string) => new Uint8Array(fs.readFileSync(new URL(path, FIXTURES)));
@@ -87,10 +88,6 @@ after(() => {
   server.close();
 });
 
-// The fixtures whose layout the profile changed after the freeze, which the frozen reference does not
-// give (conformance/zarrify/revised.json, compare.py's REVISED).
-const REVISED = new Set<string>(JSON.parse(fs.readFileSync(new URL("../../../conformance/zarrify/revised.json",
-  import.meta.url), "utf8")).fixtures);
 const IR_FIXTURES = ["tiff", "nd2", "czi", "nifti", "ims"].flatMap((dir) =>
   fs.readdirSync(new URL(dir, FIXTURES), { withFileTypes: true })
     .filter((e) => e.isFile() && !e.name.endsWith(".npz") && !REVISED.has(e.name))
@@ -108,7 +105,7 @@ test("the Rust core gives the frozen zarrifiers' hierarchy, and rejects the same
     ]);
     if (got.status === "fulfilled") {
       // the sniffed profile, or the one its reading chose (an Imaris file is sniffed as HDF5)
-      const sniffed = await irFormat(bytes.subarray(0, 552));
+      const sniffed = await irFormat(bytes.subarray(0, 65600));
       const chosenBy = REGISTRY.find((e) => e.name === got.value.format)?.chosen_by;
       assert.ok(got.value.format === sniffed || chosenBy === sniffed, `${path}: ${got.value.format}, sniffed ${sniffed}`);
     }
@@ -250,4 +247,10 @@ test("a file the core refuses is an ImageError", async () => {
   const bytes = fixture("nd2/nd2_reject_magic.nd2");
   await assert.rejects(zarrifyImage("https://data.test/x.nd2", async (o, n) => bytes.subarray(o, o + n), bytes.length),
     (e) => e instanceof ImageError && e.message.length > 0);
+});
+
+test("an HDF5 file's names dangle where nothing beside it can be opened", async () => {
+  const desc = await zarrifySource("file:///nowhere/links.h5", bytesSource(fixture("hdf5/hdf5_links_earliest.h5")));
+  const named = desc.entries.some((e) => "bytes" in e && new TextDecoder().decode(e.bytes).includes('"other.h5"'));
+  assert.ok(named, "the link stays recorded");
 });

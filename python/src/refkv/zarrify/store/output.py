@@ -12,9 +12,11 @@ import re
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 
+from refkv._files import replacing
 from refkv._narrow import at, mapping, string
 from refkv.pb import Range, Source
 from refkv.policy import Policy
+from refkv.reader import Registry
 from refkv.refstore import ReferenceStore
 from refkv.vzip.archive import VZipWriter
 from refkv.zarrify.common import CONVENTION_KEY, Rejected, declare, reference_store
@@ -150,7 +152,7 @@ class StoreOutput:
         return {k: [(i, 0, n)] for i, (k, n) in enumerate(self.chunks)}
 
     def write(self, out_path: str) -> None:
-        with open(out_path, "wb") as fh:
+        with replacing(out_path) as fh:
             w = VZipWriter(fh, page_size=1 << 16, checksum=self.checksum)
             # each source pins its object's listed size (§1.4
             # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>)
@@ -166,11 +168,13 @@ class StoreOutput:
                 w.add_bytes(key, data, compress=source, late=not source)
             w.close()
 
-    def to_store(self, *, policy: Policy | None = None, info: dict[str, object] | None = None) -> ReferenceStore:
+    def to_store(self, *, policy: Policy | None = None, registry: Registry | None = None,
+                 info: dict[str, object] | None = None) -> ReferenceStore:
         """The output as a `refkv.ReferenceStore`, which `save_vzip` writes as the archive
         `write` writes, byte for byte (`refkv.zarrify.common.reference_store`)."""
         sources = [Source(url=object_url(self.url, self.origins.get(k, k)), size=n) for k, n in self.chunks]
         refs = [(k, [Range(source=i, offset=0, length=n)]) for i, (k, n) in enumerate(self.chunks)]
         entries = [(key, json.dumps(self.docs[key], separators=(",", ":"), ensure_ascii=key != EMPTY_KEY).encode(),
                     not key.startswith(SOURCE_GROUP + "/")) for key in sorted(self.docs)]
-        return reference_store(refs, entries, sources, checksum=self.checksum, policy=policy, info=info)
+        return reference_store(refs, entries, sources, checksum=self.checksum, policy=policy, registry=registry,
+                               info=info)

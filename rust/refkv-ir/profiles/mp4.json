@@ -4,6 +4,7 @@
   "uuid": "bbe3f6b9-488d-4d8d-85ce-60a1649dd27e",
   "version": 0,
   "kind": "file",
+  "store_run": null,
   "sniff": 85,
   "chosen_by": null,
   "suffixes": [
@@ -11,7 +12,7 @@
     ".mov"
   ],
   "reference": null,
-  "source": "MP4 and QuickTime (H.264 and HEVC video, AAC and MP3 audio)",
-  "inputs": "MP4 and QuickTime files (`.mp4`, `.m4a`, `.m4v`, `.mov`) with H.264 or HEVC video and AAC or MP3 audio tracks; a group per track, not an image",
+  "source": "MP4 and QuickTime (H.264, HEVC, AV1, VP9 and Motion JPEG video, AAC, HE-AAC, MP3 and PCM audio)",
+  "inputs": "MP4 and QuickTime files (`.mp4`, `.m4a`, `.m4v`, `.mov`) with H.264, HEVC, AV1, VP9 or Motion JPEG video and AAC, HE-AAC, MP3 or PCM audio tracks; a group per track, not an image",
   "for": "MP4 and QuickTime video and audio, as arrays of planes and samples (`.mp4`, `.m4a`, `.m4v`, `.mov`)"
 }

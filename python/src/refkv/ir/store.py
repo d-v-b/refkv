@@ -44,8 +44,10 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from refkv import _core, _sync
+from refkv._files import replacing
 from refkv.pb import Range, Source
 from refkv.policy import Policy
+from refkv.reader import Registry
 from refkv.refstore import ReferenceStore
 from refkv.vzip.archive import VZipWriter
 from refkv.zarrify.common import Rejected, reference_store
@@ -105,7 +107,12 @@ async def drive_store_async(run: _core.StoreRun, store: Store, workers: int | No
             # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#92-the-tile-files>):
             # each key answered with its size, or None when it does not exist
             for key in run.probes():
-                run.found(store.probe(key))
+                size = store.probe(key)
+                at = store.found_key(key)
+                if size is not None and at != key:
+                    run.found_as(size, at)
+                else:
+                    run.found(size)
         return reqs
 
     try:
@@ -156,6 +163,9 @@ class StoreIrOutput:
     # (spec/refkv.md §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>);
     # set by refkv.zarrify._zarrify_store.
     checksum: Callable[[str, int, int], int] | None = None
+    # The IR the output was projected from, for the layouts plugins write (spec/layout.md
+    # <https://github.com/d-v-b/refkv/blob/main/spec/layout.md>).
+    ir: _core.Ir | None = None
 
     @property
     def docs(self) -> dict[str, object]:
@@ -229,7 +239,7 @@ class StoreIrOutput:
         return self.table()[0]
 
     def write(self, out_path: str) -> None:
-        with open(out_path, "wb") as fh:
+        with replacing(out_path) as fh:
             w = VZipWriter(fh, page_size=1 << 16, checksum=self.checksum)
             whole = self._whole_objects()
             if not self.data and len(whole) == len(self.refs) and len(set(whole.values())) == len(whole):
@@ -254,7 +264,8 @@ class StoreIrOutput:
                 w.add_bytes(key, self.entries[key], compress=not late, late=late)
             w.close()
 
-    def to_store(self, *, policy: Policy | None = None, info: dict[str, object] | None = None) -> ReferenceStore:
+    def to_store(self, *, policy: Policy | None = None, registry: Registry | None = None,
+                 info: dict[str, object] | None = None) -> ReferenceStore:
         """The output as a `refkv.ReferenceStore`, which `save_vzip` writes as the archive
         `write` writes, byte for byte (`refkv.zarrify.common.reference_store`)."""
         objects, data, table = self._numbered()
@@ -264,7 +275,8 @@ class StoreIrOutput:
                        for r in ranges]) for key, ranges in table.items()]
         entries = [(key, self.entries[key], key.endswith("zarr.json") and not key.startswith(self.lazy))
                    for key in sorted(self.entries)]
-        return reference_store(refs, entries, sources, checksum=self.checksum, policy=policy, info=info)
+        return reference_store(refs, entries, sources, checksum=self.checksum, policy=policy, registry=registry,
+                               info=info)
 
 
 def _length(p: StorePart) -> int:
@@ -285,16 +297,18 @@ def from_rust(t: tuple[str, list[tuple[str, bytes]], list[tuple[str, list[StoreP
     return out
 
 
-async def run_store_async(store: Store, fmt: str = "zarr2",
-                          mirror: bool = True) -> tuple[StoreIrOutput, _core.Ir, dict[str, object]]:
+async def run_store_async(store: Store, fmt: str = "zarr2", mirror: bool = True, checksums: bool = False,
+                          written: bool = True) -> tuple[StoreIrOutput, _core.Ir, dict[str, object]]:
     """(output, IR, run counts) of the listed `store`, parsed by the core's store format `fmt`:
     the keys its listing ignores given to the run (the recorded ignored keys, which the
     projection records, and the empty `d/` keys, a SAFE directory's directories), its objects
     read at most `store.workers` at a time, and the summary's `listingRequests` the store's
     requests. With `mirror` false the output has no `refkv_source` mirror, and so no record of
     the ignored keys either. A rejection names `fmt` (`Rejected.format`), or, for one of the
-    output's checks, the profile the run decided (`ome-zarr` once the 0.4 test passed). The
-    calls that block (the core's, on a listing of millions of objects) run on a thread."""
+    output's checks, the profile the run decided (`ome-zarr` once the 0.4 test passed). The output
+    is sealed for ranges that carry checksums when `checksums` and `written` (the output is written
+    as it is, not only built from: `refkv._core.Failed` for a payload over the limit only with
+    them). The calls that block (the core's, on a listing of millions of objects) run on a thread."""
 
     def start() -> _core.StoreRun:
         if store._prefetch is not None:  # noqa: SLF001 (the store's reads)
@@ -312,7 +326,7 @@ async def run_store_async(store: Store, fmt: str = "zarr2",
         stats = json.loads(run.stats())
         profile = run.profile()  # the output's checks are the decided profile's (OME-Zarr's, say)
         try:
-            t, ir = run.output(store.url, mirror)
+            t, ir = run.output(store.url, mirror, bool(checksums) and written)
         except _core.Rejected as e:
             raise Rejected(str(e), format=profile) from None
         # the objects' sizes, from the IR: the listing's, and a VSI input's files probed into it
@@ -325,10 +339,10 @@ async def run_store_async(store: Store, fmt: str = "zarr2",
     return await asyncio.to_thread(finish, run)
 
 
-def run_store(store: Store, fmt: str = "zarr2",
-              mirror: bool = True) -> tuple[StoreIrOutput, _core.Ir, dict[str, object]]:
+def run_store(store: Store, fmt: str = "zarr2", mirror: bool = True, checksums: bool = False,
+              written: bool = True) -> tuple[StoreIrOutput, _core.Ir, dict[str, object]]:
     """`run_store_async`, the caller's thread waiting for it (`refkv._sync.run`)."""
-    return _sync.run(run_store_async(store, fmt, mirror))
+    return _sync.run(run_store_async(store, fmt, mirror, checksums, written))
 
 
 def zarrify_store(location: str, url: str | None = None, fmt: str = "zarr2", mirror: bool = True,

@@ -10,7 +10,7 @@
 
 use super::{arr, contiguous, Copied};
 use crate::ir::Ir;
-use crate::out::{array_json, declared_group, grid_chunks, metadata_group, payload_size, Chunk, Out, Part};
+use crate::out::{array_json, declared_group, grid_chunks, metadata_group, Chunk, Out, Part};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 use std::collections::BTreeMap;
@@ -32,36 +32,15 @@ fn cut(a: &J, threshold: usize) -> Result<Cut, String> {
     if bits >= 8 {
         return grid_chunks(offset, &shape, bits / 8, CHUNK_BYTES, threshold).ok_or_else(|| "internal: the data cannot be cut into chunks".into());
     }
-    // a packed tensor: cut by elements, each counted as a byte, then each run of elements
-    // [s, s + m) the bytes [s k / 8, (s + m) k / 8) when every run starts on a byte
-    let (grid, chunks) = grid_chunks(0, &shape, 1, CHUNK_BYTES, usize::MAX).ok_or("internal: the data cannot be cut into chunks")?;
-    let per: u64 = grid.iter().product();
-    let full = (per * bits).div_ceil(8);
-    let runs: Option<Vec<(Vec<u64>, u64, u64)>> = chunks.into_iter().map(|(c, k)| match k {
-        Chunk::Ranges(parts) => match parts.first() {
-            Some(&Part::Src(s, m)) if (s * bits).is_multiple_of(8) => Some((c, s, m)),
-            _ => None,
-        },
-        _ => None,
-    }).collect();
-    let Some(runs) = runs else {
+    match contiguous::packed_chunks(offset, &shape, bits, CHUNK_BYTES, threshold) {
+        Some(cut) => Ok(cut),
         // one chunk, the whole data
-        let length = n(&a["length"]);
-        let one = if length > 0 { vec![(vec![0; shape.len()], Chunk::Ranges(vec![Part::Src(offset, length)]))] } else { Vec::new() };
-        return Ok((shape.iter().map(|&s| s.max(1)).collect(), one));
-    };
-    let chunks = runs.into_iter().map(|(c, s, m)| {
-        let (start, length) = (offset + s * bits / 8, (m * bits).div_ceil(8));
-        let pad = full - length;
-        let chunk = if pad == 0 {
-            Chunk::Ranges(vec![Part::Src(start, length)])
-        } else {
-            let parts = vec![Part::Src(start, length), Part::Lit(vec![0; pad as usize])];
-            if payload_size(&parts) > threshold { Chunk::Copy(start, length, pad) } else { Chunk::Ranges(parts) }
-        };
-        (c, chunk)
-    }).collect();
-    Ok((grid, chunks))
+        None => {
+            let length = n(&a["length"]);
+            let one = if length > 0 { vec![(vec![0; shape.len()], Chunk::Ranges(vec![Part::Src(offset, length)]))] } else { Vec::new() };
+            Ok((shape.iter().map(|&s| s.max(1)).collect(), one))
+        }
+    }
 }
 
 /// The source's ranges of the edge chunks the projection copies (§8.3
@@ -176,7 +155,7 @@ pub fn project_store(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
         for (a, (_, chunks)) in arr(&f["arrays"]).iter().zip(shard_cuts) {
             let tensor = a["path"].as_str().unwrap_or_default();
             let prefix = if arr(&a["shape"]).is_empty() { format!("{path}/{tensor}/c") } else { format!("{path}/{tensor}/c/") };
-            for (piece, (c, chunk)) in chunks.into_iter().enumerate() {
+            for (c, chunk) in chunks {
                 let Chunk::Ranges(parts) = chunk else { return Err("internal: a store chunk to copy".into()) };
                 let parts = contiguous::padded(parts, &mut zeros, &mut refs.out)?;
                 let parts: Vec<Part> = parts.into_iter().map(|p| match p {
@@ -185,7 +164,7 @@ pub fn project_store(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
                 }).collect();
                 let k = super::key(&prefix, c.into_iter());
                 check_key(&k)?;
-                refs.chunk(k, n(&a["offset"]), n(&a["length"]), 0, Some(parts), piece as u64)?;
+                refs.chunk(k, n(&a["offset"]), n(&a["length"]), 0, Some(parts))?;
                 chunks_total += 1;
             }
         }
@@ -200,4 +179,9 @@ pub fn project_store(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     let unpresented = arr(&facts["own"]["files"]).iter().filter(|f| f.get("reason").is_some()).count();
     out.summary = json!({"shards": summary, "unpresented": unpresented, "chunks": chunks_total, "others": arr(&facts["others"]).len()});
     Ok(out)
+}
+
+/// The projection of the profile's store run (`StoreFormat`; crate::store).
+pub fn store_project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
+    project_store(ir, facts, url)
 }

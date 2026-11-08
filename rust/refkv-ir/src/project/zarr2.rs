@@ -50,7 +50,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     let xml: HashSet<&str> = facts["xml"].as_array().into_iter().flatten().filter_map(|x| x.as_str()).collect();
     let nodes = facts["nodes"].as_array().cloned().unwrap_or_default();
     let documents: HashSet<&str> = facts["documents"].as_array().into_iter().flatten().filter_map(|x| x.as_str()).collect();
-    let mut arrays: HashMap<String, (Vec<u64>, String)> = HashMap::new();
+    let mut arrays: HashMap<String, (Vec<u64>, String, bool)> = HashMap::new();
     let (mut groups, mut narrays) = (0u64, 0u64);
     for n in &nodes {
         let path = n["path"].as_str().unwrap_or("");
@@ -72,7 +72,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
             Some("array") => {
                 narrays += 1;
                 let grid = n["grid"].as_array().into_iter().flatten().filter_map(|x| x.as_u64()).collect();
-                arrays.insert(path.to_string(), (grid, n["sep"].as_str().unwrap_or(".").to_string()));
+                arrays.insert(path.to_string(), (grid, n["sep"].as_str().unwrap_or(".").to_string(), n["trailing"].as_bool().unwrap_or(false)));
                 let mut d = json::parse(n["zarr"].as_str().unwrap_or("").as_bytes())?.value;
                 if let Some(names) = n["dims"].as_str() {
                     d.set("dimension_names", json::parse(names.as_bytes())?.value);
@@ -101,15 +101,15 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
         }
         // the array that is the key's nearest proper ancestor, if any
         let mut owner = None;
-        if let Some((g, sep)) = arrays.get("") {
-            owner = Some((key.as_str(), g, sep));
+        if let Some((g, sep, t)) = arrays.get("") {
+            owner = Some((key.as_str(), g, sep, *t));
         }
         for (at, _) in key.match_indices('/') {
-            if let Some((g, sep)) = arrays.get(&key[..at]) {
-                owner = Some((&key[at + 1..], g, sep));
+            if let Some((g, sep, t)) = arrays.get(&key[..at]) {
+                owner = Some((&key[at + 1..], g, sep, *t));
             }
         }
-        let chunk = owner.is_some_and(|(rest, g, sep)| is_chunk(rest, g, sep));
+        let chunk = owner.is_some_and(|(rest, g, sep, _)| is_chunk(rest, g, sep));
         if xml.contains(key.as_str()) && !chunk {
             // an OME-XML object of a collection, at its own key (spec/zarrify/ome-zarr.md
             // §7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ome-zarr.md#7-chunks-and-ome-xml>)
@@ -120,8 +120,15 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
         } else if chunk {
             if n > 0 {
                 chunks += 1;
-                check_key(&key)?;
-                out.refs(&key, vec![Part::Obj(key.clone(), 0, n)]);
+                // a trailing axis has one chunk, and one index more in the entry's key
+                // (spec/zarrify/zarr2.md §3.2
+                // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#32-chunks>)
+                let entry = match owner {
+                    Some((_, g, sep, true)) if !g.is_empty() => format!("{key}{sep}0"),
+                    _ => key.clone(),
+                };
+                check_key(&entry)?;
+                out.refs(&entry, vec![Part::Obj(key.clone(), 0, n)]);
             } else {
                 empty_chunks += 1;
             }
@@ -134,9 +141,18 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     }
     out.summary = json!({"groups": groups, "arrays": narrays, "chunks": chunks, "emptyChunks": empty_chunks,
                          "objects": ir.objects, "otherObjects": others});
+    for k in ["notPresented", "notOme"] {
+        if !facts[k].is_null() {
+            out.summary[k] = facts[k].clone();
+        }
+    }
     for (k, v) in facts["ome"].as_object().into_iter().flatten() {
         out.summary[k] = v.clone();
     }
     Ok(out)
 }
 
+/// The projection of the profile's store run (`StoreFormat`; crate::store).
+pub fn store_project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
+    project(ir, facts, url)
+}

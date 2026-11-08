@@ -4,12 +4,13 @@
 //! model of §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#53-elements>).
 //!
 //! The rounds: the file's first 64 KiB, then each top-level box header the first read does not
-//! hold, then the whole moov box (the sample tables index every sample, so the media data is
-//! never read). Every box is a struct with its header, fields, table and children; each
-//! track's samples are `data` elements under `samples/<T>`; the media data no sample claims
-//! is gaps. The schema (`schema/mp4.json`) holds the checks that reject a file; whether a
+//! hold, then the whole moov box and each whole moof box (the sample tables and track fragments
+//! index every sample, so the media data is not read). Every box is a struct with its header,
+//! fields, table and children; each track's samples are `data` elements under `samples/<T>`; the
+//! media data no sample claims is gaps. The schema (`schema/mp4.json`) holds the checks that reject a file; whether a
 //! track is zarrified is decided here, and recorded with the reason when it is not.
 
+use crate::coding::{Head, JpegFrame, jpeg_frame_header};
 use crate::expr::V;
 use crate::fed::{Fed, Word, uint};
 use crate::ir::*;
@@ -22,17 +23,22 @@ use serde_json::{json, Value as J};
 
 /// The first read, and the most bytes of a moov box (the schema's `max_moov`).
 const HEAD: u64 = 1 << 16;
+/// How much to read for a top-level box's header once the file has shown itself fragmented:
+/// enough to hold most moof boxes and the mdat header after them, so that a fragment takes one
+/// read (spec/zarrify/mp4.md §8.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#81-boxes>).
+const FRAGMENT_READ: u64 = 1 << 12;
+/// The bytes of a Motion JPEG track's first sample read first, which hold most frame headers, and
+/// the most read for one: 16 markers of 64 KiB of application data.
+const JPEG_READ: u64 = 1 << 12;
+const JPEG_HEAD: u64 = 1 << 20;
 /// The boxes whose payload is boxes.
-const CONTAINERS: [&[u8; 4]; 8] = [b"moov", b"trak", b"mdia", b"minf", b"stbl", b"edts", b"dinf", b"tref"];
+const CONTAINERS: [&[u8; 4]; 9] = [b"moov", b"trak", b"mdia", b"minf", b"stbl", b"edts", b"dinf", b"tref", b"mvex"];
 /// The names of a box struct's own values, which a child box's name must not take.
-const OWN: [&str; 8] = ["header", "fields", "fields_v1", "entries", "name", "data", "rest", "gaps"];
+const OWN: [&str; 9] = ["header", "fields", "fields_v1", "fields_v2", "entries", "name", "data", "rest", "gaps"];
 /// AAC's sampling frequencies by index (ISO/IEC 14496-3 §1.6.3.4).
 const AAC_RATES: [u32; 13] = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350];
 /// The H.264 profiles whose SPS carries the chroma format and bit depths (ITU-T H.264 §7.3.2.1.1).
 const HIGH_PROFILES: [u8; 13] = [100, 110, 122, 244, 44, 83, 86, 118, 128, 138, 139, 134, 135];
-/// The bit depths of the HEVC tracks the profile zarrifies: Main and Main 10 (and Main Still
-/// Picture), as a camera records them.
-const HEVC_DEPTHS: [u64; 2] = [8, 10];
 
 /// Whether a file's first bytes are an MP4 or QuickTime file's (spec/zarrify.md §1.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>): a box of at least 8
@@ -78,7 +84,112 @@ struct Entry {
     channels: u64,
     rate: u64,
     sound_version: u64,
+    /// the sample entry's `sample_size`, in bits
+    bits: u64,
+    /// a version 2 sound description's format flags and bytes a packet
+    lpcm_flags: u64,
+    lpcm_packet: u64,
     children: Vec<([u8; 4], Vec<u8>)>,
+}
+
+/// Whether a sample entry stores each sample as a JPEG stream: QuickTime's `jpeg`, Motion JPEG A's
+/// `mjpa`, OpenDML's `dmb1`, or MPEG-4's `mp4v` of object type indication 0x6C (ISO/IEC 10918-1).
+/// Motion JPEG B's `mjpb` has no markers in its streams.
+fn is_mjpeg(e: &Entry) -> bool {
+    match &e.typ {
+        b"jpeg" | b"mjpa" | b"dmb1" => true,
+        b"mp4v" => e.child(b"esds").and_then(esds_config).is_some_and(|c| c.0 == 0x6C),
+        _ => false,
+    }
+}
+
+/// How a PCM track's samples are stored: their data type's name and bytes, and their byte order.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Pcm {
+    data_type: &'static str,
+    bytes: u64,
+    endian: &'static str,
+}
+
+impl Pcm {
+    fn new(data_type: &'static str, bytes: u64, little: bool) -> Result<Pcm, String> {
+        Ok(Pcm { data_type, bytes, endian: if little { "little" } else { "big" } })
+    }
+}
+
+// A version 2 sound description's format flags (Apple's kAudioFormatFlagIs...).
+const LPCM_FLOAT: u64 = 0x1;
+const LPCM_BIG_ENDIAN: u64 = 0x2;
+const LPCM_SIGNED: u64 = 0x4;
+const LPCM_NON_INTERLEAVED: u64 = 0x20;
+
+/// How the sample entry `e`'s samples are stored, when it is a PCM one, or why the profile does not
+/// read them (spec/zarrify/mp4.md §8.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#82-tracks>).
+fn pcm_of(e: &Entry) -> Option<Result<Pcm, String>> {
+    // QuickTime's in32, fl32 and fl64 are big-endian, without an enda box that says otherwise
+    let enda = || e.child(b"enda").is_some_and(|b| b.len() >= 2 && uint(b, 0, 2, false) == 1);
+    let bad = |what: String| Err(format!("{what} PCM is not supported: the bytes codec has no data type for it"));
+    Some(match &e.typ {
+        b"sowt" | b"twos" => match e.bits {
+            8 => Pcm::new("int8", 1, true),
+            16 => Pcm::new("int16", 2, &e.typ == b"sowt"),
+            b => bad(format!("{b}-bit")),
+        },
+        b"raw " | b"NONE" => match e.bits {
+            8 => Pcm::new("uint8", 1, true),
+            b => bad(format!("{b}-bit unsigned")),
+        },
+        b"in24" => bad("24-bit".into()),
+        b"in32" => Pcm::new("int32", 4, enda()),
+        b"fl32" => Pcm::new("float32", 4, enda()),
+        b"fl64" => Pcm::new("float64", 8, enda()),
+        b"ipcm" | b"fpcm" => {
+            // a PCMConfig box (ISO/IEC 23003-5 §5.1): its format flags, then its sample size
+            let Some(c) = e.child(b"pcmC").filter(|c| c.len() >= 6) else {
+                return Some(Err(format!("an {} sample entry without a pcmC box", latin1(&e.typ))));
+            };
+            let little = c[4] & 1 == 1;
+            match (&e.typ, c[5]) {
+                (b"ipcm", 8) => Pcm::new("int8", 1, little),
+                (b"ipcm", 16) => Pcm::new("int16", 2, little),
+                (b"ipcm", 32) => Pcm::new("int32", 4, little),
+                (b"fpcm", 32) => Pcm::new("float32", 4, little),
+                (b"fpcm", 64) => Pcm::new("float64", 8, little),
+                (_, b) => bad(format!("{b}-bit")),
+            }
+        }
+        b"lpcm" => {
+            let (float, signed, little) = (e.lpcm_flags & LPCM_FLOAT != 0, e.lpcm_flags & LPCM_SIGNED != 0, e.lpcm_flags & LPCM_BIG_ENDIAN == 0);
+            if e.sound_version != 2 {
+                return Some(Err(format!("an lpcm sample entry in a version {} sound description", e.sound_version)));
+            }
+            if e.lpcm_flags & LPCM_NON_INTERLEAVED != 0 {
+                return Some(Err("PCM whose channels are not interleaved is not supported".into()));
+            }
+            if e.lpcm_packet != e.channels * e.bits.div_ceil(8) {
+                return Some(Err(format!("PCM of {} bytes a frame, for {} channels of {} bits, is not supported", e.lpcm_packet, e.channels, e.bits)));
+            }
+            match (float, signed, e.bits) {
+                (true, _, 32) => Pcm::new("float32", 4, little),
+                (true, _, 64) => Pcm::new("float64", 8, little),
+                (false, true, 8) => Pcm::new("int8", 1, little),
+                (false, true, 16) => Pcm::new("int16", 2, little),
+                (false, true, 32) => Pcm::new("int32", 4, little),
+                (false, false, 8) => Pcm::new("uint8", 1, little),
+                (false, false, b) => bad(format!("{b}-bit unsigned")),
+                (_, _, b) => bad(format!("{b}-bit")),
+            }
+        }
+        _ => return None,
+    })
+}
+
+/// The bytes of a PCM frame of the track, when it stores PCM the profile reads and has channels.
+fn pcm_frame(t: &Track) -> Option<u64> {
+    let e = t.entries.first()?;
+    let p = pcm_of(e)?.ok()?;
+    (e.channels > 0).then_some(e.channels * p.bytes)
 }
 
 impl Entry {
@@ -123,12 +234,84 @@ struct Track {
     sync: Option<Vec<u64>>,
     stz2: bool,
     has_stsz: bool,
+    /// the samples of its track fragments: their offsets and sizes, presentation times, and the
+    /// indexes among them of the sync samples
+    frag_offsets: Vec<u64>,
+    frag_sizes: Vec<u64>,
+    frag_pts: Vec<i64>,
+    frag_sync: Vec<u64>,
+    /// the decode time after its last sample, and whether a track fragment names another
+    /// sample description
+    frag_end: Option<i64>,
+    frag_other_entry: bool,
+    /// a Motion JPEG track's first sample's frame header, once read
+    jpeg: Option<Option<JpegFrame>>,
+}
+
+/// A trex box: a track's defaults for its fragments' samples.
+#[derive(Clone, Copy, Debug)]
+struct Trex {
+    track: u64,
+    entry: u64,
+    duration: u64,
+    size: u64,
+    flags: u64,
+}
+
+/// A trun box: its flags, its fields and its table's bytes.
+#[derive(Clone, Debug)]
+struct Trun {
+    at: u64,
+    flags: u64,
+    count: u64,
+    data_offset: Option<i64>,
+    first_flags: Option<u64>,
+    table: Vec<u8>,
+}
+
+/// A traf box: its tfhd box's fields, its tfdt box's time and its trun boxes.
+#[derive(Clone, Debug, Default)]
+struct Traf {
+    at: u64,
+    moof: u64,
+    tfhd: bool,
+    track: u64,
+    base: Option<u64>,
+    base_is_moof: bool,
+    entry: Option<u64>,
+    duration: Option<u64>,
+    size: Option<u64>,
+    flags: Option<u64>,
+    tfdt: Option<u64>,
+    runs: Vec<Trun>,
+}
+
+// A tfhd box's flags (ISO/IEC 14496-12 §8.8.7.1), and a trun box's (ISO/IEC 14496-12 §8.8.8.1).
+const TFHD_BASE: u64 = 0x1;
+const TFHD_ENTRY: u64 = 0x2;
+const TFHD_DURATION: u64 = 0x8;
+const TFHD_SIZE: u64 = 0x10;
+const TFHD_FLAGS: u64 = 0x20;
+const TFHD_BASE_IS_MOOF: u64 = 0x2_0000;
+const TRUN_DATA_OFFSET: u64 = 0x1;
+const TRUN_FIRST_FLAGS: u64 = 0x4;
+const TRUN_DURATION: u64 = 0x100;
+const TRUN_SIZE: u64 = 0x200;
+const TRUN_FLAGS: u64 = 0x400;
+const TRUN_OFFSET: u64 = 0x800;
+
+/// Whether a fragment's sample of these flags is a sync sample (ISO/IEC 14496-12 §8.8.3.1): it is
+/// not when `sample_is_non_sync_sample` is set, or when `sample_depends_on` says it depends on
+/// others, as ffmpeg's demuxer has it (a muxer may set the one and not the other).
+fn sample_is_sync(flags: u64) -> bool {
+    flags & 0x0001_0000 == 0 && flags >> 24 & 3 != 1
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Phase {
     Start,
     Walk,
+    Probe,
     Done,
 }
 
@@ -149,6 +332,13 @@ pub struct Mp4 {
     cur: Option<Track>,
     tracks: Vec<Track>,
     movie: (u64, u64),
+    /// the bytes of the moof boxes so far, the trex boxes, the moof box being read, the traf box
+    /// being read, and those read
+    moof_bytes: u64,
+    trex: Vec<Trex>,
+    moof: Option<u64>,
+    traf: Option<Traf>,
+    trafs: Vec<Traf>,
 }
 
 /// The fields of a sample entry of a video track (ISO/IEC 14496-12 §12.1.3).
@@ -157,13 +347,18 @@ const VISUAL: &str = "{reserved:u1[6],data_reference_index:>u2,pre_defined:>u2,r
 /// description, whose four more fields follow).
 const AUDIO: &str = "{reserved:u1[6],data_reference_index:>u2,version:>u2,revision:>u2,vendor:>u4,channel_count:>u2,sample_size:>u2,compression_id:>i2,packet_size:>u2,sample_rate:>u4}";
 const AUDIO_V1: &str = "{samples_per_packet:>u4,bytes_per_packet:>u4,bytes_per_frame:>u4,bytes_per_sample:>u4}";
+/// The fields a QuickTime sound description of version 2 adds, of 72 bytes with the sample entry's
+/// header and fields.
+const AUDIO_V2: &str = "{size_of_struct_only:>u4,audio_sample_rate:>f8,audio_channels:>u4,always_7f000000:>u4,const_bits_per_channel:>u4,format_specific_flags:>u4,const_bytes_per_audio_packet:>u4,const_lpcm_frames_per_audio_packet:>u4}";
 const FULL: &str = "{version:u1,flags:u1[3],entry_count:>u4}";
+const TREX: &str = "{version:u1,flags:u1[3],track_id:>u4,default_sample_description_index:>u4,default_sample_duration:>u4,default_sample_size:>u4,default_sample_flags:>u4}";
 
 impl Mp4 {
     pub fn new(size: u64) -> Self {
         Mp4 {
             size, phase: Phase::Start, fed: Fed::default(), ir: Ir::new(size), rules: rules::of("mp4"), facts: J::Null,
             p: 0, tops: Vec::new(), moov: None, ftyp: None, cur: None, tracks: Vec::new(), movie: (0, 0),
+            moof_bytes: 0, trex: Vec::new(), moof: None, traf: None, trafs: Vec::new(),
         }
     }
 
@@ -182,6 +377,17 @@ impl Mp4 {
                 Some(r) => Ok(Step::Read(vec![r])),
                 None => {
                     self.build()?;
+                    let mut tracks = std::mem::take(&mut self.tracks);
+                    self.fragments(&mut tracks)?;
+                    self.tracks = tracks;
+                    self.phase = Phase::Probe;
+                    self.step()
+                }
+            },
+            Phase::Probe => match self.probe()? {
+                Some(r) => Ok(Step::Read(vec![r])),
+                None => {
+                    self.samples()?;
                     self.phase = Phase::Done;
                     Ok(Step::Done)
                 }
@@ -192,18 +398,27 @@ impl Mp4 {
 
     /// The top-level boxes (spec/zarrify/mp4.md §8.1
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#81-boxes>): the range to read
-    /// next, or None when every one is known and the moov box (and the ftyp box) read.
+    /// next, or None when every one is known and the moov box, the moof boxes (and the ftyp box)
+    /// read.
     fn walk(&mut self) -> Res<Option<(u64, u64)>> {
         while self.p + 8 <= self.size {
             let n = (self.size - self.p).min(16);
-            let Some(h) = self.fed.get(self.p, n) else { return Ok(Some((self.p, n))) };
+            let Some(h) = self.fed.get(self.p, n) else {
+                let read = if self.moof_bytes > 0 { FRAGMENT_READ } else { 16 };
+                return Ok(Some((self.p, (self.size - self.p).min(read))));
+            };
             let b = header(h, self.p, self.size).ok_or("internal: no box header")?;
             self.check_box(&b, self.size)?;
             if &b.typ == b"ftyp" {
                 self.rules.check("fields", rules::env([("type", text("ftyp")), ("at", num(b.at as f64)), ("need", num(8.0)), ("have", num((b.size - b.head) as f64))]))?;
             }
             if &b.typ == b"moof" {
-                self.rules.check("fragment", rules::env([("type", text("moof")), ("at", num(b.at as f64)), ("seen", flag(false))]))?;
+                self.rules.check("moofs", rules::env([("total", num((self.moof_bytes + b.size) as f64))]))?;
+                if self.fed.get(b.at, b.size).is_none() {
+                    // with the header of the box after it, when there is one
+                    return Ok(Some((b.at, (b.size + 16).min(self.size - b.at))));
+                }
+                self.moof_bytes += b.size;
             }
             if &b.typ == b"moov" {
                 let moovs = self.tops.iter().filter(|t| &t.typ == b"moov").count() + 1;
@@ -279,6 +494,12 @@ impl Mp4 {
                     }
                     self.rest(s, b.body() + 8 + 4 * k, b.end(), Some(&f[..]), b.at)?;
                 }
+                b"moof" => {
+                    let m = self.fed.get(b.at, b.size).ok_or("internal: the moof box was not read")?.to_vec();
+                    self.moof = Some(b.at);
+                    self.container(s, &m, b.at, b.body(), b.end())?;
+                    self.moof = None;
+                }
                 b"mdat" => {}
                 _ => {
                     if b.size > b.head {
@@ -291,7 +512,33 @@ impl Mp4 {
         if self.p < self.size {
             // fewer than 8 bytes after the last box: a gap
         }
-        self.samples()
+        Ok(())
+    }
+
+    /// The frame header of the first sample of each Motion JPEG track, the one thing the profile
+    /// reads of a track's media data (spec/zarrify/mp4.md §8.1
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#81-boxes>): the range to read
+    /// next, or None when each is known.
+    fn probe(&mut self) -> Res<Option<(u64, u64)>> {
+        for k in 0..self.tracks.len() {
+            let t = &self.tracks[k];
+            if t.jpeg.is_some() || !t.entries.first().is_some_and(is_mjpeg) {
+                continue;
+            }
+            let (offsets, sizes) = self.layout(t)?;
+            let (o, n) = (offsets.first().copied().unwrap_or(0), sizes.first().copied().unwrap_or(0));
+            let bound = n.min(JPEG_HEAD).min(self.size.saturating_sub(o));
+            let mut have = bound.min(JPEG_READ);
+            let frame = loop {
+                let Some(data) = self.fed.get(o, have) else { return Ok(Some((o, have))) };
+                match jpeg_frame_header(&Head { have: data, bound }) {
+                    Ok(frame) => break frame,
+                    Err(need) => have = (need + JPEG_READ).min(bound),
+                }
+            };
+            self.tracks[k].jpeg = Some(frame);
+        }
+        Ok(None)
     }
 
     /// The bytes `[from, to)` of a box that are none of its values: a `rest` value.
@@ -322,6 +569,16 @@ impl Mp4 {
         let body = &m[at(b.body())..at(b.end())];
         let n = body.len() as u64;
         match &b.typ {
+            // a moof box holds the boxes of its track fragments; any other is opaque there
+            t if self.moof.is_some() && !matches!(t, b"traf" | b"tfhd" | b"tfdt" | b"trun") => self.opaque(s, b, body)?,
+            b"traf" if self.traf.is_none() => {
+                self.traf = Some(Traf { at: b.at, moof: self.moof.unwrap_or(0), ..Traf::default() });
+                self.container(s, m, base, b.body(), b.end())?;
+                self.trafs.extend(self.traf.take());
+            }
+            b"tfhd" if self.traf.is_some() => self.tfhd(s, b, body, m, base)?,
+            b"tfdt" if self.traf.is_some() => self.tfdt(s, b, body, m, base)?,
+            b"trun" if self.traf.is_some() => self.trun(s, b, body, m, base)?,
             t if CONTAINERS.contains(&t) => {
                 if t == b"trak" {
                     self.cur = Some(Track::default());
@@ -332,8 +589,12 @@ impl Mp4 {
                     self.tracks.push(t);
                 }
             }
-            b"mvex" => {
-                self.rules.check("fragment", rules::env([("type", text("mvex")), ("at", num(b.at as f64)), ("seen", flag(false))]))?;
+            b"trex" => {
+                self.rules.check("fields", rules::env([("type", text("trex")), ("at", num(b.at as f64)), ("need", num(24.0)), ("have", num(n as f64))]))?;
+                self.ir.value(s, "fields", NO_INDEX, TREX, 0, (b.body(), 24), Some(&body[..24]))?;
+                self.rest(s, b.body() + 24, b.end(), Some(m), base)?;
+                let at = |o| uint(body, o, 4, false);
+                self.trex.push(Trex { track: at(4), entry: at(8), duration: at(12), size: at(16), flags: at(20) });
             }
             b"mvhd" | b"tkhd" | b"mdhd" => {
                 let v1 = n > 0 && body[0] == 1;
@@ -427,6 +688,95 @@ impl Mp4 {
         Ok(())
     }
 
+    /// A tfhd box: the fields its flags name, in that order.
+    fn tfhd(&mut self, s: u32, b: &BoxRef, body: &[u8], m: &[u8], base: u64) -> Res<()> {
+        let n = body.len() as u64;
+        self.rules.check("fields", rules::env([("type", text("tfhd")), ("at", num(b.at as f64)), ("need", num(8.0)), ("have", num(n as f64))]))?;
+        let flags = uint(body, 1, 3, false);
+        let mut ty = String::from("{version:u1,flags:u1[3],track_id:>u4");
+        let mut need = 8u64;
+        let mut named = |bit: u64, field: &str, width: u64| -> Option<u64> {
+            (flags & bit != 0).then(|| {
+                ty += &format!(",{field}:>u{width}");
+                need += width;
+                need - width
+            })
+        };
+        let base_at = named(TFHD_BASE, "base_data_offset", 8);
+        let entry = named(TFHD_ENTRY, "sample_description_index", 4);
+        let duration = named(TFHD_DURATION, "default_sample_duration", 4);
+        let size = named(TFHD_SIZE, "default_sample_size", 4);
+        let sample_flags = named(TFHD_FLAGS, "default_sample_flags", 4);
+        ty.push('}');
+        self.rules.check("fields", rules::env([("type", text("tfhd")), ("at", num(b.at as f64)), ("need", num(need as f64)), ("have", num(n as f64))]))?;
+        self.ir.value(s, "fields", NO_INDEX, &ty, 0, (b.body(), need), Some(&body[..need as usize]))?;
+        self.rest(s, b.body() + need, b.end(), Some(m), base)?;
+        let read = |o: Option<u64>| o.map(|o| uint(body, o as usize, 4, false));
+        let t = self.traf.as_mut().ok_or("internal: a tfhd box outside a traf box")?;
+        t.tfhd = true;
+        t.track = uint(body, 4, 4, false);
+        t.base = base_at.map(|o| uint(body, o as usize, 8, false));
+        t.base_is_moof = flags & TFHD_BASE_IS_MOOF != 0;
+        (t.entry, t.duration, t.size, t.flags) = (read(entry), read(duration), read(size), read(sample_flags));
+        Ok(())
+    }
+
+    /// A tfdt box: the decode time of its track fragment's first sample.
+    fn tfdt(&mut self, s: u32, b: &BoxRef, body: &[u8], m: &[u8], base: u64) -> Res<()> {
+        let n = body.len() as u64;
+        let (need, width) = if body.first() == Some(&1) { (12, 8) } else { (8, 4) };
+        self.rules.check("fields", rules::env([("type", text("tfdt")), ("at", num(b.at as f64)), ("need", num(need as f64)), ("have", num(n as f64))]))?;
+        let ty = format!("{{version:u1,flags:u1[3],base_media_decode_time:>u{width}}}");
+        self.ir.value(s, "fields", NO_INDEX, &ty, 0, (b.body(), need), Some(&body[..need as usize]))?;
+        self.rest(s, b.body() + need, b.end(), Some(m), base)?;
+        let t = self.traf.as_mut().ok_or("internal: a tfdt box outside a traf box")?;
+        t.tfdt = Some(uint(body, 4, width, false));
+        Ok(())
+    }
+
+    /// A trun box: the fields its flags name, then a table of the members they name.
+    fn trun(&mut self, s: u32, b: &BoxRef, body: &[u8], m: &[u8], base: u64) -> Res<()> {
+        let n = body.len() as u64;
+        let at = num(b.at as f64);
+        self.rules.check("fields", rules::env([("type", text("trun")), ("at", at.clone()), ("need", num(8.0)), ("have", num(n as f64))]))?;
+        let flags = uint(body, 1, 3, false);
+        let count = uint(body, 4, 4, false);
+        let mut ty = String::from("{version:u1,flags:u1[3],sample_count:>u4");
+        let mut need = 8u64;
+        let data_at = (flags & TRUN_DATA_OFFSET != 0).then(|| {
+            ty += ",data_offset:>i4";
+            need += 4;
+            need - 4
+        });
+        let first_at = (flags & TRUN_FIRST_FLAGS != 0).then(|| {
+            ty += ",first_sample_flags:>u4";
+            need += 4;
+            need - 4
+        });
+        ty.push('}');
+        self.rules.check("fields", rules::env([("type", text("trun")), ("at", at.clone()), ("need", num(need as f64)), ("have", num(n as f64))]))?;
+        let members: Vec<&str> = [
+            (TRUN_DURATION, "sample_duration:>u4"), (TRUN_SIZE, "sample_size:>u4"), (TRUN_FLAGS, "sample_flags:>u4"),
+            (TRUN_OFFSET, "sample_composition_time_offset:>i4"),
+        ].iter().filter(|m| flags & m.0 != 0).map(|m| m.1).collect();
+        let width = 4 * members.len() as u64;
+        self.rules.check("table", rules::env([("type", text("trun")), ("at", at), ("count", num(count as f64)), ("width", num(width as f64)), ("have", num((n - need) as f64))]))?;
+        self.ir.value(s, "fields", NO_INDEX, &ty, 0, (b.body(), need), Some(&body[..need as usize]))?;
+        let len = count * width;
+        let table = &body[need as usize..(need + len) as usize];
+        if len > 0 {
+            self.ir.value(s, "entries", NO_INDEX, &format!("{{{}}}[{count}]", members.join(",")), 0, (b.body() + need, len), Some(table))?;
+        }
+        self.rest(s, b.body() + need + len, b.end(), Some(m), base)?;
+        let run = Trun {
+            at: b.at, flags, count, table: table.to_vec(),
+            data_offset: data_at.map(|o| uint(body, o as usize, 4, false) as u32 as i32 as i64),
+            first_flags: first_at.map(|o| uint(body, o as usize, 4, false)),
+        };
+        self.traf.as_mut().ok_or("internal: a trun box outside a traf box")?.runs.push(run);
+        Ok(())
+    }
+
     /// A box whose payload the convention does not parse: one `data` value.
     fn opaque(&mut self, s: u32, b: &BoxRef, body: &[u8]) -> Res<()> {
         if !body.is_empty() {
@@ -505,10 +855,19 @@ impl Mp4 {
                 self.ir.value(s, "fields", NO_INDEX, AUDIO, 0, (b.body(), 28), Some(&body[..28]))?;
                 e.sound_version = uint(body, 8, 2, false);
                 e.channels = uint(body, 16, 2, false);
+                e.bits = uint(body, 18, 2, false);
                 e.rate = uint(body, 24, 4, false) >> 16;
                 if e.sound_version == 1 && n >= 44 {
                     self.ir.value(s, "fields_v1", NO_INDEX, AUDIO_V1, 0, (b.body() + 28, 16), Some(&body[28..44]))?;
                     Some(44)
+                } else if e.sound_version == 2 && &b.typ == b"lpcm" && n >= 64 {
+                    self.ir.value(s, "fields_v2", NO_INDEX, AUDIO_V2, 0, (b.body() + 28, 36), Some(&body[28..64]))?;
+                    e.rate = f64::from_bits(uint(body, 32, 8, false)) as u64;
+                    e.channels = uint(body, 40, 4, false);
+                    e.bits = uint(body, 48, 4, false);
+                    e.lpcm_flags = uint(body, 52, 4, false);
+                    e.lpcm_packet = uint(body, 56, 4, false);
+                    Some(64)
                 } else if e.sound_version == 0 {
                     Some(28)
                 } else {
@@ -568,6 +927,18 @@ impl Mp4 {
                     }
                 };
                 let ts = self.ir.struct_(ss, "", k as u64, 0, None)?;
+                // a PCM track's frames: each sample a whole number of them, or no PCM track
+                if let (Some(frame), true) = (pcm_frame(t), f["reason"].is_null()) {
+                    let fixed = t.fixed_size.map(|f| f.0).filter(|&n| n != 1 && n % frame != 0);
+                    match fixed.or(sizes.iter().copied().find(|n| n % frame != 0)) {
+                        Some(n) => {
+                            f["reason"] = json!(format!("PCM samples of {n} bytes, not a whole number of {frame}-byte frames"));
+                            f["format"] = J::Null;
+                            f["geometry"] = J::Null;
+                        }
+                        None => f["frames"] = json!(sizes.iter().sum::<u64>() / frame),
+                    }
+                }
                 let form = json!({
                     "geometry": f["geometry"].clone(),
                     "codec": {"name": latin1(&t.entries.first().map(|e| e.typ).unwrap_or(*b"    ")), "format": f["format"].clone()},
@@ -606,9 +977,105 @@ impl Mp4 {
         Ok(())
     }
 
+    /// The samples of the track fragments, in the file's order, added to their tracks
+    /// (spec/zarrify/mp4.md §3
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#3-tracks-and-samples>).
+    fn fragments(&self, tracks: &mut [Track]) -> Res<()> {
+        // where a traf box's data starts when it does not say: its moof box, for the first of a
+        // moof box's, and else where the data of the traf box before it ended
+        let mut implicit = (u64::MAX, 0u64);
+        for traf in &self.trafs {
+            let trex = self.trex.iter().find(|x| x.track == traf.track);
+            let track = tracks.iter_mut().find(|t| t.id == traf.track);
+            self.rules.check("fragment", rules::env([
+                ("at", num(traf.at as f64)), ("track", num(traf.track as f64)), ("tfhd", flag(traf.tfhd)),
+                ("trex", flag(trex.is_some() && track.is_some())),
+            ]))?;
+            let (Some(trex), Some(t)) = (trex, track) else { return Err("internal: a traf box without a track".into()) };
+            if implicit.0 != traf.moof {
+                implicit = (traf.moof, traf.moof);
+            }
+            let base = match (traf.base, traf.base_is_moof) {
+                (Some(b), _) => b,
+                (None, true) => traf.moof,
+                (None, false) => implicit.1,
+            };
+            t.frag_other_entry |= traf.entry.unwrap_or(trex.entry) != 1;
+            let mut dts = match (traf.tfdt, t.frag_end) {
+                (Some(d), _) => i64::try_from(d).unwrap_or(i64::MAX),
+                (None, Some(d)) => d,
+                (None, None) => t.stts.iter().fold(0i64, |d, e| d.saturating_add((e.0 as i64).saturating_mul(e.1 as i64))),
+            };
+            let table_samples = match t.fixed_size {
+                Some((_, count)) => count,
+                None => t.sizes.len() as u64,
+            };
+            let mut next = base;
+            for run in &traf.runs {
+                self.rules.check("samples", rules::env([
+                    ("track", num(t.id as f64)), ("n", num((table_samples + t.frag_sizes.len() as u64 + run.count) as f64)),
+                ]))?;
+                let start = run.data_offset.map_or(next as i128, |d| base as i128 + d as i128);
+                self.rules.check("run", rules::env([
+                    ("at", num(run.at as f64)), ("start", num(start as f64)), ("size", num(self.size as f64)),
+                ]))?;
+                let mut o = start as u64;
+                // a PCM run of one sample size is one element: it may have a sample per PCM frame
+                let size = traf.size.unwrap_or(trex.size);
+                let tabled = TRUN_DURATION | TRUN_SIZE | TRUN_FLAGS | TRUN_OFFSET;
+                if run.count > 0 && run.flags & tabled == 0 && pcm_frame(t).is_some_and(|frame| size % frame == 0) {
+                    t.frag_offsets.push(o);
+                    t.frag_sizes.push(run.count * size);
+                    o += run.count * size;
+                    dts = dts.saturating_add((run.count as i64).saturating_mul(traf.duration.unwrap_or(trex.duration) as i64));
+                    next = o;
+                    continue;
+                }
+                let mut member = 0;
+                for j in 0..run.count {
+                    let mut own = |bit: u64| {
+                        (run.flags & bit != 0).then(|| {
+                            member += 4;
+                            uint(&run.table, member - 4, 4, false)
+                        })
+                    };
+                    let duration = own(TRUN_DURATION).or(traf.duration).unwrap_or(trex.duration);
+                    let size = own(TRUN_SIZE).or(traf.size).unwrap_or(trex.size);
+                    let sample_flags = own(TRUN_FLAGS);
+                    let offset = own(TRUN_OFFSET).map_or(0, |c| c as u32 as i32 as i64);
+                    let sample_flags = run.first_flags.filter(|_| j == 0).or(sample_flags).or(traf.flags).unwrap_or(trex.flags);
+                    if sample_is_sync(sample_flags) {
+                        t.frag_sync.push(t.frag_sizes.len() as u64);
+                    }
+                    t.frag_offsets.push(o);
+                    t.frag_sizes.push(size);
+                    t.frag_pts.push(dts.saturating_add(offset));
+                    o += size;
+                    dts = dts.saturating_add(duration as i64);
+                }
+                next = o;
+            }
+            implicit.1 = next;
+            t.frag_end = Some(dts);
+            // the media's duration, which the mdhd box of a file of fragments does not count
+            t.duration = t.duration.max(dts.max(0) as u64);
+        }
+        Ok(())
+    }
+
     /// Each sample's (offset, size), in decode order, from the stsz, stsc and stco or co64
-    /// tables; the tables' sample counts checked against each other.
+    /// tables, the tables' sample counts checked against each other, then from the track's
+    /// fragments. A PCM track of one sample size gives each chunk's samples as one, since it may
+    /// have a sample per PCM frame, and a sample size of 1 is QuickTime's for one frame of any size.
     fn layout(&self, t: &Track) -> Res<(Vec<u64>, Vec<u64>)> {
+        let mut layout = self.table_layout(t)?;
+        layout.0.extend_from_slice(&t.frag_offsets);
+        layout.1.extend_from_slice(&t.frag_sizes);
+        Ok(layout)
+    }
+
+    /// Each sample's (offset, size) that the tables give.
+    fn table_layout(&self, t: &Track) -> Res<(Vec<u64>, Vec<u64>)> {
         if !t.has_stsz {
             return Ok((Vec::new(), Vec::new()));
         }
@@ -616,7 +1083,10 @@ impl Mp4 {
             Some((_, count)) => count,
             None => t.sizes.len() as u64,
         };
-        self.rules.check("samples", rules::env([("track", num(t.id as f64)), ("n", num(n as f64))]))?;
+        let unit = t.fixed_size.and(pcm_frame(t));
+        if unit.is_none() {
+            self.rules.check("samples", rules::env([("track", num(t.id as f64)), ("n", num(n as f64))]))?;
+        }
         let size_of = |j: u64| match t.fixed_size {
             Some((s, _)) => s,
             None => t.sizes[j as usize],
@@ -649,6 +1119,15 @@ impl Mp4 {
             let next = t.stsc.get(i + 1).map_or(chunks + 1, |x| x.0);
             for c in e.0..next {
                 let mut o = t.offsets[(c - 1) as usize];
+                if let (Some((size, _)), Some(frame)) = (t.fixed_size.filter(|_| unit.is_some()), unit) {
+                    if j + e.1 > n {
+                        return counts("sample-to-chunk table", j + e.1).map(|_| (offsets.clone(), sizes.clone()));
+                    }
+                    offsets.push(o);
+                    sizes.push(e.1 * if size == 1 { frame } else { size });
+                    j += e.1;
+                    continue;
+                }
                 for _ in 0..e.1 {
                     if j >= n {
                         return counts("sample-to-chunk table", j + 1).map(|_| (offsets.clone(), sizes.clone()));
@@ -688,43 +1167,85 @@ impl Mp4 {
             if offsets.is_empty() {
                 return Err("no samples".into());
             }
-            if t.stsd_count != 1 || t.entries.len() != 1 || t.stsc.iter().any(|e| e.2 != 1) {
+            if t.stsd_count != 1 || t.entries.len() != 1 || t.stsc.iter().any(|e| e.2 != 1) || t.frag_other_entry {
                 return Err("more than one sample description".into());
             }
             if t.timescale == 0 {
                 return Err("a media timescale of 0".into());
             }
             let e = entry.unwrap();
-            if kind == "video" {
+            if is_mjpeg(e) {
+                let frame = t.jpeg.flatten().ok_or("a first sample without a JPEG frame header")?;
+                if e.width == 0 || e.height == 0 {
+                    return Err("a sample entry of width or height 0".into());
+                }
+                if !matches!(frame.marker, 0xC0..=0xC2) || frame.precision != 8 {
+                    return Err(format!("JPEG of marker 0x{:02X} and {} bits is not supported: only 8-bit baseline, extended and progressive JPEG is", frame.marker, frame.precision));
+                }
+                if !matches!(frame.components, 1 | 3) {
+                    return Err(format!("JPEG of {} components is not supported: only 1 or 3 is", frame.components));
+                }
+                if (frame.width, frame.height) != (e.width, e.height) {
+                    return Err(format!("JPEG pictures of {}x{} in a sample entry of {}x{}, as an interlaced picture's fields are", frame.width, frame.height, e.width, e.height));
+                }
+                let pts = presentation(t);
+                let mut sorted = pts.clone();
+                sorted.sort_unstable();
+                if sorted.windows(2).any(|w| w[0] == w[1]) {
+                    return Err("two samples share a presentation time".into());
+                }
+                f["format"] = json!("mjpeg");
+                f["geometry"] = json!({"width": e.width, "height": e.height, "channels": frame.components, "data_type": "uint8"});
+                f["pts"] = json!(pts);
+            } else if kind == "video" {
                 let (format, setup, sps) = match &e.typ {
                     b"avc1" => {
                         let avcc = e.child(b"avcC").ok_or("an avc1 sample entry without an avcC box")?;
                         let sps = h264_sps(avcc).ok_or("an avcC box without a parameter set the profile reads")?;
-                        if sps.chroma != 1 || sps.luma != 8 || sps.chroma_depth != 8 {
-                            return Err(format!("H.264 with chroma format {} and bit depth {} is not supported: only 8-bit 4:2:0 is", sps.chroma, sps.luma));
+                        if sps.chroma != 1 || sps.luma != sps.chroma_depth || !matches!(sps.luma, 8 | 10) {
+                            return Err(format!("H.264 with chroma format {} and bit depth {} is not supported: only 4:2:0 of 8 or 10 bits is", sps.chroma, sps.luma));
                         }
                         ("h264", avcc, sps)
                     }
                     b"hvc1" | b"hev1" => {
                         let hvcc = e.child(b"hvcC").ok_or_else(|| format!("an {} sample entry without an hvcC box", codec.trim()))?;
                         let sps = hevc_sps(hvcc).ok_or("an hvcC box without a VPS, SPS and PPS the profile reads")?;
-                        if sps.chroma != 1 || sps.luma != sps.chroma_depth || !HEVC_DEPTHS.contains(&sps.luma) {
+                        if !matches!(sps.chroma, 1 | 2) || sps.luma != sps.chroma_depth || !matches!(sps.luma, 8 | 10 | 12) {
                             let depth = if sps.luma == sps.chroma_depth { format!("bit depth {}", sps.luma) } else { format!("bit depths {} and {}", sps.luma, sps.chroma_depth) };
-                            return Err(format!("HEVC with chroma format {} and {depth} is not supported: only 4:2:0 of 8 or 10 bits is", sps.chroma));
+                            return Err(format!("HEVC with chroma format {} and {depth} is not supported: only 4:2:0 or 4:2:2 of 8, 10 or 12 bits is", sps.chroma));
                         }
                         ("hevc", hvcc, sps)
                     }
-                    _ => return Err(format!("{} video is not supported: only H.264 (avc1) and HEVC (hvc1, hev1) are", codec.trim())),
+                    b"av01" => {
+                        let av1c = e.child(b"av1C").ok_or("an av01 sample entry without an av1C box")?;
+                        let sps = av1_config(av1c).ok_or("an av1C box the profile cannot read")?;
+                        if sps.chroma != 1 || !matches!(sps.luma, 8 | 10) {
+                            return Err(format!("AV1 with chroma format {} and bit depth {} is not supported: only 4:2:0 of 8 or 10 bits is", sps.chroma, sps.luma));
+                        }
+                        ("av1", av1c, sps)
+                    }
+                    b"vp09" => {
+                        let vpcc = e.child(b"vpcC").ok_or("a vp09 sample entry without a vpcC box")?;
+                        let sps = vp9_config(vpcc).ok_or("a vpcC box the profile cannot read")?;
+                        if !matches!(sps.chroma, 1 | 2) || !matches!(sps.luma, 8 | 10 | 12) {
+                            return Err(format!("VP9 with chroma format {} and bit depth {} is not supported: only 4:2:0 or 4:2:2 of 8, 10 or 12 bits is", sps.chroma, sps.luma));
+                        }
+                        ("vp9", vpcc, sps)
+                    }
+                    _ => return Err(format!("{} video is not supported: only H.264 (avc1), HEVC (hvc1, hev1), AV1 (av01), VP9 (vp09) and Motion JPEG (jpeg, mjpa, dmb1) are", codec.trim())),
                 };
                 if e.width == 0 || e.height == 0 {
                     return Err("a sample entry of width or height 0".into());
                 }
                 let pts = presentation(t);
-                let sync = t.sync.clone().map(|s| s.iter().map(|&x| x.saturating_sub(1)).collect::<Vec<u64>>()).unwrap_or_else(|| (0..offsets.len() as u64).collect());
+                let in_tables = offsets.len() as u64 - t.frag_offsets.len() as u64;
+                let mut sync = t.sync.clone().map(|s| s.iter().map(|&x| x.saturating_sub(1)).collect::<Vec<u64>>()).unwrap_or_else(|| (0..in_tables).collect());
+                sync.extend(t.frag_sync.iter().map(|&k| in_tables + k));
                 gops(&pts, &sync)?;
                 f["format"] = json!(format);
                 let data_type = if sps.luma > 8 { "uint16" } else { "uint8" };
-                f["geometry"] = json!({"width": e.width, "height": e.height, "planes": 3, "data_type": data_type});
+                let chroma = if sps.chroma == 2 { "4:2:2" } else { "4:2:0" };
+                f["geometry"] = json!({"width": e.width, "height": e.height, "planes": 3, "data_type": data_type, "chroma": chroma});
                 f["setup"] = json!(crate::mirror::base64(setup));
                 f["profile"] = json!(sps.profile);
                 f["level"] = json!(sps.level);
@@ -732,8 +1253,24 @@ impl Mp4 {
                 f["pts"] = json!(pts);
                 f["sync"] = json!(sync);
             } else {
-                if e.sound_version > 1 {
+                if e.sound_version > 1 && &e.typ != b"lpcm" {
                     return Err(format!("a version {} QuickTime sound description", e.sound_version));
+                }
+                if let Some(pcm) = pcm_of(e) {
+                    let pcm = pcm?;
+                    // a sample rate past 16 bits may be 0 in the sample entry; the media timescale is it
+                    let rate = if e.rate > 0 { e.rate } else { t.timescale };
+                    if rate == 0 || e.channels == 0 {
+                        return Err("a sample rate or channel count of 0".into());
+                    }
+                    f["format"] = json!("pcm");
+                    f["geometry"] = json!({"channels": e.channels, "data_type": pcm.data_type});
+                    f["endian"] = json!(pcm.endian);
+                    f["bytes"] = json!(pcm.bytes);
+                    f["sample_rate"] = json!(rate);
+                    f["channels"] = json!(e.channels);
+                    f["spf"] = json!(1);
+                    return Ok(());
                 }
                 let (format, setup, rate, channels, spf) = match &e.typ {
                     b"mp4a" => {
@@ -743,19 +1280,24 @@ impl Mp4 {
                             0x40 | 0x66 | 0x67 | 0x68 => {
                                 let a = aac_config(&asc).ok_or("an AudioSpecificConfig the profile cannot read")?;
                                 if a.aot != 2 {
-                                    return Err(format!("AAC object type {} is not supported: only AAC-LC (2) is", a.aot));
+                                    return Err(format!("AAC object type {} is not supported: only AAC-LC (2), and HE-AAC of it (5 and 29), are", a.aot));
                                 }
                                 if a.short {
                                     return Err("960-sample AAC frames are not supported".into());
                                 }
-                                ("aac", Some(asc), a.rate, if a.channels > 0 { a.channels } else { e.channels }, 1024)
+                                let channels = if a.channels > 0 { a.channels } else { e.channels };
+                                match a.sbr_rate {
+                                    None => ("aac", Some(asc), a.rate, channels, 1024),
+                                    Some(r) if r == 2 * a.rate => ("aac", Some(asc), r, if a.ps { 2 } else { channels }, 2048),
+                                    Some(r) => return Err(format!("HE-AAC of SBR at {r} Hz over a core at {} Hz is not supported: only at twice its rate is", a.rate)),
+                                }
                             }
                             0x69 | 0x6B => ("mp3", None, e.rate, e.channels, if e.rate >= 32000 { 1152 } else { 576 }),
                             x => return Err(format!("audio of object type indication 0x{x:02x} is not supported")),
                         }
                     }
                     b".mp3" => ("mp3", None, e.rate, e.channels, if e.rate >= 32000 { 1152 } else { 576 }),
-                    _ => return Err(format!("{} audio is not supported: only AAC and MP3 are", codec.trim())),
+                    _ => return Err(format!("{} audio is not supported: only AAC, MP3 and PCM are", codec.trim())),
                 };
                 if rate == 0 || channels == 0 {
                     return Err("a sample rate or channel count of 0".into());
@@ -805,7 +1347,7 @@ fn header_type(head: u64) -> &'static str {
 }
 
 /// Each sample's presentation time, in decode order: the decode time from stts, plus the
-/// composition offset of ctts.
+/// composition offset of ctts, then the times of the track's fragments.
 fn presentation(t: &Track) -> Vec<i64> {
     let mut out = Vec::new();
     let mut d = 0i64;
@@ -824,6 +1366,7 @@ fn presentation(t: &Track) -> Vec<i64> {
             j += 1;
         }
     }
+    out.extend_from_slice(&t.frag_pts);
     out
 }
 
@@ -1090,6 +1633,42 @@ pub fn esds_config(esds: &[u8]) -> Option<(u8, Vec<u8>)> {
     Some((oti, asc))
 }
 
+/// The fields of an av1C box's payload the profile reads, as an SPS's (AV1-ISOBMFF section 2.3.3): its
+/// seq_profile and seq_level_idx_0, its bit depth, and its subsampling as chroma_format_idc's values.
+pub fn av1_config(av1c: &[u8]) -> Option<Sps> {
+    if av1c.len() < 4 || av1c[0] != 0x81 {
+        return None;
+    }
+    let (profile, level, f) = (av1c[1] >> 5, av1c[1] & 0x1F, av1c[2]);
+    let bit = |k: u8| f >> k & 1 != 0;
+    let depth = if !bit(6) { 8 } else if bit(5) { 12 } else { 10 };
+    let chroma = match (bit(4), bit(3), bit(2)) {
+        (true, _, _) => 0,
+        (_, true, true) => 1,
+        (_, true, false) => 2,
+        (_, false, false) => 3,
+        _ => return None,
+    };
+    Some(Sps { profile, level, chroma, luma: depth, chroma_depth: depth })
+}
+
+/// The fields of a vpcC box's payload the profile reads, as an SPS's (the VP Codec ISOBMFF Binding,
+/// section 2.2): its profile and level, its bit depth, and its subsampling as chroma_format_idc's values.
+pub fn vp9_config(vpcc: &[u8]) -> Option<Sps> {
+    let (&version, &[profile, level, f, ..]) = (vpcc.first()?, vpcc.get(4..)?) else { return None };
+    if version != 1 {
+        return None;
+    }
+    let chroma = match f >> 1 & 7 {
+        0 | 1 => 1,
+        2 => 2,
+        3 => 3,
+        _ => return None,
+    };
+    let depth = (f >> 4) as u64;
+    Some(Sps { profile, level, chroma, luma: depth, chroma_depth: depth })
+}
+
 /// The fields of an AudioSpecificConfig the profile reads (ISO/IEC 14496-3 §1.6.2.1).
 #[derive(Debug, PartialEq)]
 pub struct Asc {
@@ -1097,19 +1676,47 @@ pub struct Asc {
     pub rate: u64,
     pub channels: u64,
     pub short: bool,
+    /// the sample rate SBR extends it to, when the stream has SBR (HE-AAC)
+    pub sbr_rate: Option<u64>,
+    /// whether the stream has parametric stereo (HE-AAC v2)
+    pub ps: bool,
 }
 
 pub fn aac_config(asc: &[u8]) -> Option<Asc> {
-    let mut r = Bits { b: asc, at: 0 };
-    let mut aot = r.bits(5)?;
-    if aot == 31 {
-        aot = 32 + r.bits(6)?;
+    fn object_type(r: &mut Bits) -> Option<u64> {
+        let aot = r.bits(5)?;
+        if aot == 31 { Some(32 + r.bits(6)?) } else { Some(aot) }
     }
-    let index = r.bits(4)?;
-    let rate = if index == 15 { r.bits(24)? } else { *AAC_RATES.get(index as usize)? as u64 };
+    fn sample_rate(r: &mut Bits) -> Option<u64> {
+        let index = r.bits(4)?;
+        if index == 15 { r.bits(24) } else { AAC_RATES.get(index as usize).map(|&x| x as u64) }
+    }
+    let mut r = Bits { b: asc, at: 0 };
+    let mut aot = object_type(&mut r)?;
+    let rate = sample_rate(&mut r)?;
     let channels = r.bits(4)?;
-    let short = if aot == 2 { r.bit()? == 1 } else { false };
-    Some(Asc { aot, rate, channels, short })
+    // explicit, hierarchical signaling: SBR's object type (and parametric stereo's) comes first
+    let mut ps = aot == 29;
+    let mut sbr_rate = None;
+    let explicit = aot == 5 || aot == 29;
+    if explicit {
+        sbr_rate = Some(sample_rate(&mut r)?);
+        aot = object_type(&mut r)?;
+    }
+    if aot != 2 {
+        return Some(Asc { aot, rate, channels, short: false, sbr_rate, ps });
+    }
+    // GASpecificConfig: its frame length, then a core coder (AAC-LC has none) and an extension flag
+    let short = r.bit()? == 1;
+    let (depends, _extension) = (r.bit()?, r.bit()?);
+    // backward-compatible signaling: after the config, a sync word and SBR's object type, then
+    // another and parametric stereo's flag. A channel configuration of 0 has a program config
+    // element in between, which the profile does not read.
+    if !explicit && depends == 0 && channels != 0 && r.bits(11) == Some(0x2B7) && r.bits(5) == Some(5) && r.bit() == Some(1) {
+        sbr_rate = Some(sample_rate(&mut r)?);
+        ps = r.bits(11) == Some(0x548) && r.bit() == Some(1);
+    }
+    Some(Asc { aot, rate, channels, short, sbr_rate, ps })
 }
 
 crate::parser!(Mp4);
@@ -1209,6 +1816,67 @@ mod tests {
         );
     }
 
+    /// The PCM sample entries and how each stores its samples: a sample entry's bits, and a
+    /// QuickTime enda box and pcmC box and version 2 flags.
+    #[test]
+    fn sample_entries_give_the_pcm_format() {
+        let entry = |typ: &[u8; 4], bits: u64, children: Vec<([u8; 4], Vec<u8>)>| Entry { typ: *typ, bits, channels: 2, children, ..Default::default() };
+        let lpcm = |bits: u64, flags: u64, packet: u64| Entry { typ: *b"lpcm", bits, channels: 2, sound_version: 2, lpcm_flags: flags, lpcm_packet: packet, ..Default::default() };
+        let enda = || vec![(*b"enda", vec![0, 1])];
+        let pcmc = |flags: u8, bits: u8| vec![(*b"pcmC", vec![0, 0, 0, 0, flags, bits])];
+        let wave = vec![(*b"wave", vec![0, 0, 0, 10, b'e', b'n', b'd', b'a', 0, 1])];
+        let cases: Vec<(Entry, &str, u64, &str)> = vec![
+            (entry(b"sowt", 16, vec![]), "int16", 2, "little"),
+            (entry(b"twos", 16, vec![]), "int16", 2, "big"),
+            (entry(b"twos", 8, vec![]), "int8", 1, "little"),
+            (entry(b"raw ", 8, vec![]), "uint8", 1, "little"),
+            (entry(b"in32", 32, vec![]), "int32", 4, "big"),
+            (entry(b"in32", 32, enda()), "int32", 4, "little"),
+            (entry(b"fl32", 32, wave), "float32", 4, "little"),
+            (entry(b"fl64", 64, vec![]), "float64", 8, "big"),
+            (entry(b"ipcm", 16, pcmc(1, 16)), "int16", 2, "little"),
+            (entry(b"ipcm", 16, pcmc(0, 32)), "int32", 4, "big"),
+            (entry(b"fpcm", 16, pcmc(1, 64)), "float64", 8, "little"),
+            (lpcm(32, LPCM_FLOAT, 8), "float32", 4, "little"),
+            (lpcm(16, LPCM_SIGNED | LPCM_BIG_ENDIAN, 4), "int16", 2, "big"),
+            (lpcm(8, 0, 2), "uint8", 1, "little"),
+        ];
+        for (e, data_type, bytes, endian) in cases {
+            assert_eq!(pcm_of(&e), Some(Ok(Pcm { data_type, bytes, endian })), "{:?}", e.typ);
+        }
+        assert_eq!(pcm_of(&entry(b"mp4a", 16, vec![])), None);
+    }
+
+    #[test]
+    fn twenty_four_bit_pcm_has_no_data_type() {
+        let e = Entry { typ: *b"in24", bits: 24, channels: 2, ..Default::default() };
+        assert_eq!(pcm_of(&e), Some(Err("24-bit PCM is not supported: the bytes codec has no data type for it".into())));
+    }
+
+    #[test]
+    fn an_ipcm_entry_without_its_pcmc_box_fails() {
+        let e = Entry { typ: *b"ipcm", bits: 16, channels: 2, ..Default::default() };
+        assert_eq!(pcm_of(&e), Some(Err("an ipcm sample entry without a pcmC box".into())));
+    }
+
+    #[test]
+    fn non_interleaved_or_padded_lpcm_fails() {
+        let e = Entry { typ: *b"lpcm", bits: 16, channels: 2, sound_version: 2, lpcm_flags: LPCM_SIGNED | LPCM_NON_INTERLEAVED, lpcm_packet: 4, ..Default::default() };
+        assert_eq!(pcm_of(&e), Some(Err("PCM whose channels are not interleaved is not supported".into())));
+        let e = Entry { typ: *b"lpcm", bits: 24, channels: 2, sound_version: 2, lpcm_flags: LPCM_SIGNED, lpcm_packet: 8, ..Default::default() };
+        assert_eq!(pcm_of(&e), Some(Err("PCM of 8 bytes a frame, for 2 channels of 24 bits, is not supported".into())));
+    }
+
+    /// A fragment's sample is a sync sample unless its flags say it is not, or that it depends on
+    /// others: the flags ffmpeg's muxer writes, a keyframe's (0x02000000) and others'
+    /// (0x01010000), each of the two alone, and the flags of a writer that sets neither.
+    #[test]
+    fn sample_flags_give_the_sync_samples() {
+        for (flags, sync) in [(0x0200_0000, true), (0x0101_0000, false), (0x0001_0000, false), (0x0100_0000, false), (0, true)] {
+            assert_eq!(sample_is_sync(flags), sync, "{flags:#x}");
+        }
+    }
+
     /// x264's avcC boxes for a High profile 8-bit and a High 10 profile 10-bit 4:2:0 stream
     /// (the fixtures mp4_h264_bframes.mp4 and mp4_h264_10bit_aac.mp4), and an AAC-LC mono
     /// 16 kHz config.
@@ -1220,12 +1888,63 @@ mod tests {
         let ten = [0x01, 0x6E, 0x00, 0x0A, 0xFF, 0xE1, 0x00, 0x18, 0x67, 0x6E, 0x00, 0x0A, 0xA6, 0xCD, 0x94, 0x47, 0xB0, 0x11, 0x00, 0x00, 0x03,
                    0x00, 0x01, 0x00, 0x00, 0x03, 0x00, 0x14, 0x0F, 0x12, 0x25, 0x96, 0x01, 0x00, 0x06, 0x68, 0xEB, 0xE3, 0xCB, 0x22, 0xC0];
         assert_eq!(h264_sps(&ten), Some(Sps { profile: 110, level: 10, chroma: 1, luma: 10, chroma_depth: 10 }));
-        assert_eq!(aac_config(&[0x14, 0x08]), Some(Asc { aot: 2, rate: 16000, channels: 1, short: false }));
+        assert_eq!(aac_config(&[0x14, 0x08]), Some(Asc { aot: 2, rate: 16000, channels: 1, short: false, sbr_rate: None, ps: false }));
+    }
+
+    /// An AudioSpecificConfig of each signaling of HE-AAC and HE-AAC v2: AudioToolbox's backward-
+    /// compatible ones (the fixtures mp4_he_aac.mp4 and mp4_he_aac_v2.mp4), and the hierarchical
+    /// ones of the same streams, of SBR's and parametric stereo's object types.
+    #[test]
+    fn he_aac_signaling_gives_the_format() {
+        let he = |channels, ps| Some(Asc { aot: 2, rate: 22050, channels, short: false, sbr_rate: Some(44100), ps });
+        assert_eq!(aac_config(&[0x13, 0x90, 0x56, 0xE5, 0xA0]), he(2, false));
+        assert_eq!(aac_config(&[0x13, 0x88, 0x56, 0xE5, 0xA5, 0x48, 0x80]), he(1, true));
+        assert_eq!(aac_config(&[0x2B, 0x92, 0x08, 0x80]), he(2, false));
+        assert_eq!(aac_config(&[0xEB, 0x8A, 0x08, 0x80]), he(1, true));
+    }
+
+    /// A sync word that is not SBR's, an SBR flag of 0 and an object type under SBR other than
+    /// AAC-LC's.
+    #[test]
+    fn other_config_extensions_are_not_sbr() {
+        assert_eq!(aac_config(&[0x13, 0x90, 0x56, 0xE4, 0xA0]).and_then(|a| a.sbr_rate), None);
+        assert_eq!(aac_config(&[0x13, 0x90, 0x56, 0xE5, 0x20]).and_then(|a| a.sbr_rate), None);
+        assert_eq!(aac_config(&[0x2B, 0x92, 0x08, 0x80]).map(|a| a.aot), Some(2));
+        assert_eq!(aac_config(&[0x2B, 0x92, 0x10, 0x80]).map(|a| a.aot), Some(4));
+    }
+
+    /// SVT-AV1's and libvpx's boxes (the fixtures mp4_av1_aac.mp4 and mp4_vp9_10bit.mp4), and each
+    /// bit depth and subsampling of the others' flags.
+    #[test]
+    fn av1c_and_vpcc_boxes_give_the_format() {
+        let sps = |profile, level, chroma, depth| Some(Sps { profile, level, chroma, luma: depth, chroma_depth: depth });
+        let av1 = |flags: u8| [0x81, 0x41, flags, 0];
+        assert_eq!(av1_config(&[0x81, 0, 0x0C, 0]), sps(0, 0, 1, 8));
+        assert_eq!(av1_config(&av1(0x4C)), sps(2, 1, 1, 10));
+        assert_eq!(av1_config(&av1(0x68)), sps(2, 1, 2, 12));
+        assert_eq!(av1_config(&av1(0x40)), sps(2, 1, 3, 10));
+        assert_eq!(av1_config(&av1(0x1C)), sps(2, 1, 0, 8));
+        let vp9 = |f: u8| [1, 0, 0, 0, 3, 10, f, 2, 2, 2, 0, 0];
+        assert_eq!(vp9_config(&[1, 0, 0, 0, 2, 10, 0xA2, 2, 2, 2, 0, 0]), sps(2, 10, 1, 10));
+        assert_eq!(vp9_config(&vp9(0x80)), sps(3, 10, 1, 8));
+        assert_eq!(vp9_config(&vp9(0xC4)), sps(3, 10, 2, 12));
+        assert_eq!(vp9_config(&vp9(0x86)), sps(3, 10, 3, 8));
+    }
+
+    /// Too short a box, another version of it, and a subsampling no format has.
+    #[test]
+    fn av1c_and_vpcc_boxes_the_profile_cannot_read_fail() {
+        assert_eq!(av1_config(&[0x81, 0, 0x0C]), None);
+        assert_eq!(av1_config(&[0x82, 0, 0x0C, 0]), None);
+        assert_eq!(av1_config(&[0x81, 0, 0x04, 0]), None);
+        assert_eq!(vp9_config(&[1, 0, 0, 0, 2, 10]), None);
+        assert_eq!(vp9_config(&[0, 0, 0, 0, 2, 10, 0x82]), None);
+        assert_eq!(vp9_config(&[1, 0, 0, 0, 2, 10, 0x88]), None);
     }
 
     /// x265's hvcC boxes: Main, 8-bit, with three temporal sub-layers (so that the SPS's
     /// profile_tier_level has sub-layer flags); Main 10 (the fixture mp4_hevc_main10.mp4); and
-    /// 4:2:2 8-bit, a range extensions profile (mp4_reject_hevc_422_only.mp4).
+    /// 4:2:2 8-bit, a range extensions profile (mp4_hevc_422_8bit.mp4).
     const HVCC_SUB_LAYERS: [u8; 120] = [
         0x01, 0x01, 0x60, 0x00, 0x00, 0x00, 0x90, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1E, 0xF0, 0x00, 0xFC, 0xFD, 0xF8, 0xF8, 0x00, 0x00, 0x1B,
         0x03, 0xA0, 0x00, 0x01, 0x00, 0x1E, 0x40, 0x01, 0x0C, 0x04, 0xFF, 0xFF, 0x01, 0x60, 0x00, 0x00, 0x03, 0x00, 0x90, 0x00, 0x00, 0x03,

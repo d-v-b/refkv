@@ -14,7 +14,7 @@ Live demos are at https://d-v-b.github.io/refkv-demo/. For example, [image files
 
 ## Zarrifying image files and stores
 
-refkv **zarrifies** image files and chunked array stores ([the formats](zarrify/README.md#formats)): it presents them as OME-Zarr (a Sentinel-2 SAFE product as GeoZarr), without copying their pixels, through a Rust core ([rust/refkv-ir](../rust/refkv-ir/)) that runs natively from Python and as WebAssembly in the browser. [zarrify/](zarrify/README.md) has a page per format: who it is for, what you get, and how to run it from Python or in the browser. In Python, `refkv.zarrify.zarrify(location)`, for a local path or a URL, returns a `refkv.ReferenceStore`, which reads right away, and `store.save_vzip("image.vzip")` writes it as one vzip archive. Without Python, `vzip convert <path or URL> image.vzip` ([rust/refkv-cli](../rust/refkv-cli/), built by `just cli-test`) writes the same archive, byte for byte, with the options and exit statuses of `python -m refkv.zarrify`; its `--format vzip|phkv|hybrid` also writes a standalone phkv store, or a vzip archive that carries one ([spec/bindings/phkv.md](../spec/bindings/phkv.md)), which only `vzip convert` writes. [adding-a-format.md](adding-a-format.md) is the guide to adding a format: the research, the layout decisions, the files to write, and what went wrong before.
+refkv **zarrifies** image files and chunked array stores ([the formats](zarrify/README.md#formats)): it presents them as OME-Zarr (a Sentinel-2 SAFE product as GeoZarr), without copying their pixels, through a Rust core ([rust/refkv-ir](../rust/refkv-ir/)) that runs natively from Python and as WebAssembly in the browser. [zarrify/](zarrify/README.md) has a page per format: who it is for, what you get, and how to run it from Python or in the browser. In Python, `refkv.zarrify.zarrify(location)`, for a local path or a URL (an `s3://`, `gs://` or `az://` one with `registry=`, as for [virtual datasets](virtual-datasets.md)), returns a `refkv.ReferenceStore`, which reads right away, and `store.save_vzip("image.vzip")` writes it as one vzip archive. Without Python, `vzip convert <path or URL> image.vzip` ([rust/refkv-cli](../rust/refkv-cli/), built by `just cli-test`) writes the same archive, byte for byte, with the options and exit statuses of `python -m refkv.zarrify` but its `--layout` (plugins are Python's); its `--format vzip|phkv|hybrid` also writes a standalone phkv store, or a vzip archive that carries one ([spec/bindings/phkv.md](../spec/bindings/phkv.md)), which only `vzip convert` writes. [adding-a-format.md](adding-a-format.md) is the guide to adding a format: the research, the layout decisions, the files to write, and what went wrong before.
 
 ## Installing
 
@@ -27,11 +27,13 @@ holds as the module `refkv._core`. Extras add the rest:
 archives of image files use (imagecodecs-zarr's) and the LZW one (refkv's),
 `refkv[media]` for the decoders of the `refkv.stream` codec, which reads
 zarrified MP3, FLAC and MP4 files (ffmpeg's, through PyAV),
+`refkv[precomputed]` for the decoders of the `compresso`, `crackle`, `fpzip`
+and `kempressed` encodings of the `refkv.precomputed` codec,
 `refkv[virtualizarr]` for virtual datasets from VirtualiZarr (below; refkv
 itself does not import xarray), and
 `refkv[obstore]` for obstore's `S3Store` and the other cloud stores, to pass
 as `registry=` for `s3://`, `gs://` or `az://` sources (`refkv[virtualizarr]`
-includes it). `images` and `media` include `zarr`.
+includes it). `images`, `media` and `precomputed` include `zarr`.
 
 ```bash
 pip install "refkv[images]"   # zarrify image files and read them with zarr-python
@@ -55,3 +57,7 @@ The Python package `refkv` stores a [VirtualiZarr](https://virtualizarr.readthed
 ## A stack of TIFF files
 
 [tiff-stack.md](tiff-stack.md) zarrifies a directory of TIFF files, one per plane, and stacks them into one `(z, y, x)` array saved as a vzip sidecar beside the files, with source URLs relative to the sidecar ([examples/tiff_stack.py](examples/tiff_stack.py)).
+
+[build.md](build.md) builds an output from refkv's IR with `refkv.build`: an input read as `zarrify` reads it, values that name the bytes they read, and `seal`, which checks the output against the sources refkv opened.
+
+[layout-plugins.md](layout-plugins.md) writes the whole output yourself, in a Python package, from what refkv read: an OME-Zarr 0.6 image of a TIFF or an HDF5 file, a TIFF's every page, re-tiled HDF5 datasets, a Zarr v2 hierarchy for xarray; refkv ships these as examples ([refkv.zarrify.layouts.examples](../python/src/refkv/zarrify/layouts/examples/)).

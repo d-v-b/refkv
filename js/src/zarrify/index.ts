@@ -8,11 +8,11 @@
 // machinery.
 
 import { blockReader, type ByteReader, ImageError } from "./common.ts";
-import { type IrFormat, zarrifyIr } from "./ir/run.ts";
+import { type IrFormat, NamesSiblings, zarrifyIr } from "./ir/run.ts";
 import { ir, out, put } from "./ir/wasm.ts";
 import { type RangeSource, readerSource } from "./ir/source.ts";
-import { zarrifyStoreIr } from "./ir/store.ts";
-import { BESIDE, type BesideFormat, zarrifyVsi } from "./ir/vsi.ts";
+import { type StoreProfile, zarrifyStoreIr } from "./ir/store.ts";
+import { BESIDE, type BesideFormat, ON_DEMAND, zarrifyVsi } from "./ir/vsi.ts";
 import { chooseProfile, closeStore, objectUrl, openHttpStore, type Store } from "./store.ts";
 import type { Policy } from "../archive.ts";
 import { crc32c } from "../deflate.ts";
@@ -98,18 +98,29 @@ async function zarrifyWith(url: string, input: Input, pins: PinOptions): Promise
   // a VSI file is read with its tile files, and a NRRD header with its data file, as a store
   // (ir/vsi.ts): its sources are the files some reference uses, their sizes pinned, not source 0
   // alone
-  const format = await irFormat(await input.read(0, Math.min(552, input.size)));
+  // the signatures' bytes and, only when those give no format, the late signatures' (§1.2
+  // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>)
+  const format =
+    (await irFormat(await input.read(0, Math.min(552, input.size)))) ??
+    (input.size > 552 ? await irFormat(await input.read(0, Math.min(65600, input.size))) : undefined);
   if (format === undefined) throw new ImageError(NOT_SUPPORTED);
-  if (format in BESIDE) {
-    const beside = format as BesideFormat;
-    const { store, ...desc } = await zarrifyVsi(url, input.source, pins.open ? { open: pins.open } : {}, beside);
+  const asStore = async (beside: BesideFormat): Promise<ImageDesc> => {
+    const { store, ...desc } = await zarrifyVsi(
+      url, input.source, { ...(pins.open ? { open: pins.open } : {}), checksums: pins.checksums === true }, beside);
     if (pins.checksums) {
       const keys = new Map([...store.objects.keys()].map((k) => [objectUrl(store.url, k), k]));
       await addChecksums(desc, (u, o, n) => store.readRange!(keys.get(u)!, o, n));
     }
     return { format: beside, ...desc };
+  };
+  if (format in BESIDE && !ON_DEMAND.has(format)) return asStore(format as BesideFormat);
+  let desc;
+  try {
+    desc = await zarrifyIr(format, url, input.source, { checksums: pins.checksums === true });
+  } catch (e) {
+    if (e instanceof NamesSiblings && e.format in BESIDE) return asStore(e.format as BesideFormat);
+    throw e;
   }
-  const desc = await zarrifyIr(format, url, input.source, { checksums: pins.checksums === true });
   const etag = pins.etag?.();
   desc.sources[0] = { ...desc.sources[0], size: BigInt(input.size), ...(etag !== undefined ? { etag } : {}) };
   if (pins.checksums) await addChecksums(desc, (_u, o, n) => (input.exact ?? input.read)(o, n));
@@ -147,7 +158,7 @@ export function isStoreUrl(url: string): boolean {
 export async function zarrifyStore(
   input: Store | string,
   options: PinOptions & { policy?: Policy; headers?: Record<string, string> } = {},
-): Promise<ArchiveDesc & { format: "n5" | "zarr2" | "ome-zarr" | "safe" | "precomputed" | "safetensors"; summary: object }> {
+): Promise<ArchiveDesc & { format: StoreProfile; summary: object }> {
   if (typeof input !== "string" && (options.policy !== undefined || options.headers !== undefined)) {
     // a listed store was opened under its policy already
     throw new TypeError("zarrifyStore: a policy applies to a store URL; pass it to openHttpStore for an opened store");
@@ -156,7 +167,7 @@ export async function zarrifyStore(
     ? await openHttpStore(input, { policy: options.policy ?? {}, headers: options.headers ?? {} })
     : input;
   const pins = options;
-  const desc = await zarrifyStoreProfile(store);
+  const desc = await zarrifyStoreProfile(store, pins.checksums === true);
   if (pins.checksums) {
     const keys = new Map([...store.objects.keys()].map((k) => [objectUrl(store.url, k), k]));
     await addChecksums(desc, async (u, o, n) => {
@@ -169,15 +180,18 @@ export async function zarrifyStore(
 
 async function zarrifyStoreProfile(
   store: Store,
-): Promise<ArchiveDesc & { format: "n5" | "zarr2" | "ome-zarr" | "safe" | "precomputed" | "safetensors"; summary: object }> {
+  checksums = false,
+): Promise<ArchiveDesc & { format: StoreProfile; summary: object }> {
+  const options = { checksums };
   try {
     const chosen = chooseProfile(store);
-    if (chosen === "safe") return { format: "safe", ...(await zarrifyStoreIr("safe", store)) };
-    if (chosen === "safetensors") return { format: "safetensors", ...(await zarrifyStoreIr("safetensors", store)) };
-    if (chosen === "n5") return { format: "n5", ...(await zarrifyStoreIr("n5", store)) };
-    if (chosen === "precomputed") return { format: "precomputed", ...(await zarrifyStoreIr("precomputed", store)) };
+    if (chosen === "safe") return { format: "safe", ...(await zarrifyStoreIr("safe", store, options)) };
+    if (chosen === "safetensors") return { format: "safetensors", ...(await zarrifyStoreIr("safetensors", store, options)) };
+    if (chosen === "zarr3") return { format: "zarr3", ...(await zarrifyStoreIr("zarr3", store, options)) };
+    if (chosen === "n5") return { format: "n5", ...(await zarrifyStoreIr("n5", store, options)) };
+    if (chosen === "precomputed") return { format: "precomputed", ...(await zarrifyStoreIr("precomputed", store, options)) };
     // the core decides between Zarr v2 and OME-Zarr 0.4 (its summary's `format`)
-    const desc = await zarrifyStoreIr("zarr2", store);
+    const desc = await zarrifyStoreIr("zarr2", store, options);
     return { format: desc.summary.format === "ome-zarr" ? "ome-zarr" : "zarr2", ...desc };
   } finally {
     closeStore(store);

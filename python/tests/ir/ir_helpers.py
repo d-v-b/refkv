@@ -13,7 +13,7 @@ import tifffile
 import zarr
 
 import refkv.zarr
-from refkv._narrow import JSON, at, mapping, ndarray, sequence, string
+from refkv._narrow import JSON, at, integer, mapping, ndarray, sequence, string
 from refkv.ir import zarrify as via_ir
 from refkv.ir.cmirror import rebuild_from_archive
 from refkv.zarr import ZarrStore
@@ -23,11 +23,16 @@ FIXTURES = Path(__file__).parents[3] / "fixtures"
 ROOT = Path(__file__).parents[3]
 # the frozen reference twins the IR is compared against (refkv_reference)
 sys.path.insert(0, str(ROOT / "conformance" / "zarrify" / "reference"))
+sys.path.append(str(ROOT / "conformance" / "zarrify"))
 from refkv_reference import virtualize as reference  # noqa: E402  (the frozen reference)
 from refkv_reference.legacy import SOURCE_NODE as LEGACY_NODE  # noqa: E402
 from refkv_reference.legacy import current_names  # noqa: E402  (a frozen twin's documents with the current names)
 from refkv_reference.revision import DICOM_REVISION, IMS_REVISION, REVISION_25  # noqa: E402
 from refkv_reference.revision import REVISION as FROZEN  # noqa: E402
+
+# The fixtures whose layout the profile changed after the freeze, which the frozen reference
+# does not give (conformance/zarrify/revised/README.md, compare.py's REVISED).
+from revised_fixtures import REVISED as REVISED  # noqa: E402, PLC0414 (the test modules import it from here)
 
 
 def assert_rebuilds(out, data: bytes, tmp_path, name: str = "a.vzip") -> None:
@@ -90,9 +95,6 @@ MIRRORED = {"nifti": ("header_rest", "extender", "extensions", "extensions_trunc
 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#44-arrays>, spec/zarrify/ndpi.md §4
 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#4-the-image>).
 ADDED = {"tiff": ("omero",), "ndpi": ("omero",)}
-# The fixtures whose layout the profile changed after the freeze, which the frozen reference
-# does not give (conformance/zarrify/revised.json, compare.py's REVISED).
-REVISED = set(json.loads((ROOT / "conformance" / "zarrify" / "revised.json").read_text())["fixtures"])
 # The profiles whose edge chunks' zero padding is a range of the output's zero data source since
 # the freeze, where the frozen reference pads with a literal range (conformance/zarrify/compare.py's
 # ZERO_PADDED; spec/zarrify/nifti.md §7.2
@@ -162,7 +164,13 @@ def as_current(key: str) -> str:
 
 # The codecs whose chunks the TIFF and QPTIFF profiles decode to sample their `omero` windows:
 # uncompressed, Deflate and LZW tiles or strips, with or without interleaved samples.
-DECODED = {"transpose", "imagecodecs_delta", "bytes", "numcodecs.zlib", "refkv.tiff_lzw"}
+DECODED = {"transpose", "imagecodecs_delta", "imagecodecs_floatpred", "bytes", "numcodecs.zlib", "refkv.tiff_lzw"}
+
+
+def first_length(lengths) -> int:
+    """The first chunk length of a `rectilinear` grid's list along an axis: `L`, or `[L, r]`."""
+    head = at(lengths, 0)
+    return integer(at(head, 0)) if isinstance(head, list) else integer(head)
 
 
 def omero_and_expected_windows(path, profile: str) -> tuple[JSON, list[dict[str, float] | None]]:
@@ -184,15 +192,25 @@ def omero_and_expected_windows(path, profile: str) -> tuple[JSON, list[dict[str,
     with tifffile.TiffFile(path) as tf:
         page = tf.pages.first
         spp, pi, comp = page.samplesperpixel, page.photometric, page.compression
+        bits = page.bitspersample
     rgb = spp == 3 if profile == "qptiff" else spp > 1 and (pi == 2 or (pi == 6 and comp == 7))
-    decoded = {string(at(c, "name")) for c in sequence(a.metadata.to_dict()["codecs"])} <= DECODED
+    codecs = sequence(a.metadata.to_dict()["codecs"])
+    if at(codecs, 0, "name") == "sharding_indexed":  # the windows sample an inner chunk (`a.chunks`)
+        codecs = sequence(at(codecs, 0, "configuration", "codecs"))
+    decoded = {string(at(c, "name")) for c in codecs} <= DECODED
+    grid = mapping(a.metadata.to_dict()["chunk_grid"])
+    if grid["name"] == "rectilinear":  # the middle chunk is never the short last one: a full strip's shape
+        lengths = sequence(at(grid, "configuration", "chunk_shapes"))
+        chunks = [k if isinstance(k, int) else first_length(k) for k in lengths]
+    else:
+        chunks = a.chunks
     integer = np.issubdtype(a.dtype, np.integer)
     windows: list[dict[str, float] | None] = []
     for ch in range(count):
         window: dict[str, float] | None = None
         if decoded and not rgb:
             region = []
-            for name, n, k in zip(axes, a.shape, a.chunks, strict=True):
+            for name, n, k in zip(axes, a.shape, chunks, strict=True):
                 start = 0 if name == "t" else ch if name == "c" else n // 2 // k * k
                 region.append(slice(start, start + (1 if name in "tc" else k)))
             v = np.sort(ndarray(a[tuple(region)]).ravel())
@@ -205,6 +223,8 @@ def omero_and_expected_windows(path, profile: str) -> tuple[JSON, list[dict[str,
                           "max": int(extremes[1]) if integer else extremes[1], "start": lo, "end": hi}
         if window is None and integer:
             info = np.iinfo(a.dtype)
-            window = {"min": int(info.min), "max": int(info.max), "start": int(info.min), "end": int(info.max)}
+            # packed samples' range is their bits', not their type's
+            hi = (1 << bits) - 1 if bits in (1, 12) else int(info.max)
+            window = {"min": int(info.min), "max": hi, "start": int(info.min), "end": hi}
         windows.append(window)
     return mapping(at(g.attrs, "ome")).get("omero"), windows

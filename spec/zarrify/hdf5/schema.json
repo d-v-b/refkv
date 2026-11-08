@@ -222,6 +222,11 @@
               ],
               "description": "The root's: the superblock's version"
             },
+            "user_block": {
+              "type": "integer",
+              "minimum": 512,
+              "description": "The root's, when the file has one: the user block's size"
+            },
             "attributes": {
               "type": "object",
               "additionalProperties": {
@@ -243,6 +248,8 @@
                   "edge_chunks",
                   "layout",
                   "external_storage",
+                  "external_reference",
+                  "dimension_only",
                   "null_dataspace",
                   "fill_value",
                   "size",
@@ -266,6 +273,8 @@
                   "edge_chunks",
                   "layout",
                   "external_storage",
+                  "external_reference",
+                  "dimension_only",
                   "null_dataspace",
                   "fill_value",
                   "size",
@@ -274,6 +283,25 @@
                 ]
               },
               "description": "What the hierarchy does not present, by name, each with the reason"
+            },
+            "siblings": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "The root's, of a file read as a store: every sibling's key"
+            },
+            "external": {
+              "type": "object",
+              "properties": {
+                "file": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                }
+              },
+              "description": "The key and path an external link named, on the node it presents"
             },
             "external_links": {
               "type": "array",
@@ -380,6 +408,27 @@
               "type": "string",
               "description": "The fill value message's bytes, in base64"
             },
+            "external": {
+              "type": "object",
+              "properties": {
+                "file": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                }
+              },
+              "description": "The key and path an external link named, on the node it presents"
+            },
+            "external_storage": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "minItems": 3,
+                "maxItems": 3
+              },
+              "description": "Its ranges in external files: [key, offset, length]"
+            },
             "attributes": {
               "type": "object",
               "additionalProperties": {
@@ -401,6 +450,8 @@
                   "edge_chunks",
                   "layout",
                   "external_storage",
+                  "external_reference",
+                  "dimension_only",
                   "null_dataspace",
                   "fill_value",
                   "size",

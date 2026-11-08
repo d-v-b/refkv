@@ -19,7 +19,8 @@
 
 use super::types::{self, describe, present, values_json, Dt, Field, FieldKind, Kind, Lookup, Present};
 use super::walk::{lenient, visit, Emit, Visit};
-use super::{le, Acc, Collection, Dataset, Fail, Index, Layout, Target, H5, R, UNDEFINED};
+use super::{le, Acc, Collection, Dataset, Fail, Index, Layout, Target, BITSHUFFLE, BLOSC, CHECKSUM, DEFLATE, FLETCHER32, H5, LZ4, LZF, R, SHUFFLE, UNDEFINED, ZSTD};
+use crate::beside::{written_key, Written};
 use crate::ir::{Ir, NO_INDEX};
 use crate::nd2::Step;
 use crate::rules::{self, num, Rules, Vars};
@@ -33,6 +34,7 @@ enum Phase {
     Sniff,
     Walk,
     Check,
+    Names,
     Data,
     Facts,
     Done,
@@ -49,7 +51,21 @@ const EXTERNAL: u8 = 64;
 /// The external data files message.
 const EXTERNAL_FILES: u16 = 0x07;
 
+/// The filters the profile itself undoes, to read strings, references and records.
+const READABLE: [u64; 3] = [DEFLATE, SHUFFLE, FLETCHER32];
+/// Blosc's compressors by their codes, as its filter's seventh value gives them.
+const BLOSC_NAMES: [&str; 6] = ["blosclz", "lz4", "lz4hc", "snappy", "zlib", "zstd"];
+/// Bitshuffle's compression values (fifth): none, and `BSHUF_H5_COMPRESS_LZ4`.
+const BITSHUFFLE_LZ4: u32 = 2;
+
 pub struct Hdf5 {
+    /// the keys the file names as siblings, and of them those its external links name
+    names: BTreeSet<String>,
+    link_keys: BTreeSet<String>,
+    /// each dataset's external slots, by its address
+    slots: HashMap<u64, Vec<super::ExternalSlot>>,
+    /// the siblings a store run found, with their sizes; None in a file run
+    found: Option<HashMap<String, u64>>,
     h: H5,
     rules: &'static Rules,
     phase: Phase,
@@ -75,12 +91,19 @@ pub struct Hdf5 {
     records: HashMap<u64, Dt>,
     /// the global heap collections read, by address
     heaps: BTreeMap<u64, Rc<Collection>>,
+    /// each chunk deflate skipped, by its dataset's header and grid index: its bytes' Adler-32
+    adlers: HashMap<(u64, u128), u32>,
     facts: Option<J>,
     /// the walk's room in elements, when a test sets it (else the schema's)
     pub room: Option<u64>,
 }
 
 /// What the hierarchy holds of an object, decided in the walk's order.
+/// The start of the `NAME` of a netCDF-4 dimension scale that is no variable.
+const NOT_A_VARIABLE: &[u8] = b"This is a netCDF dimension but not a netCDF variable";
+/// netCDF-4's prefix of a variable named as a dimension it is not the coordinate of.
+const NON_COORD_PREFIX: &[u8] = b"_nc4_non_coord_";
+
 enum Decision {
     Group,
     Dataset(Box<Dataset>, Dt, Present),
@@ -111,9 +134,36 @@ impl Hdf5 {
             strings: BTreeSet::new(),
             records: HashMap::new(),
             heaps: BTreeMap::new(),
+            adlers: HashMap::new(),
             facts: None,
             room: None,
+            names: BTreeSet::new(),
+            link_keys: BTreeSet::new(),
+            slots: HashMap::new(),
+            found: None,
         }
+    }
+
+    /// The keys the file names as siblings, once its run has stepped to `Step::Beside`.
+    pub fn sibling_keys(&self) -> &BTreeSet<String> {
+        &self.names
+    }
+
+    /// The siblings a store run found, by key with their sizes: the parse goes on past
+    /// `Step::Beside`, presenting what they let it. A sibling's parser is given none, so that links
+    /// are followed one level deep.
+    pub fn resolve(&mut self, found: HashMap<String, u64>) {
+        self.found = Some(found);
+    }
+
+    /// The keys of the files external links name, which a store run reads.
+    pub fn link_keys(&self) -> &BTreeSet<String> {
+        &self.link_keys
+    }
+
+    /// Whether the parser handed the file to the IMS profile.
+    pub fn is_ims(&self) -> bool {
+        self.ims.is_some()
     }
 
     pub fn feed(&mut self, offset: u64, data: Vec<u8>) {
@@ -145,6 +195,7 @@ impl Hdf5 {
                 Phase::Sniff => self.sniff(),
                 Phase::Walk => self.walk(),
                 Phase::Check => self.strict(),
+                Phase::Names => self.read_names(),
                 Phase::Data => self.data(),
                 Phase::Facts => self.make_facts(),
                 Phase::Done => return Ok(Step::Done),
@@ -154,13 +205,18 @@ impl Hdf5 {
                     if self.ims.is_some() {
                         continue;
                     }
+                    let named = self.phase == Phase::Names;
                     self.phase = match self.phase {
                         Phase::Sniff => Phase::Walk,
                         Phase::Walk => Phase::Check,
-                        Phase::Check => Phase::Data,
+                        Phase::Check => Phase::Names,
+                        Phase::Names => Phase::Data,
                         Phase::Data => Phase::Facts,
                         _ => Phase::Done,
                     };
+                    if named && self.found.is_none() && !self.names.is_empty() {
+                        return Ok(Step::Beside);
+                    }
                 }
                 Err(Fail::Bad(m)) => return Err(m),
                 Err(Fail::Miss) => {
@@ -206,7 +262,7 @@ impl Hdf5 {
             Ok(lenient(self.h.links(at))?.is_some_and(|l| l.has("ResolutionLevel 0")))
         })()?;
         if imaris {
-            let mut ims = Box::new(crate::ims::Ims::new(self.h.size()));
+            let mut ims = Box::new(crate::ims::Ims::new(self.h.file_size()));
             for (o, d) in std::mem::take(&mut self.log) {
                 ims.feed(o, d);
             }
@@ -337,11 +393,129 @@ impl Hdf5 {
         acc.done()
     }
 
+    /// The keys the file names, and each dataset's external slots (spec/zarrify/hdf5.md §8.6
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#86-external-files>): a name
+    /// the steps of a written name reject stays recorded and names no key.
+    fn read_names(&mut self) -> R<()> {
+        let mut acc = Acc::default();
+        for (at, _) in self.order.clone() {
+            let r = (|| -> R<()> {
+                let h = self.h.header(at)?;
+                if h.has(super::SYMBOL_TABLE) || h.has(super::LINK_INFO) {
+                    let Some(links) = lenient(self.h.links(at))? else { return Ok(()) };
+                    for (_, t) in &links.list {
+                        if let Target::Other(EXTERNAL, Some(v)) = t {
+                            let file = v.get(1..).and_then(|b| b.split(|&c| c == 0).next()).unwrap_or(&[]);
+                            let key = written_key(file, "", Written::default());
+                            self.link_keys.extend(key.clone());
+                            self.names.extend(key);
+                        }
+                    }
+                } else if h.has(EXTERNAL_FILES) {
+                    let Some(slots) = lenient(self.h.external_slots(&h))? else { return Ok(()) };
+                    self.names.extend(slots.iter().filter_map(|s| written_key(&s.name, "", Written::default())));
+                    self.slots.insert(at, slots);
+                }
+                Ok(())
+            })();
+            acc.take(r);
+            if acc.stopped() {
+                break;
+            }
+        }
+        acc.done()
+    }
+
+    /// The ranges of the contiguous data of `total` bytes of the dataset at `at` in its external
+    /// files, as (key, offset, length), in the data's order; None unless a store run found every
+    /// file the data lies in and each range lies within its file.
+    fn external_ranges(&self, at: u64, total: u128) -> Option<Vec<(String, u64, u64)>> {
+        let found = self.found.as_ref()?;
+        let mut left = total;
+        let mut out = Vec::new();
+        for s in self.slots.get(&at)? {
+            if left == 0 {
+                break;
+            }
+            let key = written_key(&s.name, "", Written::default())?;
+            let size = *found.get(&key)?;
+            let n = if s.size == super::EXTERNAL_UNLIMITED { left } else { (s.size as u128).min(left) };
+            if s.offset as u128 + n > size as u128 {
+                return None;
+            }
+            if n > 0 {
+                out.push((key, s.offset, n as u64));
+            }
+            left -= n;
+        }
+        (left == 0).then_some(out)
+    }
+
+    /// Whether the dataset at `at` is the dimension scale netCDF-4 writes for a dimension with no
+    /// variable, whose `NAME` says so (spec/zarrify/hdf5.md §3
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#3-datasets>).
+    fn is_dimension_only(&mut self, at: u64) -> R<bool> {
+        Ok(lenient(self.h.attributes(at))?.is_some_and(|attrs| {
+            fixed_attribute(&attrs, b"NAME").is_some_and(|name| name.starts_with(NOT_A_VARIABLE))
+        }))
+    }
+
+    /// The dimension names of the array of the dataset at `at`, of link path `segs`, without a
+    /// trailing axis: the first scale `DIMENSION_LIST` attaches to each axis, by link name; a
+    /// dimension scale of rank 1 without one is its own (spec/zarrify/hdf5.md §3
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#3-datasets>). None when
+    /// no axis has a name.
+    fn dimension_names(&mut self, at: u64, rank: usize, segs: &[Vec<u8>], segs_of: &HashMap<u64, &Vec<Vec<u8>>>) -> R<Option<Vec<J>>> {
+        let Some(attrs) = lenient(self.h.attributes(at))? else { return Ok(None) };
+        let list = attrs.list.iter().find(|a| a.name == b"DIMENSION_LIST").and_then(|a| super::attribute_parts(&a.data).ok());
+        let mut names = vec![J::Null; rank];
+        if let Some((t, dims, data)) = list {
+            let attached = types::parse(&t).is_ok_and(|dt| {
+                dt.size == 16 && matches!(&dt.kind, Kind::Vlen { string: false, base, .. } if matches!(base.kind, Kind::Reference { kind: 0 }))
+            });
+            if !attached || dims != [rank as u64] || data.len() != 16 * rank {
+                return Ok(None);
+            }
+            for (k, name) in names.iter_mut().enumerate() {
+                let (n, c, i) = (le(&data, 16 * k, 4)?, le(&data, 16 * k + 4, 8)?, le(&data, 16 * k + 12, 4)?);
+                let first = if n == 0 { None } else { self.heap(c, i).and_then(|scales| le(&scales, 0, 8).ok()) };
+                if let Some(segs) = first.and_then(|a| segs_of.get(&a)) {
+                    *name = segs.last().map_or(J::Null, |s| dimension_name(s));
+                }
+            }
+        } else if rank == 1 && fixed_attribute(&attrs, b"CLASS").is_some_and(|c| c == b"DIMENSION_SCALE") {
+            names[0] = segs.last().map_or(J::Null, |s| dimension_name(s));
+        }
+        Ok(names.iter().any(|n| !n.is_null()).then_some(names))
+    }
+
+    /// What each dataset of rank 1 or more counts as among its group's dimensions, by address
+    /// ([`name_axes`]): `{"scale": [name, length]}` for a dimension scale, `{"unscaled": sizes}`
+    /// for a dataset no `DIMENSION_LIST` attaches a scale to.
+    fn axes_hints(&mut self) -> R<HashMap<u64, J>> {
+        let mut out = HashMap::new();
+        for (at, segs) in self.order.clone() {
+            let Some(h) = lenient(self.h.header(at))? else { continue };
+            let (Some(name), true) = (segs.last(), h.has(super::LAYOUT)) else { continue };
+            if h.has(super::SYMBOL_TABLE) || h.has(super::LINK_INFO) {
+                continue;
+            }
+            let space = h.message(super::DATASPACE, true).and_then(|m| super::parse_dataspace(m.unwrap_or_default()));
+            let Some(dims) = lenient(space)?.and_then(|s| s.dims).filter(|d| !d.is_empty()) else { continue };
+            let hint = match lenient(self.h.attributes(at))?.as_deref() {
+                Some(a) if fixed_attribute(a, b"CLASS").is_some_and(|c| c == b"DIMENSION_SCALE") => json!({"scale": [dimension_name(name), dims[0]]}),
+                Some(a) if !attaches_none(a) => continue,
+                _ => json!({"unscaled": dims}),
+            };
+            out.insert(at, hint);
+        }
+        Ok(out)
+    }
+
     /// What the hierarchy holds of the object at `at`, whose name is `name` (None for the root).
     fn decide(&mut self, at: u64, name: Option<&[u8]>) -> R<Decision> {
         if let Some(n) = name {
-            let ok = std::str::from_utf8(n).is_ok_and(|s| !s.is_empty() && s != "." && s != ".." && !s.starts_with("__") && !s.contains('/'));
-            if !ok {
+            if !std::str::from_utf8(n).is_ok_and(node_name) {
                 return Ok(Decision::Not("name"));
             }
         }
@@ -356,30 +530,36 @@ impl Hdf5 {
         let (type_message, _) = self.h.datatype(&h)?;
         let dt = types::parse(&type_message)?;
         if h.has(EXTERNAL_FILES) {
-            return Ok(Decision::Not("external_storage"));
+            let total = super::product(&ds.dims).saturating_mul(dt.size as u128);
+            let presentable = matches!(present(&dt), Ok(Present::Fixed { .. } | Present::Bytes { .. })) && ds.layout == Layout::Contiguous;
+            if !presentable || self.external_ranges(at, total).is_none() {
+                return Ok(Decision::Not("external_storage"));
+            }
         }
         match ds.layout {
             Layout::Null => return Ok(Decision::Not("null_dataspace")),
             Layout::Virtual => return Ok(Decision::Not("layout")),
             _ => {}
         }
+        if self.is_dimension_only(at)? {
+            return Ok(Decision::Not("dimension_only"));
+        }
         let p = match present(&dt) {
             Ok(p) => p,
             Err(why) => return Ok(Decision::Not(why)),
         };
         if ds.layout == Layout::Chunked {
-            if ds.filters.iter().any(|f| !matches!(f, 1 | 2)) {
+            // strings, references and records are decoded here, by each chunk's mask, so only with
+            // the filters this code undoes; the others are the readers'
+            let decoded = matches!(p, Present::Strings | Present::References | Present::Records(_));
+            if !presented_filters(&ds, decoded) {
                 return Ok(Decision::Not("filter"));
             }
             if ds.raw_edges {
                 return Ok(Decision::Not("edge_chunks"));
             }
-            // a chunk a filter skipped (an optional filter that failed, as deflate does on
-            // bytes it cannot shrink) has its own codecs, which an array cannot give it; the
-            // pointers of strings, references and records are decoded here, by each chunk's mask
             let ch = self.h.chunks(at, &ds, true)?;
-            let decoded = matches!(present(&dt), Ok(Present::Strings | Present::References | Present::Records(_)));
-            if !decoded && ch.list.iter().any(|c| c.3 != 0) {
+            if !decoded && !chunk_parts(&ds, &ch, dt.size, self.limit("max_storage_bytes")).is_some_and(|c| c.iter().all(Option::is_some)) {
                 return Ok(Decision::Not("filter_mask"));
             }
         }
@@ -433,8 +613,9 @@ impl Hdf5 {
                         if mask >> i & 1 != 0 {
                             continue;
                         }
-                        b = match f {
-                            1 => miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(&b, cb).map_err(|e| Fail::Bad(format!("a chunk does not inflate: {e:?}")))?,
+                        b = match *f {
+                            DEFLATE => miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(&b, cb).map_err(|e| Fail::Bad(format!("a chunk does not inflate: {e:?}")))?,
+                            FLETCHER32 => b[..b.len().saturating_sub(CHECKSUM as usize)].to_vec(),
                             _ => unshuffle(&b, size as usize),
                         };
                     }
@@ -448,13 +629,39 @@ impl Hdf5 {
         }
     }
 
+    /// The Adler-32 of each chunk of the dataset at `at` that deflate skipped, which the literal
+    /// around it needs (spec/zarrify/hdf5.md §3.2
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#32-chunks>).
+    fn read_skipped(&mut self, at: u64, ds: &Dataset, size: u64) -> R<()> {
+        if ds.layout != Layout::Chunked {
+            return Ok(());
+        }
+        let ch = self.h.chunks(at, ds, true)?;
+        let Some(parts) = chunk_parts(ds, &ch, size, self.limit("max_storage_bytes")) else { return Ok(()) };
+        let mut acc = Acc::default();
+        for (c, part) in ch.list.iter().zip(parts) {
+            let Some(ChunkPart { stored, wrap: Some(DEFLATE) }) = part else { continue };
+            let idx = super::ravel(&c.0, &ds.grid);
+            if self.adlers.contains_key(&(at, idx)) {
+                continue;
+            }
+            if let Some(b) = acc.take(self.h.read(c.1, stored)) {
+                self.adlers.insert((at, idx), adler32(&b));
+            }
+        }
+        acc.done()
+    }
+
     fn data(&mut self) -> R<()> {
         let mut acc = Acc::default();
         for (at, segs) in self.order.clone() {
             let r = (|| -> R<()> {
                 let name = segs.last().map(|s| s.as_slice());
                 let Decision::Dataset(ds, dt, p) = self.decide(at, name)? else { return Ok(()) };
-                if !matches!(p, Present::Strings | Present::References | Present::Records(_)) || self.storage.contains_key(&at) {
+                if !matches!(p, Present::Strings | Present::References | Present::Records(_)) {
+                    return self.read_skipped(at, &ds, dt.size);
+                }
+                if self.storage.contains_key(&at) {
                     return Ok(());
                 }
                 let b = self.elements(at, &ds, dt.size)?;
@@ -591,6 +798,7 @@ impl Hdf5 {
 
     fn make_facts(&mut self) -> R<()> {
         let sb = self.h.superblock()?;
+        let base = self.h.src.base;
         let mut nodes = Vec::new();
         let mut counts: BTreeMap<&'static str, u64> = BTreeMap::new();
         let mut not_counts: BTreeMap<String, u64> = BTreeMap::new();
@@ -598,6 +806,8 @@ impl Hdf5 {
         let mut link_counts = [0u64; 3];
         let order = self.order.clone();
         let segs_of: HashMap<u64, &Vec<Vec<u8>>> = order.iter().map(|(a, s)| (*a, s)).collect();
+        let mut hints = self.axes_hints()?;
+        let mut unpresented_axes: HashMap<Vec<Vec<u8>>, Vec<J>> = HashMap::new();
         let parent_ok = |segs: &Vec<Vec<u8>>, presented: &HashSet<Vec<Vec<u8>>>| segs.len() <= 1 || presented.contains(&segs[..segs.len() - 1].to_vec());
         let mut presented_paths: HashSet<Vec<Vec<u8>>> = HashSet::new();
         let mut unpresented_of: HashMap<Vec<Vec<u8>>, Map<String, J>> = HashMap::new();
@@ -613,6 +823,9 @@ impl Hdf5 {
             let key = segs.iter().map(|s| utf8_or_latin1(s)).collect::<Vec<_>>().join("/");
             if let Decision::Not(why) = d {
                 let parent = segs[..segs.len().saturating_sub(1)].to_vec();
+                if let Some(hint) = hints.remove(at) {
+                    unpresented_axes.entry(parent.clone()).or_default().push(json!([utf8_or_latin1(&segs[segs.len() - 1]), hint]));
+                }
                 unpresented_of.entry(parent).or_default().insert(utf8_or_latin1(segs.last().map_or(&[][..], |s| s)), json!(why));
                 *not_counts.entry(why.to_string()).or_default() += 1;
                 continue;
@@ -665,12 +878,19 @@ impl Hdf5 {
                     }
                     if segs.is_empty() {
                         own.insert("superblock".into(), json!(sb.version));
+                        if base > 0 {
+                            own.insert("user_block".into(), json!(base));
+                        }
                     }
                     let mut attrs = attributes;
                     if !links_json.is_empty() {
                         attrs.insert("_LINKS".into(), J::Array(links_json));
                     }
                     nodes.push(json!({"path": key, "segments": segs.len(), "attributes": attrs, "own": own}));
+                    if let Some(created) = &links.created {
+                        let order: Map<String, J> = created.iter().map(|(n, c)| (utf8_or_latin1(n), json!(c))).collect();
+                        nodes.last_mut().unwrap()["link_order"] = J::Object(order);
+                    }
                 }
                 Decision::Dataset(ds, dt, p) => {
                     *counts.entry("arrays").or_default() += 1;
@@ -691,7 +911,7 @@ impl Hdf5 {
                                     if m != n {
                                         return super::bad(format!("{}: element {k} is {n} bytes long, its heap object {m}", self.path(*at)));
                                     }
-                                    (o + 16, n)
+                                    (base + o + 16, n)
                                 };
                                 spans.push(json!(o));
                                 spans.push(json!(len));
@@ -721,13 +941,20 @@ impl Hdf5 {
                             attrs.insert("_DTYPE".into(), json!("object_reference"));
                             json!({"kind": "references", "paths": paths})
                         }
-                        (_, Layout::Compact) => json!({"kind": "compact", "offset": ds.compact.0, "length": ds.compact.1.len()}),
+                        (_, Layout::Compact) => json!({"kind": "compact", "offset": base + ds.compact.0, "length": ds.compact.1.len()}),
+                        (_, Layout::Contiguous) if self.slots.contains_key(at) => {
+                            let total = super::product(&ds.dims).saturating_mul(dt.size as u128);
+                            let ranges = self.external_ranges(*at, total).ok_or(Fail::Bad("internal: a dataset's external files changed".into()))?;
+                            let ranges: Vec<J> = ranges.iter().map(|r| json!([r.0, r.1, r.2])).collect();
+                            own.insert("external_storage".into(), J::Array(ranges.clone()));
+                            json!({"kind": "external", "address": at, "ranges": ranges, "item": if trailing.is_some() { 1 } else { dt.size }})
+                        }
                         (_, Layout::Contiguous) => match ds.contiguous.0 {
                             Some(a) if ds.contiguous.1 > 0 => {
                                 if a.checked_add(ds.contiguous.1).is_none_or(|e| e > self.h.size()) {
                                     return super::bad(format!("{}: its data lies outside the file", self.path(*at)));
                                 }
-                                json!({"kind": "contiguous", "at": at, "offset": a, "length": ds.contiguous.1, "item": if trailing.is_some() { 1 } else { dt.size }})
+                                json!({"kind": "contiguous", "at": at, "offset": base + a, "length": ds.contiguous.1, "item": if trailing.is_some() { 1 } else { dt.size }})
                             }
                             _ => json!({"kind": "none"}),
                         },
@@ -741,7 +968,18 @@ impl Hdf5 {
                             if ch.list.is_empty() {
                                 json!({"kind": "none", "chunk": chunk})
                             } else {
-                                json!({"kind": "chunked", "at": at, "grid": ds.grid, "chunk": chunk, "trailing": trailing.is_some()})
+                                let parts = chunk_parts(&ds, &ch, dt.size, self.limit("max_storage_bytes")).ok_or_else(|| Fail::Bad("internal: a chunk's filter mask".into()))?;
+                                let mut masked = Vec::new();
+                                for (c, part) in ch.list.iter().zip(parts) {
+                                    let part = part.ok_or_else(|| Fail::Bad("internal: a chunk's filter mask".into()))?;
+                                    if c.3 != 0 {
+                                        let idx = super::ravel(&c.0, &ds.grid);
+                                        let adler = self.adlers.get(&(*at, idx)).copied();
+                                        masked.push(json!({"index": idx as u64, "stored": part.stored, "wrap": part.wrap, "adler": adler, "item": dt.size}));
+                                    }
+                                }
+                                let trim = if ds.filters.contains(&FLETCHER32) { CHECKSUM } else { 0 };
+                                json!({"kind": "chunked", "at": at, "grid": ds.grid, "chunk": chunk, "trailing": trailing.is_some(), "trim": trim, "masked": masked})
                             }
                         }
                     };
@@ -749,9 +987,28 @@ impl Hdf5 {
                         data_type = t;
                         fill = f;
                     }
+                    let mut dimension_names = self.dimension_names(*at, ds.dims.len(), segs, &segs_of)?;
+                    if dimension_names.is_some() {
+                        for v in attrs.values_mut() {
+                            if let J::Array(values) = v {
+                                if values.len() == 1 && !values[0].is_array() {
+                                    *v = values.remove(0);
+                                }
+                            }
+                        }
+                    }
+                    if let Some(fill) = lenient(self.h.attributes(*at))?.and_then(|attrs| xarray_fill(&attrs, &dt)) {
+                        attrs.insert("_FillValue".into(), fill);
+                    }
                     let mut shape = ds.dims.clone();
                     if let Some(n) = trailing {
                         shape.push(n);
+                        if ds.dims.is_empty() {
+                            dimension_names = Some(Vec::new());
+                        }
+                        if let Some(names) = &mut dimension_names {
+                            names.push(json!(format!("string{n}")));
+                        }
                     }
                     own.insert("datatype".into(), describe(&dt));
                     if let Some(m) = &ds.maxdims {
@@ -787,11 +1044,19 @@ impl Hdf5 {
                         own.insert("unpresented_attributes".into(), J::Object(attr_not));
                     }
                     nodes.push(json!({"path": key, "segments": segs.len(), "attributes": attrs, "own": own,
-                                      "array": {"shape": shape, "data_type": data_type, "fill_value": fill, "codecs": codecs, "store": store}}));
+                                      "array": {"shape": shape, "data_type": data_type, "fill_value": fill, "codecs": codecs, "store": store,
+                                                "dimension_names": dimension_names}}));
+                    if let Some(hint) = hints.remove(at) {
+                        nodes.last_mut().unwrap()["axes"] = hint;
+                    }
                 }
                 Decision::Not(_) => unreachable!(),
             }
         }
+        let axes_by_key: HashMap<String, Vec<J>> = unpresented_axes
+            .into_iter()
+            .map(|(segs, a)| (segs.iter().map(|s| utf8_or_latin1(s)).collect::<Vec<_>>().join("/"), a))
+            .collect();
         // each group's children that are not nodes, by the group's path
         let by_key: HashMap<String, Map<String, J>> = unpresented_of
             .into_iter()
@@ -803,6 +1068,9 @@ impl Hdf5 {
             }
             if let Some(m) = node["path"].as_str().and_then(|k| by_key.get(k)) {
                 node["own"]["unpresented"] = J::Object(m.clone());
+            }
+            if let Some(a) = node["path"].as_str().and_then(|k| axes_by_key.get(k)) {
+                node["axes"] = J::Array(a.clone());
             }
         }
         let root_attrs = nodes.first().map(|n| n["attributes"].clone()).unwrap_or(J::Null);
@@ -833,6 +1101,7 @@ impl Hdf5 {
             }
             summary["nwb"] = json!({"version": root_attrs["nwb_version"], "namespaces": namespaces});
         }
+        name_axes(&mut nodes);
         self.facts = Some(json!({"nodes": nodes, "copy_threshold": crate::out::copy_threshold(), "summary": summary}));
         Ok(())
     }
@@ -941,7 +1210,7 @@ impl Hdf5 {
             .filter_map(|n| n["array"]["store"]["at"].as_u64())
             .collect();
         let room = self.room.unwrap_or(self.limit("walk_elements") + size / self.limit("walk_bytes_per_element"));
-        let mut e = Emit { ir: Ir::new(size), h: &self.h, chunks_of: HashMap::new(), data_of: HashMap::new(), room, must };
+        let mut e = Emit { ir: Ir::new(self.h.file_size()), h: &self.h, chunks_of: HashMap::new(), data_of: HashMap::new(), room, must };
         let sb = self.h.sb.clone().ok_or("internal: no superblock")?;
         e.superblock(&sb)?;
         if let Some(ext) = self.extension.take() {
@@ -1009,7 +1278,7 @@ impl Lookup for Hdf5 {
     fn heap(&self, collection: u64, index: u64) -> Option<Vec<u8>> {
         let col = self.heaps.get(&collection)?;
         let &(o, n) = col.objects.get(&index)?;
-        self.h.src.store.get(o + 16, n).map(|b| b.to_vec())
+        self.h.src.get(o + 16, n).map(|b| b.to_vec())
     }
     fn path(&self, address: u64) -> Option<String> {
         self.paths.get(&address).cloned()
@@ -1024,6 +1293,7 @@ fn vlen_collections(dt: &Dt, count: usize, data: &[u8], out: &mut BTreeSet<u64>)
     fn find(dt: &Dt, base: usize, offsets: &mut Vec<usize>) {
         match &dt.kind {
             Kind::Vlen { string: true, .. } => offsets.push(base),
+            Kind::Vlen { base: of, .. } if matches!(of.kind, Kind::Reference { kind: 0 }) => offsets.push(base),
             Kind::Compound(m) => m.iter().for_each(|m| find(&m.dt, base + m.offset as usize, offsets)),
             _ => {}
         }
@@ -1042,6 +1312,145 @@ fn vlen_collections(dt: &Dt, count: usize, data: &[u8], out: &mut BTreeSet<u64>)
             }
         }
     }
+}
+
+/// Whether a link's name can be a node's (spec/zarrify/hdf5.md §2.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#22-paths>).
+pub fn node_name(s: &str) -> bool {
+    !s.is_empty() && s != "." && s != ".." && !s.starts_with("__") && !s.contains('/')
+}
+
+/// The bytes, to their first NUL, of the object's fixed-length string attribute `name`.
+fn fixed_attribute(attrs: &super::Attrs, name: &[u8]) -> Option<Vec<u8>> {
+    let a = attrs.list.iter().find(|a| a.name == name)?;
+    let (t, _, data) = super::attribute_parts(&a.data).ok()?;
+    let dt = types::parse(&t).ok()?;
+    if !matches!(dt.kind, Kind::Str { .. }) {
+        return None;
+    }
+    Some(data.split(|&b| b == 0).next().unwrap_or(&[]).to_vec())
+}
+
+/// Names the axes of each unscaled array of `nodes` as h5netcdf's `phony_dims="sort"` does
+/// (spec/zarrify/hdf5.md §3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#3-datasets>), from the
+/// `axes` of each array and group ([`File::axes_hints`]). A group's members and subgroups are
+/// taken in the creation order of their links when its `link_order` records it, as h5py iterates
+/// them, else in ascending byte order of their names, and groups depth first in that order; a
+/// group's dimensions are its dimension scales, then as many
+/// `phony_dim_<n>` of each length as one unscaled dataset of it has axes of that length, `n`
+/// counting the hierarchy's dimensions before it; an unscaled array's axes take its group's
+/// dimensions of their lengths in turn.
+pub(super) fn name_axes(nodes: &mut [J]) {
+    let segments = |p: &str| -> Vec<String> { if p.is_empty() { Vec::new() } else { p.split('/').map(str::to_string).collect() } };
+    // each tracking group's links' creation order, by its path
+    let created: HashMap<String, Map<String, J>> = nodes
+        .iter()
+        .filter_map(|n| Some((n["path"].as_str()?.to_string(), n.get("link_order")?.as_object()?.clone())))
+        .collect();
+    let rank = |group: &str, name: &str| -> (u64, String) {
+        (created.get(group).and_then(|m| m.get(name)).and_then(J::as_u64).unwrap_or(0), name.to_string())
+    };
+    // each group's members, by its path: (link name, hint, the array's node when presented)
+    let mut members: HashMap<String, Vec<(String, J, Option<usize>)>> = HashMap::new();
+    let mut groups: Vec<Vec<(u64, String)>> = Vec::new();
+    for (k, node) in nodes.iter().enumerate() {
+        let path = node["path"].as_str().unwrap_or("");
+        if node.get("array").is_none() {
+            let segs = segments(path);
+            groups.push(segs.iter().enumerate().map(|(k, s)| rank(&segs[..k].join("/"), s)).collect());
+            for m in node["axes"].as_array().into_iter().flatten() {
+                members.entry(path.to_string()).or_default().push((m[0].as_str().unwrap_or("").to_string(), m[1].clone(), None));
+            }
+        } else if let Some(hint) = node.get("axes") {
+            let (parent, name) = path.rsplit_once('/').unwrap_or(("", path));
+            members.entry(parent.to_string()).or_default().push((name.to_string(), hint.clone(), Some(k)));
+        }
+    }
+    groups.sort();
+    let lengths = |v: &J| -> Vec<u64> { v.as_array().into_iter().flatten().filter_map(J::as_u64).collect() };
+    let mut next = 0u64;
+    for g in groups {
+        let path = g.iter().map(|s| s.1.as_str()).collect::<Vec<_>>().join("/");
+        let Some(mut list) = members.remove(&path) else { continue };
+        list.sort_by_cached_key(|m| rank(&path, &m.0));
+        // the group's dimensions of each length: its scales', then its phony ones
+        let mut of_length: HashMap<u64, Vec<J>> = HashMap::new();
+        for (_, hint, _) in &list {
+            if let Some(s) = hint.get("scale") {
+                of_length.entry(s[1].as_u64().unwrap_or(0)).or_default().push(s[0].clone());
+                next += 1;
+            }
+        }
+        // the most axes of each length one unscaled dataset has, in order of first appearance
+        let mut most: Vec<(u64, usize)> = Vec::new();
+        for (_, hint, _) in &list {
+            let dims = lengths(&hint["unscaled"]);
+            for &n in &dims {
+                let c = dims.iter().filter(|&&d| d == n).count();
+                match most.iter_mut().find(|e| e.0 == n) {
+                    Some(e) => e.1 = e.1.max(c),
+                    None => most.push((n, c)),
+                }
+            }
+        }
+        for (n, c) in most {
+            let names = of_length.entry(n).or_default();
+            while names.len() < c {
+                names.push(json!(format!("phony_dim_{next}")));
+                next += 1;
+            }
+        }
+        for (_, hint, k) in list {
+            let (Some(k), Some(dims)) = (k, hint.get("unscaled").map(lengths)) else { continue };
+            let mut taken: HashMap<u64, usize> = HashMap::new();
+            let mut names: Vec<J> = dims
+                .iter()
+                .map(|n| {
+                    let t = taken.entry(*n).or_default();
+                    *t += 1;
+                    of_length[n][*t - 1].clone()
+                })
+                .collect();
+            let array = &mut nodes[k]["array"];
+            // the trailing axis of a fixed-length string
+            if let Some(n) = array["shape"].get(dims.len()).and_then(J::as_u64) {
+                names.push(json!(format!("string{n}")));
+            }
+            array["dimension_names"] = J::Array(names);
+        }
+    }
+}
+
+/// Whether the object has no `DIMENSION_LIST`, or one that attaches no scale to any axis.
+fn attaches_none(attrs: &super::Attrs) -> bool {
+    let Some(a) = attrs.list.iter().find(|a| a.name == b"DIMENSION_LIST") else { return true };
+    super::attribute_parts(&a.data).is_ok_and(|(_, _, data)| data.len() % 16 == 0 && data.chunks(16).all(|e| e[..4] == [0; 4]))
+}
+
+/// The value of the `_FillValue` attribute, of one number, of a dataset of the numeric datatype
+/// `of`, as xarray's Zarr backend reads the member of that name (spec/zarrify/hdf5.md §6
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes>): an integer's
+/// a number, a float's the Base64 of its 8 little-endian bytes as a float64.
+fn xarray_fill(attrs: &super::Attrs, of: &Dt) -> Option<J> {
+    let a = attrs.list.iter().find(|a| a.name == b"_FillValue")?;
+    let (t, dims, data) = super::attribute_parts(&a.data).ok()?;
+    let dt = types::parse(&t).ok()?;
+    if super::product(&dims) != 1 || data.len() as u64 != dt.size {
+        return None;
+    }
+    let value = types::as_f64(&dt, &data)?;
+    match of.kind {
+        Kind::Float { .. } => Some(json!(crate::mirror::base64(&value.to_le_bytes()))),
+        Kind::Int { .. } if value.fract() == 0.0 && value.abs() <= 9007199254740991.0 => Some(json!(value as i64)),
+        _ => None,
+    }
+}
+
+/// The dimension name of a scale's link name: netCDF-4's name of the variable, without the
+/// prefix it gives one that is not its dimension's coordinate.
+fn dimension_name(link: &[u8]) -> J {
+    json!(utf8_or_latin1(link.strip_prefix(NON_COORD_PREFIX).unwrap_or(link)))
 }
 
 /// An external link's value: a version and flags byte, then the file's name and the object's
@@ -1120,7 +1529,27 @@ fn fill_json(dt: &Dt, p: &Present, f: &[u8]) -> Option<J> {
     match p {
         Present::Strings | Present::References | Present::Records(_) => Some(json!("")),
         Present::Bytes { .. } => f.iter().all(|&b| b == f[0]).then(|| json!(f.first().copied().unwrap_or(0))),
-        Present::Fixed { .. } => types::value_json(dt, f, &NoLookup),
+        // an integer's exact value, as Zarr v3 writes one, whatever its magnitude (the digits past
+        // 2^53 of spec/zarrify/hdf5.md §6
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes> are an attribute's form, not a fill value's)
+        Present::Fixed { .. } => match &dt.kind {
+            Kind::Int { big, signed, .. } if types::number(dt).is_some() && f.len() as u64 == dt.size => {
+                Some(exact_int(types::int_of(f, *big, *signed)))
+            }
+            Kind::Bitfield { big, .. } if types::number(dt).is_some() && f.len() as u64 == dt.size => {
+                Some(exact_int(types::int_of(f, *big, false)))
+            }
+            _ => types::value_json(dt, f, &NoLookup),
+        },
+    }
+}
+
+/// An integer as a JSON number, exact: an i64's or a u64's.
+fn exact_int(v: i128) -> J {
+    match (i64::try_from(v), u64::try_from(v)) {
+        (Ok(i), _) => json!(i),
+        (_, Ok(u)) => json!(u),
+        _ => json!(v.to_string()),
     }
 }
 
@@ -1143,6 +1572,111 @@ fn zero_of(t: &J) -> J {
     }
 }
 
+/// The codec of a filter in a pipeline of elements of `size` bytes, from its client data values;
+/// None for Fletcher32, whose checksum the chunk's reference leaves out, or a filter with values
+/// no reader's codec has a form of.
+fn filter_codec(f: u64, cd: &[u32], size: u64) -> Option<J> {
+    match f {
+        DEFLATE => Some(json!({"name": "numcodecs.zlib", "configuration": {"level": 1}})),
+        SHUFFLE => Some(json!({"name": "numcodecs.shuffle", "configuration": {"elementsize": size}})),
+        LZF => Some(json!({"name": "imagecodecs_lzf", "configuration": {"header": false}})),
+        LZ4 => Some(json!({"name": "imagecodecs_lz4h5"})),
+        ZSTD => Some(json!({"name": "zstd", "configuration": {"level": cd.first().copied().unwrap_or(0), "checksum": false}})),
+        BLOSC => {
+            // the values 0 to 3 are the filter's own; a pipeline without the others has its defaults
+            let cname = BLOSC_NAMES.get(cd.get(6).copied().unwrap_or(0) as usize)?;
+            let shuffle = ["noshuffle", "shuffle", "bitshuffle"].get(cd.get(5).copied().unwrap_or(1) as usize)?;
+            Some(json!({"name": "blosc", "configuration": {
+                "cname": cname, "clevel": cd.get(4).copied().unwrap_or(5), "shuffle": shuffle, "typesize": size, "blocksize": 0
+            }}))
+        }
+        BITSHUFFLE => {
+            let compression = match cd.get(4).copied().unwrap_or(0) {
+                0 => "none",
+                BITSHUFFLE_LZ4 => "lz4",
+                _ => return None,
+            };
+            let block = match cd.get(3).copied().unwrap_or(0) as u64 {
+                0 => crate::h5_bitshuffle::default_block(size),
+                b => b,
+            };
+            Some(json!({"name": "refkv.h5_bitshuffle", "configuration": {"elementsize": size, "block_size": block, "compression": compression}}))
+        }
+        _ => None,
+    }
+}
+
+/// Whether the dataset's filters are ones a reader's codecs undo, in an order they can: Fletcher32
+/// only last, as its checksum is then the chunk's last bytes; when `decoded`, only the filters the
+/// profile undoes itself.
+fn presented_filters(ds: &Dataset, decoded: bool) -> bool {
+    let n = ds.filters.len();
+    ds.filters.iter().enumerate().all(|(k, &f)| f != FLETCHER32 || k + 1 == n)
+        && ds.filters.iter().zip(&ds.client_data).all(|(&f, cd)| {
+            if decoded {
+                READABLE.contains(&f)
+            } else {
+                f == FLETCHER32 || filter_codec(f, cd, ds.datatype.size).is_some()
+            }
+        })
+}
+
+/// How a chunk's reference reads it: the `stored` bytes before any checksum, in the literal framing
+/// of the filter `wrap`, the one that skipped it, if any.
+struct ChunkPart {
+    stored: u64,
+    wrap: Option<u64>,
+}
+
+/// Each chunk's reference by its filter mask (spec/zarrify/hdf5.md §3.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#32-chunks>), None for a chunk that
+/// has none; None for all when the chunks deflate skipped, which are read, pass `budget` bytes.
+fn chunk_parts(ds: &Dataset, ch: &super::Chunks, size: u64, budget: u64) -> Option<Vec<Option<ChunkPart>>> {
+    let bit = |id: u64| ds.filters.iter().position(|&f| f == id).map_or(0u32, |k| 1 << k);
+    let checksum = bit(FLETCHER32);
+    let every = 1u32.checked_shl(ds.filters.len() as u32).map_or(u32::MAX, |b| b - 1);
+    let bytes = super::product(&ds.chunk).saturating_mul(size as u128);
+    let mut read = 0u64;
+    let mut out = Vec::with_capacity(ch.list.len());
+    for &(_, _, n, mask) in &ch.list {
+        let trim = if checksum != 0 && mask & checksum == 0 { CHECKSUM } else { 0 };
+        let rest = mask & every & !checksum;
+        let part = if n <= trim {
+            None
+        } else if rest == 0 {
+            Some(ChunkPart { stored: n - trim, wrap: None })
+        } else {
+            // one filter skipped, of those with a literal form, and all the chunk's bytes are there
+            let skipped = ds.filters.iter().copied().find(|&f| bit(f) == rest).filter(|f| crate::project::hdf5::framed(*f, n - trim));
+            match skipped {
+                Some(f) if (n - trim) as u128 == bytes => {
+                    if f == DEFLATE {
+                        read = read.saturating_add(n - trim);
+                    }
+                    Some(ChunkPart { stored: n - trim, wrap: Some(f) })
+                }
+                _ => None,
+            }
+        };
+        out.push(part);
+    }
+    (read <= budget).then_some(out)
+}
+
+/// RFC 1950's Adler-32.
+fn adler32(b: &[u8]) -> u32 {
+    let (mut a, mut c) = (1u32, 0u32);
+    for run in b.chunks(5552) {
+        for &x in run {
+            a += x as u32;
+            c += a;
+        }
+        a %= 65521;
+        c %= 65521;
+    }
+    c << 16 | a
+}
+
 /// Bytes as lowercase hexadecimal, and back.
 pub fn hex(b: &[u8]) -> String {
     b.iter().map(|x| format!("{x:02x}")).collect()
@@ -1157,15 +1691,7 @@ pub fn unhex(s: &str) -> Vec<u8> {
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#3-datasets>).
 fn array_type(ds: &Dataset, dt: &Dt, p: &Present) -> (J, J, J, Option<u64>) {
     let fill = ds.fill.as_ref().and_then(|f| fill_json(dt, p, f));
-    let filters = |size: u64| -> Vec<J> {
-        ds.filters
-            .iter()
-            .map(|f| match f {
-                1 => json!({"name": "numcodecs.zlib", "configuration": {"level": 1}}),
-                _ => json!({"name": "numcodecs.shuffle", "configuration": {"elementsize": size}}),
-            })
-            .collect()
-    };
+    let filters = |size: u64| -> Vec<J> { ds.filters.iter().zip(&ds.client_data).filter_map(|(&f, cd)| filter_codec(f, cd, size)).collect() };
     match p {
         Present::Strings | Present::References => (json!("string"), json!([{"name": "vlen-utf8"}]), json!(""), None),
         // the data type and fill value are the records' (`records_of`)
@@ -1213,6 +1739,10 @@ impl crate::run::FileProfile for Profile {
     /// The HDF5 signature at offset 0.
     fn detect(&self, head: &[u8]) -> bool {
         head.len() >= 8 && &head[..8] == super::SIGNATURE
+    }
+    /// A superblock after a user block.
+    fn detect_late(&self, head: &[u8]) -> bool {
+        super::user_block(head).is_some()
     }
     fn parser(&self, size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::of::<Hdf5>(size)

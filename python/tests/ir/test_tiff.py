@@ -2,15 +2,24 @@
 today's profile, the compact mirror, and the amplification probes."""
 
 import json
+import struct
+import zlib
+from typing import Any
 
+import imagecodecs
 import numpy as np
 import pytest
 import tifffile
+import zarr
 from ir_helpers import FIXTURES, REVISED, as_the_reference, omero_and_expected_windows, same_hierarchy, zarrified
+from PIL import Image
 from refkv_reference import virtualize  # the frozen reference (ir_helpers)
 
+import refkv
+import refkv.zarr
 from refkv._narrow import at, integer, mapping, ndarray, sequence, string
 from refkv.ir import zarrify as via_ir
+from refkv.policy import crc32c
 from refkv.zarrify import Rejected
 
 TIFFS = sorted((FIXTURES / "tiff").iterdir())
@@ -187,27 +196,37 @@ STRIPS = {
     # short last strip: None (no short strip), "zeros" (a zero data source) or "lzw" (a tail)
     "lzw_uint8.tif": ([([64, 64], [32, 32])], ["bytes", "refkv.tiff_lzw"], [None]),
     "strips_uint8.tif": ([([64, 64], [64, 64])], ["bytes"], [None]),  # one strip, the whole image
-    "strips_uint16_short.tif": ([([70, 50], [16, 50])], ["bytes"], ["zeros"]),
+    "strips_uint16_short.tif": ([([70, 50], [70, 50])], ["bytes"], [None]),  # its strips joined
     "strips_uint16_lzw_short.tif": ([([70, 50], [16, 50])], ["bytes", "refkv.tiff_lzw"], ["lzw"]),
-    "strips_rgb_contig_short.tif": ([([3, 70, 50], [3, 16, 50])], ["transpose", "bytes"], ["zeros"]),
+    "strips_rgb_contig_short.tif": ([([3, 70, 50], [3, 70, 50])], ["transpose", "bytes"], [None]),
     "strips_rgb_planar_lzw.ome.tif": ([([3, 70, 50], [1, 16, 50]), ([3, 35, 25], [1, 16, 25])],
                                       ["bytes", "refkv.tiff_lzw"], ["lzw", "lzw"]),
     "strips_tcyx_uint16_lzw.ome.tif": ([([2, 3, 70, 50], [1, 1, 16, 50]), ([2, 3, 35, 25], [1, 1, 16, 25])],
                                        ["bytes", "refkv.tiff_lzw"], ["lzw", "lzw"]),
-    # two levels whose last strips lack 1000 and 650 bytes: prefixes of one zero data source
-    "strips_uint16_pyramid_short.ome.tif": ([([70, 50], [16, 50]), ([35, 25], [16, 25])], ["bytes"],
-                                            ["zeros", "zeros"]),
+    "strips_uint16_pyramid_short.ome.tif": ([([70, 50], [70, 50]), ([35, 25], [35, 25])], ["bytes"],
+                                            [None, None]),
 }
+
+
+def inner_of(meta):
+    """(the chunk shape, the codecs) of a level's document: the inner chunks' when it is sharded, and a
+    `rectilinear` grid's chunk lengths for its shape."""
+    if meta["codecs"][0]["name"] == "sharding_indexed":
+        config = meta["codecs"][0]["configuration"]
+        return config["chunk_shape"], config["codecs"]
+    grid = meta["chunk_grid"]["configuration"]
+    return grid.get("chunk_shape", grid.get("chunk_shapes")), meta["codecs"]
 
 
 def test_strips_and_lzw_are_the_images_pixels(tmp_path):
     """§4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>,
     §4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>: LZW tiles and
-    strips are `refkv.tiff_lzw` chunks; a level in strips has chunks of RowsPerStrip rows by the
-    image's width, one strip each, and a short last strip is padded to the chunk with a prefix of
-    the output's one zero data source (uncompressed) or a literal tail of its LZW stream;
-    interleaved or planar samples, the planes of an OME-TIFF and a SubIFD level alike. Each level
-    reads as tifffile reads it, and the mirror rebuilds the file."""
+    strips are `refkv.tiff_lzw` chunks; a level in compressed strips has inner chunks of
+    RowsPerStrip rows by the image's width, one strip each, and a short last strip is padded to
+    the inner chunk with a literal tail of its LZW stream, while uncompressed strips join
+    (test_uncompressed_strips_join_into_larger_chunks); interleaved or planar samples, the planes
+    of an OME-TIFF and a SubIFD level alike. Each level reads as tifffile reads it, and the mirror
+    rebuilds the file."""
     for name, (levels, codecs, padding) in STRIPS.items():
         zero_sources = set()
         path = FIXTURES / "tiff" / name
@@ -221,27 +240,303 @@ def test_strips_and_lzw_are_the_images_pixels(tmp_path):
         for li, ((shape, chunk), pad, (data, axes)) in enumerate(zip(levels, padding, want, strict=True)):
             meta = json.loads(out.bytes_entries[f"{li}/zarr.json"])
             assert meta["shape"] == shape, (name, li)
-            assert meta["chunk_grid"]["configuration"]["chunk_shape"] == chunk, (name, li)
-            assert [c["name"] for c in meta["codecs"]] == codecs, name
+            inner, inner_codecs = inner_of(meta)
+            assert inner == chunk, (name, li)
+            assert [c["name"] for c in inner_codecs] == codecs, name
             letters = [AXIS[a] for a in axes]
             want_level = np.transpose(data, [letters.index(a) for a in names])
             assert np.array_equal(ndarray(g.get_array(str(li))[...]), want_level), (name, li)
-            # the last strip's references: the strip, then its padding
-            down = -(-shape[-2] // chunk[-2])
+            # the last row's references: its shards' or the strip's, then its padding
+            grid = meta["chunk_grid"]["configuration"]["chunk_shape"]
+            down = -(-shape[-2] // grid[-2])
             last = [k for k in out.refs if k.startswith(f"{li}/c/") and int(k.split("/")[-2]) == down - 1]
             planes, across = int(np.prod(shape[:-2])) // int(np.prod(chunk[:-2])), -(-shape[-1] // chunk[-1])
             assert len(last) == planes * across, (name, li)  # the last row's chunks of every plane
             for key in last:
                 parts = out.refs[key]
+                if meta["codecs"][0]["name"] == "sharding_indexed":  # the strips, a tail if any, the index
+                    assert isinstance(parts[-1], bytes), key
+                    assert isinstance(parts[-2], bytes) == (pad == "lzw"), key
+                    continue
                 assert len(parts) == (1 if pad is None else 2), key
                 if pad == "zeros":  # (source, 0, length) of the zero data source
                     assert isinstance(parts[1], tuple), key
                     assert len(parts[1]) == 3, key
                     assert parts[1][1] == 0, key
                     zero_sources.add(parts[1][0])
-                elif pad == "lzw":  # the literal tail
-                    assert isinstance(parts[1], bytes), key
         assert len(zero_sources) == ("zeros" in padding), name
+
+
+# (data, tifffile's arguments, the level's chunk shape, and the ranges of each chunk down the y axis)
+ONE_ROW: dict[str, Any] = {"rowsperstrip": 1, "photometric": "minisblack"}
+RGB_ONE_ROW: dict[str, Any] = {"rowsperstrip": 1, "photometric": "rgb"}
+JOINED: dict[str, tuple[np.ndarray, dict[str, Any], list[int], list[int]]] = {
+    "a plane within the limits is one chunk": (ramp("uint8", (40, 16)), ONE_ROW, [40, 16], [1]),
+    "several rows a strip": (ramp("uint16", (70, 50)), {**ONE_ROW, "rowsperstrip": 16}, [70, 50], [1]),
+    "big-endian": (ramp("uint16", (40, 16)), {**ONE_ROW, "byteorder": ">"}, [40, 16], [1]),
+    "float": (ramp("float32", (40, 16)), ONE_ROW, [40, 16], [1]),
+    "interleaved samples": (ramp("uint8", (40, 16, 3)), {**RGB_ONE_ROW, "planarconfig": "contig"}, [3, 40, 16], [1]),
+    "planar samples, a chunk each": (ramp("uint8", (3, 40, 16)), {**RGB_ONE_ROW, "planarconfig": "separate"},
+                                     [1, 40, 16],
+                                     [1]),
+    # 2^20 bytes hold 1048 rows, so 2000 rows are 2 even chunks of 1000
+    "above the byte limit, even chunks": (ramp("uint8", (2000, 1000)), ONE_ROW, [1000, 1000], [1, 1]),
+    # 2^20 bytes would hold 65536 rows, 2^10 strips only 1024
+    "at the strip limit": (ramp("uint8", (4096, 16)), ONE_ROW, [1024, 16], [1, 1, 1, 1]),
+    # the last chunk lacks a row, then 3 rows with its short last strip of 1 row: zero bytes after it
+    "a short last chunk is padded": (ramp("uint8", (2001, 1000)), ONE_ROW, [1001, 1000], [1, 2]),
+    "a short last strip in a padded chunk": (ramp("uint8", (2005, 1000)), {**ONE_ROW, "rowsperstrip": 2}, [1004, 1000],
+                                             [1, 2]),
+}
+STAY: dict[str, tuple[np.ndarray, dict[str, Any], list[int], list[int]]] = {
+    # 600000 bytes a strip: two do not fit in 2^20, and the short last strip is padded as before
+    "two strips do not fit": (ramp("uint8", (1500, 1000)), {**ONE_ROW, "rowsperstrip": 600}, [600, 1000], [1, 1, 2]),
+}
+
+
+@pytest.mark.parametrize("case", [*JOINED, *STAY])
+def test_uncompressed_strips_join_into_larger_chunks(case, tmp_path):
+    """§4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>: a level's
+    uncompressed strips join into chunks of at most 2^20 bytes and 2^10 strips, as even as whole
+    strips allow, one range when they meet; a level whose two strips do not fit keeps a chunk per
+    strip (compressed strips: test_compressed_strips_are_the_inner_chunks_of_shards). Each level
+    reads as tifffile reads it."""
+    data, kw, chunk, ranges = {**JOINED, **STAY}[case]
+    path = tmp_path / "s.tif"
+    tifffile.imwrite(path, data, metadata=None, **kw)
+    out, g, _ = zarrified(path, tmp_path, "tiff")
+    meta = json.loads(out.bytes_entries["0/zarr.json"])
+    assert meta["chunk_grid"]["configuration"]["chunk_shape"] == chunk
+    with tifffile.TiffFile(path) as tf:
+        want = tf.series[0].asarray()
+    got = ndarray(g.get_array("0")[...])
+    assert got.shape == want.shape or got.shape == np.moveaxis(want, -1, 0).shape
+    assert np.array_equal(got, want if got.shape == want.shape else np.moveaxis(want, -1, 0))
+    first_sample = "0/c/0/" if len(chunk) == 3 else "0/c/"
+    assert [len(out.refs[f"{first_sample}{row}/0"]) for row in range(len(ranges))] == ranges
+    if case in JOINED:
+        assert np.prod(chunk) * want.dtype.itemsize <= 2**20
+
+
+def test_strips_join_with_a_range_per_run_of_the_file(tmp_path):
+    """§7.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#73-chunks>: strips that
+    do not meet in the file are a chunk of several ranges, in the strips' order, those that meet
+    merged."""
+    path = FIXTURES / "tiff" / "edge_strips_apart.tif"
+    out, g, _ = zarrified(path, tmp_path, "tiff")
+    with tifffile.TiffFile(path) as tf:
+        page = tf.pages[0]
+        assert isinstance(page, tifffile.TiffPage)
+        offsets = page.dataoffsets
+        want = page.asarray()
+    assert json.loads(out.bytes_entries["0/zarr.json"])["chunk_grid"]["configuration"]["chunk_shape"] == [8, 8]
+    assert out.refs["0/c/0/0"] == [(offsets[0], 16), (offsets[1], 32), (offsets[3], 16)]
+    assert np.array_equal(ndarray(g.get_array("0")[...]), want)
+
+
+def test_a_level_with_an_absent_strip_stays_one_strip_a_chunk(tmp_path):
+    """§4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>: a level with
+    a strip that does not hold exactly its rows stays one strip a chunk, and its absent strip is
+    the fill value."""
+    out, g, _ = zarrified(FIXTURES / "tiff" / "edge_strips_absent.tif", tmp_path, "tiff")
+    assert json.loads(out.bytes_entries["0/zarr.json"])["chunk_grid"]["configuration"]["chunk_shape"] == [2, 8]
+    assert "0/c/1/0" not in out.refs
+    assert ndarray(g.get_array("0")[2:4]).max() == 0
+
+
+def test_joined_levels_share_one_zero_data_source(tmp_path):
+    """§4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>: the padding of
+    each level's short last chunk is a prefix of the output's one zero data source."""
+    path = tmp_path / "p.tif"
+    with tifffile.TiffWriter(path, ome=True) as tif:
+        kw = {"rowsperstrip": 1, "photometric": "minisblack"}
+        tif.write(ramp("uint8", (4005, 1000)), subifds=1, metadata={"axes": "YX"}, **kw)
+        tif.write(ramp("uint8", (2001, 999)), subfiletype=1, **kw)
+    out, g, _ = zarrified(path, tmp_path, "tiff")
+    pads = [out.refs[key][-1] for key in ("0/c/3/0", "1/c/1/0")]
+    assert all(len(p) == 3 for p in pads)
+    assert [p[-1] for p in pads] == [3000, 999]
+    assert pads[0][0] == pads[1][0] != 0
+    assert np.array_equal(ndarray(g.get_array("1")[...]), ramp("uint8", (2001, 999)))
+
+
+# (data, tifffile's arguments, the inner chunk shape, the shard shape, and the shards of a plane or
+# sample plane; the inner codecs are test_predictor_2_is_summed_back_by_imagecodecs_delta's and
+# test_strips_and_lzw_are_the_images_pixels's concern)
+ONE_ROW_ZLIB: dict[str, Any] = {**ONE_ROW, "compression": "zlib"}
+SHARDED: dict[str, tuple[np.ndarray, dict[str, Any], list[int], list[int], int]] = {
+    "LZW": (ramp("uint8", (40, 16)), {**ONE_ROW, "compression": "lzw"}, [1, 16], [40, 16], 1),
+    "Deflate": (ramp("uint8", (40, 16)), ONE_ROW_ZLIB, [1, 16], [40, 16], 1),
+    "zstd": (ramp("uint8", (40, 16)), {**ONE_ROW, "compression": "zstd"}, [1, 16], [40, 16], 1),
+    "several rows a strip": (ramp("uint16", (64, 50)), {**ONE_ROW_ZLIB, "rowsperstrip": 16}, [16, 50], [64, 50], 1),
+    "big-endian": (ramp("uint16", (40, 16)), {**ONE_ROW_ZLIB, "byteorder": ">"}, [1, 16], [40, 16], 1),
+    "float": (ramp("float32", (40, 16)), ONE_ROW_ZLIB, [1, 16], [40, 16], 1),
+    "Predictor 2": (ramp("uint16", (40, 16)), {**ONE_ROW_ZLIB, "predictor": True}, [1, 16], [40, 16], 1),
+    "LZW with Predictor 2": (ramp("uint16", (40, 16)), {**ONE_ROW, "compression": "lzw", "predictor": True}, [1, 16],
+                             [40, 16], 1),
+    "interleaved samples": (ramp("uint8", (40, 16, 3)),
+                            {**RGB_ONE_ROW, "compression": "zlib", "planarconfig": "contig"},
+                            [3, 1, 16], [3, 40, 16], 1),
+    "planar samples, shards each": (ramp("uint8", (3, 40, 16)),
+                                    {**RGB_ONE_ROW, "compression": "zlib", "planarconfig": "separate"},
+                                    [1, 1, 16], [1, 40, 16], 1),
+    # 2^10 strips a shard, and 3000 of them as 3 even shards
+    "at the strip limit": (ramp("uint8", (4096, 16)), ONE_ROW_ZLIB, [1, 16], [1024, 16], 4),
+    "above the strip limit, even shards": (ramp("uint8", (3000, 16)), ONE_ROW_ZLIB, [1, 16], [1000, 16], 3),
+    "two strips": (ramp("uint8", (2, 16)), ONE_ROW_ZLIB, [1, 16], [2, 16], 1),
+    # a shard's shape may pass the array's: 70 rows in 5 strips of 16 rows, the last short and padded
+    "a short last LZW strip": (ramp("uint16", (70, 50)), {**ONE_ROW, "compression": "lzw", "rowsperstrip": 16},
+                               [16, 50], [80, 50], 1),
+}
+
+
+@pytest.mark.parametrize("case", SHARDED)
+def test_compressed_strips_are_the_inner_chunks_of_shards(case, tmp_path):
+    """§4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>,
+    spec/zarrify.md §2.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#21-virtual-shards>: a
+    level's LZW, Deflate and zstd strips are the inner chunks of shards, at most 2^10 strips and as
+    even as whole strips allow, each shard one range where its strips meet and a literal index of
+    their lengths. Each level reads as tifffile reads it, and the mirror rebuilds the file."""
+    data, kw, inner, shard, shards = SHARDED[case]
+    path = tmp_path / "s.tif"
+    tifffile.imwrite(path, data, metadata=None, **kw)
+    out, g, _ = zarrified(path, tmp_path, "tiff")
+    meta = json.loads(out.bytes_entries["0/zarr.json"])
+    assert meta["chunk_grid"]["configuration"]["chunk_shape"] == shard
+    assert [c["name"] for c in meta["codecs"]] == ["sharding_indexed"]
+    config = meta["codecs"][0]["configuration"]
+    assert config["chunk_shape"] == inner
+    assert config["index_location"] == "end"
+    assert config["index_codecs"] == [{"name": "bytes", "configuration": {"endian": "little"}}, {"name": "crc32c"}]
+    with tifffile.TiffFile(path) as tf:
+        page = tf.pages[0]
+        assert isinstance(page, tifffile.TiffPage)
+        want = tf.series[0].asarray()
+        offsets, counts = page.dataoffsets, page.databytecounts
+    got = ndarray(g.get_array("0")[...])
+    assert np.array_equal(got, want if got.shape == want.shape else np.moveaxis(want, -1, 0))
+    planes = 3 if case.startswith("planar") else 1
+    assert len([k for k in out.refs if k.startswith("0/c/")]) == shards * planes
+    # the first shard: its strips one range, then their lengths in the index
+    per = len(offsets) // planes // shards + (len(offsets) // planes % shards > 0)
+    first = out.refs["0/c/0/0/0" if len(shard) == 3 else "0/c/0/0"]
+    index = first[-1]
+    assert isinstance(index, bytes)
+    entries = np.frombuffer(index[:-4], dtype="<u8").reshape(-1, 2)
+    assert len(entries) == shard[-2] // inner[-2]
+    held = entries[:per]
+    # (a padded last strip holds its tail, and not all its bytes)
+    whole = per - 1 if case == "a short last LZW strip" else per
+    assert held[:whole, 1].tolist() == [int(n) for n in counts[:whole]]
+    assert first[0][0] == int(offsets[0])
+    assert first[0][1] >= sum(int(n) for n in counts[:whole])
+    assert held[:, 0].tolist() == np.cumsum([0, *held[:-1, 1]]).tolist()
+    assert (entries[per:] == 2**64 - 1).all()
+    assert int.from_bytes(index[-4:], "little") == crc32c(index[:-4])
+
+
+def test_one_compressed_strip_is_one_chunk(tmp_path):
+    """§4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>: a level of one
+    strip has nothing to gather, and is not sharded."""
+    path = tmp_path / "s.tif"
+    kw: dict[str, Any] = {**ONE_ROW_ZLIB, "rowsperstrip": 40}
+    tifffile.imwrite(path, ramp("uint8", (40, 16)), metadata=None, **kw)
+    out, g, _ = zarrified(path, tmp_path, "tiff")
+    assert [c["name"] for c in json.loads(out.bytes_entries["0/zarr.json"])["codecs"]] == ["bytes", "numcodecs.zlib"]
+    assert np.array_equal(ndarray(g.get_array("0")[...]), ramp("uint8", (40, 16)))
+
+
+def compressed_strips(path, rows: list[bytes], order: list[int], counts: list[int | None] | None = None):
+    """A little-endian uint8 TIFF of Deflate strips of 1 row, written in the file in the order `order`,
+    with a gap of 3 bytes between them; each strip's count `counts[k]` in place of its stream's length
+    when given (0: absent)."""
+    streams = [zlib.compress(r) for r in rows]
+    n = len(rows)
+    tags = 9
+    table = 8 + 2 + tags * 12 + 4
+    data = table + 8 * n
+    offsets, blob = [0] * n, bytearray()
+    for k in order:
+        offsets[k] = data + len(blob)
+        blob += streams[k] + b"gap"
+    lengths = [len(s) if counts is None or counts[k] is None else counts[k] for k, s in enumerate(streams)]
+    entries = [(256, 4, 1, len(rows[0])), (257, 4, 1, n), (258, 3, 1, 8), (259, 3, 1, 8), (262, 3, 1, 1),
+               (273, 4, n, table), (277, 3, 1, 1), (278, 4, 1, 1), (279, 4, n, table + 4 * n)]
+    head = b"II*\0" + struct.pack("<I", 8) + struct.pack("<H", tags)
+    head += b"".join(struct.pack("<HHII", *e) for e in entries) + struct.pack("<I", 0)
+    path.write_bytes(head + struct.pack(f"<{n}I", *offsets) + struct.pack(f"<{n}I", *lengths) + bytes(blob))
+    return offsets
+
+
+def shard_index(parts) -> np.ndarray:
+    """The (offset, length) entries of the literal index that ends a shard's reference `parts`."""
+    index = parts[-1]
+    assert isinstance(index, bytes)
+    return np.frombuffer(index[:-4], dtype="<u8").reshape(-1, 2)
+
+
+def test_a_shard_has_a_range_per_run_of_the_file(tmp_path):
+    """spec/zarrify.md §2.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#21-virtual-shards>:
+    strips that do not meet in the file, or are not in the file's order, are a range each, in the
+    strips' order, and the index gives each its place in the shard, not in the file."""
+    data = ramp("uint8", (4, 16))
+    rows = [r.tobytes() for r in data]
+    path = tmp_path / "s.tif"
+    offsets = compressed_strips(path, rows, [3, 0, 2, 1])
+    out, g, _ = zarrified(path, tmp_path, "tiff")
+    lengths = [len(zlib.compress(r)) for r in rows]
+    parts = out.refs["0/c/0/0"]
+    assert parts[:-1] == [(o, n) for o, n in zip(offsets, lengths, strict=True)]
+    places = np.cumsum([0, *lengths[:-1]])
+    assert shard_index(parts).tolist() == [[int(a), n] for a, n in zip(places, lengths, strict=True)]
+    assert np.array_equal(ndarray(g.get_array("0")[...]), data)
+
+
+def test_an_absent_strip_is_an_empty_entry_of_the_shard(tmp_path):
+    """§4.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#44-arrays>,
+    spec/zarrify.md §2.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#21-virtual-shards>: a
+    strip of no bytes is an inner chunk the shard does not hold, and reads as the fill value; a
+    shard that holds no strip has no entry."""
+    data = ramp("uint8", (4, 16))
+    path = tmp_path / "s.tif"
+    compressed_strips(path, [r.tobytes() for r in data], [0, 1, 2, 3], [None, 0, None, None])
+    out, g, _ = zarrified(path, tmp_path, "tiff")
+    assert (shard_index(out.refs["0/c/0/0"])[1] == 2**64 - 1).all()
+    want = data.copy()
+    want[1] = 0
+    assert np.array_equal(ndarray(g.get_array("0")[...]), want)
+
+    path = tmp_path / "none.tif"
+    compressed_strips(path, [r.tobytes() for r in data], [0, 1, 2, 3], [0, 0, 0, 0])
+    out, g, _ = zarrified(path, tmp_path, "tiff")
+    assert not [k for k in out.refs if k.startswith("0/c/")]
+    assert np.array_equal(ndarray(g.get_array("0")[...]), np.zeros((4, 16), "uint8"))
+
+
+@pytest.mark.parametrize(("region", "requests", "strips"), [
+    ((Ellipsis,), 1, range(40)),  # the whole shard: one value, one range
+    ((7,), 1, range(7, 8)),  # one row: its strip alone
+    ((slice(8, 12),), 1, range(8, 12)),  # the strips of a crop meet: one read
+])
+def test_a_read_through_a_shard_reads_its_strips_alone(region, requests, strips, tmp_path):
+    """§4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>: a reader of a
+    few rows reads the shard's literal index, which takes no request, and those strips' bytes."""
+    data = ramp("uint8", (40, 16))
+    path = tmp_path / "s.tif"
+    tifffile.imwrite(path, data, metadata=None, **ONE_ROW_ZLIB)
+    with tifffile.TiffFile(path) as tf:
+        page = tf.pages[0]
+        assert isinstance(page, tifffile.TiffPage)
+        counts = page.databytecounts
+    archive = tmp_path / "s.vzip"
+    _, out, _ = via_ir(str(path), None)
+    out.to_store().save_vzip(archive)
+    stats = refkv.Stats()
+    policy = refkv.Policy(allow_file_hosts=True)
+    a = zarr.open_array(refkv.zarr.open(archive, stats=stats, policy=policy), path="0", mode="r")
+    assert np.array_equal(ndarray(a[region]), data[region])
+    assert stats.external_requests == requests
+    assert stats.external_bytes == sum(int(counts[k]) for k in strips)
 
 
 def strips_tiff(path, data, **kw):
@@ -266,11 +561,86 @@ def patch_tag(path, tag: str, *, value: int | None = None, code: int | None = No
     return path
 
 
-def test_a_short_last_strip_of_deflate_is_rejected():
-    """§4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>: a level
-    in Deflate strips whose last strip is short cannot be padded, and rejects the input."""
-    with pytest.raises(Rejected, match="level 0 is in strips of compression 8 whose last strip is short"):
-        via_ir(str(FIXTURES / "tiff" / "edge_reject_strips_deflate_short.tif"), "u")
+RECTILINEAR = {
+    # name: each level's chunk lengths along `y`, or the integer of a regular grid's chunk shape
+    "strips_uint16_deflate_short.tif": [[[16, 4], 6]],
+    "predictor3_strips_float32_deflate_short.tif": [[[16, 4], 6]],
+    "lerc_float32_strips_short.tif": [[[16, 3], 8]],
+    "webp_rgb_strips_short.tif": [[[16, 3], 8]],
+    "jpegxl_uint16_strips_short.tif": [[[16, 3], 8]],
+    "lzma_uint16_strips_short.tif": [[[16, 3], 8]],
+    "bilevel_packbits_strips_short.tif": [[[16, 2], 8]],
+    "bilevel_g4_strips_short.tif": [[[16, 2], 8]],
+    "strips_uint16_zstd_short.tif": [[[16, 4], 6]],
+    "strips_uint16_deflate_be_predictor_short.tif": [[[16, 4], 6]],
+    "strips_rgb_contig_jpeg_short.tif": [[[16, 4], 6]],
+    "strips_rgb_contig_deflate_short.tif": [[16, 8]],  # two strips, no run
+    "strips_rgb_planar_jpeg2000_short.tif": [[[16, 4], 6]],
+    "strips_tcyx_uint16_deflate_short.ome.tif": [[[16, 4], 6], [[16, 2], 3]],
+    "strips_uint8_deflate_short_level.ome.tif": [[32, 16], 24],  # a level of one strip stays regular
+}
+
+
+def test_a_short_last_strip_that_cannot_be_padded_has_a_rectilinear_grid(tmp_path):
+    """§4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>: a level whose
+    last strip is short and not uncompressed or LZW has the `rectilinear` grid, a run of full strips
+    and the short one, a chunk a strip, unsharded. Every level reads as tifffile reads it (the
+    windows: test_omero_windows_sample_the_coarsest_level)."""
+    for name, levels in RECTILINEAR.items():
+        path = FIXTURES / "tiff" / name
+        out, g, _ = zarrified(path, tmp_path, "tiff")
+        ms = mapping(at(g.attrs, "ome", "multiscales", 0))
+        names = [string(at(a, "name")) for a in sequence(ms["axes"])]
+        with tifffile.TiffFile(path) as tf:
+            series = tf.series[0]
+            want = [(level.asarray(), series.axes) for level in series.levels]
+        assert len(want) == len(levels), name
+        for li, ((data, axes), y) in enumerate(zip(want, levels, strict=True)):
+            meta = json.loads(out.bytes_entries[f"{li}/zarr.json"])
+            assert all(string(at(c, "name")) != "sharding_indexed" for c in sequence(meta["codecs"])), (name, li)
+            grid = mapping(meta["chunk_grid"])
+            if isinstance(y, int):
+                assert grid["name"] == "regular", (name, li)
+                assert at(grid, "configuration", "chunk_shape", names.index("y")) == y, (name, li)
+            else:
+                assert grid["name"] == "rectilinear", (name, li)
+                assert at(grid, "configuration", "chunk_shapes", names.index("y")) == y, (name, li)
+            letters = [AXIS[a] for a in axes]
+            want_level = np.transpose(data, [letters.index(a) for a in names])
+            got = ndarray(g.get_array(str(li))[...])
+            # JPEG and JPEG 2000 are as tifffile decodes the same streams
+            assert np.array_equal(got, want_level), (name, li)
+
+
+def test_the_short_last_strips_of_common_writers_read_back(tmp_path):
+    """§4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>: what tifffile's
+    and Pillow's defaults write with zlib and zstd, which leave a short last strip at these heights."""
+    data = ramp("uint8", (1000, 1000))
+    for name, compression in (("zlib", "zlib"), ("zstd", "zstd")):
+        path = tmp_path / f"{name}.tif"
+        tifffile.imwrite(path, data, compression=compression, metadata=None, photometric="minisblack")
+        _, g, _ = zarrified(path, tmp_path, "tiff")
+        assert np.array_equal(ndarray(g.get_array("0")[...]), data), name
+    path = tmp_path / "pillow.tif"
+    Image.fromarray(data).save(path, compression="tiff_adobe_deflate")
+    with tifffile.TiffFile(path) as tf:
+        page = tf.pages.first
+        assert page.rowsperstrip < 1000
+        assert 1000 % page.rowsperstrip != 0
+    _, g, _ = zarrified(path, tmp_path, "tiff")
+    assert np.array_equal(ndarray(g.get_array("0")[...]), data)
+
+
+def test_a_read_of_part_of_a_rectilinear_level_decodes_its_short_chunk(tmp_path):
+    """§4.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>: the short chunk
+    decodes to its own rows, alone and across its neighbor."""
+    path = FIXTURES / "tiff" / "strips_uint16_deflate_short.tif"
+    _, g, _ = zarrified(path, tmp_path, "tiff")
+    a = g.get_array("0")
+    with tifffile.TiffFile(path) as tf:
+        want = tf.asarray()
+    assert np.array_equal(ndarray(a[64:70, 3:9]), want[64:70, 3:9])  # the short chunk alone
+    assert np.array_equal(ndarray(a[60:66, :]), want[60:66, :])  # across the last two
 
 
 def delta(axis):
@@ -311,17 +681,247 @@ def test_predictor_2_is_summed_back_by_imagecodecs_delta(tmp_path):
             want = [(level.asarray(), series.axes) for level in series.levels]
         assert len(want) == len(sequence(ms["datasets"])), name
         for li, (data, axes) in enumerate(want):
-            assert json.loads(out.bytes_entries[f"{li}/zarr.json"])["codecs"] == codecs, (name, li)
+            assert inner_of(json.loads(out.bytes_entries[f"{li}/zarr.json"]))[1] == codecs, (name, li)
             letters = [AXIS[a] for a in axes]
             want_level = np.transpose(data, [letters.index(a) for a in names])
             assert np.array_equal(ndarray(g.get_array(str(li))[...]), want_level), (name, li)
 
 
-def test_predictor_3_is_rejected():
+LZMA = {"name": "imagecodecs_lzma"}
+
+
+def floatpred(axis):
+    return {"name": "imagecodecs_floatpred", "configuration": {"axis": axis, "dist": 1}}
+
+
+PREDICTOR_3 = {
+    # name: the codecs: imagecodecs_floatpred along `x` in stored order, in the place of `bytes`
+    "predictor3_deflate_float32.tif": [floatpred(1), ZLIB],
+    "predictor3_lzw_float32_be.tif": [floatpred(1), LZW],  # the predictor's bytes have one order
+    "predictor3_lzma_float32.tif": [floatpred(1), LZMA],
+    "predictor3_lzma_float32_be.tif": [floatpred(1), LZMA],
+    "predictor3_zstd_float64.tif": [floatpred(1), ZSTD],  # in strips
+    "predictor3_rgb_contig_deflate_float32.tif": [INTERLEAVED, floatpred(1), ZLIB],  # dist 1, with 3 samples
+    "predictor3_contig_be_lzw_float64.tif": [INTERLEAVED, floatpred(1), LZW],  # 4, big-endian, a padded last strip
+    "predictor3_planar_deflate_float32.tif": [floatpred(2), ZLIB],
+    "predictor3_strips_float32_lzw_short.tif": [floatpred(1), LZW],  # its short last strip padded
+    "predictor3_strips_float32_deflate_short.tif": [floatpred(1), ZLIB],  # of `rectilinear` chunks
+    "predictor3_tcyx_float32_lzw.ome.tif": [floatpred(3), LZW],  # and a SubIFD level
+}
+
+
+def test_predictor_3_is_undone_by_imagecodecs_floatpred(tmp_path):
     """§4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>:
-    no codec undoes the floating-point predictor."""
-    with pytest.raises(Rejected, match="unsupported predictor 3"):
-        via_ir(str(FIXTURES / "tiff" / "unsupported_predictor_float.tif"), "u")
+    Predictor 3 of a float type, with LZW, Deflate or zstd, has `imagecodecs_floatpred` along the
+    stored axis `x` in the place of `bytes`; float32 and float64, either byte order, interleaved
+    and planar samples, tiles and strips (a short last one padded) alike. Every level reads as
+    tifffile reads it (the windows: test_omero_windows_sample_the_coarsest_level)."""
+    for name, codecs in PREDICTOR_3.items():
+        path = FIXTURES / "tiff" / name
+        out, g, _ = zarrified(path, tmp_path, "tiff")
+        ms = mapping(at(g.attrs, "ome", "multiscales", 0))
+        names = [string(at(a, "name")) for a in sequence(ms["axes"])]
+        with tifffile.TiffFile(path) as tf:
+            series = tf.series[0]
+            assert tf.pages.first.predictor == 3, name
+            want = [(level.asarray(), series.axes) for level in series.levels]
+        assert len(want) == len(sequence(ms["datasets"])), name
+        for li, (data, axes) in enumerate(want):
+            assert inner_of(json.loads(out.bytes_entries[f"{li}/zarr.json"]))[1] == codecs, (name, li)
+            letters = [AXIS[a] for a in axes]
+            want_level = np.transpose(data, [letters.index(a) for a in names])
+            assert np.array_equal(ndarray(g.get_array(str(li))[...]), want_level), (name, li)
+
+
+def test_predictor_3_of_an_integer_type_is_rejected():
+    """§4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>:
+    the floating-point predictor is for float types, which is all libtiff writes it with."""
+    with pytest.raises(Rejected, match="predictor 3 with SampleFormat 1"):
+        via_ir(str(FIXTURES / "tiff" / "edge_reject_predictor3_integer.tif"), "u")
+
+
+def test_predictor_3_without_compression_is_rejected():
+    """§4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>:
+    libtiff applies a predictor only inside a compression's coder, so that readers disagree on what
+    uncompressed bytes hold."""
+    with pytest.raises(Rejected, match="predictor 3 with compression 1"):
+        via_ir(str(FIXTURES / "tiff" / "edge_reject_predictor3_uncompressed.tif"), "u")
+
+
+def test_a_predictor_tiff_does_not_define_is_rejected():
+    """§4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>."""
+    with pytest.raises(Rejected, match="unsupported predictor 4"):
+        via_ir(str(FIXTURES / "tiff" / "edge_reject_predictor_unknown.tif"), "u")
+
+
+LERC = {"name": "imagecodecs_lerc"}
+JPEGXL = {"name": "imagecodecs_jpegxl"}
+
+
+def webp(hasalpha):
+    return {"name": "imagecodecs_webp", "configuration": {"hasalpha": hasalpha}}
+
+
+MORE_CODECS = {
+    # name: the codecs
+    "lerc_uint16.tif": [LERC],
+    "lerc_float32_strips.tif": [LERC],  # in strips
+    "lerc_deflate_float32.tif": [LERC],  # the stream in Deflate, which the codec finds itself
+    "lerc_zstd_float64.tif": [LERC],  # in zstd
+    "lerc_rgb_contig_uint8.tif": [INTERLEAVED, LERC],
+    "webp_rgb.tif": [INTERLEAVED, webp(False)],
+    "webp_rgb_strips.tif": [INTERLEAVED, webp(False)],
+    "webp_rgba_opaque_tile.tif": [INTERLEAVED, webp(True)],  # a tile of opaque alpha keeps its alpha
+    "jpegxl_uint8.tif": [JPEGXL],
+    "jpegxl_uint16.tif": [JPEGXL],
+    "jpegxl_float32.tif": [JPEGXL],
+    "jpegxl_rgb_uint8.tif": [INTERLEAVED, JPEGXL],
+    "lzma_uint16.tif": [LE, LZMA],
+    "lzma_predictor_uint16_be.tif": [delta(1), BE, LZMA],
+    "lerc_float32_strips_short.tif": [LERC],
+    "webp_rgb_strips_short.tif": [INTERLEAVED, webp(False)],
+    "jpegxl_uint16_strips_short.tif": [JPEGXL],
+    "lzma_uint16_strips_short.tif": [LE, LZMA],
+}
+
+
+def test_lerc_webp_jpeg_xl_and_lzma_read_as_tifffile_reads_them(tmp_path):
+    """§4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>: these
+    compressions are chunks of imagecodecs' codecs, a tile or strip each. Every level reads as
+    tifffile reads it, and an RGBA tile whose alpha is opaque keeps it."""
+    for name, codecs in MORE_CODECS.items():
+        path = FIXTURES / "tiff" / name
+        out, g, _ = zarrified(path, tmp_path, "tiff")
+        ms = mapping(at(g.attrs, "ome", "multiscales", 0))
+        names = [string(at(a, "name")) for a in sequence(ms["axes"])]
+        with tifffile.TiffFile(path) as tf:
+            series = tf.series[0]
+            data, axes = series.asarray(), series.axes
+        assert inner_of(json.loads(out.bytes_entries["0/zarr.json"]))[1] == codecs, name
+        letters = [AXIS[a] for a in axes]
+        want = np.transpose(data, [letters.index(a) for a in names])
+        assert np.array_equal(ndarray(g.get_array("0")[...]), want), name
+    with tifffile.TiffFile(FIXTURES / "tiff" / "webp_rgba_opaque_tile.tif") as tf:
+        assert tf.asarray()[0, 0, 3] == 255  # the opaque tile that a WebP stream may leave out
+
+
+@pytest.mark.parametrize(("name", "message"), [
+    ("edge_reject_webp_gray.tif", "unsupported WebP: 8-bit, SampleFormat 1, 1 samples"),
+    ("edge_reject_webp_uint16.tif", "unsupported WebP: 16-bit"),
+    ("edge_reject_jpegxl_int16.tif", "unsupported JPEG XL: 16-bit, SampleFormat 2"),
+    ("edge_reject_lerc_uint64.tif", "unsupported LERC: 64-bit, SampleFormat 1"),
+    ("edge_reject_predictor_lerc.tif", "predictor 2 with compression 34887"),
+    ("edge_reject_compression_unknown.tif", "unsupported compression 34661"),
+])
+def test_what_the_new_decoders_do_not_hold_is_rejected(name, message):
+    """§4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>."""
+    with pytest.raises(Rejected, match=message):
+        via_ir(str(FIXTURES / "tiff" / name), "u")
+
+
+def packints(bits, runlen):
+    return {"name": "imagecodecs_packints", "configuration": {"bitspersample": bits, "runlen": runlen}}
+
+
+PACKBITS, G4 = {"name": "imagecodecs_packbits"}, {"name": "imagecodecs_ccittfax4"}
+PACKED = {
+    # name: the data type and the codecs of level 0's chunks. tifffile's bilevel files have no tag 258.
+    "bilevel.tif": ("uint8", [packints(1, 45)]),
+    "bilevel_tiled.tif": ("uint8", [packints(1, 16)]),  # a tile's row, padded to a whole byte
+    "bilevel_deflate.tif": ("uint8", [packints(1, 45), ZLIB]),
+    "bilevel_packbits.tif": ("uint8", [packints(1, 45), PACKBITS]),
+    "bilevel_strips_short.tif": ("uint8", [packints(1, 45)]),  # joined
+    "bilevel_lzw_strips_short.tif": ("uint8", [packints(1, 45), LZW]),  # sharded, a tail on its last strip
+    "bilevel_g4.tif": ("uint8", [G4]),
+    "bilevel_g4_strips_no_bits.tif": ("uint8", [G4]),
+    "bilevel_packbits_strips_short.tif": ("uint8", [packints(1, 45), PACKBITS]),
+    "bilevel_g4_strips_short.tif": ("uint8", [G4]),
+    "uint12_strips.tif": ("uint16", [packints(12, 51)]),
+    "uint12_strips_short.tif": ("uint16", [packints(12, 51)]),
+    "uint12_be.tif": ("uint16", [packints(12, 51)]),  # packed bits have one order, whatever the file's
+    "uint12_rgb_contig.tif": ("uint16", [INTERLEAVED, packints(12, 153)]),  # a row of 3 samples a pixel
+    "uint12_deflate_strips.tif": ("uint16", [packints(12, 51), ZLIB]),
+    "uint12_lzw.tif": ("uint16", [packints(12, 51), LZW]),
+    "packbits_uint8.tif": ("uint8", [U8, PACKBITS]),
+    "packbits_uint16_be.tif": ("uint16", [BE, PACKBITS]),
+    "packbits_rgb_contig.tif": ("uint8", [INTERLEAVED, U8, PACKBITS]),
+}
+
+
+def test_packed_samples_packbits_and_ccitt_read_as_tifffile_reads_them(tmp_path):
+    """§4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>: 1-
+    and 12-bit samples are `imagecodecs_packints` in the place of `bytes`, of `uint8` and `uint16`,
+    `runlen` the samples of a row; a file without tag 258 is 1-bit, as TIFF 6.0 says; PackBits and CCITT
+    Group 4 are their imagecodecs codecs. Each reads as tifffile reads it, 1 bit as 0 and 1."""
+    for name, (data_type, codecs) in PACKED.items():
+        path = FIXTURES / "tiff" / name
+        out, g, _ = zarrified(path, tmp_path, "tiff")
+        meta = json.loads(out.bytes_entries["0/zarr.json"])
+        assert meta["data_type"] == data_type, name
+        assert inner_of(meta)[1] == codecs, name
+        ms = mapping(at(g.attrs, "ome", "multiscales", 0))
+        names = [string(at(a, "name")) for a in sequence(ms["axes"])]
+        with tifffile.TiffFile(path) as tf:
+            series = tf.series[0]
+            data, axes = series.asarray(), series.axes
+        letters = [AXIS[a] for a in axes]
+        want = np.transpose(data, [letters.index(a) for a in names]).astype(data_type)
+        assert np.array_equal(ndarray(g.get_array("0")[...]), want), name
+
+
+def test_the_window_of_packed_samples_is_their_own_range():
+    """§4.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#44-arrays>: a `uint8` of 1 bit
+    or a `uint16` of 12 would show dark in its type's range."""
+    for name, top in (("bilevel.tif", 1), ("uint12_strips.tif", 4095)):
+        channel = sequence(at(root_ome(FIXTURES / "tiff" / name), "omero", "channels"))[0]
+        assert at(channel, "window") == {"min": 0, "max": top, "start": 0, "end": top}, name
+
+
+@pytest.mark.parametrize(("name", "bits"), [("eer_v0_frame.tif", (8, 2, 2)), ("eer_v1_frames.tif", (7, 2, 2)),
+                                            ("eer_v2_frames.tif", (8, 3, 1))])
+def test_eer_frames_are_the_t_axis(name, bits, tmp_path):
+    """§4.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#41-planes>, §4.3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>: an EER file's
+    IFDs are frames along `t`, `imagecodecs_eer` the codec, its bits the compression's or, of 65002, the
+    tags'. tifffile reads EER only from an acquisition's metadata, so each frame is checked against
+    imagecodecs' decoding of that strip."""
+    path = FIXTURES / "tiff" / name
+    out, g, _ = zarrified(path, tmp_path, "tiff")
+    with tifffile.TiffFile(path) as tf:
+        pages = [p for p in tf.pages if isinstance(p, tifffile.TiffPage)]
+        want = []
+        for p in pages:
+            tf.filehandle.seek(p.dataoffsets[0])
+            stream = tf.filehandle.read(p.databytecounts[0])
+            want.append(imagecodecs.eer_decode(stream, (32, 48), *bits).astype("uint8"))
+    meta = json.loads(out.bytes_entries["0/zarr.json"])
+    skip, horz, vert = bits
+    assert sequence(meta["codecs"]) == [{"name": "imagecodecs_eer", "configuration": {
+        "shape": [32, 48], "skipbits": skip, "horzbits": horz, "vertbits": vert}}]
+    assert meta["data_type"] == "uint8"
+    got = ndarray(g.get_array("0")[...])
+    assert np.array_equal(got, np.stack(want) if len(want) > 1 else want[0])
+
+
+@pytest.mark.parametrize(("name", "message"), [
+    ("edge_reject_bits_10.tif", "unsupported sample type: 10-bit, SampleFormat 1"),
+    ("edge_reject_bits_12_int.tif", "unsupported sample type: 12-bit, SampleFormat 2"),
+    ("edge_reject_bits_1_jpeg2000.tif", "unsupported compression 34712 of 1-bit samples"),
+    ("edge_reject_bits_12_predictor.tif", "predictor 2 with 12-bit samples"),
+    ("edge_reject_ccitt_uint8.tif", "unsupported CCITT: 8-bit, 1 samples"),
+    ("edge_reject_ccitt_fill_order.tif", "the image at 16 has FillOrder 2"),
+    ("edge_reject_ccitt_group3.tif", "unsupported compression 3"),
+    ("edge_reject_eer_uint8.tif", "unsupported EER: 8-bit, 1 samples"),
+    ("edge_reject_eer_short.tif", "the image at 20 is in EER strips whose last is short"),
+    ("edge_reject_eer_bits_differ.tif", "the image at 174 has other EER bits than IFD 0"),
+    ("edge_reject_bilevel_pages.tif", "is another page of IFD 0's size and format"),
+])
+def test_what_packed_samples_and_their_codecs_do_not_hold_is_rejected(name, message):
+    """§4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>; the
+    stack of bilevel pages, without tag 258, §4.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#42-pyramid-levels>."""
+    with pytest.raises(Rejected, match=message):
+        via_ir(str(FIXTURES / "tiff" / name), "u")
 
 
 def test_predictor_2_of_a_float_type_is_rejected():

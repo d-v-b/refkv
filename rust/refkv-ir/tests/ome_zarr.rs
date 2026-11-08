@@ -19,7 +19,7 @@ fn output(dir: &Path) -> Result<refkv_ir::out::Out, String> {
     let files = walk(dir);
     let bytes: Vec<&Vec<u8>> = files.values().collect();
     let (ir, facts, stats) = run_store(StoreFormat::Zarr2, listing(&files), &|k| bytes[k].clone())?;
-    store_output(StoreFormat::Zarr2, &ir, &facts, stats, "https://example.org/s/", true)
+    store_output(StoreFormat::Zarr2, &ir, &facts, stats, "https://example.org/s/", true, false).map_err(String::from)
 }
 
 fn stores(format: &str) -> Vec<PathBuf> {
@@ -54,7 +54,7 @@ fn accepted_stores_mirror_and_rebuild_their_documents() {
             }
         }
     }
-    assert_eq!(accepted, 13);
+    assert_eq!(accepted, 16);
 }
 
 #[test]
@@ -108,7 +108,7 @@ fn output_of(objects: &[(String, Vec<u8>)]) -> (Result<refkv_ir::out::Out, Strin
     let k2 = keys.clone();
     let t = std::time::Instant::now();
     let r = run_store(StoreFormat::Zarr2, keys, &|k| by[k2[k].0.as_str()].clone())
-        .and_then(|(ir, facts, stats)| store_output(StoreFormat::Zarr2, &ir, &facts, stats, "https://example.org/s/", true));
+        .and_then(|(ir, facts, stats)| store_output(StoreFormat::Zarr2, &ir, &facts, stats, "https://example.org/s/", true, false).map_err(String::from));
     (r, t.elapsed())
 }
 
@@ -139,6 +139,28 @@ fn probe_many_multiscales_naming_one_array_is_accepted_quickly() {
     objects[1] = doc(".zattrs", serde_json::json!({"multiscales": ms}));
     let (r, t) = output_of(&objects);
     assert!(r.is_ok(), "{:?}", r.err());
+    assert!(t.as_secs() < 10, "{t:?}");
+}
+
+#[test]
+fn probe_a_long_chain_of_groups_that_are_not_ome_is_quick() {
+    // amplification: 5000 label images, each the source of the next, the first with a level left
+    // out: each group is found once
+    let n = 5000;
+    let mut objects = vec![doc(".zgroup", serde_json::json!({"zarr_format": 2}))];
+    objects.push(doc(".zattrs", serde_json::json!({"multiscales": [{"version": "0.4",
+        "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}],
+        "datasets": [{"path": "0", "coordinateTransformations": [{"type": "scale", "scale": [1, 1]}]}]}]})));
+    objects.push(doc("0/.zarray", serde_json::json!({"zarr_format": 2, "shape": [4, 4], "chunks": [2, 2], "dtype": "|O",
+        "order": "C", "compressor": null, "fill_value": 0, "filters": null})));
+    for i in 0..n {
+        objects.push(doc(&format!("x{i}/.zgroup"), serde_json::json!({"zarr_format": 2})));
+        let source = if i == 0 { "../".to_string() } else { format!("../x{}", i - 1) };
+        objects.push(doc(&format!("x{i}/.zattrs"), serde_json::json!({"image-label": {"source": {"image": source}}, "multiscales": []})));
+    }
+    let (r, t) = output_of(&objects);
+    let out = r.unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(out.summary["notOme"], n + 1, "{}", out.summary);
     assert!(t.as_secs() < 10, "{t:?}");
 }
 
@@ -239,7 +261,7 @@ fn ignored_keys_are_refkv_source_metadata() {
     r.ignore(vec!["z/./a".into(), "donn\u{e9}es/./x".into()], Vec::new()).unwrap();
     let bytes: Vec<&[u8]> = objects.iter().map(|o| o.1.as_slice()).collect();
     drive(&mut r, &bytes).unwrap();
-    let out = r.into_output("https://example.org/s/", true).unwrap();
+    let out = r.into_output("https://example.org/s/", true, false).unwrap();
     assert!(!out.entries.iter().any(|e| e.0 == "refkv_source/ignored.json"));
     let doc: serde_json::Value = serde_json::from_slice(&out.entries.iter().find(|e| e.0 == "refkv_source/zarr.json").unwrap().1).unwrap();
     let own = &doc["attributes"]["refkv_zarrified"]["ome-zarr"];

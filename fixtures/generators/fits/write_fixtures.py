@@ -3,7 +3,7 @@
 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#9-fits-profile>): images of
 every BITPIX, multi-extension files, empty HDUs, value scaling, long and odd headers,
 binary and ASCII tables with and without a heap, chunking, trailing bytes, a truncated
-final block, and the inputs the profile rejects (`fits_reject_*`).
+final block, whole files in gzip and bzip2, and the inputs the profile rejects (`fits_reject_*`).
 
 The well-formed files are written by astropy, as real files are; the malformed ones are
 astropy's files with their bytes patched, so that every other card is exactly what a
@@ -248,6 +248,19 @@ def accepted() -> None:
     asdf = fits.Column(name="ASDF_METADATA", format=f"{len(yaml)}B", array=np.frombuffer(yaml, dtype=np.uint8)[None, :])
     write("fits_bintable_asdf",
           [primary(), image(ramp((3, 3), "f4", 90), "SCI", 1), fits.BinTableHDU.from_columns([asdf], name="ASDF")])
+    # A column with no name (its field is col<n>), and one of repeat 0 (no field), patched in: astropy
+    # names every column and writes no zero-width one.
+    named = [fits.Column(name="a", format="J", array=np.array([1, 2], dtype=np.int32)),
+             fits.Column(name="b", format="2E", array=np.array([[1.5, 2.5], [3.5, 4.5]], dtype=np.float32)),
+             fits.Column(name="c", format="I", array=np.array([3, 4], dtype=np.int16))]
+    path = write("fits_bintable_unnamed", [primary(), fits.BinTableHDU.from_columns(named)])
+    data = patch_card(remove_card(path.read_bytes(), 1, "TTYPE2"), 1, "TFIELDS", "TFIELDS =                    4")
+    path.write_bytes(_append_card(data, 1, "TFORM4  = '0J      '"))
+    # Two columns of one name, and a row the fields do not tile: the rows stay bytes.
+    path = write("fits_bintable_same_name", [primary(), fits.BinTableHDU.from_columns(named)])
+    path.write_bytes(patch_card(path.read_bytes(), 1, "TTYPE3", "TTYPE3  = 'a       '"))
+    path = write("fits_bintable_short_form", [primary(), fits.BinTableHDU.from_columns(named)])
+    path.write_bytes(patch_card(path.read_bytes(), 1, "TFORM3", "TFORM3  = 'B       '"))
     ascii_cols = [
         fits.Column(name="a_i", format="I6", array=np.array([1, 22, 333])),
         fits.Column(name="a_f", format="F8.3", array=np.array([1.5, 2.25, -3.125])),
@@ -327,8 +340,6 @@ def rejected() -> None:
     out("tform_missing", patch_card(tabdata, 1, "TFORM1", "TFORMX  = 'J       '"))
     out("theap_small", _with_theap(tabdata, 4))
     out("ztable", _append_card(tabdata, 1, "ZTABLE  =                    T"))
-    (OUT / "fits_reject_gzip_file.fits").write_bytes(gzip_stored(data))  # a .fits name: rejected by its bytes
-    (OUT / "fits_reject_bzip2_file.fits").write_bytes(bz2.compress(data))
 
 
 def remove_card(data: bytes, hdu: int, keyword: str) -> bytes:
@@ -667,13 +678,44 @@ def compressed() -> None:
     out("tiles_out_of_order", pr + hand_comp(img, (3, 20), [(0, rice(k)) for k in range(4)], heap_order=[1, 0, 2, 3]))
 
 
+def whole_files() -> None:
+    """Whole files in gzip and bzip2, and the ones the profile rejects."""
+    # Whole files in gzip and bzip2 (spec/zarrify/fits.md §2.1
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#21-a-compressed-file>): gzip's
+    # stored blocks, the same bytes on every platform, and python/tests/ir/test_fits.py compresses
+    # with deflate as it runs
+    plain = {stem: (OUT / f"{stem}.fits").read_bytes()
+             for stem in ("fits_primary_int16", "fits_mef_sci_err_dq", "fits_bintable_heap", "fits_trailing",
+                          "fits_truncated_pad", "fits_mef_naxisn_zero")}
+    for stem, name in (("fits_primary_int16", "image"), ("fits_mef_sci_err_dq", "mef"), ("fits_bintable_heap", "table"),
+                       ("fits_trailing", "trailing"), ("fits_truncated_pad", "truncated"),
+                       ("fits_mef_naxisn_zero", "no_data")):
+        (OUT / f"fits_gzip_{name}.fits.gz").write_bytes(gzip_stored(plain[stem]))
+        (OUT / f"fits_bzip2_{name}.fits.bz2").write_bytes(bz2.compress(plain[stem]))
+    mef = plain["fits_mef_sci_err_dq"]
+    (OUT / "fits_gzip_members.fits.gz").write_bytes(gzip_stored(mef[:5000]) + gzip_stored(mef[5000:]))
+    (OUT / "fits_bzip2_streams.fits.bz2").write_bytes(bz2.compress(mef[:5000]) + bz2.compress(mef[5000:]))
+    tiled = (OUT / "fits_comp_gzip1.fits").read_bytes()
+    (OUT / "fits_reject_gzip_not_fits.fits.gz").write_bytes(gzip_stored(b"not a FITS file" * 400))
+    (OUT / "fits_reject_bzip2_not_fits.fits.bz2").write_bytes(bz2.compress(b"not a FITS file" * 400))
+    (OUT / "fits_reject_gzip_short.fits.gz").write_bytes(gzip_stored(mef[:2000]))
+    (OUT / "fits_reject_gzip_cut.fits.gz").write_bytes(gzip_stored(mef)[:-20])
+    (OUT / "fits_reject_bzip2_cut.fits.bz2").write_bytes(bz2.compress(mef)[:-20])
+    (OUT / "fits_reject_gzip_after.fits.gz").write_bytes(gzip_stored(mef) + b"not a member")
+    (OUT / "fits_reject_bzip2_after.fits.bz2").write_bytes(bz2.compress(mef) + b"not a stream")
+    (OUT / "fits_reject_gzip_tiles.fits.gz").write_bytes(gzip_stored(tiled))
+    (OUT / "fits_reject_bzip2_tiles.fits.bz2").write_bytes(bz2.compress(tiled))
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
-    for p in list(OUT.glob("*.fits")) + list(OUT.glob("*.fz")):
-        p.unlink()
+    for pattern in ("*.fits", "*.fz", "*.fits.gz", "*.fits.bz2"):
+        for p in OUT.glob(pattern):
+            p.unlink()
     accepted()
     rejected()
     compressed()
+    whole_files()
 
 
 if __name__ == "__main__":

@@ -1,0 +1,86 @@
+{
+ "@type": "neuroglancer_multiscale_volume",
+ "type": "image",
+ "data_type": "int8",
+ "num_channels": 3,
+ "scales": [
+  {
+   "key": "cpso",
+   "size": [
+    2,
+    2,
+    2
+   ],
+   "chunk_sizes": [
+    [
+     2,
+     2,
+     2
+    ]
+   ],
+   "resolution": [
+    1,
+    1,
+    1
+   ],
+   "voxel_offset": [
+    0,
+    0,
+    0
+   ],
+   "encoding": "compresso"
+  },
+  {
+   "key": "crkl",
+   "size": [
+    2,
+    2,
+    2
+   ],
+   "chunk_sizes": [
+    [
+     2,
+     2,
+     2
+    ]
+   ],
+   "resolution": [
+    2,
+    2,
+    2
+   ],
+   "voxel_offset": [
+    0,
+    0,
+    0
+   ],
+   "encoding": "crackle"
+  },
+  {
+   "key": "jxl",
+   "size": [
+    2,
+    2,
+    2
+   ],
+   "chunk_sizes": [
+    [
+     2,
+     2,
+     2
+    ]
+   ],
+   "resolution": [
+    4,
+    4,
+    4
+   ],
+   "voxel_offset": [
+    0,
+    0,
+    0
+   ],
+   "encoding": "jxl"
+  }
+ ]
+}

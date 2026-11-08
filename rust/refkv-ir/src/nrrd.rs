@@ -502,13 +502,10 @@ fn data_file(rules: &Rules, d: &[u8], header_key: &str) -> Res<String> {
     let w = words(d);
     let several = w.first().is_some_and(|f| *f == b"LIST")
         || ((4..=5).contains(&w.len()) && w[0].contains(&b'%') && w[1..].iter().all(|x| integer(x).is_some()));
-    let segments: Vec<&str> = s.split('/').filter(|x| *x != ".").collect();
-    let relative = std::str::from_utf8(d).is_ok() && !s.starts_with('/') && !segments.is_empty()
-        && segments.iter().all(|x| !x.is_empty() && *x != ".." && !x.contains(['\\', ':']));
-    let key = segments.join("/");
-    rules.check("data_file", rules::env([("shown", text(&s)), ("several", flag(several)), ("relative", flag(relative)),
-                                          ("itself", flag(key == header_key))]))?;
-    Ok(key)
+    let key = crate::beside::written_key(d, "", Default::default());
+    rules.check("data_file", rules::env([("shown", text(&s)), ("several", flag(several)), ("relative", flag(key.is_some())),
+                                          ("itself", flag(key.as_deref() == Some(header_key)))]))?;
+    Ok(key.unwrap_or_default())
 }
 
 /// Each axis's place in the image (spec/zarrify/nrrd.md §4.1
@@ -690,7 +687,9 @@ impl Nrrd {
         let (key, size) = self.keys[self.data].clone();
         let total = f.sizes.iter().fold(f.item as u128, |a, &s| a.saturating_mul(s as u128));
         let gzip = f.encoding == "gzip";
+        // the gzip encoding's byte skip counts decompressed bytes (a `refkv.skip` codec passes them)
         let start = match f.byte_skip {
+            _ if gzip => self.base,
             -1 => (size as u128).checked_sub(total).map_or(0, |s| s as u64),
             k => self.base + k as u64,
         };
@@ -738,6 +737,9 @@ impl Nrrd {
         if let Some(l) = f.little {
             codec.insert("endian".into(), json!(if l { "little" } else { "big" }));
         }
+        if f.encoding == "gzip" && f.byte_skip > 0 {
+            codec.insert("skip".into(), json!(f.byte_skip));
+        }
         let form = json!({"geometry": {"data_type": f.data_type, "shape": self.stored_shape()}, "codec": codec, "recipe": [["src", 0, null]]});
         ir.data(o, "data", NO_INDEX, 0, (self.start, self.length), &form.to_string())?;
         claimed[self.data].push((self.start, self.length));
@@ -765,7 +767,7 @@ impl Nrrd {
             "data_key": self.keys[self.data].0,
             "own": own(&h, &f, &self.axes, (self.data != 0).then(|| self.keys[self.data].0.as_str())),
             "array": {
-                "data_type": f.data_type, "item": f.item, "encoding": f.encoding,
+                "data_type": f.data_type, "item": f.item, "encoding": f.encoding, "byte_skip": f.byte_skip,
                 "endian": f.little.map(|l| if l { "little" } else { "big" }),
                 "sizes": f.sizes, "axes": self.axes, "start": self.start, "length": self.length,
                 "directions": f.directions.as_ref().map(|d| d.iter().map(|v| v.as_deref().map(finite)).collect::<Vec<_>>()),
@@ -956,10 +958,12 @@ impl crate::run::FileProfile for Profile {
     fn parser(&self, _size: u64) -> crate::run::AnyParser {
         crate::run::AnyParser::refused("a NRRD file is zarrified as a store run, with its data file")
     }
-    fn store_run(&self) -> bool {
-        true
-    }
     fn project(&self, _: &Ir, _: &J, _: &str, _: &crate::project::Copied) -> Result<crate::out::Out, String> {
         Err("a NRRD input is zarrified as a store run".into())
     }
+}
+
+/// The parser of the profile's store run (`StoreFormat`; crate::store).
+pub fn store_parser(ir: crate::ir::Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> crate::ir::Res<Box<dyn crate::store::StoreParser>> {
+    Ok(Box::new(Nrrd::new(ir, objects, keys)?))
 }

@@ -15,9 +15,20 @@ crate-type = ["cdylib", "rlib"]
 default = []
 # Test-only C-ABI hooks of the wasm32 module (`wasm/build.sh test`); never in the shipped module.
 test-hooks = []
+# zarrs' typed Zarr v3 metadata (zarrs_metadata), the Rust counterpart of Python's zarr-metadata:
+# `routines::typed` gives the coding routines' codecs as its `MetadataV3`, and the core's tests
+# parse every array document refkv writes with it (`cargo test --features zarrs`)
+zarrs = ["dep:zarrs_metadata"]
 
 [dependencies]
 miniz_oxide = "0.8"
+zarrs_metadata = { version = "0.7", optional = true }
+# a whole file's gzip members and bzip2 streams, read as they decode (the FITS profile's `.fits.gz`
+# and `.fits.bz2`, spec/zarrify/fits.md §2.1
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#21-a-compressed-file>): both in
+# Rust, so that the wasm32 module has them too
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+bzip2 = "0.6"
 # the transcendental functions of musl's libm, in Rust: the same results natively and in wasm32
 # (the GRIB profile's map projections, spec/zarrify/grib.md §4
 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#4-georeferencing>)

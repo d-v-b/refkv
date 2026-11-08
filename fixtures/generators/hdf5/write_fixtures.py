@@ -16,6 +16,7 @@ Usage: uv run python fixtures/generators/hdf5/write_fixtures.py
 
 from __future__ import annotations
 
+import os
 import struct
 import uuid
 from datetime import UTC, datetime
@@ -23,6 +24,7 @@ from pathlib import Path
 
 import h5netcdf
 import h5py
+import hdf5plugin
 import hdmf.container
 import numpy as np
 from hdmf.backends.hdf5 import H5DataIO
@@ -195,7 +197,7 @@ def latest():
 
 def filters_and_chunks():
     """Chunked datasets: partial edge chunks, unallocated chunks, deflate, shuffle and deflate,
-    big-endian data; and fletcher32 and lzf (not presented)."""
+    big-endian data, fletcher32 and lzf."""
     with open_file("hdf5_filters.h5") as f:
         f.create_dataset("plain", data=ramp((10, 7), "<i4"), chunks=(4, 3))
         sparse = f.create_dataset("sparse", shape=(8, 8), dtype="<f4", chunks=(4, 4))
@@ -205,6 +207,63 @@ def filters_and_chunks():
         f.create_dataset("unlimited", data=ramp((5,), "<u4"), chunks=(2,), maxshape=(None,))
         f.create_dataset("fletcher32", data=ramp((8,), "<i4"), chunks=(4,), fletcher32=True)
         f.create_dataset("lzf", data=ramp((8,), "<i4"), chunks=(4,), compression="lzf")
+
+
+def third_party():
+    """The third-party filters readers' codecs undo, alone and after shuffle: Blosc with three of its
+    compressors and shuffles, zstd, LZ4, and bitshuffle with and without LZ4, its block sizes leaving
+    a short block and leftover elements."""
+    with open_file("hdf5_third_party.h5") as f:
+        values = ramp((75,), "<i4")
+        f.create_dataset("blosc_lz4", data=values, chunks=(30,), **hdf5plugin.Blosc("lz4", 5, hdf5plugin.Blosc.SHUFFLE))
+        blosc = hdf5plugin.Blosc
+        f.create_dataset("blosc_zstd", data=values, chunks=(30,), **blosc("zstd", 3, blosc.BITSHUFFLE))
+        f.create_dataset("blosc_plain", data=values, chunks=(30,), **blosc("blosclz", 1, blosc.NOSHUFFLE))
+        f.create_dataset("zstd", data=values, chunks=(30,), **hdf5plugin.Zstd(clevel=4))
+        f.create_dataset("lz4", data=values, chunks=(30,), **hdf5plugin.LZ4())
+        f.create_dataset("shuffle_lz4", data=values, chunks=(30,), shuffle=True, **hdf5plugin.LZ4(nbytes=32))
+        f.create_dataset("bitshuffle_lz4", data=values, chunks=(30,), **hdf5plugin.Bitshuffle(cname="lz4"))
+        block = hdf5plugin.Bitshuffle(nelems=8, cname="lz4")
+        f.create_dataset("bitshuffle_block", data=ramp((5, 7), ">u2"), chunks=(4, 7), **block)
+        f.create_dataset("bitshuffle_bare", data=values, chunks=(30,), **hdf5plugin.Bitshuffle(nelems=16, cname="none"))
+        f.create_dataset("fletcher32_all", data=values, chunks=(30,), shuffle=True, compression="gzip", fletcher32=True)
+        f.create_dataset("fletcher32_lz4", data=values, chunks=(30,), fletcher32=True, **hdf5plugin.LZ4())
+        references = [f["zstd"].ref, f["lz4"].ref]
+        f.create_dataset("references_fletcher32", data=references, dtype=h5py.ref_dtype, chunks=(2,), fletcher32=True)
+        # not presented: bitshuffle's zstd, which has no codec, and strings the profile cannot unpack
+        f.create_dataset("bitshuffle_zstd", data=values, chunks=(30,), **hdf5plugin.Bitshuffle(cname="zstd"))
+        f.create_dataset("strings_lz4", data=["ab", "cde"], dtype=h5py.string_dtype(), chunks=(2,), **hdf5plugin.LZ4())
+
+
+def filter_masks():
+    """Chunks an optional filter skipped, written directly so that each mask is the one named: a
+    chunk deflate, LZF, Blosc, zstd or LZ4 skipped, shuffled or not, and a checksum skipped; and, not
+    presented, a chunk shuffle or bitshuffle skipped, or one deflate skipped of a length that is not
+    the chunk's."""
+    first = ramp((4,), "<i4")
+    second = first + 100
+    shuffled = np.frombuffer(second.tobytes(), "u1").reshape(4, 4).T.tobytes()
+
+    def dataset(f, name, kw, chunks):
+        d = f.create_dataset(name, shape=(8,), dtype="<i4", chunks=(4,), **kw)
+        d[0:4] = first
+        for offset, raw, mask in chunks:
+            d.id.write_direct_chunk((offset,), raw, mask)
+
+    with open_file("hdf5_masks.h5") as f:
+        dataset(f, "deflate_skipped", {"compression": "gzip"}, [(4, second.tobytes(), 0b1)])
+        dataset(f, "shuffle_deflate_skipped", {"compression": "gzip", "shuffle": True}, [(4, shuffled, 0b10)])
+        all_three = {"compression": "gzip", "shuffle": True, "fletcher32": True}
+        dataset(f, "deflate_checksum_skipped", all_three, [(4, shuffled, 0b110)])
+        dataset(f, "checksum_skipped", {"fletcher32": True}, [(4, second.tobytes(), 0b1)])
+        dataset(f, "lzf_skipped", {"compression": "lzf"}, [(4, second.tobytes(), 0b1)])
+        blosc = hdf5plugin.Blosc("lz4", 5, hdf5plugin.Blosc.NOSHUFFLE)
+        dataset(f, "blosc_skipped", blosc, [(4, second.tobytes(), 0b1)])
+        dataset(f, "zstd_skipped", hdf5plugin.Zstd(), [(4, second.tobytes(), 0b1)])
+        dataset(f, "lz4_skipped", {"shuffle": True, **hdf5plugin.LZ4()}, [(4, shuffled, 0b10)])
+        dataset(f, "shuffle_skipped", {"compression": "gzip", "shuffle": True}, [(4, second.tobytes(), 0b1)])
+        dataset(f, "bitshuffle_skipped", hdf5plugin.Bitshuffle(cname="lz4"), [(4, second.tobytes(), 0b1)])
+        dataset(f, "deflate_skipped_short", {"compression": "gzip"}, [(4, second.tobytes()[:8], 0b1)])
 
 
 def names_and_attributes():
@@ -246,16 +305,100 @@ def names_and_attributes():
 
 def netcdf4():
     """A netCDF-4 file (h5netcdf): dimension scales, whose DIMENSION_LIST and REFERENCE_LIST
-    attributes are sequences of references and compounds with a reference member (not presented)."""
+    attributes are sequences of references and compounds with a reference member (not presented);
+    a dimension with no variable (x), a variable named as a dimension it is not the coordinate of
+    (depth), fixed-length strings, and a dimension of the parent group's."""
     path = OUT / "hdf5_netcdf4.h5"
     with h5netcdf.File(path, "w", track_order=False) as f:
-        f.dimensions = {"time": 4, "x": 3}
+        f.dimensions = {"time": 4, "x": 3, "depth": 2}
         t = f.create_variable("time", ("time",), "f8")
         t[:] = np.arange(4.0)
         t.attrs["units"] = "days since 2000-01-01"
         v = f.create_variable("sst", ("time", "x"), "f4", chunks=(2, 3), compression="gzip", shuffle=True)
         v[:] = ramp((4, 3), "<f4")
         v.attrs["long_name"] = "sea surface temperature"
+        f.create_variable("depth", ("time", "depth"), "f4", data=ramp((4, 2), "<f4"))
+        v.attrs["_FillValue"] = np.array([-1.5], dtype="<f4")
+        v.attrs["scale_factor"] = np.array([0.5], dtype="<f4")
+        counts = f.create_variable("counts", ("time",), "i2", data=np.arange(4, dtype="<i2"))
+        counts.attrs["_FillValue"] = np.int16(-9)
+        f.create_variable("label", ("x",), "S4", data=np.array([b"a", b"bb", b"ccc"], dtype="S4"))
+        g = f.create_group("inner")
+        g.dimensions = {"y": 2}
+        g.create_variable("y", ("y",), "i4", data=np.arange(2, dtype="<i4"))
+        g.create_variable("anomaly", ("time", "y"), "f8", data=ramp((4, 2), "<f8"))
+
+
+def phony_dims():
+    """An HDF5 file whose datasets have no dimension scales, which h5netcdf's phony_dims="sort"
+    names: axes of one length shared within a group and numbered across the file, groups before
+    and after the root's datasets, a scalar, fixed-length strings, and a group with a dimension
+    scale beside an unscaled dataset and one whose scale was detached; and a file whose groups track
+    link creation order."""
+    with open_file("hdf5_phony_dims.h5") as f:
+        f["a"] = ramp((3, 4), "<f4")
+        f["b"] = ramp((4, 4), "<i2")
+        f.create_dataset("c", data=ramp((5,), "<f8"), chunks=(2,), compression="gzip")
+        f["scalar"] = np.int32(7)
+        f["text"] = np.array([b"a", b"bb", b"ccc"], dtype="S4")
+        f["z"] = ramp((7,), "<u1")
+        g = f.create_group("g")
+        g["d"] = ramp((3, 4), "<f8")
+        g["e"] = ramp((4,), "<i4")
+        g.create_group("h")["f"] = ramp((2, 2), "<i8")
+        s = f.create_group("scaled")
+        s["x"] = np.arange(3, dtype="<i4")
+        s["x"].make_scale("x")
+        s["u"] = ramp((3, 3), "<f4")
+        s["w"] = ramp((3,), "<f4")
+        s["w"].dims[0].attach_scale(s["x"])
+        s["w"].dims[0].detach_scale(s["x"])
+    # groups that track link creation order, as netCDF-C writes them: h5netcdf takes the members, and
+    # the scales of one length, in creation order
+    with h5py.File(OUT / "hdf5_phony_dims_tracked.h5", "w", track_order=True) as f:
+        f["b"] = ramp((5,), "<f4")
+        f["a"] = ramp((3, 5), "<f4")
+        s = f.create_group("scaled", track_order=True)
+        for name in ("y", "x"):
+            s[name] = np.arange(3, dtype="<i4")
+            s[name].make_scale(name)
+        s["u"] = ramp((3,), "<f4")
+        f.create_group("first", track_order=True)["v"] = ramp((2,), "<f4")
+
+
+def external_files():
+    """A file that names siblings: external links to a group and a dataset of another file, and to
+    what cannot be followed, and external storage in two raw files (a chunk across them), and in
+    what is absent or too short. The other file's references name its own paths, and its own external
+    link is not followed."""
+    with open_file("hdf5_external_target.h5") as f:
+        g = f.create_group("g")
+        g.attrs["title"] = "linked"
+        g.attrs["self"] = g.ref
+        g.create_dataset("chunked", data=ramp((6, 4), "<f4"), chunks=(3, 2), compression="gzip")
+        g.create_dataset("strings", data=np.array(["one", "two"], dtype=object), dtype=h5py.string_dtype("utf-8"))
+        g.create_dataset("references", data=[g.ref], dtype=h5py.ref_dtype)
+        g["far"] = h5py.ExternalLink("hdf5_external_absent.h5", "/x")
+        f.create_dataset("top", data=ramp((5, 3), "<i2"))
+        f.create_dataset("top_references", data=[f["top"].ref], dtype=h5py.ref_dtype)
+    previous = Path.cwd()
+    os.chdir(OUT)  # h5py writes external storage relative to the working directory
+    try:
+        with open_file("hdf5_external.h5") as f:
+            f.create_dataset("own", data=ramp((3,), "<i4"))
+            f["linked_group"] = h5py.ExternalLink("hdf5_external_target.h5", "/g")
+            f["linked_dataset"] = h5py.ExternalLink("hdf5_external_target.h5", "/top")
+            f["linked_references"] = h5py.ExternalLink("hdf5_external_target.h5", "/top_references")
+            f["no_target"] = h5py.ExternalLink("hdf5_external_target.h5", "/none")
+            f["dangling"] = h5py.ExternalLink("hdf5_external_absent.h5", "/x")
+            f["absolute"] = h5py.ExternalLink("/elsewhere/x.h5", "/x")
+            f["not_hdf5"] = h5py.ExternalLink("hdf5_external_a.bin", "/x")
+            slots = [("hdf5_external_a.bin", 16, 112), ("hdf5_external_b.bin", 8, 80)]
+            f.create_dataset("spread", data=ramp((12, 4), "<i4"), external=slots)
+            f.create_dataset("absent_file", shape=(4,), dtype="<i4", external=[("hdf5_external_absent.bin", 0, 16)])
+            f.create_dataset("past_the_end", shape=(4,), dtype="<i4", external=[("hdf5_external_b.bin", 1 << 20, 16)])
+    finally:
+        os.chdir(previous)
 
 
 def deep():
@@ -336,6 +479,28 @@ def patched(source: str, name: str, patches: list[tuple[int, bytes]], cut: int |
     (OUT / name).write_bytes(bytes(b))
 
 
+def user_blocks():
+    """Files after a user block, of the earliest and the latest superblocks, whose every kind of
+    storage has addresses relative to it; the last block is past the 552 bytes that signatures test."""
+    for size, libver in ((512, "earliest"), (1024, "latest"), (4096, "earliest")):
+        name = f"hdf5_user_block_{size}.h5"
+        with open_file(name, libver=libver, userblock_size=size) as f:
+            f.create_dataset("contiguous", data=ramp((6, 4), "<i2"))
+            f.create_dataset("chunked", data=ramp((6, 4), "<f4"), chunks=(3, 2), compression="gzip")
+            strings = np.array(["one", "two", ""], dtype=object)
+            f.create_dataset("strings", data=strings, dtype=h5py.string_dtype("utf-8"))
+            f.create_dataset("references", data=[f["contiguous"].ref], dtype=h5py.ref_dtype)
+            dcpl = h5py.h5p.create(h5py.h5p.DATASET_CREATE)
+            dcpl.set_layout(h5py.h5d.COMPACT)
+            data = ramp((2, 2), "<i2")
+            space = h5py.h5s.create_simple(data.shape)
+            d = h5py.h5d.create(f.id, b"compact", h5py.h5t.py_create(data.dtype), space, dcpl=dcpl)
+            d.write(h5py.h5s.ALL, h5py.h5s.ALL, data)
+            f.attrs["title"] = "after a user block"
+        with open(OUT / name, "r+b") as block:
+            block.write(f"a user block of {size} bytes".encode())
+
+
 def rejects():
     with open_file("_strings.h5") as f:
         f.create_dataset("scalar_int", data=np.int32(-5))
@@ -348,6 +513,10 @@ def rejects():
     size = (OUT / "hdf5_links_earliest.h5").stat().st_size
     patched("hdf5_links_earliest.h5", "hdf5_reject_offsets_4.h5", [(13, b"\x04")])
     patched("hdf5_links_earliest.h5", "hdf5_reject_superblock_version.h5", [(8, b"\x09")])
+    # a base address that is not where the superblock is, at offset 0, and after a user block
+    # (as for an HDF5 file that is the first member of a tar file)
+    patched("hdf5_links_earliest.h5", "hdf5_reject_base_address.h5", [(24, struct.pack("<Q", 512))])
+    patched("hdf5_user_block_512.h5", "hdf5_reject_base_after_block.h5", [(512 + 24, struct.pack("<Q", 0))])
     patched("hdf5_links_earliest.h5", "hdf5_reject_truncated.h5", [], cut=size // 3)
     # the first element of `ascii`: a collection at the address of `scalar_int`'s data, an
     # object index no collection has, a length its object does not have
@@ -375,9 +544,14 @@ def main():
     references_and_links("hdf5_links_latest.h5", "latest")
     latest()
     filters_and_chunks()
+    third_party()
+    filter_masks()
     names_and_attributes()
     netcdf4()
+    phony_dims()
     nwb_files()
+    external_files()
+    user_blocks()
     rejects()
     for p in sorted(OUT.glob("*")):
         print(p.name, p.stat().st_size)

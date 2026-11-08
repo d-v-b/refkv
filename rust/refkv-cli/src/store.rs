@@ -786,10 +786,12 @@ impl Store {
             Ok("safe")
         } else if o.contains_key("info") {
             Ok("precomputed")
+        } else if o.contains_key("zarr.json") {
+            Ok("zarr3")
         } else if o.keys().any(|k| k.ends_with(".safetensors")) {
             Ok("safetensors")
         } else {
-            rejected("not an N5, Zarr v2, SAFE, Neuroglancer precomputed or safetensors store: the root has no .zarray, .zgroup, attributes.json, manifest.safe or info, and no key ends in .safetensors")
+            rejected("not a Zarr v3, Zarr v2, N5, SAFE, Neuroglancer precomputed or safetensors store: the root has no zarr.json, .zarray, .zgroup, attributes.json, manifest.safe or info, and no key ends in .safetensors")
         }
     }
 
@@ -816,31 +818,34 @@ fn drive(run: &mut StoreRun, store: &Store, workers: usize) -> Result<(), Fail> 
 
 /// The output of the listed store parsed by the core's store format `fmt`, the keys its listing
 /// ignores given to the run, its objects read at most the store's workers at a time, and the
-/// summary's `listingRequests` the store's requests.
-pub fn run_store(store: &Store, fmt: &str) -> Result<refkv_ir::out::Out, Fail> {
+/// summary's `listingRequests` the store's requests; sealed for ranges that carry checksums when
+/// `checksums`.
+pub fn run_store(store: &Store, fmt: &str, checksums: bool) -> Result<refkv_ir::out::Out, Fail> {
     let l = store.listing();
     let workers = l.workers.max(1);
     let format = StoreFormat::from_name(fmt).ok_or_else(|| Fail::Other(format!("no store format {fmt:?}")))?;
     let mut run = StoreRun::new(format, l.sorted(), workers).map_err(Fail::Rejected)?;
     run.ignore(l.ignored.clone(), l.folders.clone()).map_err(Fail::Rejected)?;
     drive(&mut run, store, workers)?;
-    let mut out = run.into_output(&l.url, true).map_err(Fail::Rejected)?;
+    let mut out = run.into_output(&l.url, true, checksums)?;
     if let Some(m) = out.summary.as_object_mut() {
         m.insert("listingRequests".into(), l.requests.into());
     }
     Ok(out)
 }
 
-/// (format, output) of the store at `location`: the profile its root keys select, run by the core.
-pub fn zarrify_store(store: &Store) -> Result<(String, refkv_ir::out::Out), Fail> {
+/// (format, output) of the store at `location`: the profile its root keys select, run by the core
+/// (`run_store`).
+pub fn zarrify_store(store: &Store, checksums: bool) -> Result<(String, refkv_ir::out::Out), Fail> {
     let fmt = store.choose_profile()?;
     let out = run_store(store, match fmt {
+        "zarr3" => "zarr3",
         "n5" => "n5",
         "safe" => "safe",
         "safetensors" => "safetensors",
         "precomputed" => "precomputed",
         _ => "zarr2",
-    })?;
+    }, checksums)?;
     // a Zarr v2 store the core found to be OME-Zarr's says so in its summary
     let fmt = if fmt == "zarr2" { out.summary["format"].as_str().unwrap_or(fmt).to_string() } else { fmt.to_string() };
     Ok((fmt, out))

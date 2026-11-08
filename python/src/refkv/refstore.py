@@ -48,8 +48,9 @@ from collections import Counter
 from collections.abc import AsyncIterator, Callable, Generator, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, TypedDict, Unpack, override
+from typing import TYPE_CHECKING, BinaryIO, TypedDict, Unpack, override
 
+from refkv._files import replacing
 from refkv.bounds import Bound, derive
 from refkv.bounds import check as check_bounds
 from refkv.errors import ResolutionError
@@ -391,67 +392,9 @@ class ReferenceStore(ReferenceReader):
 
     # ------------------------------------------------------------ persistence
 
-    def save(
-        self,
-        path: str | os.PathLike[str],
-        *,
-        page_size: int | types.EllipsisType | None = ...,
-        mirror_refs: bool = True,
-        relative_to: str | None = None,
-        policy: Policy | None = None,
-    ) -> Summary:
-        """Deprecated: the name preferred one binding over the others. Call `save_vzip`,
-        which this calls, with the same arguments."""
-        warnings.warn("ReferenceStore.save is deprecated: refkv has no default binding, so name "
-                      "the one to write. ReferenceStore.save_vzip writes the same vzip archive.",
-                      DeprecationWarning, stacklevel=2)
-        return self.save_vzip(path, page_size=page_size, mirror_refs=mirror_refs,
-                              relative_to=relative_to, policy=policy)
-
-    def save_vzip(
-        self,
-        path: str | os.PathLike[str],
-        *,
-        page_size: int | types.EllipsisType | None = ...,
-        mirror_refs: bool = True,
-        relative_to: str | None = None,
-        policy: Policy | None = None,
-    ) -> Summary:
-        """Write the store as a vzip archive at the local `path`, and return a
-        `Summary` of it. `refkv.open(path)` reads it back with the same values.
-
-        The entries are written in the store's order (see the class), the bytes
-        values of `compressed` DEFLATE-compressed.
-
-        - `page_size`: the store's `page_size` by default. None writes no page index, and a reader
-          then loads the whole central directory, about 125 bytes per key, when
-          it opens the archive. A number writes a page index (spec §12
-          <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#12-page-index-optional>) with
-          pages of about that many bytes, so a reader loads only the pages that
-          hold the keys it reads. `65536` is a good value once the directory
-          grows past a few MB, and matters most for an archive read over the
-          network. In design/COMPARISON.md, 259,200 references opened over
-          HTTP in 2 requests (115 kB) with 64 KiB pages, against 18.8 MB without
-          an index; but a time series that touches every page took 8.5 s with
-          the index against 7.4–7.6 s without. For a few thousand keys, leave it None.
-        - `mirror_refs`: True (the default) also writes each reference's
-          payload as its entry's body, so a ZIP tool that ignores extra fields
-          still sees it (spec §11.3
-          <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#113-reference-entries> says
-          writers should); False leaves those bodies empty, a smaller archive.
-        - `relative_to`: a URL prefix, such as the URL of the directory the
-          archive will be served from. Source URLs under it are written relative
-          to the archive, so the archive and its sources can move together.
-        - `policy`: the reader policy the sources are checked against before
-          anything is written (default `Policy()`, the default reader's). A
-          source it refuses raises ResolutionError (a ValueError), and nothing
-          is written. The error says how to fix it: write `s3://` URLs of a
-          public bucket as HTTPS
-          (`ReferenceStore.from_virtualizarr(vds, rewrite_urls=refkv.public_s3_url)`),
-          or pass the policy the archive's readers will use, such as
-          `Policy(schemes={"s3"})`.
-        """
-        path = os.fspath(path)
+    def _sources_to_save(self, path: str, relative_to: str | None, policy: Policy | None) -> list[Source]:
+        """The source table to write at `path`, with `relative_to` taken off the URLs under it, after
+        checking that the reader policy accepts every source: a ResolutionError otherwise."""
         base = file_uri(path)
         sources = self._sources
         if relative_to:
@@ -491,20 +434,141 @@ class ReferenceStore(ReferenceReader):
             raise ResolutionError(f"not saving {path}: {whose} refuses {len(refused)} of its "
                                   f"{len(sources)} sources, so a reader could not read them. "
                                   f"The first: {refused[0]}")
+        return sources
+
+    def save(
+        self,
+        path: str | os.PathLike[str],
+        *,
+        page_size: int | types.EllipsisType | None = ...,
+        mirror_refs: bool = True,
+        relative_to: str | None = None,
+        policy: Policy | None = None,
+    ) -> Summary:
+        """Deprecated: the name preferred one binding over the others. Call `save_vzip`,
+        which this calls, with the same arguments."""
+        warnings.warn("ReferenceStore.save is deprecated: refkv has no default binding, so name "
+                      "the one to write. ReferenceStore.save_vzip writes the same vzip archive.",
+                      DeprecationWarning, stacklevel=2)
+        return self.save_vzip(path, page_size=page_size, mirror_refs=mirror_refs,
+                              relative_to=relative_to, policy=policy)
+
+    def save_vzip(
+        self,
+        path: str | os.PathLike[str],
+        *,
+        page_size: int | types.EllipsisType | None = ...,
+        mirror_refs: bool = True,
+        relative_to: str | None = None,
+        policy: Policy | None = None,
+    ) -> Summary:
+        """Write the store as a vzip archive at the local `path`, and return a
+        `Summary` of it. `refkv.open(path)` reads it back with the same values.
+
+        The entries are written in the store's order (see the class), the bytes
+        values of `compressed` DEFLATE-compressed. The archive replaces a file at `path` only once
+        it is complete: a save that raises leaves that file as it was.
+
+        - `page_size`: the store's `page_size` by default. None writes no page index, and a reader
+          then loads the whole central directory, about 125 bytes per key, when
+          it opens the archive. A number writes a page index (spec §12
+          <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#12-page-index-optional>) with
+          pages of about that many bytes, so a reader loads only the pages that
+          hold the keys it reads. `65536` is a good value once the directory
+          grows past a few MB, and matters most for an archive read over the
+          network. In design/COMPARISON.md, 259,200 references opened over
+          HTTP in 2 requests (115 kB) with 64 KiB pages, against 18.8 MB without
+          an index; but a time series that touches every page took 8.5 s with
+          the index against 7.4–7.6 s without. For a few thousand keys, leave it None.
+        - `mirror_refs`: True (the default) also writes each reference's
+          payload as its entry's body, so a ZIP tool that ignores extra fields
+          still sees it (spec §11.3
+          <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#113-reference-entries> says
+          writers should); False leaves those bodies empty, a smaller archive.
+        - `relative_to`: a URL prefix, such as the URL of the directory the
+          archive will be served from. Source URLs under it are written relative
+          to the archive, so the archive and its sources can move together.
+        - `policy`: the reader policy the sources are checked against before
+          anything is written (default `Policy()`, the default reader's). A
+          source it refuses raises ResolutionError (a ValueError), and nothing
+          is written. The error says how to fix it: write `s3://` URLs of a
+          public bucket as HTTPS
+          (`ReferenceStore.from_virtualizarr(vds, rewrite_urls=refkv.public_s3_url)`),
+          or pass the policy the archive's readers will use, such as
+          `Policy(schemes={"s3"})`.
+        """
+        path = os.fspath(path)
+        sources = self._sources_to_save(path, relative_to, policy)
         page_size = self._page_size if page_size is ... else _page_size(page_size)
+        with bulk(), replacing(path) as f:
+            refs, n_sources, _ = self._write_vzip(f, sources, mirror_refs=mirror_refs, page_size=page_size)
+        return Summary(path, len(self._keys), refs, n_sources, Path(path).stat().st_size)
+
+    def _write_vzip(self, f: BinaryIO, sources: Sequence[Source], *, mirror_refs: bool,
+                    page_size: int | None, compress: bool = True) -> tuple[int, int, dict[str, int]]:
+        """The archive `save_vzip` writes, written to `f`, which it only writes forward: the
+        references written, the sources in its table, and the sizes of its format entries
+        (`VZipWriter.format_sizes`). Without `compress`, no entry is compressed, for an archive's
+        structure alone."""
         from refkv.vzip.archive import VZipWriter  # noqa: PLC0415 (`import refkv` imports no ZIP code)
 
         refs = 0
-        with bulk(), open(path, "wb") as f, VZipWriter(f, mirror_refs=mirror_refs,
-                                                       page_size=page_size) as w:
+        with VZipWriter(f, mirror_refs=mirror_refs, page_size=page_size) as w:
             index = [w.source(s) for s in sources]  # equal sources share an index
             for k, v in self._values.items():
                 if isinstance(v, bytes):
-                    late, compress = k in self._read_at_open, k in self._compressed
+                    late, deflate = k in self._read_at_open, compress and k in self._compressed
                     if k.startswith(RESERVED_PREFIX):
-                        w.add_hidden(k[len(RESERVED_PREFIX):], v, compress=compress, late=late)
+                        w.add_hidden(k[len(RESERVED_PREFIX):], v, compress=deflate, late=late)
                     else:
-                        w.add_bytes(k, v, compress=compress, late=late)
+                        w.add_bytes(k, v, compress=deflate, late=late)
+                else:
+                    w.add_ranges(k, [r if r.data is not None or index[r.source] == r.source else
+                                     dataclasses.replace(r, source=index[r.source])
+                                     for r in parts(v)])
+                    refs += 1
+        return refs, w.n_sources, w.format_sizes
+
+    def save_phkv(
+        self,
+        path: str | os.PathLike[str],
+        *,
+        inline_max: int = 4096,
+        page_size: int = 4096,
+        relative_to: str | None = None,
+        policy: Policy | None = None,
+        mirror_refs: None = None,
+    ) -> Summary:
+        """Write the store as a standalone phkv store (spec/bindings/phkv.md
+        <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md>) at the local `path`, and
+        return a `Summary` of it. `refkv.phkv.open(path)` reads it back with the same values. A
+        lookup in a phkv store reads a few ranges of the file, however many keys it holds, where
+        a vzip archive reads a page of its directory (see `save_vzip`).
+
+        The bytes values of `compressed` are DEFLATE-compressed. A phkv store reserves no names,
+        so the hidden values this store keeps under `__vz__/` are written as ordinary keys.
+        The store replaces a file at `path` only once it is complete: a save that raises leaves that
+        file as it was.
+
+        - `inline_max`: a value whose stored bytes are at most this long is kept in its record,
+          so that the lookup that finds the key reads it too.
+        - `page_size`: about how many bytes of records each page of the page index holds.
+        - `relative_to`, `policy`: as for `save_vzip`.
+        - `mirror_refs`: `save_vzip`'s option has no meaning here, since a reference's record is its
+          payload: any value other than None is a ValueError.
+        """
+        if mirror_refs is not None:
+            raise ValueError("a phkv store has no mirror_refs: a reference's record is its payload")
+        path = os.fspath(path)
+        sources = self._sources_to_save(path, relative_to, policy)
+        from refkv.phkv.writer import PhkvWriter  # noqa: PLC0415 (`import refkv` imports no phkv code)
+
+        refs = 0
+        with bulk(), replacing(path) as f, PhkvWriter(f, inline_max=inline_max, page_size=page_size) as w:
+            index = [w.source(s) for s in sources]  # equal sources share an index
+            for k, v in self._values.items():
+                if isinstance(v, bytes):
+                    w.add_bytes(k, v, codec="deflate" if k in self._compressed else None)
                 else:
                     w.add_ranges(k, [r if r.data is not None or index[r.source] == r.source else
                                      dataclasses.replace(r, source=index[r.source])
@@ -540,6 +604,11 @@ class ReferenceStore(ReferenceReader):
             return v[start:end]
         start, end = _abs_range(v.size, request)
         return await self._ref_bytes(v, start, end)
+
+    @override
+    async def _value_size(self, key: str) -> int | None:
+        v = self._visible(key)
+        return None if v is None else len(v) if isinstance(v, bytes) else v.size
 
     @override
     async def classify_async(self, key: str) -> Kind:

@@ -15,8 +15,8 @@ from __future__ import annotations
 import json
 import sys
 from collections.abc import Mapping
-from pathlib import Path
 
+from refkv._files import replacing
 from refkv._narrow import JSON, boolean, integer, mapping, sequence, string
 from refkv._sync import run
 from refkv.pb import Range, Source
@@ -177,17 +177,13 @@ def write(desc_path: str, out: str) -> None:
     if page_size is not None and (not isinstance(page_size, int) or isinstance(page_size, bool)
                                   or page_size < 1):
         raise ValueError(f"page_size must be null or an integer >= 1, not {page_size!r}")
-    try:
-        with open(out, "wb") as f:
-            w = VZipWriter(f, mirror_refs=desc.get("mirror", True), page_size=page_size)
-            for src in desc.get("sources", []):
-                w.source(_source(src))
-            for e in desc["entries"]:
-                _add_entry(w, e, page_size)
-            w.close()
-    except Exception:
-        Path(out).unlink(missing_ok=True)
-        raise
+    with replacing(out) as f:
+        w = VZipWriter(f, mirror_refs=desc.get("mirror", True), page_size=page_size)
+        for src in desc.get("sources", []):
+            w.source(_source(src))
+        for e in desc["entries"]:
+            _add_entry(w, e, page_size)
+        w.close()
 
 
 def _add_entry(w: VZipWriter, e: Mapping[str, JSON], page_size: int | None) -> None:

@@ -16,8 +16,9 @@ recording as a NumPy array, over HTTP, without decoding the whole file or
 converting it to images first, has to write that machinery today.
 
 An MP4 file indexes every coded frame (its offset, size, timestamp and
-whether it is a keyframe) in its `moov` box, so refkv reads that box alone,
-never the media, and writes an archive in which every Zarr chunk is a run
+whether it is a keyframe) in its `moov` box, and a fragmented one, as a
+camera or a live stream records it, in a `moof` box per fragment, so refkv
+reads those boxes alone, not the media, and writes an archive in which every Zarr chunk is a run
 of frames, referenced together with the frames before it that a decoder
 needs: back to the keyframe before it, for video. The archive's
 `refkv.stream` codec decodes a chunk when it is read.
@@ -27,10 +28,10 @@ needs: back to the keyframe before it, for video. The archive's
 A group at the archive root, and a group per track refkv zarrifies, at
 `tracks/<id>`.
 
-- **Video (H.264 8-bit 4:2:0, HEVC 8- or 10-bit 4:2:0):** three arrays,
-  `y`, `u` and `v`, the decoder's planes, `[time, y, x]` (the chroma planes
-  half the size along each axis), in presentation order: `uint8` for 8
-  bits, `uint16` for 10 (values from 0 to 1023); and `time`, each
+- **Video (H.264 and AV1 4:2:0 of 8 or 10 bits; HEVC and VP9 4:2:0 or 4:2:2 of 8, 10 or 12):** three
+  arrays, `y`, `u` and `v`, the decoder's planes, `[time, y, x]` (the chroma planes
+  half the size along each axis, or along `x` alone for 4:2:2), in presentation order: `uint8` for 8
+  bits, `uint16` for more (values from 0 to 2^bits − 1); and `time`, each
   picture's presentation time in the track's timescale (`int64`). Each
   chunk is whole groups of pictures from a keyframe, up to 256 pictures
   and at most 32 MiB of luma (16 pictures at 1080p, 8 of 10 bits); only a
@@ -38,14 +39,21 @@ A group at the archive root, and a group per track refkv zarrifies, at
   `rectilinear` chunk grid, which `refkv.zarr` turns on in zarr-python.
   No color conversion: RGB depends on the stream's color matrix, which is
   the reader's to apply.
-- **Audio (AAC-LC, MP3):** `samples`, `float32`, `[time, channel]`, the
+- **Motion JPEG:** `pictures`, `uint8`, `[time, y, x, c]` in RGB (`[time, y, x]` for a gray
+  stream), the JPEG decoder's output, a picture a chunk, in presentation order, and `time`
+  as above.
+- **Audio (AAC-LC, HE-AAC, MP3):** `samples`, `float32`, `[time, channel]`, the
   decoder's output, in chunks of 256 frames.
+- **Audio (PCM):** `samples`, `[time, channel]`, in the file's own data type
+  (`uint8`, `int8`, `int16`, `int32`, `float32` or `float64`) and byte order, in
+  chunks of 262144 frames read with the `bytes` codec, so no decoder is needed.
 - **Codecs:** `refkv.stream` (zarr finds it through refkv's entry points), which
-  decodes with ffmpeg's decoders through PyAV (the `media` extra).
+  decodes with ffmpeg's decoders through PyAV (the `media` extra); `imagecodecs_jpeg` for
+  Motion JPEG, through imagecodecs (the `images` extra).
 - **Metadata:** under `refkv_zarrified.mp4` on the root, the brands, the
   movie's timescale and duration, and every track: its codec, its path,
-  or why it is not zarrified (`av01 video is not supported: only H.264
-  (avc1) and HEVC (hvc1, hev1) are`). Each track's group holds its
+  or why it is not zarrified (`mp2v video is not supported: only H.264 (avc1),
+  HEVC (hvc1, hev1), AV1 (av01), VP9 (vp09) and Motion JPEG (jpeg, mjpa, dmb1) are`). Each track's group holds its
   timescale, edit list, dimensions, bit depth, profile and level, or its
   sample rate and channel count. The whole file (every box, field by field, every sample, and the
   media data in no sample) is described on `refkv_source` by the Rust
@@ -160,22 +168,28 @@ Supported:
   leading pictures (x265's open groups included): an iPhone's video, its
   HDR video's HLG base layer included (its Dolby Vision metadata is
   recorded, not applied).
-- AAC-LC and MP3 audio tracks, mono or stereo, in either container.
+- Motion JPEG tracks, one component or three, 8-bit baseline, extended or progressive: the
+  sample entries `jpeg`, `mjpa`, `dmb1`, and `mp4v` as ffmpeg's MP4 muxer writes it.
+- AAC-LC, HE-AAC, HE-AAC v2 and MP3 audio tracks, mono or stereo, in either container. An HE-AAC
+  chunk's high band is its own, not the whole stream's: SBR's noise runs on from frame to frame.
 
-Not zarrified (listed with the reason, and kept in the mirror): AV1 and
-other video codecs, Dolby Vision's own sample entries (`dvh1`, `dvhe`),
-`avc3` (parameter sets in the stream), 10-bit, 4:2:2 and 4:4:4 H.264, 4:2:2,
-4:4:4 and 12-bit HEVC, groups of more than 1024 pictures, HE-AAC and other
-audio codecs, timecode, text and metadata tracks.
+Not zarrified (listed with the reason, and kept in the mirror): AV1's Professional
+and High profiles, Motion JPEG B and other video codecs, interlaced or 12-bit Motion JPEG,
+Dolby Vision's own sample entries (`dvh1`, `dvhe`),
+`avc3` (parameter sets in the stream), 4:2:2 and 4:4:4 H.264, 4:4:4 HEVC and VP9,
+groups of more than 1024 pictures, 24-bit PCM
+(`bytes` has no data type for it) and other audio codecs, timecode, text and
+metadata tracks.
 
-Rejected: fragmented MP4 (`moof` boxes), files without a `moov` box, files
+Rejected: files without a `moov` box, files
 with none of the tracks above, and malformed boxes or sample tables.
 
 ## Performance
 
 - Zarrifying reads the first 64 KiB, each top-level box header after it,
   and the `moov` box: for a file whose `moov` box is at the end, three or
-  four requests.
+  four requests. A fragmented file takes a request more per fragment (a
+  recording cut into 2-second fragments, 1800 requests an hour).
 - Reading a video chunk is one request per run of its pictures in the file
   (the audio interleaved between them splits them) and decoding its
   pictures. A chunk starts at a keyframe, unless it splits a group longer

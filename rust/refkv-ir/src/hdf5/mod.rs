@@ -18,7 +18,8 @@
 //! bytes ([`Fail::Bad`]) is final; with misses before it, the round is retried (the outcome
 //! is the one a sequential reading would give).
 
-mod file;
+pub mod file;
+pub mod store;
 pub mod types;
 pub mod walk;
 
@@ -30,6 +31,12 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc as Rc;
 
 pub const SIGNATURE: &[u8; 8] = b"\x89HDF\r\n\x1a\n";
+/// A slot of the external data files message whose size is the rest of the file.
+pub const EXTERNAL_UNLIMITED: u64 = u64::MAX;
+/// The smallest user block: every other is twice one.
+const USER_BLOCK_MIN: u64 = 512;
+/// The bytes of a superblock that `superblock_at` tests.
+const SUPERBLOCK_PROOF: u64 = 36;
 pub const UNDEFINED: u64 = u64::MAX;
 pub const MAX_SAFE: u64 = (1 << 53) - 1;
 /// Blocks of one object header (§7.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#72-object-headers>).
@@ -42,6 +49,19 @@ pub const HINT_MAX: u64 = 1 << 16;
 /// The version 1 B-tree K values HDF5 uses when a superblock does not give them: a symbol
 /// table node's (leaf), a group node's (internal) and a chunk node's (indexed storage).
 pub const DEFAULT_K: (u64, u64, u64) = (4, 16, 32);
+
+// The filters a profile presents (spec/zarrify/hdf5.md §3.1
+// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#31-data-types>), by identifier.
+pub const DEFLATE: u64 = 1;
+pub const SHUFFLE: u64 = 2;
+pub const FLETCHER32: u64 = 3;
+pub const LZF: u64 = 32000;
+pub const BLOSC: u64 = 32001;
+pub const LZ4: u64 = 32004;
+pub const BITSHUFFLE: u64 = 32008;
+pub const ZSTD: u64 = 32015;
+/// The bytes of a Fletcher32 checksum, after the rest of a chunk.
+pub const CHECKSUM: u64 = 4;
 
 // Message types (§7.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#72-object-headers>).
 pub const NIL: u16 = 0x00;
@@ -112,7 +132,10 @@ impl Acc {
 /// A file read sans-IO: what was fed (ranges that touch merged into one, so that a read finds
 /// its bytes in the one range at or before it), and what a round wants.
 pub struct Src {
+    /// The bytes from the base address to the end of the file: the addresses' range.
     pub size: u64,
+    /// The superblock's offset in the file, which every address is relative to.
+    pub base: u64,
     pub store: Fed,
     pub want: Vec<(u64, u64)>,
 }
@@ -132,7 +155,18 @@ impl Src {
     }
 
     pub fn new(size: u64) -> Src {
-        Src { size, store: Fed::new(Overlap::MergeNew), want: Vec::new() }
+        Src { size, base: 0, store: Fed::new(Overlap::MergeNew), want: Vec::new() }
+    }
+
+    /// Takes `base` for the base address: what was the file's start is now address -`base`.
+    fn rebase(&mut self, base: u64) {
+        self.size -= base;
+        self.base = base;
+    }
+
+    /// The `n` bytes at address `at`, if they were fed.
+    pub fn get(&self, at: u64, n: u64) -> Option<&[u8]> {
+        self.store.get(at + self.base, n)
     }
 
     /// The `n` bytes at `at`, which MUST lie within the file (§7.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#71-hdf5-structures>).
@@ -144,10 +178,10 @@ impl Src {
         if n == 0 {
             return Ok(Vec::new());
         }
-        if let Some(b) = self.store.get(at, n) {
+        if let Some(b) = self.get(at, n) {
             return Ok(b.to_vec());
         }
-        self.want.push((at, n.max(WINDOW).min(self.size - at)));
+        self.want.push((at + self.base, n.max(WINDOW).min(self.size - at)));
         Err(Fail::Miss)
     }
 
@@ -159,6 +193,29 @@ impl Src {
 // ---- fields
 
 /// The little-endian unsigned integer of `n` (at most 8) bytes at `at` of `d`.
+/// Whether `head`, the bytes at offset `at` of a file, starts a superblock of a version the
+/// profile reads, with 8-byte addresses and lengths, whose base address is `at`.
+fn superblock_at(head: &[u8], at: u64) -> bool {
+    if head.len() < SUPERBLOCK_PROOF as usize || head[..8] != SIGNATURE[..] {
+        return false;
+    }
+    let (sizes, base_at) = match head[8] {
+        0 => (13, 24),
+        1 => (13, 28),
+        2 | 3 => (9, 12),
+        _ => return false,
+    };
+    head[sizes] == 8 && head[sizes + 1] == 8 && le(head, base_at, 8) == Ok(at)
+}
+
+/// The size of the user block `head`, a file's first bytes, shows: the first of 512, 1024,
+/// 2048, … that `head` holds a superblock at.
+pub fn user_block(head: &[u8]) -> Option<u64> {
+    std::iter::successors(Some(USER_BLOCK_MIN), |at| Some(at * 2))
+        .take_while(|at| at + SUPERBLOCK_PROOF <= head.len() as u64)
+        .find(|&at| superblock_at(&head[at as usize..(at + SUPERBLOCK_PROOF) as usize], at))
+}
+
 pub fn le(d: &[u8], at: usize, n: usize) -> R<u64> {
     if at.checked_add(n).is_none_or(|e| e > d.len()) {
         return bad("truncated HDF5 structure");
@@ -276,8 +333,9 @@ pub fn parse_dataspace(d: &[u8]) -> R<Dataspace> {
     Ok(Dataspace { dims: if kind == 2 { None } else { Some(dims) }, maxdims })
 }
 
-/// The filter identifiers of a filter pipeline message, in pipeline order.
-pub fn parse_filters(d: Option<&[u8]>) -> R<Vec<u64>> {
+/// The filters of a filter pipeline message, in pipeline order: each identifier and its client
+/// data values.
+pub fn parse_filters(d: Option<&[u8]>) -> R<Vec<(u64, Vec<u32>)>> {
     let Some(d) = d else { return Ok(Vec::new()) };
     let (version, count) = (le(d, 0, 1)?, le(d, 1, 1)?);
     if version != 1 && version != 2 {
@@ -298,11 +356,16 @@ pub fn parse_filters(d: Option<&[u8]>) -> R<Vec<u64>> {
         let values = le(d, p as usize + 2, 2)?;
         p += 4;
         p += if version == 1 { pad8(name_length) } else { name_length };
+        let cd = p;
         p += 4 * values + if version == 1 && values % 2 == 1 { 4 } else { 0 };
         if p > d.len() as u64 {
             return bad("truncated filter pipeline message");
         }
-        ids.push(fid);
+        let mut client = Vec::with_capacity(values as usize);
+        for k in 0..values {
+            client.push(le(d, (cd + 4 * k) as usize, 4)? as u32);
+        }
+        ids.push((fid, client));
     }
     Ok(ids)
 }
@@ -380,6 +443,16 @@ pub fn parse_link(d: &[u8]) -> R<(Vec<u8>, Target)> {
         Some(t) => Ok((name, Target::Hard(t))),
         None => bad("hard link to an undefined address"),
     }
+}
+
+/// A link message's creation order, when it records one.
+fn link_creation_order(d: &[u8]) -> Option<u64> {
+    let flags = le(d, 1, 1).ok()?;
+    let p = 2 + if flags & 8 != 0 { 1 } else { 0 };
+    if flags & 4 == 0 {
+        return None;
+    }
+    le(d, p, 8).ok()
 }
 
 /// (flags, name size, datatype size, dataspace size, name start) of an attribute message.
@@ -520,6 +593,15 @@ impl Header {
     }
 }
 
+/// A slot of an external data files message: where in which file a part of the dataset's
+/// contiguous data lies.
+#[derive(Clone, Debug)]
+pub struct ExternalSlot {
+    pub name: Vec<u8>,
+    pub offset: u64,
+    pub size: u64,
+}
+
 #[derive(Debug, Clone)]
 pub struct LocalHeap {
     pub at: u64,
@@ -566,6 +648,8 @@ pub struct Links {
     pub list: Vec<(Vec<u8>, Target)>,
     pub by_name: HashMap<Vec<u8>, usize>,
     pub storage: LinkStorage,
+    /// each link's creation order, by name, of a group whose link info says it tracks it
+    pub created: Option<HashMap<Vec<u8>, u64>>,
 }
 
 impl Links {
@@ -628,6 +712,8 @@ pub struct Dataset {
     pub chunk: Vec<u64>,
     pub grid: Vec<u64>,
     pub filters: Vec<u64>,
+    /// each filter's client data values, as `filters`
+    pub client_data: Vec<Vec<u32>>,
     pub index: Option<Index>,
     pub index_address: Option<u64>,
     pub single_size: Option<u64>,
@@ -768,6 +854,11 @@ impl H5 {
         self.src.size
     }
 
+    /// The whole file's size, with what a user block adds to `size`.
+    pub fn file_size(&self) -> u64 {
+        self.src.base + self.src.size
+    }
+
     pub fn read(&mut self, at: u64, n: u64) -> R<Vec<u8>> {
         self.src.read(at, n)
     }
@@ -778,11 +869,8 @@ impl H5 {
         if let Some(s) = &self.sb {
             return Ok(s.clone());
         }
-        let head = self.read(0, 9.min(self.size()))?;
-        if head.len() < 9 || head[..8] != SIGNATURE[..] {
-            return bad("not an HDF5 file");
-        }
-        let version = head[8];
+        self.find_base()?;
+        let version = self.read(8, 1)?[0];
         let (sb, base_at, sizes, root_at, len) = match version {
             0 | 1 => {
                 let n = if version == 1 { 76 } else { 72 };
@@ -799,8 +887,8 @@ impl H5 {
         if sizes != (8, 8) {
             return bad(format!("HDF5 offsets and lengths of {} and {} bytes are not supported", sizes.0, sizes.1));
         }
-        if le(&sb, base_at, 8)? != 0 {
-            return bad("HDF5 base address is not 0");
+        if le(&sb, base_at, 8)? != self.src.base {
+            return bad("the HDF5 base address is not the superblock's offset");
         }
         let Some(root) = address(le(&sb, root_at, 8)?)? else { return bad("no HDF5 root group") };
         let extension = if version >= 2 { address(le(&sb, 20, 8)?).ok().flatten() } else { None };
@@ -815,6 +903,27 @@ impl H5 {
         let s = Super { version, len: len.min(self.size()), root, extension, leaf_k, internal_k, istore_k };
         self.sb = Some(s.clone());
         Ok(s)
+    }
+
+    /// Takes the superblock's offset for the base address: 0 when the file starts with the
+    /// signature, else the first of 512, 1024, 2048, … that holds a superblock of that base
+    /// address (spec/zarrify/hdf5.md §8.2
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#82-reading>). A replay
+    /// finds the signature at address 0 again.
+    fn find_base(&mut self) -> R<()> {
+        let head = self.read(0, 9.min(self.size()))?;
+        if head.len() == 9 && head[..8] == SIGNATURE[..] {
+            return Ok(());
+        }
+        let mut at = USER_BLOCK_MIN;
+        while at + SUPERBLOCK_PROOF <= self.size() {
+            if superblock_at(&self.read(at, SUPERBLOCK_PROOF)?, at) {
+                self.src.rebase(at);
+                return Ok(());
+            }
+            at *= 2;
+        }
+        bad("not an HDF5 file")
     }
 
     // ---- object headers (§7.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#72-object-headers>)
@@ -974,6 +1083,7 @@ impl H5 {
             Ok(())
         };
         let storage;
+        let mut created: Option<HashMap<Vec<u8>, u64>> = None;
         if let Some(table) = table {
             let (btree, heap) = (address(le(&table, 0, 8)?)?, address(le(&table, 8, 8)?)?);
             let (Some(btree), Some(heap)) = (btree, heap) else { return bad("symbol table with an undefined address") };
@@ -1036,7 +1146,9 @@ impl H5 {
             if le(&info, 0, 1)? != 0 {
                 return bad("unsupported link info message version");
             }
-            let p = 2 + if le(&info, 1, 1)? & 1 != 0 { 8 } else { 0 };
+            let tracked = le(&info, 1, 1)? & 1 != 0;
+            let p = 2 + if tracked { 8 } else { 0 };
+            let mut order: HashMap<Vec<u8>, u64> = HashMap::new();
             let (heap, btree) = (address(le(&info, p, 8)?)?, address(le(&info, p + 8, 8)?)?);
             match heap {
                 None => {
@@ -1046,6 +1158,9 @@ impl H5 {
                                 return bad("shared link message");
                             }
                             let (n, t) = parse_link(&m.data)?;
+                            if let Some(c) = link_creation_order(&m.data) {
+                                order.insert(n.clone(), c);
+                            }
                             add(n, t, &mut list)?;
                         }
                     }
@@ -1076,16 +1191,20 @@ impl H5 {
                     let mut objects = Vec::new();
                     for (o, n, d) in got {
                         let (name, t) = parse_link(&d)?;
+                        if let Some(c) = link_creation_order(&d) {
+                            order.insert(name.clone(), c);
+                        }
                         add(name, t, &mut list)?;
                         objects.push((o, n));
                     }
                     storage = LinkStorage::Dense { heap, index: (*tree).clone(), objects };
                 }
             }
+            created = (tracked && order.len() == list.len()).then_some(order);
         } else {
             return bad(format!("object at {at} is not a group"));
         }
-        Ok(Links { list, by_name, storage })
+        Ok(Links { list, by_name, storage, created })
     }
 
     /// The object header that the link `name` of a group leads to (§7.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#73-groups-and-links>).
@@ -1118,6 +1237,29 @@ impl H5 {
             Some(Target::Other(..)) => bad(format!("link {} is neither hard nor soft", show_bytes(name))),
             None => bad(format!("no link {}", show_bytes(name))),
         }
+    }
+
+    /// The slots of the external data files message (type 0x07) of the object `h`, in order: a
+    /// version and 3 reserved bytes, the slots allocated and used (2 bytes each), the local heap's
+    /// address, then per slot the name's offset in the heap, the offset in its file and the size.
+    pub fn external_slots(&mut self, h: &Header) -> R<Vec<ExternalSlot>> {
+        let Some(m) = h.message(EXTERNAL_FILES, false)? else { return Ok(Vec::new()) };
+        let m = m.to_vec();
+        if m.first() != Some(&1) {
+            return bad("unsupported external data files message version");
+        }
+        let used = le(&m, 6, 2)? as usize;
+        let Some(heap) = address(le(&m, 8, 8)?)? else { return bad("external data files message without a local heap") };
+        let heap = self.local_heap(heap)?;
+        let mut slots = Vec::with_capacity(used);
+        for k in 0..used {
+            let at = 16 + 24 * k;
+            let (name, offset, size) = (le(&m, at, 8)? as usize, le(&m, at + 8, 8)?, le(&m, at + 16, 8)?);
+            let rest = heap.data.get(name..).ok_or(Fail::Bad("an external file's name lies outside its heap".into()))?;
+            let name = rest.split(|&b| b == 0).next().unwrap_or(&[]).to_vec();
+            slots.push(ExternalSlot { name, offset, size });
+        }
+        Ok(slots)
     }
 
     pub fn local_heap(&mut self, at: u64) -> R<Rc<LocalHeap>> {
@@ -1537,7 +1679,7 @@ impl H5 {
         };
         let datatype = parse_datatype(&type_message)?;
         let fill_message = h.message(FILL_VALUE, false)?.map(|d| d.to_vec());
-        let filters = parse_filters(h.message(FILTERS, false)?)?;
+        let (filters, client_data): (Vec<u64>, Vec<Vec<u32>>) = parse_filters(h.message(FILTERS, false)?)?.into_iter().unzip();
         let layout = h.message(LAYOUT, true)?.unwrap().to_vec();
         let layout_at = h.messages().find(|m| m.ty == LAYOUT).map(|m| m.at).unwrap_or(0);
         let mut fill = match &fill_message {
@@ -1560,6 +1702,7 @@ impl H5 {
             chunk: vec![],
             grid: vec![],
             filters: filters.clone(),
+            client_data: client_data.clone(),
             index: None,
             index_address: None,
             single_size: None,
@@ -2103,6 +2246,11 @@ pub fn show_bytes(b: &[u8]) -> String {
     }
 }
 
+/// The parser of the profile's store run (`StoreFormat`; crate::store).
+pub fn store_parser(ir: crate::ir::Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> crate::ir::Res<Box<dyn crate::store::StoreParser>> {
+    Ok(Box::new(store::Hdf5Store::new(ir, objects, keys)?))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2156,5 +2304,68 @@ mod tests {
         assert!(matches!(s.read(4990, 20), Err(Fail::Bad(_))));
         s.store.feed(10, vec![1; 1024]);
         assert_eq!(s.read(12, 2).unwrap(), vec![1, 1]);
+    }
+
+    /// A file's first bytes: a user block of `block` bytes, then a superblock of `version`
+    /// with addresses and lengths of `width` bytes and base address `base`.
+    fn after_block(block: usize, version: u8, width: u8, base: u64) -> Vec<u8> {
+        let (sizes, base_at) = match version {
+            0 => (13, 24),
+            1 => (13, 28),
+            _ => (9, 12),
+        };
+        let mut h = vec![0u8; block + 64];
+        h[block..block + 8].copy_from_slice(SIGNATURE);
+        h[block + 8] = version;
+        h[block + sizes] = width;
+        h[block + sizes + 1] = width;
+        h[block + base_at..block + base_at + 8].copy_from_slice(&base.to_le_bytes());
+        h
+    }
+
+    #[test]
+    fn a_superblock_of_its_own_base_address_gives_the_user_block() {
+        for (block, version) in [(512, 0), (1024, 1), (2048, 2), (4096, 3)] {
+            assert_eq!(user_block(&after_block(block, version, 8, block as u64)), Some(block as u64));
+        }
+    }
+
+    #[test]
+    fn a_user_block_is_not_given_by_a_base_address_of_0() {
+        assert_eq!(user_block(&after_block(512, 0, 8, 0)), None);
+    }
+
+    #[test]
+    fn a_user_block_is_not_given_by_an_offset_of_no_power_of_two() {
+        assert_eq!(user_block(&after_block(768, 0, 8, 768)), None);
+    }
+
+    #[test]
+    fn a_user_block_is_not_given_by_other_sizes() {
+        assert_eq!(user_block(&after_block(512, 0, 4, 512)), None);
+    }
+
+    #[test]
+    fn a_user_block_is_not_given_by_an_unknown_version() {
+        assert_eq!(user_block(&after_block(512, 4, 8, 512)), None);
+    }
+
+    #[test]
+    fn a_user_block_is_not_given_by_a_superblock_past_the_head() {
+        let h = after_block(1024, 0, 8, 1024);
+        assert_eq!(user_block(&h[..1024 + 35]), None);
+        assert_eq!(user_block(&h[..1024 + 36]), Some(1024));
+    }
+
+    #[test]
+    fn a_rebased_source_reads_and_asks_by_file_offset() {
+        let mut s = Src::new(5000);
+        s.rebase(1024);
+        assert_eq!(s.size, 3976);
+        assert_eq!(s.read(10, 2), Err(Fail::Miss));
+        assert_eq!(s.want.last().map(|w| w.0), Some(1034));
+        s.store.feed(1034, vec![7; 2]);
+        assert_eq!(s.read(10, 2).unwrap(), vec![7, 7]);
+        assert!(matches!(s.read(3976, 1), Err(Fail::Bad(_))));
     }
 }

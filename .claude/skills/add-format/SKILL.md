@@ -33,8 +33,11 @@ feasibility.
 5. **Implement.** See [§5](../../../docs/adding-a-format.md#5-implement-it).
    - The registry file, then `just profiles`.
    - The Rust module, its projection and its source model.
-   - The hosts, only for a file read as a store.
-   - A codec, only if none fits.
+   - For a file read as a store, or a store input: the registry's `store_run`,
+     `store_parser` and `store_project`. The hosts read the rest from the registry.
+   - A codec, only if none fits. Every codec the profile writes, even another
+     package's, needs a row in the codec names table of
+     [conventions §3](../../../spec/conventions.md#3-arrays).
 6. **Fixtures, tests and verification.** See
    [§6](../../../docs/adding-a-format.md#6-fixtures-tests-and-verification).
 7. **Docs and the demo.** See [§7](../../../docs/adding-a-format.md#7-docs-and-the-demo).
@@ -45,15 +48,25 @@ feasibility.
 - **Real files over the standard.** Headers and tags lie, and writers deviate
   from standards. Derive facts from the coded stream. Follow de facto
   readers where they differ from the standard, and record that with a dated
-  change note.
+  change note, a new file `spec/zarrify/changes/<p>/<date>-<slug>.md`, never a
+  paragraph in the document.
 - **Pick the oracle.** Reference readers disagree with each other: name the
   one you compare against, and the cases it gets wrong. Use third-party
   readers to check the output, never to produce it.
 - **Record, don't reject.** A track, level or object the profile can't
   present is listed with a reason. Rejecting it loses science.
+- **Fixtures a frozen reference no longer gives.** List them in
+  `conformance/zarrify/revised/<p>.txt`, sorted, with the reason in its top comment.
 - **Never panic.** The wasm build must reject malformed input. Read with
   `.get()` and checked arithmetic, and give every loop and read a stated
   bound.
+- **Many small units: consider a virtual shard first.** Frames, strips or small
+  tiles on a regular grid can be the inner chunks of the stock `sharding_indexed`
+  codec: call `Out::shard(path, shape)` from the projection, and
+  `rust/refkv-ir/src/shard.rs` writes the reference and its literal index. No new
+  codec, nothing decoded, compressed units allowed, and partial reads stay exact.
+  Only zarr-python makes fewer requests from it, so measure before promising speed.
+  See [§3](../../../docs/adding-a-format.md#3-decide-the-layout).
 - **Edge chunks.** Use a regular grid, padded with the shared zero data
   source. Reject a short chunk whose stream can't be padded. A rectilinear
   grid is the last resort.

@@ -17,6 +17,7 @@ import { Archive, type Policy, type RangeFetcher, RefkvError } from "./archive.t
 import { HttpResolutionError, noResponse, openHttpFile, readHttpRange } from "./http.ts";
 import { ImageError } from "./zarrify/common.ts";
 import { isStoreUrl, zarrifySource, zarrifyStore } from "./zarrify/index.ts";
+import { REGISTRY } from "./zarrify/profiles.ts";
 import { zarrifyIr } from "./zarrify/ir/run.ts";
 import { openHttpSource, type RangeSource, readerSource } from "./zarrify/ir/source.ts";
 import { openHttpStore, StoreError, StoreLimitError, StoreReadError } from "./zarrify/store.ts";
@@ -24,19 +25,11 @@ import type { StoreProfile } from "./zarrify/ir/store.ts";
 import { openArchive, writePhkv } from "./phkv.ts";
 import { writeVzip } from "./writer.ts";
 
-/** The titles rejections of the Rust core's store profiles carry, as the profiles' own errors did;
+/** The title a rejection of the Rust core's store profiles carries, as the profiles' own errors did;
  * none for a SAFE directory, whose rejections read as a SAFE zip file's (an ImageError's, bare). */
-const STORE_FORMATS: Record<StoreProfile, string | undefined> = {
-  zarr2: "Zarr v2",
-  n5: "N5",
-  precomputed: "Neuroglancer precomputed",
-  "ome-zarr": "OME-Zarr",
-  safe: undefined,
-  vsi: "VSI",
-  nrrd: "NRRD",
-  grib: "GRIB",
-  safetensors: "safetensors",
-};
+function storeTitle(format: StoreProfile): string | undefined {
+  return format === "safe" ? undefined : REGISTRY.find((e) => e.name === format)?.title;
+}
 
 export const ARCHIVE_KEY = "__vz__/archive.vzip";
 
@@ -121,7 +114,9 @@ export interface HandlerOptions {
   /**
    * The whole of the `.vzip` archive at a URL of the `archive/` route; defaults to a `fetch` that
    * throws an `HttpResolutionError` for no response or a status other than 2xx. The archive's
-   * URL is not checked against `policy`: a fetch given here decides what it reads.
+   * URL is not checked against `policy`: a fetch given here decides what it reads. The default
+   * sends the browser's default credentials, since the application chose the URL; the archive's
+   * sources are read without them unless `policy` has `allowSourceCredentials`.
    */
   fetchArchive?: (url: string) => Promise<Uint8Array>;
   /**
@@ -350,7 +345,7 @@ export function makeHandler(options: HandlerOptions): (request: Request) => Prom
       // a store profile the core refused names itself (SAFE's does not, as its zip form does not);
       // a rejection before one was chosen is the store's
       if (e instanceof StoreError && e.format !== undefined) {
-        const title = STORE_FORMATS[e.format];
+        const title = storeTitle(e.format);
         return response(422, title === undefined ? message : `${title}: ${message}`);
       }
       if (e instanceof StoreError) return response(422, `store: ${message}`);

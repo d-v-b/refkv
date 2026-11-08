@@ -49,6 +49,22 @@ test("reads back what the writer wrote", async () => {
   }
 });
 
+test("inflates a key source's entry once a read, however many ranges name it", async () => {
+  const ranges = Array.from({ length: 64 }, (_, i) => ({ source: 0, offset: BigInt(i), length: 1n }));
+  const a = await open({
+    sources: [{ key: "__vz__/blob" }],
+    entries: [{ key: "__vz__/blob", bytes: utf8("x".repeat(4096)), compress: true }, { key: "r", ranges }],
+  });
+  const target = a as unknown as { body: (e: unknown) => Promise<Uint8Array> };
+  const body = target.body.bind(a);
+  let inflations = 0;
+  target.body = (e) => ((inflations += 1), body(e));
+  assert.equal(text(await a.read("r")), "x".repeat(64));
+  assert.equal(inflations, 1);
+  assert.equal(text(await a.read("r")), "x".repeat(64));
+  assert.equal(inflations, 2); // nothing is kept between reads
+});
+
 test("rejects a file that is not a vzip archive", async () => {
   await assert.rejects(Archive.open(utf8("not a zip at all, not even close"), "https://x/"), (e) =>
     e instanceof RefkvError && e.errorClass === "archive");

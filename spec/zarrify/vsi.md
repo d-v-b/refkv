@@ -10,24 +10,7 @@ store, which files it reads and which inputs it rejects, is the VSI profile,
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `c0a1d4e6-5b7f-4f3a-9c2d-8e1f6a7b3c45` ·
 Schema: [schema.json](vsi/schema.json)
 
-Changed 2026-11-03, with no change to any output: a level's scale is written `sx × (W / w_l)`, in the order refkv computes it.
-
-Changed 2026-11-01, with no change to any output: the slide is read as a file read as a store,
-by the rules [spec/zarrify.md §1.8](../zarrify.md#18-files-read-as-stores) now states for the
-VSI, NRRD and GRIB profiles ([§9](#9-vsi-profile)).
-
-Changed 2026-10-30: a tile file's tiles may be lossless JPEG (compression 5), each tile a chunk
-of the codec `imagecodecs_ljpeg`, where such a file was rejected; and an ETS header of version
-0x30003, whose `dimensions` is 0 and which lists no sizes, is read, every coordinate but the
-column, the row and the level of size 1 ([§3](#3-the-tile-files), [§4.1](#41-the-pyramid)); a stack's second tile
-file name, `frame_t_0.ets`, is probed only when its first, `frame_t.ets`, is absent, in a
-second batch ([§9.2](#92-the-tile-files)).
-
-Changed 2026-10-26, with no change to any output: the layout is tabulated, its entries in
-[Layout](#layout) and its types in type tables
-([conventions §11.5](../conventions.md#115-layout-tables)), which also state what refkv already
-wrote: a value field's empty data is opaque, `""` ([§6.1](#61-the-root)), and an IFD image's
-summary has no `sizes`, `grids` or `tilesOutside` ([§9.5](#95-summary)).
+Changes: [changes/vsi/](changes/vsi/), one file per change.
 
 Added 2026-10-21.
 
@@ -304,7 +287,8 @@ pixels, with these tags; a tag that is absent has its TIFF default:
 
 A JPEG strip is an
 abbreviated stream whose tables are in `JPEGTables` (347); the layout
-supplies them ([§4.3](#43-the-macro-image)).
+supplies them ([§4.3](#43-the-macro-image)). An IFD whose tags are outside this
+table is not presented ([§4.4](#44-ifd-images-that-are-not-presented)).
 
 ## 3. The tile files
 
@@ -339,7 +323,7 @@ The ETS header, `ets_size` bytes at `ets_offset`, whose first 228 are:
 | 8 | `i32` | `pixel_type` (the table `pixel_types`: 1 `int8`, 2 `uint8`, 3 `int16`, 4 `uint16`, 5 `int32`, 6 `uint32`, 7 `int64`, 8 `uint64`, 9 `float32`, 10 `float64`) |
 | 12 | `i32` | `channels`: the **samples per pixel**, 1, 3 or 4 |
 | 16 | `i32` | `colorspace` |
-| 20 | `i32` | `compression` (the table `compressions`: 0 none, 2 JPEG, 3 JPEG 2000, 5 lossless JPEG; 8 PNG and 9 BMP are named and not supported) |
+| 20 | `i32` | `compression` (the table `compressions`: 0 none, 2 JPEG, 3 JPEG 2000, 5 lossless JPEG, 8 PNG, 9 BMP) |
 | 24 | `i32` | `quality` |
 | 28 | `i32` | `tile_width` `tw` |
 | 32 | `i32` | `tile_height` `th` |
@@ -371,7 +355,10 @@ when `c < dimensions`, else 1. A tile's bytes, `size` at `offset`, are one
 `tw × th` tile with `channels` samples per pixel, interleaved, row-major, in
 the pixel type (uncompressed: `tw × th × channels × bytes` bytes,
 little-endian; a tile at the right or bottom edge is a whole tile, padded by
-the writer), or one JPEG or JPEG 2000 codestream of such a tile.
+the writer), or one JPEG, JPEG 2000 or lossless JPEG codestream of such a tile,
+or one complete PNG or BMP file of it, as Bio-Formats' CellSensReader opens
+them. A PNG or BMP file says what order its samples are in, whatever
+`component_order` says.
 
 ## 4. The images
 
@@ -385,8 +372,9 @@ in this order: each stack of the tree ([§2.2](#22-stacks)) that has a tile
 file ([§4.1](#41-the-pyramid)) or else a default sample IFD ([§4.3](#43-the-macro-image)),
 in the tree's order; then the **macro image** ([§4.3](#43-the-macro-image)),
 when the collection volume has a `Default sample IFD` field (2016). A stack
-with neither is no image (it is listed in `stacks`, [§6.1](#61-the-root)).
-Without any image, the root has no `ome` member and there is no `OME` group.
+with neither is no image (it is listed in `stacks`, [§6.1](#61-the-root)), and
+nor is an IFD image the layout cannot present
+([§4.4](#44-ifd-images-that-are-not-presented)). Without any image, the root has no `ome` member and there is no `OME` group.
 
 ### 4.1 The pyramid
 
@@ -420,7 +408,7 @@ dimension of another meaning has the size 1, [§9.3](#93-tiles-and-levels).)
 | `data_type` | string | required | the data type of the pixel type ([§3](#3-the-tile-files)) |
 | `chunk_grid` | object | required | regular, its chunk shape `[1, S or 1, 1, th, tw]` in the axes present (`S` on the `c` axis when `S > 1`, else 1) |
 | `fill_value` | number | required | the background's first sample (`background`'s first `bytes` bytes as the pixel type; 0 for a float that is not finite). A tile the directory lacks reads as the background |
-| `codecs` | array of object | required | for `S > 1`, `transpose` with the order that puts `c` last of the axes (`{"name": "transpose", "configuration": {"order": [1, 2, 0]}}` for `c`, `y`, `x`), since the samples are interleaved; then `imagecodecs_jpeg` for JPEG, `imagecodecs_jpeg2k` for JPEG 2000, `imagecodecs_ljpeg` for lossless JPEG, or `bytes` with `{"endian": "little"}` (plain `bytes` for a one-byte type). A JPEG tile of three samples is a plain codestream; no transform marker is added |
+| `codecs` | array of object | required | for `S > 1`, `transpose` with the order that puts `c` last of the axes (`{"name": "transpose", "configuration": {"order": [1, 2, 0]}}` for `c`, `y`, `x`), since the samples are interleaved; then `imagecodecs_jpeg` for JPEG, `imagecodecs_jpeg2k` for JPEG 2000, `imagecodecs_ljpeg` for lossless JPEG, `imagecodecs_png` for PNG, `imagecodecs_bmp` for BMP, or `bytes` with `{"endian": "little"}` (plain `bytes` for a one-byte type). A JPEG tile of three samples is a plain codestream; no transform marker is added |
 | `dimension_names` | array of string | required | the axes |
 
 **Chunks:** each tile inside its level is the chunk at `l/c/<t>/<c>/<z>/<row>/<column>`
@@ -481,6 +469,29 @@ The macro image is named `macro image`, as Bio-Formats names it, has no
 scale unit and no translation ([§5](#5-scales-units-and-position)); an IFD
 image of a stack is named by its stack and placed by its properties.
 
+### 4.4 IFD images that are not presented
+
+An IFD image that fails one of these, tested in order, has no group and no array, and the images
+that follow it take its place in the numbering of [§4](#4-the-images). It is recorded, with the
+first reason that applied, in [`VsiRoot`](#type-vsiroot)'s `not_presented`. Its stack, if it has
+one, is still listed in `stacks`, and every byte of its IFD is in the mirror
+([§6.3](#63-elements)). `<k>` is the IFD's index and `<what>` is `macro image` or the stack's name.
+
+| condition | reason recorded |
+|---|---|
+| the chain has an IFD of index `<k>` | `<what>: the .vsi file has no IFD <k>` |
+| `ImageWidth` and `ImageLength` are 1 or more | `IFD <k> (<what>) is <width> × <height>` |
+| `Compression` is 1 or 7 | `IFD <k> (<what>) has compression <compression>` |
+| `SamplesPerPixel` is 1 or 3 | `IFD <k> (<what>) has <samples> samples per pixel` |
+| `BitsPerSample` is 8, or 16 when `Compression` is 1 | `IFD <k> (<what>) has <bits> bits per sample` |
+| `PlanarConfiguration` is 1 | `IFD <k> (<what>) has PlanarConfiguration <planar>` |
+| `SampleFormat` is 1 | `IFD <k> (<what>) has SampleFormat <format>` |
+| it has a strip, and just one when `Compression` is 7 | `IFD <k> (<what>) has <strips> strips` |
+| every strip has a byte, and lies in the file | `IFD <k> (<what>): a strip (<n> bytes at <o>) is outside the <size>-byte .vsi file` |
+| the IFD lies in a TIFF region ([§2.3](#23-the-tiff-images)) | `IFD <k> (<what>) is not inside the metadata tree` |
+| it does not have both strips and tiles | `IFD <k> (<what>) has both strips and tiles` |
+| uncompressed, its runs of strips fit in a reference ([§9.4](#94-chunks)) | `IFD <k> (<what>): its strips do not fit in a reference of 65519 bytes` |
+
 ## 5. Scales, units and position
 
 A stack's **unit** is its `RWC frame unit` text's entry in the table `units`;
@@ -527,6 +538,16 @@ which every file read is described byte for byte.
 | `file` | [`VsiFile`](#type-vsifile) | required | the `.vsi` file |
 | `stacks` | array of [`VsiStack`](#type-vsistack) | required | one object per stack of the tree, in its order |
 | `tree` | [`VsiContainer`](#type-vsicontainer) | required | the metadata tree as JSON: its root container |
+| `not_presented` | array of [`VsiNotPresented`](#type-vsinotpresented) | optional | the IFD images [§4.4](#44-ifd-images-that-are-not-presented) left out, in the order of [§4](#4-the-images); absent when there is none |
+
+<a id="type-vsinotpresented"></a>**`VsiNotPresented`**, an IFD image left out:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `id` | integer or null | required | its stack's id; `null` for the macro image |
+| `name` | string | required | its stack's name, or `macro image` |
+| `ifd` | integer | required | the index the tree gives its IFD |
+| `reason` | string | required | the reason [§4.4](#44-ifd-images-that-are-not-presented) gives |
 
 <a id="type-vsifile"></a>**`VsiFile`**, `{"key": k, "size": s, "ifds": n}`:
 
@@ -666,7 +687,7 @@ then, for a pyramid, `tile_file`, `ets`, `levels` and `tiles_outside`, or, for a
 | `samples` | integer | required | the samples per pixel, the ETS `channels` |
 | `colorspace` | integer | required | the ETS `colorspace` |
 | `compression` | integer | required | the ETS `compression` |
-| `codec` | string | required | `raw`, `jpeg`, `jpeg2000` or `ljpeg` |
+| `codec` | string | required | `raw`, `jpeg`, `jpeg2000`, `ljpeg`, `png` or `bmp` |
 | `quality` | integer | required | the ETS `quality` |
 | `tile_width` | integer | required | `tw` |
 | `tile_height` | integer | required | `th` |
@@ -747,7 +768,7 @@ In a tile file:
 | `ets` | value | `{magic:ascii[4],version:<i4,pixel_type:<i4,channels:<i4,colorspace:<i4,compression:<i4,quality:<i4,tile_width:<i4,tile_height:<i4,tile_depth:<i4,pixel_info_hints:<i4[17],background:bytes[40],component_order:<i4,use_pyramid:<i4,reserved:bytes[28],dimensions:<i4,dimension_sizes:<i4[10]}` | `(ets_offset, 228)`: the ETS header |
 | `ets_extra` | value | `bytes[ets_size − 228]` | the rest of the ETS header, when `ets_size > 228` |
 | `directory` | value | `{coordinates:<i4,coordinate:<i4[n],offset:<i8,size:<i4,index:<i4}[tiles]` | `(tiles_offset, tiles × (20 + 4n))`: the tile directory, when there are tiles |
-| `tiles/<k>` | data | | tile `k` of the directory, `(offset, size)`; its form `{"geometry": {"shape": [th, tw], "samples": S, "bits": 8 × bytes}, "codec": {"compression": "raw" \| "jpeg" \| "jpeg2000" \| "ljpeg"}, "recipe": [["src", 0, null]]}` |
+| `tiles/<k>` | data | | tile `k` of the directory, `(offset, size)`; its form `{"geometry": {"shape": [th, tw], "samples": S, "bits": 8 × bytes}, "codec": {"compression": "raw" \| "jpeg" \| "jpeg2000" \| "ljpeg" \| "png" \| "bmp"}, "recipe": [["src", 0, null]]}` |
 | `gaps/<offset>` | gap | | bytes no other element claims |
 
 ### 6.4 Equivalence
@@ -870,6 +891,8 @@ or in the mirror.
   recorded, not expressed.
 - **Dimensions the axes cannot hold.** A `lambda`, `phase` or unknown
   dimension is accepted only when its size is 1 ([§9.3](#93-tiles-and-levels)).
+- **The IFD images it cannot present** ([§4.4](#44-ifd-images-that-are-not-presented)): recorded with
+  their reasons, their bytes in the mirror.
 - **The thumbnails.** Each stack's coarse frame IFD (a small JPEG of the
   stack) is in the mirror but is no image: the pyramid's levels serve.
 - **Display.** The stack's and channels' display limits become windows;
@@ -932,8 +955,15 @@ the file is rejected, as are more than 65536 IFDs (EXIF IFDs counted) and a
 chain that returns to an IFD already read (a next offset or an EXIF offset
 seen before). An entry's out-of-line value that lies outside the file is not
 an element (the entry's 12 bytes are). An IFD that lies in no TIFF region
-of the tree is read but has no elements; the profile rejects the input only
-when such an IFD is one it uses as an image.
+of the tree is read but has no elements; when the profile would use such an
+IFD as an image, that image is not presented.
+
+An IFD image that cannot be presented
+([the convention §4.4](#44-ifd-images-that-are-not-presented)) does not reject
+the input: what is lost is that image, and the rest of the slide is presented.
+What the chain's own checks reject is the file's structure, whichever IFD they
+meet, and a tile file is rejected as [§9.2](#92-the-tile-files) and
+[§9.3](#93-tiles-and-levels) say: it holds a stack's pixels.
 
 **The stacks** are found as [the convention §2.2](#22-stacks) says. A stack
 that has a tile file but no image boundary (a width and height of at least
@@ -978,9 +1008,11 @@ is not 64, whose `coordinates` are fewer than 2 or more than 16, whose ETS
 header is outside the file or shorter than 228 bytes, whose tile count is
 negative or over 2^24, or whose directory is outside the file. Its ETS
 header is rejected when its magic is not `ETS`, its pixel type is not in
-`pixel_types`, its `channels` are not 1, 3 or 4, its compression is 8 or 9
-(named in the rejection as PNG or BMP) or any other value
-than 0, 2, 3 or 5, its tiles are not 1 to 65535 pixels on each side, its
+`pixel_types`, its `channels` are not 1, 3 or 4, its compression is any other
+value than 0, 2, 3, 5, 8 or 9, its compression is 8 (PNG) and its pixel type
+not `uint8` or `uint16`, or 9 (BMP) and its pixel type not `uint8` (a stream of
+those formats holds no other, and could not decode to the array's data type),
+its tiles are not 1 to 65535 pixels on each side, its
 `tile_depth` is not 1, or its `dimensions` are 1 or more than
 `coordinates` (0, as a version 0x30003 header has, lists no sizes: every
 coordinate but the column, the row and the level then has the size 1).
@@ -1018,13 +1050,16 @@ referenced as [conventions §7](../conventions.md#7-source-values-as-arrays)
 references a chunk of a store's object. An IFD image's chunk is, for JPEG,
 three parts (the strip's first 2 bytes, the prefix as a data source, the
 rest of the strip), or the strip alone, and for an uncompressed image one
-range per run of contiguous strips, of the `.vsi` file's object. A
-reference that does not fit in a payload ([§1.2](../zarrify.md#12-input))
-rejects the input (an uncompressed IFD image of thousands of strips). The
+range per run of contiguous strips, of the `.vsi` file's object. An
+uncompressed IFD image whose runs do not fit in a reference's payload
+([§1.2](../zarrify.md#12-input)), one of thousands of strips apart, is not
+presented ([the convention §4.4](#44-ifd-images-that-are-not-presented)). The
 output's data sources are the distinct JPEG prefixes (one per IFD image
 with a prefix, shared when equal). The output's source table is one `url` source per object a
 reference uses (its object URL, with a `size` pin), in order of first use, then the data sources
-in order of first use (the references taken in the order of their keys).
+in order of first use (the references taken in the order of their keys). A file no reference uses,
+such as a `.vsi` file whose IFD images are all left out, has no source: the mirror's reader reads
+it at its object URL ([conventions §8.9](../conventions.md#89-stores)).
 
 <a id="type-vsitilechunk"></a>**`VsiTileChunk`**, a pyramid's chunk, `i` the `url` source of its
 tile file's object:
@@ -1056,6 +1091,7 @@ summary, with these members:
 | member | value |
 |---|---|
 | `images` | one object per image (below) |
+| `notPresented` | the IFD images left out ([the convention §4.4](#44-ifd-images-that-are-not-presented)) |
 | `chunks` | the number of all images' chunks |
 | `dataSources` | the data sources |
 | `ifds` | every IFD read, EXIF included |

@@ -57,22 +57,36 @@ own with a standard codec. The same few techniques recur:
 | the whole array is one compressed stream with no index of its blocks (a gzip-encoded NRRD) | one chunk of the whole array, referencing the stream, decoded by the `gzip` codec: coarse, but nothing is copied | NRRD (`gzip`) |
 | the unit is too large to be a chunk (one JPEG strip per level) | cut it at the format's own resynchronization points (restart markers), and rewrite each piece's header as literal bytes | NDPI |
 | rows have padding | one byte range per row, gathered into one chunk | ND2 |
+| the unit is too small to be a chunk (a strip of one row, so a key a row), and is uncompressed | several units as one chunk: one range where they are contiguous, a range each where they are not, up to a limit in bytes and in units | TIFF uncompressed strips |
+| the unit is too small to be a chunk, and is its own compressed stream, or a read of part of a larger chunk should stay cheap | **a virtual shard**: the units are inner chunks of the stock `sharding_indexed` codec, and one reference holds their ranges and a literal index, with no new codec and nothing decoded | TIFF LZW, Deflate and zstd strips; FLAC frames |
 | units carry a per-unit header | a codec that parses it, rather than layout tricks | N5 (`n5_default`) |
 | units are too many to reference (a billion chunks), but groups of them are regular boxes of the grid with an index of their own | one reference per group, whole, and a codec that reads the group's own index when a unit is read: the output comes from the listing alone | Neuroglancer precomputed (`refkv.precomputed`) |
 | a unit's decoded shape depends on where it lies, which a codec is not told (a chunk clipped by the volume's end) | a small literal before each reference that gives its position, read for no request | Neuroglancer precomputed |
 | units carry a few header bytes before a standard stream | a range that starts after them; the header's one meaningful bit becomes a codec | CZI (the Zstd1 header, whose hi-lo flag is `numcodecs.shuffle`) |
 | the unit's bytes are a transform of the pixels a standard codec undoes (16-bit values split into low and high bytes) | that codec in the chain, before the compressor | CZI (`bytes`, `numcodecs.shuffle`, `zstd`) |
 | the unit's values are differences along a row (a horizontal predictor) | an array-to-array codec before `bytes` that sums them back along that axis | TIFF Predictor 2 (`imagecodecs_delta`, `bytes`, `refkv.tiff_lzw`) |
+| the unit's bytes are reordered by significance and differenced (a floating-point predictor), so that they are not yet values in any byte order | an array-to-bytes codec in the place of `bytes` | TIFF Predictor 3 (`imagecodecs_floatpred`, `numcodecs.zlib`) |
 | the last column or row of units is narrower (a region clipped by the scan) | the zarr-extensions `rectilinear` chunk grid, a run of full chunks and one short one per axis | CZI pyramid levels |
+| the last strip of an image is short, and its stream cannot be extended | the `rectilinear` chunk grid, a chunk a strip, unsharded | TIFF Deflate, zstd, JPEG and JPEG 2000 strips |
 | the last strip of an image is short | pad it to the chunk: a zero data source after an uncompressed strip, or a literal tail (a Clear code, a run of zeros, an end code) spliced into an LZW stream where its output reaches the strip's size, so the grid stays regular | QPTIFF levels in strips |
 | a unit's stream runs past the unit (an encoder's malformed end code) | a codec that decodes into the chunk's size and stops there, as the format's own readers do | QPTIFF LZW tiles (`refkv.tiff_lzw`) |
 | units lie at arbitrary positions, overlapping (stage tile scans) | one array per position, holding all its planes, and recording where it lies; repeated planes at one position in further arrays | CZI tiles |
 | samples are interleaved, or the order is Fortran | a `transpose` codec | TIFF, ND2, NIfTI RGB, Zarr v2 `order: F` |
 | byte order | the `bytes` codec's `endian` | everywhere |
-| elements narrower than a byte (4- and 6-bit floats), packed least significant bit first | the zarr-extensions `packbits` codec in place of `bytes`, and chunks cut where a run of elements starts on a byte (else one chunk) | safetensors `F4`, `F6_*` |
+| elements narrower than a byte (1- and 4-bit values, 4- and 6-bit floats), packed least significant bit first | the zarr-extensions `packbits` codec (bit packing, not TIFF's PackBits) in place of `bytes`, and chunks cut where a run of elements starts on a byte (else one chunk) | safetensors `F4`, `F6_*`; DICOM Bits Allocated 1; MRC mode 101 |
 | edge units are truncated or padded | a codec that tolerates it (N5), or stores matching Zarr's whole-edge rule (HDF5); chunks wholly outside the image are dropped | N5, IMS |
 | units are missing | no entry: the chunk reads as the fill value | ND2 missing frames, HDF5 unallocated chunks, sparse Zarr |
 | the source's key scheme | a chunk key encoding that reproduces it | Zarr v2 and N5 via the `v2` encoding |
+
+**Reach for a virtual shard first when units are small and many**
+([zarrify §2.1](zarrify.md#21-virtual-shards)). It is the only technique here that gathers units
+without changing how each one decodes, so it needs no new codec and works for compressed units,
+which joining cannot do. A key per unit costs about 100 bytes of an archive; a unit in a shard costs
+16, plus its range when it does not meet the one before. A partial read stays exact. What it does not
+do is make every reader cheaper: a reader that fetches one inner chunk at a time asks its store for
+as many values as before, and only a store that merges reads spares the source. The limit is the 65,519-byte payload of a reference, which rules it out at the scale of a
+Neuroglancer precomputed shard ([precomputed](zarrify/precomputed.md)), and it needs a regular grid
+of units that share a shape.
 
 A format whose units can't be made to decode independently (multi-file
 series, TILED_SPARSE) is rejected rather than approximated. (LZW tiles and
@@ -205,6 +219,7 @@ From [§1](#1-three-kinds-of-information), [§4](#4-numeric-metadata-as-arrays) 
 | N5 | each node's `attributes.json` without its layout members (`dimensions`, `blockSize`, `dataType`, `compression`, `n5`) | none | none |
 | Neuroglancer precomputed | the `info` document, every member, and on each array its scale; scales not presented, each with its reason | none | none |
 | Zarr v2, OME-Zarr | each node's `.zattrs` | none | none |
+| Zarr v3 | none: attributes stay in place, but `refkv_zarrified` and a `zarr_conventions` that would collide | none | none |
 | CZI | the file header (version, GUIDs) | the attachment directory's entries (name, type, GUID, the form of their data), within a 64 KiB budget | the directory as copied typed columns, one per field and dimension; subblock metadata, attachments and unplaced data as families; the metadata XML, attachments (time stamps and focus positions typed, event lists as columns), unreferenced segments and the tail by reference |
 | safetensors | the header's length and `__metadata__`, and every tensor's entry as written (name, `dtype`, shape, `data_offsets`, other members), with its path or the reason it is not presented | none | none; the header and each tensor's data by reference |
 | SAFE | the product's identity (a fixed set of fields, a derived convenience); per band, the values that interpret it (band id, wavelengths, gains, irradiance, quantification and offsets), recorded and not applied; GeoZarr `proj` and `spatial` on the resolution groups | the XML documents as text within a 64 KiB budget, and the keys of the rest | the XML documents past the budget, and each band file's JP2 header, as arrays of bytes; every other file kept whole |

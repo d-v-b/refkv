@@ -13,10 +13,13 @@ An implementation is a command:
 zarrify <url> <out.json>
 ```
 
-- `<url>` is an `http://` URL of an image file (any profile, a SAFE zip
-  included), or of a store (N5, Zarr v2, OME-Zarr 0.4 or a SAFE directory),
-  whose URL ends in `/` ([§1.4](../../spec/zarrify.md#14-store-inputs)). Use it, exactly as given, as the input
-  URL `U` of the specification ([§1.2](../../spec/zarrify.md#12-input)).
+- `<url>` is an `http://` URL of a file of any file profile (an image, audio, a
+  table or a model's tensors, a SAFE zip included), or of a store (N5, Zarr v2, OME-Zarr
+  0.4, Neuroglancer precomputed, a SAFE directory or a store of safetensors files), whose URL ends in `/`
+  ([§1.4](../../spec/zarrify.md#14-store-inputs)). A VSI, NRRD or GRIB file, or a LAS X document, is read with
+  the files beside it, by name ([§1.8](../../spec/zarrify.md#18-files-read-as-stores)).
+  Use the URL, exactly as given, as the input URL `U` of the specification
+  ([§1.2](../../spec/zarrify.md#12-input)).
 - On success, write the output ([§1.1](../../spec/zarrify.md#11-output-and-equivalence)) to `<out.json>` as described below, and
   exit with status 0. Printing a one-line summary to stdout is optional.
 - If the specification rejects the input, exit with status 3, write nothing,
@@ -46,6 +49,16 @@ the buckets `f` and `u`), and the server answers
 `ListBucketResult` of at most 100 keys per page. A store's objects are served
 like files (`HEAD`, and `GET` with a single `Range`), at the store URL
 followed by the key ([§1.4](../../spec/zarrify.md#14-store-inputs)).
+
+A store may also be listed the Hugging Face Hub's way
+([§1.5](../../spec/zarrify.md#15-listing-a-store)). The server is a Hub endpoint at
+`http://127.0.0.1:<port>/hub/`, which `compare.py` passes to the implementations it runs
+as `HF_ENDPOINT`. There the model repository `f/fixtures` is the fixture directory, so
+`http://127.0.0.1:<port>/hub/f/fixtures/tree/main/<format>/<store name>/` is a fixture
+store. Any other repository is the Hub's own, read through the server's cache. A tree page
+holds at most 16 entries, directories among them, and links the next page with a `Link`
+header whose URL is relative. `compare.py` lists each store profile's largest fixture store
+that it does not reject this way too (`fixture-hub-<store name>`).
 
 ## The output file
 
@@ -134,10 +147,11 @@ include:
 - `https://uk1s3.embassy.ebi.ac.uk/idr/zarr/v0.4/idr0072B/9512.zarr/`
   (an OME-Zarr 0.4 plate from IDR, 24634 objects, path-style listing).
 
-`compare.py --fixtures <dir>` takes the store fixtures from `<dir>/n5/`,
-`<dir>/zarr2/` and `<dir>/ome-zarr/` (as `mutate.py` writes them), and `--large` adds the corpus
+`compare.py --fixtures <dir>` compares only the fixture files and stores under `<dir>` (as
+`mutate.py` writes them): a store is a directory directly under `<dir>/<p>/`, for each profile
+`<p>` of the registry whose kind is `store` or `both`. `--large` adds the corpus
 inputs marked `py-only`, which every implementation but the browser's runs. A mutant of a
-fixture in `revised.json` compares as its fixture does: without the frozen reference.
+fixture in [`revised/`](revised/README.md) compares as its fixture does: without the frozen reference.
 
 When a remote server does not serve an input (a timeout, a reset connection, an HTTP error
 after the proxy's retries, or a 404 for the input itself), the proxy answers the request
@@ -157,19 +171,26 @@ with the first's:
   the reader policy refuses by default). For TIFF, ND2, CZI, DICOM, NIfTI, IMS, NDPI and SAFE
   files, and SAFE directories and Zarr v2, OME-Zarr and N5 stores, it runs the frozen Python profiles in
   `conformance/zarrify/reference/refkv_reference/` (what `refkv.zarrify`
-  shipped before these formats moved to the IR, unchanged but for their import
-  paths); for every other profile, the shipped code. A profile added since
+  shipped before these formats moved to the IR). What they share with the shipped code
+  still is the shipped code, through `refkv_reference/legacy.py`, and their own modules
+  changed only in their import paths and as the paragraphs below say. It has no other profile: it rejects any other file. A profile added since
   (its registry entry's `reference` is null, spec/zarrify/profiles/) was
   never implemented outside the core, so it has no reference: its inputs
-  (`no-ref` in the corpus) compare `py` with `web` alone.
+  (`no-ref` in the corpus) compare `py` with `web` alone. So do the fixtures whose
+  layout or verdict a profile changed after the freeze ([`revised/`](revised/README.md)), the stores
+  listed the Hub's way, and an input the reference rejects that the others zarrify
+  with a profile it never had.
 - `py`: `python -m refkv.zarrify --allow-private-hosts`.
 - `web`: the browser code under Node, `js/conformance/zarrify.ts
   --allow-private-hosts`.
 
 For every profile, `py` and `web` are one implementation: the Rust core
 `rust/refkv-ir` (its parsers, schemas, read planner, projections and mirror),
-built natively for Python and as wasm32 for the browser, each with a thin host
-(the I/O, and the archive writer). Their `refkv_source` is the IR's mirror,
+built natively for Python and as wasm32 for the browser, each with a host of its
+own (the I/O, the reader policy, a store's listing and the choice of its profile, and
+the archive writer). The CLI (`rust/refkv-cli`) is a third host of the same core, which
+`compare.py` does not run: `just cli-identical` checks that it writes `py`'s archives,
+byte for byte. Their `refkv_source` is the IR's mirror,
 which the reference does not write. So:
 
 - `ref` against `py` and `web`, outside `refkv_source`: proves that the IR path
@@ -184,19 +205,20 @@ which the reference does not write. So:
 - `py` against `web`, entirely (`refkv_source` included): proves that the two
   hosts drive the core alike and write the same archive contents (the native
   and wasm32 builds agree, and so do the Python and browser drivers and
-  writers). It no longer proves that two independent implementations of the
-  convention agree: the parsers, checks and projections exist once. That
-  independence now rests on the frozen reference, which stops at what it does
-  today: the mirror (`refkv_source`) has no second implementation, and its
-  checks are the byte-exact rebuild of the source from it and its canonical
-  form (below).
+  writers, listings and choosers). It no longer proves that two independent
+  implementations of the convention agree: the parsers, checks and projections
+  exist once. That independence now rests on the frozen reference, which stops at
+  what it does today: the mirror (`refkv_source`) has no second implementation. Its
+  checks are `compare.py`'s (below), and the byte-exact rebuild of the source from
+  it, which the Rust tests and the verify scripts run on a file's mirror
+  (`js/test/ir_mirror.py`).
 
 Since revision 21, `refkv_source` of TIFF, ND2 and CZI is the IR mirror of
 [conventions §8](../../spec/conventions.md#8-the-ir-mirror), and since revision 26 those of DICOM, NIfTI, IMS, NDPI, SAFE, Zarr v2, OME-Zarr and N5 too; since revision 22 the mirror is canonical ([conventions §8.8](../../spec/conventions.md#88-canonical-form))
 and [spec/zarrify.md §1.1](../../spec/zarrify.md#11-output-and-equivalence) compares it entry for entry, as `py` against `web`
 does. `compare.py` also checks each archive's mirror on its own, in addition
 to that comparison: it loads the table, checks its invariants (conventions
-[§8.4](../../spec/conventions.md#84-reading-the-source-back)), checks that it describes a source of the size source 0 pins, and
+[§8.4](../../spec/conventions.md#84-reading-the-source-back)), checks that it describes a source of the size source 0 pins, that its view is the one its table and the source give, and
 checks that it is canonical (folded again from what it loads, it is the same
 table, entry for entry); a mirror that fails is a crash of the
 implementation that wrote it. A store IR's mirror (that of a store input, or of a VSI, NRRD or GRIB
@@ -227,33 +249,36 @@ bytes, and paths of the reference's `vzip_source` arrays), and reads the shipped
 code's NIfTI edge-chunk padding, a range of the output's zero data source since
 [nifti.md §7.2](../../spec/zarrify/nifti.md#72-chunks) changed, as the literal range of
 its bytes that the reference writes (`literal_padding`), so that the zero data source
-drops out with the sources no compared entry uses. So the revision number, those
-members and the padding's form are the only differences it does not report; a
-profile added since (such as MRC) has no reference, and compares `py` with `web`
-alone.
+drops out with the sources no compared entry uses. It also leaves out of the shipped
+code's root image the `omero` of TIFF and NDPI, added after the freeze (`without_added`).
+So these are the only differences it does not report, outside `refkv_source`: the revision
+number, the names the reference keeps (below), those members, that `omero`, the padding's
+form, and the sources no compared entry uses, with the order of the url sources (above). A
+profile added since (such as MRC) has no reference, and compares `py` with `web` alone, as
+does a fixture of [`revised/`](revised/README.md).
 
-**Zarr v2 stores, since revision 26,** are on the core too (its `zarr2` store
-format), and compared as TIFF, ND2 and CZI are: `ref` runs the frozen Zarr v2
-profiles (`refkv_reference/zarr2`, `reference/ts/zarr2`, with the store dispatch
-as it was, which sends a SAFE directory to the frozen SAFE twin), whose roots
-record revision 25 (`STORES_REVISION`, the frozen SAFE twins' too, in
-`revision.py` and `revision.ts`), which `compare.py` also drops. A store's mirror is checked on its own as a store IR's
+**Stores, since revision 26,** are on the core too (its `zarr2`, `n5` and `safe` store
+formats), and compared as TIFF, ND2 and CZI are. `ref` runs the frozen store dispatch
+(`refkv_reference/store.py`), which sends a store to the frozen Python profile its root keys
+select: `refkv_reference/zarr2`, `n5`, `safe`, or `ome_zarr`, which builds on the Zarr v2 one.
+Their roots record revision 25 (`STORES_REVISION`, in `revision.py` and `revision.ts`), which
+`compare.py` also drops.
+
+Their TypeScript twins are in `conformance/zarrify/reference/ts/`, with the dispatch in
+`store.ts`, which also refuses a store of safetensors files, since the frozen reference never
+had that profile. `compare.py` does not run them; the Node tests and some verify scripts do.
+
+OME-Zarr goes through the `zarr2` store format: after reading the node documents it decides
+whether the root declares OME-NGFF 0.4, and its OME layer gives OME-Zarr's hierarchy. The
+safetensors store form has no reference, and compares `py` with `web` alone.
+
+A store's mirror is checked on its own as a store IR's
 ([conventions §8.9](../../spec/conventions.md#89-stores)): it loads and checks,
 rebuilds the listing (every url source an object of it, of the size the source
 pins, and every referenced object named by a source) and every held object byte
 for byte as the store serves it, is canonical, and its view is the one its table
 and the store give (a SAFE band file's values, described in place, read from the
 store at their virtual offsets), with no source 0 read.
-
-**N5 stores, since revision 26,** are on the core too (its `n5` store format),
-compared and checked as Zarr v2 stores are: `ref` runs the frozen N5 profiles
-(`refkv_reference/n5`, `reference/ts/n5`), whose roots record revision 25
-(`STORES_REVISION`).
-**OME-Zarr stores, since revision 26,** go through the same store format: after
-reading the node documents it decides whether the root declares OME-NGFF 0.4, and its
-OME layer gives OME-Zarr's hierarchy. `ref` runs the frozen OME-Zarr profiles
-(`refkv_reference/ome_zarr`, `reference/ts/ome-zarr`, on the frozen Zarr v2 ones), whose
-roots record revision 25 as the frozen Zarr v2 profiles' do.
 
 **The frozen reference keeps the names of its revisions.** Revision 27 renamed
 the source metadata node `vzip_source` to `refkv_source`, the convention's
@@ -265,12 +290,14 @@ byte: they take what they share with the shipped code from
 `conformance/zarrify/reference/ts/legacy.ts`, which are the shipped `common`
 modules but for those names, and which translate them (`current_names`,
 `currentNames`). `compare.py` reads a reference output that has the old names
-with the current ones (`at_revision`), and leaves out its source metadata node
+with the current ones (`at_revision`), and the codecs renamed since as the shipped code names
+them (`CODEC_NAMES`), and leaves out its source metadata node
 under either name; the tests that compare the frozen profiles with the Rust core
 do the same (`python/tests/ir/conftest.py`, `js/test/ir/compare.ts`).
 
 **The frozen reference stays.** The frozen implementations
-(`conformance/zarrify/reference`, `conformance/zarrify/reference/ts`) are kept
-unchanged as the independent check of the IR path's hierarchy, at least until
+(`conformance/zarrify/reference/refkv_reference`, which `ref` runs, and
+`conformance/zarrify/reference/ts`) are kept, changed only as this section says, as the
+independent check of the IR path's hierarchy, at least until
 the conventions have been revised around the IR and CI has run on the IR path
 for a while. Whether and when to delete them is the user's decision.

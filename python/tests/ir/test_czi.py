@@ -7,25 +7,112 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import override
 
+import numpy as np
 import pytest
-from ir_helpers import FIXTURES, as_the_reference, same_hierarchy
+from ir_helpers import FIXTURES, REVISED, as_the_reference, same_hierarchy, zarrified
 from refkv_reference import virtualize  # the frozen reference (ir_helpers)
 from refkv_reference.czi.xml import read_xml_values
 
 from refkv import _core
-from refkv._narrow import integer, mapping, number
+from refkv._narrow import at, integer, mapping, ndarray, number, sequence, string
 from refkv.ir import parse
 from refkv.ir import zarrify as via_ir
 from refkv.ir.planner import HttpTransport
 from refkv.policy import Policy
 from refkv.zarrify import Rejected
 
-CZIS = sorted((FIXTURES / "czi").iterdir())
+CZIS = sorted(p for p in (FIXTURES / "czi").iterdir() if p.name not in REVISED)
 
 
-@pytest.mark.parametrize("path", CZIS, ids=lambda p: p.name)
+@pytest.mark.parametrize("path", [p for p in CZIS if p.name not in REVISED], ids=lambda p: p.name)
 def test_projects_as_today_and_rebuilds(path, tmp_path):
     as_the_reference(path, tmp_path, "czi")
+
+
+def ramp(dtype: str, samples: int, w: int, h: int, k: int = 0) -> np.ndarray:
+    """The known pixels of the generator's codec fixtures, [h, w] or [h, w, samples], as stored."""
+    kind = np.dtype(dtype)
+    v = np.arange(w * h * samples, dtype=np.int64) * 37 + k * 101
+    if kind.kind == "c":
+        out = (v / 8 + 1j * v / 16).astype(kind)
+    elif kind.kind == "f":
+        out = (v / 8).astype(kind)
+    else:
+        out = (v % (int(np.iinfo(kind).max) + 1)).astype(kind)
+    return out.reshape((h, w) if samples == 1 else (h, w, samples))
+
+
+LZW_TYPES = [("u1", 1), ("<u2", 1), ("<f4", 1), ("u1", 3), ("<u2", 3), ("<f4", 3), ("u1", 4), ("<c8", 1), ("<c8", 3),
+             ("<i4", 1), ("<f8", 1)]
+
+
+def lzw_cases():
+    """(image, what its level holds, its codecs after `transpose`) of czi_lzw.czi."""
+    for k, (dtype, samples) in enumerate(LZW_TYPES):
+        one_byte = np.dtype(dtype).itemsize == 1
+        little = {"name": "bytes"} if one_byte else {"name": "bytes", "configuration": {"endian": "little"}}
+        yield k, ramp(dtype, samples, 12, 8, k), [little, {"name": "imagecodecs_lzw"}]
+
+
+def test_lzw_lossless_and_12_bit_subblocks_read_their_pixels(tmp_path):
+    """spec/zarrify/czi.md §3.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#31-pixel-types-and-codecs>: every
+    value, read through zarr-python and `refkv.zarr`, and the mirror rebuilds each file."""
+    out, g, _ = zarrified(FIXTURES / "czi" / "czi_lzw.czi", tmp_path, "czi")
+    for k, want, codecs in lzw_cases():
+        meta = json.loads(out.bytes_entries[f"{k}/0/zarr.json"])
+        assert meta["codecs"][-2:] == codecs
+        got = ndarray(g.get_array(f"{k}/0")[...])
+        if want.ndim == 3:  # [c, y, x], the samples in the order they are stored
+            got = np.moveaxis(got, 0, -1)
+            channels = sequence(at(g.get_group(str(k)).attrs, "ome", "omero", "channels"))
+            assert [string(at(c, "label"))[-1] for c in channels] == list("BGRA"[: want.shape[2]])
+        assert got.dtype == want.dtype
+        assert np.array_equal(got, want)
+    clipped = g.get_array(f"{len(LZW_TYPES)}/0")
+    meta = json.loads(out.bytes_entries[f"{len(LZW_TYPES)}/0/zarr.json"])
+    assert meta["chunk_grid"]["configuration"]["chunk_shapes"] == [[[8, 1], 5], [[10, 2], 7]]
+    rows = [np.hstack([ramp("<u2", 1, 7 if i == 2 else 10, 5 if j == 1 else 8, 100 + 10 * j + i) for i in range(3)])
+            for j in range(2)]
+    assert np.array_equal(ndarray(clipped[...]), np.vstack(rows))
+
+    out, g, _ = zarrified(FIXTURES / "czi" / "czi_ljpeg.czi", tmp_path, "czi")
+    twelve = ramp("<u2", 1, 12, 8, 2) % 4096
+    # the last two are lossless streams under JpgFile
+    wants = [ramp("u1", 1, 12, 8, 0), ramp("<u2", 1, 12, 8, 1), twelve,
+             ramp("u1", 1, 12, 8, 3), ramp("<u2", 1, 12, 8, 4)]
+    for k, want in enumerate(wants):
+        assert json.loads(out.bytes_entries[f"{k}/0/zarr.json"])["codecs"] == [{"name": "imagecodecs_ljpeg"}]
+        got = ndarray(g.get_array(f"{k}/0")[...])
+        assert got.dtype == want.dtype
+        assert np.array_equal(got, want)
+
+    out, g, _ = zarrified(FIXTURES / "czi" / "czi_jpeg_12bit.czi", tmp_path, "czi")
+    assert json.loads(out.bytes_entries["0/0/zarr.json"])["codecs"] == [{"name": "imagecodecs_jpeg"}]
+    smooth = (np.arange(32 * 16, dtype=np.uint16).reshape(16, 32) * 7).astype("<u2")
+    want = np.hstack([smooth, smooth + 64])
+    got = ndarray(g.get_array("0/0")[...])
+    assert got.dtype == np.dtype("uint16")
+    assert got.max() > 255  # 12-bit values, not an 8-bit stream's
+    assert np.abs(got.astype(int) - want.astype(int)).max() <= 16  # the stream is lossy
+
+
+def test_a_stream_that_does_not_fit_its_subblock_has_no_array(tmp_path):
+    """spec/zarrify/czi.md §3.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#32-conforming-and-unplaced-subblocks>:
+    an 8-bit JPEG under Gray16 (it would read as 0 to 255), a lossless stream of the wrong
+    precision or of 3 components, a stream of another kind, and LZW codes in the other bit order,
+    are unplaced, their data kept as bytes; the rest of the file is read."""
+    out, g, ir = zarrified(FIXTURES / "czi" / "czi_codec_unplaced.czi", tmp_path, "czi")
+    assert at(g.get_group("OME").attrs, "ome", "series") == ["0"]
+    assert at(g.get_group("0").attrs, "refkv_zarrified", "czi") == {"dimensions": {"S": 8}}
+    assert "tiles/zarr.json" not in out.bytes_entries
+    kinds = []
+    for i in range(9):
+        sub = integer(ir.child(0, f"subblocks/{i}"))
+        kinds.append((ir.kind(integer(ir.child(sub, "data"))), ir.kind(integer(ir.child(sub, "sizes")))))
+    assert all(data == sizes for data, sizes in kinds[:8])  # a value, not coded data
+    assert kinds[8][0] != kinds[8][1]
 
 
 XMLS = [

@@ -8,25 +8,22 @@
   },
   "tables": {
     "modes": {
-      "about": "mode: Zarr data type, bytes per voxel; a mode 0 file with IMOD's stamp (1146047817 at byte 152) and bit 0 of its flags (byte 156) set is uint8 instead",
+      "about": "mode: Zarr data type, bytes per voxel (bits, for one packed narrower than a byte); a mode 0 file with IMOD's stamp (1146047817 at byte 152) bit 0 of its flags (byte 156) clear, and nversion outside 20140 to 20999 is uint8 instead",
       "0": {"dtype": "int8", "bytes": 1},
       "1": {"dtype": "int16", "bytes": 2},
       "2": {"dtype": "float32", "bytes": 4},
+      "3": {"dtype": "struct", "bytes": 4},
       "4": {"dtype": "complex64", "bytes": 8},
       "6": {"dtype": "uint16", "bytes": 2},
-      "12": {"dtype": "float16", "bytes": 2}
-    },
-    "unsupported": {
-      "about": "modes the profile names and rejects",
-      "3": "COMPLEX_INT16",
-      "101": "INT4"
+      "12": {"dtype": "float16", "bytes": 2},
+      "101": {"dtype": "uint8", "bytes": 1, "bits": 4}
     }
   },
   "elements": {
     "about": "The IR of an MRC file. E is the file's byte order (< or >), n the extended header's length (nsymbt), B the data's size.",
     "header": {"kind": "value", "type": "the 1024-byte header as one record, a field per field of spec/zarrify/mrc.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#2-the-header> in its order: numbers Ei4, Ef4 (arrays for T[k]), u1[4] for machst, bytes[k] for the extra space, cstr[k] for text, and {text:cstr[80]}[10] for the labels", "extent": "(0, 1024)"},
     "extended": {"kind": "value", "type": "bytes[n]", "extent": "(1024, n), when n > 0: the extended header, opaque"},
-    "data": {"kind": "data", "form": "{geometry: {data_type, samples: 1}, codec: {endian}, recipe: [[src, 0, null]]}", "extent": "(1024 + n, B)"},
+    "data": {"kind": "data", "form": "{geometry: {data_type, samples: 1}, codec: {endian}, recipe: [[src, 0, null]]}; of a gzipped file, codec: {encoding: gzip, endian, skip: 1024 + n}", "extent": "(1024 + n, B); of a gzipped file, the whole file, and no other element"},
     "gaps/<offset>": {"kind": "gap", "about": "bytes after the data"}
   },
   "roles": {
@@ -50,9 +47,8 @@
     },
     "mode": {
       "given": {"code": "mode"},
-      "derive": {"spec": "at(modes, code)", "named": "at(unsupported, code)"},
+      "derive": {"spec": "at(modes, code)"},
       "constraints": [
-        {"require": "!present(named)", "message": "unsupported MRC mode {code} ({named})"},
         {"require": "present(spec)", "message": "unknown MRC mode {code}"}
       ]
     },
@@ -70,9 +66,21 @@
       ]
     },
     "data_size": {
-      "given": {"total": "B = nx * ny * nz * b, exactly", "total_shown": "B in decimal", "offset": "1024 + nsymbt", "size": "the file's size"},
+      "given": {"total": "B = nx * ny * nz * b, or ceil(nx * bits / 8) * ny * nz for a packed mode, exactly", "total_shown": "B in decimal", "offset": "1024 + nsymbt", "size": "the file's size"},
       "constraints": [
         {"require": "total <= max_safe && offset + total <= size", "message": "the {total_shown}-byte data at {offset} is outside the {size}-byte file"}
+      ]
+    },
+    "gzip_stream": {
+      "given": {"stream": "(1024 + n + B) modulo 2^32", "stream_shown": "1024 + n + B in decimal", "isize": "the size the gzip trailer records"},
+      "constraints": [
+        {"require": "isize == stream", "message": "the gzip trailer records a stream of {isize} bytes modulo 2^32, not the {stream_shown} of the header and the data: bytes after the data, or a file of several gzip members, which a chunk cannot decode"}
+      ]
+    },
+    "gzip_packed": {
+      "given": {"nx": "nx, of a gzipped file of a packed mode", "bits": "the mode's bits per value"},
+      "constraints": [
+        {"require": "int(nx * bits / 8)", "message": "a gzipped file of {bits}-bit values and odd nx = {nx}, whose rows each start on a byte, which one chunk cannot decode"}
       ]
     }
   }

@@ -380,6 +380,22 @@ def main() -> None:
         '<Channel ID="Channel:0:1" Name="" Color=" +16711935 "><LightPath/></Channel>'
         '<Channel ID="Channel:0:2" Name="&lt;GFP&gt;" Color="-16776961"/>'
         f'<Channel ID="Channel:0:3" Name="{"x" * 257}" Color="4294967295"/>'), 5)
+    # Uncompressed strips, four of 2 rows (spec/zarrify/tiff.md §4.5
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#45-strips>): apart and out of
+    # order, joined as a Concat of three ranges; and one absent, so that the level is not joined.
+    def in_strips(name: str, offsets: list[int], counts: list[int]) -> None:
+        t.chain([t.ifd([(256, SHORT, [8]), (257, SHORT, [8]), (258, SHORT, [8]), (259, SHORT, [1]), (262, SHORT, [1]),
+                        (273, LONG, offsets), (277, SHORT, [1]), (278, SHORT, [2]), (279, LONG, counts)])])
+        t.write(name)
+    t = Tiff()
+    last = t.blob(bytes([40]) * 16)
+    first = t.blob(bytes([10]) * 16)
+    t.blob(b"gap!")
+    second, third = t.blob(bytes([20]) * 16), t.blob(bytes([30]) * 16)
+    in_strips("edge_strips_apart.tif", [first, second, third, last], [16] * 4)
+    t = Tiff()
+    present = [t.blob(bytes([10 * (i + 1)]) * 16) for i in range(4)]
+    in_strips("edge_strips_absent.tif", present, [16, 0, 16, 16])
     for p in sorted(OUT.glob("edge_*.tif")):
         print(p.name, p.stat().st_size)
 
