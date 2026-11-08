@@ -153,6 +153,22 @@ def enums_and_compounds():
         f.create_dataset("with_reference", data=refs)
 
 
+def big_fill_values():
+    """Fill values past 2^53: of an int64, of an enumeration of a uint64 base, and of a compound's
+    int64 member, each a JSON integer exact as Zarr v3 writes it (spec/zarrify/hdf5.md §3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#3-datasets>). Each dataset's
+    second chunk is unallocated, so that it reads as the fill value."""
+    with open_file("hdf5_big_fills.h5") as f:
+        f.create_dataset("int64", shape=(4,), dtype="<i8", chunks=(2,), fillvalue=-(2**60))
+        f["int64"][0:2] = [1, 2]
+        enum = h5py.enum_dtype({"zero": 0, "big": 2**60}, basetype="<u8")
+        f.create_dataset("enum_u64", shape=(4,), dtype=enum, chunks=(2,), fillvalue=np.uint64(2**60))
+        f["enum_u64"][0:2] = np.array([0, 2**60], dtype="<u8")
+        pair = np.dtype([("i", "<i8"), ("f", "<f4")])
+        f.create_dataset("compound", shape=(4,), dtype=pair, chunks=(2,), fillvalue=np.array((2**60, 1.5), dtype=pair))
+        f["compound"][0:2] = np.array([(1, 0.5), (2, 2.5)], dtype=pair)
+
+
 def references_and_links(name: str, libver: str):
     """Object references (datasets and attributes) to groups and datasets, a null one, a target
     with two hard links; a region reference (not presented); soft links (absolute, relative,
@@ -540,6 +556,7 @@ def main():
     scalars_and_strings()
     compact_and_layouts()
     enums_and_compounds()
+    big_fill_values()
     references_and_links("hdf5_links_earliest.h5", "earliest")
     references_and_links("hdf5_links_latest.h5", "latest")
     latest()

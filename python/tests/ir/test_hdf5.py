@@ -184,6 +184,17 @@ def test_float_attributes_read_as_h5py_reads_them():
     assert a["nan_text"] == "NaN"
 
 
+def test_fill_values_past_2_to_the_53_are_exact_json_integers():
+    """An integer fill value past 2^53 in magnitude, of the data type or of an enumeration's base
+    or a compound's member, is a JSON integer, exact, as Zarr v3 writes it (spec/zarrify/hdf5.md §3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#3-datasets>); h5py reads the
+    unallocated chunks as it (test_datasets_are_what_h5py_reads)."""
+    store = zarrify(str(FIXTURES / "hdf5" / "hdf5_big_fills.h5"))
+    fills = {name: mapping(json.loads(store.get(f"{name}/zarr.json") or b"{}"))["fill_value"]
+             for name in ("int64", "enum_u64", "compound")}
+    assert fills == {"int64": -(2**60), "enum_u64": 2**60, "compound": {"i": 2**60, "f": 1.5}}
+
+
 @pytest.mark.parametrize("path", [p for p in ACCEPTED if p.suffix == ".nwb"], ids=lambda p: p.name)
 def test_nwb_files_read_as_pynwb_reads_the_source(path):
     store = zarrify(str(path))
