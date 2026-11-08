@@ -1674,10 +1674,11 @@ impl Tiff {
         if length > 1 << 24 || !self.within(40, length) || !self.within(index, 8) {
             return Ok(None);
         }
-        let summary: J = match serde_json::from_slice(&self.at(40, length)?) {
-            Ok(v @ J::Object(_)) => v,
-            _ => return Ok(None),
-        };
+        // its numbers as serde_json reads them without arbitrary_precision: a summary with a
+        // number not finite in binary64 (1e400), or with serde_json's number token, is not one
+        let text = self.at(40, length)?;
+        let summary = std::str::from_utf8(&text).ok().and_then(crate::json::parse_binary64);
+        let Some(summary @ J::Object(_)) = summary else { return Ok(None) };
         let h = self.at(index, 8)?;
         let n = word(&h, 4) as u64;
         if word(&h, 0) != 3453623 || n == 0 || !self.within(index + 8, 20 * n) {
@@ -3247,7 +3248,7 @@ impl Tiff {
             } else if e.typ == 12 {
                 self.bytes_of(e, n).map(|b| crate::project::float_json(u64::le_at(&b, 0), 8, f64::le_at(&b, 0)))
             } else {
-                self.ints(e, true).map(|v| if v[0] <= MAX_SAFE { json!(v[0]) } else { json!(v[0].to_string()) })
+                self.ints(e, true).map(|v| json!(v[0]))
             };
             match v {
                 Some(v) => {

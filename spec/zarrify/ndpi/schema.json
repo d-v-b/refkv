@@ -173,16 +173,8 @@
               "description": "Tag 65451, the emission wavelength, in nanometers"
             },
             "ExposureTime": {
-              "anyOf": [
-                {
-                  "type": "integer",
-                  "minimum": 0
-                },
-                {
-                  "type": "string",
-                  "pattern": "^[1-9][0-9]{15,19}$"
-                }
-              ],
+              "type": "integer",
+              "minimum": 0,
               "description": "Tag 65454, the exposure time, in microseconds"
             },
             "FocalOffsets": {
@@ -433,7 +425,6 @@
                 "group",
                 "element",
                 "derived",
-                "int",
                 "float",
                 "bytes",
                 "utf16"

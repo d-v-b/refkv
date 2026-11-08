@@ -477,7 +477,7 @@ their row in the table):
 {
   "superblock": {"signature": {"$vz": "bytes", "b64": "iUhERg0KGgo="}, "version": 2,
     "offset_size": 8, "length_size": 8, "flags": 0, "base": 0,
-    "extension": {"$vz": "int", "v": "18446744073709551615"}, "eof": 7604, "root": 48,
+    "extension": 18446744073709551615, "eof": 7604, "root": 48,
     "checksum": 2289594336},
   "objects": {
     "0": {

@@ -26,7 +26,6 @@ FILES = sorted(p for p in (FIXTURES / "fits").iterdir() if p.name.endswith((".fi
 NOT_READ_BY_ASTROPY = {"fits_bintable_unnamed.fits"}
 ACCEPTED = [p for p in FILES if "reject" not in p.name and p.name not in NOT_READ_BY_ASTROPY]
 REJECTED = [p for p in FILES if "reject" in p.name]
-MAX_SAFE = (1 << 53) - 1
 # hand-built fixtures astropy cannot read (an absent tile; no ZTILEn cards): the fixture whose
 # image theirs is, read by astropy, with the rows an absent tile leaves at 0
 SAME_IMAGE = {"fits_comp_hand_absent_tile": ("fits_comp_hand_one_column", slice(3, 6)),
@@ -57,7 +56,7 @@ def card_value(v):
     if isinstance(v, bool):
         return v
     if isinstance(v, int):
-        return v if abs(v) <= MAX_SAFE else str(v)
+        return v
     if isinstance(v, complex):
         return [v.real, v.imag]
     return v

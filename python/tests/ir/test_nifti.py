@@ -132,10 +132,11 @@ def test_an_esize_past_the_voxels_or_negative_ends_the_chain(tmp_path):
         assert out.summary["extensions"] is True
 
 
-def test_integers_past_2_53_are_text_in_the_root(tmp_path):
+def test_integers_past_2_53_are_exact_in_the_root(tmp_path):
     """NIfTI-2 i64 fields the profile never checks (slice_start, slice_end, and dim[4..7]
-    beyond n): an integer within +-(2^53 - 1) is a number in the root, any other text
-    (i64::MIN included), as the reference writes them."""
+    beyond n): every integer is an exact JSON integer in the root (i64::MIN included), where the
+    reference writes one past +-(2^53 - 1) as text (spec/conventions.md §6
+    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>)."""
     edges = [2**53 - 1, -(2**53 - 1), 2**53, -(2**53), 2**63 - 1]
     h = bytearray(540)
     struct.pack_into("<i", h, 0, 540)
@@ -148,8 +149,8 @@ def test_integers_past_2_53_are_text_in_the_root(tmp_path):
     path.write_bytes(bytes(h) + bytes(4) + bytes(8))
     _, out, _ = via_ir(str(path), "https://data.test/m.nii")
     header = json.loads(out.bytes_entries["zarr.json"])["attributes"]["refkv_zarrified"]["nifti"]["header"]
-    assert header["dim"][4:] == [2**53 - 1, -(2**53 - 1), str(2**53), str(-(1 << 63))]
-    assert (header["slice_start"], header["slice_end"]) == (str(-(2**53)), str(2**63 - 1))
+    assert header["dim"][4:] == [2**53 - 1, -(2**53 - 1), 2**53, -(1 << 63)]
+    assert (header["slice_start"], header["slice_end"]) == (-(2**53), 2**63 - 1)
     _, ref = virtualize(str(path), "https://data.test/m.nii")
     same_hierarchy(ref, out)
 

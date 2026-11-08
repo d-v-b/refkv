@@ -4,6 +4,7 @@ probes of gen_probes.py at the tests' sizes, and what the profile reads since th
 lossless JPEG frames and 1-bit images."""
 
 
+import json
 from pathlib import Path
 
 import imagecodecs
@@ -62,6 +63,15 @@ def decides_as_today(path, tmp_path):
 @pytest.mark.parametrize("path", [p for p in DICOMS if p.name not in REVISED], ids=lambda p: p.name)
 def test_projects_as_today_and_rebuilds(path, tmp_path):
     decides_as_today(path, tmp_path)
+
+
+def test_an_is_value_past_its_limits_is_its_text():
+    """An IS value of more than 12 characters or outside -2^31 to 2^31 - 1 is no valid IS (PS3.5
+    Table 6.2-1): its text, as a value that is no number is (spec/zarrify/dicom.md §5.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#52-the-datasets-as-json>)."""
+    _, out, _ = via_ir(str(FIXTURES / "dicom" / "dicom_long_numbers.dcm"), "https://data.test/dicom_long_numbers.dcm")
+    root = json.loads(out.bytes_entries["zarr.json"])
+    assert at(root, "attributes", "refkv_zarrified", "dicom", "dataset", "00200012", "Value") == ["-" + "9" * 4999]
 
 
 @pytest.mark.parametrize("path", LOSSLESS, ids=lambda p: p.name)
