@@ -17,7 +17,8 @@ from refkv import _core, _sync
 from refkv.ir.kind import Kind as Kind  # re-exported: refkv.ir.Kind
 from refkv.ir.output import from_rust
 from refkv.ir.planner import Transport, drive, drive_async, new_run, open_transport
-from refkv.ir.stored import Stored, read
+from refkv.ir.stored import Stored
+from refkv.ir.stored import read as _read_stored
 from refkv.policy import Policy
 from refkv.uri import path_reference
 from refkv.zarrify.common import Output, Rejected
@@ -112,7 +113,7 @@ class Ir:
         """The arrays the source stores, as the IR describes them (spec/stored-array.md
         <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md>): the chain table and the
         descriptions."""
-        return read(self._core.stored_arrays())
+        return _read_stored(self._core.stored_arrays())
 
     def chunk_map(self) -> _core.ChunkMap:
         """The chunk map, a row for each unit the source holds (spec/stored-array.md §4
