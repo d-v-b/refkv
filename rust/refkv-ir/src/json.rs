@@ -134,7 +134,8 @@ impl Jv {
         match j {
             J::Null => Jv::Null,
             J::Bool(b) => Jv::Bool(*b),
-            J::Number(n) if n.is_i64() || n.is_u64() => Jv::Int(n.to_string()),
+            // an integer literal, whatever its magnitude (serde_json's arbitrary_precision)
+            J::Number(n) if n.is_i64() || n.is_u64() || !n.to_string().contains(['.', 'e', 'E']) => Jv::Int(n.to_string()),
             J::Number(n) => Jv::Float(n.as_f64().unwrap_or(0.0)),
             J::String(s) => Jv::str(s),
             J::Array(a) => Jv::Arr(a.iter().map(Jv::from_j).collect()),
@@ -213,6 +214,31 @@ pub struct Doc {
 
 /// The document `data` by spec/zarrify.md §1.6
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#16-json-documents>, or the reason it is rejected.
+/// A JSON number's literal `t` as serde_json reads it without `arbitrary_precision`, but for an
+/// integer literal, which keeps every digit (conventions §6
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>): any
+/// other number its binary64 value; None when that is not finite (`1e400`), which serde_json
+/// refuses as out of range.
+pub fn number_text(t: &str) -> Option<J> {
+    if t.bytes().any(|c| matches!(c, b'.' | b'e' | b'E')) {
+        let x: f64 = t.parse().ok()?;
+        return serde_json::Number::from_f64(x).map(J::Number);
+    }
+    t.parse::<serde_json::Number>().ok().map(J::Number)
+}
+
+/// `j`, parsed by serde_json, with each of its numbers as [`number_text`] reads it: serde_json's
+/// `arbitrary_precision` keeps a number's literal as written, and does not refuse one out of
+/// binary64's range. None when a number is not finite.
+pub fn binary64(j: J) -> Option<J> {
+    Some(match j {
+        J::Number(n) => number_text(&n.to_string())?,
+        J::Array(a) => J::Array(a.into_iter().map(binary64).collect::<Option<_>>()?),
+        J::Object(o) => J::Object(o.into_iter().map(|(k, v)| Some((k, binary64(v)?))).collect::<Option<_>>()?),
+        other => other,
+    })
+}
+
 pub fn parse(data: &[u8]) -> Result<Doc, String> {
     parse_within(data, MAX_DEPTH)
 }
@@ -549,5 +575,29 @@ impl Jv {
     /// An integer, as an integer literal.
     pub fn integer(v: i64) -> Jv {
         Jv::Int(v.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A number's literal as serde_json reads it without arbitrary_precision, but for an integer
+    /// literal, which keeps every digit.
+    #[test]
+    fn numbers_read_as_binary64_but_integers() {
+        for (t, want) in [("0.50", "0.5"), ("1E2", "100.0"), ("-0.0", "-0.0"), ("7", "7"),
+                          ("-170141183460469231731687303715884105729", "-170141183460469231731687303715884105729")] {
+            assert_eq!(number_text(t).map(|j| crate::out::to_text(&j)).as_deref(), Some(want), "{t}");
+        }
+        let j: J = serde_json::from_str(r#"{"a":[1.50,{"b":2e0}],"c":18446744073709551616}"#).unwrap();
+        assert_eq!(crate::out::to_text(&binary64(j).unwrap()), r#"{"a":[1.5,{"b":2.0}],"c":18446744073709551616}"#);
+    }
+
+    /// A number not finite in binary64 has no value.
+    #[test]
+    fn a_number_not_finite_has_none() {
+        assert_eq!(number_text("1e400"), None);
+        assert_eq!(binary64(serde_json::from_str(r#"{"a":[-1e400]}"#).unwrap()), None);
     }
 }

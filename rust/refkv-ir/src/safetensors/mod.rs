@@ -20,6 +20,9 @@ use serde::de::{self, Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde_json::{Map, Value as J, json};
 use std::collections::BTreeSet;
 
+/// The key of the map serde_json's arbitrary_precision gives a visitor for a number.
+const NUMBER_TOKEN: &str = "$serde_json::private::Number";
+
 /// The header's member that is not a tensor.
 const METADATA: &str = "__metadata__";
 
@@ -83,6 +86,12 @@ impl<'de> Visitor<'de> for StrictVisitor {
     fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<J, A::Error> {
         let mut m = Map::new();
         while let Some(k) = map.next_key::<String>()? {
+            // serde_json's arbitrary_precision hands a number that is no i64 or u64 (a float, an
+            // integer past 64 bits) as a map of this one member, its literal
+            if m.is_empty() && k == NUMBER_TOKEN {
+                let literal: String = map.next_value()?;
+                return crate::json::number_text(&literal).ok_or_else(|| de::Error::custom("number out of range"));
+            }
             if m.contains_key(&k) {
                 let short: String = k.chars().take(200).collect();
                 return Err(de::Error::custom(format!("the member {short:?} appears twice")));
@@ -386,4 +395,28 @@ impl crate::run::FileProfile for Profile {
 /// The parser of the profile's store run (`StoreFormat`; crate::store).
 pub fn store_parser(ir: crate::ir::Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> crate::ir::Res<Box<dyn crate::store::StoreParser>> {
     Ok(Box::new(store::SafetensorsStore::new(ir, objects, keys)?))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::out::to_text;
+
+    /// A header's numbers as serde_json reads them without arbitrary_precision, but for an
+    /// integer literal, which keeps every digit: a float, in an entry's other members too.
+    #[test]
+    fn a_header_s_numbers_are_numbers() {
+        let text = r#"{"t":{"dtype":"F32","shape":[1],"data_offsets":[0,4],"scale":0.50,"e":1E2,"big":18446744073709551616,"n":-3}}"#;
+        let Strict(j) = serde_json::from_str(text).unwrap();
+        assert_eq!(to_text(&j), r#"{"t":{"dtype":"F32","shape":[1],"data_offsets":[0,4],"scale":0.5,"e":100.0,"big":18446744073709551616,"n":-3}}"#);
+        let t = entry("t", &j["t"]).unwrap();
+        assert_eq!(t.extra["scale"], json!(0.5));
+    }
+
+    /// A number out of binary64's range is no JSON the header may hold.
+    #[test]
+    fn a_number_out_of_range_is_refused() {
+        let e = serde_json::from_str::<Strict>(r#"{"t":{"x":1e400}}"#).err().unwrap();
+        assert!(e.to_string().starts_with("number out of range"), "{e}");
+    }
 }
