@@ -327,8 +327,12 @@ neither, and compiles no Arrow code.
 with no index; that element is its one declaration (its `descr`, `fortran_order` and `shape`).
 `shape` is the header's, reversed for a Fortran-order array of two or more axes, whose `axes` then
 give the header's order; `item_bits` is eight times the size of an element of its `descr` as NumPy
-lays it out (with a structure's padding fields and fields of shape), whether or not the profile
-presents the array, and is absent only for a `descr` of no size, an object array's. A presented
+lays it out, whether or not the profile presents the array: a type string (with its one-character
+codes, such as `<h` or `?`; a subarray, `(2,3)<f4`; fields joined by commas, `<f8,<i4`) or a
+structure (with its padding fields, fields of shape, fields whose type is a (type, shape) tuple, and
+fields of no bytes, such as `|S0`, which add none). It is absent for a `descr` of no size: an object
+array's; one of 0 bytes; one whose size is the machine's (`l`, `L`, `g`, `G`, `p`, `P`), which a
+header does not give; and a structure with two fields of one name, which NumPy refuses. A presented
 array is one unit, its `data` element, in an empty chain: each axis is `Each` of its length, or an
 empty `List` for an axis of length 0 (which has no unit, and no row), under `short`. NumPy defines
 no fill value: `undefined`. An array whose data is not presented (its `descr` has no data type, or

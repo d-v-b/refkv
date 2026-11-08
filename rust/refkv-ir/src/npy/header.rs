@@ -395,60 +395,147 @@ fn structure(rules: &Rules, fields: &[Lit]) -> Result<Dtype, String> {
 
 /// The size in bytes of an element of `descr` as NumPy lays it out, whether or not the profile
 /// presents it (spec/stored-array.md §7
-/// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>): a type
-/// string's (after its byte order: `U<n>`, 4n bytes; `S<n>`, `a<n>` and `V<n>`, n; `M8` and `m8`,
-/// 8, with or without a unit of NumPy's; a number or boolean, its digits, of a size NumPy has for
-/// its kind), or a structure's, its fields' summed, a field of shape repeated over it and padding
-/// fields counted. None for an object, whose elements are pointers rather than bytes, and for a
-/// size of 0, one past 2^64, or a `descr` that is no NumPy type.
+/// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>): its
+/// [`layout_size`], where that is not 0. None for an object, whose elements are pointers rather
+/// than bytes, for a size of 0 or past 2^64, for a type whose size is the machine's (`l`, `L`, `g`,
+/// `G`, `p`, `P`), and for a `descr` that is no NumPy type.
 pub fn item_size(descr: &Lit) -> Option<u64> {
-    match descr {
-        Lit::Str(s) => {
-            let t = s.strip_prefix(['<', '>', '|', '=']).unwrap_or(s);
-            let kind: String = t.chars().take_while(char::is_ascii_alphabetic).collect();
-            let rest = &t[kind.len()..];
-            let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
-            let unit = &rest[digits.len()..];
-            let n: u64 = digits.parse().ok()?;
-            // NumPy's datetime units, after a multiple (`[10s]`)
-            let unit_ok = |u: &str| {
-                let u = u.trim_start_matches(|c: char| c.is_ascii_digit());
-                ["Y", "M", "W", "D", "h", "m", "s", "ms", "us", "μs", "ns", "ps", "fs", "as", "generic"].contains(&u)
-            };
-            let size = match (kind.as_str(), n) {
-                ("M" | "m", 8) if unit.is_empty() || unit.strip_prefix('[').and_then(|u| u.strip_suffix(']')).is_some_and(unit_ok) => 8,
-                _ if !unit.is_empty() => return None,
-                ("U", _) => n.checked_mul(4)?,
-                ("S" | "a" | "V", _) => n,
-                ("b", 1) | ("i" | "u", 1 | 2 | 4 | 8) | ("f", 2 | 4 | 8 | 12 | 16) | ("c", 8 | 16 | 24 | 32) => n,
-                _ => return None,
-            };
-            (size > 0).then_some(size)
+    layout_size(descr).filter(|&n| n > 0)
+}
+
+/// The size of a type string's one type (after its byte order): `U<n>`, 4n bytes; `S<n>`, `a<n>`
+/// and `V<n>`, n (0 without digits); `M8` and `m8`, 8, with or without a unit of NumPy's; a number
+/// or boolean, its digits, of a size NumPy has for its kind; a one-character code, its fixed size.
+fn type_size(t: &str) -> Option<u64> {
+    let t = t.trim().strip_prefix(['<', '>', '|', '=', '!']).unwrap_or(t.trim());
+    let kind: String = t.chars().take_while(char::is_ascii_alphabetic).collect();
+    let rest = &t[kind.len()..];
+    let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+    let unit = &rest[digits.len()..];
+    // NumPy's datetime units, after a multiple (`[10s]`)
+    let unit_ok = |u: &str| {
+        let u = u.trim_start_matches(|c: char| c.is_ascii_digit());
+        ["Y", "M", "W", "D", "h", "m", "s", "ms", "us", "μs", "ns", "ps", "fs", "as", "generic"].contains(&u)
+    };
+    let datetime_unit = unit.is_empty() || unit.strip_prefix('[').and_then(|u| u.strip_suffix(']')).is_some_and(unit_ok);
+    if kind.is_empty() {
+        // `?`, the boolean's code, is the one code that is not a letter
+        return (t == "?").then_some(1);
+    }
+    if digits.is_empty() {
+        return match kind.as_str() {
+            "M" | "m" if datetime_unit => Some(8),
+            _ if !unit.is_empty() => None,
+            "b" | "B" | "c" => Some(1),
+            "h" | "H" | "e" => Some(2),
+            "i" | "I" | "f" => Some(4),
+            "q" | "Q" | "d" | "F" => Some(8),
+            "D" => Some(16),
+            "S" | "a" | "U" | "V" => Some(0),
+            // `l`, `L`, `g`, `G`, `p`, `P`: the machine's sizes, which a header does not give
+            _ => None,
+        };
+    }
+    let n: u64 = digits.parse().ok()?;
+    match (kind.as_str(), n) {
+        ("M" | "m", 8) if datetime_unit => Some(8),
+        _ if !unit.is_empty() => None,
+        ("U", _) => n.checked_mul(4),
+        ("S" | "a" | "V", _) => Some(n),
+        ("b", 1) | ("i" | "u", 1 | 2 | 4 | 8) | ("f", 2 | 4 | 8 | 12 | 16) | ("c", 8 | 16 | 24 | 32) => Some(n),
+        _ => None,
+    }
+}
+
+/// A shape's element count: an integer, or a tuple of them.
+fn shape_count(shape: &Lit) -> Option<u64> {
+    match shape {
+        Lit::Int(k) => u64::try_from(*k).ok(),
+        Lit::Tuple(ks) => ks.iter().try_fold(1u64, |acc, k| match k {
+            Lit::Int(k) => acc.checked_mul(u64::try_from(*k).ok()?),
+            _ => None,
+        }),
+        _ => None,
+    }
+}
+
+/// A type string's size: one type, a subarray (`(2,3)<f4`, `3<i2`), or fields joined by commas
+/// (`<f8,<i4`), each of those a type or a subarray.
+fn string_size(s: &str) -> Option<u64> {
+    // the fields, at the commas outside a subarray's parentheses
+    let mut parts = Vec::new();
+    let (mut depth, mut from) = (0i32, 0usize);
+    for (k, c) in s.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            ',' if depth == 0 => {
+                parts.push(&s[from..k]);
+                from = k + 1;
+            }
+            _ => {}
         }
+    }
+    parts.push(&s[from..]);
+    parts.into_iter().try_fold(0u64, |acc, p| acc.checked_add(subarray_size(p)?))
+}
+
+/// The size of one field of a type string: a type, or a subarray of it, its shape parenthesized
+/// (`(2,3)<f4`) or a count (`3<i2`).
+fn subarray_size(t: &str) -> Option<u64> {
+    let t = t.trim();
+    if let Some(inner) = t.strip_prefix('(') {
+        let close = inner.find(')')?;
+        let dims = inner[..close].split(',').map(str::trim).filter(|d| !d.is_empty()).try_fold(1u64, |acc, d| acc.checked_mul(d.parse().ok()?))?;
+        return type_size(&inner[close + 1..])?.checked_mul(dims);
+    }
+    let lead: String = t.chars().take_while(char::is_ascii_digit).collect();
+    if !lead.is_empty() {
+        return type_size(&t[lead.len()..])?.checked_mul(lead.parse().ok()?);
+    }
+    type_size(t)
+}
+
+/// The size in bytes of an element of `descr`, 0 for a type of no bytes (`|S0`, `|V0`, `<U0`, or
+/// a structure of such fields): a type string's ([`string_size`]); a structure's, its fields'
+/// summed (a field of shape repeated over it, a field's type a type string, a structure, or a
+/// (type, shape) tuple; padding fields, named `""`, counted), None where two fields share a name,
+/// which NumPy refuses; a (type, shape) tuple's.
+pub fn layout_size(descr: &Lit) -> Option<u64> {
+    match descr {
+        Lit::Str(s) => string_size(s),
+        Lit::Tuple(parts) => match &parts[..] {
+            [d, shape] => layout_size(d)?.checked_mul(shape_count(shape)?),
+            _ => None,
+        },
         Lit::List(fields) => {
+            let mut names = std::collections::HashSet::new();
             let mut total = 0u64;
             for f in fields {
                 let Lit::Tuple(parts) = f else { return None };
-                let (d, shape) = match &parts[..] {
-                    [_, d] => (d, None),
-                    [_, d, s] => (d, Some(s)),
+                let (name, d, shape) = match &parts[..] {
+                    [n, d] => (n, d, None),
+                    [n, d, s] => (n, d, Some(s)),
                     _ => return None,
                 };
-                let mut size = item_size(d)?;
-                match shape {
-                    None => {}
-                    Some(Lit::Int(k)) => size = size.checked_mul(u64::try_from(*k).ok()?)?,
-                    Some(Lit::Tuple(ks)) => {
-                        for k in ks {
-                            let Lit::Int(k) = k else { return None };
-                            size = size.checked_mul(u64::try_from(*k).ok()?)?;
-                        }
-                    }
-                    Some(_) => return None,
+                let name = match name {
+                    Lit::Str(n) => n,
+                    Lit::Tuple(t) => match &t[..] {
+                        [_, Lit::Str(n)] => n,
+                        _ => return None,
+                    },
+                    _ => return None,
+                };
+                if !name.is_empty() && !names.insert(name.clone()) {
+                    return None;
+                }
+                let mut size = layout_size(d)?;
+                if let Some(s) = shape {
+                    size = size.checked_mul(shape_count(s)?)?;
                 }
                 total = total.checked_add(size)?;
             }
-            (total > 0).then_some(total)
+            Some(total)
         }
         _ => None,
     }
@@ -593,6 +680,92 @@ mod tests {
         ];
         for (descr, size) in cases {
             assert_eq!(item_size(&descr), Some(size), "{descr:?}");
+        }
+    }
+
+    /// The item size of each `descr` below is NumPy's: `np.lib.format.descr_to_dtype(descr).itemsize`
+    /// as NumPy 2.5.3 gives it (None where NumPy refuses the `descr`, its type holds objects, or its
+    /// size is 0), a table made with NumPy and kept here.
+    #[test]
+    fn sizes_every_descr_as_numpy_does() {
+        let cases: &[(&str, Option<u64>)] = &[
+            (r#"'<f8'"#, Some(8)),
+            (r#"'|b1'"#, Some(1)),
+            (r#"'<i2'"#, Some(2)),
+            (r#"'>u8'"#, Some(8)),
+            (r#"'<f2'"#, Some(2)),
+            (r#"'<c8'"#, Some(8)),
+            (r#"'>c16'"#, Some(16)),
+            (r#"'?'"#, Some(1)),
+            (r#"'b'"#, Some(1)),
+            (r#"'B'"#, Some(1)),
+            (r#"'<h'"#, Some(2)),
+            (r#"'>H'"#, Some(2)),
+            (r#"'<i'"#, Some(4)),
+            (r#"'I'"#, Some(4)),
+            (r#"'<q'"#, Some(8)),
+            (r#"'>Q'"#, Some(8)),
+            (r#"'<e'"#, Some(2)),
+            (r#"'f'"#, Some(4)),
+            (r#"'<d'"#, Some(8)),
+            (r#"'F'"#, Some(8)),
+            (r#"'>D'"#, Some(16)),
+            (r#"'<M8[ns]'"#, Some(8)),
+            (r#"'>m8[10s]'"#, Some(8)),
+            (r#"'<M8'"#, Some(8)),
+            (r#"'<m8'"#, Some(8)),
+            (r#"'|S5'"#, Some(5)),
+            (r#"'|S0'"#, None),
+            (r#"'|V0'"#, None),
+            (r#"'<U0'"#, None),
+            (r#"'<U3'"#, Some(12)),
+            (r#"'|V7'"#, Some(7)),
+            (r#"'|O'"#, None),
+            (r#"'<f8,<i4'"#, Some(12)),
+            (r#"'<f8,(2,3)<i2'"#, Some(20)),
+            (r#"'(2,3)<f4'"#, Some(24)),
+            (r#"'(4,)|u1'"#, Some(4)),
+            (r#"'3<i2'"#, Some(6)),
+            (r#"[('a', '<f4'), ('b', '|S0')]"#, Some(4)),
+            (r#"[('a', '|S0')]"#, None),
+            (r#"[('a', '<f4'), ('', '|V4'), ('b', '>i2')]"#, Some(10)),
+            (r#"[(('t', 'a'), '<u2'), ('b', '|S3')]"#, Some(5)),
+            (r#"[('a', '<f4', (2, 3)), ('b', '|u1', 4)]"#, Some(28)),
+            (r#"[('a', ('<f4', (2,)))]"#, Some(8)),
+            (r#"[('x', [('y', '<U2')])]"#, Some(8)),
+            (r#"[('a', '<i4'), ('a', '<i2')]"#, None),
+            (r#"[('a', '|O')]"#, None),
+            (r#"[('a', '<h'), ('b', 'B'), ('c', '<D'), ('d', '?')]"#, Some(20)),
+            (r#"[('a', '<f8,<i4')]"#, Some(12)),
+            (r#"'<f3'"#, None),
+            (r#"'<i5'"#, None),
+            (r#"'|b2'"#, None),
+            (r#"'<M8[bogus]'"#, None),
+            (r#"'<q8'"#, None),
+        ];
+        for &(text, want) in cases {
+            let descr = parse(&format!("{{'descr': {text}, 'fortran_order': False, 'shape': ()}}"), 64).unwrap().descr;
+            assert_eq!(item_size(&descr), want, "{text}");
+        }
+    }
+
+    /// A type of no bytes has a layout size of 0, and so does a structure of such fields; the item
+    /// size is None only at the top, so a structure with one such field has its other fields' size.
+    #[test]
+    fn sizes_a_type_of_no_bytes_0_within_a_structure() {
+        let s = |x: &str| Lit::Str(x.into());
+        for d in ["|S0", "|V0", "<U0", "S", "V"] {
+            assert_eq!((layout_size(&s(d)), item_size(&s(d))), (Some(0), None), "{d}");
+        }
+        let zero = Lit::List(vec![Lit::Tuple(vec![s("a"), s("<f4")]), Lit::Tuple(vec![s("b"), s("|S0")])]);
+        assert_eq!(item_size(&zero), Some(4));
+    }
+
+    /// The types whose sizes are the machine's: a header does not give them, so they have none.
+    #[test]
+    fn sizes_no_type_of_the_machines_size() {
+        for d in ["<l", "L", "<g", "G", "p", "P"] {
+            assert_eq!(item_size(&Lit::Str(d.into())), None, "{d}");
         }
     }
 
