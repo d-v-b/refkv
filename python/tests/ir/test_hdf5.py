@@ -198,9 +198,12 @@ def test_fill_values_past_2_to_the_53_are_exact_json_integers():
 def test_a_netcdf_fill_value_is_xarray_s_integer():
     """A `_FillValue` attribute of one integer of an integer dataset is xarray's integer, exactly,
     past 2^53 too, and one the dataset's type does not have (300 of a uint8 dataset), which xarray
-    reads as it is, where it refuses the attribute's list (spec/zarrify/hdf5.md §6
+    reads as it is, where it refuses the attribute's list; and a float's integral value, every digit,
+    past 2^127 too (spec/zarrify/hdf5.md §6
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes>)."""
-    for name, key, want in [("hdf5_big_fills.h5", "int64", -(2**60)), ("hdf5_fill_out_of_range.h5", "uint8", 300)]:
+    float_max = int(np.finfo("<f4").max)  # 340282346638528859811704183484516925440
+    for name, key, want in [("hdf5_big_fills.h5", "int64", -(2**60)), ("hdf5_fill_out_of_range.h5", "uint8", 300),
+                            ("hdf5_fill_out_of_range.h5", "int32", float_max)]:
         store = zarrify(str(FIXTURES / "hdf5" / name))
         attrs = mapping(mapping(json.loads(store.get(f"{key}/zarr.json") or b"{}"))["attributes"])
         assert attrs["_FillValue"] == want, name

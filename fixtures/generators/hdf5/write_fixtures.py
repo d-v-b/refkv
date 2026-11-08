@@ -174,6 +174,9 @@ def big_fill_values():
     with open_file("hdf5_fill_out_of_range.h5") as f:
         f.create_dataset("uint8", data=np.arange(4, dtype="u1"))
         f["uint8"].attrs["_FillValue"] = np.array([300], dtype="<i2")
+        # and a float32's integral value past 2^127, every digit
+        f.create_dataset("int32", data=np.arange(4, dtype="<i4"))
+        f["int32"].attrs["_FillValue"] = np.array([np.finfo("<f4").max], dtype="<f4")
 
 
 def references_and_links(name: str, libver: str):

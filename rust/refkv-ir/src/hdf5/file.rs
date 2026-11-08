@@ -1445,19 +1445,16 @@ fn xarray_fill(attrs: &super::Attrs, of: &Dt) -> Option<J> {
         Kind::Float { .. } => Some(json!(crate::mirror::base64(&types::as_f64(&dt, &data)?.to_le_bytes()))),
         Kind::Int { .. } if types::number(of).is_some() => {
             // the attribute's integer, read exactly (an integer attribute's), or a float's value
-            // when it is an integer
-            let v: i128 = match dt.kind {
-                Kind::Int { big, signed, .. } if types::number(&dt).is_some() => types::int_of(&data, big, signed),
+            // when it is an integer, exactly (its decimal digits, every one, however large)
+            match dt.kind {
+                Kind::Int { big, signed, .. } if types::number(&dt).is_some() => Some(crate::out::int_json(types::int_of(&data, big, signed))),
                 Kind::Float { .. } => {
                     let x = types::as_f64(&dt, &data)?;
-                    if x.fract() != 0.0 || x.abs() >= 2f64.powi(127) {
-                        return None;
-                    }
-                    x as i128
+                    // + 0.0: -0.0 as 0
+                    (x.is_finite() && x.fract() == 0.0).then(|| J::Number(format!("{:.0}", x + 0.0).parse().expect("an integer's digits")))
                 }
-                _ => return None,
-            };
-            Some(crate::out::int_json(v))
+                _ => None,
+            }
         }
         _ => None,
     }
