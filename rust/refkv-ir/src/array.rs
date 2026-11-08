@@ -159,12 +159,14 @@ pub struct CodecEntry {
 }
 
 /// The IR's codecs. `source` is the general fallback: a source encoding refkv has no name for,
-/// by the format, the source's id for it and its parameters as the source gives them.
+/// by the format, the source's id for it, the source's own name for it where it gives one (an
+/// HDF5 filter's optional name), and its parameters as the source gives them.
 pub const CODECS: &[CodecEntry] = &[CodecEntry {
     name: "source",
     parameters: &[
         ParamEntry { name: "format", column: None },
         ParamEntry { name: "id", column: None },
+        ParamEntry { name: "name", column: None },
         ParamEntry { name: "parameters", column: None },
     ],
 }];
@@ -1515,7 +1517,7 @@ mod tests {
     const TEST_CODECS: &[CodecEntry] = &[
         CodecEntry {
             name: "source",
-            parameters: &[ParamEntry { name: "format", column: None }, ParamEntry { name: "id", column: None }, ParamEntry { name: "parameters", column: None }],
+            parameters: &[ParamEntry { name: "format", column: None }, ParamEntry { name: "id", column: None }, ParamEntry { name: "name", column: None }, ParamEntry { name: "parameters", column: None }],
         },
         CodecEntry { name: "quantize", parameters: &[ParamEntry { name: "scale", column: Some(ColumnType::Float64) }, ParamEntry { name: "seed", column: Some(ColumnType::UInt64) }, ParamEntry { name: "method", column: None }] },
         CodecEntry { name: "squash", parameters: &[ParamEntry { name: "level", column: None }] },
@@ -2067,6 +2069,14 @@ mod tests {
     #[test]
     fn refuses_a_member_past_its_run() {
         assert!(refusal(|s| s.arrays[0].declarations = vec![Place::Element { element: 3, member: Some(3), range: None }]).contains("whose run has 3"));
+    }
+
+    /// The fallback codec `source`, with every parameter the IR's list gives it: the format, the
+    /// source's id and own name for the encoding, and its parameters.
+    #[test]
+    fn the_source_codec_carries_the_sources_name() {
+        let c = codec("source", &[("format", Param::Value(json!("hdf5"))), ("id", Param::Value(json!(32001))), ("name", Param::Value(json!("blosc"))), ("parameters", Param::Value(json!([2, 2, 4])))]);
+        check(&with(Stored { chains: vec![vec![c]], ..Stored::default() })).unwrap();
     }
 
     /// A source that declares no extent: its description has no shape (JSON null), no grid, no

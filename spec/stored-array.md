@@ -174,14 +174,22 @@ so that the description says where it is rather than copying it. Parameters only
 
 ### 3.2 The list
 
-A codec's name is one of this list. Each entry gives its parameters, which of them a unit may
-give as a column and the column's Arrow type, what its decoding makes, and, for a parameter given
-as a place, how the parameter is made from those bytes. A chain's codec has only its entry's
-parameters.
+A codec's name is one of this list. Each entry gives:
 
-| Codec | Parameters | Columns | Decoding makes |
-| --- | --- | --- | --- |
-| `source` | `format`: the profile's name; `id`: the source's id for the encoding, as the source gives it; `parameters`: its parameters, as the source gives them (a value, or a place that holds them) | none | what the source's encoding decodes to; the profile maps it or leaves the array out |
+- the exact byte format its decoding takes, its framing included: a header, a trailer, a block
+  layout or a checksum the source writes around the encoded bytes (HDF5's LZ4 filter writes its own
+  block layout, not an LZ4 frame; LZF has no header; `zlib` is RFC 1950, with its header and
+  Adler-32, not raw deflate). A name never covers two framings: an encoding the sources frame two
+  ways is two entries;
+- its parameters, which of them a unit may give as a column and the column's Arrow type;
+- what its decoding makes;
+- for a parameter given as a place, how the parameter is made from those bytes.
+
+A chain's codec has only its entry's parameters.
+
+| Codec | Takes | Parameters | Columns | Decoding makes |
+| --- | --- | --- | --- | --- |
+| `source` | the bytes the source's encoding wrote, framed as the source frames them | `format`: the profile's name; `id`: the source's id for the encoding, as the source gives it; `name`: the source's own name for the encoding, where it gives one (an HDF5 filter's optional name); `parameters`: its parameters, as the source gives them (a value, or a place that holds them) | none | what the source's encoding decodes to; the profile maps it or leaves the array out |
 
 `source` is the general fallback: a source encoding refkv has no name for (an unknown HDF5
 filter's id and client data). refkv's names describe the encoding, not the output: which Zarr or
