@@ -240,9 +240,12 @@ impl Budget {
             spent_elements: 0,
             spent_read: 0,
             spent_reads: 0,
-            // one per 4 bytes of the source, at most, past 2^22, as records
+            // descriptions: one per 4 bytes of the source, at most, past 2^22, as records; chunk
+            // map entries: four per byte, so that a unit of rank 3 or less fits wherever each
+            // unit has a byte of its own (spec/stored-array.md §6
+            // <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#6-in-the-ir>)
             descriptions: (1 << 22) + size / 4,
-            rows: (1 << 22) + size / 4,
+            rows: (1u64 << 22).saturating_add(size.saturating_mul(4)),
             spent_descriptions: 0,
             spent_rows: 0,
         }
@@ -392,7 +395,7 @@ impl Ir {
             b.read += 2 * size;
             b.reads += 1 + size / 64;
             b.descriptions += more;
-            b.rows += more;
+            b.rows = b.rows.saturating_add(size.saturating_mul(4).saturating_add(4));
         }
         self.add(OBJECT, parent, name, nidx, "", 0, Some((0, size)))
     }

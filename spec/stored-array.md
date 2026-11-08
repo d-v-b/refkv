@@ -312,9 +312,14 @@ chunk map's, each against a limit of its own. The descriptions' entries are each
 axis of its shape, each run of a listed axis (an `Each` axis has none), each of its places (its
 declarations, and a fill given at a place), each of its chains and each unit parameter; and of the
 chain table, each chain, each codec and each place a codec's parameter names. The chunk map's are
-each row, each of its coordinates and each of its ranges. Each limit is 2^22 plus one per 4 bytes
-of the source, growing with each object of a store as the store's other budgets do (4 plus one per
-4 of its bytes). A map that would pass its limit rejects the run; it is never cut short, which a
+each row, each of its coordinates and each of its ranges. The descriptions' limit is 2^22 plus
+one per 4 bytes of the source, growing with each object of a store as the store's other budgets do
+(4 plus one per 4 of its bytes). The chunk map's is 2^22 plus four per byte of the source, growing
+with each object of a store by 4 plus four per byte of it: every unit the source holds has at least
+one byte of its own (an HDF5 chunk of an implicit index may be a single byte), or an index entry of
+several, so a map of units of rank 3 or less, a row and its coordinates (and one range) each, always
+fits. An entry costs about 36 bytes of memory as the map is built: a row of rank 2 with its
+element, three entries, holds about 109 bytes of columns. A map that would pass its limit rejects the run; it is never cut short, which a
 profile would read as units the source does not hold. Descriptions a check refuses spend none of
 it, and a graft that fails, on its budget or its arrays, adds nothing to the store.
 

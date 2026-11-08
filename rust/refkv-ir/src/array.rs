@@ -1758,6 +1758,27 @@ mod tests {
         assert_eq!(ir.describe(vec![a], vec![vec![]], ChunkMap::default()).unwrap_err(), "budget: more than 1000 entries of stored arrays");
     }
 
+    /// The chunk map's limit is 2^22 plus four entries per byte of the source, so a map of one
+    /// unit of rank 2 per byte, each held by a range of one byte (four entries a row), fits even
+    /// without the 2^22.
+    #[test]
+    fn a_map_of_a_rank_2_unit_per_byte_fits() {
+        assert_eq!(Budget::new(100).rows, (1 << 22) + 400);
+        let mut ir = file_ir();
+        ir.budget.as_mut().unwrap().rows = 400;
+        let mut map = ChunkMap::default();
+        for k in 0..100u64 {
+            map.push(Row { array: 0, coords: vec![k / 10, k % 10], ranges: Some(vec![(None, k, 1)]), ..Row::default() }).unwrap();
+        }
+        let a = StoredArray {
+            element: 1, index: None, declarations: vec![], shape: vec![10, 10], axes: None, item_bits: Some(8), pad_from: None,
+            grid: Some(Grid { axes: vec![AxisUnits::Each(1), AxisUnits::Each(1)], edge: Edge::Short }), chains: vec![0],
+            fill: Fill::Undefined, unit_parameters: vec![],
+        };
+        ir.describe(vec![a], vec![vec![]], map).unwrap();
+        assert_eq!(ir.budget.as_ref().unwrap().spent_rows, 400);
+    }
+
     #[test]
     fn refuses_rows_past_the_budget() {
         let mut ir = file_ir();
