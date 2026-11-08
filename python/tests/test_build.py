@@ -87,8 +87,10 @@ def test_seal_of_the_built_in_output_reads_what_zarrify_writes(name, checksums):
     path = str(FIXTURES / name) + ("/" if name.endswith("/") else "")
     url = f"https://example.invalid/{name}" if name.endswith("/") else None  # a local store needs one
     with read(path, url, checksums=checksums) as p:
-        store = seal(project(p).written, [p])
+        pr = project(p)
+        store = seal(pr.written, [p])
         built = zarrify(path, url, checksums=checksums)
+        assert pr.base.checksums is checksums
         assert store.sources == built.sources
         assert store.mapping == built.mapping
         assert sorted(store.read_at_open) == sorted(built.read_at_open)
