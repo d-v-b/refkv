@@ -74,9 +74,11 @@ def test_with_exact_integers():
                    "chunks": {"CustomDataVar|A!": {"x": "-030", "y": "+300"}}})
     assert compare.with_exact_integers(ref, ours)["entries"]["zarr.json"][1] == ours["entries"]["zarr.json"][1]
     assert compare.with_exact_integers(ref, ours)["entries"]["0/c/0"] == ref["entries"]["0/c/0"]
-    root = {"refkv_zarrified": {"profile": "safe"}}
-    safe = {"sources": [URL], "entries": {"zarr.json": ("json", {"attributes": root, "v": [str(big), 12]})}}
-    ours_safe = {"sources": [URL], "entries": {"zarr.json": ("json", {"attributes": root, "v": [big, "+012"]})}}
+    def safe_root(values: list) -> dict:
+        return {"attributes": {"refkv_zarrified": {"profile": "safe", "safe": {"v": values}}}}
+
+    safe = {"sources": [URL], "entries": {"zarr.json": ("json", safe_root([str(big), 12]))}}
+    ours_safe = {"sources": [URL], "entries": {"zarr.json": ("json", safe_root([big, "+012"]))}}
     got = compare.with_exact_integers(safe, ours_safe)["entries"]["zarr.json"][1]
     assert got == ours_safe["entries"]["zarr.json"][1]
 
@@ -93,6 +95,16 @@ def test_with_exact_integers():
 def test_with_exact_integers_keeps_other_differences(ref, ours):
     """Any other difference stays, and compare.py reports it."""
     assert compare.differences(compare.with_exact_integers(output(ref), output(ours)), output(ours)) != []
+
+
+def test_with_exact_integers_keeps_a_safe_node_s_zarr_metadata():
+    """A SAFE output's relaxation is its source metadata's alone: a `fill_value` the shipped code
+    newly writes as text, `"0"` where the reference has `0`, is reported."""
+    def doc(fill: object) -> dict:
+        return {"sources": [URL], "entries": {"zarr.json": ("json", {
+            "fill_value": fill, "attributes": {"refkv_zarrified": {"profile": "safe", "safe": {"v": 1}}}})}}
+
+    assert compare.differences(compare.with_exact_integers(doc(0), doc("0")), doc("0")) != []
 
 
 def archive(path: Path, build=None, *, doc: bytes = b'{"zarr_format":3,"node_type":"group"}') -> Path:

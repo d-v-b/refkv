@@ -67,7 +67,7 @@ def _ranged(key: str, ours: dict) -> bool:
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#52-the-datasets-as-json>), and
     an ND2 XML variant's document, a chunk `CustomDataVar|...` (spec/zarrify/nd2.md §5.1
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#51-decoded-chunks>). (A SAFE
-    document, all of whose values are ranged, is given whole: `exact_integers`'s `safe`.)"""
+    node's source metadata is too, given by `exact_integers`'s `safe`: `_safe_values`.)"""
     return (key == "Value" and ours.get("vr") == "IS") or key.startswith("CustomDataVar|")
 
 
@@ -84,18 +84,26 @@ def _numeric(parent: str, key: str, ours: dict) -> bool:
             or key == "ExposureTime")
 
 
+def _safe_values(parent: str, key: str) -> bool:
+    """Whether the member `key` (of the member `parent`) is a SAFE node's source metadata, the
+    element values of its XML documents (spec/zarrify/safe.md §6.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#61-values>): each numeric, and
+    ranged by the convention; not the node's Zarr metadata or its GeoZarr attributes."""
+    return parent == "refkv_zarrified" and key == "safe"
+
+
 def exact_integers(ref: object, ours: object, *, safe: bool = False) -> object:
     """The reference's JSON value `ref`, each of its forms of an integer read as `ours` writes it
-    where `ours` has that integer: in a member that holds numbers (`_numeric`; all of a SAFE
-    document's, `safe`), its digit string past 2^53 - 1 as the exact integer; the tag
-    `{"int": digits}` as the exact integer; in a value whose format or convention declares a range
-    (`_ranged`; all of a SAFE document's), its integer forms that `ours` writes as decimal text
-    (outside that range) as that text; and the pairs `[["int", v]]` of a record named `int` alone
-    as the object `ours` has. Any other value is unchanged, and compares as it did."""
-    return _walk(ref, ours, "", numeric=safe, ranged=safe)
+    where `ours` has that integer: in a member that holds numbers (`_numeric`; a SAFE node's source
+    metadata, when `safe`: `_safe_values`), its digit string past 2^53 - 1 as the exact integer; the
+    tag `{"int": digits}` as the exact integer; in a value whose format or convention declares a
+    range (`_ranged`; a SAFE node's source metadata), its integer forms that `ours` writes as
+    decimal text (outside that range) as that text; and the pairs `[["int", v]]` of a record named
+    `int` alone as the object `ours` has. Any other value is unchanged, and compares as it did."""
+    return _walk(ref, ours, "", numeric=False, ranged=False, safe=safe)
 
 
-def _walk(ref: object, ours: object, parent: str, *, numeric: bool, ranged: bool) -> object:
+def _walk(ref: object, ours: object, parent: str, *, numeric: bool, ranged: bool, safe: bool = False) -> object:
     if _big(ours):
         if numeric and isinstance(ref, str) and ref == str(ours):
             return ours
@@ -106,11 +114,17 @@ def _walk(ref: object, ours: object, parent: str, *, numeric: bool, ranged: bool
         return ours
     if (isinstance(ours, dict) and list(ours) == ["int"] and isinstance(ref, list) and len(ref) == 1
             and isinstance(ref[0], list) and len(ref[0]) == 2 and ref[0][0] == "int"):
-        return {"int": _walk(ref[0][1], ours["int"], "int", numeric=numeric, ranged=ranged)}
+        return {"int": _walk(ref[0][1], ours["int"], "int", numeric=numeric, ranged=ranged, safe=safe)}
     if isinstance(ref, dict) and isinstance(ours, dict):
-        return {k: _walk(v, ours[k], k, numeric=numeric or _numeric(parent, k, ours),
-                         ranged=ranged or _ranged(k, ours)) if k in ours else v
-                for k, v in ref.items()}
+        out = {}
+        for k, v in ref.items():
+            if k not in ours:
+                out[k] = v
+                continue
+            values = safe and _safe_values(parent, k)
+            out[k] = _walk(v, ours[k], k, numeric=numeric or values or _numeric(parent, k, ours),
+                           ranged=ranged or values or _ranged(k, ours), safe=safe)
+        return out
     if isinstance(ref, list) and isinstance(ours, list) and len(ref) == len(ours):
-        return [_walk(x, y, parent, numeric=numeric, ranged=ranged) for x, y in zip(ref, ours, strict=True)]
+        return [_walk(x, y, parent, numeric=numeric, ranged=ranged, safe=safe) for x, y in zip(ref, ours, strict=True)]
     return ref

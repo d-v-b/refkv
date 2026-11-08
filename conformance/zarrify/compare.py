@@ -615,14 +615,16 @@ def literal_padding(output: Mapping[str, Any]) -> Mapping[str, Any]:
 
 
 def with_exact_integers(ref: Mapping[str, Any], ours: Mapping[str, Any]) -> dict:
-    """The frozen reference's output `ref` with each JSON document's integers past 2^53 - 1, which
-    it writes as the strings of their digits (or ND2's tag), read as the exact integers the
-    shipped code's `ours` writes there, and, in a DICOM `IS` value or an ND2 XML variant, an
-    integer `ours` writes as its text, outside its format's range, as that text
-    (exact_integers.py), for comparing the two."""
+    """The frozen reference's output `ref` with each JSON document's integers past 2^53 - 1 read
+    as the exact integers the shipped code's `ours` writes there: its digit strings in members that
+    hold numbers (a DICOM attribute of an integer VR, an IMS attribute of an integer datatype,
+    NIfTI's header, NDPI's `ExposureTime`, a SAFE node's source metadata), and ND2's tag; and, in a
+    DICOM `IS` value, an ND2 XML variant or a SAFE node's source metadata, an integer `ours` writes
+    as its text, outside its format's range, as that text (exact_integers.py), for comparing the
+    two."""
     entries = {}
-    # every SAFE value is ranged (spec/zarrify/safe.md §6.1
-    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#61-values>)
+    # a SAFE node's source metadata, its element values (spec/zarrify/safe.md §6.1
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#61-values>), is numeric and ranged
     safe = profile(ours) == "safe"
     for k, (kind, v) in ref["entries"].items():
         other = ours["entries"].get(k)
