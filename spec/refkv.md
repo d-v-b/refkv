@@ -1,6 +1,6 @@
 # refkv: a reference value type for key-value stores
 
-Format version: 0 (**provisional**) · Specification revision: 11.5
+Format version: 0 (**provisional**) · Specification revision: 11.6
 
 ## 1. Introduction
 
@@ -860,9 +860,13 @@ same source value and lie close together into one read that also covers the
 bytes between them, and take each range's bytes from that read. Otherwise a
 reference made of many short ranges of one object, such as one range per row
 of an image whose rows are padded, costs one request per range. The bytes
-between the ranges are read but never returned. How close counts as "close"
-is up to the reader; the implementations in the specification's repository
-combine reads at most 64 KiB apart.
+between the ranges are read but never returned, so a reader MUST NOT let its coalescing of one
+`get`'s reads take that `get` past its bytes per `get` ([§6.7](#67-reader-policy) rule 5): it
+combines fewer reads instead. How close
+counts as "close" is up to the reader. The Python and TypeScript readers in the specification's
+repository take it from their policy (the **coalescing gap**, 64 KiB by default), and close the
+narrowest gaps first, only while what the `get` fetches stays within its bytes per `get`, so that
+a value makes as few requests as that bound allows; a gap of 0 combines only reads that touch.
 
 Coalescing never changes the result of a `get`: a combined read ends at the
 end of one of the ranges it covers, so it fails only where that range's own
@@ -888,9 +892,15 @@ them it fetches to save a request; a `get` made alone should not wait long for
 company. The implementations in the specification's repository wait 2 ms. The
 Python reader also waits for a connection when the store's are all busy. The JS
 reader, which has no limit of its own on connections, also waits up to 1 s while 16
-requests to the source are in flight, if one of them lies within 64 KiB of the read,
+requests to the source are in flight, if one of them lies within the coalescing gap of the read,
 and takes a read wholly inside a request in flight from that request. They fetch at
-most 4 times the bytes a shared read asks for, plus 64 KiB. A `multipart/byteranges`
+most a number of times the bytes a shared read asks for, plus the coalescing gap, that the
+reader's policy sets (its **read amplification**, [§6.7](#67-reader-policy), 4 by default), and
+never join a read to a run within the coalescing gap of the end of a read of the same `get` in it,
+unless it touches or overlaps the run: those are reads that `get`'s own coalescing could have
+combined and kept apart to stay within its bytes per `get`. Nor do they combine reads into a request of more than the bytes per `get` (a read longer
+than that is a request of its own). Rule 5 counts each
+`get`'s own reads and bytes, as if it were alone. A `multipart/byteranges`
 response is still an error ([§5.2](#52-reading-over-http)), so reads too far apart
 to combine this way remain separate requests.
 
@@ -905,7 +915,7 @@ There are six classes of error. Each says which operations it makes fail.
 | **body error** | the bytes the store holds under the key cannot be read as the binding requires ([§13.3](bindings/vzip.md#133-errors) for ZIP). This applies to `bytes` keys for get and raw, and to references for raw. | get and raw of that key fail; a range of a `key` source naming it fails with a resolution error |
 | **payload error** | the reference payload is malformed ([§4.4](#44-reference-payloads)) | get fails for that key |
 | **resolution error** | [§5](#5-source-table), [§5.1](#51-pins), [§6.3](#63-resolving-a-reference) step 3, a URL the reader's policy refuses ([§6.7](#67-reader-policy)) | get fails for the requests that need the range |
-| **request error** | `start > end`; a request exceeding a resource limit the reader documents ([§6.7](#67-reader-policy), [§8](#8-security-considerations)), such as the requests one get may make | that operation fails |
+| **request error** | `start > end`; a request exceeding a resource limit the reader documents ([§6.7](#67-reader-policy), [§8](#8-security-considerations)), such as the reads or bytes one `get` may take | that operation fails |
 
 The names are the same in every binding, and are the ones readers report
 ([§6.5](#65-error-reporting)). They come from the ZIP binding, in which the
@@ -1062,14 +1072,25 @@ it; the other limits are resource limits ([§6.4](#64-errors)).
    private one.
 4. **Sources.** A reader MUST have a maximum number of sources. Opening a
    store whose source table has more is an archive error.
-5. **Requests per value.** A reader MUST have a maximum number of reads of
+5. **Requests and bytes per value.** A reader MUST have a maximum number of reads of
    `url` sources that one `get` may make, counted after coalescing
    ([§6.3](#63-resolving-a-reference)), with each read counting once however
-   many redirects it follows. A `get` that would need more is a request
-   error, reported before any of its reads is made. The count is of the reads
-   the `get` needs by itself: sharing them with other `get`s
+   many redirects it follows, and a maximum number of bytes one `get` may take, which
+   bounds both the bytes it fetches, its reads of `url` sources after coalescing (the
+   bytes between the ranges a read covers included) and, once a `get`, the value of each `key`
+   source that it holds whole to read a range of it, the larger of the value's size and its
+   stored bytes, whether or not the reader holds it already, and the
+   bytes it builds its value from, those of each range it resolves each time it resolves it
+   (a range with a `crc32c` whole), taken
+   from a `url`, `data` or `key` source or a literal range. A `get` that would need more of
+   either is a request error, reported before any of its sources is read but for looking up
+   the entry a `key` source names, which may hold its value. The count is of
+   the reads the `get` needs by itself: sharing them with other `get`s
    ([§6.3](#63-resolving-a-reference)) does not change it, and neither does
-   making one on its own after a shared read fails.
+   making one on its own after a shared read fails. These limits are the reader's: a
+   writer does not hold a store to them, since another reader may allow more. Which `key`
+   sources' values a reader holds whole is the reader's too, and so one `get` may be within
+   one reader's bound and past another's with the same limits.
 6. **Data read at open.** A reader MUST have a maximum size for the source
    table and for each piece of the binding's auxiliary data, and MUST stop
    reading or decompressing either as soon as its output passes that size,
@@ -1085,8 +1106,8 @@ it; the other limits are resource limits ([§6.4](#64-errors)).
    permission, such a pin fails ([§5.1](#51-pins)).
 
 The limits of rules 4–6 are implementation-defined, and readers MUST
-document them. The readers in the specification's repository use these
-defaults:
+document them. The readers in the specification's repository use these defaults, but for the
+Rust phkv reader, which bounds the bytes of one `get` at 2^32 and combines no reads:
 
 | | default |
 |---|---|
@@ -1098,6 +1119,9 @@ defaults:
 | proxies while rule 3 applies | refused |
 | sources per store | 4,194,304 (2^22) |
 | reads per `get` | 1024 |
+| bytes per `get` | 2^31; a `key` source's value is fetched whole, the larger of its size and its stored bytes, when it is compressed or hidden (the Python vzip reader), compressed or inline (the Python and Rust phkv readers), or always (the TypeScript readers, which read every such value whole); never by the Python in-memory `ReferenceStore`, which holds every value already |
+| coalescing gap ([§6.3](#63-resolving-a-reference)) | 64 KiB |
+| read amplification of shared reads ([§6.3](#63-resolving-a-reference)) | 4 |
 | the source table, or auxiliary data (in a vzip archive, a format entry, inflated) | 256 MiB |
 | unverifiable pins | fail |
 
@@ -1171,12 +1195,16 @@ A binding adds the reasons that come from its backend
   prefix list ([§6.7](#67-reader-policy) rule 2).
 - One reference can name thousands of ranges, and a source table millions
   of sources; the limits of [§6.7](#67-reader-policy) bound the requests one
-  `get` makes and the memory a store takes to open.
+  `get` makes, the bytes it fetches and builds its value from, and the memory a
+  store takes to open.
 - Keys are not file names. Tools that extract a store to disk MUST NOT
   trust keys such as `../x` or `/etc/passwd`.
-- A reference can describe a value of up to 2^64 − 1 bytes. Readers SHOULD
-  bound the memory a single request can use, and document the bound; a
-  request beyond it is a request error.
+- A reference can describe a value of up to 2^64 − 1 bytes. Readers SHOULD bound the memory a
+  single request can use, and document the bound; a request beyond
+  it is a request error. Readers bound the bytes one
+  `get` takes ([§6.7](#67-reader-policy) rule 5) and document the bound; a request beyond it
+  is a request error. A store whose value passes a reader's bound, such as a zarrified file
+  presented as one chunk of more than 2 GiB, is read by raising it.
 - Pins ([§5.1](#51-pins)) and range checksums ([§4.2](#42-range)) detect
   accidental replacement of a referenced object, not tampering: the store
   itself is not signed, a `modified_not_after` pin cannot see a rewrite

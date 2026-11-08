@@ -34,6 +34,13 @@ type Read = Callable[[int, int], bytes]
 class Rejected(Exception):  # noqa: N818 (the core's name)
     """A parser, a run or a projection rejected its input."""
 
+class SealRefused(ValueError):  # noqa: N818 (the core's name)
+    """`seal` refuses an output: `args` are (code, key or None, message)."""
+
+class Failed(ValueError):  # noqa: N818 (the core's name)
+    """A run's output is not written, by no fault of the input: a payload over the limit only with
+    its checksums (spec/zarrify.md §1.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>)."""
+
 class Violation(Exception):  # noqa: N818 (the core's name)
     """An IR broke an invariant (conventions §8.1
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>)."""
@@ -200,7 +207,7 @@ class Run:
     def stats(self) -> str:
         """The planner's counts and model (JSON)."""
     def output(self, url: str, mirror: bool = True, layouts: list[str] | None = None,
-               checksums: bool = False) -> tuple[Out[FilePart], Ir]:
+               checksums: bool = False, written: bool = True) -> tuple[Out[FilePart], Ir]:
         """Finishes, projects and (with `mirror`) mirrors: (the output in `out_py`'s form,
         the IR). `layouts`, when given, names the layouts the projection writes beside the
         image (a format's dataset layout, "dataset"; conventions §9
@@ -241,7 +248,7 @@ class StoreRun:
         (`Store.folders`), which a SAFE directory's parser reads as directories."""
     def profile(self) -> str:
         """The profile the run's store is decided to be so far (`StoreRun::profile`)."""
-    def output(self, url: str, mirror: bool = True) -> tuple[Out[StorePart], Ir]: ...
+    def output(self, url: str, mirror: bool = True, checksums: bool = False) -> tuple[Out[StorePart], Ir]: ...
     def finish(self) -> tuple[Ir, str, str]: ...
 
 def rebuild_store(get: Get) -> list[tuple[str, int, bytes | None]]:
@@ -254,6 +261,19 @@ def plan_spans(
 ) -> list[tuple[int, int]]:
     """The planner's merge of ranges (offset, length) into requests (start, end), for a
     gap threshold, an amplification cap and a concurrency (the policy's core, for tests)."""
+# A part of a value for `seal`: literal bytes, (0, url, offset, length), (1, data, offset, length)
+# or (2, length) of zero bytes.
+type SealPiece = bytes | tuple[int, ...]
+
+def seal(urls: list[tuple[str, int | None, str | None]], data: list[bytes], first: int | None,
+         documents: list[str], values: list[tuple[str, list[SealPiece]]], max_sources: int, checksums: bool,
+         ) -> tuple[list[tuple[str, int]], list[tuple[str, list[tuple[int, int, int] | bytes]]]]:
+    """The core's seal (rust/refkv-ir/src/seal.rs) of the output whose bytes entries' keys are
+    `documents` and whose values are (key, pieces), the pieces naming `urls` (url, size,
+    etag) and `data`, `first` the url that is source 0: (its table, each source ("url", index),
+    ("data", index) or ("zeros", length); its values in key order, each (key, ranges), a range
+    (source, offset, length) or bytes). Raises SealRefused."""
+
 def crc32c(data: bytes) -> int:
     """CRC-32C (Castagnoli, RFC 3720 §B.4) of `data`: a range's checksum (spec §4.2
     <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>)."""
@@ -327,6 +347,13 @@ def czi_bands(h: int, h2: int, r: int, w: int, q: int, uncompressed: bool) -> tu
 # <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#64-errors>)
 class PhkvReadError(Exception): ...
 
+# a bytes value a phkv store looked up, from `PhkvStore.key_found`
+class PhkvFound:
+    @property
+    def size(self) -> int: ...
+    @property
+    def held(self) -> int | None: ...
+
 # a phkv store (spec/bindings/phkv.md), read through `size()` and `read(offset, length)`; every
 # method blocks on those, so a host calls them from a thread
 class PhkvStore:
@@ -336,6 +363,7 @@ class PhkvStore:
         read: Callable[[int, int], bytes],
         sources: int | None = None,
         open_bytes: int | None = None,
+        request_bytes: int | None = None,
     ) -> None: ...
     @staticmethod
     def tail() -> int: ...
@@ -353,6 +381,8 @@ class PhkvStore:
         self, key: str, mode: int, a: int, b: int
     ) -> tuple[Literal["bytes"], bytes] | tuple[Literal["reference"], int, bytes] | None: ...
     def key_bytes(self, key: str, start: int, end: int) -> bytes: ...
+    def key_found(self, key: str) -> PhkvFound | None: ...
+    def found_bytes(self, found: PhkvFound, start: int, end: int) -> bytes: ...
     def raw(self, key: str) -> bytes | None: ...
     def list(self, prefix: str) -> list[str]: ...
     def property(self, key: str, name: str) -> int | str | bytes | None: ...

@@ -189,9 +189,10 @@ impl Files {
 
 /// (the output, the files) of the VSI or NRRD input at `location` (`format`), its named file
 /// opened as `t`: a store run of the core's `format` over the files, probed as the run asks for
-/// them, read `connections` at a time when remote.
+/// them, read `connections` at a time when remote; sealed for ranges that carry checksums when
+/// `checksums`.
 pub fn zarrify_vsi(location: &str, url: Option<&str>, t: Transport, client: &Arc<Client>, connections: Option<usize>,
-                   format: StoreFormat) -> Result<(Out, Files), Fail> {
+                   format: StoreFormat, checksums: bool) -> Result<(Out, Files), Fail> {
     let workers = concurrency(&t, connections)?;
     let mut files = Files::open(location, url, t, client, format)?;
     let listing = vec![(files.keys[0].clone(), files.sizes[&files.keys[0]])];
@@ -217,7 +218,7 @@ pub fn zarrify_vsi(location: &str, url: Option<&str>, t: Transport, client: &Arc
             run.complete(k, parts?).map_err(Fail::Rejected)?;
         }
     }
-    let mut out = run.into_output(&files.url, true).map_err(Fail::Rejected)?;
+    let mut out = run.into_output(&files.url, true, checksums)?;
     if let Some(m) = out.summary.as_object_mut() {
         m.insert("listingRequests".into(), files.requests.into());
     }

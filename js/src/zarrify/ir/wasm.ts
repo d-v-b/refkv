@@ -31,7 +31,8 @@ export interface IrExports {
   vz_store_probes(p: number): bigint;
   vz_store_found(p: number, size: bigint): bigint;
   vz_store_complete(p: number, k: number, data: number, n: number): bigint;
-  vz_store_output(p: number, url: number, n: number, mirror: number): bigint;
+  vz_store_output(p: number, url: number, n: number, flags: number): bigint;
+  vz_failed(): number;
   vz_store_free(p: number): void;
   vz_free(p: number, n: number): void;
   vz_fits_tiles_decode(chunk: number, n: number, config: number, nc: number, shape: number, rank: number): bigint;

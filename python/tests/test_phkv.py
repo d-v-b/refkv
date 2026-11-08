@@ -7,6 +7,7 @@ import gc
 import io
 import subprocess
 import sys
+import warnings
 import weakref
 
 import pytest
@@ -20,7 +21,8 @@ from refkv import OffsetRequest, RangeRequest, SuffixRequest
 from refkv.errors import ArchiveError, BodyError, RefkvError, RequestError, ResolutionError
 from refkv.pb import Concat, Range, Source
 from refkv.phkv import PhkvStore, PhkvWriter
-from refkv.policy import crc32c
+from refkv.policy import Policy, crc32c
+from refkv.reader import Found
 
 N = 300  # enough keys for several pages and slot blocks
 DATA = BLOB * 4  # the object the references read: 16 KiB
@@ -119,6 +121,139 @@ def test_compressed_values(tmp_path):
     assert phkv.get("zarr.json", RangeRequest(10, 20)) == value[10:20]
     assert phkv.get("r") == value[2:10]
     assert len((tmp_path / "s.phkv").read_bytes()) < len(value)
+
+
+def test_counts_a_compressed_key_sources_value_whole_once(tmp_path):
+    """A range of a compressed key source counts the value whole, once a get, as the reader decodes
+    it whole: two ranges of 8 bytes read under a budget of the value's size, and not under one less."""
+    value = b"zarr.json " * 1000
+    two = Concat((Range(source=0, offset=2, length=8), Range(source=0, offset=20, length=8)))
+    store = refkv.ReferenceStore({"zarr.json": value, "r": two}, [Source(key="zarr.json")],
+                                 compressed=["zarr.json"])
+    store.save_phkv(tmp_path / "s.phkv")
+    assert refkv.phkv.open(tmp_path / "s.phkv", policy=Policy(max_get_bytes=len(value))).get("r") == \
+        value[2:10] + value[20:28]
+    with pytest.raises(RequestError, match=f"more than {len(value) - 1} bytes"):
+        refkv.phkv.open(tmp_path / "s.phkv", policy=Policy(max_get_bytes=len(value) - 1)).get("r")
+
+
+def test_looks_up_a_key_source_once_a_get(tmp_path, monkeypatch):
+    """200 ranges of one stored key source look its value up once, to count it for rule 5."""
+    value = bytes(range(250)) * 40
+    ranges = Concat(tuple(Range(source=0, offset=k, length=1) for k in range(200)))
+    store = refkv.ReferenceStore({"k": value, "r": ranges}, [Source(key="k")])
+    store.save_phkv(tmp_path / "s.phkv")
+    phkv = refkv.phkv.open(tmp_path / "s.phkv")
+    looked_up = []
+    held_whole = phkv._key_found
+
+    async def counted(key):
+        looked_up.append(key)
+        return await held_whole(key)
+
+    monkeypatch.setattr(phkv, "_key_found", counted)
+    assert phkv.get("r") == value[:200]
+    assert looked_up == ["k"]
+
+
+def test_counts_an_inline_key_value_held_whole(tmp_path):
+    """An inline value, which the reader reads whole with its record, is fetched whole once a get:
+    64 one-byte ranges of a 1 MiB inline value are refused under a bound of 1 MiB less one."""
+    path = tmp_path / "w.phkv"
+    with open(path, "wb") as f, PhkvWriter(f, inline_max=2 << 20) as w:
+        w.add_bytes("k", bytes(1 << 20), codec="none")
+        k = w.internal("k")
+        w.add_ranges("r", [Range(source=k, offset=i, length=1) for i in range(64)])
+    assert refkv.phkv.open(path, policy=Policy(max_get_bytes=1 << 20)).get("r") == bytes(64)
+    with pytest.raises(RequestError):
+        refkv.phkv.open(path, policy=Policy(max_get_bytes=(1 << 20) - 1)).get("r")
+
+
+def test_held_values_past_the_bound_stop_the_lookups(tmp_path, monkeypatch):
+    """A get whose key values held whole pass its bound is refused as soon as they do: the lookups
+    not yet done are cancelled, so far fewer than its 200 keys are looked up."""
+    path = tmp_path / "w.phkv"
+    with open(path, "wb") as f, PhkvWriter(f, inline_max=1 << 20) as w:
+        ranges = []
+        for i in range(200):
+            w.add_bytes(f"k/{i:03}", bytes(10_000), codec="none")
+            ranges.append(Range(source=w.internal(f"k/{i:03}"), offset=0, length=1))
+        w.add_ranges("r", ranges)
+    phkv = refkv.phkv.open(path, policy=Policy(max_get_bytes=25_000), max_concurrency=4)
+    looked_up = []
+    held_whole = phkv._key_found
+
+    async def counted(key):
+        held = await held_whole(key)
+        looked_up.append(key)
+        return held
+
+    monkeypatch.setattr(phkv, "_key_found", counted)
+    with pytest.raises(RequestError, match="more than 25000 bytes"):
+        phkv.get("r")
+    assert 3 <= len(looked_up) < 20
+
+
+@pytest.mark.parametrize(("compressed", "loads"),
+                         [(["k"], [(0, 10_000)]), ([], [(k * 100, k * 100 + 3) for k in range(50)])])
+def test_reads_a_key_source_from_its_lookup(tmp_path, monkeypatch, compressed, loads):
+    """50 ranges of one key source are read from the record its one lookup read: a compressed value
+    whole once, its ranges cut from it, and a value stored apart by range; never by another lookup."""
+    value = bytes(range(250)) * 40
+    ranges = Concat(tuple(Range(source=0, offset=k * 100, length=3) for k in range(50)))
+    store = refkv.ReferenceStore({"k": value, "r": ranges}, [Source(key="k")], compressed=compressed)
+    store.save_phkv(tmp_path / "s.phkv", inline_max=0)
+    phkv = refkv.phkv.open(tmp_path / "s.phkv")
+    looked_up, loaded, ranged = [], [], []
+    key_found, key_bytes = phkv._key_found, phkv._key_bytes
+
+    async def counted_found(key):
+        found = await key_found(key)
+        assert found is not None
+        looked_up.append(key)
+
+        async def load(start, end):
+            loaded.append((start, end))
+            return await found.load(start, end)
+
+        return Found(found.size, found.held, load)
+
+    async def counted_bytes(key, start, end):
+        ranged.append((key, start, end))
+        return await key_bytes(key, start, end)
+
+    monkeypatch.setattr(phkv, "_key_found", counted_found)
+    monkeypatch.setattr(phkv, "_key_bytes", counted_bytes)
+    assert phkv.get("r") == b"".join(value[k * 100 : k * 100 + 3] for k in range(50))
+    assert (looked_up, sorted(loaded), ranged) == (["k"], loads, [])
+
+
+def test_cancelling_a_get_leaves_no_key_read_unawaited(tmp_path, monkeypatch):
+    """A get cancelled while it counts its key sources, after counting one, has made no read of
+    them, so none is left never awaited."""
+    ranges = Concat((Range(source=0, offset=0, length=1), Range(source=1, offset=2, length=1)))
+    store = refkv.ReferenceStore({"k": b"abcdef", "j": b"ghijkl", "r": ranges}, [Source(key="k"), Source(key="j")])
+    store.save_phkv(tmp_path / "s.phkv")
+    phkv = refkv.phkv.open(tmp_path / "s.phkv")
+
+    async def stuck(key):
+        if key == "j":
+            await asyncio.Event().wait()
+
+    monkeypatch.setattr(phkv, "_key_found", stuck)
+
+    async def cancelled():
+        task = asyncio.ensure_future(phkv.get_async("r"))
+        await asyncio.sleep(0.05)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        asyncio.run(cancelled())
+        gc.collect()
+    assert not [w for w in caught if "never awaited" in str(w.message)]
 
 
 def test_writer(tmp_path):

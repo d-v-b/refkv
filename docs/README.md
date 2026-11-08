@@ -60,4 +60,6 @@ The Python package `refkv` stores a [VirtualiZarr](https://virtualizarr.readthed
 
 [tiff-concat.md](tiff-concat.md) concatenates the same kind of directory into one multi-page TIFF file instead, held as the only key of a vzip sidecar: new IFDs as literal bytes, and every strip and tile as a range of its file, with no Zarr involved ([examples/tiff_concat.py](examples/tiff_concat.py)).
 
+[build.md](build.md) builds an output from refkv's IR with `refkv.build`: an input read as `zarrify` reads it, values that name the bytes they read, and `seal`, which checks the output against the sources refkv opened.
+
 [layout-plugins.md](layout-plugins.md) writes the whole output yourself, in a Python package, from what refkv read: an OME-Zarr 0.6 image of a TIFF or an HDF5 file, a TIFF's every page, re-tiled HDF5 datasets, a Zarr v2 hierarchy for xarray; refkv ships these as examples ([refkv.zarrify.layouts.examples](../python/src/refkv/zarrify/layouts/examples/)).

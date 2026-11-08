@@ -155,7 +155,7 @@ pub fn project_store(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
         for (a, (_, chunks)) in arr(&f["arrays"]).iter().zip(shard_cuts) {
             let tensor = a["path"].as_str().unwrap_or_default();
             let prefix = if arr(&a["shape"]).is_empty() { format!("{path}/{tensor}/c") } else { format!("{path}/{tensor}/c/") };
-            for (piece, (c, chunk)) in chunks.into_iter().enumerate() {
+            for (c, chunk) in chunks {
                 let Chunk::Ranges(parts) = chunk else { return Err("internal: a store chunk to copy".into()) };
                 let parts = contiguous::padded(parts, &mut zeros, &mut refs.out)?;
                 let parts: Vec<Part> = parts.into_iter().map(|p| match p {
@@ -164,7 +164,7 @@ pub fn project_store(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
                 }).collect();
                 let k = super::key(&prefix, c.into_iter());
                 check_key(&k)?;
-                refs.chunk(k, n(&a["offset"]), n(&a["length"]), 0, Some(parts), piece as u64)?;
+                refs.chunk(k, n(&a["offset"]), n(&a["length"]), 0, Some(parts))?;
                 chunks_total += 1;
             }
         }

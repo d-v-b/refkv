@@ -32,7 +32,8 @@ with one array per NumPy array:
 - **Compressed archives:** a member that `np.savez_compressed` deflated is one chunk, the
   whole array: its deflate data, wrapped as a gzip stream, decoded by `gzip` and then
   `refkv.skip`, which drops the NPY header the stream begins with. Reading any part of the
-  array reads and inflates all of it.
+  array reads and inflates all of it, and a member of more than 2 GiB is past a reader's default
+  bytes per `get` ([refkv §6.7](../../../spec/refkv.md#67-reader-policy) rule 5): raise `max_get_bytes` to read it.
 - **Chunks:** the values as the file stores them, cut into equal runs of at most 1 MiB along
   the outermost axis that allows it (the innermost, for Fortran order). An array of rank 0 is
   one chunk; an empty one has none.

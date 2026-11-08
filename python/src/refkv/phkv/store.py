@@ -38,6 +38,7 @@ from refkv.policy import Policy
 from refkv.reader import (
     DEFAULT_CONCURRENCY,
     UNCAPPED_THREADS,
+    Found,
     Kind,
     OffsetRequest,
     RangeRequest,
@@ -235,7 +236,9 @@ class PhkvStore(ReferenceReader):
         await super()._open()
 
     def _open_core(self) -> None:
-        core = _core.PhkvStore(self._size_of, self._read_at, self.policy.max_sources, self.policy.max_format_entry)
+        # the core bounds a value it reads or decodes at 2^32 bytes, or at a larger `max_get_bytes`
+        core = _core.PhkvStore(self._size_of, self._read_at, self.policy.max_sources, self.policy.max_format_entry,
+                               self.policy.max_get_bytes)
         self._sources = [Source.decode(s) for s in core.sources()]
         self._revision = core.revision
         self._metadata = dict(core.metadata())
@@ -262,6 +265,15 @@ class PhkvStore(ReferenceReader):
     @override
     async def _key_bytes(self, key: str, start: int, end: int) -> bytes:
         return await self._blocking(self._store.key_bytes, key, start, end)
+
+    @override
+    async def _key_found(self, key: str) -> Found | None:
+        """A bytes value, read from the record its lookup read: no second lookup. The core holds a
+        compressed or inline value whole to read a range of it."""
+        found = await self._blocking(self._store.key_found, key)
+        if found is None:
+            return None
+        return Found(found.size, found.held, lambda a, b: self._blocking(self._store.found_bytes, found, a, b))
 
     @override
     async def classify_async(self, key: str) -> Kind:

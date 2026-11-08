@@ -246,3 +246,11 @@ test("a store whose sections are Zstandard is refused, and says why", async () =
   await assert.rejects(PhkvArchive.openStore(store, "https://x/"), (e) =>
     e instanceof RefkvError && e.errorClass === "archive" && /Zstandard/.test(e.message));
 });
+
+test("refuses vzip's format-entry names as key sources only in a vzip archive: a phkv store reserves no names", async () => {
+  const names = (a: Archive) => (a as unknown as { namesFormatEntry: (key: string) => boolean }).namesFormatEntry.bind(a);
+  const phkv = await PhkvArchive.openStore(writePhkv({ sources: [], entries: [] }), "https://x/");
+  const vzip = await Archive.open(await writeVzip({ sources: [], entries: [] }), "https://x/");
+  assert.deepEqual([names(phkv)("__vz__/sources"), names(phkv)("__vz__/index")], [false, false]);
+  assert.deepEqual([names(vzip)("__vz__/sources"), names(vzip)("__vz__/index"), names(vzip)("k")], [true, true, false]);
+});

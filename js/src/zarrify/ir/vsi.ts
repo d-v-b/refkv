@@ -64,6 +64,8 @@ export interface VsiOptions {
   open?: (key: string) => Promise<RangeSource | undefined>;
   http?: HttpSourceOptions;
   mirror?: boolean;
+  /** The ranges will carry checksums (the core's seal measures them). */
+  checksums?: boolean;
 }
 
 /** The files of a VSI or NRRD input as a store the run probes: `objects` holds the named file
@@ -114,6 +116,8 @@ export function vsiFiles(url: string, source: RangeSource, options: VsiOptions =
  * sources are the files some reference uses, their sizes pinned. */
 export async function zarrifyVsi(url: string, source: RangeSource, options: VsiOptions = {}, format: BesideFormat = "vsi"): Promise<ArchiveDesc & { summary: Record<string, unknown>; store: Store }> {
   const store = vsiFiles(url, source, options, format);
-  const desc = await zarrifyStoreIr(format, store, { mirror: options.mirror ?? true, concurrency: source.concurrency });
+  const desc = await zarrifyStoreIr(format, store, {
+    mirror: options.mirror ?? true, concurrency: source.concurrency, checksums: options.checksums === true,
+  });
   return { ...desc, store };
 }

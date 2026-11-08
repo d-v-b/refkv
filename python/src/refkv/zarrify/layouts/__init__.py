@@ -57,7 +57,7 @@ from refkv.zarrify.profiles import REGISTRY
 if TYPE_CHECKING:
     from refkv.ir import Ir
 
-__all__ = ["FILE_PROFILES", "MAX_PAYLOAD", "MAX_READS", "MIRROR", "Base", "Entries", "EntryValue", "Layout",
+__all__ = ["FILE_PROFILES", "MAX_PAYLOAD", "MIRROR", "Base", "Entries", "EntryValue", "Layout",
            "LayoutFailed", "LayoutRejected", "LayoutUsageError", "Plugin", "Written", "base", "base_async",
            "chunk_coords", "chunk_key", "concat", "cut", "dump", "encode_entries", "fill_value", "payload_size",
            "without_checksums"]
@@ -76,10 +76,7 @@ NAME = re.compile(r"[a-z0-9-]+(?:\.[a-z0-9-]+)+")
 # bytes of a key's UTF-8 the ZIP binding holds (spec/bindings/vzip.md §10.3 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#103-file-names>)
 MAX_KEY = 65535
 MAX_OPEN = 256 << 20  # bytes read at open, and of a format entry: the default max_format_entry
-# url ranges of one value: the default reads per `get` (spec/refkv.md §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>
-# rule 5)
-MAX_READS = 1024
-MERGE_GAP = 1 << 16  # ranges of one source this close are one read, as refkv's readers merge them
+MERGE_GAP = 1 << 16  # ranges of one source this close are one read, as refkv's readers merge them by default
 # a DEFLATE stream that could reach this is not written (spec/bindings/vzip.md §14.1
 # <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#141-requirements>)
 STORED = 0xFFFFFFFF
@@ -885,15 +882,13 @@ class Base:
     def fits(self, value: object) -> str | None:
         """Why refkv would not write `value` in this base's output (spec/layout.md §4
         <https://github.com/d-v-b/refkv/blob/main/spec/layout.md#4-writing-the-output>), or None:
-        a reference value whose ranges lie outside the base's sources, whose payload could pass
-        65519 bytes once checksummed, or that a reader would read in more than 1024 reads."""
+        a reference value whose ranges lie outside the base's sources, or whose payload could pass
+        65519 bytes once checksummed. How many reads a value takes is its reader's limit (spec/refkv.md
+        §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 5)."""
         why = _value_problem(value, self)
         if why is None and type(value) in (Range, Concat) and self.base_value(value) is None:
             v: Range | Concat = value  # type: ignore[assignment]
-            reads = _reads(v, self)
-            if reads > MAX_READS:
-                why = f"it reads {reads} ranges, more than the {MAX_READS} a reader makes for one value by default"
-            elif _payload(v, self, self._checksums) > MAX_PAYLOAD:
+            if _payload(v, self, self._checksums) > MAX_PAYLOAD:
                 why = f"a payload of up to {_payload(v, self, self._checksums)} bytes, more than {MAX_PAYLOAD}"
         return why
 
@@ -1158,24 +1153,6 @@ def _value_problem(v: object, base: Base) -> str | None:
     return why
 
 
-def _reads(value: Range | Concat, base: Base) -> int:
-    """The reads of url sources a value makes, ranges of one source at most `MERGE_GAP` apart
-    counted once, as refkv's readers merge them (`refkv.reader`); a data source needs none."""
-    spans: dict[int, list[tuple[int, int]]] = {}
-    for r in _parts(value):
-        if _url(r, base) and r.length:
-            spans.setdefault(r.source, []).append((r.offset, r.offset + r.length))
-    n = 0
-    for ranges in spans.values():
-        ranges.sort()
-        end = -MERGE_GAP - 1
-        for a, b in ranges:
-            if a > end + MERGE_GAP:
-                n += 1
-            end = max(end, b)
-    return n
-
-
 def _unpacked(written: object) -> tuple[Mapping[Any, Any], object, object] | str:
     """(entries, read_at_open, stored) of what `write` returned, or why it is neither a mapping
     nor a Written."""
@@ -1229,10 +1206,6 @@ def prepare(base: Base, written: object) -> tuple[Prepared, list[Problem]]:
         value: Range | Concat = bare[0] if len(bare) == 1 else Concat(bare)
         values[k] = value
         fresh.add(k)
-        if _reads(value, base) > MAX_READS:
-            problems.append(Problem(k, "reference", f"it reads {_reads(value, base)} ranges, more than the "
-                                                    f"{MAX_READS} a reader makes for one value by default "
-                                                    "(spec/refkv.md §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)"))
         if payload_size(value) > MAX_PAYLOAD and not base.checksums:
             problems.append(Problem(k, "reference", f"a payload of {payload_size(value)} bytes, more than "
                                                     f"{MAX_PAYLOAD}"))
@@ -1410,7 +1383,7 @@ async def base_async(location: str | os.PathLike[str], url: str | None = None, *
         raise LayoutUsageError(f"{location} is a store: a store input takes no layout")
     resolver = Resolver(registry)
     fmt, out = await _zarrify._zarrify_async(location, url, checksums=checksums, policy=policy,  # noqa: SLF001
-                                             registry=resolver)
+                                             registry=resolver, written=False)
     if not isinstance(out, (Output, StoreIrOutput)) or out.ir is None:
         raise LayoutUsageError(f"{location}: its output has no IR, so it takes no layout")
     return base_of(out, fmt, policy, resolver)[0]
