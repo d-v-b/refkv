@@ -22,8 +22,6 @@ from .seal import CODES, SealError, seal
 from .values import (
     MAX_SOURCES,
     Array,
-    Binding,
-    Check,
     Copy,
     Data,
     Literal,
@@ -40,6 +38,6 @@ from .values import (
     value,
 )
 
-__all__ = ["CODES", "MAX_BYTES", "MAX_PAYLOAD", "MAX_SOURCES", "Array", "Binding", "Check", "Copy", "Data",
-           "Literal", "Parsed", "Part", "Projected", "Ref", "SealError", "Shared", "Value", "Written", "Zeros",
-           "concat", "cut", "fits", "payload_size", "project", "read", "read_async", "seal", "value"]
+__all__ = ["CODES", "MAX_BYTES", "MAX_PAYLOAD", "MAX_SOURCES", "Array", "Copy", "Data", "Literal", "Parsed", "Part",
+           "Projected", "Ref", "SealError", "Shared", "Value", "Written", "Zeros", "concat", "cut", "fits",
+           "payload_size", "project", "read", "read_async", "seal", "value"]

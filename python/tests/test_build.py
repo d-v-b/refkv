@@ -7,8 +7,9 @@ import io
 import json
 import struct
 from pathlib import Path
-from typing import Any, BinaryIO, cast, override
+from typing import Any, BinaryIO, cast
 
+import h5py
 import numpy as np
 import pytest
 import tifffile
@@ -18,8 +19,6 @@ from refkv import _sync
 from refkv.build import (
     MAX_PAYLOAD,
     Array,
-    Binding,
-    Check,
     Copy,
     Data,
     Literal,
@@ -38,8 +37,7 @@ from refkv.build import (
     seal,
     value,
 )
-from refkv.build.seal import _binding_holds
-from refkv.build.values import _issue
+from refkv.errors import RequestError
 from refkv.policy import Policy
 from refkv.zarrify import zarrify
 from refkv.zarrify.common import PAGE_SIZE
@@ -85,7 +83,7 @@ CASES = [
 def test_seal_of_the_built_in_output_reads_what_zarrify_writes(name, checksums):
     """`seal` of `project`'s output is the store `zarrify` writes: the same source table, numbered
     by the core's one rule for both, and the same entries, the values the built-in projection made
-    as checked values of the input's sources."""
+    as values of the input's sources."""
     path = str(FIXTURES / name) + ("/" if name.endswith("/") else "")
     url = f"https://example.invalid/{name}" if name.endswith("/") else None  # a local store needs one
     with read(path, url, checksums=checksums) as p:
@@ -291,52 +289,37 @@ def test_parsed(tmp_path):
             assert 0 <= gap.offset < size
 
 
-SHARDED = [{"name": "sharding_indexed", "configuration": {
-    "chunk_shape": [2, 3], "codecs": [{"name": "bytes"}],
-    "index_codecs": [{"name": "bytes", "configuration": {"endian": "little"}}, {"name": "crc32c"}]}}]
-COPIED = [{"name": "sharding_indexed", "configuration": {  # as hierarchy.copy transposes a sharded array
-    "chunk_shape": [3, 2], "codecs": [{"name": "transpose", "configuration": {"order": [1, 0]}}, {"name": "bytes"}],
-    "index_codecs": [{"name": "transpose", "configuration": {"order": [1, 0, 2]}},
-                     {"name": "bytes", "configuration": {"endian": "little"}}, {"name": "crc32c"}]}}]
-INNER_ONLY = [{"name": "sharding_indexed", "configuration": {  # an inner transpose alone: another array
-    "chunk_shape": [3, 2], "codecs": [{"name": "transpose", "configuration": {"order": [1, 0]}}, {"name": "bytes"}],
-    "index_codecs": [{"name": "bytes", "configuration": {"endian": "little"}}, {"name": "crc32c"}]}}]
-TRANSPOSE = {"name": "transpose", "configuration": {"order": [1, 0]}}
+def test_a_value_of_many_reads_is_its_readers_to_read(tmp_path):
+    """`seal` writes a value whatever reads it takes: the reader's policy decides whether it reads
+    it (spec/refkv.md §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>
+    rule 5)."""
+    path = _npy(tmp_path, n=1100 * (1 << 17))
+    with read(path) as p:
+        far = concat(*(Ref(p, 0, k << 17, 1) for k in range(1025)))
+        default = seal(Written({"v": far}), [p])
+        allowing = seal(Written({"v": far}), [p], policy=Policy(max_reads=2048))
+        with pytest.raises(RequestError, match="1025 reads"):
+            default.get("v")
+        data = path.read_bytes()
+        assert allowing.get("v") == bytes(data[k << 17] for k in range(1025))
 
 
-@pytest.mark.parametrize(("built", "written", "expected"), [
-    # (the array a chunk was built in, the array it is written under, what _binding_holds says)
-    (([4, 6], [4, 6], [{"name": "bytes"}], 0), ([4, 6], [4, 6], [{"name": "bytes"}], 0), False),
-    (([4, 6], [4, 6], [{"name": "bytes"}], 0), ([6, 4], [6, 4], [TRANSPOSE, {"name": "bytes"}], 0), False),
-    (([4, 6], [4, 6], SHARDED, 0), ([4, 6], [4, 6], SHARDED, 0), True),
-    (([4, 6], [4, 6], SHARDED, 0), ([6, 4], [6, 4], [TRANSPOSE, *SHARDED], 0), True),
-    (([4, 6], [4, 6], SHARDED, 0), ([6, 4], [6, 4], COPIED, 0), True),
-    (([4, 6], [4, 6], SHARDED, 0), ([6, 4], [6, 4], INNER_ONLY, 0), None),
-    (([4, 6], [4, 6], [{"name": "bytes"}], 0), ([4, 7], [4, 7], [{"name": "bytes"}], 0), None),
-    (([4, 6], [4, 6], [{"name": "bytes"}], {"b": 0, "a": 1}), ([4, 6], [4, 6], [{"name": "bytes"}], {"a": 1, "b": 0}),
-     False),  # a struct's fill value, its members in another order
-    (([4, 6], [4, 6], [{"name": "bytes"}], 0), ([4, 6], [4, 6], [{"name": "bytes"}], 0.0), None),
-], ids=["as-built", "transposed", "sharded", "sharded-transposed", "copy-of-sharded", "inner-transpose-only",
-        "other-shape", "struct-fill", "other-fill"])
-def test_where_a_check_holds(tmp_path, built, written, expected):
-    """A checked chunk's binding holds in the array it was built in, and under Zarr's transpose codec
-    put first (outside a shard, or as `copy` writes it inside one) with the shape, grid and key
-    permuted to match: True in a sharded array, where its rule lifts the read rule, False in another;
-    None anywhere else."""
-    np.save(tmp_path / "x.npy", np.zeros((4, 6), dtype=np.uint8))
-    with read(tmp_path / "x.npy") as p:
-        shape, chunks, codecs, fill = built
-        doc = {"shape": shape, "data_type": "uint8", "codecs": codecs, "fill_value": fill,
-               "chunk_grid": {"name": "regular", "configuration": {"chunk_shape": chunks}}}
-        parts = (Ref(p, 0, 0, 1),)
-        checked = Value(parts, _issue("builtin", Binding.of(doc, (0, 0)), parts))
-        shape, chunks, codecs, fill = written
-        out = Array(shape, "uint8", chunks, codecs, {(0, 0): checked}, fill).entries(to="a")
-        v = out["a/c/0/0"]
-        assert isinstance(v, Value)
-        assert _binding_holds(v, "a/c/0/0", out) is expected
-        out["a/zarr.json"] = Data(out["a/zarr.json"])  # type: ignore[arg-type]  # the nearest document, not bytes
-        assert _binding_holds(v, "a/c/0/0", out) is None
+def test_a_built_in_chunk_past_a_readers_reads_is_sealed_as_zarrify_writes_it(tmp_path):
+    """An HDF5 string array whose strings lie far apart gives a chunk of more than 1024 reads:
+    `seal(project(p).written, [p])` is `zarrify`'s store, and the default reader refuses that `get`."""
+    path = tmp_path / "far.h5"
+    with h5py.File(path, "w", libver="earliest") as f:
+        strings = f.create_dataset("s", (1100,), dtype=h5py.string_dtype())
+        for i in range(1100):
+            strings[i] = f"v{i}" * 3000  # each its own heap collection
+            f.create_dataset(f"pad{i}", (70000,), "u1", fillvalue=0, track_times=False)[0] = 1
+    built = zarrify(str(path))
+    with read(path) as p:
+        store = seal(project(p).written, [p])
+    assert store.sources == built.sources
+    assert store.mapping == built.mapping
+    with pytest.raises(RequestError, match="1100 reads"):
+        store.get("s/c/0")
 
 
 # ---- what seal refuses: one test each
@@ -369,12 +352,6 @@ def test_seal_refuses_a_payload_past_the_limit(tmp_path):
     with read(_npy(tmp_path)) as p, pytest.raises(SealError) as e:
         seal(Written({"v": Literal(bytes(MAX_PAYLOAD))}), [p])
     assert e.value.code == "payload"
-
-
-def test_seal_refuses_a_value_of_more_reads_than_a_reader_makes(tmp_path):
-    with read(_npy(tmp_path, n=1100 * (1 << 17))) as p, pytest.raises(SealError) as e:
-        seal(Written({"v": concat(*(Ref(p, 0, k << 17, 1) for k in range(1025)))}), [p])
-    assert e.value.code == "reads"
 
 
 def test_seal_refuses_a_copy_left_unfilled(tmp_path):
@@ -460,54 +437,21 @@ def test_seal_refuses_the_built_in_output_past_the_limit_with_its_checksums():
     assert (e.value.code, e.value.key) == ("checksums", "0/0/c/0/0")
 
 
+def test_build_reads_its_inputs_past_a_readers_get_limits(tmp_path):
+    """`Parsed.bytes` and `seal`'s checksums read the input under its policy's pins and hosts, but
+    not its limits on one `get`: those are a reader's (spec §6.7
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 5)."""
+    data = _npy(tmp_path).read_bytes()
+    with read(tmp_path / "x.npy", checksums=True, policy=Policy(max_reads=0, max_get_bytes=16)) as p:
+        assert p.bytes((0, 0, 4000)) == data[:4000]
+        sealed = seal(Written({"v": Ref(p, 0, 0, 4000)}), [p], policy=Policy())
+    assert sealed.get("v") == data[:4000]
+
+
 def test_seal_refuses_a_ref_past_the_largest_range(tmp_path):
     with read(_npy(tmp_path)) as p, pytest.raises(SealError) as e:
         seal(Written({"v": Ref(p, 0, 1 << 63, 1 << 63)}), [p])
     assert e.value.code == "range"
-
-
-def test_seal_refuses_a_policy_limit_that_is_no_int(tmp_path):
-    with read(_npy(tmp_path), policy=Policy(max_reads=1.5)) as p, pytest.raises(SealError) as e:  # type: ignore[arg-type]
-        seal(Written({"v": Ref(p, 0, 0, 1)}), [p])
-    assert e.value.code == "inputs"
-
-
-def test_seal_refuses_a_check_it_did_not_issue(tmp_path):
-    """A caller's Check, however it is bound, lifts no read rule."""
-    with read(_npy(tmp_path, n=1100 * (1 << 17))) as p:
-        doc = {"shape": [4, 6], "data_type": "uint8", "codecs": SHARDED, "fill_value": 0,
-               "chunk_grid": {"name": "regular", "configuration": {"chunk_shape": [4, 6]}}}
-        far = concat(*(Ref(p, 0, k << 17, 1) for k in range(1025)))
-        forged = Value(far.parts, Check("builtin", Binding.of(doc, (0, 0))))
-        out = Array([4, 6], "uint8", [4, 6], SHARDED, {(0, 0): forged}).entries(to="a")
-        with pytest.raises(SealError) as e:
-            seal(out, [p])
-    assert e.value.code == "reads"
-
-
-class _EqualToAll(tuple):
-    """Parts that say they equal any others."""
-
-    __slots__ = ()
-
-    @override
-    def __eq__(self, other: object) -> bool:
-        return True
-
-    __hash__ = tuple.__hash__
-
-
-def test_seal_refuses_parts_that_only_say_they_are_an_issued_checks(tmp_path):
-    """An issued check holds for its very parts, not for parts whose comparison says so."""
-    with read(_npy(tmp_path, n=1100 * (1 << 17))) as p:
-        doc = {"shape": [4, 6], "data_type": "uint8", "codecs": SHARDED, "fill_value": 0,
-               "chunk_grid": {"name": "regular", "configuration": {"chunk_shape": [4, 6]}}}
-        issued = _issue("builtin", Binding.of(doc, (0, 0)), (Ref(p, 0, 0, 1),))
-        far = _EqualToAll(Ref(p, 0, k << 17, 1) for k in range(1025))
-        out = Array([4, 6], "uint8", [4, 6], SHARDED, {(0, 0): Value(far, issued)}).entries(to="a")
-        with pytest.raises(SealError) as e:
-            seal(out, [p])
-    assert e.value.code == "reads"
 
 
 def test_seal_refuses_inputs_read_under_different_policies(tmp_path):
@@ -549,20 +493,6 @@ def test_seal_refuses_a_malformed_part(tmp_path):
     with read(_npy(tmp_path)) as p, pytest.raises(SealError) as e:
         seal(Written({"v": Zeros(-1)}), [p])
     assert e.value.code == "value"
-
-
-def test_seal_refuses_a_copy_of_an_issued_check(tmp_path):
-    """A check refkv issued, copied with dataclasses.replace onto other parts, lifts no read rule."""
-    with read(_npy(tmp_path, n=1100 * (1 << 17))) as p:
-        issued = next(v.check for v in project(p).written.values() if isinstance(v, Value) and v.check)
-        doc = {"shape": [4, 6], "data_type": "uint8", "codecs": SHARDED, "fill_value": 0,
-               "chunk_grid": {"name": "regular", "configuration": {"chunk_shape": [4, 6]}}}
-        far = concat(*(Ref(p, 0, k << 17, 1) for k in range(1025)))
-        moved = Value(far.parts, dataclasses.replace(issued, binding=Binding.of(doc, (0, 0)), parts=far.parts))
-        out = Array([4, 6], "uint8", [4, 6], SHARDED, {(0, 0): moved}).entries(to="a")
-        with pytest.raises(SealError) as e:
-            seal(out, [p])
-    assert e.value.code == "reads"
 
 
 def test_seal_refuses_an_entry_that_is_not_bytes_or_a_value(tmp_path):
@@ -641,12 +571,6 @@ def test_a_store_named_by_a_url_is_read_where_it_was_opened(tmp_path):
         assert (p.sources[0].url or "").startswith("https://example.invalid/")  # how the output names them
         k = next(k for k, s in enumerate(p.sources) if (s.url or "").endswith(".raw"))
         assert p.bytes((k, 0, 16)) == (tmp_path / "nrrd_detached_raw.raw").read_bytes()[:16]
-
-
-def test_seal_refuses_a_value_of_more_reads_than_its_policy_allows(tmp_path):
-    with read(_npy(tmp_path, n=40 << 17), policy=Policy(max_reads=10)) as p, pytest.raises(SealError) as e:
-        seal(Written({"v": concat(*(Ref(p, 0, k << 17, 1) for k in range(20)))}), [p])
-    assert e.value.code == "reads"
 
 
 def test_seal_refuses_an_output_that_is_not_a_mapping(tmp_path):
@@ -747,13 +671,6 @@ def test_seal_refuses_inputs_that_are_not_a_sequence():
     with pytest.raises(SealError) as e:
         seal(Written({"v": b"x"}), 5)  # type: ignore[arg-type]
     assert e.value.code == "inputs"
-
-
-def test_seal_holds_a_built_in_value_to_a_stricter_policy():
-    """Under a policy that allows fewer reads than refkv's default, no check lifts the read rule."""
-    with read(FIXTURES / "tiff/strips_uint8.tif", policy=Policy(max_reads=0)) as p, pytest.raises(SealError) as e:
-        seal(project(p).written, [p])
-    assert e.value.code == "reads"
 
 
 def test_seal_refuses_a_checksum_it_cannot_read_on_refkvs_own_loop(tmp_path):

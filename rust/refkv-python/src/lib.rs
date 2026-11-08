@@ -855,25 +855,24 @@ fn piece(p: &Bound<'_, PyAny>) -> PyResult<refkv_ir::seal::Piece> {
 }
 
 /// The core's `seal` (`refkv_ir::seal::seal`) of the output whose bytes entries' keys are
-/// `documents` and whose values are `values`, each (key, parts (`piece`), lifted): `urls` are
+/// `documents` and whose values are `values`, each (key, parts (`piece`)): `urls` are
 /// (url, size, etag), `data` byte strings, `first` the url that is source 0. Returns (the table,
 /// each source ("url", index), ("data", index) or ("zeros", length); the values in key order,
 /// each (key, ranges), a range (source, offset, length) or bytes). Raises SealRefused with
 /// (code, key, message).
 #[pyfunction]
-#[pyo3(signature = (urls, data, first, documents, values, max_sources, max_reads, checksums))]
+#[pyo3(signature = (urls, data, first, documents, values, max_sources, checksums))]
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn seal<'py>(py: Python<'py>, urls: Vec<(String, Option<u64>, Option<String>)>, data: Vec<Vec<u8>>, first: Option<usize>,
-             documents: Vec<String>, values: Vec<(String, Bound<'py, PyList>, bool)>, max_sources: usize, max_reads: usize,
-             checksums: bool) -> PyResult<(Bound<'py, PyList>, Bound<'py, PyList>)> {
+             documents: Vec<String>, values: Vec<(String, Bound<'py, PyList>)>, max_sources: usize, checksums: bool) -> PyResult<(Bound<'py, PyList>, Bound<'py, PyList>)> {
     use refkv_ir::seal::{Limits, Range, Source, Url, Value};
     let urls: Vec<Url> = urls.into_iter().map(|(url, size, etag)| Url { url, size, etag }).collect();
     let mut vs = Vec::with_capacity(values.len());
-    for (key, parts, lifted) in values {
+    for (key, parts) in values {
         let pieces = parts.iter().map(|p| piece(&p)).collect::<PyResult<Vec<_>>>()?;
-        vs.push(Value { key, pieces, lifted });
+        vs.push(Value { key, pieces });
     }
-    let limits = Limits { max_sources, max_reads, checksums };
+    let limits = Limits { max_sources, checksums };
     let sealed = py.detach(|| refkv_ir::seal::seal(&urls, &data, first, &documents, vs, &limits))
         .map_err(|e| SealRefused::new_err((e.code.name(), e.key, e.message)))?;
     let table = PyList::empty(py);

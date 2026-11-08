@@ -275,8 +275,8 @@ Use it when a file has many small units of one shape on a regular grid: frames, 
 - **It costs:** a reader that does not know sharding sees only shards. The reference payload limit of
   65,519 bytes caps the units of a shard: count 16 bytes of index and the unit's ranges.
 - **Limit a shard by units**, for the payload and `max_reads`
-  ([refkv §6.7](../spec/refkv.md#67-reader-policy), rule 5), and by decoded bytes, for a reader that
-  reads a shard whole. Don't limit it by what a partial read costs, which a shard already keeps exact.
+  ([refkv §6.7](../spec/refkv.md#67-reader-policy), rule 5), and by its bytes, for `max_get_bytes`
+  (rule 5) and a reader that reads a shard whole. Don't limit it by what a partial read costs, which a shard already keeps exact.
 - **It does not fix edge units.** An inner chunk decodes to the inner shape like any chunk.
 
 Who has decided: FLAC shards its frames, and TIFF its LZW, Deflate and zstd strips

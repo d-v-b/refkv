@@ -74,30 +74,25 @@ returns a `refkv.ReferenceStore`, read under `policy` and `registry` (the inputs
 - every key is one the archive holds, every `Ref` lies within its source as `read` found it,
   every payload is at most 65519 bytes (with checksums, when the inputs were read with them, each
   counted at its largest, 6 bytes, so that whether an output is sealed never depends on its
-  bytes), and a value reads at most 1024 ranges, counted as readers merge them;
+  bytes);
 - the inputs go together: one reader policy and registry, all read with checksums or none, and a
   file read twice with the same pins;
-- the store's reader policy allows it: its url sources (rules 1 to 3), and no more sources, reads
-  per value or format-entry bytes than the policy's limits.
+- the store's reader policy allows it: its url sources (rules 1 to 3), and no more sources or
+  format-entry bytes than the policy's limits.
+
+How many reads or bytes one value takes is not `seal`'s to check: it is each reader's own limit
+(`max_reads` and `max_get_bytes`, [spec/refkv.md §6.7](../spec/refkv.md#67-reader-policy) rule 5), which a reader of a trusted store may
+raise. A value that needs more than a reader allows fails that `get`, and only that one.
 
 A failure is a `SealError`, whose `code` (one of `CODES`) says which rule. The numbering and the
-checks of keys, ranges, payloads and reads are the core's (`refkv._core.seal`), the same function
+checks of keys, ranges and payloads are the core's (`refkv._core.seal`), the same function
 every output of a core run passes through, from Python, the CLI or the browser (every output of
 `zarrify` but a plugin's and the DICOM store form's); `seal` adds what
 only Python knows: the caller's objects, the inputs, the policy's URL rules, the placements and
-the archive. A chunk refkv's own
-output holds is **checked**: it carries the rule of the convention it was built under, which `seal`
-holds it to where it is written (in the array it was built in, or under a leading `transpose`
-codec), in place of the read rule a caller's own values meet. Only refkv's routines make checks;
-`seal` honors no other. Today's one rule, `"builtin"`, lifts the read rule inside a sharded array,
-whose shards a reader reads in parts; a built-in value outside one meets the read rule like any
-other, so that a store `seal` makes is one its reader reads. Where a convention builds an unsharded
-chunk of more than 1024 reads (a far-apart band of rows, a long run of strings), `zarrify` writes it
-today, which its reader then refuses, and `seal` refuses it.
+the archive.
 
-`refkv.build.project(p)` is the output `zarrify` writes for the input, as checked values:
-`seal(project(p).written, [p])` reads what `zarrify` writes, but for a chunk past the read rule,
-which `seal` refuses as said above.
+`refkv.build.project(p)` is the output `zarrify` writes for the input, as values:
+`seal(project(p).written, [p])` reads what `zarrify` writes.
 
 ## A TIFF made of several
 

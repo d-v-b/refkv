@@ -359,6 +359,146 @@ test("refuses too many reads", async () => {
   assert.equal(log.requests, 0);
 });
 
+test("refuses too many bytes", async () => {
+  // a literal's bytes and a url range's count, before any read
+  const desc: ArchiveDesc = {
+    sources: [{ url: "blob.bin" }],
+    entries: [{ key: "r", ranges: [{ data: new Uint8Array(3) }, { source: 0, offset: 0n, length: 4n }] }],
+  };
+  const { archive, log } = await open(desc, { maxGetBytes: 6 });
+  await assert.rejects(archive.read("r"), isError("request", /more than 6 bytes/));
+  assert.equal(log.requests, 0);
+});
+
+test("coalesces a value's ranges within the bytes it may take", async () => {
+  // one-byte ranges 64 KiB apart: one read, three under a budget of 128 KiB, four with no gap
+  const ranges = [0, 1, 2, 3].map((k) => ({ source: 0, offset: BigInt(k << 16), length: 1n }));
+  const desc: ArchiveDesc = { sources: [{ url: "blob.bin" }], entries: [{ key: "r", ranges }] };
+  const body = Uint8Array.from({ length: (3 << 16) + 1 }, (_, i) => (i >> 16) + 1);
+  for (const [policy, requests] of [[{}, 1], [{ maxGetBytes: 1 << 17 }, 3], [{ maxCoalesceGap: 0 }, 4]] as const) {
+    const { archive, log } = await open(desc, policy, body);
+    assert.deepEqual(await archive.read("r"), Uint8Array.of(1, 2, 3, 4));
+    assert.equal(log.requests, requests, JSON.stringify(policy));
+  }
+});
+
+test("a shared request fetches no more than a value's read may take", async () => {
+  // two 4 KiB reads 64 KiB apart, read together: one request by default, two under a budget of 4 KiB
+  const desc: ArchiveDesc = {
+    sources: [{ url: "blob.bin" }],
+    entries: [
+      { key: "a", ranges: [{ source: 0, offset: 0n, length: 4096n }] },
+      { key: "b", ranges: [{ source: 0, offset: 65536n, length: 4096n }] },
+    ],
+  };
+  const body = Uint8Array.from({ length: 65536 + 4096 }, (_, i) => i % 251);
+  for (const [policy, requests] of [[{}, 1], [{ maxGetBytes: 4096 }, 2]] as const) {
+    const { archive, log } = await open(desc, policy, body);
+    const [a, b] = await Promise.all([archive.read("a"), archive.read("b")]);
+    assert.deepEqual([a, b], [body.subarray(0, 4096), body.subarray(65536, 65536 + 4096)]);
+    assert.equal(log.requests, requests, JSON.stringify(policy));
+  }
+});
+
+test("counts a key source's value whole, once a read, cached or not", async () => {
+  // two ranges of a 1000-byte entry, which the reader reads whole: read under a budget of 1000
+  // bytes and refused under 999, whether they cover 20 bytes of it or all of it, before or after
+  // the entry is read whole, and whether it is stored or compressed
+  const value = Uint8Array.from({ length: 1000 }, (_, i) => i % 250);
+  const two = (n: bigint) => [{ source: 0, offset: 0n, length: n }, { source: 0, offset: n, length: n }];
+  for (const compress of [false, true]) {
+    const desc: ArchiveDesc = {
+      sources: [{ key: "k" }],
+      entries: [{ key: "k", bytes: value, compress }, { key: "few", ranges: two(10n) }, { key: "all", ranges: two(500n) }],
+    };
+    for (const warm of [false, true]) {
+      const { archive } = await open(desc, { maxGetBytes: 1000 });
+      const { archive: tight } = await open(desc, { maxGetBytes: 999 });
+      if (warm) {
+        assert.deepEqual(await archive.read("k"), value);
+        assert.deepEqual(await tight.read("k"), value);
+      }
+      assert.deepEqual(await archive.read("few"), value.subarray(0, 20));
+      assert.deepEqual(await archive.read("all"), value);
+      for (const key of ["few", "all"]) {
+        await assert.rejects(tight.read(key), isError("request", /more than 999 bytes/), `${key} ${compress} ${warm}`);
+      }
+    }
+  }
+});
+
+test("counts a repeated range of a key source's value each time it builds the value from it", async () => {
+  // 8 copies of the whole of a 1000-byte value: 8000 bytes built from 1000 fetched
+  const desc: ArchiveDesc = {
+    sources: [{ key: "k" }],
+    entries: [
+      { key: "k", bytes: new Uint8Array(1000).fill(9), compress: true },
+      { key: "r", ranges: Array.from({ length: 8 }, () => ({ source: 0, offset: 0n, length: 1000n })) },
+    ],
+  };
+  assert.deepEqual(await (await open(desc, { maxGetBytes: 8000 })).archive.read("r"), new Uint8Array(8000).fill(9));
+  await assert.rejects((await open(desc, { maxGetBytes: 7999 })).archive.read("r"), isError("request", /more than 7999 bytes/));
+});
+
+test("reports a key source whose entry cannot be read as a resolution error", async () => {
+  const desc: ArchiveDesc = {
+    sources: [{ key: "k" }],
+    entries: [{ key: "k", bytes: new Uint8Array(10) }, { key: "r", ranges: [{ source: 0, offset: 0n, length: 1n }] }],
+  };
+  const { archive } = await open(desc, {});
+  const target = archive as unknown as { entryFor: (key: string) => unknown };
+  const entryFor = target.entryFor.bind(archive);
+  target.entryFor = (key) => {
+    if (key === "k") throw new RefkvError("entry", "its slot is outside RECORDS");
+    return entryFor(key);
+  };
+  await assert.rejects(archive.read("r"), isError("resolution", /slot is outside RECORDS/));
+});
+
+test("coalesces only within the bytes the key values a read holds whole leave", async () => {
+  // two url ranges 70 bytes apart and a 100-byte key value: 120 bytes fetched in two requests under a
+  // bound of 150, not refused for a coalesced request of 90 bytes
+  const desc: ArchiveDesc = {
+    sources: [{ url: "blob.bin" }, { key: "k" }],
+    entries: [
+      { key: "k", bytes: new Uint8Array(100), compress: true },
+      { key: "r", ranges: [{ source: 0, offset: 0n, length: 10n }, { source: 0, offset: 80n, length: 10n }, { source: 1, offset: 0n, length: 10n }] },
+    ],
+  };
+  const { archive, log } = await open(desc, { maxGetBytes: 150 });
+  const want = new Uint8Array([...BLOB.subarray(0, 10), ...BLOB.subarray(80, 90), ...new Uint8Array(10)]);
+  assert.deepEqual(await archive.read("r"), want);
+  assert.equal(log.requests, 2);
+  await assert.rejects((await open(desc, { maxGetBytes: 119 })).archive.read("r"), isError("request", /more than 119 bytes/));
+});
+
+test("reports a key source whose entry's body is broken, or that names a format entry, as a resolution error", async () => {
+  const desc: ArchiveDesc = {
+    sources: [{ key: "k" }],
+    entries: [{ key: "k", bytes: new Uint8Array(10), compress: true }, { key: "r", ranges: [{ source: 0, offset: 0n, length: 1n }] }],
+  };
+  const { archive } = await open(desc);
+  const target = archive as unknown as { body: (e: unknown) => Promise<Uint8Array> };
+  target.body = async () => {
+    throw new RefkvError("body", "k: invalid code lengths set");
+  };
+  await assert.rejects(archive.read("r"), isError("resolution", /invalid code lengths set/));
+  // a writer refuses such a source: point the opened archive's at the source table
+  const { archive: named } = await open(desc, { maxGetBytes: 1 });
+  (named as unknown as { sources: { key?: string }[] }).sources[0] = { key: "__vz__/sources" };
+  await assert.rejects(named.read("r"), isError("resolution", /names a format entry/));
+});
+
+test("refuses limits that are no natural numbers, and an amplification that is no finite number", async () => {
+  const bytes = await writeVzip({ sources: [], entries: [] });
+  for (const policy of [{ maxGetBytes: -1 }, { maxGetBytes: 1.5 }, { maxGetBytes: undefined }, { maxReads: Number.NaN }]) {
+    await assert.rejects(Archive.open(bytes, BASE, undefined, policy), TypeError, JSON.stringify(policy));
+  }
+  for (const maxReadAmplification of [-1, Number.NaN, Infinity]) {
+    await assert.rejects(Archive.open(bytes, BASE, undefined, { maxReadAmplification }), TypeError);
+  }
+});
+
 test("refuses an inflation bomb in the source table", async () => {
   const bytes = await writeVzip({ sources: [{ data: new Uint8Array(4 << 20) }], entries: [] });
   await assert.rejects(Archive.open(bytes, BASE, undefined, { maxFormatEntry: 1 << 20 }), isError("archive", /inflates to more than/));

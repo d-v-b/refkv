@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import bisect
+import dataclasses
 import json
 import os
 from pathlib import Path
@@ -346,9 +347,16 @@ class Parsed:
             size = self.sources[source].size
             if size is not None and offset + length > size:
                 raise ValueError(f"bytes {offset} to {offset + length} of source {source}, past its {size}")
-        runs = _runs(ranges)  # each source's ranges merged, as the reader would merge them: each read once
+        runs = _runs(ranges, (self.policy or Policy()).max_coalesce_gap)  # as the reader merges them: each read once
         mapping = {str(k): Range(src, a, b - a) for k, (src, a, b) in enumerate(runs)}
-        store = ReferenceStore(mapping, self._readable(), policy=self.policy, registry=self.registry)
+        # the input's own bytes, read one run a get: a reader's limits on a `get` (rule 5) are not
+        # build's, and `bytes` bounds what it reads by `max_bytes`; `seal`'s checksums read the
+        # ranges its values name, however many
+        rules = self.policy or Policy()
+        longest = max((b - a for _, a, b in runs), default=0)
+        policy = dataclasses.replace(rules, max_get_bytes=max(rules.max_get_bytes, longest),
+                                     max_reads=max(rules.max_reads, 1))
+        store = ReferenceStore(mapping, self._readable(), policy=policy, registry=self.registry)
 
         async def each() -> list[bytes | None]:  # together
             return list(await asyncio.gather(*(store.get_async(k) for k in mapping)))
@@ -401,7 +409,7 @@ class Parsed:
             ref = self.span(i)
             wanted.append((ref.source, ref.offset, ref.length))
             out.append(None)
-        total = _fetched(wanted)
+        total = _fetched(wanted, (self.policy or Policy()).max_coalesce_gap)
         if self._read + total > self.max_bytes:
             raise ValueError(f"reading {total} more bytes (ranges as the reader merges them) would pass the input's "
                              f"max_bytes of {self.max_bytes}")
@@ -416,9 +424,10 @@ def _drive(ref: str) -> bool:
     return len(ref) > 1 and ref[1] == ":" and ref[0].isalpha()
 
 
-def _runs(ranges: list[tuple[int, int, int]]) -> list[tuple[int, int, int]]:
-    """`ranges` of each source at most `MERGE_GAP` apart merged into runs `(source, start, end)`,
-    overlapping and repeated ranges once, the bytes between them included: what is read."""
+def _runs(ranges: list[tuple[int, int, int]], gap: int = MERGE_GAP) -> list[tuple[int, int, int]]:
+    """`ranges` of each source at most `gap` apart (the input's reader policy's coalescing gap)
+    merged into runs `(source, start, end)`, overlapping and repeated ranges once, the bytes between
+    them included: what is read."""
     by: dict[int, list[tuple[int, int]]] = {}
     for source, offset, length in ranges:
         if length > 0:
@@ -428,7 +437,7 @@ def _runs(ranges: list[tuple[int, int, int]]) -> list[tuple[int, int, int]]:
         spans.sort()
         start, end = spans[0]
         for a, b in spans[1:]:
-            if a > end + MERGE_GAP:
+            if a > end + gap:
                 out.append((source, start, end))
                 start, end = a, b
             else:
@@ -437,9 +446,9 @@ def _runs(ranges: list[tuple[int, int, int]]) -> list[tuple[int, int, int]]:
     return out
 
 
-def _fetched(ranges: list[tuple[int, int, int]]) -> int:
+def _fetched(ranges: list[tuple[int, int, int]], gap: int = MERGE_GAP) -> int:
     """The bytes reading `ranges` together reads (`_runs`)."""
-    return sum(b - a for _, a, b in _runs(ranges))
+    return sum(b - a for _, a, b in _runs(ranges, gap))
 
 
 async def read_async(location: str | os.PathLike[str], url: str | None = None, *, policy: Policy | None = None,

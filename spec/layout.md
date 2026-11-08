@@ -106,9 +106,8 @@ A zarrifier writes a plugin's output in these steps; a check that fails is a fai
    ([§2](#2-the-base)) lies within it. A `key` source is never referenced (the base's table has
    none). A value's ranges total at most 2^64 − 1 bytes. Every reference's payload, as written (its `crc32c` fields included, when the call asks for checksums), MUST be at most 65519
    bytes ([zarrify §1.2](zarrify.md#12-input), [vzip §11.3](bindings/vzip.md#113-reference-entries)).
-   A reference that is not the base's MUST read at most 1024 url ranges, ranges of one source at
-   most 64 KiB apart counted as one ([spec/refkv.md §6.7](refkv.md#67-reader-policy) rule 5's
-   default; the base's own values are not held to it). The references that are not the base's are
+   How many reads or bytes a reference takes is its reader's limit
+   ([spec/refkv.md §6.7](refkv.md#67-reader-policy) rule 5), not the output's. The references that are not the base's are
    given checksums, when the call asks for them, by reading their ranges as the base's are read.
 4. **Placement.** The entries read at open are those `read_at_open` names; without it, a bytes
    entry equal to the base's at the same key is read at open when the base's is, and any other

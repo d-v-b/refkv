@@ -167,7 +167,8 @@ What each step does:
   flight, and `max_concurrency=None` removes the cap. Respect the host's
   limits.
 - **Many small chunks.** Chunks read at the same time share requests when they lie
-  less than 64 KiB apart in one source file, but zarr asks for only
+  at most the policy's coalescing gap apart in one source file (`Policy.max_coalesce_gap`, 64 KiB
+  by default), but zarr asks for only
   `async.concurrency` chunks at once (10 by default), which limits how many can
   share one. Raising it makes both fewer requests and a faster read, and opens no
   more connections, since `max_concurrency` bounds those. The setting is zarr's, and
@@ -262,6 +263,12 @@ register its store, as above; that allows its URLs. The rules are in
   a proxy (`http_proxy`, `https_proxy`) opening an `https://` archive fails
   too. Exempt the host with `no_proxy`, or pass
   `policy=refkv.Policy(allow_unchecked_proxy=True)`.
+- **`the value needs more than 2147483648 bytes ...`.** A reader refuses a
+  `get` of more bytes than its policy allows, 2 GiB by default
+  ([spec §6.7](../spec/refkv.md#67-reader-policy) rule 5). VirtualiZarr and
+  kerchunk present a contiguous HDF5 or netCDF variable as one chunk, which
+  can be larger. For a store you trust, pass
+  `policy=refkv.Policy(max_get_bytes=...)` with a larger bound.
 
 The docstrings say more: `help(refkv.ReferenceStore)`, `help(refkv.zarr.open)`
 and `help(refkv.vzip.VZipStore)` (its `registry=` and `max_concurrency=`), and

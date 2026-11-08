@@ -1,25 +1,24 @@
-"""`project`: the built-in output of an input `read` read, as checked values (the design of
+"""`project`: the built-in output of an input `read` read, as values (the design of
 d-v-b/refkv#278, "The built-in output"). In this first step it is the output the run already
 made, which `refkv.zarrify.layouts.Base` holds."""
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
-from refkv import Concat, Range
+from refkv import Range
 from refkv.ir.store import StoreIrOutput
 from refkv.zarrify.layouts import Base, base_of, chunk_coords
 
 from .parsed import Parsed
-from .values import MODELED, Array, Binding, Literal, Part, Ref, Shared, Value, Written, Zeros, _issue
+from .values import MODELED, Array, Literal, Part, Ref, Shared, Value, Written, Zeros
 
 __all__ = ["Projected", "project"]
 
 
 class Projected:
-    """The built-in output of an input: `written`, its entries with their placement, the chunks of
-    its arrays as values checked under the rule `"builtin"`; `array(path)`, an array of it; and
+    """The built-in output of an input: `written`, its entries with their placement, its
+    references as values; `array(path)`, an array of it; and
     `base`, the `refkv.zarrify.layouts.Base` it was made from (for `hierarchy.copy`, a node's
     attributes and source metadata)."""
 
@@ -27,7 +26,6 @@ class Projected:
         self.parsed = parsed
         self.base = base
         self._sources = self._source_map()
-        self._docs: dict[str, dict[str, Any]] = {}
         self.written = Written()
         for k in base.keys():  # noqa: SIM118 (a Base has keys(), not iteration)
             v = base._values[k]  # noqa: SLF001 (the base's own values, checksums dropped)
@@ -35,7 +33,7 @@ class Projected:
                 self.written[k] = v
                 self.written.at_open[k] = k in read_at_open
             else:
-                self.written[k] = self._value(k, v)
+                self.written[k] = Value(tuple(self._part(r) for r in ((v,) if isinstance(v, Range) else v.parts)))
 
     def _source_map(self) -> list[int | None]:
         """Each base source's index in the input's sources, or None for a data source."""
@@ -66,30 +64,8 @@ class Projected:
             return Shared(data)
         return Shared(data[r.offset:r.offset + r.length])
 
-    def _doc(self, path: str) -> dict[str, Any] | None:
-        if path not in self._docs:
-            raw = self.base._values.get(f"{path}/zarr.json" if path else "zarr.json")  # noqa: SLF001
-            self._docs[path] = json.loads(raw) if isinstance(raw, bytes) else {}
-        doc = self._docs[path]
-        return doc if doc.get("node_type") == "array" else None
-
-    def _value(self, key: str, v: Range | Concat) -> Value:
-        parts = tuple(self._part(r) for r in ((v,) if isinstance(v, Range) else v.parts))
-        segments = key.split("/")
-        for cut in range(len(segments) - 1, -1, -1):
-            path = "/".join(segments[:cut])
-            doc = self._doc(path)
-            if doc is None:
-                continue
-            try:
-                coords = chunk_coords(key[len(path) + 1:] if path else key, doc)
-            except (ValueError, KeyError, TypeError):
-                return Value(parts)  # under an array but no chunk of it (a root array's mirror): unchecked
-            return Value(parts, _issue("builtin", Binding.of(doc, coords), parts))
-        return Value(parts)
-
     def array(self, path: str) -> Array:
-        """The array at `path`, its chunks checked, with its attributes (refkv's declarations among
+        """The array at `path`, its chunks the output's values, with its attributes (refkv's declarations among
         them, as the base's document holds them) and chunk key encoding."""
         doc, chunks = self.base.array(path)
         grid = doc["chunk_grid"]["configuration"]
@@ -112,6 +88,6 @@ def _coords(key: str, doc: dict[str, Any]) -> tuple[int, ...] | None:
 
 
 def project(parsed: Parsed) -> Projected:
-    """The built-in projection of `parsed`'s input: what `zarrify` writes for it, as checked values."""
+    """The built-in projection of `parsed`'s input: what `zarrify` writes for it, as values."""
     base, store = base_of(parsed._out, parsed._fmt, parsed.policy, parsed.registry)  # noqa: SLF001
     return Projected(parsed, base, frozenset(store.read_at_open))

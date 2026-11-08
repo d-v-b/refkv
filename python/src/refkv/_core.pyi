@@ -266,11 +266,10 @@ def plan_spans(
 type SealPiece = bytes | tuple[int, ...]
 
 def seal(urls: list[tuple[str, int | None, str | None]], data: list[bytes], first: int | None,
-         documents: list[str], values: list[tuple[str, list[SealPiece], bool]], max_sources: int,
-         max_reads: int, checksums: bool,
+         documents: list[str], values: list[tuple[str, list[SealPiece]]], max_sources: int, checksums: bool,
          ) -> tuple[list[tuple[str, int]], list[tuple[str, list[tuple[int, int, int] | bytes]]]]:
     """The core's seal (rust/refkv-ir/src/seal.rs) of the output whose bytes entries' keys are
-    `documents` and whose values are (key, pieces, lifted), the pieces naming `urls` (url, size,
+    `documents` and whose values are (key, pieces), the pieces naming `urls` (url, size,
     etag) and `data`, `first` the url that is source 0: (its table, each source ("url", index),
     ("data", index) or ("zeros", length); its values in key order, each (key, ranges), a range
     (source, offset, length) or bytes). Raises SealRefused."""
@@ -348,6 +347,13 @@ def czi_bands(h: int, h2: int, r: int, w: int, q: int, uncompressed: bool) -> tu
 # <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#64-errors>)
 class PhkvReadError(Exception): ...
 
+# a bytes value a phkv store looked up, from `PhkvStore.key_found`
+class PhkvFound:
+    @property
+    def size(self) -> int: ...
+    @property
+    def held(self) -> int | None: ...
+
 # a phkv store (spec/bindings/phkv.md), read through `size()` and `read(offset, length)`; every
 # method blocks on those, so a host calls them from a thread
 class PhkvStore:
@@ -357,6 +363,7 @@ class PhkvStore:
         read: Callable[[int, int], bytes],
         sources: int | None = None,
         open_bytes: int | None = None,
+        request_bytes: int | None = None,
     ) -> None: ...
     @staticmethod
     def tail() -> int: ...
@@ -374,6 +381,8 @@ class PhkvStore:
         self, key: str, mode: int, a: int, b: int
     ) -> tuple[Literal["bytes"], bytes] | tuple[Literal["reference"], int, bytes] | None: ...
     def key_bytes(self, key: str, start: int, end: int) -> bytes: ...
+    def key_found(self, key: str) -> PhkvFound | None: ...
+    def found_bytes(self, found: PhkvFound, start: int, end: int) -> bytes: ...
     def raw(self, key: str) -> bytes | None: ...
     def list(self, prefix: str) -> list[str]: ...
     def property(self, key: str, name: str) -> int | str | bytes | None: ...

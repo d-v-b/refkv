@@ -12,7 +12,7 @@ use crate::ptrhash::{self, Params};
 use refkv_vzip::pb::{self, Range, Source, SourceKind};
 use std::cell::RefCell;
 use std::io;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, OnceLock};
 
 /// Random access to the bytes of a store.
@@ -136,7 +136,8 @@ pub struct Limits {
     pub url_reads: usize,
     /// each section read at open, stored and decoded (rule 6)
     pub open_bytes: u64,
-    /// the bytes one get or raw may hold in memory, a value decoded whole included
+    /// the bytes one get or raw may hold in memory, a value decoded whole included, and the bytes
+    /// a get of a reference takes (rule 5): each range's it resolves, a range with a checksum whole
     pub request_bytes: u64,
     /// the bytes read at a record's offset at first, by default enough for a record whose value is
     /// inline at the writer's default `inline_max` (4 KiB), its key and header: a longer record takes
@@ -218,6 +219,16 @@ struct PropertySection {
     entry: DirEntry,
     present: u64,
     values: u64,
+}
+
+/// A `key` source's bytes value, found by [`Store::key_found`]: its size; `held`, the bytes read to
+/// hold it when a reader holds it whole to read a range of it (the larger of its size and its stored
+/// bytes), else None; and the record that lookup read, which [`Store::found_bytes`] reads it from.
+#[derive(Clone, Debug)]
+pub struct Found {
+    pub size: u64,
+    pub held: Option<u64>,
+    record: Record,
 }
 
 /// An opened phkv store.
@@ -636,6 +647,41 @@ impl<R: ReadAt> Store<R> {
         self.source_bytes(&Source::key(key), start, end.saturating_sub(start), &NoUrls)
     }
 
+    /// The bytes value at `key`, looked up once for rule 5 (spec/refkv.md §6.7
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>), which counts a
+    /// value held whole to read a range of it (a compressed value, decoded whole, or an inline one,
+    /// read with its record) as fetched once a get; None when the key is missing or a reference,
+    /// which `key_bytes` refuses. A failed lookup is a resolution error: what the value takes is
+    /// unknown.
+    pub fn key_found(&self, key: &str) -> Result<Option<Found>, ReadError> {
+        match self.lookup(key) {
+            Ok(Some(record)) => match record.value {
+                Value::Bytes { codec, ref stored, stored_length, size, .. } => {
+                    let whole = codec != Codec::None || matches!(stored, Stored::Inline(_));
+                    Ok(Some(Found { size, held: whole.then(|| size.max(stored_length)), record }))
+                }
+                _ => Ok(None),
+            },
+            Ok(None) => Ok(None),
+            Err(e) => err(Class::Resolution, format!("key source {key:?}: {}", e.message)),
+        }
+    }
+
+    /// Bytes `[a, b)` of the value [`Store::key_found`] found, from the record it read: no second
+    /// lookup, and an inline value is not read again. Every failure is a resolution error that
+    /// names the key.
+    pub fn found_bytes(&self, found: &Found, a: u64, b: u64) -> Result<Vec<u8>, ReadError> {
+        let key = String::from_utf8_lossy(&found.record.key);
+        let fail = |m: String| err(Class::Resolution, format!("key source {key:?}: {m}"));
+        if a > b {
+            return fail(format!("the range [{a}, {b}) ends before it starts"));
+        }
+        if b > found.size {
+            return fail(format!("a range ends at {b}, past its {} bytes", found.size));
+        }
+        self.bytes_window(&found.record, a, b).or_else(|e| fail(e.message))
+    }
+
     /// Bytes `[a, b)` of a bytes record's value: a codec-0 value is read only within the window, a
     /// compressed one is decoded whole; the CRC-32C is checked whenever the whole value is had.
     fn bytes_window(&self, rec: &Record, a: u64, b: u64) -> Result<Vec<u8>, ReadError> {
@@ -745,7 +791,36 @@ impl<R: ReadAt> Store<R> {
         if url_reads > self.limits.url_reads {
             return err(Class::Request, format!("{url_reads} url reads, more than the limit of {}", self.limits.url_reads));
         }
+        // rule 5, before any source is read: the bytes the value is built from, each range's each time
+        // (a range with a checksum read whole), and the bytes it fetches: its reads of url sources,
+        // and once a get the bytes read to hold a key source's value whole, which only a lookup of
+        // the key tells, so it is counted once the rest pass
+        let (mut built, mut fetched) = (0u64, 0u64);
+        let (mut keys, mut seen): (Vec<&str>, HashSet<&str>) = (Vec::new(), HashSet::new());
+        for &(r, i, j) in &parts {
+            let range = if r.data.is_none() && r.crc32c.is_some() { r.length } else { j - i };
+            built = built.saturating_add(range);
+            match (r.data.is_none()).then(|| &self.sources[r.source as usize].kind) {
+                Some(SourceKind::Key(k)) if seen.insert(k.as_str()) => keys.push(k.as_str()),
+                Some(SourceKind::Url(_)) => fetched = fetched.saturating_add(range),
+                _ => {}
+            }
+        }
+        let refuse = |taken: u64| err(Class::Request, format!("the value takes {taken} bytes, more than the limit of {}", self.limits.request_bytes));
+        if built.max(fetched) > self.limits.request_bytes {
+            return refuse(built.max(fetched));
+        }
+        let mut found: HashMap<&str, Option<Found>> = HashMap::new(); // each key looked up once a get
+        for k in keys {
+            let f = self.key_found(k)?;
+            fetched = fetched.saturating_add(f.as_ref().and_then(|f| f.held).unwrap_or(0));
+            if fetched > self.limits.request_bytes {
+                return refuse(fetched); // no more keys looked up, nor values held
+            }
+            found.insert(k, f);
+        }
         let mut out = Vec::with_capacity((b - a) as usize);
+        let mut decoded: HashMap<&str, Vec<u8>> = HashMap::new(); // each value decoded whole, once a get
         for (r, i, j) in parts {
             if let Some(d) = &r.data {
                 out.extend_from_slice(&d[i as usize..j as usize]);
@@ -753,7 +828,26 @@ impl<R: ReadAt> Store<R> {
             }
             // a range with a checksum is read whole, and checked before any of it is used
             let (ri, rj) = if r.crc32c.is_some() { (0, r.length) } else { (i, j) };
-            let bytes = self.source_bytes(&self.sources[r.source as usize], r.offset + ri, rj - ri, resolver)?;
+            let src = &self.sources[r.source as usize];
+            let entry = match &src.kind {
+                SourceKind::Key(k) => found.get(k.as_str()).and_then(Option::as_ref),
+                _ => None,
+            };
+            let bytes = match (&src.kind, entry) {
+                (SourceKind::Key(k), Some(f)) if f.held.is_none() => self.found_bytes(f, r.offset + ri, r.offset + rj)?,
+                (SourceKind::Key(k), Some(f)) => {
+                    let (start, end) = (r.offset + ri, r.offset + rj);
+                    if !decoded.contains_key(k.as_str()) {
+                        decoded.insert(k.as_str(), self.found_bytes(f, 0, f.size)?);
+                    }
+                    let value = &decoded[k.as_str()];
+                    if end > value.len() as u64 {
+                        return err(Class::Resolution, format!("a range ends at {end}, past the {} bytes of key source {k:?}", value.len()));
+                    }
+                    value[start as usize..end as usize].to_vec()
+                }
+                _ => self.source_bytes(src, r.offset + ri, rj - ri, resolver)?,
+            };
             if let Some(c) = r.crc32c
                 && format::crc32c(&bytes) != c
             {

@@ -16,10 +16,6 @@ pub const MAX_OPEN: u64 = 256 << 20;
 /// The sources of a table a reader opens by default (`max_sources` of spec/refkv.md §6.7
 /// <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>).
 pub const MAX_SOURCES: usize = 1 << 22;
-/// The url reads of one value (spec/refkv.md §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 5).
-pub const MAX_READS: usize = 1024;
-/// Ranges of one source this close are one read, as refkv's readers merge them.
-pub const MERGE_GAP: u64 = 1 << 16;
 /// The bytes of a key (spec/bindings/vzip.md, a ZIP entry's name).
 pub const MAX_KEY: usize = 65535;
 /// The keys the ZIP binding keeps for itself.
@@ -41,8 +37,6 @@ pub enum Code {
     Payload,
     /// a payload over the limit only with its checksums: a failure, not a rejection
     Checksums,
-    /// a value whose reads pass the reader's limit
-    Reads,
     /// inputs that do not go together
     Inputs,
     /// a table or source past an archive's limits
@@ -59,7 +53,6 @@ impl Code {
             Code::Range => "range",
             Code::Payload => "payload",
             Code::Checksums => "checksums",
-            Code::Reads => "reads",
             Code::Inputs => "inputs",
             Code::Archive => "archive",
             Code::Internal => "internal",
@@ -140,28 +133,28 @@ pub enum Piece {
     Lit(Vec<u8>),
 }
 
-/// A reference entry: its key, its parts, and whether a check of refkv's lifts the read rule
-/// for it (the host decides; `seal` lifts nothing under a reader stricter than refkv's).
+/// A reference entry: its key and its parts.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Value {
     pub key: String,
     pub pieces: Vec<Piece>,
-    pub lifted: bool,
 }
 
 /// What the store's reader allows, and whether the hosts record the ranges' checksums. A
 /// built-in output's table has no limit of its own (the IR's objects bound it); a caller's is
-/// held to its reader policy's `max_sources`, `MAX_SOURCES` by default.
+/// held to its reader policy's `max_sources`, `MAX_SOURCES` by default. How many reads or bytes
+/// one value may take is the reader's own limit (spec/refkv.md §6.7
+/// <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 5), which
+/// `seal` does not hold a store to.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Limits {
     pub max_sources: usize,
-    pub max_reads: usize,
     pub checksums: bool,
 }
 
 impl Default for Limits {
     fn default() -> Limits {
-        Limits { max_sources: usize::MAX, max_reads: MAX_READS, checksums: false }
+        Limits { max_sources: usize::MAX, checksums: false }
     }
 }
 
@@ -226,30 +219,6 @@ fn payload(sizes: &[usize]) -> usize {
     }
 }
 
-/// The url reads `ranges` make, ranges of one source at most `MERGE_GAP` apart counted once.
-fn reads(ranges: &[Range], url: &[bool]) -> usize {
-    let mut spans: HashMap<u32, Vec<(u64, u64)>> = HashMap::new();
-    for r in ranges {
-        if let Range::Src(s, o, n) = *r {
-            if n > 0 && url[s as usize] {
-                spans.entry(s).or_default().push((o, o.saturating_add(n)));
-            }
-        }
-    }
-    let mut count = 0;
-    for got in spans.values_mut() {
-        got.sort_unstable();
-        let mut end: Option<u64> = None;
-        for &(a, b) in got.iter() {
-            if end.is_none_or(|e| a > e.saturating_add(MERGE_GAP)) {
-                count += 1;
-            }
-            end = Some(end.map_or(b, |e| e.max(b)));
-        }
-    }
-    count
-}
-
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum Slot {
     Data(usize),
@@ -265,9 +234,8 @@ enum Slot {
 /// a value in the order of its pieces: the url sources first, then the data sources (each distinct
 /// data string, and the zero data source, as long as the most `Zeros` any piece holds), in one
 /// order of first use. Equal url sources (URL and pins) are one; one URL with different pins is
-/// refused. Then each key, range and payload is checked, in the order of the keys: an unlifted
-/// value reads at most `max_reads` url ranges, counted as readers merge them, and a payload is at
-/// most 65519 bytes, and when the hosts record checksums, with each url range's checksum at its
+/// refused. Then each key, range and payload is checked, in the order of the keys: a payload is
+/// at most 65519 bytes, and when the hosts record checksums, with each url range's checksum at its
 /// largest (`CRC_FIELD`).
 pub fn seal(urls: &[Url], data: &[Vec<u8>], first: Option<usize>, documents: &[String], mut values: Vec<Value>,
             limits: &Limits) -> Result<Sealed, SealError> {
@@ -379,7 +347,6 @@ pub fn seal(urls: &[Url], data: &[Vec<u8>], first: Option<usize>, documents: &[S
     }
 
     let url: Vec<bool> = sources.iter().map(|s| matches!(s, Source::Url(_))).collect();
-    let max_reads = limits.max_reads.min(MAX_READS);
     let mut sealed = Vec::with_capacity(values.len());
     for v in values {
         let key = Some(v.key.as_str());
@@ -389,15 +356,6 @@ pub fn seal(urls: &[Url], data: &[Vec<u8>], first: Option<usize>, documents: &[S
             Piece::Zeros(n) => Range::Src(slot_at[&Slot::Zeros], 0, n),
             Piece::Lit(b) => Range::Lit(b),
         }).collect();
-        // a reader stricter than refkv's lifts nothing
-        if !(v.lifted && max_reads == MAX_READS) {
-            let n = reads(&ranges, &url);
-            if n > max_reads {
-                return Err(SealError::new(Code::Reads, key, format!(
-                    "it reads {n} ranges, more than the {max_reads} its reader makes for one value (spec/refkv.md \
-                     §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)")));
-            }
-        }
         let bare = payload(&ranges.iter().map(range_size).collect::<Vec<_>>());
         if bare > MAX_PAYLOAD {
             return Err(SealError::new(Code::Payload, key, format!("a payload of {bare} bytes, more than {MAX_PAYLOAD}")));
@@ -425,11 +383,9 @@ pub fn seal(urls: &[Url], data: &[Vec<u8>], first: Option<usize>, documents: &[S
 /// Seals a built-in output, as every host writes it: its url sources are the file (source 0, of
 /// `size` bytes) for a file run, and for a store run the objects its references use (`objects`,
 /// each key's size); its data strings are `out.data`. A built-in value is held to the bounds its
-/// profile's document states, not to the reader's read rule (spec/refkv.md §6.7
-/// <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 5), which
-/// spec/zarrify.md §1.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input> does
-/// not impose and some conventions' chunks pass; `refkv.build.seal`, which
-/// vouches for a store its reader reads, lifts it for refkv's values in sharded arrays alone. On
+/// profile's document states; how many reads or bytes it takes is each reader's limit
+/// (spec/refkv.md §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>
+/// rule 5), which `seal` does not hold a store to. On
 /// success `out.data` holds only the data sources a reference uses, renumbered in `seal`'s order
 /// (from 1, the hosts' numbering), and its references name them so. A refusal may leave `out`
 /// without its references.
@@ -483,7 +439,7 @@ pub fn out(out: &mut Out, size: Option<u64>, objects: &HashMap<String, u64>, che
                 Part::Lit(b) => Piece::Lit(b),
             });
         }
-        values.push(Value { key: k, pieces, lifted: true });
+        values.push(Value { key: k, pieces });
     }
     // `seal` gives the values in key order; the output keeps its own
     let mut at: Vec<usize> = (0..values.len()).collect();
@@ -533,7 +489,7 @@ mod tests {
     }
 
     fn value(key: &str, pieces: Vec<Piece>) -> Value {
-        Value { key: key.into(), pieces, lifted: false }
+        Value { key: key.into(), pieces }
     }
 
     fn refused(r: Result<Sealed, SealError>) -> (Code, Option<String>) {
@@ -571,11 +527,10 @@ mod tests {
             assert_eq!(s.values[2].1, vec![Range::Src(at(&Source::Url(3)), 0, 4), Range::Src(at(&Source::Data(0)), 0, 4),
                                            Range::Src(at(&Source::Zeros(9)), 0, 9)]);
         }
-        // a lifted value may read past the rule; checksums fit a small payload
+        // a value of many far ranges: how many reads it takes is its reader's limit; checksums fit
         let many: Vec<Piece> = (0..2000).map(|k| Piece::Url(0, k * (1 << 17), 1)).collect();
-        let lifted = Value { key: "s/c/0".into(), pieces: many, lifted: true };
         let limits = Limits { checksums: true, ..Limits::default() };
-        assert!(seal(&[url("a", Some(1 << 40), None)], &[], None, &[], vec![lifted], &limits).is_ok());
+        assert!(seal(&[url("a", Some(1 << 40), None)], &[], None, &[], vec![value("s/c/0", many)], &limits).is_ok());
     }
 
     #[test]
@@ -628,22 +583,6 @@ mod tests {
     }
 
     #[test]
-    fn refuses_a_value_past_the_read_rule() {
-        let urls = [url("a", Some(1 << 40), None)];
-        // ranges 64 KiB apart merge; ranges further apart are one read each
-        let near: Vec<Piece> = (0..3000).map(|k| Piece::Url(0, k * (1 << 16), 1)).collect();
-        assert!(seal(&urls, &[], None, &[], vec![value("k", near)], &Limits::default()).is_ok());
-        let far: Vec<Piece> = (0..1025).map(|k| Piece::Url(0, k * (1 << 17), 1)).collect();
-        let r = seal(&urls, &[], None, &[], vec![value("k", far.clone())], &Limits::default());
-        assert_eq!(refused(r), (Code::Reads, Some("k".into())));
-        // a stricter reader lifts nothing
-        let few: Vec<Piece> = far[..3].to_vec();
-        let stricter = Limits { max_reads: 2, ..Limits::default() };
-        let r = seal(&urls, &[], None, &[], vec![Value { key: "k".into(), pieces: few, lifted: true }], &stricter);
-        assert_eq!(refused(r), (Code::Reads, Some("k".into())));
-    }
-
-    #[test]
     fn refuses_a_payload_past_the_limit() {
         let r = seal(&[], &[], None, &[], vec![value("k", vec![Piece::Lit(vec![0; MAX_PAYLOAD])])], &Limits::default());
         assert_eq!(refused(r), (Code::Payload, Some("k".into())));
@@ -654,7 +593,7 @@ mod tests {
         let urls = [url("a", Some(1 << 40), None)];
         // 6000 ranges of 10 bytes each fit; with 6 more each they do not
         let pieces: Vec<Piece> = (0..6000).map(|k| Piece::Url(0, (1 << 30) + k * 3, 1)).collect();
-        let v = Value { key: "k".into(), pieces, lifted: true };
+        let v = value("k", pieces);
         assert!(seal(&urls, &[], None, &[], vec![v.clone()], &Limits::default()).is_ok());
         let limits = Limits { checksums: true, ..Limits::default() };
         let e = seal(&urls, &[], None, &[], vec![v], &limits).unwrap_err();
@@ -686,15 +625,15 @@ mod tests {
 
     #[test]
     fn rejects_before_it_fails() {
-        // "a" passes the limit only with its checksums, "b" the read rule: the rejection, whatever
+        // "a" passes the limit only with its checksums, "b" without them: the rejection, whatever
         // the keys' order
         let urls = [url("u", Some(1 << 40), None)];
         let over: Vec<Piece> = (0..6000).map(|k| Piece::Url(0, (1 << 30) + k * 3, 1)).collect();
-        let far: Vec<Piece> = (0..1025).map(|k| Piece::Url(0, k * (1 << 17), 1)).collect();
+        let past = vec![Piece::Lit(vec![0; MAX_PAYLOAD])];
         let limits = Limits { checksums: true, ..Limits::default() };
         for (first, second) in [("a", "b"), ("b", "a")] {
-            let values = vec![Value { key: first.into(), pieces: over.clone(), lifted: true }, value(second, far.clone())];
-            assert_eq!(refused(seal(&urls, &[], None, &[], values, &limits)), (Code::Reads, Some(second.into())));
+            let values = vec![value(first, over.clone()), value(second, past.clone())];
+            assert_eq!(refused(seal(&urls, &[], None, &[], values, &limits)), (Code::Payload, Some(second.into())));
         }
     }
 
@@ -714,7 +653,7 @@ mod tests {
         assert_eq!(o.refs.iter().map(|r| r.0.as_str()).collect::<Vec<_>>(), ["b", "a", "s/c/0"]);
         assert_eq!(o.reference("a").unwrap()[0], Part::Data(1, 0, 5));
         assert_eq!(o.reference("b").unwrap()[1], Part::Data(2, 0, 4));
-        // a built-in value meets its convention's bounds, not the read rule, sharded or not
+        // a value of many reads is sealed: its reads are its reader's to bound
         o.refs("u/c/0", (0..1500).map(|k| Part::Src(k * (1 << 17), 1)).collect());
         assert!(out(&mut o, Some(1 << 40), &HashMap::new(), false).is_ok());
     }
