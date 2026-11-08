@@ -55,8 +55,9 @@ mirror's forms may change with them:
   self-contained JPEG for the output is the projection's.
 - **FITS's `tile_cut`.** The parser cuts a tiled image's tiles into output chunks
   ([rust/refkv-ir/src/fits.rs](../../rust/refkv-ir/src/fits.rs)), so each `heap/<j>` element holds
-  several tiles. The elements become one per tile, and the projection makes the same cut, so the
-  output does not change.
+  several tiles. The heap becomes one element, each tile a chunk map row naming its range within
+  that element, and the projection makes the same cut, so neither the output nor the IR's element
+  count grows.
 
 ## The gap
 
@@ -166,9 +167,11 @@ pub struct StoredArray {
     /// how the source cuts the array into units; `None` where the IR does not model the array's
     /// storage (below)
     pub grid: Option<Grid>,
-    /// the codec chains a unit may be encoded with, by position in the `Ir`'s chain table: chain 0
-    /// unless the chunk map gives another; an array stored as is has one empty chain. Every chain
-    /// of an array ends in the same element bytes
+    /// the codec chains a unit may be encoded with, each by its position in the `Ir`'s chain
+    /// table; an array stored as is has one empty chain. A chunk map row's `chain` and a
+    /// `UnitParameter`'s `chain` are positions in this list, not in the table: a unit uses
+    /// `chains[0]` unless its row gives another. Every chain of an array ends in the same element
+    /// bytes
     pub chains: Vec<u32>,
     pub fill: Fill,
     /// the parameters whose values differ from unit to unit, each a column of the chunk map
@@ -261,8 +264,9 @@ array with a grid. A unit the source does not hold has no row.
 | `coords` | `List<UInt64>` | no | the unit's coordinates in the array's grid (empty for rank 0) |
 | `element` | `UInt32` | yes | the IR element holding the unit's bytes; its recipe gives them |
 | `member` | `UInt64` | yes | where `element` is in a run's subtree, the position j of the run's member it is in |
+| `range` | `Struct<offset: UInt64, length: UInt64>` | yes | where the unit is part of `element`: its offset and length within the bytes the element's recipe gives |
 | `ranges` | `List<Struct<object: Dictionary<Int32, Utf8>, offset: UInt64, length: UInt64>>` | yes | where no element holds exactly the unit's bytes: its bytes, in order; `object` is the object's key, null for the parsed source; `offset` counts from the object's start |
-| `chain` | `UInt32` | yes | the unit's chain; null for chain 0 |
+| `chain` | `UInt32` | yes | the unit's chain, a position in its array's `chains`; null for position 0 |
 | `skips` | `UInt64` | yes | the codecs of its chain that the unit skips, a mask by codec index; null for none |
 | `p.<codec name>.<name>` | as the codec's entry gives | yes | one per parameter any array gives as a column: set exactly on the rows whose array lists it in `unit_parameters` for the row's chain and that do not skip its codec; null elsewhere |
 
@@ -288,7 +292,10 @@ a file can hold hundreds of thousands of them.
 - **Derived spaces.** An element in a derived space gives the unit's inflated bytes: the `data`
   child of a deflated `.npz` member and the `voxels` of a gzipped NIfTI, once they have them. Its transform is the IR's
   ([conventions §8.5](../../spec/conventions.md#85-forms-and-recipes)), not a codec. A unit inside
-  a derived space is always an element, since `ranges` address only objects.
+  a derived space is an element or a range of one, since `ranges` address only objects; an array
+  whose units lie in a derived space past the IR's room has no grid (the general fallback).
+- **A range of an element**, where the unit is part of one: a FITS tile within its heap element,
+  including a `.fits.gz` heap in its derived space.
 - **`ranges`**, where no element holds exactly the unit's bytes:
   - an HDF5 chunk of a dataset with an implicit index the parser does not make chunk elements of
     (it decides by what the image needs and by room), whose chunks share one `data` element;
@@ -361,7 +368,8 @@ numcodecs codec stands for it is the profile's.
 
 **The general fallback.** A source encoding refkv has no name for is the codec `source`, carrying
 the format, the source's id for the encoding, and its parameters as the source gives them (an
-unknown HDF5 filter's id and client data). The profile maps it or leaves the array out.
+unknown HDF5 filter's id and client data). The profile maps it or leaves the array out. Its parameters are never unit columns: the list gives them no types, so a column could not be
+typed, and two formats' `source` parameters of one name would collide in a store.
 
 **What is not recorded:** parameters only an encoder needs, such as a zlib level or Blosc's block
 size.
@@ -410,8 +418,9 @@ value message (0x04) where the new one is absent, as the HDF5 library does.
 - **The grid.** Its rank is the array's rank, and it is in canonical form:
   - An axis is `Each(n)` when all its units are `n` long, except a last one cut by the axis's end.
     Otherwise it is a `List`.
-  - Under `Short`, `n` is at most the axis length. Under `Full`, `n` is the declared length, which
-    may exceed it.
+  - Under `Short`, `n` is the declared length clamped to the axis length (a TIFF's RowsPerStrip
+    above ImageLength, often 2^32 − 1, is one strip of the image's rows). Under `Full`, `n` is the
+    declared length, which may exceed it.
   - A `List` sums to the axis length. Its adjacent equal lengths form one run: `Repeat`, with a
     count of at least 2, or `One`.
   - Lengths are at least 1. An axis of length 0 has no units; it is `Each` of the declared length
@@ -445,9 +454,10 @@ value message (0x04) where the new one is absent, as the HDF5 library does.
 - in a file IR, an `object` key may be null or any key (an external file's key is checked when the
   file is grafted); in a store IR, it is never null, and names one of the store's objects.
 
-Both checks run in every `check::finish`, of a file IR and again of the store it is grafted into. A
-description or a row they refuse is a bug in its parser: an internal error naming the array's
-element.
+Both checks run when a parser adds its descriptions and map to its finished IR (a separate step
+after `check::finish`, which built them from), and again in the `check::finish` of any store the
+file is grafted into. A description or a row they refuse is a bug in its parser: an internal error
+naming the array's element.
 
 ## Where it lives, and how it travels
 
@@ -464,8 +474,9 @@ share, and the map. They are not in the facts. So:
   new id and clears `member`. Fold and rollback happen only while reading, before anything is built.
 - **Plain columns, Arrow on export.** The IR holds the map as Rust column vectors, sorted by
   `(array, coords)` when built, and makes the Arrow batch only when Python asks for it. Arrow is
-  therefore a dependency of the Python binding alone. `mirror::canonical` takes the arrays and map
-  out before it clones the IR to unfold it.
+  therefore a dependency of the Python binding alone. `mirror::canonical`, which takes `&Ir` and
+  clones it to unfold every run, clones it without the arrays and map (they sit behind a shared
+  pointer the clone drops), so no caller changes.
 - **Shared chains.** The `Ir` holds one table of distinct chains, and a description names its
   chains by their positions in it, so hundreds of thousands of CZI subblocks or GRIB fields with the
   same encoding share one chain. `StoredArray.chains` is, in the type, `Vec<u32>` into that table.
@@ -534,9 +545,11 @@ one array is stored. This changes two things in profile-plugins:
      unfold, and counted by `Budget`, `memory()` and `digest()`, with the row limit set against the
      corpus;
    - `PyIr`'s access to the descriptions and map, with the PyCapsule export and its test;
-   - NumPy's parser describing its arrays (a `.npy` file's and each stored `.npz` member's; the
-     deflated members wait for their `header` and `data` children in NumPy's PR), checked against
-     its facts, with no output changed, so the type meets a real format at once;
+   - NumPy's parser describing its arrays (a `.npy` file's and each stored `.npz` member's),
+     checked against NumPy's own reading of each header, with no output changed, so the type meets
+     a real format at once. A deflated member gets no description in this step, an exception to
+     "every array the parser reaches" that ends when NumPy's PR gives it `header` and `data`
+     children;
    - the two edits to profile-plugins.
 
    Only NumPy emits descriptions yet, and no output changes.
