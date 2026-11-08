@@ -518,12 +518,14 @@ pub fn layout_size(descr: &Lit) -> Option<u64> {
                     [n, d, s] => (n, d, Some(s)),
                     _ => return None,
                 };
-                // names and titles share one namespace, as NumPy has them: a title that is another
-                // field's name or title, or its own field's name, is refused
+                // names and string titles share one namespace, as NumPy has them: a string title
+                // that is another field's name or title, or its own field's name, is refused; a
+                // title of another kind is NumPy's to keep, and takes no name
                 let (title, name) = match name {
                     Lit::Str(n) => (None, n),
                     Lit::Tuple(t) => match &t[..] {
                         [Lit::Str(title), Lit::Str(n)] => (Some(title), n),
+                        [_, Lit::Str(n)] => (None, n),
                         _ => return None,
                     },
                     _ => return None,
@@ -742,6 +744,8 @@ mod tests {
             (r#"[(('a', 'b'), '<u2'), ('a', '<f4')]"#, None),
             (r#"[(('t', 'a'), '<u2'), (('t', 'b'), '<f4')]"#, None),
             (r#"[(('a', 'a'), '<u2')]"#, None),
+            (r#"[((1, 'a'), '<u2')]"#, Some(2)),
+            (r#"[((True, 'a'), '<u2'), ('b', '<f4')]"#, Some(6)),
             (r#"[('a', '|O')]"#, None),
             (r#"[('a', '<h'), ('b', 'B'), ('c', '<D'), ('d', '?')]"#, Some(20)),
             (r#"[('a', '<f8,<i4')]"#, Some(12)),
