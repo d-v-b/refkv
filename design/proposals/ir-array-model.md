@@ -134,6 +134,11 @@ Its JSON form also gives that element's path, for the build tools' description s
 structures by path ([profile-plugins.md](profile-plugins.md#the-description)). Within a run, the id
 is what is computed on.
 
+A profile finds an array's description from the facts, so each format's document says how its facts
+name the element (and index) that keys it. An HDF5 spike had to match datasets to descriptions by
+object header address, since HDF5's facts give each node its address and its chunks but not its
+`objects/<i>` element; HDF5's PR gives each dataset node that element.
+
 ## The description
 
 A Rust type in a new module, `rust/refkv-ir/src/array.rs`:
@@ -151,8 +156,9 @@ pub struct StoredArray {
     /// header's `descr`, a TIFF IFD's BitsPerSample and SampleFormat entries and the file header
     /// that gives the byte order, a NIfTI header
     pub declarations: Vec<Place>,
-    /// the axes in storage order, the slowest-varying first
-    pub shape: Vec<u64>,
+    /// the axes in storage order, the slowest-varying first; `None` where the source declares no
+    /// extent at all (HDF5's null dataspace), which holds no elements, unlike a scalar's `[]`
+    pub shape: Option<Vec<u64>>,
     /// the source's own order of the axes, where it differs from storage order: `axes[i]` is storage
     /// axis i's position in the source's list (a Fortran-order NumPy array of shape (3, 4) has
     /// shape [4, 3] and axes [1, 0])
@@ -294,23 +300,27 @@ a file can hold hundreds of thousands of them.
   ([conventions §8.5](../../spec/conventions.md#85-forms-and-recipes)), not a codec. A unit inside
   a derived space is an element or a range of one, since `ranges` address only objects; an array
   whose units lie in a derived space past the IR's room has no grid (the general fallback).
-- **A range of an element**, where the unit is part of one: a FITS tile within its heap element,
-  including a `.fits.gz` heap in its derived space.
-- **`ranges`**, where no element holds exactly the unit's bytes:
+- **A range of an element**, where the unit is part of one. A range survives a graft without
+  object keys, and the check holds it to its element's extent:
+  - a FITS tile within its heap element, including a `.fits.gz` heap in its derived space;
   - an HDF5 chunk of a dataset with an implicit index the parser does not make chunk elements of
-    (it decides by what the image needs and by room), whose chunks share one `data` element;
-  - an HDF5 dataset's compact data, inside its layout message;
+    (it decides by what the image needs and by room), within the dataset's one `data` element;
+  - an HDF5 dataset's compact data, within its layout message's `data` element.
+- **`ranges`**, where no element holds the unit's bytes:
   - a unit past the IR's room;
-  - an HDF5 external dataset's unit spread over several files.
+  - an HDF5 external dataset's unit, in one or several files.
 - **Objects** are named by key: null for the parsed source itself, and an HDF5 external file by the
   sibling key the run resolves for it, which is already its key in the store.
 
 **HDF5's cases.**
 - A contiguous dataset with an undefined address holds no unit, and has no row.
-- A chunk the layout declares unfiltered, a partial edge chunk under the "do not filter partial edge
-  chunks" flag, skips every filter: `skips` has each filter's bit.
-- A chunk's filter mask is `skips`: bit i of the mask is the i-th filter of the pipeline, which is
-  codec i of the chain. Fletcher32 is a filter of the pipeline like the others.
+- A chunk's `skips` is its stored filter mask, bit i the i-th filter of the pipeline, which is codec
+  i of the chain. Fletcher32 is a filter of the pipeline like the others.
+- A partial edge chunk under the "do not filter partial edge chunks" flag skips every filter:
+  `skips` has each filter's bit, although HDF5 stores its mask as 0. The stored mask stays in the
+  chunk index's bytes in the IR.
+- Mask bits past the pipeline's length name no filter; the HDF5 library ignores them, and so does
+  `skips`. HDF5's PR checks whether any file sets them.
 
 **Why Arrow.** An HDF5 dataset can have millions of chunks. As JSON, the map would be text that
 every binding copies and parses. As Arrow, it is a few typed columns:
@@ -338,6 +348,11 @@ bytes:
 Every codec takes bytes to bytes, so HDF5's filters, nbit and scaleoffset among them, keep their
 pipeline order.
 
+**A name is one byte format.** Each entry states the exact bytes its decoding takes, framing
+included, and a name never covers two framings: `zlib` is RFC 1950, `deflate` is raw RFC 1951,
+HDF5's LZ4 filter (`hdf5_lz4`) writes blocks behind its own header rather than an LZ4 frame, and
+LZF has no header at all.
+
 **The list.** A codec's name is one of `spec/stored-array.md`'s list of the IR's codecs. Each entry
 gives:
 - its parameters, and which of them may be unit columns;
@@ -349,7 +364,8 @@ derived space). Each format's PR adds its own; the list as it will grow:
 - **Framing and compression:** `zlib`, `gzip`, `deflate` (raw), `lzw`, `packbits`, `zstd`, `jpeg`;
 - **Bytes added by the source:**
   - `fletcher32`: encoding appends the checksum, decoding checks it and drops it;
-- **HDF5's filters:** `shuffle`, `nbit`, `scaleoffset`;
+- **HDF5's filters:** `shuffle`, `nbit`, `scaleoffset`, `szip`, and the registered filters refkv
+  decodes (`lzf`, `hdf5_lz4`, `bzip2`, `blosc`, `bitshuffle`);
 - **Bit order:** `bit_reverse`, TIFF's FillOrder 2, the last step of encoding and the first of
   decoding, on the stored bytes, for the compressions libtiff reverses for; JPEG ignores FillOrder,
   and the fax codecs take it as a parameter (TIFF refuses FillOrder 2 for most compressions
@@ -367,8 +383,8 @@ The IR uses refkv's own names because it describes the encoding, not the output.
 numcodecs codec stands for it is the profile's.
 
 **The general fallback.** A source encoding refkv has no name for is the codec `source`, carrying
-the format, the source's id for the encoding, and its parameters as the source gives them (an
-unknown HDF5 filter's id and client data). The profile maps it or leaves the array out. Its parameters are never unit columns: the list gives them no types, so a column could not be
+the format, the source's id for the encoding, its name where the source gives one, and its
+parameters as the source gives them (an unknown HDF5 filter's id, optional name and client data). The profile maps it or leaves the array out. Its parameters are never unit columns: the list gives them no types, so a column could not be
 typed, and two formats' `source` parameters of one name would collide in a store.
 
 **What is not recorded:** parameters only an encoder needs, such as a zlib level or Blosc's block
@@ -431,6 +447,7 @@ value message (0x04) where the new one is absent, as the HDF5 library does.
 - **Chains.** At least one chain when `grid` is set, none when it is not; each a position in the
   chain table.
 - **`axes`.** When given, a permutation of the rank.
+- **No extent.** Where `shape` is `None`, `grid`, `axes` and `pad_from` are absent.
 - **`item_bits`, `pad_from` and the fill.** `item_bits` is set when `grid` is or the fill is
   `Given`, and is at least 1.
   `pad_from` is below the rank, given only when `item_bits` is set and is not a multiple of 8. A
@@ -480,15 +497,25 @@ share, and the map. They are not in the facts. So:
   clones it to unfold every run, clones it without the arrays and map (they sit behind a shared
   pointer the clone drops), so no caller changes.
 - **Shared chains.** The `Ir` holds one table of distinct chains, and a description names its
-  chains by their positions in it, so hundreds of thousands of CZI subblocks or GRIB fields with the
-  same encoding share one chain. `StoredArray.chains` is, in the type, `Vec<u32>` into that table.
-- **They count against limits.** The `Budget` counts descriptions beside records and elements.
-  Chunk map rows count against their own limit, apart from the IR's room: for HDF5, the chunk index
-  budgets hdf5.md's checks already apply ([§8.3](../../spec/zarrify/hdf5.md#83-checks)); for other
-  formats, a limit that grows with each object as a store's budgets do, set in step 1 so that no
-  fixture the corpus accepts today is refused. `memory()` includes both. `digest()` covers the
-  descriptions and each row's values, not the Arrow layout: the columns in a fixed order (the named
-  ones, then the parameter columns by name) and a dictionary's keys as their strings.
+  chains by their positions in it, so hundreds of thousands of CZI subblocks with the same encoding
+  share one chain. `StoredArray.chains` is, in the type, `Vec<u32>` into that table. A chain with a
+  `Param::Source` is shared only by arrays whose parameter is at the same place, which is usually
+  none: HDF5's nbit and scaleoffset take client data the HDF5 library computes for each dataset
+  (from its datatype, and the chunk's element count or the fill value), and each GRIB field has
+  sections of its own. Such an array has a chain of its own, a few places long, which the
+  descriptions' limit counts. Copying the bytes into a `Value` would share more chains at the cost
+  of duplicating source bytes, which the description avoids (see the alternatives).
+- **They count against limits.** The `Budget` counts descriptions beside records and elements, at
+  2^22 entries plus one per 4 bytes of the source. Chunk map entries (each row, each coordinate and
+  each range) count against their own limit, apart from the IR's room: 2^22 plus four per byte of
+  the source, each growing with each object of a store as its other budgets do. A unit can cost a
+  single byte of the source: the HDF5 spike's (below) 4 MB file of 2000 × 2000 one-byte chunks
+  under an implicit index parses today, and HDF5 bounds its chunk count only by 2^53 − 1. Every
+  unit the source holds has at least one byte of its own, or an index entry of several, so a map
+  of rank 3 or less always fits. The cost is the memory: about 109 bytes per rank-2 row as built,
+  about 36 per entry. `memory()` includes both. `digest()` covers the descriptions and each row's
+  values, not the Arrow layout: the columns in a fixed order (the named ones, then the parameter
+  columns by name) and a dictionary's keys as their strings.
 - **The facts' `arrays` key stays** as NumPy, safetensors and IMS use it today, until each format's
   PR removes it.
 
@@ -544,8 +571,7 @@ one array is stored. This changes two things in profile-plugins:
    - Arrow (`arrow-array` with its `ffi` feature, and `arrow-schema`) behind a new `refkv-ir`
      feature that only `refkv-python` enables, so the WebAssembly module compiles none of it;
    - `Ir::arrays`, the chain table and the chunk map, built at finish, kept current by graft and
-     unfold, and counted by `Budget`, `memory()` and `digest()`, with the row limit set against the
-     corpus;
+     unfold, and counted by `Budget`, `memory()` and `digest()`;
    - `PyIr`'s access to the descriptions and map, with the PyCapsule export and its test;
    - NumPy's parser describing its arrays (a `.npy` file's and each stored `.npz` member's),
      checked against NumPy's own reading of each header, with no output changed, so the type meets
@@ -571,14 +597,38 @@ one array is stored. This changes two things in profile-plugins:
 
    Some format PRs carry extra work:
    - HDF5's strings and references are resolved by the plan, which needs the plan's reads
-     (profile-plugins' step 2, before its step 3), and HDF5's PR tells the fill value's states
-     apart.
+     (profile-plugins' step 2, before its step 3).
+   - HDF5's PR tells the fill value's states apart, resolves a shared fill value message as the
+     HDF5 library does, and treats a fill value whose size is not the element's as the library
+     does. It checks each description against h5py, but not with HDF5 2.0.0's `get_chunk_info`
+     for an extensible array whose unlimited axis is not the first: that call returns wrong
+     offsets there (`ims_latest_indexes.ims:/Indexes/ea_last`), where HDF5's own reads agree with
+     refkv's. It also makes sure the parser never enumerates more units than the map's limit before
+     it refuses: the spike's parser built 1.76 GB of chunks first.
    - TIFF's PR replaces the JPEG prefix.
    - FITS's PR moves `tile_cut` to the projection and records each tile's chain.
    - GRIB's PR keeps its NaN at masked points, so its output is unchanged.
 
 Step 1 lands before profile-plugins' step 3, so that NumPy's description, the first, uses the shared
 type rather than an array shape of its own.
+
+**What an HDF5 spike showed.** Before step 1 merged, a throwaway branch described every HDF5, NWB
+and IMS dataset on step 1's type and checked each against h5py: shapes, chunk shapes, element
+sizes, every chunk's offset, size and mask, the filter pipeline, fill values, and contiguous,
+compact and external storage. About 1,100 chunks were also decoded and compared. Outputs stayed
+byte for byte the same.
+- **What fit:** grids under `Full` (chunks larger than the axis, a zero-length extendible axis),
+  pipelines as one chain with masks as `skips`, declarations including committed datatypes,
+  virtual datasets with no grid, external files as `ranges`, datasets past the room, and real
+  multi-file grafts through a store's `check::finish`. NWB's 52 arrays shared 2 chains.
+- **What changed here:** the map's limit, `shape`'s `None`, implicit-index and compact units as
+  ranges of an element, the wording of `skips`, framing in codec names, the `source` codec's name,
+  and finding a description from the facts.
+- **Cost:** describing 10^6 chunks took about 0.27 s and 109 MB, and the Arrow export about
+  76 bytes per row.
+- **Not tested by HDF5:** unit parameter columns, chains past the first, `axes`, `pad_from`,
+  `index`, and runs. HDF5's parser never folds, so unfold is tested only on synthetic IRs until a
+  format whose parser folds describes its arrays.
 
 ## Not in this proposal
 
