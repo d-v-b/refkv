@@ -277,8 +277,9 @@ def test_refuses_a_parameter_of_both_value_and_source():
     refused(ValueError, "exactly one of value and source", document(fill={"given": given}))
 
 
-def test_refuses_a_fill_value_that_is_not_base64():
-    refused(ValueError, r"fill\.given\.value: not base64", document(fill={"given": {"value": "A?A="}}))
+@pytest.mark.parametrize("value", ["A?A=", "==", "AAAA==", "AAA"])
+def test_refuses_a_fill_value_that_is_not_base64(value):
+    refused(ValueError, r"fill\.given\.value: not base64", document(fill={"given": {"value": value}}))
 
 
 def test_refuses_an_axis_of_neither_each_nor_list():

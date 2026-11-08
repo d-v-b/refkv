@@ -7,9 +7,8 @@ a copy (refkv itself depends on none of them)."""
 
 from __future__ import annotations
 
-import base64
-import binascii
 import json
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal
@@ -168,6 +167,8 @@ def _pair(v: JSON, where: str, least: tuple[int, int] = (0, 0)) -> tuple[int, in
     return _count(s[0], f"{where}[0]", least[0]), _count(s[1], f"{where}[1]", least[1])
 
 
+# a base64 string with its padding (RFC 4648 section 4), as spec/stored-array.json's pattern
+_BASE64 = re.compile(r"(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?")
 _ELEMENT = frozenset({"element", "member", "range"})
 _EXTENT = frozenset({"object", "offset", "length"})
 
@@ -237,11 +238,8 @@ def _fill(v: JSON, where: str) -> Fill:
         raise ValueError(f"{where}: {v!r} is not a fill")  # noqa: TRY004 (a string, of no form a fill has)
     m = _members(mapping(v, where), frozenset({"given"}), where)
     p = _param(m["given"], f"{where}.given")
-    if isinstance(p, Value):
-        try:
-            base64.b64decode(string(p.value, f"{where}.given.value"), validate=True)
-        except binascii.Error as e:
-            raise ValueError(f"{where}.given.value: not base64 ({e})") from None
+    if isinstance(p, Value) and not _BASE64.fullmatch(string(p.value, f"{where}.given.value")):
+        raise ValueError(f"{where}.given.value: not base64")
     return Given(p)
 
 
