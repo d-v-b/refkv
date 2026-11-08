@@ -562,7 +562,7 @@ impl PartialEq for ChainIndex {
 /// table has not (with their texts), its arrays renumbered, and each one's chains' positions among
 /// its own chains in the store.
 #[derive(Debug)]
-pub struct GraftPlan {
+pub(crate) struct GraftPlan {
     added: Vec<(Chain, String)>,
     arrays: Vec<StoredArray>,
     locals: Vec<Vec<u32>>,
@@ -727,7 +727,7 @@ impl Stored {
     /// by [`Stored::index_chains`]), each array's chains once each (two its chains the renumbering
     /// makes one are one, and its rows and unit parameters name that one, so long as they give one
     /// set of unit parameters), and the map's parameter columns of one name of one type.
-    pub fn plan_graft(&self, from: &Stored, at: &dyn Fn(u32) -> u32, key: &str) -> Res<GraftPlan> {
+    pub(crate) fn plan_graft(&self, from: &Stored, at: &dyn Fn(u32) -> u32, key: &str) -> Res<GraftPlan> {
         let mut added: Vec<(Chain, String)> = Vec::new();
         // each added chain's position among the added, by its text
         let mut added_at: HashMap<String, usize> = HashMap::new();
