@@ -47,8 +47,9 @@ of its root image added since (TIFF's and NDPI's `omero`; `without_added`) and w
 zero padding, a range of its zero data source since the freeze, as the literal ranges the
 reference writes (`literal_padding`); and the reference's integers past 2^53 − 1, which it writes
 as the strings of their digits (ND2's as the tag `{"int": digits}`, and a record named `int` alone
-as pairs), are read as the exact integers the shipped code writes, and an integer it reads from
-text outside its format's range as that text (`with_exact_integers`). Each
+as pairs), are read as the exact integers the shipped code writes, and in a DICOM `IS` value or an
+ND2 XML variant an integer the shipped code writes as text, outside its format's range, as that
+text (`with_exact_integers`). Each
 mirror is also checked on its own
 (`mirror_problem`): it reads, it rebuilds a source of source 0's size (a store's: its listing,
 the sizes its sources pin, and every held object byte for byte, read from the store), it is
@@ -616,8 +617,9 @@ def literal_padding(output: Mapping[str, Any]) -> Mapping[str, Any]:
 def with_exact_integers(ref: Mapping[str, Any], ours: Mapping[str, Any]) -> dict:
     """The frozen reference's output `ref` with each JSON document's integers past 2^53 - 1, which
     it writes as the strings of their digits (or ND2's tag), read as the exact integers the
-    shipped code's `ours` writes there, and an integer `ours` writes as its text, outside its
-    format's range, as that text (exact_integers.py), for comparing the two."""
+    shipped code's `ours` writes there, and, in a DICOM `IS` value or an ND2 XML variant, an
+    integer `ours` writes as its text, outside its format's range, as that text
+    (exact_integers.py), for comparing the two."""
     entries = {}
     for k, (kind, v) in ref["entries"].items():
         other = ours["entries"].get(k)

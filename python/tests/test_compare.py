@@ -56,21 +56,30 @@ def test_differences():
 def test_with_exact_integers():
     """The frozen reference's digit strings of integers past 2^53 - 1, ND2's `{"int": digits}` tag
     and the pairs of a record named `int` alone read as the shipped code's exact integers and
-    object where it has them, and its integers that the shipped code writes as text (outside
-    their format's range) as that text; anything else stays as the reference wrote it, and still
-    differs."""
+    object where it has them; and, in a DICOM IS value's `Value` and an ND2 XML variant's
+    document, its integers that the shipped code writes as text (outside their format's range) as
+    that text."""
     big = 2**64 - 1
-    ref = output({"a": str(big), "b": [{"int": str(-big)}], "c": [["int", str(big)]], "d": "12",
-                  "e": str(big), "f": [["int", 5]], "g": {"int": "7"}, "h": [2**31, str(-big), {"int": "-30"}],
-                  "i": 8})
-    ours = output({"a": big, "b": [-big], "c": {"int": big}, "d": 12, "e": str(big), "f": {"int": 5},
-                   "g": {"int": "7"}, "h": ["2147483648", f"-000{big}", "-030"], "i": "9"})
-    assert compare.with_exact_integers(ref, ours)["entries"]["zarr.json"][1] == {
-        "a": big, "b": [-big], "c": {"int": big}, "d": "12", "e": str(big), "f": {"int": 5}, "g": {"int": "7"},
-        "h": ["2147483648", f"-000{big}", "-030"], "i": 8}
+    ref = output({"a": str(big), "b": [{"int": str(-big)}], "c": [["int", str(big)]], "f": [["int", 5]],
+                  "is": {"vr": "IS", "Value": [2**31, -(2**40)]},
+                  "chunks": {"CustomDataVar|A!": {"x": {"int": "-30"}, "y": 300}}})
+    ours = output({"a": big, "b": [-big], "c": {"int": big}, "f": {"int": 5},
+                   "is": {"vr": "IS", "Value": ["2147483648", "-0001099511627776"]},
+                   "chunks": {"CustomDataVar|A!": {"x": "-030", "y": "+300"}}})
+    assert compare.with_exact_integers(ref, ours)["entries"]["zarr.json"][1] == ours["entries"]["zarr.json"][1]
     assert compare.with_exact_integers(ref, ours)["entries"]["0/c/0"] == ref["entries"]["0/c/0"]
-    # an integer within 2^53 - 1 the reference writes as a string differs
-    assert compare.differences(compare.with_exact_integers(ref, ours), ours) != []
+
+
+@pytest.mark.parametrize(("ref", "ours"), [
+    ({"d": "12"}, {"d": 12}),  # a string within 2^53 - 1 is no form of an integer
+    ({"tag": {"vr": "US", "Value": [12]}}, {"tag": {"vr": "US", "Value": ["12"]}}),  # no declared range
+    ({"x": 12}, {"x": "12"}),  # outside a ranged value
+    ({"is": {"vr": "IS", "Value": ["0012"]}}, {"is": {"vr": "IS", "Value": ["12"]}}),  # both strings
+    ({"chunks": {"CustomDataVar|A!": {"x": 8}}}, {"chunks": {"CustomDataVar|A!": {"x": "9"}}}),  # another value
+])
+def test_with_exact_integers_keeps_other_differences(ref, ours):
+    """Any other difference stays, and compare.py reports it."""
+    assert compare.differences(compare.with_exact_integers(output(ref), output(ours)), output(ours)) != []
 
 
 def archive(path: Path, build=None, *, doc: bytes = b'{"zarr_format":3,"node_type":"group"}') -> Path:
