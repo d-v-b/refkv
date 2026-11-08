@@ -289,9 +289,10 @@ Further rules for the map:
 - Exactly one of `element` and `ranges` is set in each row.
 - Null is the only way to write chain 0 and "skips nothing".
 - A rank-0 array has at most one row.
-- The map's entries have their own limit (below). An array whose rows would take the map past
-  it falls back to no grid (the general fallback): no chains, no unit parameters and no rows, while
-  the run goes on. An array's rows are never cut short, which a profile would read as units the
+- The map's entries have their own limit (below). Arrays are fitted in `Ir::arrays` order: one
+  whose rows would take the map past it falls back to no grid (the general fallback), with no
+  chains, no unit parameters and none of its rows, and later arrays are still tried, so which
+  arrays fall back follows from the source alone. The run goes on. An array's rows are never cut short, which a profile would read as units the
   source does not hold.
 
 One batch per `Ir`, not one per array, because CZI subblocks and GRIB fields are each an array, and
@@ -471,7 +472,8 @@ value message (0x04) where the new one is absent, as the HDF5 library does.
   `Fill::Given` value is ceil(item_bits / 8) bytes.
 - **`unit_parameters`.** Each names a codec of its chain that appears once there, a parameter the
   codec's entry allows as a column, and no parameter the codec gives itself.
-- **Keys.** `(element, index)` is unique among an `Ir`'s arrays, and on each element `index` is
+- **Keys.** The key's element is in no run's subtree. `(element, index)` is unique among an `Ir`'s
+  arrays, and on each element `index` is
   either absent from every description or set on every one, as 0 to n − 1. Which elements carry
   indexes is the format's (its document names them), not the core's check.
 
@@ -542,11 +544,12 @@ share, and the map. They are not in the facts. So:
   3 or less where an element holds each unit (whole, or a range of it), and at rank 2 or less where
   `ranges` do. Past that, or where structures share them (two HDF5 headers on one chunk index, TIFF
   IFDs sharing a StripOffsets array), the arrays that do not fit fall back to no grid, and no
-  source that parses today is refused for its map. The cost is memory: about 36 bytes per entry as
-  built (109 per rank-2 row), so at most about 144 bytes per byte of the source, above about 150 MB
-  for the 2^22 floor, plus about 76 bytes per row while Python holds an export. The descriptions'
-  limit still refuses; no corpus file comes near it. `memory()` includes both. `digest()` covers the descriptions and each row's
-  values, not the Arrow layout: the columns in a fixed order (the named ones, then the parameter
+  source that parses today is refused for its map. The cost is memory, by part as built: about 93
+  bytes a row, 8 a coordinate and 24 a `ranges` item (109 for a rank-2 row). The worst case, rank-1
+  rows over an index two headers share, is about 200 bytes per byte of the source, and about
+  210 MB at the 2^22 floor, plus about 76 bytes per row while Python holds an export. The
+  descriptions' limit still refuses; no corpus file comes near it. `memory()` includes both.
+  `digest()` covers the descriptions and each row's values, not the Arrow layout: the columns in a fixed order (the named ones, then the parameter
   columns by name) and a dictionary's keys as their strings.
 - **The facts' `arrays` key stays** as NumPy, safetensors and IMS use it today, until each format's
   PR removes it.
@@ -578,9 +581,14 @@ be read as a source.
 - `array` takes the description's new position;
 - parameter columns of the same name join, having the type the codec's entry gives;
 - the parsed source's null key, in every `Place::Extent` and in `ranges`, becomes the file's key in
-  the store.
+  the store;
+- the file's arrays are fitted again, in its array order, against what remains of the store's map
+  limit, which has the 2^22 floor once: an array that fitted in its file but does not fit there
+  falls back to no grid. A file's descriptions inside a store can therefore lose grids, depending
+  on the files grafted before it, and the store's `digest()` reflects that. A graft never fails on
+  the map's limit; it fails, adding nothing, only on the descriptions' limit or a check.
 
-`placed()` does the same for HDF5's store facts today.
+`placed()` does the same renumbering for HDF5's store facts today.
 
 **The forms.** A unit element's form keeps its per-format `geometry` and `codec` in the mirror,
 which writes them for readers of the mirror. Projections compute from the description, not from
@@ -626,7 +634,8 @@ one array is stored. This changes two things in profile-plugins:
      until the format's plan replaces them;
    - compares its outputs before and after, byte for byte, and keeps them unchanged apart from
      what profile-plugins' own step changes (sizing decisions by the largest source index) and any
-     crafted source the descriptions' limit refuses, which it names; the
+     crafted source the descriptions' limit refuses and any array that falls back at the map's
+     limit (none in the corpus), which it names; the
      mirror's forms may change, and each PR names those changes.
 
    Some format PRs carry extra work:
@@ -637,8 +646,9 @@ one array is stored. This changes two things in profile-plugins:
      does. It checks each description against h5py, but not with HDF5 2.0.0's `get_chunk_info`
      for an extensible array whose unlimited axis is not the first: that call returns wrong
      offsets there (`ims_latest_indexes.ims:/Indexes/ea_last`), where HDF5's own reads agree with
-     refkv's. It also makes sure the parser never enumerates more units than the map's limit before
-     it refuses: the spike's parser built 1.76 GB of chunks first.
+     refkv's. It also stops listing an array's units once they alone pass the map's limit, which the
+     parser knows from the source's size before it reads, and lets that array fall back: the
+     spike's parser built 1.76 GB of chunks before its map was refused.
    - TIFF's PR replaces the JPEG prefix.
    - FITS's PR moves `tile_cut` to the projection and records each tile's chain.
    - GRIB's PR keeps its NaN at masked points, so its output is unchanged.
