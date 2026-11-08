@@ -522,6 +522,31 @@ fn integers_show_exactly_whatever_their_magnitude() {
     assert_eq!(view_problem(&keys, &entry(&out), &mut read), None);
 }
 
+/// The validator compares a view's numbers by value (an integer exactly, a float by its binary64
+/// value): a stored float written another way (`1.50`, `15e-1`) is the rebuilt one; another value
+/// is not.
+#[test]
+fn the_view_s_floats_compare_by_value() {
+    let data = 1.5f64.to_le_bytes().to_vec();
+    let mut ir = Ir::new(8);
+    ir.value(0, "x", u64::MAX, "f8", 0, (0, 8), Some(&data)).unwrap();
+    ir.finished = true;
+    ir.build_children();
+    let mut out = Out::new("u");
+    mirror(&ir, &mut out, "tiff").unwrap();
+    let keys: Vec<String> = out.entries.iter().map(|e| e.0.clone()).collect();
+    for (literal, same) in [("1.50", true), ("15e-1", true), ("1.25", false)] {
+        let mut changed = Out::new("u");
+        mirror(&ir, &mut changed, "tiff").unwrap();
+        let e = changed.entries.iter_mut().find(|e| e.0 == "refkv_source/tree/zarr.json").unwrap();
+        let text = String::from_utf8(e.1.clone()).unwrap();
+        assert!(text.contains(r#""x":1.5"#), "{text}");
+        e.1 = text.replace(r#""x":1.5"#, &format!(r#""x":{literal}"#)).into_bytes();
+        let mut read = |o: u64, n: u64| Ok(data[o as usize..(o + n) as usize].to_vec());
+        assert_eq!(view_problem(&keys, &entry(&changed), &mut read).is_none(), same, "{literal}");
+    }
+}
+
 /// Text values in the view (conventions §8.7
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#87-the-view>): §6
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>'s text,
