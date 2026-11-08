@@ -254,12 +254,18 @@ code's root image the `omero` of TIFF and NDPI, added after the freeze (`without
 reads the reference's integers past 2^53 − 1 as the exact JSON integers the shipped code writes
 since [conventions §6](../../spec/conventions.md#6-source-metadata-as-json) made every integer one:
 the strings of their digits, in a member that holds numbers only (a DICOM attribute of an integer
-VR, an IMS attribute of an integer datatype, NIfTI's header, NDPI's `ExposureTime`, a SAFE value),
+VR, an IMS attribute of an integer datatype, NIfTI's header, NDPI's `ExposureTime`, a SAFE node's
+source metadata),
 and ND2's tag `{"int": digits}`, which ND2 has no longer (and so a record named `int` alone, which
 the reference writes as pairs). And it reads an integer read from text outside the range its
 format declares or its convention sets (a DICOM `IS` value's, an ND2 XML variant's runtype's, a
 SAFE value's), which the reference writes as an integer, its digit string or the tag, as the text
-the shipped code writes, in those values only (`with_exact_integers`, `exact_integers.py`).
+the shipped code writes, in those values only (`with_exact_integers`, `exact_integers.py`). One
+difference it does not read away: a DICOM `IS` value with a value that is not a valid `IS` has no
+typed values in a gathered sequence's bounds since then
+([dicom.md §5.2](../../spec/zarrify/dicom.md#52-the-datasets-as-json)), so a sequence whose
+bounds that changes is gathered by one and not the other, and diverges; no input of the corpus
+has one.
 So these are the only differences it does not report, outside `refkv_source`: the revision
 number, the names the reference keeps (below), those members, that `omero`, the padding's
 form, those integers, and the sources no compared entry uses, with the order of the url sources (above). A

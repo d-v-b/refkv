@@ -622,7 +622,9 @@ element `s/<i>/<p>`, read as above (in little endian when the attribute
 has `"LittleEndian"`). A gathered sequence without items is
 `{"vr": "SQ", "Value": []}`.
 
-The bounds below weigh each column as revision 25 stored it, as an array.
+The bounds below weigh each column as revision 25 stored it, as an array, except that an `IS`
+value has typed values only when every value is a valid `IS` ([§5.2](#52-the-datasets-as-json)),
+where revision 25 took one of up to 19 digits within int64.
 Each value has **typed values**, of a data type:
 
 | value | typed values |
