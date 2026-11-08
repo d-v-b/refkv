@@ -396,10 +396,11 @@ fn structure(rules: &Rules, fields: &[Lit]) -> Result<Dtype, String> {
 /// The size in bytes of an element of `descr` as NumPy lays it out, whether or not the profile
 /// presents it (spec/stored-array.md §7
 /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#7-the-formats>): a type
-/// string's (after its byte order: `U<n>`, 4n bytes; `M8` and `m8`, 8, with or without a unit; any
-/// other its digits), or a structure's, its fields' summed, a field of shape repeated over it and
-/// padding fields counted. None for an object, whose elements are pointers rather than bytes, and
-/// for a size of 0, one past 2^64, or a `descr` that is no NumPy type.
+/// string's (after its byte order: `U<n>`, 4n bytes; `S<n>`, `a<n>` and `V<n>`, n; `M8` and `m8`,
+/// 8, with or without a unit of NumPy's; a number or boolean, its digits, of a size NumPy has for
+/// its kind), or a structure's, its fields' summed, a field of shape repeated over it and padding
+/// fields counted. None for an object, whose elements are pointers rather than bytes, and for a
+/// size of 0, one past 2^64, or a `descr` that is no NumPy type.
 pub fn item_size(descr: &Lit) -> Option<u64> {
     match descr {
         Lit::Str(s) => {
@@ -409,11 +410,17 @@ pub fn item_size(descr: &Lit) -> Option<u64> {
             let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
             let unit = &rest[digits.len()..];
             let n: u64 = digits.parse().ok()?;
-            let size = match kind.as_str() {
-                "M" | "m" if n == 8 && (unit.is_empty() || unit.starts_with('[') && unit.ends_with(']')) => 8,
+            // NumPy's datetime units, after a multiple (`[10s]`)
+            let unit_ok = |u: &str| {
+                let u = u.trim_start_matches(|c: char| c.is_ascii_digit());
+                ["Y", "M", "W", "D", "h", "m", "s", "ms", "us", "μs", "ns", "ps", "fs", "as", "generic"].contains(&u)
+            };
+            let size = match (kind.as_str(), n) {
+                ("M" | "m", 8) if unit.is_empty() || unit.strip_prefix('[').and_then(|u| u.strip_suffix(']')).is_some_and(unit_ok) => 8,
                 _ if !unit.is_empty() => return None,
-                "U" => n.checked_mul(4)?,
-                "b" | "i" | "u" | "f" | "c" | "S" | "a" | "V" => n,
+                ("U", _) => n.checked_mul(4)?,
+                ("S" | "a" | "V", _) => n,
+                ("b", 1) | ("i" | "u", 1 | 2 | 4 | 8) | ("f", 2 | 4 | 8 | 12 | 16) | ("c", 8 | 16 | 24 | 32) => n,
                 _ => return None,
             };
             (size > 0).then_some(size)
@@ -592,7 +599,7 @@ mod tests {
     /// No size: an object, a size of 0, one past 2^64, a string that is no type.
     #[test]
     fn sizes_no_object_or_impossible_descr() {
-        for d in ["|O", "|O8", "|S0", "<U5000000000000000000", "<q8", "<f8[s]", "=x"] {
+        for d in ["|O", "|O8", "|S0", "<U5000000000000000000", "<q8", "<f8[s]", "=x", "<f3", "<i5", "|b2", "<c7", "<M8[bogus]", "<M4"] {
             assert_eq!(item_size(&Lit::Str(d.into())), None, "{d}");
         }
         assert_eq!(item_size(&Lit::List(vec![Lit::Tuple(vec![Lit::Str("a".into()), Lit::Str("|O".into())])])), None);
