@@ -200,7 +200,7 @@ pub enum Param { Value(J), Source(Place) }
 
 /// bytes of the source: an IR element (with `member`, for an element in a run's subtree, the
 /// position j of the run's member it is in), or `range`, an (offset, length) within the bytes the
-/// element's recipe gives; or, where no element holds them, a range of an object by its key
+/// element's extent (its bytes in its own space); or, where no element holds them, a range of an object by its key
 /// (`None`: the parsed source itself), the offset counted from the object's start
 pub enum Place {
     Element { element: u32, member: Option<u64>, range: Option<(u64, u64)> },
@@ -264,7 +264,7 @@ array with a grid. A unit the source does not hold has no row.
 | `coords` | `List<UInt64>` | no | the unit's coordinates in the array's grid (empty for rank 0) |
 | `element` | `UInt32` | yes | the IR element holding the unit's bytes; its recipe gives them |
 | `member` | `UInt64` | yes | where `element` is in a run's subtree, the position j of the run's member it is in |
-| `range` | `Struct<offset: UInt64, length: UInt64>` | yes | where the unit is part of `element`: its offset and length within the bytes the element's recipe gives |
+| `range` | `Struct<offset: UInt64, length: UInt64>` | yes | where the unit is part of `element`: its offset and length within the element's extent, its bytes in its own space |
 | `ranges` | `List<Struct<object: Dictionary<Int32, Utf8>, offset: UInt64, length: UInt64>>` | yes | where no element holds exactly the unit's bytes: its bytes, in order; `object` is the object's key, null for the parsed source; `offset` counts from the object's start |
 | `chain` | `UInt32` | yes | the unit's chain, a position in its array's `chains`; null for position 0 |
 | `skips` | `UInt64` | yes | the codecs of its chain that the unit skips, a mask by codec index; null for none |
