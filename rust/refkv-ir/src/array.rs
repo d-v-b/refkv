@@ -729,6 +729,8 @@ impl Stored {
     /// set of unit parameters), and the map's parameter columns of one name of one type.
     pub fn plan_graft(&self, from: &Stored, at: &dyn Fn(u32) -> u32, key: &str) -> Res<GraftPlan> {
         let mut added: Vec<(Chain, String)> = Vec::new();
+        // each added chain's position among the added, by its text
+        let mut added_at: HashMap<String, usize> = HashMap::new();
         let mut chains = Vec::with_capacity(from.chains.len());
         for c in &from.chains {
             let mut c = c.clone();
@@ -738,9 +740,10 @@ impl Stored {
             let text = chain_json(&c).to_string();
             let k = match self.chain_index.0.get(&text) {
                 Some(&k) => k,
-                None => match added.iter().position(|a| a.1 == text) {
-                    Some(j) => (self.chains.len() + j) as u32,
+                None => match added_at.get(&text) {
+                    Some(&j) => (self.chains.len() + j) as u32,
                     None => {
+                        added_at.insert(text.clone(), added.len());
                         added.push((c, text));
                         (self.chains.len() + added.len() - 1) as u32
                     }
