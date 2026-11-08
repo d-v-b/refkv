@@ -1674,10 +1674,10 @@ impl Tiff {
         if length > 1 << 24 || !self.within(40, length) || !self.within(index, 8) {
             return Ok(None);
         }
-        let summary: J = match serde_json::from_slice(&self.at(40, length)?) {
-            Ok(v @ J::Object(_)) => v,
-            _ => return Ok(None),
-        };
+        // its numbers as serde_json reads them without arbitrary_precision: a summary with a
+        // number not finite in binary64 (1e400) is not one
+        let summary = serde_json::from_slice::<J>(&self.at(40, length)?).ok().and_then(crate::json::binary64);
+        let Some(summary @ J::Object(_)) = summary else { return Ok(None) };
         let h = self.at(index, 8)?;
         let n = word(&h, 4) as u64;
         if word(&h, 0) != 3453623 || n == 0 || !self.within(index + 8, 20 * n) {

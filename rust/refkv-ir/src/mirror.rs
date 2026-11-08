@@ -1585,8 +1585,7 @@ pub fn canonical_problem(get: &dyn Fn(&str) -> Option<Vec<u8>>, read: &mut dyn F
     for (k, v) in &out.entries {
         let stored = get(k);
         let same = match (k.ends_with("zarr.json"), &stored) {
-            (true, Some(s)) => serde_json::from_slice::<J>(s).ok().map(|d| table_part(k, d))
-                == serde_json::from_slice::<J>(v).ok(),
+            (true, Some(s)) => json_doc(s).map(|d| table_part(k, d)) == json_doc(v),
             (false, Some(s)) => s == v,
             _ => false,
         };
@@ -1750,7 +1749,7 @@ pub fn view_problem(keys: &[String], get: &dyn Fn(&str) -> Option<Vec<u8>>,
     for k in &names {
         let group = k.trim_end_matches("/zarr.json").trim_start_matches(&format!("{SOURCE_NODE}/"));
         let Some(stored) = get(k) else { return Some(format!("view: group {group} is missing")) };
-        let (a, b): (J, J) = (serde_json::from_slice(&stored).unwrap_or(J::Null), serde_json::from_slice(rebuilt[k]).unwrap_or(J::Null));
+        let (a, b) = (json_doc(&stored).unwrap_or(J::Null), json_doc(rebuilt[k]).unwrap_or(J::Null));
         if a == b {
             continue;
         }
@@ -1766,6 +1765,13 @@ pub fn view_problem(keys: &[String], get: &dyn Fn(&str) -> Option<Vec<u8>>,
         return Some(format!("view: group {} is not in the rebuilt view", k.trim_end_matches("/zarr.json").trim_start_matches(&format!("{SOURCE_NODE}/"))));
     }
     None
+}
+
+/// A document the validator compares, its numbers by value (an integer every digit, any other its
+/// binary64 value), as serde_json compares them without arbitrary_precision; None when it is not
+/// JSON, or holds a number not finite in binary64.
+fn json_doc(b: &[u8]) -> Option<J> {
+    serde_json::from_slice(b).ok().and_then(crate::json::binary64)
 }
 
 /// The first member (by its path of keys) where `a` (stored) and `b` (rebuilt) differ.

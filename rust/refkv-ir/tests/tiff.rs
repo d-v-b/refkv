@@ -29,6 +29,29 @@ fn the_tiff_parser_finds_ndpi() {
     }
 }
 
+/// A Micro-Manager file's summary is a JSON object whose numbers are finite (spec/zarrify/tiff.md
+/// §7.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#75-micro-manager-stacks>):
+/// its facts hold it, its numbers as written.
+#[test]
+fn a_micromanager_summary_is_read() {
+    let data = std::fs::read(fixtures().join("tiff/mm_single_MMStack_Pos0.ome.tif")).unwrap();
+    let (_, facts) = parse_bytes::<Tiff>(&data).unwrap();
+    assert_eq!(facts["micromanager"]["PixelSize_um"], serde_json::json!(0.5));
+    assert_eq!(facts["micromanager"]["Channels"], serde_json::json!(2));
+}
+
+/// A summary with a number that is not finite in binary64 (1e400) is no Micro-Manager summary:
+/// the file is a TIFF like another, and its stack of pages without OME-XML is rejected.
+#[test]
+fn a_summary_with_a_number_not_finite_is_none() {
+    let mut data = std::fs::read(fixtures().join("tiff/mm_single_MMStack_Pos0.ome.tif")).unwrap();
+    let (old, new) = (br#""1.4.22""#, b"1e400   ");
+    let at = data.windows(old.len()).position(|w| w == old).unwrap();
+    data[at..at + old.len()].copy_from_slice(new);
+    let e = parse_bytes::<Tiff>(&data).err().unwrap();
+    assert!(e.contains("a stack of pages without OME-XML"), "{e}");
+}
+
 // ---- the round-3 TIFF probes, built here
 
 /// A little-endian classic TIFF: `blobs` after the header, then the IFDs (sorted

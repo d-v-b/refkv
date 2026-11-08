@@ -64,7 +64,7 @@ fn index_offsets(b: &[u8]) -> Option<Vec<u64>> {
     let mut out = Vec::new();
     for line in t.lines().map(str::trim).filter(|l| !l.is_empty()) {
         let o = if line.starts_with('{') {
-            serde_json::from_str::<J>(line).ok()?.get("_offset")?.as_u64()?
+            serde_json::from_str::<J>(line).ok().and_then(crate::json::binary64)?.get("_offset")?.as_u64()?
         } else {
             // `n`, or `n.k` for the k-th field of a message of several
             let mut f = line.split(':');
