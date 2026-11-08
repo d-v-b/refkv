@@ -12,7 +12,7 @@ import { type IrFormat, NamesSiblings, zarrifyIr } from "./ir/run.ts";
 import { ir, out, put } from "./ir/wasm.ts";
 import { type RangeSource, readerSource } from "./ir/source.ts";
 import { type StoreProfile, zarrifyStoreIr } from "./ir/store.ts";
-import { BESIDE, type BesideFormat, ON_DEMAND, zarrifyVsi } from "./ir/vsi.ts";
+import { BESIDE, type BesideFormat, ON_DEMAND, scopeKeys, zarrifyVsi } from "./ir/vsi.ts";
 import { chooseProfile, closeStore, objectUrl, openHttpStore, type Store } from "./store.ts";
 import type { Policy } from "../archive.ts";
 import { crc32c } from "../deflate.ts";
@@ -35,6 +35,13 @@ export interface PinOptions {
    * directory), or undefined when it does not exist (ir/vsi.ts); by default the files are read
    * at the input URL's directory over http(s), with the named file's options. */
   open?: (key: string) => Promise<RangeSource | undefined>;
+  /** What a file input may read besides itself, when it names files beside it (spec/zarrify.md
+   * §1.9 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#19-sources-beside-the-input>):
+   * URLs, each the input URL's directory (the default) or a file or directory below it. `open` is
+   * not called for a file outside it, and an input that needs one is rejected, naming it; `[url]`
+   * reads the input alone. For an untrusted file beside files it must not reach. A RangeError for
+   * an entry outside the input's directory. */
+  scope?: readonly string[];
 }
 
 /**
@@ -95,6 +102,8 @@ interface Input {
 }
 
 async function zarrifyWith(url: string, input: Input, pins: PinOptions): Promise<ImageDesc> {
+  // the scope's keys, before anything is read
+  const within = pins.scope === undefined ? undefined : scopeKeys(url, pins.scope);
   // a VSI file is read with its tile files, and a NRRD header with its data file, as a store
   // (ir/vsi.ts): its sources are the files some reference uses, their sizes pinned, not source 0
   // alone
@@ -105,8 +114,12 @@ async function zarrifyWith(url: string, input: Input, pins: PinOptions): Promise
     (input.size > 552 ? await irFormat(await input.read(0, Math.min(65600, input.size))) : undefined);
   if (format === undefined) throw new ImageError(NOT_SUPPORTED);
   const asStore = async (beside: BesideFormat): Promise<ImageDesc> => {
-    const { store, ...desc } = await zarrifyVsi(
-      url, input.source, { ...(pins.open ? { open: pins.open } : {}), checksums: pins.checksums === true }, beside);
+    const options = {
+      ...(pins.open ? { open: pins.open } : {}),
+      ...(within !== undefined ? { scope: within } : {}),
+      checksums: pins.checksums === true,
+    };
+    const { store, ...desc } = await zarrifyVsi(url, input.source, options, beside);
     if (pins.checksums) {
       const keys = new Map([...store.objects.keys()].map((k) => [objectUrl(store.url, k), k]));
       await addChecksums(desc, (u, o, n) => store.readRange!(keys.get(u)!, o, n));

@@ -564,6 +564,13 @@ impl StoreParser for Grib {
         }
     }
 
+    /// Every key it probes is an index file, which a GRIB file may be without
+    /// (spec/zarrify/grib.md §8.2
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/grib.md#82-finding-the-messages>).
+    fn optional(&self, _key: &str) -> bool {
+        true
+    }
+
     fn found(&mut self, key: &str, index: usize, size: Option<u64>) -> Res<Option<u32>> {
         let Some(size) = size else { return Ok(None) };
         let ir = self.ir.as_mut().ok_or("internal: no IR")?;
