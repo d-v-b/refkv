@@ -54,27 +54,40 @@ def test_differences():
 
 
 def test_with_exact_integers():
-    """The frozen reference's digit strings of integers past 2^53 - 1, ND2's `{"int": digits}` tag
-    and the pairs of a record named `int` alone read as the shipped code's exact integers and
-    object where it has them; and, in a DICOM IS value's `Value` and an ND2 XML variant's
-    document, its integers that the shipped code writes as text (outside their format's range) as
-    that text."""
+    """The frozen reference's digit strings of integers past 2^53 - 1 in members that hold numbers,
+    ND2's `{"int": digits}` tag and the pairs of a record named `int` alone read as the shipped
+    code's exact integers and object where it has them; and, in a DICOM IS value's `Value`, an ND2
+    XML variant's document and a SAFE document, its integers (as numbers, tags or digit strings)
+    that the shipped code writes as text, outside their format's range, as that text."""
     big = 2**64 - 1
-    ref = output({"a": str(big), "b": [{"int": str(-big)}], "c": [["int", str(big)]], "f": [["int", 5]],
-                  "is": {"vr": "IS", "Value": [2**31, -(2**40)]},
+    is_ref = [2**31, -(2**40), "12345678901234567"]
+    is_ours = ["2147483648", "-0001099511627776", "+0012345678901234567"]
+    ref = output({"dataset": {"00181050": {"vr": "UV", "Value": [str(big)]}, "00200013": {"vr": "IS", "Value": is_ref}},
+                  "nifti": {"header": {"dim": [str(-big)]}},
+                  "u64": {"datatype": {"class": "integer"}, "value": [str(big)]},
+                  "b": [{"int": str(-big)}], "c": [["int", {"int": str(big)}]], "f": [["int", 5]],
                   "chunks": {"CustomDataVar|A!": {"x": {"int": "-30"}, "y": 300}}})
-    ours = output({"a": big, "b": [-big], "c": {"int": big}, "f": {"int": 5},
-                   "is": {"vr": "IS", "Value": ["2147483648", "-0001099511627776"]},
+    ours = output({"dataset": {"00181050": {"vr": "UV", "Value": [big]}, "00200013": {"vr": "IS", "Value": is_ours}},
+                   "nifti": {"header": {"dim": [-big]}},
+                   "u64": {"datatype": {"class": "integer"}, "value": [big]},
+                   "b": [-big], "c": {"int": big}, "f": {"int": 5},
                    "chunks": {"CustomDataVar|A!": {"x": "-030", "y": "+300"}}})
     assert compare.with_exact_integers(ref, ours)["entries"]["zarr.json"][1] == ours["entries"]["zarr.json"][1]
     assert compare.with_exact_integers(ref, ours)["entries"]["0/c/0"] == ref["entries"]["0/c/0"]
+    root = {"refkv_zarrified": {"profile": "safe"}}
+    safe = {"sources": [URL], "entries": {"zarr.json": ("json", {"attributes": root, "v": [str(big), 12]})}}
+    ours_safe = {"sources": [URL], "entries": {"zarr.json": ("json", {"attributes": root, "v": [big, "+012"]})}}
+    got = compare.with_exact_integers(safe, ours_safe)["entries"]["zarr.json"][1]
+    assert got == ours_safe["entries"]["zarr.json"][1]
 
 
 @pytest.mark.parametrize(("ref", "ours"), [
     ({"d": "12"}, {"d": 12}),  # a string within 2^53 - 1 is no form of an integer
+    ({"Software": "12345678901234567890"}, {"Software": 12345678901234567890}),  # a text field written as an integer
+    ({"t": {"vr": "LO", "Value": ["12345678901234567890"]}}, {"t": {"vr": "LO", "Value": [12345678901234567890]}}),
     ({"tag": {"vr": "US", "Value": [12]}}, {"tag": {"vr": "US", "Value": ["12"]}}),  # no declared range
     ({"x": 12}, {"x": "12"}),  # outside a ranged value
-    ({"is": {"vr": "IS", "Value": ["0012"]}}, {"is": {"vr": "IS", "Value": ["12"]}}),  # both strings
+    ({"is": {"vr": "IS", "Value": ["0012"]}}, {"is": {"vr": "IS", "Value": ["12"]}}),  # two texts
     ({"chunks": {"CustomDataVar|A!": {"x": 8}}}, {"chunks": {"CustomDataVar|A!": {"x": "9"}}}),  # another value
 ])
 def test_with_exact_integers_keeps_other_differences(ref, ours):

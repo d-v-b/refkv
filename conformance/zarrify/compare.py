@@ -621,10 +621,13 @@ def with_exact_integers(ref: Mapping[str, Any], ours: Mapping[str, Any]) -> dict
     integer `ours` writes as its text, outside its format's range, as that text
     (exact_integers.py), for comparing the two."""
     entries = {}
+    # every SAFE value is ranged (spec/zarrify/safe.md §6.1
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#61-values>)
+    safe = profile(ours) == "safe"
     for k, (kind, v) in ref["entries"].items():
         other = ours["entries"].get(k)
         same_kind = kind == "json" and other is not None and other[0] == "json"
-        entries[k] = (kind, exact_integers(v, other[1])) if same_kind else (kind, v)
+        entries[k] = (kind, exact_integers(v, other[1], safe=safe)) if same_kind else (kind, v)
     return {**ref, "entries": entries}
 
 

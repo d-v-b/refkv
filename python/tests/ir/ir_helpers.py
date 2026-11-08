@@ -154,7 +154,7 @@ def same_hierarchy(a, b) -> None:
         return {k: v for k, v in (b_refs if o is b else o.refs).items() if not k.startswith(node(o))}
 
     ours = docs(b)
-    assert exact_integers(docs(a), ours) == ours
+    assert exact_integers(docs(a), ours, safe=profile == "safe") == ours
     assert refs(a) == refs(b)
     assert list(a.data) == b_data
 

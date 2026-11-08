@@ -251,13 +251,15 @@ code's NIfTI edge-chunk padding, a range of the output's zero data source since
 its bytes that the reference writes (`literal_padding`), so that the zero data source
 drops out with the sources no compared entry uses. It also leaves out of the shipped
 code's root image the `omero` of TIFF and NDPI, added after the freeze (`without_added`). It
-reads the reference's integers past 2^53 − 1, which it writes as the strings of their digits (an
-ND2 integer as the tag `{"int": digits}`, which ND2 has no longer, and so a record named `int`
-alone as pairs), as the exact JSON integers the shipped code writes since
-[conventions §6](../../spec/conventions.md#6-source-metadata-as-json) made every integer one
-and an integer read from text outside the range its format declares (a DICOM `IS` value's, an ND2
-XML variant's runtype's), which the reference writes as an integer, as the text the shipped code
-writes, in those values only (`with_exact_integers`, `exact_integers.py`).
+reads the reference's integers past 2^53 − 1 as the exact JSON integers the shipped code writes
+since [conventions §6](../../spec/conventions.md#6-source-metadata-as-json) made every integer one:
+the strings of their digits, in a member that holds numbers only (a DICOM attribute of an integer
+VR, an IMS attribute of an integer datatype, NIfTI's header, NDPI's `ExposureTime`, a SAFE value),
+and ND2's tag `{"int": digits}`, which ND2 has no longer (and so a record named `int` alone, which
+the reference writes as pairs). And it reads an integer read from text outside the range its
+format declares or its convention sets (a DICOM `IS` value's, an ND2 XML variant's runtype's, a
+SAFE value's), which the reference writes as an integer, its digit string or the tag, as the text
+the shipped code writes, in those values only (`with_exact_integers`, `exact_integers.py`).
 So these are the only differences it does not report, outside `refkv_source`: the revision
 number, the names the reference keeps (below), those members, that `omero`, the padding's
 form, those integers, and the sources no compared entry uses, with the order of the url sources (above). A

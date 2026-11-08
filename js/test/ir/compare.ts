@@ -33,11 +33,17 @@ function exact(_key: string, value: unknown, context?: { source?: string }): unk
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const DECIMAL = /^[+-]?[0-9]+$/;
 
-/** The integer the reference's `ref` writes as an integer: a JSON integer or ND2's tag
- * `{"int": digits}`; undefined for anything else, a string among them. */
+/** The reference's digit string of an integer past 2^53 − 1: no `+`, no leading zeros. */
+const isBigDigits = (ref: unknown): ref is string =>
+  typeof ref === "string" && /^-?[1-9][0-9]{15,}$/.test(ref) && !Number.isSafeInteger(Number(ref));
+
+/** The integer the reference's `ref` writes as an integer: a JSON integer, ND2's tag
+ * `{"int": digits}`, or its digit string past 2^53 − 1; undefined for anything else, any other
+ * string among them. */
 function integerForm(ref: unknown): bigint | undefined {
   if (typeof ref === "number" && Number.isInteger(ref)) return BigInt(ref);
   if (isObject(ref) && Object.keys(ref).join() === "int" && typeof ref.int === "string" && DECIMAL.test(ref.int)) return BigInt(ref.int);
+  if (isBigDigits(ref)) return BigInt(ref);
   return undefined;
 }
 
@@ -50,30 +56,48 @@ function integerForm(ref: unknown): bigint | undefined {
 const rangedMember = (key: string, ours: Record<string, unknown>) =>
   (key === "Value" && ours.vr === "IS") || key.startsWith("CustomDataVar|");
 
+const INTEGER_VRS = new Set(["SL", "SS", "UL", "US", "SV", "UV", "IS"]);
+
+/** Whether the member `key` of `ours` (itself the member `parent`) holds numbers of the source,
+ * which the reference writes past 2^53 − 1 as their digit strings: a DICOM attribute's `Value` of
+ * an integer VR, an HDF5 attribute's `value` of an integer datatype (IMS), NIfTI's `header`, and
+ * NDPI's `ExposureTime`. */
+function numericMember(parent: string, key: string, ours: Record<string, unknown>): boolean {
+  const datatype = ours.datatype;
+  const integer = isObject(datatype) && ["integer", "bitfield", "enum"].includes(datatype.class as string);
+  return (key === "Value" && INTEGER_VRS.has(ours.vr as string)) || (key === "value" && integer)
+    || (key === "header" && parent === "nifti") || key === "ExposureTime";
+}
+
 /**
- * The frozen reference's JSON value `ref`, each of its forms of an integer past 2^53 − 1 read as
- * the integer where `ours` has it (a bigint), and a record named `int` alone as the object `ours`
- * has: the string of its digits, ND2's tag `{"int": digits}`, and the pairs `[["int", v]]`; and,
- * within values whose format declares a range (`ranged`, `rangedMember`), a JSON integer or ND2's
- * tag that `ours` writes as decimal text, outside that range, as that text
- * (conformance/zarrify/exact_integers.py). Anything else stays as the reference wrote it.
+ * The frozen reference's JSON value `ref`, each of its forms of an integer read as `ours` writes it
+ * where `ours` has that integer (a bigint past 2^53 − 1): in a member that holds numbers
+ * (`numericMember`), its digit string as the exact integer; ND2's tag `{"int": digits}` as the exact
+ * integer; in a value whose format declares a range (`rangedMember`), its integer forms that `ours`
+ * writes as decimal text, outside that range, as that text; and the pairs `[["int", v]]` of a record
+ * named `int` alone as the object `ours` has (conformance/zarrify/exact_integers.py). Anything else
+ * stays as the reference wrote it.
  */
-export function exactIntegers(ref: unknown, ours: unknown, ranged = false): unknown {
+export function exactIntegers(ref: unknown, ours: unknown, parent = "", numeric = false, ranged = false): unknown {
   if (typeof ours === "bigint") {
-    if (typeof ref === "string" && ref === ours.toString()) return ours;
+    if (numeric && typeof ref === "string" && ref === ours.toString()) return ours;
     if (isObject(ref) && Object.keys(ref).join() === "int" && ref.int === ours.toString()) return ours;
     return ref;
   }
   if (ranged && typeof ours === "string" && DECIMAL.test(ours) && integerForm(ref) === BigInt(ours)) return ours;
   if (isObject(ours) && Object.keys(ours).join() === "int" && Array.isArray(ref) && ref.length === 1
     && Array.isArray(ref[0]) && ref[0].length === 2 && ref[0][0] === "int") {
-    return { int: exactIntegers(ref[0][1], ours.int, ranged) };
+    return { int: exactIntegers(ref[0][1], ours.int, "int", numeric, ranged) };
   }
-  if (Array.isArray(ref) && Array.isArray(ours) && ref.length === ours.length) return ref.map((x, i) => exactIntegers(x, ours[i], ranged));
+  if (Array.isArray(ref) && Array.isArray(ours) && ref.length === ours.length) {
+    return ref.map((x, i) => exactIntegers(x, ours[i], parent, numeric, ranged));
+  }
   if (isObject(ref) && isObject(ours)) {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(ref)) {
-      const value = Object.hasOwn(ours, k) ? exactIntegers(v, ours[k], ranged || rangedMember(k, ours)) : v;
+      const value = Object.hasOwn(ours, k)
+        ? exactIntegers(v, ours[k], k, numeric || numericMember(parent, k, ours), ranged || rangedMember(k, ours))
+        : v;
       Object.defineProperty(out, k, { value, enumerable: true, writable: true, configurable: true });
     }
     return out;
