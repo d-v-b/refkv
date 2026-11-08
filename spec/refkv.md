@@ -1119,7 +1119,7 @@ Rust phkv reader, which bounds the bytes of one `get` at 2^32 and combines no re
 | proxies while rule 3 applies | refused |
 | sources per store | 4,194,304 (2^22) |
 | reads per `get` | 1024 |
-| bytes per `get` | 2^31; a `key` source's value is fetched whole, the larger of its size and its stored bytes, when it is compressed or hidden (the Python vzip reader), compressed or inline (the Python and Rust phkv readers), or always (the TypeScript readers, which read every such value whole) |
+| bytes per `get` | 2^31; a `key` source's value is fetched whole, the larger of its size and its stored bytes, when it is compressed or hidden (the Python vzip reader), compressed or inline (the Python and Rust phkv readers), or always (the TypeScript readers, which read every such value whole); never by the Python in-memory `ReferenceStore`, which holds every value already |
 | coalescing gap ([§6.3](#63-resolving-a-reference)) | 64 KiB |
 | read amplification of shared reads ([§6.3](#63-resolving-a-reference)) | 4 |
 | the source table, or auxiliary data (in a vzip archive, a format entry, inflated) | 256 MiB |

@@ -109,7 +109,8 @@ export type RangeFetcher = (
  *   resolves to locally. Without it, such a request is refused.
  * - `maxSources`, `maxReads`, `maxGetBytes`, `maxFormatEntry`: rules 4 to 6 (rule 5 bounds the
  *   reads one read of a value makes, and the bytes it takes: those it fetches, the bytes between
- *   coalesced ranges included, and those it builds the value from).
+ *   coalesced ranges included and, once a read, each `key` source's value (which it reads whole),
+ *   and those it builds the value from).
  * - `maxCoalesceGap`: the most bytes between two ranges of a source that the reader combines into
  *   one read, which it then fetches but returns to no value (spec §6.3
  *   <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#63-resolving-a-reference>,

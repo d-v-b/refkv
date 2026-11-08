@@ -988,8 +988,11 @@ class ReferenceReader:
     Subclasses say where the mapping and the source table come from:
     `refkv.ReferenceStore` holds them in memory, and `VZipStore` reads them from a
     vzip archive. Both resolve a reference here, with the same pins, checksums,
-    request merging, `Stats` and request cap, so a store reads the same values
-    before and after it is saved.
+    request merging, `Stats` and limits. A store saved may still take more of a `get`'s
+    bytes than it did in memory: a reader that holds a `key` source's value whole to read
+    a range of it, as `VZipStore` does a compressed entry, counts the whole value (spec §6.7
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 5), which
+    the in-memory store, holding every value already, does not.
 
     The operations are those of spec §6.2
     <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#62-operations>, each
@@ -1040,8 +1043,8 @@ class ReferenceReader:
 
     Values read at the same time share requests: reads of one source at most the
     policy's `max_coalesce_gap` apart (64 KiB by default) merge into one request,
-    whichever values they are for (but never two reads of one value that its own coalescing could
-    have combined and kept apart), while
+    whichever values they are for (but not two reads of one value that its own coalescing could
+    have combined and kept apart, unless the second touches what the first's request reads), while
     they wait 2 ms (`MERGE_WINDOW`), or for a connection when all of them are
     busy. Zarr asks for at most `async.concurrency` chunks at once, so that
     setting, not this reader, limits how many merge: raise it to read many small

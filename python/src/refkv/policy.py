@@ -173,7 +173,8 @@ class Policy:
       through a proxy is refused.
     - `max_sources`, `max_reads`, `max_get_bytes`, `max_format_entry`: rules 4 to 6 (rule 5
       bounds the reads one `get` makes, and the bytes it takes: those it fetches, the bytes
-      between coalesced ranges included, and those it builds its value from).
+      between coalesced ranges included and, once a `get`, each `key` source's value the reader
+      holds whole to read a range of it, and those it builds its value from).
     - `max_coalesce_gap`: the most bytes between two ranges of a source that a reader combines
       into one read, which it then fetches but returns to no value (spec §6.3
       <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#63-resolving-a-reference>,
