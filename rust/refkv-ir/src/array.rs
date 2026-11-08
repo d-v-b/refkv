@@ -811,8 +811,9 @@ impl Stored {
     }
 
     /// The graft [`Stored::plan_graft`] planned, of the file's arrays `from` with the same `at`
-    /// and `key`: it cannot fail.
-    pub fn graft(&mut self, plan: GraftPlan, from: &Stored, at: &dyn Fn(u32) -> u32, key: &str) {
+    /// and `key`: it cannot fail. Only [`Ir::graft`], which plans and applies with one `from`,
+    /// `at` and `key`, calls it.
+    pub(crate) fn graft(&mut self, plan: GraftPlan, from: &Stored, at: &dyn Fn(u32) -> u32, key: &str) {
         self.index_chains();
         for (c, text) in plan.added {
             self.chain_index.0.insert(text, self.chains.len() as u32);
