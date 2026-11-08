@@ -669,19 +669,22 @@ impl Ir {
     }
 
     /// The arrays the source stores, with the chain table and the chunk map (rows in any order:
-    /// they are sorted here), described from the finished IR (spec/stored-array.md §6
+    /// they are sorted here), described once from the finished IR (spec/stored-array.md §6
     /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#6-in-the-ir>): counted
-    /// against the budget, and checked ([`crate::array::check`]).
+    /// against the budget, and checked ([`crate::array::check`]); the IR keeps none it refuses.
     pub fn describe(&mut self, arrays: Vec<crate::array::StoredArray>, chains: Vec<crate::array::Chain>, mut map: crate::array::ChunkMap) -> Res<()> {
         if !self.finished {
             return Err("internal: arrays described before the IR is finished".into());
+        }
+        if !self.stored.is_empty() {
+            return Err("internal: the IR's arrays described twice".into());
         }
         if let Some(b) = self.budget.as_mut() {
             b.describe(arrays.len() as u64, map.len() as u64)?;
         }
         map.sort();
         self.stored = Arc::new(crate::array::Stored { arrays, chains, map });
-        crate::array::check(self)
+        crate::array::check(self).inspect_err(|_| self.stored = Default::default())
     }
 
     /// The bytes of held objects of a store IR (conventions §8.9

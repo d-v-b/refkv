@@ -495,6 +495,7 @@ impl ChunkMap {
             opt(eat, self.chain[k].map(u64::from));
             opt(eat, self.skips[k]);
             for (name, col) in &self.params {
+                eat(&(name.len() as u64).to_le_bytes());
                 eat(name.as_bytes());
                 match col.get(k) {
                     Some(Scalar::UInt64(v)) => opt(eat, Some(v)),
@@ -1415,7 +1416,63 @@ mod tests {
         assert!(!ir.stored.is_empty());
     }
 
-    // ---- one test per refusal of each check
+    #[test]
+    fn describe_sorts_and_checks_the_rows() {
+        let mut ir = file_ir();
+        let s = valid();
+        let order: Vec<usize> = (0..s.map.len()).rev().collect();
+        // the IR's list has no `quantize`: a description of the test list's codecs is refused,
+        // and the IR keeps none
+        ir.describe(s.arrays, s.chains, s.map.take(&order)).unwrap_err();
+        assert!(ir.stored.is_empty());
+        let mut map = ChunkMap::default();
+        map.push(Row { array: 1, coords: vec![], element: Some(4), ..Row::default() }).unwrap();
+        map.push(Row { array: 0, coords: vec![0], element: Some(1), ..Row::default() }).unwrap();
+        let one = StoredArray { element: 1, index: None, shape: vec![8], grid: Some(Grid { axes: vec![AxisUnits::Each(8)], edge: Edge::Short }), chains: vec![0], ..valid().arrays[1].clone() };
+        let scalar = StoredArray { index: None, chains: vec![0], ..valid().arrays[1].clone() };
+        ir.describe(vec![one, scalar], vec![vec![]], map).unwrap();
+        assert_eq!(ir.stored.map.element, [Some(1), Some(4)]);
+    }
+
+    // ---- one test per refusal of each check, and of describing and building
+
+    #[test]
+    fn refuses_to_describe_an_unfinished_ir() {
+        let mut ir = Ir::new(10);
+        assert_eq!(ir.describe(vec![], vec![], ChunkMap::default()).unwrap_err(), "internal: arrays described before the IR is finished");
+    }
+
+    #[test]
+    fn refuses_to_describe_twice() {
+        let mut ir = file_ir();
+        let a = StoredArray { index: None, ..valid().arrays[2].clone() };
+        ir.describe(vec![a.clone()], vec![], ChunkMap::default()).unwrap();
+        assert_eq!(ir.describe(vec![a], vec![], ChunkMap::default()).unwrap_err(), "internal: the IR's arrays described twice");
+    }
+
+    #[test]
+    fn refuses_descriptions_past_the_budget() {
+        let mut ir = file_ir();
+        ir.budget.as_mut().unwrap().descriptions = 0;
+        let a = StoredArray { index: None, ..valid().arrays[2].clone() };
+        assert_eq!(ir.describe(vec![a], vec![], ChunkMap::default()).unwrap_err(), "budget: more than 0 stored arrays");
+    }
+
+    #[test]
+    fn refuses_rows_past_the_budget() {
+        let mut ir = file_ir();
+        ir.budget.as_mut().unwrap().rows = 4;
+        let s = valid();
+        assert_eq!(ir.describe(s.arrays, s.chains, s.map).unwrap_err(), "budget: more than 4 chunk map rows");
+    }
+
+    #[test]
+    fn refuses_a_parameter_value_of_another_type() {
+        let mut map = ChunkMap::default();
+        map.push(Row { params: vec![("p.quantize.scale".into(), Scalar::Float64(1.0))], ..Row::default() }).unwrap();
+        let row = Row { coords: vec![1], params: vec![("p.quantize.scale".into(), Scalar::UInt64(1))], ..Row::default() };
+        assert_eq!(map.push(row).unwrap_err(), "internal: a parameter column given a value of another type");
+    }
 
     #[test]
     fn refuses_an_element_the_ir_has_not() {
