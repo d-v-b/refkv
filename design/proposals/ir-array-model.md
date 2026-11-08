@@ -416,8 +416,10 @@ value message (0x04) where the new one is absent, as the HDF5 library does.
 
 **Each description:**
 - **The grid.** Its rank is the array's rank, and it is in canonical form:
-  - An axis is `Each(n)` when all its units are `n` long, except a last one cut by the axis's end.
-    Otherwise it is a `List`.
+  - An axis is `Each(n)` when all its units are `n` long, except, under `Short`, a last one cut by
+    the axis's end. Otherwise it is a `List`: under `Full`, an axis whose last unit the source
+    stores shorter than the others (10, 10, 5 over 25) stays a `List`, since `Each(10)` would say
+    the last unit holds 10.
   - Under `Short`, `n` is the declared length clamped to the axis length (a TIFF's RowsPerStrip
     above ImageLength, often 2^32 − 1, is one strip of the image's rows). Under `Full`, `n` is the
     declared length, which may exceed it.
