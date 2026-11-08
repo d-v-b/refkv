@@ -27,7 +27,7 @@ crc32c = "0.6"
 refkv-ir = { path = "../refkv-ir" }
 refkv-phkv = { path = "../refkv-phkv" }
 refkv-vzip = { path = "../refkv-vzip" }
-serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip", "arbitrary_precision"] }
 
 [build-dependencies]
 pyo3-build-config = "0.29"

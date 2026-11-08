@@ -180,7 +180,8 @@ names it instead of referencing its chunks twice.
 
 The machinery that made eleven formats agree across two implementations:
 
-- **One rule per value type.** Integers beyond 2^53 become strings. NaN
+- **One rule per value type.** Integers are exact JSON integers at any
+  magnitude (a reader parses those beyond 2^53 as big integers). NaN
   and the infinities become strings. Text is UTF-8 if valid, else a tagged
   ISO 8859-1 reading.
 - **One reading per format.** A generic walker over the format's own

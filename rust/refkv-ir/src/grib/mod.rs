@@ -64,7 +64,7 @@ fn index_offsets(b: &[u8]) -> Option<Vec<u64>> {
     let mut out = Vec::new();
     for line in t.lines().map(str::trim).filter(|l| !l.is_empty()) {
         let o = if line.starts_with('{') {
-            serde_json::from_str::<J>(line).ok()?.get("_offset")?.as_u64()?
+            crate::json::parse_binary64(line)?.get("_offset")?.as_u64()?
         } else {
             // `n`, or `n.k` for the k-th field of a message of several
             let mut f = line.split(':');
@@ -638,5 +638,10 @@ mod tests {
         assert_eq!(index_offsets(b"{\"_offset\": 10, \"_length\": 5}\n{\"_offset\": 0, \"_length\": 10}\n"), Some(vec![0, 10]));
         assert_eq!(index_offsets(b"1:0:d=x\n2.1:50:d=x\n2.2:50:d=x\n3:90:d=x\n"), Some(vec![0, 50, 90]));
         assert_eq!(index_offsets(b"not an index"), None);
+        // a line with a number not finite in binary64, or serde_json's number token: no index
+        assert_eq!(index_offsets(b"{\"_offset\": 0, \"x\": 1e400}\n"), None);
+        assert_eq!(index_offsets(b"{\"_offset\": 0, \"x\": {\"$serde_json::private::Number\": \"1\"}}\n"), None);
+        // an exponent of -0 is a number
+        assert_eq!(index_offsets(b"{\"_offset\": 7, \"x\": 1e-0}\n"), Some(vec![7]));
     }
 }

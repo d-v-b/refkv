@@ -100,8 +100,8 @@ invariants on it, and concatenates `bytes[o : o + n]` for each leaf in offset
 order.
 
 **The view** (`tree/`) is one vocabulary for every format: values are JSON
-where JSON holds them; otherwise `{"$vz": kind, ...}` (`int` past 2^53,
-`float` for NaN and infinities, `bytes` up to 64 bytes, `array` for a large
+where JSON holds them (an integer exactly, at any magnitude); otherwise
+`{"$vz": kind, ...}` (`float` for NaN and infinities, `bytes` up to 64 bytes, `array` for a large
 value written as a conventions §7 array referenced in place, `alias`, `group`,
 and the one spill form `{"$vz": "element", "id": i}`, "read element i in the
 table"). The one escape rule: a key that starts with `$` gets another `$`; a

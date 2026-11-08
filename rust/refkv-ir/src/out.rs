@@ -412,10 +412,22 @@ pub fn rectilinear_array_json(shape: &[u64], data_type: &str, lengths: &J, codec
 
 /// An integer of the source as JSON (conventions §6
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>):
-/// a number when its magnitude is at most 2^53 − 1, else the string of its decimal digits.
+/// a JSON integer, exact whatever its magnitude (serde_json's `arbitrary_precision` keeps the
+/// digits of one past 64 bits).
 pub fn int_json(v: i128) -> J {
-    const MAX_SAFE: i128 = (1 << 53) - 1;
-    if (-MAX_SAFE..=MAX_SAFE).contains(&v) { json!(v as i64) } else { J::String(v.to_string()) }
+    J::Number(serde_json::Number::from_i128(v).expect("arbitrary_precision holds every i128"))
+}
+
+/// The integer that the decimal text `t` (an optional `+` or `-`, then digits, leading zeros
+/// allowed) writes, as JSON, when it is from `lo` to `hi`, the range its format declares; None
+/// outside it: a value its format does not have, which a convention reads as text (conventions §6
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>).
+pub fn int_text(t: &str, lo: i128, hi: i128) -> Option<J> {
+    let digits = t.strip_prefix(['+', '-']).unwrap_or(t).trim_start_matches('0');
+    debug_assert!(digits.bytes().all(|c| c.is_ascii_digit()));
+    let v: i128 = if digits.is_empty() { 0 } else { digits.parse().ok()? }; // past every i128: None
+    let v = if t.starts_with('-') { -v } else { v };
+    (lo..=hi).contains(&v).then(|| int_json(v))
 }
 
 /// The `bytes` codec of elements of `item` bytes: with the byte order `endian` ("little" or
@@ -894,22 +906,37 @@ pub fn json_size(v: &J) -> usize {
 mod tests {
     use super::*;
 
-    /// An integer is a JSON number up to 2^53 − 1 in magnitude, and the string of its digits
-    /// past it (conventions §6
+    /// An integer is a JSON integer, exact whatever its magnitude, its digits as written
+    /// (conventions §6
     /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>).
     #[test]
-    fn an_integer_past_two_to_the_53_is_its_digits() {
+    fn an_integer_is_exact_whatever_its_magnitude() {
         let max = (1i128 << 53) - 1;
         for (v, want) in [
-            (0, json!(0)),
-            (max, json!(9007199254740991u64)),
-            (-max, json!(-9007199254740991i64)),
-            (max + 1, json!("9007199254740992")),
-            (-(max + 1), json!("-9007199254740992")),
-            (u64::MAX as i128, json!("18446744073709551615")),
-            (i128::MIN, json!("-170141183460469231731687303715884105728")),
+            (0, "0"),
+            (max, "9007199254740991"),
+            (-max, "-9007199254740991"),
+            (max + 1, "9007199254740992"),
+            (-(max + 1), "-9007199254740992"),
+            (u64::MAX as i128, "18446744073709551615"),
+            (i64::MIN as i128, "-9223372036854775808"),
+            (i128::MIN, "-170141183460469231731687303715884105728"),
         ] {
-            assert_eq!(int_json(v), want, "{v}");
+            assert_eq!(to_text(&int_json(v)), want, "{v}");
+        }
+        assert_eq!(to_text(&json!({"n": int_json(u64::MAX as i128 + 1)})), r#"{"n":18446744073709551616}"#);
+        let (lo, hi) = (i64::MIN as i128, u64::MAX as i128);
+        for (t, want) in [("0", "0"), ("-0", "0"), ("+007", "7"), ("-9223372036854775808", "-9223372036854775808"),
+                          ("0018446744073709551615", "18446744073709551615")] {
+            assert_eq!(int_text(t, lo, hi).map(|j| to_text(&j)).as_deref(), Some(want), "{t}");
+        }
+    }
+
+    /// Decimal text outside the range its format declares is no integer of that format.
+    #[test]
+    fn decimal_text_outside_its_range_is_no_integer() {
+        for t in ["-9223372036854775809", "18446744073709551616", &"9".repeat(60)] {
+            assert_eq!(int_text(t, i64::MIN as i128, u64::MAX as i128), None, "{t}");
         }
     }
 

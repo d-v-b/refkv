@@ -486,21 +486,6 @@ def blob_chunks(offset: int, length: int) -> tuple[int, Chunks]:
     return size, chunks
 
 
-MAX_SAFE = 2**53 - 1
-
-
-def json_number(v: float) -> float | str:
-    """A number as source metadata (spec/conventions.md §6
-    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>)."""
-    if isinstance(v, float):
-        if math.isnan(v):
-            return "NaN"
-        if math.isinf(v):
-            return "Infinity" if v > 0 else "-Infinity"
-        return v
-    return v if abs(v) <= MAX_SAFE else str(v)
-
-
 def decode_text(b: bytes) -> str:
     """Bytes as text: UTF-8 if valid, else ISO 8859-1 (spec/conventions.md §6
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>)."""
