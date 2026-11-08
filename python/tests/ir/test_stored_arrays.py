@@ -1,15 +1,21 @@
-"""The IR's stored arrays (spec/stored-array.md): for every NumPy fixture, the descriptions' JSON
-document, valid against spec/stored-array.json and read by refkv.ir.stored, and the chunk map read
-through the Arrow PyCapsule interface; the reader's reading of every form of the document, and one
-test per form it refuses."""
+"""The IR's stored arrays (spec/stored-array.md): for every NumPy fixture, the descriptions against
+NumPy's own reading of each array's header (a `.npy` file's, and each `.npz` member's, presented
+or not), the descriptions' JSON document, valid against spec/stored-array.json, and the chunk map
+read through the Arrow PyCapsule interface; the reader's reading of every form of the document,
+and one test per form it refuses."""
 
+import ast
 import json
+import struct
+import zipfile
+from pathlib import Path
 
 import jsonschema
+import numpy as np
 import pytest
 from ir_helpers import FIXTURES, ROOT
 
-from refkv._narrow import integer, mapping, sequence
+from refkv._narrow import mapping, sequence
 from refkv.ir import Ir, parse
 from refkv.ir.planner import open_transport
 from refkv.ir.stored import (
@@ -30,30 +36,108 @@ from refkv.ir.stored import (
 
 SCHEMA = json.loads((ROOT / "spec" / "stored-array.json").read_text())
 NPY = sorted(p for p in (FIXTURES / "npy").iterdir() if "reject" not in p.name)
+# NumPy warns of a header Python 2 wrote (npy_python2_long.npy), which it reads all the same
+PYTHON2 = "ignore:Reading `.npy` or `.npz` file required additional header parsing"
+
+# (shape, fortran_order, item bits: None for an object or a size of 0, the data's offset)
+type Header = tuple[tuple[int, ...], bool, int | None, int]
+# a descr NumPy has no type for on this machine (a long double of 16 bytes where its long double has
+# 8): its header is read as text, and its item bits are its size's, which NumPy cannot give here
+UNTYPED = {"<f16": 128, "<c32": 256}
 
 
-@pytest.mark.filterwarnings("ignore:Reading `.npy` or `.npz` file required additional header parsing")
-@pytest.mark.parametrize("path", NPY, ids=[p.name for p in NPY])
-def test_npy_arrays_cross_the_bindings(path):
-    """The document is the schema's and reads; the chunk map, as a record batch and as a stream,
-    holds a row for each presented array's data element, of the schema spec/stored-array.md §4.1
-    <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#41-the-arrow-schema> gives."""
-    pa = pytest.importorskip("pyarrow")
+def numpy_header(f) -> Header | None:
+    """NumPy's reading of the NPY header at `f`'s position, or None where NumPy refuses it. Version
+    3 lays its header out as version 2 does, in UTF-8 rather than Latin-1 text, which leaves its
+    shape, order and item size as they are."""
+    start = f.tell()
+    try:
+        major, _ = np.lib.format.read_magic(f)
+    except ValueError:
+        return None
+    reader = np.lib.format.read_array_header_1_0 if major == 1 else np.lib.format.read_array_header_2_0
+    try:
+        shape, fortran, dtype = reader(f, max_header_size=1 << 30)
+    except ValueError:
+        f.seek(start + 8)
+        n = struct.unpack("<H" if major == 1 else "<I", f.read(2 if major == 1 else 4))[0]
+        try:
+            h = ast.literal_eval(f.read(n).decode("latin-1"))
+        except (ValueError, SyntaxError):
+            return None
+        if not isinstance(h, dict) or h.get("descr") not in UNTYPED:
+            return None
+        return tuple(h["shape"]), bool(h["fortran_order"]), UNTYPED[h["descr"]], f.tell()
+    bits = None if dtype.hasobject or dtype.itemsize == 0 else dtype.itemsize * 8
+    return tuple(shape), bool(fortran), bits, f.tell()
+
+
+def described(path: Path) -> tuple[Ir, Stored, dict]:
+    """The IR of the NumPy file at `path`, its stored arrays (their document checked against the
+    schema), and its facts."""
     core, facts, _ = parse("npy", open_transport(str(path)))
-    ir = Ir(core)
     jsonschema.validate(json.loads(core.stored_arrays()), SCHEMA)
-    stored = ir.stored_arrays()
-    presented = [a for a in stored.arrays if a.grid is not None]
-    held = [mapping(f) for f in sequence(facts["arrays"]) if "deflate" not in mapping(f)]
-    assert len(presented) == len(held)
-    for a, f in zip(presented, held, strict=True):
-        assert a.declarations == (ElementPlace(a.element, None, None),)
-        assert a.path == ir.path(a.element)
-        assert (a.path or "").endswith("header")
-        assert a.item_bits == integer(f["item"]) * 8
-        assert a.fill == "undefined"
-        assert a.chains == (0,)
-    assert stored.chains == (((),) if held else ())
+    ir = Ir(core)
+    return ir, ir.stored_arrays(), facts
+
+
+def against_numpy(path: Path, stored: Stored, facts: dict) -> list[tuple[StoredArray, Header]]:
+    """Each description with NumPy's reading of its header: a `.npy` file's one, and, of a `.npz`
+    archive, each stored member's whose header the parser read (a member the profile does not
+    present included); a deflated member has none."""
+    by_path = {a.path: a for a in stored.arrays}
+    if path.suffix == ".npy":
+        with path.open("rb") as f:
+            h = numpy_header(f)
+        assert h is not None
+        assert set(by_path) == {"header"}
+        return [(by_path["header"], h)]
+    members = [mapping(m) for m in sequence(mapping(facts["own"])["members"])]
+    pairs = []
+    with zipfile.ZipFile(path) as z, path.open("rb") as f:
+        for i, info in enumerate(z.infolist()):
+            mine = [a for p, a in by_path.items() if (p or "").startswith(f"entries/{i}/")]
+            if info.compress_type != zipfile.ZIP_STORED or "header" not in members[i]:
+                assert not mine, info.filename
+                continue
+            f.seek(info.header_offset)
+            n, e = struct.unpack("<HH", f.read(30)[26:30])
+            f.seek(info.header_offset + 30 + n + e)
+            h = numpy_header(f)
+            assert h is not None, info.filename
+            assert [a.path for a in mine] == [f"entries/{i}/data/header"], info.filename
+            pairs.append((mine[0], h))
+    assert len(pairs) == len(stored.arrays)
+    return pairs
+
+
+@pytest.mark.filterwarnings(PYTHON2)
+@pytest.mark.parametrize("path", NPY, ids=[p.name for p in NPY])
+def test_npy_arrays_are_described_as_numpy_reads_them(path):
+    """Each described array has NumPy's shape (reversed, with `axes`, for a Fortran-order array of
+    two or more axes), its dtype's item size (none for an object array), and its header, the one
+    declaration, ends where NumPy's data starts."""
+    ir, stored, facts = described(path)
+    for d, (shape, fortran, bits, offset) in against_numpy(path, stored, facts):
+        reverse = fortran and len(shape) >= 2
+        assert d.shape == (shape[::-1] if reverse else shape), d.path
+        assert d.axes == (tuple(range(len(shape)))[::-1] if reverse else None), d.path
+        assert d.item_bits == bits, d.path
+        assert d.declarations == (ElementPlace(d.element, None, None),), d.path
+        start, length = ir.extent(d.element)
+        assert start + length == offset, d.path
+        assert d.fill == "undefined"
+
+
+@pytest.mark.filterwarnings(PYTHON2)
+@pytest.mark.parametrize("path", NPY, ids=[p.name for p in NPY])
+def test_npy_chunk_map_crosses_the_capsule_interface(path):
+    """The chunk map, as a record batch and as a stream, of the schema spec/stored-array.md §4.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#41-the-arrow-schema> gives,
+    holds one row for each presented array of data: its unit, an element starting where NumPy's
+    data does, as many bytes long as NumPy's array."""
+    ir, stored, facts = described(path)
+    pa = pytest.importorskip("pyarrow")
     cm = ir.chunk_map()
     batch = pa.record_batch(cm)
     assert batch.equals(pa.RecordBatchReader.from_stream(cm).read_next_batch())
@@ -65,12 +149,21 @@ def test_npy_arrays_cross_the_bindings(path):
         pa.field("offset", pa.uint64(), nullable=False),
         pa.field("length", pa.uint64(), nullable=False),
     ]), nullable=False))
-    rows = batch.to_pylist()
-    data = [(k, f["data"]) for k, f in zip([stored.arrays.index(a) for a in presented], held, strict=True)
-            if integer(f["length"]) > 0]
-    assert [(r["array"], r["element"]) for r in rows] == data
-    assert all(r["coords"] == [0] * len(stored.arrays[r["array"]].shape) for r in rows)
-    assert all(r["ranges"] is None and r["chain"] is None and r["skips"] is None for r in rows)
+    rows = {r["array"]: r for r in batch.to_pylist()}
+    assert len(rows) == batch.num_rows
+    units = 0
+    for d, (shape, _, bits, offset) in against_numpy(path, stored, facts):
+        k = stored.arrays.index(d)
+        size = (bits or 0) // 8 * int(np.prod(shape, dtype=object))
+        if d.grid is None or size == 0:
+            assert k not in rows, d.path
+            continue
+        r = rows[k]
+        assert ir.extent(r["element"]) == (offset, size), d.path
+        assert r["coords"] == [0] * len(shape), d.path
+        assert (r["member"], r["ranges"], r["chain"], r["skips"]) == (None, None, None, None), d.path
+        units += 1
+    assert units == batch.num_rows
 
 
 def document(**changes: object) -> dict:
@@ -94,6 +187,12 @@ def document(**changes: object) -> dict:
     return {"chains": [chain], "arrays": [array | changes, plain]}
 
 
+def refused(error: type[Exception], match: str, doc: dict) -> None:
+    assert not jsonschema.Draft202012Validator(SCHEMA).is_valid(doc)
+    with pytest.raises(error, match=match):
+        read(json.dumps(doc))
+
+
 def test_reads_every_form_of_the_document():
     assert read(json.dumps(document())) == Stored(
         chains=((Codec("source", {"id": Value(7), "parameters": Source(ElementPlace(9, None, None))}),),),
@@ -115,42 +214,87 @@ def test_reads_every_form_of_the_document():
 
 
 def test_refuses_a_value_of_another_type():
-    with pytest.raises(TypeError, match=r"arrays\[0\]\.shape\[0\]: expected an integer"):
-        read(json.dumps(document(shape=["25", 12])))
+    refused(TypeError, r"arrays\[0\]\.shape\[0\]: expected an integer", document(shape=["25", 12]))
 
 
 def test_refuses_a_missing_member():
     doc = document()
     del doc["arrays"][0]["fill"]
-    with pytest.raises(KeyError, match=r"arrays\[0\]\.fill: missing"):
-        read(json.dumps(doc))
+    refused(ValueError, r"arrays\[0\]: missing fill", doc)
+
+
+def test_refuses_an_unknown_member_of_a_description():
+    refused(ValueError, r"arrays\[0\]: unknown extra", document(extra=1))
+
+
+def test_refuses_an_unknown_member_of_the_document():
+    refused(ValueError, "stored arrays: unknown version", {**document(), "version": 0})
+
+
+def test_refuses_a_negative_integer():
+    refused(ValueError, r"arrays\[0\]\.shape\[0\]: -1 is below 0", document(shape=[-1, 12]))
+
+
+def test_refuses_item_bits_of_0():
+    refused(ValueError, r"arrays\[0\]\.item_bits: 0 is below 1", document(item_bits=0))
+
+
+def test_refuses_units_0_long():
+    grid = {"axes": [{"list": [5, [10, 2]]}, {"each": 0}], "edge": "full"}
+    refused(ValueError, r"axes\[1\]\.each: 0 is below 1", document(grid=grid))
+
+
+def test_refuses_a_listed_unit_0_long():
+    grid = {"axes": [{"list": [0, [10, 2]]}, {"each": 8}], "edge": "full"}
+    refused(ValueError, r"list\[0\]: 0 is below 1", document(grid=grid))
+
+
+def test_refuses_a_run_of_one_unit():
+    grid = {"axes": [{"list": [5, [10, 1]]}, {"each": 8}], "edge": "full"}
+    refused(ValueError, r"list\[1\]\[1\]: 1 is below 2", document(grid=grid))
 
 
 def test_refuses_a_place_of_neither_element_nor_object():
-    with pytest.raises(ValueError, match="names neither an element nor an object"):
-        read(json.dumps(document(declarations=[{"offset": 0, "length": 1}])))
+    refused(ValueError, "names neither an element nor an object", document(declarations=[{"offset": 0, "length": 1}]))
+
+
+def test_refuses_a_place_with_an_unknown_member():
+    place = {"element": 1, "member": None, "range": None, "extra": 1}
+    refused(ValueError, r"declarations\[0\]: unknown extra", document(declarations=[place]))
+
+
+def test_refuses_a_place_of_both_element_and_object():
+    place = {"element": 1, "member": None, "range": None, "object": None}
+    refused(ValueError, r"declarations\[0\]: unknown object", document(declarations=[place]))
 
 
 def test_refuses_a_parameter_of_neither_value_nor_source():
-    with pytest.raises(ValueError, match="neither a value nor a source"):
-        read(json.dumps(document(fill={"given": {"bytes": "AAA="}})))
+    refused(ValueError, "exactly one of value and source", document(fill={"given": {"bytes": "AAA="}}))
+
+
+def test_refuses_a_parameter_of_both_value_and_source():
+    given = {"value": "AAA=", "source": {"element": 1, "member": None, "range": None}}
+    refused(ValueError, "exactly one of value and source", document(fill={"given": given}))
+
+
+def test_refuses_a_fill_value_that_is_not_base64():
+    refused(ValueError, r"fill\.given\.value: not base64", document(fill={"given": {"value": "A?A="}}))
 
 
 def test_refuses_an_axis_of_neither_each_nor_list():
-    with pytest.raises(ValueError, match="neither each nor list"):
-        read(json.dumps(document(grid={"axes": [{"every": 5}, {"each": 8}], "edge": "full"})))
+    grid = {"axes": [{"every": 5}, {"each": 8}], "edge": "full"}
+    refused(ValueError, "exactly one of each and list", document(grid=grid))
 
 
 def test_refuses_an_edge_of_neither_full_nor_short():
-    with pytest.raises(ValueError, match="neither 'full' nor 'short'"):
-        read(json.dumps(document(grid={"axes": [{"each": 5}, {"each": 8}], "edge": "padded"})))
+    grid = {"axes": [{"each": 5}, {"each": 8}], "edge": "padded"}
+    refused(ValueError, "neither 'full' nor 'short'", document(grid=grid))
 
 
 def test_refuses_a_fill_of_no_form():
-    with pytest.raises(ValueError, match="'zero' is not a fill"):
-        read(json.dumps(document(fill="zero")))
+    refused(ValueError, "'zero' is not a fill", document(fill="zero"))
 
 
 def test_refuses_a_range_that_is_not_a_pair():
-    with pytest.raises(ValueError, match="expected two integers, got 3"):
-        read(json.dumps(document(declarations=[{"element": 1, "member": None, "range": [0, 4, 8]}])))
+    place = {"element": 1, "member": None, "range": [0, 4, 8]}
+    refused(ValueError, "expected two integers, got 3", document(declarations=[place]))

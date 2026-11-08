@@ -8,7 +8,7 @@
 # it raises ValueError("finished").
 
 from collections.abc import Callable, Sequence
-from typing import Literal
+from typing import Literal, final
 
 # A decoded IR value (`Ir.value`).
 type Value = int | float | str | bytes | list[Value] | dict[str, Value]
@@ -54,11 +54,17 @@ def coding(name: str, params: str) -> str:
     parameters `params` (JSON), its result as JSON. Raises NoCodec for parameters the format's
     section rejects, ValueError for parameters that are not the routine's."""
 
+@final
 class ChunkMap:
     """An IR's chunk map as one Arrow record batch, for the Arrow PyCapsule interface: pyarrow,
-    polars or nanoarrow read it without a copy. A requested schema is ignored."""
+    polars or nanoarrow read it without a copy. A requested schema is ignored.
 
-    def __len__(self) -> int: ...
+    Only `Ir.chunk_map()` makes one: the class has no constructor (calling it raises TypeError),
+    and an instance can be neither pickled nor copied; read it into pyarrow, polars or nanoarrow
+    to keep it. Its length is its rows', so a map of no rows is falsy."""
+
+    def __len__(self) -> int:
+        """Its rows."""
     def __arrow_c_schema__(self) -> object:
         """The schema, a capsule named `arrow_schema`."""
     def __arrow_c_array__(self, requested_schema: object | None = None) -> tuple[object, object]:
