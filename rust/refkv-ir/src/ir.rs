@@ -682,7 +682,7 @@ impl Ir {
             return Err("internal: the IR's arrays described twice".into());
         }
         let mut stored = crate::array::Stored { arrays, chains, map, ..Default::default() };
-        stored.add_columns(crate::array::CODECS);
+        stored.add_columns(crate::array::CODECS, 0);
         let (d, r) = stored.weights();
         if let Some(b) = self.budget.as_mut() {
             b.describe(d, r)?;
@@ -831,8 +831,10 @@ impl Ir {
         self.was.extend(from.was.iter().map(|&(i, k)| (at(i), k)));
         self.runs.extend(from.runs.iter().map(|&(r, c, s)| (at(r), c, s)));
         if let Some(plan) = plan {
-            Arc::make_mut(&mut self.stored).graft(plan, &from.stored, &at, &key);
-            Arc::make_mut(&mut self.stored).add_columns(crate::array::CODECS);
+            let s = Arc::make_mut(&mut self.stored);
+            let first = s.arrays.len();
+            s.graft(plan, &from.stored, &at, &key);
+            s.add_columns(crate::array::CODECS, first);
         }
         Ok(map)
     }

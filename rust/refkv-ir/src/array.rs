@@ -822,10 +822,11 @@ impl Stored {
 
     /// A column, of its entry's type in `codecs`, for every parameter a description with a grid
     /// lists as a unit parameter, whether or not a row gives it a value (spec/stored-array.md §4.1
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#41-the-arrow-schema>).
-    pub fn add_columns(&mut self, codecs: &[CodecEntry]) {
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#41-the-arrow-schema>): of the
+    /// descriptions from position `from` on (a graft's, the ones it added).
+    pub fn add_columns(&mut self, codecs: &[CodecEntry], from: usize) {
         let n = self.map.len();
-        for a in self.arrays.iter().filter(|a| a.grid.is_some()) {
+        for a in self.arrays[from.min(self.arrays.len())..].iter().filter(|a| a.grid.is_some()) {
             for u in &a.unit_parameters {
                 let codec = a.chains.get(u.chain as usize).and_then(|&c| self.chains.get(c as usize)).and_then(|c| c.get(u.codec as usize));
                 let Some(codec) = codec else { continue };
@@ -1842,13 +1843,13 @@ mod tests {
         s.map.params.clear();
         s.map.skips[0] = Some(1);
         s.map.skips[2] = Some(1);
-        s.add_columns(TEST_CODECS);
+        s.add_columns(TEST_CODECS, 0);
         assert_eq!(s.map.params["p.quantize.scale"], Column::Float64(vec![None; 5]));
         check_with(&with(s), TEST_CODECS).unwrap();
         let mut s = valid();
         s.arrays.truncate(1);
         s.map = ChunkMap::default();
-        s.add_columns(TEST_CODECS);
+        s.add_columns(TEST_CODECS, 0);
         assert_eq!(s.map.params["p.quantize.scale"], Column::Float64(vec![]));
         check_with(&with(s), TEST_CODECS).unwrap();
     }
