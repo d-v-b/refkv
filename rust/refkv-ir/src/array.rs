@@ -1351,7 +1351,7 @@ mod tests {
         },
         CodecEntry { name: "quantize", parameters: &[ParamEntry { name: "scale", column: Some(ColumnType::Float64) }, ParamEntry { name: "seed", column: Some(ColumnType::UInt64) }, ParamEntry { name: "method", column: None }] },
         CodecEntry { name: "squash", parameters: &[ParamEntry { name: "level", column: None }] },
-        CodecEntry { name: "refkv.zfp", parameters: &[ParamEntry { name: "rate", column: Some(ColumnType::Float64) }] },
+        CodecEntry { name: "acme.zfp", parameters: &[ParamEntry { name: "rate", column: Some(ColumnType::Float64) }] },
     ];
 
     fn codec(name: &str, params: &[(&str, Param)]) -> Codec {
@@ -1653,10 +1653,10 @@ mod tests {
     #[test]
     fn a_dotted_codec_names_its_parameter_columns() {
         let mut s = valid();
-        s.chains.push(vec![codec("refkv.zfp", &[])]);
+        s.chains.push(vec![codec("acme.zfp", &[])]);
         s.arrays[1].chains = vec![3];
         s.arrays[1].unit_parameters = vec![UnitParameter { chain: 0, codec: 0, name: "rate".into() }];
-        s.map.params.insert("p.refkv.zfp.rate".into(), Column::Float64(vec![None, None, None, None, Some(0.25)]));
+        s.map.params.insert("p.acme.zfp.rate".into(), Column::Float64(vec![None, None, None, None, Some(0.25)]));
         check_with(&with(s), TEST_CODECS).unwrap();
     }
 
