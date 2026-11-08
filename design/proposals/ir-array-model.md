@@ -199,9 +199,9 @@ pub struct Codec { pub name: String, pub parameters: Map<String, Param> }
 pub enum Param { Value(J), Source(Place) }
 
 /// bytes of the source: an IR element (with `member`, for an element in a run's subtree, the
-/// position j of the run's member it is in), or `range`, an (offset, length) within the bytes the
-/// element's extent (its bytes in its own space); or, where no element holds them, a range of an object by its key
-/// (`None`: the parsed source itself), the offset counted from the object's start
+/// position j of the run's member it is in), or `range`, an (offset, length) within the
+/// element's extent (its bytes in its own space); or, where no element holds them, a range of an
+/// object by its key (`None`: the parsed source itself), the offset counted from the object's start
 pub enum Place {
     Element { element: u32, member: Option<u64>, range: Option<(u64, u64)> },
     Extent { object: Option<String>, offset: u64, length: u64 },
