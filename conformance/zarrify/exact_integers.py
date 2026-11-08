@@ -21,14 +21,22 @@ def _big(v: object) -> bool:
     return isinstance(v, int) and not isinstance(v, bool) and abs(v) > MAX_SAFE
 
 
-def _integer_of(ref: object) -> int | None:
-    """The integer the reference's `ref` writes, as a number, the string of its digits or ND2's tag."""
+def _decimal(text: str) -> tuple[bool, str]:
+    """A decimal integer's text as (negative, digits without leading zeros), compared without
+    Python's int, which refuses text of more than 4300 digits."""
+    digits = text.lstrip("+-").lstrip("0") or "0"
+    return text.startswith("-") and digits != "0", digits
+
+
+def _integer_of(ref: object) -> tuple[bool, str] | None:
+    """The integer the reference's `ref` writes, as a number, the string of its digits or ND2's
+    tag, as `_decimal` gives it."""
     if isinstance(ref, int) and not isinstance(ref, bool):
-        return ref
+        ref = str(ref)
     if isinstance(ref, dict) and list(ref) == ["int"]:
         ref = ref["int"]
     if isinstance(ref, str) and _DECIMAL.fullmatch(ref):
-        return int(ref)
+        return _decimal(ref)
     return None
 
 
@@ -44,7 +52,7 @@ def exact_integers(ref: object, ours: object) -> object:
         if isinstance(ref, dict) and list(ref) == ["int"] and ref["int"] == str(ours):
             return ours
         return ref
-    if isinstance(ours, str) and _DECIMAL.fullmatch(ours) and ref != ours and _integer_of(ref) == int(ours):
+    if isinstance(ours, str) and _DECIMAL.fullmatch(ours) and ref != ours and _integer_of(ref) == _decimal(ours):
         return ours
     if (isinstance(ours, dict) and list(ours) == ["int"] and isinstance(ref, list) and len(ref) == 1
             and isinstance(ref[0], list) and len(ref[0]) == 2 and ref[0][0] == "int"):
