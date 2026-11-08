@@ -231,11 +231,6 @@ pub struct Found {
     record: Record,
 }
 
-/// `e`, a failure reading key source `k`, saying so.
-fn in_key(k: &str, e: ReadError) -> ReadError {
-    ReadError { message: format!("key source {k:?}: {}", e.message), ..e }
-}
-
 /// An opened phkv store.
 pub struct Store<R: ReadAt> {
     r: R,
@@ -673,12 +668,18 @@ impl<R: ReadAt> Store<R> {
     }
 
     /// Bytes `[a, b)` of the value [`Store::key_found`] found, from the record it read: no second
-    /// lookup, and an inline value is not read again. Every failure is a resolution error.
+    /// lookup, and an inline value is not read again. Every failure is a resolution error that
+    /// names the key.
     pub fn found_bytes(&self, found: &Found, a: u64, b: u64) -> Result<Vec<u8>, ReadError> {
-        if b > found.size {
-            return err(Class::Resolution, format!("a range ends at {b}, past the {} bytes of the key source", found.size));
+        let key = String::from_utf8_lossy(&found.record.key);
+        let fail = |m: String| err(Class::Resolution, format!("key source {key:?}: {m}"));
+        if a > b {
+            return fail(format!("the range [{a}, {b}) ends before it starts"));
         }
-        self.bytes_window(&found.record, a, b).map_err(|e| ReadError { class: Class::Resolution, message: e.message })
+        if b > found.size {
+            return fail(format!("a range ends at {b}, past its {} bytes", found.size));
+        }
+        self.bytes_window(&found.record, a, b).or_else(|e| fail(e.message))
     }
 
     /// Bytes `[a, b)` of a bytes record's value: a codec-0 value is read only within the window, a
@@ -833,11 +834,11 @@ impl<R: ReadAt> Store<R> {
                 _ => None,
             };
             let bytes = match (&src.kind, entry) {
-                (SourceKind::Key(k), Some(f)) if f.held.is_none() => self.found_bytes(f, r.offset + ri, r.offset + rj).map_err(|e| in_key(k, e))?,
+                (SourceKind::Key(k), Some(f)) if f.held.is_none() => self.found_bytes(f, r.offset + ri, r.offset + rj)?,
                 (SourceKind::Key(k), Some(f)) => {
                     let (start, end) = (r.offset + ri, r.offset + rj);
                     if !decoded.contains_key(k.as_str()) {
-                        decoded.insert(k.as_str(), self.found_bytes(f, 0, f.size).map_err(|e| in_key(k, e))?);
+                        decoded.insert(k.as_str(), self.found_bytes(f, 0, f.size)?);
                     }
                     let value = &decoded[k.as_str()];
                     if end > value.len() as u64 {

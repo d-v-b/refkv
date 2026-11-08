@@ -105,7 +105,11 @@ fn values_references_and_listing() {
     assert!(stored_length < big.len() as u64);
     let stored = s.key_found("a/c/0").unwrap().unwrap(); // a codec-0 value stored apart: read by range
     assert_eq!((stored.held, s.found_bytes(&stored, 10, 20).unwrap()), (None, big[10..20].to_vec()));
-    assert_eq!(s.found_bytes(&stored, 0, big.len() as u64 + 1).unwrap_err().class, Class::Resolution);
+    for (a, b) in [(0, big.len() as u64 + 1), (20, 10)] {
+        let e = s.found_bytes(&stored, a, b).unwrap_err();
+        assert_eq!(e.class, Class::Resolution);
+        assert!(e.message.contains("key source \"a/c/0\""), "{}", e.message);
+    }
     assert!(s.key_found("r/one").unwrap().is_none()); // a reference
     assert_eq!(s.key_found("a/c/3").unwrap().map(|f| (f.size, f.held.is_some())), Some((4, true))); // inline
     let decoded = |request_bytes| Store::open_with(s.reader().clone(), refkv_phkv::Limits { request_bytes, ..Default::default() }).unwrap();
