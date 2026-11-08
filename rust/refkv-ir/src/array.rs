@@ -821,6 +821,9 @@ impl Stored {
             p.moved(&f);
         }
         self.map.moved(&f);
+        // the chains' places may have moved, and with them their texts: the next graft indexes them
+        // again
+        self.chain_index.0.clear();
     }
 
     pub fn memory(&self) -> usize {
