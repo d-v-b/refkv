@@ -1,0 +1,7 @@
+# On macOS, do not let rustc strip what it links. Cargo's release profile strips debug info by
+# default, which on macOS runs after linking; with Xcode 27's tools that leaves the string table
+# of the extension module (refkv._core) 4-byte aligned, and macOS 27's dyld refuses to load the
+# file ("mis-aligned LINKEDIT string pool", https://github.com/d-v-b/refkv/issues/146). The
+# unstripped module is about 2% larger. A `RUSTFLAGS` environment variable replaces this entry.
+[target.'cfg(target_os = "macos")']
+rustflags = ["-C", "strip=none"]
