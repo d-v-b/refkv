@@ -403,11 +403,13 @@ pub fn item_size(descr: &Lit) -> Option<u64> {
     layout_size(descr).filter(|&n| n > 0)
 }
 
-/// The size of a type string's one type (after its byte order): `U<n>`, 4n bytes; `S<n>`, `a<n>`
-/// and `V<n>`, n (0 without digits); `M8` and `m8`, 8, with or without a unit of NumPy's; a number
-/// or boolean, its digits, of a size NumPy has for its kind; a one-character code, its fixed size.
+/// The size of a type string of one type, as NumPy reads one with no comma: an optional byte
+/// order (`<`, `>`, `|` or `=`) and the type, with no space. `U<n>`, 4n bytes; `S<n>` and `V<n>`,
+/// n (`S`, `U` and `V` alone, 0); `M` and `m`, or `M8` and `m8` with or without a unit of NumPy's,
+/// 8; a number or boolean, its digits, of a size NumPy has for its kind; a one-character code, its
+/// fixed size. NumPy 2 has no `a`.
 fn type_size(t: &str) -> Option<u64> {
-    let t = t.trim().strip_prefix(['<', '>', '|', '=', '!']).unwrap_or(t.trim());
+    let t = t.strip_prefix(['<', '>', '|', '=']).unwrap_or(t);
     let kind: String = t.chars().take_while(char::is_ascii_alphabetic).collect();
     let rest = &t[kind.len()..];
     let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
@@ -417,34 +419,139 @@ fn type_size(t: &str) -> Option<u64> {
         let u = u.trim_start_matches(|c: char| c.is_ascii_digit());
         ["Y", "M", "W", "D", "h", "m", "s", "ms", "us", "μs", "ns", "ps", "fs", "as", "generic"].contains(&u)
     };
-    let datetime_unit = unit.is_empty() || unit.strip_prefix('[').and_then(|u| u.strip_suffix(']')).is_some_and(unit_ok);
+    let datetime_unit = unit.strip_prefix('[').and_then(|u| u.strip_suffix(']')).is_some_and(unit_ok);
     if kind.is_empty() {
         // `?`, the boolean's code, is the one code that is not a letter
         return (t == "?").then_some(1);
     }
     if digits.is_empty() {
+        if !unit.is_empty() {
+            // a unit follows `M8` or `m8`, never `M` or `m` alone
+            return None;
+        }
         return match kind.as_str() {
-            "M" | "m" if datetime_unit => Some(8),
-            _ if !unit.is_empty() => None,
+            "M" | "m" => Some(8),
             "b" | "B" | "c" => Some(1),
             "h" | "H" | "e" => Some(2),
             "i" | "I" | "f" => Some(4),
             "q" | "Q" | "d" | "F" => Some(8),
             "D" => Some(16),
-            "S" | "a" | "U" | "V" => Some(0),
+            "S" | "U" | "V" => Some(0),
             // `l`, `L`, `g`, `G`, `p`, `P`: the machine's sizes, which a header does not give
             _ => None,
         };
     }
     let n: u64 = digits.parse().ok()?;
     match (kind.as_str(), n) {
-        ("M" | "m", 8) if datetime_unit => Some(8),
+        ("M" | "m", 8) if unit.is_empty() || datetime_unit => Some(8),
         _ if !unit.is_empty() => None,
         ("U", _) => n.checked_mul(4),
-        ("S" | "a" | "V", _) => Some(n),
+        ("S" | "V", _) => Some(n),
         ("b", 1) | ("i" | "u", 1 | 2 | 4 | 8) | ("f", 2 | 4 | 8 | 12 | 16) | ("c", 8 | 16 | 24 | 32) => Some(n),
         _ => None,
     }
+}
+
+/// A repeat count of a comma string's field (`3`, `2,3`, `(2,3)`, `(2,)`, with spaces about
+/// them): the product of its integers; None for a parenthesized single number with no comma
+/// (`(2)`, which NumPy refuses), or an empty one other than the last after a comma (`(2,,3)`).
+fn repeats_count(r: &str) -> Option<u64> {
+    let t = r.trim();
+    let (inner, parenthesized) = match t.strip_prefix('(') {
+        Some(i) => (i.strip_suffix(')')?, true),
+        None => (t, false),
+    };
+    if parenthesized && !inner.contains(',') {
+        return None;
+    }
+    let parts: Vec<&str> = inner.split(',').map(str::trim).collect();
+    let mut count = 1u64;
+    for (k, p) in parts.iter().enumerate() {
+        if p.is_empty() {
+            // one empty part, last, after a comma: `(2,)`, `2,`
+            if k + 1 == parts.len() && k > 0 {
+                continue;
+            }
+            return None;
+        }
+        count = count.checked_mul(p.parse().ok()?)?;
+    }
+    Some(count)
+}
+
+/// A comma string's size, as NumPy's `_commastring` reads one: fields, each an optional byte
+/// order, an optional repeat count, an optional byte order and a type (`[A-Za-z0-9.?]*` and an
+/// optional bracketed unit), separated by commas with spaces about them, a trailing comma and
+/// trailing spaces allowed; its fields' sizes summed (one field and no comma: that field's).
+fn comma_size(s: &str) -> Option<u64> {
+    let b = s.as_bytes();
+    let n = b.len();
+    let order = |pos: &mut usize| -> Option<u8> {
+        let c = *b.get(*pos)?;
+        b"<>|=".contains(&c).then(|| {
+            *pos += 1;
+            c
+        })
+    };
+    let (mut pos, mut total) = (0usize, 0u64);
+    while pos < n {
+        let o1 = order(&mut pos);
+        // the repeats: ` *[(]?[ ,0-9]*[)]? *`
+        let r0 = pos;
+        while b.get(pos) == Some(&b' ') {
+            pos += 1;
+        }
+        if b.get(pos) == Some(&b'(') {
+            pos += 1;
+        }
+        while b.get(pos).is_some_and(|c| *c == b' ' || *c == b',' || c.is_ascii_digit()) {
+            pos += 1;
+        }
+        if b.get(pos) == Some(&b')') {
+            pos += 1;
+        }
+        while b.get(pos) == Some(&b' ') {
+            pos += 1;
+        }
+        let repeats = &s[r0..pos];
+        let o2 = order(&mut pos);
+        // the type: `[A-Za-z0-9.?]*`, then a unit `\[[a-zA-Z0-9,.]+\]` if one is whole
+        let t0 = pos;
+        while b.get(pos).is_some_and(|c| c.is_ascii_alphanumeric() || *c == b'.' || *c == b'?') {
+            pos += 1;
+        }
+        if b.get(pos) == Some(&b'[') {
+            let mut q = pos + 1;
+            while b.get(q).is_some_and(|c| c.is_ascii_alphanumeric() || *c == b',' || *c == b'.') {
+                q += 1;
+            }
+            if q > pos + 1 && b.get(q) == Some(&b']') {
+                pos = q + 1;
+            }
+        }
+        let ty = &s[t0..pos];
+        // then the end, trailing spaces, or a comma with spaces about it
+        if pos < n {
+            if s[pos..].chars().all(char::is_whitespace) {
+                pos = n;
+            } else {
+                let rest = s[pos..].trim_start();
+                let rest = rest.strip_prefix(',')?;
+                pos = n - rest.trim_start().len();
+            }
+        }
+        let o = match (o1, o2) {
+            (Some(a), Some(c)) if a != c => return None,
+            (Some(a), _) | (None, Some(a)) => Some(a as char),
+            (None, None) => None,
+        };
+        let mut size = type_size(&format!("{}{ty}", o.map(String::from).unwrap_or_default()))?;
+        if !repeats.trim().is_empty() {
+            size = size.checked_mul(repeats_count(repeats)?)?;
+        }
+        total = total.checked_add(size)?;
+    }
+    Some(total)
 }
 
 /// A shape's element count: an integer, or a tuple of them.
@@ -459,41 +566,12 @@ fn shape_count(shape: &Lit) -> Option<u64> {
     }
 }
 
-/// A type string's size: one type, a subarray (`(2,3)<f4`, `3<i2`), or fields joined by commas
-/// (`<f8,<i4`), each of those a type or a subarray.
+/// A type string's size: a comma string's (one with a comma, or that starts, after an optional
+/// byte order, with a repeat count) by [`comma_size`]; else one type's, by [`type_size`].
 fn string_size(s: &str) -> Option<u64> {
-    // the fields, at the commas outside a subarray's parentheses
-    let mut parts = Vec::new();
-    let (mut depth, mut from) = (0i32, 0usize);
-    for (k, c) in s.char_indices() {
-        match c {
-            '(' => depth += 1,
-            ')' => depth -= 1,
-            ',' if depth == 0 => {
-                parts.push(&s[from..k]);
-                from = k + 1;
-            }
-            _ => {}
-        }
-    }
-    parts.push(&s[from..]);
-    parts.into_iter().try_fold(0u64, |acc, p| acc.checked_add(subarray_size(p)?))
-}
-
-/// The size of one field of a type string: a type, or a subarray of it, its shape parenthesized
-/// (`(2,3)<f4`) or a count (`3<i2`).
-fn subarray_size(t: &str) -> Option<u64> {
-    let t = t.trim();
-    if let Some(inner) = t.strip_prefix('(') {
-        let close = inner.find(')')?;
-        let dims = inner[..close].split(',').map(str::trim).filter(|d| !d.is_empty()).try_fold(1u64, |acc, d| acc.checked_mul(d.parse().ok()?))?;
-        return type_size(&inner[close + 1..])?.checked_mul(dims);
-    }
-    let lead: String = t.chars().take_while(char::is_ascii_digit).collect();
-    if !lead.is_empty() {
-        return type_size(&t[lead.len()..])?.checked_mul(lead.parse().ok()?);
-    }
-    type_size(t)
+    let t = s.strip_prefix(['<', '>', '|', '=']).unwrap_or(s);
+    let repeated = t.starts_with(|c: char| c.is_ascii_digit() || c == '(');
+    if s.contains(',') || repeated { comma_size(s) } else { type_size(s) }
 }
 
 /// The size in bytes of an element of `descr`, 0 for a type of no bytes (`|S0`, `|V0`, `<U0`, or
@@ -754,6 +832,25 @@ mod tests {
             (r#"'|b2'"#, None),
             (r#"'<M8[bogus]'"#, None),
             (r#"'<q8'"#, None),
+            (r#"'<a5'"#, None),
+            (r#"'a5'"#, None),
+            (r#"'!f8'"#, None),
+            (r#"'M[ns]'"#, None),
+            (r#"'(2)<f4'"#, None),
+            (r#"'(2,,3)<f4'"#, None),
+            (r#"' <i8'"#, None),
+            (r#"'<i8 '"#, None),
+            (r#"'i4,'"#, Some(4)),
+            (r#"'<f8,'"#, Some(8)),
+            (r#"'(2,)<f4,'"#, Some(8)),
+            (r#"'2,3<f4'"#, Some(24)),
+            (r#"'<2f4'"#, Some(8)),
+            (r#"'i4 ,i2'"#, Some(6)),
+            (r#"'i4, '"#, Some(4)),
+            (r#"'M'"#, Some(8)),
+            (r#"'S'"#, None),
+            (r#"'(2,)<f4,<i2'"#, Some(10)),
+            (r#"'<f8,<i4,'"#, Some(12)),
         ];
         for &(text, want) in cases {
             let descr = parse(&format!("{{'descr': {text}, 'fortran_order': False, 'shape': ()}}"), 64).unwrap().descr;
