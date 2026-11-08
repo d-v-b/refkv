@@ -620,14 +620,19 @@ exactly, every digit), strings by their characters
 
 An `Integer` past 2^53 − 1 in magnitude has more digits than a binary64
 value holds, so a consumer that needs its exact value parses integers as
-big integers: in JavaScript, `JSON.parse` with a reviver that reads
-`context.source` into a `BigInt`, or a lossless JSON parser. Python's `json`
-module reads every integer exactly. A convention that reads an integer from
-decimal text reads it within the range its format declares for the value (as
-DICOM declares an `IS` value's, and ND2 an XML variant's by its runtype): an
-integer outside that range is no value the format has, and the convention
-reads it as it reads text that is not a number. An integer of the source's
-binary fields is within its field's width.
+big integers. In JavaScript, `JSON.parse` with a reviver that turns into a
+`BigInt` only a number whose source text (`context.source`) matches
+`^-?(0|[1-9][0-9]*)$` and that lies outside −(2^53 − 1) to 2^53 − 1 (any
+other number, one with a fraction or an exponent among them, stays a
+binary64); an engine whose `JSON.parse` gives a reviver no source text needs
+a lossless JSON parser instead. Python's `json` module reads every integer
+exactly. A convention that reads an integer from decimal text reads it within
+the range its format declares for the value (as DICOM declares an `IS`
+value's, and ND2 an XML variant's by its runtype), or, where the format
+declares none, within a range the convention sets and says: an integer
+outside that range is no value of the format, and the convention reads it as
+it reads text that is not a number. An integer of the source's binary fields
+is within its field's width.
 
 These rules apply to values the convention translates from the source's
 bytes. Members copied from a JSON document of the source (a store's

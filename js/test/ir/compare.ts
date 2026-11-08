@@ -25,7 +25,7 @@ const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, "
  * writes every integer exactly (spec/conventions.md §6
  * <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>). */
 function exact(_key: string, value: unknown, context?: { source?: string }): unknown {
-  return typeof value === "number" && !Number.isSafeInteger(value) && /^-?[0-9]+$/.test(context?.source ?? "")
+  return typeof value === "number" && !Number.isSafeInteger(value) && /^-?(0|[1-9][0-9]*)$/.test(context?.source ?? "")
     ? BigInt(context!.source!)
     : value;
 }
