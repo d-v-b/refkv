@@ -32,7 +32,7 @@ fn palette(refs: &mut Refs, p: &J, endian: &str) -> Result<(), String> {
     refs.out.json("palette/zarr.json", &array_json(&[3, entries], data_type, json!([1, entries]), json!([bytes_codec(cell, endian)]), &["c", "i"]));
     for (k, table) in arr(&p["tables"]).iter().enumerate() {
         let (start, length) = (n(table), entries * cell);
-        refs.chunk(format!("palette/c/{k}/0"), start, length, 0, Some(vec![Part::Src(start, length)]), 0)?;
+        refs.chunk(format!("palette/c/{k}/0"), start, length, 0, Some(vec![Part::Src(start, length)]))?;
     }
     Ok(())
 }
@@ -144,7 +144,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
                 a if a == fa => f,
                 _ => 0,
             });
-            refs.chunk(key("0/c/", coords), start, length, form, Some(parts), s)?;
+            refs.chunk(key("0/c/", coords), start, length, form, Some(parts))?;
         }
     }
     if let Some(p) = facts.get("palette").filter(|p| !p.is_null()) {

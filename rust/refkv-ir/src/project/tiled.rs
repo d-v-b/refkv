@@ -114,7 +114,7 @@ pub fn plane(refs: &mut Refs, prefix: &str, e: Option<u64>, per: u64, across: u6
     for (k, start, length, form) in members {
         let (s, j) = (k / per, k % per);
         let (row, col) = (j / across, j % across);
-        refs.chunk(key(prefix, coords(s, row, col)), start, length, form, parts(k, row, start, length), 0)?;
+        refs.chunk(key(prefix, coords(s, row, col)), start, length, form, parts(k, row, start, length))?;
     }
     Ok(())
 }

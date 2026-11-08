@@ -27,6 +27,9 @@
  *   and `localhost`. A browser's Private Network Access protections cover
  *   names that resolve to such addresses, and redirect hops in between.
  *   Under Node, `options.fetch` (from `#net`) checks the connected addresses.
+ * - A range read sends no cookies or HTTP authentication (`credentials: "omit"`) unless asked to
+ *   (`ReadOptions.sendCredentials`): the browser's default, `same-origin`, would read a source on
+ *   the page's own origin with the user's session, for whoever wrote the store.
  */
 
 import type { Source } from "./protobuf.ts";
@@ -144,6 +147,12 @@ export interface ReadOptions {
    * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 7).
    */
   unverifiablePins?: boolean;
+  /**
+   * Send the user's cookies and HTTP authentication to a URL on the page's own origin (`fetch`'s
+   * `credentials: "same-origin"`, the browser's default). Without it the request is anonymous
+   * (`"omit"`), so that a store cannot make the reader read what only the user may read.
+   */
+  sendCredentials?: boolean;
 }
 
 function single(headers: Headers, name: string): string | null {
@@ -191,7 +200,13 @@ export async function readHttpRange(
       // URL, so cached range requests to one file would be sent one after
       // another; bypassing it lets them run in parallel (6 at once over
       // HTTP/1.1, where the cache held S3 to about 17 requests a second).
-      : await fetch(url, { headers, signal, redirect: "follow", cache: "no-store" });
+      : await fetch(url, {
+        headers,
+        signal,
+        redirect: "follow",
+        cache: "no-store",
+        credentials: options.sendCredentials ? "same-origin" : "omit",
+      });
   } catch (e) {
     signal?.throwIfAborted();
     throw await noResponse(url, e);
@@ -352,7 +367,8 @@ export async function openHttpFile(
     size,
     read: async (offset, n) => {
       if (n === 0) return new Uint8Array();
-      const r = await readHttpRange(url, offset, offset + n, {}, signal);
+      // The application chose `url`, as it did for the requests above.
+      const r = await readHttpRange(url, offset, offset + n, {}, signal, { sendCredentials: true });
       etags.saw(r.etag ?? null);
       return r.data;
     },

@@ -29,13 +29,13 @@ fn directory(files: &BTreeMap<String, Vec<u8>>) -> Result<Out, String> {
     let keys = listing(files);
     let bytes: Vec<&Vec<u8>> = files.values().collect();
     let (ir, facts, stats) = run_store(StoreFormat::Zarr3, keys, &|k| bytes[k].clone())?;
-    store_output(StoreFormat::Zarr3, &ir, &facts, stats, "https://data.test/s/", true)
+    store_output(StoreFormat::Zarr3, &ir, &facts, stats, "https://data.test/s/", true, false).map_err(String::from)
 }
 
 /// The zip file's output, mirrored, and its IR.
 fn zip(data: &[u8]) -> Result<(Out, refkv_ir::ir::Ir), String> {
     let (ir, facts, stats) = run_bytes(Format::Zarr3, data)?;
-    Ok((output(Format::Zarr3, &ir, &facts, stats, "https://data.test/s.zip", true, &Default::default())?, ir))
+    Ok((output(Format::Zarr3, &ir, &facts, stats, "https://data.test/s.zip", true, &Default::default(), true)?, ir))
 }
 
 fn run(name: &str) -> Result<Out, String> {

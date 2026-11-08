@@ -32,6 +32,7 @@ pub mod routines;
 pub mod rules;
 pub mod run;
 pub mod sans;
+pub mod seal;
 pub mod schema;
 pub mod shard;
 pub mod store;

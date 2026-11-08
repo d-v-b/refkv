@@ -8,7 +8,7 @@ use pyo3::exceptions::{PyException, PyOSError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyList};
 use pyo3::{PyTraverseError, PyVisit};
-use refkv_phkv::{Class, Codec, EntryInfo, Error, Fetched, Kind, Limits, Options, Prop, ReadAt, ReadError, Request, Store, Writer};
+use refkv_phkv::{Class, Codec, EntryInfo, Error, Fetched, Found, Kind, Limits, Options, Prop, ReadAt, ReadError, Request, Store, Writer};
 use refkv_vzip::pb::{Range, Source};
 use std::io;
 use std::sync::{Arc, Mutex};
@@ -84,13 +84,14 @@ impl PyPhkvStore {
     /// §22.1 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#221-opening>): every
     /// failure is an archive error. `sources` and `open_bytes` are the reader policy's limits of
     /// spec/refkv.md §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>
-    /// rules 4 and 6.
+    /// rules 4 and 6; `request_bytes` raises the bytes one read or decode may take, never lowers it.
     #[new]
-    #[pyo3(signature = (size, read, sources=None, open_bytes=None))]
-    fn new(py: Python<'_>, size: Py<PyAny>, read: Py<PyAny>, sources: Option<usize>, open_bytes: Option<u64>) -> PyResult<Self> {
+    #[pyo3(signature = (size, read, sources=None, open_bytes=None, request_bytes=None))]
+    fn new(py: Python<'_>, size: Py<PyAny>, read: Py<PyAny>, sources: Option<usize>, open_bytes: Option<u64>, request_bytes: Option<u64>) -> PyResult<Self> {
         let mut limits = Limits::default();
         limits.sources = sources.unwrap_or(limits.sources);
         limits.open_bytes = open_bytes.unwrap_or(limits.open_bytes);
+        limits.request_bytes = limits.request_bytes.max(request_bytes.unwrap_or(0));
         let callbacks = Arc::new(Callbacks { size, read });
         let at = PyReadAt(callbacks.clone());
         let store = py.detach(|| Store::open_with(at, limits)).map_err(read_err)?;
@@ -173,6 +174,19 @@ impl PyPhkvStore {
         })
     }
 
+    /// The bytes value at `key`, or None for a missing key or a reference (`Store::key_found`): its
+    /// size, the bytes read to hold it whole if the store does, and the record its lookup read,
+    /// which `found_bytes` reads it from. A failed lookup raises.
+    fn key_found(&self, py: Python<'_>, key: &str) -> PyResult<Option<PyFound>> {
+        Ok(py.detach(|| self.store.key_found(key)).map_err(read_err)?.map(PyFound))
+    }
+
+    /// Bytes `[start, end)` of the value `key_found` found (`Store::found_bytes`).
+    fn found_bytes<'py>(&self, py: Python<'py>, found: &PyFound, start: u64, end: u64) -> PyResult<Bound<'py, PyBytes>> {
+        let b = py.detach(|| self.store.found_bytes(&found.0, start, end)).map_err(read_err)?;
+        Ok(PyBytes::new(py, &b))
+    }
+
     /// Bytes `[start, end)` of the bytes value at `key`, hidden or not (a `key` source).
     fn key_bytes<'py>(&self, py: Python<'py>, key: &str, start: u64, end: u64) -> PyResult<Bound<'py, PyBytes>> {
         let b = py.detach(|| self.store.key_bytes(key, start, end)).map_err(read_err)?;
@@ -221,6 +235,26 @@ impl io::Write for PyWrite {
 
 fn codec(c: u8) -> PyResult<Codec> {
     Codec::from_u8(c).ok_or_else(|| PyValueError::new_err(format!("no codec {c}")))
+}
+
+/// A bytes value a store looked up (`PhkvStore.key_found`).
+#[pyclass(name = "PhkvFound", module = "refkv._core", frozen)]
+pub struct PyFound(Found);
+
+#[pymethods]
+impl PyFound {
+    /// The value's size.
+    #[getter]
+    fn size(&self) -> u64 {
+        self.0.size
+    }
+
+    /// The bytes read to hold it whole, the larger of its size and its stored bytes, when the store
+    /// holds it whole to read a range of it; else None.
+    #[getter]
+    fn held(&self) -> Option<u64> {
+        self.0.held
+    }
 }
 
 #[pyclass(name = "PhkvWriter", module = "refkv._core")]
@@ -314,6 +348,7 @@ impl PyPhkvWriter {
 
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyPhkvStore>()?;
+    m.add_class::<PyFound>()?;
     m.add_class::<PyPhkvWriter>()?;
     m.add("PhkvReadError", m.py().get_type::<PhkvReadError>())?;
     Ok(())

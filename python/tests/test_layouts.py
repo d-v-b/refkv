@@ -569,14 +569,6 @@ def test_a_payload_past_the_limit_is_a_failure():
         zarrify(TIFF, layout=Layout(Plugin(lambda b: {**images(b), "x": big})))
 
 
-def test_a_reference_of_too_many_reads_is_a_failure(monkeypatch):
-    monkeypatch.setattr(layouts, "MERGE_GAP", 0)
-    monkeypatch.setattr(layouts, "MAX_READS", 2)
-    spread = Concat((Range(0, 0, 1), Range(0, 100, 1), Range(0, 200, 1)))
-    with pytest.raises(LayoutFailed, match="reads 3"):
-        zarrify(TIFF, layout=Layout(Plugin(lambda b: {**images(b), "x": spread})))
-
-
 def test_read_at_open_naming_no_bytes_entry_is_a_failure():
     with pytest.raises(LayoutFailed, match="not a bytes entry"):
         zarrify(TIFF, layout=Layout(Plugin(lambda b: Written(images(b), read_at_open=["nope"]))))

@@ -5,6 +5,8 @@
 recorded revision (§1.3 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#13-versioning>), in
 the reference reader and writer."""
 
+import asyncio
+import random
 import re
 import socket
 import sys
@@ -21,9 +23,10 @@ import refkv.policy
 import refkv.reader
 from refkv._sync import run
 from refkv.errors import ArchiveError, BodyError, RequestError, ResolutionError
-from refkv.pb import Range, Source, decode_table
+from refkv.pb import Concat, Range, Source, decode_table
 from refkv.policy import Policy, address_class, crc32c, matches_prefix
 from refkv.reader import RangeRequest, http_range
+from refkv.refstore import ReferenceStore
 from refkv.vzip.archive import SPEC_REVISION, VZipWriter
 from refkv.vzip.store import VZipStore
 
@@ -453,6 +456,219 @@ def test_refuses_too_many_reads(tmp_path, server):
     with pytest.raises(RequestError, match="3 reads"):
         _get(s, "r")
     assert state["requests"] == 0
+
+
+def test_refuses_too_many_bytes(tmp_path, server):
+    """Rule 5 counts the bytes a value takes: a literal's, and a url range's, whole when it carries
+    a checksum, before any read."""
+    base, state = server
+    arc = _archive(tmp_path / "a.vzip", [Source(url=f"{base}/blob.bin")], {
+        "r": [Range(data=b"abc"), Range(source=0, offset=0, length=4)]})
+    s = VZipStore(arc, policy=Policy(max_get_bytes=6, allow_private_hosts=True))
+    with pytest.raises(RequestError, match="more than 6 bytes"):
+        _get(s, "r")
+    assert state["requests"] == 0
+
+
+def test_counts_a_key_sources_inflated_value_whole_once(tmp_path):
+    """A key source whose entry the reader inflates whole counts that entry whole, once a get,
+    cached or not: two ranges of a 1000-byte DEFLATE entry read under a budget of 1000 bytes, and
+    not under one of 999, whether they cover 20 bytes of it or all of it, and before or after the
+    entry is read whole."""
+    path = tmp_path / "a.vzip"
+    with open(path, "wb") as f, VZipWriter(f) as w:
+        w.source(Source(key="k"))
+        w.add_bytes("k", bytes(range(250)) * 4, compress=True)
+        w.add_ranges("few", [Range(source=0, offset=0, length=10), Range(source=0, offset=10, length=10)])
+        w.add_ranges("all", [Range(source=0, offset=0, length=500), Range(source=0, offset=500, length=500)])
+    want = {"few": bytes(range(20)), "all": bytes(range(250)) * 4}
+    for warm in (False, True):
+        store = VZipStore(str(path), policy=Policy(max_get_bytes=1000))
+        tight = VZipStore(str(path), policy=Policy(max_get_bytes=999))
+        if warm:
+            assert _get(store, "k") == _get(tight, "k") == want["all"]
+        for key, value in want.items():
+            assert _get(store, key) == value
+            with pytest.raises(RequestError, match="more than 999 bytes"):
+                _get(tight, key)
+
+
+def test_a_key_source_that_cannot_be_looked_up_fails_the_get(tmp_path, monkeypatch):
+    """A key source whose entry the reader cannot look up fails the get as a resolution error: the
+    bytes it takes are unknown, so the reader neither counts only the range nor reads the entry."""
+    path = tmp_path / "a.vzip"
+    with open(path, "wb") as f, VZipWriter(f) as w:
+        w.source(Source(key="k"))
+        w.add_bytes("k", bytes(1 << 20), compress=True)
+        w.add_ranges("r", [Range(source=0, offset=0, length=10)])
+    store = VZipStore(str(path), policy=Policy(max_get_bytes=1000))
+    _get(store, "zarr.json")  # open it
+    lookup = store._lookup
+    failed = []
+
+    async def failing_once(key):
+        if key == "k" and not failed:
+            failed.append(key)
+            raise OSError("the page read failed")
+        await lookup(key)
+
+    monkeypatch.setattr(store, "_lookup", failing_once)
+    with pytest.raises(ResolutionError, match="the page read failed"):
+        _get(store, "r")
+    assert "k" not in store._key_cache
+    with pytest.raises(RequestError, match="more than 1000 bytes"):
+        _get(store, "r")
+
+
+def test_keeps_a_key_value_whose_waiters_were_cancelled(tmp_path, monkeypatch):
+    """A key value read whole for a get that is cancelled is kept: the next get does not read it
+    again."""
+    path = tmp_path / "a.vzip"
+    with open(path, "wb") as f, VZipWriter(f) as w:
+        w.source(Source(key="k"))
+        w.add_bytes("k", bytes(range(256)) * 16, compress=True)
+        w.add_ranges("r", [Range(source=0, offset=1, length=2)])
+    store = VZipStore(str(path))
+    body = store._body
+    calls = []
+
+    async def main():
+        gate, started = asyncio.Event(), asyncio.Event()
+
+        async def gated(e, start, end):
+            calls.append((start, end))
+            started.set()
+            await gate.wait()
+            return await body(e, start, end)
+
+        monkeypatch.setattr(store, "_body", gated)
+        task = asyncio.ensure_future(store.get_async("r"))
+        await started.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        gate.set()
+        for _ in range(5):
+            await asyncio.sleep(0)
+        return await store.get_async("r")
+
+    assert asyncio.run(main()) == bytes([1, 2])
+    assert calls == [(0, 4096)]
+
+
+def test_a_key_source_naming_a_format_entry_is_a_resolution_error(tmp_path):
+    """A key source naming the source table fails the get as a resolution error, however small the
+    reader's bytes per get."""
+    path = tmp_path / "a.vzip"
+    with open(path, "wb") as f:
+        w = _Writer(f)
+        w._skip_checks = True  # a writer refuses such a source
+        w.source(Source(key="__vz__/sources"))
+        w.add_ranges("r", [Range(source=0, offset=0, length=1)])
+        w.close()
+    with pytest.raises(ResolutionError, match="format entry"):
+        _get(VZipStore(str(path), policy=Policy(max_get_bytes=1)), "r")
+
+
+def test_a_get_past_its_reads_looks_no_key_up(tmp_path, monkeypatch):
+    """A get refused for its reads is refused before the reader looks any key source up."""
+    (tmp_path / "blob.bin").write_bytes(BLOB)
+    ranges = Concat((Range(source=0, offset=0, length=1), Range(source=0, offset=1 << 13, length=1),
+                     Range(source=1, offset=0, length=1)))
+    store = ReferenceStore({"k": b"abc", "r": ranges}, sources=[Source(url="blob.bin"), Source(key="k")],
+                           url=str(tmp_path) + "/", policy=Policy(max_reads=1, max_coalesce_gap=0))
+    looked_up = []
+
+    async def recorded(key):
+        looked_up.append(key)
+
+    monkeypatch.setattr(store, "_key_found", recorded)
+    with pytest.raises(RequestError, match="needs 2 reads"):
+        _get(store, "r")
+    assert looked_up == []
+
+
+def test_counts_a_repeated_range_of_a_held_value_each_time(tmp_path):
+    """Ranges cut from a key value the reader holds whole count each time they build the value: 8
+    copies of a 1000-byte DEFLATE entry build 8000 bytes from 1000 fetched."""
+    path = tmp_path / "a.vzip"
+    with open(path, "wb") as f, VZipWriter(f) as w:
+        w.source(Source(key="k"))
+        w.add_bytes("k", bytes(1000), compress=True)
+        w.add_ranges("r", [Range(source=0, offset=0, length=1000)] * 8)
+    assert _get(VZipStore(str(path), policy=Policy(max_get_bytes=8000)), "r") == bytes(8000)
+    with pytest.raises(RequestError, match="more than 7999 bytes"):
+        _get(VZipStore(str(path), policy=Policy(max_get_bytes=7999)), "r")
+
+
+def test_counts_the_stored_bytes_of_a_held_value_when_they_are_more(tmp_path):
+    """A key value held whole is fetched as its stored bytes when DEFLATE made them more than it."""
+    blob = bytes(random.Random(0).randbytes(4096))
+    path = tmp_path / "a.vzip"
+    with open(path, "wb") as f, VZipWriter(f) as w:
+        w.source(Source(key="k"))
+        w.add_bytes("k", blob, compress=True)
+        w.add_ranges("r", [Range(source=0, offset=0, length=10)])
+    store = VZipStore(str(path))
+    _get(store, "r")
+    csize = store._entries["k"].csize
+    assert csize > len(blob)
+    assert _get(VZipStore(str(path), policy=Policy(max_get_bytes=csize)), "r") == blob[:10]
+    with pytest.raises(RequestError):
+        _get(VZipStore(str(path), policy=Policy(max_get_bytes=csize - 1)), "r")
+
+
+def test_coalesces_within_what_the_held_key_values_leave(tmp_path):
+    """Coalescing closes gaps only within the bytes per get that the key values a get holds whole
+    leave: two url ranges 70 bytes apart and a 100-byte DEFLATE key read under a bound of 150 in two
+    requests, not refused for a coalesced read of 90 bytes."""
+    (tmp_path / "blob.bin").write_bytes(BLOB)
+    path = tmp_path / "a.vzip"
+    with open(path, "wb") as f, VZipWriter(f) as w:
+        w.source(Source(url="blob.bin"))
+        w.source(Source(key="k"))
+        w.add_bytes("k", bytes(100), compress=True)
+        w.add_ranges("r", [Range(source=0, offset=0, length=10), Range(source=0, offset=80, length=10),
+                           Range(source=1, offset=0, length=10)])
+    files = (f"{tmp_path.as_uri()}/",)
+    store = VZipStore(str(path), policy=Policy(prefixes=files, max_get_bytes=150))
+    assert _get(store, "r") == BLOB[:10] + BLOB[80:90] + bytes(10)
+    assert store.stats.external_requests == 2
+    with pytest.raises(RequestError, match="more than 119 bytes"):
+        _get(VZipStore(str(path), policy=Policy(prefixes=files, max_get_bytes=119)), "r")
+
+
+def test_inflates_a_key_sources_entry_once(tmp_path, monkeypatch):
+    """64 ranges of one DEFLATE entry, read at once, inflate it once."""
+    path = tmp_path / "a.vzip"
+    with open(path, "wb") as f, VZipWriter(f) as w:
+        w.source(Source(key="k"))
+        w.add_bytes("k", bytes(4096), compress=True)
+        w.add_ranges("r", [Range(source=0, offset=k, length=1) for k in range(64)])
+    store = VZipStore(str(path))
+    calls = []
+    body = store._body
+
+    async def counted(e, start, end):
+        calls.append((start, end))
+        return await body(e, start, end)
+
+    monkeypatch.setattr(store, "_body", counted)
+    assert _get(store, "r") == bytes(64)
+    assert calls == [(0, 4096)]
+
+
+@pytest.mark.parametrize("given", [{"max_get_bytes": -1}, {"max_get_bytes": 1.5}, {"max_get_bytes": None},
+                                   {"max_reads": "1024"}, {"max_sources": True}, {"max_format_entry": -1}])
+def test_refuses_a_limit_that_is_no_natural_number(given):
+    with pytest.raises(ValueError, match=next(iter(given))):
+        Policy(**given)
+
+
+@pytest.mark.parametrize("amplification", [-1, float("nan"), float("inf"), "4", None])
+def test_refuses_an_amplification_that_is_no_finite_number(amplification):
+    with pytest.raises(ValueError, match="max_read_amplification"):
+        Policy(max_read_amplification=amplification)
 
 
 def test_refuses_an_inflation_bomb(tmp_path):

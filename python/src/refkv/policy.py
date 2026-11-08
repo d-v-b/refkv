@@ -5,6 +5,8 @@ of spec §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>.
 from __future__ import annotations
 
 import ipaddress
+import math
+import numbers
 import os
 import re
 import sys
@@ -24,6 +26,9 @@ if sys.platform != "win32":
 # <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>'s table.
 MAX_SOURCES = 1 << 22
 MAX_READS = 1024
+MAX_GET_BYTES = 1 << 31
+MAX_READ_AMPLIFICATION = 4
+MAX_COALESCE_GAP = 1 << 16
 MAX_FORMAT_ENTRY = 256 << 20
 
 _ENCODED = re.compile(r"%(2[eEfF]|5[cC])")
@@ -208,7 +213,19 @@ class Policy:
       the address it reaches; it checks what the name resolves to locally,
       which DNS rebinding gets past. Without it, a request that would go
       through a proxy is refused.
-    - `max_sources`, `max_reads`, `max_format_entry`: rules 4 to 6.
+    - `max_sources`, `max_reads`, `max_get_bytes`, `max_format_entry`: rules 4 to 6 (rule 5
+      bounds the reads one `get` makes, and the bytes it takes: those it fetches, the bytes
+      between coalesced ranges included and, once a `get`, each `key` source's value the reader
+      holds whole to read a range of it, and those it builds its value from).
+    - `max_coalesce_gap`: the most bytes between two ranges of a source that a reader combines
+      into one read, which it then fetches but returns to no value (spec §6.3
+      <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#63-resolving-a-reference>,
+      **Coalescing**). Within one `get` the reader combines the closest ranges first, and only
+      while what the `get` fetches stays within `max_get_bytes`; 0 combines only ranges that
+      touch, and fetches no byte between them.
+    - `max_read_amplification`: how many times the bytes they ask for the reads of different
+      values combined into one request may fetch, plus `max_coalesce_gap`: more saves requests,
+      and fetches bytes no value returns.
 
     Rule 7 (unverifiable pins) has no option here: this reader always sees a
     response's headers, so every pin it is given can be checked.
@@ -224,9 +241,10 @@ class Policy:
         refs = refkv.ReferenceStore.from_virtualizarr(vds, registry=registry)
         refs.save_vzip("data.vzip", policy=refkv.Policy(schemes={"s3"}))
 
-    `ReferenceStore.save_vzip` checks the references it writes against a policy
-    too, `Policy()` by default, so an archive that the default reader cannot
-    read fails when it is written, not when it is read.
+    `ReferenceStore.save_vzip` checks the sources it writes against a policy's
+    URL rules too, `Policy()` by default, so an archive whose sources the default
+    reader refuses fails when it is written, not when it is read. The limits on one
+    `get` (rule 5) are each reader's: a writer does not hold a store to them.
     """
 
     schemes: frozenset[str] = frozenset()
@@ -236,11 +254,26 @@ class Policy:
     allow_unchecked_proxy: bool = False
     max_sources: int = MAX_SOURCES
     max_reads: int = MAX_READS
+    max_get_bytes: int = MAX_GET_BYTES
+    max_read_amplification: float = MAX_READ_AMPLIFICATION
+    max_coalesce_gap: int = MAX_COALESCE_GAP
     max_format_entry: int = MAX_FORMAT_ENTRY
     # each `file:` prefix's real path, or None for one that has no local path
     _real_prefixes: tuple[str | None, ...] = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
+        for name in ("max_sources", "max_reads", "max_get_bytes", "max_coalesce_gap", "max_format_entry"):
+            limit = getattr(self, name)
+            if isinstance(limit, bool) or not isinstance(limit, numbers.Integral) or not 0 <= int(limit) < 1 << 63:
+                raise ValueError(f"Policy.{name} is a natural number below 2^63, not {limit!r}")
+        amplification = self.max_read_amplification
+        try:
+            finite = (not isinstance(amplification, bool) and isinstance(amplification, numbers.Real)
+                      and math.isfinite(float(amplification)) and amplification >= 0)
+        except OverflowError:  # an int past a float's range
+            finite = False
+        if not finite:
+            raise ValueError(f"Policy.max_read_amplification is a finite number of at least 0, not {amplification!r}")
         object.__setattr__(self, "_real_prefixes", tuple(
             self._real_prefix(p) for p in self.prefixes or () if _scheme(p) == "file"))
 

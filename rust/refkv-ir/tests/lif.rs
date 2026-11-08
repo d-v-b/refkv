@@ -79,7 +79,7 @@ fn a_project_is_a_valid_store_ir() {
         refkv_ir::check::check(&ir).unwrap_or_else(|m| panic!("{named}: {m}"));
         assert_eq!(facts["images"].as_array().unwrap().len(), images, "{named}");
         assert_eq!(files.len(), objects, "{named}");
-        let out = refkv_ir::store::store_output(StoreFormat::Lif, &ir, &facts, serde_json::json!({}), "https://example.org/set/", true)
+        let out = refkv_ir::store::store_output(StoreFormat::Lif, &ir, &facts, serde_json::json!({}), "https://example.org/set/", true, false).map_err(String::from)
             .unwrap_or_else(|m| panic!("{named}: {m}"));
         assert_eq!(out.summary["series"], images, "{named}");
     }

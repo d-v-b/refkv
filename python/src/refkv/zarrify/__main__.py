@@ -6,7 +6,7 @@ from pathlib import Path
 
 from refkv.errors import ResolutionError
 from refkv.policy import Policy
-from refkv.zarrify import Rejected, zarrify
+from refkv.zarrify import Failed, Rejected, zarrify
 from refkv.zarrify.layouts import Layout, LayoutFailed, LayoutUsageError
 from refkv.zarrify.store import WORKERS
 
@@ -128,7 +128,7 @@ def main(argv: list[str]) -> int:
     except Rejected as e:
         print(f"rejected: {e}", file=sys.stderr)
         return 3
-    except ResolutionError as e:  # the reader policy refused the source
+    except (ResolutionError, Failed) as e:  # the reader policy refused the source; or no output fits
         print(f"error: {e}", file=sys.stderr)
         return 1
     try:  # the archive's sources are checked against the policy the input was read under

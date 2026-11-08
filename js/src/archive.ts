@@ -16,7 +16,7 @@ import {
   type Source,
 } from "./protobuf.ts";
 import { getScheme, resolveReference } from "./uri.ts";
-import { CONCAT_ID, RANGE_ID, SOURCES_KEY } from "./writer.ts";
+import { CONCAT_ID, INDEX_KEY, RANGE_ID, SOURCES_KEY } from "./writer.ts";
 
 /**
  * The six classes of error (spec §6.4 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#64-errors>),
@@ -104,9 +104,26 @@ export type RangeFetcher = (
  *   proxy that `NODE_USE_ENV_PROXY` and `HTTP_PROXY` / `HTTPS_PROXY` ask
  *   for while rule 3 applies; the reader then checks only what the name
  *   resolves to locally. Without it, such a request is refused.
- * - `maxSources`, `maxReads`, `maxFormatEntry`: rules 4 to 6.
+ * - `maxSources`, `maxReads`, `maxGetBytes`, `maxFormatEntry`: rules 4 to 6 (rule 5 bounds the
+ *   reads one read of a value makes, and the bytes it takes: those it fetches, the bytes between
+ *   coalesced ranges included and, once a read, each `key` source's value (which it reads whole),
+ *   and those it builds the value from).
+ * - `maxCoalesceGap`: the most bytes between two ranges of a source that the reader combines into
+ *   one read, which it then fetches but returns to no value (spec §6.3
+ *   <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#63-resolving-a-reference>,
+ *   **Coalescing**). Within one read of a value the closest ranges are combined first, and only
+ *   while what it fetches stays within `maxGetBytes`; 0 combines only ranges that touch.
+ * - `maxReadAmplification`: how many times the bytes they ask for the reads of different values
+ *   combined into one request may fetch, plus `maxCoalesceGap`: more saves requests, and fetches
+ *   bytes no value returns.
  * - `unverifiablePins`: skip pins whose headers a cross-origin response hides
  *   (rule 7). Range checksums are still checked.
+ * - `allowSourceCredentials`: UNSAFE. In a browser, reads `url` sources on the
+ *   page's own origin with the user's cookies and HTTP authentication
+ *   (`fetch`'s `credentials: "same-origin"`). Without it every source is read
+ *   as an anonymous client (`"omit"`): the store's author, not the user,
+ *   chose those URLs, and the bytes go to whoever reads the store. The
+ *   archive's own URL is the application's choice, and is read as it reads it.
  */
 export interface Policy {
   schemes?: string[];
@@ -115,8 +132,12 @@ export interface Policy {
   allowUncheckedProxy?: boolean;
   maxSources?: number;
   maxReads?: number;
+  maxGetBytes?: number;
+  maxReadAmplification?: number;
+  maxCoalesceGap?: number;
   maxFormatEntry?: number;
   unverifiablePins?: boolean;
+  allowSourceCredentials?: boolean;
 }
 
 export const DEFAULT_POLICY: Required<Omit<Policy, "prefixes">> & Pick<Policy, "prefixes"> = {
@@ -125,8 +146,12 @@ export const DEFAULT_POLICY: Required<Omit<Policy, "prefixes">> & Pick<Policy, "
   allowUncheckedProxy: false,
   maxSources: 1 << 22,
   maxReads: 1024,
+  maxGetBytes: 2 ** 31,
+  maxReadAmplification: 4,
+  maxCoalesceGap: 1 << 16,
   maxFormatEntry: 256 << 20,
   unverifiablePins: false,
+  allowSourceCredentials: false,
 };
 
 /**
@@ -272,6 +297,16 @@ export function validatePolicy(policy: Policy): void {
       "Policy.schemes may not name 'file': this reader reads only http(s) sources",
     );
   }
+  for (const name of ["maxSources", "maxReads", "maxGetBytes", "maxCoalesceGap", "maxFormatEntry"] as const) {
+    const v = policy[name];
+    if (name in policy && !(Number.isSafeInteger(v) && (v as number) >= 0)) {
+      throw new TypeError(`Policy.${name} is a natural number, not ${String(v)}`);
+    }
+  }
+  const a = policy.maxReadAmplification;
+  if ("maxReadAmplification" in policy && !(typeof a === "number" && Number.isFinite(a) && a >= 0)) {
+    throw new TypeError(`Policy.maxReadAmplification is a finite number of at least 0, not ${String(a)}`);
+  }
 }
 
 /**
@@ -317,8 +352,8 @@ export function checkAddress(policy: Policy, url: string, address: string): void
 }
 
 /**
- * Reads of the same url source at most this far apart are combined into one
- * request (spec §5.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#52-reading-over-http>
+ * The default of the policy's `maxCoalesceGap`: reads of the same url source at most this far
+ * apart are combined into one request (spec §5.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#52-reading-over-http>
  * allows it). A Concat of many short ranges, such as one
  * per image row, would otherwise cost one request per range.
  */
@@ -327,13 +362,9 @@ export const MERGE_GAP = 1 << 16;
 /**
  * The reads of different values that wait at the same time merge as well, under that gap. They
  * only gain speed, where one value's reads must also stay within `maxReads`, so a run has limits
- * of its own, the IR read planner's for a server of single ranges (rust/refkv-ir/src/plan.rs):
- * this many times the bytes it asks for, plus a gap...
- */
-export const MERGE_AMPLIFICATION = 4;
-/**
- * ...and the bytes waiting over this many connections, between these lengths, so that a batch
- * that reads much keeps connections busy.
+ * of its own: the policy's `maxReadAmplification` times the bytes it asks for, plus a gap, and
+ * the bytes waiting over this many connections, between these lengths, so that a batch that
+ * reads much keeps connections busy.
  */
 const MERGE_CONNECTIONS = 8;
 const MERGE_MIN_RUN = 1 << 20;
@@ -362,18 +393,73 @@ type Waiting = {
   reject: (reason: unknown) => void;
   /** When it began to wait, in milliseconds. */
   since: number;
+  /** The value it reads for, whose reads its own coalescing already combined (`coalescedRuns`). */
+  owner?: object;
 };
 
 /** A request in flight, and the reads it serves. */
 type Serving = { offset: bigint; end: bigint; reads: Waiting[] };
 
 /**
- * `reads` of one source, as the runs that one request each serves, in order of offset. A read
- * joins the run before it if it starts at most `MERGE_GAP` bytes after the run's end, and the run
- * then fetches at most `MERGE_AMPLIFICATION` times the bytes its reads ask for, plus `MERGE_GAP`,
- * and at most `longest` bytes. A read is never cut, so a longer one is a run of its own.
+ * The reads of one value, as the runs that one request each serves, in order of source and
+ * offset: reads that overlap or touch are one run, and of the gaps between runs of one source at
+ * most `gap` bytes, the narrowest are closed first, while the runs fetch at most `budget` bytes, so
+ * that the value makes as few requests as its budget allows (spec §6.3
+ * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#63-resolving-a-reference>,
+ * **Coalescing**).
  */
-export function mergedRuns<T extends { offset: bigint; end: bigint }>(reads: T[], longest: bigint): T[][] {
+export function coalescedRuns(
+  reads: { source: number; offset: bigint; end: bigint }[],
+  gap: number,
+  budget: number,
+): { source: number; offset: bigint; end: bigint }[] {
+  const sorted = [...reads].sort((x, y) =>
+    x.source - y.source || (x.offset < y.offset ? -1 : x.offset > y.offset ? 1 : 0));
+  const runs: { source: number; offset: bigint; end: bigint }[] = [];
+  for (const r of sorted) {
+    const last = runs[runs.length - 1];
+    if (last && last.source === r.source && r.offset <= last.end) {
+      if (r.end > last.end) last.end = r.end;
+    } else {
+      runs.push({ ...r });
+    }
+  }
+  let fetched = runs.reduce((n, run) => n + Number(run.end - run.offset), 0);
+  const gaps: [number, number][] = [];
+  for (let i = 0; i + 1 < runs.length; i++) {
+    const width = Number(runs[i + 1].offset - runs[i].end);
+    if (runs[i].source === runs[i + 1].source && width <= gap) gaps.push([width, i]);
+  }
+  gaps.sort((x, y) => x[0] - y[0] || x[1] - y[1]);
+  const closed = new Set<number>();
+  for (const [width, i] of gaps) {
+    if (fetched + width > budget) break;
+    fetched += width;
+    closed.add(i);
+  }
+  const out: { source: number; offset: bigint; end: bigint }[] = [];
+  runs.forEach((run, i) => {
+    if (closed.has(i - 1)) out[out.length - 1].end = run.end;
+    else out.push({ ...run });
+  });
+  return out;
+}
+
+/**
+ * `reads` of one source, as the runs that one request each serves, in order of offset. A read
+ * joins the run before it if it starts at most `gap` bytes after the run's end, and the run then
+ * fetches at most `amplification` times the bytes its reads ask for, plus `gap`, and at most
+ * `longest` bytes. A read never joins a run within `gap` of the end of a read of the same value
+ * (`owner`) in it, unless it touches or overlaps the run: those are reads its value's own coalescing
+ * could have combined and kept apart, within what it may fetch. A read is never cut, so a longer one
+ * is a run of its own.
+ */
+export function mergedRuns<T extends { offset: bigint; end: bigint; owner?: object }>(
+  reads: T[],
+  longest: bigint,
+  amplification: number = DEFAULT_POLICY.maxReadAmplification,
+  gap: number = DEFAULT_POLICY.maxCoalesceGap,
+): T[][] {
   const big = (v: bigint, w: bigint) => (v > w ? v : w);
   const sorted = [...reads].sort((x, y) =>
     x.offset < y.offset ? -1 : x.offset > y.offset ? 1 : x.end < y.end ? -1 : x.end > y.end ? 1 : 0);
@@ -381,24 +467,29 @@ export function mergedRuns<T extends { offset: bigint; end: bigint }>(reads: T[]
   let start = 0n;
   let end = 0n;
   let asked = 0n;
+  let owners = new Map<object, bigint>(); // where each value's last read in the run ends
   for (const read of sorted) {
     const fresh = big(read.end - big(read.offset, end), 0n);
     const span = big(end, read.end) - start;
+    const own = read.owner === undefined ? undefined : owners.get(read.owner);
     if (
       runs.length > 0 &&
-      read.offset - end <= BigInt(MERGE_GAP) &&
+      (own === undefined || read.offset <= end || read.offset - own > BigInt(gap)) &&
+      read.offset - end <= BigInt(gap) &&
       span <= longest &&
-      span <= BigInt(MERGE_AMPLIFICATION) * (asked + fresh) + BigInt(MERGE_GAP)
+      Number(span - BigInt(gap)) <= amplification * Number(asked + fresh)
     ) {
       runs[runs.length - 1].push(read);
       asked += fresh;
       end = big(end, read.end);
     } else {
       runs.push([read]);
+      owners = new Map();
       start = read.offset;
       end = read.end;
       asked = read.end - read.offset;
     }
+    if (read.owner !== undefined) owners.set(read.owner, big(owners.get(read.owner) ?? 0n, read.end));
   }
   return runs;
 }
@@ -651,6 +742,11 @@ export class Archive {
     return entry;
   }
 
+  /** Whether `key` names a format entry, which no `key` source may name: vzip's (spec/bindings/vzip.md). */
+  protected namesFormatEntry(key: string): boolean {
+    return key === SOURCES_KEY || key === INDEX_KEY;
+  }
+
   /** The entry of `key` as the container has it, hidden or not: a binding finds keys here. */
   protected entryFor(key: string): Entry | undefined {
     return this.entries.get(key);
@@ -712,7 +808,14 @@ export class Archive {
     return body;
   }
 
-  private async source(r: Extract<Range, { source: number }>): Promise<Uint8Array> {
+  /**
+   * The bytes of `r`. A `key` source's value is read whole, once a read: `keyValues` holds the
+   * values one read has read (spec §5 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>).
+   */
+  private async source(
+    r: Extract<Range, { source: number }>,
+    keyValues = new Map<string, Promise<Uint8Array>>(),
+  ): Promise<Uint8Array> {
     const s = this.sources[r.source];
     const start = r.offset;
     const end = r.offset + r.length;
@@ -724,11 +827,23 @@ export class Archive {
       return s.data.subarray(Number(start), Number(end));
     }
     if (s.key !== undefined) {
+      if (this.namesFormatEntry(s.key)) fail(`key ${JSON.stringify(s.key)} names a format entry`);
       const target = this.entryFor(s.key);
       if (target === undefined || target.reference !== undefined || target.error) {
         fail(`key ${JSON.stringify(s.key)} is not a bytes entry`);
       }
-      const value = await this.body(target!);
+      let pending = keyValues.get(s.key);
+      if (pending === undefined) {
+        pending = this.body(target!);
+        keyValues.set(s.key, pending);
+      }
+      let value: Uint8Array;
+      try {
+        value = await pending;
+      } catch (e) {
+        // spec §6.4 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#64-errors>: a range of a broken entry
+        return fail(`key ${JSON.stringify(s.key)}: ${(e as Error).message}`);
+      }
       if (end > BigInt(value.length)) fail("range past the end of the key's value");
       return value.subarray(Number(start), Number(end));
     }
@@ -750,6 +865,7 @@ export class Archive {
         {
           allow: (u) => checkPolicy(this.policy, this.baseUrl, u),
           unverifiablePins: this.policy.unverifiablePins,
+          sendCredentials: this.policy.allowSourceCredentials,
           ...(this.netFetch ? { fetch: this.netFetch } : {}),
         },
       );
@@ -774,7 +890,7 @@ export class Archive {
    * Bytes of a url source, read with the reads of other values waiting at the same time (spec §6.3
    * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#63-resolving-a-reference>).
    */
-  private sharedRead(source: number, offset: bigint, end: bigint): Promise<Uint8Array> {
+  private sharedRead(source: number, offset: bigint, end: bigint, owner?: object): Promise<Uint8Array> {
     return new Promise((resolve, reject) => {
       if (!this.flushPending) {
         this.flushPending = true;
@@ -784,7 +900,7 @@ export class Archive {
         }, MERGE_WINDOW);
       }
       const reads = this.waiting.get(source);
-      const read = { offset, end, resolve, reject, since: Date.now() };
+      const read = { offset, end, resolve, reject, since: Date.now(), owner };
       if (reads) reads.push(read);
       else this.waiting.set(source, [read]);
     });
@@ -811,10 +927,13 @@ export class Archive {
       const share = bytes / BigInt(MERGE_CONNECTIONS);
       const floor = BigInt(MERGE_MIN_RUN);
       const ceiling = BigInt(MERGE_MAX_RUN);
-      const longest = share < floor ? floor : share > ceiling ? ceiling : share;
-      const gap = BigInt(MERGE_GAP);
+      const clamped = share < floor ? floor : share > ceiling ? ceiling : share;
+      // a shared request fetches no more than one value's read may take (a longer read alone does)
+      const budget = BigInt(this.policy.maxGetBytes);
+      const longest = clamped < budget ? clamped : budget;
+      const gap = BigInt(this.policy.maxCoalesceGap);
       const held: Waiting[] = [];
-      for (const run of mergedRuns(reads, longest)) {
+      for (const run of mergedRuns(reads, longest, this.policy.maxReadAmplification, this.policy.maxCoalesceGap)) {
         const offset = run[0].offset;
         const end = run.reduce((e, r) => (r.end > e ? r.end : e), offset);
         const near = serving.some((s) => s.offset - end <= gap && offset - s.end <= gap);
@@ -892,10 +1011,16 @@ export class Archive {
     // a crc32c is read whole and checked (spec §6.3
     // <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#63-resolving-a-reference>); `cuts`
     // says which part of each part's bytes the request takes, and which checksum they must have.
-    const parts: (Promise<Uint8Array> | Read)[] = [];
+    // a read of a data or key source is made only once the value passes rule 5, as a url read is
+    const parts: (Promise<Uint8Array> | Read | { local: Read })[] = [];
     const cuts: { lo: number; hi: number; crc?: number }[] = [];
     let at = 0;
+    let taken = 0; // the bytes the value is built from, each range's each time: a range with a crc32c whole
+    // the bytes read to hold each key's value whole, which `source` does once a read to read a
+    // range of it: fetched once
+    const held = new Map<string, number>();
     for (const r of this.ranges(entry)) {
+      if (taken > this.policy.maxGetBytes) break; // rule 5, refused below: nothing is read
       const n = Number(rangeSize(r));
       const a = Math.max(start, at);
       const b = Math.min(end, at + n);
@@ -904,6 +1029,7 @@ export class Archive {
         if ("data" in r) {
           parts.push(Promise.resolve(r.data.subarray(a - at, b - at)));
           cuts.push({ lo: 0, hi: b - a });
+          taken += b - a;
         } else {
           let read: Read;
           if (r.crc32c === undefined) {
@@ -913,43 +1039,70 @@ export class Archive {
             read = { source: r.source, offset: r.offset, length: r.length };
             cuts.push({ lo: a - at, hi: b - at, crc: r.crc32c });
           }
-          parts.push(this.sources[r.source].url !== undefined ? read : this.source(read));
+          taken += Number(read.length);
+          const key = this.sources[r.source].key;
+          if (key !== undefined && !held.has(key)) {
+            let target: Entry | undefined;
+            try {
+              target = this.entryFor(key);
+            } catch (e) {
+              // spec §6.4 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#64-errors>: a range of a broken entry
+              throw new RefkvError("resolution", `key ${JSON.stringify(key)}: ${(e as Error).message}`);
+            }
+            const whole = target !== undefined && target.reference === undefined && !target.error &&
+              !this.namesFormatEntry(key);
+            held.set(key, whole ? Math.max(target!.size, target!.csize) : 0);
+          }
+          if (taken > this.policy.maxGetBytes) break;
+          parts.push(this.sources[r.source].url !== undefined ? read : { local: read });
         }
       }
       at += n;
     }
-    // Combine nearby reads of each url source into runs, fetch each run once,
-    // and slice the reads back out of it.
-    const reads = parts.filter((p): p is Read => !(p instanceof Promise));
-    const sorted = [...reads].sort((x, y) =>
-      x.source - y.source || (x.offset < y.offset ? -1 : x.offset > y.offset ? 1 : 0));
-    const runs: { source: number; offset: bigint; end: bigint; data?: Promise<Uint8Array> }[] = [];
+    // Combine nearby reads of each url source into runs within what the value may fetch besides
+    // the key values it holds whole, fetch each run once, and slice the reads back out of it.
+    const reads = parts.filter((p): p is Read => !(p instanceof Promise) && !("local" in p));
+    let heldBytes = 0;
+    for (const n of held.values()) heldBytes += n;
+    const runs: { source: number; offset: bigint; end: bigint; data?: Promise<Uint8Array> }[] = coalescedRuns(
+      reads.map((r) => ({ source: r.source, offset: r.offset, end: r.offset + r.length })),
+      this.policy.maxCoalesceGap,
+      Math.max(this.policy.maxGetBytes - heldBytes, 0),
+    );
+    // each read's run: runs and reads both in order of source and offset
     const runOf = new Map<Read, (typeof runs)[number]>();
-    for (const read of sorted) {
-      const last = runs[runs.length - 1];
-      const readEnd = read.offset + read.length;
-      if (last && last.source === read.source && read.offset - last.end <= BigInt(MERGE_GAP)) {
-        if (readEnd > last.end) last.end = readEnd;
-      } else {
-        runs.push({ source: read.source, offset: read.offset, end: readEnd });
-      }
-      runOf.set(read, runs[runs.length - 1]);
+    const ordered = [...reads].sort((x, y) =>
+      x.source - y.source || (x.offset < y.offset ? -1 : x.offset > y.offset ? 1 : 0));
+    let k = 0;
+    for (const read of ordered) {
+      while (runs[k].source !== read.source || runs[k].end < read.offset + read.length) k++;
+      runOf.set(read, runs[k]);
+    }
+    // spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 5,
+    // before any read: the bytes it is built from, and those it fetches, the bytes between
+    // coalesced ranges included
+    const fetched = runs.reduce((n, run) => n + Number(run.end - run.offset), heldBytes);
+    if (Math.max(taken, fetched) > this.policy.maxGetBytes) {
+      throw new RefkvError(
+        "request",
+        `the value needs more than ${this.policy.maxGetBytes} bytes; this reader allows ${this.policy.maxGetBytes} (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)`,
+      );
     }
     if (runs.length > this.policy.maxReads) {
-      // spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule
-      // 5: before any read. The other parts read no url source.
-      for (const p of parts) if (p instanceof Promise) p.catch(() => {});
       throw new RefkvError(
         "request",
         `the value needs ${runs.length} reads; this reader allows ${this.policy.maxReads} (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)`,
       );
     }
+    const owner = {}; // this value's reads, which the shared reads keep apart
+    const keyValues = new Map<string, Promise<Uint8Array>>(); // each key's value, read once
     for (const run of runs) {
-      run.data = this.sharedRead(run.source, run.offset, run.end);
+      run.data = this.sharedRead(run.source, run.offset, run.end, owner);
     }
     const whole = await Promise.all(
       parts.map(async (p) => {
         if (p instanceof Promise) return p;
+        if ("local" in p) return this.source(p.local, keyValues);
         const run = runOf.get(p)!;
         const from = Number(p.offset - run.offset);
         return (await run.data!).subarray(from, from + Number(p.length));
