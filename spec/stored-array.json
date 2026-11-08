@@ -92,7 +92,20 @@
       "description": "The source's fill value (https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#24-the-fill-value).",
       "oneOf": [
         {"enum": ["undefined", "format_default"]},
-        {"type": "object", "properties": {"given": {"$ref": "#/$defs/param"}}, "required": ["given"], "additionalProperties": false}
+        {
+          "type": "object",
+          "properties": {
+            "given": {
+              "description": "One decoded element's bytes: a base64 string (RFC 4648 section 4, with padding), or the place that holds them.",
+              "oneOf": [
+                {"type": "object", "properties": {"value": {"type": "string", "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"}}, "required": ["value"], "additionalProperties": false},
+                {"type": "object", "properties": {"source": {"$ref": "#/$defs/place"}}, "required": ["source"], "additionalProperties": false}
+              ]
+            }
+          },
+          "required": ["given"],
+          "additionalProperties": false
+        }
       ]
     },
     "unit_parameter": {

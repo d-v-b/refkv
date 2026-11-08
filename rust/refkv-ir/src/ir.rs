@@ -218,8 +218,9 @@ pub struct Budget {
     pub spent_elements: u64,
     pub spent_read: u64,
     pub spent_reads: u64,
-    /// stored arrays' descriptions, and chunk map rows, apart from the IR's room
-    /// (spec/stored-array.md §6 <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#6-in-the-ir>)
+    /// the entries of stored arrays' descriptions, and of the chunk map (rows, coordinates and
+    /// ranges), apart from the IR's room (`array::Stored::weights`; spec/stored-array.md §6
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#6-in-the-ir>)
     pub descriptions: u64,
     pub rows: u64,
     pub spent_descriptions: u64,
@@ -247,16 +248,17 @@ impl Budget {
         }
     }
 
-    /// `d` descriptions and `r` chunk map rows more, or the limit they pass.
+    /// `d` entries of descriptions and `r` of the chunk map more, or the limit they would pass
+    /// (and none spent).
     fn describe(&mut self, d: u64, r: u64) -> Res<()> {
-        self.spent_descriptions += d;
-        self.spent_rows += r;
-        if self.spent_descriptions > self.descriptions {
-            return Err(format!("budget: more than {} stored arrays", self.descriptions));
+        let (sd, sr) = (self.spent_descriptions.saturating_add(d), self.spent_rows.saturating_add(r));
+        if sd > self.descriptions {
+            return Err(format!("budget: more than {} entries of stored arrays", self.descriptions));
         }
-        if self.spent_rows > self.rows {
-            return Err(format!("budget: more than {} chunk map rows", self.rows));
+        if sr > self.rows {
+            return Err(format!("budget: more than {} chunk map entries", self.rows));
         }
+        (self.spent_descriptions, self.spent_rows) = (sd, sr);
         Ok(())
     }
 }
@@ -679,12 +681,20 @@ impl Ir {
         if !self.stored.is_empty() {
             return Err("internal: the IR's arrays described twice".into());
         }
-        if let Some(b) = self.budget.as_mut() {
-            b.describe(arrays.len() as u64, map.len() as u64)?;
-        }
         map.sort();
-        self.stored = Arc::new(crate::array::Stored { arrays, chains, map });
-        crate::array::check(self).inspect_err(|_| self.stored = Default::default())
+        let stored = crate::array::Stored { arrays, chains, map };
+        let (d, r) = stored.weights();
+        if let Some(b) = self.budget.as_mut() {
+            b.describe(d, r)?;
+        }
+        self.stored = Arc::new(stored);
+        crate::array::check(self).inspect_err(|_| {
+            self.stored = Default::default();
+            if let Some(b) = self.budget.as_mut() {
+                b.spent_descriptions -= d;
+                b.spent_rows -= r;
+            }
+        })
     }
 
     /// The bytes of held objects of a store IR (conventions §8.9
@@ -810,7 +820,8 @@ impl Ir {
         self.runs.extend(from.runs.iter().map(|&(r, c, s)| (at(r), c, s)));
         if !from.stored.is_empty() {
             if let Some(b) = self.budget.as_mut() {
-                b.describe(from.stored.arrays.len() as u64, from.stored.map.len() as u64)?;
+                let (d, r) = from.stored.weights();
+                b.describe(d, r)?;
             }
             let key = self.key(under);
             Arc::make_mut(&mut self.stored).graft(&from.stored, &at, &key)?;

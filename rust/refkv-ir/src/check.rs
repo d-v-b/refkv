@@ -509,12 +509,13 @@ pub fn finish(ir: &mut Ir) -> Res<()> {
         }
         break;
     }
-    ir.finished = true;
     ir.build_children();
     // the stored arrays (spec/stored-array.md §5
     // <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#5-checks>): a store's, after
     // its grafts and unfolds; a file IR's are built after its finish, and checked then
-    crate::array::check(ir)
+    crate::array::check(ir)?;
+    ir.finished = true;
+    Ok(())
 }
 
 /// The sweep of a finished IR: its leaves (blocks for complete tiles) in source order.

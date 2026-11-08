@@ -11,7 +11,7 @@
 
 use crate::ir::*;
 use serde_json::{Map, Value as J, json};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 
 /// The chunk map's schema version, in its Arrow schema's metadata under `refkv.chunk_map`.
 pub const CHUNK_MAP_VERSION: &str = "0";
@@ -30,8 +30,8 @@ pub struct StoredArray {
     pub declarations: Vec<Place>,
     /// the axes in storage order, the slowest-varying first
     pub shape: Vec<u64>,
-    /// the source's own order of the axes, where it differs from storage order: `axes[i]` is
-    /// storage axis i's position in the source's list
+    /// the source's own order of the axes, where it differs from storage order (never the
+    /// identity): `axes[i]` is storage axis i's position in the source's list
     pub axes: Option<Vec<u32>>,
     /// the bits of one element, decoded; None only for an array with no grid and no given fill
     pub item_bits: Option<u64>,
@@ -102,7 +102,7 @@ pub enum Param {
 /// Bytes of the source (spec/stored-array.md §2.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#22-places-and-parameters>): an
 /// IR element (with `member`, for an element in a run's subtree, the position j of the run's
-/// member it is in), or `range`, an (offset, length) within the bytes the element's recipe gives;
+/// member it is in), or `range`, an (offset, length) within the element's bytes (its extent);
 /// or, where no element holds them, a range of an object by its key (None: the parsed source
 /// itself), the offset counted from the object's start.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -252,6 +252,17 @@ pub struct Row {
     pub params: Vec<(String, Scalar)>,
 }
 
+/// The positions of the keys of a chunk map's `objects`, beside them (not compared: it follows
+/// from them).
+#[derive(Clone, Debug, Default)]
+pub struct ObjectIndex(HashMap<String, u32>);
+
+impl PartialEq for ObjectIndex {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
 /// The chunk map as columns: row k's coordinates are `coords[coords_end[k-1]..coords_end[k]]`,
 /// and its ranges, when `has_ranges[k]`, the range columns from `ranges_end[k-1]` to
 /// `ranges_end[k]`, each object an index into the dictionary `objects` (None: the parsed source).
@@ -268,6 +279,8 @@ pub struct ChunkMap {
     pub range_offset: Vec<u64>,
     pub range_length: Vec<u64>,
     pub objects: Vec<String>,
+    /// each key's position in `objects`
+    pub object_index: ObjectIndex,
     pub chain: Vec<Option<u32>>,
     pub skips: Vec<Option<u64>>,
     /// the parameter columns, by name
@@ -297,14 +310,18 @@ impl ChunkMap {
         self.has_ranges[k].then(|| Self::start(&self.ranges_end, k)..self.ranges_end[k] as usize)
     }
 
+    /// The position of `key` in `objects`, which it joins if it is not there.
     fn object(&mut self, key: &str) -> u32 {
-        match self.objects.iter().position(|o| o == key) {
-            Some(k) => k as u32,
-            None => {
-                self.objects.push(key.to_string());
-                (self.objects.len() - 1) as u32
-            }
+        if self.object_index.0.len() != self.objects.len() {
+            self.object_index.0 = self.objects.iter().enumerate().map(|(k, o)| (o.clone(), k as u32)).collect();
         }
+        if let Some(&k) = self.object_index.0.get(key) {
+            return k;
+        }
+        let k = self.objects.len() as u32;
+        self.objects.push(key.to_string());
+        self.object_index.0.insert(key.to_string(), k);
+        k
     }
 
     /// Adds a row (in any order: [`ChunkMap::sort`] orders them). A parameter column takes the
@@ -344,7 +361,7 @@ impl ChunkMap {
 
     /// The map with its rows in the order `order` gives (positions of rows of this one).
     fn take(&self, order: &[usize]) -> ChunkMap {
-        let mut out = ChunkMap { objects: self.objects.clone(), ..ChunkMap::default() };
+        let mut out = ChunkMap { objects: self.objects.clone(), object_index: self.object_index.clone(), ..ChunkMap::default() };
         for &k in order {
             out.array.push(self.array[k]);
             out.coords.extend_from_slice(self.coords_of(k));
@@ -384,9 +401,10 @@ impl ChunkMap {
         *self = self.take(&order);
     }
 
-    /// `from`'s rows after these, their arrays `base` on, their elements renumbered by `at` and
-    /// the parsed source's null key `key` (a graft).
-    fn append(&mut self, from: &ChunkMap, base: u32, at: &dyn Fn(u32) -> u32, key: &str) -> Res<()> {
+    /// `from`'s rows after these, their arrays `base` on, their elements renumbered by `at`, the
+    /// parsed source's null key `key`, and each row's chain the position `locals[array]` gives its
+    /// array's chain (a graft).
+    fn append(&mut self, from: &ChunkMap, base: u32, at: &dyn Fn(u32) -> u32, key: &str, locals: &[Vec<u32>]) -> Res<()> {
         let n = self.len();
         let objects: Vec<u32> = from.objects.iter().map(|o| self.object(o)).collect();
         let before = self.objects.len();
@@ -406,7 +424,9 @@ impl ChunkMap {
                 }
             }
             self.ranges_end.push(self.range_offset.len() as u64);
-            self.chain.push(from.chain[k]);
+            let chain = from.chain[k].unwrap_or(0);
+            let chain = locals.get(from.array[k] as usize).and_then(|l| l.get(chain as usize)).copied().unwrap_or(chain);
+            self.chain.push((chain != 0).then_some(chain));
             self.skips.push(from.skips[k]);
         }
         for (name, col) in &from.params {
@@ -428,7 +448,9 @@ impl ChunkMap {
         }
         // the parsed source's key, when no row named it
         if self.objects.len() > before && self.range_object.iter().all(|&o| o != Some(parsed)) {
-            self.objects.pop();
+            if let Some(o) = self.objects.pop() {
+                self.object_index.0.remove(&o);
+            }
         }
         Ok(())
     }
@@ -674,14 +696,66 @@ impl Stored {
             };
             chains.push(k);
         }
+        // an array's chains in this table, once each: two of its chains the renumbering makes one
+        // are one, and its rows and unit parameters name that one
         let base = self.arrays.len() as u32;
+        let mut locals = Vec::with_capacity(from.arrays.len());
         for a in &from.arrays {
             let mut a = a.clone();
             a.renumber(at, key);
-            a.chains = a.chains.iter().map(|&c| chains.get(c as usize).copied().unwrap_or(c)).collect();
+            let mut mine: Vec<u32> = Vec::with_capacity(a.chains.len());
+            let local: Vec<u32> = a
+                .chains
+                .iter()
+                .map(|&c| {
+                    let c = chains.get(c as usize).copied().unwrap_or(c);
+                    match mine.iter().position(|&m| m == c) {
+                        Some(k) => k as u32,
+                        None => {
+                            mine.push(c);
+                            (mine.len() - 1) as u32
+                        }
+                    }
+                })
+                .collect();
+            a.chains = mine;
+            for u in a.unit_parameters.iter_mut() {
+                u.chain = local.get(u.chain as usize).copied().unwrap_or(u.chain);
+            }
+            let mut seen = Vec::with_capacity(a.unit_parameters.len());
+            a.unit_parameters.retain(|u| {
+                let k = (u.chain, u.codec, u.name.clone());
+                !seen.contains(&k) && {
+                    seen.push(k);
+                    true
+                }
+            });
+            locals.push(local);
             self.arrays.push(a);
         }
-        self.map.append(&from.map, base, at, key)
+        self.map.append(&from.map, base, at, key, &locals)
+    }
+
+    /// What the budget counts of them (spec/stored-array.md §6
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#6-in-the-ir>): the
+    /// descriptions' entries (each description, its axes, its listed runs, its places, its chains
+    /// and unit parameters, and each chain and codec of the table), and the chunk map's (each row,
+    /// its coordinates and its ranges).
+    pub fn weights(&self) -> (u64, u64) {
+        let runs = |g: &Grid| -> usize {
+            g.axes.iter().map(|x| match x {
+                AxisUnits::Each(_) => 1,
+                AxisUnits::List(r) => r.len().max(1),
+            }).sum()
+        };
+        let d: usize = self
+            .arrays
+            .iter()
+            .map(|a| 1 + a.shape.len() + a.declarations.len() + a.chains.len() + a.unit_parameters.len() + a.grid.as_ref().map_or(0, runs))
+            .sum::<usize>()
+            + self.chains.iter().map(|c| 1 + c.len()).sum::<usize>();
+        let r = self.map.len() + self.map.coords.len() + self.map.range_offset.len();
+        (d as u64, r as u64)
     }
 
     /// The ids after run `r` (its subtree `[r, end)`, `count` members) was unfolded, its members
@@ -745,8 +819,8 @@ struct Ctx<'a> {
     codecs: &'a [CodecEntry],
     /// the run root each element belongs to (NONE: none)
     roots: Vec<u32>,
-    /// a store IR's object keys (None: a file IR, where any key is one)
-    keys: Option<HashSet<String>>,
+    /// a store IR's objects by key (None: a file IR, where any key is one)
+    keys: Option<HashMap<String, u32>>,
 }
 
 fn named(ir: &Ir, e: u32) -> String {
@@ -774,21 +848,50 @@ impl Ctx<'_> {
         }
     }
 
-    /// An object's key, None for the parsed source: in a store IR, one of its objects.
-    fn object(&self, key: Option<&str>) -> Res<()> {
-        match (&self.keys, key) {
-            (None, _) => Ok(()),
-            (Some(_), None) => Err("names the parsed source (a null key) in a store IR".into()),
-            (Some(keys), Some(k)) if !keys.contains(k) => Err(format!("names the object {k:?}, which the store has not")),
+    /// A range of an object by its key, None for the parsed source: in a store IR, one of its
+    /// objects; within the object where its size is known (the parsed source's in a file IR, any
+    /// object's in a store IR).
+    fn object(&self, key: Option<&str>, offset: u64, length: u64) -> Res<()> {
+        let end = offset.checked_add(length).ok_or_else(|| format!("names a range at {offset} of {length} bytes, past 2^64"))?;
+        let size = match (&self.keys, key) {
+            (None, None) => Some(self.ir.size),
+            (None, Some(_)) => None,
+            (Some(_), None) => return Err("names the parsed source (a null key) in a store IR".into()),
+            (Some(keys), Some(k)) => match keys.get(k) {
+                None => return Err(format!("names the object {k:?}, which the store has not")),
+                Some(&o) => Some(self.ir.len[o as usize]),
+            },
+        };
+        match size {
+            Some(n) if end > n => Err(format!("names [{offset}, {end}) of {}, past its {n} bytes", key.map_or("the parsed source".to_string(), |k| format!("{k:?}")))),
             _ => Ok(()),
         }
     }
 
+    /// A place: its element, and a range within the element's bytes (its extent's length), or a
+    /// range of an object.
     fn place(&self, p: &Place) -> Res<()> {
         match p {
-            Place::Element { element, member, .. } => self.element(*element, *member),
-            Place::Extent { object, .. } => self.object(object.as_deref()),
+            Place::Element { element, member, range } => {
+                self.element(*element, *member)?;
+                if let Some((o, n)) = range {
+                    let len = self.ir.len[*element as usize];
+                    if o.checked_add(*n).is_none_or(|end| end > len) {
+                        return Err(format!("names a range at {o} of {n} bytes of {}, past its {len} bytes", named(self.ir, *element)));
+                    }
+                }
+                Ok(())
+            }
+            Place::Extent { object, offset, length } => self.object(object.as_deref(), *offset, *length),
         }
+    }
+
+    /// Each parameter column the codecs' entries allow, by its name, with its type.
+    fn columns(&self) -> HashMap<String, ColumnType> {
+        self.codecs
+            .iter()
+            .flat_map(|c| c.parameters.iter().filter_map(move |p| Some((format!("p.{}.{}", c.name, p.name), p.column?))))
+            .collect()
     }
 
     fn entry(&self, name: &str) -> Option<&CodecEntry> {
@@ -863,6 +966,9 @@ impl StoredArray {
         if self.element as usize >= ctx.ir.len() {
             return Err(format!("names element {}, which the IR has not", self.element));
         }
+        if ctx.roots[self.element as usize] != NONE {
+            return Err(format!("is keyed by an element in the run {}, which an unfold would leave behind", named(ctx.ir, ctx.roots[self.element as usize])));
+        }
         for p in &self.declarations {
             ctx.place(p).map_err(|e| format!("a declaration {e}"))?;
         }
@@ -884,11 +990,17 @@ impl StoredArray {
         if let Some(&c) = self.chains.iter().find(|&&c| c as usize >= chains.len()) {
             return Err(format!("its chain {c} is past the chain table's {}", chains.len()));
         }
+        if let Some((k, &c)) = self.chains.iter().enumerate().find(|(k, c)| self.chains[..*k].contains(c)) {
+            return Err(format!("its chains name chain {c} twice (at {k})"));
+        }
         if let Some(axes) = &self.axes {
             let mut seen = vec![false; rank];
             let perm = axes.len() == rank && axes.iter().all(|&a| (a as usize) < rank && !std::mem::replace(&mut seen[a as usize], true));
             if !perm {
                 return Err(format!("its axes {axes:?} are not a permutation of its {rank}"));
+            }
+            if axes.iter().enumerate().all(|(k, &a)| a as usize == k) {
+                return Err(format!("its axes {axes:?} are storage order, which no axes say"));
             }
         }
         let given = matches!(self.fill, Fill::Given(_));
@@ -923,7 +1035,10 @@ impl StoredArray {
                 return Err(format!("its fill value is {got} bytes, not {want}"));
             }
         }
-        for u in &self.unit_parameters {
+        for (k, u) in self.unit_parameters.iter().enumerate() {
+            if self.unit_parameters[..k].contains(u) {
+                return Err(format!("its unit parameter {:?} of chain {} and codec {} is listed twice", u.name, u.chain, u.codec));
+            }
             let chain = self.chains.get(u.chain as usize).and_then(|&c| chains.get(c as usize));
             let Some(chain) = chain else {
                 return Err(format!("its unit parameter {:?} names its chain {}, which it has not", u.name, u.chain));
@@ -949,7 +1064,11 @@ impl StoredArray {
 /// The checks of the chain table: each codec one of the list, with only its entry's parameters,
 /// their places the IR's.
 fn check_chains(ctx: &Ctx, chains: &[Chain]) -> Res<()> {
+    let mut seen: HashMap<String, usize> = HashMap::with_capacity(chains.len());
     for (k, c) in chains.iter().enumerate() {
+        if let Some(j) = seen.insert(chain_json(c).to_string(), k) {
+            return Err(format!("internal: chains {j} and {k} of the chain table are one"));
+        }
         for codec in c {
             let Some(entry) = ctx.entry(&codec.name) else {
                 return Err(format!("internal: chain {k} has the codec {:?}, which the IR's list has not", codec.name));
@@ -990,9 +1109,9 @@ impl ChunkMap {
         if self.range_object.iter().any(|o| o.is_some_and(|o| o as usize >= self.objects.len())) {
             return Err("internal: the chunk map names an object past its dictionary".into());
         }
+        let columns = ctx.columns();
         for (name, col) in &self.params {
-            let t = name.strip_prefix("p.").and_then(|s| s.split_once('.')).and_then(|(c, p)| ctx.entry(c)?.parameters.iter().find(|e| e.name == p)?.column);
-            match t {
+            match columns.get(name).copied() {
                 None => return Err(format!("internal: the chunk map's column {name:?} is no codec's parameter column")),
                 Some(t) if t != col.kind() => return Err(format!("internal: the chunk map's column {name:?} is a {:?}, not {t:?}", col.kind())),
                 _ => {}
@@ -1033,9 +1152,15 @@ impl ChunkMap {
                     if self.member[k].is_some() {
                         return Err(row("it has a member and no element".into()));
                     }
+                    if rs.is_empty() {
+                        return Err(row("its ranges are empty".into()));
+                    }
                     for x in rs {
+                        if self.range_length[x] == 0 {
+                            return Err(row(format!("its range at {} is 0 bytes long", self.range_offset[x])));
+                        }
                         let key = self.range_object[x].map(|o| self.objects[o as usize].as_str());
-                        ctx.object(key).map_err(|e| row(format!("a range {e}")))?;
+                        ctx.object(key, self.range_offset[x], self.range_length[x]).map_err(|e| row(format!("a range {e}")))?;
                     }
                 }
             }
@@ -1088,7 +1213,7 @@ pub fn check_with(ir: &Ir, codecs: &[CodecEntry]) -> Res<()> {
     if s.is_empty() {
         return Ok(());
     }
-    let keys = ir.store.then(|| (0..ir.len() as u32).filter(|&i| ir.kind[i as usize] == OBJECT).map(|o| ir.key(o)).collect());
+    let keys = ir.store.then(|| (0..ir.len() as u32).filter(|&i| ir.kind[i as usize] == OBJECT).map(|o| (ir.key(o), o)).collect());
     let ctx = Ctx { ir, codecs, roots: ir.run_roots(), keys };
     for a in &s.arrays {
         a.check(&ctx, &s.chains).map_err(|e| format!("internal: the stored array of {}: {e}", named(ir, a.element)))?;
@@ -1226,6 +1351,7 @@ mod tests {
         },
         CodecEntry { name: "quantize", parameters: &[ParamEntry { name: "scale", column: Some(ColumnType::Float64) }, ParamEntry { name: "seed", column: Some(ColumnType::UInt64) }, ParamEntry { name: "method", column: None }] },
         CodecEntry { name: "squash", parameters: &[ParamEntry { name: "level", column: None }] },
+        CodecEntry { name: "refkv.zfp", parameters: &[ParamEntry { name: "rate", column: Some(ColumnType::Float64) }] },
     ];
 
     fn codec(name: &str, params: &[(&str, Param)]) -> Codec {
@@ -1455,7 +1581,18 @@ mod tests {
         let mut ir = file_ir();
         ir.budget.as_mut().unwrap().descriptions = 0;
         let a = StoredArray { index: None, ..valid().arrays[2].clone() };
-        assert_eq!(ir.describe(vec![a], vec![], ChunkMap::default()).unwrap_err(), "budget: more than 0 stored arrays");
+        assert_eq!(ir.describe(vec![a], vec![], ChunkMap::default()).unwrap_err(), "budget: more than 0 entries of stored arrays");
+        assert_eq!(ir.budget.as_ref().unwrap().spent_descriptions, 0);
+    }
+
+    #[test]
+    fn refuses_listed_runs_past_the_budget() {
+        let mut ir = file_ir();
+        ir.budget.as_mut().unwrap().descriptions = 1000;
+        // one description of 2000 listed runs: 1, 2, 1, 2, ...
+        let runs: Vec<Run> = (0..2000).map(|k| Run::One(1 + k % 2)).collect();
+        let a = StoredArray { element: 1, index: None, shape: vec![3000], grid: Some(Grid { axes: vec![AxisUnits::List(runs)], edge: Edge::Short }), chains: vec![0], fill: Fill::Undefined, ..valid().arrays[1].clone() };
+        assert_eq!(ir.describe(vec![a], vec![vec![]], ChunkMap::default()).unwrap_err(), "budget: more than 1000 entries of stored arrays");
     }
 
     #[test]
@@ -1463,7 +1600,139 @@ mod tests {
         let mut ir = file_ir();
         ir.budget.as_mut().unwrap().rows = 4;
         let s = valid();
-        assert_eq!(ir.describe(s.arrays, s.chains, s.map).unwrap_err(), "budget: more than 4 chunk map rows");
+        assert_eq!(ir.describe(s.arrays, s.chains, s.map).unwrap_err(), "budget: more than 4 chunk map entries");
+    }
+
+    #[test]
+    fn refuses_ranges_past_the_budget() {
+        let mut ir = file_ir();
+        ir.budget.as_mut().unwrap().rows = 1000;
+        // one row of 2000 ranges
+        let mut map = ChunkMap::default();
+        map.push(Row { array: 0, coords: vec![], ranges: Some(vec![(None, 0, 1); 2000]), ..Row::default() }).unwrap();
+        let a = StoredArray { element: 1, index: None, chains: vec![0], fill: Fill::Undefined, ..valid().arrays[1].clone() };
+        assert_eq!(ir.describe(vec![a], vec![vec![]], map).unwrap_err(), "budget: more than 1000 chunk map entries");
+    }
+
+    #[test]
+    fn a_refused_description_refunds_the_budget_and_check_finish_leaves_the_ir_unfinished() {
+        let mut ir = file_ir();
+        let s = valid();
+        // the IR's list has no `quantize`
+        ir.describe(s.arrays, s.chains, s.map).unwrap_err();
+        let b = ir.budget.as_ref().unwrap();
+        assert_eq!((b.spent_descriptions, b.spent_rows), (0, 0));
+        let mut store = Ir::new_store();
+        let o = store.listing(&[("f.bin".into(), 100)]).unwrap();
+        store.graft(&with(valid()), o[0]).unwrap();
+        crate::check::finish(&mut store).unwrap_err();
+        assert!(!store.finished);
+    }
+
+    #[test]
+    fn a_graft_makes_two_chains_it_renumbers_alike_one() {
+        let source = |object: Option<&str>| vec![codec("source", &[("parameters", Param::Source(Place::Extent { object: object.map(String::from), offset: 0, length: 4 }))])];
+        let a = StoredArray {
+            element: 1, index: None, declarations: vec![], shape: vec![2], axes: None, item_bits: Some(8), pad_from: None,
+            grid: Some(Grid { axes: vec![AxisUnits::Each(1)], edge: Edge::Short }), chains: vec![0, 1], fill: Fill::Undefined, unit_parameters: vec![],
+        };
+        let mut map = ChunkMap::default();
+        map.push(Row { array: 0, coords: vec![0], element: Some(1), ..Row::default() }).unwrap();
+        map.push(Row { array: 0, coords: vec![1], element: Some(4), chain: Some(1), ..Row::default() }).unwrap();
+        let file = with(Stored { arrays: vec![a], chains: vec![source(None), source(Some("f.bin"))], map });
+        check_with(&file, TEST_CODECS).unwrap();
+        let mut store = Ir::new_store();
+        let o = store.listing(&[("f.bin".into(), 100)]).unwrap();
+        store.graft(&file, o[0]).unwrap();
+        assert_eq!(store.stored.chains.len(), 1);
+        assert_eq!(store.stored.arrays[0].chains, [0]);
+        assert_eq!(store.stored.map.chain, [None, None]);
+        check_with(&store, TEST_CODECS).unwrap();
+    }
+
+    #[test]
+    fn a_dotted_codec_names_its_parameter_columns() {
+        let mut s = valid();
+        s.chains.push(vec![codec("refkv.zfp", &[])]);
+        s.arrays[1].chains = vec![3];
+        s.arrays[1].unit_parameters = vec![UnitParameter { chain: 0, codec: 0, name: "rate".into() }];
+        s.map.params.insert("p.refkv.zfp.rate".into(), Column::Float64(vec![None, None, None, None, Some(0.25)]));
+        check_with(&with(s), TEST_CODECS).unwrap();
+    }
+
+    #[test]
+    fn refuses_a_description_keyed_by_an_element_in_a_run() {
+        assert!(refusal(|s| s.arrays[2].element = 3).contains("is keyed by an element in the run"));
+    }
+
+    #[test]
+    fn refuses_an_element_range_past_its_element() {
+        assert!(refusal(|s| s.arrays[0].declarations = vec![Place::Element { element: 1, member: None, range: Some((4, 8)) }]).contains("past its 8 bytes"));
+    }
+
+    #[test]
+    fn refuses_an_element_range_past_2_to_the_64() {
+        assert!(refusal(|s| s.arrays[0].declarations = vec![Place::Element { element: 1, member: None, range: Some((u64::MAX, 2)) }]).contains("names a range at 18446744073709551615 of 2 bytes"));
+    }
+
+    #[test]
+    fn refuses_an_extent_past_the_parsed_source() {
+        assert!(refusal(|s| s.arrays[0].declarations = vec![Place::Extent { object: None, offset: 96, length: 8 }]).contains("names [96, 104) of the parsed source, past its 100 bytes"));
+    }
+
+    #[test]
+    fn refuses_an_extent_past_2_to_the_64() {
+        assert!(refusal(|s| s.arrays[0].declarations = vec![Place::Extent { object: Some("x".into()), offset: u64::MAX, length: 1 }]).contains("past 2^64"));
+    }
+
+    #[test]
+    fn refuses_an_extent_past_a_store_object() {
+        let mut store = Ir::new_store();
+        let o = store.listing(&[("f.bin".into(), 100)]).unwrap();
+        store.graft(&file_ir(), o[0]).unwrap();
+        let a = StoredArray { element: 1, index: None, declarations: vec![Place::Extent { object: Some("f.bin".into()), offset: 99, length: 2 }], ..valid().arrays[2].clone() };
+        store.stored = std::sync::Arc::new(Stored { arrays: vec![a], ..Stored::default() });
+        assert!(check_with(&store, TEST_CODECS).unwrap_err().contains("names [99, 101) of \"f.bin\", past its 100 bytes"));
+    }
+
+    #[test]
+    fn refuses_a_row_range_past_the_parsed_source() {
+        assert!(refusal(|s| s.map.range_offset[0] = 98).contains("a range names [98, 102) of the parsed source, past its 100 bytes"));
+    }
+
+    #[test]
+    fn refuses_empty_ranges() {
+        assert!(refusal(|s| {
+            s.map.range_object.clear();
+            s.map.range_offset.clear();
+            s.map.range_length.clear();
+            s.map.ranges_end = vec![0; 5];
+        }).contains("its ranges are empty"));
+    }
+
+    #[test]
+    fn refuses_a_range_0_bytes_long() {
+        assert!(refusal(|s| s.map.range_length[0] = 0).contains("its range at 40 is 0 bytes long"));
+    }
+
+    #[test]
+    fn refuses_a_chain_table_with_a_chain_twice() {
+        assert!(refusal(|s| s.chains.push(vec![])).contains("chains 1 and 3 of the chain table are one"));
+    }
+
+    #[test]
+    fn refuses_a_description_naming_a_chain_twice() {
+        assert!(refusal(|s| s.arrays[3].chains = vec![1, 1]).contains("its chains name chain 1 twice"));
+    }
+
+    #[test]
+    fn refuses_a_unit_parameter_listed_twice() {
+        assert!(refusal(|s| { let u = s.arrays[0].unit_parameters[0].clone(); s.arrays[0].unit_parameters.push(u); }).contains("is listed twice"));
+    }
+
+    #[test]
+    fn refuses_axes_in_storage_order() {
+        assert!(refusal(|s| s.arrays[0].axes = Some(vec![0, 1])).contains("are storage order, which no axes say"));
     }
 
     #[test]
