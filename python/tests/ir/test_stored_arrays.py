@@ -183,7 +183,7 @@ def document(**changes: object) -> dict:
     }
     plain = {
         "element": 4, "path": None, "index": None, "declarations": [{"object": "x.bin", "offset": 0, "length": 1}],
-        "shape": [], "axes": None, "item_bits": None, "pad_from": None, "grid": None, "chains": [],
+        "shape": None, "axes": None, "item_bits": None, "pad_from": None, "grid": None, "chains": [],
         "fill": "format_default", "unit_parameters": [],
     }
     source = {"source": {"element": 9, "member": None, "range": None}}
@@ -209,7 +209,7 @@ def test_reads_every_form_of_the_document():
                 unit_parameters=(UnitParameter(0, 0, "scale"),),
             ),
             StoredArray(
-                element=4, path=None, index=None, declarations=(ExtentPlace("x.bin", 0, 1),), shape=(), axes=None,
+                element=4, path=None, index=None, declarations=(ExtentPlace("x.bin", 0, 1),), shape=None, axes=None,
                 item_bits=None, pad_from=None, grid=None, chains=(), fill="format_default", unit_parameters=(),
             ),
         ),

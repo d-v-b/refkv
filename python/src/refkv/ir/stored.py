@@ -115,7 +115,8 @@ class StoredArray:
     path: str | None
     index: int | None
     declarations: tuple[Place, ...]
-    shape: tuple[int, ...]
+    shape: tuple[int, ...] | None
+    """None where the source declares no extent (an HDF5 null dataspace), unlike a scalar's ()"""
     axes: tuple[int, ...] | None
     item_bits: int | None
     pad_from: int | None
@@ -255,7 +256,7 @@ _ARRAY = frozenset({"element", "path", "index", "declarations", "shape", "axes",
 
 def _array(v: JSON, where: str) -> StoredArray:
     m = _members(mapping(v, where), _ARRAY, where)
-    path, axes = m["path"], m["axes"]
+    path, axes, shape = m["path"], m["axes"], m["shape"]
     declarations = sequence(m["declarations"], f"{where}.declarations")
     ups = sequence(m["unit_parameters"], f"{where}.unit_parameters")
     return StoredArray(
@@ -263,7 +264,7 @@ def _array(v: JSON, where: str) -> StoredArray:
         path=None if path is None else string(path, f"{where}.path"),
         index=_optional(m["index"], f"{where}.index"),
         declarations=tuple(_place(p, f"{where}.declarations[{k}]") for k, p in enumerate(declarations)),
-        shape=_counts(m["shape"], f"{where}.shape"),
+        shape=None if shape is None else _counts(shape, f"{where}.shape"),
         axes=None if axes is None else _counts(axes, f"{where}.axes"),
         item_bits=_optional(m["item_bits"], f"{where}.item_bits", 1),
         pad_from=_optional(m["pad_from"], f"{where}.pad_from"),

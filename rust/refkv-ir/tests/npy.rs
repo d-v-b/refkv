@@ -49,7 +49,7 @@ fn every_accepted_fixtures_arrays_are_described_as_its_facts_give_them() {
             let shape: Vec<u64> = a["shape"].as_array().unwrap().iter().map(n).collect();
             let reversed = a["fortran_order"].as_bool().unwrap() && shape.len() >= 2;
             let want: Vec<u64> = if reversed { shape.iter().rev().copied().collect() } else { shape.clone() };
-            assert_eq!(d.shape, want, "{at}");
+            assert_eq!(d.shape.as_ref(), Some(&want), "{at}");
             assert_eq!(d.axes, reversed.then(|| (0..shape.len() as u32).rev().collect()), "{at}");
             assert_eq!(d.item_bits, Some(n(&a["item"]) * 8), "{at}");
             assert_eq!(d.index, None, "{at}");
@@ -82,7 +82,7 @@ fn every_accepted_fixtures_arrays_are_described_as_its_facts_give_them() {
         for (d, m) in none.into_iter().zip(unpresented) {
             let shape: Vec<u64> = m["header"]["shape"].as_array().unwrap().iter().map(n).collect();
             let reversed = m["header"]["fortran_order"].as_bool().unwrap() && shape.len() >= 2;
-            assert_eq!(d.shape, if reversed { shape.iter().rev().copied().collect() } else { shape }, "{at}");
+            assert_eq!(d.shape, Some(if reversed { shape.iter().rev().copied().collect() } else { shape }), "{at}");
             assert!(d.chains.is_empty(), "{at}");
             ungridded += 1;
         }
@@ -118,7 +118,7 @@ fn an_array_whose_element_bits_pass_2_to_the_64_is_described_with_no_grid() {
         assert_eq!((arrays[0]["path"].as_str(), arrays[0]["item"].as_u64(), arrays[0]["length"].as_u64()), (Some("array"), Some(item), Some(0)), "{descr}");
         let s = &ir.stored;
         assert_eq!(s.arrays.len(), 1, "{descr}");
-        assert_eq!((s.arrays[0].shape.clone(), s.arrays[0].item_bits, s.arrays[0].grid.is_none(), s.arrays[0].chains.len()), (vec![0], None, true, 0), "{descr}");
+        assert_eq!((s.arrays[0].shape.clone(), s.arrays[0].item_bits, s.arrays[0].grid.is_none(), s.arrays[0].chains.len()), (Some(vec![0]), None, true, 0), "{descr}");
         assert!(s.chains.is_empty() && s.map.is_empty(), "{descr}");
     }
 }

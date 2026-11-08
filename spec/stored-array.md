@@ -42,7 +42,7 @@ A description has these members (the Rust type `StoredArray` of `rust/refkv-ir/s
 | `element` | the IR element that declares the array |
 | `index` | the array's index among those `element` declares, for a kind of element that may declare several; else absent |
 | `declarations` | the places where the source declares what the array's elements are, as the format's document lists them |
-| `shape` | the axes in storage order, the slowest-varying first |
+| `shape` | the axes in storage order, the slowest-varying first; absent where the source declares no extent (an HDF5 null dataspace), which holds no element, unlike a scalar's empty shape |
 | `axes` | the source's own order of the axes, where it differs from storage order: `axes[i]` is storage axis i's position in the source's list (a Fortran-order NumPy array of shape (3, 4) has `shape` [4, 3] and `axes` [1, 0]); else absent, never the identity |
 | `item_bits` | the bits of one element, decoded; absent only for an array with no grid and no given fill |
 | `pad_from` | for elements that are not whole bytes: the first axis from which the elements of a decoded unit pack unbroken, each run over this axis and those after it ending on a byte boundary; absent: the whole unit packs unbroken |
@@ -245,6 +245,7 @@ bug in its parser: an internal error naming the array's element.
   external file's key is checked when the file is grafted), and in a store IR is never none and
   names one of the store's objects; a place lies within what it names
   ([§2.2](#22-places-and-parameters)), its end below 2^64.
+- **No extent.** A description without a shape has no grid, no `axes` and no `pad_from`.
 - **The grid.** Its rank is the array's rank, and it is in canonical form
   ([§2.3](#23-the-grid)).
 - **Chains.** At least one when `grid` is set, none when it is not; each a position in the chain

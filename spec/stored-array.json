@@ -127,7 +127,7 @@
         "path": {"type": ["string", "null"]},
         "index": {"oneOf": [{"$ref": "#/$defs/count"}, {"type": "null"}]},
         "declarations": {"type": "array", "items": {"$ref": "#/$defs/place"}},
-        "shape": {"type": "array", "items": {"$ref": "#/$defs/count"}},
+        "shape": {"description": "The axes in storage order; null where the source declares no extent.", "oneOf": [{"type": "array", "items": {"$ref": "#/$defs/count"}}, {"type": "null"}]},
         "axes": {"oneOf": [{"type": "array", "items": {"$ref": "#/$defs/count"}}, {"type": "null"}]},
         "item_bits": {"oneOf": [{"$ref": "#/$defs/length"}, {"type": "null"}]},
         "pad_from": {"oneOf": [{"$ref": "#/$defs/count"}, {"type": "null"}]},

@@ -28,8 +28,9 @@ pub struct StoredArray {
     /// where the source declares what the array's elements are, as the format's document lists
     /// them
     pub declarations: Vec<Place>,
-    /// the axes in storage order, the slowest-varying first
-    pub shape: Vec<u64>,
+    /// the axes in storage order, the slowest-varying first; None where the source declares no
+    /// extent (an HDF5 null dataspace), which holds no element, unlike a scalar's `Some([])`
+    pub shape: Option<Vec<u64>>,
     /// the source's own order of the axes, where it differs from storage order (never the
     /// identity): `axes[i]` is storage axis i's position in the source's list
     pub axes: Option<Vec<u32>>,
@@ -860,7 +861,7 @@ impl Stored {
             .iter()
             .map(|a| {
                 let fill = usize::from(matches!(a.fill, Fill::Given(Param::Source(_))));
-                1 + a.shape.len() + a.grid.as_ref().map_or(0, listed) + a.declarations.len() + fill + a.chains.len() + a.unit_parameters.len()
+                1 + a.shape.as_ref().map_or(0, Vec::len) + a.grid.as_ref().map_or(0, listed) + a.declarations.len() + fill + a.chains.len() + a.unit_parameters.len()
             })
             .sum::<usize>()
             + self
@@ -894,7 +895,7 @@ impl Stored {
     }
 
     pub fn memory(&self) -> usize {
-        let d: usize = self.arrays.iter().map(|a| 96 + a.shape.len() * 8 + a.declarations.len() * 48 + a.chains.len() * 4 + a.unit_parameters.len() * 48).sum();
+        let d: usize = self.arrays.iter().map(|a| 96 + a.shape.as_ref().map_or(0, Vec::len) * 8 + a.declarations.len() * 48 + a.chains.len() * 4 + a.unit_parameters.len() * 48).sum();
         let c: usize = self.chains.iter().map(|c| 24 + c.len() * 96).sum();
         d + c + self.map.memory()
     }
@@ -1080,7 +1081,8 @@ impl StoredArray {
     /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#51-each-description>)
     /// against the chain table `chains`: the problem, if any.
     fn check(&self, ctx: &Ctx, chains: &[Chain]) -> Res<()> {
-        let rank = self.shape.len();
+        let shape: &[u64] = self.shape.as_deref().unwrap_or(&[]);
+        let rank = shape.len();
         if self.element as usize >= ctx.ir.len() {
             return Err(format!("names element {}, which the IR has not", self.element));
         }
@@ -1090,11 +1092,17 @@ impl StoredArray {
         for p in &self.declarations {
             ctx.place(p).map_err(|e| format!("a declaration {e}"))?;
         }
+        if self.shape.is_none() {
+            let what = [(self.grid.is_some(), "a grid"), (self.axes.is_some(), "axes"), (self.pad_from.is_some(), "pad_from")];
+            if let Some((_, w)) = what.iter().find(|w| w.0) {
+                return Err(format!("its source declares no extent, and it has {w}"));
+            }
+        }
         if let Some(g) = &self.grid {
             if g.axes.len() != rank {
                 return Err(format!("its grid has {} axes, its shape {rank}", g.axes.len()));
             }
-            for (k, (a, &len)) in g.axes.iter().zip(&self.shape).enumerate() {
+            for (k, (a, &len)) in g.axes.iter().zip(shape).enumerate() {
                 if let Some(p) = axis_problem(k, a, len, g.edge) {
                     return Err(format!("its grid is not in canonical form: {p}"));
                 }
@@ -1250,7 +1258,7 @@ impl ChunkMap {
         // each gridded array's units along each axis, counted once
         let grid_units: Vec<Vec<u64>> = arrays
             .iter()
-            .map(|d| d.grid.as_ref().map_or_else(Vec::new, |g| g.axes.iter().zip(&d.shape).map(|(a, &len)| units(a, len)).collect()))
+            .map(|d| d.grid.as_ref().map_or_else(Vec::new, |g| g.axes.iter().zip(d.shape.as_deref().unwrap_or(&[])).map(|(a, &len)| units(a, len)).collect()))
             .collect();
         for k in 0..n {
             let a = self.array[k];
@@ -1551,7 +1559,7 @@ mod tests {
             element: 1,
             index: None,
             declarations: vec![el(1)],
-            shape: vec![25, 12],
+            shape: Some(vec![25, 12]),
             axes: Some(vec![1, 0]),
             item_bits: Some(12),
             pad_from: Some(1),
@@ -1564,7 +1572,7 @@ mod tests {
             element: 4,
             index: Some(0),
             declarations: vec![Place::Extent { object: None, offset: 0, length: 8 }],
-            shape: vec![],
+            shape: Some(vec![]),
             axes: None,
             item_bits: Some(64),
             pad_from: None,
@@ -1577,7 +1585,7 @@ mod tests {
             element: 4,
             index: Some(1),
             declarations: vec![el(4)],
-            shape: vec![3],
+            shape: Some(vec![3]),
             axes: None,
             item_bits: None,
             pad_from: None,
@@ -1590,7 +1598,7 @@ mod tests {
             element: 2,
             index: None,
             declarations: vec![],
-            shape: vec![0, 7, 0],
+            shape: Some(vec![0, 7, 0]),
             axes: None,
             item_bits: Some(8),
             pad_from: None,
@@ -1717,7 +1725,7 @@ mod tests {
         let mut map = ChunkMap::default();
         map.push(Row { array: 1, coords: vec![], element: Some(4), ..Row::default() }).unwrap();
         map.push(Row { array: 0, coords: vec![0], element: Some(1), ..Row::default() }).unwrap();
-        let one = StoredArray { element: 1, index: None, shape: vec![8], grid: Some(Grid { axes: vec![AxisUnits::Each(8)], edge: Edge::Short }), chains: vec![0], ..valid().arrays[1].clone() };
+        let one = StoredArray { element: 1, index: None, shape: Some(vec![8]), grid: Some(Grid { axes: vec![AxisUnits::Each(8)], edge: Edge::Short }), chains: vec![0], ..valid().arrays[1].clone() };
         let scalar = StoredArray { index: None, chains: vec![0], ..valid().arrays[1].clone() };
         ir.describe(vec![one, scalar], vec![vec![]], map).unwrap();
         assert_eq!(ir.stored.map.element, [Some(1), Some(4)]);
@@ -1754,7 +1762,7 @@ mod tests {
         ir.budget.as_mut().unwrap().descriptions = 1000;
         // one description of 2000 listed runs: 1, 2, 1, 2, ...
         let runs: Vec<Run> = (0..2000).map(|k| Run::One(1 + k % 2)).collect();
-        let a = StoredArray { element: 1, index: None, shape: vec![3000], grid: Some(Grid { axes: vec![AxisUnits::List(runs)], edge: Edge::Short }), chains: vec![0], fill: Fill::Undefined, ..valid().arrays[1].clone() };
+        let a = StoredArray { element: 1, index: None, shape: Some(vec![3000]), grid: Some(Grid { axes: vec![AxisUnits::List(runs)], edge: Edge::Short }), chains: vec![0], fill: Fill::Undefined, ..valid().arrays[1].clone() };
         assert_eq!(ir.describe(vec![a], vec![vec![]], ChunkMap::default()).unwrap_err(), "budget: more than 1000 entries of stored arrays");
     }
 
@@ -1771,7 +1779,7 @@ mod tests {
             map.push(Row { array: 0, coords: vec![k / 10, k % 10], ranges: Some(vec![(None, k, 1)]), ..Row::default() }).unwrap();
         }
         let a = StoredArray {
-            element: 1, index: None, declarations: vec![], shape: vec![10, 10], axes: None, item_bits: Some(8), pad_from: None,
+            element: 1, index: None, declarations: vec![], shape: Some(vec![10, 10]), axes: None, item_bits: Some(8), pad_from: None,
             grid: Some(Grid { axes: vec![AxisUnits::Each(1), AxisUnits::Each(1)], edge: Edge::Short }), chains: vec![0],
             fill: Fill::Undefined, unit_parameters: vec![],
         };
@@ -1822,7 +1830,7 @@ mod tests {
     fn a_failed_graft_leaves_the_store_unchanged() {
         let chain = |object: Option<&str>| vec![codec("quantize", &[("method", Param::Source(Place::Extent { object: object.map(String::from), offset: 0, length: 4 }))])];
         let a = StoredArray {
-            element: 1, index: None, declarations: vec![], shape: vec![2], axes: None, item_bits: Some(8), pad_from: None,
+            element: 1, index: None, declarations: vec![], shape: Some(vec![2]), axes: None, item_bits: Some(8), pad_from: None,
             grid: Some(Grid { axes: vec![AxisUnits::Each(1)], edge: Edge::Short }), chains: vec![0, 1], fill: Fill::Undefined,
             unit_parameters: vec![UnitParameter { chain: 0, codec: 0, name: "scale".into() }],
         };
@@ -1897,7 +1905,7 @@ mod tests {
     fn a_graft_makes_two_chains_it_renumbers_alike_one() {
         let source = |object: Option<&str>| vec![codec("source", &[("parameters", Param::Source(Place::Extent { object: object.map(String::from), offset: 0, length: 4 }))])];
         let a = StoredArray {
-            element: 1, index: None, declarations: vec![], shape: vec![2], axes: None, item_bits: Some(8), pad_from: None,
+            element: 1, index: None, declarations: vec![], shape: Some(vec![2]), axes: None, item_bits: Some(8), pad_from: None,
             grid: Some(Grid { axes: vec![AxisUnits::Each(1)], edge: Edge::Short }), chains: vec![0, 1], fill: Fill::Undefined, unit_parameters: vec![],
         };
         let mut map = ChunkMap::default();
@@ -1918,7 +1926,7 @@ mod tests {
     fn refuses_a_graft_that_makes_chains_of_other_unit_parameters_one() {
         let chain = |object: Option<&str>| vec![codec("quantize", &[("method", Param::Source(Place::Extent { object: object.map(String::from), offset: 0, length: 4 }))])];
         let a = StoredArray {
-            element: 1, index: None, declarations: vec![], shape: vec![2], axes: None, item_bits: Some(8), pad_from: None,
+            element: 1, index: None, declarations: vec![], shape: Some(vec![2]), axes: None, item_bits: Some(8), pad_from: None,
             grid: Some(Grid { axes: vec![AxisUnits::Each(1)], edge: Edge::Short }), chains: vec![0, 1], fill: Fill::Undefined,
             unit_parameters: vec![UnitParameter { chain: 0, codec: 0, name: "scale".into() }],
         };
@@ -2061,9 +2069,35 @@ mod tests {
         assert!(refusal(|s| s.arrays[0].declarations = vec![Place::Element { element: 3, member: Some(3), range: None }]).contains("whose run has 3"));
     }
 
+    /// A source that declares no extent: its description has no shape (JSON null), no grid, no
+    /// axes and no pad_from, and is valid; it counts no axes.
+    #[test]
+    fn a_description_of_no_extent() {
+        let a = StoredArray { element: 1, index: None, shape: None, ..valid().arrays[2].clone() };
+        let s = Stored { arrays: vec![a], ..Stored::default() };
+        check_with(&with(s.clone()), TEST_CODECS).unwrap();
+        assert_eq!(s.arrays[0].to_json()["shape"], J::Null);
+        assert_eq!(s.weights().0, 2);
+    }
+
+    #[test]
+    fn refuses_a_grid_without_an_extent() {
+        assert!(refusal(|s| s.arrays[0].shape = None).contains("its source declares no extent, and it has a grid"));
+    }
+
+    #[test]
+    fn refuses_axes_without_an_extent() {
+        assert!(refusal(|s| { s.arrays[2].shape = None; s.arrays[2].axes = Some(vec![]); }).contains("its source declares no extent, and it has axes"));
+    }
+
+    #[test]
+    fn refuses_pad_from_without_an_extent() {
+        assert!(refusal(|s| { s.arrays[2].shape = None; s.arrays[2].pad_from = Some(0); }).contains("its source declares no extent, and it has pad_from"));
+    }
+
     #[test]
     fn refuses_a_grid_of_another_rank() {
-        assert!(refusal(|s| s.arrays[0].shape = vec![25, 12, 1]).contains("its grid has 2 axes, its shape 3"));
+        assert!(refusal(|s| s.arrays[0].shape = Some(vec![25, 12, 1])).contains("its grid has 2 axes, its shape 3"));
     }
 
     #[test]
@@ -2089,12 +2123,12 @@ mod tests {
     #[test]
     fn refuses_runs_of_one_length_side_by_side() {
         let a = AxisUnits::List(vec![Run::Repeat(10, 2), Run::One(10), Run::One(5)]);
-        assert!(refusal(|s| { s.arrays[0].shape[0] = 35; s.arrays[0].grid.as_mut().unwrap().axes[0] = a }).contains("two runs of units 10 long side by side"));
+        assert!(refusal(|s| { s.arrays[0].shape.as_mut().unwrap()[0] = 35; s.arrays[0].grid.as_mut().unwrap().axes[0] = a }).contains("two runs of units 10 long side by side"));
     }
 
     #[test]
     fn refuses_a_list_that_does_not_sum_to_the_axis() {
-        assert!(refusal(|s| s.arrays[0].shape[0] = 26).contains("do not sum to its 26"));
+        assert!(refusal(|s| s.arrays[0].shape.as_mut().unwrap()[0] = 26).contains("do not sum to its 26"));
     }
 
     #[test]

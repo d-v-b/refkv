@@ -300,7 +300,7 @@ fn described(reached: &[Reached]) -> Result<(Vec<StoredArray>, Vec<Chain>, Chunk
             index: None,
             declarations: vec![Place::Element { element: a.header, member: None, range: None }],
             axes: reversed.then(|| (0..r as u32).rev().collect()),
-            shape,
+            shape: Some(shape),
             item_bits,
             pad_from: None,
             chains: if presented { vec![0] } else { Vec::new() },
