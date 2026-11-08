@@ -377,8 +377,9 @@ impl Ir {
     }
 
     /// An object of `size` bytes under `parent` (the root or a directory) of a store IR: its
-    /// extent is `(0, size)` of its own source. The budgets grow with it: 4 rows, and one
-    /// per 4 of its bytes.
+    /// extent is `(0, size)` of its own source. The budgets grow with it: the records, elements
+    /// and stored-array descriptions by 4, and one per 4 of its bytes; the chunk map by 4, and
+    /// four entries per byte.
     pub fn object(&mut self, parent: u32, name: &str, nidx: u64, size: u64) -> Res<u32> {
         if !self.store {
             return Err("an object in a file IR".into());
