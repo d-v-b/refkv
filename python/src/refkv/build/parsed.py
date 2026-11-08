@@ -47,6 +47,10 @@ class Parsed:
                  registry: Resolver, checksums: bool, max_bytes: int, registry_given: Registry | None = None,
                  read_base: str | None = None) -> None:
         self._fmt = fmt
+        # the run's checksum function holds its transport, a local file's mapping among them, which
+        # would keep the file mapped as long as this lives (and on Windows, unable to shrink or go):
+        # `Parsed` reads its sources itself, and `seal` checksums them
+        out.checksum = None
         self._out = out
         self._location = location
         self.policy = policy

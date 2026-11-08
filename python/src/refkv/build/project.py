@@ -89,5 +89,6 @@ def _coords(key: str, doc: dict[str, Any]) -> tuple[int, ...] | None:
 
 def project(parsed: Parsed) -> Projected:
     """The built-in projection of `parsed`'s input: what `zarrify` writes for it, as values."""
-    base, store = base_of(parsed._out, parsed._fmt, parsed.policy, parsed.registry)  # noqa: SLF001
+    base, store = base_of(parsed._out, parsed._fmt, parsed.policy, parsed.registry,  # noqa: SLF001
+                          checksums=parsed.checksums)
     return Projected(parsed, base, frozenset(store.read_at_open))
