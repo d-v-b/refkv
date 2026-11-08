@@ -1,6 +1,6 @@
 # refkv: a reference value type for key-value stores
 
-Format version: 0 (**provisional**) · Specification revision: 11.6
+Format version: 0 (**provisional**) · Specification revision: 11.7
 
 ## 1. Introduction
 
@@ -972,23 +972,24 @@ the policy; this section says what it contains and what readers do with
 it. A URL the policy refuses is a resolution error for the ranges that need
 it; the other limits are resource limits ([§6.4](#64-errors)).
 
-1. **Schemes.** A store is **local** if its base URI
-   ([§5](#5-source-table)) has the scheme `file`, that is, if it was opened
-   from a local path, and **remote** otherwise. Schemes are compared without
-   regard to case. By default a reader allows:
-   - `http` and `https` URLs, for every store;
-   - `file` URLs, for a local store only.
+1. **Schemes.** Schemes are compared without regard to case. By default a
+   reader allows `http` and `https` URLs, for every store, and no other: `file`,
+   `s3`, `gs` and `data` are each refused unless the application allows that
+   scheme. That holds for a store opened from a local path too, whose location
+   says nothing of who wrote it. So by default no store can name
+   `file:///etc/passwd`, and no store can name an `s3:` bucket the reader has
+   credentials for. Allowing `file` lets a store read every file the reader can,
+   so an application reading a store it did not write SHOULD name its files with
+   prefixes (rule 2) instead. A `file:` URL with a host, a UNC path on Windows,
+   is refused for every store, whatever the scheme setting or a prefix list
+   allows, unless the application allows file hosts ([§5](#5-source-table)).
 
-   Every other scheme, such as `s3`, `gs` or `data`, is refused unless the
-   application allows that scheme. An application MAY also allow `file`
-   URLs for a remote store, but a reader MUST NOT let the setting that
-   allows other schemes do it: it is a separate setting, whose name says
-   that it is unsafe. So by default a remote store cannot name
-   `file:///etc/passwd`, and no store can name an `s3:` bucket the reader
-   has credentials for. A `file:` URL with a host, a UNC path on Windows,
-   is refused for every store, whatever the scheme setting or a prefix
-   list allows, unless the application allows file hosts
-   ([§5](#5-source-table)).
+   This binds a reader, not a writer. A store a zarrifier has just built, not
+   yet saved, MAY read the files that zarrifier found for the input its caller
+   named ([spec/zarrify.md §1.9](zarrify.md#19-sources-beside-the-input)), as
+   if the application had given the directory that holds them all as its one
+   prefix (rule 2), and a writer MUST NOT refuse a `file` source for want of
+   what its future readers allow, which it cannot know.
 2. **Prefixes.** An application MAY give a list of URL **prefixes**. When it
    does, the list replaces rule 1: a URL is allowed if and only if it
    matches one of the prefixes. A URL `u` matches a prefix `p` if `u` starts
@@ -1002,7 +1003,15 @@ it; the other limits are resource limits ([§6.4](#64-errors)).
    Prefixes should be written as resolution produces URLs
    ([§5](#5-source-table)), with a lowercase scheme and host; a URL that is
    spelled differently does not match, which fails closed. A prefix list
-   does not lift rule 3.
+   does not lift rule 3. A reader MUST also follow symbolic links, and on
+   Windows junctions, in the path of a file it will read and of a `file:`
+   prefix, and refuse a file whose resolved path is not under a resolved prefix.
+   It MUST resolve the path of the file it reads at each read, after opening
+   it where the system can give an open file's path, so that a link put in
+   place of a file after a check is not followed. It MUST resolve a prefix's
+   path once, when it is given the prefix, so that a link put in place of the
+   prefix later does not move it. A hard link cannot be told from the file it
+   names, so a hard link under a prefix to a file outside it is read.
 3. **Hosts.** An IP address belongs to the first of these classes that
    contains it:
 
@@ -1111,8 +1120,7 @@ Rust phkv reader, which bounds the bytes of one `get` at 2^32 and combines no re
 
 | | default |
 |---|---|
-| schemes (rule 1) | `http` and `https` for every store, `file` for a local one; no other scheme |
-| `file` for a remote store | refused |
+| schemes (rule 1) | `http` and `https` for every store; no other scheme, `file` included |
 | a `file:` URL's host (a UNC path on Windows, [§5](#5-source-table)) | refused |
 | prefixes | none (rule 1 applies) |
 | hosts (rule 3) | public addresses only, for every store; the Python reader applies the rule to a store it reads over HTTP itself, its location and redirects included |
@@ -1125,13 +1133,13 @@ Rust phkv reader, which bounds the bytes of one `get` at 2^32 and combines no re
 | the source table, or auxiliary data (in a vzip archive, a format entry, inflated) | 256 MiB |
 | unverifiable pins | fail |
 
-They name the unsafe settings `allow_files_from_remote_archives`,
-`allow_file_hosts`, `allow_private_hosts` and `allow_unchecked_proxy`
-(Python), and
-`allowFilesFromRemoteArchives`, `allowPrivateHosts` and
-`allowUncheckedProxy` (TypeScript). The reference command-line tool takes
+They name the unsafe settings `allow_file_hosts`, `allow_private_hosts` and
+`allow_unchecked_proxy` (Python), and `allowPrivateHosts` and
+`allowUncheckedProxy` (TypeScript, whose reader reads no `file` source, and refuses
+`file` in its schemes). The reference command-line tool takes
 `--allow-private-hosts`, which the conformance harness passes, since its
-archives' sources are served over HTTP on the loopback interface.
+archives' sources are served over HTTP on the loopback interface, and
+`--allow-scheme <scheme>`, which it passes for the archives' `file` sources.
 
 ## 7. Writing
 

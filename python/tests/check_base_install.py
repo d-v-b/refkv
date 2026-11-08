@@ -71,9 +71,10 @@ with tempfile.TemporaryDirectory() as d:
                            "codecs": [{"name": "bytes"}]}).encode()
     mapping = {"x/zarr.json": metadata, "x/c/0": Range(source=0, offset=4, length=4),
                "y": Concat((Range(data=b"<"), Range(source=0, offset=0, length=2)))}
-    store = refkv.ReferenceStore(mapping, [Source(url=file_uri("src.bin"))])
+    local_files = refkv.Policy(schemes=frozenset({"file"}))
+    store = refkv.ReferenceStore(mapping, [Source(url=file_uri("src.bin"))], policy=local_files)
     print(store.save_vzip("m.vzip"))
-    reopened = refkv.open("m.vzip")
+    reopened = refkv.open("m.vzip", policy=local_files)
     for s in (store, reopened):
         assert s.get("x/zarr.json") == metadata
         assert s.get("x/c/0") == bytes([4, 5, 6, 7])
@@ -134,7 +135,7 @@ with tempfile.TemporaryDirectory() as d:
         json.dump([{"op": "get", "key": "x/c/0", "range": {"suffix": 2}},
                    {"op": "classify", "key": "y"}, {"op": "get_raw", "key": "__vz__/sources"},
                    {"op": "list", "prefix": "x/"}], f)
-    out = cli.read("m.vzip", "q.json")
+    out = cli.read("m.vzip", "q.json", local_files)
     assert at(out, "open", "ok"), out
     assert [at(r, "ok") for r in sequence(out["results"])] == [True] * 4, out
     assert at(out, "results", 0, "value") == "0607"
@@ -148,7 +149,7 @@ with tempfile.TemporaryDirectory() as d:
     z = zarrify_store(str(FIXTURES / "zarr2" / "zarr2_hierarchy"), "https://example.test/z/")
     z.save_vzip("z.vzip")
     assert (n.info["format"], z.info["format"]) == ("nifti", "zarr2")
-    saved = refkv.open("n.vzip")
+    saved = refkv.open("n.vzip", policy=local_files)
     for key in ("zarr.json", "0/c/0/0"):  # in memory as saved
         assert n.get(key) is not None
         assert n.get(key) == saved.get(key)
@@ -163,7 +164,7 @@ with tempfile.TemporaryDirectory() as d:
     t = zarrify(str(FIXTURES / "tiff" / "jpeg_gray.tif"))
     t.save_vzip("t.vzip")
     assert t.info["format"] == "tiff"
-    assert refkv.open("t.vzip").get("zarr.json") == t.get("zarr.json")
+    assert refkv.open("t.vzip", policy=local_files).get("zarr.json") == t.get("zarr.json")
 
     if mode == "zarr":
         import zarr
@@ -191,7 +192,7 @@ with tempfile.TemporaryDirectory() as d:
 
         import refkv.zarr
 
-        for s in (refkv.zarr.store(store), refkv.zarr.open("m.vzip")):
+        for s in (refkv.zarr.store(store), refkv.zarr.open("m.vzip", policy=local_files)):
             assert list(ndarray(zarr.open_array(s, path="x", mode="r")[:])) == [4, 5, 6, 7]
         fits = refkv.zarr.store(zarrify(str(FIXTURES / "fits" / "fits_comp_gzip1.fits")))
         assert ndarray(zarr.open_array(fits, path="1", mode="r")[...]).size > 0

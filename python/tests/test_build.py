@@ -195,7 +195,7 @@ def test_a_stack_of_tiffs_built_from_the_ir(tmp_path, byteorder):
     for p in parsed:
         p.close()  # without checksums, sealing and saving read nothing more of an input
     store.save_vzip(tmp_path / "stack.vzip")
-    data = refkv.open(str(tmp_path / "stack.vzip")).get("stack.tif")
+    data = refkv.open(str(tmp_path / "stack.vzip"), policy=store.policy).get("stack.tif")
     expected = []
     for path in paths:
         with tifffile.TiffFile(path) as tf:

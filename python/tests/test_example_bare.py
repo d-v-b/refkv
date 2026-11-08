@@ -142,7 +142,7 @@ def test_bare_is_the_base_without_refkv_s_declarations(tmp_path, fixture, needs,
     archive = tmp_path / "out.vzip"
     store.save_vzip(str(archive))
     assert sorted(refkv.open(str(archive)).list()) == sorted(store.mapping)
-    saved = zarr.open_group(refkv.zarr.open(str(archive)), mode="r")
+    saved = zarr.open_group(refkv.zarr.open(str(archive), policy=store.policy), mode="r")
     for arrays in (_arrays(store), {p: a for p, a in saved.members(max_depth=None) if isinstance(a, zarr.Array)}):
         assert set(arrays) == {p for p in expected if not f"{p}/".startswith(tuple(left_out))}
         for p, a in arrays.items():

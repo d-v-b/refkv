@@ -1360,7 +1360,9 @@ def apply(out: Output | StoreIrOutput, fmt: str, policy: Policy | None, planned:
     if problems:
         raise LayoutFailed(_failure(name, problems))
     info = {**store.info, "layouts": [name]}
-    result, problems = store_of(base, prepared, policy=policy, info=info, checksum=out.checksum, registry=registry)
+    # the base store's policy, which reads the input's own files as well as `policy` allows
+    result, problems = store_of(base, prepared, policy=store.policy, info=info, checksum=out.checksum,
+                                registry=registry)
     if problems:
         raise LayoutFailed(_failure(name, problems))
     return result

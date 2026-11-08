@@ -38,8 +38,13 @@ def _mapping() -> dict[str, bytes | Range | Concat]:
     return mapping
 
 
-def _store(base: str = "file:///data") -> refkv.ReferenceStore:
-    return refkv.ReferenceStore(_mapping(), [Source(url=f"{base}/blob.bin"), Source(data=b"0123456789")])
+def _store(base: str = "file:///data", policy: refkv.Policy | None = None) -> refkv.ReferenceStore:
+    return refkv.ReferenceStore(_mapping(), [Source(url=f"{base}/blob.bin"), Source(data=b"0123456789")], policy=policy)
+
+
+def _files(directory) -> refkv.Policy:
+    """The policy that lets a store read the files of `directory`."""
+    return refkv.Policy(prefixes=(directory.as_uri() + "/",))
 
 
 def _everything(store) -> dict:
@@ -53,13 +58,14 @@ def test_reads_what_it_was_saved_from(tmp_path):
     source, a Concat with a literal)."""
     blob = tmp_path / "blob.bin"
     blob.write_bytes(DATA)
-    store = _store(tmp_path.as_uri())
+    store = _store(tmp_path.as_uri(), _files(tmp_path))
     summary = store.save_phkv(tmp_path / "s.phkv", policy=SERVED)
     store.save_vzip(tmp_path / "s.vzip", policy=SERVED)
-    phkv = refkv.open(tmp_path / "s.phkv", binding="phkv")
+    phkv = refkv.open(tmp_path / "s.phkv", binding="phkv", policy=_files(tmp_path))
     assert isinstance(phkv, PhkvStore)
     assert (summary.keys, summary.references, summary.sources) == (len(store.list()), N + 1, 2)
-    assert _everything(phkv) == _everything(store) == _everything(refkv.open(tmp_path / "s.vzip"))
+    vzip = refkv.open(tmp_path / "s.vzip", policy=_files(tmp_path))
+    assert _everything(phkv) == _everything(store) == _everything(vzip)
     assert phkv.sources == tuple(store.sources)
     assert phkv.get("c") == b"<" + DATA[4000:4096] + b"123"
     assert phkv.get("nothing") is None
@@ -72,9 +78,9 @@ def test_requests(tmp_path):
     reference as they do of the store the file was saved from; a request error is raised for a
     missing key too."""
     (tmp_path / "blob.bin").write_bytes(DATA)
-    store = _store(tmp_path.as_uri())
+    store = _store(tmp_path.as_uri(), _files(tmp_path))
     store.save_phkv(tmp_path / "s.phkv", policy=SERVED)
-    phkv = refkv.phkv.open(tmp_path / "s.phkv")
+    phkv = refkv.phkv.open(tmp_path / "s.phkv", policy=_files(tmp_path))
     for key in ["b/0007", "r/0003", "c", "big", "empty"]:
         for request in [RangeRequest(2, 9), RangeRequest(5, 5), RangeRequest(0, 10**9),
                         RangeRequest(10**9, 10**9 + 1), OffsetRequest(3), OffsetRequest(10**9),
@@ -306,7 +312,7 @@ def test_checksum_hook(tmp_path):
         w.add_ranges("a", [Range(source=w.url(url), offset=10, length=20)])
         w.add_ranges("b", [Range(source=0, offset=0, length=5, crc32c=crc32c(DATA[:5])), Range(data=b"!")])
     assert seen == [(url, 10, 20)]  # not the range that has a checksum, nor the literal
-    s = refkv.phkv.open(path, policy=SERVED)
+    s = refkv.phkv.open(path, policy=_files(tmp_path))
     assert s.get("a") == DATA[10:30]
     blob.write_bytes(bytes(len(DATA)))
     with pytest.raises(ResolutionError, match="crc32c"):
