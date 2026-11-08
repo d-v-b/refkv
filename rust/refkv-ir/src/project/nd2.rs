@@ -22,7 +22,7 @@ const MAX_ROOT_TOTAL: usize = 1 << 16;
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#51-decoded-chunks>).
 const TAGS: [&str; 2] = ["utf16", "float"];
 
-use crate::out::{digits_json, int_json, js_string_size, json_size};
+use crate::out::{int_json, int_text, js_string_size, json_size};
 
 // ---- values as JSON (spec/zarrify/nd2.md §5.1
 // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#51-decoded-chunks>)
@@ -83,22 +83,37 @@ fn exact_text(units: &[u8]) -> J {
     }
 }
 
+/// The range of an XML variant's integer runtype: `lx_int<N>`'s and `lx_uint<N>`'s, of N bits.
+fn int_range(runtype: &str) -> Option<(i128, i128)> {
+    let (signed, bits) = match runtype.strip_prefix("lx_uint") {
+        Some(b) => (false, b),
+        None => (true, runtype.strip_prefix("lx_int")?),
+    };
+    let bits: u32 = match bits {
+        "8" => 8,
+        "16" => 16,
+        "32" => 32,
+        "64" => 64,
+        _ => return None,
+    };
+    Some(if signed { (-(1i128 << (bits - 1)), (1i128 << (bits - 1)) - 1) } else { (0, (1i128 << bits) - 1) })
+}
+
 /// An XML variant value by its runtype (spec/zarrify/nd2.md §5.1
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#51-decoded-chunks>).
 fn scalar(runtype: Option<&str>, value: &str) -> J {
-    const INTS: [&str; 8] = ["lx_int8", "lx_int16", "lx_int32", "lx_int64", "lx_uint8", "lx_uint16", "lx_uint32", "lx_uint64"];
-    let unsigned = value.strip_prefix(['+', '-']).unwrap_or(value);
+    if let Some((lo, hi)) = runtype.and_then(int_range) {
+        // an integer of its runtype's width; any other value is text
+        let digits = value.strip_prefix(['+', '-']).unwrap_or(value);
+        let int = !digits.is_empty() && digits.bytes().all(|c| c.is_ascii_digit());
+        return int.then(|| int_text(value, lo, hi)).flatten().unwrap_or_else(|| json!(value));
+    }
     match runtype {
-        Some(rt) if INTS.contains(&rt) && !unsigned.is_empty() && unsigned.bytes().all(|c| c.is_ascii_digit()) => {
-            let digits = unsigned.trim_start_matches('0');
-            digits_json(value.starts_with('-'), if digits.is_empty() { "0" } else { digits }).unwrap_or_else(|| json!(value))
-        }
         Some("double" | "float") if is_decimal(value) => float_json(value.parse().unwrap_or(f64::NAN)),
         Some("bool") if value == "true" || value == "false" => json!(value == "true"),
         _ => json!(value),
     }
 }
-
 
 /// The IR's values decoded by their types (each type parsed once).
 struct Values<'a> {
@@ -449,4 +464,30 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     out.summary = json!({"sizes": sizes, "dataType": data_type, "compressed": a["compressed"], "paddedRows": wb != row,
                          "rowBlock": h, "positions": positions, "frames": frames, "missing": missing, "channels": labels});
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::out::to_text;
+
+    /// An XML variant's integer of its runtype's width, exact (spec/zarrify/nd2.md §5.1
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#51-decoded-chunks>).
+    #[test]
+    fn an_xml_integer_within_its_width_is_exact() {
+        for (rt, v, want) in [("lx_int8", "-128", "-128"), ("lx_uint8", "+0255", "255"), ("lx_int32", "-0", "0"),
+                              ("lx_int64", "-9223372036854775808", "-9223372036854775808"),
+                              ("lx_uint64", "18446744073709551615", "18446744073709551615")] {
+            assert_eq!(to_text(&scalar(Some(rt), v)), want, "{rt} {v}");
+        }
+    }
+
+    /// An XML variant's integer outside its runtype's width is no value of it: its text.
+    #[test]
+    fn an_xml_integer_past_its_width_is_its_text() {
+        for (rt, v) in [("lx_int8", "128"), ("lx_uint8", "-1"), ("lx_uint16", "65536"), ("lx_int64", "9223372036854775808"),
+                        ("lx_uint64", "18446744073709551616"), ("lx_int64", "-777777777777777777777777777777")] {
+            assert_eq!(scalar(Some(rt), v), json!(v), "{rt} {v}");
+        }
+    }
 }

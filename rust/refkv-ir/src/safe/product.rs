@@ -312,8 +312,8 @@ fn float_json(v: f64) -> J {
     json!(v)
 }
 
-/// A text as a value: a decimal number as a JSON number (an integer exact, of at most
-/// MAX_INT_DIGITS digits), else the string.
+/// A text as a value: a decimal number as a JSON number (an integer exact, from -2^63 to
+/// 2^64 - 1), else the string.
 pub fn typed(t: &str) -> J {
     if !is_strict_decimal(t) {
         return json!(t);
@@ -321,8 +321,8 @@ pub fn typed(t: &str) -> J {
     if t.contains(['.', 'e', 'E']) {
         return float_json(t.parse::<f64>().unwrap());
     }
-    let d = t.trim_start_matches(['+', '-']).trim_start_matches('0');
-    crate::out::digits_json(t.starts_with('-'), if d.is_empty() { "0" } else { d }).unwrap_or_else(|| json!(t))
+    // the manifests' integers are of 64 bits at most: one outside is text
+    crate::out::int_text(t, i64::MIN as i128, u64::MAX as i128).unwrap_or_else(|| json!(t))
 }
 
 /// The value of the one element of `els`, or None (absent).
@@ -470,13 +470,19 @@ mod tests {
 
     #[test]
     fn values() {
-        let long = "9".repeat(crate::out::MAX_INT_DIGITS + 1);
         for (t, want) in [("12", json!(12)), ("-0", json!(0)), ("+007", json!(7)), ("1.5", json!(1.5)), ("2E3", json!(2000.0)),
                           ("9007199254740992", json!(9007199254740992u64)), ("-12345678901234567", json!(-12345678901234567i64)),
-                          ("-00012345678901234567890", crate::out::int_json(-12345678901234567890)),
-                          (long.as_str(), json!(long)),
+                          ("18446744073709551615", json!(u64::MAX)), ("-9223372036854775808", json!(i64::MIN)),
                           ("1e999", json!("Infinity")), ("x", json!("x")), ("1.", json!("1.")), ("05.10", json!(5.1))] {
             assert_eq!(typed(t), want, "{t}");
+        }
+    }
+
+    /// An integer outside -2^63 to 2^64 - 1, wider than the manifests' integers, is its text.
+    #[test]
+    fn an_integer_past_64_bits_is_its_text() {
+        for t in ["18446744073709551616", "-9223372036854775809", "-00012345678901234567890"] {
+            assert_eq!(typed(t), json!(t), "{t}");
         }
     }
 

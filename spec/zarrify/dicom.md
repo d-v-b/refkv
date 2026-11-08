@@ -463,8 +463,9 @@ The translation:
     Set is not applied, and is in the dataset for a reader who decodes the
     bytes). An empty value is `null`. An `IS` value of the form
     `[+-]?[0-9]+` is that integer, exact (an
-    [`Integer`](../conventions.md#type-integer)), when it has at most 4300 digits
-    without its sign and leading zeros, and otherwise its text
+    [`Integer`](../conventions.md#type-integer)), when it is a valid `IS`: at most
+    12 characters (trimmed), and from −2^31 to 2^31 − 1 (PS3.5 Table 6.2-1); any
+    other is its text, as a value that is no number is
     ([conventions §6](../conventions.md#6-source-metadata-as-json)). A `DS` value that
     matches the pattern of [§2.2](#22-attributes) is a number when it is one exactly: its
     binary64 value `v` ([spec/zarrify.md §1.3](../zarrify.md#13-arithmetic))

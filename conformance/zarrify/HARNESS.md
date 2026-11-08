@@ -255,7 +255,9 @@ reads the reference's integers past 2^53 − 1, which it writes as the strings o
 ND2 integer as the tag `{"int": digits}`, which ND2 has no longer, and so a record named `int`
 alone as pairs), as the exact JSON integers the shipped code writes since
 [conventions §6](../../spec/conventions.md#6-source-metadata-as-json) made every integer one
-(`with_exact_integers`, `exact_integers.py`).
+and an integer read from text outside the range its format declares (a DICOM `IS` value's, an ND2
+XML variant's runtype's), which the reference writes as an integer, as the text the shipped code
+writes (`with_exact_integers`, `exact_integers.py`).
 So these are the only differences it does not report, outside `refkv_source`: the revision
 number, the names the reference keeps (below), those members, that `omero`, the padding's
 form, those integers, and the sources no compared entry uses, with the order of the url sources (above). A

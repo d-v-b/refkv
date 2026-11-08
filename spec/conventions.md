@@ -623,10 +623,11 @@ value holds, so a consumer that needs its exact value parses integers as
 big integers: in JavaScript, `JSON.parse` with a reviver that reads
 `context.source` into a `BigInt`, or a lossless JSON parser. Python's `json`
 module reads every integer exactly. A convention that reads an integer from
-decimal text reads one of more than 4300 digits (without its sign and leading
-zeros) as it reads text that is not a number, since Python's `json` refuses a
-longer integer literal by default; an integer of the source's binary fields
-has at most 39 digits.
+decimal text reads it within the range its format declares for the value (as
+DICOM declares an `IS` value's, and ND2 an XML variant's by its runtype): an
+integer outside that range is no value the format has, and the convention
+reads it as it reads text that is not a number. An integer of the source's
+binary fields is within its field's width.
 
 These rules apply to values the convention translates from the source's
 bytes. Members copied from a JSON document of the source (a store's

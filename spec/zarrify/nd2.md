@@ -534,7 +534,7 @@ A value is:
 
 | runtype | and the value | as JSON |
 |---|---|---|
-| `lx_int8` … `lx_int64` or `lx_uint8` … `lx_uint64` | matches `[+-]?[0-9]+` | an integer: its value, a JSON integer exact (as for LV, above), when it has at most 4300 digits without its sign and leading zeros; a longer one is the value as a string ([conventions §6](../conventions.md#6-source-metadata-as-json)) |
+| `lx_int8` … `lx_int64` or `lx_uint8` … `lx_uint64` | matches `[+-]?[0-9]+` | an integer: its value, a JSON integer exact (as for LV, above), when it is within its runtype's width (`lx_int<N>` from −2^(N−1) to 2^(N−1) − 1, `lx_uint<N>` from 0 to 2^N − 1); any other is the value as a string, which the runtype does not have ([conventions §6](../conventions.md#6-source-metadata-as-json)) |
 | `double` or `float` | is a decimal ([TIFF §3](tiff.md#3-ome-xml)) | a number: its binary64 value (rounding to nearest), or, when that is not finite or is −0, the tag `{"float": "Infinity"}`, `{"float": "-Infinity"}` or `{"float": "-0"}` |
 | `bool` | is `true` or `false` | `true` or `false`, that word |
 | otherwise | | the value as a string |

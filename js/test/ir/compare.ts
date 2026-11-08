@@ -31,12 +31,21 @@ function exact(_key: string, value: unknown, context?: { source?: string }): unk
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+const DECIMAL = /^[+-]?[0-9]+$/;
+
+/** The integer the reference's `ref` writes: a number, the string of its digits or ND2's tag. */
+function integerOf(ref: unknown): bigint | undefined {
+  if (typeof ref === "number" && Number.isInteger(ref)) return BigInt(ref);
+  const text = isObject(ref) && Object.keys(ref).join() === "int" ? ref.int : ref;
+  return typeof text === "string" && DECIMAL.test(text) ? BigInt(text) : undefined;
+}
 
 /**
  * The frozen reference's JSON value `ref`, each of its forms of an integer past 2^53 − 1 read as
  * the integer where `ours` has it (a bigint), and a record named `int` alone as the object `ours`
- * has: the string of its digits, ND2's tag `{"int": digits}`, and the pairs `[["int", v]]`
- * (conformance/zarrify/exact_integers.py). Anything else stays as the reference wrote it.
+ * has: the string of its digits, ND2's tag `{"int": digits}`, and the pairs `[["int", v]]`; and
+ * any of its forms of an integer that `ours` writes as decimal text, outside its format's range,
+ * as that text (conformance/zarrify/exact_integers.py). Anything else stays as the reference wrote it.
  */
 export function exactIntegers(ref: unknown, ours: unknown): unknown {
   if (typeof ours === "bigint") {
@@ -44,6 +53,8 @@ export function exactIntegers(ref: unknown, ours: unknown): unknown {
     if (isObject(ref) && Object.keys(ref).join() === "int" && ref.int === ours.toString()) return ours;
     return ref;
   }
+  // an integer the core writes as its text, outside its format's range
+  if (typeof ours === "string" && DECIMAL.test(ours) && ref !== ours && integerOf(ref) === BigInt(ours)) return ours;
   if (isObject(ours) && Object.keys(ours).join() === "int" && Array.isArray(ref) && ref.length === 1
     && Array.isArray(ref[0]) && ref[0].length === 2 && ref[0][0] === "int") {
     return { int: exactIntegers(ref[0][1], ours.int) };

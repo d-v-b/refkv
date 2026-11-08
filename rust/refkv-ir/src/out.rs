@@ -418,22 +418,16 @@ pub fn int_json(v: i128) -> J {
     J::Number(serde_json::Number::from_i128(v).expect("arbitrary_precision holds every i128"))
 }
 
-/// The most digits of an integer read from text that is a JSON integer (conventions §6
-/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>):
-/// Python's `json` refuses an integer literal of more by default.
-pub const MAX_INT_DIGITS: usize = 4300;
-
-/// An integer written in decimal as JSON, exact (conventions §6
-/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>):
-/// `digits` are ASCII digits, without leading zeros but for `0` itself, and `negative` its
-/// sign (not written for 0); None past [`MAX_INT_DIGITS`] digits.
-pub fn digits_json(negative: bool, digits: &str) -> Option<J> {
-    debug_assert!(!digits.is_empty() && digits.bytes().all(|c| c.is_ascii_digit()));
-    if digits.len() > MAX_INT_DIGITS {
-        return None;
-    }
-    let sign = if negative && digits != "0" { "-" } else { "" };
-    Some(J::Number(format!("{sign}{digits}").parse().expect("arbitrary_precision holds every integer")))
+/// The integer that the decimal text `t` (an optional `+` or `-`, then digits, leading zeros
+/// allowed) writes, as JSON, when it is from `lo` to `hi`, the range its format declares; None
+/// outside it: a value its format does not have, which a convention reads as text (conventions §6
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>).
+pub fn int_text(t: &str, lo: i128, hi: i128) -> Option<J> {
+    let digits = t.strip_prefix(['+', '-']).unwrap_or(t).trim_start_matches('0');
+    debug_assert!(digits.bytes().all(|c| c.is_ascii_digit()));
+    let v: i128 = if digits.is_empty() { 0 } else { digits.parse().ok()? }; // past every i128: None
+    let v = if t.starts_with('-') { -v } else { v };
+    (lo..=hi).contains(&v).then(|| int_json(v))
 }
 
 /// The `bytes` codec of elements of `item` bytes: with the byte order `endian` ("little" or
@@ -930,20 +924,20 @@ mod tests {
         ] {
             assert_eq!(to_text(&int_json(v)), want, "{v}");
         }
-        let long = "9".repeat(MAX_INT_DIGITS);
-        for (negative, digits, want) in
-            [(false, "0", "0"), (true, "0", "0"), (true, "7", "-7"), (false, long.as_str(), long.as_str())]
-        {
-            assert_eq!(digits_json(negative, digits).map(|j| to_text(&j)).as_deref(), Some(want), "{negative} {digits}");
-        }
         assert_eq!(to_text(&json!({"n": int_json(u64::MAX as i128 + 1)})), r#"{"n":18446744073709551616}"#);
+        let (lo, hi) = (i64::MIN as i128, u64::MAX as i128);
+        for (t, want) in [("0", "0"), ("-0", "0"), ("+007", "7"), ("-9223372036854775808", "-9223372036854775808"),
+                          ("0018446744073709551615", "18446744073709551615")] {
+            assert_eq!(int_text(t, lo, hi).map(|j| to_text(&j)).as_deref(), Some(want), "{t}");
+        }
     }
 
-    /// An integer read from text of more than MAX_INT_DIGITS digits has no JSON integer: Python's
-    /// `json` refuses one by default.
+    /// Decimal text outside the range its format declares is no integer of that format.
     #[test]
-    fn digits_past_the_limit_are_no_integer() {
-        assert_eq!(digits_json(true, &format!("1{}", "0".repeat(MAX_INT_DIGITS))), None);
+    fn decimal_text_outside_its_range_is_no_integer() {
+        for t in ["-9223372036854775809", "18446744073709551616", &"9".repeat(60)] {
+            assert_eq!(int_text(t, i64::MIN as i128, u64::MAX as i128), None, "{t}");
+        }
     }
 
     /// Three 1-byte elements, at most 2 a chunk: the edge chunk is its byte and one byte

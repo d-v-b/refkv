@@ -9,7 +9,7 @@ use super::elements::*;
 use crate::fed::{Word, uint};
 use crate::mirror::base64;
 use crate::text::{is_decimal, latin1};
-use crate::out::{digits_json, int_json, json_size, js_string_size, MAX_CHUNK, SOURCE_NODE};
+use crate::out::{int_json, int_text, json_size, js_string_size, MAX_CHUNK, SOURCE_NODE};
 use serde_json::{json, Map, Value as J};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::OnceLock;
@@ -224,11 +224,13 @@ pub fn ds_number(t: &str) -> Option<f64> {
     Some(v)
 }
 
-/// An IS value of the form [+-]?[0-9]+: its integer, exactly; None past MAX_INT_DIGITS digits
-/// without its sign and leading zeros.
+/// An IS value of the form [+-]?[0-9]+, trimmed: its integer, exactly, when it is a valid IS, of
+/// at most 12 characters and from -2^31 to 2^31 - 1 (PS3.5 Table 6.2-1); else None.
 fn is_number(t: &str) -> Option<J> {
-    let digits = t.trim_start_matches(['+', '-']).trim_start_matches('0');
-    digits_json(t.starts_with('-'), if digits.is_empty() { "0" } else { digits })
+    if t.len() > 12 {
+        return None;
+    }
+    int_text(t, i32::MIN as i128, i32::MAX as i128)
 }
 
 /// One string value: trimmed, decoded, then typed (PS3.18 §F.2.3).
@@ -875,7 +877,6 @@ fn move_large(meta: &mut Obj, dataset: &mut Obj) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::out::{to_text, MAX_INT_DIGITS};
 
     #[test]
     fn ds_numbers_are_exact() {
@@ -891,16 +892,23 @@ mod tests {
     fn text_values_are_trimmed_and_typed() {
         assert_eq!(text_value("DS", b" 2.50 "), json!(2.5));
         assert_eq!(text_value("IS", b"+0012"), json!(12));
-        assert_eq!(to_text(&text_value("IS", b"-12345678901234567")), "-12345678901234567");
-        assert_eq!(to_text(&text_value("IS", b"-000")), "0");
-        // past MAX_INT_DIGITS digits, but for its sign and leading zeros: the text
-        let (at, past) = (format!("-000{}", "9".repeat(MAX_INT_DIGITS)), format!("-{}", "9".repeat(MAX_INT_DIGITS + 1)));
-        assert_eq!(to_text(&text_value("IS", at.as_bytes())), at.replace("-000", "-"));
-        assert_eq!(text_value("IS", past.as_bytes()), json!(past));
+        assert_eq!(text_value("IS", b"-000"), json!(0));
+        // the IS limits: 12 characters, and -2^31 to 2^31 - 1
+        assert_eq!(text_value("IS", b" -2147483648"), json!(i32::MIN));
+        assert_eq!(text_value("IS", b"+02147483647 "), json!(i32::MAX));
         assert_eq!(text_value("LT", b" a \0"), json!(" a"));
         assert_eq!(text_value("PN", b"A^B==C"), json!({"Alphabetic": "A^B", "Phonetic": "C"}));
         assert_eq!(text_value("CS", b"  "), J::Null);
         assert_eq!(text_value("LO", b"\xe9"), json!({"latin1": "\u{e9}"}));
+    }
+
+    /// An IS value of more than 12 characters, or outside -2^31 to 2^31 - 1, is no valid IS: its
+    /// text (PS3.5 Table 6.2-1).
+    #[test]
+    fn an_is_value_past_its_limits_is_its_text() {
+        for t in ["2147483648", "-2147483649", "-12345678901234567", "0000000000012"] {
+            assert_eq!(text_value("IS", t.as_bytes()), json!(t), "{t}");
+        }
     }
 
     #[test]
