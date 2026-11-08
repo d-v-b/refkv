@@ -42,7 +42,7 @@ A description has these members (the Rust type `StoredArray` of `rust/refkv-ir/s
 | `element` | the IR element that declares the array |
 | `index` | the array's index among those `element` declares, for a kind of element that may declare several; else absent |
 | `declarations` | the places where the source declares what the array's elements are, as the format's document lists them |
-| `shape` | the axes in storage order, the slowest-varying first; absent where the source declares no extent (an HDF5 null dataspace), which holds no element, unlike a scalar's empty shape |
+| `shape` | the axes in storage order, the slowest-varying first; absent where the source declares no extent (an HDF5 null dataspace), which holds no element, unlike a scalar's empty shape (the JSON form writes `"shape": null`, the member present) |
 | `axes` | the source's own order of the axes, where it differs from storage order: `axes[i]` is storage axis i's position in the source's list (a Fortran-order NumPy array of shape (3, 4) has `shape` [4, 3] and `axes` [1, 0]); else absent, never the identity |
 | `item_bits` | the bits of one element, decoded; absent only for an array with no grid and no given fill |
 | `pad_from` | for elements that are not whole bytes: the first axis from which the elements of a decoded unit pack unbroken, each run over this axis and those after it ending on a byte boundary; absent: the whole unit packs unbroken |
@@ -213,7 +213,7 @@ interface (`__arrow_c_array__` and `__arrow_c_stream__`), of this schema:
 | `element` | `UInt32` | yes | the IR element holding the unit's bytes: its recipe gives them, or, with `range`, the range of its extent (taken before any recipe) |
 | `member` | `UInt64` | yes | where `element` is in a run's subtree, the position j of the run's member it is in |
 | `range` | `Struct<offset: UInt64, length: UInt64>` | yes | where the unit is part of `element`: its offset and length within the element's bytes, the same form as a place's `range` ([§2.2](#22-places-and-parameters)) |
-| `ranges` | `LargeList<Struct<object: Dictionary<Int32, Utf8>, offset: UInt64, length: UInt64>>` (items not null; `object` null for the parsed source) | yes | where no element holds exactly the unit's bytes: its bytes, in order; `offset` counts from the object's start |
+| `ranges` | `LargeList<Struct<object: Dictionary<Int32, Utf8>, offset: UInt64, length: UInt64>>` (items not null; `object` null for the parsed source) | yes | where no element holds the unit's bytes: its bytes, in order (a unit in part of an element is `element` and `range`); `offset` counts from the object's start |
 | `chain` | `UInt32` | yes | the unit's chain, a position in its array's `chains`; null for the first |
 | `skips` | `UInt64` | yes | the codecs of its chain that the unit skips, a mask by codec position (bit i, codec i); null for none |
 | `p.<codec name>.<name>` | the codec's entry's | yes | one for every unit parameter a description with a grid lists, whether or not a row gives it a value, after the columns above in order of their names |
@@ -321,16 +321,20 @@ chunk map's, each against a limit of its own. The descriptions' entries are each
 axis of its shape, each run of a listed axis (an `Each` axis has none), each of its places (its
 declarations, and a fill given at a place), each of its chains and each unit parameter; and of the
 chain table, each chain, each codec and each place a codec's parameter names. The chunk map's are
-each row, each of its coordinates and each of its ranges. The descriptions' limit is 2^22 plus
-one per 4 bytes of the source, growing with each object of a store as the store's other budgets do
-(4 plus one per 4 of its bytes). The chunk map's is 2^22 plus four per byte of the source, growing
-with each object of a store by 4 plus four per byte of it: every unit the source holds has at least
-one byte of its own (an HDF5 chunk of an implicit index may be a single byte), or an index entry of
-several, so a map of units of rank 3 or less, a row and its coordinates (and one range) each, always
-fits. An entry costs about 36 bytes of memory as the map is built: a row of rank 2 with its
-element, three entries, holds about 109 bytes of columns. A map that would pass its limit rejects the run; it is never cut short, which a
-profile would read as units the source does not hold. Descriptions a check refuses spend none of
-it, and a graft that fails, on its budget or its arrays, adds nothing to the store.
+each row, each of its coordinates and each of its ranges. The descriptions' limit is 2^22 once,
+plus one per 4 bytes of the source, growing with each object of a store as the store's other
+budgets do (4 plus one per 4 of its bytes). The chunk map's is 2^22 once, plus four per byte of the
+source, growing with each object of a store by 4 plus four per byte of it. Every unit the source
+holds has at least one byte of its own (an HDF5 chunk of an implicit index may be a single byte),
+or an index entry of several, so where no two units share bytes or index entries, a map whose
+units are held by elements fits at rank 3 or less (a row and its coordinates), and one whose units
+are in `ranges` fits at rank 2 or less (a row, its coordinates and a range). A source whose
+structures share bytes or index entries can pass the limit, and is refused: two HDF5 object headers
+on one chunk index, or TIFF IFDs sharing a StripOffsets array. An entry costs about 36 bytes of
+memory as the map is built: a row of rank 2 with its element, three entries, holds about 109 bytes
+of columns. A map that would pass its limit rejects the run; it is never cut short, which a profile
+would read as units the source does not hold. Descriptions a check refuses spend none of it, and a
+graft that fails, on its budget or its arrays, adds nothing to the store.
 
 **Bindings.** Python's `refkv._core.Ir` gives the descriptions as the JSON document of
 [§2.5](#25-the-json-form) (`stored_arrays()`, read by `refkv.ir.stored`) and the chunk map as an

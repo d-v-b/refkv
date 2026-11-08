@@ -241,8 +241,8 @@ impl Budget {
             spent_read: 0,
             spent_reads: 0,
             // descriptions: one per 4 bytes of the source, at most, past 2^22, as records; chunk
-            // map entries: four per byte, so that a unit of rank 3 or less fits wherever each
-            // unit has a byte of its own (spec/stored-array.md §6
+            // map entries: four per byte, so that, where no two units share bytes, an element's
+            // unit of rank 3 or less, or a range's of rank 2 or less, fits (spec/stored-array.md §6
             // <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#6-in-the-ir>)
             descriptions: (1 << 22) + size / 4,
             rows: (1u64 << 22).saturating_add(size.saturating_mul(4)),
