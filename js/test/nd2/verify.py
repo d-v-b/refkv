@@ -60,8 +60,6 @@ def lv_norm(v):
     return v
 
 
-TAGS = ("utf16", "float")
-
 
 def ours_norm(v):
     """Our JSON (spec/zarrify/nd2.md §5.1
