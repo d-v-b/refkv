@@ -54,6 +54,18 @@ def coding(name: str, params: str) -> str:
     parameters `params` (JSON), its result as JSON. Raises NoCodec for parameters the format's
     section rejects, ValueError for parameters that are not the routine's."""
 
+class ChunkMap:
+    """An IR's chunk map as one Arrow record batch, for the Arrow PyCapsule interface: pyarrow,
+    polars or nanoarrow read it without a copy. A requested schema is ignored."""
+
+    def __len__(self) -> int: ...
+    def __arrow_c_schema__(self) -> object:
+        """The schema, a capsule named `arrow_schema`."""
+    def __arrow_c_array__(self, requested_schema: object | None = None) -> tuple[object, object]:
+        """The batch as a struct array: capsules named `arrow_schema` and `arrow_array`."""
+    def __arrow_c_stream__(self, requested_schema: object | None = None) -> object:
+        """A stream of the one batch, a capsule named `arrow_array_stream`."""
+
 class Ir:
     """An IR: its columns, tables and per-element reads. A per-element read raises ValueError
     for no element `i`."""
@@ -115,6 +127,14 @@ class Ir:
         an object described in place at virtual offsets; empty for a file IR."""
     def digest(self) -> int:
         """A digest of every row (for comparing builds)."""
+    def stored_arrays(self) -> str:
+        """The arrays the source stores (spec/stored-array.md §2.5
+        <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#25-the-json-form>): one JSON
+        document, the chain table and the descriptions."""
+    def chunk_map(self) -> ChunkMap:
+        """The chunk map (spec/stored-array.md §4
+        <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#4-the-chunk-map>): an object
+        of the Arrow PyCapsule interface, one record batch."""
     def runs_count(self) -> int: ...
     def budget(self) -> dict[str, tuple[int, int]]: ...
     @staticmethod
