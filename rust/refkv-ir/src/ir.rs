@@ -20,6 +20,7 @@
 //! `derived` element `d`, in `d`'s derived bytes (space `d`).
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 pub const STRUCT: u8 = 0;
 pub const VALUE: u8 = 1;
@@ -217,6 +218,12 @@ pub struct Budget {
     pub spent_elements: u64,
     pub spent_read: u64,
     pub spent_reads: u64,
+    /// stored arrays' descriptions, and chunk map rows, apart from the IR's room
+    /// (spec/stored-array.md §6 <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#6-in-the-ir>)
+    pub descriptions: u64,
+    pub rows: u64,
+    pub spent_descriptions: u64,
+    pub spent_rows: u64,
 }
 
 impl Budget {
@@ -232,7 +239,25 @@ impl Budget {
             spent_elements: 0,
             spent_read: 0,
             spent_reads: 0,
+            // one per 4 bytes of the source, at most, past 2^22, as records
+            descriptions: (1 << 22) + size / 4,
+            rows: (1 << 22) + size / 4,
+            spent_descriptions: 0,
+            spent_rows: 0,
         }
+    }
+
+    /// `d` descriptions and `r` chunk map rows more, or the limit they pass.
+    fn describe(&mut self, d: u64, r: u64) -> Res<()> {
+        self.spent_descriptions += d;
+        self.spent_rows += r;
+        if self.spent_descriptions > self.descriptions {
+            return Err(format!("budget: more than {} stored arrays", self.descriptions));
+        }
+        if self.spent_rows > self.rows {
+            return Err(format!("budget: more than {} chunk map rows", self.rows));
+        }
+        Ok(())
     }
 }
 
@@ -276,6 +301,10 @@ pub struct Ir {
     /// the objects of a store IR
     pub objects: u64,
     pub budget: Option<Budget>,
+    /// the arrays the source stores, the codec chains they share and the chunk map
+    /// ([`crate::array`]): built when the IR is finished ([`Ir::describe`]), kept current by
+    /// [`Ir::graft`] and [`Ir::unfold`]; shared, so that a clone of the IR does not copy them
+    pub stored: Arc<crate::array::Stored>,
     /// children, built by finish(): CSR over parents
     pub kid_index: Vec<u32>,
     pub kids: Vec<u32>,
@@ -360,6 +389,8 @@ impl Ir {
             b.elements += more;
             b.read += 2 * size;
             b.reads += 1 + size / 64;
+            b.descriptions += more;
+            b.rows += more;
         }
         self.add(OBJECT, parent, name, nidx, "", 0, Some((0, size)))
     }
@@ -633,7 +664,24 @@ impl Ir {
         for b in &self.shared {
             eat(b);
         }
+        self.stored.digest(&mut eat);
         h
+    }
+
+    /// The arrays the source stores, with the chain table and the chunk map (rows in any order:
+    /// they are sorted here), described from the finished IR (spec/stored-array.md §6
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#6-in-the-ir>): counted
+    /// against the budget, and checked ([`crate::array::check`]).
+    pub fn describe(&mut self, arrays: Vec<crate::array::StoredArray>, chains: Vec<crate::array::Chain>, mut map: crate::array::ChunkMap) -> Res<()> {
+        if !self.finished {
+            return Err("internal: arrays described before the IR is finished".into());
+        }
+        if let Some(b) = self.budget.as_mut() {
+            b.describe(arrays.len() as u64, map.len() as u64)?;
+        }
+        map.sort();
+        self.stored = Arc::new(crate::array::Stored { arrays, chains, map });
+        crate::array::check(self)
     }
 
     /// The bytes of held objects of a store IR (conventions §8.9
@@ -757,6 +805,13 @@ impl Ir {
         self.targets.extend(from.targets.iter().map(|&(i, t)| (at(i), at(t))));
         self.was.extend(from.was.iter().map(|&(i, k)| (at(i), k)));
         self.runs.extend(from.runs.iter().map(|&(r, c, s)| (at(r), c, s)));
+        if !from.stored.is_empty() {
+            if let Some(b) = self.budget.as_mut() {
+                b.describe(from.stored.arrays.len() as u64, from.stored.map.len() as u64)?;
+            }
+            let key = self.key(under);
+            Arc::make_mut(&mut self.stored).graft(&from.stored, &at, &key)?;
+        }
         Ok(map)
     }
 
@@ -1089,6 +1144,7 @@ impl Ir {
             + self.names.bytes()
             + self.types.bytes()
             + self.forms.bytes()
+            + self.stored.memory()
     }
 
     /// Makes run `r` plain again: member 0 stays where it is and members 1.. are
@@ -1102,6 +1158,7 @@ impl Ir {
         self.runs.remove(k);
         let was_finished = self.finished;
         self.finished = false;
+        let base = self.len() as u32;
         for j in 1..count {
             let base = self.len() as u32;
             for i in r..end {
@@ -1135,6 +1192,9 @@ impl Ir {
             }
         }
         self.finished = was_finished;
+        if !self.stored.is_empty() {
+            Arc::make_mut(&mut self.stored).unfolded(r, end, base, count);
+        }
         Ok(())
     }
 }

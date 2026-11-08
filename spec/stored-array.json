@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/stored-array.json",
+  "title": "refkv stored arrays, version 0",
+  "description": "The JSON document of an IR's stored arrays: its chain table and its descriptions (https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#25-the-json-form). A format's description schema refers to #/$defs/stored_array for its arrays.",
+  "type": "object",
+  "properties": {
+    "chains": {"type": "array", "items": {"$ref": "#/$defs/chain"}},
+    "arrays": {"type": "array", "items": {"$ref": "#/$defs/stored_array"}}
+  },
+  "required": ["chains", "arrays"],
+  "additionalProperties": false,
+  "$defs": {
+    "count": {"type": "integer", "minimum": 0},
+    "length": {"type": "integer", "minimum": 1},
+    "place": {
+      "description": "Bytes of the source: an IR element (member, for an element in a run's subtree; range, an (offset, length) within the bytes its recipe gives), or a range of an object by its key (null: the parsed source).",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "element": {"$ref": "#/$defs/count"},
+            "member": {"oneOf": [{"$ref": "#/$defs/count"}, {"type": "null"}]},
+            "range": {"oneOf": [{"type": "array", "prefixItems": [{"$ref": "#/$defs/count"}, {"$ref": "#/$defs/count"}], "minItems": 2, "maxItems": 2}, {"type": "null"}]}
+          },
+          "required": ["element", "member", "range"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "object": {"type": ["string", "null"]},
+            "offset": {"$ref": "#/$defs/count"},
+            "length": {"$ref": "#/$defs/count"}
+          },
+          "required": ["object", "offset", "length"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "param": {
+      "description": "A codec's parameter, or a given fill value: a value, or the place of the bytes it is made from.",
+      "oneOf": [
+        {"type": "object", "properties": {"value": true}, "required": ["value"], "additionalProperties": false},
+        {"type": "object", "properties": {"source": {"$ref": "#/$defs/place"}}, "required": ["source"], "additionalProperties": false}
+      ]
+    },
+    "codec": {
+      "description": "A codec of the IR's list (https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#32-the-list), with its parameters.",
+      "type": "object",
+      "properties": {
+        "name": {"type": "string"},
+        "parameters": {"type": "object", "additionalProperties": {"$ref": "#/$defs/param"}}
+      },
+      "required": ["name", "parameters"],
+      "additionalProperties": false
+    },
+    "chain": {"description": "Every step the source encodes a unit with, in encoding order.", "type": "array", "items": {"$ref": "#/$defs/codec"}},
+    "axis": {
+      "description": "The units along one axis: all one length (each), or each one's length in order (list), a run of equal lengths as [length, count].",
+      "oneOf": [
+        {"type": "object", "properties": {"each": {"$ref": "#/$defs/length"}}, "required": ["each"], "additionalProperties": false},
+        {
+          "type": "object",
+          "properties": {
+            "list": {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  {"$ref": "#/$defs/length"},
+                  {"type": "array", "prefixItems": [{"$ref": "#/$defs/length"}, {"type": "integer", "minimum": 2}], "minItems": 2, "maxItems": 2}
+                ]
+              }
+            }
+          },
+          "required": ["list"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "grid": {
+      "description": "How the source cuts the array into units (https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#23-the-grid).",
+      "type": "object",
+      "properties": {
+        "axes": {"type": "array", "items": {"$ref": "#/$defs/axis"}},
+        "edge": {"enum": ["full", "short"]}
+      },
+      "required": ["axes", "edge"],
+      "additionalProperties": false
+    },
+    "fill": {
+      "description": "The source's fill value (https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#24-the-fill-value).",
+      "oneOf": [
+        {"enum": ["undefined", "format_default"]},
+        {"type": "object", "properties": {"given": {"$ref": "#/$defs/param"}}, "required": ["given"], "additionalProperties": false}
+      ]
+    },
+    "unit_parameter": {
+      "description": "Parameter name of codec codec (its position in the chain) of the array's chain chain (its position in the array's chains), a column of the chunk map.",
+      "type": "object",
+      "properties": {
+        "chain": {"$ref": "#/$defs/count"},
+        "codec": {"$ref": "#/$defs/count"},
+        "name": {"type": "string"}
+      },
+      "required": ["chain", "codec", "name"],
+      "additionalProperties": false
+    },
+    "stored_array": {
+      "description": "An array as the source stores it, at the byte level (https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#2-the-description).",
+      "type": "object",
+      "properties": {
+        "element": {"$ref": "#/$defs/count"},
+        "path": {"type": ["string", "null"]},
+        "index": {"oneOf": [{"$ref": "#/$defs/count"}, {"type": "null"}]},
+        "declarations": {"type": "array", "items": {"$ref": "#/$defs/place"}},
+        "shape": {"type": "array", "items": {"$ref": "#/$defs/count"}},
+        "axes": {"oneOf": [{"type": "array", "items": {"$ref": "#/$defs/count"}}, {"type": "null"}]},
+        "item_bits": {"oneOf": [{"$ref": "#/$defs/length"}, {"type": "null"}]},
+        "pad_from": {"oneOf": [{"$ref": "#/$defs/count"}, {"type": "null"}]},
+        "grid": {"oneOf": [{"$ref": "#/$defs/grid"}, {"type": "null"}]},
+        "chains": {"type": "array", "items": {"$ref": "#/$defs/count"}},
+        "fill": {"$ref": "#/$defs/fill"},
+        "unit_parameters": {"type": "array", "items": {"$ref": "#/$defs/unit_parameter"}}
+      },
+      "required": ["element", "path", "index", "declarations", "shape", "axes", "item_bits", "pad_from", "grid", "chains", "fill", "unit_parameters"],
+      "additionalProperties": false
+    }
+  }
+}

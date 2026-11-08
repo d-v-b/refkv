@@ -1,0 +1,312 @@
+# Stored arrays in the IR
+
+A **stored array** is one structure that a source itself declares as an array, described as the
+source stores it, at the byte level: its shape, the size of its elements in bits and how they
+pack, how the source cuts it into units, the codecs that decode a unit to the elements' bytes, its
+fill value, where the source declares what its elements are, and a map of the units the source
+holds. Parsers build the descriptions and the map into the IR
+([conventions §8](conventions.md#8-the-ir-mirror)); projections and profiles read them, together
+with the source's own declarations, and decide everything about the output, starting with the data
+type. This document is not a convention: nothing it specifies is written in an output, and the IR
+mirror does not record it.
+
+Version: 0 (draft) · Schema: [stored-array.json](stored-array.json)
+
+Added 2026-11-08. The design is design/proposals/ir-array-model.md (d-v-b/refkv#289).
+
+The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are to be interpreted as described in
+RFC 2119.
+
+## 1. Stored arrays
+
+The IR describes the source; a projection decides the output. A description holds what the
+source holds, as found, and no concept tied to an output encoding: not which arrays are
+presented or how they are assembled, not output chunking, shards or padding, not data types, byte
+order names or default values, and no byte the source does not hold. Where the IR cannot or need
+not interpret something, it falls back to a more general representation: bytes, or where the
+source holds them ([§2.2](#22-places-and-parameters)); the source's own id and parameters (the
+codec `source`, [§3.2](#32-the-list)); an array whose storage it does not model (a description
+with no grid, [§2.3](#23-the-grid)).
+
+Every array a parser reaches has a description, whether or not its profile presents it. Each
+format's document lists the structures that are its stored arrays and what each of their
+declarations is. Today only the NumPy profile describes its arrays
+([§7](#7-the-formats)).
+
+## 2. The description
+
+A description has these members (the Rust type `StoredArray` of `rust/refkv-ir/src/array.rs`):
+
+| Member | Contents |
+| --- | --- |
+| `element` | the IR element that declares the array |
+| `index` | the array's index among those `element` declares, for a kind of element that may declare several; else absent |
+| `declarations` | the places where the source declares what the array's elements are, as the format's document lists them |
+| `shape` | the axes in storage order, the slowest-varying first |
+| `axes` | the source's own order of the axes, where it differs from storage order: `axes[i]` is storage axis i's position in the source's list (a Fortran-order NumPy array of shape (3, 4) has `shape` [4, 3] and `axes` [1, 0]); else absent |
+| `item_bits` | the bits of one element, decoded; absent only for an array with no grid and no given fill |
+| `pad_from` | for elements that are not whole bytes: the first axis from which the elements of a decoded unit pack unbroken, each run over this axis and those after it ending on a byte boundary; absent: the whole unit packs unbroken |
+| `grid` | how the source cuts the array into units ([§2.3](#23-the-grid)); absent where the IR does not model the array's storage |
+| `chains` | the codec chains a unit may be encoded with, by position in the IR's chain table ([§3.1](#31-chains)) |
+| `fill` | the source's fill value ([§2.4](#24-the-fill-value)) |
+| `unit_parameters` | the codec parameters whose values differ from unit to unit, each a column of the chunk map ([§3.1](#31-chains)) |
+
+A description stops at the elements' bytes as they come out of a chain. Which data type those
+bytes are, in which byte order, how a structure's members lie, how a string or reference is
+presented, and what the values mean (a scale, a blank, dimension names) are the profile's: it
+reads them from the declarations, or, where a codec makes the elements, from the codec's entry
+([§3.2](#32-the-list)).
+
+### 2.1 Keys
+
+A description is keyed by the IR element that declares the array. For a kind of element that may
+declare several arrays, the key always adds the array's index among them, in the source's order,
+however many it declares; the format's document names those kinds. So `(element, index)` is one
+array's alone, and on each element either no description has an index or every one has, as 0 to
+n − 1. Within a run, the id is what is computed on; the JSON form also gives the element's path
+([§2.5](#25-the-json-form)).
+
+### 2.2 Places and parameters
+
+A **place** is bytes of the source:
+
+- an IR element (`element`), with `member`, for an element in a run's subtree, the position j of
+  the run's member it is in, and `range`, an (offset, length) within the bytes the element's recipe
+  gives ([conventions §8.5](conventions.md#85-forms-and-recipes)); or
+- where no element holds them, a range of an object by its key (`object`; none for the parsed
+  source itself), the `offset` counted from the object's start, and its `length`. In a store IR,
+  an object is one of the store's objects, and an external file of a file IR is named by the
+  sibling key the run resolves for it, its key in the store.
+
+A **parameter** of a codec, or a given fill value, is a value (`{"value": …}`) or a place whose
+bytes the codec makes it from (`{"source": place}`). It is tagged, so that a value that is an
+object cannot be read as a place.
+
+### 2.3 The grid
+
+A grid has an entry for each axis, `Each(n)` or a `List`, and an `edge`:
+
+- `Each(n)`: the axis's units are all `n` elements long, but for a last one the axis's end cuts.
+- `List`: each unit's length in order, a run of `c` equal lengths `n` kept as `[n, c]`.
+- `edge`: how a unit past an `Each` axis's end is stored, as the source declares its layout:
+  `full`, at the full unit length, the part past the end filled (HDF5's chunks, TIFF's tiles), or
+  `short`, cut to the axis (a TIFF last strip).
+
+A grid is in canonical form:
+
+- an axis is `Each(n)` when all its units are `n` long, except a last one the axis's end cuts;
+  otherwise it is a `List`;
+- under `short`, `n` is at most the axis's length; under `full`, `n` is the declared length, which
+  may exceed it;
+- a `List` sums to the axis's length, and its adjacent equal lengths form one run: `[n, c]` with
+  `c` at least 2, or `n` alone;
+- lengths are at least 1. An axis of length 0 has no units: it is `Each` of the declared length,
+  or an empty `List` where the source declares none.
+
+An array whose storage the IR does not model (an HDF5 virtual dataset, a NumPy object array) has
+no grid, no chains and no chunk map rows: its element, shape, declarations and whatever else its
+parser knows. The profile reads the declaring structure for the rest, or leaves the array out.
+
+### 2.4 The fill value
+
+`fill` is one of:
+
+- `undefined`: the source defines none (HDF5's "undefined", and a format that has no fill value);
+- `format_default`: the source says its format's default (HDF5's "default", which the HDF5
+  specification defines as zero bytes);
+- `given`: one decoded element's bytes, ceil(`item_bits` / 8) of them, as a parameter
+  ([§2.2](#22-places-and-parameters)): a value, the bytes as a base64 string (RFC 4648 §4, with
+  padding), or the place that holds them. An element of fewer bits than whole bytes takes the
+  first bits of its bytes, packed as the array packs them.
+
+### 2.5 The JSON form
+
+The descriptions cross the bindings as one JSON document, `{"chains": [...], "arrays": [...]}`:
+the chain table, each chain a list of codecs `{"name": …, "parameters": {name: parameter}}`, and
+the descriptions in the IR's order. A description has every member of [§2](#2-the-description),
+`null` where it is absent, and `path`, its element's path in the IR. A place is
+`{"element": e, "member": j, "range": [offset, length]}` (`member` and `range` may be null) or
+`{"object": key, "offset": o, "length": n}` (`object` null for the parsed source). A grid is
+`{"axes": [...], "edge": "full" | "short"}`, each axis `{"each": n}` or `{"list": [...]}`, each
+run of a list `n` or `[n, c]`. A fill is `"undefined"`, `"format_default"` or
+`{"given": parameter}`. A unit parameter is `{"chain": c, "codec": k, "name": …}`. The JSON
+Schema [stored-array.json](stored-array.json) gives the document, and, under `$defs`, the
+description (`stored_array`), which each format's description schema refers to for its arrays.
+Integers are written exactly, at any size.
+
+## 3. Codecs
+
+### 3.1 Chains
+
+A chain lists every step the source encodes a unit with, in encoding order. Decoding runs it from
+last to first, on the unit's bytes as its element or ranges give them ([§4](#4-the-chunk-map)),
+and ends with the elements' bytes:
+
+- **as the source stores them**, in its byte order, packed as `item_bits` and `pad_from` say, with
+  bits most significant first within a byte; or
+- **as a codec makes them**: a codec that makes the elements rather than restoring them (JPEG's
+  decoding, GRIB's unpacking) states in its entry the bytes it makes.
+
+Every codec takes bytes to bytes. An array stored as is has one empty chain.
+
+The IR holds one table of distinct chains, and a description names its chains by their positions
+in it. A unit's chain is the description's first, `chains[0]`, unless its row gives another
+position in the description's `chains` ([§4](#4-the-chunk-map)); every chain of an array ends in
+the same element bytes.
+
+A unit parameter names parameter `name` of the codec at position `codec` of the description's
+chain `chain` (a position in its `chains`); each unit of that chain that does not skip the codec
+gives its value in the chunk map's column `p.<codec name>.<name>`. A parameter is given either in
+its codec or as a column, never both; a codec whose parameter is a column appears once in its
+chain; and a codec sees only a unit's bytes and parameters, never its coordinates, so a parameter
+that depends on the unit's position is a column its parser computes.
+
+Configuration the source defines once, apart from the units, is a parameter given as a place,
+so that the description says where it is rather than copying it. Parameters only an encoder needs
+(a zlib level, a block size) are not recorded.
+
+### 3.2 The list
+
+A codec's name is one of this list. Each entry gives its parameters, which of them a unit may
+give as a column and the column's Arrow type, what its decoding makes, and, for a parameter given
+as a place, how the parameter is made from those bytes. A chain's codec has only its entry's
+parameters.
+
+| Codec | Parameters | Columns | Decoding makes |
+| --- | --- | --- | --- |
+| `source` | `format`: the profile's name; `id`: the source's id for the encoding, as the source gives it; `parameters`: its parameters, as the source gives them (a value, or a place that holds them) | none | what the source's encoding decodes to; the profile maps it or leaves the array out |
+
+`source` is the general fallback: a source encoding refkv has no name for (an unknown HDF5
+filter's id and client data). refkv's names describe the encoding, not the output: which Zarr or
+numcodecs codec stands for one is the profile's. Each format adds its codecs to the list as it
+describes its arrays.
+
+## 4. The chunk map
+
+An IR's chunk map is one table with a row for each unit the source holds, of every array with a
+grid. A unit the source does not hold has no row, and no row is for an array with no grid.
+
+### 4.1 The Arrow schema
+
+The chunk map crosses the Python binding as one Arrow record batch, by the Arrow PyCapsule
+interface (`__arrow_c_array__` and `__arrow_c_stream__`), of this schema:
+
+| Column | Arrow type | Null | Contents |
+| --- | --- | --- | --- |
+| `array` | `UInt32` | no | the array, by its position in the IR's descriptions |
+| `coords` | `List<UInt64>` (items not null) | no | the unit's coordinates in the array's grid (empty for rank 0) |
+| `element` | `UInt32` | yes | the IR element holding the unit's bytes; its recipe gives them |
+| `member` | `UInt64` | yes | where `element` is in a run's subtree, the position j of the run's member it is in |
+| `ranges` | `List<Struct<object: Dictionary<Int32, Utf8>, offset: UInt64, length: UInt64>>` (items not null; `object` null for the parsed source) | yes | where no element holds exactly the unit's bytes: its bytes, in order; `offset` counts from the object's start |
+| `chain` | `UInt32` | yes | the unit's chain, a position in its array's `chains`; null for the first |
+| `skips` | `UInt64` | yes | the codecs of its chain that the unit skips, a mask by codec position (bit i, codec i); null for none |
+| `p.<codec name>.<name>` | the codec's entry's | yes | one per parameter any array gives as a column, after the columns above in order of their names |
+
+The schema's metadata gives `refkv.chunk_map`, the schema's version, `0`.
+
+### 4.2 Rows
+
+- Rows are grouped by `array`, in order, and within an array are in row-major order of `coords`;
+  a parser adds them in any order, and the IR sorts them.
+- Exactly one of `element` and `ranges` is set in each row. A unit inside a derived space is
+  always an element, since `ranges` address only objects.
+- Null is the only way to write the first chain and "skips nothing".
+- A parameter column is set exactly on the rows whose array lists it in `unit_parameters` for the
+  row's chain and that do not skip its codec; null elsewhere.
+- A rank-0 array has at most one row.
+
+## 5. Checks
+
+Both checks run in every `check::finish`, of a file IR and again of the store it is grafted into,
+and when a parser adds its descriptions. A description or a row they refuse is a bug in its
+parser: an internal error naming the array's element.
+
+### 5.1 Each description
+
+- **Its element and places.** Its element, and every element its places, its fill's and its
+  chains' parameters name, is an element of the IR; a place's `member` is set exactly when its
+  element is in a run's subtree, and is below the run's count; an object key is any key or none in
+  a file IR (an external file's key is checked when the file is grafted), and in a store IR is
+  never none and names one of the store's objects.
+- **The grid.** Its rank is the array's rank, and it is in canonical form
+  ([§2.3](#23-the-grid)).
+- **Chains.** At least one when `grid` is set, none when it is not; each a position in the chain
+  table. Every codec of the chain table is one of the list ([§3.2](#32-the-list)), with only its
+  entry's parameters.
+- **`axes`.** When given, a permutation of the rank.
+- **`item_bits`, `pad_from` and the fill.** `item_bits` is set when `grid` is or the fill is
+  given, and is at least 1. `pad_from` is below the rank, given only when `item_bits` is set and
+  is not a multiple of 8. A given fill value is ceil(`item_bits` / 8) bytes: a base64 string of
+  that many, or a place of that length (a range's or an extent's length, else its element's).
+- **`unit_parameters`.** Each names a chain of the description, a codec of that chain that
+  appears once there, a parameter the codec's entry allows as a column, and no parameter the codec
+  gives itself.
+- **Keys.** `(element, index)` is unique among the IR's descriptions, and on each element `index`
+  is either absent from every description or set on every one, as 0 to n − 1.
+
+### 5.2 The chunk map
+
+- its columns match the schema: each of the IR's length, the list offsets their values', and each
+  parameter column a parameter column of its codec's entry, of the entry's type;
+- rows are only for arrays the IR describes that have a grid;
+- coordinates are of the array's rank, inside its grid, grouped and ordered as
+  [§4.2](#42-rows) says, with no repeats;
+- exactly one of `element` and `ranges` is set in each row;
+- `member` is set exactly when `element` is set and is in a run's subtree, and is below the
+  run's count;
+- the first chain and no skips are written as null;
+- `chain` is a position in the array's `chains`, and `skips` names only codecs of the unit's
+  chain;
+- each parameter column is set exactly on the rows whose array lists it for the row's chain and
+  that do not skip its codec;
+- every `element` is an element of the IR;
+- every `object` key is checked as a place's is ([§5.1](#51-each-description)).
+
+## 6. In the IR
+
+**Built at finish.** A parser keeps what it learns about its arrays to itself while it reads.
+When its IR is finished (after its last fold and rollback, and after `check::finish`), it builds a
+description for each array it reaches and the chunk map's rows from the finished IR, and adds
+them to the IR, which sorts the rows, counts them against its limits and checks them
+([§5](#5-checks)). They are not in the facts a projection reads, which keep their arrays until
+each format's projection reads the descriptions.
+
+**Only two things change ids afterwards.**
+
+- **A graft** carries a file IR's descriptions and rows into the store it joins: `element`, every
+  place's element and the `element` column take their new ids; `array` takes the description's
+  new position, after the store's; the file's chains join the store's table, a chain the table
+  has already taking that one's position; parameter columns of one name join; and the parsed
+  source's null key, in every place and in `ranges`, becomes the file's key in the store.
+- **An unfold** of a run (a store's own `check::finish` may unfold one, as may the mirror's
+  canonical form) gives its members after the first new ids: each row's and place's element in
+  member j's subtree moves to member j's copy, and `member` is cleared on every element that was
+  in the run.
+
+The mirror's canonical form ([conventions §8.8](conventions.md#88-canonical-form)) leaves the
+descriptions and the chunk map out.
+
+**Limits.** The IR's budget counts descriptions and chunk map rows, each against a limit of its
+own apart from the IR's room: 2^22 plus one per 4 bytes of the source, growing with each object of
+a store as the store's other budgets do (4 plus one per 4 of its bytes). A map that would pass its
+limit rejects the run; it is never cut short, which a profile would read as units the source does
+not hold.
+
+**Bindings.** Python's `refkv._core.Ir` gives the descriptions as the JSON document of
+[§2.5](#25-the-json-form) (`stored_arrays()`, read by `refkv.ir.stored`) and the chunk map as an
+object of the Arrow PyCapsule interface (`chunk_map()`); pyarrow, polars or nanoarrow read it
+without a copy, and refkv itself depends on none of them. The WebAssembly module carries
+neither, and compiles no Arrow code.
+
+## 7. The formats
+
+**NumPy** ([spec/zarrify/npy.md](zarrify/npy.md)). A `.npy` file's array, and each stored
+(method 0) `.npz` member's whose header was read, is a stored array, keyed by its `header` element,
+with no index; that element is its one declaration (its `descr`, `fortran_order` and `shape`).
+`shape` is the header's, reversed for a Fortran-order array of two or more axes, whose `axes` then
+give the header's order; `item_bits` is eight times the size of an element of its `descr`. A
+presented array is one unit, its `data` element, in an empty chain: each axis is `Each` of its
+length, or an empty `List` for an axis of length 0 (which has no unit, and no row), under
+`short`. NumPy defines no fill value: `undefined`. An array whose data is not presented (its
+`descr` has no data type, or its data does not fit) has no grid. A deflated member's array is not
+described yet: its header and data lie in its stream, which no element holds.
