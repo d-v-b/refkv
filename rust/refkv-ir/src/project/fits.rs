@@ -48,6 +48,7 @@ fn value_json(v: &Value) -> J {
         Value::None => J::Null,
         Value::Logical(b) => json!(b),
         Value::Int(n) => int_json(*n),
+        Value::BigInt(t) => big_json(t),
         Value::Real(x, t) => if x.is_finite() { json!(x) } else { json!({"text": t}) },
         Value::Str(s) => json!(s),
         Value::Complex(r, i) => json!([r, i]),
@@ -63,9 +64,15 @@ fn cards_json(cards: &[Card]) -> J {
 fn number(cards: &[Card], keyword: &str) -> J {
     match card(cards, keyword).map(|c| &c.value) {
         Some(Value::Int(n)) => int_json(*n),
+        Some(Value::BigInt(t)) => big_json(t),
         Some(Value::Real(x, _)) if x.is_finite() => json!(x),
         _ => J::Null,
     }
+}
+
+/// An integer card past i128 (its digits, normalized), exactly: a value field holds 70 characters.
+fn big_json(digits: &str) -> J {
+    J::Number(digits.parse().expect("arbitrary_precision holds every integer"))
 }
 
 fn string(cards: &[Card], keyword: &str) -> J {
@@ -417,14 +424,28 @@ mod tests {
             "TNULL2  =                  -99",
             "TNULL3  = -9223372036854775808",
             "TNULL4  = -170141183460469231731687303715884105728",
+            "TNULL5  = -1234567890123456789012345678901234567890",
         ]);
-        let h = json!({"index": 1, "kind": "table", "table": {"tform": ["I8", "J", "K", "K"]}});
-        let own = own_json(&h, &parse_cards(&raw, 4));
+        let h = json!({"index": 1, "kind": "table", "table": {"tform": ["I8", "J", "K", "K", "K"]}});
+        let own = own_json(&h, &parse_cards(&raw, 5));
         let columns = own["columns"].as_array().unwrap();
         assert_eq!(columns[0]["null"], json!("N/A"));
         assert_eq!(columns[1]["null"], json!(-99));
         assert_eq!(columns[2]["null"], json!(i64::MIN));
         // i128::MIN, whose magnitude no i128 holds
         assert_eq!(crate::out::to_text(&columns[3]["null"]), "-170141183460469231731687303715884105728");
+        // past i128, exactly
+        assert_eq!(crate::out::to_text(&columns[4]["null"]), "-1234567890123456789012345678901234567890");
+    }
+
+    /// A card's integer past i128 (40 digits; a value field holds 70) is exact, in the cards and in
+    /// an image's `bscale`, `bzero` and `blank` (spec/zarrify/fits.md §5.3
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#53-cards>).
+    #[test]
+    fn an_integer_card_past_i128_is_exact() {
+        let digits = "1234567890123456789012345678901234567890";
+        let cards = parse_cards(&records(&[&format!("BLANK   = {digits}"), &format!("HUGE    = -000{digits}")]), 2);
+        assert_eq!(crate::out::to_text(&cards_json(&cards)), format!(r#"[["BLANK",{digits},null],["HUGE",-{digits},null]]"#));
+        assert_eq!(crate::out::to_text(&number(&cards, "BLANK")), digits);
     }
 }
