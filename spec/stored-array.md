@@ -98,8 +98,9 @@ A grid has an entry for each axis, `Each(n)` or a `List`, and an `edge`:
 
 A grid is in canonical form:
 
-- an axis is `Each(n)` when all its units are `n` long, except a last one the axis's end cuts;
-  otherwise it is a `List`;
+- an axis is `Each(n)` when all its units are `n` long, and, under `short`, also when all but a
+  shorter last one are, which the axis's end cuts; otherwise it is a `List` (under `full`, units of
+  one length but a shorter last one stay a `List`: `Each` would say the last is stored full);
 - under `short`, `n` is the declared length clamped to the axis's length (a TIFF's RowsPerStrip
   above ImageLength, often 2^32 − 1, is one strip of the image's rows); under `full`, `n` is the
   declared length, which may exceed it;
@@ -199,16 +200,18 @@ interface (`__arrow_c_array__` and `__arrow_c_stream__`), of this schema:
 | Column | Arrow type | Null | Contents |
 | --- | --- | --- | --- |
 | `array` | `UInt32` | no | the array, by its position in the IR's descriptions |
-| `coords` | `List<UInt64>` (items not null) | no | the unit's coordinates in the array's grid (empty for rank 0) |
+| `coords` | `LargeList<UInt64>` (items not null) | no | the unit's coordinates in the array's grid (empty for rank 0) |
 | `element` | `UInt32` | yes | the IR element holding the unit's bytes; its recipe gives them |
 | `member` | `UInt64` | yes | where `element` is in a run's subtree, the position j of the run's member it is in |
 | `range` | `Struct<offset: UInt64, length: UInt64>` | yes | where the unit is part of `element`: its offset and length within the element's bytes, the same form as a place's `range` ([§2.2](#22-places-and-parameters)) |
-| `ranges` | `List<Struct<object: Dictionary<Int32, Utf8>, offset: UInt64, length: UInt64>>` (items not null; `object` null for the parsed source) | yes | where no element holds exactly the unit's bytes: its bytes, in order; `offset` counts from the object's start |
+| `ranges` | `LargeList<Struct<object: Dictionary<Int32, Utf8>, offset: UInt64, length: UInt64>>` (items not null; `object` null for the parsed source) | yes | where no element holds exactly the unit's bytes: its bytes, in order; `offset` counts from the object's start |
 | `chain` | `UInt32` | yes | the unit's chain, a position in its array's `chains`; null for the first |
 | `skips` | `UInt64` | yes | the codecs of its chain that the unit skips, a mask by codec position (bit i, codec i); null for none |
 | `p.<codec name>.<name>` | the codec's entry's | yes | one per parameter any array gives as a column, after the columns above in order of their names |
 
-The schema's metadata gives `refkv.chunk_map`, the schema's version, `0`.
+The list columns are `LargeList`s, of 64-bit offsets, since a map the budget admits may hold
+more than 2^31 coordinates or ranges. The schema's metadata gives `refkv.chunk_map`, the schema's
+version, `0`.
 
 ### 4.2 Rows
 
@@ -227,9 +230,10 @@ The schema's metadata gives `refkv.chunk_map`, the schema's version, `0`.
 
 ## 5. Checks
 
-Both checks run in every `check::finish`, of a file IR and again of the store it is grafted into,
-and when a parser adds its descriptions. A description or a row they refuse is a bug in its
-parser: an internal error naming the array's element.
+Both checks run when a parser adds its descriptions and chunk map to its finished IR, and in the
+`check::finish` of a store after its grafts and unfolds (a file IR's own `check::finish` runs
+before its descriptions are built, so has none to check). A description or a row they refuse is a
+bug in its parser: an internal error naming the array's element.
 
 ### 5.1 Each description
 

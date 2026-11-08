@@ -681,7 +681,7 @@ impl Ir {
         if !self.stored.is_empty() {
             return Err("internal: the IR's arrays described twice".into());
         }
-        let mut stored = crate::array::Stored { arrays, chains, map };
+        let mut stored = crate::array::Stored { arrays, chains, map, ..Default::default() };
         let (d, r) = stored.weights();
         if let Some(b) = self.budget.as_mut() {
             b.describe(d, r)?;
@@ -1172,9 +1172,13 @@ impl Ir {
         self.runs.remove(k);
         let was_finished = self.finished;
         self.finished = false;
-        let base = self.len() as u32;
+        // member j's copy is appended at `first + (j - 1) * size`, which `unfolded` takes the ids from
+        let (first, size) = (self.len() as u32, end - r);
         for j in 1..count {
             let base = self.len() as u32;
+            if base as u64 != first as u64 + (j - 1) * size as u64 {
+                return Err(format!("internal: member {j} of run {r} unfolds at element {base}, not {}", first as u64 + (j - 1) * size as u64));
+            }
             for i in r..end {
                 let iu = i as usize;
                 let parent = if i == r {
@@ -1207,7 +1211,7 @@ impl Ir {
         }
         self.finished = was_finished;
         if !self.stored.is_empty() {
-            Arc::make_mut(&mut self.stored).unfolded(r, end, base, count);
+            Arc::make_mut(&mut self.stored).unfolded(r, end, first, count);
         }
         Ok(())
     }

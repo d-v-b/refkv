@@ -415,6 +415,7 @@ impl ChunkMap {
         let objects: Vec<u32> = from.objects.iter().map(|o| self.object(o)).collect();
         let before = self.objects.len();
         let parsed = self.object(key);
+        let mut used = false;
         for k in 0..from.len() {
             self.array.push(from.array[k] + base);
             self.coords.extend_from_slice(from.coords_of(k));
@@ -425,6 +426,7 @@ impl ChunkMap {
             self.has_ranges.push(from.has_ranges[k]);
             if let Some(r) = from.ranges_of(k) {
                 for x in r {
+                    used |= from.range_object[x].is_none();
                     self.range_object.push(Some(from.range_object[x].map_or(parsed, |o| objects[o as usize])));
                     self.range_offset.push(from.range_offset[x]);
                     self.range_length.push(from.range_length[x]);
@@ -454,7 +456,7 @@ impl ChunkMap {
             }
         }
         // the parsed source's key, when no row named it
-        if self.objects.len() > before && self.range_object.iter().all(|&o| o != Some(parsed)) {
+        if self.objects.len() > before && !used {
             if let Some(o) = self.objects.pop() {
                 self.object_index.0.remove(&o);
             }
@@ -545,11 +547,24 @@ impl ChunkMap {
     }
 }
 
+/// The positions of the chains of a chain table by their JSON text, beside it (not compared: it
+/// follows from it).
+#[derive(Clone, Debug, Default)]
+pub struct ChainIndex(HashMap<String, u32>);
+
+impl PartialEq for ChainIndex {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
 /// An IR's stored arrays: the descriptions, the chain table they name and the chunk map.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Stored {
     pub arrays: Vec<StoredArray>,
     pub chains: Vec<Chain>,
+    /// each chain's position in `chains`, which a graft looks the file's chains up in
+    pub chain_index: ChainIndex,
     pub map: ChunkMap,
 }
 
@@ -692,7 +707,10 @@ impl Stored {
     /// ids by `at`, their positions after these, their chains merged into this table, and the
     /// parsed source's null key the file's key in the store, `key`.
     pub fn graft(&mut self, from: &Stored, at: &dyn Fn(u32) -> u32, key: &str) -> Res<()> {
-        let mut index: HashMap<String, u32> = self.chains.iter().enumerate().map(|(k, c)| (chain_json(c).to_string(), k as u32)).collect();
+        if self.chain_index.0.len() != self.chains.len() {
+            self.chain_index.0 = self.chains.iter().enumerate().map(|(k, c)| (chain_json(c).to_string(), k as u32)).collect();
+        }
+        let index = &mut self.chain_index.0;
         let mut chains = Vec::with_capacity(from.chains.len());
         for c in &from.chains {
             let mut c = c.clone();
@@ -972,10 +990,11 @@ fn axis_problem(k: usize, a: &AxisUnits, len: u64, edge: Edge) -> Option<String>
             if sum != Some(len) {
                 return Some(format!("axis {k} lists units that do not sum to its {len}"));
             }
-            // all of one length but a shorter last: Each
+            // all of one length: Each; and under Short, all of one length but a shorter last, which
+            // Short cuts as the axis's end does (under Full, Each would say the last is stored full)
             let each = match runs.as_slice() {
                 [_] => true,
-                [a, Run::One(m)] => *m < length(a),
+                [a, Run::One(m)] => edge == Edge::Short && *m < length(a),
                 _ => false,
             };
             if each {
@@ -1291,7 +1310,7 @@ pub mod arrow {
     use super::{ChunkMap, Column, CHUNK_MAP_VERSION};
     use arrow_array::types::Int32Type;
     use arrow_array::{
-        ArrayRef, DictionaryArray, Float64Array, Int32Array, Int64Array, ListArray, RecordBatch, StringArray, StructArray, UInt32Array,
+        ArrayRef, DictionaryArray, Float64Array, Int32Array, Int64Array, LargeListArray, RecordBatch, StringArray, StructArray, UInt32Array,
         UInt64Array,
     };
     use arrow_schema::{ArrowError, DataType, Field, Fields, Schema};
@@ -1314,12 +1333,13 @@ pub mod arrow {
         ])
     }
 
-    /// The offsets of a list column from each row's end.
-    fn offsets(ends: &[u64]) -> Result<arrow_buffer::OffsetBuffer<i32>, ArrowError> {
+    /// The offsets of a list column (64-bit: a map the budget admits may hold past 2^31 values)
+    /// from each row's end.
+    fn offsets(ends: &[u64]) -> Result<arrow_buffer::OffsetBuffer<i64>, ArrowError> {
         let mut v = Vec::with_capacity(ends.len() + 1);
-        v.push(0i32);
+        v.push(0i64);
         for &e in ends {
-            v.push(i32::try_from(e).map_err(|_| ArrowError::ComputeError("a chunk map list column past 2^31 values".into()))?);
+            v.push(i64::try_from(e).map_err(|_| ArrowError::ComputeError("a chunk map list column past 2^63 values".into()))?);
         }
         Ok(arrow_buffer::OffsetBuffer::new(v.into()))
     }
@@ -1329,11 +1349,11 @@ pub mod arrow {
     pub fn schema(map: &ChunkMap) -> Schema {
         let mut fields = vec![
             Field::new("array", DataType::UInt32, false),
-            Field::new("coords", DataType::List(Arc::new(Field::new("item", DataType::UInt64, false))), false),
+            Field::new("coords", DataType::LargeList(Arc::new(Field::new("item", DataType::UInt64, false))), false),
             Field::new("element", DataType::UInt32, true),
             Field::new("member", DataType::UInt64, true),
             Field::new("range", DataType::Struct(part_fields()), true),
-            Field::new("ranges", DataType::List(Arc::new(Field::new("item", DataType::Struct(range_fields()), false))), true),
+            Field::new("ranges", DataType::LargeList(Arc::new(Field::new("item", DataType::Struct(range_fields()), false))), true),
             Field::new("chain", DataType::UInt32, true),
             Field::new("skips", DataType::UInt64, true),
         ];
@@ -1353,10 +1373,10 @@ pub mod arrow {
     pub fn batch(map: &ChunkMap) -> Result<RecordBatch, ArrowError> {
         let schema = Arc::new(schema(map));
         let item = |f: &Field| match f.data_type() {
-            DataType::List(i) => i.clone(),
+            DataType::LargeList(i) => i.clone(),
             _ => unreachable!(),
         };
-        let coords = ListArray::try_new(item(schema.field(1)), offsets(&map.coords_end)?, Arc::new(UInt64Array::from(map.coords.clone())), None)?;
+        let coords = LargeListArray::try_new(item(schema.field(1)), offsets(&map.coords_end)?, Arc::new(UInt64Array::from(map.coords.clone())), None)?;
         let keys: Vec<Option<i32>> = map.range_object.iter().map(|o| o.map(|o| o as i32)).collect();
         let values = StringArray::from(map.objects.iter().map(String::as_str).collect::<Vec<&str>>());
         let object = DictionaryArray::<Int32Type>::try_new(Int32Array::from(keys), Arc::new(values))?;
@@ -1366,7 +1386,7 @@ pub mod arrow {
             None,
         )?;
         let nulls = arrow_buffer::NullBuffer::from(map.has_ranges.clone());
-        let ranges = ListArray::try_new(item(schema.field(5)), offsets(&map.ranges_end)?, Arc::new(ranges), Some(nulls))?;
+        let ranges = LargeListArray::try_new(item(schema.field(5)), offsets(&map.ranges_end)?, Arc::new(ranges), Some(nulls))?;
         let part = |f: fn(&(u64, u64)) -> u64| -> ArrayRef { Arc::new(UInt64Array::from(map.range.iter().map(|r| r.as_ref().map_or(0, f)).collect::<Vec<u64>>())) };
         let range = StructArray::try_new(
             part_fields(),
@@ -1506,7 +1526,7 @@ mod tests {
             map.push(r).unwrap();
         }
         map.sort();
-        Stored { arrays: vec![base, scalar, ungridded, empty], chains, map }
+        Stored { arrays: vec![base, scalar, ungridded, empty], chains, map, ..Stored::default() }
     }
 
     fn with(stored: Stored) -> Ir {
@@ -1697,7 +1717,7 @@ mod tests {
         let mut map = ChunkMap::default();
         map.push(Row { array: 0, coords: vec![0], element: Some(1), ..Row::default() }).unwrap();
         map.push(Row { array: 0, coords: vec![1], element: Some(4), chain: Some(1), ..Row::default() }).unwrap();
-        let file = with(Stored { arrays: vec![a], chains: vec![source(None), source(Some("f.bin"))], map });
+        let file = with(Stored { arrays: vec![a], chains: vec![source(None), source(Some("f.bin"))], map, ..Stored::default() });
         check_with(&file, TEST_CODECS).unwrap();
         let mut store = Ir::new_store();
         let o = store.listing(&[("f.bin".into(), 100)]).unwrap();
@@ -1719,11 +1739,22 @@ mod tests {
         let mut map = ChunkMap::default();
         map.push(Row { array: 0, coords: vec![0], element: Some(1), params: vec![("p.quantize.scale".into(), Scalar::Float64(1.0))], ..Row::default() }).unwrap();
         map.push(Row { array: 0, coords: vec![1], element: Some(4), chain: Some(1), ..Row::default() }).unwrap();
-        let file = with(Stored { arrays: vec![a], chains: vec![chain(None), chain(Some("f.bin"))], map });
+        let file = with(Stored { arrays: vec![a], chains: vec![chain(None), chain(Some("f.bin"))], map, ..Stored::default() });
         check_with(&file, TEST_CODECS).unwrap();
         let mut store = Ir::new_store();
         let o = store.listing(&[("f.bin".into(), 100)]).unwrap();
         assert!(store.graft(&file, o[0]).unwrap_err().contains("they give other unit parameters"));
+    }
+
+    /// Under Full, units of one length but a shorter last one stay a List: Each would say the
+    /// last is stored full.
+    #[test]
+    fn a_full_grid_keeps_a_shorter_last_unit_listed() {
+        let mut s = valid();
+        s.arrays[0].grid.as_mut().unwrap().axes[0] = AxisUnits::List(vec![Run::Repeat(10, 2), Run::One(5)]);
+        check_with(&with(s.clone()), TEST_CODECS).unwrap();
+        s.arrays[0].grid.as_mut().unwrap().edge = Edge::Short;
+        assert!(check_with(&with(s), TEST_CODECS).unwrap_err().contains("lists units that are Each(10)"));
     }
 
     #[test]

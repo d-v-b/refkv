@@ -147,7 +147,8 @@ def test_npy_chunk_map_crosses_the_capsule_interface(path):
     assert batch.schema.field("range").type == pa.struct([
         pa.field("offset", pa.uint64(), nullable=False), pa.field("length", pa.uint64(), nullable=False),
     ])
-    assert batch.schema.field("ranges").type == pa.list_(pa.field("item", pa.struct([
+    assert batch.schema.field("coords").type == pa.large_list(pa.field("item", pa.uint64(), nullable=False))
+    assert batch.schema.field("ranges").type == pa.large_list(pa.field("item", pa.struct([
         pa.field("object", pa.dictionary(pa.int32(), pa.utf8())),
         pa.field("offset", pa.uint64(), nullable=False),
         pa.field("length", pa.uint64(), nullable=False),
