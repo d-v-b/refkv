@@ -149,7 +149,7 @@ def test_attributes_and_links_are_hdmf_zarr_members():
     names = ("int", "uint64_big", "float", "array", "text", "texts", "fixed", "latin1", "bool", "empty",
              "compound", "nan_text")
     assert {k: a[k] for k in names} == {
-        "int": -3, "uint64_big": str(2**63 + 5), "float": 0.1, "array": [[0, 1, 2], [3, 4, 5]],
+        "int": -3, "uint64_big": 2**63 + 5, "float": 0.1, "array": [[0, 1, 2], [3, 4, 5]],
         "text": "vlen text", "texts": ["a", "é", ""], "fixed": "fixed", "latin1": {"latin1": "café"}, "bool": True,
         "empty": None, "compound": {"i": 1, "f": 2.5}, "nan_text": "NaN"}
     assert own(opened(FIXTURES / "hdf5" / "hdf5_attributes.h5")[0]["attrs"])["unpresented_attributes"] == {
@@ -182,6 +182,31 @@ def test_float_attributes_read_as_h5py_reads_them():
             assert all(same(g, w) for g, w in zip(got, np.ravel(want[name]).astype(float).tolist(), strict=True)), name
         assert a["compound_inf"] == {"f": math.inf, "s": "NaN"} == {"f": float(want["compound_inf"]["f"]), "s": "NaN"}
     assert a["nan_text"] == "NaN"
+
+
+def test_fill_values_past_2_to_the_53_are_exact_json_integers():
+    """An integer fill value past 2^53 in magnitude, of the data type or of an enumeration's base
+    or a compound's member, is a JSON integer, exact, as Zarr v3 writes it (spec/zarrify/hdf5.md §3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#3-datasets>); h5py reads the
+    unallocated chunks as it (test_datasets_are_what_h5py_reads)."""
+    store = zarrify(str(FIXTURES / "hdf5" / "hdf5_big_fills.h5"))
+    fills = {name: mapping(json.loads(store.get(f"{name}/zarr.json") or b"{}"))["fill_value"]
+             for name in ("int64", "enum_u64", "compound")}
+    assert fills == {"int64": -(2**60), "enum_u64": 2**60, "compound": {"i": 2**60, "f": 1.5}}
+
+
+def test_a_netcdf_fill_value_is_xarray_s_integer():
+    """A `_FillValue` attribute of one integer of an integer dataset is xarray's integer, exactly,
+    past 2^53 too, and one the dataset's type does not have (300 of a uint8 dataset), which xarray
+    reads as it is, where it refuses the attribute's list; and a float's integral value, every digit,
+    past 2^127 too (spec/zarrify/hdf5.md §6
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/hdf5.md#6-attributes>)."""
+    float_max = int(np.finfo("<f4").max)  # 340282346638528859811704183484516925440
+    for name, key, want in [("hdf5_big_fills.h5", "int64", -(2**60)), ("hdf5_fill_out_of_range.h5", "uint8", 300),
+                            ("hdf5_fill_out_of_range.h5", "int32", float_max)]:
+        store = zarrify(str(FIXTURES / "hdf5" / name))
+        attrs = mapping(mapping(json.loads(store.get(f"{key}/zarr.json") or b"{}"))["attributes"])
+        assert attrs["_FillValue"] == want, name
 
 
 @pytest.mark.parametrize("path", [p for p in ACCEPTED if p.suffix == ".nwb"], ids=lambda p: p.name)

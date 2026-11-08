@@ -1,11 +1,10 @@
 """The MP4 convention's source metadata (spec/zarrify/mp4.md), for
 spec/generate_schemas.py."""
 
-from source_metadata import BIG_SIGNED, BIG_UNSIGNED
-
-# 64-bit integers: a number, or past 2^53 - 1 the string of its digits
-_U64 = {"anyOf": [{"type": "integer", "minimum": 0}, BIG_UNSIGNED]}
-_I64 = {"anyOf": [{"type": "integer"}, BIG_SIGNED]}
+# 64-bit integers, exact whatever their magnitude (spec/conventions.md §6
+# <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>)
+_U64 = {"type": "integer", "minimum": 0}
+_I64 = {"type": "integer"}
 
 _MP4_EDITS = {"type": "array",
               "description": "The track's edit list (its elst box's entries), recorded and not applied",

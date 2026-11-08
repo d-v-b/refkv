@@ -12,7 +12,9 @@
 // corpus's collision stores are rejected by every implementation. `currentNames` reads
 // the old names as the current ones, for the tests that compare the frozen profiles with
 // the Rust core, as compare.py does (conformance/zarrify/HARNESS.md), and the codecs they
-// name as the shipped code names them (`CODEC_NAMES`).
+// name as the shipped code names them (`CODEC_NAMES`). `jsonNumber` is the frozen profiles'
+// number, which the shipped code no longer has: an integer past 2^53 − 1 as the string of its
+// digits, where the shipped code writes every integer exactly.
 
 import {
   convention as currentConvention, CONVENTION_KEY as CURRENT_KEY, planEntries, type Plan, PROFILES,
@@ -37,6 +39,17 @@ const NODE_NAME = /^(?:zarr\.json|\.zarray|\.zgroup)~*$/;
 // The codecs the frozen profiles name that the shipped code names otherwise: a zlib stream
 // is zarr-python's `numcodecs.zlib`, and refkv's own TIFF LZW codec `refkv.tiff_lzw`.
 const CODEC_NAMES: Record<string, string> = { zlib: "numcodecs.zlib", imagecodecs_lzw: "refkv.tiff_lzw" };
+
+/** A number as source metadata, as the frozen profiles write it: a float as itself, or "NaN",
+ * "Infinity" or "-Infinity"; an integer as itself up to 2^53 − 1 in magnitude, else the string
+ * of its digits. */
+export function jsonNumber(v: number | bigint): number | string {
+  const max = BigInt(Number.MAX_SAFE_INTEGER);
+  if (typeof v === "bigint") return v <= max && v >= -max ? Number(v) : v.toString();
+  if (Number.isNaN(v)) return "NaN";
+  if (!Number.isFinite(v)) return v > 0 ? "Infinity" : "-Infinity";
+  return v;
+}
 
 export function objectKey(key: string): string {
   return OBJECTS + key + (NODE_NAME.test(key.slice(key.lastIndexOf("/") + 1)) ? "~" : "");

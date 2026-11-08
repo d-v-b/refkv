@@ -32,7 +32,7 @@
 
 use crate::fed::{Word, uint};
 use crate::ir::*;
-use crate::out::{declare, json_size, metadata_array, metadata_group, Chunk, Out, CONVENTION_KEY, SOURCE_NODE};
+use crate::out::{declare, int_json, json_size, metadata_array, metadata_group, Chunk, Out, CONVENTION_KEY, SOURCE_NODE};
 use crate::types::{self, Ty, Val};
 use serde_json::{json, Map, Value as J};
 use std::collections::{HashMap, HashSet};
@@ -731,7 +731,6 @@ const TOTAL: usize = 1 << 24; // bytes of all view documents
 /// The most bytes of a value the view shows (conventions §8.7
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#87-the-view>).
 pub const VIEW_VALUE: u64 = 1 << 10;
-const MAX_SAFE: i128 = (1 << 53) - 1;
 
 pub fn escape_key(k: &str) -> String {
     if k.starts_with('$') { format!("${k}") } else { k.to_string() }
@@ -773,13 +772,7 @@ pub fn base64(b: &[u8]) -> String {
 /// A decoded value as JSON, in the `$vz` vocabulary.
 pub fn tag_json(v: &Val) -> J {
     match v {
-        Val::Int(i) => {
-            if i.abs() <= MAX_SAFE {
-                json!(*i as i64)
-            } else {
-                json!({"$vz": "int", "v": i.to_string()})
-            }
-        }
+        Val::Int(i) => int_json(*i),
         Val::Float(f) => {
             if f.is_finite() {
                 json!(f)
@@ -1592,8 +1585,7 @@ pub fn canonical_problem(get: &dyn Fn(&str) -> Option<Vec<u8>>, read: &mut dyn F
     for (k, v) in &out.entries {
         let stored = get(k);
         let same = match (k.ends_with("zarr.json"), &stored) {
-            (true, Some(s)) => serde_json::from_slice::<J>(s).ok().map(|d| table_part(k, d))
-                == serde_json::from_slice::<J>(v).ok(),
+            (true, Some(s)) => json_doc(s).map(|d| table_part(k, d)) == json_doc(v),
             (false, Some(s)) => s == v,
             _ => false,
         };
@@ -1757,7 +1749,7 @@ pub fn view_problem(keys: &[String], get: &dyn Fn(&str) -> Option<Vec<u8>>,
     for k in &names {
         let group = k.trim_end_matches("/zarr.json").trim_start_matches(&format!("{SOURCE_NODE}/"));
         let Some(stored) = get(k) else { return Some(format!("view: group {group} is missing")) };
-        let (a, b): (J, J) = (serde_json::from_slice(&stored).unwrap_or(J::Null), serde_json::from_slice(rebuilt[k]).unwrap_or(J::Null));
+        let (a, b) = (json_doc(&stored).unwrap_or(J::Null), json_doc(rebuilt[k]).unwrap_or(J::Null));
         if a == b {
             continue;
         }
@@ -1773,6 +1765,13 @@ pub fn view_problem(keys: &[String], get: &dyn Fn(&str) -> Option<Vec<u8>>,
         return Some(format!("view: group {} is not in the rebuilt view", k.trim_end_matches("/zarr.json").trim_start_matches(&format!("{SOURCE_NODE}/"))));
     }
     None
+}
+
+/// A document the validator compares, its numbers by value (an integer every digit, any other its
+/// binary64 value), as serde_json compares them without arbitrary_precision; None when it is not
+/// JSON, or holds a number not finite in binary64.
+fn json_doc(b: &[u8]) -> Option<J> {
+    serde_json::from_slice(b).ok().and_then(crate::json::binary64)
 }
 
 /// The first member (by its path of keys) where `a` (stored) and `b` (rebuilt) differ.

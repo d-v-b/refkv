@@ -462,9 +462,11 @@ The translation:
     valid, else ISO 8859-1, so that its bytes are kept: Specific Character
     Set is not applied, and is in the dataset for a reader who decodes the
     bytes). An empty value is `null`. An `IS` value of the form
-    `[+-]?[0-9]+` is that integer ([conventions §6](../conventions.md#6-source-metadata-as-json)): with more than 16
-    digits without its sign and leading zeros, it is above 2^53 − 1, and
-    is the string of those digits (with a leading `-` if negative). A `DS` value that
+    `[+-]?[0-9]+` is that integer, exact (an
+    [`Integer`](../conventions.md#type-integer)), when it is a valid `IS`: at most
+    12 characters (trimmed), and from −2^31 to 2^31 − 1 (PS3.5 Table 6.2-1); any
+    other is its text, as a value that is no number is
+    ([conventions §6](../conventions.md#6-source-metadata-as-json)). A `DS` value that
     matches the pattern of [§2.2](#22-attributes) is a number when it is one exactly: its
     binary64 value `v` ([spec/zarrify.md §1.3](../zarrify.md#13-arithmetic))
     is finite, and the text's decimal value equals that of the shortest
@@ -620,7 +622,9 @@ element `s/<i>/<p>`, read as above (in little endian when the attribute
 has `"LittleEndian"`). A gathered sequence without items is
 `{"vr": "SQ", "Value": []}`.
 
-The bounds below weigh each column as revision 25 stored it, as an array.
+The bounds below weigh each column as revision 25 stored it, as an array, except that an `IS`
+value has typed values only when every value is a valid `IS` ([§5.2](#52-the-datasets-as-json)),
+where revision 25 took one of up to 19 digits within int64.
 Each value has **typed values**, of a data type:
 
 | value | typed values |
@@ -628,7 +632,7 @@ Each value has **typed values**, of a data type:
 | a numeric VR: `FL`, `FD`, `SL`, `SS`, `UL`, `US`, `SV`, `UV` | its values as `float32`, `float64`, `int32`, `int16`, `uint32`, `uint16`, `int64`, `uint64` respectively, in the byte order in which it is stored |
 | a binary VR: `OB`, `OD`, `OF`, `OL`, `OV`, `OW`, `UN` | its values as `uint8`, `float64`, `float32`, `uint32`, `uint64`, `uint16`, `uint8` respectively, in the byte order in which it is stored |
 | a `DS` value of at most 2^16 bytes whose every value (split and trimmed as above) is a number by the rule above | those numbers as `float64`, in little endian |
-| an `IS` value of at most 2^16 bytes whose every value is of the form `[+-]?[0-9]+` and from −2^63 to 2^63 − 1 | those integers as `int64`, in little endian |
+| an `IS` value of at most 2^16 bytes whose every value is a valid `IS`, which is an integer (above: of the form `[+-]?[0-9]+`, at most 12 characters, from −2^31 to 2^31 − 1) | those integers as `int64`, in little endian |
 | a value of another VR (text, `AT`, the bytes of a sequence), or whose length is not a multiple of its value size | its bytes as stored, as `uint8` |
 
 A

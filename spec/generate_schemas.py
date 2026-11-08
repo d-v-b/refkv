@@ -89,7 +89,7 @@ MIRROR_DEFS = {
         "anyOf": [
             {"type": ["string", "number", "boolean", "null", "array"]},
             {"type": "object", "properties": {"$vz": {"enum": [
-                "alias", "group", "element", "derived", "int", "float", "bytes", "utf16"]}},
+                "alias", "group", "element", "derived", "float", "bytes", "utf16"]}},
              "required": ["$vz"]},
             {"type": "object"},
         ],

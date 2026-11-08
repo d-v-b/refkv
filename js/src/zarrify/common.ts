@@ -247,18 +247,6 @@ export function setMember(o: Record<string, unknown>, key: string, value: unknow
 }
 
 /**
- * A number as source metadata (spec/conventions.md §6
- * <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>).
- */
-export function jsonNumber(v: number | bigint): number | string {
-  const max = BigInt(Number.MAX_SAFE_INTEGER);
-  if (typeof v === "bigint") return v <= max && v >= -max ? Number(v) : v.toString();
-  if (Number.isNaN(v)) return "NaN";
-  if (!Number.isFinite(v)) return v > 0 ? "Infinity" : "-Infinity";
-  return v;
-}
-
-/**
  * Bytes as text: UTF-8 if valid, else ISO 8859-1 (spec/conventions.md §6
  * <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>).
  */
@@ -300,14 +288,18 @@ export function jsonText(b: Uint8Array): string | { latin1: string } {
  * <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#11-output-and-equivalence>).
  * `JSON.stringify` writes a binary64 value that is an integer beyond 2^53 − 1 and below 10^21
  * as digits padded with zeros (2^64 as `18446744073709552000`), which reads as
- * an integer literal of another value; this writes its exact digits instead.
+ * an integer literal of another value; this writes its exact digits instead. A bigint, which
+ * `JSON.stringify` refuses, is the JSON integer of its digits (spec/conventions.md §6
+ * <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>).
  */
 export function stringifyJson(v: unknown): string {
   const raw = JSON as unknown as { rawJSON(text: string): object };
   return JSON.stringify(v, (_k, x) =>
-    typeof x === "number" && Number.isInteger(x) && Math.abs(x) > Number.MAX_SAFE_INTEGER && Math.abs(x) < 1e21
-      ? raw.rawJSON(BigInt(x).toString())
-      : x,
+    typeof x === "bigint"
+      ? raw.rawJSON(x.toString())
+      : typeof x === "number" && Number.isInteger(x) && Math.abs(x) > Number.MAX_SAFE_INTEGER && Math.abs(x) < 1e21
+        ? raw.rawJSON(BigInt(x).toString())
+        : x,
   );
 }
 

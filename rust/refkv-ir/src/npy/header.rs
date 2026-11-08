@@ -23,7 +23,7 @@ impl Lit {
     pub fn json(&self) -> J {
         match self {
             Lit::Str(s) => json!(s),
-            Lit::Int(i) => u64::try_from(*i).map_or_else(|_| json!(i.to_string()), |v| json!(v)),
+            Lit::Int(i) => J::Number(serde_json::Number::from_u128(*i).expect("arbitrary_precision holds every u128")),
             Lit::Bool(b) => json!(b),
             Lit::Tuple(v) | Lit::List(v) => J::Array(v.iter().map(Lit::json).collect()),
             Lit::Dict(m) => J::Object(m.iter().map(|(k, v)| (k.clone(), v.json())).collect()),
