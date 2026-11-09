@@ -328,7 +328,7 @@ a file can hold hundreds of thousands of them.
   whose units lie in a derived space past the IR's room has no grid (the general fallback).
 - **A range of an element**, where the unit is part of one. A range survives a graft without
   object keys, and the check holds it to its element's extent:
-  - a FITS tile within its heap element, including a `.fits.gz` heap in its derived space;
+  - a FITS tile within its heap element;
   - an HDF5 chunk of a dataset with an implicit index the parser does not make chunk elements of
     (it decides by what the image needs), within the dataset's one `data` element;
   - an HDF5 dataset's compact data, within its layout message's `data` element.
@@ -452,9 +452,10 @@ Units may differ from their array in three ways, each a column:
   skip its codec.
   - A parameter is given either in its codec or as a column, never both.
   - A codec whose parameter is a column appears once in its chain.
-  - A codec sees only a unit's bytes and parameters, never its coordinates. A parameter that
-    depends on the unit's position, such as FITS's dither seed (ZDITHER0 plus the tile's index), is
-    a column the parser computes.
+  - A codec sees a unit's bytes, its parameters and its shape, never its coordinates
+    ([ir-format-descriptions.md](ir-format-descriptions.md#a-codec-sees-the-units-shape)). A
+    parameter that depends on the unit's position other than through its shape, such as FITS's
+    dither seed (ZDITHER0 plus the tile's index), is a column the parser computes.
 
 **Configuration elsewhere in the source.** A codec may need configuration that the source defines
 once, apart from the units, for many units. Zarr's codecs cannot say this; refkv's can.
@@ -702,7 +703,8 @@ one array is stored. This changes two things in profile-plugins:
    - TIFF's plan PR replaces the JPEG prefix.
    - FITS's describe-only PR records each tile's chain; its plan PR moves `tile_cut` to the
      projection.
-   - GRIB's describe-only PR keeps its NaN at masked points, so its output is unchanged.
+   - GRIB's describe-only PR describes a field with a bitmap as its coded values, leaving their
+     placement and the masked points' value (NaN today) to its plan, so its output is unchanged.
 
 Step 1 lands before profile-plugins' step 3, so that NumPy's description, the first, uses the shared
 type rather than an array shape of its own.

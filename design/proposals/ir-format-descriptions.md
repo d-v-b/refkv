@@ -17,8 +17,7 @@ A format so has three PRs: the describe-only PR here, then profile-plugins' two.
 The describe-only PRs do not need the machine: NumPy's description landed without it, and an HDF5
 spike described every HDF5 dataset without it
 ([ir-array-model.md](ir-array-model.md#order-of-work)). Landing them first tests every format's
-description against its reference reader before any plan reads it, and settles the codec list
-once.
+description against its reference reader before any plan reads it, and settles the codec list once.
 
 A describe-only PR changes no output. It changes the IR mirror's forms only where a declaration
 or unit needs a place the IR does not have (a gzipped header, [§Gzipped files](#gzipped-files)),
@@ -49,8 +48,8 @@ NRRD, safetensors, DICOM, CZI, ND2, LIF with XLEF, SAFE, and NumPy's deflated `.
 ## Rules every format PR follows
 
 1. **Every array the parser reaches is described**, presented or not: a TIFF thumbnail, an
-   unpresented HDF5 dataset, an HDF5 attribute, a CZI subblock the plan leaves out, a DICOM icon.
-   An array whose storage the IR does not model has no grid
+   unpresented HDF5 dataset, an HDF5 attribute, a CZI subblock the plan leaves out, a DICOM icon. An
+   array whose storage the IR does not model has no grid
    ([§2.3](../../spec/stored-array.md#23-the-grid)).
 2. **The facts give each description's key**, the declaring element's id, as NumPy's
    `declared_by` does. A format whose IRs are grafted renumbers it in its store code. Where the
@@ -88,9 +87,8 @@ NRRD, safetensors, DICOM, CZI, ND2, LIF with XLEF, SAFE, and NumPy's deflated `.
    reference reader: shapes, `item_bits`, grids, each row's bytes against the reader's offsets and
    lengths, and each unit decoded through its chain (by step 0's helper) against the reader's
    decoded unit, with no color conversion on either side beyond what a codec's entry says its
-   decoding does. One test per refusal and per fallback.
-   Fixtures the corpus lacks are crafted in the fixture generators, where the reference library or
-   the generator can write them.
+   decoding does. One test per refusal and per fallback. Fixtures the corpus lacks are crafted in
+   the fixture generators, where the reference library or the generator can write them.
 8. **No output change.** `just cli-identical` and the fixture comparison show no change but the
    mirror forms the PR names, which only the change above allows; the PR names those, any fixture
    whose array falls back at the map's limit, and any crafted source the descriptions' limit refuses
@@ -99,7 +97,9 @@ NRRD, safetensors, DICOM, CZI, ND2, LIF with XLEF, SAFE, and NumPy's deflated `.
    NumPy's form: its arrays and keys, shape and axes, `item_bits`, grid and units, chains, fill,
    declarations, and fallbacks. `axes` reversed, here as in NumPy's, means for two or more axes,
    and covers the axes the source lists; a samples or channel axis the source does not list takes
-   the next position, n, and stays last unless its layout puts it first.
+   the next position, n, in that list (its `axes` entry), and sits in `shape` where its layout puts
+   it in storage order (last when interleaved, first when planar, between others as LIF's channel
+   offsets put it).
 
 ## Step 0: the shared rules
 
@@ -164,9 +164,10 @@ since other decoders differ and the checks compare bytes:
 - a 10918-1 stream's subsampled components are upsampled by libjpeg's "fancy" filters (h2v1,
   h2v2 and h1v2) after the integer IDCT (JDCT_ISLOW), as libjpeg-turbo 2.0 and later do by default,
   which the checkers need;
-- BMP and JPEG XR make their samples in R, G, B order, whatever order the stream stores them in
-  (BMP's B, G, R; JPEG XR's BGR pixel formats), and BMP's rows top first; a 32-bit BMP keeps its
-  fourth sample where its alpha mask is set and drops the unused byte where it is not.
+- BMP and JPEG XR make their samples in the order the stream stores or declares them (BMP's B, G,
+  R; a JPEG XR BGR pixel format's B, G, R), the helper reversing imagecodecs' R, G, B; BMP's rows
+  top first; a 32-bit BMP keeps its fourth sample where its alpha mask is set and drops the unused
+  byte where it is not.
 
 A paletted PNG or BMP makes its stored indices, one sample, as Pillow decodes it; its palette (PNG's
 PLTE, BMP's color table) stays in the unit's bytes for the profile to read and apply, as TIFF's
@@ -233,8 +234,9 @@ in a module of its own, every compressor of [§Codecs](#codecs) (`tiff_lzw` amon
 `header` and `jpeg2k`'s `main_header` variants), so that no format PR writes a shared codec's
 decoding; each format PR adds, in its own module, the codecs only it uses, and edits no shared
 file. How the helper decodes where imagecodecs lacks a codec, in step 0's modules or a format's:
-- `png` and `bmp` where paletted: Pillow for PNG, which keeps the indices, and imagecodecs'
-  `bmp_decode` with `asrgb=False`;
+- `png` and `bmp` where paletted: Pillow, which keeps the indices for PNG and for BMP's 1, 4 and
+  8 bits and RLE (imagecodecs' `bmp_decode` keeps them for 8 bits only);
+- `bmp` and `jpegxr` otherwise: imagecodecs, its R, G, B reversed to the stored order;
 - `skip`, `fits_quantize`, `lsb_first` and `h5_fletcher32` (HDF5's Fletcher-32 checked over the
   bytes before the checksum, which is then dropped): in Python;
 - `ccitt_t6`: imagecodecs' `ccittfax4_decode`, which makes a byte per pixel, packed into rows of
@@ -273,13 +275,12 @@ as a place, its bytes being the format's to read.
 
 A name follows [§3.2](../../spec/stored-array.md#32-the-list): it states the byte format its
 decoding takes, its framing included, and covers two framings only where a parameter chooses. This
-list supersedes the sketch in [ir-array-model.md](ir-array-model.md#codecs). Each parameter is
-given as `name: kinds`, where a kind is a value's JSON type (`int`, `str`, `bool`, `float`,
-`int[]`, or `any`), `place`, or `column` with its Arrow type; a parameter is required unless marked
-optional. Configuration the source gives once may be a value only where step 0 allows one. A name
-also covers two framings where their standard tells them apart by their first bytes (JPEG XL's
-codestream and container); step 0 adds that to
-[§3.2](../../spec/stored-array.md#32-the-list)'s rule.
+list supersedes the sketch in [ir-array-model.md](ir-array-model.md#codecs). Each parameter is given
+as `name: kinds`, where a kind is a value's JSON type (`int`, `str`, `bool`, `float`, `int[]`, or
+`any`), `place`, or `column` with its Arrow type; a parameter is required unless marked optional.
+Configuration the source gives once may be a value only where step 0 allows one. A name also covers
+two framings where their standard tells them apart by their first bytes (JPEG XL's codestream and
+container); step 0 adds that to [§3.2](../../spec/stored-array.md#32-the-list)'s rule.
 
 `source`, already in the list, takes `format`: `str`; `id`: `int`, `str`; `name` (optional): `str`;
 `parameters` (optional): `any`, `place`.
@@ -323,15 +324,15 @@ codestream and container); step 0 adds that to
 | `jpeg` | an ISO 10918-1 stream, any process | `tables` (optional; an abbreviated table stream, TIFF's tag 347): `place`; `header` (optional; the stream up to its first scan, the unit being one restart interval's entropy-coded segment, its RSTn marker excluded, decoded as after a restart; NDPI): `place` | TIFF, NDPI, VSI, DICOM, CZI |
 | `jpegls` | an ISO 14495-1 stream | | DICOM |
 | `jpeg2k` | an ISO 15444-1 codestream (15444-15's high throughput included), not a JP2 file | `main_header` (optional; the unit is then one tile's tile-parts, with their SOT): `place` | TIFF, VSI, DICOM, SAFE |
-| `jpegxr` | a JPEG XR file in its T.832 container (starting `II BC 01`); decoding makes R, G, B for its BGR pixel formats | | NDPI, CZI |
+| `jpegxr` | a JPEG XR file in its T.832 container (starting `II BC 01`); decoding makes the samples in its pixel format's order | | NDPI, CZI |
 | `jpegxl` | an ISO 18181-1 codestream or its 18181-2 container, which their first bytes tell apart | | TIFF |
 | `webp` | a WebP file; decoding makes an alpha sample, opaque where the stream leaves it out, when `alpha` says the array has one | `alpha` (optional, false): `bool`, `place` (TIFF: SamplesPerPixel 4) | TIFF |
 | `png` | a PNG file; a paletted one (color type 3) decodes to its indices | | VSI |
-| `bmp` | a BMP file; decoding makes R, G, B, top row first, a paletted one its indices, and a 32-bit one its fourth sample only where its alpha mask is set | | VSI |
+| `bmp` | a BMP file; decoding makes B, G, R as stored, top row first, a paletted one its indices, and a 32-bit one its fourth sample only where its alpha mask is set | | VSI |
 | `lerc` | a LERC2 blob | | TIFF, in `[lerc, zlib]` or `[lerc, zstd]` as LercParameters say |
 | `eer` | EER's run-length bits; decoding makes one byte per pixel at the declared resolution, 1 where an event lands, else 0, the sub-pixel position bits staying in the unit's bytes for a profile that wants super-resolution | `skip_bits` (optional, 7), `horizontal_bits` (optional, 2), `vertical_bits` (optional, 2): `int`, `place`; values where the compression fixes them (65000's and 65001's) | TIFF (65000 to 65002) |
 | `dicom_rle` | DICOM's RLE segments, byte planes most significant first | | DICOM |
-| `grib_unpack` | a GRIB field's section 7 | `grid` (section 3), `packing` (section 5): `place`; `bitmap` (optional; the section 6 the field uses, its own or, under indicator 254, an earlier one): `place` | GRIB |
+| `grib_unpack` | a GRIB field's section 7 | `grid` (section 3), `packing` (section 5): `place` | GRIB |
 
 - `jpeg2k` with `main_header` decodes the main header as stored with the unit's tile-parts and
   makes the tile their SOT's `Isot` names, alone, at the place the file puts it; the tile's
@@ -343,13 +344,14 @@ codestream and container); step 0 adds that to
   Allocated / 8 bytes, little-endian.
 - `grib_unpack` makes 64-bit floats, little-endian, by the unpacking, placement and ordering of
   [conventions §12](../../spec/conventions.md#12-grib-messages) (steps 2 to 4, its float operations
-  included), with alternate rows' reversal (bit 0x10) undone but no transpose: columns first (bit
+  included), the values section 7 codes, in their stored order. For a field with no bitmap, those
+  are every point, alternate rows' reversal (bit 0x10) undone but no transpose: columns first (bit
   0x20) is the array's storage order, shape `[Ni, Nj]` with no `axes`, and `axes` `[1, 0]` mark the
-  rows-first case, since section 3 lists Ni first. A point the bitmap masks has no value in section
-  7, and the array's elements are every point, so the codec makes NaN there, the one float that is
-  no value; the bitmap stays an array of its own ([§GRIB](#grib)). Complex packing's missing values
-  (templates 5.2 and 5.3, octet 23) are NaN too under management 1; management 2's primary and
-  secondary values would both become NaN, so such a field is `source` instead.
+  rows-first case, since section 3 lists Ni first. A field with a bitmap codes only the points it
+  does not mask, so its array is those values ([§GRIB](#grib)); placing them on the grid, and the
+  value a masked point shows, is the plan's. Complex packing with missing-value management
+  (templates 5.2 and 5.3, octet 23 not 0) codes missing points as values the codec would have to
+  make up, so such a field is `source`.
 
 `source` stays the fallback: old-style JPEG, and a compression, filter or packing refkv has no name
 for, with the source's number for it.
@@ -440,25 +442,23 @@ Medium, after TIFF.
 
 Large (about 2,500 lines), from the spike's branch, about 70% of which carries over.
 - **Arrays.** Every visited object with a layout message, keyed by its `objects/<i>` struct, and
-  each attribute, keyed by its own attribute message's element: one unit, its value's element, in
-  an empty chain. A chunked dataset's grid is `Each(chunk)` under `full`, one row per index entry,
-  its chain the filter pipeline; a chunk's `skips` are its filter mask's bits, and every filter
-  for a partial edge chunk where the layout message's don't-filter-partial-chunks flag is set,
-  which HDF5 records there and not in the chunk's mask (the doc comment at
-  `rust/refkv-ir/src/hdf5/mod.rs:1843` says otherwise, though the code beside it, `raw_edges`,
-  already reads the flag; the PR corrects the comment and adds a crafted fixture written under
-  `H5Pset_chunk_opts` through ctypes); a compact or
-  contiguous one is one unit.
+  each attribute, keyed by its own attribute message's element: one unit, its value's element, in an
+  empty chain. A chunked dataset's grid is `Each(chunk)` under `full`, one row per index entry, its
+  chain the filter pipeline; a chunk's `skips` are its filter mask's bits, and every filter for a
+  partial edge chunk where the layout message's don't-filter-partial-chunks flag is set, which HDF5
+  records there and not in the chunk's mask (the doc comment at `rust/refkv-ir/src/hdf5/mod.rs:1843`
+  says otherwise, though the code beside it, `raw_edges`, already reads the flag; the PR corrects
+  the comment and adds a crafted fixture written under `H5Pset_chunk_opts` through ctypes); a
+  compact or contiguous one is one unit.
 - **Spike rework.** `shape: None` for the null dataspace; the codec names above; `source` with the
   filter's name; filter configuration as places in the filter message's client data, which HDF5's
   document says how to read; the spike's second filter parser folded into `parse_filters`; an
   implicit index whose chunk is its element's whole extent names the element alone.
-- **The note's duties**
-  ([ir-array-model.md](ir-array-model.md#order-of-work)): the fill value's states kept in
-  `Dataset`; a shared fill message resolved through the shared-message heap; a wrong-sized fill
-  tested against the library, falling back to `undefined` with the message among the declarations;
-  chunks compared with `get_chunk_info_by_coord`; listing stopped once an array's units alone pass
-  the map's limit.
+- **The note's duties** ([ir-array-model.md](ir-array-model.md#order-of-work)): the fill value's
+  states kept in `Dataset`; a shared fill message resolved through the shared-message heap; a
+  wrong-sized fill tested against the library, falling back to `undefined` with the message among
+  the declarations; chunks compared with `get_chunk_info_by_coord`; listing stopped once an array's
+  units alone pass the map's limit.
 - **Crafted fixtures** for undefined, shared, old-style (message 0x04) and wrong-sized fills, and
   the bzip2, szip and N-bit filters. N-bit packs only reduced-precision types, which HDF5 2.0
   refuses to create unless the file access property list relaxes its integrity checks
@@ -478,14 +478,16 @@ Medium-large (about 1,000 lines).
 - **Shape.** NAXISn…NAXIS1 (ZNAXIS for a compressed image) with `axes` reversed, as a Fortran-order
   `.npy`'s, of |BITPIX| (|ZBITPIX|) bits; rows `[NAXIS2]` of 8·NAXIS1 bits; heap `[H]` of 8. Fill
   `undefined`; BLANK, BSCALE and BZERO are declarations.
-- **Units.** An image, rows or heap is one unit, its element, but a compressed image's heap,
-  which `tile_cut` splits into `heap/<j>` elements, is its HDU's `hdus/<i>` element with a
-  `range`, which works in a `.fits.gz`'s derived space too. A compressed image's are its tiles,
-  `Each(ZTILEj)`, `short`: each a range of today's `heap/<j>` element, or the element alone where
-  the tile is all of it. The describe-only PR keeps `tile_cut`. An absent tile has no row.
+- **Units.** An image, rows or heap is one unit, its element, but a compressed image's heap, which
+  `tile_cut` splits into `heap/<j>` elements, is its HDU's `hdus/<i>` element with a `range` (the
+  parser refuses a compressed image inside a compressed file, so no derived space is involved). A
+  compressed image's are its tiles, `Each(ZTILEj)`, `short`: each a range of today's `heap/<j>`
+  element, or the element alone where the tile is all of it. The describe-only PR keeps `tile_cut`.
+  An absent tile has no row.
 - **Chains.** Chain 0 is `[fits_quantize, compressor]` for a quantized image, else `[compressor]`,
   where the compressor is `fits_rice`, `gzip`, `shuffle` then `gzip` for GZIP_2, or none for
-  NOCOMPRESS; chain 1 is `[gzip]` for tiles in GZIP_COMPRESSED_DATA. Under quantization every
+  NOCOMPRESS; chain 1 is `[gzip]` for tiles in GZIP_COMPRESSED_DATA where that differs from chain
+  0, and those tiles use chain 0 where it does not. Under quantization every
   compressor codes 4-byte integers, so `fits_rice`'s `byte_pix` and GZIP_2's `shuffle`
   `element_size` are the value 4; unquantized, they are places (the BYTEPIX ZVAL card, and ZBITPIX),
   and `block_size` is the BLOCKSIZE ZVAL card, each absent where its card is, the codec's entry
@@ -503,11 +505,12 @@ Medium-large (about 500 lines).
 - **Arrays.** Each field, keyed by `messages/<i>`, its index the array's position among the
   message's arrays, bitmaps and fields together, in the source's order: shape `[Nj, Ni]` with `axes`
   `[1, 0]`, since section 3 lists Ni first (or, columns first, `[Ni, Nj]` with no `axes`), or
-  `[points]` for reduced grids and template 3.101; `item_bits` 64; fill `undefined`, since NaN at a
-  masked point is what `grib_unpack` makes, not a fill. Each section 6 that holds a bitmap
-  (indicator 0) is an array too: shape `[points]` in section 7's stored order (alternate rows not
-  undone), 1-bit items in an empty
-  chain, its bitmap bytes as one unit, indexed before the field whose section 7 follows it.
+  `[points]` for reduced grids and template 3.101; a field with a bitmap (its own, or an earlier one
+  under indicator 254) `[n]`, section 5's number of coded values, with section 3's grid and the
+  bitmap among its declarations; `item_bits` 64; fill `undefined`. Each section 6 that holds a
+  bitmap (indicator 0) is an array too: shape `[points]` in section 7's stored order (alternate rows
+  not undone), 1-bit items in an empty chain, its bitmap bytes as one unit, indexed before the field
+  whose section 7 follows it.
 - **Unit.** The field's section 7 element, in `[grib_unpack]`, whose places are its own: each field
   has a chain of its own, about 13 description entries, within the descriptions' limit of one per
   four bytes for any field of 52 bytes or more.
@@ -515,7 +518,8 @@ Medium-large (about 500 lines).
   template refkv does not unpack is `source` with the template's number; one with a bitmap
   indicator 1–253 has no grid.
 - **Checker.** eccodes, its values put in the codec's order: alternate rows' reversal undone, and,
-  where columns come first, shaped `[Ni, Nj]` with no transpose. The four fixtures eccodes cannot
+  where columns come first, shaped `[Ni, Nj]` with no transpose; for a field with a bitmap, the
+  values at the points the bitmap leaves, in order. The four fixtures eccodes cannot
   read (the PNG packings of 1, 2 and 4 bits, on which it aborts, and the indicator-254 field of
   `grib_bitmap_254`) compare against `fixtures/grib/expected`, as the GRIB tests do today.
 
@@ -554,8 +558,8 @@ Small-medium.
 - **Arrays.** Keyed by the header file's object element (the header has no element of its own):
   shape `sizes` with `axes` reversed, `item_bits` from `type`; its `dimension`, `type`, `sizes`,
   `endian`, `encoding`, `line skip`, `byte skip` and `data file` lines are declarations, the
-  `lines/<i>` elements the parser already makes for them. A
-  detached data file is an object of the store, so its unit is an element there.
+  `lines/<i>` elements the parser already makes for them. A detached data file is an object of the
+  store, so its unit is an element there.
 - **Chains.** Raw `[]`; gzip `[gzip]`, or `[skip, gzip]` (encoding order) where `byte skip` is
   above 0, `skip`'s `length` that line, since NRRD counts it in inflated bytes.
 - **Checker.** pynrrd.
@@ -587,19 +591,18 @@ Medium.
   A whole-slide image's frames are its tiles, and the total matrix, with the dimension organization
   that places them, is a declaration the plan assembles from, as OME's planes and CZI's subblocks
   are.
-- **Units.** A native frame is a run member (`member`), or `frames/0` alone where the file holds
-  one frame; a frame of one fragment is its
-  `fragments/<j>` element; a frame of several is `ranges` of the parsed source. Frames whose bits
-  do not end on a byte make the array one unit. ND2 and DICOM give the first real `member` rows.
+- **Units.** A native frame is a run member (`member`), or `frames/0` alone where the file holds one
+  frame; a frame of one fragment is its `fragments/<j>` element; a frame of several is `ranges` of
+  the parsed source. Frames whose bits do not end on a byte make the array one unit. ND2 and DICOM
+  give the first real `member` rows.
 - **Codecs.** `jpeg`, `jpegls`, `jpeg2k`, `dicom_rle`, and `lsb_first(1)` for 1-bit data.
 - **Checker.** pydicom: `generate_frames` for encapsulated rows' bytes and Pixel Data's offsets for
   native ones; `pixel_array` (or `iter_pixels`) with `raw=True` for the decoding; a JPEG 2000 frame
   whose components are sampled differently is `source` (step 0), checked on its rows' bytes alone.
-  The PR
-  adds pylibjpeg with its libjpeg and openjpeg plugins and pyjpegls to the dev group, since pydicom
-  has no decoder installed for the corpus's lossless JPEG, JPEG-LS and HTJ2K files. pydicom would
-  then decode baseline and extended JPEG with pylibjpeg's libjpeg, another codebase with its own
-  upsampler, so the test passes its Pillow plugin for those (`decoding_plugin="pillow"`), which
+  The PR adds pylibjpeg with its libjpeg and openjpeg plugins and pyjpegls to the dev group, since
+  pydicom has no decoder installed for the corpus's lossless JPEG, JPEG-LS and HTJ2K files. pydicom
+  would then decode baseline and extended JPEG with pylibjpeg's libjpeg, another codebase with its
+  own upsampler, so the test passes its Pillow plugin for those (`decoding_plugin="pillow"`), which
   decodes with libjpeg-turbo as imagecodecs does.
 
 ### CZI
@@ -611,8 +614,7 @@ Medium-large.
   says; only deleted segments stay bytes. Shape is the entry's stored size, confirmed or replaced by
   the stream's frame size for JPEG, lossless JPEG and JPEG XR: `[H, W]` for gray pixel types,
   `[H, W, S]` for the Bgr and Bgra types (Bgr24, Bgr48, Bgr96Float, Bgr192ComplexFloat, Bgra32),
-  samples in BGR order as stored, or in the order a
-  compressed subblock's codec makes them (R, G, B for JPEG XR); `item_bits` per sample;
+  samples in BGR order as stored, whatever the compression; `item_bits` per sample;
   fill `undefined`. A subblock with no size has no grid.
 - **Codecs.** `jpeg`, `jpegxr`, `zstd`, `[shuffle, zstd]` for Zstd1's hi-lo, and `tiff_lzw`, which
   [czi.md](../../spec/zarrify/czi.md) gives as TIFF's. Zstd1's header is its own element, a
@@ -623,7 +625,7 @@ Medium-large.
 - **Checker.** czifile's subblock directory and raw segment bytes, and its decoded data for
   uncompressed, LZW, Zstd and JPEG XR subblocks: for uncompressed and LZW ones, its swap of BGR to
   RGB undone and alpha left out (it sets alpha to 255); for Zstd, the swap `zstd1_decode` makes
-  undone; JPEG XR compared as it is, alpha included; JPEG and lossless JPEG, which it decodes with
+  undone; JPEG XR's R, G, B reversed, alpha included; JPEG and lossless JPEG, which it decodes with
   colors converted or not at all, by the helper alone.
 
 ### ND2
@@ -644,16 +646,15 @@ Medium.
 
 Medium.
 - **Arrays.** One per image, keyed by the IR element that holds the XML text (`header/xml`;
-  `description/xml` for LOF), its index the array's position among the arrays that text declares.
-  In an XLEF project, every image lives in a LOF whose IR is grafted in, so its array is that LOF's
-  description, renumbered on graft; the project's `xml` documents are declarations, not keys.
-  Shape the dimensions' NumberOfElements, slowest first (`axes` where the strides order them
-  otherwise), with the channels as an axis (absent for one channel) at position n of the source's
-  list, as rule 9 says; `item_bits`
-  the channels' Resolution rounded up to 8, 16, 32 or 64, the Resolution a declaration; fill
-  `undefined`. An image whose channels differ in size or resolution has no grid, as a TIFF of
-  mixed BitsPerSample has none. The
-  declaration is that element; a character range inside its UTF-16 text is not given.
+  `description/xml` for LOF), its index the array's position among the arrays that text declares. In
+  an XLEF project, every image lives in a LOF whose IR is grafted in, so its array is that LOF's
+  description, renumbered on graft; the project's `xml` documents are declarations, not keys. Shape
+  the dimensions' NumberOfElements, slowest first (`axes` where the strides order them otherwise),
+  with the channels as an axis (absent for one channel) at position n of the source's list, as rule
+  9 says; `item_bits` the channels' Resolution rounded up to 8, 16, 32 or 64, the Resolution a
+  declaration; fill `undefined`. An image whose channels differ in size or resolution has no grid,
+  as a TIFF of mixed BitsPerSample has none. The declaration is that element; a character range
+  inside its UTF-16 text is not given.
 - **Units.** One per image where its strides nest; where they do not (padded rows, planar channel
   offsets), rows or planes, each the image's element with a `range`; no grid where they do not tile
   it (zero strides).
