@@ -293,8 +293,9 @@ Further rules for the map:
   whose rows would take the map past it falls back to no grid (the general fallback), with no
   chains, no unit parameters and none of its rows, and later arrays are still tried. Which arrays
   fall back follows, in a file IR, from the source alone, and in a store from its files in graft
-  order. A chain no description names after the fit is dropped from the table, and the
-  descriptions' limit is checked after the fit. The run goes on. An array's rows are never cut short, which a profile would read as units the
+  order. A chain no description names after the fit is dropped from the table, keeping the
+  others' order, and positions are renumbered. A fallback does not stop the run. The descriptions'
+  limit, checked after the fit, still refuses it. An array's rows are never cut short, which a profile would read as units the
   source does not hold.
 
 One batch per `Ir`, not one per array, because CZI subblocks and GRIB fields are each an array, and
@@ -531,14 +532,14 @@ share, and the map. They are not in the facts. So:
   sections of its own. Such an array has a chain of its own, a few places long, which the
   descriptions' limit counts. Copying the bytes into a `Value` would share more chains at the cost
   of duplicating source bytes, which the description avoids (see the alternatives).
-- **They count against limits,** apart from the IR's room, each against its own, with entries as
-  `spec/stored-array.md` defines them:
+- **They count against limits** of their own, in new `Budget` fields, never against the IR's
+  room (`records` and `elements`), with entries as `spec/stored-array.md` defines them:
   - the descriptions, at 2^22 entries once, plus 4 and one per 4 bytes for each object (in a file
     IR, the source). No source is promised to fit: a rank-32 HDF5 dataset whose header shares its
     messages can pass it, and is refused;
   - the chunk map, at 2^22 entries once, plus 4 and four per byte for each object. Each row,
-    each of its coordinates and each item of its `ranges` is an entry; a row's `range` is part of
-    the row.
+    each of its coordinates, each item of its `ranges` and each parameter value it sets is an
+    entry; a row's `range` is part of the row.
 
   A unit can cost a single byte of the source: the HDF5 spike's (below) 4 MB file of 2000 × 2000
   one-byte chunks under an implicit index parses today, and refkv's parser bounds a chunk count
@@ -552,7 +553,9 @@ share, and the map. They are not in the facts. So:
   fall back at any rank. No source that parses today is refused for its map. The cost is memory, by part as built: about 93
   bytes a row, 8 a coordinate and 24 a `ranges` item (109 for a rank-2 row). The worst case, rank-1
   rows over an index two headers share, is about 200 bytes per byte of the source, and about
-  210 MB at the 2^22 floor, plus about 76 bytes per row while Python holds an export. The
+  210 MB at the 2^22 floor, plus about 76 bytes per row while Python holds an export. A parameter
+  column also has a null slot on every row that does not set it, about 8 bytes a row per column;
+  the list allows only a few such columns (FITS's ZSCALE, ZZERO and dither seed among them). The
   descriptions' limit still refuses; no corpus file comes near it. `memory()` includes both.
   `digest()` covers the descriptions and each row's values, not the Arrow layout: the columns in a fixed order (the named ones, then the parameter
   columns by name) and a dictionary's keys as their strings.
@@ -591,9 +594,14 @@ be read as a source.
   point: the 2^22 floor once, plus 4 and four per byte for each object grafted so far, this file
   included. An array that fitted in its file but does not fit there falls back to no grid. A
   file's descriptions inside a store can therefore lose grids, depending on the files grafted
-  before it, and the store's `digest()` reflects that. A graft never fails on the map's limit. As
-  today it fails, adding nothing, on the IR's room, and now also on the descriptions' limit; the
-  checks run in the store's `check::finish`.
+  before it, and the store's `digest()` reflects that;
+- then the chains the file's remaining descriptions name, with their `Place::Element` ids
+  renumbered, join the store's table: one equal to a chain already there takes its position, and
+  the rest are appended in order of first use. The store's earlier chains and positions do not
+  change, and a chain no remaining description names is not carried;
+- last, the descriptions' limit is checked. A graft never fails on the map's limit. As today it
+  fails, adding nothing, on the IR's room, and now also on the descriptions' limit; the checks run
+  in the store's `check::finish`.
 
 `placed()` does the same renumbering for HDF5's store facts today.
 
