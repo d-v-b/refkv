@@ -1228,15 +1228,46 @@ impl Ctx<'_> {
     }
 }
 
-/// Whether element `e`'s recipe gives its extent as it is (no recipe, or `[["src", 0, null]]`), so
-/// that the element alone names the whole extent; any other recipe gives other bytes, and a
-/// `range` of the whole extent is the only way to name the raw ones.
-fn identity_recipe(ir: &Ir, e: u32) -> bool {
+/// Whether element `e`'s recipe, over its `len` bytes, gives its extent as it is (spec/stored-array.md
+/// §5.2 <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#52-the-chunk-map>): no
+/// form or no recipe, or a recipe of only `src` and `rows` parts that, read as ranges of the
+/// extent, cover `[0, len)` in order with no gap or overlap (`[["src",0]]`, `[["src",0,null]]`,
+/// split `src` parts, `rows` runs of n bytes each n apart). Then the element alone names the
+/// whole extent; any other recipe gives other bytes, and a `range` of the whole extent is the only
+/// way to name the raw ones.
+fn identity_recipe(ir: &Ir, e: u32, len: u64) -> bool {
     let Some(form) = ir.form(e) else { return true };
-    match serde_json::from_str::<J>(form) {
-        Ok(j) => j.get("recipe").is_none_or(|r| r == &json!([["src", 0, null]])),
-        Err(_) => true,
+    let Ok(j) = serde_json::from_str::<J>(form) else { return true };
+    let Some(recipe) = j.get("recipe") else { return true };
+    let Some(parts) = recipe.as_array() else { return false };
+    let mut pos = 0u64;
+    for p in parts {
+        let p = p.as_array().map(Vec::as_slice).unwrap_or(&[]);
+        let at = |k: usize| p.get(k).and_then(J::as_u64);
+        match p.first().and_then(J::as_str) {
+            Some("src") => {
+                let Some(o) = at(1).filter(|&o| o == pos) else { return false };
+                let n = match p.get(2) {
+                    None | Some(J::Null) => len.saturating_sub(o),
+                    Some(n) => match n.as_u64() {
+                        Some(n) => n,
+                        None => return false,
+                    },
+                };
+                pos = o + n;
+            }
+            Some("rows") => {
+                let (Some(o), Some(s), Some(n), Some(c)) = (at(1), at(2), at(3), at(4)) else { return false };
+                if o != pos || (c > 1 && s != n) {
+                    return false;
+                }
+                let Some(t) = n.checked_mul(c) else { return false };
+                pos = o + t;
+            }
+            _ => return false,
+        }
     }
+    pos == len
 }
 
 /// The units along an axis of `len` elements.
@@ -1478,7 +1509,7 @@ impl ChunkMap {
         // the parameter columns each (array, chain) sets, with the codec each is of
         let mut sets: HashMap<(u32, u32), Vec<(String, u32)>> = HashMap::new();
         // whether each form's recipe is the identity, parsed once per form
-        let mut identity: HashMap<Option<u32>, bool> = HashMap::new();
+        let mut identity: HashMap<(Option<u32>, u64), bool> = HashMap::new();
         // each gridded array's units along each axis, counted once
         let grid_units: Vec<Vec<u64>> = arrays
             .iter()
@@ -1522,7 +1553,7 @@ impl ChunkMap {
                         if o.checked_add(n).is_none_or(|end| end > len) {
                             return Err(row(format!("its range at {o} of {n} bytes is past its element's {len} bytes")));
                         }
-                        if (o, n) == (0, len) && *identity.entry(ctx.ir.form_id(e)).or_insert_with(|| identity_recipe(ctx.ir, e)) {
+                        if (o, n) == (0, len) && *identity.entry((ctx.ir.form_id(e), len)).or_insert_with(|| identity_recipe(ctx.ir, e, len)) {
                             return Err(row("its range is its element's whole extent, which the element alone names".into()));
                         }
                     }
@@ -2166,18 +2197,29 @@ mod tests {
     /// identity: the element alone gives the recipe's bytes, and the range the raw extent.
     #[test]
     fn a_whole_extent_range_of_an_element_of_another_recipe() {
-        let mut ir = with(valid());
-        let f = ir.forms.id(r#"{"recipe":[["shared",0],["src",0,null]]}"#);
-        let k = ir.form_of.binary_search_by_key(&4, |e| e.0).unwrap();
-        ir.form_of[k].1 = f;
-        let s = std::sync::Arc::make_mut(&mut ir.stored);
-        s.map.range[4] = Some((0, 60));
-        check_with(&ir, TEST_CODECS).unwrap();
+        // the data element (element 4, 60 bytes) under each recipe that is not the identity
+        for recipe in [
+            r#"[["shared",0],["src",0,null]]"#,
+            r#"[["src",4,null]]"#,
+            r#"[["src",0,30],["src",31,null]]"#,
+            r#"[["rows",0,12,10,5]]"#,
+            r#"[["src",0,30],["src",0,30]]"#,
+            r#"[["src",0,59]]"#,
+        ] {
+            let mut ir = with(valid());
+            let f = ir.forms.id(&format!(r#"{{"recipe":{recipe}}}"#));
+            let k = ir.form_of.binary_search_by_key(&4, |e| e.0).unwrap();
+            ir.form_of[k].1 = f;
+            std::sync::Arc::make_mut(&mut ir.stored).map.range[4] = Some((0, 60));
+            check_with(&ir, TEST_CODECS).unwrap_or_else(|e| panic!("{recipe}: {e}"));
+        }
     }
 
     /// An array that falls back leaves no parameter column of its own, nor object key, in a file
     /// IR's map at describe and in a store's at graft; a graft whose fallback then fails on the
-    /// descriptions' limit leaves the store as it was.
+    /// descriptions' limit leaves the store as it was. A column only a fallen-back array lists is
+    /// skipped though the store has one of its name and another type, the store's rows padded with
+    /// nulls in it; one that a fallen-back and a kept array of a file both list survives.
     #[test]
     fn a_fallback_leaves_no_column_or_key_of_its_own() {
         let quantize = vec![codec("quantize", &[])];
@@ -2214,6 +2256,59 @@ mod tests {
         let before = state(&store);
         assert_eq!(store.graft(&file, o[1]).unwrap_err(), format!("budget: more than {} entries of stored arrays", before.3.unwrap().2));
         assert!(state(&store) == before);
+
+        // the columns of a graft whose array falls back, in a store whose rows already have one of
+        // their names: each array of `rows` units (element 4, a byte each), listing `p.quantize.scale`
+        // when `scale` gives its value
+        let array = |element: u32, n: u64, chain: u32, listed: bool| StoredArray {
+            element, index: None, declarations: vec![], shape: Some(vec![n]), axes: None, item_bits: Some(8), pad_from: None,
+            grid: Some(Grid { axes: vec![AxisUnits::Each(1)], edge: Edge::Short }), chains: vec![chain], fill: Fill::Undefined,
+            unit_parameters: if listed { vec![UnitParameter { chain: 0, codec: 0, name: "scale".into() }] } else { vec![] },
+        };
+        let rows = |map: &mut ChunkMap, a: u32, n: u64, scale: Option<Scalar>| {
+            for k in 0..n {
+                let params = scale.map(|x| vec![("p.quantize.scale".to_string(), x)]).unwrap_or_default();
+                map.push(Row { array: a, coords: vec![k], element: Some(4), range: Some((k, 1)), params, ..Row::default() }).unwrap();
+            }
+        };
+        let quantize = || vec![codec("quantize", &[])];
+        let mut store = Ir::new_store();
+        let o = store.listing(&[("a".into(), 100), ("b".into(), 100), ("c".into(), 100)]).unwrap();
+        let room = |store: &mut Ir, n: u64| {
+            let b = store.budget.as_mut().unwrap();
+            b.rows = b.spent_rows + n;
+        };
+        // a: one kept array giving the column as Float64
+        let mut map = ChunkMap::default();
+        rows(&mut map, 0, 4, Some(Scalar::Float64(1.0)));
+        let a = with(Stored { arrays: vec![array(1, 4, 0, true)], chains: vec![quantize()], map, ..Stored::default() });
+        store.graft(&a, o[0]).unwrap();
+        // b: a kept array of no column, and one that falls back whose column of that name is UInt64;
+        // the graft succeeds, the store's column keeps its type, and b's kept rows are null in it
+        let mut map = ChunkMap::default();
+        rows(&mut map, 0, 4, None);
+        rows(&mut map, 1, 4, Some(Scalar::UInt64(7)));
+        let b = with(Stored { arrays: vec![array(1, 4, 0, false), array(2, 4, 1, true)], chains: vec![vec![], quantize()], map, ..Stored::default() });
+        room(&mut store, 8);
+        store.graft(&b, o[1]).unwrap();
+        let col = |store: &Ir| store.stored.map.params["p.quantize.scale"].clone();
+        let mut want = vec![Some(1.0); 4];
+        want.extend([None; 4]);
+        assert_eq!(col(&store), Column::Float64(want.clone()));
+        assert!(store.stored.arrays[2].grid.is_none());
+        // c: two arrays listing the column, the first (heavier) falling back, the second kept: the
+        // column keeps the second's values
+        let mut map = ChunkMap::default();
+        rows(&mut map, 0, 5, Some(Scalar::Float64(2.0)));
+        rows(&mut map, 1, 4, Some(Scalar::Float64(3.0)));
+        let c = with(Stored { arrays: vec![array(1, 5, 0, true), array(2, 4, 0, true)], chains: vec![quantize()], map, ..Stored::default() });
+        room(&mut store, 12);
+        store.graft(&c, o[2]).unwrap();
+        let s = &store.stored;
+        assert!(s.arrays[3].grid.is_none() && s.arrays[4].grid.is_some());
+        want.extend([Some(3.0); 4]);
+        assert_eq!(col(&store), Column::Float64(want));
+        check_with(&store, TEST_CODECS).unwrap();
     }
 
     /// A graft appends the chains new to the store's table in the order the file's remaining
@@ -2898,7 +2993,17 @@ mod tests {
 
     #[test]
     fn refuses_a_row_range_of_the_whole_element() {
+        // the header (element 1) has no form
         assert!(refusal(|s| s.map.range[1] = Some((0, 8))).contains("its range is its element's whole extent, which the element alone names"));
+        // the data element (element 4, 60 bytes) under each recipe that is the identity
+        for recipe in [r#"[["src",0,null]]"#, r#"[["src",0]]"#, r#"[["src",0,60]]"#, r#"[["src",0,30],["src",30,null]]"#, r#"[["rows",0,10,10,6]]"#] {
+            let mut ir = with(valid());
+            let f = ir.forms.id(&format!(r#"{{"recipe":{recipe}}}"#));
+            let k = ir.form_of.binary_search_by_key(&4, |e| e.0).unwrap();
+            ir.form_of[k].1 = f;
+            std::sync::Arc::make_mut(&mut ir.stored).map.range[4] = Some((0, 60));
+            assert!(check_with(&ir, TEST_CODECS).unwrap_err().contains("its range is its element's whole extent"), "{recipe}");
+        }
     }
 
     #[test]

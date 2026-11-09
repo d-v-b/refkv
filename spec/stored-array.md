@@ -245,12 +245,12 @@ version, `0`.
   a parser adds them in any order, and the IR sorts them.
 - Exactly one of `element` and `ranges` is set in each row. `range` is set only with `element`,
   where the unit is part of it (a FITS tile within its heap element), is at least one byte long,
-  lies within the element's bytes, and, where the element's recipe is the identity (none, or
-  `[["src", 0, null]]`), is not all of them: such a whole element names the element alone, so that
-  a unit has one spelling. With any other recipe the element alone gives the recipe's bytes, and a
-  `range` of its whole extent is the one way to name the raw bytes (a TIFF JPEG tile whose recipe
-  splices in its tables). A unit inside a derived space is an element or
-  a range of one, since `ranges` address only objects. A row's ranges are at least one, each at
+  lies within the element's bytes, and, where the element's recipe is the identity
+  ([§5.2](#52-the-chunk-map)), is not all of them: such a whole element names the element alone,
+  so that a unit has one spelling. With any other recipe the element alone gives the recipe's
+  bytes, and a `range` of its whole extent is the one way to name the raw bytes (a TIFF JPEG tile
+  whose recipe splices in its tables). A unit inside a derived space is an element or a range of
+  one, since `ranges` address only objects. A row's ranges are at least one, each at
   least one byte long, and lie within their objects as a place's do
   ([§2.2](#22-places-and-parameters)).
 - Null is the only way to write the first chain and "skips nothing".
@@ -304,7 +304,11 @@ bug in its parser: an internal error naming the array's element.
 - `member` is set exactly when `element` is set and is in a run's subtree, and is below the
   run's count;
 - `range` is set only with `element`, at least one byte long, its end within the element's bytes
-  and below 2^64, and not the element's whole extent where the element's recipe is the identity;
+  and below 2^64, and not the element's whole extent where the element's recipe is the identity:
+  the element has no form, or its form no recipe, or a recipe of only `src` and `rows` parts
+  ([conventions §8.5](conventions.md#85-forms-and-recipes)) that, read as ranges of the element's
+  extent, cover all of it in order with no gap or overlap (`[["src", 0]]`, `[["src", 0, null]]`,
+  `src` parts end to end, `rows` runs of `n` bytes each `n` apart that make up its length);
 - the first chain and no skips are written as null;
 - `chain` is a position in the array's `chains`, and `skips` names only codecs of the unit's
   chain;
@@ -375,10 +379,10 @@ would read as units the source does not hold. Arrays are tried in `Ir::arrays` o
 are in `(element, index)` order, which describe sorts them into; in a store, each graft's arrays
 keep their relative order and follow those already there, so a store's arrays are in graft order
 (not in key order: a description keyed by a file's root is keyed, in the store, by the file's
-object element, below the earlier grafts' ids). One whose rows do not fit in what remains of the
-limit keeps none of them, and falls back: its description has no grid, no chains and no unit
-parameters, and the map neither a row of it nor a parameter column or object key only its rows
-had. Later arrays are still tried, and
+object element, whose id can be below the earlier grafts' ids). One whose rows do not fit in what
+remains of the limit keeps none of them, and falls back: its description has no grid, no chains and no unit
+parameters, and the map neither a row of it, nor a parameter column only its description listed,
+nor an object key only its rows named. Later arrays are still tried, and
 the run goes on. In a file IR, which arrays fall back follows from the source alone; in a store,
 from its files in graft order. The descriptions' limit, checked after the fit, still rejects the
 run.
