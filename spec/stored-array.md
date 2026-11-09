@@ -380,10 +380,10 @@ are in `(element, index)` order, which describe sorts them into; in a store, eac
 keep their relative order and follow those already there, so a store's arrays are in graft order
 (not in key order: a description keyed by a file's root is keyed, in the store, by the file's
 object element, whose id can be below the earlier grafts' ids). One whose rows do not fit in what
-remains of the limit keeps none of them, and falls back: its description has no grid, no chains and no unit
-parameters, and the map neither a row of it, nor a parameter column only its description listed,
-nor an object key only its rows named. Later arrays are still tried, and
-the run goes on. In a file IR, which arrays fall back follows from the source alone; in a store,
+remains of the limit keeps none of them, and falls back: its description has no grid, no chains
+and no unit parameters, and the map neither a row of it, nor a parameter column only its
+description listed, nor an object key only its rows named. Later arrays are still tried, and the
+run goes on. In a file IR, which arrays fall back follows from the source alone; in a store,
 from its files in graft order. The descriptions' limit, checked after the fit, still rejects the
 run.
 
