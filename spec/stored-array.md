@@ -312,7 +312,8 @@ bug in its parser: an internal error naming the array's element.
   (`[["src", 0]]`, `[["src", 0, null]]`, `src` parts end to end, `rows` runs of `n` bytes each `n`
   apart, or a single run of any stride, that make up its length). A part of no bytes covers none,
   and is skipped before its offset and stride are looked at; a part with fields the grammar does
-  not give it is not the identity;
+  not give it, or a `src` part of null length whose offset is past the element's end, is not the
+  identity;
 - the first chain and no skips are written as null;
 - `chain` is a position in the array's `chains`, and `skips` names only codecs of the unit's
   chain;
