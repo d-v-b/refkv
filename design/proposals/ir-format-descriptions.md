@@ -431,15 +431,16 @@ parser reads, with its component count: a JPEG SOF, a JPEG 2000 SIZ (under `main
 `Isot` names, as above), a JPEG XR header, a PNG or BMP header. A parser reads the frame of every
 `jpeg`, `jpeg2k`, `jpegxr`, `png` and `bmp` array's first unit (for the declarations above; the
 first stored unit in unit order, its index the k below, none where no unit is stored, the array then
-having no rows) and of a strip image's last strip; `jpeg`'s `header` SOF, which declares the whole
-strip, is not one, and `jpegls`, `jpegxl`, `webp`, `lerc` and `eer` frames are not read and follow
-the tags (DICOM's refusal of a JPEG-LS frame whose size is not Rows by Columns stays; its lossless
-JPEG frames, whose SOFs it already reads, all pass through the frame-fit function, so that one of
-another size gives no grid rather than a refusal). Step 0's frame-fit function takes them with, on
-each axis, the extent E (computed first, from the format), the unit's declared length D
-(RowsPerStrip, an absent one being its default 2^32 − 1, as an NDPI level's always is; TileLength
-and TileWidth; the image width for a strip; Rows and Columns for a DICOM frame; VSI's tile size),
-the format's edge, and each frame's unit index k, whose cut length is c = min(D, E − k·D). The
+having no rows) and of a strip image's last strip where it is stored; `jpeg`'s `header` SOF, which
+declares the whole strip, is not one, and `jpegls`, `jpegxl`, `webp`, `lerc` and `eer` frames are
+not read and follow the tags (DICOM's refusal of a JPEG-LS frame whose size is not Rows by Columns
+stays; its lossless JPEG frames, whose SOFs it already reads (today without comparing their size),
+all pass through the frame-fit function: a larger frame grows Rows or Columns to its size, and a
+smaller one, or frames that differ from each other, give no grid). Step 0's frame-fit function takes
+them with, on each axis, the extent E (computed first, from the format), the unit's declared length
+D (RowsPerStrip, an absent one being its default 2^32 − 1, as a JPEG NDPI level's is; TileLength and
+TileWidth; the image width for a strip; Rows and Columns for a DICOM frame; VSI's tile size), the
+format's edge, and each frame's unit index k, whose cut length is c = min(D, E − k·D). The
 smaller-frame allowance above is JPEG's alone, and also needs the unit's shape to fit a SOF (at most
 65535, as NDPI's `Frame::covers` checks today); the scanner gives what it needs. On each axis:
 - of one unit (E ≤ D): a frame equal to D gives `Each(D)`, asking for `full` where D does not
@@ -816,9 +817,9 @@ Large (about 2,500 lines), from the spike's branch, about 70% of which carries o
   chain the filter pipeline; a chunk's `skips` are the low n bits (n the pipeline's filter count) of
   the mask the parser's `chunks()` returns, which is the chunk's own filter mask, with every
   filter's bit set for a partial edge chunk where the layout message's don't-filter-partial-chunks
-  flag is set (`raw_edges`, since HDF5 records that in the layout and not in the chunk's mask); the
-  PR adds a crafted fixture written under `H5Pset_chunk_opts` through ctypes. A compact or
-  contiguous dataset is one unit.
+  flag is set (`raw_edges`, since HDF5 records that in the layout and not in the chunk's mask);
+  tested on `ims_latest_raw_edges.ims`, which IMS's generator already writes under
+  `H5Pset_chunk_opts`. A compact or contiguous dataset is one unit.
 - **Spike rework.** `shape: None` for the null dataspace; the codec names above; `source` with the
   filter's name; filter configuration as places in the filter message's client data, which HDF5's
   document says how to read; the spike's second filter parser folded into `parse_filters`; an
