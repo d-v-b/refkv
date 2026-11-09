@@ -1236,9 +1236,10 @@ impl Ctx<'_> {
 /// the element's end) and `["rows", o, s, n, c]` parts that, read as ranges of the extent, cover
 /// `[0, len)` in order with no gap or overlap: `src` parts end to end, `rows` runs of n bytes each
 /// n apart, or a single run of any stride. A part of no bytes covers none, and is skipped before
-/// its offset and stride are looked at. Then the element alone names the whole extent; any other
-/// recipe gives other bytes, and a `range` of the whole extent is the only way to name the raw
-/// ones.
+/// its offset and stride are looked at; a `src` part of null length whose offset is past the
+/// element's end has no end, and is not the identity. Then the element alone names the whole
+/// extent; any other recipe gives other bytes, and a `range` of the whole extent is the only way
+/// to name the raw ones.
 fn identity_recipe(ir: &Ir, e: u32, len: u64) -> bool {
     let Some(form) = ir.form(e) else { return true };
     let Ok(j) = serde_json::from_str::<J>(form) else { return true };
@@ -1256,7 +1257,11 @@ fn identity_recipe(ir: &Ir, e: u32, len: u64) -> bool {
             (Some("src"), 2 | 3) => {
                 let Some(o) = at(1) else { return false };
                 let n = match p.get(2) {
-                    None | Some(J::Null) => len.saturating_sub(o),
+                    // a null length runs to the element's end, which an offset past it lacks
+                    None | Some(J::Null) => match len.checked_sub(o) {
+                        Some(n) => n,
+                        None => return false,
+                    },
                     Some(n) => match n.as_u64() {
                         Some(n) => n,
                         None => return false,
@@ -2226,6 +2231,7 @@ mod tests {
             r#"[["src",0,30],["rows",30,18446744073709551615,18446744073709551615,1]]"#,
             r#"[["src",0,null,"more"]]"#,
             r#"[["rows",0,60,60,1,"more"]]"#,
+            r#"[["src",0,null],["src",100,null]]"#,
         ] {
             let mut ir = with(valid());
             let f = ir.forms.id(&format!(r#"{{"recipe":{recipe}}}"#));
