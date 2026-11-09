@@ -690,8 +690,8 @@ one array is stored. This changes two things in profile-plugins:
    profile-plugins' step 3 reworks NumPy, then TIFF, then HDF5 into plans, and its step 4 the others
    ([profile-plugins.md](profile-plugins.md#order-of-work)), with the rest of the extra work (TIFF's
    JPEG prefix, FITS's `tile_cut`). Each format's plan PR:
-   - has its projection read its format's description, refusing or falling back to the source's
-     bytes for a source or file marked `undescribed`
+   - has its projection read its format's description, falling back to the source's bytes,
+     never refusing, for a source or file marked `undescribed`
      ([ir-format-descriptions.md](ir-format-descriptions.md#the-descriptions-limit-falls-back-too));
    - moves the typing its facts did (a fixed string's added axis, a default fill) into the format's
      plan;

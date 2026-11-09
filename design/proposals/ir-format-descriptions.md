@@ -92,9 +92,10 @@ NRRD, safetensors, DICOM, CZI, ND2, LIF with XLEF, SAFE, and NumPy's deflated `.
 5. **Declarations are listed** in the format's document, place by place, so that a profile knows
    what each is. A declaration the parser keeps only in facts today gets a place in the same PR.
 6. **Codecs come from the list** that step 0 lands ([§Codecs](#codecs)). A format PR that finds an
-   entry, or any of step 0's shared code (the checks in `array.rs`, the function that names a
-   unit's bytes, the record of unfolded runs, the `gz.rs` helper, the test helper's shared
-   decoders), wrong fixes it in a small PR of its own, which the format PR follows.
+   entry, or any of step 0's shared code (the checks in `array.rs`, the function that names a unit's
+   bytes, the record of unfolded runs, the `gz.rs` helper, the JPEG segment scanner, the JPEG 2000
+   SIZ reader, the test helper's shared decoders), wrong fixes it in a small PR of its own, which
+   the format PR follows.
 7. **Tests.** One test runs every fixture of the format (and the PR's crafted ones) against the
    reference reader: shapes, `item_bits`, grids, each row's bytes against the reader's offsets and
    lengths, and each unit decoded through its chain (by step 0's helper) against the reader's
@@ -129,21 +130,29 @@ function that names a unit's bytes with `check::finish`'s record of unfolded run
 helper that gives a gzip or deflate stream one derived element ([§Gzipped files](#gzipped-files))
 with the revisions of [conventions §8.8](../../spec/conventions.md#88-canonical-form) and
 `Transform` it needs, the codec contract below, a JPEG segment scanner that finds a stream's JFIF
-and Adobe segments and its SOF for the parsers that declare them, and the test helpers. It also adds
-to [§7](../../spec/stored-array.md#7-the-formats) one heading per format, in the order of [§The
-formats](#the-formats), each holding a line that the format is not described yet, so that each
-format PR fills its own heading and none appends to the end of the file; it rewords
-[§4.2](../../spec/stored-array.md#42-rows)'s `ranges` to "where no element holds the unit's bytes in
-one span", and [§6](../../spec/stored-array.md#6-in-the-ir)'s graft bullet ("a graft that fails on
-it … adds nothing") to the fallback below; and it rewords
-[§1](../../spec/stored-array.md#1-stored-arrays)'s "Today only the NumPy profile describes its
-arrays" to point at [§7](../../spec/stored-array.md#7-the-formats)'s headings, which no format PR
-then edits, and scopes [§1](../../spec/stored-array.md#1-stored-arrays)'s "Every array a parser
-reaches has a description" to the formats whose paragraph in
-[§7](../../spec/stored-array.md#7-the-formats) is filled, naming the exceptions: the store
-profiles, whose array documents stand in; coded streams, which wait for a description of their
-own; DICOM series, whose description comes with profile-plugins' step 4; and a source marked
-`undescribed` ([§The descriptions' limit falls back too](#the-descriptions-limit-falls-back-too)).
+and Adobe segments and its SOF for the parsers that declare them, a JPEG 2000 SIZ reader in
+`coding.rs` that gives a codestream's SIZ range, its component count, each component's sampling,
+precision and sign, and its tile size (for the no-grid rules below, the sign declaration, and SAFE's
+and DICOM's grids, replacing their own readers in `safe/jp2.rs` and `dicom/mod.rs` as their PRs
+land), and the test helpers. It also adds to [§7](../../spec/stored-array.md#7-the-formats) one
+heading per format, in the order of [§The formats](#the-formats), each holding a line that the
+format is not described yet, so that each format PR fills its own heading and none appends to the
+end of the file; it rewords [§4.2](../../spec/stored-array.md#42-rows)'s `ranges` to "where no
+element holds the unit's bytes in one span", and [§6](../../spec/stored-array.md#6-in-the-ir)'s
+graft bullet ("a graft that fails on it … adds nothing"), its Limits sentence ("The descriptions'
+limit, checked after the fit, still rejects the run") and its "Built at finish" order (which checks
+the descriptions' limit after the chain table is pruned) to the fallback below, which prunes the
+table again after it; [§2.5](../../spec/stored-array.md#25-the-json-form) and `stored-array.json` to
+add `undescribed` (true in a file IR, a list of file keys in a store IR, absent where nothing fell
+back); and it rewords [§1](../../spec/stored-array.md#1-stored-arrays)'s "Today only the NumPy
+profile describes its arrays" to point at [§7](../../spec/stored-array.md#7-the-formats)'s headings,
+which no format PR then edits, and scopes [§1](../../spec/stored-array.md#1-stored-arrays)'s "Every
+array a parser reaches has a description" to the formats whose paragraph in
+[§7](../../spec/stored-array.md#7-the-formats) is filled, naming the exceptions: the store profiles,
+whose array documents stand in; coded streams, which wait for a description of their own; DICOM
+series, whose description comes with profile-plugins' step 4; NumPy's deflated `.npz` members, until
+their PR lands; and a source marked `undescribed` ([§The descriptions' limit falls back
+too](#the-descriptions-limit-falls-back-too)).
 
 ### A codec sees the unit's shape
 
@@ -158,11 +167,11 @@ alpha the stream may leave out); leading axes of 1 (a frame's, a level's) are no
 Decoding a unit whose stream does not match its codec's entry or the unit's shape (a paletted PNG
 under `png`, a frame whose blocks do not cover the unit's shape, another number of components than
 the samples axis, samples of another size than `item_bits`, a frame that declares more rows or
-columns than the unit, under `jpeg`'s `check_markers` a JFIF or Adobe segment or component ids other
-than it names, or one where it names none, and a JPEG 2000 or JPEG XL stream whose components
-differ from one another in sampling, precision or signedness) is an error, never
-a different result, so that a file the parser sampled only in part cannot be decoded silently into
-other bytes.
+columns than the unit, under `jpeg`'s `components` a JFIF or Adobe segment or component ids other
+than its `jfif`, `adobe` and `components` name, or one where they name none, and a JPEG 2000 or JPEG
+XL stream whose components differ from one another in sampling, precision or signedness) is an
+error, never a different result, so that a file the parser sampled only in part cannot be decoded
+silently into other bytes.
 
 [§3.1](../../spec/stored-array.md#31-chains)'s sentence "a codec sees only a unit's bytes and
 parameters, never its coordinates, so a parameter that depends on the unit's position is a column
@@ -252,7 +261,7 @@ the format declares none refkv can read (CZI's JPEG tiles; VSI's, whose ETS `col
 declaration of unknown meaning), they are what the profile reads. An array of more than one unit
 whose format declares no color space (VSI's) also gives its `jpeg` those places as `jfif` and
 `adobe` (each absent where the first unit has none) and its SOF's component ids as `components`,
-with `check_markers` true, so that a later unit whose segments or component ids differ fails to
+so that a later unit whose segments or component ids differ fails to
 decode rather than showing other colors; a CZI subblock, one unit, needs no such check, and its
 chain stays shared by every subblock of its encoding. In the same way, where an image codec's stream
 itself says its samples' sign (JPEG 2000's SIZ), the parser names the first unit's such header as a
@@ -323,7 +332,7 @@ parameter), so that the shared decoders take values only and no format edits the
 frame, a registry that finds a codec's decoder by its name in a module of its own, every compressor
 of [§Codecs](#codecs) (`tiff_lzw` among them), `shuffle`, `lsb_first`, and the image codecs several
 formats use (`jpeg` with every parameter of its entry, `tables`, `header`, `jfif`, `adobe`,
-`components` and the `check_markers` comparison; `jpeg2k` with `main_header`; `jpegxr`), so that no
+`components` with the comparison they ask for; `jpeg2k` with `main_header`; `jpegxr`), so that no
 format PR writes a shared codec's decoding; each format PR adds, in its own module, the codecs only
 it uses, and edits no shared file. How the helper decodes where imagecodecs lacks a codec, in step
 0's modules or a format's:
@@ -388,16 +397,17 @@ member of the IR and of its JSON form beside `arrays` and `chains`, carried for 
 graft. A graft runs the same two passes, after its map fit, against the store's remaining room
 (`plan_graft` today only weighs and fails): the grafted file's arrays fall back as they would at
 describe, and where even their fallen-back costs do not fit, the file joins the store with no
-descriptions and its key is recorded in the store's `undescribed` list. Every plan PR refuses, or
-falls back to the source's bytes, where it sees the mark, so that such a source is never read as one
-with no arrays. Then, in `Ir::arrays` order, each array keeps its full description (its chains, unit
-parameters and grid, and the chains it is the first remaining description to name) while the
-remainder allows, and falls back otherwise; an array that fell back at the map's limit stays fallen
-back; a fallen-back array's rows, columns and chains are dropped and the chain table pruned again,
-so a later array that names a chain it shared pays for it. So a source such as a GRIB file of many
-small fields over a shared section 3 is not refused for its descriptions, nor is one whose
-fallen-back descriptions still pass the limit (HDF5 headers sharing rank-32 dataspaces), which keeps
-none; rule 8's PRs name the arrays that fall back and any source that keeps no descriptions.
+descriptions and its key is recorded in the store's `undescribed` list. Every plan PR falls back to
+the source's bytes, and never refuses, where it sees the mark, so that such a source is never read
+as one with no arrays and is never refused for its size. Then, in `Ir::arrays` order, each array
+keeps its full description (its chains, unit parameters and grid, and the chains it is the first
+remaining description to name) while the remainder allows, and falls back otherwise; an array that
+fell back at the map's limit stays fallen back; a fallen-back array's rows, columns and chains are
+dropped and the chain table pruned again, so a later array that names a chain it shared pays for it.
+So a source such as a GRIB file of many small fields over a shared section 3 is not refused for its
+descriptions, nor is one whose fallen-back descriptions still pass the limit (HDF5 headers sharing
+rank-32 dataspaces), which keeps none; rule 8's PRs name the arrays that fall back and any source
+that keeps no descriptions.
 
 ## Codecs
 
@@ -450,7 +460,7 @@ bytes (JPEG XL's codestream and container); step 0 adds that to
 
 | Codec | Takes | Parameters | Used by |
 | --- | --- | --- | --- |
-| `jpeg` | an ISO 10918-1 stream, any process | `tables` (optional; an abbreviated table stream, TIFF's tag 347): `place`; `jfif`, `adobe` (optional; the first unit's JFIF and Adobe segments, where it has them; VSI): `place`; `components` (optional; the first unit's SOF component ids; VSI): `int[]`, `place`; `check_markers` (optional, false; every unit's JFIF and Adobe segments and component ids must then equal those, or be absent where they are): `bool`; `header` (optional; the stream up to its first scan, the unit being one restart interval's entropy-coded segment, its RSTn marker excluded, decoded as after a restart, the unit's shape taking the place of the header SOF's size; NDPI): `place` | TIFF, NDPI, VSI, DICOM, CZI |
+| `jpeg` | an ISO 10918-1 stream, any process | `tables` (optional; an abbreviated table stream, TIFF's tag 347): `place`; `jfif`, `adobe` (optional; the first unit's JFIF and Adobe segments, where it has them; VSI): `place`; `components` (optional; the first unit's SOF component ids; VSI; where given, every unit's JFIF and Adobe segments and component ids must equal `jfif`, `adobe` and `components`, or be absent where they are): `int[]`, `place`; `header` (optional; the stream up to its first scan, the unit being one restart interval's entropy-coded segment, its RSTn marker excluded, decoded as after a restart, the unit's shape taking the place of the header SOF's size; NDPI): `place` | TIFF, NDPI, VSI, DICOM, CZI |
 | `jpegls` | an ISO 14495-1 stream | | DICOM |
 | `jpeg2k` | an ISO 15444-1 codestream (15444-15's high throughput included), not a JP2 file | `main_header` (optional; the unit is then one tile's tile-parts, with their SOT): `place` | TIFF, VSI, DICOM, SAFE |
 | `jpegxr` | a JPEG XR file in its T.832 container (starting `II BC 01`); decoding makes the samples in its pixel format's order | | NDPI, CZI |
@@ -778,8 +788,9 @@ Medium-large.
 - **Checker.** czifile's subblock directory and raw segment bytes, and its decoded data for
   uncompressed, LZW, Zstd and JPEG XR subblocks: for uncompressed and LZW ones, its swap of BGR to
   RGB undone and alpha left out (it sets alpha to 255); for Zstd, the swap `zstd1_decode` makes
-  undone; JPEG XR's first three samples reversed, alpha compared in place; JPEG and lossless JPEG,
-  which it decodes with colors converted or not at all, by the helper alone.
+  undone and alpha left out (it also sets alpha to 255); JPEG XR's first three samples reversed,
+  alpha compared in place; JPEG and lossless JPEG, which it decodes with colors converted or not at
+  all, by the helper alone.
 
 ### ND2
 
@@ -831,7 +842,8 @@ Medium.
 - **Units.** Each `tiles/<k>` element, its tile-parts with their SOT, in `[jpeg2k(main_header)]`.
   The SIZ refkv rebuilds and the empty-tile tail are the projection's.
 - **Checker.** SIZ and SOT read by a small reader in the test for the grid and the tiles, since
-  rasterio's block shapes give the whole image; rasterio's window reads for the decoding, against
+  rasterio's block shapes are GDAL's choice (the tile for a one-band file, the whole image for
+  TCI), not the codestream's; rasterio's window reads for the decoding, against
   the helper's `jpeg2k`.
 
 ## Order of work
