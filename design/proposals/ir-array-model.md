@@ -593,8 +593,8 @@ share, and the map. They are not in the facts. So:
   210 MB at the 2^22 floor, plus about 76 bytes per row while Python holds an export. A parameter
   column also has a null slot on every row that does not set it, about 16 bytes a row per column;
   the list allows only a few such columns (FITS's ZSCALE, ZZERO and dither seed among them). The
-  descriptions' limit still refuses what cannot fit after falling back; no corpus file comes near
-it. `memory()` includes both.
+  source whose fallen-back descriptions still pass the descriptions' limit keeps none and is marked
+  `undescribed`; no corpus file comes near it. `memory()` includes both.
   `digest()` covers the descriptions and each row's values, not the Arrow layout: the columns in a fixed order (the named ones, then the parameter
   columns by name) and a dictionary's keys as their strings.
 - **The facts' `arrays` key stays** as NumPy, safetensors and IMS use it today, until each format's

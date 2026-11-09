@@ -136,10 +136,11 @@ format PR fills its own heading and none appends to the end of the file; and it 
 [§1](../../spec/stored-array.md#1-stored-arrays)'s "Today only the NumPy profile describes its
 arrays" to point at [§7](../../spec/stored-array.md#7-the-formats)'s headings, which no format PR
 then edits, and scopes [§1](../../spec/stored-array.md#1-stored-arrays)'s "Every array a parser
-reaches has a description" to the formats with a heading in
-[§7](../../spec/stored-array.md#7-the-formats), naming the exceptions: the store profiles, whose
-array documents stand in; coded streams, which wait for a description of their own; and DICOM
-series, whose description comes with profile-plugins' step 4.
+reaches has a description" to the formats whose paragraph in
+[§7](../../spec/stored-array.md#7-the-formats) is filled, naming the exceptions: the store
+profiles, whose array documents stand in; coded streams, which wait for a description of their
+own; DICOM series, whose description comes with profile-plugins' step 4; and a source marked
+`undescribed` ([§The descriptions' limit falls back too](#the-descriptions-limit-falls-back-too)).
 
 ### A codec sees the unit's shape
 
@@ -376,11 +377,14 @@ as a place, its bytes being the format's to read.
 
 An array whose description would pass the descriptions' limit falls back as one does at the map's
 limit: it loses its chains, unit parameters and grid, keeping the rest (its key, shape, `axes`,
-`item_bits`, `pad_from`, fill and declarations), and later arrays are still tried; only a
-description that cannot fit even so is not kept. It takes two passes, after the map's fit. First
-every array is charged its fallen-back cost; where that total passes the limit, the source keeps no
-descriptions at all, as every format's source does today, rather than being refused, and a graft
-adds such a file's arrays to the store undescribed. Then, in `Ir::arrays` order, each array keeps
+`item_bits`, `pad_from`, fill and declarations), and later arrays are still tried; where every
+fallen-back description together still passes it, the source keeps none. It takes two passes, after
+the map's fit. First every array is charged its fallen-back cost; where that total passes the limit,
+the source keeps no descriptions at all, rather than being refused, and is marked `undescribed`, a
+member of the IR and of its JSON form beside `arrays` and `chains`, carried for each file through a
+graft, which adds such a file's arrays to the store undescribed. Every plan PR refuses, or falls
+back to the source's bytes, where it sees the mark, so that such a source is never read as one with
+no arrays. Then, in `Ir::arrays` order, each array keeps
 its full description (its chains, unit parameters and grid, and the chains it is the first remaining
 description to name) while the remainder allows, and falls back otherwise; an array that fell back
 at the map's limit stays fallen back; a fallen-back array's rows, columns and chains are dropped and
@@ -421,7 +425,7 @@ bytes (JPEG XL's codestream and container); step 0 adds that to
 | `h5_bitshuffle` | HDF5's bitshuffle blocks: bare, or under LZ4 or zstd each chunk starting with a 12-byte big-endian header of its decoded length (8 bytes) and its block size in bytes (4 bytes), which then governs | `element_size`: `int`, `place`; `block_size` (optional, 0; bare chunks only; 0 or absent meaning bitshuffle's default for `element_size`): `int`, `place`; `compression` (optional, `none`; `none`, `lz4` or `zstd`): `str`, `place` | HDF5 (32008) |
 | `tiff_lzw` | TIFF's LZW, codes most significant bit first | | TIFF, CZI |
 | `packbits` | PackBits runs | | TIFF |
-| `ccitt_t6` | ITU-T T.6 data; decoding makes 1-bit rows, most significant bit first, each padded to a byte (`item_bits` 1, `pad_from` at the row) | | TIFF (4) |
+| `ccitt_t6` | ITU-T T.6 data; decoding makes 1-bit rows, most significant bit first, each padded to a byte (`item_bits` 1, `pad_from` at the row), a black run 1 and a white run 0 whatever Photometric says, which stays a declaration | | TIFF (4) |
 | `fits_rice` | FITS's Rice blocks; decoding makes big-endian integers of `byte_pix` bytes | `block_size` (optional, 32): `int`, `place`; `byte_pix` (optional, 4): `int`, `place` | FITS (RICE_1) |
 | `skip` | the elements after `length` bytes | `length`: `int`, `place` | NRRD's `byte skip` |
 
@@ -619,8 +623,10 @@ Medium-large (about 1,000 lines).
   integers, so `fits_rice`'s `byte_pix` and GZIP_2's `shuffle` `element_size` are the value 4;
   unquantized, they are places (the BYTEPIX ZVAL card, and ZBITPIX), and `block_size` is the
   BLOCKSIZE ZVAL card, each absent where its card is absent, the codec's entry giving the default.
-  `fits_quantize`'s `scale` and `zero` are the ZSCALE and ZZERO columns, or places where the header
-  gives them as keywords; `seed` is a column (the tile's index plus ZDITHER0); `method` a place
+  `fits_quantize`'s `scale` and `zero` are the ZSCALE and ZZERO columns (the parser, like astropy,
+  takes a float image as quantized only where they are columns; one whose header gives them as
+  keywords, which cfitsio reads, is decoded unquantized today, a known misread left to a later
+  PR); `seed` is a column (the tile's index plus ZDITHER0); `method` a place
   (ZQUANTIZ), absent where the card is absent; `zblank` absent where neither the table nor the
   header gives ZBLANK. The first real use of columns and of a second chain.
 - **Fallback.** An unquantized image whose BYTEPIX is not its elements' width gives `source`.
