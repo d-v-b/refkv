@@ -107,8 +107,10 @@ A **stored array** is one structure that the source itself declares as an array:
 - one TIFF IFD's image, with a samples axis last (`[rows, columns, samples]`) where the IFD is
   chunky, first (`[samples, rows, columns]`) where it is planar, and none where it has one sample;
 - a NumPy file or `.npz` member;
-- a FITS image HDU, and, where its tiles carry a NULL_PIXEL_MASK, that mask as a second array the
-  HDU declares (the parser rejects such files today; FITS's PR may lift that);
+- a FITS image HDU's image, a table HDU's rows and heap, a compressed image HDU's image, table rows
+  and heap, and, where its tiles carry a NULL_PIXEL_MASK, that mask (the parser rejects such files
+  today, and a later PR may lift that;
+  [ir-format-descriptions.md](ir-format-descriptions.md#fits));
 - a NIfTI image;
 - a safetensors tensor;
 - one CZI subblock;
@@ -129,7 +131,7 @@ declare several arrays, the key always adds the array's index among them, in the
 however many it declares:
 - a safetensors `header` declares every tensor, counted in the header's order without
   `__metadata__`;
-- a GRIB message holds its fields;
+- a GRIB message holds its fields and their bitmaps, in the source's order;
 - a FITS image HDU declares the image (0); a compressed image's HDU declares the image, its
   table's rows and its heap (0, 1 and 2) and, where its tiles carry one, the null pixel mask (3)
   ([ir-format-descriptions.md](ir-format-descriptions.md#fits)).
@@ -389,7 +391,8 @@ gives:
 - for a parameter made from a `Source`, how it is made from those bytes.
 
 Step 1 lists the codecs NumPy needs (none, once a deflated member's data is an element in its
-derived space). Each format's PR adds its own; the list as it will grow:
+derived space). [ir-format-descriptions.md](ir-format-descriptions.md#codecs) settles the list,
+which its step 0 lands whole; the sketch as it first stood:
 - **Framing and compression:** `zlib`, `gzip`, `deflate` (raw), `lzw`, `packbits`, `zstd`, `jpeg`;
 - **Bytes added by the source:**
   - `fletcher32`: encoding appends the checksum, decoding checks it and drops it;
