@@ -1229,14 +1229,16 @@ impl Ctx<'_> {
 }
 
 /// Whether element `e`'s recipe, over its `len` bytes, gives its extent as it is (spec/stored-array.md
-/// §5.2 <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#52-the-chunk-map>): no
-/// form or no recipe (a `"recipe": null` is none, as `refs` reads it), or a recipe of only `src`
-/// and `rows` parts that, read as ranges of the extent, cover `[0, len)` in order with no gap or
-/// overlap (`[["src",0]]`, `[["src",0,null]]`, split `src` parts, `rows` runs of n bytes each n
-/// apart, or a single run of any stride). Parts are read as `refs` reads them: fields after those
-/// a part has are ignored, and a part of no bytes covers none. Then the element alone names the
-/// whole extent; any other recipe gives other bytes, and a `range` of the whole extent is the only
-/// way to name the raw ones.
+/// §5.2 <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#52-the-chunk-map>), by the
+/// recipe grammar of conventions §8.5
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#85-forms-and-recipes>: no form,
+/// no recipe or a null one, or a recipe of only `["src", o, n]` parts (`n` null or left out: to
+/// the element's end) and `["rows", o, s, n, c]` parts that, read as ranges of the extent, cover
+/// `[0, len)` in order with no gap or overlap: `src` parts end to end, `rows` runs of n bytes each
+/// n apart, or a single run of any stride. A part of no bytes covers none, and is skipped before
+/// its offset and stride are looked at. Then the element alone names the whole extent; any other
+/// recipe gives other bytes, and a `range` of the whole extent is the only way to name the raw
+/// ones.
 fn identity_recipe(ir: &Ir, e: u32, len: u64) -> bool {
     let Some(form) = ir.form(e) else { return true };
     let Ok(j) = serde_json::from_str::<J>(form) else { return true };
@@ -1249,9 +1251,10 @@ fn identity_recipe(ir: &Ir, e: u32, len: u64) -> bool {
     for p in parts {
         let p = p.as_array().map(Vec::as_slice).unwrap_or(&[]);
         let at = |k: usize| p.get(k).and_then(J::as_u64);
-        match p.first().and_then(J::as_str) {
-            Some("src") => {
-                let Some(o) = at(1).filter(|&o| o == pos) else { return false };
+        // the part's start and its bytes, by the grammar; anything else is not the identity
+        let (o, n, contiguous) = match (p.first().and_then(J::as_str), p.len()) {
+            (Some("src"), 2 | 3) => {
+                let Some(o) = at(1) else { return false };
                 let n = match p.get(2) {
                     None | Some(J::Null) => len.saturating_sub(o),
                     Some(n) => match n.as_u64() {
@@ -1259,23 +1262,25 @@ fn identity_recipe(ir: &Ir, e: u32, len: u64) -> bool {
                         None => return false,
                     },
                 };
-                // the part's end, which may not pass the extent's
-                match o.checked_add(n).filter(|&end| end <= len) {
-                    Some(end) => pos = end,
-                    None => return false,
-                }
+                (o, n, true)
             }
-            Some("rows") => {
+            (Some("rows"), 5) => {
                 let (Some(o), Some(s), Some(n), Some(c)) = (at(1), at(2), at(3), at(4)) else { return false };
-                if o != pos || (c > 1 && s != n) {
-                    return false;
-                }
-                match n.checked_mul(c).and_then(|t| o.checked_add(t)).filter(|&end| end <= len) {
-                    Some(end) => pos = end,
-                    None => return false,
-                }
+                let Some(t) = n.checked_mul(c) else { return false };
+                (o, t, c <= 1 || s == n)
             }
             _ => return false,
+        };
+        if n == 0 {
+            continue;
+        }
+        if o != pos || !contiguous {
+            return false;
+        }
+        // the part's end, which may not pass the extent's
+        match o.checked_add(n).filter(|&end| end <= len) {
+            Some(end) => pos = end,
+            None => return false,
         }
     }
     pos == len
@@ -2217,7 +2222,10 @@ mod tests {
             r#"[["src",0,30],["src",0,30]]"#,
             r#"[["src",0,59]]"#,
             r#"[["src",0,18446744073709551615],["src",18446744073709551615,61]]"#,
-            r#"[["rows",0,1,18446744073709551615,2]]"#,
+            r#"[["rows",0,18446744073709551615,18446744073709551615,2]]"#,
+            r#"[["src",0,30],["rows",30,18446744073709551615,18446744073709551615,1]]"#,
+            r#"[["src",0,null,"more"]]"#,
+            r#"[["rows",0,60,60,1,"more"]]"#,
         ] {
             let mut ir = with(valid());
             let f = ir.forms.id(&format!(r#"{{"recipe":{recipe}}}"#));
@@ -3017,7 +3025,9 @@ mod tests {
             r#"[["rows",0,10,10,6]]"#,
             r#"[["rows",0,99,60,1]]"#,
             r#"null"#,
-            r#"[["src",0,0],["src",0,60,"more"]]"#,
+            r#"[["src",0,0],["src",0,60]]"#,
+            r#"[["src",0,null],["src",5,0]]"#,
+            r#"[["src",0,null],["rows",60,5,0,3]]"#,
         ] {
             let mut ir = with(valid());
             let f = ir.forms.id(&format!(r#"{{"recipe":{recipe}}}"#));

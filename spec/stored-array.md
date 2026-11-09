@@ -305,12 +305,14 @@ bug in its parser: an internal error naming the array's element.
   run's count;
 - `range` is set only with `element`, at least one byte long, its end within the element's bytes
   and below 2^64, and not the element's whole extent where the element's recipe is the identity:
-  the element has no form, or its form no recipe (`"recipe": null` is none), or a recipe of only
-  `src` and `rows` parts ([conventions §8.5](conventions.md#85-forms-and-recipes)) that, read as
-  ranges of the element's extent, cover all of it in order with no gap or overlap (`[["src", 0]]`,
-  `[["src", 0, null]]`, `src` parts end to end, `rows` runs of `n` bytes each `n` apart, or a
-  single run of any stride, that make up its length). Parts are read as references read them: a
-  part's fields after those it has are ignored, and a part of no bytes covers none;
+  the element has no form, or its form no recipe (`"recipe": null` is none), or a recipe, by the
+  grammar of [conventions §8.5](conventions.md#85-forms-and-recipes), of only `["src", o, n]`
+  parts (`n` null or left out: to the element's end) and `["rows", o, s, n, c]` parts that, read
+  as ranges of the element's extent, cover all of it in order with no gap or overlap
+  (`[["src", 0]]`, `[["src", 0, null]]`, `src` parts end to end, `rows` runs of `n` bytes each `n`
+  apart, or a single run of any stride, that make up its length). A part of no bytes covers none,
+  and is skipped before its offset and stride are looked at; a part with fields the grammar does
+  not give it is not the identity;
 - the first chain and no skips are written as null;
 - `chain` is a position in the array's `chains`, and `skips` names only codecs of the unit's
   chain;
