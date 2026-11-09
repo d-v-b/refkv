@@ -138,10 +138,12 @@ not match its codec's entry or the unit's shape (a paletted PNG under `png`, a f
 size, another number of components than the samples axis) is an error, never a different result,
 so that a file the parser sampled only in part cannot be decoded silently into other bytes.
 
-[§3.1](../../spec/stored-array.md#31-chains)'s sentence "a parameter that depends on the unit's
-position is a column its parser computes" becomes: a parameter that depends on the unit's
-position, other than through its shape, is a column. TIFF's LZW and CCITT, EER, the image codecs'
-frame sizes and DICOM's RLE need the decoded size, and a short last strip's differs from the
+[§3.1](../../spec/stored-array.md#31-chains)'s sentence "a codec sees only a unit's bytes and
+parameters, never its coordinates, so a parameter that depends on the unit's position is a column
+its parser computes" becomes: a codec sees a unit's bytes, its parameters, and its decoded shape
+with the array's `item_bits` and `pad_from`, never its coordinates, so a parameter that depends on
+the unit's position other than through its shape is a column. TIFF's LZW and CCITT, EER, the image
+codecs' frame sizes and DICOM's RLE need the decoded size, and a short last strip's differs from the
 others'; without this rule each would be a column, and a TIFF row would pass the map limit's
 guarantee of three entries.
 
@@ -190,8 +192,8 @@ fallback), unlike a TIFF's ColorMap, one place its description names.
 
 A codec's decoding may leave information its stream codes unexpressed only where the unit's bytes
 keep it, and its entry names what is left out: EER's sub-pixel positions, LERC's validity mask,
-complex packing's primary and secondary missing values (both NaN), JPEG's chroma at its coded
-resolution. A profile that wants it decodes the unit with its own decoder.
+JPEG's chroma at its coded resolution. A profile that wants it decodes the unit with its own
+decoder.
 
 A JPEG 2000 codestream whose components are sampled differently is the exception: OpenJPEG takes
 it for sYCC and converts it to RGB, a color conversion with no option to leave it, so its array's
@@ -200,10 +202,9 @@ components differ in precision or signedness (JPEG 2000's SIZ, JPEG XL's extra c
 one array has one `item_bits`.
 
 A codec may give a stated value at a point its stream codes no value for (LERC's zero at a masked
-pixel, WebP's opaque alpha where the stream has none, GRIB's NaN at a missing value of complex
-packing) only where the stream's own mask, flag or code for that point stays in the unit's bytes,
-so that nothing is lost and a profile can tell the point apart. Values the stream codes elsewhere
-(GRIB's bitmap, in section 6) are not filled in.
+pixel, WebP's opaque alpha where the stream has none) only where the stream's own mask, flag or code
+for that point stays in the unit's bytes, so that nothing is lost and a profile can tell the point
+apart. Values the stream codes elsewhere (GRIB's bitmap, in section 6) are not filled in.
 
 A decoder that does otherwise makes other bytes. The array's `item_bits` is the samples' size, and
 the precision the source declares (BitsPerSample 12) is a declaration. A profile converts colors
@@ -277,8 +278,9 @@ file. How the helper decodes where imagecodecs lacks a codec, in step 0's module
 - `h5_szip`: imagecodecs' `szip_decode` alone, since the installed HDF5 has no szip filter, on a
   crafted fixture written by `szip_encode` through `write_direct_chunk`, the filter marked optional
   and its client data written as HDF5 would;
-- `grib_unpack`: a message reassembled from the places and the unit, with sections 0, 1 and 4 made
-  up for the reassembly (they are not places), decoded by eccodes; PNG packing, on which eccodes
+- `grib_unpack`: a message reassembled from section 5, the unit and the field's section 3 (a
+  declaration), with sections 0, 1, 4, 6 (indicator 255, since a bitmapped field's array is its
+  coded values) and 8 made up for the reassembly, decoded by eccodes; PNG packing, on which eccodes
   aborts for 1, 2 and 4 bits, decoded in Python (`png_decode` of section 7, whose samples of b
   bits come scaled to 8 and are divided back by 255 / (2^b − 1), then the arithmetic of
   [conventions §12](../../spec/conventions.md#12-grib-messages));
@@ -359,7 +361,7 @@ container); step 0 adds that to [§3.2](../../spec/stored-array.md#32-the-list)'
 | `lerc` | a LERC2 blob | | TIFF, in `[lerc, zlib]` or `[lerc, zstd]` as LercParameters say |
 | `eer` | EER's run-length bits; decoding makes one byte per pixel at the declared resolution, 1 where an event lands, else 0, the sub-pixel position bits staying in the unit's bytes for a profile that wants super-resolution | `skip_bits` (optional, 7), `horizontal_bits` (optional, 2), `vertical_bits` (optional, 2): `int`, `place`; values where the compression fixes them (65000's and 65001's) | TIFF (65000 to 65002) |
 | `dicom_rle` | DICOM's RLE segments, byte planes most significant first | | DICOM |
-| `grib_unpack` | a GRIB field's section 7 | `grid` (section 3), `packing` (section 5): `place` | GRIB |
+| `grib_unpack` | a GRIB field's section 7 | `packing` (section 5): `place` | GRIB |
 
 - `jpeg2k` with `main_header` decodes the main header as stored with the unit's tile-parts and
   makes the tile their SOT's `Isot` names, alone, at the place the file puts it; the tile's
@@ -377,8 +379,10 @@ container); step 0 adds that to [§3.2](../../spec/stored-array.md#32-the-list)'
   with no `axes`, and `axes` `[1, 0]` mark the rows-first case, since section 3 lists Ni first. A
   field with a bitmap codes only the points it does not mask, so its array is those values
   ([§GRIB](#grib)); placing them on the grid, and the value a masked point shows, is the plan's.
-  Complex packing's missing values (templates 5.2 and 5.3, octet 23 not 0) are coded in section 7
-  itself, so the codec makes NaN there, by step 0's rule for stated values.
+  Complex packing's missing values (templates 5.2 and 5.3, octet 23 not 0) come out as section 5's
+  own primary and secondary substitutes, converted exactly to float64; the NaN that
+  [conventions §12](../../spec/conventions.md#12-grib-messages) gives them, like a masked point's,
+  is the plan's output.
 
 `source` stays the fallback: old-style JPEG, and a compression, filter or packing refkv has no name
 for, with the source's number for it.
@@ -557,12 +561,12 @@ with `header` and the voxels in its derived space, as
 Validating the mirror's view of the header re-derives the stream, while the parser reads only its
 start. Validation re-derives a space with `Transform::rederive`, which decodes the whole stream, and
 [conventions §8.8](../../spec/conventions.md#88-canonical-form) allows `deflate` no shown values, so
-step 0 revises both: a gunzip form gains an optional prefix length, the whole stream when absent (as
-a `.fits.gz`'s stays), so that re-derivation validates only the prefix the parser read, and a
-`deflate` space may hold shown values. The format PRs then only call the helper, and each names the
-mirror's changed forms. The same helper serves NumPy's deflated `.npz` members, whose `header` and
-`data` become children of their derived space in a small PR of their own after step 0, which NumPy's
-plan PR then follows.
+step 0 revises both: the gunzip and `deflate` forms gain an optional prefix length, the whole stream
+when absent (as a `.fits.gz`'s stays), so that re-derivation validates only the prefix the parser
+read (NumPy reads a deflated member only as far as its header), and a `deflate` space may hold shown
+values. The format PRs then only call the helper, and each names the mirror's changed forms. The
+same helper serves NumPy's deflated `.npz` members, whose `header` and `data` become children of
+their derived space in a small PR of their own after step 0, which NumPy's plan PR then follows.
 
 ### NIfTI
 

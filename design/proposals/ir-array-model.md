@@ -466,7 +466,7 @@ once, apart from the units, for many units. Zarr's codecs cannot say this; refkv
 `Param::Source` names the place the parameter is made from, so the description says where the
 configuration is rather than copying it. Examples:
 - a TIFF IFD's JPEGTables, for `jpeg`;
-- a GRIB field's sections 3 and 5, for `grib_unpack`;
+- a GRIB field's section 5, for `grib_unpack`;
 - HDF5's fill value message, as `Fill::Given`.
 
 The parser today reads only the fill value message (0x05), and folds an undefined fill, a default
