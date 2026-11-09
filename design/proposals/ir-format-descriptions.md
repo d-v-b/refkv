@@ -164,8 +164,14 @@ One PR before the formats. Its code:
 - the docs the edits contradict: `CODECS`' (`source`), `fall_back`'s (which now serves the
   descriptions' limit too), `sort_arrays`' ("A store is not sorted"), the JSON form's in `array.rs`,
   `_core.pyi` and `stored.py`'s module and `read` docstrings (`undescribed`), and `transform.rs`'s
-  `Deflate` and `Gunzip` docs with `may_hold_shown`; and the test in `array.rs` that a graft failing
-  on the descriptions' limit leaves the store as it was, which the fallback rewrites;
+  `Deflate` and `Gunzip` docs with `may_hold_shown`; `Ir.stored_arrays`' docstring in
+  `ir/__init__.py`, `stored_arrays`' doc in `refkv-python/src/lib.rs`, `stored-array.json`'s
+  top-level description and the `Stored` class docstring (`undescribed` again); and the four tests
+  in `array.rs` that expect a refusal at the descriptions' limit
+  (`refuses_descriptions_past_the_budget`, `refuses_listed_runs_past_the_budget`,
+  `a_fallback_leaves_no_column_or_key_of_its_own`, and the second half of
+  `a_failed_graft_leaves_the_store_unchanged`), which become tests of the fallback and the mark, the
+  failed-graft test keeping its room and plan failures;
 - the test helpers ([§The test helper](#the-test-helper)), among them `unit_bytes(ir, row)` and
   `place_bytes(ir, place)`, which give a row's or a place's bytes from the IR (a run member through
   its run's stride, a `range`, `ranges`, an element in a derived space by re-deriving it) through a
@@ -196,13 +202,18 @@ Its spec edits, each to a sentence the plan would otherwise contradict:
   "what the array's elements are" to "what the array's elements are, or how they are placed,
   arranged or presented" (GRIB's grid, DICOM's total matrix, ND2's loops, a JPEG's markers), with
   `StoredArray.declarations`' doc in `array.rs`. The `axes` row takes rule 9's definition. The
-  closing sentence on what the profile reads cites the new 3.3 rather than
+  `grid` row's "absent where the IR does not model the array's storage", with `grid`'s doc in
+  `array.rs` and the closing paragraph of [§2.3](../../spec/stored-array.md#23-the-grid), gains "or
+  cannot state a grid its chains decode" (a frame that does not fit, a parameter place in several
+  spans, a precision above 32 bits, components that differ, either limit's fallback). The closing
+  sentence on what the profile reads cites the new 3.3 rather than
   [§3.2](../../spec/stored-array.md#32-the-list) for elements a codec makes.
-- **[§2.3](../../spec/stored-array.md#23-the-grid).** `Each(n)`'s `n` is the declared length, or the
-  frame's size where the format's paragraph in [§7](../../spec/stored-array.md#7-the-formats) takes
-  it ([§Codec-made elements](#codec-made-elements)), with `Edge`'s docs in `array.rs`; `short`'s
-  example ("a TIFF last strip") gains "unless its JPEG frame is full size", and "as the source
-  declares its layout" gains "or as its frames show it".
+- **[§2.3](../../spec/stored-array.md#23-the-grid).** `Each(n)`'s `n` is the declared length, or,
+  where the format's paragraph in [§7](../../spec/stored-array.md#7-the-formats) fits frames
+  ([§Codec-made elements](#codec-made-elements)), the frame's size or the axis's extent, in the
+  canonical form's "under `full`, `n` is the declared length" too, with `Edge`'s docs in `array.rs`;
+  `short`'s example ("a TIFF last strip") gains "unless its JPEG frame is full size", and "as the
+  source declares its layout" gains "or as its frames show it".
 - **[§2.2](../../spec/stored-array.md#22-places-and-parameters).** The place bullet's "where no
   element holds them" becomes "where no element holds them in one span", with `Place`'s doc in
   `array.rs`. "a place whose bytes the codec makes it from" becomes, for a codec's parameter, "a
@@ -216,10 +227,11 @@ Its spec edits, each to a sentence the plan would otherwise contradict:
 - **[§2.5](../../spec/stored-array.md#25-the-json-form) and `stored-array.json`.** They add
   `undescribed`, which marks a source that kept no descriptions at all (an array that falls back
   alone does not set it), present in every IR as that section's members are: in a file IR `true` or
-  `false`; in a store IR a list of object keys, empty where nothing is marked, holding each grafted
-  file's key that kept none and, where a store parser describes its own objects' arrays itself, not
-  by graft (every one that does: VSI, NRRD, NIfTI pairs, safetensors' shards, SAFE's directory,
-  GRIB) and keeps none, the key of every object whose arrays it describes.
+  `false`; in a store IR a list of object keys, empty where nothing is marked, holding the key of
+  each grafted file marked `true`, or whose descriptions the graft's fallback dropped whole (a file
+  of a format not described yet is not listed), and, where a store parser describes its own objects'
+  arrays itself, not by graft (every one that does: VSI, NRRD, NIfTI pairs, safetensors' shards,
+  SAFE's directory, GRIB) and keeps none, the key of every object whose arrays it describes.
 - **[§3.1](../../spec/stored-array.md#31-chains).** "Configuration the source defines once … is a
   parameter given as a place" gains the cases where a value stands instead and the rule that an
   omitted card or tag whose default the format gives is an absent parameter ([§Parameters the source
@@ -411,16 +423,19 @@ declares more, which would be cropped, or a progressive or non-interleaved one o
 whose scans' block counts follow the declared size) is a decoding error.
 
 The format sets its grid so that each unit's shape is its frame's. A frame is a coded image size a
-parser reads: a JPEG SOF, a JPEG 2000 SIZ (under `main_header`, the tile `Isot` names, as above), a
-JPEG XR header, a PNG or BMP header. A parser reads the frame of every image-codec array's first
-unit (for the declarations above) and of a strip image's last strip; `jpeg`'s `header` SOF, which
-declares the whole strip, is not one. Step 0's frame-fit function takes them with, on each axis,
-the extent E (computed first, from the format), the unit's declared length D (RowsPerStrip, an
-absent one being its default 2^32 − 1, as an NDPI level's always is; TileLength and TileWidth; the
-image width for a strip; Rows and Columns for a DICOM frame; VSI's tile size), the format's edge,
-and each frame's unit index k, whose cut length is c = min(D, E − k·D). The smaller-frame allowance
-above is JPEG's alone, and also needs the unit's shape to fit a SOF (at most 65535, as NDPI's
-`Frame::covers` checks today); the scanner gives what it needs. On each axis:
+parser reads, with its component count: a JPEG SOF, a JPEG 2000 SIZ (under `main_header`, the tile
+`Isot` names, as above), a JPEG XR header, a PNG or BMP header. A parser reads the frame of every
+`jpeg`, `jpeg2k`, `jpegxr`, `png` and `bmp` array's first unit (for the declarations above) and of a
+strip image's last strip; `jpeg`'s `header` SOF, which declares the whole strip, is not one, and
+`jpegls`, `jpegxl`, `webp`, `lerc` and `eer` frames are not read and follow the tags (DICOM's
+refusal of a JPEG-LS or lossless JPEG frame whose size is not Rows by Columns stays). Step 0's
+frame-fit function takes them with, on each axis, the extent E (computed first, from the format),
+the unit's declared length D (RowsPerStrip, an absent one being its default 2^32 − 1, as an NDPI
+level's always is; TileLength and TileWidth; the image width for a strip; Rows and Columns for a
+DICOM frame; VSI's tile size), the format's edge, and each frame's unit index k, whose cut length is
+c = min(D, E − k·D). The smaller-frame allowance above is JPEG's alone, and also needs the unit's
+shape to fit a SOF (at most 65535, as NDPI's `Frame::covers` checks today); the scanner gives what
+it needs. On each axis:
 - of one unit (E ≤ D): a frame equal to D gives `Each(D)`, asking for `full` where D does not
   divide E (a single strip under a RowsPerStrip above ImageLength, its frame holding all of it); any
   other frame at least c makes the extent and the unit the frame's size, so that `Each(n)` equals
@@ -433,7 +448,9 @@ above is JPEG's alone, and also needs the unit's shape to fit a SOF (at most 655
   (a TIFF whose last JPEG strip holds a frame of the full RowsPerStrip) and for `short` where it
   equals c or fits c by the allowance (a 6-row last strip under RowsPerStrip 64 over 70 rows); any
   other frame, no grid, the format's size and the frame declarations.
-Across axes and frames, no grid wins, and the grid's edge is what the frames ask for, the format's
+A frame whose component count is not the samples axis's (1 where there is none) gives no grid, as
+does a pair of frames on an axis of one unit that give different sizes. Across axes and frames, no
+grid wins, and the grid's edge is what the frames ask for, the format's
 where none asks, and no grid where they ask for both. A unit read for its frame that has no SOI, or
 no SOF before its first SOS, and an extent of 0 (a `.vsi` macro IFD's ImageWidth 0) also give no
 grid. Units whose frame the parser does not read follow the tags, and one whose frame differs is
@@ -576,10 +593,11 @@ A name follows [§3.2](../../spec/stored-array.md#32-the-list): it states the by
 decoding takes, its framing included, and covers two framings only where a parameter chooses. This
 list supersedes the sketch in [ir-array-model.md](ir-array-model.md#codecs). Each parameter is given
 as `name: kinds`, where a kind is a value's JSON type (`int`, `str`, `bool`, `float`, `int[]`, or
-`any`), `place`, or `column` with its Arrow type; a parameter is
-required unless marked optional. Configuration the source gives once may be a value only where step
-0 allows one. A name also covers two framings where their standard tells them apart by their first
-bytes (JPEG XL's codestream and container); step 0 adds that to
+`any`), `place`, or `column` with its Arrow type; a parameter is required unless marked optional.
+Configuration the source gives once may be a value only where step 0 allows one, so a parameter that
+every user reads from a field of the file has the kind `place` alone, and the chain check enforces
+the rule. A name also covers two framings where their standard tells them apart by their first bytes
+(JPEG XL's codestream and container); step 0 adds that to
 [§3.2](../../spec/stored-array.md#32-the-list)'s rule.
 
 `source`, already in the list, takes `format`: `str`; `id`: `int`, `str`; `name` (optional): `str`;
@@ -597,13 +615,13 @@ bytes (JPEG XL's codestream and container); step 0 adds that to
 | `lzf` | LZF with no header | | HDF5 (32000) |
 | `blosc` | Blosc's own frame | | HDF5 (32001) |
 | `h5_lz4` | HDF5's LZ4 block layout | | HDF5 (32004) |
-| `h5_szip` | a 4-byte length, then the AEC stream | `options`, `pixels_per_block`, `bits_per_pixel`, `pixels_per_scanline`: each `int` or `place` | HDF5 (4) |
-| `h5_bitshuffle` | HDF5's bitshuffle blocks: bare, or under LZ4 or zstd each chunk starting with a 12-byte big-endian header of its decoded length (8 bytes) and its block size in bytes (4 bytes), which then governs | `element_size`: `int`, `place`; `block_size` (optional, 0; bare chunks only, in elements; 0 or absent meaning bitshuffle's default for `element_size`): `int`, `place`; `compression` (optional, `none`; `none`, `lz4` or `zstd`): `str`, `place` | HDF5 (32008) |
+| `h5_szip` | a 4-byte length, then the AEC stream | `options`, `pixels_per_block`, `bits_per_pixel`, `pixels_per_scanline`: each `place` | HDF5 (4) |
+| `h5_bitshuffle` | HDF5's bitshuffle blocks: bare, or under LZ4 or zstd each chunk starting with a 12-byte big-endian header of its decoded length (8 bytes) and its block size in bytes (4 bytes), which then governs | `element_size`: `place`; `block_size` (optional, 0; bare chunks only, in elements; 0 or absent meaning bitshuffle's default for `element_size`): `place`; `compression` (optional, `none`; `none`, `lz4` or `zstd`): `place` | HDF5 (32008) |
 | `tiff_lzw` | TIFF's LZW, codes most significant bit first | | TIFF, CZI |
 | `packbits` | PackBits runs | | TIFF |
 | `ccitt_t6` | ITU-T T.6 data; decoding makes 1-bit rows, most significant bit first, each padded to a byte (`item_bits` 1, `pad_from` at the row), a black run 1 and a white run 0 whatever Photometric says, which stays a declaration | | TIFF (4) |
-| `fits_rice` | FITS's Rice blocks; decoding makes big-endian integers of `byte_pix` bytes | `block_size` (optional, 32): `int`, `place`; `byte_pix` (optional, 4): `int`, `place` | FITS (RICE_1) |
-| `skip` | the elements after `length` bytes | `length`: `int`, `place` | NRRD's `byte skip` |
+| `fits_rice` | FITS's Rice blocks; decoding makes big-endian integers of `byte_pix` bytes | `block_size` (optional, 32): `place`; `byte_pix` (optional, 4): `place` | FITS (RICE_1) |
+| `skip` | the elements after `length` bytes | `length`: `place` | NRRD's `byte skip` |
 
 **Transforms**
 
@@ -611,17 +629,17 @@ bytes (JPEG XL's codestream and container); step 0 adds that to
 | --- | --- | --- | --- |
 | `shuffle` | ungroups bytes by their position in elements of `element_size` | `element_size`: `int`, `place` | HDF5 (2), FITS's GZIP_2, CZI's hi-lo |
 | `h5_fletcher32` | checks and drops HDF5's appended checksum | | HDF5 (3) |
-| `h5_nbit` | HDF5's N-bit unpacking | `parameters` (the filter's client data, which describes the element's packed fields): `int[]`, `place` | HDF5 (5) |
-| `h5_scaleoffset` | HDF5's scale-offset decoding | `parameters` (the filter's client data): `int[]`, `place` | HDF5 (6) |
-| `tiff_predictor` | undoes horizontal (2) or floating-point (3) differencing along each row | `predictor`: `int`, `place`; `planar_configuration` (optional, 1): `int`, `place`; `byte_order` (little or big, read from its place): `place` | TIFF |
-| `fits_quantize` | makes big-endian floats of `item_bits` from big-endian 4-byte integers | `method` (optional, NO_DITHER; ZQUANTIZ's name): `str`, `place`; `scale`, `zero`: `place`, `column` Float64; `seed` (optional, given only under a subtractive dither; the tile's 0-based index plus ZDITHER0, the codec entering the random table at (`seed` − 1) mod 10000): `column` Int64; `zblank` (optional): `place`, `column` Int64 | FITS |
+| `h5_nbit` | HDF5's N-bit unpacking | `parameters` (the filter's client data, which describes the element's packed fields): `place` | HDF5 (5) |
+| `h5_scaleoffset` | HDF5's scale-offset decoding | `parameters` (the filter's client data): `place` | HDF5 (6) |
+| `tiff_predictor` | undoes horizontal (2) or floating-point (3) differencing along each row | `predictor`: `place`; `planar_configuration` (optional, 1): `place`; `byte_order` (little or big, read from its place): `place` | TIFF |
+| `fits_quantize` | makes big-endian floats of `item_bits` from big-endian 4-byte integers | `method` (optional, NO_DITHER; ZQUANTIZ's name): `place`; `scale`, `zero`: `place`, `column` Float64; `seed` (optional, given only under a subtractive dither; the tile's 0-based index plus ZDITHER0, the codec entering the random table at (`seed` − 1) mod 10000): `column` Int64; `zblank` (optional): `place`, `column` Int64 | FITS |
 | `lsb_first` | as step 0 | `bits`: `int` | DICOM, MRC, safetensors |
 
 **Codecs that make elements**, as step 0 says unless the entry says otherwise
 
 | Codec | Takes | Parameters | Used by |
 | --- | --- | --- | --- |
-| `jpeg` | an ISO 10918-1 stream, any process | `tables` (optional; an abbreviated table stream, TIFF's tag 347): `place`; `jfif`, `adobe` (optional; the first unit's JFIF and Adobe segments, where it has them; VSI): `place`; `components` (optional; the first unit's SOF component ids; VSI; where given, every unit's JFIF and Adobe segments and component ids must equal `jfif`, `adobe` and `components`, or be absent where they are): `int[]`, `place`; `header` (optional; the stream up to its first scan, the unit being one restart interval's entropy-coded segment, its RSTn marker excluded, decoded as after a restart, the unit's shape taking the place of the header SOF's size; NDPI): `place` | TIFF, NDPI, VSI, DICOM, CZI |
+| `jpeg` | an ISO 10918-1 stream, any process | `tables` (optional; an abbreviated table stream, TIFF's tag 347): `place`; `jfif`, `adobe` (optional; the first unit's JFIF and Adobe segments, where it has them; VSI): `place`; `components` (optional; the first unit's SOF component ids; VSI; where given, every unit's JFIF and Adobe segments and component ids must equal `jfif`, `adobe` and `components`, or be absent where they are): `place`; `header` (optional; the stream up to its first scan, the unit being one restart interval's entropy-coded segment, its RSTn marker excluded, decoded as after a restart, the unit's shape taking the place of the header SOF's size; NDPI): `place` | TIFF, NDPI, VSI, DICOM, CZI |
 | `jpegls` | an ISO 14495-1 stream | | DICOM |
 | `jpeg2k` | an ISO 15444-1 codestream (15444-15's high throughput included), not a JP2 file | `main_header` (optional; the unit is then one tile's tile-parts, with their SOT): `place` | TIFF, VSI, DICOM, SAFE |
 | `jpegxr` | a JPEG XR file in its T.832 container (starting `II BC 01`); decoding makes the samples in its pixel format's order | | NDPI, CZI |
@@ -707,10 +725,10 @@ Large (about 1,500 lines).
   calls it for the `.vsi`'s IFDs and NDPI's wraps it in `ndpi.rs`, neither editing it: each tag's
   value and its places (a list, for NDPI's `high` words), the format's name for `source`, the byte
   order's place (TIFF's `header/byte_order`, VSI's `header` with a range), each unit's element as
-  rule 3 names it, and a struct of what the caller read for it (the last strip's SOF, the first
-  unit's JFIF, Adobe and SOF places, the first JPEG 2000 tile's SOC and SIZ), the reads left to the
-  caller. The NDPI variant of `tiff.rs` has no descriptions (and is not marked `undescribed`) until
-  NDPI's PR, so that this PR changes no NDPI fixture's reads.
+  rule 3 names it, and a struct of what the caller read for it (the last strip's frame, its SOF or
+  SIZ; the first unit's JFIF, Adobe and SOF places; the first unit's SOC and SIZ, a tile's or a
+  strip's), the reads left to the caller. The NDPI variant of `tiff.rs` has no descriptions (and is
+  not marked `undescribed`) until NDPI's PR, so that this PR changes no NDPI fixture's reads.
 - **QPTIFF** is parsed as TIFF and comes with this PR, tested on its accepted fixtures.
 
 ### NDPI
@@ -773,10 +791,11 @@ Medium, after TIFF.
   tiles are raw; otherwise `undefined`, with the header among the declarations.
 - **Checker.** Bio-Formats for tile sizes, decoded tiles (minding BGR and the resolution level) and
   sizes: each level's extent is its tiles' extent (level 0's the larger of that and the declared
-  size, or the frame's where step 0 grows it), and Bio-Formats' size is at most it and, at level 0,
-  the declared size, its tiles compared after cropping to that size. For JPEG tiles, which
-  Bio-Formats converts to RGB, and JPEG 2000 tiles, which it rounds otherwise, the decoding is
-  checked by imagecodecs with no color conversion instead. tifffile for the `.vsi`'s IFDs.
+  size, or, at any level, the frame's where step 0 grows it), and Bio-Formats' size is at most it
+  and, at level 0, the declared size, its tiles compared after cropping to that size. For JPEG
+  tiles, which Bio-Formats converts to RGB, and JPEG 2000 tiles, which it rounds otherwise, the
+  decoding is checked by imagecodecs with no color conversion instead. tifffile for the `.vsi`'s
+  IFDs.
 
 ### HDF5, NWB and IMS
 
