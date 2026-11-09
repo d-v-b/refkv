@@ -479,16 +479,17 @@ each node that is an array is the id of its dataset's object, which the store's 
 renumbers with `store.element` ([§2.1](#21-keys)). An attribute's value is not described yet.
 
 - **Declarations.** The first is the data of the dataset's datatype message, or, where that
-  message is shared, of the committed datatype's datatype message it names (the shared message's
-  own data where that does not read); a header with no one datatype message gives none. After
-  it come the fill value messages whose value the description cannot give (below). A message is
-  the element the IR made of its data (`messages/<k>/data`), or, where the IR had no room for
-  one, a range of the source.
+  message is shared, of the committed datatype's datatype message it names; a header with no one
+  datatype message gives none. Of a dataset the parser did not read, it is the shared message's
+  own data: the description reads no byte the parser did not, so it is the same however the
+  file's bytes were fetched. After it come the fill value messages whose value the description
+  cannot give (below). A message is the element the IR made of its data (`messages/<k>/data`),
+  or, where the IR had no room for one, a range of the source.
 - **`shape`** is the dataspace's current dimensions, absent for a null dataspace and for one that
   does not read. `axes` is absent: HDF5 stores an array in its declared order.
 - **`item_bits`** is eight times the datatype's size, the bytes of one stored element (for a
   variable-length type, of its heap reference); absent where the datatype does not read or its
-  size is 0.
+  size is 0, and for a dataset the parser did not read whose datatype message is shared.
 - **A chunked dataset** whose chunk index and filter pipeline the parser read has the grid of its
   chunk shape, `Each` on every axis, under `full`, and one chain: its filter pipeline's codecs
   ([§3.2](#32-the-list)), in the pipeline's order. A filter the list has no name for, or whose
@@ -496,9 +497,9 @@ renumbers with `store.element` ([§2.1](#21-keys)). An attribute's value is not 
   its `name` where the message gives one, and `parameters`, a place of all its client data,
   where it has any. Each chunk the index holds is a row: its element; or, where the chunks of
   an implicit index are one `data` element, its range of that element (no range where the chunk
-  is all of the element); or, where the IR had no room for its element, its range of the source. `skips` is the chunk's filter mask, less the bits past
-  the pipeline; an edge chunk the dataset stores unfiltered skips every codec. A chunk the index
-  does not hold has no row.
+  is all of the element); or, where the IR had no room for its element, its range of the source.
+  `skips` is the chunk's filter mask, less the bits past the pipeline; an edge chunk the dataset
+  stores unfiltered skips every codec. A chunk the index does not hold has no row.
 - **A contiguous or compact dataset** is one unit in an empty chain: each axis `Each` of its
   length, or an empty `List` for an axis of length 0, under `short`. The row's bytes are the
   dataset's `data` element, or the range of its layout message's data that holds a compact

@@ -430,25 +430,7 @@ impl Hdf5 {
     /// files, as (key, offset, length), in the data's order; None unless a store run found every
     /// file the data lies in and each range lies within its file.
     fn external_ranges(&self, at: u64, total: u128) -> Option<Vec<(String, u64, u64)>> {
-        let found = self.found.as_ref()?;
-        let mut left = total;
-        let mut out = Vec::new();
-        for s in self.slots.get(&at)? {
-            if left == 0 {
-                break;
-            }
-            let key = written_key(&s.name, "", Written::default())?;
-            let size = *found.get(&key)?;
-            let n = if s.size == super::EXTERNAL_UNLIMITED { left } else { (s.size as u128).min(left) };
-            if s.offset as u128 + n > size as u128 {
-                return None;
-            }
-            if n > 0 {
-                out.push((key, s.offset, n as u64));
-            }
-            left -= n;
-        }
-        (left == 0).then_some(out)
+        super::stored::external_ranges(self.slots.get(&at)?, total, self.found.as_ref()?)
     }
 
     /// Whether the dataset at `at` is the dimension scale netCDF-4 writes for a dimension with no

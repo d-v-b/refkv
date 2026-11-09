@@ -41,17 +41,19 @@ fn one(h: &Header, ty: u16) -> Option<(usize, &Msg)> {
 }
 
 /// Where the dataset declares its elements: its datatype message, or, where the message is
-/// shared, the committed datatype's message it points at (the shared message itself where that
-/// does not read).
-fn datatype_place(h5: &mut H5, rec: &Recorded, base: u64, h: &Header) -> Option<Place> {
-    let (k, m) = one(h, super::DATATYPE)?;
-    if m.flags & 2 != 0 {
-        let committed = h5.committed(&m.data).ok().and_then(|(_, at)| h5.header(at).ok());
-        if let Some((c, (k2, m2))) = committed.as_ref().and_then(|c| Some((c, one(c, super::DATATYPE)?))) {
-            return Some(msg_place(rec, base, c, k2, m2, None));
+/// shared and the reader read the dataset (`read`), the committed datatype's message it points
+/// at. A dataset the reader did not read keeps the shared message itself: the walk may not have
+/// read the committed datatype, and the description reads no bytes the walk did not.
+fn datatype_place(h5: &mut H5, rec: &Recorded, base: u64, h: &Header, read: bool) -> Res<Option<Place>> {
+    let Some((k, m)) = one(h, super::DATATYPE) else { return Ok(None) };
+    if m.flags & 2 != 0 && read {
+        let committed = h5.committed(&m.data).and_then(|(_, at)| h5.header(at));
+        let c = committed.map_err(|_| "internal: a dataset's committed datatype does not read again")?;
+        if let Some((k2, m2)) = one(&c, super::DATATYPE) {
+            return Ok(Some(msg_place(rec, base, &c, k2, m2, None)));
         }
     }
-    Some(msg_place(rec, base, h, k, m, None))
+    Ok(Some(msg_place(rec, base, h, k, m, None)))
 }
 
 /// What a fill value message says.
@@ -194,7 +196,7 @@ fn whole(dims: &[u64]) -> Grid {
 /// sibling keys of its `slots`; None where a name has no key, the slots do not hold the data, or
 /// the run did not find a file, or found it shorter than its part (`found`: the siblings the run
 /// found, with their sizes).
-fn external(slots: &[ExternalSlot], total: u128, found: &HashMap<String, u64>) -> Option<Vec<(Option<String>, u64, u64)>> {
+pub(super) fn external_ranges(slots: &[ExternalSlot], total: u128, found: &HashMap<String, u64>) -> Option<Vec<(String, u64, u64)>> {
     let mut left = total;
     let mut ranges = Vec::new();
     for s in slots {
@@ -207,7 +209,7 @@ fn external(slots: &[ExternalSlot], total: u128, found: &HashMap<String, u64>) -
             return None;
         }
         if n > 0 {
-            ranges.push((Some(key), s.offset, u64::try_from(n).ok()?));
+            ranges.push((key, s.offset, u64::try_from(n).ok()?));
         }
         left -= n;
     }
@@ -255,7 +257,7 @@ pub fn describe(ir: &mut Ir, h5: &mut H5, em: &Emitted, visited: &HashMap<u64, V
             Some(ds) => ((ds.layout != Layout::Null).then(|| ds.dims.clone()), ds.datatype.size),
             None => (
                 one(&h, super::DATASPACE).filter(|(_, m)| m.flags & 2 == 0).and_then(|(_, m)| parse_dataspace(&m.data).ok()).and_then(|s| s.dims),
-                h5.datatype(&h).ok().and_then(|(d, _)| parse_datatype(&d).ok()).map_or(0, |d| d.size),
+                one(&h, super::DATATYPE).filter(|(_, m)| m.flags & 2 == 0).and_then(|(_, m)| parse_datatype(&m.data).ok()).map_or(0, |d| d.size),
             ),
         };
         let size = (size > 0 && size <= u64::MAX / 8).then_some(size);
@@ -263,7 +265,7 @@ pub fn describe(ir: &mut Ir, h5: &mut H5, em: &Emitted, visited: &HashMap<u64, V
         let mut a = StoredArray {
             element: em.structs[i],
             index: None,
-            declarations: datatype_place(h5, em.rec, base, &h).into_iter().chain(undecoded).collect(),
+            declarations: datatype_place(h5, em.rec, base, &h, ds.is_some())?.into_iter().chain(undecoded).collect(),
             shape,
             axes: None,
             item_bits: size.map(|n| n * 8),
@@ -318,17 +320,10 @@ pub fn describe(ir: &mut Ir, h5: &mut H5, em: &Emitted, visited: &HashMap<u64, V
                 }
             }
             Layout::Contiguous if h.has(super::EXTERNAL_FILES) => {
-                let own;
-                let sl = match slots.get(&at) {
-                    Some(s) => s,
-                    None => {
-                        own = h5.external_slots(&h).unwrap_or_default();
-                        &own
-                    }
-                };
-                if let Some(ranges) = found.and_then(|f| external(sl, total, f)) {
+                if let Some(ranges) = found.zip(slots.get(&at)).and_then(|(f, sl)| external_ranges(sl, total, f)) {
                     grid = Some(whole(&ds.dims));
                     if holds && !ranges.is_empty() {
+                        let ranges = ranges.into_iter().map(|(key, o, n)| (Some(key), o, n)).collect();
                         rows.push(unit(Row { ranges: Some(ranges), ..Row::default() }));
                     }
                 }

@@ -482,20 +482,12 @@ def test_the_fixtures_hold_every_case_the_comparison_reads():
         assert seen[case] > 0, (case, dict(seen))
 
 
-FILL_VALUE, LAYOUT = 5, 8  # the types of the fill value message and of the layout message
+DATASPACE, FILL_VALUE, LAYOUT = 1, 5, 8  # the types of the dataspace, fill value and layout messages
 
 
-def with_message(tmp_path: Path, name: str, kind: int, change: Callable[[bytearray, int, int], None]) -> Path:
-    """A file of one dataset, `d`, which h5py wrote contiguous, with the format's default fill
-    value, in a version 1 object header (no checksum covers it), after `change(file, header, data)`
-    changed the bytes of its message of type `kind`, whose header and data start at those offsets."""
-    path = tmp_path / "written.h5"
-    with h5py.File(path, "w", libver="earliest") as f:
-        f.create_dataset("d", data=np.arange(6, dtype="<i4"))
-    d = described(path)
-    (a,) = d.stored.arrays
-    assert a.fill == "format_default"
-    data = bytearray(path.read_bytes())
+def message(d: Described, a: StoredArray, kind: int) -> tuple[int, int]:
+    """Where the header and the data of the one message of type `kind` start, in the file of `d`,
+    of the dataset `a` describes, whose object header is of version 1 (no checksum covers it)."""
     messages = d.ir.child(a.element, "messages")
     assert messages is not None
     found = []
@@ -503,10 +495,24 @@ def with_message(tmp_path: Path, name: str, kind: int, change: Callable[[bytearr
         header, body = d.ir.child(m, "header"), d.ir.child(m, "data")
         assert header is not None
         assert body is not None
-        if struct.unpack_from("<H", data, d.ir.extent(header)[0])[0] == kind:
-            found.append((header, body))
-    ((header, body),) = found
-    change(data, d.ir.extent(header)[0], d.ir.extent(body)[0])
+        if struct.unpack_from("<H", d.objects[None], d.ir.extent(header)[0])[0] == kind:
+            found.append((d.ir.extent(header)[0], d.ir.extent(body)[0]))
+    (at,) = found
+    return at
+
+
+def with_message(tmp_path: Path, name: str, kind: int, change: Callable[[bytearray, int, int], None]) -> Path:
+    """A file of one dataset, `d`, which h5py wrote contiguous, with the format's default fill
+    value, in a version 1 object header, after `change(file, header, data)` changed the bytes of
+    its message of type `kind`, whose header and data start at those offsets."""
+    path = tmp_path / "written.h5"
+    with h5py.File(path, "w", libver="earliest") as f:
+        f.create_dataset("d", data=np.arange(6, dtype="<i4"))
+    d = described(path)
+    (a,) = d.stored.arrays
+    assert a.fill == "format_default"
+    data = bytearray(path.read_bytes())
+    change(data, *message(d, a, kind))
     path = tmp_path / name
     path.write_bytes(data)
     return path
@@ -552,6 +558,39 @@ def test_data_stored_whole_that_is_not_of_the_arrays_size_has_no_grid(tmp_path):
     d = described(with_message(tmp_path, "short.h5", LAYOUT, shorten))
     (a,) = d.stored.arrays
     assert (a.shape, a.grid, a.chains, d.rows) == ((6,), None, (), {})
+
+
+def at_address(d: Described, address: int) -> tuple[int, StoredArray]:
+    """The description, with its position, of the dataset whose object header is at `address`."""
+    found = []
+    for k, a in enumerate(d.stored.arrays):
+        prefix = d.ir.child(a.element, "prefix")
+        assert prefix is not None
+        if d.ir.extent(prefix)[0] == address:
+            found.append((k, a))
+    (one,) = found
+    return one
+
+
+def test_a_dataset_the_parser_did_not_read_has_no_shape_and_no_grid(tmp_path):
+    """A dataset outside an IMS file's image whose dataspace does not read (the IMS parser rejects
+    no file for one) keeps the element size its own datatype message gives, and has no shape, no
+    grid and no row."""
+    source = FIXTURES / "ims" / "ims_earliest_review2.ims"
+    with h5py.File(source, "r") as f:
+        address = h5o.get_info(f["X/target"].id).addr
+    d = described(source)
+    k, a = at_address(d, address)
+    assert (a.shape, a.item_bits, a.grid is None, len(d.rows[k])) == ((6, 10), 64, False, 1)
+    data = bytearray(source.read_bytes())
+    _, at = message(d, a, DATASPACE)
+    assert data[at] == 1
+    data[at] = 9
+    path = tmp_path / "unread.ims"
+    path.write_bytes(data)
+    d = described(path)
+    k, a = at_address(d, address)
+    assert (a.shape, a.item_bits, a.grid, a.chains, d.rows.get(k)) == (None, 64, None, (), None)
 
 
 def test_filters_no_fixture_holds_are_described_as_h5py_reads_them(tmp_path):

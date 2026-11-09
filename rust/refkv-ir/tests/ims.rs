@@ -112,22 +112,24 @@ fn the_walk_stops_inside_heaps_b_trees_and_global_heaps() {
     assert!(!paths.iter().any(|p| p.starts_with("global_heaps/1")), "a later collection is described");
 }
 
-/// Every image dataset of an accepted fixture's facts names its description by the description's
-/// key, the struct of the dataset's object, and the description's rows are the dataset's chunks.
-/// Each row of the stored arrays as the bytes of the file it names: its coordinates and its
-/// (offset, length) parts, and whether it names them as ranges of the source.
-fn row_extents(ir: &refkv_ir::ir::Ir) -> Vec<(Vec<u64>, Vec<(u64, u64)>, bool)> {
+/// Each row of the stored arrays as the bytes of the file it names: its array (by position: the
+/// descriptions are in the order of the objects, which the room does not change) and coordinates,
+/// its (offset, length) parts, and whether it names them as ranges of the source.
+fn row_extents(ir: &refkv_ir::ir::Ir) -> Vec<((u32, Vec<u64>), Vec<(u64, u64)>, bool)> {
     let m = &ir.stored.map;
     (0..m.len())
-        .map(|r| match m.ranges_of(r) {
-            Some(parts) => {
-                assert!(parts.clone().all(|p| m.range_object[p].is_none()));
-                (m.coords_of(r).to_vec(), parts.map(|p| (m.range_offset[p], m.range_length[p])).collect(), true)
-            }
-            None => {
-                let e = m.element[r].unwrap() as usize;
-                let (o, n) = m.range[r].unwrap_or((0, ir.len[e]));
-                (m.coords_of(r).to_vec(), vec![(ir.start[e] + o, n)], false)
+        .map(|r| {
+            let unit = (m.array[r], m.coords_of(r).to_vec());
+            match m.ranges_of(r) {
+                Some(parts) => {
+                    assert!(parts.clone().all(|p| m.range_object[p].is_none()));
+                    (unit, parts.map(|p| (m.range_offset[p], m.range_length[p])).collect(), true)
+                }
+                None => {
+                    let e = m.element[r].unwrap() as usize;
+                    let (o, n) = m.range[r].unwrap_or((0, ir.len[e]));
+                    (unit, vec![(ir.start[e] + o, n)], false)
+                }
             }
         })
         .collect()
@@ -154,6 +156,8 @@ fn past_the_walks_room_a_row_names_the_same_bytes_as_a_range_of_the_source() {
     assert!(as_ranges > 100, "{as_ranges} rows of ranges");
 }
 
+/// Every image dataset of an accepted fixture's facts names its description by the description's
+/// key, the struct of the dataset's object, and the description's rows are the dataset's chunks.
 #[test]
 fn every_accepted_fixtures_images_name_their_descriptions() {
     let mut images = 0;
