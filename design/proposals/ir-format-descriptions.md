@@ -164,7 +164,8 @@ since other decoders differ and the checks compare bytes:
   fourth sample where its alpha mask is set and drops the unused byte where it is not.
 
 A paletted PNG or BMP makes its stored indices, one sample, as Pillow decodes it; its palette (PNG's
-PLTE, BMP's color table) is a declaration, which the profile applies, as TIFF's ColorMap is.
+PLTE, BMP's color table) stays in the unit's bytes for the profile to read and apply, as TIFF's
+ColorMap is a declaration it applies.
 
 A JPEG 2000 codestream whose components are sampled differently is the exception: OpenJPEG takes
 it for sYCC and converts it to RGB, a color conversion with no option to leave it, so its array's
@@ -199,7 +200,8 @@ be TIFF's FillOrder 2, which TIFF refuses today for the compressions libtiff rev
 
 Step 0 adds to `array.rs` one function that names a unit's bytes in the finished IR as rule 3 says
 (a run member's element with `member`; an alias's target, alone or with a moved `range`; `ranges` of
-the object that holds them; or none inside a derived space), with its tests, so that no format
+the object that holds them; or none inside a derived space, or where the unit was named through
+its element's recipe), with its tests, so that no format
 writes it. `Ir::fold` frees a folded member's ids during parsing, so a parser records a unit in a
 run as (run root, j, member 0's element) when its fold succeeds, never the id its emitter returned.
 `check::finish` records each run it unfolds (the run's root, the first id of its copies,
@@ -416,9 +418,10 @@ Medium, after TIFF.
   declarations.
 - **Grid and chains.** `Each(1)` on each leading axis, then the tile and S, under `full`; one unit a
   tile, its `tiles/<k>` element; the chain the ETS header's compression names, one codec;
-  `item_bits` the pixel type's sample size, or what the codec makes. S follows what the codec makes;
-  a tile whose decoding cannot make the header's `channels` samples (a 32-bit BMP with no alpha
-  mask under four channels, a paletted tile under three) makes its array's chain `source`.
+  `item_bits` the pixel type's sample size, or what the codec makes; S the header's `channels`.
+  The parser reads no tile's own header, so a tile whose decoding cannot make `channels` samples
+  (a 32-bit BMP with no alpha mask under four channels, a paletted tile under three) is caught by
+  the checker, and VSI's PR falls back to `source` for whatever such files the corpus holds.
 - **Fill.** Given, as a place in the `ets` header, when the background's samples are equal and the
   tiles are raw; otherwise `undefined`, with the header among the declarations.
 - **Checker.** Bio-Formats for shapes, tile sizes and decoded tiles (minding BGR and the
