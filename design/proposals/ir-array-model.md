@@ -292,8 +292,10 @@ Further rules for the map:
 - Null is the only way to write chain 0 and "skips nothing".
 - A rank-0 array has at most one row.
 - The map's entries have their own limit (below). `Ir::arrays` is sorted by `(element, index)`
-  when the parser describes its arrays, whatever order it walked the source in, and a graft keeps
-  that order, appending a file's arrays with ascending new ids. Arrays are fitted in that order: one
+  when the parser describes its arrays, whatever order it walked the source in. A graft appends a
+  file's arrays after those already in the store, in their relative order, so a store's arrays are
+  in graft order (a description keyed by a file's root takes the object's element, below earlier
+  grafts' ids, so the store is not sorted by key). Arrays are fitted in that order: one
   whose rows would take the map past it falls back to no grid (the general fallback), with no
   chains, no unit parameters and none of its rows, and later arrays are still tried. Which arrays
   fall back follows, in a file IR, from the source alone, and in a store from its files in graft
@@ -492,8 +494,9 @@ value message (0x04) where the new one is absent, as the HDF5 library does.
   repeats;
 - exactly one of `element` and `ranges` is set in each row;
 - `range` is set only with `element`, is at least 1 byte long, lies within the element's extent,
-  and is not the whole extent (a unit that is the whole element names the element alone, so it has
-  one spelling);
+  and, where the element's recipe is the identity, is not the whole extent (such a unit names the
+  element alone, so it has one spelling; under any other recipe the element alone gives the
+  recipe's bytes, and a whole-extent `range` is how a row names the raw bytes);
 - `member` is set exactly when `element` is in a run's subtree, and is below the run's count;
 - chain 0 and no skips are written as null;
 - `chain` is in range, and `skips` names only codecs of the unit's chain;
@@ -552,11 +555,12 @@ share, and the map. They are not in the facts. So:
   each row's rank plus the parameter values it sets is at most 3 for units an element holds (whole,
   or a range of it), and at most 2 for units `ranges` hold. Past that, or where structures share them (two HDF5 headers on one chunk index, TIFF
   IFDs sharing a StripOffsets array), the arrays that do not fit fall back to no grid. The bound
-  counts bytes of the source, so it covers units in space 0 and `ranges`: a unit in a derived
-  space (a `.fits.gz` heap's tile) can cost far less than a byte of the source, and its array can
-  fall back at any rank. No source that parses today is refused for its map. The cost is memory, by part as built: about 93
-  bytes a row, 8 a coordinate and 24 a `ranges` item (109 for a rank-2 row). The worst case, rank-1
-  rows over an index two headers share, is about 200 bytes per byte of the source, and about
+  counts bytes of the parsed source, so it covers units in space 0 and `ranges` into the parsed
+  source. A unit in a derived space (a `.fits.gz` heap's tile), or in `ranges` into another object
+  (an HDF5 external file), can cost far less than a byte of the parsed source, and its array can
+  fall back at any rank. No source that parses today is refused for its map. The cost is memory,
+  by part as built: about 93 bytes a row, 8 a coordinate and 24 a `ranges` item (109 for a
+  rank-2 row). The worst case, rank-1 rows over an index two headers share, is about 200 bytes per byte of the source, and about
   210 MB at the 2^22 floor, plus about 76 bytes per row while Python holds an export. A parameter
   column also has a null slot on every row that does not set it, about 16 bytes a row per column;
   the list allows only a few such columns (FITS's ZSCALE, ZZERO and dither seed among them). The
