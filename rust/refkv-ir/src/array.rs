@@ -2017,26 +2017,25 @@ mod tests {
         assert_eq!(valid().weights().1, 5 + 8 + 2 + 2);
     }
 
-    /// A graft fits its file to the store's limit as the grafts so far have it, the file's object
-    /// included: an object listed but not yet grafted adds nothing.
+    /// A store's limits grow as it lists its objects, as its records do, and not as files are
+    /// grafted: a graft fits its file to the limit as it stands, every listed object counted,
+    /// grafted or not.
     #[test]
-    fn a_graft_fits_to_the_objects_grafted_so_far() {
+    fn a_graft_fits_to_the_limit_the_listing_grew() {
         let mut file = file_ir();
         let (mut arrays, map) = two_arrays();
         arrays.truncate(1);
         file.describe(arrays, vec![vec![]], map.take(&(0..4).collect::<Vec<usize>>())).unwrap();
         let mut store = Ir::new_store();
-        // an empty object, under which the file is grafted, and a large one, not yet grafted
         let o = store.listing(&[("f.bin".into(), 0), ("g.bin".into(), 1000)]).unwrap();
-        store.budget.as_mut().unwrap().graft_rows = 0;
+        let b = store.budget.as_ref().unwrap();
+        assert_eq!((b.rows, b.descriptions), ((1 << 22) + 4 + (4 + 4000), (1 << 22) + 4 + (4 + 250)));
+        let before = b.rows;
+        // the file, grafted under the empty object, fits in what the large one's listing grew
+        store.budget.as_mut().unwrap().rows -= 1 << 22;
         store.graft(&file, o[0]).unwrap();
-        // 4 entries for the empty object alone: the array's 8 do not fit
-        assert!(store.stored.arrays[0].grid.is_none() && store.stored.map.is_empty());
-        assert_eq!(store.budget.as_ref().unwrap().graft_rows, 4);
-        store.graft(&file, o[1]).unwrap();
-        // and 4 + 4000 more with the large one grafted
-        assert!(store.stored.arrays[1].grid.is_some());
-        assert_eq!(store.stored.map.len(), 4);
+        assert!(store.stored.arrays[0].grid.is_some());
+        assert_eq!(store.budget.as_ref().unwrap().rows, before - (1 << 22));
     }
 
     /// A chain no description names after fitting is dropped from the table, the others

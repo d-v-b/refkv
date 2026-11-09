@@ -320,10 +320,10 @@ the descriptions.
 **Only two things change ids afterwards.**
 
 - **A graft** carries a file IR's descriptions and rows into the store it joins, in order:
-  - it fits the file's arrays, in the file's order, to the store's chunk map limit as the store's
-    grafts so far have it, this file's object included (below). A store has the 2^22 once, where
-    each file had it, so an array that kept its rows in its file may fall back in the store,
-    depending on what was grafted before it;
+  - it fits the file's arrays, in the file's order, to the store's chunk map limit as it stands
+    then (below), which counts every object the store has listed, grafted or not; a graft does not
+    grow it. A store has the 2^22 once, where each file had it, so an array that kept its rows in
+    its file may fall back in the store, depending on what was grafted before it;
   - it carries into the store's chain table only the chains the file's remaining descriptions
     name, each with its places' element ids renumbered and then found in the table by its value:
     a chain the table has keeps its position, and a new one is appended, in the order the file's
@@ -351,8 +351,9 @@ a codec's parameter names. The chunk map's are each row, each of its coordinates
 `ranges` items and each unit-parameter value it sets (a row's `range` is part of it, and is none).
 The descriptions' limit is 2^22 once, plus one per 4 bytes of the source, growing with each object
 of a store as the store's other budgets do (4 plus one per 4 of its bytes). The chunk map's is 2^22
-once, plus four per byte of the source; a store's, as its grafts fit to it, 2^22 once, plus 4 and
-four per byte for each object grafted so far. Every unit in space 0 has at least one byte of its own
+once, plus four per byte of the source; a store's grows by 4 plus four per byte with each object
+the store lists, as its records do, and not when a file is grafted. Every unit in space 0 has at
+least one byte of its own
 (an HDF5 chunk of an implicit index may be a single byte), or an index entry of several, so where
 no two units share bytes or index entries, a map whose units are held by elements of space 0 (with
 or without a `range`) fits at rank 3 or less, and one whose units are in `ranges` fits at rank 2 or
