@@ -2022,6 +2022,28 @@ mod tests {
         crate::check::finish(&mut store).unwrap();
     }
 
+    /// Two files whose chains name one offset of their own source (`object: None`) keep two chains
+    /// in the store: a graft compares chains only after their null keys are the files' keys.
+    #[test]
+    fn two_files_chains_at_one_offset_of_their_sources_stay_two() {
+        let chain = vec![codec("source", &[("parameters", Param::Source(Place::Extent { object: None, offset: 8, length: 4 }))])];
+        let (mut arrays, map) = two_arrays();
+        arrays.truncate(1);
+        let file = with(Stored { arrays, chains: vec![chain], map: map.take(&(0..4).collect::<Vec<usize>>()), ..Stored::default() });
+        let mut store = Ir::new_store();
+        let o = store.listing(&[("f.bin".into(), 100), ("g.bin".into(), 100)]).unwrap();
+        store.graft(&file, o[0]).unwrap();
+        store.graft(&file, o[1]).unwrap();
+        let s = &store.stored;
+        assert_eq!(s.chains.len(), 2);
+        let object = |c: &Chain| match c[0].parameters.get("parameters") {
+            Some(Param::Source(Place::Extent { object, .. })) => object.clone(),
+            _ => None,
+        };
+        assert_eq!((object(&s.chains[0]), object(&s.chains[1])), (Some("f.bin".to_string()), Some("g.bin".to_string())));
+        assert_eq!((s.arrays[0].chains.clone(), s.arrays[1].chains.clone()), (vec![0], vec![1]));
+    }
+
     /// Describe sorts the arrays by `(element, index)`, their rows following them; a graft keeps
     /// that order, as it appends a file's arrays with ascending new ids after the store's.
     #[test]
