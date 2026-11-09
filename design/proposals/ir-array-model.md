@@ -51,7 +51,9 @@ mirror's forms may change with them:
   EOI, sit in the IR's shared data, and recipes splice them into units (`["shared", k]`,
   [conventions §8.5](../../spec/conventions.md#85-forms-and-recipes)). The marker is a synthetic
   byte. In place of the prefix, the `jpeg` codec takes the tables as a parameter naming the
-  JPEGTables tag's bytes, and the color transform the marker conveys as a parameter. Building a
+  JPEGTables tag's bytes; decoding converts no colors, and the profile reads the color transform
+  from the source's declarations (Photometric), so the marker needs no parameter
+  ([ir-format-descriptions.md](ir-format-descriptions.md#codec-made-elements)). Building a
   self-contained JPEG for the output is the projection's.
 - **FITS's `tile_cut`.** The parser cuts a tiled image's tiles into output chunks
   ([rust/refkv-ir/src/fits.rs](../../rust/refkv-ir/src/fits.rs)), so each `heap/<j>` element holds
@@ -649,16 +651,16 @@ one array is stored. This changes two things in profile-plugins:
    - the two edits to profile-plugins.
 
    Only NumPy emits descriptions yet, and no output changes.
-2. **Each format, in two PRs.** The first describes the format's arrays, adds its codecs to the
-   list and tests the description against the format's reference reader, with no output changed.
-   Each format's first PR may land before the plan's machine
+2. **Each format, a describe-only PR and then the build tools' two.** The describe-only PR describes
+   the format's arrays and tests the description against the format's reference reader, with no
+   output changed, its codecs coming from one shared list; it may land before the plan's machine
    ([ir-format-descriptions.md](ir-format-descriptions.md)). It gives unreachable declarations a
    place (NumPy's deflated `.npz` headers; NIfTI's gzipped header), lists in its format's document
    what each of its `declarations` places is, and takes the extra work below that a description
-   needs (HDF5's fill value and listing, GRIB's NaN). The second is the build tools'
-   format PR: profile-plugins' step 3 reworks NumPy, then TIFF, then HDF5 into plans, and its step 4
-   the others ([profile-plugins.md](profile-plugins.md#order-of-work)), with the rest of the extra
-   work (TIFF's JPEG prefix, FITS's `tile_cut`). Each of those PRs:
+   needs (HDF5's fill value and listing, GRIB's NaN). Then come the build tools' format PRs:
+   profile-plugins' step 3 reworks NumPy, then TIFF, then HDF5 into plans, and its step 4 the others
+   ([profile-plugins.md](profile-plugins.md#order-of-work)), with the rest of the extra work (TIFF's
+   JPEG prefix, FITS's `tile_cut`). Each format's plan PR:
    - has its projection read its format's description;
    - moves the typing its facts did (a fixed string's added axis, a default fill) into the format's
      plan;
