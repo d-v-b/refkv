@@ -139,10 +139,11 @@ One PR before the formats. Its code:
   SOF's marker and size, each component's id and sampling, and whether the first SOS lists every
   component, for the parsers that declare them and for the frame-fit function;
 - a frame-fit function in `array.rs` that applies [§Codec-made elements](#codec-made-elements)'
-  table: given each axis's extent and declared unit length, the format's edge, and the frames the
-  parser read with each one's unit index, it returns each axis's `Each(n)` and any grown extent,
-  and the grid's edge, or no grid; TIFF's IFD describer, NDPI's wrapper, VSI's ETS levels and DICOM
-  call it, so that no format writes the rule;
+  table: given each axis's extent and declared unit length, the format's edge, which axes a frame's
+  rows and columns are, the unit's length on the samples axis, and the frames the parser read with
+  each one's unit index, it returns each axis's `Each(n)` and any grown extent, and the grid's edge,
+  or no grid; TIFF's IFD describer, NDPI's wrapper, VSI's ETS levels and DICOM call it, so that no
+  format writes the rule;
 - `coding::jpegxr_header` returning, with their values, the ranges (from the stream's start) of the
   PixelFormat GUID and of the size entries' value fields, which NDPI and CZI both name as
   declarations;
@@ -171,7 +172,7 @@ One PR before the formats. Its code:
   (`refuses_descriptions_past_the_budget`, `refuses_listed_runs_past_the_budget`,
   `a_fallback_leaves_no_column_or_key_of_its_own`, and the second half of
   `a_failed_graft_leaves_the_store_unchanged`), which become tests of the fallback and the mark, the
-  failed-graft test keeping its room and plan failures;
+  failed-graft test keeping its plan failure and gaining a room failure, which stays a refusal;
 - the test helpers ([§The test helper](#the-test-helper)), among them `unit_bytes(ir, row)` and
   `place_bytes(ir, place)`, which give a row's or a place's bytes from the IR (a run member through
   its run's stride, a `range`, `ranges`, an element in a derived space by re-deriving it) through a
@@ -205,15 +206,17 @@ Its spec edits, each to a sentence the plan would otherwise contradict:
   `grid` row's "absent where the IR does not model the array's storage", with `grid`'s doc in
   `array.rs` and the closing paragraph of [§2.3](../../spec/stored-array.md#23-the-grid), gains "or
   cannot state a grid its chains decode" (a frame that does not fit, a parameter place in several
-  spans, a precision above 32 bits, components that differ, either limit's fallback). The closing
-  sentence on what the profile reads cites the new 3.3 rather than
-  [§3.2](../../spec/stored-array.md#32-the-list) for elements a codec makes.
-- **[§2.3](../../spec/stored-array.md#23-the-grid).** `Each(n)`'s `n` is the declared length, or,
-  where the format's paragraph in [§7](../../spec/stored-array.md#7-the-formats) fits frames
-  ([§Codec-made elements](#codec-made-elements)), the frame's size or the axis's extent, in the
-  canonical form's "under `full`, `n` is the declared length" too, with `Edge`'s docs in `array.rs`;
-  `short`'s example ("a TIFF last strip") gains "unless its JPEG frame is full size", and "as the
-  source declares its layout" gains "or as its frames show it".
+  spans, a precision above 32 bits, components that differ, either limit's fallback).
+  [§1](../../spec/stored-array.md#1-stored-arrays)'s "an array whose storage it does not model (a
+  description with no grid" widens likewise. The closing sentence on what the profile reads cites,
+  for elements a codec makes, the codec's entry in [§3.2](../../spec/stored-array.md#32-the-list)
+  and the new 3.3.
+- **[§2.3](../../spec/stored-array.md#23-the-grid).** The canonical form's "under `full`, `n` is the
+  declared length" and "under `short`, `n` is the declared length clamped to the axis's length" each
+  gain "or, where the format's paragraph in [§7](../../spec/stored-array.md#7-the-formats) fits
+  frames ([§Codec-made elements](#codec-made-elements)), the frame's size or the axis's extent",
+  with `Edge`'s docs in `array.rs`; `short`'s example ("a TIFF last strip") gains "unless its JPEG
+  frame is full size", and "as the source declares its layout" gains "or as its frames show it".
 - **[§2.2](../../spec/stored-array.md#22-places-and-parameters).** The place bullet's "where no
   element holds them" becomes "where no element holds them in one span", with `Place`'s doc in
   `array.rs`. "a place whose bytes the codec makes it from" becomes, for a codec's parameter, "a
@@ -299,7 +302,8 @@ stream codes more than one component (or, for `webp`, where the samples axis has
 alpha the stream may leave out); leading axes of 1 (a frame's, a level's) are not the frame's.
 Decoding a unit whose stream does not match its codec's entry or the unit's shape (a paletted PNG
 under `png`, a frame whose blocks do not cover the unit's shape, another number of components than
-the samples axis, samples of another size than `item_bits`, a frame that declares more rows or
+the unit's length on the samples axis (1 where there is none, or where the grid cuts it at 1, as
+under a planar layout), samples of another size than `item_bits`, a frame that declares more rows or
 columns than the unit (under `jpeg2k`'s `main_header`, the frame being the tile `Isot` names, sized
 from SIZ's tile grid and cut at the image's edge), under `jpeg`'s `components` a JFIF or Adobe
 segment or component ids other than its `jfif`, `adobe` and `components` name, or one where they
@@ -425,17 +429,19 @@ whose scans' block counts follow the declared size) is a decoding error.
 The format sets its grid so that each unit's shape is its frame's. A frame is a coded image size a
 parser reads, with its component count: a JPEG SOF, a JPEG 2000 SIZ (under `main_header`, the tile
 `Isot` names, as above), a JPEG XR header, a PNG or BMP header. A parser reads the frame of every
-`jpeg`, `jpeg2k`, `jpegxr`, `png` and `bmp` array's first unit (for the declarations above) and of a
-strip image's last strip; `jpeg`'s `header` SOF, which declares the whole strip, is not one, and
-`jpegls`, `jpegxl`, `webp`, `lerc` and `eer` frames are not read and follow the tags (DICOM's
-refusal of a JPEG-LS or lossless JPEG frame whose size is not Rows by Columns stays). Step 0's
-frame-fit function takes them with, on each axis, the extent E (computed first, from the format),
-the unit's declared length D (RowsPerStrip, an absent one being its default 2^32 − 1, as an NDPI
-level's always is; TileLength and TileWidth; the image width for a strip; Rows and Columns for a
-DICOM frame; VSI's tile size), the format's edge, and each frame's unit index k, whose cut length is
-c = min(D, E − k·D). The smaller-frame allowance above is JPEG's alone, and also needs the unit's
-shape to fit a SOF (at most 65535, as NDPI's `Frame::covers` checks today); the scanner gives what
-it needs. On each axis:
+`jpeg`, `jpeg2k`, `jpegxr`, `png` and `bmp` array's first unit (for the declarations above; the
+first stored unit in unit order, its index the k below, none where no unit is stored, the array then
+having no rows) and of a strip image's last strip; `jpeg`'s `header` SOF, which declares the whole
+strip, is not one, and `jpegls`, `jpegxl`, `webp`, `lerc` and `eer` frames are not read and follow
+the tags (DICOM's refusal of a JPEG-LS frame whose size is not Rows by Columns stays; its lossless
+JPEG frames, whose SOFs it already reads, all pass through the frame-fit function, so that one of
+another size gives no grid rather than a refusal). Step 0's frame-fit function takes them with, on
+each axis, the extent E (computed first, from the format), the unit's declared length D
+(RowsPerStrip, an absent one being its default 2^32 − 1, as an NDPI level's always is; TileLength
+and TileWidth; the image width for a strip; Rows and Columns for a DICOM frame; VSI's tile size),
+the format's edge, and each frame's unit index k, whose cut length is c = min(D, E − k·D). The
+smaller-frame allowance above is JPEG's alone, and also needs the unit's shape to fit a SOF (at most
+65535, as NDPI's `Frame::covers` checks today); the scanner gives what it needs. On each axis:
 - of one unit (E ≤ D): a frame equal to D gives `Each(D)`, asking for `full` where D does not
   divide E (a single strip under a RowsPerStrip above ImageLength, its frame holding all of it); any
   other frame at least c makes the extent and the unit the frame's size, so that `Each(n)` equals
@@ -444,21 +450,23 @@ it needs. On each axis:
   with a 128-row frame, 128 rows of one tile, and with a 100-row frame `Each(100)`); a frame below c
   that fits c by the allowance gives `Each(E)`; any other, no grid;
 - of several units: a frame of a unit before the last, or of the last where D divides E, must equal
-  D or fit it by the allowance; the last unit's frame otherwise asks for `full` where it equals D
-  (a TIFF whose last JPEG strip holds a frame of the full RowsPerStrip) and for `short` where it
-  equals c or fits c by the allowance (a 6-row last strip under RowsPerStrip 64 over 70 rows); any
-  other frame, no grid, the format's size and the frame declarations.
-A frame whose component count is not the samples axis's (1 where there is none) gives no grid, as
-does a pair of frames on an axis of one unit that give different sizes. Across axes and frames, no
-grid wins, and the grid's edge is what the frames ask for, the format's
-where none asks, and no grid where they ask for both. A unit read for its frame that has no SOI, or
-no SOF before its first SOS, and an extent of 0 (a `.vsi` macro IFD's ImageWidth 0) also give no
-grid. Units whose frame the parser does not read follow the tags, and one whose frame differs is
-caught by the checker, not the parser. CZI, whose subblock is one unit, takes the frame's size
-whether larger or smaller, as its document says. Where a smaller frame decodes at the unit's shape,
-its last declared rows or columns decode as the larger frame's do, which under subsampling can
-differ from a decode at the frame's own size (fancy upsampling reads the padded chroma row or
-column), so the checks compare against the decode with the SOF set.
+  D or fit it by the allowance; the last unit's frame otherwise asks for `full` where it equals D (a
+  TIFF whose last JPEG strip holds a frame of the full RowsPerStrip) and for `short` where it equals
+  c or fits c by the allowance (a 6-row last strip under RowsPerStrip 64 over 70 rows); any other
+  frame, no grid, the format's size and the frame declarations. A frame whose component count is not
+  the unit's length on the samples axis (1 where there is none, or where the grid cuts it at 1, as
+  under a planar layout: a planar JPEG 2000 TIFF's one-component codestreams keep their grid,
+  `rgb_planar_jpeg2000_bigtiff_be.ome.tif` among TIFF's tests) gives no grid, as does a pair of
+  frames on an axis of one unit that give different sizes. Across axes and frames, no grid wins, and
+  the grid's edge is what the frames ask for, the format's where none asks, and no grid where they
+  ask for both. A unit read for its frame that has no SOI, or no SOF before its first SOS, and an
+  extent of 0 (a `.vsi` macro IFD's ImageWidth 0) also give no grid. Units whose frame the parser
+  does not read follow the tags, and one whose frame differs is caught by the checker, not the
+  parser. CZI, whose subblock is one unit, takes the frame's size whether larger or smaller, as its
+  document says. Where a smaller frame decodes at the unit's shape, its last declared rows or
+  columns decode as the larger frame's do, which under subsampling can differ from a decode at the
+  frame's own size (fancy upsampling reads the padded chroma row or column), so the checks compare
+  against the decode with the SOF set.
 
 ### `lsb_first`
 
@@ -749,7 +757,9 @@ IFDs, describing the NDPI variant TIFF's PR leaves without descriptions.
   read today that are out of range or inconsistent (a McuStarts above 2^53, outside its strip, or
   miscounted) give that IFD's array no grid (`ndpi_unused_values.ndpi`, one fallback test).
 - **JPEG XR IFDs** take `item_bits` and samples from the first stream's PixelFormat, whose range is
-  a declaration. A macro or map IFD whose stream the parser does not read has no grid.
+  a declaration. NDPI reads each JPEG XR IFD's first stream through `coding::jpegxr_header`, macro
+  and map IFDs included, as it reads a level's today; one whose header is not found within
+  `MAX_STREAM_READ` has no grid (one fallback test).
 - **Checker.** tifffile, comparing McuStarts by hand: tifffile reads them only with tag 271, which
   the fixtures lack, and adding it would change their outputs; strips whose frame is not the IFD's
   size, on which tifffile raises, are checked by hand too, against the decode with the SOF set.
