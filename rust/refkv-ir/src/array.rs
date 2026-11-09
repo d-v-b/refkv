@@ -1230,15 +1230,20 @@ impl Ctx<'_> {
 
 /// Whether element `e`'s recipe, over its `len` bytes, gives its extent as it is (spec/stored-array.md
 /// §5.2 <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#52-the-chunk-map>): no
-/// form or no recipe, or a recipe of only `src` and `rows` parts that, read as ranges of the
-/// extent, cover `[0, len)` in order with no gap or overlap (`[["src",0]]`, `[["src",0,null]]`,
-/// split `src` parts, `rows` runs of n bytes each n apart). Then the element alone names the
+/// form or no recipe (a `"recipe": null` is none, as `refs` reads it), or a recipe of only `src`
+/// and `rows` parts that, read as ranges of the extent, cover `[0, len)` in order with no gap or
+/// overlap (`[["src",0]]`, `[["src",0,null]]`, split `src` parts, `rows` runs of n bytes each n
+/// apart, or a single run of any stride). Parts are read as `refs` reads them: fields after those
+/// a part has are ignored, and a part of no bytes covers none. Then the element alone names the
 /// whole extent; any other recipe gives other bytes, and a `range` of the whole extent is the only
 /// way to name the raw ones.
 fn identity_recipe(ir: &Ir, e: u32, len: u64) -> bool {
     let Some(form) = ir.form(e) else { return true };
     let Ok(j) = serde_json::from_str::<J>(form) else { return true };
-    let Some(recipe) = j.get("recipe") else { return true };
+    let recipe = match j.get("recipe") {
+        None | Some(J::Null) => return true,
+        Some(r) => r,
+    };
     let Some(parts) = recipe.as_array() else { return false };
     let mut pos = 0u64;
     for p in parts {
@@ -1254,15 +1259,21 @@ fn identity_recipe(ir: &Ir, e: u32, len: u64) -> bool {
                         None => return false,
                     },
                 };
-                pos = o + n;
+                // the part's end, which may not pass the extent's
+                match o.checked_add(n).filter(|&end| end <= len) {
+                    Some(end) => pos = end,
+                    None => return false,
+                }
             }
             Some("rows") => {
                 let (Some(o), Some(s), Some(n), Some(c)) = (at(1), at(2), at(3), at(4)) else { return false };
                 if o != pos || (c > 1 && s != n) {
                     return false;
                 }
-                let Some(t) = n.checked_mul(c) else { return false };
-                pos = o + t;
+                match n.checked_mul(c).and_then(|t| o.checked_add(t)).filter(|&end| end <= len) {
+                    Some(end) => pos = end,
+                    None => return false,
+                }
             }
             _ => return false,
         }
@@ -2205,6 +2216,8 @@ mod tests {
             r#"[["rows",0,12,10,5]]"#,
             r#"[["src",0,30],["src",0,30]]"#,
             r#"[["src",0,59]]"#,
+            r#"[["src",0,18446744073709551615],["src",18446744073709551615,61]]"#,
+            r#"[["rows",0,1,18446744073709551615,2]]"#,
         ] {
             let mut ir = with(valid());
             let f = ir.forms.id(&format!(r#"{{"recipe":{recipe}}}"#));
@@ -2996,7 +3009,16 @@ mod tests {
         // the header (element 1) has no form
         assert!(refusal(|s| s.map.range[1] = Some((0, 8))).contains("its range is its element's whole extent, which the element alone names"));
         // the data element (element 4, 60 bytes) under each recipe that is the identity
-        for recipe in [r#"[["src",0,null]]"#, r#"[["src",0]]"#, r#"[["src",0,60]]"#, r#"[["src",0,30],["src",30,null]]"#, r#"[["rows",0,10,10,6]]"#] {
+        for recipe in [
+            r#"[["src",0,null]]"#,
+            r#"[["src",0]]"#,
+            r#"[["src",0,60]]"#,
+            r#"[["src",0,30],["src",30,null]]"#,
+            r#"[["rows",0,10,10,6]]"#,
+            r#"[["rows",0,99,60,1]]"#,
+            r#"null"#,
+            r#"[["src",0,0],["src",0,60,"more"]]"#,
+        ] {
             let mut ir = with(valid());
             let f = ir.forms.id(&format!(r#"{{"recipe":{recipe}}}"#));
             let k = ir.form_of.binary_search_by_key(&4, |e| e.0).unwrap();
