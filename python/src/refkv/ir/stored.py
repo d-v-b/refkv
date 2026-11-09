@@ -284,15 +284,20 @@ def read(document: str) -> Stored:
     """The stored arrays of the JSON document `refkv._core.Ir.stored_arrays` gives, held to
     spec/stored-array.json: TypeError for a value of another type, ValueError for an object whose
     members are not exactly its form's or a value the schema refuses (a negative integer, a length
-    of 0, a run of fewer than two units, a fill value that is not base64)."""
+    of 0, a run of fewer than two units, a fill value that is not base64, an undescribed key listed
+    twice)."""
     doc = _members(mapping(json.loads(document), "stored arrays"), frozenset({"chains", "arrays", "undescribed"}), "")
     chains = sequence(doc["chains"], "chains")
     arrays = sequence(doc["arrays"], "arrays")
     mark = doc["undescribed"]
-    undescribed = (
-        tuple(string(k, f"undescribed[{n}]") for n, k in enumerate(sequence(mark, "undescribed")))
-        if isinstance(mark, list) else boolean(mark, "undescribed")
-    )
+    undescribed: bool | tuple[str, ...]
+    if isinstance(mark, list):
+        undescribed = tuple(string(k, f"undescribed[{n}]") for n, k in enumerate(sequence(mark, "undescribed")))
+        twice = sorted({k for k in undescribed if undescribed.count(k) > 1})
+        if twice:
+            raise ValueError(f"undescribed: {', '.join(twice)} listed twice")
+    else:
+        undescribed = boolean(mark, "undescribed")
     return Stored(
         tuple(tuple(_codec(c, f"chains[{k}][{j}]") for j, c in enumerate(sequence(chain, f"chains[{k}]")))
               for k, chain in enumerate(chains)),

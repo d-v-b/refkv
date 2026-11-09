@@ -250,6 +250,10 @@ def test_refuses_an_undescribed_key_that_is_not_a_string():
     refused(TypeError, r"undescribed\[0\]: expected", {**document(), "undescribed": [1]})
 
 
+def test_refuses_an_undescribed_key_listed_twice():
+    refused(ValueError, "undescribed: a listed twice", {**document(), "undescribed": ["a", "b", "a"]})
+
+
 def test_refuses_a_negative_integer():
     refused(ValueError, r"arrays\[0\]\.shape\[0\]: -1 is below 0", document(shape=[-1, 12]))
 

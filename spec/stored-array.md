@@ -268,10 +268,10 @@ Both checks run when a parser adds its descriptions and chunk map to its finishe
 before its descriptions are built, so has none to check). A description or a row they refuse is a
 bug in its parser: an internal error naming the array's element.
 
-They also check the `undescribed` mark ([§6](#6-in-the-ir)): a file IR marked `true` has no
-descriptions, chains or rows, and lists no keys; a store IR is not marked `true` itself, and its
-list names its objects, once each, none of which holds a description's key or a row's `element`,
-nor is named by a row's `ranges`.
+They also check the `undescribed` mark ([§6](#6-in-the-ir)): a file IR lists no keys, and one
+marked `true` has no descriptions, chains or rows; a store IR is not marked `true` itself, and its
+list names its objects, once each, none of which holds a description's key or a row's `element`
+(another object's rows may read its bytes).
 
 ### 5.1 Each description
 
@@ -414,7 +414,8 @@ kept description to name) while what remains allows, and falls back as at the ma
 otherwise; an array that fell back at the map's limit stays fallen back. A fallen-back array's rows
 and the columns and chains only it named are dropped, so a later array that names a chain it shared
 pays for that chain. A store parser that describes its own objects' arrays itself, not by graft,
-and keeps none lists the key of every object whose arrays it described.
+keys each of them in one of its objects, and where it keeps none lists the key of every object whose
+arrays it described.
 
 As the map is built, a row holds about 93 bytes of memory, a coordinate 8 and a `ranges` item 24;
 the worst case, rank-1 rows of elements over a shared index at four entries per byte, is about 200

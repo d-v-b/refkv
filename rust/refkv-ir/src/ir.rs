@@ -701,8 +701,14 @@ impl Ir {
         // own describe marks each object whose arrays it described)
         let room = self.budget.as_ref().map_or(u64::MAX, |b| b.descriptions.saturating_sub(b.spent_descriptions));
         let objects: Vec<String> = if self.store {
+            // a store parser's own arrays lie in its objects, which are what its mark lists
             let of = self.sources().of;
-            let mut o: Vec<u32> = stored.arrays.iter().filter_map(|a| of.get(a.element as usize).copied()).filter(|&o| o != NONE).collect();
+            let none = |e: u32| of.get(e as usize).is_none_or(|&o| o == NONE);
+            if let Some(a) = stored.arrays.iter().find(|a| none(a.element)) {
+                let at = if (a.element as usize) < self.len() { format!(" ({:?})", self.path(a.element)) } else { String::new() };
+                return Err(format!("internal: a store's own stored array of element {}{at} lies in no object", a.element));
+            }
+            let mut o: Vec<u32> = stored.arrays.iter().map(|a| of[a.element as usize]).collect();
             o.sort_unstable();
             o.dedup();
             o.into_iter().map(|o| self.key(o)).collect()
