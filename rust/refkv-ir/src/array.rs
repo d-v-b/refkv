@@ -1477,6 +1477,8 @@ impl ChunkMap {
         }
         // the parameter columns each (array, chain) sets, with the codec each is of
         let mut sets: HashMap<(u32, u32), Vec<(String, u32)>> = HashMap::new();
+        // whether each form's recipe is the identity, parsed once per form
+        let mut identity: HashMap<Option<u32>, bool> = HashMap::new();
         // each gridded array's units along each axis, counted once
         let grid_units: Vec<Vec<u64>> = arrays
             .iter()
@@ -1520,7 +1522,7 @@ impl ChunkMap {
                         if o.checked_add(n).is_none_or(|end| end > len) {
                             return Err(row(format!("its range at {o} of {n} bytes is past its element's {len} bytes")));
                         }
-                        if (o, n) == (0, len) && identity_recipe(ctx.ir, e) {
+                        if (o, n) == (0, len) && *identity.entry(ctx.ir.form_id(e)).or_insert_with(|| identity_recipe(ctx.ir, e)) {
                             return Err(row("its range is its element's whole extent, which the element alone names".into()));
                         }
                     }
