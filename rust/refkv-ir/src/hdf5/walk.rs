@@ -114,6 +114,18 @@ pub struct Emit<'a> {
     pub room: u64,
     /// the image's datasets, whose chunks are described whatever the room
     pub must: HashSet<u64>,
+    /// the elements emitted that the stored arrays' descriptions name (`super::stored`)
+    pub rec: Recorded,
+}
+
+/// The elements the emission made that a stored array's description names: each message's `data`
+/// by (header address, message position), each chunk by (dataset header, grid index), and an
+/// implicit index's one `data` element with the address of its first chunk.
+#[derive(Default)]
+pub struct Recorded {
+    pub msg: HashMap<(u64, usize), u32>,
+    pub chunk: HashMap<(u64, u128), u32>,
+    pub implicit: HashMap<u64, (u32, u64)>,
 }
 
 pub type Res<T> = Result<T, String>;
@@ -211,7 +223,9 @@ impl Emit<'_> {
                 hdf5::ATTRIBUTE if m.flags & 2 == 0 => self.attribute(s, "data", NO_INDEX, m.at, &m.data)?,
                 hdf5::LINK if m.flags & 2 == 0 => self.link(s, "data", NO_INDEX, m.at, &m.data)?,
                 _ => {
-                    self.bytes(s, "data", NO_INDEX, m.at, n)?;
+                    if let Some(id) = self.bytes(s, "data", NO_INDEX, m.at, n)? {
+                        self.rec.msg.insert((h.at, k), id);
+                    }
                 }
             }
         }
@@ -495,7 +509,8 @@ impl Emit<'_> {
                     let end = ch.list.iter().map(|c| c.1 + c.2).max().unwrap();
                     if self.h.src.within(first, end - first) {
                         let form = json!({"geometry": {"chunk": ds.chunk, "size": ds.datatype.size, "grid": max_grid}, "codec": {"filters": ds.filters}, "recipe": [["src", 0, null]]});
-                        self.ir.data(o, "data", NO_INDEX, 0, (first + self.h.src.base, end - first), &form.to_string())?;
+                        let id = self.ir.data(o, "data", NO_INDEX, 0, (first + self.h.src.base, end - first), &form.to_string())?;
+                        self.rec.implicit.insert(at, (id, first));
                     }
                 } else if !ch.list.is_empty() && (image || !self.full()) {
                     let s = self.ir.struct_(o, "chunks", NO_INDEX, 0, None)?;
@@ -516,7 +531,8 @@ impl Emit<'_> {
                             f["codec"]["mask"] = json!(mask);
                             f.to_string()
                         };
-                        self.ir.data(s, "", idx as u64, 0, (*a + self.h.src.base, *n), &form)?;
+                        let id = self.ir.data(s, "", idx as u64, 0, (*a + self.h.src.base, *n), &form)?;
+                        self.rec.chunk.insert((at, idx), id);
                     }
                 }
             }

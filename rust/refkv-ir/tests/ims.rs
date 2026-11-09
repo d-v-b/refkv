@@ -111,3 +111,32 @@ fn the_walk_stops_inside_heaps_b_trees_and_global_heaps() {
     }
     assert!(!paths.iter().any(|p| p.starts_with("global_heaps/1")), "a later collection is described");
 }
+
+/// Every image dataset of an accepted fixture's facts names its description by the description's
+/// key, the struct of the dataset's object, and the description's rows are the dataset's chunks.
+#[test]
+fn every_accepted_fixtures_images_name_their_descriptions() {
+    let mut images = 0;
+    for e in std::fs::read_dir(fixtures().join("ims")).unwrap() {
+        let p = e.unwrap().path();
+        let name = p.file_name().unwrap().to_str().unwrap().to_string();
+        if name.contains("reject") || !name.ends_with(".ims") {
+            continue;
+        }
+        let (ir, facts) = ims_with_room(&std::fs::read(&p).unwrap(), None);
+        let s = &ir.stored;
+        let mut keys = std::collections::HashSet::new();
+        for im in facts["images"].as_array().unwrap() {
+            let key = im[5].as_u64().unwrap_or_else(|| panic!("{name}: an image with no key")) as u32;
+            assert!(keys.insert(key), "{name}: two images name one description");
+            let described: Vec<usize> = (0..s.arrays.len()).filter(|&k| s.arrays[k].element == key).collect();
+            let [k] = described[..] else { panic!("{name}: {} descriptions of an image", described.len()) };
+            assert!(s.arrays[k].grid.is_some(), "{name}");
+            let rows = (0..s.map.len()).filter(|&r| s.map.array[r] == k as u32).count();
+            let chunks = im[3].as_u64().map_or(0, |el| ir.members(el as u32).len());
+            assert_eq!(rows, chunks, "{name}");
+            images += 1;
+        }
+    }
+    assert!(images >= 10, "{images} images");
+}
