@@ -9,6 +9,7 @@ import base64
 import bz2
 import contextlib
 import json
+import shutil
 import struct
 import zlib
 from collections import Counter
@@ -574,23 +575,38 @@ def at_address(d: Described, address: int) -> tuple[int, StoredArray]:
 
 def test_a_dataset_the_parser_did_not_read_has_no_shape_and_no_grid(tmp_path):
     """A dataset outside an IMS file's image whose dataspace does not read (the IMS parser rejects
-    no file for one) keeps the element size its own datatype message gives, and has no shape, no
-    grid and no row."""
-    source = FIXTURES / "ims" / "ims_earliest_review2.ims"
-    with h5py.File(source, "r") as f:
-        address = h5o.get_info(f["X/target"].id).addr
-    d = described(source)
-    k, a = at_address(d, address)
-    assert (a.shape, a.item_bits, a.grid is None, len(d.rows[k])) == ((6, 10), 64, False, 1)
-    data = bytearray(source.read_bytes())
-    _, at = message(d, a, DATASPACE)
-    assert data[at] == 1
-    data[at] = 9
+    no file for one) has no shape, no grid and no row. It keeps the element size its own datatype
+    message gives; where that message is shared, it has no element size and declares the shared
+    message, not the committed datatype's, which the parser may not have read."""
+    path = tmp_path / "written.ims"
+    shutil.copy(FIXTURES / "ims" / "ims_earliest_review2.ims", path)
+    with h5py.File(path, "r+", libver="earliest") as f:
+        f["X/committed"] = np.dtype("<i4")
+        f["X"].create_dataset("typed", data=np.arange(6), dtype=f["X/committed"])
+        own, shared = (h5o.get_info(f[name].id).addr for name in ("X/target", "X/typed"))
+    d = described(path)
+    data = bytearray(path.read_bytes())
+    declared = {}
+    for address, shape, bits in ((own, (6, 10), 64), (shared, (6,), 32)):
+        k, a = at_address(d, address)
+        assert (a.shape, a.item_bits, a.grid is None, len(d.rows[k])) == (shape, bits, False, 1)
+        declared[address] = a.declarations
+        _, at = message(d, a, DATASPACE)
+        assert data[at] == 1
+        data[at] = 9
     path = tmp_path / "unread.ims"
     path.write_bytes(data)
     d = described(path)
-    k, a = at_address(d, address)
-    assert (a.shape, a.item_bits, a.grid, a.chains, d.rows.get(k)) == (None, 64, None, (), None)
+    for address, bits in ((own, 64), (shared, None)):
+        k, a = at_address(d, address)
+        assert (a.shape, a.item_bits, a.grid, a.chains, d.rows.get(k)) == (None, bits, None, (), None)
+        (place,) = a.declarations
+        assert isinstance(place, ElementPlace)
+        messages = d.ir.child(a.element, "messages")
+        assert messages is not None
+        # its own message, which a dataset the parser read declares only where it is not shared
+        assert place.element in {d.ir.child(m, "data") for m in d.ir.children(messages)}
+        assert (d.place(place) == d.place(declared[address][0])) == (address == own)
 
 
 def test_filters_no_fixture_holds_are_described_as_h5py_reads_them(tmp_path):
