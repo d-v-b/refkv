@@ -117,7 +117,9 @@ A **stored array** is one structure that the source itself declares as an array;
 - one CZI subblock;
 - one GRIB field: sections 3 to 7 as they stand at a section 7, since sections 3 to 7 may repeat
   within a message. A regular grid's field has the rows and columns section 3 lists. A grid that
-  lists a number of points per row (a reduced grid), or template 3.101, has one axis of points.
+  lists a number of points per row (a reduced grid), or template 3.101, has one axis of points,
+  and a field with a bitmap one axis of the values it codes
+  ([ir-format-descriptions.md](ir-format-descriptions.md#grib)).
 
 Anything assembled from several of them is the plan's: a TIFF level, an OME image, a CZI level, an
 IMS level.
@@ -375,7 +377,9 @@ bytes:
 - **Or as a codec makes them.** Some codecs make the elements rather than restore them: GRIB's
   unpacking, FITS's dequantization, JPEG's decoding. Each such codec's entry states the bytes it
   makes, and the profile types them from that entry. GRIB's unpacking makes little-endian float64
-  values, NaN at a point its bitmap masks, as `refkv.grib` decodes today.
+  values, the ones section 7 codes, in stored order; placing a bitmapped field's values, and the
+  value a masked point shows, are its plan's
+  ([ir-format-descriptions.md](ir-format-descriptions.md#codecs)).
 
 Every codec takes bytes to bytes, so HDF5's filters, nbit and scaleoffset among them, keep their
 pipeline order.
@@ -431,10 +435,10 @@ and two formats' `source` parameters of one name would collide in a store.
 **What is not recorded:** parameters only an encoder needs, such as a zlib level or Blosc's block
 size.
 
-**GRIB's scanning mode** is read from section 3, a place parameter of `grib_unpack`. The codec
-makes its rows run in one direction (undoing alternate rows) and does not transpose: where the mode
-says consecutive points run along columns, that is the array's storage order (shape `[Ni, Nj]`),
-and `axes` `[1, 0]` mark the rows-first case instead, since section 3 lists Ni first
+**GRIB's scanning mode** is in section 3, a declaration. The codec reorders nothing: alternate rows
+stay as stored, for the plan to reverse, and where the mode says consecutive points run along
+columns, that is the array's storage order (shape `[Ni, Nj]`), and `axes` `[1, 0]` mark the
+rows-first case instead, since section 3 lists Ni first
 ([ir-format-descriptions.md](ir-format-descriptions.md#codecs)). The grid's axes are the array's storage axes (`[Nj, Ni]`,
 or `[Ni, Nj]` columns first), or its points for a reduced grid. Which way they point on the earth is the profile's.
 
@@ -462,8 +466,7 @@ once, apart from the units, for many units. Zarr's codecs cannot say this; refkv
 `Param::Source` names the place the parameter is made from, so the description says where the
 configuration is rather than copying it. Examples:
 - a TIFF IFD's JPEGTables, for `jpeg`;
-- a GRIB field's sections 3, 5 and 6, for `grib_unpack`; with bitmap indicator 254, section 6 is an
-  earlier field's;
+- a GRIB field's sections 3 and 5, for `grib_unpack`;
 - HDF5's fill value message, as `Fill::Given`.
 
 The parser today reads only the fill value message (0x05), and folds an undefined fill, a default
@@ -671,7 +674,7 @@ one array is stored. This changes two things in profile-plugins:
    ([ir-format-descriptions.md](ir-format-descriptions.md)). It gives unreachable declarations a
    place (NumPy's deflated `.npz` headers; NIfTI's gzipped header), lists in its format's document
    what each of its `declarations` places is, and takes the extra work below that a description
-   needs (HDF5's fill value and listing, GRIB's NaN). Then come the build tools' format PRs:
+   needs (HDF5's fill value and listing, GRIB's coded values of a bitmapped field). Then come the build tools' format PRs:
    profile-plugins' step 3 reworks NumPy, then TIFF, then HDF5 into plans, and its step 4 the others
    ([profile-plugins.md](profile-plugins.md#order-of-work)), with the rest of the extra work (TIFF's
    JPEG prefix, FITS's `tile_cut`). Each format's plan PR:
