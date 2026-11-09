@@ -88,9 +88,10 @@ NRRD, safetensors, DICOM, CZI, ND2, LIF with XLEF, SAFE, and NumPy's deflated `.
    decoding does. One test per refusal and per fallback.
    Fixtures the corpus lacks are crafted in the fixture generators, where the reference library or
    the generator can write them.
-8. **No output change.** `just cli-identical` and the fixture comparison show none; the PR names
-   each mirror change the change above allows, any fixture whose array falls back at the map's
-   limit, and any crafted source the descriptions' limit refuses (none in the corpus).
+8. **No output change.** `just cli-identical` and the fixture comparison show no change but the
+   mirror forms the PR names, which only the change above allows; the PR names those, any fixture
+   whose array falls back at the map's limit, and any crafted source the descriptions' limit refuses
+   (none in the corpus).
 9. **The spec's [§7](../../spec/stored-array.md#7-the-formats)** gets the format's paragraph, in
    NumPy's form: its arrays and keys, shape and axes, `item_bits`, grid and units, chains, fill,
    declarations, and fallbacks. `axes` reversed, here as in NumPy's, means for two or more axes,
@@ -150,16 +151,21 @@ component transform, JPEG-LS's color transform, JPEG XR's internal color formats
 XL's XYB, each to the components its stream declares); a colorspace a 10918-1 stream only signals
 stays (its YCbCr, under JFIF or an Adobe marker). Upsampling and the two decoders' own conversions
 are what the readers here all do, since no reader offers another:
-- a 10918-1 stream's subsampled components are upsampled as libjpeg-turbo does by default (its
-  "fancy" triangle filter, after its default integer IDCT), which is deterministic;
+- a 10918-1 stream's subsampled components are upsampled by libjpeg's "fancy" filters (h2v1,
+  h2v2 and h1v2) after the integer IDCT (JDCT_ISLOW), as libjpeg-turbo 2.0 and later do by default,
+  which the checkers need;
 - BMP and JPEG XR make their samples in R, G, B order, whatever order the stream stores them in
-  (BMP's B, G, R; JPEG XR's BGR pixel formats), and BMP's rows top first; a palette, in BMP or
-  PNG, is applied, so that a paletted file makes its palette's colors (one sample where every entry
-  is gray, in BMP; R, G, B otherwise), and a 32-bit BMP drops its unused fourth byte.
+  (BMP's B, G, R; JPEG XR's BGR pixel formats), and BMP's rows top first; a 32-bit BMP keeps its
+  fourth sample where its alpha mask is set and drops the unused byte where it is not.
+
+A paletted PNG or BMP makes its stored indices, one sample, as Pillow decodes it; its palette (PNG's
+PLTE, BMP's color table) is a declaration, which the profile applies, as TIFF's ColorMap is.
 
 A JPEG 2000 codestream whose components are sampled differently is the exception: OpenJPEG takes
 it for sYCC and converts it to RGB, a color conversion with no option to leave it, so its array's
-chain is `source` (the general fallback), its units still rows.
+chain is `source` (the general fallback), its units still rows. So is an image codestream whose
+components differ in precision or signedness (JPEG 2000's SIZ, JPEG XL's extra channels), since
+one array has one `item_bits`.
 
 A decoder that does otherwise makes other bytes. The array's `item_bits` is the samples' size, and
 the precision the source declares (BitsPerSample 12) is a declaration. A profile converts colors
@@ -189,7 +195,9 @@ be TIFF's FillOrder 2, which TIFF refuses today for the compressions libtiff rev
 Step 0 adds to `array.rs` one function that names a unit's bytes in the finished IR as rule 3 says
 (a run member's element with `member`; an alias's target, alone or with a moved `range`; `ranges` of
 the object that holds them; or none inside a derived space), with its tests, so that no format
-writes it. `check::finish` records each run it unfolds (the run's root, the first id of its copies,
+writes it. `Ir::fold` frees a folded member's ids during parsing, so a parser records a unit in a
+run as (run root, j, member 0's element) when its fold succeeds, never the id its emitter returned.
+`check::finish` records each run it unfolds (the run's root, the first id of its copies,
 and the member's size), which the IR does not keep today, so that the function finds member j's copy
 of an element a parser cached as (root, j, element); a test has finish unfold a run that a
 description names. An alias the parser made itself (`Ir::alias`, which has no extent of its own) is
@@ -227,7 +235,8 @@ it decodes:
   and its client data written as HDF5 would;
 - `grib_unpack`: a message reassembled from the places and the unit, with sections 0, 1 and 4 made
   up for the reassembly (they are not places), decoded by eccodes; PNG packing, on which eccodes
-  aborts for 1, 2 and 4 bits, decoded in Python (`png_decode` of section 7, then the arithmetic of
+  aborts for 1, 2 and 4 bits, decoded in Python (`png_decode` of section 7, whose samples of b
+  bits come scaled to 8 and are divided back by 255 / (2^b − 1), then the arithmetic of
   [conventions §12](../../spec/conventions.md#12-grib-messages));
 - `jpeg` with `header`: the header, its SOF set to the unit's shape, the interval and an EOI spliced
   into one stream;
@@ -242,7 +251,8 @@ PRs merge in any order. `array.rs`'s `ParamEntry` gains each parameter's kinds (
 type, a place, a column of an Arrow type) and whether it is required. The chain check tests each
 `Param::Value` against its type; `StoredArray::check` tests that each required parameter of a
 chain's codec is given in the codec or listed among the description's unit parameters for that
-chain. A place is checked as a place, its bytes being the format's to read.
+chain. A place is refused where its parameter's entry lists no `place` kind, and otherwise checked
+as a place, its bytes being the format's to read.
 
 ## Codecs
 
@@ -301,8 +311,8 @@ codestream and container); step 0 adds that to
 | `jpegxr` | a JPEG XR file in its T.832 container (starting `II BC 01`); decoding makes R, G, B for its BGR pixel formats | | NDPI, CZI |
 | `jpegxl` | an ISO 18181-1 codestream or its 18181-2 container, which their first bytes tell apart | | TIFF |
 | `webp` | a WebP file; decoding makes an alpha sample, opaque where the stream leaves it out, when `alpha` says the array has one | `alpha` (optional, false): `bool`, `place` (TIFF: SamplesPerPixel 4) | TIFF |
-| `png` | a PNG file; decoding applies a palette (color type 3) to R, G, B | | VSI |
-| `bmp` | a BMP file; decoding makes R, G, B, top row first, through its palette where it has one (one sample where every entry is gray), a 32-bit file's fourth byte dropped | | VSI |
+| `png` | a PNG file; a paletted one (color type 3) decodes to its indices | | VSI |
+| `bmp` | a BMP file; decoding makes R, G, B, top row first, a paletted one its indices, and a 32-bit one its fourth sample only where its alpha mask is set | | VSI |
 | `lerc` | a LERC2 blob | | TIFF, in `[lerc, zlib]` or `[lerc, zstd]` as LercParameters say |
 | `eer` | EER's run-length bits; decoding makes one byte per pixel at the declared resolution, 1 where an event lands, else 0, the sub-pixel position bits staying in the unit's bytes for a profile that wants super-resolution | `skip_bits` (optional, 7), `horizontal_bits` (optional, 2), `vertical_bits` (optional, 2): `int`, `place`; values where the compression fixes them (65000's and 65001's) | TIFF (65000 to 65002) |
 | `dicom_rle` | DICOM's RLE segments, byte planes most significant first | | DICOM |
@@ -397,8 +407,8 @@ Medium, after TIFF.
 - **Grid and chains.** `Each(1)` on each leading axis, then the tile and S, under `full`; one unit a
   tile, its `tiles/<k>` element; the chain the ETS header's compression names, one codec;
   `item_bits` the pixel type's sample size, or what the codec makes. S follows what the codec makes;
-  a tile whose decoding cannot make the header's `channels` samples (a 4-channel BMP, a color
-  palette under one channel) makes its array's chain `source`.
+  a tile whose decoding cannot make the header's `channels` samples (a 32-bit BMP with no alpha
+  mask under four channels) makes its array's chain `source`.
 - **Fill.** Given, as a place in the `ets` header, when the background's samples are equal and the
   tiles are raw; otherwise `undefined`, with the header among the declarations.
 - **Checker.** Bio-Formats for shapes, tile sizes and decoded tiles (minding BGR and the
@@ -410,7 +420,8 @@ Medium, after TIFF.
 Large (about 2,500 lines), from the spike's branch, about 70% of which carries over.
 - **Arrays.** Every visited object with a layout message, keyed by its `objects/<i>` struct, and
   each attribute, keyed by its own attribute message's element: one unit, its value's element, in
-  an empty chain.
+  an empty chain. A chunked dataset's grid is `Each(chunk)` under `full`, one row per index entry,
+  its chain the filter pipeline; a compact or contiguous one is one unit.
 - **Spike rework.** `shape: None` for the null dataspace; the codec names above; `source` with the
   filter's name; filter configuration as places in the filter message's client data, which HDF5's
   document says how to read; the spike's second filter parser folded into `parse_filters`; an
@@ -506,7 +517,8 @@ Small; medium with gzip; after NIfTI.
 - **Mode 101.** 4-bit items, `pad_from` 2, chain `[lsb_first(4)]`.
 - **MRC datasets** have no arrays of their own: they reuse the file's description, and the PR
   checks their outputs are unchanged.
-- **Checker.** mrcfile; for modes 3 and 101, which it does not read, the test's nibble decoder.
+- **Checker.** mrcfile; for mode 101, which it does not read, the test's nibble decoder; for mode 3,
+  which it does not read either, the data read as pairs of int16 in the file's byte order.
 
 ### NRRD
 
@@ -570,7 +582,8 @@ Medium-large.
   directory entry names declares an array too, with its own copy of its entry, keyed as rule 2
   says; only deleted segments stay bytes. Shape is the entry's stored size, confirmed or replaced by
   the stream's frame size for JPEG, lossless JPEG and JPEG XR: `[H, W]` for gray pixel types,
-  `[H, W, S]` for Bgr24, Bgra32 and Bgr48, samples in BGR order as stored, or in the order a
+  `[H, W, S]` for the Bgr and Bgra types (Bgr24, Bgr48, Bgr96Float, Bgr192ComplexFloat, Bgra32),
+  samples in BGR order as stored, or in the order a
   compressed subblock's codec makes them (R, G, B for JPEG XR); `item_bits` per sample;
   fill `undefined`. A subblock with no size has no grid.
 - **Codecs.** `jpeg`, `jpegxr`, `zstd`, `[shuffle, zstd]` for Zstd1's hi-lo, and `tiff_lzw`, which
@@ -599,8 +612,9 @@ Medium.
 ### LIF and XLEF
 
 Medium.
-- **Arrays.** One per image, keyed by the XML element that declares it, its index the array's
-  position among the arrays that element declares: shape the dimensions' NumberOfElements, slowest
+- **Arrays.** One per image, keyed by the IR element that holds the XML text (`header/xml`;
+  `description/xml` for LOF; `xml` in XLEF), its index the array's position among the arrays that
+  text declares: shape the dimensions' NumberOfElements, slowest
   first (`axes` where the strides order them otherwise), with the channels as an axis; `item_bits`
   the channels' Resolution rounded up to 8, 16, 32 or 64, the Resolution a declaration; fill
   `undefined`. An image whose channels differ in size or resolution is one array per channel. The
@@ -608,7 +622,8 @@ Medium.
 - **Units.** One per image where its strides nest; where they do not (padded rows, planar channel
   offsets), rows or planes, each the image's element with a `range`; no grid where they do not tile
   it (zero strides).
-- **Checker.** Bio-Formats, which reads LIF, for shapes and decoded planes.
+- **Checker.** liffile, which the LIF tests already use as the independent reader, for every LIF,
+  LOF, LIFEXT and XLEF fixture, minding its swap of BGR to RGB.
 
 ### SAFE
 
@@ -631,8 +646,9 @@ Medium.
    [§7](../../spec/stored-array.md#7-the-formats) and its document, so they run side by side, three
    or four at a time.
 
-When every format here has its description, profile-plugins' steps 3 and 4 are left with each
-format's known structures and plan.
+When every format in scope has its description, profile-plugins' steps 3 and 4 are left with
+each one's known structures and plan; DICOM series and the store profiles still get their
+descriptions in step 4, and coded streams in a proposal of their own.
 
 ## Alternatives considered
 
@@ -655,5 +671,6 @@ format's known structures and plan.
 
 ## Open questions
 
-1. Whether VSI's lossless JPEG is an ISO 10918-1 lossless stream, which decides whether it is
-   `jpeg`. VSI's PR answers it from Bio-Formats, and if not, adds an entry by rule 6.
+None. VSI's lossless JPEG is an ISO 10918-1 lossless (SOF3) stream, which
+[vsi.md](../../spec/zarrify/vsi.md) decodes as such, so it is `jpeg`, and the open question an
+earlier draft had is settled.
