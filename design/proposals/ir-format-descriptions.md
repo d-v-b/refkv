@@ -87,7 +87,7 @@ One PR before the formats, changing spec/stored-array.md and the IR's checks:
 - **`lsb_first`** (parameter `bits`, a value): the unit's items, of `bits` bits each, are packed
   least significant bit first, a little-endian bit stream (bit k is bit k mod 8, counted from the
   least significant, of byte ⌊k/8⌋; an item's first bit is its least significant). Decoding packs
-  them most significant bit first, as §3.1 packs elements. DICOM's 1-bit frames, MRC's mode 101
+  them most significant bit first, as [§3.1](../../spec/stored-array.md#31-chains) packs elements. DICOM's 1-bit frames, MRC's mode 101
   (4 bits) and safetensors' F4 and F6 use it. Where `bits` does not divide 8, an array with
   `pad_from` gives `source` instead, since its padding would fall inside an item.
 - **The test helper**: `python/tests/ir/chains.py`, which decodes a unit through a chain, codec by
@@ -98,7 +98,7 @@ One PR before the formats, changing spec/stored-array.md and the IR's checks:
 
 ## Codecs
 
-A name follows §3.2: it states the byte format its decoding takes, its framing included, and a name
+A name follows [§3.2](../../spec/stored-array.md#32-the-list): it states the byte format its decoding takes, its framing included, and a name
 covers two framings only when a parameter chooses between them. Configuration the source defines
 once is a place.
 
@@ -201,7 +201,7 @@ Large (about 2,500 lines), from the spike's branch, about 70% of which carries o
   Attributes are not stored arrays.
 - **Spike rework.** `shape: None` for the null dataspace; the codec names above; `source` with the
   filter's name; shuffle, szip and bitshuffle configuration as places in the filter message (its
-  client data), not copied as values, by §3.1's rule for configuration the source defines once; the
+  client data), not copied as values, by [§3.1](../../spec/stored-array.md#31-chains)'s rule for configuration the source defines once; the
   spike's
   second filter parser folded into `parse_filters`; an implicit index whose chunk is its element's
   whole extent names the element alone.
@@ -346,7 +346,7 @@ Medium.
 
 1. **Step 0.**
 2. **The formats**, each its own PR to main, in any order but for TIFF before NDPI and VSI, and
-   NIfTI before MRC. They touch their own parsers and append to the spec's §3.2 and §7, so they
+   NIfTI before MRC. They touch their own parsers and append to the spec's [§3.2](../../spec/stored-array.md#32-the-list) and [§7](../../spec/stored-array.md#7-the-formats), so they
    can run side by side, three or four at a time, and merge in any order.
 
 When every format here has its description, ir-array-model.md's step 2 and profile-plugins'
