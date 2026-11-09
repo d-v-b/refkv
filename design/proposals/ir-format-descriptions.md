@@ -56,9 +56,10 @@ NRRD, safetensors, DICOM, CZI, ND2, LIF with XLEF, SAFE, and NumPy's deflated `.
    `declared_by` does. A format whose IRs are grafted renumbers it in its store code. Where the
    facts do not record the declaring element (HDF5's `objects/<i>`, GRIB's `messages/<i>`), the PR
    adds it. A key is never in a run's subtree: an array declared inside a
-   sequence of items (DICOM's icons, CZI's walked segments) is keyed by the sequence's own element,
-   the items' parent, its index the array's position among the arrays that sequence declares, in
-   the source's order, whether or not the items fold.
+   sequence of items (DICOM's icons, CZI's walked segments) is keyed by its nearest ancestor that
+   lies inside no item of any sequence, which no fold can put in a run, its index the array's
+   position among the arrays declared beneath that ancestor, in the source's order. That ancestor
+   is fixed by the source's structure, so the key is the same whether or not any items fold.
 3. **Descriptions are built on the finished IR.** `check::finish` may make an element an alias or
    unfold a run, so a parser that cached element ids while parsing finds them again after finish.
    A row names the unit's bytes as finish leaves them: a run member's element with `member`; and
@@ -191,9 +192,9 @@ compare bytes:
   which the checkers need;
 - BMP and JPEG XR make their samples in the order the stream stores or declares them (BMP's B, G, R;
   a JPEG XR BGR pixel format's B, G, R), the helper reversing imagecodecs' R, G, B; BMP's rows top
-  first, since each BMP's own header says whether it is stored bottom up, a flag no place a profile
-  reads holds, so the codec fixes one order; a 32-bit BMP keeps its fourth sample where its alpha
-  mask is set and drops the unused byte where it is not.
+  first, since a BMP's raster is defined top row first, its bottom-up storage being part of its
+  coding, as a JPEG's raster order is apart from its MCUs; a 32-bit BMP keeps its fourth sample
+  where its alpha mask is set and drops the unused byte where it is not.
 
 A `source` array keeps its shape and `item_bits` as the source codes its elements; where no single
 `item_bits` or samples axis can be stated, it has no grid instead, as a TIFF of mixed
@@ -249,9 +250,11 @@ first: bit k of the unit is bit k mod 8, counted from the least significant, of 
 item's first bit is its least significant. Decoding packs them most significant bit first, as
 [§3.1](../../spec/stored-array.md#31-chains) packs elements, and a given fill packs as decoded.
 Under `pad_from`, a row's padding follows its last item to the next byte, and the codec, given
-`pad_from`, keeps it there. `lsb_first(1)` reverses each byte's bits, so it would also
-be TIFF's FillOrder 2, which TIFF refuses today for the compressions libtiff reverses; the note's
-`bit_reverse` is not added. DICOM's 1-bit data, MRC's mode 101 and safetensors' F4 and F6 use it.
+`pad_from`, keeps it there. `lsb_first(1)` is a plain reversal of each byte's bits, which needs
+neither the shape nor `pad_from`, so it is valid anywhere in a chain and would also be TIFF's
+FillOrder 2, decoded first on the compressed bytes, which TIFF refuses today for the compressions
+libtiff reverses; the note's `bit_reverse` is not added. DICOM's 1-bit data, MRC's mode 101 and
+safetensors' F4 and F6 use it.
 
 ### Naming a unit's bytes
 
@@ -333,11 +336,12 @@ as a place, its bytes being the format's to read.
 ### The descriptions' limit falls back too
 
 An array whose description would pass the descriptions' limit falls back as one does at the map's
-limit: it loses its chains, unit parameters and grid, keeping its key, shape and declarations, and
-later arrays are still tried; only a description that cannot fit even so refuses the run, which a
-graft does the same way. So a source such as a GRIB file of many small fields over a shared section
-3 is not refused for its descriptions; one whose fallen-back descriptions still pass the limit (HDF5
-headers sharing rank-32 dataspaces) still is, and rule 8's PRs name the arrays that fall back.
+limit: it loses its chains, unit parameters and grid, keeping the rest (its key, shape, `axes`,
+`item_bits`, `pad_from`, fill and declarations), and later arrays are still tried; only a
+description that cannot fit even so refuses the run, which a graft does the same way. So a source
+such as a GRIB file of many small fields over a shared section 3 is not refused for its
+descriptions; one whose fallen-back descriptions still pass the limit (HDF5 headers sharing rank-32
+dataspaces) still is, and rule 8's PRs name the arrays that fall back.
 
 ## Codecs
 
@@ -663,8 +667,9 @@ Medium.
   Modality and VOI LUT Sequences, keyed as rule 2 says, each described by its VR as stored: OW or US
   gives length / 2 items of 16 bits, OB length items of 8; how its entries sit in those items (8-bit
   entries one or two to a word) is the profile's to read from its descriptor, a declaration where
-  present; and an icon's Pixel Data, keyed as rule 2 says (the Icon Image Sequence element, where
-  that is in no run), its frame a run member where the items fold.
+  present; and an icon's Pixel Data, keyed as rule 2 says (the Icon Image Sequence element where it
+  lies in no item, else the nearest ancestor that does not), its frame a run member where the items
+  fold.
 - **Shape.** `[N, Rows, Cols, S]`, or `[N, S, Rows, Cols]` for planar native and RLE data, N only
   where Number of Frames is given (kept when 1) and S only above 1, one unit a frame; `item_bits`
   Bits Allocated, or what the codec makes; fill `undefined` (Pixel Padding Value is a declaration).

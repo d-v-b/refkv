@@ -312,7 +312,9 @@ Further rules for the map:
   fall back follows, in a file IR, from the source alone, and in a store from its files in graft
   order. A chain no description names after the fit is dropped from the table, keeping the
   others' order, and positions are renumbered. A fallback does not stop the run. The descriptions'
-  limit, checked after the fit, still refuses it. An array's rows are never cut short, which a profile would read as units the
+  limit, checked after the fit, makes arrays fall back the same way, and refuses the run only where
+  even the fallen-back descriptions pass it
+  ([ir-format-descriptions.md](ir-format-descriptions.md#the-descriptions-limit-falls-back-too)). An array's rows are never cut short, which a profile would read as units the
   source does not hold.
 
 One batch per `Ir`, not one per array, because CZI subblocks and GRIB fields are each an array, and
