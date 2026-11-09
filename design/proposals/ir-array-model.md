@@ -590,9 +590,11 @@ be read as a source.
 - parameter columns of the same name join, having the type the codec's entry gives;
 - the parsed source's null key, in every `Place::Extent` and in `ranges`, becomes the file's key in
   the store;
-- the file's arrays are fitted again, in its array order, against the store's map limit at that
-  point: the 2^22 floor once, plus 4 and four per byte for each object grafted so far, this file
-  included. An array that fitted in its file but does not fit there falls back to no grid. A
+- the file's arrays are fitted again, in its array order, against the store's map limit as it
+  stands: the 2^22 floor once, plus 4 and four per byte for each object the store has listed. The
+  limits grow when the store lists an object, as its other budgets do, not when a file is grafted,
+  so every object counts, whether or not it is grafted; every store lists its objects before its
+  first graft. An array that fitted in its file but does not fit there falls back to no grid. A
   file's descriptions inside a store can therefore lose grids, depending on the files grafted
   before it, and the store's `digest()` reflects that;
 - then the chains the file's remaining descriptions name, with their `Place::Element` ids
@@ -656,9 +658,12 @@ one array is stored. This changes two things in profile-plugins:
    Some format PRs carry extra work:
    - HDF5's strings and references are resolved by the plan, which needs the plan's reads
      (profile-plugins' step 2, before its step 3).
-   - HDF5's PR tells the fill value's states apart, resolves a shared fill value message as the
-     HDF5 library does, and treats a fill value whose size is not the element's as the library
-     does. It checks each description against h5py, but not with HDF5 2.0.0's `get_chunk_info`
+   - HDF5's PR tells the fill value's states apart, and resolves a shared fill value message as
+     the HDF5 library does. For a fill value whose size is not the element's, it tests what the
+     library does. Where a `Given` value of the element's size says the same (a longer value of
+     which the library uses the first bytes, as a place over those bytes), the fill is that;
+     otherwise it is `Undefined`, and the fill value message joins the array's declarations so
+     that the profile can read it (the general fallback). It checks each description against h5py, but not with HDF5 2.0.0's `get_chunk_info`
      for an extensible array whose unlimited axis is not the first: that call returns wrong
      offsets there (`ims_latest_indexes.ims:/Indexes/ea_last`), where HDF5's own reads agree with
      refkv's. It also stops listing an array's units once they alone pass the map's limit, which the
