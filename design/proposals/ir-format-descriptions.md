@@ -54,8 +54,8 @@ NRRD, safetensors, DICOM, CZI, ND2, LIF with XLEF, SAFE, and NumPy's deflated `.
    ([§2.3](../../spec/stored-array.md#23-the-grid)).
 2. **The facts give each description's key**, the declaring element's id, as NumPy's
    `declared_by` does. A format whose IRs are grafted renumbers it in its store code. Where the
-   facts do not record the declaring element (HDF5's `objects/<i>`, GRIB's `messages/<i>`, NRRD's
-   header lines), the PR adds it. A key is never in a run's subtree: an array declared inside a
+   facts do not record the declaring element (HDF5's `objects/<i>`, GRIB's `messages/<i>`), the PR
+   adds it. A key is never in a run's subtree: an array declared inside a
    sequence of items (DICOM's icons, CZI's walked segments) is keyed by the items' nearest ancestor
    outside any run, its index the array's position among the arrays that ancestor declares, in the
    source's order, whether or not the items fold.
@@ -150,10 +150,12 @@ stays (its YCbCr, under JFIF or an Adobe marker). Upsampling and the two decoder
 are what the readers here all do, since no reader offers another:
 - a 10918-1 stream's subsampled components are upsampled as libjpeg does by default (its "fancy"
   triangle filter), which is deterministic;
-- a JPEG 2000 codestream of three components whose second and third are subsampled is taken, as
-  OpenJPEG takes it, for sYCC: upsampled and converted to RGB. Its SIZ, which says so, is a
-  declaration of every array `jpeg2k` decodes, so that a profile knows the samples are RGB and
-  does not convert them again.
+- BMP and JPEG XR make their samples in R, G, B order, whatever order the stream stores them in
+  (BMP's B, G, R; JPEG XR's BGR pixel formats), and BMP's rows top first.
+
+A JPEG 2000 codestream whose components are sampled differently is the exception: OpenJPEG takes
+it for sYCC and converts it to RGB, a color conversion with no option to leave it, so its array's
+chain is `source` (the general fallback), its units still rows.
 
 A decoder that does otherwise makes other bytes. The array's `item_bits` is the samples' size, and
 the precision the source declares (BitsPerSample 12) is a declaration. A profile converts colors
@@ -194,9 +196,12 @@ the duplicate's own bytes (its IFD entries, its `directory/entries/<i>`) are a d
 
 `python/tests/ir/chains.py` decodes a unit through a chain, codec by codec, given the unit's bytes,
 its parameters (places read from the source) and its shape. Step 0 writes its frame and the codecs
-two or more formats use (the compressors, `shuffle`, `lsb_first`, `jpeg`, `jpeg2k`, `jpegxr`), so
-that no format PR writes a shared codec's decoding; each format PR adds the codecs only it uses, in
-a module of its own. Where imagecodecs lacks a codec, the helper says how it decodes:
+two or more formats use (the compressors, `tiff_lzw` among them, `shuffle`, `lsb_first`, `jpeg`,
+`jpeg2k`, `jpegxr`), so that no format PR writes a shared codec's decoding, and a registry that
+finds a codec's decoder by its name in a module of its own; each format PR adds, in its own module,
+the codecs only it uses and the variants only it needs (NDPI's `jpeg` with `header`, SAFE's `jpeg2k`
+with `main_header`), and edits no shared file. Where imagecodecs lacks a codec, the helper says how
+it decodes:
 - `skip`, `fits_quantize`, `lsb_first` and `h5_fletcher32` (HDF5's Fletcher-32 checked over the
   bytes before the checksum, which is then dropped): in Python;
 - `ccitt_t6`: imagecodecs' `ccittfax4_decode`, which makes a byte per pixel, packed into rows of
@@ -256,7 +261,7 @@ codestream and container); step 0 adds that to
 | `blosc` | Blosc's own frame | | HDF5 (32001) |
 | `h5_lz4` | HDF5's LZ4 block layout | | HDF5 (32004) |
 | `h5_szip` | a 4-byte length, then the AEC stream | `options`, `pixels_per_block`, `bits_per_pixel`, `pixels_per_scanline`: each `int` or `place` | HDF5 (4) |
-| `h5_bitshuffle` | HDF5's bitshuffle blocks: bare, or under LZ4 or zstd each chunk starting with a 12-byte big-endian header of its decoded length and block size, which then governs | `element_size`: `int`, `place`; `block_size` (bare chunks only, 0 the default): `int`, `place`; `compression` (`none`, `lz4` or `zstd`): `str`, `place` | HDF5 (32008) |
+| `h5_bitshuffle` | HDF5's bitshuffle blocks: bare, or under LZ4 or zstd each chunk starting with a 12-byte big-endian header of its decoded length and block size, which then governs | `element_size`: `int`, `place`; `block_size` (optional, 0; bare chunks only): `int`, `place`; `compression` (`none`, `lz4` or `zstd`): `str`, `place` | HDF5 (32008) |
 | `tiff_lzw` | TIFF's LZW, codes most significant bit first | | TIFF, CZI |
 | `packbits` | PackBits runs | | TIFF |
 | `ccitt_t6` | ITU-T T.6 data; decoding makes 1-bit rows, most significant bit first, each padded to a byte (`item_bits` 1, `pad_from` at the row) | | TIFF (4) |
@@ -271,7 +276,7 @@ codestream and container); step 0 adds that to
 | `h5_fletcher32` | checks and drops HDF5's appended checksum | | HDF5 (3) |
 | `h5_nbit` | HDF5's N-bit unpacking | `parameters` (the filter's client data, which describes the element's packed fields): `int[]`, `place` | HDF5 (5) |
 | `h5_scaleoffset` | HDF5's scale-offset decoding | `parameters` (the filter's client data): `int[]`, `place` | HDF5 (6) |
-| `tiff_predictor` | undoes horizontal (2) or floating-point (3) differencing along each row | `predictor`, `planar_configuration`: `int`, `place`; `byte_order` (`little` or `big`): `str`, `place` | TIFF |
+| `tiff_predictor` | undoes horizontal (2) or floating-point (3) differencing along each row | `predictor`: `int`, `place`; `planar_configuration` (optional, 1): `int`, `place`; `byte_order` (`little` or `big`): `str`, `place` | TIFF |
 | `fits_quantize` | makes big-endian floats of `item_bits` from big-endian 4-byte integers | `method` (optional, NO_DITHER; ZQUANTIZ's name): `str`, `place`; `scale`, `zero`: `place`, `column` Float64; `seed` (optional, given only under a subtractive dither): `column` Int64; `zblank` (optional): `place`, `column` Int64 | FITS |
 | `lsb_first` | as step 0 | `bits`: `int` | DICOM, MRC, safetensors |
 
@@ -282,13 +287,13 @@ codestream and container); step 0 adds that to
 | `jpeg` | an ISO 10918-1 stream, any process | `tables` (optional; an abbreviated table stream, TIFF's tag 347): `place`; `header` (optional; the stream up to its first scan, the unit being one restart interval's entropy-coded segment, its RSTn marker excluded, decoded as after a restart; NDPI): `place` | TIFF, NDPI, VSI, DICOM, CZI |
 | `jpegls` | an ISO 14495-1 stream | | DICOM |
 | `jpeg2k` | an ISO 15444-1 codestream (15444-15's high throughput included), not a JP2 file | `main_header` (optional; the unit is then one tile's tile-parts, with their SOT): `place` | TIFF, VSI, DICOM, SAFE |
-| `jpegxr` | a JPEG XR file in its T.832 container (starting `II BC 01`) | | NDPI, CZI |
+| `jpegxr` | a JPEG XR file in its T.832 container (starting `II BC 01`); decoding makes R, G, B for its BGR pixel formats | | NDPI, CZI |
 | `jpegxl` | an ISO 18181-1 codestream or its 18181-2 container, which their first bytes tell apart | | TIFF |
 | `webp` | a WebP file | | TIFF |
 | `png` | a PNG file | | VSI |
-| `bmp` | a BMP file | | VSI |
+| `bmp` | a BMP file; decoding makes R, G, B, top row first | | VSI |
 | `lerc` | a LERC2 blob | | TIFF, in `[lerc, zlib]` or `[lerc, zstd]` as LercParameters say |
-| `eer` | EER's run-length bits; decoding makes a count per pixel, 8 bits | `skip_bits` (optional, 7), `horizontal_bits` (optional, 2), `vertical_bits` (optional, 2): `int`, `place` | TIFF (65000 to 65002) |
+| `eer` | EER's run-length bits; decoding makes a count per pixel, 8 bits | `skip_bits` (optional, 7), `horizontal_bits` (optional, 2), `vertical_bits` (optional, 2): `int`, `place`; values where the compression fixes them (65000's and 65001's) | TIFF (65000 to 65002) |
 | `dicom_rle` | DICOM's RLE segments, byte planes most significant first | | DICOM |
 | `grib_unpack` | a GRIB field's section 7 | `grid` (section 3), `packing` (section 5): `place`; `bitmap` (optional; the section 6 the field uses, its own or, under indicator 254, an earlier one): `place` | GRIB |
 
@@ -420,20 +425,20 @@ Medium-large (about 1,000 lines).
   `.npy`'s, of |BITPIX| (|ZBITPIX|) bits; rows `[NAXIS2]` of 8·NAXIS1 bits; heap `[H]` of 8. Fill
   `undefined`; BLANK, BSCALE and BZERO are declarations.
 - **Units.** An image, rows or heap is one unit, its element, but a compressed image's heap,
-  which `tile_cut` splits into `heap/<j>` elements, is `ranges`. A compressed image's are its tiles,
+  which `tile_cut` splits into `heap/<j>` elements, is `ranges`, or has no grid inside a
+  `.fits.gz`'s derived space. A compressed image's are its tiles,
   `Each(ZTILEj)`, `short`: each a range of today's `heap/<j>` element, or the element alone where
   the tile is all of it. The describe-only PR keeps `tile_cut`. An absent tile has no row.
-- **Chains.** Chain 0 is `[fits_quantize, compressor]` for a quantized image, else
-  `[compressor]`, where the compressor is `fits_rice`, `gzip`, `shuffle` then `gzip` for GZIP_2,
-  or none for NOCOMPRESS; chain 1 is `[gzip]` for tiles in GZIP_COMPRESSED_DATA. Under
-  quantization every compressor codes 4-byte integers, so `fits_rice`'s `byte_pix` and GZIP_2's
-  `shuffle` `element_size` are the value 4; unquantized, they are places (the BYTEPIX ZVAL card, and
-  ZBITPIX), and `block_size` is the BLOCKSIZE ZVAL card, each the format's default as a value where
-  the card is absent. `fits_quantize`'s `scale` and `zero` are the ZSCALE and ZZERO columns, or
+- **Chains.** Chain 0 is `[fits_quantize, compressor]` for a quantized image, else `[compressor]`,
+  where the compressor is `fits_rice`, `gzip`, `shuffle` then `gzip` for GZIP_2, or none for
+  NOCOMPRESS; chain 1 is `[gzip]` for tiles in GZIP_COMPRESSED_DATA. Under quantization every
+  compressor codes 4-byte integers, so `fits_rice`'s `byte_pix` and GZIP_2's `shuffle`
+  `element_size` are the value 4; unquantized, they are places (the BYTEPIX ZVAL card, and ZBITPIX),
+  and `block_size` is the BLOCKSIZE ZVAL card, each absent where its card is, the codec's entry
+  giving the default. `fits_quantize`'s `scale` and `zero` are the ZSCALE and ZZERO columns, or
   places where the header gives them as keywords; `seed` is a column (the tile's index plus
-  ZDITHER0); `method` a place (ZQUANTIZ), NO_DITHER as a value where it is absent; `zblank` absent
-  where neither the table nor the header gives ZBLANK. The first real use of columns and of a
-  second chain.
+  ZDITHER0); `method` a place (ZQUANTIZ), absent where the card is; `zblank` absent where neither
+  the table nor the header gives ZBLANK. The first real use of columns and of a second chain.
 - **Fallback.** An unquantized image whose BYTEPIX is not its elements' width gives `source`.
 - **Checker.** astropy with `disable_image_compression=True` for each tile's bytes and
   parameters, and its codecs for the decoding.
@@ -442,12 +447,12 @@ Medium-large (about 1,000 lines).
 
 Medium-large (about 500 lines).
 - **Arrays.** Each field, keyed by `messages/<i>`, its index the array's position among the
-  message's arrays, bitmaps and fields together, in the source's order: shape `[Nj, Ni]` (or,
-  columns first, `[Ni, Nj]` with `axes` `[1, 0]`), or `[points]` for reduced grids and template
-  3.101; `item_bits` 64; fill `undefined`, since NaN at a masked point is what
-  `grib_unpack` makes, not a fill. Each section 6 that holds a bitmap (indicator 0) is an array
-  too: shape `[points]` in the field's scan order, 1-bit items in an empty chain, its bitmap bytes
-  as one unit, indexed before the field whose section 7 follows it.
+  message's arrays, bitmaps and fields together, in the source's order: shape `[Nj, Ni]` with `axes`
+  `[1, 0]`, since section 3 lists Ni first (or, columns first, `[Ni, Nj]` with no `axes`), or
+  `[points]` for reduced grids and template 3.101; `item_bits` 64; fill `undefined`, since NaN at a
+  masked point is what `grib_unpack` makes, not a fill. Each section 6 that holds a bitmap
+  (indicator 0) is an array too: shape `[points]` in the field's scan order, 1-bit items in an empty
+  chain, its bitmap bytes as one unit, indexed before the field whose section 7 follows it.
 - **Unit.** The field's section 7 element, in `[grib_unpack]`, whose places are its own: each field
   has a chain of its own, about 13 description entries, within the descriptions' limit of one per
   four bytes for any field of 52 bytes or more.
@@ -489,13 +494,13 @@ Small; medium with gzip; after NIfTI.
 ### NRRD
 
 Small-medium.
-- **Arrays.** Keyed by the header file's root element (the header has no element of its own):
+- **Arrays.** Keyed by the header file's object element (the header has no element of its own):
   shape `sizes` with `axes` reversed, `item_bits` from `type`; its `dimension`, `type`, `sizes`,
-  `endian`, `encoding`, `line skip`, `byte skip` and `data file` lines are declarations,
-  which the parser starts recording. A detached data file is an object of the store, so its unit
-  is an element there.
-- **Chains.** Raw `[]`; gzip `[skip, gzip]` (encoding order), `skip`'s `length` the `byte skip`
-  line, since NRRD counts it in inflated bytes.
+  `endian`, `encoding`, `line skip`, `byte skip` and `data file` lines are declarations, each a
+  range of the header file's object, which the parser starts recording, with no new element. A
+  detached data file is an object of the store, so its unit is an element there.
+- **Chains.** Raw `[]`; gzip `[gzip]`, or `[skip, gzip]` (encoding order) where `byte skip` is
+  above 0, `skip`'s `length` that line, since NRRD counts it in inflated bytes.
 - **Checker.** pynrrd.
 
 ### safetensors
@@ -512,10 +517,11 @@ Small-medium.
 Medium.
 - **Arrays.** Pixel Data, keyed by `dataset/7FE00010`; each Overlay Data (60xx,3000), keyed by its
   own element, 1-bit in `[lsb_first(1)]`, or no grid under Explicit VR Big Endian, whose OW words
-  swap its bytes; the palette's three LUT data elements, each keyed by its own element, shape their
-  length / 2 in OW words of 16 bits (8-bit entries packed two to a word are the profile's to read,
-  from the descriptor, a declaration); the LUT Data (0028,3006) of the Modality and VOI LUT
-  Sequences, keyed as rule 2 says, shape and `item_bits` from its LUT Descriptor, a declaration;
+  swap its bytes; the palette's three LUT data elements, each keyed by its own element, and the
+  LUT Data (0028,3006) of the Modality and VOI LUT Sequences, keyed as rule 2 says, each described
+  by its VR as stored: OW or US gives length / 2 items of 16 bits, OB length items of 8; how its
+  entries sit in those items (8-bit entries one or two to a word) is the profile's to read from
+  its descriptor, a declaration where present;
   and an icon's Pixel Data, keyed by the Icon Image Sequence element as rule 2 says, its frame a
   run member where the items fold.
 - **Shape.** `[N, Rows, Cols, S]`, or `[N, S, Rows, Cols]` for planar native and RLE data, N only
@@ -547,7 +553,7 @@ Medium-large.
   says; only deleted segments stay bytes. Shape is the entry's stored size, confirmed or replaced by
   the stream's frame size for JPEG, lossless JPEG and JPEG XR: `[H, W]` for gray pixel types,
   `[H, W, S]` for Bgr24, Bgra32 and Bgr48, samples in BGR order as stored, or in the order a
-  compressed subblock's codec makes them; `item_bits` per sample;
+  compressed subblock's codec makes them (R, G, B for JPEG XR); `item_bits` per sample;
   fill `undefined`. A subblock with no size has no grid.
 - **Codecs.** `jpeg`, `jpegxr`, `zstd`, `[shuffle, zstd]` for Zstd1's hi-lo, and `tiff_lzw`, which
   [czi.md](../../spec/zarrify/czi.md) gives as TIFF's. Zstd1's header is its own element, a
@@ -567,7 +573,7 @@ Medium.
   component); `item_bits` is `uiBpcInMemory`; fill `undefined`. Frames at or past N, which the
   loops do not place and which have no `pixels` element, are a second array (index 1) of the same
   frame shape, one unit each, a `range` of its `frames/<f>/data` element past the 8-byte
-  timestamp.
+  timestamp; no grid where rows are padded or a frame's bytes are cut short.
 - **Units.** Each frame's `pixels` element, a run member, whose `rows` recipe already drops the
   padding; chain `[zlib]` where compressed.
 - **Checker.** nd2's attributes, frame offsets and `read_frame`.

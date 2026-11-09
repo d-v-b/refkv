@@ -441,7 +441,7 @@ Units may differ from their array in three ways, each a column:
   (chain 0: `fits_quantize`, then `fits_rice` or its declared compressor), but a tile stored in
   `GZIP_COMPRESSED_DATA` is the losslessly compressed values (chain 1: `gzip` alone). Both end
   in the image's values as ZBITPIX declares them, big-endian, as `fits_quantize`'s entry states. One
-  in `UNCOMPRESSED_DATA`, if FITS's PR lifts today's rejection of it, a third chain. A null pixel
+  in `UNCOMPRESSED_DATA`, if a later PR lifts today's rejection of it, a third chain. A null pixel
   mask's chain is the compressor ZMASKCMP names. The parser picks the column per tile today but
   keeps only the tile's range; FITS's PR records the chain.
 - **`skips`:** codecs the unit skips (HDF5's cases, above).
@@ -464,7 +464,7 @@ configuration is rather than copying it. Examples:
 - HDF5's fill value message, as `Fill::Given`.
 
 The parser today reads only the fill value message (0x05), and folds an undefined fill, a default
-one and an absent message into one "none". HDF5's PR tells the states apart, and reads the old fill
+one and an absent message into one "none". HDF5's describe-only PR tells the states apart, and reads the old fill
 value message (0x04) where the new one is absent, as the HDF5 library does.
 
 ### Checked
