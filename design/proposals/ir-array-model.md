@@ -130,7 +130,9 @@ however many it declares:
 - a safetensors `header` declares every tensor, counted in the header's order without
   `__metadata__`;
 - a GRIB message holds its fields;
-- a FITS image HDU declares the image (0) and, where its tiles carry one, the null pixel mask (1).
+- a FITS image HDU declares the image (0); a compressed image's HDU declares the image, its
+  table's rows and its heap (0, 1 and 2) and, where its tiles carry one, the null pixel mask (3)
+  ([ir-format-descriptions.md](ir-format-descriptions.md#fits)).
 
 Its JSON form also gives that element's path, for the build tools' description schemas, which name
 structures by path ([profile-plugins.md](profile-plugins.md#the-description)). Within a run, the id
@@ -420,15 +422,16 @@ typed, and two formats' `source` parameters of one name would collide in a store
 **What is not recorded:** parameters only an encoder needs, such as a zlib level or Blosc's block
 size.
 
-**GRIB's scanning mode** is a parameter of `grib_unpack`. The codec makes its rows run in one
-direction (undoing alternate rows) and transposes where the mode says consecutive points run along
-columns, as `refkv.grib` does today. The grid's axes are the field's rows and columns as section 3
+**GRIB's scanning mode** is read from section 3, a place parameter of `grib_unpack`. The codec
+makes its rows run in one direction (undoing alternate rows); where the mode says consecutive
+points run along columns, the array's `axes` say so, not the codec
+([ir-format-descriptions.md](ir-format-descriptions.md#codecs)). The grid's axes are the field's rows and columns as section 3
 lists them, or its points for a reduced grid. Which way they point on the earth is the profile's.
 
 Units may differ from their array in three ways, each a column:
 - **`chain`:** a unit encoded another way. A FITS image quantizes and compresses its tiles
   (chain 0: `fits_quantize`, then `fits_rice` or its declared compressor), but a tile stored in
-  `GZIP_COMPRESSED_DATA` is the losslessly compressed values (chain 1: `fits_gzip` alone). Both end
+  `GZIP_COMPRESSED_DATA` is the losslessly compressed values (chain 1: `gzip` alone). Both end
   in the image's values as ZBITPIX declares them, big-endian, as `fits_quantize`'s entry states. One
   in `UNCOMPRESSED_DATA`, if FITS's PR lifts today's rejection of it, a third chain. A null pixel
   mask's chain is the compressor ZMASKCMP names. The parser picks the column per tile today but
@@ -675,7 +678,7 @@ one array is stored. This changes two things in profile-plugins:
    Some format PRs carry extra work:
    - HDF5's strings and references are resolved by the plan, which needs the plan's reads
      (profile-plugins' step 2, before its step 3).
-   - HDF5's PR tells the fill value's states apart, and resolves a shared fill value message as
+   - HDF5's describe-only PR tells the fill value's states apart, and resolves a shared fill value message as
      the HDF5 library does. For a fill value whose size is not the element's, it tests what the
      library does. Where a `Given` value of the element's size says the same (a longer value of
      which the library uses the first bytes, as a place over those bytes), the fill is that;
@@ -686,9 +689,10 @@ one array is stored. This changes two things in profile-plugins:
      refkv's. It also stops listing an array's units once they alone pass the map's limit, which the
      parser knows from the source's size before it reads, and lets that array fall back: the
      spike's parser built 1.76 GB of chunks before its map was refused.
-   - TIFF's PR replaces the JPEG prefix.
-   - FITS's PR moves `tile_cut` to the projection and records each tile's chain.
-   - GRIB's PR keeps its NaN at masked points, so its output is unchanged.
+   - TIFF's plan PR replaces the JPEG prefix.
+   - FITS's describe-only PR records each tile's chain; its plan PR moves `tile_cut` to the
+     projection.
+   - GRIB's describe-only PR keeps its NaN at masked points, so its output is unchanged.
 
 Step 1 lands before profile-plugins' step 3, so that NumPy's description, the first, uses the shared
 type rather than an array shape of its own.
