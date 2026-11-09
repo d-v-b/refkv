@@ -83,7 +83,9 @@ NRRD, safetensors, DICOM, CZI, ND2, LIF with XLEF, SAFE, and NumPy's deflated `.
 5. **Declarations are listed** in the format's document, place by place, so that a profile knows
    what each is. A declaration the parser keeps only in facts today gets a place in the same PR.
 6. **Codecs come from the list** that step 0 lands ([§Codecs](#codecs)). A format PR that finds an
-   entry wrong fixes it in a small PR of its own to the list, which the format PR follows.
+   entry, or any of step 0's shared code (the checks in `array.rs`, the function that names a
+   unit's bytes, the record of unfolded runs, the `gz.rs` helper, the test helper's shared
+   decoders), wrong fixes it in a small PR of its own, which the format PR follows.
 7. **Tests.** One test runs every fixture of the format (and the PR's crafted ones) against the
    reference reader: shapes, `item_bits`, grids, each row's bytes against the reader's offsets and
    lengths, and each unit decoded through its chain (by step 0's helper) against the reader's
@@ -92,8 +94,8 @@ NRRD, safetensors, DICOM, CZI, ND2, LIF with XLEF, SAFE, and NumPy's deflated `.
    the fixture generators, where the reference library or the generator can write them.
 8. **No output change.** `just cli-identical` and the fixture comparison show no change but the
    mirror's rows, forms and view the PR names, which only the change above allows; the PR names
-   those, any fixture whose array falls back at the map's limit, and any crafted source the
-   descriptions' limit refuses (none in the corpus).
+   those, and any fixture whose array falls back at the map's or the descriptions' limit (none in
+   the corpus).
 9. **The spec's [§7](../../spec/stored-array.md#7-the-formats)** gets the format's paragraph, in
    NumPy's form: its arrays and keys, shape and axes, `item_bits`, grid and units, chains, fill,
    declarations, and fallbacks. The source's list of axes, against which
@@ -138,9 +140,9 @@ stream codes more than one component (or, for `webp`, where the samples axis has
 alpha the stream may leave out); leading axes of 1 (a frame's, a level's) are not the frame's.
 Decoding a unit whose stream does not match its codec's entry or the unit's shape (a paletted PNG
 under `png`, a frame whose blocks do not cover the unit's shape, another number of components than
-the samples axis, samples of another size than `item_bits`, a JFIF or Adobe segment other than the
-one `jpeg`'s `markers` names) is an error, never a different result, so that a file the parser
-sampled only in part cannot be decoded silently into other bytes.
+the samples axis, samples of another size than `item_bits`, a set of JFIF and Adobe segments other
+than the one `jpeg`'s `markers` names) is an error, never a different result, so that a file the
+parser sampled only in part cannot be decoded silently into other bytes.
 
 [§3.1](../../spec/stored-array.md#31-chains)'s sentence "a codec sees only a unit's bytes and
 parameters, never its coordinates, so a parameter that depends on the unit's position is a column
@@ -220,10 +222,12 @@ apart. Values the stream codes elsewhere (GRIB's bitmap, in section 6) are not f
 A decoder that does otherwise makes other bytes. The array's `item_bits` is the samples' size, and
 the precision the source declares (BitsPerSample 12) is a declaration. A profile converts colors
 from the declarations (TIFF's Photometric) when it presents them; where the format declares no
-color space (CZI's and VSI's JPEG tiles), the parser names the array's first unit's JFIF or Adobe
-segment as a declaration, a range of that unit, which is what the profile reads; the array's `jpeg`
-names it as `markers`, so that a later unit whose segment differs fails to decode rather than
-showing other colors.
+color space (CZI's and VSI's JPEG tiles), the parser names the array's first unit's JFIF and Adobe
+segments (one, both, or none) as declarations, ranges of that unit, which are what the profile
+reads. An array of more than one unit (VSI's) also gives its `jpeg` those places as `markers`, an
+empty list where there are none, so that a later unit whose segments differ fails to decode rather
+than showing other colors; a CZI subblock, one unit, needs no such check, and its chain stays shared
+by every subblock of its encoding.
 
 An image codec decodes its frame at the unit's shape. The format sets its grid so that the unit's
 shape is the frame's: a TIFF whose last JPEG strip holds a frame of the full RowsPerStrip has the
@@ -280,8 +284,9 @@ file. How the helper decodes where imagecodecs lacks a codec, in step 0's module
 - `png` of gray under 8 bits: imagecodecs' samples, which come scaled to 8 bits, divided back by
   255 / (2^b − 1);
 - `bmp` otherwise: imagecodecs, its R, G, B reversed to the stored B, G, R;
-- `jpegxr`: imagecodecs, which gives R, G, B for an RGB and a BGR pixel format alike, its samples
-  reversed for a BGR or BGRA pixel format and kept for the others;
+- `jpegxr`: imagecodecs, which gives R, G, B (and A) for an RGB and a BGR pixel format alike, its
+  first three samples reversed, alpha kept last, for a BGR or BGRA pixel format and kept for the
+  others;
 - `skip`, `fits_quantize`, `lsb_first` and `h5_fletcher32` (HDF5's Fletcher-32 checked over the
   bytes before the checksum, which is then dropped): in Python;
 - `ccitt_t6`: imagecodecs' `ccittfax4_decode`, which makes a byte per pixel, packed into rows of
@@ -319,16 +324,25 @@ chain's codec is given in the codec or listed among the description's unit param
 chain. A place is refused where its parameter's entry lists no `place` kind, and otherwise checked
 as a place, its bytes being the format's to read.
 
+### The descriptions' limit falls back too
+
+An array whose description would pass the descriptions' limit falls back as one does at the map's
+limit: it loses its chains, unit parameters and grid, keeping its key, shape and declarations, and
+later arrays are still tried; only a description that cannot fit even so refuses the run. So a
+source that parses today, such as a GRIB file of many small fields over a shared section 3, is never
+refused for its descriptions, and rule 8's PRs name the arrays that fall back.
+
 ## Codecs
 
 A name follows [§3.2](../../spec/stored-array.md#32-the-list): it states the byte format its
 decoding takes, its framing included, and covers two framings only where a parameter chooses. This
 list supersedes the sketch in [ir-array-model.md](ir-array-model.md#codecs). Each parameter is given
 as `name: kinds`, where a kind is a value's JSON type (`int`, `str`, `bool`, `float`, `int[]`, or
-`any`), `place`, or `column` with its Arrow type; a parameter is required unless marked optional.
-Configuration the source gives once may be a value only where step 0 allows one. A name also covers
-two framings where their standard tells them apart by their first bytes (JPEG XL's codestream and
-container); step 0 adds that to [§3.2](../../spec/stored-array.md#32-the-list)'s rule.
+`any`), `place` or `place[]` (a list of places), or `column` with its Arrow type; a parameter is
+required unless marked optional. Configuration the source gives once may be a value only where step
+0 allows one. A name also covers two framings where their standard tells them apart by their first
+bytes (JPEG XL's codestream and container); step 0 adds that to
+[§3.2](../../spec/stored-array.md#32-the-list)'s rule.
 
 `source`, already in the list, takes `format`: `str`; `id`: `int`, `str`; `name` (optional): `str`;
 `parameters` (optional): `any`, `place`.
@@ -369,7 +383,7 @@ container); step 0 adds that to [§3.2](../../spec/stored-array.md#32-the-list)'
 
 | Codec | Takes | Parameters | Used by |
 | --- | --- | --- | --- |
-| `jpeg` | an ISO 10918-1 stream, any process | `tables` (optional; an abbreviated table stream, TIFF's tag 347): `place`; `markers` (optional; the JFIF or Adobe segment the array declares, which every unit's must equal; CZI, VSI): `place`; `header` (optional; the stream up to its first scan, the unit being one restart interval's entropy-coded segment, its RSTn marker excluded, decoded as after a restart; NDPI): `place` | TIFF, NDPI, VSI, DICOM, CZI |
+| `jpeg` | an ISO 10918-1 stream, any process | `tables` (optional; an abbreviated table stream, TIFF's tag 347): `place`; `markers` (optional; the JFIF and Adobe segments the array's first unit has, possibly none, which every unit's must equal; VSI): `place[]`; `header` (optional; the stream up to its first scan, the unit being one restart interval's entropy-coded segment, its RSTn marker excluded, decoded as after a restart; NDPI): `place` | TIFF, NDPI, VSI, DICOM, CZI |
 | `jpegls` | an ISO 14495-1 stream | | DICOM |
 | `jpeg2k` | an ISO 15444-1 codestream (15444-15's high throughput included), not a JP2 file | `main_header` (optional; the unit is then one tile's tile-parts, with their SOT): `place` | TIFF, VSI, DICOM, SAFE |
 | `jpegxr` | a JPEG XR file in its T.832 container (starting `II BC 01`); decoding makes the samples in its pixel format's order | | NDPI, CZI |
@@ -538,15 +552,15 @@ Medium-large (about 1,000 lines).
   An absent tile has no row.
 - **Chains.** Chain 0 is `[fits_quantize, compressor]` for a quantized image, else `[compressor]`,
   where the compressor is `fits_rice`, `gzip`, `shuffle` then `gzip` for GZIP_2, or none for
-  NOCOMPRESS; chain 1 is `[gzip]` for tiles in GZIP_COMPRESSED_DATA where that differs from chain
-  0, and those tiles use chain 0 where it does not. Under quantization every
-  compressor codes 4-byte integers, so `fits_rice`'s `byte_pix` and GZIP_2's `shuffle`
-  `element_size` are the value 4; unquantized, they are places (the BYTEPIX ZVAL card, and ZBITPIX),
-  and `block_size` is the BLOCKSIZE ZVAL card, each absent where its card is, the codec's entry
-  giving the default. `fits_quantize`'s `scale` and `zero` are the ZSCALE and ZZERO columns, or
-  places where the header gives them as keywords; `seed` is a column (the tile's index plus
-  ZDITHER0); `method` a place (ZQUANTIZ), absent where the card is; `zblank` absent where neither
-  the table nor the header gives ZBLANK. The first real use of columns and of a second chain.
+  NOCOMPRESS; chain 1 is `[gzip]` for tiles in GZIP_COMPRESSED_DATA where that differs from chain 0,
+  and those tiles use chain 0 where it does not. Under quantization every compressor codes 4-byte
+  integers, so `fits_rice`'s `byte_pix` and GZIP_2's `shuffle` `element_size` are the value 4;
+  unquantized, they are places (the BYTEPIX ZVAL card, and ZBITPIX), and `block_size` is the
+  BLOCKSIZE ZVAL card, each absent where its card is absent, the codec's entry giving the default.
+  `fits_quantize`'s `scale` and `zero` are the ZSCALE and ZZERO columns, or places where the header
+  gives them as keywords; `seed` is a column (the tile's index plus ZDITHER0); `method` a place
+  (ZQUANTIZ), absent where the card is absent; `zblank` absent where neither the table nor the
+  header gives ZBLANK. The first real use of columns and of a second chain.
 - **Fallback.** An unquantized image whose BYTEPIX is not its elements' width gives `source`.
 - **Checker.** astropy with `disable_image_compression=True` for each tile's bytes and
   parameters, and its codecs for the decoding.
@@ -564,7 +578,8 @@ Medium-large (about 500 lines).
   chain, its bitmap bytes as one unit, indexed before the field whose section 7 follows it.
 - **Unit.** The field's section 7 element, in `[grib_unpack]`, whose places are its own: each field
   has a chain of its own, about 13 description entries, within the descriptions' limit of one per
-  four bytes for any field of 52 bytes or more.
+  four bytes for any field of 52 bytes or more; a smaller field repeated over a shared section 3
+  falls back by step 0's rule, never refusing the file.
 - **Fallbacks.** A field left out for its meaning is described fully. One whose packing or grid
   template refkv does not unpack has no grid, its elements' size unknown, its template's number
   among its declarations; one with a bitmap indicator 1–253 has no grid.
@@ -686,8 +701,8 @@ Medium-large.
 - **Checker.** czifile's subblock directory and raw segment bytes, and its decoded data for
   uncompressed, LZW, Zstd and JPEG XR subblocks: for uncompressed and LZW ones, its swap of BGR to
   RGB undone and alpha left out (it sets alpha to 255); for Zstd, the swap `zstd1_decode` makes
-  undone; JPEG XR's R, G, B reversed, alpha included; JPEG and lossless JPEG, which it decodes with
-  colors converted or not at all, by the helper alone.
+  undone; JPEG XR's first three samples reversed, alpha compared in place; JPEG and lossless JPEG,
+  which it decodes with colors converted or not at all, by the helper alone.
 
 ### ND2
 
