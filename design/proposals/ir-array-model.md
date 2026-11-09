@@ -558,7 +558,7 @@ share, and the map. They are not in the facts. So:
   bytes a row, 8 a coordinate and 24 a `ranges` item (109 for a rank-2 row). The worst case, rank-1
   rows over an index two headers share, is about 200 bytes per byte of the source, and about
   210 MB at the 2^22 floor, plus about 76 bytes per row while Python holds an export. A parameter
-  column also has a null slot on every row that does not set it, about 8 bytes a row per column;
+  column also has a null slot on every row that does not set it, about 16 bytes a row per column;
   the list allows only a few such columns (FITS's ZSCALE, ZZERO and dither seed among them). The
   descriptions' limit still refuses; no corpus file comes near it. `memory()` includes both.
   `digest()` covers the descriptions and each row's values, not the Arrow layout: the columns in a fixed order (the named ones, then the parameter
