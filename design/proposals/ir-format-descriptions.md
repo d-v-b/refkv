@@ -128,75 +128,99 @@ NRRD, safetensors, DICOM, CZI, ND2, LIF with XLEF, SAFE, and NumPy's deflated `.
 
 ## Step 0: the shared rules
 
-One PR before the formats, changing spec/stored-array.md, the IR's codec list and checks, the
-function that names a unit's bytes with `check::finish`'s record of unfolded runs, the `gz.rs`
-helper that gives a gzip or deflate stream one derived element ([§Gzipped files](#gzipped-files))
-with the revisions of [conventions §8.5](../../spec/conventions.md#85-forms-and-recipes)'s
-derived-form members (the prefix length), [§8.8](../../spec/conventions.md#88-canonical-form) and
-`Transform` it needs, the codec contract below, a JPEG segment scanner that finds a stream's JFIF
-and Adobe segments and its SOF for the parsers that declare them, a JPEG 2000 SIZ reader in
-`coding.rs` that gives a codestream's SIZ range, its component count, each component's sampling,
-precision and sign, and its tile size (for the no-grid rules below, the sign declaration, and SAFE's
-and DICOM's grids, replacing their own readers in `safe/jp2.rs` and `dicom/mod.rs` as their PRs
-land), the Python reader `refkv.ir.stored` and its `Stored` type taught `undescribed`, and the test
-helpers, among them `unit_bytes(ir, row)` and `place_bytes(ir, place)`, which give a row's or a
-place's bytes from the IR (a run member through its run's stride, a `range`, `ranges`, an element in
-a derived space by re-deriving it) through a `read(object_key | None, offset, length)` the test
-supplies, since the IR holds no source, re-deriving a gzipped space inflating the whole stream
-whatever its prefix length, so that no format's test writes them. It also adds to
-[§7](../../spec/stored-array.md#7-the-formats) one heading per format, in the order of [§The
-formats](#the-formats), each holding a line that the format is not described yet, so that each
-format PR fills its own heading and none appends to the end of the file; it rewords
-[§4.1](../../spec/stored-array.md#41-the-arrow-schema)'s `ranges` row to "where no element holds the
-unit's bytes in one span", dropping its bracketed "(a unit in part of an element is `element` and
-`range`)", which rule 3's fragments contradict, and
-[§2.2](../../spec/stored-array.md#22-places-and-parameters)'s place bullet to "where no element
-holds them in one span"; it widens [§2](../../spec/stored-array.md#2-the-description)'s
-`declarations` row, and the document's opening paragraph's "where the source declares what its
-elements are" likewise, from "what the array's elements are" to "what the array's elements are, or
-how they are placed, arranged or presented" (GRIB's grid, DICOM's total matrix, ND2's loops, a
-JPEG's markers); it rewords [§2.2](../../spec/stored-array.md#22-places-and-parameters)'s "a place
-whose bytes the codec makes it from" to "a place whose bytes the format's document says how to
-read", the format being the IR's profile's (a file IR's own; a store IR's, whose document names the
-format of the files it grafts and any reading it borrows, as VSI's IFDs are read as TIFF's), with
-`CodecEntry`'s doc in `array.rs` and `Source`'s in `stored.py`; it adds to
-[§3.1](../../spec/stored-array.md#31-chains)'s "Configuration the source defines once … is a
-parameter given as a place" the two cases where a value stands instead and the rule that an omitted
-card or tag whose default the format gives is an absent parameter ([§Parameters the source gives
-once](#parameters-the-source-gives-once)); it adds to
-[§5.1](../../spec/stored-array.md#51-each-description)'s Chains bullet the refusals of [§The codec
-list](#the-codec-list) (a value of the wrong type, a required parameter missing, a place where the
-entry lists no `place` kind), and to [§5](../../spec/stored-array.md#5-checks) `undescribed`'s
-invariants (a file IR marked `true` has no arrays, chains or rows; a store's keys are its objects');
-it drops "a block size" from [§3.1](../../spec/stored-array.md#31-chains)'s example of parameters
-only an encoder needs, since `fits_rice` and `h5_bitshuffle` decode by theirs; it recasts
-[§3.2](../../spec/stored-array.md#32-the-list)'s table, its `source` row included, in
-[§Codecs](#codecs)' `name: kinds` notation, with no Columns column; it rewords
-[§6](../../spec/stored-array.md#6-in-the-ir)'s "the list allows few columns (none yet)" to name
-`fits_quantize`'s; it cites `Stored.arrays`, which `Stored::sort_arrays` orders, where
-[§6](../../spec/stored-array.md#6-in-the-ir) says `Ir::arrays`, which does not exist; and
-[§6](../../spec/stored-array.md#6-in-the-ir)'s graft bullet ("a graft that fails on it, or on the
-IR's room, adds nothing to the store") for the descriptions' limit only, the room failure staying a
-refusal, its Limits sentence ("The descriptions' limit, checked after the fit, still rejects the
-run") and its "Built at finish" order (which checks the descriptions' limit after the chain table is
-pruned) to the fallback below, which prunes the table again after it;
-[§2.5](../../spec/stored-array.md#25-the-json-form) and `stored-array.json` to add `undescribed`,
-which marks a source that kept no descriptions at all (an array that falls back alone does not set
-it), present in every IR as that section's members are: in a file IR `true` or `false`; in a store
-IR a list of object keys, empty where nothing is marked, holding each grafted file's key that kept
-none and, where the store's own parser describes in place (VSI, NRRD, NIfTI pairs, safetensors'
-shards, SAFE's directory) and keeps none, the key of every object whose arrays it describes;
-`Stored::is_empty` counts the mark, so that `Ir::graft`, which skips an empty file's stored arrays,
-still carries a marked file's key (one test); and it rewords
-[§1](../../spec/stored-array.md#1-stored-arrays)'s "Today only the NumPy profile describes its
-arrays" to point at [§7](../../spec/stored-array.md#7-the-formats)'s headings, which no format PR
-then edits, and scopes [§1](../../spec/stored-array.md#1-stored-arrays)'s "Every array a parser
-reaches has a description" to the formats whose paragraph in
-[§7](../../spec/stored-array.md#7-the-formats) is filled, naming the exceptions: the store profiles,
-whose array documents stand in; coded streams, which wait for a description of their own; DICOM
-series, whose description comes with profile-plugins' step 4; NumPy's deflated `.npz` members, until
-their PR lands; and a source marked `undescribed` ([§The descriptions' limit falls back
-too](#the-descriptions-limit-falls-back-too)).
+One PR before the formats. Its code:
+- the IR's codec list and its checks ([§The codec list](#the-codec-list));
+- the function that names a unit's bytes, with `check::finish`'s record of unfolded runs ([§Naming a
+  unit's bytes](#naming-a-units-bytes));
+- the `gz.rs` helper that gives a gzip or deflate stream one derived element ([§Gzipped
+  files](#gzipped-files)), with the `Transform` revisions it needs;
+- a JPEG segment scanner that finds a stream's JFIF and Adobe segments and its SOF, for the parsers
+  that declare them;
+- a JPEG 2000 SIZ reader in `coding.rs` that gives a codestream's SIZ range, its component count,
+  each component's sampling, precision and sign, and its tile size (for the no-grid rules below,
+  the sign declaration, and SAFE's and DICOM's grids, replacing their own readers in
+  `safe/jp2.rs` and `dicom/mod.rs` as their PRs land);
+- `undescribed` in `Stored`: its JSON form; `Stored::is_empty` counting the mark, so that
+  `Ir::graft`, which skips an empty file's stored arrays, still carries a marked file's key (one
+  test); and `Stored::digest` hashing it, since a marked IR and an unmarked empty one differ;
+- the Python reader `refkv.ir.stored`, its `Stored` type taught `undescribed`;
+- the test helpers ([§The test helper](#the-test-helper)), among them `unit_bytes(ir, row)` and
+  `place_bytes(ir, place)`, which give a row's or a place's bytes from the IR (a run member through
+  its run's stride, a `range`, `ranges`, an element in a derived space by re-deriving it) through a
+  `read(object_key | None, offset, length)` the test supplies, since the IR holds no source,
+  re-deriving a gzipped space inflating the whole stream whatever its prefix length, so that no
+  format's test writes them.
+
+Its spec edits, each to a sentence the plan would otherwise contradict:
+- **The opening paragraph and [§1](../../spec/stored-array.md#1-stored-arrays).** "where the source
+  declares what its elements are" widens as the `declarations` row does (below). "Today only the
+  NumPy profile describes its arrays" points at [§7](../../spec/stored-array.md#7-the-formats)'s
+  headings, which no format PR then edits. "Every array a parser reaches has a description" is
+  scoped to the formats whose paragraph in [§7](../../spec/stored-array.md#7-the-formats) is filled,
+  naming the exceptions: the store profiles, whose array documents stand in; coded streams, which
+  wait for a description of their own; DICOM series, whose description comes with profile-plugins'
+  step 4; NumPy's deflated `.npz` members, until their PR lands; and a source marked `undescribed`
+  ([§The descriptions' limit falls back too](#the-descriptions-limit-falls-back-too)).
+- **[§2](../../spec/stored-array.md#2-the-description) and
+  [§2.1](../../spec/stored-array.md#21-keys).** The `element` row ("the IR element that declares the
+  array"), the `index` row ("among those `element` declares") and the keys section ("A description
+  is keyed by the IR element that declares the array"; "The declaring element is in no run's
+  subtree") name the key element: the declaring element or, where that lies in an item of a
+  sequence, its nearest ancestor in none, as rule 2 says and the format's document gives it. The
+  `declarations` row widens from "what the array's elements are" to "what the array's elements are,
+  or how they are placed, arranged or presented" (GRIB's grid, DICOM's total matrix, ND2's loops, a
+  JPEG's markers). The `axes` row takes rule 9's definition.
+- **[§2.2](../../spec/stored-array.md#22-places-and-parameters).** The place bullet's "where no
+  element holds them" becomes "where no element holds them in one span". "a place whose bytes the
+  codec makes it from" becomes "a place whose bytes the format's document says how to read", the
+  format being the parser's: the one whose document defines the IR's elements (TIFF's for QPTIFF's
+  and NDPI's IFDs and the `.vsi`'s, HDF5's for IMS, MRC's for MRC datasets; in a store, a grafted
+  file's parser's, or the store's own for what it describes in place), so that a profile sharing a
+  parser adds no reading of its own. `Param`'s and `CodecEntry`'s docs in `array.rs` and `Source`'s
+  in `stored.py` change with it.
+- **[§2.5](../../spec/stored-array.md#25-the-json-form) and `stored-array.json`.** They add
+  `undescribed`, which marks a source that kept no descriptions at all (an array that falls back
+  alone does not set it), present in every IR as that section's members are: in a file IR `true` or
+  `false`; in a store IR a list of object keys, empty where nothing is marked, holding each grafted
+  file's key that kept none and, where the store's own parser describes in place (VSI, NRRD, NIfTI
+  pairs, safetensors' shards, SAFE's directory) and keeps none, the key of every object whose arrays
+  it describes.
+- **[§3.1](../../spec/stored-array.md#31-chains).** "Configuration the source defines once … is a
+  parameter given as a place" gains the cases where a value stands instead and the rule that an
+  omitted card or tag whose default the format gives is an absent parameter ([§Parameters the source
+  gives once](#parameters-the-source-gives-once)); "a block size" leaves its example of parameters
+  only an encoder needs, since `fits_rice` and `h5_bitshuffle` decode by theirs; the sentence on
+  what a codec sees changes as [§A codec sees the unit's shape](#a-codec-sees-the-units-shape) says.
+- **[§3.2](../../spec/stored-array.md#32-the-list).** "A name never covers two framings, unless a
+  parameter of its entry chooses between them" gains the case of framings their standard tells apart
+  by their first bytes ([§Codecs](#codecs)). Its last bullet moves to the format's document and its
+  closing sentence gives way to step 0's list ([§Parameters the source gives
+  once](#parameters-the-source-gives-once)). Its table, the `source` row included, is recast in
+  [§Codecs](#codecs)' `name: kinds` notation with no Columns column, `source`'s `format` being the
+  parser's format as the places section now defines it.
+- **[§4.1](../../spec/stored-array.md#41-the-arrow-schema).** The `ranges` row reads "where no
+  element holds the unit's bytes in one span" and drops its bracketed "(a unit in part of an element
+  is `element` and `range`)", which rule 3's fragments contradict.
+- **[§5](../../spec/stored-array.md#5-checks).**
+  [§5.1](../../spec/stored-array.md#51-each-description)'s Chains bullet gains the refusals of [§The
+  codec list](#the-codec-list) (a value of the wrong type, a required parameter missing, a place
+  where the entry lists no `place` kind). `undescribed` gains its invariants: a file IR marked
+  `true` has no arrays, chains or rows; a store's list names its objects, none of which keys a
+  description or is named by a row.
+- **[§6](../../spec/stored-array.md#6-in-the-ir).** The graft bullet ("a graft that fails on it, or
+  on the IR's room, adds nothing to the store") changes for the descriptions' limit only, the room
+  failure staying a refusal; it, the Limits sentence ("The descriptions' limit, checked after the
+  fit, still rejects the run") and the "Built at finish" order (which checks the descriptions' limit
+  after the chain table is pruned) give way to the fallback below, which prunes the table again
+  after it. "the list allows few columns (none yet)" names `fits_quantize`'s. `Ir::arrays`, which
+  does not exist, becomes `Stored.arrays`, which `Stored::sort_arrays` orders. The canonical-form
+  sentence leaves `undescribed` out of the mirror too.
+- **[§7](../../spec/stored-array.md#7-the-formats).** One heading per format, in the order of [§The
+  formats](#the-formats), each holding a line that the format is not described yet, so that each
+  format PR fills its own heading and none appends to the end of the file.
+- **Conventions.** [§8.5](../../spec/conventions.md#85-forms-and-recipes)'s derived-form members
+  gain the prefix length, and [§8.8](../../spec/conventions.md#88-canonical-form) changes as
+  [§Gzipped files](#gzipped-files) says.
 
 ### A codec sees the unit's shape
 
@@ -240,10 +264,12 @@ way to step 0's list. The format's document says it for every place it gives as 
 stands where the format fixes it rather than the file (CZI's hi-lo split is a shuffle of two bytes,
 always), or where it follows from the array's `item_bits` and the file has no field of its own for
 it (`lsb_first`'s `bits`; FITS's unquantized GZIP_2 `shuffle`, whose `element_size` is |ZBITPIX| /
-8); a parameter the file gives in a field of its own (BYTEPIX, HDF5's client data) is a place. Where
-the file omits a card or tag whose default the format gives (FITS's BLOCKSIZE 32 and BYTEPIX 4,
-EER's bit counts), the parameter is absent and the codec's entry gives the default, since the IR
-holds no default the source does not write ([§1](../../spec/stored-array.md#1-stored-arrays)).
+8); a parameter the file gives in a field of its own (BYTEPIX, HDF5's client data) is a place.
+`source`'s `format`, `id` and `name`, which identify the encoding as a codec's name does, are
+values. Where the file omits a card or tag whose default the format gives (FITS's BLOCKSIZE 32 and
+BYTEPIX 4, EER's bit counts), the parameter is absent and the codec's entry gives the default, since
+the IR holds no default the source does not write
+([§1](../../spec/stored-array.md#1-stored-arrays)).
 
 ### Codec-made elements
 
@@ -301,21 +327,21 @@ apart. Values the stream codes elsewhere (GRIB's bitmap, in section 6) are not f
 A decoder that does otherwise makes other bytes. The array's `item_bits` is the samples' size, and
 the precision the source declares (BitsPerSample 12) is a declaration. A profile converts colors
 from the declarations when it presents them. For every array in `jpeg`, the parser names the array's
-first unit's JFIF and Adobe segments (one, both, or none) and its frame header (SOF), whose
-component ids say RGB or YCbCr where no marker does, as declarations, ranges of the stream the first
-unit decodes from (the unit itself, or its `header` or `tables` place where the segment sits there),
-by step 0's segment scanner, beside the format's own color space where it declares one (TIFF's
-Photometric, DICOM's Photometric Interpretation), so that a profile sees where they disagree; where
-the format declares none refkv can read (CZI's JPEG tiles; VSI's, whose ETS `colorspace` field is a
-declaration of unknown meaning), they are what the profile reads. An array of more than one unit
-whose format declares no color space (VSI's) also gives its `jpeg` those places as `jfif` and
-`adobe` (each absent where the first unit has none) and its SOF's component ids as `components`,
-so that a later unit whose segments or component ids differ fails to
-decode rather than showing other colors; a CZI subblock, one unit, needs no such check, and its
-chain stays shared by every subblock of its encoding. In the same way, where an image codec's stream
-itself says its samples' sign (JPEG 2000's SIZ), the parser names the first unit's such header as a
-declaration, beside the format's own (TIFF's SampleFormat, DICOM's Pixel Representation), so that a
-profile sees where they disagree.
+first unit's (for VSI's levels, which share one chain per ETS file, level 0's first tile's) JFIF and
+Adobe segments (one, both, or none) and its frame header (SOF), whose component ids say RGB or YCbCr
+where no marker does, as declarations, ranges of the stream the first unit decodes from (the unit
+itself, or its `header` or `tables` place where the segment sits there), by step 0's segment
+scanner, beside the format's own color space where it declares one (TIFF's Photometric, DICOM's
+Photometric Interpretation), so that a profile sees where they disagree; where the format declares
+none refkv can read (CZI's JPEG tiles; VSI's, whose ETS `colorspace` field is a declaration of
+unknown meaning), they are what the profile reads. An array of more than one unit whose format
+declares no color space (VSI's) also gives its `jpeg` those places as `jfif` and `adobe` (each
+absent where the first unit has none) and its SOF's component ids as `components`, so that a later
+unit whose segments or component ids differ fails to decode rather than showing other colors; a CZI
+subblock, one unit, needs no such check, and its chain stays shared by every subblock of its
+encoding. In the same way, where an image codec's stream itself says its samples' sign (JPEG 2000's
+SIZ), the parser names the first unit's such header as a declaration, beside the format's own
+(TIFF's SampleFormat, DICOM's Pixel Representation), so that a profile sees where they disagree.
 
 An image codec decodes its frame at the unit's shape. The format sets its grid so that the unit's
 shape is the frame's: a TIFF whose last JPEG strip holds a frame of the full RowsPerStrip has the
@@ -330,11 +356,15 @@ is the unit, the unit's shape takes the place of the header's size, once the hea
 baseline with one interleaved scan whose MCU and restart interval give the unit's shape. Any other
 frame (one that declares more, which would be cropped, or a progressive or non-interleaved one of
 another size, whose scans' block counts follow the declared size) is a decoding error. A parser that
-reads the frame's size (NDPI, TIFF's last strip, VSI's first tile) takes the frame's size for the
-unit where it is the larger only on an axis of one unit, where the array's extent on that axis
-becomes the frame's size too, so that `Each(n)` equals the extent under either edge, the format's
-own size then a declaration. A grid's `Each(n)` is both a unit's shape and its spacing, so on an
-axis of several units such a frame leaves the array no grid, the format's size and the SOF
+reads the frame's size (NDPI, TIFF's last strip, VSI's first tile) compares it on each axis with
+the format's declared unit length, unclamped (RowsPerStrip; TileLength and TileWidth; the image
+width for a strip; VSI's tile size). A frame equal to it takes `full`, as above, the extent
+unchanged. A frame larger than it, on an axis where the array's extent (computed first, from the
+format) is at most one declared unit, makes that extent and the unit the frame's size, so that
+`Each(n)` equals the extent under either edge; the format's size is then a declaration, and rule
+7's shape check expects the reference reader's shape grown to the frame's on that axis. A grid's
+`Each(n)` is both a unit's shape and its spacing, so on an axis whose extent is more than one
+declared unit such a frame leaves the array no grid, the format's size and the SOF
 declarations. CZI, whose subblock is one unit, takes the frame's size whether larger or smaller, as
 its document says. Where a smaller frame decodes at the unit's shape, its last declared rows or
 columns decode as the larger frame's do, which under subsampling can differ from a decode at the
@@ -601,17 +631,17 @@ Large (about 1,500 lines).
   imagecodecs with no color conversion for each unit's decoding.
 - **IFD describer.** Written over its inputs rather than `tiff.rs`'s IFD type, so that VSI's PR
   calls it for the `.vsi`'s IFDs and NDPI's wraps it in `ndpi.rs`, neither editing it: each tag's
-  value and place, the byte order's place (TIFF's `header/byte_order`, VSI's `header` with a
-  range), each unit's element as rule 3 names it, and a struct of what the caller read for it (the
-  last strip's SOF, the first unit's JFIF, Adobe and SOF places, the first JPEG 2000 tile's SOC and
-  SIZ), the reads left to the caller. The NDPI variant of `tiff.rs` stays undescribed until NDPI's
-  PR, so that this PR changes no NDPI fixture's reads.
+  value and place, the byte order's place (TIFF's `header/byte_order`, VSI's `header` with a range),
+  each unit's element as rule 3 names it, and a struct of what the caller read for it (the last
+  strip's SOF, the first unit's JFIF, Adobe and SOF places, the first JPEG 2000 tile's SOC and SIZ),
+  the reads left to the caller. The NDPI variant of `tiff.rs` has no descriptions (and is not marked
+  `undescribed`) until NDPI's PR, so that this PR changes no NDPI fixture's reads.
 - **QPTIFF** is parsed as TIFF and comes with this PR, tested on its accepted fixtures.
 
 ### NDPI
 
 Medium, after TIFF, whose IFD describer it wraps in `ndpi.rs` for McuStarts units and JPEG XR
-IFDs, describing the NDPI variant TIFF's PR leaves undescribed.
+IFDs, describing the NDPI variant TIFF's PR leaves without descriptions.
 - **Units.** With McuStarts, each restart interval is a unit, a range of the strip element, on
   `[Each(mh), Each(R·mw), Each(3)]`, `full`, as tifffile reads NDPI, in `[jpeg(header)]`. Without
   them, the strip, in `[jpeg]`, where its frame covers the IFD's MCU rows and columns within 65535
@@ -632,18 +662,19 @@ Medium, after TIFF.
   section gives them), `vsi/tiff.rs`, which reads IFDs with its own type, doing the reads it needs.
 - **Shape.** `[d_k … d_2, h, w, S]` over the tile directory's coordinates (column, row, then the
   stack's others in coordinate order) less the level, which is the last under `use_pyramid` and is
-  the index; a coordinate `c ≥ 2` has size `dimension_sizes[c]` below the ETS header's
-  `dimensions`, else 1 (a header that lists none gives every such coordinate 1); S only above 1, the
-  collapse to t, c and z being the profile's. The source's list (rule 9) is those coordinates in
-  order, so `axes` puts `w` first, then `h`, then `d_2 … d_k`, then S. Level 0's `h` and `w` are the
-  larger of its declared size, the stack's `width` and `height` from its tree's image boundary (as
-  `ets_facts` reads them today; their place a declaration), and its stored tiles' extent (the
-  largest tile coordinate plus one, times the tile size); a later level, which declares no size,
-  has its tiles' extent. So every tile has a row. Where level 0's first tile's JPEG frame is larger
-  than the header's tile size, step 0's rule holds: no grid where the level has several tiles on
-  that axis, else the level's extent on it is the frame's; the other levels follow the tile size,
-  a frame that differs caught by the checker. Bio-Formats' halving rule, which crops the levels
-  after 0, is the profile's, as IMS's crop to `ImageSize` is; the declared sizes are declarations.
+  the index; a coordinate `c ≥ 2` has size `dimension_sizes[c]` below the ETS header's `dimensions`,
+  else 1 (a header that lists none gives every such coordinate 1); S only above 1, the collapse to
+  t, c and z being the profile's. The source's list (rule 9) is those coordinates in order, so
+  `axes` puts `w` first, then `h`, then `d_2 … d_k`, then S. Level 0's `h` and `w` are the larger of
+  its declared size, the stack's `width` and `height` from its tree's image boundary (as `ets_facts`
+  reads them today; their place a declaration), and its stored tiles' extent (the largest tile
+  coordinate plus one, times the tile size); a later level, which declares no size, has its tiles'
+  extent. So every tile has a row. Where level 0's first tile's JPEG frame is larger than the
+  header's tile size, step 0's rule holds against level 0's extent (the larger of the two above): no
+  grid where that extent is more than one tile, else the extent becomes the frame's size; the other
+  levels follow the tile size, a frame that differs caught by the checker. Bio-Formats' halving
+  rule, which crops the levels after 0, is the profile's, as IMS's crop to `ImageSize` is; the
+  declared sizes are declarations.
 - **Grid and chains.** `Each(1)` on each leading axis, then the tile and S, under `full`; one unit a
   tile, its `tiles/<k>` element; the chain the ETS header's compression names, one codec;
   `item_bits` the pixel type's sample size, or what the codec makes; S the header's `channels`.
@@ -652,13 +683,17 @@ Medium, after TIFF.
   where that tile is paletted (its elements then the indices, one sample, and no grid where
   `channels` is not 1) or cannot make `channels` samples (a 32-bit BMP with no alpha mask under
   four channels, no grid); the other tiles follow it, and one that differs is
-  caught by the checker.
+  caught by the checker. For JPEG, one chain per ETS file serves every level, its `jfif`, `adobe`
+  and `components` places and the `jpeg` declarations level 0's first tile's, so that the parser
+  reads one tile per file; a later tile whose markers differ fails to decode, as step 0 says.
 - **Fill.** Given, as a place in the `ets` header, when the background's samples are equal and the
   tiles are raw; otherwise `undefined`, with the header among the declarations.
-- **Checker.** Bio-Formats for shapes, tile sizes and decoded tiles (minding BGR and the
-  resolution level), but only for shapes and tile sizes where its decoding differs from the
-  helper's: imagecodecs with no color conversion for JPEG tiles, which Bio-Formats converts to
-  RGB, and for JPEG 2000 tiles, which it rounds otherwise; tifffile for the `.vsi`'s IFDs.
+- **Checker.** Bio-Formats for tile sizes, decoded tiles (minding BGR and the resolution level)
+  and sizes: each level's extent is its tiles' extent (level 0's the larger of that and the
+  declared size), and Bio-Formats' size is at most it and, at level 0, the declared size, its tiles
+  compared after cropping to that size. For JPEG tiles, which Bio-Formats converts to RGB, and JPEG
+  2000 tiles, which it rounds otherwise, the decoding is checked by imagecodecs with no color
+  conversion instead. tifffile for the `.vsi`'s IFDs.
 
 ### HDF5, NWB and IMS
 
@@ -726,8 +761,8 @@ Medium-large (about 1,000 lines).
   index plus ZDITHER0); `method` a place (ZQUANTIZ), absent where the card is absent; `zblank`
   absent where neither the table nor the header gives ZBLANK. The first real use of columns and of a
   second chain.
-- **Fallback.** An unquantized image whose BYTEPIX is not its elements' width, and a quantized one
-  whose BYTEPIX is not 4, give `source`.
+- **Fallback.** A RICE_1 image whose BYTEPIX (4 when absent) is not its elements' width when
+  unquantized, or not 4 when quantized, gives `source`.
 - **Checker.** astropy with `disable_image_compression=True` for each tile's bytes and
   parameters, and its codecs for the decoding.
 
@@ -876,13 +911,15 @@ Medium-large.
   entry, which no element of the part's IR holds, as an extent of the master's object.
 - **Grafts.** `czi_set` is the first graft of many descriptions (about 10^5 in a large slide).
 - **Checker.** czifile's subblock directory and raw segment bytes, and its decoded data for
-  uncompressed, LZW, Zstd and JPEG XR subblocks: for uncompressed and LZW ones, its swap of BGR to
-  RGB undone and alpha left out (it sets alpha to 255); for Zstd, the swap `zstd1_decode` makes
-  undone and alpha left out (it also sets alpha to 255); JPEG XR's first three samples reversed
-  where the stream's PixelFormat is a BGR one (24bppBGR, 32bppBGR, 32bppBGRA, 32bppPBGRA), as the
-  helper's `jpegxr` reverses them, and compared as given otherwise (every Bgr48 and Bgr96Float
-  subblock, which JPEG XR codes as RGB), alpha compared in place; JPEG and lossless JPEG, which it
-  decodes with colors converted or not at all, by the helper alone.
+  uncompressed, LZW and Zstd subblocks: for uncompressed and LZW ones, its swap of BGR to RGB
+  undone and alpha left out (it sets alpha to 255); for Zstd, the swap `zstd1_decode` makes undone
+  and alpha left out (it also sets alpha to 255). JPEG XR subblocks are decoded from their raw
+  segment bytes by imagecodecs' `jpegxr_decode`, since czifile decodes them with WIC on Windows,
+  its first three samples reversed where the stream's PixelFormat is a BGR one (24bppBGR,
+  32bppBGR, 32bppBGRA, 32bppPBGRA), as the helper's `jpegxr` reverses them, and compared as given
+  otherwise (every Bgr48 and Bgr96Float subblock, which JPEG XR codes as RGB), alpha in place.
+  JPEG and lossless JPEG, which czifile decodes with colors converted or not at all, by the helper
+  alone.
 
 ### ND2
 
