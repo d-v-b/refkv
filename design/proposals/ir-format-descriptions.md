@@ -131,7 +131,8 @@ NRRD, safetensors, DICOM, CZI, ND2, LIF with XLEF, SAFE, and NumPy's deflated `.
 One PR before the formats, changing spec/stored-array.md, the IR's codec list and checks, the
 function that names a unit's bytes with `check::finish`'s record of unfolded runs, the `gz.rs`
 helper that gives a gzip or deflate stream one derived element ([§Gzipped files](#gzipped-files))
-with the revisions of [conventions §8.8](../../spec/conventions.md#88-canonical-form) and
+with the revisions of [conventions §8.5](../../spec/conventions.md#85-forms-and-recipes)'s
+derived-form members (the prefix length), [§8.8](../../spec/conventions.md#88-canonical-form) and
 `Transform` it needs, the codec contract below, a JPEG segment scanner that finds a stream's JFIF
 and Adobe segments and its SOF for the parsers that declare them, a JPEG 2000 SIZ reader in
 `coding.rs` that gives a codestream's SIZ range, its component count, each component's sampling,
@@ -140,7 +141,9 @@ and DICOM's grids, replacing their own readers in `safe/jp2.rs` and `dicom/mod.r
 land), the Python reader `refkv.ir.stored` and its `Stored` type taught `undescribed`, and the test
 helpers, among them `unit_bytes(ir, row)` and `place_bytes(ir, place)`, which give a row's or a
 place's bytes from the IR (a run member through its run's stride, a `range`, `ranges`, an element in
-a derived space by re-deriving it), so that no format's test writes them. It also adds to
+a derived space by re-deriving it) through a `read(object_key | None, offset, length)` the test
+supplies, since the IR holds no source, re-deriving a gzipped space inflating the whole stream
+whatever its prefix length, so that no format's test writes them. It also adds to
 [§7](../../spec/stored-array.md#7-the-formats) one heading per format, in the order of [§The
 formats](#the-formats), each holding a line that the format is not described yet, so that each
 format PR fills its own heading and none appends to the end of the file; it rewords
@@ -149,9 +152,22 @@ unit's bytes in one span", dropping its bracketed "(a unit in part of an element
 `range`)", which rule 3's fragments contradict, and
 [§2.2](../../spec/stored-array.md#22-places-and-parameters)'s place bullet to "where no element
 holds them in one span"; it widens [§2](../../spec/stored-array.md#2-the-description)'s
-`declarations` row, and the matching phrase in [§1](../../spec/stored-array.md#1-stored-arrays)'s
-opening, from "what the array's elements are" to "what the array's elements are, or how they are
-placed, arranged or presented" (GRIB's grid, DICOM's total matrix, ND2's loops, a JPEG's markers);
+`declarations` row, and the document's opening paragraph's "where the source declares what its
+elements are" likewise, from "what the array's elements are" to "what the array's elements are, or
+how they are placed, arranged or presented" (GRIB's grid, DICOM's total matrix, ND2's loops, a
+JPEG's markers); it rewords [§2.2](../../spec/stored-array.md#22-places-and-parameters)'s "a place
+whose bytes the codec makes it from" to "a place whose bytes the format's document says how to
+read", the format being the IR's profile's (a file IR's own; a store IR's, whose document names the
+format of the files it grafts and any reading it borrows, as VSI's IFDs are read as TIFF's), with
+`CodecEntry`'s doc in `array.rs` and `Source`'s in `stored.py`; it adds to
+[§3.1](../../spec/stored-array.md#31-chains)'s "Configuration the source defines once … is a
+parameter given as a place" the two cases where a value stands instead and the rule that an omitted
+card or tag whose default the format gives is an absent parameter ([§Parameters the source gives
+once](#parameters-the-source-gives-once)); it adds to
+[§5.1](../../spec/stored-array.md#51-each-description)'s Chains bullet the refusals of [§The codec
+list](#the-codec-list) (a value of the wrong type, a required parameter missing, a place where the
+entry lists no `place` kind), and to [§5](../../spec/stored-array.md#5-checks) `undescribed`'s
+invariants (a file IR marked `true` has no arrays, chains or rows; a store's keys are its objects');
 it drops "a block size" from [§3.1](../../spec/stored-array.md#31-chains)'s example of parameters
 only an encoder needs, since `fits_rice` and `h5_bitshuffle` decode by theirs; it recasts
 [§3.2](../../spec/stored-array.md#32-the-list)'s table, its `source` row included, in
@@ -159,16 +175,19 @@ only an encoder needs, since `fits_rice` and `h5_bitshuffle` decode by theirs; i
 [§6](../../spec/stored-array.md#6-in-the-ir)'s "the list allows few columns (none yet)" to name
 `fits_quantize`'s; it cites `Stored.arrays`, which `Stored::sort_arrays` orders, where
 [§6](../../spec/stored-array.md#6-in-the-ir) says `Ir::arrays`, which does not exist; and
-[§6](../../spec/stored-array.md#6-in-the-ir)'s graft bullet ("a graft that fails on it … adds
-nothing"), its Limits sentence ("The descriptions' limit, checked after the fit, still rejects the
+[§6](../../spec/stored-array.md#6-in-the-ir)'s graft bullet ("a graft that fails on it, or on the
+IR's room, adds nothing to the store") for the descriptions' limit only, the room failure staying a
+refusal, its Limits sentence ("The descriptions' limit, checked after the fit, still rejects the
 run") and its "Built at finish" order (which checks the descriptions' limit after the chain table is
 pruned) to the fallback below, which prunes the table again after it;
 [§2.5](../../spec/stored-array.md#25-the-json-form) and `stored-array.json` to add `undescribed`,
 which marks a source that kept no descriptions at all (an array that falls back alone does not set
 it), present in every IR as that section's members are: in a file IR `true` or `false`; in a store
 IR a list of object keys, empty where nothing is marked, holding each grafted file's key that kept
-none and, where the store's own parser describes in place (VSI, NRRD, NIfTI pairs) and keeps none,
-the key of every object whose arrays it describes; and it rewords
+none and, where the store's own parser describes in place (VSI, NRRD, NIfTI pairs, safetensors'
+shards, SAFE's directory) and keeps none, the key of every object whose arrays it describes;
+`Stored::is_empty` counts the mark, so that `Ir::graft`, which skips an empty file's stored arrays,
+still carries a marked file's key (one test); and it rewords
 [§1](../../spec/stored-array.md#1-stored-arrays)'s "Today only the NumPy profile describes its
 arrays" to point at [§7](../../spec/stored-array.md#7-the-formats)'s headings, which no format PR
 then edits, and scopes [§1](../../spec/stored-array.md#1-stored-arrays)'s "Every array a parser
@@ -312,13 +331,15 @@ baseline with one interleaved scan whose MCU and restart interval give the unit'
 frame (one that declares more, which would be cropped, or a progressive or non-interleaved one of
 another size, whose scans' block counts follow the declared size) is a decoding error. A parser that
 reads the frame's size (NDPI, TIFF's last strip, VSI's first tile) takes the frame's size for the
-unit where it is the larger only on an axis of one unit, the format's own size then a declaration,
-since a grid's `Each(n)` is both a unit's shape and its spacing; on an axis of several units such a
-frame leaves the array no grid, the format's size and the SOF declarations. CZI, whose subblock is
-one unit, takes the frame's size whether larger or smaller, as its document says. Where a smaller
-frame decodes at the unit's shape, its last declared rows decode as the larger frame's do, which
-under subsampling can differ from a decode at the frame's own size (fancy upsampling reads the
-padded chroma row), so the checks compare against the decode with the SOF set.
+unit where it is the larger only on an axis of one unit, where the array's extent on that axis
+becomes the frame's size too, so that `Each(n)` equals the extent under either edge, the format's
+own size then a declaration. A grid's `Each(n)` is both a unit's shape and its spacing, so on an
+axis of several units such a frame leaves the array no grid, the format's size and the SOF
+declarations. CZI, whose subblock is one unit, takes the frame's size whether larger or smaller, as
+its document says. Where a smaller frame decodes at the unit's shape, its last declared rows or
+columns decode as the larger frame's do, which under subsampling can differ from a decode at the
+frame's own size (fancy upsampling reads the padded chroma row or column), so the checks compare
+against the decode with the SOF set.
 
 ### `lsb_first`
 
@@ -578,13 +599,19 @@ Large (about 1,500 lines).
   347, 529, 530 and 532, LercParameters, and `header/byte_order`.
 - **Checker.** tifffile per page for `shaped`, `chunks`, `dataoffsets` and `databytecounts`, and
   imagecodecs with no color conversion for each unit's decoding.
-- **IFD describer.** Written over tag values and unit element ids, not `tiff.rs`'s IFD type, so
-  that VSI's PR calls it for the `.vsi`'s IFDs.
+- **IFD describer.** Written over its inputs rather than `tiff.rs`'s IFD type, so that VSI's PR
+  calls it for the `.vsi`'s IFDs and NDPI's wraps it in `ndpi.rs`, neither editing it: each tag's
+  value and place, the byte order's place (TIFF's `header/byte_order`, VSI's `header` with a
+  range), each unit's element as rule 3 names it, and a struct of what the caller read for it (the
+  last strip's SOF, the first unit's JFIF, Adobe and SOF places, the first JPEG 2000 tile's SOC and
+  SIZ), the reads left to the caller. The NDPI variant of `tiff.rs` stays undescribed until NDPI's
+  PR, so that this PR changes no NDPI fixture's reads.
 - **QPTIFF** is parsed as TIFF and comes with this PR, tested on its accepted fixtures.
 
 ### NDPI
 
-Medium, after TIFF.
+Medium, after TIFF, whose IFD describer it wraps in `ndpi.rs` for McuStarts units and JPEG XR
+IFDs, describing the NDPI variant TIFF's PR leaves undescribed.
 - **Units.** With McuStarts, each restart interval is a unit, a range of the strip element, on
   `[Each(mh), Each(R·mw), Each(3)]`, `full`, as tifffile reads NDPI, in `[jpeg(header)]`. Without
   them, the strip, in `[jpeg]`, where its frame covers the IFD's MCU rows and columns within 65535
@@ -601,17 +628,22 @@ Medium, after TIFF.
 
 Medium, after TIFF.
 - **Arrays.** Each ETS file's levels, keyed by its `ets` element with the level as index, and the
-  `.vsi`'s IFDs as TIFF's are, through the IFD describer TIFF's PR exposes over tag values and unit
-  element ids rather than `tiff.rs`'s own IFD type, since `vsi/tiff.rs` reads IFDs with its own.
-- **Shape.** `[d_k … d_2, h, w, S]` over the coordinates of `dimension_sizes` other than the level
-  (which is the index), S only above 1, the collapse to t, c and z being the profile's. The source's
-  list (rule 9) is `dimension_sizes`' coordinates in their order less the level's, `w` before `h`,
-  so `axes` puts `w` first, then `h`, then `d_2 … d_k`, then S. Level 0's `h` and `w` are the larger
-  of its declared size (from `dimension_sizes`) and its stored tiles' extent (the largest tile
-  coordinate plus one, times the tile size); a later level, which declares no size, has its tiles'
-  extent. So every tile has a row. A first tile whose JPEG frame is larger than the header's tile
-  size leaves the array no grid (step 0). Bio-Formats' halving rule, which crops the levels after 0,
-  is the profile's, as IMS's crop to `ImageSize` is; the declared sizes are declarations.
+  `.vsi`'s IFDs as TIFF's are, through the IFD describer TIFF's PR exposes (its inputs as TIFF's
+  section gives them), `vsi/tiff.rs`, which reads IFDs with its own type, doing the reads it needs.
+- **Shape.** `[d_k … d_2, h, w, S]` over the tile directory's coordinates (column, row, then the
+  stack's others in coordinate order) less the level, which is the last under `use_pyramid` and is
+  the index; a coordinate `c ≥ 2` has size `dimension_sizes[c]` below the ETS header's
+  `dimensions`, else 1 (a header that lists none gives every such coordinate 1); S only above 1, the
+  collapse to t, c and z being the profile's. The source's list (rule 9) is those coordinates in
+  order, so `axes` puts `w` first, then `h`, then `d_2 … d_k`, then S. Level 0's `h` and `w` are the
+  larger of its declared size, the stack's `width` and `height` from its tree's image boundary (as
+  `ets_facts` reads them today; their place a declaration), and its stored tiles' extent (the
+  largest tile coordinate plus one, times the tile size); a later level, which declares no size,
+  has its tiles' extent. So every tile has a row. Where level 0's first tile's JPEG frame is larger
+  than the header's tile size, step 0's rule holds: no grid where the level has several tiles on
+  that axis, else the level's extent on it is the frame's; the other levels follow the tile size,
+  a frame that differs caught by the checker. Bio-Formats' halving rule, which crops the levels
+  after 0, is the profile's, as IMS's crop to `ImageSize` is; the declared sizes are declarations.
 - **Grid and chains.** `Each(1)` on each leading axis, then the tile and S, under `full`; one unit a
   tile, its `tiles/<k>` element; the chain the ETS header's compression names, one codec;
   `item_bits` the pixel type's sample size, or what the codec makes; S the header's `channels`.
@@ -648,8 +680,11 @@ Large (about 2,500 lines), from the spike's branch, about 70% of which carries o
   states kept in a field only the description reads, `Dataset`'s fill and the output's
   `fill_value` unchanged until HDF5's plan PR; a shared fill message resolved through the
   shared-message heap, likewise for the description alone; a
-  wrong-sized fill tested against the library, falling back to `undefined` with the message among
-  the declarations; chunks compared with `get_chunk_info_by_coord`; listing stopped once an array's
+  wrong-sized fill tested against the library, a longer one whose first bytes the library uses a
+  `given` place over those bytes, any other `undefined` with the message among the declarations;
+  chunks compared with `get_chunk_info_by_coord`, except an extensible array whose unlimited axis
+  is not the first (`ims_latest_indexes.ims:/Indexes/ea_last`), where HDF5 2.0.0's call returns
+  wrong offsets and the check compares against HDF5's own reads; listing stopped once an array's
   units alone pass the map's limit.
 - **Crafted fixtures** for undefined, shared, old-style (message 0x04) and wrong-sized fills, and
   the bzip2, szip and N-bit filters. N-bit packs reduced-precision types; HDF5 2.0 refuses only
@@ -669,28 +704,30 @@ Medium-large (about 1,000 lines).
 - **Shape.** NAXISn…NAXIS1 (ZNAXIS for a compressed image) with `axes` reversed, as a Fortran-order
   `.npy`'s, of |BITPIX| (|ZBITPIX|) bits; rows `[NAXIS2]` of 8·NAXIS1 bits; heap `[H]` of 8. Fill
   `undefined`; BLANK, BSCALE and BZERO are declarations.
-- **Units.** An image (`data`), a table's rows (`table`) or a heap (`heap`) is one unit, its
-  element, but a compressed image's heap, which `tile_cut` splits into `heap/<j>` elements, is its
-  HDU's `hdus/<i>` element with a `range` (the parser refuses a compressed image inside a compressed
-  file, so no derived space is involved). A compressed image's are its tiles, `Each(ZTILEj)`,
-  `short`: each a range of today's `heap/<j>` element, or the element alone where the tile is all of
-  it. The describe-only PR keeps `tile_cut`. An absent tile has no row.
+- **Units.** An image (`data`), a table's rows (`rows`; a compressed image's table, the value
+  `table`) or a heap (`heap`) is one unit, its element, but a compressed image's heap, which
+  `tile_cut` splits into `heap/<j>` elements, is its HDU's `hdus/<i>` element with a `range` (the
+  parser refuses a compressed image inside a compressed file, so no derived space is involved). A
+  compressed image's are its tiles, `Each(ZTILEj)`, `short`: each a range of today's `heap/<j>`
+  element, or the element alone where the tile is all of it. The describe-only PR keeps `tile_cut`.
+  An absent tile has no row.
 - **Chains.** Chain 0 is `[fits_quantize, compressor]` for a quantized image, else `[compressor]`,
   where the compressor is `fits_rice`, `gzip`, `shuffle` then `gzip` for GZIP_2, or none for
   NOCOMPRESS; chain 1 is `[gzip]` for tiles in GZIP_COMPRESSED_DATA where that differs from chain 0,
-  and those tiles use chain 0 where it does not. Under quantization every compressor codes 4-byte
-  integers, so `fits_rice`'s `byte_pix` and GZIP_2's `shuffle` `element_size` are the value 4;
-  unquantized, `byte_pix` is a place (the BYTEPIX ZVAL card) and `element_size` the value |ZBITPIX|
-  / 8 (step 0), and `block_size` is the BLOCKSIZE ZVAL card, each absent where its card is absent,
-  the codec's entry giving the default. `fits_quantize`'s `scale` and `zero` are the ZSCALE and
-  ZZERO columns. The parser, like astropy, takes a float image as quantized only where they are
+  and those tiles use chain 0 where it does not. `fits_rice`'s `byte_pix` is the BYTEPIX ZVAL card,
+  a place, absent where the card is absent; GZIP_2's `shuffle` `element_size` is the value 4 under
+  quantization, whose compressors the convention fixes at 4-byte integers, and |ZBITPIX| / 8
+  otherwise (step 0); and `block_size` is the BLOCKSIZE ZVAL card, each absent where its card is
+  absent, the codec's entry giving the default. `fits_quantize`'s `scale` and `zero` are the ZSCALE
+  and ZZERO columns. The parser, like astropy, takes a float image as quantized only where they are
   columns; one whose header gives them as keywords, which cfitsio reads and today's output misreads
   as unquantized, has no grid, the cards among its declarations, so that the description does not
   repeat the misread (one fallback test), until a later PR reads it; `seed` is a column (the tile's
   index plus ZDITHER0); `method` a place (ZQUANTIZ), absent where the card is absent; `zblank`
   absent where neither the table nor the header gives ZBLANK. The first real use of columns and of a
   second chain.
-- **Fallback.** An unquantized image whose BYTEPIX is not its elements' width gives `source`.
+- **Fallback.** An unquantized image whose BYTEPIX is not its elements' width, and a quantized one
+  whose BYTEPIX is not 4, give `source`.
 - **Checker.** astropy with `disable_image_compression=True` for each tile's bytes and
   parameters, and its codecs for the decoding.
 
@@ -716,9 +753,11 @@ Medium-large (about 500 lines).
   indicator among its declarations.
 - **Checker.** eccodes, whose values keep the stored order (alternate rows still reversed), shaped
   `[Ni, Nj]` with no transpose where columns come first; for a field with a bitmap, the values at
-  the points the bitmap leaves, in order. The four fixtures eccodes cannot
-  read (the PNG packings of 1, 2 and 4 bits, on which it aborts, and the indicator-254 field of
-  `grib_bitmap_254`) compare against `fixtures/grib/expected`, as the GRIB tests do today.
+  the points the bitmap leaves, in order. The four fixtures eccodes cannot read (the PNG packings of
+  1, 2 and 4 bits, on which it aborts, and the indicator-254 field of `grib_bitmap_254`) compare
+  against `fixtures/grib/expected` mapped back to coded values in stored order (the points the
+  bitmap masks dropped and [conventions §12](../../spec/conventions.md#12-grib-messages)'s ordering
+  undone), since those arrays hold the codec's placed output.
 
 ### Gzipped files
 
@@ -773,7 +812,9 @@ Small-medium.
 
 Small-medium.
 - **Arrays.** Keyed by `header`, each tensor's index its position in the header. F4 is 4 bits in
-  `[lsb_first(4)]`; F6_E2M3 and F6_E3M2 are 6 bits in `[lsb_first(6)]`.
+  `[lsb_first(4)]`; F6_E2M3 and F6_E3M2 are 6 bits in `[lsb_first(6)]`. The store
+  form (`safetensors/store.rs`) describes each shard's tensors in place, keyed by that shard's
+  `header`.
 - **Checker.** `safetensors.deserialize` for each row's bytes; ml_dtypes' `float4_e2m1fn`,
   `float6_e2m3fn` and `float6_e3m2fn` for the values; the packing order of F4 and F6 rests on
   [safetensors.md](../../spec/zarrify/safetensors.md).
@@ -830,8 +871,9 @@ Medium-large.
 - **Codecs.** `jpeg`, `jpegxr`, `zstd`, `[shuffle, zstd]` for Zstd1's hi-lo, and `tiff_lzw`, which
   [czi.md](../../spec/zarrify/czi.md) gives as TIFF's. Zstd1's header is its own element, a
   declaration.
-- **Declarations.** The directory entry and dimensions; a part file's master entry, which no
-  element of the part's IR holds, as an extent of the master's object.
+- **Declarations.** The directory entry and dimensions; for a JPEG XR subblock, its stream's
+  PixelFormat range, which says whether `jpegxr` makes B, G, R or R, G, B; a part file's master
+  entry, which no element of the part's IR holds, as an extent of the master's object.
 - **Grafts.** `czi_set` is the first graft of many descriptions (about 10^5 in a large slide).
 - **Checker.** czifile's subblock directory and raw segment bytes, and its decoded data for
   uncompressed, LZW, Zstd and JPEG XR subblocks: for uncompressed and LZW ones, its swap of BGR to
@@ -892,9 +934,9 @@ Medium.
 - **Units.** Each `tiles/<k>` element, its tile-parts with their SOT, in `[jpeg2k(main_header)]`.
   The SIZ refkv rebuilds and the empty-tile tail are the projection's.
 - **Checker.** SIZ and SOT read by a small reader in the test for the grid and the tiles, since
-  rasterio's block shapes are GDAL's choice, not the codestream's (B02's are its tiles; B01's,
-  B05's and TCI's the whole image); rasterio's window reads for the decoding, against
-  the helper's `jpeg2k`.
+  rasterio's block shapes are GDAL's choice, not the codestream's (B02's and L2A's TCI_10m and
+  TCI_20m are their tiles; B01's, B05's and L1C's TCI the whole image); rasterio's window reads for
+  the decoding, against the helper's `jpeg2k`.
 
 ## Order of work
 
