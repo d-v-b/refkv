@@ -19,7 +19,8 @@ spike described every HDF5 dataset without it
 ([ir-array-model.md](ir-array-model.md#order-of-work)). Landing them first tests every format's
 description against its reference reader before any plan reads it, and settles the codec list once.
 
-A describe-only PR changes no output. It changes the IR mirror (its rows, forms and view) only where
+A describe-only PR changes no output but the IR mirror changes it names: the mirror (its rows,
+forms and view), which every output carries, changes only where
 a declaration or unit needs a place the IR does not have (a gzipped header, [§Gzipped
 files](#gzipped-files)), and names each such change.
 
@@ -116,7 +117,8 @@ One PR before the formats, changing spec/stored-array.md, the IR's codec list an
 function that names a unit's bytes with `check::finish`'s record of unfolded runs, the `gz.rs`
 helper that gives a gzip or deflate stream one derived element ([§Gzipped files](#gzipped-files))
 with the revisions of [conventions §8.8](../../spec/conventions.md#88-canonical-form) and
-`Transform` it needs, the codec contract below, and the test helpers. It also adds to
+`Transform` it needs, the codec contract below, a JPEG segment scanner that finds a stream's JFIF
+or Adobe segment for the parsers that declare one, and the test helpers. It also adds to
 [§7](../../spec/stored-array.md#7-the-formats) one heading per format, in the order of [§The
 formats](#the-formats), each holding a line that the format is not described yet, so that each
 format PR fills its own heading and none appends to the end of the file; and it rewords
@@ -136,8 +138,9 @@ stream codes more than one component (or, for `webp`, where the samples axis has
 alpha the stream may leave out); leading axes of 1 (a frame's, a level's) are not the frame's.
 Decoding a unit whose stream does not match its codec's entry or the unit's shape (a paletted PNG
 under `png`, a frame whose blocks do not cover the unit's shape, another number of components than
-the samples axis) is an error, never a different result, so that a file the parser sampled only in
-part cannot be decoded silently into other bytes.
+the samples axis, samples of another size than `item_bits`, a JFIF or Adobe segment other than the
+one `jpeg`'s `markers` names) is an error, never a different result, so that a file the parser
+sampled only in part cannot be decoded silently into other bytes.
 
 [§3.1](../../spec/stored-array.md#31-chains)'s sentence "a codec sees only a unit's bytes and
 parameters, never its coordinates, so a parameter that depends on the unit's position is a column
@@ -167,17 +170,18 @@ the IR holds no default the source does not write
 
 ### Codec-made elements
 
-A codec that makes elements rather than restoring stored bytes (the image codecs, GRIB's
-unpacking, DICOM's RLE) states them in its entry. The image codecs make the samples their stream
-declares, little-endian: an integer stream's in the smallest of 8, 16 or 32 bits that holds its
-precision, a float stream's at its own width; interleaved, the components on the last axis, in
-their coded order, whatever the stream's or the format's planar setting; with every component at
-full resolution. A transform that is part of the codec's coding is undone (JPEG 2000's multiple
-component transform, JPEG-LS's color transform, JPEG XR's internal color formats, WebP's YUV, JPEG
-XL's XYB, each to the components its stream declares); a colorspace a 10918-1 stream only signals
-stays (its YCbCr, under JFIF or an Adobe marker). Upsampling and the decoders' own orders are
-fixed as the decoders the checkers use (imagecodecs, and Pillow for pydicom's JPEG) make them,
-since other decoders differ and the checks compare bytes:
+A codec that makes elements rather than restoring stored bytes (the image codecs, GRIB's unpacking,
+DICOM's RLE) states them in its entry. The image codecs make the samples their stream declares,
+little-endian: an integer stream's in the smallest of 8, 16 or 32 bits that holds its precision (a
+precision above 32 bits, which JPEG 2000 allows, gives the array no grid), a float stream's at its
+own width; interleaved, the components on the last axis, in their coded order, whatever the stream's
+or the format's planar setting; with every component at full resolution. A transform that is part of
+the codec's coding is undone (JPEG 2000's multiple component transform, JPEG-LS's color transform,
+JPEG XR's internal color formats, WebP's YUV, JPEG XL's XYB, each to the components its stream
+declares); a colorspace a 10918-1 stream only signals stays (its YCbCr, under JFIF or an Adobe
+marker). Upsampling and the decoders' own orders are fixed as the decoders the checkers use
+(imagecodecs, and Pillow for pydicom's JPEG) make them, since other decoders differ and the checks
+compare bytes:
 - a 10918-1 stream's subsampled components are upsampled by libjpeg's "fancy" filters (h2v1,
   h2v2 and h1v2) after the integer IDCT (JDCT_ISLOW), as libjpeg-turbo 2.0 and later do by default,
   which the checkers need;
@@ -217,7 +221,9 @@ A decoder that does otherwise makes other bytes. The array's `item_bits` is the 
 the precision the source declares (BitsPerSample 12) is a declaration. A profile converts colors
 from the declarations (TIFF's Photometric) when it presents them; where the format declares no
 color space (CZI's and VSI's JPEG tiles), the parser names the array's first unit's JFIF or Adobe
-segment as a declaration, a range of that unit, which is what the profile reads.
+segment as a declaration, a range of that unit, which is what the profile reads; the array's `jpeg`
+names it as `markers`, so that a later unit whose segment differs fails to decode rather than
+showing other colors.
 
 An image codec decodes its frame at the unit's shape. The format sets its grid so that the unit's
 shape is the frame's: a TIFF whose last JPEG strip holds a frame of the full RowsPerStrip has the
@@ -233,8 +239,8 @@ decoding is always at the unit's shape, and reads the rows its data holds.
 first: bit k of the unit is bit k mod 8, counted from the least significant, of byte ⌊k/8⌋, and an
 item's first bit is its least significant. Decoding packs them most significant bit first, as
 [§3.1](../../spec/stored-array.md#31-chains) packs elements, and a given fill packs as decoded.
-Where `bits` does not divide 8 and the array has `pad_from`, its padding falls inside an item, and
-the array's chain is `source` instead. `lsb_first(1)` reverses each byte's bits, so it would also
+Under `pad_from`, a row's padding follows its last item to the next byte, and the codec, given
+`pad_from`, keeps it there. `lsb_first(1)` reverses each byte's bits, so it would also
 be TIFF's FillOrder 2, which TIFF refuses today for the compressions libtiff reverses; the note's
 `bit_reverse` is not added. DICOM's 1-bit data, MRC's mode 101 and safetensors' F4 and F6 use it.
 
@@ -363,7 +369,7 @@ container); step 0 adds that to [§3.2](../../spec/stored-array.md#32-the-list)'
 
 | Codec | Takes | Parameters | Used by |
 | --- | --- | --- | --- |
-| `jpeg` | an ISO 10918-1 stream, any process | `tables` (optional; an abbreviated table stream, TIFF's tag 347): `place`; `header` (optional; the stream up to its first scan, the unit being one restart interval's entropy-coded segment, its RSTn marker excluded, decoded as after a restart; NDPI): `place` | TIFF, NDPI, VSI, DICOM, CZI |
+| `jpeg` | an ISO 10918-1 stream, any process | `tables` (optional; an abbreviated table stream, TIFF's tag 347): `place`; `markers` (optional; the JFIF or Adobe segment the array declares, which every unit's must equal; CZI, VSI): `place`; `header` (optional; the stream up to its first scan, the unit being one restart interval's entropy-coded segment, its RSTn marker excluded, decoded as after a restart; NDPI): `place` | TIFF, NDPI, VSI, DICOM, CZI |
 | `jpegls` | an ISO 14495-1 stream | | DICOM |
 | `jpeg2k` | an ISO 15444-1 codestream (15444-15's high throughput included), not a JP2 file | `main_header` (optional; the unit is then one tile's tile-parts, with their SOT): `place` | TIFF, VSI, DICOM, SAFE |
 | `jpegxr` | a JPEG XR file in its T.832 container (starting `II BC 01`); decoding makes the samples in its pixel format's order | | NDPI, CZI |
@@ -397,8 +403,9 @@ container); step 0 adds that to [§3.2](../../spec/stored-array.md#32-the-list)'
   [conventions §12](../../spec/conventions.md#12-grib-messages) gives them, like a masked point's,
   is the plan's output.
 
-`source` stays the fallback: old-style JPEG, and a compression, filter or packing refkv has no name
-for, with the source's number for it.
+`source` stays the fallback: old-style JPEG, and a compression or filter refkv has no name for,
+with the source's number for it (a GRIB packing refkv does not unpack has no grid instead, its
+elements' size unknown).
 
 ## The formats
 
@@ -620,9 +627,9 @@ Small-medium.
 Small-medium.
 - **Arrays.** Keyed by `header`, each tensor's index its position in the header. F4 is 4 bits in
   `[lsb_first(4)]`; F6_E2M3 and F6_E3M2 are 6 bits in `[lsb_first(6)]`.
-- **Checker.** `safetensors.deserialize` for each row's bytes; ml_dtypes' `float4_e2m1fn` for F4's
-  values. Nothing independent unpacks F6, whose test rests on
-  [safetensors.md](../../spec/zarrify/safetensors.md) alone.
+- **Checker.** `safetensors.deserialize` for each row's bytes; ml_dtypes' `float4_e2m1fn`,
+  `float6_e2m3fn` and `float6_e3m2fn` for the values; the packing order of F4 and F6 rests on
+  [safetensors.md](../../spec/zarrify/safetensors.md).
 
 ### DICOM
 
@@ -649,12 +656,13 @@ Medium.
 - **Codecs.** `jpeg`, `jpegls`, `jpeg2k`, `dicom_rle`, and `lsb_first(1)` for 1-bit data.
 - **Checker.** pydicom: `generate_frames` for encapsulated rows' bytes and Pixel Data's offsets for
   native ones; `pixel_array` (or `iter_pixels`) with `raw=True` for the decoding; a JPEG 2000 frame
-  whose components are sampled differently makes its array have no grid (step 0).
-  The PR adds pylibjpeg with its libjpeg and openjpeg plugins and pyjpegls to the dev group, since
-  pydicom has no decoder installed for the corpus's lossless JPEG, JPEG-LS and HTJ2K files. pydicom
-  would then decode baseline and extended JPEG with pylibjpeg's libjpeg, another codebase with its
-  own upsampler, so the test passes its Pillow plugin for those (`decoding_plugin="pillow"`), which
-  decodes with libjpeg-turbo as imagecodecs does.
+  whose components are sampled differently makes its array have no grid (step 0). The PR adds
+  pylibjpeg with its libjpeg and openjpeg plugins and pyjpegls to the dev group, since pydicom has
+  no decoder installed for the corpus's lossless JPEG, JPEG-LS and HTJ2K files. pydicom would then
+  decode baseline and extended JPEG with pylibjpeg's libjpeg, another codebase with its own
+  upsampler, so the test passes its Pillow plugin for those (`decoding_plugin="pillow"`), which
+  decodes with libjpeg-turbo as imagecodecs does, except a stream with an Adobe marker of transform
+  1 or 2, which that path converts to RGB, checked by the helper alone.
 
 ### CZI
 

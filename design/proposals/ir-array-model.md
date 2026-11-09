@@ -670,7 +670,7 @@ one array is stored. This changes two things in profile-plugins:
    Only NumPy emits descriptions yet, and no output changes.
 2. **Each format, a describe-only PR and then the build tools' two.** The describe-only PR describes
    the format's arrays and tests the description against the format's reference reader, with no
-   output changed, its codecs coming from one shared list; it may land before the plan's machine
+   output changed but the mirror changes it names, its codecs coming from one shared list; it may land before the plan's machine
    ([ir-format-descriptions.md](ir-format-descriptions.md)). It gives unreachable declarations a
    place (NumPy's deflated `.npz` headers; NIfTI's gzipped header), lists in its format's document
    what each of its `declarations` places is, and takes the extra work below that a description
