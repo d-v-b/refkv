@@ -389,7 +389,9 @@ LZF has no header at all.
 gives:
 - its parameters, and which of them may be unit columns;
 - what its decoding makes;
-- for a parameter made from a `Source`, how it is made from those bytes.
+- for a parameter made from a `Source`, how it is made from those bytes (which
+  [ir-format-descriptions.md](ir-format-descriptions.md#parameters-the-source-gives-once) moves to
+  the format's document).
 
 Step 1 lists the codecs NumPy needs (none, once a deflated member's data is an element in its
 derived space). [ir-format-descriptions.md](ir-format-descriptions.md#codecs) settles the list,

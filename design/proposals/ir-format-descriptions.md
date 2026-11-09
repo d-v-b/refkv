@@ -533,7 +533,10 @@ Medium.
   native ones; `pixel_array` (or `iter_pixels`) with `raw=True` for the decoding, but imagecodecs
   for a JPEG 2000 frame with subsampled chroma, which pydicom's decoders upsample otherwise. The PR
   adds pylibjpeg with its libjpeg and openjpeg plugins and pyjpegls to the dev group, since pydicom
-  has no decoder installed for the corpus's lossless JPEG, JPEG-LS and HTJ2K files.
+  has no decoder installed for the corpus's lossless JPEG, JPEG-LS and HTJ2K files. pydicom would
+  then decode baseline and extended JPEG with pylibjpeg's libjpeg, another codebase with its own
+  upsampler, so the test passes its Pillow plugin for those (`decoding_plugin="pillow"`), which
+  decodes with libjpeg-turbo as imagecodecs does.
 
 ### CZI
 
