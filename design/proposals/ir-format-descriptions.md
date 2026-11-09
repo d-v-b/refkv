@@ -97,8 +97,9 @@ NRRD, safetensors, DICOM, CZI, ND2, LIF with XLEF, SAFE, and NumPy's deflated `.
    an HDF5 array type) stays one element of its size.
 5. **Declarations are listed** in the format's document, place by place, so that a profile knows
    what each is. A declaration the parser keeps only in facts today gets a place in the same PR.
-6. **Codecs come from the list** that step 0 lands ([§Codecs](#codecs)). A format PR that finds an
-   entry, or any of step 0's shared code (the checks in `array.rs`, the function that names a unit's
+6. **Codecs come from the list** ([§Codecs](#codecs)), each entry landing with its first user
+   ([§The codec list](#the-codec-list)). A format PR that finds an entry already landed, or any of
+   step 0's shared code (the checks in `array.rs`, the function that names a unit's
    bytes, the record of unfolded runs, the `gz.rs` helper, the JPEG segment scanner, the JPEG 2000
    SIZ reader, `jpegxr_header`, the frame-fit function, the test helper's shared decoders), wrong
    fixes it in a small PR of its own, which the format PR follows.
@@ -569,9 +570,9 @@ it uses, and edits no shared file. How the helper decodes where imagecodecs lack
 
 ### The codec list
 
-Step 0 adds every entry of [§Codecs](#codecs) to [§3.2](../../spec/stored-array.md#32-the-list)
-and to the IR's list in `array.rs`, so that no two format PRs write the same entry and the format
-PRs merge in any order. `array.rs`'s `ParamEntry` gains each parameter's kinds (a value of a JSON
+Each entry of [§Codecs](#codecs) joins [§3.2](../../spec/stored-array.md#32-the-list) and the
+IR's list in `array.rs` in the first format PR that uses it. Where two format PRs open at once
+need the same new entry, a small PR of its own adds it, and both follow that PR. `array.rs`'s `ParamEntry` gains each parameter's kinds (a value of a JSON
 type, a place, a column of an Arrow type) and whether it is required. The chain check tests each
 `Param::Value` against its type; `StoredArray::check` tests that each required parameter of a
 chain's codec is given in the codec or listed among the description's unit parameters for that
@@ -1120,9 +1121,9 @@ at a time, the hard ones first, and the specification is written from what the c
 
 A format PR is done when every array of every fixture decodes through its description to what the
 reference reader reads. It carries one test that does that comparison over the corpus and asserts
-which cases the corpus reached, one test for each fallback, and the format's paragraph of
-[§7](../../spec/stored-array.md#7-the-formats). It gets one independent review. It does not wait
-for this document to agree with it.
+which cases the corpus reached, one test for each refusal and each fallback (rule 7), and the
+format's paragraph of [§7](../../spec/stored-array.md#7-the-formats). It gets one independent
+review. It does not wait for this document to agree with it.
 
 [Step 0](#step-0-the-shared-rules) is not a PR of its own. Each shared rule lands in the first
 format PR that needs it, so no rule is written before something uses it. The fallback at the
