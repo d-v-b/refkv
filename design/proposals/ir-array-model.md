@@ -317,8 +317,8 @@ Further rules for the map:
   fall back follows, in a file IR, from the source alone, and in a store from its files in graft
   order. A chain no description names after the fit is dropped from the table, keeping the
   others' order, and positions are renumbered. A fallback does not stop the run. The descriptions'
-  limit, checked after the fit, makes arrays fall back the same way, and refuses the run only where
-  even the fallen-back descriptions pass it
+  limit, checked after the fit, makes arrays fall back the same way, and where even the fallen-back
+  descriptions pass it, the source keeps no descriptions rather than being refused
   ([ir-format-descriptions.md](ir-format-descriptions.md#the-descriptions-limit-falls-back-too)). An array's rows are never cut short, which a profile would read as units the
   source does not hold.
 
@@ -478,7 +478,7 @@ configuration is rather than copying it. Examples:
 - HDF5's fill value message, as `Fill::Given`.
 
 The parser today reads only the fill value message (0x05), and folds an undefined fill, a default
-one and an absent message into one "none". HDF5's describe-only PR tells the states apart, and reads the old fill
+one and an absent message into one "none". HDF5's describe-only PR tells the states apart for its description alone, and reads the old fill
 value message (0x04) where the new one is absent, as the HDF5 library does.
 
 ### Checked
@@ -571,8 +571,8 @@ share, and the map. They are not in the facts. So:
   - the descriptions, at 2^22 entries once, plus 4 and one per 4 bytes for each object (in a file
     IR, the source). An array that would pass it falls back as at the map's limit
     ([ir-format-descriptions.md](ir-format-descriptions.md#the-descriptions-limit-falls-back-too)),
-    but no source is promised to fit: a rank-32 HDF5 dataset whose header shares its messages can
-    pass it even so, and is refused;
+    and no source is promised to fit: a rank-32 HDF5 dataset whose header shares its messages can
+    pass it even so, and its source then keeps no descriptions;
   - the chunk map, at 2^22 entries once, plus 4 and four per byte for each object. Each row,
     each of its coordinates, each item of its `ranges` and each parameter value it sets is an
     entry; a row's `range` is part of the row.
@@ -642,8 +642,8 @@ be read as a source.
   change, and a chain no remaining description names is not carried;
 - last, inside `Ir::graft` and before anything is added, the descriptions' limit is checked, as
   the IR's room is today, the file's arrays falling back as they do at describe. A graft never fails
-  on the map's limit; on the room, or the descriptions' limit after falling back, it fails, adding
-  nothing. The store's `check::finish` later runs only `StoredArray::check`
+  on the map's limit, and where the file's fallen-back descriptions still pass the descriptions'
+  limit, its arrays join the store undescribed; on the room it fails, adding nothing. The store's `check::finish` later runs only `StoredArray::check`
   and the map's check.
 
 `placed()` does the same renumbering for HDF5's store facts today.

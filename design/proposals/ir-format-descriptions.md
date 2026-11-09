@@ -136,9 +136,10 @@ format PR fills its own heading and none appends to the end of the file; and it 
 [§1](../../spec/stored-array.md#1-stored-arrays)'s "Today only the NumPy profile describes its
 arrays" to point at [§7](../../spec/stored-array.md#7-the-formats)'s headings, which no format PR
 then edits, and scopes [§1](../../spec/stored-array.md#1-stored-arrays)'s "Every array a parser
-reaches has a description" to the formats with a heading in [§7](../../spec/stored-array.md#7-the-formats), naming the exceptions: the store profiles, whose array documents stand in; coded streams,
-which wait for a description of their own; and DICOM series, whose description comes with
-profile-plugins' step 4.
+reaches has a description" to the formats with a heading in
+[§7](../../spec/stored-array.md#7-the-formats), naming the exceptions: the store profiles, whose
+array documents stand in; coded streams, which wait for a description of their own; and DICOM
+series, whose description comes with profile-plugins' step 4.
 
 ### A codec sees the unit's shape
 
@@ -239,36 +240,37 @@ A decoder that does otherwise makes other bytes. The array's `item_bits` is the 
 the precision the source declares (BitsPerSample 12) is a declaration. A profile converts colors
 from the declarations when it presents them. For every array in `jpeg`, the parser names the array's
 first unit's JFIF and Adobe segments (one, both, or none) and its frame header (SOF), whose
-component ids say RGB or YCbCr where no marker does, as declarations, ranges of that unit, by step
-0's segment scanner, beside the format's own color space where it declares one (TIFF's Photometric,
-DICOM's Photometric Interpretation), so that a profile sees where they disagree; where the format
-declares none refkv can read (CZI's JPEG tiles; VSI's, whose ETS `colorspace` field is a declaration
-of unknown meaning), they are what the profile reads. An array of more than one unit whose format
-declares no color space (VSI's) also gives its `jpeg` those places as `jfif` and `adobe` (each
-absent where the first unit has none) and its SOF's component ids as `components`, with
-`check_markers` true, so that a later unit whose segments or component ids differ fails to decode
-rather than showing other colors; a CZI subblock, one unit, needs no such check, and its chain stays
-shared by every subblock of its encoding. In the same way, where an image codec's stream itself says
-its samples' sign (JPEG 2000's SIZ), the parser names the first unit's such header as a declaration,
-beside the format's own (TIFF's SampleFormat, DICOM's Pixel Representation), so that a profile sees
-where they disagree.
+component ids say RGB or YCbCr where no marker does, as declarations, ranges of the stream the first
+unit decodes from (the unit itself, or its `header` or `tables` place where the segment sits there),
+by step 0's segment scanner, beside the format's own color space where it declares one (TIFF's
+Photometric, DICOM's Photometric Interpretation), so that a profile sees where they disagree; where
+the format declares none refkv can read (CZI's JPEG tiles; VSI's, whose ETS `colorspace` field is a
+declaration of unknown meaning), they are what the profile reads. An array of more than one unit
+whose format declares no color space (VSI's) also gives its `jpeg` those places as `jfif` and
+`adobe` (each absent where the first unit has none) and its SOF's component ids as `components`,
+with `check_markers` true, so that a later unit whose segments or component ids differ fails to
+decode rather than showing other colors; a CZI subblock, one unit, needs no such check, and its
+chain stays shared by every subblock of its encoding. In the same way, where an image codec's stream
+itself says its samples' sign (JPEG 2000's SIZ), the parser names the first unit's such header as a
+declaration, beside the format's own (TIFF's SampleFormat, DICOM's Pixel Representation), so that a
+profile sees where they disagree.
 
 An image codec decodes its frame at the unit's shape. The format sets its grid so that the unit's
 shape is the frame's: a TIFF whose last JPEG strip holds a frame of the full RowsPerStrip has the
 edge `full`, which the parser learns by reading that strip's SOF, the other strips following the
 tags; a frame that differs from them is caught by the checker, not the parser. A frame matches the
 unit where its header declares exactly the unit's size; a baseline frame whose every scan is
-interleaved, or which has one component, may also declare fewer rows or columns within the same
-MCU rows and columns (NDPI's frame a row short), decoding at the unit's shape reading the rows its
-data holds. These rules are for a stream's own SOF; under `jpeg`'s `header`, whose SOF declares the
-whole strip and not the restart interval that is the unit, the unit's shape takes the place of the
-header's size, once the header is checked to be baseline with one interleaved scan whose MCU and
-restart interval give the unit's shape. Any other frame
-(one that declares more, which would be cropped, or a progressive or non-interleaved one of another
-size, whose scans' block counts follow the declared size) is a decoding error. A parser that reads
-the frame's size (NDPI, TIFF's last strip, VSI's first tile) takes the frame's size for the unit
-where it is the larger, the format's own size then a declaration; CZI takes the frame's size whether
-larger or smaller, as its document says.
+interleaved, or which has one component at 1×1 sampling (whose MCU is then one 8×8 block), may also
+declare fewer rows or columns within the same MCU rows and columns (NDPI's frame a row short),
+decoding at the unit's shape reading the rows its data holds. These rules are for a stream's own
+SOF; under `jpeg`'s `header`, whose SOF declares the whole strip and not the restart interval that
+is the unit, the unit's shape takes the place of the header's size, once the header is checked to be
+baseline with one interleaved scan whose MCU and restart interval give the unit's shape. Any other
+frame (one that declares more, which would be cropped, or a progressive or non-interleaved one of
+another size, whose scans' block counts follow the declared size) is a decoding error. A parser that
+reads the frame's size (NDPI, TIFF's last strip, VSI's first tile) takes the frame's size for the
+unit where it is the larger, the format's own size then a declaration; CZI takes the frame's size
+whether larger or smaller, as its document says.
 
 ### `lsb_first`
 
@@ -352,9 +354,10 @@ it uses, and edits no shared file. How the helper decodes where imagecodecs lack
   arithmetic of [conventions §12](../../spec/conventions.md#12-grib-messages));
 - `jpeg`: the stream's SOF read first and compared with the unit, raising where the frame does not
   match it as step 0 says; the SOF set to the unit's shape only in the case that allows a smaller
-  frame (a baseline frame, interleaved or of one component, fewer rows or columns within the same
-  MCU rows and columns), so that it decodes at the unit; with `header`, the header checked as step 0
-  says and its SOF's size set to the unit's, the interval and an EOI spliced into one stream;
+  frame (a baseline frame, interleaved or of one component at 1×1 sampling, fewer rows or columns
+  within the same MCU rows and columns), so that it decodes at the unit; with `header`, the header
+  checked as step 0 says and its SOF's size set to the unit's, the interval and an EOI spliced into
+  one stream;
 - `jpeg2k` with `main_header`: the main header, the tile-parts and an EOC spliced, decoded by
   OpenJPEG through imagecodecs, and the tile cropped from the image.
 
@@ -374,16 +377,18 @@ as a place, its bytes being the format's to read.
 An array whose description would pass the descriptions' limit falls back as one does at the map's
 limit: it loses its chains, unit parameters and grid, keeping the rest (its key, shape, `axes`,
 `item_bits`, `pad_from`, fill and declarations), and later arrays are still tried; only a
-description that cannot fit even so refuses the run, which a graft does the same way. It takes two
-passes, after the map's fit. First every array is charged its fallen-back cost, and only where that
-total passes the limit is the run refused. Then, in `Ir::arrays` order, each array keeps its full
-description (its chains, unit parameters and grid, and the chains it is the first remaining
+description that cannot fit even so is not kept. It takes two passes, after the map's fit. First
+every array is charged its fallen-back cost; where that total passes the limit, the source keeps no
+descriptions at all, as every format's source does today, rather than being refused, and a graft
+adds such a file's arrays to the store undescribed. Then, in `Ir::arrays` order, each array keeps
+its full description (its chains, unit parameters and grid, and the chains it is the first remaining
 description to name) while the remainder allows, and falls back otherwise; an array that fell back
 at the map's limit stays fallen back; a fallen-back array's rows, columns and chains are dropped and
 the chain table pruned again, so a later array that names a chain it shared pays for it. So a source
 such as a GRIB file of many small fields over a shared section 3 is not refused for its
-descriptions; one whose fallen-back descriptions still pass the limit (HDF5 headers sharing rank-32
-dataspaces) still is, and rule 8's PRs name the arrays that fall back.
+descriptions, nor is one whose fallen-back descriptions still pass the limit (HDF5 headers sharing
+rank-32 dataspaces), which keeps none; rule 8's PRs name the arrays that fall back and any source
+that keeps no descriptions.
 
 ## Codecs
 
@@ -523,9 +528,9 @@ Medium, after TIFF.
 - **Units.** With McuStarts, each restart interval is a unit, a range of the strip element, on
   `[Each(mh), Each(R·mw), Each(3)]`, `full`, as tifffile reads NDPI, in `[jpeg(header)]`. Without
   them, the strip, in `[jpeg]`, where its frame covers the IFD's MCU rows and columns within 65535
-  (the parser's `Frame::covers`) and the strip is one interleaved scan or of one component; an
-  image whose frame does not has no grid. McuStarts whose count
-  does not match the grid are refused, as today.
+  (the parser's `Frame::covers`) and the strip is one interleaved scan or of one component at 1×1
+  sampling; an image whose frame does not has no grid. McuStarts whose count does not match the grid
+  are refused, as today.
 - **JPEG XR IFDs** take `item_bits` and samples from the first stream's PixelFormat, whose range is
   a declaration. A macro or map IFD whose stream the parser does not read has no grid.
 - **Checker.** tifffile, comparing McuStarts by hand: tifffile reads them only with tag 271, which
@@ -577,7 +582,9 @@ Large (about 2,500 lines), from the spike's branch, about 70% of which carries o
   document says how to read; the spike's second filter parser folded into `parse_filters`; an
   implicit index whose chunk is its element's whole extent names the element alone.
 - **The note's duties** ([ir-array-model.md](ir-array-model.md#order-of-work)): the fill value's
-  states kept in `Dataset`; a shared fill message resolved through the shared-message heap; a
+  states kept in a field only the description reads, `Dataset`'s fill and the output's
+  `fill_value` unchanged until HDF5's plan PR; a shared fill message resolved through the
+  shared-message heap, likewise for the description alone; a
   wrong-sized fill tested against the library, falling back to `undefined` with the message among
   the declarations; chunks compared with `get_chunk_info_by_coord`; listing stopped once an array's
   units alone pass the map's limit.
