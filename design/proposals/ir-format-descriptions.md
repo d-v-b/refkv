@@ -100,11 +100,15 @@ NRRD, safetensors, DICOM, CZI, ND2, LIF with XLEF, SAFE, and NumPy's deflated `.
    declaring structure gives the extents: a declared sequence (NumPy's shape, NIfTI's `dim`, NRRD's
    `sizes`, FITS's NAXISn, LIF's dimensions) in its order, and separate fields in the order the
    header gives them (TIFF's ImageWidth before ImageLength, SIZ's Xsiz before Ysiz, MRC's nx, ny,
-   nz, GRIB's Ni before Nj, DICOM's Rows before Columns). `axes` reversed, here as in NumPy's, means
-   for two or more axes, and covers the axes the source lists; a samples or channel axis the source
-   does not list takes the next position, n, in that list (its `axes` entry), and sits in `shape`
-   where its layout puts it in storage order (last when interleaved, before the rows when planar,
-   between others as LIF's channel offsets put it).
+   nz, GRIB's Ni before Nj, DICOM's Rows before Columns). A count field (SamplesPerPixel, Samples
+   per Pixel, Number of Frames, Csiz, VSI's `channels`, a frame count) is never in the list: the
+   axes such counts add take the positions after the listed extents, frames first, then samples or
+   channels, and sit in `shape` where their layout puts them in storage order (a frame axis first; a
+   samples axis last when interleaved, before the rows when planar, between others as LIF's channel
+   offsets put it). So DICOM's `[N, Rows, Cols, S]` has `axes` `[2, 0, 1, 3]`. `axes` reversed, here
+   as in NumPy's, means for two or more axes, and covers the axes the source lists. Step 0 writes
+   this definition into [§2](../../spec/stored-array.md#2-the-description)'s `axes` row, so that
+   every format and every profile reads `axes` one way.
 
 ## Step 0: the shared rules
 
@@ -112,7 +116,7 @@ One PR before the formats, changing spec/stored-array.md, the IR's codec list an
 function that names a unit's bytes with `check::finish`'s record of unfolded runs, the `gz.rs`
 helper that gives a gzip or deflate stream one derived element ([§Gzipped files](#gzipped-files))
 with the revisions of [conventions §8.8](../../spec/conventions.md#88-canonical-form) and
-`Transform` it needs, and the test helpers. It also adds to
+`Transform` it needs, the codec contract below, and the test helpers. It also adds to
 [§7](../../spec/stored-array.md#7-the-formats) one heading per format, in the order of [§The
 formats](#the-formats), each holding a line that the format is not described yet, so that each
 format PR fills its own heading and none appends to the end of the file; and it rewords
@@ -129,7 +133,10 @@ first, whose decoding makes bytes of another width (FITS's Rice), has that width
 its own. A codec still never sees the unit's coordinates. An image codec's frame is the unit
 shape's last two axes, or the two before the last where the last is a samples axis, which it is
 exactly where the stream codes more than one component (or, for `webp`, where `alpha` adds one);
-leading axes of 1 (a frame's, a level's) are not the frame's.
+leading axes of 1 (a frame's, a level's) are not the frame's. Decoding a unit whose stream does
+not match its codec's entry or the unit's shape (a paletted PNG under `png`, a frame of another
+size, another number of components than the samples axis) is an error, never a different result,
+so that a file the parser sampled only in part cannot be decoded silently into other bytes.
 
 [§3.1](../../spec/stored-array.md#31-chains)'s sentence "a parameter that depends on the unit's
 position is a column its parser computes" becomes: a parameter that depends on the unit's
@@ -171,10 +178,11 @@ since other decoders differ and the checks compare bytes:
 - a 10918-1 stream's subsampled components are upsampled by libjpeg's "fancy" filters (h2v1,
   h2v2 and h1v2) after the integer IDCT (JDCT_ISLOW), as libjpeg-turbo 2.0 and later do by default,
   which the checkers need;
-- BMP and JPEG XR make their samples in the order the stream stores or declares them (BMP's B, G,
-  R; a JPEG XR BGR pixel format's B, G, R), the helper reversing imagecodecs' R, G, B; BMP's rows
-  top first; a 32-bit BMP keeps its fourth sample where its alpha mask is set and drops the unused
-  byte where it is not.
+- BMP and JPEG XR make their samples in the order the stream stores or declares them (BMP's B, G, R;
+  a JPEG XR BGR pixel format's B, G, R), the helper reversing imagecodecs' R, G, B; BMP's rows top
+  first, since each BMP's own header says whether it is stored bottom up, a flag no place a profile
+  reads holds, so the codec fixes one order; a 32-bit BMP keeps its fourth sample where its alpha
+  mask is set and drops the unused byte where it is not.
 
 A paletted PNG or BMP tile carries its palette (PNG's PLTE, BMP's color table) in its own bytes,
 where no place names it and tiles may differ, so its array's chain is `source` (the general
@@ -464,12 +472,11 @@ Large (about 2,500 lines), from the spike's branch, about 70% of which carries o
 - **Arrays.** Every visited object with a layout message, keyed by its `objects/<i>` struct, and
   each attribute, keyed by its own attribute message's element: one unit, its value's element, in an
   empty chain. A chunked dataset's grid is `Each(chunk)` under `full`, one row per index entry, its
-  chain the filter pipeline; a chunk's `skips` are its filter mask's bits, and every filter for a
-  partial edge chunk where the layout message's don't-filter-partial-chunks flag is set, which HDF5
-  records there and not in the chunk's mask (the doc comment at `rust/refkv-ir/src/hdf5/mod.rs:1843`
-  says otherwise, though the code beside it, `raw_edges`, already reads the flag; the PR corrects
-  the comment and adds a crafted fixture written under `H5Pset_chunk_opts` through ctypes); a
-  compact or contiguous one is one unit.
+  chain the filter pipeline; a chunk's `skips` are the mask the parser's `chunks()` returns, which
+  is the chunk's own filter mask, with every filter's bit set for a partial edge chunk where the
+  layout message's don't-filter-partial-chunks flag is set (`raw_edges`, since HDF5 records that
+  in the layout and not in the chunk's mask); the PR adds a crafted fixture written under
+  `H5Pset_chunk_opts` through ctypes. A compact or contiguous dataset is one unit.
 - **Spike rework.** `shape: None` for the null dataspace; the codec names above; `source` with the
   filter's name; filter configuration as places in the filter message's client data, which HDF5's
   document says how to read; the spike's second filter parser folded into `parse_filters`; an
@@ -480,10 +487,9 @@ Large (about 2,500 lines), from the spike's branch, about 70% of which carries o
   the declarations; chunks compared with `get_chunk_info_by_coord`; listing stopped once an array's
   units alone pass the map's limit.
 - **Crafted fixtures** for undefined, shared, old-style (message 0x04) and wrong-sized fills, and
-  the bzip2, szip and N-bit filters. N-bit packs only reduced-precision types, which HDF5 2.0
-  refuses to create unless the file access property list relaxes its integrity checks
-  (`H5Pset_relax_file_integrity_checks`, which h5py does not bind, called through ctypes on h5py's
-  own libhdf5); the fixture generator and the helper's scratch file both set it.
+  the bzip2, szip and N-bit filters. N-bit packs reduced-precision types; HDF5 2.0 refuses only
+  those with unusually many unused bits, so the fixture uses a usual one (12 of 16 bits) and needs
+  no relaxed integrity checks.
 - **IMS** reads through HDF5 and comes with this PR: its stored shape is the padded dataspace.
 - **Checker.** h5py.
 
@@ -550,12 +556,13 @@ with `header` and the voxels in its derived space, as
 [ir-array-model.md](ir-array-model.md#what-an-array-is) planned and as a `.fits.gz` already has.
 Validating the mirror's view of the header re-derives the stream, while the parser reads only its
 start. Validation re-derives a space with `Transform::rederive`, which decodes the whole stream, and
-[conventions §8.8](../../spec/conventions.md#88-canonical-form) allows `deflate` no shown values,
-so step 0 revises both: a gunzip re-derivation that validates only the prefix the parser read, and a
-`deflate` space that may hold shown values. The format PRs then only call the helper, and each names
-the mirror's changed forms. The same helper serves NumPy's deflated `.npz` members, whose `header`
-and `data` become children of their derived space in a small PR of their own after step 0, which
-NumPy's plan PR then follows.
+[conventions §8.8](../../spec/conventions.md#88-canonical-form) allows `deflate` no shown values, so
+step 0 revises both: a gunzip form gains an optional prefix length, the whole stream when absent (as
+a `.fits.gz`'s stays), so that re-derivation validates only the prefix the parser read, and a
+`deflate` space may hold shown values. The format PRs then only call the helper, and each names the
+mirror's changed forms. The same helper serves NumPy's deflated `.npz` members, whose `header` and
+`data` become children of their derived space in a small PR of their own after step 0, which NumPy's
+plan PR then follows.
 
 ### NIfTI
 
