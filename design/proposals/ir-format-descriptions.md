@@ -3,6 +3,11 @@
 Status: proposed. Follows [ir-array-model.md](ir-array-model.md), whose step 1 (the type, and
 NumPy's descriptions) has landed.
 
+This document is a plan, not a specification. What it says of a format's bytes is a starting
+point for that format's PR, which is checked against the format's reference reader; where the two
+differ, the PR's paragraph of [§7](../../spec/stored-array.md#7-the-formats) is right and this
+document is not revised to match ([§Order of work](#order-of-work)).
+
 ## The change
 
 Every format whose parser reaches arrays describes them on the stored-array type
@@ -129,7 +134,8 @@ NRRD, safetensors, DICOM, CZI, ND2, LIF with XLEF, SAFE, and NumPy's deflated `.
 
 ## Step 0: the shared rules
 
-One PR before the formats. Its code:
+The rules the formats share, each landing with the first format PR that needs it ([§Order of
+work](#order-of-work)). Their code:
 - the IR's codec list and its checks ([§The codec list](#the-codec-list));
 - the function that names a unit's bytes, with `check::finish`'s record of unfolded runs ([§Naming a
   unit's bytes](#naming-a-units-bytes));
@@ -180,7 +186,7 @@ One PR before the formats. Its code:
   re-deriving a gzipped space inflating the whole stream whatever its prefix length, so that no
   format's test writes them.
 
-Its spec edits, each to a sentence the plan would otherwise contradict:
+Their spec edits, each to a sentence the plan would otherwise contradict:
 - **The opening paragraph and [§1](../../spec/stored-array.md#1-stored-arrays).** "where the source
   declares what its elements are" widens as the `declarations` row does (below). "Today only the
   NumPy profile describes its arrays" points at [§7](../../spec/stored-array.md#7-the-formats)'s
@@ -1102,10 +1108,25 @@ Medium.
 
 ## Order of work
 
-1. **Step 0.**
-2. **The formats**, each its own PR to main, in any order but for TIFF before NDPI and VSI. Each
-   touches its own parser, its own paragraph of [§7](../../spec/stored-array.md#7-the-formats) and
-   its document, so they run side by side, three or four at a time.
+A statement about a format's bytes cannot be checked by reading it, only by decoding fixtures
+through the description and comparing with a reference reader. So the formats are implemented one
+at a time, the hard ones first, and the specification is written from what the code does:
+
+1. **HDF5, with NWB and IMS**, against h5py. It has the most kinds of storage (chunk indexes,
+   filters, external files, fill values) and so tests the type hardest.
+2. **TIFF, with QPTIFF**, against tifffile; then NDPI and VSI, which build on it.
+3. **The rest**, each its own PR to main, side by side once the first two have fixed the shape of
+   a format PR and of its test.
+
+A format PR is done when every array of every fixture decodes through its description to what the
+reference reader reads. It carries one test that does that comparison over the corpus and asserts
+which cases the corpus reached, one test for each fallback, and the format's paragraph of
+[§7](../../spec/stored-array.md#7-the-formats). It gets one independent review. It does not wait
+for this document to agree with it.
+
+[Step 0](#step-0-the-shared-rules) is not a PR of its own. Each shared rule lands in the first
+format PR that needs it, so no rule is written before something uses it. The fallback at the
+descriptions' limit has its own PR, the one piece written ahead of a format.
 
 When every format in scope has its description, profile-plugins' steps 3 and 4 are left with
 each one's known structures and plan; DICOM series gets its stored-array description in step 4,
