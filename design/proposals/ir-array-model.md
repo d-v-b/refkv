@@ -458,7 +458,8 @@ Units may differ from their array in three ways, each a column:
   skip its codec.
   - A parameter is given either in its codec or as a column, never both.
   - A codec whose parameter is a column appears once in its chain.
-  - A codec sees a unit's bytes, its parameters and its shape, never its coordinates
+  - A codec sees a unit's bytes, its parameters, its shape and the array's `item_bits` and
+    `pad_from`, never its coordinates
     ([ir-format-descriptions.md](ir-format-descriptions.md#a-codec-sees-the-units-shape)). A
     parameter that depends on the unit's position other than through its shape, such as FITS's
     dither seed (ZDITHER0 plus the tile's index), is a column the parser computes.

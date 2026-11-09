@@ -63,15 +63,16 @@ NRRD, safetensors, DICOM, CZI, ND2, LIF with XLEF, SAFE, and NumPy's deflated `.
    (CZI's directory subblocks) do not count. That ancestor is fixed by the source's structure, so
    the key is the same whether or not any items fold.
 3. **Descriptions are built on the finished IR.** `check::finish` may make an element an alias or
-   unfold a run, so a parser that cached element ids while parsing finds them again after finish.
-   A row names the unit's bytes as finish leaves them: a run member's element with `member`; and
-   where the unit's element became an alias, the unit's own bytes (the whole element, or its
-   range) found in the alias's target: the target, named as the unit itself would be (alone where
-   its recipe is the identity and the bytes are all of it, else with a `range`, its offset moved
-   by the alias's offset in the target), where they lie inside it; where they do not, the nearest
-   element whose extent encloses them, with a `range` (and `member` where needed), which works in
-   a derived space too; `ranges` of the object that holds them only where no element does. No unit
-   is named through a recipe that joins bytes the source does not hold together (rule 1).
+   unfold a run, so a parser that cached element ids while parsing finds them again after finish. A
+   row names the unit's bytes as finish leaves them: a run member's element with `member`; and where
+   the unit's element became an alias, the unit's own bytes (the whole element, or its range) found
+   in the alias's target: the target, named as the unit itself would be (alone where its recipe is
+   the identity and the bytes are all of it, else with a `range`, its offset moved by the alias's
+   offset in the target), where they lie inside it; where they do not, the nearest element whose
+   extent encloses them, with a `range` (and `member` where needed), which works in a derived space
+   too; `ranges` of the object that holds them where no element does, or where the bytes lie in more
+   than one span (a DICOM frame of several fragments), even inside an element. No unit is named
+   through a recipe that joins bytes the source does not hold together (rule 1).
 4. **No typing.** `item_bits` is the element's size as the source stores it, or as the chain's
    first codec (decoded last) makes it ([§Step 0](#step-0-the-shared-rules)). Data type names,
    scaling (BSCALE, `scl_slope`), an axis the source does not declare (HDF5's string axis), a fill
@@ -260,37 +261,39 @@ safetensors' F4 and F6 use it.
 ### Naming a unit's bytes
 
 Step 0 adds to `array.rs` one function that names a unit's bytes, or any place a parser cached (a
-declaration, a codec parameter, a fill), in the finished IR as rule 3 says
-(a run member's element with `member`; an alias's target, alone or with a moved `range`; the
-nearest enclosing element with a `range`; `ranges` where no element encloses the bytes; or none
-inside a derived space where no element encloses them), with its tests, so that no format
-writes it. `Ir::fold` frees a folded member's ids during parsing, so a parser records a unit in a
-run as (run root, j, member 0's element) when its fold succeeds, never the id its emitter returned.
-`check::finish` records each run it unfolds (the run's root, the first id of its copies,
-and the member's size), which the IR does not keep today, so that the function finds member j's copy
-of an element a parser cached as (root, j, element); a test has finish unfold a run that a
-description names. An alias the parser made itself (`Ir::alias`, which has no extent of its own) is
-named by its target's elements. Where it stands for part of an array's storage (a TIFF IFD's strips
-shared with another IFD's), the array it belongs to is still an array, whose rows name the target's
-units. Where it stands for a whole declaring structure (a pointer IFD that repeats another, a CZI
-subblock a second directory entry names), there is one array, the target's, and the bytes only the
-duplicate has are a declaration of it: for TIFF, the pointer-tag entry in the parent IFD that led
-to it again (SubIFDs, Exif, GPS, Interoperability, GlobalParameters or a private tag of IFD type),
-since both names lead to one IFD; for CZI, the second `directory/entries/<i>`.
+declaration, a codec parameter, a fill), in the finished IR as rule 3 says (a run member's element
+with `member`; an alias's target, alone or with a moved `range`; the nearest enclosing element with
+a `range`; `ranges` where no element encloses the bytes or they lie in more than one span; or none
+inside a derived space where no element encloses them), with its tests, so that no format writes it.
+`Ir::fold` frees a folded member's ids during parsing, so a parser records a unit in a run as (run
+root, j, member 0's element) when its fold succeeds, never the id its emitter returned.
+`check::finish` records each run it unfolds (the run's root, the first id of its copies, and the
+member's size), which the IR does not keep today, so that the function finds member j's copy of an
+element a parser cached as (root, j, element); a test has finish unfold a run that a description
+names. An alias the parser made itself (`Ir::alias`, which has no extent of its own) is named by its
+target's elements. Where it stands for part of an array's storage (a TIFF IFD's strips shared with
+another IFD's), the array it belongs to is still an array, whose rows name the target's units. Where
+it stands for a whole declaring structure (a pointer IFD that repeats another, a CZI subblock a
+second directory entry names), there is one array, the target's, and the bytes only the duplicate
+has are a declaration of it: for TIFF, the pointer-tag entry in the parent IFD that led to it again
+(SubIFDs, Exif, GPS, Interoperability, GlobalParameters or a private tag of IFD type), since both
+names lead to one IFD; for CZI, the second `directory/entries/<i>`.
 
 ### The test helper
 
 `python/tests/ir/chains.py` decodes a unit through a chain, codec by codec, given the unit's bytes,
-its parameters, and the unit's shape with the array's `item_bits` and `pad_from`, and, for the
-decoders that rebuild a container (GRIB's message, HDF5's one-chunk file), the array's declarations,
-as the codec contract gives them. A place's bytes become the parameter's value through a reader each
-format registers by (format, codec, parameter), so that the shared decoders take values only and no
-format edits them. Step 0 writes its frame, a registry that finds a codec's decoder by its name in a
-module of its own, every compressor of [§Codecs](#codecs) (`tiff_lzw` among them), `shuffle`,
-`lsb_first`, and the image codecs several formats use (`jpeg`, `jpeg2k`, `jpegxr`, with `jpeg`'s
-`header` and `jpeg2k`'s `main_header` variants), so that no format PR writes a shared codec's
-decoding; each format PR adds, in its own module, the codecs only it uses, and edits no shared file.
-How the helper decodes where imagecodecs lacks a codec, in step 0's modules or a format's:
+its parameters, and the unit's shape with the array's `item_bits` and `pad_from`, as the codec
+contract gives them. HDF5's one-chunk file also takes the array's declarations, as a test-only input
+to rebuild the container, never one the codec has; the helper then asserts that what it built agrees
+with the parameters, so that a decoder using only the parameters makes the same bytes. A place's
+bytes become the parameter's value through a reader each format registers by (format, codec,
+parameter), so that the shared decoders take values only and no format edits them. Step 0 writes its
+frame, a registry that finds a codec's decoder by its name in a module of its own, every compressor
+of [§Codecs](#codecs) (`tiff_lzw` among them), `shuffle`, `lsb_first`, and the image codecs several
+formats use (`jpeg`, `jpeg2k`, `jpegxr`, with `jpeg`'s `header` and `jpeg2k`'s `main_header`
+variants), so that no format PR writes a shared codec's decoding; each format PR adds, in its own
+module, the codecs only it uses, and edits no shared file. How the helper decodes where imagecodecs
+lacks a codec, in step 0's modules or a format's:
 - `png` of gray under 8 bits: imagecodecs' samples, which come scaled to 8 bits, divided back by
   255 / (2^b − 1);
 - `bmp` otherwise: imagecodecs, its first three samples reversed to the stored B, G, R, alpha kept
@@ -303,22 +306,23 @@ How the helper decodes where imagecodecs lacks a codec, in step 0's modules or a
 - `ccitt_t6`: imagecodecs' `ccittfax4_decode`, which makes a byte per pixel, packed into rows of
   bits by the helper;
 - `h5_nbit` and `h5_scaleoffset`: the unit written as the one chunk of an HDF5 file with the
-  source dataset's layout, datatype and fill value, the filter set from the place's client data
-  (`set_filter`, which keeps scale-offset's scale type and factor while HDF5 fills in the type's
-  fields), by `write_direct_chunk`, and read back by h5py;
+  source dataset's layout, datatype and fill value, the filter set from the place's client data, by
+  `write_direct_chunk`, and read back by h5py; since HDF5 rebuilds N-bit's client data, and
+  scale-offset's type fields, from the dataset's datatype, the helper reads the stored client data
+  back (`get_filter`) and asserts it equals the place's;
 - `h5_bitshuffle` under LZ4 or zstd: its 12-byte header parsed, each block decompressed and
   unshuffled by imagecodecs;
 - `h5_szip`: imagecodecs' `szip_decode` alone, since the installed HDF5 has no szip filter, on a
   crafted fixture written by `szip_encode` through `write_direct_chunk`, the filter marked optional
   and its client data written as HDF5 would;
-- `grib_unpack`: a message reassembled from section 5, the unit and the field's section 3 (a
-  declaration), with sections 0, 1, 4, 6 (indicator 255, since a bitmapped field's array is its
-  coded values) and 8 made up for the reassembly, decoded by eccodes, with its `missingValue` set
-  to section 5's primary substitute under missing-value management 1; management 2, whose two
-  substitutes eccodes merges, decoded in Python, as PNG packing is; PNG packing, on which eccodes
-  aborts for 1, 2 and 4 bits, decoded in Python (`png_decode` of section 7, whose samples of b
-  bits come scaled to 8 and are divided back by 255 / (2^b − 1), then the arithmetic of
-  [conventions §12](../../spec/conventions.md#12-grib-messages));
+- `grib_unpack`: a message reassembled from section 5 and the unit, with sections 0, 1, 3 (a grid of
+  the unit's points, template 3.0, which unpacking does not read), 4, 6 (indicator 255, since a
+  bitmapped field's array is its coded values) and 8 made up for the reassembly, decoded by eccodes,
+  with its `missingValue` set to section 5's primary substitute under missing-value management 1;
+  management 2, whose two substitutes eccodes merges, decoded in Python, as PNG packing is; PNG
+  packing, on which eccodes aborts for 1, 2 and 4 bits, decoded in Python (`png_decode` of section
+  7, whose samples of b bits come scaled to 8 and are divided back by 255 / (2^b − 1), then the
+  arithmetic of [conventions §12](../../spec/conventions.md#12-grib-messages));
 - `jpeg`: the stream with its SOF set to the unit's shape, so that every stream decodes at it;
   with `header`, the header so set, the interval and an EOI spliced into one stream;
 - `jpeg2k` with `main_header`: the main header, the tile-parts and an EOC spliced, decoded by
@@ -340,7 +344,11 @@ as a place, its bytes being the format's to read.
 An array whose description would pass the descriptions' limit falls back as one does at the map's
 limit: it loses its chains, unit parameters and grid, keeping the rest (its key, shape, `axes`,
 `item_bits`, `pad_from`, fill and declarations), and later arrays are still tried; only a
-description that cannot fit even so refuses the run, which a graft does the same way. So a source
+description that cannot fit even so refuses the run, which a graft does the same way. Arrays are
+tried in `Ir::arrays` order, after the map's fit: an array that fell back at the map's limit is not
+tried again; an array's cost is its own entries and those of the chains it is the first remaining
+description to name; a fallen-back array's rows, columns and chains are dropped and the chain table
+pruned again, so a later array that names a chain it shared pays for it. So a source
 such as a GRIB file of many small fields over a shared section 3 is not refused for its
 descriptions; one whose fallen-back descriptions still pass the limit (HDF5 headers sharing rank-32
 dataspaces) still is, and rule 8's PRs name the arrays that fall back.
@@ -721,16 +729,18 @@ Medium-large.
 ### ND2
 
 Medium.
-- **Arrays.** One, keyed by `chunks/ImageAttributesLV!`: shape `[F, H, W, C]`, the frames as the
-  file numbers them (`ImageDataSeq|f!`, F the largest f plus one), no C axis for one component;
-  the loops, whose product the facts use, are declarations, for a profile to factor F by;
-  `item_bits` is `uiBpcInMemory`; fill `undefined`.
-- **Units.** Each frame a `range` of its `frames/<f>/data` element (with `member` where it is in a
-  run) past the 8-byte timestamp: the whole frame where its rows are not padded, and one unit a row
-  where they are, as LIF's padded rows are, the grid then `Each(1)` on the rows, not through the
-  `pixels` element's `rows` recipe, which joins rows the source does not hold together; a frame
-  whose bytes are cut short makes the array have no grid; chain `[zlib]` where compressed (no
-  compressed frame has padded rows); a missing frame has no row.
+- **Arrays.** One, keyed by `chunks/ImageAttributesLV!`: shape `[N, H, W, C]`, N the product of
+  the loops' counts, which declare the file's frames (no N axis where there are no loops), no C axis
+  for one component; the loops are declarations; `item_bits` is `uiBpcInMemory`; fill `undefined`.
+  Frames at or past N, which the loops do not declare, stay bytes outside every description, as the
+  parser leaves them (their `frames/<f>/data` elements), and ND2's document says so.
+- **Units.** Each frame's `frames/<f>/pixels` element (with `member` where it is in a run), which
+  starts after the timestamp: the element alone where its rows are not padded or it is compressed
+  (its recipe then the identity), and one unit a row where they are padded, each a `range`
+  (r·uiWidthBytes, the row's bytes) of `pixels`' extent, taken before its `rows` recipe, which
+  joins rows the source does not hold together, the grid then `Each(1)` on the rows, as LIF's
+  padded rows are; chain `[zlib]` where compressed (no compressed frame has padded rows); a missing
+  frame has no row.
 - **Checker.** nd2's attributes, frame offsets and `read_frame`.
 
 ### LIF and XLEF
