@@ -413,13 +413,15 @@ impl ChunkMap {
     /// `from`'s rows after these, their arrays `base` on, their elements renumbered by `at`, the
     /// parsed source's null key `key`, and each row's chain the position `locals[array]` gives its
     /// array's chain (a graft).
-    fn append(&mut self, from: &ChunkMap, base: u32, at: &dyn Fn(u32) -> u32, key: &str, locals: &[Vec<u32>]) {
+    fn append(&mut self, from: &ChunkMap, base: u32, at: &dyn Fn(u32) -> u32, key: &str, locals: &[Vec<u32>], keep: &[bool]) {
         let n = self.len();
         let objects: Vec<u32> = from.objects.iter().map(|o| self.object(o)).collect();
         let before = self.objects.len();
         let parsed = self.object(key);
         let mut used = false;
-        for k in 0..from.len() {
+        // the rows of the arrays that keep them (the others fell back, Stored::plan_graft)
+        let rows: Vec<usize> = (0..from.len()).filter(|&k| keep.get(from.array[k] as usize).copied().unwrap_or(true)).collect();
+        for &k in &rows {
             self.array.push(from.array[k] + base);
             self.coords.extend_from_slice(from.coords_of(k));
             self.coords_end.push(self.coords.len() as u64);
@@ -448,12 +450,12 @@ impl ChunkMap {
             // a column of one name is of one type (Stored::plan_graft): no push fails
             match from.params.get(name) {
                 Some(c) => {
-                    for k in 0..from.len() {
+                    for &k in &rows {
                         let _ = col.push(c.get(k));
                     }
                 }
                 None => {
-                    for _ in 0..from.len() {
+                    for _ in &rows {
                         let _ = col.push(None);
                     }
                 }
@@ -569,6 +571,70 @@ pub(crate) struct GraftPlan {
     added: Vec<(Chain, String)>,
     arrays: Vec<StoredArray>,
     locals: Vec<Vec<u32>>,
+    /// whether each array keeps its rows (one that would pass the map's room falls back)
+    keep: Vec<bool>,
+    /// the descriptions' and the chunk map's entries the graft adds
+    pub(crate) weights: (u64, u64),
+}
+
+impl StoredArray {
+    /// The general fallback for an array whose units the map has no room for (spec/stored-array.md
+    /// §6 <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#6-in-the-ir>): no grid,
+    /// chains or unit parameters, and so no rows.
+    fn fall_back(&mut self) {
+        self.grid = None;
+        self.chains.clear();
+        self.unit_parameters.clear();
+    }
+
+    /// The description's entries the budget counts: itself, each axis of its shape, each run of a
+    /// listed axis, each of its places, each of its chains and each unit parameter.
+    fn weight(&self) -> u64 {
+        let listed: usize = self.grid.as_ref().map_or(0, |g| {
+            g.axes.iter().map(|x| match x {
+                AxisUnits::Each(_) => 0,
+                AxisUnits::List(r) => r.len(),
+            }).sum()
+        });
+        let fill = usize::from(matches!(self.fill, Fill::Given(Param::Source(_))));
+        (1 + self.shape.as_ref().map_or(0, Vec::len) + listed + self.declarations.len() + fill + self.chains.len() + self.unit_parameters.len()) as u64
+    }
+}
+
+/// A chain's entries the budget counts: itself, each codec and each place a codec's parameter names.
+fn chain_weight(c: &Chain) -> u64 {
+    (1 + c.iter().map(|x| 1 + x.parameters.values().filter(|p| matches!(p, Param::Source(_))).count()).sum::<usize>()) as u64
+}
+
+/// Each of `n` arrays' chunk map entries in `map`: its rows, their coordinates, their `ranges`
+/// items and their set unit-parameter values (a row's `range` is part of it, and costs none).
+fn map_weights(map: &ChunkMap, n: usize) -> Vec<u64> {
+    let mut w = vec![0u64; n];
+    for k in 0..map.len() {
+        if let Some(x) = w.get_mut(map.array[k] as usize) {
+            let set = map.params.values().filter(|c| c.get(k).is_some()).count();
+            *x += 1 + map.coords_of(k).len() as u64 + map.ranges_of(k).map_or(0, |r| r.len() as u64) + set as u64;
+        }
+    }
+    w
+}
+
+/// Which of the arrays keep their rows within `room` entries of the chunk map (`weights`, each
+/// array's), and the entries those take: arrays are tried in their order; one whose rows do not
+/// fit in what remains keeps none of them; later arrays are still tried.
+fn fit(weights: &[u64], room: u64) -> (Vec<bool>, u64) {
+    let mut used = 0u64;
+    let keep = weights
+        .iter()
+        .map(|&w| match used.checked_add(w) {
+            Some(u) if u <= room => {
+                used = u;
+                true
+            }
+            _ => false,
+        })
+        .collect();
+    (keep, used)
 }
 
 /// An IR's stored arrays: the descriptions, the chain table they name and the chunk map.
@@ -730,41 +796,59 @@ impl Stored {
     /// by [`Stored::index_chains`]), each array's chains once each (two its chains the renumbering
     /// makes one are one, and its rows and unit parameters name that one, so long as they give one
     /// set of unit parameters), and the map's parameter columns of one name of one type.
-    pub(crate) fn plan_graft(&self, from: &Stored, at: &dyn Fn(u32) -> u32, key: &str) -> Res<GraftPlan> {
+    pub(crate) fn plan_graft(&self, from: &Stored, at: &dyn Fn(u32) -> u32, key: &str, room: u64) -> Res<GraftPlan> {
+        // first the fit: the file's arrays, in its order, to the store's chunk map room
+        let (keep, rows) = fit(&map_weights(&from.map, from.arrays.len()), room);
+        // then the chains the remaining descriptions name, in order of first use, each renumbered
+        // and looked up by its text: one the table has keeps its position, a new one is appended
         let mut added: Vec<(Chain, String)> = Vec::new();
-        // each added chain's position among the added, by its text
-        let mut added_at: HashMap<String, usize> = HashMap::new();
-        let mut chains = Vec::with_capacity(from.chains.len());
-        for c in &from.chains {
-            let mut c = c.clone();
-            for p in c.iter_mut().flat_map(|x| x.parameters.values_mut().filter_map(Param::places)) {
-                p.renumber(at, key);
+        let mut added_at: HashMap<String, u32> = HashMap::new();
+        let mut position: HashMap<u32, u32> = HashMap::new();
+        for (a, &k) in from.arrays.iter().zip(&keep) {
+            if !k {
+                continue;
             }
-            let text = chain_json(&c).to_string();
-            let k = match self.chain_index.0.get(&text) {
-                Some(&k) => k,
-                None => match added_at.get(&text) {
-                    Some(&j) => (self.chains.len() + j) as u32,
+            for &c in &a.chains {
+                if position.contains_key(&c) {
+                    continue;
+                }
+                let Some(chain) = from.chains.get(c as usize) else { continue };
+                let mut chain = chain.clone();
+                for p in chain.iter_mut().flat_map(|x| x.parameters.values_mut().filter_map(Param::places)) {
+                    p.renumber(at, key);
+                }
+                let text = chain_json(&chain).to_string();
+                let k = match self.chain_index.0.get(&text).or_else(|| added_at.get(&text)) {
+                    Some(&k) => k,
                     None => {
-                        added_at.insert(text.clone(), added.len());
-                        added.push((c, text));
-                        (self.chains.len() + added.len() - 1) as u32
+                        let k = (self.chains.len() + added.len()) as u32;
+                        added_at.insert(text.clone(), k);
+                        added.push((chain, text));
+                        k
                     }
-                },
-            };
-            chains.push(k);
+                };
+                position.insert(c, k);
+            }
         }
         let mut arrays = Vec::with_capacity(from.arrays.len());
         let mut locals = Vec::with_capacity(from.arrays.len());
-        for a in &from.arrays {
+        for (a, &k) in from.arrays.iter().zip(&keep) {
             let mut a = a.clone();
             a.renumber(at, key);
+            if !k {
+                a.fall_back();
+                locals.push(Vec::new());
+                arrays.push(a);
+                continue;
+            }
+            // an array's chains in the store's table, once each: two of its chains the renumbering
+            // makes one are one, and its rows and unit parameters name that one
             let mut mine: Vec<u32> = Vec::with_capacity(a.chains.len());
             let local: Vec<u32> = a
                 .chains
                 .iter()
                 .map(|&c| {
-                    let c = chains.get(c as usize).copied().unwrap_or(c);
+                    let c = position.get(&c).copied().unwrap_or(c);
                     match mine.iter().position(|&m| m == c) {
                         Some(k) => k as u32,
                         None => {
@@ -810,7 +894,9 @@ impl Stored {
                 }
             }
         }
-        Ok(GraftPlan { added, arrays, locals })
+        // last, what the descriptions add, which the descriptions' limit is checked against
+        let d = arrays.iter().map(StoredArray::weight).sum::<u64>() + added.iter().map(|c| chain_weight(&c.0)).sum::<u64>();
+        Ok(GraftPlan { added, arrays, locals, keep, weights: (d, rows) })
     }
 
     /// The graft [`Stored::plan_graft`] planned, of the file's arrays `from` with the same `at`
@@ -824,7 +910,7 @@ impl Stored {
         }
         let base = self.arrays.len() as u32;
         self.arrays.extend(plan.arrays);
-        self.map.append(&from.map, base, at, key, &plan.locals);
+        self.map.append(&from.map, base, at, key, &plan.locals, &plan.keep);
     }
 
     /// A column, of its entry's type in `codecs`, for every parameter a description with a grid
@@ -850,29 +936,64 @@ impl Stored {
     /// descriptions, each description, each axis of its shape, each run of a listed axis, each of
     /// its places (its declarations, and a fill given at a place), each of its chains and each unit
     /// parameter; of the chain table, each chain, each codec and each place a codec's parameter
-    /// names; of the chunk map, each row, each of its coordinates and each of its ranges.
+    /// names; of the chunk map, each row, each of its coordinates, each of its `ranges` items and
+    /// each set unit-parameter value.
     pub fn weights(&self) -> (u64, u64) {
-        let listed = |g: &Grid| -> usize {
-            g.axes.iter().map(|x| match x {
-                AxisUnits::Each(_) => 0,
-                AxisUnits::List(r) => r.len(),
-            }).sum()
-        };
-        let d: usize = self
-            .arrays
-            .iter()
-            .map(|a| {
-                let fill = usize::from(matches!(a.fill, Fill::Given(Param::Source(_))));
-                1 + a.shape.as_ref().map_or(0, Vec::len) + a.grid.as_ref().map_or(0, listed) + a.declarations.len() + fill + a.chains.len() + a.unit_parameters.len()
-            })
-            .sum::<usize>()
-            + self
-                .chains
-                .iter()
-                .map(|c| 1 + c.iter().map(|x| 1 + x.parameters.values().filter(|p| matches!(p, Param::Source(_))).count()).sum::<usize>())
-                .sum::<usize>();
-        let r = self.map.len() + self.map.coords.len() + self.map.range_offset.len();
-        (d as u64, r as u64)
+        let d = self.arrays.iter().map(StoredArray::weight).sum::<u64>() + self.chains.iter().map(chain_weight).sum::<u64>();
+        // a row's `range` is part of it: only `ranges` items count, and each set parameter value
+        let set: usize = self.map.params.values().map(|c| (0..c.len()).filter(|&k| c.get(k).is_some()).count()).sum();
+        let r = self.map.len() + self.map.coords.len() + self.map.range_offset.len() + set;
+        (d, r as u64)
+    }
+
+    /// The chains no description names dropped from the table, and the others renumbered (after
+    /// [`Stored::fit_map`], whose fallen-back arrays name none).
+    pub fn drop_unnamed_chains(&mut self) {
+        let mut named = vec![false; self.chains.len()];
+        for &c in self.arrays.iter().flat_map(|a| a.chains.iter()) {
+            if let Some(x) = named.get_mut(c as usize) {
+                *x = true;
+            }
+        }
+        if named.iter().all(|&x| x) {
+            return;
+        }
+        let mut at = vec![u32::MAX; named.len()];
+        let mut kept = 0u32;
+        for (k, &n) in named.iter().enumerate() {
+            if n {
+                at[k] = kept;
+                kept += 1;
+            }
+        }
+        let chains = std::mem::take(&mut self.chains);
+        self.chains = chains.into_iter().zip(&named).filter(|(_, n)| **n).map(|(c, _)| c).collect();
+        for c in self.arrays.iter_mut().flat_map(|a| a.chains.iter_mut()) {
+            if let Some(&n) = at.get(*c as usize) {
+                *c = n;
+            }
+        }
+        self.chain_index.0.clear();
+    }
+
+    /// The general fallback of the arrays whose rows the map has no room for (spec/stored-array.md
+    /// §6 <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#6-in-the-ir>): arrays are
+    /// tried in `Ir::arrays` order; one whose rows do not fit in what remains of `room` keeps none
+    /// of them (no grid, chains, unit parameters or rows); later arrays are still tried. The entries
+    /// the rows kept take.
+    pub fn fit_map(&mut self, room: u64) -> u64 {
+        let (keep, used) = fit(&map_weights(&self.map, self.arrays.len()), room);
+        if keep.iter().all(|&k| k) {
+            return used;
+        }
+        for (a, k) in self.arrays.iter_mut().zip(&keep) {
+            if !k {
+                a.fall_back();
+            }
+        }
+        let rows: Vec<usize> = (0..self.map.len()).filter(|&k| keep.get(self.map.array[k] as usize).copied().unwrap_or(true)).collect();
+        self.map = self.map.take(&rows);
+        used
     }
 
     /// The ids after run `r` (its subtree `[r, end)`, `count` members) was unfolded, its members
@@ -1299,6 +1420,9 @@ impl ChunkMap {
                         let len = ctx.ir.len[e as usize];
                         if o.checked_add(n).is_none_or(|end| end > len) {
                             return Err(row(format!("its range at {o} of {n} bytes is past its element's {len} bytes")));
+                        }
+                        if (o, n) == (0, len) {
+                            return Err(row("its range is its element's whole extent, which the element alone names".into()));
                         }
                     }
                 }
@@ -1789,23 +1913,173 @@ mod tests {
         assert_eq!(ir.budget.as_ref().unwrap().spent_rows, 400);
     }
 
-    #[test]
-    fn refuses_rows_past_the_budget() {
-        let mut ir = file_ir();
-        ir.budget.as_mut().unwrap().rows = 4;
-        let s = valid();
-        assert_eq!(ir.describe(s.arrays, s.chains, s.map).unwrap_err(), "budget: more than 4 chunk map entries");
+    /// Two arrays of four units each, of rank 1 (eight entries each), held by elements, as the
+    /// IR's codec list allows: `first` keyed by the header (element 1), `second` by the chunks
+    /// struct (element 2).
+    fn two_arrays() -> (Vec<StoredArray>, ChunkMap) {
+        let array = |element: u32| StoredArray {
+            element, index: None, declarations: vec![], shape: Some(vec![4]), axes: None, item_bits: Some(8), pad_from: None,
+            grid: Some(Grid { axes: vec![AxisUnits::Each(1)], edge: Edge::Short }), chains: vec![0], fill: Fill::Undefined,
+            unit_parameters: vec![],
+        };
+        let mut map = ChunkMap::default();
+        for a in 0..2u32 {
+            for k in 0..4u64 {
+                map.push(Row { array: a, coords: vec![k], element: Some(4), range: Some((k, 1)), ..Row::default() }).unwrap();
+            }
+        }
+        (vec![array(1), array(2)], map)
     }
 
+    /// The map's limit never rejects a run: arrays in order keep their rows while they fit, and the
+    /// second, whose rows would pass the limit, falls back (no grid, chains or rows).
     #[test]
-    fn refuses_ranges_past_the_budget() {
+    fn an_array_past_the_maps_limit_falls_back_and_the_first_keeps_its_rows() {
+        let mut ir = file_ir();
+        ir.budget.as_mut().unwrap().rows = 12;
+        let (arrays, map) = two_arrays();
+        ir.describe(arrays, vec![vec![]], map).unwrap();
+        let s = &ir.stored;
+        assert_eq!((s.arrays[0].grid.is_some(), s.arrays[1].grid.is_none(), s.arrays[1].chains.len()), (true, true, 0));
+        assert_eq!(s.map.array, [0, 0, 0, 0]);
+        assert_eq!(ir.budget.as_ref().unwrap().spent_rows, 8);
+    }
+
+    /// A map past its limit from its first array on: every array falls back, and the run goes on.
+    #[test]
+    fn a_map_past_its_limit_falls_back_whole() {
+        let mut ir = file_ir();
+        ir.budget.as_mut().unwrap().rows = 4;
+        let (arrays, map) = two_arrays();
+        ir.describe(arrays, vec![vec![]], map).unwrap();
+        assert!(ir.stored.arrays.iter().all(|a| a.grid.is_none() && a.chains.is_empty()));
+        assert!(ir.stored.map.is_empty());
+        assert_eq!(ir.budget.as_ref().unwrap().spent_rows, 0);
+    }
+
+    /// An array of one row of many ranges past the limit falls back too: each `ranges` item is an
+    /// entry.
+    #[test]
+    fn an_array_of_ranges_past_the_maps_limit_falls_back() {
         let mut ir = file_ir();
         ir.budget.as_mut().unwrap().rows = 1000;
-        // one row of 2000 ranges
         let mut map = ChunkMap::default();
         map.push(Row { array: 0, coords: vec![], ranges: Some(vec![(None, 0, 1); 2000]), ..Row::default() }).unwrap();
         let a = StoredArray { element: 1, index: None, chains: vec![0], fill: Fill::Undefined, ..valid().arrays[1].clone() };
-        assert_eq!(ir.describe(vec![a], vec![vec![]], map).unwrap_err(), "budget: more than 1000 chunk map entries");
+        ir.describe(vec![a], vec![vec![]], map).unwrap();
+        assert!(ir.stored.arrays[0].grid.is_none() && ir.stored.map.is_empty());
+    }
+
+    /// Two files whose maps each fit alone: grafted into one store, the second file's array, whose
+    /// rows would take the store's map past its limit, falls back there, though it kept them in its
+    /// file.
+    #[test]
+    fn a_second_files_array_falls_back_in_a_store_its_rows_do_not_fit() {
+        let file = |element: u32| {
+            let mut f = file_ir();
+            let (mut arrays, mut map) = two_arrays();
+            arrays.truncate(1);
+            arrays[0].element = element;
+            map = map.take(&(0..4).collect::<Vec<usize>>());
+            f.describe(arrays, vec![vec![]], map).unwrap();
+            f
+        };
+        let (one, two) = (file(1), file(2));
+        assert!(one.stored.arrays[0].grid.is_some() && two.stored.arrays[0].grid.is_some());
+        let mut store = Ir::new_store();
+        let o = store.listing(&[("f.bin".into(), 100), ("g.bin".into(), 100)]).unwrap();
+        let b = store.budget.as_mut().unwrap();
+        b.rows = b.spent_rows + 12;
+        store.graft(&one, o[0]).unwrap();
+        store.graft(&two, o[1]).unwrap();
+        let s = &store.stored;
+        assert_eq!((s.arrays[0].grid.is_some(), s.arrays[1].grid.is_none()), (true, true));
+        assert_eq!(s.map.array, [0, 0, 0, 0]);
+        crate::check::finish(&mut store).unwrap();
+    }
+
+    /// A graft appends the chains new to the store's table in the order the file's remaining
+    /// descriptions first name them, leaving the table's chains where they are; the map's entries
+    /// count each set unit-parameter value.
+    #[test]
+    fn a_graft_appends_new_chains_in_order_of_first_use() {
+        let source = |id: u64| vec![codec("source", &[("id", Param::Value(json!(id)))])];
+        let (mut arrays, map) = two_arrays();
+        arrays[0].chains = vec![2];
+        arrays[1].chains = vec![1];
+        let file = with(Stored { arrays, chains: vec![source(0), source(1), source(2)], map, ..Stored::default() });
+        let mut store = Ir::new_store();
+        let o = store.listing(&[("f.bin".into(), 100), ("g.bin".into(), 100)]).unwrap();
+        store.graft(&file, o[0]).unwrap();
+        let s = &store.stored;
+        assert_eq!(s.chains, vec![source(2), source(1)]);
+        assert_eq!((s.arrays[0].chains.clone(), s.arrays[1].chains.clone()), (vec![0], vec![1]));
+        assert_eq!(valid().weights().1, 5 + 8 + 2 + 2);
+    }
+
+    /// A graft fits its file to the store's limit as the grafts so far have it, the file's object
+    /// included: an object listed but not yet grafted adds nothing.
+    #[test]
+    fn a_graft_fits_to_the_objects_grafted_so_far() {
+        let mut file = file_ir();
+        let (mut arrays, map) = two_arrays();
+        arrays.truncate(1);
+        file.describe(arrays, vec![vec![]], map.take(&(0..4).collect::<Vec<usize>>())).unwrap();
+        let mut store = Ir::new_store();
+        // an empty object, under which the file is grafted, and a large one, not yet grafted
+        let o = store.listing(&[("f.bin".into(), 0), ("g.bin".into(), 1000)]).unwrap();
+        store.budget.as_mut().unwrap().graft_rows = 0;
+        store.graft(&file, o[0]).unwrap();
+        // 4 entries for the empty object alone: the array's 8 do not fit
+        assert!(store.stored.arrays[0].grid.is_none() && store.stored.map.is_empty());
+        assert_eq!(store.budget.as_ref().unwrap().graft_rows, 4);
+        store.graft(&file, o[1]).unwrap();
+        // and 4 + 4000 more with the large one grafted
+        assert!(store.stored.arrays[1].grid.is_some());
+        assert_eq!(store.stored.map.len(), 4);
+    }
+
+    /// A chain no description names after fitting is dropped from the table, the others
+    /// renumbered: in a file IR at describe, and in a store at graft.
+    #[test]
+    fn a_chain_only_a_fallen_back_array_named_is_dropped() {
+        let source = vec![codec("source", &[("format", Param::Value(json!("hdf5")))])];
+        let (mut arrays, map) = two_arrays();
+        arrays[0].chains = vec![1];
+        let mut ir = file_ir();
+        ir.budget.as_mut().unwrap().rows = 12;
+        ir.describe(arrays.clone(), vec![vec![], source.clone()], map.clone()).unwrap();
+        assert_eq!(ir.stored.chains, vec![source.clone()]);
+        assert_eq!((ir.stored.arrays[0].chains.clone(), ir.stored.arrays[1].chains.clone()), (vec![0], vec![]));
+        let mut file = file_ir();
+        file.describe(arrays, vec![vec![], source.clone()], map).unwrap();
+        assert_eq!(file.stored.chains.len(), 2);
+        let mut store = Ir::new_store();
+        let o = store.listing(&[("f.bin".into(), 100)]).unwrap();
+        let b = store.budget.as_mut().unwrap();
+        b.rows = b.spent_rows + 12;
+        store.graft(&file, o[0]).unwrap();
+        assert_eq!(store.stored.chains, vec![source]);
+        assert_eq!((store.stored.arrays[0].chains.clone(), store.stored.arrays[1].chains.clone()), (vec![0], vec![]));
+        crate::check::finish(&mut store).unwrap();
+    }
+
+    /// A graft past the store's map limit: the file's arrays that fit keep their rows, the next
+    /// falls back, and the graft goes on.
+    #[test]
+    fn a_graft_past_the_maps_limit_falls_back() {
+        let mut file = file_ir();
+        let (arrays, map) = two_arrays();
+        file.describe(arrays, vec![vec![]], map).unwrap();
+        let mut store = Ir::new_store();
+        let o = store.listing(&[("f.bin".into(), 100)]).unwrap();
+        let b = store.budget.as_mut().unwrap();
+        b.rows = b.spent_rows + 12;
+        store.graft(&file, o[0]).unwrap();
+        let s = &store.stored;
+        assert_eq!((s.arrays[0].grid.is_some(), s.arrays[1].grid.is_none()), (true, true));
+        assert_eq!(s.map.array, [0, 0, 0, 0]);
+        crate::check::finish(&mut store).unwrap();
     }
 
     #[test]
@@ -1858,7 +2132,13 @@ mod tests {
     #[test]
     fn a_graft_after_an_unfold_indexes_the_chains_as_they_are() {
         let chain = vec![codec("source", &[("parameters", Param::Source(Place::Element { element: 3, member: Some(2), range: None }))])];
-        let file = with(Stored { chains: vec![chain], ..Stored::default() });
+        // an array of no rows names the chain, which a graft would otherwise drop
+        let a = StoredArray {
+            element: 1, index: None, declarations: vec![], shape: Some(vec![1]), axes: None, item_bits: Some(8), pad_from: None,
+            grid: Some(Grid { axes: vec![AxisUnits::Each(1)], edge: Edge::Short }), chains: vec![0], fill: Fill::Undefined,
+            unit_parameters: vec![],
+        };
+        let file = with(Stored { arrays: vec![a], chains: vec![chain], ..Stored::default() });
         let mut store = Ir::new_store();
         let o = store.listing(&[("f.bin".into(), 100), ("g.bin".into(), 100)]).unwrap();
         let at = store.graft(&file, o[0]).unwrap();
@@ -2397,6 +2677,11 @@ mod tests {
     #[test]
     fn refuses_a_row_range_past_its_element() {
         assert!(refusal(|s| s.map.range[1] = Some((6, 4))).contains("its range at 6 of 4 bytes is past its element's 8 bytes"));
+    }
+
+    #[test]
+    fn refuses_a_row_range_of_the_whole_element() {
+        assert!(refusal(|s| s.map.range[1] = Some((0, 8))).contains("its range is its element's whole extent, which the element alone names"));
     }
 
     #[test]

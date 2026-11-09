@@ -225,6 +225,9 @@ pub struct Budget {
     pub rows: u64,
     pub spent_descriptions: u64,
     pub spent_rows: u64,
+    /// a store's chunk map limit as its grafts have it: 2^22, plus 4 and four per byte for each
+    /// object grafted so far (the limit a graft fits its file's arrays to)
+    pub graft_rows: u64,
 }
 
 impl Budget {
@@ -248,6 +251,7 @@ impl Budget {
             rows: (1u64 << 22).saturating_add(size.saturating_mul(4)),
             spent_descriptions: 0,
             spent_rows: 0,
+            graft_rows: 1 << 22,
         }
     }
 
@@ -686,8 +690,12 @@ impl Ir {
             return Err("internal: the IR's arrays described twice".into());
         }
         let mut stored = crate::array::Stored { arrays, chains, map, ..Default::default() };
+        // the map's limit never rejects: an array whose rows would pass it falls back
+        let room = self.budget.as_ref().map_or(u64::MAX, |b| b.rows.saturating_sub(b.spent_rows));
+        let r = stored.fit_map(room);
+        stored.drop_unnamed_chains();
         stored.add_columns(crate::array::CODECS, 0);
-        let (d, r) = stored.weights();
+        let (d, _) = stored.weights();
         if let Some(b) = self.budget.as_mut() {
             b.describe(d, r)?;
         }
@@ -787,13 +795,19 @@ impl Ir {
         let base = self.len() as u32;
         let at = |i: u32| if i == 0 { under } else { base + i - 1 };
         // the stored arrays planned, and every budget checked, before anything is added: a graft
-        // that fails leaves the store as it was
+        // that fails leaves the store as it was. The file's arrays are fitted to the store's chunk
+        // map limit as its grafts have it, this object's included
         let key = self.key(under);
+        let grafted = self.budget.as_ref().map(|b| b.graft_rows.saturating_add(self.len[under as usize].saturating_mul(4).saturating_add(4)));
+        let room = match (&self.budget, grafted) {
+            (Some(b), Some(g)) => g.min(b.rows).saturating_sub(b.spent_rows),
+            _ => u64::MAX,
+        };
         let plan = if from.stored.is_empty() {
             None
         } else {
             Arc::make_mut(&mut self.stored).index_chains();
-            Some(self.stored.plan_graft(&from.stored, &at, &key)?)
+            Some(self.stored.plan_graft(&from.stored, &at, &key, room)?)
         };
         let added = from.len().saturating_sub(1) as u64;
         if let Some(b) = self.budget.as_mut() {
@@ -803,10 +817,12 @@ impl Ir {
             if b.spent_elements.saturating_add(added) > b.elements {
                 return Err(format!("budget: more than {} IR elements", b.elements));
             }
-            let (d, r) = from.stored.weights();
-            b.describe(d, r)?;
+            if let Some(p) = &plan {
+                b.describe(p.weights.0, p.weights.1)?;
+            }
             b.spent_records += added;
             b.spent_elements += added;
+            b.graft_rows = grafted.unwrap_or(b.graft_rows);
         }
         let map: Vec<u32> = (0..from.len() as u32).map(at).collect();
         let shared: Vec<u32> = from.shared.iter().map(|b| self.share(b)).collect();

@@ -236,8 +236,9 @@ version, `0`.
   a parser adds them in any order, and the IR sorts them.
 - Exactly one of `element` and `ranges` is set in each row. `range` is set only with `element`,
   where the unit is part of it (a FITS tile within its heap element), is at least one byte long,
-  and lies within the element's bytes. A unit inside a derived space is an element or a range of
-  one, since `ranges` address only objects. A row's ranges are at least one, each at
+  lies within the element's bytes, and is not all of them (a unit of the whole element names the
+  element alone, so that a unit has one spelling). A unit inside a derived space is an element or
+  a range of one, since `ranges` address only objects. A row's ranges are at least one, each at
   least one byte long, and lie within their objects as a place's do
   ([§2.2](#22-places-and-parameters)).
 - Null is the only way to write the first chain and "skips nothing".
@@ -291,7 +292,7 @@ bug in its parser: an internal error naming the array's element.
 - `member` is set exactly when `element` is set and is in a run's subtree, and is below the
   run's count;
 - `range` is set only with `element`, at least one byte long, its end within the element's bytes
-  and below 2^64;
+  and below 2^64, and not the element's whole extent;
 - the first chain and no skips are written as null;
 - `chain` is a position in the array's `chains`, and `skips` names only codecs of the unit's
   chain;
@@ -305,17 +306,29 @@ bug in its parser: an internal error naming the array's element.
 **Built at finish.** A parser keeps what it learns about its arrays to itself while it reads.
 When its IR is finished (after its last fold and rollback, and after `check::finish`), it builds a
 description for each array it reaches and the chunk map's rows from the finished IR, and adds
-them to the IR, which sorts the rows, counts them against its limits and checks them
-([§5](#5-checks)). They are not in the facts a projection reads, which keep their arrays until
-each format's projection reads the descriptions.
+them to the IR, which, in order: fits the map to its limit (below); drops from the chain table the
+chains no description names, keeping the others' order, and renumbers the descriptions' positions
+in it; checks the descriptions' limit; sorts the rows; and checks them ([§5](#5-checks)). They are
+not in the facts a projection reads, which keep their arrays until each format's projection reads
+the descriptions.
 
 **Only two things change ids afterwards.**
 
-- **A graft** carries a file IR's descriptions and rows into the store it joins: `element`, every
-  place's element and the `element` column take their new ids; `array` takes the description's
-  new position, after the store's; the file's chains join the store's table, a chain the table
-  has already taking that one's position; parameter columns of one name join; and the parsed
-  source's null key, in every place and in `ranges`, becomes the file's key in the store.
+- **A graft** carries a file IR's descriptions and rows into the store it joins, in order:
+  - it fits the file's arrays, in the file's order, to the store's chunk map limit as the store's
+    grafts so far have it, this file's object included (below). A store has the 2^22 once, where
+    each file had it, so an array that kept its rows in its file may fall back in the store,
+    depending on what was grafted before it;
+  - it carries into the store's chain table only the chains the file's remaining descriptions
+    name, each with its places' element ids renumbered and then found in the table by its value:
+    a chain the table has keeps its position, and a new one is appended, in the order the file's
+    descriptions first name them. The table's existing chains and positions are untouched;
+  - it checks the descriptions' limit, last; a graft that fails on it, or on the IR's room, adds
+    nothing to the store.
+
+  `element`, every place's element and the `element` column take their new ids; `array` takes the
+  description's new position, after the store's; parameter columns of one name join; and the
+  parsed source's null key, in every place and in `ranges`, becomes the file's key in the store.
 - **An unfold** of a run (a store's own `check::finish` may unfold one, as may the mirror's
   canonical form) gives its members after the first new ids: each row's and place's element in
   member j's subtree moves to member j's copy, and `member` is cleared on every element that was
@@ -324,25 +337,37 @@ each format's projection reads the descriptions.
 The mirror's canonical form ([conventions §8.8](conventions.md#88-canonical-form)) leaves the
 descriptions and the chunk map out.
 
-**Limits.** The IR's budget counts, apart from the IR's room, the descriptions' entries and the
-chunk map's, each against a limit of its own. The descriptions' entries are each description, each
-axis of its shape, each run of a listed axis (an `Each` axis has none), each of its places (its
-declarations, and a fill given at a place), each of its chains and each unit parameter; and of the
-chain table, each chain, each codec and each place a codec's parameter names. The chunk map's are
-each row, each of its coordinates and each of its ranges. The descriptions' limit is 2^22 once,
-plus one per 4 bytes of the source, growing with each object of a store as the store's other
-budgets do (4 plus one per 4 of its bytes). The chunk map's is 2^22 once, plus four per byte of the
-source, growing with each object of a store by 4 plus four per byte of it. Every unit the source
-holds has at least one byte of its own (an HDF5 chunk of an implicit index may be a single byte),
-or an index entry of several, so where no two units share bytes or index entries, a map whose
-units are held by elements fits at rank 3 or less (a row and its coordinates), and one whose units
-are in `ranges` fits at rank 2 or less (a row, its coordinates and a range). A source whose
-structures share bytes or index entries can pass the limit, and is refused: two HDF5 object headers
-on one chunk index, or TIFF IFDs sharing a StripOffsets array. An entry costs about 36 bytes of
-memory as the map is built: a row of rank 2 with its element, three entries, holds about 109 bytes
-of columns. A map that would pass its limit rejects the run; it is never cut short, which a profile
-would read as units the source does not hold. Descriptions a check refuses spend none of it, and a
-graft that fails, on its budget or its arrays, adds nothing to the store.
+**Limits.** The IR's budget counts the descriptions' entries and the chunk map's in fields of its
+own, each against a limit of its own, never against the IR's room (its records and elements). The
+descriptions' entries are each description, each axis of its shape, each run of a listed axis (an
+`Each` axis has none), each of its places (its declarations, and a fill given at a place), each of
+its chains and each unit parameter; and of the chain table, each chain, each codec and each place
+a codec's parameter names. The chunk map's are each row, each of its coordinates, each of its
+`ranges` items and each unit-parameter value it sets (a row's `range` is part of it, and is none).
+The descriptions' limit is 2^22 once, plus one per 4 bytes of the source, growing with each object
+of a store as the store's other budgets do (4 plus one per 4 of its bytes). The chunk map's is 2^22
+once, plus four per byte of the source; a store's, as its grafts fit to it, 2^22 once, plus 4 and
+four per byte for each object grafted so far. Every unit in space 0 has at least one byte of its own
+(an HDF5 chunk of an implicit index may be a single byte), or an index entry of several, so where
+no two units share bytes or index entries, a map whose units are held by elements of space 0 (with
+or without a `range`) fits at rank 3 or less, and one whose units are in `ranges` fits at rank 2 or
+less. A unit in a derived space can cost far less than a byte of the source, and has no such
+guarantee; nor has a source whose structures share bytes or index entries (two HDF5 object headers
+on one chunk index, TIFF IFDs sharing a StripOffsets array).
+
+The chunk map's limit never rejects a run, and never cuts an array's rows short, which a profile
+would read as units the source does not hold. Arrays are tried in `Ir::arrays` order; one whose rows
+do not fit in what remains of the limit keeps none of them, and falls back: its description has no
+grid, no chains and no unit parameters, and the map no row of it. Later arrays are still tried, and
+the run goes on. In a file IR, which arrays fall back follows from the source alone; in a store,
+from its files in graft order. The descriptions' limit, checked after the fit, still rejects the
+run.
+
+As the map is built, a row holds about 93 bytes of memory, a coordinate 8 and a `ranges` item 24;
+the worst case, rank-1 rows of elements over a shared index at four entries per byte, is about 200
+bytes per byte of the source. A parameter column holds about 16 bytes a row, null or not, for every
+row of the map; the list allows few columns (none yet). Descriptions a check refuses spend none of
+either limit.
 
 **Bindings.** Python's `refkv._core.Ir` gives the descriptions as the JSON document of
 [§2.5](#25-the-json-form) (`stored_arrays()`, read by `refkv.ir.stored`) and the chunk map as an
