@@ -114,6 +114,46 @@ fn the_walk_stops_inside_heaps_b_trees_and_global_heaps() {
 
 /// Every image dataset of an accepted fixture's facts names its description by the description's
 /// key, the struct of the dataset's object, and the description's rows are the dataset's chunks.
+/// Each row of the stored arrays as the bytes of the file it names: its coordinates and its
+/// (offset, length) parts, and whether it names them as ranges of the source.
+fn row_extents(ir: &refkv_ir::ir::Ir) -> Vec<(Vec<u64>, Vec<(u64, u64)>, bool)> {
+    let m = &ir.stored.map;
+    (0..m.len())
+        .map(|r| match m.ranges_of(r) {
+            Some(parts) => {
+                assert!(parts.clone().all(|p| m.range_object[p].is_none()));
+                (m.coords_of(r).to_vec(), parts.map(|p| (m.range_offset[p], m.range_length[p])).collect(), true)
+            }
+            None => {
+                let e = m.element[r].unwrap() as usize;
+                let (o, n) = m.range[r].unwrap_or((0, ir.len[e]));
+                (m.coords_of(r).to_vec(), vec![(ir.start[e] + o, n)], false)
+            }
+        })
+        .collect()
+}
+
+#[test]
+fn past_the_walks_room_a_row_names_the_same_bytes_as_a_range_of_the_source() {
+    let mut as_ranges = 0;
+    for name in ["ims_latest_many_channels", "ims_latest_dense_links", "ims_latest_indexes", "ims_latest_review2", "ims_earliest_review2"] {
+        let data = std::fs::read(fixtures().join(format!("ims/{name}.ims"))).unwrap();
+        let (all, _) = ims_with_room(&data, None);
+        let mut whole: Vec<_> = row_extents(&all).into_iter().map(|(c, parts, _)| (c, parts)).collect();
+        whole.sort();
+        for room in [0, all.len() as u64 / 4, all.len() as u64 / 2] {
+            let (ir, _) = ims_with_room(&data, Some(room));
+            refkv_ir::array::check(&ir).unwrap();
+            let rows = row_extents(&ir);
+            as_ranges += rows.iter().filter(|r| r.2).count();
+            let mut short: Vec<_> = rows.into_iter().map(|(c, parts, _)| (c, parts)).collect();
+            short.sort();
+            assert!(short == whole, "{name} room {room}: {} rows, {} with room for all", short.len(), whole.len());
+        }
+    }
+    assert!(as_ranges > 100, "{as_ranges} rows of ranges");
+}
+
 #[test]
 fn every_accepted_fixtures_images_name_their_descriptions() {
     let mut images = 0;
