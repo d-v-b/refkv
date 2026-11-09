@@ -11,7 +11,7 @@
 
 use crate::ir::*;
 use serde_json::{Map, Value as J, json};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// The chunk map's schema version, in its Arrow schema's metadata under `refkv.chunk_map`.
 pub const CHUNK_MAP_VERSION: &str = "0";
@@ -415,12 +415,11 @@ impl ChunkMap {
     /// `from`'s rows after these, their arrays `base` on, their elements renumbered by `at`, the
     /// parsed source's null key `key`, and each row's chain the position `locals[array]` gives its
     /// array's chain (a graft).
-    fn append(&mut self, from: &ChunkMap, base: u32, at: &dyn Fn(u32) -> u32, key: &str, locals: &[Vec<u32>], keep: &[bool]) {
+    fn append(&mut self, from: &ChunkMap, base: u32, at: &dyn Fn(u32) -> u32, key: &str, locals: &[Vec<u32>], keep: &[bool], skip: &HashSet<String>) {
         let n = self.len();
-        let objects: Vec<u32> = from.objects.iter().map(|o| self.object(o)).collect();
-        let before = self.objects.len();
-        let parsed = self.object(key);
-        let mut used = false;
+        // object keys join the dictionary as the kept rows first name them
+        let mut objects: Vec<Option<u32>> = vec![None; from.objects.len()];
+        let mut parsed: Option<u32> = None;
         // the rows of the arrays that keep them (the others fell back, Stored::plan_graft)
         let rows: Vec<usize> = (0..from.len()).filter(|&k| keep.get(from.array[k] as usize).copied().unwrap_or(true)).collect();
         for &k in &rows {
@@ -433,8 +432,25 @@ impl ChunkMap {
             self.has_ranges.push(from.has_ranges[k]);
             if let Some(r) = from.ranges_of(k) {
                 for x in r {
-                    used |= from.range_object[x].is_none();
-                    self.range_object.push(Some(from.range_object[x].map_or(parsed, |o| objects[o as usize])));
+                    let o = match from.range_object[x] {
+                        Some(i) => match objects[i as usize] {
+                            Some(o) => o,
+                            None => {
+                                let o = self.object(&from.objects[i as usize]);
+                                objects[i as usize] = Some(o);
+                                o
+                            }
+                        },
+                        None => match parsed {
+                            Some(o) => o,
+                            None => {
+                                let o = self.object(key);
+                                parsed = Some(o);
+                                o
+                            }
+                        },
+                    };
+                    self.range_object.push(Some(o));
                     self.range_offset.push(from.range_offset[x]);
                     self.range_length.push(from.range_length[x]);
                 }
@@ -445,12 +461,12 @@ impl ChunkMap {
             self.chain.push((chain != 0).then_some(chain));
             self.skips.push(from.skips[k]);
         }
-        for (name, col) in &from.params {
+        for (name, col) in from.params.iter().filter(|(name, _)| !skip.contains(*name)) {
             self.params.entry(name.clone()).or_insert_with(|| Column::of(col.kind(), n));
         }
         for (name, col) in self.params.iter_mut() {
             // a column of one name is of one type (Stored::plan_graft): no push fails
-            match from.params.get(name) {
+            match from.params.get(name).filter(|_| !skip.contains(name)) {
                 Some(c) => {
                     for &k in &rows {
                         let _ = col.push(c.get(k));
@@ -463,12 +479,34 @@ impl ChunkMap {
                 }
             }
         }
-        // the parsed source's key, when no row named it
-        if self.objects.len() > before && !used {
-            if let Some(o) = self.objects.pop() {
-                self.object_index.0.remove(&o);
+    }
+
+    /// The parameter columns `drop` names removed, and the object keys no row names dropped from
+    /// the dictionary (after an array fell back, taking its rows).
+    fn prune(&mut self, drop: &HashSet<String>) {
+        self.params.retain(|name, _| !drop.contains(name));
+        let mut used = vec![false; self.objects.len()];
+        for &o in self.range_object.iter().flatten() {
+            if let Some(u) = used.get_mut(o as usize) {
+                *u = true;
             }
         }
+        if used.iter().all(|&u| u) {
+            return;
+        }
+        let mut at = vec![u32::MAX; used.len()];
+        let mut kept = Vec::new();
+        for (k, &u) in used.iter().enumerate() {
+            if u {
+                at[k] = kept.len() as u32;
+                kept.push(self.objects[k].clone());
+            }
+        }
+        for o in self.range_object.iter_mut().flatten() {
+            *o = at[*o as usize];
+        }
+        self.objects = kept;
+        self.object_index.0.clear();
     }
 
     /// Each row's element and member as `f` moves them.
@@ -575,6 +613,8 @@ pub(crate) struct GraftPlan {
     locals: Vec<Vec<u32>>,
     /// whether each array keeps its rows (one that would pass the map's room falls back)
     keep: Vec<bool>,
+    /// the file's parameter columns only its fallen-back arrays listed, which the store does not get
+    skip: HashSet<String>,
     /// the descriptions' and the chunk map's entries the graft adds
     pub(crate) weights: (u64, u64),
 }
@@ -619,6 +659,26 @@ fn map_weights(map: &ChunkMap, n: usize) -> Vec<u64> {
         }
     }
     w
+}
+
+/// The parameter columns the arrays that do not `keep` their rows list, and no array that keeps
+/// them lists: the columns a fallback leaves no array to give.
+fn orphaned_columns(arrays: &[StoredArray], chains: &[Chain], keep: &[bool]) -> HashSet<String> {
+    let listed = |kept: bool| -> HashSet<String> {
+        arrays
+            .iter()
+            .zip(keep)
+            .filter(|(a, k)| **k == kept && a.grid.is_some())
+            .flat_map(|(a, _)| {
+                a.unit_parameters.iter().filter_map(|u| {
+                    let codec = a.chains.get(u.chain as usize).and_then(|&c| chains.get(c as usize)).and_then(|c| c.get(u.codec as usize))?;
+                    Some(format!("p.{}.{}", codec.name, u.name))
+                })
+            })
+            .collect()
+    };
+    let kept = listed(true);
+    listed(false).into_iter().filter(|c| !kept.contains(c)).collect()
 }
 
 /// Which of the arrays keep their rows within `room` entries of the chunk map (`weights`, each
@@ -889,7 +949,8 @@ impl Stored {
             locals.push(local);
             arrays.push(a);
         }
-        for (name, col) in &from.map.params {
+        let skip = orphaned_columns(&from.arrays, &from.chains, &keep);
+        for (name, col) in from.map.params.iter().filter(|(name, _)| !skip.contains(*name)) {
             if let Some(mine) = self.map.params.get(name) {
                 if mine.kind() != col.kind() {
                     return Err(format!("internal: a graft joins the parameter column {name:?} of type {:?} to one of {:?}", col.kind(), mine.kind()));
@@ -898,7 +959,7 @@ impl Stored {
         }
         // last, what the descriptions add, which the descriptions' limit is checked against
         let d = arrays.iter().map(StoredArray::weight).sum::<u64>() + added.iter().map(|c| chain_weight(&c.0)).sum::<u64>();
-        Ok(GraftPlan { added, arrays, locals, keep, weights: (d, rows) })
+        Ok(GraftPlan { added, arrays, locals, keep, skip, weights: (d, rows) })
     }
 
     /// The graft [`Stored::plan_graft`] planned, of the file's arrays `from` with the same `at`
@@ -912,7 +973,7 @@ impl Stored {
         }
         let base = self.arrays.len() as u32;
         self.arrays.extend(plan.arrays);
-        self.map.append(&from.map, base, at, key, &plan.locals, &plan.keep);
+        self.map.append(&from.map, base, at, key, &plan.locals, &plan.keep, &plan.skip);
     }
 
     /// A column, of its entry's type in `codecs`, for every parameter a description with a grid
@@ -950,7 +1011,8 @@ impl Stored {
 
     /// The descriptions in `(element, index)` order, the rows' `array` renumbered with them, so
     /// that which arrays fall back ([`Stored::fit_map`]) does not depend on the order a parser
-    /// walked its source.
+    /// walked its source: a file IR's, at describe. A store is not sorted: each graft's arrays
+    /// follow those already there, in their order.
     pub fn sort_arrays(&mut self) {
         let mut order: Vec<usize> = (0..self.arrays.len()).collect();
         order.sort_by_key(|&k| (self.arrays[k].element, self.arrays[k].index));
@@ -1010,6 +1072,7 @@ impl Stored {
         if keep.iter().all(|&k| k) {
             return used;
         }
+        let orphaned = orphaned_columns(&self.arrays, &self.chains, &keep);
         for (a, k) in self.arrays.iter_mut().zip(&keep) {
             if !k {
                 a.fall_back();
@@ -1017,6 +1080,7 @@ impl Stored {
         }
         let rows: Vec<usize> = (0..self.map.len()).filter(|&k| keep.get(self.map.array[k] as usize).copied().unwrap_or(true)).collect();
         self.map = self.map.take(&rows);
+        self.map.prune(&orphaned);
         used
     }
 
@@ -1161,6 +1225,17 @@ impl Ctx<'_> {
 
     fn entry(&self, name: &str) -> Option<&CodecEntry> {
         self.codecs.iter().find(|c| c.name == name)
+    }
+}
+
+/// Whether element `e`'s recipe gives its extent as it is (no recipe, or `[["src", 0, null]]`), so
+/// that the element alone names the whole extent; any other recipe gives other bytes, and a
+/// `range` of the whole extent is the only way to name the raw ones.
+fn identity_recipe(ir: &Ir, e: u32) -> bool {
+    let Some(form) = ir.form(e) else { return true };
+    match serde_json::from_str::<J>(form) {
+        Ok(j) => j.get("recipe").is_none_or(|r| r == &json!([["src", 0, null]])),
+        Err(_) => true,
     }
 }
 
@@ -1445,7 +1520,7 @@ impl ChunkMap {
                         if o.checked_add(n).is_none_or(|end| end > len) {
                             return Err(row(format!("its range at {o} of {n} bytes is past its element's {len} bytes")));
                         }
-                        if (o, n) == (0, len) {
+                        if (o, n) == (0, len) && identity_recipe(ctx.ir, e) {
                             return Err(row("its range is its element's whole extent, which the element alone names".into()));
                         }
                     }
@@ -2044,10 +2119,13 @@ mod tests {
         assert_eq!((s.arrays[0].chains.clone(), s.arrays[1].chains.clone()), (vec![0], vec![1]));
     }
 
-    /// Describe sorts the arrays by `(element, index)`, their rows following them; a graft keeps
-    /// that order, as it appends a file's arrays with ascending new ids after the store's.
+    /// Describe sorts a file IR's arrays by `(element, index)`, their rows following them; in a
+    /// store, each graft's arrays keep their relative order after those already there, so a
+    /// store's arrays are in graft order. A file's root becomes its object element, whose id is
+    /// below the earlier grafts' ids: a description it keys, grafted second, comes second, and the
+    /// store is not sorted again.
     #[test]
-    fn the_arrays_are_in_element_and_index_order() {
+    fn the_arrays_are_in_key_order_in_a_file_and_in_graft_order_in_a_store() {
         let (mut arrays, mut map) = two_arrays();
         arrays.reverse();
         // the second array's rows to element 1, the first's to element 4, to follow them
@@ -2067,6 +2145,73 @@ mod tests {
         store.graft(&file, o[1]).unwrap();
         let keys: Vec<(u32, Option<u64>)> = store.stored.arrays.iter().map(|a| (a.element, a.index)).collect();
         assert!(keys.windows(2).all(|w| w[0] < w[1]), "{keys:?}");
+        // a description keyed by a file's root, grafted after the others
+        let root = StoredArray { element: 0, index: None, shape: Some(vec![2]), grid: None, chains: vec![], ..valid().arrays[2].clone() };
+        let rooted = with(Stored { arrays: vec![root], ..Stored::default() });
+        let mut store2 = Ir::new_store();
+        let o2 = store2.listing(&[("f.bin".into(), 100), ("g.bin".into(), 100)]).unwrap();
+        store2.graft(&file, o2[0]).unwrap();
+        store2.graft(&rooted, o2[1]).unwrap();
+        let s = &store2.stored;
+        assert_eq!(s.arrays.iter().map(|a| a.element).collect::<Vec<_>>()[2], o2[1]);
+        assert!(s.arrays[2].element < s.arrays[0].element);
+        check_with(&store2, TEST_CODECS).unwrap();
+        crate::check::finish(&mut store2).unwrap();
+        assert_eq!(store2.stored.arrays[2].element, o2[1]);
+    }
+
+    /// A `range` of its element's whole extent is legal where the element's recipe is not the
+    /// identity: the element alone gives the recipe's bytes, and the range the raw extent.
+    #[test]
+    fn a_whole_extent_range_of_an_element_of_another_recipe() {
+        let mut ir = with(valid());
+        let f = ir.forms.id(r#"{"recipe":[["shared",0],["src",0,null]]}"#);
+        let k = ir.form_of.binary_search_by_key(&4, |e| e.0).unwrap();
+        ir.form_of[k].1 = f;
+        let s = std::sync::Arc::make_mut(&mut ir.stored);
+        s.map.range[4] = Some((0, 60));
+        check_with(&ir, TEST_CODECS).unwrap();
+    }
+
+    /// An array that falls back leaves no parameter column of its own, nor object key, in a file
+    /// IR's map at describe and in a store's at graft; a graft whose fallback then fails on the
+    /// descriptions' limit leaves the store as it was.
+    #[test]
+    fn a_fallback_leaves_no_column_or_key_of_its_own() {
+        let quantize = vec![codec("quantize", &[])];
+        let (mut arrays, _) = two_arrays();
+        arrays[1].chains = vec![1];
+        arrays[1].unit_parameters = vec![UnitParameter { chain: 0, codec: 0, name: "scale".into() }];
+        let mut map = ChunkMap::default();
+        for k in 0..4u64 {
+            map.push(Row { array: 0, coords: vec![k], element: Some(4), range: Some((k, 1)), ..Row::default() }).unwrap();
+        }
+        for k in 0..4u64 {
+            let params = vec![("p.quantize.scale".into(), Scalar::Float64(1.0))];
+            map.push(Row { array: 1, coords: vec![k], ranges: Some(vec![(Some("other.bin".into()), k, 1)]), params, ..Row::default() }).unwrap();
+        }
+        // describe: the second array's 16 entries do not fit in 12 after the first's 8
+        let mut ir = file_ir();
+        ir.budget.as_mut().unwrap().rows = 12;
+        ir.describe(arrays.clone(), vec![vec![], quantize.clone()], map.clone()).unwrap();
+        assert!(ir.stored.arrays[1].grid.is_none());
+        assert!(ir.stored.map.params.is_empty() && ir.stored.map.objects.is_empty());
+        // graft: a file that kept both arrays, into a store with room for the first alone
+        let file = with(Stored { arrays, chains: vec![vec![], quantize], map, ..Stored::default() });
+        let mut store = Ir::new_store();
+        let o = store.listing(&[("f.bin".into(), 100), ("g.bin".into(), 100)]).unwrap();
+        let b = store.budget.as_mut().unwrap();
+        b.rows = b.spent_rows + 12;
+        store.graft(&file, o[0]).unwrap();
+        assert!(store.stored.arrays[1].grid.is_none());
+        assert!(store.stored.map.params.is_empty() && store.stored.map.objects.is_empty());
+        assert_eq!(store.stored.chains, vec![Vec::<Codec>::new()]);
+        crate::check::finish(&mut store).unwrap();
+        let state = |s: &Ir| (s.len(), s.digest(), s.stored.as_ref().clone(), s.budget.as_ref().map(|b| (b.spent_records, b.spent_elements, b.spent_descriptions, b.spent_rows)));
+        store.budget.as_mut().unwrap().descriptions = store.budget.as_ref().unwrap().spent_descriptions;
+        let before = state(&store);
+        assert_eq!(store.graft(&file, o[1]).unwrap_err(), format!("budget: more than {} entries of stored arrays", before.3.unwrap().2));
+        assert!(state(&store) == before);
     }
 
     /// A graft appends the chains new to the store's table in the order the file's remaining

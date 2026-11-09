@@ -245,8 +245,11 @@ version, `0`.
   a parser adds them in any order, and the IR sorts them.
 - Exactly one of `element` and `ranges` is set in each row. `range` is set only with `element`,
   where the unit is part of it (a FITS tile within its heap element), is at least one byte long,
-  lies within the element's bytes, and is not all of them (a unit of the whole element names the
-  element alone, so that a unit has one spelling). A unit inside a derived space is an element or
+  lies within the element's bytes, and, where the element's recipe is the identity (none, or
+  `[["src", 0, null]]`), is not all of them: such a whole element names the element alone, so that
+  a unit has one spelling. With any other recipe the element alone gives the recipe's bytes, and a
+  `range` of its whole extent is the one way to name the raw bytes (a TIFF JPEG tile whose recipe
+  splices in its tables). A unit inside a derived space is an element or
   a range of one, since `ranges` address only objects. A row's ranges are at least one, each at
   least one byte long, and lie within their objects as a place's do
   ([§2.2](#22-places-and-parameters)).
@@ -301,7 +304,7 @@ bug in its parser: an internal error naming the array's element.
 - `member` is set exactly when `element` is set and is in a run's subtree, and is below the
   run's count;
 - `range` is set only with `element`, at least one byte long, its end within the element's bytes
-  and below 2^64, and not the element's whole extent;
+  and below 2^64, and not the element's whole extent where the element's recipe is the identity;
 - the first chain and no skips are written as null;
 - `chain` is a position in the array's `chains`, and `skips` names only codecs of the unit's
   chain;
@@ -357,21 +360,25 @@ The descriptions' limit is 2^22 once, plus one per 4 bytes of the source, growin
 of a store as the store's other budgets do (4 plus one per 4 of its bytes). The chunk map's is 2^22
 once, plus four per byte of the source; a store's grows by 4 plus four per byte with each object
 the store lists, as its records do, and not when a file is grafted. Every unit in space 0 has at
-least one byte of its own
-(an HDF5 chunk of an implicit index may be a single byte), or an index entry of several, so where
-no two units share bytes or index entries, a map fits where each row's rank, plus the
-unit-parameter values it sets, is at most 3 for a unit held by an element of space 0 (with or
-without a `range`), or at most 2 for a unit in `ranges`. A unit in a derived space can cost far
-less than a byte of the source, and has no such guarantee; nor has a source whose structures share
-bytes or index entries (two HDF5 object headers on one chunk index, TIFF IFDs sharing a
-StripOffsets array).
+least one byte of its own (an HDF5 chunk of an implicit index may be a single byte), or an index
+entry of several, so where no two units share bytes or index entries, a map fits where each row's
+rank, plus the unit-parameter values it sets, is at most 3 for a unit held by an element of space 0
+(with or without a `range`), or at most 2 for a unit in `ranges` into the parsed source. Nothing
+else has that guarantee: a unit in a derived space can cost far less than a byte of the source; a
+unit in `ranges` into another object (an HDF5 external file) costs entries only the parsed source's
+size pays for, so its array can fall back at any rank; and a source whose structures share bytes or
+index entries (two HDF5 object headers on one chunk index, TIFF IFDs sharing a StripOffsets array)
+can pass the limit.
 
 The chunk map's limit never rejects a run, and never cuts an array's rows short, which a profile
-would read as units the source does not hold. Arrays are tried in `Ir::arrays` order, which
-describe sorts by `(element, index)` and a graft keeps (it appends a file's arrays with ascending
-new ids); one whose rows
-do not fit in what remains of the limit keeps none of them, and falls back: its description has no
-grid, no chains and no unit parameters, and the map no row of it. Later arrays are still tried, and
+would read as units the source does not hold. Arrays are tried in `Ir::arrays` order: a file IR's
+are in `(element, index)` order, which describe sorts them into; in a store, each graft's arrays
+keep their relative order and follow those already there, so a store's arrays are in graft order
+(not in key order: a description keyed by a file's root is keyed, in the store, by the file's
+object element, below the earlier grafts' ids). One whose rows do not fit in what remains of the
+limit keeps none of them, and falls back: its description has no grid, no chains and no unit
+parameters, and the map neither a row of it nor a parameter column or object key only its rows
+had. Later arrays are still tried, and
 the run goes on. In a file IR, which arrays fall back follows from the source alone; in a store,
 from its files in graft order. The descriptions' limit, checked after the fit, still rejects the
 run.
