@@ -207,6 +207,7 @@ def test_a_netcdf_fill_value_is_xarray_s_integer():
         store = zarrify(str(FIXTURES / "hdf5" / name))
         attrs = mapping(mapping(json.loads(store.get(f"{key}/zarr.json") or b"{}"))["attributes"])
         assert attrs["_FillValue"] == want, name
+        assert type(attrs["_FillValue"]) is int, name  # every digit, not a float's notation
 
 
 @pytest.mark.parametrize("path", [p for p in ACCEPTED if p.suffix == ".nwb"], ids=lambda p: p.name)
