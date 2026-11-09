@@ -291,8 +291,10 @@ Further rules for the map:
 - A rank-0 array has at most one row.
 - The map's entries have their own limit (below). Arrays are fitted in `Ir::arrays` order: one
   whose rows would take the map past it falls back to no grid (the general fallback), with no
-  chains, no unit parameters and none of its rows, and later arrays are still tried, so which
-  arrays fall back follows from the source alone. The run goes on. An array's rows are never cut short, which a profile would read as units the
+  chains, no unit parameters and none of its rows, and later arrays are still tried. Which arrays
+  fall back follows, in a file IR, from the source alone, and in a store from its files in graft
+  order. A chain no description names after the fit is dropped from the table, and the
+  descriptions' limit is checked after the fit. The run goes on. An array's rows are never cut short, which a profile would read as units the
   source does not hold.
 
 One batch per `Ir`, not one per array, because CZI subblocks and GRIB fields are each an array, and
@@ -333,8 +335,9 @@ a file can hold hundreds of thousands of them.
   mask stays in the chunk index's bytes in the IR.
 - Mask bits from n up name no filter. The library ignores them, and `skips` leaves them out where
   the parser accepts them. The description widens nothing the parser accepts: IMS reads its chunk
-  indexes without masks and refuses any nonzero mask, so it refuses a partial edge chunk under the
-  flag too, as it does today.
+  indexes without masks and refuses any nonzero mask, and the parser sets every filter's bit in a
+  partial edge chunk's mask under the flag before that check, so IMS refuses such a chunk, as it
+  does today.
 
 **Why Arrow.** An HDF5 dataset can have millions of chunks. As JSON, the map would be text that
 every binding copies and parses. As Arrow, it is a few typed columns:
@@ -543,8 +546,10 @@ share, and the map. They are not in the facts. So:
   every unit has at least one byte of its own or an index entry of several, so a map fits at rank
   3 or less where an element holds each unit (whole, or a range of it), and at rank 2 or less where
   `ranges` do. Past that, or where structures share them (two HDF5 headers on one chunk index, TIFF
-  IFDs sharing a StripOffsets array), the arrays that do not fit fall back to no grid, and no
-  source that parses today is refused for its map. The cost is memory, by part as built: about 93
+  IFDs sharing a StripOffsets array), the arrays that do not fit fall back to no grid. The bound
+  counts bytes of the source, so it covers units in space 0 and `ranges`: a unit in a derived
+  space (a `.fits.gz` heap's tile) can cost far less than a byte of the source, and its array can
+  fall back at any rank. No source that parses today is refused for its map. The cost is memory, by part as built: about 93
   bytes a row, 8 a coordinate and 24 a `ranges` item (109 for a rank-2 row). The worst case, rank-1
   rows over an index two headers share, is about 200 bytes per byte of the source, and about
   210 MB at the 2^22 floor, plus about 76 bytes per row while Python holds an export. The
@@ -582,11 +587,13 @@ be read as a source.
 - parameter columns of the same name join, having the type the codec's entry gives;
 - the parsed source's null key, in every `Place::Extent` and in `ranges`, becomes the file's key in
   the store;
-- the file's arrays are fitted again, in its array order, against what remains of the store's map
-  limit, which has the 2^22 floor once: an array that fitted in its file but does not fit there
-  falls back to no grid. A file's descriptions inside a store can therefore lose grids, depending
-  on the files grafted before it, and the store's `digest()` reflects that. A graft never fails on
-  the map's limit; it fails, adding nothing, only on the descriptions' limit or a check.
+- the file's arrays are fitted again, in its array order, against the store's map limit at that
+  point: the 2^22 floor once, plus 4 and four per byte for each object grafted so far, this file
+  included. An array that fitted in its file but does not fit there falls back to no grid. A
+  file's descriptions inside a store can therefore lose grids, depending on the files grafted
+  before it, and the store's `digest()` reflects that. A graft never fails on the map's limit. As
+  today it fails, adding nothing, on the IR's room, and now also on the descriptions' limit; the
+  checks run in the store's `check::finish`.
 
 `placed()` does the same renumbering for HDF5's store facts today.
 
