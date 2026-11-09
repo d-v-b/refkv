@@ -153,8 +153,9 @@ their coded order, whatever the stream's or the format's planar setting; with ev
 full resolution. A transform that is part of the codec's coding is undone (JPEG 2000's multiple
 component transform, JPEG-LS's color transform, JPEG XR's internal color formats, WebP's YUV, JPEG
 XL's XYB, each to the components its stream declares); a colorspace a 10918-1 stream only signals
-stays (its YCbCr, under JFIF or an Adobe marker). Upsampling and the two decoders' own conversions
-are what the readers here all do, since no reader offers another:
+stays (its YCbCr, under JFIF or an Adobe marker). Upsampling and the decoders' own orders are
+fixed as the decoders the checkers use (imagecodecs, and Pillow for pydicom's JPEG) make them,
+since other decoders differ and the checks compare bytes:
 - a 10918-1 stream's subsampled components are upsampled by libjpeg's "fancy" filters (h2v1,
   h2v2 and h1v2) after the integer IDCT (JDCT_ISLOW), as libjpeg-turbo 2.0 and later do by default,
   which the checkers need;
@@ -209,8 +210,9 @@ named by its target's elements. Where it stands for part of an array's storage (
 shared with another IFD's), the array it belongs to is still an array, whose rows name the target's
 units. Where it stands for a whole declaring structure (a pointer IFD that repeats another, a CZI
 subblock a second directory entry names), there is one array, the target's, and the bytes only the
-duplicate has are a declaration of it: for TIFF, the parent IFD's pointer-tag entry (SubIFDs, tag
-330), since both names lead to one IFD; for CZI, the second `directory/entries/<i>`.
+duplicate has are a declaration of it: for TIFF, the pointer-tag entry in the parent IFD that led
+to it again (SubIFDs, Exif, GPS, Interoperability, GlobalParameters or a private tag of IFD type),
+since both names lead to one IFD; for CZI, the second `directory/entries/<i>`.
 
 ### The test helper
 
@@ -430,7 +432,8 @@ Large (about 2,500 lines), from the spike's branch, about 70% of which carries o
 - **Arrays.** Every visited object with a layout message, keyed by its `objects/<i>` struct, and
   each attribute, keyed by its own attribute message's element: one unit, its value's element, in
   an empty chain. A chunked dataset's grid is `Each(chunk)` under `full`, one row per index entry,
-  its chain the filter pipeline; a compact or contiguous one is one unit.
+  its chain the filter pipeline and each chunk's filter mask its `skips` (a partial edge chunk
+  stored unfiltered skipping every filter); a compact or contiguous one is one unit.
 - **Spike rework.** `shape: None` for the null dataspace; the codec names above; `source` with the
   filter's name; filter configuration as places in the filter message's client data, which HDF5's
   document says how to read; the spike's second filter parser folded into `parse_filters`; an
