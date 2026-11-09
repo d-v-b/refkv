@@ -188,7 +188,7 @@ def document(**changes: object) -> dict:
     }
     source = {"source": {"element": 9, "member": None, "range": None}}
     chain = [{"name": "source", "parameters": {"id": {"value": 7}, "parameters": source}}]
-    return {"chains": [chain], "arrays": [array | changes, plain]}
+    return {"chains": [chain], "arrays": [array | changes, plain], "undescribed": False}
 
 
 def refused(error: type[Exception], match: str, doc: dict) -> None:
@@ -213,8 +213,15 @@ def test_reads_every_form_of_the_document():
                 item_bits=None, pad_from=None, grid=None, chains=(), fill="format_default", unit_parameters=(),
             ),
         ),
+        undescribed=False,
     )
     jsonschema.validate(document(), SCHEMA)
+    marked = {"chains": [], "arrays": [], "undescribed": True}
+    assert read(json.dumps(marked)) == Stored((), (), True)
+    listed = {"chains": [], "arrays": [], "undescribed": ["a/f.bin", "g.bin"]}
+    assert read(json.dumps(listed)) == Stored((), (), ("a/f.bin", "g.bin"))
+    for doc in (marked, listed):
+        jsonschema.validate(doc, SCHEMA)
 
 
 def test_refuses_a_value_of_another_type():
@@ -233,6 +240,14 @@ def test_refuses_an_unknown_member_of_a_description():
 
 def test_refuses_an_unknown_member_of_the_document():
     refused(ValueError, "stored arrays: unknown version", {**document(), "version": 0})
+
+
+def test_refuses_an_undescribed_mark_of_another_type():
+    refused(TypeError, "undescribed: expected", {**document(), "undescribed": 1})
+
+
+def test_refuses_an_undescribed_key_that_is_not_a_string():
+    refused(TypeError, r"undescribed\[0\]: expected", {**document(), "undescribed": [1]})
 
 
 def test_refuses_a_negative_integer():

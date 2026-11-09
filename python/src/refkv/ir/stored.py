@@ -1,7 +1,7 @@
 """The arrays a source stores, at the byte level (spec/stored-array.md
 <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md>), as the IR describes them: the
-descriptions, which `refkv._core.Ir.stored_arrays` gives as one JSON document (the chain table and
-the list), read here into frozen dataclasses; and the chunk map, which `refkv._core.Ir.chunk_map`
+descriptions, which `refkv._core.Ir.stored_arrays` gives as one JSON document (the chain table, the
+list and the `undescribed` mark), read here into frozen dataclasses; and the chunk map, which `refkv._core.Ir.chunk_map`
 gives as an object of the Arrow PyCapsule interface, read by pyarrow, polars or nanoarrow without
 a copy (refkv itself depends on none of them)."""
 
@@ -13,7 +13,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal
 
-from refkv._narrow import JSON, integer, mapping, sequence, string
+from refkv._narrow import JSON, boolean, integer, mapping, sequence, string
 
 
 @dataclass(frozen=True)
@@ -128,10 +128,15 @@ class StoredArray:
 
 @dataclass(frozen=True)
 class Stored:
-    """An IR's stored arrays: the chain table, each chain a tuple of codecs, and the descriptions."""
+    """An IR's stored arrays: the chain table, each chain a tuple of codecs, the descriptions, and
+    the `undescribed` mark (spec/stored-array.md §6
+    <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#6-in-the-ir>)."""
 
     chains: tuple[tuple[Codec, ...], ...]
     arrays: tuple[StoredArray, ...]
+    undescribed: bool | tuple[str, ...]
+    """a file IR's: whether its source kept no descriptions at all at the descriptions' limit; a
+    store IR's: the keys of the objects whose arrays kept none"""
 
 
 def _members(m: Mapping[str, JSON], want: frozenset[str], where: str) -> Mapping[str, JSON]:
@@ -280,11 +285,17 @@ def read(document: str) -> Stored:
     spec/stored-array.json: TypeError for a value of another type, ValueError for an object whose
     members are not exactly its form's or a value the schema refuses (a negative integer, a length
     of 0, a run of fewer than two units, a fill value that is not base64)."""
-    doc = _members(mapping(json.loads(document), "stored arrays"), frozenset({"chains", "arrays"}), "")
+    doc = _members(mapping(json.loads(document), "stored arrays"), frozenset({"chains", "arrays", "undescribed"}), "")
     chains = sequence(doc["chains"], "chains")
     arrays = sequence(doc["arrays"], "arrays")
+    mark = doc["undescribed"]
+    undescribed = (
+        tuple(string(k, f"undescribed[{n}]") for n, k in enumerate(sequence(mark, "undescribed")))
+        if isinstance(mark, list) else boolean(mark, "undescribed")
+    )
     return Stored(
         tuple(tuple(_codec(c, f"chains[{k}][{j}]") for j, c in enumerate(sequence(chain, f"chains[{k}]")))
               for k, chain in enumerate(chains)),
         tuple(_array(a, f"arrays[{k}]") for k, a in enumerate(arrays)),
+        undescribed,
     )

@@ -300,7 +300,7 @@ impl PyIr {
     }
     /// The arrays the source stores (spec/stored-array.md §2.5
     /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#25-the-json-form>): one JSON
-    /// document, the chain table and the descriptions.
+    /// document, the chain table, the descriptions and the `undescribed` mark.
     fn stored_arrays(&self) -> String {
         self.ir.stored.document(&self.ir).to_string()
     }

@@ -617,11 +617,15 @@ pub(crate) struct GraftPlan {
     skip: HashSet<String>,
     /// the descriptions' and the chunk map's entries the graft adds
     pub(crate) weights: (u64, u64),
+    /// whether the file joins the store with no descriptions: it kept none at its own describe, or
+    /// even its arrays' fallen-back descriptions pass the store's descriptions' limit
+    undescribed: bool,
 }
 
 impl StoredArray {
-    /// The general fallback for an array whose units the map has no room for (spec/stored-array.md
-    /// §6 <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#6-in-the-ir>): no grid,
+    /// The general fallback for an array whose units the map has no room for, or whose full
+    /// description the descriptions' limit has none for (spec/stored-array.md §6
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#6-in-the-ir>): no grid,
     /// chains or unit parameters, and so no rows.
     fn fall_back(&mut self) {
         self.grid = None;
@@ -641,6 +645,41 @@ impl StoredArray {
         let fill = usize::from(matches!(self.fill, Fill::Given(Param::Source(_))));
         (1 + self.shape.as_ref().map_or(0, Vec::len) + listed + self.declarations.len() + fill + self.chains.len() + self.unit_parameters.len()) as u64
     }
+
+    /// [`StoredArray::weight`] once it has fallen back.
+    fn fallen_back_weight(&self) -> u64 {
+        let fill = usize::from(matches!(self.fill, Fill::Given(Param::Source(_))));
+        (1 + self.shape.as_ref().map_or(0, Vec::len) + self.declarations.len() + fill) as u64
+    }
+}
+
+/// Which arrays keep their full descriptions within `room` entries of the descriptions' limit
+/// (spec/stored-array.md §6 <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#6-in-the-ir>),
+/// or None where even every array's fallen-back description passes it: first each array is charged
+/// its fallen-back cost; then, in order, each keeps its full description (its chains, unit
+/// parameters and grid, and the chains of `cost` it is the first kept description to name) while
+/// what remains allows, and falls back otherwise. An array that fell back already costs nothing
+/// more, and stays fallen back.
+fn fit_descriptions(arrays: &[StoredArray], cost: &dyn Fn(u32) -> u64, room: u64) -> Option<Vec<bool>> {
+    let fallen: Vec<u64> = arrays.iter().map(StoredArray::fallen_back_weight).collect();
+    let mut left = room.checked_sub(fallen.iter().sum())?;
+    let mut named: HashSet<u32> = HashSet::new();
+    let keep = arrays
+        .iter()
+        .zip(&fallen)
+        .map(|(a, &f)| {
+            let new: HashSet<u32> = a.chains.iter().copied().filter(|c| !named.contains(c)).collect();
+            let extra = (a.weight() - f).saturating_add(new.iter().map(|&c| cost(c)).sum());
+            if extra <= left {
+                left -= extra;
+                named.extend(new);
+                true
+            } else {
+                false
+            }
+        })
+        .collect();
+    Some(keep)
 }
 
 /// A chain's entries the budget counts: itself, each codec and each place a codec's parameter names.
@@ -707,6 +746,14 @@ pub struct Stored {
     /// each chain's position in `chains`, which a graft looks the file's chains up in
     pub chain_index: ChainIndex,
     pub map: ChunkMap,
+    /// a file IR's source kept no descriptions at all: even its arrays' fallen-back descriptions
+    /// passed the descriptions' limit (spec/stored-array.md §6
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#6-in-the-ir>)
+    pub undescribed: bool,
+    /// a store IR's objects whose arrays kept no descriptions, by key: each grafted file marked
+    /// `undescribed`, or whose descriptions the graft's fallback dropped whole, and each object
+    /// whose arrays the store's own parser describes where its describe kept none
+    pub undescribed_keys: Vec<String>,
 }
 
 impl Place {
@@ -830,8 +877,10 @@ impl StoredArray {
 }
 
 impl Stored {
+    /// No descriptions, chains or rows, and no mark: an IR that described nothing (a source marked
+    /// `undescribed` is not empty, so that a graft carries its mark).
     pub fn is_empty(&self) -> bool {
-        self.arrays.is_empty() && self.chains.is_empty() && self.map.is_empty()
+        self.arrays.is_empty() && self.chains.is_empty() && self.map.is_empty() && !self.undescribed && self.undescribed_keys.is_empty()
     }
 
     /// Every place the descriptions and the chain table hold.
@@ -857,11 +906,43 @@ impl Stored {
     /// file's key in the store, `key`, their chains looked up in this table's index (made current
     /// by [`Stored::index_chains`]), each array's chains once each (two its chains the renumbering
     /// makes one are one, and its rows and unit parameters name that one, so long as they give one
-    /// set of unit parameters), and the map's parameter columns of one name of one type.
-    pub(crate) fn plan_graft(&self, from: &Stored, at: &dyn Fn(u32) -> u32, key: &str, room: u64) -> Res<GraftPlan> {
-        // first the fit: the file's arrays, in its order, to the store's chunk map room
-        let (keep, rows) = fit(&map_weights(&from.map, from.arrays.len()), room);
-        // then the chains the remaining descriptions name, in order of first use, each renumbered
+    /// set of unit parameters), and the map's parameter columns of one name of one type. The file's
+    /// arrays are fitted first to the chunk map's `room`, then to the descriptions' `descriptions`,
+    /// as at describe: where even their fallen-back descriptions do not fit, the file joins the
+    /// store with none, its key marked `undescribed`.
+    pub(crate) fn plan_graft(&self, from: &Stored, at: &dyn Fn(u32) -> u32, key: &str, room: u64, descriptions: u64) -> Res<GraftPlan> {
+        let n = from.arrays.len();
+        let w = map_weights(&from.map, n);
+        let (keep, _) = fit(&w, room);
+        let plan = self.plan_kept(from, at, key, keep, &w)?;
+        if plan.weights.0 <= descriptions {
+            return Ok(plan);
+        }
+        // a chain the store's table has costs nothing more; an added one, its weight
+        let first = self.chains.len() as u32;
+        let cost = |c: u32| c.checked_sub(first).and_then(|k| plan.added.get(k as usize)).map_or(0, |x| chain_weight(&x.0));
+        match fit_descriptions(&plan.arrays, &cost, descriptions) {
+            Some(fits) => {
+                let keep = plan.keep.iter().zip(&fits).map(|(&a, &b)| a && b).collect();
+                self.plan_kept(from, at, key, keep, &w)
+            }
+            None => Ok(GraftPlan {
+                added: Vec::new(),
+                arrays: Vec::new(),
+                locals: vec![Vec::new(); n],
+                keep: vec![false; n],
+                skip: from.map.params.keys().cloned().collect(),
+                weights: (0, 0),
+                undescribed: true,
+            }),
+        }
+    }
+
+    /// [`Stored::plan_graft`] of the file's arrays whose rows `keep` keeps (`w`, each one's map
+    /// entries), the others fallen back.
+    fn plan_kept(&self, from: &Stored, at: &dyn Fn(u32) -> u32, key: &str, keep: Vec<bool>, w: &[u64]) -> Res<GraftPlan> {
+        let rows: u64 = w.iter().zip(&keep).filter(|p| *p.1).map(|p| *p.0).sum();
+        // the chains the remaining descriptions name, in order of first use, each renumbered
         // and looked up by its text: one the table has keeps its position, a new one is appended
         let mut added: Vec<(Chain, String)> = Vec::new();
         let mut added_at: HashMap<String, u32> = HashMap::new();
@@ -959,7 +1040,7 @@ impl Stored {
         }
         // last, what the descriptions add, which the descriptions' limit is checked against
         let d = arrays.iter().map(StoredArray::weight).sum::<u64>() + added.iter().map(|c| chain_weight(&c.0)).sum::<u64>();
-        Ok(GraftPlan { added, arrays, locals, keep, skip, weights: (d, rows) })
+        Ok(GraftPlan { added, arrays, locals, keep, skip, weights: (d, rows), undescribed: from.undescribed })
     }
 
     /// The graft [`Stored::plan_graft`] planned, of the file's arrays `from` with the same `at`
@@ -974,6 +1055,9 @@ impl Stored {
         let base = self.arrays.len() as u32;
         self.arrays.extend(plan.arrays);
         self.map.append(&from.map, base, at, key, &plan.locals, &plan.keep, &plan.skip);
+        if plan.undescribed {
+            self.undescribed_keys.push(key.to_string());
+        }
     }
 
     /// A column, of its entry's type in `codecs`, for every parameter a description with a grid
@@ -1011,8 +1095,8 @@ impl Stored {
 
     /// The descriptions in `(element, index)` order, the rows' `array` renumbered with them, so
     /// that which arrays fall back ([`Stored::fit_map`]) does not depend on the order a parser
-    /// walked its source: a file IR's, at describe. A store is not sorted: each graft's arrays
-    /// follow those already there, in their order.
+    /// walked its source: a file IR's, and a store parser's own, at describe. A store's grafted
+    /// arrays are not sorted: each graft's follow those already there, in their order.
     pub fn sort_arrays(&mut self) {
         let mut order: Vec<usize> = (0..self.arrays.len()).collect();
         order.sort_by_key(|&k| (self.arrays[k].element, self.arrays[k].index));
@@ -1064,16 +1148,48 @@ impl Stored {
 
     /// The general fallback of the arrays whose rows the map has no room for (spec/stored-array.md
     /// §6 <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#6-in-the-ir>): arrays are
-    /// tried in `Ir::arrays` order; one whose rows do not fit in what remains of `room` keeps none
-    /// of them (no grid, chains, unit parameters or rows); later arrays are still tried. The entries
-    /// the rows kept take.
+    /// tried in the order of `arrays` (a file IR's sorted by [`Stored::sort_arrays`]); one whose
+    /// rows do not fit in what remains of `room` keeps none of them (no grid, chains, unit
+    /// parameters or rows); later arrays are still tried. The entries the rows kept take.
     pub fn fit_map(&mut self, room: u64) -> u64 {
         let (keep, used) = fit(&map_weights(&self.map, self.arrays.len()), room);
-        if keep.iter().all(|&k| k) {
-            return used;
+        self.fall_back_all(&keep);
+        used
+    }
+
+    /// The descriptions' limit's fallback, after [`Stored::fit_map`] and
+    /// [`Stored::drop_unnamed_chains`] (spec/stored-array.md §6
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#6-in-the-ir>): where the
+    /// descriptions and the chain table pass `room` entries, the arrays [`fit_descriptions`] finds
+    /// no room for fall back, their rows, columns and chains dropped; where even every fallen-back
+    /// description passes it, none is kept, and false is returned (the caller marks the source).
+    pub fn fit_descriptions(&mut self, room: u64) -> bool {
+        if self.weights().0 <= room {
+            return true;
         }
-        let orphaned = orphaned_columns(&self.arrays, &self.chains, &keep);
-        for (a, k) in self.arrays.iter_mut().zip(&keep) {
+        let chains = &self.chains;
+        let cost = |c: u32| chains.get(c as usize).map_or(0, chain_weight);
+        match fit_descriptions(&self.arrays, &cost, room) {
+            Some(keep) => {
+                self.fall_back_all(&keep);
+                self.drop_unnamed_chains();
+                true
+            }
+            None => {
+                *self = Stored::default();
+                false
+            }
+        }
+    }
+
+    /// The arrays `keep` does not keep fallen back, with their rows, the parameter columns only
+    /// they listed and the object keys only their rows named.
+    fn fall_back_all(&mut self, keep: &[bool]) {
+        if keep.iter().all(|&k| k) {
+            return;
+        }
+        let orphaned = orphaned_columns(&self.arrays, &self.chains, keep);
+        for (a, k) in self.arrays.iter_mut().zip(keep) {
             if !k {
                 a.fall_back();
             }
@@ -1081,7 +1197,6 @@ impl Stored {
         let rows: Vec<usize> = (0..self.map.len()).filter(|&k| keep.get(self.map.array[k] as usize).copied().unwrap_or(true)).collect();
         self.map = self.map.take(&rows);
         self.map.prune(&orphaned);
-        used
     }
 
     /// The ids after run `r` (its subtree `[r, end)`, `count` members) was unfolded, its members
@@ -1111,8 +1226,14 @@ impl Stored {
         d + c + self.map.memory()
     }
 
-    /// The descriptions (their JSON forms), the chain table and each row's values.
+    /// The descriptions (their JSON forms), the chain table, each row's values and the
+    /// `undescribed` mark.
     pub fn digest(&self, eat: &mut dyn FnMut(&[u8])) {
+        eat(&[u8::from(self.undescribed)]);
+        for k in &self.undescribed_keys {
+            eat(k.as_bytes());
+            eat(&[0]);
+        }
         for c in &self.chains {
             eat(chain_json(c).to_string().as_bytes());
         }
@@ -1124,7 +1245,8 @@ impl Stored {
 
     /// The JSON document of the descriptions (spec/stored-array.md §2.5
     /// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#25-the-json-form>): the
-    /// chain table and the list, each description with its element's path in `ir`.
+    /// chain table, the list, each description with its element's path in `ir`, and the
+    /// `undescribed` mark (a bool in a file IR, a list of object keys in a store IR).
     pub fn document(&self, ir: &Ir) -> J {
         let arrays: Vec<J> = self
             .arrays
@@ -1136,7 +1258,8 @@ impl Stored {
                 j
             })
             .collect();
-        json!({"chains": self.chains.iter().map(chain_json).collect::<Vec<J>>(), "arrays": arrays})
+        let undescribed = if ir.store { json!(self.undescribed_keys) } else { json!(self.undescribed) };
+        json!({"chains": self.chains.iter().map(chain_json).collect::<Vec<J>>(), "arrays": arrays, "undescribed": undescribed})
     }
 }
 
@@ -1641,13 +1764,60 @@ pub fn check(ir: &Ir) -> Res<()> {
     check_with(ir, CODECS)
 }
 
+/// The `undescribed` mark's invariants (spec/stored-array.md §5
+/// <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#5-checks>): a file IR marked
+/// `undescribed` keeps no descriptions, chains or rows, and lists no keys; a store IR is not
+/// marked itself, and its list names its objects (`keys`), once each, none of which holds a
+/// description's key or a row's `element`, nor is named by a row's `ranges`.
+fn check_undescribed(ir: &Ir, keys: Option<&HashMap<String, u32>>) -> Res<()> {
+    let s = &ir.stored;
+    let Some(keys) = keys else {
+        if !s.undescribed_keys.is_empty() {
+            return Err("internal: a file IR lists objects as undescribed".into());
+        }
+        if s.undescribed && !(s.arrays.is_empty() && s.chains.is_empty() && s.map.is_empty()) {
+            return Err("internal: a source marked undescribed keeps descriptions".into());
+        }
+        return Ok(());
+    };
+    if s.undescribed {
+        return Err("internal: a store IR marked undescribed itself rather than by its objects' keys".into());
+    }
+    let mut listed: HashSet<u32> = HashSet::new();
+    for k in &s.undescribed_keys {
+        let Some(&o) = keys.get(k) else {
+            return Err(format!("internal: the undescribed key {k:?} is no object of the store"));
+        };
+        if !listed.insert(o) {
+            return Err(format!("internal: the undescribed key {k:?} is listed twice"));
+        }
+    }
+    if listed.is_empty() {
+        return Ok(());
+    }
+    let of = ir.sources().of;
+    let inside = |e: u32| of.get(e as usize).is_some_and(|o| listed.contains(o));
+    if let Some(a) = s.arrays.iter().find(|a| inside(a.element)) {
+        return Err(format!("internal: the stored array of {} is in an object marked undescribed", named(ir, a.element)));
+    }
+    if let Some(e) = s.map.element.iter().flatten().find(|&&e| inside(e)) {
+        return Err(format!("internal: a chunk map row names {}, in an object marked undescribed", named(ir, *e)));
+    }
+    let marked: HashSet<&str> = s.undescribed_keys.iter().map(String::as_str).collect();
+    if let Some(k) = s.map.range_object.iter().flatten().map(|&o| s.map.objects[o as usize].as_str()).find(|k| marked.contains(k)) {
+        return Err(format!("internal: a chunk map row's ranges name {k:?}, an object marked undescribed"));
+    }
+    Ok(())
+}
+
 /// [`check`], with the codec list `codecs`.
 pub fn check_with(ir: &Ir, codecs: &[CodecEntry]) -> Res<()> {
     let s = &ir.stored;
     if s.is_empty() {
         return Ok(());
     }
-    let keys = ir.store.then(|| (0..ir.len() as u32).filter(|&i| ir.kind[i as usize] == OBJECT).map(|o| (ir.key(o), o)).collect());
+    let keys: Option<HashMap<String, u32>> = ir.store.then(|| (0..ir.len() as u32).filter(|&i| ir.kind[i as usize] == OBJECT).map(|o| (ir.key(o), o)).collect());
+    check_undescribed(ir, keys.as_ref())?;
     let ctx = Ctx { ir, codecs, roots: ir.run_roots(), keys };
     for a in &s.arrays {
         a.check(&ctx, &s.chains).map_err(|e| format!("internal: the stored array of {}: {e}", named(ir, a.element)))?;
@@ -2026,23 +2196,98 @@ mod tests {
         assert_eq!(ir.describe(vec![a], vec![], ChunkMap::default()).unwrap_err(), "internal: the IR's arrays described twice");
     }
 
+    /// A source whose fallen-back descriptions still pass the descriptions' limit keeps none and
+    /// is marked `undescribed`, rather than refused; it spends none of the limit.
     #[test]
-    fn refuses_descriptions_past_the_budget() {
+    fn a_source_past_the_descriptions_limit_keeps_none_and_is_marked() {
         let mut ir = file_ir();
         ir.budget.as_mut().unwrap().descriptions = 0;
         let a = StoredArray { index: None, ..valid().arrays[2].clone() };
-        assert_eq!(ir.describe(vec![a], vec![], ChunkMap::default()).unwrap_err(), "budget: more than 0 entries of stored arrays");
+        ir.describe(vec![a], vec![], ChunkMap::default()).unwrap();
+        assert!(ir.stored.undescribed && ir.stored.arrays.is_empty() && !ir.stored.is_empty());
         assert_eq!(ir.budget.as_ref().unwrap().spent_descriptions, 0);
+        assert_eq!(ir.stored.document(&ir)["undescribed"], json!(true));
+        check(&ir).unwrap();
     }
 
+    /// An array whose full description passes the descriptions' limit falls back, and later arrays
+    /// are still tried: a description of 2000 listed runs falls back, and the one after it keeps
+    /// its grid and the chain it names.
     #[test]
-    fn refuses_listed_runs_past_the_budget() {
+    fn an_array_past_the_descriptions_limit_falls_back_and_the_next_keeps_its_grid() {
         let mut ir = file_ir();
         ir.budget.as_mut().unwrap().descriptions = 1000;
-        // one description of 2000 listed runs: 1, 2, 1, 2, ...
         let runs: Vec<Run> = (0..2000).map(|k| Run::One(1 + k % 2)).collect();
         let a = StoredArray { element: 1, index: None, shape: Some(vec![3000]), grid: Some(Grid { axes: vec![AxisUnits::List(runs)], edge: Edge::Short }), chains: vec![0], fill: Fill::Undefined, ..valid().arrays[1].clone() };
-        assert_eq!(ir.describe(vec![a], vec![vec![]], ChunkMap::default()).unwrap_err(), "budget: more than 1000 entries of stored arrays");
+        let b = StoredArray { index: None, chains: vec![0], ..valid().arrays[1].clone() };
+        ir.describe(vec![a, b], vec![vec![]], ChunkMap::default()).unwrap();
+        let s = &ir.stored;
+        assert!(!s.undescribed);
+        assert!(s.arrays[0].grid.is_none() && s.arrays[0].chains.is_empty());
+        assert!(s.arrays[1].grid.is_some() && s.arrays[1].chains == [0]);
+        assert_eq!(s.chains, vec![Vec::<Codec>::new()]);
+        assert_eq!(ir.budget.as_ref().unwrap().spent_descriptions, s.weights().0);
+    }
+
+    /// A graft fits the file's descriptions to what remains of the store's descriptions' limit as
+    /// describe does: an array whose full description passes it falls back there, its rows and
+    /// the chain only it named dropped, and the graft goes on.
+    #[test]
+    fn a_graft_past_the_descriptions_limit_falls_back() {
+        let source = vec![codec("source", &[("format", Param::Value(json!("hdf5")))])];
+        let (mut arrays, map) = two_arrays();
+        arrays[0].chains = vec![1];
+        let mut file = file_ir();
+        file.describe(arrays, vec![vec![], source], map).unwrap();
+        let mut store = Ir::new_store();
+        let o = store.listing(&[("f.bin".into(), 100)]).unwrap();
+        let fallen: u64 = file.stored.arrays.iter().map(StoredArray::fallen_back_weight).sum();
+        // room for both fallen back, and the second's full description (and its chain), not the first's
+        let full_second = file.stored.arrays[1].weight() + chain_weight(&file.stored.chains[0]);
+        let b = store.budget.as_mut().unwrap();
+        b.descriptions = b.spent_descriptions + fallen + (full_second - file.stored.arrays[1].fallen_back_weight());
+        store.graft(&file, o[0]).unwrap();
+        let s = &store.stored;
+        assert!(s.arrays[0].grid.is_none() && s.arrays[1].grid.is_some());
+        assert_eq!(s.chains, vec![Vec::<Codec>::new()]);
+        assert_eq!(s.map.array, [1, 1, 1, 1]);
+        assert!(s.undescribed_keys.is_empty());
+        crate::check::finish(&mut store).unwrap();
+    }
+
+    /// A file marked `undescribed` at its describe, and one whose fallen-back descriptions do not
+    /// fit the store's remaining limit, join the store with no descriptions, their keys listed;
+    /// a store parser's own describe that keeps none lists each object whose arrays it described.
+    #[test]
+    fn undescribed_files_and_objects_are_listed_in_a_store() {
+        let mut marked = file_ir();
+        marked.budget.as_mut().unwrap().descriptions = 0;
+        let (arrays, map) = two_arrays();
+        marked.describe(arrays.clone(), vec![vec![]], map.clone()).unwrap();
+        assert!(marked.stored.undescribed);
+        let mut whole = file_ir();
+        whole.describe(arrays, vec![vec![]], map).unwrap();
+        let mut store = Ir::new_store();
+        let o = store.listing(&[("a/f.bin".into(), 100), ("g.bin".into(), 100)]).unwrap();
+        store.graft(&marked, o[0]).unwrap();
+        let b = store.budget.as_mut().unwrap();
+        b.descriptions = b.spent_descriptions;
+        store.graft(&whole, o[1]).unwrap();
+        let s = &store.stored;
+        assert!(s.arrays.is_empty() && s.map.is_empty() && s.chains.is_empty());
+        assert_eq!(s.undescribed_keys, ["a/f.bin", "g.bin"]);
+        assert_eq!(s.document(&store)["undescribed"], json!(["a/f.bin", "g.bin"]));
+        crate::check::finish(&mut store).unwrap();
+        // a store's own describe: two arrays of one object, past the limit
+        let mut own = Ir::new_store();
+        let o = own.listing(&[("x.raw".into(), 100), ("y.raw".into(), 100)]).unwrap();
+        let header = own.value(o[1], "header", NO_INDEX, "bytes[8]", 0, (0, 8), None).unwrap();
+        crate::check::finish(&mut own).unwrap();
+        own.budget.as_mut().unwrap().descriptions = own.budget.as_ref().unwrap().spent_descriptions;
+        let a = |index: u64| StoredArray { element: header, index: Some(index), ..valid().arrays[2].clone() };
+        own.describe(vec![a(0), a(1)], vec![], ChunkMap::default()).unwrap();
+        assert_eq!(own.stored.undescribed_keys, ["y.raw"]);
+        assert!(!own.stored.undescribed);
     }
 
     /// The chunk map's limit is 2^22 plus four entries per byte of the source, so a map of one
@@ -2243,8 +2488,8 @@ mod tests {
     }
 
     /// An array that falls back leaves no parameter column of its own, nor object key, in a file
-    /// IR's map at describe and in a store's at graft; a graft whose fallback then fails on the
-    /// descriptions' limit leaves the store as it was. A column only a fallen-back array lists is
+    /// IR's map at describe and in a store's at graft; a graft with no room left in the
+    /// descriptions' limit adds no description, row or column, and lists the file's key. A column only a fallen-back array lists is
     /// skipped though the store has one of its name and another type, the store's rows padded with
     /// nulls in it; one that a fallen-back and a kept array of a file both list survives.
     #[test]
@@ -2278,11 +2523,11 @@ mod tests {
         assert!(store.stored.map.params.is_empty() && store.stored.map.objects.is_empty());
         assert_eq!(store.stored.chains, vec![Vec::<Codec>::new()]);
         crate::check::finish(&mut store).unwrap();
-        let state = |s: &Ir| (s.len(), s.digest(), s.stored.as_ref().clone(), s.budget.as_ref().map(|b| (b.spent_records, b.spent_elements, b.spent_descriptions, b.spent_rows)));
         store.budget.as_mut().unwrap().descriptions = store.budget.as_ref().unwrap().spent_descriptions;
-        let before = state(&store);
-        assert_eq!(store.graft(&file, o[1]).unwrap_err(), format!("budget: more than {} entries of stored arrays", before.3.unwrap().2));
-        assert!(state(&store) == before);
+        let (arrays, rows) = (store.stored.arrays.len(), store.stored.map.len());
+        store.graft(&file, o[1]).unwrap();
+        assert_eq!((store.stored.arrays.len(), store.stored.map.len()), (arrays, rows));
+        assert_eq!(store.stored.undescribed_keys, ["g.bin"]);
 
         // the columns of a graft whose array falls back, in a store whose rows already have one of
         // their names: each array of `rows` units (element 4, a byte each), listing `p.quantize.scale`
@@ -2440,7 +2685,8 @@ mod tests {
         assert!(!store.finished);
     }
 
-    /// A store's failed graft, refused by its arrays' plan or by the budget, leaves it as it was.
+    /// A store's failed graft, refused by its arrays' plan or by the IR's room, leaves it as it was
+    /// (the descriptions' limit no longer refuses one: its file falls back).
     #[test]
     fn a_failed_graft_leaves_the_store_unchanged() {
         let chain = |object: Option<&str>| vec![codec("quantize", &[("method", Param::Source(Place::Extent { object: object.map(String::from), offset: 0, length: 4 }))])];
@@ -2460,9 +2706,10 @@ mod tests {
         let before = state(&store);
         assert!(store.graft(&refused, o[0]).unwrap_err().contains("they give other unit parameters"));
         assert!(state(&store) == before);
-        store.budget.as_mut().unwrap().descriptions = 0;
+        let b = store.budget.as_mut().unwrap();
+        b.records = b.spent_records;
         let before = state(&store);
-        assert_eq!(store.graft(&with(valid()), o[0]).unwrap_err(), "budget: more than 0 entries of stored arrays");
+        assert_eq!(store.graft(&with(valid()), o[0]).unwrap_err(), format!("budget: more than {} IR records", before.3.unwrap().0));
         assert!(state(&store) == before);
     }
 
@@ -3087,5 +3334,59 @@ mod tests {
     #[test]
     fn refuses_a_parameter_column_set_on_another_chain() {
         assert!(refusal(|s| { s.map.params.insert("p.quantize.scale".into(), Column::Float64(vec![Some(1.0), Some(1.0), Some(1.0), None, None])); }).contains("its array does not give it for its chain"));
+    }
+
+    /// A store holding `valid()` grafted under `a/f.bin`, its rows' `ranges` naming `beside.bin`,
+    /// and `c.bin` listed, with `f` applied to its stored arrays: the check's refusal.
+    fn store_refusal(f: impl FnOnce(&mut Stored)) -> String {
+        let mut store = Ir::new_store();
+        let o = store.listing(&[("a/f.bin".into(), 100), ("beside.bin".into(), 4), ("c.bin".into(), 10)]).unwrap();
+        store.graft(&with(valid()), o[0]).unwrap();
+        f(std::sync::Arc::make_mut(&mut store.stored));
+        check_with(&store, TEST_CODECS).unwrap_err()
+    }
+
+    #[test]
+    fn refuses_a_file_ir_listing_undescribed_objects() {
+        assert_eq!(refusal(|s| s.undescribed_keys.push("x".into())), "internal: a file IR lists objects as undescribed");
+    }
+
+    #[test]
+    fn refuses_a_source_marked_undescribed_that_keeps_descriptions() {
+        assert_eq!(refusal(|s| s.undescribed = true), "internal: a source marked undescribed keeps descriptions");
+    }
+
+    #[test]
+    fn refuses_a_store_marked_undescribed_itself() {
+        assert!(store_refusal(|s| s.undescribed = true).contains("marked undescribed itself"));
+    }
+
+    #[test]
+    fn refuses_an_undescribed_key_of_no_object() {
+        assert!(store_refusal(|s| s.undescribed_keys.push("nope".into())).contains("\"nope\" is no object of the store"));
+    }
+
+    #[test]
+    fn refuses_an_undescribed_key_listed_twice() {
+        assert!(store_refusal(|s| s.undescribed_keys.extend(["c.bin".into(), "c.bin".into()])).contains("\"c.bin\" is listed twice"));
+    }
+
+    #[test]
+    fn refuses_a_description_in_an_undescribed_object() {
+        assert!(store_refusal(|s| s.undescribed_keys.push("a/f.bin".into())).contains("is in an object marked undescribed"));
+    }
+
+    #[test]
+    fn refuses_a_row_element_in_an_undescribed_object() {
+        assert!(store_refusal(|s| {
+            s.arrays.clear();
+            s.undescribed_keys.push("a/f.bin".into());
+        })
+        .contains("in an object marked undescribed"));
+    }
+
+    #[test]
+    fn refuses_a_row_range_of_an_undescribed_object() {
+        assert!(store_refusal(|s| s.undescribed_keys.push("beside.bin".into())).contains("ranges name \"beside.bin\""));
     }
 }

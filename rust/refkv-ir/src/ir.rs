@@ -693,10 +693,30 @@ impl Ir {
         // falls back
         stored.sort_arrays();
         let room = self.budget.as_ref().map_or(u64::MAX, |b| b.rows.saturating_sub(b.spent_rows));
-        let r = stored.fit_map(room);
+        stored.fit_map(room);
         stored.drop_unnamed_chains();
         stored.add_columns(crate::array::CODECS, 0);
-        let (d, _) = stored.weights();
+        // then the descriptions' limit, which falls back the same way: where even every array's
+        // fallen-back description passes it, the source keeps none and is marked (a store parser's
+        // own describe marks each object whose arrays it described)
+        let room = self.budget.as_ref().map_or(u64::MAX, |b| b.descriptions.saturating_sub(b.spent_descriptions));
+        let objects: Vec<String> = if self.store {
+            let of = self.sources().of;
+            let mut o: Vec<u32> = stored.arrays.iter().filter_map(|a| of.get(a.element as usize).copied()).filter(|&o| o != NONE).collect();
+            o.sort_unstable();
+            o.dedup();
+            o.into_iter().map(|o| self.key(o)).collect()
+        } else {
+            Vec::new()
+        };
+        if !stored.fit_descriptions(room) {
+            if self.store {
+                stored.undescribed_keys = objects;
+            } else {
+                stored.undescribed = true;
+            }
+        }
+        let (d, r) = stored.weights();
         if let Some(b) = self.budget.as_mut() {
             b.describe(d, r)?;
         }
@@ -801,11 +821,12 @@ impl Ir {
         // graft does not grow it
         let key = self.key(under);
         let room = self.budget.as_ref().map_or(u64::MAX, |b| b.rows.saturating_sub(b.spent_rows));
+        let descriptions = self.budget.as_ref().map_or(u64::MAX, |b| b.descriptions.saturating_sub(b.spent_descriptions));
         let plan = if from.stored.is_empty() {
             None
         } else {
             Arc::make_mut(&mut self.stored).index_chains();
-            Some(self.stored.plan_graft(&from.stored, &at, &key, room)?)
+            Some(self.stored.plan_graft(&from.stored, &at, &key, room, descriptions)?)
         };
         let added = from.len().saturating_sub(1) as u64;
         if let Some(b) = self.budget.as_mut() {

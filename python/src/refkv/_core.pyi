@@ -136,7 +136,7 @@ class Ir:
     def stored_arrays(self) -> str:
         """The arrays the source stores (spec/stored-array.md §2.5
         <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#25-the-json-form>): one JSON
-        document, the chain table and the descriptions."""
+        document, the chain table, the descriptions and the `undescribed` mark."""
     def chunk_map(self) -> ChunkMap:
         """The chunk map (spec/stored-array.md §4
         <https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#4-the-chunk-map>): an object

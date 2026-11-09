@@ -2,13 +2,17 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/stored-array.json",
   "title": "refkv stored arrays, version 0",
-  "description": "The JSON document of an IR's stored arrays: its chain table and its descriptions (https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#25-the-json-form). A format's description schema refers to #/$defs/stored_array for its arrays.",
+  "description": "The JSON document of an IR's stored arrays: its chain table, its descriptions and its undescribed mark (https://github.com/d-v-b/refkv/blob/main/spec/stored-array.md#25-the-json-form). A format's description schema refers to #/$defs/stored_array for its arrays.",
   "type": "object",
   "properties": {
     "chains": {"type": "array", "items": {"$ref": "#/$defs/chain"}},
-    "arrays": {"type": "array", "items": {"$ref": "#/$defs/stored_array"}}
+    "arrays": {"type": "array", "items": {"$ref": "#/$defs/stored_array"}},
+    "undescribed": {
+      "description": "A source that kept no descriptions at all at the descriptions' limit: in a file IR, whether this one did (then chains and arrays are empty); in a store IR, the keys of the objects whose arrays kept none.",
+      "oneOf": [{"type": "boolean"}, {"type": "array", "items": {"type": "string"}, "uniqueItems": true}]
+    }
   },
-  "required": ["chains", "arrays"],
+  "required": ["chains", "arrays", "undescribed"],
   "additionalProperties": false,
   "$defs": {
     "count": {"type": "integer", "minimum": 0},
