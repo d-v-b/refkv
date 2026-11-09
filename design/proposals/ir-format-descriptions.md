@@ -132,7 +132,10 @@ with the revisions of [conventions §8.8](../../spec/conventions.md#88-canonical
 and Adobe segments and its SOF for the parsers that declare them, and the test helpers. It also adds
 to [§7](../../spec/stored-array.md#7-the-formats) one heading per format, in the order of [§The
 formats](#the-formats), each holding a line that the format is not described yet, so that each
-format PR fills its own heading and none appends to the end of the file; and it rewords
+format PR fills its own heading and none appends to the end of the file; it rewords
+[§4.2](../../spec/stored-array.md#42-rows)'s `ranges` to "where no element holds the unit's bytes in
+one span", and [§6](../../spec/stored-array.md#6-in-the-ir)'s graft bullet ("a graft that fails on
+it … adds nothing") to the fallback below; and it rewords
 [§1](../../spec/stored-array.md#1-stored-arrays)'s "Today only the NumPy profile describes its
 arrays" to point at [§7](../../spec/stored-array.md#7-the-formats)'s headings, which no format PR
 then edits, and scopes [§1](../../spec/stored-array.md#1-stored-arrays)'s "Every array a parser
@@ -382,17 +385,19 @@ fallen-back description together still passes it, the source keeps none. It take
 the map's fit. First every array is charged its fallen-back cost; where that total passes the limit,
 the source keeps no descriptions at all, rather than being refused, and is marked `undescribed`, a
 member of the IR and of its JSON form beside `arrays` and `chains`, carried for each file through a
-graft, which adds such a file's arrays to the store undescribed. Every plan PR refuses, or falls
-back to the source's bytes, where it sees the mark, so that such a source is never read as one with
-no arrays. Then, in `Ir::arrays` order, each array keeps
-its full description (its chains, unit parameters and grid, and the chains it is the first remaining
-description to name) while the remainder allows, and falls back otherwise; an array that fell back
-at the map's limit stays fallen back; a fallen-back array's rows, columns and chains are dropped and
-the chain table pruned again, so a later array that names a chain it shared pays for it. So a source
-such as a GRIB file of many small fields over a shared section 3 is not refused for its
-descriptions, nor is one whose fallen-back descriptions still pass the limit (HDF5 headers sharing
-rank-32 dataspaces), which keeps none; rule 8's PRs name the arrays that fall back and any source
-that keeps no descriptions.
+graft. A graft runs the same two passes, after its map fit, against the store's remaining room
+(`plan_graft` today only weighs and fails): the grafted file's arrays fall back as they would at
+describe, and where even their fallen-back costs do not fit, the file joins the store with no
+descriptions and its key is recorded in the store's `undescribed` list. Every plan PR refuses, or
+falls back to the source's bytes, where it sees the mark, so that such a source is never read as one
+with no arrays. Then, in `Ir::arrays` order, each array keeps its full description (its chains, unit
+parameters and grid, and the chains it is the first remaining description to name) while the
+remainder allows, and falls back otherwise; an array that fell back at the map's limit stays fallen
+back; a fallen-back array's rows, columns and chains are dropped and the chain table pruned again,
+so a later array that names a chain it shared pays for it. So a source such as a GRIB file of many
+small fields over a shared section 3 is not refused for its descriptions, nor is one whose
+fallen-back descriptions still pass the limit (HDF5 headers sharing rank-32 dataspaces), which keeps
+none; rule 8's PRs name the arrays that fall back and any source that keeps no descriptions.
 
 ## Codecs
 
@@ -623,10 +628,11 @@ Medium-large (about 1,000 lines).
   integers, so `fits_rice`'s `byte_pix` and GZIP_2's `shuffle` `element_size` are the value 4;
   unquantized, they are places (the BYTEPIX ZVAL card, and ZBITPIX), and `block_size` is the
   BLOCKSIZE ZVAL card, each absent where its card is absent, the codec's entry giving the default.
-  `fits_quantize`'s `scale` and `zero` are the ZSCALE and ZZERO columns (the parser, like astropy,
+  `fits_quantize`'s `scale` and `zero` are the ZSCALE and ZZERO columns. The parser, like astropy,
   takes a float image as quantized only where they are columns; one whose header gives them as
-  keywords, which cfitsio reads, is decoded unquantized today, a known misread left to a later
-  PR); `seed` is a column (the tile's index plus ZDITHER0); `method` a place
+  keywords, which cfitsio reads and today's output misreads as unquantized, has no grid, the cards
+  among its declarations, so that the description does not repeat the misread (one fallback test),
+  until a later PR reads it; `seed` is a column (the tile's index plus ZDITHER0); `method` a place
   (ZQUANTIZ), absent where the card is absent; `zblank` absent where neither the table nor the
   header gives ZBLANK. The first real use of columns and of a second chain.
 - **Fallback.** An unquantized image whose BYTEPIX is not its elements' width gives `source`.
@@ -648,9 +654,11 @@ Medium-large (about 500 lines).
   has a chain of its own, about 13 description entries, within the descriptions' limit of one per
   four bytes for any field of 52 bytes or more; a smaller field repeated over a shared section 3
   falls back by step 0's rule rather than refusing the file.
-- **Fallbacks.** A field left out for its meaning is described fully. One whose packing or grid
-  template refkv does not unpack has no grid, its elements' size unknown, its template's number
-  among its declarations; one with a bitmap indicator 1–253 has no grid.
+- **Fallbacks.** A field left out for its meaning is described fully. One whose packing
+  refkv does not unpack has no grid, its elements' size unknown, its template's number among its
+  declarations. One whose grid template refkv does not read, or whose bitmap is predefined
+  (indicator 1–253), is still `[n]` in `[grib_unpack]`, which reads neither, the template or
+  indicator among its declarations.
 - **Checker.** eccodes, whose values keep the stored order (alternate rows still reversed), shaped
   `[Ni, Nj]` with no transpose where columns come first; for a field with a bitmap, the values at
   the points the bitmap leaves, in order. The four fixtures eccodes cannot
@@ -668,12 +676,12 @@ start. Validation re-derives a space with `Transform::rederive`, which decodes t
 [conventions §8.8](../../spec/conventions.md#88-canonical-form) allows `deflate` no shown values, so
 step 0 revises both: the gunzip and `deflate` forms gain an optional prefix length, the whole stream
 when absent (as a `.fits.gz`'s stays), and a `deflate` space may hold shown values. The prefix is a
-value of the source alone, the inflated length up to the end of the last shown value in the derived
-space (NIfTI's `vox_offset`, MRC's 1024 plus its extended header, a `.npz` member's header end),
-never the parser's read window, so that two builds make one mirror. The format PRs then only call
-the helper, and each names the mirror's changed forms. The same helper serves NumPy's deflated
-`.npz` members, whose `header` and `data` become children of their derived space in a small PR of
-their own after step 0, which NumPy's plan PR then follows.
+value of the source alone, the inflated offset where the array's data begins (NIfTI's `vox_offset`,
+MRC's 1024 plus `nsymbt`, a `.npz` member's header end), which every shown value precedes, never the
+parser's read window, so that two builds make one mirror. The format PRs then only call the helper,
+and each names the mirror's changed forms. The same helper serves NumPy's deflated `.npz` members,
+whose `header` and `data` become children of their derived space in a small PR of their own after
+step 0, which NumPy's plan PR then follows.
 
 ### NIfTI
 
