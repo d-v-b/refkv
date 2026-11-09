@@ -148,8 +148,8 @@ component transform, JPEG-LS's color transform, JPEG XR's internal color formats
 XL's XYB, each to the components its stream declares); a colorspace a 10918-1 stream only signals
 stays (its YCbCr, under JFIF or an Adobe marker). Upsampling and the two decoders' own conversions
 are what the readers here all do, since no reader offers another:
-- a 10918-1 stream's subsampled components are upsampled as libjpeg does by default (its "fancy"
-  triangle filter), which is deterministic;
+- a 10918-1 stream's subsampled components are upsampled as libjpeg-turbo does by default (its
+  "fancy" triangle filter, after its default integer IDCT), which is deterministic;
 - BMP and JPEG XR make their samples in R, G, B order, whatever order the stream stores them in
   (BMP's B, G, R; JPEG XR's BGR pixel formats), and BMP's rows top first.
 
@@ -190,25 +190,28 @@ by its target's elements. Where it stands for part of an array's storage (a TIFF
 shared with another IFD's), the array it belongs to is still an array, whose rows name the
 target's units. Where it stands for a whole declaring structure (a pointer IFD that repeats
 another, a CZI subblock a second directory entry names), there is one array, the target's, and
-the duplicate's own bytes (its IFD entries, its `directory/entries/<i>`) are a declaration of it.
+the bytes only the duplicate has are a declaration of it: for TIFF, the parent IFD's pointer-tag
+entry (SubIFDs, tag 330), since both names lead to one IFD; for CZI, the second
+`directory/entries/<i>`.
 
 ### The test helper
 
 `python/tests/ir/chains.py` decodes a unit through a chain, codec by codec, given the unit's bytes,
 its parameters (places read from the source) and its shape. Step 0 writes its frame and the codecs
 two or more formats use (the compressors, `tiff_lzw` among them, `shuffle`, `lsb_first`, `jpeg`,
-`jpeg2k`, `jpegxr`), so that no format PR writes a shared codec's decoding, and a registry that
-finds a codec's decoder by its name in a module of its own; each format PR adds, in its own module,
-the codecs only it uses and the variants only it needs (NDPI's `jpeg` with `header`, SAFE's `jpeg2k`
-with `main_header`), and edits no shared file. Where imagecodecs lacks a codec, the helper says how
+`jpeg2k`, `jpegxr`, with `jpeg`'s `header` and `jpeg2k`'s `main_header` variants), so that no
+format PR writes a shared codec's decoding, and a registry that finds a codec's decoder by its name
+in a module of its own; each format PR adds, in its own module, the codecs only it uses, and edits
+no shared file. Where imagecodecs lacks a codec, the helper says how
 it decodes:
 - `skip`, `fits_quantize`, `lsb_first` and `h5_fletcher32` (HDF5's Fletcher-32 checked over the
   bytes before the checksum, which is then dropped): in Python;
 - `ccitt_t6`: imagecodecs' `ccittfax4_decode`, which makes a byte per pixel, packed into rows of
   bits by the helper;
 - `h5_nbit` and `h5_scaleoffset`: the unit written as the one chunk of an HDF5 file with the
-  source dataset's layout, datatype and fill value (`write_direct_chunk`), since HDF5 makes these
-  filters' client data from the dataset's own type, and read back by h5py;
+  source dataset's layout, datatype and fill value, the filter set from the place's client data
+  (`set_filter`, which keeps scale-offset's scale type and factor while HDF5 fills in the type's
+  fields), by `write_direct_chunk`, and read back by h5py;
 - `h5_bitshuffle` under LZ4 or zstd: its 12-byte header parsed, each block decompressed and
   unshuffled by imagecodecs;
 - `h5_szip`: imagecodecs' `szip_decode` alone, since the installed HDF5 has no szip filter, on a
@@ -216,8 +219,8 @@ it decodes:
   and its client data written as HDF5 would;
 - `grib_unpack`: a message reassembled from the places and the unit, with sections 0, 1 and 4 made
   up for the reassembly (they are not places), decoded by eccodes; PNG packing, on which eccodes
-  aborts for 1, 2 and 4 bits, decoded in Python (`png_decode` of section 7, then (R + X·2^E) /
-  10^D);
+  aborts for 1, 2 and 4 bits, decoded in Python (`png_decode` of section 7, then the arithmetic of
+  [conventions §12](../../spec/conventions.md#12-grib-messages));
 - `jpeg` with `header`: the header, its SOF set to the unit's shape, the interval and an EOI spliced
   into one stream;
 - `jpeg2k` with `main_header`: the main header, the tile-parts and an EOC spliced, decoded by
@@ -261,7 +264,7 @@ codestream and container); step 0 adds that to
 | `blosc` | Blosc's own frame | | HDF5 (32001) |
 | `h5_lz4` | HDF5's LZ4 block layout | | HDF5 (32004) |
 | `h5_szip` | a 4-byte length, then the AEC stream | `options`, `pixels_per_block`, `bits_per_pixel`, `pixels_per_scanline`: each `int` or `place` | HDF5 (4) |
-| `h5_bitshuffle` | HDF5's bitshuffle blocks: bare, or under LZ4 or zstd each chunk starting with a 12-byte big-endian header of its decoded length and block size, which then governs | `element_size`: `int`, `place`; `block_size` (optional, 0; bare chunks only): `int`, `place`; `compression` (`none`, `lz4` or `zstd`): `str`, `place` | HDF5 (32008) |
+| `h5_bitshuffle` | HDF5's bitshuffle blocks: bare, or under LZ4 or zstd each chunk starting with a 12-byte big-endian header of its decoded length and block size, which then governs | `element_size`: `int`, `place`; `block_size` (optional, 0; bare chunks only): `int`, `place`; `compression` (optional, `none`; `none`, `lz4` or `zstd`): `str`, `place` | HDF5 (32008) |
 | `tiff_lzw` | TIFF's LZW, codes most significant bit first | | TIFF, CZI |
 | `packbits` | PackBits runs | | TIFF |
 | `ccitt_t6` | ITU-T T.6 data; decoding makes 1-bit rows, most significant bit first, each padded to a byte (`item_bits` 1, `pad_from` at the row) | | TIFF (4) |
@@ -289,11 +292,11 @@ codestream and container); step 0 adds that to
 | `jpeg2k` | an ISO 15444-1 codestream (15444-15's high throughput included), not a JP2 file | `main_header` (optional; the unit is then one tile's tile-parts, with their SOT): `place` | TIFF, VSI, DICOM, SAFE |
 | `jpegxr` | a JPEG XR file in its T.832 container (starting `II BC 01`); decoding makes R, G, B for its BGR pixel formats | | NDPI, CZI |
 | `jpegxl` | an ISO 18181-1 codestream or its 18181-2 container, which their first bytes tell apart | | TIFF |
-| `webp` | a WebP file | | TIFF |
+| `webp` | a WebP file; decoding makes an alpha sample, opaque where the stream leaves it out, when `alpha` says the array has one | `alpha` (optional, false): `bool`, `place` (TIFF: SamplesPerPixel 4) | TIFF |
 | `png` | a PNG file | | VSI |
 | `bmp` | a BMP file; decoding makes R, G, B, top row first | | VSI |
 | `lerc` | a LERC2 blob | | TIFF, in `[lerc, zlib]` or `[lerc, zstd]` as LercParameters say |
-| `eer` | EER's run-length bits; decoding makes a count per pixel, 8 bits | `skip_bits` (optional, 7), `horizontal_bits` (optional, 2), `vertical_bits` (optional, 2): `int`, `place`; values where the compression fixes them (65000's and 65001's) | TIFF (65000 to 65002) |
+| `eer` | EER's run-length bits; decoding makes one byte per pixel at the declared resolution, 1 where an event lands, else 0, the sub-pixel position bits staying in the unit's bytes for a profile that wants super-resolution | `skip_bits` (optional, 7), `horizontal_bits` (optional, 2), `vertical_bits` (optional, 2): `int`, `place`; values where the compression fixes them (65000's and 65001's) | TIFF (65000 to 65002) |
 | `dicom_rle` | DICOM's RLE segments, byte planes most significant first | | DICOM |
 | `grib_unpack` | a GRIB field's section 7 | `grid` (section 3), `packing` (section 5): `place`; `bitmap` (optional; the section 6 the field uses, its own or, under indicator 254, an earlier one): `place` | GRIB |
 
@@ -304,13 +307,15 @@ codestream and container); step 0 adds that to
   masked pixel's bytes are zero, and the mask stays in the unit's bytes for a profile to read.
 - `dicom_rle` rebuilds each sample from its byte planes, so it makes planar samples of Bits
   Allocated / 8 bytes, little-endian.
-- `grib_unpack` makes 64-bit floats, little-endian, in the order section 3's scanning mode gives,
-  with alternate rows' reversal (bit 0x10) undone. Columns first (bit 0x20) is the array's `axes`,
-  not the codec's. A point the bitmap masks has no value in section 7, and the array's elements
-  are every point, so the codec makes NaN there, the one float that is no value; the bitmap stays
-  an array of its own ([§GRIB](#grib)). Complex packing's missing values (templates 5.2 and 5.3,
-  octet 23) are NaN too under management 1; management 2's primary and secondary values would both
-  become NaN, so such a field is `source` instead.
+- `grib_unpack` makes 64-bit floats, little-endian, by the unpacking, placement and ordering of
+  [conventions §12](../../spec/conventions.md#12-grib-messages) (steps 2 to 4, its float operations
+  included), with alternate rows' reversal (bit 0x10) undone but no transpose: columns first (bit
+  0x20) is the array's storage order, shape `[Ni, Nj]` with no `axes`, and `axes` `[1, 0]` mark the
+  rows-first case, since section 3 lists Ni first. A point the bitmap masks has no value in section
+  7, and the array's elements are every point, so the codec makes NaN there, the one float that is
+  no value; the bitmap stays an array of its own ([§GRIB](#grib)). Complex packing's missing values
+  (templates 5.2 and 5.3, octet 23) are NaN too under management 1; management 2's primary and
+  secondary values would both become NaN, so such a field is `source` instead.
 
 `source` stays the fallback: old-style JPEG, and a compression, filter or packing refkv has no name
 for, with the source's number for it.
@@ -350,7 +355,7 @@ Large (about 1,500 lines).
   `lsb_first(1)`.
 - **Fallbacks.** No grid for mixed BitsPerSample, YCbCr subsampling outside JPEG, and a tile count
   that does not match the image.
-- **Declarations.** Tags 256, 257, 258, 259, 262, 266, 277, 284, 317, 320, 322, 323, 338, 339,
+- **Declarations.** Tags 256, 257, 258, 259, 262, 266, 277, 278, 284, 317, 320, 322, 323, 338, 339,
   347, 529, 530 and 532, LercParameters, and `header/byte_order`.
 - **Checker.** tifffile per page for `shaped`, `chunks`, `dataoffsets` and `databytecounts`, and
   imagecodecs with no color conversion for each unit's decoding.
@@ -451,7 +456,8 @@ Medium-large (about 500 lines).
   `[1, 0]`, since section 3 lists Ni first (or, columns first, `[Ni, Nj]` with no `axes`), or
   `[points]` for reduced grids and template 3.101; `item_bits` 64; fill `undefined`, since NaN at a
   masked point is what `grib_unpack` makes, not a fill. Each section 6 that holds a bitmap
-  (indicator 0) is an array too: shape `[points]` in the field's scan order, 1-bit items in an empty
+  (indicator 0) is an array too: shape `[points]` in section 7's stored order (alternate rows not
+  undone), 1-bit items in an empty
   chain, its bitmap bytes as one unit, indexed before the field whose section 7 follows it.
 - **Unit.** The field's section 7 element, in `[grib_unpack]`, whose places are its own: each field
   has a chain of its own, about 13 description entries, within the descriptions' limit of one per
@@ -536,8 +542,9 @@ Medium.
   do not end on a byte make the array one unit. ND2 and DICOM give the first real `member` rows.
 - **Codecs.** `jpeg`, `jpegls`, `jpeg2k`, `dicom_rle`, and `lsb_first(1)` for 1-bit data.
 - **Checker.** pydicom: `generate_frames` for encapsulated rows' bytes and Pixel Data's offsets for
-  native ones; `pixel_array` (or `iter_pixels`) with `raw=True` for the decoding, but imagecodecs
-  for a JPEG 2000 frame with subsampled chroma, which pydicom's decoders upsample otherwise. The PR
+  native ones; `pixel_array` (or `iter_pixels`) with `raw=True` for the decoding; a JPEG 2000 frame
+  whose components are sampled differently is `source` (step 0), checked on its rows' bytes alone.
+  The PR
   adds pylibjpeg with its libjpeg and openjpeg plugins and pyjpegls to the dev group, since pydicom
   has no decoder installed for the corpus's lossless JPEG, JPEG-LS and HTJ2K files. pydicom would
   then decode baseline and extended JPEG with pylibjpeg's libjpeg, another codebase with its own

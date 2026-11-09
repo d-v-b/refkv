@@ -102,7 +102,8 @@ holds, but nothing in the core describes an array.
 
 ## What an array is
 
-A **stored array** is one structure that the source itself declares as an array:
+A **stored array** is one structure that the source itself declares as an array; for example
+(each format's full list is in [ir-format-descriptions.md](ir-format-descriptions.md#the-formats)):
 - an HDF5 dataset;
 - one TIFF IFD's image, with a samples axis last (`[rows, columns, samples]`) where the IFD is
   chunky, first (`[samples, rows, columns]`) where it is planar, and none where it has one sample;
@@ -431,8 +432,9 @@ and two formats' `source` parameters of one name would collide in a store.
 size.
 
 **GRIB's scanning mode** is read from section 3, a place parameter of `grib_unpack`. The codec
-makes its rows run in one direction (undoing alternate rows); where the mode says consecutive
-points run along columns, the array's `axes` say so, not the codec
+makes its rows run in one direction (undoing alternate rows) and does not transpose: where the mode
+says consecutive points run along columns, that is the array's storage order (shape `[Ni, Nj]`),
+and `axes` `[1, 0]` mark the rows-first case instead, since section 3 lists Ni first
 ([ir-format-descriptions.md](ir-format-descriptions.md#codecs)). The grid's axes are the field's rows and columns as section 3
 lists them, or its points for a reduced grid. Which way they point on the earth is the profile's.
 
