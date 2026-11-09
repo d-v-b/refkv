@@ -83,8 +83,8 @@ NRRD, safetensors, DICOM, CZI, ND2, LIF with XLEF, SAFE, and NumPy's deflated `.
    Fixtures the corpus lacks are crafted in the fixture generators, where the reference library or
    the generator can write them.
 8. **No output change.** `just cli-identical` and the fixture comparison show none; the PR names
-   each mirror change the change above allows, and any fixture whose array falls back at the map's
-   limit.
+   each mirror change the change above allows, any fixture whose array falls back at the map's
+   limit, and any crafted source the descriptions' limit refuses (none in the corpus).
 9. **The spec's [§7](../../spec/stored-array.md#7-the-formats)** gets the format's paragraph, in
    NumPy's form: its arrays and keys, shape and axes, `item_bits`, grid and units, chains, fill,
    declarations, and fallbacks. `axes` reversed, here as in NumPy's, means for two or more axes.
@@ -118,12 +118,13 @@ allows, and configuration the source gives once is a place
 ([§3.1](../../spec/stored-array.md#31-chains)). A codec's entry gives the parameter's meaning and
 type; how a place's bytes make it is the format's, since one codec's configuration is spelled
 differently in each source (HDF5's filter client data, a FITS card, an NRRD line, a TIFF tag). So
-[§3.2](../../spec/stored-array.md#32-the-list)'s last bullet ("for a parameter given as a place,
-how the parameter is made from those bytes") moves from the codec's entry to the format's
-document, which says it for every place it gives as a parameter. A value stands where the format
-fixes it rather than the file (CZI's hi-lo split is a shuffle of two bytes, always), and where the
-file omits a card or tag whose default the format gives (FITS's BLOCKSIZE 32 and BYTEPIX 4, EER's
-bit counts), the default is the value.
+[§3.2](../../spec/stored-array.md#32-the-list)'s last bullet ("for a parameter given as a place, how
+the parameter is made from those bytes") moves from the codec's entry to the format's document, and
+its closing sentence ("Each format adds its codecs to the list as it describes its arrays") gives
+way to step 0's list. The format's document says it for every place it gives as a parameter. A value
+stands where the format fixes it rather than the file (CZI's hi-lo split is a shuffle of two bytes,
+always), and where the file omits a card or tag whose default the format gives (FITS's BLOCKSIZE 32
+and BYTEPIX 4, EER's bit counts), the default is the value.
 
 ### Codec-made elements
 
@@ -160,7 +161,7 @@ two or more formats use (the compressors, `shuffle`, `lsb_first`, `jpeg`, `jpeg2
 that no format PR writes a shared codec's decoding; each format PR adds the codecs only it uses, in
 a module of its own. Where imagecodecs lacks a codec, the helper says how it decodes:
 - `skip`, `fits_quantize` and `lsb_first`: in Python;
-- `nbit`, `scaleoffset` and `fletcher32`: the unit written as the one chunk of an HDF5 file of the
+- `h5_nbit`, `h5_scaleoffset` and `h5_fletcher32`: the unit written as the one chunk of an HDF5 file of the
   array's layout (`write_direct_chunk`) and read back by h5py;
 - `h5_bitshuffle` under LZ4 or zstd: its 12-byte header parsed, each block decompressed and
   unshuffled by imagecodecs;
@@ -210,9 +211,9 @@ a JSON integer unless the table says otherwise; only `fits_quantize` has columns
 | Codec | Decoding | Parameters | Used by |
 | --- | --- | --- | --- |
 | `shuffle` | ungroups bytes by their position in elements of `element_size` | `element_size` | HDF5 (2), FITS's GZIP_2, CZI's hi-lo |
-| `fletcher32` | checks and drops HDF5's appended checksum | | HDF5 (3) |
-| `nbit` | HDF5's N-bit unpacking | `parameters` (array of integers: the filter's client data, which describes the element's packed fields) | HDF5 (5) |
-| `scaleoffset` | HDF5's scale-offset decoding | `parameters` (array of integers: the filter's client data) | HDF5 (6) |
+| `h5_fletcher32` | checks and drops HDF5's appended checksum | | HDF5 (3) |
+| `h5_nbit` | HDF5's N-bit unpacking | `parameters` (array of integers: the filter's client data, which describes the element's packed fields) | HDF5 (5) |
+| `h5_scaleoffset` | HDF5's scale-offset decoding | `parameters` (array of integers: the filter's client data) | HDF5 (6) |
 | `tiff_predictor` | undoes horizontal (2) or floating-point (3) differencing along each row | `predictor`, `byte_order` (string: `little` or `big`), `planar_configuration` | TIFF |
 | `fits_quantize` | makes big-endian floats of `item_bits` from big-endian 4-byte integers | `method`; columns `scale` and `zero` (Float64), `seed` (Int64); `zblank` (Int64, a column where the table has ZBLANK, else a place) | FITS |
 | `lsb_first` | as step 0 | `bits` | DICOM, MRC, safetensors, TIFF's FillOrder 2 |
@@ -265,8 +266,8 @@ Large (about 1,500 lines).
   `[S, H, W]` planar, `[H, W]` for one sample. `item_bits` is BitsPerSample, or what a codec makes;
   a size not a multiple of 8 takes `pad_from` at the row (1 for `[H, W]` and chunky, 2 for
   planar).
-- **Grid.** Chunky tiles `[Each(TL), Each(TW), Each(S)]`, planar `[Each(1), Each(TL), Each(TW)]`,
-  under `full`; strips the same with `Each(min(RPS, H))` and W whole, under `short`. Units are the
+- **Grid.** Tiles `[Each(TL), Each(TW)]` for one sample, chunky `[Each(TL), Each(TW), Each(S)]`,
+  planar `[Each(1), Each(TL), Each(TW)]`, under `full`; strips the same with `Each(min(RPS, H))` and W whole, under `short`. Units are the
   `tiles/<j>` and `strips/<j>` elements; one of count 0 has no row, and one outside the file
   leaves the array no grid, so that a truncated file does not read as sparse.
 - **JPEG rows.** A JPEG tile whose recipe splices tables or a marker in names the raw stream as the
