@@ -135,8 +135,8 @@ formats](#the-formats), each holding a line that the format is not described yet
 format PR fills its own heading and none appends to the end of the file; and it rewords
 [§1](../../spec/stored-array.md#1-stored-arrays)'s "Today only the NumPy profile describes its
 arrays" to point at [§7](../../spec/stored-array.md#7-the-formats)'s headings, which no format PR
-then edits, and scopes §1's "Every array a parser reaches has a description" to the formats §7
-heads, naming the exceptions: the store profiles, whose array documents stand in; coded streams,
+then edits, and scopes that section's "Every array a parser reaches has a description" to the
+formats with a heading there, naming the exceptions: the store profiles, whose array documents stand in; coded streams,
 which wait for a description of their own; and DICOM series, whose description comes with
 profile-plugins' step 4.
 
