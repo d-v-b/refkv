@@ -266,7 +266,8 @@ format's describe-only PR gives it a place:
 - a gzipped NIfTI becomes one derived element over the file in space 0, the only claim on those
   bytes, with `header`, its extender and extensions, and `voxels` (from `vox_offset`) in its derived
   space. Validating the mirror's view of such a header re-derives the stream, and the parser reads
-  only its start; NIfTI's describe-only PR keeps validation to the stream's start;
+  only its start; step 0's `gz.rs` helper keeps validation to the stream's start, and NIfTI's
+  describe-only PR calls it ([ir-format-descriptions.md](ir-format-descriptions.md#gzipped-files));
 - a deflated `.npz` member gets `header` and `data` children in its derived space.
 
 **Arrays whose storage the IR does not model.** These have a description with `grid: None`, no
@@ -321,8 +322,7 @@ a file can hold hundreds of thousands of them.
 - **An element**, wherever the parser makes one:
   - HDF5's chunks (`objects/<i>/chunks/<idx>`);
   - TIFF's strips and tiles;
-  - GRIB's section 7;
-  - FITS's tiles, once `tile_cut` moves out.
+  - GRIB's section 7.
 - **Derived spaces.** An element in a derived space gives the unit's inflated bytes: the `data`
   child of a deflated `.npz` member and the `voxels` of a gzipped NIfTI, once they have them. Its transform is the IR's
   ([conventions §8.5](../../spec/conventions.md#85-forms-and-recipes)), not a codec. A unit inside

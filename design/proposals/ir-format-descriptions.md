@@ -95,23 +95,30 @@ NRRD, safetensors, DICOM, CZI, ND2, LIF with XLEF, SAFE, and NumPy's deflated `.
    (none in the corpus).
 9. **The spec's [§7](../../spec/stored-array.md#7-the-formats)** gets the format's paragraph, in
    NumPy's form: its arrays and keys, shape and axes, `item_bits`, grid and units, chains, fill,
-   declarations, and fallbacks. `axes` reversed, here as in NumPy's, means for two or more axes, and
-   covers the axes the source lists; a samples or channel axis the source does not list takes the
-   next position, n, in that list (its `axes` entry), and sits in `shape` where its layout puts it
-   in storage order (last when interleaved, before the rows when planar, between others as LIF's
-   channel offsets put it).
+   declarations, and fallbacks. The source's list of axes, against which
+   [§2](../../spec/stored-array.md#2-the-description) defines `axes`, is the order in which the
+   declaring structure gives the extents: a declared sequence (NumPy's shape, NIfTI's `dim`, NRRD's
+   `sizes`, FITS's NAXISn, LIF's dimensions) in its order, and separate fields in the order the
+   header gives them (TIFF's ImageWidth before ImageLength, SIZ's Xsiz before Ysiz, MRC's nx, ny,
+   nz, GRIB's Ni before Nj, DICOM's Rows before Columns). `axes` reversed, here as in NumPy's, means
+   for two or more axes, and covers the axes the source lists; a samples or channel axis the source
+   does not list takes the next position, n, in that list (its `axes` entry), and sits in `shape`
+   where its layout puts it in storage order (last when interleaved, before the rows when planar,
+   between others as LIF's channel offsets put it).
 
 ## Step 0: the shared rules
 
 One PR before the formats, changing spec/stored-array.md, the IR's codec list and checks, the
 function that names a unit's bytes with `check::finish`'s record of unfolded runs, the `gz.rs`
-helper that gives a gzip or deflate stream one derived element ([§Gzipped files](#gzipped-files)),
-and the test helpers. It also adds to [§7](../../spec/stored-array.md#7-the-formats) one heading per
-format, in the order of [§The formats](#the-formats), each holding a line that the format is not
-described yet, so that each format PR fills its own heading and none appends to the end of the file;
-and it rewords [§1](../../spec/stored-array.md#1-stored-arrays)'s "Today only the NumPy profile
-describes its arrays" to point at [§7](../../spec/stored-array.md#7-the-formats)'s headings, which
-no format PR then edits.
+helper that gives a gzip or deflate stream one derived element ([§Gzipped files](#gzipped-files))
+with the revisions of [conventions §8.8](../../spec/conventions.md#88-canonical-form) and
+`Transform` it needs, and the test helpers. It also adds to
+[§7](../../spec/stored-array.md#7-the-formats) one heading per format, in the order of [§The
+formats](#the-formats), each holding a line that the format is not described yet, so that each
+format PR fills its own heading and none appends to the end of the file; and it rewords
+[§1](../../spec/stored-array.md#1-stored-arrays)'s "Today only the NumPy profile describes its
+arrays" to point at [§7](../../spec/stored-array.md#7-the-formats)'s headings, which no format PR
+then edits.
 
 ### A codec sees the unit's shape
 
@@ -169,9 +176,14 @@ since other decoders differ and the checks compare bytes:
   top first; a 32-bit BMP keeps its fourth sample where its alpha mask is set and drops the unused
   byte where it is not.
 
-A paletted PNG or BMP makes its stored indices, one sample, as Pillow decodes it; its palette (PNG's
-PLTE, BMP's color table) stays in the unit's bytes for the profile to read and apply, as TIFF's
-ColorMap is a declaration it applies.
+A paletted PNG or BMP tile carries its palette (PNG's PLTE, BMP's color table) in its own bytes,
+where no place names it and tiles may differ, so its array's chain is `source` (the general
+fallback), unlike a TIFF's ColorMap, one place its description names.
+
+A codec's decoding may leave information its stream codes unexpressed only where the unit's bytes
+keep it, and its entry names what is left out: EER's sub-pixel positions, LERC's validity mask,
+complex packing's primary and secondary missing values (both NaN), JPEG's chroma at its coded
+resolution. A profile that wants it decodes the unit with its own decoder.
 
 A JPEG 2000 codestream whose components are sampled differently is the exception: OpenJPEG takes
 it for sYCC and converts it to RGB, a color conversion with no option to leave it, so its array's
@@ -210,7 +222,8 @@ be TIFF's FillOrder 2, which TIFF refuses today for the compressions libtiff rev
 
 ### Naming a unit's bytes
 
-Step 0 adds to `array.rs` one function that names a unit's bytes in the finished IR as rule 3 says
+Step 0 adds to `array.rs` one function that names a unit's bytes, or any place a parser cached (a
+declaration, a codec parameter, a fill), in the finished IR as rule 3 says
 (a run member's element with `member`; an alias's target, alone or with a moved `range`; the
 nearest enclosing element with a `range`; `ranges` where no element encloses the bytes; or none,
 where the unit was named through its element's recipe), with its tests, so that no format
@@ -242,8 +255,6 @@ decoding; each format PR adds, in its own module, the codecs only it uses, and e
 file. How the helper decodes where imagecodecs lacks a codec, in step 0's modules or a format's:
 - `png` of gray under 8 bits: imagecodecs' samples, which come scaled to 8 bits, divided back by
   255 / (2^b − 1);
-- `png` and `bmp` where paletted: Pillow, which keeps the indices for PNG and for BMP's 1, 4 and
-  8 bits and RLE (imagecodecs' `bmp_decode` keeps them for 8 bits only);
 - `bmp` and `jpegxr` otherwise: imagecodecs, its R, G, B reversed to the stored order;
 - `skip`, `fits_quantize`, `lsb_first` and `h5_fletcher32` (HDF5's Fletcher-32 checked over the
   bytes before the checksum, which is then dropped): in Python;
@@ -306,7 +317,7 @@ container); step 0 adds that to [§3.2](../../spec/stored-array.md#32-the-list)'
 | `blosc` | Blosc's own frame | | HDF5 (32001) |
 | `h5_lz4` | HDF5's LZ4 block layout | | HDF5 (32004) |
 | `h5_szip` | a 4-byte length, then the AEC stream | `options`, `pixels_per_block`, `bits_per_pixel`, `pixels_per_scanline`: each `int` or `place` | HDF5 (4) |
-| `h5_bitshuffle` | HDF5's bitshuffle blocks: bare, or under LZ4 or zstd each chunk starting with a 12-byte big-endian header of its decoded length and block size, which then governs | `element_size`: `int`, `place`; `block_size` (optional, 0; bare chunks only; 0 or absent meaning bitshuffle's default for `element_size`): `int`, `place`; `compression` (optional, `none`; `none`, `lz4` or `zstd`): `str`, `place` | HDF5 (32008) |
+| `h5_bitshuffle` | HDF5's bitshuffle blocks: bare, or under LZ4 or zstd each chunk starting with a 12-byte big-endian header of its decoded length (8 bytes) and its block size in bytes (4 bytes), which then governs | `element_size`: `int`, `place`; `block_size` (optional, 0; bare chunks only; 0 or absent meaning bitshuffle's default for `element_size`): `int`, `place`; `compression` (optional, `none`; `none`, `lz4` or `zstd`): `str`, `place` | HDF5 (32008) |
 | `tiff_lzw` | TIFF's LZW, codes most significant bit first | | TIFF, CZI |
 | `packbits` | PackBits runs | | TIFF |
 | `ccitt_t6` | ITU-T T.6 data; decoding makes 1-bit rows, most significant bit first, each padded to a byte (`item_bits` 1, `pad_from` at the row) | | TIFF (4) |
@@ -335,8 +346,8 @@ container); step 0 adds that to [§3.2](../../spec/stored-array.md#32-the-list)'
 | `jpegxr` | a JPEG XR file in its T.832 container (starting `II BC 01`); decoding makes the samples in its pixel format's order | | NDPI, CZI |
 | `jpegxl` | an ISO 18181-1 codestream or its 18181-2 container, which their first bytes tell apart | | TIFF |
 | `webp` | a WebP file; decoding makes an alpha sample, opaque where the stream leaves it out, when `alpha` says the array has one | `alpha` (optional, false): `bool`, `place` (TIFF: SamplesPerPixel 4) | TIFF |
-| `png` | a PNG file; a paletted one (color type 3) decodes to its indices, and gray of 1, 2 or 4 bits to its stored values, not scaled to 8 | | VSI |
-| `bmp` | a BMP file; decoding makes B, G, R as stored, top row first, a paletted one its indices, and a 32-bit one its fourth sample only where its alpha mask is set | | VSI |
+| `png` | a PNG file; gray of 1, 2 or 4 bits decodes to its stored values, not scaled to 8 (a paletted one is `source`) | | VSI |
+| `bmp` | a BMP file; decoding makes B, G, R as stored, top row first, and a 32-bit one its fourth sample only where its alpha mask is set (a paletted one is `source`) | | VSI |
 | `lerc` | a LERC2 blob | | TIFF, in `[lerc, zlib]` or `[lerc, zstd]` as LercParameters say |
 | `eer` | EER's run-length bits; decoding makes one byte per pixel at the declared resolution, 1 where an event lands, else 0, the sub-pixel position bits staying in the unit's bytes for a profile that wants super-resolution | `skip_bits` (optional, 7), `horizontal_bits` (optional, 2), `vertical_bits` (optional, 2): `int`, `place`; values where the compression fixes them (65000's and 65001's) | TIFF (65000 to 65002) |
 | `dicom_rle` | DICOM's RLE segments, byte planes most significant first | | DICOM |
@@ -381,7 +392,8 @@ Large (about 1,500 lines).
   them. Each file of an OME-TIFF set describes its own IFDs, and `tiff_set` renumbers them on
   graft.
 - **Shape**, as [ir-array-model.md](ir-array-model.md#what-an-array-is) says: `[H, W, S]` chunky,
-  `[S, H, W]` planar, `[H, W]` for one sample. `item_bits` is BitsPerSample, or what a codec makes;
+  `[S, H, W]` planar, `[H, W]` for one sample, with `axes` by rule 9, since the tags give W before
+  H. `item_bits` is BitsPerSample, or what a codec makes;
   a size not a multiple of 8 takes `pad_from` at the row (1 for `[H, W]` and chunky, 2 for
   planar).
 - **Grid.** Tiles `[Each(TL), Each(TW)]` for one sample, chunky `[Each(TL), Each(TW), Each(S)]`,
@@ -436,8 +448,8 @@ Medium, after TIFF.
   `item_bits` the pixel type's sample size, or what the codec makes; S the header's `channels`.
   For PNG and BMP the parser reads the first tile's header (PNG's color type and bit depth, BMP's
   bit count and alpha mask), as TIFF reads its last JPEG strip's SOF, and gives the array `source`
-  where that tile cannot make `channels` samples (a 32-bit BMP with no alpha mask under four
-  channels, a paletted tile under three); the other tiles follow it, and one that differs is
+  where that tile is paletted or cannot make `channels` samples (a 32-bit BMP with no alpha mask
+  under four channels); the other tiles follow it, and one that differs is
   caught by the checker.
 - **Fill.** Given, as a place in the `ets` header, when the background's samples are equal and the
   tiles are raw; otherwise `undefined`, with the header among the declarations.
@@ -537,10 +549,13 @@ Their PRs give the file one derived element over its bytes in space 0, by step 0
 with `header` and the voxels in its derived space, as
 [ir-array-model.md](ir-array-model.md#what-an-array-is) planned and as a `.fits.gz` already has.
 Validating the mirror's view of the header re-derives the stream, while the parser reads only its
-start: step 0's helper keeps validation to the stream's start, with the derived element, so that the
-format PRs only call it, and each names the mirror's changed forms. The same helper serves NumPy's
-deflated `.npz` members, whose `header` and `data` become children of their derived space in a small
-PR of their own after step 0, which NumPy's plan PR then follows.
+start. Validation re-derives a space with `Transform::rederive`, which decodes the whole stream, and
+[conventions §8.8](../../spec/conventions.md#88-canonical-form) allows `deflate` no shown values,
+so step 0 revises both: a gunzip re-derivation that validates only the prefix the parser read, and a
+`deflate` space that may hold shown values. The format PRs then only call the helper, and each names
+the mirror's changed forms. The same helper serves NumPy's deflated `.npz` members, whose `header`
+and `data` become children of their derived space in a small PR of their own after step 0, which
+NumPy's plan PR then follows.
 
 ### NIfTI
 
@@ -659,12 +674,12 @@ Medium.
   `description/xml` for LOF), its index the array's position among the arrays that text declares. In
   an XLEF project, every image lives in a LOF whose IR is grafted in, so its array is that LOF's
   description, renumbered on graft; the project's `xml` documents are declarations, not keys. Shape
-  the dimensions' NumberOfElements, slowest first (`axes` where the strides order them otherwise),
-  with the channels as an axis (absent for one channel) at position n of the source's list, as rule
-  9 says; `item_bits` the channels' Resolution rounded up to 8, 16, 32 or 64, the Resolution a
-  declaration; fill `undefined`. An image whose channels differ in size or resolution has no grid,
-  as a TIFF of mixed BitsPerSample has none. The declaration is that element; a character range
-  inside its UTF-16 text is not given.
+  the dimensions' NumberOfElements in storage order, slowest first, with `axes` by rule 9 (LIF lists
+  X first), with the channels as an axis (absent for one channel) at position n of the source's
+  list, as rule 9 says; `item_bits` the channels' Resolution rounded up to 8, 16, 32 or 64, the
+  Resolution a declaration; fill `undefined`. An image whose channels differ in size or resolution
+  has no grid, as a TIFF of mixed BitsPerSample has none. The declaration is that element; a
+  character range inside its UTF-16 text is not given.
 - **Units.** One per image where its strides nest; where they do not (padded rows, planar channel
   offsets), rows or planes, each the image's element with a `range`; no grid where they do not tile
   it (zero strides).
@@ -675,7 +690,8 @@ Medium.
 
 Medium.
 - **Arrays.** One per band file, keyed by its `codestream` struct: shape `[H, W]` from SIZ, or
-  `[H, W, 3]` for a true-color image's three components; `item_bits` the samples `jpeg2k` makes;
+  `[H, W, 3]` for a true-color image's three components, with `axes` by rule 9, since SIZ gives
+  Xsiz before Ysiz; `item_bits` the samples `jpeg2k` makes;
   fill `undefined`; SIZ a declaration. Grid `Each(tile)` on each image axis, `Each(3)` on the
   third, `short`.
 - **Units.** Each `tiles/<k>` element, its tile-parts with their SOT, in `[jpeg2k(main_header)]`.
