@@ -132,7 +132,8 @@ however many it declares:
 - a safetensors `header` declares every tensor, counted in the header's order without
   `__metadata__`;
 - a GRIB message holds its fields and their bitmaps, in the source's order;
-- a FITS image HDU declares the image (0); a compressed image's HDU declares the image, its
+- a FITS image HDU declares the image (0); a table HDU its rows and heap (0 and 1); a compressed
+  image's HDU declares the image, its
   table's rows and its heap (0, 1 and 2) and, where its tiles carry one, the null pixel mask (3)
   ([ir-format-descriptions.md](ir-format-descriptions.md#fits)).
 
@@ -419,8 +420,10 @@ numcodecs codec stands for it is the profile's.
 
 **The general fallback.** A source encoding refkv has no name for is the codec `source`, carrying
 the format, the source's id for the encoding, its name where the source gives one, and its
-parameters as the source gives them (an unknown HDF5 filter's id, optional name and client data). The profile maps it or leaves the array out. Its parameters are never unit columns: the list gives them no types, so a column could not be
-typed, and two formats' `source` parameters of one name would collide in a store.
+parameters as the source gives them (an unknown HDF5 filter's id, optional name and client data). The profile maps it or leaves the array out. Its parameters are never unit columns: the list
+types its `parameters` as any JSON value or a place
+([ir-format-descriptions.md](ir-format-descriptions.md#codecs)), so a column could not be typed,
+and two formats' `source` parameters of one name would collide in a store.
 
 **What is not recorded:** parameters only an encoder needs, such as a zlib level or Blosc's block
 size.
